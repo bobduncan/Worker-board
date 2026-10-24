@@ -188,7 +188,18 @@ export async function fileStore(dir, now) {
   })
   const gap = startGap(lines, aliveAt, now)
   if (gap !== null) await store.record([gap])
-  return store
+  return {
+    ...store,
+    /**
+     * B488: reads the files again into the memory the store holds, in place. Of two board processes on one folder only
+     * one writes (the one that runs the loops): the other reads what it wrote, and the one that takes over starts
+     * from it, so it neither hands out a word twice nor writes an old state over a newer one.
+     */
+    async reload() {
+      lines.splice(0, lines.length, ...parseHistory(await read(files.history)))
+      store.outbox().splice(0, store.outbox().length, ...foldOutbox(await read(files.outbox)))
+    },
+  }
 }
 
 /** One look at the board: records what changed since the last one. `state` is the `/api/state` object. */
