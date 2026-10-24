@@ -8,6 +8,7 @@ import { join } from 'node:path'
 
 import { changes, lastByChat, parseHistory } from './history.mjs'
 import { waitsLong } from './say.mjs'
+import { isStoppedWhy } from './stopped.mjs'
 import { heldMs } from './work/pause.mjs'
 import { appendLines, writeAtomic } from './write.mjs'
 
@@ -141,7 +142,9 @@ function storeOver(lines, messages, alive, write) {
         throw error
       }
       // B532: a word that waited longer than a typed line is kept goes with its age, so the chat reads it as late.
-      return taken.map(message => ({ ...message, ...(now - message.at > keep.messageMs ? { lateMs: now - message.at } : {}) }))
+      // B577: so does a word that waited for a stopped chat, or that failed for the session a new one replaced.
+      const isAged = message => now - message.at > keep.messageMs || ((Number.isFinite(message.stoppedAt) || message.revivedFor !== undefined) && now > message.at)
+      return taken.map(message => ({ ...message, ...(isAged(message) ? { lateMs: now - message.at } : {}) }))
     },
     /**
      * B532: closes a waiting word with its reason (`state` dropped: no longer needed; expired: waited too long), written
@@ -166,7 +169,7 @@ function storeOver(lines, messages, alive, write) {
         && now - message.failedAt >= afterMs && !isLate(message, now, keep))
       const sent = []
       for (const message of again) {
-        const { takenAt, failedAt, why, retriedAs, ...rest } = message
+        const { takenAt, failedAt, why, retriedAs, failedSession, stoppedAt, stoppedSession, ...rest } = message
         const copy = { ...rest, id: newId(), state: 'waiting', retryOf: message.id }
         message.retriedAs = copy.id
         messages.push(copy)
@@ -186,23 +189,57 @@ function storeOver(lines, messages, alive, write) {
     /**
      * What the mod says became of the messages a chat took: typed into the chat, or not. B532: `why` (id to words) says
      * why one was not typed, `refused` the ids it refused for good (too long, no text): those are never tried again.
+     * B577: `session` is the chat's session that took them (`failedSession` on a word that failed). A word the app
+     * dropped because that session was stopped spends no try: it goes again at once as a new word (the mod types an id
+     * once per process), which waits while that session stays stopped (src/stopped.mjs).
      */
-    async settle(to, { typed = [], failed = [], why = {}, refused = [] }, now) {
+    async settle(to, { typed = [], failed = [], why = {}, refused = [], session = null }, now, { newId = () => randomBytes(8).toString('hex') } = {}) {
       const changed = []
+      const again = []
       for (const message of messages) {
         if (message.to !== to || message.state !== 'taken') continue
         if (typed.includes(message.id)) changed.push(Object.assign(message, { state: 'delivered', deliveredAt: now }))
-        else if (failed.includes(message.id) || refused.includes(message.id)) {
+        else if (failed.includes(message.id) && !refused.includes(message.id) && isStoppedWhy(why[message.id])) {
+          const { takenAt, failedAt, why: _why, retriedAs, failedSession, stoppedAt, stoppedSession, ...rest } = message
+          const copy = { ...rest, id: newId(), state: 'waiting', retryOf: message.id, stoppedAt: now, ...(session === null ? {} : { stoppedSession: session }) }
+          // Not "failed": nothing failed for good, and the word that stands for it waits.
+          changed.push(Object.assign(message, { state: 'stopped', failedAt: now, tries: message.tries ?? 0, why: why[message.id], retriedAs: copy.id }))
+          again.push(copy)
+        } else if (failed.includes(message.id) || refused.includes(message.id)) {
           changed.push(Object.assign(message, { state: 'failed', failedAt: now, tries: (message.tries ?? 0) + 1,
-            ...(typeof why[message.id] === 'string' ? { why: why[message.id] } : {}), ...(refused.includes(message.id) ? { final: true } : {}) }))
+            ...(typeof why[message.id] === 'string' ? { why: why[message.id] } : {}), ...(refused.includes(message.id) ? { final: true } : {}),
+            ...(session === null ? {} : { failedSession: session }) }))
         }
       }
+      messages.push(...again)
       if (changed.length > 0) {
-        await write.outbox(changed.map(({ id, state, deliveredAt, failedAt, tries, why: reason, final }) => ({ id, state,
+        await write.outbox([...changed.map(({ id, state, deliveredAt, failedAt, tries, why: reason, final, failedSession, retriedAs }) => ({ id, state,
           ...(deliveredAt === undefined ? {} : { deliveredAt }), ...(failedAt === undefined ? {} : { failedAt, tries }),
-          ...(reason === undefined ? {} : { why: reason }), ...(final === undefined ? {} : { final }) })))
+          ...(reason === undefined ? {} : { why: reason }), ...(final === undefined ? {} : { final }),
+          ...(failedSession === undefined ? {} : { failedSession }), ...(state === 'stopped' ? { retriedAs } : {}) })), ...again])
       }
       return changed.length
+    },
+    /**
+     * B577: a chat replaced under the same name (the old session gone, a new one on the board under that name; a chat
+     * cleared is one too): the words that failed for its old session in the last `dayMs` and were not tried again go to
+     * the new one as new words, each with its age (`take`). `sessions` maps a chat's name to the session the board shows
+     * for it. What no longer matters among them the outbox sweep closes, as any waiting word. The ids sent.
+     */
+    async revive(sessions, now, keep, { dayMs = 24 * 60 * 60_000, newId = () => randomBytes(8).toString('hex') } = {}) {
+      const again = messages.filter(message => message.state === 'failed' && message.final !== true && message.retriedAs === undefined
+        && typeof message.failedSession === 'string' && typeof sessions.get(message.to) === 'string' && sessions.get(message.to) !== message.failedSession
+        && Number.isFinite(message.failedAt) && now - message.failedAt < dayMs && !isLate(message, now, keep))
+      const sent = []
+      for (const message of again) {
+        const { takenAt, failedAt, why, retriedAs, failedSession, stoppedAt, stoppedSession, ...rest } = message
+        const copy = { ...rest, id: newId(), state: 'waiting', retryOf: message.id, revivedFor: sessions.get(message.to) }
+        message.retriedAs = copy.id
+        messages.push(copy)
+        sent.push(copy)
+      }
+      if (sent.length > 0) await write.outbox([...again.map(message => ({ id: message.id, retriedAs: message.retriedAs })), ...sent])
+      return sent.map(message => message.id)
     },
   }
 }

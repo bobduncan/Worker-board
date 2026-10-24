@@ -2045,6 +2045,8 @@ function drawMore(lane, state) {
   if (free !== null) list.append(el('li', '', free))
   const owedClear = clearOwedLine(lane.clearOwed ?? null, clock)
   if (owedClear !== null) list.append(el('li', '', owedClear.title))
+  const stopped = stoppedLine(lane.stopped ?? null, clock)
+  if (stopped !== null) list.append(el('li', '', stopped.title))
   const compacted = compactionLine(lane.compaction ?? null, clock)
   if (compacted !== null && compacted.log !== undefined) {
     const item = el('li', 'muted', `${compacted.title} `)
@@ -2154,6 +2156,13 @@ function drawLane(lane, state) {
   if (owed !== null) {
     const note = el('small', 'compaction is-warning', owed.text)
     note.title = owed.title
+    names.append(note)
+  }
+  // B577: a chat whose session was stopped takes no word until it gets input: its row says since when.
+  const stopped = stoppedLine(lane.stopped ?? null, clock)
+  if (stopped !== null) {
+    const note = el('small', 'compaction is-warning', stopped.text)
+    note.title = stopped.title
     names.append(note)
   }
   const compacted = compactionLine(lane.compaction ?? null, clock)
@@ -5368,6 +5377,16 @@ function clearOwedLine(owed, clockOf) {
   const last = Number.isFinite(owed.clearedAt) ? `its last clear at ${clockOf(owed.clearedAt)}` : 'no clear known'
   const then = owed.canClear === true ? 'its next step waits until its Workers mod clears it, as soon as the chat is idle' : 'its Workers mod is too old to clear it now: restart its chat (Pause all, restart the app, Resume all)'
   return { text: `not cleared after ${owed.step}`, title: `Reported ${owed.step} at ${clockOf(owed.reportedAt)}, ${last}: ${then}.${owed.why === null || owed.why === undefined ? '' : ` Why not cleared: ${owed.why}.`}` }
+}
+
+/**
+ * B577: the line of a chat whose session was stopped (state.mjs `stopped`): the app drops every word to it until it gets
+ * input, so its words wait and the main chat is asked once to wake it. Null when it is not stopped.
+ */
+function stoppedLine(stop, clockOf) {
+  if (stop === null || stop === undefined || !Number.isFinite(stop.since)) return null
+  const count = `${stop.words} ${stop.words === 1 ? 'word waits' : 'words wait'}`
+  return { text: `stopped since ${clockOf(stop.since)}`, title: `Stopped since ${clockOf(stop.since)}: the app takes no word for it until it gets input. ${count} for it; the main chat is asked to wake it.` }
 }
 
 /**

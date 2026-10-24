@@ -192,6 +192,15 @@ profile.
 
 - `start "<chat>"` with a session id: check the id against the list of sessions, then start that chat with one line
   saying the board holds something for it.
+- `wake "<chat>"` with the time its turn was stopped and its session id (B577): the app drops every word to a chat
+  whose turn was stopped until it gets input, so the board's words wait. Send it the one line the word gives, with
+  SendMessage to that session id; that is its input, and the board then hands it its words. If you stopped it, say
+  who and why in a work note (below).
+- A worker you stop or replace (its turn stopped, its chat closed for a new one under the same name) you name to the
+  board in the same move: a `work note` to main, "Stopped <name> at HH:MM: <why>" or "Replaced <name> at HH:MM:
+  <why>", which is the board's log of who stopped it and when. A worker you stopped and keep, wake at once with one
+  line by its session id, so the words the board holds for it go in. A replaced worker's new chat gets the words of
+  the old one at its first take, each with its age; join the new chat under the same name.
 - `spawn workers` with "Count: N": start that many new workers (below).
 - `partner effort` with "Chat:", "Mode:", "Model:", "Effort:" (and "Session:" when the board knows the chat's id) and
   "Why:": the user switched the partner's high effort mode on the Focus page, or Go on the how or a new focus switched

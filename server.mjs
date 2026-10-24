@@ -39,7 +39,7 @@ import { BrokenConfig, configProblem, firstStart, followApp, isOwnWork, loadConf
 import { REFERENCE_BYTES, ideasFolder, referencesFolder, checkDesign, designState, inTurn, parseDesignSettings, promptFor } from './src/design.mjs'
 import { ideasFile, ideasOver, placeReferences } from './src/ideas.mjs'
 import { START_ANEW, keep } from './src/keeper.mjs'
-import { GAME_SPAN, boardAddress, boardsFile, launchEntry, registerHome, resolvePort, withEntry } from './src/ports.mjs'
+import { GAME_SPAN, boardAddress, boardsFile, recordingBoardPort, launchEntry, registerHome, resolvePort, withEntry } from './src/ports.mjs'
 import { marketsFile, modVersions, pluginsFile } from './src/setup.mjs'
 import { makeProject } from './src/newProject.mjs'
 import { readHead } from './src/files.mjs'
@@ -53,7 +53,7 @@ import { createSpendingCollector } from './src/work/routing/collector.mjs'
 import { readRoutingRecord } from './src/work/routing/records.mjs'
 import { parseRoutingPolicy } from './src/work/routing/policy.mjs'
 import { adoptPicture, findPicture, pictureProblem, shownFolders, shownRoots } from './src/pictures.mjs'
-import { answerWords, checkSay, checkStepWords, focusWords, spawnWhenAlone, wakeFor, wakesDue, withInstruction, workWords } from './src/say.mjs'
+import { answerWords, checkSay, checkStepWords, focusWords, spawnWhenAlone, wakeFor, wakesDue, wakesStopped, withInstruction, workWords } from './src/say.mjs'
 import { keepTalkPicture } from './src/talkPicture.mjs'
 import { firstLook, refineWhenDue } from './src/refineGate.mjs'
 import { recheckText, roundText, roundsNow } from './src/rounds.mjs'
@@ -81,7 +81,7 @@ import { standardHold } from './src/work/standardHold.mjs'
 import { itemsOf, storeKeeper } from './src/work/read.mjs'
 import { requestKeeper } from './src/work/requests.mjs'
 import { readStore } from './src/work/store.mjs'
-import { takeFor } from './src/work/outboxSweep.mjs'
+import { stoppedChats, takeFor } from './src/work/outboxSweep.mjs'
 import { dismissCopied, fileStore, isLate, memoryStore, outboxNow, tick } from './src/store.mjs'
 import { loads, readVersion } from './src/version.mjs'
 import { blockersOf, reportedNotLogged, selfUpdater } from './src/selfUpdate.mjs'
@@ -465,6 +465,8 @@ async function main(args) {
   // The project as a whole path: the list is the PC's, read from every board's folder.
   const home = config.project === '' ? null : resolve(HERE, config.project)
   const chosen = await resolvePort({ here: HERE, given: argAfter(args, '--port'), configured: config.port, run: gitRunner(), project: home, gamePort: config.gamePort, boards })
+  // B3: the "only shows" notices send the person to the board that records, on the port the PC's list of boards keeps for it.
+  const recordingPort = await recordingBoardPort({ boards, project: home, fallback: homePort })
   config.port = chosen.port
   if (chosen.gamePort !== undefined) config.gamePort = chosen.gamePort
   /** The main folder's board, on the port it was not given by hand: the one that keeps its project's place in the list. */
@@ -873,7 +875,7 @@ async function main(args) {
   /** One action on the store; after a change the board reads it anew, and after a report (or a recheck) it runs its own check. */
   const workAction = async (body, as) => {
     if (workDir === null) return { ok: false, status: 404, why: 'This board has no work store.' }
-    if (workWriters === null && !workReads.has(body?.action)) return { ok: false, status: 409, why: `This board only shows. Change the work on the board that delivers: http://${HOST}:${homePort}/` }
+    if (workWriters === null && !workReads.has(body?.action)) return { ok: false, status: 409, why: `This board only shows. Change the work on the board that delivers: http://${HOST}:${recordingPort}/` }
     // Focus 4: a board that only shows reads the main chat's notes without marking them read.
     const done = await workApi(body, { ...(await workCtx()), ...(as === undefined ? {} : { as }), ...(workWriters === null ? { onlyShows: true } : {}) })
     // B356, the second review: a fix's check that leaves the step it fixes in review asks the partner for that step again.
@@ -1113,7 +1115,7 @@ async function main(args) {
     busy: making === null ? null : { idea: making.idea, version: making.version, since: making.since },
     // Asking the main chat for the step is sending: only the board that delivers does it.
     canSend: !isDemo && !isShowOnly,
-    whyNot: isDemo ? 'This is the demo: it asks nobody.' : `This board only shows. Do this on the board that delivers: http://${HOST}:${homePort}/`,
+    whyNot: isDemo ? 'This is the demo: it asks nobody.' : `This board only shows. Do this on the board that delivers: http://${HOST}:${recordingPort}/`,
     main: state.restart?.main ?? null,
     workers: (state.chats ?? []).filter(chat => !chat.isLeftover && !chat.isMain).map(chat => chat.name),
   })
@@ -1401,14 +1403,14 @@ async function main(args) {
         why: whyNoPicture,
         busy: making === null ? null : { idea: making.idea, version: making.version, since: making.since },
         canSend: !isDemo && !isShowOnly && (state.restart?.main ?? null) !== null,
-        whyNot: isDemo ? 'This is the demo: it asks nobody.' : isShowOnly ? `This board only shows. Do this on the board that delivers: http://${HOST}:${homePort}/` : 'No main chat is open to ask.',
+        whyNot: isDemo ? 'This is the demo: it asks nobody.' : isShowOnly ? `This board only shows. Do this on the board that delivers: http://${HOST}:${recordingPort}/` : 'No main chat is open to ask.',
         outbox: sentNow(),
         backlog: state.backlog,
         missing: isDemo ? [] : await missingReferences(),
         typical: typicalSeconds(),
       })
       // B256: whether the Goals part may change the map: only the board that delivers writes it.
-      const goalsEdit = { canWrite: writesMap, whyNot: isDemo ? 'This is the demo: it changes no file.' : !writesMap ? `This board only shows. Change the map on the board that delivers: http://${HOST}:${homePort}/` : null }
+      const goalsEdit = { canWrite: writesMap, whyNot: isDemo ? 'This is the demo: it changes no file.' : !writesMap ? `This board only shows. Change the map on the board that delivers: http://${HOST}:${recordingPort}/` : null }
       // B541: chats on an older Workers mod than the one installed: one card first under Needs your attention, with the
       // one way to bring them up to date; gone once every chat that asked lately runs the installed one.
       const oldMods = oldModNeed(isDemo ? demoMods() : await modsNow(), chatsByRole(state), clock())
@@ -1440,7 +1442,7 @@ async function main(args) {
     },
     newProject: async body => {
       if (isDemo) return { ok: false, status: 409, why: 'This is the demo: it makes no project.' }
-      if (isShowOnly) return { ok: false, status: 409, why: `This board only shows. Make the project on the board that delivers: http://${HOST}:${homePort}/` }
+      if (isShowOnly) return { ok: false, status: 409, why: `This board only shows. Make the project on the board that delivers: http://${HOST}:${recordingPort}/` }
       if (makingProject) return { ok: false, status: 409, why: 'A project is being made: wait until it is done.' }
       makingProject = true
       try {
@@ -1524,7 +1526,7 @@ async function main(args) {
     // B167: a picture pasted into Talk to Main, kept in the project's picture folder (see keepTalkPicture).
     talkPicture: async bytes => {
       if (isDemo) return { ok: false, status: 409, why: 'This is the demo: it keeps no picture.' }
-      if (isShowOnly) return { ok: false, status: 409, why: `This board only shows. Send it on the board that delivers: http://${HOST}:${homePort}/` }
+      if (isShowOnly) return { ok: false, status: 409, why: `This board only shows. Send it on the board that delivers: http://${HOST}:${recordingPort}/` }
       if (config.project === '') return { ok: false, status: 409, why: 'This board knows no project folder to keep the picture in.' }
       const kind = pictureKind(bytes)
       if (kind === null) return { ok: false, status: 415, why: 'That is no PNG, JPEG or WebP picture.' }
@@ -1535,7 +1537,7 @@ async function main(args) {
       // What is answered here would never arrive: this board has no bridge.
       // Focus 2: a copy with a goal map of its own keeps the words of its brainstorms in its own outbox.
       const isOwnTalk = writesMap && typeof body?.command === 'string' && body.command.startsWith('brainstorm')
-      if (isShowOnly && !isOwnTalk) return { ok: false, status: 409, why: `This board only shows. Answer on the board that delivers: http://${HOST}:${homePort}/` }
+      if (isShowOnly && !isOwnTalk) return { ok: false, status: 409, why: `This board only shows. Answer on the board that delivers: http://${HOST}:${recordingPort}/` }
       // The person's "Dismiss" on the restart banner's copied word: kept on that word in the outbox.
       if (body?.command === 'dismiss copied') return dismissCopied(store, body.id, clock())
       // B465: "Out of sync?" runs the board's own list at once (its answer stands on the page). The supervisor's Part 2:
@@ -1959,6 +1961,11 @@ async function main(args) {
         const starts = wakesDue(state, sentNow(), now, config.maxMessageChars)
         for (const start of starts) await store.say({ id: randomBytes(8).toString('hex'), at: now, ...start, state: 'waiting' })
         if (starts.length > 0) readState.reset()
+        // B577: a chat whose session was stopped takes nothing until it gets input: the main chat is asked once per stop
+        // to wake it by its session id.
+        const wakes = wakesStopped(state, stoppedChats(store.outbox(), state), store.outbox(), timeOf)
+        for (const one of wakes) await store.say({ id: randomBytes(8).toString('hex'), at: now, ...one, state: 'waiting' })
+        if (wakes.length > 0) readState.reset()
       }
       // B491: the open brainstorm question whose title the board refuses (over 12 words, or none) goes back to the
       // Advisor at once, once for each wording. Only the board that delivers, and only while there is an Advisor.

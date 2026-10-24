@@ -15,7 +15,7 @@
 import { sinceMs, valueOf } from '../../work/item.mjs'
 import { blockersOpen, waitWords } from '../../work/guards.mjs'
 import { checkpointOf, heldMs, isHolding } from '../../work/pause.mjs'
-import { whyClosed } from '../../work/outboxSweep.mjs'
+import { stoppedChats, whyClosed } from '../../work/outboxSweep.mjs'
 import { FIRST_SAYING, chatsByRole, oldModFinding } from '../../oldMods.mjs'
 import { EFFORTS, chatEffort, effortSaid } from '../../work/effort.mjs'
 import { reviewWaitOf } from '../../work/resultCheck.mjs'
@@ -314,13 +314,17 @@ function repairRepeats(view) {
  * with the reason, and a chat's next take hands it the rest however old, with its age (the main chat's start word, kept
  * as long, opens a chat that is not running). So the rule names only what still waits after that: a word the sweep would
  * drop is not named, nor a person's answer past its keep, which waits for its chat on purpose (a step that comes back).
+ * B577: a word that went again (`retriedAs`: tried anew, its chat stopped or replaced) is named by the word that stands
+ * for it, not twice; a chat whose session was stopped is named once per stop, with whether the main chat was asked to
+ * wake it, not word by word.
  */
 function undelivered(view) {
   // The person pauses: the bridge holds every word until Resume all.
   if (isPaused(view)) return []
   const limit = view.settings.undeliveredMinutes * MIN
   const runs = new Map(view.lanes.filter(chat => !chat.isLeftover).map(chat => [chat.name, chat.isRunning === true]))
-  const ctx = { all: view.outbox, items: view.items, runs, goals: view.goals ?? [], now: view.now, keep: view.keep, closing: new Map() }
+  const stopped = stoppedChats(view.outbox, { chats: view.lanes, advisor: view.partner, advisorHelper: view.helper, supervisorChat: view.supervisor })
+  const ctx = { all: view.outbox, items: view.items, runs, goals: view.goals ?? [], now: view.now, keep: view.keep, closing: new Map(), stopped }
   // A word that waited too long still counts (the sweep marks it expired, and so does this rule); one that no longer
   // matters (dropped: superseded, its step moved on) does not.
   // B548: an answer waits for its chat however old (store.mjs isLate); past answerMs it is not named here.
@@ -332,12 +336,21 @@ function undelivered(view) {
     const held = message.at + heldMs(message, view.now, view.pause)
     const since = afterPause(view, Number.isFinite(message.releasedAt) ? Math.max(held, message.releasedAt) : held)
     if (message.state === 'waiting') return view.now - since > limit && stillWaits(message)
-    return (message.state === 'expired' || message.state === 'failed') && view.now - message.at < UNDELIVERED_LOOK_MS && view.now - since > limit
+    return (message.state === 'expired' || (message.state === 'failed' && message.retriedAs === undefined)) && view.now - message.at < UNDELIVERED_LOOK_MS && view.now - since > limit
   })
   const byChat = new Map()
   for (const message of late) byChat.set(message.to, [...(byChat.get(message.to) ?? []), message])
   return [...byChat].sort(([a], [b]) => byId(a, b)).map(([chat, words]) => {
     const oldest = words.reduce((a, b) => (b.at < a.at ? b : a))
+    const stop = stopped.get(chat) ?? null
+    if (stop !== null) {
+      const woken = view.outbox.findLast(one => one.command === 'wake' && one.about === chat && one.stoppedAt === stop.since)
+      return {
+        rule: 'undelivered', key: `undelivered ${chat} stopped ${stop.since}`, subject: chat,
+        text: `${chat} was stopped at ${clockOf(stop.since)}: ${words.length} ${words.length === 1 ? 'word waits' : 'words wait'} for it, the oldest for ${minutes(view.now - oldest.at)} min`,
+        evidence: woken === undefined ? 'the main chat is not asked to wake it yet' : `the main chat was asked to wake it at ${clockOf(woken.at)} (${woken.state})`,
+      }
+    }
     return {
       rule: 'undelivered', key: `undelivered ${chat}`, subject: chat,
       text: `${words.length} ${words.length === 1 ? 'word' : 'words'} to ${chat} not delivered, the oldest for ${minutes(view.now - oldest.at)} min`,

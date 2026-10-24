@@ -49,6 +49,20 @@ function oneAtATime(dir, run) {
   return turn
 }
 
+/**
+ * B577: the word that stands for a line now: the line itself, or the word it went again as (`retriedAs`: a chat that was
+ * stopped, or replaced), followed to the last.
+ */
+function latestOf(all, id) {
+  let message = all.find(one => one.id === id)
+  for (let hops = 0; typeof message?.retriedAs === 'string' && hops < 20; hops += 1) {
+    const next = all.find(one => one.id === message.retriedAs)
+    if (next === undefined) break
+    message = next
+  }
+  return message
+}
+
 /** Whether a message went untaken: it waited too long, or the chat could not type it. */
 const isUntaken = (message, now, keep) => message !== undefined && ((message.state === 'waiting' && isLate(message, now, keep)) || message.state === 'expired' || message.state === 'failed')
 
@@ -64,7 +78,7 @@ export function sendOnce({ dir, key, words, outbox, state, now, maxChars, newId,
     const pending = pendingOf(dir)
     const before = record.sent[key] ?? pending.get(key) ?? (record.keys.includes(key) ? { message: null, wake: null, again: 0 } : null)
     if (before !== null) {
-      const sent = outbox.outbox().find(message => message.id === before.message)
+      const sent = latestOf(outbox.outbox(), before.message)
       if ((before.again ?? 0) >= 1 || keep === undefined || !isUntaken(sent, now, keep)) return null
     }
     const message = { id: newId(), at: now, ...words, state: 'waiting' }

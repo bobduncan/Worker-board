@@ -1994,6 +1994,32 @@ never sent again, with nobody told why. Now:
 4. The supervisor's rule 8 (`undelivered`) judges a waiting word as the sweep does and names only what still waits
    after it: not a word the sweep drops, nor a person's answer past its keep.
 
+### A chat that was stopped, or replaced (B577)
+
+X3 came back at 21:47 on 2026-10-24: four words to Worker 5 (work B522 twice, work B567 twice, 21:41-21:42) failed with
+"a hook dropped it: the session was stopped and nobody has sent input since". The main chat had stopped that worker's
+turn at about 21:40, deleted the chat at 21:46 and made a new Worker 5; the board spent its tries within minutes on a
+chat being replaced and never handed the words to the new one. Now (`src/stopped.mjs`):
+
+1. A word the app drops because its chat's session was stopped (`isStoppedWhy`) spends no try: `settle` marks it
+   `stopped` (not failed) and puts it back as a new word (`retryOf`; the mod types an id once per process) with
+   `stoppedAt` and the session that took it (`stoppedSession`, from the mod's typed report). The work store's `sendOnce`
+   follows `retriedAs` to the word that stands for a line, so a work line is not sent twice.
+2. While that very session has begun no turn since (`isStillStopped`: the lane's `turnAt`), the chat takes nothing
+   (`takeFor`): every word would be dropped again. Its lane says "stopped since HH:MM" (state.mjs `stopped`, board.js
+   `stoppedLine`), and the main chat is asked once per stop (say.mjs `wakesStopped`, the `wake "<chat>"` word with its
+   session id; it waits as long as a start does, and the sweep drops it once the chat is no longer stopped) to send it
+   one line by its session id: that is input. A turn begun after the stop, or another session under the name, lets
+   the words go, each with its age.
+3. A chat replaced under the same name (a new session on the board under that name; a cleared chat is one too): at a
+   refresh the words that failed for its old session in the last day (`failedSession`; not final, not tried again)
+   go to the new one as new words (`revive`, `revivedFor`), each with its age at the take; the sweep and
+   `withdrawStale` close those whose purpose is gone, as any waiting word.
+4. Rule 8 names a stopped chat once per stop ("Worker 5 was stopped at 21:42: 2 words wait for it"), with whether the
+   main chat was asked to wake it, not word by word; a word that went again is named by the word that stands for it.
+5. roles/main.md: a worker the main chat stops or replaces is named to the board in the same move (a work note, "Stopped
+   <name> at HH:MM: <why>"), and a stopped worker it keeps is woken at once.
+
 ## A step's title without its note (B292)
 
 The person, 2026-10-17, of Support's lane showing B29's whole line: "tasks still dont have a compact name. i dont
