@@ -402,7 +402,7 @@ function finishedWith(waits) {
   return { ...waits, handover: parseHandover(waits.words) }
 }
 
-function card(chat, raw, { now, config, last, lines, main, prefix, stepOf = () => null, stepById = () => null, briefOf = () => null, waits, notes = new Map(), pauseOver = () => false }) {
+function card(chat, raw, { now, config, last, lines, main, prefix, stepOf = () => null, stepById = () => null, briefOf = () => null, waits, notes = new Map(), pauseOver = () => false, movedInto = new Map() }) {
   // `session` is the id the chat's own process knows itself by: the bridge serves only that one under this name.
   // `appSession` is the id the app knows the chat by: the main chat starts a chat that is not running with it.
   // B468: `effort` is what the app's file of the chat says it runs at, or null.
@@ -427,7 +427,11 @@ function card(chat, raw, { now, config, last, lines, main, prefix, stepOf = () =
   const step = stepOf(chat.name, plan?.task?.isReported === false ? String(plan.task.text ?? '').match(/\bB\d+\b/g) ?? [] : [])
   const wasCutOff = isCutOff({ turn, plan, lastWriteAt, turnStartedAt, now })
   // An ended turn is not a free chat while something of its work is open: it is between two turns.
-  const appState = chatState({ turn, category: summary?.category, needsAction: summary?.needsAction })
+  // Clear after each step: a chat cleared into this session (its card says so, or the board followed its old card here)
+  // whose new conversation holds no turn yet has ended its work: free, so its next step is delivered as to any free
+  // worker. A transcript that cannot be read, of a chat no clear brought here, stays unknown.
+  const isFreshAfterClear = (turn === null || turn === 'unknown') && (plan?.compaction?.kind === 'cleared' || movedInto.has(chat.cliSessionId))
+  const appState = isFreshAfterClear ? 'free' : chatState({ turn, category: summary?.category, needsAction: summary?.needsAction })
   // B299, B301: no answer is read for questions: a chat waits for the person when it asked with the app's question form
   // or holds an open blocking ask in the store; else its ended turn is free (or held, below).
   const isBlocked = waits.blocking.has(chat.name.toLowerCase())
@@ -462,9 +466,12 @@ function card(chat, raw, { now, config, last, lines, main, prefix, stepOf = () =
   // B312: a pause whose limit a newer reading shows back (`pauseOver`, settled once the limits are known) is over.
   const told = word === null || word.isPaused === false ? null : word
   const note = told !== null && pauseOver({ limit: told.limit ?? 'fiveHour', since: told.at, percent: told.percent ?? null }) ? null : told
+  // The app's stop is over once the reset it named has passed, or (B312, `pauseOver`) a reading after it shows that
+  // limit back under full: the chat is then what its turn says, free or between two turns, and is woken or handed work.
+  const isStopOver = stop !== null && ((stop.resetsAt !== null && stop.resetsAt <= now) || pauseOver({ limit: stop.limit, since: stop.at, percent: 100 }))
   // Pause 2: a stop for a restart is the store's pause (pause.json and the checkpoints), no longer a "Safe point:" line.
-  const paused = stop !== null ? { by: 'app', limit: stop.limit, since: stop.at, named: stop.resetsAt }
-    : note !== null ? { by: 'note', limit: note.limit ?? 'fiveHour', since: note.at, named: note.until, percent: note.percent ?? null } : null
+  const paused = stop !== null && !isStopOver ? { by: 'app', limit: stop.limit, since: stop.at, named: stop.resetsAt }
+    : stop === null && note !== null ? { by: 'note', limit: note.limit ?? 'fiveHour', since: note.at, named: note.until, percent: note.percent ?? null } : null
   const state = paused !== null ? 'suspended' : wasCutOff ? 'interrupted' : held === null ? ended : 'working'
   // No sign of life is about a turn that runs: between two turns a chat writes nothing.
   const quietMs = state === 'working' && held === null && lastWriteAt !== null ? Math.max(0, now - lastWriteAt) : null
@@ -1127,7 +1134,7 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
   // B310: the notes each chat filed to the main chat: a pause for the limit may come that way.
   const notes = notesToMain(raw.work, { prefix, main: list.main ?? 'main' })
   const context = {
-    now, config, last, lines, prefix, waits, notes,
+    now, config, last, lines, prefix, waits, notes, movedInto: movedBack,
     // How a message from the main chat is known: by its title, or by the app's id for it.
     main: { mainTitle: list.main === null ? null : `${prefix}${list.main}`, mainSession: main?.appSessionId ?? null },
   }
@@ -1202,7 +1209,8 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
   // (limits.mjs `pauseLifted`): its card is read again as if it had not paused, so it is free (or between two turns)
   // as any chat, for the hand-out and the "may wait for you" hint too.
   const pauseOver = pause => pauseLifted(pause, limits)
-  const isLifted = lane => lane?.suspended?.by === 'note' && pauseOver({ limit: lane.suspended.limit, since: lane.suspended.since, percent: lane.suspended.percent })
+  // An app's stop is lifted by a reading after it that shows the limit back under full.
+  const isLifted = lane => (lane?.suspended?.by === 'note' || lane?.suspended?.by === 'app') && pauseOver({ limit: lane.suspended.limit, since: lane.suspended.since, percent: lane.suspended.by === 'app' ? 100 : lane.suspended.percent })
   const read = firstRead.map((lane, at) => (isLifted(lane) ? card(workerChats[at], raw, { ...context, stepOf: stepOfChat, stepById, briefOf, pauseOver }) : lane))
   const advisorCard = isLifted(firstAdvisor) ? card(advisorChat, raw, { ...context, pauseOver }) : firstAdvisor
   const helperCard = isLifted(firstHelper) ? card(helperChat, raw, { ...context, pauseOver }) : firstHelper
