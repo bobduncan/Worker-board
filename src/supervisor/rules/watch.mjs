@@ -228,15 +228,44 @@ function skipRepeats(view, ctx) {
   return found
 }
 
+const DONE_LINE = /^-\s+(\d{4}-\d{2}-\d{2} \d{2}:\d{2}(?::\d{2})?)\s+[^:]+: \S+ → done\b/
+const FIX_LINE = /^-\s+\S+ \S+ [^:]+: fix (B\d+)\s*$/
+
+/**
+ * B551 (X11): when the incident a finding's key files was last fixed: the latest time one of the steps named as its fix
+ * (its Fix, and every "fix B<n>" of its History) went done, at the end of that minute; -Infinity for none. A repair
+ * before it is one that fix was made for: it never counts again.
+ */
+function fixedAtOf(view, key) {
+  const incident = [...view.items.values()].find(item => valueOf(item, 'Kind') === 'incident' && valueOf(item, 'Key') === key)
+  if (incident === undefined) return -Infinity
+  const named = (incident.sections?.get('History') ?? []).map(line => FIX_LINE.exec(line)?.[1]).filter(Boolean)
+  let at = -Infinity
+  for (const id of new Set([valueOf(incident, 'Fix'), ...named].filter(Boolean))) {
+    const fix = view.items.get(id)
+    if (fix === undefined || stateOf(fix) !== 'done') continue
+    const done = (fix.sections?.get('History') ?? []).map(line => DONE_LINE.exec(line)?.[1]).filter(Boolean).at(-1) ?? valueOf(fix, 'Since')
+    const ms = sinceMs(done)
+    if (Number.isFinite(ms)) at = Math.max(at, ms + (/:\d\d:\d\d$/.test(done) ? 1000 : MIN) - 1)
+  }
+  return at
+}
+
 /**
  * 7. The same repair (a repair rule, on the same chat or step) `repairsPerDay` times or more in a day. B546: a repair
- * the app's restart caused (`cause: 'restart'`, a chat stopped because the app started anew) does not count.
+ * the app's restart caused (`cause: 'restart'`, a chat stopped because the app started anew) does not count. B551: nor
+ * does one from before its incident's fix was done (`fixedAtOf`): X11 came back on the very wakes B546 was made for,
+ * recorded before it and so without their cause.
  */
 function repairRepeats(view) {
   const counts = new Map()
   for (const one of view.repairs.filter(repair => view.now - repair.at < DAY && repair.cause !== 'restart')) {
     const id = `${one.rule} ${one.subject}`
     counts.set(id, [...(counts.get(id) ?? []), one])
+  }
+  for (const [id, all] of counts) {
+    const after = fixedAtOf(view, `repair-repeats ${id}`)
+    counts.set(id, all.filter(one => one.at > after))
   }
   const found = []
   for (const [id, all] of [...counts].sort(([a], [b]) => byId(a, b))) {

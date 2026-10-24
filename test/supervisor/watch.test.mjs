@@ -165,6 +165,34 @@ test('repair-repeats: the same repair three times in a day trips; twice, or once
   assert.equal(check('repair-repeats', view({ repairs: [repair(200), repair(10)], settings: { repairsPerDay: 2 } })).length, 1)
 })
 
+test('repair-repeats (B551, X11): repairs from before its incident\'s fix was done never count again; three after it do, a restart one after it does not', () => {
+  const wake = (minutes, more = {}) => ({ at: ago(minutes), rule: 'helper', subject: 'Helper', key: `helper Helper ${minutes}`, ...more })
+  const history = lines => ({ History: lines.map(([minutes, words]) => `- ${stamp(ago(minutes))} ${words}`) })
+  // X11: three wakes, the incident's first fix done 40 min ago, a second fix under way.
+  const first = step('B546', 'done', { Since: stamp(ago(40)) }, history([[90, 'Lead: refined → queued'], [40, 'server: review → done']]))
+  const second = step('B551', 'in progress')
+  const incident = item({ Id: 'X11', Kind: 'incident', State: 'fix', Key: 'repair-repeats helper Helper', Fix: 'B551' },
+    history([[180, 'server: opened by the rule repair-repeats'], [175, 'Advisor: fix B546'], [38, 'server: fixed: B546 is done'], [20, 'server: came back (seen 9 times)'], [19, 'Advisor: fix B551']]))
+  const board = repairs => view({ repairs, items: items(first, second, incident) })
+  const before = [wake(200), wake(130), wake(70)]
+  assert.deepEqual(check('repair-repeats', board(before)), [], 'the three wakes the fix was made for')
+  // The same minute as the fix's done line counts as before it.
+  assert.deepEqual(check('repair-repeats', board([...before, wake(39.5), wake(30), wake(10)])), [])
+  // Three new wakes after the fix, none after a restart: it trips again, on those three only.
+  const again = check('repair-repeats', board([...before, wake(30), wake(20), wake(10)]))
+  assert.deepEqual(again.map(one => one.key), ['repair-repeats helper Helper'])
+  assert.equal(again[0].text, 'The board repaired the same 3 times in a day: helper for Helper')
+  assert.match(again[0].evidence, /^at 08:30, 08:40, 08:50: /)
+  // A wake after the fix that the app's restart caused is not counted.
+  assert.deepEqual(check('repair-repeats', board([...before, wake(30, { cause: 'restart' }), wake(20), wake(10)])), [])
+  // No fix done yet (only the one under way): the old wakes count as before.
+  const unfixed = view({ repairs: before, items: items(second, item({ Id: 'X11', Kind: 'incident', State: 'fix', Key: 'repair-repeats helper Helper', Fix: 'B551' })) })
+  assert.equal(check('repair-repeats', unfixed).length, 1)
+  // Another incident's fix does not hide this one's repairs.
+  const other = item({ Id: 'X12', Kind: 'incident', State: 'fixed', Key: 'repair-repeats helper Other', Fix: 'B546' })
+  assert.equal(check('repair-repeats', view({ repairs: before, items: items(first, other) })).length, 1)
+})
+
 test('undelivered: a word to a chat waiting 11 min trips, 9 min not; one that expired is undelivered too; held or delivered is not', () => {
   const word = (minutes, state = 'waiting', more = {}) => ({ id: `m${minutes}`, to: 'Painter', command: 'work', about: 'B5', at: ago(minutes), state, ...more })
   const found = check('undelivered', view({ outbox: [word(11), word(3)] }))
