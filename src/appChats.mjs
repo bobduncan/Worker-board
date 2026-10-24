@@ -70,7 +70,9 @@ export function parseList(fileText) {
   const [prefix, main] = [named(raw?.prefix), named(raw?.main)]
   // B424: the partner's helper ("helper": its name), shown under the Advisor and never given a queue.
   const helper = named(raw?.helper)?.trim() ?? null
-  return { prefix, main, problem: prefix === null || main === null ? 'incomplete' : null, ...(helper === null ? {} : { helper }) }
+  // The supervisor (spec 2026-10-24): the chat whose sweeps look the board over ("supervisor": its name), no lane either.
+  const supervisor = named(raw?.supervisor)?.trim() ?? null
+  return { prefix, main, problem: prefix === null || main === null ? 'incomplete' : null, ...(helper === null ? {} : { helper }), ...(supervisor === null ? {} : { supervisor }) }
 }
 
 /**

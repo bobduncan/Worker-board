@@ -154,6 +154,11 @@ export const DEFAULTS = {
   usualEffort: 'medium',
   /** The supervisor's thresholds (SUPERVISOR_DEFAULTS). */
   supervisor: SUPERVISOR_DEFAULTS,
+  /**
+   * The supervisor's Part 2: how often, in minutes, the board wakes the supervisor's chat for a sweep while work runs
+   * (0: no sweep by the clock, only on Check now). Lower it to save tokens.
+   */
+  supervisorSweepMinutes: 10,
 }
 
 /** B354: one kind of work of the settings, its paths inside the project. */
@@ -339,6 +344,8 @@ export function parseConfig(text, env) {
   const given = raw.supervisor !== null && typeof raw.supervisor === 'object' && !Array.isArray(raw.supervisor) ? raw.supervisor : {}
   config.supervisor = Object.freeze(Object.fromEntries(Object.entries(SUPERVISOR_DEFAULTS)
     .map(([key, value]) => [key, Number.isFinite(given[key]) && given[key] > 0 ? given[key] : value])))
+  // Part 2: a number of minutes, 0 or more (0: no sweep by the clock).
+  if (Number.isFinite(raw.supervisorSweepMinutes) && raw.supervisorSweepMinutes >= 0) config.supervisorSweepMinutes = raw.supervisorSweepMinutes
   return config
 }
 
@@ -382,6 +389,7 @@ export function configProblem(fileText) {
   if (has('baseBranch') && !(typeof raw.baseBranch === 'string' && BRANCH.test(raw.baseBranch.trim()))) return wrong('baseBranch', 'a branch name such as "main"')
   if (has('usualModel') && !(typeof raw.usualModel === 'string' && MODELS.includes(raw.usualModel.trim().toLowerCase()))) return wrong('usualModel', MODELS.map(one => `"${one}"`).join(' or '))
   if (has('usualEffort') && !(typeof raw.usualEffort === 'string' && EFFORTS.includes(raw.usualEffort.trim().toLowerCase()))) return wrong('usualEffort', `one of ${EFFORTS.map(one => `"${one}"`).join(', ')}`)
+  if (has('supervisorSweepMinutes') && !(Number.isFinite(raw.supervisorSweepMinutes) && raw.supervisorSweepMinutes >= 0)) return wrong('supervisorSweepMinutes', 'a number of minutes, 0 or more (0: no sweep by the clock)')
   if (has('supervisor')) {
     const given = raw.supervisor
     if (given === null || typeof given !== 'object' || Array.isArray(given)) return wrong('supervisor', `an object of numbers above 0: ${Object.keys(SUPERVISOR_DEFAULTS).join(', ')}`)

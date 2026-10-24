@@ -110,6 +110,12 @@ You decide this, not the user. For every task:
   checks itself. It runs on Sonnet at medium effort (the user, 2026-10-23: "the Advisor's check helpers on Sonnet"):
   set it once, when it joins the list of chats or you see it on another model, with `set_session_model` (the Sonnet id
   of the board's settings, `models` in the board's `config.json`) and `set_session_effort` medium.
+- The supervisor (2026-10-24, `DESIGN.md`): the supervisor's chat (the chat the list of chats names with `supervisor`)
+  is no worker either: never queue a step for it, never message it; the board wakes it for its sweeps, and when its
+  chat does not run the board types `start "<name>"` into you: start it by its session id, as any chat. Set it once,
+  when it joins the list of chats, to Sonnet (`set_session_model`, the Sonnet id of the board's settings) and
+  `set_session_effort` low. What its sweeps and the board's rules find goes to the user as one line and to the partner,
+  who files the fix as a step "Fix of X<n>: ..." marked `priority` fix: queue it as any board fix (above).
 - A chat renamed keeps its work: the board moves its open items to the new name by itself (B313); for a rename it could not see (a chat replaced by a new one, or a name two chats had, said on top), run `work rename` (`from`, `to`).
 - Everything the worker needs stands in the step, written with `work new`: the user's own words, quoted; what is asked
   and what is not; "Touches: ..."; who else works nearby and on what; where pictures are (copy a picture into the
@@ -223,6 +229,12 @@ your turn and start nothing new. Do so: message no worker and hand out nothing u
 yourself gets its checkpoint first, as a worker's does (`roles/worker.md`, "A pause of all chats").
 
 ## Check sync
+
+Since the supervisor's part 2 (2026-10-24) "Check now" no longer types `check sync` into your chat: the board runs its
+rules at once and wakes the supervisor's chat (the list of chats' `"supervisor"`) for a sweep; what they find becomes
+incidents, shown to the user and handed to the partner. The word below comes only from a board without a supervisor.
+The note `The board's sync check at HH:MM: what it could not fix itself` still comes to you (act on it as below), and
+so does the board's `start "<supervisor>"` when its chat does not run: start it by its session id, as any chat.
 
 The user pressed "Check now" ("Out of sync?" until the supervisor) in a worker's menu or in the Workers panel's head
 (B438; their words: "somebody goes to investigate it and fix it"). The board types `check sync <name>` with what it

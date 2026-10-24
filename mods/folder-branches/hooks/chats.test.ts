@@ -404,10 +404,17 @@ describe('clear after each step', () => {
     expect(unfiledAsk(`${asks}\n\nAnd more words after it.`, { asked: [] }, 0)).toBe(true)
   })
 
-  test('the board\'s word on the role: only the four roles count', () => {
+  test('the board\'s word on the role: only the five roles count', () => {
     expect(roleFrom({ role: 'worker' })).toBe('worker')
     expect(roleFrom({ role: 'helper' })).toBe('helper')
+    expect(roleFrom({ role: 'supervisor' })).toBe('supervisor')
     for (const value of [null, {}, { role: 'person' }, 'worker']) expect(roleFrom(value)).toBeNull()
+  })
+
+  test('the supervisor: the list of chats names its chat; a worker\'s clear is not for it', () => {
+    expect(parseList('{ "prefix": "Game - ", "main": "Main", "supervisor": " Watcher " }')?.supervisor).toBe('Watcher')
+    expect(parseList('{ "prefix": "Game - ", "main": "Main", "supervisor": "" }')?.supervisor).toBeUndefined()
+    expect(clearWhy({ ...facts, role: 'supervisor' })).toBe('the supervisor\'s chat is cleared after every turn of its own, without a log')
   })
 
   test('a card keeps the clear, the reason it did not run and its mark; the old session\'s file names the new one and no chat', () => {

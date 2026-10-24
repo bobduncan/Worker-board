@@ -7,6 +7,8 @@ and the chats share: what a chat writes for the board to read, and what the boar
 `worker.md` is the job of a worker, for any project (B201); a project's own facts stand in its
 `.claude/worker-briefing.md`, made after `examples/worker-briefing.md`. `main.md` is the job of the main chat (B202),
 with the project's own facts in its `.claude/main-briefing.md`, made after `examples/main-briefing.md`.
+`supervisor.md` is the job of the supervisor's chat (the list of chats' `"supervisor"`, spec 2026-10-24): a sweep reads
+the board's health summary and files incidents, nothing else; the board names the file in its sweep word.
 
 > **For any project (B191).** Every change to the worker board, these job texts included, works for any project. No game, chat, folder
 > or PC names in the code, the page, the job texts (`roles/`) or the examples: names, paths and words come from the

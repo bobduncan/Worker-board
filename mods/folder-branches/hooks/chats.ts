@@ -169,6 +169,8 @@ export function parseList(text: string): ChatList | null {
     afterStep: l.afterStep === 'clear' || l.afterStep === 'off' ? l.afterStep : 'compact',
     // The main chat and the partners are compacted at rest unless the list says "compactAtRest": false.
     compactAtRest: l.compactAtRest !== false,
+    // The supervisor (spec 2026-10-24): the chat cleared after every turn, also when the board does not answer in time.
+    ...(typeof l.supervisor === 'string' && l.supervisor.trim() !== '' ? { supervisor: l.supervisor.trim() } : {}),
   }
 }
 
@@ -482,7 +484,7 @@ export function compactWhy(chat: ChatFile, at: { tokens: number | null; above: n
 /** Clear after each step: the role the board's answer to a turn's end names; null when it names none. */
 export function roleFrom(answer: unknown): BoardRole | null {
   const role = typeof answer === 'object' && answer !== null ? (answer as { role?: unknown }).role : undefined
-  return role === 'main' || role === 'worker' || role === 'advisor' || role === 'helper' ? role : null
+  return role === 'main' || role === 'worker' || role === 'advisor' || role === 'helper' || role === 'supervisor' ? role : null
 }
 
 /**
@@ -506,6 +508,7 @@ export type ClearFacts = { role: BoardRole | null; isReported: boolean; isPaused
  */
 export function clearWhy(f: ClearFacts): string | null {
   if (f.role === null) return 'the board did not say this chat is a worker'
+  if (f.role === 'supervisor') return 'the supervisor\'s chat is cleared after every turn of its own, without a log'
   if (f.role !== 'worker') return `the ${f.role === 'main' ? 'main chat' : f.role === 'advisor' ? 'partner' : 'partner\'s helper'} is never cleared`
   if (!f.isReported) return 'its step is not reported'
   if (f.isPaused) return 'the person pauses the chats'

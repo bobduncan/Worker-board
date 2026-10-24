@@ -298,22 +298,28 @@ const isOlder = (a, b) => {
   return false
 }
 
+/** The first Workers mod that says its version with every call (its header): a chat that says none runs an older one. */
+export const FIRST_SAYING = '0.16.0'
+
 /**
  * 10. A chat on an older Workers mod than the one installed: it gets the new one only when its chat starts anew. A
- * chat whose version the board does not know is no case.
+ * chat whose version the board does not know (its mod did not ask lately) is no case; one whose mod asked without saying
+ * its version (null) runs one older than FIRST_SAYING, a case once that one or a newer one is installed (the review).
  */
 function oldMod(view) {
   const installed = versionOf(view.mods.installed)
   if (installed === null) return []
   const found = []
   for (const lane of view.lanes.filter(one => !one.isLeftover)) {
+    if (!Object.hasOwn(view.mods.chats, lane.name)) continue
     const version = view.mods.chats[lane.name]
-    const runs = versionOf(version)
-    if (runs === null || !isOlder(runs, installed)) continue
+    const isUnsaid = version === null
+    if (isUnsaid ? isOlder(installed, versionOf(FIRST_SAYING)) : versionOf(version) === null || !isOlder(versionOf(version), installed)) continue
+    const runs = isUnsaid ? `older than ${FIRST_SAYING}` : version
     found.push({
-      rule: 'old-mod', key: `old-mod ${lane.name} ${version}`, subject: lane.name,
-      text: `${lane.name} runs the Workers mod ${version}; ${view.mods.installed} is installed`,
-      evidence: `installed ${view.mods.installed}, the chat's ${version}`,
+      rule: 'old-mod', key: `old-mod ${lane.name} ${isUnsaid ? `before ${FIRST_SAYING}` : version}`, subject: lane.name,
+      text: `${lane.name} runs the Workers mod ${runs}; ${view.mods.installed} is installed`,
+      evidence: `installed ${view.mods.installed}, the chat's ${runs}`,
     })
   }
   return found

@@ -33,6 +33,8 @@ export const LOOP_WORDS = {
   // The supervisor (spec 2026-10-24): its findings filed as incidents, and the incidents whose fix is done.
   incidents: 'filing the supervisor\'s incidents',
   'incidents-fixed': 'marking the fixed incidents',
+  // Part 2: the sweep of the supervisor's chat, its schedule and Check now.
+  sweep: 'the supervisor\'s sweep',
   'app-folder': 'following the app\'s folder',
   'design-kinds': 'reading the kinds of idea',
   history: 'reading the other board\'s task times',
