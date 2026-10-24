@@ -194,15 +194,13 @@ test('the work tool ask links a known goal, leaves an unknown one as words, and 
     const text = JSON.stringify(first)
     assert.match(text, /#advice\/goals\)/)
     assert.match(text, /#advice\/goals\/G33\)/)
-    assert.doesNotMatch(text, /G999\]/)
+    assert.doesNotMatch(text, /goals\/G999/)
     assert.match(text, /#details=B7\)/)
-    // The ask's own id is no place: a second ask naming the first links it, and never itself.
-    const own = /Q\d+/.exec(text)[0]
-    const second = await workApi({ chat: 'Features', action: 'ask', of: 'B7', kind: 'do', title: `Check ${own} again` }, ctx)
+    // The ask's own id is no place: the second ask (Q2) names Q1 and itself, and links only Q1.
+    const second = await workApi({ chat: 'Features', action: 'ask', of: 'B7', kind: 'do', title: 'Check Q1 and Q2' }, ctx)
     assert.equal(second.ok, true, second.why)
-    const ownSecond = [...JSON.stringify(second).matchAll(/Q\d+/g)].map(one => one[0]).find(id => id !== own)
-    assert.doesNotMatch(JSON.stringify(second), new RegExp(`#details=${ownSecond}\\)`))
-    assert.match(JSON.stringify(second), new RegExp(`#details=${own}\\)`))
+    assert.match(JSON.stringify(second), /#details=Q1\)/)
+    assert.doesNotMatch(JSON.stringify(second), /#details=Q2\)/)
   } finally {
     await rm(dir, { recursive: true, force: true })
   }
