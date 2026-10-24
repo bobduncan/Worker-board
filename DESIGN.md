@@ -1775,8 +1775,11 @@ Spec 2026-10-18, sections 2 and 4; plan Task 7; picture `art-inbox/focus-mockups
 - **A note to the main chat wakes it** (`reconcile.mjs` `notes`, `deliver.mjs` `noteLine`): the notes `To: main` it has
   not read (`Main read`), from another chat and not the board's note of a report (`Via: report`), wake it with one line
   per refresh, "work: notes N62, N65 for you; run work next" (key per set of notes in `delivered.json`); none while such
-  a line waits or was taken, none while it is suspended, none for notes filed before the board's first refresh with
-  this (`notesFrom`). Its `work next` shows them first and writes `Main read`, which withdraws a line still waiting; the
+  a line waits or was taken in the last 10 minutes (B564, X20: a line the Workers mod took on 2026-10-19 and never said
+  it typed held every notes line for five days, so the notes reached the main chat only when it ran `work next` for
+  something else), none while it is suspended, none for notes filed before the board's first refresh with
+  this (`notesFrom`). The same notes still unread 30 minutes after their line arrived (`NOTE_AGAIN_MS`) go once more,
+  "work: notes N62, N65 for you, unread 41 min; run work next" (key `... again`). Its `work next` shows them first and writes `Main read`, which withdraws a line still waiting; the
   person's Read under Information is the State, apart. A board that only shows marks nothing.
 - **Waiting for the main chat** (`focusState`): a part whose steps are made but none is queued or under way (new or
   refined) is `handout` with `waitsSince`; the page says "Waiting for the main chat to hand it out", and after the grace
@@ -2935,6 +2938,7 @@ stuck that day was found by the person. They are now one list in the board, each
 | | ... names one the store lacks, or its `Waits for` names one in review | the main chat (For Main) |
 | `not-taken` | a queued step whose free owner, holding nothing, got its line 10 min ago and did not take it | the line again (Woke); still queued 10 min on: For Main |
 | `queued-behind` | a step queued over 20 min (`QUEUED_BEHIND_MS`) for a busy worker, nothing holding it (Blocked by, Waits for), while another worker is free: holds nothing, has nothing queued, not suspended (B550, X15, X16) | a note to the main chat, "Requeue B<n> to <free worker>: queued <age> behind <busy worker>" (Sent): the oldest step to the first free worker (running first, then free longest), the next to the next; a result check's fix (`Fix of`) is named as staying with the worker that built it, not moved; once an hour per step, by the runner's watch while the step stays queued for the same worker. The board never requeues it itself: queueing is the main chat's |
+| `focus-ready` | a worker free over 20 min (`FOCUS_IDLE_MS`, by its lane's idle time) holding nothing, nothing queued, not named by queued-behind, while steps are refined ready and not queued; no pause, no limit full (B564, X20) | a note to the main chat, "Queue B<n> (<focus>) for <free worker>: free <age> with nothing queued" (Sent): board fixes (Priority fix, "board fix") first, then the focus goal's steps (the view's `focus`, state.mjs `focus.id`), each in id order, a step with Blocked by or Waits for open skipped; one step per free worker, free longest first; steps of other goals never; once an hour per step, by the runner's watch while it stays refined ready. The board never queues it itself |
 | `review-wait` | (B542, X7) a step queued an hour, its owner free that long, behind one in review whose check has not passed | a note to the main chat naming both, once per pair (Sent); the step's line says "waits for the check of B<n>" |
 | `owner-gone` | a step queued for a chat the list has not shown for 30 min by the runner's own watch (not the partner, its helper or a leftover) | requeued to a free worker, a running one with the fewest queued first (Fixed); none free: For Main |
 | | ... taken or in progress for such a chat | For Main: its work may stand on a branch |

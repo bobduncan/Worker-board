@@ -24,8 +24,17 @@ export const deliveryKey = (id, chat, since = '') => [id, chat, since].filter(Bo
 
 /** Focus 4: the key under which the main chat is woken for these notes, once. */
 export const noteKey = (ids, chat) => `notes ${ids.join(',')} ${chat}`
-/** Focus 4: the main chat's one line for its notes. */
-export const noteWords = ids => `work: ${ids.length === 1 ? 'note' : 'notes'} ${ids.join(', ')} for you; run work next`
+/** Focus 4: the main chat's one line for its notes; B564: once more with how long they wait unread (`waited`, minutes). */
+export const noteWords = (ids, waited = null) => `work: ${ids.length === 1 ? 'note' : 'notes'} ${ids.join(', ')} for you${waited === null ? '' : `, unread ${waited} min`}; run work next`
+
+/**
+ * B564 (X20: a notes line the Workers mod took on 2026-10-19 and never said it typed held every notes line since, so
+ * twelve notes to the main chat sat unread): a notes line taken this long ago without a word that it was typed counts
+ * as arrived, as the page shows it (store.mjs TAKEN_SHOWN_MS); it no longer holds the next line.
+ */
+export const NOTE_TAKEN_MS = 10 * 60_000
+/** B564: notes still unread this long after their line arrived: the line goes once more. */
+export const NOTE_AGAIN_MS = 30 * 60_000
 
 /** Partner answers (2026-10-19): the key under which the partner is woken for an ask routed to it, once. */
 export const partnerAskKey = (id, chat, again = false) => `partner-ask ${id} ${chat}${again ? ' again' : ''}`
@@ -197,9 +206,19 @@ async function noteLine({ dir, plan, outbox, now, fs }) {
   const notes = (plan.notes ?? []).filter(one => !(sinceMs(one.since) < from))
   if (notes.length === 0) return []
   const chat = notes[0].chat
-  if (outbox.outbox().some(one => one.kind === 'note' && one.to === chat && (one.state === 'waiting' || one.state === 'taken'))) return []
+  const lines = outbox.outbox().filter(one => one.kind === 'note' && one.to === chat)
+  // B564: a line taken long ago no longer holds: the mod took it and never said it typed it.
+  if (lines.some(one => one.state === 'waiting' || (one.state === 'taken' && now - (one.takenAt ?? one.at) < NOTE_TAKEN_MS))) return []
   const ids = notes.map(one => one.id)
-  return [{ key: noteKey(ids, chat), words: { ...workWords(chat, ids[0], noteWords(ids)), kind: 'note', notes: ids } }]
+  const key = noteKey(ids, chat)
+  // B564: the same notes still unread NOTE_AGAIN_MS after their line arrived: once more, with how long they wait.
+  const last = lines.findLast(one => ['taken', 'delivered'].includes(one.state) && noteKey(one.notes ?? [one.about], chat) === key)
+  const arrived = last === undefined ? null : (last.deliveredAt ?? last.takenAt ?? last.at)
+  if (arrived !== null && now - arrived >= NOTE_AGAIN_MS) {
+    const waited = Math.round((now - Math.min(...notes.map(one => sinceMs(one.since)).filter(Number.isFinite), arrived)) / 60_000)
+    return [{ key: `${key} again`, words: { ...workWords(chat, ids[0], noteWords(ids, waited)), kind: 'note', notes: ids } }]
+  }
+  return [{ key, words: { ...workWords(chat, ids[0], noteWords(ids)), kind: 'note', notes: ids } }]
 }
 
 /**

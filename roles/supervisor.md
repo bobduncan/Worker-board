@@ -51,7 +51,9 @@ sweep is meant to cost little (a few tens of thousands of tokens, mostly cached)
   waits as planned: no incident, and no "!" unless its fix is odd itself. The review-stuck rule watches the rest: a
   check not filed within the review minutes, or a dropped fix.
 - A worker "suspended" for the limit goes on once its reset has passed or the limits show room again.
-- Work follows the focus goal: work outside it while the focus has steps waiting is odd.
+- Work follows the focus goal: work outside it while the focus has steps waiting is odd. A worker free over 20 minutes
+  with nothing queued while the focus has steps refined ready: the focus-ready rule names a step for it to the main
+  chat ("Queue B<n> (<focus>) for <worker>"), once an hour per step. A wait shorter than that is no incident.
 - A word to a chat is taken within minutes; words that wait long for one chat are odd.
 - A chat runs the model and effort its step asks for (the summary shows both side by side).
 - A worker is cleared after its reported step (or compacted, as the list of chats says); the same reason for not
