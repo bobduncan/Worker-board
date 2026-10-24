@@ -9960,9 +9960,13 @@ function visionView(plan, ui = { page: 'vision', at: 0, picked: {}, change: null
   const { decided, assumed, open: openAnswers } = plan.counts
   const total = plan.answers.length
   const asks = slides.filter(slide => slide.kind === 'ask' || slide.kind === 'open' || (slide.kind === 'decide' && !slide.isSent)).length
-  const at = slides.length === 0 ? 0 : Math.min(Math.max(0, ui.at ?? 0), slides.length - 1)
+  const firstWaiting = Math.max(0, slides.findIndex(slide => slide.kind === 'ask' || slide.kind === 'open' || (slide.kind === 'decide' && !slide.isSent)))
+  // The trial's round (2026-10-24, the user: "i prefer to start directly with the interview"): until you pick a step
+  // (`ui.page` null), a plan you have decided nothing of yet opens on the Interview, at its first question.
+  const isFresh = (ui.page ?? null) === null && decided === 0 && asks > 0
+  const at = isFresh ? firstWaiting : slides.length === 0 ? 0 : Math.min(Math.max(0, ui.at ?? 0), slides.length - 1)
   // The new order (2026-10-21): "goals" was the plan's step before.
-  const page = ui.page === 'goals' ? 'plan' : ['vision', 'features', 'standards', 'plan', 'focus', 'interview'].includes(ui.page) ? ui.page : 'vision'
+  const page = isFresh ? 'interview' : ui.page === 'goals' ? 'plan' : ['vision', 'features', 'standards', 'plan', 'focus', 'interview'].includes(ui.page) ? ui.page : 'vision'
   return {
     path: plan.path, pitch: plan.pitch, page, cards, slides, at,
     summary: [`${decided} of ${total} decided by you`, assumed > 0 ? `${assumed} assumed for now` : null, openAnswers > 0 ? `${openAnswers} open` : null, cards.filter(card => card.settled !== null).length > 0 ? `${cards.filter(card => card.settled !== null).length} settled` : null].filter(Boolean).join(' · '),
@@ -9977,7 +9981,7 @@ function visionView(plan, ui = { page: 'vision', at: 0, picked: {}, change: null
     ],
     interviewLabel: asks > 0 ? `Interview · ${asks} to decide` : 'Interview',
     // What waits on you (2026-10-21): how many, and the first slide that does, for the bar's Start.
-    waiting: asks, firstWaiting: Math.max(0, slides.findIndex(slide => slide.kind === 'ask' || slide.kind === 'open' || (slide.kind === 'decide' && !slide.isSent))),
+    waiting: asks, firstWaiting,
     working: working.map(one => ({ ...one, title: titleOfPart(one.about) })),
     busy: {
       marks: isBusy(workOn('plan-marks')), featureAdd: isBusy(workOn('plan-feature-add')),
@@ -10409,7 +10413,7 @@ function focusNoteCard(view) {
 // Vision (2026-10-19): the Vision tab, its own state, its drawing and its moves. The partner writes the page; the board
 // types your moves and answers to it (src/planMoves.mjs `planMove`, the store's `answer`). Your feature marks and goal
 // confirms wait on the page until you send them, in one word.
-const visionUi = { page: 'vision', at: 0, picked: {}, change: null, asked: [], marks: {}, confirms: [], standardConfirms: [], open: [], gallery: {}, words: '', extra: '', busy: false, note: null, sent: [], startKind: null, startSent: false, startAgain: false, startWords: '' }
+const visionUi = { page: null, at: 0, picked: {}, change: null, asked: [], marks: {}, confirms: [], standardConfirms: [], open: [], gallery: {}, words: '', extra: '', busy: false, note: null, sent: [], startKind: null, startSent: false, startAgain: false, startWords: '' }
 
 function visionData(state) {
   return [state.plan ?? null, visionCan(state), state.goalsEdit?.whyNot ?? null, state.focus?.id ?? null, state.focus?.stage ?? null, (visionUi.sent ?? []).join(','), visionUi.page, visionUi.at, visionUi.picked, visionUi.change, visionUi.asked.join(','), visionUi.marks, visionUi.confirms.join(','), visionUi.standardConfirms.join(','), visionUi.open.join(','), visionUi.gallery, visionUi.busy, visionUi.note, visionUi.startKind, visionUi.startSent, visionUi.startAgain, state.planStart ?? null,
@@ -10471,6 +10475,8 @@ function drawVision(state) {
   // thumbnail clicked sent the page to the top).
   const scrolled = $('view-vision').querySelector('.vision')?.scrollTop ?? 0
   const view = visionView(state.plan ?? null, visionUi, state.focus ?? null)
+  // The first page shown with a plan stays, as if picked: the moves that follow (an answer, the arrow keys) read it.
+  if (view !== null && visionUi.page === null) Object.assign(visionUi, { page: view.page, at: view.at })
   const can = visionCan(state)
   // Why the buttons are off: a copy or the demo only shows; without a partner chat nobody takes the words.
   const off = state.goalsEdit?.whyNot ?? ((state.advisor ?? null) === null ? 'No partner chat is on the board: the setting advisor names none.' : 'This board only shows.')

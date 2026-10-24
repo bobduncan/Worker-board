@@ -88,7 +88,7 @@ test('a failed check gives no recap; the step it fixes gets one once its fix is 
     await one.lamplighter({ action: 'take', id: fixId, branch: 'b-fix-lamps' })
     await one.lamplighter({ action: 'report', id: fixId, result: 'All lamps are warm yellow.', merged: 'beef123' })
     await one.server({ action: 'check', id: fixId, passed: true, lines: ['branch gone'] })
-    assert.equal((await one.partner({ ...PASSED, id: fixId, evidence: 'pictures/fix/evidence.png', points: ['pass: warm yellow light, never white'] })).ok, true)
+    assert.equal((await one.partner({ ...PASSED, id: fixId, evidence: 'pictures/fix/evidence.png', points: ['pass: two are warm now', 'pass: warm yellow light, never white'] })).ok, true)
     const notes = await recapNotes(one.dir)
     assert.equal(notes.length, 1)
     assert.deepEqual(notes[0].sections.get('About'), [id])
