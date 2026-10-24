@@ -300,7 +300,7 @@ test('while the partner prepares: Go deeper waits on its card, Get options shows
   const view = visionView(busy, UI)
   assert.deepEqual(view.cards.map(card => [card.id, card.deeperWork]), [['P1', null], ['P2', 'working'], ['P5', null], ['P6', null], ['P7', null]])
   assert.equal(view.slides.find(slide => slide.id === 'P6').isAsked, true)
-  assert.deepEqual(view.busy, { marks: true, featureAdd: false, confirms: false, goalsChange: false, agree: false, standards: false, standardConfirms: false, standardsChange: false, standardsAgree: false, check: false, focus: false, tradeoffs: false })
+  assert.deepEqual(view.busy, { marks: true, featureAdd: false, confirms: false, goalsChange: false, agree: false, standards: false, standardConfirms: false, standardsChange: false, standardsAgree: false, check: false, focus: false, tradeoffs: false, strategy: false })
   assert.deepEqual(view.working.map(one => [one.command, one.title, one.state]), [['plan-deeper', 'Look', 'working'], ['plan-ask', 'Where', 'waiting'], ['plan-marks', null, 'working'], ['plan-goals-agree', null, 'late']])
   assert.match(script, /'Preparing questions…'/)
   assert.match(css, /\.vision-spinner \{/)
@@ -365,7 +365,7 @@ test('the guided path: a decision per slide with its step, its buttons, sent onc
   const focused = visionView(checked.path === undefined ? null : planState(`${PAGE}\n## Next focus\n\n- Proposed: G3 · Two benches\n`, ITEMS, 'p.md'), UI, { id: 'G3', title: 'Two benches', doneWhen: 'sat on both', stage: 'run' })
   assert.deepEqual([focused.focus.current, focused.focus.proposal.isCurrent, focused.slides.some(one => one.id === 'focus:G3')], [{ id: 'G3', title: 'Two benches', doneWhen: 'sat on both', stage: 'run' }, true, false])
   assert.match(script, /function focusStepPage\(view, can, off\)/)
-  assert.match(script, /'Check the plan'/)
+  assert.match(script, /'Recommend again'/)
 })
 
 test('the tradeoffs: a complex feature later or not sure, the partner\'s advice, your choice; the step and the plan wait for every choice', () => {
@@ -490,4 +490,13 @@ test('the plan step: the strategy choice, change badges, Not now, only what chan
   assert.deepEqual(badge({ kind: 'other', text: 'frobnicate G1' }), { label: 'frobnicate G1', tone: 'change' })
   assert.equal(badge({ kind: 'keep', text: 'G1' }), null)
   assert.deepEqual(badge({ kind: 'split', text: 'G12' }), { label: 'Splits G12', tone: 'change' })
+})
+
+test('the Plan step draws the strategy choice, the overview, labels and Not now (2026-10-24)', () => {
+  for (const words of ["Your partner's plan to make this real", 'How should your partner lay the plan?', 'Lay the plan', 'Change strategy', 'Only what changes', 'Overview · click a goal to see its card', 'Not now', 'Because: ', 'Its steps: '])
+    assert.ok(script.includes(words), words)
+  for (const act of ['pick-strategy', 'lay-plan', 'change-strategy', 'only-changes', 'not-now', 'show-goal'])
+    assert.ok(script.includes(`act === '${act}'`), act)
+  assert.match(script, /function planOverview\(/)
+  assert.match(css, /\.plan-badge\.is-drop/)
 })
