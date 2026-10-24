@@ -569,8 +569,10 @@ async function draft(body, node, ctx, goalsAt, focus) {
     return refuse(400, 'A how is its parts ({ title, size, steps }) and the lines of who decides what.')
   }
   if (node === undefined) return failed('gone')
-  if (node.id !== focus && node.howAgreed === null) return notFocus()
-  if (node.vibeAgreed === null) return refuse(409, 'The vibe is not agreed yet: draft the how once the person agreed it.')
+  // B450: a goal whose evaluation runs may be drafted by its outcome, the focus or not, with a how agreed or not.
+  const isEvaluating = outcome !== null && (node.evaluationAsked ?? null) !== null
+  if (node.id !== focus && node.howAgreed === null && !isEvaluating) return notFocus()
+  if (node.vibeAgreed === null && !isEvaluating) return refuse(409, 'The vibe is not agreed yet: draft the how once the person agreed it.')
   let changed = false
   let evaluated = false
   const done = await changeGoalsFile(text => {
@@ -578,9 +580,18 @@ async function draft(body, node, ctx, goalsAt, focus) {
     const now = map.byId.get(node.id)
     if (now === undefined) return { ok: false, why: 'gone' }
     // B382: read again under the turn: a goal that is not the focus is drafted only while its how is agreed.
-    if (map.focus !== node.id && now.howAgreed === null) return { ok: false, why: 'notFocus' }
+    const runs = outcome !== null && (now.evaluationAsked ?? null) !== null
+    if (map.focus !== node.id && now.howAgreed === null && !runs) return { ok: false, why: 'notFocus' }
     const next = setHow(text, node.id, how)
-    if (!next.ok || now.howAgreed === null) return next
+    if (!next.ok) return next
+    // B450: a goal without an agreed how ends its evaluation with the marked draft too; the draft waits for the person's Go.
+    if (now.howAgreed === null) {
+      if (!runs) return next
+      evaluated = true
+      const at = minuteOf(ctx.now)
+      const cleared = setGoalLine(next.text, node.id, 'Evaluation asked', '')
+      return cleared.ok ? addGoalLine(cleared.text, node.id, `Evaluated (${at}): a how drafted for your Go (${how.parts.length} ${how.parts.length === 1 ? 'part' : 'parts'}) · ${outcome}`) : cleared
+    }
     // B359: while the goal guard's evaluation runs, the draft is its outcome: the how it names (corrected, rebuilt, or
     // the same one: keep going) is agreed at once, so the count of failed checks starts anew, and the evaluation ends.
     // Only a draft that says it is the outcome (a "partner decides" line "Evaluation: ...") ends it: a routine draft
