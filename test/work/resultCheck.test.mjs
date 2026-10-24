@@ -279,7 +279,7 @@ test('the second review: a fix done while a point still waits for the person ask
     await store.server({ action: 'check', id: fixId, passed: true, lines: ['branch gone'] })
     const fixed = await store.partner({ action: 'checked', id: fixId, evidence: 'y.png', points: ['pass: a lamp at every bench', 'pass: makes pass a lamp at every bench'] })
     assert.equal(fixed.ok, true, fixed.why)
-    assert.deepEqual(fixed.result.resultCheck, { id, title: 'Light the garden lamps', owner: 'Lamplighter' })
+    assert.deepEqual(fixed.result.resultCheck, { id, title: 'Light the garden lamps', owner: 'Lamplighter', why: `its fix ${fixId} is done: file its check again` })
     assert.equal(valueOf(await item(store.dir, id), 'State'), 'review')
     // The partner checks it again, the person's point now judged: the step is done.
     const again = await store.partner({ action: 'checked', id, evidence: 'x.png', points: ['pass: a lamp at every bench', 'pass: warm enough'] })

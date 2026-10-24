@@ -276,7 +276,8 @@ const answeredAsks = step => (step.refined?.asks ?? []).filter(ask => ask.answer
  */
 export const checkStepWords = (to, step, job) => ({
   to, ask: null, step: null, title: null, version: null, verdict: null, command: 'result-check', about: step.id,
-  text: `check step\nStep: ${step.id} ${plainLine(step.title ?? '')}\nBuilt by: ${plainLine(step.owner ?? 'its worker')}\nYour job: ${job}, "The check"`,
+  // B565: `step.why` (resultCheck.mjs `checkWhy`), when the check is asked again, stands in a `Why:` line.
+  text: `check step\nStep: ${step.id} ${plainLine(step.title ?? '')}\nBuilt by: ${plainLine(step.owner ?? 'its worker')}${step.why ? `\nWhy: ${plainLine(step.why)}` : ''}\nYour job: ${job}, "The check"`,
 })
 
 export const refinedWords = (to, step) => ({

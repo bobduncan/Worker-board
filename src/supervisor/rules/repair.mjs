@@ -24,7 +24,7 @@ import { stamp } from '../../work/migrate.mjs'
 import { blockersOpen, waitIds, waitWords } from '../../work/guards.mjs'
 import { PARTNER_AGAIN_MS, isRoutedToPartner, partnerAskWords } from '../../work/partnerAnswers.mjs'
 import { isHolding } from '../../work/pause.mjs'
-import { gitCheckPassed, needsResultCheck, resultCheckAtMs, resultCheckOf, reviewWaitOf } from '../../work/resultCheck.mjs'
+import { checkWhy, gitCheckPassed, needsResultCheck, resultCheckOf, reviewWaitOf } from '../../work/resultCheck.mjs'
 import { asksOfStep } from '../../work/stepAsks.mjs'
 
 const MIN = 60_000
@@ -500,7 +500,8 @@ function partnerAsk(view) {
 /**
  * B449 (G11's re-check: reports that sat unchecked, and checks that waited on an answer already given): a step in
  * review whose board check passed and whose result check was never filed, or waits for the person with every ask
- * under it answered, for 30 minutes: the partner is woken with "check step B<id>", once per 30 minutes (a line to
+ * under it answered, or (B565, X19) failed and its fix is done, for 30 minutes (resultCheck.mjs `reviewWaitOf`: it
+ * waits for its check); the word says why (`checkWhy`): the partner is woken with "check step B<id>", once per 30 minutes (a line to
  * it about the step still waiting, or sent within that time, counts as the wake).
  */
 function unchecked(view) {
@@ -508,19 +509,22 @@ function unchecked(view) {
   const { all, steps, isHeld } = factsOf(view)
   const found = []
   if (!(partner !== null && !isHeld)) return found
-  for (const item of steps.filter(one => stateOf(one) === 'review' && gitCheckPassed(one) && needsResultCheck(one))) {
+  const byId = new Map(all.map(one => [idOf(one), one]))
+  for (const item of steps.filter(one => stateOf(one) === 'review')) {
     const id = idOf(item)
+    // B565 (X19): also a step whose check failed and whose fix is done: it waits for its check again.
+    const wait = reviewWaitOf(item, byId)
+    if (wait?.kind !== 'check') continue
     const result = resultCheckOf(item)
-    const open = all.some(one => kindOf(one) === 'ask' && valueOf(one, 'Of') === id && stateOf(one) === 'open')
-    if (result === 'waits' ? open : result !== null) continue
-    const since = result === 'waits' ? resultCheckAtMs(item) : sinceMs(valueOf(item, 'Since'))
+    const since = wait.since
     if (!(now - since >= UNCHECKED_MS)) continue
     const lately = outbox.some(message => message.about === id && (message.command === 'result-check' || String(message.syncKey ?? '').startsWith('unchecked '))
       && (message.state === 'waiting' || now - message.at < UNCHECKED_MS))
     if (lately) continue
     const key = `unchecked ${id} ${Math.floor((now - since) / UNCHECKED_MS)}`
-    const text = `${id} in review ${minutes(now - since)} min with ${result === 'waits' ? 'its ask point answered and no check filed again' : 'no result check'}`
-    found.push(finding('unchecked', key, id, text, { do: 'wake', chat: partner.name, id, text: `check step ${id}${result === 'waits' ? ' (its ask point is answered: file the result check again)' : ''}; see roles/partner.md, "The check"` }))
+    const why = checkWhy(item, byId)
+    const text = `${id} in review ${minutes(now - since)} min with ${result === 'waits' ? 'its ask point answered and no check filed again' : wait.fix !== null ? `its fix ${wait.fix} done and no check filed again` : 'no result check'}`
+    found.push(finding('unchecked', key, id, text, { do: 'wake', chat: partner.name, id, text: `check step ${id}${why === null ? '' : ` (${why})`}; see roles/partner.md, "The check"` }))
   }
   return found
 }

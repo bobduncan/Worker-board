@@ -140,6 +140,25 @@ export function reviewWaitOf(item, items) {
 }
 
 /**
+ * B565 (X19: B510's fix B558 passed, the partner read B510 as waiting only for the person's answer Q339 and answered the
+ * board's "check step B510" with no new check): why a step in review is to be checked again, for the board's check word
+ * and its repair `unchecked`, from `reviewWaitOf`: "its fix B<n> is done: file its check again" or "its ask point is
+ * answered: file its check again", with "; keep Q<n> as an ask point" for each ask of it still open. null when the step
+ * waits for no check again (its first check, an open fix, the person's answer).
+ */
+export function checkWhy(item, items) {
+  const wait = reviewWaitOf(item, items)
+  if (wait?.kind !== 'check') return null
+  const why = wait.fix !== null ? `its fix ${wait.fix} is done: file its check again`
+    : resultCheckOf(item) === 'waits' ? 'its ask point is answered: file its check again' : null
+  if (why === null) return null
+  const id = valueOf(item, 'Id')
+  const asks = [...(items?.values() ?? [])].filter(one => valueOf(one, 'Kind') === 'ask' && valueOf(one, 'Of') === id && valueOf(one, 'State') === 'open')
+    .map(one => valueOf(one, 'Id')).sort((a, b) => a.localeCompare(b, 'en', { numeric: true }))
+  return asks.length === 0 ? why : `${why}; keep ${asks.join(' and ')} as ${asks.length === 1 ? 'an ask point' : 'ask points'}`
+}
+
+/**
  * The step's last result check as its "## Checked" section keeps it: `{ evidence, score, points: [{ verdict, text }],
  * passed, total }`, or null when it has none.
  */
