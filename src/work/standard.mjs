@@ -64,3 +64,20 @@ export function standardWanted(who, named) {
   const names = named.map(one => `"${one.kind}"`).join(', ')
   return `${who} names the kind${named.length > 1 ? 's' : ''} of work ${names}: give its standard in "standard" (or as a line of "what" that starts with "Standard:"), as "${first.kind} · <a reference picture from ${first.reference}> · target <score>" (checked against ${first.done}), or "none (<why>)" when it makes no ${first.kind}.`
 }
+
+/**
+ * B451: the kinds of the settings marked `look` (what the player sees) that a text names, when the step's standard is
+ * "none (...)". A step that changes what the player sees always carries a kind's standard with a reference and a
+ * target: B395 (a new ground look) was refined with "none" and its check passed the look on substance.
+ */
+export function noneForLook(text, standardLine, kinds) {
+  if (!/^none\b/i.test(String(standardLine ?? '').trim())) return []
+  return kindsNamed(text, kinds).filter(one => one.look === true)
+}
+
+/** B451: why "none" is refused for a step that names a look kind; `who` is the step's id, or "This step". */
+export function standardNoneRefused(who, named) {
+  const first = named[0]
+  const names = named.map(one => `"${one.kind}"`).join(', ')
+  return `${who} names the look kind${named.length > 1 ? 's' : ''} ${names}, so it changes what the player sees: "none (...)" is refused. Give a kind's standard, "${first.kind} · <a reference picture from ${first.reference}> · target <score>" (checked against ${first.done}).`
+}

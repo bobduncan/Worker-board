@@ -482,6 +482,15 @@ button, textarea, select { font: inherit; color: inherit; }
 .goals-link:hover { text-decoration: underline; }
 .goals-sep { color: var(--unknown); }
 .goals-here { font-weight: 600; }
+.goals-find { position: relative; flex: 0 1 260px; min-width: 0; }
+.goals-find input { width: 100%; box-sizing: border-box; padding: 4px 26px 4px 8px; font: inherit; font-size: 13px; }
+.goals-find-clear { position: absolute; right: 2px; top: 50%; transform: translateY(-50%); min-height: 0; padding: 0 6px; border: 0; background: none; color: var(--muted); cursor: pointer; }
+.goals-find-list { position: absolute; z-index: 20; left: 0; right: 0; top: 100%; margin: 2px 0 0; padding: 2px; list-style: none; background: var(--panel, Canvas); border: 1px solid var(--line); border-radius: 6px; box-shadow: 0 4px 14px rgba(0, 0, 0, .25); min-width: 260px; }
+.goals-find-row { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 8px; padding: 4px 6px; border-radius: 4px; cursor: pointer; font-size: 13px; }
+.goals-find-row[aria-selected="true"], .goals-find-row:hover { background: var(--line); }
+.goals-find-title { flex: 1 1 auto; min-width: 0; }
+.goals-find-where { flex-basis: 100%; color: var(--muted); font-size: 11px; }
+.goals-find-none { padding: 6px; font-size: 13px; }
 .goals-count { color: var(--muted); font-size: 13px; white-space: nowrap; }
 /* B289: the open steps no goal names, folded under the map. */
 .goals-unlinked { margin: 12px 6px 0; padding-top: 8px; border-top: 1px solid var(--line); font-size: 13.5px; }
@@ -749,6 +758,7 @@ button.goal-dot:hover, button.goal-dot:focus-visible { box-shadow: 0 0 0 3px #2a
 @media (max-width: 700px) {
   .goals-head { flex-wrap: wrap; gap: 4px; }
   .goals-crumb { flex-basis: 100%; }
+  .goals-find { flex: 1 1 100%; }
   .goals-count { white-space: normal; padding-left: 32px; }
   .goal-row { flex-wrap: wrap; }
   .goal-title { flex: 1 1 60%; white-space: normal; }
