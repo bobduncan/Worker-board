@@ -19,7 +19,7 @@ const html = await readFile(join(PUBLIC, 'index.html'), 'utf8')
 const css = await readFile(join(PUBLIC, 'board.css'), 'utf8')
 const made = {}
 vm.runInNewContext(`${script.slice(script.indexOf('// vision:start'), script.indexOf('// vision:end'))}
-Object.assign(this, { visionView, OWN_WORDS, visionStart, visionStartWords, visionStartWait, visionStartProblem })`, made)
+Object.assign(this, { visionView, OWN_WORDS, visionStart, visionStartWords, visionStartWait, visionStartProblem, planBadge })`, made)
 const visionView = (...args) => JSON.parse(JSON.stringify(made.visionView(...args)))
 const visionStart = (...args) => JSON.parse(JSON.stringify(made.visionStart(...args)))
 
@@ -300,7 +300,7 @@ test('while the partner prepares: Go deeper waits on its card, Get options shows
   const view = visionView(busy, UI)
   assert.deepEqual(view.cards.map(card => [card.id, card.deeperWork]), [['P1', null], ['P2', 'working'], ['P5', null], ['P6', null], ['P7', null]])
   assert.equal(view.slides.find(slide => slide.id === 'P6').isAsked, true)
-  assert.deepEqual(view.busy, { marks: true, featureAdd: false, confirms: false, goalsChange: false, agree: false, standards: false, standardConfirms: false, standardsChange: false, standardsAgree: false, check: false, focus: false, tradeoffs: false })
+  assert.deepEqual(view.busy, { marks: true, featureAdd: false, confirms: false, goalsChange: false, agree: false, standards: false, standardConfirms: false, standardsChange: false, standardsAgree: false, check: false, focus: false, tradeoffs: false, strategy: false })
   assert.deepEqual(view.working.map(one => [one.command, one.title, one.state]), [['plan-deeper', 'Look', 'working'], ['plan-ask', 'Where', 'waiting'], ['plan-marks', null, 'working'], ['plan-goals-agree', null, 'late']])
   assert.match(script, /'Preparing questions…'/)
   assert.match(css, /\.vision-spinner \{/)
@@ -333,7 +333,7 @@ test('the Vision tab sits beside Overview, with its view, its address and its st
   // A standard's card in two parts, the bar set apart; what the goals need is a muted line, not a bar point; how the
   // things get built (the foundation, the hours) is not on the card (the user, 2026-10-21: "it's a standard, not a step").
   assert.match(script, /'The bar: what each one must meet'/)
-  assert.doesNotMatch(script, /'To get there'|Foundation first|withoutHours/)
+  assert.doesNotMatch(script, /'To get there'|\*\*Foundation first:\*\*|withoutHours/)
   assert.match(script, /`Needed: \$\{card\.count\}`/)
   assert.match(css, /\.vision-part\.is-bar \{/)
   // The Focus page no longer carries the plan.
@@ -365,7 +365,7 @@ test('the guided path: a decision per slide with its step, its buttons, sent onc
   const focused = visionView(checked.path === undefined ? null : planState(`${PAGE}\n## Next focus\n\n- Proposed: G3 · Two benches\n`, ITEMS, 'p.md'), UI, { id: 'G3', title: 'Two benches', doneWhen: 'sat on both', stage: 'run' })
   assert.deepEqual([focused.focus.current, focused.focus.proposal.isCurrent, focused.slides.some(one => one.id === 'focus:G3')], [{ id: 'G3', title: 'Two benches', doneWhen: 'sat on both', stage: 'run' }, true, false])
   assert.match(script, /function focusStepPage\(view, can, off\)/)
-  assert.match(script, /'Check the plan'/)
+  assert.match(script, /'Recommend again'/)
 })
 
 test('the tradeoffs: a complex feature later or not sure, the partner\'s advice, your choice; the step and the plan wait for every choice', () => {
@@ -451,4 +451,58 @@ test("a card whose next question the partner prepares from your answer shows a l
   const busy = slideOf([{ command: 'plan-answer', about: 'P1', at: 1, state: 'working', what: 'the next question from your answer' }])
   assert.deepEqual([busy.isAsked, busy.isFromAnswer], [true, true])
   assert.match(script, /Your partner is preparing the next question\./)
+})
+
+test('the plan step: the strategy choice, change badges, Not now, only what changes (2026-10-24)', () => {
+  const page = [
+    '# P', '', '## P1 · What', '- State: decided (you, 2026-10-24)', '', '## Goals preset', '',
+    'Strategy advice: Playable first · you want to feel it early', '',
+    '### M1 · One fight', '- Change: rename One fight you can play', '- Cause: shorter', '',
+    '#### S1 · Play one fight', '- Change: new', '- Sub: Move a squad', '- Sub: Enemies act', '',
+    '#### S2 · Palette', '- Change: merge G4, G6', '- Cause: the look is cozy (P3)', '- Steps: B12 and B14 move here', '',
+    '#### S3 · Turn order', '- Change: move G9 from M2', '',
+    '#### S4 · Kept', '- Goal: G5', '',
+    '#### S5 · Lighting', '- Change: drop G7', '- State: not now (you, 2026-10-24)', '',
+    '### M2 · A run', '', '#### S6 · Three fights', '- Goal: G8', '',
+  ].join('\n')
+  const goals = ui => visionView(planState(page, [], 'p.md'), { ...UI, page: 'plan', ...ui }).goals
+  const all = goals({})
+  // No strategy chosen yet: the four, the advised one marked; the plan waits for your pick.
+  assert.equal(all.strategy, null)
+  assert.deepEqual(all.strategies.map(one => [one.name, one.isAdvised]), [['Playable first', true], ['Foundation first', false], ['Scale first', false], ['Risk first', false]])
+  assert.equal(all.strategyAdvice.why, 'you want to feel it early')
+  // The badges: milestone and goals.
+  const [m1, m2] = all.milestones
+  assert.deepEqual(m1.badge, { label: 'Renamed', tone: 'change' })
+  assert.equal(m1.cause, 'shorter')
+  assert.deepEqual(m1.goals.map(goal => goal.badge?.label ?? null), ['New', 'Merges G4 and G6', 'Moved from M2', null, 'Drop'])
+  assert.deepEqual(m1.goals.map(goal => goal.badge?.tone ?? null), ['new', 'change', 'change', null, 'drop'])
+  assert.deepEqual([m1.goals[1].cause, m1.goals[1].steps], ['the look is cozy (P3)', 'B12 and B14 move here'])
+  assert.equal(m1.goals[4].state, 'later')
+  // The changes that wait for you: the milestone and the goals not decided (S5 is set aside for now).
+  assert.equal(all.changes, 4)
+  assert.deepEqual(goals({ onlyChanges: true }).totals, { milestones: 2, goals: 6 })
+  // A goal set aside is no decision that waits, and does not hold the step's tick; your Yes counts before it.
+  const view = visionView(planState(page, [], 'p.md'), { ...UI, page: 'plan' })
+  assert.ok(!view.slides.some(slide => slide.id === 'S5'))
+  assert.equal(visionView(planState(page, [], 'p.md'), { ...UI, page: 'plan', confirms: ['S5'] }).goals.milestones[0].goals[4].state, 'confirming')
+  // Only what changes: kept goals and a milestone without changes go.
+  const only = goals({ onlyChanges: true })
+  assert.equal(only.onlyChanges, true)
+  assert.deepEqual(only.milestones.map(one => [one.id, one.goals.map(goal => goal.id)]), [['M1', ['S1', 'S2', 'S3', 'S5']]])
+  assert.equal(m2.badge, null)
+  // An unknown change is shown in its own words.
+  const badge = change => JSON.parse(JSON.stringify(made.planBadge(change)))
+  assert.deepEqual(badge({ kind: 'other', text: 'frobnicate G1' }), { label: 'frobnicate G1', tone: 'change' })
+  assert.equal(badge({ kind: 'keep', text: 'G1' }), null)
+  assert.deepEqual(badge({ kind: 'split', text: 'G12' }), { label: 'Splits G12', tone: 'change' })
+})
+
+test('the Plan step draws the strategy choice, the overview, labels and Not now (2026-10-24)', () => {
+  for (const words of ["Your partner's plan to make this real", 'How should your partner lay the plan?', 'Lay the plan', 'Change strategy', 'Only what changes', 'Overview · click a goal to see its card', 'Not now', 'Because: ', 'Its steps: '])
+    assert.ok(script.includes(words), words)
+  for (const act of ['pick-strategy', 'lay-plan', 'change-strategy', 'only-changes', 'not-now', 'show-goal'])
+    assert.ok(script.includes(`act === '${act}'`), act)
+  assert.match(script, /function planOverview\(/)
+  assert.match(css, /\.plan-badge\.is-drop/)
 })

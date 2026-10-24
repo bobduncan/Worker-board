@@ -131,7 +131,10 @@ export function parsePlan(text) {
   // focus ("## Next focus").
   let check = null
   let nextFocus = null
-  if (typeof text !== 'string') return { pitch, answers, features, milestones, standards, log, check, nextFocus }
+  // 2026-10-24: the strategy the plan is laid in, and the partner's advice for it before you chose.
+  let strategy = null
+  let strategyAdvice = null
+  if (typeof text !== 'string') return { pitch, answers, features, milestones, standards, log, check, nextFocus, strategy, strategyAdvice }
   let current = null
   let kind = null
   let section = 'top'
@@ -172,15 +175,16 @@ export function parsePlan(text) {
     }
     const milestone = section === 'preset' ? raw.match(/^###\s+(M\d+\+?)\s*[·:-]\s*(.*)$/) : null
     if (milestone !== null) {
-      milestones.push({ id: milestone[1], title: milestone[2].trim(), goals: [] })
-      current = null
-      kind = null
+      // 2026-10-24: a milestone a plan change touches carries its change and cause, as a goal does.
+      current = { id: milestone[1], title: milestone[2].trim(), goals: [], change: null, cause: '', pictures: [] }
+      milestones.push(current)
+      kind = 'milestone'
       field = null
       continue
     }
     const goal = section === 'preset' && milestones.length > 0 ? raw.match(/^####\s+(S\d+)\s*[·:-]\s*(.*)$/) : null
     if (goal !== null) {
-      current = { id: goal[1], title: goal[2].trim(), state: 'proposed', by: null, at: null, doneWhen: '', serves: [], pictures: [], subs: [], goal: null, why: '' }
+      current = { id: goal[1], title: goal[2].trim(), state: 'proposed', by: null, at: null, doneWhen: '', serves: [], pictures: [], subs: [], goal: null, why: '', change: null, cause: '', steps: '' }
       milestones.at(-1).goals.push(current)
       kind = 'goal'
       field = null
@@ -199,6 +203,20 @@ export function parsePlan(text) {
       else if (word === 'gap') log.gaps += 1
       else log.overturned += 1
       log.lines.push({ kind: word, id: entry[2] ?? null, text: entry[3].trim() })
+      continue
+    }
+    // 2026-10-24: "Strategy: <name> (<who>, <date>) · <why>" and "Strategy advice: <name> · <why>".
+    const advised = section === 'preset' ? raw.match(/^Strategy advice:\s*(.+)$/i) : null
+    if (advised !== null) {
+      const [name, ...why] = advised[1].split(' · ')
+      strategyAdvice = { name: name.trim(), why: why.join(' · ').trim() }
+      continue
+    }
+    const chosen = section === 'preset' ? raw.match(/^Strategy:\s*(.+)$/i) : null
+    if (chosen !== null) {
+      const [head, ...why] = chosen[1].split(' · ')
+      const { by, at } = sourceOf(head)
+      strategy = { name: head.replace(/\s*\([^)]*\)\s*$/, '').trim(), by, at, why: why.join(' · ').trim() }
       continue
     }
     // The plan check (2026-10-21): "Checked: (<date>) <what the partner proposed, or nothing missing>".
@@ -317,10 +335,14 @@ export function parsePlan(text) {
           const word = value.trim().toLowerCase().split(/\s/)[0]
           current.built = ['yes', 'partly'].includes(word) ? word : 'no'
         } else if (key === 'point') current.points.push(value.trim())
+      } else if (kind === 'milestone') {
+        if (key === 'change') current.change = changeOf(value)
+        else if (key === 'cause') current.cause = value.trim()
       } else if (kind === 'goal') {
         if (key === 'state') {
-          // "agreed (you, <date>; in the goal map)" is the partner's word for a goal confirmed and put in the map.
-          current.state = /^(confirmed|agreed)\b/i.test(value.trim()) ? 'confirmed' : 'proposed'
+          // "agreed (you, <date>; in the goal map)" is the partner's word for a goal confirmed and put in the map;
+          // "not now (you, <date>)" your Not now (2026-10-24).
+          current.state = /^(confirmed|agreed)\b/i.test(value.trim()) ? 'confirmed' : /^not now\b/i.test(value.trim()) ? 'later' : 'proposed'
           const { by, at } = sourceOf(value)
           Object.assign(current, { by, at })
         } else if (key === 'done when') { current.doneWhen = value.trim(); field = 'doneWhen' }
@@ -329,6 +351,10 @@ export function parsePlan(text) {
         // The plan check (2026-10-21): why the partner proposed this goal ("F7 had no goal").
         else if (key === 'why') current.why = value.trim()
         else if (key === 'goal') current.goal = /^G\d+$/.test(value.trim()) ? value.trim() : null
+        // 2026-10-24: a plan change: what it does to the goal map, why, and where the goal's steps go.
+        else if (key === 'change') current.change = changeOf(value)
+        else if (key === 'cause') current.cause = value.trim()
+        else if (key === 'steps') current.steps = value.trim()
       }
       continue
     }
@@ -343,7 +369,17 @@ export function parsePlan(text) {
     } else if (field === 'bar' && /^\s+\S/.test(raw)) setBar(current, raw.trim())
     else if (field !== null && /^\s+\S/.test(raw)) current[field] = `${current[field]} ${raw.trim()}`.trim()
   }
-  return { pitch, answers, features, milestones, standards, log, check, nextFocus }
+  return { pitch, answers, features, milestones, standards, log, check, nextFocus, strategy, strategyAdvice }
+}
+
+const CHANGES = ['new', 'keep', 'move', 'merge', 'split', 'drop', 'rename']
+
+/** A "- Change:" line: its kind (new, keep, move, merge, split, drop, rename, or other) and the rest of its words. */
+export function changeOf(value) {
+  const words = String(value ?? '').trim()
+  const [first = '', ...rest] = words.split(/\s+/)
+  const kind = first.toLowerCase()
+  return CHANGES.includes(kind) ? { kind, text: rest.join(' ') } : { kind: 'other', text: words }
 }
 
 /** An ask's title that names a part of the plan: "P5: ...", a deeper "P1.2: ...", a feature "F7: ...", a goal "S3: ...", a standard "K2: ...". */
@@ -385,7 +421,7 @@ function questionOf(ask) {
  */
 export function planState(text, items, path) {
   if (typeof text !== 'string' || text.trim() === '') return null
-  const { pitch, answers, features, milestones, standards, log, check, nextFocus } = parsePlan(text)
+  const { pitch, answers, features, milestones, standards, log, check, nextFocus, strategy, strategyAdvice } = parsePlan(text)
   const asked = (items ?? [])
     .filter(item => valueOf(item, 'Kind') === 'ask' && valueOf(item, 'State') === 'open' && QUESTION.test(String(valueOf(item, 'Title') ?? '')))
     .map(questionOf)
@@ -421,6 +457,8 @@ export function planState(text, items, path) {
     log: { hits: log.hits, gaps: log.gaps, overturned: log.overturned },
     // The new order (2026-10-21): the partner's last plan check, and the next focus it proposes (null: none).
     check, nextFocus, tradeoffs,
+    // 2026-10-24: the strategy the plan is laid in (null: not chosen yet), and the partner's advice for it.
+    strategy, strategyAdvice,
   }
 }
 
@@ -436,6 +474,8 @@ const WORK_WORDS = {
   'plan-tradeoffs': 'the tradeoffs', 'plan-tradeoff': 'your tradeoff',
   // 2026-10-24: the person's answer of a plan question, from which the partner prepares the card's next question.
   'plan-answer': 'the next question from your answer',
+  // 2026-10-24: the plan laid in the strategy you chose; a goal or milestone you set aside for now.
+  'plan-strategy': 'the plan in your strategy', 'plan-not-now': 'your not now',
 }
 
 /** The card a word answers ("P1" for an answer of "P1.2: ..."), when it is the person's answer of a plan question. */
