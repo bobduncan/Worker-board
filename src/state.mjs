@@ -1147,7 +1147,11 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
   // B424: the partner's helper (the list's "helper"), shown under the Advisor: no lane, no queue, no worker.
   const isHelper = chat => !chat.isLeftover && !chat.isMain && !isAdvisor(chat) && typeof list.helper === 'string' && chat.name.toLowerCase() === list.helper.toLowerCase()
   const helperChat = found.find(isHelper)
-  const names = found.filter(chat => !isAdvisor(chat) && !isHelper(chat) && !chat.isLeftover).map(chat => chat.name)
+  // The supervisor (spec 2026-10-24): the list's "supervisor", the chat whose sweeps look the board over. No lane, no
+  // queue, no worker: the board wakes it for a sweep and shows how it stands in the supervisor's section.
+  const isSupervisor = chat => !chat.isLeftover && !chat.isMain && !isAdvisor(chat) && !isHelper(chat) && typeof list.supervisor === 'string' && chat.name.toLowerCase() === list.supervisor.toLowerCase()
+  const supervisorChat = found.find(isSupervisor)
+  const names = found.filter(chat => !isAdvisor(chat) && !isHelper(chat) && !isSupervisor(chat) && !chat.isLeftover).map(chat => chat.name)
 
   // B296, B301: the backlog from the work store, the one source of the work. `store` is the line about it on the Backlog
   // tab and, when it cannot be read, on top of the page; `raw.work` is missing where the board has no store. Nothing is
@@ -1193,14 +1197,15 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
   // B425: the brief of the step a worker is on, built for that step only.
   const hasModels = Object.keys(runSettings(config).models).length > 0
   const briefOf = id => stepBrief(raw.work, id, goalMap, hasModels)
-  const workerChats = found.filter(chat => !isAdvisor(chat) && !isHelper(chat))
+  const workerChats = found.filter(chat => !isAdvisor(chat) && !isHelper(chat) && !isSupervisor(chat))
   const firstRead = workerChats.map(chat => card(chat, raw, { ...context, stepOf: stepOfChat, stepById, briefOf }))
   const firstAdvisor = advisorChat === undefined ? null : card(advisorChat, raw, context)
   const firstHelper = helperChat === undefined ? null : card(helperChat, raw, context)
+  const firstSupervisor = supervisorChat === undefined ? null : card(supervisorChat, raw, context)
 
   // B113: the plan's limits, from what is on this machine: the app's own file, what any chat looked up, and a
   // chat the app stopped. Reading them asks no chat and costs nothing. A pause by a note changes none of these.
-  const everyone = [...firstRead, firstAdvisor, firstHelper].filter(one => one !== null)
+  const everyone = [...firstRead, firstAdvisor, firstHelper, firstSupervisor].filter(one => one !== null)
   const limits = limitsOf({
     sample: parseUsageHistory(raw.usageText ?? null),
     readings: everyone.flatMap(one => one.usage),
@@ -1217,6 +1222,7 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
   const read = firstRead.map((lane, at) => (isLifted(lane) ? card(workerChats[at], raw, { ...context, stepOf: stepOfChat, stepById, briefOf, pauseOver }) : lane))
   const advisorCard = isLifted(firstAdvisor) ? card(advisorChat, raw, { ...context, pauseOver }) : firstAdvisor
   const helperCard = isLifted(firstHelper) ? card(helperChat, raw, { ...context, pauseOver }) : firstHelper
+  const supervisorCard = isLifted(firstSupervisor) ? card(supervisorChat, raw, { ...context, pauseOver }) : firstSupervisor
   // B299: a lane on a step of the store shows the step's title as the store holds it.
   // B292: without the note in brackets a migrated title kept.
   const titleOf = id => {
@@ -1258,6 +1264,14 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
   // B424: the helper's card, read as a worker's: one left "working" by a quit app is "Not running".
   const helperLane = helperCard === null ? null : (() => {
     const { usage, ...lane } = helperCard
+    const shown = { ...lane, suspended: heldUntil(lane.suspended, limits, now) }
+    const writtenAt = raw.tails?.[lane.session]?.modifiedAt ?? null
+    return isStaleWork({ state: shown.state, isRunning: runningOf(lane.name), writtenAt, appStartedAt, now }) ? offLane(shown, writtenAt) : shown
+  })()
+
+  // The supervisor's chat, read as the helper's: one left "working" by a quit app is "Not running".
+  const supervisorLane = supervisorCard === null ? null : (() => {
+    const { usage, ...lane } = supervisorCard
     const shown = { ...lane, suspended: heldUntil(lane.suspended, limits, now) }
     const writtenAt = raw.tails?.[lane.session]?.modifiedAt ?? null
     return isStaleWork({ state: shown.state, isRunning: runningOf(lane.name), writtenAt, appStartedAt, now }) ? offLane(shown, writtenAt) : shown
@@ -1564,7 +1578,7 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
     readAt: now,
     // Clear after each step: the sessions the chats went on from, while the app still names them (read on to their ends).
     movedFrom: found.filter(chat => !chat.isLeftover && movedBack.has(chat.cliSessionId)).map(chat => ({ session: movedBack.get(chat.cliSessionId), name: chat.name })),
-    spendingSubjects: found.filter(chat => !chat.isLeftover).map(chat => ({ session: chat.cliSessionId, appSession: chat.appSessionId, name: chat.name, model: chat.model, effort: chat.effort, role: chat.isMain ? 'main' : isAdvisor(chat) ? 'advisor' : isHelper(chat) ? 'helper' : 'worker' })),
+    spendingSubjects: found.filter(chat => !chat.isLeftover).map(chat => ({ session: chat.cliSessionId, appSession: chat.appSessionId, name: chat.name, model: chat.model, effort: chat.effort, role: chat.isMain ? 'main' : isAdvisor(chat) ? 'advisor' : isHelper(chat) ? 'helper' : isSupervisor(chat) ? 'supervisor' : 'worker' })),
     routing: { mode: config.routing?.ok === false ? 'invalid' : config.routing?.policy?.mode ?? 'off', problem: config.routing?.why ?? null, readiness: enforcementReadiness(null) },
     refreshSeconds: config.refreshSeconds,
     estimateOldMs: config.estimateOldMinutes * MIN,
@@ -1682,7 +1696,7 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
     // workers there are, and the newest ask for workers.
     workers: (() => {
       // B152: a worker that was removed is no worker any more, also while its lane still says so.
-      const workerChats = found.filter(chat => !chat.isLeftover && !chat.isMain && !isAdvisor(chat) && !isHelper(chat) && chat.removedAt === null)
+      const workerChats = found.filter(chat => !chat.isLeftover && !chat.isMain && !isAdvisor(chat) && !isHelper(chat) && !isSupervisor(chat) && chat.removedAt === null)
       return {
         main: main === undefined ? null : main.name,
         mainTitle: context.main.mainTitle,
@@ -1714,6 +1728,19 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
       asksYou: helperLane.state === 'waiting' || waits.asking.has(helperLane.name.toLowerCase()),
       isRunning: helperLane.state === 'off' ? false : runningOf(helperLane.name),
     },
+    // The supervisor (spec 2026-10-24): the chat that sweeps (the list's "supervisor"): how it stands, for its sweeps.
+    supervisorChat: supervisorLane === null ? null : {
+      name: supervisorLane.name,
+      session: supervisorLane.session,
+      appSession: supervisorLane.appSession,
+      model: supervisorLane.model ?? null,
+      effort: supervisorLane.effort ?? null,
+      state: supervisorLane.state,
+      compaction: supervisorLane.compaction ?? null,
+      isRunning: supervisorLane.state === 'off' ? false : runningOf(supervisorLane.name),
+    },
+    // The supervisor: the name the list gives the chat that sweeps, also while no chat of that name is open.
+    supervisorName: typeof list.supervisor === 'string' ? list.supervisor : null,
     // B212: no Workers mod has asked this board for its words since it started: what is sent is copied for the person
     // to paste instead (null on a board that does not deliver). `chatPrefix` makes a chat's name its title.
     bridge: isBridgeMissing === null ? null : { isMissing: isBridgeMissing },

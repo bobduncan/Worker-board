@@ -198,6 +198,14 @@ test('old-mod: a chat on a Workers mod older than the one installed trips; the s
   assert.deepEqual(check('old-mod', board({ Painter: '0.15.1' })), [])
 })
 
+test('the review: old-mod counts a chat whose mod asked without saying its version (null) as older than 0.16.0, once that is installed', () => {
+  const board = (installed, chats) => view({ chats: [LEAD, lane('Painter'), lane('Mason')], mods: { installed, chats } })
+  const found = check('old-mod', board('0.16.0', { Painter: null, Mason: '0.16.0' }))
+  assert.deepEqual(found.map(one => [one.key, one.subject, one.text]), [['old-mod Painter before 0.16.0', 'Painter', 'Painter runs the Workers mod older than 0.16.0; 0.16.0 is installed']])
+  // While an older mod is installed, no chat says its version: nothing to report.
+  assert.deepEqual(check('old-mod', board('0.15.0', { Painter: null, Mason: null })), [])
+})
+
 test('Review Focus 1: a rule that throws is one finding "rule <id> failed" and the other rules still run', () => {
   const boom = { id: 'boom', kind: 'watch', says: 'a rule with bad data', check: () => { throw new Error('cannot read the file') } }
   const board = view({ chats: [LEAD, lane('Painter', { state: 'unknown' })], today: [span('Painter', 'unknown', 30)] })

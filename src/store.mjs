@@ -42,7 +42,8 @@ const TAKEN_SHOWN_MS = 10 * 60_000
 // B285: so does the word that a step the main chat queued is refined: it waits until the main chat takes it.
 // B300: and the work store's line that a step is a chat's: it is sent once, never again (src/work/deliver.mjs).
 // The review of Pause 2: the time the person's pause held it (`keep.pause`, pause.json's record) does not count.
-export const isLate = (message, now, keep) => now - message.at - heldMs(message, now, keep.pause ?? null) > (isAnswer(message) || ['step', 'refined', 'work'].includes(message.command) ? keep.answerMs : keep.messageMs)
+// The supervisor (2026-10-24): and an incident's word to the partner, which waits for a partner that does not run.
+export const isLate = (message, now, keep) => now - message.at - heldMs(message, now, keep.pause ?? null) > (isAnswer(message) || ['step', 'refined', 'work', 'incident'].includes(message.command) ? keep.answerMs : keep.messageMs)
 
 /**
  * What was sent from the page, as the board sees it now. A message that waited too long is `expired` and never
