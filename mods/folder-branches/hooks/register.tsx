@@ -1452,7 +1452,9 @@ const WORK_TOOL = {
     + 'name of a chat moves to its new name, for a rename the board could not follow itself (a chat replaced by a new one). '
     + '"partner-answer" ("id", "text", "why"): the partner answers an ask the board routed to it for the person ("text" its '
     + 'answer, normally the advice; "why" one line); the asking chat is woken as with the person\'s answer, and the answer '
-    + 'stands in the partner\'s daily note with an Undo. "escalate" ("id", "why"): the partner hands a routed ask to the person.',
+    + 'stands in the partner\'s daily note with an Undo. "escalate" ("id", "why"): the partner hands a routed ask to the person. '
+    + '"health": the supervisor chat reads the board\'s health summary. "incident" ("title", "subject", "evidence", "rule", "key"): '
+    + 'the supervisor chat files what looks wrong; the same "key" again only counts it.',
   inputSchema: {
     type: 'object',
     properties: {
@@ -1476,7 +1478,7 @@ const WORK_TOOL = {
       result: { type: 'string', description: 'report: what the person gets now, in a line.' },
       merged: { type: 'string', description: 'report: the commit it was merged with.' },
       on: { type: 'string', description: 'block, unblock: the step it waits on; unblock without it clears Waits for.' },
-      title: { type: 'string', description: "new: the step's title." },
+      title: { type: 'string', description: "new: the step's title. incident: what looks wrong, in one plain line." },
       activity: { type: 'string', description: 'new: the activity it belongs under.' },
       goal: { type: 'string', description: 'new, refine: the goal it serves (G17); vibe-draft, how-draft: the focus goal.' },
       for: { type: 'string', description: 'queue: the chat it is for.' },
@@ -1490,7 +1492,10 @@ const WORK_TOOL = {
       standard: { type: 'string', description: 'refine, refined and new: what the step\'s result is checked against, "<kind> · <reference picture> · target <score>" (a kind of the project\'s settings), or "none (<why>)".' },
       model: { type: 'string', description: 'refine, refined and new: the model the worker runs the step on, "<sonnet or opus>: <why, in one line of at most 200 characters>"; opus only for architecture or design decisions, the board\'s core, unclear or repeated bugs, art direction or judging; a step without one runs on sonnet.' },
       effort: { type: 'string', description: 'refine, refined and new: the effort level the worker runs the step at, "<low, medium, high, xhigh or max>: <why, in one line of at most 200 characters>"; a step without one runs at medium.' },
-      evidence: { type: 'string', description: 'checked: the evidence picture\'s path in the project (the result beside its reference, the points ticked), or "none (<why>)".' },
+      evidence: { type: 'string', description: 'checked: the evidence picture\'s path in the project (the result beside its reference, the points ticked), or "none (<why>)". incident: what you saw, in one line, with times and ids.' },
+      subject: { type: 'string', description: 'incident: the chat or the step it is about ("Worker 2", "B482"), or "board".' },
+      rule: { type: 'string', description: 'incident: the code rule that could catch it next time, in one line ("a worker working with no step for 30 min").' },
+      key: { type: 'string', description: 'incident: what makes it the same finding next time, "<what> <subject>" ("working-without-step Worker 2"); the key of an incident the summary lists counts that one.' },
       points: { type: 'array', items: { type: 'string' }, description: 'checked: every agreed point of the step, each "pass: <point>", "fail: <point>" or "ask: <point>" (a point only the person can judge).' },
       score: { type: 'string', description: 'checked: the score beside its target, "82 of 75", where the kind\'s definition of done has a rubric.' },
       questions: { type: 'array', items: { type: 'string' }, description: 'refine: the questions for the person.' },

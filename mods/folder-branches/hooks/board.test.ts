@@ -96,9 +96,18 @@ describe('Model per step: a step\'s model with the work tool', () => {
 })
 
 describe('Partner answers: the partner answers a routed ask for the person, or hands it to them', () => {
-  test('partner-answer and escalate are actions of the tool, at its end, with id, text and why', () => {
-    expect(WORK_ACTIONS.slice(-2)).toEqual(['partner-answer', 'escalate'])
+  test('partner-answer and escalate are actions of the tool, after rename, with id, text and why', () => {
+    const at = WORK_ACTIONS.indexOf('rename')
+    expect(WORK_ACTIONS.slice(at + 1, at + 3)).toEqual(['partner-answer', 'escalate'])
     for (const field of ['id', 'text', 'why']) expect(WORK_FIELDS.includes(field)).toBe(true)
+  })
+})
+
+describe('the supervisor: its chat reads the health summary and files incidents with the work tool', () => {
+  test('health and incident are actions of the tool, with the title, subject, evidence, rule and key of an incident', () => {
+    expect(WORK_ACTIONS.includes('health')).toBe(true)
+    expect(WORK_ACTIONS.includes('incident')).toBe(true)
+    for (const field of ['title', 'subject', 'evidence', 'rule', 'key']) expect(WORK_FIELDS.includes(field)).toBe(true)
   })
 })
 

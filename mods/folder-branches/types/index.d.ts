@@ -101,7 +101,7 @@ export type ChatList = {
 export type AfterStep = 'clear' | 'compact' | 'off'
 
 /** The role the worker board gives a chat of its list. */
-export type BoardRole = 'main' | 'worker' | 'advisor' | 'helper'
+export type BoardRole = 'main' | 'worker' | 'advisor' | 'helper' | 'supervisor'
 
 /** The chats as last read. */
 export type ChatsView = {

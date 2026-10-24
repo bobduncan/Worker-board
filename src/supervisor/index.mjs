@@ -6,7 +6,9 @@
 // repairs only through the repairs the self-check had: unblock, hand a step on, wake a chat, a word to the main chat,
 // clean a worktree.
 
-import { SYNC_EVERY_MS, syncRunner } from './loop.mjs'
+import { healthSummary } from './health.mjs'
+import { SYNC_EVERY_MS, memoryOf, syncRunner } from './loop.mjs'
+import { buildView } from './view.mjs'
 import { REFUSED_MS, REPAIR_RULES } from './rules/repair.mjs'
 import { WATCH_RULES } from './rules/watch.mjs'
 import { incidentsOf, linesOwed, recordFindings } from './incidents.mjs'
@@ -33,7 +35,7 @@ const personWords = (incident, isBack) => `Supervisor: ${isBack ? `${incident.id
  * `supervisor` thresholds), `timers` (`setInterval`, `clearInterval`; the global ones unless given), and for the watch
  * rules `memory` (`load()`, `save(value)`: the supervisor's own file) and `mods()` (the Workers mod installed and per
  * chat).
- * Answers `{ start(), run({ asked, subject }), view(now), stop() }`: `start` runs the list every SYNC_EVERY_MS while this
+ * Answers `{ start(), run({ asked, subject }), health(), view(now), stop() }`: `start` runs the list every SYNC_EVERY_MS while this
  * process holds the project's loop; `run` runs it at once (the person's "Out of sync?") and answers today's `{ at, asked,
  * rows, fine }`, or null when another board process holds the loop or the run failed (recorded as the loop "sync");
  * `view(now)` is `{ run, checkedAt, rules, incidents, lastSweep }`: the run the page shows (the newest asked, or one
@@ -86,6 +88,19 @@ export function createSupervisor(ports) {
       const mine = await owns().catch(error => { loops.failed('sync', error); return false })
       if (!mine) return null
       return afterRun(await runner.run({ asked, subject }).catch(error => { loops.failed('sync', error); return null }))
+    },
+    /**
+     * The supervisor's Task 5: the board's health summary (health.mjs) for the supervisor chat's sweep (`work health`),
+     * from a view built now: the board's state, the store, the outbox and the repairs of the day in its memory.
+     */
+    async health() {
+      const now = runnerPorts.now()
+      const kept = typeof runnerPorts.memory?.load === 'function' ? await runnerPorts.memory.load() : null
+      const view = buildView({
+        state: await runnerPorts.state(), items: await runnerPorts.items(), outbox: runnerPorts.outbox(), repairs: memoryOf(kept).repairs,
+        settings: settings.supervisor ?? {}, now,
+      })
+      return healthSummary(view, now)
     },
     view: now => {
       const { at, rules } = runner.status()

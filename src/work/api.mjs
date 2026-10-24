@@ -38,7 +38,7 @@ export { overlapsIn, sinceMs }
 /** B412: whether an action only reads: its answer is not kept by request (src/work/requests.mjs). */
 export const isReadAction = action => READS.has(action)
 
-const READS = new Set(['next', 'list', 'pause-state', ...ROUTING_READS])
+const READS = new Set(['next', 'list', 'pause-state', 'health', ...ROUTING_READS])
 const CHANGES = new Set(['incident', 'incident-fix', 'incidents-fixed', 'take', 'step', 'ask', 'withdraw', 'answered-in-chat', 'read', 'note', 'report', 'block', 'unblock', 'new', 'queue', 'close', 'drop', 'refine', 'refined', 'answer', 'tick', 'delete', 'refine-answer', 'refine-accept', 'check', 'checked', 'instruction', 'turn-ended', 'pull', 'advance', 'requeue', 'unqueue', 'recheck', 'undo', 'rename', 'pause-all', 'resume-all', 'resumed', 'end-resume', 'overturn', 'seen', 'approve-recaps', 'partner-answer', 'escalate', 'partner-answers', 'recheck-stuck'])
 /**
  * Focus 2: the partner's drafts of the focus goal's vibe and how. They change the goal map, not the store: the board's
@@ -72,6 +72,8 @@ const ROLES = {
   // partner names the step that fixes it.
   incident: ['server', 'supervisor'],
   'incident-fix': ['advisor'],
+  // The supervisor's Task 5: the board's health summary, for the supervisor chat's sweep (src/supervisor/health.mjs).
+  health: ['supervisor'],
 }
 /**
  * The supervisor: what its chat may do. It reads, and files incidents; it never changes anything else (spec, section 5).
@@ -190,6 +192,7 @@ async function act(body, ctx) {
   if (SERVER.has(action) && role !== 'server') return refuse(403, 'Only the board does that.')
   if (ROLES[action] !== undefined && !ROLES[action].includes(role)) return refuse(403, `Only ${ROLES[action].join(' or ')} ${action === 'new' ? 'makes a step' : `may ${action}`}.`)
   if (GOAL_MAP.has(action)) return goalDraft(body, ctx)
+  if (action === 'health') return healthOf(ctx)
 
   let store
   try {
@@ -233,6 +236,21 @@ async function goalDraft(body, ctx) {
   const done = await ctx.goalDraft(draft)
   if (!done.ok) return done
   return { ok: true, result: { text: `The board keeps the ${isVibe ? 'vibe' : 'how'} of ${goal} in the goal map.`, changed: false } }
+}
+
+/**
+ * The supervisor's Task 5: the board's health summary for the supervisor chat's sweep, made by the supervisor
+ * (`ctx.health()`, the server's port: src/supervisor/health.mjs). It reads; the store is not changed.
+ */
+async function healthOf(ctx) {
+  if (typeof ctx.health !== 'function') return refuse(409, 'This board runs no supervisor: it has no health summary.')
+  try {
+    const text = await ctx.health()
+    if (typeof text !== 'string' || text === '') return refuse(503, 'The board has no health summary now: another board process of this project runs its checks.')
+    return { ok: true, result: { text, changed: false } }
+  } catch (error) {
+    return refuse(503, `The health summary could not be made: ${error instanceof Error ? error.message : String(error)}`)
+  }
 }
 
 // ---- reading ----

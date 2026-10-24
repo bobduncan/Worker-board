@@ -9,6 +9,15 @@ import { pictureLine } from './talkPicture.mjs'
 const refuse = (status, why) => ({ ok: false, status, why })
 
 /**
+ * The chats the board shows by name: the lanes (no leftover), the partner, its helper (B424) and the supervisor's chat
+ * (spec 2026-10-24); each takes its own words and works with the work tool.
+ */
+export const shownChats = state => [
+  ...(state.chats ?? []).filter(one => !one.isLeftover), ...(state.advisor ? [state.advisor] : []), ...(state.advisorHelper ? [state.advisorHelper] : []),
+  ...(state.supervisorChat ? [state.supervisorChat] : []),
+]
+
+/**
  * What the mod asks: the messages for the chat it runs in. It gives the chat's name and its session's id, and it
  * is served only when the board shows that very session under that name: of two chats with one title, or an old
  * and a new one, only the one on the board takes. `state` is the board's state.
@@ -19,7 +28,7 @@ export function checkTake(body, state) {
   const session = typeof body.session === 'string' ? body.session.trim() : ''
   if (chat === '' || chat.length > 80 || session === '' || session.length > 120) return refuse(400, 'Name the chat and its session.')
   // B424: the partner's helper takes its words as the Advisor does.
-  const shown = [...(state.chats ?? []).filter(one => !one.isLeftover), ...(state.advisor ? [state.advisor] : []), ...(state.advisorHelper ? [state.advisorHelper] : [])].find(one => one.name === chat)
+  const shown = shownChats(state).find(one => one.name === chat)
   if (shown === undefined || (shown.session ?? null) !== session) return refuse(409, notShown(state, session))
   return { ok: true, chat }
 }
@@ -31,7 +40,7 @@ export function checkTake(body, state) {
  */
 function notShown(state, session) {
   const why = 'Not the chat the board shows under that name.'
-  const shown = [...(state.chats ?? []).filter(one => !one.isLeftover), ...(state.advisor ? [state.advisor] : []), ...(state.advisorHelper ? [state.advisorHelper] : [])]
+  const shown = shownChats(state)
   const mine = shown.find(one => (one.session ?? null) === session)
   const name = typeof mine?.name === 'string' ? mine.name.trim() : ''
   return name === '' || name.length > 80 ? why : `${why} The board shows this session as ${JSON.stringify(name)}.`
@@ -43,19 +52,20 @@ function notShown(state, session) {
  */
 export function isUnknownSession(body, state) {
   const session = typeof body?.session === 'string' ? body.session.trim() : ''
-  const shown = [...(state.chats ?? []).filter(one => !one.isLeftover), ...(state.advisor ? [state.advisor] : []), ...(state.advisorHelper ? [state.advisorHelper] : [])]
+  const shown = shownChats(state)
   return session !== '' && !shown.some(one => (one.session ?? null) === session)
 }
 
-/** The role the board gives a chat of its list, as the work store does: main, worker, advisor or helper; null for none. */
+/** The role the board gives a chat of its list, as the work store does: main, worker, advisor, helper or supervisor; null for none. */
 export function laneRole(state, name) {
   const roles = new Map((state.chats ?? []).filter(lane => !lane.isLeftover).map(lane => [lane.name, lane.isMain ? 'main' : 'worker']))
   if (state.advisor) roles.set(state.advisor.name, 'advisor')
   if (state.advisorHelper) roles.set(state.advisorHelper.name, 'helper')
+  if (state.supervisorChat) roles.set(state.supervisorChat.name, 'supervisor')
   return roles.get(name) ?? null
 }
 
-const ROLE_WORDS = { main: 'the main chat', advisor: 'the partner', helper: "the partner's helper" }
+const ROLE_WORDS = { main: 'the main chat', advisor: 'the partner', helper: "the partner's helper", supervisor: "the supervisor's chat" }
 
 /**
  * Clear after each step: why the board does not keep the log of a chat the Workers mod wants to clear (and the mod

@@ -14,7 +14,7 @@ import vm from 'node:vm'
 
 import { answer, assistant, step, text, tool, typed } from '../fixtures/lines.mjs'
 import { parseList } from '../src/appChats.mjs'
-import { checkTake } from '../src/bridge.mjs'
+import { checkTake, shownChats } from '../src/bridge.mjs'
 import { parseConfig } from '../src/config.mjs'
 import { checkSay } from '../src/say.mjs'
 import { buildState } from '../src/state.mjs'
@@ -229,5 +229,7 @@ test('the Simple view lists the partner and its helper under the workers, apart 
 test('the server gives the helper its role, its words and its place in a pause, as it does the Advisor', () => {
   assert.ok(server.includes("if (state.advisorHelper) roles.set(state.advisorHelper.name, 'helper')"))
   assert.ok(server.includes('lanes: [...lanes, ...(state.advisor ? [state.advisor] : []), ...(state.advisorHelper ? [state.advisorHelper] : [])],'))
-  assert.ok(server.includes('...(state.advisor ? [state.advisor] : []), ...(state.advisorHelper ? [state.advisorHelper] : [])].some(chat => chat.name === wake.to)'))
+  // The supervisor (2026-10-24): the chats the board shows by name are one list in bridge.mjs (`shownChats`), the helper in it.
+  assert.ok(server.includes('shownChats(state).some(chat => chat.name === wake.to)'))
+  assert.equal(shownChats({ chats: [], advisorHelper: { name: 'Second' } })[0].name, 'Second')
 })

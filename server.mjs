@@ -30,7 +30,7 @@ import { fileURLToPath } from 'node:url'
 
 
 import { minutesOf } from './src/backlog.mjs'
-import { bridgeNote, checkTake, checkTyped, clearRefusal, isUnknownSession, messageText } from './src/bridge.mjs'
+import { bridgeNote, checkTake, checkTyped, clearRefusal, isUnknownSession, messageText, shownChats } from './src/bridge.mjs'
 import { chatLogKeeper, isReadOut, leftSubjects } from './src/chatLogs.mjs'
 import { findCodex, makePicture } from './src/codex.mjs'
 import { checkSetting, panelSettings, settingChanged } from './src/boardSettings.mjs'
@@ -671,6 +671,10 @@ async function main(args) {
       tell: wake => sendWakes({ ok: true, result: { wake } }),
     })
   }
+  // The supervisor (spec 2026-10-24): the board's own check of itself, B465's list of stuck states among it
+  // (src/supervisor), set up with the reconciler on a board that writes; null on a board that never runs it. B482,
+  // B488: it runs where the board's loops run (`ownsLoops`, its port `owns`).
+  let supervisor = null
   /**
    * B299: the chats an action on the store wakes (`wake`, `wakeOwner`, B449 `wakePartner`): the chat that asked, with the answer to its ask
    * (bridge.mjs, as the person's answer reads), and the owner of the step the answer frees. Partner answers (2026-10-19):
@@ -682,7 +686,7 @@ async function main(args) {
     let paste = null
     for (const wake of isShowOnly ? [] : wakes) {
       const state = await readState()
-      const shown = [...(state.chats ?? []).filter(chat => !chat.isLeftover), ...(state.advisor ? [state.advisor] : []), ...(state.advisorHelper ? [state.advisorHelper] : [])].some(chat => chat.name === wake.to)
+      const shown = shownChats(state).some(chat => chat.name === wake.to)
       if (!shown) continue
       const isCopied = state.bridge?.isMissing === true
       const words = typeof wake.line === 'string' ? { ...workWords(wake.to, wake.id, wake.line), kind: 'taken-back' } : answerWords(wake)
@@ -703,7 +707,11 @@ async function main(args) {
     if (state.advisor) roles.set(state.advisor.name, 'advisor')
     // B424: the partner's helper refines and checks as the partner does; no step is queued for it.
     if (state.advisorHelper) roles.set(state.advisorHelper.name, 'helper')
+    // The supervisor (spec 2026-10-24): its chat reads (work health) and files incidents, nothing else.
+    if (state.supervisorChat) roles.set(state.supervisorChat.name, 'supervisor')
     return {
+      // The supervisor's Task 5: the board's health summary for the supervisor chat's sweep (src/supervisor/health.mjs).
+      ...(supervisor === null ? {} : { health: () => supervisor.health() }),
       // Focus 2: the partner's drafts of the focus (the work tool's vibe-draft and how-draft) go into the goal map.
       goalDraft: body => focusNow(body),
       // B358: the partner's re-check of a goal (the work tool's checked of a G<n>), written into the goal map.
@@ -791,7 +799,7 @@ async function main(args) {
     readState.reset()
     return opened
   }
-  const workReads = new Set(['next', 'list', 'pause-state', 'route-state'])
+  const workReads = new Set(['next', 'list', 'pause-state', 'route-state', 'health'])
   /** One action on the store; after a change the board reads it anew, and after a report (or a recheck) it runs its own check. */
   const workAction = async (body, as) => {
     if (workDir === null) return { ok: false, status: 404, why: 'This board has no work store.' }
@@ -969,10 +977,6 @@ async function main(args) {
     refusedNames.set(`${name} ${session}`, { name, session, first: before?.first ?? clock(), at: clock() })
     for (const [key, one] of refusedNames) if (clock() - one.at >= REFUSED_MS) refusedNames.delete(key)
   }
-  // The supervisor (spec 2026-10-24): the board's own check of itself, B465's list of stuck states among it
-  // (src/supervisor), set up with the reconciler on a board that writes; null on a board that never runs it. B482,
-  // B488: it runs where the board's loops run (`ownsLoops`, its port `owns`).
-  let supervisor = null
 
   // The Design tab: an idea becomes a picture that Codex makes. Only here does the board start a program that
   // makes something: on the person's click, one at a time, with a time limit (see src/codex.mjs).
@@ -1830,7 +1834,7 @@ async function main(args) {
         const state = await readState()
         // B313: a chat renamed (its session under another name) takes its open items along, once.
         const renamed = await followRenames({
-          dir: workDir, chats: [...(state.chats ?? []), ...(state.advisor ? [state.advisor] : []), ...(state.advisorHelper ? [state.advisorHelper] : [])].map(chat => ({ session: chat.session, name: chat.name })),
+          dir: workDir, chats: [...(state.chats ?? []), ...(state.advisor ? [state.advisor] : []), ...(state.advisorHelper ? [state.advisorHelper] : []), ...(state.supervisorChat ? [state.supervisorChat] : [])].map(chat => ({ session: chat.session, name: chat.name })),
           apply: body => workAction(body, 'server'), now: clock(), prefix: state.chatPrefix ?? '',
         })
         if (renamed.moved.length > 0) {

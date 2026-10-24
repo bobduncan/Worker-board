@@ -1298,6 +1298,25 @@ describe('B297: the work tool asks the worker board', () => {
     expect(JSON.parse(w.worked[1] ?? '{}')).toEqual({ action: 'how-draft', goal: 'G6', parts: ['Hit effects · about 2 h · steps B20'], partnerDecides: ['the colours'], youDecide: ['the sounds'], chat: 'Units', session: 'units' })
   })
 
+  test('the supervisor: its chat reads the health summary and files an incident, with its fields sent to the board', async ($, on) => {
+    mock.clock(on)
+    const w = world('watcher', { ...listed(), [BOARD]: board })
+    stand(on, w)
+    await $.session.start(START)
+    await $.classic.UserPromptSubmit({ prompt: 'sweep', session_title: 'Game - Watcher' })
+    await $.turn.start({ text: 'sweep', turnId: 't1' })
+    w.workAnswer = { status: 200, text: JSON.stringify({ text: 'The board\'s health at 11:00.', changed: false }) }
+    expect((await $.tool.call({ tool: WORK, action: 'health' } as never) as { result: string }).result).toBe('The board\'s health at 11:00.')
+    expect(JSON.parse(w.worked[0] ?? '{}')).toEqual({ action: 'health', chat: 'Watcher', session: 'watcher' })
+    w.workAnswer = { status: 200, text: JSON.stringify({ id: 'X4', text: 'X4: opened: Units works with no step for an hour', opened: true }) }
+    const filed = await $.tool.call({ tool: WORK, action: 'incident', title: 'Units works with no step for an hour', subject: 'Units', evidence: 'working since 10:00, card empty', rule: 'a worker working with no step for 30 min', key: 'working-without-step Units' } as never)
+    expect((filed as { result: string }).result).toBe('X4: opened: Units works with no step for an hour')
+    expect(JSON.parse(w.worked[1] ?? '{}')).toEqual({ action: 'incident', title: 'Units works with no step for an hour', subject: 'Units', evidence: 'working since 10:00, card empty', rule: 'a worker working with no step for 30 min', key: 'working-without-step Units', chat: 'Watcher', session: 'watcher' })
+    // Both are the tool's actions, and its description says what they are for.
+    expect(w.descriptions.work).toContain('"health": the supervisor chat reads the board\'s health summary')
+    expect(w.descriptions.work).toContain('"incident" ("title", "subject", "evidence", "rule", "key")')
+  })
+
   test('Fix first: new and queue carry priority fix to the board', async ($, on) => {
     mock.clock(on)
     const w = world('units', { ...listed(), [BOARD]: board })
