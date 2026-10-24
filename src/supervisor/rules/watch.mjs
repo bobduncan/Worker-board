@@ -351,7 +351,7 @@ function oddEffort(view) {
  * its fix was done or its ask point answered; the repair `unchecked` types the check word meanwhile), or its fix dropped
  * with none open (the repair `fix-dropped` tells the main chat). Counted from the end of the person's last pause.
  */
-function reviewWaits(view, ctx) {
+function reviewStuck(view, ctx) {
   const found = []
   if (isPaused(view)) return found
   const partner = view.partner?.name ?? 'the partner'
@@ -359,12 +359,12 @@ function reviewWaits(view, ctx) {
     const wait = reviewWaitOf(item, view.items)
     if (wait === null || !['check', 'dropped'].includes(wait.kind)) continue
     const id = idOf(item)
-    const key = wait.kind === 'check' ? `review-waits ${id} check` : `review-waits ${id} dropped ${wait.fix ?? 'none'}`
+    const key = wait.kind === 'check' ? `review-stuck ${id} check` : `review-stuck ${id} dropped ${wait.fix ?? 'none'}`
     const ms = lasted(view, ctx, key, afterPause(view, wait.since))
     if (ms <= view.settings.reviewMinutes * MIN) continue
     if (wait.kind === 'dropped') {
       found.push({
-        rule: 'review-waits', key, subject: id,
+        rule: 'review-stuck', key, subject: id,
         text: `${id} in review, but ${wait.text}: nothing will close it`,
         evidence: `${id} owned by ${valueOf(item, 'Owner') ?? 'nobody'}; ${wait.text} ${minutes(ms)} min ago; no other fix of it is open`,
       })
@@ -375,7 +375,7 @@ function reviewWaits(view, ctx) {
       && (message.command === 'result-check' || String(message.syncKey ?? '').startsWith('unchecked ')))
     const last = words.reduce((a, b) => (a === null || b.at > a.at ? b : a), null)
     found.push({
-      rule: 'review-waits', key, subject: id,
+      rule: 'review-stuck', key, subject: id,
       text: `${id} in review ${minutes(ms)} min with no result check filed (${wait.text})`,
       evidence: `since ${clockOf(view.now - ms)}; ${words.length === 0 ? `no check word to ${partner}` : `${words.length} check ${words.length === 1 ? 'word' : 'words'} to ${words[0].to ?? partner}, the last at ${clockOf(last.at)} (${last.state ?? 'not known'})`}`,
     })
@@ -396,5 +396,5 @@ export const WATCH_RULES = [
   { id: 'report-check-twice', kind: 'watch', says: 'a step whose board check failed twice', check: reportCheckTwice },
   { id: 'old-mod', kind: 'watch', says: 'a chat on an older Workers mod than the one installed', check: oldMod },
   { id: 'odd-effort', kind: 'watch', says: 'a chat whose effort is not a level', check: oddEffort },
-  { id: 'review-waits', kind: 'watch', says: 'a step in review with no result check for too long, or whose fix was dropped', check: reviewWaits },
+  { id: 'review-stuck', kind: 'watch', says: 'a step in review with no result check for too long, or whose fix was dropped', check: reviewStuck },
 ]

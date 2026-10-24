@@ -254,7 +254,8 @@ list does not know. Do it now, in this turn:
 - Fix at once what you can: a step held by a step that is finished or dropped: `work unblock B<id>` (with `on`, or
   without it for an `after` of words); a worker paused for the limit while the limit is back, or one that holds a step
   and is not working on it: wake it ("resume your step B<id> from your checkpoint"); a step queued for a worker that is
-  gone or stuck: `work requeue B<id>` to another; an ask nobody needs any more: its chat takes it back with
+  gone or stuck: `work requeue B<id>` to another; the board's note "Requeue B<id> to <worker>: queued <age> behind <busy
+  worker>" (B550): requeue it so, unless the step needs that worker (its branch, its context); an ask nobody needs any more: its chat takes it back with
   `work withdraw Q<id>` (ask it to; one with no asking chat you withdraw yourself, with a why); an ask the board routed
   to the partner that the partner leaves: wake the partner, or start its chat.
 - What you cannot fix (the board shows what neither the store nor the chat says, or the fix is in the board's code):

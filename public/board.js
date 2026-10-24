@@ -1278,7 +1278,9 @@ function whyText(why) {
     case 'suspended': return said('limit', why.isBack ? `${why.worker} has not gone on since the limit came back` : `${why.worker} is suspended${why.until === null ? '' : ` until ${clock(why.until)}`}`)
     case 'after': {
       if (!Array.isArray(why.steps)) return said('wait', `after ${why.words}`)
-      const [last, ...first] = [...why.steps].reverse()
+      // B542: a step in review is waited on for its check.
+      const checks = Array.isArray(why.checks) ? why.checks : []
+      const [last, ...first] = why.steps.map(id => (checks.includes(id) ? `the check of ${id}` : id)).reverse()
       return said('wait', `waits for ${first.length === 0 ? last : `${first.reverse().join(', ')} and ${last}`}`)
     }
     case 'busy': return said('wait', `${why.worker} is busy${why.leftMs === null ? '' : `, about ${span(why.leftMs)} left`}`)

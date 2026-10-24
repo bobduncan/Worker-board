@@ -93,6 +93,8 @@ const helps = body => HELPS.has(body.action) && !/^G\d+$/.test(String(body.actio
 /** The order of a chat's own steps in `next`: what it works on first. */
 const MINE = ['in progress', 'waiting on you', 'taken', 'review', 'queued']
 const STEP_ID = /^B\d+$/
+/** B542: the states of a step that no longer hold a step waiting for it. */
+const CLOSED_STEP = ['done', 'dropped']
 const ANY_ID = /^(?:[A-Z]\d+|L-[0-9a-f]{8})$/
 const ONLY_IDS = /^B\d+(?:(?:\s*,\s*|\s+and\s+)B\d+)*$/
 const TEXT_CHARS = 4000
@@ -269,8 +271,13 @@ function oneLine(item, items) {
   const waitOpen = waitIds(item).filter(isOpen)
   const waiting = words !== null ? `waiting: ${words}, until the main chat clears it`
     : waitOpen.length > 0 ? `waiting: ${valueOf(item, 'Waits for')}; ${waitOpen.map(id => `${id} is ${stateOf(items.get(id) ?? { head: new Map() }) ?? 'not in the store'}`).join(', ')}` : null
-  // B543: a step in review says what it waits for (its check, its fix B<n>).
-  const waits = [open.length > 0 ? `after ${open.join(', ')}` : null, waiting, reviewWaitOf(item, items)?.text ?? null].filter(Boolean)
+  // B542: a blocker in review waits only for its check, and the line says so.
+  const inReview = id => stateOf(items.get(id) ?? { head: new Map() }) === 'review'
+  const before = open.filter(id => !inReview(id))
+  const checks = open.filter(inReview)
+  const waits = [before.length > 0 ? `after ${before.join(', ')}` : null, checks.length > 0 ? `waits for the check of ${checks.join(', ')}` : null, waiting,
+    // B543: a step in review says what it waits for itself (its check, its fix B<n>).
+    reviewWaitOf(item, items)?.text ?? null].filter(Boolean)
   const missed = Number(valueOf(item, 'Missed') ?? 0)
   const turns = missed > 0 ? `, missed ${missed} turn${missed === 1 ? '' : 's'}` : ''
   const fix = isFix(item) ? ', board fix' : ''
@@ -467,7 +474,7 @@ async function take(body, w) {
   }
   const started = move(item, 'in progress', w.role, w)
   if (!started.ok) return started
-  item = started.item
+  item = clearedAtTake(started.item, w)
   const branch = line(body.branch, 120)
   if (branch !== '') {
     if (!/^[\w./-]+$/.test(branch)) return refuse(400, 'A branch is a name such as b12-the-strip.')
@@ -1543,10 +1550,46 @@ async function blockOn(body, w, isBlock) {
   if (on === id) return refuse(400, `${id} cannot wait on itself.`)
   const before = idsIn(valueOf(found.item, 'Blocked by'))
   const after = isBlock ? [...new Set([...before, on])] : before.filter(one => one !== on)
-  if (after.length === before.length && after.every((one, index) => one === before[index])) return { ok: true, result: { id, text: serializeItem(found.item), changed: false } }
-  const item = said(put(copy(found.item), 'Blocked by', after.join(' and ')), w, `${isBlock ? 'blocked by' : 'no longer blocked by'} ${on}${serverWhy(body, w)}`)
+  // B542: a `Waits for` naming `on` whose every step is done or dropped no longer holds: unblock clears it too.
+  const waits = isBlock ? null : closedWaits(found.item, on, w.store.items)
+  const isSame = after.length === before.length && after.every((one, index) => one === before[index])
+  if (isSame && waits === null) return { ok: true, result: { id, text: serializeItem(found.item), changed: false } }
+  let item = copy(found.item)
+  if (!isSame) item = said(put(item, 'Blocked by', after.join(' and ')), w, `${isBlock ? 'blocked by' : 'no longer blocked by'} ${on}${serverWhy(body, w)}`)
+  if (waits !== null) item = said(put(item, 'Waits for', null), w, `no longer waits for: ${waits}${serverWhy(body, w)}`)
   const done = await save(ordered(item), found.text, w)
   return done.ok ? changed(ordered(item)) : done
+}
+
+/** B542: a step's `Waits for` words when they name `on` and every step they name is done or dropped; else null. */
+function closedWaits(item, on, items) {
+  const ids = waitIds(item)
+  if (!ids.includes(on) || !ids.every(one => STEP_ID.test(one) && CLOSED_STEP.includes(stateOf(items.get(one) ?? { head: new Map() })))) return null
+  return valueOf(item, 'Waits for')
+}
+
+/** B542 (X10: B526 taken while its line still waited for B529): no longer waiting for a step done, dropped or in review. */
+const PASSED_AT_TAKE = ['done', 'dropped', 'review']
+
+/**
+ * B542: at its take a step no longer names what holds it no more: the steps in its `Blocked by` that are done, dropped
+ * or in review go, and so does a `Waits for` whose every step is; each with a History line naming the blocker.
+ */
+function clearedAtTake(item, w) {
+  const passed = id => PASSED_AT_TAKE.includes(stateOf(w.store.items.get(id) ?? { head: new Map() }))
+  const words = id => `${id} is ${stateOf(w.store.items.get(id))}`
+  let cleared = item
+  const before = idsIn(valueOf(item, 'Blocked by'))
+  const gone = before.filter(passed)
+  if (gone.length > 0) {
+    const left = before.filter(one => !gone.includes(one))
+    cleared = said(put(copy(cleared), 'Blocked by', left.length === 0 ? null : left.join(' and ')), w, `no longer blocked by ${gone.join(', ')} at its take (${gone.map(words).join(', ')})`)
+  }
+  const waits = waitIds(item)
+  if (waits.length > 0 && waits.every(one => STEP_ID.test(one) && passed(one))) {
+    cleared = said(put(copy(cleared), 'Waits for', null), w, `no longer waits for: ${valueOf(item, 'Waits for')} at its take (${waits.map(words).join(', ')})`)
+  }
+  return cleared
 }
 
 /** B306: the main chat or the person clears a step's `Waits for`: it no longer holds the step; the History says what it was. */

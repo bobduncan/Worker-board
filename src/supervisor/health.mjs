@@ -27,6 +27,15 @@ const REPORTED = / → review\b|: reported again\b/
 
 const pad = n => String(n).padStart(2, '0')
 const clockOf = ms => (Number.isFinite(ms) ? `${pad(new Date(ms).getHours())}:${pad(new Date(ms).getMinutes())}` : 'not known')
+/**
+ * B542 (X10: "18:13 round to Advisor: waiting for 9 d" read as an age that did not fit its time; the word was of 15
+ * October): a time of today as its clock, one of another day with its date before it.
+ */
+const dayClockOf = (ms, now) => {
+  if (!Number.isFinite(ms)) return 'not known'
+  const day = new Date(ms)
+  return day.toDateString() === new Date(now).toDateString() ? clockOf(ms) : `${day.getFullYear()}-${pad(day.getMonth() + 1)}-${pad(day.getDate())} ${clockOf(ms)}`
+}
 /** A span in words: "45 min", "2 h 10 min", "3 d". */
 function lasting(ms) {
   if (!Number.isFinite(ms) || ms < 0) return 'not known'
@@ -94,6 +103,24 @@ function clearWords(compaction) {
   return `${not}compaction skipped at ${clockOf(compaction.at)}: ${compaction.why ?? 'no reason given'}`
 }
 
+/**
+ * B542 (X10: "B506 in progress 20 min (waits for B503)", B503 long done): what still holds a step: the steps its
+ * `Blocked by` names that are not done or dropped (one in review as "the check of B<n>"), and its `Waits for` words
+ * while they name no step or one such step.
+ */
+function waitsOf(item, items) {
+  const stateOfId = id => valueOf(items.get(id) ?? { head: new Map() }, 'State')
+  const holds = id => !['done', 'dropped'].includes(stateOfId(id))
+  const named = id => (stateOfId(id) === 'review' ? `the check of ${id}` : id)
+  const blockers = (valueOf(item, 'Blocked by') ?? '').match(/\bB\d+\b/g) ?? []
+  const words = valueOf(item, 'Waits for')
+  const ids = (words ?? '').match(/\bB\d+\b/g) ?? []
+  return [
+    blockers.filter(holds).map(named).join(' and '),
+    words !== null && words !== '-' && (ids.length === 0 || ids.some(holds)) ? words : '',
+  ].filter(one => one !== '')
+}
+
 /** Each step under way: its state, for how long, its owner; the backlog's new and refined steps counted in one line. */
 function stepLines(view, now) {
   const chats = new Set(view.lanes.filter(lane => !lane.isLeftover).map(lane => plain(lane.name, view.prefix)))
@@ -110,7 +137,7 @@ function stepLines(view, now) {
     const owner = valueOf(item, 'Owner')
     const since = sinceMs(valueOf(item, 'Since'))
     const age = now - since
-    const blocked = [valueOf(item, 'Blocked by'), valueOf(item, 'Waits for')].filter(one => one !== null && one !== '-' && one !== '')
+    const blocked = waitsOf(item, view.items)
     const fix = valueOf(item, 'Priority') === 'fix' ? ', board fix' : ''
     const isChats = owner !== null && chats.has(plain(owner, view.prefix))
     // The steps every chat holds stay whatever is cut; a chat's queue before the rest.
@@ -152,7 +179,7 @@ function wordLines(view, now) {
   // The review: not the supervisor's own sweep words (a sweep word that waits would make every summary look new).
   return view.outbox.filter(message => typeof message?.to === 'string' && Number.isFinite(message.at) && message.command !== 'sweep')
     .filter(message => message.state === 'waiting' || message.state === 'held' || ((message.state === 'expired' || message.state === 'failed') && now - message.at < DAY))
-    .map(message => lineOf(`${clockOf(message.at)} ${message.command ?? 'answer'}${message.about ? ` ${message.about}` : ''} to ${message.to}: ${message.state} for ${lasting(now - message.at)}`,
+    .map(message => lineOf(`${dayClockOf(message.at, now)} ${message.command ?? 'answer'}${message.about ? ` ${message.about}` : ''} to ${message.to}: ${message.state} for ${lasting(now - message.at)}`,
       { tier: 1, odd: message.state !== 'held' && now - message.at > (view.settings.undeliveredMinutes ?? 10) * MIN, at: message.at }))
 }
 

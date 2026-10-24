@@ -1,6 +1,6 @@
 // B543, the fix of X8: steps piled up in review (one for 3 days behind a dropped fix, four for hours behind a chain of
 // fixes, checks stopped by the pause). A step in review says what it waits for (its first check, its check again, the
-// person's answer, its open fix B<n>); the watch rule `review-waits` names one stuck (no check for over an hour, or its
+// person's answer, its open fix B<n>); the watch rule `review-stuck` names one stuck (no check for over an hour, or its
 // fix dropped), never one that waits for an open fix; the repair `fix-dropped` gives the main chat one word for a step
 // whose fix was dropped. Made-up items; no word names a project.
 
@@ -45,7 +45,7 @@ const view = (store, more = {}) => buildView({
   state: { chats: [LEAD], today: [], limits: {}, pause: more.pause ?? null, chatPrefix: '' },
   items: store, outbox: more.outbox ?? [], settings: more.settings ?? {}, now: more.now ?? NOW,
 })
-const watch = (board, seen = new Map()) => WATCH_RULES.find(one => one.id === 'review-waits').check(board, { seen, observed: [] })
+const watch = (board, seen = new Map()) => WATCH_RULES.find(one => one.id === 'review-stuck').check(board, { seen, observed: [] })
 const repairs = (store, more = {}) => findStuck({ items: store, lanes: [LEAD], partner: PARTNER, now: NOW, ...more }).filter(one => one.check === 'fix-dropped')
 
 /** The fix chain of X8: each step's check failed and made the next its fix; the last fix is still queued. */
@@ -92,11 +92,11 @@ test('the fix chain of X8 waits for its fixes: every step says which, and none o
   assert.deepEqual(repairs(CHAIN), [])
 })
 
-test('review-waits: a step with no result check for over an hour is stuck, one under an hour is not', () => {
+test('review-stuck: a step with no result check for over an hour is stuck, one under an hour is not', () => {
   assert.equal(SUPERVISOR_DEFAULTS.reviewMinutes, 60)
   assert.deepEqual(watch(view(items(reviewed('B7', 55)))), [])
   const found = watch(view(items(reviewed('B7', 75))), new Map())
-  assert.deepEqual(found.map(one => [one.rule, one.key, one.subject]), [['review-waits', 'review-waits B7 check', 'B7']])
+  assert.deepEqual(found.map(one => [one.rule, one.key, one.subject]), [['review-stuck', 'review-stuck B7 check', 'B7']])
   assert.equal(found[0].text, 'B7 in review 75 min with no result check filed (waits for its first check)')
   // The check words the partner was sent and did not answer stand in the evidence.
   const outbox = [{ command: 'result-check', about: 'B7', to: 'Partner', at: ago(74), state: 'taken' }, { syncKey: 'unchecked B7 1', about: 'B7', to: 'Partner', at: ago(40), state: 'taken' }]
@@ -109,10 +109,10 @@ test('review-waits: a step with no result check for over an hour is stuck, one u
   assert.deepEqual(watch(view(items(reviewed('B7', 75)), { pause: { state: 'pausing', since: stamp(ago(10)) } })), [])
 })
 
-test('review-waits: a step whose fix was dropped is stuck; one waiting for an open fix or for the person\'s answer is not', () => {
+test('review-stuck: a step whose fix was dropped is stuck; one waiting for an open fix or for the person\'s answer is not', () => {
   const dropped = items(reviewed('B472', 4000, [failed(1200, 'B485')]), fixStep('B485', 'B472', 'dropped', 450))
   const found = watch(view(dropped))
-  assert.deepEqual(found.map(one => [one.key, one.subject]), [['review-waits B472 dropped B485', 'B472']])
+  assert.deepEqual(found.map(one => [one.key, one.subject]), [['review-stuck B472 dropped B485', 'B472']])
   assert.equal(found[0].text, 'B472 in review, but its fix B485 was dropped: nothing will close it')
   const open = items(reviewed('B472', 4000, [failed(1200, 'B485')]), fixStep('B485', 'B472', 'queued', 450))
   assert.deepEqual(watch(view(open)), [])

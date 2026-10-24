@@ -2926,9 +2926,11 @@ stuck that day was found by the person. They are now one list in the board, each
 
 | Check | Found when | Fix (status) |
 | --- | --- | --- |
-| `blocked` | a step's `Blocked by` names one in review whose board check passed (merged, its result check open) | unblocked by the board (Fixed) |
+| `blocked` | a step's `Blocked by` names one in review whose board check passed (merged, its result check open), or (B542) one done or dropped, queued or in progress; or its `Waits for` names only steps done or dropped | unblocked by the board, the `Waits for` cleared, a History line naming the blocker (Fixed) |
 | | ... names one the store lacks, or its `Waits for` names one in review | the main chat (For Main) |
 | `not-taken` | a queued step whose free owner, holding nothing, got its line 10 min ago and did not take it | the line again (Woke); still queued 10 min on: For Main |
+| `queued-behind` | a step queued over an hour (`QUEUED_BEHIND_MS`) for a busy worker, nothing holding it (Blocked by, Waits for), while another worker is free: holds nothing, has no open step of its own, not suspended (B550, X15) | a note to the main chat, "Requeue B<n> to <free worker>: queued <age> behind <busy worker>" (Sent): the oldest step to the first free worker (running first, then free longest), one per free worker; once an hour per step, by the runner's watch while the step stays queued for the same worker. The board never requeues it itself: queueing is the main chat's |
+| `review-wait` | (B542, X7) a step queued an hour, its owner free that long, behind one in review whose check has not passed | a note to the main chat naming both, once per pair (Sent); the step's line says "waits for the check of B<n>" |
 | `owner-gone` | a step queued for a chat the list has not shown for 30 min by the runner's own watch (not the partner, its helper or a leftover) | requeued to a free worker, a running one with the fewest queued first (Fixed); none free: For Main |
 | | ... taken or in progress for such a chat | For Main: its work may stand on a branch |
 | `refine-drop` | a yes to a refine question that drops the step (`Drop B<n> ...`), which the partner cannot do | a note to the main chat (Sent) |
@@ -2938,6 +2940,9 @@ stuck that day was found by the person. They are now one list in the board, each
 | `partner-ask` | an ask routed to the partner open 10 min with no line about it in that time (the partner was busy) | the partner woken, busy or not (Woke) |
 | `worktrees` | a worktree of a repository the board knows, or an empty folder one left in the project folder (2026-10-24) | removed by the board when safe (Cleaned); else listed with why (Left), no chat told: "Worktree clean-up" below |
 
+- **At its take** (B542, X10): a step's `Blocked by` loses the steps done, dropped or in review, and a `Waits for` whose
+  every step is goes, each with a History line naming the blocker, so no step in progress still shows a wait. The
+  health summary names only what still holds a step, and dates a word of another day ("2026-10-15 18:13 round ...").
 - **When**: every 3 minutes (`SYNC_EVERY_MS`, loop `sync`), on a board that writes the store and is no copy beside the
   person's; and at once on **Out of sync?** (**Check now** since the supervisor, below; a worker's menu or the panel's
   head), before the board types `check sync`
@@ -3075,7 +3080,7 @@ the AI sweep by a cheap supervisor chat and the hand-over to the Advisor, comes 
   older Workers mod than the one installed: dormant until the mod reports its version, Part 2's mod), `odd-effort`
   (B544, the fix of X9: a chat whose card says an effort that is not a level; the partner's card holds the app's level in
   `appEffort` beside its high effort mode in `effort`, and `effort.mjs chatEffort` reads the level, so the health
-  summary never says "[object Object]"), `review-waits` (B543, the fix of X8: a step in review with no result check
+  summary never says "[object Object]"), `review-stuck` (B543, the fix of X8: a step in review with no result check
   filed for over 60 min, its first or again after its fix was done or its ask point answered, or whose fix was dropped
   with none open; one that waits for an open fix, down a chain of fixes too, or for the person's answer is no case).
   What a step in review waits for (`resultCheck.mjs reviewWaitOf`: its first check, its check again, the person's
