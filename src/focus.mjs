@@ -26,7 +26,9 @@ export const FOCUS_MOVES = ['focus', 'vibe-agree', 'vibe-not-yet', 'how-go', 'ho
   // The new order (2026-10-21): the partner checks the whole plan for missing goals; it proposes the next focus.
   'plan-check', 'plan-focus',
   // Tradeoffs (2026-10-21): the partner weighs every complex feature later or not sure; the person chooses prepare or wait.
-  'plan-tradeoffs', 'plan-tradeoff']
+  'plan-tradeoffs', 'plan-tradeoff',
+  // The trial's gap 1 (2026-10-24): the empty Vision tab's start, what the person builds, begins the interview.
+  'plan-start']
 /** The partner's drafts beside the talk: the vibe's lines and picture, the how's parts. */
 export const FOCUS_DRAFTS = ['vibe-draft', 'how-draft']
 

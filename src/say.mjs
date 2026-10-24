@@ -202,6 +202,9 @@ export function focusWords(command, { to, goal, thread, stage = null, words = nu
 export function planWords(command, { to, id, words = null, job }) {
   const said = String(words ?? '').replace(/\s+/g, ' ').trim()
   const head = {
+    // The trial's gap 1 (2026-10-24): the empty Vision tab's start slide, what the person builds and their words: the
+    // interview begins, with P1 partly answered.
+    'plan-start': said === '' ? ['plan interview'] : ['plan interview', `Start: ${said}`],
     'plan-confirm': [`plan: ${id} confirmed`],
     // Vision: an open answer the partner has not asked yet: the person wants its options, as a question to pick from.
     'plan-ask': [`plan: ${id} ask`],

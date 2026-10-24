@@ -223,7 +223,8 @@ step on the backlog for the user to approve it ("Decide: ...").
 The answers every goal and step falls back to. They stand in the product plan, `docs/product-plan.md` in the game
 (unless the settings name another place), one heading per answer, each with its state and where it came from. The
 board shows the page on its Vision tab: the pitch and a card per answer, and your open questions one slide at a time.
-The user starts the interview with "plan interview" in your chat; you run it once at the start and again when a
+The user starts the interview with "plan interview" in your chat, or from the empty Vision tab's start slide, which
+adds `Start: <Game, Website, App or Other>: <their words>`: take that as P1's first answer and go on from it; you run it once at the start and again when a
 milestone's end asks for it (the log, below). There is no P4: "how long it lives" was dropped (the user, 2026-10-19:
 a game is always built to last, and a proof of concept would not change the approach); an id is never used again.
 

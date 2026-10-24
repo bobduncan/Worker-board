@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 
 import { messageText } from '../src/bridge.mjs'
-import { checkSay, wakeFor, wakesDue, workWords } from '../src/say.mjs'
+import { checkSay, planWords, wakeFor, wakesDue, workWords } from '../src/say.mjs'
 import { isLate } from '../src/store.mjs'
 
 const state = {
@@ -204,4 +204,11 @@ test('B300: the board’s one line that a step is a chat’s, typed as it is, ke
   assert.equal(isLate(message, 1000 + 60 * 60_000, keep), false)
   const wake = wakeFor(message, down, [], 1000, 2000)
   assert.deepEqual([wake.to, wake.command, wake.about], ['Main', 'start', 'Units'])
+})
+
+test('the Vision tab\'s start slide: "plan interview" with what the person builds, in their words (the trial\'s gap 1)', () => {
+  const word = planWords('plan-start', { to: 'Advisor', id: '', words: 'Game: a tactics game', job: 'roles/partner.md' })
+  assert.deepEqual([word.to, word.command, word.about], ['Advisor', 'plan-start', 'plan'])
+  assert.deepEqual(word.text.split('\n').slice(0, 2), ['plan interview', 'Start: Game: a tactics game'])
+  assert.equal(planWords('plan-start', { to: 'Advisor', id: '', words: '', job: 'x' }).text.split('\n')[0], 'plan interview')
 })
