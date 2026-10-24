@@ -94,8 +94,10 @@ step therefore says what it touches ("Touches: ...").
 ## A task on the worker board itself
 
 - The board the user looks at runs from its own folder and starts by itself: never stop or start it. Try your work
-  on a copy started from your task folder, which takes a port of its own; say "needs a new start of the board" in
-  your report when its server changed.
+  on a copy started from your task folder, which takes a port of its own. The board loads a merged change by itself
+  (B454: the page when it is idle, the server at a safe moment, 10 minutes at most before the yellow note asks for a
+  click): never ask the user to restart the board or to click its note, and write in your report that the board updates
+  itself, not "needs a new start".
 - Every change to the board works for any project: no project, chat, folder or PC names in its code, page, job
   texts or examples; names, paths and words come from the settings or the project's files. Its test
   `test/anyProject.test.mjs` fails on a new tie.
