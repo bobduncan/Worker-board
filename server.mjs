@@ -1176,6 +1176,8 @@ async function main(args) {
       taskTimes: taskTimes.tasks,
       // B547: the Workers mod each chat's last call said, so a clear owed is named only to a mod that can run it.
       mods: Object.fromEntries([...modOf].map(([name, one]) => [name, one.version])),
+      // B570: the Workers mod installed and the version each chat's mod said lately, for the restarts between steps.
+      modsLately: isDemo ? demoMods() : await modsNow(),
       now: clock(),
       config: { ...config, project },
     })
@@ -1413,7 +1415,7 @@ async function main(args) {
       const goalsEdit = { canWrite: writesMap, whyNot: isDemo ? 'This is the demo: it changes no file.' : !writesMap ? `This board only shows. Change the map on the board that delivers: http://${HOST}:${recordingPort}/` : null }
       // B541: chats on an older Workers mod than the one installed: one card first under Needs your attention, with the
       // one way to bring them up to date; gone once every chat that asked lately runs the installed one.
-      const oldMods = oldModNeed(isDemo ? demoMods() : await modsNow(), chatsByRole(state), clock())
+      const oldMods = oldModNeed(isDemo ? demoMods() : await modsNow(), chatsByRole(state), clock(), store.outbox())
       // The supervisor's incident cards follow the work store as its keeper holds it (a change through the board drops that
       // read, a hand edit shows within 30 seconds), the board's chats and the Advisor's name, so a card's state moves with
       // every refresh, not at the supervisor's next check.

@@ -44,8 +44,8 @@ export function sessionOf(name: string): string | null {
 
 /** A chat's file as text. */
 export function chatText(chat: ChatFile): string {
-  const { name, role, state, task, at, compacted, compactNote, cleared, clearNote, clearing } = chat
-  const kept = { compacted, compactNote, cleared, clearNote, clearing }
+  const { name, role, state, task, at, mod, compacted, compactNote, cleared, clearNote, clearing } = chat
+  const kept = { mod, compacted, compactNote, cleared, clearNote, clearing }
   const notes = Object.fromEntries(Object.entries(kept).filter(([, value]) => value !== undefined))
   return `${JSON.stringify({ name, role, state, task, at, ...notes }, null, 2)}\n`
 }
@@ -141,6 +141,7 @@ export function parseChat(text: string): ChatFile | null {
     state: c.state === 'working' || c.state === 'asking' ? c.state : 'waiting',
     task: parseTask(c.task),
     at: typeof c.at === 'number' && Number.isFinite(c.at) ? c.at : 0,
+    ...(typeof c.mod === 'string' && VERSION.test(c.mod) ? { mod: c.mod } : {}),
     ...(isCompacted(c.compacted) ? { compacted: { at: c.compacted.at, before: c.compacted.before, after: c.compacted.after } } : {}),
     ...(isNote(c.compactNote) ? { compactNote: { at: c.compactNote.at, why: c.compactNote.why.slice(0, 200) } } : {}),
     ...(cleared === null ? {} : { cleared }),
@@ -392,10 +393,35 @@ export function status(chat: ChatFile, all: readonly ChatFile[], now: number): {
   return { mark: '○', text: 'free', isYours: false }
 }
 
+/** B570: a version as the mod writes it, "0.17.0". */
+const VERSION = /^\d{1,4}(?:\.\d{1,4}){0,3}$/
+const numbers = (version: string): number[] => version.split('.').map(Number)
+/** B570: whether version `a` is older than `b`, compared as numbers. */
+export function isOlderMod(a: string, b: string): boolean {
+  const [x, y] = [numbers(a), numbers(b)]
+  for (let i = 0; i < Math.max(x.length, y.length); i += 1) if ((x[i] ?? 0) !== (y[i] ?? 0)) return (x[i] ?? 0) < (y[i] ?? 0)
+  return false
+}
+
+/**
+ * B570: what the list says of a chat's Workers mod while the chats run different ones (a new one rolls out): its version
+ * and, for one older than the newest, that the board has it restarted after its step (a busy chat) or when it asks (an
+ * idle one). Null while every chat that says one runs the same, and for a chat whose card names none.
+ */
+export function modNote(chat: ChatFile, all: readonly ChatFile[], now: number): string | null {
+  if (chat.mod === undefined) return null
+  const said = all.map(one => one.mod).filter((one): one is string => one !== undefined)
+  if (said.every(one => !isOlderMod(one, chat.mod as string) && !isOlderMod(chat.mod as string, one))) return null
+  const newest = said.reduce((a, b) => (isOlderMod(a, b) ? b : a), chat.mod)
+  if (!isOlderMod(chat.mod, newest)) return `mod ${chat.mod}`
+  return `mod ${chat.mod} · restarts ${isBusy(chat, now) || chat.task !== null ? 'after its step' : 'when the board asks'}`
+}
+
 /** A chat as one line of text. */
 export function chatLine(chat: ChatFile, all: readonly ChatFile[], now: number): string {
   const { mark, text } = status(chat, all, now)
-  return `${mark} ${chat.name}  ${text}`
+  const mod = modNote(chat, all, now)
+  return `${mark} ${chat.name}  ${text}${mod === null || !mod.includes('restarts') ? '' : `  (${mod})`}`
 }
 
 /** The chats in the list's order: the main chat first, then the workers by name. */

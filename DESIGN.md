@@ -3285,6 +3285,25 @@ it can. The person: "It just needs to observe, periodically, not consume a lot o
   Resume all) and a Pause all button that asks as the one above the workers does; while a pause stands it names the next
   step. Built from what the chats' mods said in the last 2 minutes, it clears by itself once all run the installed mod.
   The board restarts nothing. Tests: `test/oldMods.test.mjs`, `test/supervisor/watch.test.mjs`.
+- **A new mod between steps** (B570, the person's I95, 2026-10-24: "i dont want to restart all the chats manually"): an
+  idle chat is restarted alone by archiving and unarchiving it in the app (its process ends; its next word starts it on
+  the installed mod; nothing is spent until then). `src/work/modRollout.mjs` (pure, `rolloutPlan`) reads the version
+  each chat's mod said lately (`modsNow`, now also `buildState`'s `modsLately`) against the installed one: a chat on an
+  older mod that is free, whose process runs (`isRunning` true, never on a guess) and that holds no step taken, in
+  progress or waiting on you gets the word `restart for mod` (Chat, Session, From, To, Why; command `mod-restart`, a
+  partner word so a partner that does not run is started) to its restarter: the main chat, or the partner for the main
+  chat (roles/main.md, roles/partner.md: archive, unarchive the list's chats archived with it, unarchive it, no message).
+  Again each half hour while it still runs the older mod, three times at most per installed version; `deliver.mjs`
+  skips a twin of the last half hour. A free worker's next step line waits for it (`reconciled.held`, the hold's
+  words in `holds`), ten minutes at most after the word, so the step starts on the new mod; a chat with a step in
+  progress "restarts after B<id>" (each lane's `modRun`, every chat's in `modRuns`). Once its process ended its mod no
+  longer asks, so it no longer counts as old and the line goes (the board's `start` word to the main chat wakes it).
+  B541's card and the rule `old-mod` now name only a chat still idle on the older mod 30 minutes after the board's
+  first word for it (`overdueChats`, from the outbox): the restart did not reach it. A restart word stays known in the
+  outbox a day (`store.mjs`), so its three tries are counted. The partner sends the restarted main chat one line, as no
+  board word starts the main chat (the review). The merging worker of a mod change runs the CLI's marketplace update and
+  plugin update once (roles/worker.md); the person restarts nothing. Tests: `test/modRollout.test.mjs`,
+  `test/work/modRolloutDeliver.test.mjs`, `test/oldMods.test.mjs`, `test/supervisor/watch.test.mjs`.
 
 ## The supervisor's incident cards (2026-10-24)
 

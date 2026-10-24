@@ -16,6 +16,7 @@ import { isHolding } from './pause.mjs'
 import { sweepOutbox } from './outboxSweep.mjs'
 import { PARTNER_AGAIN_MS, partnerAskWords } from './partnerAnswers.mjs'
 import { AGAIN_MS, effortWords, lastWord, sameTarget } from './effort.mjs'
+import { RESTART_AGAIN_MS, RESTART_COMMAND, restartWords } from './modRollout.mjs'
 import { boardLineKey } from './incidentFix.mjs'
 
 export { partnerAskWords }
@@ -309,6 +310,23 @@ export async function deliverWork({ state, dir, outbox, apply, now, maxChars, ne
     const message = { id: newId(), at: now, ...effortWords(one), state: 'waiting' }
     try {
       await outbox.say(message)
+      done.sent.push(message)
+    } catch {
+      // Planned again at the next refresh.
+    }
+  }
+  // B570: the words that have a chat on an older Workers mod restarted (modRollout.mjs): not when a word for the same chat
+  // and version went in the last half hour, also when two refreshes plan it before the state shows it. A word to a
+  // partner that does not run makes the board ask the main chat to start it (say.mjs wakeFor).
+  for (const one of plan.restarts ?? []) {
+    const twin = outbox.outbox().findLast(message => message.command === RESTART_COMMAND && message.about === one.chat && message.version === one.installed)
+    if (twin !== undefined && now - twin.at < RESTART_AGAIN_MS) continue
+    const message = { id: newId(), at: now, ...restartWords(one), state: 'waiting' }
+    const start = wakeFor(message, state, outbox.outbox(), now, maxChars)
+    const wake = start === null ? null : { id: newId(), at: now, ...start, state: 'waiting' }
+    try {
+      await outbox.say(wake === null ? message : { ...message, wake: wake.id })
+      if (wake !== null) await outbox.say(wake)
       done.sent.push(message)
     } catch {
       // Planned again at the next refresh.

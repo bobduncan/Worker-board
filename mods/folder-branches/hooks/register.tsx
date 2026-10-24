@@ -11,7 +11,7 @@ import { BOARD_FILE, BOARD_NOTE, LAUNCH_FILE, MOD_HEADER, MOD_VERSION, REQUEST_H
 import type { Board, BoardStart, OwedClear, PauseState, PauseWhere } from './board'
 import {
   BEAT_MS, CHATS_DIR, LEFT_MAX_SIZE, LEFT_TEXT, LIST_FILE, afterTurn, atTurnStart, cardGap, cardOld, chatNote, clearWhy, clearedStart, compactKeep, compactWhy, chatText, chatsSummary, fileName,
-  cardStep, foldersAbove, formAnswer, formQuestions, hasLeft, instructionsLine, isAgentId, isFiled, movedText, nameFromTitle, openFrom, orderChats, parseChat, personsWords, parseList, recordedLine, roleFrom, sessionOf, status, uniqueByName,
+  cardStep, foldersAbove, formAnswer, formQuestions, hasLeft, instructionsLine, isAgentId, isFiled, modNote, movedText, nameFromTitle, openFrom, orderChats, parseChat, personsWords, parseList, recordedLine, roleFrom, sessionOf, status, uniqueByName,
   unfiledAsk, withDone, withPlan, withSend, withState, withStep, workCard,
 } from './chats'
 import type { OpenInstruction, TaskChange } from './chats'
@@ -381,7 +381,8 @@ async function applyMine(
   const chat = isInTurn && found.state !== 'waiting' ? withState(found, found.state, now) : found
   const next = change(chat, now)
   if (next === null) return found
-  await $.fs.write(inFolder(dir, fileName(id)), chatText(next))
+  // B570: each write says the mod this process runs, so the list shows a chat on an older one.
+  await $.fs.write(inFolder(dir, fileName(id)), chatText({ ...next, mod: MOD_VERSION }))
   lastBeat = now
   return next
 }
@@ -1230,7 +1231,7 @@ async function moveCard($: EngineInterface, moving: Carried, to: string): Promis
   const { clearing: _mark, ...card } = moving.chat
   const next: ChatFile = { ...card, state: 'waiting', at: now, ...(done === null ? {} : { cleared: { at: now, step: done.step, log: done.log }, clearNote: undefined }) }
   const run = mine.then(async () => {
-    await $.fs.write(inFolder(dir, fileName(to)), chatText(next))
+    await $.fs.write(inFolder(dir, fileName(to)), chatText({ ...next, mod: MOD_VERSION }))
     await $.fs.write(inFolder(dir, fileName(moving.from)), movedText(to, now))
   })
   mine = run.catch(() => undefined)
@@ -1358,7 +1359,7 @@ async function applyJoin($: EngineInterface, name: string, role: ChatRole, state
   const before = await readChat($, dir, id)
   const at = await $.clock.now()
   const chat: ChatFile = before === null ? { name, role, state: 'waiting', task: null, at } : { ...before, name, role }
-  await $.fs.write(inFolder(dir, fileName(id)), chatText(state === 'working' ? withState(chat, 'working', at) : chat))
+  await $.fs.write(inFolder(dir, fileName(id)), chatText({ ...(state === 'working' ? withState(chat, 'working', at) : chat), mod: MOD_VERSION }))
   chatsDir = dir
   lastBeat = at
   myself = { name, role }
@@ -2130,6 +2131,8 @@ export const register: Register = on => {
       <Box flexDirection="column">
         {chats.rows.map(chat => {
           const { mark, text, isYours } = status(chat, chats.rows, chats.now)
+          // B570: the chat's Workers mod, and when the board has it restarted onto a newer one.
+          const mod = modNote(chat, chats.rows, chats.now)
 
           return (
             <Text key={`chat:${chat.id}`}>
@@ -2137,6 +2140,7 @@ export const register: Register = on => {
               <Text bold={chat.id === chats.me}>{chat.name}</Text>
               {'  '}
               <Text bold={isYours} dimColor={text === 'free'}>{text}</Text>
+              {mod === null ? null : <Text dimColor>{`  ${mod}`}</Text>}
             </Text>
           )
         })}

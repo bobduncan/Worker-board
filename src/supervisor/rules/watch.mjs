@@ -381,15 +381,16 @@ function reportCheckTwice(view) {
 export { FIRST_SAYING }
 
 /**
- * 10. Chats on an older Workers mod than the one installed: they get the new one only when their chats start anew, and
- * the one way to that is the same for all (pause all, restart the app, resume all). B541: so one finding for all of
+ * 10. Chats on an older Workers mod than the one installed: they get the new one only when their chats start anew. B570:
+ * the board has each idle one restarted between its steps, so only one idle on the older mod over 30 minutes trips (its
+ * restart did not reach it); for those the way is the same for all (pause all, restart the app, resume all). B541: so one finding for all of
  * them, keyed by the installed version and naming each with what it misses: the main chat, the workers, the partner,
  * its helper and the supervisor's chat (oldMods.mjs). A chat whose version the board does not know (its mod did not ask
  * lately) is no case; one whose mod asked without saying its version (null) runs one older than FIRST_SAYING, a case
  * once that one or a newer one is installed (the review).
  */
 function oldMod(view) {
-  const found = oldModFinding(view.mods, chatsByRole({ chats: view.lanes, advisor: view.partner, advisorHelper: view.helper, supervisorChat: view.supervisor }))
+  const found = oldModFinding(view.mods, chatsByRole({ chats: view.lanes, advisor: view.partner, advisorHelper: view.helper, supervisorChat: view.supervisor }), view.now, view.outbox ?? [])
   return found === null ? [] : [found]
 }
 
@@ -559,7 +560,7 @@ export const WATCH_RULES = [
   { id: 'repair-repeats', kind: 'watch', says: 'the same repair three times or more in a day', check: repairRepeats },
   { id: 'undelivered', kind: 'watch', says: 'a word to a chat not delivered', check: undelivered },
   { id: 'report-check-twice', kind: 'watch', says: 'a step whose board check failed twice', check: reportCheckTwice },
-  { id: 'old-mod', kind: 'watch', says: 'a chat on an older Workers mod than the one installed', check: oldMod },
+  { id: 'old-mod', kind: 'watch', says: 'a chat idle on an older Workers mod than the one installed for over 30 min', check: oldMod },
   { id: 'odd-effort', kind: 'watch', says: 'a chat whose effort is not a level', check: oddEffort },
   { id: 'review-stuck', kind: 'watch', says: 'a step in review with no result check for too long, or whose fix was dropped', check: reviewStuck },
   { id: 'stale-checkpoint', kind: 'watch', says: 'a step in progress with no checkpoint for hours, or whose checkpoint said to report long ago', check: staleCheckpoint },
