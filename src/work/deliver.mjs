@@ -13,6 +13,7 @@ import { stamp } from './migrate.mjs'
 import { sinceMs } from './item.mjs'
 import { readDeliveredFile, readStore, writeDelivered } from './store.mjs'
 import { isHolding } from './pause.mjs'
+import { sweepOutbox } from './outboxSweep.mjs'
 import { PARTNER_AGAIN_MS, partnerAskWords } from './partnerAnswers.mjs'
 import { AGAIN_MS, effortWords, lastWord, sameTarget } from './effort.mjs'
 
@@ -206,7 +207,7 @@ async function noteLine({ dir, plan, outbox, now, fs }) {
  * API as the server. `{ moved, sent, withdrawn }`: the ids moved, the messages sent and withdrawn.
  */
 export async function deliverWork({ state, dir, outbox, apply, now, maxChars, newId, fs, keep }) {
-  const done = { moved: [], sent: [], withdrawn: [] }
+  const done = { moved: [], sent: [], withdrawn: [], closed: [] }
   const plan = state?.reconciled ?? null
   if (plan === null || dir === null) return done
   for (const move of plan.moves ?? []) {
@@ -219,6 +220,8 @@ export async function deliverWork({ state, dir, outbox, apply, now, maxChars, ne
     const handed = await apply({ action: 'escalate', id: one.id, why: one.why }).catch(() => null)
     if (handed?.ok === true) done.moved.push(one.id)
   }
+  // B532: the words that no longer matter are closed with their reason, the ones that failed to be typed are retried.
+  done.closed = await sweepOutbox({ dir, outbox, state, now, keep, fs })
   done.withdrawn = await withdrawStale({ dir, outbox, prefix: state.chatPrefix ?? '', fs, now })
   // The review of Pause 2: while the person pauses (2026-10-19: pausing only) no line goes out that starts a turn: no
   // step delivered, no check's word, no note-wake to the main chat. They go at Resume all, as when running.

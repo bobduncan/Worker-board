@@ -157,7 +157,7 @@ test('B301: while the store cannot be read the board reconciles nothing and says
     assert.deepEqual(state.workFlags, [])
     assert.ok(state.chats.every(lane => lane.flags.length === 0))
     const outbox = memoryStore()
-    assert.deepEqual(await deliver(state, outbox), { moved: [], sent: [], withdrawn: [] })
+    assert.deepEqual(await deliver(state, outbox), { moved: [], sent: [], withdrawn: [], closed: [] })
     assert.equal(outbox.outbox().length, 0)
   } finally {
     await rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })

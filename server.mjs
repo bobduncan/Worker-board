@@ -78,6 +78,7 @@ import { standardHold } from './src/work/standardHold.mjs'
 import { itemsOf, storeKeeper } from './src/work/read.mjs'
 import { requestKeeper } from './src/work/requests.mjs'
 import { readStore } from './src/work/store.mjs'
+import { sweepOutbox } from './src/work/outboxSweep.mjs'
 import { dismissCopied, fileStore, isLate, memoryStore, outboxNow, tick } from './src/store.mjs'
 import { loads, readVersion } from './src/version.mjs'
 import { blockersOf, reportedNotLogged, selfUpdater } from './src/selfUpdate.mjs'
@@ -1585,6 +1586,8 @@ async function main(args) {
       // "resume" to the main chat goes. The rest waits in the outbox, held until the resume (2026-10-19: Resume all, no
       // longer running: while resuming every line goes, so an answer to a chat that has not started reaches it).
       const only = isHolding((await readState()).pause) ? message => message.command === 'resume' : undefined
+      // B532: what no longer matters is closed first, so a chat is never handed a word whose purpose is gone.
+      await sweepOutbox({ dir: workDir, outbox: store, state: await readState(), now: clock(), keep }).catch(error => console.error(`The outbox sweep failed: ${error.message}`))
       const taken = await store.take(checked.chat, clock(), keep, only)
       // What was taken shows as on its way at once.
       if (taken.length > 0) readState.reset()
@@ -1886,7 +1889,7 @@ async function main(args) {
           state, dir: workDir, outbox: store, apply: body => workAction(body, 'server'), now: clock(), maxChars: config.maxMessageChars,
           newId: () => randomBytes(8).toString('hex'), keep,
         })
-        if (done.moved.length + done.sent.length + done.withdrawn.length > 0) {
+        if (done.moved.length + done.sent.length + done.withdrawn.length + done.closed.length > 0) {
           work.reset?.()
           readState.reset()
         }

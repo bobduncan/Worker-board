@@ -572,6 +572,16 @@ export function spawnWhenAlone(state, outbox, lines) {
 const WAKE_AGAIN_MS = 2 * 60_000
 const WAKE_PENDING_MS = 10 * 60_000
 
+/** The commands the board puts to a chat other than the main one: a word the chat's work stands on (wakeFor). */
+const PARTNER_WORDS = ['recommend', 'refine', 'result-check', 'evaluate', 'work', 'recheck', 'goal-ask', 'brainstorm', 'brainstorm-answer', 'brainstorm-wrap', 'brainstorm-change', 'brainstorm-fix', ...FOCUS_COMMANDS]
+export const isPartnerWord = command => typeof command === 'string' && (command.startsWith('plan-') || PARTNER_WORDS.includes(command))
+
+/**
+ * B532: a word that waits for a busy or closed chat for as long as its purpose stands (store.mjs isLate): a partner word,
+ * and the main chat's start of a closed chat. The rest (a pause's resume, a line typed in a talk) is stale in minutes.
+ */
+export const waitsLong = command => command === 'start' || isPartnerWord(command)
+
 /**
  * What the board adds when something was sent to a chat that is not running: the word to the main chat to start
  * it, so nothing waits for a closed chat without a word. Null when nothing is to be asked: the chat runs, the
@@ -585,7 +595,7 @@ export function wakeFor(message, state, outbox, now, maxChars) {
   // Focus 2: and the words of the Focus page to the partner. B359: and the goal guard's evaluate.
   // 2026-10-24: and the Vision tab's words on the product plan (`plan-*`), which waited for a stopped partner unseen.
   const command = message.command ?? null
-  if (main === null || message.to === main || (command !== null && !command.startsWith('plan-') && !['recommend', 'refine', 'result-check', 'evaluate', 'work', 'recheck', 'goal-ask', 'brainstorm', 'brainstorm-answer', 'brainstorm-wrap', 'brainstorm-change', 'brainstorm-fix', ...FOCUS_COMMANDS].includes(command))) return null
+  if (main === null || message.to === main || (command !== null && !isPartnerWord(command))) return null
   if ((state.chats ?? []).find(chat => chat.name === main)?.isRunning === false) return null
   // Not again within two minutes; and while an earlier word still waits for the main chat, not for ten.
   const isOnItsWay = sent => (sent.state === 'waiting' || sent.state === 'taken') && now - sent.at < WAKE_PENDING_MS

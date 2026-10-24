@@ -87,6 +87,15 @@ export const bridgeNote = ({ port, key, at }) => JSON.stringify({ url: `http://1
  * picture pasted with a line is named under its words by its full path (`where(path)`), so the chat can open it.
  */
 export function messageText(message, clock, where = path => path) {
+  const text = messageBody(message, clock, where)
+  // B532: a word that waited for its chat (busy or closed) says how old it is, so the chat does not read it as new.
+  return Number.isFinite(message.lateMs) && message.lateMs > 0 ? `${text}
+(this word waited for you: sent ${ago(message.lateMs)} ago, at ${clock(message.at)})` : text
+}
+
+const ago = ms => (ms < 2 * 3_600_000 ? `${Math.max(1, Math.round(ms / 60_000))} min` : ms < 48 * 3_600_000 ? `${Math.round(ms / 3_600_000)} hours` : `${Math.round(ms / 86_400_000)} days`)
+
+function messageBody(message, clock, where) {
   const words = (message.text ?? '').trim()
   // B173: a round of the board's clock is the clock's word, never the person's: it carries no mark of theirs.
   // B300: so is the work store's line that a step is the chat's ("work: B286 is yours; run work next").
