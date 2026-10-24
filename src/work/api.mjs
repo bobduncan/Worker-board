@@ -1874,7 +1874,8 @@ async function turnEnded(body, w) {
   }
   const open = openOf(chat, w, fresh)
   // B317: the items of the "For you" block the chat's answer ended with, that it filed no ask for: filed now.
-  const fromBlock = body.forYou === undefined || w.role === 'person' || w.role === 'server' ? undefined : await askForYou(body.forYou, since, w)
+  // The review: the supervisor's chat asks the person nothing: a "For you" block of its answer is not filed.
+  const fromBlock = body.forYou === undefined || w.role === 'person' || w.role === 'server' || w.role === 'supervisor' ? undefined : await askForYou(body.forYou, since, w)
   const asked = fromBlock?.asked
   const filedLine = asked === undefined || asked.length === 0 ? '' : ` Filed from your "For you" block: ${asked.join(', ')}; close one the person answers in the chat with work answered-in-chat.`
   // B474, the review: an item left out as asked already is named, so a chat whose new question looked alike can file it.

@@ -15,6 +15,13 @@ export const SWEEP_MOD = '0.16.0'
 export const SWEEP_SETTLE_MS = 2 * MIN
 /** A sweep's tokens are read this long after its turn ended: the app writes the last answer a moment later. */
 export const TOKENS_AFTER_MS = 20_000
+/**
+ * The review: a sweep open this long has ended, whatever its chat or its word says (a word left "taken" or "waiting"
+ * in the outbox must never hold every later sweep).
+ */
+export const SWEEP_LONGEST_MS = 30 * MIN
+/** The review: the note when a sweep by the clock is skipped because the board looks as at the last sweep. */
+export const NOTHING_CHANGED = 'nothing changed since the last sweep'
 /** How many ended sweeps the supervisor keeps, for their tokens. */
 const KEPT = 50
 
@@ -79,6 +86,8 @@ function sweepOf(value) {
     read: value.read === true, tokens: number('tokens'), tokenParts: value.tokenParts !== null && typeof value.tokenParts === 'object' ? value.tokenParts : null,
     tokensRead: value.tokensRead === true, session: typeof value.session === 'string' ? value.session : null, from: number('from') ?? value.at,
     note: typeof value.note === 'string' ? value.note : null,
+    // The review: the board's facts the sweep saw (`facts`), so the next one by the clock is skipped while they stand.
+    facts: typeof value.facts === 'string' ? value.facts : null,
   }
 }
 const noteOf = value => (value !== null && typeof value === 'object' && Number.isFinite(value.at) && typeof value.why === 'string' ? { at: value.at, why: value.why, asked: value.asked === true } : null)
@@ -89,13 +98,16 @@ const noteOf = value => (value !== null && typeof value === 'object' && Number.i
  * full; `chat()` how the board sees the supervisor's chat (`whyNoSweep`); `sweeping()` true while its sweep word is on
  * its way or its chat runs a turn; `wake({ subject })` sends the sweep word: `{ ok, session, note }` or `{ ok: false,
  * why }`; `tokens({ session, from })` what the turn cost (`tokensOfTurn`), or null; `memory` `{ load(), save(value) }` its
- * own file, so a restart neither sweeps again at once nor forgets a sweep that runs.
+ * own file, so a restart neither sweeps again at once nor forgets a sweep that runs; `facts()` (the review) a mark of
+ * what the board looks like (index.mjs: the health summary with its times and counts masked), or null: a sweep by the
+ * clock is skipped while it is the one the last sweep saw ("nothing changed since the last sweep"); Check now sweeps
+ * anyway. A sweep open for SWEEP_LONGEST_MS has ended, whatever `sweeping()` says.
  * Answers `{ tick(now), now({ subject, at }), heard(call), view() }`: `tick` sweeps when one is due; `now` is "Check now":
  * `{ started, why, note }`; `heard` takes the supervisor chat's work calls (health read, incident filed, turn ended);
  * `view()` is `{ last, note, recent }`: the last sweep, why the newest sweep did not run (when that is newer), and the
  * ended sweeps kept.
  */
-export function sweepRunner({ every, workRuns, paused, atLimit, chat, sweeping, wake, tokens, memory = null }) {
+export function sweepRunner({ every, workRuns, paused, atLimit, chat, sweeping, wake, tokens, memory = null, facts = async () => null }) {
   let last = null
   let note = null
   let recent = []
@@ -117,25 +129,42 @@ export function sweepRunner({ every, workRuns, paused, atLimit, chat, sweeping, 
     last = { ...last, ended: at, how, ...more }
   }
   async function settle(now) {
-    if (!isOpen() || now - last.at < SWEEP_SETTLE_MS || (await sweeping())) return false
-    end(now, 'quiet', { note: last.note ?? 'no turn of its chat ended: its word may not have been taken' })
+    if (!isOpen() || now - last.at < SWEEP_SETTLE_MS) return false
+    // The review: one open too long has ended, whatever its word or its chat says.
+    const isLong = now - last.at >= SWEEP_LONGEST_MS
+    if (!isLong && (await sweeping())) return false
+    // The review: its turn's end may have come while `sweeping()` was asked: a told end stays told.
+    if (!isOpen()) return false
+    end(now, 'quiet', { note: last.note ?? (isLong ? `it ran over ${SWEEP_LONGEST_MS / MIN} minutes without its turn's end` : 'no turn of its chat ended: its word may not have been taken') })
     return true
   }
-  async function readTokens(now) {
-    if (last === null || last.ended === null || last.tokensRead || now - last.ended < TOKENS_AFTER_MS) return false
+  /** Its tokens read, and the sweep kept with the recent ones; `isEarly` reads them before TOKENS_AFTER_MS (a new sweep starts). */
+  async function readTokens(now, isEarly = false) {
+    if (last === null || last.ended === null || last.tokensRead || (!isEarly && now - last.ended < TOKENS_AFTER_MS)) return false
     const read = last.session === null ? null : await tokens({ session: last.session, from: last.from })
     last = { ...last, tokens: read?.total ?? null, tokenParts: read === null ? null : { input: read.input, cacheWrite: read.cacheWrite, cacheRead: read.cacheRead, output: read.output }, tokensRead: true }
     recent = [...recent, last].slice(-KEPT)
     return true
   }
-  async function start(now, { asked, subject }) {
+  /** The board's facts now, or null when they cannot be read (then nothing is skipped). */
+  const factsNow = async () => {
+    try {
+      const read = await facts()
+      return typeof read === 'string' ? read : null
+    } catch {
+      return null
+    }
+  }
+  async function start(now, { asked, subject, seen }) {
     const woke = await wake({ subject })
     if (woke?.ok !== true) {
       note = { at: now, why: `the sweep word could not be sent (${woke?.why ?? 'no answer'})`, asked }
       await save()
       return { started: false, why: note.why, note: null }
     }
-    last = { at: now, asked, subject, ended: null, how: null, found: 0, read: false, tokens: null, tokenParts: null, tokensRead: false, session: woke.session ?? null, from: now, note: woke.note ?? null }
+    // The review: the sweep before it is kept with its tokens before it gives way (a Check now right after its end).
+    await readTokens(now, true)
+    last = { at: now, asked, subject, ended: null, how: null, found: 0, read: false, tokens: null, tokenParts: null, tokensRead: false, session: woke.session ?? null, from: now, note: woke.note ?? null, facts: seen ?? null }
     await save()
     return { started: true, why: null, note: last.note }
   }
@@ -158,7 +187,16 @@ export function sweepRunner({ every, workRuns, paused, atLimit, chat, sweeping, 
       }
       // A sweep that runs although this board forgot it (another board process asked it) is not asked again.
       if (await sweeping()) return null
-      return start(now, { asked: false, subject: null })
+      // The review: a stuck night costs no sweep every 10 minutes: while the board looks as at the last sweep, none.
+      const seen = await factsNow()
+      if (seen !== null && last?.facts === seen) {
+        if (note?.why !== NOTHING_CHANGED) {
+          note = { at: now, why: NOTHING_CHANGED, asked: false }
+          await save()
+        }
+        return null
+      }
+      return start(now, { asked: false, subject: null, seen })
     },
     /** "Check now": a sweep at once, or why none runs (Review Focus 4). */
     async now({ subject = null, at }) {
@@ -174,7 +212,7 @@ export function sweepRunner({ every, workRuns, paused, atLimit, chat, sweeping, 
         await save()
         return { started: false, why, note: null }
       }
-      return start(at, { asked: true, subject })
+      return start(at, { asked: true, subject, seen: await factsNow() })
     },
     /**
      * The supervisor chat's work calls while a sweep runs: `{ action, ok, session, since, at }`. A health read and each

@@ -14,7 +14,10 @@ import { REFUSED_MS, REPAIR_RULES } from './rules/repair.mjs'
 import { WATCH_RULES } from './rules/watch.mjs'
 import { incidentsOf, linesOwed, recordFindings } from './incidents.mjs'
 import { SWEEP_MOD, sweepRunner, tokensOfTurn } from './sweep.mjs'
+import { createHash } from 'node:crypto'
+
 import { incidentWords, sweepWords } from '../say.mjs'
+import { isLate } from '../store.mjs'
 import { isHolding } from '../work/pause.mjs'
 
 /** How long the server keeps a name a chat's mod was refused under: as long as the rule `old-name` looks back. */
@@ -33,6 +36,32 @@ const SWEEP_TICK_MS = 60_000
 const MIN = 60_000
 /** The states of a step that is under way: work runs while one is. */
 const UNDER_WAY = ['taken', 'in progress']
+
+/** The review: how long the board keeps a word as it keeps its outbox's, unless the server gives its own (`keep`). */
+const KEEP = { messageMs: 10 * MIN, answerMs: 48 * 60 * MIN }
+/** The review: a word the mod took and never said it typed counts as on its way this long (store.mjs TAKEN_SHOWN_MS). */
+const TAKEN_MS = 10 * MIN
+
+/**
+ * The review: how a board word in the raw outbox stands now. `on its way`: waiting and not late, held by a pause, or
+ * taken lately; `arrived`: typed (delivered), copied for the person to paste, or taken long ago (the mod took it, its
+ * report did not come); `lost`: expired, failed, or waiting past its time (the raw outbox never marks that one).
+ */
+export function wordState(message, now, keep = KEEP) {
+  if (message.state === 'delivered' || message.state === 'copied') return 'arrived'
+  if (message.state === 'taken') return now - (message.takenAt ?? message.at) < TAKEN_MS ? 'on its way' : 'arrived'
+  if (message.state === 'held') return 'on its way'
+  if (message.state === 'waiting') return isLate(message, now, keep) ? 'lost' : 'on its way'
+  return 'lost'
+}
+
+/**
+ * The review: what the board looks like, for skipping a sweep while nothing changed: the health summary's sha1 with its
+ * times and counts masked (clock times, spans such as "1 h 5 min", how often seen, the limits' percent); its odd marks ("!") stay.
+ */
+export const factsOf = summary => createHash('sha1')
+  .update(String(summary).replace(/\b\d{1,2}:\d{2}\b|\b\d+ (?:min|h|d)\b(?: \d+ min\b)?|seen \d+ times|\d+% used/g, '#'))
+  .digest('hex')
 
 /** What the loop "incidents" could not do, as its error: the first of them and how many. */
 function throwFailed(failed) {
@@ -68,11 +97,22 @@ const personWords = (incident, isBack) => `Supervisor: ${isBack ? `${incident.id
  * work API as the board), and `incidents` is what the store holds of them (incidents.mjs `incidentsOf`).
  */
 export function createSupervisor(ports) {
-  const { owns = async () => true, loops, closing = () => false, settings = {}, timers = globalThis, sweep: sweepPorts = null, tell = null, partnerJob = 'roles/partner.md', ...runnerPorts } = ports
+  const { owns = async () => true, loops, closing = () => false, settings = {}, timers = globalThis, sweep: sweepPorts = null, tell = null, partnerJob = 'roles/partner.md', keep = KEEP, ...runnerPorts } = ports
   const runner = syncRunner({ ...runnerPorts, settings: settings.supervisor ?? {} }, REPAIR_RULES, WATCH_RULES)
   let timer = null
   let sweepTimer = null
-  const sweeper = sweepPorts === null || tell === null ? null : sweepOver(sweepPorts, { ports: runnerPorts, every: sweepEvery(settings), tell })
+  /** Task 5: the board's health summary (health.mjs), from a view built now: the board, the store, the outbox, the day's repairs. */
+  const healthNow = async () => {
+    const now = runnerPorts.now()
+    const kept = typeof runnerPorts.memory?.load === 'function' ? await runnerPorts.memory.load() : null
+    const view = buildView({
+      state: await runnerPorts.state(), items: await runnerPorts.items(), outbox: runnerPorts.outbox(), repairs: memoryOf(kept).repairs,
+      settings: settings.supervisor ?? {}, now,
+    })
+    return healthSummary(view, now)
+  }
+  const sweeper = sweepPorts === null || tell === null ? null
+    : sweepOver(sweepPorts, { ports: runnerPorts, every: sweepEvery(settings), tell, keep, facts: async () => factsOf(await healthNow()) })
   // Task 3: the incidents as the store holds them, read after each run (and once at the start).
   let incidents = []
   const readIncidents = async () => {
@@ -91,17 +131,29 @@ export function createSupervisor(ports) {
     if (answer === null || answer === undefined) return answer
     await loops.run('incidents', async () => {
       const done = await recordFindings(answer.findings ?? [], { work: runnerPorts.apply, now: answer.at })
-      throwFailed([...done.failed.map(one => `${one.key}: ${one.why}`), ...await tellOwed(await readIncidents())])
+      throwFailed([...done.failed.map(one => `${one.key}: ${one.why}`), ...await tellOwedNow()])
     })
     return answer
+  }
+  /**
+   * The review: one `tellOwed` at a time (a run of the rules and a sweep's turn's end may come together), each reading
+   * the store anew once the one before is done, so no incident gets two lines or two words.
+   */
+  let telling = Promise.resolve()
+  const tellOwedNow = () => {
+    const run = telling.then(async () => tellOwed(await readIncidents()))
+    telling = run.catch(() => {})
+    return run
   }
   /**
    * Tasks 4 and 7: what each incident that opened or came back is owed, from the store (also one the sweep filed, and
    * after a restart): the person's line first (a note of the board's, Via supervisor), then, once that line is filed,
    * the partner's word through the outbox (`tell`, say.mjs `incidentWords`; Review Focus 2: once per new or returning
-   * incident, never for one that only counted), and the incident is "with the advisor" (`incident-told`). A word in the
-   * outbox about it since it got its state counts as sent, so a state change that failed is only tried again. Without a
-   * partner on the board the incident stays open, its line told. Answers what could not be done, one line each.
+   * incident, never for one that only counted). The review: the incident is "with the advisor" (`incident-told`) only
+   * once that word arrived (typed into the partner's chat, copied for the person, or taken by its mod long ago); while it
+   * is on its way nothing more happens, and one that was lost (expired, failed, waiting past its time: a partner that did
+   * not run) is sent again. Without a partner on the board the incident stays open, its line told. Answers what could not
+   * be done, one line each.
    */
   const tellOwed = async items => {
     const failed = []
@@ -117,15 +169,17 @@ export function createSupervisor(ports) {
     const lineOwed = new Set(owed.map(one => one.id))
     const ready = incidents.filter(one => (one.state === 'open' || one.state === 'came back') && (!lineOwed.has(one.id) || lined.has(one.id)))
     let moved = false
+    const now = runnerPorts.now()
     for (const incident of ready) {
-      const isSent = runnerPorts.outbox().some(message => message.command === 'incident' && message.about === incident.id && message.to === partner
-        && message.at >= (Number.isFinite(incident.since) ? incident.since : -Infinity) && message.state !== 'failed')
-      if (!isSent) {
+      // Its words to the partner since it got its state, as they stand now: one arrived hands it on, one on its way waits.
+      const words = runnerPorts.outbox().filter(message => message.command === 'incident' && message.about === incident.id && message.to === partner
+        && message.at >= (Number.isFinite(incident.since) ? incident.since : -Infinity)).map(message => wordState(message, now, keep))
+      if (!words.includes('arrived')) {
+        if (words.includes('on its way')) continue
         const done = await tell(incidentWords(partner, incident, partnerJob)).catch(error => ({ ok: false, why: error instanceof Error ? error.message : String(error) }))
-        if (done?.ok !== true) {
-          failed.push(`the word to ${partner} of ${incident.id}: ${done?.why ?? 'no answer'}`)
-          continue
-        }
+        if (done?.ok !== true) failed.push(`the word to ${partner} of ${incident.id}: ${done?.why ?? 'no answer'}`)
+        else if (done.copied === true) words.push('arrived')
+        if (!words.includes('arrived')) continue
       }
       const handed = await runnerPorts.apply({ action: 'incident-told', id: incident.id, to: partner })
       if (handed?.ok === true) moved = true
@@ -166,21 +220,13 @@ export function createSupervisor(ports) {
     async heard(call) {
       if (sweeper !== null) await loops.run('sweep', () => sweeper.heard({ ...call, at: runnerPorts.now() }))
       // Task 7: what the sweep filed reaches the person and the partner now, not at the next run of the rules.
-      if (call.action === 'turn-ended') await loops.run('incidents', async () => throwFailed(await tellOwed(await readIncidents())))
+      if (call.action === 'turn-ended') await loops.run('incidents', async () => throwFailed(await tellOwedNow()))
     },
     /**
      * The supervisor's Task 5: the board's health summary (health.mjs) for the supervisor chat's sweep (`work health`),
      * from a view built now: the board's state, the store, the outbox and the repairs of the day in its memory.
      */
-    async health() {
-      const now = runnerPorts.now()
-      const kept = typeof runnerPorts.memory?.load === 'function' ? await runnerPorts.memory.load() : null
-      const view = buildView({
-        state: await runnerPorts.state(), items: await runnerPorts.items(), outbox: runnerPorts.outbox(), repairs: memoryOf(kept).repairs,
-        settings: settings.supervisor ?? {}, now,
-      })
-      return healthSummary(view, now)
-    },
+    health: () => healthNow(),
     view: now => {
       const { at, rules } = runner.status()
       return { run: runner.shown(now), checkedAt: at, rules, incidents, ...sweepView(sweeper, now, sweepEvery(settings)) }
@@ -203,7 +249,7 @@ const sweepEvery = settings => (Number.isFinite(settings.supervisorSweepMinutes)
  * (roles/supervisor.md), `tokens({ session, from })` what the turn cost, `memory` its file; `tell` the supervisor's port
  * for a board word. Work runs while a chat of the board works or a step is taken or in progress (Review Focus 3).
  */
-function sweepOver(sweep, { ports, every, tell }) {
+function sweepOver(sweep, { ports, every, tell, keep, facts }) {
   const chats = state => [...(state.chats ?? []).filter(one => !one.isLeftover), ...(state.advisor ? [state.advisor] : []), ...(state.advisorHelper ? [state.advisorHelper] : [])]
   return sweepRunner({
     every,
@@ -221,12 +267,15 @@ function sweepOver(sweep, { ports, every, tell }) {
       return ['fiveHour', 'week'].some(key => limits[key]?.level === 'full')
     },
     chat: () => sweep.chat(),
-    // Its word on its way (not taken, or taken and not typed yet), or a turn of its chat running.
+    // Its word on its way, or a turn of its chat running. The review: only a word waiting within its time, or taken in the
+    // last 10 minutes: an expired word stays "waiting" in the raw outbox, and one whose typing was never reported "taken".
     sweeping: async () => {
       const card = (await sweep.chat())?.card ?? null
       if (card === null) return false
       if (card.state === 'working' || card.state === 'waiting') return true
-      return ports.outbox().some(message => message.to === card.name && message.command === 'sweep' && ['waiting', 'taken', 'held'].includes(message.state))
+      const now = ports.now()
+      return ports.outbox().some(message => message.to === card.name && message.command === 'sweep'
+        && ((message.state === 'waiting' && !isLate(message, now, keep)) || (message.state === 'taken' && now - (message.takenAt ?? message.at) < TAKEN_MS)))
     },
     wake: async ({ subject }) => {
       const card = (await sweep.chat())?.card ?? null
@@ -239,6 +288,8 @@ function sweepOver(sweep, { ports, every, tell }) {
     },
     tokens: one => sweep.tokens(one),
     memory: sweep.memory ?? null,
+    // The review: what the board looks like, so a sweep by the clock is skipped while nothing changed.
+    facts: sweep.facts ?? facts,
   })
 }
 
@@ -251,7 +302,7 @@ function sweepOver(sweep, { ports, every, tell }) {
 function sweepView(sweeper, now, every) {
   if (sweeper === null) return { lastSweep: null, sweepNote: null, sweepEvery: 0, sweepsToday: null }
   const { last, note, recent } = sweeper.view()
-  const shown = last === null ? null : (({ session: _s, from: _f, tokensRead: _t, how: _h, ...one }) => one)(last)
+  const shown = last === null ? null : (({ session: _s, from: _f, tokensRead: _t, how: _h, facts: _x, ...one }) => one)(last)
   const today = recent.filter(one => now - one.at < 24 * 60 * MIN)
   return {
     lastSweep: shown,

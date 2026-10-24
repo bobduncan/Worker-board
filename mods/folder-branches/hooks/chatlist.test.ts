@@ -4,6 +4,7 @@ import type { FsEntry, On } from 'claude-code'
 
 import type { ChatFile, ChatTask } from '../types'
 import { chatText, parseChat } from './chats'
+import { forYouItems } from './foryou'
 
 const TOOL = 'mcp__folder-branches__chat'
 const ROOT = 'D:\\Work\\project'
@@ -2725,6 +2726,31 @@ describe('clear after each step', () => {
     await wait(50)
     expect(w.commanded).toEqual(['/clear by plugin folder-branches'])
     expect(w.sequence.filter(one => one === 'save-log')).toEqual([])
+  })
+
+  test('the review: the supervisor\'s chat hands the board no "For you" block at its turn\'s end, also before the board named its role', async ($, on) => {
+    mock.clock(on)
+    const w = await watcher($, on, ok({ missed: [], open: [], role: 'supervisor', pause: RUNNING }))
+    const answer = 'Filed X4.\n\n> **For you**\n> 1. **Answer:** Should the board wake Units now? I advise yes.'
+    await $.turn.complete({ ...ENDED, answer, turnId: 't1' })
+    await wait(50)
+    const ended = sent(w).find(one => one.action === 'turn-ended')
+    expect(ended?.forYou).toBeUndefined()
+    // A worker's answer of the same words hands one item over (the block is one the mod reads).
+    expect(forYouItems(answer).length).toBe(1)
+  })
+
+  test('the review: the list naming the main chat its supervisor never has the main chat cleared', async ($, on) => {
+    mock.clock(on)
+    const w = world('main', { [`${CHATS}/list.json`]: '{ "prefix": "Game - ", "main": "Main", "supervisor": "Main" }\n', [BOARD]: board })
+    stand(on, w)
+    w.byAction = { 'turn-ended': { status: 503, text: 'The board restarts: try again in a moment.' } }
+    await $.session.start(START)
+    await $.classic.UserPromptSubmit({ prompt: 'go', session_title: 'Game - Main' })
+    await $.turn.start({ text: 'go', turnId: 't1' })
+    await $.turn.complete({ ...ENDED, turnId: 't1' })
+    await wait(50)
+    expect(w.commanded.filter(one => one.startsWith('/clear'))).toEqual([])
   })
 
   test('the supervisor: a subagent of it still running keeps it from being cleared, and its card says why', async ($, on) => {

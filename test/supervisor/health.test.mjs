@@ -148,6 +148,17 @@ test('work health answers the summary to the supervisor chat, and refuses every 
   assert.equal((await s.chat('Watcher', { action: 'incident', title: 'Digger works with no step for an hour', subject: 'Digger', evidence: 'working since 10:00, card empty', rule: 'a worker working with no step for 30 min' })).ok, true)
 })
 
+test('the review: the supervisor\'s chat files no ask through a "For you" block at its turn\'s end; a worker\'s is filed', async t => {
+  const s = await store(t)
+  const item = { n: 1, kind: 'decide', text: ['Should the board wake Digger now?'], options: [], advice: '', pictures: [], play: '', ref: null }
+  const watcher = await s.chat('Watcher', { action: 'turn-ended', since: NOW - 1000, forYou: [item] })
+  assert.equal(watcher.ok, true, watcher.why)
+  assert.equal(watcher.result.asked, undefined)
+  assert.equal(watcher.result.role, 'supervisor')
+  const digger = await s.chat('Digger', { action: 'turn-ended', since: NOW - 1000, forYou: [item] })
+  assert.equal(digger.result.asked?.length, 1)
+})
+
 test('work health on a board without a supervisor, or one whose summary fails, says so', async t => {
   assert.equal((await (await store(t, null)).chat('Watcher', { action: 'health' })).status, 409)
   const failing = await store(t, async () => { throw new Error('the store is torn') })

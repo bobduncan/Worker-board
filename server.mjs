@@ -2030,7 +2030,9 @@ async function main(args) {
           save: value => writeAtomic(SUPERVISOR_FILE, JSON.stringify(value)),
         },
         // The Workers mod installed, and the version each chat's mod said with its last call (Part 2: since 0.16.0)
-        mods: async () => ({ installed: (await modNow())?.installed ?? null, chats: Object.fromEntries([...modOf].filter(([, one]) => typeof one.version === 'string').map(([name, one]) => [name, one.version])) }),
+        // The review: only chats whose mod asked in the last 2 minutes (it asks every 5 s while its chat runs); one that
+        // asked without the header (null) runs a mod older than the first that says its version (the rule old-mod).
+        mods: async () => ({ installed: (await modNow())?.installed ?? null, chats: Object.fromEntries([...modOf].filter(([, one]) => clock() - one.at < 2 * 60_000).map(([name, one]) => [name, one.version])) }),
         // The supervisor's Part 2: a board word into the outbox, as every board word goes (the sweep's word to the
         // supervisor's chat, an incident's word to the partner); the main chat is asked to start a chat that does not run.
         tell: async words => {
@@ -2044,12 +2046,16 @@ async function main(args) {
           return { ok: true, id: message.id, started: start !== null, copied: isCopied }
         },
         partnerJob: join(HERE, 'roles', 'partner.md'),
+        // The review: how long a word waits in the outbox before it is lost, as the outbox keeps it.
+        keep,
         // The supervisor's Part 2: the sweep of the supervisor's chat (the list of chats' "supervisor").
         sweep: {
           chat: async () => {
             const state = await readState()
             const card = state.supervisorChat ?? null
-            const mod = card === null ? undefined : modOf.get(card.name)
+            // Only what its mod said in the last 2 minutes (the review): an older word may be from before its chat restarted.
+            const said = card === null ? undefined : modOf.get(card.name)
+            const mod = said !== undefined && clock() - said.at < 2 * 60_000 ? said : undefined
             return {
               named: state.supervisorName ?? null, title: `${state.chatPrefix ?? ''}${card?.name ?? state.supervisorName ?? ''}`, card,
               withoutMod: state.bridge?.isMissing === true, mod: mod === undefined ? undefined : mod.version,

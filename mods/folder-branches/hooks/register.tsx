@@ -1126,8 +1126,23 @@ function queueClear($: EngineInterface, c: Omit<Clearing, 'ticket'>, instead: (w
 }
 
 /** The supervisor (spec 2026-10-24): true when the list of chats names this chat its supervisor ("supervisor"). */
-function isSupervisorOf(list: ChatList | null, chat: ChatFile | null): boolean {
-  return list?.supervisor !== undefined && chat !== null && chat.name.toLowerCase() === list.supervisor.toLowerCase()
+function isSupervisorOf(list: ChatList | null, chat: { name: string; role: ChatRole } | null): boolean {
+  // The review: never the main chat, whatever the list says.
+  return list?.supervisor !== undefined && chat !== null && chat.role !== 'main' && chat.name.toLowerCase() === list.supervisor.toLowerCase()
+}
+
+/**
+ * The supervisor (the review): whether this chat is the supervisor's, as the board last named its role, or as the list of
+ * chats names it. Its answers file nothing for the person: their "For you" block is not handed to the board.
+ */
+async function isSupervisorNow($: EngineInterface): Promise<boolean> {
+  if (lastRole === 'supervisor') return true
+  if (lastRole !== null || chatsDir === null) return false
+  try {
+    return isSupervisorOf(parseList(await $.fs.read(inFolder(chatsDir, LIST_FILE)).catch(() => '')), myself)
+  } catch {
+    return false
+  }
 }
 
 /**
@@ -1795,7 +1810,8 @@ export const register: Register = on => {
         if (e.reason === 'answer' && !isTurnEndTold && turnStartedAt !== null) {
           isTurnEndTold = true
           const since = turnStartedAt
-          const forYou = forYouItems(e.answer)
+          // The review: the supervisor's chat asks the person nothing: no "For you" block of its goes to the board.
+          const forYou = await isSupervisorNow($) ? [] : forYouItems(e.answer)
           // B300: a worker that holds nothing pulls with the same call, once per turn: when a step queued for it may be
           // taken now, the board puts its line ("work: B286 is yours; run work next") into the outbox once, and it is
           // typed here at once. All of it holds the turn's end 1.5 s at most; a board without a work store refuses, and

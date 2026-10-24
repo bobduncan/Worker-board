@@ -3157,6 +3157,20 @@ it can. The person: "It just needs to observe, periodically, not consume a lot o
 - Tests: `test/supervisor/health.test.mjs`, `test/supervisor/sweep.test.mjs`, `test/supervisor/handover.test.mjs`; the
   mod's `chatlist.test.ts` (health, incident and incident-fix forwarded, the supervisor cleared without a log, the
   version header), `chats.test.ts`, `board.test.ts`.
+- **The review of part 2** (2026-10-24): a sweep word counts as on its way only while it waits within its time or was
+  taken in the last 10 minutes (the raw outbox keeps an expired word "waiting" and one whose typing was never reported
+  "taken": one such word had held every later sweep and Check now for good), and a sweep open 30 minutes has ended
+  (`SWEEP_LONGEST_MS`). A sweep by the clock is skipped while the board looks as at the last sweep (`facts`: the health
+  summary's sha1 with its times and counts masked, its "!" marks kept, kept on the sweep across restarts; the section
+  says "nothing changed since the last sweep"); Check now always sweeps; the summary leaves out the sweep words. The
+  supervisor's chat files no ask through a "For you" block (the board ignores its block, its mod sends none). An
+  incident's word to the partner waits as long as a step's (`isLate`), the incident is "with the advisor" only once the
+  word arrived (typed, copied, or taken over 10 minutes ago, `wordState`), and a lost one is sent again. One person line
+  and one word per incident also when a run of the rules and a sweep's end come together (`tellOwedNow`, one at a time).
+  old-mod and the sweep read only what a chat's mod said in the last 2 minutes; a mod that asks without the header runs
+  one older than 0.16.0 (a case once 0.16.0 is installed). A Check now right after a sweep ended keeps that sweep with
+  its tokens; a turn's end told while the board asks whether the sweep still runs stays told. The mod never takes the
+  main chat for the supervisor, whatever the list says.
 - **Set up after the merge** (not in the code): the Workers mod 0.16.0 installed, a chat started by the main chat and
   titled with the list's prefix and the name the list gives it (`"supervisor": "Supervisor"` in
   `.claude/chats/list.json`), on Sonnet · low; it joins the list by its title. Until then the rules run as before and

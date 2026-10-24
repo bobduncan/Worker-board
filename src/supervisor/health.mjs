@@ -148,7 +148,8 @@ function dayLines(view, now) {
 
 /** The words to a chat that wait, or expired or failed in the last day. */
 function wordLines(view, now) {
-  return view.outbox.filter(message => typeof message?.to === 'string' && Number.isFinite(message.at))
+  // The review: not the supervisor's own sweep words (a sweep word that waits would make every summary look new).
+  return view.outbox.filter(message => typeof message?.to === 'string' && Number.isFinite(message.at) && message.command !== 'sweep')
     .filter(message => message.state === 'waiting' || message.state === 'held' || ((message.state === 'expired' || message.state === 'failed') && now - message.at < DAY))
     .map(message => lineOf(`${clockOf(message.at)} ${message.command ?? 'answer'}${message.about ? ` ${message.about}` : ''} to ${message.to}: ${message.state} for ${lasting(now - message.at)}`,
       { tier: 1, odd: message.state !== 'held' && now - message.at > (view.settings.undeliveredMinutes ?? 10) * MIN, at: message.at }))

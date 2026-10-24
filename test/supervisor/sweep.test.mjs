@@ -15,8 +15,8 @@ import { line } from '../../fixtures/lines.mjs'
 import { clearRefusal, messageText } from '../../src/bridge.mjs'
 import { configProblem, parseConfig } from '../../src/config.mjs'
 import { sweepWords, wakeFor } from '../../src/say.mjs'
-import { SWEEP_MOD, createSupervisor, tokensOfTurn } from '../../src/supervisor/index.mjs'
-import { SWEEP_SETTLE_MS, TOKENS_AFTER_MS, sweepRunner, whyNoSweep } from '../../src/supervisor/sweep.mjs'
+import { SWEEP_MOD, createSupervisor, factsOf, tokensOfTurn } from '../../src/supervisor/index.mjs'
+import { NOTHING_CHANGED, SWEEP_LONGEST_MS, SWEEP_SETTLE_MS, TOKENS_AFTER_MS, sweepRunner, whyNoSweep } from '../../src/supervisor/sweep.mjs'
 import { stamp } from '../../src/work/migrate.mjs'
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..')
@@ -29,10 +29,13 @@ const WATCHER = { name: 'Watcher', state: 'free', isRunning: true, session: 'cli
 
 /**
  * A board with a supervisor: its clock, its state (a worker working unless set), the outbox the sweep words go into, the
- * timers the supervisor starts (run by hand), and the supervisor's chat as the board sees it.
+ * timers the supervisor starts (run by hand), and the supervisor's chat as the board sees it. `facts` is what the board
+ * looks like for the skip of a sweep while nothing changed (the review): a new mark at every look unless a test sets
+ * `b.facts.value`; `ownFacts` leaves the port out, so the supervisor makes its own from the health summary.
  */
-function board({ working = true, pause = null, limits = {}, chat = { named: 'Watcher', title: 'Game - Watcher', card: WATCHER, withoutMod: false, mod: '0.16.0' }, steps = [], every } = {}) {
+function board({ working = true, pause = null, limits = {}, chat = { named: 'Watcher', title: 'Game - Watcher', card: WATCHER, withoutMod: false, mod: '0.16.0' }, steps = [], every, tokens = null, ownFacts = false } = {}) {
   let now = START
+  const facts = { value: null, looks: 0 }
   const outbox = []
   const told = []
   const intervals = []
@@ -59,8 +62,9 @@ function board({ working = true, pause = null, limits = {}, chat = { named: 'Wat
     sweep: {
       chat: async () => chat,
       job: 'C:/board/roles/supervisor.md',
-      tokens: async ({ session, from }) => (session === 'cli-watcher' && from >= START ? { total: 31_200, input: 400, cacheWrite: 2_800, cacheRead: 27_000, output: 1_000 } : null),
+      tokens: tokens ?? (async ({ session, from }) => (session === 'cli-watcher' && from >= START ? { total: 31_200, input: 400, cacheWrite: 2_800, cacheRead: 27_000, output: 1_000 } : null)),
       memory: { load: async () => memory.value, save: async value => { memory.value = JSON.parse(JSON.stringify(value)) } },
+      ...(ownFacts ? {} : { facts: async () => facts.value ?? `look ${(facts.looks += 1)}` }),
     },
   }
   const supervisor = createSupervisor(ports)
@@ -71,7 +75,7 @@ function board({ working = true, pause = null, limits = {}, chat = { named: 'Wat
     await minute.fn()
   }
   return {
-    supervisor, state, outbox, told, memory, chat,
+    supervisor, state, outbox, told, memory, chat, facts,
     at: minutes => { now = START + minutes * MIN },
     tick,
     sweeps: () => told.filter(one => one.command === 'sweep'),
@@ -88,8 +92,8 @@ test('a tick after 10 minutes while a worker works wakes the supervisor once; no
     'Your job: C:/board/roles/supervisor.md',
   ])
   assert.deepEqual([b.sweeps()[0].to, b.sweeps()[0].about], ['Watcher', 'board'])
-  // Its word still waits: it still runs, and nothing is asked again, also after its time.
-  b.at(12)
+  // Its word still waits, within its time: it still runs, and nothing is asked again.
+  b.at(5)
   await b.tick()
   assert.equal(b.sweeps().length, 1)
   // Its chat takes it and runs the turn, then ends it: the next one comes 10 minutes after the first.
@@ -258,6 +262,10 @@ test('the Workers mod says its version with every call: the same as its plugin.j
   const server = await readFile(join(ROOT, 'server.mjs'), 'utf8')
   assert.ok(server.includes("req.headers['x-workers-mod']"))
   assert.ok(server.includes('noteMod(body, checked)'))
+  // The review: the rule old-mod and the sweep go by what a chat's mod said in the last 2 minutes only; a mod that asked
+  // without the header is kept as null (older than 0.16.0: test/supervisor/watch.test.mjs).
+  assert.ok(server.includes('chats: Object.fromEntries([...modOf].filter(([, one]) => clock() - one.at < 2 * 60_000).map(([name, one]) => [name, one.version]))'))
+  assert.ok(server.includes('const mod = said !== undefined && clock() - said.at < 2 * 60_000 ? said : undefined'))
   // Check now asks the main chat no more: the server's sync starts the supervisor's check, rules and sweep.
   assert.ok(server.includes('const done = await supervisor.checkNow({ subject })'))
   assert.ok(!server.includes('syncList: syncAnswer'))
@@ -276,4 +284,119 @@ test('sweepRunner alone: the plan\'s interface (every, workRuns, paused, atLimit
   await runner.heard({ action: 'turn-ended', ok: true, session: 'cli-watcher', since: START, at: START + 3 * MIN })
   assert.equal((await runner.now({ subject: 'Digger', at: START + 4 * MIN })).started, true)
   assert.deepEqual(woke, [null, 'Digger'])
+})
+
+test('the review: a word left "taken" (its typing never reported) or "waiting" past its time holds no later sweep, nor Check now', async () => {
+  // Taken, its typing never reported; the turn ended: the next sweep comes when due, and Check now sweeps.
+  const taken = board()
+  await taken.tick()
+  Object.assign(taken.outbox[0], { state: 'taken', takenAt: START })
+  await taken.supervisor.heard({ action: 'health', ok: true })
+  await taken.supervisor.heard({ action: 'turn-ended', ok: true, session: 'cli-watcher', since: START + MIN })
+  taken.at(11)
+  await taken.tick()
+  assert.equal(taken.sweeps().length, 2)
+  taken.outbox[1].state = 'delivered'
+  await taken.supervisor.heard({ action: 'turn-ended', ok: true, session: 'cli-watcher', since: START + 11 * MIN })
+  taken.at(13)
+  assert.deepEqual((await taken.supervisor.checkNow({})).sweep, { started: true, why: null, note: null })
+  // Never taken (its chat did not run): after its time the word is lost, the sweep ended, and the next one is asked.
+  const lost = board()
+  await lost.tick()
+  lost.at(11)
+  await lost.tick()
+  assert.equal(lost.sweeps().length, 2)
+  assert.deepEqual([lost.view().lastSweep.ended, lost.view().sweepsToday.count], [null, 1], 'the first one ended and kept; the second runs')
+  // A sweep open for 30 minutes has ended, whatever its chat says (a chat stuck "working").
+  const stuck = board()
+  assert.equal((await stuck.supervisor.checkNow({})).sweep.started, true)
+  stuck.outbox[0].state = 'delivered'
+  stuck.chat.card = { ...WATCHER, state: 'working' }
+  stuck.at(29)
+  await stuck.tick()
+  assert.equal(stuck.view().lastSweep.ended, null)
+  stuck.at(SWEEP_LONGEST_MS / MIN)
+  await stuck.tick()
+  assert.equal(stuck.view().lastSweep.ended, START + SWEEP_LONGEST_MS)
+  assert.match(stuck.view().lastSweep.note, /ran over 30 minutes/)
+})
+
+test('the review: a stuck night costs no sweep every 10 minutes: while the board looks the same, none by the clock; Check now sweeps', async () => {
+  const b = board()
+  b.facts.value = 'the same board'
+  await b.tick()
+  b.outbox[0].state = 'delivered'
+  await b.supervisor.heard({ action: 'health', ok: true })
+  await b.supervisor.heard({ action: 'turn-ended', ok: true, session: 'cli-watcher', since: START })
+  for (const minutes of [10, 20, 60, 600]) {
+    b.at(minutes)
+    await b.tick()
+  }
+  assert.equal(b.sweeps().length, 1, 'nothing changed: one sweep in 10 hours')
+  assert.deepEqual({ ...b.view().sweepNote, at: 0 }, { at: 0, why: NOTHING_CHANGED, asked: false })
+  // Something changed: the next tick sweeps.
+  b.facts.value = 'another board'
+  b.at(601)
+  await b.tick()
+  assert.equal(b.sweeps().length, 2)
+  // Check now sweeps also while the board looks the same.
+  b.outbox[1].state = 'delivered'
+  await b.supervisor.heard({ action: 'turn-ended', ok: true, session: 'cli-watcher', since: START + 601 * MIN })
+  b.at(603)
+  assert.equal((await b.supervisor.checkNow({})).sweep.started, true)
+  // Kept over a restart: the mark stands in the sweep's file.
+  assert.equal(b.memory.value.last.facts, 'another board')
+})
+
+test('the review: the facts are the health summary with its times and counts masked, its odd marks kept', async () => {
+  const one = 'The board\'s health at 11:00.\n- ! Digger (worker): unknown since 10:35 (25 min); seen 5 times; 5-hour limit: 64% used (ok), read at 10:55'
+  const later = 'The board\'s health at 11:40.\n- ! Digger (worker): unknown since 10:35 (1 h 5 min); seen 9 times; 5-hour limit: 70% used (ok), read at 11:38'
+  assert.equal(factsOf(one), factsOf(later))
+  assert.notEqual(factsOf(one), factsOf(one.replace('- ! ', '- ')), 'an odd mark that goes is a change')
+  assert.notEqual(factsOf(one), factsOf(one.replace('unknown', 'working')))
+  // The supervisor makes them itself from its health summary when no port gives them: the same board, no second sweep.
+  const b = board({ ownFacts: true })
+  await b.tick()
+  b.outbox[0].state = 'delivered'
+  await b.supervisor.heard({ action: 'turn-ended', ok: true, session: 'cli-watcher', since: START })
+  b.at(10)
+  await b.tick()
+  assert.equal(b.sweeps().length, 1)
+  b.state.chats[1] = lane('Digger', { state: 'free' })
+  b.state.chats.push(lane('Weeder', { state: 'working' }))
+  b.at(11)
+  await b.tick()
+  assert.equal(b.sweeps().length, 2, 'the board changed')
+})
+
+test('the review: a Check now right after a sweep ended keeps that sweep with its tokens', async () => {
+  const reads = []
+  const b = board({ tokens: async one => (reads.push(one.session), { total: 100, input: 1, cacheWrite: 2, cacheRead: 90, output: 7 }) })
+  await b.tick()
+  b.outbox[0].state = 'delivered'
+  await b.supervisor.heard({ action: 'turn-ended', ok: true, session: 'cli-watcher', since: START })
+  // Within the 20 seconds before its tokens are read, the person presses Check now.
+  assert.equal((await b.supervisor.checkNow({})).sweep.started, true)
+  assert.deepEqual(reads, ['cli-watcher'])
+  assert.deepEqual(b.view().sweepsToday, { count: 1, tokens: 100 })
+})
+
+test('the review: a turn\'s end told while the board asks whether the sweep still runs stays told, never "quiet"', async () => {
+  let release = () => {}
+  let asking = false
+  const runner = sweepRunner({
+    every: 10 * MIN, workRuns: async () => true, paused: async () => false, atLimit: async () => false,
+    chat: async () => ({ named: 'Watcher', card: WATCHER, withoutMod: false, mod: '0.16.0' }),
+    sweeping: () => (asking ? new Promise(done => { release = () => done(false) }) : Promise.resolve(false)),
+    wake: async () => ({ ok: true, session: 'cli-watcher', note: null }), tokens: async () => null,
+  })
+  await runner.tick(START)
+  asking = true
+  const ticking = runner.tick(START + 3 * MIN)
+  await new Promise(done => setImmediate(done))
+  await runner.heard({ action: 'health', ok: true, at: START + 3 * MIN })
+  await runner.heard({ action: 'turn-ended', ok: true, session: 'cli-watcher', since: START, at: START + 3 * MIN })
+  release()
+  await ticking
+  assert.equal(runner.view().last.how, 'told')
 })
