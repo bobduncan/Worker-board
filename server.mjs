@@ -30,7 +30,7 @@ import { fileURLToPath } from 'node:url'
 
 
 import { minutesOf } from './src/backlog.mjs'
-import { bridgeNote, checkTake, checkTyped, clearRefusal, fitsMod, isUnknownSession, laneRole, messageText, shownChats } from './src/bridge.mjs'
+import { bridgeNote, checkTake, checkTyped, clearRefusal, fitsMod, isUnknownSession, laneRole, messageText, noteCall, shownChats } from './src/bridge.mjs'
 import { chatLogKeeper, isReadOut, leftSubjects } from './src/chatLogs.mjs'
 import { findCodex, makePicture } from './src/codex.mjs'
 import { checkSetting, panelSettings, settingChanged } from './src/boardSettings.mjs'
@@ -1043,6 +1043,8 @@ async function main(args) {
   const modOf = new Map()
   const noteMod = (body, checked) => {
     if (checked.ok && typeof checked.chat === 'string') modOf.set(checked.chat, { version: typeof body?.mod === 'string' ? body.mod : null, at: clock() })
+    // B566 (X22): every accepted call of a chat says it runs, not its take alone (bridge.mjs `noteCall`).
+    noteCall(seen, body, checked, clock())
   }
   // The Workers mod installed, and the version each chat's mod said with its last call (Part 2: since 0.16.0), for the
   // rule old-mod and B541's card. The review: only chats whose mod asked in the last 2 minutes (it asks every 5 s while
@@ -1702,6 +1704,7 @@ async function main(args) {
     }),
     typed: counted(async body => {
       const checked = checkTyped(body, await readState())
+      noteMod(body, checked)
       if (!checked.ok) return checked
       if (await store.settle(checked.chat, checked, clock()) > 0) readState.reset()
       return { ok: true, result: {} }

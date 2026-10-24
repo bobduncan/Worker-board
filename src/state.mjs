@@ -53,6 +53,8 @@ const ASKED = 'Asked you a question in its chat.'
 const CUT_OFF_MS = 150_000
 /** A running chat's mod asks the board every few seconds. Not heard from for this long, its process is not running. */
 const SEEN_MS = 30_000
+/** B566: a chat whose conversation was written this lately runs (its process writes it). */
+const WRITTEN_RUNS_MS = 60_000
 /** B161: the mark under a line typed on the board (bridge.mjs, `messageText`), and how many lines of the talk are kept. */
 const TYPED_MARK = /\n?\(typed on the worker board, \d{1,2}:\d{2}\)\s*$/
 const TALK_MESSAGES = 40
@@ -1230,7 +1232,8 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
     return title === null ? null : withoutNotes(title)
   }
   /**
-   * Whether a chat's process runs: its mod asked the board lately (`seen.shown`, by the chat's name). After a restart
+   * Whether a chat's process runs: its mod asked the board lately (`seen.shown`, by the chat's name: B566, any call of
+   * the bridge it made, a take, a work call, a typed report), or its conversation was written in the last minute. After a restart
    * of the app a chat does not run until it is opened or messaged through the app, and until then nothing reaches
    * it by its name. Null where that cannot be told: no chat can ask this board, or the board has only just
    * started and not every chat has asked yet.
@@ -1238,7 +1241,14 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
   // B212, B213: no Workers mod has asked this board since it started (null on a board that does not deliver).
   const isBridgeMissing = seen === null || typeof seen !== 'object' || !Number.isFinite(board?.startedAt) ? null
     : Object.keys(seen.shown ?? {}).length === 0 && Object.keys(seen.other ?? {}).length === 0 && now - board.startedAt >= SEEN_MS
+  // B566 (X22: three working chats shown "its chat does not run" while they ran): when each chat's conversation was last
+  // written; a chat whose conversation was written in the last minute runs, whatever its takes say.
+  const writtenOf = new Map(found.map(chat => [chat.name, raw.tails?.[chat.cliSessionId]?.modifiedAt ?? null]))
   function runningOf(name) {
+    const written = writtenOf.get(name)
+    // Not a write from before the app started (B315): its process of then wrote it.
+    const isNewProcess = !Number.isFinite(raw.appStartedAt) || written >= raw.appStartedAt
+    if (Number.isFinite(written) && isNewProcess && now - written >= 0 && now - written < WRITTEN_RUNS_MS) return true
     // B213: without a mod nobody asks, so the board cannot tell whether a chat runs: unknown, never "not running".
     if (isBridgeMissing === true) return null
     if (seen === null || typeof seen !== 'object' || !Number.isFinite(board?.startedAt) || now - board.startedAt < SEEN_MS) return null

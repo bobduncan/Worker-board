@@ -178,6 +178,32 @@ function holderNotRunning(view, ctx) {
   return found
 }
 
+/**
+ * B566 (X22, X21: chats shown not running while they ran, the board's only sign their takes): a worker whose card says
+ * it works (or that the board shows off for a card left working) while its chat made no call to the board, took
+ * nothing and wrote nothing to its conversation (the board's `isRunning` false) for longer than 5 minutes: one
+ * incident per worker. A worker on a step in progress is holder-not-running's.
+ */
+const WORKING_NOT_RUNNING_MS = 5 * MIN
+function workingNotRunning(view, ctx) {
+  const found = []
+  if (isPaused(view) || isFull(view)) return found
+  const holding = new Set(stepsOf(view).filter(one => HOLDS.includes(stateOf(one))).map(one => plain(valueOf(one, 'Owner'), view.prefix)))
+  for (const lane of workersOf(view)) {
+    const isWorkingCard = lane.state === 'working' || (lane.state === 'off' && Number.isFinite(lane.offSince))
+    if (!isWorkingCard || lane.isRunning !== false || holding.has(plain(lane.name, view.prefix))) continue
+    const key = `working-not-running ${lane.name}`
+    const ms = lasted(view, ctx, key, afterPause(view, Number.isFinite(lane.offSince) ? lane.offSince : null))
+    if (ms <= WORKING_NOT_RUNNING_MS) continue
+    found.push({
+      rule: 'working-not-running', key, subject: lane.name,
+      text: `${lane.name}'s card says it works, but its chat made no call, took nothing and wrote nothing for ${minutes(ms)} min`,
+      evidence: `${lane.name}: state ${lane.state}, running no, since ${clockOf(view.now - ms)}`,
+    })
+  }
+  return found
+}
+
 /** 5. An opus step whose line waits for its worker to run on Opus, for longer than `opusWaitMinutes`. */
 function opusWait(view, ctx) {
   const found = []
@@ -419,6 +445,7 @@ export const WATCH_RULES = [
   { id: 'stale-suspended', kind: 'watch', says: 'a worker "suspended" after its limit came back', check: staleSuspended },
   { id: 'idle-while-waiting', kind: 'watch', says: 'all workers idle while steps wait', check: idleWhileWaiting },
   { id: 'holder-not-running', kind: 'watch', says: 'a step in progress whose worker does not run', check: holderNotRunning },
+  { id: 'working-not-running', kind: 'watch', says: 'a worker whose card says it works while its chat makes no call and writes nothing', check: workingNotRunning },
   { id: 'opus-wait', kind: 'watch', says: 'an Opus step waiting for Opus too long', check: opusWait },
   { id: 'skip-repeats', kind: 'watch', says: 'a clear or a compaction skipped for the same reason twice in a row', check: skipRepeats },
   { id: 'repair-repeats', kind: 'watch', says: 'the same repair three times or more in a day', check: repairRepeats },
