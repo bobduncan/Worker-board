@@ -148,6 +148,11 @@
     <section class="panel advisor-goals" id="advisor-goals" aria-label="The goal map">
       <div class="goals-head">
         <nav class="goals-crumb" id="goals-crumb" aria-label="Where you are in the map"></nav>
+        <div class="goals-find" id="goals-find" role="search">
+          <input type="text" id="goals-find-input" autocomplete="off" spellcheck="false" placeholder="Find a goal: G33 or words" aria-label="Find a goal by its id or words in its title" aria-controls="goals-find-list">
+          <button type="button" class="goals-find-clear" id="goals-find-clear" aria-label="Clear the search" title="Clear (Esc)" hidden>×</button>
+          <ul class="goals-find-list" id="goals-find-list" role="listbox" hidden></ul>
+        </div>
         <span class="goals-count" id="goals-count"></span>
         <span class="goals-actions" id="goals-actions"></span>
         <span class="goals-views" id="goals-views" role="group" aria-label="What the map shows">
