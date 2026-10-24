@@ -479,7 +479,13 @@ test('the plan step: the strategy choice, change badges, Not now, only what chan
   assert.deepEqual(m1.goals.map(goal => goal.badge?.tone ?? null), ['new', 'change', 'change', null, 'drop'])
   assert.deepEqual([m1.goals[1].cause, m1.goals[1].steps], ['the look is cozy (P3)', 'B12 and B14 move here'])
   assert.equal(m1.goals[4].state, 'later')
-  assert.equal(all.changes, 5)
+  // The changes that wait for you: the milestone and the goals not decided (S5 is set aside for now).
+  assert.equal(all.changes, 4)
+  assert.deepEqual(goals({ onlyChanges: true }).totals, { milestones: 2, goals: 6 })
+  // A goal set aside is no decision that waits, and does not hold the step's tick; your Yes counts before it.
+  const view = visionView(planState(page, [], 'p.md'), { ...UI, page: 'plan' })
+  assert.ok(!view.slides.some(slide => slide.id === 'S5'))
+  assert.equal(visionView(planState(page, [], 'p.md'), { ...UI, page: 'plan', confirms: ['S5'] }).goals.milestones[0].goals[4].state, 'confirming')
   // Only what changes: kept goals and a milestone without changes go.
   const only = goals({ onlyChanges: true })
   assert.equal(only.onlyChanges, true)

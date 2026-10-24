@@ -176,7 +176,7 @@ export function parsePlan(text) {
     const milestone = section === 'preset' ? raw.match(/^###\s+(M\d+\+?)\s*[·:-]\s*(.*)$/) : null
     if (milestone !== null) {
       // 2026-10-24: a milestone a plan change touches carries its change and cause, as a goal does.
-      current = { id: milestone[1], title: milestone[2].trim(), goals: [], change: null, cause: '' }
+      current = { id: milestone[1], title: milestone[2].trim(), goals: [], change: null, cause: '', pictures: [] }
       milestones.push(current)
       kind = 'milestone'
       field = null

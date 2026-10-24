@@ -471,6 +471,8 @@ test('parsePlan reads the strategy, its advice, and the changes of milestones an
   // planState passes them on; a page without them has none.
   assert.equal(planState(page, [], 'p.md').strategy.name, 'Playable first')
   assert.deepEqual([parsePlan('# P\n').strategy, parsePlan('# P\n').strategyAdvice], [null, null])
+  // A picture under a milestone heading is kept, not a crash.
+  assert.equal(parsePlan('# P\n\n## Goals preset\n\n### M1 · One\n- Picture: pictures/m1.png · the first\n').milestones[0].pictures.length, 1)
 })
 
 test('the strategy and Not now go to the partner on the plan route (2026-10-24)', () => {

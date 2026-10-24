@@ -10137,7 +10137,7 @@ function visionView(plan, ui = { page: 'vision', at: 0, picked: {}, change: null
   }
   // The plan: the partner's questions, then a goal it proposed.
   for (const question of questionsOf(about => /^S/.test(about))) slides.push(questionSlide(question, ui, titleOf(question.about)))
-  for (const goal of goalsOfPreset.filter(one => one.state !== 'confirmed')) {
+  for (const goal of goalsOfPreset.filter(one => one.state !== 'confirmed' && one.state !== 'later')) {
     decide({ id: goal.id, step: 'plan', title: goal.title, question: `Is this a goal: ${goal.title}?`, points: [goal.doneWhen === '' ? null : `**Done when:** ${goal.doneWhen}`, goal.why ? `**Why:** ${goal.why}` : null, ...goal.subs].filter(Boolean), pictures: goal.pictures,
       actions: [{ label: 'Confirm', act: 'confirm-goal-now', id: goal.id, isPrimary: true }, { label: 'Change', act: 'change', id: goal.id }] })
   }
@@ -10212,7 +10212,7 @@ function visionView(plan, ui = { page: 'vision', at: 0, picked: {}, change: null
     goals: one.goals.map(item => ({
       id: item.id, title: item.title, doneWhen: item.doneWhen, serves: item.serves, pictures: item.pictures, subs: item.subs, goal: item.goal, why: item.why ?? '',
       badge: planBadge(item.change ?? null), cause: item.cause ?? '', steps: item.steps ?? '',
-      state: item.state === 'confirmed' ? 'confirmed' : item.state === 'later' ? 'later' : confirms.includes(item.id) ? 'confirming' : 'proposed', source: visionSource(item), slide: slideOf(item.id),
+      state: item.state === 'confirmed' ? 'confirmed' : confirms.includes(item.id) ? 'confirming' : item.state === 'later' ? 'later' : 'proposed', source: visionSource(item), slide: slideOf(item.id),
     })),
   }))
   const allGoals = goalCards.flatMap(one => one.goals)
@@ -10261,7 +10261,7 @@ function visionView(plan, ui = { page: 'vision', at: 0, picked: {}, change: null
       { id: 'vision', label: '1 · Vision', isDone: total > 0 && openAnswers === 0 },
       { id: 'features', label: '2 · Features', isDone: featureCards.length > 0 && tradeoffsOpen.length === 0 },
       { id: 'standards', label: '3 · Standards', isDone: standardCards.length > 0 && standardCards.every(item => item.state === 'confirmed') },
-      { id: 'plan', label: '4 · Plan', isDone: allGoals.length > 0 && allGoals.every(item => item.state === 'confirmed') },
+      { id: 'plan', label: '4 · Plan', isDone: allGoals.length > 0 && allGoals.every(item => item.state === 'confirmed' || item.state === 'later') },
       { id: 'focus', label: '5 · Focus', isDone: focus !== null },
     ],
     interviewLabel: asks > 0 ? `Interview · ${asks} to decide` : 'Interview',
@@ -10295,7 +10295,8 @@ function visionView(plan, ui = { page: 'vision', at: 0, picked: {}, change: null
       // 2026-10-24: the strategy the plan is laid in (null: you choose it first), the partner's advice, the four.
       strategy: plan.strategy ?? null, strategyAdvice: plan.strategyAdvice ?? null,
       strategies: STRATEGIES.map(([name, words]) => ({ name, words, isAdvised: plan.strategyAdvice?.name === name })),
-      onlyChanges, changes: goalCards.filter(one => one.badge !== null).length + allGoals.filter(item => item.badge !== null).length,
+      onlyChanges, changes: goalCards.filter(one => one.badge !== null).length + allGoals.filter(item => item.badge !== null && (item.state === 'proposed' || item.state === 'confirming')).length,
+      totals: { milestones: goalCards.length, goals: allGoals.length },
       summary: allGoals.length === 0 ? '' : `${allGoals.length} goals · ${allGoals.filter(item => item.state === 'confirmed').length} confirmed by you`,
       // The partner's last check of the whole plan (null: none yet).
       check: plan.check ?? null,
@@ -11114,10 +11115,16 @@ function planPage(view, can, off) {
       visionButton('Decide them', 'page', { id: 'features', className: 'is-primary' }))
     head.append(first)
   }
-  if (strategy === null || visionUi.changingStrategy) {
+  if (visionUi.changingStrategy || (strategy === null && milestones.length === 0 && view.goals.totals.goals === 0)) {
     head.append(planStrategyChoice(view, can, off))
-    parts.push(head)
-    if (strategy === null) return parts
+    if (strategy === null && view.goals.totals.goals === 0) {
+      parts.push(head)
+      return parts
+    }
+  } else if (strategy === null) {
+    const line = el('div', 'plan-strategy-line')
+    line.append(el('p', 'muted', 'Strategy: not chosen yet'), el('span', 'grow'), visionButton('Choose a strategy', 'change-strategy', { isEnabled: can, title: off }))
+    head.append(line)
   } else {
     const line = el('div', 'plan-strategy-line')
     const said = el('p', '')
@@ -11126,15 +11133,14 @@ function planPage(view, can, off) {
     head.append(line)
   }
   const counts = el('div', 'plan-counts')
-  const all = view.goals.milestones.flatMap(one => one.goals)
-  const changes = view.goals.changes
+  const { totals, changes } = view.goals
   const only = el('label', 'check')
   const box = document.createElement('input')
   box.type = 'checkbox'
   box.checked = view.goals.onlyChanges
   box.dataset.visionAct = 'only-changes'
   only.append(box, document.createTextNode(' Only what changes'))
-  counts.append(el('span', 'muted', [`${view.goals.milestones.length} milestone${view.goals.milestones.length === 1 ? '' : 's'}`, `${all.length} goal${all.length === 1 ? '' : 's'}`, changes > 0 ? `${changes} change${changes === 1 ? '' : 's'} for you to decide` : null].filter(Boolean).join(' · ')), el('span', 'grow'), only)
+  counts.append(el('span', 'muted', [`${totals.milestones} milestone${totals.milestones === 1 ? '' : 's'}`, `${totals.goals} goal${totals.goals === 1 ? '' : 's'}`, changes > 0 ? `${changes} change${changes === 1 ? '' : 's'} for you to decide` : null].filter(Boolean).join(' · ')), el('span', 'grow'), only)
   if (view.busy.check || view.busy.strategy) {
     const busy = visionButton('Your partner is laying the plan…', 'check-plan', { className: 'is-busy', isEnabled: false })
     busy.prepend(visionSpinner())
@@ -11203,7 +11209,7 @@ function planStrategyChoice(view, can, off) {
     const busy = visionButton('Your partner is laying the plan…', 'lay-plan', { className: 'is-busy', isEnabled: false })
     busy.prepend(visionSpinner())
     buttons.append(busy)
-  } else buttons.append(visionButton('Lay the plan', 'lay-plan', { className: 'is-primary', isEnabled: can && (visionUi.strategy !== null || visionUi.extra.trim() !== ''), title: can ? 'Pick a strategy or write your own first.' : off }))
+  } else buttons.append(visionButton('Lay the plan', 'lay-plan', { className: 'is-primary', isEnabled: can, title: off }))
   box.append(buttons)
   return box
 }
@@ -11237,7 +11243,7 @@ function planOverview(milestones) {
 
 /** A goal's card: its picture, Done when, sub-goals in order, why or cause, its steps, and Yes, Change, Not now. */
 function planGoalCard(goal, can, off) {
-  const later = goal.state === 'later' || visionUi.notNow.includes(goal.id)
+  const later = goal.state === 'later' || (visionUi.notNow.includes(goal.id) && goal.state === 'proposed')
   const row = el('div', `vision-goal is-${later ? 'later' : goal.state}`)
   row.dataset.goalCard = goal.id
   const shown = el('div', 'vision-goal-picture')
@@ -11838,7 +11844,10 @@ async function visionAct(act, id) {
   } else if (act === 'only-changes') {
     visionUi.onlyChanges = !visionUi.onlyChanges
   } else if (act === 'not-now') {
-    if (await toPartner({ command: 'plan-not-now', id }, `${id}: not now, sent to your partner.`)) visionUi.notNow = [...visionUi.notNow, id]
+    if (await toPartner({ command: 'plan-not-now', id }, `${id}: not now, sent to your partner.`)) {
+      visionUi.notNow = [...visionUi.notNow, id]
+      visionUi.confirms = visionUi.confirms.filter(one => one !== id)
+    }
   } else if (act === 'show-goal') {
     const card = document.querySelector(`.vision-goal[data-goal-card="${CSS.escape(String(id))}"]`)
     if (card !== null) {
