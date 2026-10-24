@@ -71,8 +71,8 @@ test('checkTake: only the chat the board shows under a name takes for it', () =>
 })
 
 test('checkTyped: the mod says which of the messages it took were typed, and which could not be', () => {
-  assert.deepEqual(checkTyped({ chat: 'Units', session: 's-units', typed: ['a'], failed: ['b', 7, ''] }, board), { ok: true, chat: 'Units', typed: ['a'], failed: ['b'] })
-  assert.deepEqual(checkTyped({ chat: 'Units', session: 's-units' }, board), { ok: true, chat: 'Units', typed: [], failed: [] })
+  assert.deepEqual(checkTyped({ chat: 'Units', session: 's-units', typed: ['a'], failed: ['b', 7, ''] }, board), { ok: true, chat: 'Units', typed: ['a'], failed: ['b'], refused: [], why: {} })
+  assert.deepEqual(checkTyped({ chat: 'Units', session: 's-units' }, board), { ok: true, chat: 'Units', typed: [], failed: [], refused: [], why: {} })
   assert.equal(checkTyped({ chat: 'Units', session: 's-x', typed: ['a'] }, board).ok, false)
 })
 

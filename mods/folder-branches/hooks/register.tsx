@@ -7,7 +7,7 @@ import { atom, read, update } from 'claude-code'
 import type { EngineInterface, FsEntry, Register, Timer } from 'claude-code'
 
 import type { BoardRole, ChatFile, ChatList, ChatRole, ChatRow, ChatsView, FolderRow, FoldersView } from '../types'
-import { BOARD_FILE, BOARD_NOTE, LAUNCH_FILE, MOD_HEADER, MOD_VERSION, REQUEST_HEADER, TAKE_PATH, TYPED_PATH, WORK_ACTIONS, WORK_FIELDS, WORK_PATH, boardStarts, isPaused, parseBoard, parsePause, parseTaken, pauseContexts, shownName } from './board'
+import { BOARD_FILE, BOARD_NOTE, LAUNCH_FILE, MOD_HEADER, MOD_VERSION, REQUEST_HEADER, TAKE_PATH, TYPED_PATH, WORK_ACTIONS, WORK_FIELDS, WORK_PATH, boardStarts, isPaused, parseBoard, parsePause, parseTaken, pauseContexts, shownName, typedWhy } from './board'
 import type { Board, BoardStart, PauseState, PauseWhere } from './board'
 import {
   BEAT_MS, CHATS_DIR, LEFT_MAX_SIZE, LEFT_TEXT, LIST_FILE, afterTurn, atTurnStart, cardGap, cardOld, chatNote, clearWhy, clearedStart, compactKeep, compactWhy, chatText, chatsSummary, fileName,
@@ -737,10 +737,13 @@ type FiledForm = { id: string | Promise<string | null>; text: string }
 /** B412: the id of the ask a call filed, or null. */
 const idOf = (read: Record<string, unknown> | null): string | null => (typeof read?.id === 'string' ? read.id : null)
 
-/** Tells the board what became of the messages this chat took: typed here, or not. */
-async function reportTyped($: EngineInterface, board: Board, typed: string[], failed: string[]): Promise<void> {
+/**
+ * Tells the board what became of the messages this chat took: typed here, or not. B532: with `why` per id, and the ids
+ * it `refused` for good (too long, no text), which the board does not try again; a failed one it does.
+ */
+async function reportTyped($: EngineInterface, board: Board, typed: string[], failed: string[], why: Record<string, string> = {}, refused: string[] = []): Promise<void> {
   try {
-    await askBoard($, board, TYPED_PATH, { typed, failed })
+    await askBoard($, board, TYPED_PATH, { typed, failed, ...(refused.length > 0 ? { refused } : {}), ...(Object.keys(why).length > 0 ? { why } : {}) })
   } catch {
     // the board shows the message as handed to this chat; the chat itself shows whether it arrived
   }
@@ -764,14 +767,16 @@ async function takeFromBoard($: EngineInterface): Promise<void> {
     const answer = await askBoard($, board, TAKE_PATH)
     if (answer === null) return
     const taken = parseTaken(answer)
-    if (taken.refused.length > 0) void reportTyped($, board, [], taken.refused)
+    if (taken.refused.length > 0) void reportTyped($, board, [], [], taken.why, taken.refused)
     for (const message of taken.messages) {
       if (typedIds.has(message.id)) continue
       typedIds.add(message.id)
       void $.prompt.submit({ text: message.text, asUser: true }).then(
         // A prompt a hook dropped did not enter the chat, though the call itself went well.
-        entered => (entered.drop === undefined ? reportTyped($, board, [message.id], []) : reportTyped($, board, [], [message.id])),
-        () => reportTyped($, board, [], [message.id]),
+        entered => (entered.drop === undefined
+          ? reportTyped($, board, [message.id], [])
+          : reportTyped($, board, [], [message.id], { [message.id]: typedWhy(entered.drop, 'a hook dropped it') })),
+        reason => reportTyped($, board, [], [message.id], { [message.id]: typedWhy(reason, 'the chat did not take it') }),
       )
     }
   } catch {

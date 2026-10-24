@@ -81,10 +81,36 @@ export function clearRefusal(state, chat, background) {
 
 const ids = value => (Array.isArray(value) ? value : []).filter(id => typeof id === 'string' && id !== '').slice(0, 100)
 
-/** What the mod reports after a take: the messages it typed into its chat, and the ones it could not type. */
+/** B532: the most characters the Workers mod types as one word (its board.ts MOST_CHARS); a longer one it refuses. */
+export const MOD_MOST_CHARS = 3000
+
+/**
+ * B532: what a take hands the mod: `messages` that fit, and the ids of those longer than the mod types (`refused`), each
+ * with its why, so the board closes them failed for good at once instead of the mod refusing them unseen.
+ */
+export function fitsMod(handed, most = MOD_MOST_CHARS) {
+  const over = handed.filter(one => one.text.trim().length > most)
+  return {
+    messages: handed.filter(one => !over.includes(one)),
+    refused: over.map(one => one.id),
+    why: Object.fromEntries(over.map(one => [one.id, `too long: ${one.text.trim().length} > ${most} characters`])),
+  }
+}
+
+/** B532: why the mod could not type a word, per id of `of`: one plain line each, cut. */
+const reasons = (value, of) => Object.fromEntries(of.filter(id => typeof value?.[id] === 'string' && value[id].trim() !== '')
+  .map(id => [id, value[id].replace(/\s+/g, ' ').trim().slice(0, 200)]))
+
+/**
+ * What the mod reports after a take: the messages it typed into its chat, and the ones it could not type. B532: `why`
+ * says why per id, `refused` names the ones it refused for good (too long, no text), which are not tried again.
+ */
 export function checkTyped(body, state) {
   const checked = checkTake(body, state)
-  return checked.ok ? { ...checked, typed: ids(body.typed), failed: ids(body.failed) } : checked
+  if (!checked.ok) return checked
+  const failed = ids(body.failed)
+  const refused = ids(body.refused)
+  return { ...checked, typed: ids(body.typed), failed, refused, why: reasons(body.why, [...failed, ...refused]) }
 }
 
 /** The file that tells the mod where the board is. It holds no words of a chat. */
@@ -97,6 +123,15 @@ export const bridgeNote = ({ port, key, at }) => JSON.stringify({ url: `http://1
  * picture pasted with a line is named under its words by its full path (`where(path)`), so the chat can open it.
  */
 export function messageText(message, clock, where = path => path) {
+  const text = messageBody(message, clock, where)
+  // B532: a word that waited for its chat (busy or closed) says how old it is, so the chat does not read it as new.
+  return Number.isFinite(message.lateMs) && message.lateMs > 0 ? `${text}
+(this word waited for you: sent ${ago(message.lateMs)} ago, at ${clock(message.at)})` : text
+}
+
+const ago = ms => (ms < 2 * 3_600_000 ? `${Math.max(1, Math.round(ms / 60_000))} min` : ms < 48 * 3_600_000 ? `${Math.round(ms / 3_600_000)} hours` : `${Math.round(ms / 86_400_000)} days`)
+
+function messageBody(message, clock, where) {
   const words = (message.text ?? '').trim()
   // B173: a round of the board's clock is the clock's word, never the person's: it carries no mark of theirs.
   // B300: so is the work store's line that a step is the chat's ("work: B286 is yours; run work next").

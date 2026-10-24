@@ -5,6 +5,7 @@ import type { FsEntry, On } from 'claude-code'
 import type { ChatFile, ChatTask } from '../types'
 import { chatText, parseChat } from './chats'
 import { forYouItems } from './foryou'
+import { MOD_VERSION } from './board'
 
 const TOOL = 'mcp__folder-branches__chat'
 const ROOT = 'D:\\Work\\project'
@@ -704,7 +705,11 @@ describe('what the person answers on the worker board reaches the chat it is for
     await clock.advance(5000)
     await settle()
     expect(w.typedIn).toEqual([])
-    expect(w.reported.map(body => JSON.parse(body).failed).flat().sort()).toEqual(['m1', 'm2'])
+    // B532: a word too long is refused for good, one a hook dropped failed; each with why.
+    const said = w.reported.map(body => JSON.parse(body))
+    expect(said.flatMap(body => body.failed ?? [])).toEqual(['m1'])
+    expect(said.flatMap(body => body.refused ?? [])).toEqual(['m2'])
+    expect(Object.assign({}, ...said.map(body => body.why))).toEqual({ m1: 'a hook dropped it: no prompt is taken now', m2: 'too long: 5000 > 3000 characters' })
   })
 
   test('no board is asked without its file, by a chat that is not in the list, or anywhere but on this machine', async ($, on) => {
@@ -2716,7 +2721,7 @@ describe('clear after each step', () => {
     expect(fileOf(w, 'watcher-2')).toEqual({ name: 'Watcher', role: 'worker', state: 'waiting', task: null, at: clock.now(), cleared: { at: clock.now(), step: null, log: null } })
     // Every call to the board says the mod's version.
     expect(w.modHeaders.length).toBeGreaterThan(0)
-    expect(w.modHeaders.every(one => one === '0.16.0')).toBe(true)
+    expect(w.modHeaders.every(one => one === MOD_VERSION)).toBe(true)
   })
 
   test('the supervisor: when the board does not answer its turn\'s end, the list of chats names it, and it is cleared all the same', async ($, on) => {

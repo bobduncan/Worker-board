@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'claude-code/testing'
 
-import { MOST_CHARS, WORK_ACTIONS, WORK_FIELDS, boardStarts, isPaused, parseBoard, parsePause, parseTaken, pauseContexts } from './board'
+import { MOST_CHARS, WORK_ACTIONS, WORK_FIELDS, boardStarts, isPaused, parseBoard, parsePause, parseTaken, pauseContexts, typedWhy } from './board'
 
 const KEY = 'ab'.repeat(32)
 
@@ -44,9 +44,16 @@ describe('the worker board, as the mod reads it', () => {
       'stray',
     ] })
     // What cannot be typed is named, so the board can say it did not arrive.
-    expect(parseTaken(answer)).toEqual({ messages: [{ id: 'm1', text: 'Sheet B' }], refused: ['m2', 'm3', 'm4'] })
-    expect(parseTaken('{"messages":"x"}')).toEqual({ messages: [], refused: [] })
-    expect(parseTaken('')).toEqual({ messages: [], refused: [] })
+    // B532: with why, so the board does not try it again and names the reason.
+    expect(parseTaken(answer)).toEqual({ messages: [{ id: 'm1', text: 'Sheet B' }], refused: ['m2', 'm3', 'm4'],
+      why: { m2: `too long: ${MOST_CHARS + 1} > ${MOST_CHARS} characters`, m3: 'no text', m4: 'no text' } })
+    expect(parseTaken('{"messages":"x"}')).toEqual({ messages: [], refused: [], why: {} })
+    expect(parseTaken('')).toEqual({ messages: [], refused: [], why: {} })
+    // B532: why a word the chat did not take failed, in one short line.
+    expect(typedWhy(new Error('engine  busy\nnow'), 'the chat did not take it')).toBe('the chat did not take it: engine busy now')
+    expect(typedWhy('no prompt is taken now', 'a hook dropped it')).toBe('a hook dropped it: no prompt is taken now')
+    expect(typedWhy(undefined, 'a hook dropped it')).toBe('a hook dropped it')
+    expect(typedWhy('x'.repeat(400), 'f').length).toBe(203)
   })
 })
 

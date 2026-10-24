@@ -30,7 +30,7 @@ import { fileURLToPath } from 'node:url'
 
 
 import { minutesOf } from './src/backlog.mjs'
-import { bridgeNote, checkTake, checkTyped, clearRefusal, isUnknownSession, laneRole, messageText, shownChats } from './src/bridge.mjs'
+import { bridgeNote, checkTake, checkTyped, clearRefusal, fitsMod, isUnknownSession, laneRole, messageText, shownChats } from './src/bridge.mjs'
 import { chatLogKeeper, isReadOut, leftSubjects } from './src/chatLogs.mjs'
 import { findCodex, makePicture } from './src/codex.mjs'
 import { checkSetting, panelSettings, settingChanged } from './src/boardSettings.mjs'
@@ -79,6 +79,7 @@ import { standardHold } from './src/work/standardHold.mjs'
 import { itemsOf, storeKeeper } from './src/work/read.mjs'
 import { requestKeeper } from './src/work/requests.mjs'
 import { readStore } from './src/work/store.mjs'
+import { sweepOutbox } from './src/work/outboxSweep.mjs'
 import { dismissCopied, fileStore, isLate, memoryStore, outboxNow, tick } from './src/store.mjs'
 import { loads, readVersion } from './src/version.mjs'
 import { blockersOf, reportedNotLogged, selfUpdater } from './src/selfUpdate.mjs'
@@ -1668,10 +1669,17 @@ async function main(args) {
       // "resume" to the main chat goes. The rest waits in the outbox, held until the resume (2026-10-19: Resume all, no
       // longer running: while resuming every line goes, so an answer to a chat that has not started reaches it).
       const only = isHolding((await readState()).pause) ? message => message.command === 'resume' : undefined
+      // B532: what no longer matters is closed first, so a chat is never handed a word whose purpose is gone.
+      await sweepOutbox({ dir: workDir, outbox: store, state: await readState(), now: clock(), keep, to: checked.chat }).catch(error => console.error(`The outbox sweep failed: ${error.message}`))
       const taken = await store.take(checked.chat, clock(), keep, only)
       // What was taken shows as on its way at once.
       if (taken.length > 0) readState.reset()
-      return { ok: true, result: { messages: taken.map(message => ({ id: message.id, text: messageText(message, timeOf, path => inProject(config.project, path)) })) } }
+      const handed = taken.map(message => ({ id: message.id, text: messageText(message, timeOf, path => inProject(config.project, path)) }))
+      // B532: a word longer than the Workers mod types is never handed out: it fails at once, for good, with its why
+      // (2026-10-24: the goal guard's evaluate word of 9459 characters was refused and nobody saw why).
+      const fit = fitsMod(handed)
+      if (fit.refused.length > 0) await store.settle(checked.chat, fit, clock())
+      return { ok: true, result: { messages: fit.messages } }
     }),
     typed: counted(async body => {
       const checked = checkTyped(body, await readState())
@@ -1977,7 +1985,7 @@ async function main(args) {
           state, dir: workDir, outbox: store, apply: body => workAction(body, 'server'), now: clock(), maxChars: config.maxMessageChars,
           newId: () => randomBytes(8).toString('hex'), keep,
         })
-        if (done.moved.length + done.sent.length + done.withdrawn.length > 0) {
+        if (done.moved.length + done.sent.length + done.withdrawn.length + done.closed.length > 0) {
           work.reset?.()
           readState.reset()
         }
@@ -2015,6 +2023,7 @@ async function main(args) {
         state: () => readState(),
         items: async () => (await readStore(workDir)).items,
         outbox: () => store.outbox(),
+        keep,
         refused: () => [...refusedNames.values()],
         apply: async body => {
           const done = await workAction(body, 'server')

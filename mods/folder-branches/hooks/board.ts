@@ -16,7 +16,7 @@ export const REQUEST_HEADER = 'X-Work-Request'
  * chat that runs an older Workers mod than the one installed. The same as `version` in .claude-plugin/plugin.json.
  */
 export const MOD_HEADER = 'X-Workers-Mod'
-export const MOD_VERSION = '0.16.0'
+export const MOD_VERSION = '0.16.1'
 /** The longest text typed for the board: its own limit for an answer, with room for the request's name around it. */
 export const MOST_CHARS = 3000
 
@@ -68,20 +68,32 @@ export function shownName(text: string): string | null {
 
 /**
  * What the board handed out: each message with its id and the words to type. One that is no text, or too long, is
- * not typed; its id is in `refused`, so the board is told it did not arrive.
+ * not typed; its id is in `refused`, so the board is told it did not arrive, and `why` says why (B532: "too long: 9459 >
+ * 3000 characters"), so the board does not try it again and the page names the reason.
  */
-export function parseTaken(text: string): { messages: Taken[]; refused: string[] } {
+export function parseTaken(text: string): { messages: Taken[]; refused: string[]; why: Record<string, string> } {
   const raw = parsed(text)
-  const taken: { messages: Taken[]; refused: string[] } = { messages: [], refused: [] }
+  const taken: { messages: Taken[]; refused: string[]; why: Record<string, string> } = { messages: [], refused: [], why: {} }
   if (!isRecord(raw) || !Array.isArray(raw.messages)) return taken
   for (const message of raw.messages) {
     if (!isRecord(message) || typeof message.id !== 'string' || message.id === '') continue
     const words = typeof message.text === 'string' ? message.text.trim() : ''
     if (words !== '' && words.length <= MOST_CHARS) taken.messages.push({ id: message.id, text: words })
-    else taken.refused.push(message.id)
+    else {
+      taken.refused.push(message.id)
+      taken.why[message.id] = words === '' ? 'no text' : `too long: ${words.length} > ${MOST_CHARS} characters`
+    }
   }
 
   return taken
+}
+
+/** B532: why a word could not be typed, as one short line for the board: an error's message, or what a hook said. */
+export function typedWhy(reason: unknown, fallback: string): string {
+  const said = reason instanceof Error ? reason.message : typeof reason === 'string' ? reason : ''
+  const line = said.replace(/\s+/g, ' ').trim().slice(0, 200)
+
+  return line === '' ? fallback : `${fallback}: ${line}`
 }
 
 /**

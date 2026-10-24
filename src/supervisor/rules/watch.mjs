@@ -15,6 +15,8 @@
 import { sinceMs, valueOf } from '../../work/item.mjs'
 import { blockersOpen, waitWords } from '../../work/guards.mjs'
 import { heldMs, isHolding } from '../../work/pause.mjs'
+import { whyClosed } from '../../work/outboxSweep.mjs'
+import { isLate } from '../../store.mjs'
 
 const MIN = 60_000
 const HOUR = 60 * MIN
@@ -246,18 +248,27 @@ function repairRepeats(view) {
 
 /**
  * 8. A word to a chat not delivered for longer than `undeliveredMinutes`: still waiting, or expired or failed in the
- * last two hours. One finding per chat. A word the person's pause held counts from its release.
+ * last two hours. One finding per chat. A word the person's pause held counts from its release. B532: the repair of a
+ * waiting word is the outbox's own: at every refresh its sweep (src/work/outboxSweep.mjs) closes what no longer matters,
+ * with the reason, and a chat's next take hands it the rest however old, with its age (the main chat's start word, kept
+ * as long, opens a chat that is not running). So the rule names only what still waits after that: a word the sweep would
+ * drop is not named, nor a person's answer past its keep, which waits for its chat on purpose (a step that comes back).
  */
 function undelivered(view) {
   // The person pauses: the bridge holds every word until Resume all.
   if (isPaused(view)) return []
   const limit = view.settings.undeliveredMinutes * MIN
+  const runs = new Map(view.lanes.filter(chat => !chat.isLeftover).map(chat => [chat.name, chat.isRunning === true]))
+  const ctx = { all: view.outbox, items: view.items, runs, goals: view.goals ?? [], now: view.now, keep: view.keep, closing: new Map() }
+  // A word that waited too long still counts (the sweep marks it expired, and so does this rule); one that no longer
+  // matters (dropped: superseded, its step moved on) does not.
+  const stillWaits = message => whyClosed(message, ctx)?.state !== 'dropped' && !((message.ask ?? null) !== null && isLate(message, view.now, view.keep))
   const late = view.outbox.filter(message => typeof message?.to === 'string' && Number.isFinite(message.at)).filter(message => {
     // The time the person's pause held it does not count (as for the outbox's own expiry, store.mjs isLate), nor a
     // hold before its release (B285).
     const held = message.at + heldMs(message, view.now, view.pause)
     const since = afterPause(view, Number.isFinite(message.releasedAt) ? Math.max(held, message.releasedAt) : held)
-    if (message.state === 'waiting') return view.now - since > limit
+    if (message.state === 'waiting') return view.now - since > limit && stillWaits(message)
     return (message.state === 'expired' || message.state === 'failed') && view.now - message.at < UNDELIVERED_LOOK_MS && view.now - since > limit
   })
   const byChat = new Map()
