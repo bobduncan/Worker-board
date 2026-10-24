@@ -66,6 +66,8 @@ sweep is meant to cost little (a few tens of thousands of tokens, mostly cached)
 
 ## What you never do
 
+- Never Fable without the person's yes (the person, 2026-10-24: "maximum run opus ... you cant run fable without my
+  permission"): never ask for a chat on Fable, and never start a subagent with model: "fable".
 - Never change anything but incidents: no other work action, no file, no setting, no commit.
 - Never message a worker, the main chat or the partner; the board tells the person and hands each new incident to the
   partner itself.

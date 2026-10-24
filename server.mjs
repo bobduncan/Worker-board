@@ -62,8 +62,8 @@ import { editThread, fixesToTell } from './src/brainstorm.mjs'
 import { changeGoalsFile, editGoals } from './src/goalsWrite.mjs'
 import { activityFor, missingToSteps } from './src/goalSteps.mjs'
 import { PLAN_MOVES, planMove } from './src/planMoves.mjs'
-import { FOCUS_DRAFTS, FOCUS_MOVES, evaluationsAgain, evaluationsRunning, focusAllDone, focusMove, goalChecked, goalReopened, guardGoal, undoLine } from './src/focus.mjs'
-import { effortBack, partnerEffortWords } from './src/partnerEffort.mjs'
+import { FOCUS_DRAFTS, FOCUS_MOVES, evaluationsAgain, evaluationsMode, evaluationsRunning, focusAllDone, focusMove, goalChecked, goalReopened, guardGoal, guardsAsking, undoLine } from './src/focus.mjs'
+import { PARTNER_MODES, effortBack, fableBack, partnerEffortWords } from './src/partnerEffort.mjs'
 import { GUARD_ATTEMPTS, evaluationState } from './src/goalGuard.mjs'
 import { readSources } from './src/sources.mjs'
 import { backgroundRunning, parseTail, readTail } from './src/transcript.mjs'
@@ -645,12 +645,17 @@ async function main(args) {
       allDone: focusAllDone(state.focus ?? null, body?.id),
     })
     readState.reset()
+    // 2026-10-24: a move that ended the goal guard's trip while the board still asked (Go, a tick) withdraws its ask. Not
+    // awaited: this may run inside the work API's turn (a draft through the work tool), whose turn the withdraw waits on.
+    if (done.ok) withdrawGuardAsk(done.result?.withdraw, `${body?.id ?? 'the goal'}: ${body?.command === 'how-go' ? 'Go on the how' : 'its tick'} ended the trip`)
     // B382: a goal that is not the focus may be evaluated meanwhile: while an evaluation runs, the partner stays on high effort.
     // B467: a goal map it cannot read is not "none running": the partner's effort stays as it is (shown and logged).
     const running = done.ok ? await loops.run('evaluations', () => evaluationsRunning({ goalsFile: projectFile(config, 'goals') })) : []
     const isKnown = Array.isArray(running)
     // B359: the partner's how-draft ended the goal guard's evaluation: back to the usual partner, unless another runs.
     if (done.ok && done.result?.evaluated === true && isKnown && running.length === 0) await partnerMode(state, 'usual', 'the evaluation ended with the how: back to the usual partner')
+    // 2026-10-24: Fable was for the evaluation that ended only: one that still runs keeps its own mode (Opus unless the person's A).
+    else if (done.ok && done.result?.evaluated === true && isKnown) await loops.run('evaluations', async () => partnerModeNow(state, mode => `the evaluation ended with the how; another still runs, on ${PARTNER_MODES[mode].label}`))
     if (!done.ok || done.words === null) return done.ok ? { ok: true, result: done.result } : done
     // B352: Go on the how, and another goal as the focus, switch the partner back to the usual mode (the talk about the
     // same goal started again keeps it).
@@ -668,31 +673,60 @@ async function main(args) {
   }
   /**
    * B352, B359: a word to the main chat to set the partner's mode, unless it runs on that mode already: copied without the
-   * Workers mod, as every board word.
+   * Workers mod, as every board word. 2026-10-24: mode fable only with `yes`, the guard's ask the person answered A
+   * (partnerEffortWords refuses it otherwise).
    */
-  const partnerMode = async (state, mode, why) => {
+  const partnerMode = async (state, mode, why, yes = null) => {
     const main = state.restart?.main ?? null
     if (main === null || (state.advisor ?? null) === null || (state.advisor.effort?.mode ?? 'usual') === mode) return
-    const words = partnerEffortWords({ to: main, partner: state.advisor.name, session: state.advisor.appSession ?? null, mode, why })
+    const words = partnerEffortWords({ to: main, partner: state.advisor.name, session: state.advisor.appSession ?? null, mode, why, yes })
     const message = { id: randomBytes(8).toString('hex'), at: clock(), ...words, state: state.bridge?.isMissing === true ? 'copied' : 'waiting' }
     await store.say(message.state === 'copied' ? { ...message, pasteText: messageText(message, timeOf) } : message)
   }
   /**
-   * B359: the goal guard, after a failed check of goal `id` (a step's result check or the goal's re-check): at the third
-   * failed attempt (since Go, else since its first refined step) the partner is switched to high effort and asked for the fundamental evaluation, once.
+   * 2026-10-24: the partner's mode while the guard's evaluations run (src/focus.mjs `evaluationsMode`): Fable only when
+   * every one that runs had the person's yes, else Opus at max; none running changes nothing here. `whyOf(mode, yes)`
+   * says why, with the mode actually used.
+   */
+  const partnerModeNow = async (state, whyOf) => {
+    const { mode, yes } = await evaluationsMode({ goalsFile: projectFile(config, 'goals'), items: async () => [...(await readStore(workDir)).items.values()] })
+    if (mode !== 'usual') await partnerMode(state, mode, whyOf(mode, yes), yes)
+  }
+  /**
+   * 2026-10-24: the board withdraws its own ask before an evaluation once the trip ended without it (Go, a tick, a goal
+   * changed meanwhile). Never awaited inside a turn: it runs as a loop of its own.
+   */
+  const withdrawGuardAsk = (id, why) => {
+    if (typeof id !== 'string' || !/^Q\d+$/.test(id)) return
+    void loops.run('guard', async () => {
+      const done = await workAction({ action: 'withdraw', id, why }, 'server')
+      // One that is no longer open (answered meanwhile) needs nothing.
+      if (!done.ok && done.status !== 409) throw new Error(`${id} could not be withdrawn: ${done.why}`)
+    })
+  }
+  /**
+   * B359: the goal guard, after a failed check of goal `id` (a step's result check or the goal's re-check), or an answer
+   * of one of its asks: at the third failed attempt (since Go, else since its first refined step) the board asks the
+   * person first (2026-10-24: Fable or Opus, filed as the board through the work API), once; on their answer the partner
+   * is switched to that mode (Fable only for an A) and asked for the fundamental evaluation.
    */
   const guardNow = async id => {
     if (!writesMap || workDir === null || id === null) return
     const state = await readState()
     if ((state.advisor ?? null) === null) return
     // B446: a store it cannot read fails the guard's loop (shown and logged) instead of counting no attempt.
-    const items = [...(await readStore(workDir)).items.values()]
+    const items = async () => [...(await readStore(workDir)).items.values()]
+    // The review of 2026-10-24: the guard files its ask outside the goal map's turn (src/focus.mjs `guardGoal`), reading
+    // the store anew at each step.
     const done = await guardGoal(id, {
       canWrite: writesMap, goalsFile: projectFile(config, 'goals'), historyDir: projectFile(config, 'goalsHistory'), now: clock(),
       partner: state.advisor, job: join(HERE, 'roles', 'partner.md'), items, approveRebuilds: config.approveRebuilds === true, maxChars: config.maxMessageChars,
+      fileAsk: body => workAction(body, 'server'),
+      withdrawAsk: async (ask, why) => withdrawGuardAsk(ask, why),
     })
-    if (!done.ok || done.words === null) return
-    await partnerMode(state, 'high', `the goal guard: ${id} failed ${GUARD_ATTEMPTS} attempts: a fundamental evaluation`)
+    if (!done.ok) throw new Error(done.why ?? `the goal guard of ${id} failed`)
+    if (done.words === null) return
+    await partnerModeNow(state, (mode, yes) => `the goal guard: ${id} failed ${GUARD_ATTEMPTS} attempts: a fundamental evaluation on ${PARTNER_MODES[mode].label}${mode === 'fable' ? `, the person's yes on ${yes}` : ''}`)
     await toPartner(done.words, {}, state)
   }
   /**
@@ -702,13 +736,21 @@ async function main(args) {
    */
   const evaluateAgainNow = async state => {
     if (!writesMap || workDir === null || (state.advisor ?? null) === null || isHolding(state.pause)) return
+    // 2026-10-24: a guard whose ask to the person stands: its answer starts the evaluation, also one the board missed.
+    for (const id of await guardsAsking({ goalsFile: projectFile(config, 'goals') })) await loops.run('guard', () => guardNow(id))
+    // 2026-10-24: Fable never stays on: a partner the board set on Fable goes back once no evaluation with the person's yes
+    // runs (the goal ticked meanwhile, or another without a yes).
+    if (state.advisor.effort?.mode === 'fable') {
+      const back = fableBack(state.advisor.effort ?? null, await evaluationsMode({ goalsFile: projectFile(config, 'goals'), items: async () => [...(await readStore(workDir)).items.values()] }))
+      if (back !== null) await partnerMode(state, back.mode, back.why)
+    }
     const again = await evaluationsAgain({
       canWrite: writesMap, goalsFile: projectFile(config, 'goals'), now: clock(), outbox: store.outbox(), partner: state.advisor,
       items: async () => [...(await readStore(workDir)).items.values()], job: join(HERE, 'roles', 'partner.md'),
       approveRebuilds: config.approveRebuilds === true, maxChars: config.maxMessageChars,
     })
     if (again.length === 0) return
-    await partnerMode(state, 'high', `the goal guard: the evaluation of ${again.map(words => words.about).join(', ')} has not ended`)
+    await partnerModeNow(state, mode => `the goal guard: the evaluation of ${again.map(words => words.about).join(', ')} has not ended (${PARTNER_MODES[mode].label})`)
     for (const words of again) await toPartner(words, {}, state)
   }
   /** Focus 2: the person's word to the partner into the outbox (copied without the Workers mod); a partner not running is woken. */
@@ -792,6 +834,8 @@ async function main(args) {
           canWrite: writesMap, goalsFile: projectFile(config, 'goals'), historyDir: projectFile(config, 'goalsHistory'), now: clock(),
         })
         readState.reset()
+        // 2026-10-24: inside the work API's turn: the withdraw runs after it, never awaited here.
+        if (done.ok) withdrawGuardAsk(done.result?.withdraw, `${body.id} was ticked: the trip ended`)
         return done
       },
       dir: workDir, now: clock(), prefix: state.chatPrefix ?? '', roleOf: chat => roles.get(chat) ?? null,
