@@ -1,5 +1,9 @@
 # Worker board: design
 
+> **Design principles (2026-10-24).** Every feature and fix follows `PRINCIPLES.md`: code before chat, assume every
+> chat can fail, know don't guess, one place per fact, same situation same outcome, done means it works live, cost by
+> design, when in doubt hold and say so once, simple over clever.
+
 ## Quality and Spending (2026-10-21)
 
 Spending adds local usage estimates, coverage and quality measurements without making model calls. Costs include

@@ -643,7 +643,8 @@ board's word, never the user's.
 
 1. Read the step's record (`work list`, its file in the store): its agreed points, its `Standard:` line (the kind, its
    reference picture, the target; the kind's definition of done stands in your rounds under "Kinds of work") and its
-   report.
+   report. A step on the worker board itself is also checked against the board's design principles
+   (`PRINCIPLES.md` in the board's folder): one point per principle it touches, a break a fail unless the step says why.
 2. Hand the check to a fresh helper on Sonnet (`model: "sonnet"`), one that did not build it (never your own chat): it looks at the result as the
    user would (the game at that place, the page, the merged change), ticks every agreed point pass, fail or ask (ask:
    a look only the user can judge), and scores it against the kind's definition of done where that has a rubric (the
@@ -757,8 +758,9 @@ The board types `refine step`, `Step: B<id> <title>` and `Round: <n>` into your 
 a step's window: it is their word. It also types it by itself, one step at a time (B285, the user: every step is
 refined before it goes into a queue): once for every new step, for a step about to be queued (the user asked to queue
 it, or the main chat queued it before it was refined), and once more when the user's answers wait to be folded in.
-Do the same for those. Read the step (`work list`, its record in the work store) and what it touches, then write its
-refine block with the work tool, the only change you make: `work refine B<id>` with `summary`, `picture`, `goal`,
+Do the same for those. Read the step (`work list`, its record in the work store) and what it touches; a step on the
+worker board itself is refined to the board's design principles (`PRINCIPLES.md` in the board's folder), and its
+"What we build" names the incidents that would show it failing. Then write its refine block with the work tool, the only change you make: `work refine B<id>` with `summary`, `picture`, `goal`,
 `size`, `model`, `effort` and `questions` while refining, and `work refined B<id>` with `what` once every question is answered. The board
 writes the block in the form below; `refined` folds the questions away and moves a new step to refined, as the flow
 file says. What a refined step
