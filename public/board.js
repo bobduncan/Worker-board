@@ -3937,6 +3937,8 @@ function needsView(state, ui) {
     focus: { needs: (state.focus?.needs ?? []).map(need => ({ id: need.id })) },
     instructions: state.instructions ?? [],
     information: state.information ?? [],
+    // B520: the goal map's ids, so a G id in a card's words links (linkedWords).
+    goalIds: (state.goals?.nodes ?? []).map(node => node.id),
     goalAskNeeds: state.goalAskNeeds ?? [],
     brainstormNeeds: state.brainstormNeeds ?? [],
     goalsEdit: { canWrite: state.goalsEdit?.canWrite ?? null, whyNot: state.goalsEdit?.whyNot ?? null },
@@ -4421,7 +4423,7 @@ const ASK_PAGE = /(?<=^|[\s(["'`])((?:[\w@+-][\w@+.-]*\/)+[\w@+-][\w@+.-]*\.(?:m
 /** A G, Q or B id standing on its own: not part of a word, a path, a file name or an address. */
 const ASK_ID = /(?<![\w/.:#=-])([GQB]\d+)(?![\w/-]|\.\w)/g
 /** B507: a tab by the words the board shows on it, and the part of the Focus tab named after it ("the Focus tab, then Goals"). */
-const ASK_TAB = /(?<![\w-])(Vision|Focus|Backlog|Design|Spending) tab(?:,? then (Focus|Goals|Brainstorm)(?![\w-]))?/g
+const ASK_TAB = /(?<![\w-])(Vision|Focus|Backlog|Design|Spending) tab(?![\w-])(?:(?<=Focus tab),? then (Focus|Goals|Brainstorm)(?![\w-]))?/g
 const ASK_TAB_ADDRESS = { Vision: '#vision', Focus: '#advice/focus', Backlog: '#backlog', Design: '#design', Spending: '#spending' }
 
 /**
@@ -11730,7 +11732,7 @@ document.addEventListener('click', event => {
 function linkedWords(text, state) {
   const needs = state === null ? [] : everyNeed(state)
   const steps = new Set((state?.backlog ?? []).flatMap(activity => activity.steps).map(step => step.key))
-  const goals = new Set((state?.goals?.nodes ?? []).map(node => node.id))
+  const goals = new Set(state?.goalIds ?? (state?.goals?.nodes ?? []).map(node => node.id))
   const known = { isAsk: id => needs.some(one => one.workId === id), isStep: id => steps.has(id), isGoal: id => goals.has(id) }
   return askLinkPieces(text, known).map(piece => {
     if (typeof piece === 'string') return piece

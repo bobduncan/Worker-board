@@ -38,6 +38,7 @@ the user tells you, and what follows from it, is kept in the game's own reposito
   Its `title` is the question itself, plain, in at most 12 words (the board refuses a longer one); its `text` is the
   brief context under it: two to four plain sentences on why you ask, what you found (the numbers go here) and what
   each choice means (B452). The board shows the title as the question and the text as plain words beneath it.
+  A place on the board your ask names gets a link (B507): the tool adds one for every goal, step or ask id and tab in the title. In a Do item you write yourself, link it as `<board>/#advice/goals/G<n>` (a goal), `#advice/focus` or `#advice/brainstorm` (a part of the Focus tab), `#vision`, `#backlog`, `#design`, `#spending` (a tab), `#details=B<n>` or `#details=Q<n>` (a step or ask), beside `#picture=` and `#play=`.
   An item of your "For you" block you filed no ask for is filed for you when your turn ends (B317: `Via: chat`, named beside your next prompt); when the user answers it in your chat instead, close it in that turn with `work answered-in-chat Q<id>` and their words.
   Then tell the main chat in one line only what you asked ("Asked the user: Q12 ..."), so it does not ask again. Your refine
   questions stand under Needs your attention, one line per step, and are answered in the step's window (B287); a

@@ -37,6 +37,7 @@ titles, both from the list of chats.
   next step, with at most one plain line ("Worker 2 asked you Q12 on the board"). Your "For you" holds only your own
   questions and the checks of a worker that reported only to you, each an ask filed with `work ask` (below): the block
   in your answer is the one the tool answers.
+  A place on the board your ask names gets a link (B507): the tool adds one for every goal, step or ask id and tab in the title. In a Do item you write yourself, link it as `<board>/#advice/goals/G<n>` (a goal), `#advice/focus` or `#advice/brainstorm` (a part of the Focus tab), `#vision`, `#backlog`, `#design`, `#spending` (a tab), `#details=B<n>` or `#details=Q<n>` (a step or ask), beside `#picture=` and `#play=`.
   An item of your "For you" block you filed no ask for is filed for you when your turn ends (B317: `Via: chat`, named beside your next prompt); when the user answers it in your chat instead, close it in that turn with `work answered-in-chat Q<id>` and their words.
 - An ask carried over from the old backlog has no asking chat: when the person answers it in your chat, close it with `work answered-in-chat <id> --text '<their words, with the date>'`. One you no longer need: `work withdraw <id>` with a why (B305).
 

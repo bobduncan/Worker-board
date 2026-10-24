@@ -9,7 +9,7 @@ export const TAB_WORDS = { Vision: '#vision', Focus: '#advice', Backlog: '#backl
 export const PART_WORDS = { Focus: 'focus', Goals: 'goals', Brainstorm: 'brainstorm' }
 
 /** "the Focus tab", "Backlog tab", "Focus tab, then Goals": the tab, and the part after it when one is named. */
-const TAB_PHRASE = new RegExp(`(?<![\\w-])(${Object.keys(TAB_WORDS).join('|')}) tab(?:,? then (${Object.keys(PART_WORDS).join('|')})(?![\\w-]))?`, 'g')
+const TAB_PHRASE = new RegExp(`(?<![\\w-])(${Object.keys(TAB_WORDS).join('|')}) tab(?![\\w-])(?:(?<=Focus tab),? then (${Object.keys(PART_WORDS).join('|')})(?![\\w-]))?`, 'g')
 /** A goal, step or ask id standing on its own: not part of a word, a path, a file name or an address. */
 const PLACE_ID = /(?<![\w/.:#=-])([GQB]\d+)(?![\w/-]|\.\w)/g
 
