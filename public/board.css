@@ -1311,7 +1311,7 @@ body.is-resizing { cursor: col-resize; user-select: none; }
 .recap-words p { margin: 0; }
 .is-recap .pictures { grid-template-columns: minmax(0, 1fr); }
 .is-recap .picture img { aspect-ratio: auto; object-fit: contain; }
-a.recap-checked { font-size: 14.5px; text-decoration: none; }
+a.recap-checked { font-size: 14.5px; color: #c9d3e0; text-decoration: none; }
 a.recap-checked:hover { text-decoration: underline; }
 .focus-recaps .need { margin-top: 10px; }
 /* B361: the asks that can wait, gathered under the daily note. */

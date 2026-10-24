@@ -9,6 +9,9 @@ import { checkedOf, resultCheckOf } from './resultCheck.mjs'
 
 export const CONTEXT_CHARS = 300
 export const CHANGE_CHARS = 500
+/** A recap from before B569, read from its record: its words cut shorter. */
+const OLD_CONTEXT_CHARS = 200
+const OLD_CHANGE_CHARS = 280
 /** How a report opens, as the refusal says it. */
 export const PARTS_LINE = 'Context: <1-3 short lines: what was wrong or missing, for someone who forgot> Change: <what the person gets now> Details: <the rest, for the check>'
 
@@ -77,7 +80,8 @@ export function plainSentences(text, most) {
   let words = String(text ?? '').replace(/\s+/g, ' ').trim()
   while (/\([^()]*\)/.test(words)) words = words.replace(/\s*\([^()]*\)/g, '')
   words = words.replace(/^(?:[A-Z]\d+(?:,\s*[A-Z]\d+)*\s*)?:\s*/, '').replace(/\s+([.,;:])/g, '$1')
-  const sentences = words.split(/(?<=[.!?])\s+/).map(one => one.trim()).filter(one => one !== '' && isPlain(one))
+  // A clause after ";" counts as a sentence of its own, ended with a full stop.
+  const sentences = words.split(/(?<=[.!?;])\s+/).map(one => one.trim().replace(/;$/, '.').replace(/^[a-z]/, first => first.toUpperCase())).filter(one => one !== '' && isPlain(one))
   let out = ''
   for (const sentence of sentences) {
     const next = out === '' ? sentence : `${out} ${sentence}`
@@ -112,8 +116,9 @@ export function checkedCount(step) {
 export function recapParts(step) {
   const result = lastResultOf(step)
   const parts = reportParts(result)
-  const context = parts.context !== '' ? parts.context.slice(0, CONTEXT_CHARS) : plainSentences(summaryOf(step), CONTEXT_CHARS)
-  const change = parts.change !== '' ? parts.change.slice(0, CHANGE_CHARS) : plainSentences(parts.rest, CHANGE_CHARS)
+  // Words made from an old record are kept shorter than a worker may write: what was meant to be read is the card.
+  const context = parts.context !== '' ? parts.context.slice(0, CONTEXT_CHARS) : plainSentences(summaryOf(step), OLD_CONTEXT_CHARS)
+  const change = parts.change !== '' ? parts.change.slice(0, CHANGE_CHARS) : plainSentences(parts.rest, OLD_CHANGE_CHARS)
   // An old summary that says just what the report said is no Context.
   return { context: context === change ? '' : context, change, checked: checkedCount(step) }
 }
