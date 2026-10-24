@@ -204,14 +204,16 @@ test('repair-repeats (B574, X25): a step unblocked once per finished blocker is 
 
 test('undelivered: a word to a chat waiting 11 min trips, 9 min not; one that expired is undelivered too; held or delivered is not', () => {
   const word = (minutes, state = 'waiting', more = {}) => ({ id: `m${minutes}`, to: 'Painter', command: 'work', about: 'B5', at: ago(minutes), state, ...more })
-  const found = check('undelivered', view({ outbox: [word(11), word(3)] }))
+  // B589: a work line's step is the store's (workLines.mjs): B5 stands queued for Painter, so a line about it matters.
+  const board = outbox => view({ outbox, items: items(step('B5', 'queued', { Owner: 'Painter' })) })
+  const found = check('undelivered', board([word(11), word(3)]))
   assert.deepEqual(found.map(one => [one.key, one.subject]), [['undelivered Painter', 'Painter']])
   assert.equal(found[0].text, '1 word to Painter not delivered, the oldest for 11 min')
-  assert.deepEqual(check('undelivered', view({ outbox: [word(9)] })), [])
-  assert.equal(check('undelivered', view({ outbox: [word(30, 'expired')] })).length, 1)
-  assert.deepEqual(check('undelivered', view({ outbox: [word(30, 'held'), word(30, 'delivered'), word(300, 'expired')] })), [], 'an expired one of hours ago is history')
+  assert.deepEqual(check('undelivered', board([word(9)])), [])
+  assert.equal(check('undelivered', board([word(30, 'expired')])).length, 1)
+  assert.deepEqual(check('undelivered', board([word(30, 'held'), word(30, 'delivered'), word(300, 'expired')])), [], 'an expired one of hours ago is history')
   // A word held by the person's pause counts from its release.
-  assert.deepEqual(check('undelivered', view({ outbox: [word(40, 'waiting', { releasedAt: ago(4) })] })), [])
+  assert.deepEqual(check('undelivered', board([word(40, 'waiting', { releasedAt: ago(4) })])), [])
 })
 
 test('B532 undelivered: a word the outbox sweep drops is not named, nor an answer past its keep; a word still needed is', () => {
@@ -412,7 +414,7 @@ test('B584: the findings name when their case began (since): not-cleared its tak
   const late = view({ chats: [LEAD, lane('Painter', { clearOwed: owed })], items: items(step('B12', 'done')) })
   assert.deepEqual(check('not-cleared', late).map(one => one.since), [ago(30)])
   const word = minutes => ({ id: `m${minutes}`, to: 'Painter', command: 'work', about: 'B5', at: ago(minutes), state: 'waiting' })
-  assert.deepEqual(check('undelivered', view({ outbox: [word(12), word(40), word(20)] })).map(one => one.since), [ago(40)])
+  assert.deepEqual(check('undelivered', view({ outbox: [word(12), word(40), word(20)], items: items(step('B5', 'queued', { Owner: 'Painter' })) })).map(one => one.since), [ago(40)])
   const line = (minutes, words) => `- ${stamp(ago(minutes))} server: ${words}`
   const twice = view({ items: items(step('B12', 'review', {}, { History: [line(90, 'check failed: a'), line(80, 'check passed: merged'), line(60, 'check failed: b'), line(40, 'check failed: c'), line(20, 'check failed: d')] })) })
   assert.deepEqual(check('report-check-twice', twice).map(one => one.since), [ago(40)])

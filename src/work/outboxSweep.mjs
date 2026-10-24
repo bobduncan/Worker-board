@@ -13,6 +13,7 @@ import { isLate, keepMs } from '../store.mjs'
 import { stoppedOf } from '../stopped.mjs'
 import { stamp } from './migrate.mjs'
 import { readStore } from './store.mjs'
+import { workLineWhy } from './workLines.mjs'
 
 const firstLine = text => String(text ?? '').split('\n')[0]
 const span = ms => (ms >= 2 * 3_600_000 ? `${Math.round(ms / 3_600_000)} hours` : `${Math.round(ms / 60_000)} min`)
@@ -34,10 +35,16 @@ const isStanding = message => ['waiting', 'taken', 'delivered', 'copied'].includ
  * `now`, `keep`, `closing` (what this sweep closes already).
  */
 export function whyClosed(message, ctx) {
-  // A person's answer waits for its chat, also one that is off on purpose; a work line is the work store's: withdrawStale
-  // (deliver.mjs) judges it by its step.
-  if ((message.ask ?? null) !== null || message.command === 'work') return null
+  // A person's answer waits for its chat, also one that is off on purpose.
+  if ((message.ask ?? null) !== null) return null
   const { all, items, now, keep } = ctx
+  // A work line is the work store's: judged by its step (workLines.mjs), waiting or failed; withdrawStale (deliver.mjs)
+  // closes it, with the start it asked. B589: this answer is the health summary's and rule 8's, which until then named
+  // a failed one whose step was done (X3). Without a store the board cannot judge it: it matters.
+  if (message.command === 'work') {
+    const why = items instanceof Map ? workLineWhy(message, items, { prefix: ctx.prefix ?? '', now }) : null
+    return why === null ? null : { state: 'dropped', why }
+  }
   // A word that is stale in minutes (a pause's resume, a line typed in a talk) is only closed once it is late.
   if (!waitsLong(message.command)) return isLate(message, now, keep) ? expired(message, keep) : null
   // B571: the goal guard's word: not needed once the goal is done or was evaluated after the word was sent (B359),
@@ -89,13 +96,14 @@ export async function sweepOutbox({ dir, outbox, state, now, keep, fs, dry = fal
   if (!dry && to === null && typeof outbox.revive === 'function') await outbox.revive(sessionsOf(state), now, keep)
   // B571: with the failed words that are not tried again, judged as the waiting ones; only a word whose purpose is gone
   // is closed among those (an old failed word is not "expired": it never waited).
-  const waiting = outbox.outbox().filter(message => (message.state === 'waiting' || isFailedForGood(message)) && (to === null || message.to === to))
+  // B589: not the work lines: withdrawStale (deliver.mjs) closes them by the same judge, with the start they asked.
+  const waiting = outbox.outbox().filter(message => (message.state === 'waiting' || isFailedForGood(message)) && message.command !== 'work' && (to === null || message.to === to))
   if (waiting.length === 0) return []
   const items = (dir ?? null) === null ? null : (await readStore(dir, fs)).items
   const runs = new Map((state?.chats ?? []).filter(chat => !chat.isLeftover).map(chat => [chat.name, chat.isRunning === true]))
   const all = outbox.outbox()
   const closing = new Map()
-  const ctx = { all, items, runs, goals: state?.goals?.nodes ?? [], now, keep, closing, stopped: stoppedChats(all, state) }
+  const ctx = { all, items, runs, goals: state?.goals?.nodes ?? [], now, keep, closing, stopped: stoppedChats(all, state), prefix: state?.chatPrefix ?? '' }
   // The starts last: they depend on what the other words become.
   const ordered = [...waiting.filter(message => message.command !== 'start'), ...waiting.filter(message => message.command === 'start')]
   for (const message of ordered) {

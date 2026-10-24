@@ -400,7 +400,7 @@ test('work health on a board without a supervisor, or one whose summary fails, s
 test('the supervisor builds the summary from its ports: the board, the store, the outbox and the repairs of its memory', async () => {
   const supervisor = createSupervisor({
     state: async () => ({ chats: [lane('Lead', { isMain: true }), lane('Digger', { state: 'working' })], chatPrefix: '' }),
-    items: async () => items(step('B12', 'in progress', { Owner: 'Digger' })),
+    items: async () => items(step('B12', 'in progress', { Owner: 'Digger' }), step('B14', 'queued', { Owner: 'Digger' })),
     outbox: () => [{ id: 'w1', at: ago(20), to: 'Digger', command: 'work', about: 'B14', state: 'waiting' }],
     refused: () => [],
     apply: async () => ({ ok: true }),

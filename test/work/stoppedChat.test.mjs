@@ -142,7 +142,9 @@ test('the undelivered rule names a stopped chat once, with the main chat\'s wake
   await takeAndDrop(store, state, 'w5', at(21, 42))
   await store.say({ id: 'wake-1', at: at(21, 43), ...wakesStopped(state, stoppedChats(store.outbox(), state), store.outbox(), clock)[0], state: 'waiting' })
   const rule = WATCH_RULES.find(one => one.id === 'undelivered')
-  const view = { lanes: state.chats, partner: null, helper: null, supervisor: null, outbox: store.outbox(), items: new Map(), goals: [], now: at(22, 0), keep, pause: null, settings: { undeliveredMinutes: 10 } }
+  // B589: the steps are still Worker 5's and open, so their lines still matter (workLines.mjs).
+  const items = new Map([['B522', 'review'], ['B567', 'in progress']].map(([id, state]) => [id, { head: new Map([['Id', id], ['Kind', 'step'], ['State', state], ['Owner', 'Worker 5']]) }]))
+  const view = { lanes: state.chats, partner: null, helper: null, supervisor: null, outbox: store.outbox(), items, goals: [], now: at(22, 0), keep, pause: null, settings: { undeliveredMinutes: 10 } }
   const found = rule.check(view)
   assert.equal(found.length, 2, 'Worker 5 once, and the main chat\'s wake word that waits')
   const mine = found.find(one => one.subject === 'Worker 5')

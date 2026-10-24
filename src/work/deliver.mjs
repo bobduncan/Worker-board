@@ -13,7 +13,8 @@ import { stamp } from './migrate.mjs'
 import { sinceMs } from './item.mjs'
 import { readDeliveredFile, readStore, writeDelivered } from './store.mjs'
 import { isHolding } from './pause.mjs'
-import { sweepOutbox } from './outboxSweep.mjs'
+import { isFailedForGood, sweepOutbox } from './outboxSweep.mjs'
+import { SYNC_LINE_MS, workLineWhy } from './workLines.mjs'
 import { PARTNER_AGAIN_MS, partnerAskWords } from './partnerAnswers.mjs'
 import { AGAIN_MS, effortWords, lastWord, sameTarget } from './effort.mjs'
 import { RESTART_AGAIN_MS, RESTART_COMMAND, restartWords } from './modRollout.mjs'
@@ -126,8 +127,7 @@ async function changeDelivered(dir, fs, change) {
   return done
 }
 
-/** B465, the review: a line of the board's sync check holds at most this long; the check decides anew after it. */
-export const SYNC_LINE_MS = 30 * 60_000
+export { SYNC_LINE_MS }
 
 /**
  * Whether a line may go to `chat` now: a chat on the board (not a leftover) that is free, not busy nor held by the limit,
@@ -157,56 +157,21 @@ export async function pullFor({ dir, result, state, outbox, now, maxChars, newId
   return sent === null ? none : result
 }
 
-const plain = (name, prefix = '') => {
-  const words = String(name ?? '').trim()
-  return (prefix !== '' && words.toLowerCase().startsWith(prefix.toLowerCase()) ? words.slice(prefix.length) : words).trim().toLowerCase()
-}
-const value = (item, key) => {
-  const found = item?.head.get(key)
-  return found === undefined || found === '' || found === '-' ? null : found
-}
-
 /**
- * The waiting lines whose step is no longer that chat's (another owner, done, dropped, gone; a check's line once the step
- * left review) are withdrawn, and the start they asked of the main chat when it still waits and nothing else waits for
- * that chat.
+ * The work lines whose step is no longer that chat's (another owner, done, dropped, gone; a check's line once the step
+ * left review; workLines.mjs) are withdrawn with their why, and the start they asked of the main chat when it still
+ * waits and nothing else waits for that chat. B589: a line that failed and is not tried again too (X3: the chat's
+ * session was stopped as it took it); one whose step is still that chat's stays failed, for the person to see.
  */
 async function withdrawStale({ dir, outbox, prefix, fs, now = Date.now() }) {
-  const waiting = outbox.outbox().filter(message => message.command === 'work' && message.state === 'waiting')
-  if (waiting.length === 0) return []
+  const lines = outbox.outbox().filter(message => message.command === 'work' && (message.state === 'waiting' || isFailedForGood(message)))
+  if (lines.length === 0) return []
   const items = (await readStore(dir, fs)).items
   const gone = []
-  for (const message of waiting) {
-    const item = items.get(message.about)
-    const state = value(item, 'State')
-    // Focus 4: a notes line holds while one of its notes is not read by the main chat.
-    if (message.kind === 'note') {
-      if ((message.notes ?? [message.about]).some(id => items.get(id) !== undefined && value(items.get(id), 'Main read') === null)) continue
-    } else if (message.kind === 'sync') {
-      // B465: the board's sync check woke a chat about something (a step, its helper's work, an ask, the limit). The
-      // review: its line holds while what it is about is still open, for its owner's lines while the step is still that
-      // chat's, and at most SYNC_LINE_MS: the check looks again every few minutes and decides anew.
-      const isStep = value(item, 'Kind') === 'step'
-      const isOpen = item !== undefined && (isStep ? !['done', 'dropped'].includes(state) : state === 'open')
-      const isOwnersLine = /^(?:not-taken|limit-back) /.test(String(message.syncKey ?? ''))
-      const isStill = !isOwnersLine || (value(item, 'Owner') !== null && plain(value(item, 'Owner'), prefix) === plain(message.to, prefix))
-      if (isOpen && isStill && now - (message.at ?? 0) < SYNC_LINE_MS) continue
-    } else if (message.kind === 'board-queued') {
-      // Incident fixes (2026-10-24): the main chat's information line about a fix the board queued holds while that step
-      // is still open: it is the main chat's to know, whoever has the step by now.
-      if (item !== undefined && !['done', 'dropped'].includes(state)) continue
-    } else if (message.kind === 'fix-held') {
-      // The review: the word that a fix's standard holds it holds while the fix is still refined, not queued.
-      if (state === 'refined') continue
-    } else if (message.kind === 'partner-ask') {
-      // Partner answers (2026-10-19): the partner's line holds while its ask still waits for its answer.
-      if (state === 'open' && value(item, 'Route') === 'partner') continue
-    } else {
-      const isOwners = item !== undefined && value(item, 'Owner') !== null && plain(value(item, 'Owner'), prefix) === plain(message.to, prefix)
-      const holds = message.kind === 'check' ? state === 'review' : !['done', 'dropped'].includes(state)
-      if (isOwners && holds) continue
-    }
-    await outbox.update(message.id, { state: 'dropped' })
+  for (const message of lines) {
+    const why = workLineWhy(message, items, { prefix, now })
+    if (why === null) continue
+    await outbox.update(message.id, { state: 'dropped', why, closedAt: now })
     gone.push(message)
   }
   for (const message of gone) {

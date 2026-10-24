@@ -2001,7 +2001,7 @@ never sent again, with nobody told why. Now:
    stands (waiting, taken or delivered), a refine for a step no longer new (a later round also while it is refined), a
    check for a step out of review or gone, an evaluate once its goal is done or was evaluated after it, a start once
    that chat runs or nothing waits for it; `expired` once it waited longer than it is kept. Never: a person's answer
-   (it waits for its chat, also one off on purpose) and a work line (`withdrawStale` judges it by its step). The page
+   (it waits for its chat, also one off on purpose) and a work line (`withdrawStale` judges it by its step; B589). The page
    lists the closed words with their why for 12 hours after they were closed (`outboxNow`). B548: the take goes through
    `takeFor` (the sweep of that chat's words, then the take), and `test/work/outboxReplay.test.mjs` replays the outbox
    as it stood before the first sweep (`fixtures/outbox-replay.json`, the words' shapes only): 31 of its 33 waiting
@@ -2040,6 +2040,23 @@ chat being replaced and never handed the words to the new one. Now (`src/stopped
    main chat was asked to wake it, not word by word; a word that went again is named by the word that stands for it.
 5. roles/main.md: a worker the main chat stops or replaces is named to the board in the same move (a work note, "Stopped
    <name> at HH:MM: <why>"), and a stopped worker it keeps is woken at once.
+
+### A failed work line is judged too (B589)
+
+X3 came back a fourth time (after B532, B577, B571): its four words of 21:41-21:42 had failed before B577 kept a
+failure's session (`failedSession`), so `revive` passed them by, and a work line is never retried; `withdrawStale`
+judged only waiting work lines, and the sweep's `whyClosed` none at all. So they stayed failed after B522 and B567 were
+done, and rule 8 named them at every sweep. Now one judge, `workLineWhy` (`src/work/workLines.mjs`), says why a work
+line no longer matters ("B567 is done", "B522 left review", "B30 is Builder's now", "its notes were read"), for every
+kind: a step's line, a check's word, notes, the sync check's, board-queued, fix-held, partner-ask. `withdrawStale`
+closes a waiting line and one failed for good (`isFailedForGood`) by it, `dropped` with its why and `closedAt`; one
+whose step is still that chat's and open stays failed, for the person to see. `whyClosed` gives the same answer for a
+work line (the sweep itself leaves work lines to `withdrawStale`, which drops the start they asked too), so the health
+summary and rule 8 no longer name a line whose step moved on, even before the refresh closes it.
+`test/work/failedWorkLine.test.mjs` holds a guard: every kind of work line (scanned beside `workWords` in src), waiting
+or failed, whose purpose is gone closes at a refresh; every other command (scanned as `command: '<x>'` in src) waiting
+past its keep is closed by the sweep, and failed is judged. A failed word of minutes (not `waitsLong`) is judged by
+its time: rule 8 names it for its two hours, the summary for a day.
 
 ## A step's title without its note (B292)
 

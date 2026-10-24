@@ -352,7 +352,7 @@ const stoppedOfView = view => stoppedChats(view.outbox, { chats: view.lanes, adv
  */
 export function wordMatters(view) {
   const runs = new Map(view.lanes.filter(chat => !chat.isLeftover).map(chat => [chat.name, chat.isRunning === true]))
-  const ctx = { all: view.outbox, items: view.items, runs, goals: view.goals ?? [], now: view.now, keep: view.keep, closing: new Map(), stopped: stoppedOfView(view) }
+  const ctx = { all: view.outbox, items: view.items, runs, goals: view.goals ?? [], now: view.now, keep: view.keep, closing: new Map(), stopped: stoppedOfView(view), prefix: view.prefix ?? '' }
   return message => whyClosed(message, ctx)?.state !== 'dropped'
 }
 
