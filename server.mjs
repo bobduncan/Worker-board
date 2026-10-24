@@ -72,6 +72,7 @@ import { isHolding, resumeEnds, resumeRetypeTo, resumeTypeTo } from './src/work/
 import { reportCheck } from './src/work/check.mjs'
 import { deliverWork, pullFor, sendOnce } from './src/work/deliver.mjs'
 import { REFUSED_MS, SYNC_EVERY_MS, loopOwner, syncRunner } from './src/work/sync.mjs'
+import { FILES as WORKTREE_FILES, cleanLeftover, findLeftovers, stepLeftovers } from './src/work/worktrees.mjs'
 import { followRenames } from './src/work/rename.mjs'
 import { standardHold } from './src/work/standardHold.mjs'
 import { storeKeeper } from './src/work/read.mjs'
@@ -502,6 +503,8 @@ async function main(args) {
   // B132: the game's repository only when the settings name one; `git -C ""` would read the board's own folder.
   const hasGame = config.gameRepo !== ''
   const branchesNow = () => readBranches(hasGame ? [config.gameRepo, HERE] : [HERE], gitRunner())
+  // B304: the repositories the board knows, each with the branch work is merged into: the game's, and the board's own.
+  const knownRepos = () => [...(hasGame ? [{ dir: config.gameRepo, base: config.baseBranch }] : []), { dir: HERE, base: 'main' }]
 
   // B110: an approval of merged work, and "Done" on what only the person could do, the board settles itself.
   const settle = (message, state) => settleByBoard(message, state, {
@@ -692,6 +695,8 @@ async function main(args) {
       standardHold: item => standardHold(item, state.plan?.standards ?? []),
       // B356: a board without a partner chat makes no result check: its own check closes a step.
       hasPartner: (state.advisor ?? null) !== null,
+      // Worktree clean-up (2026-10-24): a result check is filed only once its own check-<id> worktrees are gone.
+      checkWorktrees: id => stepLeftovers({ id, which: 'check', repos: knownRepos(), project: config.project, run: gitRunner(), fs: WORKTREE_FILES }),
       // Partner answers (2026-10-19): the focus goal, whose daily note lists the partner's answers of the day.
       focusGoal: state.focus?.id ?? null,
     }
@@ -754,8 +759,7 @@ async function main(args) {
     if (done.ok && done.result.check !== undefined) {
       const { id, branch, result, merged, touches } = done.result.check
       // B304: the repositories the board knows; the check finds the one the step's work is in among them.
-      const repos = [...(hasGame ? [{ dir: config.gameRepo, base: config.baseBranch }] : []), { dir: HERE, base: 'main' }]
-      void runCheck({ id, branch, result, merged, touches, repos })
+      void runCheck({ id, branch, result, merged, touches, repos: knownRepos() })
     }
     return done
   }
@@ -763,14 +767,15 @@ async function main(args) {
    * The board's check of a reported step (B304), run in the background. B404: kept in runningChecks while it runs, and
    * its errors recorded (loop "check") instead of swallowed; a check that never finished is run again by the reconciler.
    */
-  function runCheck({ id, branch, result, merged, touches, repos = [...(hasGame ? [{ dir: config.gameRepo, base: config.baseBranch }] : []), { dir: HERE, base: 'main' }] }) {
+  function runCheck({ id, branch, result, merged, touches, repos = knownRepos() }) {
     if (runningChecks.has(id)) return runningChecks.get(id)
     // B404: a closing board starts no check; the stuck-check pass of the next board runs it.
     if (isClosing) return Promise.resolve()
     // B363: work outside git is checked by its files, in the project's folder or a repository's.
     const exists = path => stat(path).then(() => true, () => false)
     const running = loops.run(`check:${id}`, async () => {
-      const outcome = await reportCheck({ id, branch, result, merged, repos, run: gitRunner(), project: config.project, touches, exists })
+      // Worktree clean-up (2026-10-24): no worktree of the step, nor its folder, is left in the project folder.
+      const outcome = await reportCheck({ id, branch, result, merged, repos, run: gitRunner(), project: config.project, touches, exists, fs: WORKTREE_FILES })
       const checked = await workApi({ action: 'check', id, ...outcome }, { ...(await workCtx()), as: 'server' })
       if (checked?.ok !== true) throw new Error(`the check of ${id} could not be written: ${checked?.why ?? 'no answer'}`)
       // B356: the board's check passed and the step waits for its result check: the partner is asked for it.
@@ -1772,6 +1777,13 @@ async function main(args) {
           dir: workDir, key: `sync ${key}`, words: { ...workWords(chat, id, text), kind: 'sync', syncKey: key }, outbox: store, state: await readState(),
           now: clock(), maxChars: config.maxMessageChars, newId: () => randomBytes(8).toString('hex'), keep,
         }),
+        // Worktree clean-up (2026-10-24): the leftover worktrees of the repositories the board knows, and the empty
+        // folders they left in the project folder; the safe ones removed, never a main checkout nor the board's folder.
+        leftovers: ({ items, now }) => findLeftovers({
+          repos: knownRepos(), project: config.project, items, run: gitRunner(), now,
+          keep: [HERE, config.project, ...(hasGame ? [config.gameRepo] : [])],
+        }),
+        clean: one => cleanLeftover(one),
         // B482: what the main chat was told and since when a wait was seen, kept over a restart
         noted: {
           load: async () => {

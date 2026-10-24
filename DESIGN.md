@@ -1334,7 +1334,12 @@ as a shadow of the backlog; B301 removed the shadow (below): the store is the on
   another ("and/or", "B1/B2/B3", a date) counts only when it is; one inside a repository is work in git, to be reported
   with its merged commit: "work outside git", "there: ...", "not there: ...", "in a repository: ..." (B353, B347). The
   review of B363: work merged on a repository's base branch itself passes without "branch gone" ("worked on main
-  itself"). A failed check runs again on the person's "Check again" (the
+  itself"). Worktree clean-up (2026-10-24): the check also confirms that no worktree of the step is left: none of
+  that repository on the step's branch, none of a repository the board knows named for the step (its id as a whole in
+  the folder's name, `game-b12`), and no folder of one in the project folder (empty, or holding a `.git` file, or named
+  `<repository's folder>-...`); a result check's own `check-b<id>` folders are left to `checked`. Each leftover is one
+  line with its path and how to remove it ("git worktree remove <path>, then delete the empty folder Windows may
+  leave", its link alone first when it holds one), and the pass says "worktree gone". A failed check runs again on the person's "Check again" (the
   lane's flag, `recheck`) or the owner's report from review. The board that delivers writes backlog.md; a copy with a store of its own
   writes the view into that folder; a copy without one only reads. The Backlog tab's line says "backlog.md is its
   view".
@@ -2885,6 +2890,7 @@ stuck that day was found by the person. They are now one list in the board, `src
 | `old-name` | a chat's mod refused under a name for over 2 min (one that follows the shown name, B463, joins at once), its session shown under another | a note to the main chat to have it join under the shown name (Sent) |
 | `helper` | the partner's helper not running while refines (not yet refined, not waiting for the person) or result checks the board sent the partner wait | the helper woken, which asks the main chat to start it (Woke); still not running 10 min on: the partner told to do them itself, and the main chat to start it (For Main) |
 | `partner-ask` | an ask routed to the partner open 10 min with no line about it in that time (the partner was busy) | the partner woken, busy or not (Woke) |
+| `worktrees` | a worktree of a repository the board knows, or an empty folder one left in the project folder (2026-10-24) | removed by the board when safe (Cleaned); else listed with why (Left), no chat told: "Worktree clean-up" below |
 
 - **When**: every 3 minutes (`SYNC_EVERY_MS`, loop `sync`), on a board that writes the store and is no copy beside the
   person's; and at once on **Out of sync?** (a worker's menu or the panel's head), before the board types `check sync`
@@ -2922,6 +2928,47 @@ stuck that day was found by the person. They are now one list in the board, `src
 - A new way of getting stuck is added to the list with its check, fix and test, not only fixed by hand (roles/main.md).
 - Tests: `test/work/sync.test.mjs` (each check, each fix, the one note, the runner, the board's own unblock and requeue),
   `test/outOfSync.test.mjs` (the words to the main chat, the page's answer).
+
+## Worktree clean-up (2026-10-24)
+
+The person, 2026-10-24: "cleanup leftover working tree's please. ensure this is part of the cleanup step." Git had
+removed the worktrees of finished steps, but on Windows their empty folders stayed in the project folder (17 of them
+that day), and the result checks' worktrees (`check-b<id>`, `check-b<id>-before`) stayed whole. The report check
+confirmed that a step's branch was gone, never its worktree or its folder. Three places see to it now, all in
+`src/work/worktrees.mjs`:
+
+- **The report check** (`stepLeftovers`, from `reportCheck`): no worktree of the step's repository on its branch, no
+  worktree of a repository the board knows named for the step, and no folder of one in the project folder, empty or
+  not. Each leftover fails the check with one line: its path and "git worktree remove <path>, then delete the empty
+  folder Windows may leave" (a link in it named first, to be taken away alone: `cmd /c rmdir "<link>"` on Windows).
+  The worker removes it and reports again, as after a failed branch check. Work outside git gets the same lines.
+- **The result check** (`checked`, the work API's `checkWorktrees`): the board refuses `work checked B<id>` while the
+  check's own worktrees are left (folders named `check-b<id>...`, wherever git lists them, or in the project folder),
+  each named with how to remove it; the helper removes them and files it again. Chosen over the board removing them:
+  they hold a junction to the game's packages (`node_modules`), which the board never removes (below), so only the
+  helper that made them can, and nothing is filed before they are gone.
+- **The sync list** (check `worktrees`, `findLeftovers` through the runner's port `leftovers`, `cleanLeftover` through
+  `clean`): every few minutes, across the game's repository and the board's own (`knownRepos` in server.mjs), every
+  worktree but the main checkouts and the board's own folder, and every folder right in the project folder that looks
+  like a worktree's (`<repository's folder>-...`, `check-...`, or holding a `.git` file) that git does not list. The
+  board removes by itself (Cleaned): an empty folder that is no link, not made in the last 20 minutes and named for no
+  open step; and a worktree with no changes and no untracked files, whose HEAD is in `origin/<base>` or `<base>`, that
+  no open step holds (queued, taken, in progress, review or waiting on you; by its branch, or its id in the folder's
+  name), named as the steps and checks name theirs, not made or used in the last 20 minutes (its folder, and git's
+  HEAD, index and log for it) and with no link anywhere in it. Anything else it lists with why (Left): held by B<id>,
+  has changes, not merged into <base>, holds a link, made or used lately, locked, not named as a step's. Left rows go
+  to no chat, and a run that only lists shows nothing by itself (held worktrees are the usual); an asked run shows
+  them. The same list without removing anything: `node tools/leftover-worktrees.mjs [--config <file>] [--board
+  <folder>]`.
+- **Windows safety**: `git worktree remove --force` follows junctions and deletes what they point to. Nothing here uses
+  `--force` or removes a folder recursively: a worktree is removed by `git worktree remove` alone, only after a walk
+  through it found no link (a junction, a symlink, or an entry of no known kind; a folder too large to walk is left),
+  and looked at again right before; a folder only by `rmdir`, which fails when it is not empty.
+- The job texts: `roles/worker.md` (the step's end: the worktree removed before `work report`), `roles/partner.md`
+  ("The check", step 4: the helper removes its check worktrees before `work checked`), `roles/protocol.md`.
+- Tests: `test/work/worktrees.test.mjs` (temporary git repositories: merged and unmerged worktrees, changes, held
+  ones, an empty leftover folder, a junction made with `mklink /J`, skipped with its reason where none can be made),
+  `test/work/check.test.mjs`, `test/work/resultCheck.test.mjs`, `test/work/sync.test.mjs`, `test/outOfSync.test.mjs`.
 
 ## Clear after each step (2026-10-23)
 

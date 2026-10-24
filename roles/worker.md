@@ -77,8 +77,14 @@ step therefore says what it touches ("Touches: ...").
 ## A task in the code
 
 - The project's repository is the user's folder: never work in it. Work in a folder and a branch per task beside it
-  (git worktree), removed with the merge; after your merge bring the user's folder forward, fast-forward only. Never
-  `git worktree remove --force`: it follows links and can delete what they point to.
+  (git worktree), named `<repository's folder>-b<id>`, removed with the merge; after your merge bring the user's
+  folder forward, fast-forward only. Never `git worktree remove --force`: it follows links and can delete what they
+  point to.
+- The step's end, before `work report`: remove its worktree. A link in it (a junction such as `node_modules`) first,
+  alone (`cmd /c rmdir "<folder>\node_modules"` on Windows: the link only, never what it points to), then `git worktree
+  remove <folder>`, then the empty folder Windows may leave (`rmdir "<folder>"`, which fails when it is not empty). The
+  board's check of your report fails while a worktree of the step, or its folder, is left, and names it with how to
+  remove it: remove it and report again.
 - The repository's own `CLAUDE.md`, when it has one, is the working agreement and holds for you in full: read it
   before your first task.
 - Push a branch when you make it and as it grows. Run the repository's checks before a merge; after it push main,
@@ -104,7 +110,8 @@ step therefore says what it touches ("Touches: ...").
   with your branch starts it and names your card; `work step` moves your plan on (and your card). Write your step's
   checkpoint with every commit: `work step B<id>` with `commit` (the hash, or none) and `next` (your next action, in
   one line); after a restart you go on from it (below, "A pause of all chats"). When the work is
-  merged: `work report B<id>` with what the user gets and the commit; the board checks the merge itself. The flow
+  merged and its worktree removed: `work report B<id>` with what the user gets and the commit; the board checks the
+  merge itself, and that no worktree of the step is left. The flow
   file says who moves a step and when; the board refuses a move it does not allow and says why.
 - A step with agreed points ("What we build") or a Standard line is done only after the result check (B356): once the
   board's check of your report passed, the partner's helper, which did not build it, ticks every agreed point against

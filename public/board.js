@@ -532,18 +532,22 @@ $('new-project-form').addEventListener('submit', async event => {
 })
 
 // syncList:start
-/** B465: each status of the board's own sync check, and the tone it shows in. */
-const SYNC_TONES = { Fixed: 'done', Woke: 'done', Sent: 'done', 'For Main': 'main', Fine: 'fine' }
+/**
+ * B465: each status of the board's own sync check, and the tone it shows in. Worktree clean-up (2026-10-24): Cleaned, a
+ * leftover worktree or empty folder the board removed; Left, one it leaves, with why (plain information, a quiet tone).
+ */
+const SYNC_TONES = { Fixed: 'done', Woke: 'done', Sent: 'done', Cleaned: 'done', 'For Main': 'main', Left: 'fine', Fine: 'fine' }
 
 /**
  * B465: the answer of the board's own list of stuck states (state `syncList`, src/work/sync.mjs) as the Workers panel
- * shows it: a title, a row per finding (Fixed, Woke, Sent or For Main) and one for the checks that found nothing; null
- * when there is none to show (no run asked or found anything within the hour).
+ * shows it: a title, a row per finding (Fixed, Woke, Sent, For Main, Cleaned or Left) and one for the checks that
+ * found nothing; null when there is none to show (no run asked or found anything within the hour).
  */
 function syncListOf(list) {
   if (list === null || list === undefined || !Array.isArray(list.rows)) return null
   const rows = list.rows.map(row => ({ status: row.status, tone: SYNC_TONES[row.status] ?? 'main', text: row.text }))
-  const fine = Number.isFinite(list.fine) && list.fine > 0 ? [{ status: 'Fine', tone: 'fine', text: `${list.fine} ${rows.length === 0 ? '' : 'other '}checks: nothing stuck` }] : []
+  const found = rows.some(row => row.status !== 'Left')
+  const fine = Number.isFinite(list.fine) && list.fine > 0 ? [{ status: 'Fine', tone: 'fine', text: `${list.fine} ${found ? 'other ' : ''}checks: nothing stuck` }] : []
   return {
     title: `Out of sync? · the board checked itself at ${clock(list.at)}`,
     note: 'The same list runs every few minutes by itself; the main chat checks what it does not know.',

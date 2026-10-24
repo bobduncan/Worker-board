@@ -6,10 +6,16 @@
 // holds the reported merged commit, else the one that has (or had, by its reflog or its remote) the step's branch.
 // When none can be told, the check fails and says so; it never passes in silence. A repository is named by its
 // folder's last part.
+//
+// Worktree clean-up (the person, 2026-10-24: "cleanup leftover working tree's please. ensure this is part of the
+// cleanup step."): the check also confirms that no worktree of that repository is on the step's branch and that no
+// worktree, or folder of one, named for the step is left in the project folder (worktrees.mjs `stepLeftovers`); a
+// leftover fails the check with a line that names its path and how to remove it.
 
 import { join } from 'node:path'
 
 import { readBranches } from '../folders.mjs'
+import { stepLeftovers } from './worktrees.mjs'
 
 /** A folder's last part, for Windows and other paths alike. */
 const nameOf = dir => String(dir).replace(/[\\/]+$/, '').split(/[\\/]/).pop()
@@ -49,14 +55,17 @@ export async function repoOfStep({ branch, merged, repos, run }) {
  * `{ passed, lines }` for a reported step `id`: the repository its work is in (`repoOfStep`) has its base branch where
  * its remote has it (one without a remote is let be), the step's branch is gone from it and from its remote, and the
  * report names a result. A passed check names each part; a failed one the repository and its faults. `run` runs git
- * with the given arguments and answers its output or null (folders.mjs, `gitRunner`).
+ * with the given arguments and answers its output or null (folders.mjs, `gitRunner`). No worktree of the step is left
+ * (worktrees.mjs `stepLeftovers`): `fs` the file system the project folder is read with (worktrees.mjs `FILES`); null
+ * leaves the project folder unread.
  */
-export async function reportCheck({ id, branch, result, merged, repos, run, project = '', touches = [], exists = null }) {
+export async function reportCheck({ id, branch, result, merged, repos, run, project = '', touches = [], exists = null, fs = null }) {
   // B363: work outside git (no branch of its own, no merged commit a repository holds): its files are checked instead.
   const own = typeof branch === 'string' ? branch.trim() : ''
   const isOwnBranch = own !== '' && own !== '-' && own.toLowerCase() !== 'none' && !repos.some(repo => repo.base === own)
   if (!isOwnBranch && exists !== null && project !== '' && await repoOfCommit(merged, repos, run) === null) {
-    return outsideCheck({ result, touches, project, repoDirs: repos.map(repo => repo.dir), exists })
+    const left = await stepLeftovers({ id, repos, project, run, fs })
+    return outsideCheck({ result, touches, project, repoDirs: repos.map(repo => repo.dir), exists, left })
   }
   const faults = []
   const passed = []
@@ -89,9 +98,11 @@ export async function reportCheck({ id, branch, result, merged, repos, run, proj
     passed.unshift(`work in ${name}`)
     faults.unshift(`work in ${name}`)
   }
+  // Worktree clean-up: no worktree on the step's branch, and none (or its folder) named for the step, is left.
+  faults.push(...await stepLeftovers({ id, branch: repo === null || isOnBase ? null : branch, repo, repos, project, run, fs }))
   if (String(result ?? '').trim() === '') faults.push('no result named')
   const failed = faults.filter(line => !line.startsWith('work in '))
-  return failed.length === 0 ? { passed: true, lines: [...passed, isOnBase ? `worked on ${branch.trim()} itself` : 'branch gone', 'result named'] } : { passed: false, lines: faults }
+  return failed.length === 0 ? { passed: true, lines: [...passed, isOnBase ? `worked on ${branch.trim()} itself` : 'branch gone', 'worktree gone', 'result named'] } : { passed: false, lines: faults }
 }
 
 /** A path written with "/", without its end "/", for comparing (any case, as on Windows). */
@@ -122,9 +133,9 @@ function pathsIn(words, project) {
  * B363: the check of a step whose work is outside git: the files its report's result names (else, when none of those
  * is a file for certain or there, those its Touches name) are there in the project's folder, outside every repository
  * (`repoDirs`): a file in a repository is work in git, reported with its merged commit. `exists(path)` answers whether
- * a path is there.
+ * a path is there. `left`: the lines of the step's worktrees still left (worktree clean-up), each a fault.
  */
-async function outsideCheck({ result, touches, project, repoDirs, exists }) {
+async function outsideCheck({ result, touches, project, repoDirs, exists, left = [] }) {
   const repos = repoDirs.map(dir => plainPath(dir).toLowerCase())
   const isInRepo = where => repos.some(dir => where.toLowerCase() === dir || where.toLowerCase().startsWith(`${dir}/`))
   const weigh = async named => {
@@ -147,6 +158,7 @@ async function outsideCheck({ result, touches, project, repoDirs, exists }) {
   if (missing.length > 0) lines.push(`not there: ${missing.join(', ')}`)
   if (inGit.length > 0) lines.push(`in a repository: ${inGit.join(', ')}; report that work with its merged commit`)
   if (missing.length + inGit.length === 0 && found.length === 0) lines.push('no file named: name the files it made in the result')
+  lines.push(...left)
   if (String(result ?? '').trim() === '') lines.push('no result named')
   return lines.length === 1 ? { passed: true, lines: [...lines, `there: ${found.join(', ')}`, 'result named'] } : { passed: false, lines }
 }

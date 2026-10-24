@@ -145,7 +145,8 @@ function serial(dir, run) {
  * of `body.chat` asks, in the role `roleOf(chat)` gives ('main', 'worker', 'advisor', 'helper' (B424, HELPS), or null: no
  * chat of the list).
  * `freeChats` the chats free now, `overlaps(item)` the id of a taken step whose Touches overlap, `viewFile` the
- * backlog file the view is written to after a change (none: not written).
+ * backlog file the view is written to after a change (none: not written). `checkWorktrees(id)` (worktree clean-up): the
+ * lines of a result check's own worktrees still left; `checked` is refused while there are any.
  * Answers `{ ok: true, result: { text, id, changed, ... } }` or `{ ok: false, status, why }`.
  */
 export function workApi(body, ctx) {
@@ -1255,6 +1256,13 @@ async function checked(body, w) {
   const read = parsePoints(body.points)
   if (!read.ok) return refuse(400, read.why)
   const score = line(body.score, 60)
+  // Worktree clean-up (the person, 2026-10-24): the check's own worktrees (check-<id>, check-<id>-before) are gone
+  // before its result is filed, as a worker's are before its report passes (`checkWorktrees`, worktrees.mjs
+  // `stepLeftovers`); they hold a link to the game's packages, so the board does not remove them itself.
+  const left = typeof w.checkWorktrees === 'function'
+    ? await Promise.resolve().then(() => w.checkWorktrees(id)).catch(error => [`the board could not look for them (${error instanceof Error ? error.message : String(error)})`])
+    : []
+  if (left.length > 0) return refuse(409, `${id}'s check left its worktrees: ${left.join('; ')}. Remove them, then file checked again.`)
   const { points } = read
   const failed = points.filter(one => one.verdict === 'fail')
   const judged = points.filter(one => one.verdict === 'ask')

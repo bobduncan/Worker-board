@@ -617,7 +617,12 @@ board's word, never the user's.
 3. The helper makes the evidence picture with the board's tool: `node <board>/tools/evidence.mjs --step B<id> --title
    "<title>" --reference <the reference picture> --result <the result's picture> --points '<the ticked points as
    JSON>' --score <n> --target <n>`; for work with nothing to see, the ticked list alone (no reference, no result).
-4. File it: `work checked B<id>` with `evidence` (the picture's path in the project, or `none (<why>)`), `points`
+4. The helper removes the worktrees it made for the check (detached, named `check-b<id>`, and `check-b<id>-before`
+   for the state before): a link in one (a junction such as `node_modules`) first, alone (`cmd /c rmdir
+   "<folder>\node_modules"` on Windows: the link only), then `git worktree remove <folder>` (never `--force`: it
+   follows links and deletes what they point to), then the empty folder Windows may leave. The board refuses `work
+   checked` while one of them is left, and names it with how to remove it.
+5. File it: `work checked B<id>` with `evidence` (the picture's path in the project, or `none (<why>)`), `points`
    (every agreed point, each `pass: <point>`, `fail: <point>` or `ask: <point>`) and `score` ("82 of 75") where there is one.
 
 Every point passes: the board closes the step. A failed point: the board makes the fix step itself ("Fix: <the failed

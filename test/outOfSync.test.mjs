@@ -275,3 +275,17 @@ test('B465: the page shows the board\'s own check as in the agreed picture: a ro
   assert.match(html, /<\/header>\n\s*<section class="sync-list" id="sync-list" aria-label="The board's sync check" hidden><\/section>/)
   assert.match(script, /drawLanes\(state\)\n\s*drawSyncList\(state\)/)
 })
+
+test('worktree clean-up: Cleaned and Left on the page, Left in a quiet tone; the main chat is not told what is only Left', async () => {
+  const script = await readFile(join(dirname(fileURLToPath(import.meta.url)), '..', 'public', 'board.js'), 'utf8')
+  const page = { clock: ms => new Date(ms).toTimeString().slice(0, 5) }
+  vm.runInNewContext(`${script.slice(script.indexOf('// syncList:start'), script.indexOf('// syncList:end'))}\nthis.syncListOf = syncListOf`, page)
+  const rows = [{ status: 'Cleaned', text: '/projects/game-b5: a worktree of game on b5-lamps' }, { status: 'Left', text: '/projects/game-b410 (a worktree of game on b410-hero): held by B410' }]
+  const shown = page.syncListOf({ at: at(0, 42), asked: true, fine: 8, rows })
+  assert.equal(JSON.stringify(shown.rows.map(row => [row.status, row.tone])), JSON.stringify([['Cleaned', 'done'], ['Left', 'fine'], ['Fine', 'fine']]))
+  assert.equal(shown.rows.at(-1).text, '8 other checks: nothing stuck')
+  // Only Left: every check is fine, so no "other".
+  assert.equal(page.syncListOf({ at: at(0, 42), asked: true, fine: 9, rows: rows.slice(1) }).rows.at(-1).text, '9 checks: nothing stuck')
+  const words = lines(say({ command: 'sync', chat: 'board' }, { ...board(), syncList: { at: at(22, 49), asked: true, fine: 8, rows } }).message)
+  assert.ok(words.includes('Board\'s own check (22:49): Cleaned: /projects/game-b5: a worktree of game on b5-lamps; 8 checks fine'), words.join('\n'))
+})

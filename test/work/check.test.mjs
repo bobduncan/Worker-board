@@ -13,6 +13,7 @@ const heads = 'for-each-ref --format=%(refname:short) refs/heads'
 const remotes = 'for-each-ref --format=%(refname:short) refs/remotes'
 const reflog = 'log -g --all --format=%gs'
 const has = commit => `rev-parse --verify --quiet ${commit}^{commit}`
+const worktrees = 'worktree list --porcelain'
 const repos = [{ dir: '/projects/garden', base: 'main' }, { dir: '/projects/tools/board', base: 'main' }]
 /** The garden (the game) is two commits ahead of its remote; the board is where its remote has it. */
 const world = {
@@ -21,17 +22,19 @@ const world = {
   [`/projects/garden ${reflog}`]: 'commit: two more\ncheckout: moving from b7-paths to main\n',
   '/projects/garden rev-parse main': 'aaa\n',
   '/projects/garden rev-parse origin/main': 'zzz\n',
+  [`/projects/garden ${worktrees}`]: 'worktree /projects/garden\nHEAD aaa\nbranch refs/heads/main\n',
   [`/projects/tools/board ${heads}`]: 'main\n',
   [`/projects/tools/board ${remotes}`]: 'origin/main\n',
   [`/projects/tools/board ${reflog}`]: 'merge b5-lamps: Fast-forward\ncheckout: moving from b5-lamps to main\n',
   [`/projects/tools/board ${has('c0ffee1')}`]: 'c0ffee1c0ffee1\n',
   '/projects/tools/board rev-parse main': 'bbb\n',
   '/projects/tools/board rev-parse origin/main': 'bbb\n',
+  [`/projects/tools/board ${worktrees}`]: 'worktree /projects/tools/board\nHEAD bbb\nbranch refs/heads/main\n',
 }
 
 test('a merged commit in the board\'s repository: that one is checked, and the game ahead of its remote is no matter', async () => {
   const done = await reportCheck({ id: 'B5', branch: 'b5-lamps', result: 'The lamps glow.', merged: 'c0ffee1', repos, run: git(world) })
-  assert.deepEqual(done, { passed: true, lines: ['work in board', 'main of board equals origin/main', 'branch gone', 'result named'] })
+  assert.deepEqual(done, { passed: true, lines: ['work in board', 'main of board equals origin/main', 'branch gone', 'worktree gone', 'result named'] })
 })
 
 test('without a merged commit the branch tells: by its reflog, its remote, or the branch itself', async () => {
@@ -56,7 +59,7 @@ test('git that does not answer is named, never a pass; a repository without a re
   const silent = await reportCheck({ id: 'B5', branch: 'b5-lamps', result: 'x', merged: 'c0ffee1', repos, run: async () => null })
   assert.deepEqual(silent, { passed: false, lines: ['could not tell which repository B5\'s work is in'] })
   const noRemote = { ...world, '/projects/tools/board rev-parse origin/main': undefined, [`/projects/tools/board ${remotes}`]: '', '/projects/tools/board remote': '' }
-  assert.deepEqual((await reportCheck({ id: 'B5', branch: 'b5-lamps', result: 'x', merged: 'c0ffee1', repos, run: git(noRemote) })).lines, ['work in board', 'main of board has no remote', 'branch gone', 'result named'])
+  assert.deepEqual((await reportCheck({ id: 'B5', branch: 'b5-lamps', result: 'x', merged: 'c0ffee1', repos, run: git(noRemote) })).lines, ['work in board', 'main of board has no remote', 'branch gone', 'worktree gone', 'result named'])
   // B404: origin/main unread while git names an origin, or git not answering at all, is a fault, never "no remote".
   const unread = { ...world, '/projects/tools/board rev-parse origin/main': undefined, '/projects/tools/board remote': 'origin\n' }
   const failed = await reportCheck({ id: 'B5', branch: 'b5-lamps', result: 'x', merged: 'c0ffee1', repos, run: git(unread) })
@@ -118,7 +121,54 @@ test('B363, the review: a file in a repository is work in git, no proof of work 
 test('B363: a step on the base branch whose merged commit a repository holds, or on a branch of its own, keeps the check of its repository', async () => {
   // The review: merged on the base branch itself, it has no branch of its own to be gone.
   const merged = await reportCheck(outside({ branch: 'main', merged: 'c0ffee1' }))
-  assert.deepEqual(merged, { passed: true, lines: ['work in board', 'main of board equals origin/main', 'worked on main itself', 'result named'] })
+  assert.deepEqual(merged, { passed: true, lines: ['work in board', 'main of board equals origin/main', 'worked on main itself', 'worktree gone', 'result named'] })
   const own = await reportCheck(outside({ branch: 'b5-lamps', merged: '' }))
-  assert.deepEqual(own.lines, ['work in board', 'main of board equals origin/main', 'branch gone', 'result named'])
+  assert.deepEqual(own.lines, ['work in board', 'main of board equals origin/main', 'branch gone', 'worktree gone', 'result named'])
+})
+
+// Worktree clean-up (the person, 2026-10-24: "cleanup leftover working tree's please. ensure this is part of the cleanup
+// step."): a worktree of the step's repository on its branch, or a worktree or its folder named for the step in the
+// project folder, fails the check with how to remove it. test/work/worktrees.test.mjs has the same with real git.
+
+/** A made-up file system: the folders of `tree` ("<path>": [names of folders in it]), all plain folders. */
+const folders = tree => {
+  const key = path => path.replace(/\\/g, '/')
+  const dirent = name => ({ name, isDirectory: () => true, isFile: () => false, isSymbolicLink: () => false })
+  const missing = () => Object.assign(new Error('not there'), { code: 'ENOENT' })
+  return {
+    entries: async path => {
+      const names = tree[key(path)]
+      if (names === undefined) throw missing()
+      return names.map(dirent)
+    },
+    lstat: async path => {
+      if (tree[key(path)] === undefined) throw missing()
+      return { isSymbolicLink: () => false, isDirectory: () => true, isFile: () => false, mtimeMs: 0 }
+    },
+    rmdir: async () => {},
+  }
+}
+
+test('worktree clean-up: a worktree still on the step\'s branch fails the check, with how to remove it', async () => {
+  const left = {
+    ...world,
+    [`/projects/tools/board ${heads}`]: 'main\nb5-lamps\n',
+    [`/projects/tools/board ${worktrees}`]: `${world[`/projects/tools/board ${worktrees}`]}\nworktree /projects/board-b5\nHEAD ccc\nbranch refs/heads/b5-lamps\n`,
+  }
+  const done = await reportCheck({ id: 'B5', branch: 'b5-lamps', result: 'x', merged: 'c0ffee1', repos, run: git(left) })
+  assert.deepEqual(done, { passed: false, lines: ['work in board', 'the branch b5-lamps is still there', 'the worktree /projects/board-b5 is still on b5-lamps: git worktree remove /projects/board-b5, then delete the empty folder Windows may leave'] })
+  // git that does not answer for the worktrees is a fault, never a pass.
+  const silent = await reportCheck({ id: 'B5', branch: 'b5-lamps', result: 'x', merged: 'c0ffee1', repos, run: git({ ...world, [`/projects/tools/board ${worktrees}`]: undefined }) })
+  assert.deepEqual(silent.lines, ['work in board', 'git did not answer: the worktrees of board are not known'])
+})
+
+test('worktree clean-up: an empty folder a worktree of the step left in the project folder fails the check; another step\'s does not', async () => {
+  const fs = folders({ '/projects': ['garden', 'tools', 'board-b5', 'board-b51', 'notes'], '/projects/board-b5': [], '/projects/board-b51': [], '/projects/notes': [] })
+  const done = await reportCheck({ id: 'B5', branch: 'b5-lamps', result: 'x', merged: 'c0ffee1', repos, run: git(world), project: PROJECT, fs })
+  assert.deepEqual(done, { passed: false, lines: ['work in board', 'the empty folder /projects/board-b5 of a worktree is still there: delete it (rmdir "/projects/board-b5")'] })
+  const clean = folders({ '/projects': ['garden', 'tools', 'board-b51', 'notes'], '/projects/board-b51': [], '/projects/notes': [] })
+  assert.equal((await reportCheck({ id: 'B5', branch: 'b5-lamps', result: 'x', merged: 'c0ffee1', repos, run: git(world), project: PROJECT, fs: clean })).passed, true)
+  // Work outside git (B9) that left a worktree's folder fails the same way.
+  const outsideLeft = await reportCheck(outside({ branch: 'none', fs: folders({ '/projects': ['garden', 'tools', 'board-b9'], '/projects/board-b9': [] }) }))
+  assert.deepEqual(outsideLeft, { passed: false, lines: ['work outside git', 'the empty folder /projects/board-b9 of a worktree is still there: delete it (rmdir "/projects/board-b9")'] })
 })

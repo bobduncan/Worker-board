@@ -309,3 +309,30 @@ test('B381: a failed point\'s full text, over a thousand characters, stands in t
     await rm(store.dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
 })
+
+test('worktree clean-up: a result check is filed only once its own check-<id> worktrees are gone', async () => {
+  const store = await fresh()
+  try {
+    const { id } = await reported(store)
+    let left = ['the worktree /projects/check-b2 is still there: git worktree remove /projects/check-b2, then delete the empty folder Windows may leave']
+    const asked = []
+    const ctx = { dir: store.dir, now: NOW + 60_000, prefix: '', roleOf: chat => ROLES[chat] ?? null, freeChats: new Set(), checkWorktrees: async one => { asked.push(one); return left } }
+    const body = { chat: 'Partner', action: 'checked', id, evidence: 'none (nothing to see)', points: ['pass: a lamp at every bench', 'pass: warm yellow light, never white'] }
+    const refused = await workApi(body, ctx)
+    assert.deepEqual([refused.ok, refused.status], [false, 409])
+    assert.equal(refused.why, `${id}'s check left its worktrees: ${left[0]}. Remove them, then file checked again.`)
+    // Nothing was filed: the step waits in review, with no check kept on it.
+    assert.equal(valueOf(await item(store.dir, id), 'State'), 'review')
+    assert.equal((await item(store.dir, id)).sections.get('Checked'), undefined)
+    // A look that fails is a refusal too, never a pass.
+    const broken = await workApi(body, { ...ctx, checkWorktrees: async () => { throw new Error('the disk did not answer') } })
+    assert.equal(broken.why, `${id}'s check left its worktrees: the board could not look for them (the disk did not answer). Remove them, then file checked again.`)
+    left = []
+    const filed = await workApi(body, ctx)
+    assert.equal(filed.ok, true, filed.why)
+    assert.equal(valueOf(await item(store.dir, id), 'State'), 'done')
+    assert.deepEqual(asked, [id, id])
+  } finally {
+    await rm(store.dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
+  }
+})

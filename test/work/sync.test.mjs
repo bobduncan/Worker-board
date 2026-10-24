@@ -14,7 +14,7 @@ import { workApi } from '../../src/work/api.mjs'
 import { deliverWork } from '../../src/work/deliver.mjs'
 import { migrateBacklog, stamp } from '../../src/work/migrate.mjs'
 import { readStore, writeStore } from '../../src/work/store.mjs'
-import { AGAIN_MS, CHECKS, LOOP_LOCK_MS, NOT_TAKEN_MS, OWNER_GONE_MS, SYNC_SHOWN_MS, applySync, findStuck, loopOwner, mayRunLoop, readLoopLock, syncRunner } from '../../src/work/sync.mjs'
+import { AGAIN_MS, CHECKS, LOOP_LOCK_MS, NOT_TAKEN_MS, OWNER_GONE_MS, SYNC_SHOWN_MS, applySync, findStuck, leftoverFindings, loopOwner, mayRunLoop, readLoopLock, syncRunner } from '../../src/work/sync.mjs'
 
 const MIN = 60_000
 const NOW = new Date(2026, 9, 21, 2, 0).getTime()
@@ -31,7 +31,7 @@ const of = (found, check) => found.filter(one => one.check === check)
 const checkedPass = { History: [`- ${stamp(ago(30))} server: check passed: merged`] }
 
 test('the list names every check once, with its words', () => {
-  assert.deepEqual(CHECKS.map(one => one.key), ['blocked', 'not-taken', 'owner-gone', 'refine-drop', 'limit-back', 'old-name', 'helper', 'partner-ask'])
+  assert.deepEqual(CHECKS.map(one => one.key), ['blocked', 'not-taken', 'owner-gone', 'refine-drop', 'limit-back', 'old-name', 'helper', 'partner-ask', 'worktrees'])
   assert.ok(CHECKS.every(one => typeof one.words === 'string' && one.words.length > 0))
 })
 
@@ -482,4 +482,75 @@ test('B492: a state that tells (a missing blocker, a queued step not taken) is t
   clock += MIN
   await runner.run()
   assert.deepEqual(count(), [1, 1], 'tick 2: the same state is not told again')
+})
+
+// Worktree clean-up (the person, 2026-10-24: "cleanup leftover working tree's please. ensure this is part of the cleanup
+// step."): the check `worktrees`. What worktrees.mjs `findLeftovers` finds safe the board removes (Cleaned); the rest
+// it lists with the reason (Left) and tells no chat. test/work/worktrees.test.mjs has the finding and the removal.
+const LEFTOVERS = [
+  { path: '/projects/game-b5', kind: 'worktree', repo: '/projects/game', what: 'a worktree of game on b5-lamps', clean: true, why: null },
+  { path: '/projects/game-b3', kind: 'folder', repo: null, what: 'an empty folder', clean: true, why: null },
+  { path: '/projects/game-b410', kind: 'worktree', repo: '/projects/game', what: 'a worktree of game on b410-hero', clean: false, why: 'held by B410' },
+  { path: '/projects/board-parked', kind: 'worktree', repo: '/projects/board', what: 'a worktree of board on parked', clean: false, why: 'not merged into main' },
+]
+
+test('worktree clean-up: a safe leftover is removed (Cleaned), one that could not be is Left, the rest Left with its reason; no chat is told', async () => {
+  const findings = leftoverFindings(LEFTOVERS)
+  assert.deepEqual(findings.map(one => [one.check, one.key, one.fix.do]), [
+    ['worktrees', 'worktree /projects/game-b5', 'clean'], ['worktrees', 'worktree /projects/game-b3', 'clean'],
+    ['worktrees', 'worktree /projects/game-b410', 'list'], ['worktrees', 'worktree /projects/board-parked', 'list'],
+  ])
+  const cleaned = []
+  const ports = { clean: async one => (cleaned.push(one.path), one.kind === 'folder' ? { ok: false, why: 'it is not empty' } : { ok: true }) }
+  const done = await applySync(findings, ports, new Set())
+  assert.deepEqual(cleaned, ['/projects/game-b5', '/projects/game-b3'])
+  assert.deepEqual(done.rows.map(one => [one.status, one.text]), [
+    ['Cleaned', '/projects/game-b5: a worktree of game on b5-lamps'],
+    ['Left', '/projects/game-b3: an empty folder: not removed (it is not empty)'],
+    ['Left', '/projects/game-b410 (a worktree of game on b410-hero): held by B410'],
+    ['Left', '/projects/board-parked (a worktree of board on parked): not merged into main'],
+  ])
+  assert.deepEqual([done.note, done.keys], [[], []])
+  // A check that removed something found something; one that only lists counts as fine.
+  assert.equal(done.fine, CHECKS.length - 1)
+  assert.equal((await applySync(leftoverFindings(LEFTOVERS.slice(2)), ports, new Set())).fine, CHECKS.length)
+  // A removal that throws is one row, not the end of the run.
+  const thrown = await applySync(findings.slice(0, 1), { clean: async () => { throw new Error('git was not there') } }, new Set())
+  assert.deepEqual(thrown.rows.map(one => [one.status, one.text]), [['Left', '/projects/game-b5: a worktree of game on b5-lamps: not removed (git was not there)']])
+})
+
+test('worktree clean-up in the runner: it looks with the store\'s items; a run that only lists shows nothing by itself, and a failed look is one row', async () => {
+  const looked = []
+  let found = LEFTOVERS.slice(2)
+  let isBroken = false
+  const world = items(step('B410', 'in progress', { Owner: 'Painter', Branch: 'b410-hero' }))
+  const runner = syncRunner({
+    state: async () => ({ chats: [LEAD, lane('Painter', { state: 'working' })], chatPrefix: '', limits: {}, pause: null }),
+    items: async () => world,
+    outbox: () => [],
+    refused: () => [],
+    apply: async () => ({ ok: true }),
+    wake: async () => ({ id: 'w' }),
+    noted: { load: async () => [], save: async () => {} },
+    now: () => NOW,
+    leftovers: async ({ items: seen, now }) => {
+      looked.push([seen, now])
+      if (isBroken) throw new Error('the project folder could not be read')
+      return found
+    },
+    clean: async () => ({ ok: true }),
+  })
+  const quiet = await runner.run()
+  assert.deepEqual(looked, [[world, NOW]])
+  assert.deepEqual(quiet.rows.map(one => one.status), ['Left', 'Left'])
+  // Only listed: the page shows nothing for it (held worktrees are the usual), and an asked run shows them all.
+  assert.equal(runner.shown(NOW), null)
+  assert.deepEqual((await runner.run({ asked: true })).rows.map(one => one.status), ['Left', 'Left'])
+  assert.equal(runner.shown(NOW).asked, true)
+  // Something removed: shown.
+  found = LEFTOVERS.slice(0, 1)
+  assert.deepEqual((await runner.run()).rows.map(one => [one.status, one.text]), [['Cleaned', '/projects/game-b5: a worktree of game on b5-lamps']])
+  assert.equal(runner.shown(NOW).rows[0].status, 'Cleaned')
+  isBroken = true
+  assert.deepEqual((await runner.run()).rows.map(one => [one.status, one.text]), [['Left', 'leftover worktrees: not looked at (the project folder could not be read)']])
 })

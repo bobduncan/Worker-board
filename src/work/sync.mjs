@@ -7,6 +7,12 @@
 // safe fixes itself; "Out of sync?" runs it at once. What it cannot fix goes to the main chat as one note, never twice
 // for the same thing. A new way of getting stuck is added here, with its test, not fixed by hand (roles/main.md). PURE:
 // `findStuck` reads, `applySync` acts through the ports it is given.
+//
+// Worktree clean-up (the person, 2026-10-24: "cleanup leftover working tree's please. ensure this is part of the
+// cleanup step."): the check `worktrees` lists the leftover worktrees of the repositories the board knows and the empty
+// folders they left in the project folder (worktrees.mjs `findLeftovers`, through the runner's port `leftovers`). The
+// safe ones the board removes itself (Cleaned, port `clean`); the rest it only lists, with the reason (Left), and tells
+// no chat of them.
 
 import { askFiledMs, sinceMs, valueOf } from './item.mjs'
 import { stamp } from './migrate.mjs'
@@ -43,6 +49,7 @@ export const CHECKS = [
   { key: 'old-name', words: 'a chat that asks under an old name' },
   { key: 'helper', words: 'the partner\'s helper not running while refines or result checks wait' },
   { key: 'partner-ask', words: 'an ask routed to the partner left unanswered' },
+  { key: 'worktrees', words: 'a leftover worktree, or an empty folder one left in the project folder' },
 ]
 
 /** The states in which a step is its Owner's work now. */
@@ -302,11 +309,26 @@ export function findStuck({ items = new Map(), lanes = [], partner = null, helpe
 }
 
 /**
+ * Worktree clean-up: the findings of the check `worktrees` from what worktrees.mjs `findLeftovers` found: one the board
+ * may remove (`{ do: 'clean', leftover }`) or one it only lists (`{ do: 'list' }`), each with its path and what it is.
+ */
+export function leftoverFindings(found) {
+  const plainPath = path => String(path).replace(/\\/g, '/')
+  return found.map(one => ({
+    check: 'worktrees',
+    key: `worktree ${plainPath(one.path)}`,
+    text: one.clean === true ? `${plainPath(one.path)}: ${one.what}` : `${plainPath(one.path)} (${one.what}): ${one.why}`,
+    fix: one.clean === true ? { do: 'clean', leftover: one } : { do: 'list' },
+  }))
+}
+
+/**
  * The findings carried out, in their order. `ports`: `unblock(id, on, why)` and `requeue(id, to, why)` (the work API as
  * the board: `{ ok, why }`), `wake({ chat, id, text, key })` (the line sent once per key: the message, or null when it
- * went before). `noted` the keys the main chat was told of before. Answers `{ rows, note, keys, fine }`: a row per
- * finding (`{ check, status, text }`, status Fixed, Woke, Sent or For Main), the lines of the one note to the main
- * chat (what it was not told before), their keys, and how many checks found nothing.
+ * went before), `clean(leftover)` (worktree clean-up: `{ ok, why }`). `noted` the keys the main chat was told of before.
+ * Answers `{ rows, note, keys, fine }`: a row per finding (`{ check, status, text }`, status Fixed, Woke, Sent, For
+ * Main, Cleaned or Left), the lines of the one note to the main chat (what it was not told before), their keys, and
+ * how many checks found nothing (a check that only lists, Left, counts as one that found nothing).
  */
 /** A wake through its port: `{ message, why }`, the message or null (sent before), and why it failed when it threw. */
 const wakeBy = (ports, one) => Promise.resolve().then(() => ports.wake(one))
@@ -349,6 +371,14 @@ export async function applySync(findings, ports, noted = new Set()) {
     } else if (fix.do === 'send') {
       row(one, 'Sent', `${one.text}: to Main as a note`)
       tell(one, fix.text)
+    } else if (fix.do === 'clean') {
+      // Worktree clean-up: removed by the board; one that could not be is listed, and no chat is told.
+      const done = await Promise.resolve().then(() => ports.clean(fix.leftover))
+        .catch(error => ({ ok: false, why: error instanceof Error ? error.message : String(error) }))
+      if (done?.ok === true) row(one, 'Cleaned', one.text)
+      else row(one, 'Left', `${one.text}: not removed (${done?.why ?? 'no answer'})`)
+    } else if (fix.do === 'list') {
+      row(one, 'Left', one.text)
     } else if (fix.do === 'hand') {
       const sent = await wakeBy(ports, { chat: fix.chat, id: fix.id, text: fix.text, key: `${one.key} hand` })
       const text = `${one.text}: ${sent.why === null ? `its work went to ${fix.chat}` : `${fix.chat} could not be told (${sent.why})`}`
@@ -359,7 +389,7 @@ export async function applySync(findings, ports, noted = new Set()) {
       tell(one, fix.text ?? one.text)
     }
   }
-  return { rows, note, keys, fine: CHECKS.length - new Set(findings.map(one => one.check)).size }
+  return { rows, note, keys, fine: CHECKS.length - new Set(findings.filter(one => one.fix.do !== 'list').map(one => one.check)).size }
 }
 
 /** How long the answer of a run that was asked, or that found something, stands on the page. */
@@ -372,8 +402,10 @@ const NOTED_KEPT = 500
  * `state()` the board's state (state.mjs), `items()` the store's items, `outbox()` the board's messages, `refused()` the
  * names a chat was refused under lately, `apply(body)` the work API as the board, `wake({ chat, id, text, key })` a
  * line sent once per key (the message, or null), `noted` `{ load(), save(keys) }` the keys the main chat was told of,
- * `now()`. `run({ asked })` answers `{ at, asked, rows, fine }`; `shown(now)` is what the page shows: the newest run
- * that was asked or found something, for an hour, else null.
+ * `now()`; worktree clean-up: `leftovers({ items, now })` what worktrees.mjs `findLeftovers` finds, and `clean(one)`
+ * its `cleanLeftover` (both left out: no such check). `run({ asked })` answers `{ at, asked, rows, fine }`; `shown(now)`
+ * is what the page shows: the newest run that was asked or found something (more than what it only lists, Left), for an
+ * hour, else null.
  */
 export function syncRunner(ports) {
   let turn = Promise.resolve()
@@ -392,11 +424,13 @@ export function syncRunner(ports) {
       seen = new Map(Object.entries(kept.seen).filter(([, at]) => Number.isFinite(at)))
     }
     const observed = []
+    const items = await ports.items()
     const findings = findStuck({
-      items: await ports.items(), lanes: state.chats ?? [], partner: state.advisor ?? null, helper: state.advisorHelper ?? null,
+      items, lanes: state.chats ?? [], partner: state.advisor ?? null, helper: state.advisorHelper ?? null,
       prefix: state.chatPrefix ?? '', now, outbox: ports.outbox(), limits: state.limits ?? {}, pause: state.pause ?? null, refused: ports.refused(),
       seen, observed,
     })
+    findings.push(...await worktreeFindings(ports, items, now))
     const seenBefore = JSON.stringify([...seen])
     seen = new Map(observed.map(key => [key, seen.get(key) ?? now]))
     let changed = JSON.stringify([...seen]) !== seenBefore
@@ -404,6 +438,7 @@ export function syncRunner(ports) {
       unblock: (id, on, why) => ports.apply({ action: 'unblock', id, on, why }),
       requeue: (id, to, why) => ports.apply({ action: 'requeue', id, for: to, why }),
       wake: ports.wake,
+      clean: ports.clean,
     }, noted)
     if (done.note.length > 0) {
       const sent = await ports.apply({ action: 'note', to: 'main', text: [`The board's sync check at ${clockOf(now)}: what it could not fix itself`, ...done.note.map(line => `- ${line}`)] })
@@ -417,7 +452,7 @@ export function syncRunner(ports) {
     if (changed) await ports.noted.save({ noted: [...noted], seen: Object.fromEntries(seen) })
     const answer = { at: now, asked, rows: done.rows, fine: done.fine }
     // The review: a later run that finds nothing clears what the board found by itself; the button's answer stays.
-    if (asked || answer.rows.length > 0) shownRun = answer
+    if (asked || answer.rows.some(row => row.status !== 'Left')) shownRun = answer
     else if (shownRun !== null && !shownRun.asked) shownRun = null
     return answer
   }
@@ -428,6 +463,20 @@ export function syncRunner(ports) {
       return run
     },
     shown: now => (shownRun !== null && now - shownRun.at < SYNC_SHOWN_MS ? shownRun : null),
+  }
+}
+
+/**
+ * Worktree clean-up: the findings of the check `worktrees` through the runner's port `leftovers`; none without one. A
+ * look that fails is one row (Left), not the end of the run.
+ */
+async function worktreeFindings(ports, items, now) {
+  if (typeof ports.leftovers !== 'function') return []
+  try {
+    return leftoverFindings(await ports.leftovers({ items, now }))
+  } catch (error) {
+    const why = error instanceof Error ? error.message : String(error)
+    return [{ check: 'worktrees', key: 'worktrees not read', text: `leftover worktrees: not looked at (${why})`, fix: { do: 'list' } }]
   }
 }
 

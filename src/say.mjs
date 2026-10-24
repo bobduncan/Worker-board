@@ -127,8 +127,10 @@ const RUNNING = new Map([[true, 'yes'], [false, 'no']])
  */
 const boardCheckWords = list => {
   if (list === null || list === undefined || !Array.isArray(list.rows)) return []
-  const rows = list.rows.slice(0, 12).map(row => `${row.status}: ${plainLine(row.text)}`)
-  const more = list.rows.length > 12 ? [`and ${list.rows.length - 12} more`] : []
+  // Worktree clean-up: what the board only lists (Left, a worktree a step holds) is no news for the main chat.
+  const told = list.rows.filter(row => row.status !== 'Left')
+  const rows = told.slice(0, 12).map(row => `${row.status}: ${plainLine(row.text)}`)
+  const more = told.length > 12 ? [`and ${told.length - 12} more`] : []
   return [`Board's own check (${timeOfDay(list.at)}): ${[...rows, ...more].join(' · ') || 'nothing stuck'}; ${list.fine} checks fine`]
 }
 
