@@ -6105,6 +6105,22 @@ function goalCrumb(goals, focusId) {
   return [{ id: null, title: 'Goals' }, ...chain]
 }
 
+/** B505: the goals a search finds at any depth, done or not: an id (G33, g33) or every word of the title; id matches first, at most 8. */
+function goalSearch(goals, query) {
+  const words = query.toLowerCase().split(/s+/).filter(word => word !== '')
+  if (words.length === 0) return []
+  const rank = node => {
+    const id = node.id.toLowerCase()
+    return id === words[0] ? 0 : id.startsWith(words[0]) ? 1 : 2
+  }
+  return goals.nodes
+    .filter(node => words.every(word => `${node.id} ${node.title}`.toLowerCase().includes(word)))
+    .map((node, order) => ({ node, order, rank: rank(node) }))
+    .sort((a, b) => a.rank - b.rank || a.order - b.order)
+    .slice(0, 8)
+    .map(({ node }) => ({ id: node.id, title: node.title, where: goalCrumb(goals, node.id).slice(1).map(step => step.id).join(' › ') }))
+}
+
 /** "2 inside · 4 steps · 3 done · 1 missing"; "no steps yet" when there is nothing to count. */
 function goalCounter(counts) {
   if (counts === undefined || counts === null) return ''
@@ -6675,6 +6691,7 @@ function goalEditorRow(goals, depth) {
 
 function drawGoals(state) {
   const goals = state.goals ?? null
+  $('goals-find').hidden = goals === null || goals.nodes.length === 0
   const canEdit = canEditGoals(state)
   drawUnlinked(goals)
   // B257: the view buttons say what shows at this width (a phone shows the outline unless the diagram is chosen).
@@ -8582,6 +8599,65 @@ $('goals-unlinked').addEventListener('click', event => {
   if (row === null || board === null) return
   const step = (board.backlog ?? []).flatMap(activity => activity.steps).find(one => one.id === row.dataset.unlinkedStep)
   if (step !== undefined) openDetails({ step: step.key })
+})
+
+// B505: the search box finds a goal by id or words and zooms to it (its parents open, the browser's back returns).
+const goalsFind = { matches: [], at: 0 }
+function drawGoalsFind() {
+  const query = $('goals-find-input').value
+  const goals = board?.goals ?? null
+  goalsFind.matches = goals === null ? [] : goalSearch(goals, query)
+  goalsFind.at = Math.min(goalsFind.at, Math.max(goalsFind.matches.length - 1, 0))
+  const list = $('goals-find-list')
+  list.hidden = query.trim() === ''
+  $('goals-find-clear').hidden = query === ''
+  fill(list, goalsFind.matches.length === 0
+    ? [el('li', 'goals-find-none muted', 'No goal matches')]
+    : goalsFind.matches.map((match, place) => {
+      const row = el('li', 'goals-find-row')
+      row.setAttribute('role', 'option')
+      row.dataset.goal = match.id
+      row.setAttribute('aria-selected', String(place === goalsFind.at))
+      row.append(el('b', 'goals-find-id', match.id), el('span', 'goals-find-title', match.title), el('small', 'goals-find-where', match.where))
+      return row
+    }))
+}
+function clearGoalsFind() {
+  $('goals-find-input').value = ''
+  goalsFind.at = 0
+  drawGoalsFind()
+}
+function pickGoalsFind(id) {
+  clearGoalsFind()
+  zoomGoal(id)
+}
+$('goals-find-input').addEventListener('input', () => {
+  goalsFind.at = 0
+  drawGoalsFind()
+})
+$('goals-find-input').addEventListener('keydown', event => {
+  if (event.key === 'Escape') {
+    event.stopPropagation()
+    clearGoalsFind()
+  } else if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+    event.preventDefault()
+    const count = goalsFind.matches.length
+    if (count > 0) goalsFind.at = (goalsFind.at + (event.key === 'ArrowDown' ? 1 : count - 1)) % count
+    drawGoalsFind()
+  } else if (event.key === 'Enter') {
+    event.preventDefault()
+    const match = goalsFind.matches[goalsFind.at]
+    if (match !== undefined) pickGoalsFind(match.id)
+  }
+})
+$('goals-find-list').addEventListener('mousedown', event => event.preventDefault())
+$('goals-find-list').addEventListener('click', event => {
+  const row = event.target.closest('[data-goal]')
+  if (row !== null) pickGoalsFind(row.dataset.goal)
+})
+$('goals-find-clear').addEventListener('click', () => {
+  clearGoalsFind()
+  $('goals-find-input').focus()
 })
 
 $('goals-crumb').addEventListener('click', event => {
