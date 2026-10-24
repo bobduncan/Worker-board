@@ -36,11 +36,17 @@ const $ = id => document.getElementById(id)
 const openLanes = new Set()
 const openBubbles = new Set()
 const drafts = new Map()
-// B519: the answers kept by a reload after a restart of the board (see `read`) come back once.
+// B524: what a reload kept (see `reloadPage`) is read here and put back once, by the first `draw`.
+const KEPT_KEY = 'kept-state'
+let keptText = null
+let kept = null
 try {
-  for (const [name, text] of draftsBack(sessionStorage.getItem('drafts-kept'))) drafts.set(name, text)
-  sessionStorage.removeItem('drafts-kept')
+  keptText = sessionStorage.getItem(KEPT_KEY)
+  kept = keptBack(keptText)
+  sessionStorage.removeItem(KEPT_KEY)
 } catch { /* no sessionStorage: nothing was kept */ }
+/** The boxes `restoreKept` filled: told about it after the first draw, so what listens to them reads the words. */
+let restoredBoxes = []
 const chosen = new Map()
 const problems = new Map()
 const sending = new Set()
@@ -221,24 +227,55 @@ function reloadsNow(version, loadedPage, { isIdle, lastAt = 0, now = 0 }) {
 /**
  * B519: whether the page loads itself anew after the board answered 403 (it was started again and has a new token, so
  * every Send of this page fails): at once, at most once a minute (`lastAt`), so a real refusal cannot make it reload
- * over and over. The words being typed are not lost: see `draftsKept`.
+ * over and over. What the person did is not lost: see `keptState`.
  */
 function reloadsOn403(status, { lastAt = 0, now = 0 }) {
   return status === 403 && now - lastAt > MIN
 }
 
-/** B519: the answers being typed (`drafts`, a Map) as text for sessionStorage, kept across a reload; empty ones are left out. */
-function draftsKept(drafts) {
-  return JSON.stringify([...drafts].filter(([name, text]) => typeof name === 'string' && typeof text === 'string' && text !== ''))
+/**
+ * B524: what the person did on the page that a reload must not undo, as text for sessionStorage. One pair of helpers
+ * (`keptState`, `keptBack`) serves every reload: the 403 one (B519), the new page (B454) and the note's click.
+ * `drafts`, `words`, `picks`, `chosen`: lists of [id, text] (the answers being typed, a popup's note and pick, the
+ * option chosen); `forms`: the ids of the forms left open; `fields`: the words in the page's own boxes (the Talk to
+ * Main and Advisor boxes, ...) by their element id; `focusWords`: the Focus page's boxes; `details`: what the open
+ * popup is about (`detailsOf`). Empty words and anything of another shape are left out.
+ */
+function keptState({ drafts = [], words = [], picks = [], chosen = [], forms = [], fields = {}, focusWords = {}, details = null }) {
+  const pairs = list => [...list].filter(([name, text]) => typeof name === 'string' && typeof text === 'string' && text !== '')
+  return JSON.stringify({
+    drafts: pairs(drafts),
+    words: pairs(words),
+    picks: pairs(picks),
+    chosen: pairs(chosen),
+    forms: [...forms].filter(id => typeof id === 'string'),
+    fields: Object.fromEntries(pairs(Object.entries(fields))),
+    focusWords: Object.fromEntries(pairs(Object.entries(focusWords))),
+    details,
+  })
 }
 
-/** B519: the entries `draftsKept` wrote, back from the text; anything unreadable gives none. */
-function draftsBack(text) {
+/** B524: what `keptState` wrote, back from the text, every part present and well-formed; anything unreadable gives null. */
+function keptBack(text) {
+  let kept
   try {
-    const list = JSON.parse(text ?? '[]')
-    return Array.isArray(list) ? list.filter(pair => Array.isArray(pair) && typeof pair[0] === 'string' && typeof pair[1] === 'string') : []
+    kept = JSON.parse(text ?? 'null')
   } catch {
-    return []
+    return null
+  }
+  if (typeof kept !== 'object' || kept === null || Array.isArray(kept)) return null
+  const pairs = list => (Array.isArray(list) ? list.filter(pair => Array.isArray(pair) && typeof pair[0] === 'string' && typeof pair[1] === 'string' && pair[1] !== '') : [])
+  const named = object => (typeof object === 'object' && object !== null && !Array.isArray(object) ? pairs(Object.entries(object)) : [])
+  const isPlain = object => typeof object === 'object' && object !== null && !Array.isArray(object) && Object.values(object).every(value => ['string', 'number', 'boolean'].includes(typeof value) || value === null)
+  return {
+    drafts: pairs(kept.drafts),
+    words: pairs(kept.words),
+    picks: pairs(kept.picks),
+    chosen: pairs(kept.chosen),
+    forms: Array.isArray(kept.forms) ? kept.forms.filter(id => typeof id === 'string') : [],
+    fields: named(kept.fields),
+    focusWords: named(kept.focusWords),
+    details: isPlain(kept.details) ? kept.details : null,
   }
 }
 
@@ -649,13 +686,64 @@ function isPageIdle() {
   return ![...document.querySelectorAll('textarea, input')].some(field => isText(field) && field.value.trim() !== '')
 }
 
+/** B524: the words in the page's own boxes, by element id (the Talk to Main and Advisor boxes, the Goals and Design boxes, ...). */
+function boxesWithWords() {
+  const isText = field => field.matches('textarea, input:not([type]), input[type="text"], input[type="search"], input[type="url"], input[type="number"]')
+  return Object.fromEntries([...document.querySelectorAll('textarea[id], input[id]')].filter(field => isText(field) && field.value.trim() !== '').map(field => [field.id, field.value]))
+}
+
+/** B524: writes what the person did on the page into sessionStorage, for `restoreKept` after the reload. */
+function keepForReload() {
+  try {
+    // A reload before the first draw: what the last one kept was not put back yet, so it stays kept.
+    if (kept !== null && keptText !== null) return sessionStorage.setItem(KEPT_KEY, keptText)
+    sessionStorage.setItem(KEPT_KEY, keptState({
+      drafts, words: calmWords, picks: calmPicks, chosen, forms: openForms,
+      fields: boxesWithWords(), focusWords: focusUi.words, details: detailsOf,
+    }))
+  } catch { /* full or blocked: the page still loads */ }
+}
+
+/** B524: the one way the page loads itself anew: what the person did is kept first. */
+function reloadPage() {
+  keepForReload()
+  location.reload()
+}
+
+/** B524: puts back what `keepForReload` kept, once, before the first draw. The popup opens at the end of that draw. */
+function restoreKept() {
+  const back = kept
+  kept = null
+  if (back === null) return
+  for (const [name, text] of back.drafts) drafts.set(name, text)
+  for (const [name, text] of back.words) calmWords.set(name, text)
+  for (const [name, pick] of back.picks) calmPicks.set(name, pick)
+  for (const [name, choice] of back.chosen) chosen.set(name, choice)
+  for (const id of back.forms) openForms.add(id)
+  for (const [key, text] of back.focusWords) if (key in focusUi.words) focusUi.words[key] = text
+  for (const [id, text] of back.fields) {
+    const box = $(id)
+    if (box !== null && box.value === '') {
+      box.value = text
+      restoredBoxes.push(box)
+    }
+  }
+  detailsOf = back.details
+}
+
+/** B524: after the first draw: the boxes hear of their words, and the popup that was open opens again. */
+function finishRestore() {
+  for (const box of restoredBoxes.splice(0)) box.dispatchEvent(new Event('input', { bubbles: true }))
+  if (detailsOf !== null && !$('details').open && $('details').childNodes.length > 0) $('details').showModal()
+}
+
 /** The note on top (see `updateView`). B454: a newer page loads itself when the page is idle; a short note says so after. */
 function drawUpdate(state) {
   const note = $('update-note')
   const lastAt = Number(sessionStorage.getItem('page-updated-at') ?? 0)
   if (reloadsNow(state.version, PAGE, { isIdle: isPageIdle(), lastAt, now: Date.now() })) {
     sessionStorage.setItem('page-updated-at', String(Date.now()))
-    location.reload()
+    reloadPage()
     return
   }
   const shown = updateView(state.version, PAGE, { isStarting: sending.has('board-anew'), problem: problems.get('board-anew') ?? null }) ?? updatedView(lastAt, Date.now())
@@ -669,7 +757,7 @@ function drawUpdate(state) {
 $('update-note').addEventListener('click', async () => {
   const shown = board === null ? null : updateView(board.version, PAGE, { isStarting: sending.has('board-anew'), problem: problems.get('board-anew') ?? null })
   if (shown === null || shown.action === null) return
-  if (shown.action === 'reload') return location.reload()
+  if (shown.action === 'reload') return reloadPage()
   sending.add('board-anew')
   problems.delete('board-anew')
   drawUpdate(board)
@@ -13886,6 +13974,7 @@ $('phone-more').addEventListener('click', () => {
 
 function draw(state) {
   board = state
+  restoreKept()
   window.BoardSpending?.draw(state)
   drawTop(state)
   drawUpdate(state)
@@ -13945,6 +14034,7 @@ function draw(state) {
   once('talk', [state.advisor, advisorRefine(state.backlog), runningData(state), [...problems], [...sending]], () => drawTalk(state))
   once('main-talk', [state.mainTalk ?? null, state.maxMessageChars, problems.get('main-talk') ?? null, sending.has('main-talk')], () => drawMainTalk(state))
   drawDesign()
+  finishRestore()
 }
 
 // withanswers:start
@@ -13968,8 +14058,7 @@ async function read() {
     // cannot make the page load itself over and over.
     if (reloadsOn403(answer.status, { lastAt: Number(sessionStorage.getItem('reloaded-at') ?? 0), now: Date.now() })) {
       sessionStorage.setItem('reloaded-at', String(Date.now()))
-      try { sessionStorage.setItem('drafts-kept', draftsKept(drafts)) } catch { /* full or blocked: the page still loads */ }
-      location.reload()
+      reloadPage()
       return
     }
     if (!answer.ok) throw new Error(String(answer.status))

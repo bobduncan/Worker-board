@@ -111,7 +111,7 @@ const cut = name => {
   return script.slice(from, to)
 }
 const page = {}
-vm.runInNewContext(`const MIN = 60000\n${cut('times')}\n${cut('update')}\nObject.assign(this, { updateView, reloadsNow, updatedView, reloadsOn403, draftsKept, draftsBack })`, page)
+vm.runInNewContext(`const MIN = 60000\n${cut('times')}\n${cut('update')}\nObject.assign(this, { updateView, reloadsNow, updatedView, reloadsOn403, keptState, keptBack })`, page)
 const plain = value => JSON.parse(JSON.stringify(value))
 const version = more => ({ commit: '5fb7da8', since: NOW, head: '5fb7da8', page: 'a1b2c3d', isServerNewer: false, canRestart: true, ...more })
 
@@ -192,17 +192,50 @@ test('the server counts the reported steps as a blocker and notes each chat log 
   assert.match(server, /loggedAt\.set\(String\(checked\.chat\), lastLogAt\)/)
 })
 
-test('B519: after a restart the page loads itself at once, at most once a minute, and the typed answers come back', () => {
+test('B519: after a restart the page loads itself at once, at most once a minute', () => {
   const now = NOW
   assert.equal(page.reloadsOn403(403, { lastAt: 0, now }), true)
   assert.equal(page.reloadsOn403(403, { lastAt: now - 30_000, now }), false)
   assert.equal(page.reloadsOn403(403, { lastAt: now - 61_000, now }), true)
   assert.equal(page.reloadsOn403(200, { lastAt: 0, now }), false)
   assert.equal(page.reloadsOn403(500, { lastAt: 0, now }), false)
-  const typed = new Map([['Q12', 'yes, A'], ['refine:B7:feedback', 'shorter'], ['Q13', '']])
-  assert.deepEqual(plain(page.draftsBack(page.draftsKept(typed))), [['Q12', 'yes, A'], ['refine:B7:feedback', 'shorter']])
-  assert.deepEqual(plain(page.draftsBack(null)), [])
-  assert.deepEqual(plain(page.draftsBack('not json')), [])
-  assert.deepEqual(plain(page.draftsBack('{"a":1}')), [])
-  assert.deepEqual(plain(page.draftsBack('[["ok","x"],["bad",3],"junk"]')), [['ok', 'x']])
+})
+
+test('B524: one pair of helpers keeps everything the person did across a reload, and puts back only well-formed parts', () => {
+  const kept = page.keptState({
+    drafts: new Map([['Q12', 'yes, A'], ['refine:B7:feedback', 'shorter'], ['Q13', '']]),
+    words: new Map([['Q20', 'a note']]),
+    picks: new Map([['Q20', 'B'], ['Q21', null]]),
+    chosen: new Map([['Q12', 'A']]),
+    forms: new Set(['Q30']),
+    fields: { 'main-text': 'do it', 'say-text': '  ', 'goals-ask-text': 'why?' },
+    focusWords: { talk: 'hello', notYet: '', new: '', bar: 'b' },
+    details: { need: 'Q20' },
+  })
+  assert.deepEqual(plain(page.keptBack(kept)), {
+    drafts: [['Q12', 'yes, A'], ['refine:B7:feedback', 'shorter']],
+    words: [['Q20', 'a note']],
+    picks: [['Q20', 'B']],
+    chosen: [['Q12', 'A']],
+    forms: ['Q30'],
+    fields: [['main-text', 'do it'], ['say-text', '  '], ['goals-ask-text', 'why?']],
+    focusWords: [['talk', 'hello'], ['bar', 'b']],
+    details: { need: 'Q20' },
+  })
+  assert.equal(page.keptBack(null), null)
+  assert.equal(page.keptBack('not json'), null)
+  assert.equal(page.keptBack('[1]'), null)
+  const odd = plain(page.keptBack('{"drafts":[["ok","x"],["bad",3],"junk"],"forms":[1,"F"],"details":{"a":{"b":1}},"fields":5}'))
+  assert.deepEqual(odd, { drafts: [['ok', 'x']], words: [], picks: [], chosen: [], forms: ['F'], fields: [], focusWords: [], details: null })
+})
+
+test('B524: every reload of the page goes through the one keeping helper, and the first draw puts it back', () => {
+  assert.equal([...script.matchAll(/location\.reload\(\)/g)].length, 1, 'only reloadPage reloads the page')
+  assert.match(script, /function reloadPage\(\) \{\s+keepForReload\(\)\s+location\.reload\(\)/)
+  assert.match(script, /if \(shown\.action === 'reload'\) return reloadPage\(\)/)
+  assert.match(script, /sessionStorage\.setItem\('page-updated-at', String\(Date\.now\(\)\)\)\s+reloadPage\(\)/)
+  assert.match(script, /sessionStorage\.setItem\('reloaded-at', String\(Date\.now\(\)\)\)\s+reloadPage\(\)/)
+  assert.match(script, /drafts, words: calmWords, picks: calmPicks, chosen, forms: openForms,\s+fields: boxesWithWords\(\), focusWords: focusUi\.words, details: detailsOf/)
+  assert.match(script, /function draw\(state\) \{\s+board = state\s+restoreKept\(\)/)
+  assert.match(script, /drawDesign\(\)\s+finishRestore\(\)\s+\}/)
 })
