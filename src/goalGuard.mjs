@@ -149,7 +149,9 @@ export function modeOfAnswer(item) {
   if (lettered === null) return 'high'
   const said = wordsOf(lettered[1])
   const isPrefix = (short, long) => short.length > 0 && short.length <= long.length && short.every((word, at) => word === long[at])
-  return isPrefix(said, YES_WORDS) || isPrefix(YES_WORDS, said) ? 'fable' : 'high'
+  // The recheck: "A Fable" and "A fable 5.1" are option A's words without its yes.
+  const fableWords = YES_WORDS.slice(YES_WORDS.indexOf('fable'))
+  return isPrefix(said, YES_WORDS) || isPrefix(YES_WORDS, said) || isPrefix(said, fableWords) ? 'fable' : 'high'
 }
 
 const itemOf = (items, id) => [...(items ?? [])].find(item => item.head.get('Id') === id)

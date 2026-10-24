@@ -120,10 +120,10 @@ test('the ask: a decide of the goal, blocking, its title the question, two plain
 })
 
 test('the person\'s answer: only a yes is Fable (A, A with its words, or yes first); B, a no and other words are Opus', () => {
-  for (const words of ['A Yes: Fable 5.1 (max), only for this evaluation', 'A', 'a', 'A.', 'a!', 'A: yes', 'A. Yes, Fable', 'a yes fable 5.1 max', 'yes', 'Yes, Fable please', 'YES']) {
+  for (const words of ['A Yes: Fable 5.1 (max), only for this evaluation', 'A', 'a', 'A.', 'a!', 'A: yes', 'A. Yes, Fable', 'a yes fable 5.1 max', 'yes', 'Yes, Fable please', 'YES', 'A Fable', 'a fable 5.1', 'A: Fable 5.1 (max)']) {
     assert.equal(modeOfAnswer(boardAsk('Q1', 'G2', 'answered', words)), 'fable', words)
   }
-  for (const words of ['B No: Opus 5.5 (max)', 'B', 'no, use opus', 'a bit pricey, use opus', 'A bit much', 'A y', 'A yes but no', 'Approved', 'Fable? not now', 'yesterday', 'ok']) {
+  for (const words of ['B No: Opus 5.5 (max)', 'B', 'no, use opus', 'a bit pricey, use opus', 'A bit much', 'A y', 'A yes but no', 'Approved', 'Fable? not now', 'yesterday', 'ok', 'A fable is too pricey']) {
     assert.equal(modeOfAnswer(boardAsk('Q1', 'G2', 'answered', words)), 'high', words)
   }
   assert.equal(modeOfAnswer(boardAsk('Q1', 'G2', 'open')), 'high')
