@@ -77,3 +77,11 @@ test('a board that restarts refuses the page\'s answer at once, before it reache
   assert.match(answer.text, /The board restarts: try again in a moment/)
   assert.deepEqual(worked, [])
 })
+
+test('I66: a card the server sends without an answer (a goal\'s hand-out card) gets an empty one, so no redraw throws and no Send hangs', () => {
+  const page = {}
+  vm.runInNewContext(`${cut('withanswers')}\nthis.run = withAnswers`, page)
+  const state = page.run({ forYou: [{ id: 'handout:G1', kind: 'do' }, { id: 'work:Q1', answer: { text: 'Yes' } }, { id: 'work:Q2', answer: null }] })
+  assert.deepEqual(state.forYou.map(need => need.answer), [null, { text: 'Yes' }, null])
+  assert.deepEqual(page.run({}), {})
+})
