@@ -11,7 +11,7 @@ import { BOARD_FILE, BOARD_NOTE, LAUNCH_FILE, MOD_HEADER, MOD_VERSION, REQUEST_H
 import type { Board, BoardStart, OwedClear, PauseState, PauseWhere } from './board'
 import {
   BEAT_MS, CHATS_DIR, LEFT_MAX_SIZE, LEFT_TEXT, LIST_FILE, afterTurn, atTurnStart, cardGap, cardOld, chatNote, clearWhy, clearedStart, compactKeep, compactWhy, chatText, chatsSummary, fileName,
-  cardStep, foldersAbove, formAnswer, formQuestions, hasLeft, instructionsLine, isAgentId, isFiled, movedText, nameFromTitle, openFrom, orderChats, parseChat, parseList, recordedLine, roleFrom, sessionOf, status, uniqueByName,
+  cardStep, foldersAbove, formAnswer, formQuestions, hasLeft, instructionsLine, isAgentId, isFiled, movedText, nameFromTitle, openFrom, orderChats, parseChat, personsWords, parseList, recordedLine, roleFrom, sessionOf, status, uniqueByName,
   unfiledAsk, withDone, withPlan, withSend, withState, withStep, workCard,
 } from './chats'
 import type { OpenInstruction, TaskChange } from './chats'
@@ -1744,7 +1744,7 @@ export const register: Register = on => {
       // Pause 2: read beside the filing, so both hold the prompt 1.5 s at most together.
       const paused = pauseLines($, 'prompt', e.text)
       if (isFiled(e.text, e.origin)) {
-        const filed = await workQuietly($, { action: 'instruction', text: e.text })
+        const filed = await workQuietly($, { action: 'instruction', text: personsWords(e.text) })
         const said = typeof filed?.id === 'string' ? recordedLine([filed.id], []) : null
         if (said !== null) context.push(said)
       } else if (!isOpenKnown && myself !== null) await workQuietly($, { action: 'next' })
