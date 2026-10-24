@@ -8904,9 +8904,9 @@ function focusGuardView(focus) {
   const guard = focus?.guard ?? null
   if (guard === null) return null
   if (guard.state === 'rebuild') return { tone: 'rebuild', title: 'A rebuild waits for you', text: `Your partner's evaluation proposes a new how for ${focus.id}${guard.ask === null ? '' : ` (${guard.ask})`}: answer it under Needs your attention. Nothing is rebuilt before your yes.` }
-  if (guard.state === 'evaluating') return { tone: 'evaluating', title: 'Your partner evaluates the approach', text: `${guard.attempts} checks failed since Go: on high effort your partner asks whether the how is right and what caps the result, then corrects the how or proposes a rebuild.` }
+  if (guard.state === 'evaluating') return { tone: 'evaluating', title: 'Your partner evaluates the approach', text: `${guard.attempts} checks failed: on high effort your partner asks whether the how is right and what caps the result, then corrects the how or proposes a rebuild.` }
   if (guard.attempts === 0) return null
-  return { tone: 'counting', title: `Checks failed: ${guard.attempts} of ${guard.of} attempts`, text: `At ${guard.of} failed checks since Go your partner, on high effort, evaluates whether the approach is right.` }
+  return { tone: 'counting', title: `Checks failed: ${guard.attempts} of ${guard.of} attempts`, text: `At ${guard.of} failed checks (or your no to a look) your partner, on high effort, evaluates whether the approach is right.` }
 }
 
 /** B354: whether a goal (or the focus) has a Done when line with words in it. */

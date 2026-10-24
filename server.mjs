@@ -724,7 +724,11 @@ async function main(args) {
   const goalOfChecked = async id => {
     const plain = String(id ?? '').trim()
     if (/^G\d+$/.test(plain)) return plain
-    const item = (await readStore(workDir)).items.get(plain)
+    const store = (await readStore(workDir)).items
+    const item = store.get(plain)
+    // B450: an ask counts for the goal it is of, or for the goal of the step it is of.
+    const of = item?.head.get('Kind') === 'ask' ? item.head.get('Of') ?? null : null
+    if (of !== null) return /^G\d+$/.test(of) ? of : store.get(of)?.head.get('Goal') ?? null
     return item?.head.get('Goal') ?? null
   }
   /**
@@ -757,6 +761,8 @@ async function main(args) {
     if (asked !== undefined) await loops.run('result-check', () => askResultCheck(asked).catch(error => { throw aboutError(asked.id, error) }))
     // B359: a failed check counts an attempt of its goal: the guard looks whether it fires.
     if (done.ok && body?.action === 'checked' && (done.result.fix !== undefined || done.result.ticked === false)) await loops.run('guard', async () => guardNow(await goalOfChecked(body.id)))
+    // B450: and your no to a look of one of its steps counts an attempt too.
+    if (done.ok && body?.action === 'answer') await loops.run('guard', async () => guardNow(await goalOfChecked(body.id)))
     if (done.ok && done.result.changed !== false) {
       work.reset?.()
       readState.reset()

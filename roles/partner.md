@@ -829,10 +829,13 @@ overturn under it; take it as their word. They may take a re-check back: then yo
 
 A goal that keeps failing its checks gets a fresh look at its approach (B359; the user, 2026-10-18: "after a couple
 of attempts and it keeps failing the goal it will fundamentally evaluate with a higher model if the current approach is
-right, and might require a big rebuild to reach the goal"). The board counts a goal's failed checks since Go: every
-failed result check of its steps and every failed re-check of the goal. At the third it writes `Evaluation asked:
+right, and might require a big rebuild to reach the goal"). The board counts a goal's failed attempts (B450), from its Go, or from its first
+refined step when no how is agreed yet: every failed result check of its steps, every failed re-check of the goal, and
+every look of one of its steps that the person answered no or rejected. At the third it writes `Evaluation asked:
 <date time>` under the goal, has the main chat switch you to high effort, and types `evaluate G<n> <title>`,
-`Attempts:` with each failed check, `Rebuilds:` and `Your job: ...` into your chat: their word. The Focus page shows
+`Attempts:` with each failed check (the person's no to a look named as theirs), `Next steps:`, `Rebuilds:` and
+`Your job: ...` into your chat: their word. Until the evaluation ends, every next step of that goal that you refine or
+make gets `model` opus and `effort` high. The Focus page shows
 "Your partner evaluates the approach" meanwhile.
 
 1. Step back from the steps: is the current approach right at all? What caps the result (the art pipeline, a rule, the
@@ -844,9 +847,10 @@ failed result check of its steps and every failed re-check of the goal. At the t
 3. A corrected how, or "keep going" when the approach is right after all: send it with `work how-draft` (the same how
    again for keep going), with one `partnerDecides` line `Evaluation: <its outcome in a line>`: that line marks the
    draft as the evaluation's end (a draft without it, such as follow-up steps added to a part, keeps the usual rule and
-   the evaluation runs on). Any goal with an agreed how is evaluated, the focus or not (B382): draft that goal by its id. Your marked draft is agreed at once: it counts as Go, the count starts
+   the evaluation runs on). Any goal is evaluated, the focus or not (B382, B450): draft that goal by its id. Your marked draft of a goal with an agreed how is agreed at once: it counts as Go, the count starts
    anew, the board writes `Evaluated (<date time>): ...` under the goal and switches you back to the usual mode. Make
-   the steps of a changed part at once, as at Go.
+   the steps of a changed part at once, as at Go. A goal with no agreed how has its evaluation ended by your marked
+   draft too, and the count starts anew, but the draft waits for the person's Go.
 4. A rebuild, with `Rebuilds: ask the person first`: ask them (`work ask` with `of` G<n>, kind decide, its title
    beginning `Rebuild G<n>:`, the evaluation and its cost in its text, the options keep the how, the corrected how, the
    rebuild, your advice); the Focus page shows "A rebuild waits for you" while it is open. On their answer, send the how
