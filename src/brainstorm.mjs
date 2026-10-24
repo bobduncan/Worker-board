@@ -532,3 +532,31 @@ export function titleFixes(threads) {
     return [{ path: thread.path, n: latest.n, title: latest.title ?? latest.text, problem: latest.problem }]
   })
 }
+
+/**
+ * B491: the board's word to the partner that its open brainstorm question has a title the board refuses (over 12 words,
+ * or none; B452 refuses the same of an ask): rewrite it in the thread at once, as the form says. Typed on the board's own
+ * clock, not as the person's word.
+ */
+export function brainstormFixWords({ to, path, n, title, problem }) {
+  const plain = value => String(value ?? '').replace(/\s+/g, ' ').trim()
+  const shown = plain(title).slice(0, 200)
+  // The problem begins with the thread's own words ("'s title is too long. ..." or "has no title: ..."): keep the reason only.
+  const reason = plain(problem).replace(/^'s title is /, '').replace(/^has no title/, 'it has no title')
+  return {
+    to, ask: null, step: null, title: null, version: null, verdict: null, command: 'brainstorm-fix', about: path,
+    text: [`brainstorm fix`, `Thread: ${path}`, `Q${n}'s title is refused: ${reason}`, `Now: ${shown === '' ? '(none)' : shown}`,
+      `Your job: rewrite Q${n} in the thread now: its first line the question itself in at most 12 words ending in "?", then a "Context:" line of two to four plain sentences (roles/partner.md, "A brainstorm").`].join('\n'),
+  }
+}
+
+/**
+ * B491, B496: the words still to type to the partner: one for each open question the board refuses (`titleFixes`) whose
+ * exact wording was not sent before (`outbox` is everything sent), so a question left as it was is told once, and one
+ * rewritten and still too long is told again. Nothing without a partner (`advisor` null).
+ */
+export function fixesToTell(threads, outbox, advisor) {
+  if ((advisor ?? null) === null) return []
+  return titleFixes(threads).map(fix => brainstormFixWords({ to: advisor.name, ...fix }))
+    .filter(words => !(outbox ?? []).some(one => one.command === 'brainstorm-fix' && one.about === words.about && one.text === words.text))
+}

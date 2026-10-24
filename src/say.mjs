@@ -3,7 +3,8 @@
 // request: a verdict for work to verify, "done" for something only the person can do, words for a question.
 
 import { isRefined, refinedKey } from './backlog.mjs'
-import { leftOutKey } from './brainstorm.mjs'
+import { brainstormFixWords, leftOutKey } from './brainstorm.mjs'
+export { brainstormFixWords }
 import { PARTNER_MODES, partnerEffortWords } from './partnerEffort.mjs'
 import { RECHECK_HEAD } from './rounds.mjs'
 import { SYNC_BOARD, lastSyncAnswer } from './sync.mjs'
@@ -191,21 +192,6 @@ export function focusWords(command, { to, goal, thread, stage = null, words = nu
     : command === 'goal-recheck' ? [`goal re-check: ${about}`, `Done when: ${String(goal.doneWhen ?? '').replace(/\s+/g, ' ').trim()}`, ...((goal.vibe ?? []).length === 0 ? [] : [`Vibe: ${goal.vibe.map(one => String(one).replace(/\s+/g, ' ').trim()).join(' · ')}`]), `Your job: ${job}, "The goal re-check"`]
     : [FOCUS_HEADS[command], `Goal: ${about}`, `Thread: ${thread}`, ...(words === null ? [] : [`Words: ${String(words).replace(/\s+/g, ' ').trim()}`])]
   return { to, ask: null, step: null, title: null, version: null, verdict: null, command, about: goal.id, text: lines.join('\n') }
-}
-
-/**
- * B491: the board's word to the partner that its open brainstorm question has a title the board refuses (over 12 words,
- * or none; B452 refuses the same of an ask): rewrite it in the thread at once, as the form says. Typed on the board's own
- * clock, not as the person's word.
- */
-export function brainstormFixWords({ to, path, n, title, problem }) {
-  const plain = value => String(value ?? '').replace(/\s+/g, ' ').trim()
-  const shown = plain(title).slice(0, 200)
-  return {
-    to, ask: null, step: null, title: null, version: null, verdict: null, command: 'brainstorm-fix', about: path,
-    text: [`brainstorm fix`, `Thread: ${path}`, `Q${n}'s title is refused: ${plain(problem)}`, `Now: ${shown === '' ? '(none)' : shown}`,
-      `Your job: rewrite Q${n} in the thread now: its first line the question itself in at most 12 words ending in "?", then a "Context:" line of two to four plain sentences (roles/partner.md, "A brainstorm").`].join('\n'),
-  }
 }
 
 /**

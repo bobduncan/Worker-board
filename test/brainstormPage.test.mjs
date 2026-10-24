@@ -7,7 +7,7 @@ import test from 'node:test'
 import { fileURLToPath } from 'node:url'
 import vm from 'node:vm'
 
-import { brainstormsState, titleFixes } from '../src/brainstorm.mjs'
+import { brainstormsState, fixesToTell, titleFixes } from '../src/brainstorm.mjs'
 import { brainstormFixWords, wakeFor } from '../src/say.mjs'
 
 const PUBLIC = join(dirname(fileURLToPath(import.meta.url)), '..', 'public')
@@ -192,9 +192,44 @@ test('B491: the word to the Advisor names the thread, the question and the job, 
   const [fix] = titleFixes([one(`${HEAD}## Q1 (21:01)\n${LONGQ}\nContext: Short.\n- A: gate (advised)\n`)])
   const words = brainstormFixWords({ to: 'Advisor', ...fix })
   assert.equal(words.command, 'brainstorm-fix')
-  assert.match(words.text, /^brainstorm fix\nThread: b\/2026-10-15-lanterns\.md\nQ1's title is refused: .*too long/)
+  assert.match(words.text, /^brainstorm fix\nThread: b\/2026-10-15-lanterns\.md\nQ1's title is refused: too long\. /)
+  assert.doesNotMatch(words.text, /refused: 's title/)
   assert.match(words.text, /Now: Where should all of the lanterns/)
   assert.match(words.text, /at most 12 words/)
-  const asleep = { advisor: { name: 'Advisor', appSession: null }, restart: { main: 'Main' }, chats: [{ name: 'Main', running: true }] }
-  assert.notEqual(wakeFor({ to: 'Advisor', command: 'brainstorm-fix' }, asleep, [], 1_000_000, 2000), undefined)
+  const asleep = { advisor: { name: 'Advisor', isRunning: false }, restart: { main: 'Main' }, chats: [{ name: 'Main', isMain: true, isRunning: true }] }
+  assert.equal(wakeFor({ to: 'Advisor', command: 'brainstorm-fix' }, asleep, [], 1_000_000, 2000)?.command, 'start')
+})
+
+test('B496: the exact words for a title that is too long and for none', () => {
+  const [long] = titleFixes([one(`${HEAD}## Q1 (21:01)\n${LONGQ}\nContext: Short.\n- A: gate (advised)\n`)])
+  const lines = brainstormFixWords({ to: 'Advisor', ...long }).text.split('\n')
+  assert.deepEqual(lines.slice(0, 2), ['brainstorm fix', 'Thread: b/2026-10-15-lanterns.md'])
+  assert.match(lines[2], /^Q1's title is refused: too long\. \S/)
+  assert.equal(lines[3], `Now: ${LONGQ}`)
+  const [none] = titleFixes([one(`${HEAD}## Q1 (21:01)\nContext: Only context.\n- A: gate (advised)\n`)])
+  const bare = brainstormFixWords({ to: 'Advisor', ...none }).text.split('\n')
+  assert.match(bare[2], /^Q1's title is refused: it has no title: /)
+  assert.equal(bare[3], 'Now: (none)')
+})
+
+test('B496: the board tells the Advisor of a refused title once for each wording', () => {
+  const advisor = { name: 'Advisor' }
+  const long = (q = LONGQ) => [one(`${HEAD}## Q1 (21:01)\n${q}\nContext: Short.\n- A: gate (advised)\n`)]
+  const outbox = []
+  // round 1: told
+  const first = fixesToTell(long(), outbox, advisor)
+  assert.equal(first.length, 1)
+  assert.equal(first[0].to, 'Advisor')
+  outbox.push({ ...first[0], state: 'waiting' })
+  // round 2: the same wording is not told again, also when the earlier word was delivered
+  assert.deepEqual(fixesToTell(long(), outbox, advisor), [])
+  outbox[0].state = 'taken'
+  assert.deepEqual(fixesToTell(long(), outbox, advisor), [])
+  // rewritten, still too long: another wording, told again
+  const again = fixesToTell(long('Where should all of the lanterns of the whole camp stand when we start the night?'), outbox, advisor)
+  assert.equal(again.length, 1)
+  assert.match(again[0].text, /Now: Where should all of the lanterns of the whole camp stand/)
+  // no partner, no word; a short title, nothing to tell
+  assert.deepEqual(fixesToTell(long(), [], null), [])
+  assert.deepEqual(fixesToTell(long('Where do lanterns go?'), [], advisor), [])
 })

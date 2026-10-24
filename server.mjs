@@ -52,12 +52,12 @@ import { createSpendingCollector } from './src/work/routing/collector.mjs'
 import { readRoutingRecord } from './src/work/routing/records.mjs'
 import { parseRoutingPolicy } from './src/work/routing/policy.mjs'
 import { findPicture, shownRoots } from './src/pictures.mjs'
-import { answerWords, brainstormFixWords, checkSay, checkStepWords, focusWords, spawnWhenAlone, wakeFor, wakesDue, withInstruction, workWords } from './src/say.mjs'
+import { answerWords, checkSay, checkStepWords, focusWords, spawnWhenAlone, wakeFor, wakesDue, withInstruction, workWords } from './src/say.mjs'
 import { keepTalkPicture } from './src/talkPicture.mjs'
 import { firstLook, refineWhenDue } from './src/refineGate.mjs'
 import { recheckText, roundText, roundsNow } from './src/rounds.mjs'
 import { editStep, settleByBoard } from './src/tick.mjs'
-import { editThread, titleFixes } from './src/brainstorm.mjs'
+import { editThread, fixesToTell } from './src/brainstorm.mjs'
 import { changeGoalsFile, editGoals } from './src/goalsWrite.mjs'
 import { activityFor, missingToSteps } from './src/goalSteps.mjs'
 import { FOCUS_DRAFTS, FOCUS_MOVES, evaluationsRunning, focusMove, goalChecked, goalReopened, guardGoal, undoLine } from './src/focus.mjs'
@@ -1662,9 +1662,7 @@ async function main(args) {
       // Advisor at once, once for each wording. Only the board that delivers, and only while there is an Advisor.
       if (bridgeKey !== null && (state.advisor ?? null) !== null) {
         const now = clock()
-        for (const fix of titleFixes(state.brainstorms?.threads)) {
-          const words = brainstormFixWords({ to: state.advisor.name, ...fix })
-          if (store.outbox().some(one => one.command === 'brainstorm-fix' && one.about === words.about && one.text === words.text)) continue
+        for (const words of fixesToTell(state.brainstorms?.threads, store.outbox(), state.advisor)) {
           const message = { id: randomBytes(8).toString('hex'), at: now, ...words, state: 'waiting' }
           await store.say(message)
           const wake = wakeFor(message, state, store.outbox(), now, config.maxMessageChars)
