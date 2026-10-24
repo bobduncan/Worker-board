@@ -19,7 +19,7 @@ const html = await readFile(join(PUBLIC, 'index.html'), 'utf8')
 const css = await readFile(join(PUBLIC, 'board.css'), 'utf8')
 const made = {}
 vm.runInNewContext(`${script.slice(script.indexOf('// vision:start'), script.indexOf('// vision:end'))}
-Object.assign(this, { visionView, OWN_WORDS, visionStart, visionStartWords })`, made)
+Object.assign(this, { visionView, OWN_WORDS, visionStart, visionStartWords, visionStartWait, visionStartProblem })`, made)
 const visionView = (...args) => JSON.parse(JSON.stringify(made.visionView(...args)))
 const visionStart = (...args) => JSON.parse(JSON.stringify(made.visionStart(...args)))
 
@@ -411,4 +411,24 @@ test("the trial's gap 1 (2026-10-24): an empty Vision tab starts with what you b
   assert.equal(visionStart({ ...blank, startKind: 'Spaceship' }).kind, null)
   assert.equal(made.visionStartWords('Game', '  a tactics game,  short fights  '), 'Game: a tactics game, short fights')
   assert.equal(made.visionStartWords('Website', ''), 'Website')
+})
+
+test("the wait after Start (2026-10-24, the user: \"i want a loader while im waiting for the partner\"): a loader until the partner's page is there", () => {
+  const wait = (planStart, ui) => JSON.parse(JSON.stringify(made.visionStartWait(planStart, { ...UI, startSent: false, startAgain: false, ...ui }, 'Trial - Advisor')))
+  // Nothing sent: the start card.
+  assert.equal(wait(null, {}), null)
+  // Just sent, before the board read it again: waiting.
+  assert.deepEqual([wait(null, { startSent: true }).state, wait(null, { startSent: true }).isBusy], ['waiting', true])
+  const working = wait({ at: 1, state: 'working' }, {})
+  assert.equal(working.isBusy, true)
+  assert.match(working.head, /Trial - Advisor is starting your plan/)
+  const late = wait({ at: 1, state: 'late' }, {})
+  assert.deepEqual([late.isBusy, late.canAgain], [false, true])
+  assert.match(late.line, /Trial - Advisor's chat/)
+  // A start that never arrived, or Start again: the start card, with why.
+  assert.equal(wait({ at: 1, state: 'failed' }, { startSent: true }), null)
+  assert.equal(wait({ at: 1, state: 'working' }, { startAgain: true }), null)
+  assert.match(made.visionStartProblem({ at: 1, state: 'failed' }, 'Trial - Advisor'), /did not reach Trial - Advisor/)
+  assert.equal(made.visionStartProblem({ at: 1, state: 'working' }, 'Trial - Advisor'), null)
+  assert.match(script, /function visionStartWaitCard\(/)
 })

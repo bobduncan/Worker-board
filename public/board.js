@@ -9636,6 +9636,27 @@ function visionStartWords(kind, words) {
   const said = String(words ?? '').replace(/\s+/g, ' ').trim()
   return said === '' ? kind : `${kind}: ${said}`
 }
+
+/**
+ * The wait after Start (2026-10-24, the user: "i want a loader while im waiting for the partner"): what the empty tab
+ * shows while the partner starts the plan, from the board's `planStart` (or the Start just sent, before the board read
+ * it again). Null shows the start card: nothing sent, a start that never arrived, or Start again.
+ */
+function visionStartWait(planStart, ui, partner) {
+  if (ui.startAgain === true) return null
+  const state = planStart?.state ?? (ui.startSent === true ? 'waiting' : null)
+  if (state === null || state === 'failed') return null
+  const head = state === 'waiting' ? `Your start waits for ${partner} to pick it up`
+    : state === 'working' ? `${partner} is starting your plan` : `No answer from ${partner} yet`
+  const line = state === 'late' ? `Look in ${partner}'s chat, or start again.`
+    : 'It reads what you build, fills in what it already knows and writes its first questions. They come here, one per slide.'
+  return { state, isBusy: state !== 'late', head, line, at: planStart?.at ?? null, canAgain: state === 'late' }
+}
+
+/** Why the start card shows again: a start that never reached the partner; else null. */
+function visionStartProblem(planStart, partner) {
+  return planStart?.state === 'failed' ? `Your start did not reach ${partner}: start again.` : null
+}
 /** A feature's marks (the user, 2026-10-21: the milestones do not exist yet on the Features step; the plan places it). */
 const MARK_LABELS = [['must', 'Must'], ['later', 'Later'], ['no', 'No'], ['unsure', '?']]
 
@@ -10265,14 +10286,14 @@ function focusNoteCard(view) {
 }
 
 // Vision (2026-10-19): the Vision tab, its own state, its drawing and its moves. The partner writes the page; the board
-// types your moves and answers to it (src/focus.mjs `planWord`, the store's `answer`). Your feature marks and goal
+// types your moves and answers to it (src/planMoves.mjs `planMove`, the store's `answer`). Your feature marks and goal
 // confirms wait on the page until you send them, in one word.
-const visionUi = { page: 'vision', at: 0, picked: {}, change: null, asked: [], marks: {}, confirms: [], standardConfirms: [], open: [], gallery: {}, words: '', extra: '', busy: false, note: null, sent: [], startKind: null, startSent: false }
+const visionUi = { page: 'vision', at: 0, picked: {}, change: null, asked: [], marks: {}, confirms: [], standardConfirms: [], open: [], gallery: {}, words: '', extra: '', busy: false, note: null, sent: [], startKind: null, startSent: false, startAgain: false, startWords: '' }
 
 function visionData(state) {
-  return [state.plan ?? null, visionCan(state), state.goalsEdit?.whyNot ?? null, state.focus?.id ?? null, state.focus?.stage ?? null, (visionUi.sent ?? []).join(','), visionUi.page, visionUi.at, visionUi.picked, visionUi.change, visionUi.asked.join(','), visionUi.marks, visionUi.confirms.join(','), visionUi.standardConfirms.join(','), visionUi.open.join(','), visionUi.gallery, visionUi.busy, visionUi.note, visionUi.startKind, visionUi.startSent,
+  return [state.plan ?? null, visionCan(state), state.goalsEdit?.whyNot ?? null, state.focus?.id ?? null, state.focus?.stage ?? null, (visionUi.sent ?? []).join(','), visionUi.page, visionUi.at, visionUi.picked, visionUi.change, visionUi.asked.join(','), visionUi.marks, visionUi.confirms.join(','), visionUi.standardConfirms.join(','), visionUi.open.join(','), visionUi.gallery, visionUi.busy, visionUi.note, visionUi.startKind, visionUi.startSent, visionUi.startAgain, state.planStart ?? null,
     // While the partner prepares something, the minute, for "sent 2 min ago"; and the partner's name.
-    (state.plan?.working ?? []).length > 0 ? Math.floor(state.readAt / MIN) : null, state.advisor?.name ?? null]
+    (state.plan?.working ?? []).length > 0 || (state.planStart ?? null) !== null ? Math.floor(state.readAt / MIN) : null, state.advisor?.name ?? null]
 }
 function redrawVision() {
   if (board !== null && board !== undefined) once('vision', visionData(board), () => drawVision(board))
@@ -10366,7 +10387,11 @@ function drawVision(state) {
       visionButton('Start', 'start-interview', { className: 'is-primary' }))
     main.append(bar)
   }
-  if (view === null) main.append(visionStartCard(visionStart(visionUi), can, off))
+  if (view === null) {
+    const partner = `${state.chatPrefix ?? ''}${state.advisor?.name ?? 'your partner'}`
+    const wait = visionStartWait(state.planStart ?? null, visionUi, partner)
+    main.append(wait === null ? visionStartCard(visionStart(visionUi), can, off, visionUi.startAgain ? null : visionStartProblem(state.planStart ?? null, partner)) : visionStartWaitCard(wait, state, can, off))
+  }
   else if (view.page === 'vision') main.append(...visionPage(view, can, off))
   else if (view.page === 'features') main.append(...featuresPage(view, can, off))
   else if (view.page === 'plan') main.append(...planPage(view, can, off))
@@ -11053,13 +11078,14 @@ function visionSlide(view, can, off) {
  * The empty Vision tab's start (the trial's gap 1, 2026-10-24): what you build, picked from four, your words, and Start,
  * which asks the partner to begin the interview; its questions then come here, one per slide.
  */
-function visionStartCard(start, can, off) {
+function visionStartCard(start, can, off, problem) {
   const card = el('section', 'vision-card vision-start')
   card.append(el('h2', '', 'What are you building?'),
     el('p', 'muted', 'Pick what it is and say it in a few words. Your partner starts the plan from it; its questions come here, one per slide.'))
+  if (problem !== null) card.append(el('p', 'vision-note is-problem', problem))
   const kinds = el('div', 'vision-steps vision-start-kinds')
   for (const kind of start.kinds) {
-    const button = visionButton(kind.key, 'start-kind', { id: kind.key, className: 'vision-mode', isEnabled: can && !visionUi.startSent, title: off })
+    const button = visionButton(kind.key, 'start-kind', { id: kind.key, className: 'vision-mode', isEnabled: can, title: off })
     button.setAttribute('aria-pressed', String(kind.isPicked))
     const examples = {
       Game: ['🎮', 'e.g. a tactics game, mobile puzzle, …'],
@@ -11073,19 +11099,37 @@ function visionStartCard(start, can, off) {
     button.replaceChildren(symbol, el('span', 'vision-kind-label', kind.key), el('span', 'vision-kind-example', example))
     kinds.append(button)
   }
-  card.append(kinds, visionBox('vision-extra-words', 'In a few words: what is it, and who is it for? (a tactics game for short breaks, a site for my bakery...)', 3, can && !visionUi.startSent))
+  card.append(kinds, visionBox('vision-extra-words', 'In a few words: what is it, and who is it for? (a tactics game for short breaks, a site for my bakery...)', 3, can))
   const buttons = el('div', 'vision-buttons')
   buttons.append(el('span', 'grow'))
-  if (visionUi.startSent) buttons.append(el('span', 'muted', 'Sent: your partner starts the interview.'))
-  else {
-    const why = !can ? off : start.kind === null ? 'Pick what you build first.' : 'Say in a few words what it is.'
-    const begin = visionButton('Start the plan', 'start-plan', { className: 'is-primary', isEnabled: can && start.canStart, title: why })
-    const arrow = el('span', 'vision-start-arrow', '→')
-    arrow.setAttribute('aria-hidden', 'true')
-    begin.append(arrow)
-    buttons.append(begin)
-  }
+  const why = !can ? off : start.kind === null ? 'Pick what you build first.' : 'Say in a few words what it is.'
+  const begin = visionButton('Start the plan', 'start-plan', { className: 'is-primary', isEnabled: can && start.canStart && !visionUi.busy, title: why })
+  const arrow = el('span', 'vision-start-arrow', '→')
+  arrow.setAttribute('aria-hidden', 'true')
+  begin.append(arrow)
+  buttons.append(begin)
   card.append(buttons)
+  return card
+}
+
+/** The loader after Start (2026-10-24): a turning circle while the partner starts the plan; late, with Start again. */
+function visionStartWaitCard(wait, state, can, off) {
+  const card = el('section', `vision-card vision-start vision-start-wait is-${wait.state}`)
+  card.setAttribute('aria-live', 'polite')
+  const head = el('div', 'vision-start-wait-head')
+  if (wait.isBusy) {
+    const spin = visionSpinner()
+    spin.classList.add('is-big')
+    head.append(spin)
+  } else head.append(el('span', 'vision-working-mark', '!'))
+  head.append(el('h2', '', wait.head))
+  card.append(head, el('p', 'muted', wait.line))
+  if (wait.at !== null) card.append(el('p', 'muted vision-start-wait-at', `Sent ${visionAgo(wait.at, state.readAt ?? Date.now())}`))
+  if (wait.canAgain) {
+    const buttons = el('div', 'vision-buttons')
+    buttons.append(el('span', 'grow'), visionButton('Start again', 'start-again', { isEnabled: can, title: off }))
+    card.append(buttons)
+  }
   return card
 }
 
@@ -11112,7 +11156,8 @@ async function visionSend(url, body, done) {
   return ok
 }
 
-const toPartner = (body, done) => visionSend('/api/goals', body, done)
+// 2026-10-24: the Vision tab's words go on the plan's own way (server.mjs /api/plan), with no focus on it.
+const toPartner = (body, done) => visionSend('/api/plan', body, done)
 
 async function visionAct(act, id) {
   // The empty tab's start (the trial's gap 1): its two moves come before there is a plan to view.
@@ -11125,10 +11170,20 @@ async function visionAct(act, id) {
     const start = visionStart(visionUi)
     if (!start.canStart) return redrawVision()
     const words = visionStartWords(start.kind, visionUi.extra)
-    if (await toPartner({ command: 'plan-start', text: words }, 'Sent to your partner: it starts the plan interview. Its questions come here, one per slide.')) {
+    if (await toPartner({ command: 'plan-start', text: words }, 'Sent to your partner: it starts the plan interview.')) {
+      // The words stay at hand for Start again, but not in the other boxes that share them.
+      visionUi.startWords = visionUi.extra
       visionUi.extra = ''
       visionUi.startSent = true
+      visionUi.startAgain = false
+      visionUi.note = null
     }
+    return redrawVision()
+  }
+  if (act === 'start-again') {
+    visionUi.startAgain = true
+    visionUi.extra = visionUi.startWords
+    visionUi.note = null
     return redrawVision()
   }
   const view = visionView(board?.plan ?? null, visionUi, board?.focus ?? null)

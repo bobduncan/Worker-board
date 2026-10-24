@@ -113,10 +113,13 @@ export async function appStartedAt(appSessions) {
  */
 export async function readSources(config, readFolders, now = Date.now(), readBranches = async () => null, readWork = async () => undefined) {
   const claude = join(config.project, '.claude')
-  // B173: the Advice & Chat tab shows the game plan, which the Advisor keeps in the game's repository.
-  const plan = config.gameRepo === '' ? null : join(config.gameRepo, ...config.gamePlan.split('/'))
-  // Plan (2026-10-19): the product plan beside it, for the Plan part of the Focus page.
-  const productPlan = config.gameRepo === '' ? null : join(config.gameRepo, ...config.productPlan.split('/'))
+  // B173: the Advice & Chat tab shows the game plan, which the Advisor keeps in the game's repository. The trial's gap 2
+  // (2026-10-24): a fresh project has no game folder yet, so its plans stand in the project's own folder, where the
+  // partner writes them then (roles/partner.md, "The plan interview").
+  const home = config.gameRepo === '' ? config.project : config.gameRepo
+  const plan = home === '' ? null : join(home, ...config.gamePlan.split('/'))
+  // Plan (2026-10-19): the product plan beside it, for the Vision tab.
+  const productPlan = home === '' ? null : join(home, ...config.productPlan.split('/'))
   const [listText, appChatTexts, adviceText, folders, askTexts, goalsText, work, threadTexts, productPlanText] = await Promise.all([
     readText(join(claude, 'chats', 'list.json')),
     readAppChats(config.appSessions),

@@ -60,6 +60,7 @@ import { editStep, settleByBoard } from './src/tick.mjs'
 import { editThread, fixesToTell } from './src/brainstorm.mjs'
 import { changeGoalsFile, editGoals } from './src/goalsWrite.mjs'
 import { activityFor, missingToSteps } from './src/goalSteps.mjs'
+import { PLAN_MOVES, planMove } from './src/planMoves.mjs'
 import { FOCUS_DRAFTS, FOCUS_MOVES, evaluationsAgain, evaluationsRunning, focusAllDone, focusMove, goalChecked, goalReopened, guardGoal, undoLine } from './src/focus.mjs'
 import { effortBack, partnerEffortWords } from './src/partnerEffort.mjs'
 import { GUARD_ATTEMPTS, evaluationState } from './src/goalGuard.mjs'
@@ -187,6 +188,7 @@ export function pictureKind(bytes) {
  *   `reference(bytes)` keeps a reference picture the person added to an idea, the same shape
  *   `talkPicture(bytes)` keeps a picture the person pasted into Talk to Main (B167), the same shape
  *   `goals(body)`      one change to the goal map (B256), the same shape; Focus 2: also a move of the Focus page
+ *   `plan(body)`       2026-10-24: a move of the Vision tab, a word to the partner on the plan's own way, the same shape
  *   `work(body)`       B297: one action of the page on the work store (work/api.mjs), the same shape
  *   `bridgeWork(body)` B297: one action of a chat's work tool, the same shape; only with `bridgeKey`
  *   `cpu(body)`        B311: the level of "CPU for the chats" ({ level }), the same shape
@@ -198,6 +200,7 @@ export function createBoard({
   bridgeKey = null, take = async () => ({ ok: false, status: 404, why: 'Not here.' }), typed = async () => ({ ok: false, status: 404, why: 'Not here.' }),
   design = async () => ({ ok: false, status: 404, why: 'Not here.' }), reference = async () => ({ ok: false, status: 404, why: 'Not here.' }),
   talkPicture = async () => ({ ok: false, status: 404, why: 'Not here.' }),
+  plan = async () => ({ ok: false, status: 404, why: 'Not here.' }),
   restart = async () => ({ ok: false, status: 404, why: 'Not here.' }), pageVersion = async () => '',
   onError = () => {}, onAnswered = () => {}, isClosing = () => false,
   backlog = async () => ({ ok: false, status: 404, why: 'Not here.' }),
@@ -214,7 +217,7 @@ export function createBoard({
   // B529: what the page writes into the project or sends to the chats is taken only by the board process that runs the
   // loops; another one on the project names where that one is. A game, a restart, the CPU level and a new project are
   // this process's own.
-  const WRITES = new Set(['/api/say', '/api/design', '/api/backlog', '/api/goals', '/api/brainstorm', '/api/work', '/api/settings', '/api/design/reference', '/api/talk/picture'])
+  const WRITES = new Set(['/api/say', '/api/design', '/api/backlog', '/api/goals', '/api/plan', '/api/brainstorm', '/api/work', '/api/settings', '/api/design/reference', '/api/talk/picture'])
   async function handle(req, res) {
     const self = `${HOST}:${req.socket.localPort}`
     const { pathname, searchParams } = new URL(req.url, `http://${self}`)
@@ -289,7 +292,7 @@ export function createBoard({
       return kept.ok ? json(res, kept.result) : refuse(res, kept.status, kept.why)
     }
 
-    if (pathname === '/api/say' || pathname === '/api/game' || pathname === '/api/design' || pathname === '/api/restart' || pathname === '/api/backlog' || pathname === '/api/goals' || pathname === '/api/brainstorm' || pathname === '/api/work' || pathname === '/api/cpu' || pathname === '/api/settings' || pathname === '/api/new-project') {
+    if (pathname === '/api/say' || pathname === '/api/game' || pathname === '/api/design' || pathname === '/api/restart' || pathname === '/api/backlog' || pathname === '/api/goals' || pathname === '/api/plan' || pathname === '/api/brainstorm' || pathname === '/api/work' || pathname === '/api/cpu' || pathname === '/api/settings' || pathname === '/api/new-project') {
       // Three things another website's page cannot do: know the token, carry this origin, and send JSON unasked.
       const maySend = mayUse && req.headers.origin === `http://${self}`
       const isJson = /^application\/json\s*(;|$)/i.test(req.headers['content-type'] ?? '')
@@ -343,6 +346,11 @@ export function createBoard({
       }
       if (pathname === '/api/goals') {
         const done = await goals(parsed)
+        return done.ok ? json(res, done.result) : refuse(res, done.status, done.why)
+      }
+      // 2026-10-24: the Vision tab's words to the partner, on their own way (src/planMoves.mjs): no focus on it.
+      if (pathname === '/api/plan') {
+        const done = await plan(parsed)
         return done.ok ? json(res, done.result) : refuse(res, done.status, done.why)
       }
       if (pathname === '/api/brainstorm') {
@@ -607,6 +615,17 @@ async function main(args) {
    * partner woken through the main chat when its chat is not running (Review Focus 5). Without the Workers mod it is
    * kept as copied and the page puts it on the clipboard.
    */
+  /**
+   * 2026-10-24: a move of the Vision tab, a word to the partner on the plan's own way: checked (src/planMoves.mjs) and
+   * typed to the partner, a partner not running woken. No focus, evaluation or effort on it: a project with no focus yet
+   * plans its product all the same (the user: "we have nothing so it should not rely on a focus").
+   */
+  const planNow = async body => {
+    const state = await readState()
+    const done = planMove(body, { canWrite: writesMap, partner: state.advisor ?? null, job: join(HERE, 'roles', 'partner.md') })
+    if (!done.ok) return done
+    return toPartner(done.words, done.result, state)
+  }
   const focusNow = async body => {
     const state = await readState()
     const done = await focusMove(body, {
@@ -1544,7 +1563,10 @@ async function main(args) {
     },
     // B256: the person changes the goal map on the Goals part. Only the board that delivers writes it; then the state
     // is read anew, so the page draws the file as it now is: also after a refusal, often a change made elsewhere.
+    plan: async body => planNow(body),
     goals: async body => {
+      // A page from before the plan's own way sends its Vision words here: they take that way all the same.
+      if (PLAN_MOVES.includes(body?.command)) return planNow(body)
       if ([...FOCUS_MOVES, ...FOCUS_DRAFTS].includes(body?.command)) return focusNow(body)
       if (body?.command === 'note-undo') return undoNow(body)
       // B383: the Goals page's right panel: a Missing line (or all of them) made into a new step under the goal.

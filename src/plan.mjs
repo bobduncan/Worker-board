@@ -1,5 +1,6 @@
 // Plan (brainstorm of 2026-10-19): the product plan, the answers every goal and step falls back to (roles/partner.md,
-// "The plan interview"), read from the game's `docs/product-plan.md` (the setting `productPlan`) for the Vision tab.
+// "The plan interview"), read from the game's `docs/product-plan.md` (the setting `productPlan`; the project's own
+// folder while there is no game folder yet) for the Vision tab.
 // The partner writes the page; the board only reads it and types the person's moves and answers to the partner.
 // Under the page's title a line "Pitch: <one sentence>". One heading per answer, "## P<n> · <title>", and under it
 // lines "- State: decided (from ..., <date>)", "- Answer: <one line>", "- Point: **<lead>** <words>" (two to four),
@@ -460,10 +461,28 @@ export function withPlanWork(plan, sent, pageAt, now) {
       ? plan.questions.some(question => question.about === about && question.isDeeper && question.filedAt >= at)
       : command === 'plan-ask' ? plan.questions.some(question => question.id === about && question.filedAt >= at) : false
     if (asked || (Number.isFinite(pageAt) && pageAt > at)) continue
-    const state = message.state === 'expired' || message.state === 'failed' ? 'failed'
-      : message.state === 'waiting' || message.state === 'held' ? 'waiting'
-        : now - at > PLAN_LATE_MS ? 'late' : 'working'
-    working.push({ command, about, at, state, what: WORK_WORDS[command] })
+    working.push({ command, about, at, state: wordState(message, at, now), what: WORK_WORDS[command] })
   }
   return { ...plan, working }
+}
+
+/** Where a word to the partner is: `waiting`, `working`, `late` (after PLAN_LATE_MS) or `failed`. */
+const wordState = (message, at, now) => (message.state === 'expired' || message.state === 'failed' ? 'failed'
+  : message.state === 'waiting' || message.state === 'held' ? 'waiting'
+    : now - at > PLAN_LATE_MS ? 'late' : 'working')
+
+/** A start the partner has not answered after this long no longer shows: the empty tab offers the start again. */
+const START_SHOWN_MS = 24 * 60 * 60_000
+
+/**
+ * The empty Vision tab's wait (2026-10-24, the user: "i want a loader while im waiting for the partner"): the newest
+ * start word in the board's outbox (`sent`), `{ at, state }` as withPlanWork's, for the tab while there is no plan page
+ * yet; null without one, or a day after it was sent.
+ */
+export function planStarting(sent, now) {
+  const start = (Array.isArray(sent) ? sent : []).findLast(message => message?.command === 'plan-start')
+  if (start === undefined) return null
+  const at = Number(start.at)
+  if (!Number.isFinite(at) || now - at > START_SHOWN_MS) return null
+  return { at, state: wordState(start, at, now) }
 }
