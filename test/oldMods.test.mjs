@@ -10,6 +10,8 @@ import { chatsByRole, oldModChats, oldModNeed, overdueChats } from '../src/oldMo
 const NOW = new Date(2026, 9, 24, 19, 0).getTime()
 // B570: each idle 45 minutes, past the half hour in which the board has an idle chat restarted.
 const IDLE = { state: 'free', isRunning: true, idle: { since: NOW - 45 * 60_000 } }
+// B570: the board's first word to restart each, 40 minutes ago, for the installed version of the case.
+const asked = (version, ...names) => names.map(name => ({ command: 'mod-restart', about: name, version, at: NOW - 40 * 60_000 }))
 const STATE = {
   chats: [{ name: 'Lead', isMain: true, ...IDLE }, { name: 'Painter', ...IDLE }, { name: 'Mason', ...IDLE }, { name: 'Gone', isLeftover: true }],
   advisor: { name: 'Guide', ...IDLE }, advisorHelper: { name: 'Guide 2', ...IDLE }, supervisorChat: { name: 'Watch', ...IDLE },
@@ -22,7 +24,7 @@ test('the chats by role: the main chat, the workers (not one left behind), the p
 
 test('three chats on an old mod give one card naming all three, with the one way and what each misses', () => {
   const mods = { installed: '0.16.0', chats: { Lead: '0.16.0', Painter: null, Mason: '0.15.2', Guide: null, Gone: null } }
-  const need = oldModNeed(mods, chatsByRole(STATE), NOW)
+  const need = oldModNeed(mods, chatsByRole(STATE), NOW, asked('0.16.0', 'Painter', 'Mason', 'Guide'))
   assert.equal(need.id, 'old-mod:0.16.0')
   assert.equal(need.kind, 'old-mod')
   assert.equal(need.title, '3 chats run an older Workers mod: restart the app to update')
@@ -38,7 +40,7 @@ test('three chats on an old mod give one card naming all three, with the one way
 })
 
 test('one chat is named in the title; the supervisor\'s chat says it cannot sweep', () => {
-  const need = oldModNeed({ installed: '0.16.0', chats: { Watch: null } }, chatsByRole(STATE), NOW)
+  const need = oldModNeed({ installed: '0.16.0', chats: { Watch: null } }, chatsByRole(STATE), NOW, asked('0.16.0', 'Watch'))
   assert.equal(need.title, 'Watch runs an older Workers mod: restart the app to update')
   assert.equal(need.chats[0].cost, 'it cannot run a sweep')
 })
@@ -67,11 +69,15 @@ test('B570: the chats by role carry their state, whether they run, their session
   assert.equal(chatsByRole({ chats: [{ name: 'A', state: 'free', isRunning: false, idle: { since: 5 } }] })[0].idleSince, null, 'not running: not idle')
 })
 
-test('B570: the card and the finding name only the chats the board did not get restarted: idle on the older mod over 30 min', () => {
-  const mods = { installed: '0.17.0', chats: { Painter: '0.16.1', Mason: '0.16.1' } }
-  const state = { chats: [{ name: 'Painter', ...IDLE }, { name: 'Mason', ...IDLE, idle: { since: NOW - 10 * 60_000 } }] }
-  assert.deepEqual(overdueChats(mods, chatsByRole(state), NOW).map(one => one.name), ['Painter'])
-  assert.equal(oldModNeed(mods, chatsByRole(state), NOW).title, 'Painter runs an older Workers mod: restart the app to update')
+test('B570: the card and the finding name only the chats the board did not get restarted: idle 30 min after its first word', () => {
+  const mods = { installed: '0.17.0', chats: { Painter: '0.16.1', Mason: '0.16.1', Stone: '0.16.1' } }
+  const state = { chats: [{ name: 'Painter', ...IDLE }, { name: 'Mason', ...IDLE, idle: { since: NOW - 10 * 60_000 } }, { name: 'Stone', ...IDLE }] }
+  const sent = [...asked('0.17.0', 'Painter', 'Mason'), { command: 'mod-restart', about: 'Stone', version: '0.17.0', at: NOW - 5 * 60_000 }]
+  // Mason went idle after the word (it was busy then), Stone's word is 5 minutes old.
+  assert.deepEqual(overdueChats(mods, chatsByRole(state), NOW, sent).map(one => one.name), ['Painter'])
+  assert.equal(oldModNeed(mods, chatsByRole(state), NOW, sent).title, 'Painter runs an older Workers mod: restart the app to update')
+  assert.equal(oldModNeed(mods, chatsByRole(state), NOW, []), null, 'right after an install, before the board asked: no card')
+  assert.equal(oldModNeed(mods, chatsByRole(state), NOW, asked('0.16.1', 'Painter')), null, 'a word for an older install does not count')
   const busy = { chats: [{ name: 'Painter', ...IDLE, state: 'working' }] }
-  assert.equal(oldModNeed(mods, chatsByRole(busy), NOW), null, 'a busy chat is restarted after its step')
+  assert.equal(oldModNeed(mods, chatsByRole(busy), NOW, sent), null, 'a busy chat is restarted after its step')
 })

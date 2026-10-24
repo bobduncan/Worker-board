@@ -200,7 +200,7 @@ profile.
   Your own model and effort stay as they are.
 - `restart for mod` with "Chat:", "Session:" (when the board knows the chat's id), "From:", "To:" and "Why:" (B570):
   that chat runs an older Workers mod than the one installed and is idle, so restart it, and it takes the new one at
-  its next start (the user, I95: no restarting the chats by hand; their standing yes to archive and unarchive an idle
+  its next start; when the list of chats shows it working or on a step since the word, leave it: the board asks again (the user, I95: no restarting the chats by hand; their standing yes to archive and unarchive an idle
   chat for this). With the app's session tools (load them with ToolSearch when they are deferred): `archive_session`
   on the chat (by its session id, else by its title), then at once `list_sessions` with `include_archived` and
   `unarchive_session` for every chat of the list of chats that is archived now (archiving a chat also archives the

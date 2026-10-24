@@ -7,6 +7,7 @@ import test from 'node:test'
 
 import { RESTART_AGAIN_MS, RESTART_HOLD_MS, RESTART_TRIES, restartWords, rolloutPlan } from '../src/work/modRollout.mjs'
 import { isPartnerWord } from '../src/say.mjs'
+import { outboxNow } from '../src/store.mjs'
 
 const MIN = 60_000
 const NOW = new Date(2026, 9, 24, 22, 0).getTime()
@@ -88,4 +89,15 @@ test('the word names the chat, its session and both versions; the partner\'s cop
   assert.deepEqual([words.command, words.about, words.version, words.to], ['mod-restart', 'Painter', '0.17.0', 'Lead'])
   assert.doesNotMatch(restartWords({ to: 'Lead', chat: 'P', session: 'bad id!', runs: '1', installed: '2', why: 'x' }).text, /Session/)
   assert.equal(isPartnerWord('mod-restart'), true)
+})
+
+test('the review: a restart word stays known a day, so the three tries are counted beyond the outbox\'s two hours', () => {
+  const word = { id: 'r1', to: 'Lead', command: 'mod-restart', about: 'Painter', version: '0.17.0', at: NOW - 3 * 60 * MIN, state: 'taken', text: 'restart for mod' }
+  const other = { ...word, id: 'e1', command: 'worker-start' }
+  const known = outboxNow([word, other], NOW, null).map(one => one.id)
+  assert.deepEqual(known, ['r1'])
+  assert.deepEqual(outboxNow([{ ...word, at: NOW - 25 * 60 * MIN }], NOW, null), [], 'after a day it goes')
+  const tried = Array.from({ length: RESTART_TRIES }, (_, n) => ({ ...word, id: `r${n}`, at: NOW - (40 + n * 60) * MIN }))
+  const chats = [chat('Lead', 'main'), chat('Painter')]
+  assert.deepEqual(plan({ chats, mods: { installed: '0.17.0', chats: { Painter: '0.16.1' } }, sent: outboxNow(tried, NOW, null) }).words, [])
 })

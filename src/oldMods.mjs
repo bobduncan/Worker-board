@@ -8,7 +8,7 @@
 /** The first Workers mod that says its version with every call (its header): a chat that says none runs an older one. */
 export const FIRST_SAYING = '0.16.0'
 
-/** B570: a chat on an older mod, idle this long, was not restarted by the board: the person is shown it. */
+/** B570: a chat on an older mod still idle this long after the board's first word to restart it: the person is shown it. */
 export const OVERDUE_MS = 30 * 60_000
 
 /** A version's numbers, "0.15.2" as [0, 15, 2]; null for none. */
@@ -76,11 +76,17 @@ export function chatsByRole(state) {
 const listed = names => (names.length < 2 ? names.join('') : `${names.slice(0, -1).join(', ')} and ${names.at(-1)}`)
 
 /**
- * B570: the chats on an older mod that the board did not get restarted: idle for longer than OVERDUE_MS (it asks for an
- * idle chat's restart at once, and again each half hour). A busy chat is restarted after its step: no case.
+ * B570: the chats on an older mod that the board did not get restarted: idle, and the board's first word to restart it
+ * for the installed version (`sent`, the outbox: command mod-restart) went longer than OVERDUE_MS ago, and the chat was
+ * idle since before that word. A busy chat is restarted after its step, and one the board has not asked for yet waits
+ * for its word: no case.
  */
-export function overdueChats(mods, chats, now = Date.now()) {
-  return oldModChats(mods, chats).filter(one => Number.isFinite(one.idleSince) && now - one.idleSince > OVERDUE_MS)
+export function overdueChats(mods, chats, now = Date.now(), sent = []) {
+  return oldModChats(mods, chats).filter(one => {
+    if (!Number.isFinite(one.idleSince)) return false
+    const first = sent.find(message => message.command === 'mod-restart' && message.about === one.name && message.version === mods.installed && Number.isFinite(message.at))
+    return first !== undefined && now - first.at > OVERDUE_MS && one.idleSince <= first.at
+  })
 }
 
 /**
@@ -89,8 +95,8 @@ export function overdueChats(mods, chats, now = Date.now()) {
  * incident's key), so one install is one card however the chats on it change. `chats` lists each with what it runs and
  * what that costs; `steps` the one way to bring them up to date, done by the person (the board restarts nothing).
  */
-export function oldModNeed(mods, chats, now = Date.now()) {
-  const old = overdueChats(mods, chats, now)
+export function oldModNeed(mods, chats, now = Date.now(), sent = []) {
+  const old = overdueChats(mods, chats, now, sent)
   if (old.length === 0) return null
   const names = old.map(one => one.name)
   return {
@@ -108,13 +114,13 @@ export function oldModNeed(mods, chats, now = Date.now()) {
  * The incident's words of the same chats (the rule old-mod): its key by the installed version, each chat named. B570:
  * only the chats idle on an older mod for longer than OVERDUE_MS: the board's restart did not reach them.
  */
-export function oldModFinding(mods, chats, now = Date.now()) {
-  const old = overdueChats(mods, chats, now)
+export function oldModFinding(mods, chats, now = Date.now(), sent = []) {
+  const old = overdueChats(mods, chats, now, sent)
   if (old.length === 0) return null
   const names = old.map(one => one.name)
   return {
     rule: 'old-mod', key: `old-mod ${mods.installed}`, subject: 'board',
-    text: `${listed(names)} ${old.length === 1 ? 'runs' : 'run'} an older Workers mod, idle over ${OVERDUE_MS / 60_000} min; ${mods.installed} is installed`,
+    text: `${listed(names)} ${old.length === 1 ? 'runs' : 'run'} an older Workers mod, idle over ${OVERDUE_MS / 60_000} min after the board asked to restart it; ${mods.installed} is installed`,
     evidence: `installed ${mods.installed}; ${old.map(one => `${one.name} ${one.runs} (${one.cost})`).join('; ')}`,
   }
 }

@@ -711,7 +711,8 @@ and "Why:", which comes only while it is idle (the user's standing yes to archiv
 With the app's session tools (load them with ToolSearch when they are deferred): `archive_session` on it, then at once
 `list_sessions` with `include_archived` and `unarchive_session` for every chat of the list of chats that is archived now
 (archiving the main chat also archives the finished chats it started, most workers among them), and last for the main
-chat itself. Do not message it: its next word starts it on the new mod. When the archive is refused (a turn, a queued
+chat itself. Then send it one line with SendMessage to its session id, "Restarted for Workers mod <To>: nothing to do",
+which starts it on the new mod: no board word can start the main chat, and it starts the others. When the archive is refused (a turn, a queued
 message, a background agent, the app's safety check), do nothing more: the board asks again in half an hour; when Remote Control is on for it,
 leave it and tell the user in one line. Say nothing else about it in your chat.
 

@@ -351,7 +351,7 @@ export { FIRST_SAYING }
  * once that one or a newer one is installed (the review).
  */
 function oldMod(view) {
-  const found = oldModFinding(view.mods, chatsByRole({ chats: view.lanes, advisor: view.partner, advisorHelper: view.helper, supervisorChat: view.supervisor }), view.now)
+  const found = oldModFinding(view.mods, chatsByRole({ chats: view.lanes, advisor: view.partner, advisorHelper: view.helper, supervisorChat: view.supervisor }), view.now, view.outbox ?? [])
   return found === null ? [] : [found]
 }
 

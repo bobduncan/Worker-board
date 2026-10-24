@@ -1765,6 +1765,8 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
       model: supervisorLane.model ?? null,
       effort: supervisorLane.effort ?? null,
       state: supervisorLane.state,
+      // B570: since when it is idle, for a chat on an older Workers mod (oldMods.mjs).
+      idle: supervisorLane.idle ?? null,
       compaction: supervisorLane.compaction ?? null,
       isRunning: supervisorLane.state === 'off' ? false : runningOf(supervisorLane.name),
     },
