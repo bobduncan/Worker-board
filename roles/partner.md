@@ -718,8 +718,8 @@ the feedback. It reads as the finished description, not as a talk:
   HUD, a screen). A step that names one changes what the player sees, so `none (<why>)` is refused for it: it always
   carries a kind's standard with a reference and a target. B395 (crumbling tiles and vents, a new ground look) was
   refined with `none (rules as data)`, and its look was never held against a picture.
-  B513: it counts only beside drawn things (draw, render, sprite, art, look, HUD, camera, a render/ or art/ path, a
-  .css or .png file): a step that names a kind only in its rules ("mark summoned units as spent") is no look change.
+  B513: it counts only beside drawn things (render, sprite, HUD, camera, a render/, hud/, art/ or docs/visual/ path, a
+  .css file; B516: not plain words like draw, look, picture, screen): a step that names a kind only in its rules ("mark summoned units as spent") is no look change.
   A step whose words name a look kind and a drawn thing but that changes nothing the player sees says so:
   `none (no look change: <why>)`, which the board takes.
   When your work tool has no field `standard` yet (a chat started before it came), give it as a line of `what` that

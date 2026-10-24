@@ -69,7 +69,7 @@ export function standardWanted(who, named) {
  * B513: words that put a look kind beside drawn things: a step that only names a kind in its rules ("mark summoned
  * units") is no look change. Drawing words, the folders and files that hold what is drawn.
  */
-const DRAWN = /(?<![A-Za-z0-9-])(?:draw(?:n|ing|s)?|redraw\w*|render\w*|sprites?|art(?:work)?|pictures?|looks?|visuals?|animat\w+|icons?|colou?rs?|textures?|pixels?|hud|camera|screens?|appearance|palette|tiles? art)(?![A-Za-z0-9-])|(?:^|[\s/(`])(?:render|hud|art|visuals?)\/|\.(?:css|png)\b/i
+const DRAWN = /(?<![A-Za-z0-9-])(?:render\w*|sprites?|hud|camera)(?![A-Za-z0-9-])|(?:^|[\s/(`])(?:render|hud|art|docs\/visual)\/|\.css\b/i
 
 /**
  * B451: the kinds of the settings marked `look` (what the player sees) that a text names, when the step's standard is
