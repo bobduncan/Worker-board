@@ -224,6 +224,12 @@ yourself gets its checkpoint first, as a worker's does (`roles/worker.md`, "A pa
 
 ## Check sync
 
+Since the supervisor's part 2 (2026-10-24) "Check now" no longer types `check sync` into your chat: the board runs its
+rules at once and wakes the supervisor's chat (the list of chats' `"supervisor"`) for a sweep; what they find becomes
+incidents, shown to the user and handed to the partner. The word below comes only from a board without a supervisor.
+The note `The board's sync check at HH:MM: what it could not fix itself` still comes to you (act on it as below), and
+so does the board's `start "<supervisor>"` when its chat does not run: start it by its session id, as any chat.
+
 The user pressed "Check now" ("Out of sync?" until the supervisor) in a worker's menu or in the Workers panel's head
 (B438; their words: "somebody goes to investigate it and fix it"). The board types `check sync <name>` with what it
 shows for that worker: `State:`,

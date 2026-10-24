@@ -169,6 +169,8 @@ export function parseList(text: string): ChatList | null {
     afterStep: l.afterStep === 'clear' || l.afterStep === 'off' ? l.afterStep : 'compact',
     // The main chat and the partners are compacted at rest unless the list says "compactAtRest": false.
     compactAtRest: l.compactAtRest !== false,
+    // The supervisor (spec 2026-10-24): the chat cleared after every turn, also when the board does not answer in time.
+    ...(typeof l.supervisor === 'string' && l.supervisor.trim() !== '' ? { supervisor: l.supervisor.trim() } : {}),
   }
 }
 

@@ -30,7 +30,7 @@ import { fileURLToPath } from 'node:url'
 
 
 import { minutesOf } from './src/backlog.mjs'
-import { bridgeNote, checkTake, checkTyped, clearRefusal, isUnknownSession, messageText, shownChats } from './src/bridge.mjs'
+import { bridgeNote, checkTake, checkTyped, clearRefusal, isUnknownSession, laneRole, messageText, shownChats } from './src/bridge.mjs'
 import { chatLogKeeper, isReadOut, leftSubjects } from './src/chatLogs.mjs'
 import { findCodex, makePicture } from './src/codex.mjs'
 import { checkSetting, panelSettings, settingChanged } from './src/boardSettings.mjs'
@@ -71,7 +71,7 @@ import { effortOf } from './src/work/effort.mjs'
 import { isHolding, resumeEnds, resumeRetypeTo, resumeTypeTo } from './src/work/pause.mjs'
 import { reportCheck } from './src/work/check.mjs'
 import { deliverWork, pullFor, sendOnce } from './src/work/deliver.mjs'
-import { REFUSED_MS, SUPERVISOR_RULES, createSupervisor, loopGate, loopOwner } from './src/supervisor/index.mjs'
+import { REFUSED_MS, SUPERVISOR_RULES, createSupervisor, loopGate, loopOwner, tokensOfTurn } from './src/supervisor/index.mjs'
 import { FILES as WORKTREE_FILES, cleanLeftover, findLeftovers, stepLeftovers } from './src/work/worktrees.mjs'
 import { followRenames } from './src/work/rename.mjs'
 import { standardHold } from './src/work/standardHold.mjs'
@@ -250,6 +250,13 @@ export function createBoard({
       if (pathname === '/api/bridge/work' && typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)) {
         const { request: _ignored, ...rest } = parsed
         parsed = { ...rest, ...(typeof req.headers['x-work-request'] === 'string' ? { request: req.headers['x-work-request'] } : {}) }
+      }
+      // The supervisor's Part 2: the Workers mod says its version in its header (X-Workers-Mod, since 0.16.0); null for
+      // an older one. A body's own is not taken.
+      if (pathname !== '/api/bridge/typed' && typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)) {
+        const given = req.headers['x-workers-mod']
+        const { mod: _ignored, ...rest } = parsed
+        parsed = { ...rest, ...(typeof given === 'string' && /^\d{1,4}(?:\.\d{1,4}){0,3}$/.test(given.trim()) ? { mod: given.trim() } : {}) }
       }
       const taken = await (pathname === '/api/bridge/take' ? take : pathname === '/api/bridge/work' ? bridgeWork : typed)(parsed)
       return taken.ok ? json(res, taken.result) : refuse(res, taken.status, taken.why)
@@ -966,6 +973,12 @@ async function main(args) {
 
   // When each chat's mod last asked this board, by the chat's name: who asks runs. The demo has no bridge.
   const seen = bridgeKey === null ? null : { shown: {}, other: {} }
+  // The supervisor's Part 2: the version of each chat's Workers mod, by the chat's name, as its last call to the bridge
+  // said it (null: a mod older than 0.16.0, which says none), for the rule old-mod and the supervisor's own chat.
+  const modOf = new Map()
+  const noteMod = (body, checked) => {
+    if (checked.ok && typeof checked.chat === 'string') modOf.set(checked.chat, { version: typeof body?.mod === 'string' ? body.mod : null, at: clock() })
+  }
   // B465: the names a chat's mod was refused under lately, with its session, for the sync check's "old name".
   const refusedNames = new Map()
   const noteRefused = (body, checked) => {
@@ -1241,6 +1254,10 @@ async function main(args) {
   /** B297: one call of a chat's work tool, made once (B412: `requests` gives a repeat of it the same answer). */
   const bridgeWorkOnce = async (body, checked) => {
     const done = await workAction({ ...body, chat: checked.chat })
+    // The supervisor's Part 2: its chat's health read, incidents and turn's end tell the sweep that runs how it went.
+    if (supervisor !== null && ['health', 'incident', 'turn-ended'].includes(body?.action) && done.ok && laneRole(await readState(), checked.chat) === 'supervisor') {
+      await supervisor.heard({ action: body.action, ok: true, session: typeof body.session === 'string' ? body.session : null, since: body.since ?? null })
+    }
     // Partner answers (2026-10-19): the partner's answer wakes the chat that asked, as the person's answer on the page does.
     if (body?.action === 'partner-answer') await sendWakes(done)
     // B300: a free worker's pull at the end of its turn (with its turn-ended, or alone): its line goes into the outbox
@@ -1404,15 +1421,19 @@ async function main(args) {
       if (isShowOnly && !isOwnTalk) return { ok: false, status: 409, why: `This board only shows. Answer on the board that delivers: http://${HOST}:${homePort}/` }
       // The person's "Dismiss" on the restart banner's copied word: kept on that word in the outbox.
       if (body?.command === 'dismiss copied') return dismissCopied(store, body.id, clock())
-      // B465: "Out of sync?" runs the board's own list at once (its answer stands on the page); the main chat's check,
-      // for what the list does not know, gets that answer with the rest, and the board as it stands after the fixes.
-      // Null when another board process runs the project's list (B482), or the run failed (recorded as "sync").
-      // The supervisor: "Check now" in a worker's menu names that worker as what the check is about.
+      // B465: "Out of sync?" runs the board's own list at once (its answer stands on the page). The supervisor's Part 2:
+      // "Check now" runs the rules and starts a sweep of the supervisor's chat, or says plainly why none runs (Review
+      // Focus 4); the main chat is no longer asked. A worker's menu names that worker as what the check is about.
       const subject = typeof body?.chat === 'string' && body.chat !== 'board' ? body.chat.slice(0, 80) : null
-      const syncAnswer = body?.command === 'sync' && supervisor !== null ? await supervisor.run({ asked: true, subject }) : null
-      if (syncAnswer !== null) readState.reset()
+      if (body?.command === 'sync' && supervisor !== null) {
+        const before = await readState()
+        if (subject !== null && !(before.chats ?? []).some(chat => chat.name === subject && !chat.isLeftover && !chat.isMain)) return { ok: false, status: 409, why: 'That is no worker on the board.' }
+        const done = await supervisor.checkNow({ subject })
+        readState.reset()
+        return { ok: true, message: { command: 'sync', checkedAt: done.run?.at ?? null, sweep: done.sweep } }
+      }
       const state = await readState()
-      const checked = checkSay(body, syncAnswer === null ? state : { ...state, syncList: syncAnswer }, config.maxMessageChars)
+      const checked = checkSay(body, state, config.maxMessageChars)
       if (!checked.ok) return checked
       // B167: the picture is named to the main chat by where it is, so it has to be there.
       if (typeof checked.message.picture === 'string' && !(await stat(inProject(config.project, checked.message.picture)).then(file => file.isFile(), () => false))) {
@@ -1552,12 +1573,13 @@ async function main(args) {
     bridgeWork: counted(async body => {
       // B412: a call the mod repeats with its request id (its answer was slow or cut off) gets the first answer, before
       // anything else is looked at: right after a restart the board may not show the chat yet. The id is the session's.
-      const { request, ...asked } = body ?? {}
+      const { request, mod: _mod, ...asked } = body ?? {}
       const session = String(body?.session ?? '')
       const kept = await requests.known(session, request)
       if (kept !== undefined) return kept
       const { checked, state } = await checkFresh(body)
       noteRefused(body, checked)
+      noteMod(body, checked)
       if (!checked.ok) return checked
       if (asked.action === 'save-log') return requests.answer(session, request, () => saveLog(asked, checked, state))
       if (isReadAction(asked.action)) return bridgeWorkOnce(asked, checked)
@@ -1568,6 +1590,7 @@ async function main(args) {
       // Who asks runs, also a chat the board shows another session for.
       if (seen !== null && typeof body?.chat === 'string' && (checked.ok || checked.status === 409)) (checked.ok ? seen.shown : seen.other)[body.chat.trim().slice(0, 80)] = clock()
       noteRefused(body, checked)
+      noteMod(body, checked)
       if (!checked.ok) return checked
       // The review of Pause 2: while the person pauses no chat takes what would start a turn; only the board's own
       // "resume" to the main chat goes. The rest waits in the outbox, held until the resume (2026-10-19: Resume all, no
@@ -1946,8 +1969,42 @@ async function main(args) {
           load: () => kept(SUPERVISOR_FILE),
           save: value => writeAtomic(SUPERVISOR_FILE, JSON.stringify(value)),
         },
-        // The Workers mod installed; the version each chat runs is not reported by the mod yet (none known: no finding)
-        mods: async () => ({ installed: (await modNow())?.installed ?? null, chats: {} }),
+        // The Workers mod installed, and the version each chat's mod said with its last call (Part 2: since 0.16.0)
+        mods: async () => ({ installed: (await modNow())?.installed ?? null, chats: Object.fromEntries([...modOf].filter(([, one]) => typeof one.version === 'string').map(([name, one]) => [name, one.version])) }),
+        // The supervisor's Part 2: the sweep of the supervisor's chat (the list of chats' "supervisor").
+        sweep: {
+          chat: async () => {
+            const state = await readState()
+            const card = state.supervisorChat ?? null
+            const mod = card === null ? undefined : modOf.get(card.name)
+            return {
+              named: state.supervisorName ?? null, title: `${state.chatPrefix ?? ''}${card?.name ?? state.supervisorName ?? ''}`, card,
+              withoutMod: state.bridge?.isMissing === true, mod: mod === undefined ? undefined : mod.version,
+            }
+          },
+          // A board word into the outbox, as every board word goes; the main chat is asked to start a chat that does not run.
+          tell: async words => {
+            const state = await readState()
+            const isCopied = state.bridge?.isMissing === true
+            const message = { id: randomBytes(8).toString('hex'), at: clock(), ...words, state: isCopied ? 'copied' : 'waiting' }
+            await store.say(isCopied ? { ...message, pasteText: messageText(message, timeOf) } : message)
+            const start = isCopied ? null : wakeFor(message, state, store.outbox(), clock(), config.maxMessageChars)
+            if (start !== null) await store.say({ id: randomBytes(8).toString('hex'), at: clock(), ...start, state: 'waiting' })
+            readState.reset()
+            return { ok: true, id: message.id, started: start !== null, copied: isCopied }
+          },
+          job: join(HERE, 'roles', 'supervisor.md'),
+          // What a sweep's turn cost: the supervisor chat's transcript of that turn (its old one stays after the clear).
+          tokens: async ({ session, from }) => {
+            if (!/^[A-Za-z0-9_-]{1,120}$/.test(String(session ?? ''))) return null
+            const tail = await readTail(join(config.transcripts, `${session}.jsonl`), 8 * 1024 * 1024)
+            return tail === null ? null : tokensOfTurn(tail.text, tail.isCut, from)
+          },
+          memory: {
+            load: () => kept(join(config.project, '.claude', 'supervisor-sweep.json')),
+            save: value => writeAtomic(join(config.project, '.claude', 'supervisor-sweep.json'), JSON.stringify(value)),
+          },
+        },
         now: clock,
         // B482, B488: the list runs where the loops run (ownsLoops, above); a board without the lock runs it as its own
         owns: ownsLoops,

@@ -657,18 +657,48 @@ function supervisorOf(view) {
   const shown = rules.filter(isShown)
   const tripped = rules.filter(rule => rule.tone === 'tripped').length
   const failed = rules.filter(rule => rule.tone === 'failed').length
-  const sweep = view.lastSweep ?? null
+  const every = Number.isFinite(view.sweepEvery) ? view.sweepEvery : 0
   return {
     title: Number.isFinite(view.checkedAt) ? `Supervisor · checked itself at ${clock(view.checkedAt)}` : 'Supervisor · not checked yet',
-    note: 'Its rules run every 3 minutes by themselves; Check now runs them at once, and the main chat checks what they do not know.',
+    note: every > 0
+      ? `Its rules run every 3 minutes by themselves, and its chat sweeps the board every ${every} minutes while work runs; Check now runs both at once.`
+      : 'Its rules run every 3 minutes by themselves; Check now runs them at once, with a sweep by its chat.',
     incidents: (view.incidents ?? []).map(one => ({
       id: one.id, tone: INCIDENT_TONES[one.state] ?? 'open', state: one.state === 'fix' && one.fix ? `fix ${one.fix}` : one.state ?? 'open', text: one.title ?? '',
       seen: [one.count === 1 ? 'seen once' : `seen ${one.count} times`, Number.isFinite(one.firstSeen) ? `since ${clock(one.firstSeen)}` : null, one.count > 1 && Number.isFinite(one.lastSeen) ? `last ${clock(one.lastSeen)}` : null].filter(Boolean).join(', '),
     })),
     check: run === null ? null : { head: `Last check at ${clock(run.at)}${run.asked ? `, asked${run.subject ? ` about ${run.subject}` : ''}` : ''}`, rows: checkRowsOf(run) },
     rules: { head: `Rules · ${rules.length}${tripped > 0 ? ` · ${tripped} tripped` : ''}${failed > 0 ? ` · ${failed} failed` : ''}`, shown, rest: rules.filter(rule => !isShown(rule)) },
-    sweep: sweep === null ? 'No sweep yet.' : `Last sweep at ${clock(sweep.at)}: ${sweep.found === 1 ? 'one finding' : `${sweep.found ?? 0} findings`}${Number.isFinite(sweep.tokens) ? `, ${sweep.tokens} tokens` : ''}.`,
+    sweep: sweepLineOf(view),
   }
+}
+
+/** A count of tokens in words: "31,200 tokens". */
+const tokenWords = count => `${Math.round(count).toLocaleString('en-US')} tokens`
+
+/**
+ * The supervisor's Part 2: the last sweep of its chat, in one line: asked or by the clock, about whom, running or what it
+ * found and cost; why the newest did not run (Check now, or the clock, with the supervisor's chat missing); the day's
+ * sweeps and their tokens. "No sweep yet." before the first.
+ */
+function sweepLineOf(view) {
+  const sweep = view.lastSweep ?? null
+  const refused = view.sweepNote ?? null
+  const about = one => `${one.asked ? 'asked' : 'by the clock'}${one.subject ? `, about ${one.subject}` : ''}`
+  const parts = []
+  if (refused !== null) parts.push(`No sweep at ${clock(refused.at)}: ${refused.why}.`)
+  if (sweep === null) {
+    if (refused === null) parts.push('No sweep yet.')
+  } else if (!Number.isFinite(sweep.ended)) {
+    parts.push(`Sweep at ${clock(sweep.at)} (${about(sweep)}): running${sweep.note ? `; ${sweep.note}` : ''}.`)
+  } else {
+    const found = sweep.found === 1 ? 'one finding' : `${sweep.found ?? 0} findings`
+    const cost = Number.isFinite(sweep.tokens) ? `, ${tokenWords(sweep.tokens)}` : ', its tokens not read yet'
+    parts.push(`Last sweep at ${clock(sweep.at)} (${about(sweep)}): ${found}${cost}${sweep.note ? `; ${sweep.note}` : ''}.`)
+  }
+  const today = view.sweepsToday ?? null
+  if (today !== null && today.count > 1) parts.push(`Today ${today.count} sweeps, ${tokenWords(today.tokens)}.`)
+  return parts.join(' ')
 }
 
 /**
@@ -2771,13 +2801,13 @@ $('lanes').addEventListener('click', event => {
  */
 function syncPart(lane, state) {
   if (lane.isMain || lane.isLeftover || (state.workers?.main ?? null) === null) return null
-  return checkNowButton(lane.name, state, `Runs the board's own checks at once, about this worker, and asks ${state.workers.mainTitle ?? state.workers.main} to check it against the work store, its chat and the limits, and to fix what it can`)
+  return checkNowButton(lane.name, state, 'Runs the board\'s own checks at once, and a sweep by the supervisor\'s chat about this worker; what they find shows in the supervisor\'s section')
 }
 
 /** B438: the same for the whole board, in the Workers panel's head beside "+ Add worker", and in the supervisor's section. */
 function boardSyncButton(state) {
   if ((state.workers?.main ?? null) === null) return null
-  return checkNowButton('board', state, `Runs the board's own checks at once, and asks ${state.workers.mainTitle ?? state.workers.main} to check the whole board against the work store, the chats and the limits, and to fix what it can`)
+  return checkNowButton('board', state, 'Runs the board\'s own checks at once, and a sweep of the whole board by the supervisor\'s chat; what they find shows in the supervisor\'s section')
 }
 
 // syncline:start

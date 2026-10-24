@@ -3075,6 +3075,64 @@ the AI sweep by a cheap supervisor chat and the hand-over to the Advisor, comes 
   its turns (`turn-ended`) and `pull`, as every chat's Workers mod does.
 - Tests: `test/supervisor/` (boundary, component, selfCheck, watch, incidents, page), `test/outOfSync.test.mjs`.
 
+## The supervisor, part 2 (2026-10-24): the sweep
+
+Part 2 (T7.3) of the supervisor (spec and plan as part 1's): the AI for the gaps the code rules leave, at as few tokens as
+it can. The person: "It just needs to observe, periodically, not consume a lot of tokens."
+
+- **The supervisor's chat** is the list of chats' `"supervisor"` (`list.json`, like `"helper"`; `appChats.mjs
+  parseList`): state `supervisorChat` (its card: name, sessions, model, effort, state, last clear, whether it runs) and
+  `supervisorName` (the list's word, also while no such chat is open). No lane, no queue, never counted as a worker; the
+  bridge shows it (`bridge.mjs shownChats`, one list of the chats the board shows by name), so it takes its words and
+  works with the work tool in the role `supervisor` (server.mjs `workCtx`, `laneRole`). The main chat may be asked to
+  start it (`say.mjs checkSay` start). Its job: `roles/supervisor.md`, which also holds the short list of how the
+  board should behave, so a sweep reads that file and the summary, nothing else.
+- **`work health`** (Task 5; a read, the role supervisor only, `api.mjs healthOf` through the server's port `health`):
+  `src/supervisor/health.mjs healthSummary(view, now)`, from the supervisor's one view, at most 8000 characters: the
+  chats (state and since by the timeline, model and effort beside the step's, its step, last report from the store's
+  History, last clear and why from the card), the steps under way (state, age, owner; new and refined only counted), the
+  queues, the incidents (with their keys, so a sweep files the same thing under the same key) and repairs of the last
+  day, the words not delivered, the limits and the pause. Odd lines carry `!`. When it must cut, the lines of every
+  chat, the steps the chats hold and the limits stay, then the oddest and newest of the rest; a section says how many
+  it left out (`test/supervisor/health.test.mjs`: 900 items, under 8000, every held step kept).
+- **The sweep** (Task 6, `src/supervisor/sweep.mjs sweepRunner`, wired in `index.mjs sweepOver`): every
+  `supervisorSweepMinutes` (config.json, 10 unless set, 0 for none) the board, where its loops run (`owns`), wakes the
+  chat with one board word through the outbox (`say.mjs sweepWords`, command `sweep`, typed as it is like `work`; a
+  chat that does not run is started by the main chat as for any board word, `wakeFor`): "sweep: run work health, file
+  each oddity with work incident (evidence and the rule that could catch it), then end your turn" (with "(about
+  <worker>)" from a worker's menu) and the job file. It looks every minute (`SWEEP_TICK_MS`, loop `sweep`).
+- **Quiet nights** (Review Focus 3): a sweep only while work runs (a chat of the board works, or a step is taken or in
+  progress), never while the person pauses or resumes, at a full limit, while the last sweep runs (its word on its way
+  or its chat working; one with neither for 2 minutes has ended, `SWEEP_SETTLE_MS`), or while its chat runs a turn
+  that another board process asked.
+- **Check now** (Task 6, server.mjs `sync`): `supervisor.checkNow({ subject })` runs the rules (asked) and a sweep at
+  once; the main chat is no longer asked (`roles/main.md`, "Check sync"). Review Focus 4: when no sweep can run the page
+  says plainly why (`whyNoSweep`): no `"supervisor"` in the list, no chat of that name open, no Workers mod at all, its
+  mod older than 0.16.0, the person pauses, a full limit, the last sweep still runs; the rules ran all the same. The
+  schedule notes the same reason once, not every minute.
+- **Cleared after every turn** (the Workers mod 0.16.0, `register.tsx clearSupervisor`): a chat the board's answer to
+  its turn's end names `supervisor` (or the list names so, when the board did not answer) is cleared with /clear after
+  every turn of its own, through the clear-after-step path (`queueClear`, the card's mark, the /clear's ticket) without
+  `save-log` and without a worker's guards: only a turn or a subagent still running, or a prompt that came in before the
+  /clear ran, holds it (the card says why). Its turn's end reaches the board before (the clear comes after `turn-ended`).
+  The conversation after the clear is told nothing: the next sweep word says what to do. The board refuses `save-log`
+  for it as for every chat but a worker.
+- **What a sweep did and cost**: the server tells the supervisor its chat's `health`, `incident` and `turn-ended` calls
+  (`heard`): a health read, each incident filed (`found`), and the turn's end with its session and start. 20 seconds
+  after it ended the tokens of that turn are read from the chat's transcript (`tokensOfTurn`: every answer from the
+  turn's start on, each message once; the old transcript stays after the clear): input, cache writes, cache reads and
+  output, and their sum. A sweep that ended without reading health says so ("its Workers mod may be older than
+  0.16.0"); one whose chat went quiet without a turn's end says that. The last sweep, the reason none ran and the last 50
+  sweeps stand in `<project>/.claude/supervisor-sweep.json`, so a restart neither sweeps at once nor forgets one that
+  runs. The view: `lastSweep`, `sweepNote`, `sweepEvery`, `sweepsToday` (count and tokens); the section's line "Last
+  sweep at 10:30 (by the clock): 2 findings, 31,200 tokens. Today 7 sweeps, 201,300 tokens." (spec, "Cost": measured,
+  not guessed).
+- **The Workers mod's version** (0.16.0): every call to the board carries `X-Workers-Mod` (`board.ts MOD_VERSION`, the
+  same as plugin.json, a test checks it); the server keeps it per chat (`noteMod`), which makes the watch rule `old-mod`
+  live and lets Check now say that the supervisor's chat runs a mod too old to sweep. A mod older than 0.16.0 sends none.
+- Tests: `test/supervisor/health.test.mjs`, `test/supervisor/sweep.test.mjs`; the mod's `chatlist.test.ts` (health and
+  incident forwarded, the supervisor cleared without a log, the version header), `chats.test.ts`, `board.test.ts`.
+
 ## Clear after each step (2026-10-23)
 
 Measured on 2026-10-23: 73% of all the project chats' usage was the model reading long histories again (300k to 700k

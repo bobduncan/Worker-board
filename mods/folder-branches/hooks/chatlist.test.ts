@@ -89,6 +89,8 @@ type World = {
   /** Review 3: a /compact the test holds until it lets it go; every file the mod wrote, in order. */
   holdCompact: Promise<void> | null
   writes: string[]
+  /** The supervisor: the version each call to the board said in its X-Workers-Mod header. */
+  modHeaders: string[]
 }
 
 /** Pause 2: the board's pause-state answer while nobody paused. */
@@ -100,7 +102,7 @@ async function settle(): Promise<void> {
 }
 
 function world(id: string, files: Record<string, string> = {}): World {
-  return { id, files, agents: [], tools: [], opened: [], sent: [], whileAsked: null, waiting: [], takeAnswers: [], fetched: [], typedIn: [], reported: [], refusesTyping: false, up: null, spawned: [], comesUp: true, tokens: 50_000, refusesCompact: false, isHeadless: false, commanded: [], compactions: [], toasts: [], worked: [], workAnswer: { status: 200, text: '{"text":"Yours, Units:"}' }, formAnswers: {}, workAnswers: [], formResponse: null, formCloses: false, hangs: false, contexts: [], workedAt: [], pauseAnswer: RUNNING, pauseReads: 0, descriptions: {}, stored: {}, requests: [], cuts: [], held: null, byAction: {}, holdAction: null, sequence: [], holdCompact: null, writes: [] }
+  return { id, files, agents: [], tools: [], opened: [], sent: [], whileAsked: null, waiting: [], takeAnswers: [], fetched: [], typedIn: [], reported: [], refusesTyping: false, up: null, spawned: [], comesUp: true, tokens: 50_000, refusesCompact: false, isHeadless: false, commanded: [], compactions: [], toasts: [], worked: [], workAnswer: { status: 200, text: '{"text":"Yours, Units:"}' }, formAnswers: {}, workAnswers: [], formResponse: null, formCloses: false, hangs: false, contexts: [], workedAt: [], pauseAnswer: RUNNING, pauseReads: 0, descriptions: {}, stored: {}, requests: [], cuts: [], held: null, byAction: {}, holdAction: null, sequence: [], holdCompact: null, writes: [], modHeaders: [] }
 }
 
 /** The project's list of chats, with the titles that join by themselves. */
@@ -226,6 +228,7 @@ function stand(on: On, w: World): void {
   })
   on('http.fetch', (_$, e) => {
     if (w.up !== null && !w.up.some(address => e.url.startsWith(address))) return { deny: 'ECONNREFUSED' }
+    if (e.url.includes('/api/bridge/')) w.modHeaders.push(e.init?.headers?.['X-Workers-Mod'] ?? '')
     if (e.url.endsWith('/api/bridge/work') && /"action":"pause-state"/.test(e.init?.body ?? '')) {
       // Pause 2: the mod's own reading of the pause, apart from the work calls the tests count.
       w.pauseReads += 1
@@ -2675,5 +2678,58 @@ describe('clear after each step', () => {
     const before = w.worked.length
     expect((await $.tool.call({ tool: WORK, action: 'save-log' } as never)).result).toContain('the Workers mod\'s own call')
     expect(w.worked.length).toBe(before)
+  })
+
+  /** The supervisor's chat (the list's "supervisor"), at the start of a sweep's turn; the board answers its turn's end with `ended`. */
+  async function watcher($: Engine, on: On, ended: { status: number; text: string }): Promise<World> {
+    const w = world('watcher', { [`${CHATS}/list.json`]: '{ "prefix": "Game - ", "main": "Main", "afterStep": "clear", "supervisor": "Watcher" }\n', [BOARD]: board })
+    stand(on, w)
+    w.tokens = 400_000
+    w.byAction = { 'turn-ended': ended }
+    await $.session.start(START)
+    await $.classic.UserPromptSubmit({ prompt: 'sweep', session_title: 'Game - Watcher' })
+    await $.turn.start({ text: 'sweep: run work health', turnId: 't1' })
+    return w
+  }
+
+  test('the supervisor: its chat is cleared after every turn, without a log; its turn\'s end reaches the board first; the next conversation is told nothing', async ($, on) => {
+    const clock = mock.clock(on)
+    const w = await watcher($, on, ok({ text: 'No instruction was left open.', missed: [], open: [], role: 'supervisor', pause: RUNNING }))
+    await $.turn.complete({ ...ENDED, turnId: 't1' })
+    await wait(50)
+    // No report and no step: the turn's end goes to the board, then /clear; no log is asked for, nothing is compacted.
+    expect(w.sequence).toEqual(['turn-ended', '/clear'])
+    expect(w.commanded).toEqual(['/clear by plugin folder-branches'])
+    expect(w.compactions).toEqual([])
+    expect(w.toasts).toEqual([])
+    expect(fileOf(w)?.clearing).toEqual({ at: clock.now(), step: null, log: null })
+    await $.session.end({ reason: 'clear', sessionId: w.id, resume: { id: w.id } })
+    w.id = 'watcher-2'
+    const started = await $.classic.SessionStart({ source: 'clear', session_title: 'Game - Watcher' })
+    expect([...(started.additionalContext ?? [])]).toEqual([])
+    expect(fileOf(w, 'watcher-2')).toEqual({ name: 'Watcher', role: 'worker', state: 'waiting', task: null, at: clock.now(), cleared: { at: clock.now(), step: null, log: null } })
+    // Every call to the board says the mod's version.
+    expect(w.modHeaders.length).toBeGreaterThan(0)
+    expect(w.modHeaders.every(one => one === '0.16.0')).toBe(true)
+  })
+
+  test('the supervisor: when the board does not answer its turn\'s end, the list of chats names it, and it is cleared all the same', async ($, on) => {
+    mock.clock(on)
+    const w = await watcher($, on, { status: 503, text: 'The board restarts: try again in a moment.' })
+    await $.turn.complete({ ...ENDED, turnId: 't1' })
+    await wait(50)
+    expect(w.commanded).toEqual(['/clear by plugin folder-branches'])
+    expect(w.sequence.filter(one => one === 'save-log')).toEqual([])
+  })
+
+  test('the supervisor: a subagent of it still running keeps it from being cleared, and its card says why', async ($, on) => {
+    mock.clock(on)
+    const w = await watcher($, on, ok({ missed: [], open: [], role: 'supervisor', pause: RUNNING }))
+    w.agents = [{ id: 'a1', name: 'look' }]
+    await $.turn.complete({ ...ENDED, turnId: 't1' })
+    await wait(50)
+    expect(w.commanded).toEqual([])
+    expect(w.compactions).toEqual([])
+    expect(fileOf(w)?.clearNote?.why).toBe('a subagent it started still runs (1)')
   })
 })

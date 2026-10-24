@@ -7,7 +7,7 @@ import { atom, read, update } from 'claude-code'
 import type { EngineInterface, FsEntry, Register, Timer } from 'claude-code'
 
 import type { BoardRole, ChatFile, ChatList, ChatRole, ChatRow, ChatsView, FolderRow, FoldersView } from '../types'
-import { BOARD_FILE, BOARD_NOTE, LAUNCH_FILE, REQUEST_HEADER, TAKE_PATH, TYPED_PATH, WORK_ACTIONS, WORK_FIELDS, WORK_PATH, boardStarts, isPaused, parseBoard, parsePause, parseTaken, pauseContexts, shownName } from './board'
+import { BOARD_FILE, BOARD_NOTE, LAUNCH_FILE, MOD_HEADER, MOD_VERSION, REQUEST_HEADER, TAKE_PATH, TYPED_PATH, WORK_ACTIONS, WORK_FIELDS, WORK_PATH, boardStarts, isPaused, parseBoard, parsePause, parseTaken, pauseContexts, shownName } from './board'
 import type { Board, BoardStart, PauseState, PauseWhere } from './board'
 import {
   BEAT_MS, CHATS_DIR, LEFT_MAX_SIZE, LEFT_TEXT, LIST_FILE, afterTurn, atTurnStart, cardGap, cardOld, chatNote, clearWhy, clearedStart, compactKeep, compactWhy, chatText, chatsSummary, fileName,
@@ -402,7 +402,7 @@ async function askBoard($: EngineInterface, board: Board, path: string, more: Re
   if (myself === null) return null
   const answer = await $.http.fetch(`${board.url}${path}`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'X-Board-Key': board.key },
+    headers: { 'Content-Type': 'application/json', 'X-Board-Key': board.key, [MOD_HEADER]: MOD_VERSION },
     body: JSON.stringify({ chat: myself.name, session: await $.session.id(), ...more }),
   })
   // B463: a chat renamed in the app learns its new name here, at the next take, whatever wakes it.
@@ -453,7 +453,7 @@ async function workOnce($: EngineInterface, fields: Record<string, unknown>, req
     // B412: the call's request id: the board gives a repeat of it the first answer, so a call is recorded once.
     const asked = $.http.fetch(`${board.url}${WORK_PATH}`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'X-Board-Key': board.key, ...(request === null ? {} : { [REQUEST_HEADER]: request }) },
+      headers: { 'Content-Type': 'application/json', 'X-Board-Key': board.key, [MOD_HEADER]: MOD_VERSION, ...(request === null ? {} : { [REQUEST_HEADER]: request }) },
       // Who asks is the mod's to say, never the chat's.
       body: JSON.stringify({ ...fields, chat: myself.name, session: await $.session.id() }),
     })
@@ -993,7 +993,9 @@ async function busyWhy($: EngineInterface): Promise<string | null> {
 /**
  * Clear after each step: what becomes of the chat when a turn of it has ended. A worker that reported its step in it is
  * cleared ("afterStep": "clear" in the list of chats) or compacted (the default); the main chat and the partners are
- * never cleared, and are compacted at rest above the list's threshold, once per turn.
+ * never cleared, and are compacted at rest above the list's threshold, once per turn. The supervisor's chat (the
+ * board's role supervisor, or the list's "supervisor" when the board did not answer) is cleared after every turn,
+ * without a log, so each sweep starts empty.
  */
 async function whenTurnEnds($: EngineInterface, f: { isReported: boolean; moreFollows: boolean; step: string | null; answer: string; ended: Record<string, unknown> | null; asked: boolean; retry: EndedRetry | null }): Promise<void> {
   const dir = await findChatsDir($)
@@ -1001,6 +1003,7 @@ async function whenTurnEnds($: EngineInterface, f: { isReported: boolean; moreFo
   const role = roleFrom(f.ended)
   const list = parseList(await $.fs.read(inFolder(dir, LIST_FILE)).catch(() => ''))
   const chat = await readChat($, dir, await $.session.id())
+  if (role === 'supervisor' || (role === null && isSupervisorOf(list, chat))) return clearSupervisor($, chat)
   if ((role ?? chat?.role ?? 'worker') === 'worker') {
     if (!f.isReported) return
     if (list !== null && chat !== null && list.afterStep === 'clear') {
@@ -1099,11 +1102,19 @@ async function clearAfter($: EngineInterface, c: { list: ChatList; chat: ChatFil
   // The mark on the card, written just before /clear: the conversation after it finds its card by it (a reload between).
   const marked = await changeMine($, mine => ({ ...mine, clearing: { at: now, step: c.step, log }, clearNote: undefined }))
   if (marked === null) return instead('this chat\'s card could not be written')
+  queueClear($, { from, chat: marked, step: c.step, log, file, at: now, prompts, turn }, instead)
+  await tell($, `Clearing this chat after ${c.step ?? 'its step'}: its conversation is kept in ${file}.`)
+}
+
+/**
+ * Clear after each step: the /clear of a clear decided now (`c`, its mark on the card written), queued for when this chat
+ * is idle, as /compact is; the command's own hook looks once more before it runs, and runs only the /clear of the clear
+ * still on its way (its ticket). One that does not run is said through `instead`.
+ */
+function queueClear($: EngineInterface, c: Omit<Clearing, 'ticket'>, instead: (why: string) => Promise<void>): void {
   clearTickets += 1
   const ticket = clearTickets
-  clearing = { from, chat: marked, step: c.step, log, file, at: now, prompts, turn, ticket }
-  // Queued for when this chat is idle, as /compact is; the command's own hook looks once more before it runs, and runs
-  // only the /clear of the clear still on its way (its ticket).
+  clearing = { ...c, ticket }
   queuedClears.push(ticket)
   void $.command.run({ command: 'clear' }).then(() => undefined, async (err: unknown) => {
     const at = queuedClears.indexOf(ticket)
@@ -1112,7 +1123,37 @@ async function clearAfter($: EngineInterface, c: { list: ChatList; chat: ChatFil
     clearing = null
     await instead(`/clear did not run: ${reason(err)}`)
   }).catch(() => null)
-  await tell($, `Clearing this chat after ${c.step ?? 'its step'}: its conversation is kept in ${file}.`)
+}
+
+/** The supervisor (spec 2026-10-24): true when the list of chats names this chat its supervisor ("supervisor"). */
+function isSupervisorOf(list: ChatList | null, chat: ChatFile | null): boolean {
+  return list?.supervisor !== undefined && chat !== null && chat.name.toLowerCase() === list.supervisor.toLowerCase()
+}
+
+/**
+ * The supervisor (spec 2026-10-24): its chat is cleared after every turn of its own, so each sweep starts empty and costs
+ * little. No log is kept (nothing in a sweep is needed after it: what it found stands in the board's incidents), and
+ * none of a worker's guards hold it but these: a turn or a subagent of it still running, or a prompt that came in
+ * before the /clear ran (the command's own hook). Its turn's end reached the board before this. The card says why when
+ * it is not cleared; the conversation after the clear is told nothing (the next sweep word says what to do).
+ */
+async function clearSupervisor($: EngineInterface, chat: ChatFile | null): Promise<void> {
+  const note = async (why: string): Promise<void> => {
+    try {
+      const now = await $.clock.now()
+      await changeMine($, mine => ({ ...mine, clearNote: { at: now, why }, clearing: undefined }))
+    } catch {
+      // only the card does not learn of it
+    }
+  }
+  if (chat === null) return
+  const busy = isInTurn ? 'a turn is running' : await busyWhy($)
+  if (busy !== null) return note(busy)
+  const from = await $.session.id()
+  const now = await $.clock.now()
+  const marked = await changeMine($, mine => ({ ...mine, clearing: { at: now, step: null, log: null }, clearNote: undefined }))
+  if (marked === null) return note('this chat\'s card could not be written')
+  queueClear($, { from, chat: marked, step: null, log: null, file: null, at: now, prompts: promptCount, turn: turnNumber }, note)
 }
 
 /**
@@ -1201,8 +1242,9 @@ async function afterClear($: EngineInterface, title: unknown, isClear: boolean):
       isTurnEndTold = true
     }
     // The start's words only after the mod's own clear of a worker, or a clear of a chat the board names a worker: a
-    // partner or the main chat the person cleared themselves is told nothing of a worker's.
-    if (moved === null || (done === null && lastRole !== 'worker')) return
+    // partner or the main chat the person cleared themselves is told nothing of a worker's. Nor is the supervisor's
+    // chat, which the mod clears without a log after each sweep: the next sweep word says what to do.
+    if (moved === null || (done === null && lastRole !== 'worker') || lastRole === 'supervisor' || (done !== null && done.log === null)) return
     const list = parseList(await $.fs.read(inFolder(chatsDir ?? '', LIST_FILE)).catch(() => ''))
     // B298: the board names the open instructions, kept under the chat's name; the ones it named before the clear stand
     // in when it does not answer in time.

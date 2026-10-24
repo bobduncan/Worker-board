@@ -11,6 +11,12 @@ export const TYPED_PATH = '/api/bridge/typed'
 export const WORK_PATH = '/api/bridge/work'
 /** B412: the header that carries a work call's request id: the board answers a repeat of it the same way. */
 export const REQUEST_HEADER = 'X-Work-Request'
+/**
+ * The supervisor (spec 2026-10-24): the header that tells the board this mod's version with every call, so it sees a
+ * chat that runs an older Workers mod than the one installed. The same as `version` in .claude-plugin/plugin.json.
+ */
+export const MOD_HEADER = 'X-Workers-Mod'
+export const MOD_VERSION = '0.16.0'
 /** The longest text typed for the board: its own limit for an answer, with room for the request's name around it. */
 export const MOST_CHARS = 3000
 

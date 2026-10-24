@@ -586,8 +586,9 @@ export function wakeFor(message, state, outbox, now, maxChars) {
   // B288: and a re-check of the goals, asked of the Advisor; B258: and an ask from the goal map; B259: and the words of a brainstorm.
   // Focus 2: and the words of the Focus page to the partner. B359: and the goal guard's evaluate.
   // 2026-10-24: and the Vision tab's words on the product plan (`plan-*`), which waited for a stopped partner unseen.
+  // The supervisor (spec 2026-10-24): and its sweep word to the supervisor's chat, and an incident's word to the partner.
   const command = message.command ?? null
-  if (main === null || message.to === main || (command !== null && !command.startsWith('plan-') && !['recommend', 'refine', 'result-check', 'evaluate', 'work', 'recheck', 'goal-ask', 'brainstorm', 'brainstorm-answer', 'brainstorm-wrap', 'brainstorm-change', 'brainstorm-fix', ...FOCUS_COMMANDS].includes(command))) return null
+  if (main === null || message.to === main || (command !== null && !command.startsWith('plan-') && !['recommend', 'refine', 'result-check', 'evaluate', 'work', 'recheck', 'goal-ask', 'brainstorm', 'brainstorm-answer', 'brainstorm-wrap', 'brainstorm-change', 'brainstorm-fix', 'sweep', 'incident', ...FOCUS_COMMANDS].includes(command))) return null
   if ((state.chats ?? []).find(chat => chat.name === main)?.isRunning === false) return null
   // Not again within two minutes; and while an earlier word still waits for the main chat, not for ten.
   const isOnItsWay = sent => (sent.state === 'waiting' || sent.state === 'taken') && now - sent.at < WAKE_PENDING_MS
@@ -646,6 +647,19 @@ export async function withInstruction(message, file) {
  */
 export const workWords = (to, id, text = `work: ${id} is yours; run work next`) => ({
   to, ask: null, step: null, title: null, version: null, verdict: null, command: 'work', about: id, text,
+})
+
+/**
+ * The supervisor's Part 2 (spec 2026-10-24, "The supervisor chat"): the board's word that starts a sweep of the supervisor's
+ * chat, typed as it is (the board's own line, bridge.mjs `messageText`): read the health summary, file each oddity, end
+ * the turn. `subject` the worker "Check now" was pressed for in its menu, or null; `job` where its job is written.
+ */
+export const sweepWords = (to, { subject = null, job }) => ({
+  to, ask: null, step: null, title: null, version: null, verdict: null, command: 'sweep', about: subject ?? 'board',
+  text: [
+    `sweep: run work health, file each oddity with work incident (evidence and the rule that could catch it), then end your turn${subject === null ? '' : ` (about ${plainLine(subject)})`}`,
+    `Your job: ${job}`,
+  ].join('\n'),
 })
 
 export const answerWords = wake => ({
