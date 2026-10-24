@@ -16,7 +16,7 @@ export const REQUEST_HEADER = 'X-Work-Request'
  * chat that runs an older Workers mod than the one installed. The same as `version` in .claude-plugin/plugin.json.
  */
 export const MOD_HEADER = 'X-Workers-Mod'
-export const MOD_VERSION = '0.16.2'
+export const MOD_VERSION = '0.17.0'
 /** The longest text typed for the board: its own limit for an answer, with room for the request's name around it. */
 export const MOST_CHARS = 3000
 
@@ -27,6 +27,8 @@ export type Board = { url: string; key: string }
 /** A board the mod keeps running: the name of its launch entry, its command, and where it answers. */
 export type BoardStart = { name: string; argv: string[]; url: string }
 export type Taken = { id: string; text: string }
+/** B547: the clear the board names at a take: the step this worker reported last, and when (to the minute). */
+export type OwedClear = { step: string | null; reportedAt: number }
 
 function parsed(text: string): unknown {
   try {
@@ -71,10 +73,16 @@ export function shownName(text: string): string | null {
  * not typed; its id is in `refused`, so the board is told it did not arrive, and `why` says why (B532: "too long: 9459 >
  * 3000 characters"), so the board does not try it again and the page names the reason.
  */
-export function parseTaken(text: string): { messages: Taken[]; refused: string[]; why: Record<string, string> } {
+export function parseTaken(text: string): { messages: Taken[]; refused: string[]; why: Record<string, string>; clear: OwedClear | null } {
   const raw = parsed(text)
-  const taken: { messages: Taken[]; refused: string[]; why: Record<string, string> } = { messages: [], refused: [], why: {} }
-  if (!isRecord(raw) || !Array.isArray(raw.messages)) return taken
+  const taken: { messages: Taken[]; refused: string[]; why: Record<string, string>; clear: OwedClear | null } = { messages: [], refused: [], why: {}, clear: null }
+  if (!isRecord(raw)) return taken
+  // B547: a worker whose last report is newer than its last clear: the board names the clear (and holds its next step).
+  const clear = raw.clear
+  if (isRecord(clear) && typeof clear.reportedAt === 'number' && Number.isFinite(clear.reportedAt)) {
+    taken.clear = { step: typeof clear.step === 'string' && /^[A-Z]\d{1,6}$/.test(clear.step) ? clear.step : null, reportedAt: clear.reportedAt }
+  }
+  if (!Array.isArray(raw.messages)) return taken
   for (const message of raw.messages) {
     if (!isRecord(message) || typeof message.id !== 'string' || message.id === '') continue
     const words = typeof message.text === 'string' ? message.text.trim() : ''

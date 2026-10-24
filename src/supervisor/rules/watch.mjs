@@ -19,6 +19,7 @@ import { whyClosed } from '../../work/outboxSweep.mjs'
 import { FIRST_SAYING, chatsByRole, oldModFinding } from '../../oldMods.mjs'
 import { EFFORTS, chatEffort, effortSaid } from '../../work/effort.mjs'
 import { reviewWaitOf } from '../../work/resultCheck.mjs'
+import { CLEAR_MOD, takenSince } from '../../clearOwed.mjs'
 
 const MIN = 60_000
 const HOUR = 60 * MIN
@@ -439,6 +440,38 @@ function reviewStuck(view, ctx) {
   return found
 }
 
+/**
+ * 13. B547 (the rules X13 and X14 wanted): a worker whose last report is newer than its last clear (state.mjs `clearOwed`,
+ * src/clearOwed.mjs) and that took a new step since, on the old conversation; or that stays so for longer than
+ * `notClearedMinutes` (a log refused while its background work runs, a mod that left no word). One finding per worker
+ * per report, with the Workers mod's why when it logged one, and the repair: the board holds its next step and names the
+ * clear to its mod once it is idle; an older mod cannot run it, and the chat needs the restart that brings the new one.
+ */
+function notCleared(view, ctx) {
+  const found = []
+  if (isPaused(view)) return found
+  for (const lane of workersOf(view)) {
+    const owed = lane.clearOwed ?? null
+    if (owed === null || !Number.isFinite(owed.reportedAt)) continue
+    const key = `not-cleared ${lane.name} ${owed.step}`
+    const ms = lasted(view, ctx, key, afterPause(view, owed.reportedAt))
+    const took = takenSince(view.items, lane.name, owed.reportedAt, view.prefix)[0] ?? null
+    if (took === null && ms <= view.settings.notClearedMinutes * MIN) continue
+    const why = owed.why ?? 'no reason logged'
+    const repair = owed.canClear === true
+      ? 'the board holds its next step and names the clear to its Workers mod once the chat is idle'
+      : `its Workers mod is older than ${CLEAR_MOD} and cannot run a clear the board names: its chat needs a restart (Pause all, restart the app, Resume all)`
+    found.push({
+      rule: 'not-cleared', key, subject: lane.name,
+      text: took === null
+        ? `${lane.name} not cleared ${minutes(ms)} min after it reported ${owed.step}: ${why}`
+        : `${lane.name} took ${took.id} on the conversation of ${owed.step}: not cleared after that report (${why})`,
+      evidence: `last report ${owed.step} at ${clockOf(owed.reportedAt)}; last clear ${Number.isFinite(owed.clearedAt) ? `at ${clockOf(owed.clearedAt)}` : 'none known'}${took === null ? '' : `; took ${took.id} at ${clockOf(took.at)}`}; repair: ${repair}`,
+    })
+  }
+  return found
+}
+
 /** Every watch rule, in the order the section shows them. */
 export const WATCH_RULES = [
   { id: 'unknown-lane', kind: 'watch', says: 'a worker "unknown" for too long', check: unknownLane },
@@ -454,4 +487,5 @@ export const WATCH_RULES = [
   { id: 'old-mod', kind: 'watch', says: 'a chat on an older Workers mod than the one installed', check: oldMod },
   { id: 'odd-effort', kind: 'watch', says: 'a chat whose effort is not a level', check: oddEffort },
   { id: 'review-stuck', kind: 'watch', says: 'a step in review with no result check for too long, or whose fix was dropped', check: reviewStuck },
+  { id: 'not-cleared', kind: 'watch', says: 'a worker not cleared after its reported step', check: notCleared },
 ]
