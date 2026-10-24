@@ -71,10 +71,36 @@ export function clearRefusal(state, chat, background) {
 
 const ids = value => (Array.isArray(value) ? value : []).filter(id => typeof id === 'string' && id !== '').slice(0, 100)
 
-/** What the mod reports after a take: the messages it typed into its chat, and the ones it could not type. */
+/** B532: the most characters the Workers mod types as one word (its board.ts MOST_CHARS); a longer one it refuses. */
+export const MOD_MOST_CHARS = 3000
+
+/**
+ * B532: what a take hands the mod: `messages` that fit, and the ids of those longer than the mod types (`refused`), each
+ * with its why, so the board closes them failed for good at once instead of the mod refusing them unseen.
+ */
+export function fitsMod(handed, most = MOD_MOST_CHARS) {
+  const over = handed.filter(one => one.text.trim().length > most)
+  return {
+    messages: handed.filter(one => !over.includes(one)),
+    refused: over.map(one => one.id),
+    why: Object.fromEntries(over.map(one => [one.id, `too long: ${one.text.trim().length} > ${most} characters`])),
+  }
+}
+
+/** B532: why the mod could not type a word, per id of `of`: one plain line each, cut. */
+const reasons = (value, of) => Object.fromEntries(of.filter(id => typeof value?.[id] === 'string' && value[id].trim() !== '')
+  .map(id => [id, value[id].replace(/\s+/g, ' ').trim().slice(0, 200)]))
+
+/**
+ * What the mod reports after a take: the messages it typed into its chat, and the ones it could not type. B532: `why`
+ * says why per id, `refused` names the ones it refused for good (too long, no text), which are not tried again.
+ */
 export function checkTyped(body, state) {
   const checked = checkTake(body, state)
-  return checked.ok ? { ...checked, typed: ids(body.typed), failed: ids(body.failed) } : checked
+  if (!checked.ok) return checked
+  const failed = ids(body.failed)
+  const refused = ids(body.refused)
+  return { ...checked, typed: ids(body.typed), failed, refused, why: reasons(body.why, [...failed, ...refused]) }
 }
 
 /** The file that tells the mod where the board is. It holds no words of a chat. */

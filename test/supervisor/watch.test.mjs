@@ -19,6 +19,7 @@ const ago = minutes => NOW - minutes * MIN
 const item = (head, sections = {}) => ({ head: new Map(Object.entries(head)), sections: new Map(Object.entries(sections)) })
 const step = (id, state, more = {}, sections = {}) => item({ Id: id, Kind: 'step', Title: `Step ${id}`, State: state, Since: stamp(ago(60)), ...more }, sections)
 const items = (...all) => new Map(all.map(one => [one.head.get('Id'), one]))
+const clockOf = ms => `${String(new Date(ms).getHours()).padStart(2, '0')}:${String(new Date(ms).getMinutes()).padStart(2, '0')}`
 const lane = (name, more = {}) => ({ name, isMain: false, isLeftover: false, state: 'free', isRunning: true, session: `s-${name}`, ...more })
 const LEAD = lane('Lead', { isMain: true, state: 'working' })
 /** The timeline as state.mjs gives it: a chat's spans of state up to now. */
@@ -174,6 +175,21 @@ test('undelivered: a word to a chat waiting 11 min trips, 9 min not; one that ex
   assert.deepEqual(check('undelivered', view({ outbox: [word(30, 'held'), word(30, 'delivered'), word(300, 'expired')] })), [], 'an expired one of hours ago is history')
   // A word held by the person's pause counts from its release.
   assert.deepEqual(check('undelivered', view({ outbox: [word(40, 'waiting', { releasedAt: ago(4) })] })), [])
+})
+
+test('B532 undelivered: a word the outbox sweep drops is not named, nor an answer past its keep; a word still needed is', () => {
+  const at = ago(30)
+  const outbox = [
+    { id: 'r1', to: 'Painter', command: 'refine', about: 'B5', at, state: 'waiting' },
+    { id: 'r2', to: 'Painter', command: 'refine', about: 'B5', at: ago(20), state: 'delivered' },
+    { id: 'c1', to: 'Painter', command: 'result-check', about: 'B6', at, state: 'waiting' },
+    { id: 'a1', to: 'Painter', ask: 'work:Q3', step: 'Q3', at: ago(3 * 24 * 60), state: 'waiting' },
+  ]
+  const board = more => view({ items: items(step('B5', 'new'), step('B6', 'done')), outbox, ...more })
+  assert.deepEqual(check('undelivered', board()), [], 'superseded, its step done, an old answer')
+  const needed = { id: 'c2', to: 'Painter', command: 'result-check', about: 'B7', at, state: 'waiting' }
+  const found = check('undelivered', view({ items: items(step('B7', 'review')), outbox: [...outbox, needed] }))
+  assert.deepEqual(found.map(one => one.evidence), [`${clockOf(at)} result-check B7 (waiting)`])
 })
 
 test('report-check-twice: a step whose board check failed twice since its last pass trips; once, or passed after, does not', () => {

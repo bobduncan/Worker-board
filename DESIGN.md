@@ -1952,6 +1952,36 @@ Safety, because what arrives is typed into a chat that can change files:
 - What remains: any program running as the person on this PC could type through it. Such a program can already
   change the files the chats read.
 
+### A word that waits (B532)
+
+The supervisor's first run (2026-10-24) found 33 words "waiting" in the outbox, the oldest of nine days: `take` handed
+out only words under `messageKeepMinutes` (10) old, so a word to a chat that was busy or closed longer stayed waiting
+in the file for ever and showed as expired on the page only (the partner's S20 confirmation, the weekly round, B403's
+check request); and the goal guard's evaluate word of 9459 characters was refused by the mod (its limit is 3000) and
+never sent again, with nobody told why. Now:
+
+1. A word the chat's work stands on waits as long as an answer does (`answerKeepHours`, store.mjs `keepMs`): a partner
+   word (`say.mjs` `isPartnerWord`: refine, result check, evaluate, the plan's words, the Focus page's), a round of the
+   board's clock and the main chat's `start` of a closed chat. A line the person typed to a chat keeps its minutes:
+   nothing typed long ago turns up in a chat. A word over 10 minutes old goes with its age under its words ("this word
+   waited for you: sent 3 hours ago, at 15:00"); its first line stays the board's own, which the chat reads.
+2. The sweep (`src/work/outboxSweep.mjs`), at every refresh (deliver.mjs) and before a chat's take (for that chat's
+   words), closes a waiting word that no longer matters and writes its state and `why` with `closedAt` into the
+   outbox: `dropped` when a newer word of the same kind to the same chat about the same step, round or plan item
+   stands (waiting, taken or delivered), a refine for a step no longer new (a later round also while it is refined), a
+   check for a step out of review or gone, an evaluate once its goal is done or was evaluated after it, a start once
+   that chat runs or nothing waits for it; `expired` once it waited longer than it is kept. Never: a person's answer
+   (it waits for its chat, also one off on purpose) and a work line (`withdrawStale` judges it by its step). The page
+   lists the closed words with their why for 12 hours after they were closed (`outboxNow`).
+3. A word the mod took and could not type (`$.prompt.submit` threw, or a hook dropped it) is reported with its why
+   (the Workers mod 0.15.1, `reportTyped`), and goes again after a minute as a new word (`retryOf`; the mod types an id
+   once per process), three tries in all, while it is not late. A word the mod refused for good (too long, no text:
+   `refused`, `final`) is not tried again, and the board hands no word over the mod's 3000 characters at all
+   (`fitsMod`, bridge.mjs): it fails at once with "too long: N > 3000 characters". A work line is not retried: the
+   work store sends its own.
+4. The supervisor's rule 8 (`undelivered`) judges a waiting word as the sweep does and names only what still waits
+   after it: not a word the sweep drops, nor a person's answer past its keep.
+
 ## A step's title without its note (B292)
 
 The person, 2026-10-17, of Support's lane showing B29's whole line: "tasks still dont have a compact name. i dont

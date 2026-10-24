@@ -68,6 +68,8 @@ const expired = (message, keep) => ({ state: 'expired', why: `waited longer than
  * judges only the words to that chat (a chat's take: the store is read only when something waits for it).
  */
 export async function sweepOutbox({ dir, outbox, state, now, keep, fs, dry = false, to = null }) {
+  // Without the outbox's keep (a caller that delivers work lines only) nothing is judged.
+  if ((keep ?? null) === null) return []
   if (!dry) await outbox.retryFailed(now, keep)
   const waiting = outbox.outbox().filter(message => message.state === 'waiting' && (to === null || message.to === to))
   if (waiting.length === 0) return []

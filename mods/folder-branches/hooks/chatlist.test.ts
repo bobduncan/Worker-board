@@ -700,7 +700,11 @@ describe('what the person answers on the worker board reaches the chat it is for
     await clock.advance(5000)
     await settle()
     expect(w.typedIn).toEqual([])
-    expect(w.reported.map(body => JSON.parse(body).failed).flat().sort()).toEqual(['m1', 'm2'])
+    // B532: a word too long is refused for good, one a hook dropped failed; each with why.
+    const said = w.reported.map(body => JSON.parse(body))
+    expect(said.flatMap(body => body.failed ?? [])).toEqual(['m1'])
+    expect(said.flatMap(body => body.refused ?? [])).toEqual(['m2'])
+    expect(Object.assign({}, ...said.map(body => body.why))).toEqual({ m1: 'a hook dropped it: no prompt is taken now', m2: 'too long: 5000 > 3000 characters' })
   })
 
   test('no board is asked without its file, by a chat that is not in the list, or anywhere but on this machine', async ($, on) => {

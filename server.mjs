@@ -30,7 +30,7 @@ import { fileURLToPath } from 'node:url'
 
 
 import { minutesOf } from './src/backlog.mjs'
-import { bridgeNote, checkTake, checkTyped, clearRefusal, isUnknownSession, messageText } from './src/bridge.mjs'
+import { bridgeNote, checkTake, checkTyped, clearRefusal, fitsMod, isUnknownSession, messageText } from './src/bridge.mjs'
 import { chatLogKeeper, isReadOut, leftSubjects } from './src/chatLogs.mjs'
 import { findCodex, makePicture } from './src/codex.mjs'
 import { checkSetting, panelSettings, settingChanged } from './src/boardSettings.mjs'
@@ -1625,7 +1625,12 @@ async function main(args) {
       const taken = await store.take(checked.chat, clock(), keep, only)
       // What was taken shows as on its way at once.
       if (taken.length > 0) readState.reset()
-      return { ok: true, result: { messages: taken.map(message => ({ id: message.id, text: messageText(message, timeOf, path => inProject(config.project, path)) })) } }
+      const handed = taken.map(message => ({ id: message.id, text: messageText(message, timeOf, path => inProject(config.project, path)) }))
+      // B532: a word longer than the Workers mod types is never handed out: it fails at once, for good, with its why
+      // (2026-10-24: the goal guard's evaluate word of 9459 characters was refused and nobody saw why).
+      const fit = fitsMod(handed)
+      if (fit.refused.length > 0) await store.settle(checked.chat, fit, clock())
+      return { ok: true, result: { messages: fit.messages } }
     }),
     typed: counted(async body => {
       const checked = checkTyped(body, await readState())
@@ -1969,6 +1974,7 @@ async function main(args) {
         state: () => readState(),
         items: async () => (await readStore(workDir)).items,
         outbox: () => store.outbox(),
+        keep,
         refused: () => [...refusedNames.values()],
         apply: async body => {
           const done = await workAction(body, 'server')

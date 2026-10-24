@@ -4,6 +4,9 @@
 
 import { SUPERVISOR_DEFAULTS } from '../config.mjs'
 
+/** The outbox's keep when the board names none (config.mjs messageKeepMinutes and answerKeepHours). */
+const DEFAULT_KEEP = Object.freeze({ messageMs: 10 * 60_000, answerMs: 48 * 60 * 60_000 })
+
 /**
  * The view: `items` (the store's items, a Map), `lanes` (the board's chats, state.mjs; the main chat first), `partner`
  * and `helper` (their cards, or null), `prefix` (the chats' titles' start), `now`, `outbox` (the board's messages as the
@@ -12,9 +15,10 @@ import { SUPERVISOR_DEFAULTS } from '../config.mjs'
  * (state.mjs `today`: per chat its spans of state), `since` (a Map: since when each chat has been in the state it is in
  * now, by the timeline; a chat it does not know is not in it), `repairs` (the repairs of the last day, `[{ at, rule,
  * subject, key }]`), `mods` (`{ installed, chats }`: the Workers mod installed, and the version each chat runs where
- * known) and `settings` (the thresholds, config.mjs SUPERVISOR_DEFAULTS).
+ * known), `settings` (the thresholds, config.mjs SUPERVISOR_DEFAULTS), `keep` (how long the outbox keeps a word) and
+ * `goals` (the goal map's nodes).
  */
-export function buildView({ state = {}, items = new Map(), outbox = [], limits, pause, refused = [], leftovers, repairs = [], mods = null, settings = {}, now }) {
+export function buildView({ state = {}, items = new Map(), outbox = [], keep = null, limits, pause, refused = [], leftovers, repairs = [], mods = null, settings = {}, now }) {
   const lanes = state.chats ?? []
   const timeline = Array.isArray(state.today) ? state.today : []
   return Object.freeze({
@@ -25,6 +29,10 @@ export function buildView({ state = {}, items = new Map(), outbox = [], limits, 
     prefix: state.chatPrefix ?? '',
     now,
     outbox,
+    // B532: how long a word waits for its chat (the outbox's own keep, store.mjs isLate), and the goal map's nodes, so
+    // rule 8 judges a waiting word as the outbox sweep does.
+    keep: keep ?? DEFAULT_KEEP,
+    goals: state.goals?.nodes ?? [],
     limits: limits ?? state.limits ?? {},
     pause: pause ?? state.pause ?? null,
     refused,
