@@ -193,6 +193,15 @@ test('repair-repeats (B551, X11): repairs from before its incident\'s fix was do
   assert.equal(check('repair-repeats', view({ repairs: before, items: items(first, other) })).length, 1)
 })
 
+test('repair-repeats (B574, X25): a step unblocked once per finished blocker is no repeat; the same blocker three times is', () => {
+  const unblock = (minutes, on) => ({ at: ago(minutes), rule: 'blocked', subject: 'B531', key: `blocked B531 ${on}` })
+  // X25: B531 unblocked at 21:09, 21:43 and 21:46, from B549, B554 and B552.
+  assert.deepEqual(check('repair-repeats', view({ repairs: [unblock(37, 'B549'), unblock(3, 'B554'), unblock(0, 'B552')] })), [])
+  const same = check('repair-repeats', view({ repairs: [unblock(37, 'B549'), unblock(20, 'B549'), unblock(3, 'B549')] }))
+  assert.deepEqual(same.map(one => [one.key, one.subject]), [['repair-repeats blocked B531 B549', 'B531']])
+  assert.equal(same[0].text, 'The board repaired the same 3 times in a day: blocked for B531')
+})
+
 test('undelivered: a word to a chat waiting 11 min trips, 9 min not; one that expired is undelivered too; held or delivered is not', () => {
   const word = (minutes, state = 'waiting', more = {}) => ({ id: `m${minutes}`, to: 'Painter', command: 'work', about: 'B5', at: ago(minutes), state, ...more })
   const found = check('undelivered', view({ outbox: [word(11), word(3)] }))

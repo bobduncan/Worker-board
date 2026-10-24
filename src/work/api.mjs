@@ -1114,6 +1114,31 @@ async function recapOnDone(step, w) {
   await makeRecap(w, id, valueOf(step, 'Title') ?? '', lastReport(step).result, fixEvidence(id, items) ?? checkedOf(step)?.evidence ?? 'none')
 }
 
+/**
+ * B574 (X25): a step that went done leaves the Blocked by of every open step that names it in the same move, each with
+ * "no longer blocked by B<n>: done", so the sync check's unblock (supervisor rule `blocked`) is left for misses only. A
+ * dependant that cannot be written is left to that check.
+ */
+async function unblockDependants(step, w) {
+  if (stateOf(step) !== 'done') return
+  const id = valueOf(step, 'Id')
+  const items = (await readStore(w.dir, w.fs)).items
+  for (const other of items.values()) {
+    if (kindOf(other) !== 'step' || CLOSED_STEP.includes(stateOf(other)) || !idsIn(valueOf(other, 'Blocked by')).includes(id)) continue
+    const found = await load(valueOf(other, 'Id'), w, { kind: ['step'] })
+    if (!found.ok) continue
+    const left = idsIn(valueOf(found.item, 'Blocked by')).filter(one => one !== id)
+    const item = appendHistory(put(copy(found.item), 'Blocked by', left.length === 0 ? null : left.join(' and ')), 'server', `no longer blocked by ${id}: done`, w.now)
+    await save(ordered(item), found.text, w)
+  }
+}
+
+/** A step that went done: its recap (B360) and its dependants unblocked (B574). */
+async function afterDone(step, w) {
+  await recapOnDone(step, w)
+  await unblockDependants(step, w)
+}
+
 /** The evidence of the newest passed check among the fixes of `id`, down their chain; null when none passed. */
 function fixEvidence(id, items, depth = 0) {
   if (depth > 10) return null
@@ -1357,7 +1382,7 @@ async function check(body, w) {
   const done = await save(item, found.text, w)
   if (!done.ok) return done
   // B360, the review: the board's check may be the last of the two to pass.
-  await recapOnDone(item, w)
+  await afterDone(item, w)
   const recheck = stateOf(item) === 'done' ? await closeFixed(item, w) : null
   // B356: the board's check passed and the step waits for its result check, none asked yet: the server asks the partner.
   const isWaiting = passed && stateOf(item) === 'review' && needsResultCheck(item) && resultCheckOf(item) === null
@@ -1430,7 +1455,7 @@ async function checked(body, w) {
     if (left !== null) return { ...done, why: `${done.why}; its fix ${fix} could not be taken back (${left}): drop it before you try again` }
     return done
   }
-  await recapOnDone(item, w)
+  await afterDone(item, w)
   const recheck = stateOf(item) === 'done' ? await closeFixed(item, w) : null
   return changed(item, undefined, { ...(fix === null ? {} : { fix }), ...(recheck === null ? {} : { resultCheck: recheck }) })
 }
@@ -1586,7 +1611,7 @@ async function closeFixed(item, w) {
     if (closed.ok) origin = closed.item
     const done = await save(origin, found.text, w)
     if (!done.ok || stateOf(origin) !== 'done') return null
-    await recapOnDone(origin, w)
+    await afterDone(origin, w)
     fixed = origin
   }
   return null
@@ -2524,6 +2549,7 @@ async function tick(body, w) {
   }
   if (under !== '') item = underStep(item, [under])
   const done = await save(item, found.text, w)
+  if (done.ok && kindOf(item) === 'step') await unblockDependants(item, w)
   return done.ok ? changed(item) : done
 }
 
@@ -2632,7 +2658,7 @@ async function advance(body, w) {
   if (!moved.ok) return moved
   const done = await save(ordered(moved.item), found.text, w)
   // B360, the review: a step the reconciler moves to done (say once the person answered its look) gets its recap too.
-  if (done.ok) await recapOnDone(ordered(moved.item), w)
+  if (done.ok) await afterDone(ordered(moved.item), w)
   return done.ok ? changed(ordered(moved.item)) : done
 }
 
