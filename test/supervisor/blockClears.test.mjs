@@ -170,7 +170,9 @@ test('the health summary: a step shows only what still holds it, and a word of a
   const text = healthSummary(view, NOW)
   const line = id => text.split('\n').find(one => one.includes(` ${id} `)) ?? ''
   assert.doesNotMatch(line('B1'), /waits for/)
-  assert.match(line('B2'), /\(waits for the check of B6\)/)
+  // B561: with the blocker's state and age; B9, done, is not named.
+  assert.match(line('B2'), /\(waits for the check of B6 \(review 1 h 30 min, stalled\)\)/)
+  assert.doesNotMatch(line('B2'), /B9/)
   assert.match(text, /- ! 2026-10-15 18:13 round to Partner: waiting for 9 d/)
   assert.match(text, /- ! 18:40 round to Partner: waiting for 20 min/)
 })

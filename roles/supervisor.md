@@ -39,7 +39,12 @@ sweep is meant to cost little (a few tens of thousands of tokens, mostly cached)
 - Steps queued for free workers are taken within minutes; one worker with many queued steps while others are idle is
   odd. A result check's fix waits for the worker that built the step it fixes, also while that worker is busy and
   others are free (the flow's rule; the summary says "stays with <worker>: fix of B<n>"): the queued-behind rule names
-  it to the main chat after 20 minutes. Such a wait is no incident.
+  it to the main chat after 20 minutes. Such a wait is no incident, and the summary marks it odd only once that worker
+  holds no step.
+- A step that waits for another step (its Blocked by, or the steps its Waits for names) waits as planned while that
+  step moves: the summary says "waits as planned for B<n> (<state> <age>)" and marks no "!" for its age: no incident.
+  Only a stalled blocker (past its state's limit: "stalled") or a step still blocked after its blocker ended ("still
+  blocked by B<n>, done") is odd.
 - Steps in review are checked and done; steps piling up in review are odd.
 - A worker "suspended" for the limit goes on once its reset has passed or the limits show room again.
 - Work follows the focus goal: work outside it while the focus has steps waiting is odd.

@@ -121,6 +121,54 @@ function waitsOf(item, items) {
   ].filter(one => one !== '')
 }
 
+const stateIn = (items, id) => valueOf(items.get(id) ?? { head: new Map() }, 'State')
+const ageOf = (item, now) => now - sinceMs(valueOf(item, 'Since'))
+const ENDED = ['done', 'dropped']
+
+/**
+ * B561 (X15: B531 queued 4 h 35 min, Blocked by B522 in progress 1 h 23 min on the same worker, read as stuck): what a
+ * queued step waits for as planned: the steps its `Blocked by` names and those its `Waits for` names that are in the
+ * store and not done or dropped (`open`), and which of them are stalled themselves (`stalled`: past their state's
+ * limit and not waiting as planned in turn; a loop of waits counts as stalled). Null when it waits for no open step.
+ */
+function plannedWait(item, view, now, seen = new Set()) {
+  if (valueOf(item, 'State') !== 'queued') return null
+  const named = field => (valueOf(item, field) ?? '').match(/\bB\d+\b/g) ?? []
+  const open = [...new Set([...named('Blocked by'), ...named('Waits for')])].filter(id => view.items.has(id) && !ENDED.includes(stateIn(view.items, id)))
+  if (open.length === 0) return null
+  const chain = new Set([...seen, valueOf(item, 'Id')])
+  return { open, stalled: open.filter(id => chain.has(id) || isLate(view.items.get(id), view, now, chain)) }
+}
+
+/** A step past its state's limit (LONG_MS), unless it waits as planned (B561) or stays with its busy builder. */
+function isLate(item, view, now, seen = new Set()) {
+  const age = ageOf(item, now)
+  if (!(Number.isFinite(age) && age > (LONG_MS[valueOf(item, 'State')] ?? Infinity))) return false
+  if (staysWith(item, view) !== null && builderHolds(item, view)) return false
+  const wait = plannedWait(item, view, now, seen)
+  return wait === null || wait.stalled.length > 0
+}
+
+/**
+ * B560 (X17: B558 queued behind its busy builder read as a step that should move): a result check's fix waits for the
+ * worker that built the step it fixes, as the flow queues it and the queued-behind rule keeps it. The step it fixes, or
+ * null when it is no such fix.
+ */
+function staysWith(item, view) {
+  const owner = valueOf(item, 'Owner')
+  const fixOf = valueOf(item, 'Fix of') ?? ''
+  const builder = /^B\d+$/.test(fixOf) ? valueOf(view.items.get(fixOf) ?? { head: new Map() }, 'Owner') : null
+  return valueOf(item, 'State') === 'queued' && owner !== null && builder !== null && plain(builder, view.prefix) === plain(owner, view.prefix) ? fixOf : null
+}
+
+/** B561: the step's owner holds another step (taken, in progress or waiting on you), on its card or in the store. */
+function builderHolds(item, view) {
+  const owner = plain(valueOf(item, 'Owner'), view.prefix)
+  const id = valueOf(item, 'Id')
+  const card = view.lanes.find(lane => !lane.isLeftover && plain(lane.name, view.prefix) === owner)?.task?.stepId ?? null
+  return (card !== null && card !== id) || stepsOf(view).some(other => valueOf(other, 'Id') !== id && plain(valueOf(other, 'Owner'), view.prefix) === owner && HELD.slice(0, 3).includes(valueOf(other, 'State')))
+}
+
 /** Each step under way: its state, for how long, its owner; the backlog's new and refined steps counted in one line. */
 function stepLines(view, now) {
   const chats = new Set(view.lanes.filter(lane => !lane.isLeftover).map(lane => plain(lane.name, view.prefix)))
@@ -137,19 +185,22 @@ function stepLines(view, now) {
     const owner = valueOf(item, 'Owner')
     const since = sinceMs(valueOf(item, 'Since'))
     const age = now - since
-    const blocked = waitsOf(item, view.items)
     const fix = valueOf(item, 'Priority') === 'fix' ? ', board fix' : ''
     const isChats = owner !== null && chats.has(plain(owner, view.prefix))
-    // B560 (X17: B558 queued behind its busy builder read as a step that should move): a result check's fix waits for
-    // the worker that built the step it fixes, as the flow queues it and the queued-behind rule keeps it.
-    const fixOf = valueOf(item, 'Fix of') ?? ''
-    const builder = /^B\d+$/.test(fixOf) ? valueOf(view.items.get(fixOf) ?? { head: new Map() }, 'Owner') : null
-    const stays = state === 'queued' && owner !== null && builder !== null && plain(builder, view.prefix) === plain(owner, view.prefix)
-      ? ` (stays with ${owner}: fix of ${fixOf})` : ''
+    const fixOf = staysWith(item, view)
+    const stays = fixOf === null ? '' : ` (stays with ${owner}: fix of ${fixOf})`
+    // B561: a step that waits for open steps names each with its state and age; a stalled one says so.
+    const wait = plannedWait(item, view, now)
+    const blockerWords = blocker => `${stateIn(view.items, blocker) === 'review' ? `the check of ${blocker}` : blocker} (${stateIn(view.items, blocker)} ${lasting(ageOf(view.items.get(blocker), now))}${wait.stalled.includes(blocker) ? ', stalled' : ''})`
+    const blocked = waitsOf(item, view.items)
+    const ended = state === 'queued' ? ((valueOf(item, 'Blocked by') ?? '').match(/\bB\d+\b/g) ?? []).filter(blocker => ENDED.includes(stateIn(view.items, blocker))) : []
+    const waits = wait !== null ? ` (waits${wait.stalled.length === 0 ? ' as planned' : ''} for ${wait.open.map(blockerWords).join(' and ')})`
+      : blocked.length > 0 ? ` (waits for ${blocked.join('; ')})`
+        : ended.length > 0 ? ` (still blocked by ${ended.map(blocker => `${blocker}, ${stateIn(view.items, blocker)}`).join(' and ')})` : ''
     // The steps every chat holds stay whatever is cut; a chat's queue before the rest.
     const tier = isChats && HELD.includes(state) ? 0 : isChats ? 1 : 2
-    const odd = (Number.isFinite(age) && age > (LONG_MS[state] ?? Infinity)) || (owner !== null && !isChats)
-    lines.push(lineOf(`${id} ${state} for ${lasting(age)}${stays}, ${owner === null ? 'no owner' : owner}${fix}${blocked.length > 0 ? ` (waits for ${blocked.join('; ')})` : ''}: ${oneLine(valueOf(item, 'Title'), 80)}`, { tier, odd, at: since }))
+    const odd = isLate(item, view, now) || (owner !== null && !isChats)
+    lines.push(lineOf(`${id} ${state} for ${lasting(age)}${stays}, ${owner === null ? 'no owner' : owner}${fix}${waits}: ${oneLine(valueOf(item, 'Title'), 80)}`, { tier, odd, at: since }))
   }
   if (backlog.new + backlog.refined > 0) lines.push(lineOf(`backlog, not queued: ${backlog.new} new, ${backlog.refined} refined`, { tier: 1 }))
   return lines

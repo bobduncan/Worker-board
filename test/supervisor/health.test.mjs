@@ -108,6 +108,66 @@ test('B560 (X17): a result check\'s fix queued behind its busy builder says it s
   assert.match(text, /^- B32 queued for 25 min, Weeder: Step B32 of the garden$/m)
 })
 
+/** X15's board: B531 queued for Worker 5, Blocked by B522 that Worker 5 holds; Workers 1, 2 and 4 free. */
+function waitingBoard(blocker, more = []) {
+  return buildView({
+    state: {
+      chats: [lane('Lead', { isMain: true }), lane('Worker 1'), lane('Worker 2'), lane('Worker 4'), lane('Worker 5', { state: 'working', task: { stepId: 'B522', text: 'x' } })],
+      chatPrefix: '',
+    },
+    items: items(blocker, step('B531', 'queued', { Owner: 'Worker 5', 'Blocked by': 'B522', Since: stamp(ago(275)) }), ...more),
+    now: NOW,
+  })
+}
+const lineOfStep = (text, id) => text.split('\n').find(one => one.startsWith(`- ${id} `) || one.startsWith(`- ! ${id} `)) ?? ''
+
+test('B561 (X15): a queued step that waits for an open step waits as planned: no "!" for its age, its blocker with state and age', () => {
+  const text = healthSummary(waitingBoard(step('B522', 'in progress', { Owner: 'Worker 5', Since: stamp(ago(83)) })), NOW)
+  assert.equal(lineOfStep(text, 'B531'), '- B531 queued for 4 h 35 min, Worker 5 (waits as planned for B522 (in progress 1 h 23 min)): Step B531 of the garden')
+  // The same through `Waits for` words that name the step (the main chat's "after").
+  const words = buildView({
+    state: { chats: [lane('Lead', { isMain: true }), lane('Worker 5', { state: 'working', task: { stepId: 'B522', text: 'x' } })], chatPrefix: '' },
+    items: items(step('B522', 'in progress', { Owner: 'Worker 5', Since: stamp(ago(83)) }), step('B531', 'queued', { Owner: 'Worker 5', 'Waits for': 'B522 merged', Since: stamp(ago(275)) })),
+    now: NOW,
+  })
+  assert.match(lineOfStep(healthSummary(words, NOW), 'B531'), /^- B531 queued for 4 h 35 min, Worker 5 \(waits as planned for B522 \(in progress 1 h 23 min\)\)/)
+})
+
+test('B561: a waiting step stays odd when its blocker stalls past its limit, or has ended while the step is still blocked', () => {
+  const stalled = healthSummary(waitingBoard(step('B522', 'in progress', { Owner: 'Worker 5', Since: stamp(ago(190)) })), NOW)
+  assert.equal(lineOfStep(stalled, 'B531'), '- ! B531 queued for 4 h 35 min, Worker 5 (waits for B522 (in progress 3 h 10 min, stalled)): Step B531 of the garden')
+  const done = healthSummary(waitingBoard(step('B522', 'done', { Owner: 'Worker 5', Since: stamp(ago(83)) })), NOW)
+  assert.equal(lineOfStep(done, 'B531'), '- ! B531 queued for 4 h 35 min, Worker 5 (still blocked by B522, done): Step B531 of the garden')
+  const dropped = healthSummary(waitingBoard(step('B522', 'dropped', { Since: stamp(ago(83)) })), NOW)
+  assert.match(lineOfStep(dropped, 'B531'), /^- ! B531 .*\(still blocked by B522, dropped\)/)
+})
+
+test('B561: a chain of planned waits is quiet; a blocker that waits as planned itself is no stalled blocker; a loop is', () => {
+  // B522 is queued 3 h behind B520, which moves: B522 waits as planned, so B531 does too.
+  const chain = healthSummary(waitingBoard(step('B522', 'queued', { Owner: 'Worker 5', 'Blocked by': 'B520', Since: stamp(ago(180)) }), [step('B520', 'in progress', { Owner: 'Worker 5', Since: stamp(ago(60)) })]), NOW)
+  assert.match(lineOfStep(chain, 'B531'), /^- B531 queued for 4 h 35 min, Worker 5 \(waits as planned for B522 \(queued 3 h\)\)/)
+  assert.match(lineOfStep(chain, 'B522'), /^- B522 queued for 3 h, Worker 5 \(waits as planned for B520 \(in progress 1 h\)\)/)
+  // Two steps that wait for each other wait for nothing that moves.
+  const loop = healthSummary(waitingBoard(step('B522', 'queued', { Owner: 'Worker 5', 'Blocked by': 'B531', Since: stamp(ago(180)) })), NOW)
+  assert.match(lineOfStep(loop, 'B531'), /^- ! B531 .*\(waits for B522 \(queued 3 h, stalled\)\)/)
+})
+
+test('B561: a result check\'s fix that stays with its busy builder is quiet for its age; with its builder free it is odd', () => {
+  const board = builderState => buildView({
+    state: { chats: [lane('Lead', { isMain: true }), lane('Digger', builderState), lane('Weeder')], chatPrefix: '' },
+    items: items(
+      step('B8', 'review', { Owner: 'Digger' }),
+      step('B30', 'queued', { Owner: 'Digger', Priority: 'fix', 'Fix of': 'B8', Since: stamp(ago(180)) }),
+      ...(builderState.task ? [step('B12', 'in progress', { Owner: 'Digger', Since: stamp(ago(60)) })] : []),
+    ),
+    now: NOW,
+  })
+  const busy = healthSummary(board({ state: 'working', task: { stepId: 'B12', text: 'x' } }), NOW)
+  assert.equal(lineOfStep(busy, 'B30'), '- B30 queued for 3 h (stays with Digger: fix of B8), Digger, board fix: Step B30 of the garden')
+  const free = healthSummary(board({ state: 'free' }), NOW)
+  assert.equal(lineOfStep(free, 'B30'), '- ! B30 queued for 3 h (stays with Digger: fix of B8), Digger, board fix: Step B30 of the garden')
+})
+
 test('the summary holds every section: the chats with state, since, model and effort beside the step\'s, last report and clear', () => {
   const text = healthSummary(fixture(), NOW)
   assert.ok(text.length <= HEALTH_CHARS)

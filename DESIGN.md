@@ -3143,7 +3143,11 @@ it can. The person: "It just needs to observe, periodically, not consume a lot o
   chats (state and since by the timeline, model and effort beside the step's, its step, last report from the store's
   History, last clear and why from the card), the steps under way (state, age, owner; new and refined only counted), the
   queues, the incidents (with their keys, so a sweep files the same thing under the same key) and repairs of the last
-  day, the words not delivered, the limits and the pause. Odd lines carry `!`. When it must cut, the lines of every
+  day, the words not delivered, the limits and the pause. Odd lines carry `!`; a step is odd past its state's limit,
+  except (B561, the fix of X15) a queued step that waits for open steps it names in Blocked by or Waits for ("waits as
+  planned for B<n> (<state> <age>)", unless a blocker is stalled itself, down a chain of planned waits; a loop counts as
+  stalled) and a result check's fix that stays with its builder while that builder holds a step; a queued step whose
+  every blocker ended reads "still blocked by B<n>, done" and keeps its age's `!`. When it must cut, the lines of every
   chat, the steps the chats hold and the limits stay, then the oddest and newest of the rest; a section says how many
   it left out (`test/supervisor/health.test.mjs`: 900 items, under 8000, every held step kept).
 - **The sweep** (Task 6, `src/supervisor/sweep.mjs sweepRunner`, wired in `index.mjs sweepOver`): every
