@@ -950,17 +950,65 @@ body.is-resizing { cursor: col-resize; user-select: none; }
 .sync-line.is-answer { color: var(--text); }
 .sync-line.is-problem { color: var(--warn); }
 .workers-add .sync-button { margin-right: 0; }
-/* B465: the board's own sync check under the Workers panel's head: each finding with Fixed, Woke, Sent or For Main. */
-.sync-list { margin: 0 18px 12px; padding: 14px 18px; border: 1px solid var(--line); border-radius: 10px; background: var(--inset); }
-.sync-title { font-size: 15px; font-weight: 700; }
-.sync-note { color: var(--muted); font-size: 12px; margin-top: 2px; }
-.sync-rows { display: grid; grid-template-columns: max-content 1fr; gap: 8px 14px; align-items: center; margin-top: 12px; }
+/* supervisor:start */
+/* The supervisor (spec 2026-10-24): its section under the Workers panel's head, where B465's sync list stood, "Check now"
+   with its wrench, and the person's quiet line per new or returning incident. Cool colours only: nothing here is the
+   person's to act on, so the person's attention colours stay out of it (test/supervisor/page.test.mjs). */
+.supervisor { margin: 0 18px 12px; padding: 14px 18px; border: 1px solid var(--line); border-radius: 10px; background: var(--inset); }
+.supervisor-head { display: flex; align-items: center; gap: 10px; }
+.supervisor-head .check-now { margin-right: 0; }
+.supervisor-title { display: flex; align-items: center; gap: 8px; margin: 0; font-size: 15px; font-weight: 700; }
+.supervisor-title svg { width: 16px; height: 16px; flex: none; color: var(--muted); }
+.supervisor-close { padding: 0 6px; border: 0; background: transparent; color: var(--muted); font-size: 20px; line-height: 1; cursor: pointer; }
+.supervisor-close:hover { color: var(--text); }
+.supervisor-note { margin: 2px 0 0; color: var(--muted); font-size: 12px; }
+.supervisor-sub { margin: 14px 0 6px; color: var(--muted); font-size: 12.5px; font-weight: 600; }
+.supervisor-incidents { display: grid; grid-template-columns: max-content 1fr; gap: 8px 14px; align-items: baseline; }
+.incident-state { min-width: 84px; padding: 2px 9px; border: 1px solid currentColor; border-radius: 6px; font-size: 12px; text-align: center; white-space: nowrap; }
+.incident-state.is-open { color: #7cc4ff; }
+.incident-state.is-back { color: #93b4ff; }
+.incident-state.is-advisor { color: var(--ask); }
+.incident-state.is-fix { color: #5eead4; }
+.incident-state.is-fixed { color: var(--working); }
+.incident-words { font-size: 13.5px; overflow-wrap: anywhere; }
+.incident-id { color: var(--muted); font-family: ui-monospace, "Cascadia Mono", Consolas, monospace; font-size: 12.5px; }
+.incident-seen { color: var(--muted); font-size: 12px; }
+.sync-rows { display: grid; grid-template-columns: max-content 1fr; gap: 8px 14px; align-items: center; }
 .sync-status { min-width: 84px; padding: 3px 10px; border: 1px solid currentColor; border-radius: 6px; font-size: 12px; text-align: center; }
 .sync-status.is-done { color: var(--working); }
-.sync-status.is-main { color: var(--waiting); }
+.sync-status.is-main { color: #93b4ff; }
 .sync-status.is-fine { color: var(--muted); }
 .sync-text { font-size: 13.5px; overflow-wrap: anywhere; }
-@media (max-width: 600px) { .sync-list { margin: 0 10px 10px; padding: 12px; } .sync-rows { gap: 6px 10px; } .sync-status { min-width: 0; } }
+.supervisor-rules { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 6px 18px; }
+.rule { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 8px; font-size: 13px; }
+.rule-dot { flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--unknown); transform: translateY(-1px); }
+.rule.is-tripped .rule-dot { background: #7cc4ff; }
+.rule.is-failed .rule-dot { background: var(--ask); }
+.rule.is-fine .rule-dot { background: #3f6b5a; }
+.rule-says { flex: 1 1 160px; }
+.rule-often { color: var(--muted); font-size: 12px; }
+.rule-why { flex-basis: 100%; padding-left: 16px; color: #c4b5fd; font-size: 12px; }
+.supervisor-more { margin: 8px 0 0; padding: 3px 10px; font-size: 12.5px; }
+.supervisor-sweep { margin: 12px 0 0; color: var(--muted); font-size: 12.5px; }
+.check-now { display: inline-flex; align-items: center; gap: 6px; }
+.check-now svg { flex: none; width: 14px; height: 14px; }
+.supervisor-lines { display: grid; gap: 6px; margin-bottom: 8px; }
+.supervisor-line { display: flex; align-items: center; gap: 8px; width: 100%; padding: 6px 10px; border: 0; border-left: 3px solid #5b7fb0; border-radius: 6px; background: #142238; color: var(--text); font: inherit; font-size: 13.5px; text-align: left; cursor: pointer; }
+.supervisor-line svg { flex: none; width: 14px; height: 14px; color: #93b4ff; }
+.supervisor-line:hover { background: #1a2c48; }
+.supervisor-line:focus-visible { outline: 2px solid var(--free); outline-offset: -2px; }
+@media (max-width: 600px) {
+  .supervisor { margin: 0 10px 10px; padding: 12px; }
+  .supervisor-head { flex-wrap: wrap; }
+  .supervisor-head .grow { display: none; }
+  .supervisor-title { flex: 1 1 calc(100% - 44px); min-width: 0; }
+  .supervisor-close { order: 1; }
+  .supervisor-head .check-now { order: 2; }
+  .supervisor-incidents, .sync-rows { gap: 6px 10px; }
+  .incident-state, .sync-status { min-width: 0; }
+  .supervisor-rules { grid-template-columns: 1fr; }
+}
+/* supervisor:end */
 
 .lane { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; }
 .lane.is-waiting { border-color: #6a531d; }

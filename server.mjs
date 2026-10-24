@@ -60,7 +60,7 @@ import { editStep, settleByBoard } from './src/tick.mjs'
 import { editThread, fixesToTell } from './src/brainstorm.mjs'
 import { changeGoalsFile, editGoals } from './src/goalsWrite.mjs'
 import { activityFor, missingToSteps } from './src/goalSteps.mjs'
-import { FOCUS_DRAFTS, FOCUS_MOVES, evaluationsRunning, focusMove, goalChecked, goalReopened, guardGoal, undoLine } from './src/focus.mjs'
+import { FOCUS_DRAFTS, FOCUS_MOVES, evaluationsAgain, evaluationsRunning, focusMove, goalChecked, goalReopened, guardGoal, undoLine } from './src/focus.mjs'
 import { effortBack, partnerEffortWords } from './src/partnerEffort.mjs'
 import { GUARD_ATTEMPTS, evaluationState } from './src/goalGuard.mjs'
 import { readSources } from './src/sources.mjs'
@@ -71,7 +71,7 @@ import { effortOf } from './src/work/effort.mjs'
 import { isHolding, resumeEnds, resumeRetypeTo, resumeTypeTo } from './src/work/pause.mjs'
 import { reportCheck } from './src/work/check.mjs'
 import { deliverWork, pullFor, sendOnce } from './src/work/deliver.mjs'
-import { REFUSED_MS, SYNC_EVERY_MS, loopGate, loopOwner, syncRunner } from './src/work/sync.mjs'
+import { REFUSED_MS, SUPERVISOR_RULES, createSupervisor, loopGate, loopOwner } from './src/supervisor/index.mjs'
 import { FILES as WORKTREE_FILES, cleanLeftover, findLeftovers, stepLeftovers } from './src/work/worktrees.mjs'
 import { followRenames } from './src/work/rename.mjs'
 import { standardHold } from './src/work/standardHold.mjs'
@@ -506,7 +506,7 @@ async function main(args) {
   // B482, B488: one board process per project runs the loops (the reconciler, the look with its rounds, refine lines and
   // wakes, the outbox, the list): the one that holds this lock. A second process on the project (another --port) serves
   // the page and reads what the first wrote. The lock is checked at every run, so the other takes over within one run
-  // when the holder ends (src/work/sync.mjs loopOwner, loopGate). A copy that only shows runs its own loops, unlocked.
+  // when the holder ends (src/supervisor/loop.mjs loopOwner, loopGate). A copy that only shows runs its own loops, unlocked.
   const LOOP_LOCK = isDemo || isShowOnly || config.project === '' ? null : join(config.project, '.claude', 'sync-loop.json')
   /** Set below, where the stores and the bridge note are: what this process does when it gains the loops. */
   let gainedLoops = async () => {}
@@ -658,11 +658,27 @@ async function main(args) {
     const items = [...(await readStore(workDir)).items.values()]
     const done = await guardGoal(id, {
       canWrite: writesMap, goalsFile: projectFile(config, 'goals'), historyDir: projectFile(config, 'goalsHistory'), now: clock(),
-      partner: state.advisor, job: join(HERE, 'roles', 'partner.md'), items, approveRebuilds: config.approveRebuilds === true,
+      partner: state.advisor, job: join(HERE, 'roles', 'partner.md'), items, approveRebuilds: config.approveRebuilds === true, maxChars: config.maxMessageChars,
     })
     if (!done.ok || done.words === null) return
     await partnerMode(state, 'high', `the goal guard: ${id} failed ${GUARD_ATTEMPTS} attempts: a fundamental evaluation`)
     await toPartner(done.words, {}, state)
+  }
+  /**
+   * B528: while an evaluation runs and has not ended, its word goes to the partner again every 30 minutes (src/focus.mjs
+   * `evaluationsAgain`), so a word that did not arrive (refused, expired, lost) never leaves it waiting unseen. Not while
+   * the person pauses.
+   */
+  const evaluateAgainNow = async state => {
+    if (!writesMap || workDir === null || (state.advisor ?? null) === null || isHolding(state.pause)) return
+    const again = await evaluationsAgain({
+      canWrite: writesMap, goalsFile: projectFile(config, 'goals'), now: clock(), outbox: store.outbox(), partner: state.advisor,
+      items: async () => [...(await readStore(workDir)).items.values()], job: join(HERE, 'roles', 'partner.md'),
+      approveRebuilds: config.approveRebuilds === true, maxChars: config.maxMessageChars,
+    })
+    if (again.length === 0) return
+    await partnerMode(state, 'high', `the goal guard: the evaluation of ${again.map(words => words.about).join(', ')} has not ended`)
+    for (const words of again) await toPartner(words, {}, state)
   }
   /** Focus 2: the person's word to the partner into the outbox (copied without the Workers mod); a partner not running is woken. */
   const toPartner = async (words, result, state) => {
@@ -900,11 +916,14 @@ async function main(args) {
   const spending = createSpendingCollector({ dir: join(HERE, 'data'), transcripts: config.transcripts, clock })
   await spending.load()
   let taskTimes = { scans: {}, tasks: [] }
+  // The supervisor's section on the demo: made-up rules, incidents and a check of its own (fixtures/demo.mjs).
+  let demoSupervisor = () => null
   if (isDemo) {
-    const { demoSources, ROOTS } = await import('./fixtures/demo.mjs')
+    const { demoSources, demoSupervisor: madeUp, ROOTS } = await import('./fixtures/demo.mjs')
     config.pictureRoots = ROOTS
     store = memoryStore()
     readRaw = () => demoSources(clock())
+    demoSupervisor = madeUp
   } else {
     folders = hasGame ? cached(() => readFolders(config.gameRepo, gitRunner(), config.baseBranch), FOLDERS_MS) : async () => null
     branches = cached(() => branchesNow(), FOLDERS_MS)
@@ -986,15 +1005,15 @@ async function main(args) {
     if (checked.ok || checked.status !== 409 || typeof body?.chat !== 'string' || typeof body?.session !== 'string') return
     const name = body.chat.trim().slice(0, 80)
     const session = body.session.trim().slice(0, 120)
-    // The review: since when it asks under that name, so one refusal the mod then follows is no case (sync.mjs).
+    // The review: since when it asks under that name, so one refusal the mod then follows is no case (the rule old-name).
     const before = refusedNames.get(`${name} ${session}`)
     refusedNames.set(`${name} ${session}`, { name, session, first: before?.first ?? clock(), at: clock() })
     for (const [key, one] of refusedNames) if (clock() - one.at >= REFUSED_MS) refusedNames.delete(key)
   }
-  // B465: the board's list of stuck states (src/work/sync.mjs), set up with the reconciler on a board that writes.
-  let sync = null
-  // B482: whether this board process runs the list for its project (one loop per project); null: it never does
-  const syncOwned = LOOP_LOCK === null ? null : ownsLoops
+  // The supervisor (spec 2026-10-24): the board's own check of itself, B465's list of stuck states among it
+  // (src/supervisor), set up with the reconciler on a board that writes; null on a board that never runs it. B482,
+  // B488: it runs where the board's loops run (`ownsLoops`, its port `owns`).
+  let supervisor = null
 
   // The Design tab: an idea becomes a picture that Codex makes. Only here does the board start a program that
   // makes something: on the person's click, one at a time, with a time limit (see src/codex.mjs).
@@ -1315,7 +1334,7 @@ async function main(args) {
       })
       // B256: whether the Goals part may change the map: only the board that delivers writes it.
       const goalsEdit = { canWrite: writesMap, whyNot: isDemo ? 'This is the demo: it changes no file.' : !writesMap ? `This board only shows. Change the map on the board that delivers: http://${HOST}:${homePort}/` : null }
-      return { ...state, design, goalsEdit, cpu: cpu?.view() ?? null, loops: { failing: loops.failing(), line: failingLine(loops.failing(), timeOf) }, syncList: sync?.shown(clock()) ?? null, boardSettings: boardSettingsNow(), version: { commit: running, since: startedAt, ...(await versionNow()), canRestart, selfUpdate: updateShown }, mod: await modNow(),
+      return { ...state, design, goalsEdit, cpu: cpu?.view() ?? null, loops: { failing: loops.failing(), line: failingLine(loops.failing(), timeOf) }, supervisor: supervisor !== null ? supervisor.view(clock()) : isDemo ? demoSupervisor(clock(), SUPERVISOR_RULES) : null, boardSettings: boardSettingsNow(), version: { commit: running, since: startedAt, ...(await versionNow()), canRestart, selfUpdate: updateShown }, mod: await modNow(),
         // B320: where the New project button suggests a new project's folder, and whether this board makes one.
         newProject: { parent: home === null ? null : dirname(home), canMake: !isDemo && !isShowOnly, isMaking: makingProject },
         // B322: what the page needs to open a new project's first chats in the Claude app: the board's folder (their
@@ -1433,9 +1452,10 @@ async function main(args) {
       if (body?.command === 'dismiss copied') return dismissCopied(store, body.id, clock())
       // B465: "Out of sync?" runs the board's own list at once (its answer stands on the page); the main chat's check,
       // for what the list does not know, gets that answer with the rest, and the board as it stands after the fixes.
-      const mayAsk = body?.command === 'sync' && sync !== null && syncOwned !== null
-        && await syncOwned().catch(error => { loops.failed('sync', error); return false })
-      const syncAnswer = mayAsk ? await sync.run({ asked: true }).catch(error => { loops.failed('sync', error); return null }) : null
+      // Null when another board process runs the project's list (B482), or the run failed (recorded as "sync").
+      // The supervisor: "Check now" in a worker's menu names that worker as what the check is about.
+      const subject = typeof body?.chat === 'string' && body.chat !== 'board' ? body.chat.slice(0, 80) : null
+      const syncAnswer = body?.command === 'sync' && supervisor !== null ? await supervisor.run({ asked: true, subject }) : null
       if (syncAnswer !== null) readState.reset()
       const state = await readState()
       const checked = checkSay(body, syncAnswer === null ? state : { ...state, syncList: syncAnswer }, config.maxMessageChars)
@@ -1896,6 +1916,14 @@ async function main(args) {
           const approved = await workAction({ action: 'approve-recaps' }, 'server')
           if (!approved.ok) throw new Error(approved.why ?? 'approve-recaps was refused')
         })
+        // The supervisor (spec 2026-10-24): an incident whose fix step is done is fixed; one whose fix was dropped, open again.
+        // Only while the supervisor's view holds one being fixed: each work call reads the whole store.
+        if (supervisor !== null && supervisor.view(clock()).incidents.some(one => one.state === 'fix')) {
+          await loops.run('incidents-fixed', async () => {
+            const fixed = await workAction({ action: 'incidents-fixed' }, 'server')
+            if (!fixed.ok) throw new Error(fixed.why ?? 'incidents-fixed was refused')
+          })
+        }
         const done = await deliverWork({
           state, dir: workDir, outbox: store, apply: body => workAction(body, 'server'), now: clock(), maxChars: config.maxMessageChars,
           newId: () => randomBytes(8).toString('hex'), keep,
@@ -1905,6 +1933,8 @@ async function main(args) {
           readState.reset()
         }
         loops.succeeded('reconcile')
+        // B528: an evaluation that has not ended is asked of the partner again; on its own, so a failure stops no delivery.
+        await loops.run('evaluate-again', () => evaluateAgainNow(state))
         // B404: a step that has stood on "check pending" for more than 2 minutes (a restart right after a report ended
         // its check) is checked again; the checks that run now are skipped.
         await loops.run('stuck-checks', async () => {
@@ -1923,13 +1953,16 @@ async function main(args) {
     }
     setInterval(reconcileNow, Math.max(5, config.refreshSeconds) * 1000)
 
-    // B465: the board's list of stuck states, every few minutes and on "Out of sync?": the safe fixes it makes itself
-    // (through the work API as the board, and its lines once per finding), the rest to the main chat in one note, never
-    // twice for the same thing (data/sync.json keeps what it was told). Not on a copy beside the person's board.
+    // The supervisor (spec 2026-10-24), with B465's list of stuck states: every few minutes and on "Out of sync?", the
+    // safe fixes it makes itself (through the work API as the board, and its lines once per finding), the rest to the
+    // main chat in one note, never twice for the same thing (the project's .claude/sync.json keeps what it was told).
+    // Not on a copy beside the person's board.
     if (!isShowOnly) {
       // B482, the review: kept with the project, beside the loop's lock, so every board of it reads the same
       const SYNC_FILE = join(config.project, '.claude', 'sync.json')
-      sync = syncRunner({
+      // The supervisor's own memory (its watch, the day's repairs, the rules' trips), beside sync.json and apart from it
+      const SUPERVISOR_FILE = join(config.project, '.claude', 'supervisor.json')
+      supervisor = createSupervisor({
         state: () => readState(),
         items: async () => (await readStore(workDir)).items,
         outbox: () => store.outbox(),
@@ -1965,10 +1998,20 @@ async function main(args) {
           },
           save: state => writeAtomic(SYNC_FILE, JSON.stringify(state)),
         },
+        memory: {
+          load: () => kept(SUPERVISOR_FILE),
+          save: value => writeAtomic(SUPERVISOR_FILE, JSON.stringify(value)),
+        },
+        // The Workers mod installed; the version each chat runs is not reported by the mod yet (none known: no finding)
+        mods: async () => ({ installed: (await modNow())?.installed ?? null, chats: {} }),
         now: clock,
+        // B482, B488: the list runs where the loops run (ownsLoops, above); a board without the lock runs it as its own
+        owns: ownsLoops,
+        loops,
+        closing: () => isClosing,
+        settings: config,
       })
-      // B482, B488: the list runs where the loops run (ownsLoops, above)
-      setInterval(() => (isClosing ? null : loops.run('sync', async () => (await ownsLoops() ? sync.run() : null))), SYNC_EVERY_MS)
+      supervisor.start()
     }
   }
 }

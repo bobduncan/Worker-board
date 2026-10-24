@@ -4,7 +4,7 @@ import {validRelative} from './contract.mjs'
 
 export const EFFORTS=['low','medium','high','xhigh','max']
 export const FAMILIES=['haiku','sonnet','opus']
-const protectedPaths=['src/work/routing/**','src/work/api.mjs','src/work/store.mjs','src/work/guards.mjs','src/work/flow.mjs','src/work/requests.mjs','src/work/check.mjs','src/work/resultCheck.mjs','src/work/sync.mjs','src/config.mjs','server.mjs','mods/**','roles/**','tools/merge-approved.mjs','src/core/**','src/save/**','src/persistence/**','docs/process/done/**','CLAUDE.md','AGENTS.md']
+const protectedPaths=['src/work/routing/**','src/work/api.mjs','src/work/store.mjs','src/work/guards.mjs','src/work/flow.mjs','src/work/requests.mjs','src/work/check.mjs','src/work/resultCheck.mjs','src/supervisor/**','src/config.mjs','server.mjs','mods/**','roles/**','tools/merge-approved.mjs','src/core/**','src/save/**','src/persistence/**','docs/process/done/**','CLAUDE.md','AGENTS.md']
 const registry=Object.fromEntries(FAMILIES.map(family=>[family,{model:`claude-${family}-5-5`,verified:false,efforts:['low','medium','high','xhigh','max']}]))
 export const DEFAULT_POLICY={version:1,mode:'off',registry,r0Canary:false,r1Canary:false,settingTimeoutMs:120000,validationConcurrency:1,protectedPaths,maxAttempts:3,maxLifetimeAttempts:12,maxStrategies:4}
 const stable=value=>value&&typeof value==='object' ? Array.isArray(value)?value.map(stable):Object.fromEntries(Object.keys(value).sort().map(key=>[key,stable(value[key])])):value

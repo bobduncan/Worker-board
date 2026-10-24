@@ -61,7 +61,7 @@ test('a worker: the typed word is "check sync <name>" with what the board shows 
     'Flags: none',
     'Pause: none',
     'Limits: 5-hour 42%, week 61%',
-    'Why: the person pressed "Out of sync?" on the worker board',
+    'Why: the person pressed "Check now" on the worker board',
   ])
 
   const two = lines(say({ command: 'sync', chat: 'Worker 2' }).message)
@@ -211,12 +211,13 @@ const protocol = await readFile(join(ROOT, 'roles', 'protocol.md'), 'utf8')
 const main = await readFile(join(ROOT, 'roles', 'main.md'), 'utf8')
 const state = await readFile(join(ROOT, 'src', 'state.mjs'), 'utf8')
 
-test('the page: "Out of sync?" in each worker\'s menu and in the Workers panel\'s head; the answer in the row', () => {
+test('the page: "Check now" (was "Out of sync?") in each worker\'s menu and in the Workers panel\'s head; the answer in the row', () => {
   assert.match(script, /const sync = syncPart\(lane, state\)\n\s+if \(sync !== null\) tools\.push\(sync\)/)
   assert.match(script, /send\(\{ to: main, command: 'sync', chat \}, `sync:\$\{chat\}`\)/)
   assert.match(script, /const syncLine = syncLineOf\(state\.changeAsks\?\.sync\?\.\[lane\.name\] \?\? null, main\)/)
-  assert.match(script, /return syncButton\('board', state, /)
-  assert.match(script, /fill\(\$\('workers-add'\), \[lines, boardSyncButton\(state\), button\]\)/)
+  assert.match(script, /return checkNowButton\('board', state, /)
+  // The supervisor: while its section shows, the head's button stands in the section instead.
+  assert.match(script, /fill\(\$\('workers-add'\), \[lines, isSupervisorShown\(state\.supervisor \?\? null, supervisorUi\) \? null : boardSyncButton\(state\), button\]\)/)
 })
 
 // The line under a worker's row (and under the panel's head), cut out of the page and run on its own.
@@ -227,12 +228,12 @@ vm.runInNewContext(`${cut('times')}\n${cut('syncline')}\nthis.syncLineOf = syncL
 test('the line in the row: on its way, with the main chat, its answer, did not arrive, no answer in time', () => {
   const sentAt = at(22, 40)
   assert.equal(page.syncLineOf(null, 'Lead'), null)
-  assert.deepEqual({ ...page.syncLineOf({ at: sentAt, state: 'waiting', isOpen: true, answer: null }, 'Lead') }, { tone: 'asked', text: 'Out of sync? asked at 22:40: on its way to Lead.' })
-  assert.deepEqual({ ...page.syncLineOf({ at: sentAt, state: 'delivered', isOpen: true, answer: null }, 'Lead') }, { tone: 'asked', text: 'Out of sync? asked at 22:40: Lead checks it and answers here.' })
+  assert.deepEqual({ ...page.syncLineOf({ at: sentAt, state: 'waiting', isOpen: true, answer: null }, 'Lead') }, { tone: 'asked', text: 'Check now, 22:40: on its way to Lead.' })
+  assert.deepEqual({ ...page.syncLineOf({ at: sentAt, state: 'delivered', isOpen: true, answer: null }, 'Lead') }, { tone: 'asked', text: 'Check now, 22:40: Lead checks it and answers here.' })
   assert.deepEqual({ ...page.syncLineOf({ at: sentAt, state: 'delivered', isOpen: false, answer: { at: at(22, 45), text: 'B12 waited on finished B11; unblocked it.' } }, 'Lead') },
     { tone: 'answer', text: 'Sync check, 22:45: B12 waited on finished B11; unblocked it.' })
   assert.equal(page.syncLineOf({ at: sentAt, state: 'expired', isOpen: false, answer: null }, 'Lead').tone, 'problem')
-  assert.equal(page.syncLineOf({ at: sentAt, state: 'delivered', isOpen: false, answer: null }, 'Lead').text, 'Out of sync? asked at 22:40: no answer from Lead yet; you can ask again.')
+  assert.equal(page.syncLineOf({ at: sentAt, state: 'delivered', isOpen: false, answer: null }, 'Lead').text, 'Check now, 22:40: no answer from Lead yet; you can ask again.')
 })
 
 test('the main chat\'s role and the protocol name the word and the answer\'s form; the word is the board\'s, not feedback', () => {
@@ -256,15 +257,22 @@ test('B465: the main chat gets the board\'s own list\'s answer with the check, a
   assert.ok(!lines(say({ command: 'sync', chat: 'board' }).message).some(line => line.startsWith('Board\'s own check')))
 })
 
-test('B465: the page shows the board\'s own check as in the agreed picture: a row per finding with its status, then the checks that found nothing', async () => {
+// The supervisor (2026-10-24): the list's answer stands in the supervisor's section as its last check.
+const supervisorPage = async () => {
   const script = await readFile(join(dirname(fileURLToPath(import.meta.url)), '..', 'public', 'board.js'), 'utf8')
   const page = { clock: ms => new Date(ms).toTimeString().slice(0, 5) }
-  vm.runInNewContext(`${script.slice(script.indexOf('// syncList:start'), script.indexOf('// syncList:end'))}\nthis.syncListOf = syncListOf`, page)
+  vm.runInNewContext(`${script.slice(script.indexOf('// supervisor:start'), script.indexOf('// supervisor:end'))}\nthis.supervisorOf = supervisorOf`, page)
+  return run => (run === null ? null : { title: page.supervisorOf({ run, checkedAt: run.at, rules: [], incidents: [], lastSweep: null }).title, rows: page.supervisorOf({ run, rules: [], incidents: [] }).check.rows })
+}
+
+test('B465: the page shows the board\'s own check as in the agreed picture: a row per finding with its status, then the checks that found nothing', async () => {
+  const script = await readFile(join(dirname(fileURLToPath(import.meta.url)), '..', 'public', 'board.js'), 'utf8')
+  const page = { syncListOf: await supervisorPage() }
   const shown = page.syncListOf({
     at: at(0, 42), asked: true, fine: 2,
     rows: [{ status: 'Fixed', text: 'B46 was queued for Ghost, no longer in the list: queued for Worker 1' }, { status: 'Woke', text: 'Worker 2: its queued B55 waited 12 min while it was free' }, { status: 'Sent', text: 'B17: the person\'s yes to dropping it (Q158): to Main as a note' }, { status: 'For Main', text: 'Second is not running: 2 refines and checks wait: its work went to Partner' }],
   })
-  assert.equal(shown.title, 'Out of sync? · the board checked itself at 00:42')
+  assert.equal(shown.title, 'Supervisor · checked itself at 00:42')
   // The page's arrays are of another realm (vm): compared as JSON.
   assert.equal(JSON.stringify(shown.rows.map(row => [row.status, row.tone])), JSON.stringify([['Fixed', 'done'], ['Woke', 'done'], ['Sent', 'done'], ['For Main', 'main'], ['Fine', 'fine']]))
   assert.equal(shown.rows.at(-1).text, '2 other checks: nothing stuck')
@@ -272,14 +280,12 @@ test('B465: the page shows the board\'s own check as in the agreed picture: a ro
   assert.equal(page.syncListOf(null), null)
   // The page has its place under the Workers panel's head, and draws it every refresh.
   const html = await readFile(join(dirname(fileURLToPath(import.meta.url)), '..', 'public', 'index.html'), 'utf8')
-  assert.match(html, /<\/header>\n\s*<section class="sync-list" id="sync-list" aria-label="The board's sync check" hidden><\/section>/)
-  assert.match(script, /drawLanes\(state\)\n\s*drawSyncList\(state\)/)
+  assert.match(html, /<\/header>\n\s*<section class="supervisor" id="supervisor" aria-label="The supervisor: the board's own check of itself" hidden><\/section>/)
+  assert.match(script, /drawLanes\(state\)\n\s*drawSupervisor\(state\)/)
 })
 
 test('worktree clean-up: Cleaned and Left on the page, Left in a quiet tone; the main chat is not told what is only Left', async () => {
-  const script = await readFile(join(dirname(fileURLToPath(import.meta.url)), '..', 'public', 'board.js'), 'utf8')
-  const page = { clock: ms => new Date(ms).toTimeString().slice(0, 5) }
-  vm.runInNewContext(`${script.slice(script.indexOf('// syncList:start'), script.indexOf('// syncList:end'))}\nthis.syncListOf = syncListOf`, page)
+  const page = { syncListOf: await supervisorPage() }
   const rows = [{ status: 'Cleaned', text: '/projects/game-b5: a worktree of game on b5-lamps' }, { status: 'Left', text: '/projects/game-b410 (a worktree of game on b410-hero): held by B410' }]
   const shown = page.syncListOf({ at: at(0, 42), asked: true, fine: 8, rows })
   assert.equal(JSON.stringify(shown.rows.map(row => [row.status, row.tone])), JSON.stringify([['Cleaned', 'done'], ['Left', 'fine'], ['Fine', 'fine']]))

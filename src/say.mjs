@@ -123,7 +123,7 @@ const RUNNING = new Map([[true, 'yes'], [false, 'no']])
  * (roles/main.md, "Check sync").
  */
 /**
- * B465: what the board's own list (src/work/sync.mjs) found and did when the button was pressed, for the main chat,
+ * B465: what the board's own list (src/supervisor) found and did when the button was pressed, for the main chat,
  * which checks what the list does not know: one line, each finding with its status, at most twelve.
  */
 const boardCheckWords = list => {
@@ -162,7 +162,7 @@ const syncWords = (to, lane, state) => {
     to, ask: null, step: null, title: null, version: null, verdict: null, command: 'sync', about,
     // B438, the review: the newest answer there was when it was asked; only a newer one answers this check.
     seen: lastSyncAnswer(state.information, about, state.restart?.main ?? null),
-    text: [...lines, `Limits: ${limitsWords(state.limits)}`, ...boardCheckWords(state.syncList), 'Why: the person pressed "Out of sync?" on the worker board'].join('\n'),
+    text: [...lines, `Limits: ${limitsWords(state.limits)}`, ...boardCheckWords(state.syncList), 'Why: the person pressed "Check now" on the worker board'].join('\n'),
   }
 }
 /** Focus 2: the first line of each word of the Focus page to the partner (spec 2026-10-18, section 6). */

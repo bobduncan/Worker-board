@@ -657,7 +657,41 @@ function demoWork(now) {
     sections: new Map([['Text', ['Known: it runs in the browser on a desktop. Not said: where it is put, who may play, free or paid.']]]),
     problem: null,
   })
+  // The supervisor (spec 2026-10-24): the board's line to the person about its newest incident (demoSupervisor below).
+  work.items.set('N92', {
+    head: new Map([['Id', 'N92'], ['Kind', 'note'], ['From', 'server'], ['To', 'you'], ['Via', 'supervisor'], ['State', 'unread'], ['Since', stamp(now - 14 * MIN)], ['Text', `Supervisor: ${DEMO_INCIDENTS[0].title}`]]),
+    sections: new Map([['Text', [`Supervisor: ${DEMO_INCIDENTS[0].title}`]], ['About', ['X3']]]),
+    problem: null,
+  })
   return work
+}
+
+/** The supervisor's made-up incidents on the demo: one open, one being fixed, one fixed. */
+const DEMO_INCIDENTS = [
+  { id: 'X3', title: 'Cleanup unknown for 16 min, B20 waits', state: 'open', fix: null, source: 'unknown-lane', subject: 'Cleanup', count: 5, seen: [16, 2], evidence: 'state unknown since the clear after B06; running: not known' },
+  { id: 'X2', title: 'All 4 workers idle for 12 min while 2 steps wait (B21, B22)', state: 'fix', fix: 'B24', source: 'idle-while-waiting', subject: 'board', count: 3, seen: [95, 86], evidence: 'Units free, Features unknown, Cleanup free, Levels / Environment free' },
+  { id: 'X1', title: 'Features: its clear was skipped twice in a row: its conversation could not be saved as a log', state: 'fixed', fix: 'B23', source: 'skip-repeats', subject: 'Features', count: 2, seen: [300, 270], evidence: 'skipped at 07:12 and at 07:42' },
+]
+
+/**
+ * The supervisor's section on the demo (the server's `supervisor` in the state): a check asked a moment ago with a fix
+ * and a wake, every rule (`rules`, the supervisor's own list) with three tripped today, the incidents above, no sweep.
+ */
+export function demoSupervisor(now, rules = []) {
+  const tripped = { blocked: 2, 'limit-back': 1, 'unknown-lane': 5 }
+  return {
+    run: {
+      at: now - 2 * MIN, asked: true, subject: null, fine: 7, newAt: now - 2 * MIN, findings: [],
+      rows: [
+        { check: 'blocked', status: 'Fixed', text: 'B21 waited on B20, which is in review: unblocked' },
+        { check: 'limit-back', status: 'Woke', text: 'Audio: paused for the limit until 11:00, the limit is back' },
+      ],
+    },
+    checkedAt: now - 2 * MIN,
+    rules: rules.map(rule => ({ ...rule, state: rule.id in tripped ? 'tripped' : 'fine', why: null, trips: tripped[rule.id] ?? 0 })),
+    incidents: DEMO_INCIDENTS.map(({ seen: [first, last], ...one }) => ({ ...one, firstSeen: now - first * MIN, lastSeen: now - last * MIN, since: now - (one.state === 'open' ? first : last) * MIN, ruleWanted: null })),
+    lastSweep: null,
+  }
 }
 
 /** The demo's sources as they stand at `now`, in the shape `readSources` gives for the real files. */

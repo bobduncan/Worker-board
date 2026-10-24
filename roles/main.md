@@ -224,13 +224,15 @@ yourself gets its checkpoint first, as a worker's does (`roles/worker.md`, "A pa
 
 ## Check sync
 
-The user pressed "Out of sync?" in a worker's menu or in the Workers panel's head (B438; their words: "somebody goes to
-investigate it and fix it"). The board types `check sync <name>` with what it shows for that worker: `State:`,
+The user pressed "Check now" ("Out of sync?" until the supervisor) in a worker's menu or in the Workers panel's head
+(B438; their words: "somebody goes to investigate it and fix it"). The board types `check sync <name>` with what it
+shows for that worker: `State:`,
 `Running:`, `Steps in the store:`, `Card:`, `Queue:` (with why each step waits), `Open asks:`, `Flags:` (the board's
 own warnings on its row), `Pause:`, `Limits:`; or `check sync board` with a line per worker, `Not handed out:`,
 `Board flags:`, `Pause:` and `Limits:`. B465: before it types that, the board runs its own list of stuck states
-(`src/work/sync.mjs`) and fixes what it safely can; `Board's own check (HH:MM):` says what it found and did (Fixed,
-Woke, Sent, For Main). The same list runs every few minutes by itself, and what it cannot fix comes to you as one note,
+(the supervisor's repair rules, `src/supervisor/rules/repair.mjs`) and fixes what it safely can; `Board's own check
+(HH:MM):` says what it found and did (Fixed, Woke, Sent, For Main). The same list runs every few minutes by itself,
+and what it cannot fix comes to you as one note,
 `The board's sync check at HH:MM: what it could not fix itself`: act on each line as below. Your check is for what the
 list does not know. Do it now, in this turn:
 
@@ -247,8 +249,8 @@ list does not know. Do it now, in this turn:
   make it a step with `work new` (what the board showed, what the store and the chat say, as its Context) and queue it
   with `work queue`, `priority` fix, for the worker you pick (as any task: "A task comes in: worker or queue").
 - A way of getting stuck the board's list does not know yet: fix this case, and make a step (`priority` fix) that adds
-  it to the list in `src/work/sync.mjs` with its check, its fix and its test. A new way is added to the list, never
-  only fixed by hand.
+  it to the list in `src/supervisor/rules/repair.mjs` with its check, its fix and its test. A new way is added to the
+  list, never only fixed by hand.
 - Answer in one line, as a note to the user: `work note` to you, text `Sync check of <name>: <what you found>; <what
   you did>` (`Sync check of the board: ...`), naming the step you made. The board shows it in that worker's row (under
   the panel's head for the board) and in the log. Nothing more to the user, unless something is theirs to decide.

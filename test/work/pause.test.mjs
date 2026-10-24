@@ -272,14 +272,20 @@ test('after a pause, the resume list of the main chat marks a checkpoint written
 const held = (id, owner, state = 'in progress', checkpoint = null) => ({ head: new Map([['Id', id], ['Kind', 'step'], ['State', state], ['Owner', owner], ...(checkpoint === null ? [] : [['Checkpoint', checkpoint]])]), sections: new Map() })
 const calm = LANES.map(lane => ({ ...lane, state: lane.name === 'Board' ? 'free' : lane.state }))
 
-test('review 1: a step waiting on you or in review is held as the work API holds it: it is named (the review of Pause 2: it blocks no Safe) and woken on resume', () => {
+test('review 1: a step waiting on you or in review is held as the work API holds it: it is named (the review of Pause 2: it blocks no Safe); a resume wakes the one waiting on you', () => {
   const items = new Map([['B1', held('B1', 'Board', 'waiting on you')], ['B2', held('B2', 'Support', 'review')]])
   const pausing = pauseFacts({ pause: { state: 'pausing', since: NOW, by: 'person' }, items, lanes: calm })
   assert.deepEqual([pausing.unsaved, pausing.isSafe], [[{ chat: 'Board', id: 'B1' }, { chat: 'Support', id: 'B2' }], true])
+  // 2026-10-24: a step in review leaves its chat nothing to pick up again: the resume neither waits for it nor wakes it
+  // (Worker 1's four steps in review kept the banner up for twenty minutes and an hour after).
   const resuming = pauseFacts({ pause: { state: 'resuming', since: NOW + MIN, by: 'person' }, items, lanes: calm })
-  assert.deepEqual(resuming.waiting, [{ chat: 'Board', ids: ['B1'] }, { chat: 'Support', ids: ['B2'] }])
+  assert.deepEqual(resuming.waiting, [{ chat: 'Board', ids: ['B1'] }])
   const list = pauseAnswer({ pause: { state: 'resuming', since: NOW + MIN, by: 'person' }, items, lanes: calm, chat: 'Main', role: 'main' }).resumeList
-  assert.deepEqual(list.map(one => one.step), ['B1', 'B2'])
+  assert.deepEqual(list.map(one => one.step), ['B1'])
+  // Only steps in review: nobody to wait for, so the resume is done at once.
+  const reviewOnly = new Map([['B2', held('B2', 'Support', 'review')]])
+  const done = pauseFacts({ pause: { state: 'resuming', since: NOW + MIN, by: 'person' }, items: reviewOnly, lanes: calm })
+  assert.deepEqual([done.waiting, done.isResumed], [[], true])
 })
 
 test('review 1: a checkpoint stands on a step waiting on you or in review too', async () => {
