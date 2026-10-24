@@ -67,6 +67,8 @@ type World = {
   formResponse: string | null
   formCloses: boolean
   hangs: boolean
+  /** B566: the board's take never answers while this is set. */
+  takeHangs: boolean
   contexts: string[][]
   /** B319: the folder the session was opened in (the project's, unless set), and where each work call went, with its key. */
   root?: string
@@ -104,7 +106,7 @@ async function settle(): Promise<void> {
 }
 
 function world(id: string, files: Record<string, string> = {}): World {
-  return { id, files, agents: [], tools: [], opened: [], sent: [], whileAsked: null, waiting: [], takeAnswers: [], fetched: [], typedIn: [], reported: [], refusesTyping: false, up: null, spawned: [], comesUp: true, tokens: 50_000, refusesCompact: false, isHeadless: false, commanded: [], compactions: [], toasts: [], worked: [], workAnswer: { status: 200, text: '{"text":"Yours, Units:"}' }, formAnswers: {}, workAnswers: [], formResponse: null, formCloses: false, hangs: false, contexts: [], workedAt: [], pauseAnswer: RUNNING, pauseReads: 0, descriptions: {}, stored: {}, requests: [], cuts: [], held: null, byAction: {}, holdAction: null, sequence: [], holdCompact: null, writes: [], modHeaders: [] }
+  return { id, files, agents: [], tools: [], opened: [], sent: [], whileAsked: null, waiting: [], takeAnswers: [], fetched: [], typedIn: [], reported: [], refusesTyping: false, up: null, spawned: [], comesUp: true, tokens: 50_000, refusesCompact: false, isHeadless: false, commanded: [], compactions: [], toasts: [], worked: [], workAnswer: { status: 200, text: '{"text":"Yours, Units:"}' }, formAnswers: {}, workAnswers: [], formResponse: null, formCloses: false, hangs: false, takeHangs: false, contexts: [], workedAt: [], pauseAnswer: RUNNING, pauseReads: 0, descriptions: {}, stored: {}, requests: [], cuts: [], held: null, byAction: {}, holdAction: null, sequence: [], holdCompact: null, writes: [], modHeaders: [] }
 }
 
 /** The project's list of chats, with the titles that join by themselves. */
@@ -270,6 +272,7 @@ function stand(on: On, w: World): void {
       return { value: { status: 200, ok: true, headers: {}, text: '{}' } }
     }
     w.fetched.push({ url: e.url, key: e.init?.headers?.['X-Board-Key'] ?? '', body: e.init?.body ?? '' })
+    if (w.takeHangs && e.url.endsWith('/api/bridge/take')) return new Promise<never>(() => {})
     const refused = e.url.endsWith('/api/bridge/take') ? w.takeAnswers.shift() : undefined
     if (refused !== undefined) return { value: { status: refused.status, ok: refused.status === 200, headers: {}, text: refused.text } }
 
@@ -679,6 +682,30 @@ describe('what the person answers on the worker board reaches the chat it is for
     await clock.advance(5000)
     await settle()
     expect(w.typedIn.map(line => line.split(':').pop())).toEqual([' approved. Tick this step in the backlog.', 'Sheet B'])
+  })
+
+  test('B566 (X21): a take the board never answers gives up after 15 s; the next take hands the chat its word', async ($, on) => {
+    const clock = mock.clock(on)
+    const w = world('units', { ...listed(), [BOARD]: board })
+    stand(on, w)
+    await $.session.start(START)
+    await $.classic.UserPromptSubmit({ prompt: 'hello', session_title: 'Game - Units' })
+    w.takeHangs = true
+    await clock.advance(5000)
+    await settle()
+    const asked = w.fetched.length
+    expect(asked).toBeGreaterThan(0)
+    // While it hangs no second take goes out; 15 s on the take is given up.
+    await clock.advance(5000)
+    await settle()
+    expect(w.fetched.length).toBe(asked)
+    w.takeHangs = false
+    w.waiting.push({ id: 'm1', text: 'Sheet B' })
+    await clock.advance(15000)
+    await settle()
+    await clock.advance(5000)
+    await settle()
+    expect(w.typedIn).toEqual(['plugin:as the person:Sheet B'])
   })
 
   test('a busy chat takes too: the engine runs what was typed once the chat is idle', async ($, on) => {

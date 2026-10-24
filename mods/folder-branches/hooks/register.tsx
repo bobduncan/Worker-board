@@ -129,6 +129,14 @@ let hasReported = false
 let moreFollows = false
 /** True while the worker board is asked, so two ticks never take at once. */
 let isTaking = false
+/**
+ * B566 (X21, X22): when the take that runs began, and its number. The engine's fetch has no time limit of its own: a
+ * board that never answers (one closing for a restart) left isTaking set for good, so the chat took nothing again. A
+ * take older than TAKE_MS counts as given up: the next tick takes anew, and the old one's end no longer frees the new.
+ */
+let takingSince = 0
+let takeNumber = 0
+const TAKE_MS = 15_000
 /** The board's messages typed in this process: one the board hands out again is not typed again. */
 const typedIds = new Set<string>()
 /** B298: when this session's running turn started; null between turns. */
@@ -757,8 +765,12 @@ async function reportTyped($: EngineInterface, board: Board, typed: string[], fa
  */
 async function takeFromBoard($: EngineInterface): Promise<void> {
   // Clear after each step: nothing is typed in while a clear is on its way: it waits for the conversation after it.
-  if (isTaking || myself === null || chatsDir === null || clearing !== null || isDecidingClear) return
+  if (myself === null || chatsDir === null || clearing !== null || isDecidingClear) return
+  const now = await $.clock.now()
+  if (isTaking && now - takingSince < TAKE_MS) return
   isTaking = true
+  takingSince = now
+  const mine = (takeNumber += 1)
   try {
     // The project's folder is the one that holds `.claude/chats`.
     const project = chatsDir.slice(0, chatsDir.length - CHATS_DIR.length - 1)
@@ -784,7 +796,7 @@ async function takeFromBoard($: EngineInterface): Promise<void> {
   } catch {
     // no board runs, or it did not answer: it is asked again at the next tick
   } finally {
-    isTaking = false
+    if (takeNumber === mine) isTaking = false
   }
 }
 
