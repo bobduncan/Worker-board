@@ -353,3 +353,47 @@ test('the review: a line to the person that could not be filed goes at the next 
   await supervisor.run()
   assert.deepEqual((await lines()).map(one => one.sections.get('About')[0]), ['X1'], 'filed at the next run, and only once')
 })
+
+test('B581: the x on the person\'s line reads its notes only: the incident stays open and keeps counting, no line comes back for it, a new finding brings one', async t => {
+  const { mkdtemp, rm } = await import('node:fs/promises')
+  const { tmpdir } = await import('node:os')
+  const { join } = await import('node:path')
+  const { workApi } = await import('../../src/work/api.mjs')
+  const { informationOf } = await import('../../src/work/lists.mjs')
+  const { migrateBacklog } = await import('../../src/work/migrate.mjs')
+  const { readStore, writeStore } = await import('../../src/work/store.mjs')
+  const dir = await mkdtemp(join(tmpdir(), 'supervisor-close-'))
+  t.after(() => rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }))
+  await writeStore(dir, migrateBacklog('# Backlog\n\n## Work\n- [ ] B5 Paint the strip (for Mason; about 1 h)\n', { now: NOW }), undefined, { now: NOW })
+  let clock = NOW
+  let chats = [LEAD, lane('Mason', { state: 'unknown' })]
+  const { ports } = board()
+  const supervisor = createSupervisor({
+    ...ports,
+    now: () => clock,
+    items: async () => (await readStore(dir)).items,
+    apply: body => workApi(body, { dir, now: clock, prefix: '', as: 'server' }),
+    state: async () => ({ chats, chatPrefix: '', limits: {}, pause: null, today: chats.filter(one => !one.isMain).map(one => ({ chat: one.name, spans: [{ from: ago(30), to: clock, state: 'unknown', task: null }] })) }),
+  })
+  const store = async () => ({ ok: true, items: (await readStore(dir)).items })
+  const unread = async () => informationOf(await store(), clock).filter(one => one.via === 'supervisor' && !one.isRead).map(one => one.about)
+  const incident = async id => (await store()).items.get(id)
+  await supervisor.run()
+  assert.deepEqual(await unread(), ['X1'], 'the line: one new finding')
+  const counted = Number((await incident('X1')).head.get('Count'))
+  // The x: the page reads the line's notes, as the person.
+  const [note] = informationOf(await store(), clock).filter(one => one.via === 'supervisor')
+  assert.equal((await workApi({ action: 'read', id: note.id }, { dir, now: clock, prefix: '', as: 'person' })).ok, true)
+  assert.deepEqual(await unread(), [], 'the line is closed, also after a reload (the store keeps it read)')
+  assert.equal((await incident('X1')).head.get('State'), 'open', 'the incident stays open')
+  clock += 3 * MIN
+  await supervisor.run()
+  assert.ok(Number((await incident('X1')).head.get('Count')) > counted, 'and keeps counting')
+  assert.deepEqual(await unread(), [], 'the same incident brings no line back')
+  // A new finding shows a line again.
+  chats = [...chats, lane('Rook', { state: 'unknown' })]
+  clock += 3 * MIN
+  await supervisor.run()
+  assert.equal((await unread()).length, 1, 'a new finding: a line again')
+  assert.notEqual((await unread())[0], 'X1')
+})
