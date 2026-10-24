@@ -6,13 +6,14 @@
 import assert from 'node:assert/strict'
 import { spawn } from 'node:child_process'
 import { cp, mkdir, readdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises'
-import { createServer } from 'node:http'
+import { createServer, request } from 'node:http'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import test from 'node:test'
 import { fileURLToPath } from 'node:url'
 
 import { answer, typed } from '../fixtures/lines.mjs'
+import { createBoard } from '../server.mjs'
 import { migrateBacklog } from '../src/work/migrate.mjs'
 import { writeStore } from '../src/work/store.mjs'
 
@@ -69,7 +70,59 @@ async function until(check, what, within = 40_000) {
 
 const readLines = async file => (await readFile(file, 'utf8').catch(() => '')).split('\n').filter(line => line.trim() !== '').map(line => JSON.parse(line))
 
-test('two board processes on one project: each line goes out once, and the other takes over when the holder ends', { timeout: 300_000 }, async t => {
+/** One POST of the board's own page to `server` (on `port`): its status and words. */
+function post(port, path, body, headers = {}) {
+  return new Promise((done, fail) => {
+    const req = request({ host: '127.0.0.1', port, method: 'POST', path, headers: { Origin: `http://127.0.0.1:${port}`, 'Content-Type': 'application/json', ...headers } }, res => {
+      let text = ''
+      res.on('data', chunk => { text += chunk })
+      res.on('end', () => done({ status: res.statusCode, text }))
+    })
+    req.on('error', fail)
+    req.end(JSON.stringify(body))
+  })
+}
+
+test('B529: a board process without the loops refuses the page\'s writes and names the holder; its own things it still does', async () => {
+  const TOKEN = 'c'.repeat(64)
+  let why = 'Another board process of this project runs the loops: do this on its page, http://127.0.0.1:4310/.'
+  const did = []
+  const answer = name => async () => { did.push(name); return { ok: true, result: {} } }
+  const server = createBoard({
+    token: TOKEN, getState: async () => ({}), say: async () => { did.push('say'); return { ok: true, message: {} } },
+    work: answer('work'), backlog: answer('backlog'), goals: answer('goals'), brainstorm: answer('brainstorm'), design: answer('design'),
+    settings: answer('settings'), game: answer('game'), cpu: answer('cpu'), talkPicture: answer('talk picture'),
+    mayWrite: async () => why,
+  })
+  await new Promise(done => server.listen(0, '127.0.0.1', done))
+  try {
+    const { port } = server.address()
+    const headers = { 'X-Board-Token': TOKEN }
+    for (const path of ['/api/say', '/api/work', '/api/backlog', '/api/goals', '/api/brainstorm', '/api/design', '/api/settings']) {
+      const sent = await post(port, path, { to: 'Game - Main', text: 'Hello' }, headers)
+      assert.equal(sent.status, 409, path)
+      assert.match(sent.text, /http:\/\/127\.0\.0\.1:4310\//, path)
+    }
+    const picture = await new Promise((done, fail) => {
+      const req = request({ host: '127.0.0.1', port, method: 'POST', path: '/api/talk/picture', headers: { ...headers, Origin: `http://127.0.0.1:${port}`, 'Content-Type': 'image/png' } }, res => { res.resume(); res.on('end', () => done(res.statusCode)) })
+      req.on('error', fail)
+      req.end(Buffer.from([1, 2, 3]))
+    })
+    assert.equal(picture, 409)
+    // A game and the CPU level are this process's own.
+    assert.equal((await post(port, '/api/game', { branch: 'main' }, headers)).status, 200)
+    assert.equal((await post(port, '/api/cpu', { level: 'off' }, headers)).status, 200)
+    assert.deepEqual(did, ['game', 'cpu'])
+    // Once it holds the lock, the page's words are taken.
+    why = null
+    assert.equal((await post(port, '/api/say', { to: 'Game - Main', text: 'Hello' }, headers)).status, 200)
+    assert.deepEqual(did, ['game', 'cpu', 'say'])
+  } finally {
+    await new Promise(done => server.close(done))
+  }
+})
+
+test('two board processes on one project: each line goes out once, and the other takes over when the holder ends', { timeout: 360_000 }, async t => {
   const dir = await mkdtemp(join(tmpdir(), 'board-loops-'))
   const started = []
   t.after(async () => {
@@ -91,11 +144,19 @@ test('two board processes on one project: each line goes out once, and the other
     await put(join(app, 'a', 'b', `local_${name.toLowerCase()}.json`), appChat(name, `${name.toLowerCase()}-id`))
     await put(join(transcripts, `${name.toLowerCase()}-id.jsonl`), `${[typed(NOW - 9 * MIN, 'Status?'), answer(NOW - 8 * MIN, 'All fine.')].join('\n')}\n`)
   }
-  // The clock's morning round is due at both processes' first look; the store has a step queued for Units.
+  // The clock's morning round is due at both processes' first look. The board began refining when B13 was the highest
+  // step, queued then; B14 was queued since without being refined, so the first look asks the Advisor to refine it.
   await put(join(board, 'data', 'rounds.json'), JSON.stringify({ morning: NOW - 48 * 60 * MIN, weekly: NOW - 48 * 60 * MIN, nextWeekly: null, skipped: null }))
+  await put(join(board, 'data', 'refine-gate.json'), JSON.stringify({ since: 13, queuedBefore: ['B13'], waiting: [] }))
+  // B529: a chat log the journal names whose transcript is gone: given up once, by the holder only.
+  const logs = join(project, '.claude', 'chat-logs', 'Units')
+  const journal = join(board, 'data', 'chat-logs.json')
+  const job = (id, session) => ({ id, chat: 'Units', session, step: 'B9', at: NOW, state: 'copy', source: join(transcripts, `${session}.jsonl`), jsonl: join(logs, `${id}.jsonl`), txt: join(logs, `${id}.txt`), log: `.claude/chat-logs/Units/${id}.txt` })
+  await put(journal, JSON.stringify({ jobs: [job('gone', 'gone-id')], left: [] }))
   const store = join(project, '.claude', 'work')
-  const steps = ids => migrateBacklog(`## Art\n${ids.map(id => `- [ ] ${id} Draw the shield (for ${id === 'B14' ? 'Maps' : 'Units'}; about 1 h)\n`).join('')}`, { now: NOW })
-  await writeStore(store, steps(['B13']), undefined, { now: NOW })
+  const FOR = { B13: 'Units', B14: 'Maps', B15: 'Units' }
+  const steps = (ids, refined = []) => migrateBacklog(`## Art\n${ids.map(id => `- [ ] ${id} Draw the shield (for ${FOR[id]}; about 1 h)\n${refined.includes(id) ? '  Refined (2026-10-24 09:00; ready):\n  Summary: A shield.\n' : ''}`).join('')}`, { now: NOW })
+  await writeStore(store, steps(['B13', 'B14']), undefined, { now: NOW })
   const [one, two] = [await freePort(), await freePort()]
   await writeFile(join(board, 'config.json'), JSON.stringify({ name: 'loops', project, port: one, refreshSeconds: 5, morningRound: '00:00', weeklyRound: false, gamePort: 7300, gameRepo: '', appSessions: app, transcripts, usageHistory: join(app, 'none.json') }))
   const env = { WORKER_BOARD_HOME: join(dir, 'pc') }
