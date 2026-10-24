@@ -2952,10 +2952,17 @@ stuck that day was found by the person. They are now one list in the board, each
   it (the holder ended; a dead process's lock is taken at once) reads again the files the holder wrote (the outbox, the
   finished, rounds and refine records, the task times, the spending), so it sends nothing twice, and writes
   `.claude/board.json`, so the mod finds it. At its start a process that does not get the lock writes no `board.json`.
-  A word sent from the page of the process without the lock lands in its own memory, not the holder's: use the
-  holder's page. Test: `test/oneLoopProcess.test.mjs` (two real processes: the round and a step's line go out once;
-  the holder is killed, the other takes the lock, writes `board.json`, and sends the next step's line once), and the
-  gate in `test/supervisor/selfCheck.test.mjs`.
+  B529: the page of the process without the lock takes no write (a word, a work action, the backlog, goals,
+  brainstorm, design, settings, a picture: `mayWrite` in `createBoard`, 409 naming the holder's page from the lock's
+  port), since its words would wait in an outbox no chat takes from; a game, a restart, the CPU level and a new project
+  stay its own. The chat logs are the holder's too: only it finishes the open logs of the journal (at its start, or when
+  it gains the loops, after reading the journal again, `reload` in chatLogs.mjs) and takes a `save-log`; and the gain
+  reads `alive.json` again, so its first look sees no gap the holder did not have. Test:
+  `test/oneLoopProcess.test.mjs` (two real processes: the round, a step's line, a refine line and the open chat log go
+  out once, only the holder finishes the log, and the other's page refuses a word naming the holder's port; the holder
+  is killed, the other takes the lock, writes `board.json`, finishes the log the holder left, and at its own first look
+  sends the next step's line, its refine line and the notice of a step refined meanwhile once, and nothing the holder
+  sent), the gate in `test/supervisor/selfCheck.test.mjs`, `reload` in `test/chatLogs.test.mjs` and `test/store.test.mjs`.
 - A new way of getting stuck is added to the list with its check, fix and test, not only fixed by hand (roles/main.md).
 - Tests: `test/supervisor/selfCheck.test.mjs` (each check, each fix, the one note, the runner, the board's own unblock and requeue),
   `test/outOfSync.test.mjs` (the words to the main chat, the page's answer).

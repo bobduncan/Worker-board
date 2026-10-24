@@ -371,7 +371,7 @@ test('B525: a step already on sonnet and medium is lifted at its refine in a goa
   const mapOf = () => parseGoals(Buffer.from(fs.files[FILE], 'latin1').toString('utf8'))
   const dir = await mkdtemp(join(tmpdir(), 'guard-'))
   const at = new Date(2026, 9, 19, 12, 0).getTime()
-  await writeStore(dir, migrateBacklog(['# Backlog', '', '## Tiles', '- [ ] B1 Redraw the tiles', '- [ ] B2 Sort the crates', ''].join('\n'), { now: at }), undefined, { now: at })
+  await writeStore(dir, migrateBacklog(['# Backlog', '', '## Tiles', '- [ ] B1 Redraw the tiles', '- [ ] B2 Sort the crates', '- [ ] B3 Mop the floor', '- [ ] B4 Hang a lantern', ''].join('\n'), { now: at }), undefined, { now: at })
   const ctx = { dir, now: at + 60_000, prefix: '', roleOf: chat => ({ Partner: 'advisor', Keeper: 'main', Painter: 'worker' })[chat] ?? null, freeChats: new Set(['Painter']), chats: ['Partner', 'Keeper', 'Painter'], evaluationOf: id => evaluationState(mapOf().byId.get(id)) }
   const as = chat => body => workApi({ chat, ...body }, ctx)
   const read = async id => (await readStore(dir)).items.get(id)
@@ -380,8 +380,21 @@ test('B525: a step already on sonnet and medium is lifted at its refine in a goa
   assert.equal((await as('Partner')({ action: 'refine', id: 'B1', summary: 'Redraw the tiles.', goal: 'G5', model: 'sonnet: a plain redraw', effort: 'medium: a plain redraw' })).ok, true)
   assert.equal((await as('Partner')({ action: 'refined', id: 'B1', what: ['four tiles'] })).ok, true)
   assert.equal((await as('Partner')({ action: 'refine', id: 'B2', summary: 'Sort the crates.', goal: 'G5', model: 'sonnet: a plain chore', effort: 'medium: a plain chore' })).ok, true)
+  assert.equal((await as('Partner')({ action: 'refine', id: 'B3', summary: 'Mop the floor.', goal: 'G5', model: 'sonnet: a plain chore', effort: 'medium: a plain chore' })).ok, true)
+  assert.equal((await as('Partner')({ action: 'refined', id: 'B3', what: ['a clean floor'] })).ok, true)
+  assert.equal((await as('Partner')({ action: 'refine', id: 'B4', summary: 'Hang a lantern.', goal: 'G3', model: 'sonnet: a plain chore', effort: 'medium: a plain chore' })).ok, true)
+  assert.equal((await as('Partner')({ action: 'refined', id: 'B4', what: ['a lantern'] })).ok, true)
   assert.match(await line('B1', 'Model') ?? '', /^sonnet · /)
+  assert.match(await line('B3', 'Model') ?? '', /^sonnet · /)
   assert.equal((await guardGoal('G5', base)).result.fired, true)
+  // The refined call alone lifts a step still on sonnet and medium (B3 had no refine since the evaluation began).
+  assert.equal((await as('Partner')({ action: 'refined', id: 'B3', what: ['a clean floor'] })).ok, true)
+  assert.match(await line('B3', 'Model') ?? '', /^opus · the goal guard: G5 /)
+  assert.match(await line('B3', 'Effort') ?? '', /^high · the goal guard: G5 /)
+  // A refine that gives sonnet and medium is lifted too, not obeyed.
+  assert.equal((await as('Partner')({ action: 'refine', id: 'B3', summary: 'Mop the floor, twice.', model: 'sonnet: a plain chore', effort: 'medium: a plain chore' })).ok, true)
+  assert.match(await line('B3', 'Model') ?? '', /^opus · the goal guard: G5 /)
+  assert.match(await line('B3', 'Effort') ?? '', /^high · the goal guard: G5 /)
   // The refine of a step that was on sonnet and medium lifts it.
   const lifted = await as('Partner')({ action: 'refine', id: 'B2', summary: 'Sort the crates, again.' })
   assert.equal(lifted.ok, true, lifted.why)
@@ -400,6 +413,16 @@ test('B525: a step already on sonnet and medium is lifted at its refine in a goa
   const fixId = checked.result.fix ?? (await readStore(dir)).items.keys().toArray().filter(id => id !== 'B1').at(-1)
   assert.match(await line(fixId, 'Model') ?? '', /^opus · /)
   assert.match(await line(fixId, 'Effort') ?? '', /^high · /)
+  // A goal that is not in evaluation: the fix step of its failed check keeps the step's sonnet and medium.
+  assert.equal((await as('Keeper')({ action: 'queue', id: 'B4', for: 'Painter', about: '1 h' })).ok, true)
+  assert.equal((await as('Painter')({ action: 'take', id: 'B4', branch: 'b4-lantern' })).ok, true)
+  assert.equal((await as('Painter')({ action: 'report', id: 'B4', result: 'A lantern.', merged: 'c0ffee2' })).ok, true)
+  assert.equal((await workApi({ action: 'check', id: 'B4', passed: true, lines: ['branch gone'] }, { ...ctx, as: 'server' })).ok, true)
+  const calmChecked = await as('Partner')({ action: 'checked', id: 'B4', evidence: 'none (x)', points: ['fail: the lantern is dark'] })
+  assert.equal(calmChecked.ok, true, calmChecked.why)
+  const calmFix = calmChecked.result.fix ?? (await readStore(dir)).items.keys().toArray().filter(id => id !== 'B4').at(-1)
+  assert.match(await line(calmFix, 'Model') ?? '', /^sonnet · /)
+  assert.match(await line(calmFix, 'Effort') ?? '', /^medium · /)
 })
 
 test('B528: an evaluation that has not ended is asked again 30 minutes after its last word, a lost word included', () => {

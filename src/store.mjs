@@ -107,6 +107,10 @@ function storeOver(lines, messages, alive, write) {
       aliveAt = at
       await write.alive(at)
     },
+    /** B529: when the board last ran, as another board process on the folder wrote it (read again, not written). */
+    aliveRead(at) {
+      if (Number.isFinite(at)) aliveAt = at
+    },
     async say(message) {
       messages.push(message)
       await write.outbox([message])
@@ -250,6 +254,12 @@ export async function fileStore(dir, now) {
     async reload() {
       lines.splice(0, lines.length, ...parseHistory(await read(files.history)))
       store.outbox().splice(0, store.outbox().length, ...foldOutbox(await read(files.outbox)))
+      // B529: and when it last ran, so the first look of the one that takes over sees no gap the other did not have
+      try {
+        store.aliveRead(JSON.parse(await read(files.alive)).at)
+      } catch {
+        // none written yet, or broken: the time read before stands
+      }
     },
   }
 }

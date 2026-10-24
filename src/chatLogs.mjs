@@ -217,7 +217,8 @@ const isJob = job => job !== null && typeof job === 'object' && ['copy', 'text']
 /**
  * The board's keeper of the chat logs. `file` is the journal, `project` the project's folder, `transcripts` the
  * folder of the app's transcripts. `save({ chat, session, step })` puts a log in the journal and starts it (the copy
- * runs on after the answer); `resume()` starts every log the journal names (at the board's start); `idle()` waits
+ * runs on after the answer); `resume()` starts every log the journal names (at the board's start, B529: only in the
+ * board process that runs the loops); `reload()` forgets what was read, so the next call reads the journal again; `idle()` waits
  * until the logs started are written; `failed` hears a log given up.
  */
 export function chatLogKeeper({ file, project, transcripts, clock = Date.now, failed = () => {} }) {
@@ -339,6 +340,19 @@ export function chatLogKeeper({ file, project, transcripts, clock = Date.now, fa
     return queue
   }
 
+  /**
+   * B529: reads the journal again at the next call, for a board process that gains the loops: the one that ran them
+   * wrote it last (logs it finished, logs it began), so what this one read before is old. Only between runs: a log
+   * still being written keeps its place.
+   */
+  async function reload() {
+    await queue.catch(() => {})
+    await journal
+    loading = null
+    jobs = null
+    left = []
+  }
+
   /** The sessions cleared chats left, still to be read to their ends. */
   async function leftSessions() {
     await load()
@@ -353,7 +367,7 @@ export function chatLogKeeper({ file, project, transcripts, clock = Date.now, fa
     await keep()
   }
 
-  return { save, resume, leftSessions, readOut, idle: async () => { await queue; await journal }, pending: async () => {
+  return { save, resume, reload, leftSessions, readOut, idle: async () => { await queue; await journal }, pending: async () => {
     await load()
     return jobs.map(job => ({ ...job }))
   } }
