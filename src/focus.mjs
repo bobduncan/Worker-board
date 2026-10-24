@@ -453,7 +453,7 @@ async function reopenGoal({ id, words }, ctx) {
 }
 
 /**
- * B359: the goal guard fires for goal `id` when its failed checks since Go reached the third (src/goalGuard.mjs),
+ * B359: the goal guard fires for goal `id` when its failed attempts (since Go, else since its first refined step) reached the third (src/goalGuard.mjs),
  * once: "Evaluation asked: <date time>" under the goal, and the word `evaluate G<n>` to the partner (`ctx.partner`),
  * with what failed and whether a rebuild needs the person's yes (`ctx.approveRebuilds`). `ctx.items` are the store's.
  * Answers `{ ok, result: { id, fired }, words }`; words is null when the guard did not fire.

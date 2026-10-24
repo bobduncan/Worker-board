@@ -852,7 +852,7 @@ every look of one of its steps that the person answered no or rejected. At the t
 <date time>` under the goal, has the main chat switch you to high effort, and types `evaluate G<n> <title>`,
 `Attempts:` with each failed check (the person's no to a look named as theirs), `Next steps:`, `Rebuilds:` and
 `Your job: ...` into your chat: their word. Until the evaluation ends, every next step of that goal that you refine or
-make gets `model` opus and `effort` high. The Focus page shows
+make gets `model` opus and `effort` high (the board sets both when you give none, B518). The Focus page shows
 "Your partner evaluates the approach" meanwhile.
 
 1. Step back from the steps: is the current approach right at all? What caps the result (the art pipeline, a rule, the

@@ -623,7 +623,7 @@ async function main(args) {
   }
   /**
    * B359: the goal guard, after a failed check of goal `id` (a step's result check or the goal's re-check): at the third
-   * failed check since Go the partner is switched to high effort and asked for the fundamental evaluation, once.
+   * failed attempt (since Go, else since its first refined step) the partner is switched to high effort and asked for the fundamental evaluation, once.
    */
   const guardNow = async id => {
     if (!writesMap || workDir === null || id === null) return
@@ -636,7 +636,7 @@ async function main(args) {
       partner: state.advisor, job: join(HERE, 'roles', 'partner.md'), items, approveRebuilds: config.approveRebuilds === true,
     })
     if (!done.ok || done.words === null) return
-    await partnerMode(state, 'high', `the goal guard: ${id} failed its checks ${GUARD_ATTEMPTS} times since Go: a fundamental evaluation`)
+    await partnerMode(state, 'high', `the goal guard: ${id} failed ${GUARD_ATTEMPTS} attempts: a fundamental evaluation`)
     await toPartner(done.words, {}, state)
   }
   /** Focus 2: the person's word to the partner into the outbox (copied without the Workers mod); a partner not running is woken. */
@@ -729,6 +729,12 @@ async function main(args) {
       viewFile, boardUrl: `http://${HOST}:${homePort}`, backlogFile: join(config.project, ...config.backlog.split('/')),
       // Focus 3, the review: the goals of the map the board reads, for an ask or a daily note of a goal.
       hasGoal: id => (state.goals?.nodes ?? []).some(node => node.id === id),
+      // B518: a goal in its fundamental evaluation ('running') or that ended one ('ended'): its steps default to opus and high.
+      evaluationOf: id => {
+        const node = (state.goals?.nodes ?? []).find(one => one.id === id)
+        if (node === undefined || node.state === 'done') return null
+        return (node.evaluationAsked ?? null) !== null ? 'running' : (node.evaluatedAt ?? []).length > 0 ? 'ended' : null
+      },
       // B354: the project's kinds of work: a refined step that names one carries its standard.
       kinds: config.kinds,
       // 2026-10-24: an ask's picture the board cannot show is refused with where to put it (api.mjs ask).

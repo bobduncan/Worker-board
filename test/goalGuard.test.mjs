@@ -5,12 +5,18 @@
 // effort, for a fundamental evaluation; a rebuild is the person's to approve unless the board approves it by itself
 // (off at first, Q130). Made-up names only.
 import assert from 'node:assert/strict'
+import { mkdtemp } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import test from 'node:test'
 
 import { evaluationsRunning, focusMove, guardGoal } from '../src/focus.mjs'
 import { parseGoals } from '../src/goals.mjs'
 import { GUARD_ATTEMPTS, evaluateWords, goalAttempts, guardOf, needsEvaluation } from '../src/goalGuard.mjs'
 import { parseConfig } from '../src/config.mjs'
+import { workApi } from '../src/work/api.mjs'
+import { migrateBacklog } from '../src/work/migrate.mjs'
+import { readStore, writeStore } from '../src/work/store.mjs'
 
 const step = (id, goal, history, checked = [], more = {}) => ({
   head: new Map([['Id', id], ['Kind', 'step'], ['Title', `Step ${id}`], ['State', 'in progress'], ['Goal', goal], ...Object.entries(more)]),
@@ -290,4 +296,46 @@ test('B450: the guard fires for a goal that is not the focus and has no how, and
   // Without a running evaluation a goal that is not the focus and has no how is still not drafted.
   const calm = await focusMove({ command: 'how-draft', id: 'G5', parts: ['Other · 1 h'], partnerDecides: [], youDecide: [] }, ctx(fakeFs({ [FILE]: latin(TILES) })))
   assert.equal(calm.ok, false)
+})
+
+// B518: the words alone set nothing; the work tool gives the next steps of a goal in its evaluation Model: opus and Effort: high.
+test('B518: after the guard fires, a step of the goal is refined and made on opus and high; a goal not in evaluation stays as it was', async () => {
+  const fs = fakeFs({ [FILE]: latin(TILES) })
+  const base = { canWrite: true, goalsFile: FILE, historyDir: 'D:/Work/p/history', now: NOW, fs, partner: { name: 'Partner' }, job: 'j', items: TILE_ITEMS }
+  const mapOf = () => parseGoals(Buffer.from(fs.files[FILE], 'latin1').toString('utf8'))
+  const dir = await mkdtemp(join(tmpdir(), 'guard-'))
+  const at = new Date(2026, 9, 19, 12, 0).getTime()
+  await writeStore(dir, migrateBacklog(['# Backlog', '', '## Tiles', '- [ ] B1 Redraw the tiles', '- [ ] B2 Sort the crates', ''].join('\n'), { now: at }), undefined, { now: at })
+  const ctx = () => ({
+    dir, now: at + 60_000, prefix: '', roleOf: chat => ({ Partner: 'advisor' })[chat] ?? null, freeChats: new Set(),
+    evaluationOf: id => { const node = mapOf().byId.get(id); return node === undefined ? null : (node.evaluationAsked ?? null) !== null ? 'running' : node.evaluatedAt.length > 0 ? 'ended' : null },
+  })
+  const partner = body => workApi({ chat: 'Partner', ...body }, ctx())
+  const read = async id => (await readStore(dir)).items.get(id)
+  // Before the third failed attempt: no model, no effort.
+  const calm = await partner({ action: 'refine', id: 'B2', summary: 'Sort the crates.', goal: 'G5' })
+  assert.equal(calm.ok, true, calm.why)
+  assert.deepEqual([(await read('B2')).sections.get('Model')?.[0] ?? null, (await read('B2')).sections.get('Effort')?.[0] ?? null], [null, null])
+  assert.equal((await guardGoal('G5', base)).result.fired, true)
+  const refined = await partner({ action: 'refine', id: 'B1', summary: 'Redraw the tiles.', goal: 'G5' })
+  assert.equal(refined.ok, true, refined.why)
+  assert.match((await read('B1')).sections.get('Model')?.[0] ?? null, /^opus · the goal guard: G5 is in its fundamental evaluation$/)
+  assert.match((await read('B1')).sections.get('Effort')?.[0] ?? null, /^high · the goal guard: G5 /)
+  const made = await partner({ action: 'new', title: 'Draw the tiles from a reference', activity: 'Tiles', goal: 'G5' })
+  assert.equal(made.ok, true, made.why)
+  assert.match((await read(made.result.id)).sections.get('Model')?.[0] ?? null, /^opus · /)
+  assert.match((await read(made.result.id)).sections.get('Effort')?.[0] ?? null, /^high · /)
+  // A model given is kept; a step of another goal is not touched.
+  const given = await partner({ action: 'new', title: 'Sweep the floor', activity: 'Tiles', goal: 'G5', model: 'sonnet: a chore', effort: 'low: a chore' })
+  assert.match((await read(given.result.id)).sections.get('Model')?.[0] ?? null, /^sonnet · a chore$/)
+  const other = await partner({ action: 'new', title: 'Hang a lantern', activity: 'Tiles', goal: 'G3' })
+  assert.equal((await read(other.result.id)).sections.get('Model')?.[0] ?? null, null)
+  // The marked draft ends the evaluation; the steps made from that how are still on opus and high, a plain step is not.
+  const drafted = await focusMove({ command: 'how-draft', id: 'G5', parts: ['Sprites from a reference · 2 h'], partnerDecides: ['Evaluation: draw them from a Codex reference'], youDecide: [] }, { canWrite: true, goalsFile: FILE, historyDir: 'D:/Work/p/history', now: NOW, fs, partner: { name: 'Partner' }, job: 'j', items: TILE_ITEMS, isKnown: true })
+  assert.equal(drafted.ok, true, drafted.why)
+  const fromHow = await partner({ action: 'new', title: 'Draw the sprites', activity: 'Tiles', goal: 'G5', summary: 'Sprites.', size: '2 h', what: ['four sprites'] })
+  assert.equal(fromHow.ok, true, fromHow.why)
+  assert.match((await read(fromHow.result.id)).sections.get('Model')?.[0] ?? null, /^opus · the goal guard: G5's evaluation just ended/)
+  const plain = await partner({ action: 'new', title: 'Add a crate', activity: 'Tiles', goal: 'G5' })
+  assert.equal((await read(plain.result.id)).sections.get('Model')?.[0] ?? null, null)
 })

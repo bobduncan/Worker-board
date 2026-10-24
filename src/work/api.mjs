@@ -1530,11 +1530,13 @@ async function make(call, w) {
   // B354: a standard given is kept on the step; a step made ready at once names it when it makes a thing of a kind.
   const standard = body.standard === undefined ? null : parseStandard(body.standard, w.kinds)
   if (standard !== null && !standard.ok) return refuse(400, standard.why)
+  // B518: a goal in its fundamental evaluation (and the steps made from the how that ends it) default to opus and high.
+  const guarded = guardedDefaults(w, goal, body.what !== undefined)
   // B468: so is an effort given: the worker that takes the step runs at it.
-  const effort = parseEffort(body.effort)
+  const effort = parseEffort(body.effort) ?? guarded?.effort ?? null
   if (effort !== null && !effort.ok) return refuse(400, effort.why)
   // Model per step: and so is a model given.
-  const model = parseModel(body.model)
+  const model = parseModel(body.model) ?? guarded?.model ?? null
   if (model !== null && !model.ok) return refuse(400, model.why)
   const fromHow = body.what === undefined ? null : howBlock(body, goal, w, standard?.line ?? null, effort?.line ?? null, model?.line ?? null)
   if (fromHow !== null && !fromHow.ok) return fromHow
@@ -1944,6 +1946,18 @@ async function drop(body, w) {
 
 /** The round number of a refine block's head, 0 when there is none. */
 const roundOf = item => Number((item.sections.get('Refined') ?? [''])[0].match(/\bround\s+(\d+)/i)?.[1] ?? ((item.sections.get('Refined') ?? []).length > 0 ? 1 : 0))
+/**
+ * B518: the model and effort the goal guard sets (src/goalGuard.mjs): a step of a goal whose fundamental evaluation runs
+ * (`w.evaluationOf(goal)` is 'running'), and the steps made from the how that ended it ('ended', only with `isFromHow`)
+ * default to opus and high when none is given. Null otherwise; `{ model, effort }` as parseModel and parseEffort read them.
+ */
+function guardedDefaults(w, goal, isFromHow) {
+  const state = goal === '' ? null : w.evaluationOf?.(goal) ?? null
+  if (state !== 'running' && !(state === 'ended' && isFromHow)) return null
+  const why = state === 'running' ? `the goal guard: ${goal} is in its fundamental evaluation` : `the goal guard: ${goal}'s evaluation just ended with a new how`
+  return { model: parseModel(`opus: ${why}`), effort: parseEffort(`high: ${why}`) }
+}
+
 /** B468: the effort a step was given, as the store keeps it ("medium · a board fix"), or null when it has none. */
 const effortLineOf = item => {
   const effort = effortOf(item)
@@ -2011,12 +2025,13 @@ async function refine(call, w) {
   const given = body.standard === undefined ? null : parseStandard(body.standard, w.kinds)
   if (given !== null && !given.ok) return refuse(400, given.why)
   const standard = given?.line ?? standardOf(found.item)
+  const guarded = guardedDefaults(w, goal !== '' ? goal : valueOf(found.item, 'Goal') ?? '', false)
   const effort = parseEffort(body.effort)
   if (effort !== null && !effort.ok) return refuse(400, effort.why)
-  const effortLine = effort?.line ?? effortLineOf(found.item)
+  const effortLine = effort?.line ?? effortLineOf(found.item) ?? guarded?.effort.line ?? null
   const model = parseModel(body.model)
   if (model !== null && !model.ok) return refuse(400, model.why)
-  const modelLine = model?.line ?? modelLineOf(found.item)
+  const modelLine = model?.line ?? modelLineOf(found.item) ?? guarded?.model.line ?? null
   const round = roundOf(found.item) + 1
   const block = [
     `Refined (round ${round}, by ${w.who}, ${stamp(w.now)}):`,
@@ -2147,13 +2162,14 @@ async function refined(call, w) {
   const looks = standard === null ? [] : noneForLook(`${valueOf(found.item, 'Title') ?? ''}\n${(found.item.sections.get('Context') ?? []).join('\n')}`, standard, w.kinds)
   if (looks.length > 0) return refuse(409, standardNoneRefused(id, looks))
   // B468: the effort given now, else the one the step had.
+  const guarded = guardedDefaults(w, valueOf(found.item, 'Goal') ?? '', false)
   const effort = parseEffort(body.effort)
   if (effort !== null && !effort.ok) return refuse(400, effort.why)
-  const effortLine = effort?.line ?? effortLineOf(found.item)
+  const effortLine = effort?.line ?? effortLineOf(found.item) ?? guarded?.effort.line ?? null
   // Model per step: the model given now, else the one the step had.
   const model = parseModel(body.model)
   if (model !== null && !model.ok) return refuse(400, model.why)
-  const modelLine = model?.line ?? modelLineOf(found.item)
+  const modelLine = model?.line ?? modelLineOf(found.item) ?? guarded?.model.line ?? null
   const head = block[0].match(/^(\s*)Refined\s*(?:\(([^)]*)\))?\s*:\s*$/)
   if (head === null) return refuse(409, `${id}: its refine block does not start with "Refined (...):"; fix it by hand first.`)
   const inside = (head[2] ?? '').split(';').map(one => one.trim()).filter(one => one !== '' && !/^ready$/i.test(one))
