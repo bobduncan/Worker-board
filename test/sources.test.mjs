@@ -203,3 +203,13 @@ test('B259: the brainstorms are read from their folder, newest first, the board\
   assert.deepEqual(threads.map(one => [one.path, one.text]), [['.claude/brainstorms/2026-10-15-newer.md', '# Brainstorm: Newer\n'], ['.claude/brainstorms/2026-10-14-older.md', '# Brainstorm: Older\n']])
   assert.deepEqual(await readThreads(root, '.claude/none'), [])
 })
+
+test("a fresh project with no game folder yet reads its plans from the project's own folder (the trial's gap 2, 2026-10-24)", async t => {
+  const { config, put } = await project(t)
+  await put('project/docs/product-plan.md', '# Product plan\n\n## P1 · What it is\n- State: open\n')
+  await put('project/docs/game-plan.md', '# Game plan\n')
+  const raw = await readSources({ ...config, gameRepo: '' }, async () => null, NOW)
+  assert.equal(raw.productPlanText, '# Product plan\n\n## P1 · What it is\n- State: open\n')
+  assert.equal(raw.adviceText, '# Game plan\n')
+  assert.ok(Number.isFinite(raw.productPlanAt))
+})
