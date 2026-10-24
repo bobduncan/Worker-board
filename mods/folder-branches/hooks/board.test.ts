@@ -46,9 +46,13 @@ describe('the worker board, as the mod reads it', () => {
     // What cannot be typed is named, so the board can say it did not arrive.
     // B532: with why, so the board does not try it again and names the reason.
     expect(parseTaken(answer)).toEqual({ messages: [{ id: 'm1', text: 'Sheet B' }], refused: ['m2', 'm3', 'm4'],
-      why: { m2: `too long: ${MOST_CHARS + 1} > ${MOST_CHARS} characters`, m3: 'no text', m4: 'no text' } })
-    expect(parseTaken('{"messages":"x"}')).toEqual({ messages: [], refused: [], why: {} })
-    expect(parseTaken('')).toEqual({ messages: [], refused: [], why: {} })
+      why: { m2: `too long: ${MOST_CHARS + 1} > ${MOST_CHARS} characters`, m3: 'no text', m4: 'no text' }, clear: null })
+    expect(parseTaken('{"messages":"x"}')).toEqual({ messages: [], refused: [], why: {}, clear: null })
+    expect(parseTaken('')).toEqual({ messages: [], refused: [], why: {}, clear: null })
+    // B547: the clear the board names for a worker that owes one; a step id that is no id is left out, no time is no clear.
+    expect(parseTaken('{"messages":[],"clear":{"step":"B12","reportedAt":5}}').clear).toEqual({ step: 'B12', reportedAt: 5 })
+    expect(parseTaken('{"messages":[],"clear":{"step":"../x","reportedAt":5}}').clear).toEqual({ step: null, reportedAt: 5 })
+    expect(parseTaken('{"messages":[],"clear":{"step":"B12"}}').clear).toBeNull()
     // B532: why a word the chat did not take failed, in one short line.
     expect(typedWhy(new Error('engine  busy\nnow'), 'the chat did not take it')).toBe('the chat did not take it: engine busy now')
     expect(typedWhy('no prompt is taken now', 'a hook dropped it')).toBe('a hook dropped it: no prompt is taken now')

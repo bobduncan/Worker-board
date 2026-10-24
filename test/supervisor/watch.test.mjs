@@ -38,13 +38,13 @@ const check = (id, board, seen = new Map()) => {
   return Object.defineProperty(found, 'observed', { value: observed, enumerable: false })
 }
 
-test('the watch rules: thirteen, report only, each with what it says', () => {
-  assert.deepEqual(WATCH_RULES.map(one => one.id), ['unknown-lane', 'stale-suspended', 'idle-while-waiting', 'holder-not-running', 'opus-wait', 'skip-repeats', 'repair-repeats', 'undelivered', 'report-check-twice', 'old-mod', 'odd-effort', 'review-stuck', 'stale-checkpoint'])
+test('the watch rules: fifteen, report only, each with what it says', () => {
+  assert.deepEqual(WATCH_RULES.map(one => one.id), ['unknown-lane', 'stale-suspended', 'idle-while-waiting', 'holder-not-running', 'working-not-running', 'opus-wait', 'skip-repeats', 'repair-repeats', 'undelivered', 'report-check-twice', 'old-mod', 'odd-effort', 'review-stuck', 'stale-checkpoint', 'not-cleared'])
   assert.ok(WATCH_RULES.every(one => one.kind === 'watch' && typeof one.says === 'string' && one.says.length > 0 && typeof one.check === 'function'))
 })
 
 test('the settings: the thresholds of the spec by default; config.json\'s supervisor sets any of them, and a wrong one stops the board', () => {
-  assert.deepEqual({ ...SUPERVISOR_DEFAULTS }, { unknownMinutes: 10, suspendedMinutes: 10, idleMinutes: 10, notRunningMinutes: 30, opusWaitMinutes: 15, undeliveredMinutes: 10, repairsPerDay: 3, reviewMinutes: 60, checkpointMinutes: 120, reportMinutes: 30 })
+  assert.deepEqual({ ...SUPERVISOR_DEFAULTS }, { unknownMinutes: 10, suspendedMinutes: 10, idleMinutes: 10, notRunningMinutes: 30, opusWaitMinutes: 15, undeliveredMinutes: 10, repairsPerDay: 3, reviewMinutes: 60, checkpointMinutes: 120, reportMinutes: 30, notClearedMinutes: 10 })
   assert.deepEqual({ ...parseConfig('{}', {}).supervisor }, { ...SUPERVISOR_DEFAULTS })
   assert.equal(parseConfig('{ "supervisor": { "unknownMinutes": 20, "idleMinutes": -1 } }', {}).supervisor.unknownMinutes, 20)
   assert.equal(parseConfig('{ "supervisor": { "unknownMinutes": 20, "idleMinutes": -1 } }', {}).supervisor.idleMinutes, 10)
@@ -351,4 +351,28 @@ test('the review: a compaction skipped because more of the same work follows is 
   const why = 'more of the same work follows'
   const board = view({ chats: [LEAD, lane('Painter', { compaction: { kind: 'skipped', at: ago(2), why } })] })
   assert.deepEqual(check('skip-repeats', board, new Map([[`skip|Painter|compact|${ago(40)}|${why}`, ago(40)]])), [])
+})
+
+test('B547: not-cleared names a worker whose last report is newer than its last clear, once per report: at once when it took a new step, else after 10 min', () => {
+  const reported = (id, minutes, who = 'Painter') => `- ${stamp(ago(minutes))} ${who}: in progress → review`
+  const taken = (minutes, who = 'Painter') => `- ${stamp(ago(minutes))} ${who}: queued → taken`
+  const owed = more => ({ step: 'B12', reportedAt: ago(30), clearedAt: ago(90), why: null, canClear: true, ...more })
+  const board = (clearOwed, more = {}) => view({
+    chats: [LEAD, lane('Painter', { clearOwed })],
+    items: items(step('B12', 'done', {}, { History: [reported('B12', 30)] }), step('B13', 'in progress', {}, { History: more.took ? [taken(20)] : [] })),
+    settings: more.settings ?? {},
+  })
+  // Cleared since its report: nothing owed, no case.
+  assert.deepEqual(check('not-cleared', board(null, { took: true })), [])
+  // It took B13 on the old conversation: a finding at once, with the repair.
+  const found = check('not-cleared', board(owed(), { took: true, settings: { notClearedMinutes: 600 } }))
+  assert.deepEqual(found.map(one => [one.rule, one.key, one.subject, one.text]), [['not-cleared', 'not-cleared Painter B12', 'Painter', 'Painter took B13 on the conversation of B12: not cleared after that report (no reason logged)']])
+  assert.match(found[0].evidence, new RegExp(`^last report B12 at ${clockOf(ago(30))}; last clear at ${clockOf(ago(90))}; took B13 at ${clockOf(ago(20))}; repair: the board holds its next step`))
+  // No new step: only after notClearedMinutes, with the mod's why; an older mod's repair is the restart.
+  assert.deepEqual(check('not-cleared', board(owed(), { settings: { notClearedMinutes: 31 } })), [])
+  const late = check('not-cleared', board(owed({ why: 'its conversation could not be saved as a log (Background work it started is still running)', canClear: false })))
+  assert.deepEqual(late.map(one => one.text), ['Painter not cleared 30 min after it reported B12: its conversation could not be saved as a log (Background work it started is still running)'])
+  assert.match(late[0].evidence, /older than 0\.17\.0 and cannot run a clear the board names: its chat needs a restart/)
+  // The person pauses: the chats stand still on purpose.
+  assert.deepEqual(check('not-cleared', view({ chats: [LEAD, lane('Painter', { clearOwed: owed() })], pause: { state: 'pausing', since: ago(5) } })), [])
 })

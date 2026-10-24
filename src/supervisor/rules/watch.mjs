@@ -19,6 +19,7 @@ import { whyClosed } from '../../work/outboxSweep.mjs'
 import { FIRST_SAYING, chatsByRole, oldModFinding } from '../../oldMods.mjs'
 import { EFFORTS, chatEffort, effortSaid } from '../../work/effort.mjs'
 import { reviewWaitOf } from '../../work/resultCheck.mjs'
+import { CLEAR_MOD, takenSince } from '../../clearOwed.mjs'
 
 const MIN = 60_000
 const HOUR = 60 * MIN
@@ -173,6 +174,32 @@ function holderNotRunning(view, ctx) {
       rule: 'holder-not-running', key, subject: id,
       text: `${id} is ${stateOf(item)} for ${lane.name}, whose chat has not run for ${minutes(ms)} min`,
       evidence: `${lane.name}: state ${lane.state}, running ${lane.isRunning === false ? 'no' : 'not known'}, since ${clockOf(view.now - ms)}`,
+    })
+  }
+  return found
+}
+
+/**
+ * B566 (X22, X21: chats shown not running while they ran, the board's only sign their takes): a worker whose card says
+ * it works (or that the board shows off for a card left working) while its chat made no call to the board, took
+ * nothing and wrote nothing to its conversation (the board's `isRunning` false) for longer than 5 minutes: one
+ * incident per worker. A worker on a step in progress is holder-not-running's.
+ */
+const WORKING_NOT_RUNNING_MS = 5 * MIN
+function workingNotRunning(view, ctx) {
+  const found = []
+  if (isPaused(view) || isFull(view)) return found
+  const holding = new Set(stepsOf(view).filter(one => HOLDS.includes(stateOf(one))).map(one => plain(valueOf(one, 'Owner'), view.prefix)))
+  for (const lane of workersOf(view)) {
+    const isWorkingCard = lane.state === 'working' || (lane.state === 'off' && Number.isFinite(lane.offSince))
+    if (!isWorkingCard || lane.isRunning !== false || holding.has(plain(lane.name, view.prefix))) continue
+    const key = `working-not-running ${lane.name}`
+    const ms = lasted(view, ctx, key, afterPause(view, Number.isFinite(lane.offSince) ? lane.offSince : null))
+    if (ms <= WORKING_NOT_RUNNING_MS) continue
+    found.push({
+      rule: 'working-not-running', key, subject: lane.name,
+      text: `${lane.name}'s card says it works, but its chat made no call, took nothing and wrote nothing for ${minutes(ms)} min`,
+      evidence: `${lane.name}: state ${lane.state}, running no, since ${clockOf(view.now - ms)}`,
     })
   }
   return found
@@ -475,12 +502,45 @@ function staleCheckpoint(view) {
   return found
 }
 
+/**
+ * 14. B547 (the rules X13 and X14 wanted): a worker whose last report is newer than its last clear (state.mjs `clearOwed`,
+ * src/clearOwed.mjs) and that took a new step since, on the old conversation; or that stays so for longer than
+ * `notClearedMinutes` (a log refused while its background work runs, a mod that left no word). One finding per worker
+ * per report, with the Workers mod's why when it logged one, and the repair: the board holds its next step and names the
+ * clear to its mod once it is idle; an older mod cannot run it, and the chat needs the restart that brings the new one.
+ */
+function notCleared(view, ctx) {
+  const found = []
+  if (isPaused(view)) return found
+  for (const lane of workersOf(view)) {
+    const owed = lane.clearOwed ?? null
+    if (owed === null || !Number.isFinite(owed.reportedAt)) continue
+    const key = `not-cleared ${lane.name} ${owed.step}`
+    const ms = lasted(view, ctx, key, afterPause(view, owed.reportedAt))
+    const took = takenSince(view.items, lane.name, owed.reportedAt, view.prefix)[0] ?? null
+    if (took === null && ms <= view.settings.notClearedMinutes * MIN) continue
+    const why = owed.why ?? 'no reason logged'
+    const repair = owed.canClear === true
+      ? 'the board holds its next step and names the clear to its Workers mod once the chat is idle'
+      : `its Workers mod is older than ${CLEAR_MOD} and cannot run a clear the board names: its chat needs a restart (Pause all, restart the app, Resume all)`
+    found.push({
+      rule: 'not-cleared', key, subject: lane.name,
+      text: took === null
+        ? `${lane.name} not cleared ${minutes(ms)} min after it reported ${owed.step}: ${why}`
+        : `${lane.name} took ${took.id} on the conversation of ${owed.step}: not cleared after that report (${why})`,
+      evidence: `last report ${owed.step} at ${clockOf(owed.reportedAt)}; last clear ${Number.isFinite(owed.clearedAt) ? `at ${clockOf(owed.clearedAt)}` : 'none known'}${took === null ? '' : `; took ${took.id} at ${clockOf(took.at)}`}; repair: ${repair}`,
+    })
+  }
+  return found
+}
+
 /** Every watch rule, in the order the section shows them. */
 export const WATCH_RULES = [
   { id: 'unknown-lane', kind: 'watch', says: 'a worker "unknown" for too long', check: unknownLane },
   { id: 'stale-suspended', kind: 'watch', says: 'a worker "suspended" after its limit came back', check: staleSuspended },
   { id: 'idle-while-waiting', kind: 'watch', says: 'all workers idle while steps wait', check: idleWhileWaiting },
   { id: 'holder-not-running', kind: 'watch', says: 'a step in progress whose worker does not run', check: holderNotRunning },
+  { id: 'working-not-running', kind: 'watch', says: 'a worker whose card says it works while its chat makes no call and writes nothing', check: workingNotRunning },
   { id: 'opus-wait', kind: 'watch', says: 'an Opus step waiting for Opus too long', check: opusWait },
   { id: 'skip-repeats', kind: 'watch', says: 'a clear or a compaction skipped for the same reason twice in a row', check: skipRepeats },
   { id: 'repair-repeats', kind: 'watch', says: 'the same repair three times or more in a day', check: repairRepeats },
@@ -490,4 +550,5 @@ export const WATCH_RULES = [
   { id: 'odd-effort', kind: 'watch', says: 'a chat whose effort is not a level', check: oddEffort },
   { id: 'review-stuck', kind: 'watch', says: 'a step in review with no result check for too long, or whose fix was dropped', check: reviewStuck },
   { id: 'stale-checkpoint', kind: 'watch', says: 'a step in progress with no checkpoint for hours, or whose checkpoint said to report long ago', check: staleCheckpoint },
+  { id: 'not-cleared', kind: 'watch', says: 'a worker not cleared after its reported step', check: notCleared },
 ]

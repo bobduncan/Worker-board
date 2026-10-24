@@ -65,7 +65,7 @@ test('a card that says its chat moved names its new session; anything else names
 
 test('the card of a cleared worker says so, with its step and its log; why a clear did not run stands beside a compaction', () => {
   const card = extra => JSON.stringify({ name: 'Units', state: 'waiting', task: null, at: NOW, ...extra })
-  assert.deepEqual(parsePlanLine(card({ cleared: { at: NOW, step: 'B12', log: LOG }, compacted: { at: NOW - MIN, before: 1, after: 2 } })).compaction, { kind: 'cleared', at: NOW, step: 'B12', log: LOG })
+  assert.deepEqual(parsePlanLine(card({ cleared: { at: NOW, step: 'B12', log: LOG }, compacted: { at: NOW - MIN, before: 1, after: 2 } })).compaction, { kind: 'cleared', at: NOW, step: 'B12', log: LOG, lastCleared: { at: NOW, step: 'B12' } })
   // A log outside the chat logs, or a path that climbs out, is not named.
   for (const log of ['../secret.txt', '.claude/chat-logs/../../x.txt', 'C:/x.txt', '.claude/chat-logs/U/a.jsonl']) {
     assert.equal(parsePlanLine(card({ cleared: { at: NOW, step: 'B12', log } })).compaction.log, null)
@@ -75,6 +75,12 @@ test('the card of a cleared worker says so, with its step and its log; why a cle
     { kind: 'compacted', at: NOW, before: 400_000, after: 90_000, notCleared: { at: NOW - 10, why: 'the person pauses the chats' } })
   // A later compaction outweighs an older clear.
   assert.equal(parsePlanLine(card({ cleared: { at: NOW - MIN, step: 'B12', log: LOG }, compacted: { at: NOW, before: 1, after: 2 } })).compaction.kind, 'compacted')
+  // B547: why a clear did not run, newer than the last clear and every compaction, is shown, not hidden behind the clear;
+  // the last clear stays named beside it.
+  assert.deepEqual(parsePlanLine(card({ cleared: { at: NOW - 2 * MIN, step: 'B12', log: LOG }, compacted: { at: NOW - 3 * MIN, before: 1, after: 2 }, clearNote: { at: NOW, why: 'a subagent it started still runs (1)' } })).compaction,
+    { kind: 'not-cleared', at: NOW, why: 'a subagent it started still runs (1)', notCleared: { at: NOW, why: 'a subagent it started still runs (1)' }, lastCleared: { at: NOW - 2 * MIN, step: 'B12' } })
+  // Alone on a card it is shown too.
+  assert.equal(parsePlanLine(card({ clearNote: { at: NOW, why: 'the person pauses the chats' } })).compaction.kind, 'not-cleared')
 })
 
 for (const appNames of ['units-old', 'units-new']) {
@@ -89,7 +95,7 @@ for (const appNames of ['units-old', 'units-new']) {
     const [units] = lanes
     assert.equal(units.session, 'units-new')
     assert.equal(units.removedAt, null)
-    assert.deepEqual(units.compaction, { kind: 'cleared', at: NOW - MIN, step: 'B12', log: LOG })
+    assert.deepEqual(units.compaction, { kind: 'cleared', at: NOW - MIN, step: 'B12', log: LOG, lastCleared: { at: NOW - MIN, step: 'B12' } })
     assert.deepEqual(units.queue.map(step => step.id), ['B13'])
     // Review 2: the session it went on from, while the app still names it, is read on to its end.
     assert.deepEqual(state.movedFrom, appNames === 'units-old' ? [{ session: 'units-old', name: 'Units' }] : [])
@@ -159,12 +165,20 @@ test('a clear is no turn: an open instruction is not missed for it; the next rea
 test('the lane says "cleared after B12 · log", the log opening in the file viewer; a compaction says why it was not cleared', async () => {
   const script = await readFile(new URL('../public/board.js', import.meta.url), 'utf8')
   const part = {}
-  vm.runInNewContext(`${script.slice(script.indexOf('// lanewindow:start'), script.indexOf('function laneWindowOf'))}\nObject.assign(this, { compactionLine })`, part)
+  vm.runInNewContext(`${script.slice(script.indexOf('// lanewindow:start'), script.indexOf('function laneWindowOf'))}\nObject.assign(this, { compactionLine, clearOwedLine })`, part)
   const line = part.compactionLine({ kind: 'cleared', at: 1, step: 'B12', log: LOG }, () => '14:05')
   assert.deepEqual({ ...line }, { text: 'cleared after B12', title: `Workers mod at 14:05: cleared after B12; the conversation before is kept in ${LOG}`, isWarning: false, log: LOG })
   assert.equal(part.compactionLine({ kind: 'cleared', at: 1, step: null, log: null }, () => '14:05').title, 'Workers mod at 14:05: cleared after its step; its log was not named')
   const compacted = part.compactionLine({ kind: 'compacted', at: 1, before: 400_000, after: 90_000, notCleared: { at: 1, why: 'the person pauses the chats' } }, () => '14:05')
   assert.equal(compacted.title, 'compacted at 14:05, from 400k to 90k tokens Not cleared at 14:05: the person pauses the chats.')
+  // B547: the mod's newest word is why it did not clear: a warning on the row, its words in the tooltip.
+  assert.deepEqual({ ...part.compactionLine({ kind: 'not-cleared', at: 1, why: 'a subagent it started still runs (1)' }, () => '14:05') },
+    { text: 'not cleared after its step', title: 'Workers mod at 14:05: not cleared: a subagent it started still runs (1)', isWarning: true })
+  // B547: a clear owed says so, with what happens next: the mod clears it, or an older one needs the restart.
+  const owed = { step: 'B12', reportedAt: 1, clearedAt: null, why: null, canClear: true }
+  assert.deepEqual({ ...part.clearOwedLine(owed, () => '14:05') }, { text: 'not cleared after B12', title: 'Reported B12 at 14:05, no clear known: its next step waits until its Workers mod clears it, as soon as the chat is idle.' })
+  assert.match(part.clearOwedLine({ ...owed, canClear: false, clearedAt: 0, why: 'no answer' }, () => '14:05').title, /its last clear at 14:05: its Workers mod is too old to clear it now: restart its chat \(Pause all, restart the app, Resume all\)\. Why not cleared: no answer\.$/)
+  assert.equal(part.clearOwedLine(null, () => '14:05'), null)
   // The row and the lane's window put the line with its "log" button where the compaction's line stands.
   assert.ok(script.includes("} else if (compacted !== null && compacted.log !== undefined) names.append(clearedNote(compacted))"))
   assert.ok(script.includes('open.dataset.gameFile = line.log'))

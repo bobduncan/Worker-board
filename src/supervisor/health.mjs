@@ -100,6 +100,8 @@ function chatLines(view, now) {
 function clearWords(compaction, now) {
   if (compaction === null || compaction === undefined) return 'no clear known'
   if (compaction.kind === 'cleared') return `cleared at ${dayClockOf(compaction.at, now)}${compaction.step ? ` after ${compaction.step}` : ''}`
+  // B547: the mod's newest word is why it did not clear; the clear before it, when there was one.
+  if (compaction.kind === 'not-cleared') return `not cleared at ${dayClockOf(compaction.at, now)}: ${compaction.why}${compaction.lastCleared ? `; last cleared at ${dayClockOf(compaction.lastCleared.at, now)}${compaction.lastCleared.step ? ` after ${compaction.lastCleared.step}` : ''}` : ''}`
   const not = compaction.notCleared ? `not cleared at ${dayClockOf(compaction.notCleared.at, now)}: ${compaction.notCleared.why}; ` : ''
   if (compaction.kind === 'compacted') return `${not}compacted at ${dayClockOf(compaction.at, now)}`
   return `${not}compaction skipped at ${dayClockOf(compaction.at, now)}: ${compaction.why ?? 'no reason given'}`

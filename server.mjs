@@ -30,7 +30,7 @@ import { fileURLToPath } from 'node:url'
 
 
 import { minutesOf } from './src/backlog.mjs'
-import { bridgeNote, checkTake, checkTyped, clearRefusal, fitsMod, isUnknownSession, laneRole, messageText, shownChats } from './src/bridge.mjs'
+import { bridgeNote, checkTake, checkTyped, clearRefusal, fitsMod, isUnknownSession, laneRole, messageText, noteCall, shownChats } from './src/bridge.mjs'
 import { chatLogKeeper, isReadOut, leftSubjects } from './src/chatLogs.mjs'
 import { findCodex, makePicture } from './src/codex.mjs'
 import { checkSetting, panelSettings, settingChanged } from './src/boardSettings.mjs'
@@ -67,6 +67,7 @@ import { effortBack, partnerEffortWords } from './src/partnerEffort.mjs'
 import { GUARD_ATTEMPTS, evaluationState } from './src/goalGuard.mjs'
 import { readSources } from './src/sources.mjs'
 import { backgroundRunning, parseTail, readTail } from './src/transcript.mjs'
+import { clearAtTake, isStepLine, modAtLeast, takeRefusal } from './src/clearOwed.mjs'
 import { buildState } from './src/state.mjs'
 import { isReadAction, workApi } from './src/work/api.mjs'
 import { effortOf } from './src/work/effort.mjs'
@@ -1043,6 +1044,8 @@ async function main(args) {
   const modOf = new Map()
   const noteMod = (body, checked) => {
     if (checked.ok && typeof checked.chat === 'string') modOf.set(checked.chat, { version: typeof body?.mod === 'string' ? body.mod : null, at: clock() })
+    // B566 (X22): every accepted call of a chat says it runs, not its take alone (bridge.mjs `noteCall`).
+    noteCall(seen, body, checked, clock())
   }
   // The Workers mod installed, and the version each chat's mod said with its last call (Part 2: since 0.16.0), for the
   // rule old-mod and B541's card. The review: only chats whose mod asked in the last 2 minutes (it asks every 5 s while
@@ -1169,6 +1172,8 @@ async function main(args) {
       seen,
       finishedSeen: finishedSeen ?? {},
       taskTimes: taskTimes.tasks,
+      // B547: the Workers mod each chat's last call said, so a clear owed is named only to a mod that can run it.
+      mods: Object.fromEntries([...modOf].map(([name, one]) => [name, one.version])),
       now: clock(),
       config: { ...config, project },
     })
@@ -1299,10 +1304,31 @@ async function main(args) {
     lastLogAt = clock()
     loggedAt.set(String(checked.chat), lastLogAt)
     const session = String(body.session ?? '').trim()
-    const tail = /^[A-Za-z0-9_-]{1,120}$/.test(session) ? await readTail(join(config.transcripts, `${session}.jsonl`)) : null
-    const refused = clearRefusal(state, checked.chat, tail === null ? 0 : backgroundRunning(parseTail(tail.text, tail.isCut)))
+    const refused = clearRefusal(state, checked.chat, await backgroundOf(session))
     if (refused !== null) return refused
     return chatLogs.save({ chat: checked.chat, session, step: body.stepId })
+  }
+  /** How many things a chat's session started in the background still run, by its transcript's tail; 0 when unread. */
+  const backgroundOf = async session => {
+    const tail = /^[A-Za-z0-9_-]{1,120}$/.test(session) ? await readTail(join(config.transcripts, `${session}.jsonl`)) : null
+    return tail === null ? 0 : backgroundRunning(parseTail(tail.text, tail.isCut))
+  }
+  /**
+   * B547: what a take does for a worker that owes a clear (src/clearOwed.mjs): its step's line waits, and once it is idle
+   * its Workers mod is named the clear. Read anew before a clear is named, so a clear that just ran is never named again.
+   */
+  const clearAtTakeOf = async (body, chat) => {
+    const laneIn = state => (state.chats ?? []).find(one => one.name === chat && !one.isLeftover) ?? null
+    let lane = laneIn(await readState())
+    if ((lane?.clearOwed ?? null) === null || !modAtLeast(body?.mod ?? null)) return { hold: false, clear: null, why: null }
+    const facts = async () => ({ owed: lane.clearOwed, mod: body.mod, now: clock(), isIdle: lane.state === 'free', background: await backgroundOf(String(body?.session ?? '')), isPaused: isHolding((await readState()).pause) })
+    let atTake = clearAtTake(await facts())
+    if (atTake.clear === null) return atTake
+    readState.reset()
+    lane = laneIn(await readState())
+    if ((lane?.clearOwed ?? null) === null) return { hold: false, clear: null, why: null }
+    atTake = clearAtTake(await facts())
+    return atTake
   }
   /**
    * Clear after each step: a session the state shows under no name may be a chat that went on under a new id a moment
@@ -1675,6 +1701,13 @@ async function main(args) {
       noteMod(body, checked)
       if (!checked.ok) return checked
       if (asked.action === 'save-log') return requests.answer(session, request, () => saveLog(asked, checked, state))
+      // B547: never a new step on an uncleared chat: a worker that owes a clear takes nothing until it is cleared (a mod
+      // that can clear only; the state is read anew first, so a clear that just ran counts).
+      if (asked.action === 'take' && modAtLeast(body?.mod ?? null)) {
+        readState.reset()
+        const owed = ((await readState()).chats ?? []).find(one => one.name === checked.chat && !one.isLeftover)?.clearOwed ?? null
+        if (owed !== null) return { ok: false, status: 409, why: takeRefusal(owed) }
+      }
       if (isReadAction(asked.action)) return bridgeWorkOnce(asked, checked)
       return requests.answer(session, request, () => bridgeWorkOnce(asked, checked))
     }),
@@ -1688,7 +1721,9 @@ async function main(args) {
       // The review of Pause 2: while the person pauses no chat takes what would start a turn; only the board's own
       // "resume" to the main chat goes. The rest waits in the outbox, held until the resume (2026-10-19: Resume all, no
       // longer running: while resuming every line goes, so an answer to a chat that has not started reaches it).
-      const only = isHolding((await readState()).pause) ? message => message.command === 'resume' : undefined
+      // B547: a worker that owes a clear: the line of its next step waits for the clear, which its mod is named once it is idle.
+      const atTake = await clearAtTakeOf(body, checked.chat)
+      const only = isHolding((await readState()).pause) ? message => message.command === 'resume' : atTake.hold ? message => !isStepLine(message) : undefined
       // B532: what no longer matters is closed first, so a chat is never handed a word whose purpose is gone.
       const taken = await takeFor({ dir: workDir, outbox: store, state: await readState(), now: clock(), keep, chat: checked.chat, only })
       // What was taken shows as on its way at once.
@@ -1698,10 +1733,11 @@ async function main(args) {
       // (2026-10-24: the goal guard's evaluate word of 9459 characters was refused and nobody saw why).
       const fit = fitsMod(handed)
       if (fit.refused.length > 0) await store.settle(checked.chat, fit, clock())
-      return { ok: true, result: { messages: fit.messages } }
+      return { ok: true, result: { messages: fit.messages, ...(atTake.clear === null ? {} : { clear: atTake.clear }) } }
     }),
     typed: counted(async body => {
       const checked = checkTyped(body, await readState())
+      noteMod(body, checked)
       if (!checked.ok) return checked
       if (await store.settle(checked.chat, checked, clock()) > 0) readState.reset()
       return { ok: true, result: {} }
