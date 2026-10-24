@@ -162,7 +162,7 @@ const syncWords = (to, lane, state) => {
     to, ask: null, step: null, title: null, version: null, verdict: null, command: 'sync', about,
     // B438, the review: the newest answer there was when it was asked; only a newer one answers this check.
     seen: lastSyncAnswer(state.information, about, state.restart?.main ?? null),
-    text: [...lines, `Limits: ${limitsWords(state.limits)}`, ...boardCheckWords(state.syncList), 'Why: the person pressed "Out of sync?" on the worker board'].join('\n'),
+    text: [...lines, `Limits: ${limitsWords(state.limits)}`, ...boardCheckWords(state.syncList), 'Why: the person pressed "Check now" on the worker board'].join('\n'),
   }
 }
 /** Focus 2: the first line of each word of the Focus page to the partner (spec 2026-10-18, section 6). */

@@ -60,9 +60,10 @@ function unknownLane(view, ctx) {
     const key = `unknown-lane ${lane.name}`
     const ms = lasted(view, ctx, key, view.since.get(lane.name))
     if (ms <= view.settings.unknownMinutes * MIN) continue
-    const waits = [...(lane.queue ?? []).map(one => one?.id), ...stepsOf(view).filter(item => HOLDS.includes(stateOf(item)) && plain(valueOf(item, 'Owner'), view.prefix) === plain(lane.name, view.prefix)).map(idOf)]
-      .filter(id => typeof id === 'string')
-    const first = waits.sort(byId)[0]
+    // What waits on it: its queue as the board shows it, and the steps the store holds or queues for it.
+    const owned = stepsOf(view).filter(item => [...HOLDS, 'queued'].includes(stateOf(item)) && plain(valueOf(item, 'Owner'), view.prefix) === plain(lane.name, view.prefix))
+    const waits = [...new Set([...(lane.queue ?? []).map(one => one?.id), ...owned.map(idOf)].filter(id => typeof id === 'string'))].sort(byId)
+    const first = waits[0]
     found.push({
       rule: 'unknown-lane', key, subject: lane.name,
       text: `${lane.name} unknown for ${minutes(ms)} min${first === undefined ? '' : `, ${first} waits`}`,
@@ -125,7 +126,7 @@ function idleWhileWaiting(view, ctx) {
   const ids = waiting.map(idOf).sort(byId)
   return [{
     rule: 'idle-while-waiting', key, subject: 'board',
-    text: `All ${workers.length} workers idle for ${minutes(ms)} min while ${ids.length} ${ids.length === 1 ? 'step waits' : 'steps wait'} (${ids.slice(0, 5).join(', ')}${ids.length > 5 ? ', ...' : ''})`,
+    text: `${workers.length === 1 ? `The one worker, ${workers[0].name}, idle` : `All ${workers.length} workers idle`} for ${minutes(ms)} min while ${ids.length} ${ids.length === 1 ? 'step waits' : 'steps wait'} (${ids.slice(0, 5).join(', ')}${ids.length > 5 ? ', ...' : ''})`,
     evidence: `${workers.map(lane => `${lane.name} ${lane.state}`).join(', ')}; queued: ${waiting.map(item => `${idOf(item)} for ${valueOf(item, 'Owner') ?? 'nobody'}`).join(', ')}`,
   }]
 }

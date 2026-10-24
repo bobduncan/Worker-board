@@ -71,7 +71,7 @@ import { effortOf } from './src/work/effort.mjs'
 import { isHolding, resumeEnds, resumeRetypeTo, resumeTypeTo } from './src/work/pause.mjs'
 import { reportCheck } from './src/work/check.mjs'
 import { deliverWork, pullFor, sendOnce } from './src/work/deliver.mjs'
-import { REFUSED_MS, createSupervisor } from './src/supervisor/index.mjs'
+import { REFUSED_MS, SUPERVISOR_RULES, createSupervisor } from './src/supervisor/index.mjs'
 import { FILES as WORKTREE_FILES, cleanLeftover, findLeftovers, stepLeftovers } from './src/work/worktrees.mjs'
 import { followRenames } from './src/work/rename.mjs'
 import { standardHold } from './src/work/standardHold.mjs'
@@ -820,11 +820,14 @@ async function main(args) {
   const spending = createSpendingCollector({ dir: join(HERE, 'data'), transcripts: config.transcripts, clock })
   await spending.load()
   let taskTimes = { scans: {}, tasks: [] }
+  // The supervisor's section on the demo: made-up rules, incidents and a check of its own (fixtures/demo.mjs).
+  let demoSupervisor = () => null
   if (isDemo) {
-    const { demoSources, ROOTS } = await import('./fixtures/demo.mjs')
+    const { demoSources, demoSupervisor: madeUp, ROOTS } = await import('./fixtures/demo.mjs')
     config.pictureRoots = ROOTS
     store = memoryStore()
     readRaw = () => demoSources(clock())
+    demoSupervisor = madeUp
   } else {
     folders = hasGame ? cached(() => readFolders(config.gameRepo, gitRunner(), config.baseBranch), FOLDERS_MS) : async () => null
     branches = cached(() => branchesNow(), FOLDERS_MS)
@@ -1197,7 +1200,7 @@ async function main(args) {
       })
       // B256: whether the Goals part may change the map: only the board that delivers writes it.
       const goalsEdit = { canWrite: writesMap, whyNot: isDemo ? 'This is the demo: it changes no file.' : !writesMap ? `This board only shows. Change the map on the board that delivers: http://${HOST}:${homePort}/` : null }
-      return { ...state, design, goalsEdit, cpu: cpu?.view() ?? null, loops: { failing: loops.failing(), line: failingLine(loops.failing(), timeOf) }, syncList: supervisor === null ? null : supervisor.view(clock()).run, boardSettings: boardSettingsNow(), version: { commit: running, since: startedAt, ...(await versionNow()), canRestart }, mod: await modNow(),
+      return { ...state, design, goalsEdit, cpu: cpu?.view() ?? null, loops: { failing: loops.failing(), line: failingLine(loops.failing(), timeOf) }, supervisor: supervisor !== null ? supervisor.view(clock()) : isDemo ? demoSupervisor(clock(), SUPERVISOR_RULES) : null, boardSettings: boardSettingsNow(), version: { commit: running, since: startedAt, ...(await versionNow()), canRestart }, mod: await modNow(),
         // B320: where the New project button suggests a new project's folder, and whether this board makes one.
         newProject: { parent: home === null ? null : dirname(home), canMake: !isDemo && !isShowOnly, isMaking: makingProject },
         // B322: what the page needs to open a new project's first chats in the Claude app: the board's folder (their
@@ -1309,7 +1312,9 @@ async function main(args) {
       // B465: "Out of sync?" runs the board's own list at once (its answer stands on the page); the main chat's check,
       // for what the list does not know, gets that answer with the rest, and the board as it stands after the fixes.
       // Null when another board process runs the project's list (B482), or the run failed (recorded as "sync").
-      const syncAnswer = body?.command === 'sync' && supervisor !== null ? await supervisor.run({ asked: true }) : null
+      // The supervisor: "Check now" in a worker's menu names that worker as what the check is about.
+      const subject = typeof body?.chat === 'string' && body.chat !== 'board' ? body.chat.slice(0, 80) : null
+      const syncAnswer = body?.command === 'sync' && supervisor !== null ? await supervisor.run({ asked: true, subject }) : null
       if (syncAnswer !== null) readState.reset()
       const state = await readState()
       const checked = checkSay(body, syncAnswer === null ? state : { ...state, syncList: syncAnswer }, config.maxMessageChars)

@@ -113,6 +113,8 @@ const ICONS = {
   list: 'M9 7h11M9 12h11M9 17h11M4.5 7h.01M4.5 12h.01M4.5 17h.01',
   // Focus 1: the person, beside their words in the talk with the partner.
   person: 'M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2M12 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8z',
+  // The supervisor (spec 2026-10-24): "Check now" and its section, a wrench.
+  wrench: 'M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z',
 }
 
 function icon(name) {
@@ -531,40 +533,179 @@ $('new-project-form').addEventListener('submit', async event => {
   }
 })
 
-// syncList:start
+// supervisor:start
 /**
- * B465: each status of the board's own sync check, and the tone it shows in. Worktree clean-up (2026-10-24): Cleaned, a
- * leftover worktree or empty folder the board removed; Left, one it leaves, with why (plain information, a quiet tone).
+ * The supervisor (spec 2026-10-24, "To you and to the Advisor"): its section under the Workers panel's head, where B465's
+ * "Out of sync?" list stood. B465: each status of the board's own check and the tone it shows in. Worktree clean-up
+ * (2026-10-24): Cleaned, a leftover worktree or empty folder the board removed; Left, one it leaves, with why. The
+ * section uses quiet, cool colours only: nothing in it is the person's to act on (the person's attention colours,
+ * amber to red, stay out of it).
  */
 const SYNC_TONES = { Fixed: 'done', Woke: 'done', Sent: 'done', Cleaned: 'done', 'For Main': 'main', Left: 'fine', Fine: 'fine' }
+/** An incident's state and its tone. */
+const INCIDENT_TONES = { open: 'open', 'with the advisor': 'advisor', fix: 'fix', fixed: 'fixed', 'came back': 'back' }
+
+/** B465: the last check's rows: a row per finding (Fixed, Woke, Sent, For Main, Cleaned or Left) and one for the checks that found nothing. */
+function checkRowsOf(run) {
+  if (run === null || run === undefined || !Array.isArray(run.rows)) return []
+  const rows = run.rows.map(row => ({ status: row.status, tone: SYNC_TONES[row.status] ?? 'main', text: row.text }))
+  const found = rows.some(row => row.status !== 'Left')
+  const fine = Number.isFinite(run.fine) && run.fine > 0 ? [{ status: 'Fine', tone: 'fine', text: `${run.fine} ${found ? 'other ' : ''}checks: nothing stuck` }] : []
+  return [...rows, ...fine]
+}
 
 /**
- * B465: the answer of the board's own list of stuck states (state `syncList`, src/supervisor) as the Workers panel
- * shows it: a title, a row per finding (Fixed, Woke, Sent, For Main, Cleaned or Left) and one for the checks that
- * found nothing; null when there is none to show (no run asked or found anything within the hour).
+ * The section as drawn, from the state's `supervisor` (the supervisor's `view`), or null on a board without one (a copy
+ * beside the person's board): its title (when it checked itself), a note, the incidents with their states, the last
+ * check (the newest one asked, or one that found something, for an hour), the rules (those that tripped now or today
+ * first, how often, a failed one with why; the rest counted as fine) and the last sweep, or "No sweep yet".
  */
-function syncListOf(list) {
-  if (list === null || list === undefined || !Array.isArray(list.rows)) return null
-  const rows = list.rows.map(row => ({ status: row.status, tone: SYNC_TONES[row.status] ?? 'main', text: row.text }))
-  const found = rows.some(row => row.status !== 'Left')
-  const fine = Number.isFinite(list.fine) && list.fine > 0 ? [{ status: 'Fine', tone: 'fine', text: `${list.fine} ${found ? 'other ' : ''}checks: nothing stuck` }] : []
+function supervisorOf(view) {
+  if (view === null || view === undefined) return null
+  const run = view.run ?? null
+  const rules = (view.rules ?? []).map(rule => ({
+    id: rule.id, says: rule.says, tone: rule.state === 'failed' ? 'failed' : rule.state === 'tripped' ? 'tripped' : rule.state === 'fine' ? 'fine' : 'unchecked',
+    often: Number(rule.trips) > 0 ? `${rule.trips}× today` : rule.state === null || rule.state === undefined ? 'not checked yet' : 'fine today',
+    why: rule.state === 'failed' ? rule.why ?? 'it failed' : null,
+  }))
+  // Those that tripped now or earlier today, or failed, first; the rest only when the person asks for them.
+  const isShown = rule => rule.tone === 'tripped' || rule.tone === 'failed' || /× today$/.test(rule.often)
+  const shown = rules.filter(isShown)
+  const tripped = rules.filter(rule => rule.tone === 'tripped').length
+  const failed = rules.filter(rule => rule.tone === 'failed').length
+  const sweep = view.lastSweep ?? null
   return {
-    title: `Out of sync? · the board checked itself at ${clock(list.at)}`,
-    note: 'The same list runs every few minutes by itself; the main chat checks what it does not know.',
-    rows: [...rows, ...fine],
+    title: Number.isFinite(view.checkedAt) ? `Supervisor · checked itself at ${clock(view.checkedAt)}` : 'Supervisor · not checked yet',
+    note: 'Its rules run every 3 minutes by themselves; Check now runs them at once, and the main chat checks what they do not know.',
+    incidents: (view.incidents ?? []).map(one => ({
+      id: one.id, tone: INCIDENT_TONES[one.state] ?? 'open', state: one.state === 'fix' && one.fix ? `fix ${one.fix}` : one.state ?? 'open', text: one.title ?? '',
+      seen: [one.count === 1 ? 'seen once' : `seen ${one.count} times`, Number.isFinite(one.firstSeen) ? `since ${clock(one.firstSeen)}` : null, one.count > 1 && Number.isFinite(one.lastSeen) ? `last ${clock(one.lastSeen)}` : null].filter(Boolean).join(', '),
+    })),
+    check: run === null ? null : { head: `Last check at ${clock(run.at)}${run.asked ? `, asked${run.subject ? ` about ${run.subject}` : ''}` : ''}`, rows: checkRowsOf(run) },
+    rules: { head: `Rules · ${rules.length}${tripped > 0 ? ` · ${tripped} tripped` : ''}${failed > 0 ? ` · ${failed} failed` : ''}`, shown, rest: rules.filter(rule => !isShown(rule)) },
+    sweep: sweep === null ? 'No sweep yet.' : `Last sweep at ${clock(sweep.at)}: ${sweep.found === 1 ? 'one finding' : `${sweep.found ?? 0} findings`}${Number.isFinite(sweep.tokens) ? `, ${sweep.tokens} tokens` : ''}.`,
   }
 }
-// syncList:end
 
-/** B465: the board's own sync check under the Workers panel's head (see `syncListOf`). */
-function drawSyncList(state) {
-  const shown = syncListOf(state.syncList ?? null)
-  const box = $('sync-list')
-  box.hidden = shown === null
-  if (shown === null) return
-  const rows = el('div', 'sync-rows')
-  for (const row of shown.rows) rows.append(el('span', `sync-status is-${row.tone}`, row.status), el('span', 'sync-text', row.text))
-  fill(box, [el('h3', 'sync-title', shown.title), el('p', 'sync-note', shown.note), rows])
+/**
+ * When the section has something new: the newest of its last check (asked, or one that found something) and of the
+ * state changes of its incidents not fixed; null for nothing. A count that grows is nothing new.
+ */
+function supervisorNews(view) {
+  const times = [view?.run?.at, ...(view?.incidents ?? []).filter(one => one.state !== 'fixed').map(one => one.since)].filter(Number.isFinite)
+  return times.length === 0 ? null : Math.max(...times)
+}
+
+/** Whether the section shows: opened by the person (a line, Check now), or something new since the person closed it. */
+function isSupervisorShown(view, ui) {
+  if (view === null || view === undefined) return false
+  if (ui.isOpen === true) return true
+  const news = supervisorNews(view)
+  return news !== null && (ui.closedAt === null || news > ui.closedAt)
+}
+
+/** The person's lines under Needs your attention: each new or returning incident's note (Via supervisor) not read yet. */
+function supervisorLines(information) {
+  return (information ?? []).filter(one => one.via === 'supervisor' && one.isRead !== true)
+    .map(one => ({ id: one.id, incident: one.about ?? null, text: one.text }))
+}
+// supervisor:end
+
+/** The supervisor's section: opened by the person, or closed by them (then shown again once something is new). */
+const supervisorUi = { isOpen: false, closedAt: null, showsRules: false }
+
+/** "Check now" with its wrench, in the button's own colour: the board's own check at once (`sync` to the server). */
+function checkNowButton(about, state, title) {
+  const button = el('button', 'quiet-button sync-button check-now')
+  button.type = 'button'
+  button.dataset.sync = about
+  button.disabled = state.changeAsks?.sync?.[about]?.isOpen === true || sending.has(`sync:${about}`)
+  button.title = state.changeAsks?.sync?.[about]?.isOpen === true ? 'Checked: the main chat answers here' : title
+  const wrench = icon('wrench')
+  wrench.setAttribute('aria-hidden', 'true')
+  button.append(wrench, el('span', '', 'Check now'))
+  return button
+}
+
+/** The supervisor's section under the Workers panel's head (see `supervisorOf`); hidden while it has nothing new. */
+function drawSupervisor(state) {
+  const view = state.supervisor ?? null
+  const shown = isSupervisorShown(view, supervisorUi)
+  const main = state.workers?.main ?? null
+  once('supervisor', [view, shown, supervisorUi.showsRules, main, state.changeAsks?.sync?.board ?? null, sending.has('sync:board')], () => {
+    const box = $('supervisor')
+    box.hidden = !shown
+    if (!shown) return fill(box, [])
+    const part = supervisorOf(view)
+    const title = el('h3', 'supervisor-title')
+    const wrench = icon('wrench')
+    wrench.setAttribute('aria-hidden', 'true')
+    title.append(wrench, el('span', '', part.title))
+    const close = el('button', 'supervisor-close', '×')
+    close.type = 'button'
+    close.dataset.supervisorClose = ''
+    close.title = 'Close the section; it opens again when something is new'
+    close.setAttribute('aria-label', 'Close the supervisor\'s section')
+    const head = el('header', 'supervisor-head')
+    head.append(title, el('span', 'grow'), ...(main === null ? [] : [boardSyncButton(state)]), close)
+    const parts = [head, el('p', 'supervisor-note', part.note)]
+    if (part.incidents.length > 0) {
+      const rows = el('div', 'supervisor-incidents')
+      for (const one of part.incidents) {
+        const words = el('div', 'incident-words')
+        words.append(el('span', 'incident-id', one.id), el('span', 'incident-text', ` ${one.text}`), el('span', 'incident-seen', ` · ${one.seen}`))
+        rows.append(el('span', `incident-state is-${one.tone}`, one.state), words)
+      }
+      parts.push(el('h4', 'supervisor-sub', 'Incidents'), rows)
+    }
+    if (part.check !== null) {
+      const rows = el('div', 'sync-rows')
+      for (const row of part.check.rows) rows.append(el('span', `sync-status is-${row.tone}`, row.status), el('span', 'sync-text', row.text))
+      parts.push(el('h4', 'supervisor-sub', part.check.head), rows)
+    }
+    const rules = el('div', 'supervisor-rules')
+    for (const rule of supervisorUi.showsRules ? [...part.rules.shown, ...part.rules.rest] : part.rules.shown) {
+      const row = el('div', `rule is-${rule.tone}`)
+      row.title = rule.id
+      row.append(el('span', 'rule-dot'), el('span', 'rule-says', rule.says), el('span', 'rule-often', rule.often))
+      if (rule.why !== null) row.append(el('span', 'rule-why', rule.why))
+      rules.append(row)
+    }
+    const more = el('button', 'quiet-button supervisor-more', supervisorUi.showsRules ? 'Show only what tripped' : `Show the ${part.rules.rest.length} other rules`)
+    more.type = 'button'
+    more.dataset.supervisorRules = ''
+    more.hidden = part.rules.rest.length === 0
+    parts.push(el('h4', 'supervisor-sub', part.rules.head), rules, more, el('p', 'supervisor-sweep', part.sweep))
+    fill(box, parts)
+  })
+}
+
+/** The supervisor's lines under Needs your attention: one per new or returning incident; a click opens the section. */
+function drawSupervisorLines(lines) {
+  if (lines.length === 0) return null
+  const part = el('div', 'supervisor-lines')
+  for (const line of lines) {
+    const button = el('button', 'supervisor-line')
+    button.type = 'button'
+    button.dataset.supervisorLine = line.id
+    button.title = `Opens the supervisor's section${line.incident === null ? '' : ` at ${line.incident}`}; the line is then read`
+    const wrench = icon('wrench')
+    wrench.setAttribute('aria-hidden', 'true')
+    button.append(wrench, el('span', '', line.text))
+    part.append(button)
+  }
+  return part
+}
+
+/** Opens the supervisor's section (in Details: Simple leaves the Workers panel out) and brings it into sight. */
+function openSupervisor() {
+  if ($('view-overview').dataset.mode === 'simple') document.querySelector('#overview-mode [data-overview-mode="details"]')?.click()
+  supervisorUi.isOpen = true
+  if (board !== null) {
+    drawLanes(board)
+    drawSupervisor(board)
+  }
+  $('supervisor').scrollIntoView({ block: 'nearest' })
 }
 
 /** B406: the note on top about the data files set aside at the start (see `setAsideNote`). */
@@ -1739,7 +1880,7 @@ function drawLane(lane, state) {
   // B83: a worker's task can be stopped from the board, after one question.
   const stop = stopPart(lane, state)
   if (stop !== null) tools.push(stop)
-  // B438: "Out of sync?": the main chat checks this worker against the store, its chat and the limits, and fixes it.
+  // B438: "Check now" ("Out of sync?" until the supervisor): the board's own checks, and the main chat checks this worker.
   const sync = syncPart(lane, state)
   if (sync !== null) tools.push(sync)
   // B159: the worker's icon takes the colour of its state.
@@ -1853,8 +1994,8 @@ function drawLane(lane, state) {
   const unfold = el('button', 'lane-menu', '⋯')
   unfold.type = 'button'
   unfold.dataset.lane = lane.name
-  // B438: the main chat and a leftover have neither "Out of sync?" nor Remove.
-  const menuWords = lane.isMain || lane.isLeftover ? 'the whole queue and the details' : 'the whole queue, the details, Out of sync? and Remove'
+  // B438: the main chat and a leftover have neither "Check now" nor Remove.
+  const menuWords = lane.isMain || lane.isLeftover ? 'the whole queue and the details' : 'the whole queue, the details, Check now and Remove'
   unfold.title = `${menuWords[0].toUpperCase()}${menuWords.slice(1)}`
   unfold.setAttribute('aria-label', `${lane.name}: ${menuWords}`)
   unfold.setAttribute('aria-expanded', String(isOpen))
@@ -2074,11 +2215,12 @@ function drawWorkers(state) {
     // B159: in the panel's head, as in the agreed design. What it does is its title; only what became of an ask is said.
     button.title = shown.lines.find(line => line.tone === '')?.text ?? button.title
     for (const line of [...lines.children]) if (line.className === 'workers-line') line.remove()
-    // B438: "Out of sync?" for the whole board beside it; what became of it stands in the head's lines.
+    // B438: "Check now" for the whole board beside it; what became of it stands in the head's lines.
     const check = syncLineOf(state.changeAsks?.sync?.board ?? null, state.workers.mainTitle ?? 'the main chat')
     if (check !== null) lines.append(el('p', `workers-line sync-line is-${check.tone}`, check.text))
     if (problems.has('sync:board')) lines.append(el('p', 'workers-line sync-line is-problem', problems.get('sync:board')))
-    fill($('workers-add'), [lines, boardSyncButton(state), button])
+    // The supervisor: while its section shows, "Check now" stands in it, not twice.
+    fill($('workers-add'), [lines, isSupervisorShown(state.supervisor ?? null, supervisorUi) ? null : boardSyncButton(state), button])
     return null
   }
   box.append(lines, button)
@@ -2468,55 +2610,49 @@ $('lanes').addEventListener('click', event => {
 })
 
 /**
- * B438: "Out of sync?" in a worker's menu. The person, 2026-10-19 (I43): "I want an help/alert button, where i believe
- * the board and the worker is out of sync, i press the new button and somebody goes to investigate it and fix it." The
- * board types "check sync <name>" with what it shows into the main chat (say.mjs `syncWords`); one check at a time.
- * Nothing for the main chat (the board's own button covers it) or a leftover.
+ * B438: "Out of sync?" in a worker's menu, "Check now" since the supervisor (spec 2026-10-24). The person, 2026-10-19
+ * (I43): "I want an help/alert button, where i believe the board and the worker is out of sync, i press the new button
+ * and somebody goes to investigate it and fix it." The board runs its own rules at once (the supervisor) and types
+ * "check sync <name>" with what it shows into the main chat (say.mjs `syncWords`); one check at a time. Nothing for the
+ * main chat (the board's own button covers it) or a leftover.
  */
 function syncPart(lane, state) {
   if (lane.isMain || lane.isLeftover || (state.workers?.main ?? null) === null) return null
-  return syncButton(lane.name, state, `Asks ${state.workers.mainTitle ?? state.workers.main} to check this worker against the work store, its chat and the limits, and to fix what it can`)
+  return checkNowButton(lane.name, state, `Runs the board's own checks at once, about this worker, and asks ${state.workers.mainTitle ?? state.workers.main} to check it against the work store, its chat and the limits, and to fix what it can`)
 }
 
-/** B438: the same for the whole board, in the Workers panel's head beside "+ Add worker". */
+/** B438: the same for the whole board, in the Workers panel's head beside "+ Add worker", and in the supervisor's section. */
 function boardSyncButton(state) {
   if ((state.workers?.main ?? null) === null) return null
-  return syncButton('board', state, `Asks ${state.workers.mainTitle ?? state.workers.main} to check the whole board against the work store, the chats and the limits, and to fix what it can`)
-}
-
-function syncButton(about, state, title) {
-  const button = el('button', 'quiet-button sync-button', 'Out of sync?')
-  button.type = 'button'
-  button.dataset.sync = about
-  button.disabled = state.changeAsks?.sync?.[about]?.isOpen === true || sending.has(`sync:${about}`)
-  button.title = state.changeAsks?.sync?.[about]?.isOpen === true ? 'Asked: the main chat answers here' : title
-  return button
+  return checkNowButton('board', state, `Runs the board's own checks at once, and asks ${state.workers.mainTitle ?? state.workers.main} to check the whole board against the work store, the chats and the limits, and to fix what it can`)
 }
 
 // syncline:start
 /**
- * B438: what became of the newest "Out of sync?" check (state.mjs `changeAsks.sync`), in one line, or null: on its
+ * B438: what became of the newest "Check now" ("Out of sync?" before the supervisor; state.mjs `changeAsks.sync`), in one line, or null: on its
  * way, with the main chat, the main chat's answer (its note "Sync check of <name>: ..."), or that none came.
  */
 function syncLineOf(check, main) {
   if (check === null || check === undefined) return null
   if (check.answer !== null && check.answer !== undefined) return { tone: 'answer', text: `Sync check, ${clock(check.answer.at)}: ${check.answer.text}` }
   if (check.state === 'expired' || check.state === 'failed') return { tone: 'problem', text: `The sync check of ${clock(check.at)} did not reach ${main}: open its chat, then ask again.` }
-  if (check.isOpen && (check.state === 'waiting' || check.state === 'taken')) return { tone: 'asked', text: `Out of sync? asked at ${clock(check.at)}: on its way to ${main}.` }
+  if (check.isOpen && (check.state === 'waiting' || check.state === 'taken')) return { tone: 'asked', text: `Check now, ${clock(check.at)}: on its way to ${main}.` }
   // The review: no Workers mod took the word; it was put on the clipboard for the person to paste.
-  if (check.isOpen && check.state === 'copied') return { tone: 'asked', text: `Out of sync? asked at ${clock(check.at)}: paste it into ${main}'s chat; then it checks and answers here.` }
-  if (check.isOpen) return { tone: 'asked', text: `Out of sync? asked at ${clock(check.at)}: ${main} checks it and answers here.` }
-  return { tone: 'problem', text: `Out of sync? asked at ${clock(check.at)}: no answer from ${main} yet; you can ask again.` }
+  if (check.isOpen && check.state === 'copied') return { tone: 'asked', text: `Check now, ${clock(check.at)}: paste it into ${main}'s chat; then it checks and answers here.` }
+  if (check.isOpen) return { tone: 'asked', text: `Check now, ${clock(check.at)}: ${main} checks it and answers here.` }
+  return { tone: 'problem', text: `Check now, ${clock(check.at)}: no answer from ${main} yet; you can ask again.` }
 }
 // syncline:end
 
-// B438: "Out of sync?" (a worker's menu, or the panel's head) asks the main chat to check and fix.
+// B438: "Check now" (a worker's menu, the panel's head or the supervisor's section; "Out of sync?" until the supervisor)
+// runs the board's own checks at once and asks the main chat to check and fix; the section opens for the answer.
 $('workers-panel').addEventListener('click', event => {
   const button = event.target.closest('[data-sync]')
   if (button === null || board === null || (board.workers?.main ?? null) === null) return
   const main = board.workers.main
   const chat = button.dataset.sync
   button.disabled = true
+  supervisorUi.isOpen = true
   send({ to: main, command: 'sync', chat }, `sync:${chat}`)
 })
 
@@ -3708,6 +3844,24 @@ const CLICK_ACTS = {
     try { localStorage.setItem('decided-open', decidedUi.isOpen ? 'yes' : 'no') } catch { /* kept for this visit only */ }
     redrawNeeds()
   },
+  // The supervisor: a line about an incident opens its section, and is read.
+  'supervisor-line': button => {
+    openSupervisor()
+    sendWork({ action: 'read', id: button.dataset.supervisorLine }, `read:${button.dataset.supervisorLine}`)
+  },
+  // The supervisor: its section closes until something is new; its other rules show or fold.
+  'supervisor-close': () => {
+    supervisorUi.isOpen = false
+    supervisorUi.closedAt = Date.now()
+    if (board !== null) {
+      drawLanes(board)
+      drawSupervisor(board)
+    }
+  },
+  'supervisor-rules': () => {
+    supervisorUi.showsRules = !supervisorUi.showsRules
+    if (board !== null) drawSupervisor(board)
+  },
 }
 
 /** The act of a click: the nearest button with an attribute of the table, and the act; null for none, or a button that is off. */
@@ -3812,6 +3966,8 @@ function drawNeeds(state) {
   const answered = forYou.filter(need => isClosed(need) && !isRefineQuestion(need)).length
   // Calm panel: an instruction a chat missed is the person's: one line here, while the log holds the rest.
   const missed = missedLines(state.instructions, clock)
+  // The supervisor: one quiet line per new or returning incident, information only (never counted).
+  const supervised = supervisorLines(state.information)
   // B258: an answer to an ask on the goal map waits to be read, and counts.
   // B287: the refine questions count once per step, as their lines stand.
   // Calm panel: the missed lines count too; the log's notes and open instructions never do.
@@ -3827,7 +3983,7 @@ function drawNeeds(state) {
   const none = cardsOpen.length > 0 || lines.length > 0 || missed.length > 0 || (state.goalAskNeeds ?? []).length > 0 || (state.brainstormNeeds ?? []).length > 0 ? null : el('p', 'empty', answered > 0 && !showsClosed() ? `Nothing waits for you. ${answered} answered, hidden.` : 'Nothing waits for you.')
   // B360: the recaps of finished work, as information after what asks for an answer.
   const recaps = shownRecaps(state, showsClosed()).map(recap => drawRecap(recap, state))
-  fill(box, [none, drawPartnerNeeds(partnerCards, partner.filter(need => !isClosed(need) && !isAnswered(need)).length), drawMissed(missed), drawGoalAskNeeds(state), drawBrainstormNeeds(state), ...oldCards, drawRefineNeeds(state), ...cards, drawWithPartner(state), drawDecidedForYou(state), ...recaps])
+  fill(box, [none, drawPartnerNeeds(partnerCards, partner.filter(need => !isClosed(need) && !isAnswered(need)).length), drawMissed(missed), drawSupervisorLines(supervised), drawGoalAskNeeds(state), drawBrainstormNeeds(state), ...oldCards, drawRefineNeeds(state), ...cards, drawWithPartner(state), drawDecidedForYou(state), ...recaps])
   box.scrollTop = top
   refocus(box, focused)
   // B307: Information in its own box under the asks, as high as the person dragged it.
@@ -13694,7 +13850,7 @@ function draw(state) {
   drawLimits(state)
   drawRestart(state)
   drawLanes(state)
-  drawSyncList(state)
+  drawSupervisor(state)
   drawStrips(state)
   drawToday(state)
   needsOnce(state)

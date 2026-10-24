@@ -2894,7 +2894,8 @@ stuck that day was found by the person. They are now one list in the board, each
 | `worktrees` | a worktree of a repository the board knows, or an empty folder one left in the project folder (2026-10-24) | removed by the board when safe (Cleaned); else listed with why (Left), no chat told: "Worktree clean-up" below |
 
 - **When**: every 3 minutes (`SYNC_EVERY_MS`, loop `sync`), on a board that writes the store and is no copy beside the
-  person's; and at once on **Out of sync?** (a worker's menu or the panel's head), before the board types `check sync`
+  person's; and at once on **Out of sync?** (**Check now** since the supervisor, below; a worker's menu or the panel's
+  head), before the board types `check sync`
   into the main chat, which gets the list's answer as `Board's own check (HH:MM): ...` and checks what the list does not
   know (roles/main.md, "Check sync"). One run at a time (`syncRunner`). Nothing that wakes a chat while the person
   pauses.
@@ -2970,6 +2971,69 @@ confirmed that a step's branch was gone, never its worktree or its folder. Three
 - Tests: `test/work/worktrees.test.mjs` (temporary git repositories: merged and unmerged worktrees, changes, held
   ones, an empty leftover folder, a junction made with `mklink /J`, skipped with its reason where none can be made),
   `test/work/check.test.mjs`, `test/work/resultCheck.test.mjs`, `test/supervisor/selfCheck.test.mjs`, `test/outOfSync.test.mjs`.
+
+## The supervisor, part 1 (2026-10-24): the board checks itself
+
+The person, 2026-10-24 (the chat "Worker board task reliability", goal map T7): "a supervisor chat/worker. its goal is
+to periodically check if, e.g. the board is out of sync, if workers are correctly suspended or not, if the system is
+working like intended. It just needs to observe, periodically, not consume a lot of tokens." And: "the more we can build
+as code solutions compared to AI the better, since it's cheaper." That morning the workers stood still for hours (a
+cleared worker counted as "unknown" and got no next step; three workers stayed "suspended" on a limit stop of days
+before), and the self-check of B465 did not see it: it only knows its own patterns. Spec
+`.claude/specs/2026-10-24-supervisor-design.md`, plan `.claude/plans/2026-10-24-supervisor-plan.md` (the project's).
+Part 1 (T7.2) is the code: the component, the watch rules, the incidents, the section and "Check now". Part 2 (T7.3),
+the AI sweep by a cheap supervisor chat and the hand-over to the Advisor, comes after it.
+
+- **One component**, `src/supervisor/`: `index.mjs` (the one door: `createSupervisor(ports)` with `start()`, `run({
+  asked, subject })`, `view(now)`, `stop()`), `loop.mjs` (B465's runner, its one loop per project and its fixes, moved
+  from `src/work/sync.mjs`), `rules/repair.mjs` (B465's checks, each a repair rule), `rules/watch.mjs` (the watch
+  rules), `view.mjs` (the one read-only view every rule reads), `incidents.mjs` (findings filed as incidents). Only
+  `server.mjs` imports it, and only `index.mjs` (`test/supervisor/boundary.test.mjs`). `src/work/worktrees.mjs` stays in
+  `src/work`: the report check, the result check and `tools/leftover-worktrees.mjs` use it too; the rule `worktrees`
+  reaches it through the loop's ports `leftovers` and `clean`, as before.
+- **A rule** is `{ id, kind: 'repair' | 'watch', says, check(view, ctx) }`; a finding `{ rule, key, subject, text,
+  evidence }`, and a repair rule's finding also B465's `check` and `fix` (its repair). The rules run one by one: a rule
+  that throws is one finding "rule <id> failed: <why>" and the others go on (`runRules`).
+- **The move changed nothing**: the B465 tests pass with only their imports changed
+  (`test/supervisor/selfCheck.test.mjs`), and the old and the new self-check, run over a snapshot of the live state and
+  over a planted board that trips every check, gave the same rows, note, fixes, wakes, clean-ups and `sync.json`.
+- **The watch rules** report only (their thresholds are the setting `supervisor`, README): `unknown-lane` (a worker
+  "unknown" over 10 min), `stale-suspended` (suspended for over 10 min after its reset passed, after the app's stop
+  while a reading since shows room, or longer than its limit's window), `idle-while-waiting` (all workers free, unknown
+  or off for over 10 min while a step that may be taken waits; not while the person pauses or a limit is full),
+  `holder-not-running` (a step taken or in progress whose worker has not run for over 30 min), `opus-wait` (an opus
+  step's line held for Opus over 15 min), `skip-repeats` (a clear, or a compaction not skipped by design as for a small
+  chat, skipped for the same reason twice in a row), `repair-repeats` (the same repair rule on the same chat or
+  step 3 times in a day), `undelivered` (a word to a chat waiting over 10 min, or expired or failed in the last two
+  hours), `report-check-twice` (a step's board check failed twice in a row since its last pass), `old-mod` (a chat on an
+  older Workers mod than the one installed: dormant until the mod reports its version, Part 2's mod). How long a thing
+  lasted comes from the timeline (`state.today`), else from the supervisor's own watch.
+- **The supervisor's memory**, `<project>/.claude/supervisor.json`, beside `sync.json` and apart from it: its watch
+  (`seen`), the repairs of the last day (`repairs`, for `repair-repeats`) and when each rule tripped (`trips`). Read at
+  every run, as `sync.json` is, so a restart or another board taking the loop over goes on from it. `sync.json` and
+  `sync-loop.json` keep their form.
+- **Incidents** are items of the work store, `X<n>` (`src/work/item.mjs`): Title, State (open, with the advisor, fix,
+  fixed, came back; "fix" is shown "fix B<n>"), Source (the rule's id, or "sweep"), Subject, Key, Since, First seen,
+  Last seen, Count, Fix, Rule wanted, Evidence. The work API: `incident` (the board, or a chat of role supervisor: Source
+  "sweep" and the rule that could catch it), `incident-fix` (the partner: the step that fixes it), `incidents-fixed`
+  (the board's reconcile: fixed once that step is done, open again when it was dropped). A chat of role supervisor
+  only reads and files incidents. After each run the loop files its findings (`recordFindings`): a new key opens one,
+  the same key only counts it (Count and Last seen, no History line: an hour of a lasting problem is one record with
+  count 20), a fixed one's key makes it "came back". Incidents are never on the backlog view.
+- **To the person**: each incident that opened or came back gives one note of the board's (`Via: supervisor`, About
+  X<n>), drawn as one quiet line under Needs your attention, "Supervisor: <what>" with a wrench, never counted; a
+  click opens the section (Details first, from Simple) and reads it. A count that grows gives nothing.
+- **The section** (state `supervisor`, the view, in place of `syncList`), under the Workers panel's head where the
+  "Out of sync?" list stood: "Supervisor · checked itself at HH:MM", its incidents with their states, the last check
+  (B465's rows, as before, for an hour), the rules (those that tripped now or today, how often, a failed one with why;
+  the others on a click) and the last sweep ("No sweep yet." until Part 2), with **Check now** and ×. It shows when
+  something is new (a check, an incident that opened or changed state) and stays closed after × until something newer
+  comes. Cool colours only: nothing in it is the person's to act on (`test/supervisor/page.test.mjs` checks every colour
+  of its styles). Pictures: `art-inbox/worker-board/supervisor/` (the project's picture folder).
+- **Check now** (was "Out of sync?"; a worker's menu, the panel's head while the section is closed, and the section) with
+  a wrench in the button's own colour: the server runs the supervisor at once (`run({ asked: true, subject })`, the
+  subject the worker of the menu) and, until Part 2's sweep replaces it, still types `check sync` into the main chat.
+- Tests: `test/supervisor/` (boundary, component, selfCheck, watch, incidents, page), `test/outOfSync.test.mjs`.
 
 ## Clear after each step (2026-10-23)
 

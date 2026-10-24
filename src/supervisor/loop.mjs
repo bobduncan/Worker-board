@@ -175,7 +175,8 @@ const memoryText = memory => JSON.stringify({ seen: Object.fromEntries(memory.se
  * names a chat was refused under lately, `apply(body)` the work API as the board, `wake({ chat, id, text, key })` a
  * line sent once per key (the message, or null), `noted` `{ load(), save(keys) }` the keys the main chat was told of,
  * `now()`; worktree clean-up: `leftovers({ items, now })` what worktrees.mjs `findLeftovers` finds, and `clean(one)`
- * its `cleanLeftover` (both left out: no such check). `run({ asked })` answers `{ at, asked, rows, fine, findings }`;
+ * its `cleanLeftover` (both left out: no such check). `run({ asked, subject })` answers `{ at, asked, subject, rows, fine,
+ * findings }` (`subject` the chat "Check now" in its menu named, or null);
  * `shown(now)` is what the page shows: the newest run that was asked or found something (more than what it only lists,
  * Left), for an hour, else null. `rules` are the repair rules it runs over the view and carries out, in their order.
  *
@@ -195,7 +196,7 @@ export function syncRunner(ports, rules = REPAIR_RULES, watch = []) {
   let seen = new Map()
   let memory = memoryOf(null)
   let status = { at: null, rules: [...rules, ...watch].map(rule => ({ id: rule.id, kind: rule.kind, says: rule.says, state: null, why: null, trips: 0 })) }
-  async function once(asked) {
+  async function once(asked, subject) {
     const now = ports.now()
     const state = await ports.state()
     // B482: what was noted and seen is kept with the project (sync.json) and read at every run, so a restart, or a
@@ -263,15 +264,15 @@ export function syncRunner(ports, rules = REPAIR_RULES, watch = []) {
       })),
     }
     if (typeof ports.memory?.save === 'function' && memoryText(memory) !== memoryBefore) await ports.memory.save(JSON.parse(memoryText(memory)))
-    const answer = { at: now, asked, rows: done.rows, fine: done.fine, findings: [...repairs.failed, ...watched.failed, ...watched.findings] }
+    const answer = { at: now, asked, subject, rows: done.rows, fine: done.fine, findings: [...repairs.failed, ...watched.failed, ...watched.findings] }
     // The review: a later run that finds nothing clears what the board found by itself; the button's answer stays.
     if (asked || answer.rows.some(row => row.status !== 'Left')) shownRun = answer
     else if (shownRun !== null && !shownRun.asked) shownRun = null
     return answer
   }
   return {
-    run: ({ asked = false } = {}) => {
-      const run = turn.then(() => once(asked))
+    run: ({ asked = false, subject = null } = {}) => {
+      const run = turn.then(() => once(asked, subject))
       turn = run.catch(error => ports.failed?.(error))
       return run
     },

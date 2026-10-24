@@ -125,13 +125,16 @@ tab) and never on the demo; once closed, the browser keeps that it was seen (`he
   says in its tooltip why the worker was not cleared. A ⋯ menu per row holds **Remove**, which asks the main chat to close that
   worker (with a warning when it is not free). Under the rows: what is missing (no list of chats, no chat, no
   backlog), "No main chat yet" with the steps to make one, "No workers yet" with **Ask for three workers**, the line
-  about the missing mod, and **+ Add worker**. B465: under the panel's head, after **Out of sync?** (or when the
-  board's own check found something), "Out of sync? · the board checked itself at HH:MM": a row per stuck state it
-  found, each with **Fixed**, **Woke**, **Sent** or **For Main**, and a **Fine** row for the checks that found nothing
-  (`art-inbox/worker-board/b465/out-of-sync-answer.png`); it stands for an hour. Worktree clean-up (2026-10-24): a
-  leftover worktree or empty worktree folder the board removed itself is a **Cleaned** row, one it leaves a quiet
-  **Left** row with why ("held by B12", "has changes", "not merged into main"); Left rows alone do not bring the list
-  up, "Out of sync?" shows them.
+  about the missing mod, and **+ Add worker**. The supervisor (2026-10-24; `art-inbox/worker-board/supervisor/`):
+  under the panel's head, after **Check now** (a wrench and the words, in the quiet button's own grey; "Out of sync?"
+  before) or when something is new, the section "Supervisor · checked itself at HH:MM" with **Check now** and **×**:
+  its **Incidents** (a state chip, open, fix B<n>, fixed, came back or with the advisor, the id, what was found, and
+  "seen 5 times, since 10:27, last 10:42"), **Last check** (B465: a row per stuck state it found, each with **Fixed**,
+  **Woke**, **Sent** or **For Main**, and a **Fine** row for the checks that found nothing; it stands for an hour;
+  worktree clean-up: **Cleaned**, or a quiet **Left** with why, "held by B12", "not merged into main"), **Rules** (those
+  that tripped now or today with a dot and "2× today", a failed one with why; "Show the 16 other rules"), and "No sweep
+  yet." (the AI sweep comes in part 2). Only cool colours: nothing in it asks the person to act. × closes it until
+  something newer; while it shows, the panel's head has no second Check now.
 - **The timeline:** from a few hours back to some hours ahead, one row per chat: what it did (green working,
   yellow waiting, blue free, purple suspended, grey not seen), what it expects (hatched) and its queue (striped),
   task changes as marks, and "Now" as a line.
@@ -148,7 +151,9 @@ tab) and never on the demo; once closed, the browser keeps that it was seen (`he
   in the count on the tab): a click unfolds the log, **Open instructions** (the person's words per chat: missed ones
   red, closed ones grey with what came of them) and **Information** (notes and reports, each with **Read**, and **Mark
   all read**); folded or open is kept in the browser. An instruction a chat missed also stands among the asks as one
-  red line, "Main missed your words of 14:02: open the log", which opens the log at it (and counts). B360: after the questions, a **recap** of every step that passed its
+  red line, "Main missed your words of 14:02: open the log", which opens the log at it (and counts). The supervisor
+  (2026-10-24): each incident that opened or came back is one quiet blue line with a wrench, "Supervisor: Worker 2
+  unknown for 15 min, B482 waits" (never counted), which opens the supervisor's section and is then read. B360: after the questions, a **recap** of every step that passed its
   result check and every goal that passed its re-check: a card marked Information (a green edge; it asks nothing and
   blocks nothing) with the step or goal, what the person gets, its evidence picture and when it approves itself, and
   two buttons (B390): **Overturn** in red opens a box for the person's words (the partner makes a fix step from them; a

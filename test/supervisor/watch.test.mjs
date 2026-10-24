@@ -61,6 +61,9 @@ test('unknown-lane: a worker unknown for 11 min trips, 9 min does not; never the
   assert.equal(found[0].fix, undefined, 'report only')
   assert.deepEqual(check('unknown-lane', board(9)), [])
   assert.deepEqual(check('unknown-lane', view({ chats: [lane('Lead', { isMain: true, state: 'unknown' }), lane('Old', { isLeftover: true, state: 'unknown' })], today: [span('Lead', 'unknown', 60), span('Old', 'unknown', 60)] })), [])
+  // A step the store queues for it waits on it too, also when the lane's queue does not show it.
+  const queued = check('unknown-lane', view({ chats: [LEAD, lane('Painter', { state: 'unknown' })], today: [span('Painter', 'unknown', 12)], items: items(step('B9', 'queued', { Owner: 'Painter' }), step('B3', 'done', { Owner: 'Painter' })) }))
+  assert.equal(queued[0].text, 'Painter unknown for 12 min, B9 waits')
   // Without a timeline, the runner's own watch: seen unknown since 11 min ago.
   const watched = check('unknown-lane', view({ chats: [LEAD, lane('Painter', { state: 'unknown' })] }), new Map([['unknown-lane Painter', ago(11)]]))
   assert.equal(watched.length, 1)
@@ -101,6 +104,9 @@ test('idle-while-waiting: all workers free, unknown or off while a step is queue
   assert.deepEqual(found.map(one => [one.key, one.subject]), [['idle-while-waiting', 'board']])
   assert.equal(found[0].text, 'All 3 workers idle for 11 min while 1 step waits (B5)')
   assert.deepEqual(check('idle-while-waiting', board({ items: items(step('B5', 'queued', { Owner: 'Painter', Since: stamp(ago(9)) })) })), [])
+  // One worker alone is named.
+  const alone = check('idle-while-waiting', board({ chats: [LEAD, lane('Painter', { state: 'free' })], today: [span('Painter', 'free', 40)] }))
+  assert.equal(alone[0].text, 'The one worker, Painter, idle for 11 min while 1 step waits (B5)')
   assert.deepEqual(check('idle-while-waiting', board({ chats: [LEAD, lane('Painter', { state: 'working' }), lane('Mason', { state: 'unknown' })] })), [])
   assert.deepEqual(check('idle-while-waiting', board({ items: items(step('B4', 'review'), step('B5', 'queued', { Owner: 'Painter', 'Blocked by': 'B4', Since: stamp(ago(30)) })) })), [])
   assert.deepEqual(check('idle-while-waiting', board({ pause: { state: 'pausing', since: stamp(ago(5)) } })), [])

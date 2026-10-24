@@ -234,8 +234,19 @@ test('each run files its findings as incidents: opened once, then counted; the v
   assert.deepEqual(incidents.map(one => [one.id, one.state, one.source, one.subject, one.count]), [['X1', 'open', 'unknown-lane', 'Mason', 2]])
   assert.match(incidents[0].title, /^Mason unknown for 33 min/)
   assert.deepEqual(done.failed, [])
+  // Task 4: one line to the person for the incident that opened, none for the run that only counted it.
+  const notes = [...(await readStore(dir)).items.values()].filter(one => one.head.get('Kind') === 'note' && one.head.get('Via') === 'supervisor')
+  assert.deepEqual(notes.map(one => [one.head.get('To'), one.head.get('From'), one.head.get('Text'), one.sections.get('About')?.[0]]), [['you', 'server', 'Supervisor: Mason unknown for 30 min, B5 waits', 'X1']])
   // The store refuses (a file changed meanwhile): nothing is lost, the loop says so, and the next run files it.
   const refusing = createSupervisor({ ...ports, apply: async () => ({ ok: false, status: 409, why: 'X1.md changed in the meantime' }), state: async () => ({ chats: [LEAD, lane('Mason', { state: 'unknown' })], chatPrefix: '', limits: {}, pause: null, today: [{ chat: 'Mason', spans: [{ from: ago(30), to: NOW, state: 'unknown', task: null }] }] }) })
   await refusing.run()
-  assert.deepEqual(done.failed.map(([name, why]) => [name, why]), [['incidents', '1 of the findings not filed (unknown-lane Mason: X1.md changed in the meantime)']])
+  assert.deepEqual(done.failed.map(([name, why]) => [name, why]), [['incidents', '1 not filed (unknown-lane Mason: X1.md changed in the meantime)']])
+})
+
+test('Task 4: "Check now" from a worker\'s menu runs the list about that worker; the answer names it', async () => {
+  const { ports } = board()
+  const supervisor = createSupervisor(ports)
+  assert.equal((await supervisor.run({ asked: true, subject: 'Painter' })).subject, 'Painter')
+  assert.equal(supervisor.view(NOW).run.subject, 'Painter')
+  assert.equal((await supervisor.run({ asked: true })).subject, null)
 })

@@ -222,8 +222,9 @@ yourself gets its checkpoint first, as a worker's does (`roles/worker.md`, "A pa
 
 ## Check sync
 
-The user pressed "Out of sync?" in a worker's menu or in the Workers panel's head (B438; their words: "somebody goes to
-investigate it and fix it"). The board types `check sync <name>` with what it shows for that worker: `State:`,
+The user pressed "Check now" ("Out of sync?" until the supervisor) in a worker's menu or in the Workers panel's head
+(B438; their words: "somebody goes to investigate it and fix it"). The board types `check sync <name>` with what it
+shows for that worker: `State:`,
 `Running:`, `Steps in the store:`, `Card:`, `Queue:` (with why each step waits), `Open asks:`, `Flags:` (the board's
 own warnings on its row), `Pause:`, `Limits:`; or `check sync board` with a line per worker, `Not handed out:`,
 `Board flags:`, `Pause:` and `Limits:`. B465: before it types that, the board runs its own list of stuck states

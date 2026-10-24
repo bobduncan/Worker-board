@@ -206,6 +206,8 @@ export function informationOf(work, now) {
     return {
       id: valueOf(item, 'Id'), from: valueOf(item, 'From'), to: valueOf(item, 'To'), text: words.length > 0 ? words.join(' ') : valueOf(item, 'Text') ?? '',
       about: (item.sections.get('About') ?? [])[0] ?? null, since: Number.isFinite(since) ? since : null, isRead: valueOf(item, 'State') === 'read',
+      // The supervisor: a note of the board's about an incident (Via supervisor) is a line under Needs your attention too.
+      via: valueOf(item, 'Via'),
     }
   }).filter(one => !one.isRead || (one.since !== null && now - one.since < DAY))
     .sort((a, b) => Number(a.isRead) - Number(b.isRead) || (b.since ?? 0) - (a.since ?? 0) || b.id.localeCompare(a.id, 'en', { numeric: true }))

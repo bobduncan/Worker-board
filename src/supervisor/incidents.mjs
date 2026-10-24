@@ -43,7 +43,8 @@ export async function recordFindings(findings, { work }) {
 
 /**
  * The incidents as the section shows them, from the store's items: every one not fixed, and those fixed in the last
- * day, the newest seen first: `{ id, title, state, fix, source, subject, count, firstSeen, lastSeen, evidence, ruleWanted }`.
+ * day, the newest seen first: `{ id, title, state, fix, source, subject, count, firstSeen, lastSeen, since, evidence,
+ * ruleWanted }` (`since` when it got its state).
  */
 export function incidentsOf(items, now) {
   const value = (item, key) => {
@@ -55,7 +56,7 @@ export function incidentsOf(items, now) {
     .map(item => ({
       id: value(item, 'Id'), title: value(item, 'Title'), state: value(item, 'State'), fix: value(item, 'Fix'), source: value(item, 'Source'),
       subject: value(item, 'Subject'), count: Number(value(item, 'Count')) || 0, firstSeen: sinceMs(value(item, 'First seen')),
-      lastSeen: sinceMs(value(item, 'Last seen')), evidence: value(item, 'Evidence'), ruleWanted: value(item, 'Rule wanted'),
+      lastSeen: sinceMs(value(item, 'Last seen')), since: sinceMs(value(item, 'Since')), evidence: value(item, 'Evidence'), ruleWanted: value(item, 'Rule wanted'),
     }))
     .filter(one => one.state !== 'fixed' || !(now - one.lastSeen >= DAY))
     .sort((a, b) => (b.lastSeen || 0) - (a.lastSeen || 0) || String(b.id).localeCompare(String(a.id), 'en', { numeric: true }))

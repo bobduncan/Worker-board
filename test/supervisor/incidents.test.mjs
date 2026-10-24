@@ -157,3 +157,15 @@ test('the store keeps incidents as items: read without a problem, never flagged 
   assert.doesNotMatch(await readFile(viewFile, 'utf8'), /X1|unknown-lane/)
   assert.match((await s.board({ action: 'list' })).result.text, /^X1 · incident · open · - · Painter unknown for 11 min, B12 waits$/m)
 })
+
+test('Task 4: the person\'s line is a note of the board\'s, Via supervisor; a chat cannot file one as such', async t => {
+  const s = await store(t)
+  await recordFindings([finding()], { work: s.board, now: NOW })
+  const line = await s.board({ action: 'note', to: 'you', text: ['Supervisor: Painter unknown for 11 min, B12 waits'], of: 'X1', via: 'supervisor' })
+  assert.equal(line.ok, true, line.why)
+  const note = await s.item(line.result.id)
+  assert.deepEqual(['To', 'From', 'Via'].map(key => head(note, key)), ['you', 'server', 'supervisor'])
+  assert.deepEqual(note.sections.get('About'), ['X1'])
+  const chat = await s.chat('Lead', { action: 'note', to: 'you', text: ['looks like one'], via: 'supervisor' })
+  assert.equal(head(await s.item(chat.result.id), 'Via'), undefined)
+})

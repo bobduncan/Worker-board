@@ -698,7 +698,9 @@ async function note(body, w) {
     const of = await load(body.of, w)
     if (!of.ok) return of
   }
-  const made = await makeNote(w, to, text, body.of === undefined ? null : body.of)
+  // The supervisor (spec 2026-10-24): the board's line to the person about a new or returning incident.
+  const via = w.role === 'server' && body.via === 'supervisor' ? 'supervisor' : null
+  const made = await makeNote(w, to, text, body.of === undefined ? null : body.of, via)
   return made.ok ? changed(made.item, `${valueOf(made.item, 'Id')}: noted for ${to === 'you' ? 'the person' : 'the main chat'}.`) : made
 }
 

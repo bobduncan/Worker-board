@@ -14,6 +14,12 @@ import { incidentsOf, recordFindings } from './incidents.mjs'
 /** How long the server keeps a name a chat's mod was refused under: as long as the rule `old-name` looks back. */
 export { REFUSED_MS }
 
+/** Every rule of the supervisor, as the page names them: `{ id, kind, says }` (the demo's section draws them too). */
+export const SUPERVISOR_RULES = [...REPAIR_RULES, ...WATCH_RULES].map(({ id, kind, says }) => ({ id, kind, says }))
+
+/** Task 4: the person's line about an incident that opened or came back: one note of the board's, read on the board. */
+const personWords = (incident, isBack) => `Supervisor: ${isBack ? `${incident.id} came back: ` : ''}${incident.title ?? incident.id}`
+
 /**
  * The board's supervisor. `ports`: the runner's (loop.mjs `syncRunner`: `state()`, `items()`, `outbox()`, `refused()`,
  * `apply(body)`, `wake(one)`, `leftovers(...)`, `clean(one)`, `noted`, `now()`), plus `loopLock` (`read()`, `write(text)`,
@@ -44,14 +50,25 @@ export function createSupervisor(ports) {
   }
   /**
    * Task 3: what a run found, filed as incidents (one per key: a lasting problem only counts), then the incidents read
-   * anew. A finding that could not be filed is tried at the next run; the loop "incidents" says so on the page.
+   * anew. A finding that could not be filed is tried at the next run; the loop "incidents" says so on the page. Task 4:
+   * each incident that opened or came back gives the person one line (a note of the board's, Via supervisor), never one
+   * that only counted (Review Focus 2).
    */
   const afterRun = async answer => {
     if (answer === null || answer === undefined) return answer
     await loops.run('incidents', async () => {
       const done = await recordFindings(answer.findings ?? [], { work: runnerPorts.apply, now: answer.at })
       await readIncidents()
-      if (done.failed.length > 0) throw new Error(`${done.failed.length} of the findings not filed (${done.failed[0].key}: ${done.failed[0].why})`)
+      const told = []
+      for (const [ids, isBack] of [[done.opened, false], [done.returned, true]]) {
+        for (const id of ids) {
+          const incident = incidents.find(one => one.id === id) ?? { id, title: null }
+          const sent = await runnerPorts.apply({ action: 'note', to: 'you', text: [personWords(incident, isBack)], of: id, via: 'supervisor' })
+          if (sent?.ok !== true) told.push(`${id}: ${sent?.why ?? 'no answer'}`)
+        }
+      }
+      const failed = [...done.failed.map(one => `${one.key}: ${one.why}`), ...told.map(one => `the line to you of ${one}`)]
+      if (failed.length > 0) throw new Error(`${failed.length} not filed (${failed[0]})`)
     })
     return answer
   }
@@ -61,10 +78,10 @@ export function createSupervisor(ports) {
       void loops.run('incidents', readIncidents)
       timer = timers.setInterval(() => (closing() ? null : loops.run('sync', async () => (await owns() ? afterRun(await runner.run()) : null))), SYNC_EVERY_MS)
     },
-    async run({ asked = false } = {}) {
+    async run({ asked = false, subject = null } = {}) {
       const mine = await owns().catch(error => { loops.failed('sync', error); return false })
       if (!mine) return null
-      return afterRun(await runner.run({ asked }).catch(error => { loops.failed('sync', error); return null }))
+      return afterRun(await runner.run({ asked, subject }).catch(error => { loops.failed('sync', error); return null }))
     },
     view: now => {
       const { at, rules } = runner.status()
