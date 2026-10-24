@@ -67,9 +67,11 @@ tool answers with the record: work from it, not from a message.
 - **Incident fixes the board queues itself** (2026-10-24): a step refined (ready), marked `priority` fix, that an
   incident names as its `Fix` (or titled "Fix of X<n>"), held by nothing and never queued before, is queued by the
   board within a minute, once (the flow's server move "an incident fix is ready"): for a worker free with nothing
-  queued (free longest first), else the shortest queue of a worker that waits for nobody; first in that queue as any
-  board fix. History: "queued by the board for <worker> (incident fix of X<n>)". Nobody else queues it; the main chat
-  is told in one line. Not while the person pauses. A step the main chat queued or took out of a queue is left alone.
+  queued (free longest first), else the shortest queue of a worker that waits for nobody; only a chat that runs; first
+  in that queue as any board fix. Its Touches may overlap no taken step's. History: "queued by the board for <worker>
+  (incident fix of X<n>)". Nobody else queues it; the main chat is told in one line. Not while the person pauses or
+  resumes. A step the main chat queued or took out of a queue is left alone. One its kind's standard holds is not
+  queued: the main chat and the partner get `B<id> is held by its standard: <why>` once each.
 
 | The call | Who, by the default flow | What it does |
 |---|---|---|

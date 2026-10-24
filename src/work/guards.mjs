@@ -35,9 +35,11 @@ export const GUARDS = {
   'a queue was asked before its refine': (item, ctx) => valueOf(item, 'Queue when refined') !== null
     && openAsksOf(ctx.store?.items, valueOf(item, 'Id'), item).length === 0 && refineAsksOf(ctx.store?.items, item).length === 0,
   // Incident fixes (2026-10-24, the person's choice B): a refined board fix an incident waits on, never queued before,
-  // nothing holding it, no ask under it open or not folded in: the board queues it itself (incidentFix.mjs).
+  // nothing holding it, no ask under it open or not folded in: the board queues it itself (incidentFix.mjs). The
+  // review: and, as for the main chat's queue, its Touches overlap no taken step's.
   [AUTO_QUEUE_GUARD]: (item, ctx) => isIncidentFix(item, ctx.store?.items ?? new Map()) && isFree(item, ctx)
-    && openAsksOf(ctx.store?.items, valueOf(item, 'Id'), item).length === 0 && refineAsksOf(ctx.store?.items, item).length === 0,
+    && openAsksOf(ctx.store?.items, valueOf(item, 'Id'), item).length === 0 && refineAsksOf(ctx.store?.items, item).length === 0
+    && (ctx.overlaps?.(item) ?? null) === null,
   'Touches overlaps no taken step': (item, ctx) => (ctx.overlaps?.(item) ?? null) === null,
   // B305: the worker's own take needs only what it is blocked by resolved; Owner free is the board's delivery.
   // B306: "Blocked by" here means what the step waits for too: the ids `Waits for` names, and words not yet cleared.

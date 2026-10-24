@@ -5,7 +5,7 @@
 
 import { mayMove, statesOf } from './flow.mjs'
 import { GUARDS, blockersOpen, overlapsIn, waitWords } from './guards.mjs'
-import { AUTO_QUEUE_GUARD, boardLines, flowQueuesFixes, incidentsFixedBy, placeFixes } from './incidentFix.mjs'
+import { AUTO_QUEUE_GUARD, boardLines, flowQueuesFixes, heldFixWords, incidentsFixedBy, placeFixes } from './incidentFix.mjs'
 import { askFiledMs, fixFirst, sinceMs, valueOf } from './item.mjs'
 import { PARTNER_AGAIN_MS, PARTNER_ANSWER_MS, isRoutedToPartner } from './partnerAnswers.mjs'
 import { isHolding } from './pause.mjs'
@@ -58,9 +58,10 @@ const span = ms => {
  * Incident fixes (2026-10-24): `autoQueues`: `[{ id, chat, main, incidents, tier, why }]`, the ready incident fixes the
  * board queues itself for the worker named (incidentFix.mjs `placeFixes`; the flow's server move "an incident fix is
  * ready"), never while the person pauses; `boardLines`: `[{ id, chat, worker, key, text }]`, the main chat's information
- * line about each recent placement of the board's (sent once per key).
+ * line about each recent placement of the board's (sent once per key); `heldFixes`: `[{ id, why, chats, text }]`, the ready
+ * incident fixes their standard holds (`standardHold(item)`, why or null), named once to the main chat and the partner.
  */
-export function reconcile({ store, flow = store.flow, lanes = [], now, times, prefix = '', hasPartner = true, partner = null }) {
+export function reconcile({ store, flow = store.flow, lanes = [], now, times, prefix = '', hasPartner = true, partner = null, standardHold = null }) {
   const items = store.items ?? new Map()
   const broken = new Set((store.problems ?? []).map(problem => problem.file?.match(/^([A-Z]\d+|L-[0-9a-f]{8})\.md$/)?.[1]).filter(Boolean))
   const live = lanes.filter(lane => !lane.isLeftover)
@@ -219,13 +220,25 @@ export function reconcile({ store, flow = store.flow, lanes = [], now, times, pr
   // Incident fixes (2026-10-24, the person's choice B): a refined board fix an incident waits on, never queued before and
   // held by nothing, is queued by the board itself, once, as the flow's server move "an incident fix is ready" lets it:
   // for a worker free with nothing queued (free longest first), else the shortest queue of a worker that waits for
-  // nobody (incidentFix.mjs `placeFixes`). Not while the person pauses. The main chat gets one information line per
-  // placement of the board's (`boardLines`), so it never hands that worker other work thinking it free.
+  // nobody (incidentFix.mjs `placeFixes`). Not while the person pauses or resumes (the review: many chats are off then).
+  // The main chat gets one information line per placement of the board's (`boardLines`), so it never hands that worker
+  // other work thinking it free. The review: a fix its kind's standard holds (`standardHold`, the API's own guard) is
+  // not placed, so it takes no worker's place and is not refused at every refresh; the main chat and the partner hear
+  // of it once (`heldFixes`).
   const autoQueues = []
+  const heldFixes = []
   const mainName = live.find(lane => lane.isMain === true)?.name ?? null
-  if (flowQueuesFixes(flow) && !isHolding(store.pause)) {
+  if (flowQueuesFixes(flow) && !['pausing', 'resuming'].includes(store.pause?.state)) {
     const ctx = { store: { items }, freeChats: new Set(), now, overlaps, hasPartner }
-    const fixes = ok.filter(item => stateOf(item) === 'refined' && GUARDS[AUTO_QUEUE_GUARD](item, ctx))
+    const fixes = []
+    for (const item of ok.filter(one => stateOf(one) === 'refined' && GUARDS[AUTO_QUEUE_GUARD](one, ctx))) {
+      const why = standardHold?.(item) ?? null
+      if (why === null) fixes.push(item)
+      else {
+        const id = valueOf(item, 'Id')
+        heldFixes.push({ id, why, chats: [mainName, partner?.name ?? null].filter(name => name !== null), text: heldFixWords(id, why) })
+      }
+    }
     for (const one of placeFixes(fixes, { lanes: live, steps: ok, prefix, now })) {
       const incidents = incidentsFixedBy(items, items.get(one.id))
       autoQueues.push({ ...one, main: mainName, incidents, why: `queue ${one.id} for ${one.chat} (incident fix of ${incidents.join(', ')})` })
@@ -255,5 +268,5 @@ export function reconcile({ store, flow = store.flow, lanes = [], now, times, pr
       else if (!isHeld && isFree) partnerAsks.push({ id, chat: partner.name, since: valueOf(item, 'Since'), ...(Number.isFinite(filed) && now - filed >= (times?.partnerAgainMs ?? PARTNER_AGAIN_MS) ? { again: true } : {}) })
     }
   }
-  return { moves, deliveries, flags, notes, partnerAsks, escalations, autoQueues, boardLines: lines }
+  return { moves, deliveries, flags, notes, partnerAsks, escalations, autoQueues, boardLines: lines, heldFixes }
 }

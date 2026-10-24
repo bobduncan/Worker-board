@@ -11,7 +11,7 @@ import { workWords } from '../say.mjs'
 import { stepLine, stepNotes } from './adapter.mjs'
 import { mayMove } from './flow.mjs'
 import { GUARDS, blockersOpen, CLEARED, overlapsIn, waitIds, waitWords } from './guards.mjs'
-import { AUTO_QUEUE_GUARD, AUTO_QUEUE_MOVE, boardQueuedWhat, boardQueuedWords, fixesAhead, flowQueuesFixes, freshBoardFix, incidentsFixedBy } from './incidentFix.mjs'
+import { AUTO_QUEUE_GUARD, AUTO_QUEUE_MOVE, boardQueuedWhat, boardQueuedWords, fixesAhead, flowQueuesFixes, freshBoardFix, incidentsFixedBy, isStillEmpty } from './incidentFix.mjs'
 import { ASK_KINDS, HEAD_KEYS, askFiledMs, fixFirst, isFix, serializeItem, sinceMs, validateHead, valueOf } from './item.mjs'
 import { askIdsIn, askKey, askTitleOf, askWordsOf, refineQuestionProblem, refineTitleOf, sameAsk, titleProblem } from './askWords.mjs'
 import { JUST_ANSWERED_MS, closedMsOf, forYouRepeat, isWithdrawn, openRepeat, repeatFactsOf } from './askRepeat.mjs'
@@ -2594,6 +2594,11 @@ async function queueIncidentFix(found, body, w) {
   if (hold !== null) return refuse(409, hold)
   const owner = chatName(line(body.for, 80), w).name
   if (w.roleOf?.(owner) === 'helper') return refuse(409, helperNoQueue(owner))
+  // The review: a placement on a free worker with an empty queue (`tier` 1) holds only while it still is one; the next
+  // refresh places the fix anew.
+  if (Number(body.tier) === 1 && !isStillEmpty(w.store.items, owner, w.prefix ?? '')) {
+    return refuse(409, `${owner} is no longer free with an empty queue: the board places ${id} anew at its next refresh.`)
+  }
   const moved = move(found.item, 'queued', 'server', w, ctx)
   if (!moved.ok) return moved
   const incidents = incidentsFixedBy(w.store.items, found.item)

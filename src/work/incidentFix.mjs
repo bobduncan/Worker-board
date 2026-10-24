@@ -65,13 +65,15 @@ export function incidentsNamedBy(title) {
 
 /**
  * The incidents the step fixes, not fixed yet: those whose `Fix` names it, then those its title names ("Fix of X<n>")
- * that the store holds. Empty for a step no incident waits on.
+ * that the store holds with no Fix, or with this step as its Fix (the review: an incident whose Fix is another step is
+ * that step's). Empty for a step no incident waits on.
  */
 export function incidentsFixedBy(items, step) {
   const id = idOf(step)
   const isOpen = item => item !== undefined && valueOf(item, 'Kind') === 'incident' && stateOf(item) !== 'fixed'
   const byFix = [...(items?.values() ?? [])].filter(item => isOpen(item) && valueOf(item, 'Fix') === id).map(idOf)
-  const byTitle = incidentsNamedBy(valueOf(step, 'Title')).filter(one => isOpen(items?.get(one)))
+  const byTitle = incidentsNamedBy(valueOf(step, 'Title'))
+    .filter(one => isOpen(items?.get(one)) && [null, id].includes(valueOf(items.get(one), 'Fix')))
   return [...new Set([...byFix.sort(byId), ...byTitle])]
 }
 
@@ -119,32 +121,42 @@ export function boardPlacementOf(item) {
 
 /**
  * Where the board puts the incident fixes that are ready (`fixes`, in id order), one by one: a worker that is free with
- * nothing queued, the one free longest first (running before not running); none such: the worker with the shortest
- * queue that waits for nobody (not the person: its lane does not wait, it holds no step waiting on you; not the limit),
- * running first. The main chat, a leftover and a chat paused for the limit get none. `queueOf(name)` how many steps are
- * queued for a chat; each step placed here counts in its worker's queue for the next. Answers `[{ id, chat, tier }]`
- * (tier 1 free and empty, 2 the shortest queue); a step for which there is no worker is left out.
+ * nothing queued, the one free longest first; none such: the worker with the shortest queue that waits for nobody (not
+ * the person: its lane does not wait, it holds no step waiting on you; not the limit). Only a chat that runs (the
+ * review: a fix queued for a chat that does not run, off or unknown, stalled for good, as nothing delivers to it or
+ * moves it). The main chat, a leftover and a chat paused for the limit get none. Each step placed here counts in its
+ * worker's queue for the next. Answers `[{ id, chat, tier }]` (tier 1 free and empty, 2 the shortest queue); a step for
+ * which there is no worker is left out.
  */
 export function placeFixes(fixes, { lanes = [], steps = [], prefix = '', now = Date.now() }) {
-  const workers = lanes.filter(lane => lane.isLeftover !== true && lane.isMain !== true)
+  const runs = lane => lane.isRunning !== false && !['off', 'unknown'].includes(lane.state)
+  const workers = lanes.filter(lane => lane.isLeftover !== true && lane.isMain !== true && runs(lane))
   const mine = (lane, states) => steps.filter(item => states.includes(stateOf(item)) && plain(valueOf(item, 'Owner'), prefix) === plain(lane.name, prefix))
   const given = new Map()
   const queueOf = lane => mine(lane, ['queued']).length + (given.get(lane.name) ?? 0)
-  const running = lane => Number(lane.isRunning !== false)
   const freeSince = lane => (Number.isFinite(lane.idle?.since) ? lane.idle.since : now)
   const placed = []
   for (const fix of fixes) {
     const free = workers.filter(lane => lane.state === 'free' && mine(lane, HOLDS).length === 0 && queueOf(lane) === 0)
-      .sort((a, b) => running(b) - running(a) || freeSince(a) - freeSince(b) || byId(a.name, b.name))
+      .sort((a, b) => freeSince(a) - freeSince(b) || byId(a.name, b.name))
     const waitsForNobody = lane => lane.state !== 'waiting' && lane.state !== 'suspended' && mine(lane, ['waiting on you']).length === 0
     const shortest = workers.filter(waitsForNobody)
-      .sort((a, b) => queueOf(a) - queueOf(b) || running(b) - running(a) || byId(a.name, b.name))
+      .sort((a, b) => queueOf(a) - queueOf(b) || byId(a.name, b.name))
     const lane = free[0] ?? shortest[0]
     if (lane === undefined) continue
     given.set(lane.name, (given.get(lane.name) ?? 0) + 1)
     placed.push({ id: idOf(fix), chat: lane.name, tier: free[0] === undefined ? 2 : 1 })
   }
   return placed
+}
+
+/**
+ * The review: whether `chat` is still as a free-worker placement (tier 1) found it: nothing queued for it and no step it
+ * holds, in the store as it is now (`items`); the API refuses the placement otherwise, and the next refresh places anew.
+ */
+export function isStillEmpty(items, chat, prefix = '') {
+  return ![...(items?.values() ?? [])].some(item => (valueOf(item, 'Kind') ?? 'step') === 'step' && ['queued', ...HOLDS].includes(stateOf(item))
+    && plain(valueOf(item, 'Owner'), prefix) === plain(chat, prefix))
 }
 
 /** The board fixes queued for `chat` before the step (fixFirst: fixes first, each in id order): what it goes after. */
@@ -162,6 +174,9 @@ export function boardQueuedWords({ id, chat, incidents, ahead = [], moved = fals
   const what = `${id} (incident fix of ${named(incidents)})`
   return `${moved ? `The board moved ${what} to ${chat}` : `The board queued ${what} for ${chat}`}, ${where}. Information only: nothing to do.`
 }
+
+/** The review: the words to the main chat and the partner about a fix its standard holds, once per step and chat. */
+export const heldFixWords = (id, why) => `${id} is held by its standard: ${why}`
 
 /** The key under which the main chat's line about a placement goes once: the step, its worker, when it got it (History's stamp). */
 export const boardLineKey = (id, chat, since) => `board-queued ${id} ${chat} ${since ?? ''}`.trim()

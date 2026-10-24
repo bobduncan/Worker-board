@@ -40,9 +40,9 @@ export function buildView({ state = {}, items = new Map(), outbox = [], keep = n
     goals: state.goals?.nodes ?? [],
     // B564: the focus goal's id (state.mjs focusState), or null: the rule focus-ready names only its steps.
     focus: typeof state.focus?.id === 'string' ? state.focus.id : null,
-    // Incident fixes (2026-10-24): the steps the reconciler has the board queue itself now (state.mjs `reconciled`), which
-    // the rule focus-ready leaves to it.
-    autoQueued: Object.freeze((state.reconciled?.autoQueues ?? []).map(one => one.id)),
+    // Incident fixes (2026-10-24): the steps the reconciler has the board queue itself now, and those their standard holds
+    // (state.mjs `reconciled`), which the rule focus-ready leaves to the board.
+    autoQueued: Object.freeze([...(state.reconciled?.autoQueues ?? []), ...(state.reconciled?.heldFixes ?? [])].map(one => one.id)),
     limits: limits ?? state.limits ?? {},
     pause: pause ?? state.pause ?? null,
     refused,

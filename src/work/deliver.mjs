@@ -176,6 +176,9 @@ async function withdrawStale({ dir, outbox, prefix, fs, now = Date.now() }) {
       // Incident fixes (2026-10-24): the main chat's information line about a fix the board queued holds while that step
       // is still open: it is the main chat's to know, whoever has the step by now.
       if (item !== undefined && !['done', 'dropped'].includes(state)) continue
+    } else if (message.kind === 'fix-held') {
+      // The review: the word that a fix's standard holds it holds while the fix is still refined, not queued.
+      if (state === 'refined') continue
     } else if (message.kind === 'partner-ask') {
       // Partner answers (2026-10-19): the partner's line holds while its ask still waits for its answer.
       if (state === 'open' && value(item, 'Route') === 'partner') continue
@@ -243,7 +246,7 @@ export async function deliverWork({ state, dir, outbox, apply, now, maxChars, ne
   // once (the reconciler's `boardLines` names it again later, under the same key, should it not go now).
   const placed = []
   for (const one of plan.autoQueues ?? []) {
-    const queued = await apply({ action: 'advance', id: one.id, to: 'queued', for: one.chat }).catch(() => null)
+    const queued = await apply({ action: 'advance', id: one.id, to: 'queued', for: one.chat, tier: one.tier }).catch(() => null)
     if (queued?.ok !== true) continue
     done.moved.push(one.id)
     const said = queued.result?.boardQueued ?? null
@@ -276,6 +279,8 @@ export async function deliverWork({ state, dir, outbox, apply, now, maxChars, ne
     // Incident fixes: the main chat's one information line per placement of the board's, this refresh's first.
     ...placed,
     ...(plan.boardLines ?? []).map(one => ({ key: one.key, words: { ...workWords(one.chat, one.id, one.text), kind: 'board-queued' } })),
+    // The review: a ready incident fix its standard holds, once to the main chat and once to the partner.
+    ...(plan.heldFixes ?? []).flatMap(one => one.chats.map(chat => ({ key: `fix-held ${one.id} ${chat}`, words: { ...workWords(chat, one.id, one.text), kind: 'fix-held' } }))),
   ]
   for (const one of lines) {
     const sent = await sendOnce({ dir, key: one.key, words: one.words, outbox, state, now, maxChars, newId, fs, keep })

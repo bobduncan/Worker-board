@@ -3269,16 +3269,26 @@ worker while another was free. The person chose B: "the board queues it, but ens
 do this so it doesnt try to double assign work to a singler worker if it expect it could be free".
 
 - **What** (`src/work/incidentFix.mjs`, the flow's server move `{ "from": "refined", "to": "queued", "by": "server",
-  "when": "an incident fix is ready" }`, in the default flow and `examples/work/flow.json`; a project's own flow.json needs
-  that line): a step refined (ready), `Priority: fix`, that an incident not fixed names as its `Fix` (or titled "Fix of
-  X<n>"), with nothing holding it (Blocked by, Waits for, an ask under it), no `Queue when refined` (B303 carries that
-  out) and no History line of a move to queued: once only, so a step the main chat queued or took out stays as it is.
-- **For whom** (`placeFixes`, by the reconciler at every refresh, so within a minute; not while the person pauses): a
-  worker free with nothing queued, running first, then free longest; none: the worker with the shortest queue that waits
-  for nobody (its lane not waiting, no step waiting on you, not paused for the limit). Several fixes at once each count
-  in the queue for the next. The reconciler's `autoQueues`; `deliverWork` carries each out through the API's `advance`
-  with `for`, which checks it anew (`queueIncidentFix`): History "server: refined → queued" and "server: queued by the
-  board for Worker 2 (incident fix of X4)". As a board fix it goes first in that queue.
+  "when": "an incident fix is ready" }`, in the default flow and `examples/work/flow.json`: a project without its own
+  flow.json gets it by default; one with its own flow.json needs that line, and a board built before this rejects a
+  flow.json that has it, "no guard is called ..."): a step refined (ready), `Priority: fix`, that an incident not fixed
+  names as its `Fix` (or titled "Fix of X<n>" while that incident has no Fix, or this step as its Fix), with nothing
+  holding it (Blocked by, Waits for, an ask under it, Touches that overlap a taken step's, as for the main chat's queue),
+  no `Queue when refined` (B303 carries that out) and no History line of a move to queued: once only, so a step the
+  main chat queued or took out stays as it is.
+- **For whom** (`placeFixes`, by the reconciler at every refresh, so within a minute; not while the person pauses or
+  resumes): only a chat that runs (not `off`, not `unknown`, `isRunning` not false: a fix queued for one stalled for
+  good, as nothing delivers to it or moves it); a worker free with nothing queued, free longest first; none: the worker
+  with the shortest queue that waits for nobody (its lane not waiting, no step waiting on you, not paused for the
+  limit). Several fixes at once each count in the queue for the next. The reconciler's `autoQueues`; `deliverWork`
+  carries each out through the API's `advance` with `for` and `tier`, which checks it anew (`queueIncidentFix`; a
+  free-worker placement whose worker got a queued or held step meanwhile is refused, and the next refresh places
+  anew): History "server: refined → queued" and "server: queued by the board for Worker 2 (incident fix of X4)". As a
+  board fix it goes first in that queue.
+- **Held by its standard**: a fix the product plan's standards hold (`standardHold`, the API's own guard, passed to the
+  reconciler by state.mjs) is not placed, so it takes no worker's place and is not refused at every refresh; the main
+  chat and the partner get "B<n> is held by its standard: <why>" once each (`heldFixes`, kind `fix-held`, held while
+  the step stays refined).
 - **The main chat knows**: one information line per placement into the outbox, "The board queued B541 (incident fix of
   X4) for Worker 2, first in its queue. Information only: nothing to do." (kind `board-queued`; at once, and named again
   from the History by the reconciler's `boardLines` for 30 minutes under the same key, so it goes once, also after a
@@ -3287,8 +3297,9 @@ do this so it doesnt try to double assign work to a singler worker if it expect 
   or requeues an incident fix, and reads a worker's queue before handing it work; `roles/partner.md`: the partner names
   the fix and asks the main chat nothing.
 - **Around it**: the rule `queued-behind` moves a fix the board queued behind a busy worker to a worker that came free
-  itself (Fixed, a server requeue), where it names other steps to the main chat; `focus-ready` leaves the fixes the
-  board queues now to it (the view's `autoQueued`). The Supervisor section's card says "refined · the board queues it"
+  itself (Fixed, a server requeue), where it names other steps to the main chat, but never while a work line about it
+  went to its owner in the last 10 minutes (`NOT_TAKEN_MS`: it may be taking it); `focus-ready` leaves the fixes the
+  board queues now, or that their standard holds, to it (the view's `autoQueued`). The Supervisor section's card says "refined · the board queues it"
   and "queued by the board for Worker 2". The review: the reconciler names a server move only when that move's own
   guard holds (`mayMove` holds when any server move to that state does, which named a fix under B303's move, without a
   worker), and `advance` never queues a step without a chat.

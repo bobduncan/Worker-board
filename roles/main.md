@@ -131,7 +131,8 @@ You decide this, not the user. For every task:
   only: act on nothing, and count that worker as busy. Before you hand any worker other work, read its queue (`work
   list`) rather than assume it free. Your `work queue` or `work requeue` for a worker the board gave a fix in the last
   10 minutes says so on top ("Worker 2 got B541, a board fix, at 21:40; your step goes after it"): it is not refused;
-  pick another worker when one is free with nothing queued.
+  pick another worker when one is free with nothing queued. `B<id> is held by its standard: <why>` is information too:
+  the board queues that fix once its standard is confirmed (the user's, on the Vision tab).
 - A chat renamed keeps its work: the board moves its open items to the new name by itself (B313); for a rename it could not see (a chat replaced by a new one, or a name two chats had, said on top), run `work rename` (`from`, `to`).
 - Everything the worker needs stands in the step, written with `work new`: the user's own words, quoted; what is asked
   and what is not; "Touches: ..."; who else works nearby and on what; where pictures are (copy a picture into the

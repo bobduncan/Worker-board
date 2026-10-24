@@ -314,3 +314,120 @@ test('the Supervisor section\'s card says the board queues a ready fix, and for 
   const cards = incidentCards({ incidents: [{ id: 'X4', state: 'fix', fix: 'B20', since: NOW }], items: items(incident('X4', { Fix: 'B20' }), fix('B20')), boardQueues: true })
   assert.deepEqual(cards.map(card => [card.step, card.state.text]), [['B20', 'refined · the board queues it']])
 })
+
+// ---- the review of 30e6ada ----
+
+test('the review: a fix never goes to a chat that does not run (off, unknown, not running), in either tier', () => {
+  const store = items(
+    incident('X4', { Fix: 'B20' }), fix(),
+    step('B10', 'in progress', { Owner: 'Worker 1' }), step('B11', 'queued', { Owner: 'Worker 1' }),
+  )
+  const lanes = [
+    MAIN,
+    lane('Worker 1', { state: 'working' }),
+    // Empty queues, but none of them runs: a fix queued there would stall for good.
+    lane('Worker 3', { state: 'off', isRunning: false }),
+    lane('Worker 4', { state: 'unknown' }),
+    lane('Worker 5', { state: 'free', isRunning: false, idle: { since: ago(90) } }),
+  ]
+  assert.deepEqual(plan(store, lanes).autoQueues.map(one => [one.id, one.chat, one.tier]), [['B20', 'Worker 1', 2]])
+  assert.deepEqual(picks(plan(store, [MAIN, lane('Worker 3', { state: 'off', isRunning: false })])), [], 'nobody runs: it waits, refined')
+})
+
+test('the review: a fix whose Touches overlap a taken step waits, as the main chat\'s queue would', async () => {
+  const withTouches = one => ({ ...one, sections: new Map([...one.sections, ['Context', ['  Touches: src/work/api.mjs']]]) })
+  const store = items(incident('X4', { Fix: 'B20' }), withTouches(fix()), withTouches(step('B10', 'in progress', { Owner: 'Worker 1' })))
+  const lanes = [MAIN, lane('Worker 1', { state: 'working' }), lane('Worker 2')]
+  assert.deepEqual(picks(plan(store, lanes)), [])
+  store.set('B10', withTouches(step('B10', 'done', { Owner: 'Worker 1' })))
+  assert.deepEqual(picks(plan(store, lanes)), [['B20', 'Worker 2']])
+  // The API holds to it too (the server's overlaps of the store).
+  const dir = await mkdtemp(join(tmpdir(), 'auto-queue-overlap-'))
+  try {
+    store.set('B10', withTouches(step('B10', 'in progress', { Owner: 'Worker 1' })))
+    await writeStore(dir, { items: store, activities: [{ name: 'Board', isFocus: false, steps: ['B10', 'B20'], notes: [], loose: [] }] }, undefined, { now: ago(60) })
+    const done = await workApi({ action: 'advance', id: 'B20', to: 'queued', for: 'Worker 2' }, { dir, now: NOW, prefix: '', as: 'server', overlapsOfStore: true, roleOf: () => 'worker' })
+    assert.equal(done.status, 409)
+    assert.equal(valueOf((await readStore(dir)).items.get('B20'), 'State'), 'refined')
+  } finally {
+    await cleanUp(dir)
+  }
+})
+
+test('the review: a fix its standard holds takes no worker\'s place, and the main chat and the partner hear of it once', async () => {
+  const store = items(incident('X4', { Fix: 'B20' }), incident('X5', { Fix: 'B21' }), fix('B20'), fix('B21', { Title: 'Fix of X5: another' }))
+  const why = 'B20 is a unit step, and the unit standard (S1 Units) is not confirmed yet'
+  const standardHold = one => (valueOf(one, 'Id') === 'B20' ? why : null)
+  const done = reconcile({ store: { items: store, flow: DEFAULT_FLOW, problems: [] }, lanes: [MAIN, lane('Worker 2', { idle: { since: ago(50) } }), lane('Worker 3')], now: NOW, times: TIMES, prefix: '', partner: { name: 'Advisor', state: 'free' }, standardHold })
+  // B21 gets the worker free longest; B20 is not placed at all.
+  assert.deepEqual(picks(done), [['B21', 'Worker 2']])
+  assert.deepEqual(done.heldFixes, [{ id: 'B20', why, chats: ['Main', 'Advisor'], text: `B20 is held by its standard: ${why}` }])
+  // Its lines go once to each, and hold while it stays refined.
+  const dir = await mkdtemp(join(tmpdir(), 'auto-queue-held-'))
+  try {
+    await writeStore(dir, { items: store, activities: [{ name: 'Board', isFocus: false, steps: ['B20', 'B21'], notes: [], loose: [] }] }, undefined, { now: ago(60) })
+    const outbox = memoryStore()
+    let n = 0
+    const state = { reconciled: { moves: [], deliveries: [], autoQueues: [], boardLines: [], heldFixes: done.heldFixes }, chats: [MAIN, lane('Worker 2')], chatPrefix: '' }
+    const deliver = () => deliverWork({ state, dir, outbox, apply: () => ({ ok: false }), now: NOW, maxChars: 2000, newId: () => `m${(n += 1)}` })
+    await deliver()
+    await deliver()
+    assert.deepEqual(outbox.outbox().map(one => [one.to, one.kind, one.about, one.state, one.text]), [
+      ['Main', 'fix-held', 'B20', 'waiting', `B20 is held by its standard: ${why}`],
+      ['Advisor', 'fix-held', 'B20', 'waiting', `B20 is held by its standard: ${why}`],
+    ])
+  } finally {
+    await cleanUp(dir)
+  }
+})
+
+test('the review: a placement on a free worker is refused once that worker got other work; the next refresh places anew', async () => {
+  const { dir, server, main, read, planNow } = await fresh()
+  try {
+    const before = await planNow()
+    assert.deepEqual(before.autoQueues.map(one => [one.id, one.chat, one.tier]), [['B20', 'Worker 2', 1]])
+    assert.equal((await main({ action: 'queue', id: 'B30', for: 'Worker 2' })).ok, true)
+    const state = { reconciled: { moves: [], deliveries: [], autoQueues: before.autoQueues, boardLines: [] }, chats: [MAIN, lane('Worker 2'), lane('Worker 3')], chatPrefix: '' }
+    const done = await deliverWork({ state, dir, outbox: memoryStore(), apply: body => server(body), now: NOW, maxChars: 2000, newId: () => 'm1' })
+    assert.deepEqual(done.moved, [])
+    assert.equal(valueOf((await read()).get('B20'), 'State'), 'refined')
+    const refused = await server({ action: 'advance', id: 'B20', to: 'queued', for: 'Worker 2', tier: 1 })
+    assert.equal(refused.why, 'Worker 2 is no longer free with an empty queue: the board places B20 anew at its next refresh.')
+    assert.deepEqual(picks(await planNow()), [['B20', 'Worker 3']])
+  } finally {
+    await cleanUp(dir)
+  }
+})
+
+test('the review: a "Fix of X<n>" title counts only while that incident names no other step as its Fix', () => {
+  const lanes = [MAIN, lane('Worker 2')]
+  // X4's Fix is B20: a second "Fix of X4" step is no fix of it.
+  assert.deepEqual(picks(plan(items(incident('X4', { Fix: 'B20' }), fix('B21')), lanes)), [])
+  assert.deepEqual(picks(plan(items(incident('X4', { Fix: 'B21' }), fix('B21')), lanes)), [['B21', 'Worker 2']])
+  assert.deepEqual(picks(plan(items(incident('X4', { State: 'with the advisor' }), fix('B21')), lanes)), [['B21', 'Worker 2']])
+})
+
+test('the review: the board does not move a fix from under the worker that is taking it', () => {
+  const placedAt = ago(25)
+  const history = [`- ${stamp(placedAt)} server: refined → queued`, `- ${stamp(placedAt)} server: queued by the board for Worker 1 (incident fix of X4)`]
+  const board = fix('B20', { State: 'queued', Owner: 'Worker 1', Since: stamp(placedAt) }, history)
+  const view = outbox => ({
+    items: items(incident('X4', { Fix: 'B20' }), board, step('B10', 'in progress', { Owner: 'Worker 1' })),
+    lanes: [MAIN, lane('Worker 1', { state: 'working' }), lane('Worker 2', { idle: { since: ago(40) } })],
+    prefix: '', now: NOW, outbox, limits: {}, pause: null, refused: [],
+  })
+  const moves = outbox => findStuck(view(outbox)).filter(one => one.check === 'queued-behind').map(one => [one.subject, one.fix.do])
+  assert.deepEqual(moves([]), [['B20', 'requeue']])
+  // Its line went to Worker 1 three minutes ago: Worker 1 may be taking it now.
+  const line = { id: 'w1', to: 'Worker 1', command: 'work', about: 'B20', state: 'taken', at: ago(4), takenAt: ago(3) }
+  assert.deepEqual(moves([line]), [])
+  // A line about it to the main chat does not count, nor one long ago.
+  assert.deepEqual(moves([{ ...line, to: 'Main' }]), [['B20', 'requeue']])
+  assert.deepEqual(moves([{ ...line, at: ago(30), takenAt: ago(29) }]), [['B20', 'requeue']])
+})
+
+test('the review: no placement while the person resumes either', () => {
+  const store = items(incident('X4', { Fix: 'B20' }), fix())
+  assert.deepEqual(picks(plan(store, [MAIN, lane('Worker 2')], { pause: { state: 'resuming', since: stamp(ago(1)) } })), [])
+  assert.deepEqual(picks(plan(store, [MAIN, lane('Worker 2')], { pause: { state: 'running', since: stamp(ago(1)) } })), [['B20', 'Worker 2']])
+})
