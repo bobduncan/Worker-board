@@ -9,6 +9,7 @@ import { AUTO_QUEUE_GUARD, boardLines, flowQueuesFixes, heldFixWords, incidentsF
 import { askFiledMs, fixFirst, sinceMs, valueOf } from './item.mjs'
 import { PARTNER_AGAIN_MS, PARTNER_ANSWER_MS, isRoutedToPartner } from './partnerAnswers.mjs'
 import { isHolding } from './pause.mjs'
+import { REST_GUARD, REST_MS, flowRests, openAskIds, restsFree } from './parked.mjs'
 
 /** The states in which a step is its Owner's work now. */
 const HOLDS = ['taken', 'in progress', 'waiting on you']
@@ -80,13 +81,35 @@ export function reconcile({ store, flow = store.flow, lanes = [], now, times, pr
   const ok = steps.filter(known)
   const overlaps = overlapsIn(items)
 
+  // B567 (X21): a step in progress whose worker has rested REST_MS (its turn ended, nothing running, not suspended, its
+  // chat running) while an ask under it is open, blocking or not, moves to waiting on you, "(rests for Q<n>)", as the
+  // flow's server move REST_GUARD lets it; not while the person pauses. Its worker then counts free for its queued steps
+  // (`restFree`): a worker whose every held step waits on the person (or is parked) and that rests.
+  const resting = []
+  if (flowRests(flow) && !isHolding(store.pause)) {
+    for (const item of ok.filter(one => stateOf(one) === 'in progress')) {
+      const id = valueOf(item, 'Id')
+      const lane = laneOf(valueOf(item, 'Owner'))
+      if (lane === undefined || lane.isMain === true || lane.state === 'suspended' || lane.isRunning === false || !Number.isFinite(lane.resting?.since)) continue
+      const open = openAskIds(items, id)
+      if (open.length === 0) continue
+      const since = Math.max(lane.resting.since, Number.isFinite(sinceMs(valueOf(item, 'Since'))) ? sinceMs(valueOf(item, 'Since')) : -Infinity)
+      if (now - since < (times?.restMs ?? REST_MS)) continue
+      moves.push({ id, to: 'waiting on you', ask: open[0], why: `in progress → waiting on you (rests for ${open.join(', ')})` })
+      resting.push(id)
+    }
+  }
+  const restFree = live.filter(lane => restsFree(lane, ok, prefix, resting)).map(lane => lane.name)
+
   // A step queued whose guards hold and whose Owner is free: the Owner is woken (its `take` moves it to taken).
-  const holding = new Set(ok.filter(item => HOLDS.includes(stateOf(item)) && valueOf(item, 'Owner') !== null).map(item => plain(valueOf(item, 'Owner'), prefix)))
+  // B567: a worker that rests while its steps wait on the person holds none of them for this.
+  const holding = new Set(ok.filter(item => HOLDS.includes(stateOf(item)) && valueOf(item, 'Owner') !== null && !restFree.includes(laneOf(valueOf(item, 'Owner'))?.name))
+    .map(item => plain(valueOf(item, 'Owner'), prefix)))
   // Fix first: a board fix before the other steps queued for its owner (it never goes to another chat).
   for (const item of ok.filter(one => stateOf(one) === 'queued').sort(fixFirst)) {
     const owner = valueOf(item, 'Owner')
     const lane = laneOf(owner)
-    if (lane === undefined || lane.state !== 'free' || holding.has(plain(owner, prefix)) || deliveries.some(one => one.chat === lane.name)) continue
+    if (lane === undefined || (lane.state !== 'free' && !restFree.includes(lane.name)) || holding.has(plain(owner, prefix)) || deliveries.some(one => one.chat === lane.name)) continue
     const ctx = { store: { items }, freeChats: new Set([owner]), now, overlaps }
     if (!mayMove(flow, item, 'taken', 'server', ctx).ok) continue
     const id = valueOf(item, 'Id')
@@ -208,11 +231,14 @@ export function reconcile({ store, flow = store.flow, lanes = [], now, times, pr
     for (const move of flow[kind]?.moves ?? []) {
       const by = Array.isArray(move.by) ? move.by : [move.by]
       if (!by.includes('server') || move.to === 'taken' || move.to === from || (move.from !== from && move.from !== '*')) continue
-      // Incident fixes: the board's queue of a ready incident fix names its worker, below (`autoQueues`).
-      if (move.when === AUTO_QUEUE_GUARD) continue
+      // Incident fixes: the board's queue of a ready incident fix names its worker, below (`autoQueues`). B567: the move
+      // of a step whose worker rests reads the lanes, above.
+      if (move.when === AUTO_QUEUE_GUARD || move.when === REST_GUARD) continue
       // This move's own guard (mayMove holds when any of the server's moves to that state does: the review of the
       // incident fixes, where the queue of a fix was named under B303's move, without a worker).
-      if (!mayMove({ ...flow, [kind]: { ...flow[kind], moves: [move] } }, item, move.to, 'server', { store: { items }, freeChats: new Set(), now, overlaps, hasPartner }).ok) continue
+      if (!mayMove({ ...flow, [kind]: { ...flow[kind], moves: [move] } }, item, move.to, 'server', { store: { items }, freeChats: new Set(), now, overlaps, hasPartner, prefix }).ok) continue
+      // B567: a step moved to waiting on you in this refresh does not move on in it too.
+      if (resting.includes(valueOf(item, 'Id'))) continue
       moves.push({ id: valueOf(item, 'Id'), to: move.to, why: `${from} → ${move.to}${move.when === undefined ? '' : ` (${move.when})`}` })
       break
     }
@@ -268,5 +294,5 @@ export function reconcile({ store, flow = store.flow, lanes = [], now, times, pr
       else if (!isHeld && isFree) partnerAsks.push({ id, chat: partner.name, since: valueOf(item, 'Since'), ...(Number.isFinite(filed) && now - filed >= (times?.partnerAgainMs ?? PARTNER_AGAIN_MS) ? { again: true } : {}) })
     }
   }
-  return { moves, deliveries, flags, notes, partnerAsks, escalations, autoQueues, boardLines: lines, heldFixes }
+  return { moves, deliveries, flags, notes, partnerAsks, escalations, autoQueues, boardLines: lines, heldFixes, restFree }
 }

@@ -61,7 +61,10 @@ sweep is meant to cost little (a few tens of thousands of tokens, mostly cached)
 - A word to a chat is taken within minutes; words that wait long for one chat are odd. The summary lists the words of
   the last day that still matter (a word whose purpose is gone is closed with its why and not listed); only those
   marked `!` are odd: rule 8's words, waiting over 10 minutes or failed or expired in the last two hours.
-- A chat runs the model and effort its step asks for (the summary shows both side by side).
+- A chat runs the model and effort its step asks for (the summary shows both side by side). The board asks the main
+  chat to switch it after the take, so a mismatch within 10 min of a take, or with its switch asked ("switch asked
+  HH:MM" beside it), is the switch under way: no incident. One that lasts is marked "!" and the rule effort-mismatch
+  names it to the main chat itself.
 - A worker is cleared after its reported step (or compacted, as the list of chats says); the same reason for not
   clearing it, again and again, is odd.
 

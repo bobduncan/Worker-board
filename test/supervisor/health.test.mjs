@@ -305,8 +305,9 @@ test('the summary holds every section: the chats with state, since, model and ef
   assert.ok(text.length <= HEALTH_CHARS)
   for (const title of ['Chats (', 'Steps under way (', 'Queues:', 'Incidents and repairs of the last day:', 'Words not delivered:', 'Limits and pause:']) assert.ok(text.includes(title), title)
   const line = name => text.split('\n').find(one => one.includes(`${name} (`)) ?? ''
-  // A worker on a step: what it runs at beside what its step wants, its clear that did not happen, and why.
-  assert.match(line('Digger'), /Digger \(worker\): working; runs sonnet · medium; its step B12 wants opus · high; on B12 "Step B12 of the garden" \(in progress\)/)
+  // A worker on a step: what it runs at beside what its step wants, its clear that did not happen, and why. B576: hours
+  // after the take with no switch, the mismatch is odd.
+  assert.match(line('Digger'), /! Digger \(worker\): working; runs sonnet · medium; its step B12 wants opus · high \(no switch asked, 3 h 20 min after the take\); on B12 "Step B12 of the garden" \(in progress\)/)
   assert.match(line('Digger'), /not cleared at 10:10: a subagent it started still runs \(1\); compaction skipped at 10:10: it is small enough$/)
   // A worker unknown since the timeline says, its chat not running: odd, with its last report and its last clear.
   assert.match(line('Weeder'), /^- ! Weeder \(worker\): unknown since 10:35 \(25 min\), its chat does not run; .*on B13 .*; last report B10 at 09:25; cleared at 09:30 after B10$/)

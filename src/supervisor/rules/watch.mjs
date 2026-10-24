@@ -17,7 +17,7 @@ import { blockersOpen, waitWords } from '../../work/guards.mjs'
 import { checkpointOf, heldMs, isHolding } from '../../work/pause.mjs'
 import { isFailedForGood, stoppedChats, whyClosed } from '../../work/outboxSweep.mjs'
 import { FIRST_SAYING, chatsByRole, oldModFinding } from '../../oldMods.mjs'
-import { EFFORTS, chatEffort, effortSaid } from '../../work/effort.mjs'
+import { EFFORTS, chatEffort, effortOf, effortSaid, modelOf } from '../../work/effort.mjs'
 import { reviewWaitOf } from '../../work/resultCheck.mjs'
 import { CLEAR_MOD, takenSince } from '../../clearOwed.mjs'
 
@@ -536,8 +536,67 @@ function staleCheckpoint(view) {
   return found
 }
 
+/** A model as the app names it ("claude-sonnet-5-5"), in its family's word. */
+export const familyOf = model => (typeof model !== 'string' || model === '' ? null : /opus/i.test(model) ? 'opus' : /sonnet/i.test(model) ? 'sonnet' : /haiku/i.test(model) ? 'haiku' : model)
+/** A step's take: its newest History line that took it ("queued → taken", or straight to in progress). */
+const TAKE_LINE = /^-\s+(\d{4}-\d{2}-\d{2} \d{2}:\d{2}(?::\d{2})?)\s+[^:]+: \S+ → taken\b|^-\s+(\d{4}-\d{2}-\d{2} \d{2}:\d{2}(?::\d{2})?)\s+[^:]+: queued → in progress\b/
+function takenAtOf(item) {
+  const found = (item.sections?.get('History') ?? []).map(line => TAKE_LINE.exec(line)).filter(Boolean).at(-1)
+  const at = found === undefined ? Number.NaN : sinceMs(found[1] ?? found[2])
+  return Number.isFinite(at) ? at : sinceMs(valueOf(item, 'Since'))
+}
+
 /**
- * 14. B547 (the rules X13 and X14 wanted): a worker whose last report is newer than its last clear (state.mjs `clearOwed`,
+ * B576 (the fix of X26: Worker 5 ran medium while B568 wanted low, 0 min after it took B568, before the main chat could
+ * switch it): how the switch of a chat to its step's setting stands, as the rule effort-mismatch and the health summary
+ * read it. `runs` and `wants` ("sonnet · medium"), `mismatch` (the effort differs, or the model where the board sets
+ * models: `effortRun.model`; a chat whose effort the board does not know is none), `state` from the board's switch
+ * (`effortRun` of this step): 'switched' (read back), 'asked' (`askedAt`, `askState`) or 'none'; `takenAt`, and `late`:
+ * a mismatch not switched over `switchMinutes` after the take, counted from the end of the person's last pause, while
+ * nothing holds the switch (the pause, a full limit). Null for a lane or step it cannot judge.
+ */
+export function switchOf(lane, item, view) {
+  if (lane === undefined || lane === null || item === undefined || item === null) return null
+  const id = idOf(item)
+  const own = lane.effortRun?.step === id ? lane.effortRun : null
+  const effort = chatEffort(lane)
+  const family = familyOf(lane.model)
+  const want = { family: modelOf(item).family, level: effortOf(item).level }
+  const isModelSet = typeof own?.model === 'string'
+  const mismatch = effort !== null && (effort !== want.level || (isModelSet && family !== null && family !== want.family))
+  const state = own?.isSet === true ? 'switched' : own?.asked != null ? 'asked' : 'none'
+  const takenAt = takenAtOf(item)
+  const since = view.now - afterPause(view, takenAt)
+  const late = mismatch && state !== 'switched' && !isPaused(view) && !isFull(view) && Number.isFinite(since) && since > view.settings.switchMinutes * MIN
+  return {
+    runs: `${family ?? 'a model not known'} · ${effort ?? 'effort not known'}`, wants: `${want.family} · ${want.level}`, mismatch, state,
+    askedAt: own?.asked?.at ?? null, askState: own?.asked?.state ?? null, takenAt, since, late,
+  }
+}
+
+/**
+ * 14. B576: a worker whose model or effort differs from its step's over `switchMinutes` after it took the step, with no
+ * switch read back (switchOf): one finding for the main chat per chat and step, which counts up while it lasts.
+ */
+function effortMismatch(view) {
+  const found = []
+  for (const lane of workersOf(view)) {
+    const item = stepsOf(view).filter(one => ['taken', 'in progress', 'waiting on you'].includes(stateOf(one)) && plain(valueOf(one, 'Owner'), view.prefix) === plain(lane.name, view.prefix))
+      .sort((a, b) => byId(idOf(a), idOf(b)))[0]
+    const at = switchOf(lane, item, view)
+    if (at === null || !at.late) continue
+    const id = idOf(item)
+    found.push({
+      rule: 'effort-mismatch', key: `effort-mismatch ${lane.name} ${id}`, subject: lane.name,
+      text: `${lane.name} runs ${at.runs} ${minutes(at.since)} min after it took ${id}, which wants ${at.wants}`,
+      evidence: `took ${id} at ${clockOf(at.takenAt)}; ${at.state === 'asked' ? `switch asked ${clockOf(at.askedAt)} (${at.askState ?? 'not known'}), not read back` : 'no switch asked'}; the app's file says ${at.runs}`,
+    })
+  }
+  return found
+}
+
+/**
+ * 15. B547 (the rules X13 and X14 wanted): a worker whose last report is newer than its last clear (state.mjs `clearOwed`,
  * src/clearOwed.mjs) and that took a new step since, on the old conversation; or that stays so for longer than
  * `notClearedMinutes` (a log refused while its background work runs, a mod that left no word). One finding per worker
  * per report, with the Workers mod's why when it logged one, and the repair: the board holds its next step and names the
@@ -584,5 +643,6 @@ export const WATCH_RULES = [
   { id: 'odd-effort', kind: 'watch', says: 'a chat whose effort is not a level', check: oddEffort },
   { id: 'review-stuck', kind: 'watch', says: 'a step in review with no result check for too long, or whose fix was dropped', check: reviewStuck },
   { id: 'stale-checkpoint', kind: 'watch', says: 'a step in progress with no checkpoint for hours, or whose checkpoint said to report long ago', check: staleCheckpoint },
+  { id: 'effort-mismatch', kind: 'watch', says: 'a worker that still runs another model or effort than its step wants 10 min after the take', check: effortMismatch },
   { id: 'not-cleared', kind: 'watch', says: 'a worker not cleared after its reported step', check: notCleared },
 ]

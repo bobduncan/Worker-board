@@ -43,6 +43,8 @@ export const SUPERVISOR_DEFAULTS = Object.freeze({
   checkpointMinutes: 120,
   /** B572: a step in progress whose last checkpoint's next action is to report, written longer ago than this. */
   reportMinutes: 30,
+  /** B576: a worker that runs another model or effort than its step wants this long after the take, not switched. */
+  switchMinutes: 10,
   /** B547: a worker not cleared this long after it reported a step. */
   notClearedMinutes: 10,
 })

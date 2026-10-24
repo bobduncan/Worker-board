@@ -7,6 +7,7 @@
 
 import { boardPlacementOf, incidentsNamedBy, isIncidentFix } from '../work/incidentFix.mjs'
 import { sinceMs, valueOf } from '../work/item.mjs'
+import { parkedAfter } from '../work/parked.mjs'
 
 const numeric = (a, b) => String(a).localeCompare(String(b), 'en', { numeric: true })
 /** A History line's stamp: "- 2026-10-24 18:38 Worker 5: ...". */
@@ -72,7 +73,12 @@ export function stepState(step, { lanes = [], steps = new Map(), items = steps, 
       const word = laneWord(state, lanes.find(one => one.name === owner && one.isLeftover !== true))
       return { text: owner === null ? (state === 'taken' ? 'taken' : 'in progress') : `${owner} · ${word.text}`, tone: owner === null ? 'idle' : word.tone }
     }
-    case 'waiting on you': return { text: owner === null ? 'waits for you' : `${owner} · waits for you`, tone: 'idle' }
+    case 'waiting on you': {
+      // B567: a parked step, its answers come, goes on after the step its worker is on.
+      const after = parkedAfter(step, items)
+      if (after !== null) return { text: `${owner === null ? '' : `${owner} · `}parked until ${after} is reported`, tone: 'idle' }
+      return { text: owner === null ? 'waits for you' : `${owner} · waits for you`, tone: 'idle' }
+    }
     case 'review': return { text: 'in review', tone: 'review' }
     case 'done': return { text: 'done · fixed', tone: 'done' }
     case 'dropped': return { text: 'dropped', tone: 'dropped' }

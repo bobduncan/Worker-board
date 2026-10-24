@@ -3181,7 +3181,11 @@ the AI sweep by a cheap supervisor chat and the hand-over to the Advisor, comes 
   `stale-checkpoint` (B572, the fix of X24: a step in progress over 120 min with no checkpoint within them, or whose
   last checkpoint's next action is to report, written over 30 min ago; one finding per step and checkpoint; not while
   the person pauses, a limit is full or its worker is suspended for the limit, and its suspended time does not count; the health summary shows each step in progress with its
-  last checkpoint's age, commit and next action, "!" when stale).
+  last checkpoint's age, commit and next action, "!" when stale), `effort-mismatch` (B576, the fix of X26: a worker
+  whose effort, or model where the settings name model ids, differs from its step's over 10 min after the take, with no
+  switch read back; one finding per chat and step; not while the person pauses or a limit is full, and the pause's time
+  does not count; the health summary says beside "wants" "switch asked HH:MM" or "switched", and marks the mismatch
+  "!" only once it lasts).
   What a step in review waits for (`resultCheck.mjs reviewWaitOf`: its first check, its check again, the person's
   answer, its fix B<n>, or its fix dropped) stands beside its title on the Backlog tab and in the work tool's `next`
   and `list`; the repair rule `fix-dropped` gives the main chat one word for a dropped fix, 30 min after the drop:
@@ -3512,6 +3516,39 @@ with all its guards, at most once a minute, and refused it only writes why on th
 held to nothing; the row says "not cleared after B12" with what happens next, and the watch rule `not-cleared` names it.
 The mod's newest word why it did not clear now shows as its own kind (`not-cleared`), no longer hidden behind an older
 clear.
+
+## A step its worker holds while on another (B567, 2026-10-24)
+
+X21: Worker 3 filed Q338 as not blocking and rested on it from 19:55; B547 stayed in progress with an idle chat, and
+three focus steps queued behind it. X23: Q338 was answered at 21:09 while Worker 3 was on B534, and B547 still showed
+in progress; B522 sat in progress 2 h with its checkpoint "report B522" while its chat was replaced and Worker 5 did
+other steps. The causes: a not-blocking ask never moves a step, so a resting worker kept counting busy; an answer
+moved its step back to in progress whatever its worker was on; and nothing named a step left in progress behind another.
+
+- **Rests** (`src/work/parked.mjs`, the reconciler): a step in progress whose worker has rested REST_MS (15 min; its
+  turn ended with nothing running, its chat runs, not suspended, not while the person pauses; counted from the step's
+  own Since at the earliest) while an ask under it is open, blocking or not, moves to waiting on you, History
+  "(rests for Q<n>)": the flow's server move `{ "from": "in progress", "to": "waiting on you", "by": "server", "when":
+  "its worker rests on an open ask" }`, in the default flow and `examples/work/flow.json`; a project with its own
+  flow.json needs that line (a board built before this rejects it). The guard checks the open ask; the rest is the
+  reconciler's, from the lanes.
+- **Free for its queue** (`restsFree`): a resting worker whose every held step waits on the person (or is parked) gets
+  its next queued step as a free one does: the reconciler's deliveries and `restFree`, `mayWake`, the work API's `pull`
+  (a step waiting on you holds no chat), the effort word (for the step it gets), and the repair rules not-taken and
+  queued-behind.
+- **Parked**: an answer (or a withdrawal) while its worker holds another step taken or in progress leaves the step
+  waiting on you, History "server: parked (resumes after B<n>)": the guard "its asks are answered" holds only while its
+  worker is on no other step, for the API and the reconciler alike. The asking chat's word says so. Once B<n> is
+  reported, the first parked step of that chat moves to in progress, "(resumes after B<n>)" (the report's `resumed`),
+  the next one after it in turn. `work next` lists a parked step right after those in progress, a step waiting on an
+  open ask after the queued ones, each with its words ("waits for Q<n>; take your next queued step meanwhile").
+- **Anything else**: the health summary names every step a worker holds while on another (its card's step, else the
+  newest it holds taken or in progress): "(parked: Worker 5 is on B568; rests for Q1 | resumes after B2 | blocked by
+  B9 | nothing names why it waits)", the last one odd. The repair rule held-elsewhere names a step in progress over an
+  hour whose owner's card names another step, with nothing naming why, to the main chat once an hour (`do: send`,
+  key per hour since first seen). The supervisor's step cards say "parked until B<n> is reported".
+- **The worker's rule** (`roles/worker.md`): an ask you stop for is blocking; while a step waits on you or is parked,
+  take your next queued step; never leave a step in progress unnamed while on another.
 
 ## What it does not do
 
