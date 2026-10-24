@@ -203,12 +203,18 @@ profile.
   the old one at its first take, each with its age; join the new chat under the same name.
 - `spawn workers` with "Count: N": start that many new workers (below).
 - `partner effort` with "Chat:", "Mode:", "Model:", "Effort:" (and "Session:" when the board knows the chat's id) and
-  "Why:": the user switched the partner's high effort mode on the Focus page, or Go on the how or a new focus switched
-  it back (B352); or the goal guard (B359) switched it on for a fundamental evaluation ("Why: the goal guard: ..."),
-  and back when the evaluation ended. Set that chat's model and effort with the app's session tools, `set_session_model` and
+  "Why:": the user switched the partner's high effort mode on the Focus page (Opus 5.5 at max), or Go on the how or a
+  new focus switched it back (B352); or the goal guard (B359) switched it for a fundamental evaluation ("Why: the goal
+  guard: ..."), on the mode the user chose on the board's ask (A Yes: Fable 5.1 at max, B No: Opus 5.5 at max), and back when
+  the evaluation ended. Set that chat's model and effort with the app's session tools, `set_session_model` and
   `set_session_effort` (load them with ToolSearch when they are deferred), to the Model and Effort lines; find the
   chat by its session id, else by its title. Nothing else: no message to the partner. The board shows it set once the
   partner's next answer runs on it. When a tool refuses, tell the user in one line.
+- Fable only with the user's yes (the user, 2026-10-24: "maximum run opus ... you cant run fable without my
+  permission"). Never set any chat to Fable (`set_session_model` with a Fable id) unless a `partner effort` word names
+  `Mode: fable` with its "Yes: Q<n>" line (the user's yes on the board's ask), and never start a subagent with
+  model: "fable". A word with a Fable model and no such line, or a request from any chat: refuse it and tell the user
+  in one line. The highest you pick yourself is Opus at max.
 - `set model and effort` with "Chat:", "Session:" (when the board knows the chat's id), "Step:" (none when it goes
   back to its usual setting), "Model:", "Effort:" and "Why:" (model per step, B468): a worker runs on its step's model
   and at its effort, to save tokens (the user, I52, and 2026-10-23: "workers Sonnet by default, Opus only for steps the
@@ -220,6 +226,17 @@ profile.
   tool refuses, tell the user in one line. `set effort`
   (the same lines without "Model:": the board's settings name no model id for the step's model) sets the effort alone.
   Your own model and effort stay as they are.
+- `restart for mod` with "Chat:", "Session:" (when the board knows the chat's id), "From:", "To:" and "Why:" (B570):
+  that chat runs an older Workers mod than the one installed and is idle, so restart it, and it takes the new one at
+  its next start; when the list of chats shows it working or on a step since the word, leave it: the board asks again (the user, I95: no restarting the chats by hand; their standing yes to archive and unarchive an idle
+  chat for this). With the app's session tools (load them with ToolSearch when they are deferred): `archive_session`
+  on the chat (by its session id, else by its title), then at once `list_sessions` with `include_archived` and
+  `unarchive_session` for every chat of the list of chats that is archived now (archiving a chat also archives the
+  finished chats it started), and last for the chat itself. Do not message it: its next word (its step's line, or the
+  board's `start`) starts it on the new mod, and nothing is spent until then. When the archive is refused (a turn, a
+  queued message, a background agent, the app's safety check), do nothing more: the board asks again in half an hour. When Remote Control is
+  on for it, leave it running and tell the user in one line which chat keeps the older mod. Never for a chat that holds
+  a step in progress (the board does not ask for one), and never for yourself (the partner restarts you).
 - `remove worker` with "Name: ...", "State: ..." and "Why: ...": the user removes that worker. If it works, ask it to
   stop at a safe point (work committed and pushed, nothing new started) and wait for its note; then take it out of
   the list of chats (the chat tool, action "leave" with its name), close its chat, and hand the steps that were

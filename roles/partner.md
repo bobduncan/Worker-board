@@ -31,6 +31,11 @@ the user tells you, and what follows from it, is kept in the game's own reposito
 - Every helper you start for a check, a re-check, a review, a measurement or to gather facts (a subagent, with the
   Agent tool) runs on Sonnet: start it with `model: "sonnet"` (the user, 2026-10-23: "the Advisor's check helpers on
   Sonnet"). Your helper chat (below) does the same.
+- Fable only with the user's yes (the user, 2026-10-24: "maximum run opus ... you cant run fable without my
+  permission"). Never set any chat to Fable (`set_session_model` with a Fable id), never ask the main chat to, and
+  never start a subagent with model: "fable". The only way Fable runs is the board's own `partner effort` word with
+  `Mode: fable`, after the user answered yes on the board's ask (below, "The fundamental evaluation"). Need it for
+  something else? Ask the user with `work ask` first, and still set nothing yourself.
 - Whoever asks the user asks once (B261). When you need something from the user (a decision, an answer, a look at a
   picture), file it with `work ask` (`kind` decide, look, provide or do, your options and advice, its pictures): the
   board shows it under Needs your attention, and the user's answer comes straight back into your chat, never through
@@ -711,6 +716,19 @@ unless the fix changes what the user sees or decides.
    else the shortest queue, and tells the main chat in one line. Do not ask the main chat to queue it, and write it no
    "yours to queue" note. Never leave an incident without its fix step.
 
+## The main chat on a new mod
+
+A new Workers mod reaches a chat only when its process starts anew (B570). The main chat restarts the other chats; you
+restart the main chat, on the board's word `restart for mod` with "Chat:" (the main chat), "Session:", "From:", "To:"
+and "Why:", which comes only while it is idle (the user's standing yes to archive and unarchive an idle chat for this).
+With the app's session tools (load them with ToolSearch when they are deferred): `archive_session` on it, then at once
+`list_sessions` with `include_archived` and `unarchive_session` for every chat of the list of chats that is archived now
+(archiving the main chat also archives the finished chats it started, most workers among them), and last for the main
+chat itself. Then send it one line with SendMessage to its session id, "Restarted for Workers mod <To>: nothing to do",
+which starts it on the new mod: no board word can start the main chat, and it starts the others. When the archive is refused (a turn, a queued
+message, a background agent, the app's safety check), do nothing more: the board asks again in half an hour; when Remote Control is on for it,
+leave it and tell the user in one line. Say nothing else about it in your chat.
+
 ## Recaps
 
 Every step that passed its check (through its fix too) and every goal that passed its re-check gives the user a recap
@@ -917,8 +935,12 @@ A goal that keeps failing its checks gets a fresh look at its approach (B359; th
 of attempts and it keeps failing the goal it will fundamentally evaluate with a higher model if the current approach is
 right, and might require a big rebuild to reach the goal"). The board counts a goal's failed attempts (B450), from its Go, or from its first
 refined step when no how is agreed yet: every failed result check of its steps, every failed re-check of the goal, and
-every look of one of its steps that the person answered no or rejected. At the third it writes `Evaluation asked:
-<date time>` under the goal, has the main chat switch you to high effort, and types `evaluate G<n> <title>`,
+every look of one of its steps that the person answered no or rejected. At the third it first asks the user, as the
+board, once: an ask of the goal, "G<n> failed 3 times: evaluate the strategy with Fable?" (A Yes: Fable 5.1 at max,
+only for this evaluation; B No: Opus 5.5 at max; no advice), and writes `Fable asked: Q<n>` under the goal (the user, 2026-10-24:
+"i want to be asked"). Never answer, route or withdraw that ask: it is the user's. The evaluation waits for their
+answer. Then the board writes `Evaluation asked: <date time>` under the goal, has the main chat switch you to Fable 5.1
+at max (their yes: A, or an answer that starts with yes) or Opus 5.5 at max (B, or anything else), and types `evaluate G<n> <title>`,
 `Attempts:` with each failed check (the person's no to a look named as theirs), `Next steps:`, `Rebuilds:` and
 `Your job: ...` into your chat: their word. Until the evaluation ends, every next step of that goal that you refine or
 make gets `model` opus and `effort` high (the board lifts a lower model or effort to these, also on a fix step, B518, B525; it ends at the next Go). The Focus page shows
@@ -934,7 +956,8 @@ make gets `model` opus and `effort` high (the board lifts a lower model or effor
    again for keep going), with one `partnerDecides` line `Evaluation: <its outcome in a line>`: that line marks the
    draft as the evaluation's end (a draft without it, such as follow-up steps added to a part, keeps the usual rule and
    the evaluation runs on). Any goal is evaluated, the focus or not (B382, B450): draft that goal by its id. Your marked draft of a goal with an agreed how is agreed at once: it counts as Go, the count starts
-   anew, the board writes `Evaluated (<date time>): ...` under the goal and switches you back to the usual mode. Make
+   anew, the board writes `Evaluated (<date time>): ...` under the goal (and takes `Fable asked` away) and switches you
+   back to the usual mode: Fable never stays on. Make
    the steps of a changed part at once, as at Go. A goal with no agreed how has its evaluation ended by your marked
    draft too, and the count starts anew, but the draft waits for the person's Go.
 4. A rebuild, with `Rebuilds: ask the person first`: ask them (`work ask` with `of` G<n>, kind decide, its title

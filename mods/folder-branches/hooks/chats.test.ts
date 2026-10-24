@@ -5,7 +5,7 @@ import {
   LEFT_MAX_SIZE, LEFT_TEXT, STALE_MS, afterTurn, asksPerson, atTurnStart, cardGap, cardOld, chatLine, chatNote, compactKeep, compactWhy, chatText, chatsSummary, fileName, foldersAbove, hasLeft,
   isAgentId, nameFromTitle, orderChats, parseChat, parseList, sessionOf, status, timeText, uniqueByName, withDone, withPlan,
   withSend, withState, withStep, workCard, instructionsLine, isFiled, openFrom, personsWords, recordedLine,
-  clearWhy, clearedStart, movedText, roleFrom, unfiledAsk,
+  clearWhy, clearedStart, movedText, roleFrom, unfiledAsk, isOlderMod, modNote,
 } from './chats'
 
 const MIN = 60000
@@ -72,6 +72,29 @@ describe('what a chat is shown as', () => {
     const working = { ...chat('Units', 'working', task('Archer', 1, 2, 10)), at: NOW - 30000 }
     expect(chatLine(working, [working], NOW)).toBe('● Units  Archer · 1 of 2 · ~10 min')
     expect(chatLine(working, [working], NOW + 60000)).toBe('● Units  Archer · 1 of 2 · ~9 min')
+  })
+})
+
+describe('B570: the Workers mod each chat runs', () => {
+  test('a card keeps its version; the list says it, and that an older one is restarted after its step or when asked', () => {
+    const lead = { ...chat('Main', 'waiting', null, 'main'), mod: '0.17.0' }
+    const busy = { ...chat('Units', 'working', task('Archer', 1, 3, 20)), mod: '0.16.1' }
+    const idle = { ...chat('Levels', 'waiting'), mod: '0.16.1' }
+    const unsaid = chat('Cleanup', 'waiting')
+    const all = [lead, busy, idle, unsaid]
+    expect(parseChat(chatText(busy))?.mod).toBe('0.16.1')
+    expect(parseChat(JSON.stringify({ ...idle, mod: 'new!' }))?.mod).toBeUndefined()
+    expect(modNote(lead, all, NOW)).toBe('mod 0.17.0')
+    expect(modNote(busy, all, NOW)).toBe('mod 0.16.1 · restarts after its step')
+    expect(modNote(idle, all, NOW)).toBe('mod 0.16.1 · restarts when the board asks')
+    expect(modNote(unsaid, all, NOW)).toBeNull()
+    // All on one version: nothing to say.
+    expect(modNote(lead, [lead, { ...idle, mod: '0.17.0' }, unsaid], NOW)).toBeNull()
+    expect(chatLine(busy, all, NOW)).toBe('● Units  Archer · 1 of 3 · ~20 min  (mod 0.16.1 · restarts after its step)')
+    expect(chatLine(lead, all, NOW)).toBe('◆ Main  waiting for 1 worker')
+    // Compared as numbers, not as text.
+    expect(isOlderMod('0.9.9', '0.10.0')).toBe(true)
+    expect(isOlderMod('0.10', '0.10.0')).toBe(false)
   })
 })
 

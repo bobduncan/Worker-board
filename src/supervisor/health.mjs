@@ -7,9 +7,10 @@
 
 import { chatEffort, effortOf, modelOf } from '../work/effort.mjs'
 import { sinceMs, valueOf } from '../work/item.mjs'
-import { isHolding } from '../work/pause.mjs'
+import { checkpointOf, isHolding } from '../work/pause.mjs'
 import { reviewWaitOf } from '../work/resultCheck.mjs'
 import { ACTIVE, heldReason, workingOnOther } from '../work/parked.mjs'
+import { checkpointLate, familyOf, switchOf } from './rules/watch.mjs'
 
 const MIN = 60_000
 const HOUR = 60 * MIN
@@ -55,8 +56,6 @@ const plain = (name, prefix = '') => {
   return (prefix !== '' && words.toLowerCase().startsWith(prefix.toLowerCase()) ? words.slice(prefix.length) : words).trim().toLowerCase()
 }
 const byId = (a, b) => String(a).localeCompare(String(b), 'en', { numeric: true })
-/** A model as the app names it ("claude-sonnet-5-5"), in its family's word. */
-const familyOf = model => (typeof model !== 'string' || model === '' ? null : /opus/i.test(model) ? 'opus' : /sonnet/i.test(model) ? 'sonnet' : /haiku/i.test(model) ? 'haiku' : model)
 
 const kindOf = item => valueOf(item, 'Kind') ?? 'step'
 const stepsOf = view => [...view.items.values()].filter(item => kindOf(item) === 'step' && typeof valueOf(item, 'Id') === 'string')
@@ -84,16 +83,27 @@ function chatLines(view, now) {
     // The step it is on: its card's, else the one the store holds for it.
     const onId = lane.task?.stepId ?? mine.find(item => HELD.slice(0, 3).includes(valueOf(item, 'State')))?.head.get('Id') ?? null
     const on = onId === null ? null : view.items.get(onId) ?? null
-    const wants = on === null ? '' : `; its step ${onId} wants ${modelOf(on).family} · ${effortOf(on).level}`
+    // B576 (X26): how the switch to the step's setting stands; a mismatch is odd only once it lasts after the take.
+    const switching = on === null ? null : switchOf(lane, on, view)
+    const wants = on === null ? '' : `; its step ${onId} wants ${modelOf(on).family} · ${effortOf(on).level}${switchWords(switching, now)}`
     const onWords = onId === null ? '; on no step' : `; on ${onId}${on === null ? '' : ` "${oneLine(valueOf(on, 'Title'), 60)}" (${valueOf(on, 'State')})`}`
     const reports = mine.flatMap(item => (item.sections?.get('History') ?? []).filter(line => REPORTED.test(line)).map(line => ({ id: valueOf(item, 'Id'), at: historyAt(line) })))
       .filter(one => Number.isFinite(one.at)).sort((a, b) => b.at - a.at)
     const report = reports.length === 0 ? '; no report known' : `; last report ${reports[0].id} at ${dayClockOf(reports[0].at, now)}`
     const suspended = lane.state === 'suspended' && lane.suspended !== null && typeof lane.suspended === 'object'
       ? ` (for ${lane.suspended.limit ?? 'a limit'}${Number.isFinite(lane.suspended.until) ? ` until ${dayClockOf(lane.suspended.until, now)}` : ''}${lane.suspended.isBack === true ? ', the limit is back' : ''})` : ''
-    const odd = ODD_STATES.includes(lane.state) || (lane.isRunning === false && onId !== null) || (lane.state === 'working' && onId === null && role === 'worker')
+    const odd = ODD_STATES.includes(lane.state) || (lane.isRunning === false && onId !== null) || (lane.state === 'working' && onId === null && role === 'worker') || (role === 'worker' && switching?.late === true)
     return lineOf(`${lane.name} (${role}): ${state}${suspended}${running}; ${runs}${wants}${onWords}${report}; ${clearWords(lane.compaction, now)}`, { tier: 0, odd, at: since, max: CHAT_CHARS })
   })
+}
+
+/** B576: the switch beside "wants": "(switched)", "(switch asked HH:MM)", and once it lasts how long after the take. */
+function switchWords(switching, now) {
+  if (switching === null || (!switching.mismatch && switching.state !== 'switched')) return ''
+  if (switching.state === 'switched') return ' (switched)'
+  const asked = switching.state === 'asked' ? `switch asked ${dayClockOf(switching.askedAt, now)}` : ''
+  if (!switching.late) return asked === '' ? '' : ` (${asked})`
+  return ` (${asked === '' ? 'no switch asked' : `${asked}, not read back`}, ${lasting(switching.since)} after the take)`
 }
 
 /** The Workers mod's last word on a clear or a compaction of the chat, with why it did not clear. */
@@ -250,13 +260,18 @@ function stepLines(view, now) {
       : wait !== null ? ` (waits${wait.stalled.length === 0 ? ' as planned' : ''} for ${wait.open.map(blockerWords).join(' and ')})`
       : blocked.length > 0 ? ` (waits for ${blocked.join('; ')})`
         : ended.length > 0 ? ` (still blocked by ${ended.map(blocker => `${blocker}, ${stateIn(view.items, blocker)}`).join(' and ')})` : ''
+    // B572 (X24): a step in progress shows its last checkpoint, its age, commit and next action; a stale one is odd
+    const checkpoint = state === 'in progress' ? checkpointOf(item) : null
+    const checkpointWords = state !== 'in progress' ? ''
+      : checkpoint === null ? ' [no checkpoint]'
+        : ` [last checkpoint ${Number.isFinite(checkpoint.at) ? `${lasting(now - checkpoint.at)} ago` : 'at a time not known'} (${checkpoint.commit ?? 'none'}): ${oneLine(checkpoint.next, 60)}]`
     // The steps every chat holds stay whatever is cut; a chat's queue before the rest.
     const tier = isChats && HELD.includes(state) ? 0 : isChats ? 1 : 2
     // B567: a step its worker holds while it is on another says so, with why it waits; none named is odd.
     const parked = parkedOf(item, view)
-    const odd = isLate(item, view, now) || (owner !== null && !isChats) || (parked !== null && parked.why === null)
+    const odd = isLate(item, view, now) || (owner !== null && !isChats) || checkpointLate(item, { ...view, now }) !== null || (parked !== null && parked.why === null)
     const parkedWords = parked === null ? '' : ` (parked: ${owner} is on ${parked.on}; ${parked.why ?? 'nothing names why it waits'})`
-    lines.push(lineOf(`${id} ${state} for ${lasting(age)}${stays}, ${owner === null ? 'no owner' : owner}${fix}${waits}${parkedWords}: ${oneLine(valueOf(item, 'Title'), 80)}`, { tier, odd, at: since }))
+    lines.push(lineOf(`${id} ${state} for ${lasting(age)}${stays}, ${owner === null ? 'no owner' : owner}${fix}${waits}${parkedWords}${checkpointWords}: ${oneLine(valueOf(item, 'Title'), 80)}`, { tier, odd, at: since }))
   }
   if (backlog.new + backlog.refined > 0) lines.push(lineOf(`backlog, not queued: ${backlog.new} new, ${backlog.refined} refined`, { tier: 1 }))
   return lines

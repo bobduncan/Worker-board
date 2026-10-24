@@ -160,7 +160,7 @@ test('the flow\'s guard: its asks answered holds only while its worker is on no 
 /** The health summary's view (view.mjs) from items and lanes. */
 const view = (items, lanes) => ({
   items: new Map(items.map(one => [valueOf(one, 'Id'), one])), lanes, partner: null, helper: null, prefix: 'Garden · ', now: NOW,
-  since: new Map(), outbox: [], repairs: [], limits: {}, pause: null, settings: { reviewMinutes: 60, undeliveredMinutes: 10 },
+  since: new Map(), outbox: [], repairs: [], limits: {}, pause: null, timeline: [], settings: { reviewMinutes: 60, undeliveredMinutes: 10, reportMinutes: 30, checkpointMinutes: 120 },
 })
 
 test('the health summary names a step its worker holds while on another, with the reason; none named is odd', () => {

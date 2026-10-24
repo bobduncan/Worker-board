@@ -5,7 +5,7 @@
 import { isRefined, refinedKey } from './backlog.mjs'
 import { brainstormFixWords, leftOutKey } from './brainstorm.mjs'
 export { brainstormFixWords }
-import { PARTNER_MODES, partnerEffortWords } from './partnerEffort.mjs'
+import { SWITCH_MODES, partnerEffortWords } from './partnerEffort.mjs'
 import { RECHECK_HEAD } from './rounds.mjs'
 import { SYNC_BOARD, lastSyncAnswer } from './sync.mjs'
 import { isTalkPicture } from './talkPicture.mjs'
@@ -457,7 +457,8 @@ export function checkSay(body, state, maxChars) {
     if (text !== '' || (body.ask ?? null) !== null || (body.verdict ?? null) !== null) return refuse(400, 'A command carries nothing else.')
     // B352: the partner's high effort mode, switched on the Focus page: the main chat sets the partner's chat.
     if (body.command === 'partner-effort') {
-      if (!Object.hasOwn(PARTNER_MODES, body.mode ?? '')) return refuse(400, 'High effort or the usual partner.')
+      // 2026-10-24: the person's switch sets high effort (Opus at max) or the usual partner, never Fable.
+      if (!SWITCH_MODES.includes(body.mode)) return refuse(400, 'High effort or the usual partner.')
       if (!state.advisor?.name) return refuse(409, 'No partner chat is on the board.')
       return { ok: true, message: partnerEffortWords({ to: body.to, partner: state.advisor.name, session: state.advisor.appSession ?? null, mode: body.mode, why: 'switched on the Focus page' }) }
     }
@@ -579,7 +580,8 @@ const WAKE_AGAIN_MS = 2 * 60_000
 const WAKE_PENDING_MS = 10 * 60_000
 
 /** The commands the board puts to a chat other than the main one: a word the chat's work stands on (wakeFor). */
-const PARTNER_WORDS = ['recommend', 'refine', 'result-check', 'evaluate', 'work', 'recheck', 'goal-ask', 'brainstorm', 'brainstorm-answer', 'brainstorm-wrap', 'brainstorm-change', 'brainstorm-fix', 'incident', ...FOCUS_COMMANDS]
+// B570: and the board's word that asks the partner to restart the main chat on a new Workers mod.
+const PARTNER_WORDS = ['recommend', 'refine', 'result-check', 'evaluate', 'work', 'recheck', 'goal-ask', 'brainstorm', 'brainstorm-answer', 'brainstorm-wrap', 'brainstorm-change', 'brainstorm-fix', 'incident', 'mod-restart', ...FOCUS_COMMANDS]
 export const isPartnerWord = command => typeof command === 'string' && (command.startsWith('plan-') || PARTNER_WORDS.includes(command))
 
 /**

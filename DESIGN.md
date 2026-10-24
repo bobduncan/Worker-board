@@ -2374,7 +2374,11 @@ The person, 2026-10-18 (I16): "while refining a goal, i want a button to change 
 other model/effort, lets call it high effort mode. so like fable 5.1 max effort. otherwise it will use opus extra".
 
 1. A switch under the talk with the partner on the Focus page (the vibe and the how): "High effort mode · off: Opus
-   5.5, extra high" or "· on: Fable 5.1, max", amber when on (`src/partnerEffort.mjs`, `PARTNER_MODES`).
+   5.5, extra high" or "· on: Opus 5.5, max", amber when on (`src/partnerEffort.mjs`, `PARTNER_MODES`). Since 2026-10-24 high effort is Opus at
+   max effort, not Fable (the person: "maximum run opus ... you cant run fable without my permission"); the switch only
+   ever sends `usual` or `high` (`SWITCH_MODES`). A third mode, `fable` (Fable 5.1 at max), comes only from the goal
+   guard after the person's yes (the next part); while it is on the switch reads "· on: Fable 5.1, max", and flipping it
+   goes back to the usual partner.
 2. The board cannot change a chat itself: the switch types `partner effort` (Chat, Mode, Model, Effort, Session when
    known, Why) into the main chat, which sets the partner's chat with the app's `set_session_model` and
    `set_session_effort` (roles/main.md, roles/protocol.md). It is one of the board's words, never the person's.
@@ -2387,6 +2391,58 @@ other model/effort, lets call it high effort mode. so like fable 5.1 max effort.
 4. Go on the how and another goal as the focus switch it back to the usual partner (the person's yes, 2026-10-18), so
    the run's refining and rounds use the usual partner; the talk about the same goal started again keeps it.
 5. Not in it: a switch for the workers' chats or the main chat.
+
+## The goal guard asks before Fable (2026-10-24)
+
+The person, 2026-10-24: "i want to prevent any chat running fable. i run out of tokens too quickly. maximum run opus.
+if you really require fable somereason exclicitly ask, you cant run fable without my permission"; and "on 3 failed
+attempts is important context. i want to be asked. hey this task failed 3 times, we would like to evaluate strategy
+using fable. yes, or no use opus."
+
+1. The goal guard (B359, `src/goalGuard.mjs`, `src/focus.mjs` `guardGoal`) no longer starts the fundamental evaluation
+   at a goal's third failed attempt. It files one ask to the person through the work API as the board (`as: 'server'`,
+   `fableAskOf`): kind decide, blocking, of the goal, its title "G<n> failed 3 times: evaluate the strategy with Fable?"
+   (the real count), two plain lines (what failed and the latest failure; that Fable 5.1 is the strongest model but uses
+   far more tokens than Opus 5.5), the options "A Yes: Fable 5.1 (max), only for this evaluation" and "B No: Opus 5.5
+   (max)" (the person's framing: "yes, or no use opus"), no advice. It is the person's: never routed to the partner (the board is no worker or main chat), and only the person
+   answers it on the board (its Owner is the board, so no chat can close it in its chat). The work API lets the board
+   ask of a goal as it lets the partner.
+2. The board writes `Fable asked: Q<n>` under the goal. While the ask stands open the guard does nothing more: no
+   second ask, no evaluation, no mode word (`guardStep` says `wait`). An open ask of the board's for the goal whose line
+   was lost is used again (`openFableAsk`), never filed twice.
+3. The answer starts it (the person's answer runs the guard, as every answer of the goal's asks does, and the board's
+   tick runs it for every goal with a `Fable asked` line, `guardsAsking`, so a missed one starts too): `Evaluation asked:
+   <date time>` under the goal, the partner set by the `partner effort` word, then `evaluate G<n>` as before. Fable only
+   for the person's yes (`modeOfAnswer`): an answer that is A alone (any case, its punctuation), A followed by its
+   option's words ("A Yes: Fable 5.1 (max), ...", "A: yes"), or whose first word is yes. B, "a bit pricey, use opus", any
+   other words, a withdrawn ask or an answer by the partner give `high`, Opus 5.5 at max. An ask the store no longer
+   holds (deleted) starts it on Opus too, and its line goes, so the goal is never "asking" for ever.
+4. The `partner effort` word for `fable` names the ask: `Yes: Q<n>, the person's yes: Fable for this evaluation only`.
+   `partnerEffortWords` throws for mode `fable` without a `Q<n>`, so no code path sends it without the answered yes; the
+   page's switch is refused it (`checkSay`, `SWITCH_MODES`); the server never sends `fable` itself, only the mode the
+   answered asks give, and its why names the mode used.
+5. While evaluations run, the partner's mode is `evaluationsMode` (`partnerModeFor`): Fable only when every evaluation
+   that runs had the person's yes, else Opus at max; one asked again (B528) keeps its mode the same way. The trip ends
+   (`endTrip`: `Evaluation asked` and `Fable asked` taken away) with the evaluation's marked how-draft, with Go on a
+   reopened how, and with the goal's tick (a passed re-check, or the person's overturn), so a reopened goal never brings
+   Fable back on an old yes. Go or a tick while the board still asks withdraws its ask (the board owns it). The
+   evaluation's end switches the partner back to usual, as before; another that still runs keeps its own mode. Go and a
+   new focus switch Fable back as they switch high (`effortBack`). And on every tick, a partner the board set on Fable
+   (its own word) goes back to usual, or to Opus at max, once no evaluation with the person's yes runs (`fableBack`):
+   Fable never stays on. Fable the person set by hand is theirs. The next trip asks anew: an old yes is no yes for it.
+6. The review of 2026-10-24, a deadlock: the work API's turn waits on the goal map's for a draft or a goal's re-check,
+   so the guard never files its ask while it holds the map's turn. The guard runs one at a time in a turn of its own
+   (`guardGoal`): its step under the map's turn (it reads the store fresh), the ask through the work API outside it, then
+   `Fable asked` under the map's turn again (read anew: an ask for a goal ticked or changed meanwhile is withdrawn). The
+   withdrawals the map's moves ask for run after the work API's turn, never awaited inside it.
+7. The Focus page's run shows "Fable or Opus? The board asks you" with the ask while it stands (`guardOf` state
+   `asking`).
+8. Nothing else picks Fable: roles/main.md (sets Fable only on a `partner effort` word with `Mode: fable` and its `Yes:`
+   line, never a subagent with model "fable"), roles/partner.md, roles/worker.md and roles/supervisor.md (never), and the
+   settings' `models` refuse a Fable id (`modelIds`). The model chip still shows Fable when the person sets a chat to it
+   by hand.
+9. Tests: `test/fableAsk.test.mjs` (the deadlock as a test that times out without the fix); `test/goalGuard.test.mjs`
+   fires the guard through the answered ask.
 
 ## Done when and the standard per kind of work (B354)
 
@@ -3121,7 +3177,15 @@ the AI sweep by a cheap supervisor chat and the hand-over to the Advisor, comes 
   `appEffort` beside its high effort mode in `effort`, and `effort.mjs chatEffort` reads the level, so the health
   summary never says "[object Object]"), `review-stuck` (B543, the fix of X8: a step in review with no result check
   filed for over 60 min, its first or again after its fix was done or its ask point answered, or whose fix was dropped
-  with none open; one that waits for an open fix, down a chain of fixes too, or for the person's answer is no case).
+  with none open; one that waits for an open fix, down a chain of fixes too, or for the person's answer is no case),
+  `stale-checkpoint` (B572, the fix of X24: a step in progress over 120 min with no checkpoint within them, or whose
+  last checkpoint's next action is to report, written over 30 min ago; one finding per step and checkpoint; not while
+  the person pauses, a limit is full or its worker is suspended for the limit, and its suspended time does not count; the health summary shows each step in progress with its
+  last checkpoint's age, commit and next action, "!" when stale), `effort-mismatch` (B576, the fix of X26: a worker
+  whose effort, or model where the settings name model ids, differs from its step's over 10 min after the take, with no
+  switch read back; one finding per chat and step; not while the person pauses or a limit is full, and the pause's time
+  does not count; the health summary says beside "wants" "switch asked HH:MM" or "switched", and marks the mismatch
+  "!" only once it lasts).
   What a step in review waits for (`resultCheck.mjs reviewWaitOf`: its first check, its check again, the person's
   answer, its fix B<n>, or its fix dropped) stands beside its title on the Backlog tab and in the work tool's `next`
   and `list`; the repair rule `fix-dropped` gives the main chat one word for a dropped fix, 30 min after the drop:
@@ -3281,6 +3345,25 @@ it can. The person: "It just needs to observe, periodically, not consume a lot o
   Resume all) and a Pause all button that asks as the one above the workers does; while a pause stands it names the next
   step. Built from what the chats' mods said in the last 2 minutes, it clears by itself once all run the installed mod.
   The board restarts nothing. Tests: `test/oldMods.test.mjs`, `test/supervisor/watch.test.mjs`.
+- **A new mod between steps** (B570, the person's I95, 2026-10-24: "i dont want to restart all the chats manually"): an
+  idle chat is restarted alone by archiving and unarchiving it in the app (its process ends; its next word starts it on
+  the installed mod; nothing is spent until then). `src/work/modRollout.mjs` (pure, `rolloutPlan`) reads the version
+  each chat's mod said lately (`modsNow`, now also `buildState`'s `modsLately`) against the installed one: a chat on an
+  older mod that is free, whose process runs (`isRunning` true, never on a guess) and that holds no step taken, in
+  progress or waiting on you gets the word `restart for mod` (Chat, Session, From, To, Why; command `mod-restart`, a
+  partner word so a partner that does not run is started) to its restarter: the main chat, or the partner for the main
+  chat (roles/main.md, roles/partner.md: archive, unarchive the list's chats archived with it, unarchive it, no message).
+  Again each half hour while it still runs the older mod, three times at most per installed version; `deliver.mjs`
+  skips a twin of the last half hour. A free worker's next step line waits for it (`reconciled.held`, the hold's
+  words in `holds`), ten minutes at most after the word, so the step starts on the new mod; a chat with a step in
+  progress "restarts after B<id>" (each lane's `modRun`, every chat's in `modRuns`). Once its process ended its mod no
+  longer asks, so it no longer counts as old and the line goes (the board's `start` word to the main chat wakes it).
+  B541's card and the rule `old-mod` now name only a chat still idle on the older mod 30 minutes after the board's
+  first word for it (`overdueChats`, from the outbox): the restart did not reach it. A restart word stays known in the
+  outbox a day (`store.mjs`), so its three tries are counted. The partner sends the restarted main chat one line, as no
+  board word starts the main chat (the review). The merging worker of a mod change runs the CLI's marketplace update and
+  plugin update once (roles/worker.md); the person restarts nothing. Tests: `test/modRollout.test.mjs`,
+  `test/work/modRolloutDeliver.test.mjs`, `test/oldMods.test.mjs`, `test/supervisor/watch.test.mjs`.
 
 ## The supervisor's incident cards (2026-10-24)
 

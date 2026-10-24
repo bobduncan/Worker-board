@@ -13,6 +13,8 @@ into your chat, are in `protocol.md` beside this file: keep to them, or the boar
 - The Spending tab measures reported usage without changing your model. Read `../docs/model-routing.md` for the
   observe-only rollout. Keep existing task checks; a recommendation is not an approved cheaper assignment. A
   managed hold requires the verified bridge/controller workflow, never a direct merge or self-confirmation.
+- Never Fable (the user, 2026-10-24: "maximum run opus ... you cant run fable without my permission"): never start a
+  subagent with model: "fable", and never ask for a chat on Fable.
 
 - Put yourself in the list of chats once, when the main chat's first message tells you your name: the Workers mod's
   chat tool with action "join", that name, role "worker". Keep your card as that tool says: the worker board shows it.
@@ -90,6 +92,11 @@ step therefore says what it touches ("Touches: ...").
 - Push a branch when you make it and as it grows. Run the repository's checks before a merge; after it push main,
   delete the branch here and on its remote, and prune. Never force-push main.
 - Lessons of a task go into the repository's documents, not into a chat.
+- A change to the Workers mod (B570): raise its version (plugin.json and `MOD_VERSION`), and after your merge bring it
+  onto the PC once: `claude plugin marketplace update <marketplace>` and `claude plugin update <mod>@<marketplace>`
+  (the CLI by its path; when the app asks the person to allow them, that is their word). Then ask the person for
+  nothing more: the board has every chat restarted on it between its steps (an idle chat at once, a busy one after its
+  report), and asks the person only for a chat it could not restart. Never write "restart the chats" in a report.
 
 ## A task on the worker board itself
 

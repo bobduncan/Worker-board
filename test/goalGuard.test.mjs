@@ -1,9 +1,9 @@
 // B359: the goal guard. The person, 2026-10-18 21:18: "after a couple of attempts and it keeps failing the goal it
 // will fundamentally evaluate with a higher model if the current approach is right, and might require a big rebuild to
 // reach the goal. this will normally require an approval from the user, but can be automatically approved." A goal's
-// failed checks since Go are counted (its steps' result checks, its re-checks); the third asks the partner, on high
-// effort, for a fundamental evaluation; a rebuild is the person's to approve unless the board approves it by itself
-// (off at first, Q130). Made-up names only.
+// failed checks since Go are counted (its steps' result checks, its re-checks); the third asks the person first, Fable
+// or Opus (2026-10-24, test/fableAsk.test.mjs), then the partner, on that mode, for a fundamental evaluation; a rebuild
+// is the person's to approve unless the board approves it by itself (off at first, Q130). Made-up names only.
 import assert from 'node:assert/strict'
 import { mkdtemp } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
@@ -151,6 +151,18 @@ const ctx = fs => ({ canWrite: true, goalsFile: FILE, historyDir: 'D:/Work/p/his
 const evaluating = MAP.replace('  How agreed: 2026-10-19 08:00\n', '  How agreed: 2026-10-19 08:00\n  Evaluation asked: 2026-10-19 09:31\n')
 const read = fs => parseGoals(Buffer.from(fs.files[FILE], 'latin1').toString('utf8')).byId.get('G2')
 
+/** 2026-10-24: the board's ask before the evaluation, answered by the person (B: Opus at max, unless named). */
+const answeredAsk = (goal, words = 'B Opus 5.5 (max)') => ({
+  head: new Map([['Id', 'Q90'], ['Kind', 'ask'], ['Title', `${goal} failed 3 times: evaluate the strategy with Fable?`], ['State', 'answered'], ['Owner', 'server'], ['Asks', 'decide'], ['Of', goal]]),
+  sections: new Map([['Answer', [words]]]),
+})
+/** The guard as it runs now: it asks the person first (one ask, no word), and fires on their answer. */
+async function guardAnswered(id, base, words) {
+  const asked = await guardGoal(id, { ...base, fileAsk: async () => ({ ok: true, result: { id: 'Q90' } }) })
+  assert.deepEqual([asked.ok, asked.result.asked, asked.words], [true, 'Q90', null], 'the person is asked first')
+  return guardGoal(id, { ...base, items: [...base.items, answeredAsk(id, words)] })
+}
+
 test('while the evaluation runs the partner\'s how-draft replaces the agreed how and counts as Go', async () => {
   const fs = fakeFs({ [FILE]: latin(evaluating) })
   const done = await focusMove({ command: 'how-draft', id: 'G2', parts: ['Stone benches · 3 h', 'Cushions · 1 h'], partnerDecides: ['the stone', 'Evaluation: wood caps the comfort: stone with cushions'], youDecide: [] }, ctx(fs))
@@ -180,13 +192,13 @@ test('the same how again ends the evaluation as "keep going"; without one runnin
 
 test('the board fires the guard once: "Evaluation asked" under the goal and the word to the partner; not again', async () => {
   const fs = fakeFs({ [FILE]: latin(MAP) })
-  const guard = (items, extra = {}) => guardGoal('G2', { canWrite: true, goalsFile: FILE, historyDir: 'D:/Work/p/history', now: NOW, fs, partner: { name: 'Partner' }, job: 'j', items, approveRebuilds: false, ...extra })
-  const calm = await guard(ITEMS.slice(1))
+  const base = { canWrite: true, goalsFile: FILE, historyDir: 'D:/Work/p/history', now: NOW, fs, partner: { name: 'Partner' }, job: 'j', items: ITEMS, approveRebuilds: false }
+  const calm = await guardGoal('G2', { ...base, items: ITEMS.slice(1), fileAsk: async () => assert.fail('no ask at two attempts') })
   assert.deepEqual([calm.ok, calm.result.fired, calm.words], [true, false, null])
-  const fired = await guard(ITEMS)
+  const fired = await guardAnswered('G2', base)
   assert.deepEqual([fired.ok, fired.result.fired, fired.words.command, fired.words.to], [true, true, 'evaluate', 'Partner'])
   assert.equal(read(fs).evaluationAsked, '2026-10-19 10:00')
-  assert.equal((await guard(ITEMS)).result.fired, false, 'once')
+  assert.equal((await guardGoal('G2', { ...base, items: [...ITEMS, answeredAsk('G2')] })).result.fired, false, 'once')
   // Not on a board that only shows, nor without a partner.
   const other = fakeFs({ [FILE]: latin(MAP) })
   assert.equal((await guardGoal('G2', { canWrite: false, goalsFile: FILE, now: NOW, fs: other, partner: { name: 'Partner' }, items: ITEMS })).result.fired, false)
@@ -214,7 +226,7 @@ test('review: a routine draft while the evaluation runs keeps the usual rule and
 
 test('B382: the guard fires for a goal with an agreed how after the focus moved on, and a failure in the minute of Go is not counted', async () => {
   const fs = fakeFs({ [FILE]: latin(MAP.replace('Focus: G2', 'Focus: G3')) })
-  const fired = await guardGoal('G2', { canWrite: true, goalsFile: FILE, historyDir: 'D:/Work/p/history', now: NOW, fs, partner: { name: 'Partner' }, job: 'j', items: ITEMS })
+  const fired = await guardAnswered('G2', { canWrite: true, goalsFile: FILE, historyDir: 'D:/Work/p/history', now: NOW, fs, partner: { name: 'Partner' }, job: 'j', items: ITEMS })
   assert.equal(fired.result.fired, true)
   assert.match(fired.words.text, /^evaluate G2 /)
   assert.equal(read(fs).evaluationAsked, '2026-10-19 10:00')
@@ -297,7 +309,7 @@ test('B450: a yes, a look of a step of another goal or an answer by the partner 
 test('B450: the guard fires for a goal that is not the focus and has no how, and its marked draft ends the evaluation', async () => {
   const fs = fakeFs({ [FILE]: latin(TILES) })
   const base = { canWrite: true, goalsFile: FILE, historyDir: 'D:/Work/p/history', now: NOW, fs, partner: { name: 'Partner' }, job: 'j', items: TILE_ITEMS }
-  const fired = await guardGoal('G5', base)
+  const fired = await guardAnswered('G5', base)
   assert.equal(fired.result.fired, true)
   assert.equal(parseGoals(Buffer.from(fs.files[FILE], 'latin1').toString('utf8')).byId.get('G5').evaluationAsked, '2026-10-19 10:00')
   // The partner's marked draft: no focus, no vibe, no how needed; it ends the evaluation and waits for Go.
@@ -332,7 +344,7 @@ test('B518: after the guard fires, a step of the goal is refined and made on opu
   const calm = await partner({ action: 'refine', id: 'B2', summary: 'Sort the crates.', goal: 'G5' })
   assert.equal(calm.ok, true, calm.why)
   assert.deepEqual([(await read('B2')).sections.get('Model')?.[0] ?? null, (await read('B2')).sections.get('Effort')?.[0] ?? null], [null, null])
-  assert.equal((await guardGoal('G5', base)).result.fired, true)
+  assert.equal((await guardAnswered('G5', base)).result.fired, true)
   const refined = await partner({ action: 'refine', id: 'B1', summary: 'Redraw the tiles.', goal: 'G5' })
   assert.equal(refined.ok, true, refined.why)
   assert.match((await read('B1')).sections.get('Model')?.[0] ?? null, /^opus · the goal guard: G5 is in its fundamental evaluation$/)
@@ -386,7 +398,7 @@ test('B525: a step already on sonnet and medium is lifted at its refine in a goa
   assert.equal((await as('Partner')({ action: 'refined', id: 'B4', what: ['a lantern'] })).ok, true)
   assert.match(await line('B1', 'Model') ?? '', /^sonnet · /)
   assert.match(await line('B3', 'Model') ?? '', /^sonnet · /)
-  assert.equal((await guardGoal('G5', base)).result.fired, true)
+  assert.equal((await guardAnswered('G5', base)).result.fired, true)
   // The refined call alone lifts a step still on sonnet and medium (B3 had no refine since the evaluation began).
   assert.equal((await as('Partner')({ action: 'refined', id: 'B3', what: ['a clean floor'] })).ok, true)
   assert.match(await line('B3', 'Model') ?? '', /^opus · the goal guard: G5 /)
@@ -446,7 +458,7 @@ test('B528: an evaluation that has not ended is asked again 30 minutes after its
 test('B528: the board asks the partner again with "again" in the word, until the marked how-draft ends the evaluation', async () => {
   const fs = fakeFs({ [FILE]: latin(MAP) })
   const base = { canWrite: true, goalsFile: FILE, historyDir: 'D:/Work/p/history', fs, partner: { name: 'Partner' }, job: 'j', approveRebuilds: false }
-  const fired = await guardGoal('G2', { ...base, now: NOW, items: ITEMS })
+  const fired = await guardAnswered('G2', { ...base, now: NOW, items: ITEMS })
   assert.equal(fired.result.fired, true)
   // The first word never reached the partner's chat.
   const outbox = [{ id: 'm1', at: NOW, ...fired.words, state: 'failed' }]

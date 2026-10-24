@@ -189,6 +189,8 @@ export function modelIds(given) {
   if (given === undefined || given === null) return { models: {}, problem: null }
   const isObject = typeof given === 'object' && !Array.isArray(given)
   const ids = isObject ? MODELS.map(family => (typeof given[family] === 'string' ? given[family].trim() : '')) : []
+  // 2026-10-24: no chat runs Fable without the person's yes ("maximum run opus"): the settings never name it.
+  if (ids.some(id => /fable/i.test(id))) return { models: {}, problem: 'the settings\' "models" never name a Fable model (the person, 2026-10-24: "maximum run opus"): the board sets the workers\' effort only until they name Sonnet and Opus' }
   if (isObject && ids.every(id => MODEL_ID.test(id)) && Object.keys(given).every(key => MODELS.includes(key))) return { models: Object.fromEntries(MODELS.map((family, at) => [family, ids[at]])), problem: null }
   return { models: {}, problem: `the settings' "models" must name both ${MODELS.map(one => `"${one}"`).join(' and ')}, each with the app's model id ("claude-..."): the board sets the workers' effort only until it does` }
 }
