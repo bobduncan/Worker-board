@@ -630,13 +630,13 @@ async function main(args) {
     })
   }
   /**
-   * B299: the chats an action on the store wakes (`wake`, `wakeOwner`): the chat that asked, with the answer to its ask
+   * B299: the chats an action on the store wakes (`wake`, `wakeOwner`, B449 `wakePartner`): the chat that asked, with the answer to its ask
    * (bridge.mjs, as the person's answer reads), and the owner of the step the answer frees. Partner answers (2026-10-19):
    * also from the work tool (the partner's answer), and a line of its own (`line`: the person took a partner's answer
    * back). Only to a chat the board shows; copied without the Workers mod. What to paste, or null.
    */
   const sendWakes = async done => {
-    const wakes = done?.ok === true ? [done.result.wake ?? null, done.result.wakeOwner ?? null].filter(one => one !== null) : []
+    const wakes = done?.ok === true ? [done.result.wake ?? null, done.result.wakeOwner ?? null, done.result.wakePartner ?? null].filter(one => one !== null) : []
     let paste = null
     for (const wake of isShowOnly ? [] : wakes) {
       const state = await readState()
