@@ -67,10 +67,14 @@ function compactionOf(raw) {
     ? { at: timeOf(raw.cleared.at), step: typeof raw.cleared.step === 'string' && /^[A-Z]\d{1,6}$/.test(raw.cleared.step) ? raw.cleared.step : null, log: logPathOf(raw.cleared.log) } : null
   const clearNote = noteOf(raw.clearNote)
   const latest = Math.max(done?.at ?? -Infinity, note?.at ?? -Infinity)
-  if (cleared !== null && cleared.at >= latest) return { kind: 'cleared', ...cleared }
+  // B547: the last clear whatever came after it, so the board can tell a report newer than it (src/clearOwed.mjs).
+  const last = cleared === null ? {} : { lastCleared: { at: cleared.at, step: cleared.step } }
+  // B547: the mod's word why it did not clear, when it is the newest word: shown, not hidden behind an older clear.
+  if (clearNote !== null && clearNote.at >= Math.max(latest, cleared?.at ?? -Infinity)) return { kind: 'not-cleared', ...clearNote, notCleared: clearNote, ...last }
+  if (cleared !== null && cleared.at >= latest) return { kind: 'cleared', ...cleared, ...last }
   if (done === null && note === null) return null
   const notCleared = clearNote !== null && clearNote.at >= (cleared?.at ?? -Infinity) ? { notCleared: clearNote } : {}
-  return note === null || (done !== null && done.at >= note.at) ? { kind: 'compacted', ...done, ...notCleared } : { kind: 'skipped', ...note, ...notCleared }
+  return note === null || (done !== null && done.at >= note.at) ? { kind: 'compacted', ...done, ...notCleared, ...last } : { kind: 'skipped', ...note, ...notCleared, ...last }
 }
 
 /** A chat log's place in the project's folder as the mod names it (`.claude/chat-logs/...txt`, with /); null for any other. */

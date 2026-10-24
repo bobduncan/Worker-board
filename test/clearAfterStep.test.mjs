@@ -65,7 +65,7 @@ test('a card that says its chat moved names its new session; anything else names
 
 test('the card of a cleared worker says so, with its step and its log; why a clear did not run stands beside a compaction', () => {
   const card = extra => JSON.stringify({ name: 'Units', state: 'waiting', task: null, at: NOW, ...extra })
-  assert.deepEqual(parsePlanLine(card({ cleared: { at: NOW, step: 'B12', log: LOG }, compacted: { at: NOW - MIN, before: 1, after: 2 } })).compaction, { kind: 'cleared', at: NOW, step: 'B12', log: LOG })
+  assert.deepEqual(parsePlanLine(card({ cleared: { at: NOW, step: 'B12', log: LOG }, compacted: { at: NOW - MIN, before: 1, after: 2 } })).compaction, { kind: 'cleared', at: NOW, step: 'B12', log: LOG, lastCleared: { at: NOW, step: 'B12' } })
   // A log outside the chat logs, or a path that climbs out, is not named.
   for (const log of ['../secret.txt', '.claude/chat-logs/../../x.txt', 'C:/x.txt', '.claude/chat-logs/U/a.jsonl']) {
     assert.equal(parsePlanLine(card({ cleared: { at: NOW, step: 'B12', log } })).compaction.log, null)
@@ -75,6 +75,12 @@ test('the card of a cleared worker says so, with its step and its log; why a cle
     { kind: 'compacted', at: NOW, before: 400_000, after: 90_000, notCleared: { at: NOW - 10, why: 'the person pauses the chats' } })
   // A later compaction outweighs an older clear.
   assert.equal(parsePlanLine(card({ cleared: { at: NOW - MIN, step: 'B12', log: LOG }, compacted: { at: NOW, before: 1, after: 2 } })).compaction.kind, 'compacted')
+  // B547: why a clear did not run, newer than the last clear and every compaction, is shown, not hidden behind the clear;
+  // the last clear stays named beside it.
+  assert.deepEqual(parsePlanLine(card({ cleared: { at: NOW - 2 * MIN, step: 'B12', log: LOG }, compacted: { at: NOW - 3 * MIN, before: 1, after: 2 }, clearNote: { at: NOW, why: 'a subagent it started still runs (1)' } })).compaction,
+    { kind: 'not-cleared', at: NOW, why: 'a subagent it started still runs (1)', notCleared: { at: NOW, why: 'a subagent it started still runs (1)' }, lastCleared: { at: NOW - 2 * MIN, step: 'B12' } })
+  // Alone on a card it is shown too.
+  assert.equal(parsePlanLine(card({ clearNote: { at: NOW, why: 'the person pauses the chats' } })).compaction.kind, 'not-cleared')
 })
 
 for (const appNames of ['units-old', 'units-new']) {
@@ -89,7 +95,7 @@ for (const appNames of ['units-old', 'units-new']) {
     const [units] = lanes
     assert.equal(units.session, 'units-new')
     assert.equal(units.removedAt, null)
-    assert.deepEqual(units.compaction, { kind: 'cleared', at: NOW - MIN, step: 'B12', log: LOG })
+    assert.deepEqual(units.compaction, { kind: 'cleared', at: NOW - MIN, step: 'B12', log: LOG, lastCleared: { at: NOW - MIN, step: 'B12' } })
     assert.deepEqual(units.queue.map(step => step.id), ['B13'])
     // Review 2: the session it went on from, while the app still names it, is read on to its end.
     assert.deepEqual(state.movedFrom, appNames === 'units-old' ? [{ session: 'units-old', name: 'Units' }] : [])

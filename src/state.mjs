@@ -38,6 +38,7 @@ import { enforcementReadiness } from './work/routing/capabilities.mjs'
 import { routingHolds } from './work/routing/assignments.mjs'
 import { refineStop } from './refineGate.mjs'
 import { contextOfStep, flowOfStep, itemOfStep, itemsOf, storeBacklog } from './work/read.mjs'
+import { clearOwed, modAtLeast } from './clearOwed.mjs'
 import { checkedOf, fixOutcomeOf } from './work/resultCheck.mjs'
 import { guardOf } from './goalGuard.mjs'
 import { standardOf } from './work/standard.mjs'
@@ -1065,6 +1066,9 @@ export function focusState(goalMap, items, threads, prefix, partner = null) {
 /** Whether an option is the one advised: its text, or its letter ("B" of "B thick"). */
 const isAdvisedOption = (option, advice) => advice !== null && (option === advice || option.toLowerCase().startsWith(`${advice.toLowerCase()} `))
 
+/** B547: a clear owed, with whether the chat's Workers mod (its version, or null) can run a clear the board names. */
+const withMod = (owed, version) => (owed === null ? null : { ...owed, canClear: modAtLeast(version ?? null) })
+
 /**
  * Focus 3 (spec 2026-10-18, sections 3 to 5, the run): what the partner (the chat `partner` names, the setting
  * advisor) keeps for the person on the focus goal `node`. `note`: its newest daily note of the goal (dailyNote.mjs),
@@ -1104,7 +1108,7 @@ function focusRun(node, items, prefix, partner) {
   return { note, needs }
 }
 
-export function buildState(raw, { lines = [], outbox = [], runs = [], board = null, seen = null, finishedSeen = {}, taskTimes = [], now, config }) {
+export function buildState(raw, { lines = [], outbox = [], runs = [], board = null, seen = null, finishedSeen = {}, taskTimes = [], mods = {}, now, config }) {
   // The review of Pause 2: while the person pauses (2026-10-19: pausing only, no longer until running) what waits in
   // the outbox is held until the resume, but the board's own "resume" to the main chat; the page says so (`isHeld`).
   const isPaused = isHolding(raw.work?.pause)
@@ -1533,6 +1537,9 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
     isRunning: lane.isLeftover ? null : lane.state === 'off' ? false : runningOf(lane.name),
     // B143: the newest ask to remove this worker; the main chat and a leftover have none.
     removal: lane.isLeftover || lane.isMain ? null : removalAsk(sent.findLast(message => message.command === 'remove' && message.about === lane.name), now),
+    // B547: the clear it owes (its last report newer than its last clear), and whether its Workers mod (`mods`, the
+    // version its last call said) can run the clear the board names; null when it owes none.
+    clearOwed: lane.isLeftover || lane.isMain || !workOk ? null : withMod(clearOwed({ lane, items: raw.work.items, prefix, afterStep: list.afterStep ?? null }), mods?.[lane.name]),
   }))
   // Pause and resume (spec 2026-10-18): what the pause banner says, from pause.json and the lanes' facts alone; with the
   // main chat (its title from the list, the app's id for it, whether it runs) for the link that opens it, and when the
@@ -1564,6 +1571,8 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
   // Partner answers (2026-10-19): the partner's card, for the asks routed to it (woken while free, handed on after 30 min).
   const partner = advisorChat === undefined || advisorCard === null ? null : { name: advisorChat.name, state: advisorCard.state, isRunning: runningOf(advisorChat.name), idle: advisorCard.idle ?? null }
   const reconciled = !workOk ? null : reconcile({ store: raw.work, flow: raw.work.flow, lanes: chats, now, times: { graceMs: GRACE_MS, askMs: ASK_MS, idleMs: IDLE_HOLD_MS }, prefix, hasPartner: advisorChat !== undefined, partner })
+  // B547: the steps whose line waits for their worker's clear (a mod that can clear only: an older one would wait for ever).
+  const clearHeld = new Set(chats.filter(lane => lane.clearOwed?.canClear === true).flatMap(lane => (reconciled?.deliveries ?? []).filter(one => one.chat === lane.name).map(one => one.id)))
   // B468: what each worker runs at for its step, the words that have the main chat set it (none without the Workers mod),
   // and the steps whose line to their worker waits until it is set. Model per step: its model too, by the settings'
   // model ids, and the usual setting between steps from the settings.
@@ -1605,7 +1614,7 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
     workFlags: [...(reconciled?.flags ?? []).filter(flag => flag.kind === 'broken').map(flag => flag.text),
       // Model per step: settings that name the model ids otherwise than both, each "claude-...": the effort alone.
       ...(typeof config.modelsProblem === 'string' ? [`Settings: ${config.modelsProblem}.`] : [])],
-    reconciled: reconciled === null ? null : { moves: reconciled.moves, deliveries: reconciled.deliveries.filter(one => !efforts.held.has(one.id)), efforts: efforts.words, held: [...efforts.held], holds: Object.fromEntries(efforts.holds), says: reconciled.flags.filter(flag => typeof flag.say === 'string'), notes: reconciled.notes ?? [], partnerAsks: reconciled.partnerAsks ?? [], escalations: reconciled.escalations ?? [] },
+    reconciled: reconciled === null ? null : { moves: reconciled.moves, deliveries: reconciled.deliveries.filter(one => !efforts.held.has(one.id) && !clearHeld.has(one.id)), efforts: efforts.words, held: [...efforts.held, ...clearHeld], holds: Object.fromEntries(efforts.holds), says: reconciled.flags.filter(flag => typeof flag.say === 'string'), notes: reconciled.notes ?? [], partnerAsks: reconciled.partnerAsks ?? [], escalations: reconciled.escalations ?? [] },
     // Partner answers (2026-10-19): whether the partner answers detail questions first (the Focus page's switch); null
     // without a store.
     partnerAnswers: !workOk ? null : raw.work.partnerAnswers ?? { on: true },
@@ -1748,6 +1757,8 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
     // to paste instead (null on a board that does not deliver). `chatPrefix` makes a chat's name its title.
     bridge: isBridgeMissing === null ? null : { isMissing: isBridgeMissing },
     chatPrefix: prefix,
+    // B547: "clear" when the list of chats has a worker cleared after each reported step (src/clearOwed.mjs), else null.
+    afterStep: list.afterStep ?? null,
     // B546: when the Claude app last started (B315), or null: the supervisor's helper rule reads it.
     appStartedAt,
     // B161: the talk with the main chat; null without a main chat.
