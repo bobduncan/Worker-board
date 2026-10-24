@@ -648,9 +648,12 @@ board's word, never the user's.
    user would (the game at that place, the page, the merged change), ticks every agreed point pass, fail or ask (ask:
    a look only the user can judge), and scores it against the kind's definition of done where that has a rubric (the
    judges' middle score).
-3. The helper makes the evidence picture with the board's tool: `node <board>/tools/evidence.mjs --step B<id> --title
-   "<title>" --reference <the reference picture> --result <the result's picture> --points '<the ticked points as
-   JSON>' --score <n> --target <n>`; for work with nothing to see, the ticked list alone (no reference, no result).
+3. The helper makes the evidence picture with the board's tool. A visible change (B569): it confirms the worker's
+   `<picture folder>/B<id>/after.png` matches the merged result (else shoots it anew) and sets it beside `before.png`:
+   `node <board>/tools/evidence.mjs --step B<id> --title "<title>" --before <before.png> --after <after.png>`
+   (`before-after.png`, no points on it). A kind with a reference picture and a target: `--reference <the reference
+   picture> --result <the result's picture> --points '<the ticked points as JSON>' --score <n> --target <n>`. Work
+   with nothing to see has no picture: its evidence is `none (nothing on screen)`.
 4. The helper removes the worktrees it made for the check (detached, named `check-b<id>`, and `check-b<id>-before`
    for the state before): a link in one (a junction such as `node_modules`) first, alone (`cmd /c rmdir
    "<folder>\node_modules"` on Windows: the link only), then `git worktree remove <folder>` (never `--force`: it
@@ -732,7 +735,8 @@ leave it and tell the user in one line. Say nothing else about it in your chat.
 ## Recaps
 
 Every step that passed its check (through its fix too) and every goal that passed its re-check gives the user a recap
-(B360): a card under Needs your attention with what they get and the evidence picture, made by the board in your name.
+(B360): a card under Needs your attention with what they get and the evidence picture, made by the board in your name;
+since B569 it reads the report's Context and Change, the Before | After picture and one line of how many points pass.
 It blocks nothing; left alone, it approves itself after 24 hours. The user has two buttons on it (B390): **OK, seen**
 approves the recap at once and types nothing into your chat; **Overturn** takes their words, and the board types them
 into your chat, marked as theirs: `(answered on the worker board, HH:MM) N<id> "B<id> <title> is done": ...`.

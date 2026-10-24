@@ -94,6 +94,19 @@ test('the page holds the title, both pictures, the ticks in their colours and th
   assert.doesNotMatch(list, /class="score/)
 })
 
+test('B569: Before | After: both pictures, labelled, no points; the ticked list alone is refused', () => {
+  assert.deepEqual(parseArgs(['--step', 'B5', '--before', 'b.png', '--after', 'a.png']), { title: '', step: 'B5', before: 'b.png', after: 'a.png', height: 720 })
+  assert.throws(() => parseArgs(['--step', 'B5', '--before', 'b.png']), /--before and --after go together/)
+  assert.throws(() => parseArgs(['--step', 'B5', '--after', 'a.png', '--before', 'b.png', '--result', 'r.png']), /no --reference or --result/)
+  assert.throws(() => parseArgs(['--step', 'B5', '--points', '[]']), /none \(nothing on screen\)/)
+  const config = { project: join('C:', 'proj'), pictureRoots: ['art-inbox'] }
+  assert.equal(outPath(config, { step: 'B5', before: 'b.png' }), join('C:', 'proj', 'art-inbox', 'B5', 'before-after.png'))
+  const html = evidenceHtml({ step: 'B5', title: 'Short cards', before: 'data:image/png;base64,AA', after: 'data:image/png;base64,BB', height: 720 })
+  assert.match(html, /<figcaption>Before<\/figcaption><img id="reference"[^>]*src="data:image\/png;base64,AA"/)
+  assert.match(html, /<figcaption>After<\/figcaption><img id="result"[^>]*src="data:image\/png;base64,BB"/)
+  assert.doesNotMatch(html, /id="points"|agreed points/)
+})
+
 const browser = findBrowser()
 
 test('it renders: reference left, result right at the same height, never above the result\'s own size, ticks below', { skip: browser === null && 'no Edge or Chrome on this PC' }, async () => {
@@ -120,10 +133,16 @@ test('it renders: reference left, result right at the same height, never above t
     assert.equal(two.layout.result.height, 100, 'a small result is never enlarged')
     assert.equal(two.layout.reference.height, 100)
 
-    const three = await renderEvidence({ browser, step: 'B9', title: 'A rule', points, height: 720, out: join(dir, 'three.png') })
-    assert.equal(three.layout.reference, null)
-    assert.equal(three.layout.result, null)
-    assert.equal(three.layout.ticks, 3)
+    // B569: the ticked list alone is no picture any more.
+    await assert.rejects(renderEvidence({ browser, step: 'B9', title: 'A rule', points, height: 720, out: join(dir, 'three.png') }), /none \(nothing on screen\)/)
+
+    // B569: Before | After, at one height, with no points below.
+    const four = await renderEvidence({ browser, step: 'B9', title: 'A card', before: join(dir, 'ref.png'), after: join(dir, 'big.png'), height: 720, out: join(dir, 'four.png') })
+    assert.equal(four.layout.reference.height, 720)
+    assert.equal(four.layout.result.height, 720)
+    assert.ok(four.layout.reference.x + four.layout.reference.width <= four.layout.result.x, 'before stands left of after')
+    assert.equal(four.layout.points, null)
+    assert.equal(four.layout.ticks, 0)
   } finally {
     await rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }

@@ -15,10 +15,14 @@
 // B527: six of the twelve failed result checks of 2026-10-24 were tests that pass without the fix. A step whose change
 // touches a test file is therefore reported with the mutant its tests caught ("Tests bite: <what was undone in a copy>
 // → <the assertion that failed>"); without that line the check fails and says the words to add.
+//
+// B569: the result opens with "Context:" and "Change:" in plain words, for the person's recap card (recapWords.mjs);
+// without them, too long, or with file names, code words or commit hashes in them, the check fails and says which.
 
 import { join } from 'node:path'
 
 import { readBranches } from '../folders.mjs'
+import { partsFaults } from './recapWords.mjs'
 import { stepLeftovers } from './worktrees.mjs'
 
 /** A folder's last part, for Windows and other paths alike. */
@@ -116,12 +120,14 @@ export async function reportCheck({ id, branch, result, merged, repos, run, proj
   // Worktree clean-up: no worktree on the step's branch, and none (or its folder) named for the step, is left.
   faults.push(...await stepLeftovers({ id, branch: repo === null || isOnBase ? null : branch, repo, repos, project, run, fs }))
   if (String(result ?? '').trim() === '') faults.push('no result named')
+  // B569: the recap card's Context and Change, in plain words.
+  else faults.push(...partsFaults(result))
   // B527: a change that touches a test file names the mutant its tests caught.
   const tests = repo === null ? [] : (await stepFiles({ id, branch, merged, dir: repo.dir, run })).filter(isTestFile)
   const bites = tests.length > 0 && hasBite(result)
   if (tests.length > 0 && !bites) faults.push(`the change touches tests (${tests.slice(0, 3).join(', ')}${tests.length > 3 ? ', ...' : ''}) but the result names no mutant: add "${BITE_LINE}" and report again`)
   const failed = faults.filter(line => !line.startsWith('work in '))
-  return failed.length === 0 ? { passed: true, lines: [...passed, isOnBase ? `worked on ${branch.trim()} itself` : 'branch gone', 'worktree gone', 'result named', ...(bites ? ['tests bite named'] : [])] } : { passed: false, lines: faults }
+  return failed.length === 0 ? { passed: true, lines: [...passed, isOnBase ? `worked on ${branch.trim()} itself` : 'branch gone', 'worktree gone', 'result named', 'context and change named', ...(bites ? ['tests bite named'] : [])] } : { passed: false, lines: faults }
 }
 
 /** B527: the line a report names its mutant with, as the refusal says it. */
@@ -211,5 +217,6 @@ async function outsideCheck({ result, touches, project, repoDirs, exists, left =
   if (missing.length + inGit.length === 0 && found.length === 0) lines.push('no file named: name the files it made in the result')
   lines.push(...left)
   if (String(result ?? '').trim() === '') lines.push('no result named')
-  return lines.length === 1 ? { passed: true, lines: [...lines, `there: ${found.join(', ')}`, 'result named'] } : { passed: false, lines }
+  else lines.push(...partsFaults(result))
+  return lines.length === 1 ? { passed: true, lines: [...lines, `there: ${found.join(', ')}`, 'result named', 'context and change named'] } : { passed: false, lines }
 }

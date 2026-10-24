@@ -1307,6 +1307,12 @@ body.is-resizing { cursor: col-resize; user-select: none; }
 .is-recap .kind { background: #12341f; color: #6fe3a1; }
 .is-recap .tag { background: #12341f; color: #6fe3a1; }
 .recap-status { margin: 0; }
+/* B569: the recap's Context and Change as one block, its Before | After picture whole, its quiet Checked line. */
+.recap-words p { margin: 0; }
+.is-recap .pictures { grid-template-columns: minmax(0, 1fr); }
+.is-recap .picture img { aspect-ratio: auto; object-fit: contain; }
+a.recap-checked { font-size: 14.5px; text-decoration: none; }
+a.recap-checked:hover { text-decoration: underline; }
 .focus-recaps .need { margin-top: 10px; }
 /* B361: the asks that can wait, gathered under the daily note. */
 .focus-asks .need { margin-top: 10px; }

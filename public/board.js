@@ -4097,12 +4097,26 @@ function drawRecap(recap, state) {
   card.dataset.id = recap.id
   const top = el('header', 'need-top')
   top.append(el('span', 'kind', 'ℹ'), el('b', '', recap.about ?? ''), el('span', 'tag', 'Information'), since(recap.at, state.readAt))
-  card.append(top, el('h4', '', recap.title))
-  if (recap.line !== '') card.append(el('p', '', recap.line))
+  card.append(top, el('h4', '', recap.heading ?? recap.title))
+  // B569 (I92): bold Context and Change in plain words, the Before | After picture, one quiet Checked line.
+  const words = el('div', 'recap-words')
+  for (const [label, said] of [['Context', recap.context], ['Change', recap.change]]) {
+    if (!said) continue
+    const part = el('p')
+    part.append(el('b', '', `${label}:`), ` ${said}`)
+    words.append(part)
+  }
+  if (words.children.length > 0) card.append(words)
   if (!/^none\b/i.test(recap.evidence)) {
     const pictures = el('div', 'pictures')
-    pictures.append(picture(recap.evidence, recap.title))
+    pictures.append(picture(recap.evidence, recap.heading ?? recap.title))
     card.append(pictures)
+  }
+  if (recap.checked) {
+    const checked = el('a', 'muted recap-checked', `Checked: ${recap.checked} points pass`)
+    if (recap.checkedLink) checked.href = recap.checkedLink
+    checked.title = 'Opens its points'
+    card.append(checked)
   }
   card.append(el('p', 'muted recap-status', recapStatus(recap, state.readAt)))
   if (recap.isClosed) return card

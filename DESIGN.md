@@ -2702,6 +2702,31 @@ button approve/mark as seen. so red is overturn with text feedback, blue is ok, 
    History "seen by you: approved at once"; no words, so no partner chat is needed and nobody is woken. The store's
    `feedback` action is gone; a recap answered with it before still says so.
 
+## Short recap cards: Context, Change, Before | After, one Checked line (B569)
+
+The person, 2026-10-24 (I92): the information cards are not readable: too much text, written as if they know what went
+on, and the picture always shows "3 points pass". Their example card (B568) was answered "Yes, build all cards like
+this" (Q352).
+
+1. A report's result opens with `Context: <what was wrong or missing> Change: <what the person gets now>`, then
+   `Details:` (or a `Tests bite:` line) and the rest for the check (src/work/recapWords.mjs `reportParts`). The
+   board's check of a report (check.mjs, in git and outside it) fails without both, with a Context over 300 or a
+   Change over 500 characters, or with file names (or paths), code words or commit hashes in them, and says which
+   (`partsFaults`). A report takes up to 2000 characters.
+2. The recap note keeps them as sections `Context` and `Change`, and `Points pass` ("5 of 5": the check that closed
+   the step; a step closed through its fix has every point pass); sections, not head keys, so a board not yet updated
+   still reads the note. A goal's recap: its why as the Context, its Done when as the Change.
+3. The card: the step's title (an incident fix's "Fix of X<n>:" left off), bold Context and Change, the picture,
+   then one quiet line "Checked: 5 of 5 points pass" that opens the step's points (`#details=B<n>`; a goal's on
+   Goals). Nothing on screen: no picture.
+4. The picture of a visible change is Before | After: the worker shoots `<picture folder>/B<n>/before.png` and
+   `after.png`, the check's helper sets them side by side with `tools/evidence.mjs --before --after`
+   (`before-after.png`, labelled, no points). The ticked list alone is no picture any more: such evidence is
+   `none (nothing on screen)`.
+5. A recap made before B569 (no `Points pass`) is read in the same form from its step's record at read time: the
+   Context from the step's summary, the Change from its report, each in plain sentences (asides, files, code words,
+   hashes and check words left out); its points picture dropped, a Before | After kept.
+
 ## A step waits for the partner, not for you (B392)
 
 The person, 2026-10-19 14:46: "it says worker 6 is waiting for me but i dont see it. fix it and prevent this future

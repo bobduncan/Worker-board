@@ -13,6 +13,15 @@
 // folder (the first of config.json's pictureRoots) under the step: <picture folder>/<step>/evidence.png, where the
 // board shows it. It is drawn by a headless Edge or Chrome over the DevTools protocol, with a temporary profile, and
 // that browser is closed in the same run, also when it fails (B266).
+//
+// B569 (I92: the picture "always shows 3 points pass"): a visible change is shown as the person sees it, Before | After,
+// labelled, with no points (the recap card has one Checked line for them). The worker shoots <step>/before.png and
+// after.png; the helper sets them side by side, landing at <picture folder>/<step>/before-after.png:
+//
+//   node tools/evidence.mjs --step B569 --title "Short cards" --before before.png --after after.png [--out picture.png]
+//
+// The ticked list alone (work with nothing to see) is no picture any more: such a check files its evidence as
+// "none (nothing on screen)".
 
 import { spawn, spawnSync } from 'node:child_process'
 import { existsSync, realpathSync } from 'node:fs'
@@ -22,7 +31,7 @@ import { dirname, extname, join, resolve } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 
 const BOARD = join(dirname(fileURLToPath(import.meta.url)), '..')
-const VALUED = ['reference', 'result', 'points', 'score', 'target', 'step', 'title', 'out', 'height']
+const VALUED = ['reference', 'result', 'before', 'after', 'points', 'score', 'target', 'step', 'title', 'out', 'height']
 const NUMBERS = ['score', 'target', 'height']
 const TYPES = { '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.webp': 'image/webp', '.gif': 'image/gif' }
 
@@ -41,7 +50,12 @@ export function parseArgs(argv) {
     } else args[name] = value
   }
   if (args.step === undefined) throw new Error('--step is needed: the step the picture is for.')
-  if (args.points === undefined) throw new Error('--points is needed: the agreed points, each passed or failed.')
+  // B569: Before | After, both or neither, and never beside a reference.
+  const isBeforeAfter = args.before !== undefined || args.after !== undefined
+  if (isBeforeAfter && (args.before === undefined || args.after === undefined)) throw new Error('--before and --after go together: what the person saw, and what they see now.')
+  if (isBeforeAfter && (args.reference !== undefined || args.result !== undefined)) throw new Error('A Before | After picture has no --reference or --result.')
+  if (!isBeforeAfter && args.reference === undefined && args.result === undefined) throw new Error('Nothing to see: with no picture, file the evidence as "none (nothing on screen)".')
+  if (!isBeforeAfter && args.points === undefined) throw new Error('--points is needed: the agreed points, each passed or failed.')
   return { title: '', ...args }
 }
 
@@ -69,11 +83,11 @@ export async function readPoints(value) {
   })
 }
 
-/** Where the picture goes: --out, or <project>/<first picture folder>/<step>/evidence.png. */
-export function outPath(config, { step, out }) {
+/** Where the picture goes: --out, or <project>/<first picture folder>/<step>/evidence.png (before-after.png, B569). */
+export function outPath(config, { step, out, before }) {
   if (out !== undefined) return out
   if (!/^[\w-]+$/.test(step)) throw new Error(`The step "${step}" is no plain id.`)
-  return join(config.project, config.pictureRoots[0], step, 'evidence.png')
+  return join(config.project, config.pictureRoots[0], step, before === undefined ? 'evidence.png' : 'before-after.png')
 }
 
 /** A PNG's width and height, from its header. */
@@ -83,9 +97,15 @@ export function pngSize(bytes) {
 
 const escape = text => String(text).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
 
-/** The page that is drawn; `reference` and `result` are picture addresses (data: URLs), either may be missing. */
-export function evidenceHtml({ step, title, reference, result, points, score, target, height }) {
+/**
+ * The page that is drawn; `reference` and `result` are picture addresses (data: URLs), either may be missing. B569:
+ * `before` and `after` instead stand in their places, labelled Before and After, with no points below.
+ */
+export function evidenceHtml({ step, title, reference, result, before, after, points = [], score, target, height }) {
+  const isBeforeAfter = before !== undefined && after !== undefined
   const figure = (id, caption, src) => (src === undefined ? '' : `<figure><figcaption>${caption}</figcaption><img id="${id}" alt="${caption}" src="${src}"></figure>`)
+  if (isBeforeAfter) [reference, result] = [before, after]
+  const [left, right] = isBeforeAfter ? ['Before', 'After'] : ['Reference', 'Result']
   const hasScore = score !== undefined
   const below = hasScore && target !== undefined && score < target
   const scoreLine = !hasScore ? '' : `<p class="score${below ? ' below' : ''}">Score ${escape(score)}${target === undefined ? '' : ` of target ${escape(target)}`}</p>`
@@ -110,8 +130,8 @@ export function evidenceHtml({ step, title, reference, result, points, score, ta
   .ask .mark { color: #6fa8ff; } .ask { color: #c9dcff; } .for-you { color: #6fa8ff; font-size: 14px; font-weight: 700; margin-left: 6px; text-transform: uppercase; letter-spacing: .04em; }
 </style></head><body><div id="sheet" data-height="${Number(height)}">
 <h1><span class="id">${escape(step)}</span>${escape(title)}</h1>
-${reference === undefined && result === undefined ? '' : `<div id="pictures">${figure('reference', 'Reference', reference)}${figure('result', 'Result', result)}</div>`}
-<div id="points">${scoreLine}<p class="count">${counted}</p><ul>${ticks}</ul></div>
+${reference === undefined && result === undefined ? '' : `<div id="pictures">${figure('reference', left, reference)}${figure('result', right, result)}</div>`}
+${isBeforeAfter ? '' : `<div id="points">${scoreLine}<p class="count">${counted}</p><ul>${ticks}</ul></div>`}
 </div></body></html>`
 }
 
@@ -166,12 +186,13 @@ function closeLeft(child, profile) {
 }
 
 /** Draws the evidence picture into `out` and says where everything stands on it. */
-export async function renderEvidence({ browser = findBrowser(), step, title = '', reference, result, points, score, target, height = 720, out, timeoutMs = 60_000 }) {
+export async function renderEvidence({ browser = findBrowser(), step, title = '', reference, result, before, after, points, score, target, height = 720, out, timeoutMs = 60_000 }) {
   if (browser === null) throw new Error('No Edge or Chrome found; name one in EVIDENCE_BROWSER.')
+  if ([reference, result, before, after].every(file => file === undefined)) throw new Error('Nothing to see: with no picture, file the evidence as "none (nothing on screen)".')
+  const address = async file => (file === undefined ? undefined : await dataUrl(file))
   const html = evidenceHtml({
     step, title, points, score, target, height,
-    reference: reference === undefined ? undefined : await dataUrl(reference),
-    result: result === undefined ? undefined : await dataUrl(result),
+    reference: await address(reference), result: await address(result), before: await address(before), after: await address(after),
   })
   const work = await mkdtemp(join(tmpdir(), 'board-evidence-'))
   const profile = join(work, 'profile')
@@ -238,7 +259,7 @@ async function main() {
     const { loadConfig } = await import('../src/config.mjs')
     out = outPath(await loadConfig(join(BOARD, 'config.json')), args)
   }
-  const done = await renderEvidence({ ...args, points: await readPoints(args.points), out })
+  const done = await renderEvidence({ ...args, points: args.points === undefined ? [] : await readPoints(args.points), out })
   console.log(`saved ${done.out} (${done.layout.width}x${done.layout.height})`)
 }
 

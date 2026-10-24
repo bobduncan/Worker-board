@@ -47,10 +47,12 @@ async function reported(one) {
   const id = made.result.id
   assert.equal((await one.keeper({ action: 'queue', id, for: 'Lamplighter', about: '1 h' })).ok, true)
   assert.equal((await one.lamplighter({ action: 'take', id, branch: 'b2-lamps' })).ok, true)
-  assert.equal((await one.lamplighter({ action: 'report', id, result: 'Every path has a warm lamp.', merged: 'c0ffee1' })).ok, true)
+  assert.equal((await one.lamplighter({ action: 'report', id, result: SAID, merged: 'c0ffee1' })).ok, true)
   assert.equal((await one.server({ action: 'check', id, passed: true, lines: ['branch gone'] })).ok, true)
   return id
 }
+/** B569: a report's Context and Change, then the rest. */
+const SAID = 'Context: The garden paths were dark at night. Change: Every path has a warm lamp. Details: lamps.mjs'
 const PASSED = { action: 'checked', evidence: 'pictures/b2/evidence.png', points: ['pass: a lamp at every bench', 'pass: warm yellow light, never white'] }
 
 test('a step through its result check gives the person one open recap: what they get, its evidence, About the step', async () => {
@@ -70,6 +72,8 @@ test('a step through its result check gives the person one open recap: what they
     assert.deepEqual({ ...shown, at: null, approvesAt: shown.approvesAt - shown.at }, {
       id: `recap:${valueOf(note, 'Id')}`, workId: valueOf(note, 'Id'), about: id, isGoal: false, title: `${id} Light the garden lamps is done`,
       line: 'Every path has a warm lamp.', evidence: 'pictures/b2/evidence.png', state: 'open', at: null, approvesAt: RECAP_WINDOW_MS, words: '', isClosed: false,
+      // B569: the card's words: its title, Context and Change from the report, and how many points pass, with where.
+      heading: 'Light the garden lamps', context: 'The garden paths were dark at night.', change: 'Every path has a warm lamp.', checked: '2 of 2', checkedLink: `#details=${id}`,
     })
     // A recap is no line of Information: it has its own card.
     assert.deepEqual(informationOf(await store(one.dir), NOW + HOUR).filter(info => info.id === valueOf(note, 'Id')), [])
@@ -212,7 +216,9 @@ test('a goal through its re-check gives a recap too; its Overturn asks the board
     const checked = await one.partner({ action: 'checked', id: 'G3', evidence: 'pictures/g3/evidence.png', points: ['pass: warm light everywhere'] })
     assert.equal(checked.ok, true, checked.why)
     const [note] = await recapNotes(one.dir)
-    assert.deepEqual(note.sections.get('Text'), ['G3 A warm garden is done', 'a helper re-checked it against its Done when and its vibe, 1 of 1 points pass.'])
+    // B569: a goal without a why or Done when at hand says what was re-checked; its count stands apart.
+    assert.deepEqual(note.sections.get('Text'), ['G3 A warm garden is done', 'A helper re-checked it against its Done when and its vibe.'])
+    assert.deepEqual(note.sections.get('Points pass'), ['1 of 1'])
     assert.equal(recapsOf(await store(one.dir), NOW + HOUR).at(0).isGoal, true)
     // The board opened the goal before (server.mjs); the partner's words say so.
     const done = await one.person({ action: 'overturn', id: valueOf(note, 'Id'), text: 'The north path is dark.' })

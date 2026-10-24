@@ -107,7 +107,7 @@ function node(tag, className = '', text = null) {
     setAttribute(name, value) { this.attributes[name] = value },
   }
 }
-const nodesOf = card => [card, ...card.children.flatMap(nodesOf)]
+const nodesOf = card => (typeof card === 'string' ? [] : [card, ...card.children.flatMap(nodesOf)])
 const card = vm.createContext({ HOUR, MIN, drafts: new Map(), sending: new Set(), problems: new Map(), openForms: new Set(), el: node, since: () => node('time'), picture: () => node('figure') })
 vm.runInContext(`${script.slice(script.indexOf('// recaps:start'), script.indexOf('// recaps:end'))}
 ${script.slice(script.indexOf('// recapCard:start'), script.indexOf('// recapCard:end'))}
@@ -140,6 +140,25 @@ test('B390: after Overturn the box opens for the words, with Overturn with these
   // A closed recap has no buttons, open or not.
   assert.deepEqual(offers({ ...CLOSED, id: 'recap:N4' }), { box: null, buttons: [] })
   card.openForms.clear()
+})
+
+test('B569: a card reads its title, bold Context and Change, the picture, then one quiet Checked line that opens its points', () => {
+  card.openForms.clear()
+  const short = { ...OPEN, heading: 'Light the lamps', context: 'The paths were dark at night.', change: 'Every path has a warm lamp.', checked: '2 of 2', checkedLink: '#details=B2', evidence: 'art-inbox/B2/before-after.png' }
+  const drawn = card.drawRecap(short, { readAt: NOW + HOUR, maxMessageChars: 4000 })
+  const shape = one => `${one.tag}${one.className === '' ? '' : `.${one.className}`}`
+  assert.deepEqual(drawn.children.map(shape), ['header.need-top', 'h4', 'div.recap-words', 'div.pictures', 'a.muted recap-checked', 'p.muted recap-status', 'div.buttons is-split'])
+  assert.equal(drawn.children[1].textContent, 'Light the lamps')
+  assert.deepEqual(plain(drawn.children[2].children.map(part => part.children.map(bit => (typeof bit === 'string' ? bit : [bit.tag, bit.textContent])))), [
+    [['b', 'Context:'], ' The paths were dark at night.'], [['b', 'Change:'], ' Every path has a warm lamp.'],
+  ])
+  assert.deepEqual([drawn.children[4].textContent, drawn.children[4].href], ['Checked: 2 of 2 points pass', '#details=B2'])
+  // Nothing on screen: no picture, the Checked line only.
+  assert.deepEqual(card.drawRecap({ ...short, evidence: 'none (nothing on screen)' }, { readAt: NOW + HOUR, maxMessageChars: 4000 }).children.map(shape).slice(0, 4), ['header.need-top', 'h4', 'div.recap-words', 'a.muted recap-checked'])
+  // Without words or a count (an old goal's recap): its title alone.
+  assert.deepEqual(card.drawRecap({ ...OPEN, evidence: 'none' }, { readAt: NOW + HOUR, maxMessageChars: 4000 }).children.map(shape).slice(0, 3), ['header.need-top', 'h4', 'p.muted recap-status'])
+  assert.match(css, /\.recap-words p \{ margin: 0; \}/)
+  assert.match(css, /\.is-recap \.picture img \{ aspect-ratio: auto; object-fit: contain; \}/)
 })
 
 test('the wiring: the cards after the questions, the clicks through the answer forms, the daily note\'s card, the look', () => {
