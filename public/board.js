@@ -1557,9 +1557,10 @@ function alertsOf(lane, state) {
   // The step "Now:" names already is "it".
   const step = waits === null ? null : waits.doing === lane.doingNow ? 'it' : `its step "${waits.doing}"`
   if (lane.isQuiet) alerts.push(step === null ? `no sign of life for ${span(lane.quietMs)}` : `no answer to ${step} for ${span(state.readAt - waits.since)}: it may wait for your approval in its chat`)
-  // B95: no worker works without a time; one that does is a fault to fix.
-  if (lane.isWithoutTime === true) alerts.push('works without a time: its chat has to say how long it expects')
-  if (task !== null && task.firstEstimateMs !== null && task.workedMs > task.firstEstimateMs + MIN) alerts.push(`${span(task.workedMs - task.firstEstimateMs)} over its first estimate`)
+  // B508: one signal per problem. "No time" (B95: no worker works without a time) and "over" already stand in the column
+  // Left (timeOf, leftView), so no line under the task repeats them.
+  const leftSaysOver = lane.eta != null && (lane.eta.isOverdue === true || lane.eta.isOver === true)
+  if (task !== null && task.firstEstimateMs !== null && task.workedMs > task.firstEstimateMs + MIN && !leftSaysOver) alerts.push(`${span(task.workedMs - task.firstEstimateMs)} over its first estimate`)
   if (lane.state === 'working' && task !== null && task.estimateAt !== null && state.readAt - task.estimateAt > state.estimateOldMs) {
     alerts.push(`estimate ${span(state.readAt - task.estimateAt)} old`)
   }
