@@ -100,6 +100,8 @@ step therefore says what it touches ("Touches: ...").
 
 ## A task on the worker board itself
 
+- Follow the board's design principles, `PRINCIPLES.md` in its folder (the person's, 2026-10-24); a change that breaks
+  one says which and why in its report, and the report names the incidents that would show it failing (principle 6).
 - The board the user looks at runs from its own folder and starts by itself: never stop or start it. Try your work
   on a copy started from your task folder, which takes a port of its own. The board loads a merged change by itself
   (B454: the page when it is idle, the server at a safe moment, 10 minutes at most before the yellow note asks for a
