@@ -29,7 +29,7 @@ const AT = new Date(2026, 9, 24, 9, 12).getTime()
 const lane = (model, effort, more = {}) => ({ name: 'Units', model, effort, ...more })
 const run = (more = {}) => ({ level: 'high', model: 'opus', usual: 'medium', usualModel: 'sonnet', step: 'B12', why: null, modelWhy: null, isSet: false, asked: { at: AT, state: 'delivered' }, waitsFor: null, ...more })
 
-test('a chip says the model and the effort in words, in the colour of its model, with the setting in its tooltip', () => {
+test('a chip says the model and the effort in words, with a tone for each model and the setting in its tooltip', () => {
   assert.deepEqual(plain(page.runChipOf(lane('claude-opus-5-5', 'xhigh'))), {
     text: 'Opus · extra high', now: 'Opus · extra high', tone: 'opus', next: null,
     title: "Runs on Claude Opus 5.5 at extra high effort (the app's setting for this chat)",
@@ -149,21 +149,51 @@ test('Simple\'s rows carry the chip\'s view only for a chat that has one', () =>
   assert.deepEqual(view.partner.map(row => [row.name, row.run.text, row.run.tone]), [['Advisor', 'Fable · max', 'fable']])
 })
 
-test('the styles: three tones from tokens, a dashed edge while pending, wrapping at phone width', () => {
-  assert.match(css, /:root \{ --chip-opus: #[0-9a-f]{6}; --chip-sonnet: #[0-9a-f]{6}; --chip-fable: var\(--ask\);/)
-  for (const tone of ['opus', 'fable']) assert.match(css, new RegExp(`\\.run-chip\\.is-${tone} \\{ --chip: var\\(--chip-${tone}\\)`))
-  assert.match(css, /\.run-chip \{ --chip: var\(--chip-sonnet\);/)
-  // the tint, edge and text all come from the token
+/** The chip's own part of the styles: from its comment to Simple's third cell. */
+const chipStyles = css.slice(css.indexOf("/* The model chip beside a chat's state"), css.indexOf("/* Simple's third cell"))
+/** The hue of a #rrggbb colour in degrees, and how far it is from grey (0 to 1). */
+function hueOf(hex) {
+  const [r, g, b] = [1, 3, 5].map(at => Number.parseInt(hex.slice(at, at + 2), 16) / 255)
+  const [max, min] = [Math.max(r, g, b), Math.min(r, g, b)]
+  const delta = max - min
+  if (delta === 0) return { hue: 0, strength: 0 }
+  const hue = max === r ? ((g - b) / delta + 6) % 6 : max === g ? (b - r) / delta + 2 : (r - g) / delta + 4
+  return { hue: hue * 60, strength: delta / (1 - Math.abs(max + min - 1)) }
+}
+
+test('the styles: one quiet grey outline for every chip, a small dot says the model, from three tokens', () => {
+  // the person's pick (option B, 2026-10-24): "its just informational", so no heavier text for any model
+  assert.match(css, /:root \{ --chip-opus: #[0-9a-f]{6}; --chip-sonnet: #[0-9a-f]{6}; --chip-fable: #[0-9a-f]{6}; \}/)
   const chip = css.match(/\.run-chip \{[^}]*\}/)[0]
-  for (const part of ['border: 1px solid color-mix(in srgb, var(--chip) 38%', 'background: color-mix(in srgb, var(--chip) 11%', 'color: var(--chip)', 'font-size: 11.5px', 'max-width: 100%', 'flex-wrap: wrap']) assert.ok(chip.includes(part), part)
+  for (const part of ['--chip: var(--chip-sonnet)', '--dot: var(--chip-sonnet)', 'border: 1px solid color-mix(in srgb, var(--chip) 38%', 'background: color-mix(in srgb, var(--chip) 11%', 'color: var(--chip)', 'font-size: 11.5px', 'max-width: 100%', 'flex-wrap: wrap']) assert.ok(chip.includes(part), part)
+  // the same weight everywhere in the chip's styles, and nothing but the dot changes with the model
+  assert.deepEqual(chipStyles.match(/font-weight: \d+/g), ['font-weight: 500'])
+  assert.match(css, /\.run-chip\.is-opus, \.run-next\.is-opus \{ --dot: var\(--chip-opus\); \}/)
+  assert.match(css, /\.run-chip\.is-fable, \.run-next\.is-fable \{ --dot: var\(--chip-fable\); \}/)
+  assert.match(css, /\.run-chip::before, \.run-next::before \{ content: ""; [^}]*background: var\(--dot\); \}/)
+  assert.doesNotMatch(chipStyles, /\.run-chip\.is-(opus|fable|sonnet|other)[^{]*\{[^}]*(?:--chip:|background: var|border-color|color:)/)
+  // a pending switch: a dashed edge, the arrow and the setting after it never part (the chip wraps before them)
   assert.match(css, /\.run-chip\.is-pending \{ border-style: dashed; \}/)
-  // the arrow and the setting after it never part; the chip wraps before them
   assert.match(css, /\.run-now, \.run-to \{ white-space: nowrap; \}/)
-  // the setting that follows is as readable on the gold chip as on the others
-  assert.match(css, /\.run-chip\.is-opus \.run-arrow, \.run-chip\.is-opus \.run-next \{ color: var\(--chip-ink\); \}/)
   // Simple: under the time, and under the task on a phone
   assert.match(css, /\.simple-end \{[^}]*flex-direction: column;[^}]*max-width: 150px;/)
   assert.match(css, /@media \(max-width: 600px\) \{\s*\.simple-end \{ display: contents; \}\s*\.simple-end \.run-chip \{ grid-column: 2 \/ -1;/)
+})
+
+test('no chip uses amber, gold, orange, red or yellow: on this board those mean "needs you" or a fault', () => {
+  const colours = chipStyles.match(/#[0-9a-f]{6}\b/g) ?? []
+  assert.ok(colours.length >= 3)
+  for (const colour of colours) {
+    const { hue, strength } = hueOf(colour)
+    // greys (little colour in them) are fine; a colour of any strength is not in the warm half from red to yellow-green
+    assert.ok(strength < 0.25 || (hue >= 100 && hue < 345), colour + ' is warm (hue ' + Math.round(hue) + ')')
+  }
+  assert.doesNotMatch(chipStyles, /rgba?\(|var\(--(?:waiting|warn|working)\)|--chip-ink/)
+  // the dots: Opus blue, Fable violet, Sonnet grey
+  const [opus, sonnet, fable] = ['opus', 'sonnet', 'fable'].map(name => hueOf(css.match(new RegExp('--chip-' + name + ': (#[0-9a-f]{6})'))[1]))
+  assert.ok(opus.hue >= 190 && opus.hue <= 230 && opus.strength > 0.4, 'Opus is a soft blue')
+  assert.ok(fable.hue >= 255 && fable.hue <= 295 && fable.strength > 0.4, 'Fable is a soft violet')
+  assert.ok(sonnet.strength < 0.25, 'Sonnet is grey')
 })
 
 // ---- what the server gives the page

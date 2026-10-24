@@ -114,7 +114,7 @@ tab) and never on the demo; once closed, the browser keeps that it was seen (`he
   state pill: Working, Waiting for you, Free, Suspended, Interrupted, Unknown, and "not running" when the mod says
   so; B315: "Not running" in place of Working for a chat whose card was left working by a quit app, its process not
   running, with its step kept and no "may wait for you" hint; and, beside the pill, the **model chip**: "Opus · extra
-  high" (gold), "Sonnet · medium" (quiet), "Fable · max" (violet), what the app's file of the chat says it runs at, with
+  high", "Sonnet · medium", "Fable · max" in one quiet grey outline with a small dot (blue, grey, violet), what the app's file of the chat says it runs at, with
   the change while the main chat is asked to switch it for its step, "Sonnet · medium → Opus · high", and in its tooltip
   "Runs on Claude Opus 5.5 at extra high effort (the app's setting for this chat)"; the Simple view's rows have it too), **Current task** (its topic, "Now:" what it does, or "Last task: ..., finished", a red line when it is over
   its first estimate), **Progress** (a bar with "step n of m" and the time left of the step), **Est. time** (ETA and
