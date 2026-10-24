@@ -19,6 +19,7 @@ import { createHash } from 'node:crypto'
 
 import { incidentWords, sweepWords } from '../say.mjs'
 import { isLate } from '../store.mjs'
+import { flowQueuesFixes } from '../work/incidentFix.mjs'
 import { isHolding } from '../work/pause.mjs'
 
 /** How long the server keeps a name a chat's mod was refused under: as long as the rule `old-name` looks back. */
@@ -256,7 +257,7 @@ export function createSupervisor(ports) {
      * The cards (cards.mjs): one per fix step, so the page shows what is being done about the incidents as it happens. They
      * are made from `live`, what the board knows at this look (the server passes it at every refresh): `items` the store as
      * its keeper holds it (null when it could not be read), `lanes` the board's chats (also the Advisor's), `partner` the
-     * Advisor's name (null for none). The incidents are read from those items too, so an incident the partner just linked to
+     * Advisor's name (null for none), `flow` the store's flow (whether the board queues incident fixes itself). The incidents are read from those items too, so an incident the partner just linked to
      * a fix step shows at once, not at the next run of the rules. Without `live`, `cards` is empty.
      */
     view: (now, live = null) => {
@@ -264,7 +265,7 @@ export function createSupervisor(ports) {
       const shown = live?.items instanceof Map ? incidentsOf(live.items, now) : incidents
       const partner = live?.partner ?? null
       const cards = live === null ? [] : incidentCards({
-        incidents: shown, items: live.items ?? null, lanes: live.lanes ?? [], hasPartner: partner !== null,
+        incidents: shown, items: live.items ?? null, lanes: live.lanes ?? [], hasPartner: partner !== null, boardQueues: flowQueuesFixes(live.flow),
         words: wordsOf(runnerPorts.outbox(), shown, partner, now, keep),
       })
       return { run: runner.shown(now), checkedAt: at, rules, incidents: shown, cards, ...sweepView(sweeper, now, sweepEvery(settings)) }

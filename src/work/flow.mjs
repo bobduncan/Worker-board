@@ -13,6 +13,7 @@ export const DEFAULT_FLOW = {
       { from: 'new', to: 'refined', by: 'advisor', when: 'refined is ready' },
       { from: 'refined', to: 'queued', by: 'main', sets: ['Owner', 'Blocked by', 'Estimate'], when: 'Touches overlaps no taken step' },
       { from: 'refined', to: 'queued', by: 'server', when: 'a queue was asked before its refine' },
+      { from: 'refined', to: 'queued', by: 'server', when: 'an incident fix is ready' },
       { from: 'queued', to: 'taken', by: 'server', when: 'Blocked by all done and Owner free', then: 'wake Owner' },
       { from: 'queued', to: 'taken', by: ['worker', 'advisor', 'main'], when: 'Blocked by all done' },
       { from: 'queued', to: 'refined', by: ['main', 'person'] },

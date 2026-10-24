@@ -706,7 +706,10 @@ unless the fix changes what the user sees or decides.
    with its test), so the same is caught by code next time and costs no sweep.
 3. Name it: `work incident-fix X<n>` with `fix` B<id>. The board marks the incident fixed once that step is done, and
    open again (handing it to you anew) when the step is dropped.
-4. The main chat queues the step as any other; tell it nothing more. Never leave an incident without its fix step.
+4. That is all: the board queues the step itself (2026-10-24), once it is refined (ready), marked `priority` fix and
+   named the incident's fix (or titled "Fix of X<n>"), with nothing holding it: for a free worker with nothing queued,
+   else the shortest queue, and tells the main chat in one line. Do not ask the main chat to queue it, and write it no
+   "yours to queue" note. Never leave an incident without its fix step.
 
 ## Recaps
 
