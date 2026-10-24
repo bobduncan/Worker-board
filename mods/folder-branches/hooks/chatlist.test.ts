@@ -1613,6 +1613,33 @@ describe('B300: a free worker pulls its next step at the end of its turn', () =>
       expect(told(w)).toEqual([true])
     })
 
+    test('the turn\'s end is held for the board past 1.5 s, and let go with its answer in hand (not left to the late path)', async ($, on) => {
+      const clock = mock.clock(on)
+      const w = world('main', { ...listed(), [BOARD]: board })
+      stand(on, w)
+      await $.session.start(START)
+      await $.classic.UserPromptSubmit({ prompt: 'go', session_title: 'Game - Main' })
+      await $.turn.start({ text: 'go', turnId: 't1' })
+      let release = (): void => {}
+      w.byAction['turn-ended'] = { status: 200, text: answer }
+      w.holdAction = { action: 'turn-ended', until: new Promise<void>(done => { release = done }) }
+      let isEnded = false
+      const ending = $.turn.complete({ ...ENDED, answer: block, turnId: 't1' }).then(() => { isEnded = true })
+      await settle()
+      await clock.advance(3000)
+      await settle()
+      expect(isEnded).toBe(false)
+      release()
+      await settle()
+      await ending
+      expect(isEnded).toBe(true)
+      // taken in the turn itself: the late path would drop this answer once the chat is cleared
+      w.id = 'fresh-session'
+      await $.prompt.submit({ text: 'yes', ...ASKED } as never)
+      expect(told(w)).toEqual([true])
+      expect(w.toasts.join(' ')).not.toContain('answered after this chat was cleared')
+    })
+
     test('a board that answers after the wait is over tells the chat at its next prompt, while it is the same chat', async ($, on) => {
       const w = await slow($, on, 8000)
       await $.prompt.submit({ text: 'yes', ...ASKED } as never)
