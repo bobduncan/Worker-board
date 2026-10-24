@@ -57,7 +57,10 @@ sweep is meant to cost little (a few tens of thousands of tokens, mostly cached)
   with nothing queued while the focus has steps refined ready: the focus-ready rule names a step for it to the main
   chat ("Queue B<n> (<focus>) for <worker>"), once an hour per step. A wait shorter than that is no incident.
 - A word to a chat is taken within minutes; words that wait long for one chat are odd.
-- A chat runs the model and effort its step asks for (the summary shows both side by side).
+- A chat runs the model and effort its step asks for (the summary shows both side by side). The board asks the main
+  chat to switch it after the take, so a mismatch within 10 min of a take, or with its switch asked ("switch asked
+  HH:MM" beside it), is the switch under way: no incident. One that lasts is marked "!" and the rule effort-mismatch
+  names it to the main chat itself.
 - A worker is cleared after its reported step (or compacted, as the list of chats says); the same reason for not
   clearing it, again and again, is odd.
 
