@@ -19,7 +19,7 @@ import { stamp } from './migrate.mjs'
 import { waitIds } from './guards.mjs'
 import { PARTNER_AGAIN_MS, isRoutedToPartner, partnerAskWords } from './partnerAnswers.mjs'
 import { isHolding } from './pause.mjs'
-import { gitCheckPassed, needsResultCheck, resultCheckOf } from './resultCheck.mjs'
+import { gitCheckPassed, needsResultCheck, resultCheckAtMs, resultCheckOf } from './resultCheck.mjs'
 import { asksOfStep } from './stepAsks.mjs'
 
 const MIN = 60_000
@@ -36,6 +36,8 @@ export const AGAIN_MS = 10 * MIN
 export const REFUSED_MS = 10 * MIN
 /** Refusals of an old name over this long say the chat's mod does not follow the shown name by itself. */
 export const REFUSED_LASTS_MS = 2 * MIN
+/** B449: a step in review with no result check filed (or one the person answered) this long wakes the partner again. */
+export const UNCHECKED_MS = 30 * MIN
 /** The lines to the partner about refines and result checks the helper may be waited on for, this far back. */
 const HELPER_LOOK_MS = 6 * 60 * MIN
 
@@ -49,6 +51,7 @@ export const CHECKS = [
   { key: 'old-name', words: 'a chat that asks under an old name' },
   { key: 'helper', words: 'the partner\'s helper not running while refines or result checks wait' },
   { key: 'partner-ask', words: 'an ask routed to the partner left unanswered' },
+  { key: 'unchecked', words: 'a reported step left without its result check, or with its ask point answered and no check filed again' },
   { key: 'worktrees', words: 'a leftover worktree, or an empty folder one left in the project folder' },
 ]
 
@@ -301,6 +304,27 @@ export function findStuck({ items = new Map(), lanes = [], partner = null, helpe
       if (lately) continue
       const key = `partner-ask ${id} ${Math.floor((now - filed) / PARTNER_AGAIN_MS)}`
       found.push({ check: 'partner-ask', key, text: `${id} routed to ${partner.name}, unanswered for ${minutes(now - filed)} min`, fix: { do: 'wake', chat: partner.name, id, text: partnerAskWords(id) } })
+    }
+  }
+
+  // B449 (G11's re-check: reports that sat unchecked, and checks that waited on an answer already given): a step in
+  // review whose board check passed and whose result check was never filed, or waits for the person with every ask
+  // under it answered, for 30 minutes: the partner is woken with "check step B<id>", once per 30 minutes (a line to
+  // it about the step still waiting, or sent within that time, counts as the wake).
+  if (partner !== null && !isHeld) {
+    for (const item of steps.filter(one => stateOf(one) === 'review' && gitCheckPassed(one) && needsResultCheck(one))) {
+      const id = idOf(item)
+      const result = resultCheckOf(item)
+      const open = all.some(one => kindOf(one) === 'ask' && valueOf(one, 'Of') === id && stateOf(one) === 'open')
+      if (result === 'waits' ? open : result !== null) continue
+      const since = result === 'waits' ? resultCheckAtMs(item) : sinceMs(valueOf(item, 'Since'))
+      if (!(now - since >= UNCHECKED_MS)) continue
+      const lately = outbox.some(message => message.about === id && (message.command === 'result-check' || String(message.syncKey ?? '').startsWith('unchecked '))
+        && (message.state === 'waiting' || now - message.at < UNCHECKED_MS))
+      if (lately) continue
+      const key = `unchecked ${id} ${Math.floor((now - since) / UNCHECKED_MS)}`
+      const text = `${id} in review ${minutes(now - since)} min with ${result === 'waits' ? 'its ask point answered and no check filed again' : 'no result check'}`
+      found.push({ check: 'unchecked', key, text, fix: { do: 'wake', chat: partner.name, id, text: `check step ${id}${result === 'waits' ? ' (its ask point is answered: file the result check again)' : ''}; see roles/partner.md, "The check"` } })
     }
   }
 

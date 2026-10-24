@@ -3,7 +3,7 @@
 // (the evidence picture, every agreed point pass, fail or ask, the score). It reads only the step's own points and its
 // standard; nothing of the project's work is named here.
 
-import { valueOf } from './item.mjs'
+import { sinceMs, valueOf } from './item.mjs'
 import { standardOf } from './standard.mjs'
 
 const VERDICTS = ['pass', 'fail', 'ask']
@@ -66,6 +66,24 @@ export function resultCheckOf(item) {
   return last === undefined ? null : last.startsWith('result check passed') ? 'passed' : last.startsWith('result check failed') ? 'failed' : 'waits'
 }
 
+/** When the step's last result check line was written (ms), or NaN: the History line's own minute. */
+export function resultCheckAtMs(item) {
+  const line = historyOf(item).filter(one => RESULT.test(wordsOf(one))).at(-1)
+  return line === undefined ? Number.NaN : sinceMs(line.match(/^-\s+(\d{4}-\d{2}-\d{2} \d{2}:\d{2})/)?.[1])
+}
+
+/**
+ * B449: how the person's answer to a check's ask point reads: 'yes' (Approved, Done, yes, keep it ...), 'no' (Rejected,
+ * no, redo ...), or null when the board cannot tell: their own words, or a yes with a "but" in it. `text` is the
+ * answer's lines as the store keeps them ("Approved. words", or the words alone).
+ */
+export function answerReading(text) {
+  const words = String(Array.isArray(text) ? text.join(' ') : text ?? '').trim()
+  if (/^(?:rejected|reject|no|nope|redo|not good)\b/i.test(words)) return 'no'
+  if (/^(?:approved|done|yes|yep|ok|okay|keep(?: it)?|accepted|accept|agreed|good|fine)\b/i.test(words)) return /\b(?:but|however|except|although)\b/i.test(words) ? null : 'yes'
+  return null
+}
+
 /** Whether the board's own check (git) passed last: its History's last "check passed", "failed" or "pending". */
 export function gitCheckPassed(item) {
   const last = historyOf(item).map(wordsOf).filter(one => /^check (?:passed|failed|pending)\b/.test(one)).at(-1)
@@ -100,6 +118,38 @@ export function checkedOf(item) {
     return found === null ? [] : [{ verdict: found[1], text: found[2] }]
   })
   return { evidence: named('Evidence'), score: named('Score'), points, passed: points.filter(one => one.verdict === 'pass').length, total: points.length }
+}
+
+/**
+ * B504: where the fixes of a step's failed check stand, for the Focus page: the chain of its fix steps followed to the
+ * last one (a fix of a fix, over any number of rounds; of several fixes of one step the newest counts; a dropped one
+ * is no fix), and what the last one says. null: no fix (yet). Otherwise `{ by, isFixed, passed, total, evidence, note }`:
+ * isFixed when the last fix is done with none of its points failed; else `note` says what goes on, "its fix B501 is
+ * being checked", "its fix B499 failed too, B501 fixes it". `items` is the store's steps by id.
+ */
+export function fixOutcomeOf(id, items) {
+  const chain = []
+  for (let from = id; chain.length < 20;) {
+    const next = fixesOf(from, items).filter(one => valueOf(one, 'State') !== 'dropped')
+      .sort((a, b) => Number(valueOf(a, 'Id').slice(1)) - Number(valueOf(b, 'Id').slice(1))).at(-1)
+    if (next === undefined || chain.includes(next)) break
+    chain.push(next)
+    from = valueOf(next, 'Id')
+  }
+  const last = chain.at(-1)
+  if (last === undefined) return null
+  const by = valueOf(last, 'Id')
+  const check = checkedOf(last)
+  const state = valueOf(last, 'State')
+  const base = { by, passed: check?.passed ?? null, total: check?.total ?? null, evidence: check?.evidence ?? null }
+  if ((state === 'done' || state === 'closed') && !(check?.points ?? []).some(one => one.verdict !== 'pass')) return { ...base, isFixed: true, note: null }
+  const finished = state === 'done' || state === 'closed'
+  const going = state === 'review' ? 'is being checked' : ['queued', 'new', 'refined'].includes(state) ? 'is waiting to start' : 'is being worked on'
+  const before = chain.length > 1 ? valueOf(chain.at(-2), 'Id') : null
+  const note = finished ? `its fix ${by} failed too`
+    : before === null ? `its fix ${by} ${going}`
+      : `its fix ${before} failed too, ${by} ${going === 'is being worked on' ? 'fixes it' : going}`
+  return { ...base, isFixed: false, note }
 }
 
 /** A fix step's title: "Fix: <the failed points in a few words>", no brackets at its end, at most about 100 characters. */

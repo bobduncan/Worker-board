@@ -72,7 +72,8 @@ You decide this, not the user. For every task:
   build, in which order, how big, which goal, what a goal needs, whether a step fits the focus; those questions go to
   the partner, by message (SendMessage to its session id, "Question from <main>: ...", or `work note`). It settles the
   details and asks the user itself at goal height, and tells you what it asked. Your own asks to the user are about
-  delegation only: a worker to start or stop, a restart, and what the safety rules leave to the user (deleting,
+  delegation only: a worker to start or stop, a restart of the app (the board loads its own new version by itself,
+  B454: never ask the user to restart the board or click its note), and what the safety rules leave to the user (deleting,
   publishing, changing settings). The checks of a worker that reported only to you stay yours to put to the user.
 - The focus: the user and the partner agree a goal's vibe and how on the board's Focus page; then the partner makes the
   steps and sends you "Queue for G<n> <title>, the how the user agreed: B<id> (<part>), ...". Queue them as any

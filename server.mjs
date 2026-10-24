@@ -80,6 +80,7 @@ import { requestKeeper } from './src/work/requests.mjs'
 import { readStore } from './src/work/store.mjs'
 import { dismissCopied, fileStore, isLate, memoryStore, outboxNow, tick } from './src/store.mjs'
 import { loads, readVersion } from './src/version.mjs'
+import { blockersOf, selfUpdater } from './src/selfUpdate.mjs'
 import { findGameFile } from './src/gameFile.mjs'
 import { absentAs, readKept, writeAtomic } from './src/write.mjs'
 import { aboutError, afterError, failingLine, fileLog, loopRecord, settleWithin } from './src/loops.mjs'
@@ -630,13 +631,13 @@ async function main(args) {
     })
   }
   /**
-   * B299: the chats an action on the store wakes (`wake`, `wakeOwner`): the chat that asked, with the answer to its ask
+   * B299: the chats an action on the store wakes (`wake`, `wakeOwner`, B449 `wakePartner`): the chat that asked, with the answer to its ask
    * (bridge.mjs, as the person's answer reads), and the owner of the step the answer frees. Partner answers (2026-10-19):
    * also from the work tool (the partner's answer), and a line of its own (`line`: the person took a partner's answer
    * back). Only to a chat the board shows; copied without the Workers mod. What to paste, or null.
    */
   const sendWakes = async done => {
-    const wakes = done?.ok === true ? [done.result.wake ?? null, done.result.wakeOwner ?? null].filter(one => one !== null) : []
+    const wakes = done?.ok === true ? [done.result.wake ?? null, done.result.wakeOwner ?? null, done.result.wakePartner ?? null].filter(one => one !== null) : []
     let paste = null
     for (const wake of isShowOnly ? [] : wakes) {
       const state = await readState()
@@ -887,6 +888,20 @@ async function main(args) {
   if (canRestart) process.on('disconnect', () => process.exit(0))
   const running = (await gitRunner()(['-C', HERE, 'rev-parse', '--short', 'HEAD']))?.trim() || null
   const versionNow = cached(() => readVersion(gitRunner(), HERE, running), VERSION_MS)
+  // B454: a new server version is started by the board itself at a safe moment (src/selfUpdate.mjs): what it waits for
+  // is shown on the page's note; the calls of the chats being answered now and the last chat log asked for are counted here.
+  const selfUpdate = selfUpdater({ now: clock })
+  let updateShown = null
+  let callsNow = 0
+  let lastLogAt = null
+  const counted = answer => async body => {
+    callsNow += 1
+    try {
+      return await answer(body)
+    } finally {
+      callsNow -= 1
+    }
+  }
   // B319: the Workers mod this folder carries against the one the PC runs (one per PC, for every project's board).
   // Only the board that delivers says so: a copy or a board that shows another's history is no install of the mod.
   const modNow = isDemo || isShowOnly ? async () => null
@@ -1146,6 +1161,7 @@ async function main(args) {
   /** Clear after each step: the mod asks to keep the conversation before it clears a worker (`save-log`, `stepId`). */
   const saveLog = async (body, checked, state) => {
     if (chatLogs === null) return { ok: false, status: 503, why: 'This board keeps no chat logs.' }
+    lastLogAt = clock()
     const session = String(body.session ?? '').trim()
     const tail = /^[A-Za-z0-9_-]{1,120}$/.test(session) ? await readTail(join(config.transcripts, `${session}.jsonl`)) : null
     const refused = clearRefusal(state, checked.chat, tail === null ? 0 : backgroundRunning(parseTail(tail.text, tail.isCut)))
@@ -1188,6 +1204,24 @@ async function main(args) {
     if (answered.text !== '') readState.reset()
     return { ok: true, result: body?.action === 'pull' ? answered : { ...done.result, pull: answered } }
   }
+  // B142: started anew on the person's click, once the version its folder holds loads. B454: also by the board itself,
+  // at a safe moment (src/selfUpdate.mjs).
+  const restartNow = async () => {
+    if (!canRestart) return { ok: false, status: 409, why: 'This board was started without its keeper: start it once from where it was started.' }
+    // B128: a new start on a broken settings file would stop the board: this one keeps running instead.
+    // B467: one Windows holds is not "not there": its own words, and the board keeps running.
+    const settings = await readFile(join(HERE, 'config.json'), 'utf8').then(configProblem, error => (error?.code === 'ENOENT' ? 'it is not there' : `it cannot be read (${error?.code ?? error?.message ?? 'unknown'})`))
+    if (settings !== null) return { ok: false, status: 409, why: `The settings file config.json is broken: ${settings}. Fix it first; this board keeps running.` }
+    const check = await loads(join(HERE, 'server.mjs'))
+    if (!check.ok) return { ok: false, status: 500, why: `The new version does not start: ${check.why}` }
+    // B404: the board stops taking work and waits up to 10 s for the reconciler's pass and the running checks.
+    isClosing = true
+    return { ok: true, result: { at: clock() }, after: async () => {
+      const inTime = await settleWithin([reconciling, ...runningChecks.values()], RESTART_WAIT_MS)
+      if (!inTime) console.log('Restart: the board did not wait longer than 10 s for its running work; the next start checks again.')
+      process.exit(START_ANEW)
+    } }
+  }
   const server = createBoard({
     token: randomBytes(32).toString('hex'),
     // B319: the demo is no project's.
@@ -1209,7 +1243,7 @@ async function main(args) {
       })
       // B256: whether the Goals part may change the map: only the board that delivers writes it.
       const goalsEdit = { canWrite: writesMap, whyNot: isDemo ? 'This is the demo: it changes no file.' : !writesMap ? `This board only shows. Change the map on the board that delivers: http://${HOST}:${homePort}/` : null }
-      return { ...state, design, goalsEdit, cpu: cpu?.view() ?? null, loops: { failing: loops.failing(), line: failingLine(loops.failing(), timeOf) }, syncList: sync?.shown(clock()) ?? null, boardSettings: boardSettingsNow(), version: { commit: running, since: startedAt, ...(await versionNow()), canRestart }, mod: await modNow(),
+      return { ...state, design, goalsEdit, cpu: cpu?.view() ?? null, loops: { failing: loops.failing(), line: failingLine(loops.failing(), timeOf) }, syncList: sync?.shown(clock()) ?? null, boardSettings: boardSettingsNow(), version: { commit: running, since: startedAt, ...(await versionNow()), canRestart, selfUpdate: updateShown }, mod: await modNow(),
         // B320: where the New project button suggests a new project's folder, and whether this board makes one.
         newProject: { parent: home === null ? null : dirname(home), canMake: !isDemo && !isShowOnly, isMaking: makingProject },
         // B322: what the page needs to open a new project's first chats in the Claude app: the board's folder (their
@@ -1428,26 +1462,10 @@ async function main(args) {
       readState.reset()
       return done
     },
-    // B142: started anew on the person's click, once the version its folder holds loads.
     onError: error => loops.failed('request', error),
     onAnswered: () => loops.succeeded('request'),
     isClosing: () => isClosing,
-    restart: async () => {
-      if (!canRestart) return { ok: false, status: 409, why: 'This board was started without its keeper: start it once from where it was started.' }
-      // B128: a new start on a broken settings file would stop the board: this one keeps running instead.
-      // B467: one Windows holds is not "not there": its own words, and the board keeps running.
-      const settings = await readFile(join(HERE, 'config.json'), 'utf8').then(configProblem, error => (error?.code === 'ENOENT' ? 'it is not there' : `it cannot be read (${error?.code ?? error?.message ?? 'unknown'})`))
-      if (settings !== null) return { ok: false, status: 409, why: `The settings file config.json is broken: ${settings}. Fix it first; this board keeps running.` }
-      const check = await loads(join(HERE, 'server.mjs'))
-      if (!check.ok) return { ok: false, status: 500, why: `The new version does not start: ${check.why}` }
-      // B404: the board stops taking work and waits up to 10 s for the reconciler's pass and the running checks.
-      isClosing = true
-      return { ok: true, result: { at: clock() }, after: async () => {
-        const inTime = await settleWithin([reconciling, ...runningChecks.values()], RESTART_WAIT_MS)
-        if (!inTime) console.log('Restart: the board did not wait longer than 10 s for its running work; the next start checks again.')
-        process.exit(START_ANEW)
-      } }
-    },
+    restart: restartNow,
     // The page's own version goes into the page, so it can tell when the folder holds a newer one.
     pageVersion: async () => {
       const { page } = await versionNow()
@@ -1478,7 +1496,7 @@ async function main(args) {
       return done
     },
     // B297: a chat's work tool: only the chat the board shows under that name, with its session, as for taking.
-    bridgeWork: async body => {
+    bridgeWork: counted(async body => {
       // B412: a call the mod repeats with its request id (its answer was slow or cut off) gets the first answer, before
       // anything else is looked at: right after a restart the board may not show the chat yet. The id is the session's.
       const { request, ...asked } = body ?? {}
@@ -1491,8 +1509,8 @@ async function main(args) {
       if (asked.action === 'save-log') return requests.answer(session, request, () => saveLog(asked, checked, state))
       if (isReadAction(asked.action)) return bridgeWorkOnce(asked, checked)
       return requests.answer(session, request, () => bridgeWorkOnce(asked, checked))
-    },
-    take: async body => {
+    }),
+    take: counted(async body => {
       const { checked } = await checkFresh(body)
       // Who asks runs, also a chat the board shows another session for.
       if (seen !== null && typeof body?.chat === 'string' && (checked.ok || checked.status === 409)) (checked.ok ? seen.shown : seen.other)[body.chat.trim().slice(0, 80)] = clock()
@@ -1506,13 +1524,13 @@ async function main(args) {
       // What was taken shows as on its way at once.
       if (taken.length > 0) readState.reset()
       return { ok: true, result: { messages: taken.map(message => ({ id: message.id, text: messageText(message, timeOf, path => inProject(config.project, path)) })) } }
-    },
-    typed: async body => {
+    }),
+    typed: counted(async body => {
       const checked = checkTyped(body, await readState())
       if (!checked.ok) return checked
       if (await store.settle(checked.chat, checked, clock()) > 0) readState.reset()
       return { ok: true, result: {} }
-    },
+    }),
     game: async body => {
       const checked = checkGame(body, await readState())
       if (!checked.ok) return checked
@@ -1604,6 +1622,32 @@ async function main(args) {
     if (!isDemo) console.log(`  The Claude app's chats: ${config.appSessions || '(none found: set "appSessions")'}${typeof config.appFolder === 'string' ? ' (found by itself)' : ''}`)
     if (chosen.why === 'own' || chosen.why === 'new') console.log(`  Port ${config.port} is this folder's own (data/port.json); the board in the main folder has ${homePort}.`)
   })
+
+  // B454: a new server version is started by the board itself at a safe moment; until then the page says what it waits for,
+  // and after 10 minutes without one the note on top asks for the person's click as before (B142).
+  if (!isDemo && canRestart) {
+    const lookAtUpdate = () => loops.run('self-update', async () => {
+      if (isClosing) return
+      const version = await versionNow()
+      const state = await readState()
+      const blockers = blockersOf({
+        now: clock(), outbox: store.outbox(), checks: runningChecks.size, isReconciling: reconciling !== null,
+        logs: chatLogs === null ? 0 : (await chatLogs.pending()).length, calls: callsNow, lastLogAt, isPaused: isHolding(state.pause),
+      })
+      const seen = selfUpdate.look({ isNewer: version.isServerNewer === true, canRestart, blockers })
+      updateShown = seen.shown
+      if (!seen.restart) return
+      const done = await restartNow()
+      if (!done.ok) {
+        selfUpdate.refused(done.why)
+        updateShown = selfUpdate.look({ isNewer: true, canRestart, blockers: ['the new version'] }).shown
+        return
+      }
+      console.log('Restart: the new version of the board starts by itself.')
+      done.after?.()
+    })
+    setInterval(lookAtUpdate, 3000)
+  }
 
   if (!isDemo && historyFrom === undefined) {
     const look = () => isClosing ? Promise.resolve() : loops.run('look', () => readState().then(async state => {

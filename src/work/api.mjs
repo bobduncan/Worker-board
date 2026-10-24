@@ -20,9 +20,9 @@ import { storeFault, touchesLines } from './read.mjs'
 import { acceptRefine, answerRefine } from './refineText.mjs'
 import { DECIDED, GOAL_ID, NEEDS, UNDONE, decidedOf, isDailyNote, needsOf, undoneOf } from './dailyNote.mjs'
 import { HOW_MARK, openAsksOf as openAsksUnder, refineAsksOf as asksCounted } from './stepAsks.mjs'
-import { checkedOf, fixesOf, fixesThrough, fixTitle, needsResultCheck, parsePoints, resultCheckOf } from './resultCheck.mjs'
+import { answerReading, checkedOf, fixesOf, fixesThrough, fixTitle, needsResultCheck, parsePoints, resultCheckAtMs, resultCheckOf } from './resultCheck.mjs'
 import { RECAP_ANSWERS, dueRecaps, isRecap, recapMadeSince } from './recap.mjs'
-import { kindsNamed, parseStandard, standardOf, standardWanted } from './standard.mjs'
+import { kindsNamed, noneForLook, parseStandard, standardNoneRefused, standardOf, standardWanted } from './standard.mjs'
 import { effortOf, modelOf, parseEffort, parseModel, withEffort, withModel } from './effort.mjs'
 import { appendHistory, nextId, putBack, readActivitiesText, readItemFile, readStore, removeItem, writeActivities, writeItem } from './store.mjs'
 import { openNaming, renamedItem } from './names.mjs'
@@ -1530,6 +1530,9 @@ async function make(call, w) {
   if (fromHow !== null && !fromHow.ok) return fromHow
   const named = fromHow === null || standard !== null ? [] : kindsNamed(`${title}\n${lines(body.text).join('\n')}`, w.kinds)
   if (named.length > 0) return refuse(409, standardWanted('This step', named))
+  // B451: "none" is refused for a step that names a look kind (what the player sees).
+  const looks = fromHow === null || standard === null ? [] : noneForLook(`${title}\n${lines(body.text).join('\n')}`, standard.line, w.kinds)
+  if (looks.length > 0) return refuse(409, standardNoneRefused('This step', looks))
   const read = lineFields(title)
   if (read.title !== title || read.isYou || read.owner !== null || read.branch !== null || read.asks !== null || read.id !== null) {
     return refuse(400, 'The title would not read back as written: leave out an id at its start, "Verify:" and the like, brackets at its end and @you.')
@@ -2130,6 +2133,9 @@ async function refined(call, w) {
   const standard = given?.line ?? standardOf(found.item)
   const named = standard === null ? kindsNamed(`${valueOf(found.item, 'Title') ?? ''}\n${(found.item.sections.get('Context') ?? []).join('\n')}`, w.kinds) : []
   if (named.length > 0) return refuse(409, standardWanted(id, named))
+  // B451: "none" is refused for a step that names a look kind (what the player sees).
+  const looks = standard === null ? [] : noneForLook(`${valueOf(found.item, 'Title') ?? ''}\n${(found.item.sections.get('Context') ?? []).join('\n')}`, standard, w.kinds)
+  if (looks.length > 0) return refuse(409, standardNoneRefused(id, looks))
   // B468: the effort given now, else the one the step had.
   const effort = parseEffort(body.effort)
   if (effort !== null && !effort.ok) return refuse(400, effort.why)
@@ -2221,7 +2227,51 @@ async function answer(body, w) {
   if (done.ok && isRefine && of !== null) await dropNote(w, of, askWords(found.item), short)
   // Focus 3, the review: the step goes on, so its owner is woken too (the flow's "wake Owner") when another chat asked.
   const wakeOwner = freed !== null && (owner === null || plain(freed, w.prefix) !== plain(owner, w.prefix)) ? { to: freed, ...told } : null
-  return done.ok ? { ok: true, result: { ...done.result, wake, wakeOwner } } : done
+  // B449: the ask point of a result check that waits for the person: the check is filed again, or the partner woken.
+  const refiled = done.ok && of !== null && /^B\d+$/.test(of) ? await refileCheck(of, w) : {}
+  return done.ok ? { ok: true, result: { ...done.result, wake, wakeOwner, ...refiled } } : done
+}
+
+/**
+ * B449 (G11's re-check: B364, B383 and B376 sat in review for 31 to 35 hours after the person answered the one point of
+ * their result check that was theirs, and nobody was woken): once the person answered the last open ask under a step
+ * in review whose result check waits for them, the board files that check again by itself. All their answers read as
+ * yes: the ask points pass, and the step is done. Any reads as no: the ask points fail with their words, and the fix
+ * step is made as for any failed point. Words the board cannot read as yes or no (or fewer answers than ask points)
+ * wake the partner once ("check B<id>: Q<n> answered"), who files the check. `{}` when the step is not waiting for that.
+ */
+async function refileCheck(stepId, w) {
+  const read = await readStore(w.dir, w.fs).catch(() => null)
+  const step = read?.items.get(stepId)
+  if (step === undefined || stateOf(step) !== 'review' || resultCheckOf(step) !== 'waits') return {}
+  const fresh = { ...w, store: { ok: true, dir: w.dir, ...read } }
+  const check = checkedOf(step)
+  const points = check?.points.filter(one => one.verdict === 'ask') ?? []
+  if (points.length === 0) return {}
+  const asks = [...read.items.values()].filter(one => kindOf(one) === 'ask' && valueOf(one, 'Of') === stepId)
+  if (asks.some(one => stateOf(one) === 'open')) return {}
+  const filedAt = resultCheckAtMs(step)
+  const answered = asks.filter(one => stateOf(one) === 'answered' && !(sinceMs(valueOf(one, 'Since')) < filedAt))
+  if (answered.length === 0) return {}
+  const words = answered.map(one => (one.sections.get('Answer') ?? []).join(' ').trim())
+  const readings = words.map(answerReading)
+  const partner = (w.chats ?? []).find(chat => w.roleOf?.(chat) === 'advisor') ?? null
+  const ids = answered.map(one => valueOf(one, 'Id')).join(', ')
+  const tell = why => partner === null ? {} : {
+    wakePartner: { to: partner, id: stepId, title: valueOf(step, 'Title') ?? '', text: [`check ${stepId}: ${ids} answered`, `The person said: ${words.join(' | ')}`, `Your job: file the result check of ${stepId} again with work checked (${why}), roles/partner.md, "The check"`].join('\n') },
+  }
+  if (readings.includes(null) || answered.length < points.length) return tell(readings.includes(null) ? 'the board could not read the answer as yes or no' : `${points.length} points wait for the person, ${answered.length} answers came`)
+  const isNo = readings.includes('no')
+  const spoken = words.filter(Boolean).join(' | ')
+  const filed = await checked({
+    id: stepId,
+    evidence: check.evidence ?? `none (the person answered ${ids})`,
+    ...(check.score === null ? {} : { score: check.score }),
+    points: check.points.map(one => (one.verdict !== 'ask' ? `${one.verdict}: ${one.text}` : isNo ? `fail: ${one.text} (the person said: ${spoken})` : `pass: ${one.text}`)),
+  }, fresh)
+  if (!filed.ok) return tell(`the board could not file it by itself: ${filed.why}`)
+  const { fix, resultCheck } = filed.result
+  return { ...(fix === undefined ? {} : { fix }), ...(resultCheck === undefined ? {} : { resultCheck }) }
 }
 
 /**

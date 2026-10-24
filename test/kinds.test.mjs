@@ -14,9 +14,10 @@ import { focusState } from '../src/state.mjs'
 import { workApi } from '../src/work/api.mjs'
 import { parseItem, valueOf } from '../src/work/item.mjs'
 import { migrateBacklog } from '../src/work/migrate.mjs'
-import { kindsNamed, parseStandard, standardOf } from '../src/work/standard.mjs'
+import { kindsNamed, noneForLook, parseStandard, standardOf } from '../src/work/standard.mjs'
 import { readStore, writeStore } from '../src/work/store.mjs'
 
+const LOOK = [{ kind: 'creature', done: 'docs/done/creature.md', reference: 'art/creatures', look: true }, { kind: 'level', done: 'docs/done/level.md', reference: 'art/levels', look: true }]
 const KINDS = [
   { kind: 'creature', done: 'docs/done/creature.md', reference: 'art/creatures' },
   { kind: 'level', done: 'docs/done/level.md', reference: 'art/levels' },
@@ -28,7 +29,7 @@ test('the settings name the kinds: each with its definition of done and referenc
   const config = parseConfig(JSON.stringify({ kinds: [{ kind: ' creature ', done: 'docs/done/creature.md', reference: 'art/creatures' }, { kind: 'level', done: '../out.md', reference: 'art' }, 'menu'] }), {})
   assert.deepEqual(config.kinds, [{ kind: 'creature', done: 'docs/done/creature.md', reference: 'art/creatures' }])
   assert.equal(configProblem(JSON.stringify({ kinds: KINDS })), null)
-  const wants = '"kinds" must be a list of { "kind", "done", "reference" }: a kind\'s name, its definition of done and its reference folder, paths inside the project written with /'
+  const wants = '"kinds" must be a list of { "kind", "done", "reference", "look"? }: a kind\'s name, its definition of done and its reference folder, paths inside the project written with /'
   assert.ok(configProblem(JSON.stringify({ kinds: 'creature' })).startsWith(wants))
   assert.ok(configProblem(JSON.stringify({ kinds: [{ kind: 'creature', done: 'C:/x.md', reference: 'art' }] })).startsWith(wants))
   assert.ok(configProblem(JSON.stringify({ kinds: [{ kind: '', done: 'a.md', reference: 'art' }] })).startsWith(wants))
@@ -117,6 +118,21 @@ test('refined is refused for a step that names a kind of the settings and has no
   const { advisor: free } = await fresh([])
   await free({ ...REFINE, id: 'B1' })
   assert.equal((await free({ action: 'refined', id: 'B1', what: ['three forest levels'] })).ok, true)
+})
+
+test('B451: "none" is refused for a step that names a look kind; a kind\'s standard is taken', async () => {
+  assert.deepEqual(noneForLook('A new creature look', 'none (rules as data)', LOOK).map(one => one.kind), ['creature'])
+  assert.deepEqual(noneForLook('A new creature look', 'creature · art/creatures/a.png · target 75', LOOK), [])
+  assert.deepEqual(noneForLook('Speed up the page', 'none (it tests the loader)', LOOK), [])
+  assert.deepEqual(parseConfig(JSON.stringify({ kinds: [{ ...LOOK[0] }, { ...LOOK[1], look: 'yes' }] }), {}).kinds.map(one => one.look), [true])
+  const { dir, advisor } = await fresh(LOOK)
+  await advisor({ ...REFINE, id: 'B1', summary: 'Three forest levels to walk.' })
+  const refused = await advisor({ action: 'refined', id: 'B1', what: ['three forest levels'], standard: 'none (rules as data)' })
+  assert.equal(refused.status, 409)
+  assert.match(refused.why, /^B1 names the look kind "level", so it changes what the player sees: "none \(\.\.\.\)" is refused\. Give a kind's standard, "level · <a reference picture from art\/levels> · target <score>"/)
+  assert.equal(valueOf(await itemOf(dir, 'B1'), 'Refined'), 'open')
+  const ready = await advisor({ action: 'refined', id: 'B1', what: ['three forest levels'], standard: 'level · art/levels/forest.png · target 75' })
+  assert.equal(ready.ok, true, ready.why)
 })
 
 test('the person\'s answers to the refine keep the Standard line in the block', async () => {
