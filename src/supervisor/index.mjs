@@ -8,6 +8,7 @@
 
 import { SYNC_EVERY_MS, loopOwner, syncRunner } from './loop.mjs'
 import { REFUSED_MS, REPAIR_RULES } from './rules/repair.mjs'
+import { WATCH_RULES } from './rules/watch.mjs'
 
 /** How long the server keeps a name a chat's mod was refused under: as long as the rule `old-name` looks back. */
 export { REFUSED_MS }
@@ -16,17 +17,22 @@ export { REFUSED_MS }
  * The board's supervisor. `ports`: the runner's (loop.mjs `syncRunner`: `state()`, `items()`, `outbox()`, `refused()`,
  * `apply(body)`, `wake(one)`, `leftovers(...)`, `clean(one)`, `noted`, `now()`), plus `loopLock` (`read()`, `write(text)`,
  * `alive(pid)`, `pid`, `port`: the project's lock file, one loop per project, B482), `loops` (the board's loop record:
- * `run(name, fn)`, `failed(name, error)`), `closing()` (true while the board ends), `settings` (config.json), and
- * `timers` (`setInterval`, `clearInterval`; the global ones unless given).
+ * `run(name, fn)`, `failed(name, error)`), `closing()` (true while the board ends), `settings` (config.json: its
+ * `supervisor` thresholds), `timers` (`setInterval`, `clearInterval`; the global ones unless given), and for the watch
+ * rules `memory` (`load()`, `save(value)`: the supervisor's own file) and `mods()` (the Workers mod installed and per
+ * chat).
  * Answers `{ start(), run({ asked, subject }), view(now), stop() }`: `start` runs the list every SYNC_EVERY_MS while this
  * process holds the project's loop; `run` runs it at once (the person's "Out of sync?") and answers today's `{ at, asked,
  * rows, fine }`, or null when another board process holds the loop or the run failed (recorded as the loop "sync");
- * `view(now)` is `{ run, rules, incidents, lastSweep }`: the run the page shows (the newest asked, or one that found
- * something, for an hour; else null), and the parts later tasks fill (empty until then).
+ * `view(now)` is `{ run, checkedAt, rules, incidents, lastSweep }`: the run the page shows (the newest asked, or one
+ * that found something, for an hour; else null), when the list last ran, every rule (repair and watch) with how it
+ * stood then and how often it tripped in the last day, and the parts later tasks fill (empty until then).
+ * Task 2: the watch rules (rules/watch.mjs) run after the repairs and report only: their findings are the run's
+ * `findings`.
  */
 export function createSupervisor(ports) {
-  const { loopLock, loops, closing = () => false, settings: _settings, timers = globalThis, ...runnerPorts } = ports
-  const runner = syncRunner(runnerPorts, REPAIR_RULES)
+  const { loopLock, loops, closing = () => false, settings = {}, timers = globalThis, ...runnerPorts } = ports
+  const runner = syncRunner({ ...runnerPorts, settings: settings.supervisor ?? {} }, REPAIR_RULES, WATCH_RULES)
   const owns = loopOwner({ ...loopLock, now: ports.now })
   let timer = null
   return {
@@ -39,7 +45,10 @@ export function createSupervisor(ports) {
       if (!mine) return null
       return runner.run({ asked }).catch(error => { loops.failed('sync', error); return null })
     },
-    view: now => ({ run: runner.shown(now), rules: [], incidents: [], lastSweep: null }),
+    view: now => {
+      const { at, rules } = runner.status()
+      return { run: runner.shown(now), checkedAt: at, rules, incidents: [], lastSweep: null }
+    },
     stop() {
       if (timer !== null) timers.clearInterval(timer)
       timer = null

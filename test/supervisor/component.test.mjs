@@ -77,13 +77,16 @@ test('a repair rule\'s finding names its rule, its subject and its evidence, bes
 test('run: the list at once, as "Out of sync?" ran it; its answer is today\'s, and the view shows it', async () => {
   const { ports, done } = board()
   const supervisor = createSupervisor(ports)
-  assert.deepEqual(supervisor.view(NOW), { run: null, rules: [], incidents: [], lastSweep: null })
+  const before = supervisor.view(NOW)
+  assert.deepEqual([before.run, before.checkedAt, before.incidents, before.lastSweep], [null, null, [], null])
+  assert.ok(before.rules.length > 0 && before.rules.every(rule => rule.state === null), 'every rule, not checked yet')
   const answer = await supervisor.run({ asked: true })
   assert.deepEqual([answer.at, answer.asked, answer.rows.map(row => row.status), answer.fine], [NOW, true, ['Fixed', 'For Main'], CHECKS.length - 1])
   assert.deepEqual(done.applied.map(one => one.action), ['unblock', 'note'])
   // The loop's lock is this process's now (B482: one loop per project).
   assert.deepEqual(done.lockWrites.map(one => [one.pid, one.port]), [[7, 4310]])
   assert.equal(supervisor.view(NOW).run, answer)
+  assert.equal(supervisor.view(NOW).checkedAt, NOW)
 })
 
 test('run: another board process that holds the project\'s loop runs it; this one runs nothing and answers null', async () => {
@@ -126,4 +129,76 @@ test('start: the list every SYNC_EVERY_MS through the loop "sync", not while the
 
 test('the server\'s note of refused names keeps them as long as the old-name rule looks', () => {
   assert.equal(REFUSED_MS, 10 * MIN)
+})
+
+// Task 2: the watch rules in the loop.
+
+test('the watch rules run after the repairs: what they find is the run\'s findings, every rule says how it stood and how often it tripped', async () => {
+  const { ports } = board()
+  const supervisor = createSupervisor({
+    ...ports,
+    state: async () => ({
+      chats: [LEAD, lane('Painter', { state: 'working' }), lane('Mason', { state: 'unknown' })], chatPrefix: '', limits: {}, pause: null,
+      today: [{ chat: 'Mason', spans: [{ from: ago(30), to: NOW, state: 'unknown', task: null }] }],
+    }),
+    settings: { supervisor: { unknownMinutes: 10 } },
+  })
+  const answer = await supervisor.run()
+  assert.deepEqual(answer.findings.map(one => [one.rule, one.key, one.text]), [['unknown-lane', 'unknown-lane Mason', 'Mason unknown for 30 min']])
+  assert.equal(answer.findings[0].fix, undefined, 'report only: nothing repairs it')
+  const rules = new Map(supervisor.view(NOW).rules.map(rule => [rule.id, rule]))
+  assert.deepEqual([rules.get('blocked').state, rules.get('blocked').trips], ['tripped', 1])
+  assert.deepEqual([rules.get('unknown-lane').state, rules.get('unknown-lane').kind, rules.get('unknown-lane').trips], ['tripped', 'watch', 1])
+  assert.deepEqual([rules.get('old-mod').state, rules.get('old-mod').trips], ['fine', 0])
+  assert.equal(rules.size, REPAIR_RULES.length + 10)
+})
+
+test('the supervisor\'s memory: its repairs of the day, its own watch and the rules\' trips are kept over a restart, apart from sync.json', async () => {
+  let clock = NOW
+  let file = null
+  const saved = []
+  const make = () => {
+    const { ports } = board()
+    let noted = { noted: [], seen: {} }
+    return createSupervisor({
+      ...ports,
+      now: () => clock,
+      state: async () => ({ chats: [LEAD, lane('Painter', { state: 'working' }), lane('Mason', { state: 'unknown' })], chatPrefix: '', limits: {}, pause: null }),
+      noted: { load: async () => noted, save: async value => { noted = value; saved.push(['sync', value]) } },
+      memory: { load: async () => file, save: async value => { file = value; saved.push(['memory', value]) } },
+    })
+  }
+  // First seen unknown now (no timeline): watched, nothing yet; the unblock of B2 is a repair of the day.
+  assert.deepEqual((await make().run()).findings, [])
+  assert.deepEqual(Object.keys(file.seen), ['unknown-lane Mason'])
+  assert.deepEqual(file.repairs.map(one => [one.rule, one.subject, one.key]), [['blocked', 'B2', 'blocked B2 B1']])
+  assert.ok(saved.filter(([what]) => what === 'sync').every(([, value]) => Object.keys(value).sort().join() === 'noted,seen'), 'sync.json keeps its own form')
+  // A restart 11 minutes later: the watch goes on from the file, and the same repair is counted again.
+  clock += 11 * MIN
+  const later = await make().run()
+  assert.deepEqual(later.findings.map(one => one.key), ['unknown-lane Mason'])
+  assert.equal(file.repairs.length, 2)
+  assert.equal(file.trips['unknown-lane'].length, 1)
+  // A third time: the repair that repeats is reported.
+  clock += MIN
+  const third = await make().run()
+  assert.deepEqual(third.findings.map(one => one.rule), ['unknown-lane', 'repair-repeats'])
+  assert.equal(third.findings[1].text, 'The board repaired the same 3 times in a day: blocked for B2')
+})
+
+test('Review Focus 1 in the loop: a repair rule that throws is a finding, the other rules and the loop go on, and the rule shows "failed"', async () => {
+  const { ports, done } = board()
+  const supervisor = createSupervisor({ ...ports, outbox: () => { throw new Error('never read') } })
+  // The outbox port throws while the view is built: the run fails as a whole, recorded as "sync" (as before).
+  assert.equal(await supervisor.run({ asked: true }), null)
+  assert.deepEqual(done.failed.map(([name]) => name), ['sync'])
+  // A repair rule that throws on the data it is given (old-name, on a list of refused names it cannot read): only that
+  // rule fails; the other repairs are carried out and the watch rules run.
+  const odd = createSupervisor({ ...board().ports, refused: () => ({ filter: () => { throw new Error('a torn list') } }) })
+  const answer = await odd.run({ asked: true })
+  assert.deepEqual(answer.findings.map(one => [one.key, one.text]), [['rule-failed old-name', 'rule old-name failed: a torn list']])
+  assert.deepEqual(answer.rows.map(row => row.status), ['Fixed', 'For Main'], 'the other repairs still ran')
+  const rules = odd.view(NOW).rules
+  assert.deepEqual(rules.filter(one => one.state === 'failed').map(one => [one.id, one.why]), [['old-name', 'rule old-name failed: a torn list']])
+  assert.ok(rules.filter(one => one.kind === 'watch').every(one => one.state === 'fine'))
 })

@@ -1759,6 +1759,8 @@ async function main(args) {
       const SYNC_FILE = join(config.project, '.claude', 'sync.json')
       // B482: one loop per project: a second board process on it (another --port) leaves the list to the first
       const LOOP_LOCK = join(config.project, '.claude', 'sync-loop.json')
+      // The supervisor's own memory (its watch, the day's repairs, the rules' trips), beside sync.json and apart from it
+      const SUPERVISOR_FILE = join(config.project, '.claude', 'supervisor.json')
       supervisor = createSupervisor({
         state: () => readState(),
         items: async () => (await readStore(workDir)).items,
@@ -1795,6 +1797,12 @@ async function main(args) {
           },
           save: state => writeAtomic(SYNC_FILE, JSON.stringify(state)),
         },
+        memory: {
+          load: () => kept(SUPERVISOR_FILE),
+          save: value => writeAtomic(SUPERVISOR_FILE, JSON.stringify(value)),
+        },
+        // The Workers mod installed; the version each chat runs is not reported by the mod yet (none known: no finding)
+        mods: async () => ({ installed: (await modNow())?.installed ?? null, chats: {} }),
         now: clock,
         loopLock: {
           read: () => readFile(LOOP_LOCK, 'utf8'),

@@ -151,7 +151,8 @@ function notTaken(view) {
     const text = `${lane.name}: its queued ${id} waited ${minutes(now - told.at)} min while it was free`
     const fix = wakeOr(key, { do: 'wake', chat: lane.name, id, text: `work: ${id} is yours; run work next (the board's check: it waited ${minutes(now - told.at)} min)` },
       { do: 'main', text: `${lane.name} did not take ${id} after the board woke it again: look why` })
-    found.push(finding('not-taken', key, id, text, fix))
+    // The supervisor: about the chat that did not take it (the same chat woken again and again is a repair that repeats).
+    found.push(finding('not-taken', key, lane.name, text, fix))
   }
   return found
 }

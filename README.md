@@ -229,6 +229,9 @@ has these). Every step runs on the model its refine names (`Model: sonnet` unles
 main chat sets the worker's chat to both before the step goes to it, and an opus step waits until the app says its
 worker runs on Opus. Without both ids, each starting with `claude-`, the board sets the effort alone and says so on
 top. `usualModel` and `usualEffort` (`"sonnet"` and `"medium"` unless set): what a worker runs at between steps.
+`supervisor` (the defaults unless set): the thresholds of the board's watch rules, which report what does not look right
+(the supervisor, `DESIGN.md`): `{ "unknownMinutes": 10, "suspendedMinutes": 10, "idleMinutes": 10, "notRunningMinutes":
+30, "opusWaitMinutes": 15, "undeliveredMinutes": 10, "repairsPerDay": 3 }`; any of them, each a number above 0.
 
 ## The work store
 

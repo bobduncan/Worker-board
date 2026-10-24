@@ -9,6 +9,7 @@
 // through the ports it is given.
 
 import { CHECKS, REPAIR_RULES } from './rules/repair.mjs'
+import { buildView } from './view.mjs'
 
 const MIN = 60_000
 
@@ -124,6 +125,49 @@ export async function applySync(findings, ports, noted = new Set()) {
 export const SYNC_SHOWN_MS = 60 * MIN
 /** The keys the main chat was told of, kept at most this many (the newest). */
 const NOTED_KEPT = 500
+/** The supervisor's own memory keeps its repairs and the times each rule tripped this long. */
+const DAY = 24 * 60 * MIN
+/** The times a rule tripped, kept at most this many (the newest). */
+const TRIPS_KEPT = 500
+/** A repair rule's row that says the board did something: a fix, a wake, a note to the main chat, a clean-up. */
+const REPAIRED = ['Fixed', 'Woke', 'Sent', 'Cleaned']
+
+/**
+ * The supervisor (Review Focus 1): the rules run one by one over the view; a rule that throws (bad data, a missing file)
+ * is one finding of its own, `rule <id> failed: <why>`, and the others still run. Answers `{ findings, failed, states }`:
+ * what the rules found, the failures, and per rule what it found (`{ rule, found, failed }`).
+ */
+export function runRules(rules, view, ctx) {
+  const findings = []
+  const failed = []
+  const states = []
+  for (const rule of rules) {
+    try {
+      const found = rule.check(view, ctx)
+      findings.push(...found)
+      states.push({ rule, found, failed: null })
+    } catch (error) {
+      const why = error instanceof Error ? error.message : String(error)
+      const one = {
+        rule: rule.id, key: `rule-failed ${rule.id}`, subject: rule.id, text: `rule ${rule.id} failed: ${why}`,
+        evidence: String(error?.stack ?? why).split('\n').slice(0, 2).map(line => line.trim()).join(' '), failed: true,
+      }
+      failed.push(one)
+      states.push({ rule, found: [], failed: one })
+    }
+  }
+  return { findings, failed, states }
+}
+
+/** The supervisor's own memory as its file keeps it: `{ seen, repairs, trips }`, anything else left out. */
+function memoryOf(value) {
+  const seen = value?.seen !== null && typeof value?.seen === 'object' ? Object.entries(value.seen).filter(([, at]) => Number.isFinite(at)) : []
+  const repairs = Array.isArray(value?.repairs) ? value.repairs.filter(one => Number.isFinite(one?.at) && typeof one?.rule === 'string') : []
+  const trips = value?.trips !== null && typeof value?.trips === 'object'
+    ? Object.entries(value.trips).filter(([, times]) => Array.isArray(times)).map(([id, times]) => [id, times.filter(Number.isFinite)]) : []
+  return { seen: new Map(seen), repairs, trips: new Map(trips) }
+}
+const memoryText = memory => JSON.stringify({ seen: Object.fromEntries(memory.seen), repairs: memory.repairs, trips: Object.fromEntries(memory.trips) })
 
 /**
  * The board's runner of the list: one run at a time, in turn (a click while a run goes waits for it, then runs). `ports`:
@@ -131,16 +175,26 @@ const NOTED_KEPT = 500
  * names a chat was refused under lately, `apply(body)` the work API as the board, `wake({ chat, id, text, key })` a
  * line sent once per key (the message, or null), `noted` `{ load(), save(keys) }` the keys the main chat was told of,
  * `now()`; worktree clean-up: `leftovers({ items, now })` what worktrees.mjs `findLeftovers` finds, and `clean(one)`
- * its `cleanLeftover` (both left out: no such check). `run({ asked })` answers `{ at, asked, rows, fine }`; `shown(now)`
- * is what the page shows: the newest run that was asked or found something (more than what it only lists, Left), for an
- * hour, else null. `rules` are the rules it runs over the view, in their order (the repair rules unless given).
+ * its `cleanLeftover` (both left out: no such check). `run({ asked })` answers `{ at, asked, rows, fine, findings }`;
+ * `shown(now)` is what the page shows: the newest run that was asked or found something (more than what it only lists,
+ * Left), for an hour, else null. `rules` are the repair rules it runs over the view and carries out, in their order.
+ *
+ * The supervisor: `watch` are the watch rules, run after the repairs over the same view (with the day's repairs, this
+ * run's among them); what they find, and every rule that failed, is the run's `findings` (report only). Their own watch,
+ * the day's repairs and the times each rule tripped are the supervisor's memory: `memory` `{ load(), save(value) }`
+ * (kept in memory alone without it), read at every run as sync.json is. `mods()` the Workers mod installed and per chat
+ * (`{ installed, chats }`), `settings` the thresholds (config.json's `supervisor`). `status()` is `{ at, rules }`: when
+ * it last ran, and each rule with how it stood then (`fine`, `tripped`, `failed`; null before the first run) and how
+ * often it tripped in the last day.
  */
-export function syncRunner(ports, rules = REPAIR_RULES) {
+export function syncRunner(ports, rules = REPAIR_RULES, watch = []) {
   let turn = Promise.resolve()
   let shownRun = null
   let noted = null
   // The review: since when each thing that counts only once it lasts has been seen (the rules' `ctx.seen`).
   let seen = new Map()
+  let memory = memoryOf(null)
+  let status = { at: null, rules: [...rules, ...watch].map(rule => ({ id: rule.id, kind: rule.kind, says: rule.says, state: null, why: null, trips: 0 })) }
   async function once(asked) {
     const now = ports.now()
     const state = await ports.state()
@@ -151,14 +205,17 @@ export function syncRunner(ports, rules = REPAIR_RULES) {
     if (!Array.isArray(kept) && kept?.seen !== null && typeof kept?.seen === 'object') {
       seen = new Map(Object.entries(kept.seen).filter(([, at]) => Number.isFinite(at)))
     }
+    // The supervisor's own memory, read at every run as sync.json is.
+    if (typeof ports.memory?.load === 'function') memory = memoryOf(await ports.memory.load())
+    const memoryBefore = memoryText(memory)
     const observed = []
     const items = await ports.items()
-    const view = {
-      items, lanes: state.chats ?? [], partner: state.advisor ?? null, helper: state.advisorHelper ?? null,
-      prefix: state.chatPrefix ?? '', now, outbox: ports.outbox(), limits: state.limits ?? {}, pause: state.pause ?? null, refused: ports.refused(),
-    }
-    view.leftovers = await lookLeftovers(ports, items, now)
-    const findings = rules.flatMap(rule => rule.check(view, { seen, observed }))
+    const view = buildView({
+      state, items, outbox: ports.outbox(), refused: ports.refused(), leftovers: await lookLeftovers(ports, items, now),
+      repairs: memory.repairs, mods: typeof ports.mods === 'function' ? await ports.mods() : null, settings: ports.settings ?? {}, now,
+    })
+    const repairs = runRules(rules, view, { seen, observed })
+    const findings = repairs.findings
     const seenBefore = JSON.stringify([...seen])
     seen = new Map(observed.map(key => [key, seen.get(key) ?? now]))
     let changed = JSON.stringify([...seen]) !== seenBefore
@@ -178,7 +235,35 @@ export function syncRunner(ports, rules = REPAIR_RULES) {
       }
     }
     if (changed) await ports.noted.save({ noted: [...noted], seen: Object.fromEntries(seen) })
-    const answer = { at: now, asked, rows: done.rows, fine: done.fine }
+    // The supervisor: what the repairs did (one row per finding, in their order), for the watch rule repair-repeats.
+    const repaired = findings.flatMap((one, index) => (REPAIRED.includes(done.rows[index]?.status) && one.fix?.do !== 'woken'
+      ? [{ at: now, rule: one.rule ?? one.check, subject: one.subject ?? null, key: one.key }] : []))
+    memory.repairs = [...memory.repairs, ...repaired].filter(one => now - one.at < DAY)
+    let watched = { findings: [], failed: [], states: [] }
+    if (watch.length > 0) {
+      const looked = []
+      watched = runRules(watch, Object.freeze({ ...view, repairs: Object.freeze([...memory.repairs]) }), { seen: memory.seen, observed: looked })
+      memory.seen = new Map(looked.map(key => [key, memory.seen.get(key) ?? now]))
+    }
+    // Each rule as it stood in this run, and how often it tripped in the last day.
+    const isTripped = ({ rule, found }) => (rule.kind === 'repair' ? found.some(one => one.fix?.do !== 'list') : found.length > 0)
+    const states = [...repairs.states, ...watched.states]
+    for (const one of states) {
+      const times = (memory.trips.get(one.rule.id) ?? []).filter(at => now - at < DAY)
+      if (one.failed === null && isTripped(one)) times.push(now)
+      if (times.length > 0) memory.trips.set(one.rule.id, times.slice(-TRIPS_KEPT))
+      else memory.trips.delete(one.rule.id)
+    }
+    status = {
+      at: now,
+      rules: states.map(one => ({
+        id: one.rule.id, kind: one.rule.kind, says: one.rule.says,
+        state: one.failed !== null ? 'failed' : isTripped(one) ? 'tripped' : 'fine',
+        why: one.failed?.text ?? null, trips: (memory.trips.get(one.rule.id) ?? []).length,
+      })),
+    }
+    if (typeof ports.memory?.save === 'function' && memoryText(memory) !== memoryBefore) await ports.memory.save(JSON.parse(memoryText(memory)))
+    const answer = { at: now, asked, rows: done.rows, fine: done.fine, findings: [...repairs.failed, ...watched.failed, ...watched.findings] }
     // The review: a later run that finds nothing clears what the board found by itself; the button's answer stays.
     if (asked || answer.rows.some(row => row.status !== 'Left')) shownRun = answer
     else if (shownRun !== null && !shownRun.asked) shownRun = null
@@ -191,6 +276,7 @@ export function syncRunner(ports, rules = REPAIR_RULES) {
       return run
     },
     shown: now => (shownRun !== null && now - shownRun.at < SYNC_SHOWN_MS ? shownRun : null),
+    status: () => status,
   }
 }
 

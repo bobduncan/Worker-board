@@ -18,6 +18,27 @@ export const ASK_MS = 60 * 60_000
  */
 export const IDLE_HOLD_MS = 5 * 60_000
 
+/**
+ * The supervisor (spec 2026-10-24): the thresholds of its watch rules, in minutes, and how many times the same repair
+ * may come in a day before it is reported (src/supervisor/rules/watch.mjs). config.json's `supervisor` sets any of them.
+ */
+export const SUPERVISOR_DEFAULTS = Object.freeze({
+  /** A worker "unknown" for longer than this. */
+  unknownMinutes: 10,
+  /** A worker "suspended" for this long after its limit is back (its reset passed, or the usage shows room). */
+  suspendedMinutes: 10,
+  /** All workers idle while steps wait, for longer than this. */
+  idleMinutes: 10,
+  /** A step in progress whose worker has not run for longer than this. */
+  notRunningMinutes: 30,
+  /** An opus step that waits for its worker to run on Opus for longer than this. */
+  opusWaitMinutes: 15,
+  /** A word to a chat not delivered for longer than this. */
+  undeliveredMinutes: 10,
+  /** The same repair this many times or more in a day. */
+  repairsPerDay: 3,
+})
+
 export const DEFAULTS = {
   routing: parseRoutingPolicy(),
   /** B129: the project's name, the page's title; by default the project folder's name. */
@@ -130,6 +151,8 @@ export const DEFAULTS = {
   /** Model per step: what a worker runs at between steps, a family of `models` and an effort level of the app's. */
   usualModel: 'sonnet',
   usualEffort: 'medium',
+  /** The supervisor's thresholds (SUPERVISOR_DEFAULTS). */
+  supervisor: SUPERVISOR_DEFAULTS,
 }
 
 /** B354: one kind of work of the settings, its paths inside the project. */
@@ -310,6 +333,10 @@ export function parseConfig(text, env) {
   if (typeof raw.usualModel === 'string' && MODELS.includes(raw.usualModel.trim().toLowerCase())) config.usualModel = raw.usualModel.trim().toLowerCase()
   if (typeof raw.usualEffort === 'string' && EFFORTS.includes(raw.usualEffort.trim().toLowerCase())) config.usualEffort = raw.usualEffort.trim().toLowerCase()
   config.routing = parseRoutingPolicy(raw.routing)
+  // The supervisor: each threshold given as a number above 0 replaces its default; others are left alone.
+  const given = raw.supervisor !== null && typeof raw.supervisor === 'object' && !Array.isArray(raw.supervisor) ? raw.supervisor : {}
+  config.supervisor = Object.freeze(Object.fromEntries(Object.entries(SUPERVISOR_DEFAULTS)
+    .map(([key, value]) => [key, Number.isFinite(given[key]) && given[key] > 0 ? given[key] : value])))
   return config
 }
 
@@ -353,6 +380,13 @@ export function configProblem(fileText) {
   if (has('baseBranch') && !(typeof raw.baseBranch === 'string' && BRANCH.test(raw.baseBranch.trim()))) return wrong('baseBranch', 'a branch name such as "main"')
   if (has('usualModel') && !(typeof raw.usualModel === 'string' && MODELS.includes(raw.usualModel.trim().toLowerCase()))) return wrong('usualModel', MODELS.map(one => `"${one}"`).join(' or '))
   if (has('usualEffort') && !(typeof raw.usualEffort === 'string' && EFFORTS.includes(raw.usualEffort.trim().toLowerCase()))) return wrong('usualEffort', `one of ${EFFORTS.map(one => `"${one}"`).join(', ')}`)
+  if (has('supervisor')) {
+    const given = raw.supervisor
+    if (given === null || typeof given !== 'object' || Array.isArray(given)) return wrong('supervisor', `an object of numbers above 0: ${Object.keys(SUPERVISOR_DEFAULTS).join(', ')}`)
+    for (const key of Object.keys(SUPERVISOR_DEFAULTS)) {
+      if (Object.hasOwn(given, key) && !(Number.isFinite(given[key]) && given[key] > 0)) return `"supervisor.${key}" must be a number above 0, not ${JSON.stringify(given[key]).slice(0, 60)}`
+    }
+  }
   if (has('kinds') && !isKinds(raw.kinds)) return wrong('kinds', 'a list of { "kind", "done", "reference" }: a kind\'s name, its definition of done and its reference folder, paths inside the project written with /, each kind once')
   return null
 }
