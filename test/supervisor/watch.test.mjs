@@ -38,13 +38,13 @@ const check = (id, board, seen = new Map()) => {
   return Object.defineProperty(found, 'observed', { value: observed, enumerable: false })
 }
 
-test('the watch rules: thirteen, report only, each with what it says', () => {
-  assert.deepEqual(WATCH_RULES.map(one => one.id), ['unknown-lane', 'stale-suspended', 'idle-while-waiting', 'holder-not-running', 'opus-wait', 'skip-repeats', 'repair-repeats', 'undelivered', 'report-check-twice', 'old-mod', 'odd-effort', 'review-stuck', 'not-cleared'])
+test('the watch rules: fifteen, report only, each with what it says', () => {
+  assert.deepEqual(WATCH_RULES.map(one => one.id), ['unknown-lane', 'stale-suspended', 'idle-while-waiting', 'holder-not-running', 'working-not-running', 'opus-wait', 'skip-repeats', 'repair-repeats', 'undelivered', 'report-check-twice', 'old-mod', 'odd-effort', 'review-stuck', 'stale-checkpoint', 'not-cleared'])
   assert.ok(WATCH_RULES.every(one => one.kind === 'watch' && typeof one.says === 'string' && one.says.length > 0 && typeof one.check === 'function'))
 })
 
 test('the settings: the thresholds of the spec by default; config.json\'s supervisor sets any of them, and a wrong one stops the board', () => {
-  assert.deepEqual({ ...SUPERVISOR_DEFAULTS }, { unknownMinutes: 10, suspendedMinutes: 10, idleMinutes: 10, notRunningMinutes: 30, opusWaitMinutes: 15, undeliveredMinutes: 10, repairsPerDay: 3, reviewMinutes: 60, notClearedMinutes: 10 })
+  assert.deepEqual({ ...SUPERVISOR_DEFAULTS }, { unknownMinutes: 10, suspendedMinutes: 10, idleMinutes: 10, notRunningMinutes: 30, opusWaitMinutes: 15, undeliveredMinutes: 10, repairsPerDay: 3, reviewMinutes: 60, checkpointMinutes: 120, reportMinutes: 30, notClearedMinutes: 10 })
   assert.deepEqual({ ...parseConfig('{}', {}).supervisor }, { ...SUPERVISOR_DEFAULTS })
   assert.equal(parseConfig('{ "supervisor": { "unknownMinutes": 20, "idleMinutes": -1 } }', {}).supervisor.unknownMinutes, 20)
   assert.equal(parseConfig('{ "supervisor": { "unknownMinutes": 20, "idleMinutes": -1 } }', {}).supervisor.idleMinutes, 10)
@@ -231,11 +231,16 @@ test('report-check-twice: a step whose board check failed twice since its last p
   assert.deepEqual(check('report-check-twice', view({ items: items(step('B12', 'done', {}, { History: [line(60, 'check failed: x'), line(40, 'check failed: y')] })) })), [])
 })
 
+// B570: idle since 45 minutes, past the half hour in which the board has an idle chat restarted.
+const IDLE = { idle: { since: ago(45) } }
+/** B570: the board's first word to restart each chat, 40 minutes ago, for an installed version. */
+const asked = (version, ...names) => names.map(name => ({ id: `r-${name}`, command: 'mod-restart', about: name, version, at: ago(40), state: 'taken', text: 'restart for mod' }))
+
 test('old-mod: a chat on a Workers mod older than the one installed trips; the same, or one not known, does not', () => {
-  const board = chats => view({ chats: [LEAD, lane('Painter'), lane('Mason')], mods: { installed: '0.15.0', chats } })
+  const board = chats => view({ chats: [LEAD, lane('Painter', IDLE), lane('Mason', IDLE)], mods: { installed: '0.15.0', chats }, outbox: asked('0.15.0', 'Painter', 'Mason') })
   const found = check('old-mod', board({ Painter: '0.14.2', Mason: '0.15.0' }))
   assert.deepEqual(found.map(one => [one.key, one.subject]), [['old-mod 0.15.0', 'board']])
-  assert.equal(found[0].text, 'Painter runs an older Workers mod; 0.15.0 is installed')
+  assert.equal(found[0].text, 'Painter runs an older Workers mod, idle over 30 min after the board asked to restart it; 0.15.0 is installed')
   assert.equal(found[0].evidence, 'installed 0.15.0; Painter 0.14.2 (it misses what came after 0.14.2)')
   assert.deepEqual(check('old-mod', board({ Painter: '0.15.0' })), [])
   assert.deepEqual(check('old-mod', view({ chats: [LEAD, lane('Painter')], mods: null })), [])
@@ -243,23 +248,33 @@ test('old-mod: a chat on a Workers mod older than the one installed trips; the s
   assert.deepEqual(check('old-mod', board({ Painter: '0.15.1' })), [])
 })
 
+test('B570: old-mod trips only for a chat idle on the older mod over 30 min: one busy, or idle less long, the board restarts', () => {
+  const board = (more, outbox = asked('0.17.0', 'Painter')) => view({ chats: [LEAD, lane('Painter', more)], mods: { installed: '0.17.0', chats: { Painter: '0.16.1' } }, outbox })
+  assert.equal(check('old-mod', board(IDLE)).length, 1)
+  assert.deepEqual(check('old-mod', board(IDLE, [])), [], 'not asked yet (right after an install): its word goes first')
+  assert.deepEqual(check('old-mod', board({ idle: { since: ago(20) } })), [], 'idle 20 min: its restart is on its way')
+  assert.deepEqual(check('old-mod', board({ ...IDLE, state: 'working' })), [], 'busy: restarted after its step')
+  assert.deepEqual(check('old-mod', board({ ...IDLE, isRunning: false })), [], 'not running: it starts on the installed mod')
+  assert.deepEqual(check('old-mod', board({})), [], 'no idle time known')
+})
+
 test('the review: old-mod counts a chat whose mod asked without saying its version (null) as older than 0.16.0, once that is installed', () => {
-  const board = (installed, chats) => view({ chats: [LEAD, lane('Painter'), lane('Mason')], mods: { installed, chats } })
+  const board = (installed, chats) => view({ chats: [LEAD, lane('Painter', IDLE), lane('Mason', IDLE)], mods: { installed, chats }, outbox: asked(installed, 'Painter', 'Mason') })
   const found = check('old-mod', board('0.16.0', { Painter: null, Mason: '0.16.0' }))
-  assert.deepEqual(found.map(one => [one.key, one.subject, one.text]), [['old-mod 0.16.0', 'board', 'Painter runs an older Workers mod; 0.16.0 is installed']])
+  assert.deepEqual(found.map(one => [one.key, one.subject, one.text]), [['old-mod 0.16.0', 'board', 'Painter runs an older Workers mod, idle over 30 min after the board asked to restart it; 0.16.0 is installed']])
   // While an older mod is installed, no chat says its version: nothing to report.
   assert.deepEqual(check('old-mod', board('0.15.0', { Painter: null, Mason: null })), [])
 })
 
 test('B541: three chats on an old mod (the main chat and the partner too) are one finding naming all three, keyed by the installed version', () => {
   const board = chats => buildView({
-    state: { chats: [LEAD, lane('Painter'), lane('Mason')], advisor: { name: 'Guide' }, chatPrefix: '' },
-    mods: { installed: '0.16.0', chats }, now: NOW,
+    state: { chats: [{ ...LEAD, state: 'free', ...IDLE }, lane('Painter', IDLE), lane('Mason', IDLE)], advisor: { name: 'Guide', state: 'free', ...IDLE }, chatPrefix: '' },
+    mods: { installed: '0.16.0', chats }, outbox: asked('0.16.0', 'Lead', 'Painter', 'Mason', 'Guide'), now: NOW,
   })
   const found = check('old-mod', board({ Lead: null, Painter: '0.15.2', Mason: '0.16.0', Guide: null }))
   // One per chat would be three findings here: the fix of X4-X6 is one.
   assert.equal(found.length, 1)
-  assert.deepEqual([found[0].key, found[0].subject, found[0].text], ['old-mod 0.16.0', 'board', 'Lead, Painter and Guide run an older Workers mod; 0.16.0 is installed'])
+  assert.deepEqual([found[0].key, found[0].subject, found[0].text], ['old-mod 0.16.0', 'board', 'Lead, Painter and Guide run an older Workers mod, idle over 30 min after the board asked to restart it; 0.16.0 is installed'])
   assert.equal(found[0].evidence, 'installed 0.16.0; Lead older than 0.16.0 (it says no version and misses the newer work calls); Painter 0.15.2 (it misses what came after 0.15.2); Guide older than 0.16.0 (it cannot name the fix of an incident)')
   // The same key while it lasts, whoever is on it: one incident counts up.
   assert.equal(check('old-mod', board({ Painter: '0.15.2' }))[0].key, 'old-mod 0.16.0')

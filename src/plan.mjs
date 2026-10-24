@@ -434,7 +434,13 @@ const WORK_WORDS = {
   // The new order (2026-10-21): the plan check, and a proposed next focus.
   'plan-check': 'the plan check', 'plan-focus': 'a next focus',
   'plan-tradeoffs': 'the tradeoffs', 'plan-tradeoff': 'your tradeoff',
+  // 2026-10-24: the person's answer of a plan question, from which the partner prepares the card's next question.
+  'plan-answer': 'the next question from your answer',
 }
+
+/** The card a word answers ("P1" for an answer of "P1.2: ..."), when it is the person's answer of a plan question. */
+const answeredCard = message => (typeof message?.ask === 'string' && (message.command ?? null) === null && QUESTION.test(String(message.title ?? ''))
+  ? String(message.title).match(QUESTION)[1].split('.')[0] : null)
 /** A word the partner has not answered after this long is late: the tab offers to send it again. */
 export const PLAN_LATE_MS = 30 * 60_000
 
@@ -450,16 +456,18 @@ export function withPlanWork(plan, sent, pageAt, now) {
   const seen = new Set()
   const working = []
   for (const message of [...(Array.isArray(sent) ? sent : [])].reverse()) {
-    const command = message?.command
+    const card = answeredCard(message)
+    const command = card === null ? message?.command : 'plan-answer'
     if (typeof command !== 'string' || WORK_WORDS[command] === undefined) continue
-    const about = message.about ?? 'plan'
+    const about = card ?? message.about ?? 'plan'
     const key = `${command}:${about}`
     if (seen.has(key)) continue
     seen.add(key)
     const at = Number(message.at)
     const asked = command === 'plan-deeper'
       ? plan.questions.some(question => question.about === about && question.isDeeper && question.filedAt >= at)
-      : command === 'plan-ask' ? plan.questions.some(question => question.id === about && question.filedAt >= at) : false
+      : command === 'plan-ask' ? plan.questions.some(question => question.id === about && question.filedAt >= at)
+        : command === 'plan-answer' ? plan.questions.some(question => question.about === about && question.filedAt >= at) : false
     if (asked || (Number.isFinite(pageAt) && pageAt > at)) continue
     working.push({ command, about, at, state: wordState(message, at, now), what: WORK_WORDS[command] })
   }

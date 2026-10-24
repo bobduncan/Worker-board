@@ -580,7 +580,8 @@ const WAKE_AGAIN_MS = 2 * 60_000
 const WAKE_PENDING_MS = 10 * 60_000
 
 /** The commands the board puts to a chat other than the main one: a word the chat's work stands on (wakeFor). */
-const PARTNER_WORDS = ['recommend', 'refine', 'result-check', 'evaluate', 'work', 'recheck', 'goal-ask', 'brainstorm', 'brainstorm-answer', 'brainstorm-wrap', 'brainstorm-change', 'brainstorm-fix', 'incident', ...FOCUS_COMMANDS]
+// B570: and the board's word that asks the partner to restart the main chat on a new Workers mod.
+const PARTNER_WORDS = ['recommend', 'refine', 'result-check', 'evaluate', 'work', 'recheck', 'goal-ask', 'brainstorm', 'brainstorm-answer', 'brainstorm-wrap', 'brainstorm-change', 'brainstorm-fix', 'incident', 'mod-restart', ...FOCUS_COMMANDS]
 export const isPartnerWord = command => typeof command === 'string' && (command.startsWith('plan-') || PARTNER_WORDS.includes(command))
 
 /**
@@ -588,7 +589,7 @@ export const isPartnerWord = command => typeof command === 'string' && (command.
  * a round of the board's clock, and the main chat's start of a closed chat. The rest (a pause's resume, a line typed in
  * a talk) is stale in minutes.
  */
-export const waitsLong = command => command === 'start' || command === 'round' || isPartnerWord(command)
+export const waitsLong = command => command === 'start' || command === 'wake' || command === 'round' || isPartnerWord(command)
 
 /**
  * What the board adds when something was sent to a chat that is not running: the word to the main chat to start
@@ -634,6 +635,34 @@ export function wakesDue(state, outbox, now, maxChars) {
     if (start !== null) starts.push(start)
   }
   return starts
+}
+
+/**
+ * B577: the main chat's word to wake a chat whose session was stopped (its turn cut by a stop, the main chat's or the
+ * person's): the app drops every word to it until it gets input, and a message by its session id is input. `stop` is
+ * the chat's stop (src/stopped.mjs `stoppedOf`), `clock` says a time as "21:40".
+ */
+export const wakeStoppedWords = (main, lane, stop, clock) => {
+  const id = typeof lane.appSession === 'string' && /^[\w-]{1,80}$/.test(lane.appSession) ? ` Its session id: ${lane.appSession}.` : ''
+  const count = `${stop.words} ${stop.words === 1 ? 'word' : 'words'}`
+  return {
+    to: main, ask: null, step: null, title: null, version: null, verdict: null, command: 'wake', about: lane.name, stoppedAt: stop.since,
+    text: `wake "${plainLine(lane.name)}"
+Its turn was stopped at ${clock(stop.since)} and the app drops every word to it until it gets input: ${count} from the worker board wait for it. Send it one line by its session id: "The worker board holds words for you; they come in now." If you stopped it, say who and why in a work note.${id}`,
+  }
+}
+
+/**
+ * B577: the words to the main chat to wake each stopped chat, once per stop (the stop's first time, `stoppedAt`): none
+ * for the main chat itself, and none when the board knows no main chat. `outbox` is everything sent.
+ */
+export function wakesStopped(state, stopped, outbox, clock) {
+  const main = state.restart?.main ?? null
+  if (main === null) return []
+  const lanes = [...(state.chats ?? []).filter(chat => !chat.isLeftover), ...(state.advisor ? [state.advisor] : []), ...(state.advisorHelper ? [state.advisorHelper] : []), ...(state.supervisorChat ? [state.supervisorChat] : [])]
+  return lanes.filter(lane => lane.name !== main && (stopped.get(lane.name) ?? null) !== null)
+    .filter(lane => !outbox.some(sent => sent.command === 'wake' && sent.about === lane.name && sent.stoppedAt === stopped.get(lane.name).since))
+    .map(lane => wakeStoppedWords(main, lane, stopped.get(lane.name), clock))
 }
 
 /**

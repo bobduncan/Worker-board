@@ -14,8 +14,8 @@
 
 import { sinceMs, valueOf } from '../../work/item.mjs'
 import { blockersOpen, waitWords } from '../../work/guards.mjs'
-import { heldMs, isHolding } from '../../work/pause.mjs'
-import { whyClosed } from '../../work/outboxSweep.mjs'
+import { checkpointOf, heldMs, isHolding } from '../../work/pause.mjs'
+import { stoppedChats, whyClosed } from '../../work/outboxSweep.mjs'
 import { FIRST_SAYING, chatsByRole, oldModFinding } from '../../oldMods.mjs'
 import { EFFORTS, chatEffort, effortSaid } from '../../work/effort.mjs'
 import { reviewWaitOf } from '../../work/resultCheck.mjs'
@@ -179,6 +179,32 @@ function holderNotRunning(view, ctx) {
   return found
 }
 
+/**
+ * B566 (X22, X21: chats shown not running while they ran, the board's only sign their takes): a worker whose card says
+ * it works (or that the board shows off for a card left working) while its chat made no call to the board, took
+ * nothing and wrote nothing to its conversation (the board's `isRunning` false) for longer than 5 minutes: one
+ * incident per worker. A worker on a step in progress is holder-not-running's.
+ */
+const WORKING_NOT_RUNNING_MS = 5 * MIN
+function workingNotRunning(view, ctx) {
+  const found = []
+  if (isPaused(view) || isFull(view)) return found
+  const holding = new Set(stepsOf(view).filter(one => HOLDS.includes(stateOf(one))).map(one => plain(valueOf(one, 'Owner'), view.prefix)))
+  for (const lane of workersOf(view)) {
+    const isWorkingCard = lane.state === 'working' || (lane.state === 'off' && Number.isFinite(lane.offSince))
+    if (!isWorkingCard || lane.isRunning !== false || holding.has(plain(lane.name, view.prefix))) continue
+    const key = `working-not-running ${lane.name}`
+    const ms = lasted(view, ctx, key, afterPause(view, Number.isFinite(lane.offSince) ? lane.offSince : null))
+    if (ms <= WORKING_NOT_RUNNING_MS) continue
+    found.push({
+      rule: 'working-not-running', key, subject: lane.name,
+      text: `${lane.name}'s card says it works, but its chat made no call, took nothing and wrote nothing for ${minutes(ms)} min`,
+      evidence: `${lane.name}: state ${lane.state}, running no, since ${clockOf(view.now - ms)}`,
+    })
+  }
+  return found
+}
+
 /** 5. An opus step whose line waits for its worker to run on Opus, for longer than `opusWaitMinutes`. */
 function opusWait(view, ctx) {
   const found = []
@@ -288,13 +314,17 @@ function repairRepeats(view) {
  * with the reason, and a chat's next take hands it the rest however old, with its age (the main chat's start word, kept
  * as long, opens a chat that is not running). So the rule names only what still waits after that: a word the sweep would
  * drop is not named, nor a person's answer past its keep, which waits for its chat on purpose (a step that comes back).
+ * B577: a word that went again (`retriedAs`: tried anew, its chat stopped or replaced) is named by the word that stands
+ * for it, not twice; a chat whose session was stopped is named once per stop, with whether the main chat was asked to
+ * wake it, not word by word.
  */
 function undelivered(view) {
   // The person pauses: the bridge holds every word until Resume all.
   if (isPaused(view)) return []
   const limit = view.settings.undeliveredMinutes * MIN
   const runs = new Map(view.lanes.filter(chat => !chat.isLeftover).map(chat => [chat.name, chat.isRunning === true]))
-  const ctx = { all: view.outbox, items: view.items, runs, goals: view.goals ?? [], now: view.now, keep: view.keep, closing: new Map() }
+  const stopped = stoppedChats(view.outbox, { chats: view.lanes, advisor: view.partner, advisorHelper: view.helper, supervisorChat: view.supervisor })
+  const ctx = { all: view.outbox, items: view.items, runs, goals: view.goals ?? [], now: view.now, keep: view.keep, closing: new Map(), stopped }
   // A word that waited too long still counts (the sweep marks it expired, and so does this rule); one that no longer
   // matters (dropped: superseded, its step moved on) does not.
   // B548: an answer waits for its chat however old (store.mjs isLate); past answerMs it is not named here.
@@ -306,12 +336,21 @@ function undelivered(view) {
     const held = message.at + heldMs(message, view.now, view.pause)
     const since = afterPause(view, Number.isFinite(message.releasedAt) ? Math.max(held, message.releasedAt) : held)
     if (message.state === 'waiting') return view.now - since > limit && stillWaits(message)
-    return (message.state === 'expired' || message.state === 'failed') && view.now - message.at < UNDELIVERED_LOOK_MS && view.now - since > limit
+    return (message.state === 'expired' || (message.state === 'failed' && message.retriedAs === undefined)) && view.now - message.at < UNDELIVERED_LOOK_MS && view.now - since > limit
   })
   const byChat = new Map()
   for (const message of late) byChat.set(message.to, [...(byChat.get(message.to) ?? []), message])
   return [...byChat].sort(([a], [b]) => byId(a, b)).map(([chat, words]) => {
     const oldest = words.reduce((a, b) => (b.at < a.at ? b : a))
+    const stop = stopped.get(chat) ?? null
+    if (stop !== null) {
+      const woken = view.outbox.findLast(one => one.command === 'wake' && one.about === chat && one.stoppedAt === stop.since)
+      return {
+        rule: 'undelivered', key: `undelivered ${chat} stopped ${stop.since}`, subject: chat,
+        text: `${chat} was stopped at ${clockOf(stop.since)}: ${words.length} ${words.length === 1 ? 'word waits' : 'words wait'} for it, the oldest for ${minutes(view.now - oldest.at)} min`,
+        evidence: woken === undefined ? 'the main chat is not asked to wake it yet' : `the main chat was asked to wake it at ${clockOf(woken.at)} (${woken.state})`,
+      }
+    }
     return {
       rule: 'undelivered', key: `undelivered ${chat}`, subject: chat,
       text: `${words.length} ${words.length === 1 ? 'word' : 'words'} to ${chat} not delivered, the oldest for ${minutes(view.now - oldest.at)} min`,
@@ -342,15 +381,16 @@ function reportCheckTwice(view) {
 export { FIRST_SAYING }
 
 /**
- * 10. Chats on an older Workers mod than the one installed: they get the new one only when their chats start anew, and
- * the one way to that is the same for all (pause all, restart the app, resume all). B541: so one finding for all of
+ * 10. Chats on an older Workers mod than the one installed: they get the new one only when their chats start anew. B570:
+ * the board has each idle one restarted between its steps, so only one idle on the older mod over 30 minutes trips (its
+ * restart did not reach it); for those the way is the same for all (pause all, restart the app, resume all). B541: so one finding for all of
  * them, keyed by the installed version and naming each with what it misses: the main chat, the workers, the partner,
  * its helper and the supervisor's chat (oldMods.mjs). A chat whose version the board does not know (its mod did not ask
  * lately) is no case; one whose mod asked without saying its version (null) runs one older than FIRST_SAYING, a case
  * once that one or a newer one is installed (the review).
  */
 function oldMod(view) {
-  const found = oldModFinding(view.mods, chatsByRole({ chats: view.lanes, advisor: view.partner, advisorHelper: view.helper, supervisorChat: view.supervisor }))
+  const found = oldModFinding(view.mods, chatsByRole({ chats: view.lanes, advisor: view.partner, advisorHelper: view.helper, supervisorChat: view.supervisor }), view.now, view.outbox ?? [])
   return found === null ? [] : [found]
 }
 
@@ -414,8 +454,70 @@ function reviewStuck(view, ctx) {
   return found
 }
 
+/** A span in words: "45 min", "2 h 10 min". */
+const lasting = ms => (ms < HOUR ? `${minutes(ms)} min` : `${Math.floor(ms / HOUR)} h${minutes(ms % HOUR) > 0 ? ` ${minutes(ms % HOUR)} min` : ''}`)
+/** A checkpoint's next action that is the report itself ("report B522", "work report B7 ..."). */
+const REPORT_NEXT = /^\s*(?:work\s+)?report\b/i
+
 /**
- * 13. B547 (the rules X13 and X14 wanted): a worker whose last report is newer than its last clear (state.mjs `clearOwed`,
+ * B572 (the fix of X24: B522 sat in progress 2 h 36 min, its last checkpoint "report B522" of 19:07 never followed by a
+ * report): whether a step in progress has a stale checkpoint, as the rule stale-checkpoint and the health summary read it.
+ * 'report': its last checkpoint's next action is to report, written over `reportMinutes` ago; 'old': in progress over
+ * `checkpointMinutes` with no checkpoint within them (`checkpoint` null: none at all). Times count from the end of the
+ * person's last pause at the earliest, less the time its worker stood suspended for the limit (the review: it cannot
+ * write a checkpoint meanwhile). A checkpoint from before the step's current stretch in progress (it waited on you
+ * since) counts as none: the stretch counts from its start. Null when it is not late, not in progress, the person
+ * pauses, a limit is full, or its worker is paused for the limit now (it stands still on purpose). `{ kind, step,
+ * checkpoint, quiet }`: `step` how long it has been in progress, `quiet` how long since its last checkpoint (or since
+ * the stretch began, without one).
+ */
+export function checkpointLate(item, view) {
+  if (stateOf(item) !== 'in progress' || isPaused(view) || isFull(view)) return null
+  const owner = workersOf(view).find(lane => plain(lane.name, view.prefix) === plain(valueOf(item, 'Owner'), view.prefix))
+  if (owner?.state === 'suspended') return null
+  const began = sinceMs(valueOf(item, 'Since'))
+  if (!Number.isFinite(began)) return null
+  const checkpoint = checkpointOf(item)
+  const written = Number.isFinite(checkpoint?.at) && checkpoint.at >= began ? checkpoint.at : null
+  const counted = from => view.now - afterPause(view, from) - (owner === undefined ? 0 : suspendedMs(view, owner.name, afterPause(view, from)))
+  const quiet = counted(written ?? began)
+  const late = { step: view.now - began, checkpoint, quiet }
+  if (written !== null && REPORT_NEXT.test(checkpoint.next) && quiet > view.settings.reportMinutes * MIN) return { kind: 'report', ...late }
+  return counted(began) > view.settings.checkpointMinutes * MIN && quiet > view.settings.checkpointMinutes * MIN ? { kind: 'old', ...late } : null
+}
+
+/** B572: how long the chat stood suspended for the limit between `from` and now, by its timeline's spans. */
+function suspendedMs(view, name, from) {
+  const spans = view.timeline.find(one => plain(one.chat, view.prefix) === plain(name, view.prefix))?.spans ?? []
+  return spans.filter(span => span.state === 'suspended')
+    .reduce((sum, span) => sum + Math.max(0, Math.min(span.to ?? view.now, view.now) - Math.max(span.from, from)), 0)
+}
+
+/**
+ * 13. B572: a step in progress with a stale checkpoint (checkpointLate): one finding for the main chat per step and
+ * checkpoint, so a lasting one counts up as one incident and a newer stale checkpoint is a case of its own.
+ */
+function staleCheckpoint(view) {
+  const found = []
+  for (const item of stepsOf(view).sort((a, b) => byId(idOf(a), idOf(b)))) {
+    const late = checkpointLate(item, view)
+    if (late === null) continue
+    const id = idOf(item)
+    const { checkpoint } = late
+    const who = `${id} in progress for ${lasting(late.step)} (${valueOf(item, 'Owner') ?? 'nobody'})`
+    const text = late.kind === 'report' ? `${who}; its last checkpoint, "${checkpoint.next}" at ${clockOf(checkpoint.at)}, was never followed by a report`
+      : checkpoint === null ? `${who} with no checkpoint` : `${who} with no checkpoint for ${lasting(late.quiet)}`
+    found.push({
+      rule: 'stale-checkpoint', key: `stale-checkpoint ${id} ${checkpoint?.line ?? 'none'}`, subject: id, text,
+      evidence: `in progress since ${clockOf(sinceMs(valueOf(item, 'Since')))}; ${checkpoint === null ? 'no checkpoint in its record'
+        : `checkpoint ${checkpoint.commit ?? 'none'} · ${checkpoint.next} at ${Number.isFinite(checkpoint.at) ? clockOf(checkpoint.at) : 'a time not known'}`}`,
+    })
+  }
+  return found
+}
+
+/**
+ * 14. B547 (the rules X13 and X14 wanted): a worker whose last report is newer than its last clear (state.mjs `clearOwed`,
  * src/clearOwed.mjs) and that took a new step since, on the old conversation; or that stays so for longer than
  * `notClearedMinutes` (a log refused while its background work runs, a mod that left no word). One finding per worker
  * per report, with the Workers mod's why when it logged one, and the repair: the board holds its next step and names the
@@ -452,13 +554,15 @@ export const WATCH_RULES = [
   { id: 'stale-suspended', kind: 'watch', says: 'a worker "suspended" after its limit came back', check: staleSuspended },
   { id: 'idle-while-waiting', kind: 'watch', says: 'all workers idle while steps wait', check: idleWhileWaiting },
   { id: 'holder-not-running', kind: 'watch', says: 'a step in progress whose worker does not run', check: holderNotRunning },
+  { id: 'working-not-running', kind: 'watch', says: 'a worker whose card says it works while its chat makes no call and writes nothing', check: workingNotRunning },
   { id: 'opus-wait', kind: 'watch', says: 'an Opus step waiting for Opus too long', check: opusWait },
   { id: 'skip-repeats', kind: 'watch', says: 'a clear or a compaction skipped for the same reason twice in a row', check: skipRepeats },
   { id: 'repair-repeats', kind: 'watch', says: 'the same repair three times or more in a day', check: repairRepeats },
   { id: 'undelivered', kind: 'watch', says: 'a word to a chat not delivered', check: undelivered },
   { id: 'report-check-twice', kind: 'watch', says: 'a step whose board check failed twice', check: reportCheckTwice },
-  { id: 'old-mod', kind: 'watch', says: 'a chat on an older Workers mod than the one installed', check: oldMod },
+  { id: 'old-mod', kind: 'watch', says: 'a chat idle on an older Workers mod than the one installed for over 30 min', check: oldMod },
   { id: 'odd-effort', kind: 'watch', says: 'a chat whose effort is not a level', check: oddEffort },
   { id: 'review-stuck', kind: 'watch', says: 'a step in review with no result check for too long, or whose fix was dropped', check: reviewStuck },
+  { id: 'stale-checkpoint', kind: 'watch', says: 'a step in progress with no checkpoint for hours, or whose checkpoint said to report long ago', check: staleCheckpoint },
   { id: 'not-cleared', kind: 'watch', says: 'a worker not cleared after its reported step', check: notCleared },
 ]

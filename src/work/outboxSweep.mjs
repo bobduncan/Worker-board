@@ -4,8 +4,10 @@
 // says what became of it. A person's answer (an ask set) is never closed here: it waits for its chat however old (B548),
 // also one that is off on purpose. A word the chat took and could not type is retried (store.mjs retryFailed) before the judging.
 
+import { shownChats } from '../bridge.mjs'
 import { waitsLong } from '../say.mjs'
 import { isLate, keepMs } from '../store.mjs'
+import { stoppedOf } from '../stopped.mjs'
 import { stamp } from './migrate.mjs'
 import { readStore } from './store.mjs'
 
@@ -56,6 +58,10 @@ export function whyClosed(message, ctx) {
     if (ctx.runs.get(message.about) === true) return { state: 'dropped', why: `${message.about} runs now` }
     const waits = all.some(one => one.to === message.about && one.id !== message.id && one.state === 'waiting' && one.command !== 'start' && !ctx.closing.has(one.id))
     if (!waits) return { state: 'dropped', why: `nothing waits for ${message.about} any more` }
+  } else if (message.command === 'wake' && ctx.stopped instanceof Map) {
+    // B577: the main chat's word to wake a stopped chat: not needed once that chat began a turn, or another session
+    // stands under its name (a chat replaced), or nothing waits for it any more.
+    if ((ctx.stopped.get(message.about) ?? null) === null) return { state: 'dropped', why: `${message.about} is no longer stopped` }
   }
   return isLate(message, now, keep) ? expired(message, keep) : null
 }
@@ -71,13 +77,15 @@ export async function sweepOutbox({ dir, outbox, state, now, keep, fs, dry = fal
   // Without the outbox's keep (a caller that delivers work lines only) nothing is judged.
   if ((keep ?? null) === null) return []
   if (!dry) await outbox.retryFailed(now, keep)
+  // B577: at a refresh, the words that failed for a chat's old session go to the session the board shows under its name now.
+  if (!dry && to === null && typeof outbox.revive === 'function') await outbox.revive(sessionsOf(state), now, keep)
   const waiting = outbox.outbox().filter(message => message.state === 'waiting' && (to === null || message.to === to))
   if (waiting.length === 0) return []
   const items = (dir ?? null) === null ? null : (await readStore(dir, fs)).items
   const runs = new Map((state?.chats ?? []).filter(chat => !chat.isLeftover).map(chat => [chat.name, chat.isRunning === true]))
   const all = outbox.outbox()
   const closing = new Map()
-  const ctx = { all, items, runs, goals: state?.goals?.nodes ?? [], now, keep, closing }
+  const ctx = { all, items, runs, goals: state?.goals?.nodes ?? [], now, keep, closing, stopped: stoppedChats(all, state) }
   // The starts last: they depend on what the other words become.
   const ordered = [...waiting.filter(message => message.command !== 'start'), ...waiting.filter(message => message.command === 'start')]
   for (const message of ordered) {
@@ -88,11 +96,21 @@ export async function sweepOutbox({ dir, outbox, state, now, keep, fs, dry = fal
   return [...closing.values()]
 }
 
+/** B577: the session the board shows under each chat's name. */
+const sessionsOf = state => new Map(shownChats(state ?? {}).filter(chat => typeof chat.session === 'string' && chat.session !== '').map(chat => [chat.name, chat.session]))
+
+/** B577: per chat the board shows, its stop (src/stopped.mjs `stoppedOf`): `{ since, words }`, or null. */
+export const stoppedChats = (outbox, state) => new Map(shownChats(state ?? {}).map(chat => [chat.name, stoppedOf(outbox, chat)]))
+
 /**
  * B548: a chat's take: the sweep of that chat's words first (a failed sweep is said and the take goes on), so a chat is
  * never handed a word whose purpose is gone, then what still waits for it (store.mjs `take`).
  */
 export async function takeFor({ dir, outbox, state, now, keep, chat, only, fs }) {
   await sweepOutbox({ dir, outbox, state, now, keep, fs, to: chat }).catch(error => console.error(`The outbox sweep failed: ${error.message}`))
+  // B577: a chat whose session was stopped takes nothing until it gets input (the app would drop every word): its words
+  // wait, and the main chat is asked to wake it (say.mjs `wakesStopped`).
+  const lane = shownChats(state ?? {}).find(one => one.name === chat)
+  if (stoppedOf(outbox.outbox(), lane) !== null) return []
   return outbox.take(chat, now, keep, only)
 }

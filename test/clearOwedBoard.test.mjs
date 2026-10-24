@@ -29,7 +29,10 @@ const freePort = () => new Promise(done => {
 })
 
 function run(started, board, env) {
-  const child = spawn(process.execPath, [join(board, 'server.mjs')], { cwd: board, env: { ...process.env, ...env, WORKER_BOARD_CHILD: '1' }, windowsHide: true })
+  // B570: the copy reads no Workers mod installed on this PC (an empty Claude folder beside it), so no restart for a
+  // newer mod holds the lines this test watches.
+  const claude = join(dirname(board), 'claude-config')
+  const child = spawn(process.execPath, [join(board, 'server.mjs')], { cwd: board, env: { ...process.env, CLAUDE_CONFIG_DIR: claude, ...env, WORKER_BOARD_CHILD: '1' }, windowsHide: true })
   started.push(child)
   return new Promise((done, fail) => {
     let out = ''

@@ -7,6 +7,19 @@
 import { sinceMs } from '../work/item.mjs'
 
 const DAY = 24 * 60 * 60_000
+/** A History line's stamp and what it says: "- 2026-10-24 18:38 board: came back (seen 3 times)". */
+const BACK_LINE = /^-\s+(\d{4}-\d{2}-\d{2} \d{2}:\d{2}(?::\d{2})?)\s.*:\s+came back\b/
+
+/** B573: when an incident was last found: when it came back last (its History), else when it opened (First seen). */
+function foundAtOf(item, firstSeen) {
+  const lines = item.sections?.get('History') ?? []
+  for (let at = lines.length - 1; at >= 0; at -= 1) {
+    const back = lines[at].match(BACK_LINE)
+    const time = back === null ? Number.NaN : sinceMs(back[1])
+    if (Number.isFinite(time)) return time
+  }
+  return firstSeen
+}
 
 /**
  * Files `findings` (`{ rule, key, subject, text, evidence }`), one record per key in a run, through `work` (the work API
@@ -44,7 +57,7 @@ export async function recordFindings(findings, { work }) {
 /**
  * The incidents as the section shows them, from the store's items: every one not fixed, and those fixed in the last
  * day, the newest seen first: `{ id, title, state, fix, source, subject, count, firstSeen, lastSeen, since, evidence,
- * ruleWanted }` (`since` when it got its state).
+ * ruleWanted, foundAt }` (`since` when it got its state, `foundAt` when it opened or last came back).
  */
 export function incidentsOf(items, now) {
   const value = (item, key) => {
@@ -57,6 +70,7 @@ export function incidentsOf(items, now) {
       id: value(item, 'Id'), title: value(item, 'Title'), state: value(item, 'State'), fix: value(item, 'Fix'), source: value(item, 'Source'),
       subject: value(item, 'Subject'), count: Number(value(item, 'Count')) || 0, firstSeen: sinceMs(value(item, 'First seen')),
       lastSeen: sinceMs(value(item, 'Last seen')), since: sinceMs(value(item, 'Since')), evidence: value(item, 'Evidence'), ruleWanted: value(item, 'Rule wanted'),
+      foundAt: foundAtOf(item, sinceMs(value(item, 'First seen'))),
     }))
     .filter(one => one.state !== 'fixed' || !(now - one.lastSeen >= DAY))
     .sort((a, b) => (b.lastSeen || 0) - (a.lastSeen || 0) || String(b.id).localeCompare(String(a.id), 'en', { numeric: true }))

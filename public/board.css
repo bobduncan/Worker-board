@@ -977,10 +977,14 @@ body.is-resizing { cursor: col-resize; user-select: none; }
 .supervisor { margin: 0 18px 12px; padding: 14px 18px; border: 1px solid var(--line); border-radius: 10px; background: var(--inset); }
 .supervisor-head { display: flex; align-items: center; gap: 10px; }
 .supervisor-head .check-now { margin-right: 0; }
-.supervisor-title { display: flex; align-items: center; gap: 8px; margin: 0; font-size: 15px; font-weight: 700; }
-.supervisor-title svg { width: 16px; height: 16px; flex: none; color: var(--muted); }
-.supervisor-close { padding: 0 6px; border: 0; background: transparent; color: var(--muted); font-size: 20px; line-height: 1; cursor: pointer; }
-.supervisor-close:hover { color: var(--text); }
+/* B573: folded to its head line with the counts; the line opens and folds it. */
+.supervisor.is-folded { padding-top: 8px; padding-bottom: 8px; }
+.supervisor-fold { display: flex; align-items: center; gap: 8px; min-width: 0; padding: 2px 0; border: 0; background: transparent; color: var(--text); font: inherit; text-align: left; cursor: pointer; }
+.supervisor-fold:hover .supervisor-title { color: #cfe3ff; }
+.supervisor-fold:focus-visible { outline: 2px solid var(--free); outline-offset: 2px; border-radius: 4px; }
+.supervisor-fold svg { width: 16px; height: 16px; flex: none; color: var(--muted); }
+.supervisor-caret { flex: none; width: 12px; color: var(--muted); font-size: 12px; }
+.supervisor-title { min-width: 0; font-size: 15px; font-weight: 700; overflow-wrap: anywhere; }
 .supervisor-note { margin: 2px 0 0; color: var(--muted); font-size: 12px; }
 .supervisor-sub { margin: 14px 0 6px; color: var(--muted); font-size: 12.5px; font-weight: 600; }
 /* The incident cards (the person's choice of layout B, 2026-10-24): one card per fix step, its live state in a small chip, one
@@ -989,6 +993,9 @@ body.is-resizing { cursor: col-resize; user-select: none; }
 .inc-card { padding: 9px 12px 8px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); cursor: pointer; }
 .inc-card:hover { border-color: #2d4262; }
 .inc-card.is-done { opacity: 0.78; }
+/* B573: a card with an incident found since the person last opened the section: a quiet tag and a cool edge. */
+.inc-card.is-new { border-color: #3b5a85; box-shadow: inset 3px 0 0 #7cc4ff; }
+.inc-new { flex: none; padding: 0 8px; border-radius: 999px; background: #17304f; color: #cfe3ff; font-size: 11.5px; font-weight: 700; letter-spacing: 0.02em; }
 .inc-top { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; }
 .inc-step { color: #93b4ff; font-family: ui-monospace, "Cascadia Mono", Consolas, monospace; font-size: 13px; font-weight: 700; text-decoration: underline; text-decoration-color: #3b5a85; text-underline-offset: 2px; }
 .inc-step:hover { color: #bcd0ff; }
@@ -1036,9 +1043,7 @@ body.is-resizing { cursor: col-resize; user-select: none; }
   .supervisor { margin: 0 10px 10px; padding: 12px; }
   .supervisor-head { flex-wrap: wrap; }
   .supervisor-head .grow { display: none; }
-  .supervisor-title { flex: 1 1 calc(100% - 44px); min-width: 0; }
-  .supervisor-close { order: 1; }
-  .supervisor-head .check-now { order: 2; }
+  .supervisor-fold { flex: 1 1 100%; }
   .sync-rows { gap: 6px 10px; }
   .sync-status { min-width: 0; }
   .inc-state { margin-left: 0; }

@@ -26,6 +26,7 @@ import { PARTNER_AGAIN_MS, isRoutedToPartner, partnerAskWords } from '../../work
 import { isHolding } from '../../work/pause.mjs'
 import { checkWhy, gitCheckPassed, needsResultCheck, resultCheckOf, reviewWaitOf } from '../../work/resultCheck.mjs'
 import { asksOfStep } from '../../work/stepAsks.mjs'
+import { boardPlacementOf } from '../../work/incidentFix.mjs'
 
 const MIN = 60_000
 const HOUR = 60 * MIN
@@ -196,6 +197,10 @@ function notTaken(view) {
  * result check's fix (`Fix of`) stays with the worker that built the step: it is named with that reason, not moved.
  * Once per step an hour: the watch counts from the first time it was named, and lasts while the step stays queued for
  * the same worker, also through a run without a free worker.
+ * Incident fixes (2026-10-24): an incident fix the board queued itself (incidentFix.mjs `boardPlacementOf`: it went to
+ * the shortest queue as no worker was free) is the board's to move, not the main chat's: the board requeues it to the
+ * free worker (Fixed), and the main chat gets its information line about it from the reconciler; never while a work
+ * line about it went to its owner in the last NOT_TAKEN_MS (it may be taking it).
  */
 /**
  * What queued-behind and focus-ready share: the open steps queued over QUEUED_BEHIND_MS for a busy worker (`waiting`,
@@ -222,7 +227,7 @@ function behindOf(view) {
 }
 
 function queuedBehind(view, { seen = new Map(), observed = [] } = {}) {
-  const { prefix = '', now } = view
+  const { prefix = '', now, outbox = [] } = view
   const { laneOf, isHeld, isFull } = factsOf(view)
   const found = []
   if (isHeld || isFull) return found
@@ -244,7 +249,20 @@ function queuedBehind(view, { seen = new Map(), observed = [] } = {}) {
     name(item, `${idOf(item)} queued ${ageOf(item)} behind ${ownerOf(item)} stays: it fixes ${fixOf(item)}, which ${ownerOf(item)} built`)
   }
   waiting.filter(one => fixOf(one) === null).slice(0, free.length).forEach((item, index) => {
-    name(item, `Requeue ${idOf(item)} to ${free[index].name}: queued ${ageOf(item)} behind ${ownerOf(item)}`)
+    if (boardPlacementOf(item) === null) {
+      name(item, `Requeue ${idOf(item)} to ${free[index].name}: queued ${ageOf(item)} behind ${ownerOf(item)}`)
+      return
+    }
+    const id = idOf(item)
+    const watch = watchOf(item)
+    if (!observed.includes(watch)) observed.push(watch)
+    // The review: never from under the worker taking it: a work line about it went to its owner lately (as not-taken reads).
+    const owner = ownerOf(item)
+    const lately = outbox.some(message => message.command === 'work' && message.about === id && plain(message.to, prefix) === plain(owner, prefix)
+      && now - Math.max(...[message.at, message.takenAt, message.deliveredAt].filter(Number.isFinite)) < NOT_TAKEN_MS)
+    if (lately) return
+    const text = `${id}, an incident fix the board queued, waited ${ageOf(item)} behind ${owner} while ${free[index].name} is free`
+    found.push(finding('queued-behind', `queued-behind ${id} ${valueOf(item, 'Since') ?? ''} board`, id, text, { do: 'requeue', id, to: free[index].name }))
   })
   return found
 }
@@ -266,7 +284,9 @@ function focusReady(view, { seen = new Map(), observed = [] } = {}) {
   const { waiting, free, isOpen, fixOf } = behindOf(view)
   const isFix = item => valueOf(item, 'Priority') === 'fix'
   const isFocus = item => focus !== null && String(valueOf(item, 'Goal') ?? '').trim().toUpperCase() === String(focus).trim().toUpperCase()
-  const ready = steps.filter(item => stateOf(item) === 'refined' && valueOf(item, 'Refined') === 'ready' && valueOf(item, 'Queue when refined') === null)
+  // Incident fixes (2026-10-24): one the board queues itself now, or whose standard holds it (the main chat was told), is left to it.
+  const ready = steps.filter(item => stateOf(item) === 'refined' && valueOf(item, 'Refined') === 'ready' && valueOf(item, 'Queue when refined') === null
+    && !(view.autoQueued ?? []).includes(idOf(item)))
   const watchOf = item => `focus-ready ${idOf(item)}`
   // The watch of a step named before stands while it stays refined ready.
   for (const item of ready) if (seen.has(watchOf(item)) && !observed.includes(watchOf(item))) observed.push(watchOf(item))

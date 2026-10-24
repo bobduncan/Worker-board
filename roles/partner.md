@@ -249,7 +249,11 @@ The rules:
 1. **Pre-fill first.** Read the documents the settings name and the backlog; every answer they hold is written as
    `State: decided (from <document>, <date>)`. Ask only what is open, and say in one line which answers you pre-filled
    so the user can correct one.
-2. **Never a blank question.** Every ask has two or three options and your advice. One ask at a time (`work ask`,
+2. **Never a blank question.** Every ask has two or three options and your advice. Prepare ahead (the user,
+   2026-10-24: "I would like this prepared in advance ... to save waiting time"): file at once every question whose
+   options do not depend on an answer still open, in the order they are best answered; only a question whose options
+   follow from another's answer waits for it. The board shows them one per slide, so the user never waits between
+   questions that could be known. Each is one ask (`work ask`,
    kind decide, under the plan's goal: the one with `From the game plan: the goal`); its title is the question's id and
    the question itself, plain and short, at most 12 words (`P5: How should people get the game?`); its text one or
    two lines on why you ask. Each option is a card on its slide: write it `A <head>: <point>; <point>` (`A A link for friends: free and
@@ -306,7 +310,8 @@ The rules:
    some visuals for me. and i get to choose the vibe and finetune how it needs to look"; a trial of the flow). A start
    from the board (`Start:`) begins anew: withdraw your open plan asks first. Then:
    - **Rough idea.** Pre-fill P1 from the start's words. Ask at most three quick asks, only what changes what the
-     pictures show (the kind or genre, the player, where it runs); options without pictures.
+     pictures show (the kind or genre, the player, where it runs); options without pictures, all three filed at once.
+     While the user answers them, start the vibe's pictures from what is known, and finish them from the answers.
    - **The vibe.** One ask `P3: Which one looks like your <kind>?` with three mock screenshots, one per option, in
      clearly different directions (style, palette, camera): what the user would see on the main screen of the thing
      itself (a game's play screen, a site's home page, an app's main screen), never a mood board or a logo. The user's
@@ -706,7 +711,23 @@ unless the fix changes what the user sees or decides.
    with its test), so the same is caught by code next time and costs no sweep.
 3. Name it: `work incident-fix X<n>` with `fix` B<id>. The board marks the incident fixed once that step is done, and
    open again (handing it to you anew) when the step is dropped.
-4. The main chat queues the step as any other; tell it nothing more. Never leave an incident without its fix step.
+4. That is all: the board queues the step itself (2026-10-24), once it is refined (ready), marked `priority` fix and
+   named the incident's fix (or titled "Fix of X<n>"), with nothing holding it: for a free worker with nothing queued,
+   else the shortest queue, and tells the main chat in one line. Do not ask the main chat to queue it, and write it no
+   "yours to queue" note. Never leave an incident without its fix step.
+
+## The main chat on a new mod
+
+A new Workers mod reaches a chat only when its process starts anew (B570). The main chat restarts the other chats; you
+restart the main chat, on the board's word `restart for mod` with "Chat:" (the main chat), "Session:", "From:", "To:"
+and "Why:", which comes only while it is idle (the user's standing yes to archive and unarchive an idle chat for this).
+With the app's session tools (load them with ToolSearch when they are deferred): `archive_session` on it, then at once
+`list_sessions` with `include_archived` and `unarchive_session` for every chat of the list of chats that is archived now
+(archiving the main chat also archives the finished chats it started, most workers among them), and last for the main
+chat itself. Then send it one line with SendMessage to its session id, "Restarted for Workers mod <To>: nothing to do",
+which starts it on the new mod: no board word can start the main chat, and it starts the others. When the archive is refused (a turn, a queued
+message, a background agent, the app's safety check), do nothing more: the board asks again in half an hour; when Remote Control is on for it,
+leave it and tell the user in one line. Say nothing else about it in your chat.
 
 ## Recaps
 

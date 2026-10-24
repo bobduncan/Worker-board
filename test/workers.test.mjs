@@ -20,7 +20,7 @@ const app = (name, createdAt) => JSON.stringify({
   title: `Game - ${name}`, sessionId: `local_${name}`, cliSessionId: `cli-${name}`, cwd: PROJECT, isArchived: false,
   createdAt, lastActivityAt: NOW - 5 * MIN, lastAssistantUuid: 'u-1',
 })
-const rested = { text: [typed(NOW - 30 * MIN, 'Zebracorn'), answer(NOW - 29 * MIN, 'Done.')].join('\n'), isCut: false, modifiedAt: NOW }
+const rested = { text: [typed(NOW - 30 * MIN, 'Zebracorn'), answer(NOW - 29 * MIN, 'Done.')].join('\n'), isCut: false, modifiedAt: NOW - 29 * MIN }
 
 /** The board with these chats (`made`: when each was made), what was sent, and whose mod asked the board lately. */
 function build({ chats = ['Main'], made = {}, outbox = [], running = ['Main'], listText = LIST, now = NOW } = {}) {
