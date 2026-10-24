@@ -169,3 +169,23 @@ test('B247: a quiet lane whose step has no answer says how long, and that it may
   assert.deepEqual([...part.alertsOf({ ...lane, unanswered: waits, doingNow: 'Run the tests' }, state)],
     ['no answer to its step "Working in the browser" for 42 min: it may wait for your approval in its chat'])
 })
+
+test('B508: one signal per problem: no time and over are said by the column Left, not again under the task', async () => {
+  const { readFile } = await import('node:fs/promises')
+  const script = await readFile(new URL('../public/board.js', import.meta.url), 'utf8')
+  const cut = name => script.slice(script.indexOf(`// ${name}:start`), script.indexOf(`// ${name}:end`))
+  const part = { MIN: 60_000 }
+  vm.runInNewContext(`${cut('times')}\n${cut('alerts')}\nObject.assign(this, { alertsOf })`, part)
+  const state = { readAt: 100 * 60_000, estimateOldMs: 30 * 60_000 }
+  const lane = { isQuiet: false, isWithoutTime: false, task: null, state: 'working', unanswered: null, eta: null }
+  // No time: the column says "No time"; the line under the task is gone.
+  assert.deepEqual([...part.alertsOf({ ...lane, isWithoutTime: true }, state)], [])
+  // Over its first estimate while the column already says over or Overdue: not repeated.
+  const task = { firstEstimateMs: 10 * 60_000, workedMs: 40 * 60_000, estimateAt: state.readAt }
+  assert.deepEqual([...part.alertsOf({ ...lane, task, eta: { isOverdue: true } }, state)], [])
+  assert.deepEqual([...part.alertsOf({ ...lane, task, eta: { isOver: true } }, state)], [])
+  // A fresh estimate shows time left while the first one is passed: the column does not say it, the line stays.
+  assert.deepEqual([...part.alertsOf({ ...lane, task, eta: { isOverdue: false, isOver: false } }, state)], ['30 min over its first estimate'])
+  // The only sign of its problem stays: an old estimate, and no sign of life.
+  assert.deepEqual([...part.alertsOf({ ...lane, isQuiet: true, quietMs: 34 * 60_000, task: { ...task, firstEstimateMs: null, estimateAt: 50 * 60_000 } }, state)], ['no sign of life for 34 min', 'estimate 50 min old'])
+})
