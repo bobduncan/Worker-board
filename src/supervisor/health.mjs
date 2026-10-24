@@ -5,7 +5,7 @@
 // queues; the repairs and incidents of the last day; the words not delivered; the limits and the pause. When it must cut,
 // the newest and oddest lines stay, and so do the steps every chat holds. PURE.
 
-import { effortOf, modelOf } from '../work/effort.mjs'
+import { chatEffort, effortOf, modelOf } from '../work/effort.mjs'
 import { sinceMs, valueOf } from '../work/item.mjs'
 import { isHolding } from '../work/pause.mjs'
 
@@ -68,7 +68,8 @@ function chatLines(view, now) {
     const since = view.since.get(lane.name)
     const state = `${lane.state ?? 'not known'}${Number.isFinite(since) ? ` since ${clockOf(since)} (${lasting(now - since)})` : ''}`
     const running = lane.isRunning === false ? ', its chat does not run' : ''
-    const runs = `runs ${familyOf(lane.model) ?? 'a model not known'} · ${lane.effort ?? 'effort not known'}`
+    // B544: the level, never the partner's mode object ("[object Object]", X9).
+    const runs = `runs ${familyOf(lane.model) ?? 'a model not known'} · ${chatEffort(lane) ?? 'effort not known'}`
     // The step it is on: its card's, else the one the store holds for it.
     const onId = lane.task?.stepId ?? mine.find(item => HELD.slice(0, 3).includes(valueOf(item, 'State')))?.head.get('Id') ?? null
     const on = onId === null ? null : view.items.get(onId) ?? null

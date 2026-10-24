@@ -18,6 +18,7 @@ import { heldMs, isHolding } from '../../work/pause.mjs'
 import { whyClosed } from '../../work/outboxSweep.mjs'
 import { isLate } from '../../store.mjs'
 import { FIRST_SAYING, chatsByRole, oldModFinding } from '../../oldMods.mjs'
+import { EFFORTS, chatEffort, effortSaid } from '../../work/effort.mjs'
 
 const MIN = 60_000
 const HOUR = 60 * MIN
@@ -318,6 +319,27 @@ function oldMod(view) {
   return found === null ? [] : [found]
 }
 
+/**
+ * 11. B544 (the rule X9's sweep wanted): a chat whose card says an effort that is not a level (low ... max), as
+ * "[object Object]" stood in the health summary. One finding per chat and what it says, so it is an incident once. A
+ * chat whose card says no effort is no case.
+ */
+function oddEffort(view) {
+  const chats = [...view.lanes.filter(lane => !lane.isLeftover), view.partner, view.helper, view.supervisor].filter(chat => typeof chat?.name === 'string')
+  const found = []
+  for (const chat of chats) {
+    const said = effortSaid(chat)
+    if (said === null || chatEffort(chat) !== null) continue
+    const words = typeof said === 'string' ? said : JSON.stringify(said) ?? String(said)
+    found.push({
+      rule: 'odd-effort', key: `odd-effort ${chat.name} ${words.slice(0, 60)}`, subject: chat.name,
+      text: `${chat.name}'s effort reads "${words.slice(0, 60)}", not a level`,
+      evidence: `its card says ${words.slice(0, 200)}; a level is one of ${EFFORTS.join(', ')}`,
+    })
+  }
+  return found
+}
+
 /** Every watch rule, in the order the section shows them. */
 export const WATCH_RULES = [
   { id: 'unknown-lane', kind: 'watch', says: 'a worker "unknown" for too long', check: unknownLane },
@@ -330,4 +352,5 @@ export const WATCH_RULES = [
   { id: 'undelivered', kind: 'watch', says: 'a word to a chat not delivered', check: undelivered },
   { id: 'report-check-twice', kind: 'watch', says: 'a step whose board check failed twice', check: reportCheckTwice },
   { id: 'old-mod', kind: 'watch', says: 'a chat on an older Workers mod than the one installed', check: oldMod },
+  { id: 'odd-effort', kind: 'watch', says: 'a chat whose effort is not a level', check: oddEffort },
 ]
