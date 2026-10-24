@@ -3287,7 +3287,7 @@ function oldModParts(need, state) {
   for (const one of need.chats ?? []) chats.append(el('li', '', `${one.name}: ${one.runs}, ${one.cost}`))
   const steps = el('ol', 'old-mod-steps')
   for (const step of need.steps ?? []) steps.append(el('li', '', step))
-  const parts = [chats, el('p', '', 'Do:'), steps]
+  const parts = [chats, el('p', 'old-mod-do', 'Do'), steps]
   const pause = state.pause?.state ?? 'running'
   if (pause !== 'running') parts.push(el('p', 'muted', pause === 'resuming' ? 'Resuming: the chats start anew on the installed mod.' : 'The pause stands: once every chat has stopped, restart the Claude app, then press Resume all.'))
   else if ((state.restart?.main ?? null) === null) parts.push(el('p', 'muted', 'No main chat is open: Pause all needs one.'))

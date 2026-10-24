@@ -3205,6 +3205,15 @@ it can. The person: "It just needs to observe, periodically, not consume a lot o
   titled with the list's prefix and the name the list gives it (`"supervisor": "Supervisor"` in
   `.claude/chats/list.json`), on Sonnet · low; it joins the list by its title. Until then the rules run as before and
   Check now says why no sweep ran.
+- **Chats on an older mod, one way out** (B541, the fix of X4-X6, 2026-10-24): the rule `old-mod` filed one incident per
+  chat and gave the person no way to act. Now `src/oldMods.mjs` (pure) finds the chats on an older Workers mod among the
+  main chat, the workers, the partner, its helper and the supervisor's chat, each with what it misses (the partner: it
+  cannot name an incident's fix; the supervisor: it cannot sweep). The rule files one finding for all of them, keyed
+  `old-mod <installed>`, so one install is one incident that counts up. The server puts one card first under Needs your
+  attention (kind `old-mod`, id `old-mod:<installed>`): the chats, the one way (Pause all, restart the Claude app,
+  Resume all) and a Pause all button that asks as the one above the workers does; while a pause stands it names the next
+  step. Built from what the chats' mods said in the last 2 minutes, it clears by itself once all run the installed mod.
+  The board restarts nothing. Tests: `test/oldMods.test.mjs`, `test/supervisor/watch.test.mjs`.
 
 ## Clear after each step (2026-10-23)
 
