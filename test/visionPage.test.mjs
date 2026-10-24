@@ -432,3 +432,14 @@ test("the wait after Start (2026-10-24, the user: \"i want a loader while im wai
   assert.equal(made.visionStartProblem({ at: 1, state: 'working' }, 'Trial - Advisor'), null)
   assert.match(script, /function visionStartWaitCard\(/)
 })
+
+test("a fresh plan opens on the Interview, at its first question, until you pick a step (2026-10-24, the user: \"i prefer to start directly with the interview\")", () => {
+  const fresh = planState('# P\n\nPitch: a game.\n\n## P1 · What it is\n- State: open\n\n## P2 · Why it is fun\n- State: open\n', [], 'p.md')
+  const opened = visionView(fresh, { ...UI, page: null })
+  assert.deepEqual([opened.page, opened.at, opened.waiting > 0], ['interview', opened.firstWaiting, true])
+  // A step you picked stays.
+  assert.equal(visionView(fresh, { ...UI, page: 'vision' }).page, 'vision')
+  // A plan with something decided opens on the vision, as before.
+  assert.equal(visionView(plan, { ...UI, page: null }).page, 'vision')
+  assert.match(script, /page: null, at: 0, picked/)
+})
