@@ -2799,6 +2799,13 @@ Advisor's check helpers on Sonnet". It builds on B468: the same word to the main
 8. The partner and its helper are never set by this plan (`skip`): their own setting (B352, and the helper's once)
    stays.
 9. Not in it: the main chat's model, and the partner's (B352).
+10. **The chip on every row (2026-10-24).** The person: "Can we make it visual on the board which model/effort level its
+    running?" Beside the state of every chat of the Overview's worker list (Main, workers, the Advisor and Advisor 2), in
+    Simple and Details: "Opus · extra high" (a gold slab), "Sonnet · medium" (quiet), "Fable · max" (violet), from the app's
+    own file of the chat (`model`, `effort`; the Advisor's `effort` is B352's mode, so the state gives it `appEffort`).
+    While the lane's `effortRun` is not set yet and asks another setting, it shows the change with a dashed edge,
+    "Sonnet · medium → Opus · high", and its tooltip says when the main chat was asked; no model and no effort is no chip
+    (`runChipOf`, between `// runchip:start` and `// runchip:end`).
 
 ## The last silent catches (B446)
 

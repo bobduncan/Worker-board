@@ -1353,6 +1353,9 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
       name: advisorChat.name,
       session,
       appSession,
+      // The model chip: the model and the effort the app's file of its chat says it runs at (`effort` below is B352's mode).
+      model: advisorCard.model ?? null,
+      appEffort: advisorCard.effort ?? null,
       state,
       doingNow: doing,
       messages: advisorEntries === null
@@ -1694,6 +1697,9 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
       name: helperLane.name,
       session: helperLane.session,
       appSession: helperLane.appSession,
+      // The model chip: what the app's file of its chat says it runs at.
+      model: helperLane.model ?? null,
+      effort: helperLane.effort ?? null,
       state: helperLane.state,
       doingNow: helperLane.doingNow,
       task: helperLane.task,

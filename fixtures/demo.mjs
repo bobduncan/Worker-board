@@ -32,15 +32,16 @@ const REPO = 'C:/Demo/game-builder/game'
 export const ROOTS = ['art-inbox']
 
 const CHATS = [
-  { name: 'Main', id: 'demo-main' },
-  { name: 'Units', id: 'demo-units', summary: ['blocked', 'two pathfinding approaches compared', 'Choose an approach for enemy pathfinding: option A (NavMesh) or option B (custom grid).'] },
-  { name: 'Features', id: 'demo-features' },
+  // Model and effort: what the app's file of each chat says it runs at (the chip beside a chat's state); Audio's file says neither.
+  { name: 'Main', id: 'demo-main', model: 'claude-opus-5-5', effort: 'xhigh' },
+  { name: 'Units', id: 'demo-units', model: 'claude-opus-5-5', effort: 'xhigh', summary: ['blocked', 'two pathfinding approaches compared', 'Choose an approach for enemy pathfinding: option A (NavMesh) or option B (custom grid).'] },
+  { name: 'Features', id: 'demo-features', model: 'claude-sonnet-5-5', effort: 'medium' },
   // B148: done, and its card still names its task: the app's summary says nothing, its last answer says it all.
-  { name: 'Cleanup', id: 'demo-cleanup' },
-  { name: 'Levels / Environment', id: 'demo-levels' },
-  { name: 'Advisor', id: 'demo-advisor', summary: ['completed', 'advice written', ''] },
+  { name: 'Cleanup', id: 'demo-cleanup', model: 'claude-sonnet-5-5', effort: 'low' },
+  { name: 'Levels / Environment', id: 'demo-levels', model: 'claude-sonnet-5-5', effort: 'medium' },
+  { name: 'Advisor', id: 'demo-advisor', model: 'claude-opus-5-5', effort: 'xhigh', summary: ['completed', 'advice written', ''] },
   // B424: the partner's helper: on its own card under the Advisor's, never a worker.
-  { name: 'Advisor 2', id: 'demo-helper' },
+  { name: 'Advisor 2', id: 'demo-helper', model: 'claude-sonnet-5-5', effort: 'medium' },
   // B262: its turn ended in a tool's answer, without a closing message, and the app has no summary of it.
   { name: 'Audio', id: 'demo-audio' },
 ]
@@ -319,7 +320,7 @@ function gitAnswers(now) {
   return answers
 }
 
-function appChat({ name, id, summary }, index, now) {
+function appChat({ name, id, summary, model, effort }, index, now) {
   return JSON.stringify({
     title: `Game - ${name}`,
     sessionId: `local_${id}`,
@@ -330,6 +331,7 @@ function appChat({ name, id, summary }, index, now) {
     lastActivityAt: now - MIN,
     completedTurns: 40 + index,
     lastAssistantUuid: 'a-1',
+    ...(model === undefined ? {} : { model, effort }),
     ...(summary === undefined ? {} : { postTurnSummary: { status_category: summary[0], status_detail: summary[1], needs_action: summary[2], summarizes_uuid: 'a-1' } }),
   })
 }

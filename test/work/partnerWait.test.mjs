@@ -177,7 +177,7 @@ test('the page: "waits for your partner" in its own colour on the Overview\'s wo
   const strip = page.flowStripOf({ states: ['in progress', 'waiting on you', 'review'], state: 'waiting on you', next: [], waitsForPartner: ['Q1'] })
   assert.deepEqual(JSON.parse(JSON.stringify(strip.states)), [{ name: 'in progress', tone: 'past' }, { name: 'waits for your partner (Q1)', tone: 'partner' }, { name: 'review', tone: 'later' }])
   // The Overview: the focus goal's steps and the workers.
-  vm.runInNewContext(`${region('simpleoverview')}\nthis.simpleSteps = simpleSteps; this.simpleWorkers = simpleWorkers`, page)
+  vm.runInNewContext(`${region('runchip')}\n${region('simpleoverview')}\nthis.simpleSteps = simpleSteps; this.simpleWorkers = simpleWorkers`, page)
   const steps = page.simpleSteps({ id: 'G1', stage: 'run', steps: [{ id: 'B1', title: 'Show the damage', state: 'now', owner: 'Digger', waitsForPartner: ['Q1'] }] }, [])
   assert.deepEqual(JSON.parse(JSON.stringify(steps.rows)), [{ id: 'B1', title: 'Show the damage', chip: 'Waits for your partner', tone: 'partner', who: 'Digger' }])
   const lane = { name: 'Digger', state: 'working', eta: { at: 0, minutes: 30 }, task: null, waitsForPartner: ['Q1'] }

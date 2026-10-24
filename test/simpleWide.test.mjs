@@ -21,7 +21,7 @@ const html = await readFile(join(PUBLIC, 'index.html'), 'utf8')
 const css = await readFile(join(PUBLIC, 'board.css'), 'utf8')
 const cut = name => script.slice(script.indexOf(`// ${name}:start`), script.indexOf(`// ${name}:end`))
 const page = {}
-vm.runInNewContext(`const MIN = 60000\n${cut('times')}\n${cut('stepline')}\n${cut('lanetime')}\n${cut('lanewindow')}\n${cut('calmoverview')}\n${cut('focus')}\n${cut('simpleoverview')}\nObject.assign(this, { simpleView, simpleSteps, simpleWorkers, clock })`, page)
+vm.runInNewContext(`const MIN = 60000\n${cut('times')}\n${cut('stepline')}\n${cut('lanetime')}\n${cut('lanewindow')}\n${cut('calmoverview')}\n${cut('focus')}\n${cut('runchip')}\n${cut('simpleoverview')}\nObject.assign(this, { simpleView, simpleSteps, simpleWorkers, clock })`, page)
 const plain = value => JSON.parse(JSON.stringify(value))
 
 const GOALS = [

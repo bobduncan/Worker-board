@@ -1973,6 +1973,36 @@ button.needs-you:hover small, button.needs-you:focus-visible small { color: var(
 .workers-panel .lane.is-advisor.is-helper:hover { background: #0c181c; }
 .lane.is-helper .who { padding-left: 14px; }
 
+/* The model chip beside a chat's state (Details' pill, under Simple's time): the model and effort it runs at now, in the
+   colour of the model. Opus, the expensive one, is a gold slab (the state pills are outlines, so it cannot be taken for
+   one); Sonnet is a quiet outline; Fable, the partner's rescue mode, is violet; any other model is as quiet as Sonnet.
+   Each colour is a token, and the tint, edge and text all come from it, so a theme that sets the tokens carries the chip
+   with it (the board has one dark look today). While a switch is pending the edge is dashed and the setting the step
+   needs follows an arrow. The parts never break inside, but the chip wraps between "now" and "next" on a narrow screen. */
+:root { --chip-opus: #f2b640; --chip-sonnet: #aab4c3; --chip-fable: var(--ask); --chip-ink: #1c1403; }
+.run-chip { --chip: var(--chip-sonnet); display: inline-flex; flex-wrap: wrap; align-items: baseline; gap: 0 5px; max-width: 100%; min-width: 0; padding: 1px 8px 1px 7px; border: 1px solid color-mix(in srgb, var(--chip) 38%, transparent); border-radius: 5px; background: color-mix(in srgb, var(--chip) 11%, transparent); color: var(--chip); font-size: 11.5px; font-weight: 600; line-height: 1.5; cursor: help; }
+.run-chip::before { content: ""; align-self: center; flex: none; width: 6px; height: 6px; margin-right: 1px; border-radius: 50%; background: var(--chip); }
+.run-chip.is-opus { --chip: var(--chip-opus); border-color: var(--chip-opus); background: var(--chip-opus); color: var(--chip-ink); font-weight: 700; }
+.run-chip.is-opus::before { background: var(--chip-ink); }
+.run-chip.is-opus .run-arrow, .run-chip.is-opus .run-next { color: var(--chip-ink); }
+.run-chip.is-opus.is-pending { border-color: color-mix(in srgb, var(--chip-ink) 55%, transparent); }
+.run-chip.is-fable { --chip: var(--chip-fable); font-weight: 700; }
+.run-chip.is-pending { border-style: dashed; }
+.run-now, .run-to { white-space: nowrap; }
+.run-to { display: inline-flex; gap: 5px; }
+.run-arrow { color: var(--muted); }
+.run-next { font-weight: 700; color: var(--chip-sonnet); }
+.run-next.is-opus { color: var(--chip-opus); }
+.run-next.is-fable { color: var(--chip-fable); }
+/* Simple's third cell: the time, with the chip under it, both at the right. On a phone the chip goes under the task instead,
+   so the task keeps its room. */
+.simple-end { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; min-width: 0; max-width: 150px; }
+.simple-end .run-chip { justify-content: flex-end; }
+@media (max-width: 600px) {
+  .simple-end { display: contents; }
+  .simple-end .run-chip { grid-column: 2 / -1; justify-self: start; justify-content: flex-start; }
+}
+
 /* B269: the calm window where a chat needs the person's answer: narrower, with room around everything; the step in
    one line, one question as its title, large cards for the answers, the rest folded, a note, one Send. */
 .details.is-calm { width: min(760px, calc(100vw - 32px)); }

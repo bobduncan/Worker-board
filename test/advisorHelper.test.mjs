@@ -207,7 +207,7 @@ test('the Overview draws the helper\'s card right under the Advisor\'s, set apar
 test('the Simple view lists the partner and its helper under the workers, apart and not counted among them', () => {
   const cut = name => script.slice(script.indexOf(`// ${name}:start`), script.indexOf(`// ${name}:end`))
   const page = {}
-  vm.runInNewContext(`const MIN = 60000\n${cut('times')}\n${cut('stepline')}\n${cut('lanetime')}\n${cut('lanewindow')}\n${cut('calmoverview')}\n${cut('focus')}\n${cut('simpleoverview')}\nObject.assign(this, { simpleWorkers })`, page)
+  vm.runInNewContext(`const MIN = 60000\n${cut('times')}\n${cut('stepline')}\n${cut('lanetime')}\n${cut('lanewindow')}\n${cut('calmoverview')}\n${cut('focus')}\n${cut('runchip')}\n${cut('simpleoverview')}\nObject.assign(this, { simpleWorkers })`, page)
   const AT = new Date(2026, 9, 19, 16, 0).getTime()
   const lane = (name, state, more = {}) => ({ name, state, isMain: false, isLeftover: false, task: null, eta: null, ...more })
   const second = lane('Second', 'working', { task: { text: 'Refine B12', step: 2, steps: 4, startedAt: AT - 10 * MIN }, eta: { at: AT + 20 * MIN, leftMs: 20 * MIN, isOverdue: false, isOwn: true } })

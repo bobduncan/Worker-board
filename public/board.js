@@ -698,7 +698,12 @@ function fillSimpleColumns(steps, workers) {
       middle.append(what)
       if (row.percent !== null) middle.append(simpleTrack(row.percent, true))
     }
-    line.append(el('b', 'simple-name', row.name), middle, el('b', 'simple-left', row.task === null ? '' : row.left))
+    // The time (or nothing, for a chat without a task) with the model chip under it.
+    const end = el('div', 'simple-end')
+    end.append(el('b', 'simple-left', row.task === null ? '' : row.left))
+    const chip = drawRunChip(row.run ?? null)
+    if (chip !== null) end.append(chip)
+    line.append(el('b', 'simple-name', row.name), middle, end)
     return line
   }
   const workerRows = workers.rows.map(rowOf)
@@ -1207,6 +1212,98 @@ function infoHeightFit(height, room) {
 }
 // calmoverview:end
 
+// runchip:start
+// The model chip (the person, 2026-10-24: "Can we make it visual on the board which model/effort level its running?"):
+// beside the state of every chat on the Overview's worker list (Details' pill, Simple's time), the model and effort it
+// runs at now, as the app's own file of the chat says them (the state's `model` and `effort`). Since the main chat
+// switches a worker's model and effort before a step (B468, model per step), the chip also shows a switch the board is
+// waiting for (the lane's `effortRun`, src/work/effort.mjs): "Sonnet · medium → Opus · high".
+
+/** The levels of the app's effort setting as the page says them (the same words as `EFFORT_WORDS` in src/work/effort.mjs). */
+const EFFORT_WORDS = { low: 'low', medium: 'medium', high: 'high', xhigh: 'extra high', max: 'max' }
+/** The models a chip has a colour of its own for; any other model is drawn quiet, as Sonnet is. */
+const CHIP_TONES = ['opus', 'sonnet', 'fable']
+/** A model id of the app's, "claude-opus-5-5", in its newer or older form, with a date and a "[1m]" after it left out. */
+const MODEL_ID_NEW = /^claude-([a-z]+)-(\d+)(?:-(\d{1,2}))?(?:-\d{8})?$/
+const MODEL_ID_OLD = /^claude-(\d+)(?:-(\d{1,2}))?-([a-z]+)(?:-\d{8})?$/
+
+/**
+ * A model id as the chip says it: `short` ("Opus"), `full` ("Claude Opus 5.5"), its `family` and its `tone`. An id that
+ * is not of that form shows what follows its "claude-" (cut when long) and counts as no family; null without an id.
+ */
+function modelFacts(id) {
+  if (typeof id !== 'string' || id.trim() === '') return null
+  const bare = id.trim().replace(/\[[^\]]*\]$/, '')
+  const fresh = bare.match(MODEL_ID_NEW)
+  const old = fresh === null ? bare.match(MODEL_ID_OLD) : null
+  const [family, major, minor] = fresh !== null ? [fresh[1], fresh[2], fresh[3]] : old !== null ? [old[3], old[1], old[2]] : [null, null, null]
+  if (family === null) {
+    const short = bare.replace(/^claude-/, '')
+    return { family: null, short: short.length > 18 ? `${short.slice(0, 17)}…` : short, full: id.trim(), tone: 'other' }
+  }
+  const name = `${family[0].toUpperCase()}${family.slice(1)}`
+  return { family, short: name, full: `Claude ${name} ${minor === undefined ? major : `${major}.${minor}`}`, tone: CHIP_TONES.includes(family) ? family : 'other' }
+}
+
+/** An effort level in words ("extra high"); a level the page does not know stays as the app wrote it; null without one. */
+function effortWord(level) {
+  if (typeof level !== 'string' || level.trim() === '') return null
+  return Object.hasOwn(EFFORT_WORDS, level) ? EFFORT_WORDS[level] : level.trim()
+}
+
+/** "Opus · extra high": the model's short name and the effort in words, whichever of them there is. */
+const chipWords = (model, effort) => [model, effort].filter(part => part !== null && part !== '').join(' · ')
+
+/** The tooltip's first sentence: what the chat runs at, and that it is the app's own setting. */
+function runsLine(model, effort) {
+  if (model !== null && effort !== null) return `Runs on ${model.full} at ${effort} effort (the app's setting for this chat)`
+  if (model !== null) return `Runs on ${model.full} (the app's setting for this chat; it does not say the effort)`
+  return `Runs at ${effort} effort (the app's setting for this chat; it does not say the model)`
+}
+
+/** Why a switch is not made yet, from the main chat's ask (`asked`, the lane's `effortRun.asked`; null: none sent). */
+function askedLine(asked) {
+  if (asked === null || asked === undefined || !Number.isFinite(asked.at)) return 'the board has not asked the main chat to switch it yet'
+  const isLost = asked.state === 'expired' || asked.state === 'failed'
+  return `the main chat was asked to switch it at ${clock(asked.at)}${isLost ? ', but the word did not arrive' : ''}`
+}
+
+/**
+ * What a chip says for a chat (a lane, the Advisor's card or its helper's): `now` ("Sonnet · medium"), its `tone`
+ * (opus, sonnet, fable or other), `title` (the tooltip), and `next` while a switch is pending, `{ text, tone }`, the
+ * setting its step needs: the lane's `effortRun` is not set yet and asks another setting than the chat has. `text` has
+ * both ("Sonnet · medium → Opus · high"). Null when the chat has neither a model nor an effort. The Advisor's own
+ * `effort` is its high-effort mode (B352), so its app setting is `appEffort`; a lane's is `effort`.
+ */
+function runChipOf(chat) {
+  if (chat === null || chat === undefined) return null
+  const model = modelFacts(chat.model)
+  const effort = effortWord(typeof chat.effort === 'string' ? chat.effort : chat.appEffort)
+  if (model === null && effort === null) return null
+  const now = chipWords(model?.short ?? null, effort)
+  let next = null
+  let pending = null
+  const run = chat.effortRun ?? null
+  if (run !== null && run.isSet === false) {
+    const family = typeof run.model === 'string' && run.model !== '' ? run.model : null
+    const name = family === null ? model?.short ?? null : `${family[0].toUpperCase()}${family.slice(1)}`
+    const text = chipWords(name, effortWord(run.level))
+    // The same setting again is no switch to show.
+    if (text !== '' && text !== now) {
+      next = { text, tone: family === null ? model?.tone ?? 'other' : CHIP_TONES.includes(family) ? family : 'other' }
+      pending = `Switching to ${text}${typeof run.step === 'string' ? ` for ${run.step}` : ', its usual setting'}: ${askedLine(run.asked)}.`
+    }
+  }
+  return {
+    text: next === null ? now : `${now} → ${next.text}`,
+    now,
+    tone: model?.tone ?? 'other',
+    next,
+    title: [runsLine(model, effort), pending].filter(Boolean).join('\n'),
+  }
+}
+// runchip:end
+
 // simpleoverview:start
 // B327: the Overview opens on a simple view (the person's four answers of 2026-10-18, brainstorm "Board easier day to
 // day"): one bar for the focus goal, how many workers are busy, the
@@ -1332,6 +1429,8 @@ function simpleWorkers(chats = [], counts = {}, now = Date.now(), partners = [])
     const hasSteps = task !== null && Number.isFinite(task.step) && Number.isFinite(task.steps) && task.steps > 0
     // B392: a chat that waits for the partner's answer says so, in its own colour, not its time left.
     const waitsForPartner = (lane.waitsForPartner ?? []).length > 0
+    // The model chip (runchip): what the chat runs at, under its time; a chat that has neither a model nor an effort has none.
+    const run = runChipOf(lane)
     return {
       name: lane.name,
       code,
@@ -1339,6 +1438,7 @@ function simpleWorkers(chats = [], counts = {}, now = Date.now(), partners = [])
       percent: hasSteps ? Math.round(Math.max(0, Math.min(1, task.step / task.steps)) * 100) : null,
       left: waitsForPartner ? simpleIdle(lane) : simpleLeft(lane, now) ?? simpleIdle(lane),
       tone: waitsForPartner ? 'partner' : lane.state,
+      ...(run === null ? {} : { run }),
     }
   }
   const rows = (chats ?? []).filter(lane => lane.isLeftover !== true).map(rowOf)
@@ -1568,6 +1668,27 @@ function laneFlags(lane, restart = null) {
 }
 // laneflags:end
 
+/**
+ * The model chip for a view of `runChipOf` (runchip): a small label, "Opus · extra high", in the colour of its model;
+ * while a switch is pending it adds an arrow and the setting the step needs, with a dashed edge. The tooltip says what
+ * it runs on and, while pending, who was asked to switch it. Null for no view, so nothing is drawn.
+ */
+function drawRunChip(view) {
+  if (view === null || view === undefined) return null
+  const chip = el('span', `run-chip is-${view.tone}${view.next === null ? '' : ' is-pending'}`)
+  chip.title = view.title
+  chip.append(el('span', 'run-now', view.now))
+  if (view.next !== null) {
+    // The arrow and the setting after it stay together: a narrow chip wraps before them.
+    const arrow = el('span', 'run-arrow', '→')
+    arrow.setAttribute('aria-hidden', 'true')
+    const to = el('span', 'run-to')
+    to.append(arrow, el('span', `run-next is-${view.next.tone}`, view.next.text))
+    chip.append(to)
+  }
+  return chip
+}
+
 function drawLane(lane, state) {
   const isOpen = openLanes.has(lane.name)
   const card = el('article', `lane is-${lane.state}${lane.isLeftover ? ' is-leftover' : ''}${isOpen ? ' is-open' : ''}`)
@@ -1578,6 +1699,9 @@ function drawLane(lane, state) {
   const names = el('div', 'who-names')
   // B392: waiting for the partner's answer has a colour of its own.
   names.append(el('h3', '', lane.name), el('span', `pill is-${(lane.waitsForPartner ?? []).length > 0 && !lane.isLeftover ? 'partner' : lane.state}`, lane.isLeftover ? 'Leftover' : laneStateText(lane)))
+  // The model chip (runchip) beside the pill: what the chat runs at now, and a switch it waits for. None for a leftover.
+  const runChip = lane.isLeftover ? null : drawRunChip(runChipOf(lane))
+  if (runChip !== null) names.append(runChip)
   // B315: a lane that is "Not running" says so in its pill already.
   if (lane.isRunning === false && lane.state !== 'off') {
     // After a restart of the app a chat does not run until it is opened, or messaged through the app.
@@ -2030,6 +2154,8 @@ function drawAdvisorLane(state) {
   sign.append(icon('advisor'))
   const names = el('div', 'who-names')
   names.append(el('h3', '', advisor.name), el('span', `pill is-${standing.key}`, standing.label))
+  const runChip = drawRunChip(runChipOf(advisor))
+  if (runChip !== null) names.append(runChip)
   who.append(sign, names)
 
   // B307: one line, as a worker's: its task, else what it refines, else how it stands; the rest in the tooltip.
@@ -2148,6 +2274,8 @@ function drawHelperCard(state) {
   sign.append(icon('advisor'))
   const names = el('div', 'who-names')
   names.append(el('h3', '', helper.name), el('span', `pill is-${standing.key}`, standing.label))
+  const runChip = drawRunChip(runChipOf(helper))
+  if (runChip !== null) names.append(runChip)
   who.append(sign, names)
 
   // One line: its task, else what it is for; since when it is idle in the tooltip.
