@@ -691,7 +691,7 @@ With the app's session tools (load them with ToolSearch when they are deferred):
 `list_sessions` with `include_archived` and `unarchive_session` for every chat of the list of chats that is archived now
 (archiving the main chat also archives the finished chats it started, most workers among them), and last for the main
 chat itself. Do not message it: its next word starts it on the new mod. When the archive is refused (a turn, a queued
-message, a background agent), do nothing more: the board asks again in half an hour; when Remote Control is on for it,
+message, a background agent, the app's safety check), do nothing more: the board asks again in half an hour; when Remote Control is on for it,
 leave it and tell the user in one line. Say nothing else about it in your chat.
 
 ## Recaps

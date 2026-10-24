@@ -206,7 +206,7 @@ profile.
   `unarchive_session` for every chat of the list of chats that is archived now (archiving a chat also archives the
   finished chats it started), and last for the chat itself. Do not message it: its next word (its step's line, or the
   board's `start`) starts it on the new mod, and nothing is spent until then. When the archive is refused (a turn, a
-  queued message, a background agent), do nothing more: the board asks again in half an hour. When Remote Control is
+  queued message, a background agent, the app's safety check), do nothing more: the board asks again in half an hour. When Remote Control is
   on for it, leave it running and tell the user in one line which chat keeps the older mod. Never for a chat that holds
   a step in progress (the board does not ask for one), and never for yourself (the partner restarts you).
 - `remove worker` with "Name: ...", "State: ..." and "Why: ...": the user removes that worker. If it works, ask it to
