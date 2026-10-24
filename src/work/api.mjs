@@ -598,6 +598,19 @@ async function ask(body, w) {
   }
   const options = lines(body.options, LINE_CHARS).slice(0, 8)
   const pictures = (Array.isArray(body.pictures) ? body.pictures : typeof body.pictures === 'string' ? body.pictures.split(',') : []).map(one => line(one, 200)).filter(Boolean).slice(0, 8)
+  // 2026-10-24: a picture the board cannot show is refused here, with where to put it, so the person never meets a
+  // link that opens nothing (Worker 1 linked one in its worktree). The mod's own asks (`via`) keep theirs as they came.
+  if (via === null && typeof w.pictureProblem === 'function') {
+    for (const path of pictures) {
+      const problem = await w.pictureProblem(path)
+      if (problem === 'missing') return refuse(400, `There is no picture at ${path}: make it first, then ask.`)
+      if (problem === 'outside') {
+        const subject = String((isAlone ? goal : valueOf(of.item, 'Id')) ?? 'asks').toLowerCase()
+        const name = path.replace(/\\/g, '/').split('/').pop()
+        return refuse(400, `The board cannot show ${path}: it shows pictures only from ${(w.shownFolders ?? ['art-inbox']).join(', ')} in the project's folder. Copy it there, for example to art-inbox/${subject}/${name}, and ask again with that path.`)
+      }
+    }
+  }
   const play = line(body.play, 300)
   const advice = line(body.advice, 120)
   // Partner answers (2026-10-19): a detail question goes to the partner first; the person sees it only once handed on.

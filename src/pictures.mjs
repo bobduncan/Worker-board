@@ -19,6 +19,12 @@ const PICTURE_BYTES = 12 * 1024 * 1024
  */
 export const shownRoots = config => [...(config.pictureRoots ?? []), ...(config.kinds ?? []).map(one => one.reference)]
 
+/** The shown folders as a chat is told them: each once, and none that lies inside another (art-inbox holds art-inbox/vision). */
+export function shownFolders(config) {
+  const roots = [...new Set(shownRoots(config))]
+  return roots.filter(root => !roots.some(other => other !== root && root.startsWith(`${other}/`)))
+}
+
 /**
  * A real path inside the project's shown folder it claims to be in, also after links are followed. Or null. B354: a
  * shown folder may be deeper than the project's top (a kind's reference folder); the path stays inside the deepest one.
@@ -48,6 +54,18 @@ export async function findPicture(project, roots, value) {
   } catch {
     return null
   }
+}
+
+/**
+ * Why the board cannot show a picture a chat names, or null when it can: 'outside' when the path lies in none of the
+ * shown folders (or is no picture's path), 'missing' when it lies in one but no such picture is there (2026-10-24:
+ * Worker 1's ask linked a picture in its worktree, and the person met a link that opened nothing).
+ */
+export async function pictureProblem(project, roots, value) {
+  const path = picturePath(value)
+  if (path === null) return 'outside'
+  if ((await findPicture(project, roots, path)) !== null) return null
+  return roots.some(root => path === root || path.startsWith(`${root}/`)) ? 'missing' : 'outside'
 }
 
 /** A folder's path as the backlog writes it ("pictures/red-mage"), cleaned, or null. */

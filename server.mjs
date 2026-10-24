@@ -51,7 +51,7 @@ import { areaOf, freshScan, keptTasks, listText, readOn } from './src/taskTimes.
 import { createSpendingCollector } from './src/work/routing/collector.mjs'
 import { readRoutingRecord } from './src/work/routing/records.mjs'
 import { parseRoutingPolicy } from './src/work/routing/policy.mjs'
-import { findPicture, shownRoots } from './src/pictures.mjs'
+import { findPicture, pictureProblem, shownFolders, shownRoots } from './src/pictures.mjs'
 import { answerWords, checkSay, checkStepWords, focusWords, spawnWhenAlone, wakeFor, wakesDue, withInstruction, workWords } from './src/say.mjs'
 import { keepTalkPicture } from './src/talkPicture.mjs'
 import { firstLook, refineWhenDue } from './src/refineGate.mjs'
@@ -689,6 +689,9 @@ async function main(args) {
       hasGoal: id => (state.goals?.nodes ?? []).some(node => node.id === id),
       // B354: the project's kinds of work: a refined step that names one carries its standard.
       kinds: config.kinds,
+      // 2026-10-24: an ask's picture the board cannot show is refused with where to put it (api.mjs ask).
+      pictureProblem: path => pictureProblem(config.project, shownRoots(config), path),
+      shownFolders: shownFolders(config),
       // Model per step: why a step's line waits for its worker's model or effort (effort.mjs `holds`), or null.
       stepHold: id => state.reconciled?.holds?.[id] ?? null,
       // The guard (2026-10-21): a step of a kind waits for its standard's confirm and its foundation (the product plan).

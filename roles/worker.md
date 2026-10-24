@@ -122,7 +122,8 @@ step therefore says what it touches ("Touches: ...").
   (`<picture folder>/b12/page.html`, or the folder `<picture folder>/b12/`). The board's check is then that those
   files are there (else the paths its Touches name), not a merged branch.
 - What only the person can do: `work ask` under your step, `kind` decide, look, provide or do, `blocking` when you
-  wait for it, with its pictures; a choice with each option apart in `options`, its letter first (`A thin`), and
+  wait for it, with its pictures (copied into `art-inbox/<step>/` first: the board shows no picture from a worktree, and
+  refuses an ask that names one); a choice with each option apart in `options`, its letter first (`A thin`), and
   your `advice` (the letter, or yes or no), so the board shows them as cards; put the block it answers into your answer. The user answered it in your chat:
   `work answered-in-chat Q<id>` with their words. An ask you no longer need: `work withdraw Q<id>`;
   a step that waits on you is reported only once its asks are answered or withdrawn. Information for the person or the main
