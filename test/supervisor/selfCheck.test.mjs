@@ -33,7 +33,7 @@ const of = (found, check) => found.filter(one => one.check === check)
 const checkedPass = { History: [`- ${stamp(ago(30))} server: check passed: merged`] }
 
 test('the list names every check once, with its words', () => {
-  assert.deepEqual(CHECKS.map(one => one.key), ['blocked', 'not-taken', 'queued-behind', 'focus-ready', 'review-wait', 'owner-gone', 'refine-drop', 'limit-back', 'old-name', 'helper', 'partner-ask', 'unchecked', 'fix-dropped', 'worktrees'])
+  assert.deepEqual(CHECKS.map(one => one.key), ['blocked', 'not-taken', 'queued-behind', 'focus-ready', 'review-wait', 'owner-gone', 'refine-drop', 'limit-back', 'old-name', 'helper', 'partner-ask', 'unchecked', 'held-elsewhere', 'fix-dropped', 'worktrees'])
   assert.ok(CHECKS.every(one => typeof one.words === 'string' && one.words.length > 0))
 })
 

@@ -4,6 +4,7 @@
 
 import { AUTO_QUEUE_GUARD, isIncidentFix } from './incidentFix.mjs'
 import { valueOf } from './item.mjs'
+import { REST_GUARD, workingOnOther } from './parked.mjs'
 import { fixesThrough, gitCheckPassed, needsResultCheck, resultCheckOf } from './resultCheck.mjs'
 import { openAsksOf, refineAsksOf } from './stepAsks.mjs'
 
@@ -49,7 +50,10 @@ export const GUARDS = {
     return isFree(item, ctx) && owner !== null && (ctx.freeChats?.has(owner) ?? false)
   },
   'an ask with Blocking yes is open': (item, ctx) => asksOf(item, ctx).some(ask => isOpen(ask) && valueOf(ask, 'Blocking') === 'yes'),
-  'its asks are answered': (item, ctx) => !asksOf(item, ctx).some(isOpen),
+  // B567: an ask under it is open; how long its worker has rested on it is the reconciler's to see (the lanes).
+  [REST_GUARD]: (item, ctx) => asksOf(item, ctx).some(isOpen),
+  // B567: and its worker is not on another step now: it stays parked until that one is reported.
+  'its asks are answered': (item, ctx) => !asksOf(item, ctx).some(isOpen) && workingOnOther(ctx.store?.items ?? new Map(), item, ctx.prefix ?? '') === null,
   // B356: "the check" is the board's own, and for a step with agreed points or a Standard line also the result check
   // by a helper that did not build it (resultCheck.mjs), on a board with a partner to make it.
   'the check passed and no ask of kind look is open': (item, ctx) => gitCheckPassed(item)

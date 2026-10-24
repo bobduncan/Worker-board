@@ -276,7 +276,9 @@ export function effortPlan({ items, lanes = [], deliveries = [], sent = [], now,
     const holding = steps.find(item => owned(item, lane.name) && HOLDS.includes(valueOf(item, 'State')))
     const delivery = deliveries.find(one => one.chat === lane.name)
     // The step it gets next, in the order its own pull takes them (fix first, then by id).
-    const next = holding ?? (delivery === undefined ? undefined : items.get(delivery.id))
+    // B567: a worker resting while its step waits on the person gets its next step: that one's setting counts.
+    const working = holding !== undefined && valueOf(holding, 'State') !== 'waiting on you' ? holding : undefined
+    const next = working ?? (delivery === undefined ? undefined : items.get(delivery.id)) ?? holding
       ?? steps.filter(item => owned(item, lane.name) && valueOf(item, 'State') === 'queued' && blockersOpen(item, { store: { items } }).length === 0)
         .sort((a, b) => fixFirst(a, b) || byId(valueOf(a, 'Id'), valueOf(b, 'Id')))[0]
     const mine = sent.filter(message => message.command === 'worker-effort' && plain(message.about, prefix) === plain(lane.name, prefix))
