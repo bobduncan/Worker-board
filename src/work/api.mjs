@@ -31,6 +31,7 @@ import { openNaming, renamedItem } from './names.mjs'
 import { readNamesFile, readPartnerAnswersFile, readPauseFile, writeNames, writePartnerAnswers, writePause } from './store.mjs'
 import { NOTE_LINE, isPartnerAnswered, isRoutedToPartner, routesToPartner, takenBackWords } from './partnerAnswers.mjs'
 import { HELD, checkpointLine, isHolding, pauseAnswer, pauseFacts } from './pause.mjs'
+import { ACTIVE, parkWords, parkedAfter, workingOnOther } from './parked.mjs'
 import { routingAction, ROUTING_ACTIONS, ROUTING_READS } from './routing/api.mjs'
 import { writeView } from './view.mjs'
 
@@ -284,11 +285,22 @@ function oneLine(item, items) {
   const checks = open.filter(inReview)
   const waits = [before.length > 0 ? `after ${before.join(', ')}` : null, checks.length > 0 ? `waits for the check of ${checks.join(', ')}` : null, waiting,
     // B543: a step in review says what it waits for itself (its check, its fix B<n>).
-    reviewWaitOf(item, items)?.text ?? null].filter(Boolean)
+    reviewWaitOf(item, items)?.text ?? null,
+    // B567: a step waiting on the person, or parked, says what it waits for and what the chat does meanwhile.
+    ...waitingWords(item, items)].filter(Boolean)
   const missed = Number(valueOf(item, 'Missed') ?? 0)
   const turns = missed > 0 ? `, missed ${missed} turn${missed === 1 ? '' : 's'}` : ''
   const fix = isFix(item) ? ', board fix' : ''
   return `- ${valueOf(item, 'Id')} ${stateOf(item)}${fix}${turns}${waits.length > 0 ? ` (${waits.join('; ')})` : ''}: ${valueOf(item, 'Title') ?? valueOf(item, 'Text') ?? ''}`
+}
+
+/** B567: the words of a step waiting on you in its one line: the asks it waits for, or that it is parked. */
+function waitingWords(item, items) {
+  if (stateOf(item) !== 'waiting on you') return []
+  const parked = parkedAfter(item, items)
+  if (parked !== null) return [`parked: its answers came; it resumes after ${parked} is reported`]
+  const open = openAsksUnder(items, valueOf(item, 'Id'), item).map(one => valueOf(one, 'Id'))
+  return open.length === 0 ? [] : [`waits for ${open.join(', ')}; take your next queued step meanwhile`]
 }
 
 /** `next`: the chat's open instructions, then its steps by state, each in one line; the first in full. */
@@ -349,9 +361,12 @@ function steady(body, w, chat) {
   const items = [...w.store.items.values()]
   const told = items.filter(item => kindOf(item) === 'instruction' && stateOf(item) === 'open' && plain(valueOf(item, 'Chat'), w.prefix) === plain(chat, w.prefix))
     .sort((a, b) => byId(valueOf(a, 'Id'), valueOf(b, 'Id')))
+  // B567: a step that waits on the person's answer goes after the queued ones (the chat takes those meanwhile); a parked
+  // one, whose answers came, stays before them: it is handed back first.
+  const rank = item => (stateOf(item) === 'waiting on you' && openAsksUnder(w.store.items, valueOf(item, 'Id'), item).length > 0 ? MINE.length : MINE.indexOf(stateOf(item)))
   const mine = items.filter(item => kindOf(item) === 'step' && MINE.includes(stateOf(item)) && isOwner(item, chat, w.prefix))
     // Fix first: within a state, a board fix before the others (it jumps the queue, it stops no work under way).
-    .sort((a, b) => MINE.indexOf(stateOf(a)) - MINE.indexOf(stateOf(b)) || fixFirst(a, b) || byId(valueOf(a, 'Id'), valueOf(b, 'Id')))
+    .sort((a, b) => rank(a) - rank(b) || fixFirst(a, b) || byId(valueOf(a, 'Id'), valueOf(b, 'Id')))
   const all = [...told, ...mine]
   const open = openOf(chat, w)
   if (all.length === 0) return { ok: true, result: { text: `Nothing is yours, ${chat}: no instruction is open and no step is taken, in progress or queued for you.`, items: [], open, changed: false } }
@@ -429,7 +444,23 @@ function flowCtx(w, changed = [], free = []) {
     if (owner !== null && freeNames.some(name => plain(name, w.prefix) === plain(owner, w.prefix))) freeChats.add(owner)
   }
   // B356: `hasPartner` false (the board names no partner chat): no result check can be made, the board's own check closes.
-  return { store: { items }, freeChats, now: w.now, overlaps: w.overlaps ?? (() => null), hasPartner: w.hasPartner !== false }
+  return { store: { items }, freeChats, now: w.now, overlaps: w.overlaps ?? (() => null), hasPartner: w.hasPartner !== false, prefix: w.prefix ?? '' }
+}
+
+/** B567: what the answer's word to the asking chat adds when its step stays parked. */
+const parkedWords = parked => (parked === null ? '' : `\n(${parked.step} is parked: it resumes after ${parked.after} is reported; go on with ${parked.after}.)`)
+
+/**
+ * B567: a step whose asks are all answered or withdrawn goes on (the flow's move by the server), unless its worker is
+ * on another step now: then it stays waiting on you, parked, its History saying "parked (resumes after B<n>)", and goes
+ * on once that step is reported (`report`). `{ item, freed, parked }`: `parked` the step it resumes after, or null.
+ */
+function goOnOrPark(mine, w, ctx, why) {
+  const goesOn = move(mine, 'in progress', 'server', w, ctx, why)
+  if (goesOn.ok) return { item: goesOn.item, freed: true, parked: null }
+  const other = workingOnOther(ctx.store.items, mine, w.prefix ?? '')
+  if (other === null || openAsksUnder(ctx.store.items, valueOf(mine, 'Id')).length > 0) return { item: mine, freed: false, parked: null }
+  return { item: appendHistory(mine, 'server', parkWords(other), w.now), freed: false, parked: other }
 }
 
 /** Moves the item by the flow, as `role`; the History says from where to where. */
@@ -747,12 +778,8 @@ async function answeredInChat(body, w) {
   item = said(item, w, isOrphan ? `answered in its chat by the person: ${short}` : `answered in the chat${short === '' ? '' : `: ${short}`}`)
   const of = valueOf(found.item, 'Of')
   const done = await answerStep(w, item, found.text, of, step => {
-    let mine = said(underStep(step, [`${id} answered in ${w.who}'s chat${isOrphan ? ' by the person' : ''} on ${at(w.now)}${short === '' ? '' : `: ${short}`}`]), w, `${id} answered`)
-    if (stateOf(mine) === 'waiting on you') {
-      const goesOn = move(mine, 'in progress', 'server', w, flowCtx(w, [item, mine]), ` (${id} answered)`)
-      if (goesOn.ok) mine = goesOn.item
-    }
-    return mine
+    const mine = said(underStep(step, [`${id} answered in ${w.who}'s chat${isOrphan ? ' by the person' : ''} on ${at(w.now)}${short === '' ? '' : `: ${short}`}`]), w, `${id} answered`)
+    return stateOf(mine) === 'waiting on you' ? goOnOrPark(mine, w, flowCtx(w, [item, mine]), ` (${id} answered)`).item : mine
   })
   return done.ok ? { ok: true, result: { ...done.result, text: `${id} answered in the chat.` } } : done
 }
@@ -901,20 +928,20 @@ async function partnerAnswer(body, w) {
   item.sections.set(NOTE_LINE, [entry])
   item = ordered(appendHistory(item, w.who, `answered by the partner: ${short} (why: ${why})`, w.now))
   let freed = null
+  let parked = null
   const done = await answerStep(w, item, found.text, of, step => {
     let mine = appendHistory(underStep(step, [`${id} answered by the partner on ${at(w.now)}: ${short}`]), w.who, `${id} answered by the partner`, w.now)
     if (stateOf(mine) === 'waiting on you') {
-      const goesOn = move(mine, 'in progress', 'server', w, flowCtx(w, [item, mine]), ` (${id} answered by the partner)`)
-      if (goesOn.ok) {
-        mine = goesOn.item
-        freed = valueOf(mine, 'Owner')
-      }
+      const goes = goOnOrPark(mine, w, flowCtx(w, [item, mine]), ` (${id} answered by the partner)`)
+      mine = goes.item
+      if (goes.freed) freed = valueOf(mine, 'Owner')
+      parked = goes.parked === null ? null : { step: of, after: goes.parked }
     }
     return mine
   })
   if (!done.ok) return done
   const listed = await listAnswer(w, note, noteId, entry, id)
-  const told = { id, title: valueOf(found.item, 'Title') ?? '', text: `Your partner answered this for the person: ${line(text.join(' '), 1000)} (why: ${why}). The person may still take it back.` }
+  const told = { id, title: valueOf(found.item, 'Title') ?? '', text: `Your partner answered this for the person: ${line(text.join(' '), 1000)} (why: ${why}). The person may still take it back.${parkedWords(parked)}` }
   const wake = asker === null ? null : { to: asker, ...told }
   const wakeOwner = freed !== null && (asker === null || plain(freed, w.prefix) !== plain(asker, w.prefix)) ? { to: freed, ...told } : null
   const where = listed.ok ? `It stands in your daily note ${noteId} with an Undo` : `Your daily note could not take its line (${listed.why})`
@@ -1176,13 +1203,38 @@ async function report(body, w) {
   const item = appendHistory(underStep(moved.item, [`Reported ${isAgain ? 'again ' : ''}by ${w.who} on ${at(w.now)}: ${result}${merged === '' ? '' : ` (merged ${merged})`}`]), 'server', 'check pending', w.now)
   const done = await save(item, found.text, w)
   if (!done.ok) return done
+  const resumed = isAgain ? [] : await resumeParked(item, w)
   // Focus 4, the review: the board's own note of a report (Via: report) wakes nobody: the worker tells the main chat.
   await makeNote(w, 'main', [`${id} reported ${isAgain ? 'again ' : ''}by ${w.who}: ${line(result, 200)}`], id, 'report')
   // B301: the chat's next step, when the store holds one for it (queued or taken): the Workers mod keeps the chat's
   // context for it instead of compacting it after this report.
   const more = [...w.store.items.values()].filter(one => kindOf(one) === 'step' && valueOf(one, 'Id') !== id && isOwner(one, w.who, w.prefix) && ['queued', 'taken'].includes(stateOf(one)))
     .map(one => valueOf(one, 'Id')).sort(byId)[0] ?? null
-  return changed(item, undefined, { check: { id, branch: valueOf(item, 'Branch'), result, merged: merged === '' ? lastReport(found.item).merged : merged, touches: touchesLines(item) }, more })
+  return changed(item, undefined, { check: { id, branch: valueOf(item, 'Branch'), result, merged: merged === '' ? lastReport(found.item).merged : merged, touches: touchesLines(item) }, more, ...(resumed.length === 0 ? {} : { resumed }) })
+}
+
+/**
+ * B567: the steps its chat parked while it was on the step it just reported (`reported`) go on: waiting on you → in
+ * progress by the server, "(resumes after B<n>)", while the chat is on no other step. Their ids, oldest first.
+ */
+async function resumeParked(reported, w) {
+  const items = new Map(w.store.items)
+  items.set(valueOf(reported, 'Id'), reported)
+  const parked = [...items.values()].filter(one => kindOf(one) === 'step' && isOwner(one, w.who, w.prefix) && parkedAfter(one, items) !== null)
+    .sort((a, b) => byId(valueOf(a, 'Id'), valueOf(b, 'Id')))
+  const resumed = []
+  for (const step of parked) {
+    const found = await load(valueOf(step, 'Id'), w, { kind: ['step'] })
+    if (!found.ok) continue
+    const goesOn = move(found.item, 'in progress', 'server', w, flowCtx(w, [reported, found.item]),` (resumes after ${valueOf(reported, 'Id')})`)
+    if (!goesOn.ok) continue
+    const done = await save(ordered(goesOn.item), found.text, w)
+    if (!done.ok) continue
+    resumed.push(valueOf(step, 'Id'))
+    // Only one goes on: the others stay parked until it is reported in turn.
+    break
+  }
+  return resumed
 }
 
 const REPORTED = /^Reported (?:again )?by .+? on \d{4}-\d\d-\d\d at \d\d:\d\d: (.*?)(?: \(merged ([^()\s]+)\))?$/
@@ -1263,12 +1315,8 @@ async function withdraw(body, w) {
   const item = said(put(put(copy(found.item), 'State', 'withdrawn'), 'Since', stamp(w.now)), w, `withdrawn${why === '' ? '' : `: ${why}`}`)
   const of = valueOf(found.item, 'Of')
   return answerStep(w, item, found.text, of, step => {
-    let mine = said(underStep(step, [`${id} withdrawn by ${w.who} on ${at(w.now)}${why === '' ? '' : `: ${why}`}`]), w, `${id} withdrawn`)
-    if (stateOf(mine) === 'waiting on you') {
-      const goesOn = move(mine, 'in progress', 'server', w, flowCtx(w, [item, mine]), ` (${id} withdrawn)`)
-      if (goesOn.ok) mine = goesOn.item
-    }
-    return mine
+    const mine = said(underStep(step, [`${id} withdrawn by ${w.who} on ${at(w.now)}${why === '' ? '' : `: ${why}`}`]), w, `${id} withdrawn`)
+    return stateOf(mine) === 'waiting on you' ? goOnOrPark(mine, w, flowCtx(w, [item, mine]), ` (${id} withdrawn)`).item : mine
   })
 }
 
@@ -2356,22 +2404,22 @@ async function answer(body, w) {
   const isRefine = valueOf(found.item, 'Via') === 'refine'
   // Focus 3, the review: the owner of the step this answer frees.
   let freed = null
+  let parked = null
   const done = await answerStep(w, item, found.text, of, step => {
     let mine = said(underStep(step, [`${id} answered by you on ${at(w.now)}: ${short}`]), w, `${id} answered`)
     // B293: a refine question answered here is answered in the step's refine block too, as in the step's window.
     if (isRefine) mine = withRefineAnswer(mine, found.item, short, w)
     if (stateOf(mine) === 'waiting on you') {
-      const goesOn = move(mine, 'in progress', 'server', w, flowCtx(w, [item, mine]), ` (${id} answered)`)
-      if (goesOn.ok) {
-        mine = goesOn.item
-        freed = valueOf(mine, 'Owner')
-      }
+      const goes = goOnOrPark(mine, w, flowCtx(w, [item, mine]), ` (${id} answered)`)
+      mine = goes.item
+      if (goes.freed) freed = valueOf(mine, 'Owner')
+      parked = goes.parked === null ? null : { step: of, after: goes.parked }
     }
     return mine
   })
   // B299: the chat that asked is woken with the answer (the server sends it); an ask the person made wakes nobody.
   const owner = valueOf(found.item, 'Owner')
-  const told = { id, title: valueOf(found.item, 'Title') ?? '', text: text.join('\n') }
+  const told = { id, title: valueOf(found.item, 'Title') ?? '', text: `${text.join('\n')}${parkedWords(parked)}` }
   const wake =owner === null || !/^Q\d+$/.test(id) ? null : { to: owner, ...told }
   // B464: a "yes" to a refine question that drops its step goes to the main chat at once.
   if (done.ok && isRefine && of !== null) await dropNote(w, of, askWords(found.item), short)
@@ -2549,7 +2597,8 @@ function pull(body, w) {
   // as when running).
   if (isHolding(w.store.pause)) return { ok: true, result: { text: '', id: null, since: null, wake: null, changed: false } }
   const steps = [...w.store.items.values()].filter(item => kindOf(item) === 'step' && isOwner(item, w.who, w.prefix))
-  const held = steps.find(item => ['taken', 'in progress', 'waiting on you'].includes(stateOf(item)))
+  // B567: a step waiting on the person (or parked) holds the chat no longer: it takes its next queued step meanwhile.
+  const held = steps.find(item => ACTIVE.includes(stateOf(item)))
   if (held !== undefined) return { ok: true, result: { text: '', id: valueOf(held, 'Id'), since: null, wake: null, changed: false } }
   for (const item of steps.filter(one => stateOf(one) === 'queued').sort((a, b) => fixFirst(a, b) || byId(valueOf(a, 'Id'), valueOf(b, 'Id')))) {
     if (!mayMove(w.store.flow, item, 'taken', 'server', flowCtx(w, [item], [w.who])).ok) continue
@@ -2577,7 +2626,9 @@ async function advance(body, w) {
   // Incident fixes, the review: the board queues a step only for a chat it names, or as asked before its refine, never
   // into no worker's queue.
   if (to === 'queued') return refuse(409, `${valueOf(found.item, 'Id')}: the board queues a step only for a chat ("for"), or as asked before its refine.`)
-  const moved = move(found.item, to, 'server', w)
+  // B567: a step whose worker rests on an open ask says which (the reconciler names it).
+  const ask = /^Q\d+$/.test(line(body.ask, 20)) ? line(body.ask, 20) : null
+  const moved = move(found.item, to, 'server', w, undefined, to === 'waiting on you' && ask !== null ? ` (rests for ${ask})` : '')
   if (!moved.ok) return moved
   const done = await save(ordered(moved.item), found.text, w)
   // B360, the review: a step the reconciler moves to done (say once the person answered its look) gets its recap too.

@@ -9,6 +9,7 @@ import { chatEffort, effortOf, modelOf } from '../work/effort.mjs'
 import { sinceMs, valueOf } from '../work/item.mjs'
 import { checkpointOf, isHolding } from '../work/pause.mjs'
 import { reviewWaitOf } from '../work/resultCheck.mjs'
+import { ACTIVE, heldReason, workingOnOther } from '../work/parked.mjs'
 import { checkpointLate, familyOf, switchOf } from './rules/watch.mjs'
 
 const MIN = 60_000
@@ -209,6 +210,24 @@ function builderHolds(item, view) {
   return (card !== null && card !== id) || stepsOf(view).some(other => valueOf(other, 'Id') !== id && plain(valueOf(other, 'Owner'), view.prefix) === owner && HELD.slice(0, 3).includes(valueOf(other, 'State')))
 }
 
+/**
+ * B567 (X21, X23): a step its owner holds (taken, in progress or waiting on you) while the owner is on another step: its
+ * card's step when that is another, else another step it holds taken or in progress. `{ on, why }` (`why` parked.mjs
+ * `heldReason`, null when nothing names it), or null.
+ */
+function parkedOf(item, view) {
+  if (!HELD.slice(0, 3).includes(valueOf(item, 'State')) || valueOf(item, 'Owner') === null) return null
+  const id = valueOf(item, 'Id')
+  const owner = plain(valueOf(item, 'Owner'), view.prefix)
+  const card = view.lanes.find(lane => !lane.isLeftover && plain(lane.name, view.prefix) === owner)?.task?.stepId ?? null
+  if (card === id) return null
+  // Without a card: the newest step it holds taken or in progress is the one it is on, unless that is this one.
+  const other = workingOnOther(view.items, item, view.prefix)
+  const isOlder = other !== null && (!ACTIVE.includes(valueOf(item, 'State')) || !(sinceMs(valueOf(item, 'Since')) > sinceMs(valueOf(view.items.get(other), 'Since'))))
+  const on = card ?? (isOlder ? other : null)
+  return on === null ? null : { on, why: heldReason(item, view.items) }
+}
+
 /** Each step under way: its state, for how long, its owner; the backlog's new and refined steps counted in one line. */
 function stepLines(view, now) {
   const chats = new Set(view.lanes.filter(lane => !lane.isLeftover).map(lane => plain(lane.name, view.prefix)))
@@ -248,8 +267,11 @@ function stepLines(view, now) {
         : ` [last checkpoint ${Number.isFinite(checkpoint.at) ? `${lasting(now - checkpoint.at)} ago` : 'at a time not known'} (${checkpoint.commit ?? 'none'}): ${oneLine(checkpoint.next, 60)}]`
     // The steps every chat holds stay whatever is cut; a chat's queue before the rest.
     const tier = isChats && HELD.includes(state) ? 0 : isChats ? 1 : 2
-    const odd = isLate(item, view, now) || (owner !== null && !isChats) || checkpointLate(item, { ...view, now }) !== null
-    lines.push(lineOf(`${id} ${state} for ${lasting(age)}${stays}, ${owner === null ? 'no owner' : owner}${fix}${waits}${checkpointWords}: ${oneLine(valueOf(item, 'Title'), 80)}`, { tier, odd, at: since }))
+    // B567: a step its worker holds while it is on another says so, with why it waits; none named is odd.
+    const parked = parkedOf(item, view)
+    const odd = isLate(item, view, now) || (owner !== null && !isChats) || checkpointLate(item, { ...view, now }) !== null || (parked !== null && parked.why === null)
+    const parkedWords = parked === null ? '' : ` (parked: ${owner} is on ${parked.on}; ${parked.why ?? 'nothing names why it waits'})`
+    lines.push(lineOf(`${id} ${state} for ${lasting(age)}${stays}, ${owner === null ? 'no owner' : owner}${fix}${waits}${parkedWords}${checkpointWords}: ${oneLine(valueOf(item, 'Title'), 80)}`, { tier, odd, at: since }))
   }
   if (backlog.new + backlog.refined > 0) lines.push(lineOf(`backlog, not queued: ${backlog.new} new, ${backlog.refined} refined`, { tier: 1 }))
   return lines

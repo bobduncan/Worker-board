@@ -143,6 +143,12 @@ step therefore says what it touches ("Touches: ...").
   `work answered-in-chat Q<id>` with their words. An ask you no longer need: `work withdraw Q<id>`;
   a step that waits on you is reported only once its asks are answered or withdrawn. Information for the person or the main
   chat: `work note`. An instruction of the user's that you finished: `work close I<id>` with what came of it.
+- An ask you stop for is blocking (B567): file it with `blocking` true, so your step waits on the person by name. While
+  a step of yours waits on the person, or is parked (its answers came while you were on another step: it resumes after
+  that one is reported, and `work next` hands it back first), take your next queued step. Never leave a step in progress
+  unnamed while you work on another: report it, ask under it, or hand it back to the main chat. The board moves a step
+  you rested on for 15 minutes with an open ask to waiting on you itself, and names to the main chat a step left in
+  progress over an hour while your card names another.
 - A place on the board your ask names gets a link (B507): the work tool's For you block adds one for every goal (`G33`),
   step or ask id and tab ("the Focus tab, then Goals") in the title, and the popup links the same words. In a Do item
   you write yourself, link the place the same way: `<board>/#advice/goals/G33` (a goal on Goals), `#advice/focus` or

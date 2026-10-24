@@ -129,13 +129,17 @@ async function changeDelivered(dir, fs, change) {
 /** B465, the review: a line of the board's sync check holds at most this long; the check decides anew after it. */
 export const SYNC_LINE_MS = 30 * 60_000
 
-/** Whether a line may go to `chat` now: a chat on the board (not a leftover) that is free, not busy nor held by the limit. */
+/**
+ * Whether a line may go to `chat` now: a chat on the board (not a leftover) that is free, not busy nor held by the limit,
+ * or (B567) that rests while its steps wait on the person.
+ */
 export function mayWake(state, chat) {
   // The review of Pause 2: while the person pauses nothing starts a turn (2026-10-19: pausing only; while resuming
   // as when running).
   if (isHolding(state?.pause)) return false
   const lane = (state?.chats ?? []).find(one => one.name === chat && !one.isLeftover)
-  return lane !== undefined && lane.state === 'free'
+  // B567: or one that rests while every step it holds waits on the person (the reconciler's `restFree`).
+  return lane !== undefined && (lane.state === 'free' || (state?.reconciled?.restFree ?? []).includes(chat))
 }
 
 /**
@@ -253,7 +257,7 @@ export async function deliverWork({ state, dir, outbox, apply, now, maxChars, ne
   const plan = state?.reconciled ?? null
   if (plan === null || dir === null) return done
   for (const move of plan.moves ?? []) {
-    const moved = await apply({ action: 'advance', id: move.id, to: move.to }).catch(() => null)
+    const moved = await apply({ action: 'advance', id: move.id, to: move.to, ...(typeof move.ask === 'string' ? { ask: move.ask } : {}) }).catch(() => null)
     if (moved?.ok === true) done.moved.push(move.id)
   }
   // Incident fixes (2026-10-24): the board queues each ready incident fix for the worker the reconciler picked (the API

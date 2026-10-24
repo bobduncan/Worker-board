@@ -20,6 +20,7 @@ export const DEFAULT_FLOW = {
       { from: 'queued', to: 'new', by: ['main', 'person'] },
       { from: 'taken', to: 'in progress', by: ['worker', 'advisor', 'main'] },
       { from: 'in progress', to: 'waiting on you', by: ['worker', 'advisor', 'main'], when: 'an ask with Blocking yes is open' },
+      { from: 'in progress', to: 'waiting on you', by: 'server', when: 'its worker rests on an open ask' },
       { from: 'waiting on you', to: 'in progress', by: 'server', when: 'its asks are answered', then: 'wake Owner' },
       { from: 'in progress', to: 'review', by: ['worker', 'advisor', 'main'], then: 'check: base equals remote, branch gone, result named' },
       { from: 'review', to: 'review', by: ['worker', 'advisor', 'main'], then: 'check: base equals remote, branch gone, result named' },

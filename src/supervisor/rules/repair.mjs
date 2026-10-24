@@ -27,6 +27,7 @@ import { isHolding } from '../../work/pause.mjs'
 import { checkWhy, gitCheckPassed, needsResultCheck, resultCheckOf, reviewWaitOf } from '../../work/resultCheck.mjs'
 import { asksOfStep } from '../../work/stepAsks.mjs'
 import { boardPlacementOf } from '../../work/incidentFix.mjs'
+import { heldReason, restsFree } from '../../work/parked.mjs'
 
 const MIN = 60_000
 const HOUR = 60 * MIN
@@ -53,6 +54,8 @@ export const QUEUED_BEHIND_MS = 20 * MIN
 export const REVIEW_WAIT_MS = 60 * MIN
 /** B564: a worker free this long with nothing queued while the focus has ready steps gets one named to the main chat. */
 export const FOCUS_IDLE_MS = 20 * MIN
+/** B567: a step in progress this long while its worker's card names another step, with nothing naming why, is named. */
+export const HELD_ELSEWHERE_MS = 60 * MIN
 
 /** The states in which a step is its Owner's work now. */
 const HOLDS = ['taken', 'in progress', 'waiting on you']
@@ -108,6 +111,8 @@ function factsOf(view) {
     laneOf: name => live.find(lane => plain(lane.name, prefix) === plain(name, prefix)),
     isHeld: isHolding(pause),
     holds: name => steps.some(item => HOLDS.includes(stateOf(item)) && plain(valueOf(item, 'Owner'), prefix) === plain(name, prefix)),
+    // B567: a worker that rests while every step it holds waits on the person counts free for its queued steps.
+    restFree: lane => restsFree(lane, steps, prefix),
     isFull: ['fiveHour', 'week'].some(limit => limits?.[limit]?.level === 'full'),
     wakeOr: (key, wake, late) => {
       const at = outbox.findLast(message => message.syncKey === key)?.at ?? null
@@ -164,14 +169,14 @@ function blocked(view) {
 /** A queued step its free owner was told of a while ago and did not take: woken again, once; then the main chat. */
 function notTaken(view) {
   const { prefix = '', now, outbox = [] } = view
-  const { steps, laneOf, isHeld, holds, wakeOr } = factsOf(view)
+  const { steps, laneOf, isHeld, holds, restFree, wakeOr } = factsOf(view)
   const found = []
   if (isHeld) return found
   const done = new Set()
   for (const item of steps.filter(one => stateOf(one) === 'queued')) {
     const id = idOf(item)
     const lane = laneOf(valueOf(item, 'Owner'))
-    if (lane === undefined || lane.isMain === true || lane.state !== 'free' || holds(lane.name) || done.has(lane.name)) continue
+    if (lane === undefined || lane.isMain === true || !((lane.state === 'free' && !holds(lane.name)) || restFree(lane)) || done.has(lane.name)) continue
     const queuedAt = sinceMs(valueOf(item, 'Since'))
     const told = outbox.findLast(message => message.command === 'work' && message.about === id && plain(message.to, prefix) === plain(lane.name, prefix)
       && message.syncKey === undefined && ['delivered', 'taken'].includes(message.state) && !(message.at < queuedAt - MIN))
@@ -209,18 +214,18 @@ function notTaken(view) {
  */
 function behindOf(view) {
   const { items = new Map(), prefix = '', now } = view
-  const { steps, workers, laneOf, holds } = factsOf(view)
+  const { steps, workers, laneOf, holds, restFree } = factsOf(view)
   const ctx = { store: { items } }
   const isOpen = item => blockersOpen(item, ctx).length === 0 && waitWords(item) === null
   const queued = steps.filter(item => stateOf(item) === 'queued')
-  const isBusy = lane => holds(lane.name) || BUSY.includes(lane.state)
+  const isBusy = lane => !restFree(lane) && (holds(lane.name) || BUSY.includes(lane.state))
   const waiting = queued.filter(item => {
     const lane = laneOf(valueOf(item, 'Owner'))
     return lane !== undefined && lane.isMain !== true && isBusy(lane) && isOpen(item) && now - sinceMs(valueOf(item, 'Since')) > QUEUED_BEHIND_MS
   }).sort((a, b) => sinceMs(valueOf(a, 'Since')) - sinceMs(valueOf(b, 'Since')) || byId(a, b))
   const ownsQueued = lane => queued.some(item => plain(valueOf(item, 'Owner'), prefix) === plain(lane.name, prefix))
   const freeSince = lane => lane.idle?.since ?? now
-  const free = workers.filter(lane => lane.state === 'free' && !holds(lane.name) && !ownsQueued(lane))
+  const free = workers.filter(lane => ((lane.state === 'free' && !holds(lane.name)) || restFree(lane)) && !ownsQueued(lane))
     .sort((a, b) => Number(b.isRunning !== false) - Number(a.isRunning !== false) || freeSince(a) - freeSince(b))
   const fixOf = item => (/^B\d+$/.test(valueOf(item, 'Fix of') ?? '') ? valueOf(item, 'Fix of') : null)
   return { queued, waiting, free, isOpen, fixOf }
@@ -592,6 +597,33 @@ function worktrees(view) {
   return leftoverFindings(leftovers.found ?? [])
 }
 
+/**
+ * B567 (X23: B522 sat in progress 2 h, its checkpoint "report B522", while its worker did other steps): a step in
+ * progress over HELD_ELSEWHERE_MS whose owner's card names another step, with nothing that names why it waits (an open
+ * ask, a park, an open blocker: parked.mjs `heldReason`), is named to the main chat, once per step an hour: the watch
+ * counts from the first time it was seen so and lasts while it stays so. Never while the person pauses, nor for a worker
+ * paused for the limit.
+ */
+function heldElsewhere(view, { seen = new Map(), observed = [] } = {}) {
+  const { items = new Map(), prefix = '', now } = view
+  const { steps, laneOf, isHeld } = factsOf(view)
+  const found = []
+  if (isHeld) return found
+  for (const item of steps.filter(one => stateOf(one) === 'in progress')) {
+    const id = idOf(item)
+    const lane = laneOf(valueOf(item, 'Owner'))
+    const on = lane?.task?.stepId ?? null
+    if (lane === undefined || lane.isMain === true || lane.state === 'suspended' || on === null || on === id) continue
+    if (!(now - sinceMs(valueOf(item, 'Since')) > HELD_ELSEWHERE_MS) || heldReason(item, items) !== null) continue
+    const watch = `held-elsewhere ${id} ${plain(lane.name, prefix)}`
+    if (!observed.includes(watch)) observed.push(watch)
+    const key = `held-elsewhere ${id} ${Math.floor((now - (seen.get(watch) ?? now)) / HOUR)}`
+    const text = `${id} in progress ${hoursOf(now - sinceMs(valueOf(item, 'Since')))} for ${lane.name}, whose card says ${on}: nothing names why it waits`
+    found.push(finding('held-elsewhere', key, id, text, { do: 'send', text: `${text}; have ${lane.name} report it, ask under it or hand it on` }))
+  }
+  return found
+}
+
 /** Every repair rule of the board's self-check, in the order the answer shows them. */
 export const REPAIR_RULES = [
   { id: 'blocked', kind: 'repair', says: 'a step blocked by one done, dropped or in review, or by one the store does not hold', check: blocked },
@@ -606,6 +638,7 @@ export const REPAIR_RULES = [
   { id: 'helper', kind: 'repair', says: 'the partner\'s helper not running while refines or result checks wait', check: helperIdle },
   { id: 'partner-ask', kind: 'repair', says: 'an ask routed to the partner left unanswered', check: partnerAsk },
   { id: 'unchecked', kind: 'repair', says: 'a reported step left without its result check, or with its ask point answered and no check filed again', check: unchecked },
+  { id: 'held-elsewhere', kind: 'repair', says: 'a step in progress over an hour while its worker is on another step, with nothing naming why', check: heldElsewhere },
   { id: 'fix-dropped', kind: 'repair', says: 'a step in review whose fix was dropped, which nothing closes', check: fixDropped },
   { id: 'worktrees', kind: 'repair', says: 'a leftover worktree, or an empty folder one left in the project folder', check: worktrees },
 ]
