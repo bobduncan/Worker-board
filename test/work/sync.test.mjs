@@ -14,7 +14,7 @@ import { workApi } from '../../src/work/api.mjs'
 import { deliverWork } from '../../src/work/deliver.mjs'
 import { migrateBacklog, stamp } from '../../src/work/migrate.mjs'
 import { readStore, writeStore } from '../../src/work/store.mjs'
-import { AGAIN_MS, CHECKS, LOOP_LOCK_MS, NOT_TAKEN_MS, OWNER_GONE_MS, SYNC_SHOWN_MS, applySync, findStuck, leftoverFindings, loopOwner, mayRunLoop, readLoopLock, syncRunner } from '../../src/work/sync.mjs'
+import { AGAIN_MS, CHECKS, LOOP_LOCK_MS, NOT_TAKEN_MS, OWNER_GONE_MS, SYNC_SHOWN_MS, applySync, findStuck, leftoverFindings, loopGate, loopOwner, mayRunLoop, readLoopLock, syncRunner } from '../../src/work/sync.mjs'
 
 const MIN = 60_000
 const NOW = new Date(2026, 9, 21, 2, 0).getTime()
@@ -584,4 +584,52 @@ test('worktree clean-up in the runner: it looks with the store\'s items; a run t
   assert.equal(runner.shown(NOW).rows[0].status, 'Cleaned')
   isBroken = true
   assert.deepEqual((await runner.run()).rows.map(one => [one.status, one.text]), [['Left', 'leftover worktrees: not looked at (the project folder could not be read)']])
+})
+
+test('B488: of two processes that claim an empty lock at once, the write that stands wins and the other finds out', async () => {
+  let file = ''
+  const clock = NOW
+  // each writes, then the other writes before the first reads the lock back
+  const board = (pid, port) => loopOwner({
+    read: async () => file, write: async text => { file = text }, alive: () => true, pid, port, now: () => clock, settleMs: 50,
+    wait: async () => { if (pid === 7 && file.includes('"pid":7')) file = JSON.stringify({ pid: 8, port: 4311, at: clock }) },
+  })
+  assert.equal(await board(7, 4310)(), false, 'the first claim was written over before it settled')
+  assert.equal(JSON.parse(file).pid, 8)
+  assert.equal(await board(8, 4311)(), true, 'the claim that stands is the second\'s; it needs no second settle to keep the loops')
+  const refresh = []
+  const owner = loopOwner({ read: async () => file, write: async text => { file = text }, alive: () => true, pid: 8, port: 4311, now: () => clock, settleMs: 50, wait: async ms => refresh.push(ms) })
+  assert.equal(await owner(), true)
+  assert.deepEqual(refresh, [], 'a lock that is already its own is refreshed without waiting')
+})
+
+test('B488: the loop gate answers from the lock at most once a second, says no when the check fails, and reads the files again when it gains the loops', async () => {
+  let clock = NOW
+  let answers = [false, true, true]
+  let asked = 0
+  const gained = []
+  const failed = []
+  const gate = loopGate({
+    owner: async () => { asked += 1; const next = answers.shift(); if (next === undefined) throw new Error('lock unreadable'); return next },
+    now: () => clock, onGained: async () => { gained.push(clock) }, onFailed: error => failed.push(error.message),
+  })
+  assert.equal(await gate(), false)
+  assert.equal(await gate(), false, 'the answer of this second stands')
+  assert.equal(asked, 1)
+  clock += 1500
+  assert.deepEqual([await Promise.all([gate(), gate()])].flat(), [true, true], 'two asks at once make one check')
+  assert.equal(asked, 2)
+  assert.deepEqual(gained, [clock], 'gained after it was refused: once, before the loops run')
+  clock += 1500
+  assert.equal(await gate(), true)
+  assert.equal(gained.length, 1, 'holding the lock again is no gain')
+  clock += 1500
+  assert.equal(await gate(), false, 'a lock that cannot be read is a no')
+  assert.deepEqual(failed, ['lock unreadable'])
+  answers = [true]
+  clock += 1500
+  assert.equal(await gate(), true)
+  assert.equal(gained.length, 2, 'a no from a failing check counts as refused')
+  const first = loopGate({ owner: async () => true, now: () => clock, onGained: async () => { throw new Error('never') } })
+  assert.equal(await first(), true, 'a process that starts with the lock gains nothing')
 })

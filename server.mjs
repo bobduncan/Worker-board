@@ -71,7 +71,7 @@ import { effortOf } from './src/work/effort.mjs'
 import { isHolding, resumeEnds, resumeRetypeTo, resumeTypeTo } from './src/work/pause.mjs'
 import { reportCheck } from './src/work/check.mjs'
 import { deliverWork, pullFor, sendOnce } from './src/work/deliver.mjs'
-import { REFUSED_MS, SYNC_EVERY_MS, loopOwner, syncRunner } from './src/work/sync.mjs'
+import { REFUSED_MS, SYNC_EVERY_MS, loopGate, loopOwner, syncRunner } from './src/work/sync.mjs'
 import { FILES as WORKTREE_FILES, cleanLeftover, findLeftovers, stepLeftovers } from './src/work/worktrees.mjs'
 import { followRenames } from './src/work/rename.mjs'
 import { standardHold } from './src/work/standardHold.mjs'
@@ -486,6 +486,47 @@ async function main(args) {
   delete process.env.WORKER_BOARD_KEY
   const bridgeKey = isDemo || isShowOnly ? null : /^[0-9a-f]{64}$/.test(keptKey) ? keptKey : randomBytes(32).toString('hex')
   if (bridgeKey !== null) process.send?.({ key: bridgeKey })
+
+  // B482, B488: one board process per project runs the loops (the reconciler, the look with its rounds, refine lines and
+  // wakes, the outbox, the list): the one that holds this lock. A second process on the project (another --port) serves
+  // the page and reads what the first wrote. The lock is checked at every run, so the other takes over within one run
+  // when the holder ends (src/work/sync.mjs loopOwner, loopGate). A copy that only shows runs its own loops, unlocked.
+  const LOOP_LOCK = isDemo || isShowOnly || config.project === '' ? null : join(config.project, '.claude', 'sync-loop.json')
+  /** Set below, where the stores and the bridge note are: what this process does when it gains the loops. */
+  let gainedLoops = async () => {}
+  const ownsLoops = LOOP_LOCK === null ? async () => true : loopGate({
+    owner: loopOwner({
+      read: () => readFile(LOOP_LOCK, 'utf8'),
+      write: async text => {
+        await mkdir(dirname(LOOP_LOCK), { recursive: true })
+        await writeAtomic(LOOP_LOCK, text)
+      },
+      alive: pid => {
+        try {
+          process.kill(pid, 0)
+          return true
+        } catch (error) {
+          return error?.code === 'EPERM'
+        }
+      },
+      pid: process.pid,
+      port: config.port,
+      now: clock,
+      settleMs: 80,
+    }),
+    now: clock,
+    onGained: () => gainedLoops(),
+    onFailed: error => loops.failed('loop-lock', error),
+  })
+  if (LOOP_LOCK !== null) {
+    process.on('exit', () => {
+      try {
+        if (JSON.parse(readFileSync(LOOP_LOCK, 'utf8')).pid === process.pid) rmSync(LOOP_LOCK)
+      } catch {
+        // not there, or another board's by now
+      }
+    })
+  }
 
   // The games started for a look at a branch. Each ends by itself; the board also ends them when it is closed.
   const games = createGames({
@@ -925,7 +966,7 @@ async function main(args) {
   // B465: the board's list of stuck states (src/work/sync.mjs), set up with the reconciler on a board that writes.
   let sync = null
   // B482: whether this board process runs the list for its project (one loop per project); null: it never does
-  let syncOwned = null
+  const syncOwned = LOOP_LOCK === null ? null : ownsLoops
 
   // The Design tab: an idea becomes a picture that Codex makes. Only here does the board start a program that
   // makes something: on the person's click, one at a time, with a time limit (see src/codex.mjs).
@@ -1599,19 +1640,38 @@ async function main(args) {
       return false
     }
   }
+  /** Writes where the mod finds this board, unless another board still delivers. */
+  async function claimBridge() {
+    if (bridgeKey === null || config.project === '') return
+    if (await isTaken()) {
+      console.error('Another worker board already delivers to the chats (.claude/board.json): answers given on this one will not arrive.')
+      return
+    }
+    await mkdir(join(config.project, '.claude'), { recursive: true })
+      .then(() => writeAtomic(noteFile, bridgeNote({ port: config.port, key: bridgeKey, at: clock() })))
+      .catch(error => {
+        // B467: shown on the page too, until the board starts again: the chats cannot find it.
+        loops.failed('bridge-note', error)
+        console.error('The board could not write .claude/board.json: answers will not reach the chats.')
+      })
+  }
+  // B488: this process gains the loops when the one that ran them ended: it reads again what that one wrote (the
+  // outbox and the notes of what was sent and seen), so it sends nothing twice and writes no old state over a new
+  // one, and the mod finds it at once.
+  gainedLoops = async () => {
+    await store.reload?.()
+    finishedSeen = await kept(FINISHED_FILE)
+    roundsKept = await kept(ROUNDS_FILE)
+    refineKept = await kept(REFINE_FILE)
+    taskTimes = await kept(TASK_TIMES_FILE) ?? taskTimes
+    await spending.load()
+    readState.reset()
+    await claimBridge()
+  }
   server.listen(config.port, HOST, async () => {
     if (bridgeKey !== null && config.project !== '') {
-      if (await isTaken()) {
-        console.error('Another worker board already delivers to the chats (.claude/board.json): answers given on this one will not arrive.')
-      } else {
-        await mkdir(join(config.project, '.claude'), { recursive: true })
-          .then(() => writeAtomic(noteFile, bridgeNote({ port: config.port, key: bridgeKey, at: clock() })))
-          .catch(error => {
-            // B467: shown on the page too, until the board starts again: the chats cannot find it.
-            loops.failed('bridge-note', error)
-            console.error('The board could not write .claude/board.json: answers will not reach the chats.')
-          })
-      }
+      if (await ownsLoops()) await claimBridge()
+      else console.error('Another board process of this project runs the loops (.claude/sync-loop.json): this one shows the page and reads.')
     }
     // B319: listening, it keeps its port and games' range for its project in the PC's list of boards.
     if (isHome && historyFrom === undefined) await register().catch(error => console.error(`The list of boards could not be written: ${error.message}`))
@@ -1650,7 +1710,14 @@ async function main(args) {
   }
 
   if (!isDemo && historyFrom === undefined) {
-    const look = () => isClosing ? Promise.resolve() : loops.run('look', () => readState().then(async state => {
+    const look = () => isClosing ? Promise.resolve() : loops.run('look', () => ownsLoops().then(async owns => {
+      // B488: a board process that does not run the loops reads what the one that does has written, and shows it.
+      if (!owns) {
+        await store.reload?.()
+        readState.reset()
+        return
+      }
+      const state = await readState()
       await tick(store, state, clock())
       // B446: a loop of its own: its failure shows and is logged, and the look goes on.
       await loops.run('measure', () => measureTasks(state))
@@ -1749,6 +1816,8 @@ async function main(args) {
       let finish = () => {}
       reconciling = new Promise(done => { finish = done })
       try {
+        // B488: only the board process that runs the loops reconciles (a refused one leaves it to the next refresh)
+        if (!(await ownsLoops())) return
         const state = await readState()
         // B313: a chat renamed (its session under another name) takes its open items along, once.
         const renamed = await followRenames({
@@ -1851,35 +1920,8 @@ async function main(args) {
         },
         now: clock,
       })
-      // B482: one loop per project: a second board process on it (another --port) leaves the list to the first
-      const LOOP_LOCK = join(config.project, '.claude', 'sync-loop.json')
-      const ownLoop = loopOwner({
-        read: () => readFile(LOOP_LOCK, 'utf8'),
-        write: async text => {
-          await mkdir(dirname(LOOP_LOCK), { recursive: true })
-          await writeAtomic(LOOP_LOCK, text)
-        },
-        alive: pid => {
-          try {
-            process.kill(pid, 0)
-            return true
-          } catch (error) {
-            return error?.code === 'EPERM'
-          }
-        },
-        pid: process.pid,
-        port: config.port,
-        now: clock,
-      })
-      syncOwned = ownLoop
-      process.on('exit', () => {
-        try {
-          if (JSON.parse(readFileSync(LOOP_LOCK, 'utf8')).pid === process.pid) rmSync(LOOP_LOCK)
-        } catch {
-          // not there, or another board's by now
-        }
-      })
-      setInterval(() => (isClosing ? null : loops.run('sync', async () => (await ownLoop() ? sync.run() : null))), SYNC_EVERY_MS)
+      // B482, B488: the list runs where the loops run (ownsLoops, above)
+      setInterval(() => (isClosing ? null : loops.run('sync', async () => (await ownsLoops() ? sync.run() : null))), SYNC_EVERY_MS)
     }
   }
 }

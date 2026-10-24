@@ -2940,6 +2940,19 @@ stuck that day was found by the person. They are now one list in the board, `src
   one loop per project: `<project>/.claude/sync-loop.json` names the board process that runs the list (`mayRunLoop`),
   a second one on the project (another `--port`) leaves it, and its "Out of sync?" asks the main chat only; a lock
   whose owner has not run for two rounds is taken over.
+- **One board process runs all the loops (B488).** The lock is for every loop that writes or sends, not the list alone:
+  the look (task times, the clock's rounds, the refine lines, the wakes, the board's asks), the reconciler (the work
+  store's moves, each chat's line, the recaps, the stuck checks) and the list. `loopGate` (sync.mjs) asks `loopOwner`
+  before each run and keeps the answer for a second; a process without the lock serves the page and reads (its look
+  reads the outbox and history files again, `reload` in store.mjs). A new claim is written and read back after 80 ms,
+  so of two processes starting at once the write that stands wins. The process that gains the lock after being refused
+  it (the holder ended; a dead process's lock is taken at once) reads again the files the holder wrote (the outbox, the
+  finished, rounds and refine records, the task times, the spending), so it sends nothing twice, and writes
+  `.claude/board.json`, so the mod finds it. At its start a process that does not get the lock writes no `board.json`.
+  A word sent from the page of the process without the lock lands in its own memory, not the holder's: use the
+  holder's page. Test: `test/oneLoopProcess.test.mjs` (two real processes: the round and a step's line go out once;
+  the holder is killed, the other takes the lock, writes `board.json`, and sends the next step's line once), and the
+  gate in `test/work/sync.test.mjs`.
 - A new way of getting stuck is added to the list with its check, fix and test, not only fixed by hand (roles/main.md).
 - Tests: `test/work/sync.test.mjs` (each check, each fix, the one note, the runner, the board's own unblock and requeue),
   `test/outOfSync.test.mjs` (the words to the main chat, the page's answer).
