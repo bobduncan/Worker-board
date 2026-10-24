@@ -5,6 +5,7 @@
 import { access, mkdir, open, readdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
 
 import { nextGoalId, parseGoals } from './goals.mjs'
+import { askTitleOf, titleProblem } from './work/askWords.mjs'
 import { addBrainstormNote, addGoal, changeGoalsFile, raiseLastLine, rewrite, setGoalLine } from './goalsWrite.mjs'
 
 const files = { readFile, writeFile, rename, rm, mkdir, access, readdir, open }
@@ -108,7 +109,7 @@ export function parseThread(text) {
     const asQuestion = line.match(QUESTION)
     const asProposal = line.match(PROPOSAL)
     if (asQuestion !== null) {
-      question = { n: Number(asQuestion[1]), at: asQuestion[2], text: '', why: null, options: [], picture: null, answer: null }
+      question = { n: Number(asQuestion[1]), at: asQuestion[2], text: '', context: null, why: null, options: [], picture: null, answer: null, line: index + 1 }
       thread.questions.push(question)
       section = 'question'
       return
@@ -137,10 +138,15 @@ export function parseThread(text) {
     if (section === 'question') {
       const option = line.match(OPTION)
       const answer = line.match(ANSWER)
-      const isNamed = option !== null || answer !== null || line.startsWith('Why:') || line.startsWith('Picture:')
+      const isNamed = option !== null || answer !== null || line.startsWith('Why:') || line.startsWith('Picture:') || line.startsWith('Context:')
+      const isFirst = question.context === null && question.why === null && question.options.length === 0 && question.picture === null && question.answer === null
       // Before anything named, a line is the question's (one or two lines), also one like "Lanterns: where?".
-      if (!isNamed && question.why === null && question.options.length === 0 && question.picture === null && question.answer === null) {
+      if (!isNamed && isFirst) {
         question.text = question.text === '' ? line : `${question.text} ${line}`
+      } else if (line.startsWith('Context:')) question.context = line.slice(8).trim()
+      // B475: the context runs on over plain lines until anything named.
+      else if (!isNamed && question.context !== null && question.why === null && question.options.length === 0 && question.picture === null && question.answer === null) {
+        question.context = `${question.context} ${line}`
       } else if (line.startsWith('Why:')) question.why = line.slice(4).trim()
       else if (line.startsWith('Picture:')) question.picture = line.slice(8).trim()
       else if (option !== null) question.options.push({ key: option[1], text: option[2].trim(), isAdvised: option[3] !== undefined })
@@ -163,6 +169,19 @@ export function parseThread(text) {
       if (item === null) odd(index, line)
       else proposal[list].push(item)
     } else odd(index, line)
+  })
+  // B475: each question as its title and its context, as an ask shows them (B452).
+  // A question from before it, with no "Context:" line, gives its first question (or sentence) as the title.
+  thread.questions = thread.questions.map(({ line, ...question }) => {
+    if (question.context === null) {
+      const { title, context } = askTitleOf([question.text])
+      return { ...question, title, context: context.join(' ') }
+    }
+    // `line` is the question's heading (1-based): its title is the next line.
+    const why = titleProblem(question.text)
+    if (question.text === '') thread.problems.push(`line ${line + 1}: Q${question.n} has no title: its first line is the question itself, then "Context:".`)
+    else if (why !== null) thread.problems.push(`line ${line + 1}: Q${question.n}'s title is too long. ${why.replace('in "text"', 'in its "Context:" line')}`)
+    return { ...question, title: question.text }
   })
   return thread
 }
@@ -290,7 +309,7 @@ export function brainstormNeeds(threads) {
   return (threads ?? []).filter(thread => thread.state === 'running' || thread.state === 'wrapping up').flatMap(thread => {
     if (thread.proposal !== null) return thread.proposal.created === null ? [{ kind: 'brainstorm', what: 'proposal', path: thread.path, title: thread.title, text: 'Its proposal waits for you to tick and create it.' }] : []
     // While it wraps up, the Advisor writes the proposal: the question left open waits for nobody.
-    if (thread.state === 'running' && thread.latest !== null && thread.latest.answer === null) return [{ kind: 'brainstorm', what: 'question', path: thread.path, title: thread.title, text: thread.latest.text }]
+    if (thread.state === 'running' && thread.latest !== null && thread.latest.answer === null) return [{ kind: 'brainstorm', what: 'question', path: thread.path, title: thread.title, text: thread.latest.title ?? thread.latest.text }]
     return []
   })
 }

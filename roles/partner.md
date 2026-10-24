@@ -552,11 +552,14 @@ thread, right under the `Opening:` line (five to ten lines, the first starting "
 only the thread and your chat stays small. Then write the first question at the end of the file:
 
     ## Q1 (HH:MM)
-    <the question, one or two lines>
+    <the title: the question itself, at most 12 words, ending in "?">
+    Context: <two to four plain sentences: where the goal sits, what is beside it, what the answer changes>
     Why: <one line: what the answer decides>
     - A: <option> (advised)
     - B: <option>
     Picture: <path>     (only when the question is visual: one picture of every option side by side, in the project's picture folder)
+
+The board shows the first line as the bold title and the `Context:` line (it may run on over plain lines until `Why:` or an option) as normal text under it, as an ask's window does (B452, B475), so the title is ONE line, and never put the goal's parents, siblings or numbers into it: a title over 12 words is flagged as a problem of the thread. A question without a `Context:` line (an older one) shows its first question or sentence as the title and the rest as context. Example: `Is this the vibe of G42?` then `Context: G42 sits under the maps goal; G41 beside it is the foundation. Your answer decides whether the how starts from this picture.`
 
 One question at a time, at most about eight in all; every question has an advised option and says what the answer
 decides; never ask what the thread already answers. The board writes the user's answer under the question

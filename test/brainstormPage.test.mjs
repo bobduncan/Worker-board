@@ -28,12 +28,12 @@ const idle = { name: 'Oracle', isRunning: true, state: 'free', doingNow: null }
 
 test('the card shows the open question with its options, the advised one marked, and the earlier answers folded', () => {
   const card = page.brainstormCardView(one(`${HEAD}${Q1}Answer (21:02): A — and the bench\n${Q2}`), idle)
-  assert.deepEqual(card.question, { n: 2, text: 'How bright?', why: 'it decides the sprite.', picture: 'pictures/brainstorm/bright.png' })
+  assert.deepEqual(card.question, { n: 2, title: 'How bright?', context: '', why: 'it decides the sprite.', picture: 'pictures/brainstorm/bright.png' })
   assert.deepEqual(card.options, [{ key: 'A', text: 'dim', isAdvised: true }, { key: 'B', text: 'bright', isAdvised: false }])
   assert.equal(card.canAnswer, true)
   assert.equal(card.canBack, true)
   assert.equal(card.waiting, null)
-  assert.deepEqual(card.earlier, [{ n: 1, text: 'Where first?', answerText: 'A, by the gate: "and the bench"' }])
+  assert.deepEqual(card.earlier, [{ n: 1, title: 'Where first?', context: '', answerText: 'A, by the gate: "and the bench"' }])
   // The first question has nothing to go back to.
   assert.equal(page.brainstormCardView(one(`${HEAD}${Q1}`), idle).canBack, false)
 })
@@ -113,4 +113,51 @@ test('the part stands third in the Advisor tab, with the list, the box for a new
   // Create asks the main chat for each step the board created, by its place in the proposal.
   assert.match(script, /sayBrainstorm\(\{ to: main, command: 'goal-step', thread: path, step: index \}, path\)/)
   assert.match(script, /'Brainstorm this'/)
+})
+
+// B475: a question is a short title and a context, as an ask is (B452).
+const LONG = 'Where should the lanterns go first? G6 sits under the visuals; its sibling G7 is about the benches. The answer decides which sprite is made first.'
+test('B475: the card shows a question as its short title and its context; an older question splits at its first question', () => {
+  const written = page.brainstormCardView(one(`${HEAD}## Q1 (21:01)
+Where do the lanterns go first?
+Context: G6 is about the benches. Its sibling G7 is about the pond.
+It decides which sprite is made first.
+Why: the order.
+- A: gate (advised)
+- B: pond
+`), idle)
+  assert.equal(written.question.title, 'Where do the lanterns go first?')
+  assert.equal(written.question.context, 'G6 is about the benches. Its sibling G7 is about the pond. It decides which sprite is made first.')
+  const older = page.brainstormCardView(one(`${HEAD}## Q1 (21:01)
+${LONG}
+Why: the order.
+- A: gate (advised)
+- B: pond
+`), idle)
+  assert.equal(older.question.title, 'Where should the lanterns go first?')
+  assert.equal(older.question.context, 'G6 sits under the visuals; its sibling G7 is about the benches. The answer decides which sprite is made first.')
+})
+
+test('B475: a title over twelve words is a problem of the thread, named with its question', () => {
+  const thread = one(`${HEAD}## Q1 (21:01)
+Where should all of the lanterns of the whole camp go first when we start?
+Context: Short.
+- A: gate (advised)
+`)
+  assert.equal(thread.problems.length, 1)
+  assert.match(thread.problems[0], /Q1's title is too long/)
+})
+
+test('B475: the card draws the title as its header and the context as normal text under it', () => {
+  assert.match(script, /el\('h4', 'brainstorm-question', view\.question\.title\)/)
+  assert.match(script, /el\('p', 'brainstorm-context', view\.question\.context\)/)
+  assert.match(css, /\.brainstorm-context \{/)
+})
+
+test('B475: a question with no title line is a problem of the thread', () => {
+  const thread = one(`${HEAD}## Q1 (21:01)
+Context: Only context.
+- A: gate (advised)
+`)
+  assert.match(thread.problems.join(' '), /Q1 has no title/)
 })

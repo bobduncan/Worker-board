@@ -7907,12 +7907,13 @@ function brainstormCardView(thread, advisor) {
         : doing !== '' && !/^brainstorm\b/i.test(doing) ? `The Advisor is on: ${doing}` : 'The Advisor is thinking…'
   }
   return {
-    question: isOpen ? { n: latest.n, text: latest.text, why: latest.why, picture: latest.picture } : null,
+    // B475: the question as its short title and its context, as an ask's window shows them (B452).
+    question: isOpen ? { n: latest.n, title: latest.title ?? latest.text, context: latest.context ?? '', why: latest.why, picture: latest.picture } : null,
     options: isOpen ? latest.options : [],
     canAnswer: isOpen,
     canBack: isOpen && thread.earlier.length > 0,
     waiting,
-    earlier: asked.map(question => ({ n: question.n, text: question.text, answerText: brainstormAnswerText(question) })),
+    earlier: asked.map(question => ({ n: question.n, title: question.title ?? question.text, context: question.context ?? '', answerText: brainstormAnswerText(question) })),
   }
 }
 
@@ -8056,7 +8057,8 @@ function brainstormCard(thread, state) {
   box.append(el('small', 'brainstorm-meta', `Brainstorm · with the Advisor · ${step} · started ${thread.started ?? ''}`), el('h3', 'brainstorm-title', thread.title))
   if (thread.opening) box.append(el('p', 'brainstorm-opening', `You opened with: ${thread.opening}`))
   if (view.question !== null) {
-    box.append(el('h4', 'brainstorm-question', view.question.text))
+    box.append(el('h4', 'brainstorm-question', view.question.title))
+    if (view.question.context) box.append(el('p', 'brainstorm-context', view.question.context))
     if (view.question.why) box.append(el('p', 'muted brainstorm-why', `The Advisor asks because ${view.question.why}`))
     const picked = brainstormUi.chosen.get(thread.path) ?? null
     const options = el('div', 'brainstorm-options')
@@ -8116,8 +8118,9 @@ function brainstormCard(thread, state) {
     earlier.append(el('summary', '', `Earlier in this brainstorm (${view.earlier.length})`))
     for (const one of view.earlier) {
       const line = el('p', '')
-      line.append(el('b', '', `Q${one.n} `), one.text, el('span', 'muted', ` → ${one.answerText}`))
+      line.append(el('b', '', `Q${one.n} ${one.title}`), el('span', 'muted', ` → ${one.answerText}`))
       earlier.append(line)
+      if (one.context) earlier.append(el('p', 'muted brainstorm-earlier-context', one.context))
     }
     box.append(earlier)
   }
@@ -8987,7 +8990,8 @@ function focusTalk(thread) {
   }
   const bubbles = thread.opening ? [{ who: 'you', text: thread.opening }] : []
   for (const question of [...(thread.earlier ?? []), ...(thread.latest ? [thread.latest] : [])]) {
-    bubbles.push({ who: 'partner', text: question.text })
+    // B475: the question's title, its context after it (an older question has its whole text as the title).
+    bubbles.push({ who: 'partner', text: [question.title ?? question.text, question.context].filter(Boolean).join(' ') })
     const words = said(question)
     if (words !== null) bubbles.push({ who: 'you', text: words })
   }

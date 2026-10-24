@@ -131,12 +131,14 @@ test('a pause that names no time ends when the 5-hour limit resets, as far as th
   assert.deepEqual(lane(build({ tails: { Features: tail(paused('')) } }), 'Features').suspended, { by: 'note', limit: 'fiveHour', since: NOW - 11 * MIN, until: null, isBack: false })
 })
 
-test('after that time the worker is still suspended, and the board says the limit is back', () => {
+test('after that time a worker that paused by a note is still suspended, and the board says the limit is back; the stop of the app is over', () => {
   const later = at(23, 50)
   const note = build({ tails: { Features: tail(paused()) }, now: later })
   assert.deepEqual([lane(note, 'Features').state, lane(note, 'Features').suspended.until, lane(note, 'Features').suspended.isBack], ['suspended', at(23, 40), true])
+  // 2026-10-24: an app's stop past the reset it named holds the worker no longer (it kept workers suspended for days):
+  // the lane is what its turn says.
   const stop = build({ tails: { Features: tail(stopped) }, now: later })
-  assert.deepEqual([lane(stop, 'Features').state, lane(stop, 'Features').suspended.isBack, stop.limits.fiveHour.level], ['suspended', true, 'ok'])
+  assert.deepEqual([lane(stop, 'Features').state === 'suspended', lane(stop, 'Features').suspended], [false, null])
   // A pause without a time: the reset the board knew has passed (nothing read since: it stays suspended), or (B312)
   // a reading after the pause shows a new window of five hours began since: it is free.
   const reading = when => usageResult(when, { fiveHour: { used: 6, resetsAt: at(23, 40) } })
