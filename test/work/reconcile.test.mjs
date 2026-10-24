@@ -61,7 +61,7 @@ test('a blocking ask open longer than the ask time is marked old; nothing is sen
 
 test('an open instruction is the Open instructions list\'s: no flag, no move', () => {
   const told = file({ Id: 'I17', Kind: 'instruction', Chat: 'Units', State: 'open', Since: '2026-10-17 09:00:00', Missed: '3', Text: 'Make it blue' })
-  assert.deepEqual(run([told], [lane('Units')]), { moves: [], deliveries: [], flags: [], notes: [], partnerAsks: [], escalations: [] })
+  assert.deepEqual(run([told], [lane('Units')]), { moves: [], deliveries: [], flags: [], notes: [], partnerAsks: [], escalations: [], autoQueues: [], boardLines: [] })
 })
 
 test('a step in review whose check failed is flagged on its Owner\'s lane, and its Owner is told once', () => {

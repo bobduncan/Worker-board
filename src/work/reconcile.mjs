@@ -4,7 +4,8 @@
 // nothing itself and never invents a move the flow does not allow; a file it cannot read is named, not moved.
 
 import { mayMove, statesOf } from './flow.mjs'
-import { blockersOpen, overlapsIn, waitWords } from './guards.mjs'
+import { GUARDS, blockersOpen, overlapsIn, waitWords } from './guards.mjs'
+import { AUTO_QUEUE_GUARD, boardLines, flowQueuesFixes, incidentsFixedBy, placeFixes } from './incidentFix.mjs'
 import { askFiledMs, fixFirst, sinceMs, valueOf } from './item.mjs'
 import { PARTNER_AGAIN_MS, PARTNER_ANSWER_MS, isRoutedToPartner } from './partnerAnswers.mjs'
 import { isHolding } from './pause.mjs'
@@ -54,6 +55,10 @@ const span = ms => {
  * while the person pauses); `escalations`: `[{ id, why }]`, those the board hands to the person: `times.partnerMs`
  * (30 min) since its filing passed, whatever the partner did (the review's findings), no partner chat is on the board,
  * or the setting is off.
+ * Incident fixes (2026-10-24): `autoQueues`: `[{ id, chat, main, incidents, tier, why }]`, the ready incident fixes the
+ * board queues itself for the worker named (incidentFix.mjs `placeFixes`; the flow's server move "an incident fix is
+ * ready"), never while the person pauses; `boardLines`: `[{ id, chat, worker, key, text }]`, the main chat's information
+ * line about each recent placement of the board's (sent once per key).
  */
 export function reconcile({ store, flow = store.flow, lanes = [], now, times, prefix = '', hasPartner = true, partner = null }) {
   const items = store.items ?? new Map()
@@ -202,11 +207,32 @@ export function reconcile({ store, flow = store.flow, lanes = [], now, times, pr
     for (const move of flow[kind]?.moves ?? []) {
       const by = Array.isArray(move.by) ? move.by : [move.by]
       if (!by.includes('server') || move.to === 'taken' || move.to === from || (move.from !== from && move.from !== '*')) continue
-      if (!mayMove(flow, item, move.to, 'server', { store: { items }, freeChats: new Set(), now, overlaps, hasPartner }).ok) continue
+      // Incident fixes: the board's queue of a ready incident fix names its worker, below (`autoQueues`).
+      if (move.when === AUTO_QUEUE_GUARD) continue
+      // This move's own guard (mayMove holds when any of the server's moves to that state does: the review of the
+      // incident fixes, where the queue of a fix was named under B303's move, without a worker).
+      if (!mayMove({ ...flow, [kind]: { ...flow[kind], moves: [move] } }, item, move.to, 'server', { store: { items }, freeChats: new Set(), now, overlaps, hasPartner }).ok) continue
       moves.push({ id: valueOf(item, 'Id'), to: move.to, why: `${from} → ${move.to}${move.when === undefined ? '' : ` (${move.when})`}` })
       break
     }
   }
+  // Incident fixes (2026-10-24, the person's choice B): a refined board fix an incident waits on, never queued before and
+  // held by nothing, is queued by the board itself, once, as the flow's server move "an incident fix is ready" lets it:
+  // for a worker free with nothing queued (free longest first), else the shortest queue of a worker that waits for
+  // nobody (incidentFix.mjs `placeFixes`). Not while the person pauses. The main chat gets one information line per
+  // placement of the board's (`boardLines`), so it never hands that worker other work thinking it free.
+  const autoQueues = []
+  const mainName = live.find(lane => lane.isMain === true)?.name ?? null
+  if (flowQueuesFixes(flow) && !isHolding(store.pause)) {
+    const ctx = { store: { items }, freeChats: new Set(), now, overlaps, hasPartner }
+    const fixes = ok.filter(item => stateOf(item) === 'refined' && GUARDS[AUTO_QUEUE_GUARD](item, ctx))
+    for (const one of placeFixes(fixes, { lanes: live, steps: ok, prefix, now })) {
+      const incidents = incidentsFixedBy(items, items.get(one.id))
+      autoQueues.push({ ...one, main: mainName, incidents, why: `queue ${one.id} for ${one.chat} (incident fix of ${incidents.join(', ')})` })
+    }
+  }
+  const lines = boardLines({ steps: ok, main: mainName, prefix, now })
+
   // Partner answers (2026-10-19): the asks routed to the partner. It is woken for each while it is free (its card free,
   // or its chat not running: the main chat is asked to start it), never while the person pauses. The review's
   // findings: 30 minutes after its filing an ask goes to the person, whatever the partner does (busy, cut off, paused),
@@ -229,5 +255,5 @@ export function reconcile({ store, flow = store.flow, lanes = [], now, times, pr
       else if (!isHeld && isFree) partnerAsks.push({ id, chat: partner.name, since: valueOf(item, 'Since'), ...(Number.isFinite(filed) && now - filed >= (times?.partnerAgainMs ?? PARTNER_AGAIN_MS) ? { again: true } : {}) })
     }
   }
-  return { moves, deliveries, flags, notes, partnerAsks, escalations }
+  return { moves, deliveries, flags, notes, partnerAsks, escalations, autoQueues, boardLines: lines }
 }
