@@ -103,14 +103,15 @@ test('a failed point makes a fix step, refined from the failed points and queued
     const fix = await item(store.dir, fixId)
     assert.deepEqual(['Title', 'State', 'Owner', 'Activity', 'Goal', 'Fix of', 'Refined'].map(key => valueOf(fix, key)),
       ['Fix: warm yellow light, never white', 'queued', 'Lamplighter', 'Lamps', 'G3', id, 'ready'])
-    assert.deepEqual(fix.sections.get('What we build'), ['- warm yellow light, never white (two lamps are white)'])
+    // B526: under the fail, the step's agreed point it must make pass.
+    assert.deepEqual(fix.sections.get('What we build'), ['- warm yellow light, never white (two lamps are white)', '- Makes pass: warm yellow light, never white'])
     assert.ok(origin.sections.get('History').some(one => one.endsWith(`Partner: result check failed: 1 of 2 points pass, score 61 of 75; fix ${fixId} for Lamplighter`)))
     // The fix is done and checked: the step it fixes is done too.
     await store.lamplighter({ action: 'take', id: fixId, branch: 'b-fix-lamps' })
     await store.lamplighter({ action: 'report', id: fixId, result: 'All lamps are warm yellow.', merged: 'beef123' })
     await store.server({ action: 'check', id: fixId, passed: true, lines: ['branch gone'] })
     assert.equal(valueOf(await item(store.dir, id), 'State'), 'review')
-    const fixed = await store.partner({ action: 'checked', id: fixId, evidence: 'pictures/fix/evidence.png', points: ['pass: warm yellow light, never white'] })
+    const fixed = await store.partner({ action: 'checked', id: fixId, evidence: 'pictures/fix/evidence.png', points: ['pass: the two lamps are yellow', 'pass: warm yellow light, never white'] })
     assert.equal(fixed.ok, true, fixed.why)
     assert.equal(valueOf(await item(store.dir, fixId), 'State'), 'done')
     const after = await item(store.dir, id)
@@ -276,7 +277,7 @@ test('the second review: a fix done while a point still waits for the person ask
     await store.lamplighter({ action: 'take', id: fixId, branch: 'b-fix' })
     await store.lamplighter({ action: 'report', id: fixId, result: 'Lamps at every bench.', merged: 'beef123' })
     await store.server({ action: 'check', id: fixId, passed: true, lines: ['branch gone'] })
-    const fixed = await store.partner({ action: 'checked', id: fixId, evidence: 'y.png', points: ['pass: a lamp at every bench'] })
+    const fixed = await store.partner({ action: 'checked', id: fixId, evidence: 'y.png', points: ['pass: a lamp at every bench', 'pass: makes pass a lamp at every bench'] })
     assert.equal(fixed.ok, true, fixed.why)
     assert.deepEqual(fixed.result.resultCheck, { id, title: 'Light the garden lamps', owner: 'Lamplighter' })
     assert.equal(valueOf(await item(store.dir, id), 'State'), 'review')
@@ -298,7 +299,7 @@ test('B381: a failed point\'s full text, over a thousand characters, stands in t
     const checked = await store.partner({ action: 'checked', id, evidence: 'pictures/b2/evidence.png', points: ['pass: a lamp at every bench', `fail: ${long}`] })
     assert.equal(checked.ok, true, checked.why)
     const fix = await item(store.dir, checked.result.fix)
-    assert.deepEqual(fix.sections.get('What we build'), [`- ${long}`])
+    assert.deepEqual(fix.sections.get('What we build'), [`- ${long}`, '- Makes pass: warm yellow light, never white'])
     assert.ok(fix.sections.get('Context').some(one => one.trim() === `- ${long}`), 'the Context holds the point whole')
     assert.ok(fix.sections.get('Refined').some(one => one.trim() === `- ${long}`), 'the refine block holds it whole')
     // Its title stays short.
