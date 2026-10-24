@@ -326,3 +326,6 @@ export function withEntry(text, entry) {
   const configurations = at < 0 ? [...file.configurations, entry] : file.configurations.map((one, index) => (index === at ? entry : one))
   return `${JSON.stringify({ ...file, configurations }, null, 2)}\n`
 }
+
+/** B2: the address of the board as it runs: the port it chose at start (`resolvePort`), never the one its settings ask for. */
+export const boardAddress = (host, running) => `http://${host}:${running.port}`
