@@ -39,6 +39,7 @@ import { enforcementReadiness } from './work/routing/capabilities.mjs'
 import { routingHolds } from './work/routing/assignments.mjs'
 import { refineStop } from './refineGate.mjs'
 import { contextOfStep, flowOfStep, itemOfStep, itemsOf, reviewWaitOfStep, storeBacklog } from './work/read.mjs'
+import { clearOwed, modAtLeast } from './clearOwed.mjs'
 import { checkedOf, fixOutcomeOf } from './work/resultCheck.mjs'
 import { guardOf } from './goalGuard.mjs'
 import { standardOf } from './work/standard.mjs'
@@ -54,6 +55,8 @@ const ASKED = 'Asked you a question in its chat.'
 const CUT_OFF_MS = 150_000
 /** A running chat's mod asks the board every few seconds. Not heard from for this long, its process is not running. */
 const SEEN_MS = 30_000
+/** B566: a chat whose conversation was written this lately runs (its process writes it). */
+const WRITTEN_RUNS_MS = 60_000
 /** B161: the mark under a line typed on the board (bridge.mjs, `messageText`), and how many lines of the talk are kept. */
 const TYPED_MARK = /\n?\(typed on the worker board, \d{1,2}:\d{2}\)\s*$/
 const TALK_MESSAGES = 40
@@ -1066,6 +1069,9 @@ export function focusState(goalMap, items, threads, prefix, partner = null) {
 /** Whether an option is the one advised: its text, or its letter ("B" of "B thick"). */
 const isAdvisedOption = (option, advice) => advice !== null && (option === advice || option.toLowerCase().startsWith(`${advice.toLowerCase()} `))
 
+/** B547: a clear owed, with whether the chat's Workers mod (its version, or null) can run a clear the board names. */
+const withMod = (owed, version) => (owed === null ? null : { ...owed, canClear: modAtLeast(version ?? null) })
+
 /**
  * Focus 3 (spec 2026-10-18, sections 3 to 5, the run): what the partner (the chat `partner` names, the setting
  * advisor) keeps for the person on the focus goal `node`. `note`: its newest daily note of the goal (dailyNote.mjs),
@@ -1105,7 +1111,7 @@ function focusRun(node, items, prefix, partner) {
   return { note, needs }
 }
 
-export function buildState(raw, { lines = [], outbox = [], runs = [], board = null, seen = null, finishedSeen = {}, taskTimes = [], now, config }) {
+export function buildState(raw, { lines = [], outbox = [], runs = [], board = null, seen = null, finishedSeen = {}, taskTimes = [], mods = {}, now, config }) {
   // The review of Pause 2: while the person pauses (2026-10-19: pausing only, no longer until running) what waits in
   // the outbox is held until the resume, but the board's own "resume" to the main chat; the page says so (`isHeld`).
   const isPaused = isHolding(raw.work?.pause)
@@ -1231,7 +1237,8 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
     return title === null ? null : withoutNotes(title)
   }
   /**
-   * Whether a chat's process runs: its mod asked the board lately (`seen.shown`, by the chat's name). After a restart
+   * Whether a chat's process runs: its mod asked the board lately (`seen.shown`, by the chat's name: B566, any call of
+   * the bridge it made, a take, a work call, a typed report), or its conversation was written in the last minute. After a restart
    * of the app a chat does not run until it is opened or messaged through the app, and until then nothing reaches
    * it by its name. Null where that cannot be told: no chat can ask this board, or the board has only just
    * started and not every chat has asked yet.
@@ -1239,7 +1246,14 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
   // B212, B213: no Workers mod has asked this board since it started (null on a board that does not deliver).
   const isBridgeMissing = seen === null || typeof seen !== 'object' || !Number.isFinite(board?.startedAt) ? null
     : Object.keys(seen.shown ?? {}).length === 0 && Object.keys(seen.other ?? {}).length === 0 && now - board.startedAt >= SEEN_MS
+  // B566 (X22: three working chats shown "its chat does not run" while they ran): when each chat's conversation was last
+  // written; a chat whose conversation was written in the last minute runs, whatever its takes say.
+  const writtenOf = new Map(found.map(chat => [chat.name, raw.tails?.[chat.cliSessionId]?.modifiedAt ?? null]))
   function runningOf(name) {
+    const written = writtenOf.get(name)
+    // Not a write from before the app started (B315): its process of then wrote it.
+    const isNewProcess = !Number.isFinite(raw.appStartedAt) || written >= raw.appStartedAt
+    if (Number.isFinite(written) && isNewProcess && now - written >= 0 && now - written < WRITTEN_RUNS_MS) return true
     // B213: without a mod nobody asks, so the board cannot tell whether a chat runs: unknown, never "not running".
     if (isBridgeMissing === true) return null
     if (seen === null || typeof seen !== 'object' || !Number.isFinite(board?.startedAt) || now - board.startedAt < SEEN_MS) return null
@@ -1536,6 +1550,9 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
     isRunning: lane.isLeftover ? null : lane.state === 'off' ? false : runningOf(lane.name),
     // B143: the newest ask to remove this worker; the main chat and a leftover have none.
     removal: lane.isLeftover || lane.isMain ? null : removalAsk(sent.findLast(message => message.command === 'remove' && message.about === lane.name), now),
+    // B547: the clear it owes (its last report newer than its last clear), and whether its Workers mod (`mods`, the
+    // version its last call said) can run the clear the board names; null when it owes none.
+    clearOwed: lane.isLeftover || lane.isMain || !workOk ? null : withMod(clearOwed({ lane, items: raw.work.items, prefix, afterStep: list.afterStep ?? null }), mods?.[lane.name]),
   }))
   // Pause and resume (spec 2026-10-18): what the pause banner says, from pause.json and the lanes' facts alone; with the
   // main chat (its title from the list, the app's id for it, whether it runs) for the link that opens it, and when the
@@ -1572,6 +1589,8 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
     store: raw.work, flow: raw.work.flow, lanes: chats, now, times: { graceMs: GRACE_MS, askMs: ASK_MS, idleMs: IDLE_HOLD_MS }, prefix, hasPartner: advisorChat !== undefined, partner,
     standardHold: item => standardHold(item, plan?.standards ?? []),
   })
+  // B547: the steps whose line waits for their worker's clear (a mod that can clear only: an older one would wait for ever).
+  const clearHeld = new Set(chats.filter(lane => lane.clearOwed?.canClear === true).flatMap(lane => (reconciled?.deliveries ?? []).filter(one => one.chat === lane.name).map(one => one.id)))
   // B468: what each worker runs at for its step, the words that have the main chat set it (none without the Workers mod),
   // and the steps whose line to their worker waits until it is set. Model per step: its model too, by the settings'
   // model ids, and the usual setting between steps from the settings.
@@ -1612,7 +1631,7 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
     workFlags: [...(reconciled?.flags ?? []).filter(flag => flag.kind === 'broken').map(flag => flag.text),
       // Model per step: settings that name the model ids otherwise than both, each "claude-...": the effort alone.
       ...(typeof config.modelsProblem === 'string' ? [`Settings: ${config.modelsProblem}.`] : [])],
-    reconciled: reconciled === null ? null : { moves: reconciled.moves, deliveries: reconciled.deliveries.filter(one => !efforts.held.has(one.id)), efforts: efforts.words, held: [...efforts.held], holds: Object.fromEntries(efforts.holds), says: reconciled.flags.filter(flag => typeof flag.say === 'string'), notes: reconciled.notes ?? [], partnerAsks: reconciled.partnerAsks ?? [], escalations: reconciled.escalations ?? [], autoQueues: reconciled.autoQueues ?? [], boardLines: reconciled.boardLines ?? [], heldFixes: reconciled.heldFixes ?? [] },
+    reconciled: reconciled === null ? null : { moves: reconciled.moves, deliveries: reconciled.deliveries.filter(one => !efforts.held.has(one.id) && !clearHeld.has(one.id)), efforts: efforts.words, held: [...efforts.held, ...clearHeld], holds: Object.fromEntries(efforts.holds), says: reconciled.flags.filter(flag => typeof flag.say === 'string'), notes: reconciled.notes ?? [], partnerAsks: reconciled.partnerAsks ?? [], escalations: reconciled.escalations ?? [], autoQueues: reconciled.autoQueues ?? [], boardLines: reconciled.boardLines ?? [], heldFixes: reconciled.heldFixes ?? [] },
     // Partner answers (2026-10-19): whether the partner answers detail questions first (the Focus page's switch); null
     // without a store.
     partnerAnswers: !workOk ? null : raw.work.partnerAnswers ?? { on: true },
@@ -1757,6 +1776,8 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
     // to paste instead (null on a board that does not deliver). `chatPrefix` makes a chat's name its title.
     bridge: isBridgeMissing === null ? null : { isMissing: isBridgeMissing },
     chatPrefix: prefix,
+    // B547: "clear" when the list of chats has a worker cleared after each reported step (src/clearOwed.mjs), else null.
+    afterStep: list.afterStep ?? null,
     // B546: when the Claude app last started (B315), or null: the supervisor's helper rule reads it.
     appStartedAt,
     // B161: the talk with the main chat; null without a main chat.

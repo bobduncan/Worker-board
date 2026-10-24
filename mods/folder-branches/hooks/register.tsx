@@ -8,10 +8,10 @@ import type { EngineInterface, FsEntry, Register, Timer } from 'claude-code'
 
 import type { BoardRole, ChatFile, ChatList, ChatRole, ChatRow, ChatsView, FolderRow, FoldersView } from '../types'
 import { BOARD_FILE, BOARD_NOTE, LAUNCH_FILE, MOD_HEADER, MOD_VERSION, REQUEST_HEADER, TAKE_PATH, TYPED_PATH, WORK_ACTIONS, WORK_FIELDS, WORK_PATH, boardStarts, isPaused, parseBoard, parsePause, parseTaken, pauseContexts, shownName, typedWhy } from './board'
-import type { Board, BoardStart, PauseState, PauseWhere } from './board'
+import type { Board, BoardStart, OwedClear, PauseState, PauseWhere } from './board'
 import {
   BEAT_MS, CHATS_DIR, LEFT_MAX_SIZE, LEFT_TEXT, LIST_FILE, afterTurn, atTurnStart, cardGap, cardOld, chatNote, clearWhy, clearedStart, compactKeep, compactWhy, chatText, chatsSummary, fileName,
-  cardStep, foldersAbove, formAnswer, formQuestions, hasLeft, instructionsLine, isAgentId, isFiled, movedText, nameFromTitle, openFrom, orderChats, parseChat, parseList, recordedLine, roleFrom, sessionOf, status, uniqueByName,
+  cardStep, foldersAbove, formAnswer, formQuestions, hasLeft, instructionsLine, isAgentId, isFiled, movedText, nameFromTitle, openFrom, orderChats, parseChat, personsWords, parseList, recordedLine, roleFrom, sessionOf, status, uniqueByName,
   unfiledAsk, withDone, withPlan, withSend, withState, withStep, workCard,
 } from './chats'
 import type { OpenInstruction, TaskChange } from './chats'
@@ -768,6 +768,8 @@ async function takeFromBoard($: EngineInterface): Promise<void> {
     if (answer === null) return
     const taken = parseTaken(answer)
     if (taken.refused.length > 0) void reportTyped($, board, [], [], taken.why, taken.refused)
+    // B547: the board names a clear this worker owes (its next step's line waits for it): run it while the chat is idle.
+    if (taken.clear !== null) void clearOwed($, taken.clear).catch(() => null)
     for (const message of taken.messages) {
       if (typedIds.has(message.id)) continue
       typedIds.add(message.id)
@@ -1068,13 +1070,37 @@ async function clearWhenAnswered($: EngineInterface, c: { list: ChatList; chat: 
   if (pulled && clearing === null && !isInTurn) await takeFromBoard($)
 }
 
+/** B547: how often a clear the board names is tried, while it stays named (a refused log, something of the chat running). */
+const OWED_AGAIN_MS = 60_000
+let lastOwedTry = -Infinity
+
+/**
+ * B547: the clear the board names at a take: this worker's last report is newer than its last clear, because the clear
+ * after the reporting turn did not run (its log refused while background work ran, a restart or the person's pause
+ * between, an older mod). It runs as that clear, with every guard of it, once a minute at most while the board names it;
+ * refused, the card says why and nothing is compacted instead (the board names it again). A clear since the report (the
+ * board read the card before it) is not run twice.
+ */
+async function clearOwed($: EngineInterface, owed: OwedClear): Promise<void> {
+  if (isInTurn || isCommandTurn || clearing !== null || isDecidingClear || myself?.role !== 'worker') return
+  const now = await $.clock.now()
+  if (now - lastOwedTry < OWED_AGAIN_MS) return
+  lastOwedTry = now
+  const dir = await findChatsDir($)
+  if (dir === null) return
+  const list = parseList(await $.fs.read(inFolder(dir, LIST_FILE)).catch(() => ''))
+  const chat = await readChat($, dir, await $.session.id())
+  if (list === null || chat === null || list.afterStep !== 'clear' || (chat.cleared?.at ?? -Infinity) >= owed.reportedAt) return
+  await clearAfter($, { list, chat, role: 'worker', isReported: true, moreFollows: false, step: owed.step, answer: '', ended: null, asked: false, isOwed: true })
+}
+
 /**
  * Clear after each step: a worker whose turn reported its step is cleared: the board keeps its conversation as a log
  * first (`save-log`; no log, no clear), the card is marked, and /clear runs once the chat is idle. When it may not be
  * cleared (`clearWhy`: no worker as the board says, the person pauses, a question the board did not file, something
  * still running, or a prompt that came in meanwhile) it is compacted as before, and its card says why.
  */
-async function clearAfter($: EngineInterface, c: { list: ChatList; chat: ChatFile; role: BoardRole | null; isReported: boolean; moreFollows: boolean; step: string | null; answer: string; ended: Record<string, unknown> | null; asked: boolean; since?: { prompts: number; turn: number } }): Promise<void> {
+async function clearAfter($: EngineInterface, c: { list: ChatList; chat: ChatFile; role: BoardRole | null; isReported: boolean; moreFollows: boolean; step: string | null; answer: string; ended: Record<string, unknown> | null; asked: boolean; since?: { prompts: number; turn: number }; isOwed?: boolean }): Promise<void> {
   const instead = async (why: string): Promise<void> => {
     try {
       const now = await $.clock.now()
@@ -1082,7 +1108,8 @@ async function clearAfter($: EngineInterface, c: { list: ChatList; chat: ChatFil
     } catch {
       // only the card does not learn of it
     }
-    await compactAfter($, { moreFollows: c.moreFollows }, 'worker')
+    // B547: a clear the board named is tried again while it names it: nothing is compacted meanwhile.
+    if (c.isOwed !== true) await compactAfter($, { moreFollows: c.moreFollows }, 'worker')
   }
   // The items the board was handed; a block with more (past nine, or too long for the call) leaves some unfiled.
   const handed = forYouItems(c.answer)
@@ -1717,7 +1744,7 @@ export const register: Register = on => {
       // Pause 2: read beside the filing, so both hold the prompt 1.5 s at most together.
       const paused = pauseLines($, 'prompt', e.text)
       if (isFiled(e.text, e.origin)) {
-        const filed = await workQuietly($, { action: 'instruction', text: e.text })
+        const filed = await workQuietly($, { action: 'instruction', text: personsWords(e.text) })
         const said = typeof filed?.id === 'string' ? recordedLine([filed.id], []) : null
         if (said !== null) context.push(said)
       } else if (!isOpenKnown && myself !== null) await workQuietly($, { action: 'next' })

@@ -2043,6 +2043,8 @@ function drawMore(lane, state) {
   if (lane.state === 'working' && (lane.between ?? null) !== null) list.append(el('li', 'muted', `Between turns: ${lane.between.replace(/^Its turn has ended; /, '')}`))
   const free = freeLine(lane, clock)
   if (free !== null) list.append(el('li', '', free))
+  const owedClear = clearOwedLine(lane.clearOwed ?? null, clock)
+  if (owedClear !== null) list.append(el('li', '', owedClear.title))
   const compacted = compactionLine(lane.compaction ?? null, clock)
   if (compacted !== null && compacted.log !== undefined) {
     const item = el('li', 'muted', `${compacted.title} `)
@@ -2147,8 +2149,16 @@ function drawLane(lane, state) {
   }
   // B235: whether the Workers mod compacted it after its last report, or why not. B307: on the row only when something
   // is wrong; else on hovering the name.
+  // B547: a worker that owes a clear says so on its row, before the mod's last word.
+  const owed = clearOwedLine(lane.clearOwed ?? null, clock)
+  if (owed !== null) {
+    const note = el('small', 'compaction is-warning', owed.text)
+    note.title = owed.title
+    names.append(note)
+  }
   const compacted = compactionLine(lane.compaction ?? null, clock)
-  if (compacted !== null && compacted.isWarning) {
+  if (owed !== null) names.title = compacted?.title ?? ''
+  else if (compacted !== null && compacted.isWarning) {
     const note = el('small', 'compaction is-warning', compacted.text)
     note.title = compacted.title
     names.append(note)
@@ -4281,6 +4291,80 @@ function partnerFirst(needs, focusIds) {
 }
 // partner-needs:end
 
+// waits:start
+// The trial's gap 3 (2026-10-24): a question waited on the Overview while the user was on another tab and missed it.
+// The top bar says on every tab how many wait for you; a question that comes while the page is open shows a notice.
+
+/** The top bar's words: "2 wait for you", or null when nothing waits. */
+function waitsWords(count) {
+  return count > 0 ? `${count} wait${count === 1 ? 's' : ''} for you` : null
+}
+
+/**
+ * Which of the open questions are new: `seen` the ids seen before (null on the page's first draw, when none are new).
+ * `{ seen, fresh }`: every id seen so far, and the questions not seen before.
+ */
+function freshWaiting(seen, open) {
+  const fresh = seen === null ? [] : open.filter(one => !seen.has(one.id))
+  return { seen: new Set([...(seen ?? []), ...open.map(one => one.id)]), fresh }
+}
+
+/** The notice's words: "New question from Main: May I ...?". */
+function noticeWords(one) {
+  return `New question${one.from ? ` from ${one.from}` : ''}: ${one.title}`
+}
+// waits:end
+
+/** The top bar's count and the notice of a new question, from what Needs your attention counts and shows. */
+let waitsSeen = null
+let noticeOf = null
+function drawWaits(count, open) {
+  const button = $('waits-for-you')
+  const words = waitsWords(count)
+  button.hidden = words === null
+  button.textContent = words ?? ''
+  const { seen, fresh } = freshWaiting(waitsSeen, open)
+  waitsSeen = seen
+  // The notice stays until it is opened or closed, or its question no longer waits.
+  if (fresh.length > 0) noticeOf = fresh[fresh.length - 1]
+  if (noticeOf !== null && !open.some(one => one.id === noticeOf.id)) noticeOf = null
+  const notice = $('ask-notice')
+  notice.hidden = noticeOf === null
+  if (noticeOf !== null) {
+    const opener = el('button', 'is-primary', 'Open it')
+    opener.type = 'button'
+    opener.dataset.openWaiting = noticeOf.id
+    const close = el('button', 'icon-button', '×')
+    close.type = 'button'
+    close.dataset.closeNotice = ''
+    close.setAttribute('aria-label', 'Close')
+    notice.replaceChildren(el('span', 'ask-notice-mark', '?'), el('span', 'ask-notice-words', noticeWords(noticeOf)), opener, close)
+  }
+}
+
+/** Opens Needs your attention on the Overview at a question (its id), or at the first that waits. */
+function openWaiting(id) {
+  show('overview')
+  showSide('needs')
+  const cards = [...$('needs').querySelectorAll('[data-id]')]
+  const card = cards.find(one => one.dataset.id === id) ?? cards.find(one => !one.classList.contains('is-closed')) ?? null
+  if (card === null) return
+  card.scrollIntoView({ block: 'center', behavior: 'smooth' })
+  card.classList.remove('is-lit')
+  void card.offsetWidth
+  card.classList.add('is-lit')
+}
+
+$('waits-for-you').addEventListener('click', () => openWaiting(null))
+$('ask-notice').addEventListener('click', event => {
+  const open = event.target.closest('[data-open-waiting]')
+  if (open !== null) openWaiting(open.dataset.openWaiting)
+  if (open !== null || event.target.closest('[data-close-notice]') !== null) {
+    noticeOf = null
+    $('ask-notice').hidden = true
+  }
+})
+
 /** Focus 4: the group "From your partner" with its cards, or null when the partner asks nothing. */
 function drawPartnerNeeds(cards, open) {
   if (cards.length === 0) return null
@@ -4315,6 +4399,7 @@ function drawNeeds(state) {
   // Calm panel: the missed lines count too; the log's notes and open instructions never do.
   const unanswered = cardsOpen.filter(need => !isAnswered(need)).length + lines.length + (state.goalAskNeeds ?? []).length + (state.brainstormNeeds ?? []).length + missed.length
   $('needs-count').textContent = unanswered === 0 ? '' : String(unanswered)
+  drawWaits(unanswered, cardsOpen.filter(need => !isAnswered(need)).map(need => ({ id: need.id, from: need.from ?? null, title: need.title })))
   // Focus 4: the partner's questions first, under "From your partner"; the rest as before.
   const shown = ordered(shownNeeds(needs, showsClosed()).filter(need => !isRefineQuestion(need)))
   const { partner, rest } = partnerFirst(shown, (state.focus?.needs ?? []).map(need => need.id))
@@ -5259,6 +5344,8 @@ function compactionLine(compaction, clockOf) {
     const kept = (compaction.log ?? null) === null ? 'its log was not named' : `the conversation before is kept in ${compaction.log}`
     return { text, title: `Workers mod at ${clockOf(compaction.at)}: ${text}; ${kept}`, isWarning: false, log: compaction.log ?? null }
   }
+  // B547: the mod's newest word is why it did not clear the worker after its reported step.
+  if (compaction.kind === 'not-cleared') return { text: 'not cleared after its step', title: `Workers mod at ${clockOf(compaction.at)}: not cleared: ${compaction.why}`, isWarning: true }
   // Clear after each step: why the mod did not clear the worker, and compacted it instead.
   const notCleared = (compaction.notCleared ?? null) === null ? '' : ` Not cleared at ${clockOf(compaction.notCleared.at)}: ${compaction.notCleared.why}.`
   if (compaction.kind === 'skipped') {
@@ -5269,6 +5356,18 @@ function compactionLine(compaction, clockOf) {
   const [before, after] = [tokensOf(compaction.before), compaction.after > 0 ? tokensOf(compaction.after) : null]
   const text = `compacted at ${clockOf(compaction.at)}${before === null ? '' : `, from ${before}${after === null ? '' : ` to ${after}`} tokens`}`
   return { text, title: `${text}${notCleared}`, isWarning: false }
+}
+
+/**
+ * B547: the line of a worker that owes a clear (its last report newer than its last clear, state.mjs `clearOwed`): its
+ * next step waits for the clear its Workers mod runs once the chat is idle; an older mod cannot, and its chat needs the
+ * restart that brings the new one. Null when nothing is owed.
+ */
+function clearOwedLine(owed, clockOf) {
+  if (owed === null || owed === undefined) return null
+  const last = Number.isFinite(owed.clearedAt) ? `its last clear at ${clockOf(owed.clearedAt)}` : 'no clear known'
+  const then = owed.canClear === true ? 'its next step waits until its Workers mod clears it, as soon as the chat is idle' : 'its Workers mod is too old to clear it now: restart its chat (Pause all, restart the app, Resume all)'
+  return { text: `not cleared after ${owed.step}`, title: `Reported ${owed.step} at ${clockOf(owed.reportedAt)}, ${last}: ${then}.${owed.why === null || owed.why === undefined ? '' : ` Why not cleared: ${owed.why}.`}` }
 }
 
 /**
@@ -9864,7 +9963,11 @@ function visionView(plan, ui = { page: 'vision', at: 0, picked: {}, change: null
   const decide = slide => slides.push({ kind: 'decide', text: '', ...slide, isSent: sent.includes(slide.id) })
   for (const answer of plan.answers) {
     // An open answer the partner has not asked yet: get its options from the partner, or answer it in your words.
-    if (answer.state === 'open' && answer.ask === null) slides.push({ kind: 'open', id: answer.id, title: answer.title, question: answer.title, text: answer.known, isAsked: isBusy(workOn('plan-ask', answer.id)) || (ui.asked ?? []).includes(answer.id) })
+    // 2026-10-24: right after your answer on this card, its next question is on its way (the user: "I would like this prepared in advance").
+    if (answer.state === 'open' && answer.ask === null) {
+      const isFromAnswer = isBusy(workOn('plan-answer', answer.id))
+      slides.push({ kind: 'open', id: answer.id, title: answer.title, question: answer.title, text: answer.known, isFromAnswer, isAsked: isFromAnswer || isBusy(workOn('plan-ask', answer.id)) || (ui.asked ?? []).includes(answer.id) })
+    }
     for (const question of questions.filter(one => one.about === answer.id)) slides.push(questionSlide(question, ui, answer.title))
     // An answer your partner assumed: yours, or changed.
     if (answer.state === 'assumed') {
@@ -11174,7 +11277,7 @@ function visionSlide(view, can, off) {
   } else if (slide.kind === 'open') {
     // No options yet: the partner prepares them (with pictures where it is about looks), or you answer in your words.
     const ask = el('div', 'vision-open')
-    const head = el('b', '', slide.isAsked ? 'Your partner is preparing the options.' : 'Your partner has not prepared options for this yet.')
+    const head = el('b', '', slide.isFromAnswer ? 'Your partner is preparing the next question.' : slide.isAsked ? 'Your partner is preparing the options.' : 'Your partner has not prepared options for this yet.')
     if (slide.isAsked) head.prepend(visionSpinner())
     ask.append(head,
       el('p', 'muted', slide.isAsked ? 'They come here as cards, with pictures where it is about how it looks. You can answer in your own words meanwhile.' : 'Get two or three options to pick from, or answer it in your own words.'))

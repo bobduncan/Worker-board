@@ -244,7 +244,11 @@ The rules:
 1. **Pre-fill first.** Read the documents the settings name and the backlog; every answer they hold is written as
    `State: decided (from <document>, <date>)`. Ask only what is open, and say in one line which answers you pre-filled
    so the user can correct one.
-2. **Never a blank question.** Every ask has two or three options and your advice. One ask at a time (`work ask`,
+2. **Never a blank question.** Every ask has two or three options and your advice. Prepare ahead (the user,
+   2026-10-24: "I would like this prepared in advance ... to save waiting time"): file at once every question whose
+   options do not depend on an answer still open, in the order they are best answered; only a question whose options
+   follow from another's answer waits for it. The board shows them one per slide, so the user never waits between
+   questions that could be known. Each is one ask (`work ask`,
    kind decide, under the plan's goal: the one with `From the game plan: the goal`); its title is the question's id and
    the question itself, plain and short, at most 12 words (`P5: How should people get the game?`); its text one or
    two lines on why you ask. Each option is a card on its slide: write it `A <head>: <point>; <point>` (`A A link for friends: free and
@@ -296,6 +300,28 @@ The rules:
 8. **Success.** The plan is good when the user reads it in two minutes and says "yes, that is my game", and no
    hard-to-change answer is assumed. The process is good when a milestone brings fewer asks the plan should have
    answered, fewer overturned answers, and the user says the result does what they intended.
+
+9. **Visual first** (the user, 2026-10-24: "these interviews still dont help me ... i want to let codex generate
+   some visuals for me. and i get to choose the vibe and finetune how it needs to look"; a trial of the flow). A start
+   from the board (`Start:`) begins anew: withdraw your open plan asks first. Then:
+   - **Rough idea.** Pre-fill P1 from the start's words. Ask at most three quick asks, only what changes what the
+     pictures show (the kind or genre, the player, where it runs); options without pictures, all three filed at once.
+     While the user answers them, start the vibe's pictures from what is known, and finish them from the answers.
+   - **The vibe.** One ask `P3: Which one looks like your <kind>?` with three mock screenshots, one per option, in
+     clearly different directions (style, palette, camera): what the user would see on the main screen of the thing
+     itself (a game's play screen, a site's home page, an app's main screen), never a mood board or a logo. The user's
+     own words are the last card ("A's colours, B's view").
+   - **Fine-tune.** From the picked one (given to Codex as the reference), one round per thing, the one that changes
+     the look most first (colours, mood, camera or layout, how much text and controls on screen): an ask
+     `P3.<k>: ...` with three variations of only that thing. Own words carry a nudge ("warmer", "less clutter"):
+     answer it with the next three. Stop when the user picks one as it is, or after five rounds ask whether it is right.
+   - **Lock it in.** Write P3 `decided (you, <date>)` with the chosen picture as its first `- Picture:`
+     (`<picture folder>/vision/look.png · the look we aim for`). Every later question about looks shows its options in
+     that look.
+   - **The pictures.** Make them as the board's Design tab does (`src/codex.mjs`: `codex exec`, the prompt on its
+     input, each reference picture with `-i`), one at a time, saved under `<picture folder>/vision/` (the board shows
+     only the folders the setting `pictureRoots` names). Say in the ask's text that they are drafts of the look, not
+     the final art.
 
 ### After the vision: go deeper, the features, the standards, the plan, the focus
 

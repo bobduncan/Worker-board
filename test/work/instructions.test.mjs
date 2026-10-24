@@ -61,6 +61,27 @@ test('the board files a line typed to a chat as the person\'s, naming the chat; 
   }
 })
 
+test('B1: the app\'s own notes are filed as no instruction; beside the person\'s words only those words are filed', async () => {
+  const { dir, main } = await fresh()
+  try {
+    const reminder = '<system-reminder>\nThe session "Team - Board" you started (local_x) finished a turn.\n</system-reminder>'
+    const peer = '<cross-session-message from="local_y" name="Team - Board">\nNote from Team - Board: done.\n</cross-session-message>'
+    const event = '<side-sessions-event>None of the sessions you started is working now.</side-sessions-event>'
+    const only = await main({ action: 'instruction', text: `${reminder}\n${peer}\n${event}` })
+    assert.equal(only.ok, false)
+    assert.equal(only.status, 400)
+    assert.match(only.why, /app's own notes/)
+    assert.equal((await readStore(dir)).items.has('I1'), false)
+    const mixed = await main({ action: 'instruction', text: `${reminder}\nMake the strip blue\n${peer}` })
+    assert.equal(mixed.ok, true, mixed.why)
+    const one = await item(dir, mixed.result.id)
+    assert.equal(valueOf(one, 'Text'), 'Make the strip blue')
+    assert.deepEqual(one.sections.get('Text'), ['Make the strip blue'])
+  } finally {
+    await rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
+  }
+})
+
 test('turn-ended marks only the instructions filed before the turn started, and counts the turns', async () => {
   const { dir, main, board } = await fresh()
   try {

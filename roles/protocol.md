@@ -228,7 +228,10 @@ the board does not answer that it is a worker (`role` in turn-ended's answer), t
 person something the board did not file (`unfiled` in turn-ended's answer, which also counts the items past the nine
 the board files), it sent another chat a message in that turn, a subagent of it still runs, or the log could not be
 saved. A turn-ended answered late (the board checks a report then) is waited for apart, up to 15 s, asked again with
-the same request id (0.14.2). The board reads the session it left on to its end for the task times and the spending (`left` in
+the same request id (0.14.2). B547 (mod 0.17.0): a worker whose last report is newer than its last clear gets no new
+step until it is cleared: its step's line waits, its `take` is refused ("Not yet: this chat is cleared after B12 first
+..."), and once it is idle the bridge's take answer names the clear (`clear: { step, reportedAt }`), which the mod runs
+as above. The board reads the session it left on to its end for the task times and the spending (`left` in
 `data/chat-logs.json`, and the state's `movedFrom`). The conversation after the clear is told, as the start's context:
 
 | The words | When | Written in |

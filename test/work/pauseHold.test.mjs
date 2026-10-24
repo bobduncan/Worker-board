@@ -201,7 +201,8 @@ test('the page: a line held by the pause says "held until resume"', () => {
 
 test('the server: a take while paused hands out only "resume"; it types "resume" into a main chat that came up, once; the hold does not make lines late', async () => {
   const server = await readFile(join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'server.mjs'), 'utf8')
-  assert.match(server, /isHolding\(\(await readState\(\)\)\.pause\) \? message => message\.command === 'resume' : undefined/)
+  // B547: else, for a worker that owes a clear, all but its next step's line.
+  assert.match(server, /isHolding\(\(await readState\(\)\)\.pause\) \? message => message\.command === 'resume' : atTake\.hold \? message => !isStepLine\(message\) : undefined/)
   assert.match(server, /const retype = isShowOnly \? null : resumeRetypeTo\(state\)/)
   assert.match(server, /retyped\.add\(/)
   assert.match(server, /keep\.pause = raw\.work\?\.pause \?\? null/)
