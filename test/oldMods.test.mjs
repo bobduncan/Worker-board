@@ -5,12 +5,14 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import { chatsByRole, oldModChats, oldModNeed } from '../src/oldMods.mjs'
+import { chatsByRole, oldModChats, oldModNeed, overdueChats } from '../src/oldMods.mjs'
 
 const NOW = new Date(2026, 9, 24, 19, 0).getTime()
+// B570: each idle 45 minutes, past the half hour in which the board has an idle chat restarted.
+const IDLE = { state: 'free', isRunning: true, idle: { since: NOW - 45 * 60_000 } }
 const STATE = {
-  chats: [{ name: 'Lead', isMain: true }, { name: 'Painter' }, { name: 'Mason' }, { name: 'Gone', isLeftover: true }],
-  advisor: { name: 'Guide' }, advisorHelper: { name: 'Guide 2' }, supervisorChat: { name: 'Watch' },
+  chats: [{ name: 'Lead', isMain: true, ...IDLE }, { name: 'Painter', ...IDLE }, { name: 'Mason', ...IDLE }, { name: 'Gone', isLeftover: true }],
+  advisor: { name: 'Guide', ...IDLE }, advisorHelper: { name: 'Guide 2', ...IDLE }, supervisorChat: { name: 'Watch', ...IDLE },
 }
 
 test('the chats by role: the main chat, the workers (not one left behind), the partner, its helper and the supervisor', () => {
@@ -24,7 +26,7 @@ test('three chats on an old mod give one card naming all three, with the one way
   assert.equal(need.id, 'old-mod:0.16.0')
   assert.equal(need.kind, 'old-mod')
   assert.equal(need.title, '3 chats run an older Workers mod: restart the app to update')
-  assert.equal(need.text, 'Painter, Mason and Guide run an older Workers mod than 0.16.0, the one installed. A chat takes a new mod only when it starts anew.')
+  assert.equal(need.text, 'Painter, Mason and Guide run an older Workers mod than 0.16.0, the one installed, and the board could not get them restarted while idle. A chat takes a new mod only when it starts anew.')
   assert.deepEqual(need.chats.map(one => [one.name, one.runs, one.cost]), [
     ['Painter', 'older than 0.16.0', 'it says no version and misses the newer work calls'],
     ['Mason', '0.15.2', 'it misses what came after 0.15.2'],
@@ -56,4 +58,20 @@ test('all up to date, not known, or nothing installed gives no card: it clears b
 test('versions compare as numbers, not as text', () => {
   assert.deepEqual(oldModChats({ installed: '0.16.0', chats: { Painter: '0.9.9' } }, [{ name: 'Painter' }]).map(one => one.name), ['Painter'])
   assert.deepEqual(oldModChats({ installed: '0.10.0', chats: { Painter: '0.9.9', Mason: '0.10' } }, [{ name: 'Painter' }, { name: 'Mason' }]).map(one => one.name), ['Painter'])
+})
+
+test('B570: the chats by role carry their state, whether they run, their session and since when they are idle', () => {
+  const [lead] = chatsByRole({ chats: [{ name: 'Lead', isMain: true, state: 'free', isRunning: true, appSession: 'local_1', idle: { since: 5 } }] })
+  assert.deepEqual(lead, { name: 'Lead', role: 'main', state: 'free', isRunning: true, session: 'local_1', idleSince: 5 })
+  assert.equal(chatsByRole({ chats: [{ name: 'A', state: 'working', idle: { since: 5 } }] })[0].idleSince, null, 'busy: not idle')
+  assert.equal(chatsByRole({ chats: [{ name: 'A', state: 'free', isRunning: false, idle: { since: 5 } }] })[0].idleSince, null, 'not running: not idle')
+})
+
+test('B570: the card and the finding name only the chats the board did not get restarted: idle on the older mod over 30 min', () => {
+  const mods = { installed: '0.17.0', chats: { Painter: '0.16.1', Mason: '0.16.1' } }
+  const state = { chats: [{ name: 'Painter', ...IDLE }, { name: 'Mason', ...IDLE, idle: { since: NOW - 10 * 60_000 } }] }
+  assert.deepEqual(overdueChats(mods, chatsByRole(state), NOW).map(one => one.name), ['Painter'])
+  assert.equal(oldModNeed(mods, chatsByRole(state), NOW).title, 'Painter runs an older Workers mod: restart the app to update')
+  const busy = { chats: [{ name: 'Painter', ...IDLE, state: 'working' }] }
+  assert.equal(oldModNeed(mods, chatsByRole(busy), NOW), null, 'a busy chat is restarted after its step')
 })

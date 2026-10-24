@@ -41,6 +41,8 @@ import { contextOfStep, flowOfStep, itemOfStep, itemsOf, reviewWaitOfStep, store
 import { checkedOf, fixOutcomeOf } from './work/resultCheck.mjs'
 import { guardOf } from './goalGuard.mjs'
 import { standardOf } from './work/standard.mjs'
+import { rolloutPlan } from './work/modRollout.mjs'
+import { chatsByRole } from './oldMods.mjs'
 import { backgroundRunning, conversation, doingNow, finishedBetween, saysUnfinished, parseTail, saysDone, taskOrigin, turnEnded, turnStart, turnState, unanswered, waitingFor } from './transcript.mjs'
 
 const MIN = 60_000
@@ -64,7 +66,7 @@ const BOARD_CLOSE = /\s*(?:Tick this step in the backlog\.|Close this request\.)
 /** B281: how much of the person's feedback a task window gets: one line. */
 const FEEDBACK_CHARS = 300
 /** B161: the first lines of what the board types into the main chat for itself (say.mjs, design.mjs): not the person's talk. */
-const BOARD_WORDS = /^(?:spawn workers|remove worker|prepare restart|resume|start "|backlog step from the Design tab|queue step from the Design tab|queue step from the backlog|advisor recommendation|refine step|check step|step refined|ask from the goal map|partner effort|set model and effort|set effort|backlog step from the goal map|check sync)\b/
+const BOARD_WORDS = /^(?:restart for mod|spawn workers|remove worker|prepare restart|resume|start "|backlog step from the Design tab|queue step from the Design tab|queue step from the backlog|advisor recommendation|refine step|check step|step refined|ask from the goal map|partner effort|set model and effort|set effort|backlog step from the goal map|check sync)\b/
 /** B300: the reconciler's flags a lane shows; an old ask stands under Needs your attention, a broken file on top. */
 const LANE_FLAGS = ['stuck', 'not taken', 'check failed', 'card', 'waits']
 /** How long a window of the 5-hour limit lasts. */
@@ -1104,7 +1106,7 @@ function focusRun(node, items, prefix, partner) {
   return { note, needs }
 }
 
-export function buildState(raw, { lines = [], outbox = [], runs = [], board = null, seen = null, finishedSeen = {}, taskTimes = [], now, config }) {
+export function buildState(raw, { lines = [], outbox = [], runs = [], board = null, seen = null, finishedSeen = {}, taskTimes = [], mods = null, now, config }) {
   // The review of Pause 2: while the person pauses (2026-10-19: pausing only, no longer until running) what waits in
   // the outbox is held until the resume, but the board's own "resume" to the main chat; the page says so (`isHeld`).
   const isPaused = isHolding(raw.work?.pause)
@@ -1572,6 +1574,15 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
   // The partner and its helper are skipped: their own setting (B352, set once) is never the board's to overwrite.
   const efforts = reconciled === null ? null : effortPlan({ items: raw.work.items, lanes: chats, deliveries: reconciled.deliveries, sent, now, main: isBridgeMissing === true ? null : main?.name ?? null, prefix, skip: [advisorChat?.name, helperChat?.name], ...runSettings(config) })
   if (efforts) for (const id of routingHolds(itemsOf(raw.work), config.routing)) efforts.held.add(id)
+  // B570: a chat on an older Workers mod is restarted between its steps (work/modRollout.mjs): the words that ask its
+  // restarter (the main chat; the partner for the main chat), and the line of an idle worker's next step held meanwhile.
+  const side = (lane, name) => (lane === null || lane === undefined ? null : { ...lane, name, isRunning: lane.state === 'off' ? false : runningOf(name) })
+  const rollout = efforts === null ? null : rolloutPlan({
+    mods, items: raw.work.items, deliveries: reconciled.deliveries, sent, now, prefix,
+    chats: chatsByRole({ chats, advisor: side(advisorCard, advisorChat?.name), advisorHelper: side(helperLane, helperLane?.name), supervisorChat: side(supervisorLane, supervisorLane?.name) }),
+    main: isBridgeMissing === true ? null : main?.name ?? null, partner: isBridgeMissing === true ? null : advisorChat?.name ?? null,
+  })
+  if (rollout !== null) for (const id of rollout.held) if (!efforts.held.has(id)) { efforts.held.add(id); efforts.holds.set(id, rollout.holds.get(id)) }
   const oldAsks = new Set((reconciled?.flags ?? []).filter(flag => flag.kind === 'old ask').map(flag => `work:${flag.id}`))
   const flagsOf = name => (reconciled?.flags ?? []).filter(flag => flag.chat === name && LANE_FLAGS.includes(flag.kind)).map(({ kind, id, text, button }) => ({ kind, id, text, button }))
   const focus = focusState(goalMap, itemsOf(raw.work), brainstorms.threads, prefix, advisorChat?.name ?? null)
@@ -1600,14 +1611,16 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
     chats: chats.map(lane => {
       const run = efforts?.runs.get(lane.name) ?? null
       const waits = run?.waitsFor == null ? [] : [{ kind: 'model', id: run.step, text: run.waitsFor.text, button: null }]
-      return { ...lane, flags: [...flagsOf(lane.name), ...waits], effortRun: run }
+      return { ...lane, flags: [...flagsOf(lane.name), ...waits], effortRun: run, modRun: rollout?.runs.get(lane.name) ?? null }
     }),
     // B300: the reconciler's lines on top (a broken file, an id twice, a state the flow does not know), and what the
     // server carries out; empty and null while the store cannot be read.
     workFlags: [...(reconciled?.flags ?? []).filter(flag => flag.kind === 'broken').map(flag => flag.text),
       // Model per step: settings that name the model ids otherwise than both, each "claude-...": the effort alone.
       ...(typeof config.modelsProblem === 'string' ? [`Settings: ${config.modelsProblem}.`] : [])],
-    reconciled: reconciled === null ? null : { moves: reconciled.moves, deliveries: reconciled.deliveries.filter(one => !efforts.held.has(one.id)), efforts: efforts.words, held: [...efforts.held], holds: Object.fromEntries(efforts.holds), says: reconciled.flags.filter(flag => typeof flag.say === 'string'), notes: reconciled.notes ?? [], partnerAsks: reconciled.partnerAsks ?? [], escalations: reconciled.escalations ?? [] },
+    reconciled: reconciled === null ? null : { moves: reconciled.moves, deliveries: reconciled.deliveries.filter(one => !efforts.held.has(one.id)), efforts: efforts.words, held: [...efforts.held], holds: Object.fromEntries(efforts.holds), says: reconciled.flags.filter(flag => typeof flag.say === 'string'), notes: reconciled.notes ?? [], partnerAsks: reconciled.partnerAsks ?? [], escalations: reconciled.escalations ?? [], restarts: rollout?.words ?? [] },
+    // B570: what each chat on an older Workers mod waits for, by name (the partner, its helper, the supervisor too).
+    modRuns: Object.fromEntries(rollout?.runs ?? []),
     // Partner answers (2026-10-19): whether the partner answers detail questions first (the Focus page's switch); null
     // without a store.
     partnerAnswers: !workOk ? null : raw.work.partnerAnswers ?? { on: true },

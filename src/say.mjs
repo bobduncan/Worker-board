@@ -579,7 +579,8 @@ const WAKE_AGAIN_MS = 2 * 60_000
 const WAKE_PENDING_MS = 10 * 60_000
 
 /** The commands the board puts to a chat other than the main one: a word the chat's work stands on (wakeFor). */
-const PARTNER_WORDS = ['recommend', 'refine', 'result-check', 'evaluate', 'work', 'recheck', 'goal-ask', 'brainstorm', 'brainstorm-answer', 'brainstorm-wrap', 'brainstorm-change', 'brainstorm-fix', 'incident', ...FOCUS_COMMANDS]
+// B570: and the board's word that asks the partner to restart the main chat on a new Workers mod.
+const PARTNER_WORDS = ['recommend', 'refine', 'result-check', 'evaluate', 'work', 'recheck', 'goal-ask', 'brainstorm', 'brainstorm-answer', 'brainstorm-wrap', 'brainstorm-change', 'brainstorm-fix', 'incident', 'mod-restart', ...FOCUS_COMMANDS]
 export const isPartnerWord = command => typeof command === 'string' && (command.startsWith('plan-') || PARTNER_WORDS.includes(command))
 
 /**

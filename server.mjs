@@ -1169,6 +1169,8 @@ async function main(args) {
       seen,
       finishedSeen: finishedSeen ?? {},
       taskTimes: taskTimes.tasks,
+      // B570: the Workers mod installed and the version each chat's mod said lately, for the restarts between steps.
+      mods: isDemo ? demoMods() : await modsNow(),
       now: clock(),
       config: { ...config, project },
     })

@@ -198,6 +198,17 @@ profile.
   tool refuses, tell the user in one line. `set effort`
   (the same lines without "Model:": the board's settings name no model id for the step's model) sets the effort alone.
   Your own model and effort stay as they are.
+- `restart for mod` with "Chat:", "Session:" (when the board knows the chat's id), "From:", "To:" and "Why:" (B570):
+  that chat runs an older Workers mod than the one installed and is idle, so restart it, and it takes the new one at
+  its next start (the user, I95: no restarting the chats by hand; their standing yes to archive and unarchive an idle
+  chat for this). With the app's session tools (load them with ToolSearch when they are deferred): `archive_session`
+  on the chat (by its session id, else by its title), then at once `list_sessions` with `include_archived` and
+  `unarchive_session` for every chat of the list of chats that is archived now (archiving a chat also archives the
+  finished chats it started), and last for the chat itself. Do not message it: its next word (its step's line, or the
+  board's `start`) starts it on the new mod, and nothing is spent until then. When the archive is refused (a turn, a
+  queued message, a background agent), do nothing more: the board asks again in half an hour. When Remote Control is
+  on for it, leave it running and tell the user in one line which chat keeps the older mod. Never for a chat that holds
+  a step in progress (the board does not ask for one), and never for yourself (the partner restarts you).
 - `remove worker` with "Name: ...", "State: ..." and "Why: ...": the user removes that worker. If it works, ask it to
   stop at a safe point (work committed and pushed, nothing new started) and wait for its note; then take it out of
   the list of chats (the chat tool, action "leave" with its name), close its chat, and hand the steps that were

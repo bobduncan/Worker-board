@@ -90,6 +90,11 @@ step therefore says what it touches ("Touches: ...").
 - Push a branch when you make it and as it grows. Run the repository's checks before a merge; after it push main,
   delete the branch here and on its remote, and prune. Never force-push main.
 - Lessons of a task go into the repository's documents, not into a chat.
+- A change to the Workers mod (B570): raise its version (plugin.json and `MOD_VERSION`), and after your merge bring it
+  onto the PC once: `claude plugin marketplace update <marketplace>` and `claude plugin update <mod>@<marketplace>`
+  (the CLI by its path; when the app asks the person to allow them, that is their word). Then ask the person for
+  nothing more: the board has every chat restarted on it between its steps (an idle chat at once, a busy one after its
+  report), and asks the person only for a chat it could not restart. Never write "restart the chats" in a report.
 
 ## A task on the worker board itself
 
