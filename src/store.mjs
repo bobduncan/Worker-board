@@ -2,6 +2,7 @@
 // box) and alive.json (when the board last ran, so the time it was off shows as unknown). The first two can hold
 // words from a chat; they stay in this folder and are never printed.
 
+import { randomBytes } from 'node:crypto'
 import { mkdir, readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 
@@ -45,8 +46,10 @@ const TAKEN_SHOWN_MS = 10 * 60_000
 // The review of Pause 2: the time the person's pause held it (`keep.pause`, pause.json's record) does not count.
 // B532: so does every word the chat's work stands on (a refine, a check, a round, a plan word, a start of a closed chat): the
 // board used to drop them after ten minutes, in silence, when the chat was busy or closed; now they wait until their
-// purpose is gone (src/work/outboxSweep.mjs closes them with a reason) or answerMs passed.
-export const isLate = (message, now, keep) => now - message.at - heldMs(message, now, keep.pause ?? null) > (isAnswer(message) || ['step', 'refined', 'work'].includes(message.command) || waitsLong(message.command) ? keep.answerMs : keep.messageMs)
+// purpose is gone (src/work/outboxSweep.mjs closes them with a reason) or answerMs passed. A line the person typed to a
+// chat keeps its minutes: nothing typed long ago turns up in a chat.
+export const keepMs = (message, keep) => (isAnswer(message) || ['step', 'refined', 'work'].includes(message.command) || waitsLong(message.command) ? keep.answerMs : keep.messageMs)
+export const isLate = (message, now, keep) => now - message.at - heldMs(message, now, keep.pause ?? null) > keepMs(message, keep)
 
 /**
  * What was sent from the page, as the board sees it now. A message that waited too long is `expired` and never
@@ -68,7 +71,7 @@ export function outboxNow(messages, now, keep, shownMs = 12 * 60 * 60_000) {
       // What did not arrive is shown for a while.
       || ((message.state === 'expired' || message.state === 'failed') && now - message.at < shownMs)
       // B532: a word the board closed (superseded, no longer needed) is shown with its reason for a while.
-      || (message.state === 'dropped' && typeof message.why === 'string' && now - (message.closedAt ?? message.at) < shownMs)
+      || ((message.state === 'dropped' || message.state === 'expired') && typeof message.why === 'string' && now - (message.closedAt ?? message.at) < shownMs)
       // An answer that was taken or typed keeps its request closed.
       || ((message.state === 'taken' || message.state === 'delivered') && isAnswer(message))
       // B195: so does an answer to the Advisor's recommendation: it closes the recommendation.
@@ -141,15 +144,25 @@ function storeOver(lines, messages, alive, write) {
       return true
     },
     /**
-     * B532: a word the chat could not type (failed) goes back to waiting after `afterMs`, up to `tries` times in all,
-     * while it is not late; then it stays failed. The words that failed before this field was kept stay as they are.
+     * B532: a word the chat could not type (failed) goes again after `afterMs`, up to `tries` times in all, while it is
+     * not late; then it stays failed. It goes as a new word with its own id (`retryOf` the failed one, which names it in
+     * `retriedAs`): the Workers mod types an id once per process. Not again: a word the mod refused for good (`final`, too
+     * long or empty), a work line (src/work/deliver.mjs sends its own), and a word that failed before `failedAt` was kept.
      */
-    async retryFailed(now, keep, { afterMs = 60_000, tries = 3 } = {}) {
-      const again = messages.filter(message => message.state === 'failed' && Number.isFinite(message.failedAt) && (message.tries ?? 1) < tries
+    async retryFailed(now, keep, { afterMs = 60_000, tries = 3, newId = () => randomBytes(8).toString('hex') } = {}) {
+      const again = messages.filter(message => message.state === 'failed' && Number.isFinite(message.failedAt) && message.final !== true
+        && message.command !== 'work' && message.retriedAs === undefined && (message.tries ?? 1) < tries
         && now - message.failedAt >= afterMs && !isLate(message, now, keep))
-      for (const message of again) message.state = 'waiting'
-      if (again.length > 0) await write.outbox(again.map(message => ({ id: message.id, state: 'waiting' })))
-      return again.map(message => message.id)
+      const sent = []
+      for (const message of again) {
+        const { takenAt, failedAt, why, retriedAs, ...rest } = message
+        const copy = { ...rest, id: newId(), state: 'waiting', retryOf: message.id }
+        message.retriedAs = copy.id
+        messages.push(copy)
+        sent.push(copy)
+      }
+      if (sent.length > 0) await write.outbox([...again.map(message => ({ id: message.id, retriedAs: message.retriedAs })), ...sent])
+      return sent.map(message => message.id)
     },
     /** B285: changes a message the board holds (a held queue ask let go or dropped), written down like the others. */
     async update(id, fields) {
@@ -159,15 +172,25 @@ function storeOver(lines, messages, alive, write) {
       await write.outbox([{ id, ...fields }])
       return true
     },
-    /** What the mod says became of the messages a chat took: typed into the chat, or not. */
-    async settle(to, { typed = [], failed = [] }, now) {
+    /**
+     * What the mod says became of the messages a chat took: typed into the chat, or not. B532: `why` (id to words) says
+     * why one was not typed, `refused` the ids it refused for good (too long, no text): those are never tried again.
+     */
+    async settle(to, { typed = [], failed = [], why = {}, refused = [] }, now) {
       const changed = []
       for (const message of messages) {
         if (message.to !== to || message.state !== 'taken') continue
         if (typed.includes(message.id)) changed.push(Object.assign(message, { state: 'delivered', deliveredAt: now }))
-        else if (failed.includes(message.id)) changed.push(Object.assign(message, { state: 'failed', failedAt: now, tries: (message.tries ?? 0) + 1 }))
+        else if (failed.includes(message.id) || refused.includes(message.id)) {
+          changed.push(Object.assign(message, { state: 'failed', failedAt: now, tries: (message.tries ?? 0) + 1,
+            ...(typeof why[message.id] === 'string' ? { why: why[message.id] } : {}), ...(refused.includes(message.id) ? { final: true } : {}) }))
+        }
       }
-      if (changed.length > 0) await write.outbox(changed.map(({ id, state, deliveredAt, failedAt, tries }) => ({ id, state, ...(deliveredAt === undefined ? {} : { deliveredAt }), ...(failedAt === undefined ? {} : { failedAt, tries }) })))
+      if (changed.length > 0) {
+        await write.outbox(changed.map(({ id, state, deliveredAt, failedAt, tries, why: reason, final }) => ({ id, state,
+          ...(deliveredAt === undefined ? {} : { deliveredAt }), ...(failedAt === undefined ? {} : { failedAt, tries }),
+          ...(reason === undefined ? {} : { why: reason }), ...(final === undefined ? {} : { final }) })))
+      }
       return changed.length
     },
   }

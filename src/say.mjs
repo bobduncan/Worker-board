@@ -578,9 +578,10 @@ export const isPartnerWord = command => typeof command === 'string' && (command.
 
 /**
  * B532: a word that waits for a busy or closed chat for as long as its purpose stands (store.mjs isLate): a partner word,
- * and the main chat's start of a closed chat. The rest (a pause's resume, a line typed in a talk) is stale in minutes.
+ * a round of the board's clock, and the main chat's start of a closed chat. The rest (a pause's resume, a line typed in
+ * a talk) is stale in minutes.
  */
-export const waitsLong = command => command === 'start' || isPartnerWord(command)
+export const waitsLong = command => command === 'start' || command === 'round' || isPartnerWord(command)
 
 /**
  * What the board adds when something was sent to a chat that is not running: the word to the main chat to start

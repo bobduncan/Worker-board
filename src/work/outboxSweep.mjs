@@ -5,11 +5,12 @@
 // on purpose. A word the chat took and could not type is retried (store.mjs retryFailed) before the judging.
 
 import { waitsLong } from '../say.mjs'
-import { isLate } from '../store.mjs'
+import { isLate, keepMs } from '../store.mjs'
+import { stamp } from './migrate.mjs'
 import { readStore } from './store.mjs'
 
 const firstLine = text => String(text ?? '').split('\n')[0]
-const hours = ms => Math.round(ms / 3_600_000)
+const span = ms => (ms >= 2 * 3_600_000 ? `${Math.round(ms / 3_600_000)} hours` : `${Math.round(ms / 60_000)} min`)
 
 /** The words that stand for the same thing: same chat, command, step, plan item or round. A newer one replaces the older. */
 const kindOf = message => [message.to, message.command ?? '', message.kind ?? '', message.about ?? '', message.command === 'round' ? firstLine(message.text) : ''].join('\u0001')
@@ -24,45 +25,57 @@ const isStanding = message => ['waiting', 'taken', 'delivered', 'copied'].includ
 
 /**
  * The reason a waiting word no longer matters, or null. `ctx`: `all` (every word of the outbox), `items` (the work store's
- * items by id), `runs` (chat name to whether it runs), `now`, `keep`.
+ * items by id, null when the board has no store), `runs` (chat name to whether it runs), `goals` (the goal map's nodes),
+ * `now`, `keep`, `closing` (what this sweep closes already).
  */
 export function whyClosed(message, ctx) {
-  // A work line is the work store's: withdrawStale (deliver.mjs) judges it by its step.
-  if ((message.ask ?? null) !== null || message.command === 'work' || !waitsLong(message.command)) return null
+  // A person's answer waits for its chat, also one that is off on purpose; a work line is the work store's: withdrawStale
+  // (deliver.mjs) judges it by its step.
+  if ((message.ask ?? null) !== null || message.command === 'work') return null
   const { all, items, now, keep } = ctx
+  // A word that is stale in minutes (a pause's resume, a line typed in a talk) is only closed once it is late.
+  if (!waitsLong(message.command)) return isLate(message, now, keep) ? expired(message, keep) : null
   const newer = all.find(one => one.id !== message.id && one.at > message.at && isStanding(one) && kindOf(one) === kindOf(message))
-  if (newer !== undefined) return { state: 'dropped', why: 'superseded by a newer word of the same kind' }
-  const item = items.get(message.about)
+  if (newer !== undefined) return { state: 'dropped', why: `superseded by a newer word of the same kind (${stamp(newer.at)})` }
+  const item = items?.get(message.about)
   const state = value(item, 'State')
-  if (message.command === 'refine') {
+  if (items !== null && message.command === 'refine') {
     // A step is refined while it is new; a later round (B387: three in a row) also while it waits refined.
     const holds = state === 'new' || (state === 'refined' && (message.round ?? 1) > 1)
     if (!holds) return { state: 'dropped', why: item === undefined ? 'the step is gone' : `the step is ${state} now, not new` }
-  } else if (message.command === 'result-check') {
+  } else if (items !== null && message.command === 'result-check') {
     if (state !== 'review') return { state: 'dropped', why: item === undefined ? 'the step is gone' : `the step is ${state} now, not in review` }
+  } else if (message.command === 'evaluate') {
+    // B359: the goal guard's word: not needed once the goal is done or its evaluation ended after the word was sent.
+    const goal = (ctx.goals ?? []).find(one => one.id === message.about)
+    const ended = [...(goal?.evaluatedAt ?? [])].sort().at(-1) ?? ''
+    if (goal?.state === 'done') return { state: 'dropped', why: `${message.about} is done` }
+    if (ended !== '' && ended >= stamp(message.at)) return { state: 'dropped', why: `${message.about} was evaluated (${ended})` }
   } else if (message.command === 'start') {
     // The main chat's word to open a closed chat: not needed once that chat runs, nor when nothing waits for it any more.
     if (ctx.runs.get(message.about) === true) return { state: 'dropped', why: `${message.about} runs now` }
     const waits = all.some(one => one.to === message.about && one.id !== message.id && one.state === 'waiting' && one.command !== 'start' && !ctx.closing.has(one.id))
     if (!waits) return { state: 'dropped', why: `nothing waits for ${message.about} any more` }
   }
-  if (isLate(message, now, keep)) return { state: 'expired', why: `waited longer than ${hours(keep.answerMs ?? keep.messageMs)} hours` }
-  return null
+  return isLate(message, now, keep) ? expired(message, keep) : null
 }
+
+const expired = (message, keep) => ({ state: 'expired', why: `waited longer than ${span(keepMs(message, keep))}` })
 
 /**
  * One sweep: retries the words that failed, then closes what no longer matters. The words closed, as
- * `{ id, state, why }` (a replay on a copy of the outbox passes `dry: true`: nothing is written then).
+ * `{ id, state, why }` (a replay on a copy of the outbox passes `dry: true`: nothing is written then). `to`, when given,
+ * judges only the words to that chat (a chat's take: the store is read only when something waits for it).
  */
-export async function sweepOutbox({ dir, outbox, state, now, keep, fs, dry = false }) {
+export async function sweepOutbox({ dir, outbox, state, now, keep, fs, dry = false, to = null }) {
   if (!dry) await outbox.retryFailed(now, keep)
-  const waiting = outbox.outbox().filter(message => message.state === 'waiting')
+  const waiting = outbox.outbox().filter(message => message.state === 'waiting' && (to === null || message.to === to))
   if (waiting.length === 0) return []
-  const items = dir === null ? new Map() : (await readStore(dir, fs)).items
+  const items = (dir ?? null) === null ? null : (await readStore(dir, fs)).items
   const runs = new Map((state?.chats ?? []).filter(chat => !chat.isLeftover).map(chat => [chat.name, chat.isRunning === true]))
   const all = outbox.outbox()
   const closing = new Map()
-  const ctx = { all, items, runs, now, keep, closing }
+  const ctx = { all, items, runs, goals: state?.goals?.nodes ?? [], now, keep, closing }
   // The starts last: they depend on what the other words become.
   const ordered = [...waiting.filter(message => message.command !== 'start'), ...waiting.filter(message => message.command === 'start')]
   for (const message of ordered) {
