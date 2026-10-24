@@ -5,7 +5,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import { reportCheck } from '../../src/work/check.mjs'
+import { isTestFile, reportCheck } from '../../src/work/check.mjs'
 
 /** A git that answers from a table of "<repo> <args>" lines; null where it has none. */
 const git = table => async args => table[`${args[1]} ${args.slice(2).join(' ')}`] ?? null
@@ -171,4 +171,68 @@ test('worktree clean-up: an empty folder a worktree of the step left in the proj
   // Work outside git (B9) that left a worktree's folder fails the same way.
   const outsideLeft = await reportCheck(outside({ branch: 'none', fs: folders({ '/projects': ['garden', 'tools', 'board-b9'], '/projects/board-b9': [] }) }))
   assert.deepEqual(outsideLeft, { passed: false, lines: ['work outside git', 'the empty folder /projects/board-b9 of a worktree is still there: delete it (rmdir "/projects/board-b9")'] })
+})
+
+// B527: a report of a step whose change touches a test file names the mutant its tests caught.
+const grepOf = id => `log --no-merges -n 400 --fixed-strings --grep=${id} --format=%x1e%H%n%B c0ffee1`
+const tree = hash => `diff-tree --no-commit-id --name-only -r ${hash}`
+const BITE = 'Tests bite: <what was undone in a copy> → <the assertion that failed>'
+/** The board's c0ffee1 is the step's last commit (no merge); a commit before it names B5 and changes a test. */
+const tested = {
+  ...world,
+  [`/projects/tools/board ${grepOf('B5')}`]: '\x1eaaa111\nfeat: lamps glow (B5)\n\n\x1ebbb222\nfeat: B51 is another step\n',
+  [`/projects/tools/board ${tree('aaa111')}`]: 'src/lamps.mjs\ntest/lamps.test.mjs\n',
+  [`/projects/tools/board ${tree('bbb222')}`]: 'test/other.test.mjs\n',
+  [`/projects/tools/board ${tree('c0ffee1')}`]: 'docs/lamps.md\n',
+}
+
+test('tests bite: a change with a test file and no mutant line is refused with the words to add; with the line it passes', async () => {
+  const bare = await reportCheck({ id: 'B5', branch: 'b5-lamps', result: 'The lamps glow.', merged: 'c0ffee1', repos, run: git(tested) })
+  assert.deepEqual(bare, { passed: false, lines: ['work in board', `the change touches tests (test/lamps.test.mjs) but the result names no mutant: add "${BITE}" and report again`] })
+  const result = 'The lamps glow.\nTests bite: in a scratch copy, glow() returning early → "a lit lamp glows" failed.'
+  const named = await reportCheck({ id: 'B5', branch: 'b5-lamps', result, merged: 'c0ffee1', repos, run: git(tested) })
+  assert.deepEqual(named, { passed: true, lines: ['work in board', 'main of board equals origin/main', 'branch gone', 'worktree gone', 'result named', 'tests bite named'] })
+  // "->" counts as the arrow; the words without an arrow, or with nothing on either side of it, do not.
+  assert.equal((await reportCheck({ id: 'B5', branch: 'b5-lamps', result: 'Tests bite: glow undone -> "glows" failed', merged: 'c0ffee1', repos, run: git(tested) })).passed, true)
+  for (const words of ['Tests bite: undoing glow fails "glows"', 'Tests bite: → "glows"', 'Tests bite: glow undone →', 'Tests bite: glow undone\n→ "glows" failed']) {
+    assert.equal((await reportCheck({ id: 'B5', branch: 'b5-lamps', result: words, merged: 'c0ffee1', repos, run: git(tested) })).passed, false, words)
+  }
+})
+
+test('tests bite: a change without a test file reports as before; another step\'s commit (B51) does not count', async () => {
+  const noTests = { ...tested, [`/projects/tools/board ${tree('aaa111')}`]: 'src/lamps.mjs\n' }
+  const done = await reportCheck({ id: 'B5', branch: 'b5-lamps', result: 'The lamps glow.', merged: 'c0ffee1', repos, run: git(noTests) })
+  assert.deepEqual(done, { passed: true, lines: ['work in board', 'main of board equals origin/main', 'branch gone', 'worktree gone', 'result named'] })
+  // The merged commit itself changes a test: counted.
+  const lastTests = { ...noTests, [`/projects/tools/board ${tree('c0ffee1')}`]: 'tests/lamps_spec.rb\n' }
+  assert.equal((await reportCheck({ id: 'B5', branch: 'b5-lamps', result: 'x', merged: 'c0ffee1', repos, run: git(lastTests) })).passed, false)
+})
+
+test('tests bite: a merge of main into the step\'s branch counts what the branch has over main', async () => {
+  const merge = {
+    ...world,
+    [`/projects/tools/board rev-parse --verify --quiet c0ffee1^2`]: 'ddd444\n',
+    [`/projects/tools/board log -1 --format=%s c0ffee1`]: 'Merge main into b5-lamps\n',
+    [`/projects/tools/board diff --name-only c0ffee1^2 c0ffee1`]: 'src/lamps.mjs\nsrc/__tests__/lamps.js\n',
+  }
+  const done = await reportCheck({ id: 'B5', branch: 'b5-lamps', result: 'The lamps glow.', merged: 'c0ffee1', repos, run: git(merge) })
+  assert.equal(done.passed, false)
+  assert.match(done.lines.at(-1), /^the change touches tests \(src\/__tests__\/lamps\.js\)/)
+  // A merge that is not into the step's branch: what main brought is not the step's.
+  const other = { ...merge, [`/projects/tools/board log -1 --format=%s c0ffee1`]: 'Merge b9-paths into main\n' }
+  assert.equal((await reportCheck({ id: 'B5', branch: 'b5-lamps', result: 'x', merged: 'c0ffee1', repos, run: git(other) })).passed, true)
+})
+
+test('tests bite: what counts as a test file', () => {
+  for (const path of ['test/a.mjs', 'src/tests/b.ts', 'app/__tests__/c.js', 'spec/d.rb', 'src/e.test.ts', 'src/f.spec.js', 'g_test.go']) assert.equal(isTestFile(path), true, path)
+  for (const path of ['src/testing.mjs', 'docs/latest.md', 'contest/a.js', 'src/attest.mjs']) assert.equal(isTestFile(path), false, path)
+})
+
+test('tests bite: the worker\'s role and the protocol say how, in a scratch copy and never on the branch', async () => {
+  const { readFile } = await import('node:fs/promises')
+  const worker = await readFile(new URL('../../roles/worker.md', import.meta.url), 'utf8')
+  const protocol = await readFile(new URL('../../roles/protocol.md', import.meta.url), 'utf8')
+  assert.match(worker, /Tests bite: <what was undone in a copy> → <the assertion that\s+failed>/)
+  assert.match(worker, /scratch copy\s+\(never on your branch\)/)
+  assert.match(protocol, /Tests bite: <what was undone in a copy> → <the assertion that failed>/)
 })

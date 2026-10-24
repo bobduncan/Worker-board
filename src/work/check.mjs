@@ -11,6 +11,10 @@
 // cleanup step."): the check also confirms that no worktree of that repository is on the step's branch and that no
 // worktree, or folder of one, named for the step is left in the project folder (worktrees.mjs `stepLeftovers`); a
 // leftover fails the check with a line that names its path and how to remove it.
+//
+// B527: six of the twelve failed result checks of 2026-10-24 were tests that pass without the fix. A step whose change
+// touches a test file is therefore reported with the mutant its tests caught ("Tests bite: <what was undone in a copy>
+// → <the assertion that failed>"); without that line the check fails and says the words to add.
 
 import { join } from 'node:path'
 
@@ -101,8 +105,44 @@ export async function reportCheck({ id, branch, result, merged, repos, run, proj
   // Worktree clean-up: no worktree on the step's branch, and none (or its folder) named for the step, is left.
   faults.push(...await stepLeftovers({ id, branch: repo === null || isOnBase ? null : branch, repo, repos, project, run, fs }))
   if (String(result ?? '').trim() === '') faults.push('no result named')
+  // B527: a change that touches a test file names the mutant its tests caught.
+  const tests = repo === null ? [] : (await stepFiles({ id, branch, merged, dir: repo.dir, run })).filter(isTestFile)
+  const bites = tests.length > 0 && hasBite(result)
+  if (tests.length > 0 && !bites) faults.push(`the change touches tests (${tests.slice(0, 3).join(', ')}${tests.length > 3 ? ', ...' : ''}) but the result names no mutant: add "${BITE_LINE}" and report again`)
   const failed = faults.filter(line => !line.startsWith('work in '))
-  return failed.length === 0 ? { passed: true, lines: [...passed, isOnBase ? `worked on ${branch.trim()} itself` : 'branch gone', 'worktree gone', 'result named'] } : { passed: false, lines: faults }
+  return failed.length === 0 ? { passed: true, lines: [...passed, isOnBase ? `worked on ${branch.trim()} itself` : 'branch gone', 'worktree gone', 'result named', ...(bites ? ['tests bite named'] : [])] } : { passed: false, lines: faults }
+}
+
+/** B527: the line a report names its mutant with, as the refusal says it. */
+export const BITE_LINE = 'Tests bite: <what was undone in a copy> → <the assertion that failed>'
+
+/** B527: whether a report's words hold a "Tests bite: <what was undone> → <what failed>" line ("->" counts as "→"). */
+export const hasBite = result => /Tests bite:[ \t]*\S[^\n]*?(?:→|->)[ \t]*\S/i.test(String(result ?? ''))
+
+/** B527: a test file, by its folder (`test/`, `tests/`, `__tests__/`, `spec/`) or its name (`a.test.mjs`, `a_spec.rb`). */
+export const isTestFile = path => /(?:^|\/)(?:tests?|__tests__|specs?)\//i.test(path) || /[._-](?:test|spec)\.[A-Za-z0-9]+$/i.test(path)
+
+/**
+ * B527: the files a reported step changed, as far as git tells: those of the commits before `merged` whose message
+ * names the step (its id as a word), those its branch has over the other side when `merged` merges into the branch
+ * ("Merge main into <branch>"), and those of `merged` itself when it is no merge. None when the commit cannot be read.
+ */
+export async function stepFiles({ id, branch, merged, dir, run }) {
+  const commit = String(merged ?? '').trim()
+  if (!/^[0-9a-f]{4,40}$/i.test(commit) || await run(['-C', dir, 'rev-parse', '--verify', '--quiet', `${commit}^{commit}`]) === null) return []
+  const files = new Set()
+  const add = answer => linesOf(answer).forEach(path => files.add(path))
+  const named = new RegExp(`(?<![\\w-])${escape(id)}(?![\\w-])`)
+  const log = await run(['-C', dir, 'log', '--no-merges', '-n', '400', '--fixed-strings', `--grep=${id}`, '--format=%x1e%H%n%B', commit])
+  for (const one of String(log ?? '').split('\x1e').slice(1)) {
+    const [hash, ...message] = one.split('\n')
+    if (named.test(message.join('\n'))) add(await run(['-C', dir, 'diff-tree', '--no-commit-id', '--name-only', '-r', hash.trim()]))
+  }
+  const other = await run(['-C', dir, 'rev-parse', '--verify', '--quiet', `${commit}^2`])
+  const own = typeof branch === 'string' ? branch.trim() : ''
+  if (other === null) add(await run(['-C', dir, 'diff-tree', '--no-commit-id', '--name-only', '-r', commit]))
+  else if (own !== '' && (await run(['-C', dir, 'log', '-1', '--format=%s', commit]) ?? '').includes(own)) add(await run(['-C', dir, 'diff', '--name-only', `${commit}^2`, commit]))
+  return [...files]
 }
 
 /** A path written with "/", without its end "/", for comparing (any case, as on Windows). */

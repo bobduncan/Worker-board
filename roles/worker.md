@@ -115,6 +115,11 @@ step therefore says what it touches ("Touches: ...").
   merged and its worktree removed: `work report B<id>` with what the user gets and the commit; the board checks the
   merge itself, and that no worktree of the step is left. The flow
   file says who moves a step and when; the board refuses a move it does not allow and says why.
+- Tests bite (B527): when your change touches a test file, make the mutant before you report: in a scratch copy
+  (never on your branch), undo the fix, run the new tests, see which assertion fails, then delete the copy. Your
+  report's result then holds one line `Tests bite: <what was undone in a copy> → <the assertion that
+  failed>`. The board's check refuses a report of a change with test files without that line, and says the words to
+  add. A test that still passes without the fix tests nothing: make it bite first.
 - A step with agreed points ("What we build") or a Standard line is done only after the result check (B356): once the
   board's check of your report passed, the partner's helper, which did not build it, ticks every agreed point against
   the standard. A failed point comes back to you as a fix step, "Fix: <the failed points>", queued for you: do it as
