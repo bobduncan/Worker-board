@@ -123,7 +123,7 @@ const RUNNING = new Map([[true, 'yes'], [false, 'no']])
  * (roles/main.md, "Check sync").
  */
 /**
- * B465: what the board's own list (src/work/sync.mjs) found and did when the button was pressed, for the main chat,
+ * B465: what the board's own list (src/supervisor) found and did when the button was pressed, for the main chat,
  * which checks what the list does not know: one line, each finding with its status, at most twelve.
  */
 const boardCheckWords = list => {

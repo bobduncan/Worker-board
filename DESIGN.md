@@ -2876,7 +2876,8 @@ reads, so all of them were looked at:
 
 The person, 2026-10-21 (I50): "i want a structural fix for preventing this it gets stuck, of the out of sync button
 verifies this as well. including that it seems advisor 2 chat is not running. also gets solved." Each way work got
-stuck that day was found by the person. They are now one list in the board, `src/work/sync.mjs`, each with its fix:
+stuck that day was found by the person. They are now one list in the board, each with its fix (since the supervisor,
+2026-10-24, its repair rules in `src/supervisor/rules/repair.mjs`, run by `src/supervisor/loop.mjs`):
 
 | Check | Found when | Fix (status) |
 | --- | --- | --- |
@@ -2926,7 +2927,7 @@ stuck that day was found by the person. They are now one list in the board, `src
   a second one on the project (another `--port`) leaves it, and its "Out of sync?" asks the main chat only; a lock
   whose owner has not run for two rounds is taken over.
 - A new way of getting stuck is added to the list with its check, fix and test, not only fixed by hand (roles/main.md).
-- Tests: `test/work/sync.test.mjs` (each check, each fix, the one note, the runner, the board's own unblock and requeue),
+- Tests: `test/supervisor/selfCheck.test.mjs` (each check, each fix, the one note, the runner, the board's own unblock and requeue),
   `test/outOfSync.test.mjs` (the words to the main chat, the page's answer).
 
 ## Worktree clean-up (2026-10-24)
@@ -2968,7 +2969,7 @@ confirmed that a step's branch was gone, never its worktree or its folder. Three
   ("The check", step 4: the helper removes its check worktrees before `work checked`), `roles/protocol.md`.
 - Tests: `test/work/worktrees.test.mjs` (temporary git repositories: merged and unmerged worktrees, changes, held
   ones, an empty leftover folder, a junction made with `mklink /J`, skipped with its reason where none can be made),
-  `test/work/check.test.mjs`, `test/work/resultCheck.test.mjs`, `test/work/sync.test.mjs`, `test/outOfSync.test.mjs`.
+  `test/work/check.test.mjs`, `test/work/resultCheck.test.mjs`, `test/supervisor/selfCheck.test.mjs`, `test/outOfSync.test.mjs`.
 
 ## Clear after each step (2026-10-23)
 

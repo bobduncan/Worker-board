@@ -71,7 +71,7 @@ import { effortOf } from './src/work/effort.mjs'
 import { isHolding, resumeEnds, resumeRetypeTo, resumeTypeTo } from './src/work/pause.mjs'
 import { reportCheck } from './src/work/check.mjs'
 import { deliverWork, pullFor, sendOnce } from './src/work/deliver.mjs'
-import { REFUSED_MS, SYNC_EVERY_MS, loopOwner, syncRunner } from './src/work/sync.mjs'
+import { REFUSED_MS, createSupervisor } from './src/supervisor/index.mjs'
 import { FILES as WORKTREE_FILES, cleanLeftover, findLeftovers, stepLeftovers } from './src/work/worktrees.mjs'
 import { followRenames } from './src/work/rename.mjs'
 import { standardHold } from './src/work/standardHold.mjs'
@@ -891,15 +891,14 @@ async function main(args) {
     if (checked.ok || checked.status !== 409 || typeof body?.chat !== 'string' || typeof body?.session !== 'string') return
     const name = body.chat.trim().slice(0, 80)
     const session = body.session.trim().slice(0, 120)
-    // The review: since when it asks under that name, so one refusal the mod then follows is no case (sync.mjs).
+    // The review: since when it asks under that name, so one refusal the mod then follows is no case (the rule old-name).
     const before = refusedNames.get(`${name} ${session}`)
     refusedNames.set(`${name} ${session}`, { name, session, first: before?.first ?? clock(), at: clock() })
     for (const [key, one] of refusedNames) if (clock() - one.at >= REFUSED_MS) refusedNames.delete(key)
   }
-  // B465: the board's list of stuck states (src/work/sync.mjs), set up with the reconciler on a board that writes.
-  let sync = null
-  // B482: whether this board process runs the list for its project (one loop per project); null: it never does
-  let syncOwned = null
+  // The supervisor (spec 2026-10-24): the board's own check of itself, B465's list of stuck states among it
+  // (src/supervisor), set up with the reconciler on a board that writes; null on a board that never runs it.
+  let supervisor = null
 
   // The Design tab: an idea becomes a picture that Codex makes. Only here does the board start a program that
   // makes something: on the person's click, one at a time, with a time limit (see src/codex.mjs).
@@ -1198,7 +1197,7 @@ async function main(args) {
       })
       // B256: whether the Goals part may change the map: only the board that delivers writes it.
       const goalsEdit = { canWrite: writesMap, whyNot: isDemo ? 'This is the demo: it changes no file.' : !writesMap ? `This board only shows. Change the map on the board that delivers: http://${HOST}:${homePort}/` : null }
-      return { ...state, design, goalsEdit, cpu: cpu?.view() ?? null, loops: { failing: loops.failing(), line: failingLine(loops.failing(), timeOf) }, syncList: sync?.shown(clock()) ?? null, boardSettings: boardSettingsNow(), version: { commit: running, since: startedAt, ...(await versionNow()), canRestart }, mod: await modNow(),
+      return { ...state, design, goalsEdit, cpu: cpu?.view() ?? null, loops: { failing: loops.failing(), line: failingLine(loops.failing(), timeOf) }, syncList: supervisor === null ? null : supervisor.view(clock()).run, boardSettings: boardSettingsNow(), version: { commit: running, since: startedAt, ...(await versionNow()), canRestart }, mod: await modNow(),
         // B320: where the New project button suggests a new project's folder, and whether this board makes one.
         newProject: { parent: home === null ? null : dirname(home), canMake: !isDemo && !isShowOnly, isMaking: makingProject },
         // B322: what the page needs to open a new project's first chats in the Claude app: the board's folder (their
@@ -1309,9 +1308,8 @@ async function main(args) {
       if (body?.command === 'dismiss copied') return dismissCopied(store, body.id, clock())
       // B465: "Out of sync?" runs the board's own list at once (its answer stands on the page); the main chat's check,
       // for what the list does not know, gets that answer with the rest, and the board as it stands after the fixes.
-      const mayAsk = body?.command === 'sync' && sync !== null && syncOwned !== null
-        && await syncOwned().catch(error => { loops.failed('sync', error); return false })
-      const syncAnswer = mayAsk ? await sync.run({ asked: true }).catch(error => { loops.failed('sync', error); return null }) : null
+      // Null when another board process runs the project's list (B482), or the run failed (recorded as "sync").
+      const syncAnswer = body?.command === 'sync' && supervisor !== null ? await supervisor.run({ asked: true }) : null
       if (syncAnswer !== null) readState.reset()
       const state = await readState()
       const checked = checkSay(body, syncAnswer === null ? state : { ...state, syncList: syncAnswer }, config.maxMessageChars)
@@ -1752,13 +1750,16 @@ async function main(args) {
     }
     setInterval(reconcileNow, Math.max(5, config.refreshSeconds) * 1000)
 
-    // B465: the board's list of stuck states, every few minutes and on "Out of sync?": the safe fixes it makes itself
-    // (through the work API as the board, and its lines once per finding), the rest to the main chat in one note, never
-    // twice for the same thing (data/sync.json keeps what it was told). Not on a copy beside the person's board.
+    // The supervisor (spec 2026-10-24), with B465's list of stuck states: every few minutes and on "Out of sync?", the
+    // safe fixes it makes itself (through the work API as the board, and its lines once per finding), the rest to the
+    // main chat in one note, never twice for the same thing (the project's .claude/sync.json keeps what it was told).
+    // Not on a copy beside the person's board.
     if (!isShowOnly) {
       // B482, the review: kept with the project, beside the loop's lock, so every board of it reads the same
       const SYNC_FILE = join(config.project, '.claude', 'sync.json')
-      sync = syncRunner({
+      // B482: one loop per project: a second board process on it (another --port) leaves the list to the first
+      const LOOP_LOCK = join(config.project, '.claude', 'sync-loop.json')
+      supervisor = createSupervisor({
         state: () => readState(),
         items: async () => (await readStore(workDir)).items,
         outbox: () => store.outbox(),
@@ -1795,28 +1796,27 @@ async function main(args) {
           save: state => writeAtomic(SYNC_FILE, JSON.stringify(state)),
         },
         now: clock,
-      })
-      // B482: one loop per project: a second board process on it (another --port) leaves the list to the first
-      const LOOP_LOCK = join(config.project, '.claude', 'sync-loop.json')
-      const ownLoop = loopOwner({
-        read: () => readFile(LOOP_LOCK, 'utf8'),
-        write: async text => {
-          await mkdir(dirname(LOOP_LOCK), { recursive: true })
-          await writeAtomic(LOOP_LOCK, text)
+        loopLock: {
+          read: () => readFile(LOOP_LOCK, 'utf8'),
+          write: async text => {
+            await mkdir(dirname(LOOP_LOCK), { recursive: true })
+            await writeAtomic(LOOP_LOCK, text)
+          },
+          alive: pid => {
+            try {
+              process.kill(pid, 0)
+              return true
+            } catch (error) {
+              return error?.code === 'EPERM'
+            }
+          },
+          pid: process.pid,
+          port: config.port,
         },
-        alive: pid => {
-          try {
-            process.kill(pid, 0)
-            return true
-          } catch (error) {
-            return error?.code === 'EPERM'
-          }
-        },
-        pid: process.pid,
-        port: config.port,
-        now: clock,
+        loops,
+        closing: () => isClosing,
+        settings: config,
       })
-      syncOwned = ownLoop
       process.on('exit', () => {
         try {
           if (JSON.parse(readFileSync(LOOP_LOCK, 'utf8')).pid === process.pid) rmSync(LOOP_LOCK)
@@ -1824,7 +1824,7 @@ async function main(args) {
           // not there, or another board's by now
         }
       })
-      setInterval(() => (isClosing ? null : loops.run('sync', async () => (await ownLoop() ? sync.run() : null))), SYNC_EVERY_MS)
+      supervisor.start()
     }
   }
 }

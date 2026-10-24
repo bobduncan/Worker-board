@@ -1,6 +1,6 @@
 // Worktree clean-up (the person, 2026-10-24): what the board's sync check "leftover worktrees" would do now, as a
 // list only: nothing is removed. A line per leftover: "Would clean: ..." (what the board removes at its next run) or
-// "Left: ..." (what it leaves, with why). The board's own run removes the safe ones (src/work/sync.mjs, `worktrees`).
+// "Left: ..." (what it leaves, with why). The board's own run removes the safe ones (src/supervisor, the rule `worktrees`).
 //
 //   node tools/leftover-worktrees.mjs [--config <the board's config.json>] [--board <the board's folder>]
 //

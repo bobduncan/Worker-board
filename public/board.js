@@ -539,7 +539,7 @@ $('new-project-form').addEventListener('submit', async event => {
 const SYNC_TONES = { Fixed: 'done', Woke: 'done', Sent: 'done', Cleaned: 'done', 'For Main': 'main', Left: 'fine', Fine: 'fine' }
 
 /**
- * B465: the answer of the board's own list of stuck states (state `syncList`, src/work/sync.mjs) as the Workers panel
+ * B465: the answer of the board's own list of stuck states (state `syncList`, src/supervisor) as the Workers panel
  * shows it: a title, a row per finding (Fixed, Woke, Sent, For Main, Cleaned or Left) and one for the checks that
  * found nothing; null when there is none to show (no run asked or found anything within the hour).
  */

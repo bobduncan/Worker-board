@@ -1,4 +1,5 @@
-// B465: the board's own list of the ways work got stuck, each with its fix (src/work/sync.mjs). The person, 2026-10-21
+// B465: the board's own list of the ways work got stuck, each with its fix (src/supervisor: its repair rules and its loop,
+// moved there from src/work/sync.mjs unchanged, the supervisor's Task 1). The person, 2026-10-21
 // (I50): "i want a structural fix for preventing this it gets stuck". One test per check and per fix, on made-up items
 // and chats; no word names a project.
 
@@ -14,7 +15,8 @@ import { workApi } from '../../src/work/api.mjs'
 import { deliverWork } from '../../src/work/deliver.mjs'
 import { migrateBacklog, stamp } from '../../src/work/migrate.mjs'
 import { readStore, writeStore } from '../../src/work/store.mjs'
-import { AGAIN_MS, CHECKS, LOOP_LOCK_MS, NOT_TAKEN_MS, OWNER_GONE_MS, SYNC_SHOWN_MS, applySync, findStuck, leftoverFindings, loopOwner, mayRunLoop, readLoopLock, syncRunner } from '../../src/work/sync.mjs'
+import { AGAIN_MS, CHECKS, NOT_TAKEN_MS, OWNER_GONE_MS, findStuck, leftoverFindings } from '../../src/supervisor/rules/repair.mjs'
+import { LOOP_LOCK_MS, SYNC_SHOWN_MS, applySync, loopOwner, mayRunLoop, readLoopLock, syncRunner } from '../../src/supervisor/loop.mjs'
 
 const MIN = 60_000
 const NOW = new Date(2026, 9, 21, 2, 0).getTime()
