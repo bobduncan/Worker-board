@@ -242,13 +242,13 @@ test('B505: the search box stands in the Goals head and its keys and picks reach
 })
 
 test('B514: words split on spaces, in any order; a word with an s finds its goals; the where line names the milestone', () => {
-  const titles = ['Check the architecture', 'Phone board layout', 'Sound of lava', 'Sounds in the arena', 'Music sounds', 'Sound mixer', 'Sound test', 'Sound bank', 'Sound pool', 'Sound menu', 'Sound volume']
+  const titles = ['Check the architecture', 'Phone board layout', 'Found a way', 'Sound of lava', 'Sounds in the arena', 'Music sounds', 'Sound mixer', 'Sound test', 'Sound bank', 'Sound pool', 'Sound menu', 'Sound volume']
   const nodes = [{ id: 'G1', title: 'M2 · The garden is open', parent: null, children: titles.map((_, at) => `G${at + 2}`) }, ...titles.map((title, at) => ({ id: `G${at + 2}`, title, parent: 'G1', children: [] }))]
   const goals = { roots: ['G1'], nodes }
   assert.deepEqual(page.goalSearch(goals, 'architecture check').map(one => one.id), ['G2'])
   assert.deepEqual(page.goalSearch(goals, 'board phone').map(one => one.id), ['G3'])
-  assert.deepEqual(page.goalSearch(goals, 'sound'), page.goalSearch(goals, 'sound').slice(0, 8))
-  assert.equal(page.goalSearch(goals, 'sound').length, 8)
-  assert.deepEqual(page.goalSearch(goals, 'sounds arena').map(one => one.id), ['G5'])
+  // 'Found a way' holds "ound" but not "sound": the old split on the letter s matched it.
+  assert.deepEqual(page.goalSearch(goals, 'sound').map(one => one.id), ['G5', 'G6', 'G7', 'G8', 'G9', 'G10', 'G11', 'G12'])
+  assert.deepEqual(page.goalSearch(goals, 'sounds arena').map(one => one.id), ['G6'])
   assert.deepEqual(page.goalSearch(goals, 'g2'), [{ id: 'G2', title: 'Check the architecture', where: 'M2 › G2' }])
 })
