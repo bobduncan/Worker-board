@@ -429,6 +429,39 @@ button, textarea, select { font: inherit; color: inherit; }
 .vision-extra h3 { margin: 0; font-size: 15px; }
 .vision-box { width: 100%; padding: 8px 10px; border: 1px solid #2a3850; border-radius: 8px; background: var(--inset); color: var(--text); font: inherit; font-size: 14px; resize: none; }
 .vision-milestone { display: flex; flex-direction: column; gap: 8px; }
+/* The plan (2026-10-24): change labels, the strategy, the overview, the cards' sub-goals. */
+.plan-badge { display: inline-block; margin-left: 8px; padding: 1px 9px; border: 1px solid; border-radius: 999px; font-size: 12px; font-weight: 600; white-space: nowrap; vertical-align: 1px; }
+.plan-badge.is-new { border-color: #2f8a5a; background: #163a2a; color: #5ad19a; }
+.plan-badge.is-change { border-color: #3a64b0; background: #14284a; color: #8fb6ff; }
+.plan-badge.is-drop { border-color: #9a3a3a; background: #3a1a1a; color: #ff9b8f; }
+.plan-strategy-line, .plan-counts { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; }
+.plan-strategy-line p { margin: 0; }
+.plan-strategy { display: flex; flex-direction: column; gap: 10px; }
+.plan-strategy > p { margin: 0; }
+.plan-strategy-options { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
+.plan-strategy-options .vision-mode { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; padding: 10px 12px; text-align: left; }
+.plan-strategy-options .vision-mode[aria-pressed="true"] { border-color: #78a7ff; background: #172c49; }
+.plan-strategy-options .plan-badge { margin-left: 0; }
+@media (max-width: 900px) { .plan-strategy-options { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.plan-overview { display: flex; flex-direction: column; gap: 12px; }
+.plan-overview-title { margin: 0; color: var(--muted); font-size: 11px; font-weight: 600; letter-spacing: .05em; text-transform: uppercase; }
+.plan-ov-row { display: grid; grid-template-columns: 190px minmax(0, 1fr); gap: 0; align-items: center; }
+.plan-ov-milestone { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; padding: 8px 12px; border: 1px solid #3b5a8f; border-radius: 10px; background: #1a2740; font-size: 13px; }
+.plan-ov-milestone .plan-badge { margin-left: 0; }
+.plan-ov-goals { display: flex; flex-direction: column; gap: 6px; margin-left: 22px; padding-left: 18px; border-left: 2px solid #3b5a8f; }
+.plan-ov-goal { position: relative; display: flex; align-items: center; gap: 10px; min-width: 0; }
+.plan-ov-goal::before { content: ''; position: absolute; left: -18px; top: 50%; width: 16px; border-top: 2px solid #3b5a8f; }
+.plan-ov-node { display: flex; flex: none; align-items: center; gap: 6px; width: min(440px, 55%); padding: 5px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); color: var(--text); font: inherit; font-size: 13px; font-weight: 600; text-align: left; cursor: pointer; }
+.plan-ov-node:hover { border-color: #78a7ff; }
+.plan-ov-node.is-later { opacity: .65; }
+.plan-ov-id { color: #8fb6ff; }
+.plan-ov-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.plan-ov-subs { min-width: 0; overflow: hidden; font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
+.plan-subs { margin: 6px 0; padding-left: 22px; line-height: 1.6; list-style: decimal; }
+.plan-subs li { display: list-item; list-style: decimal; }
+.vision-goal.is-later { opacity: .7; }
+.vision-goal.is-flash { outline: 2px solid #78a7ff; outline-offset: 2px; }
+@media (max-width: 700px) { .plan-ov-row { grid-template-columns: 1fr; gap: 6px; } .plan-ov-goals { margin-left: 10px; } .plan-ov-node { width: 100%; } .plan-ov-subs { display: none; } }
 .vision-milestone h2 { margin: 6px 0 2px; font-size: 18px; }
 .vision-goal { display: grid; grid-template-columns: 150px minmax(0, 1fr) auto; gap: 14px; align-items: start; padding: 10px 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--panel); }
 .vision-goal.is-confirmed { border-color: #1d5c3a; }

@@ -3,8 +3,8 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import { recapsOf } from '../../src/work/recap.mjs'
-import { goalParts, headingOf, isBeforeAfter, partsFaults, plainSentences, recapParts, reportParts, technicalWords } from '../../src/work/recapWords.mjs'
+import { recapsOf, rewriteRecap } from '../../src/work/recap.mjs'
+import { goalParts, headingOf, insiderWords, isBeforeAfter, partsFaults, plainSentences, recapParts, reportParts, technicalWords } from '../../src/work/recapWords.mjs'
 
 const stepOf = ({ summary = [], context = [], checked = [], history = [] }) => ({
   head: new Map([['Id', 'B7'], ['Kind', 'step'], ['State', 'done']]),
@@ -71,5 +71,34 @@ test('an old recap reads in the new form from its step; its points picture is dr
   const words = one => [one.heading, one.context, one.change, one.checked, one.evidence, one.checkedLink]
   assert.deepEqual(words(cards.N1), ['A free worker gets the step', 'A queued step sat behind a busy worker while another was free.', 'A supervisor rule tells the main chat to hand it on.', '3 of 3', 'none', '#details=B7'])
   assert.equal(cards.N2.evidence, 'art-inbox/B7/before-after.png')
-  assert.deepEqual(words(cards.N3), ['A free worker gets the step', 'Steps waited.', 'They move.', '3 of 3', 'art-inbox/B7/evidence.png', '#details=B7'])
+  // B591: a recap made since B569 from a check with a points picture shows no picture either.
+  assert.deepEqual(words(cards.N3), ['A free worker gets the step', 'Steps waited.', 'They move.', '3 of 3', 'none', '#details=B7'])
+})
+
+test('B591: ids and placeholders are refused in a report\'s Context and Change; an old sentence with ids, times, placeholders or half a quote is dropped', () => {
+  assert.deepEqual(insiderWords('B531 waited behind <busy worker>; Q352 said so'), { ids: ['B531', 'Q352'], placeholders: ['<busy worker>'] })
+  assert.deepEqual(insiderWords('A step waited behind a busy worker for 20 min.'), { ids: [], placeholders: [] })
+  assert.deepEqual(partsFaults('Context: B531 sat queued. Change: Main hands <n> on. Details: x'), [
+    'the Context holds ids (B531): say it in plain words, for someone who forgot, and put those after "Details:"',
+    'the Change holds placeholders (<n>): say it in plain words, for someone who forgot, and put those after "Details:"',
+  ])
+  assert.equal(plainSentences('B531 sat queued. A step could wait behind a busy worker. It waited 3 h 43 min. Main says "Requeue <n>". Both boards have it. One that does not answer never counts" failed. Suite 2312 pass.', 300), 'A step could wait behind a busy worker. Both boards have it.')
+})
+
+test('B591: a recap\'s card words written anew: plain, within the limits, its Points pass kept or taken from its step', () => {
+  const note = (extra = []) => ({
+    head: new Map([['Id', 'N5'], ['Kind', 'note'], ['State', 'read'], ['Since', '2026-10-24 20:00'], ['Recap', 'seen'], ['Evidence', 'art-inbox/B7/evidence.png'], ['Text', 'old']]),
+    sections: new Map([['Text', ['B7 Fix of X15: a free worker gets the step waiting longest is done', 'A long technical line.']], ...extra, ['About', ['B7']], ['History', ['- 2026-10-24 20:00 Partner: recap made']]]),
+  })
+  const step = stepOf({ checked: ['- pass: a', '- pass: b'], history: ['- 2026-10-24 19:30 Partner: result check passed: 2 of 2 points pass'] })
+  const words = { title: 'A free worker now gets the step that waited longest', context: 'A step could sit queued behind a busy worker.', change: 'Main hands it to the free worker.' }
+  const done = rewriteRecap(note(), words, step)
+  assert.equal(done.ok, true)
+  assert.deepEqual([...done.item.sections.keys()], ['Text', 'Context', 'Change', 'Points pass', 'About', 'History'])
+  assert.deepEqual([done.item.sections.get('Text'), done.item.sections.get('Points pass')], [['B7 A free worker now gets the step that waited longest is done', 'Main hands it to the free worker.'], ['2 of 2']])
+  const card = recapsOf({ ok: true, items: new Map([['B7', step], ['N5', done.item]]) }, Date.parse('2026-10-24T21:00'))[0]
+  assert.deepEqual([card.heading, card.context, card.change, card.checked, card.evidence], [words.title, words.context, words.change, '2 of 2', 'none'])
+  assert.deepEqual(rewriteRecap(note([['Points pass', ['5 of 5']]]), { context: 'Dark.', change: 'Glow.' }, step).item.sections.get('Points pass'), ['5 of 5'])
+  assert.equal(rewriteRecap(note(), { context: 'B531 sat queued.', change: 'Glow.' }, step).why, 'N5: the Context holds ids (B531): say it in plain words, for someone who forgot, and put those after "Details:"')
+  assert.equal(rewriteRecap(note(), { context: '', change: 'x'.repeat(501) }, step).why, 'N5: no Context; the Change is over 500 characters')
 })

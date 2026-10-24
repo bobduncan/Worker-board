@@ -16,6 +16,11 @@ export const RESTART_AGAIN_MS = 30 * MIN
 export const RESTART_TRIES = 3
 /** How long the line of a worker's next step waits for its restart after the word went. */
 export const RESTART_HOLD_MS = 10 * MIN
+/**
+ * B587: a word typed this long ago whose restarter's turn has ended while the chat still runs was not carried out (an
+ * archive takes seconds, and a chat whose process ended stops running for the board within half a minute).
+ */
+export const REFUSED_AFTER_MS = 2 * MIN
 /** The outbox command of the word. */
 export const RESTART_COMMAND = 'mod-restart'
 
@@ -109,7 +114,13 @@ export function rolloutPlan({ mods, chats = [], items = new Map(), deliveries = 
     if (chat.role !== 'worker') continue
     const delivery = deliveries.find(one => one.chat === chat.name)
     if (delivery === undefined) continue
-    const isOnItsWay = isDue || (now - last.at < RESTART_HOLD_MS && !LOST.includes(last.state))
+    // B587 (X36): the hold never outlasts the restart. A chat whose process ended is not idle (above), so its line goes
+    // with the board's start; one the restarter left running (its turn ended REFUSED_AFTER_MS after the word was typed:
+    // it refused, or the archive was) waits no more either.
+    const restarter = chats.find(one => plain(one?.name, prefix) === plain(by, prefix))
+    const isRefused = last?.state === 'delivered' && Number.isFinite(last.deliveredAt) && now - last.deliveredAt >= REFUSED_AFTER_MS
+      && restarter !== undefined && restarter.state !== 'working'
+    const isOnItsWay = isDue || (now - last.at < RESTART_HOLD_MS && !LOST.includes(last.state) && !isRefused)
     if (!isOnItsWay) continue
     held.add(delivery.id)
     holds.set(delivery.id, `${delivery.id} waits until ${chat.name} is restarted on Workers mod ${mods.installed} (${RESTART_HOLD_MS / MIN} minutes at most after the word to ${by}).`)

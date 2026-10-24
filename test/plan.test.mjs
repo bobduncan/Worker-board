@@ -5,7 +5,7 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 
 import { planMove } from '../src/planMoves.mjs'
-import { PLAN_LATE_MS, optionCard, parsePlan, planStarting, planState, withPlanWork } from '../src/plan.mjs'
+import { PLAN_LATE_MS, changeOf, optionCard, parsePlan, planStarting, planState, withPlanWork } from '../src/plan.mjs'
 import { parseItem } from '../src/work/item.mjs'
 import { itemsOf, storeFromText } from '../src/work/read.mjs'
 
@@ -445,4 +445,44 @@ test("withPlanWork: your answer to a plan question is with the partner until its
   const next = parseItem(`Id: Q9\nKind: ask\nTitle: P1: Who plays it?\nState: open\nOwner: P - Partner\nAsks: decide\nFiled: ${at + 1000}\n`)
   assert.deepEqual(work([answer], [next], null), [])
   assert.deepEqual(work([answer], [], at + 1), [])
+})
+
+test('parsePlan reads the strategy, its advice, and the changes of milestones and goals (2026-10-24)', () => {
+  const page = [
+    '# P', '', '## Goals preset', '',
+    'Strategy: Playable first (you, 2026-10-24) · feel it early',
+    'Strategy advice: Playable first · you want to feel it early',
+    '', '### M1 · One fight', '- Change: rename One fight you can play', '- Cause: shorter', '',
+    '#### S2 · Palette', '- State: proposed', '- Change: merge G4, G6', '- Cause: the look is cozy (P3)', '- Steps: B12 and B14 move here', '',
+    '#### S5 · Later', '- State: not now (you, 2026-10-24)', '',
+    '#### S6 · Kept', '- Goal: G9', '',
+  ].join('\n')
+  const parsed = parsePlan(page)
+  assert.deepEqual(parsed.strategy, { name: 'Playable first', by: 'you', at: '2026-10-24', why: 'feel it early' })
+  assert.deepEqual(parsed.strategyAdvice, { name: 'Playable first', why: 'you want to feel it early' })
+  const [m1] = parsed.milestones
+  assert.deepEqual([m1.change, m1.cause], [{ kind: 'rename', text: 'One fight you can play' }, 'shorter'])
+  const [s2, s5, s6] = m1.goals
+  assert.deepEqual([s2.change, s2.cause, s2.steps], [{ kind: 'merge', text: 'G4, G6' }, 'the look is cozy (P3)', 'B12 and B14 move here'])
+  assert.equal(s5.state, 'later')
+  assert.deepEqual([s6.change, s6.goal], [null, 'G9'])
+  assert.deepEqual(changeOf('frobnicate G1'), { kind: 'other', text: 'frobnicate G1' })
+  assert.deepEqual(changeOf('Drop G7'), { kind: 'drop', text: 'G7' })
+  // planState passes them on; a page without them has none.
+  assert.equal(planState(page, [], 'p.md').strategy.name, 'Playable first')
+  assert.deepEqual([parsePlan('# P\n').strategy, parsePlan('# P\n').strategyAdvice], [null, null])
+  // A picture under a milestone heading is kept, not a crash.
+  assert.equal(parsePlan('# P\n\n## Goals preset\n\n### M1 · One\n- Picture: pictures/m1.png · the first\n').milestones[0].pictures.length, 1)
+})
+
+test('the strategy and Not now go to the partner on the plan route (2026-10-24)', () => {
+  const ctx = { canWrite: true, partner: { name: 'Partner' }, job: 'partner.md' }
+  assert.equal(planMove({ command: 'plan-strategy', text: '' }, ctx).status, 400)
+  assert.equal(planMove({ command: 'plan-not-now', id: '' }, ctx).status, 400)
+  assert.equal(planMove({ command: 'plan-not-now', id: 'P3' }, ctx).status, 400)
+  const strategy = planMove({ command: 'plan-strategy', text: 'Playable first' }, ctx)
+  assert.ok(strategy.ok)
+  assert.ok(strategy.words.text.startsWith('plan: strategy\nStrategy: Playable first'))
+  assert.ok(planMove({ command: 'plan-not-now', id: 'S3' }, ctx).words.text.startsWith('plan: S3 not now'))
+  assert.ok(planMove({ command: 'plan-not-now', id: 'M2' }, ctx).words.text.startsWith('plan: M2 not now'))
 })

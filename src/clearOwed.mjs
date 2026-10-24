@@ -112,5 +112,16 @@ export function clearAtTake({ owed, mod, now, isIdle, background = 0, isPaused =
   return { hold: true, clear: { step: owed.step, reportedAt: owed.reportedAt }, why: `${waits}: its Workers mod clears it now` }
 }
 
+/**
+ * The steps whose line waits for their worker's clear (`lanes`: the board's chats with `clearOwed` and `isRunning`,
+ * `deliveries`: the reconciler's lines to free workers): a worker whose mod can clear. B587 (X36): not a worker whose
+ * process ended (`isRunning` false, a restart for a new mod archived it): it cannot clear before a word starts it, so its
+ * line goes at once with the board's `start` beside it; once it runs, its take is refused and its mod clears it first.
+ */
+export function clearHolds({ lanes = [], deliveries = [] }) {
+  const holds = lanes.filter(lane => lane?.clearOwed?.canClear === true && lane.isRunning !== false)
+  return new Set(holds.flatMap(lane => deliveries.filter(one => one.chat === lane.name).map(one => one.id)))
+}
+
 /** The words of a take refused while a clear is owed (the work tool's take, from a mod that can clear). */
 export const takeRefusal = owed => `Not yet: this chat is cleared after ${owed.step} first, its conversation kept as a log. End your turn now; the Workers mod clears the chat and the fresh conversation takes the step.`

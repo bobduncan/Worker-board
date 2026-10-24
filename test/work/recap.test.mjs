@@ -71,7 +71,7 @@ test('a step through its result check gives the person one open recap: what they
     const [shown] = recapsOf(await store(one.dir), NOW + HOUR)
     assert.deepEqual({ ...shown, at: null, approvesAt: shown.approvesAt - shown.at }, {
       id: `recap:${valueOf(note, 'Id')}`, workId: valueOf(note, 'Id'), about: id, isGoal: false, title: `${id} Light the garden lamps is done`,
-      line: 'Every path has a warm lamp.', evidence: 'pictures/b2/evidence.png', state: 'open', at: null, approvesAt: RECAP_WINDOW_MS, words: '', isClosed: false,
+      line: 'Every path has a warm lamp.', evidence: 'none', state: 'open', at: null, approvesAt: RECAP_WINDOW_MS, words: '', isClosed: false,
       // B569: the card's words: its title, Context and Change from the report, and how many points pass, with where.
       heading: 'Light the garden lamps', context: 'The garden paths were dark at night.', change: 'Every path has a warm lamp.', checked: '2 of 2', checkedLink: `#details=${id}`,
     })

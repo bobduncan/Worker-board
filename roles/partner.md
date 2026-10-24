@@ -393,9 +393,33 @@ top of Features and first in the Interview; the person's choice comes as `plan: 
 or `Choice: wait`: write `- Tradeoff: prepare (you, <date>)` or `wait` under the Prepare line. Their Features step and
 the plan check wait for every choice; the feature's mark stays as it was (not sure is fine).
 
-**The plan** (step 4; the user presses **Check the plan**: `plan: check`; or types `plan goals`): a heading `## Goals
+**The plan** (step 4; the user, 2026-10-24: "I want him to recommend goals/subgoals in to make this a reality"): your
+plan to make the vision real, in the strategy the user chooses first.
+
+- **Strategy first.** When the last standard is confirmed, write your advice under `## Goals preset` (prepared ahead):
+  `Strategy advice: <Playable first, Foundation first, Scale first or Risk first> · <why, one line>`. The board shows
+  the four and your advice; the user picks one or writes their own, and the board types `plan: strategy` with
+  `Strategy: <their pick or words>`. Write `Strategy: <name> (you, <date>) · <why, in their words where they gave
+  some>` under the heading, then lay the plan in it (the check below). A new strategy lays the plan again, as a plan
+  change against the goals that exist.
+- **Direct goals.** A title names the thing that exists, or what the user can do, when it is done: concrete nouns, a
+  number where it helps, at most eight words, no adjective without a measure ("Turn order and reachable tiles shown
+  on screen", not "Clear at a glance"). Sub-goals the same. Three levels only: milestone, goal (three to six),
+  sub-goal (two to four); the steps come under a sub-goal when it is refined.
+- **The same plan twice.** Start from the plan as it stands and change only what a cause demands; every change names
+  its cause. When nothing changed in the vision, the features, the standards or the strategy, keep the plan and write
+  `Checked: (<date>) Nothing changed: the plan stands`.
+- **Plan changes.** When you write a change to a vision card, a feature's mark or milestone, or a standard, run the
+  check in the same turn. A change to a goal or milestone that exists gets, under it: `- Change: <move G12 from M2 |
+  merge G4, G6 | split G12 | drop G7 | rename <old title> | new>`, `- Cause: <the change that led to it, in a few
+  words>`, and for a goal with steps `- Steps: <where they go: "B12 and B14 move here"; "B20 in progress: it stops
+  first">`. Never propose a drop or merge that loses a step. A kept goal needs no Change line.
+- **Not now.** `plan: S<n> not now` (or `M<n>`): write `- State: not now (you, <date>)`; it stays on the page, out of
+  the goal map, until the user says Yes to it later.
+
+The check: a heading `## Goals
 preset`, a `### M<n> · <milestone>` per milestone of P7 (`M3+` for the open end), and under each three to six goals
-`#### S<n> · <an outcome the user sees or plays, five to eight words>`, from the vision, the features placed in that
+`#### S<n> · <a direct outcome, at most eight words>`, from the vision, the features placed in that
 milestone, and the standards. The check is the one step where you lay the whole plan and name what is missing (the
 user, 2026-10-21): read the road, every feature and its milestone, every standard (its gap, its foundation not built
 yet, its state), the preset and the goal map, then propose every goal that is missing, each with `- Why: <what was
@@ -429,8 +453,11 @@ a new one gets the next G id under its milestone's goal (`From the game plan: M<
 promised on the Plan step must not get lost): each becomes a sub-goal one level deeper, in their order, with its own
 G id and a checkable `Done when:` where the words allow one. A sub that names the person's choice ("your choice", "you
 pick", "which ... you want") gets the line `Note: your choice: <what they choose>, asked first in the focus talk, with
-picture options`. A goal already in the map without its subs gets them at the next plan check. Commit and push the
-page as for the vision.
+picture options`. A goal already in the map without its subs gets them at the next plan check. A confirmed change is
+applied there too: a move moves the goal, a merge makes one goal of the two, a split two of one, a drop closes the goal
+as not needed, a rename renames it; the steps of a merged, split or dropped goal move to the goal its `- Steps:` line
+names (the work tool), never deleted. A change that alters a finished goal's Done when reopens that goal for a goal
+re-check. Commit and push the page as for the vision.
 
 **The next focus** (step 5; the user presses **Propose the next focus**: `plan: focus`, with `Words:` when they want
 another): propose the one goal of the goal map to focus on next, under a heading `## Next focus` at the page's end
@@ -923,6 +950,9 @@ there?", the board writes `Recheck asked: <date time>` under it and types `goal 
 
 1. Hand the re-check to a fresh helper on Sonnet (`model: "sonnet"`; never your own chat): every point of the goal's Done when, and every vibe line,
    checked against its steps' evidence (their `## Checked` sections and pictures) and the game or board as it is now.
+   A goal with goals inside (a milestone's goal at the milestone's end; the user, 2026-10-24): every goal inside it is
+   re-checked too, done or not, against how things are now, so a later change cannot quietly break an earlier goal; a
+   failed point reopens that goal, with its gap and fix steps as below.
 2. For a goal you can see, one evidence picture with the board's tool: `node <board>/tools/evidence.mjs --step G<n>
    --title "<title>" --result <the result's picture> --points '<the ticked points as JSON>'` (a reference where the
    goal has one).
