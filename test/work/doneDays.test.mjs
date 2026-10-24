@@ -20,7 +20,7 @@ const at = (d, h, m) => new Date(2026, 9, d, h, m).getTime()
 function step(id, { state = 'done', moves = [], goal = 'G15', owner = 'Game - Worker 1', title = `Step ${id}`, summary = `What ${id} gives.` } = {}) {
   return parseItem([
     `Id: ${id}`, 'Kind: step', `Title: ${title}`, `State: ${state}`, `Owner: ${owner}`, ...(goal === null ? [] : [`Goal: ${goal}`]), 'Since: 2026-10-20 10:00', '',
-    '## Context', '  The person: "secret words of a chat" in C:\\Web\\project\\src\\file.mjs', '',
+    '## Context', '  The person: "secret words of a chat" in src/file.mjs', '',
     '## History', '- 2026-10-20 10:00 Main: made', ...moves, '',
     '## Summary', summary, '',
     '## Touches', 'src/hidden.mjs', '',
