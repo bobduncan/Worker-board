@@ -134,7 +134,8 @@ step therefore says what it touches ("Touches: ...").
 - A step whose work is outside git (pictures or pages in the project's folder, in no repository; B363): take it with
   branch `none`, report it with `merged` none and name the files it made in the result, by their paths in the project
   (`<picture folder>/b12/page.html`, or the folder `<picture folder>/b12/`). The board's check is then that those
-  files are there (else the paths its Touches name), not a merged branch.
+  files are there (else the paths its Touches name), not a merged branch. Take it with `none` from the start, so the
+  check never has to guess; a branch named at the take that no repository ever got is read the same way (B580).
 - What only the person can do: `work ask` under your step, `kind` decide, look, provide or do, `blocking` when you
   wait for it, with its pictures (copied first into the project's picture folder, the settings' `pictureRoots`, under
   `<step>/`: the board shows no picture from a worktree, and refuses an ask that names one); a choice with each option apart in `options`, its letter first (`A thin`), and

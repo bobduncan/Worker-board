@@ -126,6 +126,29 @@ test('B363: a step on the base branch whose merged commit a repository holds, or
   assert.deepEqual(own.lines, ['work in board', 'main of board equals origin/main', 'branch gone', 'worktree gone', 'result named'])
 })
 
+// B580: B568 named a branch at its take (b568-example-card-picture) that was never made, and made only a picture; its
+// check kept failing with "could not tell which repository". A branch no repository has or ever had, with no merged
+// commit a repository holds, is work outside git, checked by its files.
+test('B580: a branch never made and nothing merged: work outside git, checked by its files', async () => {
+  const never = await reportCheck(outside({ branch: 'b9-never-made' }))
+  assert.deepEqual(never, { passed: true, lines: ['work outside git', 'there: art-inbox/gap-9/gap.html, art-inbox/gap-9', 'result named'] })
+  assert.deepEqual(await reportCheck(outside({ branch: 'b9-never-made', merged: '' })), never)
+  const missing = await reportCheck(outside({ branch: 'b9-never-made', exists: files(['/projects/art-inbox/gap-9']) }))
+  assert.deepEqual(missing, { passed: false, lines: ['work outside git', 'not there: art-inbox/gap-9/gap.html'] })
+})
+
+test('B580: a branch deleted after its merge stays a git step; a git that does not answer never makes one outside git', async () => {
+  // Found by its trace (the board's reflog names b5-lamps), with no merged commit named.
+  const traced = await reportCheck(outside({ branch: 'b5-lamps', merged: 'none' }))
+  assert.deepEqual(traced.lines, ['work in board', 'main of board equals origin/main', 'branch gone', 'worktree gone', 'result named'])
+  // Found by its merged commit, with no trace of the branch left.
+  const byCommit = await reportCheck(outside({ branch: 'b6-pruned', merged: 'c0ffee1' }))
+  assert.deepEqual(byCommit.lines, ['work in board', 'main of board equals origin/main', 'branch gone', 'worktree gone', 'result named'])
+  // The game's reflog unread: the branch may be there, so the check cannot tell, as before.
+  const silent = await reportCheck(outside({ branch: 'b9-never-made', run: git({ ...world, [`/projects/garden ${reflog}`]: undefined }) }))
+  assert.deepEqual(silent, { passed: false, lines: ['could not tell which repository B9\'s work is in'] })
+})
+
 // Worktree clean-up (the person, 2026-10-24: "cleanup leftover working tree's please. ensure this is part of the cleanup
 // step."): a worktree of the step's repository on its branch, or a worktree or its folder named for the step in the
 // project folder, fails the check with how to remove it. test/work/worktrees.test.mjs has the same with real git.

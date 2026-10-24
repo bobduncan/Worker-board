@@ -26,7 +26,10 @@ const nameOf = dir => String(dir).replace(/[\\/]+$/, '').split(/[\\/]/).pop()
 const escape = text => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 const linesOf = answer => (typeof answer === 'string' ? answer.split('\n').map(one => one.trim()).filter(one => one !== '') : [])
 
-/** Whether the repository has, or had, the branch: as a branch, on a remote, or in a reflog line that names it. */
+/**
+ * Whether the repository has, or had, the branch: as a branch, on a remote, or in a reflog line that names it. Null
+ * when git answered none of the three, so "not there" is never read from a git that did not answer (B580).
+ */
 async function hadBranch(dir, branch, run) {
   const [local, remote, log] = await Promise.all([
     run(['-C', dir, 'for-each-ref', '--format=%(refname:short)', 'refs/heads']),
@@ -34,7 +37,14 @@ async function hadBranch(dir, branch, run) {
     run(['-C', dir, 'log', '-g', '--all', '--format=%gs']),
   ])
   const named = new RegExp(`(?:^|[\\s'"/])${escape(branch)}(?:$|[\\s:'"])`)
-  return linesOf(local).includes(branch) || linesOf(remote).some(ref => ref.endsWith(`/${branch}`)) || linesOf(log).some(one => named.test(one))
+  if (linesOf(local).includes(branch) || linesOf(remote).some(ref => ref.endsWith(`/${branch}`)) || linesOf(log).some(one => named.test(one))) return true
+  return local === null || remote === null || log === null ? null : false
+}
+
+/** B580: the branch is in no repository and never was (every repository answered, none has a trace of it). */
+async function isNowhere(branch, repos, run) {
+  for (const repo of repos) if (await hadBranch(repo.dir, branch, run) !== false) return false
+  return true
 }
 
 /** The repository of `repos` that holds the reported merged commit, or null. */
@@ -65,9 +75,10 @@ export async function repoOfStep({ branch, merged, repos, run }) {
  */
 export async function reportCheck({ id, branch, result, merged, repos, run, project = '', touches = [], exists = null, fs = null }) {
   // B363: work outside git (no branch of its own, no merged commit a repository holds): its files are checked instead.
+  // B580: so is a step whose branch, named at its take, no repository has or ever had (B568, a picture only).
   const own = typeof branch === 'string' ? branch.trim() : ''
   const isOwnBranch = own !== '' && own !== '-' && own.toLowerCase() !== 'none' && !repos.some(repo => repo.base === own)
-  if (!isOwnBranch && exists !== null && project !== '' && await repoOfCommit(merged, repos, run) === null) {
+  if (exists !== null && project !== '' && await repoOfCommit(merged, repos, run) === null && (!isOwnBranch || await isNowhere(own, repos, run))) {
     const left = await stepLeftovers({ id, repos, project, run, fs })
     return outsideCheck({ result, touches, project, repoDirs: repos.map(repo => repo.dir), exists, left })
   }

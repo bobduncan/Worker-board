@@ -1351,7 +1351,9 @@ as a shadow of the backlog; B301 removed the shadow (below): the store is the on
   merged commit a repository holds) is checked by its files: those its result names (else its Touches), in the
   project's folder outside every repository: a word with a "/" and a file's ending or a "/" at its end must be there;
   another ("and/or", "B1/B2/B3", a date) counts only when it is; one inside a repository is work in git, to be reported
-  with its merged commit: "work outside git", "there: ...", "not there: ...", "in a repository: ..." (B353, B347). The
+  with its merged commit: "work outside git", "there: ...", "not there: ...", "in a repository: ..." (B353, B347).
+  B580: a branch named at the take that no repository has or ever had (every repository answered, none has a trace)
+  counts as no branch of its own, so such a step is checked by its files too; a git that does not answer never does. The
   review of B363: work merged on a repository's base branch itself passes without "branch gone" ("worked on main
   itself"). Worktree clean-up (2026-10-24): the check also confirms that no worktree of the step is left: none of
   that repository on the step's branch, none of a repository the board knows named for the step (its id as a whole in
