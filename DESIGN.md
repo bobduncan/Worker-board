@@ -3116,16 +3116,24 @@ the AI sweep by a cheap supervisor chat and the hand-over to the Advisor, comes 
   the same key only counts it (Count and Last seen, no History line: an hour of a lasting problem is one record with
   count 20), a fixed one's key makes it "came back". Incidents are never on the backlog view.
 - **To the person**: each incident that opened or came back gives one note of the board's (`Via: supervisor`, About
-  X<n>), drawn as one quiet line under Needs your attention, "Supervisor: <what>" with a wrench, never counted; a
-  click opens the section (Details first, from Simple) and reads it. A count that grows gives nothing.
+  X<n>). B573: the unread ones are drawn as one quiet line under Needs your attention, "Supervisor: 3 new findings"
+  with a wrench, never counted; a click opens the section (Details first, from Simple), and opening the section any
+  way reads them all. A count that grows gives nothing.
 - **The section** (state `supervisor`, the view, in place of `syncList`), under the Workers panel's head where the
-  "Out of sync?" list stood: "Supervisor · checked itself at HH:MM", its incidents (one card per fix step, see "The supervisor's incident cards"), the last check
-  (B465's rows, as before, for an hour), the rules (those that tripped now or today, how often, a failed one with why;
-  the others on a click) and the last sweep ("No sweep yet." until Part 2), with **Check now** and ×. It shows when
-  something is new (a check, an incident that opened or changed state) and stays closed after × until something newer
-  comes. Cool colours only: nothing in it is the person's to act on (`test/supervisor/page.test.mjs` checks every colour
+  "Out of sync?" list stood. B573 (the person, 2026-10-24: "the supervisor notes take up too much space. i want it
+  collapisble and understand how many things it found and is working on"): it stands on every board with a supervisor,
+  folded by default to one head line, "Supervisor · 10 found today · 3 in work · 2 new", with **Check now** beside it;
+  a click on the line opens it, and the fold is kept across reloads (localStorage `supervisor-open`). Found: opened or
+  came back in the last day (an incident's `foundAt`, from its History). In work: its fix step queued, taken, in
+  progress, waiting on the person or in review (the card's `phase`). Open, the head adds "· 2 with the Advisor · 0
+  fixed" (no fix under way yet; fixed), then when it checked itself, its incidents (one card per fix step, see "The
+  supervisor's incident cards"), the last check (B465's rows, as before, for an hour), the rules (those that tripped
+  now or today, how often, a failed one with why; the others on a click) and the last sweep. **New**: an incident found
+  since the person last opened the section (`supervisor-seen-at`) and not fixed; its card carries a quiet New tag and
+  comes first. Opening marks them seen; the open section's tags stand against the opening before
+  (`supervisor-shown-since`), so they do not vanish at the click. Pictures: `art-inbox/B573/`. Cool colours only: nothing in it is the person's to act on (`test/supervisor/page.test.mjs` checks every colour
   of its styles). Pictures: `art-inbox/worker-board/supervisor/` (the project's picture folder).
-- **Check now** (was "Out of sync?"; a worker's menu, the panel's head while the section is closed, and the section) with
+- **Check now** (was "Out of sync?"; a worker's menu, the section's head, and the panel's head on a board without a supervisor) with
   a wrench in the button's own colour: the server runs the supervisor at once (`run({ asked: true, subject })`, the
   subject the worker of the menu) and, until Part 2's sweep replaces it, still types `check sync` into the main chat.
 - **The review of part 1** (2026-10-24): merged with main, B449's check `unchecked` is a repair rule, and B488's one

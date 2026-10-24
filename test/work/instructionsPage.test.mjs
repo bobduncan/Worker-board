@@ -32,7 +32,7 @@ test('the part sits in the log under Needs your attention, missed red and closed
   // Focus 4: the partner's questions first; B258: then the answers to the person's asks on the goal map; B287: the
   // refine lines before the cards. Partner answers: "With your partner" and "Decided for you" after the partner's.
   // Calm panel (2026-10-19): the instructions left the list for the log; a missed one is a line after the partner's.
-  assert.match(script, /fill\(box, \[none, drawPartnerNeeds\(partnerCards, [^\n]*?\.length\), drawMissed\(missed\), drawSupervisorLines\(supervised\), drawGoalAskNeeds\(state\), drawBrainstormNeeds\(state\), \.\.\.oldCards, drawRefineNeeds\(state\), \.\.\.cards, drawWithPartner\(state\), drawDecidedForYou\(state\), \.\.\.recaps\]\)/)
+  assert.match(script, /fill\(box, \[none, drawPartnerNeeds\(partnerCards, [^\n]*?\.length\), drawMissed\(missed\), drawSupervisorLine\(supervised\), drawGoalAskNeeds\(state\), drawBrainstormNeeds\(state\), \.\.\.oldCards, drawRefineNeeds\(state\), \.\.\.cards, drawWithPartner\(state\), drawDecidedForYou\(state\), \.\.\.recaps\]\)/)
   // B307: Information in its own box under the asks, as high as the person drags it; since the calm panel the log's
   // box, with Open instructions above Information.
   assert.match(script, /refocus\(box, focused\)\n  \/\/ B307[^\n]*\n  drawInformation\(state\)/)
