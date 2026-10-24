@@ -12,6 +12,7 @@
 // title begins "Rebuild G<n>") unless "Approve rebuilds by itself" (config `approveRebuilds`) is on.
 // Work-agnostic: it reads the store's steps and the goal map, nothing of the project's work.
 
+import { sinceMs } from './work/item.mjs'
 import { checkedOf } from './work/resultCheck.mjs'
 
 /** The failed checks since Go that fire the guard. */
@@ -110,20 +111,61 @@ export function guardOf(node, items, asks) {
   return { attempts, of: GUARD_ATTEMPTS, state: waiting === undefined ? 'evaluating' : 'rebuild', ask: waiting?.head.get('Id') ?? null }
 }
 
+/** B528: the longest a failed check's line runs in the word to the partner; its whole text stands in the step's History. */
+const FAILURE_CHARS = 240
+/** B528: the word fits the board's limit for a typed line (config `maxMessageChars`) unless the caller names another. */
+const EVALUATE_CHARS = 2000
+
 /**
  * The word to the partner: `evaluate G<n> <title>`, the failed checks since Go, whether a rebuild needs the person's
  * yes, and where its job says how ("The fundamental evaluation", roles/partner.md). One message of the outbox.
+ * B528: it fits `maxChars` (the Workers mod refuses a longer line, and G15's 22 failed checks made 9459 characters that
+ * never arrived): each failed check cut to one short line, the newest kept, the older ones counted. `again` (the time
+ * "Evaluation asked" says) makes it the repeat of a word the evaluation has not ended yet.
  */
-export function evaluateWords({ to, goal, attempts, approveRebuilds, job }) {
-  const lines = [
-    `evaluate ${goal.id} ${lineOf(goal.title)}`,
+export function evaluateWords({ to, goal, attempts, approveRebuilds, job, maxChars = EVALUATE_CHARS, again = null }) {
+  const cut = text => (text.length > FAILURE_CHARS ? `${text.slice(0, FAILURE_CHARS - 1).trimEnd()}…` : text)
+  const head = [
+    `evaluate ${goal.id} ${lineOf(goal.title)}${again === null ? '' : ` (again: asked ${again}, not evaluated yet)`}`,
     `Attempts: ${attempts.count} failed checks since ${goal.howAgreed === attempts.since ? 'Go' : 'its first refined step'} (${attempts.since ?? 'the start'})`,
-    ...attempts.failures.map(one => `- ${one.by === 'you' ? `${one.id}, your no to a look` : one.id === goal.id ? `${one.id} re-check` : one.id} (${one.at}): ${one.text}`),
+  ]
+  const tail = [
     `Next steps: refine every next step of ${goal.id} with Model: opus and Effort: high until the evaluation ends`,
     approveRebuilds === true
       ? 'Rebuilds: approved by the board ("Approve rebuilds by itself" is on): make its steps at once and give the person a recap'
       : 'Rebuilds: ask the person first (decide); "Approve rebuilds by itself" is off',
     `Your job: ${job}, "The fundamental evaluation"`,
   ]
+  const failures = attempts.failures.map(one => cut(`- ${one.by === 'you' ? `${one.id}, your no to a look` : one.id === goal.id ? `${one.id} re-check` : one.id} (${one.at}): ${one.text}`))
+  // The newest failed checks that fit, oldest first; the room for the line that counts the rest is kept.
+  const earlier = n => `- and ${n} earlier failed ${n === 1 ? 'check' : 'checks'}: the goal's steps' History holds them`
+  let room = maxChars - [...head, ...tail].join('\n').length - earlier(failures.length).length - 2
+  const kept = []
+  for (const line of failures.toReversed()) {
+    if (line.length + 1 > room) break
+    room -= line.length + 1
+    kept.unshift(line)
+  }
+  const left = failures.length - kept.length
+  const lines = [...head, ...(left > 0 ? [earlier(left)] : []), ...kept, ...tail]
   return { to, ask: null, step: null, title: null, version: null, verdict: null, command: 'evaluate', about: goal.id, text: lines.join('\n') }
+}
+
+/** B528: while a goal's evaluation runs and has not ended, its word goes to the partner again this often. */
+export const EVALUATE_AGAIN_MS = 30 * 60_000
+
+/**
+ * B528: the goals whose word goes to the partner again now: an open goal with "Evaluation asked" whose last `evaluate`
+ * word about it in the outbox (else the time "Evaluation asked" says) is `EVALUATE_AGAIN_MS` old. A word the chat could
+ * not type (failed, expired) counts as sent then: the ask is kept, and the next word goes at the same pace.
+ */
+export function evaluationsDue(nodes, outbox, now) {
+  const due = []
+  for (const node of nodes ?? []) {
+    if (node.state === 'done' || (node.evaluationAsked ?? null) === null) continue
+    const last = (outbox ?? []).findLast(message => message.command === 'evaluate' && message.about === node.id)
+    const since = last?.at ?? sinceMs(node.evaluationAsked)
+    if (Number.isFinite(since) && now - since >= EVALUATE_AGAIN_MS) due.push(node)
+  }
+  return due
 }

@@ -20,6 +20,8 @@ export const LOOP_WORDS = {
   // B446: after a chat's report or checked, and the pictures of an idea.
   'result-check': 'asking for a result check',
   guard: 'the goal guard',
+  // B528: an evaluation that has not ended, asked of the partner again.
+  'evaluate-again': 'asking an evaluation again',
   picture: 'making a picture',
   // B467: reads that were taken for "nothing there" when they failed. `evaluations` runs on a move on the Focus page
   // and shows until the next move reads them; the last three are read once, at the start, and show until the board
