@@ -191,6 +191,9 @@ function updateView(version, loadedPage, { isStarting = false, problem = null } 
   if (version === undefined || version === null) return null
   if (isStarting) return { text: 'Starting the new version of the board…', action: null, tone: 'busy' }
   if (problem !== null) return { text: `${problem} Click to try again.`, action: 'restart', tone: 'problem' }
+  // B454: the board starts a new server by itself at a safe moment: until then the note says what it waits for; after 10
+  // minutes without one it asks for the click as before.
+  if (version.isServerNewer && version.canRestart && version.selfUpdate?.state === 'waiting') return { text: version.selfUpdate.line, action: null, tone: 'quiet' }
   if (version.isServerNewer) {
     return version.canRestart
       ? { text: 'A new version of the board is available. Click to start it.', action: 'restart', tone: 'new' }
@@ -198,6 +201,21 @@ function updateView(version, loadedPage, { isStarting = false, problem = null } 
   }
   if (loadedPage !== '' && typeof version.page === 'string' && version.page !== loadedPage) return { text: 'A new version of the page is available. Click to load it.', action: 'reload', tone: 'new' }
   return null
+}
+
+/**
+ * B454: whether the page loads the new version of itself now: only the page is newer (a newer server restarts the
+ * board, and the page then loads itself anew), the page is idle (`isIdle`) and it did not do so within the last minute
+ * (`lastAt`), so a version it cannot settle on cannot make it load over and over.
+ */
+function reloadsNow(version, loadedPage, { isIdle, lastAt = 0, now = 0 }) {
+  if (version === undefined || version === null || version.isServerNewer || loadedPage === '' || typeof version.page !== 'string') return false
+  return version.page !== loadedPage && isIdle && now - lastAt > MIN
+}
+
+/** B454: the short note after the page loaded itself, for a few seconds (`at`: when it did). */
+function updatedView(at, now) {
+  return Number.isFinite(at) && at > 0 && now - at < 8000 ? { text: 'The page was updated to the new version.', action: null, tone: 'quiet' } : null
 }
 
 /** Which version of the board runs, and since when: "Board 5fb7da8 · since 09:31". */
@@ -594,10 +612,24 @@ function drawLoopsNote(state) {
   }
 }
 
-/** The note on top (see `updateView`). */
+/** B454: nothing is open or being typed: no popup, no field with focus or with words in it, nothing on its way. */
+function isPageIdle() {
+  if (document.querySelector('dialog[open]') !== null || sending.size > 0) return false
+  const isText = field => field.matches('textarea, input:not([type]), input[type="text"], input[type="search"], input[type="url"], input[type="number"]')
+  if (document.activeElement !== null && document.activeElement !== document.body && document.activeElement.matches('input, textarea, select, [contenteditable]')) return false
+  return ![...document.querySelectorAll('textarea, input')].some(field => isText(field) && field.value.trim() !== '')
+}
+
+/** The note on top (see `updateView`). B454: a newer page loads itself when the page is idle; a short note says so after. */
 function drawUpdate(state) {
   const note = $('update-note')
-  const shown = updateView(state.version, PAGE, { isStarting: sending.has('board-anew'), problem: problems.get('board-anew') ?? null })
+  const lastAt = Number(sessionStorage.getItem('page-updated-at') ?? 0)
+  if (reloadsNow(state.version, PAGE, { isIdle: isPageIdle(), lastAt, now: Date.now() })) {
+    sessionStorage.setItem('page-updated-at', String(Date.now()))
+    location.reload()
+    return
+  }
+  const shown = updateView(state.version, PAGE, { isStarting: sending.has('board-anew'), problem: problems.get('board-anew') ?? null }) ?? updatedView(lastAt, Date.now())
   note.hidden = shown === null
   if (shown === null) return
   note.className = `update-note is-${shown.tone}`
@@ -1557,9 +1589,10 @@ function alertsOf(lane, state) {
   // The step "Now:" names already is "it".
   const step = waits === null ? null : waits.doing === lane.doingNow ? 'it' : `its step "${waits.doing}"`
   if (lane.isQuiet) alerts.push(step === null ? `no sign of life for ${span(lane.quietMs)}` : `no answer to ${step} for ${span(state.readAt - waits.since)}: it may wait for your approval in its chat`)
-  // B95: no worker works without a time; one that does is a fault to fix.
-  if (lane.isWithoutTime === true) alerts.push('works without a time: its chat has to say how long it expects')
-  if (task !== null && task.firstEstimateMs !== null && task.workedMs > task.firstEstimateMs + MIN) alerts.push(`${span(task.workedMs - task.firstEstimateMs)} over its first estimate`)
+  // B508: one signal per problem. "No time" (B95: no worker works without a time) and "over" already stand in the column
+  // Left (timeOf, leftView), so no line under the task repeats them.
+  const leftSaysOver = lane.eta != null && (lane.eta.isOverdue === true || lane.eta.isOver === true)
+  if (task !== null && task.firstEstimateMs !== null && task.workedMs > task.firstEstimateMs + MIN && !leftSaysOver) alerts.push(`${span(task.workedMs - task.firstEstimateMs)} over its first estimate`)
   if (lane.state === 'working' && task !== null && task.estimateAt !== null && state.readAt - task.estimateAt > state.estimateOldMs) {
     alerts.push(`estimate ${span(state.readAt - task.estimateAt)} old`)
   }
@@ -4356,12 +4389,17 @@ function splitAsk(words) {
 // asklinks:start
 /** A page of the project: a path with /, a text or picture ending, standing on its own (not inside an address). */
 const ASK_PAGE = /(?<=^|[\s(["'`])((?:[\w@+-][\w@+.-]*\/)+[\w@+-][\w@+.-]*\.(?:md|txt|json|csv|png|jpe?g|webp|gif))(?![\w/]|\.\w)/gi
-/** A Q or B id standing on its own: not part of a word, a path, a file name or an address. */
-const ASK_ID = /(?<![\w/.:#=-])([QB]\d+)(?![\w/-]|\.\w)/g
+/** A G, Q or B id standing on its own: not part of a word, a path, a file name or an address. */
+const ASK_ID = /(?<![\w/.:#=-])([GQB]\d+)(?![\w/-]|\.\w)/g
+/** B507: a tab by the words the board shows on it, and the part of the Focus tab named after it ("the Focus tab, then Goals"). */
+const ASK_TAB = /(?<![\w-])(Vision|Focus|Backlog|Design|Spending) tab(?:,? then (Focus|Goals|Brainstorm)(?![\w-]))?/g
+const ASK_TAB_ADDRESS = { Vision: '#vision', Focus: '#advice/focus', Backlog: '#backlog', Design: '#design', Spending: '#spending' }
 
 /**
- * An ask's words in pieces: words, `{ ask }` (a Q id `known.isAsk` knows), `{ step }` (a B id `known.isStep` knows)
- * and `{ path, isPicture }` (a page of the project); an id the board does not know stays words.
+ * An ask's words in pieces: words, `{ ask }` (a Q id `known.isAsk` knows), `{ step }` (a B id `known.isStep` knows),
+ * `{ path, isPicture }` (a page of the project) and `{ place, words, label }` (B507: a goal `known.isGoal` knows, or a
+ * tab with the part named after it: the address on this board and the words that name it); an id the board does not
+ * know stays words.
  */
 function askLinkPieces(text, known) {
   const pieces = []
@@ -4375,7 +4413,9 @@ function askLinkPieces(text, known) {
     let from = 0
     for (const found of words.matchAll(ASK_ID)) {
       const id = found[1]
-      const piece = id[0] === 'Q' ? (known.isAsk(id) ? { ask: id } : null) : known.isStep(id) ? { step: id } : null
+      const piece = id[0] === 'G'
+        ? (known.isGoal?.(id) === true ? { place: `#advice/goals/${id}`, words: id, label: `Open ${id} on Goals` } : null)
+        : id[0] === 'Q' ? (known.isAsk(id) ? { ask: id } : null) : known.isStep(id) ? { step: id } : null
       if (piece === null) continue
       say(words.slice(from, found.index))
       pieces.push(piece)
@@ -4383,14 +4423,25 @@ function askLinkPieces(text, known) {
     }
     say(words.slice(from))
   }
+  // The tabs, and the part named after one, in words that are no page.
+  const tabs = words => {
+    let from = 0
+    for (const found of words.matchAll(ASK_TAB)) {
+      ids(words.slice(from, found.index))
+      const place = found[2] === undefined ? ASK_TAB_ADDRESS[found[1]] : `#advice/${found[2].toLowerCase()}`
+      pieces.push({ place, words: found[0], label: `Open the ${found[0]}` })
+      from = found.index + found[0].length
+    }
+    ids(words.slice(from))
+  }
   const all = String(text ?? '')
   let from = 0
   for (const found of all.matchAll(ASK_PAGE)) {
-    ids(all.slice(from, found.index))
+    tabs(all.slice(from, found.index))
     pieces.push({ path: found[1], isPicture: /\.(?:png|jpe?g|webp|gif)$/i.test(found[1]) })
     from = found.index + found[1].length
   }
-  ids(all.slice(from))
+  tabs(all.slice(from))
   return pieces
 }
 
@@ -5843,12 +5894,14 @@ function openFromAddress(state) {
   }
   if (!location.hash.startsWith('#details=') || detailsOf !== null) return
   const code = decodeURIComponent(location.hash.slice('#details='.length))
-  const need = everyNeed(state).find(one => one.step === code || one.id === code)
+  const need = everyNeed(state).find(one => one.step === code || one.id === code || one.workId === code)
   if (need !== undefined) return openDetails({ need: need.id })
   for (const lane of state.chats) {
     const place = lane.queue.findIndex(step => step.id === code)
     if (place >= 0) return openDetails({ lane: lane.name, place, id: code })
   }
+  // B507: a step in no worker's queue opens as the step it is.
+  if ((state.backlog ?? []).flatMap(activity => activity.steps).some(step => step.key === code)) openDetails({ step: code })
 }
 
 // Pictures, large: a window of its own, so it also opens over the details
@@ -6299,7 +6352,7 @@ function goalZoomOut(goals, focusId) {
 /** The tab an address names, for the first look and the browser's back and forward; null for a link to something else. */
 function tabOfAddress(hash) {
   if (hash === '' || hash === '#') return 'overview'
-  if (hash === '#advice' || goalFocusOf(hash) !== undefined) return 'advice'
+  if (hash === '#advice' || /^#advice\/[a-z]+$/.test(hash) || goalFocusOf(hash) !== undefined) return 'advice'
   if (hash === '#backlog' || hash === '#coordinate') return 'coordinate'
   if (hash === '#design') return 'design'
   if (hash === '#vision') return 'vision'
@@ -8904,13 +8957,22 @@ document.addEventListener('keydown', event => {
   zoomGoal(board?.goals ? goalZoomOut(board.goals, goalsFocus) : null)
 })
 // The browser's back and forward walk the zoom, and the tabs a goal was left for.
-window.addEventListener('popstate', () => {
-  const focus = goalFocusOf(location.hash)
+/** The Focus-tab part an address names (`#advice/brainstorm`); undefined when it names none (the map has its own, `goalFocusOf`). */
+function advicePaneOf(hash) {
+  const found = /^#advice\/([a-z]+)$/.exec(hash)
+  return found !== null && found[1] !== 'goals' && ADVISOR_PANES.includes(found[1]) ? found[1] : undefined
+}
+
+/** Shows what an address names: a goal on the map, a part of the Focus tab, or a tab. */
+function followAddress(hash) {
+  const focus = goalFocusOf(hash)
   if (focus === undefined) {
-    const tab = tabOfAddress(location.hash)
+    const tab = tabOfAddress(hash)
     if (tab === null) return
     show(tab)
-    if (tab === 'advice' && $('view-advice').dataset.pane === 'goals') showAdvisorPane(advisorFirstPart(board?.advisorParts))
+    const pane = advicePaneOf(hash)
+    if (tab === 'advice' && pane !== undefined) showAdvisorPane(pane)
+    else if (tab === 'advice' && $('view-advice').dataset.pane === 'goals') showAdvisorPane(advisorFirstPart(board?.advisorParts))
     return
   }
   goalsFocus = focus
@@ -8919,7 +8981,15 @@ window.addEventListener('popstate', () => {
   show('advice')
   showAdvisorPane('goals')
   redrawGoals()
-})
+}
+window.addEventListener('popstate', () => followAddress(location.hash))
+
+/** B507: a link in an ask's words to a place on this board: closes the popup and goes there; Back returns. */
+function goToPlace(hash) {
+  if ($('details').open) closeDetails()
+  history.pushState(null, '', hash)
+  followAddress(hash)
+}
 
 // B195: the Advisor's tab in parts: the way to the next milestone first, then the game plan, the suggestions and
 // the chat. The person, 2026-10-14: the details go to "different tabs and the main tab only shows some visual
@@ -8982,9 +9052,9 @@ function focusGuardView(focus) {
   const guard = focus?.guard ?? null
   if (guard === null) return null
   if (guard.state === 'rebuild') return { tone: 'rebuild', title: 'A rebuild waits for you', text: `Your partner's evaluation proposes a new how for ${focus.id}${guard.ask === null ? '' : ` (${guard.ask})`}: answer it under Needs your attention. Nothing is rebuilt before your yes.` }
-  if (guard.state === 'evaluating') return { tone: 'evaluating', title: 'Your partner evaluates the approach', text: `${guard.attempts} checks failed since Go: on high effort your partner asks whether the how is right and what caps the result, then corrects the how or proposes a rebuild.` }
+  if (guard.state === 'evaluating') return { tone: 'evaluating', title: 'Your partner evaluates the approach', text: `${guard.attempts} checks failed: on high effort your partner asks whether the how is right and what caps the result, then corrects the how or proposes a rebuild.` }
   if (guard.attempts === 0) return null
-  return { tone: 'counting', title: `Checks failed: ${guard.attempts} of ${guard.of} attempts`, text: `At ${guard.of} failed checks since Go your partner, on high effort, evaluates whether the approach is right.` }
+  return { tone: 'counting', title: `Checks failed: ${guard.attempts} of ${guard.of} attempts`, text: `At ${guard.of} failed checks (or your no to a look) your partner, on high effort, evaluates whether the approach is right.` }
 }
 
 /** B354: whether a goal (or the focus) has a Done when line with words in it. */
@@ -9508,7 +9578,7 @@ $('advisor-tabs').addEventListener('click', event => {
   // B255: a link to the map (#advice/goals/G12) opens it at that goal.
   const linked = goalFocusOf(location.hash)
   if (linked !== undefined) goalsFocus = linked
-  showAdvisorPane(linked === undefined ? saved : 'goals')
+  showAdvisorPane(linked !== undefined ? 'goals' : advicePaneOf(location.hash) ?? saved)
   advisorStartPane = $('view-advice').dataset.pane
 }
 
@@ -11631,12 +11701,17 @@ document.addEventListener('click', event => {
 function linkedWords(text, state) {
   const needs = state === null ? [] : everyNeed(state)
   const steps = new Set((state?.backlog ?? []).flatMap(activity => activity.steps).map(step => step.key))
-  const known = { isAsk: id => needs.some(one => one.workId === id), isStep: id => steps.has(id) }
+  const goals = new Set((state?.goals?.nodes ?? []).map(node => node.id))
+  const known = { isAsk: id => needs.some(one => one.workId === id), isStep: id => steps.has(id), isGoal: id => goals.has(id) }
   return askLinkPieces(text, known).map(piece => {
     if (typeof piece === 'string') return piece
-    const link = el('button', 'ask-link', piece.ask ?? piece.step ?? piece.path)
+    const link = el('button', 'ask-link', piece.place === undefined ? piece.ask ?? piece.step ?? piece.path : piece.words)
     link.type = 'button'
-    if (piece.path !== undefined) {
+    if (piece.place !== undefined) {
+      // B507: a place on this board (a goal, a tab, a part of the Focus tab): a click goes there and closes the popup.
+      link.dataset.place = piece.place
+      link.title = piece.label
+    } else if (piece.path !== undefined) {
       // A page of the game's folder, else of the project's: read-only in a window, a picture in the picture popup
       // (B426: wherever it stands in the project, not only in the picture folders).
       link.dataset.gameFile = piece.path
@@ -11689,6 +11764,11 @@ document.addEventListener('click', event => {
   if (page !== null) {
     event.stopPropagation()
     return openGameFile(page.dataset.gameFile, page.dataset.projectFile ?? null)
+  }
+  const place = event.target.closest('[data-place]')
+  if (place !== null) {
+    event.stopPropagation()
+    return goToPlace(place.dataset.place)
   }
   const link = event.target.closest('[data-ask-link]')
   if (link === null || board === null) return

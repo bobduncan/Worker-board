@@ -18,6 +18,7 @@ import { lineFields } from './line.mjs'
 import { REFINED_MARK, migrateBacklog, stamp } from './migrate.mjs'
 import { storeFault, touchesLines } from './read.mjs'
 import { acceptRefine, answerRefine } from './refineText.mjs'
+import { placesIn } from '../places.mjs'
 import { DECIDED, GOAL_ID, NEEDS, UNDONE, decidedOf, isDailyNote, needsOf, undoneOf } from './dailyNote.mjs'
 import { HOW_MARK, openAsksOf as openAsksUnder, refineAsksOf as asksCounted } from './stepAsks.mjs'
 import { answerReading, checkedOf, fixesOf, fixesThrough, fixTitle, needsResultCheck, parsePoints, resultCheckAtMs, resultCheckOf } from './resultCheck.mjs'
@@ -531,13 +532,19 @@ const playWhere = play => {
   return settings.length > 0 ? settings.join(', ').replaceAll('=', ' ') : branch
 }
 
+/** B507: which goals, steps and asks the board holds, for the places a title names (the ask's own id is no place). */
+function placesKnown(w, own) {
+  const holds = (id, kind) => id !== own && w.store.items.has(id) && kindOf(w.store.items.get(id)) === kind
+  return { isGoal: id => w.hasGoal?.(id) === true, isStep: id => holds(id, 'step'), isAsk: id => holds(id, 'ask') }
+}
+
 /**
  * The "For you" block an ask puts in the chat's answer, so chat and board say the same. B299: in the project's form:
  * one numbered item, "**Answer:**" (decide, look) or "**Do:**" (provide, do), the options with the advice ("A or B; I
  * advise B"), the ask's id, kind and step, and under it one link per picture and per play, opening the board
- * (`<boardUrl>/#picture=<path>`, `<boardUrl>/#play=<branch>&<settings>`); without the board's address, the plain path.
+ * (`<boardUrl>/#picture=<path>`, `<boardUrl>/#play=<branch>&<settings>`), then one per place the title names (B507, `places`); without the board's address, the plain path.
  */
-export function forYouBlock({ id, of = null, kind, blocking = false, title, options = [], advice = '', pictures = [], play = '' }, boardUrl = '') {
+export function forYouBlock({ id, of = null, kind, blocking = false, title, options = [], advice = '', pictures = [], play = '', places = [] }, boardUrl = '') {
   const verb = ['provide', 'do'].includes(kind) ? 'Do' : 'Answer'
   const choice = options.length === 0 ? (advice === '' ? '' : ` I advise ${advice}.`) : ` ${options.join(' or ')}${advice === '' ? '' : `; I advise ${advice}`}`
   const where = of === null ? `${id}, ${kind}` : `${id}, ${kind}${blocking ? ', blocks ' : ' on '}${of}`
@@ -545,6 +552,8 @@ export function forYouBlock({ id, of = null, kind, blocking = false, title, opti
   const extra = [
     ...pictures.map(path => `>    ${link('See the picture', pictureName(path), `picture=${path}`, path)}`),
     ...(play === '' ? [] : [`>    ${link('Play it', playWhere(play), `play=${play}`, play)}`]),
+    // B507: a place on the board the title names opens there: a goal, a step, an ask, a tab.
+    ...places.map(place => `>    ${boardUrl === '' ? place.label : `[${place.label}](${boardUrl}/${place.hash})`}`),
   ]
   return ['> **For you**', `> 1. **${verb}:** ${title}${choice} (${where})`, ...extra].join('\n')
 }
@@ -632,7 +641,7 @@ async function ask(body, w) {
   const stepId = isAlone ? null : valueOf(of.item, 'Id')
   const block = route === 'partner'
     ? `${id} goes to your partner first: it answers it for the person (normally with your advice) or hands it to them. Nothing is for the person now, so do not ask it in your answer: the answer comes to this chat as the person's would.`
-    : forYouBlock({ id, of: stepId ?? goal, kind, blocking, title, options, advice, pictures, play }, w.boardUrl ?? '')
+    : forYouBlock({ id, of: stepId ?? goal, kind, blocking, title, options, advice, pictures, play, places: placesIn([title, ...options, advice].join(' '), placesKnown(w, id)) }, w.boardUrl ?? '')
   const routed = route === null ? {} : { route }
   if (isAlone) return changed(question, block, routed)
   let item = said(underStep(of.item, [`Asked ${id} (${kind}${blocking ? ', blocking' : ''}): ${title}`]), w, `asked ${id}`)
