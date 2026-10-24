@@ -22,6 +22,17 @@ export const shownChats = state => [
  * is served only when the board shows that very session under that name: of two chats with one title, or an old
  * and a new one, only the one on the board takes. `state` is the board's state.
  */
+/**
+ * B566 (X22: Workers 1, 2 and 4 shown "its chat does not run" while they ran: the board knew a chat runs only by its
+ * takes, 30 seconds apart at most): every accepted call of a chat to the bridge (a take, a work call, a typed report)
+ * says its process runs. `seen` is the server's record (`shown`: by the name the board shows; null without a bridge).
+ */
+export function noteCall(seen, body, checked, now) {
+  if (seen === null || seen === undefined || checked?.ok !== true) return
+  const name = typeof checked.chat === 'string' ? checked.chat : typeof body?.chat === 'string' ? body.chat.trim().slice(0, 80) : null
+  if (name !== null && name !== '') seen.shown[name] = now
+}
+
 export function checkTake(body, state) {
   if (body === null || typeof body !== 'object' || Array.isArray(body)) return refuse(400, 'Not a request.')
   const chat = typeof body.chat === 'string' ? body.chat.trim() : ''

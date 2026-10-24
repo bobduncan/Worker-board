@@ -38,8 +38,8 @@ const check = (id, board, seen = new Map()) => {
   return Object.defineProperty(found, 'observed', { value: observed, enumerable: false })
 }
 
-test('the watch rules: thirteen, report only, each with what it says', () => {
-  assert.deepEqual(WATCH_RULES.map(one => one.id), ['unknown-lane', 'stale-suspended', 'idle-while-waiting', 'holder-not-running', 'opus-wait', 'skip-repeats', 'repair-repeats', 'undelivered', 'report-check-twice', 'old-mod', 'odd-effort', 'review-stuck', 'not-cleared'])
+test('the watch rules: fourteen, report only, each with what it says', () => {
+  assert.deepEqual(WATCH_RULES.map(one => one.id), ['unknown-lane', 'stale-suspended', 'idle-while-waiting', 'holder-not-running', 'working-not-running', 'opus-wait', 'skip-repeats', 'repair-repeats', 'undelivered', 'report-check-twice', 'old-mod', 'odd-effort', 'review-stuck', 'not-cleared'])
   assert.ok(WATCH_RULES.every(one => one.kind === 'watch' && typeof one.says === 'string' && one.says.length > 0 && typeof one.check === 'function'))
 })
 

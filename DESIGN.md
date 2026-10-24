@@ -906,7 +906,11 @@ choices: the mod starts the board, the workers carry on on their click, no compa
   not running for the restart banner and for `resume`, and after the grace time its step gets the `stuck` flag with
   **Start <chat>**. A chat whose process is known not to run gets no "may wait for you" hint (`idle hold`): its lane
   says it, and the two never disagree. Once its transcript moves after the app's start, or its process asks the
-  board, it is read as before.
+  board, it is read as before. B566 (X22: three working chats shown "its chat does not run" while they ran, as their
+  takes came more than 30 s apart): a chat runs (`runningOf`) when its mod made any accepted call of the bridge in the
+  last 30 s (a take, a work call, a typed report: `noteCall` in `src/bridge.mjs`), or its conversation was written in
+  the last minute after the app's start; the takes alone no longer decide. The watch rule `working-not-running` names a
+  worker whose card says it works while its chat made no call, took nothing and wrote nothing for over 5 minutes.
 - *One board delivers.* Of two boards on one project the one that records is the one that delivers; a board
   started with `--history-from` only shows, refuses an answer and says where to give it. A board that starts
   takes the delivery over when the file names a board that no longer takes its key.
