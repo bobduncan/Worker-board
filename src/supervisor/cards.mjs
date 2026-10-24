@@ -5,32 +5,14 @@
 // board's chats and what became of each incident's word to the partner go in; the cards come out, each with the state
 // the person reads in its small chip. The page draws them (public/board.js, supervisorOf).
 
+import { boardPlacementOf, incidentsNamedBy, isIncidentFix } from '../work/incidentFix.mjs'
 import { sinceMs, valueOf } from '../work/item.mjs'
 
 const numeric = (a, b) => String(a).localeCompare(String(b), 'en', { numeric: true })
 /** A History line's stamp: "- 2026-10-24 18:38 Worker 5: ...". */
 const STAMP = /^-\s+(\d{4}-\d{2}-\d{2} \d{2}:\d{2}(?::\d{2})?)\s/
-/** "Fix of X4: ...", "Fix of X4, X5", "Fix of X4-X6": the incidents a fix step's title names. */
-const FIX_OF = /^Fix of\s+((?:X\d+(?:\s*[-–—]\s*X?\d+)?(?:\s*(?:,|&|\+|\band\b)\s*)?)+)/
-/** A range in a title reaches at most this far, so a stray "X1-X99999" cannot fill the section. */
-const RANGE_MOST = 50
-
-/**
- * The incidents a step's title names as the ones it fixes: "Fix of X4: ..." gives X4; a list ("X4, X5") or a range
- * ("X4-X6") gives each. Empty for a title that says nothing of the kind.
- */
-export function incidentsNamedBy(title) {
-  const found = String(title ?? '').match(FIX_OF)
-  if (found === null) return []
-  const ids = []
-  for (const part of found[1].matchAll(/X(\d+)(?:\s*[-–—]\s*X?(\d+))?/g)) {
-    const from = Number(part[1])
-    const to = part[2] === undefined ? from : Number(part[2])
-    if (to > from && to - from < RANGE_MOST) for (let n = from; n <= to; n += 1) ids.push(`X${n}`)
-    else ids.push(`X${from}`)
-  }
-  return ids
-}
+// "Fix of X4: ...": the incidents a fix step's title names (incidentFix.mjs, where the board's own queue of a fix reads it too).
+export { incidentsNamedBy }
 
 /** When a step last moved: its newest History line, else its Since; NaN when nothing says. */
 function activityOf(item) {
@@ -71,15 +53,20 @@ function afterWords(step, steps) {
 /**
  * The state of a fix step in the words of its chip, from the step's record and its worker's lane: `{ text, tone }`, tone
  * wait (nobody has it yet), busy (its worker builds), idle (its worker has it and is not at work), review, done, dropped.
+ * Incident fixes (2026-10-24): with `boardQueues` (the flow lets the board queue a ready incident fix, incidentFix.mjs) a
+ * refined one the board will queue says so, and one it queued says "queued by the board for <worker>". `items` the
+ * store's items, for the incidents it fixes (`steps` when left out).
  */
-export function stepState(step, { lanes = [], steps = new Map() } = {}) {
+export function stepState(step, { lanes = [], steps = new Map(), items = steps, boardQueues = false } = {}) {
   const state = valueOf(step, 'State')
   const id = valueOf(step, 'Id')
   const owner = valueOf(step, 'Owner') ?? lanes.find(one => one.task?.stepId === id)?.name ?? null
+  const placed = boardPlacementOf(step)
+  const byBoard = placed !== null && owner !== null && placed.chat.toLowerCase() === owner.toLowerCase()
   switch (state) {
     case 'new': return { text: 'new · waits for the Advisor', tone: 'wait' }
-    case 'refined': return { text: 'refined · waits for Main', tone: 'wait' }
-    case 'queued': return { text: `${owner === null ? 'queued' : `queued for ${owner}`}${afterWords(step, steps)}`, tone: 'wait' }
+    case 'refined': return { text: boardQueues && isIncidentFix(step, items) ? 'refined · the board queues it' : 'refined · waits for Main', tone: 'wait' }
+    case 'queued': return { text: `${owner === null ? 'queued' : `queued ${byBoard ? 'by the board ' : ''}for ${owner}`}${afterWords(step, steps)}`, tone: 'wait' }
     case 'taken':
     case 'in progress': {
       const word = laneWord(state, lanes.find(one => one.name === owner && one.isLeftover !== true))
@@ -133,9 +120,10 @@ function fixStepOf(incident, named, steps) {
  * store's items (a Map; null when it could not be read); `lanes` the board's chats; `words` a Map of an incident's id to
  * what became of its word to the partner; `hasPartner` whether the board has an Advisor to send to. Each card:
  * `{ key, step, title, state: { text, tone }, incidents: [{ id, word }], at }`; `word` is the incident's own state, said
- * for the card without a fix step (the others carry null).
+ * for the card without a fix step (the others carry null). `boardQueues`: the flow lets the board queue a ready incident
+ * fix itself (incidentFix.mjs `flowQueuesFixes`), so a refined fix step's chip says the board queues it.
  */
-export function incidentCards({ incidents = [], items = null, lanes = [], words = new Map(), hasPartner = true } = {}) {
+export function incidentCards({ incidents = [], items = null, lanes = [], words = new Map(), hasPartner = true, boardQueues = false } = {}) {
   const steps = items instanceof Map ? items : new Map()
   const stepsOnly = new Map([...steps].filter(([, item]) => valueOf(item, 'Kind') === 'step'))
   const named = new Map()
@@ -152,7 +140,7 @@ export function incidentCards({ incidents = [], items = null, lanes = [], words 
   const latest = list => Math.max(...list.map(one => (Number.isFinite(one.since) ? one.since : -Infinity)))
   const cards = [...groups].map(([id, list]) => {
     const step = stepsOnly.get(id)
-    const state = step !== undefined ? stepState(step, { lanes, steps: stepsOnly })
+    const state = step !== undefined ? stepState(step, { lanes, steps: stepsOnly, items: steps, boardQueues })
       : { text: items instanceof Map ? 'step not in the store' : 'step not read yet', tone: 'idle' }
     const at = Math.max(step === undefined ? -Infinity : activityOf(step) || -Infinity, latest(list))
     return { key: id, step: id, title: step === undefined ? null : valueOf(step, 'Title'), state, incidents: list.map(one => ({ id: one.id, word: null })), at: Number.isFinite(at) ? at : 0 }
