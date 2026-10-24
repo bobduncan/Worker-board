@@ -169,3 +169,8 @@ test('Task 4: the person\'s line is a note of the board\'s, Via supervisor; a ch
   const chat = await s.chat('Lead', { action: 'note', to: 'you', text: ['looks like one'], via: 'supervisor' })
   assert.equal(head(await s.item(chat.result.id), 'Via'), undefined)
 })
+
+test('the board\'s reconcile marks fixed incidents, only while the supervisor\'s view holds one being fixed (each work call reads the whole store)', async () => {
+  const server = await readFile(new URL('../../server.mjs', import.meta.url), 'utf8')
+  assert.match(server, /if \(supervisor !== null && supervisor\.view\(clock\(\)\)\.incidents\.some\(one => one\.state === 'fix'\)\) \{\n\s+await loops\.run\('incidents-fixed', async \(\) => \{\n\s+const fixed = await workAction\(\{ action: 'incidents-fixed' \}, 'server'\)/)
+})

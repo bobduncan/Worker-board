@@ -1729,10 +1729,13 @@ async function main(args) {
           if (!approved.ok) throw new Error(approved.why ?? 'approve-recaps was refused')
         })
         // The supervisor (spec 2026-10-24): an incident whose fix step is done is fixed; one whose fix was dropped, open again.
-        await loops.run('incidents-fixed', async () => {
-          const fixed = await workAction({ action: 'incidents-fixed' }, 'server')
-          if (!fixed.ok) throw new Error(fixed.why ?? 'incidents-fixed was refused')
-        })
+        // Only while the supervisor's view holds one being fixed: each work call reads the whole store.
+        if (supervisor !== null && supervisor.view(clock()).incidents.some(one => one.state === 'fix')) {
+          await loops.run('incidents-fixed', async () => {
+            const fixed = await workAction({ action: 'incidents-fixed' }, 'server')
+            if (!fixed.ok) throw new Error(fixed.why ?? 'incidents-fixed was refused')
+          })
+        }
         const done = await deliverWork({
           state, dir: workDir, outbox: store, apply: body => workAction(body, 'server'), now: clock(), maxChars: config.maxMessageChars,
           newId: () => randomBytes(8).toString('hex'), keep,
