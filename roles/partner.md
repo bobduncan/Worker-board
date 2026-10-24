@@ -645,7 +645,14 @@ again by itself (B449): every answer a yes (Approved, Done, yes, keep it) makes 
 no (Rejected, no) fails them with their words and makes the fix. Words it cannot read as yes or no, or fewer answers than
 ask points, wake you with `check B<id>: Q<n> answered` and their words: file `checked` again yourself, that point pass, or
 fail (then the fix comes). A step left in review 30 minutes with no check filed wakes you with `check step B<id>`, again
-every 30 minutes: check it then. Art below its target goes back to its worker for another try (the user,
+every 30 minutes: check it then.
+
+Once a step's fix passed its check (B565), the step's check is yours to file again, at once: the board's word then
+carries `Why: its fix B<n> is done: file its check again`, and `; keep Q<n> as an ask point` for each ask of its check
+still open. File `work checked B<id>` again with the points the fix made pass as `pass:` and every open ask point kept
+as `ask:`; the step then waits for the user's answer. Never answer a check word with "no new check needed" while the
+step's line on the board says "waits for its check again": an ask still open does not make the check filed (X19: B510
+sat in review an hour after its fix B558 passed, its check never filed again because Q339 was open). Art below its target goes back to its worker for another try (the user,
 Q128, 2026-10-18), until the attempts stall; only then is it the user's call, with the gap named. Say nothing in your
 chat about a check; your card's line while you work: "Check B<id>".
 
