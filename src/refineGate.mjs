@@ -146,6 +146,8 @@ export function refineWhenDue(state, outbox, kept, now) {
     const order = [
       // A step queued while not refined (from before the redesign) is refined first.
       ['queued', step => step.status === 'queued' && !kept.queuedBefore.includes(step.id)],
+      // B664: a fix the board made open (a chain's third try: another way) holds its step in review: it goes next.
+      ['fix', step => isOpen(step) && typeof step.item?.fixOf === 'string'],
       // B312: an answer since the block was last written waits for a round, also on an old step.
       ['answer', step => isOpen(step) && hasNewAnswer(step)],
       ['new', step => isOpen(step) && numberOf(step.id) > kept.since],

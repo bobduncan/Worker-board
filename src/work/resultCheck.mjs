@@ -143,6 +143,42 @@ export function openFixChain(id, items) {
   return chain
 }
 
+/** B664: the first step of the chain of fixes the step `id` is in: its `Fix of` followed up (a loop ends it). */
+export function chainRootOf(id, items) {
+  const seen = new Set()
+  let at = id
+  for (let up = valueOf(items?.get(at), 'Fix of'); up !== null && items?.has(up) && !seen.has(up); up = valueOf(items.get(at), 'Fix of')) {
+    seen.add(at)
+    at = up
+  }
+  return at
+}
+
+/**
+ * B664 (X8 a third time: map steps patched four and five times the same way, 46 to 71 of 75): the tries of the chain the
+ * step `id` is in, ids in order: its first step and every fix under it, a fix of a fix too; a dropped fix (and what
+ * hangs under it) was no try.
+ */
+export function chainTries(id, items) {
+  const root = chainRootOf(id, items)
+  const tries = [root]
+  for (let at = 0; at < tries.length && tries.length < 50; at += 1) {
+    for (const fix of fixesOf(tries[at], items).filter(one => valueOf(one, 'State') !== 'dropped')) {
+      if (!tries.includes(valueOf(fix, 'Id'))) tries.push(valueOf(fix, 'Id'))
+    }
+  }
+  return tries.sort((a, b) => Number(a.slice(1)) - Number(b.slice(1)))
+}
+
+/** B664: a chain that had this many tries gets no patch of the same way: its next fix waits for the partner's other way. */
+export const TRIES_BEFORE_ANOTHER_WAY = 2
+/** B664: the line an open fix of a long chain carries, and the line the partner's other way starts its what with. */
+export const ANOTHER_WAY = 'Two rounds, then another way: the partner refines it another way'
+const TRIED_BEFORE = /\bTried before:/i
+
+/** B664: whether a step's what (its What we build, or its refine block) names the ways tried before ("Tried before: ..."). */
+export const hasTriedBefore = item => ['What we build', 'Refined'].some(name => (item?.sections?.get(name) ?? []).some(one => TRIED_BEFORE.test(one)))
+
 /** B656: the ready list's held steps (handOut.mjs `readyList`'s `held`, `[{ id, why }]`, or a Map of id to why) as a Map. */
 const heldMapOf = held => (held instanceof Map ? held : new Map((Array.isArray(held) ? held : []).map(one => [one.id, one.why])))
 /** B656: a held why in a few words: the person's choice outside the focus goal without its how ("waits until you add it ..."). */

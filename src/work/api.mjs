@@ -22,7 +22,7 @@ import { acceptRefine, answerRefine } from './refineText.mjs'
 import { placesIn } from '../places.mjs'
 import { DECIDED, GOAL_ID, NEEDS, UNDONE, decidedOf, isDailyNote, needsOf, undoneOf } from './dailyNote.mjs'
 import { HOW_MARK, openAsksOf as openAsksUnder, refineAsksOf as asksCounted } from './stepAsks.mjs'
-import { agreedPoints, answerReading, checkedOf, checkWhy, fixesOf, fixesThrough, fixTitle, needsResultCheck, parentPointsOf, parsePoints, resultCheckAtMs, resultCheckOf, reviewWaitOf } from './resultCheck.mjs'
+import { ANOTHER_WAY, TRIES_BEFORE_ANOTHER_WAY, agreedPoints, answerReading, chainTries, checkedOf, checkWhy, fixesOf, fixesThrough, fixTitle, needsResultCheck, parentPointsOf, parsePoints, resultCheckAtMs, resultCheckOf, reviewWaitOf } from './resultCheck.mjs'
 import { RECAP_ANSWERS, dueRecaps, isRecap, recapMadeSince } from './recap.mjs'
 import { goalParts, recapParts } from './recapWords.mjs'
 import { kindsNamed, noneForLook, parseStandard, standardNoneRefused, standardOf, standardWanted } from './standard.mjs'
@@ -1531,7 +1531,8 @@ async function goalCheck(body, w) {
 async function undoFix(id, w) {
   // The second review: only while nobody took it up yet (redesign Part 2: the fix is made refined, for the ready list).
   const made = await load(id, w, { kind: ['step'] })
-  if (!made.ok || stateOf(made.item) !== 'refined') return null
+  // B664: or new, an open fix of a long chain.
+  if (!made.ok || !['refined', 'new'].includes(stateOf(made.item))) return null
   const removed = await removeItem(w.dir, id, w.fs)
   if (!removed.ok) return removed.why
   let why = 'activities.json could not be written'
@@ -1564,13 +1565,19 @@ async function fixStep(origin, failed, w, points = failed) {
   // B526: under each failed point, the agreed point of the step it fixes that it must make pass, so its check ticks
   // the intent, not only the words of the fail.
   const passes = parentPointsOf(origin, points, failed, w.store.items)
-  const what = failed.flatMap((one, place) => [`- ${one.text}`, ...(passes[place] === null ? [] : [`- Makes pass: ${passes[place]}`])])
+  // B664 (X8 a third time: chains of four and five patches of the same way): a chain that had two tries already gets
+  // its next fix open, not refined, so no worker takes a third patch of the same way: the board's refine word brings it
+  // to the partner, who refines it another way ("Tried before: ..."), roles/partner.md "Two rounds, then another way".
+  const tries = chainTries(originId, w.store.items)
+  const anotherWay = tries.length >= TRIES_BEFORE_ANOTHER_WAY
+  const what = [...(anotherWay ? [`- ${ANOTHER_WAY} (tried: ${tries.join(', ')})`] : []),
+    ...failed.flatMap((one, place) => [`- ${one.text}`, ...(passes[place] === null ? [] : [`- Makes pass: ${passes[place]}`])])]
   const named = passes.filter(one => one !== null)
   const summary = (named.length === 0
     ? `Fix what the result check of ${originId} found: ${failed.map(one => one.text).join('; ')}`
     : `Fix what the result check of ${originId} found, so its agreed ${named.length === 1 ? 'point passes' : 'points pass'}: ${named.join('; ')}. Found: ${failed.map(one => one.text).join('; ')}`).slice(0, 600)
   const block = [
-    `Refined (${stamp(w.now)}; ready; from the result check of ${originId} by ${w.who}):`,
+    `Refined (${stamp(w.now)}; ${anotherWay ? 'open' : 'ready'}; from the result check of ${originId} by ${w.who}):`,
     `Summary: ${summary}`,
     ...(goal === null ? [] : [`Part of: ${goal}`]),
     ...(standard === null ? [] : [`Standard: ${standard}`]),
@@ -1582,8 +1589,8 @@ async function fixStep(origin, failed, w, points = failed) {
   const activitiesText = await readActivitiesText(w.dir, w.fs)
   const id = await nextId(w.dir, 'B', w.fs)
   let item = said(ordered({
-    head: new Map([['Id', id], ['Kind', 'step'], ['Title', fixTitle(failed)], ...(isFix(origin) ? [['Priority', 'fix']] : []), ['State', 'refined'],
-      ...(activity === null ? [] : [['Activity', activity]]), ...(goal === null ? [] : [['Goal', goal]]), ['Since', stamp(w.now)], ['Fix of', originId], ['Refined', 'ready']]),
+    head: new Map([['Id', id], ['Kind', 'step'], ['Title', fixTitle(failed)], ...(isFix(origin) ? [['Priority', 'fix']] : []), ['State', anotherWay ? 'new' : 'refined'],
+      ...(activity === null ? [] : [['Activity', activity]]), ...(goal === null ? [] : [['Goal', goal]]), ['Since', stamp(w.now)], ['Fix of', originId], ['Refined', anotherWay ? 'open' : 'ready']]),
     sections: new Map([
       // B381: the failed points whole, in the Context too.
       ['Context', [`  Fix of ${originId}: the result check by ${w.who} failed on ${failed.length === 1 ? 'one point' : `${failed.length} points`}.`, ...what.map(one => `  ${one}`), REFINED_MARK]],
@@ -1595,7 +1602,7 @@ async function fixStep(origin, failed, w, points = failed) {
       ['Refined', block],
     ]),
     problem: null,
-  }), w, `made by the result check of ${originId}`)
+  }), w, `made by the result check of ${originId}${anotherWay ? `, open: ${tries.length} tries, the partner refines it another way` : ''}`)
   const wrote = await save(item, null, w)
   if (!wrote.ok) return wrote
   const index = w.store.activities.findIndex(one => one.name === activity)
