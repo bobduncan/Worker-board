@@ -78,9 +78,11 @@ export function takenSince(items, chat, at, prefix = '') {
  * than its last clear, with "afterStep": "clear" in the list of chats. `{ step, reportedAt, clearedAt, why }`: the step
  * reported, when, the last clear (null for none), and the Workers mod's last word why it did not clear when that word
  * came after the report (else null). Null when nothing is owed: no clear after steps, no worker, no report, or a clear
- * since.
+ * since. B547 (X48, X49, X61-X64): or its conversation began since (`conversationAt`, its transcript's start): the card's
+ * mark of a clear is written anew every few seconds while the chat works, and a crash of the PC left such cards
+ * unreadable; the mod wrote them anew without the mark, and the board held the next step of a worker cleared before it.
  */
-export function clearOwed({ lane, items, prefix = '', afterStep = null }) {
+export function clearOwed({ lane, items, prefix = '', afterStep = null, conversationAt = null }) {
   if (afterStep !== 'clear' || lane === null || lane === undefined || lane.isMain === true || lane.isLeftover === true) return null
   const report = lastReportOf(items, lane.name, prefix)
   if (report === null) return null
@@ -88,6 +90,8 @@ export function clearOwed({ lane, items, prefix = '', afterStep = null }) {
   const cleared = compaction?.lastCleared ?? (compaction?.kind === 'cleared' ? { at: compaction.at, step: compaction.step ?? null } : null)
   const clearedAt = Number.isFinite(cleared?.at) ? cleared.at : null
   if (clearedAt !== null && clearedAt >= report.at) return null
+  // A conversation that began at or after the report (to the minute, as the card's clear) is not that report's.
+  if (Number.isFinite(conversationAt) && conversationAt >= report.at) return null
   const note = compaction?.notCleared ?? null
   const why = note !== null && Number.isFinite(note.at) && note.at >= report.at && typeof note.why === 'string' ? note.why : null
   return { step: report.id, reportedAt: report.at, clearedAt, why }

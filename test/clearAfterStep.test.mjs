@@ -19,7 +19,7 @@ import { movedTo, parsePlanLine } from '../src/planLines.mjs'
 import { readSources } from '../src/sources.mjs'
 import { workApi } from '../src/work/api.mjs'
 import { valueOf } from '../src/work/item.mjs'
-import { migrateBacklog } from '../src/work/migrate.mjs'
+import { migrateBacklog, stamp } from '../src/work/migrate.mjs'
 import { storeKeeper } from '../src/work/read.mjs'
 import { readStore, writeStore } from '../src/work/store.mjs'
 import { buildState } from './withStore.mjs'
@@ -103,6 +103,51 @@ for (const appNames of ['units-old', 'units-new']) {
     // The bridge serves the new session under the chat's name, and the old one no longer.
     assert.deepEqual(checkTake({ chat: 'Units', session: 'units-new' }, state), { ok: true, chat: 'Units' })
     assert.equal(checkTake({ chat: 'Units', session: 'units-old' }, state).status, 409)
+  })
+}
+
+// X61 (2026-10-25, Worker 1: B620 reported 20:19, cleared 20:21, B657 taken 20:29; the PC crashed at 20:38): after the
+// crash its card was written anew without the clear, and the board held its step and filed "took B657 on the
+// conversation of B620". The conversation it is on began with the clear, after the report: nothing is owed.
+for (const began of ['after', 'before']) {
+  test(`a worker whose card lost its clear in a crash owes ${began === 'after' ? 'no clear: its conversation began after its report' : 'one still when its conversation began before its report'}`, async t => {
+    await mkdir(DATA, { recursive: true })
+    const root = await mkdtemp(join(DATA, 'test-crash-'))
+    t.after(() => rm(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }))
+    const put = async (path, text) => {
+      await mkdir(dirname(join(root, path)), { recursive: true })
+      await writeFile(join(root, path), text)
+    }
+    const at = minutes => new Date(NOW - minutes * MIN).toISOString()
+    const chat = (name, cliSessionId) => JSON.stringify({ title: `Game - ${name}`, sessionId: `local_${name}`, cliSessionId, cwd: join(root, 'project'), isArchived: false, createdAt: name.length, lastActivityAt: NOW })
+    await put('project/.claude/chats/list.json', '{"prefix":"Game - ","main":"Main","afterStep":"clear"}')
+    await put('project/.claude/chats/main-id.json', JSON.stringify({ name: 'Main', role: 'main', state: 'waiting', task: null, at: NOW }))
+    await put('project/.claude/chats/units-old.json', JSON.stringify({ movedTo: 'units-new', at: NOW - 8 * MIN }))
+    // The card as the Workers mod wrote it anew after the crash: no clear, no compaction carried over.
+    await put('project/.claude/chats/units-new.json', JSON.stringify({ name: 'Units', role: 'worker', state: 'working', task: { text: 'B13 Draw the shield', step: 1, steps: 2, left: 600_000, isReported: false }, at: NOW, mod: '0.20.0' }))
+    await put('app/a/b/local_main.json', chat('Main', 'main-id'))
+    await put('app/a/b/local_units.json', chat('Units', 'units-new'))
+    await put('transcripts/main-id.jsonl', [typed(NOW - 9 * MIN, 'Status?'), answer(NOW - 8 * MIN, 'All fine.')].join('\n'))
+    // Its transcript: the /clear at its head, the step's line, then the crash's zeros and the turn after the restart.
+    const clearAt = began === 'after' ? 8 : 12
+    await put('transcripts/units-new.jsonl', `${[
+      JSON.stringify({ type: 'custom-title', customTitle: 'Game - Units', sessionId: 'units-new' }),
+      JSON.stringify({ type: 'user', timestamp: at(clearAt), message: { role: 'user', content: '<command-name>/clear</command-name>' } }),
+      typed(NOW - 6 * MIN, 'work: B13 is yours; run work next'),
+    ].join('\n')}\n${'\u0000'.repeat(4096)}${answer(NOW - MIN, 'Back after the restart.')}\n`)
+    const work = join(root, 'project', '.claude', 'work')
+    await writeStore(work, migrateBacklog('## Art\n- [ ] B14 Draw the cape (for Units; about 1 h)\n', { now: NOW }), undefined, { now: NOW })
+    await put('project/.claude/work/B12.md', ['Id: B12', 'Kind: step', 'Title: Draw the knight', 'State: review', 'Owner: Units', 'Activity: Art', `Since: ${stamp(NOW - 10 * MIN)}`, '',
+      '## History', `- ${stamp(NOW - 30 * MIN)} Units: queued → taken`, `- ${stamp(NOW - 10 * MIN)} Units: in progress → review`, ''].join('\n'))
+    await put('project/.claude/work/B13.md', ['Id: B13', 'Kind: step', 'Title: Draw the shield', 'State: in progress', 'Owner: Units', 'Activity: Art', `Since: ${stamp(NOW - 6 * MIN)}`, '',
+      '## History', `- ${stamp(NOW - 7 * MIN)} server: refined → queued (given by the board to Units)`, `- ${stamp(NOW - 6 * MIN)} Units: queued → taken`, `- ${stamp(NOW - 6 * MIN)} Units: taken → in progress`, ''].join('\n'))
+    const config = { ...parseConfig('{}', {}), project: join(root, 'project'), appSessions: join(root, 'app'), transcripts: join(root, 'transcripts') }
+    const raw = await readSources(config, async () => [], NOW, undefined, storeKeeper({ dir: work }))
+    const units = buildState(raw, { now: NOW, config, mods: { Units: '0.20.0' } }).chats.find(one => one.name === 'Units')
+    assert.equal(units.session, 'units-new')
+    assert.equal(units.compaction, null, 'the card holds no clear')
+    if (began === 'after') assert.equal(units.clearOwed, null)
+    else assert.deepEqual(units.clearOwed, { step: 'B12', reportedAt: NOW - 10 * MIN, clearedAt: null, why: null, canClear: true })
   })
 }
 
