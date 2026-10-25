@@ -3860,7 +3860,9 @@ cannot.
 - Retries stop (review of 2026-10-25). A start that did not wake its chat in ten minutes (the guard on `about`) is asked
   again by `wakesDue`, of a running chat that was not asked since the oldest word that waits for the chat (`wakerFor` with
   `since`), and at most `MAX_WAKE_TRIES` (3) start words for one wait, then nothing more: a chat that cannot be started (a
-  stale session id, archived on purpose, wrongly read as off) was asked every ten minutes for days. A wait that ends (the
+  stale session id, archived on purpose, wrongly read as off) was asked every ten minutes for days. The same cap holds
+  when a word is sent (`wakeFor` without `since`: a pinned start sent anew each start window asked Main 37 times in 6 h).
+  A start word closed by the sweep, or one waiting for a chat known not to run, is no try. A wait that ends (the
   words are taken) starts a new count. `state.wakeFailed` (`[{ chat, tries, since }]`, `wakeFailedOf`) carries the chats
   the board asked in vain (the last ask is no longer on its way and nobody is left to ask); the page shows one line each
   under Needs your attention, in the style of the "No chat is running" line ("Nobody could wake <chat> after <n> tries

@@ -530,3 +530,26 @@ test('the page says it for the chats nobody could wake: one line each, in the sa
   assert.match(needs, /drawWakeFailed\(state\.wakeFailed\)/)
   assert.match(script.slice(script.indexOf('function needsView(state, ui)'), script.indexOf('function focusPageView')), /wakeFailed: state\.wakeFailed \?\? \[\]/)
 })
+
+test('(j) retries stop on the send path too: a word sent anew to an off chat asks no fourth chat, and the page says so', () => {
+  // The re-check of the review: the hand-out's pinned start is sent anew each start window, and each send called wakeFor.
+  const state = board({ running: ['Advisor', 'Worker 2', 'Worker 3'] })
+  const first = word('Main', { id: 'w-main-1', at: NOW - 40 * MIN })
+  const asked = [['Advisor', 35], ['Worker 2', 25], ['Worker 3', 15]].map(([to, ago]) => start(to, 'Main', { id: `s-${to}`, at: NOW - ago * MIN, state: 'taken' }))
+  const fresh = word('Main', { id: 'w-main-2', at: NOW })
+  assert.equal(wakeFor(fresh, state, [first, ...asked], NOW, MAX), null, 'three tries: nobody is asked a fourth time')
+  assert.deepEqual(wakeFailedOf(state, [first, ...asked, fresh], NOW).map(one => [one.chat, one.tries]), [['Main', 3]])
+  // Two tries: the one chat not asked in this wait is asked, never one asked before.
+  const two = wakeFor(fresh, state, [first, ...asked.slice(0, 2)], NOW, MAX)
+  assert.deepEqual([two.to, two.about], ['Worker 3', 'Main'])
+})
+
+test('(k) a start word that waits for a main chat that is off is no try: it asks nobody yet', () => {
+  const state = board({ running: ['Advisor'] })
+  const waiting = word('Worker 3', { at: NOW - 30 * MIN, command: 'work' })
+  const handOut = [1, 2, 3].map(n => start('Main', 'Worker 3', { id: `s-main-${n}`, at: NOW - (30 - n * 5) * MIN }))
+  const wake = wakesDue(state, [waiting, ...handOut], NOW, MAX)
+  // Worker 3 is asked for at once, and the main chat too, since words wait for it.
+  assert.deepEqual(wake.map(one => [one.to, one.about]), [['Advisor', 'Worker 3'], ['Advisor', 'Main']])
+  assert.deepEqual(wakeFailedOf(state, [waiting, ...handOut], NOW), [])
+})

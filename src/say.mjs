@@ -711,7 +711,12 @@ export function wakeFor(message, state, outbox, now, maxChars, since = null) {
   if (message.to === main && (state.chats ?? []).find(chat => chat.name === main)?.isRunning !== false) return null
   // Not again within two minutes; and while an earlier word still waits for its waker (or the pause holds it), not for ten.
   if (outbox.some(sent => sent.command === 'start' && sent.about === message.to && (now - sent.at < WAKE_AGAIN_MS || isOnItsWay(sent, state, now)))) return null
-  const waker = wakerFor(state, message.to, outbox, now, since)
+  // The re-check of the review: retries stop for a word that has just been sent too (a pinned start sent anew each start
+  // window asked Main 37 times in 6 h): at most MAX_WAKE_TRIES start words for one wait, each of a chat not asked in it.
+  const pending = outbox.some(one => one.id !== undefined && one.id === message.id) ? outbox : [...outbox, { ...message, state: 'waiting' }]
+  const progress = wakeProgress(state, message.to, pending)
+  if (progress !== null && progress.asks.length >= MAX_WAKE_TRIES) return null
+  const waker = wakerFor(state, message.to, outbox, now, since ?? progress?.since ?? null)
   if (waker === null) return null
   const checked = checkSay({ to: waker, command: 'start', chat: message.to }, state, maxChars)
   return checked.ok ? checked.message : null
@@ -722,14 +727,18 @@ export const MAX_WAKE_TRIES = 3
 
 /**
  * T9.4: how the wake-up of `target` stands, or null when no word waits for it that the board wakes it for: `since`, the
- * oldest of those words, and `asks`, the start words about it since then, whatever became of them (a start word that the
- * main chat was handed for it counts: it asked for the same). A wait that ended (the words were taken) starts a new count.
+ * oldest of those words, and `asks`, the start words about it since then that a chat could carry: taken, delivered or
+ * failed, or waiting for a chat that may run. Not a word the sweep closed, nor one that waits for a chat known not to run
+ * (the hand-out's start handed to a main chat that is off asks nobody yet; re-check of the review). A wait that ended (the
+ * words were taken) starts a new count.
  */
 function wakeProgress(state, target, outbox) {
   const times = outbox.filter(one => one.state === 'waiting' && one.to === target && Number.isFinite(one.at) && isWakeWord(wakeWordOf(one), state)).map(one => one.at)
   if (times.length === 0) return null
   const since = Math.min(...times)
-  return { since, asks: outbox.filter(one => one.command === 'start' && one.about === target && Number.isFinite(one.at) && one.at >= since) }
+  const isOff = name => boardLanes(state).find(chat => chat.name === name)?.isRunning === false
+  const isTry = one => one.state !== 'dropped' && !(one.state === 'waiting' && isOff(one.to))
+  return { since, asks: outbox.filter(one => one.command === 'start' && one.about === target && Number.isFinite(one.at) && one.at >= since && isTry(one)) }
 }
 
 /**
