@@ -1633,7 +1633,8 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
     removal: lane.isLeftover || lane.isMain ? null : removalAsk(sent.findLast(message => message.command === 'remove' && message.about === lane.name), now),
     // B547: the clear it owes (its last report newer than its last clear), and whether its Workers mod (`mods`, the
     // version its last call said) can run the clear the board names; null when it owes none.
-    clearOwed: lane.isLeftover || lane.isMain || !workOk ? null : withMod(clearOwed({ lane, items: raw.work.items, prefix, afterStep: list.afterStep ?? null }), mods?.[lane.name]),
+    // B547 (X48, X49, X61-X64): with when its conversation began, which counts as a clear its card may have lost.
+    clearOwed: lane.isLeftover || lane.isMain || !workOk ? null : withMod(clearOwed({ lane, items: raw.work.items, prefix, afterStep: list.afterStep ?? null, conversationAt: raw.conversationAt?.[lane.session] ?? null }), mods?.[lane.name]),
     // B577: its session was stopped and words wait for it (`{ since, words }`): the app drops them until it gets input.
     stopped: stoppedOf(sent, lane),
   }))
