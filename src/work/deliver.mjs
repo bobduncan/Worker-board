@@ -241,6 +241,11 @@ export async function deliverWork({ state, dir, outbox, apply, now, maxChars, ne
   const done = { moved: [], sent: [], withdrawn: [], closed: [], given: [] }
   const plan = state?.reconciled ?? null
   if (plan === null || dir === null) return done
+  // Redesign Part 2, at rollout: the tasks queued before the redesign go back on the ready list first, once.
+  for (const one of plan.retired ?? []) {
+    const back = await apply({ action: 'retire-queue', id: one.id }).catch(() => null)
+    if (back?.ok === true && back.result?.changed !== false) done.moved.push(one.id)
+  }
   for (const move of plan.moves ?? []) {
     const moved = await apply({ action: 'advance', id: move.id, to: move.to, ...(typeof move.ask === 'string' ? { ask: move.ask } : {}) }).catch(() => null)
     if (moved?.ok === true) done.moved.push(move.id)

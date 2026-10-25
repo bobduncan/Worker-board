@@ -5,7 +5,7 @@
 
 import { GIVE_GUARD, flowHandsOut, mayMove, statesOf } from './flow.mjs'
 import { blockersOpen, overlapsIn, waitWords } from './guards.mjs'
-import { HAND_OUT_DEFAULTS, idleWorkers, match, readyList, stuckTakeBacks, takeBacks as takeBacksOf, workerStart } from './handOut.mjs'
+import { HAND_OUT_DEFAULTS, idleWorkers, match, oldQueued, readyList, stuckTakeBacks, takeBacks as takeBacksOf, workerStart } from './handOut.mjs'
 import { askFiledMs, fixFirst, sinceMs, valueOf } from './item.mjs'
 import { PARTNER_AGAIN_MS, PARTNER_ANSWER_MS, isRoutedToPartner } from './partnerAnswers.mjs'
 import { isHolding } from './pause.mjs'
@@ -64,6 +64,7 @@ const span = ms => {
  * main chat for one more worker (`settings.maxWorkers`). No give, start or take-back while the person pauses or resumes,
  * or a limit is full (`limitsFull`); none either when the flow lets the board hand out nothing (a line on top says so).
  * A worker the board took a task back from while it sat idle shows a `not taking` flag until it reports anew.
+ * `retired`: `[{ id }]`, the tasks queued before the redesign, which go back on the list once (work/handOut.mjs `oldQueued`).
  */
 export function reconcile({ store, flow = store.flow, lanes = [], now, times, prefix = '', hasPartner = true, partner = null, standardHold = null, focus = null, routingHeld = new Set(), settings = {}, sent = [], limitsFull = false }) {
   const items = store.items ?? new Map()
@@ -280,9 +281,13 @@ export function reconcile({ store, flow = store.flow, lanes = [], now, times, pr
   }
   // The take-back's clock starts again once a pause is over: the lines it held only went then.
   const notBefore = store.pause?.state === 'running' ? (store.pause.resumedSince ?? store.pause.since ?? null) : null
+  // At rollout (plan Question 2): the tasks queued before the redesign go back on the list first (`retired`), once.
+  const retired = handsOut ? oldQueued(items) : []
+  const retiredIds = new Set(retired.map(one => one.id))
   const takeBacks = handOutHeld || !handsOut ? [] : takeBacksOf({ items, outbox: sent.map(one => (Number.isFinite(notBefore) && one.at < notBefore ? { ...one, at: notBefore } : one)), lanes: live, now, takeWithinMs, prefix })
+    .filter(one => !retiredIds.has(one.id))
   const idle = idleWorkers(live, { items, prefix, restFree, stuck: new Set(stuck.keys()) })
   const gives = handOutHeld || !handsOut ? [] : match({ ready: ready.ready, idle, items, prefix })
   const start = !handsOut ? null : workerStart({ ready: ready.ready, gives, idle, lanes: live, maxWorkers: settings.maxWorkers ?? null, isHeld: handOutHeld })
-  return { moves, deliveries, flags, notes, partnerAsks, escalations, restFree, ready, gives, takeBacks, start }
+  return { moves, deliveries, flags, notes, partnerAsks, escalations, restFree, ready, gives, takeBacks, start, retired }
 }

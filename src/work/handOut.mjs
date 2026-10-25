@@ -89,6 +89,38 @@ export function readyList(items, { now, focus = null, followUpMs = HAND_OUT_DEFA
   return { ready: ready.sort((a, b) => a.rank - b.rank || byId(a.id, b.id)), held }
 }
 
+/** The History line of the board's give (api.mjs `give`). */
+const GIVE_LINE = / → queued \(given by the board to /
+const QUEUED_LINE = / → queued(?:\s|$)/
+
+/**
+ * A History line that placed a step with a worker before the redesign: Main's or the person's queue and requeue, a
+ * queue kept until the refine, the board's queue of an incident fix, a result check's fix, the sync check's requeue.
+ */
+const PLACED_LINE = /^-\s+\S+ \S+ [^:]+: (?:queued for |requeued for |queued by the board for )/
+
+/** A queued step whose newest placement is one of before the redesign, not the board's give. */
+export function isPlacedBefore(item) {
+  if (stateOf(item) !== 'queued') return false
+  const last = historyOf(item).findLast(line => PLACED_LINE.test(line) || (QUEUED_LINE.test(line) && GIVE_LINE.test(line)))
+  return last !== undefined && !GIVE_LINE.test(last)
+}
+
+/**
+ * Redesign Part 2, at rollout (plan Question 2): the tasks queued before the board handed out all work: every step
+ * queued whose newest placement is such a line, not the board's give, and every step that keeps a queue asked before its
+ * refine (`Queue when refined`). `[{ id }]` by id; the board puts them back on the list once (api.mjs `retire-queue`), so
+ * it finds none after. A queued step with neither line (one the backlog's migration made queued) is left to the
+ * take-back, as any given task.
+ */
+export function oldQueued(items) {
+  return [...items.values()].filter(item => kindOf(item) === 'step' && typeof idOf(item) === 'string' && (
+    isPlacedBefore(item)
+    || (valueOf(item, 'Queue when refined') !== null && !['done', 'dropped'].includes(stateOf(item)))))
+    .map(item => ({ id: idOf(item) }))
+    .sort((a, b) => byId(a.id, b.id))
+}
+
 /** The states in which a step holds its worker for the hand-out: given (queued) or under way. */
 const HOLDS_WORKER = ['queued', 'taken', 'in progress']
 /** A step given (queued) or under way: its Touches count against a task to give. */

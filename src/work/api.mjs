@@ -10,6 +10,7 @@ import { minutesOf } from '../backlog.mjs'
 import { workWords } from '../say.mjs'
 import { stepLine, stepNotes } from './adapter.mjs'
 import { GIVE_GUARD, flowHandsOut, mayMove } from './flow.mjs'
+import { isPlacedBefore } from './handOut.mjs'
 import { blockersOpen, CLEARED, overlapsIn, waitIds, waitWords } from './guards.mjs'
 import { ASK_KINDS, HEAD_KEYS, askFiledMs, fixFirst, isFix, serializeItem, sinceMs, validateHead, valueOf } from './item.mjs'
 import { askIdsIn, askKey, askTitleOf, askWordsOf, refineQuestionProblem, refineTitleOf, sameAsk, titleProblem } from './askWords.mjs'
@@ -41,7 +42,7 @@ export { overlapsIn, sinceMs }
 export const isReadAction = action => READS.has(action)
 
 const READS = new Set(['next', 'list', 'pause-state', 'health', ...ROUTING_READS])
-const CHANGES = new Set(['incident', 'incident-fix', 'incident-told', 'incidents-fixed', 'take', 'step', 'ask', 'withdraw', 'answered-in-chat', 'read', 'note', 'report', 'block', 'unblock', 'new', 'queue', 'pin', 'close', 'drop', 'refine', 'refined', 'answer', 'tick', 'delete', 'refine-answer', 'refine-accept', 'check', 'checked', 'instruction', 'turn-ended', 'pull', 'advance', 'requeue', 'unqueue', 'recheck', 'undo', 'rename', 'pause-all', 'resume-all', 'resumed', 'end-resume', 'overturn', 'seen', 'approve-recaps', 'partner-answer', 'escalate', 'partner-answers', 'recheck-stuck'])
+const CHANGES = new Set(['incident', 'incident-fix', 'incident-told', 'incidents-fixed', 'take', 'step', 'ask', 'withdraw', 'answered-in-chat', 'read', 'note', 'report', 'block', 'unblock', 'new', 'queue', 'pin', 'close', 'drop', 'refine', 'refined', 'answer', 'tick', 'delete', 'refine-answer', 'refine-accept', 'check', 'checked', 'instruction', 'turn-ended', 'pull', 'advance', 'requeue', 'unqueue', 'recheck', 'undo', 'rename', 'pause-all', 'resume-all', 'resumed', 'end-resume', 'overturn', 'seen', 'approve-recaps', 'partner-answer', 'escalate', 'partner-answers', 'recheck-stuck', 'retire-queue'])
 /**
  * Focus 2: the partner's drafts of the focus goal's vibe and how. They change the goal map, not the store: the board's
  * `goalDraft` (src/focus.mjs) writes them; only the chat the list names the partner (role advisor) sends them.
@@ -51,7 +52,7 @@ const GOAL_MAP = new Set(['vibe-draft', 'how-draft'])
 const OFF_VIEW = new Set(['incident', 'incident-fix', 'incident-told', 'incidents-fixed', 'instruction', 'turn-ended', 'close', 'read', 'pull', 'undo', 'pause-all', 'resume-all', 'resumed', 'end-resume', 'overturn', 'seen', 'approve-recaps', 'partner-answers', 'recheck-stuck'])
 /** What only the person does, on the board's page; and what only the server does. */
 const PERSON = new Set(['answer', 'read', 'tick', 'delete', 'refine-answer', 'refine-accept', 'recheck', 'undo', 'pause-all', 'resume-all', 'end-resume', 'overturn', 'seen', 'partner-answers'])
-const SERVER = new Set(['incidents-fixed', 'incident-told', 'check', 'advance', 'resumed', 'approve-recaps', 'recheck-stuck', 'route-confirm', 'quality-job-result'])
+const SERVER = new Set(['incidents-fixed', 'incident-told', 'check', 'advance', 'resumed', 'approve-recaps', 'recheck-stuck', 'route-confirm', 'quality-job-result', 'retire-queue'])
 /** Who may do what the flow does not decide (the default flow's table, spec section 5). */
 const ROLES = {
   block: ['main', 'worker', 'person'],
@@ -2526,6 +2527,41 @@ async function advance(body, w) {
   return done.ok ? changed(ordered(moved.item)) : done
 }
 
+/** Redesign Part 2, at rollout: the History words of a task queued before the redesign, put back on the ready list. */
+const RETIRED_WORDS = 'back on the ready list: the board hands out all tasks now'
+/** The person's placement of a queued step (the page's queue or "Move to"): the chat it was placed with. */
+const PERSON_PLACED = /^-\s+\S+ \S+ person: (?:re)?queued for (.+?)(?:;| \(|$)/
+/** A History line that gave a step its worker: a queue or a requeue by anyone, or the board's queue of an incident fix. */
+const PLACED = /^-\s+\S+ \S+ [^:]+: (?:queued for |requeued for |queued by the board for )/
+
+/**
+ * Redesign Part 2, at rollout (plan Question 2): a task queued before the redesign goes back on the ready list
+ * (work/handOut.mjs `oldQueued`, the reconciler's `retired`): a queued step to refined when its refine is ready, else to
+ * new, no Owner; a placement the person made last ("Move to", their queue) becomes its pin; a queue kept until its
+ * refine (`Queue when refined`) goes. One History line. A step the board gave, or one with nothing of the kind, is left.
+ */
+async function retireQueue(body, w) {
+  const found = await load(body.id, w, { kind: ['step'] })
+  if (!found.ok) return found
+  const id = valueOf(found.item, 'Id')
+  const history = found.item.sections.get('History') ?? []
+  const isQueued = isPlacedBefore(found.item)
+  const wish = valueOf(found.item, 'Queue when refined')
+  if (!isQueued && wish === null) return { ok: true, result: { id, text: `${id}: nothing queued before the redesign.`, changed: false } }
+  let next
+  if (isQueued) {
+    const to = valueOf(found.item, 'Refined') === 'ready' ? 'refined' : 'new'
+    const moved = move(found.item, to, 'server', w, flowCtx(w, [found.item]), ` (${RETIRED_WORDS})`)
+    if (!moved.ok) return moved
+    const placedBy = history.findLast(one => PLACED.test(one))?.match(PERSON_PLACED)?.[1]?.trim() ?? null
+    next = put(put(moved.item, 'Owner', null), 'Pinned', placedBy ?? valueOf(found.item, 'Pinned'))
+  } else next = said(copy(found.item), w, RETIRED_WORDS)
+  next.head.delete('Queue when refined')
+  next = ordered(next)
+  const done = await save(next, found.text, w)
+  return done.ok ? changed(next) : done
+}
+
 /** Redesign Part 2: the states in which a worker holds a task for the give: given (queued) or under way. */
 const HOLDS_FOR_GIVE = ['queued', 'taken', 'in progress']
 
@@ -2768,7 +2804,7 @@ const CHANGE = {
   'incident-fix': incidentFix,
   'incident-told': incidentTold,
   'incidents-fixed': incidentsFixed,
-  take, step, ask, withdraw, note, report, check, checked, recheck, new: make, queue, requeue, unqueue, pin, close, drop, refine, refined, answer, tick, instruction, pull, advance,
+  take, step, ask, withdraw, note, report, check, checked, recheck, new: make, queue, requeue, unqueue, pin, 'retire-queue': retireQueue, close, drop, refine, refined, answer, tick, instruction, pull, advance,
   'turn-ended': turnEnded,
   'answered-in-chat': answeredInChat,
   read,
