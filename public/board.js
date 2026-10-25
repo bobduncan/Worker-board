@@ -1508,6 +1508,22 @@ function pauseLines(pause) {
 }
 // pause:end
 
+// restartwords:start
+/**
+ * The review of chat-reports: the restart banner's lines about the chats stopped in the middle of a task. One whose
+ * Workers mod reported idle with its task open is named as that; one the board read as cut off keeps those words.
+ */
+function stoppedLines(restart, chats = []) {
+  const reported = new Set(chats.filter(lane => lane.state === 'interrupted' && lane.report?.state === 'idle').map(lane => lane.name))
+  const idle = restart.interrupted.filter(name => reported.has(name))
+  const cut = restart.interrupted.filter(name => !reported.has(name))
+  return [
+    ...(cut.length > 0 ? [`Cut off in the middle of a task: ${cut.join(', ')}.`] : []),
+    ...(idle.length > 0 ? [`Idle with its task open: ${idle.join(', ')}.`] : []),
+  ]
+}
+// restartwords:end
+
 /**
  * What the board knows about a restart of the app, above the lanes: that it was off, who was cut off, how the pause
  * stands (pause.json, spec 2026-10-18), and Resume all. "Pause all" and "Resume all" write the pause through the
@@ -1534,7 +1550,7 @@ function drawRestart(state) {
   }
   const parts = []
   if (restart.off !== null) parts.push(line('muted', `The board was off from ${clock(restart.off.from)} to ${clock(restart.off.to)} (${span(restart.off.to - restart.off.from)}).`))
-  if (restart.interrupted.length > 0) parts.push(line('alert', `Cut off in the middle of a task: ${restart.interrupted.join(', ')}.`))
+  for (const text of stoppedLines(restart, state.chats ?? [])) parts.push(line('alert', text))
   // Who has to be started before it can carry on: said where a restart is at hand, not all day long.
   const down = restart.notRunning ?? []
   const isAtHand = restart.off !== null || restart.interrupted.length > 0 || (pause !== null && pause.state !== 'running')
@@ -1665,6 +1681,8 @@ const about = minutes => (minutes === null ? null : `~ ${span(minutes * MIN)}`)
 function timeOf(lane, now) {
   const plain = (main, tone = 'muted', label = '') => ({ label, main, tone, small: [], from: null })
   if (lane.isLeftover) return plain('Leftover')
+  // The review of chat-reports: a chat whose Workers mod reported idle with its task open says that, since when.
+  if (lane.state === 'interrupted' && lane.report?.state === 'idle') return plain(`since ${clock(lane.report.since)}`, 'bad', 'Idle, task open')
   if (lane.state === 'interrupted') return plain(lane.cutOffAt === null ? 'by a restart' : `at ${clock(lane.cutOffAt)}`, 'bad', 'Cut off')
   if (lane.state === 'suspended') {
     // B113: held by the limit. The figure is when it goes on; once that has passed it needs a hand.
@@ -1673,7 +1691,8 @@ function timeOf(lane, now) {
     return held.until === null ? plain('Suspended') : { label: 'Goes on', main: clock(held.until), tone: 'time', small: [`in ${span(held.until - now)}`], from: null }
   }
   // B315: its card was left "working" by a quit app, and its process does not run.
-  if (lane.state === 'off') return plain('Not running', 'bad', 'Process')
+  // The review of chat-reports: a reporting chat says why it does not run ("silent since HH:MM", its session ended).
+  if (lane.state === 'off') return { ...plain('Not running', 'bad', 'Process'), small: typeof lane.offWhy === 'string' ? [lane.offWhy] : [] }
   if (lane.state === 'waiting') return plain('Blocked', 'bad', 'ETA')
   if (lane.state === 'free') return plain('Available')
   if (lane.state !== 'working') return plain('Unknown')
@@ -1940,6 +1959,7 @@ function simpleSteps(focus, chats = [], now = Date.now()) {
   return { goal: focus.id, rows, empty: rows.length > 0 ? null : before ? 'No steps yet: your partner makes them once you agree the how.' : 'No steps of it on the board.' }
 }
 
+// simpleidle:start
 /** B343: what a chat's row says in place of its time when it does not work: a few plain words. */
 function simpleIdle(lane) {
   if ((lane.waitsForPartner ?? []).length > 0) return `waits for your partner (${lane.waitsForPartner.join(', ')})`
@@ -1947,10 +1967,11 @@ function simpleIdle(lane) {
   if (lane.state === 'working') return 'working'
   if (lane.state === 'waiting') return 'waits for you'
   if (lane.state === 'suspended') return Number.isFinite(lane.suspended?.until) ? `paused until ${clock(lane.suspended.until)}` : 'paused'
-  if (lane.state === 'off') return 'not running'
-  if (lane.state === 'interrupted') return 'cut off'
+  if (lane.state === 'off') return typeof lane.offWhy === 'string' ? `not running (${lane.offWhy})` : 'not running'
+  if (lane.state === 'interrupted') return lane.report?.state === 'idle' ? 'idle, task open' : 'cut off'
   return String(lane.state ?? '')
 }
+// simpleidle:end
 
 /**
  * B343: the simple view's second column, the workers: each chat of the list (no leftover) with the step it is on, a bar
@@ -2339,7 +2360,7 @@ function drawLane(lane, state) {
   if (steps !== null) progress.append(drawStepLine(lane, steps))
   else if (hasSteps) progress.append(el('small', 'progress-count', `${task.step} of ${task.steps}`))
   else if (task !== null) progress.append(el('small', 'progress-count', 'no steps given'))
-  if (lane.state === 'interrupted') what.append(el('p', 'alert', 'Cut off in the middle of its turn: it does nothing until it is resumed.'))
+  if (lane.state === 'interrupted') what.append(el('p', 'alert', lane.report?.state === 'idle' ? 'Idle with its task open: its turn ended before its step was reported; it does nothing until it is woken.' : 'Cut off in the middle of its turn: it does nothing until it is resumed.'))
   // B315: its card still says working from before the app was quit; its process has not run since.
   if (lane.state === 'off') what.append(el('p', 'alert', `Its chat is not running: it does nothing until its chat is opened, or ${board?.workers?.mainTitle ?? 'the main chat'} starts it (Resume all).`))
   if (lane.state === 'suspended') what.append(el('p', `held${lane.suspended.isBack ? ' is-back' : ''}`, heldText(lane.suspended)))
@@ -5665,7 +5686,7 @@ function planOf(lane, now) {
  * one, or one that waits for the person (that one opens what it waits for, B100).
  */
 function laneWindowOf(lane, now, mainTitle) {
-  const chip = LANE_WINDOW_STATES[lane.state]
+  const chip = lane.state === 'interrupted' && lane.report?.state === 'idle' ? 'Idle, task open' : LANE_WINDOW_STATES[lane.state]
   if (chip === undefined) return null
   const task = lane.task ?? null
   const given = lane.givenTask ?? null
