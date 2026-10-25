@@ -16,6 +16,9 @@ into your chat, are in `protocol.md` beside this file: keep to them, or the boar
   managed hold requires the verified bridge/controller workflow, never a direct merge or self-confirmation.
 - Never Fable (the user, 2026-10-24: "maximum run opus ... you cant run fable without my permission"): never start a
   subagent with model: "fable", and never ask for a chat on Fable.
+- The project's asset provider needs no yes (the user, 2026-10-25: "i dont want to be asked for permission ... it need
+  to work autonomously"): Codex makes the pictures. Switch a picture to Codex, or run another Codex round, without
+  asking the user or the partner; ask only when no provider can make what is needed.
 
 - Put yourself in the list of chats once, when the main chat's first message tells you your name: the Workers mod's
   chat tool with action "join", that name, role "worker". Keep your card as that tool says: the worker board shows it.
