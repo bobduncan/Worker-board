@@ -170,7 +170,7 @@ export function takeBacks({ items, outbox = [], lanes = [], now, takeWithinMs, p
     const line = outbox.filter(message => isWorkLine(message, id, owner, prefix)).sort((a, b) => a.at - b.at).at(-1)
     if (line === undefined || now - line.at < takeWithinMs) continue
     const report = lane.report ?? null
-    const isFresh = report !== null && lane.isRunning === true && !['unknown', 'off'].includes(lane.state)
+    const isFresh = report !== null && lane.isRunning === true && !['unknown', 'off', 'suspended'].includes(lane.state)
     const stuck = isFresh && report.state === 'idle' && Number.isFinite(report.since) && report.since < line.at
     backs.push({ id, chat: lane.name, stuck, why: `not taken within ${Math.round(takeWithinMs / 60_000)} min` })
   }

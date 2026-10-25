@@ -76,6 +76,7 @@ import { effortOf } from './src/work/effort.mjs'
 import { isHolding, resumeEnds, resumeRetypeTo, resumeTypeTo } from './src/work/pause.mjs'
 import { reportCheck } from './src/work/check.mjs'
 import { deliverWork, pullFor, sendOnce } from './src/work/deliver.mjs'
+import { coalesce } from './src/work/again.mjs'
 import { REFUSED_MS, SUPERVISOR_RULES, createSupervisor, incidentCards, loopGate, loopOwner, tokensOfTurn } from './src/supervisor/index.mjs'
 import { FILES as WORKTREE_FILES, cleanLeftover, findLeftovers, stepLeftovers } from './src/work/worktrees.mjs'
 import { followRenames } from './src/work/rename.mjs'
@@ -1098,6 +1099,22 @@ async function main(args) {
   // Redesign Part 1: each chat's last report of its turn state, by the name the board shows (bridge.mjs `noteReport`):
   // `{ state, since, background, at, session, mod }`. In memory only: after a restart the reports come within 5 s.
   const reports = bridgeKey === null ? null : new Map()
+  /**
+   * Redesign Part 2 (2026-10-25): the reconciler at once, for a chat whose report just turned idle: the board gives it a
+   * ready task the moment it is free (principle 1). Set below on a board that writes the store; nothing elsewhere.
+   */
+  let reconcileSoon = () => {}
+  /** Redesign Part 2: a chat's report kept; when it turned idle (from anything else, or none), the board reads anew and hands out. */
+  const keepReport = (body, checked, keepIt) => {
+    const before = checked?.ok === true && reports !== null ? reports.get(checked.chat)?.state ?? null : null
+    const answer = keepIt()
+    const after = checked?.ok === true && reports !== null ? reports.get(checked.chat)?.state ?? null : null
+    if (before !== 'idle' && after === 'idle') {
+      readState.reset()
+      void reconcileSoon()
+    }
+    return answer
+  }
   // The supervisor's Part 2: the version of each chat's Workers mod, by the chat's name, as its last call to the bridge
   // said it (null: a mod older than 0.16.0, which says none), for the rule old-mod and the supervisor's own chat.
   const modOf = new Map()
@@ -1809,8 +1826,8 @@ async function main(args) {
       noteRefused(body, checked)
       noteMod(body, checked)
       if (!checked.ok) return checked
-      // Redesign Part 1: the take is the mod's 5-second ping, and carries its report (from 0.19.0).
-      noteReport(reports, body, checked, clock())
+      // Redesign Part 1: the take is the mod's 5-second ping, and carries its report (from 0.19.0). Part 2: an idle one hands out.
+      keepReport(body, checked, () => noteReport(reports, body, checked, clock()))
       // The review of Pause 2: while the person pauses no chat takes what would start a turn; only the board's own
       // "resume" to the main chat goes. The rest waits in the outbox, held until the resume (2026-10-19: Resume all, no
       // longer running: while resuming every line goes, so an answer to a chat that has not started reaches it).
@@ -1834,7 +1851,7 @@ async function main(args) {
       if (seen !== null && typeof body?.chat === 'string' && (checked.ok || checked.status === 409)) (checked.ok ? seen.shown : seen.other)[body.chat.trim().slice(0, 80)] = clock()
       noteRefused(body, checked)
       noteMod(body, checked)
-      return answerReport(reports, body, checked, clock())
+      return keepReport(body, checked, () => answerReport(reports, body, checked, clock()))
     }),
     typed: counted(async body => {
       const checked = checkTyped(body, await readState())
@@ -2092,12 +2109,14 @@ async function main(args) {
   // each chat's line that a step is its own, once (src/work/deliver.mjs). Only a board that writes the store: the one
   // that delivers, or a copy with a store of its own (whose outbox no chat takes from).
   if (!isDemo && historyFrom === undefined && workWriters !== null) {
-    let isReconciling = false
     /** The review of Pause 2: the main chats the board typed "resume" into by itself, per resume (its since). */
     const retyped = new Set()
-    const reconcileNow = async () => {
-      if (isReconciling || isClosing) return
-      isReconciling = true
+    // Redesign Part 2 (2026-10-25): one pass at a time; a call while one runs (the refresh, a chat's idle report) makes
+    // one more after it (work/again.mjs), so no idle report is lost and two passes never run side by side (principle 5).
+    // A pass that gave a task runs once more, so the task's line goes at once, with its holds.
+    let gaveTask = false
+    const reconcilePass = async () => {
+      if (isClosing) return
       let finish = () => {}
       reconciling = new Promise(done => { finish = done })
       try {
@@ -2150,6 +2169,7 @@ async function main(args) {
           work.reset?.()
           readState.reset()
         }
+        gaveTask = done.given.length > 0
         loops.succeeded('reconcile')
         // B528: an evaluation that has not ended is asked of the partner again; on its own, so a failure stops no delivery.
         await loops.run('evaluate-again', () => evaluateAgainNow(state))
@@ -2164,11 +2184,16 @@ async function main(args) {
         // Tried again at the next refresh; B404: recorded, so the page shows a delivery that keeps failing.
         loops.failed('reconcile', error)
       } finally {
-        isReconciling = false
         reconciling = null
         finish()
       }
     }
+    const reconcileNow = coalesce(async () => {
+      gaveTask = false
+      await reconcilePass()
+      if (gaveTask) void reconcileNow()
+    })
+    reconcileSoon = reconcileNow
     setInterval(reconcileNow, Math.max(5, config.refreshSeconds) * 1000)
 
     // The supervisor (spec 2026-10-24), with B465's list of stuck states: every few minutes and on "Out of sync?", the

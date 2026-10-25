@@ -111,10 +111,9 @@ test('a delivery is keyed on the step, its owner and when it was queued for that
   assert.notEqual(deliveryKey(first.id, first.chat, first.since), deliveryKey(again.id, again.chat, again.since))
 })
 
-test('a step queued for a chat that has been free longer than the grace time and did not take it is flagged', () => {
+test('redesign Part 2: a step given and not taken raises no flag of its own: the board takes it back after its time', () => {
   const queued = step('B286', 'queued', { Owner: 'Units', Since: '2026-10-17 11:00' })
-  assert.deepEqual(run([queued], [lane('Units', 'free', { idle: { since: NOW - 5 * MIN } })]).flags, [])
-  assert.deepEqual(run([queued], [lane('Units', 'free', { idle: { since: NOW - 11 * MIN } })]).flags, [{ kind: 'not taken', id: 'B286', chat: 'Units', text: 'B286 queued for Units, Units free, not taken', button: null }])
+  assert.deepEqual(run([queued], [lane('Units', 'free', { idle: { since: NOW - 11 * MIN } })]).flags.filter(flag => flag.chat === 'Units'), [])
 })
 
 test('the line of a failed check goes by the delivery\'s rules: not to a chat that is busy, held by the limit or gone', () => {

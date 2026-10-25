@@ -70,6 +70,15 @@ export const DEFAULTS = {
   unknownAfterSeconds: 30,
   /** The review of chat-reports (principle 2): a chat whose reports stay silent this long is "Not running". */
   offAfterMinutes: 5,
+  /**
+   * Redesign Part 2 (2026-10-25): a worker given a task and not taking it within this many minutes gets it taken back,
+   * and shows stuck when it sat idle (principle 2). At least 1.
+   */
+  takeWithinMinutes: 2,
+  /** Redesign Part 2: a task that waits on one a worker just finished is kept for that worker this many minutes; 0: none. */
+  followUpMinutes: 10,
+  // Redesign Part 2: `maxWorkers`, how many workers the board has the main chat run at most, has no default: without
+  // it the board asks for no worker. Any number (the person: "weither its 2 workers or 10").
   /** An estimate older than this is shown as old. */
   estimateOldMinutes: 15,
   /** How far the timeline looks back from now, and at least how far ahead: the person plans with what comes. */
@@ -323,6 +332,10 @@ export function parseConfig(text, env) {
   }
   if (Number.isFinite(raw.unknownAfterSeconds) && raw.unknownAfterSeconds >= 5) config.unknownAfterSeconds = raw.unknownAfterSeconds
   if (Number.isFinite(raw.offAfterMinutes) && raw.offAfterMinutes >= 1) config.offAfterMinutes = raw.offAfterMinutes
+  // Redesign Part 2: the hand-out's settings; one that is not right is left at its default (maxWorkers: absent).
+  if (Number.isInteger(raw.maxWorkers) && raw.maxWorkers >= 1) config.maxWorkers = raw.maxWorkers
+  if (Number.isFinite(raw.takeWithinMinutes) && raw.takeWithinMinutes >= 1) config.takeWithinMinutes = raw.takeWithinMinutes
+  if (Number.isFinite(raw.followUpMinutes) && raw.followUpMinutes >= 0) config.followUpMinutes = raw.followUpMinutes
   // The Workers mod types at most 3000 characters, and an answer also carries the name of its request.
   config.maxMessageChars = Math.min(config.maxMessageChars, 2500)
   if (typeof raw.advisor === 'string' && raw.advisor.trim() !== '') config.advisor = raw.advisor.trim()

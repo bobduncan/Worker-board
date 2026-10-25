@@ -74,7 +74,8 @@ const FEEDBACK_CHARS = 300
 /** B161: the first lines of what the board types into the main chat for itself (say.mjs, design.mjs): not the person's talk. */
 const BOARD_WORDS = /^(?:restart for mod|spawn workers|remove worker|prepare restart|resume|start "|backlog step from the Design tab|queue step from the Design tab|queue step from the backlog|advisor recommendation|refine step|check step|step refined|ask from the goal map|partner effort|set model and effort|set effort|backlog step from the goal map|check sync)\b/
 /** B300: the reconciler's flags a lane shows; an old ask stands under Needs your attention, a broken file on top. */
-const LANE_FLAGS = ['stuck', 'not taken', 'check failed', 'card', 'waits']
+// Redesign Part 2: 'not taking', a worker the board took a task back from while it sat idle (work/handOut.mjs).
+const LANE_FLAGS = ['stuck', 'not taking', 'check failed', 'card', 'waits']
 /** How long a window of the 5-hour limit lasts. */
 const FIVE_HOURS = 5 * HOUR
 /** B124: an ask for workers that arrived stays open this long while the workers have not all come. */
@@ -1661,11 +1662,17 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
   // B356, the review: a board without a partner chat makes no result check, here too.
   // Partner answers (2026-10-19): the partner's card, for the asks routed to it (woken while free, handed on after 30 min).
   const partner = advisorChat === undefined || advisorCard === null ? null : { name: advisorChat.name, state: advisorCard.state, isRunning: runningOf(advisorChat.name), idle: advisorCard.idle ?? null }
-  // Incident fixes, the review: the product plan's standards hold a fix the board would queue itself, as they hold a queue.
+  // The guard (2026-10-21): the product plan's standards hold a task back from the hand-out.
   const plan = planState(raw.productPlanText ?? null, itemsOf(raw.work), config.productPlan)
+  // Redesign Part 2 (2026-10-25): the board hands out all work: the ready list in the focus goal's order, the settings,
+  // what went into the outbox (for the take-back's clock), the steps the routing holds and whether a limit is full.
+  const routingHeld = workOk ? routingHolds(itemsOf(raw.work), config.routing) : new Set()
   const reconciled = !workOk ? null : reconcile({
     store: raw.work, flow: raw.work.flow, lanes: chats, now, times: { graceMs: GRACE_MS, askMs: ASK_MS, idleMs: IDLE_HOLD_MS }, prefix, hasPartner: advisorChat !== undefined, partner,
     standardHold: item => standardHold(item, plan?.standards ?? []),
+    focus: goalMap?.focus ?? null, routingHeld, sent,
+    settings: { maxWorkers: config.maxWorkers ?? null, takeWithinMinutes: config.takeWithinMinutes, followUpMinutes: config.followUpMinutes },
+    limitsFull: ['fiveHour', 'week'].some(limit => limits[limit]?.level === 'full'),
   })
   // B547: the steps whose line waits for their worker's clear (a mod that can clear only: an older one would wait for ever).
   // B587: not for a worker whose process ended: its line and the start word go at once.
@@ -1675,7 +1682,7 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
   // model ids, and the usual setting between steps from the settings.
   // The partner and its helper are skipped: their own setting (B352, set once) is never the board's to overwrite.
   const efforts = reconciled === null ? null : effortPlan({ items: raw.work.items, lanes: chats, deliveries: reconciled.deliveries, sent, now, main: isBridgeMissing === true ? null : main?.name ?? null, prefix, skip: [advisorChat?.name, helperChat?.name], ...runSettings(config) })
-  if (efforts) for (const id of routingHolds(itemsOf(raw.work), config.routing)) efforts.held.add(id)
+  if (efforts) for (const id of routingHeld) efforts.held.add(id)
   // B570: a chat on an older Workers mod is restarted between its steps (work/modRollout.mjs): the words that ask its
   // restarter (the main chat; the partner for the main chat), and the line of an idle worker's next step held meanwhile.
   const side = (lane, name) => (lane === null || lane === undefined ? null : { ...lane, name, isRunning: lane.state === 'off' ? false : runningOf(name) })
@@ -1719,14 +1726,21 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
     workFlags: [...(reconciled?.flags ?? []).filter(flag => flag.kind === 'broken').map(flag => flag.text),
       // Model per step: settings that name the model ids otherwise than both, each "claude-...": the effort alone.
       ...(typeof config.modelsProblem === 'string' ? [`Settings: ${config.modelsProblem}.`] : [])],
-    reconciled: reconciled === null ? null : { moves: reconciled.moves, deliveries: reconciled.deliveries.filter(one => !efforts.held.has(one.id) && !clearHeld.has(one.id)), efforts: efforts.words, held: [...efforts.held, ...clearHeld], holds: Object.fromEntries(efforts.holds), says: reconciled.flags.filter(flag => typeof flag.say === 'string'), notes: reconciled.notes ?? [], partnerAsks: reconciled.partnerAsks ?? [], escalations: reconciled.escalations ?? [], restarts: rollout?.words ?? [], restFree: reconciled.restFree ?? [] },
+    reconciled: reconciled === null ? null : { moves: reconciled.moves, deliveries: reconciled.deliveries.filter(one => !efforts.held.has(one.id) && !clearHeld.has(one.id)), efforts: efforts.words, held: [...efforts.held, ...clearHeld], holds: Object.fromEntries(efforts.holds), says: reconciled.flags.filter(flag => typeof flag.say === 'string'), notes: reconciled.notes ?? [], partnerAsks: reconciled.partnerAsks ?? [], escalations: reconciled.escalations ?? [], restarts: rollout?.words ?? [], restFree: reconciled.restFree ?? [], gives: reconciled.gives ?? [], takeBacks: reconciled.takeBacks ?? [], start: reconciled.start ?? null },
     // B570: what each chat on an older Workers mod waits for, by name (the partner, its helper, the supervisor too).
     modRuns: Object.fromEntries(rollout?.runs ?? []),
     // Partner answers (2026-10-19): whether the partner answers detail questions first (the Focus page's switch); null
     // without a store.
     partnerAnswers: !workOk ? null : raw.work.partnerAnswers ?? { on: true },
-    // Queued steps that name no worker on the board.
+    // Queued steps that name no worker on the board (the page's strip until it shows the ready list).
     unassigned: queued.filter(step => step.worker === null || !names.includes(step.worker)).map(step => ({ ...step, why: whyNot(step, null) })),
+    // Redesign Part 2: the ready list for a worker, in the board's order (fix, focus goal, the rest, each by id), each
+    // with its title and whom it is kept for (pinned, or a follow-up), and what holds the refined ones that wait; null
+    // without a store.
+    readyList: reconciled === null ? null : {
+      ready: reconciled.ready.ready.map(one => ({ ...one, title: titleOf(one.id) ?? one.id })),
+      held: reconciled.ready.held.map(one => ({ ...one, title: titleOf(one.id) ?? one.id })),
+    },
     // B83: the newest ask to stop each worker's task, open while on its way and for a while after it arrived, so the
     // page asks once. (B301: a queued step is moved or taken out through the work API at once.)
     changeAsks: {

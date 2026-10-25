@@ -3,8 +3,9 @@
 // steps to deliver (a wake: the chat's own `take` moves queued → taken), and the flags the board shows. It moves
 // nothing itself and never invents a move the flow does not allow; a file it cannot read is named, not moved.
 
-import { mayMove, statesOf } from './flow.mjs'
+import { GIVE_GUARD, flowHandsOut, mayMove, statesOf } from './flow.mjs'
 import { blockersOpen, overlapsIn, waitWords } from './guards.mjs'
+import { HAND_OUT_DEFAULTS, idleWorkers, match, readyList, stuckTakeBacks, takeBacks as takeBacksOf, workerStart } from './handOut.mjs'
 import { askFiledMs, fixFirst, sinceMs, valueOf } from './item.mjs'
 import { PARTNER_AGAIN_MS, PARTNER_ANSWER_MS, isRoutedToPartner } from './partnerAnswers.mjs'
 import { isHolding } from './pause.mjs'
@@ -55,8 +56,16 @@ const span = ms => {
  * while the person pauses); `escalations`: `[{ id, why }]`, those the board hands to the person: `times.partnerMs`
  * (30 min) since its filing passed, whatever the partner did (the review's findings), no partner chat is on the board,
  * or the setting is off.
+ * Redesign Part 2 (2026-10-25): the board hands out all work (work/handOut.mjs). `ready`: `{ ready, held }`, the ready
+ * list in its order and what holds the rest (`focus` the goal map's focus, `standardHold(item)` a why or null,
+ * `routingHeld` the ids the routing holds); `gives`: `[{ id, chat, why }]`, a ready task to each worker whose report says
+ * idle; `takeBacks`: `[{ id, chat, stuck, why }]`, the given tasks not taken within `settings.takeWithinMinutes`
+ * (`sent` the outbox, for when each work line went); `start`: `{ start: chat }`, `{ spawn: 1 }` or null, the word to the
+ * main chat for one more worker (`settings.maxWorkers`). No give, start or take-back while the person pauses or resumes,
+ * or a limit is full (`limitsFull`); none either when the flow lets the board hand out nothing (a line on top says so).
+ * A worker the board took a task back from while it sat idle shows a `not taking` flag until it reports anew.
  */
-export function reconcile({ store, flow = store.flow, lanes = [], now, times, prefix = '', hasPartner = true, partner = null, standardHold = null }) {
+export function reconcile({ store, flow = store.flow, lanes = [], now, times, prefix = '', hasPartner = true, partner = null, standardHold = null, focus = null, routingHeld = new Set(), settings = {}, sent = [], limitsFull = false }) {
   const items = store.items ?? new Map()
   const broken = new Set((store.problems ?? []).map(problem => problem.file?.match(/^([A-Z]\d+|L-[0-9a-f]{8})\.md$/)?.[1]).filter(Boolean))
   const live = lanes.filter(lane => !lane.isLeftover)
@@ -109,11 +118,6 @@ export function reconcile({ store, flow = store.flow, lanes = [], now, times, pr
     const id = valueOf(item, 'Id')
     const since = valueOf(item, 'Since')
     deliveries.push({ id, chat: lane.name, since, why: `deliver ${id} to ${lane.name}` })
-    // The review of B300: queued for a chat that has been free longer than the grace time, and not taken.
-    const freeSince = Math.max(Number.isFinite(sinceMs(since)) ? sinceMs(since) : 0, Number.isFinite(lane.idle?.since) ? lane.idle.since : 0)
-    if (Number.isFinite(lane.idle?.since) && now - freeSince >= times.graceMs) {
-      flags.push({ kind: 'not taken', id, chat: lane.name, text: `${id} queued for ${lane.name}, ${lane.name} free, not taken`, button: null })
-    }
   }
 
   // B306: a queued step whose only wait is words (`Waits for` with no id, nothing it is blocked by still open) while
@@ -259,5 +263,26 @@ export function reconcile({ store, flow = store.flow, lanes = [], now, times, pr
       else if (!isHeld && isFree) partnerAsks.push({ id, chat: partner.name, since: valueOf(item, 'Since'), ...(Number.isFinite(filed) && now - filed >= (times?.partnerAgainMs ?? PARTNER_AGAIN_MS) ? { again: true } : {}) })
     }
   }
-  return { moves, deliveries, flags, notes, partnerAsks, escalations, restFree }
+  // Redesign Part 2 (2026-10-25): the hand-out. One ready list; a ready task to each worker whose own report says idle,
+  // the moment it does (principle 1); a given task not taken in time goes back, and its worker shows stuck when it sat
+  // idle through it (principle 2); one more worker asked of the main chat only when ready tasks wait and none is idle.
+  const takeWithinMs = Math.max(1, Number.isFinite(settings.takeWithinMinutes) ? settings.takeWithinMinutes : HAND_OUT_DEFAULTS.takeWithinMinutes) * MIN
+  const followUpMs = Math.max(0, Number.isFinite(settings.followUpMinutes) ? settings.followUpMinutes : HAND_OUT_DEFAULTS.followUpMinutes) * MIN
+  const ready = readyList(items, { now, focus, followUpMs, standardHold, routingHeld, prefix })
+  const handOutHeld = ['pausing', 'resuming'].includes(store.pause?.state) || limitsFull === true
+  const handsOut = flowHandsOut(flow)
+  if (!handsOut) {
+    flags.push({ kind: 'broken', id: null, chat: null, text: `flow.json lets the board hand out no task: add the move refined → queued by server when "${GIVE_GUARD}" (examples/work/flow.json)`, button: null })
+  }
+  const stuck = stuckTakeBacks({ items, lanes: live, prefix })
+  for (const [chat, back] of stuck) {
+    flags.push({ kind: 'not taking', id: back.id, chat, text: `Stuck: did not take ${back.id} within ${Math.round(takeWithinMs / MIN)} min; it went back on the list`, button: null })
+  }
+  // The take-back's clock starts again once a pause is over: the lines it held only went then.
+  const notBefore = store.pause?.state === 'running' ? (store.pause.resumedSince ?? store.pause.since ?? null) : null
+  const takeBacks = handOutHeld || !handsOut ? [] : takeBacksOf({ items, outbox: sent.map(one => (Number.isFinite(notBefore) && one.at < notBefore ? { ...one, at: notBefore } : one)), lanes: live, now, takeWithinMs, prefix })
+  const idle = idleWorkers(live, { items, prefix, restFree, stuck: new Set(stuck.keys()) })
+  const gives = handOutHeld || !handsOut ? [] : match({ ready: ready.ready, idle, items, prefix })
+  const start = !handsOut ? null : workerStart({ ready: ready.ready, gives, idle, lanes: live, maxWorkers: settings.maxWorkers ?? null, isHeld: handOutHeld })
+  return { moves, deliveries, flags, notes, partnerAsks, escalations, restFree, ready, gives, takeBacks, start }
 }

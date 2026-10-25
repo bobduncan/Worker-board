@@ -13,10 +13,11 @@ import { isTalkPicture } from './talkPicture.mjs'
 const refuse = (status, why) => ({ ok: false, status, why })
 
 /** B124: why the board asks the main chat for workers, in the words it types. */
-const SPAWN_WHY = { alone: 'no worker is in the list', button: 'asked with the button' }
+// Redesign Part 2: `board`, the board's own ask when ready tasks wait and no worker is free (work/handOut.mjs).
+const SPAWN_WHY = { alone: 'no worker is in the list', button: 'asked with the button', board: 'ready tasks wait and no worker is free' }
 
 /** B124: the word that asks the main chat for `count` workers. The main chat names, briefs and starts them. */
-const spawnWords = (to, count, why) => ({
+export const spawnWords = (to, count, why) => ({
   to, ask: null, step: null, title: null, version: null, verdict: null, command: 'spawn', count, why,
   text: `spawn workers\nCount: ${count}\nWhy: ${SPAWN_WHY[why]}`,
 })

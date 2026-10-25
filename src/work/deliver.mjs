@@ -7,7 +7,7 @@
 
 import { resolve } from 'node:path'
 
-import { wakeFor, workWords } from '../say.mjs'
+import { checkSay, spawnWords, wakeFor, workWords } from '../say.mjs'
 import { isLate } from '../store.mjs'
 import { stamp } from './migrate.mjs'
 import { sinceMs } from './item.mjs'
@@ -213,16 +213,50 @@ async function noteLine({ dir, plan, outbox, now, fs }) {
 }
 
 /**
+ * Redesign Part 2: the key under which the board asks the main chat once for one more worker: whom (a worker of the list
+ * whose chat is off, or `spawn`) and how many workers were not off then, so a new ask goes once that number changed.
+ */
+export const startKey = (start, notOff) => `board-start ${start.start ?? 'spawn'} ${notOff}`
+
+/**
+ * Redesign Part 2: the main chat's word for one more worker (`plan.start`): start a worker of the list whose chat is
+ * off, or spawn one; null when there is no main chat or the word cannot be made (the chat runs after all).
+ */
+function startWords(start, state, maxChars) {
+  const main = state?.restart?.main ?? null
+  if (main === null) return null
+  if (typeof start.start === 'string') {
+    const checked = checkSay({ to: main, command: 'start', chat: start.start }, state, maxChars)
+    return checked.ok ? checked.message : null
+  }
+  return start.spawn > 0 ? spawnWords(main, start.spawn, 'board') : null
+}
+
+/**
  * One refresh: `state.reconciled` (state.mjs; null while the store cannot be read) carried out. `apply(body)` is the work
- * API as the server. `{ moved, sent, withdrawn }`: the ids moved, the messages sent and withdrawn.
+ * API as the server. `{ moved, sent, withdrawn, closed, given }`: the ids moved, the messages sent, withdrawn and
+ * closed, and (redesign Part 2) the ids the board gave to a worker.
  */
 export async function deliverWork({ state, dir, outbox, apply, now, maxChars, newId, fs, keep }) {
-  const done = { moved: [], sent: [], withdrawn: [], closed: [] }
+  const done = { moved: [], sent: [], withdrawn: [], closed: [], given: [] }
   const plan = state?.reconciled ?? null
   if (plan === null || dir === null) return done
   for (const move of plan.moves ?? []) {
     const moved = await apply({ action: 'advance', id: move.id, to: move.to, ...(typeof move.ask === 'string' ? { ask: move.ask } : {}) }).catch(() => null)
     if (moved?.ok === true) done.moved.push(move.id)
+  }
+  // Redesign Part 2 (2026-10-25): the hand-out. First what goes back on the list (not taken in time), then a ready task
+  // to each idle worker; the API checks each anew, so a second give of a task, or a give to a worker that holds one, is
+  // refused (Review Focus 4). Its line goes at the next pass, with its holds (a model, a clear, a mod restart).
+  for (const one of plan.takeBacks ?? []) {
+    const back = await apply({ action: 'advance', id: one.id, to: 'refined', takeBack: { chat: one.chat, stuck: one.stuck === true, why: one.why } }).catch(() => null)
+    if (back?.ok === true) done.moved.push(one.id)
+  }
+  for (const one of plan.gives ?? []) {
+    const given = await apply({ action: 'advance', id: one.id, to: 'queued', for: one.chat }).catch(() => null)
+    if (given?.ok !== true) continue
+    done.moved.push(one.id)
+    done.given.push(one.id)
   }
   // Partner answers (2026-10-19): what the partner did not answer in time (or cannot) goes to the person, also while
   // the person pauses: it only shows them the ask.
@@ -249,6 +283,14 @@ export async function deliverWork({ state, dir, outbox, apply, now, maxChars, ne
         && (message.state === 'waiting' || now - (message.at ?? 0) < PARTNER_AGAIN_MS)))
       .map(one => ({ key: partnerAskKey(one.id, one.chat, one.again === true), words: { ...workWords(one.chat, one.id, partnerAskWords(one.id)), kind: 'partner-ask' } })),
   ]
+  // Redesign Part 2: one more worker, asked of the main chat once per need (`startKey`); the reconciler names none while
+  // the person pauses or a limit is full.
+  const start = plan.start ?? null
+  const startWord = start === null ? null : startWords(start, state, maxChars)
+  if (startWord !== null) {
+    const notOff = (state.chats ?? []).filter(lane => !lane.isLeftover && !lane.isMain && lane.state !== 'off' && lane.isRunning !== false).length
+    lines.push({ key: startKey(start, notOff), words: startWord })
+  }
   for (const one of lines) {
     const sent = await sendOnce({ dir, key: one.key, words: one.words, outbox, state, now, maxChars, newId, fs, keep })
     if (sent !== null) done.sent.push(sent)
