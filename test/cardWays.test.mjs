@@ -63,7 +63,7 @@ test('a quiet worker gets Check now; a quiet main chat and a question of the app
 })
 
 test('the cards draw their ways: the hint\'s buttons, Check now, and the nudge goes to the chat as the person\'s line', () => {
-  assert.match(script, /if \(need\.kind === 'unfiled' \|\| need\.kind === 'idle'\) return \[\.\.\.parts, \.\.\.wayButtons\(need\)\]/)
+  assert.match(script, /if \(need\.kind === 'unfiled' \|\| need\.kind === 'idle'\) return \[\.\.\.parts, \.\.\.wayButtons\(need, inWindow\)\]/)
   assert.match(script, /const check = String\(need\.id\)\.startsWith\('quiet:'\) \? wayButtons\(need\) : \[\]/)
   assert.match(script, /await send\(\{ to: way\.to, text: way\.text \}, `nudge:\$\{id\}`\)/)
   assert.match(script, /send\(\{ to: board\.workers\.main, command: 'sync', chat: check\.dataset\.cardSync \}, `sync:\$\{check\.dataset\.cardSync\}`\)/)
@@ -72,9 +72,11 @@ test('the cards draw their ways: the hint\'s buttons, Check now, and the nudge g
 })
 
 test('a hint\'s window shows the card\'s own words and buttons, not the main chat\'s empty "It waits for you"', () => {
-  assert.match(script, /if \(waiting\?\.isHint === true\) left\.append\(section\('What the board found', \[\.\.\.words, \.\.\.wayButtons\(need, true\)\]\)\)/)
+  assert.match(script, /if \(waiting\?\.isHint === true\) left\.append\(section\('What the board found', words\)\)/)
   assert.match(script, /if \(material === '' && form\.length === 0 && !waiting\.isHint\) main\.push/)
-  // In its own window a worker's hint leads nowhere else: only the main chat's and the Advisor's talk.
+  // Its buttons stand at the window's foot; in its own window a worker's hint leads nowhere else: only the main chat's
+  // and the Advisor's talk.
+  assert.match(script, /form\.append\(\.\.\.optionChoices\(need\), \.\.\.answerPart\(need, state, false, true\)\)/)
   assert.match(script, /if \(way\.way === 'talk' && !\(inWindow && way\.to === need\.id\)\)/)
   vm.runInNewContext(`const MIN = 60000\n${cut('times')}\n${cut('waiting')}\nObject.assign(this, { waitingOf })`, page)
   const hint = page.waitingOf({ ...CARDS.unfiled, text: 'Its last answer ends with a "For you" block.', answer: null, task: null, waits: { at: 1, words: '', questions: [], plan: null, handover: null }, isMain: true }, 2)

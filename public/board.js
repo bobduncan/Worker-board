@@ -3514,7 +3514,7 @@ function partnerAnswerParts(need) {
  * The part of a request that takes the answer: what was sent, or the form its kind needs. `isFolded` keeps the
  * form of a backlog step behind a button until it is opened, so the many steps stay short.
  */
-function answerPart(need, state, isFolded) {
+function answerPart(need, state, isFolded, inWindow = false) {
   const answer = need.answer
   // Partner answers (2026-10-19): the partner's answer with its Undo; an ask it handed on, or taken back, says so.
   if (answer?.by === 'partner') return [...partnerAnswerParts(need), ...(problems.has(need.id) ? [el('p', 'problem', problems.get(need.id))] : [])]
@@ -3528,7 +3528,7 @@ function answerPart(need, state, isFolded) {
     const what = { approve: 'approved', reject: 'rejected', done: 'marked done' }[earlier.verdict] ?? 'answered'
     parts.push(el('p', 'muted', `Changed since you ${what} it at ${clock(earlier.at)}${earlier.text === '' ? '' : `: "${earlier.text}"`}.`))
   }
-  if (need.kind === 'unfiled' || need.kind === 'idle') return [...parts, ...wayButtons(need)]
+  if (need.kind === 'unfiled' || need.kind === 'idle') return [...parts, ...wayButtons(need, inWindow)]
   if (need.kind === 'old-mod') return [...parts, ...oldModParts(need, state)]
   // B533: a quiet worker's card carries Check now; a question of the app's own form is answered in its chat only.
   if (!need.canAnswer) {
@@ -6488,8 +6488,9 @@ function drawDetails(state) {
   // B100: a worker that waits: its task in a few lines, then what it wants, in place of a description.
   const waiting = waitingOf(need, now)
   const waitingShown = waiting === null ? null : waitingParts(waiting, need.id)
-  // B533: a hint's window opens with the card's own words, links and buttons, then the chat's answer it is about.
-  if (waiting?.isHint === true) left.append(section('What the board found', [...words, ...wayButtons(need, true)]))
+  // B533: a hint's window opens with the card's own words and links, then the chat's answer it is about; its buttons
+  // stand at the window's foot (answerPart).
+  if (waiting?.isHint === true) left.append(section('What the board found', words))
   if (waitingShown !== null) left.append(...waitingShown.main)
   // B94: "nothing more is written" only when nothing is: a step whose lines are its checklist and its context
   // has them on the right.
@@ -6562,7 +6563,7 @@ function drawDetails(state) {
   if (need !== null) {
     const form = el('div', `need is-${need.kind} details-answer`)
     form.dataset.id = need.id
-    form.append(...optionChoices(need), ...answerPart(need, state, false))
+    form.append(...optionChoices(need), ...answerPart(need, state, false, true))
     foot.append(form)
   }
   // Redesign Part 2: a new or refined task of the Backlog tab: "Pin to" a worker in its foot, as in its row.
