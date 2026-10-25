@@ -95,7 +95,8 @@ const noteOf = value => (value !== null && typeof value === 'object' && Number.i
 /**
  * The sweep's runner. `every` how often in milliseconds (0: none, then only "Check now" sweeps); `workRuns()` true while a
  * chat works or a step is under way; `paused()` while the person pauses all (or resumes); `atLimit()` while a limit is
- * full; `chat()` how the board sees the supervisor's chat (`whyNoSweep`); `sweeping()` true while its sweep word is on
+ * full; `limitsOld()` (B640) true while a limit's newest reading is over `oldReadingMinutes` old, which the sweep's chat looks up
+ * with get_usage: it sweeps then also while the person pauses, and not as "nothing changed"; `chat()` how the board sees the supervisor's chat (`whyNoSweep`); `sweeping()` true while its sweep word is on
  * its way or its chat runs a turn; `wake({ subject })` sends the sweep word: `{ ok, session, note }` or `{ ok: false,
  * why }`; `tokens({ session, from })` what the turn cost (`tokensOfTurn`), or null; `memory` `{ load(), save(value) }` its
  * own file, so a restart neither sweeps again at once nor forgets a sweep that runs; `facts()` (the review) a mark of
@@ -107,7 +108,7 @@ const noteOf = value => (value !== null && typeof value === 'object' && Number.i
  * `view()` is `{ last, note, recent }`: the last sweep, why the newest sweep did not run (when that is newer), and the
  * ended sweeps kept.
  */
-export function sweepRunner({ every, workRuns, paused, atLimit, chat, sweeping, wake, tokens, memory = null, facts = async () => null }) {
+export function sweepRunner({ every, workRuns, paused, atLimit, limitsOld = async () => false, chat, sweeping, wake, tokens, memory = null, facts = async () => null }) {
   let last = null
   let note = null
   let recent = []
@@ -175,7 +176,12 @@ export function sweepRunner({ every, workRuns, paused, atLimit, chat, sweeping, 
       const changed = (await settle(now)) || (await readTokens(now))
       if (changed) await save()
       if (!(every > 0) || isOpen() || (last !== null && now - last.at < every)) return null
-      if (!(await workRuns()) || (await paused()) || (await atLimit())) return null
+      // B640: a limit read long ago is looked up by the chat even while the person pauses, and the board looking the same
+      // is no reason to skip that (the lookup is what changes it).
+      const isOld = await limitsOld()
+      const isPaused = await paused()
+      if (!(await workRuns()) && !(isPaused && isOld)) return null
+      if ((isPaused && !isOld) || (await atLimit())) return null
       const why = whyNoSweep(await chat())
       if (why !== null) {
         // Said once per reason, not every minute.
@@ -189,7 +195,7 @@ export function sweepRunner({ every, workRuns, paused, atLimit, chat, sweeping, 
       if (await sweeping()) return null
       // The review: a stuck night costs no sweep every 10 minutes: while the board looks as at the last sweep, none.
       const seen = await factsNow()
-      if (seen !== null && last?.facts === seen) {
+      if (seen !== null && last?.facts === seen && !isOld) {
         if (note?.why !== NOTHING_CHANGED) {
           note = { at: now, why: NOTHING_CHANGED, asked: false }
           await save()
@@ -203,7 +209,7 @@ export function sweepRunner({ every, workRuns, paused, atLimit, chat, sweeping, 
       await load()
       if (await settle(at)) await save()
       const why = whyNoSweep(await chat())
-        ?? ((await paused()) ? 'the person pauses all chats' : null)
+        ?? ((await paused()) && !(await limitsOld()) ? 'the person pauses all chats' : null)
         ?? ((await atLimit()) ? 'a limit of the plan is full' : null)
         ?? (isOpen() ? `the sweep asked at ${clockOf(last.at)} still runs` : null)
         ?? ((await sweeping()) ? 'a sweep still runs' : null)

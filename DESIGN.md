@@ -3303,7 +3303,12 @@ the AI sweep by a cheap supervisor chat and the hand-over to the Advisor, comes 
   `old-limit-reading` (B601, the fix of X47: a limit whose newest figure is older than `oldReadingIncidentMinutes`, 60 (B632, the fix of X55
   and X56: past `oldReadingMinutes`, 30, the supervisor chat first looks the limits up once with `get_usage`, which counts as a chat
   reading), while the person pauses or a worker works; one finding per limit, gone with a newer reading; the health summary's limits
-  line adds "(old: N min)"; the app writes its usage file only while it is in use, so a quiet hour leaves it old). How long a thing
+  line adds "(old: N min)"; the app writes its usage file only while it is in use, so a quiet hour leaves it old). B640 (the fix of
+  B632's check): the supervisor chat is cleared after every turn and the board reads only a chat's new transcript, so the board keeps
+  the newest chat reading of each window itself (`state.limitReadings`, `limits.mjs newestPerWindow`; the server writes it to the
+  project's `.claude/limit-readings.json` and passes it back to `buildState` as `keptReadings`); and a sweep also runs while the
+  person pauses, and is not skipped as "nothing changed", when a limit's reading is past `oldReadingMinutes` (the sweep runner's
+  `limitsOld`). How long a thing
   lasted comes from the timeline (`state.today`), else from the supervisor's own watch.
 - **The supervisor's memory**, `<project>/.claude/supervisor.json`, beside `sync.json` and apart from it: its watch
   (`seen`), the repairs of the last day (`repairs`, for `repair-repeats`) and when each rule tripped (`trips`). Read at

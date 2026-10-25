@@ -70,6 +70,7 @@ import { GUARD_ATTEMPTS, evaluationState } from './src/goalGuard.mjs'
 import { readSources } from './src/sources.mjs'
 import { backgroundRunning, parseTail, readTail } from './src/transcript.mjs'
 import { clearAtTake, isStepLine, modAtLeast, takeRefusal } from './src/clearOwed.mjs'
+import { keptReadingsOf } from './src/limits.mjs'
 import { buildState } from './src/state.mjs'
 import { isReadAction, workApi } from './src/work/api.mjs'
 import { effortOf } from './src/work/effort.mjs'
@@ -1276,8 +1277,20 @@ async function main(args) {
    * take-back clock starts again after it. In memory: after a restart it counts from the lines.
    */
   let handOutHeldAt = null
+  // B640: the newest limit reading of each window, kept with the project: the supervisor chat looks the limits up and is
+  // cleared after its turn, and the board reads only a chat's new transcript, so the lookup would be lost at once.
+  const READINGS_FILE = isDemo || config.project === '' ? null : join(config.project, '.claude', 'limit-readings.json')
+  const readingsOnDisk = async () => {
+    if (READINGS_FILE === null) return []
+    try {
+      return keptReadingsOf(JSON.parse((await readHead(READINGS_FILE, 16 * 1024))?.text ?? ''))
+    } catch {
+      return []
+    }
+  }
   const readState = cached(async () => {
     const raw = await readRaw()
+    const keptReadings = await readingsOnDisk()
     // The review of Pause 2: a line the person's pause holds does not grow late (store.mjs isLate, pause.mjs heldMs).
     keep.pause = raw.work?.pause ?? null
     const project = raw.project ?? config.project
@@ -1297,10 +1310,15 @@ async function main(args) {
       // Redesign Part 2, the review: the hand-out's held time and the gives the work API refused lately.
       handOutHeldAt,
       refusedGives: workWriters === null ? [] : givesRefused(workDir, clock()),
+      keptReadings,
       now: clock(),
       config: { ...config, project },
     })
     if (state.reconciled?.handOutHeld === true) handOutHeldAt = state.readAt
+    // Only the board that runs the loops writes; a copy beside it reads what that one kept.
+    if (READINGS_FILE !== null && !isShowOnly && JSON.stringify(state.limitReadings) !== JSON.stringify(keptReadings)) {
+      await writeAtomic(READINGS_FILE, JSON.stringify(state.limitReadings)).catch(error => loops.failed('limit-readings', error))
+    }
     // B173: the Advisor's rounds as the clock has them, for the Advice & Chat tab.
     const rounds = { morningRound: config.morningRound, weeklyRound: config.weeklyRound, last: roundsKept, group: config.advisorSuggestions }
     // B132: whether the project has a game to run; the demo has its made-up one.

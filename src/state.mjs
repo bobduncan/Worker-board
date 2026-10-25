@@ -13,7 +13,7 @@ import { hourEnd, hourStart, taskFacts, today } from './history.mjs'
 import { finishedList } from './finished.mjs'
 import { brainstormNeeds, brainstormsState } from './brainstorm.mjs'
 import { focusStage, goalAskList, goalAskNeeds, goalCounts, parseGoals, unlinkedSteps } from './goals.mjs'
-import { limitStop, limitsOf, parseUsageHistory, pauseLifted, pauseNote, storePause, usageReadings } from './limits.mjs'
+import { limitStop, limitsOf, newestPerWindow, parseUsageHistory, pauseLifted, pauseNote, storePause, usageReadings } from './limits.mjs'
 import { mentionedPaths } from './pictures.mjs'
 import { milestoneFromGoals } from './milestone.mjs'
 import { partnerEffort } from './partnerEffort.mjs'
@@ -1138,7 +1138,7 @@ function focusRun(node, items, prefix, partner) {
   return { note, needs }
 }
 
-export function buildState(raw, { lines = [], outbox = [], runs = [], board = null, seen = null, reports = null, finishedSeen = {}, taskTimes = [], mods = {}, modsLately = null, handOutHeldAt = null, refusedGives = [], now, config }) {
+export function buildState(raw, { lines = [], outbox = [], runs = [], board = null, seen = null, reports = null, finishedSeen = {}, taskTimes = [], mods = {}, modsLately = null, handOutHeldAt = null, refusedGives = [], keptReadings = [], now, config }) {
   // The review of Pause 2: while the person pauses (2026-10-19: pausing only, no longer until running) what waits in
   // the outbox is held until the resume, but the board's own "resume" to the main chat; the page says so (`isHeld`).
   const isPaused = isHolding(raw.work?.pause)
@@ -1281,9 +1281,11 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
   // B113: the plan's limits, from what is on this machine: the app's own file, what any chat looked up, and a
   // chat the app stopped. Reading them asks no chat and costs nothing. A pause by a note changes none of these.
   const everyone = [...firstRead, firstAdvisor, firstHelper, firstSupervisor].filter(one => one !== null)
+  // B640: and what the board kept of them: a chat that looked the limits up and was cleared since took its transcript with it.
+  const readings = [...everyone.flatMap(one => one.usage), ...keptReadings]
   const limits = limitsOf({
     sample: parseUsageHistory(raw.usageText ?? null),
-    readings: everyone.flatMap(one => one.usage),
+    readings,
     stops: everyone.filter(one => one.suspended?.by === 'app').map(one => ({ at: one.suspended.since, limit: one.suspended.limit, resetsAt: one.suspended.named })),
     now,
     warnAt: config.limitWarnPercent,
@@ -1717,6 +1719,8 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
     taskTimes: taskTimesOf(taskTimes),
     // B113: the 5-hour limit and the week, each with how old its figure is; a window nothing is known of is null.
     limits,
+    // B640: the newest reading of each window any chat gave, kept by the server for the next read.
+    limitReadings: newestPerWindow(readings),
     // B300: each with the reconciler's flags on it.
     // B468: and with what it runs at for its step (`effortRun`, effort.mjs), or null; model per step: its model too.
     // An opus step that waits for its worker to run on Opus says so on the lane (`waitsFor`).

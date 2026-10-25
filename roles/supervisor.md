@@ -29,7 +29,9 @@ sometimes with `(about <chat>)`: the person pressed Check now in that worker's m
 
 A limit reading over 30 min old while a worker works or the person pauses (the limits line says "(old: N min)"): look
 the limits up once with the app's usage tool, `get_usage`, before anything else. The board reads that answer as a chat
-reading, so the age starts again. File an incident only for a limit that is still old, over 60 min (the rule
+reading and keeps the newest reading of each limit itself, so it stands although your conversation is cleared right
+after, and the age starts again. The board wakes you for this also while the person pauses all chats (no other sweep
+then). File an incident only for a limit that is still old, over 60 min (the rule
 old-limit-reading does that, once per limit); under that, nothing: the app writes its usage file only while it is in use.
 
 Read only the health summary. Do not read files, logs or transcripts, do not run commands, and do not start agents: a

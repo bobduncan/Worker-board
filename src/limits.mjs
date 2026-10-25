@@ -69,6 +69,25 @@ export function usageReadings(entries) {
   return readings
 }
 
+/**
+ * B640 (the fix of B632's check): the newest reading of each window among `readings`, as at most two readings, one
+ * per window, in the form `usageReadings` gives. The supervisor chat looks the limits up and is then cleared, and the board
+ * reads only the chat's new transcript: what it looked up is kept by the board, and these are the readings it keeps.
+ */
+export function newestPerWindow(readings) {
+  const newest = key => (readings ?? []).filter(one => one?.[key] != null && Number.isFinite(one.at)).reduce((a, b) => (a === null || b.at >= a.at ? b : a), null)
+  return ['fiveHour', 'week'].flatMap(key => {
+    const found = newest(key)
+    return found === null ? [] : [{ at: found.at, fiveHour: key === 'fiveHour' ? found.fiveHour : null, week: key === 'week' ? found.week : null }]
+  })
+}
+
+/** B640: kept readings as their file holds them (`newestPerWindow`'s form), the figures that are none dropped; [] for anything else. */
+export function keptReadingsOf(value) {
+  const window = one => (one !== null && typeof one === 'object' && Number.isFinite(one.used) ? { used: one.used, resetsAt: Number.isFinite(one.resetsAt) ? one.resetsAt : null } : null)
+  return newestPerWindow((Array.isArray(value) ? value : []).map(one => (one !== null && typeof one === 'object' && Number.isFinite(one.at) ? { at: one.at, fiveHour: window(one.fiveHour), week: window(one.week) } : null)))
+}
+
 /** The next time this machine's clock shows `hour:minute` after `at`. */
 function nextClock(at, hour, minute) {
   const from = new Date(at)

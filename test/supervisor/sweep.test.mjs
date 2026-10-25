@@ -138,6 +138,41 @@ test('Review Focus 3, quiet nights: no sweep when nothing works, while the perso
   assert.equal((await off.supervisor.checkNow({})).sweep.started, true)
 })
 
+test('B640: a limit read over 30 min ago is looked up by the sweep also while the person pauses, and is no "nothing changed"; a quiet board stays quiet', async () => {
+  const old = (five, week) => ({ fiveHour: { used: 11, level: 'ok', at: START - five * MIN }, week: { used: 58, level: 'ok', at: START - week * MIN } })
+  const pause = { state: 'pausing', since: START - MIN }
+  // Paused, a reading 40 min old: a sweep, so the chat can look the limits up; a fresh one: none.
+  const stale = board({ pause, limits: old(40, 5) })
+  await stale.tick()
+  assert.equal(stale.sweeps().length, 1)
+  const fresh = board({ pause, limits: old(10, 5) })
+  await fresh.tick()
+  assert.equal(fresh.sweeps().length, 0)
+  // Nobody works and nobody pauses (the quiet night): an old reading is no reason to sweep.
+  const night = board({ working: false, limits: old(300, 300) })
+  await night.tick()
+  assert.equal(night.sweeps().length, 0)
+  // A full limit still holds the sweep, old or not.
+  const full = board({ pause, limits: { ...old(40, 5), fiveHour: { used: 100, level: 'full', at: START - 40 * MIN } } })
+  await full.tick()
+  assert.equal(full.sweeps().length, 0)
+  // Work runs and the board looks as at the last sweep: skipped as before, but not while a reading is old (the lookup is what changes it).
+  for (const [limits, count] of [[old(10, 5), 1], [old(40, 5), 2]]) {
+    const b = board({ limits })
+    b.facts.value = 'same'
+    await b.tick()
+    b.outbox[0].state = 'delivered'
+    await b.supervisor.heard({ action: 'health', ok: true })
+    await b.supervisor.heard({ action: 'turn-ended', ok: true, session: 'cli-watcher', since: START })
+    b.at(11)
+    await b.tick()
+    assert.equal(b.sweeps().length, count)
+  }
+  // Check now while the person pauses runs for an old reading, and says why not for a fresh one.
+  assert.equal((await board({ pause, limits: old(40, 5) }).supervisor.checkNow({})).sweep.started, true)
+  assert.equal((await board({ pause, limits: old(10, 5) }).supervisor.checkNow({})).sweep.why, 'the person pauses all chats')
+})
+
 test('Check now runs the rules and sweeps at once, about the worker of its menu; while one runs, it says so', async () => {
   const b = board({ working: false })
   const done = await b.supervisor.checkNow({ subject: 'Digger' })

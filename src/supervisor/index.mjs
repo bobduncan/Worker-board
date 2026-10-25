@@ -19,6 +19,7 @@ import { createHash } from 'node:crypto'
 
 import { countFromMs } from '../config.mjs'
 import { incidentWords, sweepWords } from '../say.mjs'
+import { readingAgeMinutes } from '../limits.mjs'
 import { isLate } from '../store.mjs'
 import { isHolding } from '../work/pause.mjs'
 
@@ -139,7 +140,7 @@ export function createSupervisor(ports) {
     return healthSummary(view, now)
   }
   const sweeper = sweepPorts === null || tell === null ? null
-    : sweepOver(sweepPorts, { ports: runnerPorts, every: sweepEvery(settings), tell, keep, facts: async () => factsOf(await healthNow()) })
+    : sweepOver(sweepPorts, { ports: runnerPorts, every: sweepEvery(settings), tell, keep, settings, facts: async () => factsOf(await healthNow()) })
   // Task 3: the incidents as the store holds them, read after each run (and once at the start).
   let incidents = []
   const readIncidents = async () => {
@@ -289,7 +290,7 @@ const sweepEvery = settings => (Number.isFinite(settings.supervisorSweepMinutes)
  * (roles/supervisor.md), `tokens({ session, from })` what the turn cost, `memory` its file; `tell` the supervisor's port
  * for a board word. Work runs while a chat of the board works or a step is taken or in progress (Review Focus 3).
  */
-function sweepOver(sweep, { ports, every, tell, keep, facts }) {
+function sweepOver(sweep, { ports, every, tell, keep, facts, settings }) {
   const chats = state => [...(state.chats ?? []).filter(one => !one.isLeftover), ...(state.advisor ? [state.advisor] : []), ...(state.advisorHelper ? [state.advisorHelper] : [])]
   return sweepRunner({
     every,
@@ -305,6 +306,13 @@ function sweepOver(sweep, { ports, every, tell, keep, facts }) {
     atLimit: async () => {
       const limits = (await ports.state()).limits ?? {}
       return ['fiveHour', 'week'].some(key => limits[key]?.level === 'full')
+    },
+    // B640: a limit whose newest reading is over `oldReadingMinutes` old, while a chat works or the person pauses: the sweep's
+    // chat looks the limits up (roles/supervisor.md), and the board keeps that reading (state.limitReadings).
+    limitsOld: async () => {
+      const state = await ports.state()
+      const old = Number.isFinite(settings.oldReadingMinutes) ? settings.oldReadingMinutes : 30
+      return ['fiveHour', 'week'].some(key => (readingAgeMinutes(state.limits?.[key], ports.now()) ?? 0) > old)
     },
     chat: () => sweep.chat(),
     // Its word on its way, or a turn of its chat running. The review: only a word waiting within its time, or taken in the
