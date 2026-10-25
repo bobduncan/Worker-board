@@ -753,6 +753,13 @@ ask points, wake you with `check B<id>: Q<n> answered` and their words: file `ch
 fail (then the fix comes). A step left in review 30 minutes with no check filed wakes you with `check step B<id>`, again
 every 30 minutes: check it then.
 
+**Two rounds, then another way** (the user, 2026-10-25, on maps stuck at 46 to 60 of 75 after rounds of small patches:
+"sure, lets try this. but i dont need to give approval for the first different approach"). When a thing's second try
+fails its check too (its fix fails, `Attempts` 2 or more), it gets no third patch of the same way. Refine its next fix
+to another way of making it: for a look, a Codex painting or pieces cut from one, a rule change, or another tool. Start
+the what with `Tried before: <each way, its score, why it fell short>`. Choose that way yourself and let it run without
+asking the user. Only when the different way fails twice as well, bring it to the user with the evaluation below.
+
 Once a step's fix passed its check (B565), the step's check is yours to file again, at once: the board's word then
 carries `Why: its fix B<n> is done: file its check again`, and `; keep Q<n> as an ask point` for each ask of its check
 still open. File `work checked B<id>` again with the points the fix made pass as `pass:` and every open ask point kept
@@ -844,7 +851,13 @@ worker board itself is refined to the board's design principles (`PRINCIPLES.md`
 writes the block in the form below; `refined` folds the questions away and moves a new step to refined, as the flow
 file says. What a refined step
 is, as the user approved it on 2026-10-17 ("1 fully comprehensive description that is compact with pictures and
-summary. that doesnt read like it was in progress text"), in two stages:
+summary. that doesnt read like it was in progress text"), in two stages (below).
+
+**Codex paints the look** (the user, 2026-10-25: "sure"). A look the game shows (ground, edges, cliffs, stairs, props,
+a hole or a patch) is made from Codex pictures by default: a painting, or pieces cut from one. Hand-written drawing
+code is kept for what moves or changes in a fight (units, effects, the lava's motion, the stages of crumbling ground)
+and for laying the Codex pieces. A step that makes a look says in its what which of the two it is, and why when it is
+not Codex. Using Codex needs no ask (CLAUDE.md, part 5).
 
 **While refining:**
 
