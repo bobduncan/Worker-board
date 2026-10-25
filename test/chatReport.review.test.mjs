@@ -110,9 +110,15 @@ test('review 4: a chat idle at its last report, off after an app restart, is no 
   assert.equal(rule.check(view([{ ...lane(build(), 'Main') }, busy]), ctx).length, 1)
 })
 
-test('review 5b (B148): background work does not hold a worker whose step is reported; it does while it holds the step', () => {
-  const reported = build({ reports: [report('Board', 'idle', { background: true })], items: [stepItem('B12', 'Board', 'review')] })
+test('review 5b (B148): background work does not hold a worker whose step it reported in its last turn; it does while it holds the step', () => {
+  // Its last turn started 60 min ago (when the board heard it busy); it moved B12 to review 40 min ago.
+  const reported = build({ reports: [report('Board', 'idle', { background: true, busyAt: NOW - 60 * MIN })], items: [stepItem('B12', 'Board', 'review')] })
   assert.equal(lane(reported, 'Board').state, 'free')
+  // A step done three days ago is not its last turn's: a shell it leaves running holds it.
+  const old = parseItem(`Id: B9\nKind: step\nTitle: Step B9\nState: done\nOwner: Board\nSince: ${stamp(NOW - 3 * 24 * 60 * MIN)}\n`)
+  assert.equal(lane(build({ reports: [report('Board', 'idle', { background: true, busyAt: NOW - 20 * MIN })], items: [old] }), 'Board').state, 'working')
+  // Nor when the board never heard its turn start (it restarted since).
+  assert.equal(lane(build({ reports: [report('Board', 'idle', { background: true })], items: [stepItem('B12', 'Board', 'review')] }), 'Board').state, 'working')
   const holding = build({ reports: [report('Board', 'idle', { background: true })], items: [stepItem('B12', 'Board')] })
   assert.equal(lane(holding, 'Board').state, 'working')
   // With no step at all its background work holds it (the main chat's agents, a request of the person).

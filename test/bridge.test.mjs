@@ -164,14 +164,14 @@ test('a report call keeps the chat\'s state by the name the board shows, with th
   const reports = new Map()
   const body = { chat: 'Units', session: 's-units', report: { state: 'busy', since: 100 }, mod: '0.19.0' }
   assert.deepEqual(answerReport(reports, body, checkTake(body, board), 500), { ok: true, result: { ok: true } })
-  assert.deepEqual(reports.get('Units'), { state: 'busy', since: 100, background: false, at: 500, session: 's-units', mod: '0.19.0' })
+  assert.deepEqual(reports.get('Units'), { state: 'busy', since: 100, background: false, run: null, seq: null, at: 500, session: 's-units', mod: '0.19.0', busyAt: 500 })
 })
 
 test('a take that carries a report keeps it the same way', () => {
   const reports = new Map()
   const body = { chat: 'Units', session: 's-units', report: { state: 'idle', since: 300, background: true } }
   assert.equal(noteReport(reports, body, checkTake(body, board), 700), true)
-  assert.deepEqual(reports.get('Units'), { state: 'idle', since: 300, background: true, at: 700, session: 's-units', mod: null })
+  assert.deepEqual(reports.get('Units'), { state: 'idle', since: 300, background: true, run: null, seq: null, at: 700, session: 's-units', mod: null, busyAt: null })
   // A take without a report, or with one that is no report, keeps what was there and is not refused for it.
   assert.equal(noteReport(reports, { chat: 'Units', session: 's-units' }, checkTake({ chat: 'Units', session: 's-units' }, board), 800), false)
   assert.equal(noteReport(reports, { chat: 'Units', session: 's-units', report: { state: 'nap' } }, { ok: true, chat: 'Units' }, 800), false)
@@ -200,16 +200,37 @@ test('a report with a state that is not busy, idle or asking answers 400 and kee
   assert.equal(reports.size, 0)
 })
 
-test('the review of chat-reports, 6: a report that arrives after a newer one of the same session changes nothing but the time it was heard', () => {
+test('the review of chat-reports, 6: a report of a lower seq than the kept one of its session and run changes nothing but when it was heard', () => {
   const reports = new Map()
-  const body = (state, since) => ({ chat: 'Units', session: 's-units', report: { state, since } })
-  noteReport(reports, body('idle', 300), checkTake(body('idle', 300), board), 500)
+  const body = (state, seq, more = {}) => ({ chat: 'Units', session: 's-units', report: { state, since: 300, run: 7, seq, ...more } })
+  const note = (one, at) => noteReport(reports, one, checkTake(one, board), at)
+  note(body('idle', 5), 500)
   // The busy of before the idle comes late: the idle stands, heard again at 600.
-  noteReport(reports, body('busy', 100), checkTake(body('busy', 100), board), 600)
-  assert.deepEqual([reports.get('Units').state, reports.get('Units').since, reports.get('Units').at], ['idle', 300, 600])
-  // A newer one, or one of the same time (the ping), is taken.
-  noteReport(reports, body('busy', 700), checkTake(body('busy', 700), board), 800)
-  assert.deepEqual([reports.get('Units').state, reports.get('Units').at], ['busy', 800])
-  noteReport(reports, body('busy', 700), checkTake(body('busy', 700), board), 900)
-  assert.equal(reports.get('Units').at, 900)
+  note(body('busy', 4), 600)
+  assert.deepEqual([reports.get('Units').state, reports.get('Units').seq, reports.get('Units').at], ['idle', 5, 600])
+  // A higher seq is taken whatever its since says (a PC clock that stepped back never freezes the chat).
+  note(body('busy', 6, { since: 100 }), 700)
+  assert.deepEqual([reports.get('Units').state, reports.get('Units').at], ['busy', 700])
+  // A new process of the chat (another run) starts fresh, its seq from 1.
+  note(body('idle', 1, { run: 9 }), 800)
+  assert.deepEqual([reports.get('Units').state, reports.get('Units').seq], ['idle', 1])
+  // A report without a seq (no order to tell) is taken.
+  note({ chat: 'Units', session: 's-units', report: { state: 'busy', since: 300 } }, 900)
+  assert.equal(reports.get('Units').state, 'busy')
+})
+
+test('the review of chat-reports, 5b: the board keeps when it heard the chat\'s last turn start, through its question and its end', () => {
+  const reports = new Map()
+  const note = (state, at, session = 's-units') => {
+    const one = { chat: 'Units', session, report: { state, since: at } }
+    noteReport(reports, one, checkTake(one, board), at)
+    return reports.get('Units').busyAt
+  }
+  assert.equal(note('idle', 100), null)
+  assert.equal(note('busy', 200), 200)
+  assert.equal(note('busy', 205), 200)
+  assert.equal(note('asking', 250), 200)
+  assert.equal(note('busy', 300), 200)
+  assert.equal(note('idle', 400), 200)
+  assert.equal(note('busy', 500), 500)
 })

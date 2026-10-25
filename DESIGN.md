@@ -3654,15 +3654,18 @@ timers. Now each chat says it (principle 3, know don't guess).
   end goes before the clear starts.
 - **The board keeps** each chat's last report in memory (`server.mjs`, `src/bridge.mjs` `noteReport`): by the name it
   shows, and only from the session it shows under that name (another session, a renamed or replaced chat, is refused
-  as a take is, 409, and writes nothing); a state other than the four is refused, 400. A report that arrives after a
-  newer one of the same session (an older `since`) changes nothing but when the chat was last heard (principle 5).
+  as a take is, 409, and writes nothing); a state other than the four is refused, 400. Each report carries `run` (its
+  process: when its session started there) and `seq` (rising by one with every report and take of that process): one
+  of a lower `seq` than the kept one of the same session and run changes nothing but when the chat was last heard
+  (principle 5; no clock is compared, a new session or process starts fresh). The board also keeps when it heard the
+  chat's last turn start (`busyAt`: busy after idle, ended or nothing).
 - **What it shows** (`src/chatReport.mjs` `laneFromReport`, `src/state.mjs`): busy is Working, asking Waiting for
   you, idle Free. Idle while the store holds a step taken, in progress or waiting on the person for the chat is
   Interrupted, never Free, so it is handed no new work ("idle with its task open" in the main chat's words); with a
   blocking ask on the person open (or the step waiting on the person) it waits. A blocking ask routed to the partner
   keeps it Working between two turns, waiting for the partner (B392: `waitsForPartner`; health counts that as no odd
-  state). Idle with background work is Working, "background work it started is still running", unless its step is
-  reported (in review or done) and it holds no other (B148). A chat that reports runs. The report takes the place of the reading of its transcript, card and timers (the turn, cut off,
+  state). Idle with background work is Working, "background work it started is still running", unless it moved a step to
+  review or done during its last turn (the step's Since at or after `busyAt`) and holds no other (B148). A chat that reports runs. The report takes the place of the reading of its transcript, card and timers (the turn, cut off,
   quiet, held by its card or branch). Suspended (the plan's limit) stays the board's own fact, whatever it reports.
 - **Unknown and off:** no report for `unknownAfterSeconds` (30 unless set, at least 5: the mod pings every 5 s) is
   Unknown: no task goes to it, and the pause does not count it as running a turn. It is Not running (`isRunning`

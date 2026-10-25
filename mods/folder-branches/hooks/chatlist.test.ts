@@ -102,6 +102,17 @@ type World = {
   reportsAtClear: number[]
 }
 
+/** The review of chat-reports: a report as the board reads what it says, without its order (`run`, `seq`). */
+function said(report: Record<string, unknown>): Record<string, unknown> {
+  const { run: _run, seq: _seq, ...rest } = report
+  return rest
+}
+/** A body the mod sent, its report without its order. */
+function saidBody(text: string): Record<string, unknown> {
+  const body = JSON.parse(text) as Record<string, unknown>
+  return { ...body, report: said(body.report as Record<string, unknown>) }
+}
+
 /** Pause 2: the board's pause-state answer while nobody paused. */
 const RUNNING = { text: "The board's pause state: running.", state: 'running', since: null, forChat: { holds: [], mustStop: false }, resumeList: [] }
 
@@ -695,7 +706,7 @@ describe('what the person answers on the worker board reaches the chat it is for
 
     // It says who asks: the chat's name and its session, so the board serves only the chat it shows under that name.
     // Redesign Part 1: every take carries the chat's report of its turn state (idle since the session started).
-    expect(w.fetched[0]).toEqual({ url: 'http://127.0.0.1:4311/api/bridge/take', key: KEY, body: '{"chat":"Units","session":"units","report":{"state":"idle","since":0,"background":false}}' })
+    expect(w.fetched[0]).toEqual({ url: 'http://127.0.0.1:4311/api/bridge/take', key: KEY, body: '{"chat":"Units","session":"units","report":{"state":"idle","since":0,"background":false,"run":0,"seq":1}}' })
     expect(w.reported).toEqual(['{"chat":"Units","session":"units","typed":["m1"],"failed":[]}'])
     expect(w.typedIn).toEqual(['plugin:as the person:(answered on the worker board, 16:02) B14 "The walk": approved. Tick this step in the backlog.'])
 
@@ -2136,7 +2147,7 @@ describe('B463: a chat renamed while it runs', () => {
     w.waiting.push({ id: 'm1', text: '(answered on the worker board, 00:31) Q9 "The card": A' })
     await clock.advance(5000)
     await settled()
-    expect(w.fetched.at(-1)?.body).toBe('{"chat":"Sound","session":"units","report":{"state":"idle","since":0,"background":false}}')
+    expect(saidBody(w.fetched.at(-1)?.body ?? '{}')).toEqual({ chat: 'Sound', session: 'units', report: { state: 'idle', since: 0, background: false } })
     expect(w.typedIn).toEqual(['plugin:as the person:(answered on the worker board, 00:31) Q9 "The card": A'])
   })
 
@@ -2817,7 +2828,7 @@ describe('clear after each step', () => {
     }
     expect(w.fetched.filter(one => one.url.endsWith('/api/bridge/take')).length).toBe(takes)
     expect(w.reports.length).toBe(4)
-    expect(w.reports.slice(1).map(body => JSON.parse(body))).toEqual(Array(3).fill({ chat: 'Units', session: 'units', report: { state: 'idle', since: 0, background: false } }))
+    expect(w.reports.slice(1).map(saidBody)).toEqual(Array(3).fill({ chat: 'Units', session: 'units', report: { state: 'idle', since: 0, background: false } }))
   })
 
   test('the model cannot ask for the log itself', async ($, on) => {
@@ -2930,7 +2941,7 @@ describe('Redesign Part 1: the chat reports its turn state to the board', () => 
     await clock.advance(1000)
     await $.turn.start({ text: 'go', turnId: 't1' })
     await settle()
-    expect(w.reports.map(body => JSON.parse(body))).toEqual([{ chat: 'Units', session: 'units', report: { state: 'busy', since: 1000, background: false } }])
+    expect(w.reports.map(saidBody)).toEqual([{ chat: 'Units', session: 'units', report: { state: 'busy', since: 1000, background: false } }])
     // A subagent's turn inside the chat's own changes nothing.
     await $.turn.start({ text: 'look', turnId: 't2', agentId: 'a1' })
     await $.turn.complete({ ...ENDED, turnId: 't2', agentId: 'a1' })
@@ -2939,7 +2950,7 @@ describe('Redesign Part 1: the chat reports its turn state to the board', () => 
     await clock.advance(2000)
     await $.turn.complete({ ...ENDED, turnId: 't1' })
     await settle()
-    expect(w.reports.map(body => JSON.parse(body).report)).toEqual([{ state: 'busy', since: 1000, background: false }, { state: 'idle', since: 3000, background: false }])
+    expect(w.reports.map(body => saidBody(body).report)).toEqual([{ state: 'busy', since: 1000, background: false }, { state: 'idle', since: 3000, background: false }])
     expect(w.modHeaders.every(one => one === MOD_VERSION)).toBe(true)
   })
 
@@ -2950,8 +2961,26 @@ describe('Redesign Part 1: the chat reports its turn state to the board', () => 
     await $.turn.start({ text: 'go', turnId: 't1' })
     await clock.advance(5000)
     await settle()
-    const takes = w.fetched.filter(one => one.url.endsWith('/api/bridge/take')).map(one => JSON.parse(one.body).report)
+    const takes = w.fetched.filter(one => one.url.endsWith('/api/bridge/take')).map(one => saidBody(one.body).report)
     expect(takes).toEqual([{ state: 'idle', since: 0, background: false }, { state: 'busy', since: 5000, background: false }])
+  })
+
+  test('the review of chat-reports, 6: every report and take counts up (seq) within its process (run), so the board orders them by no clock', async ($, on) => {
+    const { w, clock } = await joined($, on)
+    await clock.advance(1000)
+    await $.turn.start({ text: 'go', turnId: 't1' })
+    await settle()
+    await clock.advance(4000)
+    await settle()
+    await $.turn.complete({ ...ENDED, turnId: 't1' })
+    await settle()
+    const order = (text: string): string => {
+      const report = (JSON.parse(text) as { report: { state: string; run: number; seq: number } }).report
+      return `${report.state} ${report.run} ${report.seq}`
+    }
+    // The session started at 0: its run. busy (1), the take at 5 s (2), idle (3).
+    expect(w.reports.map(order)).toEqual(['busy 0 1', 'idle 0 3'])
+    expect(w.fetched.filter(one => one.url.endsWith('/api/bridge/take')).map(one => order(one.body))).toEqual(['busy 0 2'])
   })
 
   test("a question to the person reports asking; the person's answer, busy again", async ($, on) => {
@@ -3028,7 +3057,7 @@ describe('Redesign Part 1: the chat reports its turn state to the board', () => 
     const { w } = await joined($, on)
     await $.session.end({ reason: 'other', sessionId: w.id, resume: { id: w.id } } as never)
     await settle()
-    expect(w.reports.map(body => JSON.parse(body))).toEqual([{ chat: 'Units', session: 'units', report: { state: 'ended', since: 0, background: false } }])
+    expect(w.reports.map(saidBody)).toEqual([{ chat: 'Units', session: 'units', report: { state: 'ended', since: 0, background: false } }])
   })
 
   test('a chat that is not in the list reports nothing', async ($, on) => {

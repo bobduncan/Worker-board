@@ -46,11 +46,21 @@ export function noteReport(reports, body, checked, now) {
   if (report === null) return false
   const session = typeof body?.session === 'string' ? body.session.trim() : ''
   const mod = typeof body?.mod === 'string' ? body.mod : null
-  // The review of chat-reports (principle 5): two reports can arrive out of order; one older than the kept one of the
-  // same session changes nothing but when the chat was last heard.
   const kept = reports.get(checked.chat)
-  if (kept !== undefined && kept.session === session && report.since < kept.since) reports.set(checked.chat, { ...kept, at: now, mod })
-  else reports.set(checked.chat, { ...report, at: now, session, mod })
+  const isSame = kept !== undefined && kept.session === session && kept.run !== null && kept.run === report.run
+  // The review of chat-reports (principle 5): two reports can arrive out of order; one of a lower `seq` than the kept one
+  // of the same session and process changes nothing but when the chat was last heard. A new session or process starts
+  // fresh; no clock is compared.
+  if (isSame && kept.seq !== null && report.seq !== null && report.seq < kept.seq) {
+    reports.set(checked.chat, { ...kept, at: now, mod })
+    return true
+  }
+  // When the board heard the chat's last turn start (busy after idle, ended or nothing; not after its question), kept
+  // through the turn and its end: a step it moved to review or done since then is its last turn's (B148, state.mjs).
+  const isSameSession = kept !== undefined && kept.session === session
+  const isTurnStart = report.state === 'busy' && (!isSameSession || kept.state === 'idle' || kept.state === 'ended')
+  const busyAt = isTurnStart ? now : isSameSession ? kept.busyAt ?? null : null
+  reports.set(checked.chat, { ...report, at: now, session, mod, busyAt })
   return true
 }
 

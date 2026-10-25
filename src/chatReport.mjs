@@ -15,15 +15,19 @@ export const REPORT_STATES = ['busy', 'idle', 'asking', 'ended']
 export const REPORT_MOD = '0.19.0'
 
 /**
- * The mod's `report` object as the board keeps it: `{ state, since, background }`; `since` a finite time not after
- * `now` (else `now`), `background` true only when the mod says so (background work runs after the turn). Null for
- * anything that is not a report.
+ * The mod's `report` object as the board keeps it: `{ state, since, background, run, seq }`; `since` a finite time not
+ * after `now` (else `now`), `background` true only when the mod says so (background work runs after the turn). The
+ * review of chat-reports: `seq` the count that rises with every report of the mod's process, `run` that process (each
+ * null when not given): the order of two reports is told by them, never by a clock. Null for anything that is not a
+ * report.
  */
 export function parseReport(value, now) {
   if (value === null || typeof value !== 'object' || Array.isArray(value)) return null
   if (!REPORT_STATES.includes(value.state)) return null
   const since = Number.isFinite(value.since) && value.since <= now ? value.since : now
-  return { state: value.state, since, background: value.background === true }
+  const seq = Number.isSafeInteger(value.seq) && value.seq >= 0 ? value.seq : null
+  const run = Number.isFinite(value.run) || (typeof value.run === 'string' && value.run.length <= 64) ? value.run : null
+  return { state: value.state, since, background: value.background === true, run, seq }
 }
 
 /**

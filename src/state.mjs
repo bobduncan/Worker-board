@@ -1248,8 +1248,10 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
   const unknownAfterMs = (Number.isFinite(config.unknownAfterSeconds) ? config.unknownAfterSeconds : 30) * 1000
   // The review of chat-reports (principle 2): a report silent this long is "Not running", never unknown for ever.
   const offAfterMs = (Number.isFinite(config.offAfterMinutes) ? config.offAfterMinutes : 5) * MIN
-  const hasReportedStep = name => itemsOf(raw.work).some(one => one.head.get('Kind') === 'step' && ['review', 'done'].includes(one.head.get('State'))
-    && String(one.head.get('Owner') ?? '').replace(prefix, '').trim().toLowerCase() === name.toLowerCase())
+  // B148 kept: a step of its own the chat moved to review or done during its last turn (its Since at or after the board
+  // heard that turn start, `busyAt`); none when the board did not hear it start.
+  const hasReportedStep = (name, busyAt) => Number.isFinite(busyAt) && itemsOf(raw.work).some(one => one.head.get('Kind') === 'step' && ['review', 'done'].includes(one.head.get('State'))
+    && String(one.head.get('Owner') ?? '').replace(prefix, '').trim().toLowerCase() === name.toLowerCase() && sinceMs(one.head.get('Since')) >= busyAt)
   const reportedOf = new Map(found.filter(chat => !chat.isLeftover).map(chat => {
     const entry = reports instanceof Map ? reports.get(chat.name) ?? null : null
     if (entry === null || entry.session !== chat.cliSessionId || !modReports(entry.mod ?? null)) return [chat.name, null]
@@ -1263,7 +1265,7 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
       hasBlockingAsk: waits.blocking.has(key) || (forPartner.length === 0 && holds.some(one => one.state === 'waiting on you')),
       waitsForPartner: forPartner.length > 0,
       // B148 kept: background work holds no chat whose step is reported (in review or done) while it holds no other.
-      isTaskReported: holds.length === 0 && hasReportedStep(chat.name),
+      isTaskReported: holds.length === 0 && hasReportedStep(chat.name, entry.busyAt),
       appRuns: Number.isFinite(raw.appStartedAt) && raw.appStartedAt > entry.at ? false : null,
     })
     return [chat.name, lane === null ? null : { ...lane, entry }]

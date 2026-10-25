@@ -17,7 +17,9 @@ test('the states and the first mod that reports', () => {
 })
 
 test('parseReport reads the mod\'s report, and nothing else', () => {
-  assert.deepEqual(parseReport({ state: 'busy', since: 100 }, 200), { state: 'busy', since: 100, background: false })
+  assert.deepEqual(parseReport({ state: 'busy', since: 100 }, 200), { state: 'busy', since: 100, background: false, run: null, seq: null })
+  assert.deepEqual([parseReport({ state: 'idle', run: 7, seq: 3 }, 200).run, parseReport({ state: 'idle', run: 7, seq: 3 }, 200).seq], [7, 3])
+  assert.deepEqual([parseReport({ state: 'idle', run: {}, seq: -1 }, 200).run, parseReport({ state: 'idle', seq: 1.5 }, 200).seq], [null, null])
   assert.equal(parseReport({ state: 'sleeping' }, 200), null)
   // A time after now, or none, is now.
   assert.equal(parseReport({ state: 'idle', since: 999 }, 200).since, 200)

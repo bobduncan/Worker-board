@@ -71,6 +71,12 @@ let isInTurn = false
  * hook of the turn now ending listed background work still running, and since when a report at a ping is under way.
  */
 let turnReport: TurnReport = { state: 'idle', since: 0, background: false }
+/**
+ * The review of chat-reports: the order of this process's reports, for the board (no clock is compared): `reportRun`
+ * names the process (the time its session started here), `reportSeq` rises by one with every report and take sent.
+ */
+let reportRun = 0
+let reportSeq = 0
 let openForms = 0
 let hasBackground = false
 let reportingSince: number | null = null
@@ -460,7 +466,7 @@ async function askBoard($: EngineInterface, board: Board, path: string, more: Re
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'X-Board-Key': board.key, [MOD_HEADER]: MOD_VERSION },
     // Redesign Part 1: a take (the ping) and a report carry the chat's turn state as it stands when they go out.
-    body: JSON.stringify({ chat: myself.name, session: await $.session.id(), ...more, ...(path === TAKE_PATH || path === REPORT_PATH ? { report: turnReport } : {}) }),
+    body: JSON.stringify({ chat: myself.name, session: await $.session.id(), ...more, ...(path === TAKE_PATH || path === REPORT_PATH ? { report: { ...turnReport, run: reportRun, seq: (reportSeq += 1) } } : {}) }),
   })
   // B463: a chat renamed in the app learns its new name here, at the next take, whatever wakes it.
   if (answer.status === 409) await followShown($, answer.text)
@@ -1767,8 +1773,10 @@ export const register: Register = on => {
       name: 'workers',
       description: "Open the Workers pane: the project's chats, who is working on what, and whose turn it is",
     })
-    // Redesign Part 1: the session starts idle.
+    // Redesign Part 1: the session starts idle; its reports count from 1 in this process.
     turnReport = { state: 'idle', since: await $.clock.now(), background: false }
+    reportRun = turnReport.since
+    reportSeq = 0
     const view = await load($)
     ensureWatch($)
     const hasChats = await startChats($)
