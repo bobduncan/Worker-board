@@ -95,6 +95,12 @@ test('run: the list at once, as "Out of sync?" ran it; its answer is today\'s, a
   assert.equal(supervisor.view(NOW).checkedAt, NOW)
 })
 
+test('gap 4: the view carries the time of the setting supervisorCountFrom, for the page counts; null without it', () => {
+  const { ports } = board()
+  assert.equal(createSupervisor(ports).view(NOW).countFrom, null)
+  assert.equal(createSupervisor({ ...ports, settings: { supervisorCountFrom: '2026-10-24 09:15' } }).view(NOW).countFrom, new Date(2026, 9, 24, 9, 15).getTime())
+})
+
 test('run: another board process that holds the project\'s loops (the server\'s gate) runs it; this one runs nothing and answers null', async () => {
   const { ports, done } = board({ lock: { pid: 8, port: 4311, at: NOW - MIN } })
   const supervisor = createSupervisor(ports)

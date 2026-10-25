@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import { join } from 'node:path'
 
-import { expandEnv, isOwnMap, parseConfig } from '../src/config.mjs'
+import { configProblem, countFromMs, expandEnv, isOwnMap, parseConfig } from '../src/config.mjs'
 
 const env = { APPDATA: 'C:\\Users\\sam\\AppData\\Roaming', UserProfile: 'C:\\Users\\sam' }
 
@@ -304,4 +304,20 @@ test('Redesign Part 2: the hand-out settings: two minutes to take, a follow-up a
   assert.equal(parseConfig('{"takeWithinMinutes": 0}', env).takeWithinMinutes, 2)
   assert.equal(parseConfig('{"followUpMinutes": 0}', env).followUpMinutes, 0)
   assert.equal(parseConfig('{"followUpMinutes": -1}', env).followUpMinutes, 0)
+})
+
+test('gap 4: supervisorCountFrom, a local time "YYYY-MM-DD HH:MM" the supervisor counts from: absent unless set right; "" for none', () => {
+  assert.equal('supervisorCountFrom' in parseConfig('{}', env), false)
+  assert.equal(parseConfig('{"supervisorCountFrom":"2026-10-25 14:00"}', env).supervisorCountFrom, '2026-10-25 14:00')
+  assert.equal(parseConfig('{"supervisorCountFrom":" 2026-10-25 14:00 "}', env).supervisorCountFrom, '2026-10-25 14:00')
+  for (const wrong of ['', '2026-10-25', '2026-13-01 10:00', '2026-02-30 10:00', '2026-10-25 24:00', 1792900000000]) {
+    assert.equal('supervisorCountFrom' in parseConfig(JSON.stringify({ supervisorCountFrom: wrong }), env), false, String(wrong))
+  }
+  assert.equal(configProblem('{"supervisorCountFrom":"2026-10-25 14:00"}'), null)
+  assert.equal(configProblem('{"supervisorCountFrom":""}'), null)
+  assert.match(configProblem('{"supervisorCountFrom":"25 Oct 14:00"}'), /"supervisorCountFrom" must be a local time like "2026-10-25 14:00", or "" for none/)
+  // The time as milliseconds, local time; null for none.
+  assert.equal(countFromMs('2026-10-25 14:00'), new Date(2026, 9, 25, 14, 0).getTime())
+  assert.equal(countFromMs(undefined), null)
+  assert.equal(countFromMs('2026-02-30 10:00'), null)
 })

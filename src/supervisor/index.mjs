@@ -17,6 +17,7 @@ import { incidentsOf, linesOwed, recordFindings } from './incidents.mjs'
 import { SWEEP_MOD, sweepRunner, tokensOfTurn } from './sweep.mjs'
 import { createHash } from 'node:crypto'
 
+import { countFromMs } from '../config.mjs'
 import { incidentWords, sweepWords } from '../say.mjs'
 import { isLate } from '../store.mjs'
 import { isHolding } from '../work/pause.mjs'
@@ -114,7 +115,7 @@ const personWords = (incident, isBack) => `Supervisor: ${isBack ? `${incident.id
  * is due; `run` runs the list at once and answers today's `{ at, asked, rows, fine }`, or null when another board process
  * holds the loop or the run failed (recorded as the loop "sync"); `checkNow` is the person's "Check now": the list and a
  * sweep at once; `heard` takes the supervisor chat's work calls; `health` is the summary its sweep reads;
- * `view(now, live)` is `{ run, checkedAt, rules, incidents, cards, lastSweep, sweepNote, sweepEvery, sweepsToday }`: the
+ * `view(now, live)` is `{ run, checkedAt, rules, incidents, cards, lastSweep, sweepNote, sweepEvery, sweepsToday, countFrom }`: the
  * run the page shows (the newest asked, or one that found something, for an hour; else null), when the list last ran, every
  * rule (repair and watch) with how it stood then and how often it tripped in the last day, the incidents and their cards
  * (one per fix step, from `live`), and the sweep (`sweepView`).
@@ -267,7 +268,8 @@ export function createSupervisor(ports) {
         incidents: shown, items: live.items ?? null, lanes: live.lanes ?? [], hasPartner: partner !== null,
         words: wordsOf(runnerPorts.outbox(), shown, partner, now, keep),
       })
-      return { run: runner.shown(now), checkedAt: at, rules, incidents: shown, cards, ...sweepView(sweeper, now, sweepEvery(settings)) }
+      // Gap 4: the time the page's section counts from (config.json's `supervisorCountFrom`), or null.
+      return { run: runner.shown(now), checkedAt: at, rules, incidents: shown, cards, ...sweepView(sweeper, now, sweepEvery(settings)), countFrom: countFromMs(settings.supervisorCountFrom) }
     },
     stop() {
       if (timer !== null) timers.clearInterval(timer)

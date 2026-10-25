@@ -25,6 +25,7 @@
   "takeWithinMinutes": 2,
   "followUpMinutes": 0,
   "heldGiveMinutes": 20,
+  "supervisorCountFrom": "",
   "advisor": "Advisor",
   "backlog": ".claude/backlog.md",
   "goals": ".claude/goals.md",

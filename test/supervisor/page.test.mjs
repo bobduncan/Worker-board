@@ -133,6 +133,23 @@ test('B573: the head counts from the store: found today (opened or came back), i
   assert.equal(view.incidents.find(one => one.id === 'X22').foundAt, at(9, 0))
 })
 
+test('gap 4: with supervisorCountFrom (the view countFrom), the section counts and lists only what was found or seen again since then', () => {
+  const store = viewOfStore()
+  // X21 (with the Advisor since yesterday) was seen again at 10:00; X20 (8:00) and X22 (9:00) were not seen since 9:15.
+  const view = { ...store, countFrom: at(9, 15), incidents: store.incidents.map(one => (one.id === 'X21' ? { ...one, lastSeen: at(10, 0) } : one)) }
+  assert.deepEqual(plain(page.supervisorCounts(view, at(10, 0), NOW)), { found: 4, inWork: 2, withAdvisor: 2, fixed: 0, fresh: 2 })
+  assert.equal(page.supervisorOf(view, { seenAt: at(10, 0), isOpen: false, now: NOW }).head, 'Supervisor · 4 found since 24 Oct 09:15 · 2 in work · 2 new')
+  assert.equal(page.supervisorOf(view, { seenAt: at(10, 0), isOpen: true, now: NOW }).head, 'Supervisor · 4 found since 24 Oct 09:15 · 2 in work · 2 new · 2 with the Advisor · 0 fixed')
+  const drawn = plain(page.supervisorOf(view, { seenAt: at(10, 0), now: NOW }))
+  assert.deepEqual([...drawn.cards, ...drawn.older].map(card => [card.key, card.details.map(one => one.id)]), [['B602', ['X24']], ['nofix', ['X1', 'X21']], ['B601', ['X23']]])
+  // From now on: 0 found, nothing listed, until something is found.
+  const fresh = plain(page.supervisorOf({ ...store, countFrom: NOW }, { seenAt: at(10, 0), isOpen: false, now: NOW }))
+  assert.equal(fresh.head, 'Supervisor · 0 found since 24 Oct 10:42 · 0 in work · 0 new')
+  assert.deepEqual([...fresh.cards, ...fresh.older], [])
+  // Without the setting: as before.
+  assert.equal(page.supervisorOf({ ...store, countFrom: null }, { seenAt: at(10, 0), isOpen: false, now: NOW }).head, 'Supervisor · 5 found today · 3 in work · 2 new')
+})
+
 test('B573: New only for what was found since the person last opened the section; those cards come first; never for a fixed one', () => {
   const view = viewOfStore()
   const one = (found, more = {}) => ({ id: 'X9', state: 'open', foundAt: found, ...more })
