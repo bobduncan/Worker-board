@@ -215,3 +215,30 @@ test('the review: a worker on its way counts; a task whose Touches overlap runni
   const items = mapOf([step('B1', 'refined', {}, touches('src/a.mjs')), step('B9', 'in progress', { Owner: 'W1' }, touches('src'))])
   assert.equal(workerStart({ ...base, lanes: three, items }), null)
 })
+
+test('gap 2: a ready task pinned to a worker whose chat is off has the main chat start that worker, once per start window', () => {
+  const busy = name => lane(name, T(10, 0), { state: 'working', report: { state: 'busy', since: T(10, 0), at: NOW - 1000 } })
+  const off = name => lane(name, T(9, 0), { state: 'off', isRunning: false, report: null, offSince: null })
+  const items = mapOf([step('B590', 'refined', { Pinned: 'W1', Priority: 'fix' })])
+  const base = { ready: ready({ id: 'B590', rank: 0, keptFor: 'W1', pinned: 'W1' }), gives: [], idle: [], isHeld: false, maxWorkers: 5, now: NOW, items }
+  assert.deepEqual(workerStart({ ...base, lanes: [off('W1'), busy('W2')] }), { start: 'W1', pinned: 'B590' })
+  // Also while another worker is idle: a pinned task waits for its own worker only.
+  assert.deepEqual(workerStart({ ...base, idle: [lane('W3')], lanes: [off('W1'), busy('W2'), lane('W3')] }), { start: 'W1', pinned: 'B590' })
+  // Unknown for longer than offAfterMinutes counts as off; for less, not yet.
+  const unknown = at => lane('W1', T(9, 0), { state: 'unknown', isRunning: null, report: { state: 'busy', since: T(9, 0), background: false, at } })
+  assert.deepEqual(workerStart({ ...base, lanes: [unknown(NOW - 6 * MIN), busy('W2')], offAfterMs: 5 * MIN }), { start: 'W1', pinned: 'B590' })
+  assert.equal(workerStart({ ...base, lanes: [unknown(NOW - 2 * MIN), busy('W2')], offAfterMs: 5 * MIN }), null)
+  // Once per start window: no second word within it, whatever came of the first.
+  const started = (at, state = 'delivered') => ({ id: 's1', at, to: 'Main', command: 'start', about: 'W1', state })
+  assert.equal(workerStart({ ...base, lanes: [off('W1'), busy('W2')], sent: [started(NOW - 9 * MIN)] }), null)
+  assert.equal(workerStart({ ...base, lanes: [off('W1'), busy('W2')], sent: [started(NOW - 9 * MIN, 'failed')] }), null)
+  assert.deepEqual(workerStart({ ...base, lanes: [off('W1'), busy('W2')], sent: [started(NOW - 11 * MIN)] }), { start: 'W1', pinned: 'B590' })
+  // It counts toward maxWorkers; nothing while held (a pause, a full limit) or without maxWorkers.
+  assert.equal(workerStart({ ...base, lanes: [off('W1'), busy('W2'), busy('W3')], maxWorkers: 2 }), null)
+  assert.equal(workerStart({ ...base, lanes: [off('W1'), busy('W2')], isHeld: true }), null)
+  assert.equal(workerStart({ ...base, lanes: [off('W1'), busy('W2')], maxWorkers: null }), null)
+  // Its worker runs (busy), is no lane of the list, or the task was refused lately: no start, and never a spawn.
+  assert.equal(workerStart({ ...base, lanes: [busy('W1'), busy('W2')] }), null)
+  assert.equal(workerStart({ ...base, lanes: [busy('W2')] }), null)
+  assert.equal(workerStart({ ...base, lanes: [off('W1'), busy('W2')], refused: [{ id: 'B590', chat: 'W1', why: 'x', at: NOW }] }), null)
+})

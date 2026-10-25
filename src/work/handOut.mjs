@@ -348,11 +348,12 @@ function startsPending({ workers, sent = [], now, prefix = '' }) {
  * workers not off are `maxWorkers` already. Only tasks a new worker could take count: ready, kept for nobody (a pinned
  * task waits for its worker only: Review Focus 5), not given in this pass, their Touches overlapping no step given or
  * under way (as `match`); less the workers on their way (`startsPending`).
+ * Gap 2 (principle 2: never wait for ever): a ready task pinned to a worker whose chat is off, or unknown for longer than
+ * `offAfterMs` by its last report, has that worker started first (`{ start: name, pinned: id }`: a start word, never a
+ * spawn; also while another worker is idle), once per START_WAIT_MS, and counted toward `maxWorkers` as any start.
  */
-export function workerStart({ ready = [], gives = [], idle = [], lanes = [], maxWorkers = null, isHeld = false, items = new Map(), sent = [], now = Date.now(), prefix = '', refused = [] }) {
+export function workerStart({ ready = [], gives = [], idle = [], lanes = [], maxWorkers = null, isHeld = false, items = new Map(), sent = [], now = Date.now(), prefix = '', refused = [], offAfterMs = Infinity }) {
   if (!Number.isFinite(maxWorkers) || isHeld) return null
-  const given = new Set(gives.map(one => one.chat))
-  if (idle.some(lane => !given.has(lane.name))) return null
   const handed = new Set(gives.map(one => one.id))
   const scratch = new Map(items)
   for (const one of gives) {
@@ -361,6 +362,21 @@ export function workerStart({ ready = [], gives = [], idle = [], lanes = [], max
   }
   // The recheck: a task the work API refused lately waits for that refusal, not for a worker: it counts for none.
   const refusedIds = new Set(refused.map(one => one.id))
+  const workers = lanes.filter(isWorkerLane)
+  const pending = startsPending({ workers, sent, now, prefix })
+  const isOff = lane => lane.state === 'off' || lane.isRunning === false
+  // The person, 2026-10-25: "ensure the board can't make more than the allowed limit": the workers on their way count
+  // toward `maxWorkers` too, so a start word sent before the last one reported never makes one too many. A worker on
+  // its way may already show as a lane with no report yet: those and the pending starts are the same chats, counted once.
+  const isFull = (others = workers) => {
+    const running = others.filter(lane => !isOff(lane))
+    const reporting = running.filter(lane => lane.report != null).length
+    return reporting + Math.max(running.length - reporting, pending) >= maxWorkers
+  }
+  const pinnedTo = pinnedStart({ ready, handed, refusedIds, workers, scratch, items, sent, now, prefix, offAfterMs, isOff })
+  if (pinnedTo !== null) return isFull(workers.filter(lane => lane !== pinnedTo.lane)) ? null : { start: pinnedTo.lane.name, pinned: pinnedTo.id }
+  const given = new Set(gives.map(one => one.chat))
+  if (idle.some(lane => !given.has(lane.name))) return null
   let givable = 0
   for (const one of ready) {
     if (one.keptFor !== null || handed.has(one.id) || refusedIds.has(one.id)) continue
@@ -369,16 +385,27 @@ export function workerStart({ ready = [], gives = [], idle = [], lanes = [], max
     givable += 1
     if (item !== undefined) scratch.set(one.id, { ...item, head: new Map(item.head).set('State', 'queued') })
   }
-  const workers = lanes.filter(isWorkerLane)
-  const pending = startsPending({ workers, sent, now, prefix })
   if (givable - pending <= 0) return null
-  const isOff = lane => lane.state === 'off' || lane.isRunning === false
-  // The person, 2026-10-25: "ensure the board can't make more than the allowed limit": the workers on their way count
-  // toward `maxWorkers` too, so a start word sent before the last one reported never makes one too many. A worker on
-  // its way may already show as a lane with no report yet: those and the pending starts are the same chats, counted once.
-  const running = workers.filter(lane => !isOff(lane))
-  const reporting = running.filter(lane => lane.report != null).length
-  if (reporting + Math.max(running.length - reporting, pending) >= maxWorkers) return null
+  if (isFull()) return null
   const off = workers.filter(isOff).sort((a, b) => (a.offSince ?? 0) - (b.offSince ?? 0) || byId(a.name, b.name))[0]
   return off === undefined ? { spawn: 1 } : { start: off.name }
+}
+
+/**
+ * Gap 2: `{ lane, id }`, the worker lane a ready pinned task (`id`) waits for whose chat is off (or unknown past `offAfterMs` since its last
+ * report) and that the main chat was not asked to start in the last START_WAIT_MS, the first by the list's order; or
+ * null. A task given in this pass, refused lately, or whose Touches overlap a step given or under way does not count.
+ */
+function pinnedStart({ ready, handed, refusedIds, workers, scratch, items, sent, now, prefix, offAfterMs, isOff }) {
+  const isLongUnknown = lane => lane.state === 'unknown' && Number.isFinite(lane.report?.at) && now - lane.report.at > offAfterMs
+  const askedLately = lane => sent.some(word => word.command === 'start' && plain(word.about, prefix) === plain(lane.name, prefix) && Number.isFinite(word.at) && now - word.at < START_WAIT_MS)
+  for (const one of ready) {
+    if ((one.pinned ?? null) === null || handed.has(one.id) || refusedIds.has(one.id)) continue
+    const lane = workers.find(worker => plain(worker.name, prefix) === plain(one.pinned, prefix))
+    if (lane === undefined || !(isOff(lane) || isLongUnknown(lane)) || askedLately(lane)) continue
+    const item = items.get(one.id)
+    if (item !== undefined && overlapIn(scratch, item, COUNTS_FOR_TOUCHES) !== null) continue
+    return { lane, id: one.id }
+  }
+  return null
 }

@@ -279,3 +279,27 @@ test('the recheck: a task taken back twice because its line was held says so on 
     await one.close()
   }
 })
+
+test('gap 2: a task pinned to a worker whose chat is off has the main chat start that worker, beside an idle one; once per start window', async () => {
+  const one = await garden([task('B590', { Pinned: 'W1', Priority: 'fix' })], { settings: { maxWorkers: 3 } })
+  try {
+    one.report('W1', 'ended', T0 - 30 * MIN, T0 - 30 * MIN)
+    one.report('W2', 'idle', T0 - 60 * SEC, T0 - 2 * SEC)
+    const state = await one.build(T0)
+    assert.deepEqual(state.reconciled.gives, [], 'it waits for its own worker')
+    assert.deepEqual(state.reconciled.start, { start: 'W1', pinned: 'B590' })
+    await one.deliver(state, T0)
+    const starts = () => one.outbox.outbox().filter(message => message.to === 'Lead' && message.command === 'start')
+    assert.deepEqual(starts().map(message => message.text.split('\n')[0]), ['start "W1"'])
+    // A minute on: no second word. Eleven minutes on, still off: asked once more.
+    one.report('W2', 'idle', T0 - 60 * SEC, T0 + MIN - 2 * SEC)
+    await one.deliver(await one.build(T0 + MIN), T0 + MIN)
+    assert.equal(starts().length, 1)
+    const later = T0 + 11 * MIN
+    one.report('W2', 'idle', T0 - 60 * SEC, later - 2 * SEC)
+    await one.deliver(await one.build(later), later)
+    assert.equal(starts().length, 2)
+  } finally {
+    await one.close()
+  }
+})

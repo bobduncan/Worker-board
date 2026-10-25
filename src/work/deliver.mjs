@@ -18,6 +18,7 @@ import { SYNC_LINE_MS, workLineWhy } from './workLines.mjs'
 import { PARTNER_AGAIN_MS, partnerAskWords } from './partnerAnswers.mjs'
 import { AGAIN_MS, effortWords, lastWord, sameTarget } from './effort.mjs'
 import { RESTART_AGAIN_MS, RESTART_COMMAND, restartWords } from './modRollout.mjs'
+import { START_WAIT_MS } from './handOut.mjs'
 
 export { partnerAskWords }
 
@@ -246,7 +247,10 @@ export function givesRefused(dir, now) {
  * Redesign Part 2: the key under which the board asks the main chat once for one more worker: whom (a worker of the list
  * whose chat is off, or `spawn`) and how many workers were not off then, so a new ask goes once that number changed.
  */
-export const startKey = (start, notOff) => `board-start ${start.start ?? 'spawn'} ${notOff}`
+export const startKey = (start, notOff, now = 0) => (typeof start.pinned === 'string'
+  // Gap 2: a start for a pinned task goes once per start window (the reconciler asks again only after START_WAIT_MS).
+  ? `board-start ${start.start} for ${start.pinned} ${Math.floor(now / START_WAIT_MS)}`
+  : `board-start ${start.start ?? 'spawn'} ${notOff}`)
 
 /**
  * Redesign Part 2: the main chat's word for one more worker (`plan.start`): start a worker of the list whose chat is
@@ -336,7 +340,7 @@ export async function deliverWork({ state, dir, outbox, apply, now, maxChars, ne
     const workers = (state.chats ?? []).filter(lane => !lane.isLeftover && !lane.isMain)
     const notOff = workers.filter(lane => lane.state !== 'off' && lane.isRunning !== false).length
     // The review: the word says how many workers had reported then, so the next passes count its worker as on its way.
-    lines.push({ key: startKey(start, notOff), words: { ...startWord, reported: workers.filter(lane => lane.report != null).length } })
+    lines.push({ key: startKey(start, notOff, now), words: { ...startWord, reported: workers.filter(lane => lane.report != null).length } })
   }
   for (const one of lines) {
     const sent = await sendOnce({ dir, key: one.key, words: one.words, outbox, state, now, maxChars, newId, fs, keep })

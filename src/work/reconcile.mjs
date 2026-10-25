@@ -307,6 +307,8 @@ export function reconcile({ store, flow = store.flow, lanes = [], now, times, pr
   const idle = idleWorkers(live, { items, prefix, restFree, stuck: new Set(stuck.keys()) })
   const skip = skipPairs({ items, refused: refusedGives, now, heldGiveMs, prefix })
   const gives = handOutHeld || !handsOut ? [] : match({ ready: ready.ready, idle, items, prefix, skip })
-  const start = !handsOut ? null : workerStart({ ready: ready.ready, gives, idle, lanes: live, maxWorkers: settings.maxWorkers ?? null, isHeld: handOutHeld, items, sent, now, prefix, refused: refusedGives })
+  const start = !handsOut ? null : workerStart({ ready: ready.ready, gives, idle, lanes: live, maxWorkers: settings.maxWorkers ?? null, isHeld: handOutHeld, items, sent, now, prefix, refused: refusedGives,
+    // Gap 2: a pinned task's worker unknown this long counts as off.
+    offAfterMs: Number.isFinite(settings.offAfterMinutes) ? settings.offAfterMinutes * MIN : Infinity })
   return { moves, deliveries, flags, notes, partnerAsks, escalations, restFree, ready, gives, takeBacks, start, retired, handOutHeld, heldTwice }
 }
