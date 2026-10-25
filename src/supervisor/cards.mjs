@@ -32,7 +32,7 @@ function laneWord(stepState, lane) {
   switch (lane.state) {
     case 'working': return { text: stepState === 'taken' ? 'starting' : 'building', tone: 'busy' }
     case 'waiting': return { text: 'waits for you', tone: 'idle' }
-    case 'suspended': return { text: 'paused for the limit', tone: 'idle' }
+    case 'suspended': return { text: lane.suspended?.by === 'parked' ? 'suspended on purpose' : 'paused for the limit', tone: 'idle' }
     case 'off': return { text: 'chat is off', tone: 'idle' }
     case 'free': return { text: 'idle', tone: 'idle' }
     case 'interrupted': return { text: 'interrupted', tone: 'idle' }
