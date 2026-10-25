@@ -33,7 +33,7 @@ const WATCHER = { name: 'Watcher', state: 'free', isRunning: true, session: 'cli
  * looks like for the skip of a sweep while nothing changed (the review): a new mark at every look unless a test sets
  * `b.facts.value`; `ownFacts` leaves the port out, so the supervisor makes its own from the health summary.
  */
-function board({ working = true, pause = null, limits = {}, chat = { named: 'Watcher', title: 'Game - Watcher', card: WATCHER, withoutMod: false, mod: '0.16.0' }, steps = [], every, tokens = null, ownFacts = false } = {}) {
+function board({ working = true, pause = null, limits = {}, chat = { named: 'Watcher', title: 'Game - Watcher', card: WATCHER, withoutMod: false, mod: '0.16.0' }, steps = [], every, oldAfter, tokens = null, ownFacts = false } = {}) {
   let now = START
   const facts = { value: null, looks: 0 }
   const outbox = []
@@ -51,7 +51,7 @@ function board({ working = true, pause = null, limits = {}, chat = { named: 'Wat
     noted: { load: async () => ({ noted: [], seen: {} }), save: async () => {} },
     now: () => now,
     loops: { run: async (_name, fn) => fn(), failed: () => {} },
-    settings: every === undefined ? {} : { supervisorSweepMinutes: every },
+    settings: { ...(every === undefined ? {} : { supervisorSweepMinutes: every }), ...(oldAfter === undefined ? {} : { supervisor: { oldReadingMinutes: oldAfter } }) },
     timers: { setInterval: (fn, ms) => intervals.push({ fn, ms }), clearInterval: () => {} },
     tell: async words => {
       const message = { id: `w${outbox.length + 1}`, at: now, ...words, state: 'waiting' }
@@ -138,27 +138,26 @@ test('Review Focus 3, quiet nights: no sweep when nothing works, while the perso
   assert.equal((await off.supervisor.checkNow({})).sweep.started, true)
 })
 
-test('B640: a limit read over 30 min ago is looked up by the sweep also while the person pauses, and is no "nothing changed"; a quiet board stays quiet', async () => {
+test('B640, B645: a limit read over 30 min ago is no "nothing changed" for the sweep while work runs; a pause and a quiet board stay quiet', async () => {
   const old = (five, week) => ({ fiveHour: { used: 11, level: 'ok', at: START - five * MIN }, week: { used: 58, level: 'ok', at: START - week * MIN } })
   const pause = { state: 'pausing', since: START - MIN }
-  // Paused, a reading 40 min old: a sweep, so the chat can look the limits up; a fresh one: none.
-  const stale = board({ pause, limits: old(40, 5) })
-  await stale.tick()
-  assert.equal(stale.sweeps().length, 1)
-  const fresh = board({ pause, limits: old(10, 5) })
-  await fresh.tick()
-  assert.equal(fresh.sweeps().length, 0)
+  // B645: a pause holds the sweep word until the resume and nothing spends in it, so an old reading starts no sweep then.
+  for (const limits of [old(40, 5), old(10, 5)]) {
+    const paused = board({ pause, limits })
+    await paused.tick()
+    assert.equal(paused.sweeps().length, 0)
+  }
   // Nobody works and nobody pauses (the quiet night): an old reading is no reason to sweep.
   const night = board({ working: false, limits: old(300, 300) })
   await night.tick()
   assert.equal(night.sweeps().length, 0)
   // A full limit still holds the sweep, old or not.
-  const full = board({ pause, limits: { ...old(40, 5), fiveHour: { used: 100, level: 'full', at: START - 40 * MIN } } })
+  const full = board({ limits: { ...old(40, 5), fiveHour: { used: 100, level: 'full', at: START - 40 * MIN } } })
   await full.tick()
   assert.equal(full.sweeps().length, 0)
   // Work runs and the board looks as at the last sweep: skipped as before, but not while a reading is old (the lookup is what changes it).
-  for (const [limits, count] of [[old(10, 5), 1], [old(40, 5), 2]]) {
-    const b = board({ limits })
+  const again = async (limits, oldAfter) => {
+    const b = board({ limits, oldAfter })
     b.facts.value = 'same'
     await b.tick()
     b.outbox[0].state = 'delivered'
@@ -166,10 +165,15 @@ test('B640: a limit read over 30 min ago is looked up by the sweep also while th
     await b.supervisor.heard({ action: 'turn-ended', ok: true, session: 'cli-watcher', since: START })
     b.at(11)
     await b.tick()
-    assert.equal(b.sweeps().length, count)
+    return b.sweeps().length
   }
-  // Check now while the person pauses runs for an old reading, and says why not for a fresh one.
-  assert.equal((await board({ pause, limits: old(40, 5) }).supervisor.checkNow({})).sweep.started, true)
+  assert.equal(await again(old(10, 5)), 1)
+  assert.equal(await again(old(40, 5)), 2)
+  // B645: the age counts from the supervisor settings' oldReadingMinutes (config.json "supervisor"), not from a key beside it.
+  assert.equal(await again(old(10, 5), 5), 2, 'a reading 10 min old is old when the setting says 5')
+  assert.equal(await again(old(40, 5), 90), 1, 'a reading 40 min old is fresh when the setting says 90')
+  // Check now while the person pauses says why no sweep runs, old reading or not.
+  assert.equal((await board({ pause, limits: old(40, 5) }).supervisor.checkNow({})).sweep.why, 'the person pauses all chats')
   assert.equal((await board({ pause, limits: old(10, 5) }).supervisor.checkNow({})).sweep.why, 'the person pauses all chats')
 })
 

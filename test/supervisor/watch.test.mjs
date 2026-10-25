@@ -468,29 +468,31 @@ test('gap 3: ready-while-free counts only what the board hands out: never a task
   assert.match(role, /Refined tasks outside the focus goal wait for the person's pin or a focus switch by design .* workers idle while only such tasks wait is no incident/)
 })
 
-test('old-limit-reading (X47, B632): a limit still last read over 60 min ago (a lookup past 30 min comes first) while the person pauses or a worker works; one finding per limit; a newer reading clears it', async () => {
+test('old-limit-reading (X47, B632, B645): a limit still last read over 60 min ago (a lookup past 30 min comes first) while a worker works, not while the person pauses; one finding per limit; a newer reading clears it', async () => {
   const limits = (five, week) => ({ fiveHour: five === null ? null : { used: 11, level: 'ok', at: ago(five), resetsAt: null }, week: week === null ? null : { used: 58, level: 'ok', at: ago(week), resetsAt: null } })
-  const paused = more => view({ pause: { state: 'pausing', since: ago(70) }, ...more })
-  // The pause runs, both readings 67 minutes old: one finding for each, counted by key, about the board.
-  const found = check('old-limit-reading', paused({ limits: limits(67, 67) }))
+  const working = lane('Painter', { state: 'working' })
+  const works = more => view({ chats: [LEAD, working], ...more })
+  // A worker works, both readings 67 minutes old: one finding for each, counted by key, about the board.
+  const found = check('old-limit-reading', works({ limits: limits(67, 67) }))
   assert.deepEqual(found.map(one => [one.rule, one.key, one.subject]), [['old-limit-reading', 'old-limit-reading fiveHour', 'board'], ['old-limit-reading', 'old-limit-reading week', 'board']])
   assert.match(found[0].text, /^the 5-hour limit was last read 67 min ago \(07:53\)/)
   assert.match(found[1].text, /^the weekly limit was last read 67 min ago/)
   assert.equal(found[0].fix, undefined, 'report only')
   // Between 30 and 60 minutes the supervisor looks it up; a chat lookup makes the reading new, so nothing is raised.
-  assert.deepEqual(check('old-limit-reading', paused({ limits: limits(57, 57) })), [])
-  assert.deepEqual(check('old-limit-reading', paused({ limits: limits(60, 60) })), [])
-  assert.deepEqual(check('old-limit-reading', paused({ limits: limits(2, 2) })), [])
+  assert.deepEqual(check('old-limit-reading', works({ limits: limits(57, 57) })), [])
+  assert.deepEqual(check('old-limit-reading', works({ limits: limits(60, 60) })), [])
+  assert.deepEqual(check('old-limit-reading', works({ limits: limits(2, 2) })), [])
   // A newer reading of one limit clears that one only.
-  assert.deepEqual(check('old-limit-reading', paused({ limits: limits(2, 67) })).map(one => one.key), ['old-limit-reading week'])
+  assert.deepEqual(check('old-limit-reading', works({ limits: limits(2, 67) })).map(one => one.key), ['old-limit-reading week'])
   // A limit nothing is known of is the summary's "not known", not this rule's.
-  assert.deepEqual(check('old-limit-reading', paused({ limits: limits(null, null) })), [])
-  // Work runs, nobody pauses: a working worker counts; an idle board does not (the app writes its file only while in use).
-  const working = lane('Painter', { state: 'working' })
-  assert.equal(check('old-limit-reading', view({ chats: [LEAD, working], limits: limits(90, 5) })).length, 1)
+  assert.deepEqual(check('old-limit-reading', works({ limits: limits(null, null) })), [])
+  // B645: the person pauses: nothing spends, a reset is known by its time and the sweep word waits for the resume: quiet, also with a worker working.
+  assert.deepEqual(check('old-limit-reading', view({ pause: { state: 'pausing', since: ago(70) }, chats: [LEAD, working], limits: limits(90, 90) })), [])
+  assert.deepEqual(check('old-limit-reading', view({ pause: { state: 'pausing', since: ago(70) }, limits: limits(90, 90) })), [])
+  // An idle board does not count either (the app writes its file only while in use).
   assert.deepEqual(check('old-limit-reading', view({ chats: [LEAD, lane('Painter', { state: 'free' })], limits: limits(90, 90) })), [])
   // A threshold of its own in the settings.
-  assert.deepEqual(check('old-limit-reading', paused({ limits: limits(67, 67), settings: { oldReadingIncidentMinutes: 90 } })), [])
+  assert.deepEqual(check('old-limit-reading', works({ limits: limits(67, 67), settings: { oldReadingIncidentMinutes: 90 } })), [])
   // The sweep's instructions say the same: look the limits up once past 30 min with get_usage.
   const role = (await readFile(new URL('../../roles/supervisor.md', import.meta.url), 'utf8')).replace(/\s+/g, ' ')
   assert.match(role, /over 30 min old.*once.*get_usage.*still old, over 60 min/)

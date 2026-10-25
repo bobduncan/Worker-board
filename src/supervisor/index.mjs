@@ -307,11 +307,11 @@ function sweepOver(sweep, { ports, every, tell, keep, facts, settings }) {
       const limits = (await ports.state()).limits ?? {}
       return ['fiveHour', 'week'].some(key => limits[key]?.level === 'full')
     },
-    // B640: a limit whose newest reading is over `oldReadingMinutes` old, while a chat works or the person pauses: the sweep's
+    // B640: a limit whose newest reading is over `oldReadingMinutes` old (B645: `settings.supervisor`'s, as the rules read it), while a chat works: the sweep's
     // chat looks the limits up (roles/supervisor.md), and the board keeps that reading (state.limitReadings).
     limitsOld: async () => {
       const state = await ports.state()
-      const old = Number.isFinite(settings.oldReadingMinutes) ? settings.oldReadingMinutes : 30
+      const old = Number.isFinite(settings.supervisor?.oldReadingMinutes) ? settings.supervisor.oldReadingMinutes : 30
       return ['fiveHour', 'week'].some(key => (readingAgeMinutes(state.limits?.[key], ports.now()) ?? 0) > old)
     },
     chat: () => sweep.chat(),
