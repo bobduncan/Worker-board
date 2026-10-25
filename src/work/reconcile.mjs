@@ -273,7 +273,7 @@ export function reconcile({ store, flow = store.flow, lanes = [], now, times, pr
   const takeWithinMs = Math.max(1, Number.isFinite(settings.takeWithinMinutes) ? settings.takeWithinMinutes : HAND_OUT_DEFAULTS.takeWithinMinutes) * MIN
   const followUpMs = Math.max(0, Number.isFinite(settings.followUpMinutes) ? settings.followUpMinutes : HAND_OUT_DEFAULTS.followUpMinutes) * MIN
   const heldGiveMs = Math.max(takeWithinMs, (Number.isFinite(settings.heldGiveMinutes) ? settings.heldGiveMinutes : HAND_OUT_DEFAULTS.heldGiveMinutes) * MIN)
-  const listed = readyList(items, { now, focus, followUpMs, standardHold, routingHeld, prefix })
+  const listed = readyList(items, { now, focus, followUpMs, standardHold, routingHeld, prefix, beyondFocus: settings.handOutBeyondFocus === true })
   // The review: a give the API refused stands on the list with why, and goes to another worker meanwhile.
   const refusedOf = id => refusedGives.filter(one => one.id === id).sort((a, b) => b.at - a.at)[0] ?? null
   // The recheck: a task taken back twice because its line was held says so on the list, and once to the main chat.

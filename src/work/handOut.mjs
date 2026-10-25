@@ -14,7 +14,7 @@ import { isFix, sinceMs, valueOf } from './item.mjs'
  * preference only, the review of 2026-10-25: the builder is mostly busy again by then); minutes a give may wait for its
  * line (a model switch, a clear, a mod restart, a chat off) before it goes back; no number of workers.
  */
-export const HAND_OUT_DEFAULTS = Object.freeze({ takeWithinMinutes: 2, followUpMinutes: 0, heldGiveMinutes: 20, maxWorkers: null })
+export const HAND_OUT_DEFAULTS = Object.freeze({ takeWithinMinutes: 2, followUpMinutes: 0, heldGiveMinutes: 20, maxWorkers: null, handOutBeyondFocus: false })
 /** How long a worker the board asked the main chat to start counts as on its way (it has not reported yet). */
 export const START_WAIT_MS = 10 * 60_000
 
@@ -76,7 +76,7 @@ export function followUpOf(item, items, { now, followUpMs, prefix = '' }) {
  * with `followUpMs` above 0, the worker it is a follow-up of, until `keptUntil`), its pin (`pinned`), and (`followUpMs`
  * 0, the default: a preference only) the worker it goes to when that one is idle at the give (`prefers`).
  */
-export function readyList(items, { now, focus = null, followUpMs = HAND_OUT_DEFAULTS.followUpMinutes * 60_000, standardHold = null, routingHeld = new Set(), prefix = '' }) {
+export function readyList(items, { now, focus = null, followUpMs = HAND_OUT_DEFAULTS.followUpMinutes * 60_000, standardHold = null, routingHeld = new Set(), prefix = '', beyondFocus = true }) {
   const ready = []
   const held = []
   const ctx = { store: { items } }
@@ -92,6 +92,13 @@ export function readyList(items, { now, focus = null, followUpMs = HAND_OUT_DEFA
     const isKept = followUpMs > 0
     const follow = pinned === null ? followUpOf(item, items, { now, followUpMs: isKept ? followUpMs : Infinity, prefix }) : null
     const rank = isFix(item) ? 0 : focus !== null && valueOf(item, 'Goal') === focus ? 1 : 2
+    // 2026-10-25, the controller in the person's place (principle 8): a task that is no fix, not of the focus goal and
+    // not pinned waits for the person's pick, unless the settings' `handOutBeyondFocus` is true. The whole backlog is
+    // not the board's to start.
+    if (rank === 2 && pinned === null && !beyondFocus) {
+      held.push({ id, why: 'outside the focus goal: waits until you pin it or switch the focus' })
+      continue
+    }
     ready.push({ id, rank, keptFor: pinned ?? (isKept ? follow?.worker ?? null : null), keptUntil: isKept ? follow?.until ?? null : null, pinned, prefers: isKept ? null : follow?.worker ?? null })
   }
   return { ready: ready.sort((a, b) => a.rank - b.rank || byId(a.id, b.id)), held }

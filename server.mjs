@@ -182,6 +182,33 @@ export function pictureKind(bytes) {
 }
 
 /**
+ * B539: every POST route of the board, with how it is asked (`kind`: the Workers mod's `bridge` with its key, a
+ * `picture` or `json` of the board's own page with its token) and whether the loop lock guards it (B488, B529): `lock`
+ * is refused with 409 on a board process that does not run the loops, naming the page of the one that does; `free`
+ * says why this process may do it itself. A route that is not here is not served (test/routeGuards.test.mjs).
+ */
+export const POST_ROUTES = Object.freeze({
+  '/api/bridge/take': { kind: 'bridge', guard: 'lock' },
+  '/api/bridge/work': { kind: 'bridge', guard: 'lock' },
+  '/api/bridge/typed': { kind: 'bridge', guard: 'lock' },
+  '/api/bridge/report': { kind: 'bridge', guard: 'free', why: 'the chat\'s turn state, kept in memory only; the hand-out it wakes runs on the holder only' },
+  '/api/design/reference': { kind: 'picture', guard: 'lock' },
+  '/api/talk/picture': { kind: 'picture', guard: 'lock' },
+  '/api/say': { kind: 'json', guard: 'lock' },
+  '/api/design': { kind: 'json', guard: 'lock' },
+  '/api/backlog': { kind: 'json', guard: 'lock' },
+  '/api/goals': { kind: 'json', guard: 'lock' },
+  '/api/plan': { kind: 'json', guard: 'lock' },
+  '/api/brainstorm': { kind: 'json', guard: 'lock' },
+  '/api/work': { kind: 'json', guard: 'lock' },
+  '/api/settings': { kind: 'json', guard: 'lock' },
+  '/api/game': { kind: 'json', guard: 'free', why: 'starts or stops a game process of this board\'s own; writes nothing of the project' },
+  '/api/cpu': { kind: 'json', guard: 'free', why: 'the CPU level kept in this board folder\'s own data, not the project\'s' },
+  '/api/new-project': { kind: 'json', guard: 'free', why: 'makes another project\'s folder, one at a time; writes nothing of this project' },
+  '/api/restart': { kind: 'json', guard: 'free', why: 'starts this process itself anew' },
+})
+
+/**
  * The server, not yet listening. Handed in, so the tests need no real files:
  *   `getState()`       the `/api/state` object
  *   `say(body)`        checks and keeps what the page sent: `{ ok: true, message }` or `{ ok: false, status, why }`
@@ -221,10 +248,10 @@ export function createBoard({
   project = '',
   mayWrite = async () => null,
 }) {
-  // B529: what the page writes into the project or sends to the chats is taken only by the board process that runs the
-  // loops; another one on the project names where that one is. A game, a restart, the CPU level and a new project are
-  // this process's own.
-  const WRITES = new Set(['/api/say', '/api/design', '/api/backlog', '/api/goals', '/api/plan', '/api/brainstorm', '/api/work', '/api/settings', '/api/design/reference', '/api/talk/picture'])
+  // B529: what the page or a chat's mod writes into the project or sends to the chats is taken only by the board process
+  // that runs the loops; another one on the project names where that one is. B539: the routes say it in POST_ROUTES.
+  const WRITES = new Set(Object.keys(POST_ROUTES).filter(path => POST_ROUTES[path].guard === 'lock'))
+  const routeKind = pathname => (Object.hasOwn(POST_ROUTES, pathname) ? POST_ROUTES[pathname].kind : null)
   async function handle(req, res) {
     const self = `${HOST}:${req.socket.localPort}`
     const { pathname, searchParams } = new URL(req.url, `http://${self}`)
@@ -241,7 +268,7 @@ export function createBoard({
 
     const mayUse = sameText(req.headers['x-board-token'] ?? '', token)
 
-    if (pathname === '/api/bridge/take' || pathname === '/api/bridge/typed' || pathname === '/api/bridge/work' || pathname === '/api/bridge/report') {
+    if (routeKind(pathname) === 'bridge') {
       // The mod is no page: it knows the key from the file the board wrote for it, and it can only take.
       const mayTake = bridgeKey !== null && sameText(req.headers['x-board-key'] ?? '', bridgeKey)
       const isJson = /^application\/json\s*(;|$)/i.test(req.headers['content-type'] ?? '')
@@ -254,6 +281,12 @@ export function createBoard({
       if (isClosing()) {
         req.resume()
         return refuse(res, 503, 'The board restarts: try again in a moment.')
+      }
+      // B539: the work tool, a take and a word typed change the store or the outbox: written by the holder only, never twice.
+      const notHere = WRITES.has(pathname) ? await mayWrite() : null
+      if (notHere !== null) {
+        req.resume()
+        return refuse(res, 409, notHere)
       }
       const body = await readBody(req)
       if (body === null) return refuse(res, 413, 'Too large.')
@@ -279,7 +312,7 @@ export function createBoard({
       return taken.ok ? json(res, taken.result) : refuse(res, taken.status, taken.why)
     }
 
-    if (pathname === '/api/design/reference' || pathname === '/api/talk/picture') {
+    if (routeKind(pathname) === 'picture') {
       // A picture, not JSON: the token and the origin are what another website's page cannot bring.
       const maySend = mayUse && req.headers.origin === `http://${self}`
       const isPicture = /^image\/(png|jpeg|webp)\s*(;|$)/i.test(req.headers['content-type'] ?? '')
@@ -288,7 +321,7 @@ export function createBoard({
         if (req.method !== 'POST') return refuse(res, 405, 'Only POST.')
         return maySend ? refuse(res, 415, 'Send a PNG, JPEG or WebP picture.') : refuse(res, 403, 'Only the board\'s own page may send.')
       }
-      const notHere = await mayWrite()
+      const notHere = WRITES.has(pathname) ? await mayWrite() : null
       if (notHere !== null) {
         req.resume()
         return refuse(res, 409, notHere)
@@ -299,7 +332,7 @@ export function createBoard({
       return kept.ok ? json(res, kept.result) : refuse(res, kept.status, kept.why)
     }
 
-    if (pathname === '/api/say' || pathname === '/api/game' || pathname === '/api/design' || pathname === '/api/restart' || pathname === '/api/backlog' || pathname === '/api/goals' || pathname === '/api/plan' || pathname === '/api/brainstorm' || pathname === '/api/work' || pathname === '/api/cpu' || pathname === '/api/settings' || pathname === '/api/new-project') {
+    if (routeKind(pathname) === 'json') {
       // Three things another website's page cannot do: know the token, carry this origin, and send JSON unasked.
       const maySend = mayUse && req.headers.origin === `http://${self}`
       const isJson = /^application\/json\s*(;|$)/i.test(req.headers['content-type'] ?? '')

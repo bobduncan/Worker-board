@@ -1644,7 +1644,7 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
     store: raw.work, flow: raw.work.flow, lanes: chats, now, times: { graceMs: GRACE_MS, askMs: ASK_MS, idleMs: IDLE_HOLD_MS }, prefix, hasPartner: advisorChat !== undefined, partner,
     standardHold: item => standardHold(item, plan?.standards ?? []),
     focus: goalMap?.focus ?? null, routingHeld, sent,
-    settings: { maxWorkers: config.maxWorkers ?? null, takeWithinMinutes: config.takeWithinMinutes, followUpMinutes: config.followUpMinutes, heldGiveMinutes: config.heldGiveMinutes },
+    settings: { maxWorkers: config.maxWorkers ?? null, takeWithinMinutes: config.takeWithinMinutes, followUpMinutes: config.followUpMinutes, heldGiveMinutes: config.heldGiveMinutes, handOutBeyondFocus: config.handOutBeyondFocus === true },
     limitsFull: ['fiveHour', 'week'].some(limit => limits[limit]?.level === 'full'),
     // The review of 2026-10-25: when the board last held the hand-out (the server's memory), and the gives refused lately.
     heldUntil: handOutHeldAt, refusedGives,

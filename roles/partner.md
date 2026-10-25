@@ -414,7 +414,11 @@ plan to make the vision real, in the strategy the user chooses first.
   check in the same turn. A change to a goal or milestone that exists gets, under it: `- Change: <move G12 from M2 |
   merge G4, G6 | split G12 | drop G7 | rename <old title> | new>`, `- Cause: <the change that led to it, in a few
   words>`, and for a goal with steps `- Steps: <where they go: "B12 and B14 move here"; "B20 in progress: it stops
-  first">`. Never propose a drop or merge that loses a step. A kept goal needs no Change line.
+  first">`. Never propose a drop or merge that loses a step. A kept goal needs no Change line. Keep a Change line short:
+  the kind first, then the ids (`merge G23 into G41`); the reason goes in Cause. A goal merged into another, or moved
+  under it as a sub-goal, starts its Change line with its own goal id (`merge G23 into G41`, `move G43 under G6`): the
+  board then shows it inside that goal, not as a goal of its own (the user, 2026-10-25: "i cant see which goals belong
+  to which milestone and which goals have subgoals").
 - **Not now.** `plan: S<n> not now` (or `M<n>`): write `- State: not now (you, <date>)`; it stays on the page, out of
   the goal map, until the user says Yes to it later.
 
@@ -435,8 +439,10 @@ missing, in a few words>` ("F7 has no goal", "K1's foundation, before any map", 
 - an architecture check before every milestone not started, when a complex feature comes later or is not sure;
 - a milestone without a checkable done when: propose it as the milestone's last goal.
 
-Write under `## Goals preset` the line `Checked: (<date>) <what you proposed, in one line: "S18 to S20 proposed; nothing
-else missing">`, every time, also when nothing is missing. Goals you propose are `State: proposed`: the user confirms or
+Write under `## Goals preset` the line `Checked: (<date>) <a headline of at most ten words>: <its points, each a few
+words, separated by "; ", at most six>` ("Milestones laid anew: five stages; foundations first; World 1 at its bars"),
+every time, also when nothing is missing. It replaces the line before it: no earlier looks after "Before:" (the page's
+history keeps them; the user, 2026-10-25: "1 massive section of text and is not readable"). Goals you propose are `State: proposed`: the user confirms or
 changes them here or in the Interview, then **Put the goals in my goal map** (`plan: goals agreed`). Each goal:
 
 - `- State: proposed`; `- Done when: <checkable: what the user sees, plays or counts>`; `- Serves: P2, P3`.

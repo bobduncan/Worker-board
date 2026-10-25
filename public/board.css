@@ -444,6 +444,24 @@ button, textarea, select { font: inherit; color: inherit; }
 .plan-strategy-options .plan-badge { margin-left: 0; }
 @media (max-width: 900px) { .plan-strategy-options { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 .plan-overview { display: flex; flex-direction: column; gap: 12px; }
+/* 2026-10-25: one tree per milestone: the goals under it, their sub-goals under them. */
+.plan-tree { padding: 10px 12px; border: 1px solid #2d3b55; border-radius: 12px; background: #101824; }
+.plan-tree-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 2px 0 8px; font-size: 15px; }
+.plan-tree-head .plan-badge { margin-left: 0; }
+.plan-tree-goals { display: flex; flex-direction: column; gap: 8px; margin: 0 0 0 10px; padding: 0 0 0 18px; border-left: 2px solid #3b5a8f; list-style: none; }
+.plan-tree-goal { position: relative; display: flex; flex-direction: column; gap: 4px; }
+.plan-tree-goal::before { content: ''; position: absolute; left: -18px; top: 16px; width: 14px; border-top: 2px solid #3b5a8f; }
+.plan-tree-node { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; max-width: 760px; padding: 6px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); color: var(--text); font: inherit; font-size: 13px; font-weight: 600; text-align: left; cursor: pointer; }
+.plan-tree-node:hover { border-color: #78a7ff; }
+.plan-tree-node .plan-badge { margin-left: 2px; }
+.plan-tree-title { min-width: 0; }
+.plan-tree-goal.is-later > .plan-tree-node { opacity: .65; }
+.plan-tree-takes { margin: 0 0 0 12px; font-size: 12px; }
+.plan-tree-subs { margin: 0 0 0 12px; padding: 0 0 0 26px; border-left: 1px dashed #3b5a8f; color: var(--muted); font-size: 12.5px; line-height: 1.7; list-style: decimal; }
+.plan-tree-subs li { display: list-item; list-style: decimal; }
+.plan-look p { margin: 0 0 4px; }
+.plan-look ul { margin: 2px 0 0; padding-left: 20px; color: var(--muted); font-size: 13px; line-height: 1.6; }
+.plan-look details { margin-top: 2px; font-size: 13px; }
 .plan-overview-title { margin: 0; color: var(--muted); font-size: 11px; font-weight: 600; letter-spacing: .05em; text-transform: uppercase; }
 .plan-ov-row { display: grid; grid-template-columns: 190px minmax(0, 1fr); gap: 0; align-items: center; }
 .plan-ov-milestone { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; padding: 8px 12px; border: 1px solid #3b5a8f; border-radius: 10px; background: #1a2740; font-size: 13px; }

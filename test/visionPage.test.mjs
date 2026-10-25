@@ -19,7 +19,7 @@ const html = await readFile(join(PUBLIC, 'index.html'), 'utf8')
 const css = await readFile(join(PUBLIC, 'board.css'), 'utf8')
 const made = {}
 vm.runInNewContext(`${script.slice(script.indexOf('// vision:start'), script.indexOf('// vision:end'))}
-Object.assign(this, { visionView, OWN_WORDS, visionStart, visionStartWords, visionStartWait, visionStartProblem, planBadge })`, made)
+Object.assign(this, { visionView, OWN_WORDS, visionStart, visionStartWords, visionStartWait, visionStartProblem, planBadge, planLook })`, made)
 const visionView = (...args) => JSON.parse(JSON.stringify(made.visionView(...args)))
 const visionStart = (...args) => JSON.parse(JSON.stringify(made.visionStart(...args)))
 
@@ -475,7 +475,7 @@ test('the plan step: the strategy choice, change badges, Not now, only what chan
   const [m1, m2] = all.milestones
   assert.deepEqual(m1.badge, { label: 'Renamed', tone: 'change' })
   assert.equal(m1.cause, 'shorter')
-  assert.deepEqual(m1.goals.map(goal => goal.badge?.label ?? null), ['New', 'Merges G4 and G6', 'Moved from M2', null, 'Drop'])
+  assert.deepEqual(m1.goals.map(goal => goal.badge?.label ?? null), ['New', 'Merged', 'Moved', null, 'Drop'])
   assert.deepEqual(m1.goals.map(goal => goal.badge?.tone ?? null), ['new', 'change', 'change', null, 'drop'])
   assert.deepEqual([m1.goals[1].cause, m1.goals[1].steps], ['the look is cozy (P3)', 'B12 and B14 move here'])
   assert.equal(m1.goals[4].state, 'later')
@@ -493,9 +493,9 @@ test('the plan step: the strategy choice, change badges, Not now, only what chan
   assert.equal(m2.badge, null)
   // An unknown change is shown in its own words.
   const badge = change => JSON.parse(JSON.stringify(made.planBadge(change)))
-  assert.deepEqual(badge({ kind: 'other', text: 'frobnicate G1' }), { label: 'frobnicate G1', tone: 'change' })
+  assert.deepEqual(badge({ kind: 'other', text: 'frobnicate G1' }), { label: 'Changed', tone: 'change' })
   assert.equal(badge({ kind: 'keep', text: 'G1' }), null)
-  assert.deepEqual(badge({ kind: 'split', text: 'G12' }), { label: 'Splits G12', tone: 'change' })
+  assert.deepEqual(badge({ kind: 'split', text: 'G12' }), { label: 'Split', tone: 'change' })
 })
 
 test('the Plan step draws the strategy choice, the overview, labels and Not now (2026-10-24)', () => {
@@ -505,4 +505,35 @@ test('the Plan step draws the strategy choice, the overview, labels and Not now 
     assert.ok(script.includes(`act === '${act}'`), act)
   assert.match(script, /function planOverview\(/)
   assert.match(css, /\.plan-badge\.is-drop/)
+})
+
+test('the plan reads as a tree: merged goals inside the goal that takes them in, short labels, a readable last look (2026-10-25)', () => {
+  const page = [
+    '# P', '', '## P1 · What', '- State: decided (you, 2026-10-24)', '', '## Goals preset', '',
+    'Checked: (2026-10-25) the milestones laid anew on your words: five stages, each one you play and judge. M1 the structure checked; M2 World 1 at every bar; M3 the fights. Before: (2026-10-24) an old line that should not show',
+    '', '### M2 · World 1 at every bar', '- Change: new', '',
+    '#### S14 · Every World 1 map at the map bar', '- Change: merge G23, G34 into G41; moves to M2', '- Sub: The Causeway as painted', '- Sub: The Vents shown a turn ahead', '- Goal: G41', '',
+    '#### S3 · Better maps', '- Change: merge G23 into G41 (S14)', '- Goal: G23', '',
+    '#### S8 · The reference look on every map', '- Change: merge G34 into G41 (S14, M2)', '- Goal: G34', '',
+    '#### S4 · Feel, effects and light at their bars', '- Change: rename "The polish"', '- Sub: Every feel point passes', '- Goal: G6', '',
+    '#### S15 · The feel meets its bar', '- Change: move G43 under G6 (S4) as a sub-goal', '- Goal: G43', '',
+    '#### S23 · Four foundations', '- Change: drop (never in the goal map)', '',
+    '#### S6 · Two whole runs', '- Goal: G8', '',
+  ].join(String.fromCharCode(10))
+  const view = visionView(planState(page, [], 'p.md'), { ...UI, page: 'plan' })
+  const [m2] = view.goals.milestones
+  // A goal merged into another, or moved under it, is no goal of its own: the goal that takes it in names it.
+  assert.deepEqual(m2.goals.map(goal => goal.id), ['S14', 'S4', 'S23', 'S6'])
+  assert.deepEqual(m2.goals[0].takesIn.map(one => one.id), ['S3', 'S8'])
+  assert.deepEqual(m2.goals[1].takesIn.map(one => [one.id, one.title]), [['S15', 'The feel meets its bar']])
+  assert.deepEqual(m2.goals.map(goal => goal.badge?.label ?? null), ['Merged', 'Renamed', 'Drop', null])
+  assert.ok(m2.goals[0].changeText.startsWith('merge G23, G34 into G41'))
+  // Nor is it a decision of its own: no slide, no count.
+  assert.ok(!view.slides.some(slide => ['S3', 'S8', 'S15'].includes(slide.id)))
+  assert.equal(view.goals.totals.goals, 4)
+  // The last look: today's words only, a headline and short points.
+  const look = JSON.parse(JSON.stringify(made.planLook(planState(page, [], 'p.md').check.text)))
+  assert.equal(look.head, 'the milestones laid anew on your words')
+  assert.deepEqual(look.points, ['five stages, each one you play and judge', 'M1 the structure checked', 'M2 World 1 at every bar', 'M3 the fights'])
+  assert.deepEqual(JSON.parse(JSON.stringify(made.planLook('Nothing changed: the plan stands'))), { head: 'Nothing changed', points: ['the plan stands'] })
 })
