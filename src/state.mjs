@@ -1138,7 +1138,7 @@ function focusRun(node, items, prefix, partner) {
   return { note, needs }
 }
 
-export function buildState(raw, { lines = [], outbox = [], runs = [], board = null, seen = null, reports = null, finishedSeen = {}, taskTimes = [], mods = {}, modsLately = null, handOutHeldAt = null, refusedGives = [], keptReadings = [], now, config }) {
+export function buildState(raw, { lines = [], outbox = [], runs = [], board = null, seen = null, reports = null, finishedSeen = {}, taskTimes = [], mods = {}, modsLately = null, handOutHeldAt = null, refusedGives = [], keptReadings = [], providers = [], now, config }) {
   // The review of Pause 2: while the person pauses (2026-10-19: pausing only, no longer until running) what waits in
   // the outbox is held until the resume, but the board's own "resume" to the main chat; the page says so (`isHeld`).
   const isPaused = isHolding(raw.work?.pause)
@@ -1941,6 +1941,9 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
     // The review of Focus 3: the partner by the chat the board shows for it, the one the work API gives the role advisor.
     focus,
     advisorParts: config.advisorParts,
+    // T9.3 part 1: whether each kind of asset's provider can work now, as the board last checked (src/providers); the
+    // Design tab's part "Asset providers" draws it.
+    providers: (Array.isArray(providers) ? providers : []).map(({ kind, provider, mode, ok, why }) => ({ kind, provider, mode, ok, why })),
   }
   // T9.4: words wait for a chat that is off and no chat runs to carry the board's start word (say.mjs nobodyRunsOf): the page says so.
   // And the chats the board asked in vain (wakeFailedOf: three asks, or every chat that runs was asked): the person opens them.

@@ -1998,6 +1998,13 @@ button.needs-you:hover small, button.needs-you:focus-visible small { color: var(
 .design-badge.is-busy { background: var(--free); border-color: var(--free); color: #fff; }
 .design-badge.is-good { background: #2fb568; border-color: #2fb568; color: var(--ink); }
 .design-badge.is-bad { border-color: var(--warn); color: var(--warn); }
+/* T9.3 part 1: "Asset providers", quiet; only a provider that does not work is in the attention colour. */
+.design-providers { display: flex; flex-direction: column; gap: 8px; }
+.provider-list { display: flex; flex-direction: column; gap: 4px; font-size: 14px; }
+.provider-line { display: grid; grid-template-columns: 8em 9em minmax(0, 1fr); gap: 12px; align-items: baseline; }
+.provider-kind { color: var(--muted); }
+.provider-state.is-quiet { color: var(--muted); }
+.provider-state.is-attention { color: var(--warn); overflow-wrap: anywhere; }
 @media (max-width: 1100px) {
   .design-parts { grid-template-columns: minmax(0, 1fr); }
 }

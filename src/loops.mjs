@@ -41,6 +41,8 @@ export const LOOP_WORDS = {
   'bridge-note': 'telling the chats where the board is',
   // B640: the newest limit readings of the chats, kept with the project.
   'limit-readings': 'keeping the limit readings',
+  // T9.3 part 1: whether each kind of asset's provider can work.
+  providers: 'checking the asset providers',
   // B454: the board's look at its own new version.
   'self-update': 'starting the new version by itself',
 }

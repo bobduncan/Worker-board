@@ -71,6 +71,7 @@ import { readSources } from './src/sources.mjs'
 import { backgroundRunning, parseTail, readTail } from './src/transcript.mjs'
 import { clearAtTake, isStepLine, modAtLeast, takeRefusal } from './src/clearOwed.mjs'
 import { keptReadingsOf } from './src/limits.mjs'
+import { checkProviders } from './src/providers/index.mjs'
 import { buildState } from './src/state.mjs'
 import { isReadAction, workApi } from './src/work/api.mjs'
 import { effortOf } from './src/work/effort.mjs'
@@ -103,6 +104,8 @@ const STATE_MS = 2_000
 /** Clear after each step: a session the board shows under no name is read anew at most this often (src/bridge.mjs). */
 const FRESH_MS = 30_000
 const TICK_MS = 60_000
+/** T9.3 part 1: how often the board checks whether each kind of asset's provider can work. */
+const PROVIDERS_MS = 10 * 60_000
 /** B142: how long the board's look at its folder's version is kept. */
 const VERSION_MS = 30_000
 const HISTORY_BYTES = 8 * 1024 * 1024
@@ -1187,6 +1190,16 @@ async function main(args) {
     // showing another's history reads its own as it is.
     : await ideasFile(join(HERE, 'data', 'ideas.json'), { pictures: config.pictureRoots[0], ...(historyFrom === undefined ? { kept: await kept(join(HERE, 'data', 'ideas.json')) } : {}) })
   const codex = isDemo ? null : await findCodex({ given: settings.codex })
+  // T9.3 part 1 (spec 2026-10-25): whether the provider of each kind of asset can work now (src/providers), checked at
+  // the start and every 10 minutes, not at every refresh; the state carries the last answer. The demo has none.
+  let providers = []
+  const lookAtProviders = () => loops.run('providers', async () => {
+    providers = await checkProviders(config, { project: config.project, codexPath: settings.codex })
+  })
+  if (!isDemo) {
+    await lookAtProviders()
+    setInterval(lookAtProviders, PROVIDERS_MS)
+  }
   const inProject = (project, path) => join(project, ...path.split('/'))
   /** The picture being made: which idea and version, since when, and how to stop it. */
   let making = null
@@ -1313,6 +1326,7 @@ async function main(args) {
       handOutHeldAt,
       refusedGives: workWriters === null ? [] : givesRefused(workDir, clock()),
       keptReadings,
+      providers,
       now: clock(),
       config: { ...config, project },
     })

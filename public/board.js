@@ -15137,6 +15137,22 @@ function sentWords(sent, main = null) {
 }
 // design:end
 
+// providers:start
+/**
+ * T9.3 part 1: the Design tab's part "Asset providers", one line per kind of asset in the order the board sends
+ * them (`state.providers`): the kind, its provider, and "works" or why it does not. Only a provider that does not
+ * work is in the attention tone; the rest is quiet. A board that sends none (an older server, the demo) shows none.
+ */
+function providerLines(providers) {
+  return (Array.isArray(providers) ? providers : []).map(one => ({
+    kind: one.kind,
+    provider: one.provider ?? 'none',
+    text: one.ok === true ? 'works' : one.why || 'does not work',
+    tone: one.ok === true ? 'quiet' : 'attention',
+  }))
+}
+// providers:end
+
 /** What the person chose and typed on the Design tab; a redraw must not undo it. */
 const designChosen = { idea: null, version: null }
 const designDraft = { text: '', kind: null, references: [] }
@@ -15356,6 +15372,19 @@ function drawDesignStrip(design, view, main) {
   })
 }
 
+/** T9.3 part 1: "Asset providers" under the ideas: hidden while the board sends no providers. */
+function drawProviders() {
+  const lines = providerLines(board?.providers)
+  $('design-providers').hidden = lines.length === 0
+  once('design-providers', lines, () => {
+    fill($('design-provider-list'), lines.map(line => {
+      const row = el('li', 'provider-line')
+      row.append(el('span', 'provider-kind', line.kind), el('span', 'provider-name', line.provider), el('span', `provider-state is-${line.tone}`, line.text))
+      return row
+    }))
+  })
+}
+
 /** The Design tab, from the board's state and what the person chose. Typed text is never drawn over. */
 function drawDesign() {
   const design = designNow()
@@ -15370,6 +15399,7 @@ function drawDesign() {
   drawDesignPicture(design, view, main)
   drawDesignForm(design, view, main)
   drawDesignStrip(design, view, main)
+  drawProviders()
 }
 
 // While a picture is being made its time counts on, also between two readings of the state.

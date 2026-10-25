@@ -229,6 +229,14 @@ has these). Every step runs on the model its refine names (`Model: sonnet` unles
 main chat sets the worker's chat to both before the step goes to it, and an opus step waits until the app says its
 worker runs on Opus. Without both ids, each starting with `claude-`, the board sets the effort alone and says so on
 top. `usualModel` and `usualEffort` (`"sonnet"` and `"medium"` unless set): what a worker runs at between steps.
+`providers` (T9.3, the defaults below unless set): who provides each kind of asset, an object from asset kind (`visual`, `music`,
+`sound effect`) to a provider's name: `{ "visual": "codex", "music": "person-suno", "sound effect": "sound-library" }`.
+`codex` makes pictures by itself, `person-suno` is you making music in Suno, `sound-library` is a folder of sounds in
+the project (`.wav`, `.mp3`, `.ogg`, `.flac`) a chat picks from; `"sound effect": { "provider": "sound-library", "folder":
+"sound-library" }` names the folder (inside `<project>`, written with `/`). A kind you leave out keeps its default; an
+unknown kind or provider, or a provider set for a kind it cannot serve, stops the board at its start with one line. The
+Design tab's "Asset providers" shows, for each kind, its provider and whether it works (checked at the start and every
+10 minutes). Nothing asks a provider for an asset yet.
 `supervisor` (the defaults unless set): the thresholds of the board's watch rules, which report what does not look right
 (the supervisor, `DESIGN.md`): `{ "unknownMinutes": 10, "suspendedMinutes": 10, "idleMinutes": 10, "notRunningMinutes":
 30, "opusWaitMinutes": 15, "undeliveredMinutes": 10, "repairsPerDay": 3, "notClearedMinutes": 10, "oldReadingMinutes": 30, "oldReadingIncidentMinutes": 60 }`; any of them, each a

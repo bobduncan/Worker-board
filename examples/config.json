@@ -4,6 +4,11 @@
   "gameRepo": "",
   "baseBranch": "main",
   "designKinds": ".claude/design.json",
+  "providers": {
+    "visual": "codex",
+    "music": "person-suno",
+    "sound effect": { "provider": "sound-library", "folder": "sound-library" }
+  },
   "runGame": [
     "{node}",
     "{board}/run-game.mjs",

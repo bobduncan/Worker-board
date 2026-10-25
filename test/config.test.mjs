@@ -321,3 +321,67 @@ test('gap 4: supervisorCountFrom, a local time "YYYY-MM-DD HH:MM" the supervisor
   assert.equal(countFromMs(undefined), null)
   assert.equal(countFromMs('2026-02-30 10:00'), null)
 })
+
+test('T9.3 part 1: providers: each kind of asset has its provider by default; a full or partial object changes only what it names', () => {
+  const usual = { visual: { provider: 'codex' }, music: { provider: 'person-suno' }, 'sound effect': { provider: 'sound-library', folder: 'sound-library' } }
+  assert.deepEqual(parseConfig('{}', env).providers, usual)
+  assert.deepEqual(Object.keys(parseConfig('{}', env).providers), ['visual', 'music', 'sound effect'])
+  // A full object, in either form: the provider's name, or { provider, folder? }.
+  const full = parseConfig(JSON.stringify({ providers: { visual: 'codex', music: { provider: 'person-suno' }, 'sound effect': { provider: 'sound-library', folder: 'audio/effects' } } }), env)
+  assert.deepEqual(full.providers, { visual: { provider: 'codex' }, music: { provider: 'person-suno' }, 'sound effect': { provider: 'sound-library', folder: 'audio/effects' } })
+  // A partial one: the kinds it does not name stay as they are.
+  assert.deepEqual(parseConfig('{"providers": {"sound effect": "sound-library"}}', env).providers, usual)
+  assert.deepEqual(parseConfig('{"providers": {}}', env).providers, usual)
+  assert.deepEqual(parseConfig('{"providers": {"sound effect": {"provider": "sound-library"}}}', env).providers['sound effect'], { provider: 'sound-library', folder: 'sound-library' })
+  // The folder is written with / and trimmed; a name too.
+  assert.deepEqual(parseConfig('{"providers": {"sound effect": {"provider": " sound-library ", "folder": " sounds "}}}', env).providers['sound effect'], { provider: 'sound-library', folder: 'sounds' })
+  for (const text of ['{}', '{"providers": {}}', '{"providers": {"visual": "codex", "music": "person-suno", "sound effect": {"provider": "sound-library", "folder": "sound-library"}}}', '{"providers": {"sound effect": {"provider": "sound-library", "folder": "audio/my sounds"}}}']) {
+    assert.equal(configProblem(text), null, text)
+  }
+})
+
+test('T9.3 part 1: a wrong providers setting is refused with one line; parseConfig keeps the kind at its default', () => {
+  const refused = {
+    '{"providers": []}': '"providers" must be an object from asset kind to provider, such as { "visual": "codex" }, not []',
+    '{"providers": "codex"}': '"providers" must be an object from asset kind to provider, such as { "visual": "codex" }, not "codex"',
+    // An unknown kind.
+    '{"providers": {"image": "codex"}}': '"providers.image" is no asset kind; the kinds are visual, music, sound effect',
+    '{"providers": {"sound effects": "sound-library"}}': '"providers.sound effects" is no asset kind; the kinds are visual, music, sound effect',
+    // An unknown provider: also one that is only a name of JavaScript's objects.
+    '{"providers": {"visual": "midjourney"}}': '"providers.visual" must name a provider the board knows (codex, person-suno, sound-library), not "midjourney"',
+    '{"providers": {"visual": "constructor"}}': '"providers.visual" must name a provider the board knows (codex, person-suno, sound-library), not "constructor"',
+    '{"providers": {"visual": 5}}': '"providers.visual" must name a provider the board knows (codex, person-suno, sound-library), not 5',
+    '{"providers": {"visual": {}}}': '"providers.visual" must name a provider the board knows (codex, person-suno, sound-library), not undefined',
+    '{"providers": {"visual": null}}': '"providers.visual" must name a provider the board knows (codex, person-suno, sound-library), not null',
+    // A provider set for a kind it cannot serve.
+    '{"providers": {"music": "codex"}}': '"providers.music" is set to "codex", which serves visual, not music',
+    '{"providers": {"visual": {"provider": "sound-library"}}}': '"providers.visual" is set to "sound-library", which serves sound effect, not visual',
+    '{"providers": {"sound effect": "person-suno"}}': '"providers.sound effect" is set to "person-suno", which serves music, not sound effect',
+    // The folder: only a provider that has one, and a path inside the project.
+    '{"providers": {"visual": {"provider": "codex", "folder": "pictures"}}}': '"providers.visual" sets a folder, but "codex" has none',
+    '{"providers": {"sound effect": {"provider": "sound-library", "folder": "../sounds"}}}': '"providers.sound effect.folder" must be a path inside the project, written with /, not "../sounds"',
+    '{"providers": {"sound effect": {"provider": "sound-library", "folder": "C:/sounds"}}}': '"providers.sound effect.folder" must be a path inside the project, written with /, not "C:/sounds"',
+    '{"providers": {"sound effect": {"provider": "sound-library", "folder": ""}}}': '"providers.sound effect.folder" must be a path inside the project, written with /, not ""',
+    '{"providers": {"sound effect": {"provider": "sound-library", "folder": 3}}}': '"providers.sound effect.folder" must be a path inside the project, written with /, not 3',
+  }
+  for (const [text, line] of Object.entries(refused)) {
+    assert.equal(configProblem(text), line, text)
+    // The board does not start on it; read leniently, every kind stays as it is by default.
+    assert.deepEqual(parseConfig(text, env).providers, parseConfig('{}', env).providers, text)
+  }
+  // The first wrong thing is the one said; a right kind beside a wrong one still counts for parseConfig.
+  assert.equal(configProblem('{"providers": {"music": "codex", "image": "codex"}}'), '"providers.music" is set to "codex", which serves visual, not music')
+  assert.deepEqual(parseConfig('{"providers": {"music": "codex", "sound effect": {"provider": "sound-library", "folder": "sfx"}}}', env).providers['sound effect'], { provider: 'sound-library', folder: 'sfx' })
+})
+
+test('T9.3 part 1: loading a settings file with a wrong provider stops with that line', async t => {
+  const { BrokenConfig, loadConfig } = await import('../src/config.mjs')
+  const { mkdtemp, rm, writeFile } = await import('node:fs/promises')
+  const { tmpdir } = await import('node:os')
+  const folder = await mkdtemp(join(tmpdir(), 'worker-board-config-'))
+  t.after(() => rm(folder, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }))
+  const file = join(folder, 'config.json')
+  await writeFile(file, '{"providers": {"music": "codex"}}')
+  await assert.rejects(loadConfig(file, {}), error => error instanceof BrokenConfig
+    && error.message === `The worker board's settings file ${file} is broken: "providers.music" is set to "codex", which serves visual, not music. Fix it and start the board again.`)
+})

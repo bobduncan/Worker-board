@@ -5,6 +5,7 @@ import { access, copyFile, readFile, readdir, realpath, stat } from 'node:fs/pro
 import { basename, dirname, isAbsolute, join, relative } from 'node:path'
 import { EFFORTS, MODELS, modelIds } from './work/effort.mjs'
 import { parseRoutingPolicy } from './work/routing/policy.mjs'
+import { ASSET_KINDS, DEFAULT_PROVIDERS, PROVIDERS } from './providers/index.mjs'
 
 /**
  * B300: the work store's reconciler (src/work/reconcile.mjs). A step held by a chat that is not running is flagged after
@@ -197,6 +198,11 @@ export const DEFAULTS = {
    * (0: no sweep by the clock, only on Check now). Lower it to save tokens.
    */
   supervisorSweepMinutes: 10,
+  /**
+   * T9.3 part 1 (spec 2026-10-25): who provides each kind of asset, `{ provider, folder? }` per kind (src/providers). The
+   * setting `providers` is an object from kind to a provider's name, or to `{ provider, folder? }`; `readProviders`.
+   */
+  providers: DEFAULT_PROVIDERS,
 }
 
 /** B354: one kind of work of the settings, its paths inside the project. */
@@ -207,6 +213,56 @@ const isKind = one => one !== null && typeof one === 'object' && !Array.isArray(
 const kindOf = one => ({ kind: one.kind.trim().replace(/\s+/g, ' '), done: one.done.trim(), reference: one.reference.trim(), ...(one.look === true ? { look: true } : {}) })
 /** B354: the kinds as a list, each once (by name, any case). */
 const isKinds = value => Array.isArray(value) && value.every(isKind) && new Set(value.map(one => kindOf(one).kind.toLowerCase())).size === value.length
+
+/** A setting's value as a short piece of text for a line that says what is wrong with it. */
+const shown = value => (JSON.stringify(value) ?? String(value)).slice(0, 60)
+
+/**
+ * T9.3 part 1: the settings' `providers`, an object from asset kind to a provider's name, or to `{ provider, folder? }`
+ * (`folder`: only for a provider that has a library folder, a path inside the project written with /; its own default
+ * when not given). `providers`: `{ provider, folder? }` for every kind, a kind the setting does not name, or names
+ * wrongly, at its default; `problem`: the first thing wrong as one line, or null.
+ */
+function readProviders(value) {
+  const providers = { ...DEFAULT_PROVIDERS }
+  if (value === undefined) return { providers, problem: null }
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) {
+    return { providers, problem: `"providers" must be an object from asset kind to provider, such as { "visual": "codex" }, not ${shown(value)}` }
+  }
+  let problem = null
+  for (const [kind, given] of Object.entries(value)) {
+    const at = `"providers.${kind}"`
+    const refuse = line => { problem ??= line }
+    if (!ASSET_KINDS.includes(kind)) {
+      refuse(`${at} is no asset kind; the kinds are ${ASSET_KINDS.join(', ')}`)
+      continue
+    }
+    const entry = typeof given === 'string' ? { provider: given } : given
+    const isEntry = entry !== null && typeof entry === 'object' && !Array.isArray(entry)
+    const name = isEntry && typeof entry.provider === 'string' ? entry.provider.trim() : undefined
+    const provider = name === undefined ? undefined : PROVIDERS[name]
+    if (provider === undefined) {
+      refuse(`${at} must name a provider the board knows (${Object.keys(PROVIDERS).join(', ')}), not ${shown(isEntry ? entry.provider : given)}`)
+      continue
+    }
+    if (!provider.kinds.includes(kind)) {
+      refuse(`${at} is set to "${name}", which serves ${provider.kinds.join(', ')}, not ${kind}`)
+      continue
+    }
+    if (provider.folder === undefined) {
+      if (entry.folder !== undefined) refuse(`${at} sets a folder, but "${name}" has none`)
+      else providers[kind] = { provider: name }
+      continue
+    }
+    const folder = entry.folder === undefined ? provider.folder : entry.folder
+    if (!(typeof folder === 'string' && INSIDE.test(folder.trim()) && !folder.trim().split('/').includes('.'))) {
+      refuse(`"providers.${kind}.folder" must be a path inside the project, written with /, not ${shown(folder)}`)
+      continue
+    }
+    providers[kind] = { provider: name, folder: folder.trim() }
+  }
+  return { providers, problem }
+}
 
 /** Focus 1: the Focus tab's parts, in the order of its bar (public/board.js ADVISOR_PANES). */
 const ADVISOR_PARTS = ['focus', 'way', 'goals', 'brainstorm', 'plan', 'suggestions', 'refine', 'chat']
@@ -387,6 +443,7 @@ export function parseConfig(text, env) {
   if (typeof raw.usualModel === 'string' && MODELS.includes(raw.usualModel.trim().toLowerCase())) config.usualModel = raw.usualModel.trim().toLowerCase()
   if (typeof raw.usualEffort === 'string' && EFFORTS.includes(raw.usualEffort.trim().toLowerCase())) config.usualEffort = raw.usualEffort.trim().toLowerCase()
   config.routing = parseRoutingPolicy(raw.routing)
+  config.providers = readProviders(raw.providers).providers
   // The supervisor: each threshold given as a number above 0 replaces its default; others are left alone.
   const given = raw.supervisor !== null && typeof raw.supervisor === 'object' && !Array.isArray(raw.supervisor) ? raw.supervisor : {}
   config.supervisor = Object.freeze(Object.fromEntries(Object.entries(SUPERVISOR_DEFAULTS)
@@ -459,6 +516,10 @@ export function configProblem(fileText) {
     for (const key of Object.keys(SUPERVISOR_DEFAULTS)) {
       if (Object.hasOwn(given, key) && !(Number.isFinite(given[key]) && given[key] > 0)) return `"supervisor.${key}" must be a number above 0, not ${JSON.stringify(given[key]).slice(0, 60)}`
     }
+  }
+  if (has('providers')) {
+    const { problem } = readProviders(raw.providers)
+    if (problem !== null) return problem
   }
   if (has('kinds') && !isKinds(raw.kinds)) return wrong('kinds', 'a list of { "kind", "done", "reference", "look"? }: a kind\'s name, its definition of done and its reference folder, paths inside the project written with /, "look": true for a kind the player sees, each kind once')
   return null

@@ -3895,6 +3895,34 @@ cannot.
   carry it, another chat is asked) with "<holder> does not run, so it cannot carry the start of <chat>"; the main chat's own
   start words wait for it as before.
 
+## Asset providers, part 1: the provider setting (T9.3, 2026-10-25)
+
+The person's yes to build part 1 of `.claude/specs/2026-10-25-asset-providers-design.md`: the setting and the provider
+modules that part 2 (asset requests, the queue, the `asset` work action) will call. Nothing here changes what the chats
+do: no work action, no mod change, no Codex run of its own.
+
+- *The setting.* `config.json` may hold `providers`, an object from asset kind to provider: `visual` is `codex`
+  (the board runs it, `mode: auto`), `music` is `person-suno` (the person makes it in Suno, `person`), `sound effect`
+  is `sound-library` (a folder of sounds in the project from which a chat picks a file, `pick`). A kind left out keeps
+  that default (`DEFAULT_PROVIDERS`, src/providers/index.mjs). An entry is the provider's name, or `{ "provider", "folder"? }`:
+  `sound-library` takes a `folder` (inside the project, written with `/`, `sound-library` unless given). A wrong
+  setting is refused at the start, as the others are (src/config.mjs `readProviders`, said by `configProblem`): an
+  unknown kind, an unknown provider name, a provider set for a kind it does not serve (`codex` for music), a folder on a
+  provider that has none, a folder that leads out of the project. `parseConfig` keeps such a kind at its default.
+- *The modules.* `src/providers/`: one file per provider and `index.mjs`. Each exports `{ name, mode, kinds, check }`
+  (the sound library also its default `folder`). `check(tools)` answers `{ ok, why }`, never throws and makes nothing:
+  `codex` is ok when `findCodex` (src/codex.mjs) finds Codex, with the same `given` path the Design tab uses
+  (`tools.codexPath`, the `codex` of the design settings); `person-suno` is always ok; `sound-library` is ok when its
+  folder is there and holds a sound file (`.wav`, `.mp3`, `.ogg`, `.flac`, in the folder or up to four folders deep).
+  `index.mjs` holds the known providers by name, `providerFor(settings, kind)` and `checkProviders(settings, tools)`,
+  which answers `[{ kind, provider, mode, ok, why }]` in the order visual, music, sound effect. Part 2's
+  `provide(request, tools)` has its place in the same face; it is not built.
+- *On the board.* The server runs `checkProviders` at its start and every 10 minutes (not at every refresh; the loop
+  `providers`, so a failing check shows in the head like the other loops) and the state carries the last answer as
+  `providers`. The Design tab shows it under "Ideas so far", in a part "Asset providers": a line per kind with the kind,
+  the provider and "works" or why not. The part is quiet; only a provider that does not work is in the attention colour.
+  The demo and a board whose server sends none show no part.
+
 ## What it does not do
 
 - It does not start, stop or restart chats itself: it asks the main chat (a worker to start, a restart for a new mod,
