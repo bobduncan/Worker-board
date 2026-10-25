@@ -839,7 +839,7 @@ function needsOf(asks, lanes, outbox, gameOf, now, base = 'main', { advisor = nu
       from: lane.name,
       kind: 'unfiled',
       title: `${lane.name} wrote questions in its chat but filed no ask`,
-      text: `Its last answer ends with a "For you" block, and the work store holds no ask of it since that turn began${lane.unfiled.isStartUnknown ? ' (the board could not tell when this turn began, so it warns all the same)' : ''}. The board does not read questions from a chat: answer them in its chat, or ask it to file them with work ask.`,
+      text: `Its last answer ends with a "For you" block, and the work store holds no ask of it since that turn began${lane.unfiled.isStartUnknown ? ' (the board could not tell when this turn began, so it warns all the same)' : ''}. The board does not read questions from a chat: answer them in its chat, or ask it to file them with work ask.${(lane.task?.stepId ?? null) === null ? '' : ` Its step: ${lane.task.stepId}.`}`,
       at: lane.unfiled.at,
       ...blank,
       version: null,
@@ -889,6 +889,8 @@ function needsOf(asks, lanes, outbox, gameOf, now, base = 'main', { advisor = nu
         ...blank,
         version: null,
         canAnswer: false,
+        // B533: a worker's card gets Check now; the main chat's says where to look.
+        isMain: lane.isMain === true,
       })
     }
   }
