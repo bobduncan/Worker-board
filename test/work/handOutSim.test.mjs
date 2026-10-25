@@ -38,7 +38,7 @@ async function garden(tasks, { workers = ['W1', 'W2'], settings = {}, models = n
   const dir = await mkdtemp(join(tmpdir(), 'hand-out-sim-'))
   const items = new Map(tasks.map(one => [one.head.get('Id'), one]))
   await writeStore(dir, { items, activities: [{ name: 'Garden', isFocus: false, steps: [...items.keys()], notes: [], loose: [] }] }, undefined, { now: T0 - 60 * MIN })
-  const config = { ...parseConfig(JSON.stringify(settings), {}), project: PROJECT, ...(models === null ? {} : { models: MODELS }) }
+  const config = { ...parseConfig(JSON.stringify({ handOutBeyondFocus: true, ...settings }), {}), project: PROJECT, ...(models === null ? {} : { models: MODELS }) }
   const reports = new Map()
   /** A worker's report, as bridge.mjs `noteReport` keeps it. */
   const report = (name, state, since, at) => reports.set(name, { state, since, background: false, at, session: `cli-${name}`, mod: '0.19.0' })

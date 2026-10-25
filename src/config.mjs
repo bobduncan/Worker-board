@@ -345,6 +345,8 @@ export function parseConfig(text, env) {
   if (Number.isFinite(raw.takeWithinMinutes) && raw.takeWithinMinutes >= 1) config.takeWithinMinutes = raw.takeWithinMinutes
   if (Number.isFinite(raw.followUpMinutes) && raw.followUpMinutes >= 0) config.followUpMinutes = raw.followUpMinutes
   if (Number.isFinite(raw.heldGiveMinutes) && raw.heldGiveMinutes >= 1) config.heldGiveMinutes = raw.heldGiveMinutes
+  // 2026-10-25: true hands out tasks beyond the fixes, the focus goal's and the pinned ones too (oldest first).
+  if (typeof raw.handOutBeyondFocus === 'boolean') config.handOutBeyondFocus = raw.handOutBeyondFocus
   // The Workers mod types at most 3000 characters, and an answer also carries the name of its request.
   config.maxMessageChars = Math.min(config.maxMessageChars, 2500)
   if (typeof raw.advisor === 'string' && raw.advisor.trim() !== '') config.advisor = raw.advisor.trim()
