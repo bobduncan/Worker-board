@@ -162,7 +162,8 @@ function plannedWait(item, view, now, seen = new Set()) {
  * B563 (X19: B510 waiting for the person's answer and B532 for its queued fix B548 read as unchecked for their age):
  * whether a step in review is odd by what it waits for (resultCheck.mjs `reviewWaitOf`, as the review-stuck rule reads
  * it): the person's answer, never; its open fix, when that fix is odd itself (a loop of fixes counts as odd); its check,
- * past `reviewMinutes`; its dropped fix, always. Null when it waits for none of these: its age decides.
+ * past `reviewMinutes`; its dropped fix, always, unless the step is blocked by an open step that is not stalled itself
+ * (B630: then it waits as planned). Null when it waits for none of these: its age decides.
  */
 function reviewLate(item, view, now, seen) {
   const wait = reviewWaitOf(item, view.items)
@@ -173,6 +174,11 @@ function reviewLate(item, view, now, seen) {
     const chain = new Set([...seen, valueOf(item, 'Id')])
     const fix = view.items.get(wait.fix)
     return chain.has(wait.fix) || isLate(fix, view, now, chain) || ownerGone(fix, view)
+  }
+  if (wait.kind === 'blocked') {
+    // B630 (X54): its dropped fix waits on open steps; odd only when one of them is stalled itself.
+    const chain = new Set([...seen, valueOf(item, 'Id')])
+    return wait.blockers.some(blocker => chain.has(blocker) || isLate(view.items.get(blocker), view, now, chain))
   }
   return true
 }

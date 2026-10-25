@@ -256,6 +256,25 @@ test('B563: a step in review whose fix was dropped is odd; so is one whose open 
   assert.match(lineOfStep(gone, 'B532'), /^- ! B532 review for 1 h 40 min, Worker 5 \(waits for its fix B548 \(queued, Somebody gone\)\)/)
 })
 
+test('B630 (X54): a step in review whose dropped fix waits on an open step that moves is quiet; odd with a stalled or ended blocker', () => {
+  const board = (blocker, more = {}) => healthSummary(buildView({
+    state: { chats: [lane('Lead', { isMain: true }), lane('Worker 5', { state: 'working', task: { stepId: 'B623', text: 'x' } })], chatPrefix: '' },
+    items: items(
+      inReview('B532', 200, [`- ${stamp(ago(190))} Checker: result check failed: 1 of 2 points pass; fix B548 for Worker 5`], { Owner: 'Worker 5', ...more }),
+      step('B548', 'dropped', { Owner: 'Worker 5', 'Fix of': 'B532', Since: stamp(ago(150)) }),
+      blocker,
+    ),
+    now: NOW,
+  }), NOW)
+  const moving = step('B623', 'in progress', { Owner: 'Worker 5', Since: stamp(ago(30)) })
+  assert.equal(lineOfStep(board(moving, { 'Blocked by': 'B623' }), 'B532'), '- B532 review for 3 h 20 min, Worker 5 (its fix B548 was dropped, waits for B623): Step B532 of the garden')
+  // The blocker stalled in progress for 5 h: odd with it.
+  assert.ok(lineOfStep(board(step('B623', 'in progress', { Owner: 'Worker 5', Since: stamp(ago(300)) }), { 'Blocked by': 'B623' }), 'B532').startsWith('- ! B532 review for 3 h 20 min, Worker 5 (its fix B548 was dropped, waits for B623)'))
+  // The blocker done, or no block at all: the dropped fix is odd again.
+  assert.ok(lineOfStep(board(step('B623', 'done', { Owner: 'Worker 5' }), { 'Blocked by': 'B623' }), 'B532').startsWith('- ! B532 review for 3 h 20 min, Worker 5 (its fix B548 was dropped)'))
+  assert.ok(lineOfStep(board(moving), 'B532').startsWith('- ! B532 review for 3 h 20 min, Worker 5 (its fix B548 was dropped)'))
+})
+
 /** X18's board at 20:23: Lead's last report B301 at 22:29 the day before, and a time of another day in every section. */
 const X18_NOW = new Date(2026, 9, 24, 20, 23).getTime()
 const yesterday = (hours, minutes) => new Date(2026, 9, 23, hours, minutes).getTime()

@@ -124,7 +124,8 @@ const isOpenStep = item => !['done', 'dropped'].includes(valueOf(item, 'State'))
  * kind 'check', its result check (never filed, "waits for its first check"; or to be filed again once its ask point is
  * answered or its fix is done, "waits for its check again"); 'answer', the person's answer to an ask point of its check;
  * 'fix', its open fix `fix` ("waits for its fix B<n>"), also while that fix waits in review for one of its own; 'dropped',
- * its check failed and no fix of it is open or done ("its fix B<n> was dropped"). `since`: when the wait began (ms).
+ * its check failed and no fix of it is open or done ("its fix B<n> was dropped"); 'blocked' (B630), the same but the step
+ * is blocked by open steps `blockers`, so the drop is a plan. `since`: when the wait began (ms).
  * `items` is the store's items by id.
  */
 export function reviewWaitOf(item, items) {
@@ -150,6 +151,12 @@ export function reviewWaitOf(item, items) {
   const named = lastResult(item).match(/; fix (B\d+) for\b/)?.[1] ?? fixes.at(-1)?.head.get('Id') ?? null
   const gone = named === null ? undefined : items?.get(named)
   const since = gone === undefined ? resultCheckAtMs(item) : sinceMs(valueOf(gone, 'Since'))
+  // B630 (X54): a dropped fix with the step blocked by an open step is a plan (the fix is made again after that step).
+  const blockers = [...new Set(`${valueOf(item, 'Blocked by') ?? ''} ${valueOf(item, 'Waits for') ?? ''}`.match(/\bB\d+\b/g) ?? [])]
+    .filter(one => one !== id && items?.has(one) && isOpenStep(items.get(one)))
+  if (blockers.length > 0) {
+    return { kind: 'blocked', fix: named, blockers, since, text: `${named === null ? 'its check failed and made no fix' : `its fix ${named} was dropped`}, waits for ${blockers.join(' and ')}` }
+  }
   return { kind: 'dropped', fix: named, since, text: named === null ? 'its check failed and made no fix' : `its fix ${named} was dropped` }
 }
 

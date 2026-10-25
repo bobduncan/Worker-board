@@ -479,8 +479,8 @@ function oddEffort(view) {
  * 12. B543 (the fix of X8: a step sat in review for 3 days behind a dropped fix, four more for hours behind a chain of
  * fixes): a step in review says what it waits for (resultCheck.mjs `reviewWaitOf`). Waiting for an open fix, or for the
  * person's answer, is no case. Stuck: no result check filed for longer than `reviewMinutes` (its first, or again after
- * its fix was done or its ask point answered; the repair `unchecked` types the check word meanwhile), or its fix dropped
- * with none open (the repair `fix-dropped` tells the main chat). Counted from the end of the person's last pause.
+ * its fix was done or its ask point answered; the repair `unchecked` types the check word meanwhile). A dropped fix is
+ * the rule `fix-dropped` (B630). Counted from the end of the person's last pause.
  */
 function reviewStuck(view, ctx) {
   const found = []
@@ -488,25 +488,45 @@ function reviewStuck(view, ctx) {
   const partner = view.partner?.name ?? 'the partner'
   for (const item of stepsOf(view).filter(one => stateOf(one) === 'review').sort((a, b) => byId(idOf(a), idOf(b)))) {
     const wait = reviewWaitOf(item, view.items)
-    if (wait === null || !['check', 'dropped'].includes(wait.kind)) continue
+    if (wait?.kind !== 'check') continue
     const id = idOf(item)
-    const key = wait.kind === 'check' ? `review-stuck ${id} check` : `review-stuck ${id} dropped ${wait.fix ?? 'none'}`
+    const key = `review-stuck ${id} check`
     const ms = lasted(view, ctx, key, afterPause(view, wait.since))
     if (ms <= view.settings.reviewMinutes * MIN) continue
-    if (wait.kind === 'dropped') {
-      found.push({
-        rule: 'review-stuck', key, subject: id,
-        text: `${id} in review, but ${wait.text}: nothing will close it`,
-        evidence: `${id} owned by ${valueOf(item, 'Owner') ?? 'nobody'}; ${wait.text} ${minutes(ms)} min ago; no other fix of it is open`,
-      })
-      continue
-    }
     const words = checkWordsOf(view, id, wait.since)
     const last = words.at(-1) ?? null
     found.push({
       rule: 'review-stuck', key, subject: id,
       text: `${id} in review ${minutes(ms)} min with no result check filed (${wait.text})`,
       evidence: `since ${clockOf(view.now - ms)}; ${words.length === 0 ? `no check word to ${partner}` : `${words.length} check ${words.length === 1 ? 'word' : 'words'} to ${words[0].to ?? partner}, the last at ${clockOf(last.at)} (${last.state ?? 'not known'})`}`,
+    })
+  }
+  return found
+}
+
+/** How long a dropped fix may stand with nothing planned for its step before the partner hears of it (B630). */
+const FIX_DROPPED_MS = 30 * MIN
+
+/**
+ * 12b. B630 (X54: B602, B608 and B609 sat in review for 2 h with their fixes dropped, found only by the sweep): a step
+ * in review whose fix was dropped, with no new fix, no new check and no open step blocking it (resultCheck.mjs
+ * `reviewWaitOf` kind 'dropped'; a block makes it 'blocked', a plan), for over 30 minutes is an incident for the
+ * partner. Counted from the drop, and from the end of the person's last pause.
+ */
+function fixDropped(view, ctx) {
+  const found = []
+  if (isPaused(view)) return found
+  for (const item of stepsOf(view).filter(one => stateOf(one) === 'review').sort((a, b) => byId(idOf(a), idOf(b)))) {
+    const wait = reviewWaitOf(item, view.items)
+    if (wait?.kind !== 'dropped') continue
+    const id = idOf(item)
+    const key = `fix-dropped ${id}`
+    const ms = lasted(view, ctx, key, afterPause(view, wait.since))
+    if (ms <= FIX_DROPPED_MS) continue
+    found.push({
+      rule: 'fix-dropped', key, subject: id,
+      text: `${id} in review, but ${wait.text}: nothing will close it`,
+      evidence: `${id} owned by ${valueOf(item, 'Owner') ?? 'nobody'}; ${wait.text} ${minutes(ms)} min ago; no other fix of it is open, no check filed again, no open step blocks it`,
     })
   }
   return found
@@ -711,7 +731,8 @@ export const WATCH_RULES = [
   { id: 'report-check-twice', kind: 'watch', says: 'a step whose board check failed twice', check: reportCheckTwice },
   { id: 'old-mod', kind: 'watch', says: 'a chat idle on an older Workers mod than the one installed for over 30 min', check: oldMod },
   { id: 'odd-effort', kind: 'watch', says: 'a chat whose effort is not a level', check: oddEffort },
-  { id: 'review-stuck', kind: 'watch', says: 'a step in review with no result check for too long, or whose fix was dropped', check: reviewStuck },
+  { id: 'review-stuck', kind: 'watch', says: 'a step in review with no result check for too long', check: reviewStuck },
+  { id: 'fix-dropped', kind: 'watch', says: 'a step in review whose fix was dropped, with no new fix, no new check and no block for over 30 min', check: fixDropped },
   { id: 'stale-checkpoint', kind: 'watch', says: 'a step in progress with no checkpoint for hours, or whose checkpoint said to report long ago', check: staleCheckpoint },
   { id: 'effort-mismatch', kind: 'watch', says: 'a worker that still runs another model or effort than its step wants 10 min after the take', check: effortMismatch },
   { id: 'not-cleared', kind: 'watch', says: 'a worker not cleared after its reported step', check: notCleared },

@@ -3280,8 +3280,11 @@ the AI sweep by a cheap supervisor chat and the hand-over to the Advisor, comes 
   (B544, the fix of X9: a chat whose card says an effort that is not a level; the partner's card holds the app's level in
   `appEffort` beside its high effort mode in `effort`, and `effort.mjs chatEffort` reads the level, so the health
   summary never says "[object Object]"), `review-stuck` (B543, the fix of X8: a step in review with no result check
-  filed for over 60 min, its first or again after its fix was done or its ask point answered, or whose fix was dropped
-  with none open; one that waits for an open fix, down a chain of fixes too, or for the person's answer is no case),
+  filed for over 60 min, its first or again after its fix was done or its ask point answered; one that waits for an open fix,
+  down a chain of fixes too, or for the person's answer is no case), `fix-dropped` (B630, the fix of X54: a step in
+  review whose fix was dropped, with no new fix, no new check and no open step blocking it, for over 30 min; with a
+  block, `reviewWaitOf` says kind 'blocked' and the step waits as planned, odd in the health summary only when a
+  blocker is stalled itself),
   `stale-checkpoint` (B572, the fix of X24: a step in progress over 120 min with no checkpoint within them, or whose
   last checkpoint's next action is to report, written over 30 min ago; one finding per step and checkpoint; not while
   the person pauses, a limit is full or its worker is suspended for the limit, and its suspended time does not count; the health summary shows each step in progress with its

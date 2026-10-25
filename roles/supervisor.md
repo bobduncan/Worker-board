@@ -57,8 +57,10 @@ sweep is meant to cost little (a few tens of thousands of tokens, mostly cached)
 - Steps in review are checked and done; steps piling up in review are odd. A step in review says what it waits for
   ("waits for its fix B<n> (<state>, <owner>)", "waits for your answer to its check", "waits for its first check" or
   "waits for its check again", "its fix B<n> was dropped"). One that waits for its fix or for the person's answer
-  waits as planned: no incident, and no "!" unless its fix is odd itself. The review-stuck rule watches the rest: a
-  check not filed within the review minutes, or a dropped fix. A first check counts from when the board's own check
+  waits as planned: no incident, and no "!" unless its fix is odd itself. So does one whose fix was dropped while an
+  open step blocks it ("its fix B<n> was dropped, waits for B<m>", B630): odd only when that step is stalled itself. The
+  review-stuck rule watches a check not filed within the review minutes; the fix-dropped rule a dropped fix with no new
+  fix, no new check and no block for over 30 min. A first check counts from when the board's own check
   passed and asked it ("check asked HH:MM, word to <partner> (<state>)"), not from the step's age in review: one under
   the review minutes with its check word delivered is a check under way, no incident (B585).
 - A worker "suspended" for the limit goes on once its reset has passed or the limits show room again.
