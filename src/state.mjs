@@ -46,6 +46,7 @@ import { standardOf } from './work/standard.mjs'
 import { rolloutPlan } from './work/modRollout.mjs'
 import { chatsByRole } from './oldMods.mjs'
 import { stoppedOf } from './stopped.mjs'
+import { laneFromReport, modReports } from './chatReport.mjs'
 import { backgroundRunning, conversation, doingNow, finishedBetween, saysUnfinished, parseTail, saysDone, taskOrigin, turnEnded, turnStart, turnState, unanswered, waitingFor } from './transcript.mjs'
 
 const MIN = 60_000
@@ -409,7 +410,7 @@ function finishedWith(waits) {
   return { ...waits, handover: parseHandover(waits.words) }
 }
 
-function card(chat, raw, { now, config, last, lines, main, prefix, stepOf = () => null, stepById = () => null, briefOf = () => null, waits, notes = new Map(), pauseOver = () => false, movedInto = new Map() }) {
+function card(chat, raw, { now, config, last, lines, main, prefix, stepOf = () => null, stepById = () => null, briefOf = () => null, waits, notes = new Map(), pauseOver = () => false, movedInto = new Map(), reportOf = () => null }) {
   // `session` is the id the chat's own process knows itself by: the bridge serves only that one under this name.
   // `appSession` is the id the app knows the chat by: the main chat starts a chat that is not running with it.
   // B468: `effort` is what the app's file of the chat says it runs at, or null.
@@ -432,7 +433,11 @@ function card(chat, raw, { now, config, last, lines, main, prefix, stepOf = () =
   // The longer look back is a few minutes old, so the tail follows it.
   const scan = typeof tail?.earlier === 'string' && entries !== null ? [...parseTail(tail.earlier, false), ...entries] : entries
   const step = stepOf(chat.name, plan?.task?.isReported === false ? String(plan.task.text ?? '').match(/\bB\d+\b/g) ?? [] : [])
-  const wasCutOff = isCutOff({ turn, plan, lastWriteAt, turnStartedAt, now })
+  // Redesign Part 1: the chat's own report of its turn state (chatReport.mjs, `laneFromReport`), for a chat whose Workers
+  // mod reports: it takes the place of the reading below (the turn in its transcript, cut off, held by its card, its
+  // branch or its background work). Null: the chat sends none, and that reading stands.
+  const reported = reportOf(chat)
+  const wasCutOff = reported === null && isCutOff({ turn, plan, lastWriteAt, turnStartedAt, now })
   // An ended turn is not a free chat while something of its work is open: it is between two turns.
   // Clear after each step: a chat cleared into this session (its card says so, or the board followed its old card here)
   // whose new conversation holds no turn yet has ended its work: free, so its next step is delivered as to any free
@@ -454,7 +459,8 @@ function card(chat, raw, { now, config, last, lines, main, prefix, stepOf = () =
   // Partner answers, the review's findings: a chat whose blocking ask waits for the partner's answer waits for the
   // partner, not for the person: held between two turns, its lane says so (`waitsForPartner`).
   const forPartner = waits.partner?.get(chat.name.toLowerCase()) ?? []
-  const held = wasCutOff || ended !== 'free' ? null : forPartner.length > 0 ? { why: 'partner', text: `Its turn has ended; it waits for your partner's answer (${forPartner.join(', ')}).` } : heldBy({
+  const held = reported !== null ? (reported.state === 'working' && reported.entry.state === 'idle' ? { why: 'background', text: 'Its turn has ended; background work it started is still running.' } : null)
+    : wasCutOff || ended !== 'free' ? null : forPartner.length > 0 ? { why: 'partner', text: `Its turn has ended; it waits for your partner's answer (${forPartner.join(', ')}).` } : heldBy({
     plan: isMainIdle ? null : plan, step,
     isCompleted: summary?.category === 'completed',
     isDone,
@@ -479,18 +485,23 @@ function card(chat, raw, { now, config, last, lines, main, prefix, stepOf = () =
   // Pause 2: a stop for a restart is the store's pause (pause.json and the checkpoints), no longer a "Safe point:" line.
   const paused = stop !== null && !isStopOver ? { by: 'app', limit: stop.limit, since: stop.at, named: stop.resetsAt }
     : stop === null && note !== null ? { by: 'note', limit: note.limit ?? 'fiveHour', since: note.at, named: note.until, percent: note.percent ?? null } : null
-  const state = paused !== null ? 'suspended' : wasCutOff ? 'interrupted' : held === null ? ended : 'working'
+  // Suspended is the board's own fact, whatever the chat reports.
+  const state = paused !== null ? 'suspended' : reported !== null ? reported.state : wasCutOff ? 'interrupted' : held === null ? ended : 'working'
+  // Redesign Part 1: what the chat says of its question to the person, or what its transcript shows.
+  const isAsked = reported !== null ? reported.entry.state === 'asking' : turn === 'asking'
   // No sign of life is about a turn that runs: between two turns a chat writes nothing.
   const quietMs = state === 'working' && held === null && lastWriteAt !== null ? Math.max(0, now - lastWriteAt) : null
 
   let needsYou = null
-  if (state === 'waiting') needsYou = turn === 'asking' ? ASKED : summary?.needsAction?.trim() || summary?.detail?.trim() || null
+  if (state === 'waiting') needsYou = isAsked ? ASKED : summary?.needsAction?.trim() || summary?.detail?.trim() || null
 
   // A chat that was cut off, or is held by a limit, keeps the task it was on.
   // B148: a chat that has finished (its last answer says "Done: yes", or it is free by the app's own summary) is
   // not on the task its card still names: that card was left behind, and the lane names it only as finished.
   const isLeftBehind = plan?.task != null && !plan.task.isReported && (isDone || state === 'free')
-  const task = taskOf({ chat, plan: isLeftBehind ? { ...plan, task: null } : plan, state: wasCutOff || paused !== null ? 'working' : state, before: last.get(chat.name), lines, prefix, now, scan, step, stepById })
+  // A reported chat that stopped mid-task, or whose reports stopped, keeps its task as one cut off does.
+  const isKept = wasCutOff || paused !== null || (reported !== null && ['interrupted', 'off', 'unknown'].includes(state))
+  const task = taskOf({ chat, plan: isLeftBehind ? { ...plan, task: null } : plan, state: isKept ? 'working' : state, before: last.get(chat.name), lines, prefix, now, scan, step, stepById })
   const eta = etaOf(task, state, now)
   // B151: the person's words that gave it the task it is on, as they arrived, for the window a click on its lane opens;
   // with the step it is on, else the first open one those words name. B301: another chat's message gives no task.
@@ -526,7 +537,7 @@ function card(chat, raw, { now, config, last, lines, main, prefix, stepOf = () =
     quietMs,
     isQuiet: quietMs !== null && quietMs > config.quietMinutes * MIN,
     // It asked with the app's own question form: that can only be answered in its chat.
-    isAsking: turn === 'asking',
+    isAsking: isAsked,
     doingNow: state === 'working' && held === null ? doingNow(entries) : null,
     // Why it counts as working although its turn has ended, in words; null for a turn that runs.
     between: state === 'working' && held !== null ? held.text : null,
@@ -535,11 +546,11 @@ function card(chat, raw, { now, config, last, lines, main, prefix, stepOf = () =
     needsYou,
     statusDetail: turn === 'ended' ? summary?.detail?.trim() || null : null,
     // The turn's last entry: when it ended, or when it asked.
-    waitingSince: state === 'waiting' ? entries.findLast(entry => entry.type === 'assistant' && !entry.isSidechain)?.at ?? null : null,
+    waitingSince: state !== 'waiting' ? null : reported !== null ? reported.entry.since : entries.findLast(entry => entry.type === 'assistant' && !entry.isSidechain)?.at ?? null,
     // B100: what it last said, for the window of what it waits for: its own words, never what was typed to it.
     // B149: with the parts of it when it finished a task with something left for the person, and the message that
     // gave it that task.
-    waitsFor: state === 'waiting' ? finishedWith(waitingFor(entries)) : null,
+    waitsFor: state === 'waiting' && entries !== null ? finishedWith(waitingFor(entries)) : null,
     task,
     // When a chat that was cut off last wrote.
     cutOffAt: wasCutOff ? lastWriteAt : null,
@@ -548,7 +559,7 @@ function card(chat, raw, { now, config, last, lines, main, prefix, stepOf = () =
     // The review of part 1: why it counts as working between two turns (task, background, branch), and whether its
     // transcript shows a turn open (also behind a "suspended" that may be stale).
     heldBy: held?.why ?? null,
-    isTurnOpen: turn === 'running' && !wasCutOff,
+    isTurnOpen: reported !== null ? state === 'working' && reported.entry.state === 'busy' : turn === 'running' && !wasCutOff,
     eta,
     // A worker that works and has no time from anywhere: a fault to fix, and shown as one. The main chat hands
     // out work and answers the person; it has no task to time.
@@ -576,8 +587,18 @@ function card(chat, raw, { now, config, last, lines, main, prefix, stepOf = () =
     // B308: its turn has ended with nothing running (no command or subagent it left in the background, as `heldBy`
     // reads it: a "Done: yes" overrules one), it is not cut off or suspended: since when, and its last answer for the window. The reconciler
     // names a worker that holds a step so, without an open ask, as one that may wait for the person.
-    resting: restingOf({ entries, turn, idle, isRunningOn: background > 0 && !isDone, isStopped: wasCutOff || paused !== null }),
+    // Redesign Part 1: a chat that reports rests from the moment it said idle, with nothing running in the background.
+    resting: reported === null ? restingOf({ entries, turn, idle, isRunningOn: background > 0 && !isDone, isStopped: wasCutOff || paused !== null })
+      : paused === null && ['free', 'interrupted', 'waiting'].includes(state) && reported.entry.state === 'idle' && !reported.entry.background ? restedSince(entries, reported.entry.since) : null,
+    // Redesign Part 1: the report the lane follows, or null where the board reads the chat's transcript instead.
+    report: reported === null ? null : { state: reported.entry.state, since: reported.entry.since, background: reported.entry.background, at: reported.entry.at },
   }
+}
+
+/** Redesign Part 1: a reporting chat at rest since it said idle: `{ since, at, words }`, its last answer as `restingOf` names it. */
+function restedSince(entries, since) {
+  const said = entries === null ? null : waitingFor(entries)
+  return { since, at: said?.at ?? since, words: said?.words ?? '' }
 }
 
 /** Model per step: the model of a chat's last answer and when, `{ model, at }`, as B352 reads the partner's; or null. */
@@ -1114,7 +1135,7 @@ function focusRun(node, items, prefix, partner) {
   return { note, needs }
 }
 
-export function buildState(raw, { lines = [], outbox = [], runs = [], board = null, seen = null, finishedSeen = {}, taskTimes = [], mods = {}, modsLately = null, now, config }) {
+export function buildState(raw, { lines = [], outbox = [], runs = [], board = null, seen = null, reports = null, finishedSeen = {}, taskTimes = [], mods = {}, modsLately = null, now, config }) {
   // The review of Pause 2: while the person pauses (2026-10-19: pausing only, no longer until running) what waits in
   // the outbox is held until the resume, but the board's own "resume" to the main chat; the page says so (`isHeld`).
   const isPaused = isHolding(raw.work?.pause)
@@ -1204,6 +1225,26 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
     .map(one => ({ id: one.head.get('Id'), title: withoutNotes(one.head.get('Title') ?? ''), state: one.head.get('State'), since: one.head.get('Since') ?? '' }))
     .sort((a, b) => a.since.localeCompare(b.since))
     .map(({ since, ...one }) => one)
+  // Redesign Part 1: each chat's last report of its turn state (server.mjs `reports`, kept by bridge.mjs `noteReport`),
+  // as its lane: for a chat on a Workers mod that reports, from the session the board shows under its name. It holds a
+  // task when the store holds a step taken, in progress or waiting on the person for it (not one in review); a blocking
+  // ask of its, or a step waiting on the person, has it wait. Its process ended with the app when the app started after
+  // its last report (B315's fact). No report: null, and the board reads the chat as before.
+  const unknownAfterMs = (Number.isFinite(config.unknownAfterSeconds) ? config.unknownAfterSeconds : 30) * 1000
+  const reportedOf = new Map(found.filter(chat => !chat.isLeftover).map(chat => {
+    const entry = reports instanceof Map ? reports.get(chat.name) ?? null : null
+    if (entry === null || entry.session !== chat.cliSessionId || !modReports(entry.mod ?? null)) return [chat.name, null]
+    const holds = storeStepsOf(chat.name).filter(one => one.state !== 'review')
+    const key = chat.name.toLowerCase()
+    const lane = laneFromReport(entry, {
+      now, unknownAfterMs,
+      holdsTask: holds.length > 0,
+      hasBlockingAsk: waits.blocking.has(key) || (waits.partner?.get(key) ?? []).length > 0 || holds.some(one => one.state === 'waiting on you'),
+      appRuns: Number.isFinite(raw.appStartedAt) && raw.appStartedAt > entry.at ? false : null,
+    })
+    return [chat.name, lane === null ? null : { ...lane, entry }]
+  }))
+  context.reportOf = chat => (chat.isLeftover ? null : reportedOf.get(chat.name) ?? null)
   // B425: the brief of the step a worker is on, built for that step only.
   const hasModels = Object.keys(runSettings(config).models).length > 0
   const briefOf = id => stepBrief(raw.work, id, goalMap, hasModels)
@@ -1253,6 +1294,9 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
   // written; a chat whose conversation was written in the last minute runs, whatever its takes say.
   const writtenOf = new Map(found.map(chat => [chat.name, raw.tails?.[chat.cliSessionId]?.modifiedAt ?? null]))
   function runningOf(name) {
+    // Redesign Part 1: a chat that reports runs while its reports come; the reading below is for the others.
+    const reported = reportedOf.get(name) ?? null
+    if (reported !== null) return reported.isRunning
     const written = writtenOf.get(name)
     // Not a write from before the app started (B315): its process of then wrote it.
     const isNewProcess = !Number.isFinite(raw.appStartedAt) || written >= raw.appStartedAt
@@ -1275,6 +1319,7 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
     }
     // B315: a card left "working" by a quit app, its process not running: "Not running", never "Working".
     const writtenAt = raw.tails?.[lane.session]?.modifiedAt ?? null
+    if (shown.state === 'off') return offLane(shown, lane.report?.at ?? writtenAt)
     const isStale = !lane.isLeftover && isStaleWork({ state: shown.state, isRunning: runningOf(lane.name), writtenAt, appStartedAt, now })
     return isStale ? offLane(shown, writtenAt) : shown
   })
@@ -1284,6 +1329,7 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
     const { usage, ...lane } = helperCard
     const shown = { ...lane, suspended: heldUntil(lane.suspended, limits, now) }
     const writtenAt = raw.tails?.[lane.session]?.modifiedAt ?? null
+    if (shown.state === 'off') return offLane(shown, lane.report?.at ?? writtenAt)
     return isStaleWork({ state: shown.state, isRunning: runningOf(lane.name), writtenAt, appStartedAt, now }) ? offLane(shown, writtenAt) : shown
   })()
 
@@ -1292,6 +1338,7 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
     const { usage, ...lane } = supervisorCard
     const shown = { ...lane, suspended: heldUntil(lane.suspended, limits, now) }
     const writtenAt = raw.tails?.[lane.session]?.modifiedAt ?? null
+    if (shown.state === 'off') return offLane(shown, lane.report?.at ?? writtenAt)
     return isStaleWork({ state: shown.state, isRunning: runningOf(lane.name), writtenAt, appStartedAt, now }) ? offLane(shown, writtenAt) : shown
   })()
 
