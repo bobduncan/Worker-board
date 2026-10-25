@@ -3253,7 +3253,8 @@ the AI sweep by a cheap supervisor chat and the hand-over to the Advisor, comes 
   step's line held for Opus over 15 min), `skip-repeats` (a clear, or a compaction not skipped by design as for a small
   chat, skipped for the same reason twice in a row), `repair-repeats` (the same repair rule on the same chat or
   step 3 times in a day; B574: an unblock counts by its step and blocker, so a step freed once per finished blocker is
-  no repeat; and a step that goes done leaves its dependants' Blocked by in the same move, "no longer blocked by B<n>:
+  no repeat; B590: every rule whose table entry says `countsBy: 'key'` counts so, a gone rule's (review-wait) too, so
+  a step waiting behind several checks in turn is no repeat; and a step that goes done leaves its dependants' Blocked by in the same move, "no longer blocked by B<n>:
   done", so the sync check's unblock is left for misses), `undelivered` (a word to a chat waiting over 10 min, or expired or failed in the last two
   hours), `report-check-twice` (a step's board check failed twice in a row since its last pass), `old-mod` (a chat on an
   older Workers mod than the one installed: dormant until the mod reports its version, Part 2's mod), `odd-effort`
