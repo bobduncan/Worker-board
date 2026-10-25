@@ -179,6 +179,18 @@ test('workerStart: a worker is asked for only when ready tasks wait, none is idl
   assert.equal(workerStart({ ...base, ready: [], lanes: [busy('W1')], maxWorkers: 3 }), null)
 })
 
+test('the person: the board never asks for more workers than maxWorkers, the ones on their way included', () => {
+  const busy = name => lane(name, T(10, 0), { state: 'working', report: { state: 'busy', since: T(10, 0), at: NOW - 1000 } })
+  const nine = ['W1', 'W2', 'W3', 'W4', 'W5', 'W6', 'W7', 'W8', 'W9'].map(busy)
+  const base = { ready: ready('B1', 'B2', 'B3'), gives: [], idle: [], isHeld: false, maxWorkers: 10, now: NOW }
+  assert.deepEqual(workerStart({ ...base, lanes: nine }), { spawn: 1 })
+  // The tenth is on its way and not yet a lane: three tasks wait, but no eleventh.
+  const spawned = { id: 's1', at: NOW - MIN, to: 'Lead', command: 'spawn', count: 1, why: 'board', reported: 9, state: 'delivered' }
+  assert.equal(workerStart({ ...base, lanes: nine, sent: [spawned] }), null)
+  // Ten running: none, however many tasks wait.
+  assert.equal(workerStart({ ...base, lanes: [...nine, busy('W10')] }), null)
+})
+
 test('the review: a worker on its way counts; a task whose Touches overlap running work asks for none', () => {
   const busy = name => lane(name, T(10, 0), { state: 'working', report: { state: 'busy', since: T(10, 0), at: NOW - 1000 } })
   const three = [busy('W1'), busy('W2'), busy('W3')]

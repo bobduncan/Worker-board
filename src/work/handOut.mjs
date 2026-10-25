@@ -363,9 +363,15 @@ export function workerStart({ ready = [], gives = [], idle = [], lanes = [], max
     if (item !== undefined) scratch.set(one.id, { ...item, head: new Map(item.head).set('State', 'queued') })
   }
   const workers = lanes.filter(isWorkerLane)
-  if (givable - startsPending({ workers, sent, now, prefix }) <= 0) return null
+  const pending = startsPending({ workers, sent, now, prefix })
+  if (givable - pending <= 0) return null
   const isOff = lane => lane.state === 'off' || lane.isRunning === false
-  if (workers.filter(lane => !isOff(lane)).length >= maxWorkers) return null
+  // The person, 2026-10-25: "ensure the board can't make more than the allowed limit": the workers on their way count
+  // toward `maxWorkers` too, so a start word sent before the last one reported never makes one too many. A worker on
+  // its way may already show as a lane with no report yet: those and the pending starts are the same chats, counted once.
+  const running = workers.filter(lane => !isOff(lane))
+  const reporting = running.filter(lane => lane.report != null).length
+  if (reporting + Math.max(running.length - reporting, pending) >= maxWorkers) return null
   const off = workers.filter(isOff).sort((a, b) => (a.offSince ?? 0) - (b.offSince ?? 0) || byId(a.name, b.name))[0]
   return off === undefined ? { spawn: 1 } : { start: off.name }
 }
