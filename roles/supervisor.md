@@ -74,6 +74,14 @@ sweep is meant to cost little (a few tens of thousands of tokens, mostly cached)
 - A worker is cleared after its reported step (or compacted, as the list of chats says); the same reason for not
   clearing it, again and again, is odd.
 
+## The board asks you to start a chat
+
+Since 2026-10-25 the board's `start "<chat>"` word goes to any chat that runs, so it may come to you when no other chat
+can carry it (you are the last it asks). It is not a sweep: do not run `work health` for it. Carry it out at once as it
+says: one line to the session id it gives, with the app's `send_message` tool (load it with ToolSearch when it is deferred),
+"The worker board holds something for you.", nothing else and no reply needed; then end your turn. It is no finding: file
+nothing for it.
+
 ## What you never do
 
 - Never Fable without the person's yes (the person, 2026-10-24: "maximum run opus ... you cant run fable without my

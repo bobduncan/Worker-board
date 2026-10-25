@@ -4482,6 +4482,25 @@ function drawInstructions(state) {
   return part
 }
 
+// nobodyruns:start
+/**
+ * T9.4: the one line under Needs your attention while words wait for chats that are off and no chat of the project runs, so
+ * nobody can carry the board's word that starts them (`state.nobodyRuns`: `{ since, chats }`). Null while a chat runs.
+ */
+function nobodyRunsText(nobody) {
+  const names = nobody?.chats ?? []
+  if (names.length === 0) return null
+  const list = names.length === 1 ? names[0] : `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`
+  return `No chat is running, so nobody can wake ${list}: open any chat of the project, and the board wakes the rest.`
+}
+// nobodyruns:end
+
+/** T9.4: that line, in the attention colour (see `nobodyRunsText`); null for none. */
+function drawNobodyRuns(nobody) {
+  const text = nobodyRunsText(nobody)
+  return text === null ? null : el('p', 'nobody-runs', text)
+}
+
 /** Calm panel: the instructions a chat missed, one red line each under Needs your attention; a click opens the log. */
 function drawMissed(missed) {
   if (missed.length === 0) return null
@@ -4753,10 +4772,13 @@ function drawNeeds(state) {
   // B300: a blocking ask that waited too long stands first, above the refine lines too.
   const oldCards = rest.filter(need => need.isOld === true).map(need => drawNeed(need, state))
   const cards = rest.filter(need => need.isOld !== true).map(need => drawNeed(need, state))
-  const none = cardsOpen.length > 0 || lines.length > 0 || missed.length > 0 || (state.goalAskNeeds ?? []).length > 0 || (state.brainstormNeeds ?? []).length > 0 ? null : el('p', 'empty', answered > 0 && !showsClosed() ? `Nothing waits for you. ${answered} answered, hidden.` : 'Nothing waits for you.')
+  const none = cardsOpen.length > 0 || lines.length > 0 || missed.length > 0 || nobodyRunsText(state.nobodyRuns) !== null || (state.goalAskNeeds ?? []).length > 0 || (state.brainstormNeeds ?? []).length > 0 ? null : el('p', 'empty', answered > 0 && !showsClosed() ? `Nothing waits for you. ${answered} answered, hidden.` : 'Nothing waits for you.')
   // B360: the recaps of finished work, as information after what asks for an answer.
   const recaps = shownRecaps(state, showsClosed()).map(recap => drawRecap(recap, state))
   fill(box, [none, drawPartnerNeeds(partnerCards, partner.filter(need => !isClosed(need) && !isAnswered(need)).length), drawMissed(missed), drawSupervisorLine(supervised), drawGoalAskNeeds(state), drawBrainstormNeeds(state), ...oldCards, drawRefineNeeds(state), ...cards, drawWithPartner(state), drawDecidedForYou(state), ...recaps])
+  // T9.4: no chat runs, so nobody can wake the chats words wait for: one line on top of the panel, in the attention colour.
+  const nobodyLine = drawNobodyRuns(state.nobodyRuns)
+  if (nobodyLine !== null) box.prepend(nobodyLine)
   box.scrollTop = top
   refocus(box, focused)
   // B307: Information in its own box under the asks, as high as the person dragged it.
@@ -4802,6 +4824,8 @@ function needsView(state, ui) {
     focus: { needs: (state.focus?.needs ?? []).map(need => ({ id: need.id })) },
     instructions: state.instructions ?? [],
     information: state.information ?? [],
+    // T9.4: no chat runs, so nobody can wake the chats words wait for.
+    nobodyRuns: state.nobodyRuns ?? null,
     // B520: the goal map's ids, so a G id in a card's words links (linkedWords).
     goalIds: (state.goals?.nodes ?? []).map(node => node.id),
     goalAskNeeds: state.goalAskNeeds ?? [],

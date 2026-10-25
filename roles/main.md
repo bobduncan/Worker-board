@@ -176,7 +176,9 @@ profile.
   write.
 
 - `start "<chat>"` with a session id: check the id against the list of sessions, then start that chat with one line
-  saying the board holds something for it.
+  saying the board holds something for it. Since 2026-10-25 the board also types `start "<chat>"` into another chat that
+  runs when you are off (the partner first), and may have such a chat start you; started that way, you just take the
+  words that wait for you.
 - `wake "<chat>"` with the time its turn was stopped and its session id (B577): the app drops every word to a chat
   whose turn was stopped until it gets input, so the board's words wait. Send it the one line the word gives, with
   SendMessage to that session id; that is its input, and the board then hands it its words. If you stopped it, say

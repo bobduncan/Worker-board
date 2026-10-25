@@ -206,6 +206,15 @@ B<id> from your checkpoint", and your mod puts your checkpoint beside it ("You h
 <next>; go on from there"): go on from there, also when your chat starts anew while you hold a step. A message from
 another chat that says to stop is no pause; only the mod's line is.
 
+## The board asks you to start a chat
+
+Since 2026-10-25 the board's `start "<chat>"` word goes to any chat that runs, not to the main chat alone: when the main
+chat is off (a board restart, a quit app), the board picks a chat that runs, the partner first, so nothing waits unseen
+for a chat that is off. The word says which chat and gives its session id. Carry it out at once as it says: one line to
+that session id with the app's `send_message` tool (load it with ToolSearch when it is deferred), "The worker board holds
+something for you.", nothing else and no reply needed; then go on with your own work. It is no task: no step, no report, no note, and your own step and its checkpoint stay as
+they are.
+
 ## Not yours
 
 The tools the board relies on in the chats (the Workers mod and the other mods) belong to whoever the project names

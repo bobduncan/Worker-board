@@ -69,7 +69,9 @@ export function whyClosed(message, ctx) {
     // The main chat's word to open a closed chat: not needed once that chat runs, nor when nothing waits for it any more.
     if (ctx.runs.get(message.about) === true) return { state: 'dropped', why: `${message.about} runs now` }
     // B590: a ready task waits for it too: one pinned to it, or, for a start the hand-out made, one kept for nobody.
-    const waits = all.some(one => one.to === message.about && one.id !== message.id && one.state === 'waiting' && one.command !== 'start' && !ctx.closing.has(one.id))
+    // T9.4: a start word to the main chat (the hand-out's, a worker to start) waits for it too, so the word that has a chat that runs
+    // start the main chat is not dropped for want of anything waiting for it; a start to any other chat still holds nothing.
+    const waits = all.some(one => one.to === message.about && one.id !== message.id && one.state === 'waiting' && (one.command !== 'start' || one.to === ctx.main) && !ctx.closing.has(one.id))
       || readyFor(message, ctx)
     if (!waits) return { state: 'dropped', why: `nothing waits for ${message.about} any more` }
   } else if (message.command === 'wake' && ctx.stopped instanceof Map) {
@@ -122,7 +124,7 @@ export async function sweepOutbox({ dir, outbox, state, now, keep, fs, dry = fal
   const runs = new Map((state?.chats ?? []).filter(chat => !chat.isLeftover).map(chat => [chat.name, chat.isRunning === true]))
   const all = outbox.outbox()
   const closing = new Map()
-  const ctx = { all, items, runs, goals: state?.goals?.nodes ?? [], now, keep, closing, stopped: stoppedChats(all, state), prefix: state?.chatPrefix ?? '', ready: state?.readyList?.ready ?? [] }
+  const ctx = { all, items, runs, goals: state?.goals?.nodes ?? [], now, keep, closing, stopped: stoppedChats(all, state), prefix: state?.chatPrefix ?? '', ready: state?.readyList?.ready ?? [], main: state?.restart?.main ?? null }
   // The starts last: they depend on what the other words become.
   const ordered = [...waiting.filter(message => message.command !== 'start'), ...waiting.filter(message => message.command === 'start')]
   for (const message of ordered) {
