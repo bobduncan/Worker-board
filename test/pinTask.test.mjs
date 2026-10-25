@@ -100,10 +100,16 @@ test('the Workers panel lists the ready tasks in the board\'s order, each with w
   add(`Id: B7\nKind: step\nTitle: Hang the sign\nState: refined\nRefined: ready\nBlocked by: B8\nSince: ${since}\n`)
   add(`Id: B8\nKind: step\nTitle: Cut the sign\nState: in progress\nOwner: Worker 1\nSince: ${since}\n`)
   const app = name => JSON.stringify({ title: `Studio · ${name}`, sessionId: `local_${name}`, cliSessionId: `cli-${name}`, cwd: 'C:\\game', isArchived: false, createdAt: 1, lastActivityAt: NOW - 60_000, lastAssistantUuid: 'u' })
-  const state = buildState({ listText: '{"prefix":"Studio · ","main":"Lead"}', appChatTexts: ['Lead', 'Worker 1', 'Worker 3'].map(app), tails: {}, planLineTexts: {}, adviceText: null, folders: null, askTexts: [], pictureLists: {}, work },
-    { lines: [], outbox: [], runs: [], now: NOW, config: { ...parseConfig('{}', {}), project: 'C:\\game' } })
-  assert.deepEqual(state.readyList.ready.map(one => [one.id, one.title, one.pinned]), [['B9', 'Fix the lamp', null], ['B2', 'Paint the gate', null], ['B5', 'Mend the fence', 'Worker 3']])
-  assert.deepEqual(state.readyList.held, [{ id: 'B7', why: 'blocked by B8 (in progress)', title: 'Hang the sign' }])
+  const build = extra => buildState({ listText: '{"prefix":"Studio · ","main":"Lead"}', appChatTexts: ['Lead', 'Worker 1', 'Worker 3'].map(app), tails: {}, planLineTexts: {}, adviceText: null, folders: null, askTexts: [], pictureLists: {}, work },
+    { lines: [], outbox: [], runs: [], now: NOW, config: { ...parseConfig('{}', {}), project: 'C:\\game', ...extra } })
+  const state = build({})
+  // Outside the focus goal and not pinned, B2 waits for the person's pick (the hand-out of 2026-10-25).
+  assert.deepEqual(state.readyList.ready.map(one => [one.id, one.title, one.pinned]), [['B9', 'Fix the lamp', null], ['B5', 'Mend the fence', 'Worker 3']])
+  assert.deepEqual(state.readyList.held, [{ id: 'B2', why: 'outside the focus goal: waits until you pin it or switch the focus', title: 'Paint the gate' }, { id: 'B7', why: 'blocked by B8 (in progress)', title: 'Hang the sign' }])
+  // With handOutBeyondFocus on, the whole backlog is ready again.
+  const beyond = build({ handOutBeyondFocus: true })
+  assert.deepEqual(beyond.readyList.ready.map(one => one.id), ['B9', 'B2', 'B5'])
+  assert.deepEqual(beyond.readyList.held.map(one => one.id), ['B7'])
   // A pinned task stands in its worker's queue.
   assert.deepEqual(state.chats.find(lane => lane.name === 'Worker 3').queue.map(one => [one.id, one.isPinned]), [['B5', true]])
   assert.match(html, /<section class="ready-list" id="ready-list" aria-label="Ready for a worker" hidden><\/section>/)
