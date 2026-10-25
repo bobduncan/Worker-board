@@ -951,6 +951,10 @@ yours to answer for the person; run work next`. Your `work next` lists them firs
 
 ## The goal re-check
 
+A goal that makes a page (a review, a check, a short page in plain words) gets the line `Page: <its path in the game's
+repository> · <a few words>` under it in the goal map, as soon as the page exists: the Focus page links it (the user,
+2026-10-25: "where is this 1 short page. i dont see this link").
+
 No goal is ticked on a feeling (B358). When the user ticks a goal on the Goals part, or answers Yes to "Is the vibe
 there?", the board writes `Recheck asked: <date time>` under it and types `goal re-check: G<n> <title>`, `Done when:
 ...`, `Vibe: ...` (when it has one) and `Your job: ...` into your chat: their word.

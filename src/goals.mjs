@@ -63,6 +63,8 @@ function takeLine(target, text) {
     // Focus 1 (spec 2026-10-18, section 5): the goal's vibe and its how, as the person and the partner agree them.
     case 'Vibe': target.vibe.push(value); return
     case 'Vibe picture': target.vibePicture = value; return
+    // 2026-10-25: the page a goal makes (a review, a check, a doc): "<path> · <a few words>".
+    case 'Page': target.page = value; return
     case 'Vibe agreed': target.vibeAgreed = value; return
     case 'Part': target.parts.push(partOf(value)); return
     case 'Partner decides': target.partnerDecides.push(value); return

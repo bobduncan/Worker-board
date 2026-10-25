@@ -2522,7 +2522,9 @@ body.is-resizing-rows { cursor: row-resize; user-select: none; }
 .focus-recheck.is-failed h3 { color: var(--warn); }
 .focus-recheck.is-waits h3 { color: var(--waiting); }
 /* B359: the goal guard's card: failed checks counted, the evaluation, a rebuild for the person. */
-.focus-guard.is-counting h3 { color: var(--warn); }
+.focus-guard.is-counting h3 { color: var(--muted); }
+.focus-page { align-self: flex-start; padding: 4px 10px; border: 1px solid var(--line); border-radius: 8px; background: transparent; color: #8fb6ff; font: inherit; font-size: 13px; cursor: pointer; }
+.focus-page:hover { border-color: #78a7ff; }
 .focus-guard.is-evaluating h3 { color: var(--waiting); }
 .focus-guard.is-rebuild h3 { color: var(--waiting); }
 .focus-guard.is-asking h3 { color: var(--waiting); }
