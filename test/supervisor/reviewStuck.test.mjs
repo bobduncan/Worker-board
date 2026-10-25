@@ -1,7 +1,7 @@
 // B543, the fix of X8: steps piled up in review (one for 3 days behind a dropped fix, four for hours behind a chain of
 // fixes, checks stopped by the pause). A step in review says what it waits for (its first check, its check again, the
 // person's answer, its open fix B<n>); the watch rule `review-stuck` names one stuck (no check for over an hour), the
-// rule `fix-dropped` one whose fix was dropped (B630), never one that waits for an open fix or is blocked; the repair `fix-dropped` gives the main chat one word for a step
+// rule `dropped-fix` one whose fix was dropped (B630), never one that waits for an open fix or is blocked; the repair `fix-dropped` gives the main chat one word for a step
 // whose fix was dropped. Made-up items; no word names a project.
 
 import assert from 'node:assert/strict'
@@ -46,7 +46,7 @@ const view = (store, more = {}) => buildView({
   items: store, outbox: more.outbox ?? [], settings: more.settings ?? {}, now: more.now ?? NOW,
 })
 const watch = (board, seen = new Map()) => WATCH_RULES.find(one => one.id === 'review-stuck').check(board, { seen, observed: [] })
-const dropWatch = (board, seen = new Map()) => WATCH_RULES.find(one => one.id === 'fix-dropped').check(board, { seen, observed: [] })
+const dropWatch = (board, seen = new Map()) => WATCH_RULES.find(one => one.id === 'dropped-fix').check(board, { seen, observed: [] })
 const repairs = (store, more = {}) => findStuck({ items: store, lanes: [LEAD], partner: PARTNER, now: NOW, ...more }).filter(one => one.check === 'fix-dropped')
 
 /** The fix chain of X8: each step's check failed and made the next its fix; the last fix is still queued. */
@@ -128,7 +128,7 @@ test('B585 (X33): a first check counts from the board check that asked it, not f
   assert.equal(wakes(35).length, 1)
 })
 
-test('review-stuck: a step waiting for an open fix or for the person\'s answer is not stuck; a dropped fix is the rule fix-dropped\'s', () => {
+test('review-stuck: a step waiting for an open fix or for the person\'s answer is not stuck; a dropped fix is the rule dropped-fix\'s', () => {
   const dropped = items(reviewed('B472', 4000, [failed(1200, 'B485')]), fixStep('B485', 'B472', 'dropped', 450))
   assert.deepEqual(watch(view(dropped)), [])
   const open = items(reviewed('B472', 4000, [failed(1200, 'B485')]), fixStep('B485', 'B472', 'queued', 450))
@@ -149,7 +149,7 @@ test('B630 (X54): a dropped fix with the step blocked by an open step is a plan;
   assert.equal(reviewWaitOf(ended.get('B472'), ended).kind, 'dropped')
   // The watch rule: 45 min after the drop one incident; a block, 10 min, or the pause: none.
   const found = dropWatch(view(store(45)))
-  assert.deepEqual(found.map(one => [one.rule, one.key, one.subject]), [['fix-dropped', 'fix-dropped B472', 'B472']])
+  assert.deepEqual(found.map(one => [one.rule, one.key, one.subject]), [['dropped-fix', 'fix-dropped B472', 'B472']])
   assert.equal(found[0].text, 'B472 in review, but its fix B485 was dropped: nothing will close it')
   assert.deepEqual(dropWatch(view(store(10))), [])
   assert.deepEqual(dropWatch(view(blocked)), [])

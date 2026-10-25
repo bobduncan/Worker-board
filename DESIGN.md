@@ -3281,7 +3281,7 @@ the AI sweep by a cheap supervisor chat and the hand-over to the Advisor, comes 
   `appEffort` beside its high effort mode in `effort`, and `effort.mjs chatEffort` reads the level, so the health
   summary never says "[object Object]"), `review-stuck` (B543, the fix of X8: a step in review with no result check
   filed for over 60 min, its first or again after its fix was done or its ask point answered; one that waits for an open fix,
-  down a chain of fixes too, or for the person's answer is no case), `fix-dropped` (B630, the fix of X54: a step in
+  down a chain of fixes too, or for the person's answer is no case), `dropped-fix` (B630, the fix of X54: a step in
   review whose fix was dropped, with no new fix, no new check and no open step blocking it, for over 30 min; with a
   block, `reviewWaitOf` says kind 'blocked' and the step waits as planned, odd in the health summary only when a
   blocker is stalled itself),

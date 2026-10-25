@@ -480,7 +480,7 @@ function oddEffort(view) {
  * fixes): a step in review says what it waits for (resultCheck.mjs `reviewWaitOf`). Waiting for an open fix, or for the
  * person's answer, is no case. Stuck: no result check filed for longer than `reviewMinutes` (its first, or again after
  * its fix was done or its ask point answered; the repair `unchecked` types the check word meanwhile). A dropped fix is
- * the rule `fix-dropped` (B630). Counted from the end of the person's last pause.
+ * the rule `dropped-fix` (B630; its id apart from the repair `fix-dropped`, the supervisor keys rules by id). Counted from the end of the person's last pause.
  */
 function reviewStuck(view, ctx) {
   const found = []
@@ -524,7 +524,7 @@ function fixDropped(view, ctx) {
     const ms = lasted(view, ctx, key, afterPause(view, wait.since))
     if (ms <= FIX_DROPPED_MS) continue
     found.push({
-      rule: 'fix-dropped', key, subject: id,
+      rule: 'dropped-fix', key, subject: id,
       text: `${id} in review, but ${wait.text}: nothing will close it`,
       evidence: `${id} owned by ${valueOf(item, 'Owner') ?? 'nobody'}; ${wait.text} ${minutes(ms)} min ago; no other fix of it is open, no check filed again, no open step blocks it`,
     })
@@ -732,7 +732,7 @@ export const WATCH_RULES = [
   { id: 'old-mod', kind: 'watch', says: 'a chat idle on an older Workers mod than the one installed for over 30 min', check: oldMod },
   { id: 'odd-effort', kind: 'watch', says: 'a chat whose effort is not a level', check: oddEffort },
   { id: 'review-stuck', kind: 'watch', says: 'a step in review with no result check for too long', check: reviewStuck },
-  { id: 'fix-dropped', kind: 'watch', says: 'a step in review whose fix was dropped, with no new fix, no new check and no block for over 30 min', check: fixDropped },
+  { id: 'dropped-fix', kind: 'watch', says: 'a step in review whose fix was dropped, with no new fix, no new check and no block for over 30 min', check: fixDropped },
   { id: 'stale-checkpoint', kind: 'watch', says: 'a step in progress with no checkpoint for hours, or whose checkpoint said to report long ago', check: staleCheckpoint },
   { id: 'effort-mismatch', kind: 'watch', says: 'a worker that still runs another model or effort than its step wants 10 min after the take', check: effortMismatch },
   { id: 'not-cleared', kind: 'watch', says: 'a worker not cleared after its reported step', check: notCleared },

@@ -59,7 +59,7 @@ sweep is meant to cost little (a few tens of thousands of tokens, mostly cached)
   "waits for its check again", "its fix B<n> was dropped"). One that waits for its fix or for the person's answer
   waits as planned: no incident, and no "!" unless its fix is odd itself. So does one whose fix was dropped while an
   open step blocks it ("its fix B<n> was dropped, waits for B<m>", B630): odd only when that step is stalled itself. The
-  review-stuck rule watches a check not filed within the review minutes; the fix-dropped rule a dropped fix with no new
+  review-stuck rule watches a check not filed within the review minutes; the dropped-fix rule a dropped fix with no new
   fix, no new check and no block for over 30 min. A first check counts from when the board's own check
   passed and asked it ("check asked HH:MM, word to <partner> (<state>)"), not from the step's age in review: one under
   the review minutes with its check word delivered is a check under way, no incident (B585).
