@@ -434,6 +434,24 @@ plan to make the vision real, in the strategy the user chooses first.
 - **A quality stage gets one goal per standard.** A milestone whose purpose is the quality per aspect gets one goal for
   every standard (K1, K2, ...): `<kind> meets its bar`, its Done when the standard's count and score, its foundation as
   its first sub-goal while not built. None is merged into another, so every kind of work is judged on its own.
+- **How we build a good one, first** (the user, 2026-10-25: "we have 1 goal first, to evaluate how can we build good
+  maps ... This seems like an generic approach before we start building stuff, this should also be applicable for
+  building units, or skills, special effects"; "each of these little aspects can be proven individually before trying
+  to combine them as 1 task"). Before the goals that build, or rebuild, many things of one kind (maps, units, skills,
+  effects, light, screens, sound), the plan holds a goal `How we build good <kind>`, ahead of that kind's foundation
+  goal, which then uses what it found. The plan does not choose a way of building before the aspects are proven.
+  - Split the kind into its aspects, each one small enough to prove alone. For maps: lava, heights, stairs and bridges,
+    cliffs and edges, round shapes on square cells, props, ground that changes in a fight, level design, and the way to
+    build one. Group them into its two to four sub-goals. Each aspect is a step of its own, and the engine's limits come
+    first.
+  - Each aspect is proven on its own, in the game or its tool chain, beside its target picture. Its result has three
+    parts:
+    - a verdict: can we do it, how, at what cost, and what limit the engine sets;
+    - a making guideline for whoever makes the thing, Codex included (maps: a cell is all stone or all lava, never
+      half; at most three floors, while the code has no maximum), written into the kind's definition of done (`Done:`);
+    - its bar line in the kind's standard.
+  - Only then does one last step combine the proven aspects into one thing of the kind, beside its target.
+  - Its Done when: every aspect has its verdict, guideline and bar line, and the combined thing meets the standard.
 
 The check: a heading `## Goals
 preset`, a `### M<n> · <milestone>` per milestone of P7 (`M3+` for the open end), and under each three to six goals
