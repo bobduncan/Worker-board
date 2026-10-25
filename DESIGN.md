@@ -3834,23 +3834,46 @@ nothing when the main chat itself did not run. Only a running chat can start ano
 cannot.
 
 - `wakerFor(state, target, outbox, now)` (`src/say.mjs`) names the chat that carries the `start "<target>"` word: the main
-  chat when it runs, else the partner, else another chat that runs (the workers and the partner's helper, free ones first,
-  then busy ones; the supervisor's chat last). Never the target, never a leftover. A chat asked to start that target in
-  the last half hour (its word waits, or it took it and the target did not start; not one closed because the target
-  runs) is passed over; when every running chat was asked, the first again. Null when none runs.
+  chat when it runs, else the partner, else another chat that runs (the workers, free ones first, then busy ones; the
+  supervisor's chat last). Never the target, never a leftover, never the partner's helper (it does only what the partner
+  hands it; `checkSay` refuses it as a holder too). A chat asked to start that target in the last half hour (its word waits,
+  or it took it and the target did not start; not one closed because the target runs) is passed over; when every running
+  chat was asked, the first again. Null when none can carry it.
+- Who cannot carry a word now (`wakerOrder`, review of 2026-10-25): a chat whose turn was stopped (`stoppedOf` on the
+  outbox, so for every chat), a chat whose card says Suspended (paused for the limit), and a chat removed in the last
+  minutes (`removedAt`). The state exposes `removedAt` on the lanes only, not on the partner, its helper or the
+  supervisor's chat, and does not add it there: a removed one of those is passed over only by its stop or its Suspended card.
 - `wakeFor` keeps its guards (not again within two minutes; not while an earlier start waits, for ten) and its filter for
   words to other chats (a line typed on the board, a partner word, a sweep). New: every word to the main chat that waits
   while the main chat is known not to run wakes it the same way, whatever its command, and the main chat being off no
   longer means nothing.
 - The `start` word (`checkSay`) goes to the main chat, running or not (it waits there), or to any chat that runs. Its first
-  line stays `start "<chat>"`; the rest is the same for any chat: one line by session id with `send_message`, "The worker
-  board holds something for you.", no reply, then go on. The roles of the worker, the partner and the supervisor say so.
+  line stays `start "<chat>"`; the rest is the same for any chat: one line with SendMessage to the chat's session id (as
+  main.md, partner.md and the mod's resume text say), "The worker board holds something for you.", no reply, then go on. The
+  roles of the worker, the partner and the supervisor say so; the supervisor's never-list names this word as its one
+  exception (the one message it sends).
 - `state.nobodyRuns` (`{ since, chats }`, `nobodyRunsOf`): words the board wakes a chat for wait for chats that are off and
-  every chat of the board is known not to run (an unknown one says nothing: the board does not guess). The page shows one
-  line under Needs your attention, in the attention colour, and it goes as soon as a chat runs.
-- Retry: a start that did not wake its chat in ten minutes (the guard on `about`) is asked again by `wakesDue`, and
-  `wakerFor` passes over the chat asked before, so the next running chat carries it. A waker that is busy, or took the
-  word and did not carry it out, no longer leaves the words waiting for good.
+  no chat that could carry the word may run (an unknown one says nothing: the board does not guess). The exception is a
+  board no mod has called since it started (`bridge.isMissing`, after a board restart): every chat's `isRunning` is null
+  then, and an unknown one counts as not running, or the line would never show. The page shows one line under Needs your
+  attention, in the attention colour, and it goes as soon as a chat runs.
+- Retries stop (review of 2026-10-25). A start that did not wake its chat in ten minutes (the guard on `about`) is asked
+  again by `wakesDue`, of a running chat that was not asked since the oldest word that waits for the chat (`wakerFor` with
+  `since`), and at most `MAX_WAKE_TRIES` (3) start words for one wait, then nothing more: a chat that cannot be started (a
+  stale session id, archived on purpose, wrongly read as off) was asked every ten minutes for days. A wait that ends (the
+  words are taken) starts a new count. `state.wakeFailed` (`[{ chat, tries, since }]`, `wakeFailedOf`) carries the chats
+  the board asked in vain (the last ask is no longer on its way and nobody is left to ask); the page shows one line each
+  under Needs your attention, in the style of the "No chat is running" line ("Nobody could wake <chat> after <n> tries
+  since HH:MM: open it yourself."), and the lane's Start button stays. A chat that line names is not named by both lines.
+  It goes once the chat runs, its words no longer wait, or another chat that runs can still be asked.
+- The pause holds the clock. While the person pauses (`isHolding(state.pause)`) `wakesDue` asks nothing (it wrote a held
+  start per running chat, round and round, and every chat started the same target at Resume all), and `wakeFailedOf`
+  says nothing. A start the pause holds counts as on its way, however old, and at the resume it counts from there.
+- A word that wakes nobody hides no later one (`wakesDue` records a chat only for a word the board wakes it for): an off
+  worker whose oldest waiting word is an untaken `start "Worker 4"` is still woken for its later `work` line. The outbox
+  sweep closes a waiting `start` word whose holder is not the main chat and is known not to run (`ctx.off`; it can never
+  carry it, another chat is asked) with "<holder> does not run, so it cannot carry the start of <chat>"; the main chat's own
+  start words wait for it as before.
 
 ## What it does not do
 

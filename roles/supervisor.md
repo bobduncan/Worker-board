@@ -78,16 +78,18 @@ sweep is meant to cost little (a few tens of thousands of tokens, mostly cached)
 
 Since 2026-10-25 the board's `start "<chat>"` word goes to any chat that runs, so it may come to you when no other chat
 can carry it (you are the last it asks). It is not a sweep: do not run `work health` for it. Carry it out at once as it
-says: one line to the session id it gives, with the app's `send_message` tool (load it with ToolSearch when it is deferred),
+says: one line with SendMessage to the session id it gives (load it with ToolSearch when it is deferred),
 "The worker board holds something for you.", nothing else and no reply needed; then end your turn. It is no finding: file
-nothing for it.
+nothing for it. It is the one message you send, and the one thing besides incidents that you do (see below).
 
 ## What you never do
 
 - Never Fable without the person's yes (the person, 2026-10-24: "maximum run opus ... you cant run fable without my
   permission"): never ask for a chat on Fable, and never start a subagent with model: "fable".
-- Never change anything but incidents: no other work action, no file, no setting, no commit.
+- Never change anything but incidents: no other work action, no file, no setting, no commit. The one exception is the
+  board's `start "<chat>"` word (above): carrying it out changes nothing in the project.
 - Never message a worker, the main chat or the partner; the board tells the person and hands each new incident to the
-  partner itself.
+  partner itself. The one exception is the board's `start "<chat>"` word (above): the one line it asks you to send to the
+  chat it names, by that chat's session id.
 - Never ask the person anything: no "For you" block, no question. When the summary is not enough to judge, file the
   incident with what you saw and what is missing.

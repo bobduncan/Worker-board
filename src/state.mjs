@@ -40,7 +40,7 @@ import { routingHolds } from './work/routing/assignments.mjs'
 import { refineStop } from './refineGate.mjs'
 import { contextOfStep, flowOfStep, itemOfStep, itemsOf, reviewWaitOfStep, storeBacklog } from './work/read.mjs'
 import { clearHolds, clearOwed, modAtLeast } from './clearOwed.mjs'
-import { nobodyRunsOf } from './say.mjs'
+import { nobodyRunsOf, wakeFailedOf } from './say.mjs'
 import { checkedOf, fixOutcomeOf } from './work/resultCheck.mjs'
 import { guardOf } from './goalGuard.mjs'
 import { standardOf } from './work/standard.mjs'
@@ -1930,5 +1930,8 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
     advisorParts: config.advisorParts,
   }
   // T9.4: words wait for a chat that is off and no chat runs to carry the board's start word (say.mjs nobodyRunsOf): the page says so.
-  return { ...built, nobodyRuns: nobodyRunsOf(built, sent) }
+  // And the chats the board asked in vain (wakeFailedOf: three asks, or every chat that runs was asked): the person opens them.
+  // A chat that line already names is not said twice.
+  const nobodyRuns = nobodyRunsOf(built, sent)
+  return { ...built, nobodyRuns, wakeFailed: wakeFailedOf(built, sent, now).filter(one => !(nobodyRuns?.chats ?? []).includes(one.chat)) }
 }

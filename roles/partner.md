@@ -793,7 +793,7 @@ unless the fix changes what the user sees or decides.
 
 Since 2026-10-25 the board's `start "<chat>"` word goes to any chat that runs. You are the chat it asks first when the main
 chat is off (a board restart, a quit app), and the chat it names may be a worker, the main chat itself or another chat
-of the list. Carry it out at once as it says: one line to the session id it gives, with the app's `send_message` tool (load
+of the list. Carry it out at once as it says: one line with SendMessage to the session id it gives (load
 it with ToolSearch when it is deferred), "The worker board holds something for you.", nothing else and no reply needed;
 then go on with what you were doing. It is no task: no step, no report, no note. A main chat started this way takes the
 board's words that wait for it; it is not restarted for a new mod by it (below).

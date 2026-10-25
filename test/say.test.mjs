@@ -120,8 +120,8 @@ test('"start" asks the main chat to start a chat that is not running, with the i
   const start = checkSay({ to: 'Main', command: 'start', chat: 'Units' }, down, 50).message
   assert.deepEqual([start.to, start.command, start.about, start.ask], ['Main', 'start', 'Units', null])
   // T9.4: the first line is what it was; the rest reads for any chat that gets the word (the main chat is no longer the only
-  // one): one line by session id with the app's send_message tool, no reply, then on with its own work.
-  assert.equal(start.text, 'start "Units"\nIts chat is not running, and words from the worker board wait for it. Start it now: send it one line by its session id with the app\'s send_message tool (load it with ToolSearch when it is deferred): "The worker board holds something for you." Nothing else, no reply needed; then go on with your own work. Its session id: local_abc-1.')
+  // one): one line with SendMessage to its session id, no reply, then on with its own work.
+  assert.equal(start.text, 'start "Units"\nIts chat is not running, and words from the worker board wait for it. Start it now: send it one line with SendMessage to its session id (load it with ToolSearch when it is deferred): "The worker board holds something for you." Nothing else, no reply needed; then go on with your own work. Its session id: local_abc-1.')
   // Without an id the chat is found by its name.
   assert.ok(checkSay({ to: 'Main', command: 'start', chat: 'Advisor' }, down, 50).message.text.endsWith('find its session by the chat\'s name in the app\'s list of sessions.'))
 })
