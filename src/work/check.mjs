@@ -102,7 +102,7 @@ export async function reportCheck({ id, branch, result, merged, repos, run, proj
     else if (remote === null && origins === null) faults.push(`git did not answer for origin/${base} of ${name}`)
     else if (remote === null && linesOf(origins).includes('origin')) faults.push(`origin/${base} of ${name} could not be read`)
     else if (remote === null) passed.push(`${base} of ${name} has no remote`)
-    else if (local.trim() !== remote.trim()) faults.push(`${base} of ${name} is not the same as origin/${base}`)
+    else if (local.trim() !== remote.trim()) faults.push(await baseFault({ dir, base, name, run }))
     else passed.push(`${base} of ${name} equals origin/${base}`)
     isOnBase = typeof branch === 'string' && branch.trim() === base
     if (typeof branch === 'string' && branch.trim() !== '' && !isOnBase) {
@@ -128,6 +128,54 @@ export async function reportCheck({ id, branch, result, merged, repos, run, proj
   if (tests.length > 0 && !bites) faults.push(`the change touches tests (${tests.slice(0, 3).join(', ')}${tests.length > 3 ? ', ...' : ''}) but the result names no mutant: add "${BITE_LINE}" and report again`)
   const failed = faults.filter(line => !line.startsWith('work in '))
   return failed.length === 0 ? { passed: true, lines: [...passed, isOnBase ? `worked on ${branch.trim()} itself` : 'branch gone', 'worktree gone', 'result named', 'context and change named', ...(bites ? ['tests bite named'] : [])] } : { passed: false, lines: faults }
+}
+
+/** B598: the words a check fails with when a base branch is not where its remote has it; the rest of the line says why. */
+export const baseDiffers = (base, name) => `${base} of ${name} is not the same as origin/${base}`
+
+/** B598: a path of `git status --porcelain` ("M  a.mjs", "R  old -> new", a quoted one with spaces). */
+const statusPath = line => line.replace(/^\S{1,2}\s+/, '').replace(/^.* -> /, '').replace(/^"(.*)"$/, '$1')
+
+/**
+ * B598 (X45: B595's report failed four times on "main of worker-board is not the same as origin/main", while the
+ * worker had pushed and another chat's edits held the person's folder back): which side is off, and the way out. The
+ * folder behind (fast-forward it), holding commits its remote lacks (push them), both, or behind with uncommitted
+ * edits in files the fast-forward would change (named: another chat's work). Each case says the board checks again by
+ * itself (the repair rule base-equal). Git that does not count the commits leaves the plain words.
+ */
+export async function baseFault({ dir, base, name, run }) {
+  const plain = baseDiffers(base, name)
+  const [aheadOut, behindOut] = await Promise.all([
+    run(['-C', dir, 'rev-list', '--count', `origin/${base}..${base}`]), run(['-C', dir, 'rev-list', '--count', `${base}..origin/${base}`]),
+  ])
+  const ahead = /^\d+$/.test(String(aheadOut ?? '').trim()) ? Number(aheadOut.trim()) : null
+  const behind = /^\d+$/.test(String(behindOut ?? '').trim()) ? Number(behindOut.trim()) : null
+  if (ahead === null || behind === null || ahead + behind === 0) return plain
+  const commits = n => `${n} commit${n === 1 ? '' : 's'}`
+  const again = 'the board checks again by itself once they are equal'
+  if (ahead > 0 && behind > 0) return `${plain}: it holds ${commits(ahead)} origin/${base} lacks and lacks ${commits(behind)} of it: bring them together and push, ${again}`
+  if (ahead > 0) return `${plain}: it holds ${commits(ahead)} origin/${base} lacks: push them (or another chat's merge is under way), ${again}`
+  const [status, upstream] = await Promise.all([
+    run(['-C', dir, 'status', '--porcelain', '--untracked-files=no']), run(['-C', dir, 'diff', '--name-only', base, `origin/${base}`]),
+  ])
+  const changed = new Set(linesOf(upstream))
+  const blocking = linesOf(status).map(statusPath).filter(path => changed.has(path))
+  if (blocking.length > 0) {
+    const named = `${blocking.slice(0, 3).join(', ')}${blocking.length > 3 ? ` and ${blocking.length - 3} more` : ''}`
+    return `${plain}: it is ${commits(behind)} behind, and uncommitted edits block the fast-forward (${named}): another chat's work, ${again}`
+  }
+  return `${plain}: it is ${commits(behind)} behind: fast-forward it (git merge --ff-only origin/${base} in ${name}), ${again}`
+}
+
+/**
+ * B598: for the repair rule base-equal, each repository of `repos` by its name (its folder's last part, as the check
+ * names it): `{ name, base, equal }`, `equal` null where git did not answer.
+ */
+export async function basesNow({ repos, run }) {
+  return Promise.all(repos.map(async ({ dir, base }) => {
+    const [local, remote] = await Promise.all([run(['-C', dir, 'rev-parse', base]), run(['-C', dir, 'rev-parse', `origin/${base}`])])
+    return { name: nameOf(dir), base, equal: local === null || remote === null ? null : local.trim() === remote.trim() }
+  }))
 }
 
 /** B527: the line a report names its mutant with, as the refusal says it. */

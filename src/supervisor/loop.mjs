@@ -55,7 +55,7 @@ export async function readLoopLock(read) {
 
 /**
  * The findings carried out, in their order. `ports`: `unblock(id, on, why)` and `unpin(id)` (the work API as
- * the board: `{ ok, why }`), `wake({ chat, id, text, key })` (the line sent once per key: the message, or null when it
+ * the board: `{ ok, why }`), `recheck(id, why)` (B598: the board's check run again: `{ ok, why }`), `wake({ chat, id, text, key })` (the line sent once per key: the message, or null when it
  * went before), `clean(leftover)` (worktree clean-up: `{ ok, why }`). `noted` the keys the main chat was told of before.
  * Answers `{ rows, note, keys, fine }`: a row per finding (`{ check, status, text }`, status Fixed, Woke, Sent, For
  * Main, Cleaned or Left), the lines of the one note to the main chat (what it was not told before), their keys, and
@@ -89,6 +89,12 @@ export async function applySync(findings, ports, noted = new Set()) {
         // The review: a file changed while it was written is tried again at the next run; nothing for the main chat.
         if (!/changed in the meantime/.test(done?.why ?? '')) tell(one, text)
       }
+    } else if (fix.do === 'recheck') {
+      // B598: the board's check of a step run again (its base branch equals the remote's now); tried again next run.
+      const done = await Promise.resolve().then(() => ports.recheck(fix.id, fix.why))
+        .catch(error => ({ ok: false, why: error instanceof Error ? error.message : String(error) }))
+      if (done?.ok === true) row(one, 'Fixed', `${one.text}: checked again`)
+      else row(one, 'For Main', `${one.text}: not checked again (${done?.why ?? 'no answer'})`)
     } else if (fix.do === 'wake') {
       // The review: a wake that throws is one finding not carried out, not the end of the run.
       const sent = await wakeBy(ports, { chat: fix.chat, id: fix.id, text: fix.text, key: one.key })
@@ -177,7 +183,7 @@ const memoryText = memory => JSON.stringify({ seen: Object.fromEntries(memory.se
  * `state()` the board's state (state.mjs), `items()` the store's items, `outbox()` the board's messages, `refused()` the
  * names a chat was refused under lately, `apply(body)` the work API as the board, `wake({ chat, id, text, key })` a
  * line sent once per key (the message, or null), `noted` `{ load(), save(keys) }` the keys the main chat was told of,
- * `now()`; worktree clean-up: `leftovers({ items, now })` what worktrees.mjs `findLeftovers` finds, and `clean(one)`
+ * `now()`; B598: `bases()` (check.mjs `basesNow`) and `recheck(id, why)` (the board's check run again); worktree clean-up: `leftovers({ items, now })` what worktrees.mjs `findLeftovers` finds, and `clean(one)`
  * its `cleanLeftover` (both left out: no such check). `run({ asked, subject })` answers `{ at, asked, subject, rows, fine,
  * newAt, findings }` (`subject` the chat "Check now" in its menu named, or null; `newAt` when a repair finding last came
  * that the run before did not have, or null);
@@ -219,7 +225,7 @@ export function syncRunner(ports, rules = REPAIR_RULES, watch = []) {
     const observed = []
     const items = await ports.items()
     const view = buildView({
-      state, items, outbox: ports.outbox(), keep: ports.keep, refused: ports.refused(), leftovers: await lookLeftovers(ports, items, now),
+      state, items, outbox: ports.outbox(), keep: ports.keep, refused: ports.refused(), leftovers: await lookLeftovers(ports, items, now), bases: await lookBases(ports),
       repairs: memory.repairs, mods: typeof ports.mods === 'function' ? await ports.mods() : null, settings: ports.settings ?? {}, now,
     })
     const repairs = runRules(rules, view, { seen, observed })
@@ -230,6 +236,8 @@ export function syncRunner(ports, rules = REPAIR_RULES, watch = []) {
     const done = await applySync(findings, {
       unblock: (id, on, why) => ports.apply({ action: 'unblock', id, on, why }),
       unpin: id => ports.apply({ action: 'pin', id, for: '' }),
+      // B598: through its own port when given (the server runs the check after it), else the work API as the board
+      recheck: (id, why) => (typeof ports.recheck === 'function' ? ports.recheck(id, why) : ports.apply({ action: 'recheck-base', id, why })),
       wake: ports.wake,
       clean: ports.clean,
     }, noted)
@@ -311,6 +319,20 @@ async function lookLeftovers(ports, items, now) {
     return { found: await ports.leftovers({ items, now }) }
   } catch (error) {
     return { error: error instanceof Error ? error.message : String(error) }
+  }
+}
+
+/**
+ * B598: the base branches of the repositories the board knows against their remotes' (check.mjs `basesNow`), through
+ * the runner's port `bases()`, for the rule base-equal; none without the port, or when the look fails (the rule waits).
+ */
+async function lookBases(ports) {
+  if (typeof ports.bases !== 'function') return []
+  try {
+    const found = await ports.bases()
+    return Array.isArray(found) ? found : []
+  } catch {
+    return []
   }
 }
 

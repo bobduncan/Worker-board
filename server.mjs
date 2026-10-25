@@ -74,7 +74,7 @@ import { buildState } from './src/state.mjs'
 import { isReadAction, workApi } from './src/work/api.mjs'
 import { effortOf } from './src/work/effort.mjs'
 import { isHolding, resumeEnds, resumeRetypeTo, resumeTypeTo } from './src/work/pause.mjs'
-import { reportCheck } from './src/work/check.mjs'
+import { basesNow, reportCheck } from './src/work/check.mjs'
 import { deliverWork, givesRefused, pullFor, sendOnce } from './src/work/deliver.mjs'
 import { coalesce } from './src/work/again.mjs'
 import { REFUSED_MS, SUPERVISOR_RULES, createSupervisor, incidentCards, loopGate, loopOwner, tokensOfTurn } from './src/supervisor/index.mjs'
@@ -2272,6 +2272,10 @@ async function main(args) {
           keep: [HERE, config.project, ...(hasGame ? [config.gameRepo] : [])],
         }),
         clean: one => cleanLeftover(one),
+        // B598: the base branches against their remotes', and a step's check run again once they are equal (the rule
+        // base-equal); workAction runs the check that the action answers
+        bases: () => basesNow({ repos: knownRepos(), run: gitRunner() }),
+        recheck: (id, why) => workAction({ action: 'recheck-base', id, why }, 'server'),
         // B482: what the main chat was told and since when a wait was seen, kept over a restart
         noted: {
           load: async () => {

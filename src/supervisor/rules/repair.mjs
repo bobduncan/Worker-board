@@ -435,6 +435,37 @@ function heldElsewhere(view, { seen = new Map(), observed = [] } = {}) {
   return found
 }
 
+/** B598: the board's own check lines in a step's History: `[stamp, outcome, words]`. */
+const BOARD_CHECK = /^-\s+(\d{4}-\d\d-\d\d \d\d:\d\d)\s+server: check (passed|failed|pending)\b(?::\s*(.*))?$/
+const BASE_FAULT = /^(\S+) of (.+?) is not the same as origin\/(\S+?)(?::|$)/
+
+/**
+ * B598 (X45: B595's report failed the board's check four times on "main of worker-board is not the same as
+ * origin/main" while another chat's edits held the person's folder back; it caught up after the worker stopped
+ * reporting, and nothing checked again): a step in review whose last board check failed only on its base branch against
+ * the remote's is checked again once the two are equal (the view's `bases`, check.mjs `basesNow`), without a new
+ * report; once per failed check (its key names the check's minute).
+ */
+function baseEqual(view) {
+  const { bases = [] } = view
+  const { steps } = factsOf(view)
+  if (!Array.isArray(bases) || bases.length === 0) return []
+  const found = []
+  for (const item of steps.filter(one => stateOf(one) === 'review')) {
+    const last = (item.sections?.get('History') ?? []).map(one => BOARD_CHECK.exec(String(one).trim())).filter(Boolean).at(-1)
+    if (last === undefined || last[2] !== 'failed') continue
+    const faults = String(last[3] ?? '').split('; ').map(one => one.trim()).filter(one => one !== '' && !one.startsWith('work in '))
+    const differs = faults.map(one => BASE_FAULT.exec(one))
+    if (faults.length === 0 || differs.some(one => one === null || one[1] !== one[3])) continue
+    const repos = differs.map(one => bases.find(base => base.name === one[2] && base.base === one[1]))
+    if (repos.some(repo => repo?.equal !== true)) continue
+    const id = idOf(item)
+    const said = repos.map(repo => `${repo.base} of ${repo.name} equals origin/${repo.base} now`).join(', ')
+    found.push(finding('base-equal', `base-equal ${id} ${last[1]}`, id, `${id}: its check failed only on ${differs.map(one => `${one[1]} of ${one[2]}`).join(', ')} against origin, and ${said}`, { do: 'recheck', id, why: said }))
+  }
+  return found
+}
+
 /** Every repair rule of the board's self-check, in the order the answer shows them. */
 export const REPAIR_RULES = [
   { id: 'blocked', kind: 'repair', says: 'a step blocked by one done, dropped or in review, or by one the store does not hold', check: blocked },
@@ -446,6 +477,7 @@ export const REPAIR_RULES = [
   { id: 'partner-ask', kind: 'repair', says: 'an ask routed to the partner left unanswered', check: partnerAsk },
   { id: 'unchecked', kind: 'repair', says: 'a reported step left without its result check, or with its ask point answered and no check filed again', check: unchecked },
   { id: 'held-elsewhere', kind: 'repair', says: 'a step in progress over an hour while its worker is on another step, with nothing naming why', check: heldElsewhere },
+  { id: 'base-equal', kind: 'repair', says: 'a step in review whose check failed only on its base branch against the remote\'s, now equal', check: baseEqual },
   { id: 'fix-dropped', kind: 'repair', says: 'a step in review whose fix was dropped, which nothing closes', check: fixDropped },
   { id: 'worktrees', kind: 'repair', says: 'a leftover worktree, or an empty folder one left in the project folder', check: worktrees },
 ]
@@ -457,18 +489,18 @@ export const CHECKS = REPAIR_RULES.map(rule => ({ key: rule.id, words: rule.says
  * What is stuck now: `[{ check, key, text, fix, ... }]`, in the order of `CHECKS`, from every repair rule but the
  * worktrees' (the loop looks at those). `key` names the finding (one note to the main chat per key, ever; the board's
  * wake for it carries it as `syncKey`); `text` says what stands; `fix` what to do: `{ do: 'unblock', id, on }`,
- * `{ do: 'unpin', id }`, `{ do: 'wake', chat, id, text }` (a line typed to the chat), `{ do: 'woken', at }` (woken
+ * `{ do: 'unpin', id }`, `{ do: 'recheck', id, why }` (B598: the board's check run again), `{ do: 'wake', chat, id, text }` (a line typed to the chat), `{ do: 'woken', at }` (woken
  * a moment ago: it waits for that), `{ do: 'send', text }` (a note to the main chat is the fix), `{ do: 'hand', chat, id,
  * text }` (the helper's work to the partner, and the main chat told), or `{ do: 'main', text }` (the board cannot fix
  * it: the main chat is told).
  * The input: `items` (the store), `lanes` (the board's chats, state.mjs), `partner` and `helper` (their cards, or null),
  * `outbox` (the board's messages), `limits` (state.mjs), `pause` (the store's), `refused` (`[{ name, session, first,
  * at }]`, the names the board refused a chat under), `prefix`, `now`, `appStartedAt` (when the app last started, or
- * null), `focus` (the focus goal's id, or null). The review: `seen` (a Map) holds since when the
+ * null), `focus` (the focus goal's id, or null), `bases` (B598: check.mjs `basesNow`, or none). The review: `seen` (a Map) holds since when the
  * runner has seen what only counts once it has lasted (an owner missing from the list, the helper not running); what
  * is seen now is added to `observed` (an array), so the runner keeps it and forgets the rest.
  */
-export function findStuck({ items = new Map(), lanes = [], partner = null, helper = null, prefix = '', now, outbox = [], limits = {}, pause = null, refused = [], appStartedAt = null, focus = null, seen = new Map(), observed = [] }) {
-  const view = { items, lanes, partner, helper, prefix, now, outbox, limits, pause, refused, appStartedAt, focus }
+export function findStuck({ items = new Map(), lanes = [], partner = null, helper = null, prefix = '', now, outbox = [], limits = {}, pause = null, refused = [], appStartedAt = null, focus = null, bases = [], seen = new Map(), observed = [] }) {
+  const view = { items, lanes, partner, helper, prefix, now, outbox, limits, pause, refused, appStartedAt, focus, bases }
   return REPAIR_RULES.filter(rule => rule.id !== 'worktrees').flatMap(rule => rule.check(view, { seen, observed }))
 }

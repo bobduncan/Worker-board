@@ -11,7 +11,8 @@ const DEFAULT_KEEP = Object.freeze({ messageMs: 10 * 60_000, answerMs: 48 * 60 *
  * The view: `items` (the store's items, a Map), `lanes` (the board's chats, state.mjs; the main chat first), `partner`
  * and `helper` (their cards, or null), `supervisor` (the supervisor's chat's card, or null), `prefix` (the chats' titles' start), `appStartedAt` (the app's last start, or null), `now`, `outbox` (the board's messages as the
  * board sees them now), `limits`, `pause` (the store's), `refused` (the names a chat's mod was refused under lately),
- * `leftovers` (the loop's look at leftover worktrees: `{ found }` or `{ error }`; undefined without one), `timeline`
+ * `leftovers` (the loop's look at leftover worktrees: `{ found }` or `{ error }`; undefined without one), `bases` (B598:
+ * `[{ name, base, equal }]`, each repository's base branch against its remote's), `timeline`
  * (state.mjs `today`: per chat its spans of state), `since` (a Map: since when each chat has been in the state it is in
  * now, by the timeline; a chat it does not know is not in it), `repairs` (the repairs of the last day, `[{ at, rule,
  * subject, key }]`), `mods` (`{ installed, chats }`: the Workers mod installed, and the version each chat runs where
@@ -19,7 +20,7 @@ const DEFAULT_KEEP = Object.freeze({ messageMs: 10 * 60_000, answerMs: 48 * 60 *
  * `goals` (the goal map's nodes) and `focus` (the focus goal's id, or null), `ready` (redesign Part 2: the board's ready
  * list, state.mjs `readyList.ready`: `{ id, rank, keptFor, keptUntil, pinned }` in its order).
  */
-export function buildView({ state = {}, items = new Map(), outbox = [], keep = null, limits, pause, refused = [], leftovers, repairs = [], mods = null, settings = {}, now }) {
+export function buildView({ state = {}, items = new Map(), outbox = [], keep = null, limits, pause, refused = [], leftovers, bases = [], repairs = [], mods = null, settings = {}, now }) {
   const lanes = state.chats ?? []
   const timeline = Array.isArray(state.today) ? state.today : []
   return Object.freeze({
@@ -46,6 +47,8 @@ export function buildView({ state = {}, items = new Map(), outbox = [], keep = n
     pause: pause ?? state.pause ?? null,
     refused,
     leftovers,
+    // B598: each repository's base branch against its remote's (check.mjs `basesNow`), for the rule base-equal.
+    bases: Object.freeze([...(Array.isArray(bases) ? bases : [])].map(one => Object.freeze({ ...one }))),
     timeline,
     since: statesSince(timeline, lanes),
     repairs: Object.freeze([...repairs]),

@@ -1731,6 +1731,13 @@ step on "check pending" for good.
   a step in review whose last check line is "check pending" from more than 2 minutes ago is checked again, with the
   History line "check run again: it stood on check pending for more than 2 minutes"; at most 3 times per report, then
   it waits for the person's Check again.
+- **A base branch off its remote** (B598, the fix of X45): the check's line "main of <repo> is not the same as
+  origin/main" goes on with which case it is (`check.mjs` `baseFault`): behind (fast-forward it), holding commits the
+  remote lacks (push them), both, or behind with uncommitted edits in files the fast-forward would change (named, as
+  another chat's work); each says the board checks again by itself. The supervisor's repair rule `base-equal` does
+  that: a step in review whose last check failed only on such lines is checked again once each base equals its remote's
+  (the view's `bases`, `basesNow`; the server-only action `recheck-base`, History "check run again: main of <repo>
+  equals origin/main now"), once per failed check, without a new report. Tests: `test/supervisor/baseEqual.test.mjs`.
 - **A restart** stops taking work (the Workers mod gets 503 "The board restarts: try again in a moment."), starts no
   new look, pass or check, and waits up to 10 s for the reconciler's pass and the running checks before it ends; it
   also ends when the page's connection drops before the answer is out.
