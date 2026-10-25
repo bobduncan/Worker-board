@@ -9,6 +9,7 @@ import test from 'node:test'
 
 import { parseBacklog } from '../../src/backlog.mjs'
 import { workApi } from '../../src/work/api.mjs'
+import { queueFor } from '../queueFor.mjs'
 import { valueOf } from '../../src/work/item.mjs'
 import { migrateBacklog } from '../../src/work/migrate.mjs'
 import { readStore, writeStore } from '../../src/work/store.mjs'
@@ -32,7 +33,7 @@ const BACKLOG = [
   '  Touches: public/board.js',
   '',
 ].join('\n')
-const ROLES = { Main: 'main', Board: 'worker', Support: 'worker', Advisor: 'advisor' }
+const ROLES = { Main: 'main', Board: 'worker', Support: 'worker', Digger: 'worker', Advisor: 'advisor' }
 
 /** A store of the backlog above in a folder of its own. */
 async function fresh() {
@@ -185,22 +186,19 @@ test('report moves to review and records "check pending"; the board\'s check clo
   }
 })
 
-test('queue by a worker is refused by the flow; Main queues a refined step, and a new one once it is refined (B303)', async () => {
-  const { dir, board, main } = await fresh()
+test('Main\'s queue is gone (redesign Part 2): the board gives a refined task to a worker that holds none, never a new one', async () => {
+  const { dir, board, main, server } = await fresh()
   try {
-    assert.deepEqual(await board({ action: 'queue', id: 'B5', for: 'Support' }), { ok: false, status: 409, why: 'B5: only main queues a step (flow.json)' })
-    assert.equal((await main({ action: 'queue', id: 'B7', for: 'Support' })).result.text, 'B7 is not refined yet: the Advisor refines it first, then the board queues it for Support by itself.')
+    for (const ask of [board, main]) assert.equal((await ask({ action: 'queue', id: 'B5', for: 'Digger' })).status, 410)
+    assert.equal((await server({ action: 'advance', id: 'B7', to: 'queued', for: 'Digger' })).status, 409)
     assert.equal(await state(dir, 'B7'), 'new')
-    const queued = await main({ action: 'queue', id: 'B5', for: 'Support', after: 'B4', about: '1 h' })
-    assert.equal(queued.ok, true, queued.why)
+    // Board holds B1 and B2 (queued): no second task for it.
+    assert.equal((await server({ action: 'advance', id: 'B5', to: 'queued', for: 'Board' })).status, 409)
+    const given = await server({ action: 'advance', id: 'B5', to: 'queued', for: 'Digger' })
+    assert.equal(given.ok, true, given.why)
     const five = await item(dir, 'B5')
-    assert.deepEqual(['State', 'Owner', 'Blocked by', 'Waits for', 'Estimate'].map(key => valueOf(five, key)), ['queued', 'Support', 'B4', null, '1 h'])
-    assert.equal((await history(dir, 'B5')).at(-1), '- 2026-10-17 11:06 Main: queued for Support; after B4; about 1 h')
-    // Overlapping work is the flow's guard too.
-    const { ctx } = await fresh()
-    const busy = await workApi({ action: 'queue', chat: 'Main', id: 'B5', for: 'Board' }, { ...ctx, overlaps: () => 'B4' })
-    assert.equal(busy.why, 'B5: "Touches overlaps no taken step" does not hold (flow.json)')
-    await rm(ctx.dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
+    assert.deepEqual(['State', 'Owner'].map(key => valueOf(five, key)), ['queued', 'Digger'])
+    assert.equal((await history(dir, 'B5')).at(-1), '- 2026-10-17 11:06 server: refined → queued (given by the board to Digger)')
   } finally {
     await rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
@@ -362,11 +360,12 @@ test('B378: Touches are paths, not words: B377 (tests only) queues beside B374, 
   assert.equal(overlaps.why(store.items.get('B376')), 'B374 is in progress and works in lava-tactics tests/render, which overlaps lava-tactics tests/render of this step')
   // The same folder in another repository is no overlap: "worker-board src" against "lava-tactics src/run".
   assert.equal(overlaps(store.items.get('B378')), null)
-  // The refusal names the two paths.
+  // The refusal of the board's give names the two paths.
   const six = store.items.get('B376')
   six.head.set('State', 'refined')
-  const refused = mayMove(DEFAULT_FLOW, six, 'queued', 'main', { store: { items: store.items }, overlaps })
-  assert.equal(refused.why, 'B376: "Touches overlaps no taken step" does not hold (flow.json): B374 is in progress and works in lava-tactics tests/render, which overlaps lava-tactics tests/render of this step')
+  six.head.set('Refined', 'ready')
+  const refused = mayMove(DEFAULT_FLOW, six, 'queued', 'server', { store: { items: store.items } })
+  assert.equal(refused.why, 'B376: "the board hands it out" does not hold (flow.json): B374 is in progress and works in lava-tactics tests/render, which overlaps lava-tactics tests/render of this step')
 })
 
 test('B378: a line without a repository matches any; a folder holds its files; a lone word is a path only alone', async () => {
@@ -473,31 +472,15 @@ test('review 7: a chat asks only under its own step, or one nobody holds; Main a
   }
 })
 
-test('review: requeue gives a queued step to another chat, unqueue takes it out of its queue; Main and the person only', async () => {
-  const { dir, board, main, person } = await fresh()
+test('requeue and unqueue are gone (redesign Part 2): the board takes a given task back itself', async () => {
+  const { dir, board, main, person, server } = await fresh()
   try {
-    // B465: and the board itself, for its sync check (as for rename).
-    assert.deepEqual(await board({ action: 'requeue', id: 'B1', for: 'Support' }), { ok: false, status: 403, why: 'Only main or person or server may requeue.' })
-    assert.deepEqual(await board({ action: 'unqueue', id: 'B1' }), { ok: false, status: 403, why: 'Only main or person may unqueue.' })
-    const moved = await main({ action: 'requeue', id: 'B1', for: 'Support' })
-    assert.equal(moved.ok, true, moved.why)
+    for (const ask of [board, main, person, server]) {
+      assert.equal((await ask({ action: 'requeue', id: 'B1', for: 'Support' })).status, 410)
+      assert.equal((await ask({ action: 'unqueue', id: 'B2' })).status, 410)
+    }
     const one = await item(dir, 'B1')
-    // Queued anew for its new chat: delivered anew (its Since is the requeue's).
-    assert.deepEqual(['State', 'Owner', 'Since'].map(key => valueOf(one, key)), ['queued', 'Support', '2026-10-17 11:06'])
-    assert.equal((await history(dir, 'B1')).at(-1), '- 2026-10-17 11:06 Main: requeued for Support (was Board)')
-    assert.deepEqual(await main({ action: 'requeue', id: 'B1', for: 'Team - Support' }), { ok: false, status: 409, why: 'B1 is queued for Support already.' })
-    assert.equal((await main({ action: 'requeue', id: 'B1' })).status, 400)
-    assert.deepEqual(await main({ action: 'requeue', id: 'B4', for: 'Board' }), { ok: false, status: 409, why: 'B4 is in progress, not queued: only a queued step moves to another chat.' })
-    // Out of the queue: back to new, or to refined for a refined step, without a chat.
-    const out = await person({ action: 'unqueue', id: 'B2' })
-    assert.equal(out.ok, true, out.why)
-    const two = await item(dir, 'B2')
-    assert.deepEqual(['State', 'Owner'].map(key => valueOf(two, key)), ['new', null])
-    assert.equal((await history(dir, 'B2')).at(-1), '- 2026-10-17 11:06 person: queued → new (unqueued; was for Board)')
-    await main({ action: 'queue', id: 'B5', for: 'Support' })
-    await main({ action: 'unqueue', id: 'B5' })
-    assert.equal(valueOf(await item(dir, 'B5'), 'State'), 'refined')
-    assert.equal((await main({ action: 'unqueue', id: 'B4' })).status, 409)
+    assert.deepEqual(['State', 'Owner'].map(key => valueOf(one, key)), ['queued', 'Board'])
   } finally {
     await rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
@@ -516,7 +499,7 @@ test('B305: a worker that still holds a step takes its next queued one; an older
       }
       const support = body => workApi({ chat: 'Support', ...body }, { ...ctx, freeChats: new Set() })
       assert.equal(await state(dir, 'B4'), 'in progress')
-      assert.equal((await main({ action: 'queue', id: 'B5', for: 'Support' })).ok, true)
+      assert.equal((await queueFor(dir, 'B5', 'Support', { now: NOW + 60_000 })).ok, true)
       const taken = await support({ action: 'take', id: 'B5', branch: 'b5-strip' })
       assert.equal(taken.ok, true, taken.why)
       assert.equal(await state(dir, 'B5'), 'in progress')

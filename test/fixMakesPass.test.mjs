@@ -8,6 +8,7 @@ import { join } from 'node:path'
 import test from 'node:test'
 
 import { workApi } from '../src/work/api.mjs'
+import { queueFor } from './queueFor.mjs'
 import { migrateBacklog } from '../src/work/migrate.mjs'
 import { agreedPoints, parentPointsOf } from '../src/work/resultCheck.mjs'
 import { readStore, writeStore } from '../src/work/store.mjs'
@@ -28,8 +29,8 @@ async function board() {
   const read = async id => (await readStore(dir)).items.get(id)
   // Build, report and pass the board's own check of a step, so it waits in review for its result check.
   const toReview = async (id, branch) => {
-    // A fix step comes queued for the same worker already.
-    if ((await read(id)).head.get('State') !== 'queued') assert.equal((await as('Keeper')({ action: 'queue', id, for: 'Painter', about: '1 h' })).ok, true)
+    // Redesign Part 2: the board gives it to the worker (a fix step too: it is on the list, a follow-up of its builder).
+    assert.equal((await queueFor(dir, id, 'Painter', { now: at + 60_000 })).ok, true)
     assert.equal((await as('Painter')({ action: 'take', id, branch })).ok, true)
     const reported = await as('Painter')({ action: 'report', id, result: 'Done.', merged: 'c0ffee1' })
     assert.equal(reported.ok, true, reported.why)

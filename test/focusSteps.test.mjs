@@ -22,7 +22,7 @@ async function fresh() {
   await writeStore(dir, migrateBacklog(BACKLOG, { now: NOW }), undefined, { now: NOW })
   const ctx = { dir, now: NOW + 60_000, prefix: 'Team - ', roleOf: chat => ROLES[chat] ?? null, freeChats: new Set(['Board']) }
   const as = chat => body => workApi({ chat, ...body }, ctx)
-  return { dir, main: as('Main'), board: as('Board'), advisor: as('Advisor') }
+  return { dir, main: as('Main'), board: as('Board'), advisor: as('Advisor'), server: body => workApi(body, { ...ctx, as: 'server' }) }
 }
 const itemOf = async (dir, id) => (await readStore(dir)).items.get(id)
 const STEP = { action: 'new', title: 'Give hits a heavy landing', activity: 'Board work', goal: 'G6', text: 'Hits land with weight.', summary: 'Hits, pushes and deaths land with weight.', size: '3 h', what: ['a short shake on a heavy hit', 'Not in it: new map art'] }
@@ -52,14 +52,14 @@ test('only the partner makes a step refined at once, and only with its goal, sum
   assert.equal(plain.ok, true)
 })
 
-test('a decide ask the partner files on such a step does not hold it back: it is refined, and the main chat queues it', async () => {
-  const { dir, advisor, main } = await fresh()
+test('a decide ask the partner files on such a step does not hold it back: it is refined, and the board gives it', async () => {
+  const { dir, advisor, main, server } = await fresh()
   const { result: { id } } = await advisor(STEP)
   const asked = await advisor({ action: 'ask', of: id, kind: 'decide', text: 'How strong is the shake?', options: ['A soft', 'B hard'], advice: 'A' })
   assert.equal(asked.ok, true, asked.why)
   const step = await itemOf(dir, id)
   assert.deepEqual(refineAsksOf((await readStore(dir)).items, step), [])
-  const queued = await main({ action: 'queue', id, for: 'Board', about: '3 h' })
+  const queued = await server({ action: 'advance', id, to: 'queued', for: 'Board' })
   assert.equal(queued.ok, true, queued.why)
   assert.equal(valueOf(await itemOf(dir, id), 'State'), 'queued')
   // Another chat's ask on it still counts, as on any step.

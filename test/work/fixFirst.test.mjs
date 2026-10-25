@@ -20,7 +20,7 @@ import { parseItem, validateHead, valueOf } from '../../src/work/item.mjs'
 import { migrateBacklog } from '../../src/work/migrate.mjs'
 import { storeFromText } from '../../src/work/read.mjs'
 import { reconcile } from '../../src/work/reconcile.mjs'
-import { readStore, writeStore } from '../../src/work/store.mjs'
+import { readStore, writeItem, writeStore } from '../../src/work/store.mjs'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 const ROOT = join(HERE, '..', '..')
@@ -68,7 +68,7 @@ test('a step may carry Priority: fix, and nothing else there', () => {
   assert.equal(validateHead(head({ Priority: 'urgent' })), 'Priority is not fix: urgent')
 })
 
-test('new and queue with priority fix mark the step a board fix: the main chat, the partner and the person; not a worker', async () => {
+test('new with priority fix marks the step a board fix: the main chat, the partner and the person; not a worker', async () => {
   const { dir, main, board, advisor, person } = await fresh()
   try {
     const made = await main({ action: 'new', title: 'The lane flickers', activity: 'Board work', priority: 'fix' })
@@ -82,21 +82,8 @@ test('new and queue with priority fix mark the step a board fix: the main chat, 
     assert.equal((await person({ action: 'new', title: 'The page is blank', activity: 'Board work', priority: 'fix' })).ok, true)
     assert.deepEqual(await board({ action: 'new', title: 'Mine', activity: 'Board work', priority: 'fix' }), { ok: false, status: 403, why: 'Only the main chat, the partner or the person marks a step as a board fix.' })
     assert.deepEqual(await main({ action: 'new', title: 'Other', activity: 'Board work', priority: 'high' }), { ok: false, status: 400, why: '"priority" is fix, or left out.' })
-    // A queue of a refined step with priority fix.
-    const queued = await main({ action: 'queue', id: 'B5', for: 'Board', priority: 'fix' })
-    assert.equal(queued.ok, true, queued.why)
-    assert.deepEqual([valueOf(await item(dir, 'B5'), 'State'), valueOf(await item(dir, 'B5'), 'Priority')], ['queued', 'fix'])
-    // A queue of a step already queued for that chat only marks it; for another chat it says to requeue.
-    const marked = await main({ action: 'queue', id: 'B2', for: 'Board', priority: 'fix' })
-    assert.equal(marked.ok, true, marked.why)
-    assert.deepEqual([valueOf(await item(dir, 'B2'), 'State'), valueOf(await item(dir, 'B2'), 'Owner'), valueOf(await item(dir, 'B2'), 'Priority')], ['queued', 'Board', 'fix'])
-    assert.equal((await main({ action: 'queue', id: 'B1', for: 'Support', priority: 'fix' })).status, 409)
-    // Without priority, a queued step is still refused by the flow as before.
-    assert.equal((await main({ action: 'queue', id: 'B1', for: 'Board' })).status, 409)
-    // A queue asked before the refine keeps the mark.
-    const early = await main({ action: 'queue', id: 'B7', for: 'Board', priority: 'fix' })
-    assert.equal(early.ok, true, early.why)
-    assert.equal(valueOf(await item(dir, 'B7'), 'Priority'), 'fix')
+    // Redesign Part 2: Main's queue is gone (a fix is marked when it is made); the board gives a fix first.
+    assert.equal((await main({ action: 'queue', id: 'B5', for: 'Board', priority: 'fix' })).status, 410)
   } finally {
     await rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
@@ -105,7 +92,9 @@ test('new and queue with priority fix mark the step a board fix: the main chat, 
 test('work next lists the fix first among the queued steps, marked; the pull wakes the chat for the fix', async () => {
   const { dir, main, board } = await fresh()
   try {
-    assert.equal((await main({ action: 'queue', id: 'B2', for: 'Board', priority: 'fix' })).ok, true)
+    const two = (await readStore(dir)).items.get('B2')
+    two.head.set('Priority', 'fix')
+    assert.equal((await writeItem(dir, two)).ok, true)
     const next = await board({ action: 'next' })
     assert.deepEqual(next.result.items, ['B2', 'B1'])
     assert.match(next.result.text, /^- B2 queued, board fix: Keep the cards apart$/m)

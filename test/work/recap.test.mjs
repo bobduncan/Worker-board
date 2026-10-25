@@ -10,6 +10,7 @@ import { join } from 'node:path'
 import test from 'node:test'
 
 import { workApi } from '../../src/work/api.mjs'
+import { queueFor } from '../queueFor.mjs'
 import { valueOf } from '../../src/work/item.mjs'
 import { informationOf } from '../../src/work/lists.mjs'
 import { migrateBacklog } from '../../src/work/migrate.mjs'
@@ -45,7 +46,7 @@ async function reported(one) {
   const made = await one.partner(LAMP)
   assert.equal(made.ok, true, made.why)
   const id = made.result.id
-  assert.equal((await one.keeper({ action: 'queue', id, for: 'Lamplighter', about: '1 h' })).ok, true)
+  assert.equal((await queueFor(one.dir, id, 'Lamplighter', { now: NOW })).ok, true)
   assert.equal((await one.lamplighter({ action: 'take', id, branch: 'b2-lamps' })).ok, true)
   assert.equal((await one.lamplighter({ action: 'report', id, result: SAID, merged: 'c0ffee1' })).ok, true)
   assert.equal((await one.server({ action: 'check', id, passed: true, lines: ['branch gone'] })).ok, true)
@@ -89,6 +90,7 @@ test('a failed check gives no recap; the step it fixes gets one once its fix is 
     const failed = await one.partner({ ...PASSED, id, points: ['pass: a lamp at every bench', 'fail: warm yellow light, never white (two are white)'] })
     const fixId = failed.result.fix
     assert.deepEqual(await recapNotes(one.dir), [])
+    await queueFor(one.dir, fixId, 'Lamplighter', { now: NOW })
     await one.lamplighter({ action: 'take', id: fixId, branch: 'b-fix-lamps' })
     await one.lamplighter({ action: 'report', id: fixId, result: 'All lamps are warm yellow.', merged: 'beef123' })
     await one.server({ action: 'check', id: fixId, passed: true, lines: ['branch gone'] })
@@ -253,7 +255,7 @@ test('the review: when the board\'s own check passes after the result check, the
   try {
     const made = await one.partner(LAMP)
     const id = made.result.id
-    await one.keeper({ action: 'queue', id, for: 'Lamplighter', about: '1 h' })
+    await queueFor(one.dir, id, 'Lamplighter', { now: NOW })
     await one.lamplighter({ action: 'take', id, branch: 'b2-lamps' })
     await one.lamplighter({ action: 'report', id, result: 'Every path has a warm lamp.', merged: 'c0ffee1' })
     await one.server({ action: 'check', id, passed: false, lines: ['the branch b2-lamps is still there'] })

@@ -46,20 +46,20 @@ test('the plan reads a standard\'s "Foundation built: yes" line', () => {
   assert.deepEqual(standards.map(one => [one.id, one.state, one.foundationBuilt]), [['K1', 'confirmed', true], ['K2', 'proposed', false]])
 })
 
-test('the queue refuses a held step with the reason, and the board keeps a queue asked before the refine waiting', async () => {
+test('the board\'s give refuses a held step with the reason; once nothing holds it, it goes', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'work-guard-'))
   try {
     const now = new Date(2026, 9, 21, 10, 0).getTime()
     const backlog = '# Backlog\n\n## World work\n- [ ] B1 Draw the bench\n  Refined (2026-10-21 09:00; ready):\n  Summary: A bench.\n  Standard: bench · art/bench.png · target 75\n  What we build:\n  - the bench\n'
     await writeStore(dir, migrateBacklog(backlog, { now }), undefined, { now })
     const roles = { Main: 'main', Board: 'worker' }
-    const ctx = { dir, now: now + 60_000, prefix: '', roleOf: chat => roles[chat] ?? null, freeChats: new Set(['Board']), standardHold: item => standardHold(item, [{ ...BENCHES, state: 'proposed' }]) }
-    const held = await workApi({ chat: 'Main', action: 'queue', id: 'B1', for: 'Board' }, ctx)
+    const ctx = { dir, now: now + 60_000, prefix: '', roleOf: chat => roles[chat] ?? null, freeChats: new Set(['Board']), standardHold: item => standardHold(item, [{ ...BENCHES, state: 'proposed' }]), as: 'server' }
+    const held = await workApi({ action: 'advance', id: 'B1', to: 'queued', for: 'Board' }, ctx)
     assert.equal(held.status, 409)
     assert.match(held.why, /^B1 is a bench step, and the bench standard \(K1 Benches\) is not confirmed yet/)
     assert.equal(valueOf((await readStore(dir)).items.get('B1'), 'State'), 'refined')
-    // Once nothing holds it, the same queue goes.
-    const free = await workApi({ chat: 'Main', action: 'queue', id: 'B1', for: 'Board' }, { ...ctx, standardHold: () => null })
+    // Once nothing holds it, the same give goes.
+    const free = await workApi({ action: 'advance', id: 'B1', to: 'queued', for: 'Board' }, { ...ctx, standardHold: () => null })
     assert.equal(free.ok, true, free.why)
     assert.equal(valueOf((await readStore(dir)).items.get('B1'), 'State'), 'queued')
   } finally {

@@ -19,7 +19,8 @@ const OPEN = {
   instruction: state => state === 'open',
   note: state => state === 'unread',
 }
-const FIELDS = { step: ['Owner'], ask: ['Owner'], instruction: ['Chat'], note: ['From', 'To'] }
+// Redesign Part 2: a step's pin moves with its chat's name too.
+const FIELDS = { step: ['Owner', 'Pinned'], ask: ['Owner'], instruction: ['Chat'], note: ['From', 'To'] }
 /** A note's To may be a word rather than a chat: the person, or the main chat whatever its name. */
 const TO_WORDS = new Set(['you', 'main'])
 const KIND_ORDER = ['step', 'ask', 'instruction', 'note']

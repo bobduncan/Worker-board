@@ -1,5 +1,5 @@
 // B309: a step's asks count as its refine questions in the work API too: `refined` is refused while any ask under the
-// step is open (not only the refine's own), naming them; a queue asked before the refine waits for them, and for the
+// step is open (not only the refine's own), naming them; the board's give (redesign Part 2) waits for them, and for the
 // Advisor's round that folds their answers in. Made-up samples only.
 
 import assert from 'node:assert/strict'
@@ -22,7 +22,7 @@ const BACKLOG = [
   '- [ ] B3 Tie the kite string',
   '',
 ].join('\n')
-const ROLES = { Lead: 'main', Kite: 'worker', Oracle: 'advisor' }
+const ROLES = { Lead: 'main', Kite: 'worker', Sail: 'worker', Oracle: 'advisor' }
 
 async function fresh() {
   const dir = await mkdtemp(join(tmpdir(), 'work-asks-questions-'))
@@ -54,59 +54,41 @@ test('refined is refused while an ask under the step is open, also one its worke
   }
 })
 
-test('a queue asked before the refine waits for the step\'s open asks, then is carried out at the refine', async () => {
-  const { dir, lead, kite, oracle, person } = await fresh()
-  try {
-    assert.equal((await kite({ action: 'ask', of: 'B3', kind: 'decide', text: 'Red string or blue?' })).ok, true)
-    const asked = await lead({ action: 'queue', id: 'B3', for: 'Kite' })
-    assert.equal(asked.ok, true, asked.why)
-    assert.equal(valueOf(await item(dir, 'B3'), 'Queue when refined'), 'for Kite')
-    await oracle({ action: 'refine', id: 'B3', summary: 'One knot per kite.' })
-    await person({ action: 'answer', id: 'Q1', text: 'Blue.' })
-    assert.equal((await oracle({ action: 'refined', id: 'B3', what: ['the knot'] })).ok, true)
-    const three = await item(dir, 'B3')
-    assert.deepEqual(['State', 'Owner', 'Queue when refined'].map(key => valueOf(three, key)), ['queued', 'Kite', null])
-  } finally {
-    await rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
-  }
-})
-
-test('a refined step with an ask filed after its refine: Main\'s queue waits as a wish, the board queues it only after the fold', async () => {
+test('a refined step with an ask filed after its refine is not given until the person answers and the Advisor folds it in', async () => {
   const { dir, lead, kite, oracle, person, server } = await fresh()
   try {
     await oracle({ action: 'refine', id: 'B3', summary: 'One knot per kite.' })
     assert.equal((await oracle({ action: 'refined', id: 'B3', what: ['the knot'] })).ok, true)
     assert.equal(await state(dir, 'B3'), 'refined')
     assert.equal((await kite({ action: 'ask', of: 'B3', kind: 'decide', text: 'Red string or blue?' })).ok, true)
-
-    const queued = await lead({ action: 'queue', id: 'B3', for: 'Kite' })
-    assert.equal(queued.ok, true, queued.why)
-    assert.match(queued.result.text, /^B3 waits for Q1: the person answers, the Advisor folds it in, then the board queues it for Kite by itself\.$/)
-    let three = await item(dir, 'B3')
-    assert.deepEqual(['State', 'Queue when refined'].map(key => valueOf(three, key)), ['refined', 'for Kite'])
-
-    // The board's own queue waits while the ask is open, and while its answer waits for the Advisor's round.
-    assert.equal((await server({ action: 'advance', id: 'B3', to: 'queued' })).ok, false)
+    // Main's queue is gone; the board's give waits while the ask is open, and while its answer waits for the round.
+    assert.equal((await lead({ action: 'queue', id: 'B3', for: 'Sail' })).status, 410)
+    const open = await server({ action: 'advance', id: 'B3', to: 'queued', for: 'Sail' })
+    assert.equal(open.status, 409)
+    assert.match(open.why, /waits for the answer to Q1$/)
     await person({ action: 'answer', id: 'Q1', text: 'Blue.' })
-    assert.equal((await server({ action: 'advance', id: 'B3', to: 'queued' })).ok, false)
+    const folded = await server({ action: 'advance', id: 'B3', to: 'queued', for: 'Sail' })
+    assert.match(folded.why, /waits for the partner to fold in the answer to Q1$/)
     assert.equal(await state(dir, 'B3'), 'refined')
-
     assert.equal((await oracle({ action: 'refined', id: 'B3', what: ['the knot', 'a blue string'] })).ok, true)
-    three = await item(dir, 'B3')
-    assert.deepEqual(['State', 'Owner', 'Queue when refined'].map(key => valueOf(three, key)), ['queued', 'Kite', null])
+    // Refined anew: on the list for a worker, given by the board, not by the refine.
+    assert.equal(await state(dir, 'B3'), 'refined')
+    assert.equal((await server({ action: 'advance', id: 'B3', to: 'queued', for: 'Sail' })).ok, true)
+    const three = await item(dir, 'B3')
+    assert.deepEqual(['State', 'Owner'].map(key => valueOf(three, key)), ['queued', 'Sail'])
   } finally {
     await rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
 })
 
-test('a refined step whose asks are all answered and folded in is queued at once, as before', async () => {
-  const { dir, lead, kite, oracle, person } = await fresh()
+test('a refined step whose asks are all answered and folded in is given at once', async () => {
+  const { dir, kite, oracle, person, server } = await fresh()
   try {
     assert.equal((await kite({ action: 'ask', of: 'B3', kind: 'decide', text: 'Red string or blue?' })).ok, true)
     await person({ action: 'answer', id: 'Q1', text: 'Blue.' })
     await oracle({ action: 'refine', id: 'B3', summary: 'One knot per kite, blue.' })
     assert.equal((await oracle({ action: 'refined', id: 'B3', what: ['the knot'] })).ok, true)
-    assert.equal((await lead({ action: 'queue', id: 'B3', for: 'Kite' })).ok, true)
+    assert.equal((await server({ action: 'advance', id: 'B3', to: 'queued', for: 'Sail' })).ok, true)
     assert.equal(await state(dir, 'B3'), 'queued')
   } finally {
     await rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })

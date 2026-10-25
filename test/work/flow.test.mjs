@@ -20,11 +20,15 @@ test('parseFlow of examples/work/flow.json equals DEFAULT_FLOW', () => {
   assert.deepEqual(statesOf(DEFAULT_FLOW, 'step').slice(0, 3), ['new', 'refined', 'queued'])
 })
 
-test('mayMove: a worker may not queue; the line names who may', () => {
+test('mayMove: only the board gives a task (redesign Part 2); the line names who may', () => {
   const refined = step('refined', 'Refined: ready\n')
-  assert.deepEqual(mayMove(DEFAULT_FLOW, refined, 'queued', 'worker', { store: storeOf(refined), overlaps: () => null }), { ok: false, why: 'B285: only main queues a step (flow.json)' })
-  assert.deepEqual(mayMove(DEFAULT_FLOW, refined, 'queued', 'main', { store: storeOf(refined), overlaps: () => null }), { ok: true, why: null })
-  assert.deepEqual(mayMove(DEFAULT_FLOW, refined, 'queued', 'main', { store: storeOf(refined), overlaps: () => 'B12' }).ok, false)
+  assert.deepEqual(mayMove(DEFAULT_FLOW, refined, 'queued', 'worker', { store: storeOf(refined) }), { ok: false, why: 'B285: only server queues a step (flow.json)' })
+  assert.deepEqual(mayMove(DEFAULT_FLOW, refined, 'queued', 'main', { store: storeOf(refined) }).ok, false)
+  assert.deepEqual(mayMove(DEFAULT_FLOW, refined, 'queued', 'server', { store: storeOf(refined) }), { ok: true, why: null })
+  // Not while its Touches overlap a task given or under way.
+  const touching = step('refined', 'Refined: ready\n\n## Context\n  Touches: src/a.mjs\n')
+  const busy = item('Id: B12\nKind: step\nState: queued\nOwner: Mower\nSince: -\n\n## Context\n  Touches: src\n')
+  assert.equal(mayMove(DEFAULT_FLOW, touching, 'queued', 'server', { store: storeOf(touching, busy) }).ok, false)
 })
 
 test('mayMove: queued → taken by the server needs Blocked by done and the Owner free', () => {
@@ -63,9 +67,9 @@ test('nextMoves lists the moves out of the item\'s state, who makes them and whe
     { to: 'taken', by: ['server'], when: 'Blocked by all done and Owner free' },
     // B305: the worker (Focus 3: also the advisor and the main chat) takes its own queued step once what it is blocked by is resolved; Owner free is the board's delivery.
     { to: 'taken', by: ['worker', 'advisor', 'main'], when: 'Blocked by all done' },
-    // B301, the review: out of its queue (unqueue), back to refined or new.
-    { to: 'refined', by: ['main', 'person'], when: null },
-    { to: 'new', by: ['main', 'person'], when: null },
+    // Redesign Part 2: the board takes a given task back (to refined), or puts one queued before the redesign back.
+    { to: 'refined', by: ['server'], when: null },
+    { to: 'new', by: ['server'], when: null },
     { to: 'done', by: ['person'], when: null },
     { to: 'dropped', by: ['person', 'main'], when: null },
   ])

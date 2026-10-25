@@ -83,7 +83,7 @@ test('an incident that came back, or is open again, is not under the Fix that di
 test('each state word comes from the step\'s record and its worker\'s lane', () => {
   const of = (state, more, lanes = [], list = []) => plain(stepState(step('B9', state, more), { lanes, steps: items(...list) }))
   assert.deepEqual(of('new'), { text: 'new · waits for the Advisor', tone: 'wait' })
-  assert.deepEqual(of('refined'), { text: 'refined · waits for Main', tone: 'wait' })
+  assert.deepEqual(of('refined'), { text: 'refined · on the list', tone: 'wait' })
   assert.deepEqual(of('queued', { Owner: 'Worker 2' }), { text: 'queued for Worker 2', tone: 'wait' })
   assert.deepEqual(of('queued'), { text: 'queued', tone: 'wait' })
   // Only what is still open is waited for.
@@ -182,10 +182,10 @@ test('the day the layout was drawn on: nine incidents become five fix cards and 
   // Only X4 is named by its title: until the Advisor links the others, X5 and X6 have no fix step.
   assert.deepEqual(shown(cards).map(card => [card.key, card.state.text, card.incidents.map(one => one.id)]), [
     ['B532', 'Worker 5 · building', ['X1', 'X2', 'X3']],
-    ['B541', 'refined · waits for Main', ['X4']],
-    ['B542', 'refined · waits for Main', ['X7']],
-    ['B543', 'refined · waits for Main', ['X8']],
-    ['B544', 'refined · waits for Main', ['X9']],
+    ['B541', 'refined · on the list', ['X4']],
+    ['B542', 'refined · on the list', ['X7']],
+    ['B543', 'refined · on the list', ['X8']],
+    ['B544', 'refined · on the list', ['X9']],
     ['nofix', 'sending to the Advisor…', ['X5', 'X6', 'X10']],
   ])
   // The Advisor links them: X4-X6 together, and the card without a fix step has only the new one.

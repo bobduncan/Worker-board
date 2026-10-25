@@ -370,7 +370,7 @@ test('the fixes: each carried out through its port, with its row; what cannot be
   assert.deepEqual(again.rows.map(one => one.status), ['For Main'])
 })
 
-test('the board itself may unblock and requeue a step, and its History says why; Waits for words stay the main chat\'s', async t => {
+test('the board itself may unblock a step, and its History says why; Waits for words stay the main chat\'s; its requeue is gone', async t => {
   const dir = await mkdtemp(join(tmpdir(), 'sync-api-'))
   t.after(() => rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }))
   const backlog = '# Backlog\n\n## Work\n- [ ] B1 Draw the strip (for Painter; about 1 h)\n- [ ] B2 Keep the cards apart (for Painter; about 30 min)\n'
@@ -383,9 +383,8 @@ test('the board itself may unblock and requeue a step, and its History says why;
   const freed = await board({ action: 'unblock', id: 'B2', on: 'B1', why: 'B1 is in review' })
   assert.equal(freed.ok, true, freed.why)
   assert.match(await history('B2'), /server: no longer blocked by B1 \(the board's sync check: B1 is in review\)$/)
-  const moved = await board({ action: 'requeue', id: 'B2', for: 'Mason', why: 'Painter left the list' })
-  assert.equal(moved.ok, true, moved.why)
-  assert.match(await history('B2'), /server: requeued for Mason \(was Painter\) \(the board's sync check: Painter left the list\)$/)
+  // Redesign Part 2: the board hands out every task; its requeue is gone (it takes a given task back instead).
+  assert.equal((await board({ action: 'requeue', id: 'B2', for: 'Mason', why: 'Painter left the list' })).status, 410)
   // The main chat's own unblock says no why; the board may not clear what a step waits for in words.
   await lead({ action: 'block', id: 'B2', on: 'B1' })
   await lead({ action: 'unblock', id: 'B2', on: 'B1', why: 'ignored' })

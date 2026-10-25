@@ -15,6 +15,7 @@ import { parseGoals } from '../src/goals.mjs'
 import { GUARD_ATTEMPTS, evaluateWords, evaluationState, evaluationsDue, goalAttempts, guardOf, needsEvaluation } from '../src/goalGuard.mjs'
 import { parseConfig } from '../src/config.mjs'
 import { workApi } from '../src/work/api.mjs'
+import { queueFor } from './queueFor.mjs'
 import { migrateBacklog } from '../src/work/migrate.mjs'
 import { readStore, writeStore } from '../src/work/store.mjs'
 
@@ -416,7 +417,7 @@ test('B525: a step already on sonnet and medium is lifted at its refine in a goa
   assert.equal((await as('Partner')({ action: 'refined', id: 'B2', what: ['crates in rows'] })).ok, true)
   assert.match(await line('B2', 'Model') ?? '', /^opus · /)
   // The failed result check of B1, still on sonnet, makes a fix step that runs on opus and high.
-  assert.equal((await as('Keeper')({ action: 'queue', id: 'B1', for: 'Painter', about: '1 h' })).ok, true)
+  assert.equal((await queueFor(dir, 'B1', 'Painter', { now: at + 60_000 })).ok, true)
   assert.equal((await as('Painter')({ action: 'take', id: 'B1', branch: 'b1-tiles' })).ok, true)
   assert.equal((await as('Painter')({ action: 'report', id: 'B1', result: 'Four tiles.', merged: 'c0ffee1' })).ok, true)
   assert.equal((await workApi({ action: 'check', id: 'B1', passed: true, lines: ['branch gone'] }, { ...ctx, as: 'server' })).ok, true)
@@ -426,7 +427,7 @@ test('B525: a step already on sonnet and medium is lifted at its refine in a goa
   assert.match(await line(fixId, 'Model') ?? '', /^opus · /)
   assert.match(await line(fixId, 'Effort') ?? '', /^high · /)
   // A goal that is not in evaluation: the fix step of its failed check keeps the step's sonnet and medium.
-  assert.equal((await as('Keeper')({ action: 'queue', id: 'B4', for: 'Painter', about: '1 h' })).ok, true)
+  assert.equal((await queueFor(dir, 'B4', 'Painter', { now: at + 60_000 })).ok, true)
   assert.equal((await as('Painter')({ action: 'take', id: 'B4', branch: 'b4-lantern' })).ok, true)
   assert.equal((await as('Painter')({ action: 'report', id: 'B4', result: 'A lantern.', merged: 'c0ffee2' })).ok, true)
   assert.equal((await workApi({ action: 'check', id: 'B4', passed: true, lines: ['branch gone'] }, { ...ctx, as: 'server' })).ok, true)

@@ -10,7 +10,8 @@ export const HEAD_KEYS = {
   // Fix first: `Priority: fix` marks a step as a fix for the worker board; it goes first wherever the board picks the
   // next step (its owner's queue, `work next`, the delivery), and stays with its owner. Pause and resume (spec
   // 2026-10-18): `Checkpoint` is the holder's last checkpoint, "<commit or none> · <next action> · <date time>".
-  step: ['Id', 'Kind', 'Title', 'Priority', 'State', 'Owner', 'Activity', 'Goal', 'Blocked by', 'Waits for', 'Since', 'Estimate', 'Branch', 'Checkpoint', 'Fix of', 'Attempts', 'Pictures', 'Refined', 'Asks', 'Queue when refined', 'Queue note', 'Line'],
+  // Redesign Part 2 (2026-10-25): `Pinned` the worker the person pinned the task to: the board gives it to that one only.
+  step: ['Id', 'Kind', 'Title', 'Priority', 'State', 'Owner', 'Pinned', 'Activity', 'Goal', 'Blocked by', 'Waits for', 'Since', 'Estimate', 'Branch', 'Checkpoint', 'Fix of', 'Attempts', 'Pictures', 'Refined', 'Asks', 'Queue when refined', 'Queue note', 'Line'],
   // B299: `Advice` is the option the asking chat advises; `Via` says how it was asked: form (the app's question form,
   // answered in the chat only) or refine (a question of the Advisor's refine of the step it is Of). Warnings
   // (2026-10-19): `Filed` when it was filed, to the millisecond, as an instruction's (`askFiledMs`). Partner answers

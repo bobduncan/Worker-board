@@ -11,6 +11,7 @@ import { join } from 'node:path'
 import test from 'node:test'
 
 import { workApi } from '../src/work/api.mjs'
+import { queueFor } from './queueFor.mjs'
 import { valueOf } from '../src/work/item.mjs'
 import { migrateBacklog } from '../src/work/migrate.mjs'
 import { answerReading } from '../src/work/resultCheck.mjs'
@@ -31,7 +32,7 @@ async function waiting() {
   const store = { dir, keeper: as('Keeper'), lamplighter: as('Lamplighter'), partner: as('Partner'), server: body => workApi(body, { ...ctx(), as: 'server' }), person: body => workApi(body, { ...ctx(), as: 'person' }) }
   const made = await store.partner({ action: 'new', title: 'Light the lamps', activity: 'Lamps', goal: 'G3', text: 'Warm light.', summary: 'A warm lamp on every path.', size: '1 h', what: ['a lamp at every bench', 'the glow feels warm'] })
   const id = made.result.id
-  assert.equal((await store.keeper({ action: 'queue', id, for: 'Lamplighter', about: '1 h' })).ok, true)
+  assert.equal((await queueFor(dir, id, 'Lamplighter', { now: clock })).ok, true)
   assert.equal((await store.lamplighter({ action: 'take', id, branch: 'b3-lamps' })).ok, true)
   assert.equal((await store.lamplighter({ action: 'report', id, result: 'Every bench has a lamp.', merged: 'c0ffee1' })).ok, true)
   assert.equal((await store.server({ action: 'check', id, passed: true, lines: ['branch gone'] })).ok, true)
@@ -70,7 +71,8 @@ test('a no fails the ask point with their words and makes a fix step for the wor
     assert.equal(valueOf(step, 'State'), 'review')
     assert.match(history(step), new RegExp(`result check failed: 1 of 2 points pass; fix ${done.result.fix} for Lamplighter`))
     const fix = await item(store.dir, done.result.fix)
-    assert.equal(valueOf(fix, 'Owner'), 'Lamplighter')
+    // Redesign Part 2: on the ready list for nobody yet; a follow-up of its builder for a while (work/handOut.mjs).
+    assert.deepEqual([valueOf(fix, 'State'), valueOf(fix, 'Owner'), valueOf(fix, 'Fix of')], ['refined', null, store.id])
     assert.match(fix.sections.get('Summary').join(' '), /the glow feels warm \(the person said: Rejected\. Too cold\)/)
   } finally {
     await store.close()

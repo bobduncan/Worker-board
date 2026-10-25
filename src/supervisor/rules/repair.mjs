@@ -26,7 +26,6 @@ import { PARTNER_AGAIN_MS, isRoutedToPartner, partnerAskWords } from '../../work
 import { isHolding } from '../../work/pause.mjs'
 import { checkWhy, gitCheckPassed, needsResultCheck, resultCheckOf, reviewWaitOf } from '../../work/resultCheck.mjs'
 import { asksOfStep } from '../../work/stepAsks.mjs'
-import { boardPlacementOf } from '../../work/incidentFix.mjs'
 import { heldReason, restsFree } from '../../work/parked.mjs'
 
 const MIN = 60_000
@@ -254,20 +253,7 @@ function queuedBehind(view, { seen = new Map(), observed = [] } = {}) {
     name(item, `${idOf(item)} queued ${ageOf(item)} behind ${ownerOf(item)} stays: it fixes ${fixOf(item)}, which ${ownerOf(item)} built`)
   }
   waiting.filter(one => fixOf(one) === null).slice(0, free.length).forEach((item, index) => {
-    if (boardPlacementOf(item) === null) {
-      name(item, `Requeue ${idOf(item)} to ${free[index].name}: queued ${ageOf(item)} behind ${ownerOf(item)}`)
-      return
-    }
-    const id = idOf(item)
-    const watch = watchOf(item)
-    if (!observed.includes(watch)) observed.push(watch)
-    // The review: never from under the worker taking it: a work line about it went to its owner lately (as not-taken reads).
-    const owner = ownerOf(item)
-    const lately = outbox.some(message => message.command === 'work' && message.about === id && plain(message.to, prefix) === plain(owner, prefix)
-      && now - Math.max(...[message.at, message.takenAt, message.deliveredAt].filter(Number.isFinite)) < NOT_TAKEN_MS)
-    if (lately) return
-    const text = `${id}, an incident fix the board queued, waited ${ageOf(item)} behind ${owner} while ${free[index].name} is free`
-    found.push(finding('queued-behind', `queued-behind ${id} ${valueOf(item, 'Since') ?? ''} board`, id, text, { do: 'requeue', id, to: free[index].name }))
+    name(item, `Requeue ${idOf(item)} to ${free[index].name}: queued ${ageOf(item)} behind ${ownerOf(item)}`)
   })
   return found
 }

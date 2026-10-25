@@ -19,7 +19,6 @@ import { createHash } from 'node:crypto'
 
 import { incidentWords, sweepWords } from '../say.mjs'
 import { isLate } from '../store.mjs'
-import { flowQueuesFixes } from '../work/incidentFix.mjs'
 import { isHolding } from '../work/pause.mjs'
 
 /** How long the server keeps a name a chat's mod was refused under: as long as the rule `old-name` looks back. */
@@ -265,7 +264,7 @@ export function createSupervisor(ports) {
       const shown = live?.items instanceof Map ? incidentsOf(live.items, now) : incidents
       const partner = live?.partner ?? null
       const cards = live === null ? [] : incidentCards({
-        incidents: shown, items: live.items ?? null, lanes: live.lanes ?? [], hasPartner: partner !== null, boardQueues: flowQueuesFixes(live.flow),
+        incidents: shown, items: live.items ?? null, lanes: live.lanes ?? [], hasPartner: partner !== null,
         words: wordsOf(runnerPorts.outbox(), shown, partner, now, keep),
       })
       return { run: runner.shown(now), checkedAt: at, rules, incidents: shown, cards, ...sweepView(sweeper, now, sweepEvery(settings)) }

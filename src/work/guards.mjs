@@ -2,11 +2,10 @@
 // A new guard is a new name here, a few lines each. `ctx = { store: { items }, freeChats: Set, now, overlaps }`;
 // `overlaps(item)` is the server's: the id of a taken step whose Touches overlap this one's, or null.
 
-import { AUTO_QUEUE_GUARD, isIncidentFix } from './incidentFix.mjs'
 import { valueOf } from './item.mjs'
 import { REST_GUARD, workingOnOther } from './parked.mjs'
 import { fixesThrough, gitCheckPassed, needsResultCheck, resultCheckOf } from './resultCheck.mjs'
-import { openAsksOf, refineAsksOf } from './stepAsks.mjs'
+import { refineAsksOf } from './stepAsks.mjs'
 
 const idsIn = value => (value ?? '').match(/\b[A-Z]\d+\b/g) ?? []
 const asksOf = (item, ctx) => [...(ctx.store?.items?.values() ?? [])]
@@ -51,18 +50,20 @@ export function readyHold(item, ctx) {
 /** Redesign Part 2: a refined step the board may hand out, but for its standard and who is free (`readyHold`). */
 export const isReady = (item, ctx) => readyHold(item, ctx) === null
 
+/** Redesign Part 2: the guard of the board's give (flow.mjs DEFAULT_FLOW). */
+export const GIVE_GUARD = 'the board hands it out'
+/** The states whose Touches a task to give may not overlap: given (queued) or under way. */
+const GIVEN_OR_UNDER_WAY = ['queued', 'taken', 'in progress', 'waiting on you']
+
 export const GUARDS = {
   'refined is ready': item => valueOf(item, 'Refined') === 'ready',
-  // B303: the main chat (or the person) asked to queue it before its refine: the board queues it once it is refined.
-  // B309: and once no ask under it is open, nor answered and not yet folded in by the Advisor.
-  'a queue was asked before its refine': (item, ctx) => valueOf(item, 'Queue when refined') !== null
-    && openAsksOf(ctx.store?.items, valueOf(item, 'Id'), item).length === 0 && refineAsksOf(ctx.store?.items, item).length === 0,
-  // Incident fixes (2026-10-24, the person's choice B): a refined board fix an incident waits on, never queued before,
-  // nothing holding it, no ask under it open or not folded in: the board queues it itself (incidentFix.mjs). The
-  // review: and, as for the main chat's queue, its Touches overlap no taken step's.
-  [AUTO_QUEUE_GUARD]: (item, ctx) => isIncidentFix(item, ctx.store?.items ?? new Map()) && isFree(item, ctx)
-    && openAsksOf(ctx.store?.items, valueOf(item, 'Id'), item).length === 0 && refineAsksOf(ctx.store?.items, item).length === 0
-    && (ctx.overlaps?.(item) ?? null) === null,
+  // Redesign Part 2 (2026-10-25): the board gives a ready task (nothing holds it: `readyHold`) whose Touches overlap no
+  // step given or under way (principle 5: two refreshes cannot give two overlapping tasks).
+  [GIVE_GUARD]: (item, ctx) => isReady(item, ctx) && overlapIn(ctx.store?.items ?? new Map(), item, GIVEN_OR_UNDER_WAY) === null,
+  // Redesign Part 2: retired with Main's queue and the board's queue of incident fixes; kept so an older flow.json still
+  // reads (its moves never hold).
+  'a queue was asked before its refine': () => false,
+  'an incident fix is ready': () => false,
   'Touches overlaps no taken step': (item, ctx) => (ctx.overlaps?.(item) ?? null) === null,
   // B305: the worker's own take needs only what it is blocked by resolved; Owner free is the board's delivery.
   // B306: "Blocked by" here means what the step waits for too: the ids `Waits for` names, and words not yet cleared.
@@ -162,4 +163,11 @@ export function overlapsIn(items) {
 /** B378: what a guard that does not hold adds to the refusal, when it can say more than its name. */
 export const GUARD_WHY = {
   'Touches overlaps no taken step': (item, ctx) => ctx.overlaps?.why?.(item) ?? null,
+  // Redesign Part 2: what holds a task back from the board's give, or the two overlapping paths.
+  [GIVE_GUARD]: (item, ctx) => {
+    const hold = readyHold(item, ctx)
+    if (hold !== null) return hold
+    const found = overlapIn(ctx.store?.items ?? new Map(), item, GIVEN_OR_UNDER_WAY)
+    return found === null ? null : `${found.id} is ${found.state} and works in ${found.theirs}, which overlaps ${found.mine} of this step`
+  },
 }

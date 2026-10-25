@@ -9,9 +9,8 @@
 import { minutesOf } from '../backlog.mjs'
 import { workWords } from '../say.mjs'
 import { stepLine, stepNotes } from './adapter.mjs'
-import { mayMove } from './flow.mjs'
-import { GUARDS, blockersOpen, CLEARED, overlapsIn, waitIds, waitWords } from './guards.mjs'
-import { AUTO_QUEUE_GUARD, AUTO_QUEUE_MOVE, boardQueuedWhat, boardQueuedWords, fixesAhead, flowQueuesFixes, freshBoardFix, incidentsFixedBy, isStillEmpty } from './incidentFix.mjs'
+import { GIVE_GUARD, flowHandsOut, mayMove } from './flow.mjs'
+import { blockersOpen, CLEARED, overlapsIn, waitIds, waitWords } from './guards.mjs'
 import { ASK_KINDS, HEAD_KEYS, askFiledMs, fixFirst, isFix, serializeItem, sinceMs, validateHead, valueOf } from './item.mjs'
 import { askIdsIn, askKey, askTitleOf, askWordsOf, refineQuestionProblem, refineTitleOf, sameAsk, titleProblem } from './askWords.mjs'
 import { JUST_ANSWERED_MS, closedMsOf, forYouRepeat, isWithdrawn, openRepeat, repeatFactsOf } from './askRepeat.mjs'
@@ -42,7 +41,7 @@ export { overlapsIn, sinceMs }
 export const isReadAction = action => READS.has(action)
 
 const READS = new Set(['next', 'list', 'pause-state', 'health', ...ROUTING_READS])
-const CHANGES = new Set(['incident', 'incident-fix', 'incident-told', 'incidents-fixed', 'take', 'step', 'ask', 'withdraw', 'answered-in-chat', 'read', 'note', 'report', 'block', 'unblock', 'new', 'queue', 'close', 'drop', 'refine', 'refined', 'answer', 'tick', 'delete', 'refine-answer', 'refine-accept', 'check', 'checked', 'instruction', 'turn-ended', 'pull', 'advance', 'requeue', 'unqueue', 'recheck', 'undo', 'rename', 'pause-all', 'resume-all', 'resumed', 'end-resume', 'overturn', 'seen', 'approve-recaps', 'partner-answer', 'escalate', 'partner-answers', 'recheck-stuck'])
+const CHANGES = new Set(['incident', 'incident-fix', 'incident-told', 'incidents-fixed', 'take', 'step', 'ask', 'withdraw', 'answered-in-chat', 'read', 'note', 'report', 'block', 'unblock', 'new', 'queue', 'pin', 'close', 'drop', 'refine', 'refined', 'answer', 'tick', 'delete', 'refine-answer', 'refine-accept', 'check', 'checked', 'instruction', 'turn-ended', 'pull', 'advance', 'requeue', 'unqueue', 'recheck', 'undo', 'rename', 'pause-all', 'resume-all', 'resumed', 'end-resume', 'overturn', 'seen', 'approve-recaps', 'partner-answer', 'escalate', 'partner-answers', 'recheck-stuck'])
 /**
  * Focus 2: the partner's drafts of the focus goal's vibe and how. They change the goal map, not the store: the board's
  * `goalDraft` (src/focus.mjs) writes them; only the chat the list names the partner (role advisor) sends them.
@@ -56,7 +55,7 @@ const SERVER = new Set(['incidents-fixed', 'incident-told', 'check', 'advance', 
 /** Who may do what the flow does not decide (the default flow's table, spec section 5). */
 const ROLES = {
   block: ['main', 'worker', 'person'],
-  // B465: the board's sync check unblocks a step whose blocker is in review, and requeues one whose chat left the list.
+  // B465: the board's sync check unblocks a step whose blocker is in review.
   unblock: ['main', 'worker', 'person', 'server'],
   new: ['main', 'worker', 'advisor', 'person'],
   refine: ['advisor', 'main'],
@@ -64,8 +63,8 @@ const ROLES = {
   checked: ['advisor'],
   'vibe-draft': ['advisor'],
   'how-draft': ['advisor'],
-  requeue: ['main', 'person', 'server'],
-  unqueue: ['main', 'person'],
+  // Redesign Part 2 (2026-10-25): the person pins a task to a worker; the board unpins one whose chat is gone.
+  pin: ['person', 'server'],
   rename: ['main', 'person', 'server'],
   // Partner answers (2026-10-19): the partner answers an ask routed to it, or hands it to the person; so does the board
   // when the partner did not answer in time.
@@ -1509,9 +1508,9 @@ async function goalCheck(body, w) {
  * (the list is read anew and written again, three times, when it changed in between).
  */
 async function undoFix(id, w) {
-  // The second review: only while nobody took it up yet.
+  // The second review: only while nobody took it up yet (redesign Part 2: the fix is made refined, for the ready list).
   const made = await load(id, w, { kind: ['step'] })
-  if (!made.ok || stateOf(made.item) !== 'queued') return null
+  if (!made.ok || stateOf(made.item) !== 'refined') return null
   const removed = await removeItem(w.dir, id, w.fs)
   if (!removed.ok) return removed.why
   let why = 'activities.json could not be written'
@@ -1534,7 +1533,6 @@ async function undoFix(id, w) {
  */
 async function fixStep(origin, failed, w, points = failed) {
   const originId = valueOf(origin, 'Id')
-  const owner = valueOf(origin, 'Owner')
   const activity = valueOf(origin, 'Activity')
   const goal = valueOf(origin, 'Goal')
   const standard = standardOf(origin)
@@ -1563,7 +1561,7 @@ async function fixStep(origin, failed, w, points = failed) {
   const activitiesText = await readActivitiesText(w.dir, w.fs)
   const id = await nextId(w.dir, 'B', w.fs)
   let item = said(ordered({
-    head: new Map([['Id', id], ['Kind', 'step'], ['Title', fixTitle(failed)], ...(isFix(origin) ? [['Priority', 'fix']] : []), ['State', 'queued'], ...(owner === null ? [] : [['Owner', owner]]),
+    head: new Map([['Id', id], ['Kind', 'step'], ['Title', fixTitle(failed)], ...(isFix(origin) ? [['Priority', 'fix']] : []), ['State', 'refined'],
       ...(activity === null ? [] : [['Activity', activity]]), ...(goal === null ? [] : [['Goal', goal]]), ['Since', stamp(w.now)], ['Fix of', originId], ['Refined', 'ready']]),
     sections: new Map([
       // B381: the failed points whole, in the Context too.
@@ -1577,7 +1575,6 @@ async function fixStep(origin, failed, w, points = failed) {
     ]),
     problem: null,
   }), w, `made by the result check of ${originId}`)
-  item = appendHistory(item, 'server', `queued for ${owner ?? 'nobody'} (a fix of ${originId})`, w.now)
   const wrote = await save(item, null, w)
   if (!wrote.ok) return wrote
   const index = w.store.activities.findIndex(one => one.name === activity)
@@ -1790,173 +1787,44 @@ function priorityOf(body, w) {
 /** Fix first: the step marked as a board fix, with its History line; as it was when it is one already. */
 const markedFix = (item, w) => (isFix(item) ? item : said(put(item, 'Priority', 'fix'), w, 'marked a board fix'))
 
-/** Main queues a refined step for a chat: Owner, Blocked by or Waits for, Estimate. */
-async function queue(body, w) {
-  return withBoardFix(warned(await queueStep(body, w), body.for === undefined ? undefined : chatName(line(body.for, 80), w).warning), body, w)
-}
+/**
+ * Redesign Part 2 (2026-10-25): Main's queue, requeue and unqueue are gone: the board hands out every task (the ready
+ * list, work/handOut.mjs), and the person pins a task to a worker on the board (`pin`).
+ */
+const gone = action => async () => refuse(410, `"${action}" is gone: the board hands out all tasks (redesign Part 2); the person pins a task on the board.`)
+const queue = gone('queue')
+const requeue = gone('requeue')
+const unqueue = gone('unqueue')
+
+/** B424: why no task goes to the partner's helper. */
+const helperNoTask = name => `${name} is the partner's helper: no task goes to it. The partner hands it the next refine or result check.`
 
 /**
- * Incident fixes (2026-10-24): a queue or requeue for a worker the board gave an incident fix a few minutes ago says so
- * on top, in one line ("Worker 2 got B541, a board fix, at 21:40; your step goes after it"), so the main chat does not
- * take that worker for free. It is not refused.
+ * Redesign Part 2: the person pins a new or refined task to a worker of the list (`for`), or unpins it (`for` ''); the
+ * board gives a pinned task to that worker only. The board unpins a task whose chat is gone (the supervisor). Not once
+ * it is given or further: the pin is for the hand-out.
  */
-function withBoardFix(done, body, w) {
-  if (!done.ok || done.result.changed === false || w.role === 'server' || line(body.for, 80) === '') return done
-  const chat = chatName(line(body.for, 80), w).name
-  const said = freshBoardFix(w.store.items, chat, { prefix: w.prefix ?? '', now: w.now, except: done.result.id ?? null })
-  return said === null ? done : { ...done, result: { ...done.result, text: `${said}
-${done.result.text ?? ''}`, boardFix: said } }
-}
-
-async function queueStep(body, w) {
-  const found = await load(body.id, w, { kind: ['step'] })
-  if (!found.ok) return found
-  if (line(body.for, 80) === '') return refuse(400, 'Name the chat it is for in "for".')
-  if (line(body.for, 80).includes(';')) return refuse(400, '"for" holds no ";".')
-  // Focus 4: the chat as the list names it.
-  const named = chatName(line(body.for, 80), w)
-  if (!named.ok) return named
-  const owner = named.name
-  if (w.roleOf?.(owner) === 'helper') return refuse(409, helperNoQueue(owner))
-  const after = line(body.after, 200).replace(/^after\s+/i, '')
-  if (after.includes(';')) return refuse(400, '"after" holds no ";".')
-  const about = line(body.about, 40).replace(/^about\s+/i, '')
-  if (about !== '' && minutesOf(`about ${about}`) === null) return refuse(400, '"about" is a time such as "1 h" or "40 min".')
-  const words = [`for ${owner}`, after === '' ? null : `after ${after}`, about === '' ? null : `about ${about}`].filter(Boolean).join('; ')
-  const priority = priorityOf(body, w)
-  if (!priority.ok) return priority
-  const fixed = item => (priority.fix ? markedFix(item, w) : item)
-  // Fix first: a step queued already for that chat is only marked as a board fix; it keeps its place in the flow.
-  if (priority.fix && stateOf(found.item) === 'queued') {
-    const id = valueOf(found.item, 'Id')
-    const was = valueOf(found.item, 'Owner')
-    if (was === null || plain(was, w.prefix) !== plain(owner, w.prefix)) return refuse(409, `${id} is queued for ${was ?? 'no chat'}: give it to ${owner} with requeue first, then mark it.`)
-    if (isFix(found.item)) return { ok: true, result: { id, text: `${id} is a board fix already.`, changed: false } }
-    const next = ordered(fixed(copy(found.item)))
-    const done = await save(next, found.text, w)
-    return done.ok ? changed(next) : done
-  }
-  // The guard (2026-10-21): a step of a kind whose standard is not confirmed, or whose foundation is not built
-  // (unless it builds that foundation), stays out of the queue, with the reason.
-  const hold = w.standardHold?.(found.item) ?? null
-  if (hold !== null) return refuse(409, hold)
-  const moved = move(found.item, 'queued', w.role, w)
-  // B309: a refined step with asks under it that count as its refine questions (open, or answered and not folded in
-  // yet) is not refined for the queue: the wish is kept, and the board queues it once the Advisor folded them in.
-  const pending = asksCounted(w.store.items, found.item)
-  if (moved.ok && pending.length > 0) {
-    const id = valueOf(found.item, 'Id')
-    const open = pending.filter(one => one.answer === null).map(one => one.id)
-    const why = open.length > 0
-      ? `waits for ${open.join(', ')}: the person answers, the Advisor folds it in`
-      : `waits for the Advisor to fold in the answers to ${pending.map(one => one.id).join(', ')}`
-    const next = ordered(fixed(said(put(copy(found.item), 'Queue when refined', words), w, `${QUEUE_ASKED}: ${words}`)))
-    const done = await save(next, found.text, w)
-    return done.ok ? changed(next, `${id} ${why}, then the board queues it for ${owner} by itself.`, { queueWhenRefined: words }) : done
-  }
-  if (!moved.ok) {
-    if (!queuesOnceRefined(found.item, words, w)) return moved
-    // B303: not refined yet: the wish is kept on the step; the refine gate sends it to the Advisor, and once it is
-    // refined the board queues it by itself (`queueAsked`).
-    const id = valueOf(found.item, 'Id')
-    const next = ordered(fixed(said(put(copy(found.item), 'Queue when refined', words), w, `${QUEUE_ASKED}: ${words}`)))
-    const done = await save(next, found.text, w)
-    return done.ok ? changed(next, `${id} is not refined yet: the Advisor refines it first, then the board queues it for ${owner} by itself.`, { queueWhenRefined: words }) : done
-  }
-  const next = ordered(fixed(said(queuedAs(moved.item, { owner, after, about }), w, `queued ${words}`)))
-  const done = await save(next, found.text, w)
-  return done.ok ? changed(next) : done
-}
-
-/** Owner, Blocked by or Waits for, Estimate of a step queued now; the backlog's queue note and a kept wish go. */
-function queuedAs(item, { owner, after, about }) {
-  put(item, 'Owner', owner)
-  put(item, 'Blocked by', ONLY_IDS.test(after) ? after : null)
-  put(item, 'Waits for', after !== '' && !ONLY_IDS.test(after) ? after : null)
-  put(item, 'Estimate', about)
-  item.head.delete('Queue note')
-  item.head.delete('Queue when refined')
-  return item
-}
-
-/** B303: the History words of a queue asked before the step's refine; the board's own queue names who asked by them. */
-const QUEUE_ASKED = 'queue asked before its refine'
-
-/**
- * B303: whether a queue the flow refuses now is refused only because the step is not refined yet: it is new, the one
- * who asks could queue it once it is refined, and the flow lets the board queue it then with this wish kept.
- */
-function queuesOnceRefined(item, words, w) {
-  if (stateOf(item) !== 'new') return false
-  const refined = put(put(copy(item), 'State', 'refined'), 'Queue when refined', words)
-  const ctx = flowCtx(w, [refined])
-  // B309: as once its refine is ready: the asks under it answered and folded in.
-  for (const ask of openAsksUnder(ctx.store.items, valueOf(item, 'Id'), item)) ctx.store.items.delete(valueOf(ask, 'Id'))
-  return mayMove(w.store.flow, refined, 'queued', w.role, ctx).ok && mayMove(w.store.flow, refined, 'queued', 'server', ctx).ok
-}
-
-/**
- * B303: a refined step whose queue was asked before its refine: the board queues it by itself, as the server, with
- * what was asked, and the wish goes. `item` as it is about to be written; it is answered as it was when the flow does
- * not let the board queue it (the reconciler names the move again later).
- */
-function queueAsked(item, w) {
-  const wish = valueOf(item, 'Queue when refined')
-  if (wish === null || stateOf(item) !== 'refined') return item
-  // The guard (2026-10-21): held by its kind's standard, the wish waits on the step.
-  if ((w.standardHold?.(item) ?? null) !== null) return item
-  // B309: it waits for the asks under it too, and for the round that folds their answers in.
-  if (openAsksUnder(w.store.items, valueOf(item, 'Id'), item).length > 0 || asksCounted(w.store.items, item).length > 0) return item
-  const moved = move(item, 'queued', 'server', w, flowCtx(w, [item]))
-  if (!moved.ok) return item
-  const part = name => wish.split(';').map(one => one.trim()).find(one => one.startsWith(`${name} `))?.slice(name.length + 1).trim() ?? ''
-  const asker = (item.sections.get('History') ?? []).findLast(one => one.includes(`: ${QUEUE_ASKED}`))?.match(/^- \S+ \S+ (.+?): /)?.[1] ?? null
-  const by = asker === null ? '' : ` (asked by ${asker === 'person' ? 'you' : asker} before its refine)`
-  return ordered(appendHistory(queuedAs(moved.item, { owner: part('for'), after: part('after'), about: part('about') }), 'server', `queued ${wish}${by}`, w.now))
-}
-
-/**
- * B301, the review: Main or the person gives a queued step to another chat (the page's "Move to"): its Owner changes,
- * it stays queued, and its Since is now, so the board delivers it anew to the new chat. Only a queued step.
- */
-/** B424: why no step is queued for the partner's helper. */
-const helperNoQueue = name => `${name} is the partner's helper: no step is queued for it. The partner hands it the next refine or result check; queue the step for a worker.`
-
-async function requeue(body, w) {
-  return withBoardFix(warned(await requeueStep(body, w), body.for === undefined ? undefined : chatName(line(body.for, 80), w).warning), body, w)
-}
-
-async function requeueStep(body, w) {
+async function pin(body, w) {
   const found = await load(body.id, w, { kind: ['step'] })
   if (!found.ok) return found
   const id = valueOf(found.item, 'Id')
-  if (line(body.for, 80) === '') return refuse(400, 'Name the chat it goes to in "for".')
-  const named = chatName(line(body.for, 80), w)
-  if (!named.ok) return named
-  const owner = named.name
-  if (w.roleOf?.(owner) === 'helper') return refuse(409, helperNoQueue(owner))
   const state = stateOf(found.item)
-  if (state !== 'queued') return refuse(409, `${id} is ${state}, not queued: only a queued step moves to another chat.`)
-  const was = valueOf(found.item, 'Owner')
-  if (was !== null && plain(was, w.prefix) === plain(owner, w.prefix)) return refuse(409, `${id} is queued for ${was} already.`)
-  const item = put(put(copy(found.item), 'Owner', owner), 'Since', stamp(w.now))
-  const next = ordered(said(item, w, `requeued for ${owner}${was === null ? '' : ` (was ${was})`}${serverWhy(body, w)}`))
-  const done = await save(next, found.text, w)
-  return done.ok ? changed(next) : done
-}
-
-/**
- * B301, the review: Main or the person takes a queued step out of its queue (the page's "Take out of the queue"): back
- * to refined when its refine is ready, else to new (flow.json), without a chat; it stays on the backlog.
- */
-async function unqueue(body, w) {
-  const found = await load(body.id, w, { kind: ['step'] })
-  if (!found.ok) return found
-  const was = valueOf(found.item, 'Owner')
-  const to = valueOf(found.item, 'Refined') === 'ready' ? 'refined' : 'new'
-  const moved = move(found.item, to, w.role, w, flowCtx(w, [found.item]), ` (unqueued${was === null ? '' : `; was for ${was}`})`)
-  if (!moved.ok) return moved
-  const next = ordered(put(moved.item, 'Owner', null))
+  if (!['new', 'refined'].includes(state)) return refuse(409, `${id} is ${state}: only a new or refined task is pinned.`)
+  const wanted = line(body.for, 80)
+  const was = valueOf(found.item, 'Pinned')
+  if (wanted === '') {
+    if (was === null) return { ok: true, result: { id, text: `${id} is pinned to nobody.`, changed: false } }
+    const next = ordered(said(put(copy(found.item), 'Pinned', null), w, 'unpinned'))
+    const done = await save(next, found.text, w)
+    return done.ok ? changed(next) : done
+  }
+  const named = chatName(wanted, w)
+  const chat = named.name
+  const role = w.roleOf?.(chat) ?? null
+  if (role === 'helper') return refuse(409, helperNoTask(chat))
+  if (role !== 'worker') return refuse(409, `${chat} is no worker of the list: a task is pinned to a worker.`)
+  if (was !== null && plain(was, w.prefix) === plain(chat, w.prefix)) return { ok: true, result: { id, text: `${id} is pinned to ${was} already.`, changed: false } }
+  const next = ordered(said(put(copy(found.item), 'Pinned', chat), w, `pinned to ${chat}`))
   const done = await save(next, found.text, w)
   return done.ok ? changed(next) : done
 }
@@ -2406,7 +2274,6 @@ async function refined(call, w) {
     if (!moved.ok) return moved
     next = moved.item
   }
-  next = queueAsked(next, w)
   const done = await save(next, found.text, w)
   return done.ok ? changed(next) : done
 }
@@ -2595,8 +2462,7 @@ async function refineText(body, w) {
     else item.sections.delete(name)
   }
   put(item, 'Refined', valueOf(back, 'Refined'))
-  // B303: a step refined by now whose queue was asked before: the board queues it.
-  const next = queueAsked(said(item, w, w.action === 'refine-accept' ? 'accepted the refine' : 'answered the refine questions'), w)
+  const next = said(item, w, w.action === 'refine-accept' ? 'accepted the refine' : 'answered the refine questions')
   const done = await save(next, found.text, w)
   if (!done.ok) return done
   // B299: the refine's asks follow: each question answered here is answered; accepting answers the rest.
@@ -2647,18 +2513,9 @@ async function advance(body, w) {
   const found = await load(body.id, w, { kind: ['step'] })
   if (!found.ok) return found
   const to = line(body.to, 40)
-  // Incident fixes (2026-10-24): the board queues a ready incident fix for the worker the reconciler picked.
-  if (to === 'queued' && line(body.for, 80) !== '') return queueIncidentFix(found, body, w)
-  // B303: the queue asked before the refine, with what was asked (the flow's move by the server).
-  if (to === 'queued' && stateOf(found.item) === 'refined' && valueOf(found.item, 'Queue when refined') !== null) {
-    const next = queueAsked(found.item, w)
-    if (stateOf(next) !== 'queued') return refuse(409, mayMove(w.store.flow, found.item, 'queued', 'server', flowCtx(w, [found.item])).why ?? `${valueOf(found.item, 'Id')}: not queued.`)
-    const done = await save(next, found.text, w)
-    return done.ok ? changed(next) : done
-  }
-  // Incident fixes, the review: the board queues a step only for a chat it names, or as asked before its refine, never
-  // into no worker's queue.
-  if (to === 'queued') return refuse(409, `${valueOf(found.item, 'Id')}: the board queues a step only for a chat ("for"), or as asked before its refine.`)
+  // Redesign Part 2 (2026-10-25): the board gives a ready task to a worker (`for`), or takes a given one back.
+  if (to === 'queued') return give(found, body, w)
+  if (to === 'refined' && body.takeBack !== undefined) return takeBackGiven(found, body.takeBack, w)
   // B567: a step whose worker rests on an open ask says which (the reconciler names it).
   const ask = /^Q\d+$/.test(line(body.ask, 20)) ? line(body.ask, 20) : null
   const moved = move(found.item, to, 'server', w, undefined, to === 'waiting on you' && ask !== null ? ` (rests for ${ask})` : '')
@@ -2669,39 +2526,56 @@ async function advance(body, w) {
   return done.ok ? changed(ordered(moved.item)) : done
 }
 
+/** Redesign Part 2: the states in which a worker holds a task for the give: given (queued) or under way. */
+const HOLDS_FOR_GIVE = ['queued', 'taken', 'in progress']
+
 /**
- * Incident fixes (2026-10-24, the person's choice B): the board queues a ready incident fix itself (the reconciler's
- * `autoQueues`, incidentFix.mjs), for the worker in `for`, by the flow's server move "an incident fix is ready". Checked
- * anew here, so it happens once: a step the main chat queued, or took out of a queue, in the meantime is refused and
- * left as it is, and so is one a blocker or an ask holds again. Owner the worker; History "queued by the board for
- * Worker 2 (incident fix of X4)". The answer carries `boardQueued` (`{ id, chat, since, text }`): the main chat's one
- * information line about it.
+ * Redesign Part 2: the board gives a ready task to a worker (the reconciler's `gives`, work/handOut.mjs), by the flow's
+ * server move "the board hands it out". Checked anew here, so two refreshes or two idle reports at once give one task to
+ * one worker (Review Focus 4): refused when the guard does not hold (no longer ready, its Touches overlap one given or
+ * under way), its standard holds it, it is pinned to another chat, or the worker holds a task given or under way.
+ * Owner the worker, Since now, History "refined → queued (given by the board to <chat>)"; the answer's `given` is
+ * `{ id, chat, since }`.
  */
-async function queueIncidentFix(found, body, w) {
+async function give(found, body, w) {
   const id = valueOf(found.item, 'Id')
-  if (!flowQueuesFixes(w.store.flow)) return refuse(409, `${id}: the flow lets the board queue no incident fix (flow.json lacks ${JSON.stringify(AUTO_QUEUE_MOVE)}).`)
-  const ctx = flowCtx(w, [found.item])
-  if (!GUARDS[AUTO_QUEUE_GUARD](found.item, ctx)) return refuse(409, `${id} is ${stateOf(found.item)}: no incident fix the board queues now (it queues one once, refined, held by nothing).`)
+  if (!flowHandsOut(w.store.flow)) return refuse(409, `${id}: the flow lets the board hand out no task (flow.json lacks the move refined → queued by server when "${GIVE_GUARD}").`)
+  if (line(body.for, 80) === '') return refuse(409, `${id}: the board gives a task to a worker ("for").`)
+  const chat = chatName(line(body.for, 80), w).name
+  const role = w.roleOf?.(chat) ?? null
+  if (role === 'helper') return refuse(409, helperNoTask(chat))
+  if (w.roleOf !== undefined && role !== 'worker') return refuse(409, `${chat} is no worker of the list.`)
+  const pinned = valueOf(found.item, 'Pinned')
+  if (pinned !== null && plain(pinned, w.prefix) !== plain(chat, w.prefix)) return refuse(409, `${id} is pinned to ${pinned}, not given to ${chat}.`)
+  const holds = [...w.store.items.values()].find(one => kindOf(one) === 'step' && HOLDS_FOR_GIVE.includes(stateOf(one)) && isOwner(one, chat, w.prefix))
+  if (holds !== undefined) return refuse(409, `${chat} holds ${valueOf(holds, 'Id')} (${stateOf(holds)}): no second task.`)
   const hold = w.standardHold?.(found.item) ?? null
   if (hold !== null) return refuse(409, hold)
-  const owner = chatName(line(body.for, 80), w).name
-  if (w.roleOf?.(owner) === 'helper') return refuse(409, helperNoQueue(owner))
-  // The review: a placement on a free worker with an empty queue (`tier` 1) holds only while it still is one; the next
-  // refresh places the fix anew.
-  if (Number(body.tier) === 1 && !isStillEmpty(w.store.items, owner, w.prefix ?? '')) {
-    return refuse(409, `${owner} is no longer free with an empty queue: the board places ${id} anew at its next refresh.`)
-  }
-  const moved = move(found.item, 'queued', 'server', w, ctx)
+  const ctx = flowCtx(w, [found.item])
+  const moved = move(found.item, 'queued', 'server', w, ctx, ` (given by the board to ${chat})`)
   if (!moved.ok) return moved
-  const incidents = incidentsFixedBy(w.store.items, found.item)
-  const placed = put(moved.item, 'Owner', owner)
-  placed.head.delete('Queue note')
-  const next = ordered(said(placed, w, boardQueuedWhat(owner, incidents)))
+  const next = ordered(put(moved.item, 'Owner', chat))
+  next.head.delete('Queue note')
   const done = await save(next, found.text, w)
-  if (!done.ok) return done
-  const steps = [...w.store.items.values()].map(item => (valueOf(item, 'Id') === id ? next : item))
-  const text = boardQueuedWords({ id, chat: owner, incidents, ahead: fixesAhead(steps, id, owner, w.prefix ?? '') })
-  return changed(next, `${id}: ${boardQueuedWhat(owner, incidents)}.`, { boardQueued: { id, chat: owner, since: stamp(w.now), text } })
+  return done.ok ? changed(next, `${id}: given by the board to ${chat}.`, { given: { id, chat, since: stamp(w.now) } }) : done
+}
+
+/**
+ * Redesign Part 2: the board takes a given task back (the reconciler's `takeBacks`): only one queued for the chat named
+ * (a task given anew meanwhile stays where it is). Back to refined, no Owner; History "queued → refined (taken back
+ * from <chat>: <why>)", with "; stuck" when its worker never reacted (principle 2: the board shows it stuck).
+ */
+async function takeBackGiven(found, back, w) {
+  const id = valueOf(found.item, 'Id')
+  const chat = line(back?.chat, 80)
+  const why = line(back?.why, 200) || 'taken back'
+  if (stateOf(found.item) !== 'queued') return refuse(409, `${id} is ${stateOf(found.item)}: only a given (queued) task is taken back.`)
+  if (chat === '' || !isOwner(found.item, chat, w.prefix)) return refuse(409, `${id} is given to ${valueOf(found.item, 'Owner') ?? 'nobody'}, not to ${chat || 'nobody'}.`)
+  const moved = move(found.item, 'refined', 'server', w, flowCtx(w, [found.item]), ` (taken back from ${chat}: ${why}${back?.stuck === true ? '; stuck' : ''})`)
+  if (!moved.ok) return moved
+  const next = ordered(put(moved.item, 'Owner', null))
+  const done = await save(next, found.text, w)
+  return done.ok ? changed(next) : done
 }
 
 /**
@@ -2894,7 +2768,7 @@ const CHANGE = {
   'incident-fix': incidentFix,
   'incident-told': incidentTold,
   'incidents-fixed': incidentsFixed,
-  take, step, ask, withdraw, note, report, check, checked, recheck, new: make, queue, requeue, unqueue, close, drop, refine, refined, answer, tick, instruction, pull, advance,
+  take, step, ask, withdraw, note, report, check, checked, recheck, new: make, queue, requeue, unqueue, pin, close, drop, refine, refined, answer, tick, instruction, pull, advance,
   'turn-ended': turnEnded,
   'answered-in-chat': answeredInChat,
   read,

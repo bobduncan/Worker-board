@@ -2,8 +2,10 @@
 // who makes each move (`by`: a role from the list of chats, `person` or `server`) and what must hold first (`when`, a
 // guard of guards.mjs). Changing the file changes the order; no code.
 
-import { ACTIONS, GUARD_WHY, GUARDS } from './guards.mjs'
+import { ACTIONS, GIVE_GUARD, GUARD_WHY, GUARDS } from './guards.mjs'
 import { valueOf } from './item.mjs'
+
+export { GIVE_GUARD }
 
 /** Today's agreement, the default when the store has no flow.json; examples/work/flow.json is its text. */
 export const DEFAULT_FLOW = {
@@ -11,13 +13,13 @@ export const DEFAULT_FLOW = {
     states: ['new', 'refined', 'queued', 'taken', 'in progress', 'waiting on you', 'review', 'done', 'dropped'],
     moves: [
       { from: 'new', to: 'refined', by: 'advisor', when: 'refined is ready' },
-      { from: 'refined', to: 'queued', by: 'main', sets: ['Owner', 'Blocked by', 'Estimate'], when: 'Touches overlaps no taken step' },
-      { from: 'refined', to: 'queued', by: 'server', when: 'a queue was asked before its refine' },
-      { from: 'refined', to: 'queued', by: 'server', when: 'an incident fix is ready' },
+      // Redesign Part 2 (2026-10-25): the board hands out all work. It gives a ready task to an idle worker (queued, for
+      // that worker), takes it back when it is not taken in time, and puts the tasks queued before the redesign back.
+      { from: 'refined', to: 'queued', by: 'server', sets: ['Owner'], when: GIVE_GUARD },
       { from: 'queued', to: 'taken', by: 'server', when: 'Blocked by all done and Owner free', then: 'wake Owner' },
       { from: 'queued', to: 'taken', by: ['worker', 'advisor', 'main'], when: 'Blocked by all done' },
-      { from: 'queued', to: 'refined', by: ['main', 'person'] },
-      { from: 'queued', to: 'new', by: ['main', 'person'] },
+      { from: 'queued', to: 'refined', by: 'server' },
+      { from: 'queued', to: 'new', by: 'server' },
       { from: 'taken', to: 'in progress', by: ['worker', 'advisor', 'main'] },
       { from: 'in progress', to: 'waiting on you', by: ['worker', 'advisor', 'main'], when: 'an ask with Blocking yes is open' },
       { from: 'in progress', to: 'waiting on you', by: 'server', when: 'its worker rests on an open ask' },
@@ -30,6 +32,13 @@ export const DEFAULT_FLOW = {
     ],
   },
 }
+
+/**
+ * Redesign Part 2: whether the flow lets the board hand out a task: it names the server's move refined → queued with the
+ * give's guard. A project's older flow.json does not until its rollout; the board then gives nothing and says so.
+ */
+export const flowHandsOut = flow => (flow?.step?.moves ?? []).some(move => move.from === 'refined' && move.to === 'queued'
+  && (Array.isArray(move.by) ? move.by : [move.by]).includes('server') && move.when === GIVE_GUARD)
 
 /** The states of the kinds the flow does not hold: an ask, an instruction, a note (spec section 3), an incident. */
 const FIXED_STATES = {

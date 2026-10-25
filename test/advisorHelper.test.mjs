@@ -19,6 +19,7 @@ import { parseConfig } from '../src/config.mjs'
 import { checkSay } from '../src/say.mjs'
 import { buildState } from '../src/state.mjs'
 import { workApi } from '../src/work/api.mjs'
+import { queueFor } from './queueFor.mjs'
 import { valueOf } from '../src/work/item.mjs'
 import { migrateBacklog } from '../src/work/migrate.mjs'
 import { readStore, writeStore } from '../src/work/store.mjs'
@@ -151,7 +152,7 @@ test('the helper files a result check as the partner would', async () => {
   try {
     const made = await store.partner({ action: 'new', title: 'Light the lamps', activity: 'Lamps', goal: 'G3', text: 'Warm light.', summary: 'A warm lamp on every path.', size: '1 h', what: ['a lamp at every bench'] })
     const id = made.result.id
-    assert.equal((await store.keeper({ action: 'queue', id, for: 'Lamplighter', about: '1 h' })).ok, true)
+    assert.equal((await queueFor(store.dir, id, 'Lamplighter', { now: STAMP + MIN })).ok, true)
     assert.equal((await store.lamplighter({ action: 'take', id, branch: 'b3-lamps' })).ok, true)
     assert.equal((await store.lamplighter({ action: 'report', id, result: 'Every bench has a lamp.', merged: 'c0ffee1' })).ok, true)
     assert.equal((await store.server({ action: 'check', id, passed: true, lines: ['branch gone'] })).ok, true)
@@ -172,15 +173,15 @@ test('the helper files a result check as the partner would', async () => {
   }
 })
 
-test('no step is queued or requeued for the helper', async () => {
+test('no task is given or pinned to the helper', async () => {
   const store = await fresh()
   try {
-    const queued = await store.keeper({ action: 'queue', id: 'B2', for: 'Second', about: '1 h' })
-    assert.equal(queued.status, 409)
-    assert.equal(queued.why, 'Second is the partner\'s helper: no step is queued for it. The partner hands it the next refine or result check; queue the step for a worker.')
-    const moved = await store.keeper({ action: 'requeue', id: 'B1', for: 'Second' })
-    assert.equal(moved.status, 409)
-    assert.equal(valueOf(await item(store.dir, 'B1'), 'Owner'), 'Lamplighter')
+    const why = 'Second is the partner\'s helper: no task goes to it. The partner hands it the next refine or result check.'
+    const given = await store.server({ action: 'advance', id: 'B2', to: 'queued', for: 'Second' })
+    assert.deepEqual([given.status, given.why], [409, why])
+    const pinned = await workApi({ action: 'pin', id: 'B2', for: 'Second' }, { dir: store.dir, now: STAMP + MIN, prefix: '', roleOf: chat => ROLES[chat] ?? null, chats: Object.keys(ROLES), as: 'person' })
+    assert.deepEqual([pinned.status, pinned.why], [409, why])
+    assert.equal(valueOf(await item(store.dir, 'B2'), 'Owner'), null)
   } finally {
     await rm(store.dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }

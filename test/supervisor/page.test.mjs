@@ -293,8 +293,8 @@ test('the demo shows the section: every rule of the supervisor, three tripped to
   ])
   // Five fix cards (the step being built first, as it moved last) and the new one still on its way to the Advisor.
   assert.deepEqual(view.cards.map(card => [card.key, card.state.text, card.incidents.map(one => one.id).join(' ')]), [
-    ['B532', 'Worker 5 \u00b7 building', 'X1 X2 X3'], ['B541', 'refined \u00b7 waits for Main', 'X4 X5 X6'], ['B542', 'refined \u00b7 waits for Main', 'X7'],
-    ['B543', 'refined \u00b7 waits for Main', 'X8'], ['B544', 'refined \u00b7 waits for Main', 'X9'], ['nofix', 'sending to the Advisor\u2026', 'X10'],
+    ['B532', 'Worker 5 \u00b7 building', 'X1 X2 X3'], ['B541', 'refined \u00b7 on the list', 'X4 X5 X6'], ['B542', 'refined \u00b7 on the list', 'X7'],
+    ['B543', 'refined \u00b7 on the list', 'X8'], ['B544', 'refined \u00b7 on the list', 'X9'], ['nofix', 'sending to the Advisor\u2026', 'X10'],
   ])
   assert.equal(view.checkedAt, NOW - 2 * MIN)
   assert.equal(page.isSupervisorShown(view), true)
@@ -316,9 +316,9 @@ test('a card: the step\'s id as a link and its short title, the live state in a 
     ['X4', { id: 'X4', title: 'Worker 1 runs the Workers mod older than 0.16.0; 0.16.0 is installed', state: 'fix', fix: 'B541', count: 1, firstSeen: at(10, 1), lastSeen: at(10, 1), evidence: null }],
     ['X5', { id: 'X5', title: 'Worker 2 runs the Workers mod older than 0.16.0; 0.16.0 is installed', state: 'fix', fix: 'B541', count: 3, firstSeen: at(10, 1), lastSeen: at(10, 30), evidence: null }],
   ])
-  const card = { key: 'B541', step: 'B541', title: 'One clear way to update an old mod', state: { text: 'refined \u00b7 waits for Main', tone: 'wait' }, incidents: [{ id: 'X4', word: null }, { id: 'X5', word: null }] }
+  const card = { key: 'B541', step: 'B541', title: 'One clear way to update an old mod', state: { text: 'refined \u00b7 on the list', tone: 'wait' }, incidents: [{ id: 'X4', word: null }, { id: 'X5', word: null }] }
   const one = plain(page.incidentCardOf(card, byId))
-  assert.deepEqual([one.key, one.step, one.href, one.title, one.state, one.tone], ['B541', 'B541', '#details=B541', 'One clear way to update an old mod', 'refined \u00b7 waits for Main', 'wait'])
+  assert.deepEqual([one.key, one.step, one.href, one.title, one.state, one.tone], ['B541', 'B541', '#details=B541', 'One clear way to update an old mod', 'refined \u00b7 on the list', 'wait'])
   assert.equal(one.line, 'X4 X5 \u00b7 Worker 1 runs the Workers mod older than 0.16.0 (seen 3\u00d7)', 'the most it was seen, only above once')
   const once = plain(page.incidentCardOf({ ...card, incidents: [{ id: 'X4', word: null }] }, byId))
   assert.equal(once.line, 'X4 \u00b7 Worker 1 runs the Workers mod older than 0.16.0')

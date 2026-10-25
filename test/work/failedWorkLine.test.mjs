@@ -140,7 +140,8 @@ const GONE = {
 
 test('the guard: every kind of work line, waiting or failed, whose purpose is gone is closed at a refresh; none is without a judge', async t => {
   const kinds = await workLineKinds()
-  assert.ok(kinds.length >= 7, `the scan found the kinds: ${kinds.join(', ')}`)
+  // Redesign Part 2: the board no longer sends board-queued and fix-held lines; their judges stay for lines sent before.
+  assert.ok(kinds.length >= 5, `the scan found the kinds: ${kinds.join(', ')}`)
   for (const kind of kinds) {
     const gone = GONE[String(kind)]
     assert.ok(gone !== undefined, `a work line of kind ${kind} has a judge in workLines.mjs and a case here`)

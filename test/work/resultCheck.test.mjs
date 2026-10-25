@@ -10,6 +10,7 @@ import { join } from 'node:path'
 import test from 'node:test'
 
 import { workApi } from '../../src/work/api.mjs'
+import { queueFor } from '../queueFor.mjs'
 import { valueOf } from '../../src/work/item.mjs'
 import { migrateBacklog } from '../../src/work/migrate.mjs'
 import { needsResultCheck } from '../../src/work/resultCheck.mjs'
@@ -34,7 +35,7 @@ async function reported(store, gitPassed = true) {
   const made = await store.partner(LAMP)
   assert.equal(made.ok, true, made.why)
   const id = made.result.id
-  assert.equal((await store.keeper({ action: 'queue', id, for: 'Lamplighter', about: '1 h' })).ok, true)
+  assert.equal((await queueFor(store.dir, id, 'Lamplighter', { now: NOW + 60_000 })).ok, true)
   assert.equal((await store.lamplighter({ action: 'take', id, branch: 'b2-lamps' })).ok, true)
   assert.equal((await store.lamplighter({ action: 'report', id, result: 'Every path has a warm lamp.', merged: 'c0ffee1' })).ok, true)
   const git = await store.server({ action: 'check', id, passed: gitPassed, lines: gitPassed ? ['work in garden', 'branch gone', 'result named'] : ['the branch b2-lamps is still there'] })
@@ -90,7 +91,7 @@ test('a result check that passed before the board\'s own check waits for it: the
   }
 })
 
-test('a failed point makes a fix step, refined from the failed points and queued for the same worker; the step waits for it', async () => {
+test('a failed point makes a fix step, refined from the failed points, on the list as a follow-up of the same worker; the step waits for it', async () => {
   const store = await fresh()
   try {
     const { id } = await reported(store)
@@ -102,11 +103,12 @@ test('a failed point makes a fix step, refined from the failed points and queued
     assert.deepEqual([valueOf(origin, 'State'), valueOf(origin, 'Attempts')], ['review', '1'])
     const fix = await item(store.dir, fixId)
     assert.deepEqual(['Title', 'State', 'Owner', 'Activity', 'Goal', 'Fix of', 'Refined'].map(key => valueOf(fix, key)),
-      ['Fix: warm yellow light, never white', 'queued', 'Lamplighter', 'Lamps', 'G3', id, 'ready'])
+      ['Fix: warm yellow light, never white', 'refined', null, 'Lamps', 'G3', id, 'ready'])
     // B526: under the fail, the step's agreed point it must make pass.
     assert.deepEqual(fix.sections.get('What we build'), ['- warm yellow light, never white (two lamps are white)', '- Makes pass: warm yellow light, never white'])
     assert.ok(origin.sections.get('History').some(one => one.endsWith(`Partner: result check failed: 1 of 2 points pass, score 61 of 75; fix ${fixId} for Lamplighter`)))
     // The fix is done and checked: the step it fixes is done too.
+    await queueFor(store.dir, fixId, 'Lamplighter', { now: NOW + 60_000 })
     await store.lamplighter({ action: 'take', id: fixId, branch: 'b-fix-lamps' })
     await store.lamplighter({ action: 'report', id: fixId, result: 'All lamps are warm yellow.', merged: 'beef123' })
     await store.server({ action: 'check', id: fixId, passed: true, lines: ['branch gone'] })
@@ -173,7 +175,7 @@ test('a board without a partner chat makes no result check: its own check closes
   try {
     const made = await store.partner(LAMP)
     const id = made.result.id
-    await store.keeper({ action: 'queue', id, for: 'Lamplighter', about: '1 h' })
+    await queueFor(store.dir, id, 'Lamplighter', { now: NOW + 60_000 })
     await store.lamplighter({ action: 'take', id, branch: 'b2-lamps' })
     await store.lamplighter({ action: 'report', id, result: 'Warm lamps.', merged: 'c0ffee1' })
     const ctx = { dir: store.dir, now: NOW + 60_000, prefix: '', roleOf: chat => ROLES[chat] ?? null, freeChats: new Set(['Lamplighter']), hasPartner: false, as: 'server' }
@@ -185,7 +187,7 @@ test('a board without a partner chat makes no result check: its own check closes
   }
 })
 
-/** B2 reported, its git check passed, and its result check failed: its fix is made and queued for the Lamplighter. */
+/** B2 reported, its git check passed, and its result check failed: its fix is made, on the list for the Lamplighter first. */
 async function failed(store) {
   const { id } = await reported(store)
   const checked = await store.partner({ action: 'checked', id, evidence: 'pictures/b2/evidence.png', points: ['pass: a lamp at every bench', 'fail: warm yellow light, never white'] })
@@ -274,6 +276,7 @@ test('the second review: a fix done while a point still waits for the person ask
     const { id } = await reported(store)
     const checked = await store.partner({ action: 'checked', id, evidence: 'x.png', points: ['fail: a lamp at every bench', 'ask: warm enough?'] })
     const fixId = checked.result.fix
+    await queueFor(store.dir, fixId, 'Lamplighter', { now: NOW + 60_000 })
     await store.lamplighter({ action: 'take', id: fixId, branch: 'b-fix' })
     await store.lamplighter({ action: 'report', id: fixId, result: 'Lamps at every bench.', merged: 'beef123' })
     await store.server({ action: 'check', id: fixId, passed: true, lines: ['branch gone'] })

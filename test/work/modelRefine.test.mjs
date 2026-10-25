@@ -10,6 +10,7 @@ import test from 'node:test'
 
 import { refinedOf } from '../../src/backlog.mjs'
 import { workApi } from '../../src/work/api.mjs'
+import { queueFor } from '../queueFor.mjs'
 import { modelOf } from '../../src/work/effort.mjs'
 import { migrateBacklog } from '../../src/work/migrate.mjs'
 import { itemOfStep } from '../../src/work/read.mjs'
@@ -100,7 +101,7 @@ test('a fix step from a failed result check runs on the model of the step it fix
     const made = await store.advisor({ action: 'new', title: 'Guard the gate', activity: 'Garden', goal: 'G3', summary: 'A guard.', what: ['a lock on the gate', 'Not in it: a fence'], model: 'opus · a guard of the store', effort: 'high · many parts' })
     assert.equal(made.ok, true, made.why)
     const id = made.result.id
-    assert.equal((await store.main({ action: 'queue', id, for: 'Digger', about: '1 h' })).ok, true)
+    assert.equal((await queueFor(store.dir, id, 'Digger', { now: NOW + 60_000 })).ok, true)
     assert.equal((await store.digger({ action: 'take', id, branch: 'gate' })).ok, true)
     assert.equal((await store.digger({ action: 'report', id, result: 'A lock on the gate.', merged: 'c0ffee1' })).ok, true)
     assert.equal((await store.server({ action: 'check', id, passed: true, lines: ['work in garden'] })).ok, true)

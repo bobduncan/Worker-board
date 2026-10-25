@@ -24,10 +24,11 @@ const ROLES = { Main: 'main', 'Worker 2': 'worker', 'Worker 3': 'worker', Partne
 async function fresh() {
   const dir = await mkdtemp(join(tmpdir(), 'chat-names-'))
   await writeStore(dir, migrateBacklog(BACKLOG, { now: NOW - 60_000 }), undefined, { now: NOW - 60_000 })
-  // B1 and B2 are refined, so they may be queued.
+  // B1 and B2 are refined and ready, so the board may give them.
   for (const id of ['B1', 'B2']) {
     const item = (await readStore(dir)).items.get(id)
     item.head.set('State', 'refined')
+    item.head.set('Refined', 'ready')
     await writeFile(join(dir, `${id}.md`), serializeItem(item))
   }
   const ctx = { dir, now: NOW, prefix: 'Game - ', roleOf: chat => ROLES[chat] ?? null, chats: Object.keys(ROLES), freeChats: new Set(['Worker 2']) }
@@ -36,32 +37,28 @@ async function fresh() {
 }
 const item = async (dir, id) => (await readStore(dir)).items.get(id)
 
-test('queue and requeue take the chat without the prefix, in any case, as the list names it', async () => {
-  const { dir, main } = await fresh()
+test('the board\'s give and the person\'s pin take the chat without the prefix, in any case, as the list names it', async () => {
+  const { dir, ctx } = await fresh()
   try {
-    assert.equal((await main({ action: 'queue', id: 'B1', for: 'Game - Worker 2' })).ok, true)
+    const server = body => workApi(body, { ...ctx, as: 'server' })
+    const person = body => workApi(body, { ...ctx, as: 'person' })
+    assert.equal((await server({ action: 'advance', id: 'B1', to: 'queued', for: 'Game - Worker 2' })).ok, true)
     assert.equal(valueOf(await item(dir, 'B1'), 'Owner'), 'Worker 2')
-    assert.equal((await main({ action: 'queue', id: 'B2', for: 'worker 2' })).ok, true)
-    assert.equal(valueOf(await item(dir, 'B2'), 'Owner'), 'Worker 2')
-    assert.equal((await main({ action: 'requeue', id: 'B2', for: 'game - WORKER 3' })).ok, true)
-    assert.equal(valueOf(await item(dir, 'B2'), 'Owner'), 'Worker 3')
+    assert.equal((await person({ action: 'pin', id: 'B2', for: 'game - WORKER 3' })).ok, true)
+    assert.equal(valueOf(await item(dir, 'B2'), 'Pinned'), 'Worker 3')
   } finally {
     await rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
 })
 
-test('the review\'s findings: a chat the list does not know yet (a worker about to be started) is taken, with a warning line', async () => {
-  const { dir, main } = await fresh()
+test('a chat the list does not know is no worker: the board gives it nothing, and nothing is pinned to it', async () => {
+  const { dir, ctx } = await fresh()
   try {
-    const queued = await main({ action: 'queue', id: 'B1', for: 'Game - Worker 9' })
-    assert.equal(queued.ok, true, queued.why)
-    assert.equal(valueOf(await item(dir, 'B1'), 'Owner'), 'Worker 9')
-    assert.equal(queued.result.warning, 'Worker 9 is no chat of the list yet (it knows Main, Worker 2, Worker 3, Partner): the step waits until a chat of that name joins; check the name if none is about to.')
-    assert.ok(queued.result.text.startsWith(`${queued.result.warning}\n`))
-    const moved = await main({ action: 'requeue', id: 'B1', for: 'worker 2' })
-    assert.equal(moved.result.warning, undefined)
-    assert.equal(valueOf(await item(dir, 'B1'), 'Owner'), 'Worker 2')
-    assert.match((await main({ action: 'requeue', id: 'B1', for: 'Nobody' })).result.warning, /^Nobody is no chat of the list yet/)
+    const given = await workApi({ action: 'advance', id: 'B1', to: 'queued', for: 'Game - Worker 9' }, { ...ctx, as: 'server' })
+    assert.deepEqual([given.status, given.why], [409, 'Worker 9 is no worker of the list.'])
+    const pinned = await workApi({ action: 'pin', id: 'B1', for: 'Nobody' }, { ...ctx, as: 'person' })
+    assert.equal(pinned.status, 409)
+    assert.equal(valueOf(await item(dir, 'B1'), 'State'), 'refined')
   } finally {
     await rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
