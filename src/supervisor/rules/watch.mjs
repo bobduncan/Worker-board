@@ -699,7 +699,7 @@ function notCleared(view, ctx) {
 
 /**
  * 17. B601 (the fix of X47: at 15:32 both limits showed "read at 14:35" while the pause ran): a limit whose newest
- * reading is older than `oldReadingIncidentMinutes` (60) while a worker works (B645: not while the person pauses), when the app's file or a chat
+ * reading is older than `oldReadingIncidentMinutes` (60) while a worker works (B645: not while the person pauses; B649: the age counts from the pause's end), when the app's file or a chat
  * should have given a newer one (B632, the fix of X55 and X56: past `oldReadingMinutes` (30) the supervisor chat looks the limits
  * up once with get_usage, which the board reads as a chat reading; under 60 only the health line shows the age). One finding per limit; it clears when a newer reading comes. A limit nothing is
  * known of is the health summary's "not known", not this rule's.
@@ -710,8 +710,11 @@ function oldLimitReading(view) {
   // B645: quiet while the person pauses: nothing spends then, a reset is known by its time, and no sweep word is delivered until the resume.
   if (isPaused(view) || !works) return found
   for (const [key, name] of [['fiveHour', '5-hour limit'], ['week', 'weekly limit']]) {
-    const age = readingAgeMinutes(view.limits?.[key], view.now)
-    if (age === null || age <= view.settings.oldReadingIncidentMinutes) continue
+    // B649: counted from the end of the last pause at the earliest, as the other rules: the figure was not stale while nothing spent, and the supervisor's lookup after the resume has its time to land.
+    const limit = view.limits?.[key]
+    const counted = Number.isFinite(limit?.at) ? readingAgeMinutes({ ...limit, at: afterPause(view, limit.at) }, view.now) : null
+    if (counted === null || counted <= view.settings.oldReadingIncidentMinutes) continue
+    const age = readingAgeMinutes(limit, view.now)
     found.push({
       rule: 'old-limit-reading', key: `old-limit-reading ${key}`, subject: 'board',
       text: `the ${name} was last read ${age} min ago (${clockOf(view.limits[key].at)}), the board steers by an old figure`,
@@ -741,5 +744,5 @@ export const WATCH_RULES = [
   { id: 'effort-mismatch', kind: 'watch', says: 'a worker that still runs another model or effort than its step wants 10 min after the take', check: effortMismatch },
   { id: 'not-cleared', kind: 'watch', says: 'a worker not cleared after its reported step', check: notCleared },
   { id: 'not-taking', kind: 'watch', says: 'a worker that did not take the task it was given', check: notTaking },
-  { id: 'old-limit-reading', kind: 'watch', says: 'a limit still last read over 60 min ago, 30 min after the supervisor looked it up, while the chats stand still or work', check: oldLimitReading },
+  { id: 'old-limit-reading', kind: 'watch', says: 'a limit still last read over 60 min ago, not counting a pause, while a worker works and the supervisor has looked it up', check: oldLimitReading },
 ]

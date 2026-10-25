@@ -489,6 +489,13 @@ test('old-limit-reading (X47, B632, B645): a limit still last read over 60 min a
   // B645: the person pauses: nothing spends, a reset is known by its time and the sweep word waits for the resume: quiet, also with a worker working.
   assert.deepEqual(check('old-limit-reading', view({ pause: { state: 'pausing', since: ago(70) }, chats: [LEAD, working], limits: limits(90, 90) })), [])
   assert.deepEqual(check('old-limit-reading', view({ pause: { state: 'pausing', since: ago(70) }, limits: limits(90, 90) })), [])
+  // B649: right after the resume the age counts from the pause's end, not from the old reading: a 3 h pause files nothing before the lookup lands.
+  const resumed = (since, more) => works({ pause: { state: 'running', since: ago(since) }, ...more })
+  assert.deepEqual(check('old-limit-reading', resumed(2, { limits: limits(190, 190) })), [], 'a reading from before the pause is not old yet')
+  assert.deepEqual(check('old-limit-reading', resumed(59, { limits: limits(190, 190) })), [])
+  assert.deepEqual(check('old-limit-reading', resumed(67, { limits: limits(190, 190) })).map(one => one.key), ['old-limit-reading fiveHour', 'old-limit-reading week'], 'still old an hour after the resume')
+  assert.match(check('old-limit-reading', resumed(67, { limits: limits(190, 190) }))[0].text, /was last read 190 min ago/)
+  assert.deepEqual(check('old-limit-reading', resumed(190, { limits: limits(67, 67) })).length, 2, 'a pause that ended long ago changes nothing')
   // An idle board does not count either (the app writes its file only while in use).
   assert.deepEqual(check('old-limit-reading', view({ chats: [LEAD, lane('Painter', { state: 'free' })], limits: limits(90, 90) })), [])
   // A threshold of its own in the settings.

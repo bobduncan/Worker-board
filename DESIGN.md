@@ -3311,7 +3311,9 @@ the AI sweep by a cheap supervisor chat and the hand-over to the Advisor, comes 
   `settings.supervisor`). B645 (the fix of B640's check): nothing is looked up while the person pauses (the bridge holds the sweep word until
   the resume, nothing spends in a pause and a reset is known by its time), so the sweep does not start for an old reading then and
   `old-limit-reading` is quiet; the sweep word's job (`roles/supervisor.md`) names the deferred tool `mcp__ccd_session_mgmt__get_usage`,
-  loaded with ToolSearch. How long a thing
+  loaded with ToolSearch. B649 (the fix of B645's check): the rule counts the figure's age from the end of the last pause at the earliest
+  (`afterPause`, as the rules about chats do), so a long pause does not file an incident before the lookup after the resume lands; the finding's text
+  still names the figure's real age. How long a thing
   lasted comes from the timeline (`state.today`), else from the supervisor's own watch.
 - **The supervisor's memory**, `<project>/.claude/supervisor.json`, beside `sync.json` and apart from it: its watch
   (`seen`), the repairs of the last day (`repairs`, for `repair-repeats`) and when each rule tripped (`trips`). Read at
