@@ -10068,8 +10068,9 @@ function visionStartProblem(planStart, partner) {
  * The plan's strategies (the user, 2026-10-24: "before it makes this plan it can require imput from the user to choose
  * the strategy"): chosen on the Plan step before the partner lays the plan, or in the person's own words.
  */
-const STRATEGIES = [['Playable first', 'a thin slice from start to end, then widen'], ['Foundation first', 'systems and tools before content'],
-  ['Scale first', 'the way to make content comes early'], ['Risk first', 'the hardest unknown first']]
+const STRATEGIES = [['Playable first', 'a rough version of one path from start to end, then widen'],
+  ['Quality first', 'one small part at the final quality first, so the bar is set before you widen'],
+  ['Foundation first', 'the systems and tools that are hard to change later, before the content'], ['Risk first', 'the hardest unknown first']]
 
 /** A plan change's label on a milestone or goal (2026-10-24), or null when it keeps it as it is. */
 function planBadge(change) {

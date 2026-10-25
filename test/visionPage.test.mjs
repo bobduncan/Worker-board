@@ -469,7 +469,7 @@ test('the plan step: the strategy choice, change badges, Not now, only what chan
   const all = goals({})
   // No strategy chosen yet: the four, the advised one marked; the plan waits for your pick.
   assert.equal(all.strategy, null)
-  assert.deepEqual(all.strategies.map(one => [one.name, one.isAdvised]), [['Playable first', true], ['Foundation first', false], ['Scale first', false], ['Risk first', false]])
+  assert.deepEqual(all.strategies.map(one => [one.name, one.isAdvised]), [['Playable first', true], ['Quality first', false], ['Foundation first', false], ['Risk first', false]])
   assert.equal(all.strategyAdvice.why, 'you want to feel it early')
   // The badges: milestone and goals.
   const [m1, m2] = all.milestones

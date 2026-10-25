@@ -397,7 +397,7 @@ the plan check wait for every choice; the feature's mark stays as it was (not su
 plan to make the vision real, in the strategy the user chooses first.
 
 - **Strategy first.** When the last standard is confirmed, write your advice under `## Goals preset` (prepared ahead):
-  `Strategy advice: <Playable first, Foundation first, Scale first or Risk first> · <why, one line>`. The board shows
+  `Strategy advice: <Playable first, Quality first, Foundation first or Risk first> · <why, one line>`. The board shows
   the four and your advice; the user picks one or writes their own, and the board types `plan: strategy` with
   `Strategy: <their pick or words>`. Write `Strategy: <name> (you, <date>) · <why, in their words where they gave
   some>` under the heading, then lay the plan in it (the check below). A new strategy lays the plan again, as a plan
