@@ -280,8 +280,10 @@ test('B630 (X54): a step in review whose dropped fix waits on an open step that 
   assert.equal(lineOfStep(board(moving, { 'Blocked by': 'B623' }), 'B532'), '- B532 review for 3 h 20 min, Worker 5 (its fix B548 was dropped, waits for B623): Step B532 of the garden')
   // The blocker stalled in progress for 5 h: odd with it.
   assert.ok(lineOfStep(board(step('B623', 'in progress', { Owner: 'Worker 5', Since: stamp(ago(300)) }), { 'Blocked by': 'B623' }), 'B532').startsWith('- ! B532 review for 3 h 20 min, Worker 5 (its fix B548 was dropped, waits for B623)'))
-  // The blocker done, or no block at all: the dropped fix is odd again.
-  assert.ok(lineOfStep(board(step('B623', 'done', { Owner: 'Worker 5' }), { 'Blocked by': 'B623' }), 'B532').startsWith('- ! B532 review for 3 h 20 min, Worker 5 (its fix B548 was dropped)'))
+  // The blocker done, or no block at all: the dropped fix is odd again. B664: past the 30 min the rule dropped-fix
+  // waits, counted from the block's end (B665), as the rule counts it: done 40 min ago, odd; 10 min ago, not yet.
+  assert.ok(lineOfStep(board(step('B623', 'done', { Owner: 'Worker 5', Since: stamp(ago(40)) }), { 'Blocked by': 'B623' }), 'B532').startsWith('- ! B532 review for 3 h 20 min, Worker 5 (its fix B548 was dropped)'))
+  assert.ok(lineOfStep(board(step('B623', 'done', { Owner: 'Worker 5', Since: stamp(ago(10)) }), { 'Blocked by': 'B623' }), 'B532').startsWith('- B532 review for 3 h 20 min, Worker 5 (its fix B548 was dropped)'))
   assert.ok(lineOfStep(board(moving), 'B532').startsWith('- ! B532 review for 3 h 20 min, Worker 5 (its fix B548 was dropped)'))
 })
 
