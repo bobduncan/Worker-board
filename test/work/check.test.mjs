@@ -6,7 +6,7 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 
 import { isTestFile, reportCheck } from '../../src/work/check.mjs'
-import { PLAIN_RULE } from '../../src/work/recapWords.mjs'
+import { LIMITS_RULE, PLAIN_RULE } from '../../src/work/recapWords.mjs'
 
 /** A git that answers from a table of "<repo> <args>" lines; null where it has none. */
 /** B569: every report opens with its Context and Change in plain words, then the rest. */
@@ -267,7 +267,15 @@ test('B569: a result without its Context or Change, too long, or with files, cod
   assert.deepEqual(await faultsOf('Context: The lampPost rule in src/lamps.mjs was wrong. Change: Merged 3f9a1c2: lamps glow. Details: all in src/lamps.mjs'), [
     'the Context holds file names (src/lamps.mjs), code words (lampPost): say it in plain words, for someone who forgot, and put those after "Details:"',
     'the Change holds commit hashes (3f9a1c2): say it in plain words, for someone who forgot, and put those after "Details:"',
+    LIMITS_RULE,
   ])
+  // X57 (B633): words joined by slashes are no file name; a path with a dot, a known folder or a backslash still is.
+  assert.equal((await check('Context: A yes/how/cost question was refused. Change: Plain words like yes/how/cost pass. Details: x')).passed, true)
+  assert.match((await faultsOf('Context: Dark. Change: It lives in src/content/arenas/dev now. Details: x'))[0], /^the Change holds file names \(src\/content\/arenas\/dev\)/)
+  assert.match((await faultsOf('Context: Dark. Change: See verdict.md for it. Details: x'))[0], /file names \(verdict\.md\)/)
+  assert.match((await faultsOf('Context: Dark. Change: See a\\b\\c for it. Details: x'))[0], /file names/)
+  assert.match(PLAIN_RULE, /at most 500/)
+  assert.ok((await faultsOf('Context: Dark. Change: See verdict.md for it. Details: x')).includes(LIMITS_RULE))
   // What goes after "Details:" (or a Tests bite line) is the check's, whatever it holds.
   assert.equal((await check('Context: The lamps were dark. Change: They glow. Details: lamps.mjs, lightOn(), 3f9a1c2')).passed, true)
   // Work outside git is held to the same words.

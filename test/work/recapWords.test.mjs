@@ -4,7 +4,7 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 
 import { recapsOf, rewriteRecap } from '../../src/work/recap.mjs'
-import { goalParts, headingOf, insiderWords, isBeforeAfter, partsFaults, plainSentences, recapParts, reportParts, technicalWords } from '../../src/work/recapWords.mjs'
+import { LIMITS_RULE, goalParts, headingOf, insiderWords, isBeforeAfter, partsFaults, plainSentences, recapParts, reportParts, technicalWords } from '../../src/work/recapWords.mjs'
 
 const stepOf = ({ summary = [], context = [], checked = [], history = [] }) => ({
   head: new Map([['Id', 'B7'], ['Kind', 'step'], ['State', 'done']]),
@@ -81,7 +81,9 @@ test('B591: ids and placeholders are refused in a report\'s Context and Change; 
   assert.deepEqual(partsFaults('Context: B531 sat queued. Change: Main hands <n> on. Details: x'), [
     'the Context holds ids (B531): say it in plain words, for someone who forgot, and put those after "Details:"',
     'the Change holds placeholders (<n>): say it in plain words, for someone who forgot, and put those after "Details:"',
+    LIMITS_RULE,
   ])
+  assert.deepEqual(technicalWords('say yes/how/cost, and a/b/c, but not src/content/arenas/dev or a/b.c/d or a\\b\\c').files, ['src/content/arenas/dev', 'a/b.c/d', 'a\\b\\c'])
   assert.equal(plainSentences('B531 sat queued. A step could wait behind a busy worker. It waited 3 h 43 min. Main says "Requeue <n>". Both boards have it. One that does not answer never counts" failed. Suite 2312 pass.', 300), 'A step could wait behind a busy worker. Both boards have it.')
 })
 

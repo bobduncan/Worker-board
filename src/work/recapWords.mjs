@@ -16,7 +16,10 @@ const OLD_CHANGE_CHARS = 280
 export const PARTS_LINE = 'Context: <1-3 short lines: what was wrong or missing, for someone who forgot> Change: <what the person gets now> Details: <the rest, for the check>'
 
 /** What a refusal for a missing Context or Change adds, so the next report is not refused for its words too. */
-export const PLAIN_RULE = 'the Context and the Change are in plain words, for someone who forgot: no file names, code words, ids, commit hashes or placeholders; those go after "Details:"'
+export const PLAIN_RULE = 'the Context and the Change are in plain words, for someone who forgot: no file names, code words, ids, commit hashes or placeholders; those go after "Details:"; the Context is at most 300 characters and the Change at most 500'
+
+/** X57 (B633): a refusal for words that are not plain also names the length limits, so the rewrite is not refused again for its length. */
+export const LIMITS_RULE = `the Context is at most ${CONTEXT_CHARS} characters and the Change at most ${CHANGE_CHARS}`
 
 /** Where the Change ends: the technical rest, named or a "Tests bite:" line. */
 const REST = /\b(?:Details|Tests bite):/i
@@ -43,12 +46,16 @@ export function reportParts(result) {
 const FILE = /(?<![\w@])(?:[\w.-]+[\\/])*[\w-]+\.(?:m?js|cjs|ts|tsx|jsx|json|md|css|html?|png|jpe?g|webp|gif|svg|py|ps1|sh|txt|ya?ml|toml|csv|wav|mp3|ogg)\b/gi
 const PATH = /(?<![\w@])[\w.-]+(?:[\\/][\w.-]+){2,}/g
 const CODE = [/\b[a-z][a-z0-9]*[A-Z][A-Za-z0-9]*\b/g, /\b[A-Za-z0-9]+_[A-Za-z0-9_]+\b/g, /\b[\w.]+\(\)/g, /`[^`]+`/g]
+/** X57 (B633): plain words joined by slashes ("yes/how/cost") are no path: one needs a dot, a digit, a hyphen, an underscore, a backslash or a known folder first. */
+const FOLDERS = new Set(['src', 'test', 'tests', 'docs', 'public', 'tools', 'roles', 'data', 'mods', 'examples', 'fixtures', 'design', 'node_modules', '.claude', '.git'])
+const isPath = word => word.includes('\\') || /\w\.\w|[\d_-]/.test(word) || FOLDERS.has(word.split(/[\\/]/)[0].toLowerCase())
 const HASH = /\b(?=[0-9a-f]*[0-9])(?=[0-9a-f]*[a-f])[0-9a-f]{7,40}\b/g
 const found = (text, patterns) => [...new Set(patterns.flatMap(pattern => [...String(text).matchAll(pattern)].map(one => one[0])))]
 
 /** The words of `text` the person should not need: file names (and paths), code words, commit hashes. */
 export function technicalWords(text) {
-  return { files: found(text, [FILE, PATH]), code: found(text, CODE), hashes: found(text, [HASH]) }
+  const paths = found(text, [PATH]).filter(isPath)
+  return { files: [...new Set([...found(text, [FILE]), ...paths])], code: found(text, CODE), hashes: found(text, [HASH]) }
 }
 
 const ITEM_ID = /\b[BGINQX]\d+\b/g
@@ -82,6 +89,7 @@ export function partsFaults(result) {
     if (words.length > most) faults.push(`the ${name} is ${words.length} characters: at most ${most}, the rest goes after "Details:"`)
     faults.push(...plainFaults(name, words))
   }
+  if (faults.some(one => / holds /.test(one))) faults.push(LIMITS_RULE)
   return faults
 }
 
