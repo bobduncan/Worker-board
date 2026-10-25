@@ -35,7 +35,7 @@ const board = (sync = {}) => ({
   restart: { main: 'Lead' }, chats: lanes, changeAsks: { stop: {}, sync },
   forYou: [{ id: 'work:Q7', workId: 'Q7', from: 'Worker 3', canAnswer: true }, { id: 'work:Q6', workId: 'Q6', from: 'Worker 3', canAnswer: false, isForm: true },{ id: 'work:Q8', workId: 'Q8', from: 'Worker 1', canAnswer: false }],
   withPartner: [{ id: 'Q9', from: 'Worker 3' }],
-  unassigned: [{ id: 'B40', title: 'Nobody has it', why: { reason: 'nobody' } }],
+  readyList: { ready: [{ id: 'B40', rank: 2, keptFor: null, keptUntil: null, pinned: null }, { id: 'B41', rank: 2, keptFor: 'Worker 3', keptUntil: null, pinned: 'Worker 3' }], held: [] },
   workFlags: ['B12 waits for B11, which is finished'],
   pause: { state: 'running', since: at(20, 0) },
   limits: { fiveHour: { used: 42, level: 'ok' }, week: { used: 61.4, level: 'ok' } },
@@ -79,7 +79,7 @@ test('a worker: the typed word is "check sync <name>" with what the board shows 
   assert.ok(three.includes('Queue: B31 (its worker waits for you)'))
 })
 
-test('the whole board: "check sync board" with a line per worker, the steps nobody has, the flags, the pause and the limits', () => {
+test('the whole board: "check sync board" with a line per worker, the ready list, the flags, the pause and the limits', () => {
   const all = say({ command: 'sync', chat: 'board' })
   assert.equal(all.ok, true)
   assert.equal(all.message.about, 'board')
@@ -89,7 +89,7 @@ test('the whole board: "check sync board" with a line per worker, the steps nobo
   assert.ok(text.some(line => line.startsWith('Worker 3: waiting for you') && line.includes('; store B30 (waiting on you); ')
     && line.endsWith('; asks Q7 for you, Q6 in its chat, Q9 with the partner; flags Waits for you, but Q9 went to the partner')), text.join('\n'))
   assert.ok(!text.some(line => line.startsWith('Lead:') || line.startsWith('Old:')), 'neither the main chat nor a leftover')
-  assert.ok(text.includes('Not handed out: B40 (no worker)'))
+  assert.ok(text.includes('Ready for a worker: B40, B41 (pinned to Worker 3)'), text.join('\n'))
   assert.ok(text.includes('Board flags: B12 waits for B11, which is finished'))
   assert.ok(text.includes('Pause: none'))
   assert.ok(text.includes('Limits: 5-hour 42%, week 61%'))

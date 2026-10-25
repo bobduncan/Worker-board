@@ -157,7 +157,7 @@ test('the same minute as the write: the order of the step\'s History decides', (
   assert.equal(stepOf(build(after), 'B21').refineState, 'answered')
 })
 
-test('a ready step with an ask filed after it is not refined: a held queue ask waits, and goes once it is folded in', () => {
+test('a ready step with an ask filed after it is not refined: once the ask is answered, a fold round goes (a held queue ask from before is dropped)', () => {
   const outbox = [queueHeld(NOW - 10 * MIN, 'B21')]
   const open = build(storeWith([ask('Q4', 'B21')], { B21: ['- 2026-10-17 09:00 Advisor: refined is ready', '- 2026-10-17 09:30 Worker 1: asked Q4'] }), outbox)
   assert.equal(stepOf(open, 'B21').refineState, 'answers')
@@ -170,7 +170,7 @@ test('a ready step with an ask filed after it is not refined: a held queue ask w
     B21: ['- 2026-10-17 09:00 Advisor: refined is ready', '- 2026-10-17 09:30 Worker 1: asked Q4', '- 2026-10-17 10:00 person: Q4 answered'],
   }), outbox)
   due = refineWhenDue(answered, outbox, kept, NOW)
-  assert.deepEqual([due.release, due.refine?.about, due.refine?.why], [[], 'B21', 'queue'])
+  assert.deepEqual([due.release, due.drop, due.refine?.about, due.refine?.why], [[], [outbox[0].id], 'B21', 'answer'])
   // A ready block with answers to fold in is not "checked again": its words say what to fold in.
   assert.doesNotMatch(due.refine.text, /check it again/)
   assert.match(due.refine.text, /Q4/)

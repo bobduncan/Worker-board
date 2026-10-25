@@ -83,10 +83,9 @@ test('each part\'s progress follows its steps in the store: done, in progress wi
     { title: 'Draw the bench', size: 'about 1 h', state: 'done', owner: null, done: 2, total: 2, standards: [], checked: [] },
     { title: 'Light the path', size: '2 h', state: 'now', owner: 'Features', done: 1, total: 2, standards: [], checked: [] },
     { title: 'Place them', size: '30 min', state: 'done', owner: null, done: 1, total: 1, standards: [], checked: [] },
-    // Focus 4: its step is made but not handed out yet: it waits for the main chat.
-    { title: 'One look at the whole garden', size: '1 h', state: 'handout', owner: null, done: 0, total: 1, standards: [], checked: [], waitsSince: run.parts[3].waitsSince },
+    // Redesign Part 2: its step is made but not refined yet: it waits for its refine, then goes on the list.
+    { title: 'One look at the whole garden', size: '1 h', state: 'refining', owner: null, done: 0, total: 1, standards: [], checked: [] },
   ])
-  assert.ok(Number.isFinite(run.parts[3].waitsSince))
   assert.deepEqual(run.progress, { done: 2, total: 4, minutesLeft: 180 })
   assert.deepEqual([run.partnerDecides, run.youDecide], [['the wood\'s colour'], ['how many benches']])
   // A part without steps is next; sizes nobody can read leave the time out.
@@ -151,7 +150,7 @@ test('the run shows the parts with progress and who is on each, never a step id;
     { title: 'Draw the bench', chip: 'Done', tone: 'done', percent: 100, owner: null, standards: [], checked: [] },
     { title: 'Light the path', chip: 'In progress', tone: 'now', percent: 50, owner: 'Features is on it', standards: [], checked: [] },
     { title: 'Place them', chip: 'Done', tone: 'done', percent: 100, owner: null, standards: [], checked: [] },
-    { title: 'One look at the whole garden', chip: 'Waiting for the main chat to hand it out', tone: 'handout', percent: 0, owner: null, standards: [], checked: [] },
+    { title: 'One look at the whole garden', chip: 'Waiting for its refine, then it goes on the list', tone: 'refining', percent: 0, owner: null, standards: [], checked: [] },
   ])
   assert.equal(run.run.stepsOf, 'G2')
   assert.doesNotMatch(JSON.stringify(run.run), /\bB\d+\b/)

@@ -221,7 +221,7 @@ button, textarea, select { font: inherit; color: inherit; }
 .focus-chip.is-now { border-color: var(--free); color: #8fb4ff; background: #13254a; }
 .focus-chip.is-next { border-color: #3a4a63; color: var(--text); }
 .focus-chip.is-refining { border-color: #3a4a63; color: var(--muted); }
-.focus-chip.is-handout { border-color: #6b5a2a; color: var(--waiting); background: #2a2310; }
+.focus-chip.is-ready { border-color: #3a4a63; color: #8fb4ff; }
 .focus-owner { align-self: flex-end; color: var(--muted); }
 .focus-steps { margin-top: 16px; padding: 12px 2px 0; width: 100%; border: 0; border-top: 1px solid var(--line); background: none; color: var(--muted); font: inherit; text-align: left; cursor: pointer; }
 .focus-steps:hover { color: var(--text); }
@@ -2682,3 +2682,12 @@ body.is-resizing-rows { cursor: row-resize; user-select: none; }
   .day-count { flex-basis: 100%; justify-content: center; }
   .day-find { flex-basis: 100%; }
 }
+
+/* Redesign Part 2: the board's list of tasks ready for a worker, under the Workers. */
+.ready-list { margin-top: 12px; padding: 8px 12px; border-top: 1px solid var(--line); }
+.ready-list h3 { margin: 0 0 6px; font-size: 14px; }
+.ready-rows { margin: 0; padding-left: 22px; }
+.ready-row { margin: 2px 0; }
+.ready-id { font-weight: 600; margin-right: 4px; }
+.ready-held summary { cursor: pointer; color: var(--muted); }
+.step-pinned { color: #8fb4ff; }

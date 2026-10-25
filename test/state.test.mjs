@@ -614,7 +614,7 @@ test('the demo shows the second design: six lanes with their queues, three reque
   // B113: the limits, a worker that paused for the limit, and why each first queued step is not started.
   assert.deepEqual([state.limits.fiveHour.used, state.limits.fiveHour.level, Math.round((state.limits.fiveHour.resetsAt - NOW) / MIN), state.limits.week.used], [86, 'warn', 52, 64])
   assert.deepEqual([state.chats[2].suspended.by, Math.round((state.chats[2].suspended.until - NOW) / MIN), state.chats[2].task.text], ['note', 52, 'Add save / load system'])
-  assert.deepEqual(state.chats.map(chat => chat.queue[0]?.why.reason ?? null), ['busy', 'after', 'suspended', 'handout', 'busy', null])
+  assert.deepEqual(state.chats.map(chat => chat.queue[0]?.why.reason ?? null), ['busy', 'after', 'suspended', 'ready', 'busy', null])
   assert.deepEqual(state.chats.map(chat => chat.folders.map(folder => folder.name)), [[], ['units'], ['features'], ['cleanup'], ['levels'], []])
   assert.deepEqual(state.otherFolders.map(folder => folder.name), [])
   assert.deepEqual(state.unassigned.map(step => step.title), ['Decide the name of the game'])

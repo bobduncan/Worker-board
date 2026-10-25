@@ -2,7 +2,7 @@
 // person's own words, so it must be addressed to a chat on the board and, when it answers a request, fit that
 // request: a verdict for work to verify, "done" for something only the person can do, words for a question.
 
-import { isRefined, refinedKey } from './backlog.mjs'
+import { refinedKey } from './backlog.mjs'
 import { brainstormFixWords, leftOutKey } from './brainstorm.mjs'
 export { brainstormFixWords }
 import { SWITCH_MODES, partnerEffortWords } from './partnerEffort.mjs'
@@ -80,8 +80,11 @@ const WAITS = {
   you: () => 'its worker waits for you',
   cut: () => 'its worker was cut off',
   off: () => 'its worker does not run',
-  handout: () => 'not handed out, its worker is free',
+  // Redesign Part 2: given to its free worker, which takes it now; or pinned to it, which the board gives it.
+  ready: why => (why.isPinned === true ? 'pinned to its worker, given once nothing holds it' : 'given, its worker takes it now'),
 }
+/** Redesign Part 2: the board's ready list (state.mjs `readyList`) for the main chat: each task, and whom it is kept for. */
+const readyWords = list => ((list?.ready ?? []).length === 0 ? 'none' : list.ready.map(one => `${one.id}${one.pinned !== null ? ` (pinned to ${plainLine(one.pinned)})` : one.keptFor !== null ? ` (kept for ${plainLine(one.keptFor)})` : ''}`).join(', '))
 const stepsWords = steps => ((steps ?? []).length === 0 ? 'none' : steps.map(step => {
   const wait = step.why === null || step.why === undefined ? null : WAITS[step.why.reason]?.(step.why) ?? plainLine(step.why.reason)
   return `${step.id ?? `"${plainLine(step.title)}"`}${wait === null ? '' : ` (${wait})`}`
@@ -155,7 +158,8 @@ const syncWords = (to, lane, state) => {
         `${plainLine(one.name)}: ${workerState({ ...one, queue: [] }).words}`, `store ${(one.storeSteps ?? []).map(step => `${step.id} (${step.state})`).join(', ') || 'none'}`,
         `queue ${stepsWords(one.queue)}`, `asks ${asksWords(one.name, state)}`, ...((one.flags ?? []).length === 0 ? [] : [`flags ${flagsWords(one.flags)}`]),
       ].join('; ')),
-    `Not handed out: ${stepsWords(state.unassigned)}`,
+    // Redesign Part 2: the board's ready list, in its order, and why each waits.
+    `Ready for a worker: ${readyWords(state.readyList)}`,
     `Board flags: ${(state.workFlags ?? []).map(flag => String(flag).replace(/\s+/g, ' ').trim()).join(' · ') || 'none'}`,
     `Pause: ${pauseWords(null, state)}`,
   ]
@@ -242,16 +246,6 @@ export function planWords(command, { to, id, words = null, job }) {
 }
 
 /**
- * B181: the word that asks the main chat to hand out a step of the backlog that nobody has. The main chat picks the
- * worker or what the step waits for, and writes the step's "(for ...)" note; the board writes nothing into the
- * backlog. The title comes from the backlog: one plain line.
- */
-const queueWords = (to, step) => ({
-  to, ask: null, step: null, title: null, version: null, verdict: null, command: 'queue', about: step.id,
-  text: `queue step from the backlog\nStep: ${step.id} ${String(step.title ?? '').replace(/["“”]/g, '').replace(/\s+/g, ' ').trim().slice(0, 160)}`,
-})
-
-/**
  * B233: the word that asks the Advisor to refine a step of the backlog: say the problem the step solves or its goal,
  * and ask what it needs to know, as the step's refine block (roles/partner.md, "Refine a step"). `round` is the round
  * it writes; from round 2 on, the person's answers and feedback stand in the block already.
@@ -271,10 +265,6 @@ export const refineWords = (to, step, round) => ({
 const answeredAsks = step => (step.refined?.asks ?? []).filter(ask => ask.answer !== null).map(ask => ask.id)
 
 /**
- * B285: the word that tells the main chat a step it queued before it was refined is refined now, so it hands it out
- * as its note says (roles/main.md): `For` is the worker the note names.
- */
-/**
  * B356: the word that asks the partner for a step's result check, once the board's own check passed: a helper that
  * did not build it checks the result against the step's agreed points and its standard, and the partner files it with
  * `work checked` (roles/partner.md, "The check"). `step` is `{ id, title, owner }`.
@@ -283,11 +273,6 @@ export const checkStepWords = (to, step, job) => ({
   to, ask: null, step: null, title: null, version: null, verdict: null, command: 'result-check', about: step.id,
   // B565: `step.why` (resultCheck.mjs `checkWhy`), when the check is asked again, stands in a `Why:` line.
   text: `check step\nStep: ${step.id} ${plainLine(step.title ?? '')}\nBuilt by: ${plainLine(step.owner ?? 'its worker')}${step.why ? `\nWhy: ${plainLine(step.why)}` : ''}\nYour job: ${job}, "The check"`,
-})
-
-export const refinedWords = (to, step) => ({
-  to, ask: null, step: null, title: null, version: null, verdict: null, command: 'refined', about: step.id,
-  text: `step refined\nStep: ${stepLine(step)}${step.worker === null || step.worker === undefined ? '' : `\nFor: ${step.worker}`}`,
 })
 
 /** B233: the Advisor refines a step that is not finished; one ask at a time per step. */
@@ -440,7 +425,7 @@ export function checkSay(body, state, maxChars) {
   if (body.command !== undefined && body.command !== null) {
     // The board's words, never the page's. Pause 2: a pause is pause.json, no word; "resume" is typed after Resume all
     // into a main chat that runs, and its Workers mod gives it whom to wake.
-    if (!['resume', 'start', 'spawn', 'remove', 'queue', 'recommend', 'stop', 'refine', 'recheck', 'goal-ask', 'brainstorm', 'brainstorm-answer', 'brainstorm-wrap', 'brainstorm-change', 'goal-step', 'partner-effort', 'sync'].includes(body.command)) return refuse(400, 'No such command.')
+    if (!['resume', 'start', 'spawn', 'remove', 'recommend', 'stop', 'refine', 'recheck', 'goal-ask', 'brainstorm', 'brainstorm-answer', 'brainstorm-wrap', 'brainstorm-change', 'goal-step', 'partner-effort', 'sync'].includes(body.command)) return refuse(400, 'No such command.')
     // B195: the one answer that may go to the Advisor as well as to the main chat.
     if (body.command === 'recommend') return recommendWords(body, state)
     // B233, B258: the commands that go to the Advisor only.
@@ -466,18 +451,6 @@ export function checkSay(body, state, maxChars) {
       if (!SWITCH_MODES.includes(body.mode)) return refuse(400, 'High effort or the usual partner.')
       if (!state.advisor?.name) return refuse(409, 'No partner chat is on the board.')
       return { ok: true, message: partnerEffortWords({ to: body.to, partner: state.advisor.name, session: state.advisor.appSession ?? null, mode: body.mode, why: 'switched on the Focus page' }) }
-    }
-    // B181: a step of the backlog for the queue: one with an id that nobody has (not queued, not in progress, not
-    // finished, not the person's), read from the board's own state; the page names the step's id only. One ask at a
-    // time per step.
-    if (body.command === 'queue') {
-      const step = (state.backlog ?? []).flatMap(activity => activity.steps ?? []).find(one => typeof one.id === 'string' && one.id === body.step)
-      if (step === undefined || step.status !== 'open') return refuse(409, 'That step is not open for the queue: it is queued, in progress, finished or yours.')
-      if (step.queueAsk?.isOpen === true) return refuse(409, 'The main chat was already asked to queue this step.')
-      // B285: a step goes into a queue only once refined: the ask waits on the board (`held`) while the Advisor
-      // refines it, and goes to the main chat by itself once it is (refineGate.mjs). Without an Advisor, as before.
-      const holds = (state.advisor ?? null) !== null && !isRefined(step.refined)
-      return { ok: true, message: { ...queueWords(body.to, step), ...(holds ? { held: true } : {}) } }
     }
     // B438: the person thinks the board and a worker, or the whole board (`board`), are out of sync: the main chat
     // checks and fixes. What the board shows is read here, from its own state: the page names the worker only. Not the

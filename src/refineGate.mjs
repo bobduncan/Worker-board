@@ -9,7 +9,7 @@
 // "; ready" (approved by the person on 2026-10-17).
 
 import { isRefined, refinedAt, refinedKey, refineStateOf } from './backlog.mjs'
-import { refinedWords, refineWords } from './say.mjs'
+import { refineWords } from './say.mjs'
 
 export { isRefined, refineStateOf } from './backlog.mjs'
 
@@ -132,33 +132,20 @@ function needsRefine(step, outbox, now) {
  */
 export function refineWhenDue(state, outbox, kept, now) {
   const steps = (state.backlog ?? []).flatMap(activity => activity.steps ?? []).filter(step => typeof step.id === 'string')
-  const byId = new Map(steps.map(step => [step.id, step]))
   const advisor = state.advisor?.name ?? null
+  // Redesign Part 2 (2026-10-25): the person's queue ask is gone (the board hands out every task from its ready list):
+  // an ask still held from before is dropped.
   const release = []
-  const drop = []
-  const held = new Set()
-  for (const message of outbox.filter(one => one.command === 'queue' && one.state === 'held')) {
-    const step = byId.get(message.about)
-    if (step === undefined || step.status !== 'open') drop.push(message.id)
-    else if (advisor === null || isRefined(step.refined)) release.push(message.id)
-    else held.add(step.id)
-  }
-
-  // The steps the main chat queued while not refined: said to it once each is refined, then let go.
-  const isWaiting = step => step.status === 'queued' && !isRefined(step.refined) && !kept.queuedBefore.includes(step.id)
-  const waiting = new Set([...kept.waiting.filter(id => byId.get(id)?.status === 'queued'), ...steps.filter(isWaiting).map(step => step.id)])
-  const main = state.restart?.main ?? null
-  const ready = main === null ? undefined : [...waiting].map(id => byId.get(id)).find(step => isRefined(step.refined))
-  const notice = ready === undefined ? null : refinedWords(main, ready)
-  if (ready !== undefined) waiting.delete(ready.id)
+  const drop = outbox.filter(one => one.command === 'queue' && one.state === 'held').map(one => one.id)
+  // Redesign Part 2: a refined task goes on the ready list by itself; the main chat is told of no refine any more.
+  const notice = null
 
   let refine = null
   if (advisor !== null && !steps.some(step => step.refineAsk?.isOpen === true)) {
     const isOpen = step => step.status === 'open' || step.status === 'queued'
     const order = [
-      ['queue', step => held.has(step.id)],
-      // B303: a step the main chat asked to queue before its refine ("Queue when refined") counts as one it queued.
-      ['queued', step => (step.status === 'queued' && !kept.queuedBefore.includes(step.id)) || (step.status === 'open' && (step.item?.queueWhenRefined ?? null) !== null)],
+      // A step queued while not refined (from before the redesign) is refined first.
+      ['queued', step => step.status === 'queued' && !kept.queuedBefore.includes(step.id)],
       // B312: an answer since the block was last written waits for a round, also on an old step.
       ['answer', step => isOpen(step) && hasNewAnswer(step)],
       ['new', step => isOpen(step) && numberOf(step.id) > kept.since],
@@ -171,5 +158,5 @@ export function refineWhenDue(state, outbox, kept, now) {
       }
     }
   }
-  return { release, drop, refine, notice, kept: { ...kept, waiting: [...waiting] } }
+  return { release, drop, refine, notice, kept: { ...kept, waiting: [] } }
 }

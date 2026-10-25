@@ -423,14 +423,19 @@ const isQueued = step => step.isFor && !step.isYou && step.ownBranch === null &&
  * queued; neither is one marked "later", "not handed out" or "not queued", nor one a worker is on right now
  * (`underWay`: ids of steps, see `overview`).
  */
-export function queue(backlog, { underWay = new Set() } = {}) {
+export function queue(backlog, { underWay = new Set(), pinned = new Map() } = {}) {
+  // Redesign Part 2: and the steps the person pinned to a worker (`pinned`, id to worker), in that worker's queue.
+  const isPinned = step => step.id !== null && pinned.has(step.id) && !isQueued(step)
   return backlog.activities
-    .flatMap(activity => open(activity).filter(isQueued))
+    .flatMap(activity => open(activity).filter(step => isQueued(step) || isPinned(step)))
     .filter(step => step.id === null || !underWay.has(step.id))
     // Fix first: a board fix stands before the other steps of its worker's queue (the work store marks it).
     .sort((a, b) => Number(b.isFix === true) - Number(a.isFix === true))
     // B293: its refine block apart, as on the Backlog tab, so its window draws it the same way.
-    .map(({ id, text, title, worker, branch, after, minutes, notes, stepAsks, isFix }) => ({ id, text, title, worker, branch, after, minutes, notes: noteSections(withoutRefined(notes)), refined: withAsks(refinedOf(notes), stepAsks), ...(isFix === true ? { isFix: true } : {}) }))
+    .map(step => {
+      const { id, text, title, worker, branch, after, minutes, notes, stepAsks, isFix } = step
+      return { id, text, title, worker: isPinned(step) ? pinned.get(id) : worker, branch, after, minutes, notes: noteSections(withoutRefined(notes)), refined: withAsks(refinedOf(notes), stepAsks), ...(isFix === true ? { isFix: true } : {}), ...(isPinned(step) ? { isPinned: true } : {}) }
+    })
 }
 
 /**

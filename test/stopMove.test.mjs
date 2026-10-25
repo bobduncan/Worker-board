@@ -38,13 +38,14 @@ const script = await readFile(join(ROOT, 'public', 'board.js'), 'utf8')
 const protocol = await readFile(join(ROOT, 'roles', 'protocol.md'), 'utf8')
 const main = await readFile(join(ROOT, 'roles', 'main.md'), 'utf8')
 
-test('the page: "Stop its task" asks once in the worker\'s menu; a queued step\'s window moves it or takes it out', () => {
+test('the page: "Stop its task" asks once in the worker\'s menu; a pinned task\'s window moves its pin or unpins it', () => {
   assert.match(script, /const stop = stopPart\(lane, state\)\n\s+if \(stop !== null\) tools\.push\(stop\)/)
   assert.match(script, /'Stop its task\? It finishes what runs, saves and shares its work, and starts nothing new\.'/)
   assert.match(script, /send\(\{ to: main, command: 'stop', chat: stopSure, sure: true \}, `stop:\$\{stopSure\}`\)/)
-  assert.match(script, /const change = need === null && subject\.step === undefined && lane !== null && lane !== undefined \? queueChangePart\(lane, step, state\) : null/)
-  assert.match(script, /sendWork\(\{ action: 'unqueue', id \}, `change:\$\{id\}`\)/)
-  assert.match(script, /sendWork\(\{ action: 'requeue', id, for: target \}, `change:\$\{id\}`\)/)
+  assert.match(script, /const change = need === null && subject\.step === undefined && lane !== null && lane !== undefined \? pinChangePart\(lane, step, state\) : null/)
+  // Redesign Part 2: the person's pin, through the work API; Main's requeue and unqueue are gone.
+  assert.match(script, /return sendWork\(\{ action: 'pin', id, for: target \}, `pin:\$\{id\}`\)/)
+  assert.ok(!/action: 'unqueue'|action: 'requeue'/.test(script))
 })
 
 test('the main chat\'s role and the protocol know the stop word and the work actions that move or take out a step', () => {

@@ -80,6 +80,7 @@
         <section class="supervisor" id="supervisor" aria-label="The supervisor: the board's own check of itself" hidden></section>
         <div class="workers-columns" id="workers-columns" aria-hidden="true"><span>Worker</span><span>Task</span><span>Progress</span><span>Left</span><span>Next in queue</span><span></span></div>
         <section class="lanes" id="lanes" aria-label="Workers"></section>
+        <section class="ready-list" id="ready-list" aria-label="Ready for a worker" hidden></section>
       </section>
       <button class="phone-more" id="phone-more" type="button" aria-expanded="false" aria-controls="today folders">Show the timeline and folders</button>
       <section class="panel" id="today" aria-labelledby="today-title">
@@ -314,19 +315,15 @@
             <button class="link" id="design-add-line" type="button">+ Add a line</button>
             <div class="design-pair">
               <div>
-                <label class="design-label" for="design-worker">Worker</label>
-                <select id="design-worker"></select>
-              </div>
-              <div>
                 <label class="design-label" for="design-time">Time (optional)</label>
                 <input type="text" id="design-time" placeholder="about 1 h">
               </div>
             </div>
             <div class="design-ways">
               <button class="button is-quiet" id="design-backlog" type="button">Put on the backlog</button>
-              <button class="button" id="design-queue" type="button">Put in a queue</button>
+              <button class="button" id="design-queue" type="button">Put on the list</button>
             </div>
-            <p class="muted design-also">A queue also puts it on the backlog.</p>
+            <p class="muted design-also">On the list, the board gives it to the first free worker once it is refined; pin it to a worker on the Backlog tab.</p>
           </fieldset>
           <div class="design-sent" id="design-sent" hidden></div>
           <p class="problem" id="design-form-problem" hidden></p>

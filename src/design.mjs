@@ -96,14 +96,16 @@ function about(minutes) {
 }
 
 /**
- * The words the main chat is given when the person puts an idea on the backlog or in a queue. The first line and
- * the labels are the board's; every field is the person's own words, kept to one line each. The main chat writes
- * the step; the board writes nothing into the backlog.
+ * The words the main chat is given when the person puts an idea on the backlog or on the list for a worker. The first
+ * line and the labels are the board's; every field is the person's own words, kept to one line each. The main chat
+ * writes the step; the board writes nothing into the backlog. Redesign Part 2 (2026-10-25, Question 3): "Put on the
+ * list" (`where: 'queue'`) is a step for the board's ready list: no worker is named (the board gives it to the first
+ * free one once it is refined; the person pins it to one on the board).
  */
-export function stepWord({ where, title, kind, description, requirements, folder, picture, worker, minutes }) {
+export function stepWord({ where, title, kind, description, requirements, folder, picture, minutes }) {
   const file = picture === null ? '' : ` (agreed: ${picture.split('/').pop()})`
   return [
-    `${where === 'queue' ? 'queue' : 'backlog'} step from the Design tab`,
+    `${where === 'queue' ? 'list' : 'backlog'} step from the Design tab`,
     `Title: ${title}`,
     // What the idea is about, as the person chose it: the main chat files the step by it.
     kind === null ? null : `About: ${kind}`,
@@ -111,7 +113,6 @@ export function stepWord({ where, title, kind, description, requirements, folder
     requirements.length === 0 ? null : 'Requirements:',
     ...requirements.map(line => `- ${line}`),
     folder === null ? null : `Pictures: ${folder}${file}`,
-    `Worker: ${worker === null ? 'you decide' : oneLine(worker, 80)}`,
     minutes === null ? null : `Time: about ${about(minutes)}`,
   ].filter(line => line !== null).join('\n')
 }
@@ -188,7 +189,7 @@ export function checkDesign(body, design) {
     // B379: an idea is as it was: its step names its agreed picture, which links the idea to the step it became.
     if (idea !== null && idea.agreed === null) return refuse(409, 'Agree to a picture first, or choose New idea for a step without one.')
     if (idea !== null && isHanded(idea)) return refuse(409, 'This idea was handed to the main chat already.')
-    if (body.where !== 'backlog' && body.where !== 'queue') return refuse(400, 'On the backlog, or in a queue.')
+    if (body.where !== 'backlog' && body.where !== 'queue') return refuse(400, 'On the backlog, or on the list.')
     const title = oneLine(body.title, LIMITS.title + 1)
     if (title === '') return refuse(400, 'Give it a title.')
     if (title.length > LIMITS.title) return refuse(413, `A title of at most ${LIMITS.title} characters.`)
@@ -198,13 +199,11 @@ export function checkDesign(body, design) {
     if (!Array.isArray(lines) || lines.length > LIMITS.requirements || !lines.every(line => typeof line === 'string')) return refuse(400, `At most ${LIMITS.requirements} requirements.`)
     const requirements = lines.map(line => oneLine(line, LIMITS.requirement + 1)).filter(line => line !== '')
     if (requirements.some(line => line.length > LIMITS.requirement)) return refuse(413, `A requirement of at most ${LIMITS.requirement} characters.`)
-    const worker = body.worker === undefined || body.worker === null || body.worker === '' ? null : body.worker
-    if (worker !== null && !(design.workers ?? []).includes(worker)) return refuse(400, 'No such worker on the board.')
     const minutes = body.minutes === undefined || body.minutes === null || body.minutes === '' ? null : Number(body.minutes)
     if (minutes !== null && !(Number.isInteger(minutes) && minutes >= 1 && minutes <= 1440)) return refuse(400, 'The time in whole minutes.')
     // B368: only an agreed picture is named; without one the step carries no pictures line.
     const agreed = idea === null || idea.agreed === null ? null : idea.versions.find(version => version.n === idea.agreed) ?? null
-    const send = { where: body.where, title, description, requirements, worker, minutes }
+    const send = { where: body.where, title, description, requirements, minutes }
     const kind = idea === null ? null : (kinds.find(one => one.id === idea.kind)?.name ?? idea.kind).toLowerCase()
     const text = stepWord({ ...send, kind, folder: agreed === null ? null : idea.folder, picture: agreed?.picture ?? null })
     // It is typed into a chat, and a chat is typed at most so much at once: nothing is cut off silently.
@@ -249,7 +248,7 @@ export function designState({ ideas, settings, canMake, why, busy, canSend = fal
       const word = idea.sent === null ? null : outbox.find(message => message.id === idea.sent.message) ?? null
       const step = idea.sent === null ? null : stepFor(backlog, idea.folder)
       const sent = idea.sent === null ? null : {
-        at: idea.sent.at, where: idea.sent.where, worker: idea.sent.worker, title: idea.sent.title,
+        at: idea.sent.at, where: idea.sent.where, worker: idea.sent.worker ?? null, title: idea.sent.title,
         // Not in the outbox any more: it was typed long ago.
         state: word?.state ?? 'delivered',
         step,

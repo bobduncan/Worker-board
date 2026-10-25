@@ -83,7 +83,6 @@ const SPAWN_OPEN_MS = 15 * MIN
 /** B143: an ask to remove a worker that arrived stays open this long while the worker is still in the list. */
 const REMOVE_OPEN_MS = 15 * MIN
 /** B181: an ask to queue a step that arrived stays open this long while the step still names no worker. */
-const QUEUE_OPEN_MS = HOUR
 /** B233: an ask to refine a step that arrived stays open this long while the step lacks that round. */
 const REFINE_OPEN_MS = 30 * MIN
 /** B152: a removed worker's lane stays this long after its card said it left, saying so. */
@@ -725,19 +724,6 @@ function removalAsk(message, now, openMs = REMOVE_OPEN_MS) {
 }
 
 /**
- * B181: the newest ask to hand out a step of the backlog, for a step nobody has. Open while it is on its way, and
- * after it arrived for an hour at most: the main chat writes the step's "(for ...)" note, and a queued step asks
- * nothing more. After that hour, or when it did not arrive, the step can be asked again.
- */
-const queueAsk = (step, sent, now) => {
-  if (step.status !== 'open' || step.id === null) return null
-  const message = sent.findLast(one => one.command === 'queue' && one.about === step.id)
-  // B285: an ask held on the board until the step is refined stays open.
-  if (message?.state === 'held') return { at: message.at, state: 'held', isOpen: true }
-  return removalAsk(message, now, QUEUE_OPEN_MS)
-}
-
-/**
  * B233: the newest ask to the Advisor to refine a step, open while it is on its way and after it arrived until the
  * step's refine block shows the round it asked for, for half an hour at most.
  */
@@ -995,24 +981,6 @@ const UNDER_WAY = ['taken', 'in progress', 'waiting on you', 'review']
 const NOT_HANDED = ['new', 'refined']
 
 /**
- * Focus 4, seen live: the focus's parts whose steps were made but not handed out (`handout`, focusState) for longer than
- * the grace time: one hint under Needs your attention, with the way to the main chat (`main`, its name). None without
- * a focus or a main chat.
- */
-export function handoutNeeds(focus, main, now) {
-  if (focus === null || focus === undefined || main === null || main === undefined) return []
-  const waiting = (focus.parts ?? []).filter(part => part.state === 'handout' && Number.isFinite(part.waitsSince) && now - part.waitsSince >= GRACE_MS)
-  if (waiting.length === 0) return []
-  const at = Math.max(...waiting.map(part => part.waitsSince))
-  return [{
-    id: `handout:${focus.id}:${at}`, from: main, kind: 'handout',
-    title: `The steps of ${focus.id} wait for the main chat to hand them out`,
-    text: `Your partner made the steps of ${waiting.map(part => part.title).join(', ')}, and none is queued yet. The main chat may not have read your partner's note: ask it to queue them.`,
-    at, options: [], pictures: [], run: null, game: null, checks: [], tried: [], version: null, canAnswer: false, task: null, waits: null, isMain: true, isAdvisor: false, talk: 'main',
-  }]
-}
-
-/**
  * Fix first: the board fix a focus part waits for, or null. A part's step queued (not itself a fix) whose owner works on
  * a board fix (taken, in progress, waiting on the person) or has one queued, which goes before it: that fix's id, the
  * one under way first, else the lowest.
@@ -1043,16 +1011,14 @@ export function focusState(goalMap, items, threads, prefix, partner = null) {
     const known = part.steps.map(id => steps.get(id)).filter(one => one !== undefined)
     const done = known.filter(one => FINISHED.includes(one.head.get('State'))).length
     const busy = known.find(one => UNDER_WAY.includes(one.head.get('State')))
-    // Focus 4: steps made but none handed out yet (new or refined, none queued): the part waits for the main chat.
-    // The review: a step the main chat queued before its refine ("Queue when refined") waits for its refine, not for it.
+    // Redesign Part 2: steps made but none given yet: a refined one is on the board's list for a worker (`ready`); one not
+    // refined yet waits for its refine (`refining`).
     const held = known.filter(one => NOT_HANDED.includes(one.head.get('State')))
-    const unsent = held.filter(one => (one.head.get('Queue when refined') ?? '') === '')
     const isWaiting = busy === undefined && !known.some(one => one.head.get('State') === 'queued')
-    const isHandout = isWaiting && unsent.length > 0
-    const isRefining = isWaiting && !isHandout && held.length > 0
-    const state = known.length > 0 && done === known.length ? 'done' : busy !== undefined ? 'now' : isHandout ? 'handout' : isRefining ? 'refining' : 'next'
+    const isReady = isWaiting && held.some(one => one.head.get('State') === 'refined')
+    const isRefining = isWaiting && !isReady && held.length > 0
+    const state = known.length > 0 && done === known.length ? 'done' : busy !== undefined ? 'now' : isReady ? 'ready' : isRefining ? 'refining' : 'next'
     const owner = busy === undefined ? null : String(busy.head.get('Owner') ?? '').replace(prefix, '').trim() || null
-    const since = unsent.map(one => sinceMs(one.head.get('Since'))).filter(Number.isFinite)
     const fix = state === 'next' ? fixAhead(known, steps, prefix) : null
     // B354: what the part's results are checked against: its steps' standards, each once; a "none (why)" is left out.
     const standards = [...new Set(known.map(standardOf).filter(one => one !== null && !/^none\b/i.test(one)))]
@@ -1064,7 +1030,7 @@ export function focusState(goalMap, items, threads, prefix, partner = null) {
       const fix = check.passed < check.total ? fixOutcomeOf(one.head.get('Id'), steps) : null
       return [{ id: one.head.get('Id'), passed: check.passed, total: check.total, evidence: check.evidence, ...(fix === null ? {} : { fix }) }]
     })
-    return { title: part.title, size: part.size, state, owner, done, total: known.length, standards, checked, ...(isHandout ? { waitsSince: since.length > 0 ? Math.max(...since) : null } : {}), ...(fix === null ? {} : { fixFirst: fix }) }
+    return { title: part.title, size: part.size, state, owner, done, total: known.length, standards, checked, ...(fix === null ? {} : { fixFirst: fix }) }
   })
   const left = parts.filter(part => part.state !== 'done').map(part => sizeMinutes(part.size)).filter(one => one !== null)
   // B343: the goal's steps one by one, for the simple Overview: its parts' in order, then its own ("Steps:"), each once;
@@ -1375,7 +1341,11 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
   // The steps the workers are on right now, also the ones that name no branch (a check, a comparison, a merge):
   // they are in progress, not next in a queue.
   const onNow = new Set(cards.filter(lane => !lane.isLeftover && (lane.task?.stepId ?? null) !== null).map(lane => lane.task.stepId))
-  const queued = queue(backlog, { underWay: onNow })
+  // Redesign Part 2: a lane's queue is the task the board gave it (queued for it) and the tasks the person pinned to it.
+  const pinnedTo = new Map(!workOk ? [] : itemsOf(raw.work)
+    .filter(one => one.head.get('Kind') === 'step' && ['new', 'refined'].includes(one.head.get('State')) && (one.head.get('Pinned') ?? '').trim() !== '')
+    .map(one => [one.head.get('Id'), String(one.head.get('Pinned')).replace(prefix, '').trim()]))
+  const queued = queue(backlog, { underWay: onNow, pinned: pinnedTo })
   // A folder belongs to the worker an open step names together with the folder's branch.
   const ownerOf = new Map(backlog.activities.flatMap(activity => activity.steps)
     .filter(step => !step.isDone && step.branch !== null && step.worker !== null)
@@ -1428,13 +1398,14 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
     if (lane.state === 'interrupted') return { reason: 'cut', worker: lane.name }
     // B315: its process does not run: nothing reaches it until its chat is opened.
     if (lane.state === 'off') return { reason: 'off', worker: lane.name }
-    if (lane.state === 'free') return { reason: 'handout', main: context.main.mainTitle, isOwn: lane.isMain }
+    // Redesign Part 2: the board hands it out: given to a free worker, it takes it now; pinned to one, the board gives it.
+    if (lane.state === 'free') return { reason: 'ready', worker: lane.name, isPinned: step.isPinned === true }
     return { reason: 'unknown', worker: lane.name }
   }
 
   const lanes = cards.map(lane => {
     const mine = lane.isLeftover ? [] : queued.filter(step => step.worker === lane.name)
-    const withQueue = { ...lane, queue: mine.map(step => ({ id: step.id, title: step.title, text: step.text, minutes: step.minutes, after: step.after, branch: step.branch, notes: step.notes, refined: step.refined ?? null, pictures: picturesOf(allWords(step)), why: whyNot(step, lane), ...(step.isFix === true ? { isFix: true } : {}) })) }
+    const withQueue = { ...lane, queue: mine.map(step => ({ id: step.id, title: step.title, text: step.text, minutes: step.minutes, after: step.after, branch: step.branch, notes: step.notes, refined: step.refined ?? null, pictures: picturesOf(allWords(step)), why: whyNot(step, lane), ...(step.isFix === true ? { isFix: true } : {}), ...(step.isPinned === true ? { isPinned: true } : {}) })) }
     return {
       ...withQueue,
       // B438, the review: the steps the store holds for it (taken, in progress, waiting on you, review), whatever its
@@ -1755,8 +1726,6 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
       // B300: a blocking ask that waited longer than the ask time stands first (`isOld`).
       ...storeNeeds(raw.work, { now, names: [...names, ...[advisorChat, helperChat].filter(one => one !== undefined).map(one => one.name)], prefix, answerOf: id => answerOf(sent, id) })
         .map(need => (oldAsks.has(need.id) ? { ...need, isOld: true } : need)),
-      // Focus 4: the focus's steps made but not handed out, longer than the grace time: a hint, with the way to Main.
-      ...handoutNeeds(focus, main === undefined ? null : main.name, now),
     ].sort((a, b) => Number(b.isOld === true) - Number(a.isOld === true) || (b.at ?? 0) - (a.at ?? 0)), [config.advisor ?? null, helperChat?.name ?? null], prefix),
     // B299: notes and reports for the person.
     information,
@@ -1787,8 +1756,6 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
           ...step,
           pictures: picturesOf(allWords(step)),
           needId: step.status !== 'you' ? null : step.id === null ? stepId(`${activity.name}\n${step.text}`) : `backlog:${step.id}`,
-          // B181: whether the main chat was asked to hand it out, for a step nobody has.
-          queueAsk: queueAsk(step, sent, now),
           refineAsk: asked,
           // B285, B286: where its refine stands; B312: `stopped` when the board stopped on it (`refineStop`).
           refineState: stop === null ? where : 'stopped',

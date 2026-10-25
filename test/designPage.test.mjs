@@ -30,7 +30,7 @@ test('the page has the Design tab after the person\'s layout: three parts side b
   const tab = markup.slice(markup.indexOf('id="view-design"'), markup.indexOf('<dialog class="details"'))
   const at = words => tab.indexOf(words)
   const order = ['New idea', 'id="design-text"', 'What is it about?', 'id="design-kinds"', 'id="design-make"', 'The picture', 'id="design-stage"', 'id="design-versions"', 'id="design-change"', 'id="design-agree"',
-    'Add what you want', 'id="design-title"', 'id="design-description"', 'id="design-requirements"', 'id="design-worker"', 'id="design-time"', 'id="design-backlog"', 'id="design-queue"', 'Ideas so far', 'id="design-strip"']
+    'Add what you want', 'id="design-title"', 'id="design-description"', 'id="design-requirements"', 'id="design-time"', 'id="design-backlog"', 'id="design-queue"', 'Ideas so far', 'id="design-strip"']
   for (const [place, words] of order.entries()) assert.ok(at(words) >= 0 && (place === 0 || at(words) > at(order[place - 1])), `"${words}" is missing or out of place`)
   // "What is it about?" stands over the row of choices, not over the idea's box.
   assert.ok(at('What is it about?') > at('id="design-text"'))
@@ -138,12 +138,12 @@ test('a time is read as it is typed: "about 1 h", "45 min", "1 h 30", "90"', () 
   for (const typed of ['soon', 'h', '0', '1 h 30 x', '2000 h']) assert.ok(Number.isNaN(page.timeTyped(typed)), typed)
 })
 
-test('"Put on the backlog" and "Put in a queue" send the form, or say what is wrong with it', () => {
-  const form = { title: ' Shop screen ', description: ' Spend gold. ', requirements: ['Three items', '  ', ' Gold is spent '], worker: 'Units', time: 'about 1 h' }
-  assert.deepEqual(plain(page.sendBody(idea(), form, 'queue', design())), { body: { action: 'send', idea: 'i1', where: 'queue', title: 'Shop screen', description: 'Spend gold.', requirements: ['Three items', 'Gold is spent'], worker: 'Units', minutes: 60 } })
-  // "Let Game - Main decide" and no time are sent as nothing.
-  const open = plain(page.sendBody(idea(), { ...form, worker: '', time: '' }, 'backlog', design())).body
-  assert.deepEqual([open.where, open.worker, open.minutes], ['backlog', null, null])
+test('"Put on the backlog" and "Put on the list" send the form, or say what is wrong with it; no worker is picked', () => {
+  const form = { title: ' Shop screen ', description: ' Spend gold. ', requirements: ['Three items', '  ', ' Gold is spent '], time: 'about 1 h' }
+  assert.deepEqual(plain(page.sendBody(idea(), form, 'queue', design())), { body: { action: 'send', idea: 'i1', where: 'queue', title: 'Shop screen', description: 'Spend gold.', requirements: ['Three items', 'Gold is spent'], minutes: 60 } })
+  // No time is sent as nothing.
+  const open = plain(page.sendBody(idea(), { ...form, time: '' }, 'backlog', design())).body
+  assert.deepEqual([open.where, open.worker, open.minutes], ['backlog', undefined, null])
   assert.equal(page.sendBody(idea(), { ...form, title: ' ' }, 'backlog', design()).problem, 'Give it a title.')
   assert.match(page.sendBody(idea(), { ...form, title: 'x'.repeat(161) }, 'backlog', design()).problem, /title is too long: 160/)
   assert.match(page.sendBody(idea(), { ...form, description: 'x'.repeat(1201) }, 'backlog', design()).problem, /description is too long: 1200/)
@@ -153,16 +153,16 @@ test('"Put on the backlog" and "Put in a queue" send the form, or say what is wr
 })
 
 test('the form of an agreed idea starts from the idea: its first line as the title', () => {
-  assert.deepEqual(plain(page.firstForm(idea())), { title: 'A shop screen where gold is spent', description: 'a shop screen where gold is spent\non one of three items', requirements: [''], worker: '', time: '' })
+  assert.deepEqual(plain(page.firstForm(idea())), { title: 'A shop screen where gold is spent', description: 'a shop screen where gold is spent\non one of three items', requirements: [''], time: '' })
   const long = page.firstForm(idea({ text: 'x'.repeat(200) }))
   assert.deepEqual([long.title.length, long.title.endsWith('…')], [80, true])
 })
 
 test('once asked for, part 3 says where the asking is and which step it became', () => {
-  const sent = more => ({ at: NOW, where: 'queue', worker: 'Units', title: 'Shop screen', state: 'waiting', step: null, ...more })
-  assert.deepEqual(plain(page.sentWords(sent(), 'Main')), ['You asked Main to have "Shop screen" put in the queue of Units: waits for Main to take it.'])
-  assert.match(page.sentWords(sent({ where: 'backlog', worker: null, state: 'taken' }), 'Main')[0], /put on the backlog: handed to Main/)
-  assert.match(page.sentWords(sent({ worker: null, state: 'delivered' }), 'Main')[0], /put in a queue: typed into Main's chat\.$/)
+  const sent = more => ({ at: NOW, where: 'queue', worker: null, title: 'Shop screen', state: 'waiting', step: null, ...more })
+  assert.deepEqual(plain(page.sentWords(sent(), 'Main')), ['You asked Main to have "Shop screen" put on the list for a worker: waits for Main to take it.'])
+  assert.match(page.sentWords(sent({ where: 'backlog', state: 'taken' }), 'Main')[0], /put on the backlog: handed to Main/)
+  assert.match(page.sentWords(sent({ state: 'delivered' }), 'Main')[0], /put on the list for a worker: typed into Main's chat\.$/)
   assert.deepEqual(plain(page.sentWords(sent({ state: 'delivered', step: { id: 'B103', worker: 'Units', isDone: false } }), 'Main')).at(-1), 'It is step B103 on the backlog, for Units.')
   assert.match(page.sentWords(sent({ state: 'expired' }), null)[0], /did not reach the main chat\.$/)
 })
@@ -219,10 +219,10 @@ test('B368, B379: part 3 is open without a picture for a New idea; an idea opens
   assert.equal(view(design([idea({ versions: [] })])).form, 'locked')
   // A board without the Design part has nothing to fill in.
   assert.equal(page.designView(null, { idea: null, version: null }, NOW).form, 'locked')
-  const form = { title: 'Sort the backlog', description: '', requirements: [''], worker: '', time: '' }
-  assert.deepEqual(plain(page.sendBody(null, form, 'backlog', design())), { body: { action: 'send', where: 'backlog', title: 'Sort the backlog', description: '', requirements: [], worker: null, minutes: null } })
-  assert.deepEqual(plain(page.blankForm()), { title: '', description: '', requirements: [''], worker: '', time: '' })
-  assert.equal(page.bareSentWords({ where: 'queue', worker: 'Units', title: 'Sort it' }, 'Main'), 'Sent: you asked Main to have "Sort it" put in the queue of Units. It shows on the backlog once Main wrote it.')
+  const form = { title: 'Sort the backlog', description: '', requirements: [''], time: '' }
+  assert.deepEqual(plain(page.sendBody(null, form, 'backlog', design())), { body: { action: 'send', where: 'backlog', title: 'Sort the backlog', description: '', requirements: [], minutes: null } })
+  assert.deepEqual(plain(page.blankForm()), { title: '', description: '', requirements: [''], time: '' })
+  assert.equal(page.bareSentWords({ where: 'queue', title: 'Sort it' }, 'Main'), 'Sent: you asked Main to have "Sort it" put on the list for a worker. It shows on the backlog once Main wrote it.')
   assert.match(script, /\$\('design-fields'\)\.disabled = !isOpen \|\| isDesignSending/)
   // With a picture everything is as it was: agree, take it back, and the idea's id in the step.
   assert.equal(page.sendBody(idea(), form, 'queue', design()).body.idea, 'i1')

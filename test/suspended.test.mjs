@@ -162,7 +162,7 @@ test('a worker that works again is not suspended, and the main chat cannot pause
 
 // Why a queued step is not started
 
-test('a queued step says why it is not started: its worker is busy, waits for you, or is free and nobody handed it out', () => {
+test('a queued step says why it is not started: its worker is busy, waits for you, or is free and takes it now', () => {
   // B299, B301: the main chat waits for the person when it asks with the app's question form (or holds an open blocking
   // ask), never because its answer has a "For you" block.
   const asking = [typed(NOW - 30 * MIN, 'Zebracorn'), assistant(NOW - 29 * MIN, 'tool_use', [tool('AskUserQuestion', { questions: [{ question: 'Which one?', options: [{ label: 'A' }, { label: 'B' }] }] })])]
@@ -171,11 +171,12 @@ test('a queued step says why it is not started: its worker is busy, waits for yo
   assert.deepEqual(why(state, 'Main', 'B07'), { reason: 'you', worker: 'Main' })
   const done = [typed(NOW - 30 * MIN, 'Zebracorn'), answer(NOW - 29 * MIN, 'Done.')]
   const free = build({ tails: { Units: tail(done), Main: tail(done) } })
-  // A "For you" block alone leaves the main chat free: the board says so as a warning, and hands out.
+  // A "For you" block alone leaves the main chat free: the board says so as a warning. Redesign Part 2: a task given
+  // to a free chat is its to take now.
   const block = build({ tails: { Units: tail(done), Main: tail([typed(NOW - 30 * MIN, 'Zebracorn'), answer(NOW - 29 * MIN, '> **For you**\n> 1. **Answer:** Which one?')]) } })
-  assert.deepEqual(why(block, 'Main', 'B07'), { reason: 'handout', main: 'Game - Main', isOwn: true })
-  assert.deepEqual(why(free, 'Units', 'B03'), { reason: 'handout', main: 'Game - Main', isOwn: false })
-  assert.deepEqual(why(free, 'Main', 'B07'), { reason: 'handout', main: 'Game - Main', isOwn: true })
+  assert.deepEqual(why(block, 'Main', 'B07'), { reason: 'ready', worker: 'Main', isPinned: false })
+  assert.deepEqual(why(free, 'Units', 'B03'), { reason: 'ready', worker: 'Units', isPinned: false })
+  assert.deepEqual(why(free, 'Main', 'B07'), { reason: 'ready', worker: 'Main', isPinned: false })
 })
 
 test('a condition that is not met comes before the worker: an open step by its id, else the condition\'s own words', () => {

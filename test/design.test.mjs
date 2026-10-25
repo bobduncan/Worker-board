@@ -87,11 +87,11 @@ test('the step asked of the main chat: the board\'s first line and labels, the p
     '- Three items to choose from',
     '- Gold is spent',
     'Pictures: art-inbox/ideas/shop-screen (agreed: v2.png)',
-    'Worker: you decide',
     'Time: about 1 h',
   ].join('\n'))
-  const queued = stepWord({ where: 'queue', title: 'Slime', kind: 'unit or art', description: '', requirements: [], folder: 'art-inbox/ideas/slime', picture: null, worker: 'Units', minutes: null })
-  assert.equal(queued, 'queue step from the Design tab\nTitle: Slime\nAbout: unit or art\nPictures: art-inbox/ideas/slime\nWorker: Units')
+  // Redesign Part 2 (Question 3): "Put on the list" is a step for the board's ready list; no worker is named.
+  const listed = stepWord({ where: 'queue', title: 'Slime', kind: 'unit or art', description: '', requirements: [], folder: 'art-inbox/ideas/slime', picture: null, minutes: null })
+  assert.equal(listed, 'list step from the Design tab\nTitle: Slime\nAbout: unit or art\nPictures: art-inbox/ideas/slime')
   assert.ok(stepWord({ where: 'queue', title: 'x', kind: 'level', description: '', requirements: [], folder: 'f', picture: null, worker: null, minutes: 95 }).endsWith('Time: about 1 h 35 min'))
 })
 
@@ -145,18 +145,18 @@ test('agreeing is to a version that has a picture, and can be taken back', () =>
   assert.equal(checkDesign({ action: 'drop', idea: 'i1' }, design([idea({ versions: [version(1, 'making')] })])).status, 409)
 })
 
-test('asking for the step: an agreed picture, a title, and a worker of the board or none', () => {
+test('asking for the step: an agreed picture and a title; no worker (redesign Part 2: the board hands it out)', () => {
   const agreed = design([idea({ agreed: 1 })])
-  const send = { action: 'send', idea: 'i1', where: 'queue', title: ' Shop  screen ', description: 'Spend gold.\nThen go on.', requirements: [' Three items ', '', 'Gold is spent'], worker: 'Units', minutes: 45 }
+  const send = { action: 'send', idea: 'i1', where: 'queue', title: ' Shop  screen ', description: 'Spend gold.\nThen go on.', requirements: [' Three items ', '', 'Gold is spent'], minutes: 45 }
   const ok = checkDesign(send, agreed)
-  assert.deepEqual([ok.ok, ok.where, ok.title, ok.description, ok.requirements, ok.worker, ok.minutes], [true, 'queue', 'Shop screen', 'Spend gold. Then go on.', ['Three items', 'Gold is spent'], 'Units', 45])
-  assert.equal(ok.text, 'queue step from the Design tab\nTitle: Shop screen\nAbout: game screen\nDescription: Spend gold. Then go on.\nRequirements:\n- Three items\n- Gold is spent\nPictures: art-inbox/ideas/shop-screen (agreed: v1.png)\nWorker: Units\nTime: about 45 min')
+  assert.deepEqual([ok.ok, ok.where, ok.title, ok.description, ok.requirements, ok.worker, ok.minutes], [true, 'queue', 'Shop screen', 'Spend gold. Then go on.', ['Three items', 'Gold is spent'], undefined, 45])
+  assert.equal(ok.text, 'list step from the Design tab\nTitle: Shop screen\nAbout: game screen\nDescription: Spend gold. Then go on.\nRequirements:\n- Three items\n- Gold is spent\nPictures: art-inbox/ideas/shop-screen (agreed: v1.png)\nTime: about 45 min')
   // A field of the person's cannot add a line of its own: every one is kept to one line.
   assert.ok(!checkDesign({ ...send, title: 'x\nWorker: Main' }, agreed).text.includes('\nWorker: Main'))
 
-  assert.equal(checkDesign({ ...send, worker: null, minutes: null, where: 'backlog' }, agreed).text.endsWith('Worker: you decide'), true)
-  assert.equal(checkDesign({ ...send, worker: 'Main' }, agreed).status, 400)
-  assert.equal(checkDesign({ ...send, worker: 'Nobody' }, agreed).status, 400)
+  assert.equal(checkDesign({ ...send, minutes: null, where: 'backlog' }, agreed).text.includes('Worker:'), false)
+  // A worker sent along (an older page) is not named: the person pins a task on the Backlog tab.
+  assert.equal(checkDesign({ ...send, worker: 'Units' }, agreed).text.includes('Worker:'), false)
   assert.equal(checkDesign({ ...send, where: 'bin' }, agreed).status, 400)
   assert.equal(checkDesign({ ...send, title: ' ' }, agreed).status, 400)
   assert.equal(checkDesign({ ...send, title: 'x'.repeat(LIMITS.title + 1) }, agreed).status, 413)
@@ -268,8 +268,8 @@ test('the step asked of the main chat is never longer than a chat is typed: the 
   assert.equal(checkDesign({ ...long, requirements: ['short'] }, agreed).ok, true)
 })
 
-test('a worker\'s name is one plain line in the step', () => {
-  assert.ok(stepWord({ where: 'queue', title: 'x', kind: 'level', description: '', requirements: [], folder: 'f', picture: null, worker: 'Levels /\n Environment', minutes: null }).endsWith('\nWorker: Levels / Environment'))
+test('a step for the list names no worker (redesign Part 2, Question 3)', () => {
+  assert.ok(!stepWord({ where: 'queue', title: 'x', kind: 'level', description: '', requirements: [], folder: 'f', picture: null, minutes: null }).includes('Worker:'))
 })
 
 test('the Design tab\'s calls are worked off one after the other, so two clicks never start two pictures', async () => {
@@ -373,10 +373,10 @@ test('B198: new ideas go into the project\'s picture folder; ideas saved in anot
 })
 
 test("B368, B379: a step without a picture is a New idea's: no idea, no pictures line; an idea needs its agreed picture", () => {
-  const send = { action: 'send', where: 'backlog', title: 'Sort the backlog', description: 'Oldest first.', requirements: ['Newest on top'], worker: null, minutes: 30 }
+  const send = { action: 'send', where: 'backlog', title: 'Sort the backlog', description: 'Oldest first.', requirements: ['Newest on top'], minutes: 30 }
   const bare = checkDesign(send, design([]))
   assert.deepEqual([bare.ok, bare.idea], [true, null])
-  assert.equal(bare.text, 'backlog step from the Design tab\nTitle: Sort the backlog\nDescription: Oldest first.\nRequirements:\n- Newest on top\nWorker: you decide\nTime: about 30 min')
+  assert.equal(bare.text, 'backlog step from the Design tab\nTitle: Sort the backlog\nDescription: Oldest first.\nRequirements:\n- Newest on top\nTime: about 30 min')
   assert.equal(checkDesign({ ...send, idea: null }, design([])).ok, true)
   // B379: an idea is as before: not before its picture is agreed, so a step from it always names its picture.
   assert.deepEqual(checkDesign({ ...send, idea: 'i1' }, design([idea()])), { ok: false, status: 409, why: 'Agree to a picture first, or choose New idea for a step without one.' })

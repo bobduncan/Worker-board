@@ -134,8 +134,10 @@ export function itemOfStep(work, key) {
     id, title: valueOf(item, 'Title'), summary: section('Summary'), picture: section('Picture')[0] ?? null, goal: valueOf(item, 'Goal'),
     what: section('What we build').map(one => one.replace(/^[-*]\s+/, '')), requirements: section('Requirements').map(one => one.replace(/^[-*]\s+/, '')),
     touches: touchesLines(item), history: section('History').map(one => one.replace(/^[-*]\s+/, '')),
-    // B303: the queue the main chat asked before the step's refine, or null.
+    // B303: the queue the main chat asked before the step's refine, or null (gone with redesign Part 2, at its rollout).
     queueWhenRefined: valueOf(item, 'Queue when refined'),
+    // Redesign Part 2: the worker the person pinned it to, or null.
+    pinned: valueOf(item, 'Pinned'),
     // B356: its last result check (the evidence, the ticks, the score), and the step it fixes.
     checked: checkedOf(item), fixOf: valueOf(item, 'Fix of'), attempts: Number(valueOf(item, 'Attempts') ?? 0),
     // B468: the effort its worker runs at (medium when its refine gave none), and who holds it in which state. Model per

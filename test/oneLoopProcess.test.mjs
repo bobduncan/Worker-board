@@ -207,7 +207,7 @@ test('two board processes on one project: each line goes out once, and the other
 
   // The holder put a chat log in the journal and ended without a word before it was written; meanwhile B14 was refined
   // and B13 done, B15 queued for the same chat. The other takes the lock within a run, tells the chats where it is, finishes the log, and from its
-  // own first look on sends the next step's line, its refine and the notice of B14 once, and nothing the holder sent.
+  // own first look on sends the next step's line and its refine once, and nothing the holder sent.
   await put(join(transcripts, 'left-id.jsonl'), `${[typed(NOW - 9 * MIN, 'Draw it.'), answer(NOW - 8 * MIN, 'The shield is in.')].join('\n')}\n`)
   await put(journal, JSON.stringify({ jobs: [job('left', 'left-id')], left: [{ session: 'left-id', chat: 'Units', at: NOW }] }))
   await stop(mine.child)
@@ -224,7 +224,7 @@ test('two board processes on one project: each line goes out once, and the other
   assert.match(await readFile(join(logs, 'left.txt'), 'utf8'), /The shield is in\./)
   // Its own first look (once a minute): it writes when it last ran.
   await until(async () => JSON.parse(await readFile(join(board, 'data', 'alive.json'), 'utf8').catch(() => '{}')).at > endedAt, 'the first look of the one that took over', 75_000)
-  await until(async () => (await sent(isRefineOf('B15'))).length > 0 && (await sent(isNoticeOf('B14'))).length > 0, 'the refine of B15 and the notice of B14', 10_000)
+  await until(async () => (await sent(isRefineOf('B15'))).length > 0, 'the refine of B15', 10_000)
   await wait(8_000)
   assert.equal((await sent(isLineOf('B15'))).length, 1, 'the line of B15 went out once')
   assert.equal((await sent(isLineOf('B14'))).length, 1, 'the line of B14 was not sent again')
@@ -232,7 +232,8 @@ test('two board processes on one project: each line goes out once, and the other
   assert.equal((await sent(isRound)).length, 1, 'the round was not sent again')
   assert.equal((await sent(isRefineOf('B14'))).length, 1, 'the refine of B14 was not sent again')
   assert.equal((await sent(isRefineOf('B15'))).length, 1, 'the refine of B15 went out once')
-  assert.equal((await sent(isNoticeOf('B14'))).length, 1, 'the notice of B14 went out once')
+  // Redesign Part 2: no word tells the main chat a step it queued is refined: it hands out nothing.
+  assert.equal((await sent(isNoticeOf('B14'))).length, 0, 'no notice of B14')
   assert.deepEqual(await twice(), [], 'nothing went out twice')
   assert.deepEqual(JSON.parse(await readFile(journal, 'utf8')).jobs, [], 'the journal names no open log')
 })

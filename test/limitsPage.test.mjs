@@ -91,8 +91,9 @@ test('each reason reads as one plain line', () => {
   assert.equal(said({ reason: 'busy', worker: 'Units', leftMs: null }), 'Not started: Units is busy')
   assert.equal(said({ reason: 'you', worker: 'Units' }), 'Not started: Units waits for you')
   assert.equal(said({ reason: 'cut', worker: 'Units' }), 'Not started: Units was cut off')
-  assert.equal(said({ reason: 'handout', main: 'Game - Main', isOwn: false }), 'Not started: waits for Game - Main to hand it out')
-  assert.equal(said({ reason: 'handout', main: 'Game - Main', isOwn: true }), 'Not started: Game - Main has not started it')
+  // Redesign Part 2: the board hands it out: given to its free worker, or pinned to it.
+  assert.equal(said({ reason: 'ready', worker: 'Units', isPinned: false }), 'Not started: given to Units; it takes it now')
+  assert.equal(said({ reason: 'ready', worker: 'Units', isPinned: true }), 'Not started: pinned to Units; the board gives it once nothing holds it')
   assert.equal(said({ reason: 'nobody' }), 'Not started: no worker is named for it')
   assert.equal(said({ reason: 'unknown', worker: 'Units' }), 'Not started: the state of Units is not known')
 })

@@ -51,7 +51,7 @@ test('a step\'s window: Summary, picture, goal, the strip, What we build, Requir
   const item = itemOfStep(work, 'B1')
   assert.deepEqual(item, {
     id: 'B1', title: 'Draw the strip', summary: ['One strip per step.'], picture: 'art-inbox/strip/strip.png', goal: 'G4', what: ['the strip', 'its window'],
-    requirements: ['readable when small'], touches: ['public/board.js, src/state.mjs'], history: ['2026-10-17 11:05 Board: taken'], queueWhenRefined: null, checked: null, fixOf: null, attempts: 0,
+    requirements: ['readable when small'], touches: ['public/board.js, src/state.mjs'], history: ['2026-10-17 11:05 Board: taken'], queueWhenRefined: null, pinned: null, checked: null, fixOf: null, attempts: 0,
     effort: { level: 'medium', why: null, isSet: false }, model: { family: 'sonnet', why: null, isSet: false }, owner: 'Board', state: 'in progress',
   })
   assert.deepEqual(plain(page.itemPartsOf(item, true)).map(part => [part.key, part.isFolded]), [

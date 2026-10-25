@@ -20,8 +20,6 @@ const KINDS = {
   unfiled: { sign: '!', tag: 'No ask filed' },
   // B308: a worker holds a step, is not working and asked nothing: a hint, with the way to its answer.
   idle: { sign: '!', tag: 'May wait for you' },
-  // Focus 4: the focus's steps made but not handed out by the main chat: a hint, with the way to it.
-  handout: { sign: '!', tag: 'Waits for the main chat' },
   // B541: chats on an older Workers mod than the one installed: the one way to bring them up to date.
   'old-mod': { sign: '!', tag: 'Restart to update' },
 }
@@ -1390,7 +1388,8 @@ function whyText(why) {
     case 'cut': return said('wait', `${why.worker} was cut off`)
     // B315: its process does not run since the app was opened again.
     case 'off': return said('wait', `${why.worker} is not running`)
-    case 'handout': return said('plain', why.isOwn ? `${why.main} has not started it` : `waits for ${why.main} to hand it out`)
+    // Redesign Part 2: the board hands it out: given to its free worker, which takes it now; or pinned to it.
+    case 'ready': return said('plain', why.isPinned ? `pinned to ${why.worker}; the board gives it once nothing holds it` : `given to ${why.worker}; it takes it now`)
     case 'nobody': return said('plain', 'no worker is named for it')
     default: return said('plain', `the state of ${why.worker ?? 'its worker'} is not known`)
   }
@@ -3090,22 +3089,29 @@ $('workers-panel').addEventListener('click', event => {
 })
 
 /**
- * B83: in the window of a step in a worker's queue: "Move to" another worker, and "Take out of the queue" (it stays on
- * the backlog without a worker). B301, the review: both change the work store at once through the work API, as the
- * person (`requeue`, `unqueue`); the board delivers the step to its new worker. Nothing for a step without an id.
+ * Redesign Part 2 (2026-10-25): in the window of a task in a worker's queue. A task the person pinned to it: "Move to"
+ * pins it to another worker, "Unpin" puts it back on the list for any worker (the work API's `pin`, as the person). A
+ * task the board gave it says so: it is the worker's to take, and goes back on the list if it does not. Nothing for a
+ * task without an id.
  */
-function queueChangePart(lane, step, state) {
+function pinChangePart(lane, step, state) {
   if (typeof step?.id !== 'string') return null
-  const key = `change:${step.id}`
+  const part = el('div', 'step-queue-line')
+  if (step.isPinned !== true) {
+    part.append(el('span', 'muted', `The board gave it to ${lane.name}: it takes it now, or the board puts it back on the list.`))
+    return part
+  }
+  const key = `pin:${step.id}`
   const others = (state.chats ?? []).filter(one => !one.isMain && !one.isLeftover && one.name !== lane.name)
+  part.append(el('span', '', `Pinned to ${lane.name}. `))
   if (others.length > 0) {
     const move = el('button', 'quiet-button', 'Move to')
     move.type = 'button'
-    move.dataset.moveStep = step.id
+    move.dataset.pinMove = step.id
     move.disabled = sending.has(key)
     const pick = el('select')
-    pick.dataset.moveTarget = step.id
-    pick.setAttribute('aria-label', 'The worker to move it to')
+    pick.dataset.pinTarget = step.id
+    pick.setAttribute('aria-label', 'The worker to pin it to')
     for (const one of others) {
       const option = el('option', '', one.name)
       option.value = one.name
@@ -3113,25 +3119,34 @@ function queueChangePart(lane, step, state) {
     }
     part.append(move, pick)
   }
-  const out = el('button', 'quiet-button', 'Take out of the queue')
+  const out = el('button', 'quiet-button', 'Unpin')
   out.type = 'button'
-  out.dataset.unqueueStep = step.id
+  out.dataset.unpinStep = step.id
   out.disabled = sending.has(key)
-  out.title = 'It stays on the backlog, without a worker'
-  part.append(out, el('span', 'muted', 'The work store changes at once; the board delivers the step to its new worker.'))
+  out.title = 'Back on the list: the board gives it to the first free worker'
+  part.append(out)
   if (problems.has(key)) part.append(el('p', 'problem', problems.get(key)))
   return part
 }
 
-// B83: the queue's changes from a step's window.
-$('details').addEventListener('click', event => {
-  const button = event.target.closest('[data-move-step], [data-unqueue-step]')
-  if (button === null) return
-  const id = button.dataset.moveStep ?? button.dataset.unqueueStep
+/**
+ * Redesign Part 2: the person's pin of a task, from its window or its row on the Backlog tab: "Pin to" (or "Move to")
+ * with the worker picked beside it, or "Unpin". The work store changes at once (the work API's `pin`).
+ */
+function pinClick(button) {
+  const id = button.dataset.pinMove ?? button.dataset.pinStep ?? button.dataset.unpinStep
+  if (typeof id !== 'string') return
+  const scope = button.closest('.step-queue-line, .step-line, .details-foot') ?? document
+  const target = button.dataset.unpinStep !== undefined ? '' : [...scope.querySelectorAll('[data-pin-target]')].find(pick => pick.dataset.pinTarget === id)?.value ?? ''
+  if (button.dataset.unpinStep === undefined && target === '') return
   button.disabled = true
-  if (button.dataset.moveStep === undefined) return sendWork({ action: 'unqueue', id }, `change:${id}`)
-  const target = [...$('details').querySelectorAll('[data-move-target]')].find(pick => pick.dataset.moveTarget === id)?.value ?? ''
-  return sendWork({ action: 'requeue', id, for: target }, `change:${id}`)
+  return sendWork({ action: 'pin', id, for: target }, `pin:${id}`)
+}
+
+// Redesign Part 2: the pin's buttons in a task's window.
+$('details').addEventListener('click', event => {
+  const button = event.target.closest('[data-pin-move], [data-pin-step], [data-unpin-step]')
+  if (button !== null) pinClick(button)
 })
 
 // B143: "✕ Remove" asks at once for a free worker with nothing queued, else opens (or closes) the warning;
@@ -3182,14 +3197,44 @@ $('lanes').addEventListener('click', event => {
   if (id !== null) openDetails({ need: id })
 })
 
-/** What has no lane: queued steps that name no worker, and folders no worker is named for. */
+/**
+ * Redesign Part 2 (2026-10-25): the board's list of tasks ready for a worker, under the Workers, in its order (fixes,
+ * then the focus goal's, then the rest, each by id): each with whom it is kept for (pinned to a worker, or a follow-up
+ * of the one that just finished what it waits on), and the refined tasks something still holds, each with why.
+ */
+function drawReadyList(state) {
+  const box = $('ready-list')
+  if (box === null) return
+  const list = state.readyList ?? null
+  box.hidden = list === null || (list.ready.length === 0 && list.held.length === 0)
+  if (box.hidden) return fill(box, [])
+  const row = (one, why) => {
+    const line = el('li', 'ready-row')
+    const link = el('a', 'ready-id', one.id)
+    link.href = `#details=${one.id}`
+    line.append(link, ' ', el('span', 'ready-title', one.title ?? ''), ...(why === null ? [] : [el('span', 'muted', ` · ${why}`)]))
+    return line
+  }
+  const keptWhy = one => (one.pinned !== null ? `pinned to ${one.pinned}` : one.keptFor !== null ? `kept for ${one.keptFor}${Number.isFinite(one.keptUntil) ? ` until ${clock(one.keptUntil)}` : ''}` : null)
+  const parts = [el('h3', '', `Ready for a worker (${list.ready.length})`)]
+  const ready = el('ol', 'ready-rows')
+  ready.append(...list.ready.map(one => row(one, keptWhy(one))))
+  if (list.ready.length === 0) ready.append(el('li', 'muted', 'None: every refined task is given or held.'))
+  parts.push(ready)
+  if (list.held.length > 0) {
+    const held = el('details', 'ready-held')
+    held.append(el('summary', '', `Refined, but held (${list.held.length})`))
+    const rows = el('ul', 'ready-rows')
+    rows.append(...list.held.map(one => row(one, one.why)))
+    held.append(rows)
+    parts.push(held)
+  }
+  fill(box, parts)
+}
+
+/** What has no lane: folders no worker is named for. */
 function drawStrips(state) {
   const strips = []
-  if (state.unassigned.length > 0) {
-    const strip = el('div', 'strip')
-    strip.append(el('b', '', `Queued for nobody (${state.unassigned.length}): `), state.unassigned.map(step => [step.id, step.title].filter(Boolean).join(' ')).join(' · '))
-    strips.push(strip)
-  }
   if (state.otherFolders.length > 0) {
     const strip = el('details', 'strip')
     strip.append(el('summary', '', `Folders no worker is named for (${state.otherFolders.length})`))
@@ -3477,7 +3522,7 @@ function answerPart(need, state, isFolded) {
     const what = { approve: 'approved', reject: 'rejected', done: 'marked done' }[earlier.verdict] ?? 'answered'
     parts.push(el('p', 'muted', `Changed since you ${what} it at ${clock(earlier.at)}${earlier.text === '' ? '' : `: "${earlier.text}"`}.`))
   }
-  if (need.kind === 'unfiled' || need.kind === 'idle' || need.kind === 'handout') return [...parts, ...talkButton(need)]
+  if (need.kind === 'unfiled' || need.kind === 'idle') return [...parts, ...talkButton(need)]
   if (need.kind === 'old-mod') return [...parts, ...oldModParts(need, state)]
   if (!need.canAnswer) return [...parts, el('p', 'muted', isStep(need) ? 'No main chat is open to take the answer.' : 'Answer in its chat.')]
   if (isFolded && !openForms.has(need.id)) {
@@ -6389,11 +6434,11 @@ function drawDetails(state) {
     form.append(...optionChoices(need), ...answerPart(need, state, false))
     foot.append(form)
   }
-  // B181: a step of the Backlog tab that nobody has: "Add to queue" in its foot, as in its row.
-  const queue = need === null && subject.step !== undefined ? queuePart(subject.step, state, true) : null
-  if (queue !== null) foot.append(queue)
-  // B83: a step in a worker's queue can move to another worker, or out of the queue.
-  const change = need === null && subject.step === undefined && lane !== null && lane !== undefined ? queueChangePart(lane, step, state) : null
+  // Redesign Part 2: a new or refined task of the Backlog tab: "Pin to" a worker in its foot, as in its row.
+  const pin = need === null && subject.step !== undefined ? pinPart(subject.step, state, true) : null
+  if (pin !== null) foot.append(pin)
+  // Redesign Part 2: a task in a worker's queue: pinned, it moves to another worker or is unpinned; given, it says so.
+  const change = need === null && subject.step === undefined && lane !== null && lane !== undefined ? pinChangePart(lane, step, state) : null
   if (change !== null) foot.append(change)
   // B233: Refine; B293: Send answers and Take the advice, or Refine again.
   const refineFoot = subject.step !== undefined ? refineButtons(subject.step, state) : null
@@ -6551,9 +6596,6 @@ $('details').addEventListener('click', event => {
     }
     return
   }
-  // B181: a step nobody has, asked for the queue from its window.
-  const queue = event.target.closest('[data-queue-step]')
-  if (queue !== null) return askQueue(queue)
   // B221: a step closed or deleted from its window.
   const edit = event.target.closest('[data-edit-step]')
   if (edit !== null) return editStepClick(edit)
@@ -9845,8 +9887,8 @@ function focusView(focus, goals, can = null, ui = {}) {
     view.progress = { text: `${done} of ${total} done${left === null ? '' : ` · about ${left} left`}`, percent: total === 0 ? 0 : Math.round((done / total) * 100) }
   }
   if (stage === 'run') {
-    // Focus 4: a part whose steps are made but not handed out yet waits for the main chat.
-    const chips = { done: 'Done', now: 'In progress', next: 'Next', handout: 'Waiting for the main chat to hand it out', refining: 'Waiting for its refine, then the board queues it' }
+    // Redesign Part 2: a part whose tasks are refined and none given yet is on the board's list for a worker.
+    const chips = { done: 'Done', now: 'In progress', next: 'Next', ready: 'On the list for a worker', refining: 'Waiting for its refine, then it goes on the list' }
     view.run = {
       title: 'The how',
       parts: focus.parts.map(part => ({
@@ -13919,42 +13961,47 @@ let coordinateFilter = 'all'
 let coordinateGoal = null
 
 /**
- * B181: a step nobody has (open, with an id) gets a button that asks the main chat to hand it out; once asked, it
- * says when, until the main chat's note names a worker. The person, 2026-10-14: "I want a button add to queue for the
- * items on the backlog." `isLong` gives the window's wording. Null for any other step.
+ * Redesign Part 2 (2026-10-25): the board hands out every task; the person may pin a new or refined task (open, with
+ * an id) to a worker, and the board gives it to that worker only. Pinned: "Pinned to <worker>" with Unpin (and, in
+ * the window, Move to). Not pinned: "Pin to" with the workers beside it. `isLong` gives the window's wording. Null for
+ * any other task, or without a worker on the board.
  */
-function queuePart(step, state, isLong) {
-  const main = state.workers?.main ?? null
-  if (step.status !== 'open' || typeof step.id !== 'string' || main === null) return null
-  const mainTitle = state.workers.mainTitle ?? main
-  const key = `queue:${step.id}`
-  const ask = step.queueAsk ?? null
-  // B285: a step goes into a queue only once refined; until then the ask waits on the board.
-  if (ask?.isOpen === true && ask.state === 'held') {
-    const part = el('span', 'step-queue is-asked', isLong ? `Asked at ${clock(ask.at)}: the Advisor refines it first, then it goes to ${mainTitle} by itself.` : `Refine, then queue`)
-    part.title = `Asked at ${clock(ask.at)}: refined first, then handed to ${mainTitle}`
-    return part
+function pinPart(step, state, isLong) {
+  if (step.status !== 'open' || typeof step.id !== 'string') return null
+  const workers = (state.chats ?? []).filter(one => !one.isMain && !one.isLeftover).map(one => one.name)
+  const pinned = step.item?.pinned ?? null
+  if (workers.length === 0 && pinned === null) return null
+  const key = `pin:${step.id}`
+  const line = el('div', `step-queue-line${isLong ? '' : ' is-row'}`)
+  const pick = (label, others) => {
+    const select = el('select')
+    select.dataset.pinTarget = step.id
+    select.setAttribute('aria-label', `${label}: ${step.id} ${step.title}`)
+    for (const name of others) {
+      const option = el('option', '', name)
+      option.value = name
+      select.append(option)
+    }
+    return select
   }
-  if (ask?.isOpen === true) {
-    const where = ask.state === 'delivered' ? `in ${mainTitle}'s chat` : `on its way to ${mainTitle}`
-    const part = el('span', 'step-queue is-asked', isLong ? `Asked at ${clock(ask.at)}, ${where}: it shows as queued once its note names a worker.` : `Asked ${clock(ask.at)}`)
-    part.title = `Asked at ${clock(ask.at)} to hand it out, ${where}`
-    return part
+  const button = (label, data, title) => {
+    const one = el('button', `step-queue${problems.has(key) ? ' is-error' : ''}`, sending.has(key) ? 'Pinning…' : problems.has(key) ? 'Try again' : label)
+    one.type = 'button'
+    one.dataset[data] = step.id
+    one.disabled = sending.has(key)
+    one.title = problems.get(key) ?? title
+    one.setAttribute('aria-label', `${label}: ${step.id} ${step.title}`)
+    return one
   }
-  // Refused: the row says so, and why on hover; the window says why in full.
-  const button = el('button', `step-queue${problems.has(key) ? ' is-error' : ''}`, sending.has(key) ? 'Asking…' : problems.has(key) ? 'Try again' : 'Add to queue')
-  button.type = 'button'
-  button.dataset.queueStep = step.id
-  button.disabled = sending.has(key)
-  // B285: a step that is not refined is refined by the Advisor first (`refineState`, backlog.mjs refineStateOf).
-  const isRefined = step.refineState === 'ready'
-  button.title = problems.get(key) ?? (isRefined ? `Ask ${mainTitle} to hand it to a worker` : `The Advisor refines it first, then ${mainTitle} hands it to a worker`)
-  // Every row has one: the step it is for is in its name.
-  button.setAttribute('aria-label', `${button.textContent}: ${step.id} ${step.title}`)
-  if (!isLong) return button
-  const line = el('div', 'step-queue-line')
-  line.append(button, el('span', 'muted', isRefined ? `${mainTitle} picks the worker, or what it waits for.` : `Not refined yet: the Advisor refines it first, then ${mainTitle} picks the worker.`))
-  if (problems.has(key)) line.append(el('p', 'problem', problems.get(key)))
+  if (pinned !== null) {
+    line.append(el('span', 'step-pinned', `Pinned to ${pinned}`), ' ', button('Unpin', 'unpinStep', 'Back on the list: the board gives it to the first free worker'))
+    const others = workers.filter(name => name !== pinned)
+    if (isLong && others.length > 0) line.append(' ', button('Move to', 'pinStep', 'Pin it to another worker'), pick('Move to', others))
+  } else {
+    line.append(button('Pin to', 'pinStep', 'The board gives it to this worker only, once nothing holds it'), pick('Pin to', workers))
+    if (isLong) line.append(el('span', 'muted', ' Not pinned, it goes to the first free worker once it is ready.'))
+  }
+  if (isLong && problems.has(key)) line.append(el('p', 'problem', problems.get(key)))
   return line
 }
 
@@ -14315,14 +14362,6 @@ $('details').addEventListener('input', event => {
   if (name !== undefined) drafts.set(`refine:${name}`, event.target.value)
 })
 
-/** B181: the click on "Add to queue", in a row of the Backlog tab or in a step's window. */
-function askQueue(button) {
-  const main = board?.workers?.main ?? null
-  if (main === null) return
-  button.disabled = true
-  send({ to: main, command: 'queue', step: button.dataset.queueStep }, `queue:${button.dataset.queueStep}`)
-}
-
 function drawCoordinate(state) {
   const activities = state.backlog ?? []
   // B296: one line about the work store; its problems on hover.
@@ -14362,7 +14401,7 @@ function drawCoordinate(state) {
   if (focusedGoal !== null) $('coordinate-list').querySelector(`[data-goal-fold="${focusedGoal}"]`)?.focus()
 }
 
-/** A step's line on the Backlog tab: its row, which opens its window, with "Add to queue", Close and Delete beside it. */
+/** A step's line on the Backlog tab: its row, which opens its window, with "Pin to", Close and Delete beside it. */
 function coordinateLine(step, state) {
   const row = el('button', `step-row is-${step.status}`)
   row.type = 'button'
@@ -14380,13 +14419,13 @@ function coordinateLine(step, state) {
     el('span', 'step-worker', step.worker ?? (step.status === 'you' ? 'You' : '')),
     el('span', 'step-branch', step.branch ?? ''),
     el('span', `step-state is-${step.status}`, STEP_STATES[step.status] ?? step.status),
-    // Room for what B83 will put here (stop a task, move a queued step, take one out of a queue). B181's "Add to
-    // queue" stands over it, beside the row's own button: a button holds no other.
+    // Room for what B83 will put here (stop a task). The pin (redesign Part 2) stands over it, beside the row's own
+    // button: a button holds no other.
     el('span', 'step-actions'),
   )
   const line = el('div', 'step-line')
   line.append(row)
-  const queue = queuePart(step, state, false)
+  const queue = pinPart(step, state, false)
   if (queue !== null) line.append(queue)
   // B221: Close and Delete, shown on the row the pointer or the keyboard is on.
   const edit = editPart(step, false)
@@ -14515,8 +14554,9 @@ $('coordinate-busy').addEventListener('change', () => {
 })
 // A step for the person opens its card, with the answer; any other step opens as the step it is.
 $('coordinate-list').addEventListener('click', event => {
-  const queue = event.target.closest('[data-queue-step]')
-  if (queue !== null) return askQueue(queue)
+  // Redesign Part 2: the person's pin of a task, from its row.
+  const pin = event.target.closest('[data-pin-step], [data-unpin-step]')
+  if (pin !== null) return pinClick(pin)
   const edit = event.target.closest('[data-edit-step]')
   if (edit !== null) return editStepClick(edit)
   const row = event.target.closest('[data-open-step]')
@@ -14656,7 +14696,7 @@ function againBody(idea, version, change, design) {
   return { body: { action: 'again', idea: idea.id, change: words, from: version.n } }
 }
 
-/** What "Put on the backlog" (`where: 'backlog'`) and "Put in a queue" (`'queue'`) send, or why not. */
+/** What "Put on the backlog" (`where: 'backlog'`) and "Put on the list" (`'queue'`) send, or why not. */
 function sendBody(idea, form, where, design) {
   const limits = limitsOf(design)
   const title = form.title.trim()
@@ -14669,7 +14709,7 @@ function sendBody(idea, form, where, design) {
   if (requirements.length > limits.requirements) return { problem: `At most ${limits.requirements} requirements.` }
   if (requirements.some(line => line.length > limits.requirement)) return { problem: `A requirement is too long: ${limits.requirement} characters at most.` }
   if (Number.isNaN(minutes)) return { problem: 'I cannot read that time. Write it like "45 min" or "1 h 30".' }
-  const body = { action: 'send', where, title, description, requirements, worker: form.worker === '' ? null : form.worker, minutes }
+  const body = { action: 'send', where, title, description, requirements, minutes }
   // B368: without an idea the step goes on its own, with no picture.
   return { body: idea === null ? body : { action: 'send', idea: idea.id, ...body } }
 }
@@ -14677,13 +14717,13 @@ function sendBody(idea, form, where, design) {
 /** B368: what part 3 says after a step without an idea was sent: that it was sent and where it goes, not more. */
 function bareSentWords(sent, main = null) {
   const who = main ?? 'the main chat'
-  const what = sent.where === 'queue' ? `put in ${sent.worker === null ? 'a queue' : `the queue of ${sent.worker}`}` : 'put on the backlog'
+  const what = sent.where === 'queue' ? 'put on the list for a worker' : 'put on the backlog'
   return `Sent: you asked ${who} to have "${sent.title}" ${what}. It shows on the backlog once ${who} wrote it.`
 }
 
 /** B368: the empty form of a step asked without an idea. */
 function blankForm() {
-  return { title: '', description: '', requirements: [''], worker: '', time: '' }
+  return { title: '', description: '', requirements: [''], time: '' }
 }
 
 /** The form an agreed idea starts with: a title from the idea's first line, the idea as the description. */
@@ -14691,7 +14731,7 @@ function firstForm(idea) {
   const words = String(idea.text ?? '').trim()
   const first = words.split('\n')[0]
   const title = first.length > 80 ? `${first.slice(0, 79).trimEnd()}…` : first
-  return { title: title.charAt(0).toUpperCase() + title.slice(1), description: words, requirements: [''], worker: '', time: '' }
+  return { title: title.charAt(0).toUpperCase() + title.slice(1), description: words, requirements: [''], time: '' }
 }
 
 /** What to say when the board's own reference pictures for a kind of idea are not there: the picture may fit the game less. */
@@ -14703,7 +14743,7 @@ function missingOf(design, kind) {
 /** Where the asking for the step is, in words. `main` is the main chat's name. */
 function sentWords(sent, main = null) {
   const who = main ?? 'the main chat'
-  const what = sent.where === 'queue' ? `put in ${sent.worker === null ? 'a queue' : `the queue of ${sent.worker}`}` : 'put on the backlog'
+  const what = sent.where === 'queue' ? 'put on the list for a worker' : 'put on the backlog'
   const where = {
     waiting: `waits for ${who} to take it`,
     taken: `handed to ${who}, which writes the step when it is idle`,
@@ -14888,16 +14928,6 @@ function drawDesignForm(design, view, main) {
     $('design-time').value = form === null || view.form === 'locked' ? '' : form.time
     drawRequirements(form === null || view.form === 'locked' ? { requirements: [''] } : form, !isOpen)
   }
-  once('design-workers', [(board?.chats ?? []).map(lane => [lane.name, lane.isMain, lane.isLeftover]), main], () => {
-    const first = el('option', '', `Let ${main ?? 'the main chat'} decide`)
-    first.value = ''
-    fill($('design-worker'), [first, ...(board?.chats ?? []).filter(lane => !lane.isMain && !lane.isLeftover).map(lane => {
-      const option = el('option', '', lane.name)
-      option.value = lane.name
-      return option
-    })])
-  })
-  $('design-worker').value = form === null || view.form === 'locked' ? '' : idea?.sent?.worker ?? form.worker
   // While a step is being asked for the fields wait too: what is typed then would be emptied with the form.
   $('design-fields').disabled = !isOpen || isDesignSending
   // Once the step was asked for, what was asked stands in its place.
@@ -15116,7 +15146,7 @@ $('design-strip').addEventListener('click', event => {
 function designForm() {
   const form = designForms.get(designChosen.idea)
   if (form === undefined) return null
-  Object.assign(form, { title: $('design-title').value, description: $('design-description').value, worker: $('design-worker').value, time: $('design-time').value })
+  Object.assign(form, { title: $('design-title').value, description: $('design-description').value, time: $('design-time').value })
   for (const input of $('design-requirements').querySelectorAll('[data-requirement]')) form.requirements[Number(input.dataset.requirement)] = input.value
   return form
 }
@@ -15167,7 +15197,7 @@ for (const [id, where] of [['design-backlog', 'backlog'], ['design-queue', 'queu
     designCall(sent.body, 'form').then(answer => {
       // B368: a step without an idea leaves no idea to show it: the form empties and the note says it was asked.
       if (answer === null || view.idea !== null) return
-      designBareSent = { where, worker: sent.body.worker, title: sent.body.title }
+      designBareSent = { where, title: sent.body.title }
       designForms.delete(null)
       designFormOf = null
       drawDesign()
@@ -15229,10 +15259,11 @@ function draw(state) {
   drawLanes(state)
   drawSupervisor(state)
   drawStrips(state)
+  drawReadyList(state)
   drawToday(state)
   needsOnce(state)
-  // B181: also when an "Add to queue" is on its way or was refused, and when the main chat it asks comes or goes.
-  const queueing = [[...sending].filter(key => key.startsWith('queue:')), [...problems].filter(([key]) => key.startsWith('queue:')), state.workers?.main ?? null]
+  // Redesign Part 2: also when a pin is on its way or was refused, and when the workers come or go.
+  const queueing = [[...sending].filter(key => key.startsWith('pin:')), [...problems].filter(([key]) => key.startsWith('pin:')), (state.chats ?? []).filter(one => !one.isMain && !one.isLeftover).map(one => one.name)]
   // B302: the goal map too, which groups the tab when "One list" is off.
   once('coordinate', [state.backlog ?? null, queueing, state.goals ?? null], () => drawCoordinate(state))
   // B155: today's times name no day, so the list is drawn anew when the day changes too.
