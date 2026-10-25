@@ -134,7 +134,7 @@ export function createSupervisor(ports) {
     const now = runnerPorts.now()
     const kept = typeof runnerPorts.memory?.load === 'function' ? await runnerPorts.memory.load() : null
     const view = buildView({
-      state: await runnerPorts.state(), items: await runnerPorts.items(), outbox: runnerPorts.outbox(), repairs: memoryOf(kept).repairs,
+      state: await runnerPorts.state(), items: await runnerPorts.items(), outbox: runnerPorts.outbox(), repairs: memoryOf(kept).repairs, seen: memoryOf(kept).seen,
       settings: settings.supervisor ?? {}, now,
     })
     return healthSummary(view, now)

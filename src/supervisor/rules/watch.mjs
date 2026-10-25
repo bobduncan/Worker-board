@@ -19,7 +19,7 @@ import { checkpointOf, heldMs, isHolding } from '../../work/pause.mjs'
 import { isFailedForGood, stoppedChats, whyClosed } from '../../work/outboxSweep.mjs'
 import { FIRST_SAYING, chatsByRole, oldModFinding } from '../../oldMods.mjs'
 import { EFFORTS, chatEffort, effortOf, effortSaid, familyOf, modelOf } from '../../work/effort.mjs'
-import { reviewWaitOf } from '../../work/resultCheck.mjs'
+import { chainTries, hasTriedBefore, reviewWaitOf } from '../../work/resultCheck.mjs'
 import { CLEAR_MOD, takenSince } from '../../clearOwed.mjs'
 import { readingAgeMinutes } from '../../limits.mjs'
 import { COUNTS_BY_KEY } from './repair.mjs'
@@ -69,8 +69,18 @@ const afterPause = (view, since) => (Number.isFinite(since) ? Math.max(since, pa
  * review: never from before the end of the person's last pause (the chats stood still at the person's word then).
  */
 function lasted(view, ctx, key, since = null) {
+  return spanOf(view, watchOf(ctx), key, since)
+}
+
+/** B664: since when the rules' watch first saw a key, with every key asked kept watched (the rules' `ctx`). */
+const watchOf = ctx => key => {
   if (!ctx.observed.includes(key)) ctx.observed.push(key)
-  const first = Math.min(Number.isFinite(since) ? since : Infinity, ctx.seen.get(key) ?? view.now)
+  return ctx.seen.get(key)
+}
+
+/** `lasted`'s span, with `seenOf(key)` the time the key was first seen (undefined: now). */
+function spanOf(view, seenOf, key, since = null) {
+  const first = Math.min(Number.isFinite(since) ? since : Infinity, seenOf(key) ?? view.now)
   return view.now - Math.max(first, pauseEndOf(view))
 }
 
@@ -498,13 +508,11 @@ function reviewStuck(view, ctx) {
     const wait = reviewWaitOf(item, view.items)
     if (wait?.kind !== 'check') continue
     const id = idOf(item)
-    const key = `review-stuck ${id} check`
-    const ms = lasted(view, ctx, key, afterPause(view, wait.since))
-    if (ms <= view.settings.reviewMinutes * MIN) continue
-    const words = checkWordsOf(view, id, wait.since)
+    // B662 (X60): a check word typed again restarts the wait; one still waiting, or younger than `checkWordMinutes`, is
+    // no case yet. B664: judged by reviewLateOf, as the health summary judges it.
+    const { late, key, ms, words } = reviewLateOf(view, item, wait, watchOf(ctx))
+    if (!late) continue
     const last = words.at(-1) ?? null
-    // B662 (X60): a check word typed again restarts the wait; one still waiting, or younger than `checkWordMinutes`, is no case yet.
-    if (last !== null && view.now - last.at <= view.settings.checkWordMinutes * MIN) continue
     found.push({
       rule: 'review-stuck', key, subject: id,
       text: `${id} in review ${minutes(ms)} min with no result check filed (${wait.text})`,
@@ -530,9 +538,8 @@ function fixDropped(view, ctx) {
     const wait = reviewWaitOf(item, view.items)
     if (wait?.kind !== 'dropped') continue
     const id = idOf(item)
-    const key = `fix-dropped ${id}`
-    const ms = lasted(view, ctx, key, afterPause(view, wait.since))
-    if (ms <= FIX_DROPPED_MS) continue
+    const { late, key, ms } = reviewLateOf(view, item, wait, watchOf(ctx))
+    if (!late) continue
     found.push({
       rule: 'dropped-fix', key, subject: id,
       text: `${id} in review, but ${wait.text}: nothing will close it`,
@@ -565,17 +572,82 @@ function reviewHeld(view, ctx) {
     if (wait?.kind !== 'fix' || wait.held === null || seen.has(wait.end)) continue
     seen.add(wait.end)
     const id = idOf(item)
-    // B660: the person's open ask is already with them (B543): no case, and nothing watched meanwhile.
-    if (PERSON_ASK_HOLD.test(wait.held)) continue
-    // Counted per why, from when the board first saw this hold (the fix's Since is its move to refined, long before a
-    // blocker or an ask may have cleared: B614 refined at 16:39, blocked by B623 until 19:56).
-    const key = `review-held ${wait.end} ${wait.held.slice(0, 80)}`
-    const ms = lasted(view, ctx, key)
-    if (ms <= view.settings.reviewMinutes * MIN) continue
+    // B660: the person's open ask is already with them (B543): no case, and nothing watched meanwhile. B664: judged by
+    // reviewLateOf, as the health summary judges it.
+    const { late, key, ms } = reviewLateOf(view, item, wait, watchOf(ctx))
+    if (!late) continue
     found.push({
       rule: 'review-held', key, subject: id,
       text: `${id} in review behind its fix ${wait.end}, held ${minutes(ms)} min: ${wait.held}`,
       evidence: `the chain ${[id, ...wait.chain].join(' → ')}; the ready list has held ${wait.end} since ${clockOf(view.now - ms)}: ${wait.held}`,
+    })
+  }
+  return found
+}
+
+/**
+ * B664 (X8 a third time: the health summary marked review odd where the rules stayed quiet, the gap of B660 and B662): how
+ * late a step in review is by what it waits for (`wait`, resultCheck.mjs `reviewWaitOf`), one judgement for the rules
+ * review-stuck, dropped-fix and review-held and the health summary (health.mjs). `seenOf(key)`: since when the watch
+ * first saw the key (the rules' own watch; the health summary reads the supervisor's memory), undefined for not yet. Not
+ * late: the person's answer, a hold that is their open ask, a check word younger than `checkWordMinutes`, anything while
+ * the person pauses. Any other hold counts from when the watch first saw it, a check from when it was asked, a dropped fix
+ * from the drop, each from the end of the last pause at the earliest. `{ late, key, ms, words }` (`words` the check words,
+ * for a check), or null for a wait the rules judge another way (an open fix at work, a block).
+ */
+export function reviewLateOf(view, item, wait, seenOf = () => undefined) {
+  const id = idOf(item)
+  const not = { late: false, key: null, ms: 0, words: [] }
+  if (wait === null || wait === undefined) return null
+  if (wait.kind === 'answer') return not
+  if (wait.kind === 'check') {
+    if (isPaused(view)) return not
+    const key = `review-stuck ${id} check`
+    const ms = spanOf(view, seenOf, key, afterPause(view, wait.since))
+    if (ms <= view.settings.reviewMinutes * MIN) return { ...not, key, ms }
+    const words = checkWordsOf(view, id, wait.since)
+    const last = words.at(-1) ?? null
+    return { late: last === null || view.now - last.at > view.settings.checkWordMinutes * MIN, key, ms, words }
+  }
+  if (wait.kind === 'dropped') {
+    if (isPaused(view)) return not
+    const key = `fix-dropped ${id}`
+    const ms = spanOf(view, seenOf, key, afterPause(view, wait.since))
+    return { ...not, late: ms > FIX_DROPPED_MS, key, ms }
+  }
+  if (wait.kind === 'fix' && wait.held !== null) {
+    if (isPaused(view) || PERSON_ASK_HOLD.test(wait.held)) return not
+    // Counted per why, from when the board first saw this hold (the fix's Since is its move to refined, long before a
+    // blocker or an ask may have cleared: B614 refined at 16:39, blocked by B623 until 19:56).
+    const key = `review-held ${wait.end} ${wait.held.slice(0, 80)}`
+    const ms = spanOf(view, seenOf, key)
+    return { ...not, late: ms > view.settings.reviewMinutes * MIN, key, ms }
+  }
+  return null
+}
+
+/**
+ * 12d. B664 (X8 a third time: B618 → B636 → B654 → B659 and B617 → B631 → B641 → B655 → B661, maps patched four and five
+ * times the same way at 46 to 71 of 75, until the person dropped them all): a chain of fixes with three tries or more
+ * (resultCheck.mjs `chainTries`) whose newest fix is at work (refined, queued, taken, in progress, waiting on you or in
+ * review) with no "Tried before:" line in its what is a third patch of the same way: an incident for the partner, one per
+ * chain and newest fix. Its fix the board made open (new: the partner refines it another way) is no case yet.
+ */
+function chainLong(view) {
+  const found = []
+  const roots = new Set()
+  const atWork = ['refined', 'queued', 'taken', 'in progress', 'waiting on you', 'review']
+  for (const item of stepsOf(view).filter(one => valueOf(one, 'Fix of') !== null && atWork.includes(stateOf(one))).sort((a, b) => byId(idOf(b), idOf(a)))) {
+    const tries = chainTries(idOf(item), view.items)
+    const root = tries[0]
+    if (roots.has(root) || ['done', 'dropped'].includes(stateOf(view.items.get(root)))) continue
+    roots.add(root)
+    const newest = tries.at(-1)
+    if (tries.length < 3 || newest !== idOf(item) || hasTriedBefore(item)) continue
+    found.push({
+      rule: 'chain-long', key: `chain-long ${root} ${newest}`, subject: root,
+      text: `${root}: ${tries.length} tries in one chain of fixes, and its newest fix ${newest} names no "Tried before:": a patch of the same way again`,
+      evidence: `the chain ${tries.join(' → ')}; ${newest} ${stateOf(item)}, ${valueOf(item, 'Owner') ?? 'no owner'}; roles/partner.md "Two rounds, then another way"`,
     })
   }
   return found
@@ -788,6 +860,7 @@ export const WATCH_RULES = [
   { id: 'review-stuck', kind: 'watch', says: 'a step in review with no result check for too long', check: reviewStuck },
   { id: 'dropped-fix', kind: 'watch', says: 'a step in review whose fix was dropped, with no new fix, no new check and no block for over 30 min', check: fixDropped },
   { id: 'review-held', kind: 'watch', says: 'a step in review whose chain of fixes ends in a fix the ready list holds, for too long', check: reviewHeld },
+  { id: 'chain-long', kind: 'watch', says: 'a chain of three tries or more whose newest fix names no "Tried before:" (a patch of the same way again)', check: chainLong },
   { id: 'stale-checkpoint', kind: 'watch', says: 'a step in progress with no checkpoint for hours, or whose checkpoint said to report long ago', check: staleCheckpoint },
   { id: 'effort-mismatch', kind: 'watch', says: 'a worker that still runs another model or effort than its step wants 10 min after the take', check: effortMismatch },
   { id: 'not-cleared', kind: 'watch', says: 'a worker not cleared after its reported step', check: notCleared },

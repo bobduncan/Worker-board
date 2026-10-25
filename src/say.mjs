@@ -261,8 +261,16 @@ export const refineWords = (to, step, round) => ({
     ? `\nThe person answered ${answeredAsks(step).join(', ')} under the step: fold the answers in${step.refined?.ready === true ? '' : ', with what the refine block holds'}.`
     : step.refined?.ready === true
       ? '\nThe step is ready: check it again against the backlog and the goals.'
-      : '\nThe answers and feedback are written in the step\'s refine block.'}`,
+      : '\nThe answers and feedback are written in the step\'s refine block.'}${anotherWayWords(step)}`,
 })
+
+/**
+ * B664: the open fix of a chain with two tries behind it: the word says to refine it another way (roles/partner.md, "Two
+ * rounds, then another way"), its what starting with "Tried before:".
+ */
+const anotherWayWords = step => ((step.item?.what ?? []).some(one => /^Two rounds, then another way\b/.test(one))
+  ? '\nTwo rounds, then another way: this fix\'s chain failed its check twice. Refine it another way, and start its what with "Tried before: <each way, its score, why it fell short>".'
+  : '')
 
 /** B309: the ids of the asks under a step answered since its refine block was written (backlog.mjs `withAsks`). */
 const answeredAsks = step => (step.refined?.asks ?? []).filter(ask => ask.answer !== null).map(ask => ask.id)

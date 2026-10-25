@@ -12,7 +12,7 @@ import { isFailedForGood } from '../work/outboxSweep.mjs'
 import { reviewWaitOf } from '../work/resultCheck.mjs'
 import { ACTIVE, heldReason, workingOnOther } from '../work/parked.mjs'
 import { readingAgeMinutes } from '../limits.mjs'
-import { PERSON_ASK_HOLD, checkWordsOf, checkpointLate, familyOf, switchOf, undeliveredWords, wordMatters } from './rules/watch.mjs'
+import { checkWordsOf, checkpointLate, familyOf, reviewLateOf, switchOf, undeliveredWords, wordMatters } from './rules/watch.mjs'
 
 const MIN = 60_000
 const HOUR = 60 * MIN
@@ -168,11 +168,11 @@ function plannedWait(item, view, now, seen = new Set()) {
 function reviewLate(item, view, now, seen) {
   const wait = reviewWaitOf(item, view.items, view.held)
   if (wait === null) return null
-  if (wait.kind === 'answer') return false
-  if (wait.kind === 'check') return !(now - wait.since <= view.settings.reviewMinutes * MIN)
-  // B656: a chain that ends in a fix the ready list holds is odd once that fix waited past `reviewMinutes`; B660: not when
-  // the hold is the person's open ask (it is theirs already, as their answer above).
-  if (wait.kind === 'fix' && wait.held !== null) return !PERSON_ASK_HOLD.test(wait.held) && !(now - sinceMs(valueOf(view.items.get(wait.end), 'Since')) <= view.settings.reviewMinutes * MIN)
+  // B664 (X8 a third time: a "!" on review where the rules stayed quiet, the gap of B660 and B662): the person's answer,
+  // a check, a dropped fix and a fix the ready list holds are judged as the watch rules judge them (watch.mjs
+  // `reviewLateOf`), with the supervisor's memory of when it first saw each (`view.seen`).
+  const judged = reviewLateOf({ ...view, now }, item, wait, key => view.seen?.get(key))
+  if (judged !== null) return judged.late
   if (wait.kind === 'fix') {
     const chain = new Set([...seen, valueOf(item, 'Id')])
     const fix = view.items.get(wait.fix)
@@ -246,7 +246,7 @@ function stepLines(view, now) {
   const chats = new Set(view.lanes.filter(lane => !lane.isLeftover).map(lane => plain(lane.name, view.prefix)))
   const lines = []
   const backlog = { new: 0, refined: 0 }
-  const review = { steps: 0, chains: 0, held: 0 }
+  const review = { steps: 0, chains: 0, held: 0, late: 0 }
   for (const item of stepsOf(view)) {
     const state = valueOf(item, 'State')
     if (state === 'new' || state === 'refined') {
@@ -277,7 +277,11 @@ function stepLines(view, now) {
     // B563: a step in review names what it waits for, its open fix with that fix's state and owner; B656: its chain's
     // newest link and why that one waits.
     const reviewWait = reviewWaitOf(item, view.items, view.held)
-    if (reviewWait?.kind === 'fix' && reviewWait.held !== null) review.held += 1
+    if (reviewWait?.kind === 'fix' && reviewWait.held !== null) {
+      review.held += 1
+      // B664 (X8 a third time: the line had a "!" for a hold the rules were quiet on): odd only for a hold the rules call late.
+      if (isLate(item, view, now)) review.late += 1
+    }
     const fixWords = reviewWait?.kind === 'fix' ? chainWords(id, reviewWait, view)
       : reviewWait?.kind === 'check' ? checkAskedWords(view, id, reviewWait.since, now) : ''
     const waits = reviewWait !== null ? ` (${reviewWait.text}${fixWords})`
@@ -297,7 +301,7 @@ function stepLines(view, now) {
     const parkedWords = parked === null ? '' : ` (parked: ${owner} is on ${parked.on}; ${parked.why ?? 'nothing names why it waits'})`
     lines.push(lineOf(`${id} ${state} for ${lasting(age)}${stays}, ${owner === null ? 'no owner' : owner}${fix}${waits}${parkedWords}${checkpointWords}: ${oneLine(valueOf(item, 'Title'), 80)}`, { tier, odd, at: since }))
   }
-  if (review.steps > 0) lines.push(lineOf(`in review: ${review.steps} ${review.steps === 1 ? 'step' : 'steps'} in ${review.chains} ${review.chains === 1 ? 'chain' : 'chains'} of fixes${review.held > 0 ? `, ${review.held} behind a fix the ready list holds` : ''}`, { tier: 1, odd: review.held > 0 }))
+  if (review.steps > 0) lines.push(lineOf(`in review: ${review.steps} ${review.steps === 1 ? 'step' : 'steps'} in ${review.chains} ${review.chains === 1 ? 'chain' : 'chains'} of fixes${review.held > 0 ? `, ${review.held} behind a fix the ready list holds` : ''}`, { tier: 1, odd: review.late > 0 }))
   if (backlog.new + backlog.refined > 0) lines.push(lineOf(`backlog, not queued: ${backlog.new} new, ${backlog.refined} refined${refinedWords(view)}`, { tier: 1 }))
   return lines
 }

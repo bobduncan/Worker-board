@@ -229,11 +229,21 @@ test('B563: a step in review whose fix was dropped is odd; so is one whose open 
     state: { chats: [lane('Lead', { isMain: true }), lane('Worker 5')], chatPrefix: '' },
     items: items(
       inReview('B532', 20, [`- ${stamp(ago(15))} Checker: result check failed: 1 of 2 points pass; fix B548 for Worker 5`], { Owner: 'Worker 5' }),
-      step('B548', 'dropped', { Owner: 'Worker 5', 'Fix of': 'B532', Since: stamp(ago(10)) }),
+      step('B548', 'dropped', { Owner: 'Worker 5', 'Fix of': 'B532', Since: stamp(ago(40)) }),
     ),
     now: NOW,
   }), NOW)
   assert.equal(lineOfStep(dropped, 'B532'), '- ! B532 review for 20 min, Worker 5 (its fix B548 was dropped): Step B532 of the garden')
+  // B664: dropped 10 min ago, under the 30 the rule dropped-fix waits: not odd yet, as the rule says nothing yet.
+  const fresh = healthSummary(buildView({
+    state: { chats: [lane('Lead', { isMain: true }), lane('Worker 5')], chatPrefix: '' },
+    items: items(
+      inReview('B532', 20, [`- ${stamp(ago(15))} Checker: result check failed: 1 of 2 points pass; fix B548 for Worker 5`], { Owner: 'Worker 5' }),
+      step('B548', 'dropped', { Owner: 'Worker 5', 'Fix of': 'B532', Since: stamp(ago(10)) }),
+    ),
+    now: NOW,
+  }), NOW)
+  assert.equal(lineOfStep(fresh, 'B532'), '- B532 review for 20 min, Worker 5 (its fix B548 was dropped): Step B532 of the garden')
   // Its fix stalled in progress for 4 h: the step it fixes is odd with it.
   const stalled = healthSummary(buildView({
     state: { chats: [lane('Lead', { isMain: true }), lane('Worker 5', { state: 'working', task: { stepId: 'B548', text: 'x' } })], chatPrefix: '' },
