@@ -110,6 +110,24 @@ test('review-stuck: a step with no result check for over an hour is stuck, one u
   assert.deepEqual(watch(view(items(reviewed('B7', 75)), { pause: { state: 'pausing', since: stamp(ago(10)) } })), [])
 })
 
+test('B662 (X60): a check word typed again gets its 30 minutes before a step in review is stuck', () => {
+  assert.equal(SUPERVISOR_DEFAULTS.checkWordMinutes, 30)
+  const word = minutes => [{ syncKey: 'unchecked B655 1', about: 'B655', to: 'Partner', at: ago(minutes), state: 'taken' }]
+  // B655: 97 min in review, the repair typed the check word a minute ago: no case yet.
+  assert.deepEqual(watch(view(items(reviewed('B655', 97)), { outbox: word(1) })), [])
+  assert.deepEqual(watch(view(items(reviewed('B655', 97)), { outbox: word(30) })), [])
+  // The same step half an hour later, the word unanswered for 31 minutes: a case, the evidence names the word.
+  const late = watch(view(items(reviewed('B655', 97)), { outbox: word(31) }))
+  assert.deepEqual(late.map(one => one.key), ['review-stuck B655 check'])
+  assert.match(late[0].evidence, /1 check word to Partner/)
+  // A word typed again restarts the 30 minutes: the older one does not count.
+  const again = [...word(80), { ...word(5)[0], syncKey: 'unchecked B655 2' }]
+  assert.deepEqual(watch(view(items(reviewed('B655', 97)), { outbox: again })), [])
+  // No word at all is a case as before; the setting moves the age.
+  assert.equal(watch(view(items(reviewed('B655', 97)))).length, 1)
+  assert.equal(watch(view(items(reviewed('B655', 97)), { outbox: word(31), settings: { checkWordMinutes: 45 } })).length, 0)
+})
+
 test('B585 (X33): a first check counts from the board check that asked it, not from the move to review', () => {
   // B522: to review at 21:41 (75 min ago), its board check failed and passed at 22:04 (52 min ago), after its report again.
   const b522 = (review, asked) => item(

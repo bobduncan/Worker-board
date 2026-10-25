@@ -40,6 +40,8 @@ export const SUPERVISOR_DEFAULTS = Object.freeze({
   repairsPerDay: 3,
   /** B543: a step in review with no result check filed for longer than this. */
   reviewMinutes: 60,
+  /** B662: a step in review is stuck only when its newest check word has gone unanswered this long (the repair had its chance). */
+  checkWordMinutes: 30,
   /** B572: a step in progress longer than this with no checkpoint within it. */
   checkpointMinutes: 120,
   /** B572: a step in progress whose last checkpoint's next action is to report, written longer ago than this. */
