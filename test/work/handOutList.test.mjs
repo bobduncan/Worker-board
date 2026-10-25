@@ -23,7 +23,7 @@ const list = (items, more = {}) => readyList(mapOf(items), { now: NOW, focus: 'G
 const at = ms => `- ${stamp(ms)}`
 
 test('the defaults: two minutes to take, a follow-up a preference only, 20 minutes for a held give, no number of workers', () => {
-  assert.deepEqual(HAND_OUT_DEFAULTS, { takeWithinMinutes: 2, followUpMinutes: 0, heldGiveMinutes: 20, maxWorkers: null })
+  assert.deepEqual(HAND_OUT_DEFAULTS, { takeWithinMinutes: 2, followUpMinutes: 0, heldGiveMinutes: 20, maxWorkers: null, handOutBeyondFocus: false })
 })
 
 test('the order: a fix first, then the focus goal\'s tasks, then the rest; each by id', () => {
@@ -105,4 +105,18 @@ test('a pinned task waits for its worker, however old', () => {
   const b15 = step('B15', 'refined', { Pinned: 'Worker 3', Since: stamp(NOW - DAY) })
   assert.deepEqual(list([b15]).ready, [{ id: 'B15', rank: 2, keptFor: 'Worker 3', keptUntil: null, pinned: 'Worker 3', prefers: null }])
   assert.equal(list([b15], { followUpMs: 0 }).ready[0].keptFor, 'Worker 3')
+})
+
+test('the person away, 2026-10-25: a task outside the focus waits for the person unless handOutBeyondFocus; a fix, a focus task and a pin go', () => {
+  const items = new Map([
+    ['B1', step('B1', 'refined', { Goal: 'G9' })],
+    ['B2', step('B2', 'refined', { Goal: 'G33' })],
+    ['B3', step('B3', 'refined', { Goal: 'G9', Priority: 'fix' })],
+    ['B4', step('B4', 'refined', { Goal: 'G9', Pinned: 'Worker 1' })],
+  ])
+  const held = readyList(items, { now: NOW, focus: 'G33', beyondFocus: false })
+  assert.deepEqual(held.ready.map(one => one.id), ['B3', 'B2', 'B4'])
+  assert.deepEqual(held.held.map(one => one.id), ['B1'])
+  assert.match(held.held[0].why, /outside the focus goal/)
+  assert.deepEqual(readyList(items, { now: NOW, focus: 'G33' }).ready.map(one => one.id), ['B3', 'B2', 'B1', 'B4'])
 })
