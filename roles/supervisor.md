@@ -69,7 +69,7 @@ sweep is meant to cost little (a few tens of thousands of tokens, mostly cached)
   open step blocks it ("its fix B<n> was dropped, waits for B<m>", B630): odd only when that step is stalled itself. The
   review-stuck rule watches a check not filed within the review minutes; the dropped-fix rule a dropped fix with no new
   fix, no new check and no block for over 30 min. A fix the board does not hand out leaves its step waiting for nothing
-  that moves: "waits for its fix B<n>, held: <why>" (B656) is odd past the review minutes and the review-held rule's.
+  that moves: "waits for its fix B<n>, held: <why>" (B656) is odd past the review minutes and the review-held rule's, unless the hold is the person's open ask (B660).
   The summary gives one line per chain of fixes ("one chain, 3 in review: ...; newest link B<n> ...") and counts them
   ("in review: 14 steps in 8 chains of fixes"): judge the chains, not the steps. A first check counts from when the board's own check
   passed and asked it ("check asked HH:MM, word to <partner> (<state>)"), not from the step's age in review: one under

@@ -83,21 +83,46 @@ test('openFixChain: the open fixes followed down; a held fix at the end of a dee
 })
 
 test('review-held: a chain behind a held fix for over the review minutes is one case; a chain at work is none', () => {
-  const found = watch(view(HELD_STORE, HELD))
-  assert.deepEqual(found.map(one => [one.rule, one.key, one.subject]), [['review-held', 'review-held B614', 'B603']])
+  // The board has seen the hold for 80 min (its why in the key): one case, however long ago the fix moved to refined.
+  const key = `review-held B614 ${CHOICE_WHY}`
+  const found = watch(view(HELD_STORE, HELD), new Map([[key, ago(80)]]))
+  assert.deepEqual(found.map(one => [one.rule, one.key, one.subject]), [['review-held', key, 'B603']])
   assert.equal(found[0].text, `B603 in review behind its fix B614, held 80 min: ${CHOICE_WHY}`)
-  assert.match(found[0].evidence, /^the chain B603 → B614; B614 refined since \d\d:\d\d; the ready list holds it: outside the focus goal/)
+  assert.match(found[0].evidence, /^the chain B603 → B614; the ready list has held B614 since \d\d:\d\d: outside the focus goal/)
   // Under the review minutes, no ready list in the view, the person's pause: nothing.
-  assert.deepEqual(watch(view(HELD_STORE, HELD, { settings: { reviewMinutes: 90 } })), [])
-  assert.deepEqual(watch(view(HELD_STORE, undefined)), [])
-  assert.deepEqual(watch(view(HELD_STORE, HELD, { pause: { state: 'pausing', since: stamp(ago(5)) } })), [])
+  assert.deepEqual(watch(view(HELD_STORE, HELD, { settings: { reviewMinutes: 90 } }), new Map([[key, ago(80)]])), [])
+  assert.deepEqual(watch(view(HELD_STORE, undefined), new Map([[key, ago(80)]])), [])
+  assert.deepEqual(watch(view(HELD_STORE, HELD, { pause: { state: 'pausing', since: stamp(ago(5)) } }), new Map([[key, ago(80)]])), [])
   // B617 to B655, the fix in progress: none, however deep.
   assert.deepEqual(watch(view(AT_WORK, HELD)), [])
   // A deep chain behind one held fix: one case, named by its first step.
   const deep = items(reviewed('B7', 200, 'B8'), reviewed('B8', 150, 'B9', { 'Fix of': 'B7' }), fixStep('B9', 'B8', 'refined', 90, { Refined: 'ready' }))
-  const deepFound = watch(view(deep, [{ id: 'B9', why: 'waits for the answer to Q4' }]))
-  assert.deepEqual(deepFound.map(one => [one.key, one.subject]), [['review-held B9', 'B7']])
+  const why = 'blocked by B5 (in progress)'
+  const deepFound = watch(view(deep, [{ id: 'B9', why }]), new Map([[`review-held B9 ${why}`, ago(90)]]))
+  assert.deepEqual(deepFound.map(one => [one.key, one.subject]), [[`review-held B9 ${why}`, 'B7']])
   assert.match(deepFound[0].evidence, /^the chain B7 → B8 → B9;/)
+})
+
+test('review-held (B660, X59): an open ask of the person is no case; the time counts from this hold, not from the Since of the fix', () => {
+  // B603 behind B614, held for the answer to Q408 for 234 min: the ask is the person's already, so no case.
+  const ASK = [{ id: 'B614', why: 'waits for the answer to Q408' }]
+  assert.deepEqual(watch(view(HELD_STORE, ASK), new Map([['review-held B614 waits for the answer to Q408', ago(234)]])), [])
+  assert.deepEqual(watch(view(HELD_STORE, [{ id: 'B614', why: 'waits for the answer to Q408, Q409' }]), new Map()), [])
+  // The partner's part of a refine question (the answer is in, not folded in) is not the person's: a case.
+  const FOLD = 'waits for the partner to fold in the answer to Q408'
+  assert.equal(watch(view(HELD_STORE, [{ id: 'B614', why: FOLD }]), new Map([[`review-held B614 ${FOLD}`, ago(70)]])).length, 1)
+  // Held outside the focus goal for over the review minutes: a case (the fix refined 80 min ago, seen for 70).
+  assert.equal(watch(view(HELD_STORE, HELD), new Map([[`review-held B614 ${CHOICE_WHY}`, ago(70)]])).length, 1)
+  // The fix moved to refined 80 min ago (the Since), but the board saw this hold 5 min ago (a blocker cleared before):
+  // not held long enough. A rule that counts from the Since reads 80 min and is red here.
+  assert.deepEqual(watch(view(HELD_STORE, HELD), new Map([[`review-held B614 ${CHOICE_WHY}`, ago(5)]])), [])
+  assert.deepEqual(watch(view(HELD_STORE, HELD)), [])
+  // A hold whose why changed counts from the change: seen 234 min under another why, 10 min under this one.
+  const BLOCKED = 'blocked by B623 (in progress)'
+  const changed = new Map([['review-held B614 waits for the answer to Q408', ago(234)], [`review-held B614 ${BLOCKED}`, ago(10)]])
+  assert.deepEqual(watch(view(HELD_STORE, [{ id: 'B614', why: BLOCKED }]), changed), [])
+  changed.set(`review-held B614 ${BLOCKED}`, ago(75))
+  assert.equal(watch(view(HELD_STORE, [{ id: 'B614', why: BLOCKED }]), changed)[0].text, `B603 in review behind its fix B614, held 75 min: ${BLOCKED}`)
 })
 
 test('the health summary counts chains, not steps: one line per chain with its newest link', () => {
@@ -109,6 +134,11 @@ test('the health summary counts chains, not steps: one line per chain with its n
   // The links of the chain have no line of their own.
   assert.doesNotMatch(text, /- B631 review/)
   assert.doesNotMatch(text, /- B641 review/)
+  // B660: a fix held for the person's open ask is named, but not marked odd, however long it waits.
+  const asked = items(reviewed('B603', 300, 'B614'), fixStep('B614', 'B603', 'refined', 280, { Refined: 'ready' }))
+  const askedText = healthSummary(view(asked, [{ id: 'B614', why: 'waits for the answer to Q408' }]), NOW)
+  assert.match(askedText, /- B603 review for 5 h, Painter \(waits for its fix B614, held: waits for the answer to Q408/)
+  assert.doesNotMatch(askedText, /- ! B603/)
   // A chain whose newest link is in review itself says what that one waits for.
   const checking = items(reviewed('B622', 120, 'B638'), reviewed('B638', 60, null, { 'Fix of': 'B622' }))
   assert.match(healthSummary(view(checking, []), NOW), /- B622 review for 2 h, Painter \(waits for its fix B638; one chain, 2 in review: B622 → B638; newest link B638 review, Painter, waits for its first check\)/)

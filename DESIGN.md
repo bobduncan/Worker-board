@@ -3285,7 +3285,8 @@ the AI sweep by a cheap supervisor chat and the hand-over to the Advisor, comes 
   review whose fix was dropped, with no new fix, no new check and no open step blocking it, for over 30 min; with a
   block, `reviewWaitOf` says kind 'blocked' and the step waits as planned, odd in the health summary only when a
   blocker is stalled itself), `review-held` (B656, X8 again: a step in review whose chain of open fixes ends in a refined
-  fix the ready list holds, for over 60 min from that fix's Since; one case per chain, named by its first step, with the
+  fix the ready list holds, for over 60 min from when the board first saw that hold (B660, X59: not from the fix's Since; a changed why
+  starts again; a hold that is the person's open ask, "waits for the answer to Q<n>", is no case and not odd); one case per chain, named by its first step, with the
   held why; a chain whose last fix is at work is no case, however deep; its line reads "waits for its fix B<n>, held:
   <why>" on the Backlog tab, in work next and list, and in the health summary, which counts review chains, not steps),
   `stale-checkpoint` (B572, the fix of X24: a step in progress over 120 min with no checkpoint within them, or whose

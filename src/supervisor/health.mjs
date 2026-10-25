@@ -12,7 +12,7 @@ import { isFailedForGood } from '../work/outboxSweep.mjs'
 import { reviewWaitOf } from '../work/resultCheck.mjs'
 import { ACTIVE, heldReason, workingOnOther } from '../work/parked.mjs'
 import { readingAgeMinutes } from '../limits.mjs'
-import { checkWordsOf, checkpointLate, familyOf, switchOf, undeliveredWords, wordMatters } from './rules/watch.mjs'
+import { PERSON_ASK_HOLD, checkWordsOf, checkpointLate, familyOf, switchOf, undeliveredWords, wordMatters } from './rules/watch.mjs'
 
 const MIN = 60_000
 const HOUR = 60 * MIN
@@ -170,8 +170,9 @@ function reviewLate(item, view, now, seen) {
   if (wait === null) return null
   if (wait.kind === 'answer') return false
   if (wait.kind === 'check') return !(now - wait.since <= view.settings.reviewMinutes * MIN)
-  // B656: a chain that ends in a fix the ready list holds is odd once that fix waited past `reviewMinutes`.
-  if (wait.kind === 'fix' && wait.held !== null) return !(now - sinceMs(valueOf(view.items.get(wait.end), 'Since')) <= view.settings.reviewMinutes * MIN)
+  // B656: a chain that ends in a fix the ready list holds is odd once that fix waited past `reviewMinutes`; B660: not when
+  // the hold is the person's open ask (it is theirs already, as their answer above).
+  if (wait.kind === 'fix' && wait.held !== null) return !PERSON_ASK_HOLD.test(wait.held) && !(now - sinceMs(valueOf(view.items.get(wait.end), 'Since')) <= view.settings.reviewMinutes * MIN)
   if (wait.kind === 'fix') {
     const chain = new Set([...seen, valueOf(item, 'Id')])
     const fix = view.items.get(wait.fix)

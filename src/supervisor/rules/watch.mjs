@@ -534,12 +534,17 @@ function fixDropped(view, ctx) {
   return found
 }
 
+/** B660: a held why that is the person's open ask (guards.mjs `readyHold`). */
+export const PERSON_ASK_HOLD = /^waits for the answer to Q\d/
+
 /**
  * 12c. B656 (X8 again: B603 sat in review behind its fix B614, which the ready list held for the answer to an ask, while
  * its line said only "waits for its fix B614"): a step in review whose chain of open fixes ends in a fix the ready list
  * holds (handOut.mjs `readyList`'s held why: outside the focus goal, a blocker, an ask, a standard) for over
  * `reviewMinutes` is one case per chain, named by its first step, with the fix and why. A chain whose last fix is at work
- * (queued, in progress, in review) is no case, however deep. Counted from the held fix's Since (its move to refined), and
+ * (queued, in progress, in review) is no case, however deep. B660 (X59: B603 behind B614, held for the person's answer to
+ * Q408): a hold that is the person's open ask ("waits for the answer to Q<n>") is no case, as in B543; the time counts from
+ * when the board first saw this hold (its key holds the why, so a changed why starts again), not from the fix's Since, and
  * from the end of the person's last pause. No ready list in the view: nothing.
  */
 function reviewHeld(view, ctx) {
@@ -552,14 +557,17 @@ function reviewHeld(view, ctx) {
     if (wait?.kind !== 'fix' || wait.held === null || seen.has(wait.end)) continue
     seen.add(wait.end)
     const id = idOf(item)
-    const key = `review-held ${wait.end}`
-    const since = sinceMs(valueOf(view.items.get(wait.end), 'Since'))
-    const ms = lasted(view, ctx, key, afterPause(view, since))
+    // B660: the person's open ask is already with them (B543): no case, and nothing watched meanwhile.
+    if (PERSON_ASK_HOLD.test(wait.held)) continue
+    // Counted per why, from when the board first saw this hold (the fix's Since is its move to refined, long before a
+    // blocker or an ask may have cleared: B614 refined at 16:39, blocked by B623 until 19:56).
+    const key = `review-held ${wait.end} ${wait.held.slice(0, 80)}`
+    const ms = lasted(view, ctx, key)
     if (ms <= view.settings.reviewMinutes * MIN) continue
     found.push({
       rule: 'review-held', key, subject: id,
       text: `${id} in review behind its fix ${wait.end}, held ${minutes(ms)} min: ${wait.held}`,
-      evidence: `the chain ${[id, ...wait.chain].join(' → ')}; ${wait.end} refined since ${Number.isFinite(since) ? clockOf(since) : 'a time not known'}; the ready list holds it: ${wait.held}`,
+      evidence: `the chain ${[id, ...wait.chain].join(' → ')}; the ready list has held ${wait.end} since ${clockOf(view.now - ms)}: ${wait.held}`,
     })
   }
   return found
