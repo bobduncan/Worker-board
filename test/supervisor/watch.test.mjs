@@ -41,7 +41,7 @@ const check = (id, board, seen = new Map()) => {
 }
 
 test('the watch rules: eighteen, report only, each with what it says', () => {
-  assert.deepEqual(WATCH_RULES.map(one => one.id), ['unknown-lane', 'stale-suspended', 'ready-while-free', 'holder-not-running', 'working-not-running', 'opus-wait', 'skip-repeats', 'repair-repeats', 'undelivered', 'report-check-twice', 'old-mod', 'odd-effort', 'review-stuck', 'dropped-fix', 'stale-checkpoint', 'effort-mismatch', 'not-cleared', 'not-taking', 'old-limit-reading'])
+  assert.deepEqual(WATCH_RULES.map(one => one.id), ['unknown-lane', 'stale-suspended', 'ready-while-free', 'holder-not-running', 'working-not-running', 'opus-wait', 'skip-repeats', 'repair-repeats', 'undelivered', 'report-check-twice', 'old-mod', 'odd-effort', 'review-stuck', 'dropped-fix', 'review-held', 'stale-checkpoint', 'effort-mismatch', 'not-cleared', 'not-taking', 'old-limit-reading'])
   // Redesign Part 2: the rules of Main's queues are gone.
   for (const gone of ['idle-while-waiting', 'queued-not-running']) assert.equal(WATCH_RULES.some(one => one.id === gone), false, gone)
   assert.ok(WATCH_RULES.every(one => one.kind === 'watch' && typeof one.says === 'string' && one.says.length > 0 && typeof one.check === 'function'))

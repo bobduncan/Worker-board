@@ -119,6 +119,28 @@ const numberOf = item => Number(String(valueOf(item, 'Id')).slice(1))
 const isOpenStep = item => !['done', 'dropped'].includes(valueOf(item, 'State'))
 
 /**
+ * B656 (X8 again: B603 sat in review behind its fix B614, which the ready list held, while its line said only "waits for
+ * its fix B614"): the open fixes under the step `id`, followed down: its newest open fix, that one's newest open fix, and
+ * so on (a loop ends it). [] when it has none.
+ */
+export function openFixChain(id, items) {
+  const chain = []
+  for (let from = id; chain.length < 20;) {
+    const next = fixesOf(from, items).filter(isOpenStep).sort((a, b) => numberOf(a) - numberOf(b)).at(-1)
+    const at = next === undefined ? null : valueOf(next, 'Id')
+    if (at === null || at === id || chain.includes(at)) break
+    chain.push(at)
+    from = at
+  }
+  return chain
+}
+
+/** B656: the ready list's held steps (handOut.mjs `readyList`'s `held`, `[{ id, why }]`, or a Map of id to why) as a Map. */
+const heldMapOf = held => (held instanceof Map ? held : new Map((Array.isArray(held) ? held : []).map(one => [one.id, one.why])))
+/** B656: a held why in a few words: the person's choice outside the focus goal without its how ("waits until you add it ..."). */
+const heldWords = why => String(why).replace(/^(outside the focus goal):.*$/, '$1')
+
+/**
  * B543 (the fix of X8: steps sat in review for days behind a dropped fix): what a step in review waits for, or null
  * (not in review, its board check not passed, no result check needed, or its check passed). `{ kind, fix, since, text }`:
  * kind 'check', its result check (never filed, "waits for its first check"; or to be filed again once its ask point is
@@ -126,9 +148,11 @@ const isOpenStep = item => !['done', 'dropped'].includes(valueOf(item, 'State'))
  * 'fix', its open fix `fix` ("waits for its fix B<n>"), also while that fix waits in review for one of its own; 'dropped',
  * its check failed and no fix of it is open or done ("its fix B<n> was dropped"); 'blocked' (B630), the same but the step
  * is blocked by open steps `blockers`, so the drop is a plan. `since`: when the wait began (ms).
- * `items` is the store's items by id.
+ * `items` is the store's items by id. B656: kind 'fix' also names its chain of open fixes followed down (`chain`, its
+ * fix first; `end`, the last) and, when `held` (the ready list's held steps) holds that last one, why (`held`, else null):
+ * "waits for its fix B614, held: outside the focus goal".
  */
-export function reviewWaitOf(item, items) {
+export function reviewWaitOf(item, items, held = null) {
   if (valueOf(item, 'State') !== 'review' || !gitCheckPassed(item) || !needsResultCheck(item)) return null
   const id = valueOf(item, 'Id')
   const result = resultCheckOf(item)
@@ -145,7 +169,15 @@ export function reviewWaitOf(item, items) {
   }
   const fixes = fixesOf(id, items).sort((a, b) => numberOf(a) - numberOf(b))
   const open = fixes.filter(isOpenStep).at(-1)
-  if (open !== undefined) return { kind: 'fix', fix: valueOf(open, 'Id'), since: resultCheckAtMs(item), text: `waits for its fix ${valueOf(open, 'Id')}` }
+  if (open !== undefined) {
+    const fix = valueOf(open, 'Id')
+    const chain = openFixChain(id, items)
+    const end = chain.at(-1) ?? fix
+    // B656: a fix the board does not hand out (the ready list holds a refined one) leaves the whole chain waiting.
+    const why = valueOf(items?.get(end), 'State') === 'refined' ? heldMapOf(held).get(end) ?? null : null
+    const hold = why === null ? '' : end === fix ? `, held: ${heldWords(why)}` : `, whose fix ${end} is held: ${heldWords(why)}`
+    return { kind: 'fix', fix, chain, end, held: why, since: resultCheckAtMs(item), text: `waits for its fix ${fix}${hold}` }
+  }
   const done = fixes.filter(one => valueOf(one, 'State') === 'done').at(-1)
   if (done !== undefined) return { kind: 'check', fix: valueOf(done, 'Id'), since: sinceMs(valueOf(done, 'Since')), text: 'waits for its check again' }
   const named = lastResult(item).match(/; fix (B\d+) for\b/)?.[1] ?? fixes.at(-1)?.head.get('Id') ?? null

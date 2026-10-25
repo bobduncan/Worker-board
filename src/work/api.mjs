@@ -166,7 +166,8 @@ function serial(dir, run) {
 
 /**
  * One action on the store. `body = { action, chat, ...fields }`; `ctx = { dir, fs, now, as, roleOf, freeChats,
- * overlaps, prefix, viewFile, boardUrl, hasGoal }` (Focus 3: `hasGoal(id)`, whether the goal map holds that goal): `as` is 'person' (the page) or 'server' (the board itself), else the chat
+ * overlaps, prefix, viewFile, boardUrl, hasGoal, readyHeld }` (Focus 3: `hasGoal(id)`, whether the goal map holds that goal;
+ * B656: `readyHeld`, the ready list's held steps `[{ id, why }]`): `as` is 'person' (the page) or 'server' (the board itself), else the chat
  * of `body.chat` asks, in the role `roleOf(chat)` gives ('main', 'worker', 'advisor', 'helper' (B424, HELPS), or null: no
  * chat of the list).
  * `freeChats` the chats free now, `overlaps(item)` the id of a taken step whose Touches overlap, `viewFile` the
@@ -273,7 +274,7 @@ const isOwner = (item, chat, prefix) => valueOf(item, 'Owner') !== null && plain
 const byId = (a, b) => a.localeCompare(b, 'en', { numeric: true })
 
 /** One item in one line: id, state, what it waits for, title. */
-function oneLine(item, items) {
+function oneLine(item, items, held = null) {
   const isOpen = id => !CLEARED.includes(stateOf(items.get(id) ?? { head: new Map() }))
   const open = idsIn(valueOf(item, 'Blocked by')).filter(isOpen)
   // B306: what `Waits for` says holds the step: words until the main chat clears them, ids until each is resolved.
@@ -286,8 +287,8 @@ function oneLine(item, items) {
   const before = open.filter(id => !inReview(id))
   const checks = open.filter(inReview)
   const waits = [before.length > 0 ? `after ${before.join(', ')}` : null, checks.length > 0 ? `waits for the check of ${checks.join(', ')}` : null, waiting,
-    // B543: a step in review says what it waits for itself (its check, its fix B<n>).
-    reviewWaitOf(item, items)?.text ?? null,
+    // B543: a step in review says what it waits for itself (its check, its fix B<n>); B656: a fix the ready list holds, with why.
+    reviewWaitOf(item, items, held)?.text ?? null,
     // B567: a step waiting on the person, or parked, says what it waits for and what the chat does meanwhile.
     ...waitingWords(item, items)].filter(Boolean)
   const missed = Number(valueOf(item, 'Missed') ?? 0)
@@ -372,7 +373,7 @@ function steady(body, w, chat) {
   const all = [...told, ...mine]
   const open = openOf(chat, w)
   if (all.length === 0) return { ok: true, result: { text: `Nothing is yours, ${chat}: no instruction is open and no step is taken, in progress or queued for you.`, items: [], open, changed: false } }
-  const text = `Yours, ${chat}:\n${all.map(item => oneLine(item, w.store.items)).join('\n')}\n\n${serializeItem(all[0])}`
+  const text = `Yours, ${chat}:\n${all.map(item => oneLine(item, w.store.items, w.readyHeld ?? null)).join('\n')}\n\n${serializeItem(all[0])}`
   return { ok: true, result: { text, items: all.map(item => valueOf(item, 'Id')), id: valueOf(all[0], 'Id'), open, changed: false } }
 }
 
@@ -383,7 +384,7 @@ function list(w) {
     id: valueOf(item, 'Id'), kind: kindOf(item), state: stateOf(item), owner: valueOf(item, 'Owner'),
     title: valueOf(item, 'Title') ?? valueOf(item, 'Text'), since: valueOf(item, 'Since'),
     // B543: what a step in review waits for, or null.
-    waits: kindOf(item) === 'step' ? reviewWaitOf(item, w.store.items)?.text ?? null : null,
+    waits: kindOf(item) === 'step' ? reviewWaitOf(item, w.store.items, w.readyHeld ?? null)?.text ?? null : null,
   }))
   const text = rows.map(row => [row.id, row.kind, row.waits === null ? row.state : `${row.state} (${row.waits})`, row.owner ?? '-', row.title ?? ''].join(' · ')).join('\n')
   return { ok: true, result: { text, items: rows, changed: false } }

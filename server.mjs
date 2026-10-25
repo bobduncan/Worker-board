@@ -917,6 +917,8 @@ async function main(args) {
       checkWorktrees: id => stepLeftovers({ id, which: 'check', repos: knownRepos(), project: config.project, run: gitRunner(), fs: WORKTREE_FILES }),
       // Partner answers (2026-10-19): the focus goal, whose daily note lists the partner's answers of the day.
       focusGoal: state.focus?.id ?? null,
+      // B656: the ready list's held steps, so a step in review whose fix it holds says why in work next and list.
+      readyHeld: state.readyList?.held ?? null,
     }
   }
   /**

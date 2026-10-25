@@ -535,6 +535,37 @@ function fixDropped(view, ctx) {
 }
 
 /**
+ * 12c. B656 (X8 again: B603 sat in review behind its fix B614, which the ready list held for the answer to an ask, while
+ * its line said only "waits for its fix B614"): a step in review whose chain of open fixes ends in a fix the ready list
+ * holds (handOut.mjs `readyList`'s held why: outside the focus goal, a blocker, an ask, a standard) for over
+ * `reviewMinutes` is one case per chain, named by its first step, with the fix and why. A chain whose last fix is at work
+ * (queued, in progress, in review) is no case, however deep. Counted from the held fix's Since (its move to refined), and
+ * from the end of the person's last pause. No ready list in the view: nothing.
+ */
+function reviewHeld(view, ctx) {
+  const found = []
+  if (isPaused(view) || !Array.isArray(view.held)) return found
+  const seen = new Set()
+  // By id: a chain's first step comes before its fixes, so it names the case.
+  for (const item of stepsOf(view).filter(one => stateOf(one) === 'review').sort((a, b) => byId(idOf(a), idOf(b)))) {
+    const wait = reviewWaitOf(item, view.items, view.held)
+    if (wait?.kind !== 'fix' || wait.held === null || seen.has(wait.end)) continue
+    seen.add(wait.end)
+    const id = idOf(item)
+    const key = `review-held ${wait.end}`
+    const since = sinceMs(valueOf(view.items.get(wait.end), 'Since'))
+    const ms = lasted(view, ctx, key, afterPause(view, since))
+    if (ms <= view.settings.reviewMinutes * MIN) continue
+    found.push({
+      rule: 'review-held', key, subject: id,
+      text: `${id} in review behind its fix ${wait.end}, held ${minutes(ms)} min: ${wait.held}`,
+      evidence: `the chain ${[id, ...wait.chain].join(' → ')}; ${wait.end} refined since ${Number.isFinite(since) ? clockOf(since) : 'a time not known'}; the ready list holds it: ${wait.held}`,
+    })
+  }
+  return found
+}
+
+/**
  * The check words the partner was sent about the step `id` from `since` on (the board's ask for its check, the repair
  * `unchecked`'s wakes), oldest first: for the rule review-stuck and the health summary's review line (B585).
  */
@@ -740,6 +771,7 @@ export const WATCH_RULES = [
   { id: 'odd-effort', kind: 'watch', says: 'a chat whose effort is not a level', check: oddEffort },
   { id: 'review-stuck', kind: 'watch', says: 'a step in review with no result check for too long', check: reviewStuck },
   { id: 'dropped-fix', kind: 'watch', says: 'a step in review whose fix was dropped, with no new fix, no new check and no block for over 30 min', check: fixDropped },
+  { id: 'review-held', kind: 'watch', says: 'a step in review whose chain of fixes ends in a fix the ready list holds, for too long', check: reviewHeld },
   { id: 'stale-checkpoint', kind: 'watch', says: 'a step in progress with no checkpoint for hours, or whose checkpoint said to report long ago', check: staleCheckpoint },
   { id: 'effort-mismatch', kind: 'watch', says: 'a worker that still runs another model or effort than its step wants 10 min after the take', check: effortMismatch },
   { id: 'not-cleared', kind: 'watch', says: 'a worker not cleared after its reported step', check: notCleared },

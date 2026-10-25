@@ -1801,8 +1801,8 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
           doneAt: step.id === null ? null : doneAtOf.get(step.id)?.at ?? null,
           // B296: where it stands in the flow (flow.json), for the strip in its window.
           flow: flowOfStep(raw.work, step.key),
-          // B543: what it waits for while in review ("waits for its fix B<n>"), or null.
-          reviewWait: reviewWaitOfStep(raw.work, step.key),
+          // B543: what it waits for while in review ("waits for its fix B<n>"), or null; B656: a fix the ready list holds, with why.
+          reviewWait: reviewWaitOfStep(raw.work, step.key, reconciled?.ready?.held ?? null),
           // B299: the step as the store holds it, for its window.
           item,
         }

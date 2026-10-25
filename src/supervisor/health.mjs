@@ -166,10 +166,12 @@ function plannedWait(item, view, now, seen = new Set()) {
  * (B630: then it waits as planned). Null when it waits for none of these: its age decides.
  */
 function reviewLate(item, view, now, seen) {
-  const wait = reviewWaitOf(item, view.items)
+  const wait = reviewWaitOf(item, view.items, view.held)
   if (wait === null) return null
   if (wait.kind === 'answer') return false
   if (wait.kind === 'check') return !(now - wait.since <= view.settings.reviewMinutes * MIN)
+  // B656: a chain that ends in a fix the ready list holds is odd once that fix waited past `reviewMinutes`.
+  if (wait.kind === 'fix' && wait.held !== null) return !(now - sinceMs(valueOf(view.items.get(wait.end), 'Since')) <= view.settings.reviewMinutes * MIN)
   if (wait.kind === 'fix') {
     const chain = new Set([...seen, valueOf(item, 'Id')])
     const fix = view.items.get(wait.fix)
@@ -243,6 +245,7 @@ function stepLines(view, now) {
   const chats = new Set(view.lanes.filter(lane => !lane.isLeftover).map(lane => plain(lane.name, view.prefix)))
   const lines = []
   const backlog = { new: 0, refined: 0 }
+  const review = { steps: 0, chains: 0, held: 0 }
   for (const item of stepsOf(view)) {
     const state = valueOf(item, 'State')
     if (state === 'new' || state === 'refined') {
@@ -251,6 +254,13 @@ function stepLines(view, now) {
     }
     if (!UNDER_WAY.includes(state)) continue
     const id = valueOf(item, 'Id')
+    // B656 (X8 again: 16 steps in review read as 16 stalls, most of them links of a few chains of fixes): a step in review
+    // that is the open fix its own step in review waits for is a link of that chain; the chain's first step speaks for it.
+    if (state === 'review') {
+      review.steps += 1
+      if (isChainLink(item, view)) continue
+      review.chains += 1
+    }
     const owner = valueOf(item, 'Owner')
     const since = sinceMs(valueOf(item, 'Since'))
     const age = now - since
@@ -263,11 +273,13 @@ function stepLines(view, now) {
     const blockerWords = blocker => `${stateIn(view.items, blocker) === 'review' ? `the check of ${blocker}` : blocker} (${stateIn(view.items, blocker)} ${lasting(ageOf(view.items.get(blocker), now))}${wait.stalled.includes(blocker) ? ', stalled' : ''})`
     const blocked = waitsOf(item, view.items)
     const ended = state === 'queued' ? ((valueOf(item, 'Blocked by') ?? '').match(/\bB\d+\b/g) ?? []).filter(blocker => ENDED.includes(stateIn(view.items, blocker))) : []
-    // B563: a step in review names what it waits for, its open fix with that fix's state and owner.
-    const review = reviewWaitOf(item, view.items)
-    const fixWords = review?.kind === 'fix' ? ` (${stateIn(view.items, review.fix)}, ${valueOf(view.items.get(review.fix), 'Owner') ?? 'no owner'})`
-      : review?.kind === 'check' ? checkAskedWords(view, id, review.since, now) : ''
-    const waits = review !== null ? ` (${review.text}${fixWords})`
+    // B563: a step in review names what it waits for, its open fix with that fix's state and owner; B656: its chain's
+    // newest link and why that one waits.
+    const reviewWait = reviewWaitOf(item, view.items, view.held)
+    if (reviewWait?.kind === 'fix' && reviewWait.held !== null) review.held += 1
+    const fixWords = reviewWait?.kind === 'fix' ? chainWords(id, reviewWait, view)
+      : reviewWait?.kind === 'check' ? checkAskedWords(view, id, reviewWait.since, now) : ''
+    const waits = reviewWait !== null ? ` (${reviewWait.text}${fixWords})`
       : wait !== null ? ` (waits${wait.stalled.length === 0 ? ' as planned' : ''} for ${wait.open.map(blockerWords).join(' and ')})`
       : blocked.length > 0 ? ` (waits for ${blocked.join('; ')})`
         : ended.length > 0 ? ` (still blocked by ${ended.map(blocker => `${blocker}, ${stateIn(view.items, blocker)}`).join(' and ')})` : ''
@@ -284,8 +296,28 @@ function stepLines(view, now) {
     const parkedWords = parked === null ? '' : ` (parked: ${owner} is on ${parked.on}; ${parked.why ?? 'nothing names why it waits'})`
     lines.push(lineOf(`${id} ${state} for ${lasting(age)}${stays}, ${owner === null ? 'no owner' : owner}${fix}${waits}${parkedWords}${checkpointWords}: ${oneLine(valueOf(item, 'Title'), 80)}`, { tier, odd, at: since }))
   }
+  if (review.steps > 0) lines.push(lineOf(`in review: ${review.steps} ${review.steps === 1 ? 'step' : 'steps'} in ${review.chains} ${review.chains === 1 ? 'chain' : 'chains'} of fixes${review.held > 0 ? `, ${review.held} behind a fix the ready list holds` : ''}`, { tier: 1, odd: review.held > 0 }))
   if (backlog.new + backlog.refined > 0) lines.push(lineOf(`backlog, not queued: ${backlog.new} new, ${backlog.refined} refined${refinedWords(view)}`, { tier: 1 }))
   return lines
+}
+
+/** B656: a step in review that is the open fix its own step, in review too, waits for: a link of that one's chain. */
+function isChainLink(item, view) {
+  const of = valueOf(item, 'Fix of')
+  const parent = of === null ? undefined : view.items.get(of)
+  return parent !== undefined && valueOf(parent, 'State') === 'review' && reviewWaitOf(parent, view.items)?.fix === valueOf(item, 'Id')
+}
+
+/**
+ * B656: the words after a chain's wait in its line: the open fix's state and owner; with links in review, how many steps
+ * the chain holds in review and its newest link, with that one's state, owner and what it waits for itself.
+ */
+function chainWords(id, wait, view) {
+  const links = wait.chain.filter(link => stateIn(view.items, link) === 'review')
+  const owner = link => valueOf(view.items.get(link), 'Owner') ?? 'no owner'
+  if (links.length === 0 && wait.end === wait.fix) return ` (${stateIn(view.items, wait.fix)}, ${owner(wait.fix)})`
+  const newest = stateIn(view.items, wait.end) === 'review' ? reviewWaitOf(view.items.get(wait.end), view.items, view.held)?.text ?? null : null
+  return `; one chain, ${links.length + 1} in review: ${[id, ...links].join(' → ')}; newest link ${wait.end} ${stateIn(view.items, wait.end)}, ${owner(wait.end)}${newest === null ? '' : `, ${newest}`}`
 }
 
 /**
