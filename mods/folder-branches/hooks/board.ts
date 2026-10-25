@@ -14,9 +14,10 @@ export const TYPED_PATH = '/api/bridge/typed'
 export const REPORT_PATH = '/api/bridge/report'
 /**
  * Redesign Part 1: this chat's turn state: a turn runs (`busy`), it ended (`idle`, with `background` while background
- * work it started still runs), or a question to the person is open (`asking`); `since` when it became so.
+ * work it started still runs), or a question to the person is open (`asking`); `since` when it became so. The review
+ * of chat-reports: `ended` once, when its session ends (not a /clear): the board shows it not running at once.
  */
-export type TurnReport = { state: 'busy' | 'idle' | 'asking'; since: number; background: boolean }
+export type TurnReport = { state: 'busy' | 'idle' | 'asking' | 'ended'; since: number; background: boolean }
 /** B297: where the work tool's calls go: the board's work store. */
 export const WORK_PATH = '/api/bridge/work'
 /** B412: the header that carries a work call's request id: the board answers a repeat of it the same way. */

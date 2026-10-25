@@ -2998,7 +2998,7 @@ describe('Redesign Part 1: the chat reports its turn state to the board', () => 
     expect(states(w)).toEqual(['busy', 'idle+background', 'busy', 'idle'])
   })
 
-  test('a turn cut short says nothing of background work from an earlier turn', async ($, on) => {
+  test('the review of chat-reports, 5a: a turn cut short (no Stop hook runs) keeps the background work the last Stop listed', async ($, on) => {
     const { w } = await joined($, on)
     await $.turn.start({ text: 'go', turnId: 't1' })
     await $.classic.Stop({ stop_hook_active: false, background_tasks: [{ id: 'b1', type: 'shell', status: 'running', description: 'npm test' }] } as never)
@@ -3006,7 +3006,29 @@ describe('Redesign Part 1: the chat reports its turn state to the board', () => 
     await $.turn.start({ text: 'more', turnId: 't2' })
     await $.turn.complete({ ...ENDED, reason: 'aborted', isAborted: true, turnId: 't2' })
     await settle()
-    expect(states(w)).toEqual(['busy', 'idle+background', 'busy', 'idle'])
+    expect(states(w)).toEqual(['busy', 'idle+background', 'busy', 'idle+background'])
+    // The next Stop that lists nothing ends it.
+    await $.turn.start({ text: '', turnId: 't3' })
+    await $.classic.Stop({ stop_hook_active: false, background_tasks: [] } as never)
+    await $.turn.complete({ ...ENDED, turnId: 't3' })
+    await settle()
+    expect(states(w).at(-1)).toBe('idle')
+  })
+
+  test('the review of chat-reports, 3a: a /clear is no end of the chat: it reports no ended', async ($, on) => {
+    const { w } = await joined($, on)
+    await $.turn.start({ text: 'go', turnId: 't1' })
+    await $.turn.complete({ ...ENDED, turnId: 't1' })
+    await $.session.end({ reason: 'clear', sessionId: w.id, resume: { id: w.id } } as never)
+    await settle()
+    expect(states(w)).toEqual(['busy', 'idle'])
+  })
+
+  test("the review of chat-reports, 3a: the session's end tells the board the chat ended, so it shows it not running at once", async ($, on) => {
+    const { w } = await joined($, on)
+    await $.session.end({ reason: 'other', sessionId: w.id, resume: { id: w.id } } as never)
+    await settle()
+    expect(w.reports.map(body => JSON.parse(body))).toEqual([{ chat: 'Units', session: 'units', report: { state: 'ended', since: 0, background: false } }])
   })
 
   test('a chat that is not in the list reports nothing', async ($, on) => {

@@ -1860,10 +1860,7 @@ export const register: Register = on => {
       return next(e)
     }
     // Redesign Part 1: a turn of the chat's own reports busy (a question still open to the person keeps it asking).
-    if (e.agentId === undefined) {
-      hasBackground = false
-      if (openForms === 0) await setReport($, 'busy')
-    }
+    if (e.agentId === undefined && openForms === 0) await setReport($, 'busy')
     // A turn that starts while one runs is a subagent's inside the chat's own: it starts nothing again.
     if (!isInTurn) {
       // Clear after each step: a real turn on the session a clear was decided for: the clear is dropped, its /clear refused.
@@ -1952,7 +1949,8 @@ export const register: Register = on => {
   })
 
   // Redesign Part 1: the Stop hook of the chat's own turn lists the background work still running as the turn ends
-  // (shells, subagents, monitors, workflows); its end wakes the chat with a turn of its own.
+  // (shells, subagents, monitors, workflows); its end wakes the chat with a turn of its own. The review of chat-reports:
+  // only a Stop sets it: a turn cut short (Esc, an API error) runs none, and what the last one listed stands.
   on('classic.Stop', async ($, e, next) => {
     if (e.agent_id === undefined) hasBackground = Array.isArray(e.background_tasks) && e.background_tasks.length > 0
 
@@ -2017,6 +2015,9 @@ export const register: Register = on => {
     isInTurn = false
     if (e.reason === 'clear') await sessionCleared($, e.sessionId)
     else {
+      // The review of chat-reports: the chat ends here; the board shows it not running at once (held 1.5 s at most).
+      turnReport = { state: 'ended', since: await $.clock.now(), background: false }
+      await withinTime($, reportToBoard($))
       watch?.cancel()
       watch = null
       chatWatch?.cancel()
