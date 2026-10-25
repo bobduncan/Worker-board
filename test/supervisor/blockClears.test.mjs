@@ -10,7 +10,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import test from 'node:test'
 
-import { REVIEW_WAIT_MS, findStuck } from '../../src/supervisor/rules/repair.mjs'
+import { findStuck } from '../../src/supervisor/rules/repair.mjs'
 import { applySync } from '../../src/supervisor/loop.mjs'
 import { healthSummary } from '../../src/supervisor/health.mjs'
 import { buildView } from '../../src/supervisor/view.mjs'
@@ -117,30 +117,8 @@ test('a step taken while its blocker is in review (the main chat\'s take) drops 
   assert.match(await history('B2'), /Painter: no longer blocked by B5 at its take \(B5 is review\)/)
 })
 
-test('a step queued an hour with its owner free behind one in review: the main chat hears it once per pair; not before, not while working, not behind one in progress', async () => {
-  const world = (more = {}) => base({
-    items: items(
-      step('B6', 'review', {}, pending), step('B7', 'in progress', { Owner: 'Mason' }),
-      step('B1', 'queued', { Owner: 'Painter', 'Blocked by': 'B6', Since: stamp(NOW - REVIEW_WAIT_MS - MIN) }),
-      step('B3', 'queued', { Owner: 'Digger', 'Blocked by': 'B7', Since: stamp(ago(120)) }),
-    ),
-    lanes: [LEAD, lane('Painter'), lane('Mason', { state: 'working' }), lane('Digger')],
-    ...more,
-  })
-  const found = of(findStuck(world()), 'review-wait')
-  assert.deepEqual(found.map(one => [one.key, one.fix.do]), [['review-wait B1 B6', 'send']])
-  assert.match(found[0].text, /^B1 waits for the check of B6: queued 61 min while Painter is free$/)
-  assert.match(found[0].fix.text, /B6 is in review: see that it is checked, or give Painter other work$/)
-  // Told once: the second run's note is empty for the same pair.
-  const ports = { unblock: async () => ({ ok: true }), requeue: async () => ({ ok: true }), wake: async () => null, clean: async () => ({ ok: true }) }
-  const first = await applySync(found, ports, new Set())
-  assert.equal(first.note.length, 1)
-  assert.deepEqual((await applySync(found, ports, new Set(first.keys))).note, [])
-  // Free for less than an hour (it was working until 20 minutes ago), or working: nothing.
-  assert.equal(of(findStuck(world({ lanes: [LEAD, lane('Painter', { idle: { since: ago(20) } })] })), 'review-wait').length, 0)
-  assert.equal(of(findStuck(world({ lanes: [LEAD, lane('Painter', { state: 'working' })] })), 'review-wait').length, 0)
-  // Its blocker's check passed: `blocked` unblocks it, and nothing is said.
-  const passed = world({ items: items(step('B6', 'review', {}, { History: [`- ${stamp(ago(70))} server: check passed: merged`] }), step('B1', 'queued', { Owner: 'Painter', 'Blocked by': 'B6', Since: stamp(ago(120)) })) })
+test('a step blocked by one in review whose check passed: `blocked` unblocks it (the review-wait rule is gone with the queues)', () => {
+  const passed = base({ items: items(step('B6', 'review', {}, { History: [`- ${stamp(ago(70))} server: check passed: merged`] }), step('B1', 'queued', { Owner: 'Painter', 'Blocked by': 'B6', Since: stamp(ago(120)) })), lanes: [LEAD, lane('Painter')] })
   assert.equal(of(findStuck(passed), 'review-wait').length, 0)
   assert.equal(of(findStuck(passed), 'blocked')[0].fix.do, 'unblock')
 })

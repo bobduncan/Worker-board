@@ -54,7 +54,7 @@ export async function readLoopLock(read) {
 }
 
 /**
- * The findings carried out, in their order. `ports`: `unblock(id, on, why)` and `requeue(id, to, why)` (the work API as
+ * The findings carried out, in their order. `ports`: `unblock(id, on, why)` and `unpin(id)` (the work API as
  * the board: `{ ok, why }`), `wake({ chat, id, text, key })` (the line sent once per key: the message, or null when it
  * went before), `clean(leftover)` (worktree clean-up: `{ ok, why }`). `noted` the keys the main chat was told of before.
  * Answers `{ rows, note, keys, fine }`: a row per finding (`{ check, status, text }`, status Fixed, Woke, Sent, For
@@ -77,11 +77,12 @@ export async function applySync(findings, ports, noted = new Set()) {
   const row = (one, status, text) => rows.push({ check: one.check, status, text })
   for (const one of findings) {
     const fix = one.fix
-    if (fix.do === 'unblock' || fix.do === 'requeue') {
+    if (fix.do === 'unblock' || fix.do === 'unpin') {
+      // Redesign Part 2: the board unpins a task pinned to a chat gone from the list (it waited for that chat only).
       const done = await Promise.resolve()
-        .then(() => (fix.do === 'unblock' ? ports.unblock(fix.id, fix.on, one.text) : ports.requeue(fix.id, fix.to, one.text)))
+        .then(() => (fix.do === 'unblock' ? ports.unblock(fix.id, fix.on, one.text) : ports.unpin(fix.id)))
         .catch(error => ({ ok: false, why: error instanceof Error ? error.message : String(error) }))
-      if (done?.ok === true) row(one, 'Fixed', `${one.text}: ${fix.do === 'unblock' ? 'unblocked' : `queued for ${fix.to}`}`)
+      if (done?.ok === true) row(one, 'Fixed', `${one.text}: ${fix.do === 'unblock' ? 'unblocked' : 'unpinned'}`)
       else {
         const text = `${one.text}: not fixed (${done?.why ?? 'no answer'})`
         row(one, 'For Main', text)
@@ -228,7 +229,7 @@ export function syncRunner(ports, rules = REPAIR_RULES, watch = []) {
     let changed = JSON.stringify([...seen]) !== seenBefore
     const done = await applySync(findings, {
       unblock: (id, on, why) => ports.apply({ action: 'unblock', id, on, why }),
-      requeue: (id, to, why) => ports.apply({ action: 'requeue', id, for: to, why }),
+      unpin: id => ports.apply({ action: 'pin', id, for: '' }),
       wake: ports.wake,
       clean: ports.clean,
     }, noted)

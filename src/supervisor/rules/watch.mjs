@@ -13,7 +13,8 @@
 // (what it sees now; the loop keeps those and forgets the rest). PURE.
 
 import { sinceMs, valueOf } from '../../work/item.mjs'
-import { blockersOpen, waitWords } from '../../work/guards.mjs'
+import { overlapIn } from '../../work/guards.mjs'
+import { stuckTakeBacks } from '../../work/handOut.mjs'
 import { checkpointOf, heldMs, isHolding } from '../../work/pause.mjs'
 import { isFailedForGood, stoppedChats, whyClosed } from '../../work/outboxSweep.mjs'
 import { FIRST_SAYING, chatsByRole, oldModFinding } from '../../oldMods.mjs'
@@ -36,7 +37,6 @@ const LIMIT_WORDS = { fiveHour: 'the 5-hour limit', week: 'the weekly limit' }
 const BY_DESIGN = ['it is small enough', 'switched off in the list of chats', 'more of the same work follows']
 /** The states in which a step is its Owner's work now, and those of a worker with nothing running. */
 const HOLDS = ['taken', 'in progress']
-const IDLE = ['free', 'unknown', 'off']
 
 const stateOf = item => valueOf(item, 'State')
 const idOf = item => valueOf(item, 'Id')
@@ -128,32 +128,57 @@ function staleSuspended(view, ctx) {
   return found
 }
 
-/** 3. All workers idle (free, unknown, off) while a step that may be taken waits, for longer than `idleMinutes`. */
-function idleWhileWaiting(view, ctx) {
-  const workers = workersOf(view)
-  if (workers.length === 0 || isHolding(view.pause) || isFull(view)) return []
-  if (!workers.every(lane => IDLE.includes(lane.state))) return []
-  const ctxStore = { store: { items: view.items } }
-  // Only a step queued for a worker of the list (not the main chat's, the partner's or a gone chat's) whose line the
-  // board does not hold for its model or effort (opus-wait says that one).
-  const isWorkers = item => workers.some(lane => plain(lane.name, view.prefix) === plain(valueOf(item, 'Owner'), view.prefix))
-  const held = new Set(workers.filter(lane => typeof lane.effortRun?.step === 'string' && ((lane.effortRun.waitsFor ?? null) !== null || lane.effortRun.isSet === false))
-    .map(lane => lane.effortRun.step))
-  const waiting = stepsOf(view).filter(item => stateOf(item) === 'queued' && isWorkers(item) && !held.has(idOf(item)) && blockersOpen(item, ctxStore).length === 0 && waitWords(item) === null)
-  if (waiting.length === 0) return []
-  // Since the last worker went idle, and since the first of the steps that wait was queued.
-  const idleSince = Math.max(...workers.map(lane => view.since.get(lane.name) ?? NaN))
-  const queuedSince = Math.min(...waiting.map(item => sinceMs(valueOf(item, 'Since'))).filter(Number.isFinite))
-  const since = Number.isFinite(idleSince) && Number.isFinite(queuedSince) ? Math.max(idleSince, queuedSince) : null
-  const key = 'idle-while-waiting'
-  const ms = lasted(view, ctx, key, since)
-  if (ms <= view.settings.idleMinutes * MIN) return []
-  const ids = waiting.map(idOf).sort(byId)
-  return [{
-    rule: 'idle-while-waiting', key, subject: 'board',
-    text: `${workers.length === 1 ? `The one worker, ${workers[0].name}, idle` : `All ${workers.length} workers idle`} for ${minutes(ms)} min while ${ids.length} ${ids.length === 1 ? 'step waits' : 'steps wait'} (${ids.slice(0, 5).join(', ')}${ids.length > 5 ? ', ...' : ''})`,
-    evidence: `${workers.map(lane => `${lane.name} ${lane.state}`).join(', ')}; queued: ${waiting.map(item => `${idOf(item)} for ${valueOf(item, 'Owner') ?? 'nobody'}`).join(', ')}`,
-  }]
+/** The states whose Touches hold a ready task back from the hand-out: given or under way (work/handOut.mjs `match`). */
+const GIVEN_OR_UNDER_WAY = ['queued', 'taken', 'in progress', 'waiting on you']
+
+/**
+ * 3. Redesign Part 2 (2026-10-25, its Done when: "a task waits while a worker is free"): a ready task kept for nobody
+ * (the view's `ready`, the board's own list) waits while a worker whose own report says free stands idle, both for
+ * longer than `idleMinutes`: the board hands a ready task to such a worker at once, so it failed to. A task whose
+ * Touches overlap one given or under way waits by design; a worker the board found stuck (not taking) is that rule's.
+ * One finding per task. Not while the person pauses or a limit is full.
+ */
+function readyWhileFree(view, ctx) {
+  if (isPaused(view) || isFull(view)) return []
+  const free = workersOf(view).filter(lane => lane.report != null && lane.state === 'free' && lane.isRunning === true
+    && !(lane.flags ?? []).some(flag => flag.kind === 'not taking'))
+  if (free.length === 0) return []
+  const freeSince = Math.min(...free.map(lane => (Number.isFinite(lane.report.since) ? lane.report.since : view.since.get(lane.name) ?? view.now)))
+  const found = []
+  for (const one of view.ready.filter(task => (task.keptFor ?? null) === null)) {
+    const item = view.items.get(one.id)
+    if (item === undefined || overlapIn(view.items, item, GIVEN_OR_UNDER_WAY) !== null) continue
+    const key = `ready-while-free ${one.id}`
+    const ms = Math.min(lasted(view, ctx, key), view.now - afterPause(view, freeSince))
+    if (ms <= view.settings.idleMinutes * MIN) continue
+    const names = free.map(lane => lane.name)
+    found.push({
+      rule: 'ready-while-free', key, subject: one.id,
+      text: `${one.id} ready for ${minutes(ms)} min while ${names.length === 1 ? `${names[0]} is` : `${names.join(', ')} are`} free`,
+      evidence: `ready list: ${view.ready.map(task => task.id).slice(0, 8).join(', ')}; free by their reports: ${free.map(lane => `${lane.name} since ${clockOf(lane.report.since)}`).join(', ')}`,
+    })
+  }
+  return found
+}
+
+/**
+ * Redesign Part 2 (its Done when: "a worker holds a task it does not take"): a worker the board took a given task back
+ * from while it sat idle (its lane's `not taking` flag, state.mjs): one finding per take-back, about the worker.
+ */
+function notTaking(view) {
+  const stuck = stuckTakeBacks({ items: view.items, lanes: workersOf(view), prefix: view.prefix })
+  const found = []
+  for (const lane of workersOf(view)) {
+    const flag = (lane.flags ?? []).find(one => one.kind === 'not taking')
+    if (flag === undefined) continue
+    const back = stuck.get(lane.name) ?? null
+    found.push({
+      rule: 'not-taking', key: `not-taking ${lane.name} ${back?.stamp ?? flag.id}`, subject: lane.name,
+      text: `${lane.name} did not take ${flag.id}; it went back on the list`,
+      evidence: `${flag.text}; taken back at ${back?.stamp ?? 'a time not known'}; its report: ${lane.report?.state ?? 'none'}${Number.isFinite(lane.report?.since) ? ` since ${clockOf(lane.report.since)}` : ''}`,
+    })
+  }
+  return found
 }
 
 /** 4. A step in progress whose worker has not run for longer than `notRunningMinutes`. */
@@ -640,46 +665,11 @@ function notCleared(view, ctx) {
   return found
 }
 
-/**
- * B587 (X36: Worker 2's chat restarted for a new mod at 22:45 did not run, and B584 waited for it 10 min until the
- * board's start went): a free worker whose chat does not run while its next queued step waits, for longer than 15
- * minutes with no `start` of it on its way to the main chat. One finding per step (its key), about the step.
- */
-const QUEUED_NOT_RUNNING_MS = 15 * MIN
-function queuedNotRunning(view, ctx) {
-  const found = []
-  if (isPaused(view) || isFull(view)) return found
-  const ctxStore = { store: { items: view.items } }
-  for (const lane of workersOf(view).filter(one => one.state === 'free' && one.isRunning === false)) {
-    const mine = stepsOf(view).filter(item => stateOf(item) === 'queued' && plain(valueOf(item, 'Owner'), view.prefix) === plain(lane.name, view.prefix)
-      && blockersOpen(item, ctxStore).length === 0 && waitWords(item) === null)
-    if (mine.length === 0) continue
-    // Its next step: the first of its queue as the board shows it, else the store's oldest.
-    const order = (lane.queue ?? []).map(one => one?.id)
-    const next = [...mine].sort((a, b) => (order.indexOf(idOf(a)) + 1 || Infinity) - (order.indexOf(idOf(b)) + 1 || Infinity) || byId(idOf(a), idOf(b)))[0]
-    const isStarting = view.outbox.some(message => message?.command === 'start' && plain(message.about, view.prefix) === plain(lane.name, view.prefix) && ['waiting', 'taken'].includes(message.state))
-    if (isStarting) continue
-    const id = idOf(next)
-    const queuedAt = sinceMs(valueOf(next, 'Since'))
-    const freeSince = view.since.get(lane.name)
-    const since = Math.max(...[queuedAt, freeSince].filter(Number.isFinite))
-    const key = `queued-not-running ${id}`
-    const ms = lasted(view, ctx, key, afterPause(view, Number.isFinite(since) ? since : null))
-    if (ms <= QUEUED_NOT_RUNNING_MS) continue
-    found.push({
-      rule: 'queued-not-running', key, subject: id,
-      text: `${id} queued for ${lane.name} for ${minutes(ms)} min, but its chat does not run and no start of it is on its way`,
-      evidence: `${lane.name}: free, running no, since ${clockOf(view.now - ms)}; queued for it: ${mine.map(idOf).sort(byId).join(', ')}; start words of it on their way: none`,
-    })
-  }
-  return found
-}
-
 /** Every watch rule, in the order the section shows them. */
 export const WATCH_RULES = [
   { id: 'unknown-lane', kind: 'watch', says: 'a worker "unknown" for too long', check: unknownLane },
   { id: 'stale-suspended', kind: 'watch', says: 'a worker "suspended" after its limit came back', check: staleSuspended },
-  { id: 'idle-while-waiting', kind: 'watch', says: 'all workers idle while steps wait', check: idleWhileWaiting },
+  { id: 'ready-while-free', kind: 'watch', says: 'a ready task waits while a worker is free', check: readyWhileFree },
   { id: 'holder-not-running', kind: 'watch', says: 'a step in progress whose worker does not run', check: holderNotRunning },
   { id: 'working-not-running', kind: 'watch', says: 'a worker whose card says it works while its chat makes no call and writes nothing', check: workingNotRunning },
   { id: 'opus-wait', kind: 'watch', says: 'an Opus step waiting for Opus too long', check: opusWait },
@@ -693,5 +683,5 @@ export const WATCH_RULES = [
   { id: 'stale-checkpoint', kind: 'watch', says: 'a step in progress with no checkpoint for hours, or whose checkpoint said to report long ago', check: staleCheckpoint },
   { id: 'effort-mismatch', kind: 'watch', says: 'a worker that still runs another model or effort than its step wants 10 min after the take', check: effortMismatch },
   { id: 'not-cleared', kind: 'watch', says: 'a worker not cleared after its reported step', check: notCleared },
-  { id: 'queued-not-running', kind: 'watch', says: 'a step queued for a free worker whose chat does not run, with no start on its way', check: queuedNotRunning },
+  { id: 'not-taking', kind: 'watch', says: 'a worker that did not take the task it was given', check: notTaking },
 ]

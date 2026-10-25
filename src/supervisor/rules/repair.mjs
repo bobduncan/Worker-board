@@ -21,19 +21,17 @@
 
 import { askFiledMs, sinceMs, valueOf } from '../../work/item.mjs'
 import { stamp } from '../../work/migrate.mjs'
-import { blockersOpen, waitIds, waitWords } from '../../work/guards.mjs'
+import { waitIds } from '../../work/guards.mjs'
 import { PARTNER_AGAIN_MS, isRoutedToPartner, partnerAskWords } from '../../work/partnerAnswers.mjs'
 import { isHolding } from '../../work/pause.mjs'
 import { checkWhy, gitCheckPassed, needsResultCheck, resultCheckOf, reviewWaitOf } from '../../work/resultCheck.mjs'
 import { asksOfStep } from '../../work/stepAsks.mjs'
-import { heldReason, restsFree } from '../../work/parked.mjs'
+import { heldReason } from '../../work/parked.mjs'
 
 const MIN = 60_000
 const HOUR = 60 * MIN
 
-/** A queued step its free owner was told of this long ago and did not take is woken again. */
-export const NOT_TAKEN_MS = 10 * MIN
-/** A step queued this long for a chat the list no longer shows goes to another (a chat about to join has this long). */
+/** A chat the list no longer shows this long: what it holds goes to the main chat, a pin to it is taken off. */
 export const OWNER_GONE_MS = 30 * MIN
 /** A wake of the board's own that changed nothing in this time goes to the main chat. */
 export const AGAIN_MS = 10 * MIN
@@ -47,20 +45,12 @@ export const UNCHECKED_MS = 30 * MIN
 const HELPER_LOOK_MS = 6 * 60 * MIN
 /** B546: a refine or check the running partner has said or done nothing about this long waits for the helper. */
 export const PARTNER_QUIET_MS = 10 * MIN
-/** B550: a step queued this long for a busy worker while another is free is named to the main chat, once an hour. */
-export const QUEUED_BEHIND_MS = 20 * MIN
-/** B542: a queued step its free owner waits on this long behind a step in review is named to the main chat. */
-export const REVIEW_WAIT_MS = 60 * MIN
-/** B564: a worker free this long with nothing queued while the focus has ready steps gets one named to the main chat. */
-export const FOCUS_IDLE_MS = 20 * MIN
 /** B567: a step in progress this long while its worker's card names another step, with nothing naming why, is named. */
 export const HELD_ELSEWHERE_MS = 60 * MIN
 
 /** The states in which a step is its Owner's work now. */
 const HOLDS = ['taken', 'in progress', 'waiting on you']
 const CLOSED = ['done', 'dropped']
-/** The states of a chat at work (or waiting on the person) without a step of its own taken. */
-const BUSY = ['working', 'waiting', 'interrupted']
 
 const kindOf = item => valueOf(item, 'Kind') ?? 'step'
 const stateOf = item => valueOf(item, 'State')
@@ -110,8 +100,6 @@ function factsOf(view) {
     laneOf: name => live.find(lane => plain(lane.name, prefix) === plain(name, prefix)),
     isHeld: isHolding(pause),
     holds: name => steps.some(item => HOLDS.includes(stateOf(item)) && plain(valueOf(item, 'Owner'), prefix) === plain(name, prefix)),
-    // B567: a worker that rests while every step it holds waits on the person counts free for its queued steps.
-    restFree: lane => restsFree(lane, steps, prefix),
     isFull: ['fiveHour', 'week'].some(limit => limits?.[limit]?.level === 'full'),
     wakeOr: (key, wake, late) => {
       const at = outbox.findLast(message => message.syncKey === key)?.at ?? null
@@ -165,201 +153,38 @@ function blocked(view) {
   return found
 }
 
-/** A queued step its free owner was told of a while ago and did not take: woken again, once; then the main chat. */
-function notTaken(view) {
-  const { prefix = '', now, outbox = [] } = view
-  const { steps, laneOf, isHeld, holds, restFree, wakeOr } = factsOf(view)
-  const found = []
-  if (isHeld) return found
-  const done = new Set()
-  for (const item of steps.filter(one => stateOf(one) === 'queued')) {
-    const id = idOf(item)
-    const lane = laneOf(valueOf(item, 'Owner'))
-    if (lane === undefined || lane.isMain === true || !((lane.state === 'free' && !holds(lane.name)) || restFree(lane)) || done.has(lane.name)) continue
-    const queuedAt = sinceMs(valueOf(item, 'Since'))
-    const told = outbox.findLast(message => message.command === 'work' && message.about === id && plain(message.to, prefix) === plain(lane.name, prefix)
-      && message.syncKey === undefined && ['delivered', 'taken'].includes(message.state) && !(message.at < queuedAt - MIN))
-    if (told === undefined || now - told.at < NOT_TAKEN_MS) continue
-    done.add(lane.name)
-    const key = `not-taken ${id} ${lane.name} ${valueOf(item, 'Since') ?? ''}`.trim()
-    const text = `${lane.name}: its queued ${id} waited ${minutes(now - told.at)} min while it was free`
-    const fix = wakeOr(key, { do: 'wake', chat: lane.name, id, text: `work: ${id} is yours; run work next (the board's check: it waited ${minutes(now - told.at)} min)` },
-      { do: 'main', text: `${lane.name} did not take ${id} after the board woke it again: look why` })
-    // The supervisor: about the chat that did not take it (the same chat woken again and again is a repair that repeats).
-    found.push(finding('not-taken', key, lane.name, text, fix))
-  }
-  return found
-}
-
 /**
- * B550 (X15: B531 queued 3 h 53 min third behind a busy worker while two workers were free; X16: B543 and B548 waited
- * 24 and 38 min behind it while two others were free): a step queued over QUEUED_BEHIND_MS for a worker that is busy,
- * while another worker is free (holds nothing, has nothing queued, not paused for the limit), is named to the main
- * chat: "Requeue B<n> to <free worker>: queued <age> behind <busy worker>". The board does not requeue it itself:
- * queueing is the main chat's (the flow file). The oldest waiting step goes to the first free worker (running before
- * not running, then free longest), the next to the next; a blocked step (Blocked by or Waits for open) is skipped. A
- * result check's fix (`Fix of`) stays with the worker that built the step: it is named with that reason, not moved.
- * Once per step an hour: the watch counts from the first time it was named, and lasts while the step stays queued for
- * the same worker, also through a run without a free worker.
- * Incident fixes (2026-10-24): an incident fix the board queued itself (incidentFix.mjs `boardPlacementOf`: it went to
- * the shortest queue as no worker was free) is the board's to move, not the main chat's: the board requeues it to the
- * free worker (Fixed), and the main chat gets its information line about it from the reconciler; never while a work
- * line about it went to its owner in the last NOT_TAKEN_MS (it may be taking it).
- */
-/**
- * What queued-behind and focus-ready share: the open steps queued over QUEUED_BEHIND_MS for a busy worker (`waiting`,
- * oldest first) and the free workers that hold nothing and have nothing queued (`free`, running before not running,
- * then free longest), with `isOpen` (no Blocked by nor Waits for open) and `fixOf` (the step a result check's fix fixes).
- */
-function behindOf(view) {
-  const { items = new Map(), prefix = '', now } = view
-  const { steps, workers, laneOf, holds, restFree } = factsOf(view)
-  const ctx = { store: { items } }
-  const isOpen = item => blockersOpen(item, ctx).length === 0 && waitWords(item) === null
-  const queued = steps.filter(item => stateOf(item) === 'queued')
-  const isBusy = lane => !restFree(lane) && (holds(lane.name) || BUSY.includes(lane.state))
-  const waiting = queued.filter(item => {
-    const lane = laneOf(valueOf(item, 'Owner'))
-    return lane !== undefined && lane.isMain !== true && isBusy(lane) && isOpen(item) && now - sinceMs(valueOf(item, 'Since')) > QUEUED_BEHIND_MS
-  }).sort((a, b) => sinceMs(valueOf(a, 'Since')) - sinceMs(valueOf(b, 'Since')) || byId(a, b))
-  const ownsQueued = lane => queued.some(item => plain(valueOf(item, 'Owner'), prefix) === plain(lane.name, prefix))
-  const freeSince = lane => lane.idle?.since ?? now
-  const free = workers.filter(lane => ((lane.state === 'free' && !holds(lane.name)) || restFree(lane)) && !ownsQueued(lane))
-    .sort((a, b) => Number(b.isRunning !== false) - Number(a.isRunning !== false) || freeSince(a) - freeSince(b))
-  const fixOf = item => (/^B\d+$/.test(valueOf(item, 'Fix of') ?? '') ? valueOf(item, 'Fix of') : null)
-  return { queued, waiting, free, isOpen, fixOf }
-}
-
-function queuedBehind(view, { seen = new Map(), observed = [] } = {}) {
-  const { prefix = '', now, outbox = [] } = view
-  const { laneOf, isHeld, isFull } = factsOf(view)
-  const found = []
-  if (isHeld || isFull) return found
-  const { queued, waiting, free, fixOf } = behindOf(view)
-  const watchOf = item => `queued-behind ${idOf(item)} ${plain(valueOf(item, 'Owner'), prefix)} ${valueOf(item, 'Since') ?? ''}`.trim()
-  // The watch of a step named before stands while it stays queued for the same worker.
-  for (const item of queued) if (seen.has(watchOf(item)) && !observed.includes(watchOf(item))) observed.push(watchOf(item))
-  if (free.length === 0) return found
-  const name = (item, text) => {
-    const id = idOf(item)
-    const watch = watchOf(item)
-    if (!observed.includes(watch)) observed.push(watch)
-    const key = `queued-behind ${id} ${valueOf(item, 'Since') ?? ''} ${Math.floor((now - (seen.get(watch) ?? now)) / HOUR)}`
-    found.push(finding('queued-behind', key, id, text, { do: 'send', text }))
-  }
-  const ageOf = item => hoursOf(now - sinceMs(valueOf(item, 'Since')))
-  const ownerOf = item => laneOf(valueOf(item, 'Owner')).name
-  for (const item of waiting.filter(one => fixOf(one) !== null)) {
-    name(item, `${idOf(item)} queued ${ageOf(item)} behind ${ownerOf(item)} stays: it fixes ${fixOf(item)}, which ${ownerOf(item)} built`)
-  }
-  waiting.filter(one => fixOf(one) === null).slice(0, free.length).forEach((item, index) => {
-    name(item, `Requeue ${idOf(item)} to ${free[index].name}: queued ${ageOf(item)} behind ${ownerOf(item)}`)
-  })
-  return found
-}
-
-/**
- * B564 (X20: Workers 2 and 4 free 38 min with nothing queued while G33, the focus, had 8 steps refined ready from its
- * agreed how): a worker free over FOCUS_IDLE_MS (holds nothing, nothing queued, not named by queued-behind) while steps
- * are refined ready and not queued gets one named to the main chat: "Queue B<n> (<focus>) for <free worker>". Board
- * fixes (Priority fix) first, then the focus goal's steps, each in id order; a step whose Blocked by or Waits for is open
- * is skipped. One step per free worker, the free longest first. Steps of other goals are never named: work follows the
- * focus. The board does not queue it itself: queueing is the main chat's (the flow file). Once per step an hour: the
- * watch counts from the first time it was named and lasts while the step stays refined ready.
- */
-function focusReady(view, { seen = new Map(), observed = [] } = {}) {
-  const { focus = null, now } = view
-  const { steps, isHeld, isFull } = factsOf(view)
-  const found = []
-  if (isHeld || isFull) return found
-  const { waiting, free, isOpen, fixOf } = behindOf(view)
-  const isFix = item => valueOf(item, 'Priority') === 'fix'
-  const isFocus = item => focus !== null && String(valueOf(item, 'Goal') ?? '').trim().toUpperCase() === String(focus).trim().toUpperCase()
-  // Incident fixes (2026-10-24): one the board queues itself now, or whose standard holds it (the main chat was told), is left to it.
-  const ready = steps.filter(item => stateOf(item) === 'refined' && valueOf(item, 'Refined') === 'ready' && valueOf(item, 'Queue when refined') === null
-    && !(view.autoQueued ?? []).includes(idOf(item)))
-  const watchOf = item => `focus-ready ${idOf(item)}`
-  // The watch of a step named before stands while it stays refined ready.
-  for (const item of ready) if (seen.has(watchOf(item)) && !observed.includes(watchOf(item))) observed.push(watchOf(item))
-  const named = [...ready.filter(isFix), ...ready.filter(item => !isFix(item) && isFocus(item))].filter(isOpen)
-  // The free workers queued-behind names a step for are left to it; the rest free longest first.
-  const taken = Math.min(free.length, waiting.filter(one => fixOf(one) === null).length)
-  const freeFor = lane => (Number.isFinite(lane.idle?.since) ? now - lane.idle.since : null)
-  const idle = free.slice(taken).filter(lane => freeFor(lane) !== null && freeFor(lane) > FOCUS_IDLE_MS)
-    .sort((a, b) => a.idle.since - b.idle.since)
-  named.slice(0, idle.length).forEach((item, index) => {
-    const id = idOf(item)
-    const watch = watchOf(item)
-    if (!observed.includes(watch)) observed.push(watch)
-    const lane = idle[index]
-    const text = `Queue ${id} (${isFix(item) ? 'board fix' : focus}) for ${lane.name}: free ${hoursOf(freeFor(lane))} with nothing queued`
-    const key = `focus-ready ${id} ${Math.floor((now - (seen.get(watch) ?? now)) / HOUR)}`
-    found.push(finding('focus-ready', key, id, text, { do: 'send', text }))
-  })
-  return found
-}
-
-/**
- * B542 (X7: B500 and B510 waited hours behind B502, in review with its check running, while their workers were free):
- * a step queued REVIEW_WAIT_MS with its owner free that a step in review still blocks (its check not passed, so
- * `blocked` leaves it): the main chat hears it once per pair, as a note naming both.
- */
-function reviewWait(view) {
-  const { items = new Map(), now } = view
-  const { steps, laneOf, isHeld, holds } = factsOf(view)
-  const found = []
-  if (isHeld) return found
-  for (const item of steps.filter(one => stateOf(one) === 'queued')) {
-    const id = idOf(item)
-    const lane = laneOf(valueOf(item, 'Owner'))
-    if (lane === undefined || lane.isMain === true || lane.state !== 'free' || holds(lane.name)) continue
-    const since = Math.max(sinceMs(valueOf(item, 'Since')), Number.isFinite(lane.idle?.since) ? lane.idle.since : -Infinity)
-    if (!(now - since >= REVIEW_WAIT_MS)) continue
-    for (const on of [...new Set([...idsIn(valueOf(item, 'Blocked by')), ...waitIds(item).filter(one => /^B\d+$/.test(one))])]) {
-      const other = items.get(on)
-      if (other === undefined || stateOf(other) !== 'review' || isMergedAndChecked(other)) continue
-      const text = `${id} waits for the check of ${on}: queued ${minutes(now - since)} min while ${lane.name} is free`
-      found.push(finding('review-wait', `review-wait ${id} ${on}`, id, text, { do: 'send', text: `${text}; ${on} is in review: see that it is checked, or give ${lane.name} other work` }))
-    }
-  }
-  return found
-}
-
-/**
- * A step owned by a chat the list no longer shows: a queued one goes to a free worker; one it held is the main chat's.
- * The review: only once the owner has been missing for OWNER_GONE_MS by the runner's own watch (a chat file the app
- * rewrites is skipped for one read, an account switch drops chats for a while), and never while the person pauses.
+ * A step a chat no longer in the list holds (taken, in progress, waiting on you) is the main chat's to hand on; its work
+ * may stand on a branch. Redesign Part 2: a step given to such a chat (queued) the board takes back itself at once
+ * (work/handOut.mjs `takeBacks`), and a task pinned to such a chat is unpinned (`{ do: 'unpin', id }`), so it waits
+ * for no chat that is gone. The review: only once the chat has been missing for OWNER_GONE_MS by the runner's own watch
+ * (a chat file the app rewrites is skipped for one read, an account switch drops chats for a while), and never while
+ * the person pauses.
  */
 function ownerGone(view, { seen = new Map(), observed = [] } = {}) {
   const { partner = null, helper = null, prefix = '', now } = view
-  const { steps, workers, laneOf, isHeld, holds } = factsOf(view)
+  const { steps, workers, laneOf, isHeld } = factsOf(view)
   const found = []
   if (!(workers.length > 0 && !isHeld)) return found
   const known = name => laneOf(name) !== undefined || [partner, helper].some(card => card !== null && plain(card.name, prefix) === plain(name, prefix))
-  const given = new Map()
-  const queuedFor = name => steps.filter(item => stateOf(item) === 'queued' && plain(valueOf(item, 'Owner'), prefix) === plain(name, prefix)).length + (given.get(name) ?? 0)
-  for (const item of steps.filter(one => ['queued', ...HOLDS].includes(stateOf(one)) && valueOf(one, 'Owner') !== null)) {
+  const isGone = name => {
+    if (known(name)) return false
+    const watch = `missing ${plain(name, prefix)}`
+    if (!observed.includes(watch)) observed.push(watch)
+    return now - (seen.get(watch) ?? now) >= OWNER_GONE_MS
+  }
+  for (const item of steps.filter(one => HOLDS.includes(stateOf(one)) && valueOf(one, 'Owner') !== null)) {
     const id = idOf(item)
     const owner = valueOf(item, 'Owner')
-    if (known(owner)) continue
-    const watch = `missing ${plain(owner, prefix)}`
-    if (!observed.includes(watch)) observed.push(watch)
-    if (!(now - (seen.get(watch) ?? now) >= OWNER_GONE_MS)) continue
-    const key = `owner-gone ${id} ${owner}`
-    if (stateOf(item) !== 'queued') {
-      const text = `${id} is ${stateOf(item)} for ${owner}, no longer in the list`
-      found.push(finding('owner-gone', key, id, text, { do: 'main', text: `${text}: hand it on (its work may stand on a branch)` }))
-      continue
-    }
-    const free = workers.filter(lane => lane.state === 'free' && !holds(lane.name))
-      .sort((a, b) => Number(b.isRunning !== false) - Number(a.isRunning !== false) || queuedFor(a.name) - queuedFor(b.name))
-    const text = `${id} was queued for ${owner}, no longer in the list`
-    if (free.length === 0) {
-      found.push(finding('owner-gone', key, id, text, { do: 'main', text: `${text}, and no worker is free: queue it for another` }))
-      continue
-    }
-    given.set(free[0].name, (given.get(free[0].name) ?? 0) + 1)
-    found.push(finding('owner-gone', key, id, text, { do: 'requeue', id, to: free[0].name }))
+    if (!isGone(owner)) continue
+    const text = `${id} is ${stateOf(item)} for ${owner}, no longer in the list`
+    found.push(finding('owner-gone', `owner-gone ${id} ${owner}`, id, text, { do: 'main', text: `${text}: hand it on (its work may stand on a branch)` }))
+  }
+  for (const item of steps.filter(one => ['new', 'refined'].includes(stateOf(one)) && valueOf(one, 'Pinned') !== null)) {
+    const id = idOf(item)
+    const pinned = valueOf(item, 'Pinned')
+    if (!isGone(pinned)) continue
+    found.push(finding('owner-gone', `owner-gone ${id} pinned ${pinned}`, id, `${id} is pinned to ${pinned}, no longer in the list`, { do: 'unpin', id }))
   }
   return found
 }
@@ -613,11 +438,7 @@ function heldElsewhere(view, { seen = new Map(), observed = [] } = {}) {
 /** Every repair rule of the board's self-check, in the order the answer shows them. */
 export const REPAIR_RULES = [
   { id: 'blocked', kind: 'repair', says: 'a step blocked by one done, dropped or in review, or by one the store does not hold', check: blocked },
-  { id: 'not-taken', kind: 'repair', says: 'a queued step its free owner was told of and did not take', check: notTaken },
-  { id: 'queued-behind', kind: 'repair', says: 'a step queued over 20 min behind a busy worker while another worker is free', check: queuedBehind },
-  { id: 'focus-ready', kind: 'repair', says: 'a worker free over 20 min with nothing queued while the focus has steps refined ready', check: focusReady },
-  { id: 'review-wait', kind: 'repair', says: 'a queued step its free owner waits on for an hour behind a step in review', check: reviewWait },
-  { id: 'owner-gone', kind: 'repair', says: 'a step owned by a chat no longer in the list', check: ownerGone },
+  { id: 'owner-gone', kind: 'repair', says: 'a step held by, or pinned to, a chat no longer in the list', check: ownerGone },
   { id: 'refine-drop', kind: 'repair', says: 'a yes to dropping a step in its refine, which only the main chat carries out', check: refineDrop },
   { id: 'limit-back', kind: 'repair', says: 'a worker paused for the limit after its time', check: limitBack },
   { id: 'old-name', kind: 'repair', says: 'a chat that asks under an old name', check: oldName },
@@ -636,7 +457,7 @@ export const CHECKS = REPAIR_RULES.map(rule => ({ key: rule.id, words: rule.says
  * What is stuck now: `[{ check, key, text, fix, ... }]`, in the order of `CHECKS`, from every repair rule but the
  * worktrees' (the loop looks at those). `key` names the finding (one note to the main chat per key, ever; the board's
  * wake for it carries it as `syncKey`); `text` says what stands; `fix` what to do: `{ do: 'unblock', id, on }`,
- * `{ do: 'requeue', id, to }`, `{ do: 'wake', chat, id, text }` (a line typed to the chat), `{ do: 'woken', at }` (woken
+ * `{ do: 'unpin', id }`, `{ do: 'wake', chat, id, text }` (a line typed to the chat), `{ do: 'woken', at }` (woken
  * a moment ago: it waits for that), `{ do: 'send', text }` (a note to the main chat is the fix), `{ do: 'hand', chat, id,
  * text }` (the helper's work to the partner, and the main chat told), or `{ do: 'main', text }` (the board cannot fix
  * it: the main chat is told).

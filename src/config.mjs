@@ -27,7 +27,7 @@ export const SUPERVISOR_DEFAULTS = Object.freeze({
   unknownMinutes: 10,
   /** A worker "suspended" for this long after its limit is back (its reset passed, or the usage shows room). */
   suspendedMinutes: 10,
-  /** All workers idle while steps wait, for longer than this. */
+  /** Redesign Part 2: a ready task waits while a worker is free, for longer than this (the rule ready-while-free). */
   idleMinutes: 10,
   /** A step in progress whose worker has not run for longer than this. */
   notRunningMinutes: 30,
