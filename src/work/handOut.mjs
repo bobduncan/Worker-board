@@ -190,6 +190,8 @@ const isWorkLine = (message, id, owner, prefix) => message.command === 'work' &&
 export function takeBacks({ items, outbox = [], lanes = [], now, takeWithinMs, prefix = '' }) {
   const backs = []
   const workers = lanes.filter(isWorkerLane)
+  // A board that reads no worker at all (the app's list of chats could not be read) takes nothing back.
+  if (workers.length === 0) return backs
   const queued = [...items.values()].filter(item => kindOf(item) === 'step' && stateOf(item) === 'queued' && valueOf(item, 'Owner') !== null)
   for (const item of queued.sort((a, b) => byId(idOf(a), idOf(b)))) {
     const id = idOf(item)
@@ -199,7 +201,10 @@ export function takeBacks({ items, outbox = [], lanes = [], now, takeWithinMs, p
       backs.push({ id, chat: owner, stuck: false, why: `${owner} is no worker of the list` })
       continue
     }
-    const line = outbox.filter(message => isWorkLine(message, id, owner, prefix)).sort((a, b) => a.at - b.at).at(-1)
+    // Only a line of this give: one of an earlier give of the same step to the same worker (taken back, given anew)
+    // is older than its Since (the give's minute) and does not count.
+    const givenAt = sinceMs(valueOf(item, 'Since'))
+    const line = outbox.filter(message => isWorkLine(message, id, owner, prefix) && !(message.at < givenAt)).sort((a, b) => a.at - b.at).at(-1)
     if (line === undefined || now - line.at < takeWithinMs) continue
     const report = lane.report ?? null
     const isFresh = report !== null && lane.isRunning === true && !['unknown', 'off', 'suspended'].includes(lane.state)

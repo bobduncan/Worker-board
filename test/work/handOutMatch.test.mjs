@@ -99,8 +99,12 @@ test('takeBacks: not taken in time goes back on the list; stuck only when the wo
   assert.deepEqual(run([lane('W1', NOW - 10 * MIN)], [line({ at: NOW - 100_000 })]), [])
   assert.deepEqual(run([lane('W1', NOW - 10 * MIN)], [], { now: NOW + 10 * MIN }), [])
   assert.deepEqual(run([lane('W1', NOW - 10 * MIN)], [line({ syncKey: 'not-taken B1 W1' })]), [])
+  // A line of an earlier give of the same task to the same worker (taken back, given anew since) does not count.
+  assert.deepEqual(run([lane('W1', NOW - 10 * MIN)], [line({ at: NOW - 20 * MIN })]), [])
   // A worker no longer of the list: at once, with or without a line.
   assert.deepEqual(run([lane('W2')], []), [{ id: 'B1', chat: 'W1', stuck: false, why: 'W1 is no worker of the list' }])
+  // A board that reads no worker at all (the list of chats could not be read) takes nothing back.
+  assert.deepEqual(run([lane('Main', NOW, { isMain: true })], []), [])
   // A report that is not fresh: not stuck.
   assert.deepEqual(run([lane('W1', NOW - 10 * MIN, { state: 'unknown', isRunning: null })], [line()]).map(one => one.stuck), [false])
 })
