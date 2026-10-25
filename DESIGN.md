@@ -3428,6 +3428,20 @@ it can. The person: "It just needs to observe, periodically, not consume a lot o
   Resume all) and a Pause all button that asks as the one above the workers does; while a pause stands it names the next
   step. Built from what the chats' mods said in the last 2 minutes, it clears by itself once all run the installed mod.
   The board restarts nothing. Tests: `test/oldMods.test.mjs`, `test/supervisor/watch.test.mjs`.
+- **Every card that waits carries its way** (B533, the person, 2026-10-24: "I want a button to approve/disapprove or a
+  link to where I need to do something. This has neither."): `cardWays` (board.js, between `cardways` marks) gives each
+  card under Needs your attention what the person can do: an ask the board can answer has its form; the hints (B301
+  "No ask filed", B308 "May wait for you") have the way to the chat's answer (Talk to Main, the Advisor's chat, a
+  worker's answer) and a button that types one line into that chat as the person's own words (`nudgeWords`: file the
+  questions with work ask; go on, ask or report, naming the steps it holds), filed as an instruction like every line the
+  person types, so the chat closes it; once it went the button says "Asked at HH:MM" (page memory: a reload shows it
+  again). A worker with no sign of life gets Check now (B438); a quiet main chat and a question of the app's own form
+  say "in its chat in the Claude app", the one place the board cannot link. The unfiled card names its chat's step (a
+  link). A hint's window opens with "What the board found": the card's words, links and buttons, then the chat's
+  answer; the main chat's "It waits for you, and said no more" stays only where the chat itself asks. The Focus run's
+  guard cards (rebuild, Fable or Opus) and the re-check that waits for the person link their ask ids and carry a button
+  to the ask's window (else Needs your attention). The handout card the step was asked for went with redesign Part 2
+  (the board hands out every task). Tests: `test/cardWays.test.mjs`.
 - **A new mod between steps** (B570, the person's I95, 2026-10-24: "i dont want to restart all the chats manually"): an
   idle chat is restarted alone by archiving and unarchiving it in the app (its process ends; its next word starts it on
   the installed mod; nothing is spent until then). `src/work/modRollout.mjs` (pure, `rolloutPlan`) reads the version

@@ -134,7 +134,9 @@ test('the window knows the Advisor, shows its answer as the main chat\'s, and op
   assert.ok(parts.includes("open.dataset.showAdvisor = 'chat'"), 'the Advisor\'s window opens its chat on the Advisor tab')
   assert.match(script, /const advisor = event\.target\.closest\('\[data-show-advisor\]'\)\n\s+if \(advisor !== null\) \{\n\s+closeDetails\(\)\n\s+show\('advice'\)\n\s+showAdvisorPane\(advisor\.dataset\.showAdvisor\)/)
   // B301: the warning's button: Talk to Main, the Advisor's chat, or a worker's answer in the card's window.
-  assert.match(script, /open\.dataset\.openTalk = need\.talk === 'main' \|\| need\.talk === 'advisor' \? need\.talk : need\.id/)
+  // B533: its ways (cardWays) carry it, and the button draws it.
+  assert.match(script, /const talk = \{ way: 'talk', to: need\.talk === 'main' \|\| need\.talk === 'advisor' \? need\.talk : need\.id \}/)
+  assert.match(script, /open\.dataset\.openTalk = way\.to/)
   assert.match(script, /if \(where === 'main'\) showSide\('main'\)\n\s+else if \(where === 'advisor'\) \{\n\s+show\('advice'\)\n\s+showAdvisorPane\('chat'\)\n\s+\} else openDetails\(\{ need: where \}\)/)
 })
 

@@ -3514,7 +3514,7 @@ function partnerAnswerParts(need) {
  * The part of a request that takes the answer: what was sent, or the form its kind needs. `isFolded` keeps the
  * form of a backlog step behind a button until it is opened, so the many steps stay short.
  */
-function answerPart(need, state, isFolded) {
+function answerPart(need, state, isFolded, inWindow = false) {
   const answer = need.answer
   // Partner answers (2026-10-19): the partner's answer with its Undo; an ask it handed on, or taken back, says so.
   if (answer?.by === 'partner') return [...partnerAnswerParts(need), ...(problems.has(need.id) ? [el('p', 'problem', problems.get(need.id))] : [])]
@@ -3528,9 +3528,16 @@ function answerPart(need, state, isFolded) {
     const what = { approve: 'approved', reject: 'rejected', done: 'marked done' }[earlier.verdict] ?? 'answered'
     parts.push(el('p', 'muted', `Changed since you ${what} it at ${clock(earlier.at)}${earlier.text === '' ? '' : `: "${earlier.text}"`}.`))
   }
-  if (need.kind === 'unfiled' || need.kind === 'idle') return [...parts, ...talkButton(need)]
+  if (need.kind === 'unfiled' || need.kind === 'idle') return [...parts, ...wayButtons(need, inWindow)]
   if (need.kind === 'old-mod') return [...parts, ...oldModParts(need, state)]
-  if (!need.canAnswer) return [...parts, el('p', 'muted', isStep(need) ? 'No main chat is open to take the answer.' : 'Answer in its chat.')]
+  // B533: a quiet worker's card carries Check now; a question of the app's own form is answered in its chat only.
+  if (!need.canAnswer) {
+    const check = String(need.id).startsWith('quiet:') ? wayButtons(need) : []
+    const where = isStep(need) ? 'No main chat is open to take the answer.'
+      : String(need.id).startsWith('quiet:') ? `${check.length > 0 ? 'Or look' : 'Look'} at its chat in the Claude app.`
+        : 'Answer it in its chat in the Claude app: that form takes its answer only there.'
+    return [...parts, ...check, el('p', 'muted', where)]
+  }
   if (isFolded && !openForms.has(need.id)) {
     const open = el('button', 'choice', `Answer (goes to ${need.from})`)
     open.type = 'button'
@@ -3596,12 +3603,113 @@ function oldModParts(need, state) {
   return parts
 }
 
-function talkButton(need) {
-  const open = el('button', 'choice', need.talk === 'main' ? `Open Talk to ${need.from}` : need.talk === 'advisor' ? `Open ${need.from}'s chat` : `Open ${need.from}'s answer`)
-  open.type = 'button'
-  open.dataset.openTalk = need.talk === 'main' || need.talk === 'advisor' ? need.talk : need.id
-  return [open]
+// cardways:start
+/**
+ * B533: the ways a card under Needs your attention gives the person to do what it waits for. The person, 2026-10-24:
+ * "I want a button to approve/disapprove or a link to where I need to do something. This has neither." An ask the board
+ * can answer has its form; the board's hints (B301, B308) carry the way to the chat's words and a button that asks the
+ * chat to act, typed into its chat as the person's own line (filed as an instruction, which the chat closes); a chat
+ * with no sign of life gets Check now (B438). Only a question asked with the app's own form, and a main chat that is
+ * quiet, are the app's: the board can only say so. `canCheck` whether the board has a main chat for Check now.
+ */
+function cardWays(need, canCheck) {
+  if (need.kind === 'old-mod') return [{ way: 'pause' }]
+  if (need.kind === 'unfiled' || need.kind === 'idle') {
+    const talk = { way: 'talk', to: need.talk === 'main' || need.talk === 'advisor' ? need.talk : need.id }
+    talk.label = need.talk === 'main' ? `Open Talk to ${need.from}` : need.talk === 'advisor' ? `Open ${need.from}'s chat` : `Open ${need.from}'s answer`
+    return [talk, { way: 'nudge', to: need.from, ...nudgeWords(need) }]
+  }
+  if (String(need.id).startsWith('quiet:')) return need.isMain !== true && canCheck ? [{ way: 'check', chat: need.from }] : [{ way: 'app' }]
+  if (need.canAnswer === true) return [{ way: 'form' }]
+  return [{ way: 'app' }]
 }
+
+/** B533: the button of a hint and the line it types into the chat, as the person's own words. */
+function nudgeWords(need) {
+  if (need.kind === 'unfiled') {
+    return { label: 'Ask it to file them as asks', text: 'Your last answer asks me things in its "For you" block, but you filed no ask for them: file each with work ask, so I can answer them on the board.' }
+  }
+  const held = /\bholds ((?:B\d+)(?:(?:, | and )B\d+)*)/.exec(need.title ?? '')?.[1] ?? 'a step'
+  return { label: 'Ask it to go on or report', text: `Your turn has ended while you hold ${held}, with nothing running and no ask open: go on with it, file what you need from me with work ask, or report it.` }
+}
+// cardways:end
+
+/** B533: what a nudge sent from this page is about: the card's id and when, so the button says it once it went. */
+const nudged = new Map()
+
+/** B533: the buttons of a card's ways (cardWays) that are no answer form: in its card, and (`inWindow`) in its window. */
+function wayButtons(need, inWindow = false) {
+  const parts = []
+  for (const way of cardWays(need, (board?.workers?.main ?? null) !== null)) {
+    if (way.way === 'talk' && !(inWindow && way.to === need.id)) {
+      const open = el('button', 'choice', way.label)
+      open.type = 'button'
+      open.dataset.openTalk = way.to
+      parts.push(open)
+    } else if (way.way === 'nudge') {
+      const at = nudged.get(need.id) ?? null
+      const key = `nudge:${need.id}`
+      const button = el('button', 'choice', sending.has(key) ? 'Sending…' : at === null ? way.label : `Asked at ${clock(at)}`)
+      button.type = 'button'
+      button.dataset.nudge = need.id
+      button.title = `Types into ${way.to}'s chat as your words: "${way.text}"`
+      button.disabled = sending.has(key) || at !== null
+      parts.push(button)
+      if (problems.has(key)) parts.push(el('p', 'problem', problems.get(key)))
+    } else if (way.way === 'check') {
+      const key = `sync:${way.chat}`
+      const button = el('button', 'choice', sending.has(key) ? 'Asking…' : 'Check now')
+      button.type = 'button'
+      button.dataset.cardSync = way.chat
+      button.title = 'Runs the board\'s own checks at once, and a sweep by the supervisor\'s chat about this worker'
+      button.disabled = sending.has(key)
+      parts.push(button)
+    }
+  }
+  if (parts.length === 0) return []
+  const row = el('div', 'choices')
+  row.append(...parts.filter(part => part.tagName === 'BUTTON'))
+  return [row, ...parts.filter(part => part.tagName !== 'BUTTON')]
+}
+
+/** B533: a hint's nudge: its line typed into the chat as the person's own; the button says when it went. */
+async function sendNudge(id) {
+  const need = board === null ? undefined : findNeed(id)
+  const way = need === undefined ? undefined : cardWays(need, false).find(one => one.way === 'nudge')
+  if (way === undefined) return
+  await send({ to: way.to, text: way.text }, `nudge:${id}`)
+  if (!problems.has(`nudge:${id}`)) nudged.set(id, Date.now())
+  redrawNeeds()
+  if ($('details').open) {
+    detailsShown = null
+    drawDetails(board)
+  }
+}
+
+document.addEventListener('click', event => {
+  const nudge = event.target.closest('[data-nudge]')
+  if (nudge !== null) {
+    event.stopPropagation()
+    nudge.disabled = true
+    sendNudge(nudge.dataset.nudge)
+    return
+  }
+  // B533: a Focus run's card that waits for the person: its ask's window, else Needs your attention.
+  const needs = event.target.closest('[data-open-needs]')
+  if (needs !== null) {
+    event.stopPropagation()
+    const ask = board === null || needs.dataset.openNeeds === '' ? undefined : everyNeed(board).find(one => one.workId === needs.dataset.openNeeds)
+    return ask === undefined ? openWaiting(null) : openDetails({ need: ask.id })
+  }
+  // B533: a quiet worker's card: Check now, as in its menu.
+  const check = event.target.closest('[data-card-sync]')
+  if (check !== null && (board?.workers?.main ?? null) !== null) {
+    event.stopPropagation()
+    check.disabled = true
+    send({ to: board.workers.main, command: 'sync', chat: check.dataset.cardSync }, `sync:${check.dataset.cardSync}`)
+    setSupervisorOpen(true)
+  }
+}, true)
 
 /** The options of a request: a button under its picture for each that has one, plain buttons for the others. */
 function optionParts(need) {
@@ -5059,12 +5167,15 @@ function waitingOf(need, now) {
   if (task !== null && task.stepId !== null) lines.push(`Backlog step ${task.stepId}`)
   if (task !== null && Number.isFinite(task.startedAt)) lines.push(`Since ${clock(task.startedAt)} (${span(now - task.startedAt)})`)
   const waits = need.waits ?? null
-  const where = (need.answer ?? null) !== null ? 'answered' : need.canAnswer ? 'here' : 'chat'
+  // B533: a hint of the board's (B301, B308): its window says what the board found, with its buttons, apart.
+  const isHint = need.kind === 'unfiled' || need.kind === 'idle'
+  const where = (need.answer ?? null) !== null ? 'answered' : isHint ? 'hint' : need.canAnswer ? 'here' : 'chat'
   return {
     task: lines,
     hasTask: task !== null && task.text !== '',
     // For a question of the app's form the need's own line only says where to answer: the window says that below.
-    summary: where === 'chat' ? '' : need.text ?? '',
+    summary: where === 'chat' || isHint ? '' : need.text ?? '',
+    isHint,
     questions: waits?.questions ?? [],
     plan: waits?.plan ?? null,
     // B149: its words without the closing block, which the window shows apart, formatted.
@@ -5349,7 +5460,8 @@ function mainParts(waiting) {
   // B275: what it asked with the app's own form, or the plan it asks to have approved: answered in its chat.
   const form = formParts(waiting)
   if (form.length > 0) main.push(section('What it asks in its chat', [...form, el('p', 'muted', 'It asked with the app\'s own question form: that one takes its answer only in its chat.')]))
-  if (material === '' && form.length === 0) main.push(el('p', 'muted', waiting.where === 'answered' ? 'It has your answer and went on.' : 'It waits for you, and said no more.'))
+  // B533: a hint says what the board found above; "It waits for you" only when the chat itself asks.
+  if (material === '' && form.length === 0 && !waiting.isHint) main.push(el('p', 'muted', waiting.where === 'answered' ? 'It has your answer and went on.' : 'It waits for you, and said no more.'))
   const open = el('button', 'link-button', waiting.isAdvisor ? 'Open its chat on the Advisor tab' : `Open Talk to ${board?.mainTalk?.name ?? 'Main'}`)
   open.type = 'button'
   // B275: the Advisor's window leads to the talk with it, on its own tab.
@@ -5375,6 +5487,17 @@ function closingParts(closing) {
 }
 
 $('details').addEventListener('click', event => {
+  // B533: a hint's window: the way to the main chat's talk or the Advisor's chat, as on its card.
+  const talk = event.target.closest('[data-open-talk]')
+  if (talk !== null && (talk.dataset.openTalk === 'main' || talk.dataset.openTalk === 'advisor')) {
+    closeDetails()
+    if (talk.dataset.openTalk === 'main') showSide('main')
+    else {
+      show('advice')
+      showAdvisorPane('chat')
+    }
+    return
+  }
   // B169: from the main chat's window to the talk with it, on the right side.
   const side = event.target.closest('[data-show-side]')
   if (side !== null) {
@@ -5452,7 +5575,7 @@ function waitingParts(waiting, needId = null) {
     said.append(el('small', 'muted', `Its last words${waiting.saidAt === null ? '' : `, ${clock(waiting.saidAt)}`}`), rich(el('div', 'said-words'), waiting.words))
     wants.push(said)
   }
-  if (wants.length === 0) wants.push(el('p', 'muted', waiting.where === 'answered' ? 'It has your answer and went on.' : 'It waits for you, and said no more.'))
+  if (wants.length === 0) wants.push(el('p', 'muted', waiting.where === 'answered' ? 'It has your answer and went on.' : waiting.isHint ? 'The board kept no words of its last answer.' : 'It waits for you, and said no more.'))
   if (waiting.where === 'chat') wants.push(el('p', 'muted', 'It asked with the app\'s own question form: that one takes its answer only in its chat.'))
   // B149: an answer that has only the closing block shows it apart, formatted, and not among its words.
   return { main: [section('Its task', task), section('What it wants from you', wants)], side: closingParts(waiting.handover?.closing ?? null) }
@@ -6324,7 +6447,7 @@ function drawDetails(state) {
   const calmIds = isCalm(need) ? calmGroup(need, everyNeed(state)).map(one => one.id) : null
   // B397: and the ask it points to, shown inline.
   const pointed = need !== null && !isStep(need) ? pointedAsk(need, everyNeed(state)) : null
-  const showing = JSON.stringify([detailsOf, need ?? subject.step ?? [lane.name, lane.queue], [...chosen], [...problems], [...sending], [...starting], runningData(state), state.changeAsks ?? null, state.advisor?.name ?? null, calmIds, pointed])
+  const showing = JSON.stringify([detailsOf, need ?? subject.step ?? [lane.name, lane.queue], [...chosen], [...problems], [...sending], [...starting], runningData(state), state.changeAsks ?? null, state.advisor?.name ?? null, calmIds, pointed, need === null ? null : nudged.get(need.id) ?? null])
   if (box.open && detailsShown === showing) return
   detailsShown = showing
   const focused = focusedNeed(box)
@@ -6365,6 +6488,9 @@ function drawDetails(state) {
   // B100: a worker that waits: its task in a few lines, then what it wants, in place of a description.
   const waiting = waitingOf(need, now)
   const waitingShown = waiting === null ? null : waitingParts(waiting, need.id)
+  // B533: a hint's window opens with the card's own words and links, then the chat's answer it is about; its buttons
+  // stand at the window's foot (answerPart).
+  if (waiting?.isHint === true) left.append(section('What the board found', words))
   if (waitingShown !== null) left.append(...waitingShown.main)
   // B94: "nothing more is written" only when nothing is: a step whose lines are its checklist and its context
   // has them on the right.
@@ -6437,7 +6563,7 @@ function drawDetails(state) {
   if (need !== null) {
     const form = el('div', `need is-${need.kind} details-answer`)
     form.dataset.id = need.id
-    form.append(...optionChoices(need), ...answerPart(need, state, false))
+    form.append(...optionChoices(need), ...answerPart(need, state, false, true))
     foot.append(form)
   }
   // Redesign Part 2: a new or refined task of the Backlog tab: "Pin to" a worker in its foot, as in its row.
@@ -9803,7 +9929,8 @@ function focusRecheckView(focus) {
   if ((focus.recheckAsked ?? null) !== null && !waits) return { tone: 'asked', title: 'Your partner re-checks it', text: `Against its Done when and its vibe, with the steps' evidence: ${focus.id} gets its tick once that passed.` }
   const last = focus.lastRecheck ?? null
   if (last === null || last.verdict === 'passed') return null
-  if (last.verdict === 'waits for you') return { tone: 'waits', title: 'The re-check waits for you', text: `${last.summary}; for you to judge: ${last.gap ?? 'see the questions from your partner'}.` }
+  // B533: with the button to the partner's questions under Needs your attention.
+  if (last.verdict === 'waits for you') return { tone: 'waits', title: 'The re-check waits for you', text: `${last.summary}; for you to judge: ${last.gap ?? 'see the questions from your partner'}.`, needs: { label: 'Open your partner\'s questions', ask: null } }
   return { tone: 'failed', title: `The re-check found a gap (attempt ${focus.attempts ?? 1})`, text: `${last.summary}; the gap: ${last.gap ?? 'named under the goal'}. Your partner makes the steps that close it.` }
 }
 
@@ -9814,9 +9941,11 @@ function focusRecheckView(focus) {
 function focusGuardView(focus) {
   const guard = focus?.guard ?? null
   if (guard === null) return null
-  if (guard.state === 'rebuild') return { tone: 'rebuild', title: 'A rebuild waits for you', text: `Your partner's evaluation proposes a new how for ${focus.id}${guard.ask === null ? '' : ` (${guard.ask})`}: answer it under Needs your attention. Nothing is rebuilt before your yes.` }
+  // B533: each with the button to its question under Needs your attention.
+  const needs = { label: guard.ask === null || guard.ask === undefined ? 'Open Needs your attention' : `Answer ${guard.ask}`, ask: guard.ask ?? null }
+  if (guard.state === 'rebuild') return { tone: 'rebuild', title: 'A rebuild waits for you', text: `Your partner's evaluation proposes a new how for ${focus.id}${guard.ask === null ? '' : ` (${guard.ask})`}: answer it under Needs your attention. Nothing is rebuilt before your yes.`, needs }
   // 2026-10-24: before the evaluation the board asks the person which model runs it: Fable only with their yes.
-  if (guard.state === 'asking') return { tone: 'asking', title: 'Fable or Opus? The board asks you', text: `${guard.attempts} checks failed: before your partner evaluates the approach, answer ${guard.ask} under Needs your attention: A Yes, Fable 5.1 (the strongest, far more tokens), or B No, Opus 5.5. Nothing starts before your answer.` }
+  if (guard.state === 'asking') return { tone: 'asking', title: 'Fable or Opus? The board asks you', text: `${guard.attempts} checks failed: before your partner evaluates the approach, answer ${guard.ask} under Needs your attention: A Yes, Fable 5.1 (the strongest, far more tokens), or B No, Opus 5.5. Nothing starts before your answer.`, needs }
   if (guard.state === 'evaluating') return { tone: 'evaluating', title: 'Your partner evaluates the approach', text: `${guard.attempts} checks failed: on high effort your partner asks whether the how is right and what caps the result, then corrects the how or proposes a rebuild.` }
   if (guard.attempts === 0) return null
   return { tone: 'counting', title: `Checks failed: ${guard.attempts} of ${guard.of} attempts`, text: `At ${guard.of} failed checks (or your no to a look) your partner evaluates whether the approach is right, on Fable or Opus as you answer the board.` }
@@ -12139,15 +12268,25 @@ function focusVibeThereCard(view, can) {
 /** B358: the run's card of the goal's re-check: it runs, it found a gap, or it waits for the person. */
 function focusRecheckCard(recheck) {
   const card = el('section', `focus-card focus-recheck is-${recheck.tone}`)
-  card.append(el('h3', '', recheck.title), el('p', '', recheck.text))
+  // B533: its ids are links, and one that waits for the person opens what it waits for.
+  card.append(el('h3', '', recheck.title), linkedEl('p', '', recheck.text), ...focusNeedsButton(recheck))
   return card
 }
 
 /** B359: the run's card of the goal guard. */
 function focusGuardCard(guard) {
   const card = el('section', `focus-card focus-guard is-${guard.tone}`)
-  card.append(el('h3', '', guard.title), el('p', '', guard.text))
+  card.append(el('h3', '', guard.title), linkedEl('p', '', guard.text), ...focusNeedsButton(guard))
   return card
+}
+
+/** B533: a run's card that waits for the person: the button to its question under Needs your attention. */
+function focusNeedsButton(view) {
+  if (view.needs === undefined) return []
+  const open = el('button', 'quiet-button', view.needs.label)
+  open.type = 'button'
+  open.dataset.openNeeds = view.needs.ask ?? ''
+  return [open]
 }
 
 /** Focus 1 (spec 2026-10-18, section 4): the Focus page, read-only from goals.md: the head, the strip, each stage's cards. */

@@ -151,5 +151,5 @@ test('the window says the task in a few lines, as the card names it, then what t
   assert.match(script, /const waitingShown = waiting === null \? null : waitingParts\(waiting, need\.id\)/)
   assert.match(script, /if \(waitingShown !== null\) left\.append\(\.\.\.waitingShown\.main\)/)
   assert.match(script, /main: \[section\('Its task', task\), section\('What it wants from you', wants\)\]/)
-  assert.match(script, /form\.append\(\.\.\.optionChoices\(need\), \.\.\.answerPart\(need, state, false\)\)/)
+  assert.match(script, /form\.append\(\.\.\.optionChoices\(need\), \.\.\.answerPart\(need, state, false, true\)\)/)
 })
