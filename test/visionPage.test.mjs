@@ -350,9 +350,11 @@ test('the guided path: a decision per slide with its step, its buttons, sent onc
     ['K2', 'standards', 'Is this the bar for Paths?', ['Confirm:confirm-standard-now:K2', 'Change:change:K2']],
     ['S1', 'plan', 'Is this a goal: Two benches by the path?', ['Confirm:confirm-goal-now:S1', 'Change:change:S1']],
   ])
-  // A decision sent stays, marked sent, and no longer counts as one to decide.
+  // A decision sent leaves the Interview at once (2026-10-25) and no longer counts as one to decide; the count of the
+  // answered ones stands under the dots.
   const sent = visionView(plan, { ...UI, sent: ['K2'] })
-  assert.deepEqual([sent.slides.find(one => one.id === 'K2').isSent, sent.interviewLabel], [true, 'Interview · 8 to decide'])
+  assert.deepEqual([sent.slides.some(one => one.id === 'K2'), sent.interviewLabel, sent.answered], [false, 'Interview · 8 to decide', 1])
+  assert.equal(sent.slides.length, view.slides.length - 1)
   // A decision is no card's "your partner asks".
   assert.equal(view.features.cards.find(card => card.id === 'K2'), undefined)
   assert.equal(view.features.cards.find(card => card.id === 'F3').slide, -1)

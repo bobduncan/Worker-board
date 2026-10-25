@@ -10456,6 +10456,10 @@ function visionView(plan, ui = { page: 'vision', at: 0, picked: {}, change: null
     const standard = standards.find(one => one.id === ui.change) ?? null
     if (standard !== null) slides.push({ kind: 'change', id: standard.id, title: standard.title, question: `Change: ${standard.title}`, points: [standard.count === '' ? null : `**How many:** ${standard.count}`, ...standard.bar.map((point, index) => (standard.barLevels?.[index] ?? 0) > 0 ? `– ${point}` : `**Bar:** ${point}`)].filter(Boolean), pictures: [standard.reference, standard.today, ...(standard.pictures ?? [])].filter(one => one !== null) })
   }
+  // 2026-10-25 (the user: "it says 3 questions left, but i still see all the other question i answered"): a decision you
+  // sent leaves the Interview at once; how many are with your partner shows under the dots.
+  const answered = slides.filter(slide => slide.kind === 'decide' && slide.isSent).length
+  for (let index = slides.length - 1; index >= 0; index -= 1) if (slides[index].kind === 'decide' && slides[index].isSent) slides.splice(index, 1)
   const slideOf = id => slides.findIndex(slide => (slide.kind === 'ask' || slide.kind === 'open') && (slide.id === id || slide.about === id))
   const open = ui.open ?? []
   // A card's pictures as a gallery: one big, the others as thumbnails under it (the user, 2026-10-20); `shown` is the
@@ -10563,6 +10567,7 @@ function visionView(plan, ui = { page: 'vision', at: 0, picked: {}, change: null
       { id: 'focus', label: '5 · Focus', isDone: focus !== null },
     ],
     interviewLabel: asks > 0 ? `Interview · ${asks} to decide` : 'Interview',
+    answered,
     // What waits on you (2026-10-21): how many, and the first slide that does, for the bar's Start.
     waiting: asks, firstWaiting,
     working: working.map(one => ({ ...one, title: titleOfPart(one.about) })),
@@ -11932,6 +11937,7 @@ function visionSlide(view, can, off) {
     dots.append(dot)
   })
   card.append(dots)
+  if (view.answered > 0) card.append(el('p', 'vision-meta muted vision-answered', `${view.answered} answered: your partner writes ${view.answered === 1 ? 'it' : 'them'} in`))
   const buttons = el('div', 'vision-buttons')
   const back = visionButton('Back', 'goto', { id: String(view.at - 1) })
   back.disabled = view.at === 0
@@ -12163,7 +12169,6 @@ async function visionAct(act, id) {
       if (await toPartner(body, `${slide.title}: your words went to your partner.`)) {
         visionUi.words = ''
         visionUi.sent = [...visionUi.sent, slide.id]
-        visionUi.at = Math.min(visionUi.at + 1, Math.max(0, view.slides.length - 1))
       }
     }
   } else if (act === 'get-tradeoffs') {
@@ -12172,7 +12177,6 @@ async function visionAct(act, id) {
     const [part, choice] = String(id).split(':')
     if (await toPartner({ command: 'plan-tradeoff', id: part, text: choice }, `${part}: ${choice === 'prepare' ? 'prepare now' : 'wait'}, sent to your partner.`)) {
       visionUi.sent = [...visionUi.sent, part]
-      if (visionUi.page === 'interview') visionUi.at = Math.min(visionUi.at + 1, Math.max(0, view.slides.length - 1))
     }
   } else if (act === 'check-plan') {
     return toPartner({ command: 'plan-check' }, 'Your partner looks at the whole plan again: what changes comes on step 4, each with its cause.')
@@ -12215,10 +12219,7 @@ async function visionAct(act, id) {
     // A decision of the Interview, sent at once; the slide says so and the next one comes.
     const [part, mark] = String(id).split(':')
     const body = act === 'mark-now' ? { command: 'plan-marks', text: `${part} ${mark}` } : act === 'confirm-standard-now' ? { command: 'plan-standards-confirm', text: part } : { command: 'plan-goals-confirm', text: part }
-    if (await toPartner(body, `${part}: sent to your partner.`)) {
-      visionUi.sent = [...visionUi.sent, part]
-      visionUi.at = Math.min(visionUi.at + 1, Math.max(0, view.slides.length - 1))
-    }
+    if (await toPartner(body, `${part}: sent to your partner.`)) visionUi.sent = [...visionUi.sent, part]
   } else if (act === 'goals-agree') {
     return toPartner({ command: 'plan-goals-agree' }, 'Your partner puts the confirmed goals into your goal map: they show on the Focus tab\'s Goals part.')
   } else if (act === 'send-change' && slide?.kind === 'change') {
