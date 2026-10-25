@@ -17,7 +17,7 @@ import { blockersOpen, waitWords } from '../../work/guards.mjs'
 import { checkpointOf, heldMs, isHolding } from '../../work/pause.mjs'
 import { isFailedForGood, stoppedChats, whyClosed } from '../../work/outboxSweep.mjs'
 import { FIRST_SAYING, chatsByRole, oldModFinding } from '../../oldMods.mjs'
-import { EFFORTS, chatEffort, effortOf, effortSaid, modelOf } from '../../work/effort.mjs'
+import { EFFORTS, chatEffort, effortOf, effortSaid, familyOf, modelOf } from '../../work/effort.mjs'
 import { reviewWaitOf } from '../../work/resultCheck.mjs'
 import { CLEAR_MOD, takenSince } from '../../clearOwed.mjs'
 
@@ -549,8 +549,8 @@ function staleCheckpoint(view) {
   return found
 }
 
-/** A model as the app names it ("claude-sonnet-5-5"), in its family's word. */
-export const familyOf = model => (typeof model !== 'string' || model === '' ? null : /opus/i.test(model) ? 'opus' : /sonnet/i.test(model) ? 'sonnet' : /haiku/i.test(model) ? 'haiku' : model)
+// Redesign Part 2: `familyOf` lives in effort.mjs (the hand-out reads it too); kept here for those who import it from here.
+export { familyOf }
 /** A step's take: its newest History line that took it ("queued → taken", or straight to in progress). */
 const TAKE_LINE = /^-\s+(\d{4}-\d{2}-\d{2} \d{2}:\d{2}(?::\d{2})?)\s+[^:]+: \S+ → taken\b|^-\s+(\d{4}-\d{2}-\d{2} \d{2}:\d{2}(?::\d{2})?)\s+[^:]+: queued → in progress\b/
 function takenAtOf(item) {

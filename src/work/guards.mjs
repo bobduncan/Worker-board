@@ -126,15 +126,18 @@ const covers = (a, b) => (a.repo === null || b.repo === null || a.repo === b.rep
   && (a.path === b.path || b.path.startsWith(`${a.path}/`) || a.path.startsWith(`${b.path}/`))
 const named = touch => (touch.repo === null ? touch.path : `${touch.repo} ${touch.path}`)
 
+/** The states in which a step's Touches count against another's: its worker works in them. */
+export const UNDER_WAY = ['taken', 'in progress', 'waiting on you']
+
 /**
  * The first taken or in-progress step whose Touches overlap the item's: `{ id, mine, theirs }` (the two paths, as
- * "repo path"), or null.
+ * "repo path"), or null. Redesign Part 2: `states` the states that count (the hand-out counts a step given, queued, too).
  */
-export function overlapIn(items, item) {
+export function overlapIn(items, item, states = UNDER_WAY) {
   const mine = touchesOf(item)
   if (mine.length === 0) return null
   for (const other of items.values()) {
-    if (other === item || valueOf(other, 'Id') === valueOf(item, 'Id') || !['taken', 'in progress', 'waiting on you'].includes(valueOf(other, 'State'))) continue
+    if (other === item || valueOf(other, 'Id') === valueOf(item, 'Id') || !states.includes(valueOf(other, 'State'))) continue
     for (const theirs of touchesOf(other)) {
       const own = mine.find(one => covers(one, theirs))
       if (own !== undefined) return { id: valueOf(other, 'Id'), state: valueOf(other, 'State'), mine: named(own), theirs: named(theirs) }

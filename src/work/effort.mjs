@@ -56,6 +56,9 @@ const plain = (name, prefix = '') => {
 /** The reason after a level or family: "medium: why", "medium · why", "medium (why)". */
 const reasonOf = (words, from) => words.slice(from).replace(/^[\s:·,;—–-]+/, '').replace(/^\((.*)\)\.?$/, '$1').trim()
 
+/** A model as the app names it ("claude-sonnet-5-5"), in its family's word. */
+export const familyOf = model => (typeof model !== 'string' || model === '' ? null : /opus/i.test(model) ? 'opus' : /sonnet/i.test(model) ? 'sonnet' : /haiku/i.test(model) ? 'haiku' : model)
+
 /** Whether two of the app's model ids are the same model ("claude-x" and "claude-x[1m]" are). */
 export const sameModel = (a, b) => typeof a === 'string' && typeof b === 'string' && a !== ''
   && a.replace(/\[[^\]]*\]$/, '').toLowerCase() === b.replace(/\[[^\]]*\]$/, '').toLowerCase()

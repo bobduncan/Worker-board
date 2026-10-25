@@ -5,7 +5,8 @@
 // names them (reconcile.mjs), the server carries them out through the work API (deliver.mjs). The code says "step"; the
 // person reads "task".
 
-import { readyHold } from './guards.mjs'
+import { familyOf, modelOf } from './effort.mjs'
+import { UNDER_WAY, overlapIn, readyHold } from './guards.mjs'
 import { isFix, sinceMs, valueOf } from './item.mjs'
 
 /** The settings' defaults (config.mjs): minutes to take a given task, minutes a follow-up is kept, no number of workers. */
@@ -86,4 +87,142 @@ export function readyList(items, { now, focus = null, followUpMs = HAND_OUT_DEFA
     ready.push({ id, rank, keptFor: pinned ?? follow?.worker ?? null, keptUntil: follow?.until ?? null, pinned })
   }
   return { ready: ready.sort((a, b) => a.rank - b.rank || byId(a.id, b.id)), held }
+}
+
+/** The states in which a step holds its worker for the hand-out: given (queued) or under way. */
+const HOLDS_WORKER = ['queued', 'taken', 'in progress']
+/** A step given (queued) or under way: its Touches count against a task to give. */
+const COUNTS_FOR_TOUCHES = ['queued', ...UNDER_WAY]
+const holdsOf = (items, name, prefix) => [...items.values()].some(item => kindOf(item) === 'step' && HOLDS_WORKER.includes(stateOf(item))
+  && plain(valueOf(item, 'Owner'), prefix) === plain(name, prefix))
+const isWorkerLane = lane => lane.isMain !== true && lane.isLeftover !== true
+
+/**
+ * The workers that get a task now (principle 3: only what a chat told the board): a worker lane (not the main chat, not
+ * a leftover) whose chat reports (`lane.report`, the Workers mod's own word), idle and free (or, B567, named in
+ * `restFree`: it rests while its task waits on the person), running, holding no step given or under way, not stuck.
+ * Free by the board's older reading of a chat, unknown, off, suspended or busy: none. The one idle longest first, then
+ * by name.
+ */
+export function idleWorkers(lanes, { items, prefix = '', restFree = [], stuck = new Set() }) {
+  return lanes.filter(lane => isWorkerLane(lane) && lane.report !== null && lane.report !== undefined && lane.report.state === 'idle'
+    && (lane.state === 'free' || restFree.includes(lane.name)) && lane.isRunning === true
+    && !stuck.has(lane.name) && !holdsOf(items, lane.name, prefix))
+    .sort((a, b) => (a.report.since ?? 0) - (b.report.since ?? 0) || byId(a.name, b.name))
+}
+
+/**
+ * Who gets what now: `[{ id, chat, why }]`, each worker and each task at most once. First each kept task (its pin, its
+ * follow-up) to its worker when that worker is idle; a kept task whose worker is not idle waits. Then the rest in the
+ * list's order, each to an idle worker already on its model family, else to the first idle one. A task whose Touches
+ * overlap a step given or under way, or one given in this pass, is skipped.
+ */
+export function match({ ready = [], idle = [], items, prefix = '' }) {
+  const scratch = new Map(items)
+  const free = [...idle]
+  const given = []
+  const give = (one, lane, why) => {
+    const item = items.get(one.id)
+    scratch.set(one.id, { ...item, head: new Map(item.head).set('State', 'queued').set('Owner', lane.name) })
+    free.splice(free.indexOf(lane), 1)
+    given.push({ id: one.id, chat: lane.name, why })
+  }
+  const overlaps = one => overlapIn(scratch, items.get(one.id), COUNTS_FOR_TOUCHES) !== null
+  for (const one of ready.filter(task => task.keptFor !== null && items.has(task.id))) {
+    const lane = free.find(worker => plain(worker.name, prefix) === plain(one.keptFor, prefix))
+    if (lane === undefined || overlaps(one)) continue
+    give(one, lane, one.pinned !== null ? `${one.id} is pinned to ${lane.name}` : `${one.id} follows up what ${lane.name} just finished`)
+  }
+  for (const one of ready.filter(task => task.keptFor === null && items.has(task.id))) {
+    if (free.length === 0) break
+    if (overlaps(one)) continue
+    const family = modelOf(items.get(one.id)).family
+    const onIt = free.find(worker => familyOf(worker.model) === family)
+    const lane = onIt ?? free[0]
+    give(one, lane, `${one.id} is the first ready task${onIt === undefined ? '' : ` for a worker on ${family}`}; ${lane.name} is free`)
+  }
+  return given
+}
+
+/** A work line of the board's to a chat about a step (not the sync check's): the line the take is counted from. */
+const isWorkLine = (message, id, owner, prefix) => message.command === 'work' && message.about === id && (message.syncKey ?? null) === null
+  && plain(message.to, prefix) === plain(owner, prefix) && Number.isFinite(message.at)
+
+/**
+ * The given tasks that go back on the list (principle 2): `[{ id, chat, stuck, why }]`. A queued step whose Owner is no
+ * worker of the list goes back at once. Else, once its newest work line to its Owner is `takeWithinMs` old and the step
+ * is still queued: not taken in time. A step whose line has not gone yet (held for its model, a clear, a mod restart:
+ * Review Focus 1) is never taken back. `stuck` only when the worker's report is fresh and has said idle since before
+ * that line: it never reacted (a worker the person typed to just after the give went busy: not stuck).
+ */
+export function takeBacks({ items, outbox = [], lanes = [], now, takeWithinMs, prefix = '' }) {
+  const backs = []
+  const workers = lanes.filter(isWorkerLane)
+  const queued = [...items.values()].filter(item => kindOf(item) === 'step' && stateOf(item) === 'queued' && valueOf(item, 'Owner') !== null)
+  for (const item of queued.sort((a, b) => byId(idOf(a), idOf(b)))) {
+    const id = idOf(item)
+    const owner = bare(valueOf(item, 'Owner'), prefix)
+    const lane = workers.find(one => plain(one.name, prefix) === plain(owner, prefix))
+    if (lane === undefined) {
+      backs.push({ id, chat: owner, stuck: false, why: `${owner} is no worker of the list` })
+      continue
+    }
+    const line = outbox.filter(message => isWorkLine(message, id, owner, prefix)).sort((a, b) => a.at - b.at).at(-1)
+    if (line === undefined || now - line.at < takeWithinMs) continue
+    const report = lane.report ?? null
+    const isFresh = report !== null && lane.isRunning === true && !['unknown', 'off'].includes(lane.state)
+    const stuck = isFresh && report.state === 'idle' && Number.isFinite(report.since) && report.since < line.at
+    backs.push({ id, chat: lane.name, stuck, why: `not taken within ${Math.round(takeWithinMs / 60_000)} min` })
+  }
+  return backs
+}
+
+/** The History line of a take-back that left its worker stuck (api.mjs `advance` with `takeBack`). */
+const STUCK_LINE = /^-\s+(\d{4}-\d{2}-\d{2} \d{2}:\d{2})\s+server: queued → refined \(taken back from (.+?): .*; stuck\)$/
+
+/**
+ * The stuck take-backs per worker lane: `Map<lane name, { id, at, stamp }>`, the newest whose stamp is at or after the
+ * lane's report's since (the stamp is to the minute; a take-back comes at least `takeWithinMinutes` ≥ 1 after the line
+ * the worker sat idle through, so a report since before it is older than that minute). A worker that reported anew is
+ * no longer stuck.
+ */
+export function stuckTakeBacks({ items, lanes = [], prefix = '' }) {
+  const found = new Map()
+  const workers = lanes.filter(lane => isWorkerLane(lane) && Number.isFinite(lane.report?.since))
+  if (workers.length === 0) return found
+  for (const item of items.values()) {
+    if (kindOf(item) !== 'step') continue
+    for (const line of historyOf(item)) {
+      const hit = line.match(STUCK_LINE)
+      if (hit === null) continue
+      const lane = workers.find(one => plain(one.name, prefix) === plain(hit[2], prefix))
+      const at = sinceMs(hit[1])
+      if (lane === undefined || !(at >= lane.report.since)) continue
+      if (!found.has(lane.name) || found.get(lane.name).at <= at) found.set(lane.name, { id: idOf(item), at, stamp: hit[1] })
+    }
+  }
+  return found
+}
+
+/** The worker lanes that are stuck now (`stuckTakeBacks`), by name. */
+export const stuckWorkers = facts => new Set(stuckTakeBacks(facts).keys())
+
+/**
+ * Whether the board asks for one more worker now: `{ start: name }` (a worker of the list whose chat is off, the one off
+ * longest first), `{ spawn: 1 }` (a new one), or null. Null when `maxWorkers` is no number (the board starts none),
+ * while held (the person pauses, a limit is full), while an idle worker is left after this pass's gives, when every
+ * ready task is given or kept for a worker (a pinned task waits for its worker only: Review Focus 5), or when the
+ * workers not off are `maxWorkers` already.
+ */
+export function workerStart({ ready = [], gives = [], idle = [], lanes = [], maxWorkers = null, isHeld = false }) {
+  if (!Number.isFinite(maxWorkers) || isHeld) return null
+  const given = new Set(gives.map(one => one.chat))
+  if (idle.some(lane => !given.has(lane.name))) return null
+  const handed = new Set(gives.map(one => one.id))
+  if (!ready.some(one => one.keptFor === null && !handed.has(one.id))) return null
+  const workers = lanes.filter(isWorkerLane)
+  const isOff = lane => lane.state === 'off' || lane.isRunning === false
+  if (workers.filter(lane => !isOff(lane)).length >= maxWorkers) return null
+  const off = workers.filter(isOff).sort((a, b) => (a.offSince ?? 0) - (b.offSince ?? 0) || byId(a.name, b.name))[0]
+  return off === undefined ? { spawn: 1 } : { start: off.name }
 }
