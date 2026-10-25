@@ -468,3 +468,11 @@ test('the list of chats names the supervisor\'s chat with "supervisor": no lane,
   assert.equal(without.supervisorChat, null)
   assert.deepEqual(without.chats.map(one => one.name), ['Lead', 'Digger', 'Watcher'])
 })
+
+test('gap 3: the backlog line tells the refined tasks the board hands out from those that wait for the person outside the focus goal', () => {
+  const readyList = { ready: [{ id: 'B20' }], held: [{ id: 'B22', why: 'outside the focus goal: waits until you pin it or switch the focus' }, { id: 'B23', why: 'blocked by B12 (in progress)' }] }
+  const view = buildView({ state: { chats: [lane('Lead', { isMain: true })], chatPrefix: '', readyList }, items: items(step('B20', 'refined'), step('B22', 'refined'), step('B23', 'refined')), now: NOW })
+  assert.match(healthSummary(view, NOW), /- backlog, not queued: 0 new, 3 refined \(1 ready to hand out; 1 outside the focus goal, waiting for the person by design; 1 held otherwise\)/)
+  // Without a ready list (a board that hands out nothing), the count alone.
+  assert.match(healthSummary(buildView({ state: { chats: [lane('Lead', { isMain: true })], chatPrefix: '' }, items: items(step('B20', 'refined')), now: NOW }), NOW), /- backlog, not queued: 0 new, 1 refined\n/)
+})

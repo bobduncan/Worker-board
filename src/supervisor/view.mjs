@@ -18,7 +18,8 @@ const DEFAULT_KEEP = Object.freeze({ messageMs: 10 * 60_000, answerMs: 48 * 60 *
  * subject, key }]`), `mods` (`{ installed, chats }`: the Workers mod installed, and the version each chat runs where
  * known), `settings` (the thresholds, config.mjs SUPERVISOR_DEFAULTS), `keep` (how long the outbox keeps a word) and
  * `goals` (the goal map's nodes) and `focus` (the focus goal's id, or null), `ready` (redesign Part 2: the board's ready
- * list, state.mjs `readyList.ready`: `{ id, rank, keptFor, keptUntil, pinned }` in its order).
+ * list, state.mjs `readyList.ready`: `{ id, rank, keptFor, keptUntil, pinned }` in its order) and `held` (its `held`, or
+ * null without a list).
  */
 export function buildView({ state = {}, items = new Map(), outbox = [], keep = null, limits, pause, refused = [], leftovers, bases = [], repairs = [], mods = null, settings = {}, now }) {
   const lanes = state.chats ?? []
@@ -43,6 +44,9 @@ export function buildView({ state = {}, items = new Map(), outbox = [], keep = n
     focus: typeof state.focus?.id === 'string' ? state.focus.id : null,
     // Redesign Part 2: the board's ready list (the rule ready-while-free).
     ready: Object.freeze([...(state.readyList?.ready ?? [])].map(one => Object.freeze({ ...one }))),
+    // Gap 3: what the list holds back, `{ id, why }` (outside the focus goal, a blocker, an ask, a standard), or null
+    // without a list: the health summary tells them apart, so a sweep does not take them for work a free worker misses.
+    held: Array.isArray(state.readyList?.held) ? Object.freeze(state.readyList.held.map(one => Object.freeze({ ...one }))) : null,
     limits: limits ?? state.limits ?? {},
     pause: pause ?? state.pause ?? null,
     refused,

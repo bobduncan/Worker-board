@@ -42,7 +42,11 @@ sweep is meant to cost little (a few tens of thousands of tokens, mostly cached)
   again, its check failing again) is odd.
 - The board hands out all work (redesign Part 2, 2026-10-25): a task it gives a worker is taken within two minutes, or
   the board takes it back and the worker shows "Stuck" (the rule not-taking names it); a ready task that waits while a
-  worker is free (the rule ready-while-free) is odd. A task pinned to a worker waits for that worker by design, and a
+  worker is free (the rule ready-while-free) is odd. Ready means what the board hands out: a fix, a task of the focus
+  goal, or a pinned one (the backlog line's "ready to hand out"). Refined tasks outside the focus goal wait for the
+  person's pin or a focus switch by design (the backlog line's "outside the focus goal, waiting for the person by
+  design"), and so do those "held otherwise": workers idle while only such tasks wait is no incident. A task pinned to a
+  worker waits for that worker by design (the board has the main chat start that worker when its chat is off), and a
   worker holding a given task whose line waits (its model, a clear, a restart) is no free worker: no incident; such a
   give goes back by itself after 20 minutes. Main hands out nothing, so a step Main did not
   queue is no incident either.
@@ -58,8 +62,8 @@ sweep is meant to cost little (a few tens of thousands of tokens, mostly cached)
   passed and asked it ("check asked HH:MM, word to <partner> (<state>)"), not from the step's age in review: one under
   the review minutes with its check word delivered is a check under way, no incident (B585).
 - A worker "suspended" for the limit goes on once its reset has passed or the limits show room again.
-- Work follows the focus goal: the board's list puts the focus goal's tasks before the rest (fixes first); work outside
-  it while a focus task is ready and a worker free is odd.
+- Work follows the focus goal: the board hands out fixes, the focus goal's tasks and pinned ones only (the rest only when
+  the setting `handOutBeyondFocus` is on); work outside it while a focus task is ready and a worker free is odd.
 - A word to a chat is taken within minutes; words that wait long for one chat are odd. The summary lists the words of
   the last day that still matter (a word whose purpose is gone is closed with its why and not listed); only those
   marked `!` are odd: rule 8's words, waiting over 10 minutes or failed or expired in the last two hours.

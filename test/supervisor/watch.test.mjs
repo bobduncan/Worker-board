@@ -4,6 +4,7 @@
 // one finding "rule <id> failed" and the other rules still run. No word names a project.
 
 import assert from 'node:assert/strict'
+import { readFile } from 'node:fs/promises'
 import test from 'node:test'
 
 import { SUPERVISOR_DEFAULTS, configProblem, parseConfig } from '../../src/config.mjs'
@@ -426,4 +427,21 @@ test('not-taking: a worker the board took a task back from while it sat idle, on
   assert.match(found[0].evidence, /^Stuck: did not take B4 within 2 min; it went back on the list; taken back at /)
   // No flag (it reported anew since): nothing.
   assert.deepEqual(check('not-taking', view({ chats: [LEAD, lane('Painter', { state: 'free', report: { state: 'idle', since: ago(1), at: ago(0) }, flags: [] })], items: back })), [])
+})
+
+test('gap 3: ready-while-free counts only what the board hands out: never a task held outside the focus goal; a task pinned to the free worker does', async () => {
+  const free = (name, since = ago(40)) => lane(name, { state: 'free', report: { state: 'idle', since, background: false, at: ago(0) } })
+  const list = (ready, held) => ({ ready: ready.map(row => ({ rank: 1, keptFor: null, keptUntil: null, pinned: null, ...row })), held })
+  const OUTSIDE = 'outside the focus goal: waits until you pin it or switch the focus'
+  const board = readyList => view({ chats: [LEAD, free('Painter')], items: items(step('B5', 'refined', { Refined: 'ready' }), step('B6', 'refined', { Refined: 'ready' })), readyList })
+  const seen = new Map([['ready-while-free B5', ago(30)], ['ready-while-free B6', ago(30)]])
+  // Refined tasks outside the focus goal wait for the person by design: no finding while a worker is free.
+  assert.deepEqual(check('ready-while-free', board(list([], [{ id: 'B5', why: OUTSIDE }, { id: 'B6', why: OUTSIDE }])), seen), [])
+  // A task pinned to the worker that stands free: the board failed to give it.
+  const pinned = check('ready-while-free', board(list([{ id: 'B6', keptFor: 'Painter', pinned: 'Painter' }], [{ id: 'B5', why: OUTSIDE }])), seen)
+  assert.deepEqual(pinned.map(one => one.subject), ['B6'])
+  assert.equal(pinned[0].text, 'B6 ready for 30 min while Painter is free')
+  // The sweep's instructions say the same: idle workers beside tasks outside the focus goal are no incident.
+  const role = (await readFile(new URL('../../roles/supervisor.md', import.meta.url), 'utf8')).replace(/\s+/g, ' ')
+  assert.match(role, /Refined tasks outside the focus goal wait for the person's pin or a focus switch by design .* workers idle while only such tasks wait is no incident/)
 })

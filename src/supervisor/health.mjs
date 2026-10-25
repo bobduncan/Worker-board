@@ -277,8 +277,24 @@ function stepLines(view, now) {
     const parkedWords = parked === null ? '' : ` (parked: ${owner} is on ${parked.on}; ${parked.why ?? 'nothing names why it waits'})`
     lines.push(lineOf(`${id} ${state} for ${lasting(age)}${stays}, ${owner === null ? 'no owner' : owner}${fix}${waits}${parkedWords}${checkpointWords}: ${oneLine(valueOf(item, 'Title'), 80)}`, { tier, odd, at: since }))
   }
-  if (backlog.new + backlog.refined > 0) lines.push(lineOf(`backlog, not queued: ${backlog.new} new, ${backlog.refined} refined`, { tier: 1 }))
+  if (backlog.new + backlog.refined > 0) lines.push(lineOf(`backlog, not queued: ${backlog.new} new, ${backlog.refined} refined${refinedWords(view)}`, { tier: 1 }))
   return lines
+}
+
+/**
+ * Gap 3: the refined steps split as the board's ready list sees them: ready to hand out (a fix, the focus goal's, a
+ * pinned one), outside the focus goal (they wait for the person's pin or a focus switch by design), held otherwise
+ * (a blocker, an ask, a standard); "" without a list.
+ */
+function refinedWords(view) {
+  if (view.held === null || view.held === undefined) return ''
+  const outside = view.held.filter(one => String(one.why ?? '').startsWith('outside the focus goal')).length
+  const parts = [
+    view.ready.length > 0 ? `${view.ready.length} ready to hand out` : null,
+    outside > 0 ? `${outside} outside the focus goal, waiting for the person by design` : null,
+    view.held.length - outside > 0 ? `${view.held.length - outside} held otherwise` : null,
+  ].filter(Boolean)
+  return parts.length === 0 ? '' : ` (${parts.join('; ')})`
 }
 
 /**

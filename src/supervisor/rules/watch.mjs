@@ -132,11 +132,13 @@ function staleSuspended(view, ctx) {
 const GIVEN_OR_UNDER_WAY = ['queued', 'taken', 'in progress', 'waiting on you']
 
 /**
- * 3. Redesign Part 2 (2026-10-25, its Done when: "a task waits while a worker is free"): a ready task kept for nobody
- * (the view's `ready`, the board's own list) waits while a worker whose own report says free stands idle, both for
- * longer than `idleMinutes`: the board hands a ready task to such a worker at once, so it failed to. A task whose
- * Touches overlap one given or under way waits by design; a worker the board found stuck (not taking) is that rule's.
- * One finding per task. Not while the person pauses or a limit is full.
+ * 3. Redesign Part 2 (2026-10-25, its Done when: "a task waits while a worker is free"): a ready task (the view's
+ * `ready`, the board's own list) waits while a worker whose own report says free stands idle, both for longer than
+ * `idleMinutes`: the board hands a ready task to such a worker at once, so it failed to. Gap 3: only what the board
+ * hands out counts: the list's `ready` (a fix, the focus goal's, a pinned one), never its `held` (a task outside the
+ * focus goal waits for the person by design); a kept task (its pin, its follow-up) only while its own worker is free.
+ * A task whose Touches overlap one given or under way waits by design; a worker the board found stuck (not taking) is
+ * that rule's. One finding per task. Not while the person pauses or a limit is full.
  */
 function readyWhileFree(view, ctx) {
   if (isPaused(view) || isFull(view)) return []
@@ -145,19 +147,22 @@ function readyWhileFree(view, ctx) {
   const free = workersOf(view).filter(lane => lane.report != null && lane.state === 'free' && lane.isRunning === true
     && !(lane.flags ?? []).some(flag => flag.kind === 'not taking') && !holds(lane))
   if (free.length === 0) return []
-  const freeSince = Math.min(...free.map(lane => (Number.isFinite(lane.report.since) ? lane.report.since : view.since.get(lane.name) ?? view.now)))
   const found = []
-  for (const one of view.ready.filter(task => (task.keptFor ?? null) === null)) {
+  for (const one of view.ready) {
+    const kept = one.keptFor ?? null
+    const waiting = kept === null ? free : free.filter(lane => plain(lane.name, view.prefix) === plain(kept, view.prefix))
+    if (waiting.length === 0) continue
     const item = view.items.get(one.id)
     if (item === undefined || overlapIn(view.items, item, GIVEN_OR_UNDER_WAY) !== null) continue
+    const freeSince = Math.min(...waiting.map(lane => (Number.isFinite(lane.report.since) ? lane.report.since : view.since.get(lane.name) ?? view.now)))
     const key = `ready-while-free ${one.id}`
     const ms = Math.min(lasted(view, ctx, key), view.now - afterPause(view, freeSince))
     if (ms <= view.settings.idleMinutes * MIN) continue
-    const names = free.map(lane => lane.name)
+    const names = waiting.map(lane => lane.name)
     found.push({
       rule: 'ready-while-free', key, subject: one.id,
       text: `${one.id} ready for ${minutes(ms)} min while ${names.length === 1 ? `${names[0]} is` : `${names.join(', ')} are`} free`,
-      evidence: `ready list: ${view.ready.map(task => task.id).slice(0, 8).join(', ')}; free by their reports: ${free.map(lane => `${lane.name} since ${clockOf(lane.report.since)}`).join(', ')}`,
+      evidence: `ready list: ${view.ready.map(task => task.id).slice(0, 8).join(', ')}; free by their reports: ${waiting.map(lane => `${lane.name} since ${clockOf(lane.report.since)}`).join(', ')}`,
     })
   }
   return found
