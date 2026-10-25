@@ -41,9 +41,10 @@ export function workerState(lane) {
     working: on === '' ? 'working' : `working on ${on}`,
     waiting: on === '' ? 'waiting for you' : `waiting for you, on ${on}`,
     suspended: `suspended for the limit${until}${on === '' ? '' : `, on ${on}`}`,
-    interrupted: `cut off in the middle of its turn${on === '' ? '' : `, on ${on}`}`,
-    // B315: its card was left "working" by a quit app; its process does not run.
-    off: `not running${on === '' ? '' : `, on ${on}`}`,
+    // The review of chat-reports: a chat that reported idle with its task open says that, not more.
+    interrupted: `${lane.report?.state === 'idle' ? 'idle with its task open' : 'cut off in the middle of its turn'}${on === '' ? '' : `, on ${on}`}`,
+    // B315: its card was left "working" by a quit app; its process does not run. A reporting chat says why.
+    off: `not running${typeof lane.offWhy === 'string' ? ` (${lane.offWhy})` : ''}${on === '' ? '' : `, on ${on}`}`,
   }[lane.state] ?? 'unknown to the board'
   const queue = (lane.queue ?? []).map(step => step.id ?? `"${plainLine(step.title)}"`)
   const queued = queue.length === 0 ? '' : `; ${queue.length} ${queue.length === 1 ? 'step' : 'steps'} queued for it: ${queue.join(', ')}`

@@ -21,6 +21,7 @@
   "port": 4310,
   "refreshSeconds": 10,
   "unknownAfterSeconds": 30,
+  "offAfterMinutes": 5,
   "advisor": "Advisor",
   "backlog": ".claude/backlog.md",
   "goals": ".claude/goals.md",

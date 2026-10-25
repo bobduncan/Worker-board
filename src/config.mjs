@@ -68,6 +68,8 @@ export const DEFAULTS = {
    * as unknown (off when the app archived it). The mod reports every 5 seconds: at least 5.
    */
   unknownAfterSeconds: 30,
+  /** The review of chat-reports (principle 2): a chat whose reports stay silent this long is "Not running". */
+  offAfterMinutes: 5,
   /** An estimate older than this is shown as old. */
   estimateOldMinutes: 15,
   /** How far the timeline looks back from now, and at least how far ahead: the person plans with what comes. */
@@ -320,6 +322,7 @@ export function parseConfig(text, env) {
     if (Number.isFinite(raw[key]) && raw[key] > 0) config[key] = raw[key]
   }
   if (Number.isFinite(raw.unknownAfterSeconds) && raw.unknownAfterSeconds >= 5) config.unknownAfterSeconds = raw.unknownAfterSeconds
+  if (Number.isFinite(raw.offAfterMinutes) && raw.offAfterMinutes >= 1) config.offAfterMinutes = raw.offAfterMinutes
   // The Workers mod types at most 3000 characters, and an answer also carries the name of its request.
   config.maxMessageChars = Math.min(config.maxMessageChars, 2500)
   if (typeof raw.advisor === 'string' && raw.advisor.trim() !== '') config.advisor = raw.advisor.trim()

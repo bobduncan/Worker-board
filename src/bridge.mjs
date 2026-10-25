@@ -45,14 +45,19 @@ export function noteReport(reports, body, checked, now) {
   const report = parseReport(body?.report, now)
   if (report === null) return false
   const session = typeof body?.session === 'string' ? body.session.trim() : ''
-  reports.set(checked.chat, { ...report, at: now, session, mod: typeof body?.mod === 'string' ? body.mod : null })
+  const mod = typeof body?.mod === 'string' ? body.mod : null
+  // The review of chat-reports (principle 5): two reports can arrive out of order; one older than the kept one of the
+  // same session changes nothing but when the chat was last heard.
+  const kept = reports.get(checked.chat)
+  if (kept !== undefined && kept.session === session && report.since < kept.since) reports.set(checked.chat, { ...kept, at: now, mod })
+  else reports.set(checked.chat, { ...report, at: now, session, mod })
   return true
 }
 
 /** The report call's answer: refused as a take is (400, 409), 400 for no report, else the report is kept. */
 export function answerReport(reports, body, checked, now) {
   if (!checked.ok) return checked
-  return noteReport(reports, body, checked, now) ? { ok: true, result: { ok: true } } : refuse(400, 'Not a report: its state is busy, idle or asking.')
+  return noteReport(reports, body, checked, now) ? { ok: true, result: { ok: true } } : refuse(400, 'Not a report: its state is busy, idle, asking or ended.')
 }
 
 export function checkTake(body, state) {

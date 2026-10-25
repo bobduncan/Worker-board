@@ -12,7 +12,7 @@ const fresh = (state, more = {}) => ({ state, since: NOW - 60_000, background: f
 const stale = (state, more = {}) => fresh(state, { at: NOW - 31_000, ...more })
 
 test('the states and the first mod that reports', () => {
-  assert.deepEqual(REPORT_STATES, ['busy', 'idle', 'asking'])
+  assert.deepEqual(REPORT_STATES, ['busy', 'idle', 'asking', 'ended'])
   assert.equal(REPORT_MOD, '0.19.0')
 })
 
@@ -36,13 +36,13 @@ test('a fresh report is the lane\'s state, and the chat runs', () => {
   assert.deepEqual(laneFromReport(fresh('idle'), facts({ holdsTask: true })), { state: 'interrupted', isRunning: true })
   assert.deepEqual(laneFromReport(fresh('idle'), facts({ holdsTask: true, hasBlockingAsk: true })), { state: 'waiting', isRunning: true })
   // Background work (an agent, a shell) still runs after the turn: it works.
-  assert.deepEqual(laneFromReport(fresh('idle', { background: true }), facts()), { state: 'working', isRunning: true })
+  assert.deepEqual(laneFromReport(fresh('idle', { background: true }), facts()), { state: 'working', isRunning: true, why: 'background' })
   // The app's record does not count while the reports come.
   assert.deepEqual(laneFromReport(fresh('busy'), facts({ appRuns: false })), { state: 'working', isRunning: true })
 })
 
 test('a report older than the setting is unknown, or off when the app says the chat does not run', () => {
-  assert.deepEqual(laneFromReport(stale('busy'), facts({ appRuns: false })), { state: 'off', isRunning: false })
+  assert.deepEqual(laneFromReport(stale('busy'), facts({ appRuns: false })), { state: 'off', isRunning: false, why: 'app' })
   assert.deepEqual(laneFromReport(stale('busy'), facts({ appRuns: null })), { state: 'unknown', isRunning: null })
   assert.deepEqual(laneFromReport(stale('idle'), facts({ appRuns: true })), { state: 'unknown', isRunning: null })
   // Exactly at the setting it is still fresh.
@@ -62,4 +62,26 @@ test('modReports: a mod at least 0.19.0 reports', () => {
   assert.equal(modReports('0.19.10'), true)
   assert.equal(modReports(null), false)
   assert.equal(modReports('new'), false)
+})
+
+// The review of chat-reports (2026-10-25).
+const later = (state, more = {}) => fresh(state, more)
+const full = (more = {}) => facts({ offAfterMs: 5 * 60_000, waitsForPartner: false, isTaskReported: false, ...more })
+
+test('review 2: idle with a blocking ask routed to the partner works between two turns, waiting for the partner; one on the person still waits', () => {
+  assert.deepEqual(laneFromReport(later('idle'), full({ holdsTask: true, waitsForPartner: true })), { state: 'working', isRunning: true, why: 'partner' })
+  assert.deepEqual(laneFromReport(later('idle'), full({ holdsTask: true, waitsForPartner: true, hasBlockingAsk: true })), { state: 'waiting', isRunning: true })
+})
+
+test('review 3: a session that ended is off at once; a report silent past offAfterMs is off; under it unknown', () => {
+  assert.equal(REPORT_STATES.includes('ended'), true)
+  assert.deepEqual(laneFromReport(later('ended'), full()), { state: 'off', isRunning: false, why: 'ended' })
+  assert.deepEqual(laneFromReport(fresh('busy', { at: NOW - 5 * 60_000 - 1 }), full()), { state: 'off', isRunning: false, why: 'silent' })
+  assert.deepEqual(laneFromReport(fresh('busy', { at: NOW - 4 * 60_000 }), full()), { state: 'unknown', isRunning: null })
+  assert.deepEqual(laneFromReport(stale('idle'), full({ appRuns: false })), { state: 'off', isRunning: false, why: 'app' })
+})
+
+test('review 5b: background work does not hold a chat whose task is reported (B148)', () => {
+  assert.deepEqual(laneFromReport(later('idle', { background: true }), full({ isTaskReported: true })), { state: 'free', isRunning: true })
+  assert.deepEqual(laneFromReport(later('idle', { background: true }), full()), { state: 'working', isRunning: true, why: 'background' })
 })

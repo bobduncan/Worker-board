@@ -93,7 +93,9 @@ function chatLines(view, now) {
     const report = reports.length === 0 ? '; no report known' : `; last report ${reports[0].id} at ${dayClockOf(reports[0].at, now)}`
     const suspended = lane.state === 'suspended' && lane.suspended !== null && typeof lane.suspended === 'object'
       ? ` (for ${lane.suspended.limit ?? 'a limit'}${Number.isFinite(lane.suspended.until) ? ` until ${dayClockOf(lane.suspended.until, now)}` : ''}${lane.suspended.isBack === true ? ', the limit is back' : ''})` : ''
-    const odd = ODD_STATES.includes(lane.state) || (lane.isRunning === false && onId !== null) || (lane.state === 'working' && onId === null && role === 'worker') || (role === 'worker' && switching?.late === true)
+    // The review of chat-reports: a worker that waits for the partner's answer between two turns is no odd one.
+    const waitsForPartner = Array.isArray(lane.waitsForPartner) && lane.waitsForPartner.length > 0
+    const odd = ODD_STATES.includes(lane.state) || (lane.isRunning === false && onId !== null) || (lane.state === 'working' && onId === null && role === 'worker' && !waitsForPartner) || (role === 'worker' && switching?.late === true)
     return lineOf(`${lane.name} (${role}): ${state}${suspended}${running}; ${runs}${wants}${onWords}${report}; ${clearWords(lane.compaction, now)}`, { tier: 0, odd, at: since, max: CHAT_CHARS })
   })
 }

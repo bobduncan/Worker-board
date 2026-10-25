@@ -3645,32 +3645,42 @@ timers. Now each chat says it (principle 3, know don't guess).
   question to the person (the app's form, AskUserQuestion) is open, each with since when. Idle carries `background:
   true` while the turn's Stop hook lists background work still running (a shell, a subagent, a monitor, a workflow);
   its end wakes the chat with a turn of its own, whose end says it again. A turn that ends while the form is open stays
-  asking until the answer: then busy, or idle when no turn runs. Model and effort are not reported: the app's record
-  of the chat stays the one place for them.
+  asking until the answer: then busy, or idle when no turn runs. Only a Stop hook sets `background`: a turn cut short
+  (Esc, an API error) runs none, and what the last one listed stands. When its session ends (not a /clear) it reports
+  `ended` once. Model and effort are not reported: the app's record of the chat stays the one place for them.
 - **When:** at once on every change (`POST /api/bridge/report`, not awaited: no turn waits on the board), and with
   every take, the mod's 5-second ping (`report` in its body). While a clear is on its way the take is skipped and the
   report alone goes at every ping, so a clear that takes long does not turn the chat unknown; the idle of the turn's
   end goes before the clear starts.
 - **The board keeps** each chat's last report in memory (`server.mjs`, `src/bridge.mjs` `noteReport`): by the name it
   shows, and only from the session it shows under that name (another session, a renamed or replaced chat, is refused
-  as a take is, 409, and writes nothing); a state other than the three is refused, 400.
+  as a take is, 409, and writes nothing); a state other than the four is refused, 400. A report that arrives after a
+  newer one of the same session (an older `since`) changes nothing but when the chat was last heard (principle 5).
 - **What it shows** (`src/chatReport.mjs` `laneFromReport`, `src/state.mjs`): busy is Working, asking Waiting for
   you, idle Free. Idle while the store holds a step taken, in progress or waiting on the person for the chat is
-  Interrupted, never Free, so it is handed no new work; with a blocking ask of its open (or the step waiting on the
-  person) it waits. Idle with background work is Working, "background work it started is still running". A chat that
-  reports runs. The report takes the place of the reading of its transcript, card and timers (the turn, cut off,
+  Interrupted, never Free, so it is handed no new work ("idle with its task open" in the main chat's words); with a
+  blocking ask on the person open (or the step waiting on the person) it waits. A blocking ask routed to the partner
+  keeps it Working between two turns, waiting for the partner (B392: `waitsForPartner`; health counts that as no odd
+  state). Idle with background work is Working, "background work it started is still running", unless its step is
+  reported (in review or done) and it holds no other (B148). A chat that reports runs. The report takes the place of the reading of its transcript, card and timers (the turn, cut off,
   quiet, held by its card or branch). Suspended (the plan's limit) stays the board's own fact, whatever it reports.
 - **Unknown and off:** no report for `unknownAfterSeconds` (30 unless set, at least 5: the mod pings every 5 s) is
-  Unknown: no task goes to it and it is not counted as stuck. It is Not running once the app started after its last
-  report (B315's fact: its process ended with the app). An archived chat has no lane, as before.
+  Unknown: no task goes to it, and the pause does not count it as running a turn. It is Not running (`isRunning`
+  false, its lane's `offWhy` says why) once its session ended, once the app started after its last report (B315's
+  fact: its process ended with the app), or once its reports stay silent past `offAfterMinutes` (5 unless set, at
+  least 1; principle 2: never wait for ever), "silent since HH:MM". Its `offSince` (which the rule working-not-running
+  reads as a card left working) is set only when its last report said it worked: busy, asking, or idle with background
+  work. An archived chat has no lane, as before.
 - **Older mods and a restart:** a chat on a Workers mod older than 0.19.0 sends no report and keeps the board's
   reading, until the restart between steps (B570) brings it onto the new mod; the reading is removed in a later
   clean-up once no chat needs it. After the board restarts its reports are empty: each chat shows the board's reading
   until its next ping, never Unknown or Not running.
 - **Done when** (principle 6): for 4 hours after it is live none of these opens or comes back: a chat shown working
   whose chat does not run, a chat working with no task, a chat shown free while its turn runs.
-- Tests: `test/chatReport.test.mjs`, `test/chatReport.state.test.mjs`, `test/bridge.test.mjs`, `test/server.test.mjs`,
-  `test/config.test.mjs`; in the mod, `hooks/chatlist.test.ts` ("Redesign Part 1").
+- Tests: `test/chatReport.test.mjs`, `test/chatReport.state.test.mjs`, `test/chatReport.review.test.mjs` (the review of
+  2026-10-25: a busy chat with no transcript to read, the partner's wait, ended and silent, the pause, offSince,
+  background after a report, the words), `test/bridge.test.mjs`, `test/server.test.mjs`, `test/config.test.mjs`; in
+  the mod, `hooks/chatlist.test.ts` ("Redesign Part 1").
 
 ## What it does not do
 

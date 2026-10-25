@@ -459,7 +459,8 @@ function card(chat, raw, { now, config, last, lines, main, prefix, stepOf = () =
   // Partner answers, the review's findings: a chat whose blocking ask waits for the partner's answer waits for the
   // partner, not for the person: held between two turns, its lane says so (`waitsForPartner`).
   const forPartner = waits.partner?.get(chat.name.toLowerCase()) ?? []
-  const held = reported !== null ? (reported.state === 'working' && reported.entry.state === 'idle' ? { why: 'background', text: 'Its turn has ended; background work it started is still running.' } : null)
+  const held = reported !== null ? (reported.why === 'partner' ? { why: 'partner', text: `Its turn has ended; it waits for your partner's answer (${forPartner.join(', ')}).` }
+    : reported.why === 'background' ? { why: 'background', text: 'Its turn has ended; background work it started is still running.' } : null)
     : wasCutOff || ended !== 'free' ? null : forPartner.length > 0 ? { why: 'partner', text: `Its turn has ended; it waits for your partner's answer (${forPartner.join(', ')}).` } : heldBy({
     plan: isMainIdle ? null : plan, step,
     isCompleted: summary?.category === 'completed',
@@ -538,7 +539,8 @@ function card(chat, raw, { now, config, last, lines, main, prefix, stepOf = () =
     isQuiet: quietMs !== null && quietMs > config.quietMinutes * MIN,
     // It asked with the app's own question form: that can only be answered in its chat.
     isAsking: isAsked,
-    doingNow: state === 'working' && held === null ? doingNow(entries) : null,
+    // The review of chat-reports: a reporting chat may have no transcript to read (the first turn after a /clear).
+    doingNow: state === 'working' && held === null ? doingNow(entries ?? []) : null,
     // Why it counts as working although its turn has ended, in words; null for a turn that runs.
     between: state === 'working' && held !== null ? held.text : null,
     // Partner answers, the review's findings: the asks of its own it waits on the partner for.
@@ -592,8 +594,21 @@ function card(chat, raw, { now, config, last, lines, main, prefix, stepOf = () =
       : paused === null && ['free', 'interrupted', 'waiting'].includes(state) && reported.entry.state === 'idle' && !reported.entry.background ? restedSince(entries, reported.entry.since) : null,
     // Redesign Part 1: the report the lane follows, or null where the board reads the chat's transcript instead.
     report: reported === null ? null : { state: reported.entry.state, since: reported.entry.since, background: reported.entry.background, at: reported.entry.at },
+    // The review of chat-reports: why a reporting chat is not running, in words; null for any other.
+    offWhy: state !== 'off' || reported === null ? null : reported.why === 'ended' ? `its session ended at ${hourMinute(reported.entry.since)}`
+      : reported.why === 'silent' ? `silent since ${hourMinute(reported.entry.at)}` : 'the app started again after its last report',
   }
 }
+
+/** The review of chat-reports: a time of day as HH:MM, for why a reporting chat is not running. */
+const hourMinute = ms => `${String(new Date(ms).getHours()).padStart(2, '0')}:${String(new Date(ms).getMinutes()).padStart(2, '0')}`
+
+/**
+ * The review of chat-reports: since when a reporting chat that does not run was last known to work, for the lane's
+ * `offSince` (the rule working-not-running reads it as a card left working): only when its last report said it worked
+ * (busy, asking, or idle with background work); an idle or ended one left no work behind (null).
+ */
+const workedAt = report => (report != null && (report.state === 'busy' || report.state === 'asking' || (report.state === 'idle' && report.background === true)) ? report.at : null)
 
 /** Redesign Part 1: a reporting chat at rest since it said idle: `{ since, at, words }`, its last answer as `restingOf` names it. */
 function restedSince(entries, since) {
@@ -1231,15 +1246,24 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
   // ask of its, or a step waiting on the person, has it wait. Its process ended with the app when the app started after
   // its last report (B315's fact). No report: null, and the board reads the chat as before.
   const unknownAfterMs = (Number.isFinite(config.unknownAfterSeconds) ? config.unknownAfterSeconds : 30) * 1000
+  // The review of chat-reports (principle 2): a report silent this long is "Not running", never unknown for ever.
+  const offAfterMs = (Number.isFinite(config.offAfterMinutes) ? config.offAfterMinutes : 5) * MIN
+  const hasReportedStep = name => itemsOf(raw.work).some(one => one.head.get('Kind') === 'step' && ['review', 'done'].includes(one.head.get('State'))
+    && String(one.head.get('Owner') ?? '').replace(prefix, '').trim().toLowerCase() === name.toLowerCase())
   const reportedOf = new Map(found.filter(chat => !chat.isLeftover).map(chat => {
     const entry = reports instanceof Map ? reports.get(chat.name) ?? null : null
     if (entry === null || entry.session !== chat.cliSessionId || !modReports(entry.mod ?? null)) return [chat.name, null]
     const holds = storeStepsOf(chat.name).filter(one => one.state !== 'review')
     const key = chat.name.toLowerCase()
+    // The review of chat-reports: a blocking ask routed to the partner waits for the partner, never for the person (B392).
+    const forPartner = waits.partner?.get(key) ?? []
     const lane = laneFromReport(entry, {
-      now, unknownAfterMs,
+      now, unknownAfterMs, offAfterMs,
       holdsTask: holds.length > 0,
-      hasBlockingAsk: waits.blocking.has(key) || (waits.partner?.get(key) ?? []).length > 0 || holds.some(one => one.state === 'waiting on you'),
+      hasBlockingAsk: waits.blocking.has(key) || (forPartner.length === 0 && holds.some(one => one.state === 'waiting on you')),
+      waitsForPartner: forPartner.length > 0,
+      // B148 kept: background work holds no chat whose step is reported (in review or done) while it holds no other.
+      isTaskReported: holds.length === 0 && hasReportedStep(chat.name),
       appRuns: Number.isFinite(raw.appStartedAt) && raw.appStartedAt > entry.at ? false : null,
     })
     return [chat.name, lane === null ? null : { ...lane, entry }]
@@ -1319,7 +1343,7 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
     }
     // B315: a card left "working" by a quit app, its process not running: "Not running", never "Working".
     const writtenAt = raw.tails?.[lane.session]?.modifiedAt ?? null
-    if (shown.state === 'off') return offLane(shown, lane.report?.at ?? writtenAt)
+    if (shown.state === 'off') return offLane(shown, workedAt(lane.report))
     const isStale = !lane.isLeftover && isStaleWork({ state: shown.state, isRunning: runningOf(lane.name), writtenAt, appStartedAt, now })
     return isStale ? offLane(shown, writtenAt) : shown
   })
@@ -1329,7 +1353,7 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
     const { usage, ...lane } = helperCard
     const shown = { ...lane, suspended: heldUntil(lane.suspended, limits, now) }
     const writtenAt = raw.tails?.[lane.session]?.modifiedAt ?? null
-    if (shown.state === 'off') return offLane(shown, lane.report?.at ?? writtenAt)
+    if (shown.state === 'off') return offLane(shown, workedAt(lane.report))
     return isStaleWork({ state: shown.state, isRunning: runningOf(lane.name), writtenAt, appStartedAt, now }) ? offLane(shown, writtenAt) : shown
   })()
 
@@ -1338,7 +1362,7 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
     const { usage, ...lane } = supervisorCard
     const shown = { ...lane, suspended: heldUntil(lane.suspended, limits, now) }
     const writtenAt = raw.tails?.[lane.session]?.modifiedAt ?? null
-    if (shown.state === 'off') return offLane(shown, lane.report?.at ?? writtenAt)
+    if (shown.state === 'off') return offLane(shown, workedAt(lane.report))
     return isStaleWork({ state: shown.state, isRunning: runningOf(lane.name), writtenAt, appStartedAt, now }) ? offLane(shown, writtenAt) : shown
   })()
 

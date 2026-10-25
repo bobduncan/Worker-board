@@ -284,3 +284,9 @@ test('Redesign Part 1: a chat whose last report is older than unknownAfterSecond
   assert.equal(parseConfig('{"unknownAfterSeconds":2}', env).unknownAfterSeconds, 30)
   assert.equal(parseConfig('{"unknownAfterSeconds":"60"}', env).unknownAfterSeconds, 30)
 })
+
+test('the review of chat-reports: a chat whose reports stay silent offAfterMinutes is not running: 5 unless set, at least 1', () => {
+  assert.equal(parseConfig('{}', env).offAfterMinutes, 5)
+  assert.equal(parseConfig('{"offAfterMinutes":10}', env).offAfterMinutes, 10)
+  assert.equal(parseConfig('{"offAfterMinutes":0.5}', env).offAfterMinutes, 5)
+})

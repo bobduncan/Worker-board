@@ -199,3 +199,17 @@ test('a report with a state that is not busy, idle or asking answers 400 and kee
   }
   assert.equal(reports.size, 0)
 })
+
+test('the review of chat-reports, 6: a report that arrives after a newer one of the same session changes nothing but the time it was heard', () => {
+  const reports = new Map()
+  const body = (state, since) => ({ chat: 'Units', session: 's-units', report: { state, since } })
+  noteReport(reports, body('idle', 300), checkTake(body('idle', 300), board), 500)
+  // The busy of before the idle comes late: the idle stands, heard again at 600.
+  noteReport(reports, body('busy', 100), checkTake(body('busy', 100), board), 600)
+  assert.deepEqual([reports.get('Units').state, reports.get('Units').since, reports.get('Units').at], ['idle', 300, 600])
+  // A newer one, or one of the same time (the ping), is taken.
+  noteReport(reports, body('busy', 700), checkTake(body('busy', 700), board), 800)
+  assert.deepEqual([reports.get('Units').state, reports.get('Units').at], ['busy', 800])
+  noteReport(reports, body('busy', 700), checkTake(body('busy', 700), board), 900)
+  assert.equal(reports.get('Units').at, 900)
+})

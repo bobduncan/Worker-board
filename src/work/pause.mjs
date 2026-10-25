@@ -125,7 +125,8 @@ export function holdersOf(items, prefix = '') {
  */
 const runsTurn = lane => {
   if (lane === undefined || lane.state === 'off' || lane.state === 'interrupted') return false
-  return (lane.state === 'working' && (lane.between ?? null) === null) || lane.heldBy === 'background' || lane.state === 'unknown' || lane.isTurnOpen === true
+  // The review of chat-reports: a chat whose reports stopped is not known to run a turn; one the board cannot read is.
+  return (lane.state === 'working' && (lane.between ?? null) === null) || lane.heldBy === 'background' || (lane.state === 'unknown' && (lane.report ?? null) === null) || lane.isTurnOpen === true
 }
 
 /** A holder's lane has started a turn since `since`: it runs one now, or its last turn began after then. */
