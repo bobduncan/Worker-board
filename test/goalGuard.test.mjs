@@ -480,3 +480,10 @@ test('B528: the board asks the partner again with "again" in the word, until the
   assert.equal(drafted.ok, true, drafted.why)
   assert.deepEqual(await again({ now: NOW + 90 * 60_000 }), [])
 })
+
+test('a failed check whose fix passed counts no more: a step done after its fix is no attempt (the person, 2026-10-25)', () => {
+  const doneNow = ITEMS.map(item => (item.head.get('Id') === 'B4' ? { ...item, head: new Map([...item.head, ['State', 'done']]) } : item))
+  const counted = goalAttempts(goal(), doneNow)
+  assert.deepEqual(counted.failures.map(one => one.id), ['B1', 'G2'])
+  assert.equal(counted.count, 2)
+})

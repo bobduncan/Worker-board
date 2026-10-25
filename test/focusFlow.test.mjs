@@ -323,3 +323,8 @@ test('whether every part of the focus is done: only for the focus goal itself; n
   assert.equal(focusAllDone({ id: 'G1', progress: { done: 0, total: 0 } }, 'G1'), false)
   assert.equal(focusAllDone({ id: 'G1' }, 'G1'), false)
 })
+
+test('a goal names the page it makes: "Page: <path> · <a few words>" (2026-10-25)', () => {
+  const map = parseGoals(['# Goals', 'Last id: G1', '', '- [ ] G1 A structure check', '  Done when: a fresh review found nothing left', '  Page: docs/architecture-check.md · the architecture check'].join(String.fromCharCode(10)))
+  assert.equal(map.byId.get('G1').page, 'docs/architecture-check.md · the architecture check')
+})

@@ -9948,7 +9948,8 @@ function focusGuardView(focus) {
   if (guard.state === 'asking') return { tone: 'asking', title: 'Fable or Opus? The board asks you', text: `${guard.attempts} checks failed: before your partner evaluates the approach, answer ${guard.ask} under Needs your attention: A Yes, Fable 5.1 (the strongest, far more tokens), or B No, Opus 5.5. Nothing starts before your answer.`, needs }
   if (guard.state === 'evaluating') return { tone: 'evaluating', title: 'Your partner evaluates the approach', text: `${guard.attempts} checks failed: on high effort your partner asks whether the how is right and what caps the result, then corrects the how or proposes a rebuild.` }
   if (guard.attempts === 0) return null
-  return { tone: 'counting', title: `Checks failed: ${guard.attempts} of ${guard.of} attempts`, text: `At ${guard.of} failed checks (or your no to a look) your partner evaluates whether the approach is right, on Fable or Opus as you answer the board.` }
+  // 2026-10-25 (the user: "if everything is done, i assumed the red checks failed would disappear"): information, calm.
+  return { tone: 'counting', title: `${guard.attempts} failed check${guard.attempts === 1 ? '' : 's'} not fixed yet`, text: `At ${guard.of}, your partner looks again at whether the approach is right. A check whose fix passed counts no more.` }
 }
 
 /** B354: whether a goal (or the focus) has a Done when line with words in it. */
@@ -10026,6 +10027,7 @@ function focusView(focus, goals, can = null, ui = {}) {
     const chips = { done: 'Done', now: 'In progress', next: 'Next', ready: 'On the list for a worker', refining: 'Waiting for its refine, then it goes on the list' }
     view.run = {
       title: 'The how',
+      page: focus.page ?? null,
       parts: focus.parts.map(part => ({
         title: part.title,
         chip: chips[part.state],
@@ -10807,6 +10809,13 @@ function focusHowCard(view) {
 function focusRunCard(view) {
   const card = el('section', 'focus-card focus-run')
   card.append(el('h3', '', view.run.title))
+  // 2026-10-25: the page the goal makes, opened on the board.
+  if ((view.run.page ?? null) !== null) {
+    const page = el('button', 'focus-page', `The page: ${view.run.page.caption || view.run.page.path}`)
+    page.type = 'button'
+    page.dataset.gameFile = view.run.page.path
+    card.append(page)
+  }
   for (const part of view.run.parts) {
     const row = el('div', `focus-part is-${part.tone}`)
     const top = el('div', 'focus-part-top')

@@ -55,6 +55,9 @@ export function goalAttempts(node, items) {
     if (item.head.get('Kind') !== 'step' || item.head.get('Goal') !== node.id) continue
     const id = item.head.get('Id')
     steps.add(id)
+    // The person, 2026-10-25 (G15's question, "yes"): a failed check whose fix passed counts no more; the step is done
+    // once its fix passed. A fix that fails again counts while its chain is open.
+    if (String(item.head.get('State') ?? '').toLowerCase() === 'done') continue
     const failed = (item.sections.get('History') ?? []).map(one => one.replace(/^[-*]\s+/, '').match(FAILED)).filter(one => one !== null && one[1] > since)
     const points = (checkedOf(item)?.points ?? []).filter(one => one.verdict === 'fail').map(one => one.text)
     failed.forEach((found, place) => {
