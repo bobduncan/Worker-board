@@ -109,9 +109,9 @@ test('each state word comes from the step\'s record and its worker\'s lane', () 
   assert.deepEqual(of('dropped'), { text: 'dropped', tone: 'dropped' })
   // A Fix that names a step the store does not have (or could not be read).
   const gone = incidentCards({ incidents: [incident('X1', { state: 'fix', fix: 'B999' })], items: items(step('B1', 'done')) })
-  assert.deepEqual([gone[0].title, gone[0].state.text], [null, 'step not in the store'])
+  assert.deepEqual([gone[0].title, gone[0].state.text], [null, 'task not in the store'])
   const unread = incidentCards({ incidents: [incident('X1', { state: 'fix', fix: 'B999' })], items: null })
-  assert.deepEqual([unread[0].title, unread[0].state.text], [null, 'step not read yet'])
+  assert.deepEqual([unread[0].title, unread[0].state.text], [null, 'task not read yet'])
 })
 
 test('the card without a fix step says what is happening: sending to the Advisor, with the Advisor, or came back', () => {
@@ -131,7 +131,7 @@ test('the card without a fix step says what is happening: sending to the Advisor
   const words = new Map([['X8', 'arrived'], ['X10', 'on its way']])
   const cards = incidentCards({ incidents: [incident('X8', { state: 'open' }), incident('X9', { state: 'with the advisor' }), incident('X10', { state: 'open' })], words })
   assert.equal(cards.length, 1)
-  assert.deepEqual([cards[0].key, cards[0].step, cards[0].title, cards[0].state], ['nofix', null, 'No fix step yet', { text: 'sending to the Advisor…', tone: 'sending' }])
+  assert.deepEqual([cards[0].key, cards[0].step, cards[0].title, cards[0].state], ['nofix', null, 'No fix task yet', { text: 'sending to the Advisor…', tone: 'sending' }])
   assert.deepEqual(plain(cards[0].incidents), [{ id: 'X8', word: 'with the Advisor' }, { id: 'X9', word: 'with the Advisor' }, { id: 'X10', word: 'sending to the Advisor…' }])
   const back = incidentCards({ incidents: [incident('X1', { state: 'came back' }), incident('X2', { state: 'open' })], words: new Map([['X2', 'on its way']]) })
   assert.equal(back[0].state.text, 'came back', 'a returning incident is said first')

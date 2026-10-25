@@ -626,7 +626,9 @@ function placesKnown(w, own) {
 export function forYouBlock({ id, of = null, kind, blocking = false, title, options = [], advice = '', pictures = [], play = '', places = [] }, boardUrl = '') {
   const verb = ['provide', 'do'].includes(kind) ? 'Do' : 'Answer'
   const choice = options.length === 0 ? (advice === '' ? '' : ` I advise ${advice}.`) : ` ${options.join(' or ')}${advice === '' ? '' : `; I advise ${advice}`}`
-  const where = of === null ? `${id}, ${kind}` : `${id}, ${kind}${blocking ? ', blocks ' : ' on '}${of}`
+  // Redesign Part 2, its words: what the person reads says "task" for a backlog item (the code keeps "step").
+  const under = /^B\d+$/.test(String(of)) ? `task ${of}` : of
+  const where = of === null ? `${id}, ${kind}` : `${id}, ${kind}${blocking ? ', blocks ' : ' on '}${under}`
   const link = (label, words, hash, plain) => (boardUrl === '' ? `${label}: ${plain}` : `[${label}: ${words}](${boardUrl}/#${hash})`)
   const extra = [
     ...pictures.map(path => `>    ${link('See the picture', pictureName(path), `picture=${path}`, path)}`),

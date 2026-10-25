@@ -95,7 +95,7 @@ test('the For you block adds one link per place the title names, under the pictu
     forYouBlock({ id: 'Q9', of: 'B12', kind: 'look', title: TITLE, pictures: ['art-inbox/g/side.png'], places }, URL),
     [
       '> **For you**',
-      `> 1. **Answer:** ${TITLE} (Q9, look on B12)`,
+      `> 1. **Answer:** ${TITLE} (Q9, look on task B12)`,
       '>    [See the picture: side](http://127.0.0.1:4310/#picture=art-inbox/g/side.png)',
       '>    [Open the Focus tab, then Goals](http://127.0.0.1:4310/#advice/goals)',
       '>    [Open G33 on Goals](http://127.0.0.1:4310/#advice/goals/G33)',

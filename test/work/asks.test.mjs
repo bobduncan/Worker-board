@@ -39,13 +39,13 @@ const state = async (dir, id) => valueOf(await item(dir, id), 'State')
 test('the block of a look with a picture and a play link, in the project\'s form, opening the board', () => {
   assert.equal(forYouBlock({ id: 'Q4', of: 'B1', kind: 'look', blocking: true, title: 'Is the strip readable?', options: ['A thin', 'B thick'], advice: 'B', pictures: ['art-inbox/strip/thin-or-thick.png'], play: 'b1-strip&screen=shop' }, URL), [
     '> **For you**',
-    '> 1. **Answer:** Is the strip readable? A thin or B thick; I advise B (Q4, look, blocks B1)',
+    '> 1. **Answer:** Is the strip readable? A thin or B thick; I advise B (Q4, look, blocks task B1)',
     '>    [See the picture: thin or thick](http://127.0.0.1:4310/#picture=art-inbox/strip/thin-or-thick.png)',
     '>    [Play it: screen shop](http://127.0.0.1:4310/#play=b1-strip&screen=shop)',
   ].join('\n'))
   // A do is a "Do:"; an ask under no step names none; a play link with only a branch names the branch.
   assert.equal(forYouBlock({ id: 'Q5', kind: 'do', title: 'Restart the app', play: 'main' }, URL), '> **For you**\n> 1. **Do:** Restart the app (Q5, do)\n>    [Play it: main](http://127.0.0.1:4310/#play=main)')
-  assert.equal(forYouBlock({ id: 'Q6', of: 'B2', kind: 'provide', title: 'The sound file', advice: 'a short one' }), '> **For you**\n> 1. **Do:** The sound file I advise a short one. (Q6, provide on B2)')
+  assert.equal(forYouBlock({ id: 'Q6', of: 'B2', kind: 'provide', title: 'The sound file', advice: 'a short one' }), '> **For you**\n> 1. **Do:** The sound file I advise a short one. (Q6, provide on task B2)')
 })
 
 test('ask answers with that block and keeps the advice; an answer carries the ask\'s id, not the chat\'s state', async () => {
@@ -56,7 +56,7 @@ test('ask answers with that block and keeps the advice; an answer carries the as
     await board({ action: 'take', id: 'B1' })
     const first = await board({ action: 'ask', of: 'B1', kind: 'decide', text: 'Thin or thick?', options: ['A thin', 'B thick'], advice: 'B', blocking: true })
     assert.equal(first.ok, true, first.why)
-    assert.equal(first.result.text, '> **For you**\n> 1. **Answer:** Thin or thick? A thin or B thick; I advise B (Q1, decide, blocks B1)')
+    assert.equal(first.result.text, '> **For you**\n> 1. **Answer:** Thin or thick? A thin or B thick; I advise B (Q1, decide, blocks task B1)')
     assert.equal(valueOf(await item(dir, 'Q1'), 'Advice'), 'B')
     // The chat moves on and asks again before the person answers the first.
     await board({ action: 'ask', of: 'B1', kind: 'look', text: 'Is the colour right?', pictures: ['art-inbox/strip/colour.png'], blocking: true })

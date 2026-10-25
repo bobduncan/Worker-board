@@ -499,7 +499,7 @@ test('the plan step: the strategy choice, change badges, Not now, only what chan
 })
 
 test('the Plan step draws the strategy choice, the overview, labels and Not now (2026-10-24)', () => {
-  for (const words of ["Your partner's plan to make this real", 'How should your partner lay the plan?', 'Lay the plan', 'Change strategy', 'Only what changes', 'Overview · click a goal to see its card', 'Not now', 'Because: ', 'Its steps: '])
+  for (const words of ["Your partner's plan to make this real", 'How should your partner lay the plan?', 'Lay the plan', 'Change strategy', 'Only what changes', 'Overview · click a goal to see its card', 'Not now', 'Because: ', 'Its tasks: '])
     assert.ok(script.includes(words), words)
   for (const act of ['pick-strategy', 'lay-plan', 'change-strategy', 'only-changes', 'not-now', 'show-goal'])
     assert.ok(script.includes(`act === '${act}'`), act)

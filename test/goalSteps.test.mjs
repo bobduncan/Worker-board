@@ -41,7 +41,7 @@ const BACKLOG = [{ name: 'Fights', steps: [
 test('the panel follows the selected goal: its steps by the goal\'s lines and its own Goal, numbered, done folded', () => {
   const all = view(MAP, 'G1', BACKLOG, { canWrite: true })
   assert.deepEqual(all.goal, { id: 'G1', title: 'Make fights feel great' })
-  assert.deepEqual(all.tabs, [{ key: 'steps', label: 'Associated steps', count: 5, isOn: true }, { key: 'missing', label: 'Missing steps', count: 2, isOn: false }])
+  assert.deepEqual(all.tabs, [{ key: 'steps', label: 'Associated tasks', count: 5, isOn: true }, { key: 'missing', label: 'Missing tasks', count: 2, isOn: false }])
   assert.deepEqual(all.rows.map(row => [row.n, row.id, row.title, row.line, row.badge, row.tone, row.chat]), [
     [2, 'B2', 'Add wind-up cues', 'What Add wind-up cues does.', 'Working', 'working', 'Worker 2'],
     [3, 'B4', 'Review the hit effects', 'What Review the hit effects does.', 'Needs you', 'you', 'Worker 3'],

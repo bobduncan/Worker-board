@@ -144,7 +144,7 @@ export function incidentCards({ incidents = [], items = null, lanes = [], words 
   const cards = [...groups].map(([id, list]) => {
     const step = stepsOnly.get(id)
     const state = step !== undefined ? stepState(step, { lanes, steps: stepsOnly, items: steps })
-      : { text: items instanceof Map ? 'step not in the store' : 'step not read yet', tone: 'idle' }
+      : { text: items instanceof Map ? 'task not in the store' : 'task not read yet', tone: 'idle' }
     const at = Math.max(step === undefined ? -Infinity : activityOf(step) || -Infinity, latest(list))
     return { key: id, step: id, title: step === undefined ? null : valueOf(step, 'Title'), state, phase: step === undefined ? null : valueOf(step, 'State'), incidents: list.map(one => ({ id: one.id, word: null })), at: Number.isFinite(at) ? at : 0 }
   }).sort((a, b) => b.at - a.at || numeric(a.step, b.step))
@@ -153,7 +153,7 @@ export function incidentCards({ incidents = [], items = null, lanes = [], words 
     const chip = [...each].sort((a, b) => CHIP_FIRST.indexOf(a.tone) - CHIP_FIRST.indexOf(b.tone))[0]
     const at = latest(loose)
     cards.push({
-      key: 'nofix', step: null, title: 'No fix step yet', state: { text: chip.text, tone: chip.tone }, phase: null,
+      key: 'nofix', step: null, title: 'No fix task yet', state: { text: chip.text, tone: chip.tone }, phase: null,
       incidents: each.map(one => ({ id: one.id, word: one.text })), at: Number.isFinite(at) ? at : 0,
     })
   }

@@ -862,7 +862,7 @@ function needsOf(asks, lanes, outbox, gameOf, now, base = 'main', { advisor = nu
       from: lane.name,
       kind: 'idle',
       title: flag.text,
-      text: `Its turn has ended and nothing of it runs, it holds ${flag.ids.length === 1 ? 'this step' : 'these steps'} in the work store, and no ask of it is open. It may wait for you without having filed a question: look at its last answer, and answer it in its chat, or ask it to file an ask with work ask or to report.`,
+      text: `Its turn has ended and nothing of it runs, it holds ${flag.ids.length === 1 ? 'this task' : 'these tasks'} in the work store, and no ask of it is open. It may wait for you without having filed a question: look at its last answer, and answer it in its chat, or ask it to file an ask with work ask or to report.`,
       at: lane.resting.at,
       ...blank,
       version: null,

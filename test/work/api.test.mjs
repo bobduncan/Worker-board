@@ -135,7 +135,7 @@ test('ask with Blocking yes moves the step to waiting on you; answer moves it ba
     assert.equal(asked.result.id, 'Q1')
     assert.equal(asked.result.text, [
       '> **For you**',
-      '> 1. **Answer:** Is the strip readable at a glance? A thin or B thick (I advise B) (Q1, look, blocks B1)',
+      '> 1. **Answer:** Is the strip readable at a glance? A thin or B thick (I advise B) (Q1, look, blocks task B1)',
       '>    See the picture: pictures/strip.png',
     ].join('\n'))
     const q = await item(dir, 'Q1')
@@ -151,7 +151,7 @@ test('ask with Blocking yes moves the step to waiting on you; answer moves it ba
     assert.equal((await person({ action: 'answer', id: 'Q1', text: 'again' })).why, 'Q1 is answered already.')
     // An ask that blocks nothing leaves the step where it is; a board address makes the picture a link.
     const link = await workApi({ action: 'ask', chat: 'Board', of: 'B1', kind: 'do', text: 'Restart the app' }, { dir, now: NOW, prefix: 'Team - ', roleOf: () => 'worker', boardUrl: 'http://127.0.0.1:4310' })
-    assert.equal(link.result.text, '> **For you**\n> 1. **Do:** Restart the app (Q2, do on B1)')
+    assert.equal(link.result.text, '> **For you**\n> 1. **Do:** Restart the app (Q2, do on task B1)')
     assert.equal(await state(dir, 'B1'), 'in progress')
   } finally {
     await rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })

@@ -1201,7 +1201,7 @@ function drawSimpleColumns(state) {
 
 /** B343: fills the two columns from their views (simpleSteps, simpleWorkers). */
 function fillSimpleColumns(steps, workers) {
-  const focusHead = el('h2', 'simple-col-head', 'Your focus: its steps')
+  const focusHead = el('h2', 'simple-col-head', 'Your focus: its tasks')
   if (steps !== null) focusHead.append(el('small', 'muted', steps.goal))
   const focusRows = steps === null ? [el('p', 'simple-none', 'No goal is your focus yet.')]
     : steps.empty !== null ? [el('p', 'simple-none', steps.empty)]
@@ -1606,7 +1606,7 @@ function drawRestart(state) {
   // The review of part 1: after a cycle pause.json says running, which is no pause: the button shows as without it.
   if ((pause === null || pause.state === 'running') && restart.interrupted.length > 0) {
     const row = el('div', 'restart-ask')
-    row.append(button(`Resume all (${restart.interrupted.length} cut off)`, '', 'resume'), el('small', 'muted', `${restart.main} wakes each chat that holds a step.`))
+    row.append(button(`Resume all (${restart.interrupted.length} cut off)`, '', 'resume'), el('small', 'muted', `${restart.main} wakes each chat that holds a task.`))
     parts.push(row)
   }
   if (problems.has('restart')) parts.push(line('problem', problems.get('restart')))
@@ -2156,9 +2156,9 @@ function drawMore(lane, state) {
     if (task.firstEstimateMs !== null) list.append(el('li', '', `First estimate ${span(task.firstEstimateMs)}, worked ${span(task.workedMs)}`))
     if (task.leftMs !== null && task.estimateAt !== null) list.append(el('li', '', `Said ${span(task.leftMs)} left, ${ago(task.estimateAt, now)}`))
     if (task.source === 'unrecorded') list.append(el('li', 'muted', 'It has recorded no task yet: no topic, no steps and no time.'))
-    if (task.source === 'step') list.append(el('li', 'muted', 'It named no task: this is the step the work store holds for it.'))
+    if (task.source === 'step') list.append(el('li', 'muted', 'It named no task: this is the task the work store holds for it.'))
     if (lane.eta !== null && lane.eta.isOwn === false) list.append(el('li', 'muted', `It gave no estimate: ${task.stepId ?? 'its step'} says ${about(task.stepMinutes)}, counted from the start.`))
-    if (task.source === 'plan' && (task.stepId ?? null) !== null) list.append(el('li', 'muted', `It is on step ${task.stepId} of the backlog.`))
+    if (task.source === 'plan' && (task.stepId ?? null) !== null) list.append(el('li', 'muted', `It is on task ${task.stepId} of the backlog.`))
   }
   // B307: what the row no longer says, here in full.
   if (lane.state === 'working' && (lane.doingNow ?? null) !== null) list.append(el('li', '', `Now: ${lane.doingNow}`))
@@ -2359,7 +2359,7 @@ function drawLane(lane, state) {
   if (steps !== null) progress.append(drawStepLine(lane, steps))
   else if (hasSteps) progress.append(el('small', 'progress-count', `${task.step} of ${task.steps}`))
   else if (task !== null) progress.append(el('small', 'progress-count', 'no steps given'))
-  if (lane.state === 'interrupted') what.append(el('p', 'alert', lane.report?.state === 'idle' ? 'Idle with its task open: its turn ended before its step was reported; it does nothing until it is woken.' : 'Cut off in the middle of its turn: it does nothing until it is resumed.'))
+  if (lane.state === 'interrupted') what.append(el('p', 'alert', lane.report?.state === 'idle' ? 'Idle with its task open: its turn ended before its task was reported; it does nothing until it is woken.' : 'Cut off in the middle of its turn: it does nothing until it is resumed.'))
   // B315: its card still says working from before the app was quit; its process has not run since.
   if (lane.state === 'off') what.append(el('p', 'alert', `Its chat is not running: it does nothing until its chat is opened, or ${board?.workers?.mainTitle ?? 'the main chat'} starts it (Resume all).`))
   if (lane.state === 'suspended') what.append(el('p', `held${lane.suspended.isBack ? ' is-back' : ''}`, heldText(lane.suspended)))
@@ -4040,7 +4040,7 @@ function drawRefineNeeds(state) {
   if (lines.length === 0) return null
   const part = el('section', 'information refine-needs')
   const head = el('h3', '', 'Refine questions')
-  head.append(el('small', 'muted', `${lines.length} step${lines.length === 1 ? '' : 's'} wait${lines.length === 1 ? 's' : ''} for your answers`))
+  head.append(el('small', 'muted', `${lines.length} task${lines.length === 1 ? '' : 's'} wait${lines.length === 1 ? 's' : ''} for your answers`))
   part.append(head)
   for (const line of lines) {
     const row = el('div', 'info')
@@ -6384,7 +6384,7 @@ function drawDetails(state) {
   else {
     if (isReady) left.append(refine)
     if (waiting !== null) { /* said above */ } else if (described.length > 0) left.append(section(isReady ? 'Notes' : 'Description', described))
-    else if (!view.hasNotes && !isSummed) left.append(section('Description', [el('p', 'muted', 'Nothing more is written about it. Lines under the step in the backlog show here.')]))
+    else if (!view.hasNotes && !isSummed) left.append(section('Description', [el('p', 'muted', 'Nothing more is written about it. Lines under the task in the backlog show here.')]))
     if (strip !== null) left.append(flowPart(strip))
   }
   if (refine !== null && !isReady) left.append(refine)
@@ -6883,7 +6883,7 @@ function drawRefineList(groups) {
     part.append(list)
     return part
   })
-  fill($('advisor-refine'), [el('h3', '', 'Refine'), el('p', 'muted', 'Every step a chat can do, by where its refine stands: a step goes into a queue once it is ready. Click one to open it.'), ...parts])
+  fill($('advisor-refine'), [el('h3', '', 'Refine'), el('p', 'muted', 'Every task a chat can do, by where its refine stands: a task goes on the board\'s list for a worker once it is ready. Click one to open it.'), ...parts])
 }
 // refinelist:events
 $('advisor-refine').addEventListener('click', event => {
@@ -7403,7 +7403,7 @@ function goalStepsView(goals, goalId, backlog, ui = {}) {
   return {
     goal: { id: node.id, title: node.title },
     tab,
-    tabs: [{ key: 'steps', label: 'Associated steps', count: all.length, isOn: tab === 'steps' }, { key: 'missing', label: 'Missing steps', count: missing.length, isOn: tab === 'missing' }],
+    tabs: [{ key: 'steps', label: 'Associated tasks', count: all.length, isOn: tab === 'steps' }, { key: 'missing', label: 'Missing tasks', count: missing.length, isOn: tab === 'missing' }],
     filter,
     filters: [['all', 'All'], ['open', 'Open'], ['done', 'Done']].map(([key, label]) => ({ key, label, isOn: filter === key })),
     rows: shown,
@@ -7735,7 +7735,7 @@ function drawGoalSteps(state) {
   const focused = box.contains(document.activeElement) ? ['goalStepsTab', 'goalStepsFilter', 'goalStepMenu', 'goalStepOpen', 'missingAdd', 'missingDismiss', 'missingAll', 'goalStepsShowDone'].find(key => key in document.activeElement.dataset) : undefined
   const focusedAt = focused === undefined ? null : [focused, document.activeElement.dataset[focused]]
   const view = goalStepsView(state.goals ?? null, goalsFocus, state.backlog ?? [], { ...goalStepsUi, canWrite: canEditGoals(state), whyNot: state.goalsEdit?.whyNot ?? null })
-  const head = [el('h2', '', 'Steps for this goal')]
+  const head = [el('h2', '', 'Tasks for this goal')]
   if (view.goal === null) return fill(box, [...head, el('p', 'muted', view.empty)])
   head.push(el('p', 'goal-steps-of', `${view.goal.id} · ${view.goal.title}`))
   const tabs = el('div', 'goal-steps-tabs')
@@ -7757,7 +7757,7 @@ function drawGoalSteps(state) {
       button.setAttribute('aria-pressed', String(one.isOn))
       filters.append(button)
     }
-    parts.push(filters, el('h3', 'goal-steps-title', 'Associated steps'), el('p', 'muted', 'Steps that contribute to this goal.'))
+    parts.push(filters, el('h3', 'goal-steps-title', 'Associated tasks'), el('p', 'muted', 'Tasks that contribute to this goal.'))
     const list = el('ol', 'goal-steps-list')
     for (const row of view.rows) {
       const item = el('li', `goal-step tone-${row.tone}`)
@@ -7786,7 +7786,7 @@ function drawGoalSteps(state) {
       }
       list.append(item)
     }
-    if (view.rows.length === 0) list.append(el('li', 'muted', view.filter === 'done' ? 'No step of this goal is done yet.' : 'No open step under this goal.'))
+    if (view.rows.length === 0) list.append(el('li', 'muted', view.filter === 'done' ? 'No task of this goal is done yet.' : 'No open task under this goal.'))
     parts.push(list)
     if (view.foldedDone !== null) parts.push(goalButton('goal-steps-fold', `› ${view.foldedDone}`, { goalStepsShowDone: '' }))
   }
@@ -7798,12 +7798,12 @@ function drawGoalSteps(state) {
 /** B383: the box of the goal's Missing lines, each with Add step and Dismiss, and "Add all". */
 function goalMissingBox(view) {
   const part = el('section', 'goal-missing')
-  part.append(el('h3', '', '⚠ Missing steps'))
+  part.append(el('h3', '', '⚠ Missing tasks'))
   if (view.missing.length === 0) {
-    part.append(el('p', 'muted', 'Nothing is missing: every outcome of this goal has a step.'))
+    part.append(el('p', 'muted', 'Nothing is missing: every outcome of this goal has a task.'))
     return part
   }
-  part.append(el('p', 'muted', 'These outcomes have no step yet. Add steps to make this goal complete.'))
+  part.append(el('p', 'muted', 'These outcomes have no task yet. Add tasks to make this goal complete.'))
   for (const one of view.missing) {
     const row = el('div', 'goal-missing-row')
     const words = el('span', 'goal-missing-words')
@@ -9117,7 +9117,7 @@ function proposalPart(thread, canWrite) {
     return label
   }
   if (view.goals.length > 0) part.append(el('h5', '', 'New goals for the map'), ...view.goals.map(goal => tick(goal, goal.title, `${goal.where} · Done when: ${goal.doneWhen}`)))
-  if (view.steps.length > 0) part.append(el('h5', '', 'New steps for the backlog'), ...view.steps.map(step => tick(step, step.title, `${step.worker} · ${step.cost}`)))
+  if (view.steps.length > 0) part.append(el('h5', '', 'New tasks for the backlog'), ...view.steps.map(step => tick(step, step.title, `${step.worker} · ${step.cost}`)))
   if (view.note) part.append(el('h5', '', 'The note kept under the goal'), el('p', 'brainstorm-note-kept', view.note))
   if (view.created !== null) {
     part.append(el('p', 'brainstorm-created', view.created))
@@ -10681,7 +10681,7 @@ function focusRunCard(view) {
     }
     card.append(row)
   }
-  const steps = el('button', 'focus-steps', 'See the steps behind this →')
+  const steps = el('button', 'focus-steps', 'See the tasks behind this →')
   steps.type = 'button'
   steps.dataset.focusSteps = view.run.stepsOf
   card.append(steps)
@@ -11348,7 +11348,7 @@ function planGoalCard(goal, can, off) {
   }
   if (goal.steps !== '') {
     const steps = el('p', 'vision-meta')
-    steps.append(el('b', '', 'Its steps: '), document.createTextNode(goal.steps))
+    steps.append(el('b', '', 'Its tasks: '), document.createTextNode(goal.steps))
     body.append(steps)
   }
   const meta = [goal.serves.length > 0 ? `serves ${goal.serves.join(', ')}` : null, goal.goal === null ? null : `is ${goal.goal} in your goal map`].filter(Boolean).join(' · ')
@@ -11426,7 +11426,7 @@ function focusStepPage(view, can, off) {
       now.append(done)
     }
   }
-  now.append(el('p', 'vision-meta muted', 'Steps are made for the focus only: on the Focus tab your partner drafts its vibe and its how, and Go makes the steps, each refined before it is queued.'))
+  now.append(el('p', 'vision-meta muted', 'Tasks are made for the focus only: on the Focus tab your partner drafts its vibe and its how, and Go makes the tasks, each refined before it goes on the list.'))
   parts.push(now)
   const next = el('section', 'vision-extra')
   next.append(el('h3', '', 'Next focus'))
@@ -11529,7 +11529,7 @@ function standardsPage(view, can, off) {
       visionButton('Undo', 'undo-standard-confirms'), visionButton('Send to your partner', 'send-standard-confirms', { className: 'is-primary', isEnabled: can && !view.busy.standardConfirms, title: view.busy.standardConfirms ? 'Your partner is still writing your last confirms.' : off }))
     parts.push(bar)
   }
-  parts.push(el('p', 'vision-check', "The guard: the board keeps a step of a kind out of the queue until that kind's standard is confirmed and its foundation is built; the foundation's own steps go first. Every step of the kind is checked against the bar."))
+  parts.push(el('p', 'vision-check', "The guard: the board keeps a task of a kind off its list until that kind's standard is confirmed and its foundation is built; the foundation's own tasks go first. Every task of the kind is checked against the bar."))
   for (const card of cards) {
     const row = el('div', `vision-standard is-${card.state}`)
     const pictures = visionGallery(card.id, card.gallery, card.shownPicture, 'no picture of the bar or of today yet')
@@ -12403,7 +12403,7 @@ function drawWay(state) {
   if (recheck !== null) named.append(recheck)
   if (way.isMapped === false) {
     head.append(named)
-    return fill(box, [head, el('p', 'muted', `Its way is not mapped yet: the Advisor adds its steps as sub-goals in the goal map (${state.goalsFile ?? '.claude/goals.md'}) at its next round.`), ...recommendationPart(way.recommendation ?? null, state)])
+    return fill(box, [head, el('p', 'muted', `Its way is not mapped yet: the Advisor adds its tasks as sub-goals in the goal map (${state.goalsFile ?? '.claude/goals.md'}) at its next round.`), ...recommendationPart(way.recommendation ?? null, state)])
   }
   const total = el('div', 'way-total')
   total.append(el('b', '', `${totals.left} to go`), el('span', 'muted', `${totals.done} done · ${totals.open} on the backlog · ${totals.missing} not on it yet`))
@@ -12478,7 +12478,7 @@ function recommendationPart(rec, state) {
     const sent = answer.state === 'delivered' ? '' : ' (on its way)'
     box.append(el('p', 'way-answered', answer.answer === 'yes'
       ? `You said yes at ${clock(answer.at)}${sent}: ${main} puts it on the backlog when it is not there and hands it out.`
-      : `You said no at ${clock(answer.at)}${sent}: the Advisor proposes another step at its next round.`))
+      : `You said no at ${clock(answer.at)}${sent}: the Advisor proposes another task at its next round.`))
     return [box]
   }
   const canYes = (state.workers?.main ?? null) !== null
@@ -12516,7 +12516,7 @@ function recommendationPart(rec, state) {
     box.append(form)
   }
   if (problems.has('recommend')) box.append(el('p', 'problem', problems.get('recommend')))
-  box.append(el('p', 'way-where muted', `Yes: ${main} puts it on the backlog when it is not there and hands it out. No: you say why, and the Advisor proposes another step at its next round.`))
+  box.append(el('p', 'way-where muted', `Yes: ${main} puts it on the backlog when it is not there and hands it out. No: you say why, and the Advisor proposes another task at its next round.`))
   return [box]
 }
 
@@ -13467,7 +13467,7 @@ function drawFinished(state) {
   fold.append(arrow, 'Recently finished', el('small', '', 'the last 20, newest first'))
   head.append(fold)
   const rows = finishedRows(state.finished, state.readAt, state.taskTimes?.byStep ?? {})
-  const list = rows.length === 0 ? el('p', 'muted finished-none', 'No finished step has a time the board can find yet.') : el('ol', 'finished-list')
+  const list = rows.length === 0 ? el('p', 'muted finished-none', 'No finished task has a time the board can find yet.') : el('ol', 'finished-list')
   list.id = 'finished-body'
   list.hidden = finishedFolded
   for (const row of rows) {
@@ -13639,7 +13639,7 @@ function drawDoneDay() {
   if (backlogMode !== 'days') return
   const view = doneDayView
   if (view === null) {
-    fill(box, [el('p', 'muted day-wait', doneDayProblem ?? 'Reading the finished steps…')])
+    fill(box, [el('p', 'muted day-wait', doneDayProblem ?? 'Reading the finished tasks…')])
     return
   }
   const { day, today } = view
@@ -14036,7 +14036,7 @@ function editPart(step, isLong) {
   const box = el(isLong ? 'div' : 'span', isLong ? 'step-edit-line' : 'step-edit')
   for (const [action, label] of [['close', 'Close'], ['delete', 'Delete']]) {
     if (action === 'close' && step.status === 'done') continue
-    const button = el('button', `step-edit-button is-${action}`, sending.has(key) ? '…' : isLong ? `${label} step` : label)
+    const button = el('button', `step-edit-button is-${action}`, sending.has(key) ? '…' : isLong ? `${label} task` : label)
     button.type = 'button'
     button.dataset.editStep = step.id
     button.dataset.editAction = action
@@ -14158,7 +14158,7 @@ function refinePart(step, state, isItemShown = false) {
   if (view.refined === null) {
     box.append(heading)
     heading.textContent = 'Refine'
-    box.append(el('p', 'muted', `Not refined yet. ${advisor ?? 'The Advisor'} sums up what you get, with a picture, its goal and its size, and asks what it needs to know before it is picked up. Your answers are folded into one description under the step.`))
+    box.append(el('p', 'muted', `Not refined yet. ${advisor ?? 'The Advisor'} sums up what you get, with a picture, its goal and its size, and asks what it needs to know before it is picked up. Your answers are folded into one description under the task.`))
   } else {
     const { refined } = view
     // The older form keeps its heading with the round; the newer one shows no rounds.
@@ -14193,7 +14193,7 @@ function refineToRead(refined) {
   const box = el('section', `details-part ${refined.ready ? 'refined is-ready' : 'refine'}`)
   box.append(...refinedParts(refined))
   const open = refined.ready ? 0 : refined.questions.filter(one => one.answer === null).length
-  if (open > 0) box.append(el('p', 'muted', `${open} question${open === 1 ? '' : 's'} wait for your answer in the step's window on the Backlog tab.`))
+  if (open > 0) box.append(el('p', 'muted', `${open} question${open === 1 ? '' : 's'} wait for your answer in the task's window on the Backlog tab.`))
   return box.children.length === 0 ? null : box
 }
 
@@ -14388,7 +14388,7 @@ function drawCoordinate(state) {
   const rows = $('coordinate-one').checked ? null : goalRows(list, state.goals ?? null)
   const groups = rows !== null ? drawGoalRows(rows, state) : list.groups.map(group => {
     const box = el('section', `coordinate-group${group.isFocus ? ' is-focus' : ''}${group.isOne ? ' is-one' : ''}`)
-    const heading = el('h2', '', group.isOne ? 'Every step, newest first' : group.name)
+    const heading = el('h2', '', group.isOne ? 'Every task, newest first' : group.name)
     if (group.isFocus) heading.append(el('span', 'chip is-focus', 'Focus'))
     heading.append(el('small', '', String(group.steps.length)))
     box.append(heading)
@@ -14397,7 +14397,7 @@ function drawCoordinate(state) {
   })
   // B302: a goal's header the keyboard was on keeps the focus when the list is drawn anew.
   const focusedGoal = $('coordinate-list').contains(document.activeElement) ? document.activeElement.dataset?.goalFold ?? null : null
-  fill($('coordinate-list'), groups.length > 0 ? groups : [el('p', 'muted', activities.length === 0 ? 'The backlog could not be read.' : 'No step matches.')])
+  fill($('coordinate-list'), groups.length > 0 ? groups : [el('p', 'muted', activities.length === 0 ? 'The backlog could not be read.' : 'No task matches.')])
   if (focusedGoal !== null) $('coordinate-list').querySelector(`[data-goal-fold="${focusedGoal}"]`)?.focus()
 }
 
@@ -14503,7 +14503,7 @@ $('coordinate-list').addEventListener('click', event => {
 /** Focus 1: the goal the list is narrowed to ("See the steps behind this"), with ✕ to show every step again; null without. */
 function coordinateGoalChip() {
   if (coordinateGoal === null) return null
-  const chip = el('button', 'choice is-chosen is-goal', `Steps behind ${coordinateGoal.id} ✕`)
+  const chip = el('button', 'choice is-chosen is-goal', `Tasks behind ${coordinateGoal.id} ✕`)
   chip.type = 'button'
   chip.dataset.goalClear = ''
   chip.title = 'Show every step again'

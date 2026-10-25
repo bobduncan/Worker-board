@@ -65,7 +65,7 @@ test('the work tool files a title and its context apart; the "For you" block car
   const q = (await readStore(dir)).items.get(asked.result.id)
   assert.equal(valueOf(q, 'Title'), 'Yew or box for the hedge?')
   assert.deepEqual(q.sections.get('Text'), ['Yew or box for the hedge?', 'Yew grows slowly but lives long.', 'Box is cheaper and grows fast.'])
-  assert.match(asked.result.text, /\*\*Answer:\*\* Yew or box for the hedge\? \(Q\d+, decide on B1\)/)
+  assert.match(asked.result.text, /\*\*Answer:\*\* Yew or box for the hedge\? \(Q\d+, decide on task B1\)/)
   assert.doesNotMatch(asked.result.text, /grows slowly/, 'the context stays on the board')
   // The board's card and window: the title as the header, the context as the words under it.
   const need = await needOf(dir, asked.result.id)
