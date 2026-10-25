@@ -121,7 +121,7 @@ test('the head and the stage strip for each stage, as the mockups draw them', ()
   const vibe = page.focusView(stateOf(map()), goalsOf(map()))
   assert.equal(vibe.stage, 'vibe')
   assert.deepEqual(vibe.head, { label: 'Your focus', id: 'G2', title: 'Benches that feel like home', vibeLine: null })
-  assert.deepEqual(vibe.strip, [{ n: 1, label: 'The vibe', state: 'now' }, { n: 2, label: 'The how', state: 'next' }, { n: 3, label: 'The run', state: 'next' }])
+  assert.deepEqual(vibe.strip, [{ n: 1, label: 'The goal', state: 'now' }, { n: 2, label: 'The how', state: 'next' }, { n: 3, label: 'The run', state: 'next' }])
   assert.equal(vibe.progress, null)
   assert.deepEqual(vibe.vibe, { title: 'The vibe so far', sub: 'draft, written by your partner', lines: ['you sit down without thinking', 'warm wood, never metal'], picture: 'pictures/bench.png', empty: null })
   // Read-only (no partner, or a board that only shows): drawn, off, with why.
