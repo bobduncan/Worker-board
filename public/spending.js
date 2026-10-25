@@ -51,7 +51,7 @@
     const header=node('header','spending-head'),intro=add(node('div'),node('p','spending-eyebrow','WORKER BOARD INSIGHTS'),node('h1','','Spending'),node('p','spending-muted','See where usage goes and which changes are worth keeping.'))
     const controls=node('div','spending-controls'),label=node('label','','Period '),select=node('select')
     select.setAttribute('aria-label','Spending period')
-    for(const [value,text]of [['1','Last 24 hours'],['7','Last 7 days'],['30','Last 30 days'],['all','All recorded']]){const option=node('option','',text);option.value=value;option.selected=selected===value;select.append(option)}
+    for(const [value,text]of [['today','Today'],['1','Last 24 hours'],['7','Last 7 days'],['30','Last 30 days'],['all','All recorded']]){const option=node('option','',text);option.value=value;option.selected=selected===value;select.append(option)}
     select.addEventListener('change',()=>{selected=select.value;draw(lastState,true)});label.append(select);controls.append(label)
     const exportButton=node('button','spending-button','Export CSV');exportButton.disabled=!summary?.messages;exportButton.addEventListener('click',()=>download(summary));controls.append(exportButton);add(header,intro,controls);root.append(header)
     if(!summary){root.append(node('p','spending-notice','Spending collection starts after the board reads its local transcripts. No model calls are needed.'));return}

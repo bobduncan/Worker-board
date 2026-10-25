@@ -9775,7 +9775,7 @@ function advisorFirstPart(setting) {
   return advisorPartsShown(setting)[0]
 }
 
-const FOCUS_STAGES = [['vibe', 'The vibe'], ['how', 'The how'], ['run', 'The run']]
+const FOCUS_STAGES = [['vibe', 'The goal'], ['how', 'The how'], ['run', 'The run']]
 
 /** "3 h", "45 min": the time the parts not done still name. */
 function focusTimeLeft(minutes) {
@@ -9928,7 +9928,7 @@ function focusView(focus, goals, can = null, ui = {}) {
     // B354: the goal gets its tick against its Done when; a focus picked before that rule may have none.
     const hasLine = hasDoneWhenLine(focus)
     view.vibeThere = total > 0 && done === total ? {
-      question: 'Is the vibe there?',
+      question: 'Did we reach the goal?',
       vibe: focus.vibe,
       doneWhenLine: hasLine ? `Done when: ${focus.doneWhen.trim()}` : null,
       buttons: [

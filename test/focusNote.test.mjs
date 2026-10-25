@@ -198,10 +198,10 @@ test('the run\'s note card: each decided line with Undo or "undo asked"; at most
   assert.equal(none.vibeThere, null)
 })
 
-test('every part done: the question "Is the vibe there?" with the vibe, Yes and No', () => {
+test('every part done: the question "Did we reach the goal?" with the vibe, Yes and No', () => {
   const view = focusView(stateOf([stepItem('B1', 'done'), stepItem('B2', 'done')]), null, CAN)
   assert.deepEqual(view.vibeThere, {
-    question: 'Is the vibe there?',
+    question: 'Did we reach the goal?',
     vibe: ['every fight reads at a glance', 'hits feel heavy'],
     doneWhenLine: 'Done when: you judge a fight fun in one playthrough',
     buttons: [
