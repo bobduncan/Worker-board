@@ -1013,7 +1013,7 @@ answer. Then the board writes `Evaluation asked: <date time>` under the goal, ha
 at max (their yes: A, or an answer that starts with yes) or Opus 5.5 at max (B, or anything else), and types `evaluate G<n> <title>`,
 `Attempts:` with each failed check (the person's no to a look named as theirs), `Next steps:`, `Rebuilds:` and
 `Your job: ...` into your chat: their word. Until the evaluation ends, every next step of that goal that you refine or
-make gets `model` opus and `effort` high (the board lifts a lower model or effort to these, also on a fix step, B518, B525; it ends at the next Go). The Focus page shows
+make gets `effort` high (the board lifts a lower effort to high, also on a fix step, B518, B525; it ends at the next Go); its `model` is as for any step, sonnet unless the step is hard (the person, 2026-10-25: Opus only where needed). The Focus page shows
 "Your partner evaluates the approach" meanwhile.
 
 1. Step back from the steps: is the current approach right at all? What caps the result (the art pipeline, a rule, the

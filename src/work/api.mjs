@@ -1556,7 +1556,7 @@ async function fixStep(origin, failed, w, points = failed) {
   const activity = valueOf(origin, 'Activity')
   const goal = valueOf(origin, 'Goal')
   const standard = standardOf(origin)
-  // B525: a goal in its evaluation lifts its fix steps too.
+  // B525: a goal in its evaluation lifts the effort of its fix steps too (2026-10-25: the model stays as it was).
   const guarded = guardedDefaults(w, goal ?? '', false)
   const effort = liftEffortLine(effortLineOf(origin), guarded)
   const model = liftModelLine(modelLineOf(origin), guarded)
@@ -1728,7 +1728,8 @@ async function make(call, w) {
   // B354: a standard given is kept on the step; a step made ready at once names it when it makes a thing of a kind.
   const standard = body.standard === undefined ? null : parseStandard(body.standard, w.kinds)
   if (standard !== null && !standard.ok) return refuse(400, standard.why)
-  // B518: a goal in its fundamental evaluation (and the steps made from the how that ends it) default to opus and high.
+  // B518: a goal in its fundamental evaluation (and the steps made from the how that ends it) default to effort high;
+  // the model stays as given (2026-10-25).
   const guarded = guardedDefaults(w, goal, body.what !== undefined)
   // B468: so is an effort given: the worker that takes the step runs at it.
   const effort = liftEffort(parseEffort(body.effort), guarded)
@@ -2070,24 +2071,27 @@ async function drop(body, w) {
 /** The round number of a refine block's head, 0 when there is none. */
 const roundOf = item => Number((item.sections.get('Refined') ?? [''])[0].match(/\bround\s+(\d+)/i)?.[1] ?? ((item.sections.get('Refined') ?? []).length > 0 ? 1 : 0))
 /**
- * B518: the model and effort the goal guard sets (src/goalGuard.mjs): a step of a goal whose fundamental evaluation runs
+ * B518: the effort the goal guard sets (src/goalGuard.mjs): a step of a goal whose fundamental evaluation runs
  * (`w.evaluationOf(goal)` is 'running'), and the steps made from the how that ended it ('ended', only with `isFromHow`)
- * default to opus and high when none is given. Null otherwise; `{ model, effort }` as parseModel and parseEffort read them.
+ * default to effort high when none is given. Null otherwise; `{ effort }` as parseEffort reads it. The person,
+ * 2026-10-25: the evaluation no longer forces the model (Opus cost about $4.60 a step against $1.81 on Sonnet): a step
+ * keeps the model it is given, as any step.
  */
 function guardedDefaults(w, goal, isFromHow) {
   const state = goal === '' ? null : w.evaluationOf?.(goal) ?? null
   if (state !== 'running' && !(state === 'ended' && isFromHow)) return null
   const why = state === 'running' ? `the goal guard: ${goal} is in its fundamental evaluation` : `the goal guard: ${goal}'s evaluation just ended with a new how`
-  return { model: parseModel(`opus: ${why}`), effort: parseEffort(`high: ${why}`) }
+  return { effort: parseEffort(`high: ${why}`) }
 }
 
 /**
- * B525: the guard lifts, it does not only fill in: a model below opus or an effort below high (given, or the step's
- * earlier one) becomes the guard's; opus, high and anything above stay. `guarded` is guardedDefaults' answer, or null.
+ * B525: the guard lifts, it does not only fill in: an effort below high (given, or the step's earlier one) becomes the
+ * guard's; high and anything above stay. `guarded` is guardedDefaults' answer, or null. 2026-10-25: the model is not
+ * lifted: `liftModel` and `liftModelLine` return the model (or line) as given, so the call sites stay the same.
  */
-const liftModel = (model, guarded) => (guarded === null || guarded === undefined || (model?.ok === true && model.family === 'opus') || (model !== null && model !== undefined && !model.ok) ? model ?? null : guarded.model)
+const liftModel = (model, _guarded) => model ?? null
 const liftEffort = (effort, guarded) => (guarded === null || guarded === undefined || (effort !== null && effort !== undefined && (!effort.ok || EFFORTS.indexOf(effort.level) >= EFFORTS.indexOf('high'))) ? effort ?? null : guarded.effort)
-const liftModelLine = (line, guarded) => (line === null ? liftModel(null, guarded)?.line ?? null : liftModel(parseModel(line), guarded)?.line ?? line)
+const liftModelLine = (line, _guarded) => line
 const liftEffortLine = (line, guarded) => (line === null ? liftEffort(null, guarded)?.line ?? null : liftEffort(parseEffort(line), guarded)?.line ?? line)
 /** B468: the effort a step was given, as the store keeps it ("medium · a board fix"), or null when it has none. */
 const effortLineOf = item => {

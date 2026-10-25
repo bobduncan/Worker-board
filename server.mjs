@@ -897,7 +897,7 @@ async function main(args) {
       viewFile, boardUrl: boardAddress(HOST, config), backlogFile: join(config.project, ...config.backlog.split('/')),
       // Focus 3, the review: the goals of the map the board reads, for an ask or a daily note of a goal.
       hasGoal: id => (state.goals?.nodes ?? []).some(node => node.id === id),
-      // B518: a goal in its fundamental evaluation ('running') or that ended one ('ended'): its steps default to opus and high.
+      // B518: a goal in its fundamental evaluation ('running') or that ended one ('ended'): its steps default to effort high (the model stays as given, 2026-10-25).
       evaluationOf: id => evaluationState((state.goals?.nodes ?? []).find(one => one.id === id)),
       // B354: the project's kinds of work: a refined step that names one carries its standard.
       kinds: config.kinds,

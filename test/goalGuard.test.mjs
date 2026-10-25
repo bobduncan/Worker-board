@@ -94,7 +94,7 @@ test('the word to the partner: evaluate the goal, with what failed and whether a
     '- B1 (2026-10-19 08:20): The seat is too high',
     '- B4 (2026-10-19 08:50): 0 of 1 points pass',
     '- G2 re-check (2026-10-19 09:30): nobody sits',
-    'Next steps: refine every next step of G2 with Model: opus and Effort: high until the evaluation ends',
+    'Next steps: refine every next step of G2 with Effort: high until the evaluation ends; its model as for any step (sonnet unless the step is hard)',
     'Rebuilds: ask the person first (decide); "Approve rebuilds by itself" is off',
     'Your job: D:/b/roles/partner.md, "The fundamental evaluation"',
   ].join('\n'))
@@ -273,7 +273,7 @@ test('B467: a goal map that cannot be read is not "none running": the error goes
 })
 
 // B450: the crumbling tiles (G30 of the real project): a failed result check, then the person's no twice to a look of the
-// same step. No how was agreed; the guard fires at the third, the partner is told to use opus and high for the next steps.
+// same step. No how was agreed; the guard fires at the third, the partner is told to use effort high for the next steps.
 const TILES = [
   '# Goals', 'Last id: G5', 'Focus: G3', '',
   '- [ ] G5 Ground that changes', '  Done when: tiles fall and vents erupt', '',
@@ -296,7 +296,8 @@ test('B450: a goal without a how counts its failed checks and your no to a look,
   assert.equal(needsEvaluation(tilesGoal(), TILE_ITEMS.slice(0, 2)), false, 'two attempts')
   const words = evaluateWords({ to: 'Partner', goal: tilesGoal(), attempts: counted, approveRebuilds: false, job: 'j' })
   assert.match(words.text, /Attempts: 3 failed checks since its first refined step \(2026-10-18 10:00\)\n- B395 \(2026-10-18 15:00\): the tiles do not read\n- Q214, your no to a look \(2026-10-18 16:38\): B no, say what to change They dont look good\n- Q230, your no to a look/)
-  assert.match(words.text, /\nNext steps: refine every next step of G5 with Model: opus and Effort: high/)
+  assert.match(words.text, /\nNext steps: refine every next step of G5 with Effort: high until the evaluation ends; its model as for any step/)
+  assert.doesNotMatch(words.text, /Model: opus/)
 })
 
 test('B450: a yes, a look of a step of another goal or an answer by the partner is no attempt', () => {
@@ -327,8 +328,8 @@ test('B450: the guard fires for a goal that is not the focus and has no how, and
   assert.equal(calm.ok, false)
 })
 
-// B518: the words alone set nothing; the work tool gives the next steps of a goal in its evaluation Model: opus and Effort: high.
-test('B518: after the guard fires, a step of the goal is refined and made on opus and high; a goal not in evaluation stays as it was', async () => {
+// B518: the words alone set nothing; the work tool gives the next steps of a goal in its evaluation Effort: high (2026-10-25: the model stays as given).
+test('B518: after the guard fires, a step of the goal is refined and made on effort high with its model as given; a goal not in evaluation stays as it was', async () => {
   const fs = fakeFs({ [FILE]: latin(TILES) })
   const base = { canWrite: true, goalsFile: FILE, historyDir: 'D:/Work/p/history', now: NOW, fs, partner: { name: 'Partner' }, job: 'j', items: TILE_ITEMS }
   const mapOf = () => parseGoals(Buffer.from(fs.files[FILE], 'latin1').toString('utf8'))
@@ -348,26 +349,27 @@ test('B518: after the guard fires, a step of the goal is refined and made on opu
   assert.equal((await guardAnswered('G5', base)).result.fired, true)
   const refined = await partner({ action: 'refine', id: 'B1', summary: 'Redraw the tiles.', goal: 'G5' })
   assert.equal(refined.ok, true, refined.why)
-  assert.match((await read('B1')).sections.get('Model')?.[0] ?? null, /^opus · the goal guard: G5 is in its fundamental evaluation$/)
+  assert.equal((await read('B1')).sections.get('Model')?.[0] ?? null, null, 'no model given: none is forced')
   assert.match((await read('B1')).sections.get('Effort')?.[0] ?? null, /^high · the goal guard: G5 /)
   const made = await partner({ action: 'new', title: 'Draw the tiles from a reference', activity: 'Tiles', goal: 'G5' })
   assert.equal(made.ok, true, made.why)
-  assert.match((await read(made.result.id)).sections.get('Model')?.[0] ?? null, /^opus · /)
+  assert.equal((await read(made.result.id)).sections.get('Model')?.[0] ?? null, null)
   assert.match((await read(made.result.id)).sections.get('Effort')?.[0] ?? null, /^high · /)
-  // B525: a model below opus and an effort below high, given or earlier, are lifted; opus and xhigh stay.
+  // B525: an effort below high, given or earlier, is lifted; a model given stays (2026-10-25); high, xhigh and opus stay.
   const given = await partner({ action: 'new', title: 'Sweep the floor', activity: 'Tiles', goal: 'G5', model: 'sonnet: a chore', effort: 'low: a chore' })
-  assert.match((await read(given.result.id)).sections.get('Model')?.[0] ?? null, /^opus · the goal guard: G5 is in its fundamental evaluation$/)
+  assert.equal((await read(given.result.id)).sections.get('Model')?.[0] ?? null, 'sonnet · a chore')
   assert.match((await read(given.result.id)).sections.get('Effort')?.[0] ?? null, /^high · the goal guard: G5 /)
   const above = await partner({ action: 'new', title: 'Paint the walls', activity: 'Tiles', goal: 'G5', model: 'opus: the walls are hard', effort: 'xhigh: the walls are hard' })
   assert.deepEqual([(await read(above.result.id)).sections.get('Model')?.[0], (await read(above.result.id)).sections.get('Effort')?.[0]], ['opus · the walls are hard', 'xhigh · the walls are hard'])
   const other = await partner({ action: 'new', title: 'Hang a lantern', activity: 'Tiles', goal: 'G3' })
   assert.equal((await read(other.result.id)).sections.get('Model')?.[0] ?? null, null)
-  // The marked draft ends the evaluation; the steps made from that how are still on opus and high, a plain step is not.
+  // The marked draft ends the evaluation; the steps made from that how are still on effort high, a plain step is not.
   const drafted = await focusMove({ command: 'how-draft', id: 'G5', parts: ['Sprites from a reference · 2 h'], partnerDecides: ['Evaluation: draw them from a Codex reference'], youDecide: [] }, { canWrite: true, goalsFile: FILE, historyDir: 'D:/Work/p/history', now: NOW, fs, partner: { name: 'Partner' }, job: 'j', items: TILE_ITEMS, isKnown: true })
   assert.equal(drafted.ok, true, drafted.why)
   const fromHow = await partner({ action: 'new', title: 'Draw the sprites', activity: 'Tiles', goal: 'G5', summary: 'Sprites.', size: '2 h', what: ['four sprites'] })
   assert.equal(fromHow.ok, true, fromHow.why)
-  assert.match((await read(fromHow.result.id)).sections.get('Model')?.[0] ?? null, /^opus · the goal guard: G5's evaluation just ended/)
+  assert.equal((await read(fromHow.result.id)).sections.get('Model')?.[0] ?? null, null)
+  assert.match((await read(fromHow.result.id)).sections.get('Effort')?.[0] ?? null, /^high · the goal guard: G5's evaluation just ended/)
   const plain = await partner({ action: 'new', title: 'Add a crate', activity: 'Tiles', goal: 'G5' })
   assert.deepEqual([(await read(plain.result.id)).sections.get('Model')?.[0] ?? null, (await read(plain.result.id)).sections.get('Effort')?.[0] ?? null], [null, null])
   // B525: it ends at the next Go. A Go after the evaluation: a how agreed later, and the next steps are plain again.
@@ -378,7 +380,7 @@ test('B518: after the guard fires, a step of the goal is refined and made on opu
   assert.equal(evaluationState({ ...evaluated, state: 'done' }), null)
 })
 
-test('B525: a step already on sonnet and medium is lifted at its refine in a goal in evaluation, and its fix step runs on opus and high', async () => {
+test('B525: a step already on sonnet and medium keeps sonnet but is lifted to effort high at its refine in a goal in evaluation, and so is its fix step', async () => {
   const fs = fakeFs({ [FILE]: latin(TILES) })
   const base = { canWrite: true, goalsFile: FILE, historyDir: 'D:/Work/p/history', now: NOW, fs, partner: { name: 'Partner' }, job: 'j', items: TILE_ITEMS }
   const mapOf = () => parseGoals(Buffer.from(fs.files[FILE], 'latin1').toString('utf8'))
@@ -400,23 +402,26 @@ test('B525: a step already on sonnet and medium is lifted at its refine in a goa
   assert.match(await line('B1', 'Model') ?? '', /^sonnet · /)
   assert.match(await line('B3', 'Model') ?? '', /^sonnet · /)
   assert.equal((await guardAnswered('G5', base)).result.fired, true)
-  // The refined call alone lifts a step still on sonnet and medium (B3 had no refine since the evaluation began).
+  // The refined call alone lifts the effort of a step still on sonnet and medium (B3 had no refine since the evaluation began); its model stays.
   assert.equal((await as('Partner')({ action: 'refined', id: 'B3', what: ['a clean floor'] })).ok, true)
-  assert.match(await line('B3', 'Model') ?? '', /^opus · the goal guard: G5 /)
+  assert.match(await line('B3', 'Model') ?? '', /^sonnet · a plain chore$/)
   assert.match(await line('B3', 'Effort') ?? '', /^high · the goal guard: G5 /)
-  // A refine that gives sonnet and medium is lifted too, not obeyed.
+  // A refine that gives sonnet and medium: the effort is lifted, not obeyed; the sonnet is obeyed.
   assert.equal((await as('Partner')({ action: 'refine', id: 'B3', summary: 'Mop the floor, twice.', model: 'sonnet: a plain chore', effort: 'medium: a plain chore' })).ok, true)
-  assert.match(await line('B3', 'Model') ?? '', /^opus · the goal guard: G5 /)
+  assert.match(await line('B3', 'Model') ?? '', /^sonnet · a plain chore$/)
   assert.match(await line('B3', 'Effort') ?? '', /^high · the goal guard: G5 /)
-  // The refine of a step that was on sonnet and medium lifts it.
+  // The refine of a step that was on sonnet and medium lifts its effort, not its model.
   const lifted = await as('Partner')({ action: 'refine', id: 'B2', summary: 'Sort the crates, again.' })
   assert.equal(lifted.ok, true, lifted.why)
-  assert.match(await line('B2', 'Model') ?? '', /^opus · the goal guard: G5 is in its fundamental evaluation$/)
+  assert.match(await line('B2', 'Model') ?? '', /^sonnet · a plain chore$/)
   assert.match(await line('B2', 'Effort') ?? '', /^high · the goal guard: G5 /)
-  // The refined of a step on sonnet lifts it too.
+  // The refined of a step on sonnet keeps sonnet too.
   assert.equal((await as('Partner')({ action: 'refined', id: 'B2', what: ['crates in rows'] })).ok, true)
-  assert.match(await line('B2', 'Model') ?? '', /^opus · /)
-  // The failed result check of B1, still on sonnet, makes a fix step that runs on opus and high.
+  assert.match(await line('B2', 'Model') ?? '', /^sonnet · /)
+  // A step given opus in a goal in evaluation stays on opus (2026-10-25: opus only where the Advisor says so).
+  assert.equal((await as('Partner')({ action: 'refine', id: 'B2', summary: 'Sort the crates, hard.', model: 'opus: a hard sort' })).ok, true)
+  assert.match(await line('B2', 'Model') ?? '', /^opus · a hard sort$/)
+  // The failed result check of B1, still on sonnet, makes a fix step that runs on sonnet and effort high.
   assert.equal((await queueFor(dir, 'B1', 'Painter', { now: at + 60_000 })).ok, true)
   assert.equal((await as('Painter')({ action: 'take', id: 'B1', branch: 'b1-tiles' })).ok, true)
   assert.equal((await as('Painter')({ action: 'report', id: 'B1', result: 'Four tiles.', merged: 'c0ffee1' })).ok, true)
@@ -424,7 +429,7 @@ test('B525: a step already on sonnet and medium is lifted at its refine in a goa
   const checked = await as('Partner')({ action: 'checked', id: 'B1', evidence: 'none (x)', points: ['fail: the tiles do not read'] })
   assert.equal(checked.ok, true, checked.why)
   const fixId = checked.result.fix ?? (await readStore(dir)).items.keys().toArray().filter(id => id !== 'B1').at(-1)
-  assert.match(await line(fixId, 'Model') ?? '', /^opus · /)
+  assert.match(await line(fixId, 'Model') ?? '', /^sonnet · /)
   assert.match(await line(fixId, 'Effort') ?? '', /^high · /)
   // A goal that is not in evaluation: the fix step of its failed check keeps the step's sonnet and medium.
   assert.equal((await queueFor(dir, 'B4', 'Painter', { now: at + 60_000 })).ok, true)

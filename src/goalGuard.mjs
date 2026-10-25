@@ -9,7 +9,7 @@
 // to be asked. hey this task failed 3 times, we would like to evaluate strategy using fable. yes, or no use opus."): one
 // ask of the goal, A Yes: Fable 5.1 at max for this evaluation only, B No: Opus 5.5 at max, and "Fable asked: Q<n>" under it.
 // On the answer the board writes "Evaluation asked: <date time>", switches the partner to that mode (B352; Fable only on
-// the person's yes) and types `evaluate G<n>` to it, with the word that the goal's next steps are refined on Model: opus and Effort: high.
+// the person's yes) and types `evaluate G<n>` to it, with the word that the goal's next steps are refined with Effort: high (their model as for any step, 2026-10-25).
 // The partner's answer is a how-draft (src/focus.mjs): a corrected or rebuilt how, or the same how again ("keep
 // going"); it counts as Go, so the count starts anew. A rebuild is the person's to approve (an ask of the goal whose
 // title begins "Rebuild G<n>") unless "Approve rebuilds by itself" (config `approveRebuilds`) is on.
@@ -235,7 +235,7 @@ export function evaluateWords({ to, goal, attempts, approveRebuilds, job, maxCha
     `Attempts: ${attempts.count} failed checks since ${goal.howAgreed === attempts.since ? 'Go' : 'its first refined step'} (${attempts.since ?? 'the start'})`,
   ]
   const tail = [
-    `Next steps: refine every next step of ${goal.id} with Model: opus and Effort: high until the evaluation ends`,
+    `Next steps: refine every next step of ${goal.id} with Effort: high until the evaluation ends; its model as for any step (sonnet unless the step is hard)`,
     approveRebuilds === true
       ? 'Rebuilds: approved by the board ("Approve rebuilds by itself" is on): make its steps at once and give the person a recap'
       : 'Rebuilds: ask the person first (decide); "Approve rebuilds by itself" is off',

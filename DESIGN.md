@@ -2503,6 +2503,10 @@ using fable. yes, or no use opus."
    by hand.
 9. Tests: `test/fableAsk.test.mjs` (the deadlock as a test that times out without the fix); `test/goalGuard.test.mjs`
    fires the guard through the answered ask.
+10. The person, 2026-10-25: the steps of a goal in its fundamental evaluation no longer run on Opus by force (B518, B525
+    lifted their model to opus, about $4.60 a step against $1.81 on Sonnet, 14% of all spend): the work API
+    (`guardedDefaults`, `liftModel`) lifts only the effort, to high, and the model stays as given (the Advisor's `model` at
+    refine: sonnet unless the step is hard); the evaluate word says so (`Next steps:`).
 
 ## Done when and the standard per kind of work (B354)
 
