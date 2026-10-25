@@ -11,6 +11,7 @@ import { checkpointOf, isHolding } from '../work/pause.mjs'
 import { isFailedForGood } from '../work/outboxSweep.mjs'
 import { reviewWaitOf } from '../work/resultCheck.mjs'
 import { ACTIVE, heldReason, workingOnOther } from '../work/parked.mjs'
+import { readingAgeMinutes } from '../limits.mjs'
 import { checkWordsOf, checkpointLate, familyOf, switchOf, undeliveredWords, wordMatters } from './rules/watch.mjs'
 
 const MIN = 60_000
@@ -349,8 +350,10 @@ function wordLines(view, now) {
 
 /** The limits of the plan and the person's pause. */
 function limitLines(view, now) {
+  // B601: a reading older than `oldReadingMinutes` says how old it is.
+  const age = value => ((readingAgeMinutes(value, now) ?? 0) > view.settings.oldReadingMinutes ? ` (old: ${readingAgeMinutes(value, now)} min)` : '')
   const limit = (name, value) => (value === null || value === undefined ? `${name}: not known`
-    : `${name}: ${Math.round(value.used)}% used (${value.level}), read at ${dayClockOf(value.at, now)}${Number.isFinite(value.resetsAt) ? `, resets at ${dayClockOf(value.resetsAt, now)}` : ''}`)
+    : `${name}: ${Math.round(value.used)}% used (${value.level}), read at ${dayClockOf(value.at, now)}${age(value)}${Number.isFinite(value.resetsAt) ? `, resets at ${dayClockOf(value.resetsAt, now)}` : ''}`)
   const pause = view.pause === null || view.pause === undefined ? 'pause: none known'
     : `pause: ${view.pause.state ?? 'not known'}${Number.isFinite(view.pause.since) ? ` since ${dayClockOf(view.pause.since, now)}` : ''}`
   return [

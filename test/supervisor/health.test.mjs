@@ -304,7 +304,7 @@ test('B562: every time in the summary of another day, past or future, carries it
   assert.match(line('X18 open'), /first 2026-10-23 23:00, last 20:20:/)
   assert.match(line('repair limit-back'), /^- 2026-10-23 22:30 repair limit-back on Digger/)
   // A reset tomorrow and a read of yesterday show their dates; a reset later today its clock.
-  assert.match(line('5-hour limit: '), /5-hour limit: 97% used \(full\), read at 20:20, resets at 2026-10-25 01:10; weekly limit: 41% used \(ok\), read at 2026-10-23 23:50, resets at 23:00/)
+  assert.match(line('5-hour limit: '), /5-hour limit: 97% used \(full\), read at 20:20, resets at 2026-10-25 01:10; weekly limit: 41% used \(ok\), read at 2026-10-23 23:50 \(old: 1233 min\), resets at 23:00/)
   assert.match(line('- pause:'), /pause: running since 2026-10-23 08:00/)
 })
 

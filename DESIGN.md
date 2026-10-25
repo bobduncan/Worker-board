@@ -3296,7 +3296,10 @@ the AI sweep by a cheap supervisor chat and the hand-over to the Advisor, comes 
   close it or have it checked again. `not-cleared` (B547, the fix of X13 and X14: a worker whose last report is newer than its last clear and that took a new
   step since, at once, or that stays so for over 10 min, `notClearedMinutes`; one finding per worker per report, with
   the mod's why and the repair). `queued-not-running` (B587, the fix of X36: a free worker whose chat does not run while
-  its next queued step waits over 15 min with no `start` of it on its way to the main chat; one finding per step). How long a thing
+  its next queued step waits over 15 min with no `start` of it on its way to the main chat; one finding per step).
+  `old-limit-reading` (B601, the fix of X47: a limit whose newest figure is older than `oldReadingMinutes`, 30, while
+  the person pauses or a worker works; one finding per limit, gone with a newer reading; the health summary's limits
+  line adds "(old: N min)"; the app writes its usage file only while it is in use, so a quiet hour leaves it old). How long a thing
   lasted comes from the timeline (`state.today`), else from the supervisor's own watch.
 - **The supervisor's memory**, `<project>/.claude/supervisor.json`, beside `sync.json` and apart from it: its watch
   (`seen`), the repairs of the last day (`repairs`, for `repair-repeats`) and when each rule tripped (`trips`). Read at

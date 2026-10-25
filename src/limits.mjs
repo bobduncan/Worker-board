@@ -236,6 +236,15 @@ function limitOf(kind, { sample, readings, stops, now, warnAt }) {
 }
 
 /**
+ * B601 (the fix of X47: both limits "read at 14:35" at 15:32): how old a limit's newest figure is, in whole minutes, or
+ * null for a limit nothing is known of. The app writes its sample only while it is in use, so a quiet hour leaves the
+ * newest figure an hour old; a limit that was read as reset counts from its reset (nothing was read since).
+ */
+export function readingAgeMinutes(limit, now) {
+  return Number.isFinite(limit?.at) && Number.isFinite(now) ? Math.max(0, Math.floor((now - limit.at) / MIN)) : null
+}
+
+/**
  * The two limits of the plan as they stand at `now`: `fiveHour` and `week`, each `{ used, at, resetsAt, resetAt,
  * level }` or null. `used` is the newest figure anything gave (the app's file `sample`, the chats' `readings`, a
  * `stop` by the app, which means full) and `at` says when that was; `resetsAt` is when it resets, null when no

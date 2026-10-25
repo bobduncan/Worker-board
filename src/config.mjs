@@ -47,6 +47,8 @@ export const SUPERVISOR_DEFAULTS = Object.freeze({
   switchMinutes: 10,
   /** B547: a worker not cleared this long after it reported a step. */
   notClearedMinutes: 10,
+  /** B601: a limit whose newest reading is older than this, while the chats stand still or work (the rule old-limit-reading). */
+  oldReadingMinutes: 30,
 })
 
 export const DEFAULTS = {

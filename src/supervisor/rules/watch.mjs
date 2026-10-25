@@ -21,6 +21,7 @@ import { FIRST_SAYING, chatsByRole, oldModFinding } from '../../oldMods.mjs'
 import { EFFORTS, chatEffort, effortOf, effortSaid, familyOf, modelOf } from '../../work/effort.mjs'
 import { reviewWaitOf } from '../../work/resultCheck.mjs'
 import { CLEAR_MOD, takenSince } from '../../clearOwed.mjs'
+import { readingAgeMinutes } from '../../limits.mjs'
 import { COUNTS_BY_KEY } from './repair.mjs'
 
 const MIN = 60_000
@@ -674,6 +675,28 @@ function notCleared(view, ctx) {
   return found
 }
 
+/**
+ * 17. B601 (the fix of X47: at 15:32 both limits showed "read at 14:35" while the pause ran): a limit whose newest
+ * reading is older than `oldReadingMinutes` while the person pauses or a worker works, when the app's file or a chat
+ * should have given a newer one. One finding per limit; it clears when a newer reading comes. A limit nothing is
+ * known of is the health summary's "not known", not this rule's.
+ */
+function oldLimitReading(view) {
+  const found = []
+  const works = workersOf(view).some(lane => lane.state === 'working')
+  if (!isPaused(view) && !works) return found
+  for (const [key, name] of [['fiveHour', '5-hour limit'], ['week', 'weekly limit']]) {
+    const age = readingAgeMinutes(view.limits?.[key], view.now)
+    if (age === null || age <= view.settings.oldReadingMinutes) continue
+    found.push({
+      rule: 'old-limit-reading', key: `old-limit-reading ${key}`, subject: 'board',
+      text: `the ${name} was last read ${age} min ago (${clockOf(view.limits[key].at)}), the board steers by an old figure`,
+      evidence: `${key} ${Math.round(view.limits[key].used)}% at ${clockOf(view.limits[key].at)}; now ${clockOf(view.now)}; ${isPaused(view) ? 'the person pauses' : 'a worker works'}; threshold ${view.settings.oldReadingMinutes} min; the app's usage file is written only while the app is in use`,
+    })
+  }
+  return found
+}
+
 /** Every watch rule, in the order the section shows them. */
 export const WATCH_RULES = [
   { id: 'unknown-lane', kind: 'watch', says: 'a worker "unknown" for too long', check: unknownLane },
@@ -693,4 +716,5 @@ export const WATCH_RULES = [
   { id: 'effort-mismatch', kind: 'watch', says: 'a worker that still runs another model or effort than its step wants 10 min after the take', check: effortMismatch },
   { id: 'not-cleared', kind: 'watch', says: 'a worker not cleared after its reported step', check: notCleared },
   { id: 'not-taking', kind: 'watch', says: 'a worker that did not take the task it was given', check: notTaking },
+  { id: 'old-limit-reading', kind: 'watch', says: 'a limit last read over 30 min ago while the chats stand still or work', check: oldLimitReading },
 ]
