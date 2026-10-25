@@ -72,7 +72,7 @@ const BOARD_CLOSE = /\s*(?:Tick this step in the backlog\.|Close this request\.)
 /** B281: how much of the person's feedback a task window gets: one line. */
 const FEEDBACK_CHARS = 300
 /** B161: the first lines of what the board types into the main chat for itself (say.mjs, design.mjs): not the person's talk. */
-const BOARD_WORDS = /^(?:restart for mod|spawn workers|remove worker|prepare restart|resume|start "|backlog step from the Design tab|queue step from the Design tab|queue step from the backlog|advisor recommendation|refine step|check step|step refined|ask from the goal map|partner effort|set model and effort|set effort|backlog step from the goal map|check sync)\b/
+const BOARD_WORDS = /^(?:restart for mod|spawn workers|remove worker|prepare restart|resume|start "|backlog step from the Design tab|list step from the Design tab|queue step from the Design tab|queue step from the backlog|advisor recommendation|refine step|check step|step refined|ask from the goal map|partner effort|set model and effort|set effort|backlog step from the goal map|check sync)\b/
 /** B300: the reconciler's flags a lane shows; an old ask stands under Needs your attention, a broken file on top. */
 // Redesign Part 2: 'not taking', a worker the board took a task back from while it sat idle (work/handOut.mjs).
 const LANE_FLAGS = ['stuck', 'not taking', 'check failed', 'card', 'waits']

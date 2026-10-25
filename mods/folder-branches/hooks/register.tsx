@@ -1600,9 +1600,9 @@ const WORK_TOOL = {
     + 'Advisor: also an ask with no asking chat, one carried over from the old backlog): their words, with the date, so '
     + 'the board no longer shows it open. "note" ("to" you or main, "text", "of"): information, '
     + 'never a question; the partner\'s daily note on the focus goal is a note to you with "of" G<n>, "decided" and "needs". "report" ("id", "result", "merged"): your step is done (the only way to end it: no message does); the board checks it and tells the main '
-    + 'chat. "block" and "unblock" ("id", "on"); "unblock" without "on" (the main chat): clears what the step "Waits for". "new" ("title", "activity", "goal", "text", "priority", "standard", "model", "effort"): a new step. "queue" ("id", '
-    + '"for", "after", "about", "priority"; "priority" fix: a fix for the worker board, first in its worker\'s queue), "requeue" ("id", "for": a queued step to another chat) and "unqueue" ("id": out of its '
-    + 'queue): the main chat. "close" ("id", "as"): an instruction is done, and what came of it. "drop" '
+    + 'chat. "block" and "unblock" ("id", "on"); "unblock" without "on" (the main chat): clears what the step "Waits for". "new" ("title", "activity", "goal", "text", "priority", "standard", "model", "effort"): a new step ("priority" '
+    + 'fix: a fix for the worker board, first on the board\'s list); the board hands it out to a free worker once it is refined '
+    + '(nobody queues; the person may pin it to a worker on the board). "close" ("id", "as"): an instruction is done, and what came of it. "drop" '
     + '("id", "why"). "refine" ("id", "summary", "picture", "goal", "size", "standard", "model", "effort", "questions") and "refined" ("id", "what", "standard", "model", "effort"): '
     + 'the Advisor. "checked" ("id", "evidence", "points", "score"): the partner files the result check of a step in review, by a helper that did not build it. "vibe-draft" ("goal", "lines", "picture") and "how-draft" ("goal", "parts", "partnerDecides", "youDecide"): '
     + 'the partner (the Advisor) keeps its draft of the focus goal\'s vibe and how on the board; each call takes the place '
@@ -1640,9 +1640,6 @@ const WORK_TOOL = {
       title: { type: 'string', description: "new: the step's title. incident: what looks wrong, in one plain line." },
       activity: { type: 'string', description: 'new: the activity it belongs under.' },
       goal: { type: 'string', description: 'new, refine: the goal it serves (G17); vibe-draft, how-draft: the focus goal.' },
-      for: { type: 'string', description: 'queue: the chat it is for.' },
-      after: { type: 'string', description: 'queue: the steps it waits on, or what it waits for.' },
-      about: { type: 'string', description: 'queue: how long it takes, roughly ("1 h").' },
       as: { type: 'string', description: 'close: what came of the instruction ("made step B300").' },
       why: { type: 'string', description: 'drop: why; partner-answer, escalate: why, in one line.' },
       summary: { type: 'string', description: 'refine, and new from an agreed how: the step in a few lines.' },
@@ -1669,7 +1666,7 @@ const WORK_TOOL = {
       from: { type: 'string', description: "rename: the chat's old name." },
       commit: { type: 'string', description: 'step: the checkpoint\'s commit, its hash, or none.' },
       next: { type: 'string', description: 'step: the checkpoint\'s next action, in one line.' },
-      priority: { type: 'string', enum: ['fix'], description: 'new, queue: "fix" marks the step a fix for the worker board (the main chat, the partner): it goes first in its worker\'s queue.' },
+      priority: { type: 'string', enum: ['fix'], description: 'new: "fix" marks the step a fix for the worker board (the main chat, the partner): it goes first on the board\'s list.' },
     },
     required: ['action'],
   },

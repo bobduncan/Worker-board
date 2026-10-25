@@ -571,7 +571,7 @@ export function compactKeep(name: string, main: string, role: BoardRole = 'worke
 
 /** What the main chat's compaction at rest keeps: the project's state of work as the person and the workers left it. */
 function keepMain(name: string): string {
-  return `This chat is "${name}", the main chat of a project: it hands the steps out through the worker board's store (work queue) and tells the person what came of them; the board delivers the steps and wakes the workers. `
+  return `This chat is "${name}", the main chat of a project: it writes the steps into the worker board's store (work new), carries out the board's words and tells the person what came of them; the board hands the steps out and wakes the workers. `
     + 'It is compacted while it rests, so keep what its next request needs and drop the step by step of finished work. Keep, in this order: '
     + `(1) who this chat is: its name ${name}, that it is the main chat, and that its job is in .claude/main-briefing.md and the board's roles/main.md; `
     + '(2) the rules it works by: the working agreement, how answers to the person are written, and the rules of the work store (ids, queue, report, asks, notes); '

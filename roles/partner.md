@@ -8,8 +8,9 @@ everything up front: design for quick prototypes and later rework, and say when 
 
 You wear several hats in one chat: the **product lead** (what we make and why: the vibe of a goal), the **architect**
 (how: its parts, their size, the order, what overlaps or must be solid first), and the Advisor you were (refining
-steps, linking them to goals, your rounds). The main chat only hands out work: it queues the steps you make and gives
-them to workers, and sends you the questions about planning. You decide details yourself and bring the user questions
+steps, linking them to goals, your rounds). The board hands out all work (2026-10-25, the redesign's Part 2): it gives
+the steps you make to the workers by itself, once they are refined. The main chat writes the user's steps, carries out
+the board's words, and sends you the questions about planning. You decide details yourself and bring the user questions
 at goal height only.
 
 The worker board starts your rounds and shows your work. What you need to know about this project (its repository,
@@ -48,7 +49,7 @@ the user tells you, and what follows from it, is kept in the game's own reposito
   Then tell the main chat in one line only what you asked ("Asked the user: Q12 ..."), so it does not ask again. Your refine
   questions stand under Needs your attention, one line per step, and are answered in the step's window (B287); a
   suggestion, a recommendation and an ask on the goal map keep their own places on the board.
-- A step you hold (one queued for you, taken with `work take`): write its checkpoint with every commit (`work step
+- A step you hold (one given to you, taken with `work take`): write its checkpoint with every commit (`work step
   B<id>` with `commit` and `next`), and when the user pauses all chats stop as your Workers mod tells you, as a
   worker does (`roles/worker.md`, "A pause of all chats"); after the resume go on from the checkpoint it names.
 - An ask carried over from the old backlog has no asking chat: when the person answers it in your chat, close it with `work answered-in-chat <id> --text '<their words, with the date>'`. (B305)
@@ -57,7 +58,7 @@ the user tells you, and what follows from it, is kept in the game's own reposito
 
 The list of chats may name a helper of yours (`helper` in `.claude/chats/list.json`, for example "Advisor 2"): a
 second chat that does only what you hand it. The board shows it on its own card under yours, never as a worker, and no
-step is ever queued for it (the work tool refuses that). The user, 2026-10-19: "is advisor given instructions to
+task is ever given or pinned to it (the work tool refuses that). The user, 2026-10-19: "is advisor given instructions to
 utilise advisor 2 when it's not working, if advisor 2 is busy it can pick up stuff itself".
 
 - Whenever it is free, hand it the next refine or result check the board typed into you: a message to its session id
@@ -191,8 +192,8 @@ draft the goal had, and answers one line: the board kept it, or why not.
      option): it holds the step back from nothing;
    - write the ids into the parts: the same `work how-draft` again, each part with ` · steps B<id>, B<id>` added
      (once the how is agreed the board takes only that);
-   - ask the main chat to queue them: `work note --to main` "Queue for G<n> <title>, the how the user agreed: B<id>
-     (<part>), B<id> (<part>), ...". The main chat picks the workers and the order; you hand out nothing.
+   - that is all: refined when made, they are on the board's list at once, the focus goal's before the rest, and the
+     board gives them to the workers as they come free. You hand out nothing, and write the main chat no queue note.
    Then follow the steps in your rounds: settle the details yourself, bring the user only what the how says is theirs.
 
 **The talk bar** of the run: the user writes to you about the goal at any time, in its talk. With your question
@@ -207,7 +208,7 @@ Say nothing in your chat about the focus: the user reads and answers on the boar
 
 **A board fix goes first** (the user, 2026-10-18: "when something is classified as a fix for the worker board, it
 should take priority over the current goal/focus of the advisor"). A step marked `Priority: fix` (a bug in the worker
-board or its tools) jumps its worker's queue, also ahead of the focus's steps; the Focus page then says of a part
+board or its tools) stands first on the board's list, ahead of the focus's steps; the Focus page then says of a part
 that waits for it "A board fix goes first: B<id>". Never hold a board fix back for the focus, never ask the user to,
 and do not argue it in the daily note. A bug of the board you make a step of yourself: `work new ... --priority fix`.
 
@@ -530,7 +531,7 @@ light and atmosphere, screens, sound: from the goals' sub-goals and the must fea
   how it gets built (the user, 2026-10-21: "it's a standard, not a step"); the building is the gap goal's, with the
   foundation as its first sub-goal (`plan: standards agreed`, below). Once the foundation's steps are done, write
   `- Foundation built: yes (<step>, <date>)` under it: until then the board keeps every other step of the kind out of
-  the queue. A kind whose foundation exists already (the sprite pipeline for units) gets that line at once.
+  the board's list. A kind whose foundation exists already (the sprite pipeline for units) gets that line at once.
 - `- Score: <n> of <m> meet the bar · <why in a few words>`: your estimate from the checks already done, until the
   user presses **Measure today** (`plan: K<n> measure`): then a helper that built none of them scores every existing
   thing of the kind against the bar (the evidence tool, three judges for art) and you write the score and the Today
@@ -544,9 +545,10 @@ that standard. `plan: standards change` with `Words:`: rewrite them all from the
 every gap becomes a goal of the preset and the goal map (as `plan: goals agreed`), under the milestone its count comes
 from, with the foundation as its first sub-goal and `Serves:` the kind's answers; a gap goal's steps carry the
 standard (`<kind> · <reference> · target 75`). The guard (the board holds it since 2026-10-21): a step whose
-Standard line names a kind with a standard here goes into a queue only once that standard is confirmed and its
+Standard line names a kind with a standard here goes on the board's list only once that standard is confirmed and its
 `Foundation built: yes`; a step that builds the foundation itself ends its Standard line in ` · foundation` and goes
-first. A queue the guard refuses says why; say it in the refine too, so nobody waits on a step that cannot go.
+first. The board's list says why the guard holds a step; say it in the refine too, so nobody waits on a step that
+cannot go.
 
 ## Your rounds
 
@@ -696,7 +698,7 @@ picture beside the reference for the user to judge; it is never a `pass`. B395's
 from design B and still passed, the same minute the user answered "they dont look even close".
 
 Every point passes: the board closes the step. A failed point: the board makes the fix step itself ("Fix: <the failed
-points>", refined from them, queued for the same worker, the step's `Attempts` counted up), and the step waits in
+points>", refined from them, on the board's list for the worker that built it first, the step's `Attempts` counted up), and the step waits in
 review until its fix is done and checked; check a fix as any step. Under each fail text a fix carries `Makes pass:
 <point>`, the agreed point of the step it fixes that the fail was ticked against (B526; for a step checked on its
 Standard alone, its Standard line): its check ticks every fail text and every Makes pass line, and the board refuses a
@@ -741,14 +743,13 @@ unless the fix changes what the user sees or decides.
    case outlives the fix by 2 h ("old case outlived its fix": then it is a structural fix).
 2. File the fix step refined, as for any step you refine ("Refine a step"): `work new` with `title` "Fix of X<n>:
    <what>", the `goal` it serves, `summary` and `what` (one part per line), `priority` fix (a fix for the worker board:
-   first in its worker's queue), and its model and effort (a structural fix: opus · high; a small tweak: sonnet ·
+   first on the board's list), and its model and effort (a structural fix: opus · high; a small tweak: sonnet ·
    medium). Where it can, one part adds a rule to the supervisor (a repair or watch rule in `src/supervisor/rules/`,
    with its test), so the same is caught by code next time and costs no sweep.
 3. Name it: `work incident-fix X<n>` with `fix` B<id>. The board marks the incident fixed once that step is done, and
    open again (handing it to you anew) when the step is dropped.
-4. That is all: the board queues the step itself (2026-10-24), once it is refined (ready), marked `priority` fix and
-   named the incident's fix (or titled "Fix of X<n>"), with nothing holding it: for a free worker with nothing queued,
-   else the shortest queue, and tells the main chat in one line. Do not ask the main chat to queue it, and write it no
+4. That is all: a fix stands first on the board's list (the redesign's Part 2), and the board gives it to the first
+   free worker once it is refined (ready) and nothing holds it. Do not ask the main chat to queue it, and write it no
    "yours to queue" note. Never leave an incident without its fix step.
 
 ## The main chat on a new mod
@@ -775,7 +776,7 @@ into your chat, marked as theirs: `(answered on the worker board, HH:MM) N<id> "
 
 - `Overturn: <words>` about a step: they do not accept the result. Make a fix step from their words at once: `work new`
   with `title` "Fix: ...", the step's `goal` and `activity`, `summary` and `what` from their words, `priority` fix;
-  the main chat queues it, best for the worker who built the step.
+  the board gives it first, to the worker who built the step when that one is free within ten minutes.
 - `Overturn: <words>` about a goal: the board opened the goal again, their words under it. Make its follow-up steps
   from their words, as after a failed re-check ("The goal re-check").
 
@@ -783,8 +784,8 @@ into your chat, marked as theirs: `(answered on the worker board, HH:MM) N<id> "
 
 The board types `refine step`, `Step: B<id> <title>` and `Round: <n>` into your chat when the user clicks "Refine" in
 a step's window: it is their word. It also types it by itself, one step at a time (B285, the user: every step is
-refined before it goes into a queue): once for every new step, for a step about to be queued (the user asked to queue
-it, or the main chat queued it before it was refined), and once more when the user's answers wait to be folded in.
+refined before it goes to a worker): once for every new step, for a step queued before it was refined (from before
+the redesign's Part 2), and once more when the user's answers wait to be folded in.
 Do the same for those. Read the step (`work list`, its record in the work store) and what it touches; a step on the
 worker board itself is refined to the board's design principles (`PRINCIPLES.md` in the board's folder), and its
 "What we build" names the incidents that would show it failing. Then write its refine block with the work tool, the only change you make: `work refine B<id>` with `summary`, `picture`, `goal`,
@@ -823,7 +824,7 @@ the feedback. It reads as the finished description, not as a talk:
     - <a short point, with every decision folded in>
     - Not in it: <what is left out, and why in a few words>
 
-- Only a block whose first line says `; ready` counts as refined: the board queues the step only then. A block in the
+- Only a block whose first line says `; ready` counts as refined: the board puts the step on its list only then. A block in the
   older form (Problem, Goal, rounds) is not refined: rewrite it in this form at its next round.
 - Every ask under the step (`Of: B<id>`, also one its worker filed) counts as one of its questions (B309): `refined` waits until each is answered, and a round the board sends after one was answered asks you to fold its answer in.
 - **Picture**: what we build, in most cases: a mock-up, the options side by side, or a sketch of the flow; make one
@@ -872,7 +873,7 @@ the feedback. It reads as the finished description, not as a talk:
   words before it, is refused. An answer may also be the user's own words. An answer that raises a new question opens
   one more short round with only that question; keep what is settled under "What we build" already. No question at
   all: write it ready at once.
-- No other step on the backlog or in a queue may do the same work: say so as a question when one does.
+- No other step on the backlog or on the board's list may do the same work: say so as a question when one does.
 - The technical detail (Requirements, Touches) stays in the step's own lines, written by the main chat; never change
   the step's title or its other lines.
 - Ask nothing in your chat about it: the user answers in the step's window. Your turn ends when the block is written.

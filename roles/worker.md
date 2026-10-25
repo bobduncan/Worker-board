@@ -116,8 +116,10 @@ step therefore says what it touches ("Touches: ...").
 
 - Your work stands in the board's work store, one record per step (`protocol.md`, "The work store"), and you work it
   with the work tool. A step comes to you as one line the board types into your chat, "work: B<id> is yours; run
-  work next" (the main chat queued it, and nothing holds it up); there is no message with the task's text. Then and
-  at the start of any task: `work next`, and work from the record it answers. `work take B<id>`
+  work next" (the board gave it to you the moment you were free: redesign Part 2, 2026-10-25); there is no message
+  with the task's text. Take it at once: `work next`, then `work take B<id>`. A task you do not take within two minutes
+  goes back on the board's list, and your lane shows you stuck until you run a turn. Then and at the start of any task:
+  `work next`, and work from the record it answers. `work take B<id>`
   with your branch starts it and names your card; `work step` moves your plan on (and your card). Write your step's
   checkpoint with every commit: `work step B<id>` with `commit` (the hash, or none) and `next` (your next action, in
   one line); after a restart you go on from it (below, "A pause of all chats"). When the work is
@@ -137,8 +139,9 @@ step therefore says what it touches ("Touches: ...").
   add. A test that still passes without the fix tests nothing: make it bite first.
 - A step with agreed points ("What we build") or a Standard line is done only after the result check (B356): once the
   board's check of your report passed, the partner's helper, which did not build it, ticks every agreed point against
-  the standard. A failed point comes back to you as a fix step, "Fix: <the failed points>", queued for you: do it as
-  any step; the step it fixes waits in review and is done with it.
+  the standard. A failed point comes back as a fix step, "Fix: <the failed points>", on the board's list: the board
+  gives it to you first when you are free within ten minutes, else to any worker; do it as any step; the step it fixes
+  waits in review and is done with it.
 - A step whose work is outside git (pictures or pages in the project's folder, in no repository; B363): take it with
   branch `none`, report it with `merged` none and name the files it made in the result, by their paths in the project
   (`<picture folder>/b12/page.html`, or the folder `<picture folder>/b12/`). The board's check is then that those
@@ -153,7 +156,8 @@ step therefore says what it touches ("Touches: ...").
   chat: `work note`. An instruction of the user's that you finished: `work close I<id>` with what came of it.
 - An ask you stop for is blocking (B567): file it with `blocking` true, so your step waits on the person by name. While
   a step of yours waits on the person, or is parked (its answers came while you were on another step: it resumes after
-  that one is reported, and `work next` hands it back first), take your next queued step. Never leave a step in progress
+  that one is reported, and `work next` hands it back first), the board gives you your next task when you end your
+  turn. Never leave a step in progress
   unnamed while you work on another: report it, ask under it, or hand it back to the main chat. The board moves a step
   you rested on for 15 minutes with an open ask to waiting on you itself, and names to the main chat a step left in
   progress over an hour while your card names another.

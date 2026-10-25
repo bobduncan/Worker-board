@@ -3685,9 +3685,82 @@ timers. Now each chat says it (principle 3, know don't guess).
   background after a report, the words), `test/bridge.test.mjs`, `test/server.test.mjs`, `test/config.test.mjs`; in
   the mod, `hooks/chatlist.test.ts` ("Redesign Part 1").
 
+## The board hands out all work (2026-10-25, redesign Part 2)
+
+The supervisor's first day found its biggest group of incidents (12 of 36) in the main chat handing out work by
+judgment into per-worker queues: tasks waited behind a busy worker while another was free (root cause 1, "AI chats do
+what code should do"). Now the board hands out every task itself (principle 1), from facts the chats told it (principle
+3: Part 1's reports). The spec: `.claude/specs/2026-10-24-board-redesign-design.md`, Part 2; the plan:
+`.claude/plans/2026-10-25-board-hands-out-work-plan.md`.
+
+- **One ready list** (`src/work/handOut.mjs` `readyList`, `src/work/guards.mjs` `readyHold`): every step in state
+  refined whose refine is ready (`Refined: ready`), with nothing it is blocked by or waits for open (a blocker in review
+  still holds: the worker's own take needs it done), no words to clear, no blocking ask open and no answer the partner
+  has not folded in (B309), not held by its kind's standard (the guard of 2026-10-21) or its routing record. In one
+  order: `Priority: fix` first, then the goal map's focus goal's, then the rest, each by id. The rest is held, each
+  with one line why. The page shows it under the Workers ("Ready for a worker", "Refined, but held"), the main chat's
+  sync words name it ("Ready for a worker: ..."), the supervisor reads it.
+- **Kept for a worker:** a task the person pinned (`Pinned: <worker>`, the work API's `pin`; "Pin to", "Move to",
+  "Unpin" on the Backlog tab and in a task's window) waits for that worker only, never starts a new one; a follow-up (a
+  task whose `Blocked by` or `Waits for` named a step that worker just moved to review or done, or a result check's fix
+  of a step it built, its `Fix of`) waits for that worker `followUpMinutes` (10), then anyone's. A worker's kept tasks
+  go to it before the list's order.
+- **The give** (`match`, `idleWorkers`): only a worker whose own report says idle and free (or, B567, it rests while its
+  task waits on the person), running, holding no step given or under way, not stuck, gets a task; the one idle longest
+  first. Unknown, off, suspended, busy, and a chat the board still reads by its older inference (no report: an older
+  mod, or the board just restarted) get none (Review Focus 2). Among the rest a worker already on the task's model
+  family is preferred; a task whose Touches overlap a step given or under way, or one given in the same pass, waits.
+  The reconciler names the gives (`gives`); the server makes each through the work API as the server: the flow's move
+  refined → queued by server when "the board hands it out" (`advance` with `for`). The API checks it anew and refuses a
+  second give of a task, or a give to a worker that holds a step queued, taken or in progress (Review Focus 4: two idle
+  reports at once, two refreshes). History "refined → queued (given by the board to <worker>)". The next pass sends the
+  worker its line (the existing delivery, with its holds: the model switch, the clear, the mod restart). The server
+  runs the reconciler the moment a chat's report turns idle (`src/work/again.mjs` `coalesce`: one pass at a time, a call
+  meanwhile makes exactly one more), and once more after a pass that gave a task.
+- **The take-back** (`takeBacks`, principle 2): a given task whose newest work line to its worker is `takeWithinMinutes`
+  (2) old and still not taken goes back (queued → refined, Owner cleared; History "queued → refined (taken back from
+  <worker>: not taken within 2 min)"). A task whose line has not gone yet (held for its model, a clear, a restart) is
+  never taken back (Review Focus 1). With "; stuck" when the worker's fresh report has said idle since before that line:
+  it never reacted (one the person typed to just after the give went busy: not stuck, Review Focus 3). A stuck worker's
+  lane has the flag `not taking`, "Stuck: did not take B<n> within 2 min; it went back on the list", and gets no task,
+  until its report's since is newer than the take-back (`stuckWorkers`). A task given to a chat no longer a worker of the
+  list goes back at once. None while the person pauses or resumes, or a limit is full; after a pause the clock counts from
+  the resume.
+- **One more worker** (`workerStart`): when ready tasks that are kept for nobody wait, no idle worker is left after the
+  gives, and fewer workers than `maxWorkers` are not off, the main chat is asked once per need (`board-start <who> <how
+  many ran>`): `start "<worker>"` for a worker of the list whose chat is off (the one off longest first), else `spawn
+  workers` with `Count: 1`, `Why: ready tasks wait and no worker is free`. Without `maxWorkers` the board asks for none.
+  Main does this without judgment: it is the board's hands (roles/main.md, "Main is the board's hands").
+- **The flow** (`src/work/flow.mjs`, `examples/work/flow.json`): `{ "from": "refined", "to": "queued", "by": "server",
+  "sets": ["Owner"], "when": "the board hands it out" }`, `{ "from": "queued", "to": "refined", "by": "server" }` and
+  `{ "from": "queued", "to": "new", "by": "server" }` take the place of Main's queue moves and the board's queue of
+  incident fixes. A project's older `flow.json` still reads (the retired guards never hold), but the board then gives
+  nothing and says on top "flow.json lets the board hand out no task: add the move ...". `flowHandsOut`.
+- **Gone:** Main's `work queue`, `requeue` and `unqueue` (the API answers 410 with why), `Queue when refined` (B303),
+  the page's "Add to queue" and "Take out of the queue", the words `queue step from the backlog` and `step refined`,
+  the Design tab's worker picker ("Put in a queue" is "Put on the list", `list step from the Design tab`), the board's
+  queue of incident fixes and its lines to the main chat (a fix simply stands first), the focus hint "waits for the main
+  chat to hand them out", the flag "not taken", and the supervisor's rules `not-taken`, `queued-behind`, `focus-ready`,
+  `review-wait`, `idle-while-waiting` and `queued-not-running`. `owner-gone` keeps the steps held by a chat that left,
+  and takes a pin to a chat gone 30 min off (`unpin`).
+- **At rollout** (`oldQueued`, the API's `retire-queue`): every step queued by a placement of before (Main's or the
+  person's queue or requeue, the board's incident queue, a result check's fix) goes back on the list once: refined, or
+  new when its refine is not ready; a placement the person made last becomes its pin; a kept `Queue when refined` goes.
+  History "back on the ready list: the board hands out all tasks now".
+- **Settings** (`config.json`, top level): `maxWorkers` (a whole number ≥ 1; none: no worker is asked for),
+  `takeWithinMinutes` (2, at least 1), `followUpMinutes` (10; 0: no follow-up), beside Part 1's `unknownAfterSeconds`.
+- **Done when** (principle 6): for 4 hours after it is live none of these opens or comes back: `ready-while-free` (a
+  ready task kept for nobody waits over `idleMinutes` while a worker whose report says free stands idle), `not-taking`
+  (a worker the board took a task back from, flagged), `holder-not-running` (a chat that does not run has work).
+- Tests: `test/work/handOutList.test.mjs`, `test/work/handOutMatch.test.mjs`, `test/work/handOutApi.test.mjs`,
+  `test/work/handOutSim.test.mjs` (simulated chats through `buildState` and `deliverWork`), `test/work/again.test.mjs`,
+  `test/work/retireQueue.test.mjs`, `test/pinTask.test.mjs`, `test/focusHandout.test.mjs`, `test/config.test.mjs`,
+  `test/supervisor/watch.test.mjs`, `test/supervisor/selfCheck.test.mjs`.
+
 ## What it does not do
 
-- It does not start, stop or restart chats, and it does not hand out tasks by itself.
+- It does not start, stop or restart chats itself: it asks the main chat (a worker to start, a restart for a new mod,
+  a model and effort to set). Since redesign Part 2 it does hand out the tasks.
 - It does not call an AI service, with one exception since 2026-10-12: on the Design tab, on the person's click, it
   starts Codex to make a picture of an idea (see "The Design tab" above). Apart from that, only typing through the
   bridge and the advisor use the plan's usage.

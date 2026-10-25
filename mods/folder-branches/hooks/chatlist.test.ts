@@ -5,7 +5,7 @@ import type { FsEntry, On } from 'claude-code'
 import type { ChatFile, ChatTask } from '../types'
 import { chatText, parseChat } from './chats'
 import { forYouItems } from './foryou'
-import { MOD_VERSION } from './board'
+import { MOD_VERSION, WORK_ACTIONS } from './board'
 
 const TOOL = 'mcp__folder-branches__chat'
 const ROOT = 'D:\\Work\\project'
@@ -1391,18 +1391,18 @@ describe('B297: the work tool asks the worker board', () => {
     expect(w.descriptions.work).toContain('"incident-fix" ("id" X<n>, "fix" B<n>)')
   })
 
-  test('Fix first: new and queue carry priority fix to the board', async ($, on) => {
+  test('Fix first: new carries priority fix to the board; the queue actions are gone (redesign Part 2)', async ($, on) => {
     mock.clock(on)
     const w = world('units', { ...listed(), [BOARD]: board })
     stand(on, w)
     await $.session.start(START)
     await $.classic.UserPromptSubmit({ prompt: 'go', session_title: 'Game - Units' })
     await $.turn.start({ text: 'go', turnId: 't1' })
-    w.workAnswer = { status: 200, text: JSON.stringify({ text: 'B330 queued for Units.' }) }
-    await $.tool.call({ tool: WORK, action: 'queue', id: 'B330', for: 'Units', priority: 'fix' } as never)
-    expect(JSON.parse(w.worked[0] ?? '{}')).toEqual({ action: 'queue', id: 'B330', for: 'Units', priority: 'fix', chat: 'Units', session: 'units' })
+    w.workAnswer = { status: 200, text: JSON.stringify({ text: 'B331 made.' }) }
     await $.tool.call({ tool: WORK, action: 'new', title: 'Fix the lane', activity: 'Board', priority: 'fix' } as never)
-    expect(JSON.parse(w.worked[1] ?? '{}')).toEqual({ action: 'new', title: 'Fix the lane', activity: 'Board', priority: 'fix', chat: 'Units', session: 'units' })
+    expect(JSON.parse(w.worked[0] ?? '{}')).toEqual({ action: 'new', title: 'Fix the lane', activity: 'Board', priority: 'fix', chat: 'Units', session: 'units' })
+    for (const gone of ['queue', 'requeue', 'unqueue']) expect(WORK_ACTIONS.includes(gone)).toBe(false)
+    expect(w.descriptions.work).not.toContain('"requeue"')
   })
 
   test('Focus 3: the partner writes its daily note with decided and needs, sent to the board', async ($, on) => {

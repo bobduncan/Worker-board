@@ -120,8 +120,11 @@ tab) and never on the demo; once closed, the browser keeps that it was seen (`he
   the change while the main chat is asked to switch it for its step, "Sonnet · medium → Opus · high", and in its tooltip
   "Runs on Claude Opus 5.5 at extra high effort (the app's setting for this chat)"; the Simple view's rows have it too), **Current task** (its topic, "Now:" what it does, or "Last task: ..., finished", a red line when it is over
   its first estimate), **Progress** (a bar with "step n of m" and the time left of the step), **Est. time** (ETA and
-  the clock time, "Goes on at ..." when suspended, "Blocked" when it waits), **Queue** (the next step for it, how
-  many more, and why it has not started). Under a worker's name, when the Workers mod cleared it after its reported
+  the clock time, "Goes on at ..." when suspended, "Blocked" when it waits), **Queue** (redesign Part 2: the task the
+  board gave it and the tasks the person pinned to it, and why the next has not started: "given to <worker>; it takes
+  it now", "pinned to <worker>; the board gives it once nothing holds it"). A worker the board gave a task that it did
+  not take within two minutes (`takeWithinMinutes`) while it sat idle shows the red line **Stuck: did not take B<n>
+  within 2 min; it went back on the list**, until it runs a turn; the task went to the next free worker. Under a worker's name, when the Workers mod cleared it after its reported
   step (clear after each step): "cleared after B482 · log", "log" opening the kept conversation in a window of the
   board (a log larger than 1 MB shows its last 2 MB, under the line that names the whole file); a compaction's line
   says in its tooltip why the worker was not cleared. A ⋯ menu per row holds **Remove**, which asks the main chat to close that
@@ -140,6 +143,12 @@ tab) and never on the demo; once closed, the browser keeps that it was seen (`he
   app."), with the day's sweeps and tokens ("Today 7 sweeps, 201,300 tokens."); "No sweep yet." before the first.
   **Check now** runs the rules and a sweep at once; it no longer asks the main chat. Only cool colours: nothing in it
   asks the person to act. × closes it until something newer; while it shows, the panel's head has no second Check now.
+  **Ready for a worker** (redesign Part 2, 2026-10-25), under the rows: the board's one list of the tasks that are
+  refined and held by nothing, in its order (fixes first, then the focus goal's, then by id), each with its id (a link
+  to its window), its title and whom it is kept for ("pinned to Worker 3", "kept for Worker 2 until 10:40": a follow-up
+  of what that worker just finished); and, folded, **Refined, but held (n)** with why each waits ("blocked by B3 (in
+  progress)", "waits for the answer to Q4", its standard). The board gives the first suitable one to a worker the
+  moment its chat reports idle; the person does not hand out work, and neither does the main chat.
 - **The timeline:** from a few hours back to some hours ahead, one row per chat: what it did (green working,
   yellow waiting, blue free, purple suspended, grey not seen), what it expects (hatched) and its queue (striped),
   task changes as marks, and "Now" as a line.
@@ -184,7 +193,10 @@ tab) and never on the demo; once closed, the browser keeps that it was seen (`he
   details.
 - **A worker's answer:** its "Task" and "What I did" lines and the rest of its answer, as its words; its "For you"
   items are no questions to answer here (B301).
-- **A step of the backlog:** its words, its notes in sections, its branch, its pictures, and **Add to queue**. Its
+- **A step of the backlog:** its words, its notes in sections, its branch, its pictures, and (redesign Part 2) for a
+  new or refined one **Pin to** with the workers beside it, or, pinned, "Pinned to <worker>" with **Unpin** and **Move
+  to**: the board then gives it to that worker only. A task in a worker's queue says it was given (it takes it now) or,
+  pinned, has **Move to** and **Unpin**. Its
   **Model and effort** (B468, model per step): Sonnet or Opus and the five effort levels, the step's lit, each with its
   reason, and who runs at it ("Units runs at Sonnet · low until the step ends, then at its usual setting (Sonnet ·
   medium)", or that the main chat was asked and it is not set yet). A worker's task window shows the same as a chip,
@@ -339,8 +351,8 @@ scene made in its look, 2026-10-21; a card still without pictures shows two or t
 instead, or lettered badges for tools), the partner's one line of
 advice, where it came from, **Go deeper** (or "2 deeper questions →", or **Deepen again** once settled), **Good
 enough**, **Yes, mine** / **Confirm** and **Change**; an open card has **Answer it →**. Standards (2026-10-20): the
-guard on top (since 2026-10-21 the board holds it: a step whose Standard line names a kind with a standard goes into a
-queue only once that standard is confirmed and its `Foundation built: yes`; a step that builds the foundation ends
+guard on top (since 2026-10-21 the board holds it: a step whose Standard line names a kind with a standard goes on the
+board's list only once that standard is confirmed and its `Foundation built: yes`; a step that builds the foundation ends
 its Standard line in " · foundation" and goes first; each card says what it holds back), then a row per
 kind of thing the goals need: its pictures as a gallery (one big: the bar, today, or any other; the rest as thumbnails
 under it, a click showing one big; a vision card with two or more pictures has the same), what the goals need as a muted line, then two parts set apart: **the bar** (three to eight points, each with sub-points where the page indents them under it, and a "see" where a point has a picture) and **today** (the score and a gap chip); how the things get built (the foundation, the hours) stays on the page for the gap goal, since a standard says what each thing must meet, not how it gets built; **Confirm** (waits in the bar),
@@ -372,15 +384,18 @@ written by the board: the moves go to the partner (`roles/protocol.md`).
 The whole backlog: filters **All**, **In progress**, **Queued**, **Needs your attention**, **Without a worker**, with
 counts; a search; **Show finished**; **One list, newest first** (or by activity, the focus first). "Recently
 finished" folds open to the last 20 finished steps with when and how the board knows. Each step is a row with its
-id, title, worker and state; a click opens its window; a step nobody has gets **Add to queue**, which asks the main
-chat to queue it.
+id, title, worker and state; a click opens its window; a new or refined step has **Pin to** with the workers beside it
+(or, pinned, "Pinned to <worker>" with **Unpin**), through the work store at once (redesign Part 2: the board hands out
+every task; the pin is the person's control).
 
 ## Design (`07-design.png`)
 
 An idea becomes a picture that Codex makes. **New idea:** the words, what it is about (the project's kinds of
 idea), reference pictures (picked or pasted), **Make a picture**. **The picture:** the version looked at, every
 version to choose from, "What should change?" with **Make it again**, **I agree**. Then the step: title,
-requirements, worker and time, **Put on the backlog** or **Put in a queue**, which the main chat writes. "Ideas so
+requirements and time, **Put on the backlog** or **Put on the list** (redesign Part 2: no worker is picked; the board
+gives it to the first free worker once it is refined, and the person may pin it on the Backlog tab), which the main
+chat writes. "Ideas so
 far" along the bottom.
 
 ## States without data

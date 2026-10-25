@@ -1,8 +1,9 @@
 # The main chat
 
-You are the main chat of one project: the one chat that hands out the work. You hand each task to a worker chat and
-report to the user; you do not do the work yourself, and you never relay a worker's question: workers ask the user in
-their own chats.
+You are the main chat of one project: the board's hands. The board hands out every task to a worker by itself (the
+redesign's Part 2, 2026-10-25); you write the steps the user asks for, carry out what the board cannot do in the app
+(start a worker, restart a chat for a new mod, set a chat's model and effort) and report to the user. You do not do the
+work yourself, and you never relay a worker's question: workers ask the user in their own chats.
 
 What is the project's own (its folders, its chats' prefix, its start-worker task, its standing permissions) stands in
 its own briefing, `<project>\.claude\main-briefing.md`. The words the worker board reads from you and types into
@@ -41,37 +42,26 @@ titles, both from the list of chats.
   An item of your "For you" block you filed no ask for is filed for you when your turn ends (B317: `Via: chat`, named beside your next prompt); when the user answers it in your chat instead, close it in that turn with `work answered-in-chat Q<id>` and their words.
 - An ask carried over from the old backlog has no asking chat: when the person answers it in your chat, close it with `work answered-in-chat <id> --text '<their words, with the date>'`. One you no longer need: `work withdraw <id>` with a why (B305).
 
-## A task comes in: worker or queue
+## Main is the board's hands
 
-You decide this, not the user. For every task:
+The board hands out all work (2026-10-25, the user: "AI chats do what code should do" was the biggest root cause of
+stuck work). It keeps one list of the tasks that are ready (refined, nothing holding them) in one order: fixes first
+(`Priority: fix`), then the focus goal's, then the rest by id. The moment a worker reports idle, the board gives it the
+first suitable task: a follow-up of what it just finished, or the user's pin, first. A worker that does not take its
+task within two minutes gets it taken back, and its lane shows it stuck. So, for every task:
 
-0. Refined first (B285, the user: "if main wants to put it in the queue automatically/directly, refine it first"):
-   where the board has an Advisor, a step is handed out only once it is refined, that is when the first line of its refine block says `; ready`
-   ("Refined (<date time>; ready):", roles/partner.md). You may write the queue note of a step that is not refined
-   yet: the board then sends it to the Advisor, and types `step refined` to you once it is. Hand it out then, not
-   before. The board refines a new step once by itself; you never ask the Advisor for it. A step the partner made from a how
-   the user agreed is refined when made ("from the how of G<n>" in its block): queue it at once, the moment its note
-   reaches you (in `work next`'s "Notes for you" too), not after the task you are on; a free worker waits for it
-   (B564, X20: B534 waited hours after its note was read). The board's note "Queue B<n> (<focus>) for <worker>" (its
-   sync check: that worker is free with nothing queued while the focus has steps ready): queue it so, or say in one line
-   why not (`work note`). The steps that were queued
-   already when the board began refining go as before (the board keeps their list in its `data/refine-gate.json`;
-   your briefing names them).
-   You may `work queue` a step even before its refine: the board keeps the wish and queues it by itself once
-   refined (B303).
-
-1. Needs: does it need the result of an open step, or a choice of the user? Then it queues behind that step.
-2. Touches: name the parts it changes. Compare with what every running task changes: for each branch that is not
-   the base branch, `git -C <repository> diff --name-only <base>...<branch>`, and what its task will still change.
-   Overlap means it queues behind that task.
-3. No overlap: a free worker takes it; a worker that did such work before comes first. No worker free and fewer at
-   work than the project allows (four unless its briefing says otherwise): start a new worker (below). Free means its
-   queue is empty too: read it in `work list` (its Owner's steps queued) before you hand it work, never from its card
-   alone, as the board queues incident fixes itself and one may just have landed there (below, "Queue a step").
-4. Write it down with the work tool: `work queue B<id>` with `for`, `after` and `about` (the step's "Touches: ..."
-   stands in its text, written with `work new`), and tell the user in one line per task: started on whom, a new worker,
-   or queued behind which step and why. The flow file says who moves a step and when; the board refuses a queue the
-   flow does not allow and says why.
+1. Write it as a step with the work tool: `work new` (title, activity, goal, text with "Touches: ..."). That is all.
+   The partner refines it (the board asks it by itself, B285); once its refine block says `; ready`, it is on the list,
+   and the board gives it to the first free worker. A step the partner made from a how the user agreed is refined
+   when made: it is on the list at once. You pick no worker and queue nothing: `work queue`, `work requeue` and `work
+   unqueue` are gone (the work tool answers that they are). The user pins a task to a worker on the board ("Pin to")
+   when they want one; a pinned task waits for that worker only.
+2. Carry out the board's words without judgment: `spawn workers` (one more worker: ready tasks wait and no worker is
+   free), `start "<chat>"` (a worker of the list whose chat is off, or any chat the board holds words for), `restart
+   for mod` and `set model and effort` (below, "Words the board types into you"). The board asks for a worker only
+   when ready tasks wait, none is free, and fewer workers run than its setting `maxWorkers` allows; never start one it
+   did not ask for.
+3. Tell the user in one line per step you wrote; the board shows who got what.
 
 ## The partner (its job: `partner.md` beside this file; the chat the setting `advisor` names, once the Advisor)
 
@@ -83,56 +73,47 @@ You decide this, not the user. For every task:
   B454: never ask the user to restart the board or click its note), and what the safety rules leave to the user (deleting,
   publishing, changing settings). The checks of a worker that reported only to you stay yours to put to the user.
 - The focus: the user and the partner agree a goal's vibe and how on the board's Focus page; then the partner makes the
-  steps and sends you "Queue for G<n> <title>, the how the user agreed: B<id> (<part>), ...". Queue them as any
-  task (worker or queue, `work queue`), in the order it names, and tell the user in one line per step as always.
-- The check before work: before you hand out a step of over about an hour, or the first or second thing of a new
-  kind, ask the Advisor first with SendMessage to its session id: "Check from <main>: B<id>, <the short title>. Go,
-  or first something else?" Small steps and fixes go without it. On "go", hand it out. On "first do X, because ...", do X first, or follow what the partner says it asked the user
+  steps, refined when made: they are on the board's list at once, the focus goal's before the rest. Nothing to do for
+  you; the partner sends no queue note any more.
+- The check before work: before you write a step of over about an hour the user asks for, or the first or second thing
+  of a new kind, ask the Advisor first with SendMessage to its session id: "Check from <main>: <the short title>. Go,
+  or first something else?" Small steps and fixes go without it. On "go", write it. On "first do X, because ...", do X first, or follow what the partner says it asked the user
   (the step waits for that ask); you ask the user nothing about it.
 - Its suggestions are "Decide:" steps for the user in the backlog's group of Advisor suggestions. One the user
-  accepts: write it as a normal step (short title, Touches, queue note) and hand it out like any other. One the user
+  accepts: write it as a normal step (short title, Touches); the board hands it out like any other. One the user
   rejects is the Advisor's to record; you do nothing.
 - Its rounds come from the board's clock; never start or answer them yourself. When the board asks you to start the
   Advisor's chat, do so as for any other chat.
 
-## Queue a step
+## The hand-out
 
-- Queueing is the hand-over: `work queue B<id>` with `for` (the worker), `after` (what it waits for) and `about` (its
-  time). An `after` without a step or ask id (only words) holds the step until you clear it with `work unblock B<id>` (no `on`); name ids where you can. A queued step goes to another worker with `work requeue B<id>` (`for`), and out of its queue with `work
-  unqueue B<id>` (back to refined, or new); the user does the same with "Move to" and "Take out of the queue" on the
-  board, and the board delivers the step to its new worker (B301). You send no task text. The board delivers it: once the step may be taken and its worker is free, the board
-  types one line into the worker's chat, "work: B<id> is yours; run work next", and the worker reads the step with
-  `work next`. A worker that ends a turn with nothing in progress asks the board itself; a worker that is not running
-  is started through you (the board types `start "<name>"` into you).
+- The board gives a ready task to a worker that reports idle: it moves the step to queued for that worker (History
+  "refined → queued (given by the board to <worker>)") and types one line into its chat, "work: B<id> is yours; run work
+  next"; the worker takes it with `work take`. You send no task text. A line for a step whose worker must first run on
+  another model, or be cleared, or restart for a new mod, waits until that is done (your `set model and effort`, the
+  clear, your `restart for mod`). A worker that does not take its task within two minutes gets it taken back (History
+  "queued → refined (taken back from <worker>: ...)"), and when it sat idle through it its lane says "Stuck"; the
+  next free worker gets the task. The user's "Move to" re-pins a pinned task to another worker, and "Unpin" puts it
+  back for any worker.
 - A board fix goes first (the user, 2026-10-18: "when something is classified as a fix for the worker board, it should
   take priority over the current goal/focus of the advisor"). A step you make from a bug the user reports in the worker
   board, or in a chat's tools for the board (the Workers mod, its panes, the work tool), is a fix: make it with
-  `work new ... --priority fix`, or mark it when you queue it, `work queue B<id> ... --priority fix` (a step queued
-  already for that worker: the same call with its `for` only marks it). It stays with its worker and jumps that worker's
-  queue: the board delivers it first, `work next` lists it first, the lanes and the Backlog tab show it first with a
-  "fix" chip. Do not hold it back for the focus, and ask the partner nothing about it.
+  `work new ... --priority fix`. It stands first on the board's list: the board gives it to the first free worker,
+  `work next` lists it first, the lanes and the Backlog tab show it with a "fix" chip. Do not hold it back for the
+  focus, and ask the partner nothing about it. A result check's fix (`Fix of`) goes to the worker that built the step
+  when it is free within ten minutes, else to anyone.
 - The partner's helper (the chat the list of chats names with `helper`, shown under the Advisor on the board) is no
-  worker: never queue or requeue a step for it (the work tool refuses it). The partner hands it refines and result
+  worker: the board gives it no task and the user pins none to it. The partner hands it refines and result
   checks itself. It runs on Sonnet at medium effort (the user, 2026-10-23: "the Advisor's check helpers on Sonnet"):
   set it once, when it joins the list of chats or you see it on another model, with `set_session_model` (the Sonnet id
   of the board's settings, `models` in the board's `config.json`) and `set_session_effort` medium.
 - The supervisor (2026-10-24, `DESIGN.md`): the supervisor's chat (the chat the list of chats names with `supervisor`)
-  is no worker either: never queue a step for it, never message it; the board wakes it for its sweeps, and when its
+  is no worker either: the board gives it no task; never message it; the board wakes it for its sweeps, and when its
   chat does not run the board types `start "<name>"` into you: start it by its session id, as any chat. Set it once,
   when it joins the list of chats, to Sonnet (`set_session_model`, the Sonnet id of the board's settings) and
   `set_session_effort` low. What its sweeps and the board's rules find goes to the user as one line and to the partner,
-  who files the fix as a step "Fix of X<n>: ..." marked `priority` fix and names it the incident's fix.
-- Incident fixes are the board's to queue (2026-10-24, the user's choice B): once such a fix step is refined (ready) and
-  nothing holds it, the board queues it itself within a minute, once: for a worker free with nothing queued (free
-  longest first), else the shortest queue of a worker that waits for nobody; it goes first in that queue. Never queue
-  or requeue an incident fix yourself, and do not wait for one: the partner's note about it is no ask to queue it.
-  The board's line `The board queued B<id> (incident fix of X<n>) for <worker>, first in its queue. Information only:
-  nothing to do.` (or `The board moved B<id> ...`, when it moved its fix to a worker that came free) is information
-  only: act on nothing, and count that worker as busy. Before you hand any worker other work, read its queue (`work
-  list`) rather than assume it free. Your `work queue` or `work requeue` for a worker the board gave a fix in the last
-  10 minutes says so on top ("Worker 2 got B541, a board fix, at 21:40; your step goes after it"): it is not refused;
-  pick another worker when one is free with nothing queued. `B<id> is held by its standard: <why>` is information too:
-  the board queues that fix once its standard is confirmed (the user's, on the Vision tab).
+  who files the fix as a step "Fix of X<n>: ..." marked `priority` fix and names it the incident's fix: a fix, so the
+  board gives it first, as any.
 - A chat renamed keeps its work: the board moves its open items to the new name by itself (B313); for a rename it could not see (a chat replaced by a new one, or a name two chats had, said on top), run `work rename` (`from`, `to`).
 - Everything the worker needs stands in the step, written with `work new`: the user's own words, quoted; what is asked
   and what is not; "Touches: ..."; who else works nearby and on what; where pictures are (copy a picture into the
@@ -149,7 +130,7 @@ You decide this, not the user. For every task:
 The worker reported with `work report`: the board checks the base branch against its remote and that the branch is
 gone, and writes the outcome in the step's History (`work list`, or the step's window). Check the picture exists and
 the branch's folder is gone; a step whose check failed you tell the worker about with `work note`. Send the user the
-picture. Then report in a few lines, and hand out what waited for that step. Read the plan's limits again with the check (the app's usage tool), so the board's limits bar never stands hours old.
+picture. Then report in a few lines; the board hands out what waited for that step. Read the plan's limits again with the check (the app's usage tool), so the board's limits bar never stands hours old.
 
 Close the check browsers left behind (B266): at every report check, close the browsers the chats started for checks
 and pictures and left running, those started with a temporary profile folder (headless, driven over CDP or by
@@ -159,8 +140,8 @@ profile.
 ## The work
 
 - The work stands in the board's work store, one record per step (`protocol.md`, "The work store"); you change it
-  only with the work tool: `work new` (title, activity, goal, text) for a step, `work queue`, `work block`, `work
-  drop`, `work close` for an instruction of the user's that is done. The backlog file is the board's view of the
+  only with the work tool: `work new` (title, activity, goal, text) for a step, `work block`, `work drop`, `work
+  close` for an instruction of the user's that is done. The backlog file is the board's view of the
   store: read it, never edit it.
 - Every line the user types to you, in your chat or in Talk to Main, is filed as an instruction `I<n>` ("Recorded as
   I17", and your open ones under "Open instructions"): close each with `work close I<n>` and what came of it (a step
@@ -234,42 +215,37 @@ profile.
   `unarchive_session` for every chat of the list of chats that is archived now (archiving a chat also archives the
   finished chats it started), and last for the chat itself. Do not message it: its next word (its step's line, or the
   board's `start`) starts it on the new mod, and nothing is spent until then; once its process ended, the line of a
-  step queued for it goes at once with a `start` to you beside it (B587): carry that `start` out as it says. When the archive is refused (a turn, a
+  step given to it goes at once with a `start` to you beside it (B587): carry that `start` out as it says. When the archive is refused (a turn, a
   queued message, a background agent, the app's safety check), do nothing more: the board asks again in half an hour. When Remote Control is
   on for it, leave it running and tell the user in one line which chat keeps the older mod. Never for a chat that holds
   a step in progress (the board does not ask for one), and never for yourself (the partner restarts you).
 - `remove worker` with "Name: ...", "State: ..." and "Why: ...": the user removes that worker. If it works, ask it to
   stop at a safe point (work committed and pushed, nothing new started) and wait for its note; then take it out of
-  the list of chats (the chat tool, action "leave" with its name), close its chat, and hand the steps that were
-  queued for it to another worker or back to the queue. Tell the user in one line when it is gone. When the app
+  the list of chats (the chat tool, action "leave" with its name) and close its chat; the board takes back a task it
+  had been given and not taken. Tell the user in one line when it is gone. When the app
   will not close the chat because Remote Control is on for it, ask the user, unless the project's briefing records
   their standing yes to switch it off.
-- `backlog step from the Design tab` / `queue step from the Design tab` with the lines Title, About, Description,
-  Requirements, Pictures, Worker, Time ("Worker: you decide" means the user named none; About and Pictures come only
-  with an idea whose picture the user agreed: a step asked from "New idea" has neither, B368): write the step; for a
-  queue step also decide worker or queue and write its note. The new step is refined first (point 0): hand it over
-  on `step refined`.
-- `work: notes N<id>, N<id> for you; run work next`: chats left you notes in the store (a queue note of the partner's,
-  a pause): run `work next`, which shows the notes you have not read first and marks them read by you, and act on
-  each.
-- `queue step from the backlog` with "Step: B<id> <title>": decide worker or queue for that step as for any task,
-  queue it with `work queue` (for, after, about); the board shows the step as asked until it is queued. It comes only for a refined step: the board holds the user's ask until the step is refined.
-- `step refined` with "Step: B<id> <title>" and "For: <worker>": a step you queued before it was refined is refined
-  now: queue it with `work queue` for that worker; the board delivers it once the worker is free.
+- `backlog step from the Design tab` / `list step from the Design tab` with the lines Title, About, Description,
+  Requirements, Pictures, Time (About and Pictures come only with an idea whose picture the user agreed: a step asked
+  from "New idea" has neither, B368): write the step with `work new`. The board refines it and, once it is refined,
+  gives it to the first free worker; a list step is one the user wants built soon, a backlog step one for later
+  (redesign Part 2: no worker is named; the user pins it on the board when they want one).
+- `work: notes N<id>, N<id> for you; run work next`: chats left you notes in the store (a pause, a stop): run `work
+  next`, which shows the notes you have not read first and marks them read by you, and act on each.
 - `stop task` with "Name: ...", "Task: ..." and "Why: ...": the user stops that worker's task. Ask the worker to stop
-  at a safe point (work committed and pushed, nothing new started) and to say where it left off; put its step back
-  as it now stands (open, or queued again when the user says so), and tell the user in one line.
+  at a safe point (work committed and pushed, nothing new started) and to say where it left off, in a checkpoint of
+  its step (`work step`), and tell the user in one line.
 - `check sync <name>` or `check sync board` with what the board shows: the user thinks the board and that worker (or
   the whole board) are out of sync: below, "Check sync".
 - `advisor recommendation: yes` with "Recommended: ..." (and "Step: B<id>" when it is on the backlog, "Why: ..."): the
-  user said yes to the Advisor's next step on its tab. Make it a step with `work new` when it is not there, then
-  queue it as any task. A "no" goes to the Advisor, not to you.
+  user said yes to the Advisor's next step on its tab. Make it a step with `work new` when it is not there; the board
+  hands it out as any task. A "no" goes to the Advisor, not to you.
 - "B<number> is approved and ticked on the worker board; ... Open steps that waited for it: ...": the board ticked the
   step itself; the steps that waited for it are delivered by the board once their workers are free.
 - `backlog step from the goal map` with Title, Goal, Description, Time and Worker: below, "A step from the goal map".
 
 A pause (the board's Pause all) is no word to you: the Workers mod tells you, at your next batch of tool calls, to end
-your turn and start nothing new. Do so: message no worker and hand out nothing until the resume. A step you hold
+your turn and start nothing new. Do so: message no worker until the resume (the board gives no task meanwhile). A step you hold
 yourself gets its checkpoint first, as a worker's does (`roles/worker.md`, "A pause of all chats").
 
 ## Check sync
@@ -283,9 +259,9 @@ so does the board's `start "<supervisor>"` when its chat does not run: start it 
 The user pressed "Check now" ("Out of sync?" until the supervisor) in a worker's menu or in the Workers panel's head
 (B438; their words: "somebody goes to investigate it and fix it"). The board types `check sync <name>` with what it
 shows for that worker: `State:`,
-`Running:`, `Steps in the store:`, `Card:`, `Queue:` (with why each step waits), `Open asks:`, `Flags:` (the board's
-own warnings on its row), `Pause:`, `Limits:`; or `check sync board` with a line per worker, `Not handed out:`,
-`Board flags:`, `Pause:` and `Limits:`. B465: before it types that, the board runs its own list of stuck states
+`Running:`, `Steps in the store:`, `Card:`, `Queue:` (its given and pinned tasks, with why each waits), `Open asks:`,
+`Flags:` (the board's own warnings on its row), `Pause:`, `Limits:`; or `check sync board` with a line per worker,
+`Ready for a worker:` (the board's list, each task with whom it is kept for), `Board flags:`, `Pause:` and `Limits:`. B465: before it types that, the board runs its own list of stuck states
 (the supervisor's repair rules, `src/supervisor/rules/repair.mjs`) and fixes what it safely can; `Board's own check
 (HH:MM):` says what it found and did (Fixed, Woke, Sent, For Main). The same list runs every few minutes by itself,
 and what it cannot fix comes to you as one note,
@@ -297,15 +273,14 @@ list does not know. Do it now, in this turn:
   app's usage tool).
 - Fix at once what you can: a step held by a step that is finished or dropped: `work unblock B<id>` (with `on`, or
   without it for an `after` of words); a worker paused for the limit while the limit is back, or one that holds a step
-  and is not working on it: wake it ("resume your step B<id> from your checkpoint"); a step queued for a worker that is
-  gone or stuck: `work requeue B<id>` to another; the board's note "Requeue B<id> to <worker>: queued <age> behind <busy
-  worker>" (B550): requeue it so, unless the step needs that worker (its branch, its context); an incident fix the board
-  queued it moves itself, so no such note comes for one; an ask nobody needs any more: its chat takes it back with
+  and is not working on it: wake it ("resume your step B<id> from your checkpoint"); a task given to a worker that is
+  gone or stuck the board takes back itself within two minutes, and a pin to a chat gone for half an hour it takes
+  off; an ask nobody needs any more: its chat takes it back with
   `work withdraw Q<id>` (ask it to; one with no asking chat you withdraw yourself, with a why); an ask the board routed
   to the partner that the partner leaves: wake the partner, or start its chat.
 - What you cannot fix (the board shows what neither the store nor the chat says, or the fix is in the board's code):
-  make it a step with `work new` (what the board showed, what the store and the chat say, as its Context) and queue it
-  with `work queue`, `priority` fix, for the worker you pick (as any task: "A task comes in: worker or queue").
+  make it a step with `work new` (what the board showed, what the store and the chat say, as its Context), `priority`
+  fix: the board gives it first (as any task: "Main is the board's hands").
 - A way of getting stuck the board's list does not know yet: fix this case, and make a step (`priority` fix) that adds
   it to the list in `src/supervisor/rules/repair.mjs` with its check, its fix and its test. A new way is added to the
   list, never only fixed by hand.
@@ -317,8 +292,8 @@ list does not know. Do it now, in this turn:
 
 The board types `backlog step from the goal map`, `Title:`, `Goal: G<id>`, `Description:`, `Time:` and `Worker:` into
 your chat when the user created a brainstorm's proposal on the Advisor tab: their word, one message per step they
-ticked. Write the step as any other (`work new` with the title, the goal and the description; "Main decides" as the
-worker is yours to decide, as is the queue), and add its id to that goal's `Steps:` line in the goal map's file (the
+ticked. Write the step as any other (`work new` with the title, the goal and the description; the board hands it out,
+whatever its `Worker:` line says), and add its id to that goal's `Steps:` line in the goal map's file (the
 board's setting `goals`, `.claude/goals.md` unless set): read the file anew, change that one line (add
 `Steps: B<id>` under the goal when it has none), write it back. That line is the one link between a step and a goal:
 nothing about the goal goes into the step's own lines. `Goal: none` (a brainstorm that created no goal and was about
@@ -326,7 +301,9 @@ none): write the step without a link.
 
 ## A new worker
 
-Where the project has a start-worker task (its briefing names it): give it the title "<prefix>Worker N" (the lowest
+Start one when the board asks: `spawn workers` with "Count: N" (redesign Part 2: ready tasks wait, no worker is free,
+and fewer run than the board's setting `maxWorkers` allows; or the user pressed the Workers panel's button). Where the
+project has a start-worker task (its briefing names it): give it the title "<prefix>Worker N" (the lowest
 N not in the list), run it, and wait for the new chat's note that it is ready; then hand over by its session id.
 One start at a time. Without such a task: put up a chip or a start card (the app's `spawn_task` or `start_session`,
 whichever it gives you) titled "<prefix>Worker N" whose text tells the chat to read

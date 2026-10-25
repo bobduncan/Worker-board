@@ -50,24 +50,27 @@ test('the partner keeps the Advisor\'s refining, goal linking and rounds, and ad
   assert.match(partner, /`goal` G<n>/)
   assert.match(partner, /each is made refined at once: give `work new` also `summary`, `what`/)
   assert.match(partner, /each part with ` · steps B<id>, B<id>` added/)
-  assert.match(partner, /`work note --to main` "Queue for G<n>/)
+  // Redesign Part 2: the steps go on the board's list by themselves; no queue note to the main chat.
+  assert.doesNotMatch(partner, /`work note --to main` "Queue for G<n>/)
+  assert.match(partner, /they are on the board's list at once, the focus goal's before the rest/)
   assert.match(partner, /Never write `Focus:`, `Vibe agreed:` or `How agreed:` yourself/)
   // The review's findings: a focus thread is never wrapped up into a proposal, also in "A brainstorm".
   assert.match(partner, /never wrapped up into a proposal/)
   assert.match(partner, /write the proposal at once \(never in the focus's thread\)/)
 })
 
-test('the main chat sends planning questions to the partner and queues the steps it makes', () => {
+test('the main chat sends planning questions to the partner; the steps it makes go on the board\'s list by themselves', () => {
   assert.match(main, /## The partner \(its job: `partner\.md` beside this file/)
   assert.match(main, /Planning questions go to the partner, not to the user/)
-  assert.match(main, /"Queue for G<n>/)
-  assert.match(main, /A step the partner made from a how\s+the user agreed is refined when made/)
+  assert.doesNotMatch(main, /"Queue for G<n>/)
+  assert.match(main, /A step the partner made from a how\s+the user agreed is refined\s+when made: it is on the list at once/)
   assert.doesNotMatch(main, /advisor\.md/)
 })
 
 test('the protocol lists the focus\'s lines in the goal map and the words the board types to the partner', () => {
   for (const words of ['`Focus: G<n>`', '`Vibe: <one line>`', '`Vibe picture: <path>`', '`Vibe agreed: <date time>`', '`Part: <title> · <size> · steps B<n>, B<n>`', '`Partner decides: <one line>`', '`You decide: <one line>`', '`How agreed: <date time>`']) assert.ok(protocol.includes(words), words)
-  for (const words of ['`focus: G<n> <title>`', '`vibe: agreed`', '`vibe: not yet`', '`how: go`', '`how: not yet`', '`Queue for G<n>']) assert.ok(protocol.includes(words), words)
+  for (const words of ['`focus: G<n> <title>`', '`vibe: agreed`', '`vibe: not yet`', '`how: go`', '`how: not yet`']) assert.ok(protocol.includes(words), words)
+  assert.ok(!protocol.includes('`Queue for G<n>'), 'redesign Part 2: no queue note')
   assert.match(protocol, /`work vibe-draft` \(`goal`, `lines`, `picture`\), `work how-draft` \(`goal`, `parts`, `partnerDecides`, `youDecide`\)/)
   assert.doesNotMatch(protocol, /focus-draft/)
   assert.doesNotMatch(protocol, /advisor\.md/)

@@ -40,11 +40,11 @@ sweep is meant to cost little (a few tens of thousands of tokens, mostly cached)
   report over 30 min ago.
 - A step moves forward: queued, taken, in progress, review, done. One that goes back and forth (queued again, taken
   again, its check failing again) is odd.
-- Steps queued for free workers are taken within minutes; one worker with many queued steps while others are idle is
-  odd. A result check's fix waits for the worker that built the step it fixes, also while that worker is busy and
-  others are free (the flow's rule; the summary says "stays with <worker>: fix of B<n>"): the queued-behind rule names
-  it to the main chat after 20 minutes. Such a wait is no incident, and the summary marks it odd only once that worker
-  holds no step.
+- The board hands out all work (redesign Part 2, 2026-10-25): a task it gives a worker is taken within two minutes, or
+  the board takes it back and the worker shows "Stuck" (the rule not-taking names it); a ready task that waits while a
+  worker is free (the rule ready-while-free) is odd. A task kept for a worker (its pin, or a follow-up of what it just
+  finished, ten minutes) waits for that worker by design: no incident. Main hands out nothing, so a step Main did not
+  queue is no incident either.
 - A step that waits for another step (its Blocked by, or the steps its Waits for names) waits as planned while that
   step moves: the summary says "waits as planned for B<n> (<state> <age>)" and marks no "!" for its age: no incident.
   Only a stalled blocker (past its state's limit: "stalled") or a step still blocked after its blocker ended ("still
@@ -57,9 +57,8 @@ sweep is meant to cost little (a few tens of thousands of tokens, mostly cached)
   passed and asked it ("check asked HH:MM, word to <partner> (<state>)"), not from the step's age in review: one under
   the review minutes with its check word delivered is a check under way, no incident (B585).
 - A worker "suspended" for the limit goes on once its reset has passed or the limits show room again.
-- Work follows the focus goal: work outside it while the focus has steps waiting is odd. A worker free over 20 minutes
-  with nothing queued while the focus has steps refined ready: the focus-ready rule names a step for it to the main
-  chat ("Queue B<n> (<focus>) for <worker>"), once an hour per step. A wait shorter than that is no incident.
+- Work follows the focus goal: the board's list puts the focus goal's tasks before the rest (fixes first); work outside
+  it while a focus task is ready and a worker free is odd.
 - A word to a chat is taken within minutes; words that wait long for one chat are odd. The summary lists the words of
   the last day that still matter (a word whose purpose is gone is closed with its why and not listed); only those
   marked `!` are odd: rule 8's words, waiting over 10 minutes or failed or expired in the last two hours.

@@ -48,10 +48,14 @@ test('the page: "Stop its task" asks once in the worker\'s menu; a pinned task\'
   assert.ok(!/action: 'unqueue'|action: 'requeue'/.test(script))
 })
 
-test('the main chat\'s role and the protocol know the stop word and the work actions that move or take out a step', () => {
-  for (const word of ['`stop task`', 'work requeue B<id>', 'work unqueue B<id>']) {
-    assert.ok(protocol.includes(word), `protocol: ${word}`)
-    assert.ok(main.replace(/\s+/g, ' ').includes(word.replace(/\s+/g, ' ')), `main: ${word}`)
+test('the main chat\'s role and the protocol know the stop word; the queue actions are gone (redesign Part 2), the person\'s pin is the protocol\'s', () => {
+  assert.ok(protocol.includes('`stop task`'), 'protocol: `stop task`')
+  assert.ok(main.includes('`stop task`'), 'main: `stop task`')
+  for (const gone of ['work requeue B<id>', 'work unqueue B<id>', 'work queue B<id>']) {
+    assert.ok(!protocol.includes(gone), `protocol: ${gone}`)
+    assert.ok(!main.replace(/\s+/g, ' ').includes(gone), `main: ${gone}`)
   }
+  assert.ok(protocol.includes('`work pin B<id>` (`for`)'), 'protocol: the pin')
+  assert.match(main, /## Main is the board's hands/)
   for (const gone of ['`move step`', '`unqueue step`']) assert.ok(!protocol.includes(gone) && !main.includes(gone), gone)
 })

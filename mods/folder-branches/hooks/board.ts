@@ -27,7 +27,7 @@ export const REQUEST_HEADER = 'X-Work-Request'
  * chat that runs an older Workers mod than the one installed. The same as `version` in .claude-plugin/plugin.json.
  */
 export const MOD_HEADER = 'X-Workers-Mod'
-export const MOD_VERSION = '0.19.0'
+export const MOD_VERSION = '0.20.0'
 /** The longest text typed for the board: its own limit for an answer, with room for the request's name around it. */
 export const MOST_CHARS = 3000
 
@@ -122,11 +122,11 @@ export function typedWhy(reason: unknown, fallback: string): string {
  * health summary (`health`) and files what looks wrong (`incident`: "title", "subject", "evidence", "rule", "key"); the
  * partner names the step that fixes an incident (`incident-fix`: "id" X<n>, "fix" B<n>).
  */
-export const WORK_ACTIONS = ['next', 'take', 'step', 'ask', 'withdraw', 'answered-in-chat', 'note', 'report', 'block', 'unblock', 'new', 'queue', 'requeue', 'unqueue', 'close', 'drop', 'refine', 'refined', 'checked', 'vibe-draft', 'how-draft', 'list', 'rename', 'partner-answer', 'escalate', 'health', 'incident', 'incident-fix']
+export const WORK_ACTIONS = ['next', 'take', 'step', 'ask', 'withdraw', 'answered-in-chat', 'note', 'report', 'block', 'unblock', 'new', 'close', 'drop', 'refine', 'refined', 'checked', 'vibe-draft', 'how-draft', 'list', 'rename', 'partner-answer', 'escalate', 'health', 'incident', 'incident-fix']
 
 /** B297: the fields a call of the work tool may carry to the board; anything else stays here. */
 export const WORK_FIELDS = ['action', 'id', 'branch', 'step', 'steps', 'names', 'name', 'minutes', 'stepMinutes', 'of', 'kind', 'blocking', 'text', 'options',
-  'pictures', 'play', 'to', 'result', 'merged', 'on', 'title', 'activity', 'goal', 'for', 'after', 'about', 'as', 'why', 'summary', 'picture', 'size',
+  'pictures', 'play', 'to', 'result', 'merged', 'on', 'title', 'activity', 'goal', 'as', 'why', 'summary', 'picture', 'size',
   'questions', 'what', 'advice', 'lines', 'parts', 'partnerDecides', 'youDecide',
   // Focus 3: the partner's daily note on the focus goal.
   'decided', 'needs',

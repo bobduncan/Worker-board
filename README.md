@@ -263,9 +263,12 @@ the folder and what to run, the board shows no work (nothing from `backlog.md` i
 with the same line. A file of the store the board cannot read (a broken head, an id twice, a state the flow does not
 know): one line on top names it; the item is shown as it is and not moved.
 
-**The board delivers the work** (B300): the main chat only queues a step (`work queue`), and at every
-refresh the board types one line into the worker's chat once the step may be taken and the worker is free, "work:
-B286 is yours; run work next", once per step and worker (kept in `<work>\delivered.json`, so a restart sends nothing
+**The board hands out the work** (B300; redesign Part 2, 2026-10-25): the main chat only writes a step (`work new`);
+once it is refined the board keeps it on one ready list (fixes first, then the focus goal's, then by id) and gives the
+first suitable one to a worker the moment its chat reports idle (the person may pin a task to a worker). It types one
+line into the worker's chat, "work: B286 is yours; run work next", once per step and worker; a worker that does not
+take it within two minutes (`takeWithinMinutes`) gets it taken back and shows stuck, and with ready tasks waiting and
+no worker free the board asks the main chat for one more (`maxWorkers`) (kept in `<work>\delivered.json`, so a restart sends nothing
 twice); a worker that ends a turn with nothing in progress asks for it itself (the Workers mod 0.12.0 or newer). A worker that holds a step but does not
 run is flagged on its lane after ten minutes with a button "Start <worker>" (the main chat starts it); so are a failed
 check and a card that names another step, and a file of the store the board cannot read stands on the top line.
