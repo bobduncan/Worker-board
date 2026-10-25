@@ -48,7 +48,7 @@ test('the watch rules: eighteen, report only, each with what it says', () => {
 })
 
 test('the settings: the thresholds of the spec by default; config.json\'s supervisor sets any of them, and a wrong one stops the board', () => {
-  assert.deepEqual({ ...SUPERVISOR_DEFAULTS }, { unknownMinutes: 10, suspendedMinutes: 10, idleMinutes: 10, notRunningMinutes: 30, opusWaitMinutes: 15, undeliveredMinutes: 10, repairsPerDay: 3, reviewMinutes: 60, checkWordMinutes: 30, checkpointMinutes: 120, reportMinutes: 30, switchMinutes: 10, notClearedMinutes: 10, oldReadingMinutes: 30, oldReadingIncidentMinutes: 60 })
+  assert.deepEqual({ ...SUPERVISOR_DEFAULTS }, { unknownMinutes: 10, suspendedMinutes: 10, idleMinutes: 10, notRunningMinutes: 30, opusWaitMinutes: 15, undeliveredMinutes: 10, repairsPerDay: 3, reviewMinutes: 60, checkWordMinutes: 30, reportCheckMinutes: 10, checkpointMinutes: 120, reportMinutes: 30, switchMinutes: 10, notClearedMinutes: 10, oldReadingMinutes: 30, oldReadingIncidentMinutes: 60 })
   assert.deepEqual({ ...parseConfig('{}', {}).supervisor }, { ...SUPERVISOR_DEFAULTS })
   assert.equal(parseConfig('{ "supervisor": { "unknownMinutes": 20, "idleMinutes": -1 } }', {}).supervisor.unknownMinutes, 20)
   assert.equal(parseConfig('{ "supervisor": { "unknownMinutes": 20, "idleMinutes": -1 } }', {}).supervisor.idleMinutes, 10)
@@ -274,6 +274,21 @@ test('report-check-twice: a step whose board check failed twice since its last p
   assert.deepEqual(check('report-check-twice', board(line(60, 'check failed: x'))), [])
   assert.deepEqual(check('report-check-twice', board(line(60, 'check failed: x'), line(40, 'check failed: y'), line(20, 'check passed: merged'))), [])
   assert.deepEqual(check('report-check-twice', view({ items: items(step('B12', 'done', {}, { History: [line(60, 'check failed: x'), line(40, 'check failed: y')] })) })), [])
+})
+
+test('B663 (X67): report-check-twice waits reportCheckMinutes after the second failure and is quiet once a check passed', () => {
+  // B614: failed 22:31 and 22:32, passed 22:34.
+  const at = (hour, minute) => new Date(2026, 9, 24, hour, minute).getTime()
+  const line = (when, words) => `- ${stamp(when)} server: ${words}`
+  const history = [line(at(22, 31), 'check failed: a'), line(at(22, 32), 'check failed: b')]
+  const board = (now, ...more) => view({ now, items: items(step('B614', 'review', { Owner: 'Painter' }, { History: [...history, ...more] })) })
+  assert.deepEqual(check('report-check-twice', board(at(22, 33))), [], 'one minute after the second failure: the worker is correcting its report')
+  assert.deepEqual(check('report-check-twice', board(at(22, 42))), [], 'exactly the wait: not over it')
+  assert.deepEqual(check('report-check-twice', board(at(22, 43), line(at(22, 34), 'check passed: merged'))), [], 'a pass ends the case')
+  const found = check('report-check-twice', board(at(22, 43)))
+  assert.deepEqual(found.map(one => [one.key, one.since]), [['report-check-twice B614', at(22, 32)]], 'no pass, over the wait: a case since the second failure')
+  const longer = view({ now: at(22, 43), settings: { reportCheckMinutes: 30 }, items: items(step('B614', 'review', {}, { History: history })) })
+  assert.deepEqual(check('report-check-twice', longer), [], 'the wait is a setting')
 })
 
 // B570: idle since 45 minutes, past the half hour in which the board has an idle chat restarted.

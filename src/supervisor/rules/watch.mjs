@@ -421,7 +421,11 @@ export function undeliveredWords(view) {
 /** A History line's stamp. */
 const STAMP = /^-\s+(\d{4}-\d{2}-\d{2} \d{2}:\d{2}(?::\d{2})?)\s/
 
-/** 9. A step whose board check failed twice or more in a row since its last pass, and is not done; its case began at the second. */
+/**
+ * 9. A step whose board check failed twice or more in a row since its last pass, and is not done; its case began at the
+ * second. B663 (X67): not before that second failure is older than `reportCheckMinutes`: the worker is correcting its
+ * report then, and a pass in that time ends the case.
+ */
 function reportCheckTwice(view) {
   const found = []
   for (const item of stepsOf(view).filter(one => !['done', 'dropped'].includes(stateOf(one)))) {
@@ -429,10 +433,12 @@ function reportCheckTwice(view) {
     const lastPass = checks.findLastIndex(line => /\bserver: check passed\b/.test(line))
     const failed = checks.slice(lastPass + 1)
     if (failed.length < 2) continue
+    const since = sinceMs(failed[1].match(STAMP)?.[1])
+    if (!(view.now - since > view.settings.reportCheckMinutes * MIN)) continue
     const id = idOf(item)
     const detail = failed.at(-1).match(/server: check failed(?::\s*(.*))?$/)?.[1]?.trim() || 'no reason given'
     found.push({
-      rule: 'report-check-twice', key: `report-check-twice ${id}`, subject: id, since: sinceMs(failed[1].match(STAMP)?.[1]),
+      rule: 'report-check-twice', key: `report-check-twice ${id}`, subject: id, since,
       text: `${id}: the board's check failed ${failed.length} times in a row (${valueOf(item, 'Owner') ?? 'nobody'}): ${detail}`,
       evidence: failed.map(line => line.replace(/^-\s+/, '')).join(' | '),
     })
