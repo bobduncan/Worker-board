@@ -179,6 +179,38 @@ test('B630 (X54): a dropped fix with the step blocked by an open step is a plan;
   assert.deepEqual(repairs(blocked), [])
 })
 
+test('B665 (X70, X71): a dropped fix is counted from when the block on the step ended, not from the drop hours before', () => {
+  // B608's fix B612 was dropped hours ago; B651, which blocked B608, was dropped only just now (the whole chain dropped).
+  const left = (id, state, minutes) => item({ Id: id, Kind: 'step', Title: `Step ${id}`, State: state, Owner: 'Painter', Since: stamp(ago(minutes)) },
+    { History: [`- ${stamp(ago(minutes + 90))} Painter: queued → in progress`, `- ${stamp(ago(minutes))} person: in progress → ${state}`] })
+  const store = (blockerMinutes, dropMinutes = 284, blockerState = 'dropped') => items(
+    reviewed('B608', 4000, [failed(1200, 'B612')], { 'Blocked by': 'B651' }), fixStep('B612', 'B608', 'dropped', dropMinutes), left('B651', blockerState, blockerMinutes))
+  const later = (board, minutes) => view(board, { now: NOW + minutes * MIN })
+  // The wait counts from the block's end, and the evidence says so.
+  const wait = reviewWaitOf(store(1).get('B608'), store(1))
+  assert.deepEqual([wait.kind, wait.since, wait.blockEnded], ['dropped', ago(1), { id: 'B651', at: ago(1) }])
+  // X70: no case one minute after B651 left, none after 29, a case after 31 with B608 still in review.
+  assert.deepEqual(dropWatch(view(store(1))), [])
+  assert.deepEqual(dropWatch(later(store(1), 28)), [])
+  const found = dropWatch(later(store(1), 31))
+  assert.deepEqual(found.map(one => [one.rule, one.subject]), [['dropped-fix', 'B608']])
+  assert.match(found[0].evidence, /the block by B651 ended at \d\d:\d\d/)
+  // The repair that tells the main chat counts the same way.
+  assert.deepEqual(findStuck({ items: store(1), lanes: [LEAD], partner: PARTNER, now: NOW }).filter(one => one.check === 'fix-dropped'), [])
+  assert.equal(findStuck({ items: store(1), lanes: [LEAD], partner: PARTNER, now: NOW + 31 * MIN }).filter(one => one.check === 'fix-dropped').length, 1)
+  // A step done counts as a block that ended too; two blockers: the last to leave counts.
+  assert.deepEqual(dropWatch(view(store(1, 284, 'done'))), [])
+  const two = items(reviewed('B608', 4000, [failed(1200, 'B612')], { 'Blocked by': 'B651', 'Waits for': 'after B652' }), fixStep('B612', 'B608', 'dropped', 284), left('B651', 'dropped', 100), left('B652', 'dropped', 5))
+  assert.equal(reviewWaitOf(two.get('B608'), two).blockEnded.id, 'B652')
+  assert.deepEqual(dropWatch(view(two)), [])
+  // A block that ended before the drop changes nothing; a step never blocked counts from the drop, as before.
+  const early = store(500, 45)
+  assert.equal(reviewWaitOf(early.get('B608'), early).blockEnded, undefined)
+  assert.equal(reviewWaitOf(early.get('B608'), early).since, ago(45))
+  assert.equal(dropWatch(view(early)).length, 1)
+  assert.equal(dropWatch(view(items(reviewed('B608', 4000, [failed(1200, 'B612')]), fixStep('B612', 'B608', 'dropped', 45)))).length, 1)
+})
+
 test('fix-dropped: the main chat gets one word, close it or check it again, half an hour after the drop', () => {
   const store = minutes => items(reviewed('B472', 4000, [failed(1200, 'B485')]), fixStep('B485', 'B472', 'dropped', minutes))
   const found = repairs(store(45))

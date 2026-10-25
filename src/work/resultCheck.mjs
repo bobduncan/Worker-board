@@ -118,6 +118,14 @@ export function fixesThrough(item, items) {
 const numberOf = item => Number(String(valueOf(item, 'Id')).slice(1))
 const isOpenStep = item => !['done', 'dropped'].includes(valueOf(item, 'State'))
 
+/** B665: when a step left the open steps (ms): its last move to done or dropped in its History, else its Since; NaN while it is open. */
+const LEFT = /→ (?:done|dropped)$/
+function leftAtMs(item) {
+  if (isOpenStep(item)) return Number.NaN
+  const line = historyOf(item).filter(one => LEFT.test(wordsOf(one))).at(-1)
+  return sinceMs(line?.match(/^-\s+(\d{4}-\d{2}-\d{2} \d{2}:\d{2})/)?.[1] ?? valueOf(item, 'Since'))
+}
+
 /**
  * B656 (X8 again: B603 sat in review behind its fix B614, which the ready list held, while its line said only "waits for
  * its fix B614"): the open fixes under the step `id`, followed down: its newest open fix, that one's newest open fix, and
@@ -183,7 +191,8 @@ const heldWords = why => String(why).replace(/^(outside the focus goal):.*$/, '$
  * answered or its fix is done, "waits for its check again"); 'answer', the person's answer to an ask point of its check;
  * 'fix', its open fix `fix` ("waits for its fix B<n>"), also while that fix waits in review for one of its own; 'dropped',
  * its check failed and no fix of it is open or done ("its fix B<n> was dropped"); 'blocked' (B630), the same but the step
- * is blocked by open steps `blockers`, so the drop is a plan. `since`: when the wait began (ms).
+ * is blocked by open steps `blockers`, so the drop is a plan. `since`: when the wait began (ms); B665: for 'dropped' the
+ * later of the drop and the end of the block (`blockEnded`, `{ id, at }`: the last blocker to leave, dropped or done).
  * `items` is the store's items by id. B656: kind 'fix' also names its chain of open fixes followed down (`chain`, its
  * fix first; `end`, the last) and, when `held` (the ready list's held steps) holds that last one, why (`held`, else null):
  * "waits for its fix B614, held: outside the focus goal".
@@ -220,12 +229,17 @@ export function reviewWaitOf(item, items, held = null) {
   const gone = named === null ? undefined : items?.get(named)
   const since = gone === undefined ? resultCheckAtMs(item) : sinceMs(valueOf(gone, 'Since'))
   // B630 (X54): a dropped fix with the step blocked by an open step is a plan (the fix is made again after that step).
-  const blockers = [...new Set(`${valueOf(item, 'Blocked by') ?? ''} ${valueOf(item, 'Waits for') ?? ''}`.match(/\bB\d+\b/g) ?? [])]
-    .filter(one => one !== id && items?.has(one) && isOpenStep(items.get(one)))
+  const blocking = [...new Set(`${valueOf(item, 'Blocked by') ?? ''} ${valueOf(item, 'Waits for') ?? ''}`.match(/\bB\d+\b/g) ?? [])]
+    .filter(one => one !== id && items?.has(one))
+  const blockers = blocking.filter(one => isOpenStep(items.get(one)))
   if (blockers.length > 0) {
     return { kind: 'blocked', fix: named, blockers, since, text: `${named === null ? 'its check failed and made no fix' : `its fix ${named} was dropped`}, waits for ${blockers.join(' and ')}` }
   }
-  return { kind: 'dropped', fix: named, since, text: named === null ? 'its check failed and made no fix' : `its fix ${named} was dropped` }
+  const text = named === null ? 'its check failed and made no fix' : `its fix ${named} was dropped`
+  // B665 (X70, X71: B608 and B609 raised one minute after the steps that blocked them were dropped, counted from their
+  // fix's drop hours before): the wait counts from when the last blocker left (dropped or done), when that is later.
+  const ended = blocking.map(one => ({ id: one, at: leftAtMs(items.get(one)) })).filter(one => Number.isFinite(one.at)).sort((a, b) => a.at - b.at).at(-1)
+  return ended !== undefined && !(ended.at <= since) ? { kind: 'dropped', fix: named, since: ended.at, blockEnded: ended, text } : { kind: 'dropped', fix: named, since, text }
 }
 
 /**

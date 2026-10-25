@@ -529,7 +529,7 @@ const FIX_DROPPED_MS = 30 * MIN
  * 12b. B630 (X54: B602, B608 and B609 sat in review for 2 h with their fixes dropped, found only by the sweep): a step
  * in review whose fix was dropped, with no new fix, no new check and no open step blocking it (resultCheck.mjs
  * `reviewWaitOf` kind 'dropped'; a block makes it 'blocked', a plan), for over 30 minutes is an incident for the
- * partner. Counted from the drop, and from the end of the person's last pause.
+ * partner. Counted from the drop, or (B665) from when the last step that blocked it left, and from the end of the person's last pause.
  */
 function fixDropped(view, ctx) {
   const found = []
@@ -543,7 +543,7 @@ function fixDropped(view, ctx) {
     found.push({
       rule: 'dropped-fix', key, subject: id,
       text: `${id} in review, but ${wait.text}: nothing will close it`,
-      evidence: `${id} owned by ${valueOf(item, 'Owner') ?? 'nobody'}; ${wait.text} ${minutes(ms)} min ago; no other fix of it is open, no check filed again, no open step blocks it`,
+      evidence: `${id} owned by ${valueOf(item, 'Owner') ?? 'nobody'}; ${wait.text} ${minutes(ms)} min ago${wait.blockEnded === undefined ? '' : ` (the block by ${wait.blockEnded.id} ended at ${clockOf(wait.blockEnded.at)})`}; no other fix of it is open, no check filed again, no open step blocks it`,
     })
   }
   return found

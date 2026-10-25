@@ -11,7 +11,7 @@ import { projectFile } from './config.mjs'
 import { readHead } from './files.mjs'
 import { listPictures, mentionedPaths } from './pictures.mjs'
 import { movedTo, ownCard, ownCardKey } from './planLines.mjs'
-import { readDeep, readTail } from './transcript.mjs'
+import { conversationStart, readDeep, readTail } from './transcript.mjs'
 import { storeBacklog } from './work/read.mjs'
 
 /** A transcript's name comes from a file another program wrote; only a plain id may become part of a path. */
@@ -25,6 +25,22 @@ const MOST_FOLDERS = 40
 const USAGE_BYTES = 64 * 1024
 
 const readText = async file => (await readHead(file, TEXT_BYTES))?.text ?? null
+
+/** B547: the first bytes of a transcript, enough for the lines its conversation starts with. */
+const START_BYTES = 64 * 1024
+const MOST_STARTS = 2000
+/** B547: when each transcript's conversation began, once found: a transcript's start never changes. */
+const startsKept = new Map()
+async function conversationAt(file) {
+  if (startsKept.has(file)) return startsKept.get(file)
+  const head = await readHead(file, START_BYTES)
+  const at = head === null ? null : conversationStart(head.text, head.isWhole)
+  if (at !== null) {
+    if (startsKept.size >= MOST_STARTS) startsKept.clear()
+    startsKept.set(file, at)
+  }
+  return at
+}
 
 /** Clear after each step: the session a chat goes on under, following the cards that say it moved (a few at most). */
 async function followMoves(claude, id) {
@@ -153,9 +169,12 @@ export async function readSources(config, readFolders, now = Date.now(), readBra
   const planLineTexts = {}
   // B152: when each card was last written: a card that says its chat left the list of chats says so since then.
   const planLineAt = {}
+  // B547 (X48, X49, X61-X64): when each chat's conversation began: a clear the card lost still counts by it.
+  const conversationAts = {}
   await Promise.all(chats.map(async ({ cliSessionId, name }) => {
     const file = join(config.transcripts, `${cliSessionId}.jsonl`)
     const tail = await readTail(file)
+    conversationAts[cliSessionId] = tail === null ? null : await conversationAt(file)
     // A task may have started further back than the tail reaches, and so may a chat's look at the limits (B113).
     if (tail !== null) {
       const deep = await earlier(file, now).catch(() => null)
@@ -177,7 +196,7 @@ export async function readSources(config, readFolders, now = Date.now(), readBra
   }))
 
   return {
-    listText, appChatTexts, moved, planLineTexts, planLineAt, tails, adviceText, folders, askTexts, goalsText, threadTexts, productPlanText,
+    listText, appChatTexts, moved, planLineTexts, planLineAt, tails, conversationAt: conversationAts, adviceText, folders, askTexts, goalsText, threadTexts, productPlanText,
     pictureLists: await pictureLists(config, work, now),
     // B296, B301: the work store as it was read: the one source of the work.
     work,

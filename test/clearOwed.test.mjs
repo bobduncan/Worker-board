@@ -7,6 +7,7 @@ import test from 'node:test'
 
 import { CLEAR_GRACE_MS, clearAtTake, clearOwed, isStepLine, lastReportOf, modAtLeast, takenSince, takeRefusal } from '../src/clearOwed.mjs'
 import { parseList } from '../src/appChats.mjs'
+import { conversationStart } from '../src/transcript.mjs'
 import { stamp } from '../src/work/migrate.mjs'
 import { workWords } from '../src/say.mjs'
 
@@ -59,6 +60,35 @@ test('a clear is owed when the last report is newer than the last clear, with th
   assert.equal(clearOwed({ lane: lane(null, { isMain: true }), items, afterStep: 'clear' }), null)
   assert.equal(clearOwed({ lane: lane(null, { isLeftover: true }), items, afterStep: 'clear' }), null)
   assert.equal(clearOwed({ lane: lane(null, { name: 'Lead' }), items, afterStep: 'clear' }), null)
+})
+
+test('X48, X49, X61-X64: a conversation that began at or after the report is not that report\'s, whatever its card lost', () => {
+  // A hard crash of the PC left the card of a worker mid-turn unreadable; its Workers mod wrote it anew, without the clear
+  // it had run after B12. Its transcript began at that clear, after the report: nothing is owed.
+  const fresh = conversationAt => clearOwed({ lane: lane(null), items, afterStep: 'clear', conversationAt })
+  assert.equal(fresh(ago(28)), null)
+  // To the minute, as the report is: a start within the report's minute counts as the card's clear does.
+  assert.equal(fresh(ago(30)), null)
+  // One that began before the report is that report's conversation (its clear did not run): still owed, as before.
+  assert.deepEqual(fresh(ago(45)), { step: 'B12', reportedAt: ago(30), clearedAt: null, why: null })
+  // No start known (no transcript yet, or none readable): the card decides, as before.
+  assert.deepEqual(fresh(null), { step: 'B12', reportedAt: ago(30), clearedAt: null, why: null })
+  assert.equal(clearOwed({ lane: lane({ kind: 'cleared', at: ago(29), step: 'B12', lastCleared: { at: ago(29), step: 'B12' } }), items, afterStep: 'clear', conversationAt: ago(45) }), null)
+})
+
+test('a transcript\'s conversation began at the earliest time of its first whole lines; a cut last line, a crash\'s zeros and no time say nothing', () => {
+  const at = minutes => new Date(ago(minutes)).toISOString()
+  const head = [
+    JSON.stringify({ type: 'custom-title', customTitle: 'Game - Painter', sessionId: 's' }),
+    JSON.stringify({ type: 'user', timestamp: at(8), message: { role: 'user', content: '<local-command-caveat>' } }),
+    JSON.stringify({ type: 'user', timestamp: at(9), message: { role: 'user', content: '<command-name>/clear</command-name>' } }),
+    `${'\u0000'.repeat(64)}${JSON.stringify({ type: 'user', timestamp: at(1), message: { role: 'user', content: 'after the crash' } })}`,
+    JSON.stringify({ type: 'assistant', timestamp: at(7), message: { role: 'assistant', content: [] } }),
+  ].join('\n')
+  assert.equal(conversationStart(`${head}\n`), ago(9))
+  // A head that is not the whole file: its last line may be cut, and is left out.
+  assert.equal(conversationStart(`${head}\n{"type":"user","timestamp":"${at(20)}"`, false), ago(9))
+  for (const text of ['', '\u0000'.repeat(500), JSON.stringify({ type: 'custom-title' }), '{"timestamp":"not a time"}\n', null]) assert.equal(conversationStart(text), null)
 })
 
 test('at a take: the next step\'s line waits while a clear is owed; the clear is named once the chat is idle, after the grace', () => {

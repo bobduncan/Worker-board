@@ -32,6 +32,30 @@ export async function readTail(path, maxBytes = TAIL_BYTES) {
 }
 
 /**
+ * B547 (X48, X49, X61-X64): when a transcript's conversation began, from the first bytes of its file (`isWhole`: they
+ * are the whole file; else the last line may be cut and is left out): the earliest time of its whole lines, in ms; null
+ * when none says. A transcript is only added to and a /clear starts a new one, so this is written once, at the start.
+ */
+export function conversationStart(text, isWhole = true) {
+  if (typeof text !== 'string' || text === '') return null
+  const lines = text.split('\n')
+  if (!isWhole) lines.pop()
+  let first = null
+  for (const raw of lines) {
+    if (!raw.includes('"timestamp"')) continue
+    let entry
+    try {
+      entry = JSON.parse(raw)
+    } catch {
+      continue
+    }
+    const at = Date.parse(entry?.timestamp)
+    if (Number.isFinite(at) && (first === null || at < first)) first = at
+  }
+  return first
+}
+
+/**
  * What a line must hold to matter for a task: a message from another chat, a message sent to one, something the
  * person typed, or the end of a turn.
  */
