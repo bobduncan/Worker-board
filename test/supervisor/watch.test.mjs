@@ -11,6 +11,7 @@ import { SUPERVISOR_DEFAULTS, configProblem, parseConfig } from '../../src/confi
 import { runRules } from '../../src/supervisor/loop.mjs'
 import { buildView } from '../../src/supervisor/view.mjs'
 import { WATCH_RULES } from '../../src/supervisor/rules/watch.mjs'
+import { COUNTS_BY_KEY, REPAIR_RULES } from '../../src/supervisor/rules/repair.mjs'
 import { stamp } from '../../src/work/migrate.mjs'
 
 const MIN = 60_000
@@ -212,6 +213,27 @@ test('repair-repeats (B574, X25): a step unblocked once per finished blocker is 
   const same = check('repair-repeats', view({ repairs: [unblock(37, 'B549'), unblock(20, 'B549'), unblock(3, 'B549')] }))
   assert.deepEqual(same.map(one => [one.key, one.subject]), [['repair-repeats blocked B531 B549', 'B531']])
   assert.equal(same[0].text, 'The board repaired the same 3 times in a day: blocked for B531')
+})
+
+test('repair-repeats (B590, X37): a step waiting on several checks in turn is no repeat; the same pair three times is', () => {
+  const wait = (minutes, on) => ({ at: ago(minutes), rule: 'review-wait', subject: 'B531', key: `review-wait B531 ${on}` })
+  // X37: B531 waited at 22:07 behind B549 and B552, at 23:02 behind B555, each in review in turn.
+  assert.deepEqual(check('repair-repeats', view({ repairs: [wait(55, 'B549'), wait(55, 'B552'), wait(0, 'B555')] })), [])
+  const same = check('repair-repeats', view({ repairs: [wait(55, 'B555'), wait(30, 'B555'), wait(0, 'B555')] }))
+  assert.deepEqual(same.map(one => [one.key, one.subject]), [['repair-repeats review-wait B531 B555', 'B531']])
+  assert.equal(same[0].text, 'The board repaired the same 3 times in a day: review-wait for B531')
+})
+
+test('repair-repeats (B590): a rule whose key carries an hour still counts by its step', () => {
+  const ready = (minutes, hour) => ({ at: ago(minutes), rule: 'focus-ready', subject: 'B12', key: `focus-ready B12 ${hour}` })
+  const found = check('repair-repeats', view({ repairs: [ready(130, 0), ready(70, 1), ready(10, 2)] }))
+  assert.deepEqual(found.map(one => [one.key, one.subject]), [['repair-repeats focus-ready B12', 'B12']])
+})
+
+test('repair-repeats (B590): the rules\' tables say which count by key, also a rule that is gone', () => {
+  assert.deepEqual([...COUNTS_BY_KEY].sort(), ['blocked', 'review-wait'])
+  assert.equal(REPAIR_RULES.find(rule => rule.id === 'blocked').countsBy, 'key')
+  assert.equal(REPAIR_RULES.some(rule => rule.id === 'review-wait'), false)
 })
 
 test('undelivered: a word to a chat waiting 11 min trips, 9 min not; one that expired is undelivered too; held or delivered is not', () => {

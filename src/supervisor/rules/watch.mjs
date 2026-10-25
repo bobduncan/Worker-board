@@ -21,6 +21,7 @@ import { FIRST_SAYING, chatsByRole, oldModFinding } from '../../oldMods.mjs'
 import { EFFORTS, chatEffort, effortOf, effortSaid, familyOf, modelOf } from '../../work/effort.mjs'
 import { reviewWaitOf } from '../../work/resultCheck.mjs'
 import { CLEAR_MOD, takenSince } from '../../clearOwed.mjs'
+import { COUNTS_BY_KEY } from './repair.mjs'
 
 const MIN = 60_000
 const HOUR = 60 * MIN
@@ -316,12 +317,13 @@ function fixedAtOf(view, key) {
  * does one from before its incident's fix was done (`fixedAtOf`): X11 came back on the very wakes B546 was made for,
  * recorded before it and so without their cause. B574 (X25: B531 unblocked three times in a day, each time from another
  * finished blocker): an unblock counts by its own key, the step and its blocker, so only the same blocker removed again
- * and again is a repeat.
+ * and again is a repeat. B590 (X37: B531 waited behind three checks in turn): every rule whose table entry counts by key
+ * (`COUNTS_BY_KEY`) counts so, review-wait too.
  */
 function repairRepeats(view) {
   const counts = new Map()
   for (const one of view.repairs.filter(repair => view.now - repair.at < DAY && repair.cause !== 'restart')) {
-    const id = one.rule === 'blocked' && typeof one.key === 'string' ? one.key : `${one.rule} ${one.subject}`
+    const id = COUNTS_BY_KEY.has(one.rule) && typeof one.key === 'string' ? one.key : `${one.rule} ${one.subject}`
     counts.set(id, [...(counts.get(id) ?? []), one])
   }
   for (const [id, all] of counts) {

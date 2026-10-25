@@ -466,9 +466,13 @@ function baseEqual(view) {
   return found
 }
 
-/** Every repair rule of the board's self-check, in the order the answer shows them. */
+/**
+ * Every repair rule of the board's self-check, in the order the answer shows them. B590: `countsBy: 'key'` marks a rule
+ * whose key names a pair (the step and what it waited on), so repair-repeats counts it by that key; without it a repair
+ * counts by its rule and subject.
+ */
 export const REPAIR_RULES = [
-  { id: 'blocked', kind: 'repair', says: 'a step blocked by one done, dropped or in review, or by one the store does not hold', check: blocked },
+  { id: 'blocked', kind: 'repair', says: 'a step blocked by one done, dropped or in review, or by one the store does not hold', check: blocked, countsBy: 'key' },
   { id: 'owner-gone', kind: 'repair', says: 'a step held by, or pinned to, a chat no longer in the list', check: ownerGone },
   { id: 'refine-drop', kind: 'repair', says: 'a yes to dropping a step in its refine, which only the main chat carries out', check: refineDrop },
   { id: 'limit-back', kind: 'repair', says: 'a worker paused for the limit after its time', check: limitBack },
@@ -481,6 +485,18 @@ export const REPAIR_RULES = [
   { id: 'fix-dropped', kind: 'repair', says: 'a step in review whose fix was dropped, which nothing closes', check: fixDropped },
   { id: 'worktrees', kind: 'repair', says: 'a leftover worktree, or an empty folder one left in the project folder', check: worktrees },
 ]
+
+/**
+ * B590 (X37): rules that are gone (the queue rules, redesign Part 2) whose repairs still stand in the day's log, with how
+ * they count. review-wait's key named the step and the one in review it waited behind; focus-ready's carried an hour.
+ */
+export const RETIRED_RULES = [
+  { id: 'review-wait', countsBy: 'key' },
+  { id: 'focus-ready' },
+]
+
+/** The rules repair-repeats counts by their key, from both tables. */
+export const COUNTS_BY_KEY = new Set([...REPAIR_RULES, ...RETIRED_RULES].filter(rule => rule.countsBy === 'key').map(rule => rule.id))
 
 /** Every check of the list, in the order the answer shows them (B465's names: `key` is the rule's id). */
 export const CHECKS = REPAIR_RULES.map(rule => ({ key: rule.id, words: rule.says }))
