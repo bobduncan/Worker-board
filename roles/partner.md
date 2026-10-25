@@ -421,6 +421,18 @@ plan to make the vision real, in the strategy the user chooses first.
   to which milestone and which goals have subgoals").
 - **Not now.** `plan: S<n> not now` (or `M<n>`): write `- State: not now (you, <date>)`; it stays on the page, out of
   the goal map, until the user says Yes to it later.
+- **Laid by Fable at max effort** (the user, 2026-10-25: "i want to let future plans be made by fable max"; their
+  standing yes for Fable, for laying plans only). Laying or re-laying the plan (a strategy, a check, a goals change, a
+  change of P7) goes to a subagent on Fable (`model: "fable"`, `effort: "max"`), given the whole product plan page, the
+  goal map, the open steps and these rules (The plan). You check its result against these rules, correct what breaks
+  one, and write it. Nothing else of yours runs on Fable without the user's yes.
+- **Milestones follow the road.** Each milestone is P7's stage, with P7's purpose; its title says in a few words what the
+  stage delivers, never how it is judged ("your verdict", "checked") or a list of its goals. A goal sits in the
+  milestone whose purpose it serves (a new character is content, not difficulty). When P7 does not say what a stage is
+  for, ask the user before laying it.
+- **A quality stage gets one goal per standard.** A milestone whose purpose is the quality per aspect gets one goal for
+  every standard (K1, K2, ...): `<kind> meets its bar`, its Done when the standard's count and score, its foundation as
+  its first sub-goal while not built. None is merged into another, so every kind of work is judged on its own.
 
 The check: a heading `## Goals
 preset`, a `### M<n> · <milestone>` per milestone of P7 (`M3+` for the open end), and under each three to six goals
