@@ -20,6 +20,7 @@
   ],
   "port": 4310,
   "refreshSeconds": 10,
+  "unknownAfterSeconds": 30,
   "advisor": "Advisor",
   "backlog": ".claude/backlog.md",
   "goals": ".claude/goals.md",

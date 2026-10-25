@@ -63,6 +63,11 @@ export const DEFAULTS = {
   refreshSeconds: 30,
   /** A running turn that wrote nothing for this long is shown as quiet. */
   quietMinutes: 10,
+  /**
+   * Redesign Part 1: a chat whose Workers mod reports its turn state and has sent no report for this long is shown
+   * as unknown (off when the app archived it). The mod reports every 5 seconds: at least 5.
+   */
+  unknownAfterSeconds: 30,
   /** An estimate older than this is shown as old. */
   estimateOldMinutes: 15,
   /** How far the timeline looks back from now, and at least how far ahead: the person plans with what comes. */
@@ -314,6 +319,7 @@ export function parseConfig(text, env) {
   for (const key of NUMBERS) {
     if (Number.isFinite(raw[key]) && raw[key] > 0) config[key] = raw[key]
   }
+  if (Number.isFinite(raw.unknownAfterSeconds) && raw.unknownAfterSeconds >= 5) config.unknownAfterSeconds = raw.unknownAfterSeconds
   // The Workers mod types at most 3000 characters, and an answer also carries the name of its request.
   config.maxMessageChars = Math.min(config.maxMessageChars, 2500)
   if (typeof raw.advisor === 'string' && raw.advisor.trim() !== '') config.advisor = raw.advisor.trim()

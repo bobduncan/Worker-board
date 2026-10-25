@@ -30,7 +30,7 @@ import { fileURLToPath } from 'node:url'
 
 
 import { minutesOf } from './src/backlog.mjs'
-import { bridgeNote, checkTake, checkTyped, clearRefusal, fitsMod, isUnknownSession, laneRole, messageText, noteCall, shownChats } from './src/bridge.mjs'
+import { answerReport, bridgeNote, checkTake, checkTyped, clearRefusal, fitsMod, isUnknownSession, laneRole, messageText, noteCall, noteReport, shownChats } from './src/bridge.mjs'
 import { chatLogKeeper, isReadOut, leftSubjects } from './src/chatLogs.mjs'
 import { findCodex, makePicture } from './src/codex.mjs'
 import { checkSetting, panelSettings, settingChanged } from './src/boardSettings.mjs'
@@ -202,6 +202,7 @@ export function createBoard({
   token, getState, say, picture = async () => null, gameFile = async () => null, publicDir = join(HERE, 'public'),
   game = async () => ({ ok: false, status: 404, why: 'Not here.' }),
   bridgeKey = null, take = async () => ({ ok: false, status: 404, why: 'Not here.' }), typed = async () => ({ ok: false, status: 404, why: 'Not here.' }),
+  report = async () => ({ ok: false, status: 404, why: 'Not here.' }),
   design = async () => ({ ok: false, status: 404, why: 'Not here.' }), reference = async () => ({ ok: false, status: 404, why: 'Not here.' }),
   talkPicture = async () => ({ ok: false, status: 404, why: 'Not here.' }),
   plan = async () => ({ ok: false, status: 404, why: 'Not here.' }),
@@ -239,7 +240,7 @@ export function createBoard({
 
     const mayUse = sameText(req.headers['x-board-token'] ?? '', token)
 
-    if (pathname === '/api/bridge/take' || pathname === '/api/bridge/typed' || pathname === '/api/bridge/work') {
+    if (pathname === '/api/bridge/take' || pathname === '/api/bridge/typed' || pathname === '/api/bridge/work' || pathname === '/api/bridge/report') {
       // The mod is no page: it knows the key from the file the board wrote for it, and it can only take.
       const mayTake = bridgeKey !== null && sameText(req.headers['x-board-key'] ?? '', bridgeKey)
       const isJson = /^application\/json\s*(;|$)/i.test(req.headers['content-type'] ?? '')
@@ -273,7 +274,7 @@ export function createBoard({
         const { mod: _ignored, ...rest } = parsed
         parsed = { ...rest, ...(typeof given === 'string' && /^\d{1,4}(?:\.\d{1,4}){0,3}$/.test(given.trim()) ? { mod: given.trim() } : {}) }
       }
-      const taken = await (pathname === '/api/bridge/take' ? take : pathname === '/api/bridge/work' ? bridgeWork : typed)(parsed)
+      const taken = await (pathname === '/api/bridge/take' ? take : pathname === '/api/bridge/work' ? bridgeWork : pathname === '/api/bridge/report' ? report : typed)(parsed)
       return taken.ok ? json(res, taken.result) : refuse(res, taken.status, taken.why)
     }
 
@@ -1094,6 +1095,9 @@ async function main(args) {
 
   // When each chat's mod last asked this board, by the chat's name: who asks runs. The demo has no bridge.
   const seen = bridgeKey === null ? null : { shown: {}, other: {} }
+  // Redesign Part 1: each chat's last report of its turn state, by the name the board shows (bridge.mjs `noteReport`):
+  // `{ state, since, background, at, session, mod }`. In memory only: after a restart the reports come within 5 s.
+  const reports = bridgeKey === null ? null : new Map()
   // The supervisor's Part 2: the version of each chat's Workers mod, by the chat's name, as its last call to the bridge
   // said it (null: a mod older than 0.16.0, which says none), for the rule old-mod and the supervisor's own chat.
   const modOf = new Map()
@@ -1228,6 +1232,7 @@ async function main(args) {
       runs: games.list(),
       board: { startedAt, offSince },
       seen,
+      reports,
       finishedSeen: finishedSeen ?? {},
       taskTimes: taskTimes.tasks,
       // B547: the Workers mod each chat's last call said, so a clear owed is named only to a mod that can run it.
@@ -1804,6 +1809,8 @@ async function main(args) {
       noteRefused(body, checked)
       noteMod(body, checked)
       if (!checked.ok) return checked
+      // Redesign Part 1: the take is the mod's 5-second ping, and carries its report (from 0.19.0).
+      noteReport(reports, body, checked, clock())
       // The review of Pause 2: while the person pauses no chat takes what would start a turn; only the board's own
       // "resume" to the main chat goes. The rest waits in the outbox, held until the resume (2026-10-19: Resume all, no
       // longer running: while resuming every line goes, so an answer to a chat that has not started reaches it).
@@ -1820,6 +1827,14 @@ async function main(args) {
       const fit = fitsMod(handed)
       if (fit.refused.length > 0) await store.settle(checked.chat, fit, clock())
       return { ok: true, result: { messages: fit.messages, ...(atTake.clear === null ? {} : { clear: atTake.clear }) } }
+    }),
+    // Redesign Part 1: the mod's report of its turn state the moment it changes; refused as a take is.
+    report: counted(async body => {
+      const { checked } = await checkFresh(body)
+      if (seen !== null && typeof body?.chat === 'string' && (checked.ok || checked.status === 409)) (checked.ok ? seen.shown : seen.other)[body.chat.trim().slice(0, 80)] = clock()
+      noteRefused(body, checked)
+      noteMod(body, checked)
+      return answerReport(reports, body, checked, clock())
     }),
     typed: counted(async body => {
       const checked = checkTyped(body, await readState())

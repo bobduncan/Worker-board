@@ -4,6 +4,7 @@
 // (`POST /api/bridge/typed`). Taking marks a message taken before it is handed out, so nothing is ever typed
 // twice. Nothing can be sent through the bridge: sending needs the board's own page.
 
+import { parseReport } from './chatReport.mjs'
 import { pictureLine } from './talkPicture.mjs'
 
 const refuse = (status, why) => ({ ok: false, status, why })
@@ -31,6 +32,27 @@ export function noteCall(seen, body, checked, now) {
   if (seen === null || seen === undefined || checked?.ok !== true) return
   const name = typeof checked.chat === 'string' ? checked.chat : typeof body?.chat === 'string' ? body.chat.trim().slice(0, 80) : null
   if (name !== null && name !== '') seen.shown[name] = now
+}
+
+/**
+ * Redesign Part 1: a chat's own report of its turn state (busy, idle, asking), from `POST /api/bridge/report` or the
+ * `report` its take carries. Kept by the name the board shows, and only for the session it shows under that name
+ * (`checked`, the take's check): another session under the name (a renamed or replaced chat) never writes over it.
+ * `reports` is the server's Map. True when a report was kept.
+ */
+export function noteReport(reports, body, checked, now) {
+  if (reports === null || reports === undefined || checked?.ok !== true || typeof checked.chat !== 'string') return false
+  const report = parseReport(body?.report, now)
+  if (report === null) return false
+  const session = typeof body?.session === 'string' ? body.session.trim() : ''
+  reports.set(checked.chat, { ...report, at: now, session, mod: typeof body?.mod === 'string' ? body.mod : null })
+  return true
+}
+
+/** The report call's answer: refused as a take is (400, 409), 400 for no report, else the report is kept. */
+export function answerReport(reports, body, checked, now) {
+  if (!checked.ok) return checked
+  return noteReport(reports, body, checked, now) ? { ok: true, result: { ok: true } } : refuse(400, 'Not a report: its state is busy, idle or asking.')
 }
 
 export function checkTake(body, state) {

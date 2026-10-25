@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import { bridgeNote, checkTake, checkTyped, messageText } from '../src/bridge.mjs'
+import { answerReport, bridgeNote, checkTake, checkTyped, messageText, noteReport } from '../src/bridge.mjs'
 import { foldOutbox, memoryStore, outboxNow } from '../src/store.mjs'
 
 const MIN = 60_000
@@ -156,4 +156,46 @@ test('outboxNow: a word to a chat stays known for two hours, so the board can sa
   assert.deepEqual(outboxNow([command], 121 * MIN, keep), [])
   const stop = { ...command, id: 's', command: 'stop', text: 'stop task' }
   assert.deepEqual(outboxNow([stop], 121 * MIN, keep), [])
+})
+
+// Redesign Part 1: a chat's Workers mod reports its turn state (busy, idle, asking) at once on every change
+// (`POST /api/bridge/report`) and with every take; the board keeps the last one per chat, with when it came.
+test('a report call keeps the chat\'s state by the name the board shows, with the time it came', () => {
+  const reports = new Map()
+  const body = { chat: 'Units', session: 's-units', report: { state: 'busy', since: 100 }, mod: '0.19.0' }
+  assert.deepEqual(answerReport(reports, body, checkTake(body, board), 500), { ok: true, result: { ok: true } })
+  assert.deepEqual(reports.get('Units'), { state: 'busy', since: 100, background: false, at: 500, session: 's-units', mod: '0.19.0' })
+})
+
+test('a take that carries a report keeps it the same way', () => {
+  const reports = new Map()
+  const body = { chat: 'Units', session: 's-units', report: { state: 'idle', since: 300, background: true } }
+  assert.equal(noteReport(reports, body, checkTake(body, board), 700), true)
+  assert.deepEqual(reports.get('Units'), { state: 'idle', since: 300, background: true, at: 700, session: 's-units', mod: null })
+  // A take without a report, or with one that is no report, keeps what was there and is not refused for it.
+  assert.equal(noteReport(reports, { chat: 'Units', session: 's-units' }, checkTake({ chat: 'Units', session: 's-units' }, board), 800), false)
+  assert.equal(noteReport(reports, { chat: 'Units', session: 's-units', report: { state: 'nap' } }, { ok: true, chat: 'Units' }, 800), false)
+  assert.equal(reports.get('Units').at, 700)
+})
+
+test('Review Focus 2: a report from a session the board does not show under that name is refused as a take is, and keeps nothing', () => {
+  const reports = new Map()
+  const mine = { chat: 'Units', session: 's-units', report: { state: 'busy', since: 100 } }
+  answerReport(reports, mine, checkTake(mine, board), 500)
+  // A renamed or replaced chat under the same name: its idle never writes over the shown session's busy.
+  const other = { chat: 'Units', session: 's-other', report: { state: 'idle', since: 600 } }
+  const refused = answerReport(reports, other, checkTake(other, board), 600)
+  assert.equal(refused.ok, false)
+  assert.equal(refused.status, 409)
+  assert.deepEqual([reports.get('Units').state, reports.get('Units').at], ['busy', 500])
+})
+
+test('a report with a state that is not busy, idle or asking answers 400 and keeps nothing', () => {
+  const reports = new Map()
+  for (const report of [{ state: 'sleeping' }, null, 'busy', { since: 5 }]) {
+    const body = { chat: 'Units', session: 's-units', report }
+    const answer = answerReport(reports, body, checkTake(body, board), 500)
+    assert.deepEqual([answer.ok, answer.status], [false, 400])
+  }
+  assert.equal(reports.size, 0)
 })

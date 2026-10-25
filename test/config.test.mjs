@@ -276,3 +276,11 @@ test('Focus 2, the review\'s findings: a copy\'s own map is told by real paths (
     await rm(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
 })
+
+test('Redesign Part 1: a chat whose last report is older than unknownAfterSeconds is unknown: 30 unless set, never under 5', () => {
+  assert.equal(parseConfig('{}', env).unknownAfterSeconds, 30)
+  assert.equal(parseConfig('{"unknownAfterSeconds":60}', env).unknownAfterSeconds, 60)
+  // Under the mod's ping of 5 seconds every chat would flicker to unknown: refused, the default stands.
+  assert.equal(parseConfig('{"unknownAfterSeconds":2}', env).unknownAfterSeconds, 30)
+  assert.equal(parseConfig('{"unknownAfterSeconds":"60"}', env).unknownAfterSeconds, 30)
+})

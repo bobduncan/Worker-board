@@ -45,6 +45,11 @@ async function board(t) {
       taken.push({ typed: body })
       return { ok: true, result: {} }
     },
+    // Redesign Part 1: the real keeping is tested in bridge.test.mjs.
+    report: async body => {
+      taken.push({ report: body })
+      return body?.report?.state === 'busy' ? { ok: true, result: { ok: true } } : { ok: false, status: 400, why: 'Not a report.' }
+    },
     // The real checks are tested in design.test.mjs.
     design: async body => {
       designed.push(body)
@@ -381,4 +386,22 @@ test('the supervisor\'s Part 2: the Workers mod\'s version comes in its X-Worker
   await ask({ method: 'POST', path: '/api/bridge/work', headers, body })
   await ask({ method: 'POST', path: '/api/bridge/work', headers: { ...headers, 'X-Workers-Mod': 'new and shiny' }, body })
   assert.deepEqual(worked, [['mod', { chat: 'Board', action: 'next', mod: '0.16.0' }], ['mod', { chat: 'Board', action: 'next' }], ['mod', { chat: 'Board', action: 'next' }]])
+})
+
+test('Redesign Part 1: the mod reports its turn state with the bridge key and JSON, its version from its header', async t => {
+  const { ask, good, taken } = await board(t)
+  const json = { 'Content-Type': 'application/json' }
+  const body = JSON.stringify({ chat: 'Units', session: 's-units', report: { state: 'busy', since: 1 }, mod: '9.9.9' })
+  const report = (headers, sent = body) => ask({ method: 'POST', path: '/api/bridge/report', headers, body: sent })
+  assert.equal((await report(json)).status, 403)
+  assert.equal((await report(good)).status, 403)
+  assert.equal((await report({ 'X-Board-Key': KEY, 'Content-Type': 'text/plain' })).status, 415)
+  assert.equal((await ask({ path: '/api/bridge/report', headers: { 'X-Board-Key': KEY } })).status, 405)
+  assert.equal(taken.length, 0)
+  const answer = await report({ ...json, 'X-Board-Key': KEY, 'X-Workers-Mod': '0.19.0' })
+  assert.equal(answer.status, 200)
+  assert.deepEqual(JSON.parse(answer.text), { ok: true })
+  assert.deepEqual(taken, [{ report: { chat: 'Units', session: 's-units', report: { state: 'busy', since: 1 }, mod: '0.19.0' } }])
+  const wrong = await report({ ...json, 'X-Board-Key': KEY }, JSON.stringify({ chat: 'Units', session: 's-units', report: { state: 'nap' } }))
+  assert.equal(wrong.status, 400)
 })
