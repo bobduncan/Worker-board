@@ -955,6 +955,12 @@ A goal that makes a page (a review, a check, a short page in plain words) gets t
 repository> · <a few words>` under it in the goal map, as soon as the page exists: the Focus page links it (the user,
 2026-10-25: "where is this 1 short page. i dont see this link").
 
+A Done when point or vibe line that promises such a page passes on three points only (the user, 2026-10-25, after G33's
+page failed three re-checks on ever new small gaps while the code kept changing): it exists at its `Page:` path; its
+summary is short and plain (no paths, ids or code names); it lists every choice the user made, each with its cost. A
+small mismatch beyond those (an old number, an estimate that differs, a sentence elsewhere out of date) is no failed
+point: name it in the re-check and file one small step that brings the page up to date.
+
 No goal is ticked on a feeling (B358). When the user ticks a goal on the Goals part, or answers Yes to "Is the vibe
 there?", the board writes `Recheck asked: <date time>` under it and types `goal re-check: G<n> <title>`, `Done when:
 ...`, `Vibe: ...` (when it has one) and `Your job: ...` into your chat: their word.
