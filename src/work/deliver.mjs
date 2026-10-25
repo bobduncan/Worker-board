@@ -222,6 +222,15 @@ function refusalsOf(dir) {
   return refusedGives.get(at)
 }
 /**
+ * The recheck: a give refused by a race or a conflict, not by what the task or the worker is: no answer, the board's own
+ * fault (5xx), a file changed in the meantime, the worker holds a task by now, or the step is no longer ready to give
+ * (its flow move or guard, its state).
+ */
+const TRANSIENT = /changed in the meantime|try again|could not be written|: no second task|no move from|does not hold|is (?:queued|taken|in progress|done|dropped|review|new)\b/i
+export const isTransient = answer => answer === null || answer === undefined || typeof answer.why !== 'string' || answer.why.trim() === ''
+  || !(answer.status < 500) || TRANSIENT.test(answer.why)
+
+/**
  * The gives the work API refused in the last REFUSED_GIVE_MS (`[{ id, chat, why, at }]`): the reconciler gives that
  * task to another worker meanwhile, and the ready list names why (the review of 2026-10-25: a refused give was tried
  * again at every refresh, silently, and a lone idle worker got nothing).
@@ -282,7 +291,9 @@ export async function deliverWork({ state, dir, outbox, apply, now, maxChars, ne
     const given = await apply({ action: 'advance', id: one.id, to: 'queued', for: one.chat }).catch(error => ({ ok: false, why: error instanceof Error ? error.message : String(error) }))
     const key = `${one.id} ${one.chat}`
     if (given?.ok !== true) {
-      refusalsOf(dir).set(key, { id: one.id, chat: one.chat, why: String(given?.why ?? 'no answer').replace(/\s+/g, ' ').slice(0, 300), at: now })
+      // The recheck: a refusal of a race or a conflict (the step or the worker changed meanwhile, a file written at the
+      // same moment, no answer) is no reason to bar the pair: the next pass decides anew.
+      if (!isTransient(given)) refusalsOf(dir).set(key, { id: one.id, chat: one.chat, why: String(given.why).replace(/\s+/g, ' ').slice(0, 300), at: now })
       continue
     }
     refusalsOf(dir).delete(key)
@@ -305,6 +316,9 @@ export async function deliverWork({ state, dir, outbox, apply, now, maxChars, ne
     ...(plan.deliveries ?? []).map(one => ({ key: deliveryKey(one.id, one.chat, one.since), words: workWords(one.chat, one.id) })),
     ...(plan.says ?? []).map(one => ({ key: one.key, words: { ...workWords(one.chat, one.id, one.say), kind: 'check' } })),
     ...(await noteLine({ dir, plan, outbox, now, fs })),
+    // The recheck: a task taken back twice because its line was held, said once to the main chat.
+    ...(plan.heldTwice ?? []).filter(() => typeof state.restart?.main === 'string')
+      .map(one => ({ key: `held-twice ${one.id}`, words: { ...workWords(state.restart.main, one.id, one.text), kind: 'held-twice' } })),
     // Partner answers: the partner is woken once per ask routed to it, while it is free (the reconciler). B392: once
     // more when it is still open ten minutes on, but never beside a line about it that still waits to be taken, nor
     // within ten minutes of the last one (a partner busy until then was just woken).

@@ -5,7 +5,7 @@
 
 import { GIVE_GUARD, flowHandsOut, mayMove, statesOf } from './flow.mjs'
 import { blockersOpen, overlapsIn, waitWords } from './guards.mjs'
-import { HAND_OUT_DEFAULTS, idleWorkers, match, oldQueued, readyList, skipPairs, stuckTakeBacks, takeBacks as takeBacksOf, workerStart } from './handOut.mjs'
+import { HAND_OUT_DEFAULTS, heldBacksOf, heldTwiceWords, idleWorkers, match, oldQueued, readyList, skipPairs, stuckTakeBacks, takeBacks as takeBacksOf, workerStart } from './handOut.mjs'
 import { askFiledMs, fixFirst, sinceMs, valueOf } from './item.mjs'
 import { PARTNER_AGAIN_MS, PARTNER_ANSWER_MS, isRoutedToPartner } from './partnerAnswers.mjs'
 import { isHolding } from './pause.mjs'
@@ -276,7 +276,17 @@ export function reconcile({ store, flow = store.flow, lanes = [], now, times, pr
   const listed = readyList(items, { now, focus, followUpMs, standardHold, routingHeld, prefix })
   // The review: a give the API refused stands on the list with why, and goes to another worker meanwhile.
   const refusedOf = id => refusedGives.filter(one => one.id === id).sort((a, b) => b.at - a.at)[0] ?? null
-  const ready = { ...listed, ready: listed.ready.map(one => (refusedOf(one.id) === null ? one : { ...one, refused: { chat: refusedOf(one.id).chat, why: refusedOf(one.id).why } })) }
+  // The recheck: a task taken back twice because its line was held says so on the list, and once to the main chat.
+  const heldTwice = listed.ready.filter(one => heldBacksOf(items.get(one.id)) >= 2).map(one => ({ id: one.id, text: heldTwiceWords(items.get(one.id)) }))
+  const noteOf = id => heldTwice.find(one => one.id === id)?.text ?? null
+  const ready = {
+    ...listed,
+    ready: listed.ready.map(one => ({
+      ...one,
+      ...(refusedOf(one.id) === null ? {} : { refused: { chat: refusedOf(one.id).chat, why: refusedOf(one.id).why } }),
+      ...(noteOf(one.id) === null ? {} : { note: noteOf(one.id) }),
+    })),
+  }
   const handOutHeld = ['pausing', 'resuming'].includes(store.pause?.state) || limitsFull === true
   const handsOut = flowHandsOut(flow)
   if (!handsOut) {
@@ -297,6 +307,6 @@ export function reconcile({ store, flow = store.flow, lanes = [], now, times, pr
   const idle = idleWorkers(live, { items, prefix, restFree, stuck: new Set(stuck.keys()) })
   const skip = skipPairs({ items, refused: refusedGives, now, heldGiveMs, prefix })
   const gives = handOutHeld || !handsOut ? [] : match({ ready: ready.ready, idle, items, prefix, skip })
-  const start = !handsOut ? null : workerStart({ ready: ready.ready, gives, idle, lanes: live, maxWorkers: settings.maxWorkers ?? null, isHeld: handOutHeld, items, sent, now, prefix })
-  return { moves, deliveries, flags, notes, partnerAsks, escalations, restFree, ready, gives, takeBacks, start, retired, handOutHeld }
+  const start = !handsOut ? null : workerStart({ ready: ready.ready, gives, idle, lanes: live, maxWorkers: settings.maxWorkers ?? null, isHeld: handOutHeld, items, sent, now, prefix, refused: refusedGives })
+  return { moves, deliveries, flags, notes, partnerAsks, escalations, restFree, ready, gives, takeBacks, start, retired, handOutHeld, heldTwice }
 }

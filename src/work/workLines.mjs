@@ -45,6 +45,11 @@ export function workLineWhy(message, items, { prefix = '', now = Date.now() } = 
     if (item === undefined) return gone
     return ['done', 'dropped'].includes(state) ? `${id} is ${state}` : null
   }
+  if (message.kind === 'held-twice') {
+    // The recheck: the word that a task's line was held twice holds while the task is still on the list (refined).
+    if (item === undefined) return gone
+    return state === 'refined' ? null : `${id} is ${state} now, not on the list`
+  }
   if (message.kind === 'fix-held') {
     // The review: the word that a fix's standard holds it holds while the fix is still refined, not queued.
     if (item === undefined) return gone

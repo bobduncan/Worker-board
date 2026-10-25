@@ -135,6 +135,7 @@ const GONE = {
   sync: step('B40', 'dropped'),
   'board-queued': step('B40', 'done'),
   'fix-held': step('B40', 'queued'),
+  'held-twice': step('B40', 'taken'),
   'partner-ask': ['B40', head({ Id: 'B40', Kind: 'ask', State: 'answered', Route: 'partner' })],
 }
 

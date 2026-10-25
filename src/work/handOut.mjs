@@ -173,7 +173,8 @@ export function match({ ready = [], idle = [], items, prefix = '', skip = new Se
     given.push({ id: one.id, chat: lane.name, why })
   }
   const overlaps = one => overlapIn(scratch, items.get(one.id), COUNTS_FOR_TOUCHES) !== null
-  const may = (one, worker) => !skip.has(pairKey(one.id, worker.name, prefix))
+  // The recheck: a pinned task is never barred from its own worker (a refusal or a held take-back bars others only).
+  const may = (one, worker) => (one.pinned != null && plain(one.pinned, prefix) === plain(worker.name, prefix)) || !skip.has(pairKey(one.id, worker.name, prefix))
   for (const one of ready.filter(task => task.keptFor !== null && items.has(task.id))) {
     const lane = free.find(worker => plain(worker.name, prefix) === plain(one.keptFor, prefix) && may(one, worker))
     if (lane === undefined || overlaps(one)) continue
@@ -209,8 +210,8 @@ export const HELD_WHY = 'its line was held'
  *   for: once it reports idle again without having taken it, the task goes back, not stuck.
  * - No line yet (held for its model, a clear, a mod restart, or its chat went off or unknown before it): a give of the
  *   board's goes back `heldGiveMs` after it, not stuck ("its line was held"), so no give waits for ever.
- * - Its Owner no worker lane of the list (dropped from the app's list for a while, or gone): the same clock as any, from
- *   the line, else from the give; never at once.
+ * - Its Owner no worker lane of the list (dropped from the app's list for a while, or gone): the same clocks as any:
+ *   from the line, else (no line yet) the held limit from the give; never at once.
  */
 export function takeBacks({ items, outbox = [], lanes = [], now, takeWithinMs, heldGiveMs = HAND_OUT_DEFAULTS.heldGiveMinutes * 60_000, prefix = '', notBefore = null }) {
   const backs = []
@@ -229,7 +230,7 @@ export function takeBacks({ items, outbox = [], lanes = [], now, takeWithinMs, h
     const startAt = Math.max(Number.isFinite(givenAt) ? givenAt : now, floor)
     const lane = workers.find(one => plain(one.name, prefix) === plain(owner, prefix))
     if (lane === undefined) {
-      if (now - (lineAt ?? startAt) >= takeWithinMs) backs.push({ id, chat: owner, stuck: false, why: `${owner} is no worker of the list` })
+      if (lineAt === null ? now - startAt >= heldGiveMs : now - lineAt >= takeWithinMs) backs.push({ id, chat: owner, stuck: false, why: `${owner} is no worker of the list` })
       continue
     }
     if (lineAt === null) {
@@ -242,12 +243,28 @@ export function takeBacks({ items, outbox = [], lanes = [], now, takeWithinMs, h
     if (now - lineAt < takeWithinMs) continue
     const report = lane.report ?? null
     const isFresh = report !== null && lane.isRunning === true && !['unknown', 'off', 'suspended'].includes(lane.state)
-    const reacted = isFresh && Number.isFinite(report.since) && report.since >= lineAt
+    // The recheck: it reacted only when its line itself was taken (or typed) and its turn began after the line; a busy
+    // turn of something else while the line still waits (the person typed to it) is no reaction.
+    const isTaken = ['taken', 'delivered'].includes(line.state)
+    const reacted = isFresh && isTaken && Number.isFinite(report.since) && report.since >= lineAt
     if (reacted && report.state !== 'idle') continue
     const stuck = isFresh && report.state === 'idle' && Number.isFinite(report.since) && report.since < lineAt
     backs.push({ id, chat: lane.name, stuck, why: reacted ? 'not taken in the turn after its line' : `not taken within ${minutesOf(takeWithinMs)} min` })
   }
   return backs
+}
+
+/** The recheck: how many times a step was taken back because its line was held (its History). */
+export const heldBacksOf = item => historyOf(item).filter(line => HELD_BACK_LINE.test(line)).length
+
+/**
+ * The recheck: the words for a task taken back twice because its line was held (an Opus task no worker runs on, the
+ * switch never made): said once to the main chat and on the ready list.
+ */
+export function heldTwiceWords(item) {
+  return modelOf(item).family === 'opus'
+    ? `${idOf(item)} waits for a worker on Opus: the switch did not happen`
+    : `${idOf(item)} was taken back twice: its line was held (a model or effort switch, a clear or a restart did not happen)`
 }
 
 /**
@@ -325,7 +342,7 @@ function startsPending({ workers, sent = [], now, prefix = '' }) {
  * task waits for its worker only: Review Focus 5), not given in this pass, their Touches overlapping no step given or
  * under way (as `match`); less the workers on their way (`startsPending`).
  */
-export function workerStart({ ready = [], gives = [], idle = [], lanes = [], maxWorkers = null, isHeld = false, items = new Map(), sent = [], now = Date.now(), prefix = '' }) {
+export function workerStart({ ready = [], gives = [], idle = [], lanes = [], maxWorkers = null, isHeld = false, items = new Map(), sent = [], now = Date.now(), prefix = '', refused = [] }) {
   if (!Number.isFinite(maxWorkers) || isHeld) return null
   const given = new Set(gives.map(one => one.chat))
   if (idle.some(lane => !given.has(lane.name))) return null
@@ -335,9 +352,11 @@ export function workerStart({ ready = [], gives = [], idle = [], lanes = [], max
     const item = items.get(one.id)
     if (item !== undefined) scratch.set(one.id, { ...item, head: new Map(item.head).set('State', 'queued') })
   }
+  // The recheck: a task the work API refused lately waits for that refusal, not for a worker: it counts for none.
+  const refusedIds = new Set(refused.map(one => one.id))
   let givable = 0
   for (const one of ready) {
-    if (one.keptFor !== null || handed.has(one.id)) continue
+    if (one.keptFor !== null || handed.has(one.id) || refusedIds.has(one.id)) continue
     const item = items.get(one.id)
     if (item !== undefined && overlapIn(scratch, item, COUNTS_FOR_TOUCHES) !== null) continue
     givable += 1

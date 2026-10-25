@@ -98,6 +98,9 @@ test('takeBacks: not taken in time goes back on the list; stuck only when the wo
   assert.deepEqual(run([typedTo], [line()], { now: NOW + 30 * MIN }), [])
   const idleAgain = lane('W1', NOW - 10_000, { report: { state: 'idle', since: NOW - 10_000, background: false, at: NOW - 1000 } })
   assert.deepEqual(run([idleAgain], [line()]), [{ id: 'B1', chat: 'W1', stuck: false, why: 'not taken in the turn after its line' }])
+  // The recheck: busy with something else while its line still waits (the person typed to it right after the give): no
+  // reaction; back after the two minutes, not stuck.
+  assert.deepEqual(run([typedTo], [line({ state: 'waiting' })]), [{ id: 'B1', chat: 'W1', stuck: false, why: 'not taken within 2 min' }])
   // Its line is not two minutes old yet; no line yet, ten minutes on (held for its model: Review Focus 1); the sync
   // check's line is not the work line.
   assert.deepEqual(run([lane('W1', NOW - 10 * MIN)], [line({ at: NOW - 100_000 })]), [])
@@ -107,8 +110,11 @@ test('takeBacks: not taken in time goes back on the list; stuck only when the wo
   assert.deepEqual(run([lane('W1', NOW - 10 * MIN)], [line({ at: NOW - 20 * MIN })]), [])
   // The review: a worker missing from the list (an account switch drops chats a while): the same clock as any, from its
   // line, else from the give; never at once.
-  assert.deepEqual(run([lane('W2')], []), [{ id: 'B1', chat: 'W1', stuck: false, why: 'W1 is no worker of the list' }])
+  assert.deepEqual(run([lane('W2')], [line()]), [{ id: 'B1', chat: 'W1', stuck: false, why: 'W1 is no worker of the list' }])
   assert.deepEqual(run([lane('W2')], [line({ at: NOW - 60_000 })]), [])
+  // The recheck: no line yet (its model switch pending): the held limit, not two minutes.
+  assert.deepEqual(run([lane('W2')], []), [])
+  assert.deepEqual(run([lane('W2')], [], { now: NOW + 18 * MIN }), [{ id: 'B1', chat: 'W1', stuck: false, why: 'W1 is no worker of the list' }])
   const fresh = mapOf([step('B1', 'queued', { Owner: 'W1', Since: stamp(NOW - MIN) })])
   assert.deepEqual(takeBacks({ items: fresh, outbox: [], lanes: [lane('W2')], now: NOW, takeWithinMs: 2 * MIN }), [])
   // A board that reads no worker at all (the list of chats could not be read) takes nothing back.
@@ -134,6 +140,8 @@ test('the review: a give whose line never goes (held for its model, or its chat 
   const both = [lane('W1', T(10, 0)), lane('W2', T(10, 1))]
   assert.deepEqual(gives(match({ ready: ready('B1'), idle: both, items: mapOf([back]), skip })), [{ id: 'B1', chat: 'W2' }])
   assert.deepEqual(gives(match({ ready: ready('B1'), idle: [lane('W1')], items: mapOf([back]), skip })), [])
+  // The recheck: a task pinned to that worker is never barred from it.
+  assert.deepEqual(gives(match({ ready: ready({ id: 'B1', keptFor: 'W1', pinned: 'W1' }), idle: [lane('W1')], items: mapOf([back]), skip })), [{ id: 'B1', chat: 'W1' }])
 })
 
 test('the review: a follow-up is a preference: to its worker when idle at the give, else to anyone at once', () => {
@@ -188,6 +196,8 @@ test('the review: a worker on its way counts; a task whose Touches overlap runni
   const off = lane('W4', T(9, 0), { state: 'off', isRunning: false, report: { state: 'ended', since: T(9, 0), at: T(9, 0) } })
   const started = { id: 's2', at: NOW - MIN, to: 'Lead', command: 'start', about: 'W4', state: 'delivered' }
   assert.equal(workerStart({ ...base, lanes: [...three, off], sent: [started] }), null)
+  // The recheck: a task the work API refused lately counts for no worker.
+  assert.equal(workerStart({ ...base, lanes: three, refused: [{ id: 'B1', chat: 'W9', why: 'x', at: NOW }] }), null)
   // The only ready task overlaps running work: no worker could take it.
   const touches = path => ({ Context: [`Touches: ${path}`] })
   const items = mapOf([step('B1', 'refined', {}, touches('src/a.mjs')), step('B9', 'in progress', { Owner: 'W1' }, touches('src'))])

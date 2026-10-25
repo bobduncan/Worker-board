@@ -13,7 +13,7 @@ import { parseConfig } from '../../src/config.mjs'
 import { memoryStore } from '../../src/store.mjs'
 import { buildState } from '../../src/state.mjs'
 import { workApi } from '../../src/work/api.mjs'
-import { deliverWork, givesRefused } from '../../src/work/deliver.mjs'
+import { deliverWork, givesRefused, isTransient } from '../../src/work/deliver.mjs'
 import { valueOf } from '../../src/work/item.mjs'
 import { stamp } from '../../src/work/migrate.mjs'
 import { readStore, writePause, writeStore } from '../../src/work/store.mjs'
@@ -241,6 +241,40 @@ test('the review: a give the work API refuses is not tried again for that worker
     // Fifteen minutes on it is tried again.
     one.report('W1', 'idle', T0 - 60 * SEC, T0 + 16 * MIN - 2 * SEC)
     assert.equal((await one.build(T0 + 16 * MIN)).reconciled.gives[0].id, 'B1')
+  } finally {
+    await one.close()
+  }
+})
+
+test('the recheck: a refusal of a race or a conflict bars nothing; the board decides anew at the next pass', async () => {
+  for (const why of ['B1: B1.md changed in the meantime; try again.', 'W1 holds B2 (queued): no second task.', 'B1: no move from queued to queued (flow.json)']) assert.equal(isTransient({ ok: false, status: 409, why }), true, why)
+  assert.equal(isTransient(null), true)
+  assert.equal(isTransient({ ok: false, status: 500, why: 'x' }), true)
+  assert.equal(isTransient({ ok: false, status: 409, why: 'routing holds B1 for an Opus worker' }), false)
+  const one = await garden([task('B1'), task('B2')], { workers: ['W1'] })
+  try {
+    one.report('W1', 'idle', T0 - 60 * SEC, T0 - 2 * SEC)
+    const conflict = body => (body.action === 'advance' && body.id === 'B1' && body.to === 'queued' ? { ok: false, status: 409, why: 'B1: B1.md changed in the meantime; try again.' } : null)
+    await one.deliver(await one.build(T0), T0, conflict)
+    assert.deepEqual(givesRefused(one.dir, T0 + SEC), [])
+    assert.deepEqual((await one.build(T0 + 5 * SEC)).reconciled.gives.map(({ id, chat }) => [id, chat]), [['B1', 'W1']])
+  } finally {
+    await one.close()
+  }
+})
+
+test('the recheck: a task taken back twice because its line was held says so on the list, and once to the main chat', async () => {
+  const held = minutes => `- ${stamp(T0 - minutes * MIN)} server: queued → refined (taken back from W1: its line was held 20 min)`
+  const opus = task('B1', {}, { Model: ['opus: the board\'s core'], History: [`- ${stamp(T0 - 60 * MIN)} Partner: made`, held(50), held(25)] })
+  const one = await garden([opus], { workers: ['W1'] })
+  try {
+    one.report('W1', 'busy', T0 - 60 * SEC, T0 - 2 * SEC)
+    const state = await one.build(T0)
+    assert.deepEqual(state.reconciled.heldTwice, [{ id: 'B1', text: 'B1 waits for a worker on Opus: the switch did not happen' }])
+    assert.equal(state.readyList.ready[0].note, 'B1 waits for a worker on Opus: the switch did not happen')
+    await one.deliver(state, T0)
+    await one.deliver(await one.build(T0 + MIN), T0 + MIN)
+    assert.deepEqual(one.outbox.outbox().filter(message => message.kind === 'held-twice').map(message => [message.to, message.text]), [['Lead', 'B1 waits for a worker on Opus: the switch did not happen']])
   } finally {
     await one.close()
   }
