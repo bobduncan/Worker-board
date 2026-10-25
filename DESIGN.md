@@ -3155,7 +3155,12 @@ stuck that day was found by the person. They are now one list in the board, each
   B529: the page of the process without the lock takes no write (a word, a work action, the backlog, goals,
   brainstorm, design, settings, a picture: `mayWrite` in `createBoard`, 409 naming the holder's page from the lock's
   port), since its words would wait in an outbox no chat takes from; a game, a restart, the CPU level and a new project
-  stay its own. The chat logs are the holder's too: only it finishes the open logs of the journal (at its start, or when
+  stay its own. B539: every POST route states this in one table, `POST_ROUTES` in server.mjs (its kind, and its guard:
+  `lock`, or `free` with its reason); the handler serves only the routes in it and guards by it. The Workers mod's
+  work tool, take and typed are `lock` too (a mod that reaches a process without the lock, by a stale `board.json`,
+  writes nothing there: 409 naming the holder's page); its report is `free` (in memory only). Test:
+  `test/routeGuards.test.mjs` asks every `/api/...` route server.mjs names with a POST and fails on one that takes it
+  without a guard in the table. The chat logs are the holder's too: only it finishes the open logs of the journal (at its start, or when
   it gains the loops, after reading the journal again, `reload` in chatLogs.mjs) and takes a `save-log`; and the gain
   reads `alive.json` again, so its first look sees no gap the holder did not have. Test:
   `test/oneLoopProcess.test.mjs` (two real processes: the round, a step's line, a refine line and the open chat log go
