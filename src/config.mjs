@@ -49,6 +49,8 @@ export const SUPERVISOR_DEFAULTS = Object.freeze({
   notClearedMinutes: 10,
   /** B601: a limit whose newest reading is older than this, while the chats stand still or work (the rule old-limit-reading). */
   oldReadingMinutes: 30,
+  /** B632 (the fix of X55, X56): an old reading raises its incident only when it is still older than this, after the supervisor chat looked the limits up once past `oldReadingMinutes`. */
+  oldReadingIncidentMinutes: 60,
 })
 
 export const DEFAULTS = {

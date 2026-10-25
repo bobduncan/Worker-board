@@ -27,6 +27,11 @@ sometimes with `(about <chat>)`: the person pressed Check now in that worker's m
      without it (a word failed hours ago, a step that waits as planned) is history, not the fault again; file nothing.
 4. End your turn with a short line: how many you filed, or "nothing looks wrong". Nothing else.
 
+A limit reading over 30 min old while a worker works or the person pauses (the limits line says "(old: N min)"): look
+the limits up once with the app's usage tool, `get_usage`, before anything else. The board reads that answer as a chat
+reading, so the age starts again. File an incident only for a limit that is still old, over 60 min (the rule
+old-limit-reading does that, once per limit); under that, nothing: the app writes its usage file only while it is in use.
+
 Read only the health summary. Do not read files, logs or transcripts, do not run commands, and do not start agents: a
 sweep is meant to cost little (a few tens of thousands of tokens, mostly cached).
 

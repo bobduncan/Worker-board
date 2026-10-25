@@ -231,7 +231,7 @@ worker runs on Opus. Without both ids, each starting with `claude-`, the board s
 top. `usualModel` and `usualEffort` (`"sonnet"` and `"medium"` unless set): what a worker runs at between steps.
 `supervisor` (the defaults unless set): the thresholds of the board's watch rules, which report what does not look right
 (the supervisor, `DESIGN.md`): `{ "unknownMinutes": 10, "suspendedMinutes": 10, "idleMinutes": 10, "notRunningMinutes":
-30, "opusWaitMinutes": 15, "undeliveredMinutes": 10, "repairsPerDay": 3, "notClearedMinutes": 10, "oldReadingMinutes": 30 }`; any of them, each a
+30, "opusWaitMinutes": 15, "undeliveredMinutes": 10, "repairsPerDay": 3, "notClearedMinutes": 10, "oldReadingMinutes": 30, "oldReadingIncidentMinutes": 60 }`; any of them, each a
 number above 0.
 `supervisorSweepMinutes` (10 unless set): how often the board wakes the supervisor's chat for a sweep while work runs
 (a chat works or a step is taken or in progress; never while you pause all, at a full limit, or while the last sweep

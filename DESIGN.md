@@ -3300,8 +3300,9 @@ the AI sweep by a cheap supervisor chat and the hand-over to the Advisor, comes 
   step since, at once, or that stays so for over 10 min, `notClearedMinutes`; one finding per worker per report, with
   the mod's why and the repair). `queued-not-running` (B587, the fix of X36: a free worker whose chat does not run while
   its next queued step waits over 15 min with no `start` of it on its way to the main chat; one finding per step).
-  `old-limit-reading` (B601, the fix of X47: a limit whose newest figure is older than `oldReadingMinutes`, 30, while
-  the person pauses or a worker works; one finding per limit, gone with a newer reading; the health summary's limits
+  `old-limit-reading` (B601, the fix of X47: a limit whose newest figure is older than `oldReadingIncidentMinutes`, 60 (B632, the fix of X55
+  and X56: past `oldReadingMinutes`, 30, the supervisor chat first looks the limits up once with `get_usage`, which counts as a chat
+  reading), while the person pauses or a worker works; one finding per limit, gone with a newer reading; the health summary's limits
   line adds "(old: N min)"; the app writes its usage file only while it is in use, so a quiet hour leaves it old). How long a thing
   lasted comes from the timeline (`state.today`), else from the supervisor's own watch.
 - **The supervisor's memory**, `<project>/.claude/supervisor.json`, beside `sync.json` and apart from it: its watch
