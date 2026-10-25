@@ -138,3 +138,32 @@ test('the counts add up over the reported states', () => {
   assert.deepEqual(state.chats.map(chat => [chat.name, chat.state]), [['Main', 'free'], ['Board', 'working'], ['Support', 'unknown']])
   assert.deepEqual(state.counts, { working: 1, waiting: 0, free: 1, unknown: 1, interrupted: 0, suspended: 0, off: 0 })
 })
+
+test('gap 1: a chat whose card says a reporting mod and that sent no report is unknown, then off: never free by the older reading', () => {
+  const card = mod => JSON.stringify({ name: 'Board', role: 'worker', state: 'waiting', task: null, at: NOW - 60 * MIN, mod })
+  const run = ({ mod = '0.19.0', startedAt = NOW - 30 * MIN, cardAt = NOW - 60 * MIN, reports = [], settings = {} } = {}) => buildState(
+    { ...rawOf(), planLineTexts: { 'cli-Board': card(mod) }, planLineAt: { 'cli-Board': cardAt } },
+    { ...optionsOf({ reports, unknownAfterSeconds: 30 }), config: { ...config, ...settings }, board: { startedAt, offSince: null } })
+  const pad = n => String(n).padStart(2, '0')
+  const hhmm = ms => `${pad(new Date(ms).getHours())}:${pad(new Date(ms).getMinutes())}`
+  // Off after offAfterMinutes, counted from the board's start: not running, and why.
+  const off = lane(run(), 'Board')
+  assert.deepEqual([off.state, off.isRunning, off.offWhy, off.report], ['off', false, `no report since the board started at ${hhmm(NOW - 30 * MIN)}`, null])
+  assert.equal(off.offSince, null, 'no card left working')
+  // Unknown once the board has run unknownAfterSeconds, and before offAfterMinutes.
+  assert.deepEqual(shown(run({ startedAt: NOW - 2 * MIN }), 'Board'), ['unknown', null])
+  assert.deepEqual(shown(run({ settings: { offAfterMinutes: 60 } }), 'Board'), ['unknown', null])
+  // Counted from the later of the board's start and the card's last write.
+  assert.deepEqual(shown(run({ cardAt: NOW - 2 * MIN }), 'Board'), ['unknown', null])
+  assert.deepEqual(shown(run({ cardAt: NOW - 6 * MIN }), 'Board'), ['off', false])
+  // Right after the board started: today's reading, as for an older mod; an older mod keeps it.
+  const older = lane(run({ mod: '0.18.1' }), 'Board')
+  assert.notEqual(older.state, 'off')
+  assert.deepEqual(lane(run({ startedAt: NOW - 10_000 }), 'Board').state, lane(run({ mod: '0.18.1', startedAt: NOW - 10_000 }), 'Board').state)
+  assert.deepEqual(shown(run({ startedAt: NOW - 10_000 }), 'Board'), [older.state, older.isRunning])
+  // A report from its session decides; the others' lanes are untouched (their cards say no mod).
+  assert.deepEqual(shown(run({ reports: [report('Board', 'idle')] }), 'Board'), ['free', true])
+  assert.deepEqual(lane(run(), 'Support'), lane(run({ mod: '0.18.1' }), 'Support'))
+  // The counts add up.
+  assert.equal(run().counts.off, 1)
+})

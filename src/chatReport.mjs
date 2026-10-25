@@ -59,6 +59,18 @@ export function laneFromReport(entry, { now, unknownAfterMs, offAfterMs = Infini
   return { state: 'free', isRunning: true }
 }
 
+/**
+ * Gap 1 (principle 3: know, don't guess): the lane of a chat whose card says a Workers mod that reports (`cardMod`) and
+ * that sent the board no report, or null (the caller keeps the older inference: an older mod, no card, or a board that
+ * has run less than `unknownAfterMs`). Off (`why` `unreported`) once `offAfterMs` has passed since the later of the
+ * board's start and the card's last write (`cardAt`), else unknown.
+ */
+export function laneWithoutReport({ cardMod, cardAt = null, boardStartedAt, now, unknownAfterMs, offAfterMs = Infinity }) {
+  if (!modReports(cardMod) || !Number.isFinite(boardStartedAt) || now - boardStartedAt < unknownAfterMs) return null
+  const from = Math.max(boardStartedAt, Number.isFinite(cardAt) ? cardAt : -Infinity)
+  return now - from >= offAfterMs ? { state: 'off', isRunning: false, why: 'unreported' } : { state: 'unknown', isRunning: null }
+}
+
 /** Whether a Workers mod of this version reports its turn state: at least REPORT_MOD. */
 export function modReports(version) {
   const mine = versionOf(version)

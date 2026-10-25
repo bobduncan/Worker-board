@@ -46,7 +46,7 @@ import { standardOf } from './work/standard.mjs'
 import { rolloutPlan } from './work/modRollout.mjs'
 import { chatsByRole } from './oldMods.mjs'
 import { stoppedOf } from './stopped.mjs'
-import { laneFromReport, modReports } from './chatReport.mjs'
+import { laneFromReport, laneWithoutReport, modReports } from './chatReport.mjs'
 import { backgroundRunning, conversation, doingNow, finishedBetween, saysUnfinished, parseTail, saysDone, taskOrigin, turnEnded, turnStart, turnState, unanswered, waitingFor } from './transcript.mjs'
 
 const MIN = 60_000
@@ -87,6 +87,16 @@ const REMOVE_OPEN_MS = 15 * MIN
 const REFINE_OPEN_MS = 30 * MIN
 /** B152: a removed worker's lane stays this long after its card said it left, saying so. */
 const REMOVED_SHOW_MS = 2 * MIN
+
+/** Gap 1: the Workers mod's version a chat's card names (`mod`), or null. */
+function cardModOf(raw, id) {
+  try {
+    const card = JSON.parse(textOr(raw.planLineTexts?.[id], ''))
+    return typeof card?.mod === 'string' ? card.mod : null
+  } catch {
+    return null
+  }
+}
 
 /**
  * B152: when a chat's card said that it left the list of chats: the time the card was written, null when the board
@@ -489,7 +499,7 @@ function card(chat, raw, { now, config, last, lines, main, prefix, stepOf = () =
   // Suspended is the board's own fact, whatever the chat reports.
   const state = paused !== null ? 'suspended' : reported !== null ? reported.state : wasCutOff ? 'interrupted' : held === null ? ended : 'working'
   // Redesign Part 1: what the chat says of its question to the person, or what its transcript shows.
-  const isAsked = reported !== null ? reported.entry.state === 'asking' : turn === 'asking'
+  const isAsked = reported !== null ? reported.entry?.state === 'asking' : turn === 'asking'
   // No sign of life is about a turn that runs: between two turns a chat writes nothing.
   const quietMs = state === 'working' && held === null && lastWriteAt !== null ? Math.max(0, now - lastWriteAt) : null
 
@@ -548,7 +558,7 @@ function card(chat, raw, { now, config, last, lines, main, prefix, stepOf = () =
     needsYou,
     statusDetail: turn === 'ended' ? summary?.detail?.trim() || null : null,
     // The turn's last entry: when it ended, or when it asked.
-    waitingSince: state !== 'waiting' ? null : reported !== null ? reported.entry.since : entries.findLast(entry => entry.type === 'assistant' && !entry.isSidechain)?.at ?? null,
+    waitingSince: state !== 'waiting' ? null : reported !== null ? reported.entry?.since ?? null : entries.findLast(entry => entry.type === 'assistant' && !entry.isSidechain)?.at ?? null,
     // B100: what it last said, for the window of what it waits for: its own words, never what was typed to it.
     // B149: with the parts of it when it finished a task with something left for the person, and the message that
     // gave it that task.
@@ -561,7 +571,7 @@ function card(chat, raw, { now, config, last, lines, main, prefix, stepOf = () =
     // The review of part 1: why it counts as working between two turns (task, background, branch), and whether its
     // transcript shows a turn open (also behind a "suspended" that may be stale).
     heldBy: held?.why ?? null,
-    isTurnOpen: reported !== null ? state === 'working' && reported.entry.state === 'busy' : turn === 'running' && !wasCutOff,
+    isTurnOpen: reported !== null ? state === 'working' && reported.entry?.state === 'busy' : turn === 'running' && !wasCutOff,
     eta,
     // A worker that works and has no time from anywhere: a fault to fix, and shown as one. The main chat hands
     // out work and answers the person; it has no task to time.
@@ -591,11 +601,11 @@ function card(chat, raw, { now, config, last, lines, main, prefix, stepOf = () =
     // names a worker that holds a step so, without an open ask, as one that may wait for the person.
     // Redesign Part 1: a chat that reports rests from the moment it said idle, with nothing running in the background.
     resting: reported === null ? restingOf({ entries, turn, idle, isRunningOn: background > 0 && !isDone, isStopped: wasCutOff || paused !== null })
-      : paused === null && ['free', 'interrupted', 'waiting'].includes(state) && reported.entry.state === 'idle' && !reported.entry.background ? restedSince(entries, reported.entry.since) : null,
+      : paused === null && ['free', 'interrupted', 'waiting'].includes(state) && reported.entry?.state === 'idle' && !reported.entry.background ? restedSince(entries, reported.entry.since) : null,
     // Redesign Part 1: the report the lane follows, or null where the board reads the chat's transcript instead.
-    report: reported === null ? null : { state: reported.entry.state, since: reported.entry.since, background: reported.entry.background, at: reported.entry.at },
+    report: reported?.entry == null ? null : { state: reported.entry.state, since: reported.entry.since, background: reported.entry.background, at: reported.entry.at },
     // The review of chat-reports: why a reporting chat is not running, in words; null for any other.
-    offWhy: state !== 'off' || reported === null ? null : reported.why === 'ended' ? `its session ended at ${hourMinute(reported.entry.since)}`
+    offWhy: state !== 'off' || reported === null ? null : reported.why === 'unreported' ? reported.words : reported.why === 'ended' ? `its session ended at ${hourMinute(reported.entry.since)}`
       : reported.why === 'silent' ? `silent since ${hourMinute(reported.entry.at)}` : 'the app started again after its last report',
   }
 }
@@ -1223,7 +1233,14 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
     && String(one.head.get('Owner') ?? '').replace(prefix, '').trim().toLowerCase() === name.toLowerCase() && sinceMs(one.head.get('Since')) >= busyAt)
   const reportedOf = new Map(found.filter(chat => !chat.isLeftover).map(chat => {
     const entry = reports instanceof Map ? reports.get(chat.name) ?? null : null
-    if (entry === null || entry.session !== chat.cliSessionId || !modReports(entry.mod ?? null)) return [chat.name, null]
+    // Gap 1: no report from this session while its card says a mod that reports: unknown, then off, never guessed.
+    if (entry === null || entry.session !== chat.cliSessionId) {
+      const silent = !(reports instanceof Map) ? null : laneWithoutReport({
+        cardMod: cardModOf(raw, chat.cliSessionId), cardAt: raw.planLineAt?.[chat.cliSessionId] ?? null, boardStartedAt: board?.startedAt, now, unknownAfterMs, offAfterMs,
+      })
+      return [chat.name, silent === null ? null : { ...silent, entry: null, words: silent.state === 'off' ? `no report since the board started at ${hourMinute(board.startedAt)}` : null }]
+    }
+    if (!modReports(entry.mod ?? null)) return [chat.name, null]
     const holds = storeStepsOf(chat.name).filter(one => one.state !== 'review')
     const key = chat.name.toLowerCase()
     // The review of chat-reports: a blocking ask routed to the partner waits for the partner, never for the person (B392).
