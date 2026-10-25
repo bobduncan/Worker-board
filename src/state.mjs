@@ -496,8 +496,12 @@ function card(chat, raw, { now, config, last, lines, main, prefix, stepOf = () =
   // Pause 2: a stop for a restart is the store's pause (pause.json and the checkpoints), no longer a "Safe point:" line.
   const paused = stop !== null && !isStopOver ? { by: 'app', limit: stop.limit, since: stop.at, named: stop.resetsAt }
     : stop === null && note !== null ? { by: 'note', limit: note.limit ?? 'fiveHour', since: note.at, named: note.until, percent: note.percent ?? null } : null
+  // The person, 2026-10-25 ("red interrupted feels errory, if they stop working due to conscious choice suspended feels
+  // better"): a chat stopped while its step waits for other open steps is parked on purpose, not cut off.
+  const isStopped = reported !== null ? reported.state === 'interrupted' : wasCutOff
+  const parked = paused === null && isStopped && step?.blockedBy?.length > 0 ? { by: 'parked', on: step.blockedBy, limit: null, since: null, named: null } : null
   // Suspended is the board's own fact, whatever the chat reports.
-  const state = paused !== null ? 'suspended' : reported !== null ? reported.state : wasCutOff ? 'interrupted' : held === null ? ended : 'working'
+  const state = paused !== null || parked !== null ? 'suspended' : reported !== null ? reported.state : wasCutOff ? 'interrupted' : held === null ? ended : 'working'
   // Redesign Part 1: what the chat says of its question to the person, or what its transcript shows.
   const isAsked = reported !== null ? reported.entry?.state === 'asking' : turn === 'asking'
   // No sign of life is about a turn that runs: between two turns a chat writes nothing.
@@ -511,7 +515,7 @@ function card(chat, raw, { now, config, last, lines, main, prefix, stepOf = () =
   // not on the task its card still names: that card was left behind, and the lane names it only as finished.
   const isLeftBehind = plan?.task != null && !plan.task.isReported && (isDone || state === 'free')
   // A reported chat that stopped mid-task, or whose reports stopped, keeps its task as one cut off does.
-  const isKept = wasCutOff || paused !== null || (reported !== null && ['interrupted', 'off', 'unknown'].includes(state))
+  const isKept = wasCutOff || paused !== null || parked !== null || (reported !== null && ['interrupted', 'off', 'unknown'].includes(state))
   const task = taskOf({ chat, plan: isLeftBehind ? { ...plan, task: null } : plan, state: isKept ? 'working' : state, before: last.get(chat.name), lines, prefix, now, scan, step, stepById })
   const eta = etaOf(task, state, now)
   // B151: the person's words that gave it the task it is on, as they arrived, for the window a click on its lane opens;
@@ -590,7 +594,7 @@ function card(chat, raw, { now, config, last, lines, main, prefix, stepOf = () =
     givenTask: isOnStep ? { by: 'step', at: null, text: '', step: { id: givenStep.id, title: givenStep.title, about: givenStep.about ?? null, brief: briefOf(givenStep.id) } }
       : given === null ? null : { ...given, step: givenStep === null ? null : { id: givenStep.id, title: givenStep.title, about: givenStep.about ?? null, brief: briefOf(givenStep.id) } },
     feedback,
-    suspended: paused,
+    suspended: paused ?? parked,
     // What this chat itself looked up of the limits: in its tail, and further back (`tail.usage`).
     usage: entries === null ? [] : usageReadings([...(typeof tail.usage === 'string' ? parseTail(tail.usage, false) : []), ...entries]),
     // B301: its last answer asks the person in a "For you" block, and the store holds no ask of it since that turn
@@ -699,6 +703,8 @@ function blockAsksOpen(words, open, name) {
 function heldUntil(paused, limits, now) {
   if (paused === null) return null
   const { named, percent, ...held } = paused
+  // Parked on purpose: it goes on when the steps it waits for are done, not at a time.
+  if (held.by === 'parked') return { ...held, until: null, isBack: false }
   if (named !== null) return { ...held, until: named, isBack: named <= now }
   const limit = limits[held.limit]
   if (limit === null) return { ...held, until: null, isBack: false }
@@ -1211,8 +1217,11 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
     if (item === undefined) return null
     const id = item.head.get('Id')
     const branch = item.head.get('Branch')
+    // The person, 2026-10-25: a step parked on purpose waits for the open steps it is blocked by.
+    const blockedBy = (String(item.head.get('Blocked by') ?? '').match(/\bB\d+\b/g) ?? [])
+      .filter(one => !['done', 'dropped'].includes(raw.work.items.get(one)?.head.get('State') ?? 'done'))
     // B363: a step taken with branch none has its work outside git: no branch to show or play.
-    return { id, title: withoutNotes(item.head.get('Title') ?? ''), minutes: minutesOf(`about ${item.head.get('Estimate') ?? ''}`), branch: branch === undefined || branch === '-' || branch === '' || branch.toLowerCase() === 'none' ? null : branch, about: null }
+    return { id, title: withoutNotes(item.head.get('Title') ?? ''), minutes: minutesOf(`about ${item.head.get('Estimate') ?? ''}`), branch: branch === undefined || branch === '-' || branch === '' || branch.toLowerCase() === 'none' ? null : branch, about: null, blockedBy }
   }
   // B438, the review: every step the store holds for a chat and is not finished with, with its state, oldest first.
   const storeStepsOf = name => itemsOf(raw.work)
