@@ -95,6 +95,11 @@ type World = {
   writes: string[]
   /** The supervisor: the version each call to the board said in its X-Workers-Mod header. */
   modHeaders: string[]
+  /** Redesign Part 1: each report call's body (POST /api/bridge/report), in order; a form the person answers once this is let go. */
+  reports: string[]
+  formHold: Promise<void> | null
+  /** How many reports had gone out each time a /clear ran. */
+  reportsAtClear: number[]
 }
 
 /** Pause 2: the board's pause-state answer while nobody paused. */
@@ -106,7 +111,7 @@ async function settle(): Promise<void> {
 }
 
 function world(id: string, files: Record<string, string> = {}): World {
-  return { id, files, agents: [], tools: [], opened: [], sent: [], whileAsked: null, waiting: [], takeAnswers: [], fetched: [], typedIn: [], reported: [], refusesTyping: false, up: null, spawned: [], comesUp: true, tokens: 50_000, refusesCompact: false, isHeadless: false, commanded: [], compactions: [], toasts: [], worked: [], workAnswer: { status: 200, text: '{"text":"Yours, Units:"}' }, formAnswers: {}, workAnswers: [], formResponse: null, formCloses: false, hangs: false, takeHangs: false, contexts: [], workedAt: [], pauseAnswer: RUNNING, pauseReads: 0, descriptions: {}, stored: {}, requests: [], cuts: [], held: null, byAction: {}, holdAction: null, sequence: [], holdCompact: null, writes: [], modHeaders: [] }
+  return { id, files, agents: [], tools: [], opened: [], sent: [], whileAsked: null, waiting: [], takeAnswers: [], fetched: [], typedIn: [], reported: [], refusesTyping: false, up: null, spawned: [], comesUp: true, tokens: 50_000, refusesCompact: false, isHeadless: false, commanded: [], compactions: [], toasts: [], worked: [], workAnswer: { status: 200, text: '{"text":"Yours, Units:"}' }, formAnswers: {}, workAnswers: [], formResponse: null, formCloses: false, hangs: false, takeHangs: false, contexts: [], workedAt: [], pauseAnswer: RUNNING, pauseReads: 0, descriptions: {}, stored: {}, requests: [], cuts: [], held: null, byAction: {}, holdAction: null, sequence: [], holdCompact: null, writes: [], modHeaders: [], reports: [], formHold: null, reportsAtClear: [] }
 }
 
 /** The project's list of chats, with the titles that join by themselves. */
@@ -162,6 +167,7 @@ function stand(on: On, w: World): void {
   on('command.run', { command: 'clear' }, (_$, e) => {
     w.commanded.push(`/clear by ${e.origin.kind}${e.origin.kind === 'plugin' ? ` ${e.origin.name}` : ''}`)
     w.sequence.push('/clear')
+    w.reportsAtClear.push(w.reports.length)
     return { text: '' }
   })
   on('command.run', { command: 'compact' }, async (_$, e) => {
@@ -185,14 +191,16 @@ function stand(on: On, w: World): void {
     return { value: undefined }
   })
   on('classic.SessionStart', () => ({}))
+  on('classic.Stop', () => ({}))
   on('session.send', (_$, e) => {
     w.sent.push(e.origin.kind)
 
     return { isDelivered: true as const }
   })
   // The one tool beneath the mod: a question to the person, answered at once.
-  on('tool.call', { tool: 'AskUserQuestion' }, () => {
+  on('tool.call', { tool: 'AskUserQuestion' }, async () => {
     w.whileAsked = fileOf(w)
+    if (w.formHold !== null) await w.formHold
 
     if (w.formCloses) throw new Error('the person closed the form')
 
@@ -273,6 +281,11 @@ function stand(on: On, w: World): void {
       w.held = null
 
       return held.then(() => ({ value }))
+    }
+    if (e.url.endsWith('/api/bridge/report')) {
+      w.reports.push(e.init?.body ?? '')
+
+      return { value: { status: 200, ok: true, headers: {}, text: '{"ok":true}' } }
     }
     if (e.url.endsWith('/api/bridge/typed')) {
       w.reported.push(e.init?.body ?? '')
@@ -681,7 +694,8 @@ describe('what the person answers on the worker board reaches the chat it is for
     await settle()
 
     // It says who asks: the chat's name and its session, so the board serves only the chat it shows under that name.
-    expect(w.fetched[0]).toEqual({ url: 'http://127.0.0.1:4311/api/bridge/take', key: KEY, body: '{"chat":"Units","session":"units"}' })
+    // Redesign Part 1: every take carries the chat's report of its turn state (idle since the session started).
+    expect(w.fetched[0]).toEqual({ url: 'http://127.0.0.1:4311/api/bridge/take', key: KEY, body: '{"chat":"Units","session":"units","report":{"state":"idle","since":0,"background":false}}' })
     expect(w.reported).toEqual(['{"chat":"Units","session":"units","typed":["m1"],"failed":[]}'])
     expect(w.typedIn).toEqual(['plugin:as the person:(answered on the worker board, 16:02) B14 "The walk": approved. Tick this step in the backlog.'])
 
@@ -2122,7 +2136,7 @@ describe('B463: a chat renamed while it runs', () => {
     w.waiting.push({ id: 'm1', text: '(answered on the worker board, 00:31) Q9 "The card": A' })
     await clock.advance(5000)
     await settled()
-    expect(w.fetched.at(-1)?.body).toBe('{"chat":"Sound","session":"units"}')
+    expect(w.fetched.at(-1)?.body).toBe('{"chat":"Sound","session":"units","report":{"state":"idle","since":0,"background":false}}')
     expect(w.typedIn).toEqual(['plugin:as the person:(answered on the worker board, 00:31) Q9 "The card": A'])
   })
 
@@ -2786,6 +2800,26 @@ describe('clear after each step', () => {
     expect(w.commanded).toEqual([])
   })
 
+  test('Redesign Part 1, Review Focus 1: the idle report goes out before the clear; while the clear runs the take is skipped, the report still goes every ping', async ($, on) => {
+    const clock = mock.clock(on)
+    const w = await worker($, on)
+    w.reports = []
+    await $.turn.complete({ ...ENDED, turnId: 't1' })
+    await wait(50)
+    expect(w.commanded).toEqual(['/clear by plugin folder-branches'])
+    expect(w.reports.map(body => JSON.parse(body).report.state)).toEqual(['idle'])
+    expect(w.reportsAtClear).toEqual([1])
+    // The clear is on its way until the conversation after it starts: no take, a report at every ping.
+    const takes = w.fetched.filter(one => one.url.endsWith('/api/bridge/take')).length
+    for (let i = 0; i < 3; i++) {
+      await clock.advance(5000)
+      await settle()
+    }
+    expect(w.fetched.filter(one => one.url.endsWith('/api/bridge/take')).length).toBe(takes)
+    expect(w.reports.length).toBe(4)
+    expect(w.reports.slice(1).map(body => JSON.parse(body))).toEqual(Array(3).fill({ chat: 'Units', session: 'units', report: { state: 'idle', since: 0, background: false } }))
+  })
+
   test('the model cannot ask for the log itself', async ($, on) => {
     mock.clock(on)
     const w = await worker($, on)
@@ -2870,5 +2904,120 @@ describe('clear after each step', () => {
     expect(w.commanded).toEqual([])
     expect(w.compactions).toEqual([])
     expect(fileOf(w)?.clearNote?.why).toBe('a subagent it started still runs (1)')
+  })
+})
+
+describe('Redesign Part 1: the chat reports its turn state to the board', () => {
+  const states = (w: World): string[] => w.reports.map(body => {
+    const report = (JSON.parse(body) as { report: { state: string; background: boolean } }).report
+    return report.background ? `${report.state}+background` : report.state
+  })
+  const FORM = { tool: 'AskUserQuestion', questions: [{ question: 'Which port?', header: 'Port', multiSelect: false, options: [{ label: '4320', description: 'free' }, { label: '4330', description: 'taken' }] }] }
+  async function joined($: Engine, on: On): Promise<{ w: World; clock: ReturnType<typeof mock.clock> }> {
+    const clock = mock.clock(on)
+    const w = world('units', { ...listed(), [BOARD]: board })
+    stand(on, w)
+    w.workAnswer = { status: 503, text: 'No work store.' }
+    await $.session.start(START)
+    await $.classic.UserPromptSubmit({ prompt: 'hello', session_title: 'Game - Units' })
+    await settle()
+    return { w, clock }
+  }
+
+  test("a turn's start reports busy at once, its end idle, each once, as the chat and its session, with the mod's version", async ($, on) => {
+    const { w, clock } = await joined($, on)
+    expect(w.reports).toEqual([])
+    await clock.advance(1000)
+    await $.turn.start({ text: 'go', turnId: 't1' })
+    await settle()
+    expect(w.reports.map(body => JSON.parse(body))).toEqual([{ chat: 'Units', session: 'units', report: { state: 'busy', since: 1000, background: false } }])
+    // A subagent's turn inside the chat's own changes nothing.
+    await $.turn.start({ text: 'look', turnId: 't2', agentId: 'a1' })
+    await $.turn.complete({ ...ENDED, turnId: 't2', agentId: 'a1' })
+    await settle()
+    expect(states(w)).toEqual(['busy'])
+    await clock.advance(2000)
+    await $.turn.complete({ ...ENDED, turnId: 't1' })
+    await settle()
+    expect(w.reports.map(body => JSON.parse(body).report)).toEqual([{ state: 'busy', since: 1000, background: false }, { state: 'idle', since: 3000, background: false }])
+    expect(w.modHeaders.every(one => one === MOD_VERSION)).toBe(true)
+  })
+
+  test('every take carries the report as it stands', async ($, on) => {
+    const { w, clock } = await joined($, on)
+    await clock.advance(5000)
+    await settle()
+    await $.turn.start({ text: 'go', turnId: 't1' })
+    await clock.advance(5000)
+    await settle()
+    const takes = w.fetched.filter(one => one.url.endsWith('/api/bridge/take')).map(one => JSON.parse(one.body).report)
+    expect(takes).toEqual([{ state: 'idle', since: 0, background: false }, { state: 'busy', since: 5000, background: false }])
+  })
+
+  test("a question to the person reports asking; the person's answer, busy again", async ($, on) => {
+    const { w } = await joined($, on)
+    await $.turn.start({ text: 'go', turnId: 't1' })
+    w.formAnswers = { 'Which port?': '4320' }
+    await $.tool.call(FORM as never)
+    await settle()
+    expect(states(w)).toEqual(['busy', 'asking', 'busy'])
+  })
+
+  test('Review Focus 4: a turn that ends while the question is open stays asking until the answer', async ($, on) => {
+    const { w } = await joined($, on)
+    await $.turn.start({ text: 'go', turnId: 't1' })
+    let answer = (): void => {}
+    w.formHold = new Promise<void>(resolve => {
+      answer = resolve
+    })
+    const asked = $.tool.call(FORM as never)
+    await settle()
+    expect(states(w)).toEqual(['busy', 'asking'])
+    await $.turn.complete({ ...ENDED, turnId: 't1' })
+    await settle()
+    expect(states(w)).toEqual(['busy', 'asking'])
+    // The answer comes with no turn running: the chat is idle.
+    answer()
+    await asked
+    await settle()
+    expect(states(w)).toEqual(['busy', 'asking', 'idle'])
+  })
+
+  test("background work still running at the turn's end (the Stop hook's list) reports idle with background", async ($, on) => {
+    const { w } = await joined($, on)
+    await $.turn.start({ text: 'go', turnId: 't1' })
+    await $.classic.Stop({ stop_hook_active: false, background_tasks: [{ id: 'b1', type: 'shell', status: 'running', description: 'npm test' }] } as never)
+    await $.turn.complete({ ...ENDED, turnId: 't1' })
+    await settle()
+    expect(states(w)).toEqual(['busy', 'idle+background'])
+    // Its end wakes the chat with a turn of its own; that turn's end, with nothing left running, is plain idle.
+    await $.turn.start({ text: '', turnId: 't2' })
+    await $.classic.Stop({ stop_hook_active: false, background_tasks: [] } as never)
+    await $.turn.complete({ ...ENDED, turnId: 't2' })
+    await settle()
+    expect(states(w)).toEqual(['busy', 'idle+background', 'busy', 'idle'])
+  })
+
+  test('a turn cut short says nothing of background work from an earlier turn', async ($, on) => {
+    const { w } = await joined($, on)
+    await $.turn.start({ text: 'go', turnId: 't1' })
+    await $.classic.Stop({ stop_hook_active: false, background_tasks: [{ id: 'b1', type: 'shell', status: 'running', description: 'npm test' }] } as never)
+    await $.turn.complete({ ...ENDED, turnId: 't1' })
+    await $.turn.start({ text: 'more', turnId: 't2' })
+    await $.turn.complete({ ...ENDED, reason: 'aborted', isAborted: true, turnId: 't2' })
+    await settle()
+    expect(states(w)).toEqual(['busy', 'idle+background', 'busy', 'idle'])
+  })
+
+  test('a chat that is not in the list reports nothing', async ($, on) => {
+    mock.clock(on)
+    const w = world('other', { ...listed(), [BOARD]: board })
+    stand(on, w)
+    await $.session.start(START)
+    await $.classic.UserPromptSubmit({ prompt: 'hello', session_title: 'Shopping list' })
+    await $.turn.start({ text: 'go', turnId: 't1' })
+    await $.turn.complete({ ...ENDED, turnId: 't1' })
+    await settle()
+    expect(w.reports).toEqual([])
   })
 })

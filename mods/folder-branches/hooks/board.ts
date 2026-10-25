@@ -7,6 +7,16 @@ export const BOARD_FILE = '.claude/board.json'
 /** Where the board hands out what waits for a chat, and where it is told what was typed. */
 export const TAKE_PATH = '/api/bridge/take'
 export const TYPED_PATH = '/api/bridge/typed'
+/**
+ * Redesign Part 1 (2026-10-24): where the mod tells the board this chat's turn state the moment it changes; every take
+ * (the 5-second ping) carries the same report.
+ */
+export const REPORT_PATH = '/api/bridge/report'
+/**
+ * Redesign Part 1: this chat's turn state: a turn runs (`busy`), it ended (`idle`, with `background` while background
+ * work it started still runs), or a question to the person is open (`asking`); `since` when it became so.
+ */
+export type TurnReport = { state: 'busy' | 'idle' | 'asking'; since: number; background: boolean }
 /** B297: where the work tool's calls go: the board's work store. */
 export const WORK_PATH = '/api/bridge/work'
 /** B412: the header that carries a work call's request id: the board answers a repeat of it the same way. */
@@ -16,7 +26,7 @@ export const REQUEST_HEADER = 'X-Work-Request'
  * chat that runs an older Workers mod than the one installed. The same as `version` in .claude-plugin/plugin.json.
  */
 export const MOD_HEADER = 'X-Workers-Mod'
-export const MOD_VERSION = '0.18.1'
+export const MOD_VERSION = '0.19.0'
 /** The longest text typed for the board: its own limit for an answer, with room for the request's name around it. */
 export const MOST_CHARS = 3000
 

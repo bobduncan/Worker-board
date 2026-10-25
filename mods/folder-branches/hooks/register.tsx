@@ -7,8 +7,8 @@ import { atom, read, update } from 'claude-code'
 import type { EngineInterface, FsEntry, Register, Timer } from 'claude-code'
 
 import type { BoardRole, ChatFile, ChatList, ChatRole, ChatRow, ChatsView, FolderRow, FoldersView } from '../types'
-import { BOARD_FILE, BOARD_NOTE, LAUNCH_FILE, MOD_HEADER, MOD_VERSION, REQUEST_HEADER, TAKE_PATH, TYPED_PATH, WORK_ACTIONS, WORK_FIELDS, WORK_PATH, boardStarts, isPaused, parseBoard, parsePause, parseTaken, pauseContexts, shownName, typedWhy } from './board'
-import type { Board, BoardStart, OwedClear, PauseState, PauseWhere } from './board'
+import { BOARD_FILE, BOARD_NOTE, LAUNCH_FILE, MOD_HEADER, MOD_VERSION, REPORT_PATH, REQUEST_HEADER, TAKE_PATH, TYPED_PATH, WORK_ACTIONS, WORK_FIELDS, WORK_PATH, boardStarts, isPaused, parseBoard, parsePause, parseTaken, pauseContexts, shownName, typedWhy } from './board'
+import type { Board, BoardStart, OwedClear, PauseState, PauseWhere, TurnReport } from './board'
 import {
   BEAT_MS, CHATS_DIR, LEFT_MAX_SIZE, LEFT_TEXT, LIST_FILE, afterTurn, atTurnStart, cardGap, cardOld, chatNote, clearWhy, clearedStart, compactKeep, compactWhy, chatText, chatsSummary, fileName,
   cardStep, foldersAbove, formAnswer, formQuestions, hasLeft, instructionsLine, isAgentId, isFiled, modNote, movedText, nameFromTitle, openFrom, orderChats, parseChat, personsWords, parseList, recordedLine, roleFrom, sessionOf, status, uniqueByName,
@@ -65,6 +65,15 @@ let lastBeat = 0
 let mine: Promise<unknown> = Promise.resolve()
 /** True while a turn of this session's main conversation runs, as this process saw it start and end. */
 let isInTurn = false
+/**
+ * Redesign Part 1: this chat's turn state as the board is told it, at once on every change (`setReport`) and with every
+ * take. The questions to the person still open (the chat stays asking until the last is answered), whether the Stop
+ * hook of the turn now ending listed background work still running, and since when a report at a ping is under way.
+ */
+let turnReport: TurnReport = { state: 'idle', since: 0, background: false }
+let openForms = 0
+let hasBackground = false
+let reportingSince: number | null = null
 /** This session as the list names it, as last read or written; null while it is not in the list. */
 let myself: { name: string; role: ChatRole } | null = null
 /**
@@ -406,13 +415,52 @@ async function say($: EngineInterface, state: ChatFile['state'], ended?: string)
   }
 }
 
+/**
+ * Redesign Part 1: the chat's turn state changed: the board is told at once, not awaited (no turn waits on the board; a
+ * report that does not arrive is carried by the next take, 5 s on). `background` counts for idle only.
+ */
+async function setReport($: EngineInterface, state: TurnReport['state'], background = false): Promise<void> {
+  const isBackground = state === 'idle' && background
+  if (turnReport.state === state && turnReport.background === isBackground) return
+  turnReport = { state, since: await $.clock.now(), background: isBackground }
+  void reportToBoard($)
+}
+
+/** Redesign Part 1: tells the board this chat's turn state now (`REPORT_PATH`), as this chat. It never throws. */
+async function reportToBoard($: EngineInterface): Promise<void> {
+  if (myself === null || chatsDir === null) return
+  try {
+    const project = chatsDir.slice(0, chatsDir.length - CHATS_DIR.length - 1)
+    const board = parseBoard(await $.fs.read(inFolder(project, BOARD_FILE)))
+    if (board !== null) await askBoard($, board, REPORT_PATH)
+  } catch {
+    // no board runs, or it did not answer: the next ping tells it
+  }
+}
+
+/**
+ * Redesign Part 1, Review Focus 1: the ping while no take goes (a clear on its way): the report alone, so a clear that
+ * takes longer than the board's `unknownAfterSeconds` does not turn the chat unknown. One at a time, as a take.
+ */
+async function pingReport($: EngineInterface): Promise<void> {
+  const now = await $.clock.now()
+  if (reportingSince !== null && now - reportingSince < TAKE_MS) return
+  reportingSince = now
+  try {
+    await reportToBoard($)
+  } finally {
+    if (reportingSince === now) reportingSince = null
+  }
+}
+
 /** Asks the board, as this chat: its name and its session, with the key from the board's file. */
 async function askBoard($: EngineInterface, board: Board, path: string, more: Record<string, unknown> = {}): Promise<string | null> {
   if (myself === null) return null
   const answer = await $.http.fetch(`${board.url}${path}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'X-Board-Key': board.key, [MOD_HEADER]: MOD_VERSION },
-    body: JSON.stringify({ chat: myself.name, session: await $.session.id(), ...more }),
+    // Redesign Part 1: a take (the ping) and a report carry the chat's turn state as it stands when they go out.
+    body: JSON.stringify({ chat: myself.name, session: await $.session.id(), ...more, ...(path === TAKE_PATH || path === REPORT_PATH ? { report: turnReport } : {}) }),
   })
   // B463: a chat renamed in the app learns its new name here, at the next take, whatever wakes it.
   if (answer.status === 409) await followShown($, answer.text)
@@ -766,7 +814,9 @@ async function reportTyped($: EngineInterface, board: Board, typed: string[], fa
  */
 async function takeFromBoard($: EngineInterface): Promise<void> {
   // Clear after each step: nothing is typed in while a clear is on its way: it waits for the conversation after it.
-  if (myself === null || chatsDir === null || clearing !== null || isDecidingClear) return
+  if (myself === null || chatsDir === null) return
+  // Redesign Part 1, Review Focus 1: the board still hears the chat's report at every ping meanwhile.
+  if (clearing !== null || isDecidingClear) return pingReport($)
   const now = await $.clock.now()
   if (isTaking && now - takingSince < TAKE_MS) return
   isTaking = true
@@ -1717,6 +1767,8 @@ export const register: Register = on => {
       name: 'workers',
       description: "Open the Workers pane: the project's chats, who is working on what, and whose turn it is",
     })
+    // Redesign Part 1: the session starts idle.
+    turnReport = { state: 'idle', since: await $.clock.now(), background: false }
     const view = await load($)
     ensureWatch($)
     const hasChats = await startChats($)
@@ -1807,6 +1859,11 @@ export const register: Register = on => {
       isCommandTurn = true
       return next(e)
     }
+    // Redesign Part 1: a turn of the chat's own reports busy (a question still open to the person keeps it asking).
+    if (e.agentId === undefined) {
+      hasBackground = false
+      if (openForms === 0) await setReport($, 'busy')
+    }
     // A turn that starts while one runs is a subagent's inside the chat's own: it starts nothing again.
     if (!isInTurn) {
       // Clear after each step: a real turn on the session a clear was decided for: the clear is dropped, its /clear refused.
@@ -1840,6 +1897,9 @@ export const register: Register = on => {
         isCommandTurn = false
       } else if (e.agentId === undefined) {
         isInTurn = false
+        // Redesign Part 1: idle the moment the turn ends, before any clear; with background work still running, so; a
+        // question still open to the person (Review Focus 4) keeps it asking until the answer.
+        if (openForms === 0) await setReport($, 'idle', hasBackground)
         await say($, 'waiting', e.reason)
         // B63: the step was reported in this turn (B301: `work report`) and the turn has ended: the moment a worker is
         // cleared or compacted (below). Its words are used up here, so neither a second end of the same turn nor a later
@@ -1891,12 +1951,23 @@ export const register: Register = on => {
     }
   })
 
+  // Redesign Part 1: the Stop hook of the chat's own turn lists the background work still running as the turn ends
+  // (shells, subagents, monitors, workflows); its end wakes the chat with a turn of its own.
+  on('classic.Stop', async ($, e, next) => {
+    if (e.agent_id === undefined) hasBackground = Array.isArray(e.background_tasks) && e.background_tasks.length > 0
+
+    return next(e)
+  })
+
   // A question to the person holds the turn: the list says whose move it is.
   // B299: each question is filed on the worker board as an ask of kind decide (the app's form: answered in the chat
   // only), under the step the card names when the board takes it there, so the board shows it too; once the form is
   // answered, or closed without an answer, the board is told.
   on('tool.call', { tool: 'AskUserQuestion' }, async ($, e, next) => {
     if (e.agentId !== undefined) return next(e)
+    // Redesign Part 1: asking until the person answers (or closes the form); then busy again, or idle when the turn ended.
+    openForms += 1
+    await setReport($, 'asking')
     await say($, 'asking')
     const filed = await fileForm($, e)
     let result: unknown
@@ -1907,6 +1978,8 @@ export const register: Register = on => {
       isAnswered = true
       return out
     } finally {
+      openForms -= 1
+      if (openForms === 0) await setReport($, isInTurn ? 'busy' : 'idle', hasBackground)
       // An interrupted turn has ended by now: its file is not set back to working.
       if (isInTurn) await say($, 'working')
       // Review of B299: a form that returned is answered, also in the person's own words; one closed unanswered goes.
