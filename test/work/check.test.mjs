@@ -6,6 +6,7 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 
 import { isTestFile, reportCheck } from '../../src/work/check.mjs'
+import { PLAIN_RULE } from '../../src/work/recapWords.mjs'
 
 /** A git that answers from a table of "<repo> <args>" lines; null where it has none. */
 /** B569: every report opens with its Context and Change in plain words, then the rest. */
@@ -254,8 +255,12 @@ test('B569: a result without its Context or Change, too long, or with files, cod
   assert.deepEqual(await faultsOf('The lamps glow.'), [
     'the result names no Context: open it with "Context: <1-3 short lines: what was wrong or missing, for someone who forgot> Change: <what the person gets now> Details: <the rest, for the check>"',
     'the result names no Change: after the Context, "Change: <what the person gets now>", then "Details:" and the rest',
+    PLAIN_RULE,
   ])
-  assert.deepEqual(await faultsOf('Context: The lamps were dark. Details: lamps.mjs'), ['the result names no Change: after the Context, "Change: <what the person gets now>", then "Details:" and the rest'])
+  // X50 (B624): said once, with a missing Context or a missing Change; a report with both is not told it.
+  assert.deepEqual(await faultsOf('Context: The lamps were dark. Details: lamps.mjs'), ['the result names no Change: after the Context, "Change: <what the person gets now>", then "Details:" and the rest', PLAIN_RULE])
+  assert.equal((await faultsOf('Context: The lamps were dark. Change: They glow. Details: lamps.mjs')).includes(PLAIN_RULE), false)
+  assert.match(PLAIN_RULE, /plain words.*no file names, code words, ids, commit hashes or placeholders.*"Details:"/)
   assert.match((await faultsOf('Change: They glow.'))[0], /^the result names no Context/)
   assert.deepEqual(await faultsOf(`Context: ${'dark '.repeat(61)}Change: They glow.`), ['the Context is 304 characters: at most 300, the rest goes after "Details:"'])
   assert.deepEqual(await faultsOf(`Context: Dark. Change: ${'glow '.repeat(101)}`), ['the Change is 504 characters: at most 500, the rest goes after "Details:"'])

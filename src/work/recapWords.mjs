@@ -15,6 +15,9 @@ const OLD_CHANGE_CHARS = 280
 /** How a report opens, as the refusal says it. */
 export const PARTS_LINE = 'Context: <1-3 short lines: what was wrong or missing, for someone who forgot> Change: <what the person gets now> Details: <the rest, for the check>'
 
+/** What a refusal for a missing Context or Change adds, so the next report is not refused for its words too. */
+export const PLAIN_RULE = 'the Context and the Change are in plain words, for someone who forgot: no file names, code words, ids, commit hashes or placeholders; those go after "Details:"'
+
 /** Where the Change ends: the technical rest, named or a "Tests bite:" line. */
 const REST = /\b(?:Details|Tests bite):/i
 
@@ -73,6 +76,8 @@ export function partsFaults(result) {
   const faults = []
   if (context === '') faults.push(`the result names no Context: open it with "${PARTS_LINE}"`)
   if (change === '') faults.push(`the result names no Change: after the Context, "Change: <what the person gets now>", then "Details:" and the rest`)
+  // X50 (B624): the refusal is where a worker reads the plain-words rule as it writes; said once, for both parts.
+  if (context === '' || change === '') faults.push(PLAIN_RULE)
   for (const [name, words, most] of [['Context', context, CONTEXT_CHARS], ['Change', change, CHANGE_CHARS]]) {
     if (words.length > most) faults.push(`the ${name} is ${words.length} characters: at most ${most}, the rest goes after "Details:"`)
     faults.push(...plainFaults(name, words))
