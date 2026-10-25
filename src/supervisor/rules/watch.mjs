@@ -481,7 +481,7 @@ function oddEffort(view) {
  * 12. B543 (the fix of X8: a step sat in review for 3 days behind a dropped fix, four more for hours behind a chain of
  * fixes): a step in review says what it waits for (resultCheck.mjs `reviewWaitOf`). Waiting for an open fix, or for the
  * person's answer, is no case. Stuck: no result check filed for longer than `reviewMinutes` (its first, or again after
- * its fix was done or its ask point answered; the repair `unchecked` types the check word meanwhile). A dropped fix is
+ * its fix was done or its ask point answered; the repair `unchecked` types the check word meanwhile), and its newest check word unanswered for over `checkWordMinutes` (B662). A dropped fix is
  * the rule `dropped-fix` (B630; its id apart from the repair `fix-dropped`, the supervisor keys rules by id). Counted from the end of the person's last pause.
  */
 function reviewStuck(view, ctx) {
@@ -497,6 +497,8 @@ function reviewStuck(view, ctx) {
     if (ms <= view.settings.reviewMinutes * MIN) continue
     const words = checkWordsOf(view, id, wait.since)
     const last = words.at(-1) ?? null
+    // B662 (X60): a check word typed again restarts the wait; one still waiting, or younger than `checkWordMinutes`, is no case yet.
+    if (last !== null && view.now - last.at <= view.settings.checkWordMinutes * MIN) continue
     found.push({
       rule: 'review-stuck', key, subject: id,
       text: `${id} in review ${minutes(ms)} min with no result check filed (${wait.text})`,
