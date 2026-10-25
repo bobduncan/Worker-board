@@ -451,7 +451,12 @@ plan to make the vision real, in the strategy the user chooses first.
       half; at most three floors, while the code has no maximum), written into the kind's definition of done (`Done:`);
     - its bar line in the kind's standard.
   - Only then does one last step combine the proven aspects into one thing of the kind, beside its target.
-  - Its Done when: every aspect has its verdict, guideline and bar line, and the combined thing meets the standard.
+  - The goal's very last step is a recap page (the user, 2026-10-25: "i want a recap before we move away from this
+    focus/goal so i can see each aspect it implement with proof screenshot and original target images"). For each
+    aspect it shows the target picture, the proof screenshots at play size, the verdict, the guideline and the bar
+    line, then the combined thing beside its target. The focus does not move on before the user has seen it.
+  - Its Done when: every aspect has its verdict, guideline and bar line, the combined thing meets the standard, and the
+    user has seen the recap.
 
 The check: a heading `## Goals
 preset`, a `### M<n> · <milestone>` per milestone of P7 (`M3+` for the open end), and under each three to six goals
