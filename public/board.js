@@ -10120,17 +10120,50 @@ const STRATEGIES = [['Playable first', 'a rough version of one path from start t
   ['Quality first', 'one small part at the final quality first, so the bar is set before you widen'],
   ['Foundation first', 'the systems and tools that are hard to change later, before the content'], ['Risk first', 'the hardest unknown first']]
 
-/** A plan change's label on a milestone or goal (2026-10-24), or null when it keeps it as it is. */
+/**
+ * A plan change's label on a milestone or goal (2026-10-24), or null when it keeps it as it is: one short word (the
+ * user, 2026-10-25: the long labels covered the titles); its whole words stand on the goal's card.
+ */
+const BADGE_WORDS = { new: 'New', drop: 'Drop', rename: 'Renamed', merge: 'Merged', split: 'Split', move: 'Moved' }
 function planBadge(change) {
   if (change === null || change === undefined || change.kind === 'keep') return null
-  const ids = String(change.text ?? '').match(/\b[GM]\d+\b/g) ?? []
-  if (change.kind === 'new') return { label: 'New', tone: 'new' }
-  if (change.kind === 'drop') return { label: 'Drop', tone: 'drop' }
-  if (change.kind === 'rename') return { label: 'Renamed', tone: 'change' }
-  if (change.kind === 'merge') return { label: `Merges ${ids.join(' and ')}`.trim(), tone: 'change' }
-  if (change.kind === 'split') return { label: `Splits ${ids[0] ?? ''}`.trim(), tone: 'change' }
-  if (change.kind === 'move') return { label: `Moved ${String(change.text ?? '').replace(/^\s*[GM]\d+\s*/, '')}`.trim(), tone: 'change' }
-  return { label: String(change.text ?? '').trim() || change.kind, tone: 'change' }
+  return { label: BADGE_WORDS[change.kind] ?? 'Changed', tone: change.kind === 'new' ? 'new' : change.kind === 'drop' ? 'drop' : 'change' }
+}
+
+/**
+ * The goal map's goal a plan goal goes into (2026-10-25, the user: "i cant see which goals belong to which
+ * milestone"): "merge G23 into G41" or "move G43 under G6" on the goal that is G23 or G43; null for a goal of its own.
+ */
+function absorbedInto(goal) {
+  const change = goal.change ?? null
+  if (change === null || !['merge', 'move'].includes(change.kind) || (goal.goal ?? null) === null) return null
+  return String(change.text ?? '').match(new RegExp(`^${goal.goal}\\s+(?:into|under)\\s+(G\\d+)`))?.[1] ?? null
+}
+
+/**
+ * The last look (2026-10-25, the user: "1 massive section of text and is not readable"): today's words only, without
+ * the earlier looks after "Before:", as a headline and short points.
+ */
+function planLook(text) {
+  const today = String(text ?? '').split(/\s+Before:\s/)[0].trim()
+  const at = today.indexOf(': ')
+  const head = (at < 0 ? today.split(/\.\s+/)[0] : today.slice(0, at)).trim().replace(/\.$/, '')
+  const rest = at < 0 ? today.slice(head.length) : today.slice(at + 2)
+  // A point ends at "; " or at ". " before a capital, never inside brackets ("(maps; feel; sound)" stays one point).
+  const points = []
+  let depth = 0
+  let from = 0
+  for (let index = 0; index < rest.length; index += 1) {
+    const char = rest[index]
+    if (char === '(') depth += 1
+    else if (char === ')') depth = Math.max(0, depth - 1)
+    else if (depth === 0 && (char === ';' || (char === '.' && /^\s+[A-Z0-9]/.test(rest.slice(index + 1, index + 3)))) && /\s/.test(rest[index + 1] ?? '')) {
+      points.push(rest.slice(from, index))
+      from = index + 1
+    }
+  }
+  points.push(rest.slice(from))
+  return { head, points: points.map(one => one.trim().replace(/\.$/, '').trim()).filter(Boolean) }
 }
 /** A feature's marks (the user, 2026-10-21: the milestones do not exist yet on the Features step; the plan places it). */
 const MARK_LABELS = [['must', 'Must'], ['later', 'Later'], ['no', 'No'], ['unsure', '?']]
@@ -10196,6 +10229,9 @@ function visionView(plan, ui = { page: 'vision', at: 0, picked: {}, change: null
   }
   const standards = plan.standards ?? []
   const goalsOfPreset = milestones.flatMap(one => one.goals)
+  // 2026-10-25: a goal merged into another goal of the plan, or moved under it, is part of that goal: no card, no slide.
+  const planGoalOf = new Map(goalsOfPreset.filter(one => (one.goal ?? null) !== null).map(one => [one.goal, one]))
+  const absorbedBy = new Map(goalsOfPreset.map(one => [one.id, planGoalOf.get(absorbedInto(one))?.id ?? null]).filter(([, target]) => target !== null))
   const titleOf = id => features.find(one => one.id === id)?.name ?? goalsOfPreset.find(one => one.id === id)?.title ?? standards.find(one => one.id === id)?.title ?? id
   const questionsOf = isAbout => questions.filter(one => !plan.answers.some(answer => answer.id === one.about) && isAbout(one.about))
   // Features: the partner's questions, then a feature not placed yet: in which milestone does it come?
@@ -10218,7 +10254,7 @@ function visionView(plan, ui = { page: 'vision', at: 0, picked: {}, change: null
   }
   // The plan: the partner's questions, then a goal it proposed.
   for (const question of questionsOf(about => /^S/.test(about))) slides.push(questionSlide(question, ui, titleOf(question.about)))
-  for (const goal of goalsOfPreset.filter(one => one.state !== 'confirmed' && one.state !== 'later')) {
+  for (const goal of goalsOfPreset.filter(one => one.state !== 'confirmed' && one.state !== 'later' && !absorbedBy.has(one.id))) {
     decide({ id: goal.id, step: 'plan', title: goal.title, question: `Is this a goal: ${goal.title}?`, points: [goal.doneWhen === '' ? null : `**Done when:** ${goal.doneWhen}`, goal.why ? `**Why:** ${goal.why}` : null, ...goal.subs].filter(Boolean), pictures: goal.pictures,
       actions: [{ label: 'Confirm', act: 'confirm-goal-now', id: goal.id, isPrimary: true }, { label: 'Change', act: 'change', id: goal.id }] })
   }
@@ -10290,9 +10326,10 @@ function visionView(plan, ui = { page: 'vision', at: 0, picked: {}, change: null
     id: one.id, title: one.title,
     // 2026-10-24: a plan change's label and cause on the milestone and on each goal; where a goal's steps go.
     badge: planBadge(one.change ?? null), cause: one.cause ?? '',
-    goals: one.goals.map(item => ({
+    goals: one.goals.filter(item => !absorbedBy.has(item.id)).map(item => ({
       id: item.id, title: item.title, doneWhen: item.doneWhen, serves: item.serves, pictures: item.pictures, subs: item.subs, goal: item.goal, why: item.why ?? '',
-      badge: planBadge(item.change ?? null), cause: item.cause ?? '', steps: item.steps ?? '',
+      badge: planBadge(item.change ?? null), cause: item.cause ?? '', steps: item.steps ?? '', changeText: item.change === null || item.change === undefined ? '' : `${item.change.kind === 'other' ? '' : `${item.change.kind} `}${item.change.text}`.trim(),
+      takesIn: goalsOfPreset.filter(other => absorbedBy.get(other.id) === item.id).map(other => ({ id: other.id, title: other.title })),
       state: item.state === 'confirmed' ? 'confirmed' : confirms.includes(item.id) ? 'confirming' : item.state === 'later' ? 'later' : 'proposed', source: visionSource(item), slide: slideOf(item.id),
     })),
   }))
@@ -11229,8 +11266,24 @@ function planPage(view, can, off) {
   } else counts.append(visionButton('Recommend again', 'check-plan', { isEnabled: can && waiting.length === 0, title: waiting.length > 0 ? 'Decide the tradeoffs on step 2 first.' : off }))
   head.append(counts)
   if (check !== null) {
-    const last = el('p', 'vision-check muted')
-    last.append(el('b', '', `Last look${check.at === null ? '' : ` (${check.at})`}: `), document.createTextNode(check.text))
+    // 2026-10-25 (the user: "1 massive section of text"): today's look only, a headline and its points.
+    const look = planLook(check.text)
+    const last = el('div', 'plan-look')
+    const said = el('p', '')
+    said.append(el('b', '', `Last look${check.at === null ? '' : ` (${check.at})`}: `), document.createTextNode(look.head))
+    last.append(said)
+    if (look.points.length > 0) {
+      const list = el('ul', '')
+      for (const point of look.points.slice(0, 6)) list.append(el('li', '', point))
+      last.append(list)
+    }
+    if (look.points.length > 6) {
+      const more = el('details', '')
+      const list = el('ul', '')
+      for (const point of look.points.slice(6)) list.append(el('li', '', point))
+      more.append(el('summary', 'muted', `${look.points.length - 6} more`), list)
+      last.append(more)
+    }
     head.append(last)
   }
   parts.push(head)
@@ -11295,29 +11348,41 @@ function planStrategyChoice(view, can, off) {
   return box
 }
 
-/** The overview (2026-10-24, the user: "i need an highover overview as wel"): milestone, its goals, their sub-goals in one line. */
+/**
+ * The overview (2026-10-24, the user: "i need an highover overview as wel"; 2026-10-25: "i cant see which goals belong
+ * to which milestone and which goals have subgoals"): one tree per milestone, its goals under it, each goal's sub-goals
+ * under the goal; a goal merged into another stands inside it. A click on a goal shows its card.
+ */
 function planOverview(milestones) {
   const box = el('section', 'vision-extra plan-overview')
   box.append(el('p', 'plan-overview-title', 'Overview · click a goal to see its card'))
   for (const milestone of milestones) {
-    const row = el('div', 'plan-ov-row')
-    const node = el('div', 'plan-ov-milestone')
-    node.append(el('b', '', `${milestone.id} · ${milestone.title}`))
-    if (milestone.badge !== null) node.append(planBadgeEl(milestone.badge))
-    const goals = el('div', 'plan-ov-goals')
+    const band = el('div', 'plan-tree')
+    const head = el('div', 'plan-tree-head')
+    head.append(el('b', '', `${milestone.id} · ${milestone.title}`))
+    if (milestone.badge !== null) head.append(planBadgeEl(milestone.badge))
+    head.append(el('span', 'muted', `${milestone.goals.length} goal${milestone.goals.length === 1 ? '' : 's'}`))
+    const goals = el('ul', 'plan-tree-goals')
     for (const goal of milestone.goals) {
-      const line = el('div', 'plan-ov-goal')
-      const button = el('button', `plan-ov-node is-${goal.state}`)
-      button.type = 'button'
-      button.dataset.visionAct = 'show-goal'
-      button.dataset.visionId = goal.id
-      button.append(el('span', 'plan-ov-id', goal.id), el('span', 'plan-ov-title', goal.title))
-      if (goal.badge !== null) button.append(planBadgeEl(goal.badge))
-      line.append(button, el('span', 'plan-ov-subs muted', goal.subs.length === 0 ? 'no sub-goals' : goal.subs.map((sub, at) => `${at + 1} ${sub}`).join('  ·  ')))
-      goals.append(line)
+      const item = el('li', `plan-tree-goal is-${goal.state}`)
+      const node = el('button', 'plan-tree-node')
+      node.type = 'button'
+      node.dataset.visionAct = 'show-goal'
+      node.dataset.visionId = goal.id
+      if (goal.changeText !== '') node.title = goal.changeText
+      node.append(el('span', 'plan-ov-id', goal.id), el('span', 'plan-tree-title', goal.title))
+      if (goal.badge !== null) node.append(planBadgeEl(goal.badge))
+      item.append(node)
+      if (goal.takesIn.length > 0) item.append(el('p', 'plan-tree-takes muted', `takes in ${goal.takesIn.map(one => `${one.id} ${one.title}`).join(' · ')}`))
+      if (goal.subs.length > 0) {
+        const subs = el('ol', 'plan-tree-subs')
+        for (const sub of goal.subs) subs.append(el('li', '', sub))
+        item.append(subs)
+      }
+      goals.append(item)
     }
-    row.append(node, goals)
-    box.append(row)
+    band.append(head, goals)
+    box.append(band)
   }
   return box
 }
@@ -11347,6 +11412,16 @@ function planGoalCard(goal, can, off) {
     body.append(list)
   }
   if (goal.why !== '') body.append(el('p', 'vision-meta', `Why: ${goal.why}`))
+  if (goal.changeText !== '') {
+    const change = el('p', 'vision-meta')
+    change.append(el('b', '', 'Change: '), document.createTextNode(goal.changeText))
+    body.append(change)
+  }
+  if (goal.takesIn.length > 0) {
+    const takes = el('p', 'vision-meta')
+    takes.append(el('b', '', 'Takes in: '), document.createTextNode(goal.takesIn.map(one => `${one.id} ${one.title}`).join(' · ')))
+    body.append(takes)
+  }
   if (goal.cause !== '') {
     const cause = el('p', 'vision-meta')
     cause.append(el('b', '', 'Because: '), document.createTextNode(goal.cause))
