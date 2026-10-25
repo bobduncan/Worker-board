@@ -11288,6 +11288,16 @@ function planPage(view, can, off) {
   }
   parts.push(head)
   if (milestones.length === 0) return [...parts, el('p', 'vision-empty', view.busy.strategy || view.busy.check ? 'Your partner is laying the plan: its milestones and goals come here.' : view.goals.onlyChanges ? 'Nothing changes in this plan.' : 'No goals yet: Recommend again, and your partner lays them per milestone.')]
+  // Your words on the whole plan, first (the user, 2026-10-25: "how do i provide feedback based on the current plan?").
+  if (!visionUi.changingStrategy) {
+    const words = el('section', 'vision-extra plan-feedback')
+    words.append(el('h3', '', 'What would you change in this plan?'),
+      visionBox('vision-extra-words', 'In your own words: a goal missing, two to merge, fewer goals in M1, another order... Your partner proposes the plan anew.', 3, can))
+    const send = el('div', 'vision-foot-buttons')
+    send.append(el('span', 'grow'), visionButton('Send to your partner', 'goals-change', { className: 'is-primary', isEnabled: can && !view.busy.goalsChange, title: view.busy.goalsChange ? 'Your partner is still proposing the changed plan.' : off }))
+    words.append(send)
+    parts.push(words)
+  }
   parts.push(planOverview(milestones))
   if (pending.length > 0) {
     const bar = el('div', 'vision-pending')
@@ -11305,11 +11315,8 @@ function planPage(view, can, off) {
     parts.push(section)
   }
   const extra = el('section', 'vision-extra')
-  extra.append(el('h3', '', 'What would you change in this plan?'),
-    visionBox('vision-extra-words', 'In your own words: a goal missing, two to merge, another order... Your partner proposes the plan anew.', 3, can))
   const buttons = el('div', 'vision-foot-buttons')
-  buttons.append(visionButton('Put the confirmed goals in my goal map', 'goals-agree', { isEnabled: can && !view.busy.agree, title: view.busy.agree ? 'Your partner is putting them in your goal map now.' : off }),
-    visionButton('Send to your partner', 'goals-change', { className: 'is-primary', isEnabled: can && !view.busy.goalsChange, title: view.busy.goalsChange ? 'Your partner is still proposing the changed plan.' : off }))
+  buttons.append(el('span', 'grow'), visionButton('Put the confirmed goals in my goal map', 'goals-agree', { className: 'is-primary', isEnabled: can && !view.busy.agree, title: view.busy.agree ? 'Your partner is putting them in your goal map now.' : off }))
   extra.append(buttons)
   parts.push(extra)
   return parts

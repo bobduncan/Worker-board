@@ -537,3 +537,9 @@ test('the plan reads as a tree: merged goals inside the goal that takes them in,
   assert.deepEqual(look.points, ['five stages, each one you play and judge', 'M1 the structure checked', 'M2 World 1 at every bar', 'M3 the fights'])
   assert.deepEqual(JSON.parse(JSON.stringify(made.planLook('Nothing changed: the plan stands'))), { head: 'Nothing changed', points: ['the plan stands'] })
 })
+
+test('your words on the whole plan come first on the Plan step, above the overview (2026-10-25)', () => {
+  const page = script.slice(script.indexOf('function planPage('), script.indexOf('function planBadgeEl('))
+  assert.ok(page.indexOf("'What would you change in this plan?'") < page.indexOf('planOverview(milestones)'))
+  assert.ok(page.indexOf("'Put the confirmed goals in my goal map'") > page.indexOf('planOverview(milestones)'))
+})
