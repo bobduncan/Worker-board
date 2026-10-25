@@ -3835,8 +3835,9 @@ cannot.
 
 - `wakerFor(state, target, outbox, now)` (`src/say.mjs`) names the chat that carries the `start "<target>"` word: the main
   chat when it runs, else the partner, else another chat that runs (the workers and the partner's helper, free ones first,
-  then busy ones; the supervisor's chat last). Never the target, never a leftover. A chat that holds an untaken start for
-  that target, sent in the last ten minutes, is skipped. Null when none runs.
+  then busy ones; the supervisor's chat last). Never the target, never a leftover. A chat asked to start that target in
+  the last half hour (its word waits, or it took it and the target did not start; not one closed because the target
+  runs) is passed over; when every running chat was asked, the first again. Null when none runs.
 - `wakeFor` keeps its guards (not again within two minutes; not while an earlier start waits, for ten) and its filter for
   words to other chats (a line typed on the board, a partner word, a sweep). New: every word to the main chat that waits
   while the main chat is known not to run wakes it the same way, whatever its command, and the main chat being off no
@@ -3847,9 +3848,9 @@ cannot.
 - `state.nobodyRuns` (`{ since, chats }`, `nobodyRunsOf`): words the board wakes a chat for wait for chats that are off and
   every chat of the board is known not to run (an unknown one says nothing: the board does not guess). The page shows one
   line under Needs your attention, in the attention colour, and it goes as soon as a chat runs.
-- Known limit: the ten-minute guard on `about` is unchanged, so through `wakeFor` a start word that still waits for a busy chat
-  holds the next one back for ten minutes, and the skip (also ten minutes) has lapsed by then: the same chat is asked again.
-  The skip acts in `wakerFor` itself; to reach the next chat sooner the skip window would have to outlast the guard.
+- Retry: a start that did not wake its chat in ten minutes (the guard on `about`) is asked again by `wakesDue`, and
+  `wakerFor` passes over the chat asked before, so the next running chat carries it. A waker that is busy, or took the
+  word and did not carry it out, no longer leaves the words waiting for good.
 
 ## What it does not do
 

@@ -172,10 +172,12 @@ test('words sent while the main chat did not run either are followed by the star
   assert.deepEqual(wakesDue(mainDown, words, 5000, 2000).map(start => [start.to, start.command, start.about]), [['Levels', 'start', 'Units'], ['Levels', 'start', 'Advisor']])
   const allDown = { ...mainDown, chats: mainDown.chats.map(chat => (chat.name === 'Levels' ? { ...chat, isRunning: false } : chat)) }
   assert.deepEqual(wakesDue(allDown, words, 5000, 2000), [])
-  // Asked since the oldest word that waits: not again, also when that ask failed (its button stays on the page).
+  // Asked since the oldest word that waits: not again for ten minutes. T9.4 (requests never get lost): this used to be
+  // never again, also when that ask failed; now an ask that did not wake the chat in ten minutes is asked again.
   for (const state of ['waiting', 'delivered', 'failed']) {
     const asked = { id: 's1', at: 1050, to: 'Main', command: 'start', about: 'Units', text: 'start "Units"', state }
-    assert.deepEqual(wakesDue(down, [...words, asked], 5000 + 60 * 60_000, 2000).map(start => start.about), ['Advisor'])
+    assert.deepEqual(wakesDue(down, [...words, asked], 5000 + 5 * 60_000, 2000).map(start => start.about), ['Advisor'], state)
+    assert.deepEqual(wakesDue(down, [...words, asked], 5000 + 60 * 60_000, 2000).map(start => start.about), ['Units', 'Advisor'], state)
   }
   // An ask from before the oldest word does not count: the word came after it (past wakeFor's two minutes).
   const before = { id: 's0', at: 900, to: 'Main', command: 'start', about: 'Units', text: 'start "Units"', state: 'delivered' }

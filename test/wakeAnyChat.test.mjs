@@ -104,18 +104,30 @@ test('(e) no chat runs: no start word, and the state names the chats that wait',
   assert.equal(nobodyRunsOf(board(), []), null)
 })
 
-test('(f) a waker that holds an untaken start for the target is skipped, so a busy waker does not block the wake-up', () => {
+test('(f) a chat asked lately to start the target is passed over, so a busy or forgetful waker does not block the wake-up', () => {
   const state = board({ running: ['Main', 'Advisor', 'Worker 2'] })
   const asked = to => [start(to, 'Worker 3')]
   assert.equal(wakerFor(state, 'Worker 3', asked('Main'), NOW), 'Advisor')
   assert.equal(wakerFor(state, 'Worker 3', [...asked('Main'), ...asked('Advisor')], NOW), 'Worker 2')
-  assert.equal(wakerFor(state, 'Worker 3', [...asked('Main'), ...asked('Advisor'), ...asked('Worker 2')], NOW), null)
-  // Only a start that still waits, for this target, and sent in the last ten minutes, is skipped.
-  assert.equal(wakerFor(state, 'Worker 3', [start('Main', 'Worker 3', { state: 'delivered' })], NOW), 'Main')
-  assert.equal(wakerFor(state, 'Worker 3', [start('Main', 'Worker 3', { state: 'taken' })], NOW), 'Main')
-  assert.equal(wakerFor(state, 'Worker 3', [start('Main', 'Worker 3', { at: NOW - 11 * MIN })], NOW), 'Main')
+  // Every running chat was asked: the first again, since a repeat beats a word that waits for nobody.
+  assert.equal(wakerFor(state, 'Worker 3', [...asked('Main'), ...asked('Advisor'), ...asked('Worker 2')], NOW), 'Main')
+  // Asked in the last half hour, whether its word still waits or it took it and the target did not start: passed over.
+  for (const held of ['waiting', 'taken', 'delivered', 'failed']) assert.equal(wakerFor(state, 'Worker 3', [start('Main', 'Worker 3', { state: held, at: NOW - 20 * MIN })], NOW), 'Advisor', held)
+  // Not when the ask is older, was closed because the target runs, was for another chat or was no start.
+  assert.equal(wakerFor(state, 'Worker 3', [start('Main', 'Worker 3', { at: NOW - 31 * MIN })], NOW), 'Main')
+  assert.equal(wakerFor(state, 'Worker 3', [start('Main', 'Worker 3', { state: 'dropped' })], NOW), 'Main')
   assert.equal(wakerFor(state, 'Worker 3', [start('Main', 'Worker 4')], NOW), 'Main')
   assert.equal(wakerFor(state, 'Worker 3', [{ ...start('Main', 'Worker 3'), command: 'work' }], NOW), 'Main')
+})
+
+test('(i) a start that did not wake the chat in ten minutes is asked again, of the next chat; one on its way is not', () => {
+  const state = board({ running: ['Main', 'Advisor'] })
+  const waiting = word('Worker 3', { at: NOW - 15 * MIN })
+  // Main took the word twelve minutes ago and Worker 3 still does not run: the Advisor is asked now.
+  const again = wakesDue(state, [waiting, start('Main', 'Worker 3', { at: NOW - 12 * MIN, state: 'taken' })], NOW, MAX)
+  assert.deepEqual(again.map(one => [one.to, one.about]), [['Advisor', 'Worker 3']])
+  // Five minutes ago: still on its way, nothing more.
+  assert.deepEqual(wakesDue(state, [waiting, start('Main', 'Worker 3', { at: NOW - 5 * MIN, state: 'taken' })], NOW, MAX), [])
 })
 
 test('(g) the target never wakes itself, and a leftover never carries a word', () => {

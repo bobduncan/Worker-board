@@ -626,21 +626,23 @@ function wakerOrder(state, target) {
   ].filter(chat => chat !== undefined)
 }
 
+/** T9.4: a chat asked this recently to start a target is passed over when the target has to be asked for again. */
+const WAKER_AGAIN_MS = 30 * 60_000
+
 /**
  * T9.4: the chat that carries the start word for `target` (a chat that is not running): the main chat when it runs, else
  * the partner when it runs, else another running chat of the board (a free one first, a busy one after, the supervisor's
- * last). Only a running chat can start another (the app's session tools; the board cannot). A chat that holds an untaken
- * start word for this target, sent in the last ten minutes, is skipped, so a busy waker does not block the wake-up: the next
- * pass picks the next one. Its name, or null when no chat runs (or every one that does holds a start word already).
+ * last). Only a running chat can start another (the app's session tools; the board cannot). A chat asked to start this
+ * target in the last half hour (its word still waits, or it took it and the target did not start; a word closed because
+ * the target runs does not count) is passed over, so a retry goes to the next one; when every running chat was asked,
+ * the first is asked again: a repeat is better than a word that waits for nobody. Its name, or null when no chat runs.
  * `outbox` is what was sent before.
  */
 export function wakerFor(state, target, outbox, now) {
-  for (const chat of wakerOrder(state, target)) {
-    if (chat.isRunning !== true) continue
-    const holdsStart = outbox.some(sent => sent.command === 'start' && sent.to === chat.name && sent.about === target && sent.state === 'waiting' && now - sent.at < WAKE_PENDING_MS)
-    if (!holdsStart) return chat.name
-  }
-  return null
+  const running = wakerOrder(state, target).filter(chat => chat.isRunning === true)
+  const askedLately = chat => outbox.some(sent => sent.command === 'start' && sent.to === chat.name && sent.about === target
+    && sent.state !== 'dropped' && Number.isFinite(sent.at) && now - sent.at < WAKER_AGAIN_MS)
+  return (running.find(chat => !askedLately(chat)) ?? running[0])?.name ?? null
 }
 
 /**
@@ -687,8 +689,10 @@ export function wakeFor(message, state, outbox, now, maxChars) {
  * asked: they were sent while no chat could carry the start word (`wakeFor` asks nothing then), so they waited unseen
  * until a chat was opened by hand (2026-10-21: three words to the Advisor waited 09:46 to 10:57; T9.4, 2026-10-25: words
  * to the main chat and a start of Worker 3 waited 15 minutes). One start word per chat, through `wakeFor`; none for a chat
- * that was asked to be started since its oldest word that waits, also when that ask failed (the page's button asks
- * again). `outbox` is everything sent, in order, with what waited too long marked "expired".
+ * that was asked to be started since its oldest word that waits, in the last ten minutes. T9.4 (requests never get lost):
+ * an ask older than that, while the chat still does not run, is asked again, of the next chat (`wakerFor`), so a waker
+ * that took the word and did not carry it out does not leave the words waiting for good. `outbox` is everything sent, in
+ * order, with what waited too long marked "expired".
  */
 export function wakesDue(state, outbox, now, maxChars) {
   const seen = new Set()
@@ -696,7 +700,7 @@ export function wakesDue(state, outbox, now, maxChars) {
   for (const message of outbox) {
     if (message.state !== 'waiting' || seen.has(message.to)) continue
     seen.add(message.to)
-    if (outbox.some(sent => sent.command === 'start' && sent.about === message.to && sent.at >= message.at)) continue
+    if (outbox.some(sent => sent.command === 'start' && sent.about === message.to && sent.at >= message.at && now - sent.at < WAKE_PENDING_MS)) continue
     // B173: a round is the board's own word to the Advisor; it wakes its chat as a message does.
     const start = wakeFor(message.command === 'round' ? { ...message, command: null } : message, state, outbox, now, maxChars)
     if (start !== null) starts.push(start)
