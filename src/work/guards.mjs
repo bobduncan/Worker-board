@@ -29,6 +29,28 @@ export const blockersOpen = (item, ctx) => [...new Set([...idsIn(valueOf(item, '
 /** B306: nothing holds the step: no id it is blocked by or waits for is open, and no words wait to be cleared. */
 const isFree = (item, ctx) => blockersOpen(item, ctx).length === 0 && waitWords(item) === null
 
+/**
+ * Redesign Part 2 (2026-10-25): why a refined step is not ready for a worker, in one line, or null when it is: its refine
+ * is not ready, an id it is blocked by or waits for is open, words it waits for are not cleared, an ask under it with
+ * Blocking yes is open, or (B309) an ask under it counts as a refine question still (open, or answered and not folded in).
+ */
+export function readyHold(item, ctx) {
+  if (valueOf(item, 'Refined') !== 'ready') return 'its refine is not ready'
+  const items = ctx.store?.items ?? new Map()
+  const open = blockersOpen(item, ctx)
+  if (open.length > 0) return `blocked by ${open.map(id => `${id} (${items.has(id) ? valueOf(items.get(id), 'State') : 'not in the store'})`).join(', ')}`
+  if (waitWords(item) !== null) return `waits for: ${waitWords(item)}`
+  const blocking = asksOf(item, ctx).filter(ask => isOpen(ask) && valueOf(ask, 'Blocking') === 'yes').map(ask => valueOf(ask, 'Id'))
+  if (blocking.length > 0) return `waits for the answer to ${blocking.join(', ')}`
+  const asks = refineAsksOf(items, item)
+  if (asks.length === 0) return null
+  const unanswered = asks.filter(one => one.answer === null).map(one => one.id)
+  return unanswered.length > 0 ? `waits for the answer to ${unanswered.join(', ')}` : `waits for the partner to fold in the answer to ${asks.map(one => one.id).join(', ')}`
+}
+
+/** Redesign Part 2: a refined step the board may hand out, but for its standard and who is free (`readyHold`). */
+export const isReady = (item, ctx) => readyHold(item, ctx) === null
+
 export const GUARDS = {
   'refined is ready': item => valueOf(item, 'Refined') === 'ready',
   // B303: the main chat (or the person) asked to queue it before its refine: the board queues it once it is refined.
