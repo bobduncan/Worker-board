@@ -2253,6 +2253,26 @@ function laneFlags(lane, restart = null) {
 }
 // laneflags:end
 
+// offwork:start
+/**
+ * A worker whose chat does not run: whether it holds work, and its lane's line. Work is a store step taken, in progress
+ * or waiting on the person with it as Owner (`lane.storeSteps`), or a ready task pinned to it (`state.readyList`). One
+ * that holds none is no problem: nothing waits for it and the board starts it when work comes (`isIdle`, a muted line).
+ * One that holds work says what waits for it, and whether the board asked `main` to start it. Null for any other lane.
+ */
+function offWorkOf(lane, state, main) {
+  if (lane?.state !== 'off' || lane.isLeftover === true) return null
+  const name = String(lane.name ?? '').trim().toLowerCase()
+  const held = (lane.storeSteps ?? []).filter(one => ['taken', 'in progress', 'waiting on you'].includes(one.state)).map(one => one.id)
+  const pinned = (state?.readyList?.ready ?? []).filter(one => typeof one.pinned === 'string' && one.pinned.trim().toLowerCase() === name).map(one => one.id)
+  const waits = [...new Set([...held, ...pinned])]
+  if (waits.length === 0) return { isIdle: true, waits, text: 'Not running, nothing waits for it' }
+  const isAsked = (state?.restart?.starting ?? []).some(one => one.chat === lane.name && ['waiting', 'taken', 'delivered', 'copied'].includes(one.state))
+  const what = `${waits.join(', ')} ${waits.length === 1 ? 'waits' : 'wait'} for it`
+  return { isIdle: false, waits, text: isAsked ? `${what}; the board asked ${main} to start it.` : `${what}: it does nothing until its chat is opened, or ${main} starts it (Resume all).` }
+}
+// offwork:end
+
 /**
  * The model chip for a view of `runChipOf` (runchip): a small label, "Opus · extra high", in the colour of its model;
  * while a switch is pending it adds an arrow and the setting the step needs, with a dashed edge. The tooltip says what
@@ -2347,7 +2367,10 @@ function drawLane(lane, state) {
   // B307: one line: the task, or since when it is free. What it does now and why it counts as working between two
   // turns are in the task's tooltip and in the details "⋯" unfolds.
   const what = el('div', 'what')
-  const task = lane.task
+  // An off worker that holds no work is quiet: no task, no bar, no alert, nothing red in its Process column.
+  const offWork = offWorkOf(lane, state, main)
+  const isQuietOff = offWork?.isIdle === true
+  const task = isQuietOff ? null : lane.task
   const more = [
     lane.state === 'working' && (lane.doingNow ?? null) !== null ? `Now: ${lane.doingNow}` : null,
     lane.state === 'working' && (lane.between ?? null) !== null ? `Between turns: ${lane.between.replace(/^Its turn has ended; /, '')}` : null,
@@ -2383,8 +2406,8 @@ function drawLane(lane, state) {
   else if (hasSteps) progress.append(el('small', 'progress-count', `${task.step} of ${task.steps}`))
   else if (task !== null) progress.append(el('small', 'progress-count', 'no steps given'))
   if (lane.state === 'interrupted') what.append(el('p', 'alert', lane.report?.state === 'idle' ? 'Idle with its task open: its turn ended before its task was reported; it does nothing until it is woken.' : 'Cut off in the middle of its turn: it does nothing until it is resumed.'))
-  // B315: its card still says working from before the app was quit; its process has not run since.
-  if (lane.state === 'off') what.append(el('p', 'alert', `Its chat is not running: it does nothing until its chat is opened, or ${board?.workers?.mainTitle ?? 'the main chat'} starts it (Resume all).`))
+  // B315: its process does not run. With work it waits for, that is the alarm; without, a muted line.
+  if (offWork !== null) what.append(el('p', isQuietOff ? 'off-idle' : 'alert', offWork.text))
   if (lane.state === 'suspended') what.append(el('p', `held${lane.suspended.isBack ? ' is-back' : ''}`, heldText(lane.suspended)))
   if (lane.state === 'waiting') {
     // B100: the lane opens what it waits for; the line is a button, so the keyboard reaches it too.
@@ -2394,7 +2417,7 @@ function drawLane(lane, state) {
     open.append(el('small', '', 'see and answer ›'))
     what.append(open)
   }
-  const alerts = alertsOf(lane, state)
+  const alerts = isQuietOff ? [] : alertsOf(lane, state)
   if (alerts.length > 0) what.append(el('p', 'alert', alerts.join(' · ')))
   for (const flag of laneFlags(lane, state.restart ?? null)) {
     const line = el('p', `lane-flag is-${flag.tone}`, flag.text)
@@ -2456,7 +2479,7 @@ function drawLane(lane, state) {
   unfold.setAttribute('aria-expanded', String(isOpen))
   menu.append(unfold)
 
-  row.append(who, what, progress, drawEta(lane, state.readAt), queue, menu)
+  row.append(who, what, progress, isQuietOff ? el('div', 'eta is-muted') : drawEta(lane, state.readAt), queue, menu)
   card.append(row)
   if (isWarned) {
     card.classList.add('has-warning')

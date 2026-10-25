@@ -33,7 +33,7 @@ test('each worker\'s icon takes the colour of its state, the one its pill names'
 })
 
 test('a row: the worker, its task, its progress, its time, the next in its queue, and "⋯" for the rest', () => {
-  assert.match(script, /row\.append\(who, what, progress, drawEta\(lane, state\.readAt\), queue, menu\)/)
+  assert.match(script, /row\.append\(who, what, progress, isQuietOff \? el\('div', 'eta is-muted'\) : drawEta\(lane, state\.readAt\), queue, menu\)/)
   // B307: the length of the queue is in the next step's tooltip.
   assert.match(script, /`Queue \(\$\{lane\.queue\.length\}\)`, next\.id/)
   // Remove sits in the part "⋯" unfolds; its warning still shows under the row.

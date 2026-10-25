@@ -2276,6 +2276,7 @@ button.needs-you:hover small, button.needs-you:focus-visible small { color: var(
 .settings-pop .version:empty { display: none; }
 
 .lane-row .free-since { color: var(--muted); }
+.lane-row .off-idle { color: var(--muted); font-size: 13.5px; }
 .workers-panel .queue-next { display: block; width: 100%; padding: 0; border: 0; background: none; color: var(--text); font: inherit; font-size: 14px; line-height: 1.35; text-align: left; }
 .workers-panel .queue-next:hover { border: 0; text-decoration: underline; text-decoration-color: var(--muted); }
 .workers-panel .queue-next:focus-visible { outline: 2px solid var(--free); outline-offset: 2px; border-radius: 4px; }

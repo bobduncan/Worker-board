@@ -104,6 +104,31 @@ test('the main chat\'s start of a closed chat: closed once that chat runs or not
   assert.deepEqual(whyClosed(start, ctxOf(all, { runs: new Map([['Partner', true]]) })), { state: 'dropped', why: 'Partner runs now' })
 })
 
+test('B590: the hand-out\'s start of an off worker holds while a ready task is pinned to it, or kept for nobody; not after', async () => {
+  // At 12:49:09 the board asked the main chat to start Worker 1 for B590, pinned to it; seconds later the sweep dropped
+  // the word, as nothing else waited for Worker 1.
+  const start = word({ to: 'Lead', command: 'start', about: 'Worker 1', at: NOW - 30_000, reported: 2 })
+  const chats = [{ name: 'Worker 1', isRunning: false }]
+  const pinned = { ready: [{ id: 'B590', pinned: 'Worker 1', keptFor: 'Worker 1' }], held: [] }
+  const store = outboxOf([start])
+  assert.deepEqual(await sweepOutbox({ dir: null, outbox: store, state: { chats, readyList: pinned }, now: NOW, keep }), [])
+  assert.equal(stateOf(store, start.id).state, 'waiting')
+  // The ready list names the worker without the list's prefix; the word may name it with it.
+  const prefixed = { ...start, about: 'Game - Worker 1' }
+  assert.equal(whyClosed(prefixed, ctxOf([prefixed], { ready: pinned.ready, prefix: 'Game - ' })), null)
+  // A start the hand-out made for ready tasks kept for nobody holds while one is; a pin to another worker is not its.
+  const other = [{ id: 'B591', pinned: 'Worker 2', keptFor: 'Worker 2' }]
+  assert.equal(whyClosed(start, ctxOf([start], { ready: [...other, { id: 'B592', pinned: null, keptFor: null }] })), null)
+  const nothing = { state: 'dropped', why: 'nothing waits for Worker 1 any more' }
+  assert.deepEqual(whyClosed(start, ctxOf([start], { ready: other })), nothing)
+  assert.deepEqual(whyClosed(start, ctxOf([start], { ready: [] })), nothing)
+  // A start the hand-out did not make (no `reported`) is not held by a task kept for nobody.
+  const asked = word({ to: 'Lead', command: 'start', about: 'Worker 1' })
+  assert.deepEqual(whyClosed(asked, ctxOf([asked], { ready: [{ id: 'B592', pinned: null, keptFor: null }] })), nothing)
+  // Once its chat runs, it is closed as before.
+  assert.deepEqual(whyClosed(start, ctxOf([start], { ready: pinned.ready, runs: new Map([['Worker 1', true]]) })), { state: 'dropped', why: 'Worker 1 runs now' })
+})
+
 test('expired: a partner word and B548 a resume after 48 hours, each with its why; a person\'s answer never', async () => {
   const old = word({ command: 'plan-tradeoffs', about: 'plan', at: NOW - 50 * HOUR })
   const resume = word({ to: 'Lead', command: 'resume', at: NOW - 49 * HOUR })

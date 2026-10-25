@@ -68,7 +68,9 @@ export function whyClosed(message, ctx) {
   } else if (message.command === 'start') {
     // The main chat's word to open a closed chat: not needed once that chat runs, nor when nothing waits for it any more.
     if (ctx.runs.get(message.about) === true) return { state: 'dropped', why: `${message.about} runs now` }
+    // B590: a ready task waits for it too: one pinned to it, or, for a start the hand-out made, one kept for nobody.
     const waits = all.some(one => one.to === message.about && one.id !== message.id && one.state === 'waiting' && one.command !== 'start' && !ctx.closing.has(one.id))
+      || readyFor(message, ctx)
     if (!waits) return { state: 'dropped', why: `nothing waits for ${message.about} any more` }
   } else if (message.command === 'wake' && ctx.stopped instanceof Map) {
     // B577: the main chat's word to wake a stopped chat: not needed once that chat began a turn, or another session
@@ -76,6 +78,23 @@ export function whyClosed(message, ctx) {
     if ((ctx.stopped.get(message.about) ?? null) === null) return { state: 'dropped', why: `${message.about} is no longer stopped` }
   }
   return isLate(message, now, keep) ? expired(message, keep) : null
+}
+
+/** A chat's name for comparing: without the list's prefix, in lower case. */
+const plainName = (name, prefix = '') => {
+  const words = String(name ?? '').trim()
+  return (prefix !== '' && words.toLowerCase().startsWith(prefix.toLowerCase()) ? words.slice(prefix.length) : words).trim().toLowerCase()
+}
+
+/**
+ * B590: whether a start word's reason holds on the ready list (`ctx.ready`, state.readyList.ready): a ready task pinned
+ * to its chat, or, for a start the hand-out made (handOut.mjs `workerStart`; its word carries `reported`), one kept for
+ * nobody.
+ */
+const readyFor = (message, ctx) => {
+  const name = plainName(message.about, ctx.prefix ?? '')
+  return (ctx.ready ?? []).some(one => (typeof one.pinned === 'string' && plainName(one.pinned, ctx.prefix ?? '') === name)
+    || (Number.isFinite(message.reported) && (one.keptFor ?? null) === null))
 }
 
 /** B571: a word that failed and is not tried again: no newer word stands for it. */
@@ -103,7 +122,7 @@ export async function sweepOutbox({ dir, outbox, state, now, keep, fs, dry = fal
   const runs = new Map((state?.chats ?? []).filter(chat => !chat.isLeftover).map(chat => [chat.name, chat.isRunning === true]))
   const all = outbox.outbox()
   const closing = new Map()
-  const ctx = { all, items, runs, goals: state?.goals?.nodes ?? [], now, keep, closing, stopped: stoppedChats(all, state), prefix: state?.chatPrefix ?? '' }
+  const ctx = { all, items, runs, goals: state?.goals?.nodes ?? [], now, keep, closing, stopped: stoppedChats(all, state), prefix: state?.chatPrefix ?? '', ready: state?.readyList?.ready ?? [] }
   // The starts last: they depend on what the other words become.
   const ordered = [...waiting.filter(message => message.command !== 'start'), ...waiting.filter(message => message.command === 'start')]
   for (const message of ordered) {
