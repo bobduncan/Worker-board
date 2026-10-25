@@ -44,11 +44,11 @@ export function reportParts(result) {
 }
 
 const FILE = /(?<![\w@])(?:[\w.-]+[\\/])*[\w-]+\.(?:m?js|cjs|ts|tsx|jsx|json|md|css|html?|png|jpe?g|webp|gif|svg|py|ps1|sh|txt|ya?ml|toml|csv|wav|mp3|ogg)\b/gi
-const PATH = /(?<![\w@])[\w.-]+(?:[\\/][\w.-]+){2,}/g
+const PATH = /(?<![\w@])(?:[A-Za-z]:[\\/]?|\/)?[\w.-]+(?:[\\/][\w.-]+){2,}/g
 const CODE = [/\b[a-z][a-z0-9]*[A-Z][A-Za-z0-9]*\b/g, /\b[A-Za-z0-9]+_[A-Za-z0-9_]+\b/g, /\b[\w.]+\(\)/g, /`[^`]+`/g]
-/** X57 (B633): plain words joined by slashes ("yes/how/cost") are no path: one needs a dot, a digit, a hyphen, an underscore, a backslash or a known folder first. */
-const FOLDERS = new Set(['src', 'test', 'tests', 'docs', 'public', 'tools', 'roles', 'data', 'mods', 'examples', 'fixtures', 'design', 'node_modules', '.claude', '.git'])
-const isPath = word => word.includes('\\') || /\w\.\w|[\d_-]/.test(word) || FOLDERS.has(word.split(/[\\/]/)[0].toLowerCase())
+/** X57 (B633): plain words joined by slashes ("yes/how/cost") are no path: one needs a drive or a leading slash, a dot, a digit, a hyphen, an underscore, a backslash or a known folder first. */
+const FOLDERS = new Set(['src', 'test', 'tests', 'docs', 'public', 'tools', 'roles', 'data', 'mods', 'examples', 'fixtures', 'design', 'node_modules', '.claude', '.git', 'content', 'render', 'core', 'battle', 'hud', 'menu', 'art', 'units', 'maps', 'sound', 'sounds', 'music', 'previews', 'fonts'])
+const isPath = word => word.includes('\\') || /^(?:[A-Za-z]:|\/)/.test(word) || /\w\.\w|[\d_-]/.test(word) || FOLDERS.has(word.split(/[\\/]/)[0].toLowerCase())
 const HASH = /\b(?=[0-9a-f]*[0-9])(?=[0-9a-f]*[a-f])[0-9a-f]{7,40}\b/g
 const found = (text, patterns) => [...new Set(patterns.flatMap(pattern => [...String(text).matchAll(pattern)].map(one => one[0])))]
 

@@ -84,6 +84,9 @@ test('B591: ids and placeholders are refused in a report\'s Context and Change; 
     LIMITS_RULE,
   ])
   assert.deepEqual(technicalWords('say yes/how/cost, and a/b/c, but not src/content/arenas/dev or a/b.c/d or a\\b\\c').files, ['src/content/arenas/dev', 'a/b.c/d', 'a\\b\\c'])
+  // B639: a drive, a leading slash or a game folder first also makes a path.
+  assert.deepEqual(technicalWords('C:/Users/anna/Desktop, /d/Work/foo/bar, content/arenas/dev, render/a/b, art/units/lava, but not yes/how/cost or and/or/maybe').files, [
+    'C:/Users/anna/Desktop', '/d/Work/foo/bar', 'content/arenas/dev', 'render/a/b', 'art/units/lava'])
   assert.equal(plainSentences('B531 sat queued. A step could wait behind a busy worker. It waited 3 h 43 min. Main says "Requeue <n>". Both boards have it. One that does not answer never counts" failed. Suite 2312 pass.', 300), 'A step could wait behind a busy worker. Both boards have it.')
 })
 
