@@ -173,7 +173,7 @@ draft the goal had, and answers one line: the board kept it, or why not.
    keep the draft (`work vibe-draft`) after each answer that changes it: three to five short lines of what the user wants to feel when it
    is done, one `Not in it: ...` line, and a picture where it helps (one in the project's picture folder, all options
    side by side when there are options). **Nothing is built in this move**: no steps, no suggestions, no queue. When
-   the draft holds, ask in the thread whether it is the vibe; the user confirms with "This is the vibe" on the board.
+   the draft holds, ask in the thread whether it is the vibe; the user confirms with "This is the goal definition" on the board.
    `vibe: not yet` with `Words: ...`: what is missing, in their words: change the draft and ask on.
 2. **The how.** `vibe: agreed`, `Goal: G<n> <title>`, `Thread: <path>`: propose at once the parts that reach the
    vibe: three to six, each one line with its size (about N h; over about 4 h cut it), in the order they are best

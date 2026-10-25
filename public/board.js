@@ -10015,7 +10015,7 @@ function standardParts(line) {
  * map (`goals`, the state's): its stage, the head with the goal and, once agreed, its vibe in one line; the strip
  * 1 The vibe → 2 The how → 3 The run; the run's progress; the right card of each stage and its buttons; the run's parts
  * without step ids; and, with no focus or a goal done, the open goals to pick. Focus 2: the buttons work where `can`
- * (focusCan) allows; "This is the vibe" once the partner wrote one, "Go" once it proposed parts; each says why not.
+ * (focusCan) allows; "This is the goal definition" once the partner wrote one, "Go" once it proposed parts; each says why not.
  */
 function focusView(focus, goals, can = null, ui = {}) {
   const stage = focus === null || focus === undefined ? 'pick' : focus.stage
@@ -10059,7 +10059,7 @@ function focusView(focus, goals, can = null, ui = {}) {
   }
   const hasVibe = focus.vibe.length > 0 || focus.vibePicture !== null
   if (stage === 'vibe') view.buttons = [
-    button('This is the vibe', 'vibe-agree', hasVibe, hasVibe ? 'Agreed: your partner proposes the how next' : 'Your partner writes the vibe here first, while you talk'),
+    button('This is the goal definition', 'vibe-agree', hasVibe, hasVibe ? 'Agreed: your partner proposes the how next' : 'Your partner writes the vibe here first, while you talk'),
     button('Not yet', 'vibe-not-yet', true, 'Say what is missing: your partner goes on talking'),
   ]
   if (stage === 'how') view.buttons = [
@@ -12482,7 +12482,7 @@ async function sendFocus(body, done) {
 /**
  * Focus 2 (spec 2026-10-18, sections 3 and 6): a move on the Focus page. Pick a goal or something new; answer the
  * partner's open question in the talk (written into the thread, then `brainstorm answer` to the partner, as the
- * Brainstorm part does); "This is the vibe", "Go", and "Not yet" with the person's words. The board writes goals.md and
+ * Brainstorm part does); "This is the goal definition", "Go", and "Not yet" with the person's words. The board writes goals.md and
  * types the word to the partner (src/focus.mjs); one move at a time.
  */
 async function focusAct(act, goal = null, extra = null) {

@@ -125,7 +125,7 @@ test('the head and the stage strip for each stage, as the mockups draw them', ()
   assert.equal(vibe.progress, null)
   assert.deepEqual(vibe.vibe, { title: 'The vibe so far', sub: 'draft, written by your partner', lines: ['you sit down without thinking', 'warm wood, never metal'], picture: 'pictures/bench.png', empty: null })
   // Read-only (no partner, or a board that only shows): drawn, off, with why.
-  assert.deepEqual(vibe.buttons.map(one => [one.label, one.isEnabled]), [['This is the vibe', false], ['Not yet', false]])
+  assert.deepEqual(vibe.buttons.map(one => [one.label, one.isEnabled]), [['This is the goal definition', false], ['Not yet', false]])
   assert.ok(vibe.buttons.every(one => one.title === 'This board only shows.'))
   const how = page.focusView(stateOf(map(AGREED, HOW)), goalsOf(map()))
   assert.equal(how.stage, 'how')
@@ -253,7 +253,7 @@ test('Focus 2: the moves work on a board that writes, with a partner; each butto
   assert.deepEqual(page.focusCan({ advisor: { name: 'Partner' }, goalsEdit: { canWrite: true, whyNot: null } }), CAN)
   const vibe = page.focusView(stateOf(map()), goalsOf(map()), CAN)
   assert.deepEqual(vibe.buttons, [
-    { label: 'This is the vibe', act: 'vibe-agree', isEnabled: true, title: 'Agreed: your partner proposes the how next' },
+    { label: 'This is the goal definition', act: 'vibe-agree', isEnabled: true, title: 'Agreed: your partner proposes the how next' },
     { label: 'Not yet', act: 'vibe-not-yet', isEnabled: true, title: 'Say what is missing: your partner goes on talking' },
   ])
   // No vibe written yet: nothing to agree to.

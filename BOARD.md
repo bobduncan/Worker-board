@@ -216,7 +216,7 @@ setting `advisorParts` brings any back. The Advisor's chat still opens from its 
 the goal's id and title, its vibe in one line once agreed, and the strip 1 The vibe → 2 The how → 3 The run (a step
 done is green with ✓, the one now blue). The vibe: the talk with your partner on the left (the goal's brainstorm
 thread as bubbles: your words, its questions) and "The vibe so far" on the right (its lines ticked, its picture),
-with "This is the vibe" and "Not yet". The how: the talk on the left, "The how so far" on the right (the parts with
+with "This is the goal definition" and "Not yet". The how: the talk on the left, "The how so far" on the right (the parts with
 their sizes, "Decided by your partner", "Brought to you"), with "Go" and "Not yet". The run: "The how" on the left,
 each part with Done, In progress (and who is on it) or Next and a bar, no step ids, and "See the steps behind this →",
 which opens the Backlog on the goal's steps ("Steps behind G6 ✕" clears it); "Today's note from your partner" on the
@@ -229,7 +229,7 @@ why). **Pick** makes a goal your focus; the free line ("Start") makes something 
 The board writes `Focus:`, starts the goal's talk (or goes on with the one that runs) and types `focus: G<n>` to your
 partner. **The talk** answers your partner's open question as the Brainstorm part does: its options as chips (the
 advised one marked), your words in the box, Send (Enter; Shift+Enter a new line); while your partner has the turn the
-box is off and a line says it thinks, or that its chat is not running. **This is the vibe** (once your partner wrote
+box is off and a line says it thinks, or that its chat is not running. **This is the goal definition** (once your partner wrote
 one) and **Go** (once it proposed parts) write their line once and tell your partner; **Not yet** opens a box for what
 is missing and sends your words. A line under the head says what each move did, or why not.
 
