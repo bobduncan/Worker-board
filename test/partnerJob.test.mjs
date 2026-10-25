@@ -52,7 +52,10 @@ test('the partner keeps the Advisor\'s refining, goal linking and rounds, and ad
   assert.match(partner, /each part with ` · steps B<id>, B<id>` added/)
   // Redesign Part 2: the steps go on the board's list by themselves; no queue note to the main chat.
   assert.doesNotMatch(partner, /`work note --to main` "Queue for G<n>/)
-  assert.match(partner, /they are on the board's list at once, the focus goal's before the rest/)
+  assert.match(partner, /the focus goal's are on the board's list at once, and the board gives them to the workers/)
+  // The Backlog tab's blocks (2026-10-25): another goal's step waits for the user's "Add to queue"; the partner adds none.
+  assert.match(partner, /a step of another goal waits until the user adds it to the queue on the Backlog tab/)
+  assert.match(partner, /You hand out nothing, add nothing to the queue/)
   assert.match(partner, /Never write `Focus:`, `Vibe agreed:` or `How agreed:` yourself/)
   // The review's findings: a focus thread is never wrapped up into a proposal, also in "A brainstorm".
   assert.match(partner, /never wrapped up into a proposal/)

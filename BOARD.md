@@ -383,11 +383,13 @@ written by the board: the moves go to the partner (`roles/protocol.md`).
 ## Backlog (`06-backlog.png`)
 
 The whole backlog: filters **All**, **In progress**, **Queued**, **Needs your attention**, **Without a worker**, with
-counts; a search; **Show finished**; **One list, newest first** (or by activity, the focus first). "Recently
-finished" folds open to the last 20 finished steps with when and how the board knows. Each step is a row with its
-id, title, worker and state; a click opens its window; a new or refined step has **Pin to** with the workers beside it
-(or, pinned, "Pinned to <worker>" with **Unpin**), through the work store at once (redesign Part 2: the board hands out
-every task; the pin is the person's control).
+counts; a search; **Show finished**. "Recently finished" folds open to the last 20 finished steps with when and how the
+board knows. Under it the tasks stand in blocks, each folding with a click on its head (2026-10-25): **In progress**
+(with the worker and its state), **Queue** (numbered in the order a free worker takes them; chips fix, focus, "added by
+you"; "any free worker" or "for <worker> only"; **Remove** on your own), **Refined** (each with **Add to queue**, or
+why it waits), **Not refined yet** (being refined, or waiting for your answer). A row's goal opens it on the Goals
+part; a click on the row opens its window. "Add to queue" and "Remove" change the work store at once; pinning to one
+worker is in the task's window.
 
 ## Design (`07-design.png`)
 
@@ -395,7 +397,7 @@ An idea becomes a picture that Codex makes. **New idea:** the words, what it is 
 idea), reference pictures (picked or pasted), **Make a picture**. **The picture:** the version looked at, every
 version to choose from, "What should change?" with **Make it again**, **I agree**. Then the step: title,
 requirements and time, **Put on the backlog** or **Put on the list** (redesign Part 2: no worker is picked; the board
-gives it to the first free worker once it is refined, and the person may pin it on the Backlog tab), which the main
+gives it to the first free worker once it is refined and in the queue, and the person may pin it in its window), which the main
 chat writes. "Ideas so
 far" along the bottom.
 

@@ -1714,8 +1714,8 @@ dialog::backdrop { background: rgba(4, 7, 12, 0.74); }
   .details-main { border-right: 0; border-bottom: 1px solid var(--line); }
 }
 
-/* B84: the Coordinate tab, the whole backlog by activity. A row is one step; its last cell is kept free for the
-   controls of B83. */
+/* B84: the Coordinate tab, now the Backlog tab: the whole backlog, since 2026-10-25 in blocks by where each task
+   stands (In progress, Queue, Refined, Not refined yet). */
 .view.is-single { grid-template-columns: minmax(0, 1fr); }
 .coordinate { min-height: 0; overflow-y: auto; padding: 16px 20px 28px; display: flex; flex-direction: column; gap: 14px; }
 .coordinate-top { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 12px; }
@@ -1737,57 +1737,66 @@ dialog::backdrop { background: rgba(4, 7, 12, 0.74); }
 .coordinate-filters .choice.is-chosen small { color: inherit; }
 #coordinate-find { width: 150px; padding: 7px 10px; background: var(--bg); color: var(--text); border: 1px solid var(--line); border-radius: 7px; outline: 0; }
 #coordinate-find:focus { border-color: #2f5fb3; }
-.coordinate-list { display: flex; flex-direction: column; gap: 16px; }
-.coordinate-group { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 10px 6px 6px; }
-.coordinate-group.is-focus { border-color: #2a4a7d; }
-.coordinate-group h2 { display: flex; align-items: center; gap: 10px; padding: 0 10px 8px; font-size: 16px; font-weight: 700; }
-.coordinate-group h2 small { font-size: 13px; font-weight: 400; color: var(--muted); }
-.coordinate-group h2 .chip { padding: 1px 8px; border-radius: 6px; font-size: 12px; font-weight: 700; color: #cfe0ff; background: #16294a; }
-.step-row {
-  width: 100%; display: grid; grid-template-columns: 46px 62px minmax(0, 1fr) minmax(0, 150px) minmax(0, 190px) 150px 104px;
-  gap: 10px; align-items: center; padding: 7px 10px; text-align: left; font: inherit; color: var(--text);
-  background: none; border: 0; border-top: 1px solid var(--line); cursor: pointer;
-}
-.step-row:hover, .step-row:focus-visible { background: var(--inset); outline: 0; }
+.coordinate-list { display: flex; flex-direction: column; gap: 14px; }
 .step-id { font-weight: 700; color: #9db8e8; }
-.step-kind { font-size: 12.5px; padding: 1px 7px; border-radius: 6px; background: var(--inset); border: 1px solid var(--line); justify-self: start; }
-.step-kind.is-none { visibility: hidden; }
-.step-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .step-wait { color: var(--muted); font-size: 12.5px; }
-.step-worker, .step-branch { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); font-size: 13.5px; }
-.step-branch { font-family: ui-monospace, Consolas, monospace; font-size: 12.5px; }
 .step-state { justify-self: start; white-space: nowrap; font-size: 12.5px; padding: 1px 8px; border-radius: 10px; border: 1px solid var(--line); color: var(--muted); }
 .step-state.is-progress { color: var(--ink); background: var(--working); border-color: var(--working); font-weight: 700; }
 .step-state.is-queued { color: #cfe0ff; border-color: #2a4a7d; }
 .step-state.is-you { color: var(--ink); background: var(--waiting); border-color: var(--waiting); font-weight: 700; }
-.step-row.is-done .step-title { text-decoration: line-through; color: var(--muted); }
-/* B302: with "One list" off, the goals of the goal map as folding headers, nested by depth; their steps under them. */
-.coordinate-group.is-goals { padding-top: 4px; }
-.goal-head { width: 100%; display: flex; align-items: baseline; gap: 8px; padding: 8px 10px 8px calc(10px + var(--depth, 0) * 18px); text-align: left; font: inherit; font-size: 14px; font-weight: 600; color: var(--text); background: none; border: 0; border-top: 1px solid var(--line); cursor: pointer; }
-.goal-head:first-child { border-top: 0; }
-.goal-head:hover, .goal-head:focus-visible { background: var(--inset); outline: 0; }
-.goal-head.is-root { background: #121c2c; font-size: 15px; font-weight: 700; }
-.goal-head.is-milestone .goal-title { font-weight: 700; }
-.goal-head.is-none .goal-title { color: var(--waiting); }
+/* Kept from the goal headers B302 drew on this tab: the Goals part reads them too (their order counts). */
 .goal-fold { width: 12px; color: var(--muted); }
 .goal-id { font-weight: 700; color: #7fb0ff; }
 .goal-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.goal-count { font-size: 12.5px; font-weight: 400; color: var(--muted); white-space: nowrap; }
-.goal-steps > .step-row { padding-left: calc(10px + var(--depth, 0) * 18px); }
-/* B181: "Add to queue" on a step nobody has, over the row's last column, beside the row's own button */
+/* The Backlog tab's blocks (2026-10-25, the person's yes on the mockup of that day): In progress, Queue,
+   Refined, Not refined yet (and Finished), each a quiet panel whose head folds it. A row: its place in the queue, its id
+   and title (a click opens its window), its goal (a link to the Goals part), for whom, its state or why it waits, and
+   its button. The Queue's border is a quiet blue; nothing here is amber, orange or red but the fix chip and a task
+   waiting on the person. */
+.backlog-block { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; }
+.backlog-block.is-queue { border-color: #2b4f80; }
+.backlog-block h2 { font-size: 14px; font-weight: 700; }
+.block-fold { display: flex; align-items: baseline; gap: 10px; width: 100%; padding: 10px 14px; border: 0; background: none; color: inherit; font: inherit; text-align: left; cursor: pointer; }
+.block-fold:focus-visible { outline: 2px solid var(--free); outline-offset: -2px; border-radius: 10px; }
+.block-fold small { color: var(--muted); font-size: 12px; font-weight: 400; }
+.block-arrow { color: var(--muted); font-size: 12px; width: 1em; }
+.block-body { border-top: 1px solid var(--line); }
+.block-none { padding: 8px 14px 10px; font-size: 13px; }
+.step-line.block-line {
+  display: grid; grid-template-columns: 24px minmax(0, 1fr) 52px minmax(0, 160px) minmax(0, 170px) 112px;
+  gap: 10px; align-items: center; padding: 3px 14px; border-top: 1px solid #151e2c; font-size: 13.5px;
+}
+.block-line:first-child { border-top: 0; }
+.block-line:hover, .block-line:focus-within { background: var(--inset); }
+.block-n { color: #5f6d83; font-size: 12px; text-align: right; font-variant-numeric: tabular-nums; }
+.block-open { display: flex; align-items: baseline; gap: 10px; min-width: 0; padding: 4px 0; border: 0; background: none; color: var(--text); font: inherit; text-align: left; cursor: pointer; }
+.block-open:focus-visible { outline: 2px solid var(--free); outline-offset: 2px; border-radius: 4px; }
+.block-open .step-id { flex: none; width: 52px; color: #8fb7ea; font-weight: 600; }
+.block-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.block-chip { display: inline-block; padding: 0 7px; border: 1px solid #2a3a52; border-radius: 9px; color: #9fb0c8; font-size: 11px; line-height: 1.5; vertical-align: 1px; }
+.block-chip.is-focus { border-color: #2f5d8a; color: #9cc2ee; }
+.block-chip.is-you { border-color: #3d5a3d; color: #a9d6a9; }
+.block-goal { color: var(--muted); font-size: 12px; white-space: nowrap; }
+a.block-goal { color: #7f9cc4; text-decoration: none; border-bottom: 1px dotted #3a4d6a; justify-self: start; }
+a.block-goal:hover, a.block-goal:focus-visible { color: #cfe0ff; border-bottom-color: #cfe0ff; outline: 0; }
+.block-who, .block-why { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); font-size: 12px; }
+.block-line .step-state { font-size: 11.5px; padding: 0 8px; }
+.step-state.is-review { color: #9fb0c8; }
+/* The row fix of 2026-10-25 (the person: "this visual is weird now"): the row's button is small and quiet until the
+   row is pointed at. "Remove" is quieter still. */
+.block-action { justify-self: start; padding: 2px 9px; border-radius: 6px; border: 1px solid #2a4a7d; background: #16294a; color: #cfe0ff; font: inherit; font-size: 12px; white-space: nowrap; cursor: pointer; opacity: .75; }
+.block-action.is-quiet { border-color: #2a3a52; background: #121a27; color: #9fb0c8; }
+.block-line:hover .block-action, .block-action:focus-visible { opacity: 1; }
+.block-action:hover:not(:disabled) { background: #1d3763; }
+.block-action.is-quiet:hover:not(:disabled) { background: var(--inset); color: var(--text); }
+.block-action:focus-visible { outline: 2px solid var(--free); outline-offset: 1px; }
+.block-action:disabled { opacity: .6; cursor: default; }
+.block-action.is-error { border-color: var(--warn); }
+/* B221: Close and Delete on a task: over a row's right end while the pointer or the keyboard is on it, left of its
+   button when it has one; always in the task's window. */
 .step-line { position: relative; }
-.step-line > .step-queue { position: absolute; right: 10px; top: 50%; transform: translateY(-50%); }
-.step-queue { padding: 2px 9px; border-radius: 6px; border: 1px solid #2a4a7d; background: #16294a; color: #cfe0ff; font: inherit; font-size: 12.5px; white-space: nowrap; cursor: pointer; }
-.step-queue:hover:not(:disabled) { background: #1d3763; }
-.step-queue:focus-visible { background: #1d3763; outline: 2px solid var(--free); outline-offset: 1px; }
-.step-queue:disabled { opacity: .6; cursor: default; }
-.step-queue.is-error { border-color: var(--warn); }
-.step-queue.is-asked { border-style: dashed; background: none; color: var(--muted); cursor: default; }
-.step-queue-line { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; }
-/* B221: Close and Delete on a step: over a row's right end while the pointer or the keyboard is on it, beside "Add
-   to queue" when the row has that; always in the step's window. */
 .step-line > .step-edit { position: absolute; right: 10px; top: 50%; transform: translateY(-50%); display: none; gap: 6px; padding-left: 8px; background: var(--inset); }
-.step-line.has-queue > .step-edit { right: 120px; }
+.step-line.has-action > .step-edit { right: 132px; }
 .step-line:hover > .step-edit, .step-line:focus-within > .step-edit { display: flex; }
 .step-edit-button { padding: 2px 9px; border-radius: 6px; border: 1px solid var(--line); background: var(--panel); color: var(--text); font: inherit; font-size: 12.5px; white-space: nowrap; cursor: pointer; }
 .step-edit-button:hover:not(:disabled), .step-edit-button:focus-visible { background: var(--inset); outline: 2px solid var(--free); outline-offset: 1px; }
@@ -1796,20 +1805,16 @@ dialog::backdrop { background: rgba(4, 7, 12, 0.74); }
 .step-edit-line { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px; }
 .step-edit-line .step-edit-button { padding: 6px 14px; font-size: 14px; }
 .step-edit-line .problem { flex-basis: 100%; }
+/* Redesign Part 2: "Pin to", "Move to" and "Unpin" in a task's window. */
+.step-queue { padding: 2px 9px; border-radius: 6px; border: 1px solid #2a4a7d; background: #16294a; color: #cfe0ff; font: inherit; font-size: 12.5px; white-space: nowrap; cursor: pointer; }
+.step-queue:hover:not(:disabled) { background: #1d3763; }
+.step-queue:focus-visible { background: #1d3763; outline: 2px solid var(--free); outline-offset: 1px; }
+.step-queue:disabled { opacity: .6; cursor: default; }
+.step-queue.is-error { border-color: var(--warn); }
+.step-queue.is-asked { border-style: dashed; background: none; color: var(--muted); cursor: default; }
+.step-queue-line { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; }
 .step-queue-line .step-queue { padding: 6px 14px; font-size: 14px; }
 .step-queue-line .problem { flex-basis: 100%; margin: 0; }
-/* Redesign Part 2, the person's yes of 2026-10-25 ("this visual is weird now"): a row's pin control stays on the row's
-   own line, over its worker column (that column is empty on a task nobody holds), small and quiet until the row is
-   pointed at; Close and Delete sit at the row's right end as on any row. A narrow page keeps it on a line below. */
-@media (min-width: 1000px) {
-  .step-line > .step-queue-line.is-row { position: absolute; top: 50%; transform: translateY(-50%); right: 484px; flex-wrap: nowrap; gap: 6px; }
-  .step-line.has-queue > .step-edit { right: 10px; }
-}
-.step-queue-line.is-row .step-queue, .step-queue-line.is-row select { padding: 1px 7px; font-size: 12px; opacity: .6; }
-.step-queue-line.is-row select { border-radius: 6px; border: 1px solid var(--line); background: var(--panel); color: var(--text); font-family: inherit; }
-.step-line:hover .step-queue-line.is-row .step-queue, .step-line:hover .step-queue-line.is-row select,
-.step-queue-line.is-row :focus-visible { opacity: 1; }
-.step-queue-line.is-row .step-pinned { font-size: 12.5px; color: var(--muted); white-space: nowrap; }
 .details-foot .step-queue.is-asked { display: block; white-space: normal; padding: 6px 12px; font-size: 14px; }
 /* B233: the Refine part of a step's window (the person's choice A of 2026-10-14): the Advisor's problem, goal and
    questions as one block under the description, a box per question and one for feedback; its buttons in the foot. */
@@ -1861,9 +1866,8 @@ dialog::backdrop { background: rgba(4, 7, 12, 0.74); }
 .refine-pick:disabled { opacity: .55; cursor: default; }
 .refine-q .refine-answer { flex-basis: 100%; margin: 0 0 0 24px; font-size: 13px; }
 @media (max-width: 900px) {
-  .step-row { grid-template-columns: 46px minmax(0, 1fr) 150px; }
-  .step-kind, .step-worker, .step-branch, .step-actions { display: none; }
-  .step-line > .step-queue { display: none; }
+  .step-line.block-line { grid-template-columns: 24px minmax(0, 1fr) minmax(0, 130px) auto; }
+  .block-line .block-goal, .block-line .block-who { display: none; }
   .step-line > .step-edit { display: none !important; }
 }
 
@@ -2094,9 +2098,9 @@ button.needs-you:hover small, button.needs-you:focus-visible small { color: var(
   #view-overview:not([hidden]) { display: flex; flex-direction: column; }
   #view-overview .inbox { order: -1; border-top: 0; }
   #view-overview:not(.shows-more) #today, #view-overview:not(.shows-more) #folders { display: none; }
-  /* A step's state under its title, so the title keeps the width ("Needs your attention" is a long label). */
-  .step-row { grid-template-columns: 46px minmax(0, 1fr); row-gap: 4px; }
-  .step-row .step-state { grid-column: 2; }
+  /* A task's state under its title, so the title keeps the width ("Waiting on you" is a long label). */
+  .step-line.block-line { grid-template-columns: 24px minmax(0, 1fr) auto; row-gap: 2px; padding: 4px 10px; }
+  .block-line .step-state, .block-line .block-why { grid-column: 2; grid-row: 2; justify-self: start; }
   .phone-more { display: block; width: 100%; margin: 4px 0 12px; padding: 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel); color: var(--muted); font: inherit; font-weight: 600; cursor: pointer; }
 }
 

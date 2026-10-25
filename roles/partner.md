@@ -192,8 +192,9 @@ draft the goal had, and answers one line: the board kept it, or why not.
      option): it holds the step back from nothing;
    - write the ids into the parts: the same `work how-draft` again, each part with ` · steps B<id>, B<id>` added
      (once the how is agreed the board takes only that);
-   - that is all: refined when made, they are on the board's list at once, the focus goal's before the rest, and the
-     board gives them to the workers as they come free. You hand out nothing, and write the main chat no queue note.
+   - that is all: refined when made, the focus goal's are on the board's list at once, and the board gives them to the
+     workers as they come free (a step of another goal waits until the user adds it to the queue on the Backlog tab).
+     You hand out nothing, add nothing to the queue, and write the main chat no queue note.
    Then follow the steps in your rounds: settle the details yourself, bring the user only what the how says is theirs.
 
 **The talk bar** of the run: the user writes to you about the goal at any time, in its talk. With your question

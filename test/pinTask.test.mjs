@@ -1,8 +1,8 @@
-// Redesign Part 2 (2026-10-25): the board hands out every task; "Add to queue" and Main's queue are gone. The person
-// keeps control with a pin: "Pin to <worker>" on a new or refined task's row on the Backlog tab and in its window; a
-// pinned task says "Pinned to <worker>" with "Unpin" (and "Move to" in its window). It goes through the work API as the
-// person (`pin`). The Workers panel lists the ready tasks in the board's order. The page's own code is run here, cut out
-// of board.js. Made-up samples only.
+// Redesign Part 2 (2026-10-25): the board hands out every task; Main's queue is gone. The person keeps control with a
+// pin: "Pin to <worker>" in a new or refined task's window; a pinned task says "Pinned to <worker>" with "Unpin" and
+// "Move to". It goes through the work API as the person (`pin`). The Backlog tab's blocks (2026-10-25): a row has the
+// person's "Add to queue" instead (test/backlogBlocks.test.mjs). The Workers panel lists the ready tasks in the board's
+// order. The page's own code is run here, cut out of board.js. Made-up samples only.
 
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
@@ -45,20 +45,18 @@ const STATE = { chats: [{ name: 'Lead', isMain: true, isLeftover: false }, { nam
 const step = (more = {}) => ({ id: 'B12', title: 'Build the shop', status: 'open', item: { pinned: null }, ...more })
 
 test('a refined task\'s window has "Pin to" with the workers beside it; a pinned one says so, with Unpin and Move to', () => {
-  const free = page.pinPart(step(), STATE, true)
+  const free = page.pinPart(step(), STATE)
   const buttons = all(free, node => node.tag === 'button')
   assert.deepEqual(buttons.map(one => [one.textContent, one.dataset.pinStep]), [['Pin to', 'B12']])
   const pick = all(free, node => node.tag === 'select')[0]
   assert.equal(pick.dataset.pinTarget, 'B12')
   assert.deepEqual(pick.children.map(one => one.value), ['Worker 1', 'Worker 3'], 'the workers of the list, no main chat, no leftover')
-  const pinned = page.pinPart(step({ item: { pinned: 'Worker 3' } }), STATE, true)
+  const pinned = page.pinPart(step({ item: { pinned: 'Worker 3' } }), STATE)
   assert.match(text(pinned), /^Pinned to Worker 3/)
   assert.deepEqual(all(pinned, node => node.tag === 'button').map(one => [one.textContent, one.dataset.unpinStep ?? one.dataset.pinStep]), [['Unpin', 'B12'], ['Move to', 'B12']])
   assert.deepEqual(all(pinned, node => node.tag === 'select')[0].children.map(one => one.value), ['Worker 1'])
-  // The row: the same, without Move to.
-  assert.deepEqual(all(page.pinPart(step({ item: { pinned: 'Worker 3' } }), STATE, false), node => node.tag === 'button').map(one => one.textContent), ['Unpin'])
   // A task given, under way, done or the person's: no pin.
-  for (const status of ['queued', 'progress', 'done', 'you']) assert.equal(page.pinPart(step({ status }), STATE, true), null, status)
+  for (const status of ['queued', 'progress', 'done', 'you']) assert.equal(page.pinPart(step({ status }), STATE), null, status)
 })
 
 test('a task in a worker\'s queue: pinned, it moves to another worker or is unpinned; given by the board, it says so', () => {
@@ -71,17 +69,19 @@ test('a task in a worker\'s queue: pinned, it moves to another worker or is unpi
   assert.match(text(given), /The board gave it to Worker 1/)
 })
 
-test('the pin goes through the work API as the person; the old queue words are gone from the page', () => {
+test('the pin goes through the work API as the person, from the window only; the old queue words are gone from the page', () => {
   assert.match(fn('pinClick'), /return sendWork\(\{ action: 'pin', id, for: target \}, `pin:\$\{id\}`\)/)
-  for (const gone of ['Add to queue', 'Take out of the queue', 'to hand it out', 'Put in a queue', 'askQueue', "command: 'queue'"]) {
+  // "Add to queue" is back, as the person's own add to the shared queue (the Backlog tab's blocks), never Main's queue.
+  for (const gone of ['Take out of the queue', 'to hand it out', 'Put in a queue', 'askQueue', "command: 'queue'"]) {
     assert.ok(!script.includes(gone), `board.js still says ${gone}`)
     assert.ok(!html.includes(gone), `index.html still says ${gone}`)
   }
   assert.match(html, /id="design-queue" type="button">Put on the list</)
   assert.ok(!html.includes('id="design-worker"'), 'the Design tab picks no worker')
-  // The rows of the Backlog tab and the window both handle the pin's clicks.
-  assert.match(script, /const pin = event\.target\.closest\('\[data-pin-step\], \[data-unpin-step\]'\)/)
+  // The window handles the pin's clicks; the Backlog tab's rows no longer pin.
   assert.match(script, /const button = event\.target\.closest\('\[data-pin-move\], \[data-pin-step\], \[data-unpin-step\]'\)/)
+  assert.doesNotMatch(script, /const pin = event\.target\.closest\('\[data-pin-step\], \[data-unpin-step\]'\)/)
+  assert.match(fn('drawDetails'), /pinPart\(subject\.step, state\)/)
 })
 
 test('the main chat\'s queue word is refused: the board hands out all tasks', () => {
@@ -103,9 +103,9 @@ test('the Workers panel lists the ready tasks in the board\'s order, each with w
   const build = extra => buildState({ listText: '{"prefix":"Studio · ","main":"Lead"}', appChatTexts: ['Lead', 'Worker 1', 'Worker 3'].map(app), tails: {}, planLineTexts: {}, adviceText: null, folders: null, askTexts: [], pictureLists: {}, work },
     { lines: [], outbox: [], runs: [], now: NOW, config: { ...parseConfig('{}', {}), project: 'C:\\game', ...extra } })
   const state = build({})
-  // Outside the focus goal and not pinned, B2 waits for the person's pick (the hand-out of 2026-10-25).
+  // Outside the focus goal and not pinned, B2 waits for the person's pick (the hand-out of 2026-10-25): "Add to queue".
   assert.deepEqual(state.readyList.ready.map(one => [one.id, one.title, one.pinned]), [['B9', 'Fix the lamp', null], ['B5', 'Mend the fence', 'Worker 3']])
-  assert.deepEqual(state.readyList.held, [{ id: 'B2', why: 'outside the focus goal: waits until you pin it or switch the focus', title: 'Paint the gate' }, { id: 'B7', why: 'blocked by B8 (in progress)', title: 'Hang the sign' }])
+  assert.deepEqual(state.readyList.held, [{ id: 'B2', why: 'outside the focus goal: waits until you add it to the queue or switch the focus', choice: true, title: 'Paint the gate' }, { id: 'B7', why: 'blocked by B8 (in progress)', title: 'Hang the sign' }])
   // With handOutBeyondFocus on, the whole backlog is ready again.
   const beyond = build({ handOutBeyondFocus: true })
   assert.deepEqual(beyond.readyList.ready.map(one => one.id), ['B9', 'B2', 'B5'])

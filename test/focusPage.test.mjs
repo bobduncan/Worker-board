@@ -210,7 +210,7 @@ test('"See the steps behind this" opens the Backlog on the goal\'s steps: its ow
   assert.match(script, /coordinateGoal = /)
 })
 
-test('B325: with a goal in the filter, "Show finished" hides and shows the finished steps as without one, grouped and in one list', () => {
+test('B325: with a goal in the filter, "Show finished" hides and shows the finished steps as without one', () => {
   // the user, 2026-10-18 15:30: "the show finished checkbox doesnt work if you have a goal in the filter"
   const activities = [
     { name: 'Art', isFocus: false, steps: [
@@ -225,19 +225,17 @@ test('B325: with a goal in the filter, "Show finished" hides and shows the finis
   ]
   const goal = ['B10', 'B11', 'B12', 'B14']
   const ids = list => list.groups.flatMap(group => group.steps.map(step => step.id))
-  for (const asOne of [false, true]) {
-    const hidden = page.coordinateList(activities, { goal, asOne })
-    const shown = page.coordinateList(activities, { goal, asOne, showDone: true })
-    // without the goal, the same box does the same to the same steps
-    const plainHidden = ids(page.coordinateList(activities, { asOne })).filter(id => goal.includes(id))
-    const plainShown = ids(page.coordinateList(activities, { asOne, showDone: true })).filter(id => goal.includes(id))
-    assert.deepEqual(ids(hidden), asOne ? ['B14', 'B11'] : ['B11', 'B14'], `asOne ${asOne}`)
-    assert.deepEqual(ids(shown), asOne ? ['B14', 'B12', 'B11', 'B10'] : ['B10', 'B11', 'B12', 'B14'], `asOne ${asOne}`)
-    assert.deepEqual(ids(hidden), plainHidden)
-    assert.deepEqual(ids(shown), plainShown)
-    // nothing outside the goal comes in, finished or not
-    assert.ok(!ids(shown).includes('B30'))
-  }
+  const hidden = page.coordinateList(activities, { goal })
+  const shown = page.coordinateList(activities, { goal, showDone: true })
+  // without the goal, the same box does the same to the same steps
+  const plainHidden = ids(page.coordinateList(activities, {})).filter(id => goal.includes(id))
+  const plainShown = ids(page.coordinateList(activities, { showDone: true })).filter(id => goal.includes(id))
+  assert.deepEqual(ids(hidden), ['B11', 'B14'])
+  assert.deepEqual(ids(shown), ['B10', 'B11', 'B12', 'B14'])
+  assert.deepEqual(ids(hidden), plainHidden)
+  assert.deepEqual(ids(shown), plainShown)
+  // nothing outside the goal comes in, finished or not
+  assert.ok(!ids(shown).includes('B30'))
 })
 
 test('the part has its place in the page: a section, its styles, and the tab named Focus', () => {

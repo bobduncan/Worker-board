@@ -68,13 +68,33 @@ export function followUpOf(item, items, { now, followUpMs, prefix = '' }) {
   return found.sort((a, b) => b.at - a.at)[0] ?? null
 }
 
+/** The Backlog tab's blocks (2026-10-25): why a refined task outside the focus goal waits, until the person adds it. */
+export const CHOICE_WHY = 'outside the focus goal: waits until you add it to the queue or switch the focus'
+
+/**
+ * When the person added a step to the queue (its `Queued by: person, <stamp>`, the work API's `add-to-queue`), in ms;
+ * NaN when it was not added (or the stamp cannot be read).
+ */
+export function addedAt(item) {
+  const found = String(valueOf(item, 'Queued by') ?? '').match(/^person,\s*(\d{4}-\d{2}-\d{2} \d{2}:\d{2}(?::\d{2})?)$/)
+  return found === null ? Number.NaN : sinceMs(found[1])
+}
+/** The stamp of the person's add to the queue, as written (its whole value when it has none), or null when not added. */
+function addedStamp(item) {
+  const value = valueOf(item, 'Queued by')
+  return value === null ? null : value.replace(/^person,?\s*/, '').trim() || value
+}
+
 /**
  * The ready list: `{ ready, held }`. Every step in state refined; ready when nothing holds it (guards.mjs `readyHold`),
  * its kind's standard does not hold it (`standardHold(item)`, a why or null) and its routing record does not
  * (`routingHeld`, ids); else held, `{ id, why }` in one line. `ready` in the board's order: a fix first (rank 0), then a
- * task of the focus goal (1), then the rest (2), each by id; with the worker it is kept for (`keptFor`: its pin, else,
- * with `followUpMs` above 0, the worker it is a follow-up of, until `keptUntil`), its pin (`pinned`), and (`followUpMs`
- * 0, the default: a preference only) the worker it goes to when that one is idle at the give (`prefers`).
+ * task of the focus goal (1), then the rest (2): the tasks the person added to the queue (`added`, its stamp) in the
+ * order they were added, then the others by id; ranks 0 and 1 each by id. With the worker it is kept for (`keptFor`: its
+ * pin, else, with `followUpMs` above 0, the worker it is a follow-up of, until `keptUntil`), its pin (`pinned`), and
+ * (`followUpMs` 0, the default: a preference only) the worker it goes to when that one is idle at the give (`prefers`).
+ * A task of rank 2 neither pinned nor added is held for the person's choice (`choice: true`, CHOICE_WHY) unless
+ * `beyondFocus`.
  */
 export function readyList(items, { now, focus = null, followUpMs = HAND_OUT_DEFAULTS.followUpMinutes * 60_000, standardHold = null, routingHeld = new Set(), prefix = '', beyondFocus = true }) {
   const ready = []
@@ -92,16 +112,19 @@ export function readyList(items, { now, focus = null, followUpMs = HAND_OUT_DEFA
     const isKept = followUpMs > 0
     const follow = pinned === null ? followUpOf(item, items, { now, followUpMs: isKept ? followUpMs : Infinity, prefix }) : null
     const rank = isFix(item) ? 0 : focus !== null && valueOf(item, 'Goal') === focus ? 1 : 2
+    const added = addedStamp(item)
     // 2026-10-25, the controller in the person's place (principle 8): a task that is no fix, not of the focus goal and
     // not pinned waits for the person's pick, unless the settings' `handOutBeyondFocus` is true. The whole backlog is
-    // not the board's to start.
-    if (rank === 2 && pinned === null && !beyondFocus) {
-      held.push({ id, why: 'outside the focus goal: waits until you pin it or switch the focus' })
+    // not the board's to start. The Backlog tab's blocks: the person picks it with "Add to queue" (`Queued by`).
+    if (rank === 2 && pinned === null && added === null && !beyondFocus) {
+      held.push({ id, why: CHOICE_WHY, choice: true })
       continue
     }
-    ready.push({ id, rank, keptFor: pinned ?? (isKept ? follow?.worker ?? null : null), keptUntil: isKept ? follow?.until ?? null : null, pinned, prefers: isKept ? null : follow?.worker ?? null })
+    ready.push({ id, rank, keptFor: pinned ?? (isKept ? follow?.worker ?? null : null), keptUntil: isKept ? follow?.until ?? null : null, pinned, prefers: isKept ? null : follow?.worker ?? null, ...(added === null ? {} : { added }) })
   }
-  return { ready: ready.sort((a, b) => a.rank - b.rank || byId(a.id, b.id)), held }
+  // Within rank 2 the person's additions come first, in the order they were added (one without a readable stamp last of them).
+  const addedOrder = one => (one.rank !== 2 || one.added === undefined ? Infinity : Number.isFinite(addedAt(items.get(one.id))) ? addedAt(items.get(one.id)) : Number.MAX_SAFE_INTEGER)
+  return { ready: ready.sort((a, b) => a.rank - b.rank || addedOrder(a) - addedOrder(b) || byId(a.id, b.id)), held }
 }
 
 /** The History line of the board's give (api.mjs `give`). */

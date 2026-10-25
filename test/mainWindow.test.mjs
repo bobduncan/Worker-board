@@ -134,7 +134,8 @@ test('"For you" is "Needs your attention" on the board: the tab, its panel, the 
   assert.match(html, /data-side="needs"[^>]*>Needs your attention <span class="count"/)
   assert.match(html, /<h2 id="inbox-title" class="sr-only">Needs your attention<\/h2>/)
   assert.match(script, /\['you', 'Needs your attention'\]/)
-  assert.match(script, /you: 'Needs your attention'/)
+  // The Backlog tab's blocks (2026-10-25): a task that waits on the person says so in the In progress block.
+  assert.match(script, /'waiting on you': \['Waiting on you', 'you'\]/)
   assert.ok(!/>For you</.test(html) && !/^(?!\s*\/\/).*'For you'/m.test(script), 'no "For you" left for the person to see')
   // On one line, also when the right side is at its narrowest.
   assert.match(style, /\.side-tab \{ white-space: nowrap; \}/)

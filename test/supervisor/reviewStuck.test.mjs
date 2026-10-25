@@ -153,7 +153,7 @@ test('the Backlog line says what a step in review waits for: on the Backlog tab 
   assert.deepEqual(['B7', 'B8', 'B9'].map(id => reviewWaitOfStep(work, id)), ['waits for its fix B8', null, 'waits for its first check'])
   // The row on the Backlog tab shows it beside the title, and the state hands it to the page.
   const page = await readFile(join(HERE, '..', '..', 'public', 'board.js'), 'utf8')
-  const row = page.slice(page.indexOf('function coordinateLine('), page.indexOf('function coordinateLine(') + 1200)
+  const row = page.slice(page.indexOf('function blockLine('), page.indexOf('function blockLine(') + 1600)
   assert.match(row, /step\.reviewWait/)
   const state = await readFile(join(HERE, '..', '..', 'src', 'state.mjs'), 'utf8')
   assert.match(state, /reviewWait: reviewWaitOfStep\(raw\.work, step\.key\)/)

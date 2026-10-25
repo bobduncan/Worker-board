@@ -251,14 +251,8 @@
         <div class="coordinate-tools" id="coordinate-tools">
           <input type="search" id="coordinate-find" placeholder="Find a step: B64…" aria-label="Find a step by its id" maxlength="40">
           <div class="coordinate-checks">
-            <label class="check" title="Also show the steps that are ticked in the backlog">
+            <label class="check" title="Also show the steps that are ticked in the backlog, in a block of their own">
               <input type="checkbox" id="coordinate-done"> Show finished
-            </label>
-            <label class="check" title="Every step in one list, without the activities: the newest (the highest id) on top">
-              <input type="checkbox" id="coordinate-one" checked> One list, newest first
-            </label>
-            <label class="check" title="Leave out the steps a worker is on and the steps that wait in a queue">
-              <input type="checkbox" id="coordinate-busy"> Hide in progress and queued <small id="coordinate-busy-count"></small>
             </label>
           </div>
         </div>
@@ -323,7 +317,7 @@
               <button class="button is-quiet" id="design-backlog" type="button">Put on the backlog</button>
               <button class="button" id="design-queue" type="button">Put on the list</button>
             </div>
-            <p class="muted design-also">On the list, the board gives it to the first free worker once it is refined; pin it to a worker on the Backlog tab.</p>
+            <p class="muted design-also">Once it is refined, the first free worker takes it: a task of the focus goal by itself, any other once you add it to the queue on the Backlog tab.</p>
           </fieldset>
           <div class="design-sent" id="design-sent" hidden></div>
           <p class="problem" id="design-form-problem" hidden></p>

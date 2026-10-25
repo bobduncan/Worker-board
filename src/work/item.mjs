@@ -11,7 +11,9 @@ export const HEAD_KEYS = {
   // next step (its owner's queue, `work next`, the delivery), and stays with its owner. Pause and resume (spec
   // 2026-10-18): `Checkpoint` is the holder's last checkpoint, "<commit or none> · <next action> · <date time>".
   // Redesign Part 2 (2026-10-25): `Pinned` the worker the person pinned the task to: the board gives it to that one only.
-  step: ['Id', 'Kind', 'Title', 'Priority', 'State', 'Owner', 'Pinned', 'Activity', 'Goal', 'Blocked by', 'Waits for', 'Since', 'Estimate', 'Branch', 'Checkpoint', 'Fix of', 'Attempts', 'Pictures', 'Refined', 'Asks', 'Queue when refined', 'Queue note', 'Line'],
+  // The Backlog tab's blocks (2026-10-25): `Queued by: person, <stamp>` the person added the task to the queue ("Add to
+  // queue", the work API's `add-to-queue`): outside the focus goal it is handed out too, in the order added.
+  step: ['Id', 'Kind', 'Title', 'Priority', 'State', 'Owner', 'Pinned', 'Queued by', 'Activity', 'Goal', 'Blocked by', 'Waits for', 'Since', 'Estimate', 'Branch', 'Checkpoint', 'Fix of', 'Attempts', 'Pictures', 'Refined', 'Asks', 'Queue when refined', 'Queue note', 'Line'],
   // B299: `Advice` is the option the asking chat advises; `Via` says how it was asked: form (the app's question form,
   // answered in the chat only) or refine (a question of the Advisor's refine of the step it is Of). Warnings
   // (2026-10-19): `Filed` when it was filed, to the millisecond, as an instruction's (`askFiledMs`). Partner answers

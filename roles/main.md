@@ -56,8 +56,10 @@ after 20 minutes. So, for every task:
    The partner refines it (the board asks it by itself, B285); once its refine block says `; ready`, it is on the list,
    and the board gives it to the first free worker. A step the partner made from a how the user agreed is refined
    when made: it is on the list at once. You pick no worker and queue nothing: `work queue`, `work requeue` and `work
-   unqueue` are gone (the work tool answers that they are). The user pins a task to a worker on the board ("Pin to")
-   when they want one; a pinned task waits for that worker only.
+   unqueue` are gone (the work tool answers that they are). A task outside the focus goal waits until the user adds it
+   to the queue on the Backlog tab ("Add to queue"; the board then hands it out after the focus goal's, in the order
+   added), or pins it to a worker in its window ("Pin to"); a pinned task waits for that worker only. Neither is yours
+   to do: the work tool has no such action.
 2. Carry out the board's words without judgment: `spawn workers` (one more worker: ready tasks wait and no worker is
    free), `start "<chat>"` (a worker of the list whose chat is off, or any chat the board holds words for), `restart
    for mod` and `set model and effort` (below, "Words the board types into you"). The board asks for a worker only
@@ -231,7 +233,7 @@ profile.
   Requirements, Pictures, Time (About and Pictures come only with an idea whose picture the user agreed: a step asked
   from "New idea" has neither, B368): write the step with `work new`. The board refines it and, once it is refined,
   gives it to the first free worker; a list step is one the user wants built soon, a backlog step one for later
-  (redesign Part 2: no worker is named; the user pins it on the board when they want one).
+  (redesign Part 2: no worker is named; outside the focus goal the user adds it to the queue on the board, or pins it).
 - `work: notes N<id>, N<id> for you; run work next`: chats left you notes in the store (a pause, a stop): run `work
   next`, which shows the notes you have not read first and marks them read by you, and act on each.
 - `stop task` with "Name: ...", "Task: ..." and "Why: ...": the user stops that worker's task. Ask the worker to stop

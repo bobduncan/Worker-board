@@ -125,6 +125,70 @@ test('the person pins a task to a worker, moves the pin, unpins it; not Main, no
   }
 })
 
+test('the Backlog tab\'s blocks: the person adds a refined task to the queue, once; never a chat or the board; never a task not refined', async () => {
+  const one = await garden(step('B1', 'refined'), step('B2', 'new'), step('B3', 'queued', { Owner: 'Digger' }), step('B5', 'refined'))
+  try {
+    const added = await one.person({ action: 'add-to-queue', id: 'B1' })
+    assert.equal(added.ok, true, added.why)
+    assert.equal(added.result.text, 'B1: added to the queue.')
+    const b1 = await one.read('B1')
+    assert.equal(valueOf(b1, 'Queued by'), 'person, 2026-10-25 10:00:00')
+    assert.equal(b1.sections.get('History').at(-1), '- 2026-10-25 10:00 person: added to the queue')
+    assert.deepEqual([...b1.head.keys()].slice(0, 6), ['Id', 'Kind', 'Title', 'State', 'Queued by', 'Activity'])
+    // Again: nothing changes, its first stamp (its place in the queue) stays.
+    const again = await one.person({ action: 'add-to-queue', id: 'B1' }, NOW + 5 * MIN)
+    assert.deepEqual([again.ok, again.result.changed, again.result.text], [true, false, 'B1 is in the queue already.'])
+    assert.equal(valueOf(await one.read('B1'), 'Queued by'), 'person, 2026-10-25 10:00:00')
+    assert.equal((await one.read('B1')).sections.get('History').length, 2)
+    // Only a refined task.
+    for (const id of ['B2', 'B3']) {
+      const refused = await one.person({ action: 'add-to-queue', id })
+      assert.equal(refused.status, 409, id)
+      assert.match(refused.why, /only a refined task is added to the queue/)
+    }
+    // The person's alone: no chat (the work tool has no such action), not the board itself.
+    for (const chat of ['Lead', 'Digger', 'Partner', 'Helper']) {
+      assert.equal((await one.as(chat)({ action: 'add-to-queue', id: 'B5' })).status, 403, chat)
+      assert.equal((await one.as(chat)({ action: 'remove-from-queue', id: 'B1' })).status, 403, chat)
+    }
+    assert.equal((await one.server({ action: 'add-to-queue', id: 'B5' })).status, 403)
+    assert.equal(valueOf(await one.read('B5'), 'Queued by'), null)
+    assert.ok(HEAD_KEYS.step.indexOf('Queued by') === HEAD_KEYS.step.indexOf('Pinned') + 1)
+  } finally {
+    await cleanUp(one.dir)
+  }
+})
+
+test('the Backlog tab\'s blocks: "Remove" takes the person\'s own off, their add and their pin, in one line; once is enough; not once given', async () => {
+  const one = await garden(step('B1', 'refined', { 'Queued by': 'person, 2026-10-25 09:00:00' }), step('B2', 'refined', { Pinned: 'Mower' }), step('B3', 'refined'), step('B4', 'queued', { Owner: 'Digger', 'Queued by': 'person, 2026-10-25 09:00:00' }), step('B6', 'new', { Pinned: 'Digger' }))
+  try {
+    const removed = await one.person({ action: 'remove-from-queue', id: 'B1' })
+    assert.equal(removed.ok, true, removed.why)
+    assert.equal(valueOf(await one.read('B1'), 'Queued by'), null)
+    assert.equal((await one.read('B1')).sections.get('History').at(-1), '- 2026-10-25 10:00 person: removed from the queue')
+    const twice = await one.person({ action: 'remove-from-queue', id: 'B1' })
+    assert.deepEqual([twice.ok, twice.result.changed], [true, false])
+    assert.equal((await one.read('B1')).sections.get('History').length, 2)
+    // A pin is the person's too.
+    assert.equal((await one.person({ action: 'remove-from-queue', id: 'B2' })).ok, true)
+    assert.equal(valueOf(await one.read('B2'), 'Pinned'), null)
+    assert.equal((await one.read('B2')).sections.get('History').at(-1), '- 2026-10-25 10:00 person: unpinned from Mower')
+    // Added and pinned: both go, in one History line.
+    assert.equal((await one.person({ action: 'add-to-queue', id: 'B3' })).ok, true)
+    assert.equal((await one.person({ action: 'pin', id: 'B3', for: 'Digger' })).ok, true)
+    assert.equal((await one.person({ action: 'remove-from-queue', id: 'B3' })).ok, true)
+    const b3 = await one.read('B3')
+    assert.deepEqual([valueOf(b3, 'Queued by'), valueOf(b3, 'Pinned'), b3.sections.get('History').at(-1)], [null, null, '- 2026-10-25 10:00 person: removed from the queue and unpinned from Digger'])
+    // A new task's pin comes off too; a task given to a worker is the hand-out's, not the queue's.
+    assert.equal((await one.person({ action: 'remove-from-queue', id: 'B6' })).ok, true)
+    const given = await one.person({ action: 'remove-from-queue', id: 'B4' })
+    assert.equal(given.status, 409)
+    assert.equal(valueOf(await one.read('B4'), 'Queued by'), 'person, 2026-10-25 09:00:00')
+  } finally {
+    await cleanUp(one.dir)
+  }
+})
+
 test('queue, requeue and unqueue are gone, with one line saying why', async () => {
   const one = await garden(step('B1', 'refined'), step('B2', 'queued', { Owner: 'Digger' }))
   try {

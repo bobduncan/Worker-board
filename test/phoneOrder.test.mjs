@@ -28,5 +28,5 @@ test('Needs your attention first; the timeline and the folders folded away until
   assert.match(phone, /#view-overview:not\(\.shows-more\) #today, #view-overview:not\(\.shows-more\) #folders \{ display: none; \}/)
   assert.ok(html.indexOf('id="phone-more"') < html.indexOf('id="today"'))
   assert.match(script, /const shows = \$\('view-overview'\)\.classList\.toggle\('shows-more'\)/)
-  assert.match(phone, /\.step-row \.step-state \{ grid-column: 2; \}/)
+  assert.match(phone, /\.block-line \.step-state, \.block-line \.block-why \{ grid-column: 2; grid-row: 2;/)
 })

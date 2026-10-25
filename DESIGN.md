@@ -244,6 +244,21 @@ the main chat that is about the step (the first step its first line names, read 
 the moment the board first saw the step ticked, kept in `data/finished.json` from 2026-10-14 on (shown with "≈");
 a line with only the day. A step none of these gives a time for is left out. The picture:
 `art-inbox/worker-board/b155/2026-10-14-b155-backlog-tab.png`.
+**The blocks (2026-10-25).** The person agreed on a mockup (`art-inbox/board-backlog-lists/mock.png`) with one change,
+"In progress is higher than queue": under "Recently finished" the open items stand in blocks, each folding with a click
+on its head (kept in this browser, `backlog-blocks-folded`): **In progress** (given, taken, in progress, waiting on
+you, in review, with the worker; green only while worked on, the colour of waiting only when it waits on the person),
+**Queue** (the board's ready list, numbered in the order a free worker takes them, with the chips fix, focus and "added
+by you", "any free worker" or "for <worker> only", and "Remove" on the person's own additions and pins), **Refined**
+(held for the person's choice, each with "Add to queue"; one held for another reason says why, quietly), **Not refined
+yet** (being refined, or waiting for your answer), and with "Show finished" **Finished**. Every row's goal links to it on
+the Goals part (`#advice/goals/G<n>`). The filters, the search and "Show finished" stay; a filter or a search leaves out
+a block with nothing left. "Add to queue" writes `Queued by: person, <stamp>` (the work API's `add-to-queue`, the
+person's only; `remove-from-queue` takes it and a pin off): the ready list hands such a task out after the focus goal's,
+in the order added (`handOut.mjs` `readyList`, rank 2). Pinning to one worker stays only in a task's window. Gone with
+the blocks: "One list, newest first" (B164, B179), the goal headers (B302) and "Hide in progress and queued" (B250),
+described below as they were. Tests: `test/backlogBlocks.test.mjs`, `test/work/handOutList.test.mjs`,
+`test/work/handOutApi.test.mjs`.
 A checkbox "One list, newest first" beside "Show finished" (B164; the person: "show it 1 long list desc. so last
 item on the backlog first") lists every step without the activities, the highest id on top and the steps from
 before the ids at the end; the filters, the search and "Show finished" work as in the list by activity, and each
@@ -3727,8 +3742,11 @@ what code should do"). Now the board hands out every task itself (principle 1), 
   order: `Priority: fix` first, then the goal map's focus goal's, then the rest, each by id. The rest is held, each
   with one line why. The page shows it under the Workers ("Ready for a worker", "Refined, but held"), the main chat's
   sync words name it ("Ready for a worker: ..."), the supervisor reads it.
+- **Added by the person** (the Backlog tab's blocks, 2026-10-25): a refined task outside the focus goal waits for the
+  person's "Add to queue" (`Queued by: person, <stamp>`, the work API's `add-to-queue`; "Remove", `remove-from-queue`,
+  takes it off): the list then holds it after the focus goal's tasks, in the order added, for the first free worker.
 - **Kept for a worker:** a task the person pinned (`Pinned: <worker>`, the work API's `pin`; "Pin to", "Move to",
-  "Unpin" on the Backlog tab and in a task's window) waits for that worker only, never starts a new one, and goes to it
+  "Unpin" in a task's window) waits for that worker only, never starts a new one, and goes to it
   before the list's order. A follow-up (a task whose `Blocked by` or `Waits for` named a step that worker moved to
   review or done, or a result check's fix of a step it built, its `Fix of`) is a preference only (the review of
   2026-10-25: by the time the blocker is done its builder is mostly busy again, so a keep only delayed the work): in the
@@ -3777,7 +3795,8 @@ what code should do"). Now the board hands out every task itself (principle 1), 
   incident fixes. A project's older `flow.json` still reads (the retired guards never hold), but the board then gives
   nothing and says on top "flow.json lets the board hand out no task: add the move ...". `flowHandsOut`.
 - **Gone:** Main's `work queue`, `requeue` and `unqueue` (the API answers 410 with why), `Queue when refined` (B303),
-  the page's "Add to queue" and "Take out of the queue", the words `queue step from the backlog` and `step refined`,
+  the page's "Add to queue" for a worker's queue (since the blocks it adds to the one shared queue) and "Take out of
+  the queue", the words `queue step from the backlog` and `step refined`,
   the Design tab's worker picker ("Put in a queue" is "Put on the list", `list step from the Design tab`), the board's
   queue of incident fixes and its lines to the main chat (a fix simply stands first), the focus hint "waits for the main
   chat to hand them out", the flag "not taken", and the supervisor's rules `not-taken`, `queued-behind`, `focus-ready`,

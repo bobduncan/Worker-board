@@ -142,8 +142,6 @@ test('the lane\'s queue and the Backlog tab put the fix first and mark it', () =
   assert.equal(steps.find(one => one.id === 'B1').isFix, undefined)
   const list = plain(made.coordinateList(state.backlog))
   assert.deepEqual(list.groups[0].steps.map(one => one.id).slice(0, 2), ['B2', 'B1'])
-  const one = plain(made.coordinateList(state.backlog, { asOne: true }))
-  assert.equal(one.groups[0].steps[0].id, 'B2')
   // The chip: in the lane's queue, its next step and the Backlog tab's row.
   assert.ok(css.includes('.fix-chip'))
   assert.equal((script.match(/fixChip\(\)/g) ?? []).length >= 3, true)

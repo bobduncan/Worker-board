@@ -138,6 +138,8 @@ export function itemOfStep(work, key) {
     queueWhenRefined: valueOf(item, 'Queue when refined'),
     // Redesign Part 2: the worker the person pinned it to, or null.
     pinned: valueOf(item, 'Pinned'),
+    // The Backlog tab's blocks: "person, <stamp>" when the person added it to the queue, or null.
+    queuedBy: valueOf(item, 'Queued by'),
     // B356: its last result check (the evidence, the ticks, the score), and the step it fixes.
     checked: checkedOf(item), fixOf: valueOf(item, 'Fix of'), attempts: Number(valueOf(item, 'Attempts') ?? 0),
     // B468: the effort its worker runs at (medium when its refine gave none), and who holds it in which state. Model per

@@ -6,7 +6,7 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 
 import { isReady } from '../../src/work/guards.mjs'
-import { HAND_OUT_DEFAULTS, followUpOf, readyList } from '../../src/work/handOut.mjs'
+import { CHOICE_WHY, HAND_OUT_DEFAULTS, addedAt, followUpOf, readyList } from '../../src/work/handOut.mjs'
 import { parseItem } from '../../src/work/item.mjs'
 import { stamp } from '../../src/work/migrate.mjs'
 
@@ -119,4 +119,44 @@ test('the person away, 2026-10-25: a task outside the focus waits for the person
   assert.deepEqual(held.held.map(one => one.id), ['B1'])
   assert.match(held.held[0].why, /outside the focus goal/)
   assert.deepEqual(readyList(items, { now: NOW, focus: 'G33' }).ready.map(one => one.id), ['B3', 'B2', 'B1', 'B4'])
+})
+
+test('the Backlog tab\'s blocks, 2026-10-25: a task the person added to the queue goes after the focus goal\'s, in the order added; one not added waits for the person', () => {
+  const items = [
+    step('B1', 'refined', { Goal: 'G9', 'Queued by': 'person, 2026-10-25 11:30:05' }),
+    step('B2', 'refined', { Goal: 'G33' }),
+    step('B3', 'refined', { Goal: 'G9', Priority: 'fix' }),
+    step('B4', 'refined', { Goal: 'G9', 'Queued by': 'person, 2026-10-25 11:10:00' }),
+    step('B5', 'refined', { Goal: 'G9' }),
+    step('B6', 'refined', { Goal: 'G9', Pinned: 'Worker 1' }),
+    step('B7', 'refined', { Goal: 'G9', 'Queued by': 'person, 2026-10-25 11:30:01' }),
+  ]
+  const done = list(items, { focus: 'G33', beyondFocus: false })
+  // A fix, the focus goal's, then the person's additions as they came (not by id), then the rest of rank 2 by id.
+  assert.deepEqual(done.ready.map(one => [one.id, one.rank]), [['B3', 0], ['B2', 1], ['B4', 2], ['B7', 2], ['B1', 2], ['B6', 2]])
+  assert.deepEqual(done.ready.filter(one => 'added' in one).map(one => [one.id, one.added]), [['B4', '2026-10-25 11:10:00'], ['B7', '2026-10-25 11:30:01'], ['B1', '2026-10-25 11:30:05']])
+  // Added for no worker: the first free one takes it.
+  assert.deepEqual(done.ready.find(one => one.id === 'B4'), { id: 'B4', rank: 2, keptFor: null, keptUntil: null, pinned: null, prefers: null, added: '2026-10-25 11:10:00' })
+  // Not added, not pinned, outside the focus: held for the person's choice, said so.
+  assert.deepEqual(done.held, [{ id: 'B5', why: CHOICE_WHY, choice: true }])
+  assert.equal(CHOICE_WHY, 'outside the focus goal: waits until you add it to the queue or switch the focus')
+  // With handOutBeyondFocus on nothing waits for the person, and the additions still come first of the rest.
+  assert.deepEqual(list(items, { focus: 'G33', beyondFocus: true }).ready.map(one => one.id), ['B3', 'B2', 'B4', 'B7', 'B1', 'B5', 'B6'])
+})
+
+test('the Backlog tab\'s blocks: an added fix or focus task keeps its rank; an added task something holds stays held for that, not for the person', () => {
+  const done = list([
+    step('B1', 'refined', { Goal: 'G33', 'Queued by': 'person, 2026-10-25 09:00:00' }),
+    step('B2', 'refined', { Goal: 'G33' }),
+    step('B3', 'refined', { Priority: 'fix', 'Queued by': 'person, 2026-10-25 08:00:00' }),
+    step('B4', 'in progress', { Owner: 'Worker 1' }),
+    step('B5', 'refined', { Goal: 'G9', 'Queued by': 'person, 2026-10-25 07:00:00', 'Blocked by': 'B4' }),
+    step('B6', 'refined', { Goal: 'G9', 'Queued by': 'person' }),
+  ], { focus: 'G33', beyondFocus: false })
+  assert.deepEqual(done.ready.map(one => [one.id, one.rank]), [['B3', 0], ['B1', 1], ['B2', 1], ['B6', 2]])
+  assert.deepEqual(done.held, [{ id: 'B5', why: 'blocked by B4 (in progress)' }])
+  // A stamp the board cannot read still counts as added, after the readable ones.
+  assert.equal(Number.isNaN(addedAt(step('B6', 'refined', { 'Queued by': 'person' }))), true)
+  assert.equal(addedAt(step('B7', 'refined', { 'Queued by': 'person, 2026-10-25 11:10:30' })), new Date(2026, 9, 25, 11, 10, 30).getTime())
+  assert.equal(Number.isNaN(addedAt(step('B8', 'refined'))), true)
 })

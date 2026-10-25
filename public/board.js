@@ -3176,8 +3176,8 @@ function pinChangePart(lane, step, state) {
 }
 
 /**
- * Redesign Part 2: the person's pin of a task, from its window or its row on the Backlog tab: "Pin to" (or "Move to")
- * with the worker picked beside it, or "Unpin". The work store changes at once (the work API's `pin`).
+ * Redesign Part 2: the person's pin of a task, from its window: "Pin to" (or "Move to") with the worker picked beside
+ * it, or "Unpin". The work store changes at once (the work API's `pin`).
  */
 function pinClick(button) {
   const id = button.dataset.pinMove ?? button.dataset.pinStep ?? button.dataset.unpinStep
@@ -3262,6 +3262,8 @@ function drawReadyList(state) {
     return line
   }
   const keptWhy = one => [
+    // The Backlog tab's blocks: a task the person added to the queue.
+    (one.added ?? null) === null ? null : 'added by you',
     one.pinned !== null ? `pinned to ${one.pinned}` : one.keptFor !== null ? `kept for ${one.keptFor}${Number.isFinite(one.keptUntil) ? ` until ${clock(one.keptUntil)}` : ''}`
       : (one.prefers ?? null) !== null ? `to ${one.prefers} first when it is free` : null,
     // The review of 2026-10-25: a give the board's work API refused, and why; a task whose line was held twice.
@@ -6612,8 +6614,9 @@ function drawDetails(state) {
     form.append(...optionChoices(need), ...answerPart(need, state, false, true))
     foot.append(form)
   }
-  // Redesign Part 2: a new or refined task of the Backlog tab: "Pin to" a worker in its foot, as in its row.
-  const pin = need === null && subject.step !== undefined ? pinPart(subject.step, state, true) : null
+  // Redesign Part 2: a new or refined task of the Backlog tab: "Pin to" a worker in its foot (the Backlog tab's blocks of
+  // 2026-10-25: only here; its row has "Add to queue").
+  const pin = need === null && subject.step !== undefined ? pinPart(subject.step, state) : null
   if (pin !== null) foot.append(pin)
   // Redesign Part 2: a task in a worker's queue: pinned, it moves to another worker or is unpinned; given, it says so.
   const change = need === null && subject.step === undefined && lane !== null && lane !== undefined ? pinChangePart(lane, step, state) : null
@@ -14130,45 +14133,33 @@ function coordinateFinds(step, find) {
 /**
  * The tab's list: the activities in the order given (the person's focus first), each with the steps that pass the
  * filter and the search; finished steps only when asked for, and never under a filter but "All". An activity with no
- * step left is left out. `counts` says how many open steps each filter holds, whatever is searched for. B164: with
- * `asOne`, every step that passes is in one group (`isOne`) without the activities, the highest id on top and a step
- * from before the ids at the end, each with the name of its activity. B250: with `hideBusy`, the steps a worker is on
- * or that wait in a queue are left out, and `hidden` says how many of those the filter and the search would show.
+ * step left is left out. `counts` says how many open steps each filter holds, whatever is searched for. The Backlog
+ * tab's blocks (2026-10-25) sort what it keeps into blocks (`backlogBlocks`).
  */
-function coordinateList(activities, { filter = 'all', find = '', showDone = false, asOne = false, hideBusy = false, goal = null } = {}) {
+function coordinateList(activities, { filter = 'all', find = '', showDone = false, goal = null } = {}) {
   const counts = {}
   // Focus 1: only the steps behind a goal (`goal`: their ids). B325: its finished ones only with "Show finished", as
   // without a goal (the user, 2026-10-18: "the show finished checkbox doesnt work if you have a goal in the filter").
   const isOfGoal = step => goal === null || (typeof step.id === 'string' && goal.includes(step.id))
-  const withDone = showDone
   for (const [name] of COORDINATE_FILTERS) counts[name] = 0
   const groups = []
   let shown = 0
-  let hidden = 0
   for (const activity of activities) {
     const steps = []
     for (const step of activity.steps) {
       if (!isOfGoal(step)) continue
       const isDone = step.status === 'done'
       if (!isDone) for (const [name] of COORDINATE_FILTERS) if (coordinateShows(step, name)) counts[name] += 1
-      if (isDone ? !(withDone && filter === 'all') : !coordinateShows(step, filter)) continue
+      if (isDone ? !(showDone && filter === 'all') : !coordinateShows(step, filter)) continue
       if (!coordinateFinds(step, find)) continue
-      if (hideBusy && (step.status === 'progress' || step.status === 'queued')) hidden += 1
-      else steps.push(step)
+      steps.push(step)
     }
     // Fix first: an open board fix stands first in its group.
     steps.sort((a, b) => Number(isOpenFix(b)) - Number(isOpenFix(a)))
     if (steps.length > 0) groups.push({ name: activity.name, isFocus: activity.isFocus, steps })
     shown += steps.length
   }
-  if (!asOne) return { groups, counts, shown, hidden }
-  // B164: "1 long list desc. so last item on the backlog first": by the id's number, a step without one at the end.
-  const number = step => (typeof step.id === 'string' ? Number(step.id.slice(1)) : -1)
-  const steps = groups.flatMap(group => group.steps.map(step => ({ ...step, activity: group.name })))
-    .map((step, index) => ({ step, index }))
-    .sort((a, b) => Number(isOpenFix(b.step)) - Number(isOpenFix(a.step)) || number(b.step) - number(a.step) || a.index - b.index)
-    .map(one => one.step)
-  return { groups: steps.length === 0 ? [] : [{ name: null, isFocus: false, isOne: true, steps }], counts, shown, hidden }
+  return { groups, counts, shown }
 }
 
 /** Fix first: a step marked as a board fix that is not finished. */
@@ -14177,56 +14168,114 @@ function isOpenFix(step) {
 }
 
 /**
- * B302: the tab's list (`coordinateList`, by activity) regrouped under the goals of the goal map (`goals`: the state's
- * `roots` and `nodes`), nested as there (the person's choice A, 2026-10-18), as rows in the order they are drawn:
- * `{ kind: 'goal', id, title, depth, isMilestone, open, done, under }` and `{ kind: 'step', step, depth, under }`
- * (`under`: the goals it stands in, outermost first; `open` and `done`: the steps shown under it, as they stand). A goal's own steps come before its goals. A step stands under
- * the first goal of the map that names it; the steps under none, and those without an id, end the list under "Not
- * under a goal" (`id` 'none', `isNone`). A goal with nothing shown under it is left out. Null without a goal map: the
- * tab then groups by activity as before.
+ * The Backlog tab's blocks (2026-10-25, the person's yes on the mockup of that day, with "In progress is higher than
+ * queue"): under "Recently finished", top to bottom: `[key, title, the words after its count]`.
  */
-function goalRows(list, goals) {
-  // How many of the steps shown under a goal are open, and how many finished (shown with "Show finished").
-  const counted = steps => ({ open: steps.filter(step => step.status !== 'done').length, done: steps.filter(step => step.status === 'done').length })
-  if (goals === null || goals === undefined || (goals.roots ?? []).length === 0) return null
-  // An id twice in the map: the first one counts, as everywhere on the board (goals.mjs).
-  const byId = new Map()
-  for (const node of goals.nodes ?? []) if (!byId.has(node.id)) byId.set(node.id, node)
+const BACKLOG_BLOCKS = [
+  ['progress', 'In progress', ''],
+  ['queue', 'Queue', 'a free worker takes the top one'],
+  ['refined', 'Refined', 'waiting for your choice'],
+  ['new', 'Not refined yet', 'the Advisor refines these first'],
+  ['done', 'Finished', ''],
+]
+/**
+ * A task under way, by its state in the work store: `[its words, its tone]`, in this order in the block. Green only
+ * while a worker is on it; the colour of "waiting for you" only when it waits on the person (amber is for attention
+ * only); the rest quiet.
+ */
+const UNDER_WAY_STATES = {
+  'in progress': ['In progress', 'progress'],
+  'waiting on you': ['Waiting on you', 'you'],
+  taken: ['Taken', 'queued'],
+  queued: ['Given', 'queued'],
+  review: ['In review', 'review'],
+}
+const FINISHED_STATES = ['done', 'dropped', 'answered']
+/** What a task not refined yet waits for, by where its refine stands (its `refineState`). */
+const REFINE_WAITS = { asking: 'being refined', answered: 'being refined', ready: 'being refined', answers: 'waits for your answer', stopped: 'its refine stopped', none: 'waits for its refine' }
+/** A goal of the goal map, which a row links to on the Goals part. */
+const GOAL_LINK_ID = /^G\d+$/
+
+/** A step's number for "newest first"; a step without an id last. */
+const blockNumber = step => (typeof step.id === 'string' ? Number(step.id.replace(/^\D+/, '')) || 0 : -1)
+const newestFirst = (a, b) => Number(b.isFix) - Number(a.isFix) || blockNumber(b.step) - blockNumber(a.step)
+
+/**
+ * The Backlog tab's blocks: the steps of the tab's list (`coordinateList`) sorted by where they stand, with the board's
+ * ready list (`readyList`, the state's `{ ready, held }`; null without a store). Each block `{ key, title, note, rows }`,
+ * each row with its step (`step`), its goal (`goal`), its pin (`pinned`), whether the person added it (`isAdded`) and
+ * whether it is an open fix (`isFix`):
+ * - In progress: given (queued), taken, in progress, waiting on you or in review, with its worker (`who`) and its
+ *   state (`state`, `tone`); a fix first, then by state, then newest first.
+ * - Queue: the ready list's `ready`, numbered (`n`) in the order a free worker takes them (its place in the whole list,
+ *   also when the search narrows it), with its chips (`isFix`, `isFocus`, `isAdded`), for whom (`who`), a refusal or a
+ *   note of the board's (`note`), and `canRemove` on the person's own: added or pinned.
+ * - Refined: the refined steps the ready list holds back: one held for the person's choice (`choice`) has `canAdd`;
+ *   any other says why (`why`), quietly, with `canRemove` on the person's own. A fix first, then newest first.
+ * - Not refined yet: the other open steps, with what they wait for (`wait`): being refined, or waiting for your answer.
+ * - Finished: only with `showDone`, newest first.
+ * A step whose store state the page does not know (no store) goes by its status.
+ */
+function backlogBlocks(list, readyList, { showDone = false } = {}) {
+  const ready = new Map((readyList?.ready ?? []).map((one, index) => [one.id, { ...one, n: index + 1 }]))
+  const held = new Map((readyList?.held ?? []).map(one => [one.id, one]))
+  const rows = { progress: [], queue: [], refined: [], new: [], done: [] }
   const steps = list.groups.flatMap(group => group.steps.map(step => ({ ...step, activity: step.activity ?? group.name })))
-  const placed = new Set()
-  const seen = new Set()
-  const walk = (id, depth, under) => {
-    const node = byId.get(id)
-    if (node === undefined || seen.has(id)) return []
-    seen.add(id)
-    const inside = [...under, id]
-    const own = steps.filter(step => typeof step.id === 'string' && node.steps.includes(step.id) && !placed.has(step.id))
-    for (const step of own) placed.add(step.id)
-    const inner = node.children.flatMap(child => walk(child, depth + 1, inside))
-    if (own.length === 0 && inner.length === 0) return []
-    const below = [...own, ...inner.filter(row => row.kind === 'step').map(row => row.step)]
-    // A milestone: a goal taken from a part of the game plan other than its goal, as on the goal map.
-    const plan = String(node.fromPlan ?? '').trim()
-    const isMilestone = plan !== '' && !/^the goal$/i.test(plan)
-    return [
-      { kind: 'goal', id, title: node.title, depth, isMilestone, ...counted(below), under },
-      ...own.map(step => ({ kind: 'step', step, depth: depth + 1, under: inside })),
-      ...inner,
-    ]
+  for (const step of steps) {
+    const item = step.item ?? null
+    const state = item?.state ?? null
+    const pinned = item?.pinned ?? null
+    const base = { step, goal: item?.goal ?? null, pinned, isAdded: (item?.queuedBy ?? null) !== null, isFix: isOpenFix(step) }
+    const isOwn = base.isAdded || pinned !== null
+    const forWho = pinned === null ? '' : `for ${pinned} only`
+    if (step.status === 'done' || FINISHED_STATES.includes(state)) {
+      if (showDone) rows.done.push({ ...base, who: item?.owner ?? step.worker ?? '' })
+      continue
+    }
+    const under = state !== null ? (Object.hasOwn(UNDER_WAY_STATES, state) ? UNDER_WAY_STATES[state] : null)
+      : step.status === 'progress' ? UNDER_WAY_STATES['in progress'] : step.status === 'queued' ? UNDER_WAY_STATES.queued : null
+    if (under !== null) {
+      rows.progress.push({ ...base, who: item?.owner ?? step.worker ?? '', state: under[0], tone: under[1], order: Object.values(UNDER_WAY_STATES).indexOf(under) })
+      continue
+    }
+    const one = typeof step.id === 'string' ? ready.get(step.id) : undefined
+    if (state === 'refined' && one !== undefined) {
+      const kept = one.pinned ?? pinned
+      const isAdded = (one.added ?? null) !== null || base.isAdded
+      rows.queue.push({
+        ...base, n: one.n, isFix: one.rank === 0 || base.isFix, isFocus: one.rank === 1, isAdded, pinned: kept,
+        who: kept !== null ? `for ${kept} only` : (one.keptFor ?? null) !== null ? `kept for ${one.keptFor}` : 'any free worker',
+        note: [(one.refused ?? null) === null ? null : `not given to ${one.refused.chat}: ${one.refused.why}`, one.note ?? null].filter(Boolean).join(' · '),
+        canRemove: isAdded || kept !== null,
+      })
+      continue
+    }
+    if (state === 'refined') {
+      const hold = typeof step.id === 'string' ? held.get(step.id) ?? null : null
+      const canAdd = hold?.choice === true && !base.isAdded
+      rows.refined.push({ ...base, who: forWho, canAdd, why: canAdd ? '' : hold?.why ?? '', canRemove: !canAdd && isOwn })
+      continue
+    }
+    rows.new.push({ ...base, who: forWho, wait: step.status === 'you' ? 'waits for your answer' : REFINE_WAITS[step.refineState] ?? '', canRemove: isOwn })
   }
-  const rows = goals.roots.flatMap(id => walk(id, 0, []))
-  const rest = steps.filter(step => typeof step.id !== 'string' || !placed.has(step.id))
-  if (rest.length > 0) {
-    rows.push({ kind: 'goal', id: 'none', title: 'Not under a goal', depth: 0, isMilestone: false, isNone: true, ...counted(rest), under: [] })
-    rows.push(...rest.map(step => ({ kind: 'step', step, depth: 1, under: ['none'] })))
+  const sorted = {
+    progress: rows.progress.sort((a, b) => Number(b.isFix) - Number(a.isFix) || a.order - b.order || blockNumber(b.step) - blockNumber(a.step)),
+    queue: rows.queue.sort((a, b) => a.n - b.n),
+    refined: rows.refined.sort(newestFirst),
+    new: rows.new.sort(newestFirst),
+    done: rows.done.sort((a, b) => blockNumber(b.step) - blockNumber(a.step)),
   }
-  return rows
+  return BACKLOG_BLOCKS.filter(([key]) => key !== 'done' || showDone).map(([key, title, note]) => ({ key, title, note, rows: sorted[key] }))
 }
 
-/** B302: whether a goal's header stands open: as the person left it (`folds`), else open for a root and a milestone. */
-function isGoalOpen(row, folds) {
-  if (typeof folds[row.id] === 'boolean') return folds[row.id]
-  return row.depth === 0 || row.isMilestone === true || row.isNone === true
+/** The Backlog tab's blocks: whether a block stands open, as this browser left it (`folds`: `{ queue: true }` is folded). */
+function isBlockOpen(key, folds) {
+  return folds?.[key] !== true
+}
+
+/** The Backlog tab's blocks: the address of a row's goal on the Goals part (`#advice/goals/G<n>`), or null. */
+function goalPlace(goal) {
+  return typeof goal === 'string' && GOAL_LINK_ID.test(goal) ? `#advice/goals/${goal}` : null
 }
 // coordinate:end
 
@@ -14237,24 +14286,23 @@ function fixChip() {
   return chip
 }
 
-const STEP_STATES = { progress: 'In progress', queued: 'Queued', you: 'Needs your attention', open: 'Open', done: 'Finished' }
 let coordinateFilter = 'all'
 /** Focus 1: the goal the Backlog is narrowed to, from "See the steps behind this": `{ id, steps }`, or null. */
 let coordinateGoal = null
 
 /**
  * Redesign Part 2 (2026-10-25): the board hands out every task; the person may pin a new or refined task (open, with
- * an id) to a worker, and the board gives it to that worker only. Pinned: "Pinned to <worker>" with Unpin (and, in
- * the window, Move to). Not pinned: "Pin to" with the workers beside it. `isLong` gives the window's wording. Null for
- * any other task, or without a worker on the board.
+ * an id) to a worker in its window, and the board gives it to that worker only. Pinned: "Pinned to <worker>" with
+ * Unpin and Move to. Not pinned: "Pin to" with the workers beside it. Null for any other task, or without a worker on
+ * the board. The Backlog tab's blocks (2026-10-25): only in the window; a row has "Add to queue" instead.
  */
-function pinPart(step, state, isLong) {
+function pinPart(step, state) {
   if (step.status !== 'open' || typeof step.id !== 'string') return null
   const workers = (state.chats ?? []).filter(one => !one.isMain && !one.isLeftover).map(one => one.name)
   const pinned = step.item?.pinned ?? null
   if (workers.length === 0 && pinned === null) return null
   const key = `pin:${step.id}`
-  const line = el('div', `step-queue-line${isLong ? '' : ' is-row'}`)
+  const line = el('div', 'step-queue-line')
   const pick = (label, others) => {
     const select = el('select')
     select.dataset.pinTarget = step.id
@@ -14278,12 +14326,12 @@ function pinPart(step, state, isLong) {
   if (pinned !== null) {
     line.append(el('span', 'step-pinned', `Pinned to ${pinned}`), ' ', button('Unpin', 'unpinStep', 'Back on the list: the board gives it to the first free worker'))
     const others = workers.filter(name => name !== pinned)
-    if (isLong && others.length > 0) line.append(' ', button('Move to', 'pinStep', 'Pin it to another worker'), pick('Move to', others))
+    if (others.length > 0) line.append(' ', button('Move to', 'pinStep', 'Pin it to another worker'), pick('Move to', others))
   } else {
     line.append(button('Pin to', 'pinStep', 'The board gives it to this worker only, once nothing holds it'), pick('Pin to', workers))
-    if (isLong) line.append(el('span', 'muted', ' Not pinned, it goes to the first free worker once it is ready.'))
+    line.append(el('span', 'muted', ' Not pinned: the first free worker takes it once it is in the queue.'))
   }
-  if (isLong && problems.has(key)) line.append(el('p', 'problem', problems.get(key)))
+  if (problems.has(key)) line.append(el('p', 'problem', problems.get(key)))
   return line
 }
 
@@ -14655,9 +14703,9 @@ function drawCoordinate(state) {
     storeBox.textContent = store.text
     storeBox.title = store.problems.join('\n')
   }
-  const list = coordinateList(activities, { filter: coordinateFilter, find: $('coordinate-find').value, showDone: $('coordinate-done').checked, asOne: $('coordinate-one').checked, hideBusy: $('coordinate-busy').checked, goal: coordinateGoal?.steps ?? null })
-  // B250: how many steps the box hides, so none seems lost.
-  $('coordinate-busy-count').textContent = $('coordinate-busy').checked ? `(${list.hidden} hidden)` : ''
+  const find = $('coordinate-find').value
+  const showDone = $('coordinate-done').checked
+  const list = coordinateList(activities, { filter: coordinateFilter, find, showDone, goal: coordinateGoal?.steps ?? null })
   $('coordinate-count').textContent = `${list.counts.all} open step${list.counts.all === 1 ? '' : 's'}`
   fill($('coordinate-filters'), [...COORDINATE_FILTERS.map(([name, label]) => {
     const button = el('button', `choice${name === coordinateFilter ? ' is-chosen' : ''}`, `${label} `)
@@ -14666,121 +14714,138 @@ function drawCoordinate(state) {
     button.append(el('small', '', String(list.counts[name])))
     return button
   }), coordinateGoalChip()])
-  // B302: with "One list" off, the steps stand under the goals of the goal map; by activity only without one.
-  const rows = $('coordinate-one').checked ? null : goalRows(list, state.goals ?? null)
-  const groups = rows !== null ? drawGoalRows(rows, state) : list.groups.map(group => {
-    const box = el('section', `coordinate-group${group.isFocus ? ' is-focus' : ''}${group.isOne ? ' is-one' : ''}`)
-    const heading = el('h2', '', group.isOne ? 'Every task, newest first' : group.name)
-    if (group.isFocus) heading.append(el('span', 'chip is-focus', 'Focus'))
-    heading.append(el('small', '', String(group.steps.length)))
-    box.append(heading)
-    for (const step of group.steps) box.append(coordinateLine(step, state))
-    return box
-  })
-  // B302: a goal's header the keyboard was on keeps the focus when the list is drawn anew.
-  const focusedGoal = $('coordinate-list').contains(document.activeElement) ? document.activeElement.dataset?.goalFold ?? null : null
-  fill($('coordinate-list'), groups.length > 0 ? groups : [el('p', 'muted', activities.length === 0 ? 'The backlog could not be read.' : 'No task matches.')])
-  if (focusedGoal !== null) $('coordinate-list').querySelector(`[data-goal-fold="${focusedGoal}"]`)?.focus()
+  // The Backlog tab's blocks (2026-10-25): narrowed by a filter, the search or a goal, a block with nothing left is left out.
+  const isNarrowed = coordinateFilter !== 'all' || find.trim() !== '' || coordinateGoal !== null
+  const blocks = backlogBlocks(list, state.readyList ?? null, { showDone }).filter(block => !isNarrowed || block.rows.length > 0)
+  const folds = blockFolds()
+  // A block's head the keyboard was on keeps the focus when the list is drawn anew.
+  const focused = $('coordinate-list').contains(document.activeElement) ? document.activeElement.dataset?.blockFold ?? null : null
+  fill($('coordinate-list'), blocks.length > 0 ? blocks.map(block => drawBlock(block, !isBlockOpen(block.key, folds))) : [el('p', 'muted', activities.length === 0 ? 'The backlog could not be read.' : 'No task matches.')])
+  if (focused !== null) $('coordinate-list').querySelector(`[data-block-fold="${focused}"]`)?.focus()
 }
 
-/** A step's line on the Backlog tab: its row, which opens its window, with "Pin to", Close and Delete beside it. */
-function coordinateLine(step, state) {
-  const row = el('button', `step-row is-${step.status}`)
-  row.type = 'button'
-  row.dataset.openStep = step.key
-  row.title = [step.title, step.activity ?? null, 'Show the details'].filter(Boolean).join('\n')
-  const title = el('span', 'step-title')
-  if (step.isFix === true) title.append(fixChip(), ' ')
+/** The Backlog tab's blocks: what an empty block says. */
+const BLOCK_EMPTY = { progress: 'No task is under way.', queue: 'Nothing waits for a free worker.', refined: 'No refined task waits for your choice.', new: 'Every task is refined.', done: 'No finished task.' }
+
+/**
+ * The Backlog tab's blocks: one block, a section whose head folds it (kept in this browser), with its count and its
+ * words, and its rows.
+ */
+function drawBlock(block, isFolded) {
+  const box = el('section', `backlog-block is-${block.key}${isFolded ? ' is-folded' : ''}`)
+  const head = el('h2')
+  const fold = el('button', 'block-fold')
+  fold.type = 'button'
+  fold.dataset.blockFold = block.key
+  fold.title = isFolded ? `Show ${block.title}` : `Fold ${block.title} away`
+  fold.setAttribute('aria-expanded', String(!isFolded))
+  fold.setAttribute('aria-controls', `block-${block.key}`)
+  const arrow = el('span', 'block-arrow', isFolded ? '▸' : '▾')
+  arrow.setAttribute('aria-hidden', 'true')
+  fold.append(arrow, block.title, el('small', '', [String(block.rows.length), block.note].filter(Boolean).join(' · ')))
+  head.append(fold)
+  const body = el('div', 'block-body')
+  body.id = `block-${block.key}`
+  body.hidden = isFolded
+  if (block.rows.length === 0) body.append(el('p', 'muted block-none', BLOCK_EMPTY[block.key] ?? 'None.'))
+  for (const row of block.rows) body.append(blockLine(row, block.key))
+  box.append(head, body)
+  return box
+}
+
+/** The Backlog tab's blocks: a small quiet chip beside a title ("focus", "added by you"). */
+function blockChip(words, tone, title) {
+  const chip = el('span', `block-chip is-${tone}`, words)
+  chip.title = title
+  return chip
+}
+
+/**
+ * The Backlog tab's blocks: a step's row. Its place in the queue, its id and title (with its chips; a click opens its
+ * window), its goal as a link to the Goals part, for whom, its state or why it waits, and "Add to queue" or "Remove";
+ * Close and Delete (B221) over its right end while the pointer or the keyboard is on it.
+ */
+function blockLine(row, key) {
+  const { step } = row
+  const line = el('div', `step-line block-line is-${key}`)
+  const open = el('button', 'block-open')
+  open.type = 'button'
+  open.dataset.openStep = step.key
+  open.title = [step.title, step.activity ?? null, 'Show the details'].filter(Boolean).join('\n')
+  const title = el('span', 'block-title')
+  if (row.isFix) title.append(fixChip(), ' ')
+  if (row.isFocus === true) title.append(blockChip('focus', 'focus', 'A task of the focus goal: the board hands it out by itself'), ' ')
+  if (row.isAdded) title.append(blockChip('added by you', 'you', 'You added it to the queue'), ' ')
   title.append(step.title)
   // B543: a step in review says what it waits for: its first check, its fix B<n>, the person's answer.
   if (typeof step.reviewWait === 'string') title.append(' ', el('small', 'step-wait', `(${step.reviewWait})`))
-  row.append(
-    el('span', 'step-id', step.id ?? ''),
-    el('span', `step-kind${step.asks === null ? ' is-none' : ''}`, step.asks === null ? '' : ASKS[step.asks] ?? ''),
-    title,
-    el('span', 'step-worker', step.worker ?? (step.status === 'you' ? 'You' : '')),
-    el('span', 'step-branch', step.branch ?? ''),
-    el('span', `step-state is-${step.status}`, STEP_STATES[step.status] ?? step.status),
-    // Room for what B83 will put here (stop a task). The pin (redesign Part 2) stands over it, beside the row's own
-    // button: a button holds no other.
-    el('span', 'step-actions'),
-  )
-  const line = el('div', 'step-line')
-  line.append(row)
-  const queue = pinPart(step, state, false)
-  if (queue !== null) line.append(queue)
-  // B221: Close and Delete, shown on the row the pointer or the keyboard is on.
+  open.append(el('span', 'step-id', step.id ?? ''), title)
+  const place = goalPlace(row.goal)
+  let goal = el('span', 'block-goal', row.goal ?? '')
+  if (place !== null) {
+    goal = el('a', 'block-goal', row.goal)
+    goal.href = place
+    goal.dataset.place = place
+    goal.title = `Open ${row.goal} on Goals`
+  }
+  const words = row.why ?? row.wait ?? row.note ?? ''
+  const status = key === 'progress' ? el('span', `step-state is-${row.tone}`, row.state) : el('span', 'block-why', words)
+  if (key !== 'progress' && words !== '') status.title = words
+  const action = queueButton(row) ?? el('span', 'block-act')
+  line.append(el('span', 'block-n', row.n === undefined ? '' : String(row.n)), open, goal, el('span', 'block-who', row.who ?? ''), status, action)
   const edit = editPart(step, false)
   if (edit !== null) {
     line.append(edit)
-    if (queue !== null) line.classList.add('has-queue')
+    if (action.tagName === 'BUTTON') line.classList.add('has-action')
   }
   return line
 }
 
 /**
- * B302: the goals the person folded or opened on the Backlog tab, kept in this browser: `{ G3: true, G2: false }`;
- * without storage, for as long as the page is open.
+ * The Backlog tab's blocks: "Add to queue" on a refined task held for the person's choice, "Remove" on the person's
+ * own (added, or pinned in its window), through the work store at once (the work API's `add-to-queue` and
+ * `remove-from-queue`, the person's only). Null for any other row.
  */
-let goalFoldsHere = {}
-function goalFolds() {
-  try {
-    const kept = JSON.parse(localStorage.getItem('backlog-goal-folds') ?? 'null')
-    if (kept !== null && typeof kept === 'object') return kept
-  } catch {
-    // No storage, or what it held is not readable: the folds of this page.
-  }
-  return { ...goalFoldsHere }
+function queueButton(row) {
+  const id = row.step.id
+  if (typeof id !== 'string' || !(row.canAdd === true || row.canRemove === true)) return null
+  const key = `queue:${id}`
+  const isAdd = row.canAdd === true
+  const label = isAdd ? 'Add to queue' : 'Remove'
+  const button = el('button', `block-action${isAdd ? '' : ' is-quiet'}${problems.has(key) ? ' is-error' : ''}`, sending.has(key) ? (isAdd ? 'Adding…' : 'Removing…') : problems.has(key) ? 'Try again' : label)
+  button.type = 'button'
+  button.dataset[isAdd ? 'queueAdd' : 'queueRemove'] = id
+  button.disabled = sending.has(key)
+  button.title = problems.get(key) ?? (isAdd ? 'The first free worker takes it, after the focus goal\'s tasks'
+    : row.pinned !== null && row.pinned !== undefined ? `Take it off the queue: your pin to ${row.pinned} goes too` : 'Take it off the queue: it waits for your choice again')
+  button.setAttribute('aria-label', `${label}: ${id} ${row.step.title}`)
+  return button
+}
+
+/** The Backlog tab's blocks: the click on "Add to queue" or "Remove". */
+function queueClick(button) {
+  const id = button.dataset.queueAdd ?? button.dataset.queueRemove
+  if (typeof id !== 'string' || sending.has(`queue:${id}`)) return
+  const isAdd = button.dataset.queueAdd !== undefined
+  button.disabled = true
+  button.textContent = isAdd ? 'Adding…' : 'Removing…'
+  return sendWork({ action: isAdd ? 'add-to-queue' : 'remove-from-queue', id }, `queue:${id}`)
 }
 
 /**
- * B302: the rows of `goalRows` as the tab shows them: a header per goal, which folds, indented by its depth, with its
- * G id, its title and how many of its steps are open; under it its steps. What stands in a folded goal is not drawn.
+ * The Backlog tab's blocks the person folded, kept in this browser: `{ queue: true }`; without storage, for as long as
+ * the page is open.
  */
-function drawGoalRows(rows, state) {
-  const folds = goalFolds()
-  const goals = new Map(rows.filter(row => row.kind === 'goal').map(row => [row.id, row]))
-  const box = el('section', 'coordinate-group is-goals')
-  for (const row of rows) {
-    if (row.under.some(id => !isGoalOpen(goals.get(id), folds))) continue
-    if (row.kind === 'step') {
-      const line = coordinateLine(row.step, state)
-      line.classList.add('goal-steps')
-      line.style.setProperty('--depth', String(row.depth))
-      box.append(line)
-      continue
-    }
-    const isOpen = isGoalOpen(row, folds)
-    const head = el('button', `goal-head${row.depth === 0 ? ' is-root' : ''}${row.isMilestone ? ' is-milestone' : ''}${row.isNone ? ' is-none' : ''}`)
-    head.type = 'button'
-    head.dataset.goalFold = row.id
-    head.setAttribute('aria-expanded', String(isOpen))
-    head.style.setProperty('--depth', String(row.depth))
-    // What stands under it as shown: the filters and the search count, as the rows do.
-    const count = `${row.open} open${row.done > 0 ? ` · ${row.done} done` : ''}`
-    const sign = el('span', 'goal-fold', isOpen ? '▾' : '▸')
-    sign.setAttribute('aria-hidden', 'true')
-    head.append(sign, ...(row.isNone ? [] : [el('span', 'goal-id', row.id)]), el('span', 'goal-title', row.title), el('small', 'goal-count', count))
-    head.title = isOpen ? 'Fold this goal' : 'Unfold this goal'
-    box.append(head)
-  }
-  return [box]
-}
-
-// B302: a goal's header folds or unfolds it; this browser keeps it.
-$('coordinate-list').addEventListener('click', event => {
-  const head = event.target.closest('[data-goal-fold]')
-  if (head === null) return
-  const folds = goalFolds()
-  folds[head.dataset.goalFold] = head.getAttribute('aria-expanded') !== 'true'
-  goalFoldsHere = folds
+let blockFoldsHere = {}
+function blockFolds() {
   try {
-    localStorage.setItem('backlog-goal-folds', JSON.stringify(folds))
+    const kept = JSON.parse(localStorage.getItem('backlog-blocks-folded') ?? 'null')
+    if (kept !== null && typeof kept === 'object' && !Array.isArray(kept)) return kept
   } catch {
-    // Kept for this page only.
+    // No storage, or what it held is not readable: the folds of this page.
   }
-  if (board !== null) drawCoordinate(board)
-})
+  return { ...blockFoldsHere }
+}
 
 /** Focus 1: the goal the list is narrowed to ("See the steps behind this"), with ✕ to show every step again; null without. */
 function coordinateGoalChip() {
@@ -14805,40 +14870,30 @@ $('coordinate-filters').addEventListener('click', event => {
 })
 $('coordinate-find').addEventListener('input', () => { if (board !== null) drawCoordinate(board) })
 $('coordinate-done').addEventListener('change', () => { if (board !== null) drawCoordinate(board) })
-// B164: one list or by activity, kept in this browser. B179: one list unless this browser chose otherwise (the
-// person, 2026-10-14: "one list checkbox turned on by default").
-try {
-  $('coordinate-one').checked = localStorage.getItem('backlog-one') !== 'no'
-} catch {
-  // Without storage the tab opens as one list, as the page says.
-}
-$('coordinate-one').addEventListener('change', () => {
-  try {
-    localStorage.setItem('backlog-one', $('coordinate-one').checked ? 'yes' : 'no')
-  } catch {
-    // Kept for this page only.
-  }
-  if (board !== null) drawCoordinate(board)
-})
-// B250: the steps a worker is on or that wait in a queue hidden, kept in this browser; off unless it chose otherwise.
-try {
-  $('coordinate-busy').checked = localStorage.getItem('backlog-hide-busy') === 'yes'
-} catch {
-  // Without storage the box starts off.
-}
-$('coordinate-busy').addEventListener('change', () => {
-  try {
-    localStorage.setItem('backlog-hide-busy', $('coordinate-busy').checked ? 'yes' : 'no')
-  } catch {
-    // Kept for this page only.
-  }
-  if (board !== null) drawCoordinate(board)
-})
-// A step for the person opens its card, with the answer; any other step opens as the step it is.
+// A block's head folds or unfolds it; this browser keeps it. A step for the person opens its card, with the answer;
+// any other step opens as the step it is.
 $('coordinate-list').addEventListener('click', event => {
-  // Redesign Part 2: the person's pin of a task, from its row.
-  const pin = event.target.closest('[data-pin-step], [data-unpin-step]')
-  if (pin !== null) return pinClick(pin)
+  const fold = event.target.closest('[data-block-fold]')
+  if (fold !== null) {
+    const folds = blockFolds()
+    folds[fold.dataset.blockFold] = fold.getAttribute('aria-expanded') === 'true'
+    blockFoldsHere = folds
+    try {
+      localStorage.setItem('backlog-blocks-folded', JSON.stringify(folds))
+    } catch {
+      // Kept for this page only.
+    }
+    if (board !== null) drawCoordinate(board)
+    return
+  }
+  // A row's goal: to that goal on the Goals part (B507's way: Back returns).
+  const place = event.target.closest('[data-place]')
+  if (place !== null) {
+    event.preventDefault()
+    return goToPlace(place.dataset.place)
+  }
+  const queue = event.target.closest('[data-queue-add], [data-queue-remove]')
+  if (queue !== null) return queueClick(queue)
   const edit = event.target.closest('[data-edit-step]')
   if (edit !== null) return editStepClick(edit)
   const row = event.target.closest('[data-open-step]')
@@ -15544,10 +15599,10 @@ function draw(state) {
   drawReadyList(state)
   drawToday(state)
   needsOnce(state)
-  // Redesign Part 2: also when a pin is on its way or was refused, and when the workers come or go.
-  const queueing = [[...sending].filter(key => key.startsWith('pin:')), [...problems].filter(([key]) => key.startsWith('pin:')), (state.chats ?? []).filter(one => !one.isMain && !one.isLeftover).map(one => one.name)]
-  // B302: the goal map too, which groups the tab when "One list" is off.
-  once('coordinate', [state.backlog ?? null, queueing, state.goals ?? null], () => drawCoordinate(state))
+  // The Backlog tab's blocks: also when an add to the queue or a remove is on its way or was refused.
+  const queueing = [[...sending].filter(key => key.startsWith('queue:')), [...problems].filter(([key]) => key.startsWith('queue:'))]
+  // The Backlog tab's blocks: the ready list too, which makes the Queue and holds the Refined ones.
+  once('coordinate', [state.backlog ?? null, state.readyList ?? null, queueing], () => drawCoordinate(state))
   // B155: today's times name no day, so the list is drawn anew when the day changes too.
   once('finished', [state.finished ?? null, state.taskTimes?.byStep ?? null, new Date(state.readAt).toDateString()], () => drawFinished(state))
   // B579: the day of Completed by day, read anew with the page's own refresh.

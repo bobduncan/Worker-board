@@ -1,6 +1,7 @@
-// B180: the Backlog tab's head after "For you" became "Needs your attention": the filters, the search and the two
+// B180: the Backlog tab's head after "For you" became "Needs your attention": the filters, the search and the
 // checkboxes fit one line at the board's usual width, and at a narrow one the search and the checkboxes move to the
-// next line as one group, never one checkbox alone.
+// next line as one group, never one checkbox alone. The Backlog tab's blocks (2026-10-25): "Show finished" is the one
+// checkbox left.
 
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
@@ -12,13 +13,14 @@ const PUBLIC = join(dirname(fileURLToPath(import.meta.url)), '..', 'public')
 const html = await readFile(join(PUBLIC, 'index.html'), 'utf8')
 const style = await readFile(join(PUBLIC, 'board.css'), 'utf8')
 
-test('the search and both checkboxes are one group at the end of the head; the two checkboxes are one group in it', () => {
+test('the search and the checkbox are one group at the end of the head; the checkboxes are one group in it', () => {
   const top = html.slice(html.indexOf('class="coordinate-top"'), html.indexOf('</header>', html.indexOf('class="coordinate-top"')))
   const tools = top.slice(top.indexOf('class="coordinate-tools"'))
   assert.ok(top.indexOf('id="coordinate-filters"') < top.indexOf('class="coordinate-tools"'))
-  for (const id of ['coordinate-find', 'coordinate-done', 'coordinate-one']) assert.ok(tools.includes(`id="${id}"`), id)
+  for (const id of ['coordinate-find', 'coordinate-done']) assert.ok(tools.includes(`id="${id}"`), id)
   const checks = tools.slice(tools.indexOf('class="coordinate-checks"'))
-  assert.ok(checks.includes('id="coordinate-done"') && checks.includes('id="coordinate-one"'))
+  assert.ok(checks.includes('id="coordinate-done"'))
+  for (const gone of ['coordinate-one', 'coordinate-busy']) assert.ok(!top.includes(gone), gone)
   assert.ok(!top.includes('class="grow"'), 'the group keeps itself at the end')
 })
 

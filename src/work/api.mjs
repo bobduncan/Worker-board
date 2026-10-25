@@ -42,7 +42,7 @@ export { overlapsIn, sinceMs }
 export const isReadAction = action => READS.has(action)
 
 const READS = new Set(['next', 'list', 'pause-state', 'health', ...ROUTING_READS])
-const CHANGES = new Set(['incident', 'incident-fix', 'incident-told', 'incidents-fixed', 'take', 'step', 'ask', 'withdraw', 'answered-in-chat', 'read', 'note', 'report', 'block', 'unblock', 'new', 'queue', 'pin', 'close', 'drop', 'refine', 'refined', 'answer', 'tick', 'delete', 'refine-answer', 'refine-accept', 'check', 'checked', 'instruction', 'turn-ended', 'pull', 'advance', 'requeue', 'unqueue', 'recheck', 'undo', 'rename', 'pause-all', 'resume-all', 'resumed', 'end-resume', 'overturn', 'seen', 'approve-recaps', 'partner-answer', 'escalate', 'partner-answers', 'recheck-stuck', 'recheck-base', 'retire-queue'])
+const CHANGES = new Set(['incident', 'incident-fix', 'incident-told', 'incidents-fixed', 'take', 'step', 'ask', 'withdraw', 'answered-in-chat', 'read', 'note', 'report', 'block', 'unblock', 'new', 'queue', 'pin', 'add-to-queue', 'remove-from-queue', 'close', 'drop', 'refine', 'refined', 'answer', 'tick', 'delete', 'refine-answer', 'refine-accept', 'check', 'checked', 'instruction', 'turn-ended', 'pull', 'advance', 'requeue', 'unqueue', 'recheck', 'undo', 'rename', 'pause-all', 'resume-all', 'resumed', 'end-resume', 'overturn', 'seen', 'approve-recaps', 'partner-answer', 'escalate', 'partner-answers', 'recheck-stuck', 'recheck-base', 'retire-queue'])
 /**
  * Focus 2: the partner's drafts of the focus goal's vibe and how. They change the goal map, not the store: the board's
  * `goalDraft` (src/focus.mjs) writes them; only the chat the list names the partner (role advisor) sends them.
@@ -51,7 +51,8 @@ const GOAL_MAP = new Set(['vibe-draft', 'how-draft'])
 /** B298: what never shows on the backlog view: it is not written anew for these. */
 const OFF_VIEW = new Set(['incident', 'incident-fix', 'incident-told', 'incidents-fixed', 'instruction', 'turn-ended', 'close', 'read', 'pull', 'undo', 'pause-all', 'resume-all', 'resumed', 'end-resume', 'overturn', 'seen', 'approve-recaps', 'partner-answers', 'recheck-stuck', 'recheck-base'])
 /** What only the person does, on the board's page; and what only the server does. */
-const PERSON = new Set(['answer', 'read', 'tick', 'delete', 'refine-answer', 'refine-accept', 'recheck', 'undo', 'pause-all', 'resume-all', 'end-resume', 'overturn', 'seen', 'partner-answers'])
+// The Backlog tab's blocks (2026-10-25): the person's "Add to queue" and "Remove" are the page's alone, never a chat's.
+const PERSON = new Set(['answer', 'read', 'tick', 'delete', 'refine-answer', 'refine-accept', 'recheck', 'undo', 'pause-all', 'resume-all', 'end-resume', 'overturn', 'seen', 'partner-answers', 'add-to-queue', 'remove-from-queue'])
 const SERVER = new Set(['incidents-fixed', 'incident-told', 'check', 'advance', 'resumed', 'approve-recaps', 'recheck-stuck', 'recheck-base', 'route-confirm', 'quality-job-result', 'retire-queue'])
 /** Who may do what the flow does not decide (the default flow's table, spec section 5). */
 const ROLES = {
@@ -1848,6 +1849,45 @@ async function pin(body, w) {
   return done.ok ? changed(next) : done
 }
 
+/**
+ * The Backlog tab's blocks (2026-10-25): the person adds a refined task to the shared queue ("Add to queue"), for no
+ * worker in particular: `Queued by: person, <stamp to the second>`, History "added to the queue". The ready list
+ * (handOut.mjs `readyList`) then hands it out after the focus goal's tasks, in the order added, to the first free worker.
+ * Only a refined task; once added, again changes nothing.
+ */
+async function addToQueue(body, w) {
+  const found = await load(body.id, w, { kind: ['step'] })
+  if (!found.ok) return found
+  const id = valueOf(found.item, 'Id')
+  const state = stateOf(found.item)
+  if (state !== 'refined') return refuse(409, `${id} is ${state}: only a refined task is added to the queue.`)
+  if (valueOf(found.item, 'Queued by') !== null) return { ok: true, result: { id, text: `${id} is in the queue already.`, changed: false } }
+  const next = ordered(said(put(copy(found.item), 'Queued by', `person, ${toSecond(w.now)}`), w, 'added to the queue'))
+  const done = await save(next, found.text, w)
+  return done.ok ? changed(next, `${id}: added to the queue.`) : done
+}
+
+/**
+ * The Backlog tab's blocks: the person's "Remove" takes their own placement off a new or refined task: their add to the
+ * queue (`Queued by`) and their pin (`Pinned`), with one History line. A task of the focus goal or a fix stays on the
+ * list by itself; any other waits for the person's choice again. Nothing of theirs on it: nothing changes. Not once it
+ * is given or further: the queue is for the hand-out.
+ */
+async function removeFromQueue(body, w) {
+  const found = await load(body.id, w, { kind: ['step'] })
+  if (!found.ok) return found
+  const id = valueOf(found.item, 'Id')
+  const state = stateOf(found.item)
+  if (!['new', 'refined'].includes(state)) return refuse(409, `${id} is ${state}: only a new or refined task leaves the queue.`)
+  const added = valueOf(found.item, 'Queued by')
+  const pinned = valueOf(found.item, 'Pinned')
+  if (added === null && pinned === null) return { ok: true, result: { id, text: `${id} is not in the queue by you.`, changed: false } }
+  const what = added === null ? `unpinned from ${pinned}` : pinned === null ? 'removed from the queue' : `removed from the queue and unpinned from ${pinned}`
+  const next = ordered(said(put(put(copy(found.item), 'Queued by', null), 'Pinned', null), w, what))
+  const done = await save(next, found.text, w)
+  return done.ok ? changed(next, `${id}: ${what}.`) : done
+}
+
 /** An instruction is closed, and what came of it is said. */
 async function close(body, w) {
   const found = await load(body.id, w, { kind: ['instruction'] })
@@ -2822,7 +2862,7 @@ const CHANGE = {
   'incident-fix': incidentFix,
   'incident-told': incidentTold,
   'incidents-fixed': incidentsFixed,
-  take, step, ask, withdraw, note, report, check, checked, recheck, new: make, queue, requeue, unqueue, pin, 'retire-queue': retireQueue, close, drop, refine, refined, answer, tick, instruction, pull, advance,
+  take, step, ask, withdraw, note, report, check, checked, recheck, new: make, queue, requeue, unqueue, pin, 'add-to-queue': addToQueue, 'remove-from-queue': removeFromQueue, 'retire-queue': retireQueue, close, drop, refine, refined, answer, tick, instruction, pull, advance,
   'turn-ended': turnEnded,
   'answered-in-chat': answeredInChat,
   read,
