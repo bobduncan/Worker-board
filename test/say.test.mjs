@@ -119,9 +119,11 @@ const down = {
 test('"start" asks the main chat to start a chat that is not running, with the id the app knows it by', () => {
   const start = checkSay({ to: 'Main', command: 'start', chat: 'Units' }, down, 50).message
   assert.deepEqual([start.to, start.command, start.about, start.ask], ['Main', 'start', 'Units', null])
-  assert.equal(start.text, 'start "Units"\nIts chat is not running, and what the user answered or typed on the worker board waits for it. Start it by its session id, with one line that says the board holds something for it. Its session id: local_abc-1.')
-  // Without an id the main chat finds the chat by its name.
-  assert.ok(checkSay({ to: 'Main', command: 'start', chat: 'Advisor' }, down, 50).message.text.endsWith('holds something for it.'))
+  // T9.4: the first line is what it was; the rest reads for any chat that gets the word (the main chat is no longer the only
+  // one): one line with SendMessage to its session id, no reply, then on with its own work.
+  assert.equal(start.text, 'start "Units"\nIts chat is not running, and words from the worker board wait for it. Start it now: send it one line with SendMessage to its session id (load it with ToolSearch when it is deferred): "The worker board holds something for you." Nothing else, no reply needed; then go on with your own work. Its session id: local_abc-1.')
+  // Without an id the chat is found by its name.
+  assert.ok(checkSay({ to: 'Main', command: 'start', chat: 'Advisor' }, down, 50).message.text.endsWith('find its session by the chat\'s name in the app\'s list of sessions.'))
 })
 
 test('"start" is refused for a chat that runs, one the board cannot tell about, the main chat itself, and a name that is none', () => {
@@ -143,11 +145,16 @@ test('what is sent to a chat that is not running makes the board ask the main ch
     assert.equal(wakeFor(answer, down, asked(state), 900 + 3 * 60_000, 50), null)
     assert.notEqual(wakeFor(answer, down, asked(state), 900 + 11 * 60_000, 50), null)
   }
-  // Nothing is asked for a chat that runs, for a word to the main chat itself, or when the main chat does not run.
+  // Nothing is asked for a chat that runs, or for a word to the main chat while it runs.
   assert.equal(wakeFor({ ...answer, to: 'Levels' }, down, [], 1000, 50), null)
   assert.equal(wakeFor({ id: 'c', at: 1000, to: 'Main', command: 'resume', text: 'resume' }, down, [], 1000, 50), null)
+  // T9.4: this used to expect null when the main chat does not run ("only the main chat starts a chat"). Now a chat that
+  // runs carries the word instead: here Levels, the one chat of the list that runs; with none running there is still nobody.
   const mainDown = { ...down, chats: down.chats.map(chat => (chat.isMain ? { ...chat, isRunning: false } : chat)) }
-  assert.equal(wakeFor(answer, mainDown, [], 1000, 50), null)
+  const carried = wakeFor(answer, mainDown, [], 1000, 50)
+  assert.deepEqual([carried.to, carried.command, carried.about], ['Levels', 'start', 'Units'])
+  const allDown = { ...mainDown, chats: mainDown.chats.map(chat => (chat.name === 'Levels' ? { ...chat, isRunning: false } : chat)) }
+  assert.equal(wakeFor(answer, allDown, [], 1000, 50), null)
 })
 
 test('words sent while the main chat did not run either are followed by the start word once it runs, once per chat', () => {
@@ -159,13 +166,18 @@ test('words sent while the main chat did not run either are followed by the star
   ]
   const starts = wakesDue(down, words, 5000, 2000)
   assert.deepEqual(starts.map(start => [start.to, start.command, start.about]), [['Main', 'start', 'Units'], ['Main', 'start', 'Advisor']])
-  // The main chat still does not run: nothing yet.
+  // T9.4: this used to expect nothing while the main chat does not run. Now Levels, a chat that runs, carries the start
+  // words; only when no chat runs is there nothing yet.
   const mainDown = { ...down, chats: down.chats.map(chat => (chat.isMain ? { ...chat, isRunning: false } : chat)) }
-  assert.deepEqual(wakesDue(mainDown, words, 5000, 2000), [])
-  // Asked since the oldest word that waits: not again, also when that ask failed (its button stays on the page).
+  assert.deepEqual(wakesDue(mainDown, words, 5000, 2000).map(start => [start.to, start.command, start.about]), [['Levels', 'start', 'Units'], ['Levels', 'start', 'Advisor']])
+  const allDown = { ...mainDown, chats: mainDown.chats.map(chat => (chat.name === 'Levels' ? { ...chat, isRunning: false } : chat)) }
+  assert.deepEqual(wakesDue(allDown, words, 5000, 2000), [])
+  // Asked since the oldest word that waits: not again for ten minutes. T9.4 (requests never get lost): this used to be
+  // never again, also when that ask failed; now an ask that did not wake the chat in ten minutes is asked again.
   for (const state of ['waiting', 'delivered', 'failed']) {
     const asked = { id: 's1', at: 1050, to: 'Main', command: 'start', about: 'Units', text: 'start "Units"', state }
-    assert.deepEqual(wakesDue(down, [...words, asked], 5000 + 60 * 60_000, 2000).map(start => start.about), ['Advisor'])
+    assert.deepEqual(wakesDue(down, [...words, asked], 5000 + 5 * 60_000, 2000).map(start => start.about), ['Advisor'], state)
+    assert.deepEqual(wakesDue(down, [...words, asked], 5000 + 60 * 60_000, 2000).map(start => start.about), ['Units', 'Advisor'], state)
   }
   // An ask from before the oldest word does not count: the word came after it (past wakeFor's two minutes).
   const before = { id: 's0', at: 900, to: 'Main', command: 'start', about: 'Units', text: 'start "Units"', state: 'delivered' }

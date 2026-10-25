@@ -40,6 +40,7 @@ import { routingHolds } from './work/routing/assignments.mjs'
 import { refineStop } from './refineGate.mjs'
 import { contextOfStep, flowOfStep, itemOfStep, itemsOf, reviewWaitOfStep, storeBacklog } from './work/read.mjs'
 import { clearHolds, clearOwed, modAtLeast } from './clearOwed.mjs'
+import { nobodyRunsOf, wakeFailedOf } from './say.mjs'
 import { checkedOf, fixOutcomeOf } from './work/resultCheck.mjs'
 import { guardOf } from './goalGuard.mjs'
 import { standardOf } from './work/standard.mjs'
@@ -1699,7 +1700,7 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
   const flagsOf = name => (reconciled?.flags ?? []).filter(flag => flag.chat === name && LANE_FLAGS.includes(flag.kind)).map(({ kind, id, text, button }) => ({ kind, id, text, button }))
   const focus = focusState(goalMap, itemsOf(raw.work), brainstorms.threads, prefix, advisorChat?.name ?? null)
 
-  return {
+  const built = {
     readAt: now,
     // Clear after each step: the sessions the chats went on from, while the app still names them (read on to their ends).
     movedFrom: found.filter(chat => !chat.isLeftover && movedBack.has(chat.cliSessionId)).map(chat => ({ session: movedBack.get(chat.cliSessionId), name: chat.name })),
@@ -1937,4 +1938,9 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
     focus,
     advisorParts: config.advisorParts,
   }
+  // T9.4: words wait for a chat that is off and no chat runs to carry the board's start word (say.mjs nobodyRunsOf): the page says so.
+  // And the chats the board asked in vain (wakeFailedOf: three asks, or every chat that runs was asked): the person opens them.
+  // A chat that line already names is not said twice.
+  const nobodyRuns = nobodyRunsOf(built, sent)
+  return { ...built, nobodyRuns, wakeFailed: wakeFailedOf(built, sent, now).filter(one => !(nobodyRuns?.chats ?? []).includes(one.chat)) }
 }

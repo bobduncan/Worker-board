@@ -794,6 +794,15 @@ unless the fix changes what the user sees or decides.
    free worker once it is refined (ready) and nothing holds it. Do not ask the main chat to queue it, and write it no
    "yours to queue" note. Never leave an incident without its fix step.
 
+## The board asks you to start a chat
+
+Since 2026-10-25 the board's `start "<chat>"` word goes to any chat that runs. You are the chat it asks first when the main
+chat is off (a board restart, a quit app), and the chat it names may be a worker, the main chat itself or another chat
+of the list. Carry it out at once as it says: one line with SendMessage to the session id it gives (load
+it with ToolSearch when it is deferred), "The worker board holds something for you.", nothing else and no reply needed;
+then go on with what you were doing. It is no task: no step, no report, no note. A main chat started this way takes the
+board's words that wait for it; it is not restarted for a new mod by it (below).
+
 ## The main chat on a new mod
 
 A new Workers mod reaches a chat only when its process starts anew (B570). The main chat restarts the other chats; you
@@ -803,7 +812,7 @@ With the app's session tools (load them with ToolSearch when they are deferred):
 `list_sessions` with `include_archived` and `unarchive_session` for every chat of the list of chats that is archived now
 (archiving the main chat also archives the finished chats it started, most workers among them), and last for the main
 chat itself. Then send it one line with SendMessage to its session id, "Restarted for Workers mod <To>: nothing to do",
-which starts it on the new mod: no board word can start the main chat, and it starts the others. When the archive is refused (a turn, a queued
+which starts it on the new mod (the board's `start "<main chat>"` only has a chat that runs wake it; this line is what puts it on the new mod), and it starts the others. When the archive is refused (a turn, a queued
 message, a background agent, the app's safety check), do nothing more: the board asks again in half an hour; when Remote Control is on for it,
 leave it and tell the user in one line. Say nothing else about it in your chat.
 

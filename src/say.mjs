@@ -7,8 +7,10 @@ import { brainstormFixWords, leftOutKey } from './brainstorm.mjs'
 export { brainstormFixWords }
 import { SWITCH_MODES, partnerEffortWords } from './partnerEffort.mjs'
 import { RECHECK_HEAD } from './rounds.mjs'
+import { stoppedOf } from './stopped.mjs'
 import { SYNC_BOARD, lastSyncAnswer } from './sync.mjs'
 import { isTalkPicture } from './talkPicture.mjs'
+import { isHolding } from './work/pause.mjs'
 
 const refuse = (status, why) => ({ ok: false, status, why })
 
@@ -444,7 +446,9 @@ export function checkSay(body, state, maxChars) {
       if (state.advisor.roundRuns === true) return refuse(409, 'A round runs: wait until the Advisor has finished it.')
       return { ok: true, message: { to: advisor, ask: null, step: null, title: null, version: null, verdict: null, command: 'recheck', text: RECHECK_HEAD } }
     }
-    if (body.to !== state.restart?.main) return refuse(400, 'Only the main chat prepares, resumes, starts and is asked for workers.')
+    // T9.4: the word to start a chat that is not running goes to the main chat or to any chat that runs.
+    if (body.command === 'start') return startCheck(body, state, text)
+    if (body.to !== state.restart?.main) return refuse(400, 'Only the main chat prepares, resumes and is asked for workers.')
     if (text !== '' || (body.ask ?? null) !== null || (body.verdict ?? null) !== null) return refuse(400, 'A command carries nothing else.')
     // B352: the partner's high effort mode, switched on the Focus page: the main chat sets the partner's chat.
     if (body.command === 'partner-effort') {
@@ -493,15 +497,6 @@ export function checkSay(body, state, maxChars) {
     // A name comes from a chat's title: it is kept to one short plain line.
     const plain = names => (names ?? []).map(name => String(name).replace(/\s+/g, ' ').trim().slice(0, 80))
     const blank = { to: body.to, ask: null, step: null, title: null, version: null, verdict: null }
-    if (body.command === 'start') {
-      // A chat that is not running takes nothing from the board. The main chat can start any chat through the
-      // app, by the id the app knows it by; a chat that runs, or that the board cannot tell about, is left alone.
-      const target = [...(state.chats ?? []).filter(chat => !chat.isLeftover), ...(state.advisor ? [state.advisor] : []), ...(state.advisorHelper ? [state.advisorHelper] : []), ...(state.supervisorChat ? [state.supervisorChat] : [])].find(chat => chat.name === body.chat)
-      if (target === undefined || target.name === body.to || target.isRunning !== false) return refuse(409, 'That chat runs, or is not on the board.')
-      const id = typeof target.appSession === 'string' && /^[\w-]{1,80}$/.test(target.appSession) ? ` Its session id: ${target.appSession}.` : ''
-      const words = `start "${plain([target.name])[0].replace(/["\u201c\u201d]/g, '')}"\nIts chat is not running, and what the user answered or typed on the worker board waits for it. Start it by its session id, with one line that says the board holds something for it.${id}`
-      return { ok: true, message: { ...blank, command: 'start', about: target.name, text: words } }
-    }
     const cut = plain(state.restart?.interrupted)
     // A chat that is not running cannot be reached by its name: the main chat has to start it. Itself it knows.
     const down = plain((state.restart?.notRunning ?? []).filter(name => name !== body.to))
@@ -539,6 +534,38 @@ export function checkSay(body, state, maxChars) {
 }
 
 /**
+ * Every chat the board knows by name: the main chat and the workers (not a leftover), the partner, its helper and the
+ * supervisor's chat, each as the state gives it (`name`, `isRunning`, `state`, `appSession`).
+ */
+const boardLanes = state => [
+  ...(state.chats ?? []).filter(chat => !chat.isLeftover),
+  ...(state.advisor ? [state.advisor] : []), ...(state.advisorHelper ? [state.advisorHelper] : []), ...(state.supervisorChat ? [state.supervisorChat] : []),
+]
+
+/**
+ * T9.4: the board's word that a chat which is not running has to be started. The main chat is its usual addressee (the
+ * word waits there, running or not); any other chat takes it only while it runs, because only a running chat can start
+ * another (the app's session tools; the board cannot). The first line stays `start "<chat>"`; the rest is for any chat that
+ * gets it. A chat that runs, one the board cannot tell about, and the chat itself are left alone. The partner's helper does only
+ * what the partner hands it: it never carries the word (review of 2026-10-25).
+ */
+function startCheck(body, state, text) {
+  if (text !== '' || (body.ask ?? null) !== null || (body.verdict ?? null) !== null) return refuse(400, 'A command carries nothing else.')
+  const lanes = boardLanes(state)
+  if (body.to !== (state.restart?.main ?? null) && body.to === state.advisorHelper?.name) return refuse(409, 'The partner\'s helper does only what the partner hands it.')
+  if (body.to !== (state.restart?.main ?? null) && lanes.find(chat => chat.name === body.to)?.isRunning !== true) return refuse(409, 'That chat does not run, so it cannot start another.')
+  const target = lanes.find(chat => chat.name === body.chat)
+  if (target === undefined || target.name === body.to || target.isRunning !== false) return refuse(409, 'That chat runs, or is not on the board.')
+  const hasId = typeof target.appSession === 'string' && /^[\w-]{1,80}$/.test(target.appSession)
+  const id = hasId ? `Its session id: ${target.appSession}.` : 'The board does not know its session id: find its session by the chat\'s name in the app\'s list of sessions.'
+  const words = [
+    `start "${plainLine(target.name)}"`,
+    'Its chat is not running, and words from the worker board wait for it. Start it now: send it one line with SendMessage to its session id (load it with ToolSearch when it is deferred): "The worker board holds something for you." Nothing else, no reply needed; then go on with your own work.',
+  ].join('\n')
+  return { ok: true, message: { to: body.to, ask: null, step: null, title: null, version: null, verdict: null, command: 'start', about: target.name, text: `${words} ${id}` } }
+}
+
+/**
  * B124: what the board asks by itself when the main chat is alone in the list: three workers. It asks once per
  * empty list: again only after a worker was there (the history, `lines`, holds one since that ask) and all went.
  * Only while the main chat's chat is open, so the word is taken and not lost; an ask that is still open, also
@@ -554,7 +581,7 @@ export function spawnWhenAlone(state, outbox, lines) {
   return spawnWords(main, 3, 'alone')
 }
 
-/** The main chat is asked to start a chat at most this often. */
+/** A chat is asked to be started at most this often (T9.4: by the main chat, or by the chat that carries the word instead). */
 const WAKE_AGAIN_MS = 2 * 60_000
 const WAKE_PENDING_MS = 10 * 60_000
 
@@ -571,49 +598,196 @@ export const isPartnerWord = command => typeof command === 'string' && (command.
 export const waitsLong = command => command === 'start' || command === 'wake' || command === 'round' || isPartnerWord(command)
 
 /**
- * What the board adds when something was sent to a chat that is not running: the word to the main chat to start
- * it, so nothing waits for a closed chat without a word. Null when nothing is to be asked: the chat runs, the
- * main chat itself does not, or it was asked a moment ago. `outbox` is what was sent before.
+ * T9.4: whether the board wakes a chat for this word when the chat is not running. Every word to the main chat is an
+ * order of the board. Of the words to another chat: a line typed on the board, and the commands that go to a chat other
+ * than the main one (B195, B233: the answer to the Advisor's recommendation, a refine and (B300) the work store's line;
+ * B288: a re-check of the goals; B258: an ask from the goal map; B259: the words of a brainstorm; Focus 2: the words of
+ * the Focus page; B359: the goal guard's evaluate; 2026-10-24: the Vision tab's words on the product plan (`plan-*`),
+ * which waited for a stopped partner unseen; the supervisor (spec 2026-10-24): its sweep word to the supervisor's chat,
+ * and an incident's word to the partner). The sweep wakes too, but goes stale in minutes (src/supervisor/sweep.mjs), so it
+ * is no partner word.
  */
-export function wakeFor(message, state, outbox, now, maxChars) {
+const isWakeWord = (message, state) => {
   const main = state.restart?.main ?? null
-  // B195, B233: of the commands, only the answer to the Advisor's recommendation, a refine and (B300) the work store's
-  // line to a chat go to another chat than the main one.
-  // B288: and a re-check of the goals, asked of the Advisor; B258: and an ask from the goal map; B259: and the words of a brainstorm.
-  // Focus 2: and the words of the Focus page to the partner. B359: and the goal guard's evaluate.
-  // 2026-10-24: and the Vision tab's words on the product plan (`plan-*`), which waited for a stopped partner unseen.
-  // The supervisor (spec 2026-10-24): and its sweep word to the supervisor's chat, and an incident's word to the partner.
   const command = message.command ?? null
-  // The supervisor's sweep word wakes too, but goes stale in minutes (src/supervisor/sweep.mjs), so it is no partner word.
-  if (main === null || message.to === main || (command !== null && !isPartnerWord(command) && command !== 'sweep')) return null
-  if ((state.chats ?? []).find(chat => chat.name === main)?.isRunning === false) return null
-  // Not again within two minutes; and while an earlier word still waits for the main chat, not for ten.
-  const isOnItsWay = sent => (sent.state === 'waiting' || sent.state === 'taken') && now - sent.at < WAKE_PENDING_MS
-  if (outbox.some(sent => sent.command === 'start' && sent.about === message.to && (now - sent.at < WAKE_AGAIN_MS || isOnItsWay(sent)))) return null
-  const checked = checkSay({ to: main, command: 'start', chat: message.to }, state, maxChars)
-  return checked.ok ? checked.message : null
+  return (main !== null && message.to === main) || command === null || isPartnerWord(command) || command === 'sweep'
 }
 
 /**
- * What the board asks on its clock for words that wait for a chat that is not running and for which the main chat was
- * never asked: they were sent while the main chat did not run either (`wakeFor` asks nothing then), so they waited
- * unseen until the chat was opened by hand (2026-10-21: three words to the Advisor waited 09:46 to 10:57). One start
- * word per chat, through `wakeFor`; none for a chat the main chat was asked to start since its oldest word that waits,
- * also when that ask failed (the page's button asks again). `outbox` is everything sent, in order, with what waited too
- * long marked "expired".
+ * T9.4: the chats that could carry the start word for `target`, best first: the main chat, the partner, then the workers
+ * (the ones that are free first, then the busy ones, each in the list's order), the supervisor's chat last. Never `target`
+ * itself, never a leftover, never the partner's helper (it does only what the partner hands it). Review of 2026-10-25: nor a
+ * chat that cannot carry a word now: its turn was stopped (src/stopped.mjs: the app drops what it is sent until it gets
+ * input; read from `outbox`, so for every chat), its card says Suspended (paused for the limit; every chat's card has it) or
+ * it was removed in the last minutes (`removedAt`: its lane stays two; only the lanes carry it, not the partner, its helper
+ * or the supervisor's chat). `outbox` is what was sent.
+ */
+function wakerOrder(state, target, outbox) {
+  const main = state.restart?.main ?? null
+  const canCarry = chat => chat !== null && chat !== undefined && chat.name !== target && chat.isLeftover !== true
+    && chat.state !== 'suspended' && !Number.isFinite(chat.removedAt) && stoppedOf(outbox, chat) === null
+  const lanes = (state.chats ?? []).filter(canCarry)
+  const workers = lanes.filter(chat => chat.name !== main)
+  const free = chat => chat.state === 'free'
+  return [
+    lanes.find(chat => chat.name === main), canCarry(state.advisor) ? state.advisor : undefined,
+    ...workers.filter(free), ...workers.filter(chat => !free(chat)),
+    canCarry(state.supervisorChat) ? state.supervisorChat : undefined,
+  ].filter(chat => chat !== undefined)
+}
+
+/** T9.4: a chat asked this recently to start a target is passed over when the target has to be asked for again. */
+const WAKER_AGAIN_MS = 30 * 60_000
+
+/**
+ * T9.4: the chat that carries the start word for `target` (a chat that is not running): the main chat when it runs, else
+ * the partner when it runs, else another running chat of the board (`wakerOrder`). Only a running chat can start another
+ * (the app's session tools; the board cannot). Without `since` (a word that has just been sent): a chat asked to start this
+ * target in the last half hour (its word still waits, or it took it and the target did not start; a word closed because the
+ * target runs does not count) is passed over, so a retry goes to the next one; when every running chat was asked, the first
+ * is asked again: a repeat is better than a word that waits for nobody. With `since` (the clock's retry, review of
+ * 2026-10-25: retries must stop): a chat asked at any time since then, whatever became of its word, is not asked again, and
+ * when every running chat was asked there is none. Its name, or null when no chat can be asked. `outbox` is what was sent.
+ */
+export function wakerFor(state, target, outbox, now, since = null) {
+  const running = wakerOrder(state, target, outbox).filter(chat => chat.isRunning === true)
+  const isOnce = since !== null
+  const askedBefore = chat => outbox.some(sent => sent.command === 'start' && sent.to === chat.name && sent.about === target && Number.isFinite(sent.at)
+    && (isOnce ? sent.at >= since : sent.state !== 'dropped' && now - sent.at < WAKER_AGAIN_MS))
+  return (running.find(chat => !askedBefore(chat)) ?? (isOnce ? undefined : running[0]))?.name ?? null
+}
+
+/** A round is the board's own word to the Advisor (B173); it wakes its chat as a message does. */
+const wakeWordOf = message => (message.command === 'round' ? { ...message, command: null } : message)
+
+/**
+ * T9.4: the words that say nobody can wake the chats that wait for it, or null: some word that the board wakes a chat for
+ * (`isWakeWord`) waits for a chat of the board, and no chat that could carry the start word (`wakerOrder`) may run. Not
+ * guessed: one that may run (`isRunning` unknown) says nothing, except on a board no mod has called since it started
+ * (`bridge.isMissing`: nothing can tell any chat's state then, so an unknown one counts as not running). `{ since, chats }`:
+ * the oldest of those words' times and the chats they wait for, as they first appear in `outbox` (everything sent; a word
+ * the person's pause holds, `isHeld`, does not count).
+ */
+export function nobodyRunsOf(state, outbox) {
+  const lanes = boardLanes(state)
+  if (lanes.length === 0) return null
+  const isOff = chat => chat.isRunning === false || (state.bridge?.isMissing === true && chat.isRunning !== true)
+  if (wakerOrder(state, null, outbox).some(chat => !isOff(chat))) return null
+  const since = new Map()
+  for (const message of outbox) {
+    const target = lanes.find(chat => chat.name === message.to)
+    if (message.state !== 'waiting' || message.isHeld === true || target === undefined || !isOff(target) || !isWakeWord(wakeWordOf(message), state)) continue
+    since.set(message.to, Math.min(since.get(message.to) ?? Infinity, Number.isFinite(message.at) ? message.at : Infinity))
+  }
+  if (since.size === 0) return null
+  const times = [...since.values()].filter(Number.isFinite)
+  return { since: times.length === 0 ? null : Math.min(...times), chats: [...since.keys()] }
+}
+
+/**
+ * T9.4 (review of 2026-10-25): when a start word began to be on its way: when it was sent; a word that the person's pause
+ * held (sent before the pause ended, still waiting) from the end of the pause, since it is delivered then.
+ */
+const onItsWaySince = (sent, state) => {
+  const pause = state.pause ?? null
+  return sent.state === 'waiting' && pause !== null && pause.state !== 'pausing' && Number.isFinite(pause.since) && pause.since > sent.at ? pause.since : sent.at
+}
+/** Whether a start word was sent, or its pause ended, in the last ten minutes: whatever became of it. */
+const isRecentStart = (sent, state, now) => now - onItsWaySince(sent, state) < WAKE_PENDING_MS
+/** Whether an earlier start word is still on its way: waiting or taken for under ten minutes; one the pause holds, however old. */
+const isOnItsWay = (sent, state, now) => (sent.state === 'waiting' && isHolding(state.pause)) || ((sent.state === 'waiting' || sent.state === 'taken') && isRecentStart(sent, state, now))
+
+/**
+ * What the board adds when something was sent to a chat that is not running: the word to a running chat to start it
+ * (`wakerFor`: the main chat, else the partner, else another), so nothing waits for a closed chat without a word. A word
+ * to the main chat that waits while it does not run wakes it the same way. Null when nothing is to be asked: the chat
+ * runs, or is not known to, no chat runs to carry the word, or it was asked a moment ago. `outbox` is what was sent before.
+ * `since` (the clock's retry, `wakesDue`) is passed on to `wakerFor`.
+ */
+export function wakeFor(message, state, outbox, now, maxChars, since = null) {
+  if (!isWakeWord(message, state)) return null
+  const main = state.restart?.main ?? null
+  // Every word to the main chat wakes it, but only while it is known not to run.
+  if (message.to === main && (state.chats ?? []).find(chat => chat.name === main)?.isRunning !== false) return null
+  // Not again within two minutes; and while an earlier word still waits for its waker (or the pause holds it), not for ten.
+  if (outbox.some(sent => sent.command === 'start' && sent.about === message.to && (now - sent.at < WAKE_AGAIN_MS || isOnItsWay(sent, state, now)))) return null
+  // The re-check of the review: retries stop for a word that has just been sent too (a pinned start sent anew each start
+  // window asked Main 37 times in 6 h): at most MAX_WAKE_TRIES start words for one wait, each of a chat not asked in it.
+  const pending = outbox.some(one => one.id !== undefined && one.id === message.id) ? outbox : [...outbox, { ...message, state: 'waiting' }]
+  const progress = wakeProgress(state, message.to, pending)
+  if (progress !== null && progress.asks.length >= MAX_WAKE_TRIES) return null
+  const waker = wakerFor(state, message.to, outbox, now, since ?? progress?.since ?? null)
+  if (waker === null) return null
+  const checked = checkSay({ to: waker, command: 'start', chat: message.to }, state, maxChars)
+  return checked.ok ? checked.message : null
+}
+
+/** The start words are asked at most this many times for one wait (review of 2026-10-25: retries must stop), each of another chat. */
+export const MAX_WAKE_TRIES = 3
+
+/**
+ * T9.4: how the wake-up of `target` stands, or null when no word waits for it that the board wakes it for: `since`, the
+ * oldest of those words, and `asks`, the start words about it since then that a chat could carry: taken, delivered or
+ * failed, or waiting for a chat that may run. Not a word the sweep closed, nor one that waits for a chat known not to run
+ * (the hand-out's start handed to a main chat that is off asks nobody yet; re-check of the review). A wait that ended (the
+ * words were taken) starts a new count.
+ */
+function wakeProgress(state, target, outbox) {
+  const times = outbox.filter(one => one.state === 'waiting' && one.to === target && Number.isFinite(one.at) && isWakeWord(wakeWordOf(one), state)).map(one => one.at)
+  if (times.length === 0) return null
+  const since = Math.min(...times)
+  const isOff = name => boardLanes(state).find(chat => chat.name === name)?.isRunning === false
+  const isTry = one => one.state !== 'dropped' && !(one.state === 'waiting' && isOff(one.to))
+  return { since, asks: outbox.filter(one => one.command === 'start' && one.about === target && Number.isFinite(one.at) && one.at >= since && isTry(one)) }
+}
+
+/**
+ * What the board asks on its clock for words that wait for a chat that is not running and for which no chat was ever
+ * asked: they were sent while no chat could carry the start word (`wakeFor` asks nothing then), so they waited unseen
+ * until a chat was opened by hand (2026-10-21: three words to the Advisor waited 09:46 to 10:57; T9.4, 2026-10-25: words
+ * to the main chat and a start of Worker 3 waited 15 minutes). One start word per chat, through `wakeFor`, for the words
+ * that wake it (`isWakeWord`: a start word held by an off chat hides no later word); none for a chat asked to be started in
+ * the last ten minutes. Requests never get lost (2026-10-25), and retries stop (review): an ask that did not wake the chat
+ * in ten minutes is asked again, of a running chat not asked since the oldest word that waits; at most `MAX_WAKE_TRIES`
+ * start words for one wait, and then nothing more (`wakeFailedOf` says so). Nothing while the person's pause holds.
+ * `outbox` is everything sent, in order, with what waited too long marked "expired".
  */
 export function wakesDue(state, outbox, now, maxChars) {
+  if (isHolding(state.pause)) return []
   const seen = new Set()
   const starts = []
   for (const message of outbox) {
     if (message.state !== 'waiting' || seen.has(message.to)) continue
+    const word = wakeWordOf(message)
+    if (!isWakeWord(word, state)) continue
     seen.add(message.to)
-    if (outbox.some(sent => sent.command === 'start' && sent.about === message.to && sent.at >= message.at)) continue
-    // B173: a round is the board's own word to the Advisor; it wakes its chat as a message does.
-    const start = wakeFor(message.command === 'round' ? { ...message, command: null } : message, state, outbox, now, maxChars)
+    const progress = wakeProgress(state, message.to, outbox)
+    if (progress === null || progress.asks.length >= MAX_WAKE_TRIES || progress.asks.some(ask => isRecentStart(ask, state, now))) continue
+    const start = wakeFor(word, state, outbox, now, maxChars, progress.since)
     if (start !== null) starts.push(start)
   }
   return starts
+}
+
+/**
+ * T9.4 (review of 2026-10-25): the chats nobody could wake, `[{ chat, tries, since }]`: words wait for a chat known not to
+ * run, the board asked at least once, the last ask is no longer on its way (ten minutes), and the clock asks no more
+ * (`wakesDue`: `MAX_WAKE_TRIES` asks, or every running chat was asked). The page says so, and that the person opens it
+ * themselves. It goes once the chat runs, its words no longer wait, or another chat runs that can still be asked. Nothing
+ * while the person's pause holds. `outbox` is everything sent.
+ */
+export function wakeFailedOf(state, outbox, now) {
+  if (isHolding(state.pause)) return []
+  const lanes = boardLanes(state)
+  const failed = []
+  for (const target of new Set(outbox.filter(one => one.state === 'waiting').map(one => one.to))) {
+    if (lanes.find(chat => chat.name === target)?.isRunning !== false) continue
+    const progress = wakeProgress(state, target, outbox)
+    if (progress === null || progress.asks.length === 0 || progress.asks.some(ask => isRecentStart(ask, state, now))) continue
+    const next = progress.asks.length < MAX_WAKE_TRIES ? wakerFor(state, target, outbox, now, progress.since) : null
+    if (next === null) failed.push({ chat: target, tries: progress.asks.length, since: progress.since })
+  }
+  return failed
 }
 
 /**
