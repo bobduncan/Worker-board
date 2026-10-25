@@ -5,7 +5,7 @@
 
 import { GIVE_GUARD, flowHandsOut, mayMove, statesOf } from './flow.mjs'
 import { blockersOpen, overlapsIn, waitWords } from './guards.mjs'
-import { HAND_OUT_DEFAULTS, idleWorkers, match, oldQueued, readyList, stuckTakeBacks, takeBacks as takeBacksOf, workerStart } from './handOut.mjs'
+import { HAND_OUT_DEFAULTS, idleWorkers, match, oldQueued, readyList, skipPairs, stuckTakeBacks, takeBacks as takeBacksOf, workerStart } from './handOut.mjs'
 import { askFiledMs, fixFirst, sinceMs, valueOf } from './item.mjs'
 import { PARTNER_AGAIN_MS, PARTNER_ANSWER_MS, isRoutedToPartner } from './partnerAnswers.mjs'
 import { isHolding } from './pause.mjs'
@@ -65,8 +65,11 @@ const span = ms => {
  * or a limit is full (`limitsFull`); none either when the flow lets the board hand out nothing (a line on top says so).
  * A worker the board took a task back from while it sat idle shows a `not taking` flag until it reports anew.
  * `retired`: `[{ id }]`, the tasks queued before the redesign, which go back on the list once (work/handOut.mjs `oldQueued`).
+ * The review of 2026-10-25: `heldUntil` the last time the board held the hand-out (the server's memory: a full limit,
+ * a pause), so a give's clock starts again after it; `refusedGives` the gives the work API refused lately (`{ id, chat,
+ * why, at }`), not tried again for a while and named on the ready list (`refused`); `handOutHeld` says whether it holds now.
  */
-export function reconcile({ store, flow = store.flow, lanes = [], now, times, prefix = '', hasPartner = true, partner = null, standardHold = null, focus = null, routingHeld = new Set(), settings = {}, sent = [], limitsFull = false }) {
+export function reconcile({ store, flow = store.flow, lanes = [], now, times, prefix = '', hasPartner = true, partner = null, standardHold = null, focus = null, routingHeld = new Set(), settings = {}, sent = [], limitsFull = false, heldUntil = null, refusedGives = [] }) {
   const items = store.items ?? new Map()
   const broken = new Set((store.problems ?? []).map(problem => problem.file?.match(/^([A-Z]\d+|L-[0-9a-f]{8})\.md$/)?.[1]).filter(Boolean))
   const live = lanes.filter(lane => !lane.isLeftover)
@@ -269,7 +272,11 @@ export function reconcile({ store, flow = store.flow, lanes = [], now, times, pr
   // idle through it (principle 2); one more worker asked of the main chat only when ready tasks wait and none is idle.
   const takeWithinMs = Math.max(1, Number.isFinite(settings.takeWithinMinutes) ? settings.takeWithinMinutes : HAND_OUT_DEFAULTS.takeWithinMinutes) * MIN
   const followUpMs = Math.max(0, Number.isFinite(settings.followUpMinutes) ? settings.followUpMinutes : HAND_OUT_DEFAULTS.followUpMinutes) * MIN
-  const ready = readyList(items, { now, focus, followUpMs, standardHold, routingHeld, prefix })
+  const heldGiveMs = Math.max(takeWithinMs, (Number.isFinite(settings.heldGiveMinutes) ? settings.heldGiveMinutes : HAND_OUT_DEFAULTS.heldGiveMinutes) * MIN)
+  const listed = readyList(items, { now, focus, followUpMs, standardHold, routingHeld, prefix })
+  // The review: a give the API refused stands on the list with why, and goes to another worker meanwhile.
+  const refusedOf = id => refusedGives.filter(one => one.id === id).sort((a, b) => b.at - a.at)[0] ?? null
+  const ready = { ...listed, ready: listed.ready.map(one => (refusedOf(one.id) === null ? one : { ...one, refused: { chat: refusedOf(one.id).chat, why: refusedOf(one.id).why } })) }
   const handOutHeld = ['pausing', 'resuming'].includes(store.pause?.state) || limitsFull === true
   const handsOut = flowHandsOut(flow)
   if (!handsOut) {
@@ -279,15 +286,17 @@ export function reconcile({ store, flow = store.flow, lanes = [], now, times, pr
   for (const [chat, back] of stuck) {
     flags.push({ kind: 'not taking', id: back.id, chat, text: `Stuck: did not take ${back.id} within ${Math.round(takeWithinMs / MIN)} min; it went back on the list`, button: null })
   }
-  // The take-back's clock starts again once a pause is over: the lines it held only went then.
-  const notBefore = store.pause?.state === 'running' ? (store.pause.resumedSince ?? store.pause.since ?? null) : null
+  // The take-back's clock starts again once a pause, or (the review) a full limit, is over: its lines went only then.
+  const pausedUntil = store.pause?.state === 'running' ? (store.pause.resumedSince ?? store.pause.since ?? null) : null
+  const notBefore = Math.max(...[pausedUntil, heldUntil].filter(Number.isFinite), -Infinity)
   // At rollout (plan Question 2): the tasks queued before the redesign go back on the list first (`retired`), once.
   const retired = handsOut ? oldQueued(items) : []
   const retiredIds = new Set(retired.map(one => one.id))
-  const takeBacks = handOutHeld || !handsOut ? [] : takeBacksOf({ items, outbox: sent.map(one => (Number.isFinite(notBefore) && one.at < notBefore ? { ...one, at: notBefore } : one)), lanes: live, now, takeWithinMs, prefix })
+  const takeBacks = handOutHeld || !handsOut ? [] : takeBacksOf({ items, outbox: sent, lanes: live, now, takeWithinMs, heldGiveMs, prefix, notBefore: Number.isFinite(notBefore) ? notBefore : null })
     .filter(one => !retiredIds.has(one.id))
   const idle = idleWorkers(live, { items, prefix, restFree, stuck: new Set(stuck.keys()) })
-  const gives = handOutHeld || !handsOut ? [] : match({ ready: ready.ready, idle, items, prefix })
-  const start = !handsOut ? null : workerStart({ ready: ready.ready, gives, idle, lanes: live, maxWorkers: settings.maxWorkers ?? null, isHeld: handOutHeld })
-  return { moves, deliveries, flags, notes, partnerAsks, escalations, restFree, ready, gives, takeBacks, start, retired }
+  const skip = skipPairs({ items, refused: refusedGives, now, heldGiveMs, prefix })
+  const gives = handOutHeld || !handsOut ? [] : match({ ready: ready.ready, idle, items, prefix, skip })
+  const start = !handsOut ? null : workerStart({ ready: ready.ready, gives, idle, lanes: live, maxWorkers: settings.maxWorkers ?? null, isHeld: handOutHeld, items, sent, now, prefix })
+  return { moves, deliveries, flags, notes, partnerAsks, escalations, restFree, ready, gives, takeBacks, start, retired, handOutHeld }
 }

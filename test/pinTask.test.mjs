@@ -109,3 +109,9 @@ test('the Workers panel lists the ready tasks in the board\'s order, each with w
   assert.match(html, /<section class="ready-list" id="ready-list" aria-label="Ready for a worker" hidden><\/section>/)
   assert.match(fn('drawReadyList'), /`Ready for a worker \(\$\{list\.ready\.length\}\)`/)
 })
+
+test('the worker\'s job says the board gives it its tasks, not the main chat', async () => {
+  const worker = (await readFile(join(HERE, '..', 'roles', 'worker.md'), 'utf8')).replace(/\s+/g, ' ')
+  assert.match(worker, /you take whatever task the board gives you/)
+  assert.doesNotMatch(worker, /whatever task the main chat gives you/)
+})

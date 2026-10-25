@@ -291,14 +291,17 @@ test('the review of chat-reports: a chat whose reports stay silent offAfterMinut
   assert.equal(parseConfig('{"offAfterMinutes":0.5}', env).offAfterMinutes, 5)
 })
 
-test('Redesign Part 2: the hand-out settings: two minutes to take, ten of follow-up, no number of workers unless set', () => {
+test('Redesign Part 2: the hand-out settings: two minutes to take, a follow-up a preference only, 20 for a held give, no number of workers unless set', () => {
   const read = parseConfig('{}', env)
-  assert.deepEqual([read.takeWithinMinutes, read.followUpMinutes, 'maxWorkers' in read], [2, 10, false])
+  assert.deepEqual([read.takeWithinMinutes, read.followUpMinutes, read.heldGiveMinutes, 'maxWorkers' in read], [2, 0, 20, false])
+  assert.equal(parseConfig('{"heldGiveMinutes": 30}', env).heldGiveMinutes, 30)
+  assert.equal(parseConfig('{"heldGiveMinutes": 0}', env).heldGiveMinutes, 20)
+  assert.equal(parseConfig('{"followUpMinutes": 10}', env).followUpMinutes, 10)
   assert.equal(parseConfig('{"maxWorkers": 6}', env).maxWorkers, 6)
   // Any number of workers, but a whole one of at least 1; a take within 0 minutes would take every task back at once.
   assert.equal('maxWorkers' in parseConfig('{"maxWorkers": 0}', env), false)
   assert.equal('maxWorkers' in parseConfig('{"maxWorkers": 2.5}', env), false)
   assert.equal(parseConfig('{"takeWithinMinutes": 0}', env).takeWithinMinutes, 2)
   assert.equal(parseConfig('{"followUpMinutes": 0}', env).followUpMinutes, 0)
-  assert.equal(parseConfig('{"followUpMinutes": -1}', env).followUpMinutes, 10)
+  assert.equal(parseConfig('{"followUpMinutes": -1}', env).followUpMinutes, 0)
 })

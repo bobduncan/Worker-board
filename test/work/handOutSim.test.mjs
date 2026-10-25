@@ -13,7 +13,7 @@ import { parseConfig } from '../../src/config.mjs'
 import { memoryStore } from '../../src/store.mjs'
 import { buildState } from '../../src/state.mjs'
 import { workApi } from '../../src/work/api.mjs'
-import { deliverWork } from '../../src/work/deliver.mjs'
+import { deliverWork, givesRefused } from '../../src/work/deliver.mjs'
 import { valueOf } from '../../src/work/item.mjs'
 import { stamp } from '../../src/work/migrate.mjs'
 import { readStore, writePause, writeStore } from '../../src/work/store.mjs'
@@ -44,16 +44,16 @@ async function garden(tasks, { workers = ['W1', 'W2'], settings = {}, models = n
   const report = (name, state, since, at) => reports.set(name, { state, since, background: false, at, session: `cli-${name}`, mod: '0.19.0' })
   const outbox = memoryStore()
   const apps = (now, extra) => ['Lead', ...workers].map(name => app(name, extra?.[name] ?? {}))
-  const build = async (now, { appMore = {} } = {}) => {
+  const build = async (now, { appMore = {}, heldAt = null } = {}) => {
     const raw = {
       listText: '{"prefix":"Garden · ","main":"Lead"}', appChatTexts: apps(now, appMore), tails: {}, planLineTexts: {}, adviceText: null, folders: null, askTexts: [], pictureLists: {},
       work: { ok: true, dir, ...(await readStore(dir)) },
     }
-    return buildState(raw, { lines: [], outbox: outbox.outbox(), runs: [], board: { startedAt: T0 - 60 * MIN, offSince: null }, seen: { shown: { Lead: now }, other: {} }, reports, now, config })
+    return buildState(raw, { lines: [], outbox: outbox.outbox(), runs: [], board: { startedAt: T0 - 60 * MIN, offSince: null }, seen: { shown: { Lead: now }, other: {} }, reports, now, config, handOutHeldAt: heldAt, refusedGives: givesRefused(dir, now) })
   }
   let n = 0
   const server = now => body => workApi(body, { dir, now, prefix: 'Garden · ', roleOf: chat => ROLES[chat] ?? null, as: 'server' })
-  const deliver = (state, now) => deliverWork({ state, dir, outbox, apply: server(now), now, maxChars: 2000, newId: () => `m${(n += 1)}` })
+  const deliver = (state, now, refuse = () => null) => deliverWork({ state, dir, outbox, apply: async body => refuse(body) ?? server(now)(body), now, maxChars: 2000, newId: () => `m${(n += 1)}` })
   const read = async id => (await readStore(dir)).items.get(id)
   const close = () => rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   return { dir, report, build, deliver, read, outbox, close }
@@ -203,6 +203,44 @@ test('an opus task given to a worker on sonnet: its line waits for the model, an
     assert.deepEqual(later.reconciled.takeBacks, [])
     await one.deliver(later, T2)
     assert.deepEqual(await ownerOf(one, 'B1'), ['queued', 'W1'])
+  } finally {
+    await one.close()
+  }
+})
+
+test('the review: after a full limit the take-back clock starts anew; a worker idle through the limit is not taken back at once', async () => {
+  const one = await garden([task('B1')], { workers: ['W1'] })
+  try {
+    one.report('W1', 'idle', T0 - 60 * SEC, T0 - 2 * SEC)
+    await one.deliver(await one.build(T0), T0)
+    const T1 = T0 + 10 * SEC
+    await one.deliver(await one.build(T1), T1)
+    assert.deepEqual(lines(one.outbox), [['W1', 'B1', 'waiting']])
+    // A limit was full until 30 s ago (the server's memory of when it last held the hand-out).
+    const ended = T0 + 20 * MIN
+    one.report('W1', 'idle', T0 - 60 * SEC, ended + 30 * SEC - 2 * SEC)
+    assert.deepEqual((await one.build(ended + 30 * SEC, { heldAt: ended })).reconciled.takeBacks, [])
+    one.report('W1', 'idle', T0 - 60 * SEC, ended + 2 * MIN)
+    assert.deepEqual((await one.build(ended + 2 * MIN + SEC, { heldAt: ended })).reconciled.takeBacks, [{ id: 'B1', chat: 'W1', stuck: true, why: 'not taken within 2 min' }])
+  } finally {
+    await one.close()
+  }
+})
+
+test('the review: a give the work API refuses is not tried again for that worker a while; the worker gets another task, the list says why', async () => {
+  const one = await garden([task('B1'), task('B2')], { workers: ['W1'] })
+  try {
+    one.report('W1', 'idle', T0 - 60 * SEC, T0 - 2 * SEC)
+    const refuse = body => (body.action === 'advance' && body.id === 'B1' && body.to === 'queued' ? { ok: false, status: 409, why: 'routing holds B1 for an Opus worker' } : null)
+    const first = await one.build(T0)
+    assert.deepEqual(first.reconciled.gives.map(({ id, chat }) => [id, chat]), [['B1', 'W1']])
+    assert.deepEqual((await one.deliver(first, T0, refuse)).given, [])
+    const next = await one.build(T0 + 5 * SEC)
+    assert.deepEqual(next.reconciled.gives.map(({ id, chat }) => [id, chat]), [['B2', 'W1']])
+    assert.deepEqual(next.readyList.ready.find(row => row.id === 'B1').refused, { chat: 'W1', why: 'routing holds B1 for an Opus worker' })
+    // Fifteen minutes on it is tried again.
+    one.report('W1', 'idle', T0 - 60 * SEC, T0 + 16 * MIN - 2 * SEC)
+    assert.equal((await one.build(T0 + 16 * MIN)).reconciled.gives[0].id, 'B1')
   } finally {
     await one.close()
   }

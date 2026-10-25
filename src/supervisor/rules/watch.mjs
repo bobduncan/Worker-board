@@ -140,8 +140,10 @@ const GIVEN_OR_UNDER_WAY = ['queued', 'taken', 'in progress', 'waiting on you']
  */
 function readyWhileFree(view, ctx) {
   if (isPaused(view) || isFull(view)) return []
+  // The review of 2026-10-25: a worker that holds a task given to it (its line may wait) is no free worker.
+  const holds = lane => stepsOf(view).some(item => ['queued', 'taken', 'in progress'].includes(stateOf(item)) && plain(valueOf(item, 'Owner'), view.prefix) === plain(lane.name, view.prefix))
   const free = workersOf(view).filter(lane => lane.report != null && lane.state === 'free' && lane.isRunning === true
-    && !(lane.flags ?? []).some(flag => flag.kind === 'not taking'))
+    && !(lane.flags ?? []).some(flag => flag.kind === 'not taking') && !holds(lane))
   if (free.length === 0) return []
   const freeSince = Math.min(...free.map(lane => (Number.isFinite(lane.report.since) ? lane.report.since : view.since.get(lane.name) ?? view.now)))
   const found = []

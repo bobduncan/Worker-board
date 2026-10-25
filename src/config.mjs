@@ -75,8 +75,16 @@ export const DEFAULTS = {
    * and shows stuck when it sat idle (principle 2). At least 1.
    */
   takeWithinMinutes: 2,
-  /** Redesign Part 2: a task that waits on one a worker just finished is kept for that worker this many minutes; 0: none. */
-  followUpMinutes: 10,
+  /**
+   * Redesign Part 2: a task that waits on one a worker finished is kept for that worker this many minutes. 0 (the
+   * review of 2026-10-25): a preference only, it goes to that worker when it is idle at the give, else to anyone.
+   */
+  followUpMinutes: 0,
+  /**
+   * Redesign Part 2, the review: a give whose line has not gone this many minutes after it (held for the worker's model,
+   * a clear, a mod restart, or its chat went off) goes back on the list, not stuck. At least takeWithinMinutes.
+   */
+  heldGiveMinutes: 20,
   // Redesign Part 2: `maxWorkers`, how many workers the board has the main chat run at most, has no default: without
   // it the board asks for no worker. Any number (the person: "weither its 2 workers or 10").
   /** An estimate older than this is shown as old. */
@@ -336,6 +344,7 @@ export function parseConfig(text, env) {
   if (Number.isInteger(raw.maxWorkers) && raw.maxWorkers >= 1) config.maxWorkers = raw.maxWorkers
   if (Number.isFinite(raw.takeWithinMinutes) && raw.takeWithinMinutes >= 1) config.takeWithinMinutes = raw.takeWithinMinutes
   if (Number.isFinite(raw.followUpMinutes) && raw.followUpMinutes >= 0) config.followUpMinutes = raw.followUpMinutes
+  if (Number.isFinite(raw.heldGiveMinutes) && raw.heldGiveMinutes >= 1) config.heldGiveMinutes = raw.heldGiveMinutes
   // The Workers mod types at most 3000 characters, and an answer also carries the name of its request.
   config.maxMessageChars = Math.min(config.maxMessageChars, 2500)
   if (typeof raw.advisor === 'string' && raw.advisor.trim() !== '') config.advisor = raw.advisor.trim()

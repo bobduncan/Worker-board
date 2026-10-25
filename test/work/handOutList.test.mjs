@@ -22,15 +22,15 @@ const mapOf = items => new Map(items.map(item => [item.head.get('Id'), item]))
 const list = (items, more = {}) => readyList(mapOf(items), { now: NOW, focus: 'G3', followUpMs: 10 * MIN, standardHold: () => null, routingHeld: new Set(), prefix: 'Team - ', ...more })
 const at = ms => `- ${stamp(ms)}`
 
-test('the defaults: two minutes to take, ten minutes of follow-up, no number of workers', () => {
-  assert.deepEqual(HAND_OUT_DEFAULTS, { takeWithinMinutes: 2, followUpMinutes: 10, maxWorkers: null })
+test('the defaults: two minutes to take, a follow-up a preference only, 20 minutes for a held give, no number of workers', () => {
+  assert.deepEqual(HAND_OUT_DEFAULTS, { takeWithinMinutes: 2, followUpMinutes: 0, heldGiveMinutes: 20, maxWorkers: null })
 })
 
 test('the order: a fix first, then the focus goal\'s tasks, then the rest; each by id', () => {
   const done = list([step('B2', 'refined'), step('B7', 'refined', { Goal: 'G3' }), step('B5', 'refined', { Goal: 'G3' }), step('B9', 'refined', { Priority: 'fix' }), step('B10', 'refined', { Goal: 'G4' })])
   assert.deepEqual(done.ready.map(one => one.id), ['B9', 'B5', 'B7', 'B2', 'B10'])
   assert.deepEqual(done.ready.map(one => one.rank), [0, 1, 1, 2, 2])
-  assert.deepEqual(done.ready[0], { id: 'B9', rank: 0, keptFor: null, keptUntil: null, pinned: null })
+  assert.deepEqual(done.ready[0], { id: 'B9', rank: 0, keptFor: null, keptUntil: null, pinned: null, prefers: null })
   assert.deepEqual(done.held, [])
   // No focus: the focus goal's tasks are the rest.
   assert.deepEqual(list([step('B2', 'refined'), step('B5', 'refined', { Goal: 'G3' })], { focus: null }).ready.map(one => [one.id, one.rank]), [['B2', 2], ['B5', 2]])
@@ -76,15 +76,15 @@ test('a follow-up: the task waits on one its worker just finished; kept for that
   const b11 = step('B11', 'done', { Owner: 'Team - Worker 2' }, { History: [`${at(NOW - 40 * MIN)} Team - Worker 2: in progress → review`, `${at(finished)} server: review → done`] })
   const b12 = step('B12', 'refined', { 'Blocked by': 'B11' })
   const done = list([b11, b12])
-  assert.deepEqual(done.ready, [{ id: 'B12', rank: 2, keptFor: 'Worker 2', keptUntil: finished + 10 * MIN, pinned: null }])
-  assert.deepEqual(followUpOf(b12, mapOf([b11, b12]), { now: NOW, followUpMs: 10 * MIN, prefix: 'Team - ' }), { worker: 'Worker 2', until: finished + 10 * MIN })
+  assert.deepEqual(done.ready, [{ id: 'B12', rank: 2, keptFor: 'Worker 2', keptUntil: finished + 10 * MIN, pinned: null, prefers: null }])
+  assert.deepEqual(followUpOf(b12, mapOf([b11, b12]), { now: NOW, followUpMs: 10 * MIN, prefix: 'Team - ' }), { worker: 'Worker 2', until: finished + 10 * MIN, at: finished })
   // At 11 minutes it is anyone's.
   assert.equal(list([b11, b12], { now: finished + 11 * MIN }).ready[0].keptFor, null)
   // Waits for names it too; a blocker in review is a follow-up as well (once nothing else holds the task).
   const b13 = step('B13', 'refined', { 'Waits for': 'B11 merged' })
-  assert.deepEqual(followUpOf(b13, mapOf([b11, b13]), { now: NOW, followUpMs: 10 * MIN, prefix: 'Team - ' }), { worker: 'Worker 2', until: finished + 10 * MIN })
+  assert.deepEqual(followUpOf(b13, mapOf([b11, b13]), { now: NOW, followUpMs: 10 * MIN, prefix: 'Team - ' }), { worker: 'Worker 2', until: finished + 10 * MIN, at: finished })
   const inReview = step('B11', 'review', { Owner: 'Worker 2' }, { History: [`${at(NOW - 2 * MIN)} Worker 2: in progress → review`] })
-  assert.deepEqual(followUpOf(b12, mapOf([inReview, b12]), { now: NOW, followUpMs: 10 * MIN, prefix: 'Team - ' }), { worker: 'Worker 2', until: NOW + 8 * MIN })
+  assert.deepEqual(followUpOf(b12, mapOf([inReview, b12]), { now: NOW, followUpMs: 10 * MIN, prefix: 'Team - ' }), { worker: 'Worker 2', until: NOW + 8 * MIN, at: NOW - 2 * MIN })
   // The board's sync check took the Blocked by line off once B11 was done: its History still names B11.
   const unblocked = step('B12', 'refined', {}, { History: [`${at(finished)} server: no longer blocked by B11 (the board's sync check: B11 is done)`] })
   assert.equal(list([b11, unblocked]).ready[0].keptFor, 'Worker 2')
@@ -95,12 +95,14 @@ test('a follow-up: the task waits on one its worker just finished; kept for that
 test('a fix of a task is kept for the task\'s builder ten minutes from when it was made', () => {
   const b13 = step('B13', 'review', { Owner: 'Worker 1' })
   const b14 = step('B14', 'refined', { 'Fix of': 'B13' }, { History: [`${at(NOW - 3 * MIN)} Advisor: made by the result check of B13`] })
-  assert.deepEqual(list([b13, b14]).ready, [{ id: 'B14', rank: 2, keptFor: 'Worker 1', keptUntil: NOW + 7 * MIN, pinned: null }])
-  assert.equal(list([b13, b14], { followUpMs: 0 }).ready[0].keptFor, null)
+  assert.deepEqual(list([b13, b14]).ready, [{ id: 'B14', rank: 2, keptFor: 'Worker 1', keptUntil: NOW + 7 * MIN, pinned: null, prefers: null }])
+  // followUpMs 0, the default (the review of 2026-10-25): a preference only, no keep, however long ago.
+  assert.deepEqual(list([b13, b14], { followUpMs: 0, now: NOW + 60 * MIN }).ready, [{ id: 'B14', rank: 2, keptFor: null, keptUntil: null, pinned: null, prefers: 'Worker 1' }])
   assert.equal(followUpOf(b14, mapOf([b13, b14]), { now: NOW, followUpMs: 0, prefix: '' }), null)
 })
 
 test('a pinned task waits for its worker, however old', () => {
   const b15 = step('B15', 'refined', { Pinned: 'Worker 3', Since: stamp(NOW - DAY) })
-  assert.deepEqual(list([b15]).ready, [{ id: 'B15', rank: 2, keptFor: 'Worker 3', keptUntil: null, pinned: 'Worker 3' }])
+  assert.deepEqual(list([b15]).ready, [{ id: 'B15', rank: 2, keptFor: 'Worker 3', keptUntil: null, pinned: 'Worker 3', prefers: null }])
+  assert.equal(list([b15], { followUpMs: 0 }).ready[0].keptFor, 'Worker 3')
 })

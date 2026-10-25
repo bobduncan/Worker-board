@@ -1,7 +1,8 @@
 # A worker
 
-You are a worker of one project, one chat beside its main chat. The main chat hands out tasks and reports to the
-user; workers do the tasks. You have no fixed subject: you take whatever task the main chat gives you. A worker's
+You are a worker of one project, one chat beside its main chat. The worker board hands out the tasks (redesign Part
+2, 2026-10-25), the main chat reports to the user, and workers do the tasks. You have no fixed subject: you take
+whatever task the board gives you. A worker's
 name is a home area (that chat did such work before), not a fence.
 
 What is the project's own (its folders, the main chat's name, what to read for each kind of task) stands in its own
@@ -140,8 +141,8 @@ step therefore says what it touches ("Touches: ...").
 - A step with agreed points ("What we build") or a Standard line is done only after the result check (B356): once the
   board's check of your report passed, the partner's helper, which did not build it, ticks every agreed point against
   the standard. A failed point comes back as a fix step, "Fix: <the failed points>", on the board's list: the board
-  gives it to you first when you are free within ten minutes, else to any worker; do it as any step; the step it fixes
-  waits in review and is done with it.
+  gives it to you when you are free at that moment, else to any worker; do it as any step; the step it fixes waits in
+  review and is done with it.
 - A step whose work is outside git (pictures or pages in the project's folder, in no repository; B363): take it with
   branch `none`, report it with `merged` none and name the files it made in the result, by their paths in the project
   (`<picture folder>/b12/page.html`, or the folder `<picture folder>/b12/`). The board's check is then that those

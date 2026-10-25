@@ -776,7 +776,7 @@ into your chat, marked as theirs: `(answered on the worker board, HH:MM) N<id> "
 
 - `Overturn: <words>` about a step: they do not accept the result. Make a fix step from their words at once: `work new`
   with `title` "Fix: ...", the step's `goal` and `activity`, `summary` and `what` from their words, `priority` fix;
-  the board gives it first, to the worker who built the step when that one is free within ten minutes.
+  the board gives it first, to the worker who built the step when that one is free at the give.
 - `Overturn: <words>` about a goal: the board opened the goal again, their words under it. Make its follow-up steps
   from their words, as after a failed re-check ("The goal re-check").
 

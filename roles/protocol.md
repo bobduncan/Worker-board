@@ -62,16 +62,23 @@ tool answers with the record: work from it, not from a message.
   `Refined: ready`, nothing they are blocked by or wait for open, no blocking ask and no answer left to fold in, their
   kind's standard not holding them), in one order: `Priority: fix` first, then the goal map's focus goal's, then the
   rest, each by id. The moment a worker's Workers mod reports it idle (and only then: no chat read by the board's older
-  inference, unknown, off or suspended), the board gives it the first suitable one: its pin or its follow-up first (a
-  step that waits on one that worker just finished, or a result check's fix of a step it built, for ten minutes), then
-  a step on that worker's model, else the next; never one whose Touches overlap a step given or under way. The give is
+  inference, unknown, off or suspended), the board gives it the first suitable one: its pin first; then in the list's
+  order, a follow-up (a step that waits on one that worker finished, or a result check's fix of a step it built) to
+  that worker when it is idle at the give (`followUpMinutes` 0, a preference only; above 0 it is kept for it that long),
+  else to a worker on the step's model, else to the next; never one whose Touches overlap a step given or under way. The give is
   the flow's server move refined → queued ("the board hands it out"): Owner the worker, History "refined → queued
   (given by the board to <worker>)". A step not taken within two minutes of its line goes back (queued → refined,
   History "queued → refined (taken back from <worker>: not taken within 2 min)", with "; stuck" when the worker sat
-  idle through it: its lane shows "Stuck" until it reports anew). A step given to a chat no longer a worker of the list
-  goes back at once. With ready steps waiting, no worker idle and fewer workers running than the setting `maxWorkers`,
+  idle through it: its lane shows "Stuck" until it reports anew). A worker that went busy after its line is waited for,
+  and its step goes back, not stuck, once it reports idle without having taken it. A step whose line has not gone
+  `heldGiveMinutes` (20) after the give (held for the worker's model, a clear, a mod restart, or its chat off) goes back,
+  not stuck ("its line was held"), and goes to another worker for that long. A step given to a chat missing from the
+  list goes back on the same clock (from its line, else from the give). A give the work API refuses is not tried again
+  for that worker for 15 minutes, and the ready list says why. With ready steps waiting, no worker idle and fewer workers running than the setting `maxWorkers`,
   the board asks the main chat once for one more (`start "<chat>"` for a worker of the list whose chat is off, else
-  `spawn workers`). Nothing is given, taken back or asked for while the person pauses or resumes, or a limit is full.
+  `spawn workers`), counting only the steps a new worker could take (no Touches overlap) less the workers asked for in
+  the last 10 minutes that have not reported yet. Nothing is given, taken back or asked for while the person pauses or
+  resumes, or a limit is full; after either the take-back clock starts anew.
 - **The person's pin** (`Pinned: <worker>`): the person pins a new or refined step to a worker on the board ("Pin
   to", "Move to", "Unpin"); the board gives it to that worker only. A pin to a chat gone from the list for 30 minutes
   the board takes off. Steps queued before the redesign went back on the list at its rollout ("back on the ready list:

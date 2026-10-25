@@ -145,8 +145,9 @@ tab) and never on the demo; once closed, the browser keeps that it was seen (`he
   asks the person to act. × closes it until something newer; while it shows, the panel's head has no second Check now.
   **Ready for a worker** (redesign Part 2, 2026-10-25), under the rows: the board's one list of the tasks that are
   refined and held by nothing, in its order (fixes first, then the focus goal's, then by id), each with its id (a link
-  to its window), its title and whom it is kept for ("pinned to Worker 3", "kept for Worker 2 until 10:40": a follow-up
-  of what that worker just finished); and, folded, **Refined, but held (n)** with why each waits ("blocked by B3 (in
+  to its window), its title and whom it is for ("pinned to Worker 3"; "to Worker 2 first when it is free": a
+  follow-up of what that worker built; "not given to Worker 1: <why>" when the board's give was refused, for 15
+  minutes); and, folded, **Refined, but held (n)** with why each waits ("blocked by B3 (in
   progress)", "waits for the answer to Q4", its standard). The board gives the first suitable one to a worker the
   moment its chat reports idle; the person does not hand out work, and neither does the main chat.
 - **The timeline:** from a few hours back to some hours ahead, one row per chat: what it did (green working,

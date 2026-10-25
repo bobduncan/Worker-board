@@ -75,7 +75,7 @@ import { isReadAction, workApi } from './src/work/api.mjs'
 import { effortOf } from './src/work/effort.mjs'
 import { isHolding, resumeEnds, resumeRetypeTo, resumeTypeTo } from './src/work/pause.mjs'
 import { reportCheck } from './src/work/check.mjs'
-import { deliverWork, pullFor, sendOnce } from './src/work/deliver.mjs'
+import { deliverWork, givesRefused, pullFor, sendOnce } from './src/work/deliver.mjs'
 import { coalesce } from './src/work/again.mjs'
 import { REFUSED_MS, SUPERVISOR_RULES, createSupervisor, incidentCards, loopGate, loopOwner, tokensOfTurn } from './src/supervisor/index.mjs'
 import { FILES as WORKTREE_FILES, cleanLeftover, findLeftovers, stepLeftovers } from './src/work/worktrees.mjs'
@@ -1238,6 +1238,11 @@ async function main(args) {
   // B579: the recaps of Completed by day, kept in the data folder.
   const recaps = dayRecaps({ file: join(HERE, 'data', 'recaps.json'), findCommand: async () => { const found = await findClaude(); return found === null ? null : [found] }, clock })
 
+  /**
+   * Redesign Part 2, the review of 2026-10-25: when the board last held the hand-out (a full limit, a pause), so a give's
+   * take-back clock starts again after it. In memory: after a restart it counts from the lines.
+   */
+  let handOutHeldAt = null
   const readState = cached(async () => {
     const raw = await readRaw()
     // The review of Pause 2: a line the person's pause holds does not grow late (store.mjs isLate, pause.mjs heldMs).
@@ -1256,9 +1261,13 @@ async function main(args) {
       mods: Object.fromEntries([...modOf].map(([name, one]) => [name, one.version])),
       // B570: the Workers mod installed and the version each chat's mod said lately, for the restarts between steps.
       modsLately: isDemo ? demoMods() : await modsNow(),
+      // Redesign Part 2, the review: the hand-out's held time and the gives the work API refused lately.
+      handOutHeldAt,
+      refusedGives: workWriters === null ? [] : givesRefused(workDir, clock()),
       now: clock(),
       config: { ...config, project },
     })
+    if (state.reconciled?.handOutHeld === true) handOutHeldAt = state.readAt
     // B173: the Advisor's rounds as the clock has them, for the Advice & Chat tab.
     const rounds = { morningRound: config.morningRound, weeklyRound: config.weeklyRound, last: roundsKept, group: config.advisorSuggestions }
     // B132: whether the project has a game to run; the demo has its made-up one.

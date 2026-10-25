@@ -3215,7 +3215,12 @@ function drawReadyList(state) {
     line.append(link, ' ', el('span', 'ready-title', one.title ?? ''), ...(why === null ? [] : [el('span', 'muted', ` · ${why}`)]))
     return line
   }
-  const keptWhy = one => (one.pinned !== null ? `pinned to ${one.pinned}` : one.keptFor !== null ? `kept for ${one.keptFor}${Number.isFinite(one.keptUntil) ? ` until ${clock(one.keptUntil)}` : ''}` : null)
+  const keptWhy = one => [
+    one.pinned !== null ? `pinned to ${one.pinned}` : one.keptFor !== null ? `kept for ${one.keptFor}${Number.isFinite(one.keptUntil) ? ` until ${clock(one.keptUntil)}` : ''}`
+      : (one.prefers ?? null) !== null ? `to ${one.prefers} first when it is free` : null,
+    // The review of 2026-10-25: a give the board's work API refused, and why.
+    (one.refused ?? null) === null ? null : `not given to ${one.refused.chat}: ${one.refused.why}`,
+  ].filter(Boolean).join(' · ') || null
   const parts = [el('h3', '', `Ready for a worker (${list.ready.length})`)]
   const ready = el('ol', 'ready-rows')
   ready.append(...list.ready.map(one => row(one, keptWhy(one))))

@@ -1117,7 +1117,7 @@ function focusRun(node, items, prefix, partner) {
   return { note, needs }
 }
 
-export function buildState(raw, { lines = [], outbox = [], runs = [], board = null, seen = null, reports = null, finishedSeen = {}, taskTimes = [], mods = {}, modsLately = null, now, config }) {
+export function buildState(raw, { lines = [], outbox = [], runs = [], board = null, seen = null, reports = null, finishedSeen = {}, taskTimes = [], mods = {}, modsLately = null, handOutHeldAt = null, refusedGives = [], now, config }) {
   // The review of Pause 2: while the person pauses (2026-10-19: pausing only, no longer until running) what waits in
   // the outbox is held until the resume, but the board's own "resume" to the main chat; the page says so (`isHeld`).
   const isPaused = isHolding(raw.work?.pause)
@@ -1642,8 +1642,10 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
     store: raw.work, flow: raw.work.flow, lanes: chats, now, times: { graceMs: GRACE_MS, askMs: ASK_MS, idleMs: IDLE_HOLD_MS }, prefix, hasPartner: advisorChat !== undefined, partner,
     standardHold: item => standardHold(item, plan?.standards ?? []),
     focus: goalMap?.focus ?? null, routingHeld, sent,
-    settings: { maxWorkers: config.maxWorkers ?? null, takeWithinMinutes: config.takeWithinMinutes, followUpMinutes: config.followUpMinutes },
+    settings: { maxWorkers: config.maxWorkers ?? null, takeWithinMinutes: config.takeWithinMinutes, followUpMinutes: config.followUpMinutes, heldGiveMinutes: config.heldGiveMinutes },
     limitsFull: ['fiveHour', 'week'].some(limit => limits[limit]?.level === 'full'),
+    // The review of 2026-10-25: when the board last held the hand-out (the server's memory), and the gives refused lately.
+    heldUntil: handOutHeldAt, refusedGives,
   })
   // B547: the steps whose line waits for their worker's clear (a mod that can clear only: an older one would wait for ever).
   // B587: not for a worker whose process ended: its line and the start word go at once.
@@ -1697,7 +1699,7 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
     workFlags: [...(reconciled?.flags ?? []).filter(flag => flag.kind === 'broken').map(flag => flag.text),
       // Model per step: settings that name the model ids otherwise than both, each "claude-...": the effort alone.
       ...(typeof config.modelsProblem === 'string' ? [`Settings: ${config.modelsProblem}.`] : [])],
-    reconciled: reconciled === null ? null : { moves: reconciled.moves, deliveries: reconciled.deliveries.filter(one => !efforts.held.has(one.id) && !clearHeld.has(one.id)), efforts: efforts.words, held: [...efforts.held, ...clearHeld], holds: Object.fromEntries(efforts.holds), says: reconciled.flags.filter(flag => typeof flag.say === 'string'), notes: reconciled.notes ?? [], partnerAsks: reconciled.partnerAsks ?? [], escalations: reconciled.escalations ?? [], restarts: rollout?.words ?? [], restFree: reconciled.restFree ?? [], gives: reconciled.gives ?? [], takeBacks: reconciled.takeBacks ?? [], start: reconciled.start ?? null, retired: reconciled.retired ?? [] },
+    reconciled: reconciled === null ? null : { moves: reconciled.moves, deliveries: reconciled.deliveries.filter(one => !efforts.held.has(one.id) && !clearHeld.has(one.id)), efforts: efforts.words, held: [...efforts.held, ...clearHeld], holds: Object.fromEntries(efforts.holds), says: reconciled.flags.filter(flag => typeof flag.say === 'string'), notes: reconciled.notes ?? [], partnerAsks: reconciled.partnerAsks ?? [], escalations: reconciled.escalations ?? [], restarts: rollout?.words ?? [], restFree: reconciled.restFree ?? [], gives: reconciled.gives ?? [], takeBacks: reconciled.takeBacks ?? [], start: reconciled.start ?? null, retired: reconciled.retired ?? [], handOutHeld: reconciled.handOutHeld === true },
     // B570: what each chat on an older Workers mod waits for, by name (the partner, its helper, the supervisor too).
     modRuns: Object.fromEntries(rollout?.runs ?? []),
     // Partner answers (2026-10-19): whether the partner answers detail questions first (the Focus page's switch); null

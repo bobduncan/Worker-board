@@ -47,8 +47,10 @@ titles, both from the list of chats.
 The board hands out all work (2026-10-25, the user: "AI chats do what code should do" was the biggest root cause of
 stuck work). It keeps one list of the tasks that are ready (refined, nothing holding them) in one order: fixes first
 (`Priority: fix`), then the focus goal's, then the rest by id. The moment a worker reports idle, the board gives it the
-first suitable task: a follow-up of what it just finished, or the user's pin, first. A worker that does not take its
-task within two minutes gets it taken back, and its lane shows it stuck. So, for every task:
+first suitable task: the user's pin first; a follow-up of what it built goes to it when it is free at that moment,
+else to anyone. A worker that does not take its task within two minutes of its line gets it taken back, and its lane
+shows it stuck when it sat idle; a task whose line could not go (a model switch, a clear, a restart pending) goes back
+after 20 minutes. So, for every task:
 
 1. Write it as a step with the work tool: `work new` (title, activity, goal, text with "Touches: ..."). That is all.
    The partner refines it (the board asks it by itself, B285); once its refine block says `; ready`, it is on the list,
@@ -101,7 +103,7 @@ task within two minutes gets it taken back, and its lane shows it stuck. So, for
   `work new ... --priority fix`. It stands first on the board's list: the board gives it to the first free worker,
   `work next` lists it first, the lanes and the Backlog tab show it with a "fix" chip. Do not hold it back for the
   focus, and ask the partner nothing about it. A result check's fix (`Fix of`) goes to the worker that built the step
-  when it is free within ten minutes, else to anyone.
+  when that one is free at the give, else to anyone.
 - The partner's helper (the chat the list of chats names with `helper`, shown under the Advisor on the board) is no
   worker: the board gives it no task and the user pins none to it. The partner hands it refines and result
   checks itself. It runs on Sonnet at medium effort (the user, 2026-10-23: "the Advisor's check helpers on Sonnet"):

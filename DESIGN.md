@@ -3701,10 +3701,12 @@ what code should do"). Now the board hands out every task itself (principle 1), 
   with one line why. The page shows it under the Workers ("Ready for a worker", "Refined, but held"), the main chat's
   sync words name it ("Ready for a worker: ..."), the supervisor reads it.
 - **Kept for a worker:** a task the person pinned (`Pinned: <worker>`, the work API's `pin`; "Pin to", "Move to",
-  "Unpin" on the Backlog tab and in a task's window) waits for that worker only, never starts a new one; a follow-up (a
-  task whose `Blocked by` or `Waits for` named a step that worker just moved to review or done, or a result check's fix
-  of a step it built, its `Fix of`) waits for that worker `followUpMinutes` (10), then anyone's. A worker's kept tasks
-  go to it before the list's order.
+  "Unpin" on the Backlog tab and in a task's window) waits for that worker only, never starts a new one, and goes to it
+  before the list's order. A follow-up (a task whose `Blocked by` or `Waits for` named a step that worker moved to
+  review or done, or a result check's fix of a step it built, its `Fix of`) is a preference only (the review of
+  2026-10-25: by the time the blocker is done its builder is mostly busy again, so a keep only delayed the work): in the
+  list's order it goes to that worker when it is idle at the give, else to anyone (`prefers`). `followUpMinutes` above 0
+  keeps it for that worker that long instead (`keptFor`, `keptUntil`); its default is 0.
 - **The give** (`match`, `idleWorkers`): only a worker whose own report says idle and free (or, B567, it rests while its
   task waits on the person), running, holding no step given or under way, not stuck, gets a task; the one idle longest
   first. Unknown, off, suspended, busy, and a chat the board still reads by its older inference (no report: an older
@@ -3719,15 +3721,26 @@ what code should do"). Now the board hands out every task itself (principle 1), 
   meanwhile makes exactly one more), and once more after a pass that gave a task.
 - **The take-back** (`takeBacks`, principle 2): a given task whose newest work line to its worker is `takeWithinMinutes`
   (2) old and still not taken goes back (queued → refined, Owner cleared; History "queued → refined (taken back from
-  <worker>: not taken within 2 min)"). A task whose line has not gone yet (held for its model, a clear, a restart) is
-  never taken back (Review Focus 1). With "; stuck" when the worker's fresh report has said idle since before that line:
-  it never reacted (one the person typed to just after the give went busy: not stuck, Review Focus 3). A stuck worker's
-  lane has the flag `not taking`, "Stuck: did not take B<n> within 2 min; it went back on the list", and gets no task,
-  until its report's since is newer than the take-back (`stuckWorkers`). A task given to a chat no longer a worker of the
-  list goes back at once. None while the person pauses or resumes, or a limit is full; after a pause the clock counts from
-  the resume.
-- **One more worker** (`workerStart`): when ready tasks that are kept for nobody wait, no idle worker is left after the
-  gives, and fewer workers than `maxWorkers` are not off, the main chat is asked once per need (`board-start <who> <how
+  <worker>: not taken within 2 min)"). With "; stuck" when the worker's fresh report has said idle since before that
+  line: it never reacted. A worker that reacted (its report went busy after the line: the person typed to it, or it
+  thinks long before `work take`) is waited for (Review Focus 3); once it reports idle again without having taken the
+  task, the task goes back, not stuck ("not taken in the turn after its line"). A task whose line has not gone (held for
+  its model, a clear, a restart, or its chat went off or unknown first) is not on that clock (Review Focus 1), but on a
+  second, longer one (the review of 2026-10-25: an Opus task given to a worker whose model was never switched locked both
+  for ever): `heldGiveMinutes` (20) after the give it goes back, not stuck ("its line was held"), and `skipPairs` keeps
+  that task from that worker for as long. A task given to a chat missing from the list (an account switch drops chats
+  for a while) is on the same clock as any, from its line, else from the give: never at once. A stuck worker's lane has
+  the flag `not taking`, "Stuck: did not take B<n> within 2 min; it went back on the list", and gets no task, until its
+  report's since is newer than the take-back (`stuckWorkers`). None while the person pauses or resumes, or a limit is
+  full; after either the clock starts anew (a pause's resume, from pause.json; a full limit's end, from the server's
+  memory of when it last held the hand-out, `handOutHeldAt`). A give the work API refuses (managed routing, a race) is
+  kept by the server 15 minutes (`deliver.mjs` `givesRefused`): not tried again for that worker, and the ready list says
+  "not given to <worker>: <why>".
+- **One more worker** (`workerStart`): when ready tasks that a new worker could take wait (kept for nobody, their
+  Touches overlapping nothing given or under way, as `match` checks), more of them than the workers asked for in the
+  last 10 minutes that have not reported yet (a start word whose worker has not reported since; a spawn word, which
+  carries how many workers had reported then), no idle worker is left after the gives, and fewer workers than
+  `maxWorkers` are not off, the main chat is asked once per need (`board-start <who> <how
   many ran>`): `start "<worker>"` for a worker of the list whose chat is off (the one off longest first), else `spawn
   workers` with `Count: 1`, `Why: ready tasks wait and no worker is free`. Without `maxWorkers` the board asks for none.
   Main does this without judgment: it is the board's hands (roles/main.md, "Main is the board's hands").
@@ -3748,9 +3761,11 @@ what code should do"). Now the board hands out every task itself (principle 1), 
   new when its refine is not ready; a placement the person made last becomes its pin; a kept `Queue when refined` goes.
   History "back on the ready list: the board hands out all tasks now".
 - **Settings** (`config.json`, top level): `maxWorkers` (a whole number ≥ 1; none: no worker is asked for),
-  `takeWithinMinutes` (2, at least 1), `followUpMinutes` (10; 0: no follow-up), beside Part 1's `unknownAfterSeconds`.
+  `takeWithinMinutes` (2, at least 1), `followUpMinutes` (0: a preference only; above 0 a keep that long),
+  `heldGiveMinutes` (20, at least 1 and never under `takeWithinMinutes`), beside Part 1's `unknownAfterSeconds`.
 - **Done when** (principle 6): for 4 hours after it is live none of these opens or comes back: `ready-while-free` (a
-  ready task kept for nobody waits over `idleMinutes` while a worker whose report says free stands idle), `not-taking`
+  ready task kept for nobody waits over `idleMinutes` while a worker whose report says free, and that holds no given
+  task, stands idle), `not-taking`
   (a worker the board took a task back from, flagged), `holder-not-running` (a chat that does not run has work).
 - Tests: `test/work/handOutList.test.mjs`, `test/work/handOutMatch.test.mjs`, `test/work/handOutApi.test.mjs`,
   `test/work/handOutSim.test.mjs` (simulated chats through `buildState` and `deliverWork`), `test/work/again.test.mjs`,

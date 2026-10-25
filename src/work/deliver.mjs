@@ -212,6 +212,27 @@ async function noteLine({ dir, plan, outbox, now, fs }) {
   return [{ key, words: { ...workWords(chat, ids[0], noteWords(ids)), kind: 'note', notes: ids } }]
 }
 
+/** Redesign Part 2, the review: a give the work API refused is not tried again for that worker for this long. */
+export const REFUSED_GIVE_MS = 15 * 60_000
+/** Per store folder, the gives refused lately: `${id} ${chat}` to `{ id, chat, why, at }`, in this process only. */
+const refusedGives = new Map()
+function refusalsOf(dir) {
+  const at = resolve(dir)
+  if (!refusedGives.has(at)) refusedGives.set(at, new Map())
+  return refusedGives.get(at)
+}
+/**
+ * The gives the work API refused in the last REFUSED_GIVE_MS (`[{ id, chat, why, at }]`): the reconciler gives that
+ * task to another worker meanwhile, and the ready list names why (the review of 2026-10-25: a refused give was tried
+ * again at every refresh, silently, and a lone idle worker got nothing).
+ */
+export function givesRefused(dir, now) {
+  if (dir === null || dir === undefined) return []
+  const kept = refusalsOf(dir)
+  for (const [key, one] of kept) if (now - one.at >= REFUSED_GIVE_MS) kept.delete(key)
+  return [...kept.values()]
+}
+
 /**
  * Redesign Part 2: the key under which the board asks the main chat once for one more worker: whom (a worker of the list
  * whose chat is off, or `spawn`) and how many workers were not off then, so a new ask goes once that number changed.
@@ -258,8 +279,13 @@ export async function deliverWork({ state, dir, outbox, apply, now, maxChars, ne
     if (back?.ok === true) done.moved.push(one.id)
   }
   for (const one of plan.gives ?? []) {
-    const given = await apply({ action: 'advance', id: one.id, to: 'queued', for: one.chat }).catch(() => null)
-    if (given?.ok !== true) continue
+    const given = await apply({ action: 'advance', id: one.id, to: 'queued', for: one.chat }).catch(error => ({ ok: false, why: error instanceof Error ? error.message : String(error) }))
+    const key = `${one.id} ${one.chat}`
+    if (given?.ok !== true) {
+      refusalsOf(dir).set(key, { id: one.id, chat: one.chat, why: String(given?.why ?? 'no answer').replace(/\s+/g, ' ').slice(0, 300), at: now })
+      continue
+    }
+    refusalsOf(dir).delete(key)
     done.moved.push(one.id)
     done.given.push(one.id)
   }
@@ -293,8 +319,10 @@ export async function deliverWork({ state, dir, outbox, apply, now, maxChars, ne
   const start = plan.start ?? null
   const startWord = start === null ? null : startWords(start, state, maxChars)
   if (startWord !== null) {
-    const notOff = (state.chats ?? []).filter(lane => !lane.isLeftover && !lane.isMain && lane.state !== 'off' && lane.isRunning !== false).length
-    lines.push({ key: startKey(start, notOff), words: startWord })
+    const workers = (state.chats ?? []).filter(lane => !lane.isLeftover && !lane.isMain)
+    const notOff = workers.filter(lane => lane.state !== 'off' && lane.isRunning !== false).length
+    // The review: the word says how many workers had reported then, so the next passes count its worker as on its way.
+    lines.push({ key: startKey(start, notOff), words: { ...startWord, reported: workers.filter(lane => lane.report != null).length } })
   }
   for (const one of lines) {
     const sent = await sendOnce({ dir, key: one.key, words: one.words, outbox, state, now, maxChars, newId, fs, keep })

@@ -33,7 +33,7 @@ const ALL = () => [
   // A wish kept until its refine: the key goes, it stays refined.
   step('B4', 'refined', { Refined: 'ready', 'Queue when refined': 'for Worker 1; about 1 h' }, [`- ${ago(60)} Main: queue asked before its refine: for Worker 1; about 1 h`]),
   // The board gave it: it stays.
-  step('B5', 'queued', { Owner: 'Worker 3', Refined: 'ready' }, [`- ${ago(1)} server: refined → queued (given by the board to Worker 3)`]),
+  step('B5', 'queued', { Owner: 'Worker 3', Refined: 'ready', Since: ago(1) }, [`- ${ago(1)} server: refined → queued (given by the board to Worker 3)`]),
   // Under way: nothing to do.
   step('B6', 'in progress', { Owner: 'Worker 1' }, [`- ${ago(60)} Main: queued for Worker 1`]),
 ]

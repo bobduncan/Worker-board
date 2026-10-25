@@ -115,6 +115,9 @@ test('ready-while-free: a ready task kept for nobody waits 11 min while a worker
   assert.deepEqual(check('ready-while-free', board({ chats: [LEAD, lane('Mason', { state: 'working' })] }), seen(30)), [])
   const stuck = lane('Painter', { state: 'free', report: { state: 'idle', since: ago(40), at: ago(0) }, flags: [{ kind: 'not taking', id: 'B4', text: 'x', button: null }] })
   assert.deepEqual(check('ready-while-free', board({ chats: [LEAD, stuck] }), seen(30)), [])
+  // The review: a worker that holds a task given to it (its line may wait for its model) is no free worker.
+  const holding = items(step('B5', 'refined', { Refined: 'ready' }), step('B7', 'queued', { Owner: 'Painter' }))
+  assert.deepEqual(check('ready-while-free', board({ items: holding }), seen(30)), [])
   // Its Touches overlap a task under way: it waits by design.
   const touching = items(step('B5', 'refined', { Refined: 'ready' }, { Context: ['  Touches: src/a.mjs'] }), step('B6', 'in progress', { Owner: 'Mason' }, { Context: ['  Touches: src'] }))
   assert.deepEqual(check('ready-while-free', board({ items: touching }), seen(30)), [])

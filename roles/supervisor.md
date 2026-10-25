@@ -42,8 +42,9 @@ sweep is meant to cost little (a few tens of thousands of tokens, mostly cached)
   again, its check failing again) is odd.
 - The board hands out all work (redesign Part 2, 2026-10-25): a task it gives a worker is taken within two minutes, or
   the board takes it back and the worker shows "Stuck" (the rule not-taking names it); a ready task that waits while a
-  worker is free (the rule ready-while-free) is odd. A task kept for a worker (its pin, or a follow-up of what it just
-  finished, ten minutes) waits for that worker by design: no incident. Main hands out nothing, so a step Main did not
+  worker is free (the rule ready-while-free) is odd. A task pinned to a worker waits for that worker by design, and a
+  worker holding a given task whose line waits (its model, a clear, a restart) is no free worker: no incident; such a
+  give goes back by itself after 20 minutes. Main hands out nothing, so a step Main did not
   queue is no incident either.
 - A step that waits for another step (its Blocked by, or the steps its Waits for names) waits as planned while that
   step moves: the summary says "waits as planned for B<n> (<state> <age>)" and marks no "!" for its age: no incident.
