@@ -1559,7 +1559,7 @@ async function fixStep(origin, failed, w, points = failed) {
   const goal = valueOf(origin, 'Goal')
   const standard = standardOf(origin)
   // B525: a goal in its evaluation lifts the effort of its fix steps too (2026-10-25: the model stays as it was).
-  const guarded = guardedDefaults(w, goal ?? '', false)
+  const guarded = guardedDefaults(w, goal ?? '', false, originId)
   const effort = liftEffortLine(effortLineOf(origin), guarded)
   const model = liftModelLine(modelLineOf(origin), guarded)
   // B526: under each failed point, the agreed point of the step it fixes that it must make pass, so its check ticks
@@ -2080,13 +2080,14 @@ async function drop(body, w) {
 const roundOf = item => Number((item.sections.get('Refined') ?? [''])[0].match(/\bround\s+(\d+)/i)?.[1] ?? ((item.sections.get('Refined') ?? []).length > 0 ? 1 : 0))
 /**
  * B518: the effort the goal guard sets (src/goalGuard.mjs): a step of a goal whose fundamental evaluation runs
- * (`w.evaluationOf(goal)` is 'running'), and the steps made from the how that ended it ('ended', only with `isFromHow`)
+ * (`w.evaluationOf(goal, step)` is 'running'; for a goal whose evaluation is of one part, only that part's steps), and the steps made from the how that ended it ('ended', only with `isFromHow`)
  * default to effort high when none is given. Null otherwise; `{ effort }` as parseEffort reads it. The person,
  * 2026-10-25: the evaluation no longer forces the model (Opus cost about $4.60 a step against $1.81 on Sonnet): a step
  * keeps the model it is given, as any step.
  */
-function guardedDefaults(w, goal, isFromHow) {
-  const state = goal === '' ? null : w.evaluationOf?.(goal) ?? null
+function guardedDefaults(w, goal, isFromHow, stepId = '') {
+  // B669: an evaluation of one part of the goal covers the steps of that part (and those no part claims) only.
+  const state = goal === '' ? null : w.evaluationOf?.(goal, stepId, w.store?.items) ?? null
   if (state !== 'running' && !(state === 'ended' && isFromHow)) return null
   const why = state === 'running' ? `the goal guard: ${goal} is in its fundamental evaluation` : `the goal guard: ${goal}'s evaluation just ended with a new how`
   return { effort: parseEffort(`high: ${why}`) }
@@ -2168,7 +2169,7 @@ async function refine(call, w) {
   const given = body.standard === undefined ? null : parseStandard(body.standard, w.kinds)
   if (given !== null && !given.ok) return refuse(400, given.why)
   const standard = given?.line ?? standardOf(found.item)
-  const guarded = guardedDefaults(w, goal !== '' ? goal : valueOf(found.item, 'Goal') ?? '', false)
+  const guarded = guardedDefaults(w, goal !== '' ? goal : valueOf(found.item, 'Goal') ?? '', false, valueOf(found.item, 'Id') ?? '')
   const effort = parseEffort(body.effort)
   if (effort !== null && !effort.ok) return refuse(400, effort.why)
   const effortLine = liftEffortLine(effort?.line ?? effortLineOf(found.item), guarded)
@@ -2305,7 +2306,7 @@ async function refined(call, w) {
   const looks = standard === null ? [] : noneForLook(`${valueOf(found.item, 'Title') ?? ''}\n${(found.item.sections.get('Context') ?? []).join('\n')}`, standard, w.kinds)
   if (looks.length > 0) return refuse(409, standardNoneRefused(id, looks))
   // B468: the effort given now, else the one the step had.
-  const guarded = guardedDefaults(w, valueOf(found.item, 'Goal') ?? '', false)
+  const guarded = guardedDefaults(w, valueOf(found.item, 'Goal') ?? '', false, valueOf(found.item, 'Id') ?? '')
   const effort = parseEffort(body.effort)
   if (effort !== null && !effort.ok) return refuse(400, effort.why)
   const effortLine = liftEffortLine(effort?.line ?? effortLineOf(found.item), guarded)

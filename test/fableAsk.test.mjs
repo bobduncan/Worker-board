@@ -25,8 +25,8 @@ import { readStore, writeStore } from '../src/work/store.mjs'
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 
-const step = (id, goal, history, checked = []) => ({
-  head: new Map([['Id', id], ['Kind', 'step'], ['Title', `Step ${id}`], ['State', 'in progress'], ['Goal', goal]]),
+const step = (id, goal, history, checked = [], more = {}) => ({
+  head: new Map([['Id', id], ['Kind', 'step'], ['Title', `Step ${id}`], ['State', 'in progress'], ['Goal', goal], ...Object.entries(more)]),
   sections: new Map([['History', history.map(line => `- ${line}`)], ['Checked', checked]]),
 })
 /** The board's ask as the store keeps it, open or answered with the person's words. */
@@ -54,7 +54,8 @@ const MAP = [
 ].join('\n')
 const FAILED = [
   step('B1', 'G2', ['2026-10-19 08:40 Partner: result check failed: 1 of 3 points pass; fix B3 for W1', '2026-10-19 09:00 Partner: result check failed: 2 of 3 points pass; fix B4 for W1'], ['Evidence: none', '- fail: The seat is too high']),
-  step('B4', 'G2', ['2026-10-19 09:20 Partner: result check failed: 0 of 1 points pass; fix B5 for W1']),
+  // B669: the failures are counted per part: B4 is a fix of B1, so it counts in B1's part (Wooden benches).
+  step('B4', 'G2', ['2026-10-19 09:20 Partner: result check failed: 0 of 1 points pass; fix B5 for W1'], [], { 'Fix of': 'B1' }),
 ]
 const LANTERNS = [step('B7', 'G3', ['2026-10-19 08:40 Partner: result check failed: 0 of 1; fix B8', '2026-10-19 09:00 Partner: result check failed: 0 of 1; fix B9', '2026-10-19 09:20 Partner: result check failed: 0 of 1; fix B10'])]
 
@@ -107,14 +108,15 @@ test('the ask: a decide of the goal, blocking, its title the question, two plain
   const node = parseGoals(MAP).byId.get('G2')
   const body = fableAskOf({ goal: node, attempts: goalAttempts(node, FAILED) })
   assert.deepEqual([body.action, body.of, body.kind, body.blocking], ['ask', 'G2', 'decide', true])
-  assert.equal(body.title, 'G2 failed 3 times: evaluate the strategy with Fable?')
+  // B669: it names the part that failed three times.
+  assert.equal(body.title, 'G2 · Wooden benches failed 3 times: evaluate the strategy with Fable?')
   // The person's framing: "we would like to evaluate strategy using fable. yes, or no use opus".
   assert.deepEqual(body.options, ['A Yes: Fable 5.1 (max), only for this evaluation', 'B No: Opus 5.5 (max)'])
   assert.deepEqual(FABLE_OPTIONS, body.options)
   assert.equal(body.advice, undefined)
   const lines = body.text.split('\n')
   assert.equal(lines.length, 2)
-  assert.match(lines[0], /^G2 Benches that feel like home: 3 checks failed since Go; the latest, B4: 0 of 1 points pass\.$/)
+  assert.match(lines[0], /^G2 Benches that feel like home \(Wooden benches\): 3 checks failed since Go; the latest, B4: 0 of 1 points pass\.$/)
   assert.match(lines[1], /Fable 5\.1 is the strongest model but uses far more tokens than Opus 5\.5/)
   assert.match(lines[1], /nothing starts before your answer/)
 })
@@ -153,7 +155,7 @@ test('the guard\'s steps: ask at the third failure, wait while the ask is open, 
   assert.equal(guardStep(node(asked.replace('  Fable asked: Q7\n', '  Fable asked: Q7\n  Evaluation asked: 2026-10-19 09:40\n')), FAILED), null)
   assert.equal(guardStep(node(MAP.replace('- [~] G2', '- [x] G2')), FAILED), null)
   // The Focus page: the board asks the person.
-  assert.deepEqual(guardOf(node(asked), FAILED, []), { attempts: 3, of: 3, state: 'asking', ask: 'Q7' })
+  assert.deepEqual(guardOf(node(asked), FAILED, []), { attempts: 3, parts: [{ title: 'Wooden benches', count: 3 }], of: 3, state: 'asking', ask: 'Q7' })
 })
 
 test('the third failure files exactly one ask and starts no evaluation and no mode word; not twice while it is open', async () => {
@@ -168,7 +170,7 @@ test('the third failure files exactly one ask and starts no evaluation and no mo
   assert.deepEqual([goal.fableAsked, goal.evaluationAsked], [id, null])
   const ask = (await one.store()).get(id)
   assert.deepEqual(['Kind', 'Owner', 'Asks', 'Blocking', 'Of', 'State'].map(key => ask.head.get(key)), ['ask', 'server', 'decide', 'yes', 'G2', 'open'])
-  assert.equal(ask.head.get('Title'), 'G2 failed 3 times: evaluate the strategy with Fable?')
+  assert.equal(ask.head.get('Title'), 'G2 · Wooden benches failed 3 times: evaluate the strategy with Fable?')
   assert.equal(ask.head.get('Options'), 'A Yes: Fable 5.1 (max), only for this evaluation | B No: Opus 5.5 (max)')
   assert.equal(ask.head.get('Advice') ?? null, null)
   assert.equal(ask.head.get('Route') ?? null, null, 'the person\'s, never routed to the partner')
@@ -188,7 +190,7 @@ test('A: the partner\'s mode is fable, then the evaluation starts as before', as
   assert.equal(started.ok, true, started.why)
   assert.deepEqual([started.result.fired, started.result.mode, started.result.ask], [true, 'fable', asked])
   assert.deepEqual([started.words.command, started.words.to, started.words.about], ['evaluate', 'Partner', 'G2'])
-  assert.match(started.words.text, /^evaluate G2 Benches that feel like home\nAttempts: 3 failed checks since Go/)
+  assert.match(started.words.text, /^evaluate G2 Benches that feel like home\nPart: Wooden benches \(steps B1, B4\)[^\n]*\nAttempts: 3 failed checks of this part since Go/)
   const goal = mapOf(one.fs).byId.get('G2')
   assert.deepEqual([goal.evaluationAsked, goal.fableAsked], ['2026-10-19 10:00', asked])
   // The partner's mode while it runs, and the word to the main chat names the person's yes.

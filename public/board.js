@@ -10035,10 +10035,15 @@ function focusGuardView(focus) {
   const needs = { label: guard.ask === null || guard.ask === undefined ? 'Open Needs your attention' : `Answer ${guard.ask}`, ask: guard.ask ?? null }
   if (guard.state === 'rebuild') return { tone: 'rebuild', title: 'A rebuild waits for you', text: `Your partner's evaluation proposes a new how for ${focus.id}${guard.ask === null ? '' : ` (${guard.ask})`}: answer it under Needs your attention. Nothing is rebuilt before your yes.`, needs }
   // 2026-10-24: before the evaluation the board asks the person which model runs it: Fable only with their yes.
-  if (guard.state === 'asking') return { tone: 'asking', title: 'Fable or Opus? The board asks you', text: `${guard.attempts} checks failed: before your partner evaluates the approach, answer ${guard.ask} under Needs your attention: A Yes, Fable 5.1 (the strongest, far more tokens), or B No, Opus 5.5. Nothing starts before your answer.`, needs }
-  if (guard.state === 'evaluating') return { tone: 'evaluating', title: 'Your partner evaluates the approach', text: `${guard.attempts} checks failed: on high effort your partner asks whether the how is right and what caps the result, then corrects the how or proposes a rebuild.` }
+  // B669: failed checks are counted per part: the part under evaluation is named, the other parts go on.
+  const ofPart = typeof guard.part === 'string' && guard.part !== '' ? ` on ${guard.part}` : ''
+  if (guard.state === 'asking') return { tone: 'asking', title: 'Fable or Opus? The board asks you', text: `${guard.attempts} checks failed${ofPart}: before your partner evaluates the approach, answer ${guard.ask} under Needs your attention: A Yes, Fable 5.1 (the strongest, far more tokens), or B No, Opus 5.5. Nothing starts before your answer.`, needs }
+  if (guard.state === 'evaluating') return { tone: 'evaluating', title: 'Your partner evaluates the approach', text: `${guard.attempts} checks failed${ofPart}: on high effort your partner asks whether the how is right and what caps the result, then corrects the how or proposes a rebuild.${ofPart === '' ? '' : ' The other parts go on.'}` }
   if (guard.attempts === 0) return null
   // 2026-10-25 (the user: "if everything is done, i assumed the red checks failed would disappear"): information, calm.
+  // B669: the count per part, worst first, in the calm colour: "Cliffs 3 · Round shapes 1".
+  const perPart = (guard.parts ?? []).filter(one => one.count > 0).map(one => `${one.title} ${one.count}`).join(' · ')
+  if (perPart !== '') return { tone: 'counting', title: perPart, text: `Failed checks not fixed yet, per part. At ${guard.of} on one part, your partner looks again at whether the approach is right; the other parts go on. A check whose fix passed counts no more.` }
   return { tone: 'counting', title: `${guard.attempts} failed check${guard.attempts === 1 ? '' : 's'} not fixed yet`, text: `At ${guard.of}, your partner looks again at whether the approach is right. A check whose fix passed counts no more.` }
 }
 

@@ -1072,6 +1072,8 @@ at max (their yes: A, or an answer that starts with yes) or Opus 5.5 at max (B, 
 make gets `effort` high (the board lifts a lower effort to high, also on a fix step, B518, B525; it ends at the next Go); its `model` is as for any step, sonnet unless the step is hard (the person, 2026-10-25: Opus only where needed). The Focus page shows
 "Your partner evaluates the approach" meanwhile.
 
+The count is per part (B669; the user, 2026-10-26: "yes"): a part is one `Part:` line of the how with its steps and every fix made from them, a goal without parts counts per chain (a step and its fixes). The guard trips when one part reaches three, the ask and your `evaluate` word name that part (`Part: ...`, `Other parts: ...`), and the higher effort applies to that part's steps only (`Evaluation part: <part>` under the goal until the evaluation ends); the other parts go on. Look at that part first, and at the goal's how only where the part's answer changes it.
+
 1. Step back from the steps: is the current approach right at all? What caps the result (the art pipeline, a rule, the
    standard, the reference, the size of the parts)? Read the failed points, the goal's vibe and Done when, its how and
    its steps' evidence; a fresh helper may gather them.

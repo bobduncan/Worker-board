@@ -66,7 +66,7 @@ import { activityFor, missingToSteps } from './src/goalSteps.mjs'
 import { PLAN_MOVES, planMove } from './src/planMoves.mjs'
 import { FOCUS_DRAFTS, FOCUS_MOVES, evaluationsAgain, evaluationsMode, evaluationsRunning, focusAllDone, focusMove, goalChecked, goalReopened, guardGoal, guardsAsking, undoLine } from './src/focus.mjs'
 import { PARTNER_MODES, effortBack, fableBack, partnerEffortWords } from './src/partnerEffort.mjs'
-import { GUARD_ATTEMPTS, evaluationState } from './src/goalGuard.mjs'
+import { GUARD_ATTEMPTS, evaluationFor } from './src/goalGuard.mjs'
 import { readSources } from './src/sources.mjs'
 import { backgroundRunning, parseTail, readTail } from './src/transcript.mjs'
 import { clearAtTake, isStepLine, modAtLeast, takeRefusal } from './src/clearOwed.mjs'
@@ -902,7 +902,8 @@ async function main(args) {
       // Focus 3, the review: the goals of the map the board reads, for an ask or a daily note of a goal.
       hasGoal: id => (state.goals?.nodes ?? []).some(node => node.id === id),
       // B518: a goal in its fundamental evaluation ('running') or that ended one ('ended'): its steps default to effort high (the model stays as given, 2026-10-25).
-      evaluationOf: id => evaluationState((state.goals?.nodes ?? []).find(one => one.id === id)),
+      // B669: when the evaluation is of one part of the goal, only that part's steps (`stepId`, of the store's `items`) get it.
+      evaluationOf: (id, stepId, items) => evaluationFor((state.goals?.nodes ?? []).find(one => one.id === id), items, stepId),
       // B354: the project's kinds of work: a refined step that names one carries its standard.
       kinds: config.kinds,
       // 2026-10-24: an ask's picture the board cannot show is refused with where to put it (api.mjs ask).
