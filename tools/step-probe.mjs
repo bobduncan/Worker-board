@@ -1,7 +1,7 @@
-// B695: measures the Focus page's part cards beside option B of the agreed design (art-inbox/board-mockups/how-steps/
-// mockup.html) and prints the two side by side: each distance within 2 px, or it says so and exits 1.
+// B695: measures the Focus page's part cards beside option B of the agreed design (its mockup.html) and prints the two side
+// by side: each distance within 2 px, or it says so and exits 1.
 //
-//   node tools/step-probe.mjs --board http://127.0.0.1:4320 --mockup path/to/mockup.html [--out-dir art-inbox/B695]
+//   node tools/step-probe.mjs --board http://127.0.0.1:4320 --mockup path/to/mockup.html [--out-dir <picture folder>]
 //
 // Both pages are laid out at 1280x720 in a headless Edge or Chrome with a temporary profile, closed in the same run
 // (tools/evidence.mjs shootPage). On the board the probe takes the first part card that shows a stopped and a waiting
