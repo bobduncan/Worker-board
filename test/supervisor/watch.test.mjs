@@ -48,7 +48,7 @@ test('the watch rules: eighteen, report only, each with what it says', () => {
 })
 
 test('the settings: the thresholds of the spec by default; config.json\'s supervisor sets any of them, and a wrong one stops the board', () => {
-  assert.deepEqual({ ...SUPERVISOR_DEFAULTS }, { unknownMinutes: 10, suspendedMinutes: 10, idleMinutes: 10, notRunningMinutes: 30, opusWaitMinutes: 15, undeliveredMinutes: 10, repairsPerDay: 3, reviewMinutes: 60, checkWordMinutes: 30, reportCheckMinutes: 10, checkpointMinutes: 120, reportMinutes: 30, switchMinutes: 10, notClearedMinutes: 10, oldReadingMinutes: 30, oldReadingIncidentMinutes: 60 })
+  assert.deepEqual({ ...SUPERVISOR_DEFAULTS }, { unknownMinutes: 10, suspendedMinutes: 10, idleMinutes: 10, notRunningMinutes: 30, opusWaitMinutes: 15, undeliveredMinutes: 10, repairsPerDay: 3, reviewMinutes: 60, checkWordMinutes: 30, openFixMinutes: 60, reportCheckMinutes: 10, checkpointMinutes: 120, reportMinutes: 30, switchMinutes: 10, notClearedMinutes: 10, oldReadingMinutes: 30, oldReadingIncidentMinutes: 60 })
   assert.deepEqual({ ...parseConfig('{}', {}).supervisor }, { ...SUPERVISOR_DEFAULTS })
   assert.equal(parseConfig('{ "supervisor": { "unknownMinutes": 20, "idleMinutes": -1 } }', {}).supervisor.unknownMinutes, 20)
   assert.equal(parseConfig('{ "supervisor": { "unknownMinutes": 20, "idleMinutes": -1 } }', {}).supervisor.idleMinutes, 10)
