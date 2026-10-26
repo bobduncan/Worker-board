@@ -2759,3 +2759,28 @@ body.is-resizing-rows { cursor: row-resize; user-select: none; }
 .ready-id { font-weight: 600; margin-right: 4px; }
 .ready-held summary { cursor: pointer; color: var(--muted); }
 .step-pinned { color: #8fb4ff; }
+
+/* B684: a part's bar has one block per step; its steps open under a toggle */
+.focus-bar.focus-blocks { display: flex; gap: 4px; height: auto; background: none; overflow: visible; }
+.focus-bar .focus-block { flex: 1; height: 12px; border-radius: 4px; background: var(--unknown); }
+.focus-bar .focus-block.is-done { background: var(--working); }
+.focus-bar .focus-block.is-now { background: var(--free); }
+.focus-bar .focus-block.is-wait { background: var(--unknown); }
+.focus-bar .focus-block.is-stop { height: 8px; align-self: center; background: transparent; border: 2px solid var(--warn); }
+.focus-count { align-self: flex-start; color: var(--muted); }
+.focus-toggle { align-self: flex-start; padding: 0; border: 0; background: none; color: var(--free); font: inherit; cursor: pointer; }
+.focus-step-list { display: flex; flex-direction: column; gap: 6px; }
+.focus-steps-list { list-style: none; margin: 0; padding: 0; }
+.focus-step { display: grid; grid-template-columns: 14px 54px 1fr auto; gap: 8px; align-items: baseline; padding: 6px 0; border-top: 1px solid var(--line); }
+.focus-step-dot { width: 12px; height: 12px; border-radius: 3px; background: var(--muted); align-self: center; }
+.focus-step.is-done .focus-step-dot { background: var(--working); }
+.focus-step.is-now .focus-step-dot { background: var(--free); }
+.focus-step.is-stop .focus-step-dot { width: 8px; height: 8px; background: none; border: 2px solid var(--warn); }
+.focus-step-id { color: var(--muted); font-size: 13px; }
+.focus-step-what { min-width: 0; overflow-wrap: anywhere; }
+.focus-step-what small { display: block; color: var(--muted); }
+.focus-step-what small.is-fail { color: var(--warn); }
+.focus-step-state { font-size: 13px; white-space: nowrap; color: var(--muted); }
+.focus-step.is-done .focus-step-state { color: var(--working); }
+.focus-step.is-now .focus-step-state { color: var(--free); }
+.focus-step.is-stop .focus-step-state { color: var(--warn); }

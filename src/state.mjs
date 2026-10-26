@@ -999,6 +999,35 @@ const FINISHED = ['done', 'closed', 'dropped']
 const UNDER_WAY = ['taken', 'in progress', 'waiting on you', 'review']
 const NOT_HANDED = ['new', 'refined']
 
+/** B684: a step's colour on its part's bar: done (finished), now (built or checked), wait, stop (dropped). */
+const stepToneOf = state => (state === 'done' || state === 'closed' ? 'done' : state === 'dropped' ? 'stop' : UNDER_WAY.includes(state) ? 'now' : 'wait')
+
+/**
+ * B684: one step of a focus part for its bar and its list: `{ id, title, tone, state (its name in words), owner,
+ * check, waitsFor }`. `check` (B356, B504): the result check's ticks and evidence, a failed one with where its fixes
+ * stand (`fix`, B504: followed to the last fix step); null without one. `waitsFor`: the steps it is blocked by that
+ * are not finished, each with its title.
+ */
+function partStepOf(item, steps, prefix) {
+  const id = item.head.get('Id')
+  const state = item.head.get('State')
+  const tone = stepToneOf(state)
+  const checked = checkedOf(item)
+  const fix = checked !== null && checked.total > 0 && checked.passed < checked.total ? fixOutcomeOf(id, steps) : null
+  const waitsFor = (String(item.head.get('Blocked by') ?? '').match(/\bB\d+\b/g) ?? [])
+    .filter(one => steps.has(one) && !FINISHED.includes(steps.get(one).head.get('State')))
+    .map(one => ({ id: one, title: withoutNotes(steps.get(one).head.get('Title') ?? '') }))
+  return {
+    id,
+    title: withoutNotes(item.head.get('Title') ?? ''),
+    tone,
+    state: tone === 'done' ? 'Finished' : tone === 'stop' ? 'Stopped' : state === 'review' ? 'Being checked' : tone === 'now' ? 'Being built' : 'Waiting',
+    owner: String(item.head.get('Owner') ?? '').replace(prefix, '').trim() || null,
+    check: checked === null || checked.total === 0 ? null : { passed: checked.passed, total: checked.total, evidence: checked.evidence, ...(fix === null ? {} : { fix }) },
+    waitsFor,
+  }
+}
+
 /**
  * Fix first: the board fix a focus part waits for, or null. A part's step queued (not itself a fix) whose owner works on
  * a board fix (taken, in progress, waiting on the person) or has one queued, which goes before it: that fix's id, the
@@ -1046,15 +1075,8 @@ export function focusState(goalMap, items, threads, prefix, partner = null) {
     const fix = state === 'next' ? fixAhead(known, steps, prefix) : null
     // B354: what the part's results are checked against: its steps' standards, each once; a "none (why)" is left out.
     const standards = [...new Set(known.map(standardOf).filter(one => one !== null && !/^none\b/i.test(one)))]
-    // B356: the result checks of its steps: each step's ticks and its evidence picture.
-    const checked = known.flatMap(one => {
-      const check = checkedOf(one)
-      if (check === null || check.total === 0) return []
-      // B504: a failed check follows its fix steps to the last one: fixed, or what goes on
-      const fix = check.passed < check.total ? fixOutcomeOf(one.head.get('Id'), steps) : null
-      return [{ id: one.head.get('Id'), passed: check.passed, total: check.total, evidence: check.evidence, ...(fix === null ? {} : { fix }) }]
-    })
-    return { title: part.title, size: part.size, state, owner, done, total: known.length, standards, checked, ...(gone === undefined ? {} : { why: gone.why }), ...(fix === null ? {} : { fixFirst: fix }) }
+    // B684: the part's steps in its order, each with its colour, its words, its check and what it waits for.
+    return { title: part.title, size: part.size, state, owner, done, total: known.length, standards, steps: known.map(one => partStepOf(one, steps, prefix)), ...(gone === undefined ? {} : { why: gone.why }), ...(fix === null ? {} : { fixFirst: fix }) }
   })
   // B680: a Stopped part counts neither done nor open, a dropped one is out of the whole.
   const whole = parts.filter(part => part.state !== 'dropped')
