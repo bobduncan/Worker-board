@@ -85,6 +85,13 @@ function addedStamp(item) {
   return value === null ? null : value.replace(/^person,?\s*/, '').trim() || value
 }
 
+/** A step and the steps it fixes, down its fix chain (`Fix of`), itself first; a chain that loops stops at the repeat. */
+function fixChain(item, items) {
+  const chain = []
+  for (let one = item; one !== undefined && !chain.includes(one); one = valueOf(one, 'Fix of') === null ? undefined : items.get(valueOf(one, 'Fix of'))) chain.push(one)
+  return chain
+}
+
 /**
  * The ready list: `{ ready, held }`. Every step in state refined; ready when nothing holds it (guards.mjs `readyHold`),
  * its kind's standard does not hold it (`standardHold(item)`, a why or null) and its routing record does not
@@ -94,12 +101,14 @@ function addedStamp(item) {
  * pin, else, with `followUpMs` above 0, the worker it is a follow-up of, until `keptUntil`), its pin (`pinned`), and
  * (`followUpMs` 0, the default: a preference only) the worker it goes to when that one is idle at the give (`prefers`).
  * A task of rank 2 neither pinned nor added is held for the person's choice (`choice: true`, CHOICE_WHY) unless
- * `beyondFocus`.
+ * `beyondFocus`. B691: the focus is the goal `focus` and the goals under it (`focusGoals`); a fix of a step goes out as that
+ * step does (its chain, `fixChain`), so a fix of a step the person added or pinned needs no pick of its own.
  */
-export function readyList(items, { now, focus = null, followUpMs = HAND_OUT_DEFAULTS.followUpMinutes * 60_000, standardHold = null, routingHeld = new Set(), prefix = '', beyondFocus = true }) {
+export function readyList(items, { now, focus = null, focusGoals = [], followUpMs = HAND_OUT_DEFAULTS.followUpMinutes * 60_000, standardHold = null, routingHeld = new Set(), prefix = '', beyondFocus = true }) {
   const ready = []
   const held = []
   const ctx = { store: { items } }
+  const inFocus = new Set([...(focus === null ? [] : [focus]), ...focusGoals])
   const steps = [...items.values()].filter(item => kindOf(item) === 'step' && stateOf(item) === 'refined' && typeof idOf(item) === 'string')
   for (const item of steps.sort((a, b) => byId(idOf(a), idOf(b)))) {
     const id = idOf(item)
@@ -111,12 +120,15 @@ export function readyList(items, { now, focus = null, followUpMs = HAND_OUT_DEFA
     const pinned = valueOf(item, 'Pinned') === null ? null : bare(valueOf(item, 'Pinned'), prefix)
     const isKept = followUpMs > 0
     const follow = pinned === null ? followUpOf(item, items, { now, followUpMs: isKept ? followUpMs : Infinity, prefix }) : null
-    const rank = isFix(item) ? 0 : focus !== null && valueOf(item, 'Goal') === focus ? 1 : 2
+    const chain = fixChain(item, items)
+    const rank = isFix(item) ? 0 : chain.some(one => inFocus.has(valueOf(one, 'Goal'))) ? 1 : 2
     const added = addedStamp(item)
+    // B691: a fix goes out as its root does: the person's pick (added or pinned) of any step down its chain is its own.
+    const picked = chain.some(one => addedStamp(one) !== null || valueOf(one, 'Pinned') !== null)
     // 2026-10-25, the controller in the person's place (principle 8): a task that is no fix, not of the focus goal and
     // not pinned waits for the person's pick, unless the settings' `handOutBeyondFocus` is true. The whole backlog is
     // not the board's to start. The Backlog tab's blocks: the person picks it with "Add to queue" (`Queued by`).
-    if (rank === 2 && pinned === null && added === null && !beyondFocus) {
+    if (rank === 2 && pinned === null && !picked && !beyondFocus) {
       held.push({ id, why: CHOICE_WHY, choice: true })
       continue
     }

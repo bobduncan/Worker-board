@@ -1021,10 +1021,25 @@ function partStepOf(item, steps, prefix) {
     id,
     title: withoutNotes(item.head.get('Title') ?? ''),
     tone,
-    state: tone === 'done' ? 'Finished' : tone === 'stop' ? 'Stopped' : state === 'review' ? 'Being checked' : tone === 'now' ? 'Being built' : 'Waiting',
+    // B690: a step in review whose check failed and whose fix is open is being fixed, not checked.
+    state: tone === 'done' ? 'Finished' : tone === 'stop' ? 'Stopped' : state === 'review' ? (fix?.isOpen === true ? 'Being fixed' : 'Being checked') : tone === 'now' ? 'Being built' : 'Waiting',
+    isFailed: checked !== null && checked.total > 0 && checked.passed < checked.total && fix?.isFixed !== true,
     owner: String(item.head.get('Owner') ?? '').replace(prefix, '').trim() || null,
     check: checked === null || checked.total === 0 ? null : { passed: checked.passed, total: checked.total, evidence: checked.evidence, ...(fix === null ? {} : { fix }) },
     waitsFor,
+  }
+}
+
+/**
+ * B690: a part's steps counted for the line under its bar, and whether its list opens by itself (a step stopped or a
+ * check failed and not fixed yet): `{ counts: { done, checking, fixing, building, stopped, waiting, total }, opensItself }`.
+ */
+function partStepCounts(list) {
+  const tone = name => list.filter(one => one.tone === name).length
+  const state = name => list.filter(one => one.state === name).length
+  return {
+    counts: { done: tone('done'), checking: state('Being checked'), fixing: state('Being fixed'), building: state('Being built'), stopped: tone('stop'), waiting: tone('wait'), total: list.length },
+    opensItself: list.some(one => one.tone === 'stop' || one.isFailed),
   }
 }
 
@@ -1041,6 +1056,14 @@ function fixAhead(known, steps, prefix) {
   const fixes = [...steps.values()].filter(one => isFix(one) && !own.has(one.head.get('Id')) && owners.has(plain(one.head.get('Owner'))) && ['taken', 'in progress', 'waiting on you', 'queued'].includes(one.head.get('State')))
     .sort((a, b) => Number(a.head.get('State') === 'queued') - Number(b.head.get('State') === 'queued') || a.head.get('Id').localeCompare(b.head.get('Id'), 'en', { numeric: true }))
   return fixes[0]?.head.get('Id') ?? null
+}
+
+/** B691: the goals under a goal in the goal map (its children, theirs in turn), not the goal itself. */
+function goalsUnder(goalMap, id) {
+  const found = []
+  const walk = goal => { for (const child of goal?.children ?? []) if (!found.includes(child)) { found.push(child); walk(goalMap.byId.get(child)) } }
+  if (id !== null) walk(goalMap?.byId.get(id))
+  return found
 }
 
 /**
@@ -1076,7 +1099,8 @@ export function focusState(goalMap, items, threads, prefix, partner = null) {
     // B354: what the part's results are checked against: its steps' standards, each once; a "none (why)" is left out.
     const standards = [...new Set(known.map(standardOf).filter(one => one !== null && !/^none\b/i.test(one)))]
     // B684: the part's steps in its order, each with its colour, its words, its check and what it waits for.
-    return { title: part.title, size: part.size, state, owner, done, total: known.length, standards, steps: known.map(one => partStepOf(one, steps, prefix)), ...(gone === undefined ? {} : { why: gone.why }), ...(fix === null ? {} : { fixFirst: fix }) }
+    const list = known.map(one => partStepOf(one, steps, prefix))
+    return { title: part.title, size: part.size, state, owner, done, total: known.length, standards, steps: list, ...partStepCounts(list), ...(gone === undefined ? {} : { why: gone.why }), ...(fix === null ? {} : { fixFirst: fix }) }
   })
   // B680: a Stopped part counts neither done nor open, a dropped one is out of the whole.
   const whole = parts.filter(part => part.state !== 'dropped')
@@ -1708,7 +1732,7 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
   const reconciled = !workOk ? null : reconcile({
     store: raw.work, flow: raw.work.flow, lanes: chats, now, times: { graceMs: GRACE_MS, askMs: ASK_MS, idleMs: IDLE_HOLD_MS }, prefix, hasPartner: advisorChat !== undefined, partner,
     standardHold: item => standardHold(item, plan?.standards ?? []),
-    focus: goalMap?.focus ?? null, routingHeld, sent,
+    focus: goalMap?.focus ?? null, focusGoals: goalsUnder(goalMap, goalMap?.focus ?? null), routingHeld, sent,
     settings: { maxWorkers: config.maxWorkers ?? null, takeWithinMinutes: config.takeWithinMinutes, followUpMinutes: config.followUpMinutes, heldGiveMinutes: config.heldGiveMinutes, handOutBeyondFocus: config.handOutBeyondFocus === true, offAfterMinutes: config.offAfterMinutes },
     limitsFull: ['fiveHour', 'week'].some(limit => limits[limit]?.level === 'full'),
     // The review of 2026-10-25: when the board last held the hand-out (the server's memory), and the gives refused lately.

@@ -27,7 +27,7 @@ const plain = value => value === undefined ? undefined : JSON.parse(JSON.stringi
 const page = Object.fromEntries(Object.entries(made).map(([name, made]) => [name, (...args) => plain(made(...args))]))
 
 // B684: the steps of a part have their own tests below.
-const withoutSteps = ({ steps, ...part }) => part
+const withoutSteps = ({ steps, counts, opensItself, ...part }) => part
 const withoutBlocks = ({ blocks, count, toggle, isOpen, steps, ...part }) => part
 
 const NOW = new Date(2026, 9, 18, 12, 0).getTime()
@@ -432,4 +432,56 @@ test('B684: the page draws the blocks, the line, the toggle and the steps', () =
   // the page's own draw hands the person's open or close to the view
   assert.match(script, /focusView\(state\.focus[^\n]*partsOpen: focusUi\.partsOpen/)
   for (const word of ['.focus-block.is-done', '.focus-block.is-stop', '.focus-step.is-now']) assert.ok(css.includes(word), word)
+})
+
+// B690: the fixes of the result check of B684.
+const fixStore = (fixState, edit = () => {}) => {
+  const made = storeFromText(`${STEPS_BACKLOG}- [ ] B20 Fix: Light the path again\n`, { now: NOW })
+  made.items.get('B13').head.set('State', 'review')
+  made.items.get('B13').sections.set('Checked', ['Evidence: none', '- pass: a', '- fail: b'])
+  made.items.get('B20').head.set('Fix of', 'B13')
+  made.items.get('B20').head.set('State', fixState)
+  edit(made.items)
+  return made
+}
+const BENCH_FIX = ['    Part: Draw the bench · about 1 h · steps B10, B11, B13, B15, B20']
+
+test('B690: a failed check whose fix was dropped says the fix stopped', () => {
+  const [part] = stepsOf(fixStore('dropped'), BENCH_FIX).view
+  const step = part.steps.find(one => one.id === 'B13')
+  assert.match(step.line, /^Check failed: 1 of 2, its fix B20 stopped/)
+  assert.equal(step.isFailed, true)
+})
+
+test('B690: a step in review whose check failed and whose fix is open is being fixed, and the state counts it', () => {
+  for (const open of ['queued', 'in progress', 'review']) {
+    const { state, view } = stepsOf(fixStore(open), BENCH_FIX)
+    const step = state.parts[0].steps.find(one => one.id === 'B13')
+    assert.equal(step.state, 'Being fixed', open)
+    assert.equal(state.parts[0].counts.fixing, 1)
+    assert.match(view[0].count, /1 being fixed/)
+    if (open !== 'review') assert.doesNotMatch(view[0].count, /being checked/)
+  }
+  // a stopped fix leaves it being checked; a failed check opens the list by itself, the state says so
+  const stopped = stepsOf(fixStore('dropped'), BENCH_FIX).state.parts[0]
+  assert.equal(stopped.steps.find(one => one.id === 'B13').state, 'Being checked')
+  assert.deepEqual([stopped.counts.checking, stopped.counts.fixing, stopped.opensItself], [1, 0, true])
+})
+
+test('B690: board.js only words the counts and the open flag the state gives', () => {
+  const view = script.slice(script.indexOf('function focusStepsView'), script.indexOf('function focusView('))
+  assert.doesNotMatch(view, /state === 'Being (?:checked|built)'/)
+  assert.match(view, /part\.counts/)
+  assert.match(view, /part\.opensItself/)
+})
+
+test('B690: the step rows follow option B: dot at the first line, waiting dot as the waiting block, grey failed line, 18 px under the bar', async () => {
+  const { readFile } = await import('node:fs/promises')
+  const css = await readFile(new URL('../public/board.css', import.meta.url), 'utf8')
+  const rule = selector => css.split('\n').find(line => line.startsWith(`${selector} {`)) ?? ''
+  assert.match(rule('.focus-step-dot'), /align-self: start/)
+  assert.match(rule('.focus-step-dot'), /background: var\(--unknown\)/)
+  assert.match(rule('.focus-bar .focus-block.is-wait'), /background: var\(--unknown\)/)
+  assert.equal(rule('.focus-step-what small.is-fail'), '')
+  assert.match(rule('.focus-count'), /margin-top: 18px/)
 })

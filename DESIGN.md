@@ -3822,6 +3822,10 @@ what code should do"). Now the board hands out every task itself (principle 1), 
 - **Added by the person** (the Backlog tab's blocks, 2026-10-25): a refined task outside the focus goal waits for the
   person's "Add to queue" (`Queued by: person, <stamp>`, the work API's `add-to-queue`; "Remove", `remove-from-queue`,
   takes it off): the list then holds it after the focus goal's tasks, in the order added, for the first free worker.
+  B691 (2026-10-26): the focus is the focus goal and every goal under it (G59 under G60): a step of one is the focus's,
+  rank 1. A fix goes out as its root does: a step with `Fix of` counts as picked when any step down its fix chain was
+  added to the queue or pinned by the person, and as the focus's when any of them belongs to the focus goal or under it;
+  only a step of an unrelated goal that nobody picked waits for "Add to queue".
 - **Kept for a worker:** a task the person pinned (`Pinned: <worker>`, the work API's `pin`; "Pin to", "Move to",
   "Unpin" in a task's window) waits for that worker only, never starts a new one, and goes to it
   before the list's order. A follow-up (a task whose `Blocked by` or `Waits for` named a step that worker moved to
@@ -4162,3 +4166,13 @@ done nor open, and the goal can only finish once every part is done or dropped b
 
 Incidents that show it failing: a part with only dropped steps showing Done or a green bar; "Did we reach the goal?" while a
 part is Stopped. Tests: test/stoppedPart.test.mjs, test/partDropClick.test.mjs (B688: the click shows the box; Undo per part).
+
+## A part's steps: counts, open flag and fix words in the state (B684, B690)
+
+`focusState` gives each part its steps (`partStepOf`: id, title, tone, state in words, owner, check, fix outcome, waits
+for) and, in one place, `counts` (done, checking, fixing, building, stopped, waiting, total) and `opensItself` (a step
+stopped or a check failed and not fixed). `board.js` only words and draws them (`focusStepsView`); it matches no state
+word. A step in review whose check failed and whose fix is open reads "Being fixed", not "Being checked". A failed
+check whose fix was dropped says "its fix B<n> stopped" (`fixOutcomeOf`; the newest dropped fix is named). Rows follow
+option B of `art-inbox/board-mockups/how-steps`: the dot at the first line, the waiting dot as the waiting block, the
+failed-check line muted grey, the count line 18 px under the bar.

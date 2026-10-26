@@ -10272,7 +10272,7 @@ function focusStepsView(part, partsOpen) {
   const steps = (part.steps ?? []).map(one => {
     const check = one.check
     const fix = check?.fix
-    const isFailed = check !== null && check.passed < check.total && fix?.isFixed !== true
+    const isFailed = one.isFailed
     const checkText = check === null ? null
       : check.passed === check.total ? `Check passed: ${check.passed} of ${check.total}`
         : `Check failed: ${check.passed} of ${check.total}${fix === undefined ? '' : fix.isFixed ? `, then its fix ${fix.by} passed${fix.total === null ? '' : ` (${fix.passed} of ${fix.total})`}` : `, ${fix.note}`}`
@@ -10283,12 +10283,10 @@ function focusStepsView(part, partsOpen) {
       fixPicture: fix !== undefined && isPicture(fix.evidence) ? { path: fix.evidence, caption: `${one.id}: its fix ${fix.by}` } : null,
     }
   })
-  const count = tone => steps.filter(one => one.tone === tone).length
-  const checking = steps.filter(one => one.state === 'Being checked').length
-  const building = steps.filter(one => one.state === 'Being built').length
-  const total = steps.length
-  const words = [`${count('done')} of ${total} step${total === 1 ? '' : 's'} finished`, checking > 0 ? `${checking} being checked` : null, building > 0 ? `${building} being built` : null, count('stop') > 0 ? `${count('stop')} stopped` : null, count('wait') > 0 ? `${count('wait')} waiting` : null, part.state === 'now' && part.owner !== null ? `${part.owner} is on it` : null].filter(word => word !== null)
-  const isOpen = typeof partsOpen?.[part.title] === 'boolean' ? partsOpen[part.title] : steps.some(one => one.tone === 'stop' || one.isFailed)
+  // B690: the counts and the open-by-itself flag come from the state; this only words them.
+  const { done, checking, fixing, building, stopped, waiting, total } = part.counts ?? { done: 0, checking: 0, fixing: 0, building: 0, stopped: 0, waiting: 0, total: 0 }
+  const words = [`${done} of ${total} step${total === 1 ? '' : 's'} finished`, checking > 0 ? `${checking} being checked` : null, fixing > 0 ? `${fixing} being fixed` : null, building > 0 ? `${building} being built` : null, stopped > 0 ? `${stopped} stopped` : null, waiting > 0 ? `${waiting} waiting` : null, part.state === 'now' && part.owner !== null ? `${part.owner} is on it` : null].filter(word => word !== null)
+  const isOpen = typeof partsOpen?.[part.title] === 'boolean' ? partsOpen[part.title] : part.opensItself === true
   return {
     blocks: steps.map(one => one.tone),
     count: total === 0 ? null : words.join(' · '),
