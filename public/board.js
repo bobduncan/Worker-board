@@ -810,14 +810,71 @@ function supervisorLast24(counts) {
   return `Last 24 h: ${counts.found} found (${counts.foundBefore} the 24 h before), ${counts.fixed} fixed. Open: ${counts.inWork} in work, ${counts.withAdvisor} with the Advisor.`
 }
 
+/** "Check now", the person (2026-10-26): how long the head keeps what an asked check came to, from the moment it ended. */
+const CHECKED_SHOWN_MS = 10 * 60_000
+/**
+ * How long the board waits for the supervisor's chat to start an asked sweep (sweep.mjs SWEEP_SETTLE_MS, a test keeps the
+ * two the same): a chat that has not read the health summary by then is not running and was not woken.
+ */
+const CHECK_START_MS = 2 * 60_000
+/** The rules' asked run and the asked sweep it came with are one press when the run came at most this long before the sweep. */
+const SAME_PRESS_MS = 2 * 60_000
+/** The head's plain line when the supervisor's chat did not take the sweep: the code rules ran at the press all the same. */
+const CHECK_NOT_STARTED = 'the supervisor\'s chat did not start: the code rules ran, the sweep did not'
+
+/**
+ * The person (2026-10-26): "i asked the supervisor to check, but i dont see indication if it's checking or not". What the
+ * head says of a "Check now", or null when it says nothing, from the view the board knows and the press itself (`isPressed`:
+ * the page has sent the press and the board's next state has not come). `{ state, text, tone, title }`:
+ * - `checking`: the press, or the asked sweep (`lastSweep.asked`) that has not ended; the button reads "Checking…" then;
+ * - `no-sweep`: the supervisor's chat was not reached, said instead of spinning: the asked sweep has run 2 minutes without
+ *   its chat reading the health summary, or the board ended it with nobody having taken its word (`how` quiet, nothing
+ *   read: not running and not woken in 2 minutes, or the word expired), or the sweep did not start at all (the view's
+ *   `sweepNote`, asked: no chat open, a mod too old, a pause, ...). The code rules ran at the press either way;
+ * - `checked`: "checked 15:26: nothing new" or "checked 15:26: 2 new", for 10 minutes after the asked sweep ended. New:
+ *   the incidents not fixed found (opened or came back, `foundAt`) since the press; the store keeps the minute, so the
+ *   press's minute counts whole, and the asked run of the rules just before the sweep counts as the same press. `tone`
+ *   `found` for 1 or more (the attention colour), else `quiet`.
+ * The newest end of an asked check counts: a refused press after the asked sweep ended shows its own line.
+ */
+function checkStatusOf(view, { isPressed = false, now = Date.now() } = {}) {
+  if (view === null || view === undefined) return null
+  const sweep = view.lastSweep?.asked === true ? view.lastSweep : null
+  const isRunning = sweep !== null && !Number.isFinite(sweep.ended)
+  const quiet = (state, text, title) => ({ state, text, tone: 'quiet', title })
+  if (isPressed) return quiet('checking', 'checking…', 'Checking: the rules run at once, then the supervisor\'s chat sweeps the board')
+  if (isRunning) {
+    const hasStarted = sweep.read === true || sweep.found > 0
+    if (now - sweep.at < CHECK_START_MS || hasStarted) return quiet('checking', 'checking…', `Checking: asked at ${clock(sweep.at)}, the supervisor's chat is sweeping the board`)
+    return quiet('no-sweep', CHECK_NOT_STARTED, `Asked at ${clock(sweep.at)}${sweep.note ? `; ${sweep.note}` : ''}`)
+  }
+  // The sweep that did not even start (the board's note, newer than the last sweep): the newest end of an asked check wins.
+  const note = view.sweepNote?.asked === true && Number.isFinite(view.sweepNote.at) ? view.sweepNote : null
+  const endedAt = sweep !== null && Number.isFinite(sweep.ended) ? sweep.ended : -Infinity
+  if (note !== null && note.at > endedAt) {
+    return now - note.at < CHECKED_SHOWN_MS ? quiet('no-sweep', `checked ${clock(note.at)}: the code rules ran, the sweep did not`, `No sweep: ${note.why}`) : null
+  }
+  if (sweep === null || now - sweep.ended >= CHECKED_SHOWN_MS) return null
+  if (sweep.how === 'quiet' && sweep.read !== true) return quiet('no-sweep', CHECK_NOT_STARTED, `Asked at ${clock(sweep.at)}${sweep.note ? `; ${sweep.note}` : ''}`)
+  const run = view.run ?? null
+  const pressedAt = run?.asked === true && Number.isFinite(run.at) && run.at <= sweep.at && sweep.at - run.at < SAME_PRESS_MS ? run.at : sweep.at
+  const since = Math.floor(pressedAt / 60_000) * 60_000
+  const found = (view.incidents ?? []).filter(one => !isFixedIncident(one, null) && Number.isFinite(one?.foundAt) && one.foundAt >= since).length
+  return {
+    state: 'checked', text: `checked ${clock(sweep.ended)}: ${found === 0 ? 'nothing new' : `${found} new`}`, tone: found > 0 ? 'found' : 'quiet',
+    title: `Check now of ${clock(pressedAt)}: the code rules and the supervisor's sweep; ${found === 0 ? 'no incident opened or came back' : `${found} incident${found === 1 ? '' : 's'} opened or came back`} since`,
+  }
+}
+
 /**
  * The section as drawn, from the state's `supervisor` (the supervisor's `view`), or null on a board without one (a copy
- * beside the person's board): its head (B573: the counts, see `supervisorHead`), a note (when open, the 24 h line first, see `supervisorLast24`; then when it checked itself, and its
+ * beside the person's board): its head (B573: the counts, see `supervisorHead`; with `status`, what a "Check now" came to,
+ * see `checkStatusOf`, `isPressed` while the press is on its way), a note (when open, the 24 h line first, see `supervisorLast24`; then when it checked itself, and its
  * schedule), the incident cards (one per fix step; B573: a card with an incident new since `seenAt` carries New and comes
  * first), the last check (the newest one asked, or one that found something, for an hour), the rules (those that tripped
  * now or today first, how often, a failed one with why; the rest counted as fine) and the last sweep, or "No sweep yet".
  */
-function supervisorOf(view, { seenAt = null, isOpen = true, now = Date.now() } = {}) {
+function supervisorOf(view, { seenAt = null, isOpen = true, now = Date.now(), isPressed = false } = {}) {
   if (view === null || view === undefined) return null
   const run = view.run ?? null
   const rules = (view.rules ?? []).map(rule => ({
@@ -852,6 +909,8 @@ function supervisorOf(view, { seenAt = null, isOpen = true, now = Date.now() } =
     : `${checked} It checks every 3 min; Check now checks and sweeps at once.`
   return {
     head: supervisorHead(counts),
+    // What a "Check now" is doing or came to (null for nothing): the word after the counts, folded or open.
+    status: checkStatusOf(view, { isPressed, now }),
     // Open, the note's first line is the 24 h line (a line break, kept on the page); folded, the section draws no note.
     note: isOpen ? `${supervisorLast24(counts)}\n${schedule}` : schedule,
     cards: cards.filter(card => !older.includes(card)),
@@ -951,16 +1010,33 @@ const supervisorStorage = (() => {
 /** The supervisor's section: folded to its head line or opened by the person (B573: kept across reloads), and what shows in it. */
 const supervisorUi = { ...supervisorKept(supervisorStorage), showsRules: false, showsOlder: false, openCards: new Set() }
 
-/** "Check now" with its wrench, in the button's own colour: the board's own check at once (`sync` to the server). */
+/** Whether a "Check now" (the board's, or a worker's menu: the key `sync:<chat>`) is on its way to the board. */
+function isCheckPressed() {
+  return [...sending].some(key => String(key).startsWith('sync:'))
+}
+
+/** The quiet word after the section head's counts (see `checkStatusOf`): "checking…", "checked 15:26: nothing new"; null for none. */
+function checkStatusPart(status) {
+  if (status === null || status === undefined) return null
+  const part = el('span', `supervisor-check is-${status.tone}`, status.text)
+  part.title = status.title
+  return part
+}
+
+/**
+ * "Check now" with its wrench, in the button's own colour: the board's own check at once (`sync` to the server). From the
+ * press until the asked sweep has ended every such button reads "Checking…" and is disabled (see `checkStatusOf`).
+ */
 function checkNowButton(about, state, title) {
+  const isChecking = checkStatusOf(state.supervisor ?? null, { isPressed: isCheckPressed(), now: Date.now() })?.state === 'checking'
   const button = el('button', 'quiet-button sync-button check-now')
   button.type = 'button'
   button.dataset.sync = about
-  button.disabled = state.changeAsks?.sync?.[about]?.isOpen === true || sending.has(`sync:${about}`)
-  button.title = state.changeAsks?.sync?.[about]?.isOpen === true ? 'Checked: the main chat answers here' : title
+  button.disabled = state.changeAsks?.sync?.[about]?.isOpen === true || sending.has(`sync:${about}`) || isChecking
+  button.title = state.changeAsks?.sync?.[about]?.isOpen === true ? 'Checked: the main chat answers here' : isChecking ? 'Checking: the rules run at once, then the supervisor\'s chat sweeps the board' : title
   const wrench = icon('wrench')
   wrench.setAttribute('aria-hidden', 'true')
-  button.append(wrench, el('span', '', 'Check now'))
+  button.append(wrench, el('span', '', isChecking ? 'Checking…' : 'Check now'))
   return button
 }
 
@@ -1010,12 +1086,15 @@ function drawSupervisor(state) {
   const shown = isSupervisorShown(view)
   const isOpen = supervisorUi.isOpen
   const main = state.workers?.main ?? null
-  once('supervisor', [view, shown, isOpen, supervisorUi.seenAt, supervisorUi.shownSince, supervisorUi.showsRules, supervisorUi.showsOlder, [...supervisorUi.openCards], main, state.changeAsks?.sync?.board ?? null, sending.has('sync:board')], () => {
+  // What a Check now is doing or came to stands in the signature: the word changes, and goes 10 minutes after, by itself.
+  const isPressed = isCheckPressed()
+  const status = shown ? checkStatusOf(view, { isPressed, now: Date.now() }) : null
+  once('supervisor', [view, shown, isOpen, supervisorUi.seenAt, supervisorUi.shownSince, supervisorUi.showsRules, supervisorUi.showsOlder, [...supervisorUi.openCards], main, state.changeAsks?.sync?.board ?? null, sending.has('sync:board'), status], () => {
     const box = $('supervisor')
     box.hidden = !shown
     box.classList.toggle('is-folded', !isOpen)
     if (!shown) return fill(box, [])
-    const part = supervisorOf(view, { seenAt: isOpen ? supervisorUi.shownSince : supervisorUi.seenAt, isOpen, now: Date.now() })
+    const part = supervisorOf(view, { seenAt: isOpen ? supervisorUi.shownSince : supervisorUi.seenAt, isOpen, now: Date.now(), isPressed })
     const toggle = el('button', 'supervisor-fold')
     toggle.type = 'button'
     toggle.dataset.supervisorFold = ''
@@ -1023,7 +1102,7 @@ function drawSupervisor(state) {
     toggle.title = isOpen ? 'Fold the section to this line' : 'Open the incidents, the rules and the last sweep; what is new is then seen'
     const wrench = icon('wrench')
     wrench.setAttribute('aria-hidden', 'true')
-    toggle.append(el('span', 'supervisor-caret', isOpen ? '▾' : '▸'), wrench, el('span', 'supervisor-title', part.head))
+    fill(toggle, [el('span', 'supervisor-caret', isOpen ? '▾' : '▸'), wrench, el('span', 'supervisor-title', part.head), checkStatusPart(part.status)])
     const head = el('header', 'supervisor-head')
     head.append(toggle, el('span', 'grow'), ...(main === null ? [] : [boardSyncButton(state)]))
     if (!isOpen) return fill(box, [head])
@@ -7255,6 +7334,13 @@ $('lanes').addEventListener('click', event => {
 function openFromAddress(state) {
   // B149: the links in a worker's answer: `#picture=<path>` shows that picture here, `#play=<branch>&<settings>`
   // makes this tab that branch's game, where the settings put it. Followed once.
+  // B699: `#demo=<path of a demo.json>` opens that goal demo as a page.
+  if (location.hash.startsWith('#demo=')) {
+    const path = decodeURIComponent(location.hash.slice('#demo='.length))
+    history.replaceState(null, '', location.pathname)
+    openDemo(path)
+    return
+  }
   if (location.hash.startsWith('#picture=') || location.hash.startsWith('#play=')) {
     const hash = location.hash
     history.replaceState(null, '', location.pathname)
@@ -7394,6 +7480,81 @@ function openPicture(path, caption) {
 document.addEventListener('click', event => {
   const frame = event.target.closest('[data-zoom]')
   if (frame !== null) openPicture(frame.dataset.zoom, frame.dataset.caption)
+})
+
+// demo:start
+/** B699: the goal demo's page body from the board's page model (src/demo.mjs demoPage): the verdict of each part, its labelled pictures at their own size (a click opens the picture window), the follow-up last. Words, order and labels are the model's. */
+function demoBody(page) {
+  const body = el('div', 'demo-body')
+  const bullets = (items, className) => {
+    const list = el('ul', className)
+    for (const item of items) list.append(el('li', '', item))
+    return list
+  }
+  body.append(el('h2', 'demo-title', `${page.goal} · ${page.title}: the goal demo`), el('p', 'demo-intro', page.intro))
+  for (const section of page.sections) {
+    const part = el('section', `demo-section is-${section.kind}`)
+    part.append(el('div', 'demo-band', section.band))
+    if (section.intro.length > 0) part.append(bullets(section.intro, 'demo-lines'))
+    if (section.items.length > 0) part.append(bullets(section.items, 'demo-items'))
+    for (const row of section.rows) {
+      const card = el('div', 'demo-row')
+      const head = el('h3', 'demo-row-title')
+      head.append(el('span', 'demo-verdict', section.verdict), el('span', '', row.title))
+      card.append(head)
+      if (row.note !== '') card.append(el('p', 'demo-row-note', row.note))
+      const shots = el('div', 'demo-pictures')
+      for (const one of row.pictures) {
+        const figure = el('figure', one.kind === null ? 'demo-figure' : `demo-figure is-${one.kind}`)
+        if (one.label !== null) figure.append(el('div', 'demo-kind', one.label))
+        figure.append(el('figcaption', '', one.caption))
+        const frame = picture(one.path, one.caption)
+        frame.className += ' demo-picture'
+        figure.append(frame)
+        shots.append(figure)
+      }
+      card.append(shots)
+      part.append(card)
+    }
+    body.append(part)
+  }
+  if (page.followUp !== null) {
+    const follow = el('section', 'demo-section is-follow-up')
+    follow.append(el('div', 'demo-band', page.followUp.band))
+    for (const group of page.followUp.groups) {
+      const block = el('div', `demo-group is-${group.key}`)
+      block.append(el('h3', '', group.title), bullets(group.items, 'demo-items'))
+      follow.append(block)
+    }
+    body.append(follow)
+  }
+  return body
+}
+// demo:end
+
+/** B699: the goal demo of a demo.json as a page of its own: each picture stays its own file, opened at its own size with a click. */
+async function openDemo(path) {
+  const box = $('demo-page')
+  const head = el('header', 'file-view-head')
+  const close = el('button', 'icon-button', '✕')
+  close.type = 'button'
+  close.dataset.closeDemo = ''
+  close.setAttribute('aria-label', 'Close')
+  head.append(el('h2', '', 'The goal demo'), close)
+  const answer = await fetch(`/api/demo?path=${encodeURIComponent(path)}`, { headers: { 'X-Board-Token': TOKEN } }).catch(() => null)
+  let body
+  if (answer === null) body = el('p', 'problem', 'The board\'s server does not answer.')
+  else if (!answer.ok) body = el('p', 'problem', (await answer.text()).trim() || 'This goal demo is not shown.')
+  else body = demoBody(await answer.json())
+  const scroll = el('div', 'demo-scroll')
+  scroll.append(body)
+  fill(box, [head, scroll])
+  if (!box.open) box.showModal()
+}
+document.addEventListener('click', event => {
+  const link = event.target.closest('[data-demo]')
+  if (link !== null) return openDemo(link.dataset.demo)
+  if (event.target === $('demo-page') || event.target.closest('[data-close-demo]') !== null) $('demo-page').close()
 })
 
 // B208: a phone is a screen up to 600 px wide, as the style sheet has it.
@@ -10526,8 +10687,6 @@ function goToPlace(hash) {
 // Focus 1 (spec 2026-10-18, section 4): the tab is named Focus, its first part is the Focus page; its bar shows Focus,
 // Goals and Brainstorm, the others only when the setting advisorParts names them (hidden, not deleted).
 // focus:start
-/** B686: how many words the board sends for the goal demo before it says the partner did not answer (src/focus.mjs DEMO_WORDS). */
-const DEMO_WORDS_SHOWN = 'three'
 const ADVISOR_PANES = ['focus', 'way', 'goals', 'brainstorm', 'plan', 'suggestions', 'refine', 'chat']
 const ADVISOR_PARTS_USUAL = ['focus', 'goals', 'brainstorm']
 
@@ -10751,8 +10910,8 @@ function focusView(focus, goals, can = null, ui = {}) {
         button('No', 'vibe-there-no', true, 'Say what is missing: your partner changes the how'),
       ],
       demo: demo === null
-        ? { text: focus.demoGaveUp === true ? `Your partner did not answer in ${DEMO_WORDS_SHOWN} tries: no goal demo yet.` : 'Your partner makes the goal demo first.', link: null, again: button('Ask your partner again', 'goal-demo', allowed, focus.demoAsked === null ? 'Your partner is asked for the goal demo by the board' : 'Your partner was asked: ask once more when the demo does not come') }
-        : { text: null, link: { label: 'See the goal demo', path: demo.path, caption: demo.caption || demo.path }, again: null },
+        ? { text: focus.demoGaveUp === true ? `Your partner did not answer in ${focus.demoWords} tries: no goal demo yet.` : 'Your partner makes the goal demo first.', link: null, again: button('Ask your partner again', 'goal-demo', allowed, focus.demoAsked === null ? 'Your partner is asked for the goal demo by the board' : 'Your partner was asked: ask once more when the demo does not come') }
+        : { text: null, link: { label: 'See the goal demo', path: demo.path, caption: demo.caption || demo.path, isPage: demo.isPage === true }, again: null },
       doneWhen: hasLine ? null : asked.includes(focus.id)
         ? button('Ask your partner again', 'done-when', true, 'Your partner was asked: ask once more when its Done when does not come')
         : button('Ask your partner to write its Done when', 'done-when', true, 'Your partner writes how you check the goal is done'),
@@ -11521,13 +11680,14 @@ function focusStepList(part) {
     const row = el('li', `focus-step is-${one.tone}`)
     const what = el('span', 'focus-step-what', one.title)
     if (one.line !== '' || one.picture !== null || one.fixPicture !== null) {
-      const line = el('small', one.isFailed ? 'is-fail' : '', one.line)
+      // B696: the step ids in the line (its fix, "Waits for") open their step, through the one helper of the ask words.
+      const line = linkedEl('small', one.isFailed ? 'is-fail' : '', one.line)
       // B356, B504: the evidence of the check and of its fix, opened with a click
       if (one.picture !== null) line.append(' · ', focusLook('the evidence', one.picture))
       if (one.fixPicture !== null) line.append(' · ', focusLook('the evidence of the fix', one.fixPicture))
       what.append(line)
     }
-    row.append(el('span', 'focus-step-dot'), el('span', 'focus-step-id', one.id), what, el('span', 'focus-step-state', one.state))
+    row.append(el('span', 'focus-step-dot'), linkedEl('span', 'focus-step-id', one.id), what, el('span', 'focus-step-state', one.state))
     list.append(row)
   }
   box.append(list)
@@ -11567,7 +11727,7 @@ function focusRunCard(view) {
       row.append(toggle)
       if (part.isOpen) row.append(focusStepList(part))
     }
-    if (typeof part.fixFirst === 'string') row.append(el('small', 'focus-fix', part.fixFirst))
+    if (typeof part.fixFirst === 'string') row.append(linkedEl('small', 'focus-fix', part.fixFirst))
     // B680: under a Stopped part a small "Drop this part" (the reason is asked for first); a dropped one has its Undo.
     if (part.drop !== undefined) {
       const drop = focusButton(part.drop, 'focus-drop')
@@ -12990,7 +13150,9 @@ function focusVibeThereCard(view, can) {
   if (demo.link !== null) {
     const see = el('button', 'focus-demo-link', demo.link.label)
     see.type = 'button'
-    see.dataset.zoom = demo.link.path
+    // B699: a demo.json opens the page the board draws; a picture opens the picture window as before.
+    if (demo.link.isPage) see.dataset.demo = demo.link.path
+    else see.dataset.zoom = demo.link.path
     see.dataset.caption = demo.link.caption
     card.append(see)
   } else {
@@ -16288,7 +16450,7 @@ function show(tab) {
   if ($('view-spending')) $('view-spending').hidden = tab !== 'spending'
   // The address says which tab is open, so a reload stays on it. A link to a step's details is left as it is.
   // B149: so is a worker's link to a picture or to the game, until it is followed.
-  if (!['#details=', '#task=', '#picture=', '#play='].some(start => location.hash.startsWith(start))) {
+  if (!['#details=', '#task=', '#picture=', '#play=', '#demo='].some(start => location.hash.startsWith(start))) {
     const address = tab === 'overview' ? location.pathname : tab === 'coordinate' ? backlogAddress() : tab === 'advice' ? adviceAddress() : `#${tab}`
     // B255: leaving the goal map for another tab keeps its place in the browser's history: Back returns to the goal.
     if (goalFocusOf(location.hash) !== undefined && tab !== 'advice') history.pushState(null, '', address)

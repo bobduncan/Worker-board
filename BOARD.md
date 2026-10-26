@@ -141,8 +141,11 @@ tab) and never on the demo; once closed, the browser keeps that it was seen (`he
   last sweep of the supervisor's chat (part 2): "Last sweep at 10:30 (by the clock): 2 findings, 31,200 tokens.",
   "Sweep at 10:41 (asked, about Worker 2): running.", or why none ran ("No sweep at 10:41: no chat ... is open in the
   app."), with the day's sweeps and tokens ("Today 7 sweeps, 201,300 tokens."); "No sweep yet." before the first.
-  **Check now** runs the rules and a sweep at once; it no longer asks the main chat. Only cool colours: nothing in it
-  asks the person to act. × closes it until something newer; while it shows, the panel's head has no second Check now.
+  **Check now** runs the rules and a sweep at once; it no longer asks the main chat. From the press until the sweep has
+  ended it reads **Checking…** (disabled) and the section's head says "checking…" after the counts; then, for 10 minutes,
+  "checked 15:26: nothing new" or "checked 15:26: 2 new" (amber only for new ones); and when the supervisor's chat did not
+  start, "the supervisor's chat did not start: the code rules ran, the sweep did not". Otherwise only cool colours: nothing
+  in it asks the person to act. × closes it until something newer; while it shows, the panel's head has no second Check now.
   **Ready for a worker** (redesign Part 2, 2026-10-25), under the rows: the board's one list of the tasks that are
   refined and held by nothing, in its order (fixes first, then the focus goal's, then by id), each with its id (a link
   to its window), its title and whom it is for ("pinned to Worker 3"; "to Worker 2 first when it is free": a

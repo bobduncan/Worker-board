@@ -2,7 +2,9 @@
 // line, Yes waiting for the demo, the board's word to the partner (once, hourly, three at most), the button, the
 // partner's rule and the tool that draws the demo. Made-up names only.
 import assert from 'node:assert/strict'
-import { readFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { request } from 'node:http'
+import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import test from 'node:test'
 import { fileURLToPath } from 'node:url'
@@ -12,8 +14,11 @@ import { DEMO_AGAIN_MS, DEMO_WORDS, demoAgain, demoAskOf, demoDue, focusMove } f
 import { hasDemo, parseGoals } from '../src/goals.mjs'
 import { focusWords } from '../src/say.mjs'
 import { focusState } from '../src/state.mjs'
+import { createBoard } from '../server.mjs'
+import { checkList, demoPage, orderedPictures, pathFrom } from '../src/demo.mjs'
+import { findDemo } from '../src/pictures.mjs'
 import { parseItem } from '../src/work/item.mjs'
-import { checkList, demoHtml, missingPictures, orderedPictures, pictureFiles } from '../tools/demo.mjs'
+import { demoFile, missingPictures, pictureFiles, tooBigPictures, writeDemo } from '../tools/demo.mjs'
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 const script = await readFile(join(ROOT, 'public', 'board.js'), 'utf8')
@@ -21,6 +26,14 @@ const made = {}
 vm.runInNewContext(`${script.slice(script.indexOf('// focus:start'), script.indexOf('// focus:end'))}
 Object.assign(this, { focusView })`, made)
 const focusView = (...args) => JSON.parse(JSON.stringify(made.focusView(...args)))
+// B699: the demo page's drawing, run over a made-up document: every node is { tag, className, text, children }.
+const node = (tag, className = '', text = null) => ({ tag, className, text, children: [], dataset: {}, append(...more) { this.children.push(...more) } })
+const drawn = {}
+vm.runInNewContext(`${script.slice(script.indexOf('// demo:start'), script.indexOf('// demo:end'))}
+Object.assign(this, { demoBody })`, Object.assign(drawn, { el: node, picture: (path, caption) => Object.assign(node('button', 'picture'), { path, caption }) }))
+const flat = (one, found = []) => { found.push(one); for (const child of one.children) flat(child, found); return found }
+const withClass = (one, className) => flat(one).filter(each => each.className.split(' ').includes(className))
+const wordsOf = one => flat(one).map(each => each.text).filter(text => text !== null).join(' ')
 const CAN = { canWrite: true, whyNot: null }
 
 const NOW = new Date(2026, 9, 26, 9, 0).getTime()
@@ -72,14 +85,14 @@ test('the Demo line and the board\'s Demo asked line are read from the goal map'
 
 test('the state carries the demo as { path, caption } and whether it was asked', () => {
   const state = focusOf(['    Demo: art/g6/demo/g6-demo.png · what G6 made', '    Demo asked: 2026-10-26 09:00 · 1'])
-  assert.deepEqual(state.demo, { path: 'art/g6/demo/g6-demo.png', caption: 'what G6 made' })
+  assert.deepEqual(state.demo, { path: 'art/g6/demo/g6-demo.png', caption: 'what G6 made', isPage: false })
   assert.equal(state.demoAsked, '2026-10-26 09:00 · 1')
   assert.deepEqual([focusOf([]).demo, focusOf([]).demoAsked], [null, null])
 })
 
 test('the card "Did we reach the goal?" links the demo above Yes and No; without it Yes waits and the partner is asked again by a button', () => {
   const withDemo = focusView(focusOf(['    Demo: art/g6/demo/g6-demo.png · what G6 made']), null, CAN).vibeThere
-  assert.deepEqual(withDemo.demo, { text: null, link: { label: 'See the goal demo', path: 'art/g6/demo/g6-demo.png', caption: 'what G6 made' }, again: null })
+  assert.deepEqual(withDemo.demo, { text: null, link: { label: 'See the goal demo', path: 'art/g6/demo/g6-demo.png', caption: 'what G6 made', isPage: false }, again: null })
   assert.equal(withDemo.buttons[0].isEnabled, true)
   const without = focusView(focusOf([]), null, CAN).vibeThere
   assert.equal(without.demo.text, 'Your partner makes the goal demo first.')
@@ -89,8 +102,9 @@ test('the card "Did we reach the goal?" links the demo above Yes and No; without
   assert.match(without.buttons[0].title, /goal demo first/)
 })
 
-test('the page opens the demo in the picture window and sends the button\'s move', () => {
-  assert.match(script, /see\.dataset\.zoom = demo\.link\.path/)
+test('the page opens a demo picture in the picture window, a demo.json as a page, and sends the button\'s move', () => {
+  assert.match(script, /else see\.dataset\.zoom = demo\.link\.path/)
+  assert.match(script, /if \(demo\.link\.isPage\) see\.dataset\.demo = demo\.link\.path/)
   assert.match(script, /command: 'goal-demo', id: focus\.id/)
 })
 
@@ -159,11 +173,11 @@ test('the board asks for the demo in its reconcile loop; the partner\'s job name
   assert.match(server, /loops\.run\('goal-demo', \(\) => demoNow\(state\)\)/)
   const partner = (await readFile(join(ROOT, 'roles', 'partner.md'), 'utf8')).replace(/\s+/g, ' ')
   assert.match(partner, /## The goal demo/)
-  for (const words of ['`goal demo: G<n> <title>`', '`Demo: <the picture\'s path in the picture folder> · <a few words>`', 'node tools/demo.mjs', 'Reached', 'Not reached', 'Still open', 'FOLLOW-UP', 'fixed for good', 'escalate']) assert.ok(partner.includes(words), words)
+  for (const words of ['`goal demo: G<n> <title>`', '`Demo: <the demo.json\'s path in the picture folder> · <a few words>`', 'node tools/demo.mjs', 'Reached', 'Not reached', 'Still open', 'FOLLOW-UP', 'fixed for good', 'escalate']) assert.ok(partner.includes(words), words)
   assert.doesNotMatch(partner, /very last step is a recap page/)
 })
 
-// ---- the tool that draws the demo ----
+// ---- B699: the demo as data the board draws (src/demo.mjs, tools/demo.mjs, GET /api/demo, the page) ----
 
 const list = () => ({
   goal: 'G6', title: 'The polish',
@@ -172,7 +186,7 @@ const list = () => ({
       { kind: 'final', caption: 'now', path: 'shots/after.png' }, { kind: 'between', caption: 'try 1', path: 'shots/mid.png' },
       { kind: 'target', caption: 'the target', path: 'shots/target.png' }, { kind: 'before', caption: 'before', path: 'shots/before.png' }] }] },
     { kind: 'not-reached', intro: ['What went wrong:'], items: ['The wrong method.', 'Unfair checks.'], rows: [{ title: '2. Hits', pictures: [{ kind: 'final-not', caption: 'last try', path: 'shots/hit.png' }] }] },
-    { kind: 'open', items: ['Lanterns (B9)'], rows: [{ title: 'Three left', grid: [{ caption: 'A', path: 'shots/a.png' }, { caption: 'B', path: 'shots/b.png' }], cols: 2 }] },
+    { kind: 'open', items: ['Lanterns (B9)'], rows: [{ title: 'Three left', grid: [{ caption: 'A', path: 'shots/a.png' }, { caption: 'B', path: 'shots/b.png' }] }] },
   ],
   followUp: { fixedForGood: ['A rule now stops it (B1).'], fixedOnce: ['Fixed by hand. Action: a step.'], backlog: ['Hits: B9.'], noStep: ['Bridges: needs your yes.'], escalate: ['Refining: ask the architect.'] },
 })
@@ -180,27 +194,41 @@ const list = () => ({
 test('in every row the target comes first, then before, in between, and the final last, whatever the list says', () => {
   const rows = list().sections[0].rows[0].pictures
   assert.deepEqual(orderedPictures(rows).map(one => one.kind), ['target', 'before', 'between', 'final'])
-  const html = demoHtml(list(), 'C:/p')
-  const order = ['TARGET', 'BEFORE THIS GOAL', 'IN BETWEEN', 'FINAL, IN THE GAME'].map(label => html.indexOf(`>${label}<`))
-  assert.ok(order.every(at => at > 0) && order.every((at, i) => i === 0 || at > order[i - 1]), String(order))
-  for (const label of ['LAST TRY, IN THE GAME']) assert.ok(html.includes(`>${label}<`), label)
+  const row = demoPage(list(), 'g6/demo').sections[0].rows[0]
+  assert.deepEqual(row.pictures.map(one => one.label), ['TARGET', 'BEFORE THIS GOAL', 'IN BETWEEN', 'FINAL, IN THE GAME'])
+  assert.deepEqual(row.pictures.map(one => one.path), ['g6/demo/shots/target.png', 'g6/demo/shots/before.png', 'g6/demo/shots/mid.png', 'g6/demo/shots/after.png'])
+  assert.equal(demoPage(list(), '').sections[1].rows[0].pictures[0].label, 'LAST TRY, IN THE GAME')
 })
 
-test('three sections apart with their colours, then the five follow-up groups in order', () => {
-  const html = demoHtml(list(), 'C:/p')
-  const bands = ['>REACHED<', '>NOT REACHED: WHAT WENT WRONG<', '>STILL OPEN<', '>FOLLOW-UP: WHAT WENT WRONG, AND WHAT IS DONE ABOUT IT<'].map(one => html.indexOf(one))
-  assert.ok(bands.every((at, i) => at > 0 && (i === 0 || at > bands[i - 1])), String(bands))
-  assert.match(html, /<h3 style="color:#5ad19a">1\. Damage/)
-  assert.match(html, /<h3 style="color:#ff8278">2\. Hits/)
-  assert.match(html, /<h3 style="color:#9aa7bb">Three left/)
-  const groups = ['Fixed for good', 'Fixed this time only', 'Not fixed yet: on the backlog', 'Not fixed yet: no step', 'Escalate'].map(one => html.indexOf(one))
-  assert.ok(groups.every((at, i) => at > bands[3] && (i === 0 || at > groups[i - 1])), String(groups))
+test('three sections apart with their verdicts, then the five follow-up groups in order', () => {
+  const page = demoPage(list(), 'g6/demo')
+  assert.deepEqual(page.sections.map(one => [one.kind, one.verdict, one.band]), [['reached', 'Reached', 'REACHED'], ['not-reached', 'Not reached', 'NOT REACHED: WHAT WENT WRONG'], ['open', 'Still open', 'STILL OPEN']])
+  assert.equal(page.followUp.band, 'FOLLOW-UP: WHAT WENT WRONG, AND WHAT IS DONE ABOUT IT')
+  assert.deepEqual(page.followUp.groups.map(one => one.key), ['fixedForGood', 'fixedOnce', 'backlog', 'noStep', 'escalate'])
+  assert.deepEqual(page.followUp.groups.map(one => one.title), ['Fixed for good: a rule or the board now prevents it', 'Fixed this time only: needs a lasting fix', 'Not fixed yet: on the backlog', 'Not fixed yet: no step', 'Escalate: no clear fix here'])
+  // A grid's pictures carry no label; a list without a follow-up has none; the title and the intro have words.
+  assert.deepEqual(page.sections[2].rows[0].pictures.map(one => [one.label, one.caption]), [[null, 'A'], [null, 'B']])
+  const bare = demoPage({ ...list(), title: undefined, followUp: undefined })
+  assert.deepEqual([bare.followUp, bare.title, /^In every row: target first/.test(bare.intro)], [null, 'the goal demo', true])
+})
+
+test('the page draws each part with its verdict, its labelled pictures, and the follow-up last', () => {
+  const body = drawn.demoBody(demoPage(list(), 'g6/demo'))
+  assert.equal(wordsOf(withClass(body, 'demo-title')[0]), 'G6 · The polish: the goal demo')
+  const sections = body.children.filter(one => one.tag === 'section')
+  assert.deepEqual(sections.map(one => one.className), ['demo-section is-reached', 'demo-section is-not-reached', 'demo-section is-open', 'demo-section is-follow-up'])
+  assert.deepEqual(sections.map(one => wordsOf(withClass(one, 'demo-band')[0])).slice(0, 3), ['REACHED', 'NOT REACHED: WHAT WENT WRONG', 'STILL OPEN'])
+  assert.deepEqual(withClass(body, 'demo-verdict').map(wordsOf), ['Reached', 'Not reached', 'Still open'])
+  assert.deepEqual(withClass(sections[0], 'demo-kind').map(wordsOf), ['TARGET', 'BEFORE THIS GOAL', 'IN BETWEEN', 'FINAL, IN THE GAME'])
+  assert.deepEqual(withClass(sections[0], 'demo-figure').map(one => one.className), ['demo-figure is-target', 'demo-figure is-before', 'demo-figure is-between', 'demo-figure is-final'])
+  // Each picture is its own file, opened by a click on the picture frame (the picture window shows it at its own size).
+  assert.deepEqual(flat(sections[0]).filter(one => one.tag === 'button').map(one => one.path), ['g6/demo/shots/target.png', 'g6/demo/shots/before.png', 'g6/demo/shots/mid.png', 'g6/demo/shots/after.png'])
+  assert.ok(flat(sections[0]).filter(one => one.tag === 'button').every(one => one.className === 'picture demo-picture'))
+  assert.deepEqual(withClass(sections[3], 'demo-group').map(one => one.className.split(' ')[1]), ['is-fixedForGood', 'is-fixedOnce', 'is-backlog', 'is-noStep', 'is-escalate'])
+  assert.deepEqual(withClass(sections[1], 'demo-items')[0].children.map(wordsOf), ['The wrong method.', 'Unfair checks.'])
 })
 
 test('every bullet is one item per line; a line with several items, or a line break, is refused', () => {
-  const html = demoHtml(list(), 'C:/p')
-  assert.equal((html.match(/<li>/g) ?? []).length, 2 + 1 + 5 + 1 - 1 + 1)
-  assert.match(html, /<li>The wrong method\.<\/li><li>Unfair checks\.<\/li>/)
   const bad = list()
   bad.sections[1].items = ['One. • Two.']
   assert.throws(() => checkList(bad), /one item per bullet/)
@@ -208,17 +236,6 @@ test('every bullet is one item per line; a line with several items, or a line br
   assert.throws(() => checkList(bad), /one item per bullet/)
   bad.sections[1].items = ['']
   assert.throws(() => checkList(bad), /empty bullet/)
-})
-
-test('pictures keep their own size: rows wrap, only a picture wider than the page shrinks; words are escaped', () => {
-  const html = demoHtml({ ...list(), title: 'A <b>&</b> title' }, 'C:/p')
-  assert.match(html, /\.pictures img\{display:block;max-width:100%;height:auto\}/)
-  assert.match(html, /\.pictures\{display:flex;flex-wrap:wrap;/)
-  assert.match(html, /figure\{margin:0;min-width:0;max-width:100%;flex:none\}/)
-  assert.match(html, /\.grid\{display:flex;flex-wrap:wrap;/)
-  assert.ok(!html.includes('grid-template-columns'))
-  assert.ok(!html.includes('<b>&</b>'))
-  assert.match(html, /A &lt;b&gt;&amp;&lt;\/b&gt; title/)
 })
 
 test('only files that exist: a picture that is not there stops the demo and is named', () => {
@@ -231,6 +248,13 @@ test('only files that exist: a picture that is not there stops the demo and is n
   assert.deepEqual(missingPictures(list(), 'C:/p', () => true), [])
 })
 
+test('a picture over the board\'s limit is named: the board would answer too big', () => {
+  const big = tooBigPictures(list(), 'C:/p', file => (/hit\.png$/.test(file) ? 40 * 1024 * 1024 : 1000))
+  assert.equal(big.length, 1)
+  assert.match(big[0].file, /hit\.png$/)
+  assert.deepEqual(tooBigPictures(list(), 'C:/p', () => 32 * 1024 * 1024), [])
+})
+
 test('a list the tool cannot draw is refused with the reason', () => {
   assert.throws(() => checkList(null), /an object/)
   assert.throws(() => checkList({ goal: 'six', sections: [{}] }), /by id/)
@@ -238,6 +262,121 @@ test('a list the tool cannot draw is refused with the reason', () => {
   assert.throws(() => checkList({ goal: 'G6', sections: [{ kind: 'maybe' }] }), /reached, not-reached or open/)
   assert.throws(() => checkList({ goal: 'G6', sections: [{ kind: 'reached', rows: [{ title: 'x' }] }] }), /pictures or a grid/)
   assert.throws(() => checkList({ goal: 'G6', sections: [{ kind: 'reached', rows: [{ title: 'x', pictures: [{ kind: 'sketch', path: 'a.png' }] }] }] }), /a picture's kind is/)
+})
+
+test('a picture path starts at the folder of the demo.json that names it', () => {
+  assert.equal(pathFrom('g6/demo', 'shots/a.png'), 'g6/demo/shots/a.png')
+  assert.equal(pathFrom('g6/demo', '../heights/b.png'), 'g6/heights/b.png')
+  assert.equal(pathFrom('g6/demo', 'C:/elsewhere/a.png'), 'C:/elsewhere/a.png')
+  assert.equal(pathFrom('', 'a/b.png'), 'a/b.png')
+})
+
+/** A project folder with picture files of their own sizes: the demo tool and the board's reading run on real files. */
+async function withProject(run) {
+  const project = await mkdtemp(join(tmpdir(), 'demo-b699-'))
+  try {
+    await mkdir(join(project, 'art', 'g6', 'shots'), { recursive: true })
+    for (const name of ['target', 'before', 'mid', 'after', 'hit', 'a', 'b']) await writeFile(join(project, 'art', 'g6', 'shots', `${name}.png`), Buffer.from(`pixels of ${name}`))
+    await run(project)
+  } finally {
+    await rm(project, { recursive: true, force: true })
+  }
+}
+
+test('the tool writes demo.json beside the pictures: ordered rows, paths from its own folder, every picture its own file', async () => {
+  await withProject(async project => {
+    const listFile = join(project, 'art', 'g6', 'list.json')
+    await writeFile(listFile, JSON.stringify(list()))
+    const out = join(project, 'art', 'g6', 'demo', 'demo.json')
+    const done = await writeDemo({ listFile, out })
+    assert.deepEqual([done.out, done.pictures], [out, 7])
+    const written = JSON.parse(await readFile(out, 'utf8'))
+    assert.deepEqual(written.sections[0].rows[0].pictures.map(one => [one.kind, one.path]),
+      [['target', '../shots/target.png'], ['before', '../shots/before.png'], ['between', '../shots/mid.png'], ['final', '../shots/after.png']])
+    assert.deepEqual(written.sections[2].rows[0].grid.map(one => one.path), ['../shots/a.png', '../shots/b.png'])
+    // Without --out it lands beside the list as demo.json, and never over the list itself.
+    assert.equal((await writeDemo({ listFile })).out, join(project, 'art', 'g6', 'demo.json'))
+    await assert.rejects(writeDemo({ listFile, out: listFile }), /not the list itself/)
+    // demoFile is pure: the same file from the list.
+    assert.deepEqual(demoFile(list(), join(project, 'art', 'g6'), join(project, 'art', 'g6', 'demo')), written)
+  })
+})
+
+test('the tool stops on a picture that is not there, naming it, and writes nothing', async () => {
+  await withProject(async project => {
+    const listFile = join(project, 'art', 'g6', 'list.json')
+    const gone = list()
+    gone.sections[1].rows[0].pictures[0].path = 'shots/gone.png'
+    await writeFile(listFile, JSON.stringify(gone))
+    const out = join(project, 'art', 'g6', 'demo', 'demo.json')
+    await assert.rejects(writeDemo({ listFile, out }), /not there[\s\S]*gone\.png/)
+    await assert.rejects(readFile(out), { code: 'ENOENT' })
+    const odd = list()
+    odd.sections[1].rows[0].pictures[0].path = 'list.json'
+    await writeFile(listFile, JSON.stringify(odd))
+    await assert.rejects(writeDemo({ listFile, out }), /a picture is a \.png/)
+  })
+})
+
+test('the board reads a demo.json of a shown folder as the page, with paths from its folder; else nothing or a plain reason', async () => {
+  await withProject(async project => {
+    const listFile = join(project, 'art', 'g6', 'list.json')
+    await writeFile(listFile, JSON.stringify(list()))
+    await writeDemo({ listFile, out: join(project, 'art', 'g6', 'demo', 'demo.json') })
+    const roots = ['art']
+    const found = await findDemo(project, roots, 'art/g6/demo/demo.json')
+    assert.equal(found.page.goal, 'G6')
+    assert.deepEqual(found.page.sections[0].rows[0].pictures.map(one => one.path), ['art/g6/shots/target.png', 'art/g6/shots/before.png', 'art/g6/shots/mid.png', 'art/g6/shots/after.png'])
+    // Not a shown folder, not a .json, a path that climbs, a file that is not there: nothing.
+    assert.equal(await findDemo(project, ['other'], 'art/g6/demo/demo.json'), null)
+    assert.equal(await findDemo(project, roots, 'art/g6/shots/target.png'), null)
+    assert.equal(await findDemo(project, roots, 'art/../g6/demo/demo.json'), null)
+    assert.equal(await findDemo(project, roots, 'art/g6/demo/none.json'), null)
+    // A file that is there but cannot be drawn answers why, in plain words.
+    await writeFile(join(project, 'art', 'g6', 'demo', 'broken.json'), '{ not json')
+    await writeFile(join(project, 'art', 'g6', 'demo', 'bare.json'), JSON.stringify({ goal: 'six' }))
+    assert.equal((await findDemo(project, roots, 'art/g6/demo/broken.json')).why, 'The demo list is not valid JSON.')
+    assert.match((await findDemo(project, roots, 'art/g6/demo/bare.json')).why, /by id/)
+  })
+})
+
+test('GET /api/demo gives the page to the board\'s own page only; 404 without a demo, 422 with the reason', async () => {
+  const token = 'a'.repeat(64)
+  const server = createBoard({
+    token, getState: async () => ({ readAt: 1, chats: [] }), say: async () => ({}),
+    demo: async path => (path === 'art/g6/demo/demo.json' ? { page: { goal: 'G6' } } : path === 'art/g6/demo/broken.json' ? { why: 'The demo list is not valid JSON.' } : null),
+  })
+  await new Promise(done => server.listen(0, '127.0.0.1', done))
+  const ask = (path, headers = {}) => new Promise((resolve, reject) => {
+    const call = request({ host: '127.0.0.1', port: server.address().port, path, headers }, answer => {
+      let text = ''
+      answer.on('data', chunk => { text += chunk })
+      answer.on('end', () => resolve({ status: answer.statusCode, text }))
+    })
+    call.on('error', reject)
+    call.end()
+  })
+  try {
+    const path = `/api/demo?path=${encodeURIComponent('art/g6/demo/demo.json')}`
+    assert.equal((await ask(path)).status, 403)
+    const good = await ask(path, { 'X-Board-Token': token })
+    assert.deepEqual([good.status, JSON.parse(good.text)], [200, { goal: 'G6' }])
+    assert.equal((await ask('/api/demo?path=art/none.json', { 'X-Board-Token': token })).status, 404)
+    const broken = await ask('/api/demo?path=art/g6/demo/broken.json', { 'X-Board-Token': token })
+    assert.deepEqual([broken.status, broken.text.includes('not valid JSON')], [422, true])
+  } finally {
+    await new Promise(done => server.close(done))
+  }
+})
+
+test('a Demo line naming a .json is a page: the state says so and carries the number of words; the page keeps no copy of it', async () => {
+  const page = focusOf(['    Demo: art/g6/demo/demo.json · what G6 made'])
+  assert.deepEqual(page.demo, { path: 'art/g6/demo/demo.json', caption: 'what G6 made', isPage: true })
+  assert.equal(page.demoWords, DEMO_WORDS)
+  const link = focusView(page, null, CAN).vibeThere.demo.link
+  assert.deepEqual([link.path, link.isPage], ['art/g6/demo/demo.json', true])
+  assert.ok(!/DEMO_WORDS_SHOWN/.test(script))
+  assert.match(script, /location\.hash\.startsWith\('#demo='\)/)
 })
 
 // ---- B686: what the first result check of B677 found ----
@@ -270,7 +409,7 @@ test('B686: after the third word and an hour without a demo the card says the pa
   const view = state => focusView(state, null, CAN).vibeThere.demo
   const third = '    Demo asked: 2026-10-26 07:00 · 3'
   assert.equal(at([third], NOW).demoGaveUp, true)
-  assert.match(view(at([third], NOW)).text, /did not answer in three tries/)
+  assert.match(view(at([third], NOW)).text, /did not answer in 3 tries/)
   assert.ok(view(at([third], NOW)).again !== null)
   // Not yet: the third word is under an hour old, or only the second went, or there is no time.
   assert.equal(at([third], new Date(2026, 9, 26, 7, 59).getTime()).demoGaveUp, false)
@@ -279,4 +418,22 @@ test('B686: after the third word and an hour without a demo the card says the pa
   assert.equal(view(at([third], null)).text, 'Your partner makes the goal demo first.')
   // With the demo there, never.
   assert.equal(at([third, '    Demo: a/b.png · made'], NOW).demoGaveUp, false)
+})
+
+test('B699: the demo page\'s pictures are fitted to the row without cropping, and each part has its tone', async () => {
+  const css = await readFile(join(ROOT, 'public', 'board.css'), 'utf8')
+  assert.match(css, /^\.picture\.demo-picture img \{[^}]*height: auto; aspect-ratio: auto; object-fit: contain/m)
+  for (const tone of ['is-reached { --tone: #5ad19a', 'is-not-reached { --tone: #ff8278', 'is-open { --tone: #9aa7bb']) assert.ok(css.includes(tone), tone)
+  assert.match(await readFile(join(ROOT, 'public', 'index.html'), 'utf8'), /<dialog class="demo-page" id="demo-page"/)
+})
+
+test('B699: the tool stops on a picture over the board\'s limit, naming it and its size, and writes nothing', async () => {
+  await withProject(async project => {
+    await writeFile(join(project, 'art', 'g6', 'shots', 'hit.png'), Buffer.alloc(33 * 1024 * 1024))
+    const listFile = join(project, 'art', 'g6', 'list.json')
+    await writeFile(listFile, JSON.stringify(list()))
+    const out = join(project, 'art', 'g6', 'demo', 'demo.json')
+    await assert.rejects(writeDemo({ listFile, out }), /over the board's limit of 32 MB[\s\S]*hit\.png \(33\.0 MB\)/)
+    await assert.rejects(readFile(out), { code: 'ENOENT' })
+  })
 })

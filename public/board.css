@@ -1041,6 +1041,9 @@ body.is-resizing { cursor: col-resize; user-select: none; }
 .supervisor-fold svg { width: 16px; height: 16px; flex: none; color: var(--muted); }
 .supervisor-caret { flex: none; width: 12px; color: var(--muted); font-size: 12px; }
 .supervisor-title { min-width: 0; font-size: 15px; font-weight: 700; overflow-wrap: anywhere; }
+/* "Check now" (the person, 2026-10-26): the quiet word after the counts, folded or open: "checking…", "checked 15:26: nothing new". */
+.supervisor-check { flex: 0 1 auto; min-width: 0; color: var(--muted); font-size: 12.5px; font-weight: 400; overflow-wrap: anywhere; }
+.supervisor-check.is-quiet { color: #9fb0c6; }
 .supervisor-note { margin: 2px 0 0; color: var(--muted); font-size: 12px; white-space: pre-line; }
 .supervisor-sub { margin: 14px 0 6px; color: var(--muted); font-size: 12.5px; font-weight: 600; }
 /* The incident cards (the person's choice of layout B, 2026-10-24): one card per fix step, its live state in a small chip, one
@@ -1105,13 +1108,18 @@ body.is-resizing { cursor: col-resize; user-select: none; }
   .supervisor { margin: 0 10px 10px; padding: 12px; }
   .supervisor-head { flex-wrap: wrap; }
   .supervisor-head .grow { display: none; }
-  .supervisor-fold { flex: 1 1 100%; }
+  .supervisor-fold { flex: 1 1 100%; flex-wrap: wrap; }
+  /* The status word under the counts, in line with them: the caret, the wrench and the gaps are 44px. */
+  .supervisor-title { flex: 1 1 0; }
+  .supervisor-check { flex: 1 1 100%; padding-left: 44px; }
   .sync-rows { gap: 6px 10px; }
   .sync-status { min-width: 0; }
   .inc-state { margin-left: 0; }
   .supervisor-rules { grid-template-columns: 1fr; }
 }
 /* supervisor:end */
+/* The one warm colour of the section: "checked 15:28: 3 new" takes the person's attention colour, for new findings only. */
+.supervisor-check.is-found { color: var(--waiting); font-weight: 600; }
 
 .lane { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; }
 .lane.is-waiting { border-color: #6a531d; }
@@ -2566,6 +2574,38 @@ body.is-resizing-rows { cursor: row-resize; user-select: none; }
 .focus-demo-link { align-self: flex-start; padding: 12px 22px; border: 1px solid #78a7ff; border-radius: 10px; background: #16264a; color: #cfe0ff; font: inherit; font-size: 17px; font-weight: 600; cursor: pointer; }
 .focus-demo-link:hover { background: #1d3366; }
 .focus-demo-wait { margin: 0; color: var(--muted, #8d9aae); }
+/* B699: the goal demo as a page: each part with its verdict and its labelled pictures fitted to the row (a click opens one at its own size), the follow-up last. */
+.demo-page { width: min(1500px, 96vw); max-height: 94vh; padding: 0; overflow: hidden; border: 1px solid var(--line); border-radius: 12px; background: var(--panel); color: var(--text); }
+.demo-page::backdrop { background: rgba(4, 7, 12, 0.85); }
+.demo-page[open] { display: flex; flex-direction: column; }
+.demo-scroll { flex: 1; min-height: 0; max-height: calc(94vh - 58px); padding: 6px 22px 28px; overflow-y: auto; }
+.demo-title { margin: 14px 0 4px; font-size: 24px; }
+.demo-intro { margin: 0 0 8px; color: var(--muted); }
+.demo-section { --tone: #9aa7bb; margin-top: 18px; }
+.demo-section.is-reached { --tone: #5ad19a; }
+.demo-section.is-not-reached { --tone: #ff8278; }
+.demo-section.is-open { --tone: #9aa7bb; }
+.demo-section.is-follow-up { --tone: #e6ecf5; }
+.demo-band { padding: 8px 14px; border-radius: 6px; background: var(--tone); color: #0a140e; font-size: 17px; font-weight: 700; }
+.demo-lines, .demo-items { margin: 8px 0 4px 6px; padding-left: 22px; line-height: 1.5; }
+.demo-lines { list-style: none; padding-left: 0; }
+.demo-row { margin-top: 14px; padding-bottom: 6px; border-bottom: 1px solid var(--line); }
+.demo-row-title { display: flex; align-items: baseline; gap: 10px; margin: 0; font-size: 18px; color: var(--tone); }
+.demo-verdict { padding: 1px 9px; border: 1px solid var(--tone); border-radius: 999px; font-size: 12px; font-weight: 700; letter-spacing: 0.03em; text-transform: uppercase; white-space: nowrap; }
+.demo-row-note { margin: 4px 0 0; color: var(--muted); }
+.demo-pictures { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 12px; align-items: start; margin-top: 8px; }
+.demo-figure { margin: 0; min-width: 0; }
+.demo-kind { font-size: 12px; font-weight: 700; letter-spacing: 0.04em; color: #8fb6ff; }
+.demo-figure.is-target .demo-kind { color: #e6ecf5; }
+.demo-figure.is-final .demo-kind, .demo-figure.is-final-art .demo-kind { color: #5ad19a; }
+.demo-figure.is-final-not .demo-kind { color: #ff8278; }
+.demo-figure figcaption { padding: 1px 0 4px; color: var(--muted); font-size: 13px; overflow-wrap: anywhere; }
+.picture.demo-picture { display: block; width: 100%; }
+.picture.demo-picture img { width: 100%; height: auto; aspect-ratio: auto; object-fit: contain; }
+.demo-group { margin: 12px 0 0 4px; padding-left: 12px; border-left: 4px solid #8fb6ff; }
+.demo-group.is-fixedForGood { border-left-color: #5ad19a; }
+.demo-group.is-escalate { border-left-color: #ff8278; }
+.demo-group h3 { margin: 0; font-size: 16px; }
 /* B686: the button under that line, in the style of the Done when button beside Yes and No. */
 .focus-ask-demo { align-self: flex-start; padding: 8px 16px; border: 1px solid var(--waiting); border-radius: 9px; background: transparent; color: var(--waiting); font: inherit; font-size: 14px; font-weight: 700; cursor: pointer; }
 .focus-ask-demo:disabled { opacity: 0.55; cursor: default; }
@@ -2789,6 +2829,10 @@ body.is-resizing-rows { cursor: row-resize; user-select: none; }
 .focus-step.is-now .focus-step-dot { background: var(--free); }
 .focus-step.is-stop .focus-step-dot { box-sizing: content-box; margin-top: 5px; width: 8px; height: 8px; background: none; border: 2px solid var(--warn); }
 .focus-step-id { color: var(--muted); font-size: 13px; }
+/* B696: the step ids are links, as the supervisor card's: mono, bold, underlined, readable on the muted lines. */
+.focus-step-id .ask-link { font-family: ui-monospace, "Cascadia Mono", Consolas, monospace; font-size: 13px; font-weight: 700; text-decoration-color: #3b5a85; text-underline-offset: 2px; }
+.focus-step-what small .ask-link { color: #8fb4ff; }
+.focus-step-what small .ask-link:hover, .focus-step-what small .ask-link:focus-visible { color: #c3d6ff; }
 .focus-step-what { min-width: 0; overflow-wrap: anywhere; font-size: 14px; }
 .focus-step-what small { display: block; color: var(--muted); font-size: 13px; }
 .focus-step-state { font-size: 13px; white-space: nowrap; color: var(--muted); }
