@@ -33,7 +33,7 @@ const WATCHER = { name: 'Watcher', state: 'free', isRunning: true, session: 'cli
  * looks like for the skip of a sweep while nothing changed (the review): a new mark at every look unless a test sets
  * `b.facts.value`; `ownFacts` leaves the port out, so the supervisor makes its own from the health summary.
  */
-function board({ working = true, pause = null, limits = {}, chat = { named: 'Watcher', title: 'Game - Watcher', card: WATCHER, withoutMod: false, mod: '0.16.0' }, steps = [], every, oldAfter, tokens = null, ownFacts = false } = {}) {
+function board({ working = true, pause = null, limits = {}, chat = { named: 'Watcher', title: 'Game - Watcher', card: WATCHER, withoutMod: false, mod: '0.16.0' }, steps = [], every, oldAfter, tokens = null, ownFacts = false, stopAt } = {}) {
   let now = START
   const facts = { value: null, looks: 0 }
   const outbox = []
@@ -51,7 +51,7 @@ function board({ working = true, pause = null, limits = {}, chat = { named: 'Wat
     noted: { load: async () => ({ noted: [], seen: {} }), save: async () => {} },
     now: () => now,
     loops: { run: async (_name, fn) => fn(), failed: () => {} },
-    settings: { ...(every === undefined ? {} : { supervisorSweepMinutes: every }), ...(oldAfter === undefined ? {} : { supervisor: { oldReadingMinutes: oldAfter } }) },
+    settings: { ...(every === undefined ? {} : { supervisorSweepMinutes: every }), ...(oldAfter === undefined && stopAt === undefined ? {} : { supervisor: { ...(oldAfter === undefined ? {} : { oldReadingMinutes: oldAfter }), ...(stopAt ?? {}) } }) },
     timers: { setInterval: (fn, ms) => intervals.push({ fn, ms }), clearInterval: () => {} },
     tell: async words => {
       const message = { id: `w${outbox.length + 1}`, at: now, ...words, state: 'waiting' }
@@ -138,8 +138,9 @@ test('Review Focus 3, quiet nights: no sweep when nothing works, while the perso
   assert.equal((await off.supervisor.checkNow({})).sweep.started, true)
 })
 
-test('B640, B645: a limit read over 30 min ago is no "nothing changed" for the sweep while work runs; a pause and a quiet board stay quiet', async () => {
-  const old = (five, week) => ({ fiveHour: { used: 11, level: 'ok', at: START - five * MIN }, week: { used: 58, level: 'ok', at: START - week * MIN } })
+test('B640, B645: a limit near a stop read over 30 min ago is no "nothing changed" for the sweep while work runs; a pause and a quiet board stay quiet', async () => {
+  // X47, X55, X56: only a reading near a stop (5-hour 80%, weekly 90%) is worth a lookup, so these are near one; the low ones are below.
+  const old = (five, week, used = [85, 92]) => ({ fiveHour: { used: used[0], level: 'warn', at: START - five * MIN }, week: { used: used[1], level: 'warn', at: START - week * MIN } })
   const pause = { state: 'pausing', since: START - MIN }
   // B645: a pause holds the sweep word until the resume and nothing spends in it, so an old reading starts no sweep then.
   for (const limits of [old(40, 5), old(10, 5)]) {
@@ -156,8 +157,8 @@ test('B640, B645: a limit read over 30 min ago is no "nothing changed" for the s
   await full.tick()
   assert.equal(full.sweeps().length, 0)
   // Work runs and the board looks as at the last sweep: skipped as before, but not while a reading is old (the lookup is what changes it).
-  const again = async (limits, oldAfter) => {
-    const b = board({ limits, oldAfter })
+  const again = async (limits, oldAfter, stopAt) => {
+    const b = board({ limits, oldAfter, stopAt })
     b.facts.value = 'same'
     await b.tick()
     b.outbox[0].state = 'delivered'
@@ -172,6 +173,14 @@ test('B640, B645: a limit read over 30 min ago is no "nothing changed" for the s
   // B645: the age counts from the supervisor settings' oldReadingMinutes (config.json "supervisor"), not from a key beside it.
   assert.equal(await again(old(10, 5), 5), 2, 'a reading 10 min old is old when the setting says 5')
   assert.equal(await again(old(40, 5), 90), 1, 'a reading 40 min old is fresh when the setting says 90')
+  // X47, X55, X56 (false alarms): an old reading far from a stop changes no decision, so it no longer wakes the supervisor chat (the sweep is skipped as before).
+  assert.equal(await again(old(40, 5, [11, 58])), 1, 'both limits low: no lookup for nothing')
+  assert.equal(await again(old(40, 40, [2, 64])), 1, 'the readings of X55 and X56')
+  assert.equal(await again(old(40, 40, [79, 89])), 1, 'just under the stop levels')
+  assert.equal(await again(old(40, 5, [80, 11])), 2, 'the 5-hour limit at its level')
+  assert.equal(await again(old(5, 40, [11, 90])), 2, 'the weekly limit at its level')
+  assert.equal(await again(old(40, 5, [85, 11]), undefined, { oldReadingFiveHourPercent: 90 }), 1, 'the level is a setting of the supervisor')
+  assert.equal(await again(old(40, 5, [60, 11]), undefined, { oldReadingFiveHourPercent: 50 }), 2)
   // Check now while the person pauses says why no sweep runs, old reading or not.
   assert.equal((await board({ pause, limits: old(40, 5) }).supervisor.checkNow({})).sweep.why, 'the person pauses all chats')
   assert.equal((await board({ pause, limits: old(10, 5) }).supervisor.checkNow({})).sweep.why, 'the person pauses all chats')

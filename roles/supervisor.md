@@ -27,7 +27,8 @@ sometimes with `(about <chat>)`: the person pressed Check now in that worker's m
      without it (a word failed hours ago, a step that waits as planned) is history, not the fault again; file nothing.
 4. End your turn with a short line: how many you filed, or "nothing looks wrong". Nothing else.
 
-A limit reading over 30 min old while a worker works (the limits line says "(old: N min)"): look the limits up once,
+A limit reading over 30 min old while a worker works (the limits line says "(old: N min)") and near a stop (the 5-hour
+limit at 80% or more, or the weekly at 90% or more; the board starts no sweep for an old low reading): look the limits up once,
 before anything else, with the app's usage tool `mcp__ccd_session_mgmt__get_usage`. It is a deferred tool: load it first
 with ToolSearch, query `select:mcp__ccd_session_mgmt__get_usage`, then call it with no arguments. The board reads that
 answer as a chat reading and keeps the newest reading of each limit itself, so it stands although your conversation is

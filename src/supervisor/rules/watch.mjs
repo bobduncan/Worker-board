@@ -12,6 +12,7 @@
 // holds the supervisor's own watch: `seen` (since when it first saw what only counts once it lasts) and `observed`
 // (what it sees now; the loop keeps those and forgets the rest). PURE.
 
+import { SUPERVISOR_DEFAULTS } from '../../config.mjs'
 import { sinceMs, valueOf } from '../../work/item.mjs'
 import { overlapIn } from '../../work/guards.mjs'
 import { stuckTakeBacks } from '../../work/handOut.mjs'
@@ -891,6 +892,16 @@ function notCleared(view, ctx) {
 }
 
 /**
+ * X47, X55, X56: the percent from which a limit's last reading counts as near a stop (the 5-hour limit at
+ * `oldReadingFiveHourPercent`, the weekly at `oldReadingWeekPercent`); `settings` may hold only some of the supervisor's
+ * settings, the defaults fill the rest. An old reading below it changes no decision: neither the rule old-limit-reading nor
+ * the sweep's lookup (index.mjs `limitsOld`) is worth it then.
+ */
+export const stopLevelOf = (key, settings = {}) => ({ ...SUPERVISOR_DEFAULTS, ...settings })[key === 'fiveHour' ? 'oldReadingFiveHourPercent' : 'oldReadingWeekPercent']
+/** Whether a limit's last reading (`limit.used`) is at or over its stop level (`stopLevelOf`). */
+export const isNearStop = (limit, key, settings = {}) => Number.isFinite(limit?.used) && limit.used >= stopLevelOf(key, settings)
+
+/**
  * 17. B601 (the fix of X47: at 15:32 both limits showed "read at 14:35" while the pause ran): a limit whose newest
  * reading is older than `oldReadingIncidentMinutes` (60) while a worker works (B645: not while the person pauses; B649: the age counts from the pause's end), when the app's file or a chat
  * should have given a newer one (B632, the fix of X55 and X56: past `oldReadingMinutes` (30) the supervisor chat looks the limits
@@ -910,8 +921,8 @@ function oldLimitReading(view) {
     const counted = Number.isFinite(limit?.at) ? readingAgeMinutes({ ...limit, at: afterPause(view, limit.at) }, view.now) : null
     if (counted === null || counted <= view.settings.oldReadingIncidentMinutes) continue
     // X47, X55, X56: an old low reading changes no decision; only one near a stop matters.
-    const stopAt = key === 'fiveHour' ? view.settings.oldReadingFiveHourPercent : view.settings.oldReadingWeekPercent
-    if (!(Number.isFinite(limit.used) && limit.used >= stopAt)) continue
+    if (!isNearStop(limit, key, view.settings)) continue
+    const stopAt = stopLevelOf(key, view.settings)
     const age = readingAgeMinutes(limit, view.now)
     found.push({
       rule: 'old-limit-reading', key: `old-limit-reading ${key}`, subject: 'board',

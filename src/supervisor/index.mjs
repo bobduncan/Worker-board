@@ -12,7 +12,7 @@ import { healthSummary } from './health.mjs'
 import { SYNC_EVERY_MS, memoryOf, syncRunner } from './loop.mjs'
 import { buildView } from './view.mjs'
 import { REFUSED_MS, REPAIR_RULES } from './rules/repair.mjs'
-import { WATCH_RULES } from './rules/watch.mjs'
+import { WATCH_RULES, isNearStop } from './rules/watch.mjs'
 import { incidentsOf, linesOwed, recordFindings } from './incidents.mjs'
 import { SWEEP_MOD, sweepRunner, tokensOfTurn } from './sweep.mjs'
 import { createHash } from 'node:crypto'
@@ -308,11 +308,12 @@ function sweepOver(sweep, { ports, every, tell, keep, facts, settings }) {
       return ['fiveHour', 'week'].some(key => limits[key]?.level === 'full')
     },
     // B640: a limit whose newest reading is over `oldReadingMinutes` old (B645: `settings.supervisor`'s, as the rules read it), while a chat works: the sweep's
-    // chat looks the limits up (roles/supervisor.md), and the board keeps that reading (state.limitReadings).
+    // chat looks the limits up (roles/supervisor.md), and the board keeps that reading (state.limitReadings). X47, X55, X56: only
+    // a reading near a stop (watch.mjs `isNearStop`, as the rule old-limit-reading) is worth a turn of the chat; an old low one changes no decision.
     limitsOld: async () => {
       const state = await ports.state()
       const old = Number.isFinite(settings.supervisor?.oldReadingMinutes) ? settings.supervisor.oldReadingMinutes : 30
-      return ['fiveHour', 'week'].some(key => (readingAgeMinutes(state.limits?.[key], ports.now()) ?? 0) > old)
+      return ['fiveHour', 'week'].some(key => (readingAgeMinutes(state.limits?.[key], ports.now()) ?? 0) > old && isNearStop(state.limits?.[key], key, settings.supervisor))
     },
     chat: () => sweep.chat(),
     // Its word on its way, or a turn of its chat running. The review: only a word waiting within its time, or taken in the

@@ -572,6 +572,7 @@ test('old-limit-reading (X47, B632, B645): a limit near a stop (5-hour 80%, week
   // The sweep's instructions say the same: look the limits up once past 30 min with get_usage.
   const role = (await readFile(new URL('../../roles/supervisor.md', import.meta.url), 'utf8')).replace(/\s+/g, ' ')
   assert.match(role, /over 30 min old.*once.*get_usage.*still old, over 60 min/)
+  assert.match(role, /over 30 min old.*near a stop.*no sweep for an old low reading.*once.*get_usage/)
   // X47, X55, X56: and file nothing for an old reading: the rule does, and only near a stop.
   assert.match(role, /old-limit-reading.*near a stop.*5-hour limit at 80% or more.*weekly at 90% or more.*file nothing/)
 })

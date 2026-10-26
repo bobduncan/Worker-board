@@ -3329,7 +3329,8 @@ the AI sweep by a cheap supervisor chat and the hand-over to the Advisor, comes 
   B632's check): the supervisor chat is cleared after every turn and the board reads only a chat's new transcript, so the board keeps
   the newest chat reading of each window itself (`state.limitReadings`, `limits.mjs newestPerWindow`; the server writes it to the
   project's `.claude/limit-readings.json` and passes it back to `buildState` as `keptReadings`); and a sweep is not skipped as
-  "nothing changed" when a limit's reading is past `oldReadingMinutes` (the sweep runner's `limitsOld`, read from
+  "nothing changed" when a limit's reading is past `oldReadingMinutes` and near a stop (the same levels as the rule, X47/X55/X56: an old low
+  reading wakes the supervisor chat for nothing; the sweep runner's `limitsOld`, read from
   `settings.supervisor`). B645 (the fix of B640's check): nothing is looked up while the person pauses (the bridge holds the sweep word until
   the resume, nothing spends in a pause and a reset is known by its time), so the sweep does not start for an old reading then and
   `old-limit-reading` is quiet; the sweep word's job (`roles/supervisor.md`) names the deferred tool `mcp__ccd_session_mgmt__get_usage`,

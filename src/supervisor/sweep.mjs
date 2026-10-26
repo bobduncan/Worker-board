@@ -95,8 +95,8 @@ const noteOf = value => (value !== null && typeof value === 'object' && Number.i
 /**
  * The sweep's runner. `every` how often in milliseconds (0: none, then only "Check now" sweeps); `workRuns()` true while a
  * chat works or a step is under way; `paused()` while the person pauses all (or resumes); `atLimit()` while a limit is
- * full; `limitsOld()` (B640) true while a limit's newest reading is over `oldReadingMinutes` old, which the sweep's chat looks up
- * with get_usage: the sweep is then not skipped as "nothing changed" (B645: a pause holds the sweep word until the resume, and
+ * full; `limitsOld()` (B640) true while a limit's newest reading is over `oldReadingMinutes` old and near a stop (X47, X55, X56: an old
+ * low reading changes no decision), which the sweep's chat looks up with get_usage: the sweep is then not skipped as "nothing changed" (B645: a pause holds the sweep word until the resume, and
  * nothing spends in a pause, so none runs for it then); `chat()` how the board sees the supervisor's chat (`whyNoSweep`); `sweeping()` true while its sweep word is on
  * its way or its chat runs a turn; `wake({ subject })` sends the sweep word: `{ ok, session, note }` or `{ ok: false,
  * why }`; `tokens({ session, from })` what the turn cost (`tokensOfTurn`), or null; `memory` `{ load(), save(value) }` its
