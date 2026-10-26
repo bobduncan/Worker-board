@@ -7094,9 +7094,22 @@ function taskFigure(path, word, detail) {
   const caption = el('figcaption')
   caption.append(el('b', '', word))
   if (detail !== '') caption.append(` · ${detail}`)
-  figure.append(picture(path, detail === '' ? word : `${word} · ${detail}`), caption)
+  const frame = picture(path, detail === '' ? word : `${word} · ${detail}`)
+  figure.append(frame, caption)
+  // B713: a picture keeps its own shape: the figure is as wide as its picture is wide for its height, so pictures side by side
+  // are as tall as each other and none has a bar or a cut edge.
+  const image = frame.querySelector('img')
+  image.addEventListener('load', () => {
+    const shape = image.naturalWidth / Math.max(1, image.naturalHeight)
+    figure.style.flexGrow = String(Math.round(shape * 100))
+    figure.style.maxWidth = `${Math.round(shape * TASK_PICTURE_HEIGHT)}px`
+    figure.dataset.shape = shape.toFixed(3)
+  })
   return figure
 }
+
+/** B713: the tallest a picture of the Summary grows alone (px); its figure is never wider than this height gives it. */
+const TASK_PICTURE_HEIGHT = 520
 
 /** B701: a line closed with a full stop, unless it ends with one already (or was cut short). */
 const endOf = text => (/[.!?…]$/.test(text) ? text : `${text}.`)
@@ -7255,12 +7268,15 @@ function drawTaskWindow(box, { state, need, lane, subject, step, item, asks, str
   const tab = TASK_TABS.some(([key]) => key === detailsOf.tab) ? detailsOf.tab : 'summary'
   const failed = summaryOf(item).failed
   const chips = [
-    { text: capitalized(item.state), tone: 'kind' },
+    { text: capitalized(item.state), tone: item.state === 'done' ? 'good' : 'kind' },
     ...(failed > 0 ? [{ text: `${failed} check${failed === 1 ? '' : 's'} failed`, tone: 'bad' }] : []),
     ...(item.owner === null || item.owner === undefined ? [] : [{ text: item.owner, tone: 'plain' }]),
     ...(item.goal === null || item.goal === undefined ? [] : [{ text: `Goal: ${goalNameOf(item.goal, state.goals?.nodes)}`, tone: 'goal' }]),
   ]
   const head = detailsHead({ code: item.id, title: item.title, chips, at: null }, el('span', `kind is-${need === null ? 'queued' : need.kind}`, need === null ? '≡' : KINDS[need.kind].sign), now)
+  // B713: the mockup's quiet chips and its one-line title (the whole title on hover).
+  head.classList.add('task-head')
+  head.querySelector('h2').title = item.title
 
   const nav = el('nav', 'task-tabs')
   for (const [key, name] of TASK_TABS) {

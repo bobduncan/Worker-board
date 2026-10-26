@@ -617,7 +617,8 @@ test('the demo shows the second design: six lanes with their queues, three reque
   assert.deepEqual(state.chats.map(chat => chat.queue[0]?.why.reason ?? null), ['busy', 'after', 'suspended', 'ready', 'busy', null])
   assert.deepEqual(state.chats.map(chat => chat.folders.map(folder => folder.name)), [[], ['units'], ['features'], ['cleanup'], ['levels'], []])
   assert.deepEqual(state.otherFolders.map(folder => folder.name), [])
-  assert.deepEqual(state.unassigned.map(step => step.title), ['Decide the name of the game'])
+  // B713: the demo's step B40 (a step in review with two pictures, for the page tests) has no chat of the demo.
+  assert.deepEqual(state.unassigned.map(step => step.title), ['Make the jump fall as fast as it rises, so the landing arrives sooner and the whole arc matches the picture we were given', 'Decide the name of the game'])
 
   assert.deepEqual(state.forYou.map(need => [need.from, need.kind, need.title, need.canAnswer]), [
     // Plan (2026-10-19): since the demo's partner filed its ask on the product plan's P5, its questions are no
@@ -625,6 +626,8 @@ test('the demo shows the second design: six lanes with their queues, three reque
     ['Advisor', 'input', 'P5: how does the game reach people?', true],
     ['Main', 'verify', 'Test player movement', true],
     ['Units', 'input', 'Choose pathfinding approach', true],
+    // B713: the demo's step B40 asks how its landing should feel (the page tests open its window).
+    ['Worker 5', 'input', 'How should the landing feel?', true],
   ])
   assert.deepEqual(state.forYou[2].options.map(option => [option.picture, option.isRecommended]), [
     ['art-inbox/pathfinding/option-a-navmesh.png', true],

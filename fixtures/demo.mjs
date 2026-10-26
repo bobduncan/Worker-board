@@ -7,6 +7,7 @@ import { fileURLToPath } from 'node:url'
 
 import { readFolders } from '../src/folders.mjs'
 import { listPictures } from '../src/pictures.mjs'
+import { parseItem } from '../src/work/item.mjs'
 import { storeFromText } from '../src/work/read.mjs'
 import { answer, assistant, fromChat, modCompaction, step, tool, toolResult, typed, usageResult, user } from './lines.mjs'
 
@@ -655,6 +656,36 @@ function demoWork(now) {
       ['Pictures', 'art-inbox/settings/settings-screen.png, art-inbox/pathfinding/option-a-navmesh.png, art-inbox/pathfinding/option-b-grid.png'],
       ['Options', 'A A link for friends: free and unlisted; ask again after M2 | B Public on itch.io: free, anyone finds it; needs a page and pictures | C Steam, paid: a desktop build; much later'], ['Advice', 'A, revisit after M2']]),
     sections: new Map([['Text', ['Known: it runs in the browser on a desktop. Not said: where it is put, who may play, free or paid.']]]),
+    problem: null,
+  })
+  // B713: a step in review whose Summary window holds two pictures of different shapes (a wide target, a tall latest try), a failed check with its plain lines and an open ask with an advised card: the page tests open it in a real browser.
+  work.items.set('B40', parseItem(`Id: B40
+Kind: step
+Title: Make the jump fall as fast as it rises, so the landing arrives sooner and the whole arc matches the picture we were given
+State: review
+Owner: Worker 5
+Goal: G4
+Since: ${stamp(now - 120 * MIN)}
+
+## Summary
+The jump falls as fast as it rises, like the arc in the picture. You feel the landing arrive sooner.
+
+## Picture
+art-inbox/summary/target.png
+
+## Checked
+Evidence: art-inbox/summary/now.png
+Tried: made the fall twice as fast as the rise
+Why: the fall is right, but the landing still floats for a moment
+- pass: the rise keeps its height
+- fail: the landing floats for a moment
+`))
+  work.activities[0].steps.push('B40')
+  work.items.set('Q96', {
+    head: new Map([['Id', 'Q96'], ['Kind', 'ask'], ['Title', 'How should the landing feel?'], ['State', 'open'], ['Owner', 'Worker 5'], ['Since', stamp(now - 300 * MIN)],
+      ['Filed', String(now - 300 * MIN)], ['Asks', 'decide'], ['Blocking', 'no'], ['Of', 'B40'],
+      ['Options', 'A Short and firm: it lands at once | B Soft: a small bounce before it settles | C Leave it as it is'], ['Advice', 'A']]),
+    sections: new Map([['Text', ['The fall is right; only the last moment before the landing differs.']]]),
     problem: null,
   })
   // The supervisor (spec 2026-10-24): the board's line to the person about its newest incident (demoSupervisor below).
