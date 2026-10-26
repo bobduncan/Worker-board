@@ -3496,9 +3496,9 @@ it can. The person: "It just needs to observe, periodically, not consume a lot o
 - **The review of part 2** (2026-10-24): a sweep word counts as on its way only while it waits within its time or was
   taken in the last 10 minutes (the raw outbox keeps an expired word "waiting" and one whose typing was never reported
   "taken": one such word had held every later sweep and Check now for good), and a sweep open 30 minutes has ended
-  (`SWEEP_LONGEST_MS`). A sweep by the clock is skipped while the board looks as at the last sweep (`facts`: the health
-  summary's sha1 with its times and counts masked, its "!" marks kept, kept on the sweep across restarts; the section
-  says "nothing changed since the last sweep"); Check now always sweeps; the summary leaves out the sweep words. The
+  (`SWEEP_LONGEST_MS`). A sweep by the clock was skipped while the board looked as at the last sweep (the health
+  summary's sha1 with its times and counts masked); since 2026-10-26 it runs only for something odd that is new (see
+  "Cheaper sweeps" below). Check now always sweeps; the summary leaves out the sweep words. The
   supervisor's chat files no ask through a "For you" block (the board ignores its block, its mod sends none). An
   incident's word to the partner waits as long as a step's (`isLate`), the incident is "with the advisor" only once the
   word arrived (typed, copied, or taken over 10 minutes ago, `wordState`), and a lost one is sent again. One person line
@@ -3566,9 +3566,17 @@ backlogitem is there. its not clear what the follow up is." They chose layout B 
   Main", "queued for Worker 2", "Worker 5 · building", "in review", "done · fixed"; from the step's record and its worker's
   lane, `src/supervisor/cards.mjs stepState`), and one quiet line: the incident ids and a few words, "(seen N×)" only above
   once. A click opens each incident's evidence, times and count. The rules are one folded line ("20 rules · 2 tripped").
+  **One line per incident (2026-10-26).** The person, looking at the section: "it says 9 open but i only see 3 fixed,
+  where are the open ones?" The card of the open incidents with no fix step showed a row of ids and one title. Now a card
+  that is not fixed and holds more than one incident lists every incident on its own line (`incidentCardOf`, `lines`):
+  its id, its own title whole (cut at a word after 110 characters), and "seen N×, last 10:40" (the date, "22 Oct",
+  when that was not today), the one seen last first; the evidence behind a click is in the same order. On the card without
+  a fix step each line also says that incident's own state ("with the Advisor", "sending to the Advisor…") when they
+  differ. A card with one incident, and the fixed cards (and "Closed, no fix needed"), keep the one quiet line.
 - **Grouping** is by the incident's `Fix` while it is being fixed or fixed; a step titled "Fix of X<n>" counts only as a
   fallback when no Fix does; an incident that came back, or is open again, does not keep its old Fix. Those with no fix
-  step stand on the last card, "No fix step yet": "sending to the Advisor…" while its word waits or was just taken, "with
+  step stand on the last card, "Open, no fix task yet (9)" (the count is the number of incidents the page lists on it):
+  "sending to the Advisor…" while its word waits or was just taken, "with
   the Advisor" once it arrived, "came back".
 - **Live**: `supervisor.view(now, live)` makes the cards at every refresh from the store, the chats and the Advisor's name
   the server passes, so a step the partner just linked shows at once. Quiet blues and greys, nothing warm.
@@ -4174,3 +4182,33 @@ word. A step in review whose check failed and whose fix is open reads "Being fix
 check whose fix was dropped says "its fix B<n> stopped" (`fixOutcomeOf`; the newest dropped fix is named). Rows follow
 option B of `art-inbox/board-mockups/how-steps`: the dot at the first line, the waiting dot as the waiting block, the
 failed-check line muted grey, the count line 18 px under the bar.
+
+## Cheaper sweeps (2026-10-26)
+
+The person, 2026-10-26: "yes make the runs cheaper". The supervisor's AI sweep ran by the clock every 30 minutes while work ran:
+20 sweeps in a day cost 4,125,521 tokens (about 166,000 each) and found no incident. The skip that should have prevented it
+(the health summary's hash unchanged) almost never held, because the summary changes every few minutes (minutes, states).
+Principle 7, "cost by design": a chat is woken only when there is work for it.
+
+1. A sweep by the clock (`sweepRunner.tick`) runs only when something odd is new since the last sweep: an odd line (a "!" line
+   of the health summary, `health.mjs oddLinesOf`, compared without times and minute counts, `withoutTimes`) that the last
+   sweep did not have, or a rule (`runner.status().rules`, state `tripped`) tripped now that was not tripped then
+   (`sweep.mjs unseenSince`). An odd line that went, a rule that stands tripped, one that tripped and mended (the board's own
+   repairs), and "Worker 2 working for 12 min" against "13 min" are nothing new. Otherwise the tick is skipped and the section
+   says "nothing odd since the last sweep" (`NOTHING_ODD`, replacing "nothing changed since the last sweep"; the old hash
+   `factsOf` is gone).
+2. The facts the sweep saw are `{ odd, tripped }`, kept on the sweep in `.claude/supervisor-sweep.json`. A file from before
+   holds a hash: no facts known, so the next sweep runs once. At the sweep's turn's end the facts are taken again and joined to
+   the first: what the sweep filed is seen, so no follow-up sweep runs for the incident it just opened.
+3. Kept as they were: the near-stop limit exception (`limitsOld`, B640), Check now always sweeps, a pause or a full limit or a
+   quiet board holds the sweep (B645, Review Focus 3), and the schedule's `supervisorSweepMinutes` (the soonest the next one can come).
+4. The safety net: the setting `supervisorSweepAtLeastHours` (config.json, 4 unless set, a number above 0): while work runs, a
+   sweep runs when that many hours passed since the last one began, whatever the board looks like.
+5. X43 (the same change): rule 8 (`undelivered`, `undeliveredWords`) ignores the supervisor's own `sweep` word, waiting or
+   expired. It goes stale in ten minutes by design (the next sweep replaces it); one that expired while the supervisor's chat was
+   off after a restart was counted as a lost word ("1 word to Supervisor not delivered, the oldest for 89 min", seen 106 times).
+   Every other word is counted as before.
+
+Incidents that show it failing: a sweep by the clock with nothing odd new (the tokens of the day's sweeps against the old 20);
+an odd situation, a tripped rule or a four-hour stretch with no sweep at all while work runs; a sweep word counted as undelivered.
+Tests: test/supervisor/sweep.test.mjs ("cheaper sweeps"), test/supervisor/watch.test.mjs (X43).

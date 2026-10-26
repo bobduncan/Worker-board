@@ -119,8 +119,8 @@ function fixStepOf(incident, named, steps) {
 /**
  * The cards: one per fix step, newest activity first (the step's last History line or Since, and when its incidents
  * got their state; not how often an incident is seen again, which would move the cards at every check), and last one
- * card "No fix step yet" for the incidents with none. `incidents` as incidents.mjs `incidentsOf` gives them; `items` the
- * store's items (a Map; null when it could not be read); `lanes` the board's chats; `words` a Map of an incident's id to
+ * card "Open, no fix task yet" for the incidents with none (the page adds how many it lists to the title).
+ * `incidents` as incidents.mjs `incidentsOf` gives them; `items` the store's items (a Map; null when it could not be read); `lanes` the board's chats; `words` a Map of an incident's id to
  * what became of its word to the partner; `hasPartner` whether the board has an Advisor to send to. Each card:
  * `{ key, step, title, state: { text, tone }, phase, incidents: [{ id, word }], at }`; `phase` the fix step's own State
  * (B573: what the section counts as in work; null without a step in the store), `word` the incident's own state, said
@@ -156,7 +156,7 @@ export function incidentCards({ incidents = [], items = null, lanes = [], words 
     const chip = [...each].sort((a, b) => CHIP_FIRST.indexOf(a.tone) - CHIP_FIRST.indexOf(b.tone))[0]
     const at = latest(loose)
     cards.push({
-      key: 'nofix', step: null, title: 'No fix task yet', state: { text: chip.text, tone: chip.tone }, phase: null,
+      key: 'nofix', step: null, title: 'Open, no fix task yet', state: { text: chip.text, tone: chip.tone }, phase: null,
       incidents: each.map(one => ({ id: one.id, word: one.text })), at: Number.isFinite(at) ? at : 0,
     })
   }

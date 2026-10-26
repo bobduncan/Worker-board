@@ -1067,6 +1067,9 @@ body.is-resizing { cursor: col-resize; user-select: none; }
 .inc-state.is-back { border-color: #7c86d6; color: #a5b4fc; }
 .inc-line { display: block; width: 100%; min-height: 0; margin: 4px 0 0; padding: 0; border: 0; background: transparent; color: var(--muted); font: inherit; font-size: 12.5px; line-height: 1.4; text-align: left; overflow-wrap: anywhere; cursor: pointer; }
 .inc-line:focus-visible { outline: 2px solid var(--free); outline-offset: 2px; border-radius: 3px; }
+/* 2026-10-26: a card with several open incidents: a row for each, in the line's own quiet grey. */
+.inc-row { display: block; }
+.inc-row + .inc-row { margin-top: 3px; }
 .inc-details { display: grid; gap: 8px; margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--line); cursor: auto; }
 .inc-detail-head { font-size: 13px; overflow-wrap: anywhere; }
 .inc-detail-meta { color: var(--muted); font-size: 12px; }

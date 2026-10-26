@@ -242,11 +242,15 @@ Design tab's "Asset providers" shows, for each kind, its provider and whether it
 (the supervisor, `DESIGN.md`): `{ "unknownMinutes": 10, "suspendedMinutes": 10, "idleMinutes": 10, "notRunningMinutes":
 30, "opusWaitMinutes": 15, "undeliveredMinutes": 10, "repairsPerDay": 3, "notClearedMinutes": 10, "oldReadingMinutes": 30, "oldReadingIncidentMinutes": 60, "oldReadingFiveHourPercent": 80, "oldReadingWeekPercent": 90 }`; any of them, each a
 number above 0.
-`supervisorSweepMinutes` (10 unless set): how often the board wakes the supervisor's chat for a sweep while work runs
-(a chat works or a step is taken or in progress; never while you pause all, at a full limit, or while the last sweep
-runs); 0 for no sweep by the clock (Check now still sweeps). A sweep costs a few tens of thousands of tokens, mostly
-cached; the supervisor's section shows each sweep's tokens and the day's sum, so lower it (or raise the minutes) to
-save tokens.
+`supervisorSweepMinutes` (10 unless set): the soonest the board wakes the supervisor's chat again for a sweep while work
+runs (a chat works or a step is taken or in progress; never while you pause all, at a full limit, or while the last sweep
+runs); 0 for no sweep by the clock (Check now still sweeps). A sweep by the clock runs only when something odd is new since
+the last one: a line the health summary marks "!" that the last sweep did not have (compared without times and minute
+counts), or a rule that is tripped and was not then; otherwise the section says "nothing odd since the last sweep".
+`supervisorSweepAtLeastHours` (4 unless set; a number above 0): the safety net, a sweep at least this often while work
+runs, whatever the board looks like. Check now always sweeps. A sweep costs a few tens of thousands of tokens, mostly
+cached (in practice 160,000 to 250,000 with the chat's own context); the supervisor's section shows each sweep's tokens and
+the day's sum, so raise the minutes to save tokens.
 The supervisor's section counts a rolling 24 hours, nothing to set: its head, folded or open, reads "Supervisor · 22 open ·
 1 found in 24 h", and the open section starts its note with "Last 24 h: 1 found (21 the 24 h before), 12 fixed. Open: 0 in
 work, 22 with the Advisor." Found is what opened or came back in the last 24 hours, with the same count for the 24 hours
