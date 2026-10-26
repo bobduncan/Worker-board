@@ -4154,3 +4154,13 @@ done nor open, and the goal can only finish once every part is done or dropped b
 
 Incidents that show it failing: a part with only dropped steps showing Done or a green bar; "Did we reach the goal?" while a
 part is Stopped. Tests: test/stoppedPart.test.mjs, test/partDropClick.test.mjs (B688: the click shows the box; Undo per part).
+
+## A part's steps: counts, open flag and fix words in the state (B684, B690)
+
+`focusState` gives each part its steps (`partStepOf`: id, title, tone, state in words, owner, check, fix outcome, waits
+for) and, in one place, `counts` (done, checking, fixing, building, stopped, waiting, total) and `opensItself` (a step
+stopped or a check failed and not fixed). `board.js` only words and draws them (`focusStepsView`); it matches no state
+word. A step in review whose check failed and whose fix is open reads "Being fixed", not "Being checked". A failed
+check whose fix was dropped says "its fix B<n> stopped" (`fixOutcomeOf`; the newest dropped fix is named). Rows follow
+option B of `art-inbox/board-mockups/how-steps`: the dot at the first line, the waiting dot as the waiting block, the
+failed-check line muted grey, the count line 18 px under the bar.
