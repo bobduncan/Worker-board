@@ -21,7 +21,7 @@
 
 import { askFiledMs, sinceMs, valueOf } from '../../work/item.mjs'
 import { stamp } from '../../work/migrate.mjs'
-import { waitIds } from '../../work/guards.mjs'
+import { overlapIn, waitIds } from '../../work/guards.mjs'
 import { PARTNER_AGAIN_MS, isPartnerAskWord, isRoutedToPartner, partnerAskWords } from '../../work/partnerAnswers.mjs'
 import { afterPause, isHolding } from '../../work/pause.mjs'
 import { refineWaitOf } from '../../work/refineWait.mjs'
@@ -320,6 +320,45 @@ function helperIdle(view, { seen = new Map(), observed = [] } = {}) {
   return found
 }
 
+/** The states in which a ready task's Touches hold it back from the hand-out: given or under way (work/handOut.mjs `match`). */
+const GIVEN_OR_UNDER_WAY = ['queued', 'taken', 'in progress', 'waiting on you']
+/** B722: a ready task waits this long, with no running worker free, before a closed worker is woken for it. */
+export const CLOSED_WAKE_MS = 2 * MIN
+
+/**
+ * B722 (the person, 2026-10-26: "i added it to the queu, why is it not picked up by worker 5?"): a ready task waits and
+ * no running worker is free, but a worker's chat is closed (its lane is "off", or free by its card and known not to run). The hand-out gives only to
+ * a running chat, so nobody acted. The board wakes the closed worker that has been closed longest, once, the way it wakes
+ * the partner's helper; while the person pauses nobody is woken, and a worker paused for the limit is not "off" (its
+ * own rule, limit-back, wakes it). A wake that brings no chat back is filed for the main chat: "B<n> waits; Worker <n>
+ * is closed and does not wake".
+ */
+function closedWorker(view, { seen = new Map(), observed = [] } = {}) {
+  const { items = new Map(), prefix = '', now, ready = [] } = view
+  const { workers, steps, isHeld, isFull, wakeOr } = factsOf(view)
+  if (isHeld || isFull || ready.length === 0) return []
+  const holds = lane => steps.some(item => ['queued', 'taken', 'in progress'].includes(stateOf(item)) && plain(valueOf(item, 'Owner'), prefix) === plain(lane.name, prefix))
+  if (workers.some(lane => lane.isRunning === true && lane.state === 'free' && !holds(lane))) return []
+  const since = lane => (Number.isFinite(lane.offSince) ? lane.offSince : -Infinity)
+  const closed = workers.filter(lane => (lane.state === 'off' || lane.state === 'free') && lane.isRunning === false && !holds(lane))
+    .sort((a, b) => since(a) - since(b) || a.name.localeCompare(b.name))
+  if (closed.length === 0) return []
+  for (const one of ready) {
+    const item = items.get(one.id)
+    if (item === undefined || overlapIn(items, item, GIVEN_OR_UNDER_WAY) !== null) continue
+    const lane = one.keptFor == null ? closed[0] : closed.find(each => plain(each.name, prefix) === plain(one.keptFor, prefix))
+    if (lane === undefined) continue
+    const watch = `closed worker ${one.id}`
+    observed.push(watch)
+    if (now - (seen.get(watch) ?? now) < CLOSED_WAKE_MS) return []
+    const key = `closed-worker ${lane.name} ${one.id}`
+    const fix = wakeOr(key, { do: 'wake', chat: lane.name, id: one.id, text: `work: ${one.id} is ready for you; run work next` },
+      { do: 'main', text: `${one.id} waits; ${lane.name} is closed and does not wake: start it` })
+    return [finding('closed-worker', key, lane.name, `${one.id} waits; ${lane.name} is closed`, fix)]
+  }
+  return []
+}
+
 /**
  * An ask routed to the partner, open ten minutes with no line about it lately (the partner was busy when the
  * reconciler would have woken it): it is woken now, busy or not; its line waits for the end of its turn.
@@ -579,6 +618,7 @@ export const REPAIR_RULES = [
   { id: 'limit-back', kind: 'repair', says: 'a worker paused for the limit after its time', check: limitBack },
   { id: 'old-name', kind: 'repair', says: 'a chat that asks under an old name', check: oldName },
   { id: 'helper', kind: 'repair', says: 'the partner\'s helper not running while refines or result checks wait', check: helperIdle },
+  { id: 'closed-worker', kind: 'repair', says: 'a ready task waits with no running worker free while a worker chat is closed', check: closedWorker },
   { id: 'partner-ask', kind: 'repair', says: 'an ask routed to the partner left unanswered', check: partnerAsk },
   { id: 'unchecked', kind: 'repair', says: 'a reported step left without its result check, or with its ask point answered and no check filed again', check: unchecked },
   { id: 'refine-again', kind: 'repair', says: 'a refine the Advisor took and did not write, asked again every 30 minutes, three times, then told to the person', check: refineAgain },
@@ -620,7 +660,7 @@ export const CHECKS = REPAIR_RULES.map(rule => ({ key: rule.id, words: rule.says
  * runner has seen what only counts once it has lasted (an owner missing from the list, the helper not running); what
  * is seen now is added to `observed` (an array), so the runner keeps it and forgets the rest.
  */
-export function findStuck({ items = new Map(), lanes = [], partner = null, helper = null, prefix = '', now, outbox = [], limits = {}, pause = null, refused = [], appStartedAt = null, focus = null, bases = [], seen = new Map(), observed = [] }) {
-  const view = { items, lanes, partner, helper, prefix, now, outbox, limits, pause, refused, appStartedAt, focus, bases }
+export function findStuck({ items = new Map(), lanes = [], partner = null, helper = null, prefix = '', now, outbox = [], limits = {}, pause = null, refused = [], appStartedAt = null, focus = null, bases = [], ready = [], seen = new Map(), observed = [] }) {
+  const view = { items, lanes, partner, helper, prefix, now, outbox, limits, pause, refused, appStartedAt, focus, bases, ready }
   return REPAIR_RULES.filter(rule => rule.id !== 'worktrees').flatMap(rule => rule.check(view, { seen, observed }))
 }
