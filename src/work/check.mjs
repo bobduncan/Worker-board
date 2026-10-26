@@ -14,15 +14,23 @@
 //
 // B527: six of the twelve failed result checks of 2026-10-24 were tests that pass without the fix. A step whose change
 // touches a test file is therefore reported with the mutant its tests caught ("Tests bite: <what was undone in a copy>
-// → <the assertion that failed>"); without that line the check fails and says the words to add.
+// → <the assertion that failed>").
 //
-// B569: the result opens with "Context:" and "Change:" in plain words, for the person's recap card (recapWords.mjs);
-// without them, too long, or with file names, code words or commit hashes in them, the check fails and says which.
+// B569: the result opens with "Context:" and "Change:" in plain words, for the person's recap card (recapWords.mjs).
+//
+// 2026-10-25 (the person: "check the work, not the wording"; the supervisor's X45, X50, X57, X67: of 37 reports refused
+// at least once in two days, 28 were refused for their wording only and 5 for facts only): the check refuses only for
+// facts about the work: the base branch against its remote, the branch gone, no worktree left, a repository told, a
+// result named, and for work outside git the files the step's Touches name. What is wording is a WARNING: the step
+// passes, the warning goes into its History ("check passed with warnings: ...") and, once, into the owner's `work next`
+// (api.mjs). A report that names no mutant for a change that touches tests, and a Context or Change that is missing,
+// too long or not plain, are such warnings: the partner's result check asks for the mutant (roles/partner.md), and the
+// board builds the card's words itself (recapWords.mjs `recapParts`). The worker is never sent back for them.
 
 import { join } from 'node:path'
 
 import { readBranches } from '../folders.mjs'
-import { partsFaults } from './recapWords.mjs'
+import { RESULT_CHARS, partsWarnings } from './recapWords.mjs'
 import { stepLeftovers } from './worktrees.mjs'
 
 /** A folder's last part, for Windows and other paths alike. */
@@ -70,21 +78,25 @@ export async function repoOfStep({ branch, merged, repos, run }) {
 }
 
 /**
- * `{ passed, lines }` for a reported step `id`: the repository its work is in (`repoOfStep`) has its base branch where
- * its remote has it (one without a remote is let be), the step's branch is gone from it and from its remote, and the
- * report names a result. A passed check names each part; a failed one the repository and its faults. `run` runs git
- * with the given arguments and answers its output or null (folders.mjs, `gitRunner`). No worktree of the step is left
- * (worktrees.mjs `stepLeftovers`): `fs` the file system the project folder is read with (worktrees.mjs `FILES`); null
- * leaves the project folder unread.
+ * `{ passed, lines, warnings }` for a reported step `id`: the repository its work is in (`repoOfStep`) has its base
+ * branch where its remote has it (one without a remote is let be), the step's branch is gone from it and from its
+ * remote, and the report names a result. A passed check names each part; a failed one the repository and its faults
+ * (facts only: never the report's wording). `warnings` (only when there are some) are what the step passes with: the
+ * report's words for the card, a missing mutant, a cut result (`cut`: the characters it had before the board kept its
+ * first 2000). `run` runs git with the given arguments and answers its output or null (folders.mjs, `gitRunner`). No
+ * worktree of the step is left (worktrees.mjs `stepLeftovers`): `fs` the file system the project folder is read with
+ * (worktrees.mjs `FILES`); null leaves the project folder unread.
  */
-export async function reportCheck({ id, branch, result, merged, repos, run, project = '', touches = [], exists = null, fs = null }) {
+export async function reportCheck({ id, branch, result, merged, repos, run, project = '', touches = [], exists = null, fs = null, cut = null }) {
+  // 2026-10-25: a result the board cut at its limit passes with a warning that says so.
+  const warnings = cut === null ? [] : [`the result was ${cut} characters: the board kept the first ${RESULT_CHARS} and cut the rest; put what matters first`]
   // B363: work outside git (no branch of its own, no merged commit a repository holds): its files are checked instead.
   // B580: so is a step whose branch, named at its take, no repository has or ever had (B568, a picture only).
   const own = typeof branch === 'string' ? branch.trim() : ''
   const isOwnBranch = own !== '' && own !== '-' && own.toLowerCase() !== 'none' && !repos.some(repo => repo.base === own)
   if (exists !== null && project !== '' && await repoOfCommit(merged, repos, run) === null && (!isOwnBranch || await isNowhere(own, repos, run))) {
     const left = await stepLeftovers({ id, repos, project, run, fs })
-    return outsideCheck({ result, touches, project, repoDirs: repos.map(repo => repo.dir), exists, left })
+    return outsideCheck({ result, touches, project, repoDirs: repos.map(repo => repo.dir), exists, left, warnings })
   }
   const faults = []
   const passed = []
@@ -120,15 +132,22 @@ export async function reportCheck({ id, branch, result, merged, repos, run, proj
   // Worktree clean-up: no worktree on the step's branch, and none (or its folder) named for the step, is left.
   faults.push(...await stepLeftovers({ id, branch: repo === null || isOnBase ? null : branch, repo, repos, project, run, fs }))
   if (String(result ?? '').trim() === '') faults.push('no result named')
-  // B569: the recap card's Context and Change, in plain words.
-  else faults.push(...partsFaults(result))
-  // B527: a change that touches a test file names the mutant its tests caught.
+  // B569, 2026-10-25: the recap card's Context and Change are the board's to build; what is off is a warning.
+  const words = partsWarnings(result)
+  warnings.push(...words)
+  // B527, 2026-10-25: a change that touches a test file names the mutant its tests caught; without it the step passes,
+  // and the partner's result check asks for one.
   const tests = repo === null ? [] : (await stepFiles({ id, branch, merged, dir: repo.dir, run })).filter(isTestFile)
   const bites = tests.length > 0 && hasBite(result)
-  if (tests.length > 0 && !bites) faults.push(`the change touches tests (${tests.slice(0, 3).join(', ')}${tests.length > 3 ? ', ...' : ''}) but the result names no mutant: add "${BITE_LINE}" and report again`)
+  if (tests.length > 0 && !bites) warnings.push(noMutantWords(tests))
   const failed = faults.filter(line => !line.startsWith('work in '))
-  return failed.length === 0 ? { passed: true, lines: [...passed, isOnBase ? `worked on ${branch.trim()} itself` : 'branch gone', 'worktree gone', 'result named', 'context and change named', ...(bites ? ['tests bite named'] : [])] } : { passed: false, lines: faults }
+  return failed.length === 0
+    ? { passed: true, lines: [...passed, isOnBase ? `worked on ${branch.trim()} itself` : 'branch gone', 'worktree gone', 'result named', ...(words.length === 0 ? ['context and change named'] : []), ...(bites ? ['tests bite named'] : [])], ...(warnings.length === 0 ? {} : { warnings }) }
+    : { passed: false, lines: faults }
 }
+
+/** The warning for a change that touches tests and a result that names no mutant (the result check asks for one). */
+export const noMutantWords = tests => `the change touches tests (${tests.slice(0, 3).join(', ')}${tests.length > 3 ? ', ...' : ''}) but the result names no mutant: the result check asks for one (next time add "${BITE_LINE}")`
 
 /** B598: the words a check fails with when a base branch is not where its remote has it; the rest of the line says why. */
 export const baseDiffers = (base, name) => `${base} of ${name} is not the same as origin/${base}`
@@ -235,12 +254,16 @@ function pathsIn(words, project) {
 }
 
 /**
- * B363: the check of a step whose work is outside git: the files its report's result names (else, when none of those
- * is a file for certain or there, those its Touches name) are there in the project's folder, outside every repository
- * (`repoDirs`): a file in a repository is work in git, reported with its merged commit. `exists(path)` answers whether
- * a path is there. `left`: the lines of the step's worktrees still left (worktree clean-up), each a fault.
+ * B363: the check of a step whose work is outside git: the files its Touches name are there in the project's folder,
+ * outside every repository (`repoDirs`): a file in a repository is work in git, reported with its merged commit.
+ * 2026-10-25: the files come from the step's Touches, no longer from the result's prose (it misread words such as
+ * "done/level.md" as a file that was not there, X57); a path in the prose that is not there is a warning, and the
+ * paths of the prose that are there stand in when Touches names none. A step whose Touches name no file and whose
+ * result names none that is there passes with a warning that no file was checked: the worker cannot name them
+ * anywhere else, so a refusal would loop. `exists(path)` answers whether a path is there. `left`: the lines of the
+ * step's worktrees still left (worktree clean-up), each a fault. `warnings`: those the report check already holds.
  */
-async function outsideCheck({ result, touches, project, repoDirs, exists, left = [] }) {
+async function outsideCheck({ result, touches, project, repoDirs, exists, left = [], warnings = [] }) {
   const repos = repoDirs.map(dir => plainPath(dir).toLowerCase())
   const isInRepo = where => repos.some(dir => where.toLowerCase() === dir || where.toLowerCase().startsWith(`${dir}/`))
   const weigh = async named => {
@@ -256,15 +279,20 @@ async function outsideCheck({ result, touches, project, repoDirs, exists, left =
     }
     return { found, missing, inGit }
   }
-  let seen = await weigh(pathsIn(result, project))
-  if (seen.found.length + seen.missing.length + seen.inGit.length === 0) seen = await weigh(pathsIn((Array.isArray(touches) ? touches : [touches]).join('\n'), project))
-  const { found, missing, inGit } = seen
+  const { found, missing, inGit } = await weigh(pathsIn((Array.isArray(touches) ? touches : [touches]).join('\n'), project))
   const lines = ['work outside git']
   if (missing.length > 0) lines.push(`not there: ${missing.join(', ')}`)
   if (inGit.length > 0) lines.push(`in a repository: ${inGit.join(', ')}; report that work with its merged commit`)
-  if (missing.length + inGit.length === 0 && found.length === 0) lines.push('no file named: name the files it made in the result')
   lines.push(...left)
   if (String(result ?? '').trim() === '') lines.push('no result named')
-  else lines.push(...partsFaults(result))
-  return lines.length === 1 ? { passed: true, lines: [...lines, `there: ${found.join(', ')}`, 'result named', 'context and change named'] } : { passed: false, lines }
+  if (lines.length > 1) return { passed: false, lines }
+  // The result's own paths are only looked at: one that is not there is a warning, one that is there stands in for
+  // Touches that name no file.
+  const said = await weigh(pathsIn(result, project))
+  const there = found.length > 0 ? found : said.found
+  const words = partsWarnings(result)
+  const warned = [...warnings, ...words]
+  if (said.missing.length > 0) warned.push(`the result names ${said.missing.join(', ')}, which ${said.missing.length === 1 ? 'is' : 'are'} not there`)
+  if (there.length === 0) warned.push("no file was checked: the step's Touches name none and the result names none that is there")
+  return { passed: true, lines: [...lines, ...(there.length === 0 ? [] : [`there: ${there.join(', ')}`]), 'result named', ...(words.length === 0 ? ['context and change named'] : [])], ...(warned.length === 0 ? {} : { warnings: warned }) }
 }

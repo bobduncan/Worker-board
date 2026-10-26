@@ -90,6 +90,29 @@ export function gitCheckPassed(item) {
   return last !== undefined && last.startsWith('check passed')
 }
 
+const BOARD_CHECK_LINE = /^check (?:passed|failed|pending)\b/
+const WARNED = /^check passed with warnings:\s*(.*)$/
+const WARNINGS_TOLD = /^check warnings told\b/
+
+/**
+ * 2026-10-25: the warnings the step's newest board check passed with ("check passed with warnings: ..." in its
+ * History), as `{ text, isTold }`, `isTold` once its owner's `work next` said them ("check warnings told to ..."); null
+ * when its newest check line is no such pass (a report since has its check pending again, so those are gone).
+ */
+export function boardWarningsOf(item) {
+  const words = historyOf(item).map(wordsOf)
+  const at = words.findLastIndex(one => BOARD_CHECK_LINE.test(one))
+  const found = at < 0 ? null : WARNED.exec(words[at])
+  if (found === null || found[1].trim() === '') return null
+  return { text: found[1].trim(), isTold: words.slice(at + 1).some(one => WARNINGS_TOLD.test(one)) }
+}
+
+/**
+ * 2026-10-25: the board's warning for a change that touches tests and a report that names no mutant (check.mjs
+ * `noMutantWords`) stands in the warnings text: the result check then demands a mutant of the checker.
+ */
+export const hasNoMutantWarning = warnings => /the change touches tests \(.*?\) but the result names no mutant/.test(String(warnings ?? ''))
+
 /**
  * B585 (X33: B522 read as waiting 39 min for its first check, counted from its move to review at 21:41, while its
  * board check passed only at 22:04, when the check word went to the partner): when the board's own check last passed

@@ -90,6 +90,8 @@ test('the repair base-equal: a step whose check failed only on main against orig
   // Its check runs again already, or passed: nothing.
   assert.deepEqual(stuck(items(inReview('B3', failedOn(5, PLAIN), `- ${stamp(ago(1))} server: check pending`))), [])
   assert.deepEqual(stuck(items(inReview('B4', failedOn(5, PLAIN), `- ${stamp(ago(1))} server: check passed: work in lantern`))), [])
+  // 2026-10-25: a pass with warnings is a pass too (the step waits for its result check, not for another check).
+  assert.deepEqual(stuck(items(inReview('B4', failedOn(5, PLAIN), `- ${stamp(ago(1))} server: check passed with warnings: the result names no Context`))), [])
   // Not in review: nothing.
   const done = item({ Id: 'B5', Kind: 'step', Title: 'x', State: 'done', Owner: 'Painter' }, { History: [failedOn(5, PLAIN)] })
   assert.deepEqual(stuck(items(done)), [])

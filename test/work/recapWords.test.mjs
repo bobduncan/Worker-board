@@ -4,7 +4,7 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 
 import { recapsOf, rewriteRecap } from '../../src/work/recap.mjs'
-import { LIMITS_RULE, goalParts, headingOf, insiderWords, isBeforeAfter, partsFaults, plainSentences, recapParts, reportParts, technicalWords } from '../../src/work/recapWords.mjs'
+import { goalParts, headingOf, insiderWords, isBeforeAfter, isWordingOnly, partsWarnings, plainSentences, recapParts, reportParts, technicalWords } from '../../src/work/recapWords.mjs'
 
 const stepOf = ({ summary = [], context = [], checked = [], history = [] }) => ({
   head: new Map([['Id', 'B7'], ['Kind', 'step'], ['State', 'done']]),
@@ -15,7 +15,7 @@ test('a report reads as its Context, its Change and the rest; the Change ends at
   assert.deepEqual(reportParts('Context: The lamps were dark. Change: They glow now. Details: lamps.mjs, Tests bite: x -> y'), { context: 'The lamps were dark.', change: 'They glow now.', rest: 'Details: lamps.mjs, Tests bite: x -> y' })
   assert.deepEqual(reportParts('Context: Dark. Change: Glow. Tests bite: x -> y'), { context: 'Dark.', change: 'Glow.', rest: 'Tests bite: x -> y' })
   assert.deepEqual(reportParts('Lamps glow; merged abc1234.'), { context: '', change: '', rest: 'Lamps glow; merged abc1234.' })
-  assert.deepEqual(partsFaults('Context: Dark. Change: Glow. Details: lamps.mjs'), [])
+  assert.deepEqual(partsWarnings('Context: Dark. Change: Glow. Details: lamps.mjs'), [])
 })
 
 test('the words a person should not need: file names and paths, code words, commit hashes; ids and plain words pass', () => {
@@ -78,10 +78,10 @@ test('an old recap reads in the new form from its step; its points picture is dr
 test('B591: ids and placeholders are refused in a report\'s Context and Change; an old sentence with ids, times, placeholders or half a quote is dropped', () => {
   assert.deepEqual(insiderWords('B531 waited behind <busy worker>; Q352 said so'), { ids: ['B531', 'Q352'], placeholders: ['<busy worker>'] })
   assert.deepEqual(insiderWords('A step waited behind a busy worker for 20 min.'), { ids: [], placeholders: [] })
-  assert.deepEqual(partsFaults('Context: B531 sat queued. Change: Main hands <n> on. Details: x'), [
-    'the Context holds ids (B531): say it in plain words, for someone who forgot, and put those after "Details:"',
-    'the Change holds placeholders (<n>): say it in plain words, for someone who forgot, and put those after "Details:"',
-    LIMITS_RULE,
+  // 2026-10-25: these are warnings now (the board tidies the card), no longer a refusal.
+  assert.deepEqual(partsWarnings('Context: B531 sat queued. Change: Main hands <n> on. Details: x').slice(0, 2), [
+    'the Context holds ids (B531): the card leaves those words out',
+    'the Change holds placeholders (<n>): the card leaves those words out',
   ])
   assert.deepEqual(technicalWords('say yes/how/cost, and a/b/c, but not src/content/arenas/dev or a/b.c/d or a\\b\\c').files, ['src/content/arenas/dev', 'a/b.c/d', 'a\\b\\c'])
   // B639: a drive, a leading slash or a game folder first also makes a path.
@@ -106,4 +106,58 @@ test('B591: a recap\'s card words written anew: plain, within the limits, its Po
   assert.deepEqual(rewriteRecap(note([['Points pass', ['5 of 5']]]), { context: 'Dark.', change: 'Glow.' }, step).item.sections.get('Points pass'), ['5 of 5'])
   assert.equal(rewriteRecap(note(), { context: 'B531 sat queued.', change: 'Glow.' }, step).why, 'N5: the Context holds ids (B531): say it in plain words, for someone who forgot, and put those after "Details:"')
   assert.equal(rewriteRecap(note(), { context: '', change: 'x'.repeat(501) }, step).why, 'N5: no Context; the Change is over 500 characters')
+})
+
+// 2026-10-25 (the person: "check the work, not the wording"): the board no longer sends a worker back for the words of a
+// card; it builds the card's Context and Change itself.
+const reportOf = text => `  Reported by Worker 2 on 2026-10-25 at 20:00: ${text} (merged 3f9a1c2)`
+
+test('2026-10-25: a card\'s Context and Change that read plain stay as written; too long ones are cut at a word', () => {
+  const plain = stepOf({ context: [reportOf('Context: Steps sat queued. Change: A free worker gets them. Details: x')] })
+  assert.deepEqual(recapParts(plain), { context: 'Steps sat queued.', change: 'A free worker gets them.', checked: null })
+  const words = 'dark lamps '.repeat(40)
+  const long = recapParts(stepOf({ context: [reportOf(`Context: ${words}Change: ${words.repeat(3)}Details: x`)] }))
+  assert.equal(long.context.length <= 300 && long.context.endsWith('…'), true)
+  assert.equal(long.change.length <= 500 && long.change.endsWith('…'), true)
+  assert.match(long.context, /lamps…$/, 'cut at a word, not inside one')
+})
+
+test('2026-10-25: the board tidies a card\'s words: file names, code words, hashes and placeholders left out sentence by sentence', () => {
+  const step = stepOf({ summary: ['Lamps stayed dark along the paths at night.'], context: [reportOf('Context: The lampPost rule in src/lamps.mjs was wrong. Paths were dark at night. Change: Merged 3f9a1c2. Every lamp glows after sunset. Main hands <n> on. Details: x')] })
+  assert.deepEqual(recapParts(step), { context: 'Paths were dark at night.', change: 'Every lamp glows after sunset.', checked: null })
+})
+
+test('2026-10-25: a missing Context or Change is built from the step\'s summary and the report; nothing plain left falls back the same way', () => {
+  const summary = ['Lamps stayed dark along the paths at night. It used lamps.mjs.']
+  // No Context at all: the summary. No Change: the report's plain sentences.
+  assert.deepEqual(recapParts(stepOf({ summary, context: [reportOf('Change: Every lamp glows after sunset. Details: x')] })), { context: 'Lamps stayed dark along the paths at night.', change: 'Every lamp glows after sunset.', checked: null })
+  assert.deepEqual(recapParts(stepOf({ summary, context: [reportOf('Context: Paths were dark. Details: Every lamp glows after sunset.')] })), { context: 'Paths were dark.', change: 'Every lamp glows after sunset.', checked: null })
+  // A Context that is nothing but file names and ids: the summary stands in.
+  assert.equal(recapParts(stepOf({ summary, context: [reportOf('Context: See B531 in src/lamps.mjs. Change: Lamps glow. Details: x')] })).context, 'Lamps stayed dark along the paths at night.')
+})
+
+test('2026-10-25: an item id in the card\'s words becomes that item\'s title when the store is given and the title reads plain', () => {
+  const item = (id, title) => ({ head: new Map([['Id', id], ['Kind', 'step'], ['Title', title]]), sections: new Map() })
+  const items = new Map([['B531', item('B531', 'Hand queued steps to free workers')], ['B532', item('B532', 'Fix of X15: rewrite lamps.mjs')]])
+  const step = stepOf({ context: [reportOf('Context: Step B531 sat queued. Change: B532 is done. Details: lamps.mjs')] })
+  assert.deepEqual(recapParts(step, items), { context: 'Step "Hand queued steps to free workers" sat queued.', change: '', checked: null })
+  // Without the store, or with a title that is no plainer, the id stays and the sentence is left out.
+  assert.equal(recapParts(step).context, '')
+})
+
+test('2026-10-25: isWordingOnly tells the refusals for wording the board made before from a refusal for a fact', () => {
+  const old = [
+    'work in board; the result names no Context: open it with "Context: <1-3 short lines: what was wrong or missing, for someone who forgot> Change: <what the person gets now> Details: <the rest, for the check>"; the result names no Change: after the Context, "Change: <what the person gets now>", then "Details:" and the rest; the Context and the Change are in plain words, for someone who forgot: no file names, code words, ids, commit hashes or placeholders; those go after "Details:"; the Context is at most 300 characters and the Change at most 500',
+    'work in board; the Context is 304 characters: at most 300, the rest goes after "Details:"; the Change holds file names (a.mjs), ids (B1): say it in plain words, for someone who forgot, and put those after "Details:"; the Context is at most 300 characters and the Change at most 500',
+    'work in board; the change touches tests (test/a.test.mjs) but the result names no mutant: add "Tests bite: <what was undone in a copy> → <the assertion that failed>" and report again',
+    'work outside git; the result names no Context: open it with "x"',
+  ]
+  for (const detail of old) assert.equal(isWordingOnly(detail), true, detail.slice(0, 60))
+  // One fact among them, or nothing known: not wording only.
+  assert.equal(isWordingOnly(`${old[1]}; main of board is not the same as origin/main`), false)
+  assert.equal(isWordingOnly('work in board; the branch b5 is still there'), false)
+  assert.equal(isWordingOnly('work in board; the worktree /p/board-b5 is still on b5: git worktree remove /p/board-b5'), false)
+  assert.equal(isWordingOnly('not there: art-inbox/a.png'), false)
+  assert.equal(isWordingOnly(''), false)
+  assert.equal(isWordingOnly(undefined), false)
 })

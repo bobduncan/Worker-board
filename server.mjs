@@ -986,9 +986,9 @@ async function main(args) {
       readState.reset()
     }
     if (done.ok && done.result.check !== undefined) {
-      const { id, branch, result, merged, touches } = done.result.check
+      const { id, branch, result, merged, touches, cut } = done.result.check
       // B304: the repositories the board knows; the check finds the one the step's work is in among them.
-      void runCheck({ id, branch, result, merged, touches, repos: knownRepos() })
+      void runCheck({ id, branch, result, merged, touches, cut, repos: knownRepos() })
     }
     return done
   }
@@ -996,7 +996,7 @@ async function main(args) {
    * The board's check of a reported step (B304), run in the background. B404: kept in runningChecks while it runs, and
    * its errors recorded (loop "check") instead of swallowed; a check that never finished is run again by the reconciler.
    */
-  function runCheck({ id, branch, result, merged, touches, repos = knownRepos() }) {
+  function runCheck({ id, branch, result, merged, touches, cut = null, repos = knownRepos() }) {
     if (runningChecks.has(id)) return runningChecks.get(id)
     // B404: a closing board starts no check; the stuck-check pass of the next board runs it.
     if (isClosing) return Promise.resolve()
@@ -1004,7 +1004,7 @@ async function main(args) {
     const exists = path => stat(path).then(() => true, () => false)
     const running = loops.run(`check:${id}`, async () => {
       // Worktree clean-up (2026-10-24): no worktree of the step, nor its folder, is left in the project folder.
-      const outcome = await reportCheck({ id, branch, result, merged, repos, run: gitRunner(), project: config.project, touches, exists, fs: WORKTREE_FILES })
+      const outcome = await reportCheck({ id, branch, result, merged, repos, run: gitRunner(), project: config.project, touches, exists, fs: WORKTREE_FILES, cut })
       const checked = await workApi({ action: 'check', id, ...outcome }, { ...(await workCtx()), as: 'server' })
       if (checked?.ok !== true) throw new Error(`the check of ${id} could not be written: ${checked?.why ?? 'no answer'}`)
       // B356: the board's check passed and the step waits for its result check: the partner is asked for it.

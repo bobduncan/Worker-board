@@ -716,6 +716,14 @@ board's word, never the user's.
    reference picture, the target; the kind's definition of done stands in your rounds under "Kinds of work") and its
    report. A step on the worker board itself is also checked against the board's design principles
    (`PRINCIPLES.md` in the board's folder): one point per principle it touches, a break a fail unless the step says why.
+   The board's own check no longer sends a report back for its wording (2026-10-25, "check the work, not the wording"):
+   what it passed with warnings stands in the board's word as `Board warnings:` (and in the step's History, "check
+   passed with warnings"). **A change that touches tests with a report that names no mutant** (the word then also
+   carries `Demand:`) is yours to demand: the helper makes the mutant itself, in a scratch copy and never on the branch
+   (undo the fix, run the new tests, see which assertion fails, delete the copy), and files it in the check's evidence.
+   A test that still passes without the fix is a `fail:` point ("tests do not bite: <what was undone>"), which makes
+   the fix step as any failed point. A report that names its `Tests bite:` mutant needs no demand: the helper may
+   repeat it.
 2. Hand the check to a fresh helper on Sonnet (`model: "sonnet"`), one that did not build it (never your own chat): it looks at the result as the
    user would (the game at that place, the page, the merged change), ticks every agreed point pass, fail or ask (ask:
    a look only the user can judge), and scores it against the kind's definition of done where that has a rubric (the

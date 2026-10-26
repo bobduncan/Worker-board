@@ -436,7 +436,7 @@ function heldElsewhere(view, { seen = new Map(), observed = [] } = {}) {
 }
 
 /** B598: the board's own check lines in a step's History: `[stamp, outcome, words]`. */
-const BOARD_CHECK = /^-\s+(\d{4}-\d\d-\d\d \d\d:\d\d)\s+server: check (passed|failed|pending)\b(?::\s*(.*))?$/
+const BOARD_CHECK = /^-\s+(\d{4}-\d\d-\d\d \d\d:\d\d)\s+server: check (passed|failed|pending)\b(?: with warnings)?(?::\s*(.*))?$/
 const BASE_FAULT = /^(\S+) of (.+?) is not the same as origin\/(\S+?)(?::|$)/
 
 /**

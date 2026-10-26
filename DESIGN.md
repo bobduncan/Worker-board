@@ -1382,8 +1382,9 @@ as a shadow of the backlog; B301 removed the shadow (below): the store is the on
   repository by its folder's last part. When no repository can be told, the check fails with "could not tell which
   repository B<id>'s work is in", never a silent pass. B363: a step whose work is outside git (pictures or pages
   in the project's folder: taken with branch `none`, or on no branch of its own, a repository's base or none, and no
-  merged commit a repository holds) is checked by its files: those its result names (else its Touches), in the
-  project's folder outside every repository: a word with a "/" and a file's ending or a "/" at its end must be there;
+  merged commit a repository holds) is checked by its files: those its Touches name (2026-10-25: no longer those its
+  result's prose names, which only warn), in the project's folder outside every repository: a word with a "/" and a
+  file's ending or a "/" at its end must be there;
   another ("and/or", "B1/B2/B3", a date) counts only when it is; one inside a repository is work in git, to be reported
   with its merged commit: "work outside git", "there: ...", "not there: ...", "in a repository: ..." (B353, B347).
   B580: a branch named at the take that no repository has or ever had (every repository answered, none has a trace)
@@ -2772,9 +2773,10 @@ this" (Q352).
 
 1. A report's result opens with `Context: <what was wrong or missing> Change: <what the person gets now>`, then
    `Details:` (or a `Tests bite:` line) and the rest for the check (src/work/recapWords.mjs `reportParts`). The
-   board's check of a report (check.mjs, in git and outside it) fails without both, with a Context over 300 or a
-   Change over 500 characters, or with file names (or paths), code words or commit hashes in them, and says which
-   (`partsFaults`). A report takes up to 2000 characters.
+   board's check of a report (check.mjs, in git and outside it) used to fail without both, with a Context over 300 or a
+   Change over 500 characters, or with file names (or paths), code words or commit hashes in them; since 2026-10-25 it
+   passes with a warning (`partsWarnings`) and the board builds the card's words itself (below, "The report check
+   judges the work, not the wording"). A report takes up to 2000 characters; the board warns when it cut one.
 2. The recap note keeps them as sections `Context` and `Change`, and `Points pass` ("5 of 5": the check that closed
    the step; a step closed through its fix has every point pass); sections, not head keys, so a board not yet updated
    still reads the note. A goal's recap: its why as the Context, its Done when as the Change.
@@ -2789,7 +2791,7 @@ this" (Q352).
    Context from the step's summary, the Change from its report, each in plain sentences (asides, files, code words,
    hashes and check words left out); its points picture dropped, a Before | After kept.
 6. B591 (the result check of B569): a card is read by someone who forgot, as the agreed one. The report check also
-   refuses item ids (B12, Q3, G15, ...) and placeholders (`<n>`) in the Context and Change (`plainFaults`); an old
+   warns of item ids (B12, Q3, G15, ...) and placeholders (`<n>`) in the Context and Change (`plainFaults`); an old
    record's sentence with one, a time or a measured wait, or half a quote is dropped. Every card shows only a
    Before | After picture, also a recap made since B569 from a check with a points picture. Cards whose words were cut
    from an old report get theirs written anew by `tools/recap-words.mjs <work folder> <words.json>` (the words from a
@@ -3928,6 +3930,42 @@ do: no work action, no mod change, no Codex run of its own.
   `providers`. The Design tab shows it under "Ideas so far", in a part "Asset providers": a line per kind with the kind,
   the provider and "works" or why not. The part is quiet; only a provider that does not work is in the attention colour.
   The demo and a board whose server sends none show no part.
+
+## The report check judges the work, not the wording (2026-10-25)
+
+The person, 2026-10-25 ("2 yes"), after the supervisor's incidents X45, X50, X57 and X67 (workers looped on refused
+reports): in two days 37 of about 178 reported steps were refused at least once, 28 of them for wording only and 5 for
+facts only. "Check the work, not the wording." The report check (src/work/check.mjs) now refuses only for facts about the
+work, and passes wording with a warning (principles 1 and 8: the board tidies, the worker is not sent back).
+
+- *Refuses (facts).* The base branch differs from its remote (with the way out, `baseFault`); the step's branch is still
+  there, locally or on the remote; a worktree or a worktree folder of the step is left; no repository can be told from
+  the merged commit or the branch; no result is named (the work API already refuses an empty one); for work outside git,
+  a file the step's Touches name is not there, or lies in a repository. The files come from the step's Touches, no
+  longer from the result's prose (which misread words such as "done/level.md" as a missing file, X57); a step whose
+  Touches name no file passes with a warning that no file was checked, since the worker has no other place to name
+  them.
+- *Warns (the step passes).* No `Tests bite:` mutant for a change that touches a test file; a Context or Change that is
+  missing, over 300 or 500 characters, or holds file names, code words, hashes, ids or placeholders
+  (`partsWarnings`); a path in the result's prose that is not there; a result the board cut at its 2000 characters
+  (`report` keeps the limit and writes "result cut: N characters" in History; the check reads it, also on a check run
+  again).
+- *Where a warning goes.* The check's outcome carries `warnings`; the History line reads `check passed with warnings:
+  ...` and the step closes (or waits for its result check) as after a pass. The owner's next `work next` tells them
+  once, for a step in any state ("The board's check passed these with warnings (nothing to redo; said once)"), and
+  writes `check warnings told to <chat> (work next)`; a board that only shows, and the page's look at a chat's next,
+  tell nothing. A newer report or check line takes the old warnings away (`boardWarningsOf`, resultCheck.mjs).
+- *The mutant.* The partner's result check asks for it: the board's word to the partner carries `Board warnings:` and,
+  for a report that names no mutant for a change touching tests, a `Demand:` line (`checkStepWords`, say.mjs); the
+  helper makes the mutant in a scratch copy and a test that still passes is a fail point (roles/partner.md, "The
+  check").
+- *The card.* The recap's Context and Change are the board's own words (`recapParts`): as the worker wrote them when
+  they read plain (cut at a word to 300 and 500 characters), else tidied sentence by sentence (file names, code words,
+  hashes, placeholders and ids left out; an id turned into the step's title when the store is at hand and the title
+  reads plain), and from the step's summary and the report where a part is missing or nothing plain is left.
+- *The supervisor.* The rule `report-check-twice` counts only failed checks that refused for a fact: the refusals for
+  wording that older History lines hold are known (`isWordingOnly`, recapWords.mjs) and left out; a pass with warnings
+  is a pass, and the repair `base-equal` reads it as one.
 
 ## What it does not do
 

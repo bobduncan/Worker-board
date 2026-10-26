@@ -22,9 +22,9 @@ import { acceptRefine, answerRefine } from './refineText.mjs'
 import { placesIn } from '../places.mjs'
 import { DECIDED, GOAL_ID, NEEDS, UNDONE, decidedOf, isDailyNote, needsOf, undoneOf } from './dailyNote.mjs'
 import { HOW_MARK, openAsksOf as openAsksUnder, refineAsksOf as asksCounted } from './stepAsks.mjs'
-import { ANOTHER_WAY, TRIES_BEFORE_ANOTHER_WAY, agreedPoints, answerReading, chainTries, checkedOf, checkWhy, fixesOf, fixesThrough, fixTitle, needsResultCheck, parentPointsOf, parsePoints, resultCheckAtMs, resultCheckOf, reviewWaitOf } from './resultCheck.mjs'
+import { ANOTHER_WAY, TRIES_BEFORE_ANOTHER_WAY, agreedPoints, answerReading, boardWarningsOf, chainTries, checkedOf, checkWhy, fixesOf, fixesThrough, fixTitle, needsResultCheck, parentPointsOf, parsePoints, resultCheckAtMs, resultCheckOf, reviewWaitOf } from './resultCheck.mjs'
 import { RECAP_ANSWERS, dueRecaps, isRecap, recapMadeSince } from './recap.mjs'
-import { goalParts, recapParts } from './recapWords.mjs'
+import { RESULT_CHARS, goalParts, recapParts } from './recapWords.mjs'
 import { kindsNamed, noneForLook, parseStandard, standardNoneRefused, standardOf, standardWanted } from './standard.mjs'
 import { EFFORTS, effortOf, modelOf, parseEffort, parseModel, withEffort, withModel } from './effort.mjs'
 import { appendHistory, nextId, putBack, readActivitiesText, readItemFile, readStore, removeItem, writeActivities, writeItem } from './store.mjs'
@@ -103,6 +103,8 @@ const ANY_ID = /^(?:[A-Z]\d+|L-[0-9a-f]{8})$/
 const ONLY_IDS = /^B\d+(?:(?:\s*,\s*|\s+and\s+)B\d+)*$/
 const TEXT_CHARS = 4000
 const LINE_CHARS = 300
+/** 2026-10-25: a warning of the board's check may name a few test files and the words to add: room for them. */
+const WARNING_CHARS = 450
 
 const refuse = (status, why) => ({ ok: false, status, why })
 
@@ -315,9 +317,42 @@ async function next(body, w) {
   // Partner answers (2026-10-19): the asks the partner answers for the person stand first in its next.
   const routed = w.role === 'advisor' ? routedAsks(w) : { text: '', ids: [] }
   const found = steady(body, w, chat)
-  if (!found.ok || (notes.ids.length === 0 && routed.ids.length === 0)) return found
-  const text = [routed.text, notes.text, found.result.text].filter(Boolean).join('\n\n')
-  return { ok: true, result: { ...found.result, text, ...(routed.ids.length === 0 ? {} : { routed: routed.ids }), ...(notes.ids.length === 0 ? {} : { notes: notes.ids, changed: true }) } }
+  // 2026-10-25: the warnings the board's check passed the chat's steps with, said once (a chat only: not the page's look).
+  const warned = found.ok && w.role !== 'person' && w.role !== 'server' && w.onlyShows !== true ? await tellWarnings(chat, w) : { text: '', ids: [] }
+  if (!found.ok || (notes.ids.length === 0 && routed.ids.length === 0 && warned.ids.length === 0)) return found
+  const text = [routed.text, notes.text, found.result.text, warned.text].filter(Boolean).join('\n\n')
+  return { ok: true, result: { ...found.result, text, ...(routed.ids.length === 0 ? {} : { routed: routed.ids }), ...(notes.ids.length === 0 ? {} : { notes: notes.ids }), ...(notes.ids.length + warned.ids.length === 0 ? {} : { changed: true }), ...(warned.ids.length === 0 ? {} : { warned: warned.ids }) } }
+}
+
+/** 2026-10-25: `{ warnings }`, the text the step's newest board check passed with; `{}` when it has none. */
+const warningsOf = item => {
+  const warnings = boardWarningsOf(item)
+  return warnings === null ? {} : { warnings: warnings.text }
+}
+
+/**
+ * 2026-10-25: the warnings the board's check passed the chat's steps with ("check passed with warnings: ..." in
+ * History), each said once: a step of the chat, in any state, whose newest board check has warnings not told yet gets
+ * "check warnings told to <chat> (work next)" in its History. The step passed; the words say what to do next time
+ * (roles/worker.md). `{ text, ids }`.
+ */
+async function tellWarnings(chat, w) {
+  const owned = [...w.store.items.values()].filter(item => kindOf(item) === 'step' && isOwner(item, chat, w.prefix) && boardWarningsOf(item)?.isTold === false)
+    .sort((a, b) => byId(valueOf(a, 'Id'), valueOf(b, 'Id')))
+  const ids = []
+  const shown = []
+  for (const item of owned) {
+    const found = await load(valueOf(item, 'Id'), w, { kind: ['step'] })
+    if (!found.ok) continue
+    // Read anew: the file may have moved on since the store was read (a report since has its check pending again).
+    const warnings = boardWarningsOf(found.item)
+    if (warnings === null || warnings.isTold) continue
+    const done = await save(appendHistory(found.item, 'server', `check warnings told to ${chat} (work next)`, w.now), found.text, w)
+    if (!done.ok) continue
+    ids.push(valueOf(item, 'Id'))
+    shown.push(`- ${valueOf(item, 'Id')}: ${warnings.text}`)
+  }
+  return { text: shown.length === 0 ? '' : `The board's check passed these with warnings (nothing to redo; said once):\n${shown.join('\n')}`, ids }
 }
 
 /** Partner answers (2026-10-19): the open asks routed to the partner, each in one line, and how to answer them; `{ text, ids }`. */
@@ -1119,7 +1154,7 @@ async function recapOnDone(step, w) {
   if (resultCheckOf(step) !== 'passed' && !fixesThrough(step, items)) return
   if (recapMadeSince(items, step)) return
   const id = valueOf(step, 'Id')
-  await makeRecap(w, id, valueOf(step, 'Title') ?? '', recapParts(step), fixEvidence(id, items) ?? checkedOf(step)?.evidence ?? 'none')
+  await makeRecap(w, id, valueOf(step, 'Title') ?? '', recapParts(step, items), fixEvidence(id, items) ?? checkedOf(step)?.evidence ?? 'none')
 }
 
 /**
@@ -1219,8 +1254,10 @@ async function report(body, w) {
   const id = valueOf(found.item, 'Id')
   if (!isOwner(found.item, w.who, w.prefix)) return refuse(409, `${id} is ${valueOf(found.item, 'Owner') ?? 'nobody'}'s, not ${w.who}'s.`)
   // B569: room for the Context and the Change before the rest.
-  const result = line(body.result, 2000)
+  const result = line(body.result, RESULT_CHARS)
   if (result === '') return refuse(400, 'Name the result in "result": what the person gets now.')
+  // 2026-10-25: a result over the limit is cut, and the board's check warns of it (it never cuts in silence).
+  const whole = line(body.result, Infinity).length
   const merged = line(body.merged, 60)
   if (stateOf(found.item) === 'waiting on you') {
     const open = openAsksOf(w, id)
@@ -1234,7 +1271,8 @@ async function report(body, w) {
     moved = allowed.ok ? { ok: true, item: said(found.item, w, 'reported again') } : refuse(409, allowed.why)
   } else moved = move(found.item, 'review', w.role, w)
   if (!moved.ok) return moved
-  const item = appendHistory(underStep(moved.item, [`Reported ${isAgain ? 'again ' : ''}by ${w.who} on ${at(w.now)}: ${result}${merged === '' ? '' : ` (merged ${merged})`}`]), 'server', 'check pending', w.now)
+  const reported = underStep(moved.item, [`Reported ${isAgain ? 'again ' : ''}by ${w.who} on ${at(w.now)}: ${result}${merged === '' ? '' : ` (merged ${merged})`}`])
+  const item = appendHistory(whole > RESULT_CHARS ? appendHistory(reported, 'server', `result cut: ${whole} characters, the first ${RESULT_CHARS} kept`, w.now) : reported, 'server', 'check pending', w.now)
   const done = await save(item, found.text, w)
   if (!done.ok) return done
   const resumed = isAgain ? [] : await resumeParked(item, w)
@@ -1244,7 +1282,7 @@ async function report(body, w) {
   // context for it instead of compacting it after this report.
   const more = [...w.store.items.values()].filter(one => kindOf(one) === 'step' && valueOf(one, 'Id') !== id && isOwner(one, w.who, w.prefix) && ['queued', 'taken'].includes(stateOf(one)))
     .map(one => valueOf(one, 'Id')).sort(byId)[0] ?? null
-  return changed(item, undefined, { check: { id, branch: valueOf(item, 'Branch'), result, merged: merged === '' ? lastReport(found.item).merged : merged, touches: touchesLines(item) }, more, ...(resumed.length === 0 ? {} : { resumed }) })
+  return changed(item, undefined, { check: { id, branch: valueOf(item, 'Branch'), result, merged: merged === '' ? lastReport(found.item).merged : merged, touches: touchesLines(item), ...cutField(item) }, more, ...(resumed.length === 0 ? {} : { resumed }) })
 }
 
 /**
@@ -1275,7 +1313,16 @@ const REPORTED = /^Reported (?:again )?by .+? on \d{4}-\d\d-\d\d at \d\d:\d\d: (
 /** B304: what the step's reports said: the last result, and the last merged commit named ('' for none). */
 function lastReport(item) {
   const reports = (item.sections.get('Context') ?? []).map(one => one.trim().match(REPORTED)).filter(Boolean)
-  return { result: reports.at(-1)?.[1] ?? '', merged: reports.findLast(one => one[2] !== undefined)?.[2] ?? '' }
+  return { result: reports.at(-1)?.[1] ?? '', merged: reports.findLast(one => one[2] !== undefined)?.[2] ?? '', ...cutField(item) }
+}
+
+const CUT_LINE = / server: result cut: (\d+) characters\b/
+/** 2026-10-25: `{ cut }`, how many characters the step's last report had before the board cut it at its limit; `{}` when it was not cut. */
+function cutField(item) {
+  const history = (item.sections.get('History') ?? []).map(String)
+  const from = history.findLastIndex(one => / → review\b|: reported again\b/.test(one))
+  const found = history.slice(from + 1).map(one => CUT_LINE.exec(one)).filter(Boolean).at(-1)
+  return found === undefined ? {} : { cut: Number(found[1]) }
 }
 
 /** B304: the person's "Check again" on a step in review: the board runs its check anew with what was reported. */
@@ -1399,7 +1446,11 @@ async function check(body, w) {
   if (!found.ok) return found
   const passed = body.passed === true
   const outcome = lines(body.lines, LINE_CHARS).join('; ')
-  let item = appendHistory(found.item, 'server', `check ${passed ? 'passed' : 'failed'}${outcome === '' ? '' : `: ${outcome}`}`, w.now)
+  // 2026-10-25: a check that passed with warnings says them in place of its lines; they are told once in the owner's
+  // `work next` (boardWarningsOf). A failed check names its faults (facts) only.
+  const warnings = passed ? lines(body.warnings, WARNING_CHARS).join('; ') : ''
+  const words = warnings !== '' ? `passed with warnings: ${warnings}` : `${passed ? 'passed' : 'failed'}${outcome === '' ? '' : `: ${outcome}`}`
+  let item = appendHistory(found.item, 'server', `check ${words}`, w.now)
   if (passed && stateOf(item) === 'review') {
     const closed = move(item, 'done', 'server', w, flowCtx(w, [item]))
     if (closed.ok) item = closed.item
@@ -1411,7 +1462,7 @@ async function check(body, w) {
   const recheck = stateOf(item) === 'done' ? await closeFixed(item, w) : null
   // B356: the board's check passed and the step waits for its result check, none asked yet: the server asks the partner.
   const isWaiting = passed && stateOf(item) === 'review' && needsResultCheck(item) && resultCheckOf(item) === null
-  const ask = isWaiting ? { id: valueOf(item, 'Id'), title: valueOf(item, 'Title'), owner: valueOf(item, 'Owner') } : recheck
+  const ask = isWaiting ? { id: valueOf(item, 'Id'), title: valueOf(item, 'Title'), owner: valueOf(item, 'Owner'), ...warningsOf(item) } : recheck
   return changed(item, undefined, ask === null ? {} : { resultCheck: ask })
 }
 
@@ -1636,7 +1687,7 @@ async function closeFixed(item, w) {
       // the partner checks it again, so it does not wait in review for nobody.
       const open = fixesOf(originId, items).some(one => !['done', 'dropped'].includes(stateOf(one)))
       // B565: the word says why it comes: its fix is done, its open ask points kept.
-      return open ? null : { id: originId, title: valueOf(found.item, 'Title'), owner: valueOf(found.item, 'Owner'), why: checkWhy(found.item, items) }
+      return open ? null : { id: originId, title: valueOf(found.item, 'Title'), owner: valueOf(found.item, 'Owner'), why: checkWhy(found.item, items), ...warningsOf(found.item) }
     }
     let origin = appendHistory(found.item, 'server', `result check passed: its fix ${valueOf(fixed, 'Id')} is done`, w.now)
     const closed = move(origin, 'done', 'server', { ...w, store: { ...w.store, items } }, flowCtx({ ...w, store: { ...w.store, items } }, [origin]))

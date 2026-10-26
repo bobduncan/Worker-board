@@ -1,25 +1,28 @@
 // B569 (I92, the person, 2026-10-24: the information cards are "not readable": too much text, written as if they know
 // what went on, and the picture always shows "3 points pass"). Every report opens with "Context:" (what was wrong or
 // missing, for someone who forgot) and "Change:" (what the person gets now), both in plain words, then "Details:" and
-// the technical rest for the check. The board's check refuses a report without them (check.mjs); the recap card shows
-// them, a Before | After picture for a visible change, and one quiet Checked line. A recap made before B569 is read in
+// the technical rest for the check. The board's check used to refuse a report without them (see 2026-10-25 below); the
+// recap card shows them, a Before | After picture for a visible change, and one quiet Checked line. A recap made before B569 is read in
 // the same form from its step's record.
+//
+// 2026-10-25 (the person: "check the work, not the wording"; the supervisor's X45, X50, X57, X67: 28 of 37 refused
+// reports were refused for their wording only): the board no longer sends a worker back for these words. A report whose
+// Context or Change is missing, too long, or holds file names, code words, hashes, ids or placeholders passes with a
+// warning (`partsWarnings`, told once in the worker's `work next`), and the board builds the card's words itself
+// (`recapParts`): from the step's summary and the report where one is missing, tidied and cut where it is not plain.
 
+import { valueOf } from './item.mjs'
 import { checkedOf, resultCheckOf } from './resultCheck.mjs'
 
 export const CONTEXT_CHARS = 300
 export const CHANGE_CHARS = 500
+/** How much of a report's result the board keeps (api.mjs `report`); the rest is cut, with a warning. */
+export const RESULT_CHARS = 2000
 /** A recap from before B569, read from its record: its words cut shorter. */
 const OLD_CONTEXT_CHARS = 200
 const OLD_CHANGE_CHARS = 280
-/** How a report opens, as the refusal says it. */
-export const PARTS_LINE = 'Context: <1-3 short lines: what was wrong or missing, for someone who forgot> Change: <what the person gets now> Details: <the rest, for the check>'
-
-/** What a refusal for a missing Context or Change adds, so the next report is not refused for its words too. */
-export const PLAIN_RULE = 'the Context and the Change are in plain words, for someone who forgot: no file names, code words, ids, commit hashes or placeholders; those go after "Details:"; the Context is at most 300 characters and the Change at most 500'
-
-/** X57 (B633): a refusal for words that are not plain also names the length limits, so the rewrite is not refused again for its length. */
-export const LIMITS_RULE = `the Context is at most ${CONTEXT_CHARS} characters and the Change at most ${CHANGE_CHARS}`
+/** The hint that ends the warnings for a report's words, so the next report opens as the card needs. */
+const NEXT_TIME = `next time open the result with "Context: <what was wrong, in plain words, at most ${CONTEXT_CHARS} characters> Change: <what the person gets now, at most ${CHANGE_CHARS}> Details: <the rest>"`
 
 /** Where the Change ends: the technical rest, named or a "Tests bite:" line. */
 const REST = /\b(?:Details|Tests bite):/i
@@ -68,29 +71,61 @@ export function insiderWords(text) {
   return { ids: found(text, [ITEM_ID]), placeholders: found(text, [PLACEHOLDER]) }
 }
 
-/** Why the words of one part of a card are not plain (B569, B591), each fault one line; none when they read well. */
-export function plainFaults(name, words) {
+/** The technical and insider words of `words` as one phrase ("file names (a.js), ids (B12)"); '' when they read well. */
+function plainNamed(words) {
   const { files, code, hashes } = technicalWords(words)
   const { ids, placeholders } = insiderWords(words)
   const list = (what, all) => (all.length > 0 ? `${what} (${all.slice(0, 3).join(', ')})` : '')
-  const named = [list('file names', files), list('code words', code), list('commit hashes', hashes), list('ids', ids), list('placeholders', placeholders)].filter(Boolean)
-  return named.length === 0 ? [] : [`the ${name} holds ${named.join(', ')}: say it in plain words, for someone who forgot, and put those after "Details:"`]
+  return [list('file names', files), list('code words', code), list('commit hashes', hashes), list('ids', ids), list('placeholders', placeholders)].filter(Boolean).join(', ')
 }
 
-/** Why a report's words are refused for the recap card (B569), each fault one line; none when they read well. */
-export function partsFaults(result) {
+/** Why the words of one part of a card are not plain (B569, B591), each fault one line; none when they read well. */
+export function plainFaults(name, words) {
+  const named = plainNamed(words)
+  return named === '' ? [] : [`the ${name} holds ${named}: say it in plain words, for someone who forgot, and put those after "Details:"`]
+}
+
+/**
+ * What is off in a report's words for the recap card, each a warning line (never a refusal: the board builds the card's
+ * words itself, `recapParts`); none when they read well. The last line, once, says how the next report opens.
+ */
+export function partsWarnings(result) {
   const { context, change } = reportParts(result)
-  const faults = []
-  if (context === '') faults.push(`the result names no Context: open it with "${PARTS_LINE}"`)
-  if (change === '') faults.push(`the result names no Change: after the Context, "Change: <what the person gets now>", then "Details:" and the rest`)
-  // X50 (B624): the refusal is where a worker reads the plain-words rule as it writes; said once, for both parts.
-  if (context === '' || change === '') faults.push(PLAIN_RULE)
+  const warnings = []
+  if (context === '') warnings.push("the result names no Context: the card's Context is made from the step's summary")
+  if (change === '') warnings.push("the result names no Change: the card's Change is made from the report")
   for (const [name, words, most] of [['Context', context, CONTEXT_CHARS], ['Change', change, CHANGE_CHARS]]) {
-    if (words.length > most) faults.push(`the ${name} is ${words.length} characters: at most ${most}, the rest goes after "Details:"`)
-    faults.push(...plainFaults(name, words))
+    if (words.length > most) warnings.push(`the ${name} is ${words.length} characters: the card shortens it to ${most}`)
+    const named = plainNamed(words)
+    if (named !== '') warnings.push(`the ${name} holds ${named}: the card leaves those words out`)
   }
-  if (faults.some(one => / holds /.test(one))) faults.push(LIMITS_RULE)
-  return faults
+  return warnings.length === 0 ? [] : [...warnings, NEXT_TIME]
+}
+
+/**
+ * The refusals for wording the board made before 2026-10-25, as a History line wrote them. The supervisor's rule
+ * report-check-twice counts a failed check only when it refused for a fact (`isWordingOnly`), so these old lines no
+ * longer count. The long plain-words rule stands before the short limits one: it ends with the same words.
+ */
+const WORDING_REFUSALS = [
+  /the result names no (?:Context|Change): [^;]*/g,
+  /the Context and the Change are in plain words, for someone who forgot: no file names, code words, ids, commit hashes or placeholders; those go after "Details:"; the Context is at most 300 characters and the Change at most 500/g,
+  /the (?:Context|Change) is \d+ characters: at most \d+, the rest goes after "Details:"/g,
+  /the (?:Context|Change) holds .*?: say it in plain words, for someone who forgot, and put those after "Details:"/g,
+  /the Context is at most 300 characters and the Change at most 500/g,
+  /the change touches tests \(.*?\) but the result names no mutant: add ".*?" and report again/g,
+]
+
+/** Whether a failed check's reason (the History line's words after "check failed:") holds refusals for wording only. */
+export function isWordingOnly(detail) {
+  let rest = String(detail ?? '')
+  let matched = false
+  for (const pattern of WORDING_REFUSALS) {
+    const without = rest.replace(pattern, '')
+    matched = matched || without !== rest
+    rest = without
+  }
+  return matched && rest.replace(/(?:^|;)\s*work (?:in [^;]+|outside git)\s*(?=;|$)/g, '').replace(/[;\s]/g, '') === ''
 }
 
 const REPORTED = /^Reported (?:again )?by .+? on \d{4}-\d\d-\d\d at \d\d:\d\d: (.*?)(?: \(merged [^()\s]+\))?$/
@@ -143,16 +178,46 @@ export function checkedCount(step) {
   return resultCheckOf(step) === 'passed' ? `${check.passed} of ${check.total}` : `${check.total} of ${check.total}`
 }
 
+/** `text` cut at a word to at most `most` characters, with "…" where it was cut. */
+function cutWords(text, most) {
+  if (text.length <= most) return text
+  const head = text.slice(0, most - 1)
+  const whole = /\s/.test(text[most - 1]) ? head : head.replace(/\s+\S*$/, '')
+  return `${(whole === '' ? head : whole).trimEnd()}…`
+}
+
+/** `words` with each item id of `items` (a Map of the store) turned into that item's title in quotes, when the title reads plain. */
+function withTitles(words, items) {
+  if (!(items instanceof Map)) return words
+  return words.replace(ITEM_ID, id => {
+    const item = items.get(id)
+    const title = item === undefined ? '' : headingOf(valueOf(item, 'Title') ?? '', id)
+    return title !== '' && plainNamed(title) === '' ? `"${title}"` : id
+  })
+}
+
 /**
- * The recap's parts for a step: its last report's Context and Change, or for a report from before B569 plain words
- * from its record (the Context from its summary, the Change from its report), and its Checked count.
+ * One part of a card from the words a worker wrote: as written when it reads plain (cut at a word to `most`); else with
+ * item ids turned into their titles, and what is still not plain left out sentence by sentence. '' for none left.
  */
-export function recapParts(step) {
+function tidyPart(words, most, items) {
+  if (words === '') return ''
+  const named = withTitles(words, items)
+  return plainNamed(named) === '' ? cutWords(named, most) : plainSentences(named, most)
+}
+
+/**
+ * The recap's parts for a step: its last report's Context and Change, tidied by the board (file names, code words,
+ * hashes, ids and placeholders left out, ids turned into the titles of the `items` it is given, too long cut); where a
+ * part is missing or nothing plain is left of it, plain words from the step's record (the Context from its summary,
+ * the Change from its report, as for a report from before B569); and its Checked count.
+ */
+export function recapParts(step, items = null) {
   const result = lastResultOf(step)
   const parts = reportParts(result)
   // Words made from an old record are kept shorter than a worker may write: what was meant to be read is the card.
-  const context = parts.context !== '' ? parts.context.slice(0, CONTEXT_CHARS) : plainSentences(summaryOf(step), OLD_CONTEXT_CHARS)
-  const change = parts.change !== '' ? parts.change.slice(0, CHANGE_CHARS) : plainSentences(parts.rest, OLD_CHANGE_CHARS)
+  const context = tidyPart(parts.context, CONTEXT_CHARS, items) || plainSentences(summaryOf(step), OLD_CONTEXT_CHARS)
+  const change = tidyPart(parts.change, CHANGE_CHARS, items) || plainSentences(parts.rest.replace(/\bDetails:\s*/gi, ''), OLD_CHANGE_CHARS)
   // An old summary that says just what the report said is no Context.
   return { context: context === change ? '' : context, change, checked: checkedCount(step) }
 }
