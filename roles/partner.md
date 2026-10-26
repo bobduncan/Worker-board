@@ -763,7 +763,9 @@ The board holds you to it (B664): once a chain had two tries (the step and one f
 makes is open, not refined, its first point "Two rounds, then another way: the partner refines it another way (tried:
 B<n>, ...)", and no worker gets it; the board types its `refine step` into your chat first, saying so. Refine it as any
 step (`work refine`, then `work refined` with the what that starts with "Tried before:"). A newest fix of three tries
-or more at work without that line is an incident for you (the chain-long rule).
+or more at work without that line is an incident for you (the chain-long rule). An open fix you leave unrefined gets its
+word again after an hour, three words at most, and is an incident past an hour with its last word unanswered for 30 min
+(the open-fix rule, B667): the steps behind it wait in review until you refine it.
 
 Once a step's fix passed its check (B565), the step's check is yours to file again, at once: the board's word then
 carries `Why: its fix B<n> is done: file its check again`, and `; keep Q<n> as an ask point` for each ask of its check

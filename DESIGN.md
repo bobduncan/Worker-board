@@ -3291,7 +3291,12 @@ the AI sweep by a cheap supervisor chat and the hand-over to the Advisor, comes 
   <why>" on the Backlog tab, in work next and list, and in the health summary, which counts review chains, not steps),
   `chain-long` (B664, X8 a third time: a chain of fixes with three tries or more, its first step and every fix under it
   not dropped, whose newest fix is at work with no "Tried before:" line in its what: a third patch of the same way; one
-  case per chain and newest fix; a fix the board made open for the partner's other way is no case yet). B664: the health
+  case per chain and newest fix; a fix the board made open for the partner's other way is no case yet), `open-fix` (B667,
+  B664's check, principle 2: an open fix the partner never refines had no follow-up: a step in review whose last fix is
+  new with no refine round written since it was made, over 60 min from then (`openFixMinutes`) and its newest refine word
+  unanswered for 30 (`checkWordMinutes`); one case per fix, naming the words typed and "the board stopped asking" after
+  BOARD_TRIES; its line reads "waits for its fix B<n>, not refined yet"; the refine gate types such a fix's word again
+  after an hour, `FIX_RETRY_MS`, up to BOARD_TRIES; a round with questions waits for the person and is no case). B664: the health
   summary judges a step in review as review-stuck, dropped-fix and review-held do, through one helper (`reviewLateOf`,
   with the supervisor's memory of when it first saw each key): a fresh check word, the person's open ask and a hold the
   watch only just saw are not odd there either,
