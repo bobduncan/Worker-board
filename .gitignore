@@ -2,3 +2,4 @@
 data/
 # The settings of one PC (B127): made from examples/config.json at the board's first start, filled in there.
 config.json
+node_modules/

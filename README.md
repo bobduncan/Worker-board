@@ -78,6 +78,7 @@ and the briefings for the main chat and the workers.
    ```
    git clone https://github.com/bobduncan/Worker-board.git worker-board
    cd worker-board
+   npm install
    npm test
    ```
    → the tests end with `fail 0`. They run on at most half the PC's cores (`tools/test.mjs`), so the PC stays

@@ -214,7 +214,7 @@ test('worktree clean-up: a worktree still on the step\'s branch fails the check,
     [`/projects/tools/board ${worktrees}`]: `${world[`/projects/tools/board ${worktrees}`]}\nworktree /projects/board-b5\nHEAD ccc\nbranch refs/heads/b5-lamps\n`,
   }
   const done = await reportCheck({ id: 'B5', branch: 'b5-lamps', result: SAID + 'x', merged: 'c0ffee1', repos, run: git(left) })
-  assert.deepEqual(done, { passed: false, lines: ['work in board', 'the branch b5-lamps is still there', 'the worktree /projects/board-b5 is still on b5-lamps: git worktree remove /projects/board-b5, then delete the empty folder Windows may leave'] })
+  assert.deepEqual(done, { passed: false, lines: ['work in board', 'the branch b5-lamps is still there', 'the worktree /projects/board-b5 is still on b5-lamps: first leave it (cd to the main checkout, in a command of its own), then git worktree remove /projects/board-b5, then delete the empty folder Windows may leave'] })
   // git that does not answer for the worktrees is a fault, never a pass.
   const silent = await reportCheck({ id: 'B5', branch: 'b5-lamps', result: SAID + 'x', merged: 'c0ffee1', repos, run: git({ ...world, [`/projects/tools/board ${worktrees}`]: undefined }) })
   assert.deepEqual(silent.lines, ['work in board', 'git did not answer: the worktrees of board are not known'])

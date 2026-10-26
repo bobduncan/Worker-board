@@ -674,7 +674,7 @@ The board shows the first line as the bold title and the `Context:` line (it may
 
 A title over 12 words, or none, is refused as an ask's is (B491): the board types `brainstorm fix`, `Thread:` and why at once; rewrite that open question in the thread (title, then `Context:`) and write nothing else.
 
-A question that stands in a talk the person can no longer reach (B716: its proposal is created, or it is done or discarded) shows nowhere under Needs your attention, and the board refuses an answer to it. The board then types `brainstorm stranded`, `Thread:` and `Q<n> in <thread> cannot reach the person: ask it with work ask`, once for each question: ask it now with `work ask` (`of` G<n>, kind decide, its options, your advice) and go on from the answer; the talk stays the record.
+A question that stands in a talk the person can no longer reach (B716: its proposal is created, or it is done or discarded) shows nowhere under Needs your attention, and the board refuses an answer to it. The board then types `brainstorm stranded`, `Thread:` and `Q<n> in <thread> cannot reach the person: ask it with work ask`, once for each question: ask it now with `work ask` (`of` G<n>, kind decide, its options, your advice) and go on from the answer; the talk stays the record. The board types nothing for a question that names its ask ("your choice is asked as Q428, not here"), nor for a talk of a goal that is done or no longer in the goal map (B721): there is nothing to ask.
 
 One question at a time, at most about eight in all; every question has an advised option and says what the answer
 decides; never ask what the thread already answers. The board writes the user's answer under the question

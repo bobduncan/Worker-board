@@ -1416,11 +1416,13 @@ as a shadow of the backlog; B301 removed the shadow (below): the store is the on
   that repository on the step's branch, none of a repository the board knows named for the step (its id as a whole in
   the folder's name, `game-b12`), and no folder of one in the project folder (empty, or holding a `.git` file, or named
   `<repository's folder>-...`); a result check's own `check-b<id>` folders are left to `checked`. Each leftover is one
-  line with its path and how to remove it ("git worktree remove <path>, then delete the empty folder Windows may
+  line with its path and how to remove it ("first leave it (cd to the main checkout, in a command of its own), then git worktree remove <path>, then delete the empty folder Windows may
   leave", its link alone first when it holds one), and the pass says "worktree gone". B717 (2026-10-26): an EMPTY folder
-  no repository lists is removed by the check itself (rmdir, tries after 0, 1, 2 and 4 seconds: a chat's shell standing
-  in the worktree makes Windows refuse the last folder for a minute) and gives no line; only one that stays busy keeps
-  a line ("a program still uses it"), never a chore for the person. A folder with files keeps today's line. A failed check runs again on the person's "Check again" (the
+  no repository lists is removed by the check itself (rmdir; a chat's shell standing in the worktree makes Windows
+  refuse the last folder for a minute) and gives no line. B723: the check tries once; a held folder keeps one line ("a
+  program still uses it") and the tries after 1, 2 and 4 seconds run in the background, outside the work store's queue
+  (Principle 5), so the next check finds it gone; it is never a chore for the person. When git does not answer, whether a
+  repository lists the folder is not known (Principle 3): the folder is left and the line says so. A folder with files keeps today's line. A failed check runs again on the person's "Check again" (the
   lane's flag, `recheck`) or the owner's report from review. The board that delivers writes backlog.md; a copy with a store of its own
   writes the view into that folder; a copy without one only reads. The Backlog tab's line says "backlog.md is its
   view".
@@ -3271,11 +3273,10 @@ confirmed that a step's branch was gone, never its worktree or its folder. Three
 
 - **The report check** (`stepLeftovers`, from `reportCheck`): no worktree of the step's repository on its branch, no
   worktree of a repository the board knows named for the step, and no folder of one in the project folder, empty or
-  not. Each leftover fails the check with one line: its path and "git worktree remove <path>, then delete the empty
+  not. Each leftover fails the check with one line: its path and "first leave it (cd to the main checkout, in a command of its own), then git worktree remove <path>, then delete the empty
   folder Windows may leave" (a link in it named first, to be taken away alone: `cmd /c rmdir "<link>"` on Windows).
   The worker removes it and reports again, as after a failed branch check. Work outside git gets the same lines.
-  Exception (B717): an empty folder no repository lists is removed by the check itself (`removeEmptyFolder`, rmdir with
-  a few tries over seconds), so the empty folder Windows leaves when the worker's chat still stood in the worktree no
+  Exception (B717): an empty folder no repository lists is removed by the check itself (`removeEmptyFolder`, one rmdir, more tries in the background; left when git is silent), so the empty folder Windows leaves when the worker's chat still stood in the worktree no
   longer fails the check; workers `cd` out of a worktree before removing it (`roles/worker.md`).
 - **The result check** (`checked`, the work API's `checkWorktrees`): the board refuses `work checked B<id>` while the
   check's own worktrees are left (folders named `check-b<id>...`, wherever git lists them, or in the project folder),
@@ -4212,6 +4213,10 @@ server.mjs beside the title fix): "Q<n> in <thread> cannot reach the person: ask
 question, while it has no answer; the same question is never told twice, the next one is. G15's evaluation questions Q5 to
 Q7 (24 and 25 Oct) stood in such a talk and never reached the person; the evaluation (roles/partner.md) now asks the
 person's choice with `work ask` and keeps the talk as its record.
+B721: no word for a question that names its ask (`namesItsAsk`: "asked as Q428", "ask Q428"; G15's Q8, which the evaluation filed as Q428), nor for the talk
+of a goal that is done or no longer in the goal map (`strandedQuestions(threads, goals)`, the map's nodes from the state; G33's Q11): both woke the
+partner for nothing on 26 Oct. The server's own pass is tested end to end (test/brainstormStrandedBoard.test.mjs: told once, also after the
+board starts anew).
 
 ## The goal demo before "Did we reach the goal?" (B677)
 
