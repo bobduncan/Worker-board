@@ -402,7 +402,7 @@ An idea becomes a picture that Codex makes. **New idea:** the words, what it is 
 idea), reference pictures (picked or pasted), **Make a picture**. **The picture:** the version looked at, every
 version to choose from, "What should change?" with **Make it again**, **I agree**. Then the step: title,
 requirements and time, **Put on the backlog** or **Put on the list** (redesign Part 2: no worker is picked; the board
-gives it to the first free worker once it is refined and in the queue, and the person may pin it in its window), which the main
+gives it to the first free worker once it is refined and in the queue, and the person may pin it in its window; the rule: `readyList` in `src/work/handOut.mjs`), which the main
 chat writes. "Ideas so
 far" along the bottom.
 

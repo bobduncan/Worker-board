@@ -57,7 +57,7 @@ sweep is meant to cost little (a few tens of thousands of tokens, mostly cached)
 - The board hands out all work (redesign Part 2, 2026-10-25): a task it gives a worker is taken within two minutes, or
   the board takes it back and the worker shows "Stuck" (the rule not-taking names it); a ready task that waits while a
   worker is free (the rule ready-while-free) is odd. Ready means what the board hands out: a fix, a task of the focus
-  goal or of a goal under it, a fix of a step the person queued or pinned (not a dropped one; the rule: the comment above `readyList` in `src/work/handOut.mjs`), or a pinned one (the backlog line's "ready to hand out"). Refined tasks outside the focus goal wait for the
+  goal or of a goal under it, a fix of a step the person queued or pinned (not a dropped one; the rule: the comment above `readyList` in `src/work/handOut.mjs`), or a pinned one (the backlog line's "ready to hand out"). Refined tasks outside the focus goal (the rule: `readyList` in `src/work/handOut.mjs`) wait for the
   person's pin or a focus switch by design (the backlog line's "outside the focus goal, waiting for the person by
   design"), and so do those "held otherwise": workers idle while only such tasks wait is no incident. A task pinned to a
   worker waits for that worker by design (the board has the main chat start that worker when its chat is off), and a
@@ -90,8 +90,9 @@ sweep is meant to cost little (a few tens of thousands of tokens, mostly cached)
   the line carries a "!".
 - A worker "suspended" for the limit goes on once its reset has passed or the limits show room again. A lane that says
   "Suspended on purpose" (or "on purpose: waits for B<n>" in the summary) is no limit stop: see "What is no incident".
-- Work follows the focus goal: the board hands out fixes, the focus goal's tasks and pinned ones only (the rest only when
-  the setting `handOutBeyondFocus` is on); work outside it while a focus task is ready and a worker free is odd.
+- Work follows the focus goal: the board hands out by the rule in the comment above `readyList` in `src/work/handOut.mjs`
+  (a step of a goal under the focus and a fix of a picked step go out, and are not odd; the rest only when the setting
+  `handOutBeyondFocus` is on); work outside it while a focus task is ready and a worker free is odd.
 - A word to a chat is taken within minutes; words that wait long for one chat are odd. The summary lists the words of
   the last day that still matter (a word whose purpose is gone is closed with its why and not listed); only those
   marked `!` are odd: rule 8's words, waiting over 10 minutes or failed or expired in the last two hours.
