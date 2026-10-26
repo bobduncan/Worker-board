@@ -17,6 +17,8 @@ import { checkWordsOf, checkpointLate, familyOf, reviewLateOf, switchOf, undeliv
 const MIN = 60_000
 const HOUR = 60 * MIN
 const DAY = 24 * HOUR
+/** B666: a check word this much later than the check was asked is a word typed again. */
+const AGAIN_MS = 5 * MIN
 /** The longest summary `work health` answers. */
 export const HEALTH_CHARS = 8000
 /** The longest line of it; a chat's line may be longer. */
@@ -346,8 +348,13 @@ function refinedWords(view) {
  * to the partner with its state: ", check asked 22:04, word to Partner (delivered)", or ", no check word yet".
  */
 function checkAskedWords(view, id, since, now) {
-  const last = checkWordsOf(view, id, since).at(-1)
-  const word = last === undefined ? 'no check word yet' : `word to ${last.to ?? view.partner?.name ?? 'the partner'} (${last.state ?? 'not known'})`
+  const words = checkWordsOf(view, id, since)
+  const last = words.at(-1)
+  // B666 (X74: the PC slept 8 h with a check under way, the board typed the word again at 07:30, and the sweep counted
+  // from "check asked 23:06"): a word typed again restarts the count, so the line names its time beside the first ask.
+  const again = words.length > 1 || (last !== undefined && last.at - since >= AGAIN_MS)
+  const word = last === undefined ? 'no check word yet'
+    : `word ${again ? `again ${dayClockOf(last.at, now)} ` : ''}to ${last.to ?? view.partner?.name ?? 'the partner'} (${last.state ?? 'not known'})`
   return `, check asked ${dayClockOf(since, now)}, ${word}`
 }
 
