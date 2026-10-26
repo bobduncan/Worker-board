@@ -17,19 +17,22 @@ const PLACE_ID = /(?<![\w/.:#=-])([GQB]\d+)(?![\w/-]|\.\w)/g
  * B675: the pages of the game an ask may send the person to, by the words an ask uses for them: `page=<name>` in a play link
  * opens `/<name>.html` of that branch's game. One list, here, beside the board's own places.
  */
-export const GAME_PAGES = { soundboard: /(?<![\w-])sound ?board(?![\w-])/i }
+export const GAME_PAGES = { soundboard: { words: /(?<![\w-])sound ?board(?![\w-])/i, label: 'the sound board' } }
 /** A local address in an ask's words: `http://localhost:5173/soundboard.html`, `127.0.0.1:5300/x`. */
 const LOCAL_ADDRESS = /https?:\/\/(?:localhost|127\.0\.0\.1)(?::\d{2,5})?(?:\/[^\s)>\]]*)?/gi
 
 /** The game page `text` names ("the sound board", or an address of `/soundboard.html`), or null. */
 export function gamePageIn(text) {
   const all = String(text ?? '')
-  for (const [name, words] of Object.entries(GAME_PAGES)) {
+  for (const [name, { words }] of Object.entries(GAME_PAGES)) {
     if (words.test(all)) return name
     for (const one of all.matchAll(LOCAL_ADDRESS)) if (new RegExp(`/${name}\\.html(?![\\w-])`, 'i').test(one[0])) return name
   }
   return null
 }
+
+/** A game page by its plain name ("the sound board"), for a link's label; the name itself when the list lacks it. */
+export const gamePageLabel = name => GAME_PAGES[name]?.label ?? name
 
 /** A local address in `text` (the first), or null: an ask that sends the person there needs a link. */
 export function localAddressIn(text) {

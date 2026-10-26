@@ -224,7 +224,7 @@ test('the pages: the Goals part names the re-check and every outcome under a goa
 })
 
 test('the second review: No to the vibe takes an open re-check back, so a later pass cannot tick it', async () => {
-  const run = GOALS.replace('    Vibe: you sit down without thinking\n', '    Vibe: you sit down without thinking\n    Vibe agreed: 2026-10-19 08:00\n    Part: Build them · about 1 h · steps B5\n    How agreed: 2026-10-19 08:30\n')
+  const run = GOALS.replace('    Vibe: you sit down without thinking\n', '    Vibe: you sit down without thinking\n    Vibe agreed: 2026-10-19 08:00\n    Part: Build them · about 1 h · steps B5\n    How agreed: 2026-10-19 08:30\n    Demo: art/g2/demo.png · what G2 made\n')
   const fs = fakeFs({ [MAP]: latin(run) })
   await focusMove({ command: 'vibe-there-yes', id: 'G2' }, ctx(fs, { allDone: true }))
   await goalChecked({ id: 'G2', verdict: 'waits for you', line: 'waits for you · 0 of 1 points pass · for you: comfy?', by: 'Partner' }, ctx(fs))

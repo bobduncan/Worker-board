@@ -131,6 +131,7 @@ const GOALS = [
   '    Part: Show damage before you click · about 1 h · steps B1',
   '    Part: Heavier hits · 2 h · steps B2',
   '    How agreed: 2026-10-18 11:00',
+  '    Demo: art/g6/demo.png · what G6 made',
   '- [ ] G7 Lanterns',
   '',
 ].join('\n')
@@ -208,6 +209,7 @@ test('every part done: the question "Did we reach the goal?" with the vibe, Yes 
       { label: 'Yes', act: 'vibe-there-yes', isEnabled: true, title: 'Your partner re-checks it against its Done when and its vibe; it gets its tick once that passed' },
       { label: 'No', act: 'vibe-there-no', isEnabled: true, title: 'Say what is missing: your partner changes the how' },
     ],
+    demo: { text: null, link: { label: 'See the goal demo', path: 'art/g6/demo.png', caption: 'what G6 made' }, again: null },
     doneWhen: null,
   })
 })

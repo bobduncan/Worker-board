@@ -17,13 +17,16 @@ export const LAST_LINE = /^Last (id|ask):\s*[GA](\d+)\s*$/
 export const FOCUS_LINE = /^Focus:\s*(G\d+)?\s*$/
 
 /** B354: whether a goal has a Done when line with words in it: only then may it be the focus, or be ticked. */
+/** B677: whether a goal has its Demo line (`Demo: <picture path> · <a few words>`): the picture the person sees before they answer "Did we reach the goal?". */
+export const hasDemo = node => typeof node?.demo === 'string' && node.demo.trim() !== ''
+
 export const hasDoneWhen = node => typeof node?.doneWhen === 'string' && node.doneWhen.trim() !== ''
 
 const ids = value => value.match(IDS) ?? []
 const stepIds = value => value.split(/[,\s]+/).filter(part => /^B\d+$/.test(part))
 
 function node(id, title, state, depth, line) {
-  return { id, title: title.trim(), state, depth, parent: null, children: [], line, doneWhen: null, why: null, enables: [], alsoPartOf: [], steps: [], missing: [], notes: [], asks: [], brainstorm: null, fromPlan: null, recommendation: null, vibe: [], vibePicture: null, vibeAgreed: null, parts: [], partnerDecides: [], youDecide: [], howAgreed: null, recheckAsked: null, rechecks: [], overturned: [], evaluationAsked: null, evaluations: [], evaluatedAt: [], fableAsked: null, evaluationPart: null }
+  return { id, title: title.trim(), state, depth, parent: null, children: [], line, doneWhen: null, demo: null, demoAsked: null, why: null, enables: [], alsoPartOf: [], steps: [], missing: [], notes: [], asks: [], brainstorm: null, fromPlan: null, recommendation: null, vibe: [], vibePicture: null, vibeAgreed: null, parts: [], partnerDecides: [], youDecide: [], howAgreed: null, recheckAsked: null, rechecks: [], overturned: [], evaluationAsked: null, evaluations: [], evaluatedAt: [], fableAsked: null, evaluationPart: null }
 }
 
 /** Focus 1: "<title> · <size> · steps B1, B2", the size and the steps each left out at will. */
@@ -65,6 +68,9 @@ function takeLine(target, text) {
     case 'Vibe picture': target.vibePicture = value; return
     // 2026-10-25: the page a goal makes (a review, a check, a doc): "<path> · <a few words>".
     case 'Page': target.page = value; return
+    // B677: the goal demo (`Demo: <picture path> · <a few words>`), and the board's ask for it (`Demo asked: <date time> · <n>`).
+    case 'Demo': target.demo = value; return
+    case 'Demo asked': target.demoAsked = value; return
     case 'Vibe agreed': target.vibeAgreed = value; return
     case 'Part': target.parts.push(partOf(value)); return
     case 'Partner decides': target.partnerDecides.push(value); return

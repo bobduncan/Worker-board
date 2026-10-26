@@ -2552,6 +2552,10 @@ body.is-resizing-rows { cursor: row-resize; user-select: none; }
 .focus-guard.is-counting h3 { color: var(--muted); }
 .focus-page { align-self: flex-start; padding: 4px 10px; border: 1px solid var(--line); border-radius: 8px; background: transparent; color: #8fb6ff; font: inherit; font-size: 13px; cursor: pointer; }
 .focus-page:hover { border-color: #78a7ff; }
+/* B677: the goal demo's link above Yes and No: big, so it is seen first. */
+.focus-demo-link { align-self: flex-start; padding: 12px 22px; border: 1px solid #78a7ff; border-radius: 10px; background: #16264a; color: #cfe0ff; font: inherit; font-size: 17px; font-weight: 600; cursor: pointer; }
+.focus-demo-link:hover { background: #1d3366; }
+.focus-demo-wait { margin: 0; color: var(--muted, #8d9aae); }
 .focus-guard.is-evaluating h3 { color: var(--waiting); }
 .focus-guard.is-rebuild h3 { color: var(--waiting); }
 .focus-guard.is-asking h3 { color: var(--waiting); }

@@ -4107,3 +4107,20 @@ B491: a brainstorm question's title is refused as an ask's is (B452): the open q
 words or missing (also one from before the form, by the title its first question gives) is typed to the Advisor at once as
 `brainstorm fix` (src/brainstorm.mjs `titleFixes`, src/say.mjs `brainstormFixWords`, the look in server.mjs), once for each
 wording; the Advisor rewrites it in the thread. An earlier or answered question only shows under the card as a problem.
+
+## The goal demo before "Did we reach the goal?" (B677)
+
+The person, 2026-10-26: "before we click yes, i want visuals of everything we accomplished in this goal", and "i need a
+link to this demo so i can see before i approve the goal". A fixed stage of every focus, after the run and before Yes.
+
+1. A goal line `Demo: <picture path> · <a few words>` (src/goals.mjs `hasDemo`, as `Page:` is read) is written by the
+   partner under the goal once the demo exists; the board writes `Demo asked: <date time> · <n>` when it asks. No new work tool
+   field, no mod change.
+2. Every part done and no Demo line: the board types `goal demo: G<n> <title>` once, again every hour (DEMO_AGAIN_MS),
+   three words at most (DEMO_WORDS), in the reconcile loop (server.mjs `demoNow`, src/focus.mjs `demoAgain`), and the
+   card's button "Ask your partner again" (move `goal-demo`) starts the count anew.
+3. The card "Did we reach the goal?" shows "See the goal demo" (the picture window) above Yes and No; without the line it says
+   "Your partner makes the goal demo first", Yes is off, and the server refuses a Yes without it. No stays.
+4. `tools/demo.mjs` draws the demo from a JSON list through a headless browser (evidence.mjs `shootPage`): Reached,
+   Not reached, Still open, then the follow-up groups; the target first and the final last in every row, plain labels, one bullet
+   per item, pictures at their own pixel size, a missing picture stops it. roles/partner.md "The goal demo" says how the partner makes it.

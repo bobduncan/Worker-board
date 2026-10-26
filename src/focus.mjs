@@ -6,11 +6,12 @@
 import { access, mkdir, open, readdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
 
 import { editThread, parseThread, setThreadState } from './brainstorm.mjs'
-import { focusStage, hasDoneWhen, nextGoalId, parseGoals } from './goals.mjs'
+import { focusStage, hasDemo, hasDoneWhen, nextGoalId, parseGoals } from './goals.mjs'
 import { askingOf, evaluateWords, evaluationPartOf, evaluationsDue, fableAskOf, goalAttempts, guardStep, openFableAsk, partnerModeFor } from './goalGuard.mjs'
 import { addGoal, addGoalLine, addGoalNote, agreeHow, agreeVibe, changeGoalsFile, raiseLastLine, reopenHow, rewrite, setFocus, setGoalLine, setGoalState, setHow, setVibe } from './goalsWrite.mjs'
 import { focusWords } from './say.mjs'
 import { absentAs, again } from './write.mjs'
+import { sinceMs } from './work/item.mjs'
 
 const files = { readFile, writeFile, rename, rm, mkdir, access, readdir, open }
 
@@ -18,7 +19,7 @@ const files = { readFile, writeFile, rename, rm, mkdir, access, readdir, open }
  * The person's moves: pick a focus, agree the vibe or not yet, go with the how or not yet; Focus 4: the run's talk bar;
  * B354: ask the partner for a goal's Done when; B358: tick a goal on the Goals part (its re-check first).
  */
-export const FOCUS_MOVES = ['focus', 'vibe-agree', 'vibe-not-yet', 'how-go', 'how-not-yet', 'vibe-there-yes', 'vibe-there-no', 'talk', 'done-when', 'goal-done']
+export const FOCUS_MOVES = ['focus', 'vibe-agree', 'vibe-not-yet', 'how-go', 'how-not-yet', 'vibe-there-yes', 'vibe-there-no', 'talk', 'done-when', 'goal-demo', 'goal-done']
 /** The partner's drafts beside the talk: the vibe's lines and picture, the how's parts. */
 export const FOCUS_DRAFTS = ['vibe-draft', 'how-draft']
 
@@ -112,6 +113,8 @@ async function move(body, ctx) {
   if (command === 'focus') return pick(body, text, ctx, goalsAt)
   if (!isId(body.id)) return refuse(400, 'Name the goal by its id (G12).')
   if (command === 'done-when') return askDoneWhen(parseGoals(text).byId.get(body.id), ctx)
+  // B677: the person's button "Ask your partner again" for the goal demo.
+  if (command === 'goal-demo') return askDemo(parseGoals(text), body.id, ctx, goalsAt)
   // B358: the person's tick on the Goals part, routed here by the board while a partner is on it.
   if (command === 'goal-done') return goalDone(parseGoals(text).byId.get(body.id), ctx, goalsAt, body.overturn === true)
   const node = parseGoals(text).byId.get(body.id)
@@ -305,6 +308,64 @@ function askDoneWhen(node, ctx) {
   return { ok: true, result: { id: node.id }, words: focusWords('done-when', { to: ctx.partner.name, goal: node, job: ctx.job }) }
 }
 
+/** B677: the goal demo is asked of the partner again this often while it is not there, at most DEMO_WORDS times in all. */
+export const DEMO_AGAIN_MS = 60 * 60_000
+export const DEMO_WORDS = 3
+
+/** B677: `Demo asked: <date time> · <n>` as { at, n } (n: the words sent so far, 1 without it), or null. */
+export function demoAskOf(value) {
+  const found = String(value ?? '').trim().match(/^(\d{4}-\d\d-\d\d \d\d:\d\d)(?:\s*·\s*(\d+))?$/)
+  return found === null ? null : { at: found[1], n: Number(found[2] ?? 1) }
+}
+
+/** B677: the goal's demo is due as a word to the partner: the focus run is done, no Demo line, and no word yet, or the last is DEMO_AGAIN_MS old with fewer than DEMO_WORDS sent. Answers the number of the word, or 0. */
+export function demoDue(node, now) {
+  if (node === undefined || node.state === 'done' || hasDemo(node)) return 0
+  const asked = demoAskOf(node.demoAsked)
+  if (asked === null) return 1
+  const since = sinceMs(asked.at)
+  return asked.n < DEMO_WORDS && Number.isFinite(since) && now - since >= DEMO_AGAIN_MS ? asked.n + 1 : 0
+}
+
+/**
+ * B677: every part of the focus goal is done and it has no Demo line: the board types `goal demo: G<n> <title>` into the
+ * partner's chat once, again every DEMO_AGAIN_MS while it is not answered, DEMO_WORDS times at most (`Demo asked` under
+ * the goal keeps the time and the count). `ctx.focus` is the state's focus. Answers { ok, words: [] or [the word] }.
+ */
+export async function demoAgain(ctx) {
+  if (ctx.canWrite !== true || (ctx.partner ?? null) === null || !focusAllDone(ctx.focus ?? null, ctx.focus?.id)) return []
+  return underMapTurn(async () => {
+    const at = ctx.fs ?? files
+    const goalsAt = { file: ctx.goalsFile, historyDir: ctx.historyDir, now: ctx.now, fs: at }
+    const text = await readMap(at, ctx.goalsFile)
+    if (text === null) return []
+    const map = parseGoals(text)
+    const node = map.byId.get(ctx.focus.id)
+    if (map.focus !== ctx.focus.id || node === undefined || focusStage(node) !== 'run') return []
+    const n = demoDue(node, ctx.now)
+    if (n === 0) return []
+    const done = await changeGoalsFile(now => setGoalLine(now, node.id, 'Demo asked', `${minuteOf(ctx.now)} · ${n}`), goalsAt)
+    if (!done.ok) return []
+    return [focusWords('goal-demo', { to: ctx.partner.name, goal: node, words: n === 1 ? null : n, job: ctx.job })]
+  })
+}
+
+/**
+ * B677: the person's "Ask your partner again": the count starts anew (`Demo asked: <now> · 1`) and the word goes at
+ * once. Refused for a goal that is not the focus, not all done, ticked or with its demo.
+ */
+async function askDemo(map, id, ctx, goalsAt) {
+  const node = map.byId.get(id)
+  if (node === undefined) return refuse(409, 'That goal is not in the map.')
+  if (node.state === 'done') return refuse(409, `${id} is done already.`)
+  if (hasDemo(node)) return refuse(409, `${id} has its goal demo already.`)
+  if (map.focus !== id || ctx.allDone !== true) return refuse(409, 'The goal demo is made once every part of the focus is done.')
+  const was = demoAskOf(node.demoAsked)
+  const done = await changeGoalsFile(now => setGoalLine(now, id, 'Demo asked', `${minuteOf(ctx.now)} · 1`), goalsAt)
+  if (!done.ok) return failed(done.why)
+  return { ok: true, result: { id, demo: 'asked' }, words: focusWords('goal-demo', { to: ctx.partner.name, goal: node, words: was === null ? null : 'by you', job: ctx.job }) }
+}
+
 /**
  * Focus 3 (spec 2026-10-18, section 3): the person's answer to "Is the vibe there?", once every part is done
  * (`ctx.allDone`, from the store). B358: Yes asks the partner for the goal's re-check (askRecheck); its pass ticks the
@@ -316,6 +377,8 @@ async function vibeThere(command, node, words, ctx, goalsAt, say) {
   if (ctx.allDone !== true) return refuse(409, 'Not every part is done yet.')
   // B354: a goal is ticked against its Done when; a focus picked before that rule may have none.
   if (command === 'vibe-there-yes' && !hasDoneWhen(node)) return refuse(409, `${node.id} gets its tick only with a Done when that says how you check it: ask your partner to write it, or write it on the Goals part.`)
+  // B677: before the person answers, they see the goal demo: Yes waits for it.
+  if (command === 'vibe-there-yes' && !hasDemo(node)) return refuse(409, `${node.id} has no goal demo yet: your partner makes it first, and you see it before you answer.`)
   if (command === 'vibe-there-no' && words === '') return refuse(400, 'Say what is missing, in your words.')
   // B358: Yes asks the partner for the goal's re-check first; the goal gets its tick once that passed.
   if (command === 'vibe-there-yes') return askRecheck(node, ctx, goalsAt)

@@ -1082,6 +1082,9 @@ export function focusState(goalMap, items, threads, prefix, partner = null) {
     vibeAgreed: node.vibeAgreed,
     // 2026-10-25 (the user: "where is this 1 short page"): the page the goal makes, `{ path, caption }`, or null.
     page: typeof node.page === 'string' && node.page.trim() !== '' ? { path: node.page.split(' · ')[0].trim(), caption: node.page.split(' · ').slice(1).join(' · ').trim() } : null,
+    // B677: the goal's demo picture, `{ path, caption }`, or null; and whether the partner was asked for it.
+    demo: typeof node.demo === 'string' && node.demo.trim() !== '' ? { path: node.demo.split(' · ')[0].trim(), caption: node.demo.split(' · ').slice(1).join(' · ').trim() } : null,
+    demoAsked: node.demoAsked ?? null,
     parts,
     steps: stepList,
     partnerDecides: node.partnerDecides,

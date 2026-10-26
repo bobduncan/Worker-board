@@ -10312,14 +10312,19 @@ function focusView(focus, goals, can = null, ui = {}) {
     const { done, total } = focus.progress
     // B354: the goal gets its tick against its Done when; a focus picked before that rule may have none.
     const hasLine = hasDoneWhenLine(focus)
+    // B677: the goal demo comes first: its link stands above Yes and No; without it Yes waits and the partner is asked.
+    const demo = focus.demo ?? null
     view.vibeThere = total > 0 && done === total ? {
       question: 'Did we reach the goal?',
       vibe: focus.vibe,
       doneWhenLine: hasLine ? `Done when: ${focus.doneWhen.trim()}` : null,
       buttons: [
-        button('Yes', 'vibe-there-yes', hasLine, hasLine ? 'Your partner re-checks it against its Done when and its vibe; it gets its tick once that passed' : 'Its Done when is missing: the goal gets its tick against it'),
+        button('Yes', 'vibe-there-yes', hasLine && demo !== null, !hasLine ? 'Its Done when is missing: the goal gets its tick against it' : demo === null ? 'Your partner makes the goal demo first: you see it before you answer' : 'Your partner re-checks it against its Done when and its vibe; it gets its tick once that passed'),
         button('No', 'vibe-there-no', true, 'Say what is missing: your partner changes the how'),
       ],
+      demo: demo === null
+        ? { text: 'Your partner makes the goal demo first.', link: null, again: button('Ask your partner again', 'goal-demo', allowed, focus.demoAsked === null ? 'Your partner is asked for the goal demo by the board' : 'Your partner was asked: ask once more when the demo does not come') }
+        : { text: null, link: { label: 'See the goal demo', path: demo.path, caption: demo.caption || demo.path }, again: null },
       doneWhen: hasLine ? null : asked.includes(focus.id)
         ? button('Ask your partner again', 'done-when', true, 'Your partner was asked: ask once more when its Done when does not come')
         : button('Ask your partner to write its Done when', 'done-when', true, 'Your partner writes how you check the goal is done'),
@@ -12524,6 +12529,18 @@ const gatheredCards = state => [gatheredRecaps(state).length > 0 ? focusRecapCar
 function focusVibeThereCard(view, can) {
   const card = el('section', 'focus-card focus-there')
   card.append(el('h3', '', view.vibeThere.question))
+  // B677: the goal demo before Yes and No: a big link (the picture window), or the line that the partner makes it first.
+  const demo = view.vibeThere.demo
+  if (demo.link !== null) {
+    const see = el('button', 'focus-demo-link', demo.link.label)
+    see.type = 'button'
+    see.dataset.zoom = demo.link.path
+    see.dataset.caption = demo.link.caption
+    card.append(see)
+  } else {
+    card.append(el('p', 'focus-demo-wait', demo.text))
+    if (demo.again !== null) card.append(focusButton(demo.again, 'focus-ask-demo'))
+  }
   const lines = el('ul', 'focus-ticks')
   for (const line of view.vibeThere.vibe) lines.append(el('li', '', line))
   const buttons = el('div', 'focus-buttons')
@@ -12729,7 +12746,8 @@ async function focusAct(act, goal = null, extra = null) {
       // B354: the partner is asked to write the goal's Done when (a row of the pick list, or the focus itself).
       const id = goal ?? focus?.id ?? null
       if (id !== null && await sendFocus({ command: 'done-when', id: goal ?? focus?.id }, 'Your partner is asked to write its Done when.') !== null) focusUi.asked = [...new Set([...focusUi.asked, id])]
-    } else if (act === 'vibe-agree' && focus !== null) await sendFocus({ command: 'vibe-agree', id: focus.id }, 'Agreed. Your partner proposes the how next.')
+    } else if (act === 'goal-demo' && focus !== null) await sendFocus({ command: 'goal-demo', id: focus.id }, 'Your partner is asked for the goal demo.')
+    else if (act === 'vibe-agree' && focus !== null) await sendFocus({ command: 'vibe-agree', id: focus.id }, 'Agreed. Your partner proposes the how next.')
     else if (act === 'how-go' && focus !== null) await sendFocus({ command: 'how-go', id: focus.id }, 'Go: your partner makes the steps, and the main chat hands them out.')
     else if (act === 'send-not-yet' && focus !== null && focusUi.notYet !== null) {
       if (words('notYet') === '') focusUi.note = { isProblem: true, text: 'Say what is missing, in your words.' }

@@ -64,7 +64,7 @@ import { editThread, fixesToTell } from './src/brainstorm.mjs'
 import { changeGoalsFile, editGoals } from './src/goalsWrite.mjs'
 import { activityFor, missingToSteps } from './src/goalSteps.mjs'
 import { PLAN_MOVES, planMove } from './src/planMoves.mjs'
-import { FOCUS_DRAFTS, FOCUS_MOVES, evaluationsAgain, evaluationsMode, evaluationsRunning, focusAllDone, focusMove, goalChecked, goalReopened, guardGoal, guardsAsking, undoLine } from './src/focus.mjs'
+import { FOCUS_DRAFTS, FOCUS_MOVES, demoAgain, evaluationsAgain, evaluationsMode, evaluationsRunning, focusAllDone, focusMove, goalChecked, goalReopened, guardGoal, guardsAsking, undoLine } from './src/focus.mjs'
 import { PARTNER_MODES, effortBack, fableBack, partnerEffortWords } from './src/partnerEffort.mjs'
 import { GUARD_ATTEMPTS, evaluationFor } from './src/goalGuard.mjs'
 import { readSources } from './src/sources.mjs'
@@ -802,6 +802,18 @@ async function main(args) {
     if (again.length === 0) return
     await partnerModeNow(state, mode => `the goal guard: the evaluation of ${again.map(words => words.about).join(', ')} has not ended (${PARTNER_MODES[mode].label})`)
     for (const words of again) await toPartner(words, {}, state)
+  }
+  /**
+   * B677: every part of the focus goal is done and it has no Demo line: the word `goal demo:` goes to the partner once, then
+   * every hour while it is not answered, three times at most (src/focus.mjs demoAgain). Not while the person pauses.
+   */
+  const demoNow = async state => {
+    if (!writesMap || workDir === null || (state.advisor ?? null) === null || isHolding(state.pause)) return
+    const words = await demoAgain({
+      canWrite: writesMap, goalsFile: projectFile(config, 'goals'), historyDir: projectFile(config, 'goalsHistory'), now: clock(),
+      partner: state.advisor, job: join(HERE, 'roles', 'partner.md'), focus: state.focus ?? null,
+    })
+    for (const one of words) await toPartner(one, {}, state)
   }
   /** Focus 2: the person's word to the partner into the outbox (copied without the Workers mod); a partner not running is woken. */
   const toPartner = async (words, result, state) => {
@@ -2268,6 +2280,8 @@ async function main(args) {
         loops.succeeded('reconcile')
         // B528: an evaluation that has not ended is asked of the partner again; on its own, so a failure stops no delivery.
         await loops.run('evaluate-again', () => evaluateAgainNow(state))
+        // B677: the goal demo asked of the partner once every part of the focus is done.
+        await loops.run('goal-demo', () => demoNow(state))
         // B404: a step that has stood on "check pending" for more than 2 minutes (a restart right after a report ended
         // its check) is checked again; the checks that run now are skipped.
         await loops.run('stuck-checks', async () => {
