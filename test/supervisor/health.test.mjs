@@ -313,7 +313,7 @@ test('B630 (X54): a step in review whose dropped fix waits on an open step that 
 const X18_NOW = new Date(2026, 9, 24, 20, 23).getTime()
 const yesterday = (hours, minutes) => new Date(2026, 9, 23, hours, minutes).getTime()
 const today = (hours, minutes) => new Date(2026, 9, 24, hours, minutes).getTime()
-function x18Board({ reportAt = yesterday(22, 29) } = {}) {
+function x18Board({ reportAt = yesterday(22, 29), more = [] } = {}) {
   return buildView({
     state: {
       chats: [
@@ -328,6 +328,7 @@ function x18Board({ reportAt = yesterday(22, 29) } = {}) {
       step('B301', 'done', { Owner: 'Lead', Since: stamp(reportAt) }, { History: [`- ${stamp(reportAt)} Lead: in progress → review`] }),
       step('B302', 'review', { Owner: 'Weeder', Since: stamp(today(19, 40)) }, { History: [`- ${stamp(today(19, 40))} Weeder: in progress → review`] }),
       item({ Id: 'X18', Kind: 'incident', Title: 'a time in the future', State: 'open', Source: 'sweep', Key: 'time Lead', Since: stamp(yesterday(23, 0)), 'First seen': stamp(yesterday(23, 0)), 'Last seen': stamp(today(20, 20)), Count: '2' }),
+      ...more,
     ),
     limits: { fiveHour: { used: 97, level: 'full', at: today(20, 20), resetsAt: new Date(2026, 9, 25, 1, 10).getTime() }, week: { used: 41, level: 'ok', at: yesterday(23, 50), resetsAt: today(23, 0) } },
     pause: { state: 'running', since: yesterday(8, 0) },
@@ -345,6 +346,13 @@ test('B562 (X18): a last report of the day before shows its date, so 22:29 never
   const todays = healthSummary(x18Board({ reportAt: today(18, 5) }), X18_NOW).split('\n').find(one => one.includes('Lead (main)')) ?? ''
   assert.match(todays, /; last report B301 at 18:05;/)
   assert.match(text.split('\n').find(one => one.includes('Weeder (worker)')) ?? '', /unknown since 20:03 \(20 min\);.*; last report B302 at 19:40; compaction skipped at 19:50: small enough$/)
+})
+
+test('B685: an incident the partner closed is not in the summary, however recently it was seen; one still open is', () => {
+  const closed = item({ Id: 'X19', Kind: 'incident', Title: 'a false alarm', State: 'closed', Source: 'sweep', Key: 'false Lead', Since: stamp(today(20, 10)), 'First seen': stamp(today(19, 0)), 'Last seen': stamp(today(20, 15)), Count: '3' })
+  const text = healthSummary(x18Board({ more: [closed] }), X18_NOW)
+  assert.doesNotMatch(text, /X19/)
+  assert.match(text, /X18 open/)
 })
 
 test('B562: every time in the summary of another day, past or future, carries its date; the head keeps the clock of now', () => {

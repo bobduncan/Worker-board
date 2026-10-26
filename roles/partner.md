@@ -832,6 +832,11 @@ unless the fix changes what the user sees or decides.
    first on the board's list), and its model and effort (a structural fix: opus · high; a small tweak: sonnet ·
    medium). Where it can, one part adds a rule to the supervisor (a repair or watch rule in `src/supervisor/rules/`,
    with its test), so the same is caught by code next time and costs no sweep.
+   **No fault left (B685)**: an incident that was a false alarm, or was handled already with no step of its own, or that
+   the person agreed to close, is closed, not fixed: `work drop X<n>` with `why` (one line: what made it no fault). The
+   board shows it closed and counts it as fixed; a sighting of a case newer than the close opens it again as came back
+   (an older one only counts). Only one open, came back or with the advisor can be closed; one being fixed or fixed is
+   answered by its fix step. Never close one whose fault still stands, and never to make a count smaller.
 3. Name it: `work incident-fix X<n>` with `fix` B<id>. The board marks the incident fixed once that step is done, and
    open again (handing it to you anew) when the step is dropped.
 4. That is all: a fix stands first on the board's list (the redesign's Part 2), and the board gives it to the first

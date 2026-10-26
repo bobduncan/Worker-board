@@ -2127,8 +2127,30 @@ async function askForYou(value, since, w) {
   return { asked, left, unfiled }
 }
 
+/**
+ * B685: the partner closes an incident that is a false alarm or was handled already (`work drop X<n>` with why): State
+ * closed, Since now, the why and who in its History. Only one open, came back or with the advisor; one being fixed or
+ * fixed has its fix step to answer for it.
+ */
+async function closeIncident(body, w) {
+  if (w.role !== 'advisor') return refuse(403, 'Only the partner closes an incident.')
+  const found = await load(body.id, w, { kind: ['incident'] })
+  if (!found.ok) return found
+  const id = valueOf(found.item, 'Id')
+  const why = line(body.why, 300)
+  if (why === '') return refuse(400, 'Say why in "why".')
+  const state = stateOf(found.item)
+  if (!['open', 'came back', 'with the advisor'].includes(state)) {
+    return refuse(409, state === 'closed' ? `${id} is closed already.` : `${id} is ${state === 'fix' ? `being fixed by ${valueOf(found.item, 'Fix') ?? 'its fix step'}` : state}: its fix step answers for it, not a close.`)
+  }
+  const next = ordered(said(put(put(copy(found.item), 'State', 'closed'), 'Since', stamp(w.now)), w, `closed: ${why}`))
+  const done = await save(next, found.text, w)
+  return done.ok ? changed(next, `${id}: closed: ${why}`) : done
+}
+
 /** A step is dropped, and why. */
 async function drop(body, w) {
+  if (/^X\d+$/.test(line(body.id, 20))) return closeIncident(body, w)
   const found = await load(body.id, w, { kind: ['step'] })
   if (!found.ok) return found
   const why = line(body.why, 300)
@@ -2829,10 +2851,12 @@ async function incident(body, w) {
   let next = put(put(put(copy(loaded.item), 'Title', title), 'Last seen', stamp(w.now)), 'Count', String(count))
   if (evidence !== '') put(next, 'Evidence', evidence)
   if (wanted !== '') put(next, 'Rule wanted', wanted)
-  const old = stateOf(loaded.item) === 'fixed' ? oldCaseOf(loaded.item, sinceOf(body.since), w) : null
-  const isBack = stateOf(loaded.item) === 'fixed' && old?.standing !== true
+  // B685: a closed incident comes back like a fixed one: a case that began after the close is a new one.
+  const wasEnded = stateOf(loaded.item) === 'fixed' || stateOf(loaded.item) === 'closed'
+  const old = wasEnded ? oldCaseOf(loaded.item, sinceOf(body.since), w) : null
+  const isBack = wasEnded && old?.standing !== true
   if (old?.standing === true) {
-    const why = `old case still standing (began ${clock(old.since)}, before ${old.fix} was done at ${clock(old.doneAt)})`
+    const why = `old case still standing (began ${clock(old.since)}, before ${old.fix === null ? 'it was closed' : `${old.fix} was done`} at ${clock(old.doneAt)})`
     if (!(loaded.item.sections.get('History') ?? []).some(entry => entry.endsWith(why))) next = said(next, w, why)
   }
   if (isBack) next = said(put(put(next, 'State', 'came back'), 'Since', stamp(w.now)), w, `came back (seen ${count} times${old === null ? '' : '; old case outlived its fix'})`)
@@ -2867,8 +2891,10 @@ function doneAtOf(step) {
  */
 function oldCaseOf(item, since, w) {
   if (!Number.isFinite(since)) return null
-  const fix = valueOf(item, 'Fix')
-  const doneAt = fix === null ? Number.NaN : doneAtOf(w.store.items.get(fix))
+  // B685: a closed incident ended when it was closed (its Since), with no fix step.
+  const isClosed = stateOf(item) === 'closed'
+  const fix = isClosed ? null : valueOf(item, 'Fix')
+  const doneAt = isClosed ? sinceMs(valueOf(item, 'Since')) : fix === null ? Number.NaN : doneAtOf(w.store.items.get(fix))
   if (!Number.isFinite(doneAt) || since >= doneAt) return null
   return { since, fix, doneAt, standing: w.now - doneAt < OLD_CASE_MS }
 }
@@ -2884,6 +2910,7 @@ async function incidentFix(body, w) {
   if (!loaded.ok) return loaded
   const id = valueOf(loaded.item, 'Id')
   if (stateOf(loaded.item) === 'fixed') return refuse(409, `${id} is fixed already; when it comes back, name its fix then.`)
+  if (stateOf(loaded.item) === 'closed') return refuse(409, `${id} is closed already; when it comes back, name its fix then.`)
   const step = w.store.items.get(fix)
   if (step === undefined || kindOf(step) !== 'step') return refuse(404, `${fix}: no such step in the store.`)
   const next = ordered(said(put(put(put(copy(loaded.item), 'Fix', fix), 'State', 'fix'), 'Since', stamp(w.now)), w, `fix ${fix}`))

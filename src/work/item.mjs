@@ -32,7 +32,8 @@ export const HEAD_KEYS = {
   // rule's id or "sweep", `Subject` the chat or step it is about, `Key` the finding's key (the same key counts the same
   // incident), `First seen`, `Last seen` and `Count` how long and how often it was seen, `Fix` the step that fixes it,
   // `Rule wanted` the rule that could catch it (a sweep's finding), `Evidence` what was seen last. Its State: open,
-  // with the advisor, fix (its Fix step under way), fixed, or came back (fixed, then seen again).
+  // with the advisor, fix (its Fix step under way), fixed, closed (B685: the partner found no fault left), or came back
+  // (fixed or closed, then seen again).
   incident: ['Id', 'Kind', 'Title', 'State', 'Source', 'Subject', 'Key', 'Since', 'First seen', 'Last seen', 'Count', 'Fix', 'Rule wanted', 'Evidence'],
 }
 const REQUIRED = ['Id', 'Kind', 'State', 'Since']
