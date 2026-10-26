@@ -84,7 +84,27 @@ const watchOf = ctx => key => {
 /** `lasted`'s span, with `seenOf(key)` the time the key was first seen (undefined: now). */
 function spanOf(view, seenOf, key, since = null) {
   const first = Math.min(Number.isFinite(since) ? since : Infinity, seenOf(key) ?? view.now)
-  return view.now - Math.max(first, pauseEndOf(view))
+  const from = Math.max(first, pauseEndOf(view))
+  return view.now - from - boardOffMs(view, from)
+}
+
+/**
+ * X80 (the PC slept 17:06 to 21:08, and a step with ten minutes of work read four hours quiet): how long the board itself
+ * did not run between `from` and now, a PC sleep or a board stop. The history marks it as a time no chat has a span of state
+ * (history.mjs, store.mjs: a gap line); the time before the first span of any chat is the timeline's start, not a stop.
+ * Without a timeline it is 0, and the wall time counts.
+ */
+function boardOffMs(view, from) {
+  const spans = view.timeline.flatMap(lane => lane.spans ?? []).filter(span => Number.isFinite(span.from) && Number.isFinite(span.to)).sort((a, b) => a.from - b.from)
+  if (spans.length === 0 || !Number.isFinite(from)) return 0
+  let reached = Math.max(from, spans[0].from)
+  let off = 0
+  for (const span of spans) {
+    if (span.from >= view.now) break
+    if (span.from > reached) off += span.from - reached
+    reached = Math.max(reached, span.to)
+  }
+  return off
 }
 
 /**
@@ -682,7 +702,8 @@ export function reviewLateOf(view, item, wait, seenOf = () => undefined) {
     // past `openFixMinutes` once the newest refine word about it is older than `checkWordMinutes` (the board's retry,
     // refineGate.mjs FIX_RETRY_MS, had its chance), as review-stuck reads the check words.
     const key = `open-fix ${wait.end}`
-    const ms = view.now - afterPause(view, wait.unrefined.since)
+    const from = afterPause(view, wait.unrefined.since)
+    const ms = view.now - from - boardOffMs(view, from)
     const words = refineWordsOf(view, wait.end, wait.unrefined.since)
     const last = words.at(-1) ?? null
     const late = ms > view.settings.openFixMinutes * MIN && (last === null || view.now - last.at > view.settings.checkWordMinutes * MIN)
@@ -795,17 +816,20 @@ export function checkpointLate(item, view) {
   if (!Number.isFinite(began)) return null
   const checkpoint = checkpointOf(item)
   const written = Number.isFinite(checkpoint?.at) && checkpoint.at >= began ? checkpoint.at : null
-  const counted = from => view.now - afterPause(view, from) - (owner === undefined ? 0 : suspendedMs(view, owner.name, afterPause(view, from)))
+  const counted = from => view.now - afterPause(view, from) - boardOffMs(view, afterPause(view, from)) - (owner === undefined ? 0 : standingStillMs(view, owner.name, afterPause(view, from)))
   const quiet = counted(written ?? began)
   const late = { step: view.now - began, checkpoint, quiet }
   if (written !== null && REPORT_NEXT.test(checkpoint.next) && quiet > view.settings.reportMinutes * MIN) return { kind: 'report', ...late }
   return counted(began) > view.settings.checkpointMinutes * MIN && quiet > view.settings.checkpointMinutes * MIN ? { kind: 'old', ...late } : null
 }
 
-/** B572: how long the chat stood suspended for the limit between `from` and now, by its timeline's spans. */
-function suspendedMs(view, name, from) {
+/**
+ * B572, X80: how long the chat stood suspended for the limit, or was off (not running), between `from` and now, by its
+ * timeline's spans: it can write no checkpoint meanwhile. The board's own stops are boardOffMs's.
+ */
+function standingStillMs(view, name, from) {
   const spans = view.timeline.find(one => plain(one.chat, view.prefix) === plain(name, view.prefix))?.spans ?? []
-  return spans.filter(span => span.state === 'suspended')
+  return spans.filter(span => span.state === 'suspended' || span.state === 'off')
     .reduce((sum, span) => sum + Math.max(0, Math.min(span.to ?? view.now, view.now) - Math.max(span.from, from)), 0)
 }
 
@@ -862,7 +886,8 @@ export function switchOf(lane, item, view) {
   const mismatch = effort !== null && (effort !== want.level || (isModelSet && family !== null && family !== want.family))
   const state = own?.isSet === true ? 'switched' : own?.asked != null ? 'asked' : 'none'
   const takenAt = takenAtOf(item)
-  const since = view.now - afterPause(view, takenAt)
+  const taken = afterPause(view, takenAt)
+  const since = view.now - taken - boardOffMs(view, taken)
   const late = mismatch && state !== 'switched' && !isPaused(view) && !isFull(view) && Number.isFinite(since) && since > view.settings.switchMinutes * MIN
   return {
     runs: `${family ?? 'a model not known'} · ${effort ?? 'effort not known'}`, wants: `${want.family} · ${want.level}`, mismatch, state,

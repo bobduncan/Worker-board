@@ -120,3 +120,18 @@ test('a checkpoint of the old form, with no time, still shows in the summary', (
   const line = lineOfStep(healthSummary(view(items(step('B4', 'in progress', { Since: stamp(ago(30)), Checkpoint: 'Sort the crates' }))), NOW), 'B4')
   assert.match(line, /\[last checkpoint at a time not known \(none\): Sort the crates\]/)
 })
+
+test('X80: the hours the board did not run (a PC sleep) and the hours the chat was off do not count; a quiet stretch while it runs does', () => {
+  // in progress 4 h 10 min ago, the PC slept from 4 h ago to 10 min ago: 10 min of running time since the take
+  const store = () => items(step('B704', 'in progress', { Since: stamp(ago(250)) }))
+  const slept = [{ chat: 'Picker', spans: [{ from: ago(250), to: ago(240), state: 'working' }, { from: ago(10), to: NOW, state: 'working' }] },
+    { chat: 'Lead', spans: [{ from: ago(250), to: ago(240), state: 'working' }, { from: ago(10), to: NOW, state: 'working' }] }]
+  assert.deepEqual(check(view(store(), { today: slept })), [])
+  assert.equal(check(view(store())).length, 1)
+  // quiet 2 h 10 min while its chat runs the whole time: late, as before
+  const running = [{ chat: 'Picker', spans: [{ from: ago(250), to: NOW, state: 'working' }] }]
+  assert.equal(check(view(store(), { today: running })).length, 1)
+  // the chat off for 4 h of it (the board running): its own off time does not count either
+  const off = [{ chat: 'Picker', spans: [{ from: ago(250), to: ago(240), state: 'working' }, { from: ago(240), to: ago(10), state: 'off' }, { from: ago(10), to: NOW, state: 'working' }] }]
+  assert.deepEqual(check(view(store(), { today: off })), [])
+})
