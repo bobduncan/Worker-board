@@ -133,7 +133,7 @@ tab) and never on the demo; once closed, the browser keeps that it was seen (`he
   about the missing mod, and **+ Add worker**. The supervisor (2026-10-24; `art-inbox/worker-board/supervisor/`):
   under the panel's head, after **Check now** (a wrench and the words, in the quiet button's own grey; "Out of sync?"
   before) or when something is new, the section "Supervisor · checked itself at HH:MM" with **Check now** and **×**:
-  its **Incidents** (a state chip, open, fix B<n>, fixed, came back or with the advisor, the id, what was found, and
+  its **Incidents** (a state chip, open, fix B<n>, fixed, closed, came back or with the advisor, the id, what was found, and
   "seen 5 times, since 10:27, last 10:42"), **Last check** (B465: a row per stuck state it found, each with **Fixed**,
   **Woke**, **Sent** or **For Main**, and a **Fine** row for the checks that found nothing; it stands for an hour;
   worktree clean-up: **Cleaned**, or a quiet **Left** with why, "held by B12", "not merged into main"), **Rules** (those

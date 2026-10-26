@@ -2859,7 +2859,7 @@ async function incident(body, w) {
     const why = `old case still standing (began ${clock(old.since)}, before ${old.fix === null ? 'it was closed' : `${old.fix} was done`} at ${clock(old.doneAt)})`
     if (!(loaded.item.sections.get('History') ?? []).some(entry => entry.endsWith(why))) next = said(next, w, why)
   }
-  if (isBack) next = said(put(put(next, 'State', 'came back'), 'Since', stamp(w.now)), w, `came back (seen ${count} times${old === null ? '' : '; old case outlived its fix'})`)
+  if (isBack) next = said(put(put(next, 'State', 'came back'), 'Since', stamp(w.now)), w, `came back (seen ${count} times${old === null ? '' : `; old case outlived its ${old.fix === null ? 'close' : 'fix'}`})`)
   next = ordered(next)
   const done = await save(next, loaded.text, w)
   if (!done.ok) return done

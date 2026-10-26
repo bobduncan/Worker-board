@@ -3346,7 +3346,9 @@ the AI sweep by a cheap supervisor chat and the hand-over to the Advisor, comes 
   every run, as `sync.json` is, so a restart or another board taking the loop over goes on from it. `sync.json` and
   `sync-loop.json` keep their form.
 - **Incidents** are items of the work store, `X<n>` (`src/work/item.mjs`): Title, State (open, with the advisor, fix,
-  fixed, came back; "fix" is shown "fix B<n>"), Source (the rule's id, or "sweep"), Subject, Key, Since, First seen,
+  fixed, closed, came back; "fix" is shown "fix B<n>"; B685: "closed" is the partner's `work drop X<n>` with a why for a
+  false alarm or one handled already, counted as fixed, left out of the health summary, and a sighting of a case newer
+  than the close makes it "came back"), Source (the rule's id, or "sweep"), Subject, Key, Since, First seen,
   Last seen, Count, Fix, Rule wanted, Evidence. The work API: `incident` (the board, or a chat of role supervisor: Source
   "sweep" and the rule that could catch it), `incident-fix` (the partner: the step that fixes it), `incidents-fixed`
   (the board's reconcile: fixed once that step is done, open again when it was dropped). A chat of role supervisor
@@ -3355,7 +3357,8 @@ the AI sweep by a cheap supervisor chat and the hand-over to the Advisor, comes 
   count 20), a fixed one's key makes it "came back". B584: unless the finding names when its case began (`since`:
   not-cleared its take or report, undelivered its oldest word, report-check-twice its second failure) before its fix
   step was done: that old case still standing only counts and says so once in History, for up to 2 h after the fix
-  ("old case outlived its fix" then). Incidents are never on the backlog view.
+  ("old case outlived its fix" then; "its close" for a closed one). B687: `repair-repeats` counts no repair from before the
+  incident's fix was done or its close (a "closed:" line of its History). Incidents are never on the backlog view.
 - **To the person**: each incident that opened or came back gives one note of the board's (`Via: supervisor`, About
   X<n>). B573: the unread ones are drawn as one quiet line under Needs your attention, "Supervisor: 3 new findings"
   with a wrench, never counted; a click opens the section (Details first, from Simple), and opening the section any

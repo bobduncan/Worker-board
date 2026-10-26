@@ -328,17 +328,23 @@ function skipRepeats(view, ctx) {
 
 const DONE_LINE = /^-\s+(\d{4}-\d{2}-\d{2} \d{2}:\d{2}(?::\d{2})?)\s+[^:]+: \S+ → done\b/
 const FIX_LINE = /^-\s+\S+ \S+ [^:]+: fix (B\d+)\s*$/
+const CLOSE_LINE = /^-\s+(\d{4}-\d{2}-\d{2} \d{2}:\d{2}(?::\d{2})?)\s+[^:]+: closed: /
 
 /**
  * B551 (X11): when the incident a finding's key files was last fixed: the latest time one of the steps named as its fix
- * (its Fix, and every "fix B<n>" of its History) went done, at the end of that minute; -Infinity for none. A repair
- * before it is one that fix was made for: it never counts again.
+ * (its Fix, and every "fix B<n>" of its History) went done, or (B687) the time the partner closed it (a "closed:" line of
+ * its History, also once it came back), at the end of that minute; -Infinity for none. A repair before it is one that
+ * fix or close answered for: it never counts again.
  */
 function fixedAtOf(view, key) {
   const incident = [...view.items.values()].find(item => valueOf(item, 'Kind') === 'incident' && valueOf(item, 'Key') === key)
   if (incident === undefined) return -Infinity
   const named = (incident.sections?.get('History') ?? []).map(line => FIX_LINE.exec(line)?.[1]).filter(Boolean)
   let at = -Infinity
+  for (const closed of (incident.sections?.get('History') ?? []).map(line => CLOSE_LINE.exec(line)?.[1]).filter(Boolean)) {
+    const ms = sinceMs(closed)
+    if (Number.isFinite(ms)) at = Math.max(at, ms + (/:\d\d:\d\d$/.test(closed) ? 1000 : MIN) - 1)
+  }
   for (const id of new Set([valueOf(incident, 'Fix'), ...named].filter(Boolean))) {
     const fix = view.items.get(id)
     if (fix === undefined || stateOf(fix) !== 'done') continue

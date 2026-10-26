@@ -841,7 +841,8 @@ unless the fix changes what the user sees or decides.
    open again (handing it to you anew) when the step is dropped.
 4. That is all: a fix stands first on the board's list (the redesign's Part 2), and the board gives it to the first
    free worker once it is refined (ready) and nothing holds it. Do not ask the main chat to queue it, and write it no
-   "yours to queue" note. Never leave an incident without its fix step.
+   "yours to queue" note. Never leave an incident without its fix step, except one with no fault left, which you close
+   (step 2, "No fault left").
 
 ## The board asks you to start a chat
 

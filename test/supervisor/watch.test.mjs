@@ -576,3 +576,20 @@ test('old-limit-reading (X47, B632, B645): a limit near a stop (5-hour 80%, week
   // X47, X55, X56: and file nothing for an old reading: the rule does, and only near a stop.
   assert.match(role, /old-limit-reading.*near a stop.*5-hour limit at 80% or more.*weekly at 90% or more.*file nothing/)
 })
+
+test('repair-repeats (B687): repairs from before its incident was closed never count again, also once it came back; three after the close do', () => {
+  const wake = (minutes, more = {}) => ({ at: ago(minutes), rule: 'helper', subject: 'Helper', key: `helper Helper ${minutes}`, ...more })
+  const history = lines => ({ History: lines.map(([minutes, words]) => `- ${stamp(ago(minutes))} ${words}`) })
+  const closed = item({ Id: 'X11', Kind: 'incident', State: 'closed', Since: stamp(ago(40)), Key: 'repair-repeats helper Helper' },
+    history([[180, 'server: opened by the rule repair-repeats'], [40, 'Partner: closed: a false alarm']]))
+  const board = (repairs, incident = closed) => view({ repairs, items: items(incident) })
+  const before = [wake(200), wake(130), wake(70)]
+  assert.deepEqual(check('repair-repeats', board(before)), [], 'the three wakes it was closed for')
+  assert.deepEqual(check('repair-repeats', board([...before, wake(39.5), wake(30), wake(10)])), [], 'the close minute counts as before')
+  assert.equal(check('repair-repeats', board([...before, wake(30), wake(20), wake(10)])).length, 1, 'three after the close')
+  // It came back after the close: the wakes before the close still never count.
+  const back = item({ Id: 'X11', Kind: 'incident', State: 'came back', Since: stamp(ago(5)), Key: 'repair-repeats helper Helper' },
+    history([[180, 'server: opened by the rule repair-repeats'], [40, 'Partner: closed: a false alarm'], [5, 'server: came back (seen 3 times)']]))
+  assert.deepEqual(check('repair-repeats', board(before, back)), [])
+  assert.equal(check('repair-repeats', board([...before, wake(30), wake(20), wake(10)], back)).length, 1)
+})

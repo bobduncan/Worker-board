@@ -150,3 +150,15 @@ test('a closed incident is kept like a fixed one in the lists, and its card says
   assert.equal(closed.phase, 'done', 'counted as fixed')
   assert.equal(cards.find(card => card.incidents.some(one => one.id === 'X2')).state.tone, 'sending')
 })
+
+test('a reopened closed incident says its old case outlived the close, not a fix', async t => {
+  const s = await store(t)
+  await recordFindings([finding({ since: NOW - 30 * MIN })], { work: s.board })
+  s.tick(10)
+  await s.chat('Partner', { action: 'drop', id: 'X1', why: 'a false alarm' })
+  s.tick(120)
+  await recordFindings([finding({ since: NOW - 30 * MIN })], { work: s.board })
+  const x1 = await s.item('X1')
+  assert.equal(head(x1, 'State'), 'came back')
+  assert.match(x1.sections.get('History').at(-1), /server: came back \(seen 2 times; old case outlived its close\)$/)
+})
