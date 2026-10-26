@@ -200,6 +200,25 @@ export function dropPart(text, id, part, why, at) {
   return appendOwnLine(text, id, `Part dropped: ${title} · ${at} · ${words}`)
 }
 
+/**
+ * B692: a part's drop taken back, in any order and after a restart: only that goal's `Part dropped: <title> ·` line goes;
+ * refused when no such line stands.
+ */
+export function undropPart(text, id, part) {
+  const title = oneLine(part, 160).replaceAll(' · ', ', ')
+  if (title === '') return refuse('form')
+  const file = split(text)
+  const found = blockOf(file.lines, id)
+  if (!found.ok) return found
+  const at = ownLines(file.lines, found).find(index => {
+    const line = file.lines[index].trim()
+    return line.startsWith('Part dropped:') && line.slice('Part dropped:'.length).split(' · ')[0].trim() === title
+  })
+  if (at === undefined) return refuse('undrop')
+  file.lines.splice(at, 1)
+  return { ok: true, text: join(file) }
+}
+
 export function addGoalNote(text, id, note) {
   const words = oneLine(note, 300)
   return words === '' ? refuse('form') : appendOwnLine(text, id, `Note: ${words}`)
@@ -532,6 +551,7 @@ const WHY = {
   encoding: [409, 'The map is not UTF-8 text: change it by hand first.'],
   tabs: [409, 'The map has lines indented with tabs: make them two spaces per level by hand first.'],
   part: [409, 'That is not a part of this goal, or it has no reason: say why in one line.'],
+  undrop: [409, 'That part is not dropped any more: nothing to take back.'],
   write: [500, 'The goal map could not be written.'],
 }
 
@@ -592,6 +612,8 @@ function changeFor(body, made, now) {
     case 'note': return text => addGoalNote(text, id, body.value)
     // B680: the person stops a part that reached nothing; it counts out of the whole.
     case 'part-drop': return text => dropPart(text, id, body.part, body.text, minuteOf(now))
+    // B692: the person takes a part's drop back: that part's own line goes, whatever else changed since.
+    case 'part-undrop': return text => undropPart(text, id, body.part)
     // B383: the Goals page's right panel: a Missing line dismissed.
     case 'missing-dismiss': return text => removeGoalMissing(text, id, body.line)
     case 'link': return text => addGoalLink(text, id, body.name, body.target)
