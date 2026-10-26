@@ -3923,6 +3923,46 @@ cannot.
   carry it, another chat is asked) with "<holder> does not run, so it cannot carry the start of <chat>"; the main chat's own
   start words wait for it as before.
 
+### The resume after a crash (T9.4, 2026-10-26)
+
+The PC crashed at 09:16 and was off until 12:18; after it every chat was closed. All focus work was one chain, B670 to B674,
+and its head, B670, stood in progress for Worker 3, which the crash cut off. Nothing woke it: the wake-up above wakes only a chat
+that board words wait for, nothing waited for it, and the restart flow ("Resume all") types into the main chat, which was closed
+too. Everything stood still until the person looked. The person: "lets build the automatic resume and see that it works".
+
+- *The word.* `resumesDue(state, outbox)` (`src/say.mjs`, pure) adds one word to each worker that holds a step taken or in
+  progress in the store (`storeSteps`: its Owner) and is known not to run (`isRunning` false, or its lane off): command
+  `resume-step`, about the step id, text `resume your step B<id> from your checkpoint` (the words the main chat sends at
+  Resume all, roles/main.md). It names the step the lane's task names, else the oldest it holds. It is the board's word
+  (`bridge.mjs` types it without the person's mark) and no word of the page (`checkSay` refuses the command).
+- *The server.* At every look of the board's clock that delivers (`server.mjs`, before `wakesDue`, so the start word follows in the
+  same look), also while no chat has called the board yet: after a reboot the word then waits, the page's "No chat is running"
+  line names the chat, and the first chat the person opens carries the start word for the others.
+- *The wake-up.* `resume-step` is a wake word (`isWakeWord`) that waits as long as its purpose stands (`waitsLong`): `wakesDue`
+  has a chat that runs start the closed one (`wakerFor`, three tries at most, then the page says nobody could), and
+  `nobodyRunsOf` names it while no chat runs.
+- *Never for* the main chat, a leftover, a chat stopped on purpose (`stoppedOf`), parked or paused for the limit (its lane says
+  suspended), a chat being removed (`removedAt`, an open removal), or while the person pauses all chats (`isHolding`); nor for
+  a step in review, done or waiting on the person. *Once for each off spell:* not again while an earlier word for the same
+  chat and step waits, or was sent since the chat last ran (its last write or turn), so a chat that cannot be started is
+  not asked again and again, and one that ran and quit again is resumed anew.
+- *The sweep* (`outboxSweep.mjs`) closes a waiting word when its chat runs again ("<chat> runs again": it has been started; its
+  mod then hands the chat its checkpoint, "You hold B<id> ...") or when the chat no longer holds the step in the store (in
+  review, done, dropped, gone, or another chat's). The chat's `take` sweeps first, so a chat that is already up when it
+  takes is not handed a word whose purpose is done.
+- *Why Worker 5 read free (point 2 of the brief).* It has no card in `.claude/chats`: it never joined the list ("chat not on
+  board list; needs which board name to join as", its own last turn), so the board has no Workers mod for it. The rule of Gap 1
+  (`laneWithoutReport`: a chat whose card names a mod that reports, with no report since the board started, is unknown and
+  then off) needs that mod; without it the lane is read from the conversation as for an older mod (turn ended: free) and
+  `isRunning` is null while no mod has called the board (B213). That is pinned (`chatReport.state.test.mjs`: a chat without a
+  card keeps today's reading) and was left as it is: calling it off would be a guess (principle 3). Nothing depends on it:
+  `nobodyRunsOf` counts an unknown chat as not running while `bridge.isMissing`, and a chat that holds a step and has no card is
+  read off by B315 once the app started after its last write. The torn card was the real hole: Worker 3's card (627 bytes for
+  466 of JSON, its end NUL bytes, written when the PC crashed) did not parse, so its mod, its task and its off state were lost
+  and its lane read "unknown" for ever. `sources.mjs` (`readCard`) now reads a card without the NUL bytes a crash leaves at its end.
+- Tests: `test/resumeAfterCrash.test.mjs` (made-up chats through `buildState`: the 2026-10-26 case, a board no chat has called, the
+  pause, the chats and steps that get nothing, once for each off spell, the sweep, the torn card).
+
 ## Asset providers, part 1: the provider setting (T9.3, 2026-10-25)
 
 The person's yes to build part 1 of `.claude/specs/2026-10-25-asset-providers-design.md`: the setting and the provider
