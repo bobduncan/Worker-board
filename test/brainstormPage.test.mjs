@@ -282,6 +282,30 @@ test('B716: the board tells the partner of a stranded question once, and the nex
   assert.deepEqual(strandedToTell([one(`${HEAD}${Q1}`)], [], advisor), [])
 })
 
+// B721: G15's Q8 (names its ask Q428) and G33's Q11 (a done goal) woke the partner for nothing.
+const NAMED = '\n## Q8 (22:36)\nIs the approach right?\nContext: Yes, it holds.\nWhy: a corrected how. Your choice is asked as Q428, not here.\n- A: keep (advised)\n- B: change\n'
+const goals = state => [{ id: 'G6', state }]
+
+test('B721: a question that names its ask is told nothing; one that only mentions a question is', () => {
+  assert.deepEqual(strandedQuestions([one(`${GONE}${NAMED}`)]), [])
+  assert.deepEqual(strandedToTell([one(`${GONE}${NAMED}`)], [], { name: 'Advisor' }), [])
+  assert.equal(strandedQuestions([one(`${GONE}${Q3.replace('It failed three times.', 'Q2 said it failed three times.')}`)]).length, 1)
+  assert.equal(strandedQuestions([one(`${GONE}${NAMED.replace('asked as Q428', 'asked later')}`)]).length, 1)
+})
+
+test('B721: the talk of a done goal, or of a goal no longer in the map, is told nothing; an open goal is', () => {
+  const stuck = one(`${GONE}${Q3}`)
+  assert.deepEqual(strandedQuestions([stuck], goals('done')), [])
+  assert.deepEqual(strandedQuestions([stuck], []), [])
+  assert.equal(strandedQuestions([stuck], goals('now')).length, 1)
+  assert.equal(strandedQuestions([stuck], goals('open')).length, 1)
+  assert.equal(strandedQuestions([stuck], null).length, 1)
+  // a free talk (no goal) has no goal to be done
+  assert.equal(strandedQuestions([one(`${GONE}${Q3}`.replace('Goal: G6 Benches that match the picture', 'Goal: new'))], goals('done')).length, 1)
+  assert.deepEqual(strandedToTell([stuck], [], { name: 'Advisor' }, goals('done')), [])
+  assert.equal(strandedToTell([stuck], [], { name: 'Advisor' }, goals('now')).length, 1)
+})
+
 test('B716: the stranded word is a partner word that wakes a stopped partner', () => {
   assert.equal(isPartnerWord('brainstorm-stranded'), true)
   const asleep = { advisor: { name: 'Advisor', isRunning: false }, restart: { main: 'Main' }, chats: [{ name: 'Main', isMain: true, isRunning: true }] }
