@@ -54,7 +54,7 @@ import { areaOf, freshScan, keptTasks, listText, readOn } from './src/taskTimes.
 import { createSpendingCollector } from './src/work/routing/collector.mjs'
 import { readRoutingRecord } from './src/work/routing/records.mjs'
 import { parseRoutingPolicy } from './src/work/routing/policy.mjs'
-import { adoptPicture, findPicture, pictureProblem, shownFolders, shownRoots } from './src/pictures.mjs'
+import { adoptPicture, findPicture, PICTURE_BYTES as SHOWN_PICTURE_BYTES, pictureProblem, pictureTooBig, shownFolders, shownRoots } from './src/pictures.mjs'
 import { answerWords, checkSay, checkStepWords, focusWords, spawnWhenAlone, wakeFor, wakesDue, wakesStopped, withInstruction, workWords } from './src/say.mjs'
 import { keepTalkPicture } from './src/talkPicture.mjs'
 import { firstLook, refineWhenDue } from './src/refineGate.mjs'
@@ -442,7 +442,9 @@ export function createBoard({
     if (pathname === '/api/picture') {
       if (!mayUse) return refuse(res, 403, 'Only the board\'s own page may read.')
       const found = await picture(searchParams.get('path') ?? '')
-      return found === null ? refuse(res, 404, 'No such picture.') : send(res, 200, found.type, found.body)
+      if (found !== null && found.tooBig === undefined) return send(res, 200, found.type, found.body)
+      if (found === null) return refuse(res, 404, 'No such picture.')
+      return refuse(res, 413, `Too big to show: ${(found.tooBig / 1048576).toFixed(1)} MB (the board shows pictures up to ${SHOWN_PICTURE_BYTES / 1048576} MB).`)
     }
     // B218: a file a link in the game plan names, read-only, from the game's folder only.
     if (pathname === '/api/game-file') {
@@ -1782,7 +1784,9 @@ async function main(args) {
     picture: async path => {
       const { project } = await readState()
       const found = await findPicture(project, shownRoots(config), path)
-      return found === null ? null : { type: found.type, body: await readFile(found.file) }
+      if (found !== null) return { type: found.type, body: await readFile(found.file) }
+      const size = await pictureTooBig(project, shownRoots(config), path)
+      return size === null ? null : { tooBig: size }
     },
     // B221: the person closes or deletes a step on the Backlog tab, through the work API (the store, then its view).
     // B285: the state is read anew after a change, so an ask made next (Send answers · refine again) knows the block.

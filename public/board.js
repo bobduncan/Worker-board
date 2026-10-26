@@ -167,10 +167,16 @@ const marked = (tag, className, text, linker = null) => mark(el(tag, className),
 
 // Pictures: fetched from the board's own server with the token, and shown from memory
 
+/** B676: why a picture could not be shown, by path (a plain line: "Too big to show: 41.2 MB ..."). */
+const pictureProblems = new Map()
+
 function pictureUrl(path) {
   if (!pictures.has(path)) {
     pictures.set(path, fetch(`/api/picture?path=${encodeURIComponent(path)}`, { headers: { 'X-Board-Token': TOKEN } })
-      .then(answer => (answer.ok ? answer.blob() : null))
+      .then(async answer => {
+        if (answer.status === 413) pictureProblems.set(path, (await answer.text()).trim())
+        return answer.ok ? answer.blob() : null
+      })
       .then(blob => (blob === null ? null : URL.createObjectURL(blob)))
       .catch(() => null))
   }
@@ -6885,13 +6891,102 @@ function openFromAddress(state) {
 
 // Pictures, large: a window of its own, so it also opens over the details
 
-/** A picture the board may show, large, with its caption; nothing when the board will not show it. */
+// zoom:start
+// B676: the picture window. A picture opens fitted to the window; a click toggles it to its full size at the point
+// clicked, the wheel zooms around the pointer, a drag moves it. The view is { scale, x, y }: the picture's top-left in
+// the stage, in px, and its size relative to the file. These are pure, for the test.
+const ZOOM_MOST = 8
+
+/** The scale that fits a picture into the stage: never above 100 %. */
+function zoomFit(natural, box) {
+  if (!(natural.width > 0) || !(natural.height > 0)) return 1
+  return Math.min(1, box.width / natural.width, box.height / natural.height)
+}
+
+/** A view kept on the stage: a picture larger than it reaches every edge but never leaves it, a smaller one is centred. */
+function zoomClamp(view, natural, box) {
+  const place = (offset, size, room) => (size <= room ? (room - size) / 2 : Math.min(0, Math.max(room - size, offset)))
+  return { scale: view.scale, x: place(view.x, natural.width * view.scale, box.width), y: place(view.y, natural.height * view.scale, box.height) }
+}
+
+/** The view at `scale` (between fitted and 800 %) with the picture point under `point` (stage px) staying under it. */
+function zoomAround(view, natural, box, scale, point) {
+  const next = Math.min(ZOOM_MOST, Math.max(zoomFit(natural, box), scale))
+  const ratio = next / view.scale
+  return zoomClamp({ scale: next, x: point.x - (point.x - view.x) * ratio, y: point.y - (point.y - view.y) * ratio }, natural, box)
+}
+
+/** The fitted view. */
+function zoomFitted(natural, box) {
+  return zoomClamp({ scale: zoomFit(natural, box), x: 0, y: 0 }, natural, box)
+}
+
+/** Whether the view is the fitted one. */
+const zoomIsFitted = (view, natural, box) => Math.abs(view.scale - zoomFit(natural, box)) < 0.001
+
+/** The scale a click goes to: 100 % from fitted (200 % when the picture is no larger than the stage), else back to fitted. */
+function zoomClickScale(view, natural, box) {
+  if (!zoomIsFitted(view, natural, box)) return zoomFit(natural, box)
+  return zoomFit(natural, box) < 1 ? 1 : 2
+}
+
+/** The quiet line under the picture: the zoom, and what a click does. */
+function zoomLine(view, natural, box) {
+  const goes = zoomIsFitted(view, natural, box) ? `${Math.round(zoomClickScale(view, natural, box) * 100)} %` : 'fit'
+  return `${Math.round(view.scale * 100)} % · click: ${goes}`
+}
+// zoom:end
+
+/** The picture window's state: the file's size, the view, and a drag in progress. */
+const lightbox = { natural: { width: 0, height: 0 }, view: { scale: 1, x: 0, y: 0 }, drag: null, moved: false }
+
+const stageBox = () => ({ width: $('lightbox-stage').clientWidth, height: $('lightbox-stage').clientHeight })
+
+/** Puts the picture where the view says and writes the zoom line. */
+function drawLightbox() {
+  const { natural, view } = lightbox
+  const image = $('lightbox-picture')
+  image.style.transform = `translate(${view.x}px, ${view.y}px) scale(${view.scale})`
+  image.classList.toggle('pixels', view.scale > 1)
+  $('lightbox-zoom').textContent = zoomLine(view, natural, stageBox())
+}
+
+/** The pointer's place in the stage, in px. */
+function stagePoint(event) {
+  const rect = $('lightbox-stage').getBoundingClientRect()
+  return { x: event.clientX - rect.left, y: event.clientY - rect.top }
+}
+
+/** One window for every picture (B676): the link, the frames, a game file; `problem` is a plain line when there is no picture. */
+function showPicture(url, caption, problem = null) {
+  const box = $('lightbox')
+  const image = $('lightbox-picture')
+  box.classList.toggle('zoomable', !PHONE.matches)
+  $('lightbox-caption').textContent = caption
+  $('lightbox-problem').textContent = problem ?? ''
+  $('lightbox-problem').hidden = problem === null
+  image.hidden = url === null
+  $('lightbox-zoom').hidden = url === null || PHONE.matches
+  lightbox.natural = { width: 0, height: 0 }
+  lightbox.view = { scale: 1, x: 0, y: 0 }
+  image.style.transform = ''
+  const place = () => {
+    lightbox.natural = { width: image.naturalWidth, height: image.naturalHeight }
+    lightbox.view = zoomFitted(lightbox.natural, stageBox())
+    drawLightbox()
+  }
+  image.onload = PHONE.matches ? null : place
+  if (url !== null) image.src = url
+  if (!box.open) box.showModal()
+  if (url !== null && image.complete && !PHONE.matches) place()
+}
+
+/** A picture the board may show, large, with its caption; a plain line when it may not (too big), nothing otherwise. */
 function openPicture(path, caption) {
   pictureUrl(path).then(url => {
-    if (url === null) return
-    $('lightbox-picture').src = url
-    $('lightbox-caption').textContent = caption || path
-    if (!$('lightbox').open) $('lightbox').showModal()
+    if (url !== null) return showPicture(url, caption || path)
+    const problem = pictureProblems.get(path)
+    if (problem !== undefined) showPicture(null, caption || path, problem)
   })
 }
 
@@ -6904,9 +6999,62 @@ document.addEventListener('click', event => {
 const PHONE = matchMedia('(max-width: 600px)')
 
 $('lightbox').addEventListener('click', event => {
+  const image = $('lightbox-picture')
   // B208: on a phone a tap on the picture keeps it open, to pinch and move it; a tap beside it closes it.
-  if (PHONE.matches && event.target === $('lightbox-picture')) return
+  if (PHONE.matches) {
+    if (event.target === image) return
+    return $('lightbox').close()
+  }
+  if (event.target.closest('#lightbox-close') !== null) return $('lightbox').close()
+  if (lightbox.moved) { lightbox.moved = false; return } // the end of a drag is no click
+  if (event.target === image) {
+    // B676: a click on the picture zooms (100 % at the point clicked, or back to fitted), it no longer closes the window
+    const box = stageBox()
+    const scale = zoomClickScale(lightbox.view, lightbox.natural, box)
+    lightbox.view = zoomAround(lightbox.view, lightbox.natural, box, scale, stagePoint(event))
+    return drawLightbox()
+  }
   $('lightbox').close()
+})
+
+$('lightbox-stage').addEventListener('wheel', event => {
+  if (PHONE.matches || lightbox.natural.width === 0) return
+  event.preventDefault()
+  const view = lightbox.view
+  lightbox.view = zoomAround(view, lightbox.natural, stageBox(), view.scale * Math.exp(-event.deltaY * 0.0015), stagePoint(event))
+  drawLightbox()
+}, { passive: false })
+
+$('lightbox-picture').addEventListener('pointerdown', event => {
+  if (PHONE.matches || event.button !== 0) return
+  lightbox.drag = { x: event.clientX, y: event.clientY, view: lightbox.view, far: false }
+  event.target.setPointerCapture(event.pointerId)
+  event.preventDefault()
+})
+$('lightbox-picture').addEventListener('pointermove', event => {
+  const drag = lightbox.drag
+  if (drag === null) return
+  const dx = event.clientX - drag.x
+  const dy = event.clientY - drag.y
+  if (!drag.far && Math.hypot(dx, dy) < 4) return
+  drag.far = true
+  lightbox.view = zoomClamp({ scale: drag.view.scale, x: drag.view.x + dx, y: drag.view.y + dy }, lightbox.natural, stageBox())
+  drawLightbox()
+})
+const endDrag = () => {
+  if (lightbox.drag !== null && lightbox.drag.far) lightbox.moved = true
+  lightbox.drag = null
+}
+$('lightbox-picture').addEventListener('pointerup', endDrag)
+$('lightbox-picture').addEventListener('pointercancel', endDrag)
+
+$('lightbox').addEventListener('close', () => { lightbox.moved = false; lightbox.drag = null })
+
+window.addEventListener('resize', () => {
+  if (!$('lightbox').open || PHONE.matches || lightbox.natural.width === 0) return
+  const box = stageBox()
+  lightbox.view = zoomIsFitted(lightbox.view, lightbox.natural, box) ? zoomFitted(lightbox.natural, box) : zoomClamp(lightbox.view, lightbox.natural, box)
+  drawLightbox()
 })
 
 // B208: on a phone an answer box grows as one types: the style sheet's field-sizing where the browser has it, else here.
@@ -13088,9 +13236,7 @@ async function openGameFile(path, alt = null) {
   close.setAttribute('aria-label', 'Close')
   head.append(el('h2', '', shown), close)
   if (answer !== null && answer.ok && (answer.headers.get('Content-Type') ?? '').startsWith('image/')) {
-    $('lightbox-picture').src = URL.createObjectURL(await answer.blob())
-    $('lightbox-caption').textContent = shown
-    if (!$('lightbox').open) $('lightbox').showModal()
+    showPicture(URL.createObjectURL(await answer.blob()), shown)
     return
   }
   const body = el('div', 'file-view-body advice')

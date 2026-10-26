@@ -374,9 +374,13 @@
 
   <dialog class="lightbox" id="lightbox" aria-label="Picture">
     <figure>
-      <img id="lightbox-picture" alt="">
-      <figcaption id="lightbox-caption"></figcaption>
+      <div class="lightbox-stage" id="lightbox-stage">
+        <img id="lightbox-picture" alt="">
+        <p class="lightbox-problem" id="lightbox-problem" hidden></p>
+      </div>
+      <figcaption><span id="lightbox-caption"></span> <span class="lightbox-zoom" id="lightbox-zoom"></span></figcaption>
     </figure>
+    <button class="icon-button lightbox-close" id="lightbox-close" type="button" aria-label="Close">✕</button>
   </dialog>
 </body>
 </html>
