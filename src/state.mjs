@@ -601,7 +601,7 @@ function card(chat, raw, { now, config, last, lines, main, prefix, stepOf = () =
     usage: entries === null ? [] : usageReadings([...(typeof tail.usage === 'string' ? parseTail(tail.usage, false) : []), ...entries]),
     // B301: its last answer asks the person in a "For you" block, and the store holds no ask of it since that turn
     // began: shown as a warning under Needs your attention, never read as a question.
-    unfiled: unfiledAsk(entries, scan, turn, waits, chat.name, prefix),
+    unfiled: unfiledAsk(entries, scan, turn, waits, chat.name, prefix, { now, maxAgeMs: config.unfiledAskHours * HOUR }),
     // B308: its turn has ended with nothing running (no command or subagent it left in the background, as `heldBy`
     // reads it: a "Done: yes" overrules one), it is not cut off or suspended: since when, and its last answer for the window. The reconciler
     // names a worker that holds a step so, without an open ask, as one that may wait for the person.
@@ -664,11 +664,15 @@ function restingOf({ entries, turn, idle, isRunningOn, isStopped }) {
  * time is `askFiledMs` (to the millisecond; an older one at the end of its minute). And an open ask of its own that an
  * item of the block asks (its id named, as the work tool writes it, or the same words) keeps the warning away, from
  * whichever turn it is.
+ * Stale (2026-10-26): an answer older than `maxAgeMs` (the setting `unfiledAskHours`, 2 h unless set) gives no warning
+ * at all, so no card and no count: for a chat with no turn since, and none of the board's list (its mod files no ask for
+ * it), it stood for ever (17 h at Worker 5).
  */
-function unfiledAsk(entries, scan, turn, waits, name, prefix) {
+function unfiledAsk(entries, scan, turn, waits, name, prefix, { now, maxAgeMs }) {
   if (entries === null || turn !== 'ended') return null
   const said = waitingFor(entries)
   if (said === null || !asksAtEnd(said.words)) return null
+  if (now - said.at > maxAgeMs) return null
   if (blockAsksOpen(said.words, waits.open ?? new Map(), name.toLowerCase())) return null
   const opened = turnStart((scan ?? entries).filter(entry => !(entry.at > said.at)), { prefix })?.at ?? null
   if (opened === null) return { at: said.at, words: said.words, isStartUnknown: true }
