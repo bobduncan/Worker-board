@@ -28,7 +28,7 @@ const LEAD = lane('Lead', { isMain: true, state: 'working' })
 const span = (chat, state, fromMinutesAgo) => ({ chat, spans: [{ from: ago(fromMinutesAgo), to: NOW, state, task: null }] })
 
 const view = (more = {}) => buildView({
-  state: { chats: more.chats ?? [LEAD], today: more.today ?? [], limits: more.limits ?? {}, pause: more.pause ?? null, chatPrefix: '', readyList: more.readyList ?? null },
+  state: { chats: more.chats ?? [LEAD], today: more.today ?? [], limits: more.limits ?? {}, pause: more.pause ?? null, chatPrefix: '', readyList: more.readyList ?? null, wakeFailed: more.wakeFailed ?? [], nobodyRuns: more.nobodyRuns ?? null },
   items: more.items ?? new Map(), outbox: more.outbox ?? [], repairs: more.repairs ?? [], mods: more.mods ?? null,
   settings: more.settings ?? {}, now: more.now ?? NOW,
 })
@@ -48,7 +48,7 @@ test('the watch rules: eighteen, report only, each with what it says', () => {
 })
 
 test('the settings: the thresholds of the spec by default; config.json\'s supervisor sets any of them, and a wrong one stops the board', () => {
-  assert.deepEqual({ ...SUPERVISOR_DEFAULTS }, { unknownMinutes: 10, suspendedMinutes: 10, idleMinutes: 10, notRunningMinutes: 30, opusWaitMinutes: 15, undeliveredMinutes: 10, repairsPerDay: 3, reviewMinutes: 60, checkWordMinutes: 30, openFixMinutes: 60, reportCheckMinutes: 10, checkpointMinutes: 120, reportMinutes: 30, switchMinutes: 10, notClearedMinutes: 10, oldReadingMinutes: 30, oldReadingIncidentMinutes: 60 })
+  assert.deepEqual({ ...SUPERVISOR_DEFAULTS }, { unknownMinutes: 10, suspendedMinutes: 10, idleMinutes: 10, notRunningMinutes: 30, opusWaitMinutes: 15, undeliveredMinutes: 10, repairsPerDay: 3, reviewMinutes: 60, checkWordMinutes: 30, openFixMinutes: 60, reportCheckMinutes: 10, checkpointMinutes: 120, reportMinutes: 30, switchMinutes: 10, notClearedMinutes: 10, oldReadingMinutes: 30, oldReadingIncidentMinutes: 60, oldReadingFiveHourPercent: 80, oldReadingWeekPercent: 90 })
   assert.deepEqual({ ...parseConfig('{}', {}).supervisor }, { ...SUPERVISOR_DEFAULTS })
   assert.equal(parseConfig('{ "supervisor": { "unknownMinutes": 20, "idleMinutes": -1 } }', {}).supervisor.unknownMinutes, 20)
   assert.equal(parseConfig('{ "supervisor": { "unknownMinutes": 20, "idleMinutes": -1 } }', {}).supervisor.idleMinutes, 10)
@@ -57,24 +57,46 @@ test('the settings: the thresholds of the spec by default; config.json\'s superv
   assert.equal(configProblem('{ "supervisor": { "repairsPerDay": 5 } }'), null)
 })
 
-test('unknown-lane: a worker unknown for 11 min trips, 9 min does not; never the main chat or a leftover', () => {
-  const board = minutes => view({ chats: [LEAD, lane('Painter', { state: 'unknown', queue: [{ id: 'B482' }] })], today: [span('Painter', 'unknown', minutes)] })
+test('unknown-lane (X46, X65): only a worker unknown or off for 11 min that holds a step the board could not wake; 9 min, no step, a wake still under way, the main chat and a leftover do not', () => {
+  const failed = { chat: 'Painter', tries: 3, since: ago(40) }
+  const board = (minutes, more = {}) => view({
+    chats: [LEAD, lane('Painter', { state: 'unknown', isRunning: false })], today: [span('Painter', 'unknown', minutes)],
+    items: items(step('B482', 'in progress', { Owner: 'Painter' })), wakeFailed: [failed], ...more,
+  })
   const found = check('unknown-lane', board(11))
   assert.deepEqual(found.map(one => [one.rule, one.key, one.subject]), [['unknown-lane', 'unknown-lane Painter', 'Painter']])
-  assert.equal(found[0].text, 'Painter unknown for 11 min, B482 waits')
-  assert.match(found[0].evidence, /unknown since 08:49/)
+  // Its text names the step and the failed wake-up.
+  assert.equal(found[0].text, 'Painter unknown for 11 min, holds B482; nobody could wake it (3 tries since 08:20)')
+  assert.match(found[0].evidence, /unknown since 08:49; running: no; holds: B482; the board sent the start word 3 times since 08:20 and the chat still does not run/)
   assert.equal(found[0].fix, undefined, 'report only')
   assert.deepEqual(check('unknown-lane', board(9)), [])
-  assert.deepEqual(check('unknown-lane', view({ chats: [lane('Lead', { isMain: true, state: 'unknown' }), lane('Old', { isLeftover: true, state: 'unknown' })], today: [span('Lead', 'unknown', 60), span('Old', 'unknown', 60)] })), [])
-  // A step the store queues for it waits on it too, also when the lane's queue does not show it.
-  const queued = check('unknown-lane', view({ chats: [LEAD, lane('Painter', { state: 'unknown' })], today: [span('Painter', 'unknown', 12)], items: items(step('B9', 'queued', { Owner: 'Painter' }), step('B3', 'done', { Owner: 'Painter' })) }))
-  assert.equal(queued[0].text, 'Painter unknown for 12 min, B9 waits')
+  // The old false case: unknown for long, and the board still wakes it (nothing failed yet): the board's own work, no case.
+  assert.deepEqual(check('unknown-lane', board(30, { wakeFailed: [] })), [])
+  assert.deepEqual(check('unknown-lane', board(30, { wakeFailed: [{ chat: 'Mason', tries: 3, since: ago(40) }] })), [], "another chat's failed wake-up is no case of this one")
+  // X46: a chat that is off with no step is closed, which is normal, whatever failed for it.
+  const closed = view({ chats: [LEAD, lane('Painter', { state: 'off', isRunning: false })], today: [span('Painter', 'off', 120)], wakeFailed: [failed], items: items(step('B3', 'done', { Owner: 'Painter' }), step('B9', 'queued', { Owner: 'Painter' })) })
+  assert.deepEqual(check('unknown-lane', closed), [])
+  assert.deepEqual(check('unknown-lane', view({ chats: [LEAD, lane('Painter', { state: 'unknown', isRunning: false })], today: [span('Painter', 'unknown', 60)] })), [])
+  // Never the main chat or a leftover.
+  assert.deepEqual(check('unknown-lane', view({ chats: [lane('Lead', { isMain: true, state: 'unknown' }), lane('Old', { isLeftover: true, state: 'unknown' })], today: [span('Lead', 'unknown', 60), span('Old', 'unknown', 60)], wakeFailed: [{ chat: 'Lead', tries: 3, since: ago(60) }, { chat: 'Old', tries: 3, since: ago(60) }], items: items(step('B1', 'in progress', { Owner: 'Lead' }), step('B2', 'in progress', { Owner: 'Old' })) })), [])
+  // A step taken counts too; a step only queued for it does not (the board hands it over when the chat runs).
+  const taken = check('unknown-lane', board(12, { items: items(step('B9', 'taken', { Owner: 'Painter' }), step('B8', 'queued', { Owner: 'Painter' })) }))
+  assert.equal(taken[0].text, 'Painter unknown for 12 min, holds B9; nobody could wake it (3 tries since 08:20)')
+  assert.deepEqual(check('unknown-lane', board(12, { items: items(step('B8', 'queued', { Owner: 'Painter' }), step('B3', 'done', { Owner: 'Painter' })) })), [])
+  // A chat that is off and holds a step the board could not wake is the case too (an unknown chat turns off after five quiet minutes).
+  const off = check('unknown-lane', view({ chats: [LEAD, lane('Painter', { state: 'off', isRunning: false })], today: [span('Painter', 'off', 15)], items: items(step('B482', 'in progress', { Owner: 'Painter' })), wakeFailed: [failed] }))
+  assert.equal(off[0].text, 'Painter off for 15 min, holds B482; nobody could wake it (3 tries since 08:20)')
+  // No wake word could be sent at all (state.nobodyRuns): no chat runs to carry the start word.
+  const nobody = check('unknown-lane', board(14, { wakeFailed: [], nobodyRuns: { since: ago(20), chats: ['Painter'] } }))
+  assert.equal(nobody[0].text, 'Painter unknown for 14 min, holds B482; no chat runs to ask it to start')
+  assert.match(nobody[0].evidence, /no wake word could be sent: no chat that could carry it runs \(words wait since 08:40\)/)
+  assert.deepEqual(check('unknown-lane', board(14, { wakeFailed: [], nobodyRuns: { since: ago(20), chats: ['Mason'] } })), [])
   // Without a timeline, the runner's own watch: seen unknown since 11 min ago.
-  const watched = check('unknown-lane', view({ chats: [LEAD, lane('Painter', { state: 'unknown' })] }), new Map([['unknown-lane Painter', ago(11)]]))
+  const watched = check('unknown-lane', view({ chats: [LEAD, lane('Painter', { state: 'unknown', isRunning: false })], items: items(step('B482', 'in progress', { Owner: 'Painter' })), wakeFailed: [failed] }), new Map([['unknown-lane Painter', ago(11)]]))
   assert.equal(watched.length, 1)
   assert.deepEqual(watched.observed, ['unknown-lane Painter'])
   // A threshold of its own in the settings.
-  assert.deepEqual(check('unknown-lane', view({ chats: [LEAD, lane('Painter', { state: 'unknown' })], today: [span('Painter', 'unknown', 11)], settings: { unknownMinutes: 20 } })), [])
+  assert.deepEqual(check('unknown-lane', board(11, { settings: { unknownMinutes: 20 } })), [])
 })
 
 test('stale-suspended: suspended with its reset passed, or with usage under full after the stop, or past its limit\'s window', () => {
@@ -377,7 +399,7 @@ test('B544: odd-effort names a chat whose effort is not a level, once; the partn
 
 test('Review Focus 1: a rule that throws is one finding "rule <id> failed" and the other rules still run', () => {
   const boom = { id: 'boom', kind: 'watch', says: 'a rule with bad data', check: () => { throw new Error('cannot read the file') } }
-  const board = view({ chats: [LEAD, lane('Painter', { state: 'unknown' })], today: [span('Painter', 'unknown', 30)] })
+  const board = view({ chats: [LEAD, lane('Painter', { state: 'unknown', isRunning: false })], today: [span('Painter', 'unknown', 30)], items: items(step('B482', 'in progress', { Owner: 'Painter' })), wakeFailed: [{ chat: 'Painter', tries: 3, since: ago(40) }] })
   const done = runRules([boom, ...WATCH_RULES], board, { seen: new Map(), observed: [] })
   assert.deepEqual(done.failed.map(one => [one.rule, one.key, one.text]), [['boom', 'rule-failed boom', 'rule boom failed: cannot read the file']])
   assert.deepEqual(done.findings.map(one => one.rule), ['unknown-lane'])
@@ -502,8 +524,9 @@ test('gap 3: ready-while-free counts only what the board hands out: never a task
   assert.match(role, /Refined tasks outside the focus goal wait for the person's pin or a focus switch by design .* workers idle while only such tasks wait is no incident/)
 })
 
-test('old-limit-reading (X47, B632, B645): a limit still last read over 60 min ago (a lookup past 30 min comes first) while a worker works, not while the person pauses; one finding per limit; a newer reading clears it', async () => {
-  const limits = (five, week) => ({ fiveHour: five === null ? null : { used: 11, level: 'ok', at: ago(five), resetsAt: null }, week: week === null ? null : { used: 58, level: 'ok', at: ago(week), resetsAt: null } })
+test('old-limit-reading (X47, B632, B645): a limit near a stop (5-hour 80%, weekly 90%) still last read over 60 min ago (a lookup past 30 min comes first) while a worker works, not while the person pauses; one finding per limit; a newer reading clears it', async () => {
+  // X47, X55, X56: the readings of the old tests (11% and 58%) are far from a stop, so the rule is quiet for them (below); these are near one.
+  const limits = (five, week, used = [85, 92]) => ({ fiveHour: five === null ? null : { used: used[0], level: 'warn', at: ago(five), resetsAt: null }, week: week === null ? null : { used: used[1], level: 'warn', at: ago(week), resetsAt: null } })
   const working = lane('Painter', { state: 'working' })
   const works = more => view({ chats: [LEAD, working], ...more })
   // A worker works, both readings 67 minutes old: one finding for each, counted by key, about the board.
@@ -512,6 +535,16 @@ test('old-limit-reading (X47, B632, B645): a limit still last read over 60 min a
   assert.match(found[0].text, /^the 5-hour limit was last read 67 min ago \(07:53\)/)
   assert.match(found[1].text, /^the weekly limit was last read 67 min ago/)
   assert.equal(found[0].fix, undefined, 'report only')
+  assert.match(found[0].evidence, /^fiveHour 85% at 07:53, near a stop \(80% or more\);/)
+  assert.match(found[1].evidence, /^week 92% at 07:53, near a stop \(90% or more\);/)
+  // X47, X55, X56 (the false alarms): the same old readings, but low (2% and 64%, and the old tests' 11% and 58%): they change no decision, so nothing is raised.
+  assert.deepEqual(check('old-limit-reading', works({ limits: limits(67, 67, [2, 64]) })), [])
+  assert.deepEqual(check('old-limit-reading', works({ limits: limits(190, 190, [11, 58]) })), [])
+  assert.deepEqual(check('old-limit-reading', works({ limits: limits(67, 67, [79, 89]) })), [], 'just under the stop levels')
+  // Each limit has its own level: the weekly limit at 85% is not near its stop, the 5-hour limit at 85% is.
+  assert.deepEqual(check('old-limit-reading', works({ limits: limits(67, 67, [85, 85]) })).map(one => one.key), ['old-limit-reading fiveHour'])
+  assert.deepEqual(check('old-limit-reading', works({ limits: limits(67, 67, [80, 90]) })).map(one => one.key), ['old-limit-reading fiveHour', 'old-limit-reading week'], 'at the level counts')
+  assert.deepEqual(check('old-limit-reading', works({ limits: limits(67, 67, [100, 100]) })).length, 2, 'a full limit is near a stop')
   // Between 30 and 60 minutes the supervisor looks it up; a chat lookup makes the reading new, so nothing is raised.
   assert.deepEqual(check('old-limit-reading', works({ limits: limits(57, 57) })), [])
   assert.deepEqual(check('old-limit-reading', works({ limits: limits(60, 60) })), [])
@@ -534,7 +567,11 @@ test('old-limit-reading (X47, B632, B645): a limit still last read over 60 min a
   assert.deepEqual(check('old-limit-reading', view({ chats: [LEAD, lane('Painter', { state: 'free' })], limits: limits(90, 90) })), [])
   // A threshold of its own in the settings.
   assert.deepEqual(check('old-limit-reading', works({ limits: limits(67, 67), settings: { oldReadingIncidentMinutes: 90 } })), [])
+  assert.deepEqual(check('old-limit-reading', works({ limits: limits(67, 67, [60, 60]), settings: { oldReadingFiveHourPercent: 50, oldReadingWeekPercent: 50 } })).length, 2)
+  assert.deepEqual(check('old-limit-reading', works({ limits: limits(67, 67), settings: { oldReadingFiveHourPercent: 95, oldReadingWeekPercent: 95 } })), [])
   // The sweep's instructions say the same: look the limits up once past 30 min with get_usage.
   const role = (await readFile(new URL('../../roles/supervisor.md', import.meta.url), 'utf8')).replace(/\s+/g, ' ')
   assert.match(role, /over 30 min old.*once.*get_usage.*still old, over 60 min/)
+  // X47, X55, X56: and file nothing for an old reading: the rule does, and only near a stop.
+  assert.match(role, /old-limit-reading.*near a stop.*5-hour limit at 80% or more.*weekly at 90% or more.*file nothing/)
 })

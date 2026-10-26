@@ -86,21 +86,45 @@ function spanOf(view, seenOf, key, since = null) {
   return view.now - Math.max(first, pauseEndOf(view))
 }
 
-/** 1. A worker "unknown" for longer than `unknownMinutes`. */
+/**
+ * X65 (the person: "this should have been 0"): how the board's own wake-up of a chat failed, or null while it is not
+ * known to have. Since 2026-10-25 (T9.4) the board wakes a chat that words wait for, at most three tries, and says so when
+ * that fails: `wakeFailed` names the chats it asked in vain, `nobodyRuns` those it could ask nobody for. `{ words, evidence }`.
+ */
+function wakeFailureOf(view, name) {
+  const same = chat => plain(chat, view.prefix) === plain(name, view.prefix)
+  const failed = (view.wakeFailed ?? []).find(one => same(one.chat))
+  if (failed !== undefined) {
+    const tries = Number.isFinite(failed.tries) ? failed.tries : 0
+    const since = Number.isFinite(failed.since) ? ` since ${clockOf(failed.since)}` : ''
+    return { words: `nobody could wake it (${tries} ${tries === 1 ? 'try' : 'tries'}${since})`, evidence: `the board sent the start word ${tries} ${tries === 1 ? 'time' : 'times'}${since} and the chat still does not run` }
+  }
+  if ((view.nobodyRuns?.chats ?? []).some(same)) {
+    return { words: 'no chat runs to ask it to start', evidence: `no wake word could be sent: no chat that could carry it runs${Number.isFinite(view.nobodyRuns.since) ? ` (words wait since ${clockOf(view.nobodyRuns.since)})` : ''}` }
+  }
+  return null
+}
+
+/**
+ * 1. A worker unknown or off for longer than `unknownMinutes` that holds a step (taken or in progress) and that the board
+ * could not wake (`wakeFailureOf`). X46, X65 and the rest were false alarms: a chat that is off with no step is closed,
+ * which is normal, and a chat the board is still waking (it has its tries) is the board's work, not a case. The text
+ * names the step and the failed wake-up. A chat with a step that is off for good is also the rule holder-not-running's.
+ */
 function unknownLane(view, ctx) {
   const found = []
-  for (const lane of workersOf(view).filter(one => one.state === 'unknown')) {
+  for (const lane of workersOf(view).filter(one => one.state === 'unknown' || one.state === 'off')) {
+    const held = stepsOf(view).filter(item => HOLDS.includes(stateOf(item)) && plain(valueOf(item, 'Owner'), view.prefix) === plain(lane.name, view.prefix)).map(idOf).sort(byId)
+    if (held.length === 0) continue
+    const failure = wakeFailureOf(view, lane.name)
+    if (failure === null) continue
     const key = `unknown-lane ${lane.name}`
     const ms = lasted(view, ctx, key, view.since.get(lane.name))
     if (ms <= view.settings.unknownMinutes * MIN) continue
-    // What waits on it: its queue as the board shows it, and the steps the store holds or queues for it.
-    const owned = stepsOf(view).filter(item => [...HOLDS, 'queued'].includes(stateOf(item)) && plain(valueOf(item, 'Owner'), view.prefix) === plain(lane.name, view.prefix))
-    const waits = [...new Set([...(lane.queue ?? []).map(one => one?.id), ...owned.map(idOf)].filter(id => typeof id === 'string'))].sort(byId)
-    const first = waits[0]
     found.push({
       rule: 'unknown-lane', key, subject: lane.name,
-      text: `${lane.name} unknown for ${minutes(ms)} min${first === undefined ? '' : `, ${first} waits`}`,
-      evidence: `state unknown since ${clockOf(view.now - ms)}; running: ${lane.isRunning === true ? 'yes' : lane.isRunning === false ? 'no' : 'not known'}; its steps: ${waits.length === 0 ? 'none' : waits.join(', ')}`,
+      text: `${lane.name} ${lane.state} for ${minutes(ms)} min, holds ${held.join(', ')}; ${failure.words}`,
+      evidence: `state ${lane.state} since ${clockOf(view.now - ms)}; running: ${lane.isRunning === true ? 'yes' : lane.isRunning === false ? 'no' : 'not known'}; holds: ${held.join(', ')}; ${failure.evidence}`,
     })
   }
   return found
@@ -871,7 +895,9 @@ function notCleared(view, ctx) {
  * reading is older than `oldReadingIncidentMinutes` (60) while a worker works (B645: not while the person pauses; B649: the age counts from the pause's end), when the app's file or a chat
  * should have given a newer one (B632, the fix of X55 and X56: past `oldReadingMinutes` (30) the supervisor chat looks the limits
  * up once with get_usage, which the board reads as a chat reading; under 60 only the health line shows the age). One finding per limit; it clears when a newer reading comes. A limit nothing is
- * known of is the health summary's "not known", not this rule's.
+ * known of is the health summary's "not known", not this rule's. X47, X55, X56 (false alarms: readings of 2% and 64%): an old
+ * reading changes no decision unless it stands near a stop, so only a last reading of the 5-hour limit at
+ * `oldReadingFiveHourPercent` (80) or more, or of the weekly limit at `oldReadingWeekPercent` (90) or more, raises it.
  */
 function oldLimitReading(view) {
   const found = []
@@ -883,11 +909,14 @@ function oldLimitReading(view) {
     const limit = view.limits?.[key]
     const counted = Number.isFinite(limit?.at) ? readingAgeMinutes({ ...limit, at: afterPause(view, limit.at) }, view.now) : null
     if (counted === null || counted <= view.settings.oldReadingIncidentMinutes) continue
+    // X47, X55, X56: an old low reading changes no decision; only one near a stop matters.
+    const stopAt = key === 'fiveHour' ? view.settings.oldReadingFiveHourPercent : view.settings.oldReadingWeekPercent
+    if (!(Number.isFinite(limit.used) && limit.used >= stopAt)) continue
     const age = readingAgeMinutes(limit, view.now)
     found.push({
       rule: 'old-limit-reading', key: `old-limit-reading ${key}`, subject: 'board',
       text: `the ${name} was last read ${age} min ago (${clockOf(view.limits[key].at)}), the board steers by an old figure`,
-      evidence: `${key} ${Math.round(view.limits[key].used)}% at ${clockOf(view.limits[key].at)}; now ${clockOf(view.now)}; a worker works; threshold ${view.settings.oldReadingIncidentMinutes} min (the supervisor looks the limits up with get_usage past ${view.settings.oldReadingMinutes} min); the app's usage file is written only while the app is in use`,
+      evidence: `${key} ${Math.round(view.limits[key].used)}% at ${clockOf(view.limits[key].at)}, near a stop (${stopAt}% or more); now ${clockOf(view.now)}; a worker works; threshold ${view.settings.oldReadingIncidentMinutes} min (the supervisor looks the limits up with get_usage past ${view.settings.oldReadingMinutes} min); the app's usage file is written only while the app is in use`,
     })
   }
   return found
@@ -895,7 +924,7 @@ function oldLimitReading(view) {
 
 /** Every watch rule, in the order the section shows them. */
 export const WATCH_RULES = [
-  { id: 'unknown-lane', kind: 'watch', says: 'a worker "unknown" for too long', check: unknownLane },
+  { id: 'unknown-lane', kind: 'watch', says: 'a worker unknown or off for too long that holds a step and that the board could not wake', check: unknownLane },
   { id: 'stale-suspended', kind: 'watch', says: 'a worker "suspended" after its limit came back', check: staleSuspended },
   { id: 'ready-while-free', kind: 'watch', says: 'a ready task waits while a worker is free', check: readyWhileFree },
   { id: 'holder-not-running', kind: 'watch', says: 'a step in progress whose worker does not run', check: holderNotRunning },
@@ -916,5 +945,5 @@ export const WATCH_RULES = [
   { id: 'effort-mismatch', kind: 'watch', says: 'a worker that still runs another model or effort than its step wants 10 min after the take', check: effortMismatch },
   { id: 'not-cleared', kind: 'watch', says: 'a worker not cleared after its reported step', check: notCleared },
   { id: 'not-taking', kind: 'watch', says: 'a worker that did not take the task it was given', check: notTaking },
-  { id: 'old-limit-reading', kind: 'watch', says: 'a limit still last read over 60 min ago, not counting a pause, while a worker works and the supervisor has looked it up', check: oldLimitReading },
+  { id: 'old-limit-reading', kind: 'watch', says: 'a limit near a stop (5-hour 80%, weekly 90%) still last read over 60 min ago, not counting a pause, while a worker works and the supervisor has looked it up', check: oldLimitReading },
 ]

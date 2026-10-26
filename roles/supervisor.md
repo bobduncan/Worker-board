@@ -32,8 +32,10 @@ before anything else, with the app's usage tool `mcp__ccd_session_mgmt__get_usag
 with ToolSearch, query `select:mcp__ccd_session_mgmt__get_usage`, then call it with no arguments. The board reads that
 answer as a chat reading and keeps the newest reading of each limit itself, so it stands although your conversation is
 cleared right after, and the age starts again. While the person pauses all chats no sweep runs for it: nothing spends
-then, and a reset is known by its time. File an incident only for a limit that is still old, over 60 min (the rule
-old-limit-reading does that, once per limit); under that, nothing: the app writes its usage file only while it is in use.
+then, and a reset is known by its time. The rule old-limit-reading raises an incident for a limit that is still old,
+over 60 min, once per limit, and only when its last reading is near a stop (the 5-hour limit at 80% or more, or the
+weekly at 90% or more). For an old low reading (X47, X55, X56: readings of 2% and 64%) file nothing: it changes no
+decision, and the app writes its usage file only while it is in use.
 
 Read only the health summary. Do not read files, logs or transcripts, do not run commands, and do not start agents: a
 sweep is meant to cost little (a few tens of thousands of tokens, mostly cached).
@@ -41,7 +43,8 @@ sweep is meant to cost little (a few tens of thousands of tokens, mostly cached)
 ## How the board should behave
 
 - A worker with a step taken or in progress works on it, or waits for the person on an ask, or is suspended for the
-  limit until its reset; it is not "unknown", "off" or idle for long while it holds the step.
+  limit until its reset, or is parked on purpose (below); it is not "unknown", "off" or idle for long while it holds the
+  step and the board has not managed to wake it (the rule unknown-lane names that).
 - A worker that works has a step (its card names one); one that works for long with none is odd.
 - A step in progress gets a checkpoint or a commit now and then; hours with neither is odd. The health summary shows
   each one's last checkpoint, and the rule stale-checkpoint names one quiet for 2 h, or one whose checkpoint said to
@@ -82,7 +85,8 @@ sweep is meant to cost little (a few tens of thousands of tokens, mostly cached)
   count runs from 07:30, not from 23:06. A PC sleep or a restart that stopped a check is no incident while that newest
   word is under `checkWordMinutes` old (30 min); file one only past that, as the review-stuck rule does, and only when
   the line carries a "!".
-- A worker "suspended" for the limit goes on once its reset has passed or the limits show room again.
+- A worker "suspended" for the limit goes on once its reset has passed or the limits show room again. A lane that says
+  "Suspended on purpose" (or "on purpose: waits for B<n>" in the summary) is no limit stop: see "What is no incident".
 - Work follows the focus goal: the board hands out fixes, the focus goal's tasks and pinned ones only (the rest only when
   the setting `handOutBeyondFocus` is on); work outside it while a focus task is ready and a worker free is odd.
 - A word to a chat is taken within minutes; words that wait long for one chat are odd. The summary lists the words of
@@ -94,6 +98,21 @@ sweep is meant to cost little (a few tens of thousands of tokens, mostly cached)
   names it to the main chat itself.
 - A worker is cleared after its reported step (or compacted, as the list of chats says); the same reason for not
   clearing it, again and again, is odd.
+
+## What is no incident
+
+File none of these, also when a line looks odd (the false alarms of 2026-10-25; the person: "this should have been 0").
+You look for what is really wrong, nothing else.
+
+- A chat that does not run and holds no step: closed is normal (X46: Advisor 2 "off, its chat does not run", no step,
+  no report).
+- A worker stopped, suspended or interrupted on purpose: its step waits for another step or for an ask, the person
+  parked it (its last checkpoint says so, "parked on the user's word", "G59 paused"), or its lane says "Suspended on
+  purpose" (X51, X52: Workers 3 and 4 "interrupted" on B611 and B613, which wait for B623; X53: three workers "suspended
+  for a limit" while the limits had room).
+- What a code rule already covers: unknown lanes (X65: the board wakes a chat by itself, and the rule unknown-lane
+  names the one it could not wake), limit readings (X47, X55, X56), clears and checks. File what the rules do not name,
+  not a second copy of what they do.
 
 ## The board asks you to start a chat
 

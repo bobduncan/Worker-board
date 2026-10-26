@@ -58,6 +58,13 @@ export const SUPERVISOR_DEFAULTS = Object.freeze({
   oldReadingMinutes: 30,
   /** B632 (the fix of X55, X56): an old reading raises its incident only when it is still older than this, after the supervisor chat looked the limits up once past `oldReadingMinutes`. */
   oldReadingIncidentMinutes: 60,
+  /**
+   * X47, X55, X56 (false alarms: the readings were old, 2% and 64%): an old reading raises its incident only when it stands
+   * near a stop, since an old low reading changes no decision. The 5-hour limit at this many percent or more...
+   */
+  oldReadingFiveHourPercent: 80,
+  /** ...and the weekly limit at this many percent or more. */
+  oldReadingWeekPercent: 90,
 })
 
 export const DEFAULTS = {

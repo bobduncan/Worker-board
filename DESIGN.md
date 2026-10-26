@@ -3267,7 +3267,10 @@ the AI sweep by a cheap supervisor chat and the hand-over to the Advisor, comes 
   (`test/supervisor/selfCheck.test.mjs`), and the old and the new self-check, run over a snapshot of the live state and
   over a planted board that trips every check, gave the same rows, note, fixes, wakes, clean-ups and `sync.json`.
 - **The watch rules** report only (their thresholds are the setting `supervisor`, README): `unknown-lane` (a worker
-  "unknown" over 10 min), `stale-suspended` (suspended for over 10 min after its reset passed, after the app's stop
+  unknown or off over 10 min that holds a step, taken or in progress, and that the board could not wake: `state.wakeFailed`
+  names it, or `state.nobodyRuns` says no chat runs to carry the start word; its text names the step and the failed wake-up.
+  X46 and X65 were false alarms: a chat that is off with no step is closed, which is normal, and the board wakes a chat that
+  words wait for by itself, at most three tries, T9.4), `stale-suspended` (suspended for over 10 min after its reset passed, after the app's stop
   while a reading since shows room, or longer than its limit's window), `idle-while-waiting` (all workers free, unknown
   or off for over 10 min while a step that may be taken waits; not while the person pauses or a limit is full),
   `holder-not-running` (a step taken or in progress whose worker has not run for over 30 min), `opus-wait` (an opus
@@ -3319,7 +3322,9 @@ the AI sweep by a cheap supervisor chat and the hand-over to the Advisor, comes 
   its next queued step waits over 15 min with no `start` of it on its way to the main chat; one finding per step).
   `old-limit-reading` (B601, the fix of X47: a limit whose newest figure is older than `oldReadingIncidentMinutes`, 60 (B632, the fix of X55
   and X56: past `oldReadingMinutes`, 30, the supervisor chat first looks the limits up once with `get_usage`, which counts as a chat
-  reading), while a worker works (B645: not while the person pauses); one finding per limit, gone with a newer reading; the health summary's limits
+  reading), while a worker works (B645: not while the person pauses) and only when that last reading is near a stop (X47, X55, X56
+  were false alarms with readings of 2% and 64%: an old low reading changes no decision; the 5-hour limit at `oldReadingFiveHourPercent`,
+  80, or more, the weekly at `oldReadingWeekPercent`, 90, or more); one finding per limit, gone with a newer reading; the health summary's limits
   line adds "(old: N min)"; the app writes its usage file only while it is in use, so a quiet hour leaves it old). B640 (the fix of
   B632's check): the supervisor chat is cleared after every turn and the board reads only a chat's new transcript, so the board keeps
   the newest chat reading of each window itself (`state.limitReadings`, `limits.mjs newestPerWindow`; the server writes it to the
@@ -3404,7 +3409,13 @@ it can. The person: "It just needs to observe, periodically, not consume a lot o
   except (B561, the fix of X15) a queued step that waits for open steps it names in Blocked by or Waits for ("waits as
   planned for B<n> (<state> <age>)", unless a blocker is stalled itself, down a chain of planned waits; a loop counts as
   stalled) and a result check's fix that stays with its builder while that builder holds a step; a queued step whose
-  every blocker ended reads "still blocked by B<n>, done" and keeps its age's `!`. When it must cut, the lines of every
+  every blocker ended reads "still blocked by B<n>, done" and keeps its age's `!`. A chat line is no odd one (themes 3 and 4, the
+  false alarms X46, X51 to X53) when the chat is off or unknown, does not run and holds no step (closed is normal), or when a
+  worker is stopped on purpose: its lane says it is parked (`suspended.by` 'parked', "(on purpose: waits for B<n>)", never
+  "for a limit"), or it is interrupted and the step it holds waits for another open step (`waitsOf`) or for the person's
+  answer (waiting on you, an open ask); a stop for a limit stays odd, and so does a closed chat that holds a step. The
+  role text (`roles/supervisor.md`, "What is no incident") tells the sweep the rest: what a code rule covers (unknown lanes,
+  limit readings, clears, checks) it files no second time, and a worker the person parked (its last checkpoint says so). When it must cut, the lines of every
   chat, the steps the chats hold and the limits stay, then the oddest and newest of the rest; a section says how many
   it left out (`test/supervisor/health.test.mjs`: 900 items, under 8000, every held step kept).
 - **The sweep** (Task 6, `src/supervisor/sweep.mjs sweepRunner`, wired in `index.mjs sweepOver`): every

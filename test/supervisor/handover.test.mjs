@@ -25,7 +25,8 @@ const ROLES = { Lead: 'main', Digger: 'worker', Partner: 'advisor', Watcher: 'su
 const lane = (name, more = {}) => ({ name, isMain: false, isLeftover: false, state: 'free', isRunning: true, session: `s-${name}`, ...more })
 
 /**
- * A board whose one worker, Digger, has been "unknown" for 20 minutes (the rule unknown-lane trips at once), with a
+ * A board whose one worker, Digger, has been "unknown" for 20 minutes while it holds B13 and the board could not wake it
+ * (the rule unknown-lane trips at once; X65: since 2026-10-25 it needs a step held and a failed wake-up), with a
  * partner (unless `partner` is null), a real work store, and the outbox the supervisor's words go into (`refuse.value`
  * true: the outbox refuses them). `keep` how long a word waits, as the outbox keeps it.
  */
@@ -33,7 +34,7 @@ async function board(t, { partner = lane('Partner'), keep = undefined } = {}) {
   const refuse = { value: false }
   const dir = await mkdtemp(join(tmpdir(), 'handover-'))
   t.after(() => rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }))
-  await writeStore(dir, migrateBacklog('# Backlog\n\n## Work\n- [ ] B12 Wake an unknown worker (for Digger; about 1 h)\n', { now: START }), undefined, { now: START })
+  await writeStore(dir, migrateBacklog('# Backlog\n\n## Work\n- [ ] B12 Wake an unknown worker (for Digger; about 1 h)\n- [ ] B13 Hold the beds (for Digger; about 1 h)\n  [store] State: in progress\n', { now: START }), undefined, { now: START })
   let now = START
   const outbox = []
   const failures = []
@@ -41,6 +42,7 @@ async function board(t, { partner = lane('Partner'), keep = undefined } = {}) {
   const state = () => ({
     chats: [lane('Lead', { isMain: true }), lane('Digger', { state: 'unknown' })], advisor: partner, chatPrefix: '',
     today: [{ chat: 'Digger', spans: [{ from: START - 20 * MIN, to: now, state: 'unknown' }] }],
+    wakeFailed: [{ chat: 'Digger', tries: 3, since: START - 40 * MIN }],
   })
   const supervisor = createSupervisor({
     state: async () => state(),

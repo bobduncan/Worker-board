@@ -5,7 +5,7 @@
 // supervisor (the list of chats' "supervisor") may read it. Made-up samples only; no word names a project.
 
 import assert from 'node:assert/strict'
-import { mkdtemp, rm } from 'node:fs/promises'
+import { mkdtemp, readFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import test from 'node:test'
@@ -528,4 +528,85 @@ test('gap 3: the backlog line tells the refined tasks the board hands out from t
   assert.match(healthSummary(view, NOW), /- backlog, not queued: 0 new, 3 refined \(1 ready to hand out; 1 outside the focus goal, waiting for the person by design; 1 held otherwise\)/)
   // Without a ready list (a board that hands out nothing), the count alone.
   assert.match(healthSummary(buildView({ state: { chats: [lane('Lead', { isMain: true })], chatPrefix: '' }, items: items(step('B20', 'refined')), now: NOW }), NOW), /- backlog, not queued: 0 new, 1 refined\n/)
+})
+
+// The false alarms of 2026-10-25 (themes 3 and 4): a line the sweep reads as odd must not invite filing what is normal.
+
+/** A board of a main chat, a helper and the given workers; `held` are the steps. */
+const calmBoard = (workers, held = [], more = {}) => buildView({
+  state: { chats: [lane('Lead', { isMain: true }), ...workers], advisorHelper: more.helper ?? null, chatPrefix: '' },
+  items: items(...held), now: NOW,
+})
+const chatLine = (view, name) => healthSummary(view, NOW).split('\n').find(one => one.includes(`${name} (`)) ?? ''
+
+test('X46: a chat that is off or unknown, does not run and holds no step is closed, which is normal: no "!"; with a step it stays odd', () => {
+  const helper = lane('Advisor 2', { state: 'off', isRunning: false })
+  const closed = calmBoard([lane('Weeder', { state: 'off', isRunning: false }), lane('Digger', { state: 'unknown', isRunning: false })], [], { helper })
+  for (const name of ['Advisor 2', 'Weeder', 'Digger']) {
+    assert.doesNotMatch(chatLine(closed, name), /^- !/, name)
+  }
+  assert.match(chatLine(closed, 'Advisor 2'), /^- Advisor 2 \(partner's helper\): off, its chat does not run;/)
+  // The same chats holding a step in progress are odd as before.
+  const holding = calmBoard([lane('Weeder', { state: 'off', isRunning: false }), lane('Digger', { state: 'unknown', isRunning: false })], [step('B3', 'in progress', { Owner: 'Weeder' }), step('B4', 'taken', { Owner: 'Digger' })])
+  assert.match(chatLine(holding, 'Weeder'), /^- ! Weeder/)
+  assert.match(chatLine(holding, 'Digger'), /^- ! Digger/)
+  // A chat that runs but is unknown to the board is not closed.
+  assert.match(chatLine(calmBoard([lane('Weeder', { state: 'unknown', isRunning: true })]), 'Weeder'), /^- ! Weeder/)
+  // A queued step is not held: the board hands it over when the chat runs.
+  assert.doesNotMatch(chatLine(calmBoard([lane('Weeder', { state: 'off', isRunning: false })], [step('B9', 'queued', { Owner: 'Weeder' })]), 'Weeder'), /^- !/)
+})
+
+test('X51, X52: a worker interrupted while its step waits for another open step or for your answer stands on purpose: no "!", and the line says why; one with nothing to wait for stays odd', () => {
+  const waiting = calmBoard([lane('Worker 3', { state: 'interrupted', task: { stepId: 'B611', text: 'x' } }), lane('Worker 4', { state: 'interrupted' })], [
+    step('B611', 'in progress', { Owner: 'Worker 3', 'Waits for': 'B623' }),
+    step('B613', 'in progress', { Owner: 'Worker 4', 'Blocked by': 'B623' }),
+    step('B623', 'in progress', { Owner: 'Worker 5', Since: stamp(ago(20)) }),
+  ])
+  assert.doesNotMatch(chatLine(waiting, 'Worker 3'), /^- !/)
+  assert.match(chatLine(waiting, 'Worker 3'), /^- Worker 3 \(worker\): interrupted \(on purpose: its step B611 waits for B623\);/)
+  assert.doesNotMatch(chatLine(waiting, 'Worker 4'), /^- !/)
+  assert.match(chatLine(waiting, 'Worker 4'), /\(on purpose: its step B613 waits for B623\)/)
+  // The blocker is done: the step waits for nothing, and the stopped worker is odd again.
+  const done = calmBoard([lane('Worker 4', { state: 'interrupted' })], [step('B613', 'in progress', { Owner: 'Worker 4', 'Blocked by': 'B623' }), step('B623', 'done', { Owner: 'Worker 5' })])
+  assert.match(chatLine(done, 'Worker 4'), /^- ! Worker 4/)
+  assert.doesNotMatch(chatLine(done, 'Worker 4'), /on purpose/)
+  // The step waits for the person's answer (the step waiting on you, or an open ask under it).
+  const asked = calmBoard([lane('Worker 3', { state: 'interrupted' }), lane('Worker 4', { state: 'interrupted' })], [
+    step('B611', 'waiting on you', { Owner: 'Worker 3' }),
+    step('B613', 'in progress', { Owner: 'Worker 4' }),
+    item({ Id: 'Q5', Kind: 'ask', Title: 'Which?', State: 'open', Of: 'B613', Since: stamp(ago(10)) }),
+  ])
+  assert.match(chatLine(asked, 'Worker 3'), /^- Worker 3 .*\(on purpose: its step B611 waits for your answer\)/)
+  assert.match(chatLine(asked, 'Worker 4'), /^- Worker 4 .*\(on purpose: its step B613 waits for your answer\)/)
+  // An interrupted worker whose step waits for nothing, or that holds no step, is odd as before.
+  assert.match(chatLine(calmBoard([lane('Worker 3', { state: 'interrupted' })], [step('B611', 'in progress', { Owner: 'Worker 3' })]), 'Worker 3'), /^- ! Worker 3/)
+  assert.match(chatLine(calmBoard([lane('Worker 3', { state: 'interrupted' })]), 'Worker 3'), /^- ! Worker 3/)
+})
+
+test('X53: a worker the lane says is suspended on purpose (parked for other steps) is no limit stop: "on purpose: waits for B<n>", no "for a limit", no "!"; a limit stop reads as before', () => {
+  const parked = { by: 'parked', on: ['B623'], limit: null, since: null, until: null, isBack: false }
+  const board = calmBoard([
+    lane('Worker 1', { state: 'suspended', suspended: { ...parked, on: ['B623', 'B624'] } }),
+    lane('Worker 3', { state: 'suspended', suspended: parked }),
+    lane('Worker 4', { state: 'suspended', suspended: { by: 'app', limit: 'fiveHour', since: ago(60), until: ago(-120), isBack: false } }),
+  ], [step('B611', 'in progress', { Owner: 'Worker 3', 'Blocked by': 'B623' }), step('B623', 'in progress', { Owner: 'Worker 5' })])
+  const text = healthSummary(board, NOW)
+  assert.doesNotMatch(chatLine(board, 'Worker 1'), /^- !|for a limit/)
+  assert.match(chatLine(board, 'Worker 1'), /^- Worker 1 \(worker\): suspended \(on purpose: waits for B623 and B624\);/)
+  assert.match(chatLine(board, 'Worker 3'), /^- Worker 3 \(worker\): suspended \(on purpose: waits for B623\);/)
+  assert.doesNotMatch(chatLine(board, 'Worker 3'), /^- !|for a limit/)
+  // The app's stop for the limit is judged by the limits: odd and worded as before.
+  assert.match(chatLine(board, 'Worker 4'), /^- ! Worker 4 \(worker\): suspended \(for fiveHour until /)
+  assert.ok(text.includes('Odd lines are marked with "!"'))
+  // A parked lane without the steps' names still says it is on purpose.
+  assert.match(chatLine(calmBoard([lane('Worker 1', { state: 'suspended', suspended: { by: 'parked', limit: null } })]), 'Worker 1'), /\(on purpose: parked\)/)
+})
+
+test('roles/supervisor.md: "What is no incident" names the three false alarms with their incidents as the examples', async () => {
+  const role = (await readFile(new URL('../../roles/supervisor.md', import.meta.url), 'utf8')).replace(/\s+/g, ' ')
+  const part = role.slice(role.indexOf('## What is no incident'), role.indexOf('## The board asks you to start a chat'))
+  assert.ok(part.length > 100, 'the part is there')
+  assert.match(part, /does not run and holds no step: closed is normal \(X46:/)
+  assert.match(part, /stopped, suspended or interrupted on purpose: its step waits for another step or for an ask, the person parked it .* or its lane says "Suspended on purpose" \(X51, X52:.*X53:/)
+  assert.match(part, /What a code rule already covers: unknown lanes \(X65:.*limit readings \(X47, X55, X56\), clears and checks/)
 })

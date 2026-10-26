@@ -10,7 +10,7 @@ import { sinceMs, valueOf } from '../work/item.mjs'
 import { checkpointOf, isHolding } from '../work/pause.mjs'
 import { isFailedForGood } from '../work/outboxSweep.mjs'
 import { reviewWaitOf } from '../work/resultCheck.mjs'
-import { ACTIVE, heldReason, workingOnOther } from '../work/parked.mjs'
+import { ACTIVE, heldReason, openAskIds, workingOnOther } from '../work/parked.mjs'
 import { readingAgeMinutes } from '../limits.mjs'
 import { checkWordsOf, checkpointLate, familyOf, reviewLateOf, switchOf, undeliveredWords, wordMatters } from './rules/watch.mjs'
 
@@ -94,13 +94,41 @@ function chatLines(view, now) {
     const reports = mine.flatMap(item => (item.sections?.get('History') ?? []).filter(line => REPORTED.test(line)).map(line => ({ id: valueOf(item, 'Id'), at: historyAt(line) })))
       .filter(one => Number.isFinite(one.at)).sort((a, b) => b.at - a.at)
     const report = reports.length === 0 ? '; no report known' : `; last report ${reports[0].id} at ${dayClockOf(reports[0].at, now)}`
-    const suspended = lane.state === 'suspended' && lane.suspended !== null && typeof lane.suspended === 'object'
-      ? ` (for ${lane.suspended.limit ?? 'a limit'}${Number.isFinite(lane.suspended.until) ? ` until ${dayClockOf(lane.suspended.until, now)}` : ''}${lane.suspended.isBack === true ? ', the limit is back' : ''})` : ''
+    // X51 to X53: a worker stopped on purpose says so (and is no odd one); one parked for other steps is no limit stop.
+    const purpose = onPurposeOf(lane, on, view)
+    const suspended = purpose !== null ? ` (on purpose: ${purpose})`
+      : lane.state === 'suspended' && lane.suspended !== null && typeof lane.suspended === 'object'
+        ? ` (for ${lane.suspended.limit ?? 'a limit'}${Number.isFinite(lane.suspended.until) ? ` until ${dayClockOf(lane.suspended.until, now)}` : ''}${lane.suspended.isBack === true ? ', the limit is back' : ''})` : ''
     // The review of chat-reports: a worker that waits for the partner's answer between two turns is no odd one.
     const waitsForPartner = Array.isArray(lane.waitsForPartner) && lane.waitsForPartner.length > 0
-    const odd = ODD_STATES.includes(lane.state) || (lane.isRunning === false && onId !== null) || (lane.state === 'working' && onId === null && role === 'worker' && !waitsForPartner) || (role === 'worker' && switching?.late === true)
+    // X46: a chat that is off or unknown, does not run and holds no step is closed, which is normal.
+    const isClosed = (lane.state === 'off' || lane.state === 'unknown') && lane.isRunning !== true && onId === null
+    const odd = (purpose === null && !isClosed && (ODD_STATES.includes(lane.state) || (lane.isRunning === false && onId !== null)))
+      || (lane.state === 'working' && onId === null && role === 'worker' && !waitsForPartner) || (role === 'worker' && switching?.late === true)
     return lineOf(`${lane.name} (${role}): ${state}${suspended}${running}; ${runs}${wants}${onWords}${report}; ${clearWords(lane.compaction, now)}`, { tier: 0, odd, at: since, max: CHAT_CHARS })
   })
+}
+
+/**
+ * X51, X52, X53 (false alarms: Workers 3 and 4 "interrupted" on B611 and B613 while both waited for B623; three workers
+ * "suspended for a limit" with room in the limits): why a worker that stands interrupted or suspended does so on purpose,
+ * or null. Its lane says it is parked (`suspended.by` 'parked', the lane's "Suspended on purpose": the steps it waits
+ * for), or, interrupted, the step it holds (`held`) waits for another open step (`waitsOf`) or for the person's answer
+ * (the step waiting on you, or an ask under it open). A stop for a limit (the app's, a note's) is not on purpose: the
+ * limits judge it. What the person parked without a fact in the store shows only in the step's checkpoint line.
+ */
+function onPurposeOf(lane, held, view) {
+  if (lane.state === 'suspended') {
+    if (lane.suspended?.by !== 'parked') return null
+    const on = Array.isArray(lane.suspended.on) ? lane.suspended.on.filter(id => typeof id === 'string') : []
+    return on.length === 0 ? 'parked' : `waits for ${on.join(' and ')}`
+  }
+  if (lane.state !== 'interrupted' || held === null) return null
+  const id = valueOf(held, 'Id')
+  const waits = waitsOf(held, view.items)
+  if (waits.length > 0) return `its step ${id} waits for ${waits.join('; ')}`
+  if (valueOf(held, 'State') === 'waiting on you' || openAskIds(view.items, id).length > 0) return `its step ${id} waits for your answer`
+  return null
 }
 
 /** B576: the switch beside "wants": "(switched)", "(switch asked HH:MM)", and once it lasts how long after the take. */

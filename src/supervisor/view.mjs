@@ -19,7 +19,9 @@ const DEFAULT_KEEP = Object.freeze({ messageMs: 10 * 60_000, answerMs: 48 * 60 *
  * known), `settings` (the thresholds, config.mjs SUPERVISOR_DEFAULTS), `keep` (how long the outbox keeps a word) and
  * `goals` (the goal map's nodes) and `focus` (the focus goal's id, or null), `ready` (redesign Part 2: the board's ready
  * list, state.mjs `readyList.ready`: `{ id, rank, keptFor, keptUntil, pinned }` in its order) and `held` (its `held`, or
- * null without a list).
+ * null without a list). X65 (the rule unknown-lane): `wakeFailed` (state.mjs: `[{ chat, tries, since }]`, the chats the
+ * board asked to start in vain) and `nobodyRuns` (`{ since, chats }` or null: words wait for chats that are off and no chat
+ * runs to carry the start word), the two ways the board's own wake-up of a chat fails.
  */
 export function buildView({ state = {}, items = new Map(), outbox = [], keep = null, limits, pause, refused = [], leftovers, bases = [], repairs = [], mods = null, settings = {}, seen = null, now }) {
   const lanes = state.chats ?? []
@@ -47,6 +49,10 @@ export function buildView({ state = {}, items = new Map(), outbox = [], keep = n
     // Gap 3: what the list holds back, `{ id, why }` (outside the focus goal, a blocker, an ask, a standard), or null
     // without a list: the health summary tells them apart, so a sweep does not take them for work a free worker misses.
     held: Array.isArray(state.readyList?.held) ? Object.freeze(state.readyList.held.map(one => Object.freeze({ ...one }))) : null,
+    // X65: the board wakes a chat that words wait for by itself; these two say it could not (state.mjs wakeFailed, nobodyRuns).
+    wakeFailed: Object.freeze((Array.isArray(state.wakeFailed) ? state.wakeFailed : []).map(one => Object.freeze({ ...one }))),
+    nobodyRuns: state.nobodyRuns !== null && typeof state.nobodyRuns === 'object'
+      ? Object.freeze({ since: Number.isFinite(state.nobodyRuns.since) ? state.nobodyRuns.since : null, chats: Object.freeze([...(state.nobodyRuns.chats ?? [])]) }) : null,
     limits: limits ?? state.limits ?? {},
     pause: pause ?? state.pause ?? null,
     refused,
