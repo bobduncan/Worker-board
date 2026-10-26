@@ -248,8 +248,10 @@ a new one starts with them. A part whose steps are made but not handed out yet s
 hand it out** instead of Next; when they wait longer than the grace time, a hint under Needs your attention opens the
 talk with the main chat.
 
-Since Focus 3 the run follows the work: each part is Done when all its steps are, In progress (with who is on it) while
-one is taken, in progress, waiting on you or in review, else Next; the head counts the parts done and the time the
+Since Focus 3 the run follows the work: each part is Done when all its steps are finished and one at least is done, In progress (with who is on it) while
+one is taken, in progress, waiting on you or in review, else Next; a part whose steps were all dropped is **Stopped, nothing reached**
+(grey, out of the count): **Drop this part** under it asks you why in one line and counts it out of the whole, **Undo** takes that
+drop back, and your partner may instead try it another way; the head counts the parts done and the time the
 others still name. **Today's note from your partner** (its daily note, written in its morning round) lists what it
 **decided for you**, each line with **Undo**: a click asks your partner to undo it (it is typed into its chat as your
 word, once) and the line then says "undo asked". **Needs you** shows your partner's open questions on the goal or its

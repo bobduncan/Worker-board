@@ -1854,8 +1854,8 @@ Spec 2026-10-18, sections 3 to 6; plan Tasks 5 and 6; mockup `art-inbox/focus-mo
 `inc3-run.png` and `inc3-vibe-there.png` beside it.
 
 - **Parts follow their steps** (`state.mjs` `focusState`, since Focus 1, pinned by `test/focusRun.test.mjs`): all
-  finished (done, closed, dropped) → done; one taken, in progress, waiting on you or in review → in progress with that
-  step's owner; else next. The progress counts parts done, and the minutes the sizes of the others name.
+  finished with one at least done or closed → done; finished with all dropped → Stopped (B680, below; the person may drop
+  it with a reason); one taken, in progress, waiting on you or in review → in progress with that step's owner; else next. The progress counts parts done, and the minutes the sizes of the others name.
 - **The daily note** (`src/work/dailyNote.mjs`, `api.mjs` `note`): the partner's `work note` with `of` G<n> (role
   advisor only, to you) writes `N<n>` with `Of: G<n>` (a new note key) and the sections `## Decided for you` (one line
   each) and `## Needs you` (the ids of asks in the store). `work ask` with `of` G<n> makes an ask of the goal itself
@@ -1946,7 +1946,8 @@ The spec `.claude/specs/2026-10-18-focus-partner-design.md` and its plan (increm
   (once: a second agree keeps the first). Nothing calls them from the page yet: increment 2 does.
 - **The state** (`focusState` in `src/state.mjs`): `focus` is null without a map, a focus or a goal of that id;
   else the goal, its stage, its lines, its brainstorm thread (a running one about it, else its Brainstorm line's) and
-  each part's progress from the work store: all its steps done, closed or dropped → done; one taken, in progress or
+  each part's progress from the work store: all its steps finished with one at least done or closed → done (all dropped →
+  Stopped, B680); one taken, in progress or
   waiting on you → now, with that step's owner; else next; `progress` is the parts done of all and the minutes the
   sizes of the parts not done name. `advisorParts` from the setting.
 - **The page** (`public/board.js`, the section `focus:start`): `focusView` (head, strip, the right card per stage,
@@ -4146,8 +4147,10 @@ done nor open, and the goal can only finish once every part is done or dropped b
    editGoals, src/goalsWrite.mjs `dropPart`) and `Part dropped: <part title> · <date time> · <why>` stands under the goal
    (src/goals.mjs `partsDropped`). The server refuses it for a part that is not Stopped, not of the focus, or without a reason
    (src/focus.mjs `partDropRefusal`). The part shows "Dropped: <why>", is out of `total`, and has an Undo (its own page word,
-   so it takes back that drop only). The person's drop wins over later steps of the part.
+   `partDropPage(title)` in public/board.js: the page's word and a short hash of the part's title, so it takes back that
+   part's drop only). The reason box is part of the Focus page's view (`focusPageUi.dropping`), so a click draws it at
+   once (B688). The person's drop wins over later steps of the part.
 4. roles/partner.md "A Stopped part is yours": the partner adds a new step another way or advises the person to drop it.
 
 Incidents that show it failing: a part with only dropped steps showing Done or a green bar; "Did we reach the goal?" while a
-part is Stopped. Tests: test/stoppedPart.test.mjs.
+part is Stopped. Tests: test/stoppedPart.test.mjs, test/partDropClick.test.mjs (B688: the click shows the box; Undo per part).

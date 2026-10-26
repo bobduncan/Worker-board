@@ -4929,7 +4929,7 @@ const needsUi = () => ({ showsClosed: showsClosed(), order: $('needs-order').val
  * B408: what the person does on the Focus page, for its view: the moves of focusUi (not the words typed, which a redraw
  * keeps), and what is picked, sent, refused or open on its cards (the switches, the gathered recaps and asks).
  */
-const focusPageUi = () => ({ busy: focusUi.busy, note: focusUi.note, notYet: focusUi.notYet, picked: focusUi.picked, picking: focusUi.picking, asked: [...focusUi.asked], partsOpen: { ...focusUi.partsOpen }, chosen: [...chosen], problems: [...problems], sending: [...sending], openForms: [...openForms], starting: [...starting] })
+const focusPageUi = () => ({ busy: focusUi.busy, note: focusUi.note, notYet: focusUi.notYet, picked: focusUi.picked, picking: focusUi.picking, dropping: focusUi.dropping, asked: [...focusUi.asked], partsOpen: { ...focusUi.partsOpen }, chosen: [...chosen], problems: [...problems], sending: [...sending], openForms: [...openForms], starting: [...starting] })
 // redraw:end
 
 /** B408: Needs your attention, drawn from its view when that changed. */
@@ -10931,8 +10931,9 @@ function drawAdvisorParts(state) {
 // B680: `dropping`, the title of the Stopped part whose reason the person is writing.
 const focusUi = { busy: false, note: null, notYet: null, picked: null, picking: false, dropping: null, asked: [], partsOpen: {}, words: { talk: '', notYet: '', new: '', bar: '', drop: '' } }
 const FOCUS_BOXES = { 'focus-talk-words': 'talk', 'focus-not-yet-words': 'notYet', 'focus-new-words': 'new', 'focus-bar-words': 'bar', 'focus-drop-words': 'drop' }
-// B680: a part's drop has its own page word, so its Undo takes back that drop and no other change of this page.
-const PART_DROP_PAGE = `${GOALS_PAGE}drop`
+// B680: a part's drop has its own page word (the page's, "drop", and a short hash of the part's title), so its Undo takes
+// back that part's drop and no other change of this page.
+const partDropPage = title => `${GOALS_PAGE}drop${[...title].reduce((hash, letter) => (Math.imul(hash, 31) + letter.charCodeAt(0)) >>> 0, 7).toString(36)}`
 
 /** B408: the Focus page, drawn from its view when that changed. */
 function focusOnce(state) {
@@ -11198,7 +11199,11 @@ function focusRunCard(view) {
       row.append(drop)
       if (focusUi.dropping === part.title) row.append(focusSay('Why do you drop this part? One line.', 'focus-say focus-drop-say', { box: 'focus-drop-words', act: 'part-drop-send', label: 'Drop it', isEnabled: part.drop.isEnabled, title: part.drop.title }))
     }
-    if (part.undo !== undefined) row.append(focusButton(part.undo, 'focus-drop'))
+    if (part.undo !== undefined) {
+      const undo = focusButton(part.undo, 'focus-drop')
+      undo.dataset.focusGoal = part.title
+      row.append(undo)
+    }
     card.append(row)
   }
   const steps = el('button', 'focus-steps', 'See the tasks behind this →')
@@ -12844,11 +12849,11 @@ async function focusAct(act, goal = null, extra = null) {
       }
     } else if (act === 'part-drop-send' && focus !== null && focusUi.dropping !== null) {
       if (words('drop') === '') focusUi.note = { isProblem: true, text: 'Say why you drop it, in one line.' }
-      else if (await sendFocus({ command: 'part-drop', id: focus.id, part: focusUi.dropping, text: words('drop'), page: PART_DROP_PAGE }, 'The part is dropped: it counts out of the whole. Undo takes it back.') !== null) {
+      else if (await sendFocus({ command: 'part-drop', id: focus.id, part: focusUi.dropping, text: words('drop'), page: partDropPage(focusUi.dropping) }, 'The part is dropped: it counts out of the whole. Undo takes it back.') !== null) {
         focusUi.words.drop = ''
         focusUi.dropping = null
       }
-    } else if (act === 'part-undo') await sendFocus({ command: 'undo', page: PART_DROP_PAGE }, 'Taken back: the part is Stopped again.')
+    } else if (act === 'part-undo') await sendFocus({ command: 'undo', page: partDropPage(goal ?? '') }, 'Taken back: the part is Stopped again.')
     else if (act === 'talk' && focus !== null) await focusAnswer(focus)
     // Focus 4: the run's talk bar: the words into the goal's talk (started or reused), typed to the partner as yours.
     else if (act === 'talk-bar' && focus !== null) {
