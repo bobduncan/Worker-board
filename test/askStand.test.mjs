@@ -112,15 +112,27 @@ test('the state: an ask nobody has taken stands in the queue; its word waiting i
   assert.equal(waiting.withPartner[0].stand.kind, 'queued')
 })
 
+// The Advisor at work on something that does not name the ask: only the taken word says it has the ask.
+const busy = { advisor: [typed(NOW - 12 * MIN, 'Tidy the notes'), step(NOW - MIN, 'Read')], plan: { text: 'Tidy the notes', step: 1, steps: 2, names: ['Read', 'Write'], left: 20 * MIN, stepLeft: 5 * MIN } }
+
 test('the state: its word taken by the Advisor and the ask still open: the Advisor is on it, since it took it', () => {
   const filed = NOW - 15 * MIN
-  const taken = build({ items: [routed('Q1', filed)], outbox: [sent('w1', { state: 'taken', takenAt: NOW - 14 * MIN })] })
+  const taken = build({ ...busy, items: [routed('Q1', filed)], outbox: [sent('w1', { state: 'taken', takenAt: NOW - 14 * MIN })] })
+  assert.equal(taken.advisor.state, 'working')
   assert.deepEqual(taken.withPartner[0].stand, { kind: 'working', since: NOW - 14 * MIN, toYouAt: filed + 30 * MIN })
-  const typedIn = build({ items: [routed('Q1', filed)], outbox: [sent('w1', { state: 'delivered', takenAt: NOW - 14 * MIN, deliveredAt: NOW - 13 * MIN })] })
+  const typedIn = build({ ...busy, items: [routed('Q1', filed)], outbox: [sent('w1', { state: 'delivered', takenAt: NOW - 14 * MIN, deliveredAt: NOW - 13 * MIN })] })
   assert.equal(typedIn.withPartner[0].stand.kind, 'working')
   // Two asks: each has its own stand.
-  const two = build({ items: [routed('Q1', filed), routed('Q2', NOW - 5 * MIN)], outbox: [sent('w1', { state: 'delivered', takenAt: NOW - 14 * MIN })] })
+  const two = build({ ...busy, items: [routed('Q1', filed), routed('Q2', NOW - 5 * MIN)], outbox: [sent('w1', { state: 'delivered', takenAt: NOW - 14 * MIN })] })
   assert.deepEqual(two.withPartner.map(one => [one.id, one.stand.kind]), [['Q1', 'working'], ['Q2', 'queued']])
+})
+
+test('the state: its word taken but the Advisor not at work now: it took it, never "on it" (a word stays taken for good)', () => {
+  const filed = NOW - 15 * MIN
+  const idle = build({ items: [routed('Q1', filed)], outbox: [sent('w1', { state: 'taken', takenAt: NOW - 14 * MIN })] })
+  assert.notEqual(idle.advisor.state, 'working')
+  assert.deepEqual(idle.withPartner[0].stand, { kind: 'taken', since: NOW - 14 * MIN, toYouAt: filed + 30 * MIN })
+  assert.equal(idle.advisor.on, null)
 })
 
 test('the state: the Advisor at work on a task that names the ask is on it; an idle Advisor is not, whatever its card says', () => {
@@ -223,6 +235,9 @@ test('the words: where the question stands, then when it comes to you', () => {
   // What the board does not know is left out, never made up.
   assert.equal(page.standWords({ kind: 'working', since: null, toYouAt: at(14, 32) }), 'the Advisor is on it · comes to you at 14:32')
   assert.equal(page.standWords({ kind: 'queued', since: at(14, 2), toYouAt: null }), 'in the Advisor\'s queue since 14:02')
+  // Taken while the Advisor is not at work: when it took it, and that it is idle now.
+  assert.equal(page.standWords({ kind: 'taken', since: at(14, 5), toYouAt: at(14, 32) }), 'the Advisor took it at 14:05, idle now · comes to you at 14:32')
+  assert.equal(page.standWords({ kind: 'taken', since: null, toYouAt: null }), 'the Advisor took it, idle now')
   assert.equal(page.standWords(null), null)
   assert.equal(page.standWords(undefined), null)
   assert.equal(page.standWords({ kind: 'mystery', since: null, toYouAt: null }), null)

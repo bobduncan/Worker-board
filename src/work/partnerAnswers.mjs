@@ -75,15 +75,17 @@ export function taskNamesItem(task, id) {
  * Where one item waiting for the partner stands, from facts the board has and nothing else: `{ kind, since }`.
  * - `working`: one of the board's `words` for it was taken by the partner (`taken`, or typed: `delivered`), or the partner's
  *   current `task` names the item's id; `since` is when it took the word (else its task's start; null when unknown).
+ * - `taken`: as `working` by a word, but the partner is not at work now (`isWorking` false): it took the item and stopped
+ *   (handed on to its helper, cut off, or waiting); a word stays taken for good, so it never reads as worked on then.
  * - `queued`: anything else while the item is open (no word, or one that waits, failed, was closed): `since` is `queuedSince`.
  * `words` are the board's words about the item that count (the caller picks them), `task` the partner's task as its card
- * names it while it works (null otherwise).
+ * names it while it works (null otherwise), `isWorking` whether the partner is at work now.
  */
-export function workStand({ id, words = [], task = null, queuedSince = null }) {
+export function workStand({ id, words = [], task = null, queuedSince = null, isWorking = true }) {
   const took = words.filter(message => message.state === 'taken' || message.state === 'delivered')
   if (took.length > 0) {
     const times = took.map(message => message.takenAt ?? message.deliveredAt ?? message.at).filter(Number.isFinite)
-    return { kind: 'working', since: times.length > 0 ? Math.min(...times) : null }
+    return { kind: isWorking ? 'working' : 'taken', since: times.length > 0 ? Math.min(...times) : null }
   }
   if (taskNamesItem(task, id)) return { kind: 'working', since: Number.isFinite(task.startedAt) ? task.startedAt : null }
   return { kind: 'queued', since: Number.isFinite(queuedSince) ? queuedSince : null }
@@ -95,9 +97,9 @@ export function workStand({ id, words = [], task = null, queuedSince = null }) {
  * filed (`filed`, its `askFiledMs`), with `toYouAt`: when the 30-minute rule (`limitMs`) hands it to the person; null when
  * the filing is not known.
  */
-export function partnerAskStand({ id, filed, outbox = [], task = null, limitMs = PARTNER_ANSWER_MS }) {
+export function partnerAskStand({ id, filed, outbox = [], task = null, isWorking = true, limitMs = PARTNER_ANSWER_MS }) {
   const words = (outbox ?? []).filter(message => isPartnerAskWord(message) && message.about === id)
-  return { ...workStand({ id, words, task, queuedSince: filed }), toYouAt: Number.isFinite(filed) ? filed + limitMs : null }
+  return { ...workStand({ id, words, task, queuedSince: filed, isWorking }), toYouAt: Number.isFinite(filed) ? filed + limitMs : null }
 }
 
 /** The one line the asking chat gets when the person takes the partner's answer back. */

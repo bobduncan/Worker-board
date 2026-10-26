@@ -177,7 +177,7 @@ export function storeNeeds(work, { now, names = [], prefix = '', answerOf = () =
  * partner's current task (`task`, null unless it is at work); and what its window shows: the context (`text`), the
  * options, the advice and the title of its step.
  */
-export function withPartnerOf(work, { names = [], prefix = '', outbox = [], task = null } = {}) {
+export function withPartnerOf(work, { names = [], prefix = '', outbox = [], task = null, isWorking = true } = {}) {
   const nameOf = nameFinder(names, prefix)
   const items = new Map(itemsOf(work).map(item => [valueOf(item, 'Id'), item]))
   return asksOfStore(work).filter(isRoutedToPartner).map(item => {
@@ -190,7 +190,7 @@ export function withPartnerOf(work, { names = [], prefix = '', outbox = [], task
       id, from: valueOf(item, 'Owner') === null ? null : nameOf(valueOf(item, 'Owner')), title: valueOf(item, 'Title') ?? '', of, at: Number.isFinite(at) ? at : null,
       ofTitle: step === undefined ? null : valueOf(step, 'Title'), text: askPartsOf(item).context.join('\n'), advice,
       options: (valueOf(item, 'Options') ?? '').split(' | ').filter(one => one.trim() !== '').map(label => ({ label, isRecommended: isAdvised(label, advice) })),
-      stand: partnerAskStand({ id, filed: at, outbox, task }),
+      stand: partnerAskStand({ id, filed: at, outbox, task, isWorking }),
     }
   }).sort((a, b) => a.id.localeCompare(b.id, 'en', { numeric: true }))
 }

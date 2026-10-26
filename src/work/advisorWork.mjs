@@ -30,7 +30,7 @@ const isOpenIncident = item => item !== undefined && valueOf(item, 'Kind') === '
  * `items` the store's items by id, `held` the ready list's held steps (for `reviewWaitOf`), `outbox` the board's words,
  * `task` the Advisor's current task while it works (null otherwise), `titleOf(id)` a step's title, `nameOf(owner)` a chat's name.
  */
-export function advisorWorkOf({ items = new Map(), held = null, outbox = [], task = null, questions = [], refines = [], titleOf = () => null, nameOf = name => name }) {
+export function advisorWorkOf({ items = new Map(), held = null, outbox = [], task = null, isWorking = true, questions = [], refines = [], titleOf = () => null, nameOf = name => name }) {
   const waiting = questions.map(one => ({ kind: 'question', id: one.id, title: one.title ?? '', who: one.from ?? null, stand: one.stand }))
   for (const item of items.values()) {
     if (valueOf(item, 'Kind') !== 'step' || valueOf(item, 'State') !== 'review') continue
@@ -44,10 +44,10 @@ export function advisorWorkOf({ items = new Map(), held = null, outbox = [], tas
     const owner = valueOf(item, 'Owner')
     waiting.push({
       kind: 'check', id, title: titleOf(id) ?? valueOf(item, 'Title') ?? '', who: owner === null ? null : nameOf(owner),
-      stand: workStand({ id, words, task, queuedSince: waits.length > 0 ? Math.min(...waits) : wait.since }),
+      stand: workStand({ id, words, task, queuedSince: waits.length > 0 ? Math.min(...waits) : wait.since, isWorking }),
     })
   }
-  for (const one of refines) waiting.push({ kind: 'refine', id: one.id, title: one.title ?? '', who: null, stand: workStand({ id: one.id, words: [one.word], task, queuedSince: one.word?.at }) })
+  for (const one of refines) waiting.push({ kind: 'refine', id: one.id, title: one.title ?? '', who: null, stand: workStand({ id: one.id, words: [one.word], task, queuedSince: one.word?.at, isWorking }) })
   waiting.sort((a, b) => Number(b.stand.kind === 'working') - Number(a.stand.kind === 'working')
     || (a.stand.since ?? Infinity) - (b.stand.since ?? Infinity) || a.id.localeCompare(b.id, 'en', { numeric: true }))
 

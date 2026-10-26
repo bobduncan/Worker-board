@@ -3656,9 +3656,12 @@ function approveHint(need) {
  * Null without a stand (a server that gives none) or for a kind it does not know: nothing is made up.
  */
 function standWords(stand) {
-  const where = stand?.kind === 'queued' ? "in the Advisor's queue" : stand?.kind === 'working' ? 'the Advisor is on it' : null
+  // `taken`: the Advisor took it and is not at work now (handed on to its helper, cut off, or waiting).
+  const at = Number.isFinite(stand?.since) ? ` at ${clock(stand.since)}` : ''
+  const where = stand?.kind === 'queued' ? "in the Advisor's queue" : stand?.kind === 'working' ? 'the Advisor is on it'
+    : stand?.kind === 'taken' ? `the Advisor took it${at}, idle now` : null
   if (where === null) return null
-  return [Number.isFinite(stand.since) ? `${where} since ${clock(stand.since)}` : where, Number.isFinite(stand.toYouAt) ? `comes to you at ${clock(stand.toYouAt)}` : null]
+  return [Number.isFinite(stand.since) && stand.kind !== 'taken' ? `${where} since ${clock(stand.since)}` : where, Number.isFinite(stand.toYouAt) ? `comes to you at ${clock(stand.toYouAt)}` : null]
     .filter(Boolean).join(' · ')
 }
 
@@ -15227,7 +15230,9 @@ const newestFirst = (a, b) => Number(b.isFix) - Number(a.isFix) || blockNumber(b
  */
 function checkStandWords(stand) {
   const since = Number.isFinite(stand?.since) ? ` since ${clock(stand.since)}` : ''
-  return stand?.kind === 'queued' ? `waits for its check: in the Advisor's queue${since}` : stand?.kind === 'working' ? `the Advisor is checking it${since}` : null
+  const at = Number.isFinite(stand?.since) ? ` at ${clock(stand.since)}` : ''
+  return stand?.kind === 'queued' ? `waits for its check: in the Advisor's queue${since}` : stand?.kind === 'working' ? `the Advisor is checking it${since}`
+    : stand?.kind === 'taken' ? `waits for its check: the Advisor took it${at}, idle now` : null
 }
 
 /**

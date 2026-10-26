@@ -1786,7 +1786,8 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
   // Focus page's note does not show, each with its Undo. The person, 2026-10-26: each with where it stands (`stand`:
   // in the partner's queue, or the partner is on it: its word was taken, or its task, while it works, names the ask).
   const partnerWorks = advisorCard?.state === 'working'
-  const withPartner = !workOk ? [] : withPartnerOf(raw.work, { names: chatNames, prefix, outbox: sent, task: partnerWorks ? advisorCard.task ?? null : null })
+  // A word the partner took stays taken: while it does not work, the item reads "took it", never "on it".
+  const withPartner = !workOk ? [] : withPartnerOf(raw.work, { names: chatNames, prefix, outbox: sent, task: partnerWorks ? advisorCard.task ?? null : null, isWorking: partnerWorks })
   // The backlog as the page shows it, and the refines the board asked of the Advisor that it has not written yet.
   const overviewed = overview(backlog, { underWay: onNow })
   const refinesOpen = overviewed.flatMap(activity => activity.steps).flatMap(step => {
@@ -1796,7 +1797,7 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
   // 2026-10-26: all the Advisor's waiting work (the questions it answers first, result checks, refines), each with where it
   // stands, and the item it is on: the newest board word it took whose item is still open (while it works).
   const advisorWork = !workOk || advisorChat === undefined ? { waiting: [], on: null }
-    : advisorWorkOf({ items: raw.work.items, held: reconciled?.ready?.held ?? null, outbox: sent, task: partnerWorks ? advisorCard.task ?? null : null, questions: withPartner, refines: refinesOpen, titleOf, nameOf: nameFinder(chatNames, prefix) })
+    : advisorWorkOf({ items: raw.work.items, held: reconciled?.ready?.held ?? null, outbox: sent, task: partnerWorks ? advisorCard.task ?? null : null, isWorking: partnerWorks, questions: withPartner, refines: refinesOpen, titleOf, nameOf: nameFinder(chatNames, prefix) })
   const checkStands = new Map(advisorWork.waiting.filter(one => one.kind === 'check').map(one => [one.id, one.stand]))
 
   const built = {

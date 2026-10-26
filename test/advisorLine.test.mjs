@@ -138,6 +138,7 @@ test('the Backlog: a step in review is built by its worker, and says whom it wai
   // The words alone, and none for what the server did not say.
   assert.equal(page.checkStandWords(queued), 'waits for its check: in the Advisor\'s queue since 16:14')
   assert.equal(page.checkStandWords({ kind: 'working', since: null }), 'the Advisor is checking it')
+  assert.equal(page.checkStandWords({ kind: 'taken', since: at(16, 20) }), 'waits for its check: the Advisor took it at 16:20, idle now')
   assert.equal(page.checkStandWords(null), null)
   assert.equal(page.checkStandWords(undefined), null)
   // The row: the state cell says it, and the title does not say it a second time.
