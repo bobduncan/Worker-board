@@ -2,7 +2,10 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import { join } from 'node:path'
 
-import { configProblem, countFromMs, expandEnv, isOwnMap, parseConfig } from '../src/config.mjs'
+import { readFileSync } from 'node:fs'
+
+import * as configModule from '../src/config.mjs'
+import { configProblem, expandEnv, isOwnMap, parseConfig } from '../src/config.mjs'
 
 const env = { APPDATA: 'C:\\Users\\sam\\AppData\\Roaming', UserProfile: 'C:\\Users\\sam' }
 
@@ -306,20 +309,18 @@ test('Redesign Part 2: the hand-out settings: two minutes to take, a follow-up a
   assert.equal(parseConfig('{"followUpMinutes": -1}', env).followUpMinutes, 0)
 })
 
-test('gap 4: supervisorCountFrom, a local time "YYYY-MM-DD HH:MM" the supervisor counts from: absent unless set right; "" for none', () => {
+test('the supervisor section counts a rolling 24 h: an old config.json that still has supervisorCountFrom starts as before, the setting ignored', () => {
+  // The setting is gone (2026-10-26): not parsed, not kept, never a problem, whatever it holds; the other settings stand.
   assert.equal('supervisorCountFrom' in parseConfig('{}', env), false)
-  assert.equal(parseConfig('{"supervisorCountFrom":"2026-10-25 14:00"}', env).supervisorCountFrom, '2026-10-25 14:00')
-  assert.equal(parseConfig('{"supervisorCountFrom":" 2026-10-25 14:00 "}', env).supervisorCountFrom, '2026-10-25 14:00')
-  for (const wrong of ['', '2026-10-25', '2026-13-01 10:00', '2026-02-30 10:00', '2026-10-25 24:00', 1792900000000]) {
-    assert.equal('supervisorCountFrom' in parseConfig(JSON.stringify({ supervisorCountFrom: wrong }), env), false, String(wrong))
+  for (const old of ['2026-10-25 14:00', ' 2026-10-25 14:00 ', '', '25 Oct 14:00', '2026-02-30 10:00', 1792900000000, null, true, ['x']]) {
+    const text = JSON.stringify({ supervisorCountFrom: old, port: 4999 })
+    assert.equal('supervisorCountFrom' in parseConfig(text, env), false, String(old))
+    assert.equal(parseConfig(text, env).port, 4999, 'the rest of the file is read')
+    assert.equal(configProblem(text), null, String(old))
   }
-  assert.equal(configProblem('{"supervisorCountFrom":"2026-10-25 14:00"}'), null)
-  assert.equal(configProblem('{"supervisorCountFrom":""}'), null)
-  assert.match(configProblem('{"supervisorCountFrom":"25 Oct 14:00"}'), /"supervisorCountFrom" must be a local time like "2026-10-25 14:00", or "" for none/)
-  // The time as milliseconds, local time; null for none.
-  assert.equal(countFromMs('2026-10-25 14:00'), new Date(2026, 9, 25, 14, 0).getTime())
-  assert.equal(countFromMs(undefined), null)
-  assert.equal(countFromMs('2026-02-30 10:00'), null)
+  assert.equal('countFromMs' in configModule, false, 'the time parser went with it')
+  // Nor does the example file a new PC starts from carry it.
+  assert.doesNotMatch(readFileSync(new URL('../examples/config.json', import.meta.url), 'utf8'), /supervisorCountFrom/)
 })
 
 test('T9.3 part 1: providers: each kind of asset has its provider by default; a full or partial object changes only what it names', () => {

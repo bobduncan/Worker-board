@@ -3365,11 +3365,21 @@ the AI sweep by a cheap supervisor chat and the hand-over to the Advisor, comes 
 - **The section** (state `supervisor`, the view, in place of `syncList`), under the Workers panel's head where the
   "Out of sync?" list stood. B573 (the person, 2026-10-24: "the supervisor notes take up too much space. i want it
   collapisble and understand how many things it found and is working on"): it stands on every board with a supervisor,
-  folded by default to one head line, "Supervisor · 10 found today · 3 in work · 2 new", with **Check now** beside it;
+  folded by default to one head line, "Supervisor · 10 found in the last 24 h (4 the 24 h before) · 3 in work · 2 new",
+  with **Check now** beside it;
   a click on the line opens it, and the fold is kept across reloads (localStorage `supervisor-open`). Found: opened or
-  came back in the last day (an incident's `foundAt`, from its History). In work: its fix step queued, taken, in
-  progress, waiting on the person or in review (the card's `phase`). Open, the head adds "· 2 with the Advisor · 0
-  fixed" (no fix under way yet; fixed), then when it checked itself, its incidents (one card per fix step, see "The
+  came back (an incident's `foundAt`, from its History) in the last 24 hours, `[now - 24 h, now)`; in brackets beside it
+  the same over the 24 hours before, `[now - 48 h, now - 24 h)` (the lower edge is in, the upper out; the view holds a
+  fixed incident for two days, `incidentsOf`, so the earlier window counts the fixed ones too). **A rolling day**
+  (the person, 2026-10-26, "apply A"): nothing is set by hand. It replaced Gap 4's setting `supervisorCountFrom` in
+  config.json, a start time that never reset by itself; the setting is gone from the board, and an old config.json
+  that still has it starts as before, the setting ignored. In work: its fix step queued, taken, in
+  progress, waiting on the person or in review (the card's `phase`). In work and (open) with the Advisor count
+  every open incident whatever its age, and the cards list them: an open incident never drops out of sight because it
+  is old. Only fixed counts the last 24 hours ("12 fixed in the last 24 h"): a fixed incident (its state, or its fix
+  step done) found or seen again (`lastSeen`) in that time, listed the same, a card with none left out; one with no
+  time known is counted, never hidden. Open, the head adds "· 2 with the Advisor · 0
+  fixed in the last 24 h" (no fix under way yet; fixed), then when it checked itself, its incidents (one card per fix step, see "The
   supervisor's incident cards"), the last check (B465's rows, as before, for an hour), the rules (those that tripped
   now or today, how often, a failed one with why; the others on a click) and the last sweep. **New**: an incident found
   since the person last opened the section (`supervisor-seen-at`) and not fixed; its card carries a quiet New tag and

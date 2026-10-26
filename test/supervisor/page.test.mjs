@@ -76,7 +76,7 @@ test('the section: when it checked itself, one card per fix step, the last check
   assert.equal(shown.sweep, 'No sweep yet.')
   // Before its first run, and on a board without a supervisor.
   const fresh = plain(page.supervisorOf({ run: null, checkedAt: null, rules: [rule('blocked', 'repair', 'x', null)], incidents: [], lastSweep: null }, { now: NOW, isOpen: false }))
-  assert.deepEqual([fresh.head, fresh.note.split('.')[0], fresh.check, fresh.cards, fresh.rules.rest[0].often], ['Supervisor · 0 found today · 0 in work · 0 new', 'Not checked yet', null, [], 'not checked yet'])
+  assert.deepEqual([fresh.head, fresh.note.split('.')[0], fresh.check, fresh.cards, fresh.rules.rest[0].often], ['Supervisor · 0 found in the last 24 h (0 the 24 h before) · 0 in work · 0 new', 'Not checked yet', null, [], 'not checked yet'])
   assert.equal(page.supervisorOf(null), null)
 })
 
@@ -123,31 +123,106 @@ const viewOfStore = () => {
   return { run: null, checkedAt: at(10, 40), rules: [], incidents, cards: incidentCards({ incidents, items: STORE, lanes: [] }), lastSweep: null }
 }
 
-test('B573: the head counts from the store: found today (opened or came back), in work (a fix step queued to review), with the Advisor, fixed', () => {
+test('B573: the head counts from the store: found in the last 24 h (opened or came back), in work (a fix step queued to review), with the Advisor, fixed in the last 24 h', () => {
   const view = viewOfStore()
-  assert.deepEqual(plain(page.supervisorCounts(view, at(10, 0), NOW)), { found: 5, inWork: 3, withAdvisor: 2, fixed: 1, fresh: 2 })
-  assert.equal(page.supervisorOf(view, { seenAt: at(10, 0), isOpen: false, now: NOW }).head, 'Supervisor · 5 found today · 3 in work · 2 new')
-  assert.equal(page.supervisorOf(view, { seenAt: at(10, 0), isOpen: true, now: NOW }).head, 'Supervisor · 5 found today · 3 in work · 2 new · 2 with the Advisor · 1 fixed')
-  // X1 counts as found today because it came back today, though it opened two days ago.
+  // X21 (with the Advisor, found 9:00 yesterday, 25 h 42 min ago) is in the 24 h before; it is open, so it still counts with the Advisor.
+  assert.deepEqual(plain(page.supervisorCounts(view, at(10, 0), NOW)), { found: 5, foundBefore: 1, inWork: 3, withAdvisor: 2, fixed: 1, fresh: 2 })
+  assert.equal(page.supervisorOf(view, { seenAt: at(10, 0), isOpen: false, now: NOW }).head, 'Supervisor · 5 found in the last 24 h (1 the 24 h before) · 3 in work · 2 new')
+  assert.equal(page.supervisorOf(view, { seenAt: at(10, 0), isOpen: true, now: NOW }).head, 'Supervisor · 5 found in the last 24 h (1 the 24 h before) · 3 in work · 2 new · 2 with the Advisor · 1 fixed in the last 24 h')
+  // X1 counts as found in the last 24 h because it came back today, though it opened two days ago.
   assert.equal(view.incidents.find(one => one.id === 'X1').foundAt, at(10, 20))
   assert.equal(view.incidents.find(one => one.id === 'X22').foundAt, at(9, 0))
 })
 
-test('gap 4: with supervisorCountFrom (the view countFrom), the section counts and lists only what was found or seen again since then', () => {
+// The person (2026-10-26, "apply A"): a rolling 24 hours, with the 24 hours before beside it, instead of a start time in
+// the settings. Found = an incident's `foundAt` (opened, or came back) in [now-24h, now); the 24 h before: [now-48h, now-24h).
+// The coordinator's rule after it: an open incident never drops out of sight because it is old (in work, new, with the
+// Advisor count and list every open one); only "fixed" counts the last 24 h.
+const incidentAt = (id, foundAt, more = {}) => ({ id, title: `Finding ${id}`, state: 'open', fix: null, count: 1, firstSeen: foundAt, lastSeen: foundAt, since: foundAt, foundAt, ...more })
+const countsOf = (incidents, seenAt = null, now = NOW) => plain(page.supervisorCounts({ incidents, cards: [] }, seenAt, now))
+
+test('the rolling count: the two windows at their edges: [now-24h, now) and [now-48h, now-24h), the lower edge in, the upper edge out', () => {
+  const found = foundAt => countsOf([incidentAt('X1', foundAt)])
+  const windows = foundAt => [found(foundAt).found, found(foundAt).foundBefore]
+  assert.deepEqual(windows(NOW - 1), [1, 0], '1 ms ago: the last 24 h')
+  assert.deepEqual(windows(NOW - DAY), [1, 0], 'exactly 24 h ago: the last 24 h (its lower edge is in)')
+  assert.deepEqual(windows(NOW - DAY - 1), [0, 1], '24 h and 1 ms ago: the 24 h before')
+  assert.deepEqual(windows(NOW - 2 * DAY), [0, 1], 'exactly 48 h ago: the 24 h before (its lower edge is in)')
+  assert.deepEqual(windows(NOW - 2 * DAY - 1), [0, 0], '48 h and 1 ms ago: in neither')
+  assert.deepEqual(windows(NOW), [0, 0], 'now: the upper edge is out')
+  // All at once: each counted in its own window only.
+  const all = countsOf([incidentAt('X1', NOW - 1), incidentAt('X2', NOW - DAY), incidentAt('X3', NOW - DAY - 1), incidentAt('X4', NOW - 2 * DAY), incidentAt('X5', NOW - 2 * DAY - 1), incidentAt('X6', NOW)])
+  assert.deepEqual([all.found, all.foundBefore], [2, 2])
+  // An incident without a time found, or with a made-up one, is in neither window; an open one is counted all the same.
+  const unknown = countsOf([incidentAt('X7', null), incidentAt('X8', Number.NaN)])
+  assert.deepEqual([unknown.found, unknown.foundBefore, unknown.withAdvisor], [0, 0, 2])
+  // Fixed counts only what was found or seen again in the last 24 h: the same edges; its time unknown, it is counted, never hidden.
+  const fixed = lastSeen => countsOf([incidentAt('X1', NOW - 5 * DAY, { state: 'fixed', lastSeen })]).fixed
+  assert.equal(fixed(NOW - DAY), 1, 'fixed, seen again exactly 24 h ago: counted')
+  assert.equal(fixed(NOW - DAY - 1), 0, 'fixed, seen again 24 h and 1 ms ago: not counted')
+  assert.equal(countsOf([incidentAt('X1', null, { state: 'fixed' })]).fixed, 1)
+})
+
+test('the rolling count: an open incident found 3 days ago is still counted (in work, with the Advisor) and listed; a fixed one from 3 days ago is neither', () => {
+  const old = { foundAt: NOW - 3 * DAY, lastSeen: NOW - 3 * DAY }
+  const incidents = [
+    incidentAt('X1', 0, { ...old }), // with the Advisor, no fix step
+    incidentAt('X2', 0, { ...old, state: 'fix', fix: 'B2' }), // its fix step in progress
+    incidentAt('X3', 0, { ...old, state: 'fixed' }), // fixed 3 days ago
+    incidentAt('X4', 0, { ...old, state: 'fix', fix: 'B4' }), // its fix step done: fixed
+  ]
+  const cards = [
+    { key: 'B2', step: 'B2', title: 'Fix of X2', state: { text: 'Worker 2 · building', tone: 'busy' }, phase: 'in progress', incidents: [{ id: 'X2', word: null }], at: NOW },
+    { key: 'B4', step: 'B4', title: 'Fix of X4', state: { text: 'done · fixed', tone: 'done' }, phase: 'done', incidents: [{ id: 'X4', word: null }], at: NOW },
+    { key: 'nofix', step: null, title: 'No fix step yet', state: { text: 'with the Advisor', tone: 'advisor' }, phase: null, incidents: [{ id: 'X1', word: 'with the Advisor' }, { id: 'X3', word: null }], at: NOW },
+  ]
+  const view = { incidents, cards }
+  assert.deepEqual(plain(page.supervisorCounts(view, null, NOW)), { found: 0, foundBefore: 0, inWork: 1, withAdvisor: 1, fixed: 0, fresh: 0 })
+  assert.equal(page.supervisorOf(view, { isOpen: true, now: NOW }).head, 'Supervisor · 0 found in the last 24 h (0 the 24 h before) · 1 in work · 0 new · 1 with the Advisor · 0 fixed in the last 24 h')
+  const drawn = plain(page.supervisorOf(view, { now: NOW }))
+  assert.deepEqual([...drawn.cards, ...drawn.older].map(card => [card.key, card.details.map(one => one.id)]), [['B2', ['X2']], ['nofix', ['X1']]])
+  // The same fixed ones seen again 2 hours ago count as fixed in the last 24 h and are listed.
+  const again = { incidents: incidents.map(one => (one.state === 'fixed' || one.id === 'X4' ? { ...one, lastSeen: NOW - 120 * MIN } : one)), cards }
+  assert.equal(plain(page.supervisorCounts(again, null, NOW)).fixed, 2)
+  assert.deepEqual(plain(page.supervisorOf(again, { now: NOW })).cards.map(card => card.key).sort(), ['B2', 'B4', 'nofix'])
+})
+
+test('the rolling count: the words on the page, the example: 1 found in the last 24 h, 21 the 24 h before, 0 in work, 1 new, 22 with the Advisor, 12 fixed in the last 24 h', () => {
+  const incidents = [
+    incidentAt('X100', NOW - 10 * MIN),
+    // 21 found in the 24 h before: open, with the Advisor.
+    ...Array.from({ length: 21 }, (_, n) => incidentAt(`X${n + 1}`, NOW - DAY - (n + 1) * MIN, { lastSeen: NOW - 2 * 60 * MIN })),
+    // 12 found longer ago, seen again since, and fixed.
+    ...Array.from({ length: 12 }, (_, n) => incidentAt(`X${n + 30}`, NOW - 3 * DAY, { state: 'fixed', lastSeen: NOW - 3 * 60 * MIN })),
+  ]
+  const view = { incidents, cards: [] }
+  assert.equal(page.supervisorOf(view, { seenAt: at(10, 0), isOpen: true, now: NOW }).head,
+    'Supervisor · 1 found in the last 24 h (21 the 24 h before) · 0 in work · 1 new · 22 with the Advisor · 12 fixed in the last 24 h')
+  assert.equal(page.supervisorOf(view, { seenAt: at(10, 0), isOpen: false, now: NOW }).head,
+    'Supervisor · 1 found in the last 24 h (21 the 24 h before) · 0 in work · 1 new')
+  // It rolls by itself: a day later the one is in the 24 h before and the 21 are in neither; the open ones are still there, the fixed ones are not.
+  assert.equal(page.supervisorOf(view, { seenAt: at(10, 0), isOpen: true, now: NOW + DAY }).head,
+    'Supervisor · 0 found in the last 24 h (1 the 24 h before) · 0 in work · 0 new · 22 with the Advisor · 0 fixed in the last 24 h')
+})
+
+test('the rolling count: the section lists what it counts: every open incident whatever its age; a fixed one only if found or seen again in the last 24 h, its card otherwise left out', () => {
   const store = viewOfStore()
-  // X21 (with the Advisor since yesterday) was seen again at 10:00; X20 (8:00) and X22 (9:00) were not seen since 9:15.
-  const view = { ...store, countFrom: at(9, 15), incidents: store.incidents.map(one => (one.id === 'X21' ? { ...one, lastSeen: at(10, 0) } : one)) }
-  assert.deepEqual(plain(page.supervisorCounts(view, at(10, 0), NOW)), { found: 4, inWork: 2, withAdvisor: 2, fixed: 0, fresh: 2 })
-  assert.equal(page.supervisorOf(view, { seenAt: at(10, 0), isOpen: false, now: NOW }).head, 'Supervisor · 4 found since 24 Oct 09:15 · 2 in work · 2 new')
-  assert.equal(page.supervisorOf(view, { seenAt: at(10, 0), isOpen: true, now: NOW }).head, 'Supervisor · 4 found since 24 Oct 09:15 · 2 in work · 2 new · 2 with the Advisor · 0 fixed')
-  const drawn = plain(page.supervisorOf(view, { seenAt: at(10, 0), now: NOW }))
-  assert.deepEqual([...drawn.cards, ...drawn.older].map(card => [card.key, card.details.map(one => one.id)]), [['B602', ['X24']], ['nofix', ['X1', 'X21']], ['B601', ['X23']]])
-  // From now on: 0 found, nothing listed, until something is found.
-  const fresh = plain(page.supervisorOf({ ...store, countFrom: NOW }, { seenAt: at(10, 0), isOpen: false, now: NOW }))
-  assert.equal(fresh.head, 'Supervisor · 0 found since 24 Oct 10:42 · 0 in work · 0 new')
-  assert.deepEqual([...fresh.cards, ...fresh.older], [])
-  // Without the setting: as before.
-  assert.equal(page.supervisorOf({ ...store, countFrom: null }, { seenAt: at(10, 0), isOpen: false, now: NOW }).head, 'Supervisor · 5 found today · 3 in work · 2 new')
+  const listed = (view, now) => {
+    const drawn = plain(page.supervisorOf(view, { seenAt: at(10, 0), now }))
+    return [...drawn.cards, ...drawn.older].map(card => [card.key, card.details.map(one => one.id)])
+  }
+  // X21 (with the Advisor since yesterday, seen last 9:00 yesterday) is open, so it is listed with X1.
+  assert.deepEqual(listed(store, NOW), [['B602', ['X24']], ['nofix', ['X1', 'X21']], ['B601', ['X23']], ['B600', ['X22']], ['B599', ['X20']]])
+  // A day later nothing was found or seen again: the fixed X20 (card B599) is gone, every open one stays.
+  assert.deepEqual(listed(store, NOW + DAY).sort(), [['B600', ['X22']], ['B601', ['X23']], ['B602', ['X24']], ['nofix', ['X1', 'X21']]])
+})
+
+test('the rolling count: no start time any more: the page has nothing of supervisorCountFrom, the view countFrom, "found since" or "found today"', () => {
+  const section = script.slice(script.indexOf('// supervisor:start'), script.indexOf('// supervisor:end'))
+  assert.doesNotMatch(section, /countFrom|CountFrom|found since|found today|supervisorSince/)
+  // A view that still carries a countFrom (an older board's) is read as the rolling day: the time is ignored.
+  const old = { ...viewOfStore(), countFrom: NOW }
+  assert.equal(page.supervisorOf(old, { seenAt: at(10, 0), isOpen: false, now: NOW }).head, 'Supervisor · 5 found in the last 24 h (1 the 24 h before) · 3 in work · 2 new')
 })
 
 test('B573: New only for what was found since the person last opened the section; those cards come first; never for a fixed one', () => {

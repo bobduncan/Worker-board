@@ -702,7 +702,7 @@ function checkRowsOf(run) {
   return [...rows, ...fine]
 }
 
-/** B573: a day: what the section counts as found today. */
+/** B573: a day. The section's counts roll over the last day and the day before it (the person, 2026-10-26, "apply A"). */
 const SUPERVISOR_DAY = 24 * 60 * 60_000
 /** B573: the states of a fix step the section counts as in work (cards.mjs `phase`). */
 const IN_WORK = ['queued', 'taken', 'in progress', 'waiting on you', 'review']
@@ -715,36 +715,48 @@ function isNewIncident(one, seenAt, now) {
   return Number.isFinite(one?.foundAt) && one.state !== 'fixed' && one.foundAt > Math.max(Number.isFinite(seenAt) ? seenAt : -Infinity, now - SUPERVISOR_DAY)
 }
 
-/** Gap 4: the months as the head's "since" names them. */
-const SUPERVISOR_MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
-/** Gap 4: the time the section counts from, as its head says it: "25 Oct 14:00". */
-const supervisorSince = ms => `${new Date(ms).getDate()} ${SUPERVISOR_MONTHS[new Date(ms).getMonth()]} ${clock(ms)}`
+/** Whether an incident was found (opened, or came back: its `foundAt`) in [from, until): the lower edge in, the upper out. */
+function isFoundBetween(one, from, until) {
+  return Number.isFinite(one?.foundAt) && one.foundAt >= from && one.foundAt < until
+}
+
+/** Whether an incident is fixed: its own state, or its fix step done (the card's `phase`). */
+function isFixedIncident(one, phase) {
+  return one?.state === 'fixed' || phase === 'done'
+}
 
 /**
- * Gap 4, the person (2026-10-25): "i want the number to be 0 since the redesign so it's clear what it finds". With the
- * setting `supervisorCountFrom` (the view's `countFrom`), the section counts and lists only the incidents found or seen
- * again at or after it; without it, every one.
+ * Whether the section counts and lists an incident. An open one always: it never drops out of sight because it is old
+ * (a problem that silently disappears). A fixed one only when it was found or seen again in the last 24 hours (at or
+ * after `now` minus a day); with no time known it is counted, never hidden. Before the person's rolling day
+ * (2026-10-26) a start time in config.json did this; nothing is set by hand now.
  */
-function isCountedIncident(one, countFrom) {
-  return !Number.isFinite(countFrom) || one?.foundAt >= countFrom || one?.lastSeen >= countFrom
+function isCountedIncident(one, phase, now) {
+  if (!isFixedIncident(one, phase)) return true
+  const times = [one?.foundAt, one?.lastSeen].filter(Number.isFinite)
+  return times.length === 0 || times.some(time => time >= now - SUPERVISOR_DAY)
 }
 
 /**
  * B573, the person (2026-10-24): "understand how many things it found and is working on". The section's counts, from
- * the view's incidents and their cards: `found` opened or came back in the last day (gap 4: or, with `countFrom`, every
- * one counted); `inWork` its fix step queued, taken, in progress, waiting on the person or in review; `withAdvisor` no
- * fix under way yet (none, or one still being refined); `fixed`; `fresh` new to the person (`isNewIncident`).
+ * the view's incidents and their cards, over a rolling day (2026-10-26): `found` opened or came back in [now - 24 h,
+ * now), `foundBefore` in [now - 48 h, now - 24 h) (both by `isFoundBetween`, over every incident the view holds, the fixed
+ * ones too); and, over the incidents counted (`isCountedIncident`: every open one whatever its age, the fixed ones of
+ * the last 24 h): `inWork` its fix step queued, taken, in progress, waiting on the person or in review; `withAdvisor`
+ * no fix under way yet (none, or one still being refined); `fixed` (in the last 24 h); `fresh` new to the person
+ * (`isNewIncident`).
  */
 function supervisorCounts(view, seenAt, now) {
   const phases = new Map()
   for (const card of view?.cards ?? []) for (const one of card.incidents ?? []) phases.set(one.id, card.phase ?? null)
-  const counts = { found: 0, inWork: 0, withAdvisor: 0, fixed: 0, fresh: 0 }
-  const countFrom = view?.countFrom ?? null
-  for (const one of (view?.incidents ?? []).filter(one => isCountedIncident(one, countFrom))) {
+  const counts = { found: 0, foundBefore: 0, inWork: 0, withAdvisor: 0, fixed: 0, fresh: 0 }
+  for (const one of view?.incidents ?? []) {
+    if (isFoundBetween(one, now - SUPERVISOR_DAY, now)) counts.found += 1
+    else if (isFoundBetween(one, now - 2 * SUPERVISOR_DAY, now - SUPERVISOR_DAY)) counts.foundBefore += 1
     const phase = phases.get(one.id) ?? null
-    if (Number.isFinite(countFrom) || (Number.isFinite(one.foundAt) && now - one.foundAt < SUPERVISOR_DAY)) counts.found += 1
+    if (!isCountedIncident(one, phase, now)) continue
     if (isNewIncident(one, seenAt, now)) counts.fresh += 1
-    if (one.state === 'fixed' || phase === 'done') counts.fixed += 1
+    if (isFixedIncident(one, phase)) counts.fixed += 1
     else if (IN_WORK.includes(phase)) counts.inWork += 1
     else counts.withAdvisor += 1
   }
@@ -752,12 +764,12 @@ function supervisorCounts(view, seenAt, now) {
 }
 
 /**
- * B573: the section's head line: folded, what it found today (gap 4: since `countFrom`, when set), has in work and is
- * new; open, also with the Advisor and fixed.
+ * B573: the section's head line: folded, what it found in the last 24 hours (and the 24 hours before), has in work and is
+ * new; open, also with the Advisor and fixed (in the last 24 hours: the open ones count whatever their age).
  */
-function supervisorHead(counts, isOpen, countFrom = null) {
-  const parts = ['Supervisor', Number.isFinite(countFrom) ? `${counts.found} found since ${supervisorSince(countFrom)}` : `${counts.found} found today`, `${counts.inWork} in work`, `${counts.fresh} new`]
-  if (isOpen) parts.push(`${counts.withAdvisor} with the Advisor`, `${counts.fixed} fixed`)
+function supervisorHead(counts, isOpen) {
+  const parts = ['Supervisor', `${counts.found} found in the last 24 h (${counts.foundBefore} the 24 h before)`, `${counts.inWork} in work`, `${counts.fresh} new`]
+  if (isOpen) parts.push(`${counts.withAdvisor} with the Advisor`, `${counts.fixed} fixed in the last 24 h`)
   return parts.join(' · ')
 }
 
@@ -785,18 +797,17 @@ function supervisorOf(view, { seenAt = null, isOpen = true, now = Date.now() } =
   // One card per fix step, those with something new first; the fixed ones beyond the newest few fold away.
   const byId = new Map((view.incidents ?? []).map(one => [one.id, one]))
   const fresh = new Set((view.incidents ?? []).filter(one => isNewIncident(one, seenAt, now)).map(one => one.id))
-  // Gap 4: with `countFrom`, a card lists only the incidents counted, and one with none is left out.
-  const countFrom = view.countFrom ?? null
-  const counted = card => (card.incidents ?? []).filter(one => isCountedIncident(byId.get(one.id), countFrom))
-  const drawn = (view.cards ?? []).filter(card => !Number.isFinite(countFrom) || counted(card).length > 0)
-    .map(card => (Number.isFinite(countFrom) ? { ...card, incidents: counted(card) } : card))
+  // A card lists only the incidents counted (every open one; a fixed one of the last 24 h), and one with none is left out.
+  const counted = card => (card.incidents ?? []).filter(one => isCountedIncident(byId.get(one.id), card.phase ?? null, now))
+  const drawn = (view.cards ?? []).filter(card => counted(card).length > 0)
+    .map(card => ({ ...card, incidents: counted(card) }))
     .map(card => ({ ...incidentCardOf(card, byId), isNew: (card.incidents ?? []).some(one => fresh.has(one.id)) }))
   const cards = [...drawn.filter(card => card.isNew), ...drawn.filter(card => !card.isNew)]
   let fixed = 0
   const older = cards.filter(card => card.tone === 'done' && !card.isNew && (fixed += 1) > FIXED_CARDS_SHOWN)
   const checked = Number.isFinite(view.checkedAt) ? `Checked itself at ${clock(view.checkedAt)}.` : 'Not checked yet.'
   return {
-    head: supervisorHead(supervisorCounts(view, seenAt, now), isOpen, view.countFrom ?? null),
+    head: supervisorHead(supervisorCounts(view, seenAt, now), isOpen),
     note: every > 0
       ? `${checked} It checks every 3 min and sweeps every ${every} min while work runs; Check now does both.`
       : `${checked} It checks every 3 min; Check now checks and sweeps at once.`,
