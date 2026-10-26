@@ -1858,6 +1858,8 @@ function timeOf(lane, now) {
   // The review of chat-reports: a reporting chat says why it does not run ("silent since HH:MM", its session ended).
   if (lane.state === 'off') return { ...plain('Not running', 'bad', 'Process'), small: typeof lane.offWhy === 'string' ? [lane.offWhy] : [] }
   if (lane.state === 'waiting') return plain('Blocked', 'bad', 'ETA')
+  // B722: free by its card but known not to run (its chat is closed): never "Available", the hand-out gives only to a running chat.
+  if (lane.state === 'free' && lane.isRunning === false) return { ...plain('Closed', 'bad', 'Process'), title: 'This chat is closed. The board wakes it when a task waits and no running worker is free.' }
   if (lane.state === 'free') return plain('Available')
   if (lane.state !== 'working') return plain('Unknown')
   const eta = lane.eta ?? null
