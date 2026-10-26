@@ -11319,6 +11319,28 @@ function focusLook(label, picture) {
   return look
 }
 
+/**
+ * B702: a step's title in its row: its words open the step, and a step id inside it (Remake of B612) opens that one.
+ * Built from the one helper of the ask words; a step the board does not know keeps plain words.
+ */
+function focusStepTitle(one) {
+  const node = el('span', 'focus-step-what')
+  const pieces = linkedWords(one.title, board)
+  const known = linkedWords(one.id, board).some(piece => typeof piece !== 'string')
+  for (const piece of pieces) {
+    if (typeof piece !== 'string' || !known) {
+      node.append(piece)
+      continue
+    }
+    const words = el('button', 'ask-link focus-step-title', piece)
+    words.type = 'button'
+    words.dataset.askLink = one.id
+    words.title = `Open the step ${one.id}`
+    node.append(words)
+  }
+  return node
+}
+
 /** B684: the opened steps of a part: the reference picture once, then a row per step with its state and its line. */
 function focusStepList(part) {
   const box = el('div', 'focus-step-list')
@@ -11331,7 +11353,7 @@ function focusStepList(part) {
   const list = el('ul', 'focus-steps-list')
   for (const one of part.steps) {
     const row = el('li', `focus-step is-${one.tone}`)
-    const what = el('span', 'focus-step-what', one.title)
+    const what = focusStepTitle(one)
     if (one.line !== '' || one.picture !== null || one.fixPicture !== null) {
       // B696: the step ids in the line (its fix, "Waits for") open their step, through the one helper of the ask words.
       const line = linkedEl('small', one.isFailed ? 'is-fail' : '', one.line)

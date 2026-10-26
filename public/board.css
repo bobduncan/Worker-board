@@ -2833,6 +2833,8 @@ body.is-resizing-rows { cursor: row-resize; user-select: none; }
 .focus-step-id .ask-link { font-family: ui-monospace, "Cascadia Mono", Consolas, monospace; font-size: 13px; font-weight: 700; text-decoration-color: #3b5a85; text-underline-offset: 2px; }
 .focus-step-what small .ask-link { color: #8fb4ff; }
 .focus-step-what small .ask-link:hover, .focus-step-what small .ask-link:focus-visible { color: #c3d6ff; }
+.focus-step-what .focus-step-title { color: inherit; text-align: left; text-decoration-color: #3b5a85; text-underline-offset: 2px; }
+.focus-step-what .focus-step-title:hover, .focus-step-what .focus-step-title:focus-visible { color: #c3d6ff; }
 .focus-step-what { min-width: 0; overflow-wrap: anywhere; font-size: 14px; }
 .focus-step-what small { display: block; color: var(--muted); font-size: 13px; }
 .focus-step-state { font-size: 13px; white-space: nowrap; color: var(--muted); }

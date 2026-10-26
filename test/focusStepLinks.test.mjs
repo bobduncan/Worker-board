@@ -24,9 +24,25 @@ function source(name) {
 }
 
 class Node {
-  constructor(tag) { Object.assign(this, { tag, style: {}, className: '', textContent: '', children: [], dataset: {}, attrs: {}, title: '', type: '', disabled: false }) }
-  append(...items) { for (const one of items) this.children.push(typeof one === 'string' ? { tag: '#text', textContent: one, children: [] } : one) }
+  constructor(tag) { Object.assign(this, { tag, style: {}, className: '', textContent: '', children: [], dataset: {}, attrs: {}, title: '', type: '', disabled: false, parent: null }) }
+  append(...items) {
+    for (const one of items) {
+      const node = typeof one === 'string' ? { tag: '#text', textContent: one, children: [] } : one
+      node.parent = this
+      this.children.push(node)
+    }
+  }
   setAttribute(name, value) { this.attrs[name] = value }
+  getAttribute(name) { return this.attrs[name] ?? null }
+  /** The few selectors the page's click handlers use: [data-x], .class[data-x]. */
+  closest(selector) {
+    const [, cls, attr] = selector.match(/^(?:[.]([\w-]+))?\[data-([\w-]+)\]$/)
+    const key = attr.replace(/-(\w)/g, (_, letter) => letter.toUpperCase())
+    for (let node = this; node !== null && node !== undefined; node = node.parent) {
+      if (node.dataset?.[key] !== undefined && (cls === undefined || (node.className ?? '').split(' ').includes(cls))) return node
+    }
+    return null
+  }
 }
 const all = (node, test) => [...(test(node) ? [node] : []), ...(node.children ?? []).flatMap(one => all(one, test))]
 const words = node => (node.textContent ?? '') + (node.children ?? []).map(words).join('')
@@ -42,7 +58,7 @@ function drawn(steps, part = {}) {
     focusUi: { dropping: null },
   }
   vm.runInNewContext([
-    source('el'), asklinks, source('linkedWords'), source('linkedEl'), source('everyNeed'), source('focusLook'), source('focusStepList'), source('focusRunCard'),
+    source('el'), asklinks, source('linkedWords'), source('linkedEl'), source('everyNeed'), source('focusLook'), source('focusStepTitle'), source('focusStepList'), source('focusRunCard'),
     'Object.assign(this, { focusRunCard })',
   ].join('\n'), context)
   const card = context.focusRunCard({
@@ -53,7 +69,9 @@ function drawn(steps, part = {}) {
   })
   return card
 }
-const links = card => all(card, node => node.dataset?.askLink !== undefined)
+const titleLinks = card => all(card, node => node.dataset?.askLink !== undefined)
+// the id links: the step's title words open the step too (B702), apart from the ids
+const links = card => titleLinks(card).filter(node => !(node.className ?? '').includes('focus-step-title'))
 
 test('the id of a step in an opened part is a link that opens that step', () => {
   const card = drawn([step('B670', 'Moving lava'), step('B683', 'Fix the cut')])
@@ -112,4 +130,63 @@ test('the links read on the muted lines and look like the board\'s other id link
   assert.match(rule('.focus-step-id .ask-link'), /font-family: ui-monospace/)
   assert.match(rule('.focus-step-id .ask-link'), /font-weight: 700/)
   assert.match(rule('.focus-step-what small .ask-link'), /color: #8fb4ff/)
+})
+
+
+test('the title of a step opens that step, and the ids inside a title open theirs', () => {
+  const card = drawn([step('B670', 'Remake of B683 with more lava'), step('B683', 'Fix the cut')])
+  const [what] = all(card, node => node.className === 'focus-step-what')
+  assert.deepEqual(titleLinks(what).map(node => [node.dataset.askLink, node.textContent]), [['B670', 'Remake of '], ['B683', 'B683'], ['B670', ' with more lava']])
+  assert.equal(words(what), 'Remake of B683 with more lava', 'the words stay as they were')
+  assert.ok(titleLinks(what).every(node => node.tag === 'button' && node.type === 'button'), 'reached with Tab, opened with Enter')
+  assert.deepEqual(titleLinks(what).map(node => node.title), ['Open the step B670', 'Open the step B683', 'Open the step B670'])
+  assert.ok(all(what, node => node.dataset?.askLink !== undefined && node.children.some(child => child.dataset?.askLink !== undefined)).length === 0, 'no link inside a link')
+})
+
+test('the title of a step the board does not know stays words', () => {
+  const card = drawn([step('B999', 'Gone step')])
+  const [what] = all(card, node => node.className === 'focus-step-what')
+  assert.equal(titleLinks(what).length, 0)
+  assert.equal(words(what), 'Gone step')
+})
+
+/** Clicks `target` as the page does: the document's capturing handler first, then the Focus page's own handlers unless stopped. */
+function clicked(card, target, { opened = [] } = {}) {
+  const listeners = []
+  const focusUi = { partsOpen: { Cliffs: true } }
+  const context = {
+    document: { addEventListener: (type, handler, capture) => listeners.push({ type, handler, capture }) },
+    board: { backlog: [{ steps: [{ key: 'B670' }, { key: 'B683' }] }], forYou: [], backlogForYou: [], backlogClosed: [] },
+    $: () => ({ addEventListener: (type, handler) => listeners.push({ type, handler, capture: false, onFocus: true }) }),
+    focusUi, redrawFocus: () => {}, everyNeed: () => [], openDetails: arg => opened.push(arg), goToPlace: () => {}, openGameFile: () => {},
+  }
+  const start = script.lastIndexOf('document.addEventListener', script.indexOf('// B426: a page link'))
+  const toggle = script.indexOf("// B684: a part's toggle opens or closes its steps")
+  const listener = script.slice(start, script.indexOf('}, true)', start) + 8)
+  const folding = script.slice(toggle, script.indexOf('})', script.indexOf('redrawFocus()', toggle)) + 2)
+  vm.runInNewContext([listener, folding].join('\n'), context)
+  let stopped = false
+  const event = { target, stopPropagation: () => { stopped = true } }
+  for (const one of listeners.filter(one => one.capture)) one.handler(event)
+  if (!stopped) for (const one of listeners.filter(one => one.onFocus)) one.handler(event)
+  return JSON.parse(JSON.stringify({ opened, partsOpen: focusUi.partsOpen }))
+}
+
+test('a click on a title, an id or a line link opens the step and leaves the part open; a click on the toggle folds it', () => {
+  const card = drawn([step('B670', 'Remake of B683', { line: 'Waits for B683' }), step('B683', 'Fix the cut')])
+  const toggle = all(card, node => node.className === 'focus-toggle')[0]
+  toggle.dataset.focusPart = 'Cliffs'
+  toggle.attrs['aria-expanded'] = 'true'
+  // a worst case: the whole part's row folds it, so a link inside only stays out of it by stopping its own click
+  toggle.parent.dataset.focusPart = 'Cliffs'
+  toggle.parent.attrs['aria-expanded'] = 'true'
+  const [row] = all(card, node => (node.className ?? '').startsWith('focus-step '))
+  for (const link of titleLinks(row)) {
+    const result = clicked(card, link)
+    assert.deepEqual(result.opened, [{ step: link.dataset.askLink }])
+    assert.deepEqual(result.partsOpen, { Cliffs: true }, `the part stays open after ${link.textContent}`)
+  }
+  const folded = clicked(card, toggle)
+  assert.deepEqual(folded.opened, [])
+  assert.deepEqual(folded.partsOpen, { Cliffs: false })
 })
