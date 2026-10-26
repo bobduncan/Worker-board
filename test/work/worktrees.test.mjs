@@ -12,7 +12,7 @@ import { join } from 'node:path'
 import test from 'node:test'
 
 import { gitRunner } from '../../src/folders.mjs'
-import { cleanLeftover, findLeftovers, findLink, namesStep, stepLeftovers, worktreeBlocks } from '../../src/work/worktrees.mjs'
+import { EMPTY_WAITS, FILES, cleanLeftover, findLeftovers, findLink, namesStep, stepLeftovers, worktreeBlocks } from '../../src/work/worktrees.mjs'
 
 const HOUR = 60 * 60_000
 const isWindows = process.platform === 'win32'
@@ -214,7 +214,9 @@ test('the report check\'s part: a worktree on the step\'s branch, and a folder o
     const at = slashed(join(one.project, 'garden-b5'))
     assert.deepEqual(own, [`the worktree ${at} is still on b5-lamps: git worktree remove ${at}, then delete the empty folder Windows may leave`])
     const empty = await stepLeftovers({ id: 'B3', branch: 'b3-gone', repo, repos: one.repos, project: one.project, run })
-    assert.deepEqual(empty, [`the empty folder ${slashed(join(one.project, 'garden-b3'))} of a worktree is still there: delete it (rmdir "${slashed(join(one.project, 'garden-b3'))}")`])
+    // An empty folder no repository lists is removed by the board itself (B717): no line, and the folder is gone.
+    assert.deepEqual(empty, [])
+    assert.equal(existsSync(join(one.project, 'garden-b3')), false)
     // A junction in it: its link is taken away alone first.
     const linked = await stepLeftovers({ id: 'B10', branch: 'b10-other', repo, repos: one.repos, project: one.project, run })
     const b10 = join(one.project, 'garden-b10')
@@ -223,6 +225,49 @@ test('the report check\'s part: a worktree on the step\'s branch, and a folder o
     // A result check's own folder is the partner's, not the worker's; nothing left is no line.
     assert.deepEqual(await stepLeftovers({ id: 'B12', branch: 'b12-x', repo, repos: one.repos, project: one.project, run }), [])
     assert.deepEqual(await stepLeftovers({ id: 'B99', branch: 'b99-x', repo, repos: one.repos, project: one.project, run }), [])
+  } finally {
+    done(one)
+  }
+})
+
+test('an empty folder a worktree left: removed after a few tries; one a program holds keeps a line; a folder with files is never removed (B717)', async () => {
+  const one = world()
+  try {
+    const args = { repo: one.repos[0], repos: one.repos, project: one.project, run }
+    const busy = () => Object.assign(new Error('busy'), { code: 'EBUSY' })
+    // Busy for two tries, then free (a chat's shell let go of the worktree): removed, no line.
+    const folder = join(one.project, 'garden-b3')
+    let tries = 0
+    const waited = []
+    const flaky = { ...FILES, rmdir: async path => {
+      tries += 1
+      if (tries < 3) throw busy()
+      return FILES.rmdir(path)
+    } }
+    assert.deepEqual(await stepLeftovers({ id: 'B3', branch: 'b3-gone', ...args, fs: flaky, sleep: async ms => { waited.push(ms) } }), [])
+    assert.equal(tries, 3)
+    assert.deepEqual(waited, EMPTY_WAITS.filter(ms => ms > 0).slice(0, 2))
+    assert.equal(existsSync(folder), false)
+    // Held on every try: a line that says a program uses it, no chore for the person; the folder stays.
+    mkdirSync(folder)
+    let all = 0
+    const held = { ...FILES, rmdir: async () => { all += 1; throw busy() } }
+    const lines = await stepLeftovers({ id: 'B3', branch: 'b3-gone', ...args, fs: held, sleep: async () => {} })
+    assert.equal(all, EMPTY_WAITS.length)
+    assert.equal(lines.length, 1)
+    assert.match(lines[0], /could not be removed \(EBUSY\): a program still uses it/)
+    assert.doesNotMatch(lines[0], /delete it/)
+    assert.equal(existsSync(folder), true)
+    // A folder with files is untouched and keeps its line.
+    const full = join(one.project, 'garden-b20')
+    mkdirSync(full)
+    writeFileSync(join(full, 'notes.txt'), 'keep me\n')
+    const kept = await stepLeftovers({ id: 'B20', branch: 'b20-x', ...args, sleep: async () => {} })
+    assert.deepEqual(kept, [`the folder ${slashed(full)} of a worktree is still there, and no repository lists it: look what is in it, then delete it`])
+    assert.equal(existsSync(join(full, 'notes.txt')), true)
+    // A worktree a repository still lists is never removed by this.
+    assert.equal((await stepLeftovers({ id: 'B5', branch: 'b5-lamps', ...args, sleep: async () => {} })).length, 1)
+    assert.equal(existsSync(join(one.project, 'garden-b5')), true)
   } finally {
     done(one)
   }

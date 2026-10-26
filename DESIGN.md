@@ -1417,7 +1417,10 @@ as a shadow of the backlog; B301 removed the shadow (below): the store is the on
   the folder's name, `game-b12`), and no folder of one in the project folder (empty, or holding a `.git` file, or named
   `<repository's folder>-...`); a result check's own `check-b<id>` folders are left to `checked`. Each leftover is one
   line with its path and how to remove it ("git worktree remove <path>, then delete the empty folder Windows may
-  leave", its link alone first when it holds one), and the pass says "worktree gone". A failed check runs again on the person's "Check again" (the
+  leave", its link alone first when it holds one), and the pass says "worktree gone". B717 (2026-10-26): an EMPTY folder
+  no repository lists is removed by the check itself (rmdir, tries after 0, 1, 2 and 4 seconds: a chat's shell standing
+  in the worktree makes Windows refuse the last folder for a minute) and gives no line; only one that stays busy keeps
+  a line ("a program still uses it"), never a chore for the person. A folder with files keeps today's line. A failed check runs again on the person's "Check again" (the
   lane's flag, `recheck`) or the owner's report from review. The board that delivers writes backlog.md; a copy with a store of its own
   writes the view into that folder; a copy without one only reads. The Backlog tab's line says "backlog.md is its
   view".
@@ -3270,6 +3273,9 @@ confirmed that a step's branch was gone, never its worktree or its folder. Three
   not. Each leftover fails the check with one line: its path and "git worktree remove <path>, then delete the empty
   folder Windows may leave" (a link in it named first, to be taken away alone: `cmd /c rmdir "<link>"` on Windows).
   The worker removes it and reports again, as after a failed branch check. Work outside git gets the same lines.
+  Exception (B717): an empty folder no repository lists is removed by the check itself (`removeEmptyFolder`, rmdir with
+  a few tries over seconds), so the empty folder Windows leaves when the worker's chat still stood in the worktree no
+  longer fails the check; workers `cd` out of a worktree before removing it (`roles/worker.md`).
 - **The result check** (`checked`, the work API's `checkWorktrees`): the board refuses `work checked B<id>` while the
   check's own worktrees are left (folders named `check-b<id>...`, wherever git lists them, or in the project folder),
   each named with how to remove it; the helper removes them and files it again. Chosen over the board removing them:

@@ -87,11 +87,14 @@ step therefore says what it touches ("Touches: ...").
   (git worktree), named `<repository's folder>-b<id>`, removed with the merge; after your merge bring the user's
   folder forward, fast-forward only. Never `git worktree remove --force`: it follows links and can delete what they
   point to.
-- The step's end, before `work report`: remove its worktree. A link in it (a junction such as `node_modules`) first,
+- The step's end, before `work report`: remove its worktree. First leave it: `cd` to the main checkout in a command of
+  its own, so your chat's working folder is no longer the worktree (a shell standing in it makes Windows refuse the
+  last folder: "Permission denied", an empty folder stays). A link in it (a junction such as `node_modules`) first,
   alone (`cmd /c rmdir "<folder>\node_modules"` on Windows: the link only, never what it points to), then `git worktree
   remove <folder>`, then the empty folder Windows may leave (`rmdir "<folder>"`, which fails when it is not empty). The
-  board's check of your report fails while a worktree of the step, or its folder, is left, and names it with how to
-  remove it: remove it and report again.
+  board's check of your report fails while a worktree of the step, or a folder with files of it, is left, and names it
+  with how to remove it: remove it and report again. An EMPTY folder no repository lists the board removes itself
+  (rmdir, a few tries over some seconds; B717), so it never fails the check; only one a program still holds keeps a line.
 - The repository's own `CLAUDE.md`, when it has one, is the working agreement and holds for you in full: read it
   before your first task.
 - Push a branch when you make it and as it grows. Run the repository's checks before a merge; after it push main,

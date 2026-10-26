@@ -202,7 +202,8 @@ const folders = tree => {
       if (tree[key(path)] === undefined) throw missing()
       return { isSymbolicLink: () => false, isDirectory: () => true, isFile: () => false, mtimeMs: 0 }
     },
-    rmdir: async () => {},
+    removed: [],
+    rmdir: async function (path) { this.removed.push(key(path)) },
   }
 }
 
@@ -219,15 +220,15 @@ test('worktree clean-up: a worktree still on the step\'s branch fails the check,
   assert.deepEqual(silent.lines, ['work in board', 'git did not answer: the worktrees of board are not known'])
 })
 
-test('worktree clean-up: an empty folder a worktree of the step left in the project folder fails the check; another step\'s does not', async () => {
+test('worktree clean-up: an empty folder a worktree of the step left in the project folder is removed by the board and the check passes; other steps are left alone (B717)', async () => {
   const fs = folders({ '/projects': ['garden', 'tools', 'board-b5', 'board-b51', 'notes'], '/projects/board-b5': [], '/projects/board-b51': [], '/projects/notes': [] })
   const done = await reportCheck({ id: 'B5', branch: 'b5-lamps', result: SAID + 'x', merged: 'c0ffee1', repos, run: git(world), project: PROJECT, fs })
-  assert.deepEqual(done, { passed: false, lines: ['work in board', 'the empty folder /projects/board-b5 of a worktree is still there: delete it (rmdir "/projects/board-b5")'] })
-  const clean = folders({ '/projects': ['garden', 'tools', 'board-b51', 'notes'], '/projects/board-b51': [], '/projects/notes': [] })
-  assert.equal((await reportCheck({ id: 'B5', branch: 'b5-lamps', result: SAID + 'x', merged: 'c0ffee1', repos, run: git(world), project: PROJECT, fs: clean })).passed, true)
-  // Work outside git (B9) that left a worktree's folder fails the same way.
-  const outsideLeft = await reportCheck(outside({ branch: 'none', fs: folders({ '/projects': ['garden', 'tools', 'board-b9'], '/projects/board-b9': [] }) }))
-  assert.deepEqual(outsideLeft, { passed: false, lines: ['work outside git', 'the empty folder /projects/board-b9 of a worktree is still there: delete it (rmdir "/projects/board-b9")'] })
+  assert.equal(done.passed, true)
+  assert.deepEqual(fs.removed, ['/projects/board-b5'])
+  // Work outside git (B9) that left a worktree's folder is cleaned the same way.
+  const left = folders({ '/projects': ['garden', 'tools', 'board-b9'], '/projects/board-b9': [] })
+  assert.equal((await reportCheck(outside({ branch: 'none', fs: left }))).passed, true)
+  assert.deepEqual(left.removed, ['/projects/board-b9'])
 })
 
 // B527: a report of a step whose change touches a test file names the mutant its tests caught.
