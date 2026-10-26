@@ -19,7 +19,7 @@ import { lineFields } from './line.mjs'
 import { REFINED_MARK, migrateBacklog, stamp } from './migrate.mjs'
 import { storeFault, touchesLines } from './read.mjs'
 import { acceptRefine, answerRefine } from './refineText.mjs'
-import { gamePageIn, localAddressIn, placesIn } from '../places.mjs'
+import { gamePageIn, gamePageLabel, localAddressIn, placesIn } from '../places.mjs'
 import { DECIDED, GOAL_ID, NEEDS, UNDONE, decidedOf, isDailyNote, needsOf, undoneOf } from './dailyNote.mjs'
 import { HOW_MARK, openAsksOf as openAsksUnder, refineAsksOf as asksCounted } from './stepAsks.mjs'
 import { ANOTHER_WAY, TRIES_BEFORE_ANOTHER_WAY, WARNINGS_MARK, agreedPoints, answerReading, boardWarningsOf, chainTries, checkedOf, checkWhy, fixesOf, fixesThrough, fixTitle, needsResultCheck, parentPointsOf, parsePoints, resultCheckAtMs, resultCheckOf, reviewWaitOf } from './resultCheck.mjs'
@@ -642,6 +642,8 @@ const pictureName = path => String(path).split('/').at(-1).replace(/\.[A-Za-z0-9
 /** B299: where a play link starts the game, in a few words: its settings, else its branch. */
 const playWhere = play => {
   const [branch, ...settings] = String(play).split('&')
+  const page = settings.find(one => one.startsWith('page='))?.slice(5)
+  if (page !== undefined && settings.length === 1) return gamePageLabel(page)
   return settings.length > 0 ? settings.join(', ').replaceAll('=', ' ') : branch
 }
 
