@@ -2892,7 +2892,7 @@ function advisorQueued(queued, waiting = []) {
   if (items.length === 0) return { count, text }
   const named = one => (one.kind === 'check' ? `check ${one.id}${one.who ? ` (built by ${one.who})` : ''}: ${one.title ?? ''}`
     : one.kind === 'refine' ? `refine ${one.id}: ${one.title ?? ''}` : `${one.id} · ${one.from ?? one.who ?? 'nobody'}: ${one.title ?? ''}`)
-  return { count, text, asks: items.map(one => ({ id: one.id, href: `#details=${one.id}`, text: named(one), stand: standWords(one.stand) })) }
+  return { count, text, asks: items.map(one => ({ id: one.id, kind: one.kind, href: `#details=${one.id}`, text: named(one), stand: standWords(one.stand) })) }
 }
 
 /**
@@ -2924,7 +2924,9 @@ function drawWaitingAsks(asks) {
   for (const ask of asks) {
     const link = el('a', 'advisor-lane-ask', ask.text)
     link.href = ask.href
-    link.title = `Open ${ask.id}: the whole question, its options and advice, who asked it`
+    link.title = ask.kind === 'check' ? `Open ${ask.id}: the step whose result the Advisor checks`
+      : ask.kind === 'refine' ? `Open ${ask.id}: the step the Advisor refines`
+        : `Open ${ask.id}: the whole question, its options and advice, who asked it`
     link.addEventListener('click', event => event.stopPropagation())
     const row = el('span', 'advisor-lane-ask-row')
     row.append(link)
