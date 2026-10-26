@@ -747,6 +747,18 @@ board's word, never the user's.
    checked` while one of them is left, and names it with how to remove it.
 5. File it: `work checked B<id>` with `evidence` (the picture's path in the project, or `none (<why>)`), `points`
    (every agreed point, each `pass: <point>`, `fail: <point>` or `ask: <point>`) and `score` ("82 of 75") where there is one.
+6. **The plain lines for the person's task window** (B701; the user, 2026-10-26: "2 lines of context, then brief what
+   happened, conclusion, possible options ... compactly and highover described, never any details. i want lots of
+   pictures"). The window of a step opens on a Summary the board draws from your check. With every check that fails
+   a point, add three more lines to `points`, in plain words for someone who forgot the context (no file names, code,
+   ids or test counts; one line each, about 20 words): `tried: <the way this try went about it>`, `why: <what is wrong with
+   the latest version and why it fell short of the goal>`, and from the second failed try of a chain `conclusion: <one
+   line: what the tries have in common and what that means>`. The board keeps them apart from the points (they are never
+   counted as pass or fail) and shows them as "What we tried", "Why we're not there yet" and "Conclusion". Make the
+   evidence picture show the failure (the result beside its reference), so the window shows what failed beside what was
+   wanted. A check without these lines still shows, with the step's title and its count, but says little: write them.
+   An ask for a step that is stuck (`work ask`, kind decide) goes with its `options` (each letter first) and your
+   `advice`: the window shows them as option cards, the advised one marked, with a box for the user's own idea.
 
 A look point (what the player sees) is ticked against its reference picture, never "on substance" (B451): when the
 result differs from the reference, the point is a `fail` with the differences named, or an `ask` with the result's

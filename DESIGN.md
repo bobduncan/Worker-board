@@ -4254,3 +4254,38 @@ Principle 7, "cost by design": a chat is woken only when there is work for it.
 Incidents that show it failing: a sweep by the clock with nothing odd new (the tokens of the day's sweeps against the old 20);
 an odd situation, a tripped rule or a four-hour stretch with no sweep at all while work runs; a sweep word counted as undelivered.
 Tests: test/supervisor/sweep.test.mjs ("cheaper sweeps"), test/supervisor/watch.test.mjs (X43).
+
+## A step's window opens on a Summary (B701)
+
+The person, 2026-10-26, on the window of B691: "There is way too much information for me and not all of it is useful ...
+I need 2 lines of context, then brief what happened (what we tried/failed compactly), conclusion, possible options ...
+compactly and highover described, never any details. i want lots of pictures." And on the mockup: "i want it a little
+clearer in the area what we tried to explain what is wrong of the last version/why we didnt reach to goal, then ... 1
+bullet per attempt and why it didnt work." The agreed mockup: `art-inbox/board-mockups/task-window-simple/mockup.html`.
+
+- *When*: a step that was taken (taken, in progress, waiting on you, review, done, dropped) opens on its Summary, with
+  Checks, History and Settings behind tabs (`TASK_STATES`, `drawTaskWindow` in `public/board.js`). Before that (new,
+  refined, queued) the Backlog tab's refine, with its questions, is the window as before. The tab is part of what the
+  window is about (`detailsOf.tab`), so a window opened anew starts on the Summary.
+- *The Summary*, only the parts that have something to say (`summaryOf`, pure): What we want (the step's summary, two plain
+  lines); the target beside the latest result (the standard's reference picture, else the step's picture; the newest
+  check's evidence); Why we're not there yet; What we tried, one bullet per try down the chain of fixes (`triesOf`), each
+  failed one with why and its evidence picture; Conclusion; Options.
+- *Where the words come from*, with no new work tool field: the result check files them with `work checked` as extra
+  lines of `points` (`tried: <the way>`, `why: <why it fell short>`, from the second failed try `conclusion: <one line>`;
+  `parsePoints`). They are kept in the step's `## Checked` section beside the points and are never counted as pass or
+  fail. A check without them (an older one) shows the step's title (a fix: "a fix") and "Failed: n of m points", and the
+  failed points, cleaned, as the reason. Every line goes through the card's cleaner (`plainSentences`: no code, file names,
+  paths, programmers' words, step or ask ids), so a Summary never shows details. `roles/partner.md`, "The check", step 6,
+  tells the checker to write them.
+- *Options*: the step's open questions the board can answer (asks of the work store, and the goal guard's Fable-or-Opus
+  question of the step's goal, `taskAsksOf`) as cards, the advised one marked, a box for the person's own idea and Send;
+  the answer goes to the store as in the calm window (`sendTask`). No question, no Options. The card of the three failed
+  checks on the Focus page opens the failed step's window (`guardOf` names the step; "See what was tried and answer Q<n>").
+- *Checks*: the newest check of the chain as short pass and fail lines with its evidence, the agreed points folded.
+  *History*: the step's own lines. *Settings*: worker, model and effort, the flow, the folder and branch, and the buttons
+  that change the step (pin, move, close, delete).
+- *Probe*: `node tools/task-probe.mjs --board <address> --step B<id> --out <picture>` opens a step's window at 1280x720,
+  prints the parts the Summary shows and the pictures that loaded, and fails on a line with a file name, code or an id.
+- *Incidents that would show it failing*: the person saying the window is too much, or that they cannot see what failed;
+  a Summary with file names or code (the probe); a Send that does not reach the store.

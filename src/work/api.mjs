@@ -22,7 +22,7 @@ import { acceptRefine, answerRefine } from './refineText.mjs'
 import { gamePageIn, gamePageLabel, localAddressIn, placesIn } from '../places.mjs'
 import { DECIDED, GOAL_ID, NEEDS, UNDONE, decidedOf, isDailyNote, needsOf, undoneOf } from './dailyNote.mjs'
 import { HOW_MARK, openAsksOf as openAsksUnder, refineAsksOf as asksCounted } from './stepAsks.mjs'
-import { ANOTHER_WAY, TRIES_BEFORE_ANOTHER_WAY, WARNINGS_MARK, agreedPoints, answerReading, boardWarningsOf, chainTries, checkedOf, checkWhy, fixesOf, fixesThrough, fixTitle, needsResultCheck, parentPointsOf, parsePoints, resultCheckAtMs, resultCheckOf, reviewWaitOf } from './resultCheck.mjs'
+import { ANOTHER_WAY, NOTES, TRIES_BEFORE_ANOTHER_WAY, WARNINGS_MARK, agreedPoints, answerReading, boardWarningsOf, chainTries, checkedOf, checkWhy, fixesOf, fixesThrough, fixTitle, needsResultCheck, parentPointsOf, parsePoints, resultCheckAtMs, resultCheckOf, reviewWaitOf } from './resultCheck.mjs'
 import { RECAP_ANSWERS, dueRecaps, isRecap, recapMadeSince } from './recap.mjs'
 import { RESULT_CHARS, goalParts, recapParts } from './recapWords.mjs'
 import { kindsNamed, noneForLook, parseStandard, standardNoneRefused, standardOf, standardWanted } from './standard.mjs'
@@ -1482,7 +1482,8 @@ async function check(body, w) {
 /**
  * B356: the result check of a step in review, filed by the partner (a helper that did not build it checked it):
  * `evidence` (the evidence picture's path, or "none (<why>)"), `points` (every agreed point, "pass: ...", "fail: ..."
- * or "ask: ..."), `score` at will ("82 of 75"). Kept under "## Checked". All pass: the step is done once the board's
+ * or "ask: ..."; B701: with them the plain lines of the person's task window, "tried: ...", "why: ..." and "conclusion: ...",
+ * kept beside the points and never counted), `score` at will ("82 of 75"). Kept under "## Checked". All pass: the step is done once the board's
  * own check passed too. A failed point makes a fix step for the same worker (fixStep) and counts an attempt; a point
  * only the person can judge (ask) makes none: the partner asks them, and the step waits in review.
  */
@@ -1519,7 +1520,9 @@ async function checked(body, w) {
   const judged = points.filter(one => one.verdict === 'ask')
   const summary = `${points.filter(one => one.verdict === 'pass').length} of ${points.length} points pass${score === '' ? '' : `, score ${score}`}`
   let item = copy(found.item)
-  item.sections.set('Checked', [`Evidence: ${evidence}`, ...(score === '' ? [] : [`Score: ${score}`]), ...points.map(one => `- ${one.verdict}: ${one.text}`)])
+  // B701: the plain lines for the person's task window, kept beside the points.
+  const noted = NOTES.filter(name => read.notes?.[name] !== undefined).map(name => `${name[0].toUpperCase()}${name.slice(1)}: ${read.notes[name]}`)
+  item.sections.set('Checked', [`Evidence: ${evidence}`, ...(score === '' ? [] : [`Score: ${score}`]), ...noted, ...points.map(one => `- ${one.verdict}: ${one.text}`)])
   let fix = null
   if (failed.length > 0) {
     const made = await fixStep(found.item, failed, w, points)

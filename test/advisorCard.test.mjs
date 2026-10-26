@@ -161,6 +161,15 @@ test('what waits for it, as a count and its kinds; nothing says nothing', () => 
   assert.deepEqual({ ...page.advisorQueued({ refines: 0, rounds: 2, words: 0 }) }, { count: 2, text: '2 rounds of the clock' })
   assert.equal(page.advisorQueued({ refines: 0, rounds: 0, words: 0 }), null)
   assert.equal(page.advisorQueued(undefined), null)
+  // The person, 2026-10-26: the questions it answers for you first wait for it too, each a link to its ask.
+  const withAsk = page.advisorQueued({ refines: 1, rounds: 0, words: 0 }, [{ id: 'Q423', from: 'Worker 1', title: 'Merge the chain?' }])
+  assert.equal(withAsk.count, 2)
+  assert.equal(withAsk.text, '1 question, 1 refine')
+  assert.deepEqual(JSON.parse(JSON.stringify(withAsk.asks)), [{ id: 'Q423', href: '#details=Q423', text: 'Q423 · Worker 1: Merge the chain?' }])
+  assert.deepEqual({ ...page.advisorQueued(undefined, [{ id: 'Q1', from: 'Digger', title: 'Icons?' }]) }.count, 1)
+  const lane = script.slice(script.indexOf('function drawAdvisorLane(state)'), script.indexOf('function drawAdvisorLane(state)') + 9000)
+  assert.match(lane, /advisorQueued\(advisor\.queued, state\.withPartner \?\? \[\]\)/)
+  assert.match(lane, /el\('a', 'advisor-lane-ask', ask\.text\)/)
 })
 
 test('the card stands under the workers, set apart, with no queue or worker buttons, and opens its chat on the Advisor tab', () => {

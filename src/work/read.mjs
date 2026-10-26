@@ -9,7 +9,8 @@ import { isFix, valueOf } from './item.mjs'
 import { migrateBacklog } from './migrate.mjs'
 import { stepWaitsForPartner } from './partnerAnswers.mjs'
 import { effortOf, modelOf } from './effort.mjs'
-import { checkedOf, reviewWaitOf } from './resultCheck.mjs'
+import { checkedOf, reviewWaitOf, triesOf } from './resultCheck.mjs'
+import { standardOf } from './standard.mjs'
 import { refineAsksOf } from './stepAsks.mjs'
 import { readStore } from './store.mjs'
 
@@ -142,6 +143,8 @@ export function itemOfStep(work, key) {
     queuedBy: valueOf(item, 'Queued by'),
     // B356: its last result check (the evidence, the ticks, the score), and the step it fixes.
     checked: checkedOf(item), fixOf: valueOf(item, 'Fix of'), attempts: Number(valueOf(item, 'Attempts') ?? 0),
+    // B701: the person's task window: the chain of tries the step is in, each with its own check, and the standard's line (its reference picture).
+    tries: triesOf(id, work.items), standard: standardOf(item),
     // B468: the effort its worker runs at (medium when its refine gave none), and who holds it in which state. Model per
     // step: and the model (sonnet when its refine gave none).
     effort: effortOf(item), model: modelOf(item), owner: valueOf(item, 'Owner'), state: valueOf(item, 'State'),

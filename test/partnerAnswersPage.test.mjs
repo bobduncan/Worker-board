@@ -58,8 +58,15 @@ test('the daily note: a partner\'s answer of an ask has its Undo, then "taken ba
 test('the review\'s findings: "With your partner" (count, a click lists them), "Decided for you" with Undo, the lane waiting for the partner', () => {
   assert.equal(made.withPartnerView([]), null)
   assert.deepEqual(plain(made.withPartnerView([{ id: 'Q1', from: 'Digger', title: 'Number or bar?' }, { id: 'Q2', from: 'Lead', title: 'Icons?' }])), {
-    text: 'With your partner: 2 questions', rows: ['Q1 · Digger: Number or bar?', 'Q2 · Lead: Icons?'],
+    // The person, 2026-10-26: each row is a link that opens its ask ("i just need it clickable").
+    text: 'With your partner: 2 questions', rows: [
+      { id: 'Q1', href: '#details=Q1', text: 'Q1 · Digger: Number or bar?' },
+      { id: 'Q2', href: '#details=Q2', text: 'Q2 · Lead: Icons?' },
+    ],
   })
+  const drawn = script.slice(script.indexOf('function drawWithPartner(state)'), script.indexOf('function drawDecidedForYou(state)'))
+  assert.match(drawn, /el\('a', 'with-partner-ask', row\.text\)/)
+  assert.match(drawn, /link\.href = row\.href/)
   assert.equal(plain(made.withPartnerView([{ id: 'Q1', from: 'Digger', title: 'Number or bar?' }])).text, 'With your partner: 1 question')
   assert.equal(made.decidedView([]), null)
   const decided = plain(made.decidedView([{ ask: 'Q5', line: 'Q5 (Digger, B12): Icons? → A (your advice)', at: 0 }]))
