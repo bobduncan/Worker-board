@@ -809,7 +809,10 @@ function supervisorOf(view, { seenAt = null, isOpen = true, now = Date.now() } =
   const drawn = (view.cards ?? []).filter(card => counted(card).length > 0)
     .map(card => ({ ...card, incidents: counted(card) }))
     .map(card => ({ ...incidentCardOf(card, byId), isNew: (card.incidents ?? []).some(one => fresh.has(one.id)) }))
-  const cards = [...drawn.filter(card => card.isNew), ...drawn.filter(card => !card.isNew)]
+  // The person, 2026-10-26 ("why is it not showing the open tickets first?"): the open cards first, the new among them
+  // first, then the fixed ones, the new among those first.
+  const isOpenCard = card => card.tone !== 'done'
+  const cards = [true, false].flatMap(isOpen => [true, false].flatMap(isNew => drawn.filter(card => isOpenCard(card) === isOpen && card.isNew === isNew)))
   let fixed = 0
   const older = cards.filter(card => card.tone === 'done' && !card.isNew && (fixed += 1) > FIXED_CARDS_SHOWN)
   const checked = Number.isFinite(view.checkedAt) ? `Checked itself at ${clock(view.checkedAt)}.` : 'Not checked yet.'

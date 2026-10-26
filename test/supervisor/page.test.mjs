@@ -479,7 +479,9 @@ test('the fixed cards beyond the newest three fold under one button; the cards t
   ]
   const incidents = [1, 2, 3, 4, 5, 6, 9].map(n => ({ id: `X${n}`, title: `Incident ${n}`, state: n === 1 || n === 9 ? 'open' : 'fixed', count: 1 }))
   const drawn = plain(page.supervisorOf({ ...VIEW, incidents, cards }))
-  assert.deepEqual(drawn.cards.map(card => card.key), ['B1', 'B2', 'B3', 'B4', 'nofix'])
+  // The person, 2026-10-26 ("why is it not showing the open tickets first?"): the open cards first (B1 in review, the one
+  // with no fix step), then the fixed ones; it used to keep the list's order, which put "No fix step yet" last.
+  assert.deepEqual(drawn.cards.map(card => card.key), ['B1', 'nofix', 'B2', 'B3', 'B4'])
   assert.deepEqual(drawn.older.map(card => card.key), ['B5', 'B6'])
   // Fewer than four fixed ones: nothing folds.
   assert.deepEqual(plain(page.supervisorOf({ ...VIEW, incidents, cards: cards.slice(0, 4) })).older, [])
