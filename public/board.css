@@ -1041,6 +1041,9 @@ body.is-resizing { cursor: col-resize; user-select: none; }
 .supervisor-fold svg { width: 16px; height: 16px; flex: none; color: var(--muted); }
 .supervisor-caret { flex: none; width: 12px; color: var(--muted); font-size: 12px; }
 .supervisor-title { min-width: 0; font-size: 15px; font-weight: 700; overflow-wrap: anywhere; }
+/* "Check now" (the person, 2026-10-26): the quiet word after the counts, folded or open: "checking…", "checked 15:26: nothing new". */
+.supervisor-check { flex: 0 1 auto; min-width: 0; color: var(--muted); font-size: 12.5px; font-weight: 400; overflow-wrap: anywhere; }
+.supervisor-check.is-quiet { color: #9fb0c6; }
 .supervisor-note { margin: 2px 0 0; color: var(--muted); font-size: 12px; white-space: pre-line; }
 .supervisor-sub { margin: 14px 0 6px; color: var(--muted); font-size: 12.5px; font-weight: 600; }
 /* The incident cards (the person's choice of layout B, 2026-10-24): one card per fix step, its live state in a small chip, one
@@ -1105,13 +1108,18 @@ body.is-resizing { cursor: col-resize; user-select: none; }
   .supervisor { margin: 0 10px 10px; padding: 12px; }
   .supervisor-head { flex-wrap: wrap; }
   .supervisor-head .grow { display: none; }
-  .supervisor-fold { flex: 1 1 100%; }
+  .supervisor-fold { flex: 1 1 100%; flex-wrap: wrap; }
+  /* The status word under the counts, in line with them: the caret, the wrench and the gaps are 44px. */
+  .supervisor-title { flex: 1 1 0; }
+  .supervisor-check { flex: 1 1 100%; padding-left: 44px; }
   .sync-rows { gap: 6px 10px; }
   .sync-status { min-width: 0; }
   .inc-state { margin-left: 0; }
   .supervisor-rules { grid-template-columns: 1fr; }
 }
 /* supervisor:end */
+/* The one warm colour of the section: "checked 15:28: 3 new" takes the person's attention colour, for new findings only. */
+.supervisor-check.is-found { color: var(--waiting); font-weight: 600; }
 
 .lane { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; }
 .lane.is-waiting { border-color: #6a531d; }

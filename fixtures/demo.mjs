@@ -736,7 +736,7 @@ export function demoSupervisor(now, rules = [], makeCards = () => []) {
     rules: rules.map(rule => ({ ...rule, state: rule.id in tripped ? 'tripped' : 'fine', why: null, trips: tripped[rule.id] ?? 0 })),
     incidents,
     cards: makeCards({ incidents, items: demoFixSteps(now), lanes: [{ name: 'Worker 5', state: 'working', isLeftover: false }], words: new Map([['X10', 'on its way']]), hasPartner: true }),
-    lastSweep: { at: now - 6 * MIN, asked: false, subject: null, ended: now - 5 * MIN, found: 1, read: true, tokens: 28400, tokenParts: { input: 300, cacheWrite: 2100, cacheRead: 25200, output: 800 }, note: null },
+    lastSweep: { at: now - 6 * MIN, asked: false, subject: null, ended: now - 5 * MIN, how: 'told', found: 1, read: true, tokens: 28400, tokenParts: { input: 300, cacheWrite: 2100, cacheRead: 25200, output: 800 }, note: null },
     sweepNote: null,
     sweepEvery: 10,
     sweepsToday: { count: 7, tokens: 201300 },

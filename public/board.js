@@ -810,14 +810,71 @@ function supervisorLast24(counts) {
   return `Last 24 h: ${counts.found} found (${counts.foundBefore} the 24 h before), ${counts.fixed} fixed. Open: ${counts.inWork} in work, ${counts.withAdvisor} with the Advisor.`
 }
 
+/** "Check now", the person (2026-10-26): how long the head keeps what an asked check came to, from the moment it ended. */
+const CHECKED_SHOWN_MS = 10 * 60_000
+/**
+ * How long the board waits for the supervisor's chat to start an asked sweep (sweep.mjs SWEEP_SETTLE_MS, a test keeps the
+ * two the same): a chat that has not read the health summary by then is not running and was not woken.
+ */
+const CHECK_START_MS = 2 * 60_000
+/** The rules' asked run and the asked sweep it came with are one press when the run came at most this long before the sweep. */
+const SAME_PRESS_MS = 2 * 60_000
+/** The head's plain line when the supervisor's chat did not take the sweep: the code rules ran at the press all the same. */
+const CHECK_NOT_STARTED = 'the supervisor\'s chat did not start: the code rules ran, the sweep did not'
+
+/**
+ * The person (2026-10-26): "i asked the supervisor to check, but i dont see indication if it's checking or not". What the
+ * head says of a "Check now", or null when it says nothing, from the view the board knows and the press itself (`isPressed`:
+ * the page has sent the press and the board's next state has not come). `{ state, text, tone, title }`:
+ * - `checking`: the press, or the asked sweep (`lastSweep.asked`) that has not ended; the button reads "Checking…" then;
+ * - `no-sweep`: the supervisor's chat was not reached, said instead of spinning: the asked sweep has run 2 minutes without
+ *   its chat reading the health summary, or the board ended it with nobody having taken its word (`how` quiet, nothing
+ *   read: not running and not woken in 2 minutes, or the word expired), or the sweep did not start at all (the view's
+ *   `sweepNote`, asked: no chat open, a mod too old, a pause, ...). The code rules ran at the press either way;
+ * - `checked`: "checked 15:26: nothing new" or "checked 15:26: 2 new", for 10 minutes after the asked sweep ended. New:
+ *   the incidents not fixed found (opened or came back, `foundAt`) since the press; the store keeps the minute, so the
+ *   press's minute counts whole, and the asked run of the rules just before the sweep counts as the same press. `tone`
+ *   `found` for 1 or more (the attention colour), else `quiet`.
+ * The newest end of an asked check counts: a refused press after the asked sweep ended shows its own line.
+ */
+function checkStatusOf(view, { isPressed = false, now = Date.now() } = {}) {
+  if (view === null || view === undefined) return null
+  const sweep = view.lastSweep?.asked === true ? view.lastSweep : null
+  const isRunning = sweep !== null && !Number.isFinite(sweep.ended)
+  const quiet = (state, text, title) => ({ state, text, tone: 'quiet', title })
+  if (isPressed) return quiet('checking', 'checking…', 'Checking: the rules run at once, then the supervisor\'s chat sweeps the board')
+  if (isRunning) {
+    const hasStarted = sweep.read === true || sweep.found > 0
+    if (now - sweep.at < CHECK_START_MS || hasStarted) return quiet('checking', 'checking…', `Checking: asked at ${clock(sweep.at)}, the supervisor's chat is sweeping the board`)
+    return quiet('no-sweep', CHECK_NOT_STARTED, `Asked at ${clock(sweep.at)}${sweep.note ? `; ${sweep.note}` : ''}`)
+  }
+  // The sweep that did not even start (the board's note, newer than the last sweep): the newest end of an asked check wins.
+  const note = view.sweepNote?.asked === true && Number.isFinite(view.sweepNote.at) ? view.sweepNote : null
+  const endedAt = sweep !== null && Number.isFinite(sweep.ended) ? sweep.ended : -Infinity
+  if (note !== null && note.at > endedAt) {
+    return now - note.at < CHECKED_SHOWN_MS ? quiet('no-sweep', `checked ${clock(note.at)}: the code rules ran, the sweep did not`, `No sweep: ${note.why}`) : null
+  }
+  if (sweep === null || now - sweep.ended >= CHECKED_SHOWN_MS) return null
+  if (sweep.how === 'quiet' && sweep.read !== true) return quiet('no-sweep', CHECK_NOT_STARTED, `Asked at ${clock(sweep.at)}${sweep.note ? `; ${sweep.note}` : ''}`)
+  const run = view.run ?? null
+  const pressedAt = run?.asked === true && Number.isFinite(run.at) && run.at <= sweep.at && sweep.at - run.at < SAME_PRESS_MS ? run.at : sweep.at
+  const since = Math.floor(pressedAt / 60_000) * 60_000
+  const found = (view.incidents ?? []).filter(one => !isFixedIncident(one, null) && Number.isFinite(one?.foundAt) && one.foundAt >= since).length
+  return {
+    state: 'checked', text: `checked ${clock(sweep.ended)}: ${found === 0 ? 'nothing new' : `${found} new`}`, tone: found > 0 ? 'found' : 'quiet',
+    title: `Check now of ${clock(pressedAt)}: the code rules and the supervisor's sweep; ${found === 0 ? 'no incident opened or came back' : `${found} incident${found === 1 ? '' : 's'} opened or came back`} since`,
+  }
+}
+
 /**
  * The section as drawn, from the state's `supervisor` (the supervisor's `view`), or null on a board without one (a copy
- * beside the person's board): its head (B573: the counts, see `supervisorHead`), a note (when open, the 24 h line first, see `supervisorLast24`; then when it checked itself, and its
+ * beside the person's board): its head (B573: the counts, see `supervisorHead`; with `status`, what a "Check now" came to,
+ * see `checkStatusOf`, `isPressed` while the press is on its way), a note (when open, the 24 h line first, see `supervisorLast24`; then when it checked itself, and its
  * schedule), the incident cards (one per fix step; B573: a card with an incident new since `seenAt` carries New and comes
  * first), the last check (the newest one asked, or one that found something, for an hour), the rules (those that tripped
  * now or today first, how often, a failed one with why; the rest counted as fine) and the last sweep, or "No sweep yet".
  */
-function supervisorOf(view, { seenAt = null, isOpen = true, now = Date.now() } = {}) {
+function supervisorOf(view, { seenAt = null, isOpen = true, now = Date.now(), isPressed = false } = {}) {
   if (view === null || view === undefined) return null
   const run = view.run ?? null
   const rules = (view.rules ?? []).map(rule => ({
@@ -852,6 +909,8 @@ function supervisorOf(view, { seenAt = null, isOpen = true, now = Date.now() } =
     : `${checked} It checks every 3 min; Check now checks and sweeps at once.`
   return {
     head: supervisorHead(counts),
+    // What a "Check now" is doing or came to (null for nothing): the word after the counts, folded or open.
+    status: checkStatusOf(view, { isPressed, now }),
     // Open, the note's first line is the 24 h line (a line break, kept on the page); folded, the section draws no note.
     note: isOpen ? `${supervisorLast24(counts)}\n${schedule}` : schedule,
     cards: cards.filter(card => !older.includes(card)),
@@ -951,16 +1010,33 @@ const supervisorStorage = (() => {
 /** The supervisor's section: folded to its head line or opened by the person (B573: kept across reloads), and what shows in it. */
 const supervisorUi = { ...supervisorKept(supervisorStorage), showsRules: false, showsOlder: false, openCards: new Set() }
 
-/** "Check now" with its wrench, in the button's own colour: the board's own check at once (`sync` to the server). */
+/** Whether a "Check now" (the board's, or a worker's menu: the key `sync:<chat>`) is on its way to the board. */
+function isCheckPressed() {
+  return [...sending].some(key => String(key).startsWith('sync:'))
+}
+
+/** The quiet word after the section head's counts (see `checkStatusOf`): "checking…", "checked 15:26: nothing new"; null for none. */
+function checkStatusPart(status) {
+  if (status === null || status === undefined) return null
+  const part = el('span', `supervisor-check is-${status.tone}`, status.text)
+  part.title = status.title
+  return part
+}
+
+/**
+ * "Check now" with its wrench, in the button's own colour: the board's own check at once (`sync` to the server). From the
+ * press until the asked sweep has ended every such button reads "Checking…" and is disabled (see `checkStatusOf`).
+ */
 function checkNowButton(about, state, title) {
+  const isChecking = checkStatusOf(state.supervisor ?? null, { isPressed: isCheckPressed(), now: Date.now() })?.state === 'checking'
   const button = el('button', 'quiet-button sync-button check-now')
   button.type = 'button'
   button.dataset.sync = about
-  button.disabled = state.changeAsks?.sync?.[about]?.isOpen === true || sending.has(`sync:${about}`)
-  button.title = state.changeAsks?.sync?.[about]?.isOpen === true ? 'Checked: the main chat answers here' : title
+  button.disabled = state.changeAsks?.sync?.[about]?.isOpen === true || sending.has(`sync:${about}`) || isChecking
+  button.title = state.changeAsks?.sync?.[about]?.isOpen === true ? 'Checked: the main chat answers here' : isChecking ? 'Checking: the rules run at once, then the supervisor\'s chat sweeps the board' : title
   const wrench = icon('wrench')
   wrench.setAttribute('aria-hidden', 'true')
-  button.append(wrench, el('span', '', 'Check now'))
+  button.append(wrench, el('span', '', isChecking ? 'Checking…' : 'Check now'))
   return button
 }
 
@@ -1010,12 +1086,15 @@ function drawSupervisor(state) {
   const shown = isSupervisorShown(view)
   const isOpen = supervisorUi.isOpen
   const main = state.workers?.main ?? null
-  once('supervisor', [view, shown, isOpen, supervisorUi.seenAt, supervisorUi.shownSince, supervisorUi.showsRules, supervisorUi.showsOlder, [...supervisorUi.openCards], main, state.changeAsks?.sync?.board ?? null, sending.has('sync:board')], () => {
+  // What a Check now is doing or came to stands in the signature: the word changes, and goes 10 minutes after, by itself.
+  const isPressed = isCheckPressed()
+  const status = shown ? checkStatusOf(view, { isPressed, now: Date.now() }) : null
+  once('supervisor', [view, shown, isOpen, supervisorUi.seenAt, supervisorUi.shownSince, supervisorUi.showsRules, supervisorUi.showsOlder, [...supervisorUi.openCards], main, state.changeAsks?.sync?.board ?? null, sending.has('sync:board'), status], () => {
     const box = $('supervisor')
     box.hidden = !shown
     box.classList.toggle('is-folded', !isOpen)
     if (!shown) return fill(box, [])
-    const part = supervisorOf(view, { seenAt: isOpen ? supervisorUi.shownSince : supervisorUi.seenAt, isOpen, now: Date.now() })
+    const part = supervisorOf(view, { seenAt: isOpen ? supervisorUi.shownSince : supervisorUi.seenAt, isOpen, now: Date.now(), isPressed })
     const toggle = el('button', 'supervisor-fold')
     toggle.type = 'button'
     toggle.dataset.supervisorFold = ''
@@ -1023,7 +1102,7 @@ function drawSupervisor(state) {
     toggle.title = isOpen ? 'Fold the section to this line' : 'Open the incidents, the rules and the last sweep; what is new is then seen'
     const wrench = icon('wrench')
     wrench.setAttribute('aria-hidden', 'true')
-    toggle.append(el('span', 'supervisor-caret', isOpen ? '▾' : '▸'), wrench, el('span', 'supervisor-title', part.head))
+    fill(toggle, [el('span', 'supervisor-caret', isOpen ? '▾' : '▸'), wrench, el('span', 'supervisor-title', part.head), checkStatusPart(part.status)])
     const head = el('header', 'supervisor-head')
     head.append(toggle, el('span', 'grow'), ...(main === null ? [] : [boardSyncButton(state)]))
     if (!isOpen) return fill(box, [head])
