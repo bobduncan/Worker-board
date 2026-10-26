@@ -4183,6 +4183,13 @@ check whose fix was dropped says "its fix B<n> stopped" (`fixOutcomeOf`; the new
 option B of `art-inbox/board-mockups/how-steps`: the dot at the first line, the waiting dot as the waiting block, the
 failed-check line muted grey, the count line 18 px under the bar.
 
+B695, option B's own numbers: the part card has no flex gap (`.focus-part { gap: 0 }`), so each margin stands alone as in
+`mockup.html` (head to bar 12, bar to count 18, count to toggle 8, toggle to steps 6); the stopped block and the stopped
+dot are `content-box` (8 plus a 2 px border = 12); the dot column is 22 px (dot to id 18). `tools/step-probe.mjs` measures
+the Focus page (a running board) and `mockup.html` in a headless browser and prints both side by side, each within 2 px:
+`node tools/step-probe.mjs --board http://127.0.0.1:<port> --mockup <mockup.html> --out-dir <folder>`. A step in review
+whose failed check has only a dropped fix reads "Fix stopped" and counts as stopped (`partStepOf`).
+
 ## Cheaper sweeps (2026-10-26)
 
 The person, 2026-10-26: "yes make the runs cheaper". The supervisor's AI sweep ran by the clock every 30 minutes while work ran:

@@ -188,14 +188,14 @@ function closeLeft(child, profile) {
 /**
  * Draws `html` (a page of its own) into the picture `out` over a headless browser with a temporary profile, closed in the
  * same run also when it fails (B266). `layoutScript` runs in the page and answers { width, height }: the size of the
- * picture; `viewport` is the size the page is laid out in first. B677: the goal demo draws through it too.
+ * picture; `url` loads that address instead of `html` (B695: the step probe measures a running page); `viewport` is the size the page is laid out in first. B677: the goal demo draws through it too.
  */
-export async function shootPage({ browser = findBrowser(), html, layoutScript, viewport = { width: 1600, height: 900 }, out, timeoutMs = 60_000 }) {
+export async function shootPage({ browser = findBrowser(), html, url, layoutScript, viewport = { width: 1600, height: 900 }, out, timeoutMs = 60_000 }) {
   if (browser === null) throw new Error('No Edge or Chrome found; name one in EVIDENCE_BROWSER.')
   const work = await mkdtemp(join(tmpdir(), 'board-evidence-'))
   const profile = join(work, 'profile')
   const page = join(work, 'evidence.html')
-  await writeFile(page, html)
+  if (url === undefined) await writeFile(page, html)
   const child = spawn(browser, ['--headless=new', '--disable-gpu', '--hide-scrollbars', '--no-first-run', '--no-default-browser-check', `--user-data-dir=${profile}`, '--remote-debugging-port=0', 'about:blank'], { stdio: 'ignore' })
   let socket
   const deadline = setTimeout(() => socket?.close(), timeoutMs)
@@ -229,7 +229,7 @@ export async function shootPage({ browser = findBrowser(), html, layoutScript, v
     loaded.catch(() => {})
     await send('Page.enable')
     await send('Emulation.setDeviceMetricsOverride', { width: viewport.width, height: viewport.height, deviceScaleFactor: 1, mobile: false })
-    await send('Page.navigate', { url: pathToFileURL(page).href })
+    await send('Page.navigate', { url: url ?? pathToFileURL(page).href })
     await loaded
     const measured = await send('Runtime.evaluate', { expression: layoutScript, awaitPromise: true, returnByValue: true })
     const layout = measured.result?.exceptionDetails === undefined ? measured.result?.result?.value : undefined

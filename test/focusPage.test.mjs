@@ -462,10 +462,18 @@ test('B690: a step in review whose check failed and whose fix is open is being f
     assert.match(view[0].count, /1 being fixed/)
     if (open !== 'review') assert.doesNotMatch(view[0].count, /being checked/)
   }
-  // a stopped fix leaves it being checked; a failed check opens the list by itself, the state says so
-  const stopped = stepsOf(fixStore('dropped'), BENCH_FIX).state.parts[0]
-  assert.equal(stopped.steps.find(one => one.id === 'B13').state, 'Being checked')
-  assert.deepEqual([stopped.counts.checking, stopped.counts.fixing, stopped.opensItself], [1, 0, true])
+})
+
+test('B695: a step in review whose failed check has only a dropped fix reads Fix stopped and counts as stopped', () => {
+  const view = stepsOf(fixStore('dropped'), BENCH_FIX)
+  const part = view.state.parts[0]
+  const step = part.steps.find(one => one.id === 'B13')
+  assert.equal(step.state, 'Fix stopped')
+  assert.equal(step.tone, 'stop')
+  assert.deepEqual([part.counts.checking, part.counts.fixing, part.counts.stopped, part.opensItself], [0, 0, 2, true])
+  assert.match(view.view[0].count, /2 stopped/)
+  assert.doesNotMatch(view.view[0].count, /being checked/)
+  assert.ok(view.view[0].blocks.includes('stop'))
 })
 
 test('B690: board.js only words the counts and the open flag the state gives', () => {
@@ -484,4 +492,8 @@ test('B690: the step rows follow option B: dot at the first line, waiting dot as
   assert.match(rule('.focus-bar .focus-block.is-wait'), /background: var\(--unknown\)/)
   assert.equal(rule('.focus-step-what small.is-fail'), '')
   assert.match(rule('.focus-count'), /margin-top: 18px/)
+  // B695: the margins stand alone (no flex gap that adds to them) and the sizes are option B's own
+  assert.match(rule('.focus-part'), /gap: 0/)
+  assert.match(rule('.focus-step'), /grid-template-columns: 22px 54px/)
+  assert.match(rule('.focus-bar .focus-block.is-stop'), /box-sizing: content-box/)
 })

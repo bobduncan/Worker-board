@@ -213,7 +213,7 @@ button, textarea, select { font: inherit; color: inherit; }
 .focus-buttons { display: flex; gap: 14px; margin-top: 18px; }
 .focus-yes { flex: 1; padding: 13px 18px; border: 0; border-radius: 9px; background: var(--working); color: var(--ink); font-size: 16px; font-weight: 700; cursor: pointer; }
 .focus-no { padding: 13px 30px; border: 1px solid #3a4a63; border-radius: 9px; background: transparent; color: var(--text); font-size: 16px; font-weight: 600; cursor: pointer; }
-.focus-part { display: flex; flex-direction: column; gap: 10px; margin-top: 12px; padding: 14px 18px; border: 1px solid var(--line); border-radius: 10px; background: var(--inset); }
+.focus-part { display: flex; flex-direction: column; gap: 0; margin-top: 12px; padding: 14px 18px; border: 1px solid var(--line); border-radius: 10px; background: var(--inset); }
 .focus-part-top { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .focus-part-top b { min-width: 0; font-size: 16px; overflow-wrap: anywhere; }
 .focus-chip { flex: none; padding: 4px 14px; border: 1px solid var(--line); border-radius: 7px; font-size: 14px; font-weight: 600; }
@@ -2774,16 +2774,20 @@ body.is-resizing-rows { cursor: row-resize; user-select: none; }
 .focus-bar .focus-block.is-done { background: var(--working); }
 .focus-bar .focus-block.is-now { background: var(--free); }
 .focus-bar .focus-block.is-wait { background: var(--unknown); }
-.focus-bar .focus-block.is-stop { height: 8px; align-self: center; background: transparent; border: 2px solid var(--warn); }
+.focus-bar .focus-block.is-stop { box-sizing: content-box; height: 8px; align-self: center; background: transparent; border: 2px solid var(--warn); }
+/* B695: option B's own numbers (mockup.html): the part has no flex gap, the margins stand alone (bar 12/0, count 18/8, list 6). */
+.focus-part > * + * { margin-top: 10px; }
+.focus-bar.focus-blocks { margin-top: 12px; }
+.focus-part > .focus-step-list { margin-top: 6px; }
 .focus-count { align-self: flex-start; margin-top: 18px; color: var(--muted); }
-.focus-toggle { align-self: flex-start; padding: 0; border: 0; background: none; color: var(--free); font: inherit; cursor: pointer; }
+.focus-toggle { align-self: flex-start; margin-top: 8px; padding: 0; border: 0; background: none; color: var(--free); font: inherit; cursor: pointer; }
 .focus-step-list { display: flex; flex-direction: column; gap: 6px; }
 .focus-steps-list { list-style: none; margin: 0; padding: 0; }
-.focus-step { display: grid; grid-template-columns: 14px 54px 1fr auto; gap: 8px; align-items: baseline; padding: 6px 0; border-top: 1px solid var(--line); }
+.focus-step { display: grid; grid-template-columns: 22px 54px 1fr auto; gap: 8px; align-items: baseline; padding: 6px 0; border-top: 1px solid var(--line); }
 .focus-step-dot { width: 12px; height: 12px; border-radius: 3px; background: var(--unknown); align-self: start; margin-top: 5px; }
 .focus-step.is-done .focus-step-dot { background: var(--working); }
 .focus-step.is-now .focus-step-dot { background: var(--free); }
-.focus-step.is-stop .focus-step-dot { margin-top: 7px; width: 8px; height: 8px; background: none; border: 2px solid var(--warn); }
+.focus-step.is-stop .focus-step-dot { box-sizing: content-box; margin-top: 5px; width: 8px; height: 8px; background: none; border: 2px solid var(--warn); }
 .focus-step-id { color: var(--muted); font-size: 13px; }
 .focus-step-what { min-width: 0; overflow-wrap: anywhere; }
 .focus-step-what small { display: block; color: var(--muted); }

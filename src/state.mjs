@@ -1012,9 +1012,11 @@ const stepToneOf = state => (state === 'done' || state === 'closed' ? 'done' : s
 function partStepOf(item, steps, prefix) {
   const id = item.head.get('Id')
   const state = item.head.get('State')
-  const tone = stepToneOf(state)
   const checked = checkedOf(item)
   const fix = checked !== null && checked.total > 0 && checked.passed < checked.total ? fixOutcomeOf(id, steps) : null
+  // B695: a step in review whose failed check has only a dropped fix is stopped, not being checked.
+  const fixStopped = state === 'review' && fix !== null && !fix.isOpen && !fix.isFixed && fix.passed === null && fix.total === null
+  const tone = fixStopped ? 'stop' : stepToneOf(state)
   const waitsFor = (String(item.head.get('Blocked by') ?? '').match(/\bB\d+\b/g) ?? [])
     .filter(one => steps.has(one) && !FINISHED.includes(steps.get(one).head.get('State')))
     .map(one => ({ id: one, title: withoutNotes(steps.get(one).head.get('Title') ?? '') }))
@@ -1023,7 +1025,7 @@ function partStepOf(item, steps, prefix) {
     title: withoutNotes(item.head.get('Title') ?? ''),
     tone,
     // B690: a step in review whose check failed and whose fix is open is being fixed, not checked.
-    state: tone === 'done' ? 'Finished' : tone === 'stop' ? 'Stopped' : state === 'review' ? (fix?.isOpen === true ? 'Being fixed' : 'Being checked') : tone === 'now' ? 'Being built' : 'Waiting',
+    state: tone === 'done' ? 'Finished' : fixStopped ? 'Fix stopped' : tone === 'stop' ? 'Stopped' : state === 'review' ? (fix?.isOpen === true ? 'Being fixed' : 'Being checked') : tone === 'now' ? 'Being built' : 'Waiting',
     isFailed: checked !== null && checked.total > 0 && checked.passed < checked.total && fix?.isFixed !== true,
     owner: String(item.head.get('Owner') ?? '').replace(prefix, '').trim() || null,
     check: checked === null || checked.total === 0 ? null : { passed: checked.passed, total: checked.total, evidence: checked.evidence, ...(fix === null ? {} : { fix }) },
