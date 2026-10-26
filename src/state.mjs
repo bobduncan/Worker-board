@@ -163,6 +163,9 @@ export function settleTurn({ turn, end, isAppEnded, isCut = false, writtenAt, no
 
 const textOr = (value, fallback) => (typeof value === 'string' ? value : fallback)
 
+/** X76: a transcript that can be read and holds no turn at all (only a slash command and its output): the chat was cleared. */
+const hasNoTurn = tail => typeof tail?.text === 'string' && turnState(parseTail(tail.text, tail.isCut === true)) === 'unknown'
+
 /**
  * B315: a lane that counts as working only by what is left of it (its card, its step, or a turn the transcript shows
  * open) while its process does not run: the app was quit and opened again, and no chat runs until it is opened or a
@@ -427,7 +430,7 @@ function card(chat, raw, { now, config, last, lines, main, prefix, stepOf = () =
   // `appSession` is the id the app knows the chat by: the main chat starts a chat that is not running with it.
   // B468: `effort` is what the app's file of the chat says it runs at, or null.
   const base = { name: chat.name, isMain: chat.isMain, isLeftover: chat.isLeftover, session: chat.cliSessionId ?? null, appSession: chat.appSessionId ?? null, effort: chat.effort ?? null, model: chat.model ?? null, removedAt: chat.removedAt ?? null }
-  const none = { lastAnswer: null, quietMs: null, isQuiet: false, isAsking: false, doingNow: null, between: null, needsYou: null, statusDetail: null, waitingSince: null, waitsFor: null, task: null, cutOffAt: null, eta: null, isWithoutTime: false, suspended: null, usage: [], lastTask: null, givenTask: null, feedback: null, compaction: null, unanswered: null, idle: null, unfiled: null, resting: null, waitsForPartner: null }
+  const none = { lastAnswer: null, quietMs: null, isQuiet: false, isAsking: false, doingNow: null, between: null, needsYou: null, statusDetail: null, waitingSince: null, waitsFor: null, task: null, cutOffAt: null, eta: null, isWithoutTime: false, suspended: null, usage: [], lastTask: null, givenTask: null, feedback: null, compaction: null, unanswered: null, idle: null, unfiled: null, resting: null, waitsForPartner: null, hasNoTurn: false }
   if (chat.isLeftover) return { ...base, state: 'unknown', ...none, lastActivityAt: chat.lastActivityAt }
 
   const tail = raw.tails?.[chat.cliSessionId] ?? null
@@ -561,6 +564,8 @@ function card(chat, raw, { now, config, last, lines, main, prefix, stepOf = () =
     between: state === 'working' && held !== null ? held.text : null,
     // Partner answers, the review's findings: the asks of its own it waits on the partner for.
     waitsForPartner: state === 'working' && held?.why === 'partner' ? forPartner : null,
+    // X76: its conversation holds no turn (only a slash command, as after a /clear): the sign of the rule working-without-step.
+    hasNoTurn: entries !== null && turn === 'unknown',
     needsYou,
     statusDetail: turn === 'ended' ? summary?.detail?.trim() || null : null,
     // The turn's last entry: when it ended, or when it asked.
@@ -1329,9 +1334,13 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
     if (!modReports(entry.mod ?? null)) return [chat.name, null]
     const holds = storeStepsOf(chat.name).filter(one => one.state !== 'review')
     const key = chat.name.toLowerCase()
+    // X76 (B705): a busy report that outlived its turn. A conversation that holds only a slash command (the /clear the
+    // Workers mod ran after the report) has no turn, so a report of one for longer than a first line takes to be written
+    // is stuck: the chat is idle.
+    const isStuckBusy = entry.state === 'busy' && Number.isFinite(entry.busyAt) && now - entry.busyAt > unknownAfterMs && hasNoTurn(raw.tails?.[chat.cliSessionId])
     // The review of chat-reports: a blocking ask routed to the partner waits for the partner, never for the person (B392).
     const forPartner = waits.partner?.get(key) ?? []
-    const lane = laneFromReport(entry, {
+    const lane = laneFromReport(isStuckBusy ? { ...entry, state: 'idle' } : entry, {
       now, unknownAfterMs, offAfterMs,
       holdsTask: holds.length > 0,
       hasBlockingAsk: waits.blocking.has(key) || (forPartner.length === 0 && holds.some(one => one.state === 'waiting on you')),
