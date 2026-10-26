@@ -2877,16 +2877,61 @@ function advisorAsks(advisor) {
 }
 
 /** B280: what waits for the Advisor, not in its chat yet: a count and its kinds ("1 refine, 2 messages"); null for nothing. */
-function advisorQueued(queued, asks = []) {
-  // The person, 2026-10-26 ("I also expect this Q423 is in the queue with the advisor"): the questions it answers for
-  // you first (the state's `withPartner`) wait for it too, each one a link to its ask.
-  const questions = Array.isArray(asks) ? asks.filter(one => typeof one?.id === 'string') : []
-  const kinds = [[questions.length, 'question', 'questions'], [queued?.refines ?? 0, 'refine', 'refines'], [queued?.rounds ?? 0, 'round of the clock', 'rounds of the clock'], [queued?.words ?? 0, 'message', 'messages']]
+function advisorQueued(queued, waiting = []) {
+  // The person, 2026-10-26 ("I also expect this Q423 is in the queue with the advisor"; then "all of it"): what waits for
+  // it besides messages (the state's `advisor.waiting`: the questions it answers for you first, result checks, refines),
+  // each one a link to its step or ask with where it stands. An entry without a kind is a question (an older server).
+  const items = Array.isArray(waiting) ? waiting.filter(one => typeof one?.id === 'string').map(one => ({ ...one, kind: one.kind ?? 'question' })) : []
+  const of = kind => items.filter(one => one.kind === kind).length
+  // The refines of the list are the refines; without any in it, the count of the words that wait.
+  const refines = of('refine') > 0 ? of('refine') : queued?.refines ?? 0
+  const kinds = [[of('question'), 'question', 'questions'], [of('check'), 'result check', 'result checks'], [refines, 'refine', 'refines'], [queued?.rounds ?? 0, 'round of the clock', 'rounds of the clock'], [queued?.words ?? 0, 'message', 'messages']]
   const count = kinds.reduce((sum, [one]) => sum + one, 0)
   if (count === 0) return null
   const text = kinds.filter(([one]) => one > 0).map(([one, single, many]) => `${one} ${one === 1 ? single : many}`).join(', ')
-  if (questions.length === 0) return { count, text }
-  return { count, text, asks: questions.map(one => ({ id: one.id, href: `#details=${one.id}`, text: `${one.id} · ${one.from ?? 'nobody'}: ${one.title ?? ''}` })) }
+  if (items.length === 0) return { count, text }
+  const named = one => (one.kind === 'check' ? `check ${one.id}${one.who ? ` (built by ${one.who})` : ''}: ${one.title ?? ''}`
+    : one.kind === 'refine' ? `refine ${one.id}: ${one.title ?? ''}` : `${one.id} · ${one.from ?? one.who ?? 'nobody'}: ${one.title ?? ''}`)
+  return { count, text, asks: items.map(one => ({ id: one.id, href: `#details=${one.id}`, text: named(one), stand: standWords(one.stand) })) }
+}
+
+/**
+ * The person, 2026-10-26 ("does this include ensuring the advisor also starts with B??? or Q??? when it does something"): the
+ * Advisor's task line when the board knows the item it is on (the state's `advisor.on`, from the board's word it took): the
+ * item's id as a link (a step or an ask opens its window; an incident goes to the supervisor's part), then its title, as a
+ * worker's line names its step. Its own card's text and its step count are in the tooltip. `lane` carries its `task`.
+ */
+function advisorOnLine(on, lane) {
+  const line = el('p', 'task clip advisor-on')
+  const code = el('a', 'task-code advisor-on-code', on.id)
+  code.href = on.kind === 'incident' ? '#supervisor' : `#details=${on.id}`
+  code.title = on.kind === 'incident' ? `Incident ${on.id}: the supervisor's part on the Overview` : `Open ${on.id}`
+  code.addEventListener('click', event => event.stopPropagation())
+  line.append(code, ' ', on.title ?? '')
+  const task = lane?.task ?? null
+  const step = task !== null && Number.isInteger(task.step) && Number.isInteger(task.steps) ? `Step ${task.step} of ${task.steps}${Array.isArray(task.names) && task.names[task.step - 1] ? `: ${task.names[task.step - 1]}` : ''}` : null
+  line.title = [`${on.id} ${on.title ?? ''}`.trim(), (task?.text ?? '') === '' ? null : `Its own card: ${task.text}`, step].filter(Boolean).join('\n')
+  return line
+}
+
+/**
+ * The questions it answers for you first, on its line: "Waiting for it:", each a link that opens its ask (the click does
+ * not open its chat) and, in quiet words after it, where it stands (the person, 2026-10-26: queued, or the Advisor is on it).
+ */
+function drawWaitingAsks(asks) {
+  const line = el('p', 'advisor-lane-asks')
+  line.append(el('span', 'muted', 'Waiting for it: '))
+  for (const ask of asks) {
+    const link = el('a', 'advisor-lane-ask', ask.text)
+    link.href = ask.href
+    link.title = `Open ${ask.id}: the whole question, its options and advice, who asked it`
+    link.addEventListener('click', event => event.stopPropagation())
+    const row = el('span', 'advisor-lane-ask-row')
+    row.append(link)
+    if ((ask.stand ?? null) !== null) row.append(el('span', 'advisor-lane-ask-stand muted', ask.stand))
+    line.append(row)
+  }
+  return line
 }
 // advisorlane:end
 
@@ -2931,9 +2976,11 @@ function drawAdvisorLane(state) {
 
   // B307: one line, as a worker's: its task, else what it refines, else how it stands; the rest in the tooltip.
   const what = el('div', 'what')
-  const hasTask = lane.task !== null && (lane.task.text ?? '') !== ''
+  // 2026-10-26: when the board knows the item it is on (the board's word it took), the line names it: its id as a link, then its title.
+  const on = advisor.on ?? null
+  const hasTask = on !== null || (lane.task !== null && (lane.task.text ?? '') !== '')
   if (hasTask) {
-    const title = taskTitle(lane)
+    const title = on !== null ? advisorOnLine(on, lane) : taskTitle(lane)
     const more = [
       advisor.state === 'working' && advisor.doingNow !== null ? `Now: ${advisor.doingNow}` : null,
       advisor.state === 'working' && lane.between !== null ? `Between turns: ${lane.between.replace(/^Its turn has ended; /, '')}` : null,
@@ -2985,13 +3032,14 @@ function drawAdvisorLane(state) {
     if (first !== null) first.title = [first.title, ...tip].filter(Boolean).join('\n')
   }
 
-  const progress = advisorProgress(lane.task)
+  // The step count of its own card is in the tooltip of the line that names the item it is on.
+  const progress = advisorProgress(on === null ? lane.task : null)
 
   // B307: its time left once while it works; else nothing, as its pill says how it stands.
   const time = advisor.state === 'working' ? drawEta(lane, state.readAt) : el('div', 'eta is-muted')
 
   // B307: what waits for it, by kind in the tooltip; nothing when nothing waits (or the server does not count it).
-  const queued = advisorQueued(advisor.queued, state.withPartner ?? [])
+  const queued = advisorQueued(advisor.queued, advisor.waiting ?? (state.withPartner ?? []))
   const waits = el('div', 'queue advisor-waits')
   if (queued !== null) {
     const count = el('span', 'advisor-waits-count', `${queued.count} waiting for it`)
@@ -2999,18 +3047,7 @@ function drawAdvisorLane(state) {
     waits.append(count)
   }
   // The questions it answers for you first, under its line, each opening its ask (the click does not open its chat).
-  if ((queued?.asks ?? []).length > 0) {
-    const line = el('p', 'advisor-lane-asks')
-    line.append(el('span', 'muted', 'Waiting for it: '))
-    queued.asks.forEach((ask, index) => {
-      const link = el('a', 'advisor-lane-ask', ask.text)
-      link.href = ask.href
-      link.title = `Open ${ask.id}: the whole question, its options and advice, who asked it`
-      link.addEventListener('click', event => event.stopPropagation())
-      line.append(...(index === 0 ? [] : [el('span', 'muted', ' · ')]), link)
-    })
-    what.append(line)
-  }
+  if ((queued?.asks ?? []).length > 0) what.append(drawWaitingAsks(queued.asks))
 
   const open = el('div', 'lane-menu-cell')
   open.append(el('span', 'advisor-open', '›'))
@@ -3611,6 +3648,68 @@ function approveHint(need) {
 }
 // approve:end
 
+// askstand:start
+/**
+ * The person, 2026-10-26 ("is the advisor currently working on them or not. is it in its queue?"): where a question that
+ * is with the partner stands, in plain words, from the server's facts (the state's `withPartner[].stand`: `{ kind, since,
+ * toYouAt }`): "in the Advisor's queue since 14:02" or "the Advisor is on it since 14:05", then "comes to you at 14:32".
+ * Null without a stand (a server that gives none) or for a kind it does not know: nothing is made up.
+ */
+function standWords(stand) {
+  const where = stand?.kind === 'queued' ? "in the Advisor's queue" : stand?.kind === 'working' ? 'the Advisor is on it' : null
+  if (where === null) return null
+  return [Number.isFinite(stand.since) ? `${where} since ${clock(stand.since)}` : where, Number.isFinite(stand.toYouAt) ? `comes to you at ${clock(stand.toYouAt)}` : null]
+    .filter(Boolean).join(' · ')
+}
+
+/**
+ * The window of a question that is with the partner (it is not among the cards waiting for you, so no other window shows
+ * it): its code, title and who asked, where it stands, its context, options and advice, and its step; from the state's
+ * `withPartner` entry. Plain data.
+ */
+function partnerAskWindowOf(ask) {
+  return {
+    code: ask.id, title: ask.title ?? '', fullTitle: ask.title ?? '',
+    chips: [{ text: 'With your partner', tone: 'kind' }, ...(ask.from == null ? [] : [{ text: `From: ${ask.from}`, tone: 'to' }])],
+    at: ask.at ?? null,
+    stand: standWords(ask.stand),
+    text: String(ask.text ?? ''), options: ask.options ?? [], advice: ask.advice ?? null,
+    step: ask.of == null ? null : [ask.of, ask.ofTitle].filter(Boolean).join(' '),
+  }
+}
+
+/** The window of a question with the partner (the details dialog): quiet, with where it stands first. */
+function drawPartnerAskWindow(box, ask, state) {
+  const view = partnerAskWindowOf(ask)
+  const showing = JSON.stringify([detailsOf, view])
+  if (box.open && detailsShown === showing) return
+  detailsShown = showing
+  const scroll = box.querySelector('.details-body')?.scrollTop ?? 0
+  const parts = []
+  if (view.stand !== null) {
+    parts.push(section('Where it stands', [
+      el('p', 'partner-ask-stand', view.stand),
+      el('p', 'muted', 'Your partner answers it first; one it has not answered in 30 minutes comes to you.'),
+    ]))
+  }
+  if (view.text.trim() !== '') parts.push(section('The question', view.text.split('\n').filter(line => line.trim() !== '').map(line => el('p', '', line))))
+  if (view.options.length > 0 || view.advice !== null) {
+    const list = el('ul', 'partner-ask-options')
+    for (const option of view.options) list.append(el('li', '', `${option.label}${option.isRecommended ? ' (recommended)' : ''}`))
+    parts.push(section('Options', [...(view.options.length > 0 ? [list] : []), ...(view.advice === null ? [] : [el('p', 'muted', `Advice: ${view.advice}`)])]))
+  }
+  if (view.step !== null) parts.push(section('Its step', [el('p', '', view.step)]))
+  const main = el('div', 'details-main')
+  main.append(...parts)
+  const body = el('div', 'details-body is-single')
+  body.append(main)
+  box.classList.remove('is-calm')
+  delete box.dataset.calmAt
+  keepUnfolded(box, () => fill(box, [detailsHead(view, el('span', 'kind is-input', KINDS.input.sign), state.readAt), body]))
+  body.scrollTop = scroll
+}
+// askstand:end
+
 // partner-answers:start
 /**
  * Partner answers (2026-10-19): what an ask's card says of the partner: its answer, its why and the Undo that takes it
@@ -3636,7 +3735,7 @@ function partnerAnswerView(need) {
 function withPartnerView(list) {
   if (!Array.isArray(list) || list.length === 0) return null
   // The person, 2026-10-26 ("i just need it clickable so i can see what the question is"): each row opens its ask.
-  return { text: `With your partner: ${list.length} question${list.length === 1 ? '' : 's'}`, rows: list.map(one => ({ id: one.id, href: `#details=${one.id}`, text: `${one.id} · ${one.from ?? 'nobody'}: ${one.title}` })) }
+  return { text: `With your partner: ${list.length} question${list.length === 1 ? '' : 's'}`, rows: list.map(one => ({ id: one.id, href: `#details=${one.id}`, text: `${one.id} · ${one.from ?? 'nobody'}: ${one.title}`, stand: standWords(one.stand) })) }
 }
 
 /** Partner answers, the review's findings: "Decided for you" (the state's `partnerDecided`): each answer with its Undo. */
@@ -3673,7 +3772,8 @@ function drawWithPartner(state) {
       const link = el('a', 'with-partner-ask', row.text)
       link.href = row.href
       link.title = `Open ${row.id}: the whole question, its options and advice, who asked it`
-      return fill(el('li', 'muted'), [link])
+      // The person, 2026-10-26: where it stands, on its own quiet line under the row.
+      return fill(el('li', 'muted'), [link, row.stand === null ? null : el('span', 'with-partner-stand', row.stand)])
     })))
   }
   return part
@@ -6684,6 +6784,11 @@ function subjectOf(state) {
     const need = everyNeed(state).find(one => one.id === detailsOf.need)
     return need === undefined ? null : { need, lane: null, place: -1 }
   }
+  if (detailsOf.partnerAsk !== undefined) {
+    // A question that is with the partner: it has no card among the ones for you. It closes once the partner answered it.
+    const ask = (state.withPartner ?? []).find(one => one.id === detailsOf.partnerAsk)
+    return ask === undefined ? null : { partnerAsk: ask }
+  }
   if (detailsOf.step !== undefined) {
     // A step of the backlog by its key (the Coordinate tab): whatever its state, with the worker it names.
     const step = (state.backlog ?? []).flatMap(activity => activity.steps).find(one => one.key === detailsOf.step)
@@ -6768,6 +6873,7 @@ function drawDetails(state) {
     return
   }
   if (subject.laneTask !== undefined) return drawLaneWindow(box, subject.laneTask, state)
+  if (subject.partnerAsk !== undefined) return drawPartnerAskWindow(box, subject.partnerAsk, state)
   const { need, lane, place } = subject
   const step = subject.step ?? (need === null ? lane.queue[place] : null)
   const now = state.readAt
@@ -7394,6 +7500,8 @@ function openFromAddress(state) {
 function openStepWindow(state, code) {
   const need = everyNeed(state).find(one => one.step === code || one.id === code || one.workId === code)
   if (need !== undefined) return openDetails({ need: need.id })
+  // A question that is with the partner has no card among the ones for you: its own window.
+  if ((state.withPartner ?? []).some(one => one.id === code)) return openDetails({ partnerAsk: code })
   for (const lane of state.chats) {
     const place = lane.queue.findIndex(step => step.id === code)
     if (place >= 0) return openDetails({ lane: lane.name, place, id: code })
@@ -14050,6 +14158,7 @@ document.addEventListener('click', event => {
   event.stopPropagation()
   const id = link.dataset.askLink
   const need = everyNeed(board).find(one => one.workId === id)
+  if (need === undefined && (board.withPartner ?? []).some(one => one.id === id)) return openDetails({ partnerAsk: id })
   openDetails(need !== undefined ? { need: need.id } : { step: id })
 }, true)
 
@@ -15112,6 +15221,16 @@ const blockNumber = step => (typeof step.id === 'string' ? Number(step.id.replac
 const newestFirst = (a, b) => Number(b.isFix) - Number(a.isFix) || blockNumber(b.step) - blockNumber(a.step)
 
 /**
+ * 2026-10-26: where the result check of a step in review stands, in words for its state cell (the step's `reviewStand`, from
+ * the server): "waits for its check: in the Advisor's queue since 16:14" or "the Advisor is checking it since 16:20". Null
+ * when the server said nothing (the step waits for a fix, for an answer, or has nothing to check).
+ */
+function checkStandWords(stand) {
+  const since = Number.isFinite(stand?.since) ? ` since ${clock(stand.since)}` : ''
+  return stand?.kind === 'queued' ? `waits for its check: in the Advisor's queue${since}` : stand?.kind === 'working' ? `the Advisor is checking it${since}` : null
+}
+
+/**
  * The Backlog tab's blocks: the steps of the tab's list (`coordinateList`) sorted by where they stand, with the board's
  * ready list (`readyList`, the state's `{ ready, held }`; null without a store). Each block `{ key, title, note, rows }`,
  * each row with its step (`step`), its goal (`goal`), its pin (`pinned`), whether the person added it (`isAdded`) and
@@ -15146,7 +15265,14 @@ function backlogBlocks(list, readyList, { showDone = false } = {}) {
     const under = state !== null ? (Object.hasOwn(UNDER_WAY_STATES, state) ? UNDER_WAY_STATES[state] : null)
       : step.status === 'progress' ? UNDER_WAY_STATES['in progress'] : step.status === 'queued' ? UNDER_WAY_STATES.queued : null
     if (under !== null) {
-      rows.progress.push({ ...base, who: item?.owner ?? step.worker ?? '', state: under[0], tone: under[1], order: Object.values(UNDER_WAY_STATES).indexOf(under) })
+      const owner = item?.owner ?? step.worker ?? ''
+      // 2026-10-26 (the person: "it says worker 4 is doing something"): a step in review is not its builder at work. Its worker
+      // column says who built it, and its state whom it waits for: the Advisor's check (where that stands), or what it says in its title.
+      const isReview = state === 'review'
+      rows.progress.push({
+        ...base, who: isReview && owner !== '' ? `built by ${owner}` : owner, state: isReview ? checkStandWords(step.reviewStand) ?? under[0] : under[0], tone: under[1],
+        order: Object.values(UNDER_WAY_STATES).indexOf(under),
+      })
       continue
     }
     const one = typeof step.id === 'string' ? ready.get(step.id) : undefined
@@ -15689,7 +15815,8 @@ function blockLine(row, key) {
   if (row.isAdded) title.append(blockChip('added by you', 'you', 'You added it to the queue'), ' ')
   title.append(step.title)
   // B543: a step in review says what it waits for: its first check, its fix B<n>, the person's answer.
-  if (typeof step.reviewWait === 'string') title.append(' ', el('small', 'step-wait', `(${step.reviewWait})`))
+  // 2026-10-26: not when the state cell says where its check stands (the Advisor's queue, or checking it).
+  if (typeof step.reviewWait === 'string' && checkStandWords(step.reviewStand) === null) title.append(' ', el('small', 'step-wait', `(${step.reviewWait})`))
   open.append(el('span', 'step-id', step.id ?? ''), title)
   const place = goalPlace(row.goal)
   let goal = el('span', 'block-goal', row.goal ?? '')

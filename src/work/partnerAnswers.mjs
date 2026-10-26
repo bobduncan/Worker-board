@@ -59,6 +59,47 @@ export const isPartnerAnswered = item => valueOf(item, 'Kind') === 'ask' && valu
 
 /** The words the board wakes the partner with, once per routed ask. */
 export const partnerAskWords = id => `work: ${id} is yours to answer for the person; run work next`
+/** Whether an outbox word is the board's line to the partner about a routed ask: its own, or the sync check's for it. */
+export const isPartnerAskWord = message => message?.kind === 'partner-ask' || String(message?.syncKey ?? '').startsWith('partner-ask ')
+
+/** Whether the partner's current task names an item by its whole id ("Q42", not the "Q4" or "Q423" inside other ids). */
+export function taskNamesItem(task, id) {
+  // An id is letters and digits (B701, Q423, X76); anything else names nothing.
+  if (task === null || task === undefined || typeof id !== 'string' || !/^[A-Za-z0-9]+$/.test(id)) return false
+  const named = new RegExp(`(?<![A-Za-z0-9])${id}(?![A-Za-z0-9])`)
+  const step = Number.isInteger(task.step) && Array.isArray(task.names) ? task.names[task.step - 1] : undefined
+  return [task.stepId, task.text, step].some(words => typeof words === 'string' && named.test(words))
+}
+
+/**
+ * Where one item waiting for the partner stands, from facts the board has and nothing else: `{ kind, since }`.
+ * - `working`: one of the board's `words` for it was taken by the partner (`taken`, or typed: `delivered`), or the partner's
+ *   current `task` names the item's id; `since` is when it took the word (else its task's start; null when unknown).
+ * - `queued`: anything else while the item is open (no word, or one that waits, failed, was closed): `since` is `queuedSince`.
+ * `words` are the board's words about the item that count (the caller picks them), `task` the partner's task as its card
+ * names it while it works (null otherwise).
+ */
+export function workStand({ id, words = [], task = null, queuedSince = null }) {
+  const took = words.filter(message => message.state === 'taken' || message.state === 'delivered')
+  if (took.length > 0) {
+    const times = took.map(message => message.takenAt ?? message.deliveredAt ?? message.at).filter(Number.isFinite)
+    return { kind: 'working', since: times.length > 0 ? Math.min(...times) : null }
+  }
+  if (taskNamesItem(task, id)) return { kind: 'working', since: Number.isFinite(task.startedAt) ? task.startedAt : null }
+  return { kind: 'queued', since: Number.isFinite(queuedSince) ? queuedSince : null }
+}
+
+/**
+ * Where an ask routed to the partner stands (the person, 2026-10-26: "is the advisor currently working on them or not.
+ * is it in its queue?"): `workStand` over the board's words for the ask (`outbox` is all of them), queued since the ask was
+ * filed (`filed`, its `askFiledMs`), with `toYouAt`: when the 30-minute rule (`limitMs`) hands it to the person; null when
+ * the filing is not known.
+ */
+export function partnerAskStand({ id, filed, outbox = [], task = null, limitMs = PARTNER_ANSWER_MS }) {
+  const words = (outbox ?? []).filter(message => isPartnerAskWord(message) && message.about === id)
+  return { ...workStand({ id, words, task, queuedSince: filed }), toYouAt: Number.isFinite(filed) ? filed + limitMs : null }
+}
+
 /** The one line the asking chat gets when the person takes the partner's answer back. */
 export const takenBackWords = id => `The person took back the partner's answer on ${id}; wait for their answer.`
 

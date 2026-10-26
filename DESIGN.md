@@ -229,9 +229,25 @@ what to do next; takes no tasks"), a teal accent and a light for its sign:
   needs your answer when it has an open ask of its own in the work store (a refine question is not one: that is its
   refine state), or when the app says it waits (its question form); the board reads no questions from its words.
 - *Its task* as its own card names it, with "Now:", its step as a count ("2 of 3") and its time left; idle, since when.
+  2026-10-26 (the person: "does this include ensuring the advisor also starts with B??? or Q???"): when it works and the
+  board knows the item it is on, the line starts with that item the way a worker's line does: its id as a link (a step or
+  an ask opens its window; an incident goes to the supervisor's part) and its title, taken from the newest board word to it
+  that it took (taken or typed) whose item is still open (incident to X<n>, result check and refine to B<n>, partner-ask to
+  Q<n>; `advisorWorkOf`, the state's `advisor.on`). Its card's own text and its step count move to the tooltip.
+  No such word: today's line.
 - *What it refines* (B287), as on the Advisor tab: "Refining B31, round 2", or "Your answers on B31 wait for it".
 - *What waits for it*: what was sent to it and is not in its chat yet, counted by kind ("2 waiting for it: 1 refine, 1
-  message"; rounds of the clock too), else "Nothing waits for it".
+  message"; rounds of the clock too), else "Nothing waits for it". 2026-10-26 (the person: "is the advisor currently
+  working on them or not. is it in its queue?"): under its line, "Waiting for it:" lists ALL its waiting work, each a link
+  to its step or ask with where it stands, from the board's own facts (`advisorWorkOf`, the state's `advisor.waiting`):
+  the questions it answers for you first (`Route: partner` asks), the result checks (steps in review that wait for their
+  check) and the refines it has open. Each item's **stand** (`workStand`, src/work/partnerAnswers.mjs): **the Advisor is on
+  it** when the board's word for the item was taken by the Advisor (state `taken` or `delivered`) or its current task, while
+  it works, names the item's id; else **in the Advisor's queue** (no word, or one that waits, failed or was closed), since
+  the word or the item's wait began. A word counts for a check only when it is of this wait (not older than the board's
+  check that put the step in review). A question also says **when it comes to you** (30 minutes after it was filed, the
+  rule that hands it to the person). Where the board cannot tell it says queued, never "on it". The same words stand
+  after each row of "With your partner" and in the ask's window.
 - No queue, no "⋯", no Remove or Stop: it takes no tasks. A click, or Enter, opens its chat on the Advisor tab.
 
 On the Advisor tab, while it works, "Working: <its topic>" stands right above the typing box, with "What you type waits
@@ -250,7 +266,10 @@ a line with only the day. A step none of these gives a time for is left out. The
 **The blocks (2026-10-25).** The person agreed on a mockup (`art-inbox/board-backlog-lists/mock.png`) with one change,
 "In progress is higher than queue": under "Recently finished" the open items stand in blocks, each folding with a click
 on its head (kept in this browser, `backlog-blocks-folded`): **In progress** (given, taken, in progress, waiting on
-you, in review, with the worker; green only while worked on, the colour of waiting only when it waits on the person),
+you, in review, with the worker; green only while worked on, the colour of waiting only when it waits on the person; a step
+in review is not its builder at work: its worker column says "built by <worker>" and its state whom it waits for, "waits
+for its check: in the Advisor's queue since 16:14" or "the Advisor is checking it" (`reviewStand`, 2026-10-26), else "In review"
+with the fix or answer it waits for in its title),
 **Queue** (the board's ready list, numbered in the order a free worker takes them, with the chips fix, focus and "added
 by you", "any free worker" or "for <worker> only", and "Remove" on the person's own additions and pins), **Refined**
 (held for the person's choice, each with "Add to queue"; one held for another reason says why, quietly), **Not refined
@@ -2715,7 +2734,10 @@ Picture: `art-inbox/worker-board/partner-answers/note.png`.
    - No routed ask waits without end: 30 minutes from its filing, whatever the partner does. While routed, a chat whose
      blocking ask waits on the partner is held between two turns, not waiting for the person: its lane says "Waiting for
      your partner (Q<n>)" (`storeWaits.partner`, the lane's `waitsForPartner`, `laneStateText`), and Needs your attention
-     shows **With your partner: <n> questions** (`withPartnerOf`, `drawWithPartner`), a click lists them.
+     shows **With your partner: <n> questions** (`withPartnerOf`, `drawWithPartner`), a click lists them. Each row is a
+     link that opens the question's own window (it has no card among the ones for you: `drawPartnerAskWindow`), and
+     each says where it stands: **in the Advisor's queue since HH:MM** or **the Advisor is on it since HH:MM**, then
+     **comes to you at HH:MM** (the stand, `partnerAskStand`: facts only, see "What waits for it" above).
    - A take-back marks the note first; a note that cannot be marked fails it (500, "nothing changed; try Undo again"),
      so the Undo stays; when the ask cannot be written after, the note's mark is put back.
    - `roles/partner.md`: the hand-on list names work of more than about an hour and approving finished art or a new look

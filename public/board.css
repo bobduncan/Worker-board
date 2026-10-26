@@ -278,6 +278,15 @@ button, textarea, select { font: inherit; color: inherit; }
 .with-partner { padding: 2px 0; }
 .with-partner-toggle { border: 0; background: none; padding: 4px 0; color: var(--muted); font-size: 13px; cursor: pointer; }
 .with-partner-list { margin: 2px 0 6px 18px; padding: 0; font-size: 13px; }
+/* The person, 2026-10-26: where a question with the partner stands (in its queue, or it is on it), on its own quiet line:
+   information, so the muted tone, never the colours that mean attention. */
+.with-partner-stand { display: block; color: var(--muted); font-size: 12.5px; }
+.advisor-lane-ask-row { display: block; }
+.advisor-lane-ask-stand { display: block; font-size: 12.5px; }
+/* The Advisor's task line when it names the item it is on: the id is a link, quiet as a worker's step id. */
+.advisor-on-code { text-decoration: none; }
+.advisor-on-code:hover { text-decoration: underline; }
+.partner-ask-stand { margin: 0 0 4px; color: var(--text); }
 .decided-for-you h3 { font-size: 14px; margin: 6px 0 2px; }
 /* B466: folded to one line with its count, under what needs you; opens on a click. */
 .decided-toggle { display: block; width: 100%; margin: 6px 0 2px; padding: 8px 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--inset); color: var(--muted); font: inherit; font-size: 14px; font-weight: 600; text-align: left; cursor: pointer; }

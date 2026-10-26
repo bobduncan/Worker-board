@@ -15,7 +15,7 @@ import { readDeliveredFile, readStore, writeDelivered } from './store.mjs'
 import { isHolding } from './pause.mjs'
 import { isFailedForGood, sweepOutbox } from './outboxSweep.mjs'
 import { SYNC_LINE_MS, workLineWhy } from './workLines.mjs'
-import { PARTNER_AGAIN_MS, partnerAskWords } from './partnerAnswers.mjs'
+import { PARTNER_AGAIN_MS, isPartnerAskWord, partnerAskWords } from './partnerAnswers.mjs'
 import { AGAIN_MS, effortWords, lastWord, sameTarget } from './effort.mjs'
 import { RESTART_AGAIN_MS, RESTART_COMMAND, restartWords } from './modRollout.mjs'
 import { START_WAIT_MS } from './handOut.mjs'
@@ -328,7 +328,7 @@ export async function deliverWork({ state, dir, outbox, apply, now, maxChars, ne
     // within ten minutes of the last one (a partner busy until then was just woken).
     ...(plan.partnerAsks ?? [])
       // B465, the review: the board's sync check's line about the ask counts too.
-      .filter(one => one.again !== true || !outbox.outbox().some(message => (message.kind === 'partner-ask' || String(message.syncKey ?? '').startsWith('partner-ask ')) && message.about === one.id
+      .filter(one => one.again !== true || !outbox.outbox().some(message => isPartnerAskWord(message) && message.about === one.id
         && (message.state === 'waiting' || now - (message.at ?? 0) < PARTNER_AGAIN_MS)))
       .map(one => ({ key: partnerAskKey(one.id, one.chat, one.again === true), words: { ...workWords(one.chat, one.id, partnerAskWords(one.id)), kind: 'partner-ask' } })),
   ]

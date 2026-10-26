@@ -7,7 +7,7 @@ import { askKey, askPartsOf, askWordsOf } from './askWords.mjs'
 import { repeatFactsOf } from './askRepeat.mjs'
 import { askFiledMs, valueOf } from './item.mjs'
 import { itemsOf } from './read.mjs'
-import { NOTE_LINE, TAKE_BACK_MS, isPartnerAnswered, isRoutedToPartner } from './partnerAnswers.mjs'
+import { NOTE_LINE, TAKE_BACK_MS, isPartnerAnswered, isRoutedToPartner, partnerAskStand } from './partnerAnswers.mjs'
 import { isRecap } from './recap.mjs'
 
 const DAY = 24 * 60 * 60_000
@@ -38,6 +38,8 @@ const plainName = (name, prefix = '') => {
   const words = String(name ?? '').trim()
   return (prefix !== '' && words.toLowerCase().startsWith(prefix.toLowerCase()) ? words.slice(prefix.length) : words).trim().toLowerCase()
 }
+/** A chat's name on the board for a store's owner (written with or without the list's prefix); the owner as written when none fits. */
+export const nameFinder = (names, prefix = '') => owner => names.find(name => plainName(name, prefix) === plainName(owner, prefix)) ?? owner
 const textOf = item => (item.sections.get('Text') ?? []).filter(one => one.trim() !== '')
 const asksOfStore = work => itemsOf(work).filter(item => valueOf(item, 'Kind') === 'ask' && /^Q\d+$/.test(valueOf(item, 'Id') ?? ''))
 
@@ -169,13 +171,27 @@ export function storeNeeds(work, { now, names = [], prefix = '', answerOf = () =
 
 /**
  * Partner answers, the review's findings: the asks with the partner now (routed to it, open), for the small "With your
- * partner" line under Needs your attention: `[{ id, from, title, of, at }]`, oldest first.
+ * partner" line under Needs your attention and the Advisor's line: `[{ id, from, title, of, at, ... }]`, oldest first.
+ * The person, 2026-10-26: "I want to see where the questions are": each carries its `stand` (`partnerAskStand`: queued or
+ * on it, since when, and when it comes to the person), from the board's words for the partner (`outbox`) and the
+ * partner's current task (`task`, null unless it is at work); and what its window shows: the context (`text`), the
+ * options, the advice and the title of its step.
  */
-export function withPartnerOf(work, { names = [], prefix = '' } = {}) {
-  const nameOf = owner => names.find(name => plainName(name, prefix) === plainName(owner, prefix)) ?? owner
+export function withPartnerOf(work, { names = [], prefix = '', outbox = [], task = null } = {}) {
+  const nameOf = nameFinder(names, prefix)
+  const items = new Map(itemsOf(work).map(item => [valueOf(item, 'Id'), item]))
   return asksOfStore(work).filter(isRoutedToPartner).map(item => {
     const at = askFiledMs(item)
-    return { id: valueOf(item, 'Id'), from: valueOf(item, 'Owner') === null ? null : nameOf(valueOf(item, 'Owner')), title: valueOf(item, 'Title') ?? '', of: valueOf(item, 'Of'), at: Number.isFinite(at) ? at : null }
+    const id = valueOf(item, 'Id')
+    const of = valueOf(item, 'Of')
+    const step = of === null ? undefined : items.get(of)
+    const advice = valueOf(item, 'Advice')
+    return {
+      id, from: valueOf(item, 'Owner') === null ? null : nameOf(valueOf(item, 'Owner')), title: valueOf(item, 'Title') ?? '', of, at: Number.isFinite(at) ? at : null,
+      ofTitle: step === undefined ? null : valueOf(step, 'Title'), text: askPartsOf(item).context.join('\n'), advice,
+      options: (valueOf(item, 'Options') ?? '').split(' | ').filter(one => one.trim() !== '').map(label => ({ label, isRecommended: isAdvised(label, advice) })),
+      stand: partnerAskStand({ id, filed: at, outbox, task }),
+    }
   }).sort((a, b) => a.id.localeCompare(b.id, 'en', { numeric: true }))
 }
 
