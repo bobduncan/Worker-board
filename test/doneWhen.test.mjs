@@ -140,7 +140,7 @@ test('"Is the vibe there?" Yes ticks the goal only with a Done when: an older fo
   assert.match(refused.why, /Done when/)
   assert.equal(mapOf(fs).byId.get('G4').state, 'open')
   assert.equal(mapOf(fs).focus, 'G4')
-  const written = utf8(fs.files[MAP]).replace('  Vibe: warm light\n', '  Done when: every path is lit after dark\n  Vibe: warm light\n')
+  const written = utf8(fs.files[MAP]).replace('  Vibe: warm light\n', '  Done when: every path is lit after dark\n  Demo: art/g4/demo.png · what G4 made\n  Vibe: warm light\n')
   fs.files[MAP] = latin(written)
   // B358: with its Done when, Yes asks the partner for the goal's re-check; the tick comes once it passed.
   const asked = await focusMove({ command: 'vibe-there-yes', id: 'G4' }, ctx(fs, { allDone: true }))

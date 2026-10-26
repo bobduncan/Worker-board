@@ -456,12 +456,13 @@ plan to make the vision real, in the strategy the user chooses first.
     layout in the concept's look; its pictures are in the project's picture folder). The whole map is still judged
     against its full concept.
   - Only then does one last step combine the proven aspects into one thing of the kind, beside its target.
-  - The goal's very last step is a recap page (the user, 2026-10-25: "i want a recap before we move away from this
-    focus/goal so i can see each aspect it implement with proof screenshot and original target images"). For each
-    aspect it shows the target picture, the proof screenshots at play size, the verdict, the guideline and the bar
-    line, then the combined thing beside its target. The focus does not move on before the user has seen it.
+  - The goal's recap is the goal demo (the user, 2026-10-25: "i want a recap before we move away from this focus/goal
+    so i can see each aspect it implement with proof screenshot and original target images"; 2026-10-26, a fixed stage
+    of every focus): not a step of the how, and made once every part is done (`## The goal demo`). It shows each
+    aspect with its target picture, the proof screenshots at play size, the verdict, the guideline and the bar line,
+    then the combined thing beside its target. The focus does not move on before the user has seen it.
   - Its Done when: every aspect has its verdict, guideline and bar line, the combined thing meets the standard, and the
-    user has seen the recap.
+    user has seen the goal demo.
 
 The check: a heading `## Goals
 preset`, a `### M<n> · <milestone>` per milestone of P7 (`M3+` for the open end), and under each three to six goals
@@ -1033,6 +1034,37 @@ yours to answer for the person; run work next`. Your `work next` lists them firs
 - Today's note is one per goal per day: your answers and your own `work note` of the day go into the same note.
 - **Undo** of such a line is the user's: the ask opens again for them and the asking chat is told to wait. Nothing is
   typed to you; take it as a sign where the user wants the last word, and ask yourself which kind of question it was.
+
+## The goal demo
+
+The user, 2026-10-26: "before we click yes, i want visuals of everything we accomplished in this goal. if needed
+before/after pictures, other way just pictures about the current state", and "i need a link to this demo so i can see
+before i approve the goal". Every goal gets one before the user answers "Did we reach the goal?": the card shows its
+link above Yes and No, and Yes waits until it stands. It replaces the recap page.
+
+The board types `goal demo: G<n> <title>` with `Done when:` and `Your job: ...` into your chat once every part of the
+focus goal is done and it has no `Demo:` line; again every hour while it is not there (`(again: word 2)`), three words at
+most, and again when the user presses "Ask your partner again". Make it at once, whatever else you do:
+
+- A fresh Sonnet helper (never Fable) reads the goal's steps, their evidence pictures and the verdicts, and writes the list
+  as JSON; `node tools/demo.mjs --list <list.json> --out <picture folder>/<goal>/demo/<goal>-demo.png` (the board's
+  folder) draws it. G60's demo (`g60/demo/` in the picture folder: `demo.py`, `g60-demo.png`) is the example, its FOLLOW-UP too. The list's form
+  is in the head of `tools/demo.mjs`; the tool refuses a picture that is not there, a bullet with several items on one
+  line, and puts every row's pictures in the right order itself.
+- Three sections, each visually apart: **Reached** (green titles), **Not reached** with what went wrong (red titles),
+  **Still open** (grey). In every row: the target first, then the state before this goal, then the results in between,
+  and the final result in the game last. Every picture labelled plainly (target, before this goal, in between, final in
+  the game, last try in the game, or final not in the game yet). Pictures at their own pixel size, from the steps'
+  evidence: never a redrawn one. Every bullet list one item per line.
+- A last section, FOLLOW-UP, on what went wrong, the user's words (2026-10-26): "clear if these issues were fixed,
+  incidentally, structurally or not at all. and a recommended course of action". Each item stands in one of five groups:
+  fixed for good (a rule or the board now prevents it); fixed this time only (the action for the lasting fix); not fixed
+  yet, on the backlog (with the step ids); not fixed yet, no step (the action, for the user's yes); escalate, no clear
+  fix here (to the user, the architect or the owning chat).
+- Then write one line under the goal in the map: `Demo: <the picture's path in the picture folder> · <a few words>`
+  (read the file anew right before and change only that line). The Focus page then shows "See the goal demo". Say
+  nothing in your chat. A later change of the goal's state (a No that opens the how again) makes a new demo when its
+  parts are done again: overwrite the picture and keep the line.
 
 ## The goal re-check
 
