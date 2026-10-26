@@ -674,6 +674,8 @@ The board shows the first line as the bold title and the `Context:` line (it may
 
 A title over 12 words, or none, is refused as an ask's is (B491): the board types `brainstorm fix`, `Thread:` and why at once; rewrite that open question in the thread (title, then `Context:`) and write nothing else.
 
+A question that stands in a talk the person can no longer reach (B716: its proposal is created, or it is done or discarded) shows nowhere under Needs your attention, and the board refuses an answer to it. The board then types `brainstorm stranded`, `Thread:` and `Q<n> in <thread> cannot reach the person: ask it with work ask`, once for each question: ask it now with `work ask` (`of` G<n>, kind decide, its options, your advice) and go on from the answer; the talk stays the record.
+
 One question at a time, at most about eight in all; every question has an advised option and says what the answer
 decides; never ask what the thread already answers. The board writes the user's answer under the question
 (`Answer (HH:MM): A — <their words>`, or `Other — <their words>`, `skipped`, `back to Q<m>`) and types
@@ -1165,7 +1167,11 @@ The count is per part (B669; the user, 2026-10-26: "yes"): a part is one `Part:`
    its steps' evidence; a fresh helper may gather them.
 2. Write the evaluation into the goal's talk, as questions and answers (the Q-form of the talk): is the approach right,
    what caps the result, and what you propose: a corrected how (the done parts kept, the failing part done another way)
-   or a rebuild (a new how that replaces parts, with what it costs: hours, and what is thrown away).
+   or a rebuild (a new how that replaces parts, with what it costs: hours, and what is thrown away). The talk is the
+   record, not the way to the person (B716): the goal's talk may have ended in a created proposal long ago, and then none
+   of its later questions reaches them (G15's Q5 to Q7 never did). Every choice of the person's in the evaluation goes as
+   `work ask` (`of` G<n>, kind decide, its options, your advice), so it shows under Needs your attention and its answer
+   comes back; write it into the talk as well, as the record.
 3. A corrected how, or "keep going" when the approach is right after all: send it with `work how-draft` (the same how
    again for keep going), with one `partnerDecides` line `Evaluation: <its outcome in a line>`: that line marks the
    draft as the evaluation's end (a draft without it, such as follow-up steps added to a part, keeps the usual rule and

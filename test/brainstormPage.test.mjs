@@ -7,8 +7,8 @@ import test from 'node:test'
 import { fileURLToPath } from 'node:url'
 import vm from 'node:vm'
 
-import { brainstormsState, fixesToTell, titleFixes } from '../src/brainstorm.mjs'
-import { brainstormFixWords, wakeFor } from '../src/say.mjs'
+import { brainstormsState, fixesToTell, strandedQuestions, strandedToTell, titleFixes } from '../src/brainstorm.mjs'
+import { brainstormFixWords, brainstormStrandedWords, isPartnerWord, wakeFor } from '../src/say.mjs'
 
 const PUBLIC = join(dirname(fileURLToPath(import.meta.url)), '..', 'public')
 const script = await readFile(join(PUBLIC, 'board.js'), 'utf8')
@@ -232,4 +232,60 @@ test('B496: the board tells the Advisor of a refused title once for each wording
   // no partner, no word; a short title, nothing to tell
   assert.deepEqual(fixesToTell(long(), [], null), [])
   assert.deepEqual(fixesToTell(long('Where do lanterns go?'), [], advisor), [])
+})
+
+// B716: G15's thread, made up: its proposal was created on 18 Oct, then the evaluation went on asking in the same talk.
+const GONE = `${HEAD}${Q1}Answer (21:02): A\n${PROPOSAL}Created (21:25): G22; 2 steps asked of the main chat; left out: nothing\n`
+const Q3 = '\n## Q3 (22:30)\nKeep the approach?\nContext: It failed three times.\n- A: keep (advised)\n- B: rebuild\n'
+const ended = state => text => one(text.replace('State: running', `State: ${state}`))
+
+test('B716: a question that stands after a created proposal cannot reach the person; one in a running talk can', () => {
+  const stuck = one(`${GONE}${Q3}`)
+  assert.deepEqual(strandedQuestions([stuck]).map(q => [q.n, q.path, q.goal]), [[3, 'b/2026-10-15-lanterns.md', 'G6']])
+  // a running talk with no proposal, or with its proposal still to tick (the proposal waits for the person), is told nothing
+  assert.deepEqual(strandedQuestions([one(`${HEAD}${Q1}`)]), [])
+  assert.deepEqual(strandedQuestions([one(`${HEAD}${Q1}Answer (21:02): A\n${PROPOSAL}`)]), [])
+  // an answered question, or none at all, asks for nothing
+  assert.deepEqual(strandedQuestions([one(`${GONE}${Q3}Answer (22:40): A\n`)]), [])
+  assert.deepEqual(strandedQuestions([one(GONE)]), [])
+})
+
+test('B716: a done or a discarded talk with an open question cannot reach the person either', () => {
+  assert.equal(strandedQuestions([ended('done')(`${HEAD}${Q1}`)]).length, 1)
+  assert.equal(strandedQuestions([ended('discarded')(`${HEAD}${Q1}`)]).length, 1)
+  assert.equal(strandedQuestions([ended('wrapping up')(`${HEAD}${Q1}`)]).length, 0)
+})
+
+test('B716: the board tells the partner of a stranded question once, and the next question again', () => {
+  const advisor = { name: 'Advisor' }
+  const outbox = []
+  const first = strandedToTell([one(`${GONE}${Q3}`)], outbox, advisor)
+  assert.equal(first.length, 1)
+  assert.equal(first[0].to, 'Advisor')
+  assert.equal(first[0].command, 'brainstorm-stranded')
+  const lines = first[0].text.split('\n')
+  assert.deepEqual(lines.slice(0, 3), ['brainstorm stranded', 'Thread: b/2026-10-15-lanterns.md', 'Q3 in b/2026-10-15-lanterns.md cannot reach the person: ask it with work ask'])
+  assert.match(lines[3], /^Your job: ask Q3 now with work ask \(of G6, kind decide/)
+  outbox.push({ ...first[0], state: 'waiting' })
+  // not again, also when the word was taken, or the title was rewritten
+  assert.deepEqual(strandedToTell([one(`${GONE}${Q3}`)], outbox, advisor), [])
+  outbox[0].state = 'taken'
+  assert.deepEqual(strandedToTell([one(`${GONE}${Q3}`)], outbox, advisor), [])
+  assert.deepEqual(strandedToTell([one(`${GONE}${Q3.replace('Keep the approach?', 'Keep it?')}`)], outbox, advisor), [])
+  // the question after it is another question
+  const Q4 = '\n## Q4 (23:10)\nRebuild now?\nContext: It costs 3 h.\n- A: yes (advised)\n- B: no\n'
+  const next = strandedToTell([one(`${GONE}${Q3}Answer (22:40): A\n${Q4}`)], outbox, advisor)
+  assert.equal(next.length, 1)
+  assert.match(next[0].text, /^brainstorm stranded\nThread: \S+\nQ4 in /)
+  // no partner, no word; a talk that reaches the person, nothing to tell
+  assert.deepEqual(strandedToTell([one(`${GONE}${Q3}`)], [], null), [])
+  assert.deepEqual(strandedToTell([one(`${HEAD}${Q1}`)], [], advisor), [])
+})
+
+test('B716: the stranded word is a partner word that wakes a stopped partner', () => {
+  assert.equal(isPartnerWord('brainstorm-stranded'), true)
+  const asleep = { advisor: { name: 'Advisor', isRunning: false }, restart: { main: 'Main' }, chats: [{ name: 'Main', isMain: true, isRunning: true }] }
+  const words = brainstormStrandedWords({ to: 'Advisor', path: 'b/x.md', n: 3, goal: null })
+  assert.equal(wakeFor({ to: 'Advisor', command: words.command }, asleep, [], 1_000_000, 2000)?.command, 'start')
+  assert.doesNotMatch(words.text, /of G/)
 })

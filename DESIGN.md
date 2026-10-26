@@ -4198,6 +4198,14 @@ words or missing (also one from before the form, by the title its first question
 `brainstorm fix` (src/brainstorm.mjs `titleFixes`, src/say.mjs `brainstormFixWords`, the look in server.mjs), once for each
 wording; the Advisor rewrites it in the thread. An earlier or answered question only shows under the card as a problem.
 
+B716: the open question of a talk the person can no longer reach (its proposal created, or the talk done or discarded:
+`brainstormNeeds` shows nothing for it and `answerQuestion` refuses an answer) is typed to the Advisor once as
+`brainstorm stranded` (src/brainstorm.mjs `strandedQuestions`, `strandedToTell`, `brainstormStrandedWords`; the look in
+server.mjs beside the title fix): "Q<n> in <thread> cannot reach the person: ask it with work ask". Only the talk's last
+question, while it has no answer; the same question is never told twice, the next one is. G15's evaluation questions Q5 to
+Q7 (24 and 25 Oct) stood in such a talk and never reached the person; the evaluation (roles/partner.md) now asks the
+person's choice with `work ask` and keeps the talk as its record.
+
 ## The goal demo before "Did we reach the goal?" (B677)
 
 The person, 2026-10-26: "before we click yes, i want visuals of everything we accomplished in this goal", and "i need a

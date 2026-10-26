@@ -560,3 +560,38 @@ export function fixesToTell(threads, outbox, advisor) {
   return titleFixes(threads).map(fix => brainstormFixWords({ to: advisor.name, ...fix }))
     .filter(words => !(outbox ?? []).some(one => one.command === 'brainstorm-fix' && one.about === words.about && one.text === words.text))
 }
+
+/**
+ * B716: the open question of a talk that cannot reach the person: its proposal was created (the board shows no question
+ * of such a talk under Needs your attention, `brainstormNeeds`, and refuses an answer to it, `answerQuestion`), or it is
+ * done or discarded. `{ path, n, goal }`, the talk's last question only, and only while it has no answer: an earlier one
+ * stands behind it. A running talk with no created proposal, or a proposal still to tick, reaches the person.
+ */
+export function strandedQuestions(threads) {
+  return (threads ?? []).flatMap(thread => {
+    const cannotReach = thread.state === 'done' || thread.state === 'discarded' || (thread.proposal?.created ?? null) !== null
+    if (!cannotReach || thread.latest === null || thread.latest.answer !== null) return []
+    return [{ path: thread.path, n: thread.latest.n, goal: thread.goal?.id ?? null }]
+  })
+}
+
+/**
+ * B716: the board's word to the partner that a question of its talk cannot reach the person: ask it with `work ask`,
+ * the talk stays the record (roles/partner.md, "The fundamental evaluation"). Its text holds the thread, the question and
+ * the goal only, so the same question is the same word.
+ */
+export function brainstormStrandedWords({ to, path, n, goal }) {
+  const kind = `${goal === null || goal === undefined ? '' : `of ${goal}, `}kind decide, its options, your advice`
+  return {
+    to, ask: null, step: null, title: null, version: null, verdict: null, command: 'brainstorm-stranded', about: path,
+    text: [`brainstorm stranded`, `Thread: ${path}`, `Q${n} in ${path} cannot reach the person: ask it with work ask`,
+      `Your job: ask Q${n} now with work ask (${kind}), and go on from its answer; write nothing else into the talk.`].join('\n'),
+  }
+}
+
+/** B716: the words still to type to the partner: one for each stranded question not told before (`outbox` is everything sent), so a question is told once. Nothing without a partner (`advisor` null). */
+export function strandedToTell(threads, outbox, advisor) {
+  if ((advisor ?? null) === null) return []
+  return strandedQuestions(threads).map(one => brainstormStrandedWords({ to: advisor.name, ...one }))
+    .filter(words => !(outbox ?? []).some(sent => sent.command === 'brainstorm-stranded' && sent.about === words.about && sent.text === words.text))
+}

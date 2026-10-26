@@ -60,7 +60,7 @@ import { keepTalkPicture } from './src/talkPicture.mjs'
 import { firstLook, refineWhenDue } from './src/refineGate.mjs'
 import { recheckText, roundText, roundsNow } from './src/rounds.mjs'
 import { editStep, settleByBoard } from './src/tick.mjs'
-import { editThread, fixesToTell } from './src/brainstorm.mjs'
+import { editThread, fixesToTell, strandedToTell } from './src/brainstorm.mjs'
 import { changeGoalsFile, editGoals } from './src/goalsWrite.mjs'
 import { activityFor, missingToSteps } from './src/goalSteps.mjs'
 import { PLAN_MOVES, planMove } from './src/planMoves.mjs'
@@ -2208,7 +2208,8 @@ async function main(args) {
       // Advisor at once, once for each wording. Only the board that delivers, and only while there is an Advisor.
       if (bridgeKey !== null && (state.advisor ?? null) !== null) {
         const now = clock()
-        for (const words of fixesToTell(state.brainstorms?.threads, store.outbox(), state.advisor)) {
+        // B716: and the open question of a talk that cannot reach the person, once for each question.
+        for (const words of [...fixesToTell(state.brainstorms?.threads, store.outbox(), state.advisor), ...strandedToTell(state.brainstorms?.threads, store.outbox(), state.advisor)]) {
           const message = { id: randomBytes(8).toString('hex'), at: now, ...words, state: 'waiting' }
           await store.say(message)
           const wake = wakeFor(message, state, store.outbox(), now, config.maxMessageChars)

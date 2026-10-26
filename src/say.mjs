@@ -3,8 +3,8 @@
 // request: a verdict for work to verify, "done" for something only the person can do, words for a question.
 
 import { refinedKey } from './backlog.mjs'
-import { brainstormFixWords, leftOutKey } from './brainstorm.mjs'
-export { brainstormFixWords }
+import { brainstormFixWords, brainstormStrandedWords, leftOutKey } from './brainstorm.mjs'
+export { brainstormFixWords, brainstormStrandedWords }
 import { SWITCH_MODES, partnerEffortWords } from './partnerEffort.mjs'
 import { RECHECK_HEAD } from './rounds.mjs'
 import { stoppedOf } from './stopped.mjs'
@@ -601,7 +601,7 @@ const WAKE_PENDING_MS = 10 * 60_000
 
 /** The commands the board puts to a chat other than the main one: a word the chat's work stands on (wakeFor). */
 // B570: and the board's word that asks the partner to restart the main chat on a new Workers mod.
-const PARTNER_WORDS = ['recommend', 'refine', 'result-check', 'evaluate', 'work', 'recheck', 'goal-ask', 'brainstorm', 'brainstorm-answer', 'brainstorm-wrap', 'brainstorm-change', 'brainstorm-fix', 'incident', 'mod-restart', ...FOCUS_COMMANDS]
+const PARTNER_WORDS = ['recommend', 'refine', 'result-check', 'evaluate', 'work', 'recheck', 'goal-ask', 'brainstorm', 'brainstorm-answer', 'brainstorm-wrap', 'brainstorm-change', 'brainstorm-fix', 'brainstorm-stranded', 'incident', 'mod-restart', ...FOCUS_COMMANDS]
 export const isPartnerWord = command => typeof command === 'string' && (command.startsWith('plan-') || PARTNER_WORDS.includes(command))
 
 /** 2026-10-26: the command of the board's word that has a worker holding a step go on from its checkpoint (`resumesDue`). */
