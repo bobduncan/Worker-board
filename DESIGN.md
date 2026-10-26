@@ -3566,9 +3566,17 @@ backlogitem is there. its not clear what the follow up is." They chose layout B 
   Main", "queued for Worker 2", "Worker 5 · building", "in review", "done · fixed"; from the step's record and its worker's
   lane, `src/supervisor/cards.mjs stepState`), and one quiet line: the incident ids and a few words, "(seen N×)" only above
   once. A click opens each incident's evidence, times and count. The rules are one folded line ("20 rules · 2 tripped").
+  **One line per incident (2026-10-26).** The person, looking at the section: "it says 9 open but i only see 3 fixed,
+  where are the open ones?" The card of the open incidents with no fix step showed a row of ids and one title. Now a card
+  that is not fixed and holds more than one incident lists every incident on its own line (`incidentCardOf`, `lines`):
+  its id, its own title whole (cut at a word after 110 characters), and "seen N×, last 10:40" (the date, "22 Oct",
+  when that was not today), the one seen last first; the evidence behind a click is in the same order. On the card without
+  a fix step each line also says that incident's own state ("with the Advisor", "sending to the Advisor…") when they
+  differ. A card with one incident, and the fixed cards (and "Closed, no fix needed"), keep the one quiet line.
 - **Grouping** is by the incident's `Fix` while it is being fixed or fixed; a step titled "Fix of X<n>" counts only as a
   fallback when no Fix does; an incident that came back, or is open again, does not keep its old Fix. Those with no fix
-  step stand on the last card, "No fix step yet": "sending to the Advisor…" while its word waits or was just taken, "with
+  step stand on the last card, "Open, no fix task yet (9)" (the count is the number of incidents the page lists on it):
+  "sending to the Advisor…" while its word waits or was just taken, "with
   the Advisor" once it arrived, "came back".
 - **Live**: `supervisor.view(now, live)` makes the cards at every refresh from the store, the chats and the Advisor's name
   the server passes, so a step the partner just linked shows at once. Quiet blues and greys, nothing warm.
