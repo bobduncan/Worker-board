@@ -124,7 +124,8 @@ export function readyList(items, { now, focus = null, focusGoals = [], followUpM
     const rank = isFix(item) ? 0 : chain.some(one => inFocus.has(valueOf(one, 'Goal'))) ? 1 : 2
     const added = addedStamp(item)
     // B691: a fix goes out as its root does: the person's pick (added or pinned) of any step down its chain is its own.
-    const picked = chain.some(one => addedStamp(one) !== null || valueOf(one, 'Pinned') !== null)
+    // A dropped root has nothing left to make pass: its pick does not carry the fix.
+    const picked = chain.some(one => stateOf(one) !== 'dropped' && (addedStamp(one) !== null || valueOf(one, 'Pinned') !== null))
     // 2026-10-25, the controller in the person's place (principle 8): a task that is no fix, not of the focus goal and
     // not pinned waits for the person's pick, unless the settings' `handOutBeyondFocus` is true. The whole backlog is
     // not the board's to start. The Backlog tab's blocks: the person picks it with "Add to queue" (`Queued by`).
