@@ -12,7 +12,7 @@ import { asksAtEnd, parseHandover } from './handover.mjs'
 import { hourEnd, hourStart, taskFacts, today } from './history.mjs'
 import { finishedList } from './finished.mjs'
 import { brainstormNeeds, brainstormsState } from './brainstorm.mjs'
-import { demoGaveUp } from './focus.mjs'
+import { DEMO_WORDS, demoGaveUp } from './focus.mjs'
 import { focusStage, goalAskList, goalAskNeeds, goalCounts, parseGoals, unlinkedSteps } from './goals.mjs'
 import { limitStop, limitsOf, newestPerWindow, parseUsageHistory, pauseLifted, pauseNote, storePause, usageReadings } from './limits.mjs'
 import { mentionedPaths } from './pictures.mjs'
@@ -1003,6 +1003,12 @@ const NOT_HANDED = ['new', 'refined']
 /** B684: a step's colour on its part's bar: done (finished), now (built or checked), wait, stop (dropped). */
 const stepToneOf = state => (state === 'done' || state === 'closed' ? 'done' : state === 'dropped' ? 'stop' : UNDER_WAY.includes(state) ? 'now' : 'wait')
 
+/** B699: a goal's `Demo:` value (`<path> · <a few words>`) as { path, caption, isPage }: a path ending .json is a demo the board draws as a page, else a picture. */
+function demoOf(value) {
+  const path = value.split(' · ')[0].trim()
+  return { path, caption: value.split(' · ').slice(1).join(' · ').trim(), isPage: /\.json$/i.test(path) }
+}
+
 /**
  * B684: one step of a focus part for its bar and its list: `{ id, title, tone, state (its name in words), owner,
  * check, waitsFor }`. `check` (B356, B504): the result check's ticks and evidence, a failed one with where its fixes
@@ -1139,11 +1145,13 @@ export function focusState(goalMap, items, threads, prefix, partner = null, now 
     vibeAgreed: node.vibeAgreed,
     // 2026-10-25 (the user: "where is this 1 short page"): the page the goal makes, `{ path, caption }`, or null.
     page: typeof node.page === 'string' && node.page.trim() !== '' ? { path: node.page.split(' · ')[0].trim(), caption: node.page.split(' · ').slice(1).join(' · ').trim() } : null,
-    // B677: the goal's demo picture, `{ path, caption }`, or null; and whether the partner was asked for it.
-    demo: typeof node.demo === 'string' && node.demo.trim() !== '' ? { path: node.demo.split(' · ')[0].trim(), caption: node.demo.split(' · ').slice(1).join(' · ').trim() } : null,
+    // B677: the goal's demo, `{ path, caption, isPage }`, or null (B699: a .json is the page the board draws, else a picture); and whether the partner was asked for it.
+    demo: typeof node.demo === 'string' && node.demo.trim() !== '' ? demoOf(node.demo) : null,
     demoAsked: node.demoAsked ?? null,
-    // B686: all three words went and an hour passed without a demo: the card says so beside "Ask your partner again".
+    // B686: all the words went and an hour passed without a demo: the card says so beside "Ask your partner again".
     demoGaveUp: demoGaveUp(node, now),
+    // B699: how many words the board sends before it says so (the card writes the number; no second copy of it in the page).
+    demoWords: DEMO_WORDS,
     parts,
     steps: stepList,
     partnerDecides: node.partnerDecides,

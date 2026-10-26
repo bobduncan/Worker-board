@@ -4139,14 +4139,23 @@ link to this demo so i can see before i approve the goal". A fixed stage of ever
    card's button "Ask your partner again" (move `goal-demo`) starts the count anew.
 3. The card "Did we reach the goal?" shows "See the goal demo" (the picture window) above Yes and No; without the line it says
    "Your partner makes the goal demo first", Yes is off, and the server refuses a Yes without it. No stays.
-4. `tools/demo.mjs` draws the demo from a JSON list through a headless browser (evidence.mjs `shootPage`): Reached,
+4. `tools/demo.mjs` checks a JSON list and writes `demo.json` beside the pictures (B699; B677 drew one tall picture): Reached,
    Not reached, Still open, then the follow-up groups; the target first and the final last in every row, plain labels, one bullet
-   per item, pictures at their own pixel size, a missing picture stops it. roles/partner.md "The goal demo" says how the partner makes it.
+   per item, a missing picture or one over the board's picture limit stops it. roles/partner.md "The goal demo" says how the partner makes it.
 5. B686 (the result check of B677): a row wraps instead of shrinking its pictures (a 1280 px shot stays 1280 px in the 2400 px
    page; `cols` is no longer used); a No on "Did we reach the goal?" takes `Demo:` and `Demo asked:` away with the re-check line,
    so the parts done again ask for a new demo; after the third word and an hour without a demo, focusState gives
    `demoGaveUp` and the card says the partner did not answer in three tries beside "Ask your partner again" (styled
    `.focus-ask-demo`); the word's Done when keeps its letters (src/say.mjs squeezed `s+` instead of `\s+`).
+6. B699 (the second result check of B677): a demo is a page, not a picture. G60's one tall picture, every shot at its own size,
+   was 2400x37277 px and 68.5 MiB, over the 32 MiB picture limit (B677's, scaled to a 2400 px page, showed no detail when zoomed).
+   Now `demo.json` (src/demo.mjs: the list's checks, the order of a row's pictures, the labels, `demoPage` the page model) is
+   served by `GET /api/demo?path=` (src/pictures.mjs `findDemo`: inside a shown folder, at most 1 MB) and drawn by public/board.js
+   `demoBody` in the dialog `#demo-page`: per part its verdict (Reached green, Not reached red, Still open grey) and its row of
+   labelled pictures fitted to the row, the follow-up last. A picture is its own file: a click opens the picture window at its
+   own size, with zoom. A `Demo:` line naming a .json opens this page (focusState gives `demo.isPage`), one naming a picture
+   the picture window as before; `#demo=<path>` in the address opens the page. focusState also gives `demoWords`
+   (DEMO_WORDS): the card writes the number, there is no copy of it in the page.
 
 ## A part with only dropped steps is Stopped (B680)
 

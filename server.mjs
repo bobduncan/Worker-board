@@ -54,7 +54,7 @@ import { areaOf, freshScan, keptTasks, listText, readOn } from './src/taskTimes.
 import { createSpendingCollector } from './src/work/routing/collector.mjs'
 import { readRoutingRecord } from './src/work/routing/records.mjs'
 import { parseRoutingPolicy } from './src/work/routing/policy.mjs'
-import { adoptPicture, findPicture, PICTURE_BYTES as SHOWN_PICTURE_BYTES, pictureProblem, pictureTooBig, shownFolders, shownRoots } from './src/pictures.mjs'
+import { adoptPicture, findDemo, findPicture, PICTURE_BYTES as SHOWN_PICTURE_BYTES, pictureProblem, pictureTooBig, shownFolders, shownRoots } from './src/pictures.mjs'
 import { answerWords, checkSay, checkStepWords, focusWords, resumesDue, spawnWhenAlone, wakeFor, wakesDue, wakesStopped, withInstruction, workWords } from './src/say.mjs'
 import { keepTalkPicture } from './src/talkPicture.mjs'
 import { firstLook, refineWhenDue } from './src/refineGate.mjs'
@@ -231,7 +231,7 @@ export const POST_ROUTES = Object.freeze({
  *   `mayWrite()`       B529: null while this process may take the page's writes, else why not (refused with 409)
  */
 export function createBoard({
-  token, getState, say, picture = async () => null, gameFile = async () => null, publicDir = join(HERE, 'public'),
+  token, getState, say, picture = async () => null, demo = async () => null, gameFile = async () => null, publicDir = join(HERE, 'public'),
   game = async () => ({ ok: false, status: 404, why: 'Not here.' }),
   bridgeKey = null, take = async () => ({ ok: false, status: 404, why: 'Not here.' }), typed = async () => ({ ok: false, status: 404, why: 'Not here.' }),
   report = async () => ({ ok: false, status: 404, why: 'Not here.' }),
@@ -445,6 +445,13 @@ export function createBoard({
       if (found !== null && found.tooBig === undefined) return send(res, 200, found.type, found.body)
       if (found === null) return refuse(res, 404, 'No such picture.')
       return refuse(res, 413, `Too big to show: ${(found.tooBig / 1048576).toFixed(1)} MB (the board shows pictures up to ${SHOWN_PICTURE_BYTES / 1048576} MB).`)
+    }
+    // B699: the goal demo a demo.json holds, as the page the board draws.
+    if (pathname === '/api/demo') {
+      if (!mayUse) return refuse(res, 403, 'Only the board\'s own page may read.')
+      const found = await demo(searchParams.get('path') ?? '')
+      if (found === null) return refuse(res, 404, 'No such goal demo.')
+      return found.page === undefined ? refuse(res, 422, found.why) : json(res, found.page)
     }
     // B218: a file a link in the game plan names, read-only, from the game's folder only.
     if (pathname === '/api/game-file') {
@@ -1793,6 +1800,7 @@ async function main(args) {
       return { ok: true, message }
     },
     gameFile: (path, alt) => findGameFile(config, path, alt),
+    demo: async path => findDemo((await readState()).project, shownRoots(config), path),
     picture: async path => {
       const { project } = await readState()
       const found = await findPicture(project, shownRoots(config), path)

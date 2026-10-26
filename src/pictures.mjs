@@ -2,10 +2,11 @@
 // project's picture folder). A chat or the backlog only gives a path; whether it may be shown is decided here, on the
 // real file, so nothing outside those folders can be asked for through the board.
 
-import { copyFile, mkdir, readdir, realpath, stat } from 'node:fs/promises'
+import { copyFile, mkdir, readdir, readFile, realpath, stat } from 'node:fs/promises'
 import { join, sep } from 'node:path'
 
 import { picturePath } from './asks.mjs'
+import { DEMO_BYTES, demoPage } from './demo.mjs'
 
 /** An idea's reference picture in its folder (B156). */
 const IDEA_REFERENCE = /^reference-[1-9]\.(png|jpg|webp)$/
@@ -52,6 +53,29 @@ export async function findPicture(project, roots, value) {
     const info = await stat(file)
     if (!info.isFile() || info.size > PICTURE_BYTES) return null
     return { file, type: TYPES[path.split('.').pop().toLowerCase()], size: info.size }
+  } catch {
+    return null
+  }
+}
+
+/**
+ * B699: the goal demo a `demo.json` in a shown folder holds, as the page the board draws (src/demo.mjs demoPage). Null when
+ * no such file is there; `{ why }` in plain words when it is there but cannot be drawn; else `{ page }`.
+ */
+export async function findDemo(project, roots, value) {
+  if (typeof value !== 'string') return null
+  const path = value.replace(/\\/g, '/')
+  const parts = path.split('/')
+  if (!/\.json$/i.test(path) || /[\0:*?"<>|]/.test(path) || parts.length < 2 || parts.some(part => part === '' || part === '.' || part === '..')) return null
+  const file = await inside(project, roots, path)
+  if (file === null) return null
+  try {
+    const info = await stat(file)
+    if (!info.isFile()) return null
+    if (info.size > DEMO_BYTES) return { why: `The demo list is over ${DEMO_BYTES / 1048576} MB.` }
+    let list
+    try { list = JSON.parse((await readFile(file, 'utf8')).replace(/^﻿/, '')) } catch { return { why: 'The demo list is not valid JSON.' } }
+    try { return { page: demoPage(list, parts.slice(0, -1).join('/')) } } catch (error) { return { why: error.message } }
   } catch {
     return null
   }

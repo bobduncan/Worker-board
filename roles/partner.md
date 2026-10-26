@@ -1062,10 +1062,12 @@ focus goal is done and it has no `Demo:` line; again every hour while it is not 
 most, and again when the user presses "Ask your partner again". Make it at once, whatever else you do:
 
 - A fresh Sonnet helper (never Fable) reads the goal's steps, their evidence pictures and the verdicts, and writes the list
-  as JSON; `node tools/demo.mjs --list <list.json> --out <picture folder>/<goal>/demo/<goal>-demo.png` (the board's
-  folder) draws it. G60's demo (`g60/demo/` in the picture folder: `demo.py`, `g60-demo.png`) is the example, its FOLLOW-UP too. The list's form
-  is in the head of `tools/demo.mjs`; the tool refuses a picture that is not there, a bullet with several items on one
-  line, and puts every row's pictures in the right order itself.
+  as JSON; `node tools/demo.mjs --list <list.json> --out <picture folder>/<goal>/demo/demo.json` (the board's
+  folder) checks it and writes `demo.json`, which the board draws as a page (B699: one tall picture was 68.5 MiB, over the
+  picture limit, and did not open). Every picture stays its own file at its own size: never a redrawn or joined one. G60's
+  demo (`g60/demo/` in the picture folder) is the example, its FOLLOW-UP too. The list's form is in the head of
+  `src/demo.mjs`; the tool refuses a picture that is not there, one over the board's limit, a bullet with several items on
+  one line, and puts every row's pictures in the right order itself.
 - Three sections, each visually apart: **Reached** (green titles), **Not reached** with what went wrong (red titles),
   **Still open** (grey). In every row: the target first, then the state before this goal, then the results in between,
   and the final result in the game last. Every picture labelled plainly (target, before this goal, in between, final in
@@ -1076,10 +1078,11 @@ most, and again when the user presses "Ask your partner again". Make it at once,
   fixed for good (a rule or the board now prevents it); fixed this time only (the action for the lasting fix); not fixed
   yet, on the backlog (with the step ids); not fixed yet, no step (the action, for the user's yes); escalate, no clear
   fix here (to the user, the architect or the owning chat).
-- Then write one line under the goal in the map: `Demo: <the picture's path in the picture folder> · <a few words>`
-  (read the file anew right before and change only that line). The Focus page then shows "See the goal demo". Say
-  nothing in your chat. A later change of the goal's state (a No that opens the how again) makes a new demo when its
-  parts are done again: overwrite the picture and keep the line.
+- Then write one line under the goal in the map: `Demo: <the demo.json's path in the picture folder> · <a few words>`
+  (read the file anew right before and change only that line). The Focus page then shows "See the goal demo", which opens
+  the page (a `Demo:` line that names a .png opens the picture window as before). Say nothing in your chat. A later
+  change of the goal's state (a No that opens the how again) removes the Demo line; when its parts are done again the
+  board asks for a new demo, and you write the `Demo:` line again.
 
 ## The goal re-check
 

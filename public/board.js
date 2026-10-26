@@ -6914,6 +6914,13 @@ $('lanes').addEventListener('click', event => {
 function openFromAddress(state) {
   // B149: the links in a worker's answer: `#picture=<path>` shows that picture here, `#play=<branch>&<settings>`
   // makes this tab that branch's game, where the settings put it. Followed once.
+  // B699: `#demo=<path of a demo.json>` opens that goal demo as a page.
+  if (location.hash.startsWith('#demo=')) {
+    const path = decodeURIComponent(location.hash.slice('#demo='.length))
+    history.replaceState(null, '', location.pathname)
+    openDemo(path)
+    return
+  }
   if (location.hash.startsWith('#picture=') || location.hash.startsWith('#play=')) {
     const hash = location.hash
     history.replaceState(null, '', location.pathname)
@@ -7049,6 +7056,81 @@ function openPicture(path, caption) {
 document.addEventListener('click', event => {
   const frame = event.target.closest('[data-zoom]')
   if (frame !== null) openPicture(frame.dataset.zoom, frame.dataset.caption)
+})
+
+// demo:start
+/** B699: the goal demo's page body from the board's page model (src/demo.mjs demoPage): the verdict of each part, its labelled pictures at their own size (a click opens the picture window), the follow-up last. Words, order and labels are the model's. */
+function demoBody(page) {
+  const body = el('div', 'demo-body')
+  const bullets = (items, className) => {
+    const list = el('ul', className)
+    for (const item of items) list.append(el('li', '', item))
+    return list
+  }
+  body.append(el('h2', 'demo-title', `${page.goal} · ${page.title}: the goal demo`), el('p', 'demo-intro', page.intro))
+  for (const section of page.sections) {
+    const part = el('section', `demo-section is-${section.kind}`)
+    part.append(el('div', 'demo-band', section.band))
+    if (section.intro.length > 0) part.append(bullets(section.intro, 'demo-lines'))
+    if (section.items.length > 0) part.append(bullets(section.items, 'demo-items'))
+    for (const row of section.rows) {
+      const card = el('div', 'demo-row')
+      const head = el('h3', 'demo-row-title')
+      head.append(el('span', 'demo-verdict', section.verdict), el('span', '', row.title))
+      card.append(head)
+      if (row.note !== '') card.append(el('p', 'demo-row-note', row.note))
+      const shots = el('div', 'demo-pictures')
+      for (const one of row.pictures) {
+        const figure = el('figure', one.kind === null ? 'demo-figure' : `demo-figure is-${one.kind}`)
+        if (one.label !== null) figure.append(el('div', 'demo-kind', one.label))
+        figure.append(el('figcaption', '', one.caption))
+        const frame = picture(one.path, one.caption)
+        frame.className += ' demo-picture'
+        figure.append(frame)
+        shots.append(figure)
+      }
+      card.append(shots)
+      part.append(card)
+    }
+    body.append(part)
+  }
+  if (page.followUp !== null) {
+    const follow = el('section', 'demo-section is-follow-up')
+    follow.append(el('div', 'demo-band', page.followUp.band))
+    for (const group of page.followUp.groups) {
+      const block = el('div', `demo-group is-${group.key}`)
+      block.append(el('h3', '', group.title), bullets(group.items, 'demo-items'))
+      follow.append(block)
+    }
+    body.append(follow)
+  }
+  return body
+}
+// demo:end
+
+/** B699: the goal demo of a demo.json as a page of its own: each picture stays its own file, opened at its own size with a click. */
+async function openDemo(path) {
+  const box = $('demo-page')
+  const head = el('header', 'file-view-head')
+  const close = el('button', 'icon-button', '✕')
+  close.type = 'button'
+  close.dataset.closeDemo = ''
+  close.setAttribute('aria-label', 'Close')
+  head.append(el('h2', '', 'The goal demo'), close)
+  const answer = await fetch(`/api/demo?path=${encodeURIComponent(path)}`, { headers: { 'X-Board-Token': TOKEN } }).catch(() => null)
+  let body
+  if (answer === null) body = el('p', 'problem', 'The board\'s server does not answer.')
+  else if (!answer.ok) body = el('p', 'problem', (await answer.text()).trim() || 'This goal demo is not shown.')
+  else body = demoBody(await answer.json())
+  const scroll = el('div', 'demo-scroll')
+  scroll.append(body)
+  fill(box, [head, scroll])
+  if (!box.open) box.showModal()
+}
+document.addEventListener('click', event => {
+  const link = event.target.closest('[data-demo]')
+  if (link !== null) return openDemo(link.dataset.demo)
+  if (event.target === $('demo-page') || event.target.closest('[data-close-demo]') !== null) $('demo-page').close()
 })
 
 // B208: a phone is a screen up to 600 px wide, as the style sheet has it.
@@ -10181,8 +10263,6 @@ function goToPlace(hash) {
 // Focus 1 (spec 2026-10-18, section 4): the tab is named Focus, its first part is the Focus page; its bar shows Focus,
 // Goals and Brainstorm, the others only when the setting advisorParts names them (hidden, not deleted).
 // focus:start
-/** B686: how many words the board sends for the goal demo before it says the partner did not answer (src/focus.mjs DEMO_WORDS). */
-const DEMO_WORDS_SHOWN = 'three'
 const ADVISOR_PANES = ['focus', 'way', 'goals', 'brainstorm', 'plan', 'suggestions', 'refine', 'chat']
 const ADVISOR_PARTS_USUAL = ['focus', 'goals', 'brainstorm']
 
@@ -10404,8 +10484,8 @@ function focusView(focus, goals, can = null, ui = {}) {
         button('No', 'vibe-there-no', true, 'Say what is missing: your partner changes the how'),
       ],
       demo: demo === null
-        ? { text: focus.demoGaveUp === true ? `Your partner did not answer in ${DEMO_WORDS_SHOWN} tries: no goal demo yet.` : 'Your partner makes the goal demo first.', link: null, again: button('Ask your partner again', 'goal-demo', allowed, focus.demoAsked === null ? 'Your partner is asked for the goal demo by the board' : 'Your partner was asked: ask once more when the demo does not come') }
-        : { text: null, link: { label: 'See the goal demo', path: demo.path, caption: demo.caption || demo.path }, again: null },
+        ? { text: focus.demoGaveUp === true ? `Your partner did not answer in ${focus.demoWords} tries: no goal demo yet.` : 'Your partner makes the goal demo first.', link: null, again: button('Ask your partner again', 'goal-demo', allowed, focus.demoAsked === null ? 'Your partner is asked for the goal demo by the board' : 'Your partner was asked: ask once more when the demo does not come') }
+        : { text: null, link: { label: 'See the goal demo', path: demo.path, caption: demo.caption || demo.path, isPage: demo.isPage === true }, again: null },
       doneWhen: hasLine ? null : asked.includes(focus.id)
         ? button('Ask your partner again', 'done-when', true, 'Your partner was asked: ask once more when its Done when does not come')
         : button('Ask your partner to write its Done when', 'done-when', true, 'Your partner writes how you check the goal is done'),
@@ -12643,7 +12723,9 @@ function focusVibeThereCard(view, can) {
   if (demo.link !== null) {
     const see = el('button', 'focus-demo-link', demo.link.label)
     see.type = 'button'
-    see.dataset.zoom = demo.link.path
+    // B699: a demo.json opens the page the board draws; a picture opens the picture window as before.
+    if (demo.link.isPage) see.dataset.demo = demo.link.path
+    else see.dataset.zoom = demo.link.path
     see.dataset.caption = demo.link.caption
     card.append(see)
   } else {
@@ -15940,7 +16022,7 @@ function show(tab) {
   if ($('view-spending')) $('view-spending').hidden = tab !== 'spending'
   // The address says which tab is open, so a reload stays on it. A link to a step's details is left as it is.
   // B149: so is a worker's link to a picture or to the game, until it is followed.
-  if (!['#details=', '#task=', '#picture=', '#play='].some(start => location.hash.startsWith(start))) {
+  if (!['#details=', '#task=', '#picture=', '#play=', '#demo='].some(start => location.hash.startsWith(start))) {
     const address = tab === 'overview' ? location.pathname : tab === 'coordinate' ? backlogAddress() : tab === 'advice' ? adviceAddress() : `#${tab}`
     // B255: leaving the goal map for another tab keeps its place in the browser's history: Back returns to the goal.
     if (goalFocusOf(location.hash) !== undefined && tab !== 'advice') history.pushState(null, '', address)
