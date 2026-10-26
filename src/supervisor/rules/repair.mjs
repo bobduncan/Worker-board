@@ -23,7 +23,8 @@ import { askFiledMs, sinceMs, valueOf } from '../../work/item.mjs'
 import { stamp } from '../../work/migrate.mjs'
 import { waitIds } from '../../work/guards.mjs'
 import { PARTNER_AGAIN_MS, isPartnerAskWord, isRoutedToPartner, partnerAskWords } from '../../work/partnerAnswers.mjs'
-import { isHolding } from '../../work/pause.mjs'
+import { afterPause, isHolding } from '../../work/pause.mjs'
+import { refineWaitOf } from '../../work/refineWait.mjs'
 import { boardWarningsOf, checkWhy, gitCheckPassed, needsResultCheck, resultCheckOf, reviewWaitOf, warningLines } from '../../work/resultCheck.mjs'
 import { asksOfStep } from '../../work/stepAsks.mjs'
 import { heldReason } from '../../work/parked.mjs'
@@ -41,6 +42,14 @@ export const REFUSED_MS = 10 * MIN
 export const REFUSED_LASTS_MS = 2 * MIN
 /** B449: a step in review with no result check filed (or one the person answered) this long wakes the partner again. */
 export const UNCHECKED_MS = 30 * MIN
+/**
+ * T9.4 (the person, 2026-10-26: "ask again every 30 min, after 3 tries to me"): a refine or an incident the Advisor took
+ * and has not done is asked again every ASK_AGAIN_MS, ASKS_AGAIN times; after that the person is told, once.
+ */
+export const ASK_AGAIN_MS = 30 * MIN
+export const ASKS_AGAIN = 3
+/** The rules whose wakes are bounded by design (three, then the person): the watch rule repair-repeats counts none of them. */
+export const BOUNDED_RULES = new Set(['refine-again', 'incident-again'])
 /** The lines to the partner about refines and result checks the helper may be waited on for, this far back. */
 const HELPER_LOOK_MS = 6 * 60 * MIN
 /** B546: a refine or check the running partner has said or done nothing about this long waits for the helper. */
@@ -365,6 +374,98 @@ function unchecked(view) {
   return found
 }
 
+/** One plain line of a title for a note: whitespace folded, quotes out, at most `max` characters. */
+const titleLine = (value, max = 100) => String(value ?? '').replace(/["“”]/g, "'").replace(/\s+/g, ' ').trim().slice(0, max)
+
+/**
+ * T9.4: the follow-up shared by the rules `refine-again` and `incident-again`, stateless, by periods of ASK_AGAIN_MS since
+ * the item began to wait (`since`; the time the person paused does not count, pause.mjs `afterPause`). From period 1 the
+ * Advisor is woken again, once per period (the key names the period and where the wait began, so a new wait, or one
+ * counted from a pause's end, is asked anew; a period whose word is sent already stays quiet, and so does one while an
+ * earlier word of the rule still waits for the Advisor's chat), until ASKS_AGAIN words of this wait reached it (taken, typed,
+ * or copied for the person to paste). Then, from period ASKS_AGAIN + 1, one note to the person for this wait (`do:
+ * 'person'`); the store is the memory, so a note filed before a restart counts. The words are counted from the outbox, so
+ * a board that was off, or a PC asleep, for hours asks three times before it tells the person "after 3 asks". `wake(k)` the
+ * words of the kth ask again, `person` `{ starts, lines }`: the note's first words (how an earlier one is told from other
+ * notes about the item) and its lines. The caller sees to no partner and no pause.
+ */
+function askedAgain(view, { rule, id, since, wake, person }) {
+  const { partner, now, outbox = [], items = new Map() } = view
+  const from = afterPause(view.pause, since)
+  const n = Math.floor((now - from) / ASK_AGAIN_MS)
+  if (!(n >= 1)) return []
+  const base = `${rule} ${id}`
+  const words = outbox.filter(message => message.about === id && String(message.syncKey ?? '').startsWith(`${base} `) && message.at >= since)
+  const reached = words.filter(message => ['taken', 'delivered', 'copied'].includes(message.state))
+  const made = reached.length
+  if (made < ASKS_AGAIN) {
+    const key = `${base} ${n} ${stamp(from)}`
+    if (words.some(message => message.syncKey === key || message.state === 'waiting')) return []
+    const text = `${id} waits for the Advisor for ${minutes(now - from)} min: asked again (${made + 1} of ${ASKS_AGAIN})`
+    return [finding(rule, key, id, text, { do: 'wake', chat: partner.name, id, text: wake(made + 1) })]
+  }
+  // The third ask has its period too, whenever it went.
+  if (n <= ASKS_AGAIN || now - Math.max(...reached.map(message => message.at)) < ASK_AGAIN_MS) return []
+  const first = Math.floor(since / MIN) * MIN
+  const isTold = [...items.values()].some(item => valueOf(item, 'Kind') === 'note' && valueOf(item, 'Via') === 'supervisor'
+    && (item.sections?.get('About') ?? [])[0]?.trim() === id && String(valueOf(item, 'Text') ?? '').startsWith(person.starts) && sinceMs(valueOf(item, 'Since')) >= first)
+  if (isTold) return []
+  const text = `${id} still waits for the Advisor after ${ASKS_AGAIN} asks: told to you`
+  return [finding(rule, `${base} person ${stamp(since)}`, id, text, { do: 'person', id, text: person.lines })]
+}
+
+/**
+ * T9.4: a step that is still new, whose refine the Advisor took (the board's word arrived) and has not written: asked again
+ * every 30 minutes, three times, then the person is told (refineWait.mjs: not a fix, whose refine has its own follow-up;
+ * not a block that waits for the person's answers, nor one the board stopped on). The words are the first word's.
+ */
+function refineAgain(view) {
+  const { partner = null, items = new Map(), outbox = [] } = view
+  const { steps, isHeld } = factsOf(view)
+  if (!(partner !== null && !isHeld)) return []
+  return steps.filter(one => stateOf(one) === 'new').flatMap(item => {
+    const id = idOf(item)
+    const wait = refineWaitOf(items, item, outbox)
+    if (wait === null) return []
+    const title = titleLine(valueOf(item, 'Title') ?? id)
+    return askedAgain(view, {
+      rule: 'refine-again', id, since: wait.since,
+      wake: n => [wait.word.text, `Asked again (${n} of ${ASKS_AGAIN}): no refine block was written for ${id} yet; refine it now (roles/partner.md, "Refine a step").`].join('\n'),
+      person: {
+        starts: `The Advisor has not refined ${id} `,
+        lines: [`The Advisor has not refined ${id} "${title}" after ${ASKS_AGAIN} asks over 2 hours: refine it on the Backlog, or drop it.`],
+      },
+    })
+  })
+}
+
+/**
+ * T9.4: an incident with the Advisor (its word arrived, `incident-told`) that gets no fix step and is not closed: asked
+ * again every 30 minutes from when it got that state, three times, then the person is told. The words are the incident
+ * word's, as the board typed them the first time.
+ */
+function incidentAgain(view) {
+  const { partner = null, outbox = [] } = view
+  const { all, isHeld } = factsOf(view)
+  if (!(partner !== null && !isHeld)) return []
+  return all.filter(one => kindOf(one) === 'incident' && stateOf(one) === 'with the advisor' && valueOf(one, 'Fix') === null).sort(byId).flatMap(item => {
+    const id = idOf(item)
+    const since = sinceMs(valueOf(item, 'Since'))
+    if (!Number.isFinite(since)) return []
+    const title = titleLine(valueOf(item, 'Title') ?? id)
+    const first = outbox.findLast(message => message.command === 'incident' && message.about === id)
+    return askedAgain(view, {
+      rule: 'incident-again', id, since,
+      wake: n => [first?.text ?? `incident: ${id} ${title}\nYour job: roles/partner.md, "Incidents"`,
+        `Asked again (${n} of ${ASKS_AGAIN}): it still has no fix step; name its fix (work incident-fix ${id}) or, if no fault is left, close it (work drop ${id}).`].join('\n'),
+      person: {
+        starts: `Incident ${id} "`,
+        lines: [`Incident ${id} "${title}" has been with the Advisor for over 2 hours without a fix, after ${ASKS_AGAIN} asks: look at it under Supervisor.`],
+      },
+    })
+  })
+}
+
 /**
  * B543 (the fix of X8: a step sat in review for 3 days after its fix was dropped, as nothing closes it then): a step in
  * review whose check failed and whose fix was dropped, none other open or done, for 30 minutes: the main chat gets one
@@ -480,6 +581,8 @@ export const REPAIR_RULES = [
   { id: 'helper', kind: 'repair', says: 'the partner\'s helper not running while refines or result checks wait', check: helperIdle },
   { id: 'partner-ask', kind: 'repair', says: 'an ask routed to the partner left unanswered', check: partnerAsk },
   { id: 'unchecked', kind: 'repair', says: 'a reported step left without its result check, or with its ask point answered and no check filed again', check: unchecked },
+  { id: 'refine-again', kind: 'repair', says: 'a refine the Advisor took and did not write, asked again every 30 minutes, three times, then told to the person', check: refineAgain },
+  { id: 'incident-again', kind: 'repair', says: 'an incident with the Advisor that gets no fix step, asked again every 30 minutes, three times, then told to the person', check: incidentAgain },
   { id: 'held-elsewhere', kind: 'repair', says: 'a step in progress over an hour while its worker is on another step, with nothing naming why', check: heldElsewhere },
   { id: 'base-equal', kind: 'repair', says: 'a step in review whose check failed only on its base branch against the remote\'s, now equal', check: baseEqual },
   { id: 'fix-dropped', kind: 'repair', says: 'a step in review whose fix was dropped, which nothing closes', check: fixDropped },
@@ -505,7 +608,8 @@ export const CHECKS = REPAIR_RULES.map(rule => ({ key: rule.id, words: rule.says
  * What is stuck now: `[{ check, key, text, fix, ... }]`, in the order of `CHECKS`, from every repair rule but the
  * worktrees' (the loop looks at those). `key` names the finding (one note to the main chat per key, ever; the board's
  * wake for it carries it as `syncKey`); `text` says what stands; `fix` what to do: `{ do: 'unblock', id, on }`,
- * `{ do: 'unpin', id }`, `{ do: 'recheck', id, why }` (B598: the board's check run again), `{ do: 'wake', chat, id, text }` (a line typed to the chat), `{ do: 'woken', at }` (woken
+ * `{ do: 'unpin', id }`, `{ do: 'recheck', id, why }` (B598: the board's check run again), `{ do: 'person', id, text }` (T9.4: a note to the
+ * person about `id`, its lines in `text`), `{ do: 'wake', chat, id, text }` (a line typed to the chat), `{ do: 'woken', at }` (woken
  * a moment ago: it waits for that), `{ do: 'send', text }` (a note to the main chat is the fix), `{ do: 'hand', chat, id,
  * text }` (the helper's work to the partner, and the main chat told), or `{ do: 'main', text }` (the board cannot fix
  * it: the main chat is told).

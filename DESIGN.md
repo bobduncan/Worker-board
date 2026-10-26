@@ -3167,6 +3167,8 @@ stuck that day was found by the person. They are now one list in the board, each
 | `old-name` | a chat's mod refused under a name for over 2 min (one that follows the shown name, B463, joins at once), its session shown under another | a note to the main chat to have it join under the shown name (Sent) |
 | `helper` | the partner's helper not running while refines (not yet refined, not waiting for the person) or result checks the board sent the partner wait | the helper woken, which asks the main chat to start it (Woke); still not running 10 min on: the partner told to do them itself, and the main chat to start it (For Main) |
 | `partner-ask` | an ask routed to the partner open 10 min with no line about it in that time (the partner was busy) | the partner woken, busy or not (Woke) |
+| `refine-again` | (T9.4) a step still new whose refine word the Advisor took (arrived) 30 min ago or more, with no block written since, none waiting for the person's answers, the board not stopped on it (`refineStop`), not a fix | the Advisor woken with the same word, every 30 min, three times (Woke); then one note to the person (Sent) |
+| `incident-again` | (T9.4) an incident "with the advisor" for 30 min or more, with no fix named and not closed | the Advisor woken with the incident's word, every 30 min, three times (Woke); then one note to the person (Sent) |
 | `worktrees` | a worktree of a repository the board knows, or an empty folder one left in the project folder (2026-10-24) | removed by the board when safe (Cleaned); else listed with why (Left), no chat told: "Worktree clean-up" below |
 
 - **At its take** (B542, X10): a step's `Blocked by` loses the steps done, dropped or in review, and a `Waits for` whose
@@ -3186,6 +3188,25 @@ stuck that day was found by the person. They are now one list in the board, each
   `The board's sync check at HH:MM: what it could not fix itself`, a line each, only for findings it was not told
   before; the keys stand in `<project>/.claude/sync.json` (`noted`, the newest 500; B482). A note that could not be filed is tried at the
   next run.
+- **Asked again, then the person (T9.4)**: the person, 2026-10-26: "yes, build the follow-up for refines and incidents (ask again
+  every 30 min, after 3 tries to me)". Work the Advisor took and then stopped on (cut off, a crash, a clear, forgot) came
+  back for questions routed to it (the reconciler) and for result checks (`unchecked`), but a plain refine and an
+  incident were lost. `refine-again` and `incident-again` (`repair.mjs`, `askedAgain`) are stateless, by periods of 30
+  minutes since the item began to wait (the word's arrival, `refineWait.mjs`; the incident's Since): periods 1 to 3 wake the
+  Advisor again with the first word's text and a line "Asked again (n of 3)", once per period (the key is `<rule> <id> <n>` and
+  the wait's start, so a new wait, or one counted from a pause's end, is asked anew; a word of the rule still waiting for the
+  chat holds the next back), until three of the rule's words reached it (the outbox says: taken, typed or copied; a board or a
+  PC that was off asks three times first, never "after 3 asks" untried); from period 4 (two hours, and 30 minutes after the
+  third ask) the person gets one note of the board's (`do: 'person'` in `loop.mjs`,
+  Via supervisor, About the item, with `#details=B<n>` or `#supervisor`). The store is the memory of that note (a
+  supervisor note About the item, with the rule's first words, since the wait began), so a board restart files none again.
+  Nothing while the person pauses, and the time they paused does not count (`afterPause`); nothing without a partner chat.
+  The rules stop by themselves: the block written, the step left new, a fix named or the incident fixed or closed. A fix's
+  refine keeps its own follow-up (`FIX_RETRY_MS`, `open-fix`). Their wakes are bounded by design, so `repair-repeats` counts
+  none (`BOUNDED_RULES`), and the sync line is withdrawn when its item is no longer open (`workLines.mjs`). The Advisor's
+  waiting list on the page keeps a refine it took until the block is written or the step leaves new (`refinesOpen` in
+  `state.mjs`), not for half an hour; the rule and the list read "written" through one function (`isBlockWritten`).
+  Tests: `test/supervisor/askAgain.test.mjs`.
 - **The page**: the newest run that was asked or found something stands under the Workers panel's head for an hour
   (state `syncList`, `syncListOf`, the agreed picture `art-inbox/worker-board/b465/out-of-sync-answer.png`): a row per
   finding with its status, and "N other checks: nothing stuck".

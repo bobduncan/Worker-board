@@ -16,7 +16,7 @@ import { SUPERVISOR_DEFAULTS } from '../../config.mjs'
 import { sinceMs, valueOf } from '../../work/item.mjs'
 import { overlapIn } from '../../work/guards.mjs'
 import { stuckTakeBacks } from '../../work/handOut.mjs'
-import { checkpointOf, heldMs, isHolding } from '../../work/pause.mjs'
+import { afterPause as afterPauseOf, checkpointOf, heldMs, isHolding, pauseEndOf as pauseEnd } from '../../work/pause.mjs'
 import { isFailedForGood, stoppedChats, whyClosed } from '../../work/outboxSweep.mjs'
 import { FIRST_SAYING, chatsByRole, oldModFinding } from '../../oldMods.mjs'
 import { EFFORTS, chatEffort, effortOf, effortSaid, familyOf, modelOf } from '../../work/effort.mjs'
@@ -24,7 +24,7 @@ import { chainTries, hasTriedBefore, reviewWaitOf } from '../../work/resultCheck
 import { isWordingOnly } from '../../work/recapWords.mjs'
 import { CLEAR_MOD, takenSince } from '../../clearOwed.mjs'
 import { readingAgeMinutes } from '../../limits.mjs'
-import { COUNTS_BY_KEY } from './repair.mjs'
+import { BOUNDED_RULES, COUNTS_BY_KEY } from './repair.mjs'
 import { BOARD_TRIES } from '../../refineGate.mjs'
 
 const MIN = 60_000
@@ -62,9 +62,9 @@ const isFull = view => ['fiveHour', 'week'].some(limit => view.limits?.[limit]?.
  */
 const isPaused = view => isHolding(view.pause) || view.pause?.state === 'resuming'
 /** When the last pause ended (the store's pause record, running again since then); -Infinity for none. */
-const pauseEndOf = view => (view.pause?.state === 'running' && Number.isFinite(view.pause?.since) ? view.pause.since : -Infinity)
+const pauseEndOf = view => pauseEnd(view.pause)
 /** A time something began, counted from the end of the last pause at the earliest: the pause's time does not count. */
-const afterPause = (view, since) => (Number.isFinite(since) ? Math.max(since, pauseEndOf(view)) : since)
+const afterPause = (view, since) => afterPauseOf(view.pause, since)
 
 /**
  * How long a thing has lasted: since `since` (what the board's data says), or since the supervisor first saw it (`key`
@@ -374,11 +374,12 @@ function fixedAtOf(view, key) {
  * recorded before it and so without their cause. B574 (X25: B531 unblocked three times in a day, each time from another
  * finished blocker): an unblock counts by its own key, the step and its blocker, so only the same blocker removed again
  * and again is a repeat. B590 (X37: B531 waited behind three checks in turn): every rule whose table entry counts by key
- * (`COUNTS_BY_KEY`) counts so, review-wait too.
+ * (`COUNTS_BY_KEY`) counts so, review-wait too. T9.4: nor do the Advisor's asks again (`BOUNDED_RULES`): three wakes at most
+ * for one wait, and the person is told after them, so their end is no repeat to report.
  */
 function repairRepeats(view) {
   const counts = new Map()
-  for (const one of view.repairs.filter(repair => view.now - repair.at < DAY && repair.cause !== 'restart')) {
+  for (const one of view.repairs.filter(repair => view.now - repair.at < DAY && repair.cause !== 'restart' && !BOUNDED_RULES.has(repair.rule))) {
     const id = COUNTS_BY_KEY.has(one.rule) && typeof one.key === 'string' ? one.key : `${one.rule} ${one.subject}`
     counts.set(id, [...(counts.get(id) ?? []), one])
   }

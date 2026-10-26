@@ -11,8 +11,9 @@ import { reviewWaitOf } from './resultCheck.mjs'
 
 /** The board's word that asks for a step's result check, or the sync check's `unchecked` word for the same ask. */
 export const isCheckWord = message => message?.command === 'result-check' || String(message?.syncKey ?? '').startsWith('unchecked ')
-const isRefineWord = message => message?.command === 'refine'
-const isIncidentWord = message => message?.command === 'incident'
+// T9.4: and the sync check's words that ask again about a refine or an incident (repair rules refine-again, incident-again).
+const isRefineWord = message => message?.command === 'refine' || String(message?.syncKey ?? '').startsWith('refine-again ')
+const isIncidentWord = message => message?.command === 'incident' || String(message?.syncKey ?? '').startsWith('incident-again ')
 /** What a word of the board to the Advisor is about, by the kind of item in `waiting` (`question`, `check`, `refine`) or `incident`; null for any other word. */
 const kindOfWord = message => (isPartnerAskWord(message) ? 'question' : isCheckWord(message) ? 'check' : isRefineWord(message) ? 'refine' : isIncidentWord(message) ? 'incident' : null)
 const isTaken = message => message.state === 'taken' || message.state === 'delivered'
