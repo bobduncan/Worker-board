@@ -57,7 +57,7 @@ sweep is meant to cost little (a few tens of thousands of tokens, mostly cached)
 - The board hands out all work (redesign Part 2, 2026-10-25): a task it gives a worker is taken within two minutes, or
   the board takes it back and the worker shows "Stuck" (the rule not-taking names it); a ready task that waits while a
   worker is free (the rule ready-while-free) is odd. Ready means what the board hands out: a fix, a task of the focus
-  goal, or a pinned one (the backlog line's "ready to hand out"). Refined tasks outside the focus goal wait for the
+  goal or of a goal under it, a fix of a step the person queued or pinned, or a pinned one (the backlog line's "ready to hand out"). Refined tasks outside the focus goal wait for the
   person's pin or a focus switch by design (the backlog line's "outside the focus goal, waiting for the person by
   design"), and so do those "held otherwise": workers idle while only such tasks wait is no incident. A task pinned to a
   worker waits for that worker by design (the board has the main chat start that worker when its chat is off), and a

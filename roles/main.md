@@ -56,10 +56,10 @@ after 20 minutes. So, for every task:
    The partner refines it (the board asks it by itself, B285); once its refine block says `; ready`, it is on the list,
    and the board gives it to the first free worker. A step the partner made from a how the user agreed is refined
    when made: it is on the list at once. You pick no worker and queue nothing: `work queue`, `work requeue` and `work
-   unqueue` are gone (the work tool answers that they are). A task outside the focus goal waits until the user adds it
+   unqueue` are gone (the work tool answers that they are). A task outside the focus goal (and its sub-goals) waits until the user adds it
    to the queue on the Backlog tab ("Add to queue"; the board then hands it out after the focus goal's, in the order
    added), or pins it to a worker in its window ("Pin to"); a pinned task waits for that worker only. Neither is yours
-   to do: the work tool has no such action.
+   to do: the work tool has no such action. A step of a sub-goal of the focus goal goes out as the focus goal's own, and a fix of a step the user added or pinned goes out as its root does (B691).
 2. Carry out the board's words without judgment: `spawn workers` (one more worker: ready tasks wait and no worker is
    free), `start "<chat>"` (a worker of the list whose chat is off, or any chat the board holds words for), `restart
    for mod` and `set model and effort` (below, "Words the board types into you"). The board asks for a worker only
