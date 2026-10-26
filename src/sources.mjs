@@ -26,6 +26,13 @@ const USAGE_BYTES = 64 * 1024
 
 const readText = async file => (await readHead(file, TEXT_BYTES))?.text ?? null
 
+/**
+ * A chat's card (a small JSON file its mod writes). A crash can leave the file longer than what was written, its end filled
+ * with NUL bytes (2026-10-26: Worker 3's card, 627 bytes for 466 of JSON, torn at the PC's crash at 09:16): the board reads
+ * it as the JSON it holds, or the chat's mod, its task and its off state were lost with it.
+ */
+const readCard = async file => (await readText(file))?.replace(/\u0000+$/, '') ?? null
+
 /** B547: the first bytes of a transcript, enough for the lines its conversation starts with. */
 const START_BYTES = 64 * 1024
 const MOST_STARTS = 2000
@@ -46,7 +53,7 @@ async function conversationAt(file) {
 async function followMoves(claude, id) {
   let current = id
   for (let hop = 0; hop < 8; hop += 1) {
-    const next = movedTo(await readText(join(claude, 'chats', `${current}.json`)))
+    const next = movedTo(await readCard(join(claude, 'chats', `${current}.json`)))
     if (next === null || next === current || !SAFE_ID.test(next)) break
     current = next
   }
@@ -183,13 +190,13 @@ export async function readSources(config, readFolders, now = Date.now(), readBra
     }
     tails[cliSessionId] = tail
     const card = join(claude, 'chats', `${cliSessionId}.json`)
-    planLineTexts[cliSessionId] = await readText(card)
+    planLineTexts[cliSessionId] = await readCard(card)
     planLineAt[cliSessionId] = await stat(card).then(file => file.mtimeMs, () => null)
     // B210: a chat without the Workers mod writes its card itself, under its name; the mod's card goes first.
     if (planLineTexts[cliSessionId] === null && ownCardKey(name) !== '') {
       const own = join(claude, 'chats', 'own', `${ownCardKey(name)}.json`)
       const at = await stat(own).then(file => file.mtimeMs, () => null)
-      const text = at === null ? null : await readText(own)
+      const text = at === null ? null : await readCard(own)
       planLineTexts[cliSessionId] = text === null ? null : ownCard(text, at)
       planLineAt[cliSessionId] = planLineTexts[cliSessionId] === null ? null : at
     }

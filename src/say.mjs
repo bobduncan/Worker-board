@@ -604,12 +604,15 @@ const WAKE_PENDING_MS = 10 * 60_000
 const PARTNER_WORDS = ['recommend', 'refine', 'result-check', 'evaluate', 'work', 'recheck', 'goal-ask', 'brainstorm', 'brainstorm-answer', 'brainstorm-wrap', 'brainstorm-change', 'brainstorm-fix', 'incident', 'mod-restart', ...FOCUS_COMMANDS]
 export const isPartnerWord = command => typeof command === 'string' && (command.startsWith('plan-') || PARTNER_WORDS.includes(command))
 
+/** 2026-10-26: the command of the board's word that has a worker holding a step go on from its checkpoint (`resumesDue`). */
+export const RESUME_STEP = 'resume-step'
+
 /**
  * B532: a word that waits for a busy or closed chat for as long as its purpose stands (store.mjs isLate): a partner word,
- * a round of the board's clock, and the main chat's start of a closed chat. The rest (a pause's resume, a line typed in
- * a talk) is stale in minutes.
+ * a round of the board's clock, the main chat's start of a closed chat, and (2026-10-26) the resume of a worker's step.
+ * The rest (a pause's resume, a line typed in a talk) is stale in minutes.
  */
-export const waitsLong = command => command === 'start' || command === 'wake' || command === 'round' || isPartnerWord(command)
+export const waitsLong = command => command === 'start' || command === 'wake' || command === 'round' || command === RESUME_STEP || isPartnerWord(command)
 
 /**
  * T9.4: whether the board wakes a chat for this word when the chat is not running. Every word to the main chat is an
@@ -619,12 +622,13 @@ export const waitsLong = command => command === 'start' || command === 'wake' ||
  * the Focus page; B359: the goal guard's evaluate; 2026-10-24: the Vision tab's words on the product plan (`plan-*`),
  * which waited for a stopped partner unseen; the supervisor (spec 2026-10-24): its sweep word to the supervisor's chat,
  * and an incident's word to the partner). The sweep wakes too, but goes stale in minutes (src/supervisor/sweep.mjs), so it
- * is no partner word.
+ * is no partner word. 2026-10-26: and the word that resumes a worker holding a step after a crash (`resumesDue`), whose
+ * whole purpose is to have its chat started.
  */
 const isWakeWord = (message, state) => {
   const main = state.restart?.main ?? null
   const command = message.command ?? null
-  return (main !== null && message.to === main) || command === null || isPartnerWord(command) || command === 'sweep'
+  return (main !== null && message.to === main) || command === null || isPartnerWord(command) || command === 'sweep' || command === RESUME_STEP
 }
 
 /**
@@ -802,6 +806,54 @@ export function wakeFailedOf(state, outbox, now) {
     if (next === null) failed.push({ chat: target, tries: progress.asks.length, since: progress.since })
   }
   return failed
+}
+
+/** The steps a worker holds in the store that its chat must go on with: taken and in progress (not one that waits for the person, or is in review). */
+const RESUMED_STEPS = ['taken', 'in progress']
+
+/**
+ * 2026-10-26: the board's word to a worker that holds a step: `resume your step B<id> from your checkpoint`, the words the
+ * main chat sends at Resume all (roles/main.md). Its chat is not running, so the word waits there and the board's wake-up
+ * (`wakesDue`) has a chat that runs start it; once it runs, the Workers mod hands the chat its checkpoint.
+ */
+export const resumeStepWords = (to, stepId) => ({
+  to, ask: null, step: null, title: null, version: null, verdict: null, command: RESUME_STEP, about: stepId,
+  text: `resume your step ${stepId} from your checkpoint`,
+})
+
+/**
+ * 2026-10-26 (the crash at 09:16): after a reboot every chat is closed, and nothing woke the worker that held the focus's
+ * only task: the wake-up (`wakesDue`) wakes only a chat that board words wait for, and the restart flow ("Resume all")
+ * types into the main chat, which was closed too. So the board adds a word of its own, one for each worker that holds a
+ * step taken or in progress in the store (`storeSteps`: its Owner) and is known not to run (`isRunning` false, or its
+ * lane off); the wake-up then starts that chat through a chat that runs, and the outbox sweep closes the word once the
+ * chat runs again or no longer holds the step. Never for the main chat or a leftover (nor one of the partner, its helper
+ * and the supervisor: they hold no step), a chat the person stopped (`stoppedOf`), parked or paused for the limit (its lane
+ * says suspended), one being removed, or while the person pauses all chats. Once for each off spell: not again while an
+ * earlier word for the same chat and step waits, or was sent since the chat last ran (its last write, `lastActivityAt`, or
+ * turn), whatever became of it (taken, closed because the chat ran, expired): a chat that was started and quit again
+ * without writing a line is not started again and again. The step a chat names as its task first, else the oldest it
+ * holds. `outbox` is everything sent.
+ */
+export function resumesDue(state, outbox) {
+  if (isHolding(state.pause)) return []
+  const main = state.restart?.main ?? null
+  const words = []
+  for (const lane of state.chats ?? []) {
+    if (lane.isLeftover === true || lane.isMain === true || lane.name === main) continue
+    if (!(lane.isRunning === false || lane.state === 'off')) continue
+    if (lane.state === 'suspended' || (lane.suspended ?? null) !== null || Number.isFinite(lane.removedAt) || lane.removal?.isOpen === true) continue
+    if (stoppedOf(outbox, lane) !== null) continue
+    const held = (lane.storeSteps ?? []).filter(one => RESUMED_STEPS.includes(one.state))
+    if (held.length === 0) continue
+    const step = held.find(one => one.id === lane.task?.stepId) ?? held[0]
+    // The chat last ran when it last wrote or began a turn: a word sent after that belongs to this off spell.
+    const ranAt = Math.max(-Infinity, ...[lane.lastActivityAt, lane.turnAt].filter(Number.isFinite))
+    const isAsked = outbox.some(sent => sent.command === RESUME_STEP && sent.to === lane.name && sent.about === step.id
+      && (sent.state === 'waiting' || (Number.isFinite(sent.at) && sent.at > ranAt)))
+    if (!isAsked) words.push(resumeStepWords(lane.name, step.id))
+  }
+  return words
 }
 
 /**

@@ -13,6 +13,29 @@ const TAB_PHRASE = new RegExp(`(?<![\\w-])(${Object.keys(TAB_WORDS).join('|')}) 
 /** A goal, step or ask id standing on its own: not part of a word, a path, a file name or an address. */
 const PLACE_ID = /(?<![\w/.:#=-])([GQB]\d+)(?![\w/-]|\.\w)/g
 
+/**
+ * B675: the pages of the game an ask may send the person to, by the words an ask uses for them: `page=<name>` in a play link
+ * opens `/<name>.html` of that branch's game. One list, here, beside the board's own places.
+ */
+export const GAME_PAGES = { soundboard: /(?<![\w-])sound ?board(?![\w-])/i }
+/** A local address in an ask's words: `http://localhost:5173/soundboard.html`, `127.0.0.1:5300/x`. */
+const LOCAL_ADDRESS = /https?:\/\/(?:localhost|127\.0\.0\.1)(?::\d{2,5})?(?:\/[^\s)>\]]*)?/gi
+
+/** The game page `text` names ("the sound board", or an address of `/soundboard.html`), or null. */
+export function gamePageIn(text) {
+  const all = String(text ?? '')
+  for (const [name, words] of Object.entries(GAME_PAGES)) {
+    if (words.test(all)) return name
+    for (const one of all.matchAll(LOCAL_ADDRESS)) if (new RegExp(`/${name}\\.html(?![\\w-])`, 'i').test(one[0])) return name
+  }
+  return null
+}
+
+/** A local address in `text` (the first), or null: an ask that sends the person there needs a link. */
+export function localAddressIn(text) {
+  return String(text ?? '').match(LOCAL_ADDRESS)?.[0] ?? null
+}
+
 /** The address (after the board's own) of a tab, or of a part of the Focus tab. */
 export function tabAddress(tab, part = null) {
   if (part !== null && tab === 'Focus') return `#advice/${PART_WORDS[part]}`

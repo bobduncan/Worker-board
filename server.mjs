@@ -22,7 +22,7 @@
 
 import { spawn } from 'node:child_process'
 import { randomBytes, timingSafeEqual } from 'node:crypto'
-import { readFileSync, rmSync } from 'node:fs'
+import { existsSync, readFileSync, rmSync } from 'node:fs'
 import { mkdir, readdir, readFile, stat } from 'node:fs/promises'
 import { createServer } from 'node:http'
 import { basename, dirname, join, resolve } from 'node:path'
@@ -55,7 +55,7 @@ import { createSpendingCollector } from './src/work/routing/collector.mjs'
 import { readRoutingRecord } from './src/work/routing/records.mjs'
 import { parseRoutingPolicy } from './src/work/routing/policy.mjs'
 import { adoptPicture, findPicture, PICTURE_BYTES as SHOWN_PICTURE_BYTES, pictureProblem, pictureTooBig, shownFolders, shownRoots } from './src/pictures.mjs'
-import { answerWords, checkSay, checkStepWords, focusWords, spawnWhenAlone, wakeFor, wakesDue, wakesStopped, withInstruction, workWords } from './src/say.mjs'
+import { answerWords, checkSay, checkStepWords, focusWords, resumesDue, spawnWhenAlone, wakeFor, wakesDue, wakesStopped, withInstruction, workWords } from './src/say.mjs'
 import { keepTalkPicture } from './src/talkPicture.mjs'
 import { firstLook, refineWhenDue } from './src/refineGate.mjs'
 import { recheckText, roundText, roundsNow } from './src/rounds.mjs'
@@ -1970,6 +1970,11 @@ async function main(args) {
         // B319: inside its project's range, which no other project's board uses.
         const url = await games.start({ path: checked.path, port: config.gamePort + (Math.max(0, place) % GAME_SPAN) })
         readState.reset()
+        // B675: a page of the game: only a file the game's folder holds.
+        if (checked.page !== undefined) {
+          if (!existsSync(join(checked.path, `${checked.page}.html`))) return { ok: false, status: 409, why: `The game on ${checked.branch} has no ${checked.page}.html page.` }
+          return { ok: true, result: { url: new URL(`/${checked.page}.html`, url).href } }
+        }
         return { ok: true, result: { url } }
       } catch (error) {
         // The reason is the board's own, or the last line of the game's own tools: never words from a chat.
@@ -2161,6 +2166,15 @@ async function main(args) {
           if (wake !== null) await store.say({ id: randomBytes(8).toString('hex'), at: now, ...wake, state: 'waiting' })
         }
         if (due.release.length + due.drop.length > 0 || due.refine !== null || due.notice !== null) readState.reset()
+      }
+      // 2026-10-26 (the crash at 09:16): a worker that holds a step and is known not to run gets the board's word to resume it,
+      // so the wake-up below has a chat that runs start it, or the page says nobody runs (say.mjs resumesDue). Also while no
+      // chat has called the board yet (a rebooted PC): the word then waits, and the page line says why. Only the board that delivers.
+      if (bridgeKey !== null) {
+        const now = clock()
+        const resumes = resumesDue(state, sentNow())
+        for (const resume of resumes) await store.say({ id: randomBytes(8).toString('hex'), at: now, ...resume, state: 'waiting' })
+        if (resumes.length > 0) readState.reset()
       }
       // Words that wait for a chat that is not running, sent while the main chat did not run either, are followed by
       // the word to start it once the main chat runs (say.mjs wakesDue). Only the board that delivers.

@@ -38,7 +38,8 @@ into your chat, are in `protocol.md` beside this file: keep to them, or the boar
   question, a decision), file it with `work ask` under your step (below) and put the "For you" block it answers into
   your answer; say in your report in one line what you asked ("Asked the user: Q12, the picture of the new screen");
   the main chat then does not ask it again. With nothing to ask, report only: the main chat puts the check to the user
-  itself.
+  itself. An ask that sends the person to a page or screen of the game carries `play` (`<branch>&page=soundboard`,
+  `<branch>&screen=shop`), never a bare address: the game runs only while the board has started it (B675).
   An item of your "For you" block you filed no ask for is filed for you when your turn ends (B317: `Via: chat`, named beside your next prompt); when the user answers it in your chat instead, close it in that turn with `work answered-in-chat Q<id>` and their words.
 - Close every browser you start (B266). A browser you start for a check or a picture (a headless one, one driven over
   CDP or by Playwright, one with a temporary profile folder) is closed in the same script that started it, also when
@@ -225,6 +226,15 @@ for a chat that is off. The word says which chat and gives its session id. Carry
 SendMessage to that session id (load it with ToolSearch when it is deferred), "The worker board holds
 something for you.", nothing else and no reply needed; then go on with your own work. It is no task: no step, no report, no note, and your own step and its checkpoint stay as
 they are.
+
+## The board resumes your step
+
+Since 2026-10-26 the board resumes a worker by itself after a crash or a quit app: when your chat does not run and the store
+holds a step for you that is taken or in progress, the board has a chat that runs start yours, and your mod types
+`resume your step B<id> from your checkpoint` into it (no mark: the board's word, not the user's; your mod's own line "You hold
+B<id>: checkpoint <commit> · <next>; go on from there" may be all you get, and says the same). Go on from that step's
+checkpoint (`work next` shows it; without one, from its branch and History) and do nothing else: no report, no note, no
+new step because of the word. If you no longer hold the step (it is in review, done, dropped or another worker's), say nothing.
 
 ## Not yours
 
