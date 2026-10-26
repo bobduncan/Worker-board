@@ -5,7 +5,7 @@
 //
 //   node tools/one-at-a-time.mjs <label> -- <command and its arguments>
 //
-// The same file lives in the game (lava-tactics/tools) and in the worker board (worker-board/tools); keep them alike.
+// The same file lives in each repository of the project that runs heavy commands (its tools folder); keep them alike.
 //
 // - The lock is one file for the whole PC, in the temporary folder (HEAVY_RUN_LOCK names another one, for the tests),
 //   made by an exclusive create and holding { pid, label, cwd, startedAt }.
@@ -26,7 +26,7 @@ import path from 'node:path'
 import { setTimeout as sleep } from 'node:timers/promises'
 import { fileURLToPath } from 'node:url'
 
-export const LOCK_NAME = 'lava-tactics-heavy-run.lock'
+export const LOCK_NAME = 'one-heavy-run.lock'
 export const MAX_AGE_MS = 45 * 60 * 1000
 const POLL_MS = 5000
 const SAY_MS = 60 * 1000
