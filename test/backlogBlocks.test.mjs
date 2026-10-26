@@ -101,7 +101,7 @@ test('the blocks in order, In progress above the Queue; each task in the block o
   assert.deepEqual(ids, { progress: ['B1', 'B2', 'B3'], queue: ['B10', 'B11', 'B12', 'B13'], refined: ['B16', 'B15', 'B14'], new: ['B20'] })
   const [progress, queue, refined, fresh] = blocks
   // In progress: with its worker and its state; green only while worked on, the person's colour only when it waits on them.
-  assert.deepEqual(progress.rows.map(row => [row.who, row.state, row.tone]), [['Worker 1', 'In progress', 'progress'], ['Worker 3', 'Waiting on you', 'you'], ['Worker 1', 'In review', 'review']])
+  assert.deepEqual(progress.rows.map(row => [row.who, row.state, row.tone]), [['Worker 1', 'In progress', 'progress'], ['Worker 3', 'Waiting on you', 'you'], ['built by Worker 1', 'In review', 'review']])
   // Queue: numbered as a free worker takes them: the fix, the focus goal's, the person's addition, then the pin.
   assert.deepEqual(queue.rows.map(row => [row.n, row.isFix, row.isFocus, row.isAdded, row.who, row.canRemove]), [
     [1, true, false, false, 'any free worker', false],

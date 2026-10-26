@@ -166,8 +166,8 @@ test('the window: the step on top, one question at a time, cards, the rest folde
   // window shows that question and says why. Sent without a problem, the window closes.
   const send = script.slice(script.indexOf('async function sendCalm('), script.indexOf('// calmsend:end'))
   for (const words of ["sendWork({ action: 'answer', id: need.workId, ...answer }, need.id, { reread: false })", 'calmPlan(group,', "'Say in the note why No: the chat needs to know what to change.'", "'Pick an answer first.'", 'closeDetails()', 'isGoneAlready(', 'isShowing()']) assert.ok(send.includes(words), words)
-  // The other windows leave nothing of the calm one behind.
-  assert.equal((script.match(/box\.classList\.remove\('is-calm'\)\n\s+delete box\.dataset\.calmAt/g) ?? []).length, 2)
+  // The other windows leave nothing of the calm one behind: a worker's task, a step, and (2026-10-26) a question with the partner.
+  assert.equal((script.match(/box\.classList\.remove\('is-calm'\)\n\s+delete box\.dataset\.calmAt/g) ?? []).length, 3)
 })
 
 test('the style: a narrower window with room around everything, large cards, and a phone layout', () => {

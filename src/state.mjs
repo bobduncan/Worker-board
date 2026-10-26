@@ -30,8 +30,9 @@ import { askIdsIn, askKey, askPartsOf, sameAsk } from './work/askWords.mjs'
 import { forYouRepeat } from './work/askRepeat.mjs'
 import { dailyNote, isDailyNote } from './work/dailyNote.mjs'
 import { SYNC_BOARD, syncChecks } from './sync.mjs'
-import { informationOf, instructionsOf, notesToMain, partnerDecidedOf, storeNeeds, storeWaits, withPartnerOf } from './work/lists.mjs'
-import { NOTE_LINE, isPartnerAnswered, stepWaitsForPartner } from './work/partnerAnswers.mjs'
+import { informationOf, instructionsOf, nameFinder, notesToMain, partnerDecidedOf, storeNeeds, storeWaits, withPartnerOf } from './work/lists.mjs'
+import { NOTE_LINE, isPartnerAnswered, isPartnerAskWord, stepWaitsForPartner } from './work/partnerAnswers.mjs'
+import { advisorWorkOf, isCheckWord } from './work/advisorWork.mjs'
 import { recapsOf } from './work/recap.mjs'
 import { isHolding, pauseFacts } from './work/pause.mjs'
 import { reconcile } from './work/reconcile.mjs'
@@ -162,6 +163,9 @@ export function settleTurn({ turn, end, isAppEnded, isCut = false, writtenAt, no
 }
 
 const textOr = (value, fallback) => (typeof value === 'string' ? value : fallback)
+
+/** X76: a transcript that can be read and holds no turn at all (only a slash command and its output): the chat was cleared. */
+const hasNoTurn = tail => typeof tail?.text === 'string' && turnState(parseTail(tail.text, tail.isCut === true)) === 'unknown'
 
 /**
  * B315: a lane that counts as working only by what is left of it (its card, its step, or a turn the transcript shows
@@ -427,7 +431,7 @@ function card(chat, raw, { now, config, last, lines, main, prefix, stepOf = () =
   // `appSession` is the id the app knows the chat by: the main chat starts a chat that is not running with it.
   // B468: `effort` is what the app's file of the chat says it runs at, or null.
   const base = { name: chat.name, isMain: chat.isMain, isLeftover: chat.isLeftover, session: chat.cliSessionId ?? null, appSession: chat.appSessionId ?? null, effort: chat.effort ?? null, model: chat.model ?? null, removedAt: chat.removedAt ?? null }
-  const none = { lastAnswer: null, quietMs: null, isQuiet: false, isAsking: false, doingNow: null, between: null, needsYou: null, statusDetail: null, waitingSince: null, waitsFor: null, task: null, cutOffAt: null, eta: null, isWithoutTime: false, suspended: null, usage: [], lastTask: null, givenTask: null, feedback: null, compaction: null, unanswered: null, idle: null, unfiled: null, resting: null, waitsForPartner: null }
+  const none = { lastAnswer: null, quietMs: null, isQuiet: false, isAsking: false, doingNow: null, between: null, needsYou: null, statusDetail: null, waitingSince: null, waitsFor: null, task: null, cutOffAt: null, eta: null, isWithoutTime: false, suspended: null, usage: [], lastTask: null, givenTask: null, feedback: null, compaction: null, unanswered: null, idle: null, unfiled: null, resting: null, waitsForPartner: null, hasNoTurn: false }
   if (chat.isLeftover) return { ...base, state: 'unknown', ...none, lastActivityAt: chat.lastActivityAt }
 
   const tail = raw.tails?.[chat.cliSessionId] ?? null
@@ -561,6 +565,8 @@ function card(chat, raw, { now, config, last, lines, main, prefix, stepOf = () =
     between: state === 'working' && held !== null ? held.text : null,
     // Partner answers, the review's findings: the asks of its own it waits on the partner for.
     waitsForPartner: state === 'working' && held?.why === 'partner' ? forPartner : null,
+    // X76: its conversation holds no turn (only a slash command, as after a /clear): the sign of the rule working-without-step.
+    hasNoTurn: entries !== null && turn === 'unknown',
     needsYou,
     statusDetail: turn === 'ended' ? summary?.detail?.trim() || null : null,
     // The turn's last entry: when it ended, or when it asked.
@@ -775,7 +781,10 @@ function queuedFor(sent, name, now) {
     && (message.state === 'waiting' || (message.state === 'taken' && now - (message.takenAt ?? message.at) < TAKEN_SHOWN_MS)))
   const refines = open.filter(message => message.command === 'refine').length
   const rounds = open.filter(message => message.command === 'round' || message.command === 'recheck').length
-  return { refines, rounds, words: open.length - refines - rounds }
+  // 2026-10-26: a result check and a question it answers first are items of its list of waiting work (advisorWork.mjs), each
+  // with its own stand: not a message waiting for it as well.
+  const listed = open.filter(message => isCheckWord(message) || isPartnerAskWord(message)).length
+  return { refines, rounds, words: open.length - refines - rounds - listed }
 }
 
 /** B100: a chat's task as its card names it, for the window of what it waits for: the topic, the step, since when. */
@@ -1329,9 +1338,13 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
     if (!modReports(entry.mod ?? null)) return [chat.name, null]
     const holds = storeStepsOf(chat.name).filter(one => one.state !== 'review')
     const key = chat.name.toLowerCase()
+    // X76 (B705): a busy report that outlived its turn. A conversation that holds only a slash command (the /clear the
+    // Workers mod ran after the report) has no turn, so a report of one for longer than a first line takes to be written
+    // is stuck: the chat is idle.
+    const isStuckBusy = entry.state === 'busy' && Number.isFinite(entry.busyAt) && now - entry.busyAt > unknownAfterMs && hasNoTurn(raw.tails?.[chat.cliSessionId])
     // The review of chat-reports: a blocking ask routed to the partner waits for the partner, never for the person (B392).
     const forPartner = waits.partner?.get(key) ?? []
-    const lane = laneFromReport(entry, {
+    const lane = laneFromReport(isStuckBusy ? { ...entry, state: 'idle' } : entry, {
       now, unknownAfterMs, offAfterMs,
       holdsTask: holds.length > 0,
       hasBlockingAsk: waits.blocking.has(key) || (forPartner.length === 0 && holds.some(one => one.state === 'waiting on you')),
@@ -1776,6 +1789,25 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
   const oldAsks = new Set((reconciled?.flags ?? []).filter(flag => flag.kind === 'old ask').map(flag => `work:${flag.id}`))
   const flagsOf = name => (reconciled?.flags ?? []).filter(flag => flag.chat === name && LANE_FLAGS.includes(flag.kind)).map(({ kind, id, text, button }) => ({ kind, id, text, button }))
   const focus = focusState(goalMap, itemsOf(raw.work), brainstorms.threads, prefix, advisorChat?.name ?? null, now)
+  // The chats on the board by name, for a store's owner (with or without the list's prefix).
+  const chatNames = [...names, ...[advisorChat, helperChat].filter(one => one !== undefined).map(one => one.name)]
+  // Partner answers, the review's findings: the asks with the partner now, and its answers of the last 7 days that the
+  // Focus page's note does not show, each with its Undo. The person, 2026-10-26: each with where it stands (`stand`:
+  // in the partner's queue, or the partner is on it: its word was taken, or its task, while it works, names the ask).
+  const partnerWorks = advisorCard?.state === 'working'
+  // A word the partner took stays taken: while it does not work, the item reads "took it", never "on it".
+  const withPartner = !workOk ? [] : withPartnerOf(raw.work, { names: chatNames, prefix, outbox: sent, task: partnerWorks ? advisorCard.task ?? null : null, isWorking: partnerWorks })
+  // The backlog as the page shows it, and the refines the board asked of the Advisor that it has not written yet.
+  const overviewed = overview(backlog, { underWay: onNow })
+  const refinesOpen = overviewed.flatMap(activity => activity.steps).flatMap(step => {
+    const ask = refineAsk(step, sent, now)
+    return ask?.isOpen === true ? [{ id: step.id, title: titleOf(step.id) ?? step.title, word: sent.findLast(one => one.command === 'refine' && one.about === step.id) }] : []
+  })
+  // 2026-10-26: all the Advisor's waiting work (the questions it answers first, result checks, refines), each with where it
+  // stands, and the item it is on: the newest board word it took whose item is still open (while it works).
+  const advisorWork = !workOk || advisorChat === undefined ? { waiting: [], on: null }
+    : advisorWorkOf({ items: raw.work.items, held: reconciled?.ready?.held ?? null, outbox: sent, task: partnerWorks ? advisorCard.task ?? null : null, isWorking: partnerWorks, questions: withPartner, refines: refinesOpen, titleOf, nameOf: nameFinder(chatNames, prefix) })
+  const checkStands = new Map(advisorWork.waiting.filter(one => one.kind === 'check').map(one => [one.id, one.stand]))
 
   const built = {
     readAt: now,
@@ -1841,9 +1873,7 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
     ].sort((a, b) => Number(b.isOld === true) - Number(a.isOld === true) || (b.at ?? 0) - (a.at ?? 0)), [config.advisor ?? null, helperChat?.name ?? null], prefix),
     // B299: notes and reports for the person.
     information,
-    // Partner answers, the review's findings: the asks with the partner now, and its answers of the last 7 days that the
-    // Focus page's note does not show, each with its Undo.
-    withPartner: !workOk ? [] : withPartnerOf(raw.work, { names: [...names, ...[advisorChat, helperChat].filter(one => one !== undefined).map(one => one.name)], prefix }),
+    withPartner,
     partnerDecided: !workOk ? [] : partnerDecidedOf(raw.work, { now, shownNote: focus?.note?.id ?? null, names, prefix }),
     // B360: the recaps of finished work, and where they show: "now" in Needs your attention, "daily" in the daily note.
     recaps: recapsOf(raw.work, now),
@@ -1853,7 +1883,7 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
     // B298: the person's words per chat, filed as instructions (work/lists.mjs).
     instructions: instructionsOf(raw.work, now),
     // The whole backlog by activity, for the Coordinate tab. A step for the person opens its card (`needId`).
-    backlog: overview(backlog, { underWay: onNow }).map(activity => ({
+    backlog: overviewed.map(activity => ({
       ...activity,
       steps: activity.steps.map(step => {
         // B233: whether the Advisor was asked to refine it and has not written that round yet.
@@ -1878,6 +1908,9 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
           flow: flowOfStep(raw.work, step.key),
           // B543: what it waits for while in review ("waits for its fix B<n>"), or null; B656: a fix the ready list holds, with why.
           reviewWait: reviewWaitOfStep(raw.work, step.key, reconciled?.ready?.held ?? null),
+          // 2026-10-26: a step in review that waits for its result check says where that stands (queued with the Advisor, or
+          // the Advisor is checking it), or null.
+          reviewStand: step.id === null ? null : checkStands.get(step.id) ?? null,
           // B299: the step as the store holds it, for its window.
           item,
         }
@@ -1921,7 +1954,7 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
         ask: spawnAsk(sent.findLast(message => message.command === 'spawn'), workerChats, now),
       }
     })(),
-    advisor: advisor === null ? null : { ...advisor, isRunning: runningOf(advisor.name) },
+    advisor: advisor === null ? null : { ...advisor, isRunning: runningOf(advisor.name), waiting: advisorWork.waiting, on: partnerWorks ? advisorWork.on : null },
     // B424: the partner's helper, on its own card under the Advisor's: how it stands, its task and its time.
     advisorHelper: helperLane === null ? null : {
       name: helperLane.name,

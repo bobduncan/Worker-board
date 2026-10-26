@@ -20,7 +20,7 @@ const script = await readFile(join(ROOT, 'public', 'board.js'), 'utf8')
 const server = await readFile(join(ROOT, 'server.mjs'), 'utf8')
 const cut = (from, to) => script.slice(script.indexOf(from), script.indexOf(to))
 const made = {}
-vm.runInNewContext(`${cut('// focus:start', '// focus:end')}\n${cut('// partner-answers:start', '// partner-answers:end')}
+vm.runInNewContext(`${cut('// focus:start', '// focus:end')}\n${cut('// askstand:start', '// askstand:end')}\n${cut('// partner-answers:start', '// partner-answers:end')}
 Object.assign(this, { partnerSwitchView, focusNoteView, partnerAnswerView, withPartnerView, decidedView, laneStateText })`, made)
 const plain = value => JSON.parse(JSON.stringify(value))
 
@@ -60,8 +60,8 @@ test('the review\'s findings: "With your partner" (count, a click lists them), "
   assert.deepEqual(plain(made.withPartnerView([{ id: 'Q1', from: 'Digger', title: 'Number or bar?' }, { id: 'Q2', from: 'Lead', title: 'Icons?' }])), {
     // The person, 2026-10-26: each row is a link that opens its ask ("i just need it clickable").
     text: 'With your partner: 2 questions', rows: [
-      { id: 'Q1', href: '#details=Q1', text: 'Q1 · Digger: Number or bar?' },
-      { id: 'Q2', href: '#details=Q2', text: 'Q2 · Lead: Icons?' },
+      { id: 'Q1', href: '#details=Q1', text: 'Q1 · Digger: Number or bar?', stand: null },
+      { id: 'Q2', href: '#details=Q2', text: 'Q2 · Lead: Icons?', stand: null },
     ],
   })
   const drawn = script.slice(script.indexOf('function drawWithPartner(state)'), script.indexOf('function drawDecidedForYou(state)'))

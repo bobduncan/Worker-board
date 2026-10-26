@@ -22,7 +22,7 @@
 import { askFiledMs, sinceMs, valueOf } from '../../work/item.mjs'
 import { stamp } from '../../work/migrate.mjs'
 import { waitIds } from '../../work/guards.mjs'
-import { PARTNER_AGAIN_MS, isRoutedToPartner, partnerAskWords } from '../../work/partnerAnswers.mjs'
+import { PARTNER_AGAIN_MS, isPartnerAskWord, isRoutedToPartner, partnerAskWords } from '../../work/partnerAnswers.mjs'
 import { isHolding } from '../../work/pause.mjs'
 import { boardWarningsOf, checkWhy, gitCheckPassed, needsResultCheck, resultCheckOf, reviewWaitOf, warningLines } from '../../work/resultCheck.mjs'
 import { asksOfStep } from '../../work/stepAsks.mjs'
@@ -324,7 +324,7 @@ function partnerAsk(view) {
     const id = idOf(ask)
     const filed = askFiledMs(ask)
     if (!(now - filed >= PARTNER_AGAIN_MS)) continue
-    const lately = outbox.some(message => message.about === id && (message.kind === 'partner-ask' || String(message.syncKey ?? '').startsWith('partner-ask '))
+    const lately = outbox.some(message => message.about === id && isPartnerAskWord(message)
       && (message.state === 'waiting' || message.state === 'taken' || now - message.at < PARTNER_AGAIN_MS))
     if (lately) continue
     const key = `partner-ask ${id} ${Math.floor((now - filed) / PARTNER_AGAIN_MS)}`
