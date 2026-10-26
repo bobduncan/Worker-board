@@ -11325,8 +11325,8 @@ function focusLook(label, picture) {
  */
 function focusStepTitle(one) {
   const node = el('span', 'focus-step-what')
-  const pieces = linkedWords(one.title, board)
-  const known = linkedWords(one.id, board).some(piece => typeof piece !== 'string')
+  const pieces = [...linkedWords(one.title, board)]
+  const known = [...linkedWords(one.id, board)].some(piece => typeof piece !== 'string')
   for (const piece of pieces) {
     if (typeof piece !== 'string' || !known) {
       node.append(piece)
