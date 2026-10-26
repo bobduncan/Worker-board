@@ -46,22 +46,24 @@ const goal = (text = MAP) => parseGoals(text).byId.get('G2')
 const ITEMS = [
   // Before Go: not counted. After Go: two failed result checks of B1 and one of its fix B4; one of another goal's step.
   step('B1', 'G2', ['2026-10-19 07:00 Advisor: new → refined', '2026-10-19 07:40 Partner: result check failed: 1 of 3 points pass; fix B3 for W1', '2026-10-19 08:20 Partner: result check failed: 2 of 3 points pass; fix B4 for W1'], ['Evidence: none (no picture)', '- pass: Oak', '- fail: The seat is too high']),
-  step('B4', 'G2', ['2026-10-19 08:50 Partner: result check failed: 0 of 1 points pass; fix B5 for W1', '2026-10-19 09:10 Partner: result check passed: 1 of 1 points pass'], ['Evidence: none', '- pass: The seat is lower']),
+  step('B4', 'G2', ['2026-10-19 08:50 Partner: result check failed: 0 of 1 points pass; fix B5 for W1', '2026-10-19 09:10 Partner: result check passed: 1 of 1 points pass'], ['Evidence: none', '- pass: The seat is lower'], { 'Fix of': 'B1' }),
   step('B7', 'G3', ['2026-10-19 08:30 Partner: result check failed: 0 of 1 points pass; fix B8 for W2']),
+  // B669: the third failed check of the part Wooden benches (B1, B2 and the fix B4 of B1): the guard counts per part.
+  step('B2', 'G2', ['2026-10-19 09:40 Partner: result check failed: 0 of 1 points pass; fix B6 for W1']),
 ]
 
 test('a goal\'s attempts are its failed checks since Go: its steps\' result checks and its own re-checks', () => {
   const counted = goalAttempts(goal(), ITEMS)
   assert.equal(GUARD_ATTEMPTS, 3)
-  assert.equal(counted.count, 3)
-  assert.deepEqual(counted.failures.map(one => [one.at, one.id]), [['2026-10-19 08:20', 'B1'], ['2026-10-19 08:50', 'B4'], ['2026-10-19 09:30', 'G2']])
+  assert.equal(counted.count, 4)
+  assert.deepEqual(counted.failures.map(one => [one.at, one.id]), [['2026-10-19 08:20', 'B1'], ['2026-10-19 08:50', 'B4'], ['2026-10-19 09:30', 'G2'], ['2026-10-19 09:40', 'B2']])
   // What failed, for the partner: the step's failed points as its last check keeps them, a re-check's gap.
-  assert.deepEqual(counted.failures.map(one => one.text), ['The seat is too high', '0 of 1 points pass', 'nobody sits'])
+  assert.deepEqual(counted.failures.map(one => one.text), ['The seat is too high', '0 of 1 points pass', 'nobody sits', '0 of 1 points pass'])
   // Go again (a new How agreed) starts the count anew.
-  assert.equal(goalAttempts(goal(MAP.replace('How agreed: 2026-10-19 08:00', 'How agreed: 2026-10-19 09:00')), ITEMS).count, 1)
+  assert.equal(goalAttempts(goal(MAP.replace('How agreed: 2026-10-19 08:00', 'How agreed: 2026-10-19 09:00')), ITEMS).count, 2)
   // B450: before its how is agreed the count starts at the goal's first refined step.
   const noHow = goalAttempts(goal(MAP.replace('  How agreed: 2026-10-19 08:00\n', '')), ITEMS)
-  assert.deepEqual([noHow.count, noHow.since], [5, '2026-10-19 07:00'])
+  assert.deepEqual([noHow.count, noHow.since], [6, '2026-10-19 07:00'])
 })
 
 test('the third attempt fires the guard once: not for a goal done, not twice while the evaluation runs', () => {
@@ -74,14 +76,14 @@ test('the third attempt fires the guard once: not for a goal done, not twice whi
 })
 
 test('the Focus page reads the guard: attempts so far, evaluating, a rebuild that waits for the person', () => {
-  assert.deepEqual(guardOf(goal(), ITEMS.slice(1), []), { attempts: 2, of: 3, state: 'counting', ask: null })
+  assert.deepEqual(guardOf(goal(), ITEMS.slice(1), []), { attempts: 2, parts: [{ title: 'Wooden benches', count: 2 }, { title: 'Whole goal', count: 1 }], of: 3, state: 'counting', ask: null })
   const asked = goal(MAP.replace('  How agreed: 2026-10-19 08:00\n', '  How agreed: 2026-10-19 08:00\n  Evaluation asked: 2026-10-19 09:31\n'))
-  assert.deepEqual(guardOf(asked, ITEMS, []), { attempts: 3, of: 3, state: 'evaluating', ask: null })
-  assert.deepEqual(guardOf(asked, ITEMS, [ask('Q9', 'G2', 'Rebuild G2: benches of stone instead of wood?')]), { attempts: 3, of: 3, state: 'rebuild', ask: 'Q9' })
+  assert.deepEqual(guardOf(asked, ITEMS, []), { attempts: 3, parts: [{ title: 'Wooden benches', count: 3 }, { title: 'Whole goal', count: 1 }], of: 3, state: 'evaluating', ask: null })
+  assert.deepEqual(guardOf(asked, ITEMS, [ask('Q9', 'G2', 'Rebuild G2: benches of stone instead of wood?')]), { attempts: 3, parts: [{ title: 'Wooden benches', count: 3 }, { title: 'Whole goal', count: 1 }], of: 3, state: 'rebuild', ask: 'Q9' })
   // Another ask, an answered one, or one of another goal is no rebuild waiting.
   assert.equal(guardOf(asked, ITEMS, [ask('Q8', 'G2', 'Which oak?'), ask('Q9', 'G2', 'Rebuild G2: stone?', 'answered'), ask('Q10', 'G3', 'Rebuild G3: lamps?')]).state, 'evaluating')
   // B450: no how agreed yet: the goal's failed checks count all the same.
-  assert.deepEqual(guardOf(goal(MAP.replace('  How agreed: 2026-10-19 08:00\n', '')), ITEMS, []), { attempts: 5, of: 3, state: 'counting', ask: null })
+  assert.deepEqual(guardOf(goal(MAP.replace('  How agreed: 2026-10-19 08:00\n', '')), ITEMS, []), { attempts: 4, parts: [{ title: 'Wooden benches', count: 4 }, { title: 'Whole goal', count: 2 }], of: 3, state: 'counting', ask: null })
 })
 
 test('the word to the partner: evaluate the goal, with what failed and whether a rebuild needs the person\'s yes', () => {
@@ -90,10 +92,11 @@ test('the word to the partner: evaluate the goal, with what failed and whether a
   assert.deepEqual([words.to, words.command, words.about], ['Partner', 'evaluate', 'G2'])
   assert.equal(words.text, [
     'evaluate G2 Benches that feel like home',
-    'Attempts: 3 failed checks since Go (2026-10-19 08:00)',
+    'Attempts: 4 failed checks since Go (2026-10-19 08:00)',
     '- B1 (2026-10-19 08:20): The seat is too high',
     '- B4 (2026-10-19 08:50): 0 of 1 points pass',
     '- G2 re-check (2026-10-19 09:30): nobody sits',
+    '- B2 (2026-10-19 09:40): 0 of 1 points pass',
     'Next steps: refine every next step of G2 with Effort: high until the evaluation ends; its model as for any step (sonnet unless the step is hard)',
     'Rebuilds: ask the person first (decide); "Approve rebuilds by itself" is off',
     'Your job: D:/b/roles/partner.md, "The fundamental evaluation"',
@@ -476,7 +479,7 @@ test('B528: the board asks the partner again with "again" in the word, until the
   const words = await again({ now: NOW + 30 * 60_000 })
   assert.equal(words.length, 1)
   assert.deepEqual([words[0].to, words[0].command, words[0].about], ['Partner', 'evaluate', 'G2'])
-  assert.match(words[0].text, /^evaluate G2 Benches that feel like home \(again: asked 2026-10-19 10:00, not evaluated yet\)\nAttempts: 3 failed checks since Go/)
+  assert.match(words[0].text, /^evaluate G2 Benches that feel like home \(again: asked 2026-10-19 10:00, not evaluated yet\)\nPart: Wooden benches \(steps B1, B4, B2\)[^\n]*\nAttempts: 3 failed checks of this part since Go/)
   // Not on a board that only shows, nor without a partner.
   assert.deepEqual(await again({ now: NOW + 30 * 60_000, canWrite: false }), [])
   assert.deepEqual(await again({ now: NOW + 30 * 60_000, partner: null }), [])
@@ -489,6 +492,6 @@ test('B528: the board asks the partner again with "again" in the word, until the
 test('a failed check whose fix passed counts no more: a step done after its fix is no attempt (the person, 2026-10-25)', () => {
   const doneNow = ITEMS.map(item => (item.head.get('Id') === 'B4' ? { ...item, head: new Map([...item.head, ['State', 'done']]) } : item))
   const counted = goalAttempts(goal(), doneNow)
-  assert.deepEqual(counted.failures.map(one => one.id), ['B1', 'G2'])
-  assert.equal(counted.count, 2)
+  assert.deepEqual(counted.failures.map(one => one.id), ['B1', 'G2', 'B2'])
+  assert.equal(counted.count, 3)
 })

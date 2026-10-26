@@ -7,7 +7,7 @@ import { access, mkdir, open, readdir, readFile, rename, rm, writeFile } from 'n
 
 import { editThread, parseThread, setThreadState } from './brainstorm.mjs'
 import { focusStage, hasDoneWhen, nextGoalId, parseGoals } from './goals.mjs'
-import { askingOf, evaluateWords, evaluationsDue, fableAskOf, goalAttempts, guardStep, openFableAsk, partnerModeFor } from './goalGuard.mjs'
+import { askingOf, evaluateWords, evaluationPartOf, evaluationsDue, fableAskOf, goalAttempts, guardStep, openFableAsk, partnerModeFor } from './goalGuard.mjs'
 import { addGoal, addGoalLine, addGoalNote, agreeHow, agreeVibe, changeGoalsFile, raiseLastLine, reopenHow, rewrite, setFocus, setGoalLine, setGoalState, setHow, setVibe } from './goalsWrite.mjs'
 import { focusWords } from './say.mjs'
 import { absentAs, again } from './write.mjs'
@@ -488,7 +488,9 @@ async function runGuard(id, ctx) {
     const goal = parseGoals(now).byId.get(id)
     // Read again: the goal may have been ticked, or its trip ended or begun meanwhile.
     if (goal === undefined || goal.state === 'done' || (goal.fableAsked ?? null) !== null || (goal.evaluationAsked ?? null) !== null) return { ok: false, why: 'calm' }
-    return setGoalLine(now, id, 'Fable asked', asked)
+    const lined = setGoalLine(now, id, 'Fable asked', asked)
+    // B669: the part that tripped the guard, kept until the evaluation ends (none: the goal as a whole).
+    return lined.ok && first.part ? setGoalLine(lined.text, id, 'Evaluation part', first.part) : lined
   }, goalsAt))
   if (!done.ok && done.why === 'calm' && isNew) await ctx.withdrawAsk?.(asked, `${id} changed while the board asked: the ask is no longer needed`)
   if (!done.ok) return done.why === 'calm' ? calm : failed(done.why)
@@ -531,7 +533,8 @@ export async function evaluationsMode(ctx) {
 /** The end of a guard's trip: "Evaluation asked" and the board's "Fable asked" taken from under the goal. */
 function endTrip(text, id) {
   const cleared = setGoalLine(text, id, 'Evaluation asked', '')
-  return cleared.ok ? setGoalLine(cleared.text, id, 'Fable asked', '') : cleared
+  const asked = cleared.ok ? setGoalLine(cleared.text, id, 'Fable asked', '') : cleared
+  return asked.ok ? setGoalLine(asked.text, id, 'Evaluation part', '') : asked
 }
 
 /**
@@ -546,7 +549,10 @@ async function fireGuard(id, ctx) {
   const node0 = parseGoals(text).byId.get(id)
   const first = guardStep(node0, ctx.items)
   if (first === null || first.do === 'wait') return calm
-  if (first.do === 'ask') return { ...calm, ask: fableAskOf({ goal: node0, attempts: goalAttempts(node0, ctx.items) }) }
+  if (first.do === 'ask') {
+    const attempts = goalAttempts(node0, ctx.items)
+    return { ...calm, ask: fableAskOf({ goal: node0, attempts }), part: attempts.tripped?.key === 'goal' ? null : attempts.tripped?.title ?? null }
+  }
   let node = null
   let step = null
   const done = await changeGoalsFile(now => {
@@ -560,7 +566,8 @@ async function fireGuard(id, ctx) {
     return asked.ok && step.gone ? setGoalLine(asked.text, id, 'Fable asked', '') : asked
   }, goalsAt)
   if (!done.ok) return done.why === 'calm' ? calm : failed(done.why)
-  const words = evaluateWords({ to: ctx.partner.name, goal: node, attempts: goalAttempts(node, ctx.items), approveRebuilds: ctx.approveRebuilds === true, job: ctx.job, maxChars: ctx.maxChars })
+  const attempts = goalAttempts(node, ctx.items)
+  const words = evaluateWords({ to: ctx.partner.name, goal: node, attempts, part: evaluationPartOf(node, attempts), approveRebuilds: ctx.approveRebuilds === true, job: ctx.job, maxChars: ctx.maxChars })
   return { ok: true, result: { id, fired: true, mode: step.mode, ask: step.ask }, words }
 }
 
@@ -577,7 +584,7 @@ export async function evaluationsAgain(ctx) {
   if (due.length === 0) return []
   const items = await ctx.items()
   return due.map(node => evaluateWords({
-    to: ctx.partner.name, goal: node, attempts: goalAttempts(node, items), approveRebuilds: ctx.approveRebuilds === true, job: ctx.job,
+    to: ctx.partner.name, goal: node, attempts: goalAttempts(node, items), part: evaluationPartOf(node, goalAttempts(node, items)), approveRebuilds: ctx.approveRebuilds === true, job: ctx.job,
     maxChars: ctx.maxChars, again: node.evaluationAsked,
   }))
 }

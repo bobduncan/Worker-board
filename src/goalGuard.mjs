@@ -13,6 +13,10 @@
 // The partner's answer is a how-draft (src/focus.mjs): a corrected or rebuilt how, or the same how again ("keep
 // going"); it counts as Go, so the count starts anew. A rebuild is the person's to approve (an ask of the goal whose
 // title begins "Rebuild G<n>") unless "Approve rebuilds by itself" (config `approveRebuilds`) is on.
+// B669 (the person, 2026-10-26: "yes" to counting per part): the third failure is counted per part, not per goal. A part
+// is one 'Part:' line of the goal's how with the steps it names and every fix made from them (their `Fix of` chain); a goal
+// without parts, or a step in no part, counts per chain (a step and its fixes). The guard trips when one part reaches the
+// third failure, names that part, and its higher effort applies to that part's steps only; the other parts go on.
 // Work-agnostic: it reads the store's steps and the goal map, nothing of the project's work.
 
 import { sinceMs } from './work/item.mjs'
@@ -40,17 +44,58 @@ function firstRefinedAt(node, items) {
   return own.filter(one => one !== undefined).sort()[0] ?? ''
 }
 
+const GOAL_GROUP = 'goal'
+const cutWords = (text, chars) => (text.length > chars ? `${text.slice(0, chars - 1).trimEnd()}…` : text)
+
+/** The step a fix chain starts from: `Fix of` followed up while the store holds the step it names. */
+function rootOf(id, byId) {
+  let at = id
+  const seen = new Set()
+  while (!seen.has(at)) {
+    seen.add(at)
+    const up = byId.get(at)?.head.get('Fix of')
+    if (up === undefined || up === null || up === '') break
+    at = up
+  }
+  return at
+}
+
+const byIdOf = items => (items instanceof Map ? items : new Map((items ?? []).map(item => [item.head.get('Id'), item])))
+
 /**
- * The goal's failed checks, oldest first: `{ count, since, failures: [{ at, id, text, by }] }`. `since` is the goal's
- * Go, else its first refined step. A step's last failure carries the failed points its last check keeps; an earlier one,
+ * B669: the group a step's failed checks are counted in: the goal's part that names the step or the step its fix chain
+ * starts from (`key` part:<place>, `title` the part's), else the chain itself (`key` chain:<root>, `title` its first
+ * step's id and title). `byId` the store's items by id.
+ */
+export function groupOfStep(node, byId, stepId) {
+  const root = rootOf(stepId, byId)
+  const place = (node?.parts ?? []).findIndex(part => part.steps.includes(stepId) || part.steps.includes(root))
+  if (place >= 0) return { key: `part:${place}`, title: node.parts[place].title, isPart: true }
+  const title = lineOf(byId.get(root)?.head.get('Title') ?? '')
+  return { key: `chain:${root}`, title: title === '' ? root : cutWords(`${root} ${title}`, 40), isPart: false }
+}
+
+/**
+ * The goal's failed checks, oldest first: `{ count, since, failures: [{ at, id, text, by, group }], groups, tripped }`.
+ * `since` is the goal's Go, else its first refined step. A step's last failure carries the failed points its last check keeps; an earlier one,
  * its summary. A look the person answered no (`by: 'you'`) is an attempt of the goal its step belongs to.
+ * B669: `groups` are the counts per part (or per chain) with failures, worst first: `{ key, title, isPart, steps, count, failures }`
+ * (the goal's own re-checks and the looks at the goal itself, `key` 'goal', are one group of their own); `tripped` is the
+ * group that reached `GUARD_ATTEMPTS` first (by the time of its third failure), else null. `count` stays the goal's total.
  */
 export function goalAttempts(node, items) {
   // An evaluation that ended starts the count anew, also for a goal whose how waits for the person's Go.
   const ended = [...(node?.evaluatedAt ?? [])].sort().at(-1) ?? ''
   const since = [node?.howAgreed ?? firstRefinedAt(node ?? {}, items), ended].sort().at(-1)
+  const byId = byIdOf(items)
   const failures = []
   const steps = new Set()
+  const grouped = new Map()
+  const put = (group, failure) => {
+    failures.push({ ...failure, group: group.key })
+    if (!grouped.has(group.key)) grouped.set(group.key, { ...group, steps: new Set() })
+    if (/^B\d+$/.test(failure.id)) grouped.get(group.key).steps.add(failure.id)
+  }
   for (const item of items ?? []) {
     if (item.head.get('Kind') !== 'step' || item.head.get('Goal') !== node.id) continue
     const id = item.head.get('Id')
@@ -60,11 +105,13 @@ export function goalAttempts(node, items) {
     if (String(item.head.get('State') ?? '').toLowerCase() === 'done') continue
     const failed = (item.sections.get('History') ?? []).map(one => one.replace(/^[-*]\s+/, '').match(FAILED)).filter(one => one !== null && one[1] > since)
     const points = (checkedOf(item)?.points ?? []).filter(one => one.verdict === 'fail').map(one => one.text)
+    const group = groupOfStep(node, byId, id)
     failed.forEach((found, place) => {
       const isLast = place === failed.length - 1
-      failures.push({ at: found[1], id, text: lineOf(isLast && points.length > 0 ? points.join('; ') : found[2]), by: 'check' })
+      put(group, { at: found[1], id, text: lineOf(isLast && points.length > 0 ? points.join('; ') : found[2]), by: 'check' })
     })
   }
+  const goalGroup = { key: GOAL_GROUP, title: 'Whole goal', isPart: false }
   for (const item of items ?? []) {
     if (item.head.get('Kind') !== 'ask' || item.head.get('Asks') !== 'look' || String(item.head.get('State') ?? '').toLowerCase() !== 'answered') continue
     const of = item.head.get('Of')
@@ -73,13 +120,38 @@ export function goalAttempts(node, items) {
     if (answer.length === 0 || !SAID_NO.test(answer[0])) continue
     const at = historyOf(item).filter(one => /^person: answered/.test(one[2])).at(-1)?.[1]
     if (at === undefined || at <= since) continue
-    failures.push({ at, id: item.head.get('Id'), text: lineOf(answer.join(' ')), by: 'you' })
+    put(of === node.id ? goalGroup : groupOfStep(node, byId, of), { at, id: item.head.get('Id'), text: lineOf(answer.join(' ')), by: 'you' })
   }
   for (const recheck of node.rechecks ?? []) {
-    if (recheck.verdict === 'failed' && recheck.at > since) failures.push({ at: recheck.at, id: node.id, text: lineOf(recheck.gap ?? recheck.summary), by: 'check' })
+    if (recheck.verdict === 'failed' && recheck.at > since) put(goalGroup, { at: recheck.at, id: node.id, text: lineOf(recheck.gap ?? recheck.summary), by: 'check' })
   }
   failures.sort((a, b) => (a.at < b.at ? -1 : a.at > b.at ? 1 : 0))
-  return { count: failures.length, since: since === '' ? null : since, failures }
+  const groups = [...grouped.values()].map(group => {
+    const own = failures.filter(one => one.group === group.key)
+    return { key: group.key, title: group.title, isPart: group.isPart, steps: [...group.steps], count: own.length, failures: own }
+  })
+  // Worst first; equal counts keep the order their first failures came in.
+  const first = group => failures.findIndex(one => one.group === group.key)
+  groups.sort((a, b) => b.count - a.count || first(a) - first(b))
+  const thirdAt = group => group.failures[GUARD_ATTEMPTS - 1].at
+  const tripped = groups.filter(group => group.count >= GUARD_ATTEMPTS).sort((a, b) => (thirdAt(a) < thirdAt(b) ? -1 : thirdAt(a) > thirdAt(b) ? 1 : first(a) - first(b)))[0] ?? null
+  return { count: failures.length, since: since === '' ? null : since, failures, groups, tripped }
+}
+
+/** B669: one group's attempts alone, in the shape the ask and the word to the partner read (`count`, `since`, `failures`). */
+export const attemptsOfGroup = (attempts, group) => ({ count: group.count, since: attempts.since, failures: group.failures })
+
+/**
+ * B669: whether the evaluation of `node` covers the step `stepId`: every step when the evaluation is of the goal as a whole
+ * (no part named in "Evaluation part:"), a step the goal's parts and the store do not know, and the steps of the named part.
+ * `items` the store's, as a Map or an array.
+ */
+export function evaluationCovers(node, items, stepId) {
+  const part = node?.evaluationPart ?? null
+  if (part === null || stepId === undefined || stepId === null || stepId === '') return true
+  const byId = byIdOf(items)
+  if (!byId.has(stepId) && !(node.parts ?? []).some(one => one.steps.includes(stepId))) return true
+  return groupOfStep(node, byId, stepId).title === part
 }
 
 /**
@@ -95,11 +167,20 @@ export function evaluationState(node) {
   return node.howAgreed === null || node.howAgreed <= ended ? 'ended' : null
 }
 
-/** Whether the guard trips now: an open goal at its third failed attempt, no ask of the board's and no evaluation running. */
+/**
+ * B669: where the evaluation stands for one step of the goal (`evaluationState`'s answer): a running evaluation of one part
+ * covers that part's steps only, so the others stay null; an ended one and an evaluation of the goal as a whole are as they are.
+ */
+export function evaluationFor(node, items, stepId) {
+  const state = evaluationState(node)
+  return state === 'running' && !evaluationCovers(node, items, stepId) ? null : state
+}
+
+/** Whether the guard trips now: an open goal with one part at its third failed attempt, no ask of the board's and no evaluation running. */
 export function needsEvaluation(node, items) {
   if (node === undefined || node === null || node.state === 'done') return false
   if ((node.evaluationAsked ?? null) !== null || (node.fableAsked ?? null) !== null) return false
-  return goalAttempts(node, items).count >= GUARD_ATTEMPTS
+  return goalAttempts(node, items).tripped !== null
 }
 
 const isOpenAsk = item => !['answered', 'withdrawn', 'dropped', 'closed', 'done'].includes(String(item.head.get('State') ?? '').toLowerCase())
@@ -109,24 +190,31 @@ const isOpenAsk = item => !['answered', 'withdrawn', 'dropped', 'closed', 'done'
  * strategy using fable. yes, or no use opus"); no advice: it is the person's call.
  */
 export const FABLE_OPTIONS = ['A Yes: Fable 5.1 (max), only for this evaluation', 'B No: Opus 5.5 (max)']
-/** The board's ask by its title, "G<n> failed <n> times: evaluate the strategy with Fable?". */
-const FABLE_TITLE = /^G\d+ failed \d+ times: evaluate the strategy with Fable\?$/
+/** The board's ask by its title, "G<n> failed <n> times: evaluate the strategy with Fable?", B669: "G<n> · <part> failed ...". */
+const FABLE_TITLE = /^G\d+(?: · .+)? failed \d+ times: evaluate the strategy with Fable\?$/
 const cutTo = (text, chars) => (text.length > chars ? `${text.slice(0, chars - 1).trimEnd()}…` : text)
+
+/** B669: the part's name as the ask's title takes it: a title is at most 12 words, so two words of the part's name (a goal as a whole has none). */
+const partInTitle = group => (group === null || group === undefined || group.key === GOAL_GROUP ? '' : ` · ${lineOf(group.title).split(' ').slice(0, 2).join(' ')}`)
 
 /**
  * 2026-10-24: the ask the board files (as the board, through the work API) when the guard trips: kind decide, blocking,
  * of the goal, its title the question, two plain lines (what failed; what Fable costs), A Fable and B Opus, no advice.
+ * B669: `part` (a group of goalAttempts) is the part that tripped: the title and the first line name it and count its
+ * failures alone; without one the goal's total.
  */
-export function fableAskOf({ goal, attempts }) {
-  const last = attempts.failures.at(-1)
+export function fableAskOf({ goal, attempts, part = attempts.tripped ?? null }) {
+  const own = part === null ? attempts : attemptsOfGroup(attempts, part)
+  const last = own.failures.at(-1)
   const who = last === undefined ? '' : last.by === 'you' ? `your no to ${last.id}` : last.id === goal.id ? `${goal.id}'s re-check` : last.id
   const latest = last === undefined ? '' : `; the latest, ${who}: ${cutTo(last.text, 160)}`
   const since = attempts.since !== null && attempts.since === goal.howAgreed ? 'Go' : 'its first refined step'
+  const named = part === null || part.key === GOAL_GROUP ? '' : ` (${lineOf(part.title)})`
   return {
     action: 'ask', of: goal.id, kind: 'decide', blocking: true,
-    title: `${goal.id} failed ${attempts.count} times: evaluate the strategy with Fable?`,
+    title: `${goal.id}${partInTitle(part)} failed ${own.count} times: evaluate the strategy with Fable?`,
     text: [
-      `${goal.id} ${lineOf(goal.title)}: ${attempts.count} checks failed since ${since}${latest}${/[.!?…]$/.test(latest) ? '' : '.'}`,
+      `${goal.id} ${lineOf(goal.title)}${named}: ${own.count} checks failed since ${since}${latest}${/[.!?…]$/.test(latest) ? '' : '.'}`,
       'Your partner now evaluates whether the approach is right. Fable 5.1 is the strongest model but uses far more tokens than Opus 5.5; nothing starts before your answer.',
     ].join('\n'),
     options: [...FABLE_OPTIONS],
@@ -201,19 +289,28 @@ export function partnerModeFor(nodes, items) {
   return isFable ? { mode: 'fable', yes: running[0].fableAsked } : { mode: 'high', yes: null }
 }
 
+/** B669: the group of `attempts` the goal's evaluation is of ("Evaluation part:"), else null (the goal as a whole, or no failure of it left). */
+export const evaluationPartOf = (node, attempts) => ((node?.evaluationPart ?? null) === null ? null : attempts.groups.find(group => group.title === node.evaluationPart) ?? null)
+
 /**
- * The guard as the Focus page shows it: `{ attempts, of, state, ask }`, state `counting` (attempts so far), `asking` (the
- * board asks the person, Fable or Opus: the ask `ask`), `evaluating` (the partner evaluates) or `rebuild` (a rebuild waits
- * for the person: the open ask `ask`).
+ * The guard as the Focus page shows it: `{ attempts, parts, of, state, ask }` (`attempts` the worst part's failed checks, or
+ * those of the part under evaluation; `parts` every part's, `{ title, count }`, worst first), state `counting` (attempts
+ * so far), `asking` (the board asks the person, Fable or Opus: the ask `ask`), `evaluating` (the partner evaluates) or
+ * `rebuild` (a rebuild waits for the person: the open ask `ask`).
  */
 export function guardOf(node, items, asks) {
   if (node === undefined || node === null) return null
-  const attempts = goalAttempts(node, items).count
-  if ((node.evaluationAsked ?? null) === null && (node.fableAsked ?? null) !== null) return { attempts, of: GUARD_ATTEMPTS, state: 'asking', ask: node.fableAsked }
-  if ((node.evaluationAsked ?? null) === null) return { attempts, of: GUARD_ATTEMPTS, state: 'counting', ask: null }
+  const found = goalAttempts(node, items)
+  const under = evaluationPartOf(node, found)
+  const attempts = (under ?? found.groups[0])?.count ?? 0
+  const parts = found.groups.map(group => ({ title: group.title, count: group.count }))
+  // The part under evaluation, when the guard named one.
+  const part = under === null ? {} : { part: under.title }
+  if ((node.evaluationAsked ?? null) === null && (node.fableAsked ?? null) !== null) return { attempts, parts, ...part, of: GUARD_ATTEMPTS, state: 'asking', ask: node.fableAsked }
+  if ((node.evaluationAsked ?? null) === null) return { attempts, parts, of: GUARD_ATTEMPTS, state: 'counting', ask: null }
   const rebuild = new RegExp(`^Rebuild ${node.id}\\b`, 'i')
   const waiting = (asks ?? []).find(one => one.head.get('Kind') === 'ask' && one.head.get('Of') === node.id && isOpenAsk(one) && rebuild.test(String(one.head.get('Title') ?? '')))
-  return { attempts, of: GUARD_ATTEMPTS, state: waiting === undefined ? 'evaluating' : 'rebuild', ask: waiting?.head.get('Id') ?? null }
+  return { attempts, parts, ...part, of: GUARD_ATTEMPTS, state: waiting === undefined ? 'evaluating' : 'rebuild', ask: waiting?.head.get('Id') ?? null }
 }
 
 /** B528: the longest a failed check's line runs in the word to the partner; its whole text stands in the step's History. */
@@ -228,14 +325,20 @@ const EVALUATE_CHARS = 2000
  * never arrived): each failed check cut to one short line, the newest kept, the older ones counted. `again` (the time
  * "Evaluation asked" says) makes it the repeat of a word the evaluation has not ended yet.
  */
-export function evaluateWords({ to, goal, attempts, approveRebuilds, job, maxChars = EVALUATE_CHARS, again = null }) {
+export function evaluateWords({ to, goal, attempts: all, part = null, approveRebuilds, job, maxChars = EVALUATE_CHARS, again = null }) {
   const cut = text => (text.length > FAILURE_CHARS ? `${text.slice(0, FAILURE_CHARS - 1).trimEnd()}…` : text)
+  // B669: of a part the words are about that part alone (`part`, a group of goalAttempts); the other parts go on.
+  const attempts = part === null ? all : attemptsOfGroup(all, part)
+  const ofPart = part === null || part.key === GOAL_GROUP ? null : lineOf(part.title)
+  const others = ofPart === null ? [] : all.groups.filter(group => group.key !== part.key)
   const head = [
     `evaluate ${goal.id} ${lineOf(goal.title)}${again === null ? '' : ` (again: asked ${again}, not evaluated yet)`}`,
-    `Attempts: ${attempts.count} failed checks since ${goal.howAgreed === attempts.since ? 'Go' : 'its first refined step'} (${attempts.since ?? 'the start'})`,
+    ...(ofPart === null ? [] : [`Part: ${ofPart}${part.steps.length > 0 ? ` (steps ${part.steps.join(', ')})` : ''}: the evaluation is of this part, the other parts go on`]),
+    `Attempts: ${attempts.count} failed checks${ofPart === null ? '' : ' of this part'} since ${goal.howAgreed === attempts.since ? 'Go' : 'its first refined step'} (${attempts.since ?? 'the start'})`,
+    ...(others.length === 0 ? [] : [`Other parts: ${others.map(group => `${lineOf(group.title)} ${group.count}`).join(', ')}`]),
   ]
   const tail = [
-    `Next steps: refine every next step of ${goal.id} with Effort: high until the evaluation ends; its model as for any step (sonnet unless the step is hard)`,
+    `Next steps: refine every next step of ${ofPart === null ? goal.id : `${goal.id}'s part ${ofPart}`} with Effort: high until the evaluation ends; its model as for any step (sonnet unless the step is hard)`,
     approveRebuilds === true
       ? 'Rebuilds: approved by the board ("Approve rebuilds by itself" is on): make its steps at once and give the person a recap'
       : 'Rebuilds: ask the person first (decide); "Approve rebuilds by itself" is off',
