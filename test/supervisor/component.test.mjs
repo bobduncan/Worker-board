@@ -4,6 +4,7 @@
 // repair rules, `{ id, kind, says, check(view, ctx) }`, which find exactly what `findStuck` found. Made-up samples only.
 
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
 import test from 'node:test'
 
 import { REFUSED_MS, createSupervisor, loopGate, loopOwner } from '../../src/supervisor/index.mjs'
@@ -106,10 +107,12 @@ test('run: the list at once, as "Out of sync?" ran it; its answer is today\'s, a
   assert.equal(supervisor.view(NOW).checkedAt, NOW)
 })
 
-test('gap 4: the view carries the time of the setting supervisorCountFrom, for the page counts; null without it', () => {
+test('the view has no start time for the page counts any more: the page counts a rolling 24 h; an old setting supervisorCountFrom is ignored', () => {
   const { ports } = board()
-  assert.equal(createSupervisor(ports).view(NOW).countFrom, null)
-  assert.equal(createSupervisor({ ...ports, settings: { supervisorCountFrom: '2026-10-24 09:15' } }).view(NOW).countFrom, new Date(2026, 9, 24, 9, 15).getTime())
+  assert.equal('countFrom' in createSupervisor(ports).view(NOW), false)
+  assert.equal('countFrom' in createSupervisor({ ...ports, settings: { supervisorCountFrom: '2026-10-24 09:15' } }).view(NOW), false)
+  const source = readFileSync(new URL('../../src/supervisor/index.mjs', import.meta.url), 'utf8')
+  assert.doesNotMatch(source, /countFrom|CountFrom/)
 })
 
 test('run: another board process that holds the project\'s loops (the server\'s gate) runs it; this one runs nothing and answers null', async () => {

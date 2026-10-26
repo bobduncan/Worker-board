@@ -9,10 +9,10 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import test from 'node:test'
 
-import { recordFindings } from '../../src/supervisor/incidents.mjs'
+import { incidentsOf, recordFindings } from '../../src/supervisor/incidents.mjs'
 import { workApi } from '../../src/work/api.mjs'
 import { reconcile } from '../../src/work/reconcile.mjs'
-import { migrateBacklog } from '../../src/work/migrate.mjs'
+import { migrateBacklog, stamp } from '../../src/work/migrate.mjs'
 import { readStore, writeStore } from '../../src/work/store.mjs'
 import { writeView } from '../../src/work/view.mjs'
 
@@ -173,6 +173,19 @@ test('Task 4: the person\'s line is a note of the board\'s, Via supervisor; a ch
 test('the board\'s reconcile marks fixed incidents, only while the supervisor\'s view holds one being fixed (each work call reads the whole store)', async () => {
   const server = await readFile(new URL('../../server.mjs', import.meta.url), 'utf8')
   assert.match(server, /if \(supervisor !== null && supervisor\.view\(clock\(\)\)\.incidents\.some\(one => one\.state === 'fix'\)\) \{\n\s+await loops\.run\('incidents-fixed', async \(\) => \{\n\s+const fixed = await workAction\(\{ action: 'incidents-fixed' \}, 'server'\)/)
+})
+
+test('incidentsOf holds a fixed incident for two days, so the page can count the 24 h before; one not fixed stays however old', () => {
+  const DAY = 24 * 60 * MIN
+  const incident = (id, state, lastSeen) => ({
+    head: new Map([['Id', id], ['Kind', 'incident'], ['Title', `Finding ${id}`], ['State', state], ['First seen', stamp(lastSeen)], ['Last seen', stamp(lastSeen)], ['Since', stamp(lastSeen)], ['Count', '1']]),
+    sections: new Map(),
+  })
+  const items = new Map([
+    incident('X1', 'fixed', NOW - 30 * 60 * MIN), incident('X2', 'fixed', NOW - 47 * 60 * MIN), incident('X3', 'fixed', NOW - 2 * DAY), incident('X4', 'fixed', NOW - 2 * DAY - MIN), incident('X5', 'fixed', NOW - 5 * DAY),
+    incident('X6', 'open', NOW - 5 * DAY),
+  ].map(one => [one.head.get('Id'), one]))
+  assert.deepEqual(incidentsOf(items, NOW).map(one => one.id).sort(), ['X1', 'X2', 'X3', 'X6'], 'exactly two days is kept, as the lower edge of the 24 h before is')
 })
 
 // The review of Part 1 (2026-10-24).

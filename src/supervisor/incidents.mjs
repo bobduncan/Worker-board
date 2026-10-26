@@ -7,6 +7,8 @@
 import { sinceMs } from '../work/item.mjs'
 
 const DAY = 24 * 60 * 60_000
+/** How long a fixed incident stays in the view: the section counts the last 24 h and the 24 h before it (page: `supervisorCounts`). */
+const FIXED_KEPT = 2 * DAY
 /** A History line's stamp and what it says: "- 2026-10-24 18:38 board: came back (seen 3 times)". */
 const BACK_LINE = /^-\s+(\d{4}-\d{2}-\d{2} \d{2}:\d{2}(?::\d{2})?)\s.*:\s+came back\b/
 
@@ -55,9 +57,10 @@ export async function recordFindings(findings, { work }) {
 }
 
 /**
- * The incidents as the section shows them, from the store's items: every one not fixed, and those fixed in the last
- * day, the newest seen first: `{ id, title, state, fix, source, subject, count, firstSeen, lastSeen, since, evidence,
- * ruleWanted, foundAt }` (`since` when it got its state, `foundAt` when it opened or last came back).
+ * The incidents as the section shows them, from the store's items: every one not fixed, and those fixed and seen in the
+ * last two days (the section's last 24 h and the 24 h before), the newest seen first: `{ id, title, state, fix, source,
+ * subject, count, firstSeen, lastSeen, since, evidence, ruleWanted, foundAt }` (`since` when it got its state, `foundAt`
+ * when it opened or last came back).
  */
 export function incidentsOf(items, now) {
   const value = (item, key) => {
@@ -72,7 +75,7 @@ export function incidentsOf(items, now) {
       lastSeen: sinceMs(value(item, 'Last seen')), since: sinceMs(value(item, 'Since')), evidence: value(item, 'Evidence'), ruleWanted: value(item, 'Rule wanted'),
       foundAt: foundAtOf(item, sinceMs(value(item, 'First seen'))),
     }))
-    .filter(one => one.state !== 'fixed' || !(now - one.lastSeen >= DAY))
+    .filter(one => one.state !== 'fixed' || !(now - one.lastSeen > FIXED_KEPT))
     .sort((a, b) => (b.lastSeen || 0) - (a.lastSeen || 0) || String(b.id).localeCompare(String(a.id), 'en', { numeric: true }))
 }
 

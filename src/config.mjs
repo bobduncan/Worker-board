@@ -463,22 +463,7 @@ export function parseConfig(text, env) {
     .map(([key, value]) => [key, Number.isFinite(given[key]) && given[key] > 0 ? given[key] : value])))
   // Part 2: a number of minutes, 0 or more (0: no sweep by the clock).
   if (Number.isFinite(raw.supervisorSweepMinutes) && raw.supervisorSweepMinutes >= 0) config.supervisorSweepMinutes = raw.supervisorSweepMinutes
-  // Gap 4: the local time the supervisor's section counts from; absent unless set right ("" is none).
-  if (countFromMs(raw.supervisorCountFrom) !== null) config.supervisorCountFrom = raw.supervisorCountFrom.trim()
   return config
-}
-
-/**
- * Gap 4, the person (2026-10-25): "i want the number to be 0 since the redesign so it's clear what it finds". The
- * setting `supervisorCountFrom`, "YYYY-MM-DD HH:MM" in local time, as milliseconds; null for anything else (a date that
- * does not exist, too).
- */
-export function countFromMs(text) {
-  const hit = typeof text === 'string' ? text.trim().match(/^(\d{4})-(\d{2})-(\d{2}) (\d{2}):(\d{2})$/) : null
-  if (hit === null) return null
-  const [year, month, day, hour, minute] = hit.slice(1).map(Number)
-  const at = new Date(year, month - 1, day, hour, minute)
-  return at.getFullYear() === year && at.getMonth() === month - 1 && at.getDate() === day && at.getHours() === hour && at.getMinutes() === minute ? at.getTime() : null
 }
 
 /** The place of a JSON error's position in the text: " at line 3, column 14", or "". */
@@ -522,7 +507,6 @@ export function configProblem(fileText) {
   if (has('usualModel') && !(typeof raw.usualModel === 'string' && MODELS.includes(raw.usualModel.trim().toLowerCase()))) return wrong('usualModel', MODELS.map(one => `"${one}"`).join(' or '))
   if (has('usualEffort') && !(typeof raw.usualEffort === 'string' && EFFORTS.includes(raw.usualEffort.trim().toLowerCase()))) return wrong('usualEffort', `one of ${EFFORTS.map(one => `"${one}"`).join(', ')}`)
   if (has('supervisorSweepMinutes') && !(Number.isFinite(raw.supervisorSweepMinutes) && raw.supervisorSweepMinutes >= 0)) return wrong('supervisorSweepMinutes', 'a number of minutes, 0 or more (0: no sweep by the clock)')
-  if (has('supervisorCountFrom') && !(raw.supervisorCountFrom === '' || countFromMs(raw.supervisorCountFrom) !== null)) return wrong('supervisorCountFrom', 'a local time like "2026-10-25 14:00", or "" for none')
   if (has('supervisor')) {
     const given = raw.supervisor
     if (given === null || typeof given !== 'object' || Array.isArray(given)) return wrong('supervisor', `an object of numbers above 0: ${Object.keys(SUPERVISOR_DEFAULTS).join(', ')}`)
