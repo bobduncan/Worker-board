@@ -11,7 +11,7 @@ import { stoppedOf } from './stopped.mjs'
 import { SYNC_BOARD, lastSyncAnswer } from './sync.mjs'
 import { isTalkPicture } from './talkPicture.mjs'
 import { isHolding } from './work/pause.mjs'
-import { hasNoMutantWarning } from './work/resultCheck.mjs'
+import { warningLines } from './work/resultCheck.mjs'
 
 const refuse = (status, why) => ({ ok: false, status, why })
 
@@ -287,11 +287,8 @@ export const checkStepWords = (to, step, job) => ({
   // 2026-10-25: `step.warnings`, what the board's check passed the report with, stands in a `Board warnings:` line; a
   // report that names no mutant for a change that touches tests adds the `Demand:` line (the check no longer sends the
   // worker back for it: this check asks for the mutant).
-  text: `check step\nStep: ${step.id} ${plainLine(step.title ?? '')}\nBuilt by: ${plainLine(step.owner ?? 'its worker')}${step.why ? `\nWhy: ${plainLine(step.why)}` : ''}${step.warnings ? `\nBoard warnings: ${String(step.warnings).replace(/\s+/g, ' ').trim().slice(0, 700)}` : ''}${hasNoMutantWarning(step.warnings) ? `\nDemand: ${NO_MUTANT_DEMAND}` : ''}\nYour job: ${job}, "The check"`,
+  text: `check step\nStep: ${step.id} ${plainLine(step.title ?? '')}\nBuilt by: ${plainLine(step.owner ?? 'its worker')}${step.why ? `\nWhy: ${plainLine(step.why)}` : ''}${warningLines(step.warnings).map(one => `\n${one}`).join('')}\nYour job: ${job}, "The check"`,
 })
-
-/** 2026-10-25: what the result check demands when the report names no mutant for a change that touches tests (roles/partner.md, "The check"). */
-export const NO_MUTANT_DEMAND = 'the report names no mutant for a change that touches tests: the helper makes one in a scratch copy (never on the branch), undoing the fix and running the new tests, and a test that still passes is a fail point; it files the mutant it made'
 
 /** B233: the Advisor refines a step that is not finished; one ask at a time per step. */
 function refineCheck(body, state) {

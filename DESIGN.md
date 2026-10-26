@@ -3941,28 +3941,38 @@ work, and passes wording with a warning (principles 1 and 8: the board tidies, t
 - *Refuses (facts).* The base branch differs from its remote (with the way out, `baseFault`); the step's branch is still
   there, locally or on the remote; a worktree or a worktree folder of the step is left; no repository can be told from
   the merged commit or the branch; no result is named (the work API already refuses an empty one); for work outside git,
-  a file the step's Touches name is not there, or lies in a repository. The files come from the step's Touches, no
-  longer from the result's prose (which misread words such as "done/level.md" as a missing file, X57); a step whose
-  Touches name no file passes with a warning that no file was checked, since the worker has no other place to name
-  them.
+  work that sits in a repository (the result names a file in one: "report that work with its merged commit", so the
+  base against its remote is still checked), and a report whose Touches and result together name no file that is there
+  ("not there: ..." or "no file named"). The independent review of the same day kept these two as refusals.
+- *Warns for outside git.* Touches is a plan written before the work, often relative to a repository, and the worker
+  cannot edit it: a Touches path that is not there warns ("Touches names files not there: ...") once the result names
+  a file that is; so does a path in the result's prose that is not there (it misread words such as "done/level.md",
+  X57), and a Touches path in a repository when a file outside git is there. A step with no Touches file and a result
+  that names an existing file passes: that file is what is checked ("there: ...").
 - *Warns (the step passes).* No `Tests bite:` mutant for a change that touches a test file; a Context or Change that is
   missing, over 300 or 500 characters, or holds file names, code words, hashes, ids or placeholders
   (`partsWarnings`); a path in the result's prose that is not there; a result the board cut at its 2000 characters
   (`report` keeps the limit and writes "result cut: N characters" in History; the check reads it, also on a check run
   again).
-- *Where a warning goes.* The check's outcome carries `warnings`; the History line reads `check passed with warnings:
-  ...` and the step closes (or waits for its result check) as after a pass. The owner's next `work next` tells them
-  once, for a step in any state ("The board's check passed these with warnings (nothing to redo; said once)"), and
-  writes `check warnings told to <chat> (work next)`; a board that only shows, and the page's look at a chat's next,
-  tell nothing. A newer report or check line takes the old warnings away (`boardWarningsOf`, resultCheck.mjs).
+- *Where a warning goes.* The check's outcome carries `warnings`; the History line keeps the usual pass lines and
+  says the warnings after them (`check passed with warnings: <lines> | warnings: <warnings>`), and the step closes (or
+  waits for its result check) as after a pass. `work next` shows "Your last report (B<n>) passed the board's check with
+  warnings: ..." in every call for as long as that is the chat's newest report (the latest report minute among its
+  steps, in any state); a newer report replaces it, whatever its check says (`boardWarningsOf`, resultCheck.mjs).
+  Nothing is marked or written: the Workers mod makes silent `work next` calls and throws their text away (register.tsx,
+  after a clear, at session start, at a prompt), so a warning told once was lost (the review).
 - *The mutant.* The partner's result check asks for it: the board's word to the partner carries `Board warnings:` and,
-  for a report that names no mutant for a change touching tests, a `Demand:` line (`checkStepWords`, say.mjs); the
+  for a report that names no mutant for a change touching tests, a `Demand:` line (`checkStepWords`, say.mjs; the
+  repair `unchecked` carries the same lines when it asks again, `warningLines`, resultCheck.mjs); the
   helper makes the mutant in a scratch copy and a test that still passes is a fail point (roles/partner.md, "The
   check").
 - *The card.* The recap's Context and Change are the board's own words (`recapParts`): as the worker wrote them when
-  they read plain (cut at a word to 300 and 500 characters), else tidied sentence by sentence (file names, code words,
-  hashes, placeholders and ids left out; an id turned into the step's title when the store is at hand and the title
-  reads plain), and from the step's summary and the report where a part is missing or nothing plain is left.
+  they read plain (cut at a word to 300 and 500 characters), else tidied inside each sentence: file names, code words
+  and hashes taken out and the sentence kept (an id turned into the step's title when the store is at hand and the title
+  reads plain; a sentence with an id left, or whose technical word stands where it cannot go out cleanly, or that is
+  a stump, is dropped). Where a part is missing or nothing plain is left, the Context comes from the step's summary and
+  the Change from the report's own prose (a report with no Context or Change at all), else the summary, else the step's
+  title; never the Details.
 - *The supervisor.* The rule `report-check-twice` counts only failed checks that refused for a fact: the refusals for
   wording that older History lines hold are known (`isWordingOnly`, recapWords.mjs) and left out; a pass with warnings
   is a pass, and the repair `base-equal` reads it as one.

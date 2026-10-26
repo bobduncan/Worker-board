@@ -22,7 +22,7 @@ import { acceptRefine, answerRefine } from './refineText.mjs'
 import { placesIn } from '../places.mjs'
 import { DECIDED, GOAL_ID, NEEDS, UNDONE, decidedOf, isDailyNote, needsOf, undoneOf } from './dailyNote.mjs'
 import { HOW_MARK, openAsksOf as openAsksUnder, refineAsksOf as asksCounted } from './stepAsks.mjs'
-import { ANOTHER_WAY, TRIES_BEFORE_ANOTHER_WAY, agreedPoints, answerReading, boardWarningsOf, chainTries, checkedOf, checkWhy, fixesOf, fixesThrough, fixTitle, needsResultCheck, parentPointsOf, parsePoints, resultCheckAtMs, resultCheckOf, reviewWaitOf } from './resultCheck.mjs'
+import { ANOTHER_WAY, TRIES_BEFORE_ANOTHER_WAY, WARNINGS_MARK, agreedPoints, answerReading, boardWarningsOf, chainTries, checkedOf, checkWhy, fixesOf, fixesThrough, fixTitle, needsResultCheck, parentPointsOf, parsePoints, resultCheckAtMs, resultCheckOf, reviewWaitOf } from './resultCheck.mjs'
 import { RECAP_ANSWERS, dueRecaps, isRecap, recapMadeSince } from './recap.mjs'
 import { RESULT_CHARS, goalParts, recapParts } from './recapWords.mjs'
 import { kindsNamed, noneForLook, parseStandard, standardNoneRefused, standardOf, standardWanted } from './standard.mjs'
@@ -317,42 +317,39 @@ async function next(body, w) {
   // Partner answers (2026-10-19): the asks the partner answers for the person stand first in its next.
   const routed = w.role === 'advisor' ? routedAsks(w) : { text: '', ids: [] }
   const found = steady(body, w, chat)
-  // 2026-10-25: the warnings the board's check passed the chat's steps with, said once (a chat only: not the page's look).
-  const warned = found.ok && w.role !== 'person' && w.role !== 'server' && w.onlyShows !== true ? await tellWarnings(chat, w) : { text: '', ids: [] }
-  if (!found.ok || (notes.ids.length === 0 && routed.ids.length === 0 && warned.ids.length === 0)) return found
-  const text = [routed.text, notes.text, found.result.text, warned.text].filter(Boolean).join('\n\n')
-  return { ok: true, result: { ...found.result, text, ...(routed.ids.length === 0 ? {} : { routed: routed.ids }), ...(notes.ids.length === 0 ? {} : { notes: notes.ids }), ...(notes.ids.length + warned.ids.length === 0 ? {} : { changed: true }), ...(warned.ids.length === 0 ? {} : { warned: warned.ids }) } }
+  // 2026-10-25: the warnings the board's check passed the chat's newest report with, for as long as it is the newest.
+  const warned = found.ok ? reportWarningsWords(chat, w) : ''
+  if (!found.ok || (notes.ids.length === 0 && routed.ids.length === 0 && warned === '')) return found
+  const text = [routed.text, notes.text, warned, found.result.text].filter(Boolean).join('\n\n')
+  return { ok: true, result: { ...found.result, text, ...(routed.ids.length === 0 ? {} : { routed: routed.ids }), ...(notes.ids.length === 0 ? {} : { notes: notes.ids, changed: true }) } }
 }
 
 /** 2026-10-25: `{ warnings }`, the text the step's newest board check passed with; `{}` when it has none. */
 const warningsOf = item => {
   const warnings = boardWarningsOf(item)
-  return warnings === null ? {} : { warnings: warnings.text }
+  return warnings === null ? {} : { warnings }
+}
+
+const REPORT_LINE = / → review\b|: reported again\b/
+const HISTORY_STAMP = /^-\s+(\d{4}-\d\d-\d\d \d\d:\d\d)\s/
+/** When the step was last reported (ms): the minute of its newest move to review or "reported again" in History; NaN for none. */
+const reportedAtMs = item => {
+  const last = (item.sections.get('History') ?? []).map(String).findLast(one => REPORT_LINE.test(one))
+  return last === undefined ? Number.NaN : sinceMs(HISTORY_STAMP.exec(last.trim())?.[1])
 }
 
 /**
- * 2026-10-25: the warnings the board's check passed the chat's steps with ("check passed with warnings: ..." in
- * History), each said once: a step of the chat, in any state, whose newest board check has warnings not told yet gets
- * "check warnings told to <chat> (work next)" in its History. The step passed; the words say what to do next time
- * (roles/worker.md). `{ text, ids }`.
+ * 2026-10-25 (the review: the Workers mod makes silent `work next` calls and throws their text away, so a warning told
+ * once was lost): the warnings the board's check passed the chat's newest report with, in every `work next`, for as
+ * long as that report is the chat's newest (a newer one replaces it, whatever its check says); nothing is marked or
+ * written. The newest report is the one of the chat's steps, in any state, with the latest report minute (the higher id
+ * on a tie). '' for none. The step passed: the words say nothing is to be redone (roles/worker.md).
  */
-async function tellWarnings(chat, w) {
-  const owned = [...w.store.items.values()].filter(item => kindOf(item) === 'step' && isOwner(item, chat, w.prefix) && boardWarningsOf(item)?.isTold === false)
-    .sort((a, b) => byId(valueOf(a, 'Id'), valueOf(b, 'Id')))
-  const ids = []
-  const shown = []
-  for (const item of owned) {
-    const found = await load(valueOf(item, 'Id'), w, { kind: ['step'] })
-    if (!found.ok) continue
-    // Read anew: the file may have moved on since the store was read (a report since has its check pending again).
-    const warnings = boardWarningsOf(found.item)
-    if (warnings === null || warnings.isTold) continue
-    const done = await save(appendHistory(found.item, 'server', `check warnings told to ${chat} (work next)`, w.now), found.text, w)
-    if (!done.ok) continue
-    ids.push(valueOf(item, 'Id'))
-    shown.push(`- ${valueOf(item, 'Id')}: ${warnings.text}`)
-  }
-  return { text: shown.length === 0 ? '' : `The board's check passed these with warnings (nothing to redo; said once):\n${shown.join('\n')}`, ids }
+function reportWarningsWords(chat, w) {
+  const reported = [...w.store.items.values()].filter(item => kindOf(item) === 'step' && isOwner(item, chat, w.prefix) && Number.isFinite(reportedAtMs(item)))
+    .sort((a, b) => reportedAtMs(b) - reportedAtMs(a) || byId(valueOf(b, 'Id'), valueOf(a, 'Id')))
+  const warnings = reported.length === 0 ? null : boardWarningsOf(reported[0])
+  return warnings === null ? '' : `Your last report (${valueOf(reported[0], 'Id')}) passed the board's check with warnings: ${warnings}`
 }
 
 /** Partner answers (2026-10-19): the open asks routed to the partner, each in one line, and how to answer them; `{ text, ids }`. */
@@ -1446,10 +1443,11 @@ async function check(body, w) {
   if (!found.ok) return found
   const passed = body.passed === true
   const outcome = lines(body.lines, LINE_CHARS).join('; ')
-  // 2026-10-25: a check that passed with warnings says them in place of its lines; they are told once in the owner's
-  // `work next` (boardWarningsOf). A failed check names its faults (facts) only.
+  // 2026-10-25: a check that passed with warnings keeps its pass lines and says the warnings after them
+  // ("check passed with warnings: <lines> | warnings: <warnings>"); `work next` shows them while it is the owner's
+  // newest report (boardWarningsOf). A failed check names its faults (facts) only.
   const warnings = passed ? lines(body.warnings, WARNING_CHARS).join('; ') : ''
-  const words = warnings !== '' ? `passed with warnings: ${warnings}` : `${passed ? 'passed' : 'failed'}${outcome === '' ? '' : `: ${outcome}`}`
+  const words = warnings !== '' ? `passed with warnings: ${outcome === '' ? '' : `${outcome}${WARNINGS_MARK}`}${warnings}` : `${passed ? 'passed' : 'failed'}${outcome === '' ? '' : `: ${outcome}`}`
   let item = appendHistory(found.item, 'server', `check ${words}`, w.now)
   if (passed && stateOf(item) === 'review') {
     const closed = move(item, 'done', 'server', w, flowCtx(w, [item]))

@@ -130,13 +130,14 @@ step therefore says what it touches ("Touches: ...").
   merged and its worktree removed: `work report B<id>` with what the user gets and the commit; the board checks the
   merge itself, and that no worktree of the step is left. The board checks the work, not the wording (the user,
   2026-10-25): it sends a report back only for a fact (a base branch that differs from its remote, a branch or worktree
-  left, no result, a file of an outside-git step that is not there). Words it passes with a warning, which `work next`
-  tells you once ("The board's check passed these with warnings"): nothing to redo.
+  left, no result, no file that is there for an outside-git step, work that sits in a repository reported as outside git).
+  Words it passes with a warning, which `work next` shows as "Your last report (B<n>) passed the board's check with
+  warnings: ..." for as long as that is your newest report: nothing to redo.
 - The report's result opens with the user's card (B569): `Context: <1-3 short lines: what was wrong or missing, for
   someone who forgot> Change: <a few lines: what the user gets now> Details: <the rest, for the check>`, the first two
   in plain words for someone who forgot (no files, functions, commits, tests, ids or placeholders; at most 300 and 500
   characters). A part that is missing, too long or not plain does not fail the check: the board builds the card's words
-  from the step's summary and your report, and warns you once.
+  from the step's summary and your report (never from your Details), and warns you.
   A visible change: shoot what the user sees before your change and after it, `<picture folder>/B<id>/before.png` and
   `after.png`, at the same size and place; the check sets them side by side for the card. The flow
   file says who moves a step and when; the board refuses a move it does not allow and says why.
@@ -153,8 +154,9 @@ step therefore says what it touches ("Touches: ...").
   review and is done with it.
 - A step whose work is outside git (pictures or pages in the project's folder, in no repository; B363): take it with
   branch `none`, report it with `merged` none and name the files it made in the result, by their paths in the project
-  (`<picture folder>/b12/page.html`, or the folder `<picture folder>/b12/`). The board's check is then that the files
-  the step's Touches name are there, not a merged branch (a path in your result that is not there only warns). Take it with `none` from the start, so the
+  (`<picture folder>/b12/page.html`, or the folder `<picture folder>/b12/`). The board's check is then that a file
+  your result or the step's Touches name is there (none there is a refusal; a path that is not there beside one that
+  is only warns), not a merged branch; a file of a repository named there is refused: report that work with its merged commit. Take it with `none` from the start, so the
   check never has to guess; a branch named at the take that no repository ever got is read the same way (B580).
 - What only the person can do: `work ask` under your step, `kind` decide, look, provide or do, `blocking` when you
   wait for it, with its pictures (copied first into the project's picture folder, the settings' `pictureRoots`, under

@@ -98,23 +98,28 @@ test('B363: work outside git, taken with branch none or on the base branch: the 
   assert.deepEqual(await reportCheck(outside({ branch: null, merged: '' })), none)
 })
 
-// 2026-10-25 (the person: "check the work, not the wording"): the files come from the step's Touches, no longer from the
-// result's prose; a path in the prose that is not there is a warning. These tests pinned the prose as the refusal.
-test('B363: a Touches file that is not there fails, by its path; a path of the result that is not there is a warning', async () => {
-  // The prose names a missing file (X57: "done/level.md" misread): the step passes, with a warning.
+// 2026-10-25 (the person: "check the work, not the wording"): a path in the result's prose that is not there is only a
+// warning when a file is there at all; the independent review (same day) kept the facts: work that sits in a repository,
+// and a report that names no file that exists, still refuse. Touches is a plan written before the work: a Touches path
+// that is not there warns when the result names a file that is, and refuses only when nothing named is there.
+test('B363: a report whose Touches and result name no file that is there fails; a path that is not there beside one that is warns', async () => {
+  // The prose names a missing file (X57: "done/level.md" misread) next to a file that is there: the step passes, with a warning.
   const prose = await reportCheck(outside({ branch: 'none', exists: files(['/projects/art-inbox/gap-9']) }))
   assert.deepEqual(prose, { passed: true, lines: ['work outside git', 'there: art-inbox/gap-9', 'result named', 'context and change named'], warnings: ['the result names art-inbox/gap-9/gap.html, which is not there'] })
-  // The Touches name it: that is a fact about the work, and it refuses.
-  const missing = await reportCheck(outside({ branch: 'none', touches: ['art-inbox/gap-9/gap.html'], exists: files(['/projects/art-inbox/gap-9']) }))
-  assert.deepEqual(missing, { passed: false, lines: ['work outside git', 'not there: art-inbox/gap-9/gap.html'] })
+  // Nothing named is there: a fact, and it refuses, with every path that is not there.
+  const none = await reportCheck(outside({ branch: 'none', exists: files([]) }))
+  assert.deepEqual(none, { passed: false, lines: ['work outside git', 'not there: art-inbox/gap-9/gap.html, art-inbox/gap-9'] })
+  const missing = await reportCheck(outside({ branch: 'none', touches: ['art-inbox/gap-9/gap.html'], exists: files([]) }))
+  assert.deepEqual(missing, { passed: false, lines: ['work outside git', 'not there: art-inbox/gap-9/gap.html, art-inbox/gap-9'] })
+  // No path named anywhere (the prose names none, Touches none): "no file named" refuses, as before.
+  const nothing = await reportCheck(outside({ branch: 'none', result: SAID + 'The five pictures and the page.' }))
+  assert.deepEqual(nothing, { passed: false, lines: ['work outside git', 'no file named: name the files it made in the result'] })
+  // Touches is a plan: a Touches path that is not there warns when the result names a file that is.
+  const plan = await reportCheck(outside({ branch: 'none', touches: ['art-inbox/gap-9/gap.html', 'src/other.mjs'], exists: files(['/projects/art-inbox/gap-9']) }))
+  assert.deepEqual(plan, { passed: true, lines: ['work outside git', 'there: art-inbox/gap-9', 'result named', 'context and change named'], warnings: ['Touches names files not there: art-inbox/gap-9/gap.html, src/other.mjs'] })
+  // Touches name files that are there: those count, the result needs to name none.
   const touches = await reportCheck(outside({ branch: 'none', result: SAID + 'The five pictures and the page.', touches: ['art-inbox/gap-9/ (the five pictures and the page), nothing in the game'] }))
   assert.deepEqual(touches, { passed: true, lines: ['work outside git', 'there: art-inbox/gap-9', 'result named', 'context and change named'] })
-  // Touches win over the prose: the prose's files that are there add nothing, the ones that are not there only warn.
-  const both = await reportCheck(outside({ branch: 'none', touches: ['art-inbox/gap-9/'], exists: files(['/projects/art-inbox/gap-9']) }))
-  assert.deepEqual(both, { passed: true, lines: ['work outside git', 'there: art-inbox/gap-9', 'result named', 'context and change named'], warnings: ['the result names art-inbox/gap-9/gap.html, which is not there'] })
-  // No file named by Touches and none of the result's there: it cannot be checked, so it passes with a warning (the worker has no other place to name files).
-  const nothing = await reportCheck(outside({ branch: 'none', result: SAID + 'The five pictures and the page.' }))
-  assert.deepEqual(nothing, { passed: true, lines: ['work outside git', 'result named', 'context and change named'], warnings: ["no file was checked: the step's Touches name none and the result names none that is there"] })
   // A link to the board names its picture; "and/or", "B1/B2/B3", a date or a site are no path, and none is missing.
   const words = await reportCheck(outside({ branch: 'none', result: SAID + 'See http://127.0.0.1:4310/#picture=art-inbox/gap-9/gap.html, and/or B1/B2/B3 of 2026/10/18 (www.example.com/a/b.png).' }))
   assert.deepEqual(words, { passed: true, lines: ['work outside git', 'there: art-inbox/gap-9/gap.html', 'result named', 'context and change named'] })
@@ -127,12 +132,23 @@ test('B363: a Touches file that is not there fails, by its path; a path of the r
 })
 
 test('B363, the review: a file in a repository is work in git, no proof of work outside it', async () => {
-  // 2026-10-25: the step's Touches say it (the result's prose is only looked at, and a repository file in it proves nothing).
-  const inRepo = await reportCheck(outside({ branch: 'main', merged: '', result: SAID + 'Changed tools/board/src/check.mjs (not committed).', touches: ['tools/board/src/check.mjs'], exists: files(['/projects/tools/board/src/check.mjs']) }))
-  assert.deepEqual(inRepo, { passed: false, lines: ['work outside git', 'in a repository: tools/board/src/check.mjs; report that work with its merged commit'] })
-  const prose = await reportCheck(outside({ branch: 'main', merged: '', result: SAID + 'Changed tools/board/src/check.mjs (not committed).', exists: files(['/projects/tools/board/src/check.mjs']) }))
-  assert.equal(prose.passed, true)
-  assert.deepEqual(prose.warnings, ["no file was checked: the step's Touches name none and the result names none that is there"])
+  const exists = files(['/projects/tools/board/src/check.mjs', '/projects/art-inbox/gap-9'])
+  const refused = { passed: false, lines: ['work outside git', 'in a repository: tools/board/src/check.mjs; report that work with its merged commit'] }
+  // Named by the result (branch main, no merged commit: an unpushed commit would pass as "outside git" otherwise).
+  const inRepo = await reportCheck(outside({ branch: 'main', merged: '', result: SAID + 'Changed tools/board/src/check.mjs (not committed).', exists }))
+  assert.deepEqual(inRepo, refused)
+  // Or branch none with a merged hash no repository holds.
+  assert.deepEqual(await reportCheck(outside({ branch: 'none', merged: 'deadbee', result: SAID + 'Changed tools/board/src/check.mjs (not committed).', exists })), refused)
+  // Next to a file outside git that is there, a repository file in the result still refuses.
+  const mixed = await reportCheck(outside({ branch: 'none', result: SAID + 'The page art-inbox/gap-9/ and tools/board/src/check.mjs.', exists }))
+  assert.deepEqual(mixed, refused)
+  // Named only by the step's Touches (a plan), with nothing else there: the same refusal.
+  const plan = await reportCheck(outside({ branch: 'main', merged: '', result: SAID + 'Changed it.', touches: ['tools/board/src/check.mjs'], exists }))
+  assert.deepEqual(plan, refused)
+  // Touches name it but the result names a file outside git that is there: the plan was wide; it warns.
+  const wide = await reportCheck(outside({ branch: 'none', touches: ['tools/board/src/check.mjs'], exists: files(['/projects/art-inbox/gap-9', '/projects/art-inbox/gap-9/gap.html']) }))
+  assert.equal(wide.passed, true)
+  assert.deepEqual(wide.warnings, ['Touches names files in a repository: tools/board/src/check.mjs'])
 })
 
 test('B363: a step on the base branch whose merged commit a repository holds, or on a branch of its own, keeps the check of its repository', async () => {
@@ -150,9 +166,9 @@ test('B580: a branch never made and nothing merged: work outside git, checked by
   const never = await reportCheck(outside({ branch: 'b9-never-made' }))
   assert.deepEqual(never, { passed: true, lines: ['work outside git', 'there: art-inbox/gap-9/gap.html, art-inbox/gap-9', 'result named', 'context and change named'] })
   assert.deepEqual(await reportCheck(outside({ branch: 'b9-never-made', merged: '' })), never)
-  // 2026-10-25: a file the step's Touches name is a fact; one only the result's prose names is a warning (above).
-  const missing = await reportCheck(outside({ branch: 'b9-never-made', touches: ['art-inbox/gap-9/gap.html'], exists: files(['/projects/art-inbox/gap-9']) }))
-  assert.deepEqual(missing, { passed: false, lines: ['work outside git', 'not there: art-inbox/gap-9/gap.html'] })
+  // 2026-10-25: nothing named is there: a fact, and it refuses; a path that is not there beside one that is only warns (above).
+  const missing = await reportCheck(outside({ branch: 'b9-never-made', exists: files([]) }))
+  assert.deepEqual(missing, { passed: false, lines: ['work outside git', 'not there: art-inbox/gap-9/gap.html, art-inbox/gap-9'] })
 })
 
 test('B580: a branch deleted after its merge stays a git step; a git that does not answer never makes one outside git', async () => {

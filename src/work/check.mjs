@@ -21,9 +21,9 @@
 // 2026-10-25 (the person: "check the work, not the wording"; the supervisor's X45, X50, X57, X67: of 37 reports refused
 // at least once in two days, 28 were refused for their wording only and 5 for facts only): the check refuses only for
 // facts about the work: the base branch against its remote, the branch gone, no worktree left, a repository told, a
-// result named, and for work outside git the files the step's Touches name. What is wording is a WARNING: the step
-// passes, the warning goes into its History ("check passed with warnings: ...") and, once, into the owner's `work next`
-// (api.mjs). A report that names no mutant for a change that touches tests, and a Context or Change that is missing,
+// result named, and for work outside git a file that is there (none, or work that sits in a repository, refuses). What
+// is wording is a WARNING: the step passes, the warning goes into its History ("check passed with warnings: <the pass
+// lines> | warnings: ...") and `work next` shows it while it is the owner's newest report (api.mjs). A report that names no mutant for a change that touches tests, and a Context or Change that is missing,
 // too long or not plain, are such warnings: the partner's result check asks for the mutant (roles/partner.md), and the
 // board builds the card's words itself (recapWords.mjs `recapParts`). The worker is never sent back for them.
 
@@ -254,14 +254,14 @@ function pathsIn(words, project) {
 }
 
 /**
- * B363: the check of a step whose work is outside git: the files its Touches name are there in the project's folder,
- * outside every repository (`repoDirs`): a file in a repository is work in git, reported with its merged commit.
- * 2026-10-25: the files come from the step's Touches, no longer from the result's prose (it misread words such as
- * "done/level.md" as a file that was not there, X57); a path in the prose that is not there is a warning, and the
- * paths of the prose that are there stand in when Touches names none. A step whose Touches name no file and whose
- * result names none that is there passes with a warning that no file was checked: the worker cannot name them
- * anywhere else, so a refusal would loop. `exists(path)` answers whether a path is there. `left`: the lines of the
- * step's worktrees still left (worktree clean-up), each a fault. `warnings`: those the report check already holds.
+ * B363: the check of a step whose work is outside git: a file the report names is there in the project's folder,
+ * outside every repository (`repoDirs`): a file in a repository is work in git, reported with its merged commit, and
+ * refuses; so does a report whose Touches and result together name no file that is there ("not there", or "no file
+ * named" when they name none). 2026-10-25 ("check the work, not the wording", and the review of the same day): the
+ * result's prose misread words such as "done/level.md" as a file (X57), and Touches is a plan written before the work
+ * that the worker cannot edit, so a path of either that is not there only warns once a file is there; one in a
+ * repository in Touches alone (a wide plan) warns too. `exists(path)` answers whether a path is there. `left`: the lines
+ * of the step's worktrees still left (worktree clean-up), each a fault. `warnings`: those the report check already holds.
  */
 async function outsideCheck({ result, touches, project, repoDirs, exists, left = [], warnings = [] }) {
   const repos = repoDirs.map(dir => plainPath(dir).toLowerCase())
@@ -279,20 +279,25 @@ async function outsideCheck({ result, touches, project, repoDirs, exists, left =
     }
     return { found, missing, inGit }
   }
-  const { found, missing, inGit } = await weigh(pathsIn((Array.isArray(touches) ? touches : [touches]).join('\n'), project))
+  const planned = await weigh(pathsIn((Array.isArray(touches) ? touches : [touches]).join('\n'), project))
+  const said = await weigh(pathsIn(result, project))
+  const once = all => [...new Set(all)]
+  const found = once([...planned.found, ...said.found])
+  const missing = once([...planned.missing, ...said.missing])
   const lines = ['work outside git']
-  if (missing.length > 0) lines.push(`not there: ${missing.join(', ')}`)
+  // A repository file the result names is work in git; one only Touches names is a plan, a fact only when nothing else is there.
+  const inGit = once([...said.inGit, ...(found.length === 0 ? planned.inGit : [])])
+  if (found.length === 0 && missing.length > 0) lines.push(`not there: ${missing.join(', ')}`)
   if (inGit.length > 0) lines.push(`in a repository: ${inGit.join(', ')}; report that work with its merged commit`)
+  if (found.length === 0 && missing.length === 0 && inGit.length === 0) lines.push('no file named: name the files it made in the result')
   lines.push(...left)
   if (String(result ?? '').trim() === '') lines.push('no result named')
   if (lines.length > 1) return { passed: false, lines }
-  // The result's own paths are only looked at: one that is not there is a warning, one that is there stands in for
-  // Touches that name no file.
-  const said = await weigh(pathsIn(result, project))
-  const there = found.length > 0 ? found : said.found
   const words = partsWarnings(result)
   const warned = [...warnings, ...words]
-  if (said.missing.length > 0) warned.push(`the result names ${said.missing.join(', ')}, which ${said.missing.length === 1 ? 'is' : 'are'} not there`)
-  if (there.length === 0) warned.push("no file was checked: the step's Touches name none and the result names none that is there")
-  return { passed: true, lines: [...lines, ...(there.length === 0 ? [] : [`there: ${there.join(', ')}`]), 'result named', ...(words.length === 0 ? ['context and change named'] : [])], ...(warned.length === 0 ? {} : { warnings: warned }) }
+  if (planned.missing.length > 0) warned.push(`Touches names files not there: ${planned.missing.join(', ')}`)
+  if (found.length > 0 && planned.inGit.length > 0) warned.push(`Touches names files in a repository: ${planned.inGit.join(', ')}`)
+  const saidMissing = said.missing.filter(path => !planned.missing.includes(path))
+  if (saidMissing.length > 0) warned.push(`the result names ${saidMissing.join(', ')}, which ${saidMissing.length === 1 ? 'is' : 'are'} not there`)
+  return { passed: true, lines: [...lines, `there: ${found.join(', ')}`, 'result named', ...(words.length === 0 ? ['context and change named'] : [])], ...(warned.length === 0 ? {} : { warnings: warned }) }
 }

@@ -122,18 +122,44 @@ test('2026-10-25: a card\'s Context and Change that read plain stay as written; 
   assert.match(long.context, /lamps…$/, 'cut at a word, not inside one')
 })
 
-test('2026-10-25: the board tidies a card\'s words: file names, code words, hashes and placeholders left out sentence by sentence', () => {
-  const step = stepOf({ summary: ['Lamps stayed dark along the paths at night.'], context: [reportOf('Context: The lampPost rule in src/lamps.mjs was wrong. Paths were dark at night. Change: Merged 3f9a1c2. Every lamp glows after sunset. Main hands <n> on. Details: x')] })
-  assert.deepEqual(recapParts(step), { context: 'Paths were dark at night.', change: 'Every lamp glows after sunset.', checked: null })
+// The review of 2026-10-25: a sentence with an inline file name was dropped whole and the first plain sentence of the
+// Details took its place, so the card could say something else than the Change. Now the technical words go out of the
+// sentence and the sentence stays; with nothing plain left the step's summary or title stands in, never the Details.
+test('2026-10-25: the board tidies a card\'s words inside the sentence: file names, code words and hashes are taken out, the sentence stays', () => {
+  const step = stepOf({ summary: ['Lamps stayed dark along the paths at night.'], context: [reportOf('Context: The lampPost rule in src/lamps.mjs was wrong. Paths were dark at night. Change: Every lamp in lamps.mjs glows after sunset (see 3f9a1c2). Merged 3f9a1c2. Main hands <n> on. Details: Something else entirely.')] })
+  assert.deepEqual(recapParts(step), { context: 'The rule was wrong. Paths were dark at night.', change: 'Every lamp glows after sunset.', checked: null })
+  // A technical word that stands as the object of a verb cannot go out cleanly: the sentence is dropped, not left broken.
+  assert.equal(recapParts(stepOf({ context: [reportOf('Context: The board calls draw() and the helper too often. Paths were dark. Change: Lamps glow. Details: x')] })).context, 'Paths were dark.')
+  // A sentence that is little more than the technical word is dropped, not left as a stump ("For it.").
+  assert.equal(recapParts(stepOf({ context: [reportOf('Context: Dark paths. See verdict.md for it. Change: Lamps glow. Details: x')] })).context, 'Dark paths.')
 })
 
-test('2026-10-25: a missing Context or Change is built from the step\'s summary and the report; nothing plain left falls back the same way', () => {
-  const summary = ['Lamps stayed dark along the paths at night. It used lamps.mjs.']
-  // No Context at all: the summary. No Change: the report's plain sentences.
-  assert.deepEqual(recapParts(stepOf({ summary, context: [reportOf('Change: Every lamp glows after sunset. Details: x')] })), { context: 'Lamps stayed dark along the paths at night.', change: 'Every lamp glows after sunset.', checked: null })
-  assert.deepEqual(recapParts(stepOf({ summary, context: [reportOf('Context: Paths were dark. Details: Every lamp glows after sunset.')] })), { context: 'Paths were dark.', change: 'Every lamp glows after sunset.', checked: null })
+test('2026-10-25: plain sentences check plainness before the capital letter: a hash or camelCase word at the start does not survive', () => {
+  assert.equal(plainSentences('lampPost broke the glow. The lamps glow now.', 300), 'The lamps glow now.')
+  assert.equal(plainSentences('abc1234 broke it. The lamps glow now.', 300), 'The lamps glow now.')
+  assert.equal(plainSentences('the lamps glow now. then they dim.', 300), 'The lamps glow now. Then they dim.')
+})
+
+test('2026-10-25: a missing Context or Change, or nothing plain left of one, comes from the step\'s summary or title, never from the Details', () => {
+  const titled = parts => {
+    const step = stepOf(parts)
+    step.head.set('Title', 'Light the garden lamps')
+    return step
+  }
+  const summary = ['Every path has a warm lamp. It used lamps.mjs.']
+  // No Context at all: the summary.
+  assert.deepEqual(recapParts(titled({ summary, context: [reportOf('Change: Every lamp glows after sunset. Details: x')] })), { context: 'Every path has a warm lamp.', change: 'Every lamp glows after sunset.', checked: null })
+  // No Change, with Details: the summary, not the Details.
+  assert.deepEqual(recapParts(titled({ summary, context: [reportOf('Context: Paths were dark. Details: Something else entirely.')] })), { context: 'Paths were dark.', change: 'Every path has a warm lamp.', checked: null })
+  // A Change with nothing plain in it: the summary; with no summary the step's title.
+  assert.equal(recapParts(titled({ summary, context: [reportOf('Context: Paths were dark. Change: See lamps.mjs. Details: Something else entirely.')] })).change, 'Every path has a warm lamp.')
+  assert.equal(recapParts(titled({ context: [reportOf('Context: Paths were dark. Change: See lamps.mjs. Details: Something else entirely.')] })).change, 'Light the garden lamps')
   // A Context that is nothing but file names and ids: the summary stands in.
-  assert.equal(recapParts(stepOf({ summary, context: [reportOf('Context: See B531 in src/lamps.mjs. Change: Lamps glow. Details: x')] })).context, 'Lamps stayed dark along the paths at night.')
+  assert.equal(recapParts(titled({ summary, context: [reportOf('Context: See B531 in src/lamps.mjs. Change: Lamps glow. Details: x')] })).context, 'Every path has a warm lamp.')
+  // Both from the summary: said once, as the Change.
+  assert.deepEqual(recapParts(titled({ summary, context: [reportOf('Change: See lamps.mjs. Details: x')] })), { context: '', change: 'Every path has a warm lamp.', checked: null })
+  // A report with no Context or Change at all (before B569): its own prose is read, as before.
+  assert.equal(recapParts(titled({ summary, context: [reportOf('The garden lamps glow after sunset. Tests added.')] })).change, 'The garden lamps glow after sunset.')
 })
 
 test('2026-10-25: an item id in the card\'s words becomes that item\'s title when the store is given and the title reads plain', () => {

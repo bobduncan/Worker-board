@@ -1,6 +1,6 @@
 // 2026-10-25 (the person: "check the work, not the wording"; the supervisor's X45, X50, X57, X67): the board's check
 // refuses a report only for facts about the work. What is wording passes with a warning: it goes into the step's History
-// ("check passed with warnings: ..."), is told once in its owner's `work next`, never sends the step back; a result the
+// ("check passed with warnings: ..."), is shown in its owner's `work next` while it is their newest report, never sends the step back; a result the
 // board cut passes with a warning too; the recap card's words are the board's own. Made-up samples only.
 
 import assert from 'node:assert/strict'
@@ -19,7 +19,7 @@ import { checkStepWords } from '../../src/say.mjs'
 import { readStore, writeStore } from '../../src/work/store.mjs'
 
 const NOW = new Date(2026, 9, 26, 9, 0).getTime()
-const BACKLOG = ['# Backlog', '', '## Lamps', '- [ ] B1 Trim the wicks (for Lamplighter; about 1 h)', '- [ ] B3 Sweep the paths (for Sweeper; about 1 h)', ''].join('\n')
+const BACKLOG = ['# Backlog', '', '## Lamps', '- [ ] B1 Trim the wicks (for Lamplighter; about 1 h)', '- [ ] B3 Sweep the paths (for Sweeper; about 1 h)', '- [ ] B4 Polish the lenses (for Lamplighter; about 1 h)', ''].join('\n')
 const ROLES = { Keeper: 'main', Lamplighter: 'worker', Sweeper: 'worker', Partner: 'advisor' }
 
 async function fresh() {
@@ -31,6 +31,11 @@ async function fresh() {
     dir, ctx, lamplighter: as('Lamplighter'), sweeper: as('Sweeper'), keeper: as('Keeper'), partner: as('Partner'),
     person: body => workApi(body, { ...ctx, as: 'person' }),
     server: body => workApi(body, { ...ctx, as: 'server' }),
+    // The same chats `minutes` later (a History line carries its minute).
+    at: minutes => {
+      const later = { ...ctx, now: ctx.now + minutes * 60_000 }
+      return { lamplighter: body => workApi({ chat: 'Lamplighter', ...body }, later), server: body => workApi(body, { ...later, as: 'server' }) }
+    },
   }
 }
 const item = async (dir, id) => (await readStore(dir)).items.get(id)
@@ -47,13 +52,13 @@ async function warned(one, warnings = WARNINGS) {
   return checked
 }
 
-test('a check that passed with warnings closes the step as a pass does; its History says the warnings, not the lines', async () => {
+test('a check that passed with warnings closes the step as a pass does; its History keeps the pass lines, the warnings after them', async () => {
   const one = await fresh()
   try {
     await warned(one)
     assert.equal(valueOf(await item(one.dir, 'B1'), 'State'), 'done')
-    assert.deepEqual((await history(one.dir, 'B1')).slice(-2), [`- 2026-10-26 09:01 server: check passed with warnings: ${WARNINGS.join('; ')}`, '- 2026-10-26 09:01 server: review → done'])
-    assert.deepEqual(boardWarningsOf(await item(one.dir, 'B1')), { text: WARNINGS.join('; '), isTold: false })
+    assert.deepEqual((await history(one.dir, 'B1')).slice(-2), [`- 2026-10-26 09:01 server: check passed with warnings: work in garden; branch gone | warnings: ${WARNINGS.join('; ')}`, '- 2026-10-26 09:01 server: review → done'])
+    assert.equal(boardWarningsOf(await item(one.dir, 'B1')), WARNINGS.join('; '))
     // A check that failed names its faults only; warnings given to it are not kept.
     await one.sweeper({ action: 'take', id: 'B3', branch: 'b3-paths' })
     await one.sweeper({ action: 'report', id: 'B3', result: 'x', merged: 'abc1235' })
@@ -65,45 +70,56 @@ test('a check that passed with warnings closes the step as a pass does; its Hist
   }
 })
 
-test('work next tells the owner the warnings once, also for a step that is done; nobody else, and not the page\'s look', async () => {
+// The review of 2026-10-25: the Workers mod makes silent `work next` calls and throws their text away, so a warning
+// told once was lost. Now it stands in `work next` for as long as it is the chat's newest report, and nothing is marked.
+test('work next shows the warnings of the chat\'s newest report every time it is called, and writes nothing', async () => {
   const one = await fresh()
   try {
     await warned(one)
-    // Not the other worker's, not the person's look at that chat's next.
+    const before = await history(one.dir, 'B1')
+    const words = "Your last report (B1) passed the board's check with warnings: the result names no Context"
+    for (let call = 0; call < 3; call += 1) {
+      const shown = await one.lamplighter({ action: 'next' })
+      assert.equal(shown.ok, true, shown.why)
+      assert.ok(shown.result.text.includes(words), `call ${call}: ${shown.result.text}`)
+      assert.ok(shown.result.text.startsWith('Your last report (B1)'), 'before the long record')
+      assert.equal(shown.result.changed, false)
+    }
+    assert.deepEqual(await history(one.dir, 'B1'), before, 'no marker, no write')
+    // Not the other worker's, and no "told" state is left.
     assert.doesNotMatch((await one.sweeper({ action: 'next' })).result.text, /warnings/)
-    const look = await one.person({ action: 'next', chat: 'Lamplighter' })
-    assert.doesNotMatch(look.result.text, /warnings/)
-    assert.equal(boardWarningsOf(await item(one.dir, 'B1')).isTold, false)
-    const told = await one.lamplighter({ action: 'next' })
-    assert.equal(told.ok, true, told.why)
-    assert.match(told.result.text, /^Nothing is yours, Lamplighter/)
-    assert.match(told.result.text, /The board's check passed these with warnings \(nothing to redo; said once\):\n- B1: the result names no Context/)
-    assert.deepEqual([told.result.warned, told.result.changed], [['B1'], true])
-    assert.equal((await history(one.dir, 'B1')).at(-1), '- 2026-10-26 09:01 server: check warnings told to Lamplighter (work next)')
-    assert.equal(boardWarningsOf(await item(one.dir, 'B1')).isTold, true)
-    // Once: the next call says nothing about it.
-    const again = await one.lamplighter({ action: 'next' })
-    assert.doesNotMatch(again.result.text, /warnings/)
-    assert.deepEqual([again.result.warned, again.result.changed], [undefined, false])
+    assert.ok((await one.person({ action: 'next', chat: 'Lamplighter' })).result.text.includes(words))
+    assert.doesNotMatch(JSON.stringify(await history(one.dir, 'B1')), /told/)
   } finally {
     await rm(one.dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
 })
 
-test('a board that only shows tells nothing and marks nothing; a new report takes the old warnings away', async () => {
+test('a newer report replaces the warnings: its check pending or failed shows none, its own warnings show instead', async () => {
   const one = await fresh()
   try {
     await warned(one)
-    const shown = await workApi({ action: 'next', chat: 'Lamplighter' }, { ...one.ctx, onlyShows: true })
-    assert.doesNotMatch(shown.result.text, /warnings/)
-    assert.equal(boardWarningsOf(await item(one.dir, 'B1')).isTold, false)
-    // A step reported again has its check pending again (or failed): the earlier warnings are no longer its own.
-    const stepOf = lines => ({ head: new Map([['Id', 'B9'], ['Kind', 'step']]), sections: new Map([['History', lines.map(one => `- 2026-10-26 09:0${lines.indexOf(one)} ${one}`)]]) })
-    const passed = 'server: check passed with warnings: a; b'
-    assert.deepEqual(boardWarningsOf(stepOf(['Worker: in progress → review', 'server: check pending', passed])), { text: 'a; b', isTold: false })
-    assert.deepEqual(boardWarningsOf(stepOf([passed, 'server: check warnings told to Worker (work next)'])), { text: 'a; b', isTold: true })
-    assert.equal(boardWarningsOf(stepOf([passed, 'server: check warnings told to Worker (work next)', 'Worker: reported again', 'server: check pending'])), null)
-    assert.equal(boardWarningsOf(stepOf([passed, 'server: check failed: the branch b is still there'])), null)
+    // B4 reported 5 minutes later: the newest report is B4's, whose check is pending.
+    await one.lamplighter({ action: 'take', id: 'B4', branch: 'b4-lenses' })
+    const later = one.at(5)
+    assert.equal((await later.lamplighter({ action: 'report', id: 'B4', result: 'The lenses shine.', merged: 'abc1236' })).ok, true)
+    assert.doesNotMatch((await later.lamplighter({ action: 'next' })).result.text, /Your last report/)
+    // Its check failed: still nothing about B1.
+    await later.server({ action: 'check', id: 'B4', passed: false, lines: ['the branch b4-lenses is still there'] })
+    assert.doesNotMatch((await later.lamplighter({ action: 'next' })).result.text, /Your last report/)
+    // Reported again, and its check passes with warnings: those are the chat's now.
+    const again = one.at(10)
+    assert.equal((await again.lamplighter({ action: 'report', id: 'B4', result: 'The lenses shine.', merged: 'abc1236' })).ok, true)
+    await again.server({ action: 'check', id: 'B4', passed: true, lines: ['work in garden'], warnings: ['the result was 2400 characters: cut'] })
+    const text = (await again.lamplighter({ action: 'next' })).result.text
+    assert.ok(text.includes("Your last report (B4) passed the board's check with warnings: the result was 2400 characters: cut"))
+    assert.doesNotMatch(text, /B1\) passed/)
+    // The line parses: pass lines before the delimiter, warnings after it; one without the delimiter is all warnings.
+    const stepOf = lines => ({ head: new Map([['Id', 'B9'], ['Kind', 'step']]), sections: new Map([['History', lines.map((line, index) => `- 2026-10-26 09:0${index} ${line}`)]]) })
+    assert.equal(boardWarningsOf(stepOf(['Worker: in progress → review', 'server: check pending', 'server: check passed with warnings: a; b | warnings: c; d'])), 'c; d')
+    assert.equal(boardWarningsOf(stepOf(['server: check passed with warnings: a; b'])), 'a; b')
+    assert.equal(boardWarningsOf(stepOf(['server: check passed with warnings: a', 'Worker: reported again', 'server: check pending'])), null)
+    assert.equal(boardWarningsOf(stepOf(['server: check passed with warnings: a', 'server: check failed: the branch b is still there'])), null)
     assert.equal(boardWarningsOf(stepOf(['server: check passed: work in garden; branch gone'])), null)
     assert.equal(boardWarningsOf(stepOf([])), null)
   } finally {
@@ -179,7 +195,7 @@ test('the recap card of a step is the board\'s own words: a report with files, i
     assert.equal(checked.ok, true, checked.why)
     const notes = [...(await readStore(one.dir)).items.values()].filter(note => valueOf(note, 'Recap') !== null)
     assert.equal(notes.length, 1)
-    assert.deepEqual([notes[0].sections.get('Context'), notes[0].sections.get('Change')], [['The garden paths were dark at night.'], ['Every path has a warm lamp now, see "Trim the wicks".']])
+    assert.deepEqual([notes[0].sections.get('Context'), notes[0].sections.get('Change')], [['The rule was wrong. The garden paths were dark at night.'], ['Every path has a warm lamp now, see "Trim the wicks".']])
   } finally {
     await rm(one.dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
@@ -194,4 +210,21 @@ test('the server carries the cut and the warnings from the API to the check and 
   assert.match(server, /reportCheck\(\{ id, branch, result, merged, repos, run: gitRunner\(\), project: config\.project, touches, exists, fs: WORKTREE_FILES, cut \}\)/)
   // The check's outcome, warnings and all, is what the work API's `check` is given.
   assert.match(server, /workApi\(\{ action: 'check', id, \.\.\.outcome \}/)
+})
+
+test('the newest report is the one reported last, not the one with the higher id', async () => {
+  const one = await fresh()
+  try {
+    // B4 reported first, its check passed with warnings; B1 reported 5 minutes later, its check pending.
+    await one.lamplighter({ action: 'take', id: 'B4', branch: 'b4-lenses' })
+    await one.lamplighter({ action: 'report', id: 'B4', result: 'The lenses shine.', merged: 'abc1236' })
+    await one.server({ action: 'check', id: 'B4', passed: true, lines: ['work in garden'], warnings: ['the result names no Context'] })
+    assert.ok((await one.lamplighter({ action: 'next' })).result.text.includes('Your last report (B4) passed'))
+    await one.lamplighter({ action: 'take', id: 'B1', branch: 'b1-wicks' })
+    const later = one.at(5)
+    await later.lamplighter({ action: 'report', id: 'B1', result: 'The wicks are trimmed.', merged: 'abc1234' })
+    assert.doesNotMatch((await later.lamplighter({ action: 'next' })).result.text, /Your last report/)
+  } finally {
+    await rm(one.dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
+  }
 })
