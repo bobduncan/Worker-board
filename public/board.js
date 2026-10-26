@@ -3617,7 +3617,8 @@ function partnerAnswerView(need) {
  */
 function withPartnerView(list) {
   if (!Array.isArray(list) || list.length === 0) return null
-  return { text: `With your partner: ${list.length} question${list.length === 1 ? '' : 's'}`, rows: list.map(one => `${one.id} · ${one.from ?? 'nobody'}: ${one.title}`) }
+  // The person, 2026-10-26 ("i just need it clickable so i can see what the question is"): each row opens its ask.
+  return { text: `With your partner: ${list.length} question${list.length === 1 ? '' : 's'}`, rows: list.map(one => ({ id: one.id, href: `#details=${one.id}`, text: `${one.id} · ${one.from ?? 'nobody'}: ${one.title}` })) }
 }
 
 /** Partner answers, the review's findings: "Decided for you" (the state's `partnerDecided`): each answer with its Undo. */
@@ -3649,7 +3650,14 @@ function drawWithPartner(state) {
   toggle.dataset.withPartner = 'toggle'
   toggle.title = 'Questions your partner answers for you first; one it has not answered in 30 minutes comes to you'
   part.append(toggle)
-  if (isOpen) part.append(fill(el('ul', 'with-partner-list'), view.rows.map(row => el('li', 'muted', row))))
+  if (isOpen) {
+    part.append(fill(el('ul', 'with-partner-list'), view.rows.map(row => {
+      const link = el('a', 'with-partner-ask', row.text)
+      link.href = row.href
+      link.title = `Open ${row.id}: the whole question, its options and advice, who asked it`
+      return fill(el('li', 'muted'), [link])
+    })))
+  }
   return part
 }
 
