@@ -288,30 +288,6 @@ function workingNotRunning(view, ctx) {
   return found
 }
 
-/**
- * X76 (B705): a worker shown as working while the store holds no step of it and its conversation holds no turn at all
- * (the board cleared it after its report, and a report of a turn that is over stayed), for longer than 15 minutes: one
- * incident, as its next queued step waits behind it. A worker on a step is holder-not-running's.
- */
-const WORKING_WITHOUT_STEP_MS = 15 * MIN
-function workingWithoutStep(view, ctx) {
-  const found = []
-  if (isPaused(view) || isFull(view)) return found
-  const holding = new Set(stepsOf(view).filter(one => HOLDS.includes(stateOf(one))).map(one => plain(valueOf(one, 'Owner'), view.prefix)))
-  for (const lane of workersOf(view)) {
-    if (lane.state !== 'working' || lane.hasNoTurn !== true || lane.between != null || holding.has(plain(lane.name, view.prefix))) continue
-    const key = `working-without-step ${lane.name}`
-    const ms = lasted(view, ctx, key)
-    if (ms <= WORKING_WITHOUT_STEP_MS) continue
-    found.push({
-      rule: 'working-without-step', key, subject: lane.name,
-      text: `${lane.name} shows as working for ${minutes(ms)} min with no step and no turn in its conversation`,
-      evidence: `${lane.name}: state working, no step held, its conversation holds no turn, seen since ${clockOf(view.now - ms)}`,
-    })
-  }
-  return found
-}
-
 /** 5. An opus step whose line waits for its worker to run on Opus, for longer than `opusWaitMinutes`. */
 function opusWait(view, ctx) {
   const found = []
@@ -995,7 +971,6 @@ export const WATCH_RULES = [
   { id: 'ready-while-free', kind: 'watch', says: 'a ready task waits while a worker is free', check: readyWhileFree },
   { id: 'holder-not-running', kind: 'watch', says: 'a step in progress whose worker does not run', check: holderNotRunning },
   { id: 'working-not-running', kind: 'watch', says: 'a worker whose card says it works while its chat makes no call and writes nothing', check: workingNotRunning },
-  { id: 'working-without-step', kind: 'watch', says: 'a worker shown as working for over 15 min with no step while its conversation holds no turn', check: workingWithoutStep },
   { id: 'opus-wait', kind: 'watch', says: 'an Opus step waiting for Opus too long', check: opusWait },
   { id: 'skip-repeats', kind: 'watch', says: 'a clear or a compaction skipped for the same reason twice in a row', check: skipRepeats },
   { id: 'repair-repeats', kind: 'watch', says: 'the same repair three times or more in a day', check: repairRepeats },

@@ -6,14 +6,11 @@ import { randomBytes } from 'node:crypto'
 import { mkdir, readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 
-import { changes, lastByChat, parseHistory } from './history.mjs'
+import { changes, GAP_MS, lastByChat, parseHistory, startGap } from './history.mjs'
 import { waitsLong } from './say.mjs'
 import { isStoppedWhy } from './stopped.mjs'
 import { heldMs } from './work/pause.mjs'
 import { appendLines, writeAtomic } from './write.mjs'
-
-/** The board watches once a minute. Longer than this without a look means it was off or the PC slept. */
-const GAP_MS = 3 * 60_000
 
 /** outbox.jsonl is a log: a line with an id seen before changes that message (delivered, later on). */
 export function foldOutbox(text) {
@@ -95,13 +92,7 @@ export function outboxNow(messages, now, keep, shownMs = 12 * 60 * 60_000) {
       || (message.state === 'taken' && now - (message.takenAt ?? message.at) < TAKEN_SHOWN_MS))
 }
 
-/** The gap line to add when the board starts after having been off, or null. */
-export function startGap(lines, aliveAt, now) {
-  const last = lines.at(-1)
-  if (last === undefined || last.gap === true) return null
-  const at = Math.max(last.at, Number.isFinite(aliveAt) ? aliveAt : last.at)
-  return now - at > GAP_MS ? { at, gap: true } : null
-}
+export { startGap }
 
 function storeOver(lines, messages, alive, write) {
   let aliveAt = alive

@@ -59,17 +59,32 @@ export function changes(last, chats, now) {
   return lines
 }
 
+/** The board watches once a minute. Longer than this without a look means it was off or the PC slept. */
+export const GAP_MS = 3 * 60_000
+
+/** The gap line to add when the board starts after having been off, or null. */
+export function startGap(lines, aliveAt, now) {
+  const last = lines.at(-1)
+  if (last === undefined || last.gap === true) return null
+  const at = Math.max(last.at, Number.isFinite(aliveAt) ? aliveAt : last.at)
+  return now - at > GAP_MS ? { at, gap: true } : null
+}
+
 /**
  * B710 (X80): the stretches the board did not run, from the history's gap lines over all of it: a gap line marks the moment
  * from which the board was off, and the next line is when it ran again (`to` is `now` for a gap still open). `[{ from, to }]`.
  */
-export function gapsOf(lines, now) {
+export function gapsOf(lines, now, aliveAt = null) {
   const gaps = []
   for (let i = 0; i < lines.length; i += 1) {
     if (lines[i].gap !== true || !Number.isFinite(lines[i].at)) continue
     const to = Math.min(lines[i + 1]?.at ?? now, now)
     if (to > lines[i].at) gaps.push({ from: lines[i].at, to })
   }
+  // B714 (X80 again): a read right after a wake runs before the tick writes the gap line, so the gap still open is read
+  // from alive.json's age by `startGap`'s own rule: the board was off from then until now.
+  const open = Number.isFinite(aliveAt) ? startGap(lines, aliveAt, now) : null
+  if (open !== null) gaps.push({ from: open.at, to: now })
   return gaps
 }
 

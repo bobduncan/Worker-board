@@ -429,7 +429,7 @@ function card(chat, raw, { now, config, last, lines, main, prefix, stepOf = () =
   // `appSession` is the id the app knows the chat by: the main chat starts a chat that is not running with it.
   // B468: `effort` is what the app's file of the chat says it runs at, or null.
   const base = { name: chat.name, isMain: chat.isMain, isLeftover: chat.isLeftover, session: chat.cliSessionId ?? null, appSession: chat.appSessionId ?? null, effort: chat.effort ?? null, model: chat.model ?? null, removedAt: chat.removedAt ?? null }
-  const none = { lastAnswer: null, quietMs: null, isQuiet: false, isAsking: false, doingNow: null, between: null, needsYou: null, statusDetail: null, waitingSince: null, waitsFor: null, task: null, cutOffAt: null, eta: null, isWithoutTime: false, suspended: null, usage: [], lastTask: null, givenTask: null, feedback: null, compaction: null, unanswered: null, idle: null, unfiled: null, resting: null, waitsForPartner: null, hasNoTurn: false }
+  const none = { lastAnswer: null, quietMs: null, isQuiet: false, isAsking: false, doingNow: null, between: null, needsYou: null, statusDetail: null, waitingSince: null, waitsFor: null, task: null, cutOffAt: null, eta: null, isWithoutTime: false, suspended: null, usage: [], lastTask: null, givenTask: null, feedback: null, compaction: null, unanswered: null, idle: null, unfiled: null, resting: null, waitsForPartner: null }
   if (chat.isLeftover) return { ...base, state: 'unknown', ...none, lastActivityAt: chat.lastActivityAt }
 
   const tail = raw.tails?.[chat.cliSessionId] ?? null
@@ -563,8 +563,6 @@ function card(chat, raw, { now, config, last, lines, main, prefix, stepOf = () =
     between: state === 'working' && held !== null ? held.text : null,
     // Partner answers, the review's findings: the asks of its own it waits on the partner for.
     waitsForPartner: state === 'working' && held?.why === 'partner' ? forPartner : null,
-    // X76: its conversation holds no turn (only a slash command, as after a /clear): the sign of the rule working-without-step.
-    hasNoTurn: entries !== null && turn === 'unknown',
     needsYou,
     statusDetail: turn === 'ended' ? summary?.detail?.trim() || null : null,
     // The turn's last entry: when it ended, or when it asked.
@@ -1214,7 +1212,7 @@ function focusRun(node, items, prefix, partner) {
   return { note, needs }
 }
 
-export function buildState(raw, { lines = [], outbox = [], runs = [], board = null, seen = null, reports = null, finishedSeen = {}, taskTimes = [], mods = {}, modsLately = null, handOutHeldAt = null, refusedGives = [], keptReadings = [], providers = [], now, config }) {
+export function buildState(raw, { lines = [], outbox = [], runs = [], board = null, seen = null, aliveAt = null, reports = null, finishedSeen = {}, taskTimes = [], mods = {}, modsLately = null, handOutHeldAt = null, refusedGives = [], keptReadings = [], providers = [], now, config }) {
   // The review of Pause 2: while the person pauses (2026-10-19: pausing only, no longer until running) what waits in
   // the outbox is held until the resume, but the board's own "resume" to the main chat; the page says so (`isHeld`).
   const isPaused = isHolding(raw.work?.pause)
@@ -1929,7 +1927,7 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
     today: today(lines.map(line => (line.source === 'prompt' || line.source === 'handover' ? { ...line, task: null } : line)), { from, to: now, names })
       .map((lane, index) => ({ ...lane, ahead: live[index].ahead })),
     // B710: when the board did not run, from the history's gap lines (all of it): the quiet-time rules leave it out.
-    gaps: gapsOf(lines, now),
+    gaps: gapsOf(lines, now, aliveAt),
     restart,
     pause,
     // B124: the main chat (null when the list has none), the name and folder a new project makes it with, how many

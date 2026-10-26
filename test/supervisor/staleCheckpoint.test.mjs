@@ -152,3 +152,35 @@ test('B710 (X80 on the live history): a sleep that began before the timeline win
   const later = new Date(2026, 9, 24, 23, 20).getTime()
   assert.equal(check(buildView({ state: { chats: [lane('Lead', { isMain: true }), lane('Picker')], chatPrefix: '', pause: null, today: [{ chat: 'Picker', spans: [{ from: gaps[0].to, to: later, state: 'working' }] }], gaps, limits: {} }, items: store(), settings: {}, now: later })).length, 1)
 })
+
+// B714 (X80 again): the history's lines and alive.json to the state's gaps to the rule, end to end. The first read after a
+// wake runs before the tick writes the gap line, so the open gap comes from alive.json's age.
+test('B714: history lines to the rule: a read right after a wake, before and after the gap line, is not late; a quiet step still is', async () => {
+  const { buildState } = await import('../withStore.mjs')
+  const { parseConfig } = await import('../../src/config.mjs')
+  const config = { ...parseConfig('{}', {}), project: 'C:\orchard' }
+  const taken = at(17, 0)
+  const history = [{ at: at(17, 2), chat: 'Picker', state: 'working', task: 'Pick', step: null, steps: null, leftMs: null, estimateAt: null, startedAt: null, source: 'chat', by: null }]
+  const aliveAt = at(17, 6)
+  const wake = new Date(2026, 9, 24, 21, 8, 31).getTime()
+  const gapsAt = (lines, now, alive) => buildState({}, { lines, now, config, aliveAt: alive }).gaps
+  const lateAt = (gaps, now, spanFrom) => check(buildView({
+    state: { chats: [lane('Lead', { isMain: true }), lane('Picker')], chatPrefix: '', pause: null, today: [{ chat: 'Picker', spans: [{ from: spanFrom, to: now, state: 'working' }] }], gaps, limits: {} },
+    items: items(step('B704', 'in progress', { Since: stamp(taken) })), settings: {}, now,
+  })).length
+  // before the tick: no gap line yet, alive.json is 4 h old
+  const open = gapsAt(history, wake, aliveAt)
+  assert.deepEqual(open, [{ from: aliveAt, to: wake }])
+  assert.equal(lateAt(open, wake, wake), 0)
+  // after the tick wrote the gap line: the same
+  const written = [...history, { at: aliveAt, gap: true }, { ...history[0], at: wake }]
+  const closed = gapsAt(written, wake + 60_000, wake)
+  assert.deepEqual(closed, [{ from: aliveAt, to: wake }])
+  assert.equal(lateAt(closed, wake + 60_000, wake), 0)
+  // the guard: without the open gap the wall time counts and the first read is late (the old X80)
+  assert.equal(lateAt(gapsAt(history, wake, null), wake, wake), 1)
+  // a board that ran a minute ago has no open gap, and a step quiet 2 h while its chat runs is late as before
+  assert.deepEqual(gapsAt(history, wake, wake - 60_000), [])
+  const later = new Date(2026, 9, 24, 23, 20).getTime()
+  assert.equal(lateAt(gapsAt(written, later, later - 60_000), later, wake), 1)
+})

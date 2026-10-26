@@ -4362,3 +4362,13 @@ The Advisor's check of B701 (8 points failed, 2026-10-26) set the window beside 
   branch, pin or move, close, delete.
 - *Probe*: `tools/task-probe.mjs` is shot at 1280x720 for B670 (a visual step with three tries) and B691 (a rule), and the pictures stand
   beside the mockup's `visual.png` and `rule.png` in `art-inbox/B706`.
+
+## X76: a worker "working" on no step (B705, B708, B712)
+
+The health check showed Worker 1 as working on no step for 23 minutes. The case as it was: Worker 1 reported its step and
+was cleared; its lane log has it free from then until its next step came. The "!" came in the seconds between that step's
+hand-out and its take, and health now counts a step handed to a worker (queued for it) as its step. No busy report was ever
+stuck. Two guesses built on a stuck report are out, as they read a real turn whose last line is a tool result over 1 MiB
+(a screenshot) as no turn: the 30 s override of the chat's own busy report (B705) and the watch rule working-without-step with
+the lane's `hasNoTurn` (B712). A chat's own busy report is trusted. The tests in `test/clearedBusyReport.test.mjs` write
+transcripts to disk and read them with the board's tail reader.

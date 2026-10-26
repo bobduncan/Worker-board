@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import { changes, lastByChat, parseHistory, taskFacts, today } from '../src/history.mjs'
+import { changes, gapsOf, lastByChat, parseHistory, taskFacts, today } from '../src/history.mjs'
 
 const MIN = 60_000
 const row = (minute, chat, state, task = null, extra = {}) => ({
@@ -130,4 +130,13 @@ test('taskFacts: the time the board was off is not counted as waiting, and a tas
   assert.equal(taskFacts(lines, 'Units', 'Archer', 60 * MIN).waitedMs, 14 * MIN)
   assert.equal(taskFacts(lines, 'Units', 'Knight', 60 * MIN), null)
   assert.equal(taskFacts([], 'Units', 'Archer', 60 * MIN), null)
+})
+
+test('B714: gapsOf counts the gap still open from alive.json, only when the board was off over the limit and no gap line is last', () => {
+  const MIN = 60_000
+  const lines = [{ at: 10 * MIN, chat: 'Picker', state: 'working' }]
+  assert.deepEqual(gapsOf(lines, 300 * MIN, 12 * MIN), [{ from: 12 * MIN, to: 300 * MIN }])
+  assert.deepEqual(gapsOf(lines, 300 * MIN), [])
+  assert.deepEqual(gapsOf(lines, 300 * MIN, 299 * MIN), [])
+  assert.deepEqual(gapsOf([...lines, { at: 12 * MIN, gap: true }], 300 * MIN, 12 * MIN), [{ from: 12 * MIN, to: 300 * MIN }])
 })
