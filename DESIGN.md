@@ -3397,11 +3397,30 @@ the AI sweep by a cheap supervisor chat and the hand-over to the Advisor, comes 
   now or today, how often, a failed one with why; the others on a click) and the last sweep. **New**: an incident found
   since the person last opened the section (`supervisor-seen-at`) and not fixed; its card carries a quiet New tag and
   comes first. Opening marks them seen; the open section's tags stand against the opening before
-  (`supervisor-shown-since`), so they do not vanish at the click. Pictures: `art-inbox/B573/`. Cool colours only: nothing in it is the person's to act on (`test/supervisor/page.test.mjs` checks every colour
+  (`supervisor-shown-since`), so they do not vanish at the click. Pictures: `art-inbox/B573/`. Cool colours only, but for the head's "N new" after a Check now (below): nothing else in it is the person's to act on (`test/supervisor/page.test.mjs` checks every colour
   of its styles). Pictures: `art-inbox/worker-board/supervisor/` (the project's picture folder).
 - **Check now** (was "Out of sync?"; a worker's menu, the section's head, and the panel's head on a board without a supervisor) with
   a wrench in the button's own colour: the server runs the supervisor at once (`run({ asked: true, subject })`, the
   subject the worker of the menu) and, until Part 2's sweep replaces it, still types `check sync` into the main chat.
+- **What Check now shows** (the person, 2026-10-26: "i asked the supervisor to check, but i dont see indication if it's
+  checking or not"; the board had run it, but the page showed nothing while it ran): from the press until the asked sweep
+  has ended, every Check now button (the section's, the panel's, a worker's menu) reads **Checking…** and is disabled, and the
+  section's head carries a quiet "checking…" after the counts, folded or open. The page knows it from two facts
+  (`checkStatusOf` in `public/board.js`, one place): the press itself (the key `sync:<chat>` is in the page's `sending`,
+  until the board's next state arrives) and the view's `lastSweep` with `asked` and no `ended`. After an asked check
+  ends, the head says for 10 minutes "checked 15:26: nothing new" or "checked 15:26: 2 new" (the time the sweep ended;
+  quiet colour, and the attention colour only for 1 or more: the one warm colour of the section, outside the cool block
+  of `board.css`). New: the incidents not fixed that opened or came back since the press, by their `foundAt`; the store
+  keeps the minute, so the press's minute counts whole, and the asked run of the rules just before the sweep counts as
+  the same press. **When the supervisor's chat cannot be reached** the head says so instead of spinning: "the supervisor's
+  chat did not start: the code rules ran, the sweep did not", when the asked sweep has run 2 minutes without its chat
+  reading the health summary (not running and not woken; `CHECK_START_MS`, the same as `SWEEP_SETTLE_MS`, a test keeps
+  them equal), or the board ended it with nobody having taken its word (`lastSweep.how` is `quiet` and nothing was read:
+  the word expired too); the button is then back. A sweep the board refused to start (the view's `sweepNote`, asked: no
+  chat open, a mod too old, a pause, a full limit) shows "checked 15:26: the code rules ran, the sweep did not", the
+  reason in its tooltip and, as before, in the sweep line. The view's `lastSweep` carries `how` for this (`told` when its
+  chat's turn ended it, `quiet` when the board did, null while it runs). Tests: `test/supervisor/page.test.mjs`,
+  `test/supervisor/sweep.test.mjs`.
 - **The review of part 1** (2026-10-24): merged with main, B449's check `unchecked` is a repair rule, and B488's one
   gate of the board's loops (`loopOwner`, `loopGate`, in `loop.mjs`, re-exported by `index.mjs`) is built by the server
   and given to the supervisor as its port `owns`, so the list runs only in the process that runs every loop. The watch

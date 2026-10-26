@@ -346,15 +346,17 @@ function sweepOver(sweep, { ports, every, tell, keep, facts, settings }) {
 }
 
 /**
- * Part 2: the sweep as the section shows it: `lastSweep` (`{ at, asked, subject, ended, found, tokens, tokenParts, read,
- * note }`, or null), `sweepNote` (why the newest sweep did not run, `{ at, why, asked }`, when newer than the last one),
+ * Part 2: the sweep as the section shows it: `lastSweep` (`{ at, asked, subject, ended, how, found, tokens, tokenParts, read,
+ * note }`, or null; `how` is "told" when its chat's turn ended it, "quiet" when the board ended it because nothing took
+ * its word or ran a turn, null while it runs: the page tells from `read` and `how` whether the chat of an asked sweep
+ * started), `sweepNote` (why the newest sweep did not run, `{ at, why, asked }`, when newer than the last one),
  * `sweepEvery` (minutes; 0 for none) and `sweepsToday` (`{ count, tokens }`: the sweeps that ended in the last day and
  * what they cost, as far as read).
  */
 function sweepView(sweeper, now, every) {
   if (sweeper === null) return { lastSweep: null, sweepNote: null, sweepEvery: 0, sweepsToday: null }
   const { last, note, recent } = sweeper.view()
-  const shown = last === null ? null : (({ session: _s, from: _f, tokensRead: _t, how: _h, facts: _x, ...one }) => one)(last)
+  const shown = last === null ? null : (({ session: _s, from: _f, tokensRead: _t, facts: _x, ...one }) => one)(last)
   const today = recent.filter(one => now - one.at < 24 * 60 * MIN)
   return {
     lastSweep: shown,

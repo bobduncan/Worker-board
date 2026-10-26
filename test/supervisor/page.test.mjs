@@ -13,6 +13,7 @@ import vm from 'node:vm'
 
 import { demoSupervisor } from '../../fixtures/demo.mjs'
 import { SUPERVISOR_RULES, incidentCards } from '../../src/supervisor/index.mjs'
+import { SWEEP_SETTLE_MS } from '../../src/supervisor/sweep.mjs'
 import { incidentsOf } from '../../src/supervisor/incidents.mjs'
 import { stamp } from '../../src/work/migrate.mjs'
 
@@ -28,7 +29,7 @@ const NOW = at(10, 42)
 const page = { clock: ms => new Date(ms).toTimeString().slice(0, 5) }
 vm.runInNewContext(`${script.slice(script.indexOf('// supervisor:start'), script.indexOf('// supervisor:end'))}
 this.supervisorOf = supervisorOf; this.isSupervisorShown = isSupervisorShown; this.supervisorLine = supervisorLine; this.gistOf = gistOf; this.incidentCardOf = incidentCardOf
-this.supervisorCounts = supervisorCounts; this.isNewIncident = isNewIncident; this.supervisorKept = supervisorKept; this.foldSupervisor = foldSupervisor`, page)
+this.supervisorCounts = supervisorCounts; this.isNewIncident = isNewIncident; this.supervisorKept = supervisorKept; this.foldSupervisor = foldSupervisor; this.checkStatusOf = checkStatusOf; this.CHECK_START_MS = CHECK_START_MS`, page)
 /** The page's objects are of another realm (vm): compared as JSON. */
 const plain = value => JSON.parse(JSON.stringify(value))
 
@@ -104,6 +105,175 @@ test('Part 2, the last sweep: running, what it found and cost, why none ran (sai
   assert.equal(schedule({ lastSweep: null, sweepEvery: 0 }), 'Checked itself at 10:40. It checks every 3 min; Check now checks and sweeps at once.')
   // Check now no longer asks the main chat: its titles say so.
   assert.doesNotMatch(script.slice(script.indexOf('function syncPart('), script.indexOf('// syncline:start')), /asks \$\{state\.workers\.mainTitle/)
+})
+
+// The person, 2026-10-26: "i asked the supervisor to check, but i dont see indication if it's checking or not". From the
+// press of "Check now" until the asked sweep has ended the button reads "Checking…" (disabled) and the section's head says
+// "checking…" after the counts; then, for 10 minutes, "checked HH:MM: nothing new" or "checked HH:MM: N new"; and when the
+// supervisor's chat cannot be reached the head says so plainly instead of spinning.
+const PRESS = at(15, 26) + 20_000
+const ASKED_END = at(15, 26) + 50_000
+const CHECK_MS = 10 * MIN
+const NOT_REACHED = 'the supervisor\'s chat did not start: the code rules ran, the sweep did not'
+const askedSweep = (more = {}) => ({ at: PRESS + 2_000, asked: true, subject: null, ended: ASKED_END, how: 'told', found: 0, read: true, tokens: 166_009, tokenParts: null, note: null, ...more })
+const watched = (more = {}) => ({ ...VIEW, run: null, incidents: [], cards: [], lastSweep: null, sweepNote: null, sweepEvery: 10, sweepsToday: null, ...more })
+const statusOf = (view, now, isPressed = false) => plain(page.supervisorOf(view, { now, isPressed })).status
+
+test('Check now, pressed and running: the status is "checking…" from the press (before the board answers) until the asked sweep has ended; a sweep by the clock is not it', () => {
+  // Nothing asked: no status; the head stays the counts.
+  assert.equal(statusOf(watched(), PRESS), null)
+  assert.equal(plain(page.supervisorOf(watched(), { now: PRESS })).head, 'Supervisor · 0 open · 0 found in 24 h')
+  // The press itself, before the next state arrives: checking, in the quiet tone.
+  const pressed = statusOf(watched(), PRESS, true)
+  assert.deepEqual([pressed.state, pressed.text, pressed.tone], ['checking', 'checking…', 'quiet'])
+  // The board's view: the asked sweep has not ended (also on a page that did not press, after a reload).
+  const running = statusOf(watched({ lastSweep: askedSweep({ ended: null, how: null, read: false, tokens: null }) }), PRESS + 30_000)
+  assert.deepEqual([running.state, running.text, running.tone], ['checking', 'checking…', 'quiet'])
+  // Both the folded head and the open one carry it: the head text itself is only the counts.
+  assert.equal(plain(page.supervisorOf(watched(), { now: PRESS, isOpen: false, isPressed: true })).status.text, 'checking…')
+  // A sweep by the clock that runs is no Check now.
+  assert.equal(statusOf(watched({ lastSweep: askedSweep({ asked: false, ended: null, how: null }) }), PRESS + 30_000), null)
+  // The press beats an older answer still in the view: a second Check now says "checking…", not the first one's result.
+  assert.equal(statusOf(watched({ lastSweep: askedSweep() }), ASKED_END + MIN, true).state, 'checking')
+  // A board without a supervisor says nothing.
+  assert.equal(page.checkStatusOf(null, { isPressed: true, now: PRESS }), null)
+})
+
+test('Check now, ended: "checked HH:MM: nothing new" for 10 minutes after the asked sweep ended, then gone', () => {
+  const view = watched({ lastSweep: askedSweep() })
+  const done = statusOf(view, ASKED_END + MIN)
+  assert.deepEqual([done.state, done.text, done.tone], ['checked', 'checked 15:26: nothing new', 'quiet'])
+  assert.equal(statusOf(view, ASKED_END).text, 'checked 15:26: nothing new', 'the moment it ended')
+  assert.equal(statusOf(view, ASKED_END + CHECK_MS - 1).text, 'checked 15:26: nothing new', 'the last moment of the 10 minutes')
+  assert.equal(statusOf(view, ASKED_END + CHECK_MS), null, '10 minutes after it ended: gone')
+  assert.equal(statusOf(view, ASKED_END + 3 * CHECK_MS), null)
+  // The time is when the check ended, not when it was asked.
+  assert.equal(statusOf(watched({ lastSweep: askedSweep({ ended: at(15, 31) + 5_000 }) }), at(15, 32)).text, 'checked 15:31: nothing new')
+  // A sweep by the clock that ended is not an asked check.
+  assert.equal(statusOf(watched({ lastSweep: askedSweep({ asked: false }) }), ASKED_END + MIN), null)
+})
+
+test('Check now, found something: "N new" counts the open incidents found since the press, in the attention tone only for N above 0', () => {
+  // The store keeps the minute (stamp), so an incident found in the press's minute counts; the one before does not.
+  const found = (id, state, foundAt) => ({ id, title: `Finding ${id}`, state, fix: null, count: 1, firstSeen: foundAt, lastSeen: foundAt, since: foundAt, foundAt })
+  const incidents = [
+    found('X1', 'open', at(15, 26)), found('X2', 'with the advisor', at(15, 27)), found('X3', 'came back', at(15, 26)),
+    found('X4', 'open', at(15, 25)), found('X5', 'fixed', at(15, 26)), found('X6', 'closed', at(15, 27)),
+  ]
+  const three = statusOf(watched({ incidents, lastSweep: askedSweep({ ended: at(15, 28) + 10_000, found: 2 }) }), at(15, 29))
+  assert.deepEqual([three.state, three.text, three.tone], ['checked', 'checked 15:28: 3 new', 'found'])
+  const one = statusOf(watched({ incidents: [incidents[0]], lastSweep: askedSweep() }), ASKED_END + MIN)
+  assert.deepEqual([one.text, one.tone], ['checked 15:26: 1 new', 'found'])
+  assert.equal(statusOf(watched({ incidents: [incidents[3], incidents[4]], lastSweep: askedSweep() }), ASKED_END + MIN).text, 'checked 15:26: nothing new', 'older and fixed ones are not new')
+  // Nothing without a time (a board whose incidents carry none) is counted.
+  assert.equal(statusOf(watched({ incidents: [{ id: 'X7', state: 'open' }], lastSweep: askedSweep() }), ASKED_END + MIN).text, 'checked 15:26: nothing new')
+  // The rules run just before the sweep starts, maybe in the minute before: what they filed counts with the press.
+  const rules = { at: at(15, 25) + 59_000, asked: true, subject: null, fine: 3, rows: [], findings: [] }
+  const early = askedSweep({ at: at(15, 26) + 1_000 })
+  assert.equal(statusOf(watched({ incidents: [incidents[3]], run: rules, lastSweep: early }), ASKED_END + MIN).text, 'checked 15:26: 1 new')
+  assert.equal(statusOf(watched({ incidents: [incidents[3]], run: { ...rules, asked: false }, lastSweep: early }), ASKED_END + MIN).text, 'checked 15:26: nothing new', 'a run by the clock is not the press')
+  assert.equal(statusOf(watched({ incidents: [incidents[3]], run: { ...rules, at: at(15, 20) }, lastSweep: early }), ASKED_END + MIN).text, 'checked 15:26: nothing new', 'an older press is not this one')
+})
+
+test('Check now, the chat cannot be reached: the head says so plainly instead of spinning; the rules ran all the same', () => {
+  // The chat has not read the health summary 2 minutes after the sweep was asked (not running and not woken): said then,
+  // not when the board settles the sweep. The 2 minutes are the board's own (sweep.mjs SWEEP_SETTLE_MS).
+  assert.equal(page.CHECK_START_MS, SWEEP_SETTLE_MS)
+  const open = more => watched({ lastSweep: askedSweep({ ended: null, how: null, read: false, tokens: null, note: 'its chat does not run: the main chat was asked to start it', ...more }) })
+  const asked = askedSweep().at
+  assert.equal(statusOf(open(), asked + SWEEP_SETTLE_MS - 1).state, 'checking', 'still within the 2 minutes')
+  const waited = statusOf(open(), asked + SWEEP_SETTLE_MS)
+  assert.deepEqual([waited.state, waited.text, waited.tone], ['no-sweep', NOT_REACHED, 'quiet'])
+  assert.match(waited.title, /its chat does not run: the main chat was asked to start it/)
+  assert.equal(statusOf(open({ read: true }), asked + 5 * MIN).state, 'checking', 'it read the health summary: it started, so it is checking')
+  assert.equal(statusOf(open({ found: 1 }), asked + 5 * MIN).state, 'checking', 'it filed something: it started')
+  // Pressed again meanwhile: the press says "checking…" until the board answers.
+  assert.equal(statusOf(open(), asked + 5 * MIN, true).state, 'checking')
+  // The sweep ended without its chat starting (nothing took the word, or the word expired): not read, 'quiet'.
+  const quiet = askedSweep({ how: 'quiet', read: false, tokens: null, note: 'no turn of its chat ended: its word may not have been taken' })
+  const lost = statusOf(watched({ lastSweep: quiet }), ASKED_END + MIN)
+  assert.deepEqual([lost.state, lost.text, lost.tone], ['no-sweep', NOT_REACHED, 'quiet'])
+  assert.equal(statusOf(watched({ lastSweep: quiet }), ASKED_END + CHECK_MS), null, 'gone after 10 minutes, as the result is')
+  // A chat that did run (it read the health summary) but whose end was not told is a check that ended, not an unreached chat.
+  assert.equal(statusOf(watched({ lastSweep: askedSweep({ how: 'quiet', read: true }) }), ASKED_END + MIN).state, 'checked')
+  // The sweep did not even start (no chat open in the app, a mod too old, the person pauses, ...): the board's own note.
+  const refused = { at: PRESS + 1_000, why: 'no chat "Game - Supervisor" is open in the app', asked: true }
+  const none = statusOf(watched({ sweepNote: refused }), PRESS + MIN)
+  assert.deepEqual([none.state, none.text, none.tone], ['no-sweep', 'checked 15:26: the code rules ran, the sweep did not', 'quiet'])
+  assert.match(none.title, /no chat "Game - Supervisor" is open in the app/)
+  assert.equal(statusOf(watched({ sweepNote: refused }), PRESS + CHECK_MS + 2_000), null)
+  // The board's note about a sweep by the clock that did not run is none of this.
+  assert.equal(statusOf(watched({ sweepNote: { ...refused, asked: false } }), PRESS + MIN), null)
+  // A refusal is the newest end only when it is newer than the asked sweep's end; while an asked sweep runs it is "checking…".
+  assert.equal(statusOf(watched({ lastSweep: askedSweep(), sweepNote: { ...refused, at: ASKED_END - 5_000 } }), ASKED_END + MIN).text, 'checked 15:26: nothing new')
+  assert.equal(statusOf(watched({ lastSweep: askedSweep(), sweepNote: { ...refused, at: ASKED_END + 5_000 } }), ASKED_END + MIN).state, 'no-sweep')
+  assert.equal(statusOf(watched({ lastSweep: askedSweep({ ended: null, how: null }), sweepNote: { ...refused, why: 'the sweep asked at 15:26 still runs' } }), PRESS + MIN).state, 'checking')
+})
+
+// The page's draw of the button and the head's word, on a tiny stand-in for the document.
+const buttons = { clock: page.clock }
+vm.runInNewContext(`
+function el(tag, className = '', text = null) {
+  const node = { tag, className, text, children: [], dataset: {}, attrs: {}, append(...more) { this.children.push(...more) }, setAttribute(name, value) { this.attrs[name] = value } }
+  return node
+}
+const icon = name => ({ tag: 'svg', icon: name, attrs: {}, setAttribute(name, value) { this.attrs[name] = value } })
+const sending = new Set()
+${script.slice(script.indexOf('// supervisor:start'), script.indexOf('// supervisor:end'))}
+${script.slice(script.indexOf('function isCheckPressed('), script.indexOf('function drawIncidentCard('))}
+this.sending = sending; this.checkNowButton = checkNowButton; this.checkStatusPart = checkStatusPart; this.isCheckPressed = isCheckPressed`, buttons)
+
+test('the page draws "Check now" as "Checking…", disabled, from the press until the asked sweep ends; and the head\'s quiet word, in the attention tone only for found', () => {
+  const now = Date.now()
+  const state = (more = {}) => ({ changeAsks: {}, supervisor: watched({ lastSweep: null, ...more }) })
+  const label = button => button.children.find(one => one.tag === 'span').text
+  // Idle: the wrench and the words, enabled.
+  const idle = buttons.checkNowButton('board', state(), 'Runs the checks')
+  assert.deepEqual([label(idle), idle.disabled, idle.title, idle.dataset.sync], ['Check now', false, 'Runs the checks', 'board'])
+  // The press (the key sync:<chat> is in `sending`, any chat): every Check now button, a worker's menu too, reads Checking….
+  buttons.sending.add('sync:Worker 2')
+  assert.equal(buttons.isCheckPressed(), true)
+  const pressed = buttons.checkNowButton('board', state(), 'Runs the checks')
+  assert.deepEqual([label(pressed), pressed.disabled], ['Checking…', true])
+  assert.deepEqual(plain(pressed.children.map(one => one.tag)), ['svg', 'span'], 'the wrench stays')
+  buttons.sending.clear()
+  assert.equal(buttons.isCheckPressed(), false)
+  // The asked sweep runs: still Checking…, on another page too.
+  const asked = state({ lastSweep: askedSweep({ at: now - MIN, ended: null, how: null }) })
+  const running = buttons.checkNowButton('Worker 2', asked, 'Runs the checks')
+  assert.deepEqual([label(running), running.disabled], ['Checking…', true])
+  // Ended: the button is back.
+  const ended = buttons.checkNowButton('board', state({ lastSweep: askedSweep({ at: now - 5 * MIN, ended: now - 2 * MIN }) }), 'Runs the checks')
+  assert.deepEqual([label(ended), ended.disabled], ['Check now', false])
+  // Its chat did not start (nothing read in 2 minutes): the button does not spin either.
+  const stuck = buttons.checkNowButton('board', state({ lastSweep: askedSweep({ at: now - 3 * MIN, ended: null, how: null, read: false }) }), 'Runs the checks')
+  assert.deepEqual([label(stuck), stuck.disabled], ['Check now', false])
+  // A board without a supervisor keeps the button as it was.
+  assert.equal(label(buttons.checkNowButton('board', { changeAsks: {}, supervisor: null }, 'x')), 'Check now')
+  // The head's word: nothing for no status; a span with the status's tone and its tooltip.
+  assert.equal(buttons.checkStatusPart(null), null)
+  const quiet = buttons.checkStatusPart({ state: 'checking', text: 'checking…', tone: 'quiet', title: 'Checking' })
+  assert.deepEqual([quiet.tag, quiet.className, quiet.text, quiet.title], ['span', 'supervisor-check is-quiet', 'checking…', 'Checking'])
+  const news = buttons.checkStatusPart({ state: 'checked', text: 'checked 15:28: 3 new', tone: 'found', title: 'x' })
+  assert.deepEqual([news.className, news.text], ['supervisor-check is-found', 'checked 15:28: 3 new'])
+})
+
+test('the page wires the status: the press counts from the key sync:<chat>, the section draws again when it changes, the word follows the counts in the head', () => {
+  const draw = script.slice(script.indexOf('function drawSupervisor('), script.indexOf('/** B573: the supervisor\'s one line under Needs your attention'))
+  assert.match(script, /function isCheckPressed\(\) \{\n\s+return \[\.\.\.sending\]\.some\(key => String\(key\)\.startsWith\('sync:'\)\)/)
+  // The redraw knows it: the status stands in the section's signature (so the word goes by itself 10 minutes after), and the draw hears of the press.
+  assert.match(draw, /const isPressed = isCheckPressed\(\)/)
+  assert.match(draw, /const status = shown \? checkStatusOf\(view, \{ isPressed, now: Date\.now\(\) \}\) : null/)
+  assert.match(draw, /sending\.has\('sync:board'\), status\], \(\) => \{/)
+  assert.match(draw, /supervisorOf\(view, \{[^}]*now: Date\.now\(\), isPressed \}\)/)
+  // The word stands after the counts, in the head's own line (folded or open).
+  assert.match(draw, /fill\(toggle, \[el\('span', 'supervisor-caret', isOpen \? '▾' : '▸'\), wrench, el\('span', 'supervisor-title', part\.head\), checkStatusPart\(part\.status\)\]\)/)
+  // The button hears of it: the same status, from the board's view.
+  const button = script.slice(script.indexOf('function checkNowButton('), script.indexOf('function drawIncidentCard('))
+  assert.match(button, /checkStatusOf\(state\.supervisor \?\? null, \{ isPressed: isCheckPressed\(\), now: Date\.now\(\) \}\)/)
+  assert.match(button, /el\('span', '', isChecking \? 'Checking…' : 'Check now'\)/)
+  // The press itself is the one that was there: the key sync:<chat>, sent to the board, with the section opened.
+  assert.match(script, /send\(\{ to: main, command: 'sync', chat \}, `sync:\$\{chat\}`\)\n\s+setSupervisorOpen\(true\)/)
 })
 
 // B573, the person (2026-10-24): "the supervisor notes take up too much space. i want it collapisble and understand how
@@ -258,7 +428,7 @@ test('B573: New only for what was found since the person last opened the section
   const later = plain(page.supervisorOf(view, { seenAt: at(10, 25), now: NOW }))
   assert.deepEqual(later.cards.filter(card => card.isNew).map(card => card.key), ['B602'])
   // The open section's tags stand against the opening before, so opening does not wipe them at once.
-  assert.match(script, /supervisorOf\(view, \{ seenAt: isOpen \? supervisorUi\.shownSince : supervisorUi\.seenAt, isOpen, now: Date\.now\(\) \}\)/)
+  assert.match(script, /supervisorOf\(view, \{ seenAt: isOpen \? supervisorUi\.shownSince : supervisorUi\.seenAt, isOpen, now: Date\.now\(\), isPressed \}\)/)
   assert.match(script, /if \(card\.isNew\) top\.append\(el\('span', 'inc-new', 'New'\)\)/)
 })
 
@@ -341,7 +511,8 @@ test('"Check now" carries the wrench, in the button\'s own colour, and sends the
   assert.match(script, /wrench: 'M14\.7 6\.3/)
   const button = script.slice(script.indexOf('function checkNowButton('), script.indexOf('/** The supervisor\'s section under the Workers panel\'s head'))
   assert.match(button, /const wrench = icon\('wrench'\)/)
-  assert.match(button, /button\.append\(wrench, el\('span', '', 'Check now'\)\)/)
+  // Since the person's 2026-10-26 ("i dont see indication if it's checking or not") the words are "Checking…" while it checks.
+  assert.match(button, /button\.append\(wrench, el\('span', '', isChecking \? 'Checking…' : 'Check now'\)\)/)
   assert.match(button, /button\.dataset\.sync = about/)
   // icon() draws in currentColor: the button's own colour.
   assert.match(script.slice(script.indexOf('function icon(name)'), script.indexOf('function icon(name)') + 400), /stroke: 'currentColor'/)
@@ -392,6 +563,19 @@ test('no colour of the section, its lines or the button is amber, gold, orange, 
   assert.equal(isWarm('#f6b93b'), true)
   assert.equal(isWarm('#ff7a59'), true)
   assert.equal(isWarm('#7cc4ff'), false)
+})
+
+test('the head\'s status word is quiet blue and grey; only "N new" takes the attention colour, and that one rule stands outside the section\'s cool block', () => {
+  const block = css.slice(css.indexOf('/* supervisor:start */'), css.indexOf('/* supervisor:end */'))
+  assert.match(block, /\.supervisor-check \{/)
+  assert.match(block, /\.supervisor-check\.is-quiet \{ color: #[0-9a-f]{3,8}; \}/i)
+  assert.doesNotMatch(block, /\.supervisor-check\.is-found/, 'the attention colour is not in the cool block')
+  const after = css.slice(css.indexOf('/* supervisor:end */'))
+  assert.match(after, /^[^]{0,600}\.supervisor-check\.is-found \{ color: var\(--waiting\); font-weight: 600; \}/, 'the person\'s attention colour, for new findings only')
+  assert.equal(css.match(/\.supervisor-check\.is-found\b/g).length, 1)
+  // The quiet tone is cool.
+  const quiet = block.match(/\.supervisor-check\.is-quiet \{ color: (#[0-9a-f]{3,8}); \}/i)[1]
+  assert.equal(isWarm(quiet), false)
 })
 
 test('the demo shows the section: every rule of the supervisor, three tripped today, the incidents of the day the cards were drawn on and their cards', () => {

@@ -198,7 +198,7 @@ test('Check now runs the rules and sweeps at once, about the worker of its menu;
   assert.deepEqual(done.sweep, { started: true, why: null, note: null })
   assert.match(b.sweeps()[0].text, /then end your turn \(about Digger\)\n/)
   assert.equal(b.sweeps()[0].about, 'Digger')
-  assert.deepEqual({ ...b.view().lastSweep, at: 0 }, { at: 0, asked: true, subject: 'Digger', ended: null, found: 0, read: false, tokens: null, tokenParts: null, note: null })
+  assert.deepEqual({ ...b.view().lastSweep, at: 0 }, { at: 0, asked: true, subject: 'Digger', ended: null, how: null, found: 0, read: false, tokens: null, tokenParts: null, note: null })
   const again = await b.supervisor.checkNow({})
   assert.deepEqual([again.sweep.started, again.sweep.why], [false, 'the sweep asked at 12:00 still runs'])
   assert.ok(again.run !== null, 'the rules ran all the same')
@@ -270,6 +270,33 @@ test('a sweep whose chat went quiet without its turn\'s end is ended after a whi
   await unread.tick()
   await unread.supervisor.heard({ action: 'turn-ended', ok: true, session: 'cli-watcher', since: START })
   assert.match(unread.view().lastSweep.note, new RegExp(`ended without reading work health \\(its Workers mod may be older than ${SWEEP_MOD.replace(/\./g, '\\.')}`))
+})
+
+// The person, 2026-10-26 ("i dont see indication if it's checking or not"): the page says "checking…" while an asked sweep
+// runs, and says plainly that the supervisor's chat did not start when it ended without it. The view tells how it ended.
+test('the view says how the last sweep ended: its turn told it ("told"), or nothing took the word and it went quiet ("quiet"); open, null', async () => {
+  const told = board()
+  await told.supervisor.checkNow({})
+  assert.equal(told.view().lastSweep.how, null, 'it runs')
+  told.outbox[0].state = 'delivered'
+  await told.supervisor.heard({ action: 'health', ok: true })
+  told.at(1)
+  await told.supervisor.heard({ action: 'turn-ended', ok: true, session: 'cli-watcher', since: START })
+  assert.deepEqual([told.view().lastSweep.how, told.view().lastSweep.read, told.view().lastSweep.asked], ['told', true, true])
+  // The chat never started: no word taken, no turn; the sweep ends after SWEEP_SETTLE_MS, quiet and unread.
+  const lost = board()
+  await lost.supervisor.checkNow({})
+  lost.outbox[0].state = 'delivered'
+  lost.at(SWEEP_SETTLE_MS / MIN + 1)
+  await lost.tick()
+  assert.deepEqual([lost.view().lastSweep.how, lost.view().lastSweep.read, lost.view().lastSweep.asked], ['quiet', false, true])
+  assert.ok(Number.isFinite(lost.view().lastSweep.ended))
+  // The word was never taken and expired (after 10 minutes; no sweep by the clock follows): the same.
+  const expired = board({ every: 0 })
+  await expired.supervisor.checkNow({})
+  expired.at(11)
+  await expired.tick()
+  assert.deepEqual([expired.view().lastSweep.how, expired.view().lastSweep.read], ['quiet', false])
 })
 
 test('tokensOfTurn: each answer of the turn once (the largest of its lines), none before the turn', () => {
