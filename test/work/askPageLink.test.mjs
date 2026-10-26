@@ -40,7 +40,7 @@ test('an ask naming the sound board carries a play link on the step\'s branch, i
     await board({ action: 'take', id: 'B1', branch: 'b1-sound' })
     const made = await board({ action: 'ask', of: 'B1', kind: 'do', title: 'Pick the best sound', text: 'Open the sound board and pick one.' })
     assert.equal(made.ok, true, made.why)
-    assert.match(made.result.text, /\[Play it: page soundboard\]\(http:\/\/127\.0\.0\.1:4310\/#play=b1-sound&page=soundboard\)/)
+    assert.match(made.result.text, /\[Play it: the sound board\]\(http:\/\/127\.0\.0\.1:4310\/#play=b1-sound&page=soundboard\)/)
     assert.deepEqual((await readStore(dir)).items.get('Q1').sections.get('Play'), ['b1-sound&page=soundboard'])
   } finally {
     await rm(dir, { recursive: true, force: true })
