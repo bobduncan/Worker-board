@@ -69,7 +69,7 @@ const span = ms => {
  * a pause), so a give's clock starts again after it; `refusedGives` the gives the work API refused lately (`{ id, chat,
  * why, at }`), not tried again for a while and named on the ready list (`refused`); `handOutHeld` says whether it holds now.
  */
-export function reconcile({ store, flow = store.flow, lanes = [], now, times, prefix = '', hasPartner = true, partner = null, standardHold = null, focus = null, routingHeld = new Set(), settings = {}, sent = [], limitsFull = false, heldUntil = null, refusedGives = [] }) {
+export function reconcile({ store, flow = store.flow, lanes = [], now, times, prefix = '', hasPartner = true, partner = null, standardHold = null, focus = null, focusGoals = [], routingHeld = new Set(), settings = {}, sent = [], limitsFull = false, heldUntil = null, refusedGives = [] }) {
   const items = store.items ?? new Map()
   const broken = new Set((store.problems ?? []).map(problem => problem.file?.match(/^([A-Z]\d+|L-[0-9a-f]{8})\.md$/)?.[1]).filter(Boolean))
   const live = lanes.filter(lane => !lane.isLeftover)
@@ -273,7 +273,7 @@ export function reconcile({ store, flow = store.flow, lanes = [], now, times, pr
   const takeWithinMs = Math.max(1, Number.isFinite(settings.takeWithinMinutes) ? settings.takeWithinMinutes : HAND_OUT_DEFAULTS.takeWithinMinutes) * MIN
   const followUpMs = Math.max(0, Number.isFinite(settings.followUpMinutes) ? settings.followUpMinutes : HAND_OUT_DEFAULTS.followUpMinutes) * MIN
   const heldGiveMs = Math.max(takeWithinMs, (Number.isFinite(settings.heldGiveMinutes) ? settings.heldGiveMinutes : HAND_OUT_DEFAULTS.heldGiveMinutes) * MIN)
-  const listed = readyList(items, { now, focus, followUpMs, standardHold, routingHeld, prefix, beyondFocus: settings.handOutBeyondFocus === true })
+  const listed = readyList(items, { now, focus, focusGoals, followUpMs, standardHold, routingHeld, prefix, beyondFocus: settings.handOutBeyondFocus === true })
   // The review: a give the API refused stands on the list with why, and goes to another worker meanwhile.
   const refusedOf = id => refusedGives.filter(one => one.id === id).sort((a, b) => b.at - a.at)[0] ?? null
   // The recheck: a task taken back twice because its line was held says so on the list, and once to the main chat.
