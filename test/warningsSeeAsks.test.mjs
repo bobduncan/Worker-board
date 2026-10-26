@@ -25,7 +25,8 @@ import { buildState } from './withStore.mjs'
 const MIN = 60_000
 const at = (h, m, s = 0) => new Date(2026, 9, 19, h, m, s).getTime()
 const PROJECT = 'C:\\game'
-const config = { ...parseConfig('{}', {}), project: PROJECT }
+// B301 (2026-10-26): a warning goes after `unfiledAskHours` (2); these cases look 8 h on, as the night's, so they set a day.
+const config = { ...parseConfig('{"unfiledAskHours":24}', {}), project: PROJECT }
 
 /** The person's answer as the board types it into the chat (the Workers mod, as the person). */
 const byBoard = (time, words) => user(time, words, { origin: { kind: 'plugin', name: 'folder-branches', asUser: true } })
