@@ -11253,13 +11253,14 @@ function focusStepList(part) {
     const row = el('li', `focus-step is-${one.tone}`)
     const what = el('span', 'focus-step-what', one.title)
     if (one.line !== '' || one.picture !== null || one.fixPicture !== null) {
-      const line = el('small', one.isFailed ? 'is-fail' : '', one.line)
+      // B696: the step ids in the line (its fix, "Waits for") open their step, through the one helper of the ask words.
+      const line = linkedEl('small', one.isFailed ? 'is-fail' : '', one.line)
       // B356, B504: the evidence of the check and of its fix, opened with a click
       if (one.picture !== null) line.append(' · ', focusLook('the evidence', one.picture))
       if (one.fixPicture !== null) line.append(' · ', focusLook('the evidence of the fix', one.fixPicture))
       what.append(line)
     }
-    row.append(el('span', 'focus-step-dot'), el('span', 'focus-step-id', one.id), what, el('span', 'focus-step-state', one.state))
+    row.append(el('span', 'focus-step-dot'), linkedEl('span', 'focus-step-id', one.id), what, el('span', 'focus-step-state', one.state))
     list.append(row)
   }
   box.append(list)
@@ -11299,7 +11300,7 @@ function focusRunCard(view) {
       row.append(toggle)
       if (part.isOpen) row.append(focusStepList(part))
     }
-    if (typeof part.fixFirst === 'string') row.append(el('small', 'focus-fix', part.fixFirst))
+    if (typeof part.fixFirst === 'string') row.append(linkedEl('small', 'focus-fix', part.fixFirst))
     // B680: under a Stopped part a small "Drop this part" (the reason is asked for first); a dropped one has its Undo.
     if (part.drop !== undefined) {
       const drop = focusButton(part.drop, 'focus-drop')
