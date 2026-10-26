@@ -5,7 +5,7 @@
 // Windows), which must never be followed. Made-up names only.
 
 import assert from 'node:assert/strict'
-import { execFileSync } from 'node:child_process'
+import { execFileSync, spawn } from 'node:child_process'
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, realpathSync, rmSync, rmdirSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -212,7 +212,7 @@ test('the report check\'s part: a worktree on the step\'s branch, and a folder o
     const repo = one.repos[0]
     const own = await stepLeftovers({ id: 'B5', branch: 'b5-lamps', repo, repos: one.repos, project: one.project, run })
     const at = slashed(join(one.project, 'garden-b5'))
-    assert.deepEqual(own, [`the worktree ${at} is still on b5-lamps: git worktree remove ${at}, then delete the empty folder Windows may leave`])
+    assert.deepEqual(own, [`the worktree ${at} is still on b5-lamps: first leave it (cd to the main checkout, in a command of its own), then git worktree remove ${at}, then delete the empty folder Windows may leave`])
     const empty = await stepLeftovers({ id: 'B3', branch: 'b3-gone', repo, repos: one.repos, project: one.project, run })
     // An empty folder no repository lists is removed by the board itself (B717): no line, and the folder is gone.
     assert.deepEqual(empty, [])
@@ -221,7 +221,7 @@ test('the report check\'s part: a worktree on the step\'s branch, and a folder o
     const linked = await stepLeftovers({ id: 'B10', branch: 'b10-other', repo, repos: one.repos, project: one.project, run })
     const b10 = join(one.project, 'garden-b10')
     const unlink = isWindows ? `cmd /c rmdir "${join(b10, 'node_modules')}"` : `rm "${slashed(join(b10, 'node_modules'))}"`
-    assert.deepEqual(linked, [`the worktree ${slashed(b10)} is still there: first remove its link node_modules alone (${unlink}), then git worktree remove ${slashed(b10)}, then delete the empty folder Windows may leave`])
+    assert.deepEqual(linked, [`the worktree ${slashed(b10)} is still there: first leave it (cd to the main checkout, in a command of its own), then remove its link node_modules alone (${unlink}), then git worktree remove ${slashed(b10)}, then delete the empty folder Windows may leave`])
     // A result check's own folder is the partner's, not the worker's; nothing left is no line.
     assert.deepEqual(await stepLeftovers({ id: 'B12', branch: 'b12-x', repo, repos: one.repos, project: one.project, run }), [])
     assert.deepEqual(await stepLeftovers({ id: 'B99', branch: 'b99-x', repo, repos: one.repos, project: one.project, run }), [])
@@ -230,45 +230,77 @@ test('the report check\'s part: a worktree on the step\'s branch, and a folder o
   }
 })
 
-test('an empty folder a worktree left: removed after a few tries; one a program holds keeps a line; a folder with files is never removed (B717)', async () => {
+test('an empty folder a worktree left: removed now, or in the background when held; one a program holds keeps a line; a folder with files is never removed (B717, B723)', async () => {
   const one = world()
   try {
     const args = { repo: one.repos[0], repos: one.repos, project: one.project, run }
     const busy = () => Object.assign(new Error('busy'), { code: 'EBUSY' })
-    // Busy for two tries, then free (a chat's shell let go of the worktree): removed, no line.
     const folder = join(one.project, 'garden-b3')
+    // Free at once: removed, no line, nothing waited for.
+    const jobs = []
+    const later = job => { jobs.push(job) }
+    assert.deepEqual(await stepLeftovers({ id: 'B3', branch: 'b3-gone', ...args, later }), [])
+    assert.equal(existsSync(folder), false)
+    assert.equal(jobs.length, 0)
+    // Held on the first try: one try inside the check (the work store's queue waits for no retry, Principle 5), a line
+    // that says a program uses it, the later tries handed to the background, which remove it once it is free.
+    mkdirSync(folder)
     let tries = 0
-    const waited = []
     const flaky = { ...FILES, rmdir: async path => {
       tries += 1
       if (tries < 3) throw busy()
       return FILES.rmdir(path)
     } }
-    assert.deepEqual(await stepLeftovers({ id: 'B3', branch: 'b3-gone', ...args, fs: flaky, sleep: async ms => { waited.push(ms) } }), [])
-    assert.equal(tries, 3)
-    assert.deepEqual(waited, EMPTY_WAITS.filter(ms => ms > 0).slice(0, 2))
-    assert.equal(existsSync(folder), false)
-    // Held on every try: a line that says a program uses it, no chore for the person; the folder stays.
-    mkdirSync(folder)
-    let all = 0
-    const held = { ...FILES, rmdir: async () => { all += 1; throw busy() } }
-    const lines = await stepLeftovers({ id: 'B3', branch: 'b3-gone', ...args, fs: held, sleep: async () => {} })
-    assert.equal(all, EMPTY_WAITS.length)
+    const lines = await stepLeftovers({ id: 'B3', branch: 'b3-gone', ...args, fs: flaky, waits: [0, 1, 1, 1], later })
+    assert.equal(tries, 1)
     assert.equal(lines.length, 1)
     assert.match(lines[0], /could not be removed \(EBUSY\): a program still uses it/)
     assert.doesNotMatch(lines[0], /delete it/)
     assert.equal(existsSync(folder), true)
+    assert.equal(jobs.length, 1)
+    await jobs[0]()
+    assert.equal(tries, 3)
+    assert.equal(existsSync(folder), false)
+    // Git that does not answer: whether a repository lists the folder is not known, so it is left and said.
+    mkdirSync(folder)
+    const silent = async args => (args.includes('worktree') ? null : run(args))
+    const unknown = await stepLeftovers({ id: 'B3', branch: 'b3-gone', ...args, run: silent, later })
+    assert.ok(unknown.some(line => /the empty folder .*garden-b3 of a worktree is still there: git did not answer/.test(line)), unknown.join(' | '))
+    assert.equal(existsSync(folder), true)
+    rmdirSync(folder)
     // A folder with files is untouched and keeps its line.
     const full = join(one.project, 'garden-b20')
     mkdirSync(full)
     writeFileSync(join(full, 'notes.txt'), 'keep me\n')
-    const kept = await stepLeftovers({ id: 'B20', branch: 'b20-x', ...args, sleep: async () => {} })
+    const kept = await stepLeftovers({ id: 'B20', branch: 'b20-x', ...args, later })
     assert.deepEqual(kept, [`the folder ${slashed(full)} of a worktree is still there, and no repository lists it: look what is in it, then delete it`])
     assert.equal(existsSync(join(full, 'notes.txt')), true)
     // A worktree a repository still lists is never removed by this.
-    assert.equal((await stepLeftovers({ id: 'B5', branch: 'b5-lamps', ...args, sleep: async () => {} })).length, 1)
+    assert.equal((await stepLeftovers({ id: 'B5', branch: 'b5-lamps', ...args, later })).length, 1)
     assert.equal(existsSync(join(one.project, 'garden-b5')), true)
   } finally {
+    done(one)
+  }
+})
+
+test('an empty folder a running program stands in keeps a line and is removed once it lets go (B723; Windows refuses the folder)', { skip: process.platform !== 'win32' }, async () => {
+  const one = world()
+  const child = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { cwd: join(one.project, 'garden-b3'), stdio: 'ignore' })
+  try {
+    // garden-b3 is the empty folder a removed worktree left (world); the child's working folder holds it.
+    await new Promise(resolve => setTimeout(resolve, 500))
+    const jobs = []
+    const args = { id: 'B3', branch: 'b3-gone', repo: one.repos[0], repos: one.repos, project: one.project, run, later: job => { jobs.push(job) } }
+    const lines = await stepLeftovers(args)
+    assert.equal(lines.length, 1)
+    assert.match(lines[0], /could not be removed .*a program still uses it/)
+    assert.equal(existsSync(join(one.project, 'garden-b3')), true)
+    child.kill()
+    await new Promise(resolve => child.once('exit', resolve))
+    await jobs[0]()
+    assert.equal(existsSync(join(one.project, 'garden-b3')), false)
+  } finally {
+    child.kill()
     done(one)
   }
 })
@@ -278,7 +310,7 @@ test('the result check\'s part: the check\'s own check-<id> worktrees are named,
   try {
     const at = slashed(join(one.project, 'check-b12'))
     assert.deepEqual(await stepLeftovers({ id: 'B12', which: 'check', repos: one.repos, project: one.project, run }),
-      [`the worktree ${at} is still there: git worktree remove ${at}, then delete the empty folder Windows may leave`])
+      [`the worktree ${at} is still there: first leave it (cd to the main checkout, in a command of its own), then git worktree remove ${at}, then delete the empty folder Windows may leave`])
     assert.deepEqual(await stepLeftovers({ id: 'B5', which: 'check', repos: one.repos, project: one.project, run }), [])
   } finally {
     done(one)

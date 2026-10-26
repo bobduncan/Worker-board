@@ -36,7 +36,8 @@ export const FILES = {
   rmdir: path => rmdir(path),
 }
 
-const pause = ms => new Promise(resolve => setTimeout(resolve, ms))
+/** Runs `job` after the caller has answered; a failure of it is its own (the folder just stays for the next check). */
+const inBackground = job => { job().catch(() => {}) }
 
 /** A path written with "/", without its end "/". */
 const slashed = path => String(path).replace(/\\/g, '/').replace(/\/+$/, '')
@@ -153,21 +154,24 @@ const looksLikeWorktree = (name, prefixes) => prefixes.some(prefix => name.toLow
 const isCheckFolder = name => name.toLowerCase().startsWith('check-')
 
 /**
- * Removes an empty folder a worktree left (rmdir, never recursive), trying again after each of `waits`: a program that
- * stood in the worktree (a chat's shell) lets go within seconds. `null` when it is gone, else why it stayed.
+ * Removes an empty folder a worktree left (rmdir, never recursive): one try now. A program that stood in the worktree
+ * (a chat's shell) lets go within seconds, so when the folder is held the tries after each of `waits` (past the first)
+ * run in the background, outside the work store's queue (Principle 5): the next check finds it gone. `null` when it is
+ * gone now, else why it stayed.
  */
-async function removeEmptyFolder(path, fs, waits, sleep) {
-  let why = 'no answer'
-  for (const ms of waits) {
-    if (ms > 0) await sleep(ms)
+async function removeEmptyFolder(path, fs, waits, later) {
+  const [now, ...rest] = waits
+  const attempt = async () => {
     try {
       await fs.rmdir(path)
       return null
     } catch (error) {
-      if (error?.code === 'ENOENT') return null
-      why = error?.code ?? error?.message ?? why
+      return error?.code === 'ENOENT' ? null : error?.code ?? error?.message ?? 'no answer'
     }
   }
+  if (now > 0) await new Promise(resolve => setTimeout(resolve, now))
+  const why = await attempt()
+  if (why !== null && rest.length > 0) later(async () => { for (const ms of rest) { await new Promise(resolve => setTimeout(resolve, ms)); if (await attempt() === null) return } })
   return why
 }
 
@@ -177,7 +181,7 @@ const unlinkCommand = (path, platform) => (platform === 'win32' ? `cmd /c rmdir 
 /** The line for a worktree that is left: its path, and how to remove it (its link alone first, when it holds one). */
 async function worktreeLine(path, state, fs, platform) {
   const link = fs === null ? null : await topLink(path, fs)
-  const first = link === null ? '' : `first remove its link ${link} alone (${unlinkCommand(join(path, link), platform)}), then `
+  const first = `first leave it (cd to the main checkout, in a command of its own), then ` + (link === null ? '' : `remove its link ${link} alone (${unlinkCommand(join(path, link), platform)}), then `)
   return `the worktree ${slashed(path)} ${state}: ${first}git worktree remove ${slashed(path)}, then delete the empty folder Windows may leave`
 }
 
@@ -188,7 +192,7 @@ async function worktreeLine(path, state, fs, platform) {
  * result check's) or 'check' (a result check's own, check-<id>). `repos` the repositories the board knows; `fs` null
  * leaves the project folder unread. `run` runs git (folders.mjs `gitRunner`).
  */
-export async function stepLeftovers({ id, branch = null, repo = null, repos = [], project = '', run, fs = FILES, which = 'report', platform = process.platform, waits = EMPTY_WAITS, sleep = pause }) {
+export async function stepLeftovers({ id, branch = null, repo = null, repos = [], project = '', run, fs = FILES, which = 'report', platform = process.platform, waits = EMPTY_WAITS, later = inBackground }) {
   const lines = []
   const told = new Set()
   const known = repo === null || repos.some(one => keyOf(one.dir, platform) === keyOf(repo.dir, platform)) ? repos : [...repos, repo]
@@ -220,9 +224,14 @@ export async function stepLeftovers({ id, branch = null, repo = null, repos = []
       const entries = await entriesOr(fs, folder.path)
       if (entries === null) continue
       if (entries.length === 0) {
+        // Whether a repository lists it must be known before it goes (Principle 3): git silent, it is left and said.
+        if (lists.some(({ list }) => list === null)) {
+          lines.push(`the empty folder ${slashed(folder.path)} of a worktree is still there: git did not answer, so it is not known whether a repository lists it; left as it is`)
+          continue
+        }
         // The board removes it itself (a minute after a worker's `git worktree remove` the rmdir works); no chore for the person.
-        const why = typeof fs.rmdir === 'function' ? await removeEmptyFolder(folder.path, fs, waits, sleep) : 'no way to remove it here'
-        if (why !== null) lines.push(`the empty folder ${slashed(folder.path)} of a worktree is still there and could not be removed (${why}): a program still uses it, the board tries again at the next check`)
+        const why = typeof fs.rmdir === 'function' ? await removeEmptyFolder(folder.path, fs, waits, later) : 'no way to remove it here'
+        if (why !== null) lines.push(`the empty folder ${slashed(folder.path)} of a worktree is still there and could not be removed (${why}): a program still uses it, the board keeps trying in the background and again at the next check`)
       }
       else if (looksLikeWorktree(folder.name, prefixes) || await hasGitFile(folder.path, fs)) {
         lines.push(`the folder ${slashed(folder.path)} of a worktree is still there, and no repository lists it: look what is in it, then delete it`)
