@@ -712,7 +712,7 @@ const IN_WORK = ['queued', 'taken', 'in progress', 'waiting on you', 'review']
  * the person last opened the section (null: never), and not fixed since.
  */
 function isNewIncident(one, seenAt, now) {
-  return Number.isFinite(one?.foundAt) && one.state !== 'fixed' && one.foundAt > Math.max(Number.isFinite(seenAt) ? seenAt : -Infinity, now - SUPERVISOR_DAY)
+  return Number.isFinite(one?.foundAt) && one.state !== 'fixed' && one.state !== 'closed' && one.foundAt > Math.max(Number.isFinite(seenAt) ? seenAt : -Infinity, now - SUPERVISOR_DAY)
 }
 
 /** Whether an incident was found (opened, or came back: its `foundAt`) in [from, until): the lower edge in, the upper out. */
@@ -722,7 +722,7 @@ function isFoundBetween(one, from, until) {
 
 /** Whether an incident is fixed: its own state, or its fix step done (the card's `phase`). */
 function isFixedIncident(one, phase) {
-  return one?.state === 'fixed' || phase === 'done'
+  return one?.state === 'fixed' || one?.state === 'closed' || phase === 'done'
 }
 
 /**

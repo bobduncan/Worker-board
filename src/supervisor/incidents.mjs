@@ -75,7 +75,7 @@ export function incidentsOf(items, now) {
       lastSeen: sinceMs(value(item, 'Last seen')), since: sinceMs(value(item, 'Since')), evidence: value(item, 'Evidence'), ruleWanted: value(item, 'Rule wanted'),
       foundAt: foundAtOf(item, sinceMs(value(item, 'First seen'))),
     }))
-    .filter(one => one.state !== 'fixed' || !(now - one.lastSeen > FIXED_KEPT))
+    .filter(one => (one.state !== 'fixed' && one.state !== 'closed') || !(now - one.lastSeen > FIXED_KEPT))
     .sort((a, b) => (b.lastSeen || 0) - (a.lastSeen || 0) || String(b.id).localeCompare(String(a.id), 'en', { numeric: true }))
 }
 

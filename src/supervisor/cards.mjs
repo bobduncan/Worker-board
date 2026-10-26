@@ -135,10 +135,13 @@ export function incidentCards({ incidents = [], items = null, lanes = [], words 
   }
   const groups = new Map()
   const loose = []
+  // B685: an incident the partner closed (no fault left) has no fix step and needs none.
+  const closed = []
   for (const incident of [...incidents].filter(one => typeof one?.id === 'string').sort((a, b) => numeric(a.id, b.id))) {
     const fix = fixStepOf(incident, named, stepsOnly)
-    if (fix === null) loose.push(incident)
-    else groups.set(fix, [...(groups.get(fix) ?? []), incident])
+    if (fix !== null) groups.set(fix, [...(groups.get(fix) ?? []), incident])
+    else if (incident.state === 'closed') closed.push(incident)
+    else loose.push(incident)
   }
   const latest = list => Math.max(...list.map(one => (Number.isFinite(one.since) ? one.since : -Infinity)))
   const cards = [...groups].map(([id, list]) => {
@@ -156,6 +159,10 @@ export function incidentCards({ incidents = [], items = null, lanes = [], words 
       key: 'nofix', step: null, title: 'No fix task yet', state: { text: chip.text, tone: chip.tone }, phase: null,
       incidents: each.map(one => ({ id: one.id, word: one.text })), at: Number.isFinite(at) ? at : 0,
     })
+  }
+  if (closed.length > 0) {
+    const at = latest(closed)
+    cards.push({ key: 'closed', step: null, title: 'Closed, no fix needed', state: { text: 'closed · no fix needed', tone: 'done' }, phase: 'done', incidents: closed.map(one => ({ id: one.id, word: null })), at: Number.isFinite(at) ? at : 0 })
   }
   return cards
 }

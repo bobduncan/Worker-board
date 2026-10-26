@@ -402,7 +402,8 @@ function dayLines(view, now) {
   const incidents = [...view.items.values()].filter(item => kindOf(item) === 'incident').flatMap(item => {
     const state = valueOf(item, 'State')
     const last = sinceMs(valueOf(item, 'Last seen'))
-    if (state === 'fixed' && !(now - last < DAY)) return []
+    // B685: a closed incident (the partner found no fault left) is not listed at all.
+    if (state === 'closed' || (state === 'fixed' && !(now - last < DAY))) return []
     const fix = valueOf(item, 'Fix')
     const evidence = valueOf(item, 'Evidence')
     return [lineOf(`${valueOf(item, 'Id')} ${state === 'fix' && fix ? `fix ${fix}` : state}, from ${valueOf(item, 'Source') ?? 'not known'}, seen ${valueOf(item, 'Count') ?? '1'} times, first ${dayClockOf(sinceMs(valueOf(item, 'First seen')), now)}, last ${dayClockOf(last, now)}: ${valueOf(item, 'Title') ?? ''} [key: ${valueOf(item, 'Key') ?? ''}]${evidence === null ? '' : ` (evidence: ${oneLine(evidence, 80)})`}`,

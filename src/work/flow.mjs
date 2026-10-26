@@ -44,7 +44,7 @@ export const flowHandsOut = flow => (flow?.step?.moves ?? []).some(move => move.
 const FIXED_STATES = {
   ask: ['open', 'answered', 'withdrawn'], instruction: ['open', 'closed'], note: ['unread', 'read'],
   // The supervisor (spec 2026-10-24): an incident's states ("fix" while its Fix step is under way, shown "fix B<n>").
-  incident: ['open', 'with the advisor', 'fix', 'fixed', 'came back'],
+  incident: ['open', 'with the advisor', 'fix', 'fixed', 'came back', 'closed'],
 }
 
 const byList = by => (Array.isArray(by) ? by : [by])

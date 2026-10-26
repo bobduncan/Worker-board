@@ -39,7 +39,7 @@ export function incidentsNamedBy(title) {
  */
 export function incidentsFixedBy(items, step) {
   const id = idOf(step)
-  const isOpen = item => item !== undefined && valueOf(item, 'Kind') === 'incident' && stateOf(item) !== 'fixed'
+  const isOpen = item => item !== undefined && valueOf(item, 'Kind') === 'incident' && !['fixed', 'closed'].includes(stateOf(item))
   const byFix = [...(items?.values() ?? [])].filter(item => isOpen(item) && valueOf(item, 'Fix') === id).map(idOf)
   const byTitle = incidentsNamedBy(valueOf(step, 'Title'))
     .filter(one => isOpen(items?.get(one)) && [null, id].includes(valueOf(items.get(one), 'Fix')))

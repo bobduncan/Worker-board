@@ -115,6 +115,9 @@ You look for what is really wrong, nothing else.
   names the one it could not wake), limit readings (X47, X55, X56), clears and checks. File what the rules do not name,
   not a second copy of what they do.
 
+An incident that turns out to be one of these is not yours to remove: you never change one. The partner closes it
+(`work drop X<n>` with its why, B685), so it leaves the lists; file a new finding only for a case that really is new.
+
 ## The board asks you to start a chat
 
 Since 2026-10-25 the board's `start "<chat>"` word goes to any chat that runs, so it may come to you when no other chat
