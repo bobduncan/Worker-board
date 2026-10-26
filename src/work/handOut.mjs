@@ -101,8 +101,13 @@ function fixChain(item, items) {
  * pin, else, with `followUpMs` above 0, the worker it is a follow-up of, until `keptUntil`), its pin (`pinned`), and
  * (`followUpMs` 0, the default: a preference only) the worker it goes to when that one is idle at the give (`prefers`).
  * A task of rank 2 neither pinned nor added is held for the person's choice (`choice: true`, CHOICE_WHY) unless
- * `beyondFocus`. B691: the focus is the goal `focus` and the goals under it (`focusGoals`); a fix of a step goes out as that
- * step does (its chain, `fixChain`), so a fix of a step the person added or pinned needs no pick of its own.
+ * `beyondFocus`.
+ * Which steps go out by themselves (B691, B694, B697; the one place that states it): the focus is the goal `focus` and the
+ * goals under it (`focusGoals`): a step of one is the focus's, rank 1. A fix goes out as its root does (its chain,
+ * `fixChain`): it is the focus's when any step down its chain belongs to the focus, and picked when any step down its chain
+ * was added to the queue or pinned by the person and is not dropped. A dropped step's pick does not count: it has nothing
+ * left to make pass, so its fix waits like an unpicked step. Only a step of an unrelated goal that nobody picked waits
+ * for "Add to queue" (CHOICE_WHY).
  */
 export function readyList(items, { now, focus = null, focusGoals = [], followUpMs = HAND_OUT_DEFAULTS.followUpMinutes * 60_000, standardHold = null, routingHeld = new Set(), prefix = '', beyondFocus = true }) {
   const ready = []

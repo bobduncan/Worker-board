@@ -3823,9 +3823,9 @@ what code should do"). Now the board hands out every task itself (principle 1), 
   person's "Add to queue" (`Queued by: person, <stamp>`, the work API's `add-to-queue`; "Remove", `remove-from-queue`,
   takes it off): the list then holds it after the focus goal's tasks, in the order added, for the first free worker.
   B691 (2026-10-26): the focus is the focus goal and every goal under it (G59 under G60): a step of one is the focus's,
-  rank 1. A fix goes out as its root does: a step with `Fix of` counts as picked when any step down its fix chain was
-  added to the queue or pinned by the person, and as the focus's when any of them belongs to the focus goal or under it;
-  only a step of an unrelated goal that nobody picked waits for "Add to queue".
+  rank 1. A fix goes out as its root does, except that a dropped step's pick does not count; only a step of an unrelated
+  goal that nobody picked waits for "Add to queue". The whole rule stands in the comment above `readyList` in
+  `src/work/handOut.mjs`.
 - **Kept for a worker:** a task the person pinned (`Pinned: <worker>`, the work API's `pin`; "Pin to", "Move to",
   "Unpin" in a task's window) waits for that worker only, never starts a new one, and goes to it
   before the list's order. A follow-up (a task whose `Blocked by` or `Waits for` named a step that worker moved to
