@@ -272,7 +272,8 @@ test('B465: the page shows the board\'s own check as in the agreed picture: a ro
     at: at(0, 42), asked: true, fine: 2,
     rows: [{ status: 'Fixed', text: 'B46 was queued for Ghost, no longer in the list: queued for Worker 1' }, { status: 'Woke', text: 'Worker 2: its queued B55 waited 12 min while it was free' }, { status: 'Sent', text: 'B17: the person\'s yes to dropping it (Q158): to Main as a note' }, { status: 'For Main', text: 'Second is not running: 2 refines and checks wait: its work went to Partner' }],
   })
-  assert.match(shown.note, /^Checked itself at 00:42\. /)
+  // The open note starts with the 24 h line (the person's B, 2026-10-26); the check line is the next one.
+  assert.match(shown.note.split('\n')[1], /^Checked itself at 00:42\. /)
   // The page's arrays are of another realm (vm): compared as JSON.
   assert.equal(JSON.stringify(shown.rows.map(row => [row.status, row.tone])), JSON.stringify([['Fixed', 'done'], ['Woke', 'done'], ['Sent', 'done'], ['For Main', 'main'], ['Fine', 'fine']]))
   assert.equal(shown.rows.at(-1).text, '2 other checks: nothing stuck')

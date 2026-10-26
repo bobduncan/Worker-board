@@ -58,7 +58,9 @@ const VIEW = {
 
 test('the section: when it checked itself, one card per fix step, the last check, the rules folded in one line, and "No sweep yet"', () => {
   const shown = plain(page.supervisorOf(VIEW, { now: NOW }))
-  assert.match(shown.note, /^Checked itself at 10:40\. /)
+  // The person's B (2026-10-26, "make it more simple"): the open note starts with the 24 h line; the schedule note follows it.
+  assert.equal(shown.note.split('\n')[0], 'Last 24 h: 0 found (0 the 24 h before), 1 fixed. Open: 0 in work, 2 with the Advisor.')
+  assert.match(shown.note.split('\n')[1], /^Checked itself at 10:40\. /)
   assert.deepEqual(shown.cards.map(card => [card.key, card.href, card.title, card.state, card.tone, card.line]), [
     ['B490', '#details=B490', 'Wake a worker that stays unknown', 'Worker 5 · building', 'busy', 'X2 · All 4 workers idle for 12 min'],
     ['nofix', null, 'No fix step yet', 'sending to the Advisor…', 'sending', 'X3 · Worker 2 unknown for 15 min (seen 5×)'],
@@ -76,7 +78,9 @@ test('the section: when it checked itself, one card per fix step, the last check
   assert.equal(shown.sweep, 'No sweep yet.')
   // Before its first run, and on a board without a supervisor.
   const fresh = plain(page.supervisorOf({ run: null, checkedAt: null, rules: [rule('blocked', 'repair', 'x', null)], incidents: [], lastSweep: null }, { now: NOW, isOpen: false }))
-  assert.deepEqual([fresh.head, fresh.note.split('.')[0], fresh.check, fresh.cards, fresh.rules.rest[0].often], ['Supervisor · 0 found in the last 24 h (0 the 24 h before) · 0 in work · 0 new', 'Not checked yet', null, [], 'not checked yet'])
+  assert.deepEqual([fresh.head, fresh.note.split('.')[0], fresh.check, fresh.cards, fresh.rules.rest[0].often], ['Supervisor · 0 open · 0 found in 24 h', 'Not checked yet', null, [], 'not checked yet'])
+  // Folded, the note carries no 24 h line (the section draws no note then); the line is for the open section only.
+  assert.doesNotMatch(fresh.note, /Last 24 h/)
   assert.equal(page.supervisorOf(null), null)
 })
 
@@ -93,8 +97,10 @@ test('Part 2, the last sweep: running, what it found and cost, why none ran (sai
   assert.equal(of({ lastSweep: null, sweepNote: { at: at(10, 41), why: 'the list of chats names no supervisor chat ("supervisor" in .claude/chats/list.json)', asked: true } }).sweep,
     'No sweep at 10:41: the list of chats names no supervisor chat ("supervisor" in .claude/chats/list.json).')
   assert.equal(of({ lastSweep: sweep(), sweepsToday: { count: 6, tokens: 190000 } }).sweep, 'Last sweep at 10:30 (by the clock): 2 findings, 31,200 tokens. Today 6 sweeps, 190,000 tokens.')
-  assert.equal(of({ lastSweep: null }).note, 'Checked itself at 10:40. It checks every 3 min and sweeps every 10 min while work runs; Check now does both.')
-  assert.equal(of({ lastSweep: null, sweepEvery: 0 }).note, 'Checked itself at 10:40. It checks every 3 min; Check now checks and sweeps at once.')
+  // The open note's first line is the 24 h line (the person's B, 2026-10-26); the schedule is the line after it.
+  const schedule = more => of(more).note.split('\n')[1]
+  assert.equal(schedule({ lastSweep: null }), 'Checked itself at 10:40. It checks every 3 min and sweeps every 10 min while work runs; Check now does both.')
+  assert.equal(schedule({ lastSweep: null, sweepEvery: 0 }), 'Checked itself at 10:40. It checks every 3 min; Check now checks and sweeps at once.')
   // Check now no longer asks the main chat: its titles say so.
   assert.doesNotMatch(script.slice(script.indexOf('function syncPart('), script.indexOf('// syncline:start')), /asks \$\{state\.workers\.mainTitle/)
 })
@@ -123,15 +129,25 @@ const viewOfStore = () => {
   return { run: null, checkedAt: at(10, 40), rules: [], incidents, cards: incidentCards({ incidents, items: STORE, lanes: [] }), lastSweep: null }
 }
 
-test('B573: the head counts from the store: found in the last 24 h (opened or came back), in work (a fix step queued to review), with the Advisor, fixed in the last 24 h', () => {
+// The person's B (2026-10-26, "make it more simple"; the head was too crowded): the head, folded or open, is only
+// "Supervisor · <open> open · <found> found in 24 h". Open = every incident that is not fixed (in work and with the
+// Advisor together, whatever their age; "new" is the card badge, no count in the head). The rest of the old head moves
+// to one plain line at the top of the open note: "Last 24 h: <found> found (<before> the 24 h before), <fixed> fixed.
+// Open: <in work> in work, <with the Advisor> with the Advisor."
+test('B573 + the person\'s B: the head counts from the store: open and found in 24 h; the open note\'s line: found (and the 24 h before), fixed, in work, with the Advisor', () => {
   const view = viewOfStore()
   // X21 (with the Advisor, found 9:00 yesterday, 25 h 42 min ago) is in the 24 h before; it is open, so it still counts with the Advisor.
   assert.deepEqual(plain(page.supervisorCounts(view, at(10, 0), NOW)), { found: 5, foundBefore: 1, inWork: 3, withAdvisor: 2, fixed: 1, fresh: 2 })
-  assert.equal(page.supervisorOf(view, { seenAt: at(10, 0), isOpen: false, now: NOW }).head, 'Supervisor · 5 found in the last 24 h (1 the 24 h before) · 3 in work · 2 new')
-  assert.equal(page.supervisorOf(view, { seenAt: at(10, 0), isOpen: true, now: NOW }).head, 'Supervisor · 5 found in the last 24 h (1 the 24 h before) · 3 in work · 2 new · 2 with the Advisor · 1 fixed in the last 24 h')
+  // Open = 3 in work + 2 with the Advisor; the same head folded and open, nothing else in it (no "new" count, no brackets).
+  assert.equal(page.supervisorOf(view, { seenAt: at(10, 0), isOpen: false, now: NOW }).head, 'Supervisor · 5 open · 5 found in 24 h')
+  assert.equal(page.supervisorOf(view, { seenAt: at(10, 0), isOpen: true, now: NOW }).head, 'Supervisor · 5 open · 5 found in 24 h')
+  assert.equal(page.supervisorOf(view, { seenAt: at(10, 0), isOpen: true, now: NOW }).note.split('\n')[0], 'Last 24 h: 5 found (1 the 24 h before), 1 fixed. Open: 3 in work, 2 with the Advisor.')
+  assert.doesNotMatch(page.supervisorOf(view, { seenAt: at(10, 0), isOpen: false, now: NOW }).note, /Last 24 h/)
   // X1 counts as found in the last 24 h because it came back today, though it opened two days ago.
   assert.equal(view.incidents.find(one => one.id === 'X1').foundAt, at(10, 20))
   assert.equal(view.incidents.find(one => one.id === 'X22').foundAt, at(9, 0))
+  // The 24 h line is the note's first line: the note keeps its line break on the page.
+  assert.match(css.match(/\.supervisor-note \{[^}]*\}/)[0], /white-space: pre-line/)
 })
 
 // The person (2026-10-26, "apply A"): a rolling 24 hours, with the 24 hours before beside it, instead of a start time in
@@ -178,7 +194,8 @@ test('the rolling count: an open incident found 3 days ago is still counted (in 
   ]
   const view = { incidents, cards }
   assert.deepEqual(plain(page.supervisorCounts(view, null, NOW)), { found: 0, foundBefore: 0, inWork: 1, withAdvisor: 1, fixed: 0, fresh: 0 })
-  assert.equal(page.supervisorOf(view, { isOpen: true, now: NOW }).head, 'Supervisor · 0 found in the last 24 h (0 the 24 h before) · 1 in work · 0 new · 1 with the Advisor · 0 fixed in the last 24 h')
+  assert.equal(page.supervisorOf(view, { isOpen: true, now: NOW }).head, 'Supervisor · 2 open · 0 found in 24 h')
+  assert.equal(page.supervisorOf(view, { isOpen: true, now: NOW }).note.split('\n')[0], 'Last 24 h: 0 found (0 the 24 h before), 0 fixed. Open: 1 in work, 1 with the Advisor.')
   const drawn = plain(page.supervisorOf(view, { now: NOW }))
   assert.deepEqual([...drawn.cards, ...drawn.older].map(card => [card.key, card.details.map(one => one.id)]), [['B2', ['X2']], ['nofix', ['X1']]])
   // The same fixed ones seen again 2 hours ago count as fixed in the last 24 h and are listed.
@@ -187,7 +204,7 @@ test('the rolling count: an open incident found 3 days ago is still counted (in 
   assert.deepEqual(plain(page.supervisorOf(again, { now: NOW })).cards.map(card => card.key).sort(), ['B2', 'B4', 'nofix'])
 })
 
-test('the rolling count: the words on the page, the example: 1 found in the last 24 h, 21 the 24 h before, 0 in work, 1 new, 22 with the Advisor, 12 fixed in the last 24 h', () => {
+test('the rolling count: the words on the page, the example: 22 open and 1 found in 24 h in the head; in the open note 1 found (21 the 24 h before), 12 fixed, 0 in work, 22 with the Advisor', () => {
   const incidents = [
     incidentAt('X100', NOW - 10 * MIN),
     // 21 found in the 24 h before: open, with the Advisor.
@@ -196,13 +213,14 @@ test('the rolling count: the words on the page, the example: 1 found in the last
     ...Array.from({ length: 12 }, (_, n) => incidentAt(`X${n + 30}`, NOW - 3 * DAY, { state: 'fixed', lastSeen: NOW - 3 * 60 * MIN })),
   ]
   const view = { incidents, cards: [] }
-  assert.equal(page.supervisorOf(view, { seenAt: at(10, 0), isOpen: true, now: NOW }).head,
-    'Supervisor · 1 found in the last 24 h (21 the 24 h before) · 0 in work · 1 new · 22 with the Advisor · 12 fixed in the last 24 h')
-  assert.equal(page.supervisorOf(view, { seenAt: at(10, 0), isOpen: false, now: NOW }).head,
-    'Supervisor · 1 found in the last 24 h (21 the 24 h before) · 0 in work · 1 new')
+  assert.equal(page.supervisorOf(view, { seenAt: at(10, 0), isOpen: true, now: NOW }).head, 'Supervisor · 22 open · 1 found in 24 h')
+  assert.equal(page.supervisorOf(view, { seenAt: at(10, 0), isOpen: false, now: NOW }).head, 'Supervisor · 22 open · 1 found in 24 h')
+  assert.equal(page.supervisorOf(view, { seenAt: at(10, 0), isOpen: true, now: NOW }).note.split('\n')[0],
+    'Last 24 h: 1 found (21 the 24 h before), 12 fixed. Open: 0 in work, 22 with the Advisor.')
   // It rolls by itself: a day later the one is in the 24 h before and the 21 are in neither; the open ones are still there, the fixed ones are not.
-  assert.equal(page.supervisorOf(view, { seenAt: at(10, 0), isOpen: true, now: NOW + DAY }).head,
-    'Supervisor · 0 found in the last 24 h (1 the 24 h before) · 0 in work · 0 new · 22 with the Advisor · 0 fixed in the last 24 h')
+  assert.equal(page.supervisorOf(view, { seenAt: at(10, 0), isOpen: true, now: NOW + DAY }).head, 'Supervisor · 22 open · 0 found in 24 h')
+  assert.equal(page.supervisorOf(view, { seenAt: at(10, 0), isOpen: true, now: NOW + DAY }).note.split('\n')[0],
+    'Last 24 h: 0 found (1 the 24 h before), 0 fixed. Open: 0 in work, 22 with the Advisor.')
 })
 
 test('the rolling count: the section lists what it counts: every open incident whatever its age; a fixed one only if found or seen again in the last 24 h, its card otherwise left out', () => {
@@ -222,7 +240,7 @@ test('the rolling count: no start time any more: the page has nothing of supervi
   assert.doesNotMatch(section, /countFrom|CountFrom|found since|found today|supervisorSince/)
   // A view that still carries a countFrom (an older board's) is read as the rolling day: the time is ignored.
   const old = { ...viewOfStore(), countFrom: NOW }
-  assert.equal(page.supervisorOf(old, { seenAt: at(10, 0), isOpen: false, now: NOW }).head, 'Supervisor · 5 found in the last 24 h (1 the 24 h before) · 3 in work · 2 new')
+  assert.equal(page.supervisorOf(old, { seenAt: at(10, 0), isOpen: false, now: NOW }).head, 'Supervisor · 5 open · 5 found in 24 h')
 })
 
 test('B573: New only for what was found since the person last opened the section; those cards come first; never for a fixed one', () => {

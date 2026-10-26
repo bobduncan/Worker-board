@@ -764,18 +764,25 @@ function supervisorCounts(view, seenAt, now) {
 }
 
 /**
- * B573: the section's head line: folded, what it found in the last 24 hours (and the 24 hours before), has in work and is
- * new; open, also with the Advisor and fixed (in the last 24 hours: the open ones count whatever their age).
+ * B573, the person's B (2026-10-26, "make it more simple": the head was too crowded): the section's head line, the same
+ * folded or open: how many incidents are open (every one not fixed, whatever its age: in work and with the Advisor
+ * together; "new" is the card's badge, no count here) and how many were found in the last 24 hours. Nothing else.
  */
-function supervisorHead(counts, isOpen) {
-  const parts = ['Supervisor', `${counts.found} found in the last 24 h (${counts.foundBefore} the 24 h before)`, `${counts.inWork} in work`, `${counts.fresh} new`]
-  if (isOpen) parts.push(`${counts.withAdvisor} with the Advisor`, `${counts.fixed} fixed in the last 24 h`)
-  return parts.join(' · ')
+function supervisorHead(counts) {
+  return `Supervisor · ${counts.inWork + counts.withAdvisor} open · ${counts.found} found in 24 h`
+}
+
+/**
+ * The rest of the old head, moved into the open section as one plain line at the top of its note: what was found in the
+ * last 24 hours (and the 24 hours before), what was fixed in the last 24 hours, and the open ones by where they stand.
+ */
+function supervisorLast24(counts) {
+  return `Last 24 h: ${counts.found} found (${counts.foundBefore} the 24 h before), ${counts.fixed} fixed. Open: ${counts.inWork} in work, ${counts.withAdvisor} with the Advisor.`
 }
 
 /**
  * The section as drawn, from the state's `supervisor` (the supervisor's `view`), or null on a board without one (a copy
- * beside the person's board): its head (B573: the counts, see `supervisorHead`), a note (when it checked itself, and its
+ * beside the person's board): its head (B573: the counts, see `supervisorHead`), a note (when open, the 24 h line first, see `supervisorLast24`; then when it checked itself, and its
  * schedule), the incident cards (one per fix step; B573: a card with an incident new since `seenAt` carries New and comes
  * first), the last check (the newest one asked, or one that found something, for an hour), the rules (those that tripped
  * now or today first, how often, a failed one with why; the rest counted as fine) and the last sweep, or "No sweep yet".
@@ -806,11 +813,14 @@ function supervisorOf(view, { seenAt = null, isOpen = true, now = Date.now() } =
   let fixed = 0
   const older = cards.filter(card => card.tone === 'done' && !card.isNew && (fixed += 1) > FIXED_CARDS_SHOWN)
   const checked = Number.isFinite(view.checkedAt) ? `Checked itself at ${clock(view.checkedAt)}.` : 'Not checked yet.'
+  const counts = supervisorCounts(view, seenAt, now)
+  const schedule = every > 0
+    ? `${checked} It checks every 3 min and sweeps every ${every} min while work runs; Check now does both.`
+    : `${checked} It checks every 3 min; Check now checks and sweeps at once.`
   return {
-    head: supervisorHead(supervisorCounts(view, seenAt, now), isOpen),
-    note: every > 0
-      ? `${checked} It checks every 3 min and sweeps every ${every} min while work runs; Check now does both.`
-      : `${checked} It checks every 3 min; Check now checks and sweeps at once.`,
+    head: supervisorHead(counts),
+    // Open, the note's first line is the 24 h line (a line break, kept on the page); folded, the section draws no note.
+    note: isOpen ? `${supervisorLast24(counts)}\n${schedule}` : schedule,
     cards: cards.filter(card => !older.includes(card)),
     older,
     check: run === null ? null : { head: `Last check at ${clock(run.at)}${run.asked ? `, asked${run.subject ? ` about ${run.subject}` : ''}` : ''}`, rows: checkRowsOf(run) },
