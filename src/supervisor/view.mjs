@@ -21,7 +21,7 @@ const DEFAULT_KEEP = Object.freeze({ messageMs: 10 * 60_000, answerMs: 48 * 60 *
  * list, state.mjs `readyList.ready`: `{ id, rank, keptFor, keptUntil, pinned }` in its order) and `held` (its `held`, or
  * null without a list).
  */
-export function buildView({ state = {}, items = new Map(), outbox = [], keep = null, limits, pause, refused = [], leftovers, bases = [], repairs = [], mods = null, settings = {}, now }) {
+export function buildView({ state = {}, items = new Map(), outbox = [], keep = null, limits, pause, refused = [], leftovers, bases = [], repairs = [], mods = null, settings = {}, seen = null, now }) {
   const lanes = state.chats ?? []
   const timeline = Array.isArray(state.today) ? state.today : []
   return Object.freeze({
@@ -56,6 +56,9 @@ export function buildView({ state = {}, items = new Map(), outbox = [], keep = n
     timeline,
     since: statesSince(timeline, lanes),
     repairs: Object.freeze([...repairs]),
+    // B664: since when the watch rules first saw each key (the supervisor's memory), so the health summary times a
+    // review wait as they do; empty when not given.
+    seen: new Map(seen instanceof Map ? seen : []),
     mods: Object.freeze({ installed: typeof mods?.installed === 'string' ? mods.installed : null, chats: Object.freeze({ ...(mods?.chats ?? {}) }) }),
     settings: Object.freeze({ ...SUPERVISOR_DEFAULTS, ...settings }),
   })

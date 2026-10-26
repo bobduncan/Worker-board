@@ -50,7 +50,7 @@ const LEAD = { name: 'Lead', isMain: true, isLeftover: false, state: 'working', 
 const PAINTER = { name: 'Painter', isMain: false, isLeftover: false, state: 'working', isRunning: true }
 const view = (store, held, more = {}) => buildView({
   state: { chats: [LEAD, PAINTER], today: [], limits: {}, pause: more.pause ?? null, chatPrefix: '', ...(held === undefined ? {} : { readyList: { ready: [], held } }) },
-  items: store, outbox: [], settings: more.settings ?? {}, now: NOW,
+  items: store, outbox: [], settings: more.settings ?? {}, seen: more.seen ?? null, now: NOW,
 })
 const watch = (board, seen = new Map()) => WATCH_RULES.find(one => one.id === 'review-held').check(board, { seen, observed: [] })
 
@@ -127,7 +127,8 @@ test('review-held (B660, X59): an open ask of the person is no case; the time co
 
 test('the health summary counts chains, not steps: one line per chain with its newest link', () => {
   const store = new Map([...HELD_STORE, ...AT_WORK])
-  const text = healthSummary(view(store, HELD), NOW)
+  // B664: the hold counts from when the watch first saw it, as the rule review-held counts it (70 min ago here).
+  const text = healthSummary(view(store, HELD, { seen: new Map([[`review-held B614 ${CHOICE_WHY.slice(0, 80)}`, ago(70)]]) }), NOW)
   assert.match(text, /- ! in review: 4 steps in 2 chains of fixes, 1 behind a fix the ready list holds/)
   assert.match(text, /- B617 review for 4 h 10 min, Painter \(waits for its fix B631; one chain, 3 in review: B617 → B631 → B641; newest link B655 in progress, Painter\)/)
   assert.match(text, /- ! B603 review for 2 h, Painter \(waits for its fix B614, held: outside the focus goal \(refined, Painter\)\)/)

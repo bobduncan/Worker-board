@@ -759,6 +759,11 @@ fails its check too (its fix fails, `Attempts` 2 or more), it gets no third patc
 to another way of making it: for a look, a Codex painting or pieces cut from one, a rule change, or another tool. Start
 the what with `Tried before: <each way, its score, why it fell short>`. Choose that way yourself and let it run without
 asking the user. Only when the different way fails twice as well, bring it to the user with the evaluation below.
+The board holds you to it (B664): once a chain had two tries (the step and one fix, or more), the fix a failed check
+makes is open, not refined, its first point "Two rounds, then another way: the partner refines it another way (tried:
+B<n>, ...)", and no worker gets it; the board types its `refine step` into your chat first, saying so. Refine it as any
+step (`work refine`, then `work refined` with the what that starts with "Tried before:"). A newest fix of three tries
+or more at work without that line is an incident for you (the chain-long rule).
 
 Once a step's fix passed its check (B565), the step's check is yours to file again, at once: the board's word then
 carries `Why: its fix B<n> is done: file its check again`, and `; keep Q<n> as an ask point` for each ask of its check
