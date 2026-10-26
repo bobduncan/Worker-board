@@ -4916,7 +4916,7 @@ const needsUi = () => ({ showsClosed: showsClosed(), order: $('needs-order').val
  * B408: what the person does on the Focus page, for its view: the moves of focusUi (not the words typed, which a redraw
  * keeps), and what is picked, sent, refused or open on its cards (the switches, the gathered recaps and asks).
  */
-const focusPageUi = () => ({ busy: focusUi.busy, note: focusUi.note, notYet: focusUi.notYet, picked: focusUi.picked, picking: focusUi.picking, asked: [...focusUi.asked], chosen: [...chosen], problems: [...problems], sending: [...sending], openForms: [...openForms], starting: [...starting] })
+const focusPageUi = () => ({ busy: focusUi.busy, note: focusUi.note, notYet: focusUi.notYet, picked: focusUi.picked, picking: focusUi.picking, asked: [...focusUi.asked], partsOpen: { ...focusUi.partsOpen }, chosen: [...chosen], problems: [...problems], sending: [...sending], openForms: [...openForms], starting: [...starting] })
 // redraw:end
 
 /** B408: Needs your attention, drawn from its view when that changed. */
@@ -10215,6 +10215,44 @@ function standardParts(line) {
   return { kind, picture, target, line: String(line) }
 }
 
+const isPicture = path => /\.(?:png|jpe?g|gif|webp)$/i.test(path ?? '')
+
+/**
+ * B684: a part's steps for the Focus page: `blocks` (one tone per step: done, now, wait, stop), `count` (the line under
+ * the bar), `toggle` and `steps` (id, title, state in words, tone, `line`: its check, what it waits for and its worker,
+ * with the evidence pictures), and `isOpen`: the person's own open or close (`partsOpen`, by the part's title), else open
+ * while a step is stopped or a check failed and not fixed (B504: a fix that passed settles it).
+ */
+function focusStepsView(part, partsOpen) {
+  const steps = (part.steps ?? []).map(one => {
+    const check = one.check
+    const fix = check?.fix
+    const isFailed = check !== null && check.passed < check.total && fix?.isFixed !== true
+    const checkText = check === null ? null
+      : check.passed === check.total ? `Check passed: ${check.passed} of ${check.total}`
+        : `Check failed: ${check.passed} of ${check.total}${fix === undefined ? '' : fix.isFixed ? `, then its fix ${fix.by} passed${fix.total === null ? '' : ` (${fix.passed} of ${fix.total})`}` : `, ${fix.note}`}`
+    const bits = [checkText, one.waitsFor.length === 0 ? null : `Waits for ${one.waitsFor.map(wait => `${wait.id} (${wait.title})`).join(', ')}`, one.owner].filter(bit => bit !== null)
+    return {
+      id: one.id, title: one.title, tone: one.tone, state: one.state, line: bits.join(' · '), isFailed,
+      picture: check !== null && isPicture(check.evidence) ? { path: check.evidence, caption: `${one.id}: ${checkText}` } : null,
+      fixPicture: fix !== undefined && isPicture(fix.evidence) ? { path: fix.evidence, caption: `${one.id}: its fix ${fix.by}` } : null,
+    }
+  })
+  const count = tone => steps.filter(one => one.tone === tone).length
+  const checking = steps.filter(one => one.state === 'Being checked').length
+  const building = steps.filter(one => one.state === 'Being built').length
+  const total = steps.length
+  const words = [`${count('done')} of ${total} step${total === 1 ? '' : 's'} finished`, checking > 0 ? `${checking} being checked` : null, building > 0 ? `${building} being built` : null, count('stop') > 0 ? `${count('stop')} stopped` : null, count('wait') > 0 ? `${count('wait')} waiting` : null, part.state === 'now' && part.owner !== null ? `${part.owner} is on it` : null].filter(word => word !== null)
+  const isOpen = typeof partsOpen?.[part.title] === 'boolean' ? partsOpen[part.title] : steps.some(one => one.tone === 'stop' || one.isFailed)
+  return {
+    blocks: steps.map(one => one.tone),
+    count: total === 0 ? null : words.join(' · '),
+    toggle: total === 0 ? null : `${isOpen ? 'Hide' : 'Show'} the ${total} step${total === 1 ? '' : 's'}`,
+    isOpen: total > 0 && isOpen,
+    steps,
+  }
+}
+
 /**
  * Focus 1: what the Focus page shows (spec 2026-10-18, section 4), from the state's `focus` (null: none) and the goal
  * map (`goals`, the state's): its stage, the head with the goal and, once agreed, its vibe in one line; the strip
@@ -10298,17 +10336,9 @@ function focusView(focus, goals, can = null, ui = {}) {
         ...(typeof part.fixFirst === 'string' ? { fixFirst: `A board fix goes first: ${part.fixFirst}` } : {}),
         // B354: what its results are checked against: the kind, the reference picture, the target.
         standards: (part.standards ?? []).map(standardParts),
-        // B356: the result checks of its steps by a helper that did not build them, each with its evidence picture.
-        checked: (part.checked ?? []).map(one => ({
-          text: `Checked by a helper: ${one.passed} of ${one.total} points pass (${one.id})`,
-          // B504: a failed check whose last fix passed is quiet ("fixed by B493: 4 of 4"); red while a fix is open or failed
-          isPass: one.passed === one.total || one.fix?.isFixed === true,
-          picture: /\.(?:png|jpe?g|gif|webp)$/i.test(one.evidence ?? '') ? one.evidence : null,
-          ...(one.fix === undefined ? {} : { fix: {
-            text: one.fix.isFixed ? `fixed by ${one.fix.by}${one.fix.total === null ? '' : `: ${one.fix.passed} of ${one.fix.total}`}` : one.fix.note,
-            picture: /\.(?:png|jpe?g|gif|webp)$/i.test(one.fix.evidence ?? '') ? one.fix.evidence : null,
-          } }),
-        })),
+        // B684: one block per step on the bar, a line of words under it, and the steps behind a toggle; a part with a
+        // stopped step or a failed check not yet fixed opens by itself, until the person opens or closes it.
+        ...focusStepsView(part, ui.partsOpen),
       })),
       stepsOf: focus.id,
     }
@@ -10886,7 +10916,7 @@ function drawAdvisorParts(state) {
  */
 // B354: `asked`, the goals whose Done when the person asked the partner for on this page.
 // B680: `dropping`, the title of the Stopped part whose reason the person is writing.
-const focusUi = { busy: false, note: null, notYet: null, picked: null, picking: false, dropping: null, asked: [], words: { talk: '', notYet: '', new: '', bar: '', drop: '' } }
+const focusUi = { busy: false, note: null, notYet: null, picked: null, picking: false, dropping: null, asked: [], partsOpen: {}, words: { talk: '', notYet: '', new: '', bar: '', drop: '' } }
 const FOCUS_BOXES = { 'focus-talk-words': 'talk', 'focus-not-yet-words': 'notYet', 'focus-new-words': 'new', 'focus-bar-words': 'bar', 'focus-drop-words': 'drop' }
 // B680: a part's drop has its own page word, so its Undo takes back that drop and no other change of this page.
 const PART_DROP_PAGE = `${GOALS_PAGE}drop`
@@ -11078,7 +11108,43 @@ function focusHowCard(view) {
   return card
 }
 
-/** The run: the parts with their progress and who is on each, no step ids; the steps behind it on the Backlog. */
+/** A picture opened with a click, named by its words. */
+function focusLook(label, picture) {
+  const look = el('button', 'focus-standard-picture', label)
+  look.type = 'button'
+  look.dataset.zoom = picture.path
+  look.dataset.caption = picture.caption
+  return look
+}
+
+/** B684: the opened steps of a part: the reference picture once, then a row per step with its state and its line. */
+function focusStepList(part) {
+  const box = el('div', 'focus-step-list')
+  // B354: what the part's results are checked against, its reference picture opened with a click.
+  for (const standard of part.standards ?? []) {
+    const line = el('small', 'focus-standard', `Reference: ${standard.kind} · `)
+    line.append(focusLook(standard.picture, { path: standard.picture, caption: `The reference for ${standard.kind}` }), ` · ${standard.target}`)
+    box.append(line)
+  }
+  const list = el('ul', 'focus-steps-list')
+  for (const one of part.steps) {
+    const row = el('li', `focus-step is-${one.tone}`)
+    const what = el('span', 'focus-step-what', one.title)
+    if (one.line !== '' || one.picture !== null || one.fixPicture !== null) {
+      const line = el('small', one.isFailed ? 'is-fail' : '', one.line)
+      // B356, B504: the evidence of the check and of its fix, opened with a click
+      if (one.picture !== null) line.append(' · ', focusLook('the evidence', one.picture))
+      if (one.fixPicture !== null) line.append(' · ', focusLook('the evidence of the fix', one.fixPicture))
+      what.append(line)
+    }
+    row.append(el('span', 'focus-step-dot'), el('span', 'focus-step-id', one.id), what, el('span', 'focus-step-state', one.state))
+    list.append(row)
+  }
+  box.append(list)
+  return box
+}
+
+/** The run: the parts with their progress and who is on each; the steps behind a click on its bar's toggle. */
 function focusRunCard(view) {
   const card = el('section', 'focus-card focus-run')
   card.append(el('h3', '', view.run.title))
@@ -11093,12 +11159,24 @@ function focusRunCard(view) {
     const row = el('div', `focus-part is-${part.tone}`)
     const top = el('div', 'focus-part-top')
     top.append(el('b', '', part.title), el('span', `focus-chip is-${part.tone}`, part.chip))
-    const bar = el('div', 'focus-bar')
-    const fillBar = el('span', '')
-    fillBar.style.width = `${part.percent}%`
-    bar.append(fillBar)
+    // B684: one block per step, coloured by its state; a part without steps keeps its plain fill.
+    const bar = el('div', part.blocks.length > 0 ? 'focus-bar focus-blocks' : 'focus-bar')
+    if (part.blocks.length > 0) for (const tone of part.blocks) bar.append(el('span', `focus-block is-${tone}`))
+    else {
+      const fillBar = el('span', '')
+      fillBar.style.width = `${part.percent}%`
+      bar.append(fillBar)
+    }
     row.append(top, bar)
-    if (part.owner !== null) row.append(el('small', 'focus-owner', part.owner))
+    if (part.count !== null) row.append(el('small', 'focus-count', part.count))
+    if (part.toggle !== null) {
+      const toggle = el('button', 'focus-toggle', `${part.isOpen ? '▾' : '▸'} ${part.toggle}`)
+      toggle.type = 'button'
+      toggle.dataset.focusPart = part.title
+      toggle.setAttribute('aria-expanded', String(part.isOpen))
+      row.append(toggle)
+      if (part.isOpen) row.append(focusStepList(part))
+    }
     if (typeof part.fixFirst === 'string') row.append(el('small', 'focus-fix', part.fixFirst))
     // B680: under a Stopped part a small "Drop this part" (the reason is asked for first); a dropped one has its Undo.
     if (part.drop !== undefined) {
@@ -11108,39 +11186,6 @@ function focusRunCard(view) {
       if (focusUi.dropping === part.title) row.append(focusSay('Why do you drop this part? One line.', 'focus-say focus-drop-say', { box: 'focus-drop-words', act: 'part-drop-send', label: 'Drop it', isEnabled: part.drop.isEnabled, title: part.drop.title }))
     }
     if (part.undo !== undefined) row.append(focusButton(part.undo, 'focus-drop'))
-    // B354: what the part's results are checked against, its reference picture opened with a click.
-    for (const standard of part.standards ?? []) {
-      const line = el('small', 'focus-standard', `Checked against: ${standard.kind} · `)
-      const look = el('button', 'focus-standard-picture', standard.picture)
-      look.type = 'button'
-      look.dataset.zoom = standard.picture
-      look.dataset.caption = `The reference for ${standard.kind}`
-      line.append(look, ` · ${standard.target}`)
-      row.append(line)
-    }
-    // B356: the result checks of its steps, the evidence opened with a click.
-    for (const check of part.checked ?? []) {
-      const line = el('small', `focus-checked ${check.isPass ? 'is-pass' : 'is-fail'}`, check.text)
-      if (check.picture !== null) {
-        const look = el('button', 'focus-standard-picture', 'the evidence')
-        look.type = 'button'
-        look.dataset.zoom = check.picture
-        look.dataset.caption = check.text
-        line.append(' · ', look)
-      }
-      // B504: where its fixes stand, the fix's evidence opened from the fix's part of the line
-      if (check.fix !== undefined) {
-        line.append(` · ${check.fix.text}`)
-        if (check.fix.picture !== null) {
-          const look = el('button', 'focus-standard-picture', 'the evidence of the fix')
-          look.type = 'button'
-          look.dataset.zoom = check.fix.picture
-          look.dataset.caption = `${check.text} · ${check.fix.text}`
-          line.append(' · ', look)
-        }
-      }
-      row.append(line)
-    }
     card.append(row)
   }
   const steps = el('button', 'focus-steps', 'See the tasks behind this →')
@@ -12597,7 +12642,7 @@ function focusNeedsButton(view) {
 /** Focus 1 (spec 2026-10-18, section 4): the Focus page, read-only from goals.md: the head, the strip, each stage's cards. */
 function drawFocus(state) {
   const can = focusCan(state)
-  const view = focusView(state.focus ?? null, state.goals ?? null, can, { picking: focusUi.picking, asked: focusUi.asked })
+  const view = focusView(state.focus ?? null, state.goals ?? null, can, { picking: focusUi.picking, asked: focusUi.asked, partsOpen: focusUi.partsOpen })
   const box = $('advisor-focus')
   box.dataset.stage = view.stage
   const parts = []
@@ -12890,6 +12935,14 @@ $('advisor-focus').addEventListener('submit', event => {
   event.preventDefault()
   const form = event.target.closest('[data-focus-form]')
   if (form !== null) focusAct(form.dataset.focusForm)
+})
+
+// B684: a part's toggle opens or closes its steps; the person's word stays while the page redraws.
+$('advisor-focus').addEventListener('click', event => {
+  const toggle = event.target.closest('[data-focus-part]')
+  if (toggle === null) return
+  focusUi.partsOpen = { ...focusUi.partsOpen, [toggle.dataset.focusPart]: toggle.getAttribute('aria-expanded') !== 'true' }
+  redrawFocus()
 })
 
 // Focus 1: "See the steps behind this" opens the Backlog on the steps behind the focus goal.

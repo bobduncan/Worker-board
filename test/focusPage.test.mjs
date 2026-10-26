@@ -26,6 +26,10 @@ Object.assign(this, { advisorPartsShown, coordinateList, focusAsk, focusCan, foc
 const plain = value => value === undefined ? undefined : JSON.parse(JSON.stringify(value))
 const page = Object.fromEntries(Object.entries(made).map(([name, made]) => [name, (...args) => plain(made(...args))]))
 
+// B684: the steps of a part have their own tests below.
+const withoutSteps = ({ steps, ...part }) => part
+const withoutBlocks = ({ blocks, count, toggle, isOpen, steps, ...part }) => part
+
 const NOW = new Date(2026, 9, 18, 12, 0).getTime()
 const BACKLOG = [
   '## Art',
@@ -79,18 +83,18 @@ test('the state\'s focus: the goal, its stage, its lines, its thread; null witho
 
 test('each part\'s progress follows its steps in the store: done, in progress with its owner, next; the whole as parts done', () => {
   const run = stateOf(map(AGREED, HOW, RUN))
-  assert.deepEqual(run.parts, [
-    { title: 'Draw the bench', size: 'about 1 h', state: 'done', owner: null, done: 2, total: 2, standards: [], checked: [] },
-    { title: 'Light the path', size: '2 h', state: 'now', owner: 'Features', done: 1, total: 2, standards: [], checked: [] },
-    { title: 'Place them', size: '30 min', state: 'done', owner: null, done: 1, total: 1, standards: [], checked: [] },
+  assert.deepEqual(run.parts.map(withoutSteps), [
+    { title: 'Draw the bench', size: 'about 1 h', state: 'done', owner: null, done: 2, total: 2, standards: [] },
+    { title: 'Light the path', size: '2 h', state: 'now', owner: 'Features', done: 1, total: 2, standards: [] },
+    { title: 'Place them', size: '30 min', state: 'done', owner: null, done: 1, total: 1, standards: [] },
     // Redesign Part 2: its step is made but not refined yet: it waits for its refine, then goes on the list.
-    { title: 'One look at the whole garden', size: '1 h', state: 'refining', owner: null, done: 0, total: 1, standards: [], checked: [] },
+    { title: 'One look at the whole garden', size: '1 h', state: 'refining', owner: null, done: 0, total: 1, standards: [] },
   ])
   assert.deepEqual(run.progress, { done: 2, total: 4, minutesLeft: 180 })
   assert.deepEqual([run.partnerDecides, run.youDecide], [['the wood\'s colour'], ['how many benches']])
   // A part without steps is next; sizes nobody can read leave the time out.
   const bare = stateOf(map(AGREED, ['    Part: Something · soon'], RUN))
-  assert.deepEqual(bare.parts, [{ title: 'Something', size: 'soon', state: 'next', owner: null, done: 0, total: 0, standards: [], checked: [] }])
+  assert.deepEqual(bare.parts.map(withoutSteps), [{ title: 'Something', size: 'soon', state: 'next', owner: null, done: 0, total: 0, standards: [] }])
   assert.deepEqual(bare.progress, { done: 0, total: 1, minutesLeft: null })
 })
 
@@ -100,7 +104,7 @@ test('Focus 2, the review\'s findings: a part whose step is in review is in prog
   step.head.set('State', 'review')
   step.head.set('Owner', 'Game - Checks')
   const run = focusState(parseGoals(map(AGREED, HOW, RUN)), [...reviewed.items.values()], threads, 'Game - ')
-  assert.deepEqual(run.parts[3], { title: 'One look at the whole garden', size: '1 h', state: 'now', owner: 'Checks', done: 0, total: 1, standards: [], checked: [] })
+  assert.deepEqual(withoutSteps(run.parts[3]), { title: 'One look at the whole garden', size: '1 h', state: 'now', owner: 'Checks', done: 0, total: 1, standards: [] })
 })
 
 test('the buildState answer carries the focus and the setting advisorParts', () => {
@@ -144,16 +148,16 @@ test('the head and the stage strip for each stage, as the mockups draw them', ()
   assert.deepEqual(run.progress, { text: '2 of 4 done · about 3 h left', percent: 50 })
 })
 
-test('the run shows the parts with progress and who is on each, never a step id; the note card waits for the partner\'s note', () => {
+test('the run shows the parts with progress and who is on each, step ids only inside the steps; the note card waits for the partner\'s note', () => {
   const run = page.focusView(stateOf(map(AGREED, HOW, RUN)), goalsOf(map()))
-  assert.deepEqual(run.run.parts, [
-    { title: 'Draw the bench', chip: 'Done', tone: 'done', percent: 100, owner: null, standards: [], checked: [] },
-    { title: 'Light the path', chip: 'In progress', tone: 'now', percent: 50, owner: 'Features is on it', standards: [], checked: [] },
-    { title: 'Place them', chip: 'Done', tone: 'done', percent: 100, owner: null, standards: [], checked: [] },
-    { title: 'One look at the whole garden', chip: 'Waiting for its refine, then it goes on the list', tone: 'refining', percent: 0, owner: null, standards: [], checked: [] },
+  assert.deepEqual(run.run.parts.map(withoutBlocks), [
+    { title: 'Draw the bench', chip: 'Done', tone: 'done', percent: 100, owner: null, standards: [] },
+    { title: 'Light the path', chip: 'In progress', tone: 'now', percent: 50, owner: 'Features is on it', standards: [] },
+    { title: 'Place them', chip: 'Done', tone: 'done', percent: 100, owner: null, standards: [] },
+    { title: 'One look at the whole garden', chip: 'Waiting for its refine, then it goes on the list', tone: 'refining', percent: 0, owner: null, standards: [] },
   ])
   assert.equal(run.run.stepsOf, 'G2')
-  assert.doesNotMatch(JSON.stringify(run.run), /\bB\d+\b/)
+  assert.doesNotMatch(JSON.stringify(run.run.parts.map(withoutBlocks)), /\bB\d+\b/)
   assert.doesNotMatch(JSON.stringify(run.head), /\bB\d+\b/)
   // Focus 3: the note card, empty until the partner writes its daily note.
   assert.equal(run.note.empty, 'No note yet: your partner writes one each morning, with what it decided for you and what needs you.')
@@ -315,4 +319,117 @@ test('Focus 2, the review\'s findings: "Change focus" in every stage opens the p
   assert.match(script, /act === 'restart-talk' && focus !== null\) await sendFocus\(\{ command: 'focus', id: focus\.id \}/)
   assert.match(script, /'Start the talk'/)
   assert.match(script, /focusUi\.picking = true/)
+})
+
+// B684: a part shows its steps: a block per step on its bar, a line of words, and the list behind a toggle.
+const STEPS_BACKLOG = [
+  '## Art',
+  '- [x] B10 Draw the bench (for Units)',
+  '- [x] B11 Shade the bench (for Units)',
+  '- [ ] B13 Light the path (for Features)',
+  '- [ ] B15 Look at the garden',
+  '',
+].join('\n')
+const stepsStore = edit => {
+  const made = storeFromText(STEPS_BACKLOG, { now: NOW })
+  edit(made.items)
+  return made
+}
+const stepsOf = (made, partLines, ui = {}) => {
+  const text = map(AGREED, partLines, RUN)
+  const state = focusState(parseGoals(text), [...made.items.values()], threads, 'Game - ')
+  return { state, view: page.focusView(state, goalsOf(text), null, ui).run.parts }
+}
+const BENCH = ['    Part: Draw the bench · about 1 h · steps B10, B11, B13, B15']
+
+test('B684: the state gives each part its steps in order, with colour, words, check, fix and what it waits for', () => {
+  const made = stepsStore(items => {
+    items.get('B10').head.set('State', 'done')
+    items.get('B11').head.set('State', 'dropped')
+    items.get('B13').head.set('State', 'review')
+    items.get('B13').head.set('Owner', 'Game - Features')
+    items.get('B15').head.set('State', 'queued')
+    items.get('B15').head.set('Blocked by', 'B13')
+  })
+  const [part] = stepsOf(made, BENCH).state.parts
+  assert.deepEqual(part.steps.map(one => [one.id, one.tone, one.state]), [['B10', 'done', 'Finished'], ['B11', 'stop', 'Stopped'], ['B13', 'now', 'Being checked'], ['B15', 'wait', 'Waiting']])
+  assert.deepEqual([part.steps[2].owner, part.steps[3].owner], ['Features', null])
+  assert.deepEqual(plain(part.steps[3].waitsFor), [{ id: 'B13', title: 'Light the path' }])
+  assert.deepEqual(plain(part.steps[0].waitsFor), [])
+  // a step blocked by one that is finished waits for nothing
+  made.items.get('B13').head.set('State', 'done')
+  assert.deepEqual(plain(stepsOf(made, BENCH).state.parts[0].steps[3].waitsFor), [])
+  const being = stepsStore(items => items.get('B10').head.set('State', 'in progress'))
+  assert.equal(stepsOf(being, BENCH).state.parts[0].steps[0].state, 'Being built')
+})
+
+test('B684: the bar has a block per step coloured by its state, and one line says how many are where', () => {
+  const made = stepsStore(items => {
+    items.get('B10').head.set('State', 'done')
+    items.get('B11').head.set('State', 'done')
+    items.get('B13').head.set('State', 'review')
+    items.get('B13').head.set('Owner', 'Game - Features')
+  })
+  const [part] = stepsOf(made, BENCH).view
+  assert.deepEqual(part.blocks, ['done', 'done', 'now', 'wait'])
+  assert.equal(part.count, '2 of 4 steps finished · 1 being checked · 1 waiting · Features is on it')
+  assert.equal(part.toggle, 'Show the 4 steps')
+  assert.equal(part.isOpen, false)
+  assert.deepEqual(part.steps.map(one => [one.id, one.title, one.state, one.tone]), [['B10', 'Draw the bench', 'Finished', 'done'], ['B11', 'Shade the bench', 'Finished', 'done'], ['B13', 'Light the path', 'Being checked', 'now'], ['B15', 'Look at the garden', 'Waiting', 'wait']])
+  // a stopped step is counted and drawn as an outline block
+  const stopped = stepsStore(items => items.get('B10').head.set('State', 'dropped'))
+  const [out] = stepsOf(stopped, BENCH).view
+  assert.equal(out.blocks[0], 'stop')
+  assert.match(out.count, /^1 of 4 steps finished · 1 stopped · 2 waiting$/)
+  // a part without steps has no toggle and no line
+  const none = page.focusView(stateOf(map(AGREED, ['    Part: Something · soon'], RUN)), goalsOf(map())).run.parts[0]
+  assert.deepEqual([none.blocks, none.count, none.toggle, none.isOpen, none.steps], [[], null, null, false, []])
+})
+
+test('B684: a step line holds its check, what it waits for and its worker; a failed check follows its fix', () => {
+  const checked = (passed, total) => ['Evidence: art-inbox/B13/evidence.png', ...Array.from({ length: total }, (_, index) => `- ${index < passed ? 'pass' : 'fail'}: point ${index + 1}`)]
+  const made = stepsStore(items => {
+    items.get('B10').head.set('State', 'done')
+    items.get('B10').sections.set('Checked', checked(4, 4))
+    items.get('B11').head.set('State', 'done')
+    items.get('B11').sections.set('Checked', checked(2, 5))
+    items.get('B13').head.set('State', 'queued')
+    items.get('B13').head.set('Owner', 'Game - Features')
+    items.get('B13').head.set('Blocked by', 'B15')
+  })
+  const [part] = stepsOf(made, BENCH).view
+  assert.equal(part.steps[0].line, 'Check passed: 4 of 4 · Units')
+  assert.equal(part.steps[1].line, 'Check failed: 2 of 5 · Units')
+  assert.equal(part.steps[2].line, 'Waits for B15 (Look at the garden) · Features')
+  assert.equal(part.steps[1].picture.path, 'art-inbox/B13/evidence.png')
+  assert.equal(part.steps[3].line, '')
+  // the old lines are gone from the page
+  assert.equal(part.checked, undefined)
+  assert.doesNotMatch(script, /Checked against|Checked by a helper:/)
+})
+
+test('B684: a part with a stopped step or a failed check not yet fixed opens by itself; the person\'s own word stays', () => {
+  const failed = stepsStore(items => {
+    items.get('B10').head.set('State', 'done')
+    items.get('B10').sections.set('Checked', ['Evidence: none', '- pass: a', '- fail: b'])
+  })
+  assert.equal(stepsOf(failed, BENCH).view[0].isOpen, true)
+  const fine = stepsStore(items => {
+    items.get('B10').head.set('State', 'done')
+    items.get('B10').sections.set('Checked', ['Evidence: none', '- pass: a', '- pass: b'])
+  })
+  assert.equal(stepsOf(fine, BENCH).view[0].isOpen, false)
+  // the person opens a calm part, and closes one that opened by itself; the word stays
+  const opened = stepsOf(fine, BENCH, { partsOpen: { 'Draw the bench': true } }).view[0]
+  assert.deepEqual([opened.isOpen, opened.toggle], [true, 'Hide the 4 steps'])
+  assert.equal(stepsOf(failed, BENCH, { partsOpen: { 'Draw the bench': false } }).view[0].isOpen, false)
+  const stopped = stepsStore(items => items.get('B11').head.set('State', 'dropped'))
+  assert.equal(stepsOf(stopped, BENCH).view[0].isOpen, true)
+})
+
+test('B684: the page draws the blocks, the line, the toggle and the steps', () => {
+  for (const word of ['focus-block', 'focus-count', 'focus-toggle', 'focus-step-state', 'focusPart']) assert.ok(script.includes(word), word)
+  // the page's own draw hands the person's open or close to the view
+  assert.match(script, /focusView\(state\.focus[^\n]*partsOpen: focusUi\.partsOpen/)
+  for (const word of ['.focus-block.is-done', '.focus-block.is-stop', '.focus-step.is-now']) assert.ok(css.includes(word), word)
 })
