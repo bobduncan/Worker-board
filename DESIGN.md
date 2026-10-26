@@ -3826,13 +3826,13 @@ what code should do"). Now the board hands out every task itself (principle 1), 
   order: `Priority: fix` first, then the goal map's focus goal's, then the rest, each by id. The rest is held, each
   with one line why. The page shows it under the Workers ("Ready for a worker", "Refined, but held"), the main chat's
   sync words name it ("Ready for a worker: ..."), the supervisor reads it.
-- **Added by the person** (the Backlog tab's blocks, 2026-10-25): a refined task outside the focus goal waits for the
+- **Added by the person** (the Backlog tab's blocks, 2026-10-25): a refined task outside the focus goal (the rule: the comment above `readyList` in `src/work/handOut.mjs`) waits for the
   person's "Add to queue" (`Queued by: person, <stamp>`, the work API's `add-to-queue`; "Remove", `remove-from-queue`,
   takes it off): the list then holds it after the focus goal's tasks, in the order added, for the first free worker.
   B691 (2026-10-26): the focus is the focus goal and every goal under it (G59 under G60): a step of one is the focus's,
   rank 1. A fix goes out as its root does, except that a dropped step's pick does not count; only a step of an unrelated
-  goal that nobody picked waits for "Add to queue". The whole rule stands in the comment above `readyList` in
-  `src/work/handOut.mjs`.
+  goal that nobody picked waits for "Add to queue" (the whole rule stands in the comment above `readyList` in
+  `src/work/handOut.mjs`).
 - **Kept for a worker:** a task the person pinned (`Pinned: <worker>`, the work API's `pin`; "Pin to", "Move to",
   "Unpin" in a task's window) waits for that worker only, never starts a new one, and goes to it
   before the list's order. A follow-up (a task whose `Blocked by` or `Waits for` named a step that worker moved to

@@ -530,7 +530,7 @@ test('gap 3: ready-while-free counts only what the board hands out: never a task
   assert.equal(pinned[0].text, 'B6 ready for 30 min while Painter is free')
   // The sweep's instructions say the same: idle workers beside tasks outside the focus goal are no incident.
   const role = (await readFile(new URL('../../roles/supervisor.md', import.meta.url), 'utf8')).replace(/\s+/g, ' ')
-  assert.match(role, /Refined tasks outside the focus goal wait for the person's pin or a focus switch by design .* workers idle while only such tasks wait is no incident/)
+  assert.match(role, /Refined tasks outside the focus goal .* wait for the person's pin or a focus switch by design .* workers idle while only such tasks wait is no incident/)
 })
 
 test('old-limit-reading (X47, B632, B645): a limit near a stop (5-hour 80%, weekly 90%) still last read over 60 min ago (a lookup past 30 min comes first) while a worker works, not while the person pauses; one finding per limit; a newer reading clears it', async () => {
