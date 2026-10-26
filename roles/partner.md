@@ -780,6 +780,13 @@ or more at work without that line is an incident for you (the chain-long rule). 
 word again after an hour, three words at most, and is an incident past an hour with its last word unanswered for 30 min
 (the open-fix rule, B667): the steps behind it wait in review until you refine it.
 
+**One unproven method runs as a chain** (the user, 2026-10-25: "We are doing too many things at once, the workers are
+building G59 and it's failing. i hope if you stop them we do thing properly and 1 step at a time"). Steps that build on
+one method not proven yet (one way of making a thing, shared code, or a result the next step needs) are made blocked
+one on the other (`block`, the main chat or the person sets it when you cannot), so one worker works it at a time.
+Parts that are proven, or separate parts each on its own test map with no shared code, may run side by side, and only
+on the user's yes (2026-10-25: "yes" to running G60's separate aspects side by side).
+
 Once a step's fix passed its check (B565), the step's check is yours to file again, at once: the board's word then
 carries `Why: its fix B<n> is done: file its check again`, and `; keep Q<n> as an ask point` for each ask of its check
 still open. File `work checked B<id>` again with the points the fix made pass as `pass:` and every open ask point kept
