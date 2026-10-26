@@ -2561,6 +2561,9 @@ body.is-resizing-rows { cursor: row-resize; user-select: none; }
 .focus-demo-link { align-self: flex-start; padding: 12px 22px; border: 1px solid #78a7ff; border-radius: 10px; background: #16264a; color: #cfe0ff; font: inherit; font-size: 17px; font-weight: 600; cursor: pointer; }
 .focus-demo-link:hover { background: #1d3366; }
 .focus-demo-wait { margin: 0; color: var(--muted, #8d9aae); }
+/* B686: the button under that line, in the style of the Done when button beside Yes and No. */
+.focus-ask-demo { align-self: flex-start; padding: 8px 16px; border: 1px solid var(--waiting); border-radius: 9px; background: transparent; color: var(--waiting); font: inherit; font-size: 14px; font-weight: 700; cursor: pointer; }
+.focus-ask-demo:disabled { opacity: 0.55; cursor: default; }
 .focus-guard.is-evaluating h3 { color: var(--waiting); }
 .focus-guard.is-rebuild h3 { color: var(--waiting); }
 .focus-guard.is-asking h3 { color: var(--waiting); }

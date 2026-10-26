@@ -17,7 +17,7 @@
 // A picture's kind: target, before, between, final (in the game), final-not (the last try, in the game) or final-art
 // (the final, not in the game yet). The rows' pictures are put in that order whatever order they are listed in. A path is
 // absolute or relative to the list's folder; a picture that is not there stops the demo and is named (only files that
-// exist). Pictures keep their own pixel size (a row too wide for the page shrinks all its pictures alike). Every bullet
+// exist). Pictures keep their own pixel size (B686): a row wraps to the next line when the next picture does not fit, and only a picture wider than the page shrinks to the page; "cols" is no longer used. Every bullet
 // list is one item per line: an item with a line break or a "•" in it is refused. Without --out the picture lands beside
 // the list as <goal>-demo.png. It is drawn by a headless Edge or Chrome as tools/evidence.mjs does (B266).
 
@@ -107,8 +107,7 @@ function rowHtml(row, colour, at) {
   const src = one => esc(pathToFileURL(isAbsolute(one.path) ? one.path : resolve(at, one.path)).href)
   const head = `<h3 style="color:${colour}">${esc(row.title)}</h3>${row.note ? `<p class="note">${esc(row.note)}</p>` : ''}`
   if (Array.isArray(row.grid) && row.grid.length > 0) {
-    const cols = Number.isInteger(row.cols) && row.cols > 0 ? row.cols : 4
-    return `<section class="row">${head}<div class="grid" style="grid-template-columns:repeat(${cols},1fr)">${row.grid.map(one => `<figure><figcaption>${esc(one.caption)}</figcaption><img src="${src(one)}" alt="${esc(one.caption)}"></figure>`).join('')}</div></section>`
+    return `<section class="row">${head}<div class="grid">${row.grid.map(one => `<figure><figcaption>${esc(one.caption)}</figcaption><img src="${src(one)}" alt="${esc(one.caption)}"></figure>`).join('')}</div></section>`
   }
   const figures = orderedPictures(row.pictures).map(one => {
     const kind = PICTURES[one.kind]
@@ -134,10 +133,10 @@ h1{margin:0;padding:24px 24px 0;font-size:48px}.sub{margin:0;padding:14px 24px 2
 h3{margin:0;padding:18px 24px 0;font-size:34px}
 .note{margin:6px 24px 0;color:#aab8cd;font-size:27px}
 ul{margin:8px 24px 8px;padding-left:36px;font-size:27px;line-height:38px}li{margin:0}ul.intro{list-style:none;padding-left:0}
-.pictures{display:flex;gap:20px;align-items:flex-start;padding:10px 20px 6px}
-figure{margin:0;min-width:0;flex:0 1 auto}.pictures img{display:block;max-width:100%;height:auto}
+.pictures{display:flex;flex-wrap:wrap;gap:20px;align-items:flex-start;padding:10px 20px 6px}
+figure{margin:0;min-width:0;max-width:100%;flex:none}.pictures img{display:block;max-width:100%;height:auto}
 figure .kind{font-size:24px;font-weight:700;padding:0 4px}figcaption{font-size:24px;color:#aab8cd;padding:2px 4px 6px}
-.grid{display:grid;gap:16px;padding:10px 20px}.grid img{display:block;width:100%;height:auto}.grid figcaption{color:#e6ecf5}
+.grid{display:flex;flex-wrap:wrap;gap:16px;padding:10px 20px;align-items:flex-start}.grid img{display:block;max-width:100%;height:auto}.grid figcaption{color:#e6ecf5}
 .group h3{border-left:10px solid;margin:10px 0 0 24px;padding:0 0 0 14px;font-size:34px}
 </style></head><body>
 <h1>${esc(demo.goal)} · ${esc(demo.title ?? 'the goal demo')}: the goal demo</h1>

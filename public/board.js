@@ -10149,6 +10149,8 @@ function goToPlace(hash) {
 // Focus 1 (spec 2026-10-18, section 4): the tab is named Focus, its first part is the Focus page; its bar shows Focus,
 // Goals and Brainstorm, the others only when the setting advisorParts names them (hidden, not deleted).
 // focus:start
+/** B686: how many words the board sends for the goal demo before it says the partner did not answer (src/focus.mjs DEMO_WORDS). */
+const DEMO_WORDS_SHOWN = 'three'
 const ADVISOR_PANES = ['focus', 'way', 'goals', 'brainstorm', 'plan', 'suggestions', 'refine', 'chat']
 const ADVISOR_PARTS_USUAL = ['focus', 'goals', 'brainstorm']
 
@@ -10370,7 +10372,7 @@ function focusView(focus, goals, can = null, ui = {}) {
         button('No', 'vibe-there-no', true, 'Say what is missing: your partner changes the how'),
       ],
       demo: demo === null
-        ? { text: 'Your partner makes the goal demo first.', link: null, again: button('Ask your partner again', 'goal-demo', allowed, focus.demoAsked === null ? 'Your partner is asked for the goal demo by the board' : 'Your partner was asked: ask once more when the demo does not come') }
+        ? { text: focus.demoGaveUp === true ? `Your partner did not answer in ${DEMO_WORDS_SHOWN} tries: no goal demo yet.` : 'Your partner makes the goal demo first.', link: null, again: button('Ask your partner again', 'goal-demo', allowed, focus.demoAsked === null ? 'Your partner is asked for the goal demo by the board' : 'Your partner was asked: ask once more when the demo does not come') }
         : { text: null, link: { label: 'See the goal demo', path: demo.path, caption: demo.caption || demo.path }, again: null },
       doneWhen: hasLine ? null : asked.includes(focus.id)
         ? button('Ask your partner again', 'done-when', true, 'Your partner was asked: ask once more when its Done when does not come')

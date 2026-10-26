@@ -12,6 +12,7 @@ import { asksAtEnd, parseHandover } from './handover.mjs'
 import { hourEnd, hourStart, taskFacts, today } from './history.mjs'
 import { finishedList } from './finished.mjs'
 import { brainstormNeeds, brainstormsState } from './brainstorm.mjs'
+import { demoGaveUp } from './focus.mjs'
 import { focusStage, goalAskList, goalAskNeeds, goalCounts, parseGoals, unlinkedSteps } from './goals.mjs'
 import { limitStop, limitsOf, newestPerWindow, parseUsageHistory, pauseLifted, pauseNote, storePause, usageReadings } from './limits.mjs'
 import { mentionedPaths } from './pictures.mjs'
@@ -1074,7 +1075,7 @@ function goalsUnder(goalMap, id) {
  * done of all, and the minutes the sizes of the parts not done name. `thread`: the goal's brainstorm, the vibe and how
  * talk: a running thread about it first, else the one its Brainstorm line names.
  */
-export function focusState(goalMap, items, threads, prefix, partner = null) {
+export function focusState(goalMap, items, threads, prefix, partner = null, now = null) {
   const node = goalMap?.focus ? goalMap.byId.get(goalMap.focus) ?? null : null
   if (node === null) return null
   const steps = new Map((items ?? []).filter(one => one.head.get('Kind') === 'step').map(one => [one.head.get('Id'), one]))
@@ -1139,6 +1140,8 @@ export function focusState(goalMap, items, threads, prefix, partner = null) {
     // B677: the goal's demo picture, `{ path, caption }`, or null; and whether the partner was asked for it.
     demo: typeof node.demo === 'string' && node.demo.trim() !== '' ? { path: node.demo.split(' · ')[0].trim(), caption: node.demo.split(' · ').slice(1).join(' · ').trim() } : null,
     demoAsked: node.demoAsked ?? null,
+    // B686: all three words went and an hour passed without a demo: the card says so beside "Ask your partner again".
+    demoGaveUp: demoGaveUp(node, now),
     parts,
     steps: stepList,
     partnerDecides: node.partnerDecides,
@@ -1758,7 +1761,7 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
   if (rollout !== null) for (const id of rollout.held) if (!efforts.held.has(id)) { efforts.held.add(id); efforts.holds.set(id, rollout.holds.get(id)) }
   const oldAsks = new Set((reconciled?.flags ?? []).filter(flag => flag.kind === 'old ask').map(flag => `work:${flag.id}`))
   const flagsOf = name => (reconciled?.flags ?? []).filter(flag => flag.chat === name && LANE_FLAGS.includes(flag.kind)).map(({ kind, id, text, button }) => ({ kind, id, text, button }))
-  const focus = focusState(goalMap, itemsOf(raw.work), brainstorms.threads, prefix, advisorChat?.name ?? null)
+  const focus = focusState(goalMap, itemsOf(raw.work), brainstorms.threads, prefix, advisorChat?.name ?? null, now)
 
   const built = {
     readAt: now,

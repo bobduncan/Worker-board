@@ -4134,6 +4134,11 @@ link to this demo so i can see before i approve the goal". A fixed stage of ever
 4. `tools/demo.mjs` draws the demo from a JSON list through a headless browser (evidence.mjs `shootPage`): Reached,
    Not reached, Still open, then the follow-up groups; the target first and the final last in every row, plain labels, one bullet
    per item, pictures at their own pixel size, a missing picture stops it. roles/partner.md "The goal demo" says how the partner makes it.
+5. B686 (the result check of B677): a row wraps instead of shrinking its pictures (a 1280 px shot stays 1280 px in the 2400 px
+   page; `cols` is no longer used); a No on "Did we reach the goal?" takes `Demo:` and `Demo asked:` away with the re-check line,
+   so the parts done again ask for a new demo; after the third word and an hour without a demo, focusState gives
+   `demoGaveUp` and the card says the partner did not answer in three tries beside "Ask your partner again" (styled
+   `.focus-ask-demo`); the word's Done when keeps its letters (src/say.mjs squeezed `s+` instead of `\s+`).
 
 ## A part with only dropped steps is Stopped (B680)
 

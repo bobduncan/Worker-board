@@ -340,6 +340,14 @@ export function demoDue(node, now) {
   return asked.n < DEMO_WORDS && Number.isFinite(since) && now - since >= DEMO_AGAIN_MS ? asked.n + 1 : 0
 }
 
+/** B686: all DEMO_WORDS words went and the hour after the last one is over without a demo: the partner did not answer. */
+export function demoGaveUp(node, now) {
+  if (node === undefined || node === null || node.state === 'done' || hasDemo(node) || !Number.isFinite(now)) return false
+  const asked = demoAskOf(node.demoAsked)
+  const since = asked === null ? NaN : sinceMs(asked.at)
+  return asked !== null && asked.n >= DEMO_WORDS && Number.isFinite(since) && now - since >= DEMO_AGAIN_MS
+}
+
 /**
  * B677: every part of the focus goal is done and it has no Demo line: the board types `goal demo: G<n> <title>` into the
  * partner's chat once, again every DEMO_AGAIN_MS while it is not answered, DEMO_WORDS times at most (`Demo asked` under
@@ -404,7 +412,10 @@ async function vibeThere(command, node, words, ctx, goalsAt, say) {
     if (!wrote) return { ok: false, why: 'late' }
     // The second review: No takes an open re-check back too, so a later pass cannot tick it against the person's word.
     const reopened = reopenHow(text, node.id)
-    return reopened.ok ? setGoalLine(reopened.text, node.id, 'Recheck asked', '') : reopened
+    if (!reopened.ok) return reopened
+    // B686: a No makes the demo old: its lines go, so the parts done again get a new demo asked for.
+    const unasked = setGoalLine(setGoalLine(reopened.text, node.id, 'Recheck asked', '').text, node.id, 'Demo asked', '')
+    return unasked.ok ? setGoalLine(unasked.text, node.id, 'Demo', '') : unasked
   }, goalsAt)
   if (!wrote) return { ok: true, result: { unchanged: true }, words: null }
   if (!done.ok) return failed(done.why)
