@@ -16067,17 +16067,21 @@ async function play(branch, settings, { tab = null, inPlace = false } = {}) {
   starting.add(key)
   problems.delete(key)
   let problem = !inPlace && tab === null ? 'the browser stopped the new tab; allow pop-ups for the board' : null
+  // B675: `page=<name>` opens that page of the game (`/<name>.html`) instead of its start.
+  const params = new URLSearchParams(settings)
+  const page = params.get('page')
+  params.delete('page')
   if (problem === null) {
     try {
       const answer = await fetch('/api/game', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'X-Board-Token': TOKEN },
-        body: JSON.stringify({ item: 'branch', branch, action: 'start' }),
+        body: JSON.stringify({ item: 'branch', branch, action: 'start', ...(page === null ? {} : { page }) }),
       })
       if (!answer.ok) problem = (await answer.text()).trim() || `refused (${answer.status})`
       else {
         const url = new URL((await answer.json()).url)
-        url.search = settings
+        url.search = page === null ? settings : params.toString()
         if (inPlace) location.replace(url.href)
         else {
           // The game's page gets no hold on the board's page.

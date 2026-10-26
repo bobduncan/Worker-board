@@ -135,6 +135,6 @@ test('the window has the form when the answer has items or a task or what it did
 })
 
 test('the board\'s links: the game starts in a new tab; the address follows a link once', () => {
-  assert.match(script, /body: JSON\.stringify\(\{ item: 'branch', branch, action: 'start' \}\)/)
+  assert.match(script, /body: JSON\.stringify\(\{ item: 'branch', branch, action: 'start', \.\.\.\(page === null \? \{\} : \{ page \}\) \}\)/)
   assert.match(script, /if \(location\.hash\.startsWith\('#picture='\) \|\| location\.hash\.startsWith\('#play='\)\) \{\n {4}const hash = location\.hash\n {4}history\.replaceState\(null, '', location\.pathname\)/)
 })

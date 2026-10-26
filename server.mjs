@@ -22,7 +22,7 @@
 
 import { spawn } from 'node:child_process'
 import { randomBytes, timingSafeEqual } from 'node:crypto'
-import { readFileSync, rmSync } from 'node:fs'
+import { existsSync, readFileSync, rmSync } from 'node:fs'
 import { mkdir, readdir, readFile, stat } from 'node:fs/promises'
 import { createServer } from 'node:http'
 import { basename, dirname, join, resolve } from 'node:path'
@@ -1958,6 +1958,11 @@ async function main(args) {
         // B319: inside its project's range, which no other project's board uses.
         const url = await games.start({ path: checked.path, port: config.gamePort + (Math.max(0, place) % GAME_SPAN) })
         readState.reset()
+        // B675: a page of the game: only a file the game's folder holds.
+        if (checked.page !== undefined) {
+          if (!existsSync(join(checked.path, `${checked.page}.html`))) return { ok: false, status: 409, why: `The game on ${checked.branch} has no ${checked.page}.html page.` }
+          return { ok: true, result: { url: new URL(`/${checked.page}.html`, url).href } }
+        }
         return { ok: true, result: { url } }
       } catch (error) {
         // The reason is the board's own, or the last line of the game's own tools: never words from a chat.

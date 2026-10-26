@@ -19,7 +19,7 @@ import { lineFields } from './line.mjs'
 import { REFINED_MARK, migrateBacklog, stamp } from './migrate.mjs'
 import { storeFault, touchesLines } from './read.mjs'
 import { acceptRefine, answerRefine } from './refineText.mjs'
-import { placesIn } from '../places.mjs'
+import { gamePageIn, localAddressIn, placesIn } from '../places.mjs'
 import { DECIDED, GOAL_ID, NEEDS, UNDONE, decidedOf, isDailyNote, needsOf, undoneOf } from './dailyNote.mjs'
 import { HOW_MARK, openAsksOf as openAsksUnder, refineAsksOf as asksCounted } from './stepAsks.mjs'
 import { ANOTHER_WAY, TRIES_BEFORE_ANOTHER_WAY, WARNINGS_MARK, agreedPoints, answerReading, boardWarningsOf, chainTries, checkedOf, checkWhy, fixesOf, fixesThrough, fixTitle, needsResultCheck, parentPointsOf, parsePoints, resultCheckAtMs, resultCheckOf, reviewWaitOf } from './resultCheck.mjs'
@@ -747,8 +747,21 @@ async function ask(body, w) {
       }
     }
   }
-  const play = line(body.play, 300)
+  let play = line(body.play, 300)
   const advice = line(body.advice, 120)
+  // B675: an ask that sends the person to a page of the game ("the sound board", its address) carries the link itself:
+  // the game of the step's branch (else main), the page named. A play the worker gave stays.
+  const asked = [...text, ...options, advice].join(' ')
+  const page = play === '' ? gamePageIn(asked) : null
+  if (page !== null) {
+    const branch = isAlone ? null : valueOf(of.item, 'Branch')
+    play = `${typeof branch === 'string' && /^[\w][\w./-]{0,120}$/.test(branch) && !branch.includes('..') && branch !== 'none' ? branch : 'main'}&page=${page}`
+  }
+  // An address the board cannot turn into a link, with no play and no picture: said to the worker, nothing refused.
+  const unlinked = ['do', 'look'].includes(kind) && play === '' && pictures.length === 0 ? localAddressIn(asked) : null
+  const unlinkedNote = unlinked === null ? '' : `
+
+Note: ${unlinked} is no link the person can open (the game runs only while the board has started it). File the ask again with play ("<branch>&page=<page>" or "<branch>&screen=<screen>") instead of an address.`
   // Partner answers (2026-10-19): a detail question goes to the partner first; the person sees it only once handed on.
   const route = routesToPartner({ setting: w.store.partnerAnswers, role: w.role, kind, options, advice, via }) ? 'partner' : null
   const made = await makeAsk(w, { of: of.item, kind, blocking, text, options, advice, pictures, play, via, goal, route })
@@ -759,7 +772,7 @@ async function ask(body, w) {
     ? `${id} goes to your partner first: it answers it for the person (normally with your advice) or hands it to them. Nothing is for the person now, so do not ask it in your answer: the answer comes to this chat as the person's would.`
     : forYouBlock({ id, of: stepId ?? goal, kind, blocking, title, options, advice, pictures, play, places: placesIn([title, ...options, advice].join(' '), placesKnown(w, id)) }, w.boardUrl ?? '')
   const routed = route === null ? {} : { route }
-  if (isAlone) return changed(question, block, routed)
+  if (isAlone) return changed(question, `${block}${unlinkedNote}`, routed)
   let item = said(underStep(of.item, [`Asked ${id} (${kind}${blocking ? ', blocking' : ''}): ${title}`]), w, `asked ${id}`)
   let moved = ''
   if (blocking && isHolder && stateOf(item) === 'in progress') {
@@ -769,7 +782,7 @@ async function ask(body, w) {
   }
   const done = await save(item, of.text, w)
   if (!done.ok) return done
-  return changed(question, `${block}${moved}`, routed)
+  return changed(question, `${block}${moved}${unlinkedNote}`, routed)
 }
 
 /** B299: writes a new ask `Q<n>` (under the step `of`, an item, or alone): `{ ok, question, id, title }`. */
