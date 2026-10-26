@@ -9,7 +9,7 @@ import { ASK_MS, GRACE_MS, IDLE_HOLD_MS } from './config.mjs'
 import { allWords, closedForYou, minutesOf, forYou, noteSections, overview, queue, refinedAt, refinedKey, refineStateOf, withoutNotes } from './backlog.mjs'
 import { pathKey } from './games.mjs'
 import { asksAtEnd, parseHandover } from './handover.mjs'
-import { hourEnd, hourStart, taskFacts, today } from './history.mjs'
+import { gapsOf, hourEnd, hourStart, taskFacts, today } from './history.mjs'
 import { finishedList } from './finished.mjs'
 import { brainstormNeeds, brainstormsState } from './brainstorm.mjs'
 import { DEMO_WORDS, demoGaveUp } from './focus.mjs'
@@ -1928,6 +1928,8 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
     // What the history kept from before the board stopped showing a prompt's words is not shown either.
     today: today(lines.map(line => (line.source === 'prompt' || line.source === 'handover' ? { ...line, task: null } : line)), { from, to: now, names })
       .map((lane, index) => ({ ...lane, ahead: live[index].ahead })),
+    // B710: when the board did not run, from the history's gap lines (all of it): the quiet-time rules leave it out.
+    gaps: gapsOf(lines, now),
     restart,
     pause,
     // B124: the main chat (null when the list has none), the name and folder a new project makes it with, how many

@@ -59,6 +59,20 @@ export function changes(last, chats, now) {
   return lines
 }
 
+/**
+ * B710 (X80): the stretches the board did not run, from the history's gap lines over all of it: a gap line marks the moment
+ * from which the board was off, and the next line is when it ran again (`to` is `now` for a gap still open). `[{ from, to }]`.
+ */
+export function gapsOf(lines, now) {
+  const gaps = []
+  for (let i = 0; i < lines.length; i += 1) {
+    if (lines[i].gap !== true || !Number.isFinite(lines[i].at)) continue
+    const to = Math.min(lines[i + 1]?.at ?? now, now)
+    if (to > lines[i].at) gaps.push({ from: lines[i].at, to })
+  }
+  return gaps
+}
+
 /** One lane per name: the spans of state between `from` and `to`. Time without a line stays empty. */
 export function today(lines, { from, to, names }) {
   const lanes = new Map(names.map(name => [name, { spans: [], open: null }]))

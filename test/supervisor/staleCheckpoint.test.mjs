@@ -26,7 +26,7 @@ const lane = (name, more = {}) => ({ name, isMain: false, isLeftover: false, sta
 const checkpoint = (commit, next, ms) => `${commit} · ${next} · ${stamp(ms)}:00`
 
 const view = (store, more = {}) => buildView({
-  state: { chats: [lane('Lead', { isMain: true }), lane('Picker', more.lane ?? {})], chatPrefix: '', pause: more.pause ?? null, today: more.today ?? [], limits: more.limits ?? {} },
+  state: { chats: [lane('Lead', { isMain: true }), lane('Picker', more.lane ?? {})], chatPrefix: '', pause: more.pause ?? null, today: more.today ?? [], gaps: more.gaps ?? [], limits: more.limits ?? {} },
   items: store, settings: more.settings ?? {}, now: NOW,
 })
 const check = board => WATCH_RULES.find(one => one.id === 'stale-checkpoint').check(board, { seen: new Map(), observed: [] })
@@ -121,12 +121,11 @@ test('a checkpoint of the old form, with no time, still shows in the summary', (
   assert.match(line, /\[last checkpoint at a time not known \(none\): Sort the crates\]/)
 })
 
-test('X80: the hours the board did not run (a PC sleep) and the hours the chat was off do not count; a quiet stretch while it runs does', () => {
+test('X80: the hours the board did not run (a PC sleep, by the history gap line) and the hours the chat was off do not count; a quiet stretch while it runs does', () => {
   // in progress 4 h 10 min ago, the PC slept from 4 h ago to 10 min ago: 10 min of running time since the take
   const store = () => items(step('B704', 'in progress', { Since: stamp(ago(250)) }))
-  const slept = [{ chat: 'Picker', spans: [{ from: ago(250), to: ago(240), state: 'working' }, { from: ago(10), to: NOW, state: 'working' }] },
-    { chat: 'Lead', spans: [{ from: ago(250), to: ago(240), state: 'working' }, { from: ago(10), to: NOW, state: 'working' }] }]
-  assert.deepEqual(check(view(store(), { today: slept })), [])
+  const slept = { gaps: [{ from: ago(240), to: ago(10) }] }
+  assert.deepEqual(check(view(store(), slept)), [])
   assert.equal(check(view(store())).length, 1)
   // quiet 2 h 10 min while its chat runs the whole time: late, as before
   const running = [{ chat: 'Picker', spans: [{ from: ago(250), to: NOW, state: 'working' }] }]
@@ -134,4 +133,22 @@ test('X80: the hours the board did not run (a PC sleep) and the hours the chat w
   // the chat off for 4 h of it (the board running): its own off time does not count either
   const off = [{ chat: 'Picker', spans: [{ from: ago(250), to: ago(240), state: 'working' }, { from: ago(240), to: ago(10), state: 'off' }, { from: ago(10), to: NOW, state: 'working' }] }]
   assert.deepEqual(check(view(store(), { today: off })), [])
+})
+
+test('B710 (X80 on the live history): a sleep that began before the timeline window still does not count, at 21:12 and at the hour', () => {
+  // B704 taken 17:00; the PC slept 17:06 to 21:08; the window (hoursBack) holds spans from 21:08 only
+  const taken = new Date(2026, 9, 24, 17, 0).getTime()
+  const store = () => items(step('B704', 'in progress', { Since: stamp(taken) }))
+  const gaps = [{ from: new Date(2026, 9, 24, 17, 6).getTime(), to: new Date(2026, 9, 24, 21, 8).getTime() }]
+  const spans = [{ chat: 'Picker', spans: [{ from: gaps[0].to, to: NOW, state: 'working' }] }]
+  const board = (min, more = {}) => buildView({ state: { chats: [lane('Lead', { isMain: true }), lane('Picker')], chatPrefix: '', pause: null, today: spans, gaps, limits: {}, ...more }, items: store(), settings: {}, now: new Date(2026, 9, 24, 21, min).getTime() })
+  assert.deepEqual(check(board(12)), [])
+  // 21:59 and 22:00: the window moves past the hour, the answer does not (6 min + 51 min of running time: not late yet)
+  assert.deepEqual(check(board(59)), [])
+  assert.deepEqual(check(buildView({ state: { chats: [lane('Lead', { isMain: true }), lane('Picker')], chatPrefix: '', pause: null, today: spans, gaps, limits: {} }, items: store(), settings: {}, now: new Date(2026, 9, 24, 22, 0).getTime() })), [])
+  // the same take without the gap line is late (the wall time counts)
+  assert.equal(check(buildView({ state: { chats: [lane('Lead', { isMain: true }), lane('Picker')], chatPrefix: '', pause: null, today: spans, limits: {} }, items: store(), settings: {}, now: NOW })).length, 1)
+  // a 2 h quiet stretch after the gap, the chat running: late as before
+  const later = new Date(2026, 9, 24, 23, 20).getTime()
+  assert.equal(check(buildView({ state: { chats: [lane('Lead', { isMain: true }), lane('Picker')], chatPrefix: '', pause: null, today: [{ chat: 'Picker', spans: [{ from: gaps[0].to, to: later, state: 'working' }] }], gaps, limits: {} }, items: store(), settings: {}, now: later })).length, 1)
 })

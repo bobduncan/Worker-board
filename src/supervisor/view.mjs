@@ -60,6 +60,8 @@ export function buildView({ state = {}, items = new Map(), outbox = [], keep = n
     // B598: each repository's base branch against its remote's (check.mjs `basesNow`), for the rule base-equal.
     bases: Object.freeze([...(Array.isArray(bases) ? bases : [])].map(one => Object.freeze({ ...one }))),
     timeline,
+    // B710: the stretches the board did not run (state.mjs `gaps`, the history's gap lines).
+    gaps: Object.freeze((Array.isArray(state.gaps) ? state.gaps : []).filter(gap => Number.isFinite(gap?.from) && Number.isFinite(gap?.to)).map(gap => Object.freeze({ from: gap.from, to: gap.to }))),
     since: statesSince(timeline, lanes),
     repairs: Object.freeze([...repairs]),
     // B664: since when the watch rules first saw each key (the supervisor's memory), so the health summary times a
