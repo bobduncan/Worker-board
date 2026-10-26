@@ -208,9 +208,15 @@ export const DEFAULTS = {
   supervisor: SUPERVISOR_DEFAULTS,
   /**
    * The supervisor's Part 2: how often, in minutes, the board wakes the supervisor's chat for a sweep while work runs
-   * (0: no sweep by the clock, only on Check now). Lower it to save tokens.
+   * (0: no sweep by the clock, only on Check now). Lower it to save tokens. A sweep by the clock runs only when something
+   * odd is new since the last one (an odd line of the health summary, a rule that tripped).
    */
   supervisorSweepMinutes: 10,
+  /**
+   * Cheaper sweeps (2026-10-26): the safety net: whatever the board looks like, a sweep by the clock runs at least once in
+   * this many hours while work runs (a number of hours above 0).
+   */
+  supervisorSweepAtLeastHours: 4,
   /**
    * T9.3 part 1 (spec 2026-10-25): who provides each kind of asset, `{ provider, folder? }` per kind (src/providers). The
    * setting `providers` is an object from kind to a provider's name, or to `{ provider, folder? }`; `readProviders`.
@@ -463,6 +469,7 @@ export function parseConfig(text, env) {
     .map(([key, value]) => [key, Number.isFinite(given[key]) && given[key] > 0 ? given[key] : value])))
   // Part 2: a number of minutes, 0 or more (0: no sweep by the clock).
   if (Number.isFinite(raw.supervisorSweepMinutes) && raw.supervisorSweepMinutes >= 0) config.supervisorSweepMinutes = raw.supervisorSweepMinutes
+  if (Number.isFinite(raw.supervisorSweepAtLeastHours) && raw.supervisorSweepAtLeastHours > 0) config.supervisorSweepAtLeastHours = raw.supervisorSweepAtLeastHours
   return config
 }
 
@@ -507,6 +514,7 @@ export function configProblem(fileText) {
   if (has('usualModel') && !(typeof raw.usualModel === 'string' && MODELS.includes(raw.usualModel.trim().toLowerCase()))) return wrong('usualModel', MODELS.map(one => `"${one}"`).join(' or '))
   if (has('usualEffort') && !(typeof raw.usualEffort === 'string' && EFFORTS.includes(raw.usualEffort.trim().toLowerCase()))) return wrong('usualEffort', `one of ${EFFORTS.map(one => `"${one}"`).join(', ')}`)
   if (has('supervisorSweepMinutes') && !(Number.isFinite(raw.supervisorSweepMinutes) && raw.supervisorSweepMinutes >= 0)) return wrong('supervisorSweepMinutes', 'a number of minutes, 0 or more (0: no sweep by the clock)')
+  if (has('supervisorSweepAtLeastHours') && !(Number.isFinite(raw.supervisorSweepAtLeastHours) && raw.supervisorSweepAtLeastHours > 0)) return wrong('supervisorSweepAtLeastHours', 'a number of hours above 0')
   if (has('supervisor')) {
     const given = raw.supervisor
     if (given === null || typeof given !== 'object' || Array.isArray(given)) return wrong('supervisor', `an object of numbers above 0: ${Object.keys(SUPERVISOR_DEFAULTS).join(', ')}`)

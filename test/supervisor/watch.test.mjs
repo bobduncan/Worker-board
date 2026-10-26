@@ -272,6 +272,15 @@ test('undelivered: a word to a chat waiting 11 min trips, 9 min not; one that ex
   assert.deepEqual(check('undelivered', board([word(40, 'waiting', { releasedAt: ago(4) })])), [])
 })
 
+test('X43: the supervisor\'s own sweep word is no undelivered word, waiting or expired (the next sweep replaces it); any other word still is', () => {
+  const word = (command, minutes, state, to = 'Watcher') => ({ id: `${command}${minutes}${state}`, to, command, about: command === 'sweep' ? 'board' : 'B5', at: ago(minutes), state })
+  const board = outbox => view({ outbox, items: items(step('B5', 'queued', { Owner: 'Watcher' })) })
+  assert.deepEqual(check('undelivered', board([word('sweep', 89, 'waiting'), word('sweep', 40, 'expired'), word('sweep', 15, 'waiting')])), [], 'a stale or expired sweep word')
+  const found = check('undelivered', board([word('sweep', 89, 'waiting'), word('work', 30, 'expired')]))
+  assert.equal(found.length, 1, 'an expired work word still counts')
+  assert.equal(found[0].text, '1 word to Watcher not delivered, the oldest for 30 min', 'and the sweep word is not counted with it')
+})
+
 test('B532 undelivered: a word the outbox sweep drops is not named, nor an answer past its keep; a word still needed is', () => {
   const at = ago(30)
   const outbox = [
