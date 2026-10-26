@@ -4150,14 +4150,15 @@ done nor open, and the goal can only finish once every part is done or dropped b
 3. The person drops a Stopped part: "Drop this part" under it asks for one line, then the page sends `part-drop` (the goal map's
    editGoals, src/goalsWrite.mjs `dropPart`) and `Part dropped: <part title> · <date time> · <why>` stands under the goal
    (src/goals.mjs `partsDropped`). The server refuses it for a part that is not Stopped, not of the focus, or without a reason
-   (src/focus.mjs `partDropRefusal`). The part shows "Dropped: <why>", is out of `total`, and has an Undo (its own page word,
-   `partDropPage(title)` in public/board.js: the page's word and a short hash of the part's title, so it takes back that
-   part's drop only). The reason box is part of the Focus page's view (`focusPageUi.dropping`), so a click draws it at
-   once (B688). The person's drop wins over later steps of the part.
+   (src/focus.mjs `partDropRefusal`). The part shows "Dropped: <why>", is out of `total`, and has an Undo: it sends
+   `part-undrop` (goal id, part title; `undropPart` in src/goalsWrite.mjs), which removes only that part's own
+   `Part dropped:` line, in any order and after a board restart, and is refused when no such line stands (B692; B680's
+   snapshot undo and B688's page word per part could not do that). The reason box is part of the Focus page's view
+   (`focusPageUi.dropping`), so a click draws it at once (B688). The person's drop wins over later steps of the part.
 4. roles/partner.md "A Stopped part is yours": the partner adds a new step another way or advises the person to drop it.
 
 Incidents that show it failing: a part with only dropped steps showing Done or a green bar; "Did we reach the goal?" while a
-part is Stopped. Tests: test/stoppedPart.test.mjs, test/partDropClick.test.mjs (B688: the click shows the box; Undo per part).
+part is Stopped. Tests: test/stoppedPart.test.mjs, test/partDropClick.test.mjs (B688/B692: the drawn card holds the box after the click; Undo per part, any order, after a restart).
 
 ## A part's steps: counts, open flag and fix words in the state (B684, B690)
 
