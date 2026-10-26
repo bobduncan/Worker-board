@@ -122,15 +122,22 @@ test('2026-10-25: a card\'s Context and Change that read plain stay as written; 
   assert.match(long.context, /lamps…$/, 'cut at a word, not inside one')
 })
 
-// The review of 2026-10-25: a sentence with an inline file name was dropped whole and the first plain sentence of the
-// Details took its place, so the card could say something else than the Change. Now the technical words go out of the
-// sentence and the sentence stays; with nothing plain left the step's summary or title stands in, never the Details.
-test('2026-10-25: the board tidies a card\'s words inside the sentence: file names, code words and hashes are taken out, the sentence stays', () => {
-  const step = stepOf({ summary: ['Lamps stayed dark along the paths at night.'], context: [reportOf('Context: The lampPost rule in src/lamps.mjs was wrong. Paths were dark at night. Change: Every lamp in lamps.mjs glows after sunset (see 3f9a1c2). Merged 3f9a1c2. Main hands <n> on. Details: Something else entirely.')] })
-  assert.deepEqual(recapParts(step), { context: 'The rule was wrong. Paths were dark at night.', change: 'Every lamp glows after sunset.', checked: null })
-  // A technical word that stands as the object of a verb cannot go out cleanly: the sentence is dropped, not left broken.
+// The re-check of 2026-10-25: taking the technical words out of a sentence left broken ones ("Lamps stay off set to
+// true."). Simple over clever: a sentence that holds a file name, code word, hash, id or placeholder is dropped whole;
+// with nothing plain left the step's summary or title stands in, never the Details.
+test('2026-10-25: a card sentence with a file name, code word, hash, id or placeholder is dropped whole, never left broken', () => {
+  const step = stepOf({ summary: ['Lamps stayed dark along the paths at night.'], context: [reportOf('Context: The lampPost rule in src/lamps.mjs was wrong. Paths were dark at night. Change: Every lamp in lamps.mjs glows after sunset (see 3f9a1c2). Merged 3f9a1c2. Main hands <n> on. Every lamp glows after sunset. Details: Something else entirely.')] })
+  assert.deepEqual(recapParts(step), { context: 'Paths were dark at night.', change: 'Every lamp glows after sunset.', checked: null })
+  // The three sentences the re-check found broken: each is dropped, and the summary stands in for the Change.
+  const broken = ['Lamps stay off with useNight set to true.', 'Nothing breaks anymore with lamp_mode on.', 'Prices show, except in shop.ts.']
+  for (const sentence of broken) {
+    const card = recapParts(stepOf({ summary: ['Lamps work again.'], context: [reportOf(`Context: Dark. Change: ${sentence} Details: Something else entirely.`)] }))
+    assert.equal(card.change, 'Lamps work again.', sentence)
+  }
+  // Among plain ones they are left out, the plain ones stay.
+  assert.equal(recapParts(stepOf({ context: [reportOf(`Context: Dark paths. ${broken[0]} Lamps glow. Change: Lamps glow. Details: x`)] })).context, 'Dark paths. Lamps glow.')
+  // A technical word as the object of a verb, or a stump like "For it.": the sentence goes, as every such sentence.
   assert.equal(recapParts(stepOf({ context: [reportOf('Context: The board calls draw() and the helper too often. Paths were dark. Change: Lamps glow. Details: x')] })).context, 'Paths were dark.')
-  // A sentence that is little more than the technical word is dropped, not left as a stump ("For it.").
   assert.equal(recapParts(stepOf({ context: [reportOf('Context: Dark paths. See verdict.md for it. Change: Lamps glow. Details: x')] })).context, 'Dark paths.')
 })
 

@@ -83,6 +83,8 @@ test('work next shows the warnings of the chat\'s newest report every time it is
       assert.equal(shown.ok, true, shown.why)
       assert.ok(shown.result.text.includes(words), `call ${call}: ${shown.result.text}`)
       assert.ok(shown.result.text.startsWith('Your last report (B1)'), 'before the long record')
+      // The re-check: without this a worker may report a step again to fix the wording, which restarts its result check.
+      assert.ok(shown.result.text.split('\n')[0].endsWith(`${WARNINGS.join('; ')} - nothing to redo; do not report again`), shown.result.text.split('\n')[0])
       assert.equal(shown.result.changed, false)
     }
     assert.deepEqual(await history(one.dir, 'B1'), before, 'no marker, no write')
@@ -195,7 +197,7 @@ test('the recap card of a step is the board\'s own words: a report with files, i
     assert.equal(checked.ok, true, checked.why)
     const notes = [...(await readStore(one.dir)).items.values()].filter(note => valueOf(note, 'Recap') !== null)
     assert.equal(notes.length, 1)
-    assert.deepEqual([notes[0].sections.get('Context'), notes[0].sections.get('Change')], [['The rule was wrong. The garden paths were dark at night.'], ['Every path has a warm lamp now, see "Trim the wicks".']])
+    assert.deepEqual([notes[0].sections.get('Context'), notes[0].sections.get('Change')], [['The garden paths were dark at night.'], ['Every path has a warm lamp now, see "Trim the wicks".']])
   } finally {
     await rm(one.dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }

@@ -3957,8 +3957,8 @@ work, and passes wording with a warning (principles 1 and 8: the board tidies, t
 - *Where a warning goes.* The check's outcome carries `warnings`; the History line keeps the usual pass lines and
   says the warnings after them (`check passed with warnings: <lines> | warnings: <warnings>`), and the step closes (or
   waits for its result check) as after a pass. `work next` shows "Your last report (B<n>) passed the board's check with
-  warnings: ..." in every call for as long as that is the chat's newest report (the latest report minute among its
-  steps, in any state); a newer report replaces it, whatever its check says (`boardWarningsOf`, resultCheck.mjs).
+  warnings: ... - nothing to redo; do not report again" in every call for as long as that is the chat's newest report
+  (the latest report minute among its steps, in any state); a newer report replaces it, whatever its check says (`boardWarningsOf`, resultCheck.mjs).
   Nothing is marked or written: the Workers mod makes silent `work next` calls and throws their text away (register.tsx,
   after a clear, at session start, at a prompt), so a warning told once was lost (the review).
 - *The mutant.* The partner's result check asks for it: the board's word to the partner carries `Board warnings:` and,
@@ -3967,10 +3967,10 @@ work, and passes wording with a warning (principles 1 and 8: the board tidies, t
   helper makes the mutant in a scratch copy and a test that still passes is a fail point (roles/partner.md, "The
   check").
 - *The card.* The recap's Context and Change are the board's own words (`recapParts`): as the worker wrote them when
-  they read plain (cut at a word to 300 and 500 characters), else tidied inside each sentence: file names, code words
-  and hashes taken out and the sentence kept (an id turned into the step's title when the store is at hand and the title
-  reads plain; a sentence with an id left, or whose technical word stands where it cannot go out cleanly, or that is
-  a stump, is dropped). Where a part is missing or nothing plain is left, the Context comes from the step's summary and
+  they read plain (cut at a word to 300 and 500 characters), else tidied by dropping each sentence that holds a
+  file name, code word, hash, id or placeholder (an id turned into the step's title when the store is at hand and the
+  title reads plain keeps its sentence whole). Taking the words out of a sentence left broken ones ("Lamps stay off set
+  to true.", the re-check), so a sentence is never mended. Where a part is missing or nothing plain is left, the Context comes from the step's summary and
   the Change from the report's own prose (a report with no Context or Change at all), else the summary, else the step's
   title; never the Details.
 - *The supervisor.* The rule `report-check-twice` counts only failed checks that refused for a fact: the refusals for

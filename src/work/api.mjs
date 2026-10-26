@@ -349,7 +349,7 @@ function reportWarningsWords(chat, w) {
   const reported = [...w.store.items.values()].filter(item => kindOf(item) === 'step' && isOwner(item, chat, w.prefix) && Number.isFinite(reportedAtMs(item)))
     .sort((a, b) => reportedAtMs(b) - reportedAtMs(a) || byId(valueOf(b, 'Id'), valueOf(a, 'Id')))
   const warnings = reported.length === 0 ? null : boardWarningsOf(reported[0])
-  return warnings === null ? '' : `Your last report (${valueOf(reported[0], 'Id')}) passed the board's check with warnings: ${warnings}`
+  return warnings === null ? '' : `Your last report (${valueOf(reported[0], 'Id')}) passed the board's check with warnings: ${warnings} - nothing to redo; do not report again`
 }
 
 /** Partner answers (2026-10-19): the open asks routed to the partner, each in one line, and how to answer them; `{ text, ids }`. */

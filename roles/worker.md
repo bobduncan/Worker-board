@@ -132,7 +132,8 @@ step therefore says what it touches ("Touches: ...").
   2026-10-25): it sends a report back only for a fact (a base branch that differs from its remote, a branch or worktree
   left, no result, no file that is there for an outside-git step, work that sits in a repository reported as outside git).
   Words it passes with a warning, which `work next` shows as "Your last report (B<n>) passed the board's check with
-  warnings: ..." for as long as that is your newest report: nothing to redo.
+  warnings: ... - nothing to redo; do not report again" for as long as that is your newest report (a report again restarts
+  the result check).
 - The report's result opens with the user's card (B569): `Context: <1-3 short lines: what was wrong or missing, for
   someone who forgot> Change: <a few lines: what the user gets now> Details: <the rest, for the check>`, the first two
   in plain words for someone who forgot (no files, functions, commits, tests, ids or placeholders; at most 300 and 500

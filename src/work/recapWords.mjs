@@ -9,8 +9,8 @@
 // reports were refused for their wording only): the board no longer sends a worker back for these words. A report whose
 // Context or Change is missing, too long, or holds file names, code words, hashes, ids or placeholders passes with a
 // warning (`partsWarnings`, shown in the worker's `work next`), and the board builds the card's words itself
-// (`recapParts`): the technical words taken out of each sentence, and from the step's summary or title (never the
-// Details) where one is missing or nothing plain is left.
+// (`recapParts`): a sentence with a technical word is dropped whole, and the step's summary or title (never the
+// Details) stands in where a part is missing or nothing plain is left.
 
 import { valueOf } from './item.mjs'
 import { checkedOf, resultCheckOf } from './resultCheck.mjs'
@@ -198,58 +198,14 @@ function withTitles(words, items) {
   })
 }
 
-/** Words that stand before a technical word and go out with it ("in src/lamps.mjs", "see 3f9a1c2"). */
-const LEAD_IN = '(?:in|of|from|to|into|on|at|via|by|with|using|see|named|called|inside)'
-/** Words a sentence must not start with once its technical words are out: what is left is a stump ("For it."). */
-const DANGLING = new Set(['for', 'of', 'in', 'to', 'on', 'at', 'with', 'by', 'and', 'or', 'the', 'a', 'an', 'it', 'its', 'as', 'from', 'into'])
-const escapeRegExp = word => word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-/** The tokens of a sentence that hold a letter or a digit (words split by spaces). */
-const tokensOf = sentence => sentence.split(/\s+/).filter(one => /[\p{L}\p{N}]/u.test(one))
-
-/** Words a code word may stand after as a modifier of the next word ("the lampPost rule"). */
-const DETERMINERS = new Set(['the', 'a', 'an', 'this', 'that', 'its', 'our', 'their', 'each', 'every', 'some', 'old', 'new'])
-
 /**
- * `sentence` without its file names, code words and hashes (and the lead-in word of each), the punctuation tidied; ''
- * when a technical word stands where taking it out would leave a broken sentence ("calls draw() and ..."). It goes out
- * cleanly after a lead-in word ("in src/a.mjs", "see 3f9a1c2"), inside brackets, and as the modifier of the next word
- * ("the lampPost rule").
+ * The plain sentences of a worker's `words` for the card, at most `max` characters. Simple over clever (the re-check of
+ * 2026-10-25: taking a file name or code word out of a sentence left broken ones, "Lamps stay off set to true."): a
+ * sentence that holds a file name, code word, hash, id or placeholder is dropped whole. '' for none left.
  */
-function withoutTechnical(sentence) {
-  const { files, code, hashes } = technicalWords(sentence)
-  const words = [...files, ...code, ...hashes].sort((a, b) => b.length - a.length)
-  if (words.length === 0) return sentence
-  const lead = new RegExp(`^${LEAD_IN}\\s`, 'i')
-  let isClean = true
-  const out = sentence.replace(new RegExp(`(?:\\b${LEAD_IN}\\s+)?(?:${words.map(escapeRegExp).join('|')})`, 'gi'), (match, offset) => {
-    const before = sentence.slice(0, offset)
-    const next = /^\s+([a-z][a-z-]*)\b/.exec(sentence.slice(offset + match.length))?.[1]
-    const previous = (/(\S+)\s*$/.exec(before)?.[1] ?? '').toLowerCase().replace(/[^a-z]/g, '')
-    const isModifier = next !== undefined && !DANGLING.has(next) && !['and', 'or', 'but'].includes(next) && (previous === '' || DETERMINERS.has(previous))
-    if (!lead.test(match) && before.lastIndexOf('(') <= before.lastIndexOf(')') && !isModifier) isClean = false
-    return ''
-  })
-  return isClean ? out.replace(/\(\s*\)/g, '').replace(/\s{2,}/g, ' ').replace(/\s+([.,;:!?])/g, '$1').replace(/([,;:])\s*([.,;:!?])/g, '$2').replace(/^[\s,;:]+/, '').trim() : ''
-}
-
-/**
- * The sentences of a worker's `words` for the card, at most `most` characters: the technical words (file names, code
- * words, hashes) taken out of each sentence and the sentence kept; one with an item id or a placeholder left, one that
- * is little more than its technical words (under three words, or under half of them, or a stump that starts with a
- * function word), dropped. '' for none left.
- */
-function tidySentences(words, most) {
-  const kept = []
-  for (const raw of words.split(/(?<=[.!?])\s+/)) {
-    const sentence = raw.trim()
-    const { ids, placeholders } = insiderWords(sentence)
-    if (sentence === '' || ids.length + placeholders.length > 0) continue
-    const cleaned = withoutTechnical(sentence)
-    const left = tokensOf(cleaned)
-    const isStump = left.length < 2 || (left.length === 2 && DANGLING.has(left[0].toLowerCase().replace(/[^\p{L}]/gu, '')))
-    if (cleaned === '' || plainNamed(cleaned) !== '' || isStump || left.length * 2 < tokensOf(sentence).length) continue
-    kept.push(cleaned.replace(/^\p{Ll}/u, first => first.toUpperCase()))
-  }
+function plainOnly(words, most) {
+  const kept = words.split(/(?<=[.!?])\s+/).map(one => one.trim()).filter(one => one !== '' && plainNamed(one) === '')
+    .map(one => one.replace(/^\p{Ll}/u, first => first.toUpperCase()))
   let out = ''
   for (const sentence of kept) {
     const next = out === '' ? sentence : `${out} ${sentence}`
@@ -261,17 +217,18 @@ function tidySentences(words, most) {
 
 /**
  * One part of a card from the words a worker wrote: as written when it reads plain (cut at a word to `most`); else with
- * item ids turned into their titles and the technical words taken out of each sentence (`tidySentences`). '' for none left.
+ * item ids turned into their titles (an id whose title reads plain keeps its sentence whole) and each sentence that
+ * still holds a technical word dropped (`plainOnly`). '' for none left.
  */
 function tidyPart(words, most, items) {
   if (words === '') return ''
   const named = withTitles(words, items)
-  return plainNamed(named) === '' ? cutWords(named, most) : tidySentences(named, most)
+  return plainNamed(named) === '' ? cutWords(named, most) : plainOnly(named, most)
 }
 
 /**
- * The recap's parts for a step: its last report's Context and Change, tidied by the board (technical words taken out
- * of the sentences, ids turned into the titles of the `items` it is given, too long cut). Where a part is missing or
+ * The recap's parts for a step: its last report's Context and Change, tidied by the board (sentences with technical words
+ * dropped, ids turned into the titles of the `items` it is given, too long cut). Where a part is missing or
  * nothing plain is left of it: the Context comes from the step's summary; the Change from the report's own prose when
  * the report has no Context or Change at all (before B569), else from the summary, else the step's title. Never from the
  * Details, which are for the check. And its Checked count.
