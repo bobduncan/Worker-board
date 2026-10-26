@@ -10308,7 +10308,7 @@ function focusView(focus, goals, can = null, ui = {}) {
       vibe: focus.vibe,
       doneWhenLine: hasLine ? `Done when: ${focus.doneWhen.trim()}` : null,
       buttons: [
-        button('Yes', 'vibe-there-yes', hasLine && demo !== null, demo === null ? 'Your partner makes the goal demo first: you see it before you answer' : hasLine ? 'Your partner re-checks it against its Done when and its vibe; it gets its tick once that passed' : 'Its Done when is missing: the goal gets its tick against it'),
+        button('Yes', 'vibe-there-yes', hasLine && demo !== null, !hasLine ? 'Its Done when is missing: the goal gets its tick against it' : demo === null ? 'Your partner makes the goal demo first: you see it before you answer' : 'Your partner re-checks it against its Done when and its vibe; it gets its tick once that passed'),
         button('No', 'vibe-there-no', true, 'Say what is missing: your partner changes the how'),
       ],
       demo: demo === null

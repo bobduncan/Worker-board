@@ -66,7 +66,7 @@ test('"Is the vibe there?" without a Done when: Yes is off, and the button asks 
   assert.equal(without.vibeThere.buttons[0].isEnabled, false)
   assert.equal(without.vibeThere.buttons[0].title, 'Its Done when is missing: the goal gets its tick against it')
   assert.deepEqual(without.vibeThere.doneWhen, { label: 'Ask your partner to write its Done when', act: 'done-when', isEnabled: true, title: 'Your partner writes how you check the goal is done' })
-  const withIt = focusView(focusState(parseGoals(RUN.replace('    Vibe: quiet', '    Done when: a player crosses it in five minutes\n    Vibe: quiet')), ITEMS, [], ''), parseGoals(RUN), CAN)
+  const withIt = focusView(focusState(parseGoals(RUN.replace('    Vibe: quiet', '    Done when: a player crosses it in five minutes\n    Demo: art/g3/demo.png · what it made\n    Vibe: quiet')), ITEMS, [], ''), parseGoals(RUN), CAN)
   assert.equal(withIt.vibeThere.buttons[0].isEnabled, true)
   assert.equal(withIt.vibeThere.doneWhen, null)
   assert.equal(withIt.vibeThere.doneWhenLine, 'Done when: a player crosses it in five minutes')
