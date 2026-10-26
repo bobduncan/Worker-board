@@ -433,7 +433,7 @@ function refineAgain(view) {
       wake: n => [wait.word.text, `Asked again (${n} of ${ASKS_AGAIN}): no refine block was written for ${id} yet; refine it now (roles/partner.md, "Refine a step").`].join('\n'),
       person: {
         starts: `The Advisor has not refined ${id} `,
-        lines: [`The Advisor has not refined ${id} "${title}" after ${ASKS_AGAIN} asks in 2 hours: refine it on the Backlog, or drop it.`, `Open it: #details=${id}`],
+        lines: [`The Advisor has not refined ${id} "${title}" after ${ASKS_AGAIN} asks over 2 hours: refine it on the Backlog, or drop it.`],
       },
     })
   })
@@ -460,7 +460,7 @@ function incidentAgain(view) {
         `Asked again (${n} of ${ASKS_AGAIN}): it still has no fix step; name its fix (work incident-fix ${id}) or, if no fault is left, close it (work drop ${id}).`].join('\n'),
       person: {
         starts: `Incident ${id} "`,
-        lines: [`Incident ${id} "${title}" has been with the Advisor for 2 hours without a fix, after ${ASKS_AGAIN} asks: look at it under Supervisor.`, 'Open it: #supervisor'],
+        lines: [`Incident ${id} "${title}" has been with the Advisor for over 2 hours without a fix, after ${ASKS_AGAIN} asks: look at it under Supervisor.`],
       },
     })
   })

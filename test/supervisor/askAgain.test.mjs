@@ -112,7 +112,7 @@ test('refine-again: after the third ask the person is told once, with the words 
   const found = refines({ now: at(120), outbox })
   assert.equal(found.length, 1)
   assert.deepEqual([found[0].fix.do, found[0].fix.id], ['person', 'B712'])
-  assert.deepEqual(found[0].fix.text, ['The Advisor has not refined B712 "Step B712" after 3 asks in 2 hours: refine it on the Backlog, or drop it.', 'Open it: #details=B712'])
+  assert.deepEqual(found[0].fix.text, ['The Advisor has not refined B712 "Step B712" after 3 asks over 2 hours: refine it on the Backlog, or drop it.'])
   assert.match(found[0].key, /^refine-again B712 person \d{4}-/)
   // No wake any more after the person is told of it; later periods repeat nothing.
   assert.equal(refines({ now: at(150), outbox }).every(one => one.fix.do === 'person'), true)
@@ -173,7 +173,7 @@ test('the person\'s note is filed through the work API, once, and not again by a
   assert.deepEqual(first.rows.filter(row => row.check === 'refine-again').map(row => row.status), ['Sent'])
   const [note] = await notes()
   assert.deepEqual([note.head.get('Via'), note.head.get('To'), note.sections.get('About')], ['supervisor', 'you', ['B712']])
-  assert.match(note.head.get('Text'), /^The Advisor has not refined B712 "Draw the strip" after 3 asks in 2 hours: refine it on the Backlog, or drop it\./)
+  assert.match(note.head.get('Text'), /^The Advisor has not refined B712 "Draw the strip" after 3 asks over 2 hours: refine it on the Backlog, or drop it\./)
   // The same runner, a later run; and a new runner with no memory (a board restart): the store says it was told.
   clock += 3 * MIN
   assert.deepEqual((await make().run()).rows.filter(row => row.check === 'refine-again'), [])
@@ -314,7 +314,7 @@ test('incident-again: an incident with the Advisor and no fix is asked again eve
   // Then the person, once.
   const told = incidents({ now: at(120), outbox })
   assert.deepEqual([told[0].fix.do, told[0].fix.id], ['person', 'X80'])
-  assert.deepEqual(told[0].fix.text, ['Incident X80 "Lamps stay dark X80" has been with the Advisor for 2 hours without a fix, after 3 asks: look at it under Supervisor.', 'Open it: #supervisor'])
+  assert.deepEqual(told[0].fix.text, ['Incident X80 "Lamps stay dark X80" has been with the Advisor for over 2 hours without a fix, after 3 asks: look at it under Supervisor.'])
   const note = item({ Id: 'N1', Kind: 'note', Via: 'supervisor', To: 'you', State: 'unread', Since: stamp(at(125)), Text: told[0].fix.text[0] }, { About: ['X80'] })
   assert.deepEqual(incidents({ now: at(160), outbox, items: items(incident('X80', 'with the advisor', 0), note) }), [])
   // The incident's own line to the person ("Supervisor: ...", filed when it opened) is no such note.
@@ -339,7 +339,7 @@ test('incident-again: it stops by itself when the incident gets a fix, is fixed 
 })
 
 test('the person fix: a note of the board\'s Via supervisor about the item, one row Sent; one the store refuses goes to Main once', async () => {
-  const finding = { check: 'refine-again', key: 'refine-again B712 person 2026-10-26 18:00', text: 'B712 still waits for the Advisor after 3 asks: told to you', fix: { do: 'person', id: 'B712', text: ['The Advisor has not refined B712 "A" after 3 asks in 2 hours: refine it on the Backlog, or drop it.', 'Open it: #details=B712'] } }
+  const finding = { check: 'refine-again', key: 'refine-again B712 person 2026-10-26 18:00', text: 'B712 still waits for the Advisor after 3 asks: told to you', fix: { do: 'person', id: 'B712', text: ['The Advisor has not refined B712 "A" after 3 asks over 2 hours: refine it on the Backlog, or drop it.'] } }
   const filed = []
   const done = await applySync([finding], { person: async body => (filed.push(body), { ok: true }) }, new Set())
   assert.deepEqual(filed, [{ of: 'B712', text: finding.fix.text }])
@@ -363,7 +363,7 @@ test('the person fix: a note of the board\'s Via supervisor about the item, one 
   await runner.run()
   const note = applied.find(one => one.action === 'note')
   assert.deepEqual([note.to, note.of, note.via], ['you', 'B712', 'supervisor'])
-  assert.equal(note.text.length, 2)
+  assert.equal(note.text.length, 1)
 })
 
 test('the board\'s words that ask again hold while their item is open, and are withdrawn once it is not', () => {

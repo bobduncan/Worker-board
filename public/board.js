@@ -1921,6 +1921,14 @@ function infoLine(row) {
   return { about: row.about ?? null, from: row.from ?? null, words: (row.text ?? '').replace(/^(?:Report|Note|Question) from [^:\n]{1,80}?:\s*/, '') }
 }
 
+/** T9.4: where an open note's link goes, by the item it is about: a step or an ask opens its window, an incident the Supervisor section; null for none. */
+function infoTarget(about) {
+  if (typeof about !== 'string') return null
+  if (/^[BQ]\d+$/.test(about)) return { href: `#details=${about}`, text: `Open ${about}` }
+  if (/^X\d+$/.test(about)) return { href: '#supervisor', text: `Open ${about} under Supervisor` }
+  return null
+}
+
 /** The counts in the head: working and free always, the others only when there is one ("0 waiting for you" goes). */
 function shownCounts(counts) {
   return ['working', 'waiting', 'free', 'suspended', 'interrupted', 'off', 'unknown'].filter(name => name === 'working' || name === 'free' || (counts[name] ?? 0) > 0)
@@ -4331,6 +4339,12 @@ function drawInformation(state) {
       const words = el('p', '')
       words.append(el('b', '', row.head), ' ', row.text)
       whole.append(words, el('small', 'muted', row.at === null ? row.id : `${row.id} · ${ago(row.at, state.readAt)}`))
+      const target = infoTarget(row.about)
+      if (target !== null) {
+        const open = el('a', 'info-open-item', target.text)
+        open.href = target.href
+        whole.append(' ', open)
+      }
       if (!row.isRead) {
         const read = el('button', 'choice', sending.has(`read:${row.id}`) ? 'Reading…' : 'Read')
         read.type = 'button'
