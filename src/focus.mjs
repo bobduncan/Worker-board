@@ -34,6 +34,19 @@ export function focusAllDone(focus, id) {
   return total > 0 && focus.progress.done === total
 }
 
+/**
+ * B680: why the person may not drop a part now, or null: the page drops a Stopped part of the focus goal (`focus`, the state's)
+ * with a reason (`body.id` the goal, `body.part` the part's title, `body.text` why).
+ */
+export function partDropRefusal(focus, body) {
+  if ((focus ?? null) === null || focus.id !== body?.id) return 'That goal is not your focus any more.'
+  const part = focus.parts.find(one => one.title === body.part)
+  if (part === undefined) return 'That is not a part of this goal.'
+  if (part.state !== 'stopped') return 'Only a Stopped part can be dropped: this one has work again, or was dropped already.'
+  if (String(body.text ?? '').trim() === '') return 'Say why you drop it, in one line.'
+  return null
+}
+
 const refuse = (status, why) => ({ ok: false, status, why })
 const oneLine = (value, max) => String(value ?? '').replace(/\s+/g, ' ').trim().slice(0, max)
 const isId = value => typeof value === 'string' && /^G\d+$/.test(value)

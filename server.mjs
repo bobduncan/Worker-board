@@ -64,7 +64,7 @@ import { editThread, fixesToTell } from './src/brainstorm.mjs'
 import { changeGoalsFile, editGoals } from './src/goalsWrite.mjs'
 import { activityFor, missingToSteps } from './src/goalSteps.mjs'
 import { PLAN_MOVES, planMove } from './src/planMoves.mjs'
-import { FOCUS_DRAFTS, FOCUS_MOVES, demoAgain, evaluationsAgain, evaluationsMode, evaluationsRunning, focusAllDone, focusMove, goalChecked, goalReopened, guardGoal, guardsAsking, undoLine } from './src/focus.mjs'
+import { FOCUS_DRAFTS, FOCUS_MOVES, demoAgain, evaluationsAgain, evaluationsMode, evaluationsRunning, focusAllDone, focusMove, goalChecked, goalReopened, guardGoal, guardsAsking, partDropRefusal, undoLine } from './src/focus.mjs'
 import { PARTNER_MODES, effortBack, fableBack, partnerEffortWords } from './src/partnerEffort.mjs'
 import { GUARD_ATTEMPTS, evaluationFor } from './src/goalGuard.mjs'
 import { readSources } from './src/sources.mjs'
@@ -1816,6 +1816,11 @@ async function main(args) {
       if (PLAN_MOVES.includes(body?.command)) return planNow(body)
       if ([...FOCUS_MOVES, ...FOCUS_DRAFTS].includes(body?.command)) return focusNow(body)
       if (body?.command === 'note-undo') return undoNow(body)
+      // B680: only a Stopped part of the focus goal is dropped (the store says which is Stopped).
+      if (body?.command === 'part-drop') {
+        const refused = partDropRefusal((await readState()).focus ?? null, body)
+        if (refused !== null) return { ok: false, status: 409, why: refused }
+      }
       // B383: the Goals page's right panel: a Missing line (or all of them) made into a new step under the goal.
       if (body?.command === 'missing-add') {
         if (!writesMap || workWriters === null) return { ok: false, status: 403, why: 'This board only shows: add steps on the board that delivers.' }

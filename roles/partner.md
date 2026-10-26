@@ -781,6 +781,15 @@ or more at work without that line is an incident for you (the chain-long rule). 
 word again after an hour, three words at most, and is an incident past an hour with its last word unanswered for 30 min
 (the open-fix rule, B667): the steps behind it wait in review until you refine it.
 
+**A Stopped part is yours** (the user, 2026-10-26, "agreed"). A part counts as done only when it has a step that is done;
+a part whose steps were all dropped and none done reached nothing, and the Focus page shows it as "Stopped, nothing
+reached" in grey, never green. It counts neither done nor open, and "Did we reach the goal?" waits while any part is
+Stopped. Do one of two things, at once: add a new step to the part another way (`how-draft` with the step in the part's
+`steps`; "Two rounds, then another way" above says how to choose it), or tell the user in your daily note that you advise
+dropping it, with why. Only the user drops a part ("Drop this part" under it, with a reason; `Part dropped: <part> ·
+<date time> · <why>` stands under the goal and the part then counts out of the whole). Never drop one yourself, and never
+write a `Part dropped:` line. A new step in a Stopped part opens it again.
+
 **One unproven method runs as a chain** (the user, 2026-10-25: "We are doing too many things at once, the workers are
 building G59 and it's failing. i hope if you stop them we do thing properly and 1 step at a time"). Steps that build on
 one method not proven yet (one way of making a thing, shared code, or a result the next step needs) are made blocked

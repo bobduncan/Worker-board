@@ -4114,3 +4114,25 @@ link to this demo so i can see before i approve the goal". A fixed stage of ever
 4. `tools/demo.mjs` draws the demo from a JSON list through a headless browser (evidence.mjs `shootPage`): Reached,
    Not reached, Still open, then the follow-up groups; the target first and the final last in every row, plain labels, one bullet
    per item, pictures at their own pixel size, a missing picture stops it. roles/partner.md "The goal demo" says how the partner makes it.
+
+## A part with only dropped steps is Stopped (B680)
+
+The person, 2026-10-26: "agreed" to: a part whose steps were all dropped shows "stopped, nothing reached", counts as neither
+done nor open, and the goal can only finish once every part is done or dropped by the person. Seen on G60: two parts showed
+"Done" with a green bar while their checks failed and their steps were dropped.
+
+1. `focusState` (src/state.mjs): a part with known steps, all finished and none done or closed, is `stopped`; one with a done
+   step and the rest dropped stays `done`; an open step, or a new step in a Stopped part, keeps or restores the usual states.
+   A part with no step in the store is `next`, not Stopped.
+2. The progress counts a Stopped part as neither done nor open: `done` and `total` as before, `stopped` (only when above 0), and
+   its size is not in `minutesLeft`. "Did we reach the goal?" (and the goal demo) wait while `done` is below `total`, which a
+   Stopped part keeps true; the page also checks `stopped` itself.
+3. The person drops a Stopped part: "Drop this part" under it asks for one line, then the page sends `part-drop` (the goal map's
+   editGoals, src/goalsWrite.mjs `dropPart`) and `Part dropped: <part title> · <date time> · <why>` stands under the goal
+   (src/goals.mjs `partsDropped`). The server refuses it for a part that is not Stopped, not of the focus, or without a reason
+   (src/focus.mjs `partDropRefusal`). The part shows "Dropped: <why>", is out of `total`, and has an Undo (its own page word,
+   so it takes back that drop only). The person's drop wins over later steps of the part.
+4. roles/partner.md "A Stopped part is yours": the partner adds a new step another way or advises the person to drop it.
+
+Incidents that show it failing: a part with only dropped steps showing Done or a green bar; "Did we reach the goal?" while a
+part is Stopped. Tests: test/stoppedPart.test.mjs.

@@ -1036,7 +1036,12 @@ export function focusState(goalMap, items, threads, prefix, partner = null) {
     const isWaiting = busy === undefined && !known.some(one => one.head.get('State') === 'queued')
     const isReady = isWaiting && held.some(one => one.head.get('State') === 'refined')
     const isRefining = isWaiting && !isReady && held.length > 0
-    const state = known.length > 0 && done === known.length ? 'done' : busy !== undefined ? 'now' : isReady ? 'ready' : isRefining ? 'refining' : 'next'
+    // B680: a part whose steps are all dropped, none done, reached nothing: Stopped, never Done. The person's word ("Part
+    // dropped:" under the goal) takes it out of the whole.
+    const reached = known.some(one => ['done', 'closed'].includes(one.head.get('State')))
+    const isStopped = known.length > 0 && done === known.length && !reached
+    const gone = (node.partsDropped ?? []).findLast(one => one.title === part.title)
+    const state = gone !== undefined ? 'dropped' : isStopped ? 'stopped' : known.length > 0 && done === known.length ? 'done' : busy !== undefined ? 'now' : isReady ? 'ready' : isRefining ? 'refining' : 'next'
     const owner = busy === undefined ? null : String(busy.head.get('Owner') ?? '').replace(prefix, '').trim() || null
     const fix = state === 'next' ? fixAhead(known, steps, prefix) : null
     // B354: what the part's results are checked against: its steps' standards, each once; a "none (why)" is left out.
@@ -1049,9 +1054,12 @@ export function focusState(goalMap, items, threads, prefix, partner = null) {
       const fix = check.passed < check.total ? fixOutcomeOf(one.head.get('Id'), steps) : null
       return [{ id: one.head.get('Id'), passed: check.passed, total: check.total, evidence: check.evidence, ...(fix === null ? {} : { fix }) }]
     })
-    return { title: part.title, size: part.size, state, owner, done, total: known.length, standards, checked, ...(fix === null ? {} : { fixFirst: fix }) }
+    return { title: part.title, size: part.size, state, owner, done, total: known.length, standards, checked, ...(gone === undefined ? {} : { why: gone.why }), ...(fix === null ? {} : { fixFirst: fix }) }
   })
-  const left = parts.filter(part => part.state !== 'done').map(part => sizeMinutes(part.size)).filter(one => one !== null)
+  // B680: a Stopped part counts neither done nor open, a dropped one is out of the whole.
+  const whole = parts.filter(part => part.state !== 'dropped')
+  const stopped = whole.filter(part => part.state === 'stopped').length
+  const left = whole.filter(part => part.state !== 'done' && part.state !== 'stopped').map(part => sizeMinutes(part.size)).filter(one => one !== null)
   // B343: the goal's steps one by one, for the simple Overview: its parts' in order, then its own ("Steps:"), each once;
   // a step the store does not hold, or one dropped, is not listed.
   const stepList = [...new Set([...node.parts.flatMap(part => part.steps), ...node.steps])]
@@ -1090,7 +1098,7 @@ export function focusState(goalMap, items, threads, prefix, partner = null) {
     partnerDecides: node.partnerDecides,
     youDecide: node.youDecide,
     howAgreed: node.howAgreed,
-    progress: { done: parts.filter(part => part.state === 'done').length, total: parts.length, minutesLeft: left.length === 0 ? null : left.reduce((sum, one) => sum + one, 0) },
+    progress: { done: whole.filter(part => part.state === 'done').length, total: whole.length, ...(stopped > 0 ? { stopped } : {}), minutesLeft: left.length === 0 ? null : left.reduce((sum, one) => sum + one, 0) },
     thread: thread?.path ?? null,
     ...focusRun(node, items ?? [], prefix, partner),
   }

@@ -183,6 +183,23 @@ export function removeGoalMissing(text, id, line) {
   return { ok: true, text: join(file) }
 }
 
+/**
+ * B680: `Part dropped: <part title> · <date time> · <why>` under the goal, for a part the person stops. The part must be one of
+ * the goal's `Part:` lines and the why must say something; a part dropped already changes nothing.
+ */
+export function dropPart(text, id, part, why, at) {
+  const title = oneLine(part, 160).replaceAll(' · ', ', ')
+  const words = oneLine(why, 300)
+  if (title === '' || words === '') return refuse('form')
+  const file = split(text)
+  const found = blockOf(file.lines, id)
+  if (!found.ok) return found
+  const own = ownLines(file.lines, found).map(index => file.lines[index].trim())
+  if (!own.some(line => line.startsWith('Part:') && line.slice('Part:'.length).split(' · ')[0].trim() === title)) return refuse('part')
+  if (own.some(line => line.startsWith('Part dropped:') && line.slice('Part dropped:'.length).split(' · ')[0].trim() === title)) return { ok: true, text }
+  return appendOwnLine(text, id, `Part dropped: ${title} · ${at} · ${words}`)
+}
+
 export function addGoalNote(text, id, note) {
   const words = oneLine(note, 300)
   return words === '' ? refuse('form') : appendOwnLine(text, id, `Note: ${words}`)
@@ -514,6 +531,7 @@ const WHY = {
   doneWhen: [409, 'A goal gets its tick only with a Done when that says how you check it: write it with "Done when…", or ask your partner to.'],
   encoding: [409, 'The map is not UTF-8 text: change it by hand first.'],
   tabs: [409, 'The map has lines indented with tabs: make them two spaces per level by hand first.'],
+  part: [409, 'That is not a part of this goal, or it has no reason: say why in one line.'],
   write: [500, 'The goal map could not be written.'],
 }
 
@@ -572,6 +590,8 @@ function changeFor(body, made, now) {
     case 'line': return text => (['Done when', 'Why'].includes(body.name) ? setGoalLine(text, id, body.name, oneLine(body.value, 300))
       : body.name === 'Recheck asked' && body.value === '' ? setGoalLine(text, id, body.name, '') : refuse('form'))
     case 'note': return text => addGoalNote(text, id, body.value)
+    // B680: the person stops a part that reached nothing; it counts out of the whole.
+    case 'part-drop': return text => dropPart(text, id, body.part, body.text, minuteOf(now))
     // B383: the Goals page's right panel: a Missing line dismissed.
     case 'missing-dismiss': return text => removeGoalMissing(text, id, body.line)
     case 'link': return text => addGoalLink(text, id, body.name, body.target)

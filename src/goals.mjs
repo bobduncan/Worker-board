@@ -26,7 +26,7 @@ const ids = value => value.match(IDS) ?? []
 const stepIds = value => value.split(/[,\s]+/).filter(part => /^B\d+$/.test(part))
 
 function node(id, title, state, depth, line) {
-  return { id, title: title.trim(), state, depth, parent: null, children: [], line, doneWhen: null, demo: null, demoAsked: null, why: null, enables: [], alsoPartOf: [], steps: [], missing: [], notes: [], asks: [], brainstorm: null, fromPlan: null, recommendation: null, vibe: [], vibePicture: null, vibeAgreed: null, parts: [], partnerDecides: [], youDecide: [], howAgreed: null, recheckAsked: null, rechecks: [], overturned: [], evaluationAsked: null, evaluations: [], evaluatedAt: [], fableAsked: null, evaluationPart: null }
+  return { id, title: title.trim(), state, depth, parent: null, children: [], line, doneWhen: null, demo: null, demoAsked: null, why: null, enables: [], alsoPartOf: [], steps: [], partsDropped: [], missing: [], notes: [], asks: [], brainstorm: null, fromPlan: null, recommendation: null, vibe: [], vibePicture: null, vibeAgreed: null, parts: [], partnerDecides: [], youDecide: [], howAgreed: null, recheckAsked: null, rechecks: [], overturned: [], evaluationAsked: null, evaluations: [], evaluatedAt: [], fableAsked: null, evaluationPart: null }
 }
 
 /** Focus 1: "<title> · <size> · steps B1, B2", the size and the steps each left out at will. */
@@ -35,6 +35,12 @@ function partOf(value) {
   const steps = rest.find(part => /^steps\b/i.test(part))
   const size = rest.find(part => !/^steps\b/i.test(part) && part !== '') ?? null
   return { title, size, steps: steps === undefined ? [] : stepIds(steps.replace(/^steps\s*/i, '')) }
+}
+
+/** B680: "<part title> · <date time> · <why>" of a part the person dropped; the why may hold " · " itself. */
+function droppedOf(value) {
+  const [title = '', at = '', ...why] = value.split(' · ').map(part => part.trim())
+  return { title, at, why: why.join(' · ') }
 }
 
 /**
@@ -73,6 +79,8 @@ function takeLine(target, text) {
     case 'Demo asked': target.demoAsked = value; return
     case 'Vibe agreed': target.vibeAgreed = value; return
     case 'Part': target.parts.push(partOf(value)); return
+    // B680: a part the person dropped (`Part dropped: <part title> · <date time> · <why>`).
+    case 'Part dropped': target.partsDropped.push(droppedOf(value)); return
     case 'Partner decides': target.partnerDecides.push(value); return
     case 'You decide': target.youDecide.push(value); return
     case 'How agreed': target.howAgreed = value; return

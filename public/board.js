@@ -10263,19 +10263,25 @@ function focusView(focus, goals, can = null, ui = {}) {
   if (stage === 'run' || stage === 'done') {
     const { done, total, minutesLeft } = focus.progress
     const left = stage === 'done' ? null : focusTimeLeft(minutesLeft)
-    view.progress = { text: `${done} of ${total} done${left === null ? '' : ` · about ${left} left`}`, percent: total === 0 ? 0 : Math.round((done / total) * 100) }
+    // B680: a Stopped part is named beside the count, never counted as done.
+    const stopped = focus.progress.stopped ?? 0
+    view.progress = { text: `${done} of ${total} done${stopped > 0 ? ` · ${stopped} stopped` : ''}${left === null ? '' : ` · about ${left} left`}`, percent: total === 0 ? 0 : Math.round((done / total) * 100) }
   }
   if (stage === 'run') {
     // Redesign Part 2: a part whose tasks are refined and none given yet is on the board's list for a worker.
-    const chips = { done: 'Done', now: 'In progress', next: 'Next', ready: 'On the list for a worker', refining: 'Waiting for its refine, then it goes on the list' }
+    // B680: a part with only dropped steps is Stopped (calm, nothing reached); one the person dropped says why.
+    const chips = { done: 'Done', now: 'In progress', next: 'Next', ready: 'On the list for a worker', refining: 'Waiting for its refine, then it goes on the list', stopped: 'Stopped, nothing reached' }
     view.run = {
       title: 'The how',
       page: focus.page ?? null,
       parts: focus.parts.map(part => ({
         title: part.title,
-        chip: chips[part.state],
+        chip: part.state === 'dropped' ? `Dropped: ${part.why ?? ''}`.trim() : chips[part.state],
         tone: part.state,
-        percent: part.state === 'done' ? 100 : part.total === 0 ? 0 : Math.round((part.done / part.total) * 100),
+        percent: part.state === 'done' ? 100 : part.state === 'stopped' || part.state === 'dropped' || part.total === 0 ? 0 : Math.round((part.done / part.total) * 100),
+        // B680: under a Stopped part the person may drop it, with a reason; a dropped one has its Undo.
+        ...(part.state === 'stopped' ? { drop: { label: 'Drop this part', act: 'part-drop', isEnabled: allowed, title: allowed ? 'You stop this part: say why in one line. It then counts out of the whole. Your partner can instead try another way.' : why } } : {}),
+        ...(part.state === 'dropped' ? { undo: { label: 'Undo', act: 'part-undo', isEnabled: allowed, title: allowed ? 'Take the drop back: the part is Stopped again' : why } } : {}),
         owner: part.state === 'now' && part.owner !== null ? `${part.owner} is on it` : null,
         // Fix first: its worker does a board fix first.
         ...(typeof part.fixFirst === 'string' ? { fixFirst: `A board fix goes first: ${part.fixFirst}` } : {}),
@@ -10303,7 +10309,7 @@ function focusView(focus, goals, can = null, ui = {}) {
     const hasLine = hasDoneWhenLine(focus)
     // B677: the goal demo comes first: its link stands above Yes and No; without it Yes waits and the partner is asked.
     const demo = focus.demo ?? null
-    view.vibeThere = total > 0 && done === total ? {
+    view.vibeThere = total > 0 && done === total && (focus.progress.stopped ?? 0) === 0 ? {
       question: 'Did we reach the goal?',
       vibe: focus.vibe,
       doneWhenLine: hasLine ? `Done when: ${focus.doneWhen.trim()}` : null,
@@ -10868,8 +10874,11 @@ function drawAdvisorParts(state) {
  * box of "Not yet" open (`vibe` or `how`) and the words typed in each box, the option picked for the open question.
  */
 // B354: `asked`, the goals whose Done when the person asked the partner for on this page.
-const focusUi = { busy: false, note: null, notYet: null, picked: null, picking: false, asked: [], words: { talk: '', notYet: '', new: '', bar: '' } }
-const FOCUS_BOXES = { 'focus-talk-words': 'talk', 'focus-not-yet-words': 'notYet', 'focus-new-words': 'new', 'focus-bar-words': 'bar' }
+// B680: `dropping`, the title of the Stopped part whose reason the person is writing.
+const focusUi = { busy: false, note: null, notYet: null, picked: null, picking: false, dropping: null, asked: [], words: { talk: '', notYet: '', new: '', bar: '', drop: '' } }
+const FOCUS_BOXES = { 'focus-talk-words': 'talk', 'focus-not-yet-words': 'notYet', 'focus-new-words': 'new', 'focus-bar-words': 'bar', 'focus-drop-words': 'drop' }
+// B680: a part's drop has its own page word, so its Undo takes back that drop and no other change of this page.
+const PART_DROP_PAGE = `${GOALS_PAGE}drop`
 
 /** B408: the Focus page, drawn from its view when that changed. */
 function focusOnce(state) {
@@ -11080,6 +11089,14 @@ function focusRunCard(view) {
     row.append(top, bar)
     if (part.owner !== null) row.append(el('small', 'focus-owner', part.owner))
     if (typeof part.fixFirst === 'string') row.append(el('small', 'focus-fix', part.fixFirst))
+    // B680: under a Stopped part a small "Drop this part" (the reason is asked for first); a dropped one has its Undo.
+    if (part.drop !== undefined) {
+      const drop = focusButton(part.drop, 'focus-drop')
+      drop.dataset.focusGoal = part.title
+      row.append(drop)
+      if (focusUi.dropping === part.title) row.append(focusSay('Why do you drop this part? One line.', 'focus-say focus-drop-say', { box: 'focus-drop-words', act: 'part-drop-send', label: 'Drop it', isEnabled: part.drop.isEnabled, title: part.drop.title }))
+    }
+    if (part.undo !== undefined) row.append(focusButton(part.undo, 'focus-drop'))
     // B354: what the part's results are checked against, its reference picture opened with a click.
     for (const standard of part.standards ?? []) {
       const line = el('small', 'focus-standard', `Checked against: ${standard.kind} · `)
@@ -12706,6 +12723,12 @@ async function focusAct(act, goal = null, extra = null) {
     focusUi.note = null
     return redrawFocus()
   }
+  // B680: "Drop this part" opens the box for the reason under that part; a second click closes it.
+  if (act === 'part-drop') {
+    focusUi.dropping = focusUi.dropping === goal ? null : goal
+    redrawFocus()
+    return $('focus-drop-words')?.focus()
+  }
   if (act === 'vibe-not-yet' || act === 'how-not-yet' || act === 'vibe-there-no') {
     const stage = act === 'vibe-not-yet' ? 'vibe' : act === 'how-not-yet' ? 'how' : 'there'
     focusUi.notYet = focusUi.notYet === stage ? null : stage
@@ -12750,7 +12773,14 @@ async function focusAct(act, goal = null, extra = null) {
         focusUi.words.notYet = ''
         focusUi.notYet = null
       }
-    } else if (act === 'talk' && focus !== null) await focusAnswer(focus)
+    } else if (act === 'part-drop-send' && focus !== null && focusUi.dropping !== null) {
+      if (words('drop') === '') focusUi.note = { isProblem: true, text: 'Say why you drop it, in one line.' }
+      else if (await sendFocus({ command: 'part-drop', id: focus.id, part: focusUi.dropping, text: words('drop'), page: PART_DROP_PAGE }, 'The part is dropped: it counts out of the whole. Undo takes it back.') !== null) {
+        focusUi.words.drop = ''
+        focusUi.dropping = null
+      }
+    } else if (act === 'part-undo') await sendFocus({ command: 'undo', page: PART_DROP_PAGE }, 'Taken back: the part is Stopped again.')
+    else if (act === 'talk' && focus !== null) await focusAnswer(focus)
     // Focus 4: the run's talk bar: the words into the goal's talk (started or reused), typed to the partner as yours.
     else if (act === 'talk-bar' && focus !== null) {
       if (words('bar') === '') focusUi.note = { isProblem: true, text: 'Write what you want to tell your partner.' }

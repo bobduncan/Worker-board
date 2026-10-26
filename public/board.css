@@ -222,6 +222,11 @@ button, textarea, select { font: inherit; color: inherit; }
 .focus-chip.is-next { border-color: #3a4a63; color: var(--text); }
 .focus-chip.is-refining { border-color: #3a4a63; color: var(--muted); }
 .focus-chip.is-ready { border-color: #3a4a63; color: #8fb4ff; }
+/* B680: a Stopped or dropped part is calm grey: never green, no bar filled. */
+.focus-chip.is-stopped, .focus-chip.is-dropped { border-color: #3a4a63; color: var(--muted); background: transparent; }
+.focus-part.is-stopped .focus-bar span, .focus-part.is-dropped .focus-bar span { width: 0 !important; }
+.focus-drop { align-self: flex-start; padding: 3px 10px; border: 1px solid #3a4a63; border-radius: 7px; background: transparent; color: var(--muted); font: inherit; font-size: 13px; cursor: pointer; }
+.focus-drop:hover:not(:disabled) { color: var(--text); }
 .focus-owner { align-self: flex-end; color: var(--muted); }
 .focus-steps { margin-top: 16px; padding: 12px 2px 0; width: 100%; border: 0; border-top: 1px solid var(--line); background: none; color: var(--muted); font: inherit; text-align: left; cursor: pointer; }
 .focus-steps:hover { color: var(--text); }
