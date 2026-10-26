@@ -453,7 +453,8 @@ plan to make the vision real, in the strategy the user chooses first.
   - A fair target (the user, 2026-10-26: "yes"): a part is judged against a target of that part alone, made the way
     the part is made, not against a whole finished concept. For maps that is the Codex painting drawn on a layout laid
     out as the game lays out its cells and floors (the chain: concept, layout in the game's geometry, Codex paints the
-    layout in the concept's look; `art-inbox/maps-chain/`). The whole map is still judged against its full concept.
+    layout in the concept's look; its pictures are in the project's picture folder). The whole map is still judged
+    against its full concept.
   - Only then does one last step combine the proven aspects into one thing of the kind, beside its target.
   - The goal's very last step is a recap page (the user, 2026-10-25: "i want a recap before we move away from this
     focus/goal so i can see each aspect it implement with proof screenshot and original target images"). For each
