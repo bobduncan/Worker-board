@@ -1,14 +1,18 @@
-// X76 (B705, B708): the board cleared a worker after its report and it showed as working on no step. The case was not
-// real (its lane log has it free for 23 minutes; the working came between a step's hand-out and its take), and the
-// 30 s override of the chat's own busy report that B705 added is out again: it read a real turn whose last line is over
-// 1 MiB as free. A conversation that holds only a slash command and its output has no turn: the chat is free, or holds
-// its step as before, never working. Made-up samples only: the tail of a cleared worker is copied in its shape.
+// X76 (B705, B708, B712): the board cleared a worker after its report and the health check showed it working on no step.
+// The case was not real: its lane log has the worker free for 23 minutes, and the '!' came in the seconds between a
+// step's hand-out and its take (the step now counts as the worker's). The 30 s override of the chat's own busy report
+// that B705 added is out, and so is the rule that watched for such a report: both read a real turn whose last line is
+// over 1 MiB as no turn. These tests write the transcripts to disk and read them with the board's own tail reader.
 
 import assert from 'node:assert/strict'
-import test from 'node:test'
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import test, { after } from 'node:test'
 
 import { line, step, typed } from '../fixtures/lines.mjs'
 import { parseConfig } from '../src/config.mjs'
+import { readTail } from '../src/transcript.mjs'
 import { parseItem } from '../src/work/item.mjs'
 import { stamp } from '../src/work/migrate.mjs'
 import { storeFromText } from '../src/work/read.mjs'
@@ -17,6 +21,8 @@ import { buildState } from './withStore.mjs'
 const MIN = 60_000
 const NOW = new Date(2026, 9, 26, 16, 30).getTime()
 const PROJECT = 'C:\game'
+const DIR = mkdtempSync(join(tmpdir(), 'cleared-busy-'))
+after(() => rmSync(DIR, { recursive: true, force: true }))
 const config = { ...parseConfig('{}', {}), project: PROJECT }
 const iso = at => new Date(at).toISOString()
 
@@ -46,12 +52,21 @@ const busy = busyFor => ({ state: 'busy', since: NOW - busyFor, busyAt: NOW - bu
 /** The report of a chat whose turn ended (its step reported) before the mod cleared it: idle, still pinging. */
 const idle = { state: 'idle', since: NOW - 19 * MIN, busyAt: NOW - 20 * MIN, background: false, at: NOW - 5_000, session: 'cli-Digger', mod: '0.20.0' }
 
-function build({ lines, busyFor = 19 * MIN, items = [], tail = null, reported = busy(busyFor) }) {
+let files = 0
+/** The transcript on disk, read the way the board reads it. */
+async function tailOf(lines) {
+  const file = join(DIR, `chat-${files++}.jsonl`)
+  writeFileSync(file, `${lines.join('\n')}\n`)
+  return { ...(await readTail(file)), modifiedAt: NOW - 19 * MIN }
+}
+
+async function build({ lines, busyFor = 19 * MIN, items = [], reported = busy(busyFor) }) {
+  const tail = await tailOf(lines)
   const work = storeFromText('## Board\n', { now: NOW - 60 * MIN })
   for (const item of items) work.items.set(item.head.get('Id'), item)
   const raw = {
     listText: '{"prefix":"Team - ","main":"Lead"}', appChatTexts: ['Lead', 'Digger'].map(app),
-    tails: { 'cli-Lead': { text: '', isCut: false, modifiedAt: NOW - MIN }, 'cli-Digger': { text: lines.join('\n'), isCut: false, modifiedAt: NOW - 19 * MIN } },
+    tails: { 'cli-Lead': { text: '', isCut: false, modifiedAt: NOW - MIN }, 'cli-Digger': tail },
     planLineTexts: {}, work, adviceText: null, folders: null, askTexts: [], pictureLists: {}, appStartedAt: NOW - 3 * 60 * MIN,
   }
   return buildState(raw, {
@@ -61,33 +76,33 @@ function build({ lines, busyFor = 19 * MIN, items = [], tail = null, reported = 
 }
 const digger = state => state.chats.find(chat => chat.name === 'Digger')
 
-test('a chat that reported its step and was cleared is free, never working on no step: the tail as the app wrote it, and the short one', () => {
+test('a chat that reported its step and was cleared is free, never working on no step: the tail as the app wrote it, and the short one', async () => {
   for (const lines of [clearedAsWritten(NOW - 19 * MIN), cleared(NOW - 19 * MIN)]) {
-    const lane = digger(build({ lines, reported: idle }))
+    const lane = digger(await build({ lines, reported: idle }))
     assert.deepEqual([lane.state, lane.isRunning], ['free', true])
   }
 })
 
-test('a turn whose last line is over 1 MiB (a screenshot result) holds no entry in the tail window and still reads working, as the chat reports', () => {
-  // The window ends inside the line: after its cut first line nothing is left to parse.
-  const tail = { text: `${'x'.repeat(1_000)}
-`, isCut: true }
-  assert.equal(digger(build({ lines: [], tail })).state, 'working')
-  assert.equal(digger(build({ lines: [], tail, busyFor: 6 * 60 * MIN })).state, 'working')
+test('a turn whose last line is a tool result over 1 MiB holds no whole entry in the tail window and still reads working, as the chat reports', async () => {
+  const lines = [typed(NOW - 19 * MIN, 'work: B1 is yours; run work next'), line({ type: 'user', timestamp: iso(NOW - 18 * MIN), message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'tool-1', content: 'x'.repeat(1_100_000) }] } })]
+  const tail = await tailOf(lines)
+  assert.equal(tail.isCut, true)
+  assert.equal(digger(await build({ lines })).state, 'working')
+  assert.equal(digger(await build({ lines, busyFor: 6 * 60 * MIN })).state, 'working')
 })
 
-test('a turn that really runs after the clear is working, also one heard to start seconds ago', () => {
-  const running = build({ lines: [...cleared(NOW - 19 * MIN), typed(NOW - 2 * MIN, 'work: B1 is yours; run work next'), step(NOW - 20_000, 'Build')] })
+test('a turn that really runs after the clear is working, also one heard to start seconds ago', async () => {
+  const running = await build({ lines: [...cleared(NOW - 19 * MIN), typed(NOW - 2 * MIN, 'work: B1 is yours; run work next'), step(NOW - 20_000, 'Build')] })
   assert.equal(digger(running).state, 'working')
-  assert.equal(digger(build({ lines: cleared(NOW - 19 * MIN), busyFor: 10_000 })).state, 'working')
+  assert.equal(digger(await build({ lines: cleared(NOW - 19 * MIN), busyFor: 10_000 })).state, 'working')
 })
 
-test('a cleared chat that holds a step is interrupted as before, never free; a step in review holds none', () => {
+test('a cleared chat that holds a step is interrupted as before, never free; a step in review holds none', async () => {
   const lines = clearedAsWritten(NOW - 19 * MIN)
-  assert.equal(digger(build({ lines, reported: idle, items: [stepItem('B1', 'Digger', 'in progress')] })).state, 'interrupted')
-  assert.equal(digger(build({ lines, reported: idle, items: [stepItem('B1', 'Digger', 'review')] })).state, 'free')
+  assert.equal(digger(await build({ lines, reported: idle, items: [stepItem('B1', 'Digger', 'in progress')] })).state, 'interrupted')
+  assert.equal(digger(await build({ lines, reported: idle, items: [stepItem('B1', 'Digger', 'review')] })).state, 'free')
 })
 
-test("the chat's own busy report is never overridden by a guess from its transcript: a report of a turn is working, whatever the tail holds", () => {
-  assert.equal(digger(build({ lines: clearedAsWritten(NOW - 19 * MIN) })).state, 'working')
+test("the chat's own busy report is never overridden by a guess from its transcript: a report of a turn is working, whatever the tail holds", async () => {
+  assert.equal(digger(await build({ lines: clearedAsWritten(NOW - 19 * MIN) })).state, 'working')
 })

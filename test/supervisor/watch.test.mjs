@@ -41,7 +41,7 @@ const check = (id, board, seen = new Map()) => {
 }
 
 test('the watch rules: nineteen, report only, each with what it says', () => {
-  assert.deepEqual(WATCH_RULES.map(one => one.id), ['unknown-lane', 'stale-suspended', 'ready-while-free', 'holder-not-running', 'working-not-running', 'working-without-step', 'opus-wait', 'skip-repeats', 'repair-repeats', 'undelivered', 'report-check-twice', 'old-mod', 'odd-effort', 'review-stuck', 'dropped-fix', 'review-held', 'chain-long', 'open-fix', 'stale-checkpoint', 'effort-mismatch', 'not-cleared', 'not-taking', 'old-limit-reading'])
+  assert.deepEqual(WATCH_RULES.map(one => one.id), ['unknown-lane', 'stale-suspended', 'ready-while-free', 'holder-not-running', 'working-not-running', 'opus-wait', 'skip-repeats', 'repair-repeats', 'undelivered', 'report-check-twice', 'old-mod', 'odd-effort', 'review-stuck', 'dropped-fix', 'review-held', 'chain-long', 'open-fix', 'stale-checkpoint', 'effort-mismatch', 'not-cleared', 'not-taking', 'old-limit-reading'])
   // Redesign Part 2: the rules of Main's queues are gone.
   for (const gone of ['idle-while-waiting', 'queued-not-running']) assert.equal(WATCH_RULES.some(one => one.id === gone), false, gone)
   assert.ok(WATCH_RULES.every(one => one.kind === 'watch' && typeof one.says === 'string' && one.says.length > 0 && typeof one.check === 'function'))
@@ -160,19 +160,6 @@ test('holder-not-running: a step in progress whose worker has not run for 31 min
   assert.equal(found[0].text, 'B7 is in progress for Painter, whose chat has not run for 31 min')
   assert.deepEqual(check('holder-not-running', board(29)), [])
   assert.deepEqual(check('holder-not-running', board(60, { state: 'working', isRunning: true, offSince: null })), [])
-})
-
-test('working-without-step (X76): a worker shown working for over 15 min with no step and no turn in its conversation trips; a step, a turn or less time does not', () => {
-  const board = (_minutes, more = {}, items) => view({ chats: [LEAD, lane('Painter', { state: 'working', hasNoTurn: true, ...more })], items })
-  const seen = minutes => new Map([['working-without-step Painter', ago(minutes)]])
-  const found = check('working-without-step', board(16), seen(16))
-  assert.deepEqual(found.map(one => [one.key, one.subject]), [['working-without-step Painter', 'Painter']])
-  assert.equal(found[0].text, 'Painter shows as working for 16 min with no step and no turn in its conversation')
-  assert.deepEqual(check('working-without-step', board(14), seen(14)), [])
-  // A step of its own, a turn in its conversation, or a turn held between two turns: not this rule's.
-  assert.deepEqual(check('working-without-step', board(16, {}, items(step('B7', 'in progress', { Owner: 'Painter' }))), seen(16)), [])
-  assert.deepEqual(check('working-without-step', board(16, { hasNoTurn: false }), seen(16)), [])
-  assert.deepEqual(check('working-without-step', board(16, { between: 'Its turn has ended; background work it started is still running.' }), seen(16)), [])
 })
 
 test('opus-wait: an opus step held for Opus for 16 min trips; 14 min does not', () => {
