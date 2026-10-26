@@ -8,14 +8,13 @@
 // summary (health.mjs) every few minutes while work runs, and on "Check now", and files what looks wrong.
 
 import { incidentCards } from './cards.mjs'
-import { healthSummary } from './health.mjs'
+import { healthSummary, oddLinesOf } from './health.mjs'
 import { SYNC_EVERY_MS, memoryOf, syncRunner } from './loop.mjs'
 import { buildView } from './view.mjs'
 import { REFUSED_MS, REPAIR_RULES } from './rules/repair.mjs'
 import { WATCH_RULES, isNearStop } from './rules/watch.mjs'
 import { incidentsOf, linesOwed, recordFindings } from './incidents.mjs'
-import { SWEEP_MOD, sweepRunner, tokensOfTurn } from './sweep.mjs'
-import { createHash } from 'node:crypto'
+import { SWEEP_AT_LEAST_HOURS, SWEEP_MOD, sweepRunner, tokensOfTurn } from './sweep.mjs'
 
 import { incidentWords, sweepWords } from '../say.mjs'
 import { readingAgeMinutes } from '../limits.mjs'
@@ -81,14 +80,6 @@ export function wordsOf(outbox, incidents, partner, now, keep = KEEP) {
   return words
 }
 
-/**
- * The review: what the board looks like, for skipping a sweep while nothing changed: the health summary's sha1 with its
- * times and counts masked (clock times, spans such as "1 h 5 min", how often seen, the limits' percent); its odd marks ("!") stay.
- */
-export const factsOf = summary => createHash('sha1')
-  .update(String(summary).replace(/\b\d{1,2}:\d{2}\b|\b\d+ (?:min|h|d)\b(?: \d+ min\b)?|seen \d+ times|\d+% used/g, '#'))
-  .digest('hex')
-
 /** What the loop "incidents" could not do, as its error: the first of them and how many. */
 function throwFailed(failed) {
   if (failed.length > 0) throw new Error(`${failed.length} not filed (${failed[0]})`)
@@ -138,8 +129,17 @@ export function createSupervisor(ports) {
     })
     return healthSummary(view, now)
   }
+  /**
+   * Cheaper sweeps: what is odd on the board, for skipping a sweep by the clock while nothing odd is new (sweep.mjs
+   * `sweepRunner`): the odd lines of the health summary without times and counts, and the rules tripped at their last run
+   * (the view's `rules`).
+   */
+  const oddNow = async () => ({
+    odd: oddLinesOf(await healthNow()),
+    tripped: runner.status().rules.filter(rule => rule.state === 'tripped').map(rule => rule.id),
+  })
   const sweeper = sweepPorts === null || tell === null ? null
-    : sweepOver(sweepPorts, { ports: runnerPorts, every: sweepEvery(settings), tell, keep, settings, facts: async () => factsOf(await healthNow()) })
+    : sweepOver(sweepPorts, { ports: runnerPorts, every: sweepEvery(settings), tell, keep, settings, facts: oddNow })
   // Task 3: the incidents as the store holds them, read after each run (and once at the start).
   let incidents = []
   const readIncidents = async () => {
@@ -283,6 +283,9 @@ export function createSupervisor(ports) {
 /** Part 2: how often a sweep runs, in milliseconds (config.json's `supervisorSweepMinutes`, 10 unless set; 0: none). */
 const sweepEvery = settings => (Number.isFinite(settings.supervisorSweepMinutes) && settings.supervisorSweepMinutes >= 0 ? settings.supervisorSweepMinutes : 10) * MIN
 
+/** Cheaper sweeps: the most hours of work without a sweep, in milliseconds (config.json's `supervisorSweepAtLeastHours`, 4 unless set). */
+const sweepAtLeast = settings => (Number.isFinite(settings.supervisorSweepAtLeastHours) && settings.supervisorSweepAtLeastHours > 0 ? settings.supervisorSweepAtLeastHours : SWEEP_AT_LEAST_HOURS) * 60 * MIN
+
 /**
  * Part 2: the sweep's runner (sweep.mjs) over the board. `sweep` ports: `chat()` how the board sees the supervisor's chat
  * (`{ named, title, card, withoutMod, mod }`, sweep.mjs `whyNoSweep`), `job` the supervisor's job text
@@ -336,8 +339,9 @@ function sweepOver(sweep, { ports, every, tell, keep, facts, settings }) {
     },
     tokens: one => sweep.tokens(one),
     memory: sweep.memory ?? null,
-    // The review: what the board looks like, so a sweep by the clock is skipped while nothing changed.
+    // Cheaper sweeps: what is odd on the board, so a sweep by the clock is skipped while nothing odd is new; and the safety net.
     facts: sweep.facts ?? facts,
+    atLeast: sweepAtLeast(settings),
   })
 }
 

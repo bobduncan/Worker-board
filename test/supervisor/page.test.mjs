@@ -50,7 +50,7 @@ const VIEW = {
   ],
   cards: [
     { key: 'B490', step: 'B490', title: 'Wake a worker that stays unknown', state: { text: 'Worker 5 · building', tone: 'busy' }, incidents: [{ id: 'X2', word: null }], at: at(10, 30) },
-    { key: 'nofix', step: null, title: 'No fix step yet', state: { text: 'sending to the Advisor…', tone: 'sending' }, incidents: [{ id: 'X3', word: 'sending to the Advisor…' }], at: at(10, 27) },
+    { key: 'nofix', step: null, title: 'Open, no fix task yet', state: { text: 'sending to the Advisor…', tone: 'sending' }, incidents: [{ id: 'X3', word: 'sending to the Advisor…' }], at: at(10, 27) },
     { key: 'B488', step: 'B488', title: 'A clear that cannot be saved is not skipped', state: { text: 'done · fixed', tone: 'done' }, incidents: [{ id: 'X1', word: null }], at: at(8, 0) },
   ],
   lastSweep: null,
@@ -63,7 +63,8 @@ test('the section: when it checked itself, one card per fix step, the last check
   assert.match(shown.note.split('\n')[1], /^Checked itself at 10:40\. /)
   assert.deepEqual(shown.cards.map(card => [card.key, card.href, card.title, card.state, card.tone, card.line]), [
     ['B490', '#details=B490', 'Wake a worker that stays unknown', 'Worker 5 · building', 'busy', 'X2 · All 4 workers idle for 12 min'],
-    ['nofix', null, 'No fix step yet', 'sending to the Advisor…', 'sending', 'X3 · Worker 2 unknown for 15 min (seen 5×)'],
+    // 2026-10-26: the card without a fix task names how many incidents it lists in its title (here 1); a one-incident card keeps its one line.
+    ['nofix', null, 'Open, no fix task yet (1)', 'sending to the Advisor…', 'sending', 'X3 · Worker 2 unknown for 15 min (seen 5×)'],
     ['B488', '#details=B488', 'A clear that cannot be saved is not skipped', 'done · fixed', 'done', 'X1 · Painter: its clear was skipped twice in a row (seen 2×)'],
   ])
   assert.deepEqual([shown.check.head, shown.check.rows.map(row => [row.status, row.tone, row.text])], ['Last check at 10:40, asked about Worker 2', [
@@ -411,14 +412,27 @@ test('the demo shows the section: every rule of the supervisor, three tripped to
   assert.match(server, /supervisor: supervised \?\? \(isDemo \? demoSupervisor\(clock\(\), SUPERVISOR_RULES, incidentCards\) : null\),/)
   // The page's cards of that view, as the picture shows them.
   const drawn = plain(page.supervisorOf(view, { seenAt: NOW, now: NOW }))
-  assert.deepEqual(drawn.cards.map(card => [card.href, card.line]), [
-    ['#details=B532', 'X1 X2 X3 \u00b7 21 words to Advisor not delivered (seen 18\u00d7)'],
-    ['#details=B541', 'X4 X5 X6 \u00b7 Worker 1 runs the Workers mod older than 0.16.0 (seen 5\u00d7)'],
-    ['#details=B542', 'X7 \u00b7 Queued steps wait 2 h 48 min on steps that sit in review\u2026'],
-    ['#details=B543', 'X8 \u00b7 Steps pile up in review for hours'],
-    ['#details=B544', 'X9 \u00b7 Effort shows "[object Object]" on a step in review'],
-    [null, 'X10 \u00b7 Steps in progress still show "waits for" another step'],
+  // 2026-10-26 (the person: "it says 9 open but i only see 3 fixed, where are the open ones?"): a card with several open
+  // incidents lists each on its own line (id, its own title, how often seen and when last), the newest seen first; these
+  // two cards used to say one title for all ("X1 X2 X3 \u00b7 21 words to Advisor not delivered (seen 18\u00d7)"). A card with
+  // one incident keeps its one line.
+  assert.deepEqual(drawn.cards.map(card => [card.href, card.lines]), [
+    ['#details=B532', [
+      'X3 \u00b7 1 word to Worker 5 not delivered, the oldest for 4640 min \u00b7 seen 18\u00d7, last 10:39',
+      'X2 \u00b7 11 words to Main not delivered, the oldest for 7568 min \u00b7 seen 18\u00d7, last 10:39',
+      'X1 \u00b7 21 words to Advisor not delivered, the oldest for 12980 min \u00b7 seen 18\u00d7, last 10:39',
+    ]],
+    ['#details=B541', [
+      'X6 \u00b7 Worker 5 runs the Workers mod older than 0.16.0; 0.16.0 is installed \u00b7 seen 5\u00d7, last 10:39',
+      'X5 \u00b7 Worker 2 runs the Workers mod older than 0.16.0; 0.16.0 is installed \u00b7 seen 2\u00d7, last 09:31',
+      'X4 \u00b7 Worker 1 runs the Workers mod older than 0.16.0; 0.16.0 is installed \u00b7 seen 1\u00d7, last 09:28',
+    ]],
+    ['#details=B542', ['X7 \u00b7 Queued steps wait 2 h 48 min on steps that sit in review\u2026']],
+    ['#details=B543', ['X8 \u00b7 Steps pile up in review for hours']],
+    ['#details=B544', ['X9 \u00b7 Effort shows "[object Object]" on a step in review']],
+    [null, ['X10 \u00b7 Steps in progress still show "waits for" another step']],
   ])
+  assert.equal(drawn.cards.at(-1).title, 'Open, no fix task yet (1)')
 })
 
 test('a card: the step\'s id as a link and its short title, the live state in a chip, one quiet line; "seen N\u00d7" only when N > 1', () => {
@@ -427,11 +441,19 @@ test('a card: the step\'s id as a link and its short title, the live state in a 
     ['X5', { id: 'X5', title: 'Worker 2 runs the Workers mod older than 0.16.0; 0.16.0 is installed', state: 'fix', fix: 'B541', count: 3, firstSeen: at(10, 1), lastSeen: at(10, 30), evidence: null }],
   ])
   const card = { key: 'B541', step: 'B541', title: 'One clear way to update an old mod', state: { text: 'refined \u00b7 on the list', tone: 'wait' }, incidents: [{ id: 'X4', word: null }, { id: 'X5', word: null }] }
-  const one = plain(page.incidentCardOf(card, byId))
+  const one = plain(page.incidentCardOf(card, byId, NOW))
   assert.deepEqual([one.key, one.step, one.href, one.title, one.state, one.tone], ['B541', 'B541', '#details=B541', 'One clear way to update an old mod', 'refined \u00b7 on the list', 'wait'])
-  assert.equal(one.line, 'X4 X5 \u00b7 Worker 1 runs the Workers mod older than 0.16.0 (seen 3\u00d7)', 'the most it was seen, only above once')
-  const once = plain(page.incidentCardOf({ ...card, incidents: [{ id: 'X4', word: null }] }, byId))
+  // 2026-10-26: two open incidents on a card are two lines (it was one line with both ids, the first title and the most
+  // seen: 'X4 X5 \u00b7 Worker 1 runs the Workers mod older than 0.16.0 (seen 3\u00d7)'); the one seen last comes first.
+  assert.deepEqual(one.lines, [
+    'X5 \u00b7 Worker 2 runs the Workers mod older than 0.16.0; 0.16.0 is installed \u00b7 seen 3\u00d7, last 10:30',
+    'X4 \u00b7 Worker 1 runs the Workers mod older than 0.16.0; 0.16.0 is installed \u00b7 seen 1\u00d7, last 10:01',
+  ])
+  // A card with one incident keeps its one line: "seen N\u00d7" only above once, no time.
+  const once = plain(page.incidentCardOf({ ...card, incidents: [{ id: 'X4', word: null }] }, byId, NOW))
   assert.equal(once.line, 'X4 \u00b7 Worker 1 runs the Workers mod older than 0.16.0')
+  assert.deepEqual(once.lines, [once.line])
+  assert.equal(plain(page.incidentCardOf({ ...card, incidents: [{ id: 'X5', word: null }] }, byId, NOW)).line, 'X5 \u00b7 Worker 2 runs the Workers mod older than 0.16.0 (seen 3\u00d7)')
   // The words of a title: up to its first ";" or ", ", and a word near the limit; nothing for none.
   assert.equal(page.gistOf('Steps pile up in review for hours, one for 3 days'), 'Steps pile up in review for hours')
   assert.equal(page.gistOf('Queued steps wait 2 h 48 min on steps that sit in review while workers are free'), 'Queued steps wait 2 h 48 min on steps that sit in review\u2026')
@@ -446,11 +468,76 @@ test('the card without a fix step names each incident\'s own state when they dif
     ['X8', { id: 'X8', title: 'Steps pile up in review for hours, one for 3 days', state: 'with the advisor', count: 4 }],
     ['X10', { id: 'X10', title: 'Steps in progress still show "waits for" another step', state: 'open', count: 1 }],
   ])
-  const card = (...words) => ({ key: 'nofix', step: null, title: 'No fix step yet', state: { text: 'sending to the Advisor\u2026', tone: 'sending' }, incidents: [['X8', words[0]], ['X10', words[1]]].map(([id, word]) => ({ id, word })) })
-  assert.equal(plain(page.incidentCardOf(card('with the Advisor', 'sending to the Advisor\u2026'), byId)).line,
-    'X8 Steps pile up in review for hours (with the Advisor, seen 4\u00d7) \u00b7 X10 Steps in progress still show "waits for"\u2026 (sending to the Advisor\u2026)')
-  assert.equal(plain(page.incidentCardOf(card('with the Advisor', 'with the Advisor'), byId)).line, 'X8 X10 \u00b7 Steps pile up in review for hours (seen 4\u00d7)')
-  assert.equal(plain(page.incidentCardOf(card('with the Advisor', 'with the Advisor'), byId)).href, null)
+  const card = (...words) => ({ key: 'nofix', step: null, title: 'Open, no fix task yet', state: { text: 'sending to the Advisor\u2026', tone: 'sending' }, incidents: [['X8', words[0]], ['X10', words[1]]].map(([id, word]) => ({ id, word })) })
+  // 2026-10-26: each incident has its own line with its whole title (it was one line with a cut title for each, 'X8 Steps
+  // pile up in review for hours (with the Advisor, seen 4\u00d7) \u00b7 X10 Steps in progress still show "waits for"\u2026 (...)'); the
+  // word is said on the line only when the incidents differ in it. Without a time on the record, the ids order them (newest id first).
+  assert.deepEqual(plain(page.incidentCardOf(card('with the Advisor', 'sending to the Advisor\u2026'), byId, NOW)).lines, [
+    'X10 \u00b7 Steps in progress still show "waits for" another step \u00b7 sending to the Advisor\u2026 \u00b7 seen 1\u00d7',
+    'X8 \u00b7 Steps pile up in review for hours, one for 3 days \u00b7 with the Advisor \u00b7 seen 4\u00d7',
+  ])
+  assert.deepEqual(plain(page.incidentCardOf(card('with the Advisor', 'with the Advisor'), byId, NOW)).lines, [
+    'X10 \u00b7 Steps in progress still show "waits for" another step \u00b7 seen 1\u00d7',
+    'X8 \u00b7 Steps pile up in review for hours, one for 3 days \u00b7 seen 4\u00d7',
+  ])
+  assert.equal(plain(page.incidentCardOf(card('with the Advisor', 'with the Advisor'), byId, NOW)).href, null)
+})
+
+// 2026-10-26, the person (looking at the Supervisor section): "it says 9 open but i only see 3 fixed, where are the open
+// ones?" The card "Open, no fix task yet" showed a row of ids and ONE title; every incident is on its own line now.
+test('a card with open incidents lists each on its own line: id, its own title, "seen N\u00d7, last HH:MM" (the date when not today), the newest seen first', () => {
+  const DAYS = 24 * 60 * MIN
+  const incident = (id, title, count, lastSeen, more = {}) => [id, { id, title, state: 'open', count, firstSeen: lastSeen - 90 * MIN, lastSeen, evidence: null, ...more }]
+  const byId = new Map([
+    incident('X2', '2 words to Main not delivered', 105, at(9, 5)),
+    incident('X34', 'Worker 2 unknown for 15 min, B482 waits', 3, at(10, 30)),
+    incident('X35', 'Steps pile up in review for hours', 1, NOW - 2 * DAYS),
+  ])
+  const card = { key: 'B600', step: 'B600', title: 'Fix of X2', state: { text: 'queued for Worker 2', tone: 'wait' }, incidents: ['X2', 'X34', 'X35'].map(id => ({ id, word: null })) }
+  const drawn = plain(page.incidentCardOf(card, byId, NOW))
+  assert.deepEqual(drawn.lines, [
+    'X34 \u00b7 Worker 2 unknown for 15 min, B482 waits \u00b7 seen 3\u00d7, last 10:30',
+    'X2 \u00b7 2 words to Main not delivered \u00b7 seen 105\u00d7, last 09:05',
+    'X35 \u00b7 Steps pile up in review for hours \u00b7 seen 1\u00d7, last 22 Oct',
+  ])
+  assert.equal(drawn.line, drawn.lines.join('\n'), 'the plain text of the card is its lines')
+  // The evidence behind a click lists them in the same order.
+  assert.deepEqual(drawn.details.map(one => one.id), ['X34', 'X2', 'X35'])
+  // A very long title is cut at a word, as the gist is, and the line still says how often and when.
+  const long = new Map([incident('X7', `Queued steps wait 2 h 48 min on steps that sit in review while ${'workers are free and idle '.repeat(6)}`, 2, at(10, 0)), incident('X8', 'Short', 1, at(9, 0))])
+  const cut = plain(page.incidentCardOf({ ...card, incidents: [{ id: 'X7', word: null }, { id: 'X8', word: null }] }, long, NOW)).lines[0]
+  assert.match(cut, /^X7 \u00b7 Queued steps wait 2 h 48 min on steps that sit in review while workers are free and idle workers are free\u2026 \u00b7 seen 2\u00d7, last 10:00$/)
+  // A record without a count or a time says only what it knows.
+  const bare = plain(page.incidentCardOf({ ...card, incidents: [{ id: 'X40', word: null }, { id: 'X41', word: null }] }, new Map([['X40', { id: 'X40', title: 'No times yet', state: 'open' }]]), NOW))
+  assert.deepEqual(bare.lines, ['X41', 'X40 · No times yet'])
+})
+
+test('fixed cards stay as they are: several incidents on one line (ids, the first title, the most seen), no time', () => {
+  const byId = new Map([
+    ['X1', { id: 'X1', title: '21 words to Advisor not delivered, the oldest for 12980 min', state: 'fixed', fix: 'B532', count: 18, firstSeen: at(15, 23), lastSeen: at(18, 34), evidence: null }],
+    ['X3', { id: 'X3', title: '1 word to Worker 5 not delivered', state: 'fixed', fix: 'B532', count: 1, firstSeen: at(15, 23), lastSeen: at(15, 23), evidence: null }],
+  ])
+  const done = plain(page.incidentCardOf({ key: 'B532', step: 'B532', title: 'Outbox', state: { text: 'done \u00b7 fixed', tone: 'done' }, incidents: [{ id: 'X1', word: null }, { id: 'X3', word: null }] }, byId, NOW))
+  assert.equal(done.line, 'X1 X3 \u00b7 21 words to Advisor not delivered (seen 18\u00d7)')
+  assert.deepEqual(done.lines, [done.line])
+  // The card for incidents the partner closed is a fixed card too.
+  const closed = plain(page.incidentCardOf({ key: 'closed', step: null, title: 'Closed, no fix needed', state: { text: 'closed \u00b7 no fix needed', tone: 'done' }, incidents: [{ id: 'X1', word: null }, { id: 'X3', word: null }] }, byId, NOW))
+  assert.deepEqual([closed.title, closed.lines.length], ['Closed, no fix needed', 1])
+})
+
+test('the card without a fix task names how many incidents it lists in its title; the section lists the open ones it counts, and the head count is the sum of the open cards\' lines', () => {
+  const incidents = Array.from({ length: 9 }, (_, n) => ({ id: `X${n + 2}`, title: `Open finding ${n + 2}`, state: 'open', fix: null, count: n + 1, firstSeen: at(8, 0), lastSeen: at(9, n), since: at(8, 0), foundAt: at(8, 0) - 3 * 24 * 60 * MIN }))
+  const view = { ...VIEW, incidents, cards: incidentCards({ incidents, items: new Map(), lanes: [] }) }
+  const shown = plain(page.supervisorOf(view, { now: NOW }))
+  assert.equal(shown.head, 'Supervisor \u00b7 9 open \u00b7 0 found in 24 h')
+  assert.equal(shown.cards.length, 1)
+  assert.equal(shown.cards[0].title, 'Open, no fix task yet (9)')
+  assert.equal(shown.cards[0].lines.length, 9, 'the 9 open ones are all in sight, one line each')
+  assert.equal(shown.cards[0].lines[0], 'X10 \u00b7 Open finding 10 \u00b7 seen 9\u00d7, last 09:08', 'the one seen last first')
+  assert.equal(shown.cards[0].lines.at(-1), 'X2 \u00b7 Open finding 2 \u00b7 seen 1\u00d7, last 09:00')
+  // With one open incident the count stays in the title and the line keeps its look.
+  const one = plain(page.supervisorOf({ ...view, incidents: incidents.slice(0, 1), cards: incidentCards({ incidents: incidents.slice(0, 1), items: new Map(), lanes: [] }) }, { now: NOW }))
+  assert.deepEqual([one.cards[0].title, one.cards[0].lines], ['Open, no fix task yet (1)', ['X2 \u00b7 Open finding 2']])
 })
 
 test('the evidence, the times and the counts fold away: a card holds them for a click, one block per incident', () => {
@@ -524,6 +611,25 @@ test('the page draws a card: the id a link to its step, the chip in the state\'s
   assert.deepEqual(plain(none.children[0].children.map(one => [one.tag, one.className])), [['span', 'inc-title'], ['span', 'inc-state is-sending']])
 })
 
+test('the page draws a card with several open incidents as one button holding a row for each; a one-incident card keeps its text on the button', () => {
+  const byId = new Map([
+    ['X2', { id: 'X2', title: '2 words to Main not delivered', state: 'open', count: 105, firstSeen: at(8, 0), lastSeen: at(9, 5) }],
+    ['X34', { id: 'X34', title: 'Worker 2 unknown for 15 min', state: 'open', count: 3, firstSeen: at(8, 0), lastSeen: at(10, 30) }],
+  ])
+  const some = plain(page.incidentCardOf({ key: 'nofix', step: null, title: 'Open, no fix task yet', state: { text: 'sending to the Advisor…', tone: 'sending' }, incidents: [{ id: 'X2', word: null }, { id: 'X34', word: null }] }, byId, NOW))
+  const box = fake.drawIncidentCard(some, false)
+  const line = box.children[1]
+  assert.deepEqual([line.tag, line.className, line.type, line.attrs['aria-expanded'], line.text], ['button', 'inc-line', 'button', 'false', null])
+  assert.deepEqual(plain(line.children.map(row => [row.tag, row.className, row.text])), [
+    ['span', 'inc-row', 'X34 · Worker 2 unknown for 15 min · seen 3×, last 10:30'],
+    ['span', 'inc-row', 'X2 · 2 words to Main not delivered · seen 105×, last 09:05'],
+  ])
+  assert.equal(plain(box.children[0].children.find(one => one.className === 'inc-title').text), 'Open, no fix task yet (2)')
+  // Opened, the evidence follows in the same order.
+  const open = fake.drawIncidentCard(some, true)
+  assert.deepEqual(plain(open.children[2].children.map(part => part.children[0].text)), ['X34 · Worker 2 unknown for 15 min', 'X2 · 2 words to Main not delivered'])
+})
+
 test('the page wires the cards: opened by a click on the card (its link opens the step instead), one folded line for the rules, the redraw knows what is open', () => {
   const clicks = script.slice(script.indexOf('const CLICK_ACTS = {'), script.indexOf('/** The act of a click:'))
   // The link's act stands before the card's: the table is read in order, so the id opens its step and does not also open the card.
@@ -543,7 +649,7 @@ test('the page wires the cards: opened by a click on the card (its link opens th
 
 test('the cards\' styles are quiet blues and greys, nothing amber, gold, orange, red or yellow, and the chip wraps under the title on a phone', () => {
   const block = css.slice(css.indexOf('/* supervisor:start */'), css.indexOf('/* supervisor:end */'))
-  for (const name of ['inc-card', 'inc-top', 'inc-step', 'inc-title', 'inc-state', 'inc-line', 'inc-details', 'inc-detail-evidence', 'supervisor-cards']) assert.match(block, new RegExp(`\\.${name}\\b`), name)
+  for (const name of ['inc-card', 'inc-top', 'inc-step', 'inc-title', 'inc-state', 'inc-line', 'inc-row', 'inc-details', 'inc-detail-evidence', 'supervisor-cards']) assert.match(block, new RegExp(`\\.${name}\\b`), name)
   for (const tone of ['wait', 'busy', 'idle', 'review', 'done', 'dropped', 'sending', 'advisor', 'back']) {
     if (tone !== 'wait') assert.match(block, new RegExp(`\\.inc-state\\.is-${tone}\\b`), `the chip of the tone ${tone}`)
   }

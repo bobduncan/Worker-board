@@ -131,7 +131,9 @@ test('the card without a fix step says what is happening: sending to the Advisor
   const words = new Map([['X8', 'arrived'], ['X10', 'on its way']])
   const cards = incidentCards({ incidents: [incident('X8', { state: 'open' }), incident('X9', { state: 'with the advisor' }), incident('X10', { state: 'open' })], words })
   assert.equal(cards.length, 1)
-  assert.deepEqual([cards[0].key, cards[0].step, cards[0].title, cards[0].state], ['nofix', null, 'No fix task yet', { text: 'sending to the Advisor…', tone: 'sending' }])
+  assert.deepEqual([cards[0].key, cards[0].step, cards[0].title, cards[0].state], ['nofix', null, 'Open, no fix task yet', { text: 'sending to the Advisor…', tone: 'sending' }])
+  // 2026-10-26 (the person: "it says 9 open but i only see 3 fixed, where are the open ones?"): the card says what it holds
+  // ("Open, ..."); the page adds the count of the incidents it lists (public/board.js incidentCardOf), so the title here has none.
   assert.deepEqual(plain(cards[0].incidents), [{ id: 'X8', word: 'with the Advisor' }, { id: 'X9', word: 'with the Advisor' }, { id: 'X10', word: 'sending to the Advisor…' }])
   const back = incidentCards({ incidents: [incident('X1', { state: 'came back' }), incident('X2', { state: 'open' })], words: new Map([['X2', 'on its way']]) })
   assert.equal(back[0].state.text, 'came back', 'a returning incident is said first')

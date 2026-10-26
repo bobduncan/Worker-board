@@ -210,10 +210,13 @@ test('every bullet is one item per line; a line with several items, or a line br
   assert.throws(() => checkList(bad), /empty bullet/)
 })
 
-test('pictures keep their own size: a row shrinks them alike only when it is too wide; words are escaped', () => {
+test('pictures keep their own size: rows wrap, only a picture wider than the page shrinks; words are escaped', () => {
   const html = demoHtml({ ...list(), title: 'A <b>&</b> title' }, 'C:/p')
   assert.match(html, /\.pictures img\{display:block;max-width:100%;height:auto\}/)
-  assert.match(html, /figure\{margin:0;min-width:0;flex:0 1 auto\}/)
+  assert.match(html, /\.pictures\{display:flex;flex-wrap:wrap;/)
+  assert.match(html, /figure\{margin:0;min-width:0;max-width:100%;flex:none\}/)
+  assert.match(html, /\.grid\{display:flex;flex-wrap:wrap;/)
+  assert.ok(!html.includes('grid-template-columns'))
   assert.ok(!html.includes('<b>&</b>'))
   assert.match(html, /A &lt;b&gt;&amp;&lt;\/b&gt; title/)
 })
@@ -235,4 +238,45 @@ test('a list the tool cannot draw is refused with the reason', () => {
   assert.throws(() => checkList({ goal: 'G6', sections: [{ kind: 'maybe' }] }), /reached, not-reached or open/)
   assert.throws(() => checkList({ goal: 'G6', sections: [{ kind: 'reached', rows: [{ title: 'x' }] }] }), /pictures or a grid/)
   assert.throws(() => checkList({ goal: 'G6', sections: [{ kind: 'reached', rows: [{ title: 'x', pictures: [{ kind: 'sketch', path: 'a.png' }] }] }] }), /a picture's kind is/)
+})
+
+// ---- B686: what the first result check of B677 found ----
+
+test('B686: the word to the partner keeps every letter s of the Done when and squeezes only white space', () => {
+  const goal = { ...parseGoals(goals([])).byId.get('G6'), doneWhen: 'Every screen shows\n  how the stress  lands' }
+  const words = focusWords('goal-demo', { to: 'Partner', goal, job: 'j' })
+  assert.equal(words.text.split('\n')[1], 'Done when: Every screen shows how the stress lands')
+})
+
+test('B686: the button "Ask your partner again" has a rule of its own, beside the waiting line', async () => {
+  const css = await readFile(join(ROOT, 'public', 'board.css'), 'utf8')
+  assert.match(css, /^\.focus-ask-demo \{[^}]*cursor: pointer/m)
+  assert.match(css, /^\.focus-ask-demo:disabled \{/m)
+})
+
+test('B686: a No takes the old demo and its asked line away, so the parts done again ask for a new demo', async () => {
+  const fs = fakeFs({ [MAP]: latin(goals(['    Demo: a/b.png · what G6 made', '    Demo asked: 2026-10-26 07:00 · 2'])) })
+  const no = await focusMove({ command: 'vibe-there-no', id: 'G6', text: 'the damage is not readable' }, ctx(fs))
+  assert.equal(no.ok, true, no.why)
+  const node = mapOf(fs).byId.get('G6')
+  assert.deepEqual([node.demo, node.demoAsked, hasDemo(node)], [null, null, false])
+  // The how is agreed anew; the parts done again, the demo is due once more.
+  assert.equal(demoDue(node, NOW), 1)
+  assert.ok(!/^\s*Demo( asked)?:/m.test(utf8(fs.files[MAP])))
+})
+
+test('B686: after the third word and an hour without a demo the card says the partner did not answer', () => {
+  const at = (extra, now) => JSON.parse(JSON.stringify(focusState(parseGoals(goals(extra)), [stepItem('B1', 'done')], [], 'Game - ', 'Partner', now)))
+  const view = state => focusView(state, null, CAN).vibeThere.demo
+  const third = '    Demo asked: 2026-10-26 07:00 · 3'
+  assert.equal(at([third], NOW).demoGaveUp, true)
+  assert.match(view(at([third], NOW)).text, /did not answer in three tries/)
+  assert.ok(view(at([third], NOW)).again !== null)
+  // Not yet: the third word is under an hour old, or only the second went, or there is no time.
+  assert.equal(at([third], new Date(2026, 9, 26, 7, 59).getTime()).demoGaveUp, false)
+  assert.equal(at(['    Demo asked: 2026-10-26 06:00 · 2'], NOW).demoGaveUp, false)
+  assert.equal(at([third], null).demoGaveUp, false)
+  assert.equal(view(at([third], null)).text, 'Your partner makes the goal demo first.')
+  // With the demo there, never.
+  assert.equal(at([third, '    Demo: a/b.png · made'], NOW).demoGaveUp, false)
 })

@@ -201,7 +201,7 @@ export function focusWords(command, { to, goal, thread, stage = null, words = nu
     // B358: the goal's re-check before its tick, against its Done when and its vibe.
     : command === 'goal-recheck' ? [`goal re-check: ${about}`, `Done when: ${String(goal.doneWhen ?? '').replace(/\s+/g, ' ').trim()}`, ...((goal.vibe ?? []).length === 0 ? [] : [`Vibe: ${goal.vibe.map(one => String(one).replace(/\s+/g, ' ').trim()).join(' · ')}`]), `Your job: ${job}, "The goal re-check"`]
     // B677: the goal demo before "Did we reach the goal?": the list and the picture, then its Demo line (`again` the number of the word).
-    : command === 'goal-demo' ? [`goal demo: ${about}${words === null ? '' : ` (again: ${words === 'by you' ? 'you asked' : `word ${words}`})`}`, `Done when: ${String(goal.doneWhen ?? '').replace(/s+/g, ' ').trim()}`, `Your job: ${job}, "The goal demo"`]
+    : command === 'goal-demo' ? [`goal demo: ${about}${words === null ? '' : ` (again: ${words === 'by you' ? 'you asked' : `word ${words}`})`}`, `Done when: ${String(goal.doneWhen ?? '').replace(/\s+/g, ' ').trim()}`, `Your job: ${job}, "The goal demo"`]
     : [FOCUS_HEADS[command], `Goal: ${about}`, `Thread: ${thread}`, ...(words === null ? [] : [`Words: ${String(words).replace(/\s+/g, ' ').trim()}`])]
   return { to, ask: null, step: null, title: null, version: null, verdict: null, command, about: goal.id, text: lines.join('\n') }
 }

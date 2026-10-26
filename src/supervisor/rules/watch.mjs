@@ -451,7 +451,9 @@ export function undeliveredWords(view) {
   const matters = wordMatters(view)
   const stillWaits = message => matters(message)
     && !((message.ask ?? null) !== null && view.now - message.at - heldMs(message, view.now, view.pause) > view.keep.answerMs)
-  return view.outbox.filter(message => typeof message?.to === 'string' && Number.isFinite(message.at)).filter(message => {
+  // X43: not the supervisor's own sweep word: it goes stale in ten minutes by design (the next sweep replaces it), so one that
+  // expired while the supervisor's chat was off is no lost word (the health summary leaves it out too).
+  return view.outbox.filter(message => typeof message?.to === 'string' && Number.isFinite(message.at) && message.command !== 'sweep').filter(message => {
     // The time the person's pause held it does not count (as for the outbox's own expiry, store.mjs isLate), nor a
     // hold before its release (B285).
     const held = message.at + heldMs(message, view.now, view.pause)

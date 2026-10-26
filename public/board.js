@@ -650,10 +650,11 @@ const TRAILING_SMALL = /\s+(?:a|an|the|in|on|of|to|for|and|or|with|that|while|is
 
 /**
  * The first few words of an incident's title: up to its first ";" or ", " (what follows is detail the evidence gives), and
- * at most `most` characters, cut at a word and not on a small one.
+ * at most `most` characters, cut at a word and not on a small one. `whole` keeps what follows the first ";" or ", " too
+ * (a card that lists its incidents one by one shows each title whole, so the lines tell the incidents apart).
  */
-function gistOf(title, most = 60) {
-  const text = String(title ?? '').split(/;|, /)[0].trim()
+function gistOf(title, most = 60, whole = false) {
+  const text = (whole ? String(title ?? '') : String(title ?? '').split(/;|, /)[0]).trim()
   if (text.length <= most) return text
   const head = text.slice(0, most + 1)
   let cut = head.slice(0, Math.max(head.lastIndexOf(' '), Math.floor(most / 2))).trimEnd()
@@ -667,24 +668,53 @@ function seenOf(one) {
 }
 
 /**
- * One card as drawn, from the supervisor's card and the incidents' records: its head (the step's id, which opens that
- * step, and its short title), its chip (the live state), the one quiet line (the incident ids and a few words, "seen N×"
- * only when it was seen more than once; the card without a fix step names each incident's own state when they differ),
- * and, folded away until a click, each incident's evidence, times and count.
+ * When an incident was last seen, for a list line: the time of day when that was today (`now`'s day), else the date
+ * ("22 Oct"); '' for no time.
  */
-function incidentCardOf(card, byId) {
+function lastSeenWords(at, now) {
+  if (!Number.isFinite(at)) return ''
+  const then = new Date(at)
+  if (then.toDateString() === new Date(now).toDateString()) return clock(at)
+  return `${then.getDate()} ${['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'][then.getMonth()]}`
+}
+
+/**
+ * One card as drawn, from the supervisor's card and the incidents' records: its head (the step's id, which opens that
+ * step, and its short title), its chip (the live state), its lines and, folded away until a click, each incident's
+ * evidence, times and count. `lines` (`line` is the same joined by line breaks): 2026-10-26, the person ("it says 9 open
+ * but i only see 3 fixed, where are the open ones?"): a card that is not fixed lists every incident on its own line, the
+ * one seen last first: its id, its own title whole, `seen N×, last 10:40` (the date when not today; the card without a
+ * fix step also says an incident's own state when they differ). A card with one incident, and a fixed one, keep the one
+ * quiet line (the incident ids and a few words, "seen N×" only when it was seen more than once). The card without a fix
+ * step counts the incidents it lists in its title. `now` the time the lines count today from.
+ */
+function incidentCardOf(card, byId, now = Date.now()) {
   const covered = card.incidents.map(one => {
     const record = byId.get(one.id) ?? { id: one.id, title: '', state: null, fix: null, count: 0, firstSeen: null, lastSeen: null, evidence: null, ruleWanted: null }
     return { ...record, word: one.word ?? null }
   })
-  const seen = Math.max(0, ...covered.map(one => one.count || 0))
-  const mixed = covered.length > 1 && new Set(covered.map(one => one.word)).size > 1
-  const line = mixed
-    ? covered.map(one => `${one.id} ${gistOf(one.title, 40)} (${[one.word, one.count > 1 ? `seen ${one.count}×` : null].filter(Boolean).join(', ')})`).join(' · ')
-    : `${covered.map(one => one.id).join(' ')} · ${gistOf(covered[0]?.title)}${seen > 1 ? ` (seen ${seen}×)` : ''}`
+  const isList = covered.length > 1 && card.state.tone !== 'done'
+  let lines
+  if (isList) {
+    // The incident seen last first (its first time when it has no last, else the newest id); the details follow the same order.
+    const timeOf = one => (Number.isFinite(one.lastSeen) ? one.lastSeen : Number.isFinite(one.firstSeen) ? one.firstSeen : 0)
+    covered.sort((a, b) => timeOf(b) - timeOf(a) || String(b.id).localeCompare(String(a.id), 'en', { numeric: true }))
+    const mixed = new Set(covered.map(one => one.word)).size > 1
+    lines = covered.map(one => {
+      const last = lastSeenWords(one.lastSeen, now)
+      const times = [one.count > 0 ? `seen ${one.count}×` : null, last === '' ? null : `last ${last}`].filter(Boolean).join(', ')
+      const title = gistOf(one.title, 110, true)
+      return [title === '' ? one.id : `${one.id} · ${title}`, mixed ? one.word : null, times === '' ? null : times].filter(Boolean).join(' · ')
+    })
+  } else {
+    const seen = Math.max(0, ...covered.map(one => one.count || 0))
+    lines = [`${covered.map(one => one.id).join(' ')} · ${gistOf(covered[0]?.title)}${seen > 1 ? ` (seen ${seen}×)` : ''}`]
+  }
   return {
-    key: card.key, step: card.step, href: card.step === null ? null : `#details=${card.step}`, title: card.title ?? '(this step is not in the store)',
-    state: card.state.text, tone: card.state.tone, line,
+    key: card.key, step: card.step, href: card.step === null ? null : `#details=${card.step}`,
+    // The card without a fix step says how many incidents it lists: the person counts them against the head's "N open".
+    title: (card.title ?? '(this step is not in the store)') + (card.key === 'nofix' ? ` (${covered.length})` : ''),
+    state: card.state.text, tone: card.state.tone, line: lines.join('\n'), lines,
     details: covered.map(one => ({
       id: one.id, title: one.title ?? '', state: one.state === 'fix' && one.fix ? `fix ${one.fix}` : one.state ?? 'open', seen: seenOf(one),
       evidence: one.evidence === null || one.evidence === undefined ? null : one.evidence.length > EVIDENCE_SHOWN ? `${one.evidence.slice(0, EVIDENCE_SHOWN).trimEnd()}…` : one.evidence,
@@ -808,7 +838,7 @@ function supervisorOf(view, { seenAt = null, isOpen = true, now = Date.now() } =
   const counted = card => (card.incidents ?? []).filter(one => isCountedIncident(byId.get(one.id), card.phase ?? null, now))
   const drawn = (view.cards ?? []).filter(card => counted(card).length > 0)
     .map(card => ({ ...card, incidents: counted(card) }))
-    .map(card => ({ ...incidentCardOf(card, byId), isNew: (card.incidents ?? []).some(one => fresh.has(one.id)) }))
+    .map(card => ({ ...incidentCardOf(card, byId, now), isNew: (card.incidents ?? []).some(one => fresh.has(one.id)) }))
   // The person, 2026-10-26 ("why is it not showing the open tickets first?"): the open cards first, the new among them
   // first, then the fixed ones, the new among those first.
   const isOpenCard = card => card.tone !== 'done'
@@ -952,7 +982,9 @@ function drawIncidentCard(card, isOpen) {
     top.append(link)
   }
   top.append(el('span', 'inc-title', card.title), el('span', `inc-state is-${card.tone}`, card.state))
-  const line = el('button', 'inc-line', card.line)
+  // 2026-10-26: several incidents are a row each inside the one button; one incident (or a fixed card) is its one line of text.
+  const line = el('button', 'inc-line', card.lines.length > 1 ? null : card.line)
+  if (card.lines.length > 1) line.append(...card.lines.map(text => el('span', 'inc-row', text)))
   line.type = 'button'
   line.setAttribute('aria-expanded', String(isOpen))
   line.title = isOpen ? 'Fold the evidence away' : 'Click for the evidence, the times and the counts'
@@ -10149,6 +10181,8 @@ function goToPlace(hash) {
 // Focus 1 (spec 2026-10-18, section 4): the tab is named Focus, its first part is the Focus page; its bar shows Focus,
 // Goals and Brainstorm, the others only when the setting advisorParts names them (hidden, not deleted).
 // focus:start
+/** B686: how many words the board sends for the goal demo before it says the partner did not answer (src/focus.mjs DEMO_WORDS). */
+const DEMO_WORDS_SHOWN = 'three'
 const ADVISOR_PANES = ['focus', 'way', 'goals', 'brainstorm', 'plan', 'suggestions', 'refine', 'chat']
 const ADVISOR_PARTS_USUAL = ['focus', 'goals', 'brainstorm']
 
@@ -10370,7 +10404,7 @@ function focusView(focus, goals, can = null, ui = {}) {
         button('No', 'vibe-there-no', true, 'Say what is missing: your partner changes the how'),
       ],
       demo: demo === null
-        ? { text: 'Your partner makes the goal demo first.', link: null, again: button('Ask your partner again', 'goal-demo', allowed, focus.demoAsked === null ? 'Your partner is asked for the goal demo by the board' : 'Your partner was asked: ask once more when the demo does not come') }
+        ? { text: focus.demoGaveUp === true ? `Your partner did not answer in ${DEMO_WORDS_SHOWN} tries: no goal demo yet.` : 'Your partner makes the goal demo first.', link: null, again: button('Ask your partner again', 'goal-demo', allowed, focus.demoAsked === null ? 'Your partner is asked for the goal demo by the board' : 'Your partner was asked: ask once more when the demo does not come') }
         : { text: null, link: { label: 'See the goal demo', path: demo.path, caption: demo.caption || demo.path }, again: null },
       doneWhen: hasLine ? null : asked.includes(focus.id)
         ? button('Ask your partner again', 'done-when', true, 'Your partner was asked: ask once more when its Done when does not come')

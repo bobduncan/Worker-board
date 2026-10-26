@@ -15,8 +15,9 @@ import { line } from '../../fixtures/lines.mjs'
 import { clearRefusal, messageText } from '../../src/bridge.mjs'
 import { configProblem, parseConfig } from '../../src/config.mjs'
 import { sweepWords, wakeFor } from '../../src/say.mjs'
-import { SWEEP_MOD, createSupervisor, factsOf, tokensOfTurn } from '../../src/supervisor/index.mjs'
-import { NOTHING_CHANGED, SWEEP_LONGEST_MS, SWEEP_SETTLE_MS, TOKENS_AFTER_MS, sweepRunner, whyNoSweep } from '../../src/supervisor/sweep.mjs'
+import { oddLinesOf } from '../../src/supervisor/health.mjs'
+import { SWEEP_MOD, createSupervisor, tokensOfTurn } from '../../src/supervisor/index.mjs'
+import { NOTHING_ODD, SWEEP_LONGEST_MS, SWEEP_SETTLE_MS, TOKENS_AFTER_MS, sweepRunner, whyNoSweep } from '../../src/supervisor/sweep.mjs'
 import { stamp } from '../../src/work/migrate.mjs'
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..')
@@ -26,14 +27,17 @@ const START = new Date(2026, 9, 24, 12, 0).getTime()
 const item = head => ({ head: new Map(Object.entries(head)), sections: new Map() })
 const lane = (name, more = {}) => ({ name, isMain: false, isLeftover: false, state: 'free', isRunning: true, session: `s-${name}`, ...more })
 const WATCHER = { name: 'Watcher', state: 'free', isRunning: true, session: 'cli-watcher' }
+/** A board with nothing odd and no rule tripped: what the sweep's facts port answers (sweep.mjs `sweepRunner`). */
+const QUIET = { odd: [], tripped: [] }
 
 /**
  * A board with a supervisor: its clock, its state (a worker working unless set), the outbox the sweep words go into, the
  * timers the supervisor starts (run by hand), and the supervisor's chat as the board sees it. `facts` is what the board
- * looks like for the skip of a sweep while nothing changed (the review): a new mark at every look unless a test sets
- * `b.facts.value`; `ownFacts` leaves the port out, so the supervisor makes its own from the health summary.
+ * looks like for the skip of a sweep with nothing odd and unseen (`{ odd, tripped }`, sweep.mjs): a new odd line at
+ * every look unless a test sets `b.facts.value`; `ownFacts` leaves the port out, so the supervisor makes its own from the
+ * health summary and its rules. `atLeast` is the setting supervisorSweepAtLeastHours.
  */
-function board({ working = true, pause = null, limits = {}, chat = { named: 'Watcher', title: 'Game - Watcher', card: WATCHER, withoutMod: false, mod: '0.16.0' }, steps = [], every, oldAfter, tokens = null, ownFacts = false, stopAt } = {}) {
+function board({ working = true, pause = null, limits = {}, chat = { named: 'Watcher', title: 'Game - Watcher', card: WATCHER, withoutMod: false, mod: '0.16.0' }, steps = [], every, atLeast, oldAfter, tokens = null, ownFacts = false, stopAt } = {}) {
   let now = START
   const facts = { value: null, looks: 0 }
   const outbox = []
@@ -51,7 +55,7 @@ function board({ working = true, pause = null, limits = {}, chat = { named: 'Wat
     noted: { load: async () => ({ noted: [], seen: {} }), save: async () => {} },
     now: () => now,
     loops: { run: async (_name, fn) => fn(), failed: () => {} },
-    settings: { ...(every === undefined ? {} : { supervisorSweepMinutes: every }), ...(oldAfter === undefined && stopAt === undefined ? {} : { supervisor: { ...(oldAfter === undefined ? {} : { oldReadingMinutes: oldAfter }), ...(stopAt ?? {}) } }) },
+    settings: { ...(every === undefined ? {} : { supervisorSweepMinutes: every }), ...(atLeast === undefined ? {} : { supervisorSweepAtLeastHours: atLeast }), ...(oldAfter === undefined && stopAt === undefined ? {} : { supervisor: { ...(oldAfter === undefined ? {} : { oldReadingMinutes: oldAfter }), ...(stopAt ?? {}) } }) },
     timers: { setInterval: (fn, ms) => intervals.push({ fn, ms }), clearInterval: () => {} },
     tell: async words => {
       const message = { id: `w${outbox.length + 1}`, at: now, ...words, state: 'waiting' }
@@ -64,7 +68,7 @@ function board({ working = true, pause = null, limits = {}, chat = { named: 'Wat
       job: 'C:/board/roles/supervisor.md',
       tokens: tokens ?? (async ({ session, from }) => (session === 'cli-watcher' && from >= START ? { total: 31_200, input: 400, cacheWrite: 2_800, cacheRead: 27_000, output: 1_000 } : null)),
       memory: { load: async () => memory.value, save: async value => { memory.value = JSON.parse(JSON.stringify(value)) } },
-      ...(ownFacts ? {} : { facts: async () => facts.value ?? `look ${(facts.looks += 1)}` }),
+      ...(ownFacts ? {} : { facts: async () => facts.value ?? { odd: [`odd line ${(facts.looks += 1)}`], tripped: [] } }),
     },
   }
   const supervisor = createSupervisor(ports)
@@ -159,7 +163,7 @@ test('B640, B645: a limit near a stop read over 30 min ago is no "nothing change
   // Work runs and the board looks as at the last sweep: skipped as before, but not while a reading is old (the lookup is what changes it).
   const again = async (limits, oldAfter, stopAt) => {
     const b = board({ limits, oldAfter, stopAt })
-    b.facts.value = 'same'
+    b.facts.value = QUIET
     await b.tick()
     b.outbox[0].state = 'delivered'
     await b.supervisor.heard({ action: 'health', ok: true })
@@ -369,52 +373,184 @@ test('the review: a word left "taken" (its typing never reported) or "waiting" p
   assert.match(stuck.view().lastSweep.note, /ran over 30 minutes/)
 })
 
-test('the review: a stuck night costs no sweep every 10 minutes: while the board looks the same, none by the clock; Check now sweeps', async () => {
-  const b = board()
-  b.facts.value = 'the same board'
-  await b.tick()
-  b.outbox[0].state = 'delivered'
+/** The sweep at `index` of the outbox has been typed, its health read and its turn ended (at `minutes` after START), so the next can come. */
+async function endSweep(b, index, minutes = 0) {
+  b.outbox[index].state = 'delivered'
   await b.supervisor.heard({ action: 'health', ok: true })
-  await b.supervisor.heard({ action: 'turn-ended', ok: true, session: 'cli-watcher', since: START })
-  for (const minutes of [10, 20, 60, 600]) {
+  await b.supervisor.heard({ action: 'turn-ended', ok: true, session: 'cli-watcher', since: START + minutes * MIN })
+}
+
+test('cheaper sweeps: by the clock a sweep runs only for an odd line or a tripped rule it has not seen; else it is skipped with the note', async () => {
+  const b = board()
+  const stuck = 'Digger (worker): interrupted since #; runs sonnet · medium; on no step'
+  const second = 'Weeder (worker): interrupted since #; runs sonnet · medium; on no step'
+  b.facts.value = { odd: [stuck], tripped: [] }
+  await b.tick()
+  assert.equal(b.sweeps().length, 1, 'the first sweep has nothing before it')
+  await endSweep(b, 0)
+  // The board looks different all day, but its odd lines are the same: one sweep in over three hours.
+  for (const minutes of [10, 20, 60, 200]) {
     b.at(minutes)
     await b.tick()
   }
-  assert.equal(b.sweeps().length, 1, 'nothing changed: one sweep in 10 hours')
-  assert.deepEqual({ ...b.view().sweepNote, at: 0 }, { at: 0, why: NOTHING_CHANGED, asked: false })
-  // Something changed: the next tick sweeps.
-  b.facts.value = 'another board'
-  b.at(601)
+  assert.equal(b.sweeps().length, 1, 'the same odd line')
+  assert.deepEqual({ ...b.view().sweepNote, at: 0 }, { at: 0, why: NOTHING_ODD, asked: false })
+  assert.equal(NOTHING_ODD, 'nothing odd since the last sweep')
+  b.facts.value = QUIET
+  b.at(201)
   await b.tick()
-  assert.equal(b.sweeps().length, 2)
+  assert.equal(b.sweeps().length, 1, 'an odd line that went is no news')
+  // A new odd line: the next tick sweeps.
+  b.facts.value = { odd: [stuck, second], tripped: [] }
+  b.at(202)
+  await b.tick()
+  assert.equal(b.sweeps().length, 2, 'a new odd line')
+  assert.equal(b.view().sweepNote, null, 'the note is of the sweep that did not run')
+  // Kept over a restart: the sweep's file holds what it saw.
+  assert.deepEqual(b.memory.value.last.facts, { odd: [stuck, second], tripped: [] })
   // Check now sweeps also while the board looks the same.
-  b.outbox[1].state = 'delivered'
-  await b.supervisor.heard({ action: 'turn-ended', ok: true, session: 'cli-watcher', since: START + 601 * MIN })
-  b.at(603)
+  await endSweep(b, 1, 202)
+  b.at(204)
   assert.equal((await b.supervisor.checkNow({})).sweep.started, true)
-  // Kept over a restart: the mark stands in the sweep's file.
-  assert.equal(b.memory.value.last.facts, 'another board')
 })
 
-test('the review: the facts are the health summary with its times and counts masked, its odd marks kept', async () => {
-  const one = 'The board\'s health at 11:00.\n- ! Digger (worker): unknown since 10:35 (25 min); seen 5 times; 5-hour limit: 64% used (ok), read at 10:55'
-  const later = 'The board\'s health at 11:40.\n- ! Digger (worker): unknown since 10:35 (1 h 5 min); seen 9 times; 5-hour limit: 70% used (ok), read at 11:38'
-  assert.equal(factsOf(one), factsOf(later))
-  assert.notEqual(factsOf(one), factsOf(one.replace('- ! ', '- ')), 'an odd mark that goes is a change')
-  assert.notEqual(factsOf(one), factsOf(one.replace('unknown', 'working')))
-  // The supervisor makes them itself from its health summary when no port gives them: the same board, no second sweep.
-  const b = board({ ownFacts: true })
+test('cheaper sweeps: a rule tripped now that was not tripped at the last sweep wakes the next one; one that stood tripped, or tripped and mended, does not', async () => {
+  const b = board()
+  b.facts.value = { odd: [], tripped: ['undelivered'] }
   await b.tick()
-  b.outbox[0].state = 'delivered'
-  await b.supervisor.heard({ action: 'turn-ended', ok: true, session: 'cli-watcher', since: START })
-  b.at(10)
+  await endSweep(b, 0)
+  // It still trips at every run of the rules (3 minutes): the sweep saw it, so no news. A rule that went is none either.
+  b.at(31)
   await b.tick()
-  assert.equal(b.sweeps().length, 1)
-  b.state.chats[1] = lane('Digger', { state: 'free' })
-  b.state.chats.push(lane('Weeder', { state: 'working' }))
+  assert.equal(b.sweeps().length, 1, 'a rule that stood tripped at the last sweep')
+  b.facts.value = QUIET
+  b.at(32)
+  await b.tick()
+  assert.equal(b.sweeps().length, 1, 'a rule that mended')
+  assert.deepEqual({ ...b.view().sweepNote, at: 0 }, { at: 0, why: NOTHING_ODD, asked: false })
+  // A rule tripped now that the last sweep did not see.
+  b.facts.value = { odd: [], tripped: ['undelivered', 'stale-checkpoint'] }
+  b.at(33)
+  await b.tick()
+  assert.equal(b.sweeps().length, 2, 'a newly tripped rule')
+  assert.deepEqual(b.memory.value.last.facts, { odd: [], tripped: ['undelivered', 'stale-checkpoint'] })
+  // What the sweep filed is seen at its turn's end: its incident is an odd line of the board now, and no sweep follows for it.
+  b.facts.value = { odd: ['X9 open, from sweep, #, first #, last #: A word is lost [key: lost word]'], tripped: ['undelivered', 'stale-checkpoint'] }
+  await endSweep(b, 1, 33)
+  b.at(70)
+  await b.tick()
+  assert.equal(b.sweeps().length, 2, 'the incident the sweep itself filed')
+  assert.equal(b.memory.value.last.facts.odd.length, 1)
+})
+
+test('cheaper sweeps: at least every supervisorSweepAtLeastHours (4) of work a sweep runs, whatever the board looks like; a pause, a full limit or a quiet night still hold it', async () => {
+  assert.equal(parseConfig('{}', {}).supervisorSweepAtLeastHours, 4)
+  assert.equal(parseConfig('{"supervisorSweepAtLeastHours":2.5}', {}).supervisorSweepAtLeastHours, 2.5)
+  assert.match(configProblem('{"supervisorSweepAtLeastHours":0}'), /"supervisorSweepAtLeastHours" must be a number of hours above 0/)
+  /** A board that looks quiet, one sweep done, and a tick at each of `minutes`. */
+  const quiet = async (options, minutes) => {
+    const b = board(options)
+    b.facts.value = QUIET
+    await b.tick()
+    await endSweep(b, 0)
+    for (const at of minutes) {
+      b.at(at)
+      await b.tick()
+    }
+    return b
+  }
+  const day = await quiet({}, [30, 120, 239])
+  assert.equal(day.sweeps().length, 1, 'quiet, and under 4 hours')
+  day.at(240)
+  await day.tick()
+  assert.equal(day.sweeps().length, 2, 'the safety net: 4 hours without a sweep while work runs')
+  assert.equal((await quiet({ atLeast: 1 }, [59])).sweeps().length, 1)
+  assert.equal((await quiet({ atLeast: 1 }, [59, 60])).sweeps().length, 2, 'the setting is in hours')
+  // A pause holds it, a full limit too, and nobody working means no work: the net catches nothing then.
+  const paused = await quiet({}, [30])
+  paused.state.pause = { state: 'pausing', since: START + 30 * MIN }
+  paused.at(300)
+  await paused.tick()
+  assert.equal(paused.sweeps().length, 1, 'held by the pause')
+  const full = await quiet({}, [30])
+  full.state.limits = { fiveHour: { used: 100, level: 'full' } }
+  full.at(300)
+  await full.tick()
+  assert.equal(full.sweeps().length, 1, 'held by a full limit')
+  const night = await quiet({}, [30])
+  night.state.chats[1] = lane('Digger', { state: 'free' })
+  night.at(600)
+  await night.tick()
+  assert.equal(night.sweeps().length, 1, 'no work runs')
+})
+
+test('cheaper sweeps: the near-stop limit exception sweeps although nothing odd is new; a fresh reading does not; Check now does', async () => {
+  const old = { fiveHour: { used: 85, level: 'warn', at: START - 40 * MIN }, week: { used: 10, level: 'ok', at: START - 5 * MIN } }
+  const b = board({ limits: old })
+  b.facts.value = QUIET
+  await b.tick()
+  await endSweep(b, 0)
   b.at(11)
   await b.tick()
-  assert.equal(b.sweeps().length, 2, 'the board changed')
+  assert.equal(b.sweeps().length, 2, 'the 5-hour limit is near its stop and its reading is old')
+  const fresh = board({ limits: { ...old, fiveHour: { ...old.fiveHour, at: START - MIN } } })
+  fresh.facts.value = QUIET
+  await fresh.tick()
+  await endSweep(fresh, 0)
+  fresh.at(11)
+  await fresh.tick()
+  assert.equal(fresh.sweeps().length, 1, 'a fresh reading is no reason')
+  assert.equal((await fresh.supervisor.checkNow({})).sweep.started, true)
+})
+
+test('cheaper sweeps: the odd lines of the health summary, without times and minute counts: 12 min and 13 min are the same line', () => {
+  const at = (clock, span, seen, used) => [
+    `The board's health at ${clock}, for the supervisor's sweep. Odd lines are marked with "!".`,
+    '',
+    'Chats (state and since):',
+    `- ! Worker 2 (worker): working since 10:35 (${span}); runs sonnet · medium; on no step; no report known`,
+    '- Worker 3 (worker): free since 10:00 (60 min); runs sonnet · medium; on no step',
+    '',
+    'Incidents and repairs of the last day:',
+    `- ! X7 open, from sweep, seen ${seen} times, first 09:00, last ${clock}: A word is lost [key: lost word] (evidence: 5 min late)`,
+    '- 10:50 repair unblock on B4 (blocked B4)',
+    '- (2 more left out: the oldest and least odd)',
+    '',
+    'Limits and pause:',
+    `- 5-hour limit: ${used}% used (ok), read at ${clock}; weekly limit: 40% used (ok), read at ${clock}`,
+  ].join('\n')
+  const one = oddLinesOf(at('11:00', '12 min', 2, 64))
+  assert.deepEqual(one, [
+    'Worker 2 (worker): working since # (#); runs sonnet · medium; on no step; no report known',
+    'X7 open, from sweep, #, first #, last #: A word is lost [key: lost word] (evidence: # late)',
+  ])
+  assert.deepEqual(oddLinesOf(at('11:01', '13 min', 3, 70)), one, 'the minutes, the clock, how often seen and the percent do not count')
+  assert.deepEqual(oddLinesOf(at('11:00', '1 h 5 min', 2, 64)), one, 'nor a span of hours')
+  assert.notDeepEqual(oddLinesOf(at('11:00', '12 min', 2, 64).replace('working', 'interrupted')), one, 'a state that changed does')
+  assert.deepEqual(oddLinesOf(at('11:00', '12 min', 2, 64).replace(/- ! /g, '- ')), [], 'no odd mark, no odd line')
+  assert.deepEqual(oddLinesOf(''), [])
+})
+
+test('cheaper sweeps: the supervisor makes its facts itself from its summary: a changed summary with no new odd line is skipped, a new odd line sweeps', async () => {
+  const b = board({ ownFacts: true })
+  // One chat stands interrupted from the start: odd, and the first sweep sees it.
+  b.state.chats.push(lane('Weeder', { state: 'interrupted' }))
+  b.state.today = [{ chat: 'Weeder', spans: [{ from: START - 25 * MIN, to: START, state: 'interrupted' }] }]
+  await b.tick()
+  assert.equal(b.sweeps().length, 1)
+  await endSweep(b, 0)
+  // 40 minutes on, the summary reads other minutes and another worker is there, free: nothing odd is new.
+  b.state.chats.push(lane('Planter', { state: 'free' }))
+  b.at(40)
+  await b.tick()
+  assert.equal(b.sweeps().length, 1, 'the same odd line with other minute counts')
+  assert.equal(b.view().sweepNote?.why, NOTHING_ODD)
+  // A second chat that stands interrupted is a new odd line.
+  b.state.chats.push(lane('Sower', { state: 'interrupted' }))
+  b.state.today.push({ chat: 'Sower', spans: [{ from: START + 35 * MIN, to: START + 41 * MIN, state: 'interrupted' }] })
+  b.at(41)
+  await b.tick()
+  assert.equal(b.sweeps().length, 2)
 })
 
 test('the review: a Check now right after a sweep ended keeps that sweep with its tokens', async () => {
