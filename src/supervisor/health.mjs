@@ -477,3 +477,19 @@ export function healthSummary(view, now = view.now) {
   const text = parts.join('\n')
   return text.length <= HEALTH_CHARS ? text : `${text.slice(0, HEALTH_CHARS - 1)}…`
 }
+
+/**
+ * A summary line with its times and counts masked ("#"): clock times, spans such as "12 min" or "1 h 5 min", how often an
+ * incident was seen and the limits' percent. The same situation reads the same at 12 minutes and at 13.
+ */
+export const withoutTimes = text => String(text).replace(/\b\d{1,2}:\d{2}\b|\b\d+ (?:min|h|d)\b(?: \d+ min\b)?|seen \d+ times|\d+% used/g, '#')
+
+/**
+ * The odd lines of a summary (`healthSummary`'s "- ! ..." lines) without their times and counts, each once, in their
+ * order: what the sweep compares to say whether anything odd is new since the last one. A line that only grew a minute
+ * is the same line; a state, a step or a chat that changed is another.
+ */
+export function oddLinesOf(summary) {
+  const lines = [...String(summary ?? '').matchAll(/^- ! (.+)$/gm)].map(one => withoutTimes(one[1]).trim())
+  return [...new Set(lines)]
+}

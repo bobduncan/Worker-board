@@ -1,6 +1,6 @@
 // The supervisor's sweep (spec 2026-10-24, "The supervisor chat"): the AI part for the gaps the code rules leave. Every
-// `supervisorSweepMinutes` (10 to start; 0 for none) while work runs, and at once on "Check now", the board wakes the
-// chat of role supervisor (the list of chats' "supervisor", Sonnet · low): it reads `work health`, files each oddity
+// `supervisorSweepMinutes` (10 to start; 0 for none) while work runs and something odd is new (see `sweepRunner`), and at once
+// on "Check now", the board wakes the chat of role supervisor (the list of chats' "supervisor", Sonnet · low): it reads `work health`, files each oddity
 // with `work incident`, and ends its turn; its Workers mod then clears it, so the next sweep starts empty. Quiet nights
 // (Review Focus 3): no sweep while no chat works and no step is under way, while the person pauses all, at a full limit,
 // or while the last sweep still runs. A missing chat (Review Focus 4) is said plainly, and the code rules run anyway.
@@ -20,10 +20,37 @@ export const TOKENS_AFTER_MS = 20_000
  * in the outbox must never hold every later sweep).
  */
 export const SWEEP_LONGEST_MS = 30 * MIN
-/** The review: the note when a sweep by the clock is skipped because the board looks as at the last sweep. */
-export const NOTHING_CHANGED = 'nothing changed since the last sweep'
+/**
+ * Cheaper sweeps (the person, 2026-10-26): the note when a sweep by the clock is skipped because nothing odd is new: no
+ * odd line and no tripped rule that the last sweep did not see.
+ */
+export const NOTHING_ODD = 'nothing odd since the last sweep'
+/** The safety net when the setting `supervisorSweepAtLeastHours` is not given: hours of work without a sweep. */
+export const SWEEP_AT_LEAST_HOURS = 4
 /** How many ended sweeps the supervisor keeps, for their tokens. */
 const KEPT = 50
+
+/** The facts of a sweep as its file holds them: `{ odd, tripped }` (lists of text), or null for anything else. */
+function factsOfFile(value) {
+  const list = items => (Array.isArray(items) ? items.filter(one => typeof one === 'string') : null)
+  const [odd, tripped] = [list(value?.odd), list(value?.tripped)]
+  return odd === null || tripped === null ? null : { odd, tripped }
+}
+
+/**
+ * What a look at the board holds that the sweep before did not see (`before`, the facts that sweep kept; `now`, the facts
+ * now, as the runner's `facts()` gives them): `{ odd, rules }`, the odd lines that were not there, and the rules tripped
+ * now that were not tripped then. A rule that stands tripped, as it did at the sweep, is nothing new; so is an odd line
+ * that went, and a rule that tripped and was fine again by now (the board's own repairs are such).
+ */
+export function unseenSince(before, now) {
+  const had = new Set(before.odd)
+  const stood = new Set(before.tripped)
+  return { odd: now.odd.filter(line => !had.has(line)), rules: now.tripped.filter(id => !stood.has(id)) }
+}
+
+/** The facts of two looks together: what the sweep saw when it began and what stood when its turn ended (what it filed is seen). */
+const bothFacts = (a, b) => ({ odd: [...new Set([...a.odd, ...b.odd])], tripped: [...new Set([...a.tripped, ...b.tripped])] })
 
 const pad = n => String(n).padStart(2, '0')
 const clockOf = ms => `${pad(new Date(ms).getHours())}:${pad(new Date(ms).getMinutes())}`
@@ -86,8 +113,9 @@ function sweepOf(value) {
     read: value.read === true, tokens: number('tokens'), tokenParts: value.tokenParts !== null && typeof value.tokenParts === 'object' ? value.tokenParts : null,
     tokensRead: value.tokensRead === true, session: typeof value.session === 'string' ? value.session : null, from: number('from') ?? value.at,
     note: typeof value.note === 'string' ? value.note : null,
-    // The review: the board's facts the sweep saw (`facts`), so the next one by the clock is skipped while they stand.
-    facts: typeof value.facts === 'string' ? value.facts : null,
+    // Cheaper sweeps: what the sweep saw (`facts`: its odd lines and the rules tripped), so the next one by the clock waits for something new.
+    // A file from before holds a hash: no facts known, so the next one runs.
+    facts: factsOfFile(value.facts),
   }
 }
 const noteOf = value => (value !== null && typeof value === 'object' && Number.isFinite(value.at) && typeof value.why === 'string' ? { at: value.at, why: value.why, asked: value.asked === true } : null)
@@ -96,20 +124,23 @@ const noteOf = value => (value !== null && typeof value === 'object' && Number.i
  * The sweep's runner. `every` how often in milliseconds (0: none, then only "Check now" sweeps); `workRuns()` true while a
  * chat works or a step is under way; `paused()` while the person pauses all (or resumes); `atLimit()` while a limit is
  * full; `limitsOld()` (B640) true while a limit's newest reading is over `oldReadingMinutes` old and near a stop (X47, X55, X56: an old
- * low reading changes no decision), which the sweep's chat looks up with get_usage: the sweep is then not skipped as "nothing changed" (B645: a pause holds the sweep word until the resume, and
+ * low reading changes no decision), which the sweep's chat looks up with get_usage: the sweep is then not skipped as "nothing odd" (B645: a pause holds the sweep word until the resume, and
  * nothing spends in a pause, so none runs for it then); `chat()` how the board sees the supervisor's chat (`whyNoSweep`); `sweeping()` true while its sweep word is on
  * its way or its chat runs a turn; `wake({ subject })` sends the sweep word: `{ ok, session, note }` or `{ ok: false,
  * why }`; `tokens({ session, from })` what the turn cost (`tokensOfTurn`), or null; `memory` `{ load(), save(value) }` its
- * own file, so a restart neither sweeps again at once nor forgets a sweep that runs; `facts()` (the review) a mark of
- * what the board looks like (index.mjs: the health summary with its times and counts masked), or null: a sweep by the
- * clock is skipped while it is the one the last sweep saw ("nothing changed since the last sweep"); Check now sweeps
- * anyway. A sweep open for SWEEP_LONGEST_MS has ended, whatever `sweeping()` says.
+ * own file, so a restart neither sweeps again at once nor forgets a sweep that runs; `facts()` (cheaper sweeps) what the
+ * board holds that is odd (index.mjs): `{ odd, tripped }`, the odd lines of the health summary without times or minute
+ * counts, and the ids of the rules tripped at their last run; or null. A sweep by the clock runs only when something odd
+ * is new since the last sweep (`unseenSince`: an odd line it did not have, a rule tripped that was not then; what the sweep
+ * itself filed is seen at its turn's end), else it is skipped ("nothing odd since the last sweep"); and
+ * whatever the board looks like at least once in `atLeast` milliseconds (the setting `supervisorSweepAtLeastHours`, 4)
+ * while work runs. Check now sweeps anyway. A sweep open for SWEEP_LONGEST_MS has ended, whatever `sweeping()` says.
  * Answers `{ tick(now), now({ subject, at }), heard(call), view() }`: `tick` sweeps when one is due; `now` is "Check now":
  * `{ started, why, note }`; `heard` takes the supervisor chat's work calls (health read, incident filed, turn ended);
  * `view()` is `{ last, note, recent }`: the last sweep, why the newest sweep did not run (when that is newer), and the
  * ended sweeps kept.
  */
-export function sweepRunner({ every, workRuns, paused, atLimit, limitsOld = async () => false, chat, sweeping, wake, tokens, memory = null, facts = async () => null }) {
+export function sweepRunner({ every, workRuns, paused, atLimit, limitsOld = async () => false, chat, sweeping, wake, tokens, memory = null, facts = async () => null, atLeast = SWEEP_AT_LEAST_HOURS * 60 * MIN }) {
   let last = null
   let note = null
   let recent = []
@@ -148,11 +179,10 @@ export function sweepRunner({ every, workRuns, paused, atLimit, limitsOld = asyn
     recent = [...recent, last].slice(-KEPT)
     return true
   }
-  /** The board's facts now, or null when they cannot be read (then nothing is skipped). */
+  /** The board's facts now (`facts()`: `{ odd, tripped }`), or null when they cannot be read (then nothing is skipped). */
   const factsNow = async () => {
     try {
-      const read = await facts()
-      return typeof read === 'string' ? read : null
+      return factsOfFile(await facts())
     } catch {
       return null
     }
@@ -189,15 +219,19 @@ export function sweepRunner({ every, workRuns, paused, atLimit, limitsOld = asyn
       }
       // A sweep that runs although this board forgot it (another board process asked it) is not asked again.
       if (await sweeping()) return null
-      // The review: a stuck night costs no sweep every 10 minutes: while the board looks as at the last sweep, none.
+      // Cheaper sweeps: a sweep by the clock costs a turn of a chat, so it runs only for something odd that the last one did
+      // not see (an odd line, a rule that tripped since), for an old reading near a stop (B640: the lookup is what changes
+      // it), and at least once in `atLeast` as a safety net. The minutes and states that change all day are no reason.
       const seen = await factsNow()
-      // B640: the board looking the same is no reason to skip while a limit's reading is old (the lookup is what changes it).
-      if (seen !== null && last?.facts === seen && !(await limitsOld())) {
-        if (note?.why !== NOTHING_CHANGED) {
-          note = { at: now, why: NOTHING_CHANGED, asked: false }
-          await save()
+      if (seen !== null && last?.facts != null && !(now - last.at >= atLeast) && !(await limitsOld())) {
+        const news = unseenSince(last.facts, seen)
+        if (news.odd.length === 0 && news.rules.length === 0) {
+          if (note?.why !== NOTHING_ODD) {
+            note = { at: now, why: NOTHING_ODD, asked: false }
+            await save()
+          }
+          return null
         }
-        return null
       }
       return start(now, { asked: false, subject: null, seen })
     },
@@ -228,6 +262,9 @@ export function sweepRunner({ every, workRuns, paused, atLimit, limitsOld = asyn
       else if (action === 'incident') last = { ...last, found: last.found + 1 }
       else if (action === 'turn-ended') {
         const turn = Number(since)
+        // What stands now, with what the sweep filed, is seen: the next sweep by the clock waits for something that comes after.
+        const after = await factsNow()
+        if (after !== null && last.facts != null) last = { ...last, facts: bothFacts(last.facts, after) }
         end(at, 'told', {
           session: typeof session === 'string' && session !== '' ? session : last.session,
           from: Number.isFinite(turn) ? turn : last.from,
