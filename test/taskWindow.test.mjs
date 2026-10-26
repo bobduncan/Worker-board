@@ -15,6 +15,7 @@ import { itemOfStep, storeFromText } from '../src/work/read.mjs'
 import { migrateBacklog } from '../src/work/migrate.mjs'
 import { parseItem } from '../src/work/item.mjs'
 import { checkedOf, parsePoints, triesOf } from '../src/work/resultCheck.mjs'
+import { checkLinesWarning } from '../src/work/recapWords.mjs'
 import { readStore, writeStore } from '../src/work/store.mjs'
 import { queueFor } from './queueFor.mjs'
 
@@ -54,15 +55,18 @@ test('the tries of a chain: the first step and each fix, oldest first, each with
     ['B5', step('B5', 'review', ['Evidence: pictures/b5/evidence.png', 'Tried: painted on the layout', '- fail: edges cut off', '- fail: a band of still lava'], 'Fix of: B2\n')],
     ['B7', step('B7', 'in progress', null, 'Fix of: B5\n')],
     ['B8', step('B8', 'dropped', null, 'Fix of: B2\n')],
+    ['B6', step('B6', 'dropped', ['Evidence: pictures/b6/evidence.png', 'Tried: cut it by colour', '- fail: floors cut away'], 'Fix of: B2\n')],
   ])
   const tries = plain(triesOf('B5', items))
-  assert.deepEqual(tries.map(one => [one.id, one.state, one.check === null ? null : [one.check.passed, one.check.total]]), [['B2', 'review', [1, 2]], ['B5', 'review', [0, 2]], ['B7', 'in progress', null]])
+  // B706: a dropped fix that was checked is a try (B670's B683, 72 of 75: dropped by the person, but tried); one that never was (B8) is none.
+  assert.deepEqual(tries.map(one => [one.id, one.state, one.check === null ? null : [one.check.passed, one.check.total]]), [['B2', 'review', [1, 2]], ['B5', 'review', [0, 2]], ['B6', 'dropped', [0, 1]], ['B7', 'in progress', null]])
   assert.deepEqual(tries[0].check.failed, ['warm yellow light, never white'])
   assert.deepEqual(tries[0].check.points, [{ verdict: 'pass', text: 'a lamp at every bench' }, { verdict: 'fail', text: 'warm yellow light, never white' }])
   assert.equal(tries[1].check.tried, 'painted on the layout')
   assert.equal(tries[1].check.why, null)
   // The same chain from any of its steps; a step with no fix is a chain of one.
-  assert.deepEqual(plain(triesOf('B2', items)).map(one => one.id), ['B2', 'B5', 'B7'])
+  assert.deepEqual(plain(triesOf('B2', items)).map(one => one.id), ['B2', 'B5', 'B6', 'B7'])
+  assert.deepEqual(plain(triesOf('B6', items)).map(one => one.id), ['B2', 'B5', 'B6', 'B7'])
   assert.deepEqual(plain(triesOf('B8', new Map([['B8', step('B8', 'review')]]))).map(one => one.id), ['B8'])
 })
 
@@ -139,12 +143,14 @@ test('an older check, with no plain lines, shows the step\'s title and its count
     tryOf('B2', 'Fix: the same wording again', check(8, 10, { failed: ['Old wording in three more pages. One case is untested.'], evidence: 'none (nothing on screen)' })),
   ] }
   const view = plain(page.summaryOf(item))
-  assert.deepEqual(view.tried.map(one => [one.n, one.way, one.result]), [[1, 'Fix the old wording', '7 of 10 points'], [2, 'a fix', '8 of 10 points']])
-  // Evidence "none" is no picture; the technical sentence is left out, the plain one kept.
+  assert.deepEqual(view.tried.map(one => [one.n, one.way, one.result]), [[1, 'Fix the old wording', '7 of 10 points passed'], [2, 'Fix: the same wording again', '8 of 10 points passed']])
+  // Evidence "none" is no picture.
   assert.deepEqual([view.now, view.triedPictures], [null, []])
-  assert.deepEqual(view.why, ['The latest check found: Old wording in three more pages.'])
-  // Without a plain failed point either, the count.
-  assert.deepEqual(plain(page.summaryOf({ ...base, tries: [tryOf('B1', 'x', check(2, 5, { failed: ['Edit `a.mjs` now.'] }))] })).why, ['The latest check met 2 of 5 points.'])
+  // B706: the failed points are never quoted (B696: "Suite 2688 tests, 0 fail"); the count says what passed, so 7 of 10 never reads as 7 failed.
+  assert.deepEqual(view.why, ['The latest check passed 8 of 10 points.'])
+  assert.deepEqual(plain(page.summaryOf({ ...base, tries: [tryOf('B1', 'x', check(2, 5, { failed: ['Edit `a.mjs` now.'] }))] })).why, ['The latest check passed 2 of 5 points.'])
+  // A fix whose title is not plain is just "a fix".
+  assert.equal(plain(page.summaryOf({ ...base, tries: [tryOf('B1', 'x', check(1, 2)), tryOf('B2', 'Fix: the cut equals guide-lava.png exactly', check(1, 2))] })).tried[1].way, 'a fix')
 })
 
 test('the plain lines leave out code, files, paths and ids', () => {
@@ -152,7 +158,7 @@ test('the plain lines leave out code, files, paths and ids', () => {
   const item = { ...base, tries: [tryOf('B9', 'Fix', check(0, 2, { tried: 'Changed `board.css` in B9.', why: 'The page src/state.mjs broke.' }))] }
   const view = plain(page.summaryOf(item))
   // Nothing plain is left of either: the title, then the count.
-  assert.deepEqual([view.tried[0].way, view.tried[0].result], ['Fix', '0 of 2 points'])
+  assert.deepEqual([view.tried[0].way, view.tried[0].result], ['Fix', '0 of 2 points passed'])
 })
 
 test('a passed latest check gives no "why" and no failure; the window opens on the Summary only from the taking on', () => {
@@ -257,4 +263,143 @@ test('the probe says which parts the Summary shows and the lines that hold what 
   const { report } = await import('../tools/task-probe.mjs')
   assert.deepEqual(report('B5', { parts: ['What we want', 'Options'], pictures: 3, loaded: 3, tabs: ['Summary', 'Checks'], bad: [] }), ['B5: What we want · Options', 'pictures: 3 of 3 loaded', 'tabs: Summary · Checks'])
   assert.deepEqual(report('B5', { parts: [], pictures: 2, loaded: 1, tabs: [], bad: ['Changed board.css in B5'] }).slice(3), ['not for the person: Changed board.css in B5'])
+})
+
+// B706: the fixes of the result check of B701
+
+const fn = name => {
+  const from = script.indexOf(`function ${name}(`)
+  assert.ok(from >= 0, `board.js has no function ${name}`)
+  return script.slice(from, script.indexOf('\n}\n', from) + 3)
+}
+const own = {}
+vm.runInNewContext(`${line(/const isStep = [^\n]*/)}\n${cut('calm')}\n${cut('item')}\n${cut('lanewindow')}\n${cut('taskwindow')}\nObject.assign(this, { taskGuardAsk, taskQuestion, goalNameOf, taskCheckLines, taskAsksOf })`, own)
+
+test('the chip names the goal as the goal map titles it, without its id', () => {
+  const nodes = [{ id: 'G59', title: 'How we build good maps' }, { id: 'G60', title: 'G60 Sounds' }, { id: 'G61', title: '' }]
+  assert.equal(own.goalNameOf('G59', nodes), 'How we build good maps')
+  assert.equal(own.goalNameOf('G60', nodes), 'Sounds')
+  // A goal the map does not know, or one with no title, keeps its id.
+  assert.deepEqual(['G61', 'G9'].map(id => own.goalNameOf(id, nodes)), ['G61', 'G9'])
+  assert.equal(own.goalNameOf('G9', undefined), 'G9')
+  assert.match(script, /text: `Goal: \$\{goalNameOf\(item\.goal, state\.goals\?\.nodes\)\}`/)
+})
+
+test('the Checks tab shows one short line per point: a mark and the first words, the whole point on hover', () => {
+  const lines = plain(own.taskCheckLines([
+    { verdict: 'pass', text: 'The lava moves around the floors. Everything else holds.' },
+    { verdict: 'fail', text: 'The painting does not sit on the guide: the painted platform is up to 52 px wider each side and its bottom cliff ends about 50 px above the guide, so the cut squares the outline of every floor' },
+    { verdict: 'ask', text: 'Does the glow look right?' },
+  ]))
+  assert.deepEqual(lines.map(one => [one.verdict, one.mark]), [['pass', '✓'], ['fail', '✗'], ['ask', '?']])
+  assert.equal(lines[0].text, 'The lava moves around the floors')
+  assert.equal(lines[1].text, 'The painting does not sit on the guide')
+  assert.match(lines[1].full, /so the cut squares the outline of every floor$/)
+  const long = plain(own.taskCheckLines([{ verdict: 'fail', text: 'Floors and props and torches and stairs and boulders and barrels and crystals and ledges were all cut away by the colour rule at once' }]))
+  assert.ok(long[0].text.length <= 111 && long[0].text.endsWith('…'), long[0].text)
+  assert.deepEqual(plain(own.taskCheckLines(undefined)), [])
+  assert.match(script, /function taskCheckPart\(/)
+  assert.match(script, /for \(const one of taskCheckLines\(checked\.points\)\)/)
+})
+
+test('the guard\'s question (Fable or Opus) is offered by the one step it is about, with its question; the step\'s own asks by it', () => {
+  const guard = { state: 'asking', ask: 'Q7', step: 'B4' }
+  const focus = { id: 'G2', guard }
+  assert.equal(own.taskGuardAsk({ id: 'B4', goal: 'G2' }, focus), 'Q7')
+  // B702 and B696 beside B691: not theirs.
+  assert.equal(own.taskGuardAsk({ id: 'B5', goal: 'G2' }, focus), null)
+  assert.equal(own.taskGuardAsk({ id: 'B4', goal: 'G3' }, focus), null)
+  assert.equal(own.taskGuardAsk({ id: 'B4', goal: 'G2' }, { id: 'G2', guard: { ...guard, state: 'rebuild' } }), null)
+  assert.equal(own.taskGuardAsk({ id: 'B4', goal: 'G2' }, null), null)
+  const needs = [ask('Q7', 'G2', { title: 'G2 · B4 A failed 3 times: evaluate the strategy with Fable?' }), ask('Q5', 'B5')]
+  assert.deepEqual(plain(own.taskAsksOf('B5', needs, own.taskGuardAsk({ id: 'B5', goal: 'G2' }, focus))).map(one => one.workId), ['Q5'])
+  assert.deepEqual(plain(own.taskAsksOf('B4', needs, own.taskGuardAsk({ id: 'B4', goal: 'G2' }, focus))).map(one => one.workId), ['Q7'])
+  // The question stands above the cards: the guard's in plain words, another ask's without ids.
+  assert.match(own.taskQuestion(needs[0], true), /^The checks failed three times\. Should the strategy be evaluated by Fable/)
+  assert.equal(own.taskQuestion({ title: 'B12 or B13 first, thin or thick?', question: 'Q9 · Thin or thick strip?' }, false), 'Thin or thick strip?')
+  assert.match(script, /part\.append\(el\('p', 'task-question', taskQuestion\(need, isGuard\)\)\)/)
+  assert.doesNotMatch(script, /if \(asks\.length > 1\) part\.append/)
+  assert.match(script, /taskAsksOf\(taskItem\.id, everyNeed\(state\), taskGuardAsk\(taskItem, state\.focus\)\)/)
+})
+
+test('the guard names the first step of the chain whose failed check was the newest: the step the question is about', async () => {
+  const { guardOf } = await import('../src/goalGuard.mjs')
+  const { parseGoals } = await import('../src/goals.mjs')
+  const failed = (id, state, fixOf, ...checks) => parseItem(`Id: ${id}\nKind: step\nTitle: Step ${id}\nState: ${state}\nGoal: G2\n${fixOf === null ? '' : `Fix of: ${fixOf}\n`}Since: 2026-10-19 08:00\n\n## History\n${checks.map(one => `- ${one} Partner: result check failed: 1 of 3 points pass; fix B9 for W1`).join('\n')}\n`)
+  const goal = parseGoals('Last id: G2\nFocus: G2\n\n- [~] G2 Benches\n    Done when: every bench is built\n    Vibe: warm\n    Vibe agreed: 2026-10-19 08:00\n    Part: Benches · about 1 h · steps B1, B2, B3\n    How agreed: 2026-10-19 08:00\n    Fable asked: Q7\n').nodes[0]
+  // B1 failed, its fix B2 failed, its fix B3 failed: the third failure is B3's, the question is about the chain B1 started.
+  const guard = guardOf(goal, [failed('B1', 'review', null, '2026-10-19 08:40'), failed('B2', 'review', 'B1', '2026-10-19 09:00'), failed('B3', 'review', 'B2', '2026-10-19 09:20')], [])
+  assert.deepEqual([guard.state, guard.step], ['asking', 'B1'])
+})
+
+test('a failed check\'s plain lines are checked when it is filed: missing, or with file names, ids or counts, it is taken, and the answer and the History line say so', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'task-window-'))
+  const at = new Date(2026, 9, 26, 12, 0).getTime()
+  await writeStore(dir, migrateBacklog(['# Backlog', '', '## Lava', '- [ ] B1 Moving lava on a painted map', '- [ ] B2 Warm benches', '- [ ] B3 Soft rugs', ''].join('\n'), { now: at }), undefined, { now: at })
+  const ctx = { dir, now: at + 60_000, prefix: '', roleOf: chat => ({ Partner: 'advisor', Keeper: 'main', Painter: 'worker' })[chat] ?? null, freeChats: new Set(['Painter']), chats: ['Partner', 'Keeper', 'Painter'] }
+  const as = chat => body => workApi({ chat, ...body }, ctx)
+  for (const id of ['B1', 'B2', 'B3']) {
+    assert.equal((await as('Partner')({ action: 'refine', id, summary: 'A thing that should work.' })).ok, true)
+    assert.equal((await as('Partner')({ action: 'refined', id, what: ['it works'] })).ok, true)
+    assert.equal((await queueFor(dir, id, 'Painter', { now: at + 60_000 })).ok, true)
+    assert.equal((await as('Painter')({ action: 'take', id, branch: `${id.toLowerCase()}-x` })).ok, true)
+    assert.equal((await as('Painter')({ action: 'report', id, result: 'Done.', merged: 'c0ffee1' })).ok, true)
+    assert.equal((await workApi({ action: 'check', id, passed: true, lines: ['branch gone'] }, { ...ctx, as: 'server' })).ok, true)
+  }
+  const file = (id, points) => as('Partner')({ action: 'checked', id, evidence: 'none (x)', points })
+  // Plain lines: no warning anywhere.
+  const good = await file('B1', ['fail: it works', 'tried: cut the lava out by its colour', 'why: floors and props were cut away too'])
+  assert.equal(good.ok, true, good.why)
+  assert.equal(good.result.warnings, undefined)
+  assert.doesNotMatch(good.result.text, /Board warning/)
+  // None at all: taken, and said once in the answer and in the step's History line.
+  const none = await file('B2', ['fail: it works'])
+  assert.equal(none.ok, true, none.why)
+  assert.match(none.result.warnings, /no "tried:" line; no "why:" line/)
+  assert.match(none.result.text, /Board warning: the task window leaves out this check's plain lines/)
+  const history = (await readFile(join(dir, 'B2.md'), 'utf8')).split('\n').filter(one => /result check failed/.test(one))
+  assert.equal(history.length, 1)
+  assert.match(history[0], /result check failed: 0 of 1 points pass; fix B\d+ for \w+; the task window leaves out this check's plain lines \(no "tried:" line; no "why:" line\)/)
+  // File names, ids and counts: the same.
+  const raw = await file('B3', ['fail: it works', 'tried: changed public/board.js in B3', 'why: 2688 tests pass but the suite 7 of 10 points holds'])
+  assert.equal(raw.ok, true, raw.why)
+  assert.match(raw.result.warnings, /"tried:" line holds file names \(public\/board\.js\), ids \(B3\)/)
+  assert.match(raw.result.warnings, /"why:" line holds counts \(2688 tests, 7 of 10 points\)/)
+  // A check that fails nothing has no tries to tell: no warning.
+  assert.equal(checkLinesWarning({}, 0), '')
+})
+
+test('Settings holds what the step\'s window had: worker, state, model and effort, flow, folder and branch, pin, close and delete', () => {
+  class Node {
+    constructor(tag) { Object.assign(this, { tag, className: '', textContent: '', children: [], dataset: {}, attrs: {}, disabled: false, title: '', type: '', value: '' }) }
+    append(...items) { for (const one of items) this.children.push(typeof one === 'string' ? { tag: '#text', textContent: one, children: [] } : one) }
+    setAttribute(name, value) { this.attrs[name] = value }
+  }
+  const text = node => [node.textContent, ...(node.children ?? []).map(text)].join(' ')
+  const find = (node, test) => [...(test(node) ? [node] : []), ...(node.children ?? []).flatMap(one => find(one, test))]
+  const sandbox = { document: { createElement: tag => new Node(tag) }, problems: new Map(), sending: new Set() }
+  const names = ['el', 'section', 'copyRow', 'flowPart', 'itemPart', 'holding', 'pinPart', 'pinChangePart', 'editPart', 'taskSettings', 'taskSettingsTab']
+  vm.runInNewContext(`${cut('item')}\n${cut('taskwindow')}\n${names.map(fn).join('\n')}\nObject.assign(this, { taskSettingsTab })`, sandbox)
+  const item = {
+    id: 'B12', state: 'in progress', owner: 'Worker 3', summary: [], picture: null, goal: 'G5', what: [], requirements: [], touches: [], history: [], checked: null, fixOf: null,
+    effort: { level: 'high', isSet: true, why: 'the window is used everywhere' }, model: { family: 'sonnet', isSet: true, why: 'the design is agreed' },
+  }
+  const strip = { states: [{ name: 'taken', tone: 'plain' }, { name: 'in progress', tone: 'working' }], isKnown: true, state: 'in progress', next: ['review'] }
+  const state = { chats: [{ name: 'Worker 1', isMain: false, isLeftover: false, folders: [] }, { name: 'Worker 3', isMain: false, isLeftover: false, folders: [{ branch: 'b12-x', path: 'C:/work/b12' }] }], otherFolders: [], taskTimes: { efforts: [] } }
+  const step = { id: 'B12', title: 'Build the shop', status: 'open', item: { pinned: null }, branch: 'b12-x' }
+  const nodes = sandbox.taskSettingsTab({ item, need: null, subject: { step }, lane: null, step, strip, state })
+  const all = nodes.map(text).join(' | ')
+  for (const word of ['Worker', 'Worker 3', 'State', 'in progress', 'Model and effort', 'Sonnet', 'high', 'Flow', 'taken', 'Files / Branch', 'C:/work/b12', 'b12-x']) assert.ok(all.includes(word), `Settings lacks "${word}": ${all}`)
+  const buttons = nodes.flatMap(one => find(one, node => node.tag === 'button'))
+  assert.deepEqual(plain(buttons.map(one => one.textContent).filter(one => one !== 'Copy')), ['Pin to', 'Close task', 'Delete task'])
+  assert.deepEqual(plain(buttons.filter(one => one.dataset.editAction !== undefined).map(one => [one.dataset.editAction, one.dataset.editStep])), [['close', 'B12'], ['delete', 'B12']])
+  // Pinned: Unpin; a step the board gave to its lane: the lane's note.
+  const pinned = sandbox.taskSettingsTab({ item, need: null, subject: { step: { ...step, item: { pinned: 'Worker 1' } } }, lane: null, step, strip, state })
+  assert.ok(pinned.flatMap(one => find(one, node => node.tag === 'button')).some(one => one.textContent === 'Unpin'))
+  const given = sandbox.taskSettingsTab({ item, need: null, subject: {}, lane: { name: 'Worker 3' }, step, strip, state }).map(text).join(' | ')
+  assert.match(given, /The board gave it to Worker 3/)
+  // A done step has no Close, a step without a flow no Flow part.
+  const doneStep = sandbox.taskSettingsTab({ item: { ...item, state: 'done' }, need: null, subject: { step: { ...step, status: 'done' } }, lane: null, step, strip: null, state })
+  assert.deepEqual(plain(doneStep.flatMap(one => find(one, node => node.tag === 'button')).map(one => one.dataset.editAction).filter(Boolean)), ['delete'])
+  assert.doesNotMatch(doneStep.map(text).join(' | '), /Flow/)
 })

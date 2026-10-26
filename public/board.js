@@ -5443,17 +5443,16 @@ function summaryOf(item) {
   const now = [...checks].reverse().map(one => pictureOf(one.check.evidence)).find(path => path !== null) ?? null
   const target = standardPicture(item.standard) ?? pictureOf(item.picture)
   const want = plainSentences((item.summary ?? []).join(' ')).slice(0, 2).map(one => upFirst(cutWords(one, 220)))
-  // The checker's own words; else the failed points, cleaned; else the count.
-  const failedWords = latestFailed === null ? [] : latestFailed.check.failed.flatMap(one => plainSentences(one).slice(0, 1))
+  // The checker's own words, through the cleaner; without them (an older check) the count, never the raw failed points (B706).
   const why = latestFailed === null ? []
     : plainSentences(latestFailed.check.why ?? '').length > 0 ? plainSentences(latestFailed.check.why).slice(0, 2).map(one => upFirst(cutWords(one, 220)))
-      : failedWords.length > 0 ? [`The latest check found: ${failedWords.slice(0, 3).map(one => cutWords(one.replace(/[.!?]+$/, ''), 120)).join('; ')}.`]
-        : [`The latest check met ${latestFailed.check.passed} of ${latestFailed.check.total} points.`]
+      : [`The latest check passed ${latestFailed.check.passed} of ${latestFailed.check.total} points.`]
   const tried = checks.slice(-8).map(one => {
     const failed = isFailedTry(one)
-    // Without the checker's words the first try is the step itself, by its title; a fix's title names what it fixes, not the way.
-    const way = plainSentences(one.check.tried ?? '')[0] ?? (one.n === 1 ? plainSentences(one.title)[0] ?? 'a first build' : 'a fix')
-    const result = failed ? (plainSentences(one.check.why ?? '').slice(0, 2).join(' ') || `${one.check.passed} of ${one.check.total} points`) : ''
+    // Without the checker's words a try is its step's title (a fix's title, "Fix: ...", names what it fixes: cut short, and "a fix" when it is not plain).
+    const title = plainSentences(one.title.replace(/^Fix:\s*/i, ''))[0] ?? ''
+    const way = plainSentences(one.check.tried ?? '')[0] ?? (one.n === 1 ? title || 'a first build' : title === '' ? 'a fix' : `Fix: ${cutWords(title, 70)}`)
+    const result = failed ? (plainSentences(one.check.why ?? '').slice(0, 2).join(' ') || `${one.check.passed} of ${one.check.total} points passed`) : ''
     return { n: one.n, way: cutWords(way.replace(/[.!?]+$/, ''), 140), result: cutWords(result.replace(/[.!?]+$/, ''), 200), isFailed: failed, picture: pictureOf(one.check.evidence) }
   })
   // A failed try's evidence picture, but not the one already shown as the latest result.
@@ -5464,6 +5463,38 @@ function summaryOf(item) {
 
 /** B701: the open questions of a step (asks of the store the board can answer), oldest first; with the goal guard's question of its goal (`guardAsk`: Fable or Opus), which is about the step's failed checks. */
 const taskAsksOf = (id, needs, guardAsk = null) => needs.filter(one => !isStep(one) && isCalm(one) && (one.of === id || (guardAsk !== null && one.workId === guardAsk))).sort((a, b) => (a.at ?? 0) - (b.at ?? 0))
+
+/**
+ * B706: the goal guard's question (Fable or Opus), when it is about this very step: the focus goal's guard asks of the
+ * first step of the chain whose failed checks it counted (`guard.step`), and only that step's window offers it; on the
+ * goal's other steps (B702, B696 beside B691) it is not theirs to answer. Null otherwise.
+ */
+const taskGuardAsk = (item, focus) => (focus?.guard?.state === 'asking' && focus.guard.step === item.id && item.goal === focus.id ? focus.guard.ask ?? null : null)
+
+/** B706: the question of an ask as the Options show it, in plain words: the guard's question in its own words; any other ask's title, without step, goal or ask ids. */
+function taskQuestion(need, isGuard) {
+  if (isGuard) return 'The checks failed three times. Should the strategy be evaluated by Fable (the strongest model, far more tokens) or by Opus?'
+  const words = splitAsk(need.question ?? need.title).question
+  return upFirst(words.replace(/\b[BQGX]\d{1,4}\b\s*(?:·\s*)?/g, '').replace(/\s+/g, ' ').trim())
+}
+
+/** B706: the goal's name for the window's chip, as the goal map titles it without its id; the id when the map has none. */
+function goalNameOf(id, nodes) {
+  const title = String((nodes ?? []).find(one => one.id === id)?.title ?? '').replace(new RegExp(`^${id}\\s+`), '').trim()
+  return title === '' ? id : title
+}
+
+/**
+ * B706: a check's points as the Checks tab shows them, one short line each: `{ verdict, mark, text, full }`, `text` the
+ * point's first sentence cut to about 110 characters, `full` its whole words (the line's tooltip).
+ */
+function taskCheckLines(points) {
+  const marks = { pass: '✓', fail: '✗', ask: '?' }
+  return (points ?? []).map(one => {
+    const first = String(one.text).replace(/\s+/g, ' ').trim().split(/(?<=[.!?:;])\s+/)[0]
+    return { verdict: one.verdict, mark: marks[one.verdict] ?? '·', text: cutWords(first.replace(/[.;:]+$/, ''), 110), full: one.text }
+  })
+}
 // taskwindow:end
 
 // waiting:start
@@ -6775,7 +6806,7 @@ function drawDetails(state) {
   // that (new, refined, queued) the Backlog tab's refine is its window.
   const taskItem = need === null ? itemFor(subject.step ?? step ?? null, state) : isStep(need) ? itemFor({ id: need.step }, state) : null
   const isTask = isTaskStep(taskItem)
-  const taskAsks = isTask ? taskAsksOf(taskItem.id, everyNeed(state), taskItem.goal === state.focus?.id ? state.focus?.guard?.ask ?? null : null) : []
+  const taskAsks = isTask ? taskAsksOf(taskItem.id, everyNeed(state), taskGuardAsk(taskItem, state.focus)) : []
   // Drawn again only when what it shows has changed, so reading and typing in it are left alone.
   // B269: a calm window also follows the other asks it goes through.
   const calmIds = isCalm(need) ? calmGroup(need, everyNeed(state)).map(one => one.id) : null
@@ -6963,11 +6994,12 @@ function taskStanding(item) {
 }
 
 /** B701: the options of an open question: cards to click, the advised one marked, a box for an idea of your own, and Send. */
-function taskOptions(need, asks) {
+function taskOptions(need, isGuard) {
   const part = el('section', 'task-part task-options')
   part.dataset.ask = need.id
   part.append(el('h3', '', 'Options'))
-  if (asks.length > 1) part.append(el('p', 'muted', splitAsk(need.question ?? need.title).question))
+  // B706: the question the cards answer stands above them, always (the guard's card was Yes / No alone).
+  part.append(el('p', 'task-question', taskQuestion(need, isGuard)))
   const pick = calmPicks.get(need.id) ?? null
   const cards = el('div', 'task-cards')
   cards.setAttribute('role', 'group')
@@ -7003,7 +7035,7 @@ function taskOptions(need, asks) {
 }
 
 /** B701: the Summary tab: only the parts that have something to say. */
-function taskSummary(item, asks) {
+function taskSummary(item, asks, guardAsk) {
   const view = summaryOf(item)
   const parts = []
   if (view.want.length > 0) parts.push(taskPart('What we want', view.want.map(one => el('p', '', one))))
@@ -7030,8 +7062,21 @@ function taskSummary(item, asks) {
     }
   }
   if (view.conclusion !== null) parts.push(taskPart('Conclusion', [el('p', '', view.conclusion)]))
-  if (asks.length > 0) parts.push(taskOptions(asks[0], asks))
+  // The step's open questions, each with its own cards (the guard's, when it is about this step, among them).
+  for (const need of asks) parts.push(taskOptions(need, guardAsk !== null && need.workId === guardAsk))
   return parts
+}
+
+/** B706: the latest check as one short line per point (a tick, a cross or a question mark, its first words; the whole point on hover) and its evidence picture. */
+function taskCheckPart(title, checked) {
+  const list = el('ul', 'checked-points task-checks')
+  for (const one of taskCheckLines(checked.points)) {
+    const line = el('li', `is-${one.verdict}`, `${one.mark} ${one.text}`)
+    line.title = one.full
+    list.append(line)
+  }
+  const evidence = pictureOfLine(checked.evidence ?? 'none')
+  return section(title, [el('p', 'checked-head', `${checked.passed} of ${checked.total} points pass${checked.score === null || checked.score === undefined ? '' : ` · score ${checked.score}`}`), list, ...(evidence.path === null ? [el('p', 'muted', `Evidence: ${evidence.note || 'none'}`)] : [pictureRow(evidence.path, 'The evidence: the result beside its reference')])])
 }
 
 /** B701: the Checks tab: the latest check as short pass and fail lines, its evidence, the agreed points folded. */
@@ -7041,7 +7086,7 @@ function taskChecks(item, strip) {
   const latest = (item.tries ?? []).findLast(one => one.check !== null && (one.check.points ?? []).length > 0)
   const checked = latest === undefined ? item.checked ?? null : { passed: latest.check.passed, total: latest.check.total, score: latest.check.score, points: latest.check.points, evidence: latest.check.evidence }
   if (checked === null) parts.push(el('p', 'muted', 'No result check yet.'))
-  else parts.push(itemPart({ key: 'checked', title: latest === undefined ? 'Latest check' : `Latest check · ${latest.id}`, lines: checkedLines(checked), checked, isFolded: false }, strip))
+  else parts.push(taskCheckPart(latest === undefined ? 'Latest check' : `Latest check · ${latest.id}`, checked))
   if (item.what.length > 0) {
     const fold = el('details', 'item-fold')
     fold.append(el('summary', '', `Agreed points (${item.what.length})`), buildList(item.what))
@@ -7065,6 +7110,20 @@ function taskSettings(item, strip, state, extra) {
   return [list, ...parts, ...extra]
 }
 
+/**
+ * B706: the Settings tab of a taken step: worker and state, model and effort, the flow, the folder and branch, and the
+ * buttons that change the step (pin or move, close, delete), which stand here out of the way.
+ */
+function taskSettingsTab({ item, need, subject, lane, step, strip, state }) {
+  const pin = need === null && subject.step !== undefined ? pinPart(subject.step, state) : null
+  const change = need === null && subject.step === undefined && lane !== null && lane !== undefined ? pinChangePart(lane, step, state) : null
+  const edit = subject.step !== undefined ? editPart(subject.step, true) : null
+  const branch = need === null ? step?.branch ?? null : need.branch ?? need.run?.branch ?? null
+  const folder = branch === null ? null : [...state.chats.flatMap(one => one.folders), ...state.otherFolders].find(one => one.branch === branch) ?? null
+  const files = [...(folder === null ? [] : [copyRow('Folder', folder.path)]), ...(branch === null ? [] : [copyRow('Branch', branch)])]
+  return taskSettings(item, strip, state, [...(files.length === 0 ? [] : [section('Files / Branch', files)]), ...[pin, change, edit].filter(one => one !== null)])
+}
+
 /** B701: the window of a taken step (see above). `item` is the state's item of the step. */
 function drawTaskWindow(box, { state, need, lane, subject, step, item, asks, strip, scroll, focused }) {
   const now = state.readAt
@@ -7074,7 +7133,7 @@ function drawTaskWindow(box, { state, need, lane, subject, step, item, asks, str
     { text: capitalized(item.state), tone: 'kind' },
     ...(failed > 0 ? [{ text: `${failed} check${failed === 1 ? '' : 's'} failed`, tone: 'bad' }] : []),
     ...(item.owner === null || item.owner === undefined ? [] : [{ text: item.owner, tone: 'plain' }]),
-    ...(item.goal === null || item.goal === undefined ? [] : [{ text: `Goal: ${item.goal}`, tone: 'goal' }]),
+    ...(item.goal === null || item.goal === undefined ? [] : [{ text: `Goal: ${goalNameOf(item.goal, state.goals?.nodes)}`, tone: 'goal' }]),
   ]
   const head = detailsHead({ code: item.id, title: item.title, chips, at: null }, el('span', `kind is-${need === null ? 'queued' : need.kind}`, need === null ? '≡' : KINDS[need.kind].sign), now)
 
@@ -7086,22 +7145,13 @@ function drawTaskWindow(box, { state, need, lane, subject, step, item, asks, str
     nav.append(button)
   }
   const content = el('div', 'task-body')
-  if (tab === 'summary') content.append(...taskSummary(item, asks))
+  if (tab === 'summary') content.append(...taskSummary(item, asks, taskGuardAsk(item, state.focus)))
   else if (tab === 'checks') content.append(...taskChecks(item, strip))
   else if (tab === 'history') {
     const list = el('ul', 'task-history')
     for (const line of item.history) list.append(el('li', '', line))
     content.append(...(item.history.length === 0 ? [el('p', 'muted', 'Nothing yet.')] : [list]))
-  } else {
-    // The buttons that change a step stand under Settings, out of the way: close, delete, pin.
-    const pin = need === null && subject.step !== undefined ? pinPart(subject.step, state) : null
-    const change = need === null && subject.step === undefined && lane !== null && lane !== undefined ? pinChangePart(lane, step, state) : null
-    const edit = subject.step !== undefined ? editPart(subject.step, true) : null
-    const branch = need === null ? step?.branch ?? null : need.branch ?? need.run?.branch ?? null
-    const folder = branch === null ? null : [...state.chats.flatMap(one => one.folders), ...state.otherFolders].find(one => one.branch === branch) ?? null
-    const files = [...(folder === null ? [] : [copyRow('Folder', folder.path)]), ...(branch === null ? [] : [copyRow('Branch', branch)])]
-    content.append(...taskSettings(item, strip, state, [...(files.length === 0 ? [] : [section('Files / Branch', files)]), ...[pin, change, edit].filter(one => one !== null)]))
-  }
+  } else content.append(...taskSettingsTab({ item, need, subject, lane, step, strip, state }))
   const body = el('div', 'details-body is-single task-window')
   const main = el('div', 'details-main')
   main.append(nav, content)

@@ -24,7 +24,7 @@ import { DECIDED, GOAL_ID, NEEDS, UNDONE, decidedOf, isDailyNote, needsOf, undon
 import { HOW_MARK, openAsksOf as openAsksUnder, refineAsksOf as asksCounted } from './stepAsks.mjs'
 import { ANOTHER_WAY, NOTES, TRIES_BEFORE_ANOTHER_WAY, WARNINGS_MARK, agreedPoints, answerReading, boardWarningsOf, chainTries, checkedOf, checkWhy, fixesOf, fixesThrough, fixTitle, needsResultCheck, parentPointsOf, parsePoints, resultCheckAtMs, resultCheckOf, reviewWaitOf } from './resultCheck.mjs'
 import { RECAP_ANSWERS, dueRecaps, isRecap, recapMadeSince } from './recap.mjs'
-import { RESULT_CHARS, goalParts, recapParts } from './recapWords.mjs'
+import { RESULT_CHARS, checkLinesWarning, goalParts, recapParts } from './recapWords.mjs'
 import { kindsNamed, noneForLook, parseStandard, standardNoneRefused, standardOf, standardWanted } from './standard.mjs'
 import { EFFORTS, effortOf, modelOf, parseEffort, parseModel, withEffort, withModel } from './effort.mjs'
 import { appendHistory, nextId, putBack, readActivitiesText, readItemFile, readStore, removeItem, writeActivities, writeItem } from './store.mjs'
@@ -1531,8 +1531,10 @@ async function checked(body, w) {
     item = put(item, 'Attempts', String(Number(valueOf(found.item, 'Attempts') ?? 0) + 1))
   }
   const owner = valueOf(found.item, 'Owner') ?? 'its worker'
+  // B706 (principle 8): a failed check whose plain lines are missing or not plain is taken, and says so once: in the answer and the History line.
+  const unplain = checkLinesWarning(read.notes, failed.length)
   const words = failed.length > 0
-    ? `result check failed: ${summary}; fix ${fix} for ${owner}${judged.length === 0 ? '' : `; ${judged.length} for you to judge`}`
+    ? `result check failed: ${summary}; fix ${fix} for ${owner}${judged.length === 0 ? '' : `; ${judged.length} for you to judge`}${unplain === '' ? '' : `; ${unplain}`}`
     : judged.length > 0 ? `result check waits for you: ${summary}; ${judged.length} for you to judge` : `result check passed: ${summary}`
   item = said(ordered(item), w, words)
   if (failed.length === 0 && judged.length === 0) {
@@ -1549,7 +1551,7 @@ async function checked(body, w) {
   }
   await afterDone(item, w)
   const recheck = stateOf(item) === 'done' ? await closeFixed(item, w) : null
-  return changed(item, undefined, { ...(fix === null ? {} : { fix }), ...(recheck === null ? {} : { resultCheck: recheck }) })
+  return changed(item, unplain === '' ? undefined : `${serializeItem(item)}\nBoard warning: ${unplain}.`, { ...(fix === null ? {} : { fix }), ...(recheck === null ? {} : { resultCheck: recheck }), ...(unplain === '' ? {} : { warnings: unplain }) })
 }
 
 /**

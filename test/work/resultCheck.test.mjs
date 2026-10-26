@@ -106,7 +106,7 @@ test('a failed point makes a fix step, refined from the failed points, on the li
       ['Fix: warm yellow light, never white', 'refined', null, 'Lamps', 'G3', id, 'ready'])
     // B526: under the fail, the step's agreed point it must make pass.
     assert.deepEqual(fix.sections.get('What we build'), ['- warm yellow light, never white (two lamps are white)', '- Makes pass: warm yellow light, never white'])
-    assert.ok(origin.sections.get('History').some(one => one.endsWith(`Partner: result check failed: 1 of 2 points pass, score 61 of 75; fix ${fixId} for Lamplighter`)))
+    assert.ok(origin.sections.get('History').some(one => one.includes(`Partner: result check failed: 1 of 2 points pass, score 61 of 75; fix ${fixId} for Lamplighter`)))
     // The fix is done and checked: the step it fixes is done too.
     await queueFor(store.dir, fixId, 'Lamplighter', { now: NOW + 60_000 })
     await store.lamplighter({ action: 'take', id: fixId, branch: 'b-fix-lamps' })

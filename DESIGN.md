@@ -2568,8 +2568,11 @@ worker for another try, until the attempts stall; only then the person's call, w
    the job) to the partner (`checkStepWords`), and wakes it through the main chat when its chat does not run. A
    "Check again" that passes asks again while none stands.
 4. The partner has a fresh helper check it and files `work checked` (the partner only): `evidence` (a path, or
-   "none (why)"), `points` ("pass: ...", "fail: ...", "ask: ..."), `score`. Kept under `## Checked`, a History line
-   "result check passed|failed|waits for you: <n> of <m> points pass, score ...".
+   "none (why)"), `points` ("pass: ...", "fail: ...", "ask: ...", and with them (B701) the plain lines of the person's task
+   window, "tried: ...", "why: ...", from the second failed try "conclusion: ...", which are no points and never counted),
+   `score`. Kept under `## Checked`, a History line "result check passed|failed|waits for you: <n> of <m> points pass,
+   score ..."; B706: a failed check whose plain lines are missing, or hold file names, code, ids or counts, is taken, and
+   its answer and History line say the window leaves them out.
 5. A failed point makes a fix step (`fixStep`): "Fix: <the failed points>" (no brackets at its end, about 100
    characters), state queued for the same worker, its activity, goal and standard, refined ready "from the result check
    of B<id>", `Fix of: B<id>`; the step counts `Attempts` and waits in review. A fix that is done closes the step it
@@ -4274,8 +4277,8 @@ bullet per attempt and why it didnt work." The agreed mockup: `art-inbox/board-m
 - *Where the words come from*, with no new work tool field: the result check files them with `work checked` as extra
   lines of `points` (`tried: <the way>`, `why: <why it fell short>`, from the second failed try `conclusion: <one line>`;
   `parsePoints`). They are kept in the step's `## Checked` section beside the points and are never counted as pass or
-  fail. A check without them (an older one) shows the step's title (a fix: "a fix") and "Failed: n of m points", and the
-  failed points, cleaned, as the reason. Every line goes through the card's cleaner (`plainSentences`: no code, file names,
+  fail. A check without them (an older one) shows the step's title and "Failed: n of m points passed" (B706: never the raw
+  failed points). Every line goes through the card's cleaner (`plainSentences`: no code, file names,
   paths, programmers' words, step or ask ids), so a Summary never shows details. `roles/partner.md`, "The check", step 6,
   tells the checker to write them.
 - *Options*: the step's open questions the board can answer (asks of the work store, and the goal guard's Fable-or-Opus
@@ -4289,3 +4292,30 @@ bullet per attempt and why it didnt work." The agreed mockup: `art-inbox/board-m
   prints the parts the Summary shows and the pictures that loaded, and fails on a line with a file name, code or an id.
 - *Incidents that would show it failing*: the person saying the window is too much, or that they cannot see what failed;
   a Summary with file names or code (the probe); a Send that does not reach the store.
+
+### What the result check of B701 found, and its fixes (B706)
+
+The Advisor's check of B701 (8 points failed, 2026-10-26) set the window beside the mockup and found these gaps; each is fixed:
+
+- *Pictures whole*: the latest result's picture lost its left edge to a fixed 16:10 crop (`object-fit: cover`); a picture now shows in
+  its own shape (`contain`, at most 520 px high).
+- *The goal's name*: the chip says the goal as the goal map titles it ("Goal: How we build good maps"), not its id (`goalNameOf`).
+- *Every checked try*: `triesOf` lists every step of the chain that was checked, a dropped fix too (B670's B683, 72 of 75, was
+  dropped by the person but tried); a dropped fix that never was checked is no try. (`chainTries` still leaves dropped fixes out:
+  it counts attempts, `triesOf` tells the story.)
+- *Older checks in plain words*: without the checker's lines a try reads "Try n: <its step's title> · Failed: 7 of 10 points
+  passed" (never "7 of 10", which reads as 7 failed), and Why says "The latest check passed 7 of 10 points"; the raw failed
+  points ("Suite 2688 tests, 0 fail", pixel values) are never quoted. A fix's title, "Fix: ...", names what it fixes: cut short, and
+  "a fix" when it is not plain.
+- *Hold and say so once* (principle 8): a failed check with no `tried` or `why` line, or with file names, code words, ids or counts
+  in one (`checkLinesWarning`, src/work/recapWords.mjs), is taken as before, but the work tool's answer says "Board warning: the task window
+  leaves out this check's plain lines (...)" and the step's History line says the same, once.
+- *Checks tab*: one short line per point (a mark and the point's first words; the whole point on hover), `taskCheckLines`.
+- *Options*: only the step's own open asks, each with its question above its cards (the guard's in plain words). The goal guard's
+  Fable-or-Opus question is offered by the one step it is about: `guardOf` names the first step of the chain whose newest failed
+  check tripped the guard (B691, not its fix B697), and `taskGuardAsk` gives it to that step's window alone (it had shown on
+  every taken step of the goal, B702 and B696 too, as Yes / No with no question). The card opens that step.
+- *Settings* is built by `taskSettingsTab`, and tested by building it: worker, state, model and effort, flow, folder and
+  branch, pin or move, close, delete.
+- *Probe*: `tools/task-probe.mjs` is shot at 1280x720 for B670 (a visual step with three tries) and B691 (a rule), and the pictures stand
+  beside the mockup's `visual.png` and `rule.png` in `art-inbox/B706`.

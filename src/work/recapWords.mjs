@@ -80,6 +80,30 @@ function plainNamed(words) {
   return [list('file names', files), list('code words', code), list('commit hashes', hashes), list('ids', ids), list('placeholders', placeholders)].filter(Boolean).join(', ')
 }
 
+/** B706: counts of tests, points, checks, files or pixels ("2688 tests", "7 of 10 points"): details, not plain words for the person's task window. */
+const COUNTED = /\b\d+\s+(?:tests?|points?|checks?|files?|lines?|px|pixels?)\b|\b\d+\s+of\s+\d+\s+(?:points?|tests?|checks?)\b/gi
+
+/**
+ * B706 (principle 8, hold and say so once): what is off in the plain lines of a failed result check (`notes`, `tried`,
+ * `why`, `conclusion`, as `parsePoints` keeps them) for the person's task window, which shows only plain ones: the line
+ * the check has none of, and file names, code words, hashes, ids, placeholders or counts in one. '' for none, or when no
+ * point failed (the window shows no tries then).
+ */
+export function checkLinesWarning(notes, failedCount) {
+  if (failedCount === 0) return ''
+  const faults = []
+  for (const name of ['tried', 'why', 'conclusion']) {
+    const words = String(notes?.[name] ?? '')
+    if (words === '') {
+      if (name !== 'conclusion') faults.push(`no "${name}:" line`)
+      continue
+    }
+    const named = [plainNamed(words), found(words, [COUNTED]).length > 0 ? `counts (${found(words, [COUNTED]).slice(0, 3).join(', ')})` : ''].filter(Boolean).join(', ')
+    if (named !== '') faults.push(`the "${name}:" line holds ${named}`)
+  }
+  return faults.length === 0 ? '' : `the task window leaves out this check's plain lines (${faults.join('; ')}): write tried, why and, from the second try, conclusion in plain words, for someone who forgot`
+}
+
 /** Why the words of one part of a card are not plain (B569, B591), each fault one line; none when they read well. */
 export function plainFaults(name, words) {
   const named = plainNamed(words)

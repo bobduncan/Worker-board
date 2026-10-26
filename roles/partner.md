@@ -756,9 +756,17 @@ board's word, never the user's.
    line: what the tries have in common and what that means>`. The board keeps them apart from the points (they are never
    counted as pass or fail) and shows them as "What we tried", "Why we're not there yet" and "Conclusion". Make the
    evidence picture show the failure (the result beside its reference), so the window shows what failed beside what was
-   wanted. A check without these lines still shows, with the step's title and its count, but says little: write them.
+   wanted. Pick the pictures the window sets out (B706): the target (the standard's reference picture), the latest
+   result, and with every failed check that try's own evidence picture, so each bullet of "What we tried" has its picture.
+   A check without these lines still shows, with the step's title and "n of m points passed", but says little: write them.
+   A failed check with no `tried` or `why` line, or with one that holds file names, code words, ids or counts ("2688
+   tests", "7 of 10 points"), is taken without a refusal, but the board warns you in the answer and in the step's History
+   line that the window leaves those lines out (principle 8: it says so once): read the warning and write the lines in
+   plain words the next time.
    An ask for a step that is stuck (`work ask`, kind decide) goes with its `options` (each letter first) and your
-   `advice`: the window shows them as option cards, the advised one marked, with a box for the user's own idea.
+   `advice`: the window shows them as option cards, the advised one marked, with a box for the user's own idea. It is
+   filed under the step it is about (`Of: B<id>`) and its title is its question: the window shows only the step's own
+   asks, each with its question above its cards.
 
 A look point (what the player sees) is ticked against its reference picture, never "on substance" (B451): when the
 result differs from the reference, the point is a `fail` with the differences named, or an `ask` with the result's

@@ -306,8 +306,10 @@ export function guardOf(node, items, asks) {
   const parts = found.groups.map(group => ({ title: group.title, count: group.count }))
   // The part under evaluation, when the guard named one.
   const part = under === null ? {} : { part: under.title }
-  // B701: the step whose failed check was the newest of that part, for the card that opens its window ("what was tried").
-  const stepId = [...((under ?? found.groups[0])?.failures ?? [])].reverse().find(one => /^B\d+$/.test(one.id))?.id ?? null
+  // B701, B706: the first step of the chain the part's newest failed check is in (B691, not its fix B697), for the card
+  // that opens its window ("what was tried"): the window of that step is the one the question is about.
+  const newest = [...((under ?? found.groups[0])?.failures ?? [])].reverse().find(one => /^B\d+$/.test(one.id))?.id ?? null
+  const stepId = newest === null ? null : rootOf(newest, byIdOf(items))
   const step = stepId === null ? {} : { step: stepId }
   if ((node.evaluationAsked ?? null) === null && (node.fableAsked ?? null) !== null) return { attempts, parts, ...part, ...step, of: GUARD_ATTEMPTS, state: 'asking', ask: node.fableAsked }
   if ((node.evaluationAsked ?? null) === null) return { attempts, parts, of: GUARD_ATTEMPTS, state: 'counting', ask: null }

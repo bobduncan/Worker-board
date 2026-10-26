@@ -2856,7 +2856,10 @@ body.is-resizing-rows { cursor: row-resize; user-select: none; }
 .task-pics { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px; }
 .task-pics figure { background: var(--inset); border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
 .task-pics .picture { display: block; width: 100%; padding: 0; border: 0; background: #0a0f1c; }
-.task-pics .picture img { display: block; width: 100%; aspect-ratio: 16 / 10; object-fit: cover; }
+/* B706: a picture is shown whole (the Now picture lost its left edge to a fixed 16:10 crop): its own shape, never taller than the window can hold. */
+.task-pics .picture img { display: block; width: 100%; height: auto; max-height: 520px; object-fit: contain; }
+.task-question { font-weight: 600; color: #e6ecf5; }
+.task-checks li { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .task-pics figcaption { padding: 7px 10px; font-size: 13px; color: var(--muted); overflow-wrap: anywhere; }
 .task-pics figcaption b { color: var(--text); }
 ul.task-tried { list-style: disc; padding-left: 20px; display: flex; flex-direction: column; gap: 4px; color: #d4dce8; line-height: 1.5; }

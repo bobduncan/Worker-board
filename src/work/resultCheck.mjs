@@ -24,7 +24,9 @@ export function needsResultCheck(item) {
 
 /**
  * The points of a `checked`: each "pass: <point>", "fail: <point>" or "ask: <point>" (a point only the person can
- * judge). `{ ok: true, points: [{ verdict, text }] }`, or `{ ok: false, why }`.
+ * judge). `{ ok: true, points: [{ verdict, text }], notes }`, or `{ ok: false, why }`. B701, B706: among them stand the
+ * plain lines the person's task window reads, "tried: <the way>", "why: <why it fell short>" and, from the second failed
+ * try, "conclusion: <one line>": no points (never counted as pass or fail), kept apart in `notes`.
  */
 export function parsePoints(value) {
   const all = (Array.isArray(value) ? value : typeof value === 'string' ? value.split('\n') : []).filter(one => typeof one === 'string' && one.trim() !== '')
@@ -463,12 +465,22 @@ export function fixTitle(failed) {
 
 /**
  * B701: the tries of the chain a step is in, for the person's task window: each step of the chain (its first step and
- * every fix under it, `chainTries`), oldest first, as `{ id, title, state, check }`, `check` the step's own last result
- * check (`checkedOf`) cut to what the window shows: `{ passed, total, failed: [the failed points' words], evidence,
+ * every fix under it, a fix of a fix too), oldest first, as `{ id, title, state, check }`, `check` the step's own last
+ * result check (`checkedOf`) cut to what the window shows: `{ passed, total, failed: [the failed points' words], evidence,
  * score, tried, why, conclusion }`, or null when it has none yet. A step with no fix is a chain of one.
+ * B706: a dropped fix that was checked is a try too (B670's B683, 72 of 75: dropped by the person, but tried); a dropped
+ * one that never was checked is not (`chainTries` leaves every dropped fix out: it counts the attempts, this the story).
  */
 export function triesOf(id, items) {
-  return chainTries(id, items).map(at => {
+  const root = chainRootOf(id, items)
+  const chain = [root]
+  for (let at = 0; at < chain.length && chain.length < 50; at += 1) {
+    for (const fix of fixesOf(chain[at], items)) {
+      const fixId = valueOf(fix, 'Id')
+      if (!chain.includes(fixId) && (valueOf(fix, 'State') !== 'dropped' || checkedOf(fix) !== null)) chain.push(fixId)
+    }
+  }
+  return chain.sort((a, b) => Number(a.slice(1)) - Number(b.slice(1))).map(at => {
     const one = items?.get(at)
     const check = checkedOf(one)
     return {
