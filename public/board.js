@@ -2877,11 +2877,16 @@ function advisorAsks(advisor) {
 }
 
 /** B280: what waits for the Advisor, not in its chat yet: a count and its kinds ("1 refine, 2 messages"); null for nothing. */
-function advisorQueued(queued) {
-  const kinds = [[queued?.refines ?? 0, 'refine', 'refines'], [queued?.rounds ?? 0, 'round of the clock', 'rounds of the clock'], [queued?.words ?? 0, 'message', 'messages']]
+function advisorQueued(queued, asks = []) {
+  // The person, 2026-10-26 ("I also expect this Q423 is in the queue with the advisor"): the questions it answers for
+  // you first (the state's `withPartner`) wait for it too, each one a link to its ask.
+  const questions = Array.isArray(asks) ? asks.filter(one => typeof one?.id === 'string') : []
+  const kinds = [[questions.length, 'question', 'questions'], [queued?.refines ?? 0, 'refine', 'refines'], [queued?.rounds ?? 0, 'round of the clock', 'rounds of the clock'], [queued?.words ?? 0, 'message', 'messages']]
   const count = kinds.reduce((sum, [one]) => sum + one, 0)
   if (count === 0) return null
-  return { count, text: kinds.filter(([one]) => one > 0).map(([one, single, many]) => `${one} ${one === 1 ? single : many}`).join(', ') }
+  const text = kinds.filter(([one]) => one > 0).map(([one, single, many]) => `${one} ${one === 1 ? single : many}`).join(', ')
+  if (questions.length === 0) return { count, text }
+  return { count, text, asks: questions.map(one => ({ id: one.id, href: `#details=${one.id}`, text: `${one.id} · ${one.from ?? 'nobody'}: ${one.title ?? ''}` })) }
 }
 // advisorlane:end
 
@@ -2986,12 +2991,25 @@ function drawAdvisorLane(state) {
   const time = advisor.state === 'working' ? drawEta(lane, state.readAt) : el('div', 'eta is-muted')
 
   // B307: what waits for it, by kind in the tooltip; nothing when nothing waits (or the server does not count it).
-  const queued = advisorQueued(advisor.queued)
+  const queued = advisorQueued(advisor.queued, state.withPartner ?? [])
   const waits = el('div', 'queue advisor-waits')
   if (queued !== null) {
     const count = el('span', 'advisor-waits-count', `${queued.count} waiting for it`)
     count.title = queued.text
     waits.append(count)
+  }
+  // The questions it answers for you first, under its line, each opening its ask (the click does not open its chat).
+  if ((queued?.asks ?? []).length > 0) {
+    const line = el('p', 'advisor-lane-asks')
+    line.append(el('span', 'muted', 'Waiting for it: '))
+    queued.asks.forEach((ask, index) => {
+      const link = el('a', 'advisor-lane-ask', ask.text)
+      link.href = ask.href
+      link.title = `Open ${ask.id}: the whole question, its options and advice, who asked it`
+      link.addEventListener('click', event => event.stopPropagation())
+      line.append(...(index === 0 ? [] : [el('span', 'muted', ' · ')]), link)
+    })
+    what.append(line)
   }
 
   const open = el('div', 'lane-menu-cell')
