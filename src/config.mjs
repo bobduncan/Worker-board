@@ -116,6 +116,12 @@ export const DEFAULTS = {
   messageKeepMinutes: 10,
   /** An answer to a request waits this long for its chat to take it: the chat may be busy, or not open. */
   answerKeepHours: 48,
+  /**
+   * B301 (2026-10-26): the warning "<chat> wrote questions in its chat but filed no ask" goes by itself when the answer it
+   * is about is older than this many hours: it stood for ever for a chat with no turn since (one the board's list does not
+   * hold, whose mod never files its asks). An older one is not shown at all, no card and no count. Any number above 0.
+   */
+  unfiledAskHours: 2,
   /** The chat that advises and is talked with on its own tab. It has no lane. */
   advisor: 'Advisor',
   /**
@@ -378,7 +384,7 @@ const PATHS = ['project', 'gameRepo', 'appSessions', 'transcripts']
 const PROJECT_PATHS = ['backlog', 'gamePlan', 'productPlan', 'advisorDecisions', 'designKinds']
 // Focus 1: the goal map's paths, inside the project or a whole path of their own (a copy's).
 const MAP_PATHS = ['goals', 'brainstorms', 'goalAsks', 'goalsHistory']
-const NUMBERS = ['port', 'refreshSeconds', 'quietMinutes', 'estimateOldMinutes', 'hoursBack', 'hoursAhead', 'maxMessageChars', 'messageKeepMinutes', 'answerKeepHours', 'gamePort', 'gameIdleSeconds', 'gameOpenSeconds', 'limitWarnPercent', 'morningSkipPercent']
+const NUMBERS = ['port', 'refreshSeconds', 'quietMinutes', 'estimateOldMinutes', 'hoursBack', 'hoursAhead', 'maxMessageChars', 'messageKeepMinutes', 'answerKeepHours', 'unfiledAskHours', 'gamePort', 'gameIdleSeconds', 'gameOpenSeconds', 'limitWarnPercent', 'morningSkipPercent']
 
 /**
  * B134: where the app keeps the transcripts of a project's chats: the user's `.claude\projects`, in a folder named

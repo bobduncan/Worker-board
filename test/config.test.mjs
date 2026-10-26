@@ -60,6 +60,15 @@ test('an answer waits two days for its chat unless set otherwise', () => {
   assert.equal(parseConfig('{"answerKeepHours":2}', env).answerKeepHours, 2)
 })
 
+test('B301: the warning "filed no ask" goes by itself after 2 hours unless set otherwise; an old config without the setting parses', () => {
+  assert.equal(parseConfig('{}', env).unfiledAskHours, 2)
+  assert.equal(parseConfig('{"port":4999}', env).unfiledAskHours, 2)
+  assert.equal(parseConfig('{"unfiledAskHours":6}', env).unfiledAskHours, 6)
+  assert.equal(parseConfig('{"unfiledAskHours":0.5}', env).unfiledAskHours, 0.5)
+  // A setting that is no number above 0 is left at the default.
+  for (const bad of ['0', 0, -1, 'soon', null, true]) assert.equal(parseConfig(JSON.stringify({ unfiledAskHours: bad }), env).unfiledAskHours, 2)
+})
+
 test('an answer is never longer than the mod will type', () => {
   assert.equal(parseConfig('{"maxMessageChars":9000}', env).maxMessageChars, 2500)
 })

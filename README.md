@@ -195,7 +195,9 @@ a Vite game, `run-game.mjs`; none unless set), `appSessions` (the app's list of 
 `port` (4310 unless set), `refreshSeconds`, `advisor` (the name of the advisor chat, "Advisor" unless set),
 `pictureRoots` (the folders of `<project>` whose pictures the board shows, `["pictures"]` unless set; the first is
 the project's own picture folder, where the board keeps the pictures pasted into Talk to Main, under `talk`) and the times
-in `src/config.mjs`. `designKinds` (`.claude/design.json` unless set): the project's file of what the Design tab tells Codex per kind of
+in `src/config.mjs`. `unfiledAskHours` (`2` unless set, a number above 0, B301): the warning "<chat> wrote questions in
+its chat but filed no ask" goes by itself when the answer it is about is older than this many hours (no card, no count),
+so a chat that has had no turn since does not keep it for ever. `designKinds` (`.claude/design.json` unless set): the project's file of what the Design tab tells Codex per kind of
 idea, and its reference pictures; `examples\design.json` shows one. `goals` (`.claude/goals.md` unless set): the
 project's goal map, which the Advisor tab's Goals part draws and, on the board that delivers, changes; `examples\goals.md` shows its form.
 `brainstorms`, `goalAsks` and `goalsHistory` (`.claude/brainstorms`, `.claude/goal-asks`, `.claude/goals.history`
