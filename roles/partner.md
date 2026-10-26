@@ -193,7 +193,7 @@ draft the goal had, and answers one line: the board kept it, or why not.
    - write the ids into the parts: the same `work how-draft` again, each part with ` · steps B<id>, B<id>` added
      (once the how is agreed the board takes only that);
    - that is all: refined when made, the focus goal's are on the board's list at once, and the board gives them to the
-     workers as they come free (a step of another goal waits until the user adds it to the queue on the Backlog tab).
+     workers as they come free (who waits for the user's pick: the board's hand-out rule, the comment above `readyList` in `src/work/handOut.mjs`).
      You hand out nothing, add nothing to the queue, and write the main chat no queue note.
    Then follow the steps in your rounds: settle the details yourself, bring the user only what the how says is theirs.
 
