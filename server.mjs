@@ -1336,6 +1336,8 @@ async function main(args) {
       outbox: outboxNow(store.outbox(), clock(), keep),
       runs: games.list(),
       board: { startedAt, offSince },
+      // B714: when the board last looked, so a read before the tick that follows a wake already counts the sleep as off time.
+      aliveAt: historyFrom === undefined ? store.aliveAt?.() ?? null : null,
       seen,
       reports,
       finishedSeen: finishedSeen ?? {},
