@@ -226,6 +226,15 @@ SendMessage to that session id (load it with ToolSearch when it is deferred), "T
 something for you.", nothing else and no reply needed; then go on with your own work. It is no task: no step, no report, no note, and your own step and its checkpoint stay as
 they are.
 
+## The board resumes your step
+
+Since 2026-10-26 the board resumes a worker by itself after a crash or a quit app: when your chat does not run and the store
+holds a step for you that is taken or in progress, the board has a chat that runs start yours, and your mod types
+`resume your step B<id> from your checkpoint` into it (no mark: the board's word, not the user's; your mod's own line "You hold
+B<id>: checkpoint <commit> · <next>; go on from there" may be all you get, and says the same). Go on from that step's
+checkpoint (`work next` shows it; without one, from its branch and History) and do nothing else: no report, no note, no
+new step because of the word. If you no longer hold the step (it is in review, done, dropped or another worker's), say nothing.
+
 ## Not yours
 
 The tools the board relies on in the chats (the Workers mod and the other mods) belong to whoever the project names

@@ -8,7 +8,7 @@
 // rule 8 stop naming it; one that still matters stays failed, for the person to see.
 
 import { shownChats } from '../bridge.mjs'
-import { waitsLong } from '../say.mjs'
+import { RESUME_STEP, waitsLong } from '../say.mjs'
 import { isLate, keepMs } from '../store.mjs'
 import { stoppedOf } from '../stopped.mjs'
 import { stamp } from './migrate.mjs'
@@ -77,6 +77,15 @@ export function whyClosed(message, ctx) {
     const waits = all.some(one => one.to === message.about && one.id !== message.id && one.state === 'waiting' && (one.command !== 'start' || one.to === ctx.main) && !ctx.closing.has(one.id))
       || readyFor(message, ctx)
     if (!waits) return { state: 'dropped', why: `nothing waits for ${message.about} any more` }
+  } else if (message.command === RESUME_STEP) {
+    // 2026-10-26: the board's word that has a worker go on with its step after a crash (say.mjs `resumesDue`). Its purpose is
+    // to have the chat started: done once the chat runs again, and gone when the chat no longer holds the step in the store.
+    if (ctx.runs.get(message.to) === true) return { state: 'dropped', why: `${message.to} runs again` }
+    if (items !== null) {
+      if (item === undefined) return { state: 'dropped', why: 'the step is gone' }
+      if (!['taken', 'in progress'].includes(state)) return { state: 'dropped', why: `the step is ${state} now` }
+      if (plainName(value(item, 'Owner'), ctx.prefix ?? '') !== plainName(message.to, ctx.prefix ?? '')) return { state: 'dropped', why: `${message.to} no longer holds ${message.about}` }
+    }
   } else if (message.command === 'wake' && ctx.stopped instanceof Map) {
     // B577: the main chat's word to wake a stopped chat: not needed once that chat began a turn, or another session
     // stands under its name (a chat replaced), or nothing waits for it any more.
