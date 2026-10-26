@@ -19,6 +19,11 @@ const numberOf = id => Number(String(id).slice(1))
 export const BOARD_TRIES = 3
 /** After an ask that did not arrive (failed, or waited too long), the board waits this long before it asks again. */
 export const RETRY_MS = 15 * 60_000
+/**
+ * B667 (B664's check: an open fix the partner never refines had no follow-up): a fix's refine word that arrived but got
+ * no round is typed again after this long, up to BOARD_TRIES; the watch rule open-fix names it meanwhile.
+ */
+export const FIX_RETRY_MS = 60 * 60_000
 
 /**
  * What the board keeps (data/refine-gate.json): `since`, the highest step number at its first look (a step above it is
@@ -100,9 +105,10 @@ export function refineStop(step, outbox) {
  * without it counts for a block written before it). The board's own asks stop after BOARD_TRIES that arrived (an
  * Advisor that keeps writing a block that is not ready: the person sees the step as answered and refines it), or that
  * did not; B312: only those sent since the person last answered on the step count (`refineStop`). After one that did
- * not arrive, it waits RETRY_MS.
+ * not arrive, it waits RETRY_MS. B667: with `again` (a fix), an ask that arrived counts only for that long: then it asks
+ * again.
  */
-function needsRefine(step, outbox, now) {
+function needsRefine(step, outbox, now, again = Infinity) {
   const refined = step.refined ?? null
   if (isRefined(refined)) return false
   if (refined !== null && refineStateOf({ refined }) !== 'answered') return false
@@ -113,7 +119,7 @@ function needsRefine(step, outbox, now) {
   const key = refinedKey(refined)
   const written = refinedAt(refined)
   const aboutThis = message => (message.before !== undefined ? message.before === key : refined === null || (written !== null && written <= message.at))
-  return !asks.some(message => !isGone(message) && aboutThis(message))
+  return !asks.some(message => !isGone(message) && aboutThis(message) && now - message.at < again)
 }
 
 /**
@@ -153,7 +159,7 @@ export function refineWhenDue(state, outbox, kept, now) {
       ['new', step => isOpen(step) && numberOf(step.id) > kept.since],
     ]
     for (const [why, wants] of order) {
-      const step = steps.find(one => wants(one) && needsRefine(one, outbox, now))
+      const step = steps.find(one => wants(one) && needsRefine(one, outbox, now, why === 'fix' ? FIX_RETRY_MS : Infinity))
       if (step !== undefined) {
         refine = { ...refineWords(advisor, step, (step.refined?.round ?? 0) + 1), why, board: true, before: refinedKey(step.refined) }
         break

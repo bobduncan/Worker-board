@@ -24,6 +24,7 @@ import { isWordingOnly } from '../../work/recapWords.mjs'
 import { CLEAR_MOD, takenSince } from '../../clearOwed.mjs'
 import { readingAgeMinutes } from '../../limits.mjs'
 import { COUNTS_BY_KEY } from './repair.mjs'
+import { BOARD_TRIES } from '../../refineGate.mjs'
 
 const MIN = 60_000
 const HOUR = 60 * MIN
@@ -618,6 +619,18 @@ export function reviewLateOf(view, item, wait, seenOf = () => undefined) {
     const ms = spanOf(view, seenOf, key, afterPause(view, wait.since))
     return { ...not, late: ms > FIX_DROPPED_MS, key, ms }
   }
+  if (wait.kind === 'fix' && (wait.unrefined ?? null) !== null) {
+    if (isPaused(view)) return not
+    // B667 (B664's check: an open fix the partner never refines had no follow-up): counted from when the fix was made; late
+    // past `openFixMinutes` once the newest refine word about it is older than `checkWordMinutes` (the board's retry,
+    // refineGate.mjs FIX_RETRY_MS, had its chance), as review-stuck reads the check words.
+    const key = `open-fix ${wait.end}`
+    const ms = view.now - afterPause(view, wait.unrefined.since)
+    const words = refineWordsOf(view, wait.end, wait.unrefined.since)
+    const last = words.at(-1) ?? null
+    const late = ms > view.settings.openFixMinutes * MIN && (last === null || view.now - last.at > view.settings.checkWordMinutes * MIN)
+    return { late, key, ms, words }
+  }
   if (wait.kind === 'fix' && wait.held !== null) {
     if (isPaused(view) || PERSON_ASK_HOLD.test(wait.held)) return not
     // Counted per why, from when the board first saw this hold (the fix's Since is its move to refined, long before a
@@ -654,6 +667,40 @@ function chainLong(view) {
     })
   }
   return found
+}
+
+/**
+ * 12e. B667 (B664's result check, principle 2: an open fix the partner never refines had no follow-up; its refine word
+ * went once, probed at +3 h and +2 d): a step in review behind a fix that waits for the partner's refine
+ * (resultCheck.mjs `unrefinedFixOf`), late as reviewLateOf judges it for the health summary too: an incident, one per
+ * fix, naming the refine words typed and whether the board stopped asking (refineGate.mjs BOARD_TRIES).
+ */
+function openFix(view, ctx) {
+  const found = []
+  if (isPaused(view)) return found
+  const seen = new Set()
+  for (const item of stepsOf(view).filter(one => stateOf(one) === 'review').sort((a, b) => byId(idOf(a), idOf(b)))) {
+    const wait = reviewWaitOf(item, view.items, view.held)
+    if (wait?.kind !== 'fix' || (wait.unrefined ?? null) === null || seen.has(wait.end)) continue
+    seen.add(wait.end)
+    const { late, key, ms, words } = reviewLateOf(view, item, wait, watchOf(ctx))
+    if (!late) continue
+    const id = idOf(item)
+    const arrived = words.filter(one => one.state === 'delivered').length
+    const stopped = arrived >= BOARD_TRIES || words.filter(one => one.state === 'failed' || one.state === 'expired').length >= BOARD_TRIES
+    found.push({
+      rule: 'open-fix', key, subject: wait.end,
+      text: `${wait.end} waits ${lasting(ms)} for the partner's refine, and ${id} in review behind it${stopped ? `: the board stopped asking after ${words.length} refine words` : ''}`,
+      evidence: `the chain ${[id, ...wait.chain].join(' → ')}; ${wait.end} made ${clockOf(wait.unrefined.since)}, no refine round since; refine words ${words.length === 0 ? 'none' : words.map(one => `${clockOf(one.at)} ${one.state}`).join(', ')}`,
+    })
+  }
+  return found
+}
+
+/** B667: the refine words about the step `id` from `since` on (the board's and the person's), oldest first. */
+function refineWordsOf(view, id, since) {
+  return (view.outbox ?? []).filter(message => message?.command === 'refine' && message.about === id && Number.isFinite(message.at) && message.at >= since)
+    .sort((a, b) => a.at - b.at)
 }
 
 /**
@@ -864,6 +911,7 @@ export const WATCH_RULES = [
   { id: 'dropped-fix', kind: 'watch', says: 'a step in review whose fix was dropped, with no new fix, no new check and no block for over 30 min', check: fixDropped },
   { id: 'review-held', kind: 'watch', says: 'a step in review whose chain of fixes ends in a fix the ready list holds, for too long', check: reviewHeld },
   { id: 'chain-long', kind: 'watch', says: 'a chain of three tries or more whose newest fix names no "Tried before:" (a patch of the same way again)', check: chainLong },
+  { id: 'open-fix', kind: 'watch', says: 'a step in review behind a fix the partner has not refined for over 60 min, its last refine word unanswered for 30', check: openFix },
   { id: 'stale-checkpoint', kind: 'watch', says: 'a step in progress with no checkpoint for hours, or whose checkpoint said to report long ago', check: staleCheckpoint },
   { id: 'effort-mismatch', kind: 'watch', says: 'a worker that still runs another model or effort than its step wants 10 min after the take', check: effortMismatch },
   { id: 'not-cleared', kind: 'watch', says: 'a worker not cleared after its reported step', check: notCleared },

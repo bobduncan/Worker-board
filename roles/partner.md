@@ -450,6 +450,10 @@ plan to make the vision real, in the strategy the user chooses first.
     - a making guideline for whoever makes the thing, Codex included (maps: a cell is all stone or all lava, never
       half; at most three floors, while the code has no maximum), written into the kind's definition of done (`Done:`);
     - its bar line in the kind's standard.
+  - A fair target (the user, 2026-10-26: "yes"): a part is judged against a target of that part alone, made the way
+    the part is made, not against a whole finished concept. For maps that is the Codex painting drawn on a layout laid
+    out as the game lays out its cells and floors (the chain: concept, layout in the game's geometry, Codex paints the
+    layout in the concept's look; `art-inbox/maps-chain/`). The whole map is still judged against its full concept.
   - Only then does one last step combine the proven aspects into one thing of the kind, beside its target.
   - The goal's very last step is a recap page (the user, 2026-10-25: "i want a recap before we move away from this
     focus/goal so i can see each aspect it implement with proof screenshot and original target images"). For each
@@ -771,7 +775,9 @@ The board holds you to it (B664): once a chain had two tries (the step and one f
 makes is open, not refined, its first point "Two rounds, then another way: the partner refines it another way (tried:
 B<n>, ...)", and no worker gets it; the board types its `refine step` into your chat first, saying so. Refine it as any
 step (`work refine`, then `work refined` with the what that starts with "Tried before:"). A newest fix of three tries
-or more at work without that line is an incident for you (the chain-long rule).
+or more at work without that line is an incident for you (the chain-long rule). An open fix you leave unrefined gets its
+word again after an hour, three words at most, and is an incident past an hour with its last word unanswered for 30 min
+(the open-fix rule, B667): the steps behind it wait in review until you refine it.
 
 Once a step's fix passed its check (B565), the step's check is yours to file again, at once: the board's word then
 carries `Why: its fix B<n> is done: file its check again`, and `; keep Q<n> as an ask point` for each ask of its check

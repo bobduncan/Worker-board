@@ -218,6 +218,20 @@ const TRIED_BEFORE = /\bTried before:/i
 /** B664: whether a step's what (its What we build, or its refine block) names the ways tried before ("Tried before: ..."). */
 export const hasTriedBefore = item => ['What we build', 'Refined'].some(name => (item?.sections?.get(name) ?? []).some(one => TRIED_BEFORE.test(one)))
 
+/** B667: a History line of a refine round written (as refineGate.mjs reads it): "refined, round 2", "refined is ready". */
+const ROUND_WRITTEN = /:\s+refined(?:, round \d+| is ready)\s*$/
+/**
+ * B667 (B664's result check: an open fix the partner never refines had no follow-up, probed at +3 h and +2 d): a fix that
+ * waits for the partner's refine: new, with no refine round written since it was made (a round with questions waits for
+ * the person, not the partner). `{ since }`, when it was made (ms), or null.
+ */
+export function unrefinedFixOf(item) {
+  if (valueOf(item, 'State') !== 'new' || valueOf(item, 'Fix of') === null) return null
+  if (historyOf(item).some(one => ROUND_WRITTEN.test(one))) return null
+  const since = sinceMs(valueOf(item, 'Since'))
+  return Number.isFinite(since) ? { since } : null
+}
+
 /** B656: the ready list's held steps (handOut.mjs `readyList`'s `held`, `[{ id, why }]`, or a Map of id to why) as a Map. */
 const heldMapOf = held => (held instanceof Map ? held : new Map((Array.isArray(held) ? held : []).map(one => [one.id, one.why])))
 /** B656: a held why in a few words: the person's choice outside the focus goal without its how ("waits until you add it ..."). */
@@ -259,8 +273,11 @@ export function reviewWaitOf(item, items, held = null) {
     const end = chain.at(-1) ?? fix
     // B656: a fix the board does not hand out (the ready list holds a refined one) leaves the whole chain waiting.
     const why = valueOf(items?.get(end), 'State') === 'refined' ? heldMapOf(held).get(end) ?? null : null
-    const hold = why === null ? '' : end === fix ? `, held: ${heldWords(why)}` : `, whose fix ${end} is held: ${heldWords(why)}`
-    return { kind: 'fix', fix, chain, end, held: why, since: resultCheckAtMs(item), text: `waits for its fix ${fix}${hold}` }
+    // B667: a last fix that waits for the partner's refine (`unrefinedFixOf`).
+    const unrefined = unrefinedFixOf(items?.get(end))
+    const hold = why !== null ? (end === fix ? `, held: ${heldWords(why)}` : `, whose fix ${end} is held: ${heldWords(why)}`)
+      : unrefined !== null ? (end === fix ? ', not refined yet' : `, whose fix ${end} is not refined yet`) : ''
+    return { kind: 'fix', fix, chain, end, held: why, unrefined, since: resultCheckAtMs(item), text: `waits for its fix ${fix}${hold}` }
   }
   const done = fixes.filter(one => valueOf(one, 'State') === 'done').at(-1)
   if (done !== undefined) return { kind: 'check', fix: valueOf(done, 'Id'), since: sinceMs(valueOf(done, 'Since')), text: 'waits for its check again' }

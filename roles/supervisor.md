@@ -72,7 +72,8 @@ sweep is meant to cost little (a few tens of thousands of tokens, mostly cached)
   that moves: "waits for its fix B<n>, held: <why>" (B656) is odd past the review minutes and the review-held rule's, unless the hold is the person's open ask (B660).
   A "!" on a review line means what the rules mean (B664): the summary judges review as they do, so a fresh check word or
   the person's open ask is never odd there. A chain of three tries or more whose newest fix names no "Tried before:" is
-  the chain-long rule's: a patch of the same way again, for the partner.
+  the chain-long rule's: a patch of the same way again, for the partner. "waits for its fix B<n>, not refined yet" is
+  an open fix with the partner: the open-fix rule's past an hour, once its last refine word went unanswered 30 min (B667).
   The summary gives one line per chain of fixes ("one chain, 3 in review: ...; newest link B<n> ...") and counts them
   ("in review: 14 steps in 8 chains of fixes"): judge the chains, not the steps. A first check counts from when the board's own check
   passed and asked it ("check asked HH:MM, word to <partner> (<state>)"), not from the step's age in review: one under
