@@ -76,7 +76,11 @@ sweep is meant to cost little (a few tens of thousands of tokens, mostly cached)
   The summary gives one line per chain of fixes ("one chain, 3 in review: ...; newest link B<n> ...") and counts them
   ("in review: 14 steps in 8 chains of fixes"): judge the chains, not the steps. A first check counts from when the board's own check
   passed and asked it ("check asked HH:MM, word to <partner> (<state>)"), not from the step's age in review: one under
-  the review minutes with its check word delivered is a check under way, no incident (B585).
+  the review minutes with its check word delivered is a check under way, no incident (B585). A check word typed again
+  restarts the count (B666): the line then reads "check asked 23:06, word again 07:30 to <partner> (<state>)", and the
+  count runs from 07:30, not from 23:06. A PC sleep or a restart that stopped a check is no incident while that newest
+  word is under `checkWordMinutes` old (30 min); file one only past that, as the review-stuck rule does, and only when
+  the line carries a "!".
 - A worker "suspended" for the limit goes on once its reset has passed or the limits show room again.
 - Work follows the focus goal: the board hands out fixes, the focus goal's tasks and pinned ones only (the rest only when
   the setting `handOutBeyondFocus` is on); work outside it while a focus task is ready and a worker free is odd.

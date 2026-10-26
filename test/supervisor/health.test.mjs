@@ -224,6 +224,28 @@ test('B585 (X33): a first check counts from the board check that asked it, and t
   assert.equal(lineOfStep(healthSummary(board([{ ...word, at: ago(70) }]), NOW), 'B522'), '- B522 review for 1 h 15 min, Worker 2 (waits for its first check, check asked 10:08, no check word yet): Step B522 of the garden')
 })
 
+test('B666 (X74): a check word typed again restarts the count: the line names both words and is not odd within checkWordMinutes', () => {
+  // The PC slept 8 h with the check under way: asked 23:06 (714 min before NOW), the word typed again at 10:59.
+  const b664 = step('B664', 'review', { Owner: 'Worker 2', Since: stamp(ago(720)) }, {
+    'What we build': ['- a lamp at every bench'],
+    History: [`- ${stamp(ago(720))} Worker 2: in progress → review`, checkPassed(714)],
+  })
+  const board = outbox => buildView({
+    state: { chats: [lane('Lead', { isMain: true }), lane('Worker 2')], chatPrefix: '' },
+    items: items(b664), outbox, now: NOW,
+  })
+  const word = (minutes, state = 'taken') => ({ id: `w${minutes}`, command: 'result-check', about: 'B664', to: 'Advisor', at: ago(minutes), state })
+  const line = outbox => lineOfStep(healthSummary(board(outbox), NOW), 'B664')
+  assert.equal(line([word(714, 'delivered'), word(1)]), '- B664 review for 12 h, Worker 2 (waits for its first check, check asked 2026-10-23 23:06, word again 10:59 to Advisor (taken)): Step B664 of the garden')
+  // The same, read 31 min after the word typed again: past checkWordMinutes, odd.
+  assert.equal(line([word(714, 'delivered'), word(31)]).startsWith('- ! B664 review'), true)
+  assert.match(line([word(714, 'delivered'), word(31)]), /check asked 2026-10-23 23:06, word again 10:29 to Advisor/)
+  // No word since the first: odd, and the line says only the first word.
+  assert.equal(line([word(714, 'delivered')]), '- ! B664 review for 12 h, Worker 2 (waits for its first check, check asked 2026-10-23 23:06, word to Advisor (delivered)): Step B664 of the garden')
+  // A single word typed long after the ask is a word again too.
+  assert.match(line([word(1)]), /check asked 2026-10-23 23:06, word again 10:59 to Advisor \(taken\)/)
+})
+
 test('B563: a step in review whose fix was dropped is odd; so is one whose open fix is odd itself', () => {
   const dropped = healthSummary(buildView({
     state: { chats: [lane('Lead', { isMain: true }), lane('Worker 5')], chatPrefix: '' },
