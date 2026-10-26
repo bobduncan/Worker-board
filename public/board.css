@@ -1586,9 +1586,11 @@ dialog::backdrop { background: rgba(4, 7, 12, 0.74); }
 .lightbox.zoomable figcaption { text-align: center; font-size: 13px; }
 .lightbox.zoomable .lightbox-zoom { display: inline; margin-left: 10px; opacity: 0.75; }
 .lightbox.zoomable .lightbox-close { display: block; position: absolute; top: 6px; right: 6px; background: rgba(4, 7, 12, 0.6); color: var(--text); }
-.lightbox.zoomable .lightbox-problem { display: block; position: absolute; inset: 0; margin: auto; height: fit-content; text-align: center; color: var(--text); font-size: 15px; }
+.lightbox.zoomable .lightbox-problem { display: block; position: absolute; inset: 0; margin: auto; height: fit-content; width: fit-content; max-width: 90%; text-align: center; color: var(--text); font-size: 15px; }
 .lightbox.zoomable .lightbox-problem[hidden] { display: none; }
 .lightbox:not(.zoomable) .lightbox-problem:not([hidden]) { display: block; color: var(--text); padding: 24px; }
+/* B682: the line sits on a solid backing, so the board behind the dark backdrop never reads through it */
+.lightbox .lightbox-problem { background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 18px 24px; }
 
 /* The details of a request or of a queued step, after design/2026-10-12-codex-design-3-details.webp */
 

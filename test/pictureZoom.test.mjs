@@ -91,3 +91,11 @@ test('a picture up to 32 MB opens; a bigger one is reported with its size, never
   // the page shows the server's line in the window
   assert.match(script, /answer\.status === 413\) pictureProblems\.set\(path/)
 })
+
+test('the 32 MB limit is one constant, and the "too big" line has a solid backing', async () => {
+  const gameFile = await readFile(join(PUBLIC, '..', 'src', 'gameFile.mjs'), 'utf8')
+  assert.doesNotMatch(gameFile, /MOST_PICTURE_BYTES|32 \* 1024/, 'gameFile.mjs takes the limit from pictures.mjs')
+  assert.match(gameFile, /import \{ PICTURE_BYTES \} from '\.\/pictures\.mjs'/)
+  const css = await readFile(join(PUBLIC, 'board.css'), 'utf8')
+  assert.match(css, /^\.lightbox \.lightbox-problem \{[^}]*background: var\(--bg\)/m)
+})

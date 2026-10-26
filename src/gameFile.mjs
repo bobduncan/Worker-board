@@ -5,6 +5,8 @@
 import { open, readFile, realpath, stat } from 'node:fs/promises'
 import { extname, isAbsolute, join, relative } from 'node:path'
 
+import { PICTURE_BYTES } from './pictures.mjs'
+
 const TEXT = 'text/plain; charset=utf-8'
 /** What the window shows, by the file's ending. Anything else is refused. */
 const TYPES = {
@@ -12,8 +14,6 @@ const TYPES = {
   '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.webp': 'image/webp', '.gif': 'image/gif',
 }
 const MOST_BYTES = 1_000_000
-/** B426: a picture may be as large as the picture popup allows (src/pictures.mjs): a page's picture links open it here. */
-const MOST_PICTURE_BYTES = 32 * 1024 * 1024
 
 /**
  * Clear after each step: a chat's log (`.claude/chat-logs/<chat>/<time> <step>.txt`) may be far larger: its last
@@ -71,7 +71,7 @@ export async function readGameFile(root, path) {
     const info = await stat(file)
     if (!info.isFile()) return null
     if (path.startsWith(LOG_FOLDER) && path.endsWith('.txt') && info.size > MOST_BYTES) return { type, body: await logTail(file, info.size, MOST_LOG_BYTES) }
-    if (info.size > (type.startsWith('image/') ? MOST_PICTURE_BYTES : MOST_BYTES)) return null
+    if (info.size > (type.startsWith('image/') ? PICTURE_BYTES : MOST_BYTES)) return null
     return { type, body: await readFile(file) }
   } catch {
     return null
