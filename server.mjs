@@ -103,7 +103,7 @@ const FOLDERS_MS = 60_000
 const STATE_MS = 2_000
 /** Clear after each step: a session the board shows under no name is read anew at most this often (src/bridge.mjs). */
 const FRESH_MS = 30_000
-const TICK_MS = 60_000
+const TICK_MS = Number(process.env.WORKER_BOARD_TICK_MS) > 0 ? Number(process.env.WORKER_BOARD_TICK_MS) : 60_000
 /** T9.3 part 1: how often the board checks whether each kind of asset's provider can work. */
 const PROVIDERS_MS = 10 * 60_000
 /** B142: how long the board's look at its folder's version is kept. */
