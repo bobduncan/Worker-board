@@ -54,6 +54,27 @@ test('X19: the repair wakes the partner for a step whose fix is done 30 minutes,
   assert.deepEqual(unchecked(items(b510, fix('done'), q339), { now: ago(20) }), [])
 })
 
+// The review of 2026-10-25: the first check word carries the board's warnings and the demand for a mutant; the wake that
+// asks again (this repair) said neither.
+test('the re-ask wake carries the board warnings and the demand for a mutant as the first word does', () => {
+  const noMutant = 'the change touches tests (test/a.test.mjs) but the result names no mutant: the result check asks for one (next time add "Tests bite: <what was undone in a copy> → <the assertion that failed>")'
+  const warned = item({ ...Object.fromEntries(b510.head) }, {
+    ...Object.fromEntries(b510.sections),
+    History: [`- ${stamp(ago(80))} server: check passed with warnings: work in lantern; branch gone | warnings: ${noMutant}`, `- ${stamp(ago(76))} Checker: result check failed: 0 of 2 points pass; fix B558 for Painter; 1 for you to judge`],
+  })
+  const woke = unchecked(items(warned, fix('done'), q339))
+  const lines = woke[0].fix.text.split('\n')
+  assert.equal(lines[0], 'check step B510 (its fix B558 is done: file its check again; keep Q339 as an ask point); see roles/partner.md, "The check"')
+  assert.equal(lines[1], `Board warnings: ${noMutant}`)
+  assert.match(lines[2], /^Demand: the report names no mutant for a change that touches tests: the helper makes one in a scratch copy/)
+  assert.equal(lines.length, 3)
+  // The same lines the first word carries.
+  assert.deepEqual(checkStepWords('Partner', { id: 'B510', title: 'x', owner: 'Painter', warnings: noMutant }, 'roles/partner.md').text.split('\n').slice(3, 5), lines.slice(1))
+  // Warnings of another kind: no demand. None: the text as before.
+  const other = item({ ...Object.fromEntries(b510.head) }, { ...Object.fromEntries(b510.sections), History: [`- ${stamp(ago(80))} server: check passed with warnings: work in lantern | warnings: the result names no Context`, `- ${stamp(ago(76))} Checker: result check failed: 0 of 2 points pass; fix B558 for Painter; 1 for you to judge`] })
+  assert.deepEqual(unchecked(items(other, fix('done'), q339))[0].fix.text.split('\n').slice(1), ['Board warnings: the result names no Context'])
+})
+
 test('an answered ask point says so; with two asks open both are kept', () => {
   const waits = item({ ...Object.fromEntries(b510.head) }, {
     ...Object.fromEntries(b510.sections),

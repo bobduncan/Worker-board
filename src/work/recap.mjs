@@ -41,7 +41,7 @@ function cardOf(item, title, about, items) {
     return { heading, context: said('Context'), change: said('Change'), checked: checked === '' || checked === 'none' ? null : checked, evidence }
   }
   const step = about === null ? undefined : items.get(about)
-  const old = step === undefined || valueOf(step, 'Kind') !== 'step' ? { context: '', change: '', checked: null } : recapParts(step)
+  const old = step === undefined || valueOf(step, 'Kind') !== 'step' ? { context: '', change: '', checked: null } : recapParts(step, items)
   // An old goal's recap: its count stands in its line ("..., 5 of 6 points pass").
   const counted = textOf(item).join(' ').match(/\b(\d+) of (\d+) points pass\b/)
   return { heading, ...old, checked: old.checked ?? (counted === null ? null : `${counted[1]} of ${counted[2]}`), evidence }

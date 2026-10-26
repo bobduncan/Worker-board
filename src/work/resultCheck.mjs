@@ -90,6 +90,45 @@ export function gitCheckPassed(item) {
   return last !== undefined && last.startsWith('check passed')
 }
 
+const BOARD_CHECK_LINE = /^check (?:passed|failed|pending)\b/
+const WARNED = /^check passed with warnings:\s*(.*)$/
+/** Between a pass's lines and its warnings in the History line ("check passed with warnings: <lines> | warnings: <warnings>"). */
+export const WARNINGS_MARK = ' | warnings: '
+
+/**
+ * 2026-10-25: the warnings the step's newest board check passed with, as one text, or null: its newest check line in the
+ * History is "check passed with warnings: <the pass lines> | warnings: <the warnings>" (a line without the pass lines is
+ * all warnings). A report since has its check pending again, or failed, so the warnings are gone then.
+ */
+export function boardWarningsOf(item) {
+  const words = historyOf(item).map(wordsOf)
+  const at = words.findLastIndex(one => BOARD_CHECK_LINE.test(one))
+  const found = at < 0 ? null : WARNED.exec(words[at])
+  if (found === null) return null
+  const mark = found[1].indexOf(WARNINGS_MARK)
+  const text = (mark < 0 ? found[1] : found[1].slice(mark + WARNINGS_MARK.length)).trim()
+  return text === '' ? null : text
+}
+
+/**
+ * 2026-10-25: the board's warning for a change that touches tests and a report that names no mutant (check.mjs
+ * `noMutantWords`) stands in the warnings text: the result check then demands a mutant of the checker.
+ */
+export const hasNoMutantWarning = warnings => /the change touches tests \(.*?\) but the result names no mutant/.test(String(warnings ?? ''))
+
+/** 2026-10-25: what the result check demands when the report names no mutant for a change that touches tests (roles/partner.md, "The check"). */
+const NO_MUTANT_DEMAND = 'the report names no mutant for a change that touches tests: the helper makes one in a scratch copy (never on the branch), undoing the fix and running the new tests, and a test that still passes is a fail point; it files the mutant it made'
+
+/**
+ * 2026-10-25: the lines a word asking the partner for a step's result check carries for the warnings its board check
+ * passed with (`warnings`, `boardWarningsOf`): "Board warnings: ..." and, for a report that names no mutant for a change
+ * touching tests, "Demand: ...". [] for none.
+ */
+export function warningLines(warnings) {
+  const text = String(warnings ?? '').replace(/\s+/g, ' ').trim()
+  return text === '' ? [] : [`Board warnings: ${text.slice(0, 700)}`, ...(hasNoMutantWarning(text) ? [`Demand: ${NO_MUTANT_DEMAND}`] : [])]
+}
+
 /**
  * B585 (X33: B522 read as waiting 39 min for its first check, counted from its move to review at 21:41, while its
  * board check passed only at 22:04, when the check word went to the partner): when the board's own check last passed

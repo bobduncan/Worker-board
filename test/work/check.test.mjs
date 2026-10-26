@@ -6,7 +6,7 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 
 import { isTestFile, reportCheck } from '../../src/work/check.mjs'
-import { LIMITS_RULE, PLAIN_RULE } from '../../src/work/recapWords.mjs'
+import { hasNoMutantWarning } from '../../src/work/resultCheck.mjs'
 
 /** A git that answers from a table of "<repo> <args>" lines; null where it has none. */
 /** B569: every report opens with its Context and Change in plain words, then the rest. */
@@ -98,13 +98,28 @@ test('B363: work outside git, taken with branch none or on the base branch: the 
   assert.deepEqual(await reportCheck(outside({ branch: null, merged: '' })), none)
 })
 
-test('B363: a named file that is not there fails, by its path; with no path named the step\'s Touches name them; none at all fails', async () => {
-  const missing = await reportCheck(outside({ branch: 'none', exists: files(['/projects/art-inbox/gap-9']) }))
-  assert.deepEqual(missing, { passed: false, lines: ['work outside git', 'not there: art-inbox/gap-9/gap.html'] })
-  const touches = await reportCheck(outside({ branch: 'none', result: SAID + 'The five pictures and the page.', touches: ['art-inbox/gap-9/ (the five pictures and the page), nothing in the game'] }))
-  assert.deepEqual(touches, { passed: true, lines: ['work outside git', 'there: art-inbox/gap-9', 'result named', 'context and change named'] })
+// 2026-10-25 (the person: "check the work, not the wording"): a path in the result's prose that is not there is only a
+// warning when a file is there at all; the independent review (same day) kept the facts: work that sits in a repository,
+// and a report that names no file that exists, still refuse. Touches is a plan written before the work: a Touches path
+// that is not there warns when the result names a file that is, and refuses only when nothing named is there.
+test('B363: a report whose Touches and result name no file that is there fails; a path that is not there beside one that is warns', async () => {
+  // The prose names a missing file (X57: "done/level.md" misread) next to a file that is there: the step passes, with a warning.
+  const prose = await reportCheck(outside({ branch: 'none', exists: files(['/projects/art-inbox/gap-9']) }))
+  assert.deepEqual(prose, { passed: true, lines: ['work outside git', 'there: art-inbox/gap-9', 'result named', 'context and change named'], warnings: ['the result names art-inbox/gap-9/gap.html, which is not there'] })
+  // Nothing named is there: a fact, and it refuses, with every path that is not there.
+  const none = await reportCheck(outside({ branch: 'none', exists: files([]) }))
+  assert.deepEqual(none, { passed: false, lines: ['work outside git', 'not there: art-inbox/gap-9/gap.html, art-inbox/gap-9'] })
+  const missing = await reportCheck(outside({ branch: 'none', touches: ['art-inbox/gap-9/gap.html'], exists: files([]) }))
+  assert.deepEqual(missing, { passed: false, lines: ['work outside git', 'not there: art-inbox/gap-9/gap.html, art-inbox/gap-9'] })
+  // No path named anywhere (the prose names none, Touches none): "no file named" refuses, as before.
   const nothing = await reportCheck(outside({ branch: 'none', result: SAID + 'The five pictures and the page.' }))
   assert.deepEqual(nothing, { passed: false, lines: ['work outside git', 'no file named: name the files it made in the result'] })
+  // Touches is a plan: a Touches path that is not there warns when the result names a file that is.
+  const plan = await reportCheck(outside({ branch: 'none', touches: ['art-inbox/gap-9/gap.html', 'src/other.mjs'], exists: files(['/projects/art-inbox/gap-9']) }))
+  assert.deepEqual(plan, { passed: true, lines: ['work outside git', 'there: art-inbox/gap-9', 'result named', 'context and change named'], warnings: ['Touches names files not there: art-inbox/gap-9/gap.html, src/other.mjs'] })
+  // Touches name files that are there: those count, the result needs to name none.
+  const touches = await reportCheck(outside({ branch: 'none', result: SAID + 'The five pictures and the page.', touches: ['art-inbox/gap-9/ (the five pictures and the page), nothing in the game'] }))
+  assert.deepEqual(touches, { passed: true, lines: ['work outside git', 'there: art-inbox/gap-9', 'result named', 'context and change named'] })
   // A link to the board names its picture; "and/or", "B1/B2/B3", a date or a site are no path, and none is missing.
   const words = await reportCheck(outside({ branch: 'none', result: SAID + 'See http://127.0.0.1:4310/#picture=art-inbox/gap-9/gap.html, and/or B1/B2/B3 of 2026/10/18 (www.example.com/a/b.png).' }))
   assert.deepEqual(words, { passed: true, lines: ['work outside git', 'there: art-inbox/gap-9/gap.html', 'result named', 'context and change named'] })
@@ -117,8 +132,23 @@ test('B363: a named file that is not there fails, by its path; with no path name
 })
 
 test('B363, the review: a file in a repository is work in git, no proof of work outside it', async () => {
-  const inRepo = await reportCheck(outside({ branch: 'main', merged: '', result: SAID + 'Changed tools/board/src/check.mjs (not committed).', exists: files(['/projects/tools/board/src/check.mjs']) }))
-  assert.deepEqual(inRepo, { passed: false, lines: ['work outside git', 'in a repository: tools/board/src/check.mjs; report that work with its merged commit'] })
+  const exists = files(['/projects/tools/board/src/check.mjs', '/projects/art-inbox/gap-9'])
+  const refused = { passed: false, lines: ['work outside git', 'in a repository: tools/board/src/check.mjs; report that work with its merged commit'] }
+  // Named by the result (branch main, no merged commit: an unpushed commit would pass as "outside git" otherwise).
+  const inRepo = await reportCheck(outside({ branch: 'main', merged: '', result: SAID + 'Changed tools/board/src/check.mjs (not committed).', exists }))
+  assert.deepEqual(inRepo, refused)
+  // Or branch none with a merged hash no repository holds.
+  assert.deepEqual(await reportCheck(outside({ branch: 'none', merged: 'deadbee', result: SAID + 'Changed tools/board/src/check.mjs (not committed).', exists })), refused)
+  // Next to a file outside git that is there, a repository file in the result still refuses.
+  const mixed = await reportCheck(outside({ branch: 'none', result: SAID + 'The page art-inbox/gap-9/ and tools/board/src/check.mjs.', exists }))
+  assert.deepEqual(mixed, refused)
+  // Named only by the step's Touches (a plan), with nothing else there: the same refusal.
+  const plan = await reportCheck(outside({ branch: 'main', merged: '', result: SAID + 'Changed it.', touches: ['tools/board/src/check.mjs'], exists }))
+  assert.deepEqual(plan, refused)
+  // Touches name it but the result names a file outside git that is there: the plan was wide; it warns.
+  const wide = await reportCheck(outside({ branch: 'none', touches: ['tools/board/src/check.mjs'], exists: files(['/projects/art-inbox/gap-9', '/projects/art-inbox/gap-9/gap.html']) }))
+  assert.equal(wide.passed, true)
+  assert.deepEqual(wide.warnings, ['Touches names files in a repository: tools/board/src/check.mjs'])
 })
 
 test('B363: a step on the base branch whose merged commit a repository holds, or on a branch of its own, keeps the check of its repository', async () => {
@@ -136,8 +166,9 @@ test('B580: a branch never made and nothing merged: work outside git, checked by
   const never = await reportCheck(outside({ branch: 'b9-never-made' }))
   assert.deepEqual(never, { passed: true, lines: ['work outside git', 'there: art-inbox/gap-9/gap.html, art-inbox/gap-9', 'result named', 'context and change named'] })
   assert.deepEqual(await reportCheck(outside({ branch: 'b9-never-made', merged: '' })), never)
-  const missing = await reportCheck(outside({ branch: 'b9-never-made', exists: files(['/projects/art-inbox/gap-9']) }))
-  assert.deepEqual(missing, { passed: false, lines: ['work outside git', 'not there: art-inbox/gap-9/gap.html'] })
+  // 2026-10-25: nothing named is there: a fact, and it refuses; a path that is not there beside one that is only warns (above).
+  const missing = await reportCheck(outside({ branch: 'b9-never-made', exists: files([]) }))
+  assert.deepEqual(missing, { passed: false, lines: ['work outside git', 'not there: art-inbox/gap-9/gap.html, art-inbox/gap-9'] })
 })
 
 test('B580: a branch deleted after its merge stays a git step; a git that does not answer never makes one outside git', async () => {
@@ -212,17 +243,28 @@ const tested = {
   [`/projects/tools/board ${tree('c0ffee1')}`]: 'docs/lamps.md\n',
 }
 
-test('tests bite: a change with a test file and no mutant line is refused with the words to add; with the line it passes', async () => {
+// 2026-10-25 (the person: "check the work, not the wording"): a report that names no mutant for a change that touches
+// tests passes with a warning; the partner's result check asks for the mutant (these tests pinned a refusal).
+test('tests bite: a change with a test file and no mutant line passes with a warning; with the line it passes without', async () => {
   const bare = await reportCheck({ id: 'B5', branch: 'b5-lamps', result: SAID + 'The lamps glow.', merged: 'c0ffee1', repos, run: git(tested) })
-  assert.deepEqual(bare, { passed: false, lines: ['work in board', `the change touches tests (test/lamps.test.mjs) but the result names no mutant: add "${BITE}" and report again`] })
+  assert.deepEqual(bare, {
+    passed: true, lines: ['work in board', 'main of board equals origin/main', 'branch gone', 'worktree gone', 'result named', 'context and change named'],
+    warnings: [`the change touches tests (test/lamps.test.mjs) but the result names no mutant: the result check asks for one (next time add "${BITE}")`],
+  })
+  assert.equal(hasNoMutantWarning(bare.warnings.join('; ')), true)
   const result = SAID + 'The lamps glow.\nTests bite: in a scratch copy, glow() returning early → "a lit lamp glows" failed.'
   const named = await reportCheck({ id: 'B5', branch: 'b5-lamps', result, merged: 'c0ffee1', repos, run: git(tested) })
   assert.deepEqual(named, { passed: true, lines: ['work in board', 'main of board equals origin/main', 'branch gone', 'worktree gone', 'result named', 'context and change named', 'tests bite named'] })
   // "->" counts as the arrow; the words without an arrow, or with nothing on either side of it, do not.
-  assert.equal((await reportCheck({ id: 'B5', branch: 'b5-lamps', result: SAID + 'Tests bite: glow undone -> "glows" failed', merged: 'c0ffee1', repos, run: git(tested) })).passed, true)
+  assert.deepEqual(await reportCheck({ id: 'B5', branch: 'b5-lamps', result: SAID + 'Tests bite: glow undone -> "glows" failed', merged: 'c0ffee1', repos, run: git(tested) }), named)
   for (const words of ['Tests bite: undoing glow fails "glows"', 'Tests bite: → "glows"', 'Tests bite: glow undone →', 'Tests bite: glow undone\n→ "glows" failed']) {
-    assert.equal((await reportCheck({ id: 'B5', branch: 'b5-lamps', result: SAID + words, merged: 'c0ffee1', repos, run: git(tested) })).passed, false, words)
+    const done = await reportCheck({ id: 'B5', branch: 'b5-lamps', result: SAID + words, merged: 'c0ffee1', repos, run: git(tested) })
+    assert.equal(done.passed, true, words)
+    assert.equal(hasNoMutantWarning(done.warnings.join('; ')), true, words)
   }
+  // A fact still refuses, and says only the fact: the missing mutant is not told then (the report is made again anyway).
+  const stuck = await reportCheck({ id: 'B5', branch: 'b5-lamps', result: SAID + 'The lamps glow.', merged: 'c0ffee1', repos, run: git({ ...tested, [`/projects/tools/board ${heads}`]: 'main\nb5-lamps\n' }) })
+  assert.deepEqual(stuck, { passed: false, lines: ['work in board', 'the branch b5-lamps is still there'] })
 })
 
 test('tests bite: a change without a test file reports as before; another step\'s commit (B51) does not count', async () => {
@@ -231,7 +273,9 @@ test('tests bite: a change without a test file reports as before; another step\'
   assert.deepEqual(done, { passed: true, lines: ['work in board', 'main of board equals origin/main', 'branch gone', 'worktree gone', 'result named', 'context and change named'] })
   // The merged commit itself changes a test: counted.
   const lastTests = { ...noTests, [`/projects/tools/board ${tree('c0ffee1')}`]: 'tests/lamps_spec.rb\n' }
-  assert.equal((await reportCheck({ id: 'B5', branch: 'b5-lamps', result: SAID + 'x', merged: 'c0ffee1', repos, run: git(lastTests) })).passed, false)
+  const last = await reportCheck({ id: 'B5', branch: 'b5-lamps', result: SAID + 'x', merged: 'c0ffee1', repos, run: git(lastTests) })
+  assert.equal(last.passed, true)
+  assert.equal(hasNoMutantWarning(last.warnings.join('; ')), true)
 })
 
 test('tests bite: a merge of main into the step\'s branch counts what the branch has over main', async () => {
@@ -242,46 +286,80 @@ test('tests bite: a merge of main into the step\'s branch counts what the branch
     [`/projects/tools/board diff --name-only c0ffee1^2 c0ffee1`]: 'src/lamps.mjs\nsrc/__tests__/lamps.js\n',
   }
   const done = await reportCheck({ id: 'B5', branch: 'b5-lamps', result: SAID + 'The lamps glow.', merged: 'c0ffee1', repos, run: git(merge) })
-  assert.equal(done.passed, false)
-  assert.match(done.lines.at(-1), /^the change touches tests \(src\/__tests__\/lamps\.js\)/)
+  assert.equal(done.passed, true)
+  assert.match(done.warnings.at(-1), /^the change touches tests \(src\/__tests__\/lamps\.js\)/)
   // A merge that is not into the step's branch: what main brought is not the step's.
   const other = { ...merge, [`/projects/tools/board log -1 --format=%s c0ffee1`]: 'Merge b9-paths into main\n' }
-  assert.equal((await reportCheck({ id: 'B5', branch: 'b5-lamps', result: SAID + 'x', merged: 'c0ffee1', repos, run: git(other) })).passed, true)
+  const brought = await reportCheck({ id: 'B5', branch: 'b5-lamps', result: SAID + 'x', merged: 'c0ffee1', repos, run: git(other) })
+  assert.equal(brought.passed, true)
+  assert.equal(brought.warnings, undefined)
 })
 
-test('B569: a result without its Context or Change, too long, or with files, code words or hashes in them, fails and says which', async () => {
+// 2026-10-25 (the person: "check the work, not the wording"; X45, X50, X57, X67): the Context and Change used to refuse a
+// report (a missing part, over 300 or 500 characters, file names, code words, hashes, ids, placeholders). They are warnings
+// now: the report passes, the board builds the card's words itself (recapWords.test.mjs), and a worker is not sent back.
+test('B569: a result without its Context or Change, too long, or with files, code words or hashes in them passes with warnings that say which', async () => {
   const check = result => reportCheck({ id: 'B5', branch: 'b5-lamps', result, merged: 'c0ffee1', repos, run: git(world) })
-  const faultsOf = async result => (await check(result)).lines.filter(one => !/^work in /.test(one))
-  assert.deepEqual(await faultsOf('The lamps glow.'), [
-    'the result names no Context: open it with "Context: <1-3 short lines: what was wrong or missing, for someone who forgot> Change: <what the person gets now> Details: <the rest, for the check>"',
-    'the result names no Change: after the Context, "Change: <what the person gets now>", then "Details:" and the rest',
-    PLAIN_RULE,
+  const warningsOf = async result => {
+    const done = await check(result)
+    assert.equal(done.passed, true, result)
+    return done.warnings ?? []
+  }
+  const NEXT = 'next time open the result with "Context: <what was wrong, in plain words, at most 300 characters> Change: <what the person gets now, at most 500> Details: <the rest>"'
+  assert.deepEqual(await warningsOf('The lamps glow.'), [
+    "the result names no Context: the card's Context is made from the step's summary",
+    "the result names no Change: the card's Change is made from the report",
+    NEXT,
   ])
-  // X50 (B624): said once, with a missing Context or a missing Change; a report with both is not told it.
-  assert.deepEqual(await faultsOf('Context: The lamps were dark. Details: lamps.mjs'), ['the result names no Change: after the Context, "Change: <what the person gets now>", then "Details:" and the rest', PLAIN_RULE])
-  assert.equal((await faultsOf('Context: The lamps were dark. Change: They glow. Details: lamps.mjs')).includes(PLAIN_RULE), false)
-  assert.match(PLAIN_RULE, /plain words.*no file names, code words, ids, commit hashes or placeholders.*"Details:"/)
-  assert.match((await faultsOf('Change: They glow.'))[0], /^the result names no Context/)
-  assert.deepEqual(await faultsOf(`Context: ${'dark '.repeat(61)}Change: They glow.`), ['the Context is 304 characters: at most 300, the rest goes after "Details:"'])
-  assert.deepEqual(await faultsOf(`Context: Dark. Change: ${'glow '.repeat(101)}`), ['the Change is 504 characters: at most 500, the rest goes after "Details:"'])
-  assert.deepEqual(await faultsOf('Context: The lampPost rule in src/lamps.mjs was wrong. Change: Merged 3f9a1c2: lamps glow. Details: all in src/lamps.mjs'), [
-    'the Context holds file names (src/lamps.mjs), code words (lampPost): say it in plain words, for someone who forgot, and put those after "Details:"',
-    'the Change holds commit hashes (3f9a1c2): say it in plain words, for someone who forgot, and put those after "Details:"',
-    LIMITS_RULE,
+  // A part that is not named does not claim 'context and change named' in the check's lines.
+  assert.equal((await check('The lamps glow.')).lines.includes('context and change named'), false)
+  assert.deepEqual(await warningsOf('Context: The lamps were dark. Details: lamps.mjs'), ["the result names no Change: the card's Change is made from the report", NEXT])
+  assert.deepEqual(await warningsOf('Change: They glow.'), ["the result names no Context: the card's Context is made from the step's summary", NEXT])
+  assert.deepEqual(await warningsOf(`Context: ${'dark '.repeat(61)}Change: They glow.`), ['the Context is 304 characters: the card shortens it to 300', NEXT])
+  assert.deepEqual(await warningsOf(`Context: Dark. Change: ${'glow '.repeat(101)}`), ['the Change is 504 characters: the card shortens it to 500', NEXT])
+  assert.deepEqual(await warningsOf('Context: The lampPost rule in src/lamps.mjs was wrong. Change: Merged 3f9a1c2: lamps glow. Details: all in src/lamps.mjs'), [
+    'the Context holds file names (src/lamps.mjs), code words (lampPost): the card leaves those words out',
+    'the Change holds commit hashes (3f9a1c2): the card leaves those words out',
+    NEXT,
   ])
-  // X57 (B633): words joined by slashes are no file name; a path with a dot, a known folder or a backslash still is.
-  assert.equal((await check('Context: A yes/how/cost question was refused. Change: Plain words like yes/how/cost pass. Details: x')).passed, true)
-  assert.match((await faultsOf('Context: Dark. Change: It lives in src/content/arenas/dev now. Details: x'))[0], /^the Change holds file names \(src\/content\/arenas\/dev\)/)
-  assert.match((await faultsOf('Context: Dark. Change: See verdict.md for it. Details: x'))[0], /file names \(verdict\.md\)/)
-  assert.match((await faultsOf('Context: Dark. Change: See a\\b\\c for it. Details: x'))[0], /file names/)
-  assert.match(PLAIN_RULE, /at most 500/)
-  assert.ok((await faultsOf('Context: Dark. Change: See verdict.md for it. Details: x')).includes(LIMITS_RULE))
+  assert.deepEqual(await warningsOf('Context: B531 sat queued. Change: Main hands <n> on. Details: x'), [
+    'the Context holds ids (B531): the card leaves those words out',
+    'the Change holds placeholders (<n>): the card leaves those words out',
+    NEXT,
+  ])
+  // X57 (B633): words joined by slashes are no file name; a path with a dot, a known folder or a backslash still is (a warning only).
+  assert.deepEqual(await warningsOf('Context: A yes/how/cost question was refused. Change: Plain words like yes/how/cost pass. Details: x'), [])
+  assert.match((await warningsOf('Context: Dark. Change: It lives in src/content/arenas/dev now. Details: x'))[0], /^the Change holds file names \(src\/content\/arenas\/dev\)/)
+  assert.match((await warningsOf('Context: Dark. Change: See verdict.md for it. Details: x'))[0], /file names \(verdict\.md\)/)
+  assert.match((await warningsOf('Context: Dark. Change: See a\\b\\c for it. Details: x'))[0], /file names/)
   // What goes after "Details:" (or a Tests bite line) is the check's, whatever it holds.
-  assert.equal((await check('Context: The lamps were dark. Change: They glow. Details: lamps.mjs, lightOn(), 3f9a1c2')).passed, true)
-  // Work outside git is held to the same words.
+  assert.deepEqual(await check('Context: The lamps were dark. Change: They glow. Details: lamps.mjs, lightOn(), 3f9a1c2'), { passed: true, lines: ['work in board', 'main of board equals origin/main', 'branch gone', 'worktree gone', 'result named', 'context and change named'] })
+  // Work outside git is held to the same words: a warning, the files it names are there.
   const left = await reportCheck(outside({ branch: 'none', result: 'The gap page art-inbox/gap-9/gap.html.' }))
-  assert.equal(left.passed, false)
-  assert.match(left.lines.join('\n'), /the result names no Context/)
+  assert.equal(left.passed, true)
+  assert.equal(left.warnings[0], "the result names no Context: the card's Context is made from the step's summary")
+})
+
+// "Check the work": a fact still refuses, and its refusal says only the fact, however the report is worded.
+test('2026-10-25: a fact refuses whatever the wording; the refusal names no wording problem', async () => {
+  const unwritten = 'The lamps glow, see src/lamps.mjs.'
+  const stuck = { ...world, [`/projects/tools/board ${heads}`]: 'main\nb5-lamps\n', '/projects/tools/board rev-parse origin/main': 'zzz\n' }
+  const done = await reportCheck({ id: 'B5', branch: 'b5-lamps', result: unwritten, merged: 'c0ffee1', repos, run: git(stuck) })
+  assert.deepEqual(done, { passed: false, lines: ['work in board', 'main of board is not the same as origin/main', 'the branch b5-lamps is still there'] })
+  // No result at all is a fact; the same report with a result passes (with the warnings above).
+  assert.deepEqual((await reportCheck({ id: 'B5', branch: 'b5-lamps', result: '  ', merged: 'c0ffee1', repos, run: git(world) })).lines, ['work in board', 'no result named'])
+  assert.equal((await reportCheck({ id: 'B5', branch: 'b5-lamps', result: unwritten, merged: 'c0ffee1', repos, run: git(world) })).passed, true)
+})
+
+test('2026-10-25: a result the board cut at its limit passes with a warning that says so, first among the warnings', async () => {
+  const run = git(world)
+  const cut = await reportCheck({ id: 'B5', branch: 'b5-lamps', result: SAID + 'x', merged: 'c0ffee1', repos, run, cut: 3100 })
+  assert.deepEqual(cut.warnings, ['the result was 3100 characters: the board kept the first 2000 and cut the rest; put what matters first'])
+  assert.equal(cut.passed, true)
+  const withWords = await reportCheck({ id: 'B5', branch: 'b5-lamps', result: 'The lamps glow.', merged: 'c0ffee1', repos, run, cut: 2500 })
+  assert.match(withWords.warnings[0], /^the result was 2500 characters/)
+  assert.match(withWords.warnings[1], /^the result names no Context/)
+  assert.equal((await reportCheck({ id: 'B9', branch: 'none', result: SAID + 'x', merged: 'none', repos, run, project: PROJECT, exists: files(['/projects/art-inbox/gap-9']), touches: ['art-inbox/gap-9/'], cut: 2100 })).warnings[0].slice(0, 22), 'the result was 2100 ch')
 })
 
 test('tests bite: what counts as a test file', () => {

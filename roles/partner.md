@@ -453,7 +453,8 @@ plan to make the vision real, in the strategy the user chooses first.
   - A fair target (the user, 2026-10-26: "yes"): a part is judged against a target of that part alone, made the way
     the part is made, not against a whole finished concept. For maps that is the Codex painting drawn on a layout laid
     out as the game lays out its cells and floors (the chain: concept, layout in the game's geometry, Codex paints the
-    layout in the concept's look; `art-inbox/maps-chain/`). The whole map is still judged against its full concept.
+    layout in the concept's look; its pictures are in the project's picture folder). The whole map is still judged
+    against its full concept.
   - Only then does one last step combine the proven aspects into one thing of the kind, beside its target.
   - The goal's very last step is a recap page (the user, 2026-10-25: "i want a recap before we move away from this
     focus/goal so i can see each aspect it implement with proof screenshot and original target images"). For each
@@ -720,6 +721,14 @@ board's word, never the user's.
    reference picture, the target; the kind's definition of done stands in your rounds under "Kinds of work") and its
    report. A step on the worker board itself is also checked against the board's design principles
    (`PRINCIPLES.md` in the board's folder): one point per principle it touches, a break a fail unless the step says why.
+   The board's own check no longer sends a report back for its wording (2026-10-25, "check the work, not the wording"):
+   what it passed with warnings stands in the board's word as `Board warnings:` (and in the step's History, "check
+   passed with warnings"). **A change that touches tests with a report that names no mutant** (the word then also
+   carries `Demand:`) is yours to demand: the helper makes the mutant itself, in a scratch copy and never on the branch
+   (undo the fix, run the new tests, see which assertion fails, delete the copy), and files it in the check's evidence.
+   A test that still passes without the fix is a `fail:` point ("tests do not bite: <what was undone>"), which makes
+   the fix step as any failed point. A report that names its `Tests bite:` mutant needs no demand: the helper may
+   repeat it.
 2. Hand the check to a fresh helper on Sonnet (`model: "sonnet"`), one that did not build it (never your own chat): it looks at the result as the
    user would (the game at that place, the page, the merged change), ticks every agreed point pass, fail or ask (ask:
    a look only the user can judge), and scores it against the kind's definition of done where that has a rubric (the

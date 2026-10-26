@@ -276,6 +276,25 @@ test('report-check-twice: a step whose board check failed twice since its last p
   assert.deepEqual(check('report-check-twice', view({ items: items(step('B12', 'done', {}, { History: [line(60, 'check failed: x'), line(40, 'check failed: y')] })) })), [])
 })
 
+test('2026-10-25: report-check-twice counts only refusals for facts: old refusals for wording are left out, a pass with warnings is a pass', () => {
+  const line = (minutes, words) => `- ${stamp(ago(minutes))} server: ${words}`
+  const board = (...history) => view({ items: items(step('B12', 'review', { Owner: 'Painter' }, { History: history })) })
+  const noContext = 'check failed: work in board; the result names no Context: open it with "Context: <1-3 short lines: what was wrong or missing, for someone who forgot> Change: <what the person gets now> Details: <the rest, for the check>"'
+  const holds = 'check failed: work in board; the Context holds file names (a.mjs): say it in plain words, for someone who forgot, and put those after "Details:"; the Context is at most 300 characters and the Change at most 500'
+  const noMutant = 'check failed: work in board; the change touches tests (test/a.test.mjs) but the result names no mutant: add "Tests bite: <what was undone in a copy> → <the assertion that failed>" and report again'
+  // Three refusals for wording only: no case.
+  assert.deepEqual(check('report-check-twice', board(line(90, noContext), line(60, holds), line(30, noMutant))), [])
+  // Two refusals for wording and one for a fact: one failure counts, not two.
+  assert.deepEqual(check('report-check-twice', board(line(90, noContext), line(60, holds), line(30, 'check failed: work in board; the branch b12 is still there'))), [])
+  // Two for facts among the wording ones: a case, named by the last fact.
+  const found = check('report-check-twice', board(line(90, 'check failed: work in board; the branch b12 is still there'), line(70, holds), line(40, 'check failed: work in board; the worktree /p/board-b12 is still on b12: git worktree remove /p/board-b12')))
+  assert.deepEqual(found.map(one => one.text), ['B12: the board\'s check failed 2 times in a row (Painter): work in board; the worktree /p/board-b12 is still on b12: git worktree remove /p/board-b12'])
+  // A refusal for a fact and for wording in one line is a refusal for a fact.
+  assert.equal(check('report-check-twice', board(line(90, `${holds}; main of board is not the same as origin/main`), line(60, `${noContext}; the branch b12 is still there`))).length, 1)
+  // A pass with warnings is a pass: it ends the case.
+  assert.deepEqual(check('report-check-twice', board(line(90, 'check failed: the branch b12 is still there'), line(60, 'check failed: the worktree is left'), line(30, 'check passed with warnings: the result names no Context'))), [])
+})
+
 test('B663 (X67): report-check-twice waits reportCheckMinutes after the second failure and is quiet once a check passed', () => {
   // B614: failed 22:31 and 22:32, passed 22:34.
   const at = (hour, minute) => new Date(2026, 9, 24, hour, minute).getTime()

@@ -20,6 +20,7 @@ import { isFailedForGood, stoppedChats, whyClosed } from '../../work/outboxSweep
 import { FIRST_SAYING, chatsByRole, oldModFinding } from '../../oldMods.mjs'
 import { EFFORTS, chatEffort, effortOf, effortSaid, familyOf, modelOf } from '../../work/effort.mjs'
 import { chainTries, hasTriedBefore, reviewWaitOf } from '../../work/resultCheck.mjs'
+import { isWordingOnly } from '../../work/recapWords.mjs'
 import { CLEAR_MOD, takenSince } from '../../clearOwed.mjs'
 import { readingAgeMinutes } from '../../limits.mjs'
 import { COUNTS_BY_KEY } from './repair.mjs'
@@ -435,14 +436,16 @@ const STAMP = /^-\s+(\d{4}-\d{2}-\d{2} \d{2}:\d{2}(?::\d{2})?)\s/
 /**
  * 9. A step whose board check failed twice or more in a row since its last pass, and is not done; its case began at the
  * second. B663 (X67): not before that second failure is older than `reportCheckMinutes`: the worker is correcting its
- * report then, and a pass in that time ends the case.
+ * report then, and a pass in that time ends the case. 2026-10-25: only a failure for a fact counts; the board no longer
+ * refuses a report for its wording (a pass with warnings is a pass), and the lines of the refusals it made before
+ * that, for wording only (recapWords.mjs `isWordingOnly`), are left out.
  */
 function reportCheckTwice(view) {
   const found = []
   for (const item of stepsOf(view).filter(one => !['done', 'dropped'].includes(stateOf(one)))) {
     const checks = (item.sections?.get('History') ?? []).filter(line => /\bserver: check (?:passed|failed)\b/.test(line))
     const lastPass = checks.findLastIndex(line => /\bserver: check passed\b/.test(line))
-    const failed = checks.slice(lastPass + 1)
+    const failed = checks.slice(lastPass + 1).filter(line => !isWordingOnly(line.match(/server: check failed(?::\s*(.*))?$/)?.[1]))
     if (failed.length < 2) continue
     const since = sinceMs(failed[1].match(STAMP)?.[1])
     if (!(view.now - since > view.settings.reportCheckMinutes * MIN)) continue

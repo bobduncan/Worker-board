@@ -128,19 +128,26 @@ step therefore says what it touches ("Touches: ...").
   checkpoint with every commit: `work step B<id>` with `commit` (the hash, or none) and `next` (your next action, in
   one line); after a restart you go on from it (below, "A pause of all chats"). When the work is
   merged and its worktree removed: `work report B<id>` with what the user gets and the commit; the board checks the
-  merge itself, and that no worktree of the step is left.
+  merge itself, and that no worktree of the step is left. The board checks the work, not the wording (the user,
+  2026-10-25): it sends a report back only for a fact (a base branch that differs from its remote, a branch or worktree
+  left, no result, no file that is there for an outside-git step, work that sits in a repository reported as outside git).
+  Words it passes with a warning, which `work next` shows as "Your last report (B<n>) passed the board's check with
+  warnings: ... - nothing to redo; do not report again" for as long as that is your newest report (a report again restarts
+  the result check).
 - The report's result opens with the user's card (B569): `Context: <1-3 short lines: what was wrong or missing, for
   someone who forgot> Change: <a few lines: what the user gets now> Details: <the rest, for the check>`, the first two
   in plain words for someone who forgot (no files, functions, commits, tests, ids or placeholders; at most 300 and 500
-  characters), or the board's check fails.
+  characters). A part that is missing, too long or not plain does not fail the check: the board builds the card's words
+  from the step's summary and your report (never from your Details), and warns you.
   A visible change: shoot what the user sees before your change and after it, `<picture folder>/B<id>/before.png` and
   `after.png`, at the same size and place; the check sets them side by side for the card. The flow
   file says who moves a step and when; the board refuses a move it does not allow and says why.
 - Tests bite (B527): when your change touches a test file, make the mutant before you report: in a scratch copy
   (never on your branch), undo the fix, run the new tests, see which assertion fails, then delete the copy. Your
   report's result then holds one line `Tests bite: <what was undone in a copy> → <the assertion that
-  failed>`. The board's check refuses a report of a change with test files without that line, and says the words to
-  add. A test that still passes without the fix tests nothing: make it bite first.
+  failed>`. Without that line a report of a change with test files still passes, with a warning, and the partner's
+  result check makes the mutant itself and demands it of the checker. A test that still passes without the fix tests
+  nothing: make it bite first.
 - A step with agreed points ("What we build") or a Standard line is done only after the result check (B356): once the
   board's check of your report passed, the partner's helper, which did not build it, ticks every agreed point against
   the standard. A failed point comes back as a fix step, "Fix: <the failed points>", on the board's list: the board
@@ -148,8 +155,9 @@ step therefore says what it touches ("Touches: ...").
   review and is done with it.
 - A step whose work is outside git (pictures or pages in the project's folder, in no repository; B363): take it with
   branch `none`, report it with `merged` none and name the files it made in the result, by their paths in the project
-  (`<picture folder>/b12/page.html`, or the folder `<picture folder>/b12/`). The board's check is then that those
-  files are there (else the paths its Touches name), not a merged branch. Take it with `none` from the start, so the
+  (`<picture folder>/b12/page.html`, or the folder `<picture folder>/b12/`). The board's check is then that a file
+  your result or the step's Touches name is there (none there is a refusal; a path that is not there beside one that
+  is only warns), not a merged branch; a file of a repository named there is refused: report that work with its merged commit. Take it with `none` from the start, so the
   check never has to guess; a branch named at the take that no repository ever got is read the same way (B580).
 - What only the person can do: `work ask` under your step, `kind` decide, look, provide or do, `blocking` when you
   wait for it, with its pictures (copied first into the project's picture folder, the settings' `pictureRoots`, under

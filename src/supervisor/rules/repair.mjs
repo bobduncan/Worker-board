@@ -24,7 +24,7 @@ import { stamp } from '../../work/migrate.mjs'
 import { waitIds } from '../../work/guards.mjs'
 import { PARTNER_AGAIN_MS, isRoutedToPartner, partnerAskWords } from '../../work/partnerAnswers.mjs'
 import { isHolding } from '../../work/pause.mjs'
-import { checkWhy, gitCheckPassed, needsResultCheck, resultCheckOf, reviewWaitOf } from '../../work/resultCheck.mjs'
+import { boardWarningsOf, checkWhy, gitCheckPassed, needsResultCheck, resultCheckOf, reviewWaitOf, warningLines } from '../../work/resultCheck.mjs'
 import { asksOfStep } from '../../work/stepAsks.mjs'
 import { heldReason } from '../../work/parked.mjs'
 
@@ -360,7 +360,7 @@ function unchecked(view) {
     const key = `unchecked ${id} ${Math.floor((now - since) / UNCHECKED_MS)}`
     const why = checkWhy(item, byId)
     const text = `${id} in review ${minutes(now - since)} min with ${result === 'waits' ? 'its ask point answered and no check filed again' : wait.fix !== null ? `its fix ${wait.fix} done and no check filed again` : 'no result check'}`
-    found.push(finding('unchecked', key, id, text, { do: 'wake', chat: partner.name, id, text: `check step ${id}${why === null ? '' : ` (${why})`}; see roles/partner.md, "The check"` }))
+    found.push(finding('unchecked', key, id, text, { do: 'wake', chat: partner.name, id, text: [`check step ${id}${why === null ? '' : ` (${why})`}; see roles/partner.md, "The check"`, ...warningLines(boardWarningsOf(item))].join('\n') }))
   }
   return found
 }
@@ -436,7 +436,7 @@ function heldElsewhere(view, { seen = new Map(), observed = [] } = {}) {
 }
 
 /** B598: the board's own check lines in a step's History: `[stamp, outcome, words]`. */
-const BOARD_CHECK = /^-\s+(\d{4}-\d\d-\d\d \d\d:\d\d)\s+server: check (passed|failed|pending)\b(?::\s*(.*))?$/
+const BOARD_CHECK = /^-\s+(\d{4}-\d\d-\d\d \d\d:\d\d)\s+server: check (passed|failed|pending)\b(?: with warnings)?(?::\s*(.*))?$/
 const BASE_FAULT = /^(\S+) of (.+?) is not the same as origin\/(\S+?)(?::|$)/
 
 /**

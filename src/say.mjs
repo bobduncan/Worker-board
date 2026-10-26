@@ -11,6 +11,7 @@ import { stoppedOf } from './stopped.mjs'
 import { SYNC_BOARD, lastSyncAnswer } from './sync.mjs'
 import { isTalkPicture } from './talkPicture.mjs'
 import { isHolding } from './work/pause.mjs'
+import { warningLines } from './work/resultCheck.mjs'
 
 const refuse = (status, why) => ({ ok: false, status, why })
 
@@ -283,7 +284,10 @@ const answeredAsks = step => (step.refined?.asks ?? []).filter(ask => ask.answer
 export const checkStepWords = (to, step, job) => ({
   to, ask: null, step: null, title: null, version: null, verdict: null, command: 'result-check', about: step.id,
   // B565: `step.why` (resultCheck.mjs `checkWhy`), when the check is asked again, stands in a `Why:` line.
-  text: `check step\nStep: ${step.id} ${plainLine(step.title ?? '')}\nBuilt by: ${plainLine(step.owner ?? 'its worker')}${step.why ? `\nWhy: ${plainLine(step.why)}` : ''}\nYour job: ${job}, "The check"`,
+  // 2026-10-25: `step.warnings`, what the board's check passed the report with, stands in a `Board warnings:` line; a
+  // report that names no mutant for a change that touches tests adds the `Demand:` line (the check no longer sends the
+  // worker back for it: this check asks for the mutant).
+  text: `check step\nStep: ${step.id} ${plainLine(step.title ?? '')}\nBuilt by: ${plainLine(step.owner ?? 'its worker')}${step.why ? `\nWhy: ${plainLine(step.why)}` : ''}${warningLines(step.warnings).map(one => `\n${one}`).join('')}\nYour job: ${job}, "The check"`,
 })
 
 /** B233: the Advisor refines a step that is not finished; one ask at a time per step. */
