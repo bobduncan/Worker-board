@@ -90,7 +90,9 @@ function chatLines(view, now) {
     // B576 (X26): how the switch to the step's setting stands; a mismatch is odd only once it lasts after the take.
     const switching = on === null ? null : switchOf(lane, on, view)
     const wants = on === null ? '' : `; its step ${onId} wants ${modelOf(on).family} · ${effortOf(on).level}${switchWords(switching, now)}`
-    const onWords = onId === null ? '; on no step' : `; on ${onId}${on === null ? '' : ` "${oneLine(valueOf(on, 'Title'), 60)}" (${valueOf(on, 'State')})`}`
+    // X76 (B708): a step the board has just handed over (queued for it) is its step before it takes it: working on it is no odd one.
+    const handed = onId === null ? mine.find(item => valueOf(item, 'State') === 'queued')?.head.get('Id') ?? null : null
+    const onWords = onId === null ? `; on no step${handed === null ? '' : `; ${handed} handed to it`}` : `; on ${onId}${on === null ? '' : ` "${oneLine(valueOf(on, 'Title'), 60)}" (${valueOf(on, 'State')})`}`
     const reports = mine.flatMap(item => (item.sections?.get('History') ?? []).filter(line => REPORTED.test(line)).map(line => ({ id: valueOf(item, 'Id'), at: historyAt(line) })))
       .filter(one => Number.isFinite(one.at)).sort((a, b) => b.at - a.at)
     const report = reports.length === 0 ? '; no report known' : `; last report ${reports[0].id} at ${dayClockOf(reports[0].at, now)}`
@@ -104,7 +106,7 @@ function chatLines(view, now) {
     // X46: a chat that is off or unknown, does not run and holds no step is closed, which is normal.
     const isClosed = (lane.state === 'off' || lane.state === 'unknown') && lane.isRunning !== true && onId === null
     const odd = (purpose === null && !isClosed && (ODD_STATES.includes(lane.state) || (lane.isRunning === false && onId !== null)))
-      || (lane.state === 'working' && onId === null && role === 'worker' && !waitsForPartner) || (role === 'worker' && switching?.late === true)
+      || (lane.state === 'working' && onId === null && handed === null && role === 'worker' && !waitsForPartner) || (role === 'worker' && switching?.late === true)
     return lineOf(`${lane.name} (${role}): ${state}${suspended}${running}; ${runs}${wants}${onWords}${report}; ${clearWords(lane.compaction, now)}`, { tier: 0, odd, at: since, max: CHAT_CHARS })
   })
 }

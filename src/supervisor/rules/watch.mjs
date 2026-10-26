@@ -90,21 +90,13 @@ function spanOf(view, seenOf, key, since = null) {
 
 /**
  * X80 (the PC slept 17:06 to 21:08, and a step with ten minutes of work read four hours quiet): how long the board itself
- * did not run between `from` and now, a PC sleep or a board stop. The history marks it as a time no chat has a span of state
- * (history.mjs, store.mjs: a gap line); the time before the first span of any chat is the timeline's start, not a stop.
- * Without a timeline it is 0, and the wall time counts.
+ * did not run between `from` and now, a PC sleep or a board stop. B710: read from the history's gap lines over all of it
+ * (`view.gaps`, state.mjs), not guessed from holes in today's window, which a gap that began before it escaped. Without
+ * gap lines it is 0, and the wall time counts.
  */
 function boardOffMs(view, from) {
-  const spans = view.timeline.flatMap(lane => lane.spans ?? []).filter(span => Number.isFinite(span.from) && Number.isFinite(span.to)).sort((a, b) => a.from - b.from)
-  if (spans.length === 0 || !Number.isFinite(from)) return 0
-  let reached = Math.max(from, spans[0].from)
-  let off = 0
-  for (const span of spans) {
-    if (span.from >= view.now) break
-    if (span.from > reached) off += span.from - reached
-    reached = Math.max(reached, span.to)
-  }
-  return off
+  if (!Number.isFinite(from)) return 0
+  return (view.gaps ?? []).reduce((sum, gap) => sum + Math.max(0, Math.min(gap.to, view.now) - Math.max(gap.from, from)), 0)
 }
 
 /**
@@ -517,6 +509,10 @@ const STAMP = /^-\s+(\d{4}-\d{2}-\d{2} \d{2}:\d{2}(?::\d{2})?)\s/
  * report then, and a pass in that time ends the case. 2026-10-25: only a failure for a fact counts; the board no longer
  * refuses a report for its wording (a pass with warnings is a pass), and the lines of the refusals it made before
  * that, for wording only (recapWords.mjs `isWordingOnly`), are left out.
+ * B710: the board's off time (boardOffMs) does not count in the wait.
+ * B710: left on wall time on purpose, being ages of a word already written and not a quiet stretch: old-mod (the age of the board's
+ * restart word), the check words' and refine words' ages in review-stuck and open-fix (a word waits as long while the PC sleeps), and
+ * undelivered; a sleep sets them off only as a late word, which is true.
  */
 function reportCheckTwice(view) {
   const found = []
@@ -526,7 +522,8 @@ function reportCheckTwice(view) {
     const failed = checks.slice(lastPass + 1).filter(line => !isWordingOnly(line.match(/server: check failed(?::\s*(.*))?$/)?.[1]))
     if (failed.length < 2) continue
     const since = sinceMs(failed[1].match(STAMP)?.[1])
-    if (!(view.now - since > view.settings.reportCheckMinutes * MIN)) continue
+    // B710: the worker corrects its report in running time; a sleep of the board is not time it had.
+    if (!(view.now - since - boardOffMs(view, since) > view.settings.reportCheckMinutes * MIN)) continue
     const id = idOf(item)
     const detail = failed.at(-1).match(/server: check failed(?::\s*(.*))?$/)?.[1]?.trim() || 'no reason given'
     found.push({
