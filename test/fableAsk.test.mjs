@@ -155,7 +155,7 @@ test('the guard\'s steps: ask at the third failure, wait while the ask is open, 
   assert.equal(guardStep(node(asked.replace('  Fable asked: Q7\n', '  Fable asked: Q7\n  Evaluation asked: 2026-10-19 09:40\n')), FAILED), null)
   assert.equal(guardStep(node(MAP.replace('- [~] G2', '- [x] G2')), FAILED), null)
   // The Focus page: the board asks the person.
-  assert.deepEqual(guardOf(node(asked), FAILED, []), { attempts: 3, parts: [{ title: 'Wooden benches', count: 3 }], of: 3, state: 'asking', ask: 'Q7' })
+  assert.deepEqual(guardOf(node(asked), FAILED, []), { attempts: 3, parts: [{ title: 'Wooden benches', count: 3 }], step: 'B4', of: 3, state: 'asking', ask: 'Q7' })
 })
 
 test('the third failure files exactly one ask and starts no evaluation and no mode word; not twice while it is open', async () => {

@@ -7,6 +7,9 @@ import { sinceMs, valueOf } from './item.mjs'
 import { standardOf } from './standard.mjs'
 
 const VERDICTS = ['pass', 'fail', 'ask']
+/** B701: the plain lines of a check the person's task window shows (what was tried, why it fell short, the one-line conclusion). */
+export const NOTES = ['tried', 'why', 'conclusion']
+const NOTE_MAX = 400
 const HISTORY_TIME = /^-\s+\d{4}-\d{2}-\d{2} \d{2}:\d{2}\s+/
 
 /**
@@ -27,14 +30,21 @@ export function parsePoints(value) {
   const all = (Array.isArray(value) ? value : typeof value === 'string' ? value.split('\n') : []).filter(one => typeof one === 'string' && one.trim() !== '')
   if (all.length === 0) return { ok: false, why: 'Give every agreed point in "points", each "pass: <point>", "fail: <point>" or "ask: <point>".' }
   const points = []
-  for (const one of all.slice(0, 30)) {
+  const notes = {}
+  for (const one of all.slice(0, 40)) {
     const found = one.trim().replace(/^[-*]\s+/, '').match(/^(\w+)\s*[:–-]\s*(.+)$/)
     const verdict = found?.[1].toLowerCase()
-    if (found === null || !VERDICTS.includes(verdict)) return { ok: false, why: `"${one.trim().slice(0, 60)}" is no point: write "pass: <point>", "fail: <point>" or "ask: <point>".` }
+    // B701: the lines the person's task window reads (`tried`, `why`, `conclusion`) are no points: kept apart, never counted.
+    if (found !== null && NOTES.includes(verdict)) {
+      notes[verdict] = found[2].replace(/\s+/g, ' ').trim().slice(0, NOTE_MAX)
+      continue
+    }
+    if (found === null || !VERDICTS.includes(verdict)) return { ok: false, why: `"${one.trim().slice(0, 60)}" is no point: write "pass: <point>", "fail: <point>" or "ask: <point>" (or "tried: <the way>", "why: <why it fell short>", "conclusion: <one line>").` }
     // B381: a point is kept whole (a long one up to 4000 characters), so its fix step carries all of it.
     points.push({ verdict, text: found[2].replace(/\s+/g, ' ').trim().slice(0, 4000) })
   }
-  return { ok: true, points }
+  if (points.length === 0) return { ok: false, why: 'Give every agreed point in "points", each "pass: <point>", "fail: <point>" or "ask: <point>": the lines "tried:", "why:" and "conclusion:" are no points.' }
+  return { ok: true, points, notes }
 }
 
 /**
@@ -329,7 +339,9 @@ export function checkedOf(item) {
     const found = one.match(/^-\s+(pass|fail|ask):\s+(.+)$/)
     return found === null ? [] : [{ verdict: found[1], text: found[2] }]
   })
-  return { evidence: named('Evidence'), score: named('Score'), points, passed: points.filter(one => one.verdict === 'pass').length, total: points.length }
+  // B701: the plain lines of the check ("Tried:", "Why:", "Conclusion:"), only the ones it has.
+  const notes = Object.fromEntries(NOTES.map(name => [name, named(name[0].toUpperCase() + name.slice(1))]).filter(([, text]) => text !== null && text !== ''))
+  return { evidence: named('Evidence'), score: named('Score'), points, passed: points.filter(one => one.verdict === 'pass').length, total: points.length, ...notes }
 }
 
 /**
@@ -447,4 +459,24 @@ export function fixTitle(failed) {
   const words = failed.map(one => one.text.replace(/\s*\([^()]*\)\s*$/, '').trim()).filter(Boolean).join('; ')
   const cut = words.length <= 100 ? words : `${words.slice(0, 100).replace(/\s+\S*$/, '')}…`
   return `Fix: ${cut.replace(/[\s.;,:]+$/, '')}`
+}
+
+/**
+ * B701: the tries of the chain a step is in, for the person's task window: each step of the chain (its first step and
+ * every fix under it, `chainTries`), oldest first, as `{ id, title, state, check }`, `check` the step's own last result
+ * check (`checkedOf`) cut to what the window shows: `{ passed, total, failed: [the failed points' words], evidence,
+ * score, tried, why, conclusion }`, or null when it has none yet. A step with no fix is a chain of one.
+ */
+export function triesOf(id, items) {
+  return chainTries(id, items).map(at => {
+    const one = items?.get(at)
+    const check = checkedOf(one)
+    return {
+      id: at, title: valueOf(one, 'Title') ?? '', state: valueOf(one, 'State') ?? '',
+      check: check === null ? null : {
+        passed: check.passed, total: check.total, points: check.points, failed: check.points.filter(point => point.verdict === 'fail').map(point => point.text),
+        evidence: check.evidence, score: check.score, tried: check.tried ?? null, why: check.why ?? null, conclusion: check.conclusion ?? null,
+      },
+    }
+  })
 }

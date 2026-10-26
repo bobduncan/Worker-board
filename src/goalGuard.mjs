@@ -306,7 +306,10 @@ export function guardOf(node, items, asks) {
   const parts = found.groups.map(group => ({ title: group.title, count: group.count }))
   // The part under evaluation, when the guard named one.
   const part = under === null ? {} : { part: under.title }
-  if ((node.evaluationAsked ?? null) === null && (node.fableAsked ?? null) !== null) return { attempts, parts, ...part, of: GUARD_ATTEMPTS, state: 'asking', ask: node.fableAsked }
+  // B701: the step whose failed check was the newest of that part, for the card that opens its window ("what was tried").
+  const stepId = [...((under ?? found.groups[0])?.failures ?? [])].reverse().find(one => /^B\d+$/.test(one.id))?.id ?? null
+  const step = stepId === null ? {} : { step: stepId }
+  if ((node.evaluationAsked ?? null) === null && (node.fableAsked ?? null) !== null) return { attempts, parts, ...part, ...step, of: GUARD_ATTEMPTS, state: 'asking', ask: node.fableAsked }
   if ((node.evaluationAsked ?? null) === null) return { attempts, parts, of: GUARD_ATTEMPTS, state: 'counting', ask: null }
   const rebuild = new RegExp(`^Rebuild ${node.id}\\b`, 'i')
   const waiting = (asks ?? []).find(one => one.head.get('Kind') === 'ask' && one.head.get('Of') === node.id && isOpenAsk(one) && rebuild.test(String(one.head.get('Title') ?? '')))

@@ -145,7 +145,7 @@ const harness = (names, setup = '') => {
 }
 
 test('#details opens a step that sits in no queue as the step it is', () => {
-  const page = harness(['openFromAddress'])
+  const page = harness(['openFromAddress', 'openStepWindow'])
   const state = { chats: [{ name: 'Worker 1', queue: [{ id: 'B3' }] }], backlog: [{ steps: [{ key: 'B12' }, { key: 'B3' }] }] }
   page.sandbox.location.hash = '#details=B12'
   page.openFromAddress(state)
