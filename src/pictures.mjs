@@ -11,7 +11,8 @@ import { picturePath } from './asks.mjs'
 const IDEA_REFERENCE = /^reference-[1-9]\.(png|jpg|webp)$/
 
 const TYPES = { png: 'image/png', webp: 'image/webp', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif' }
-const PICTURE_BYTES = 12 * 1024 * 1024
+/** The most a picture may weigh to be shown (B676: the person's 17 MB demo picture did not open at 12 MB). */
+export const PICTURE_BYTES = 32 * 1024 * 1024
 
 /**
  * B354: the folders whose pictures the board shows: the settings' `pictureRoots`, and each kind of work's reference
@@ -51,6 +52,20 @@ export async function findPicture(project, roots, value) {
     const info = await stat(file)
     if (!info.isFile() || info.size > PICTURE_BYTES) return null
     return { file, type: TYPES[path.split('.').pop().toLowerCase()], size: info.size }
+  } catch {
+    return null
+  }
+}
+
+/** The size of a picture in a shown folder that is too big to show, or null (B676: the popup says so, never an empty window). */
+export async function pictureTooBig(project, roots, value) {
+  const path = picturePath(value)
+  if (path === null) return null
+  const file = await inside(project, roots, path)
+  if (file === null) return null
+  try {
+    const info = await stat(file)
+    return info.isFile() && info.size > PICTURE_BYTES ? info.size : null
   } catch {
     return null
   }

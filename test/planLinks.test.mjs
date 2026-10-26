@@ -41,9 +41,9 @@ test('the server shows a file inside the game\'s folder only, of a kind it knows
   await writeFile(join(root, 'docs', 'plan.md'), '# Plan')
   await writeFile(join(root, 'docs', 'run.exe'), 'MZ')
   await writeFile(join(root, 'docs', 'big.txt'), 'x'.repeat(1_000_001))
-  // B426: a picture may be as large as the picture popup allows (12 MB), a text page 1 MB
+  // B426: a picture may be as large as the picture popup allows (32 MB), a text page 1 MB
   await writeFile(join(root, 'docs', 'big.png'), Buffer.alloc(2_000_000))
-  await writeFile(join(root, 'docs', 'huge.png'), Buffer.alloc(12 * 1024 * 1024 + 1))
+  await writeFile(join(root, 'docs', 'huge.png'), Buffer.alloc(32 * 1024 * 1024 + 1))
   assert.equal((await readGameFile(root, 'docs/big.png'))?.type, 'image/png')
   assert.equal(await readGameFile(root, 'docs/huge.png'), null)
   const outside = await mkdtemp(join(tmpdir(), 'game-out-'))

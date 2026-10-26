@@ -22,6 +22,6 @@ test('on a phone: 44 px buttons and fields, an answer box that grows, a picture 
 
 test('the page grows an answer box where the browser cannot, and a tap on a picture on a phone keeps it open', () => {
   assert.match(script, /const PHONE = matchMedia\('\(max-width: 600px\)'\)/)
-  assert.match(script, /if \(PHONE\.matches && event\.target === \$\('lightbox-picture'\)\) return\n\s+\$\('lightbox'\)\.close\(\)/)
+  assert.match(script, /if \(PHONE\.matches\) \{\n\s+if \(event\.target === image\) return\n\s+return \$\('lightbox'\)\.close\(\)/)
   assert.match(script, /if \(!CSS\.supports\('field-sizing', 'content'\)\) \{\n\s+document\.addEventListener\('input', event => \{/)
 })

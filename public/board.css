@@ -1568,6 +1568,19 @@ dialog::backdrop { background: rgba(4, 7, 12, 0.74); }
 .lightbox figure { display: flex; flex-direction: column; gap: 10px; align-items: center; }
 .lightbox img { max-width: 94vw; max-height: calc(96vh - 60px); border-radius: 8px; }
 .lightbox figcaption { color: var(--muted); }
+.lightbox-close, .lightbox-problem, .lightbox-zoom { display: none; }
+/* B676: on a screen wider than a phone the window holds the picture on a stage: fitted, then zoomed and moved by script */
+.lightbox.zoomable { width: 96vw; height: 96vh; max-width: 96vw; max-height: 96vh; overflow: hidden; cursor: default; }
+.lightbox.zoomable figure { width: 100%; height: 100%; gap: 8px; margin: 0; align-items: stretch; }
+.lightbox.zoomable .lightbox-stage { position: relative; flex: 1; min-height: 0; overflow: hidden; }
+.lightbox.zoomable img { position: absolute; left: 0; top: 0; max-width: none; max-height: none; border-radius: 0; transform-origin: 0 0; cursor: zoom-in; user-select: none; -webkit-user-drag: none; touch-action: none; }
+.lightbox.zoomable img.pixels { image-rendering: pixelated; }
+.lightbox.zoomable figcaption { text-align: center; font-size: 13px; }
+.lightbox.zoomable .lightbox-zoom { display: inline; margin-left: 10px; opacity: 0.75; }
+.lightbox.zoomable .lightbox-close { display: block; position: absolute; top: 6px; right: 6px; background: rgba(4, 7, 12, 0.6); color: var(--text); }
+.lightbox.zoomable .lightbox-problem { display: block; position: absolute; inset: 0; margin: auto; height: fit-content; text-align: center; color: var(--text); font-size: 15px; }
+.lightbox.zoomable .lightbox-problem[hidden] { display: none; }
+.lightbox:not(.zoomable) .lightbox-problem:not([hidden]) { display: block; color: var(--text); padding: 24px; }
 
 /* The details of a request or of a queued step, after design/2026-10-12-codex-design-3-details.webp */
 

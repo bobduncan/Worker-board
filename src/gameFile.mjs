@@ -13,7 +13,7 @@ const TYPES = {
 }
 const MOST_BYTES = 1_000_000
 /** B426: a picture may be as large as the picture popup allows (src/pictures.mjs): a page's picture links open it here. */
-const MOST_PICTURE_BYTES = 12 * 1024 * 1024
+const MOST_PICTURE_BYTES = 32 * 1024 * 1024
 
 /**
  * Clear after each step: a chat's log (`.claude/chat-logs/<chat>/<time> <step>.txt`) may be far larger: its last
