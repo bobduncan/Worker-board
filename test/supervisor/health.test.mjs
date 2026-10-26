@@ -564,6 +564,15 @@ test('X46: a chat that is off or unknown, does not run and holds no step is clos
   assert.doesNotMatch(chatLine(calmBoard([lane('Weeder', { state: 'off', isRunning: false })], [step('B9', 'queued', { Owner: 'Weeder' })]), 'Weeder'), /^- !/)
 })
 
+test('X76 (B708): a worker shown working while the board has just handed it a queued step is on that step, no "!"; with no step at all it stays odd', () => {
+  const handed = chatLine(calmBoard([lane('Worker 1', { state: 'working' })], [step('B703', 'queued', { Owner: 'Worker 1' })]), 'Worker 1')
+  assert.doesNotMatch(handed, /^- !/)
+  assert.match(handed, /on no step; B703 handed to it/)
+  assert.match(chatLine(calmBoard([lane('Worker 1', { state: 'working' })]), 'Worker 1'), /^- ! Worker 1 .*; on no step;/)
+  // A step handed to another worker, or one the person has not queued (refined), is no step of this one.
+  assert.match(chatLine(calmBoard([lane('Worker 1', { state: 'working' })], [step('B704', 'queued', { Owner: 'Worker 2' }), step('B705', 'refined', { Owner: 'Worker 1' })]), 'Worker 1'), /^- ! Worker 1/)
+})
+
 test('X51, X52: a worker interrupted while its step waits for another open step or for your answer stands on purpose: no "!", and the line says why; one with nothing to wait for stays odd', () => {
   const waiting = calmBoard([lane('Worker 3', { state: 'interrupted', task: { stepId: 'B611', text: 'x' } }), lane('Worker 4', { state: 'interrupted' })], [
     step('B611', 'in progress', { Owner: 'Worker 3', 'Waits for': 'B623' }),

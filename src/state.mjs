@@ -164,9 +164,6 @@ export function settleTurn({ turn, end, isAppEnded, isCut = false, writtenAt, no
 
 const textOr = (value, fallback) => (typeof value === 'string' ? value : fallback)
 
-/** X76: a transcript that can be read and holds no turn at all (only a slash command and its output): the chat was cleared. */
-const hasNoTurn = tail => typeof tail?.text === 'string' && turnState(parseTail(tail.text, tail.isCut === true)) === 'unknown'
-
 /**
  * B315: a lane that counts as working only by what is left of it (its card, its step, or a turn the transcript shows
  * open) while its process does not run: the app was quit and opened again, and no chat runs until it is opened or a
@@ -1338,13 +1335,9 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
     if (!modReports(entry.mod ?? null)) return [chat.name, null]
     const holds = storeStepsOf(chat.name).filter(one => one.state !== 'review')
     const key = chat.name.toLowerCase()
-    // X76 (B705): a busy report that outlived its turn. A conversation that holds only a slash command (the /clear the
-    // Workers mod ran after the report) has no turn, so a report of one for longer than a first line takes to be written
-    // is stuck: the chat is idle.
-    const isStuckBusy = entry.state === 'busy' && Number.isFinite(entry.busyAt) && now - entry.busyAt > unknownAfterMs && hasNoTurn(raw.tails?.[chat.cliSessionId])
     // The review of chat-reports: a blocking ask routed to the partner waits for the partner, never for the person (B392).
     const forPartner = waits.partner?.get(key) ?? []
-    const lane = laneFromReport(isStuckBusy ? { ...entry, state: 'idle' } : entry, {
+    const lane = laneFromReport(entry, {
       now, unknownAfterMs, offAfterMs,
       holdsTask: holds.length > 0,
       hasBlockingAsk: waits.blocking.has(key) || (forPartner.length === 0 && holds.some(one => one.state === 'waiting on you')),
