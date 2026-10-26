@@ -6,7 +6,7 @@ import { join } from 'node:path'
 import { boardChats, parseAppChat, parseList } from './appChats.mjs'
 import { parseAsk } from './asks.mjs'
 import { ASK_MS, GRACE_MS, IDLE_HOLD_MS } from './config.mjs'
-import { allWords, closedForYou, minutesOf, forYou, noteSections, overview, queue, refinedAt, refinedKey, refineStateOf, withoutNotes } from './backlog.mjs'
+import { allWords, closedForYou, minutesOf, forYou, noteSections, overview, queue, refineStateOf, withoutNotes } from './backlog.mjs'
 import { pathKey } from './games.mjs'
 import { asksAtEnd, parseHandover } from './handover.mjs'
 import { hourEnd, hourStart, taskFacts, today } from './history.mjs'
@@ -33,6 +33,7 @@ import { SYNC_BOARD, syncChecks } from './sync.mjs'
 import { informationOf, instructionsOf, nameFinder, notesToMain, partnerDecidedOf, storeNeeds, storeWaits, withPartnerOf } from './work/lists.mjs'
 import { NOTE_LINE, isPartnerAnswered, isPartnerAskWord, stepWaitsForPartner } from './work/partnerAnswers.mjs'
 import { advisorWorkOf, isCheckWord } from './work/advisorWork.mjs'
+import { holdsRefine, isBlockWritten } from './work/refineWait.mjs'
 import { recapsOf } from './work/recap.mjs'
 import { isHolding, pauseFacts } from './work/pause.mjs'
 import { reconcile } from './work/reconcile.mjs'
@@ -753,21 +754,16 @@ function removalAsk(message, now, openMs = REMOVE_OPEN_MS) {
 
 /**
  * B233: the newest ask to the Advisor to refine a step, open while it is on its way and after it arrived until the
- * step's refine block shows the round it asked for, for half an hour at most.
+ * step's refine block shows the round it asked for, for half an hour at most (`openMs`). T9.4: the Advisor's waiting list
+ * passes Infinity for it: a refine it took and has not written stays in its list (refineWait.mjs `isBlockWritten`).
  */
-export function refineAsk(step, sent, now) {
+export function refineAsk(step, sent, now, openMs = REFINE_OPEN_MS) {
   if (step.id === null) return null
   const message = sent.findLast(one => one.command === 'refine' && one.about === step.id)
-  const ask = removalAsk(message, now, REFINE_OPEN_MS)
+  const ask = removalAsk(message, now, openMs)
   if (ask === null) return null
   const round = Number.isInteger(message.round) ? message.round : 1
-  // B285: the newer form's head names no round: a block that changed since the ask (`before`, its key then) answers it
-  // too; an ask from before that key, a block written since it (to the minute).
-  const written = refinedAt(step.refined)
-  const isWritten = (step.refined?.round ?? 0) >= round || (message.before !== undefined
-    ? refinedKey(step.refined) !== message.before
-    : written !== null && written >= Math.floor(message.at / MIN) * MIN)
-  return { ...ask, round, isOpen: ask.isOpen && !isWritten }
+  return { ...ask, round, isOpen: ask.isOpen && !isBlockWritten(step.refined, message) }
 }
 
 /**
@@ -1799,9 +1795,13 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
   const withPartner = !workOk ? [] : withPartnerOf(raw.work, { names: chatNames, prefix, outbox: sent, task: partnerWorks ? advisorCard.task ?? null : null, isWorking: partnerWorks })
   // The backlog as the page shows it, and the refines the board asked of the Advisor that it has not written yet.
   const overviewed = overview(backlog, { underWay: onNow })
+  // T9.4 (the person, 2026-10-26: refines and incidents the Advisor took must not get lost): a refine word it took stays in its
+  // list until the block is written or the step leaves new, not for half an hour only (the supervisor asks it again meanwhile).
   const refinesOpen = overviewed.flatMap(activity => activity.steps).flatMap(step => {
-    const ask = refineAsk(step, sent, now)
-    return ask?.isOpen === true ? [{ id: step.id, title: titleOf(step.id) ?? step.title, word: sent.findLast(one => one.command === 'refine' && one.about === step.id) }] : []
+    const ask = refineAsk(step, sent, now, Infinity)
+    const word = ask?.isOpen === true ? sent.findLast(one => one.command === 'refine' && one.about === step.id) : undefined
+    const item = raw.work?.items?.get(step.id)
+    return word !== undefined && (item === undefined || holdsRefine(valueOf(item, 'State'), word)) ? [{ id: step.id, title: titleOf(step.id) ?? step.title, word }] : []
   })
   // 2026-10-26: all the Advisor's waiting work (the questions it answers first, result checks, refines), each with where it
   // stands, and the item it is on: the newest board word it took whose item is still open (while it works).

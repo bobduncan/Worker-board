@@ -29,6 +29,10 @@ const isResumed = (items, holder) => RESUMED.includes(valueOf(items?.get?.(holde
 export const HOLDS = ['pausing']
 /** Whether a pause record (pause.json, or the state's `pause`) holds what would start a turn. */
 export const isHolding = pause => HOLDS.includes(pause?.state)
+/** When the last pause ended (the record, running again since then); -Infinity for none. */
+export const pauseEndOf = pause => (pause?.state === 'running' && Number.isFinite(pause?.since) ? pause.since : -Infinity)
+/** A time something began, counted from the end of the last pause at the earliest: the time the person paused does not count. */
+export const afterPause = (pause, since) => (Number.isFinite(since) ? Math.max(since, pauseEndOf(pause)) : since)
 /** 2026-10-19: a resume ends by itself this long after Resume all, also when a chat holding a step has not started. */
 export const RESUME_WAIT_MS = 20 * 60_000
 /** 2026-10-19: after a resume that ended by the time, the banner names who did not start for this long. */

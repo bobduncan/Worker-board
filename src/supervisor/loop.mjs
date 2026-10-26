@@ -56,7 +56,7 @@ export async function readLoopLock(read) {
 /**
  * The findings carried out, in their order. `ports`: `unblock(id, on, why)` and `unpin(id)` (the work API as
  * the board: `{ ok, why }`), `recheck(id, why)` (B598: the board's check run again: `{ ok, why }`), `wake({ chat, id, text, key })` (the line sent once per key: the message, or null when it
- * went before), `clean(leftover)` (worktree clean-up: `{ ok, why }`). `noted` the keys the main chat was told of before.
+ * went before), `person({ of, text })` (T9.4: a note to the person about `of`, a board note of the supervisor's: `{ ok, why }`), `clean(leftover)` (worktree clean-up: `{ ok, why }`). `noted` the keys the main chat was told of before.
  * Answers `{ rows, note, keys, fine }`: a row per finding (`{ check, status, text }`, status Fixed, Woke, Sent, For
  * Main, Cleaned or Left), the lines of the one note to the main chat (what it was not told before), their keys, and
  * how many checks found nothing (a check that only lists, Left, counts as one that found nothing).
@@ -101,6 +101,16 @@ export async function applySync(findings, ports, noted = new Set()) {
       if (sent.message !== null) row(one, 'Woke', one.text)
       else {
         const text = `${one.text}: ${sent.why === null ? 'woken before, still stuck' : `not woken (${sent.why})`}`
+        row(one, 'For Main', text)
+        tell(one, text)
+      }
+    } else if (fix.do === 'person') {
+      // T9.4: what the board asked again in vain goes to the person as one note (the rule looks in the store for it, so it is not filed twice).
+      const done = await Promise.resolve().then(() => ports.person({ of: fix.id, text: fix.text }))
+        .catch(error => ({ ok: false, why: error instanceof Error ? error.message : String(error) }))
+      if (done?.ok === true) row(one, 'Sent', `${one.text}: to you as a note`)
+      else {
+        const text = `${one.text}: the note to you was not filed (${done?.why ?? 'no answer'})`
         row(one, 'For Main', text)
         tell(one, text)
       }
@@ -238,6 +248,8 @@ export function syncRunner(ports, rules = REPAIR_RULES, watch = []) {
       unpin: id => ports.apply({ action: 'pin', id, for: '' }),
       // B598: through its own port when given (the server runs the check after it), else the work API as the board
       recheck: (id, why) => (typeof ports.recheck === 'function' ? ports.recheck(id, why) : ports.apply({ action: 'recheck-base', id, why })),
+      // T9.4: the person's note, one of the board's (Via supervisor), as the incident lines are
+      person: ({ of, text }) => ports.apply({ action: 'note', to: 'you', text, of, via: 'supervisor' }),
       wake: ports.wake,
       clean: ports.clean,
     }, noted)
@@ -259,7 +271,7 @@ export function syncRunner(ports, rules = REPAIR_RULES, watch = []) {
     // The supervisor: what the repairs did (one row per finding, in their order), for the watch rule repair-repeats. A
     // note to the main chat ("Sent") counts only in the run it went: a finding that stands is told once (`noted`), and
     // its row says Sent at every run all the same. B546: a repair the app's restart caused carries `cause: 'restart'`.
-    const didRepair = (one, row) => REPAIRED.includes(row?.status) && one.fix?.do !== 'woken' && (row.status !== 'Sent' || told.has(one.key))
+    const didRepair = (one, row) => REPAIRED.includes(row?.status) && one.fix?.do !== 'woken' && (row.status !== 'Sent' || told.has(one.key) || one.fix?.do === 'person')
     const repaired = findings.flatMap((one, index) => (didRepair(one, done.rows[index])
       ? [{ at: now, rule: one.rule ?? one.check, subject: one.subject ?? null, key: one.key, ...(typeof one.cause === 'string' ? { cause: one.cause } : {}) }] : []))
     // When a repair finding came that the run before did not have: the page opens its section for that, not for every
