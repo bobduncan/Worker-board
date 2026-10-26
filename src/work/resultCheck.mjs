@@ -349,19 +349,25 @@ export function fixOutcomeOf(id, items) {
     from = valueOf(next, 'Id')
   }
   const last = chain.at(-1)
-  if (last === undefined) return null
+  if (last === undefined) {
+    // B690: a fix that was dropped says so ("its fix B657 stopped"); the newest one named.
+    const stopped = fixesOf(id, items).sort((a, b) => Number(valueOf(a, 'Id').slice(1)) - Number(valueOf(b, 'Id').slice(1))).at(-1)
+    if (stopped === undefined) return null
+    const by = valueOf(stopped, 'Id')
+    return { by, passed: null, total: null, evidence: null, isFixed: false, isOpen: false, note: `its fix ${by} stopped` }
+  }
   const by = valueOf(last, 'Id')
   const check = checkedOf(last)
   const state = valueOf(last, 'State')
   const base = { by, passed: check?.passed ?? null, total: check?.total ?? null, evidence: check?.evidence ?? null }
-  if ((state === 'done' || state === 'closed') && !(check?.points ?? []).some(one => one.verdict !== 'pass')) return { ...base, isFixed: true, note: null }
+  if ((state === 'done' || state === 'closed') && !(check?.points ?? []).some(one => one.verdict !== 'pass')) return { ...base, isFixed: true, isOpen: false, note: null }
   const finished = state === 'done' || state === 'closed'
   const going = state === 'review' ? 'is being checked' : ['queued', 'new', 'refined'].includes(state) ? 'is waiting to start' : 'is being worked on'
   const before = chain.length > 1 ? valueOf(chain.at(-2), 'Id') : null
   const note = finished ? `its fix ${by} failed too`
     : before === null ? `its fix ${by} ${going}`
       : `its fix ${before} failed too, ${by} ${going === 'is being worked on' ? 'fixes it' : going}`
-  return { ...base, isFixed: false, note }
+  return { ...base, isFixed: false, isOpen: !finished, note }
 }
 
 const BULLET = /^\s*[-*]\s+/

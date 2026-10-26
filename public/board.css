@@ -2767,19 +2767,18 @@ body.is-resizing-rows { cursor: row-resize; user-select: none; }
 .focus-bar .focus-block.is-now { background: var(--free); }
 .focus-bar .focus-block.is-wait { background: var(--unknown); }
 .focus-bar .focus-block.is-stop { height: 8px; align-self: center; background: transparent; border: 2px solid var(--warn); }
-.focus-count { align-self: flex-start; color: var(--muted); }
+.focus-count { align-self: flex-start; margin-top: 18px; color: var(--muted); }
 .focus-toggle { align-self: flex-start; padding: 0; border: 0; background: none; color: var(--free); font: inherit; cursor: pointer; }
 .focus-step-list { display: flex; flex-direction: column; gap: 6px; }
 .focus-steps-list { list-style: none; margin: 0; padding: 0; }
 .focus-step { display: grid; grid-template-columns: 14px 54px 1fr auto; gap: 8px; align-items: baseline; padding: 6px 0; border-top: 1px solid var(--line); }
-.focus-step-dot { width: 12px; height: 12px; border-radius: 3px; background: var(--muted); align-self: center; }
+.focus-step-dot { width: 12px; height: 12px; border-radius: 3px; background: var(--unknown); align-self: start; margin-top: 5px; }
 .focus-step.is-done .focus-step-dot { background: var(--working); }
 .focus-step.is-now .focus-step-dot { background: var(--free); }
-.focus-step.is-stop .focus-step-dot { width: 8px; height: 8px; background: none; border: 2px solid var(--warn); }
+.focus-step.is-stop .focus-step-dot { margin-top: 7px; width: 8px; height: 8px; background: none; border: 2px solid var(--warn); }
 .focus-step-id { color: var(--muted); font-size: 13px; }
 .focus-step-what { min-width: 0; overflow-wrap: anywhere; }
 .focus-step-what small { display: block; color: var(--muted); }
-.focus-step-what small.is-fail { color: var(--warn); }
 .focus-step-state { font-size: 13px; white-space: nowrap; color: var(--muted); }
 .focus-step.is-done .focus-step-state { color: var(--working); }
 .focus-step.is-now .focus-step-state { color: var(--free); }

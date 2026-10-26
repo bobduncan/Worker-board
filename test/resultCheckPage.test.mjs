@@ -75,7 +75,7 @@ const chain = (...items) => {
 
 test('a failed check whose last fix passed is quiet: "fixed by", with the fix\'s own evidence', () => {
   const { data, line } = chain(step('B2', 'done', FAILED), fixOf('B5', 'B2', 'done', PASSED))
-  assert.deepEqual(data.fix, { by: 'B5', passed: 2, total: 2, evidence: 'pictures/b9/evidence.png', isFixed: true, note: null })
+  assert.deepEqual(data.fix, { by: 'B5', passed: 2, total: 2, evidence: 'pictures/b9/evidence.png', isFixed: true, isOpen: false, note: null })
   assert.deepEqual([line.line, line.isFailed, line.picture.path, line.fixPicture.path], ['Check failed: 1 of 2, then its fix B5 passed (2 of 2)', false, 'pictures/b2/evidence.png', 'pictures/b9/evidence.png'])
 })
 
@@ -98,8 +98,11 @@ test('a chain of several rounds is followed to its last fix', () => {
   assert.equal(chain(...done).line.isFailed, true)
 })
 
-test('a dropped fix counts for nothing, and a check without a fix reads as before', () => {
-  assert.equal(chain(step('B2', 'review', FAILED), fixOf('B5', 'B2', 'dropped')).data.fix, undefined)
+test('a dropped fix is named as stopped (B690), and a check without a fix reads as before', () => {
+  const dropped = chain(step('B2', 'review', FAILED), fixOf('B5', 'B2', 'dropped'))
+  assert.deepEqual([dropped.data.fix.note, dropped.data.fix.isOpen, dropped.data.fix.isFixed], ['its fix B5 stopped', false, false])
+  assert.equal(dropped.line.line, 'Check failed: 1 of 2, its fix B5 stopped')
+  assert.equal(dropped.line.isFailed, true)
   const { data, line } = chain(step('B2', 'review', FAILED))
   assert.equal(data.fix, undefined)
   assert.deepEqual([line.line, line.isFailed, line.picture.path, line.fixPicture], ['Check failed: 1 of 2', true, 'pictures/b2/evidence.png', null])
