@@ -248,10 +248,11 @@ runs); 0 for no sweep by the clock (Check now still sweeps). A sweep costs a few
 cached; the supervisor's section shows each sweep's tokens and the day's sum, so lower it (or raise the minutes) to
 save tokens.
 The supervisor's section counts a rolling 24 hours, nothing to set: its head reads "Supervisor · 1 found in the last 24 h
-(21 the 24 h before) · in the last 24 h: 0 in work · 1 new · 22 with the Advisor · 12 fixed". Found is what opened or came
-back in the last 24 hours, with the same count for the 24 hours before in brackets; in work, new, with the Advisor and
-fixed count what was found or seen again in the last 24 hours, and the section lists the same. The older setting
-`supervisorCountFrom` (a start time) is gone; a config.json that still has it starts as before and the board ignores it.
+(21 the 24 h before) · 0 in work · 1 new · 22 with the Advisor · 12 fixed in the last 24 h". Found is what opened or came
+back in the last 24 hours, with the same count for the 24 hours before in brackets. In work and with the Advisor
+count every open incident whatever its age (an open one never drops out of sight), and the section lists them; only
+fixed counts the last 24 hours. The older setting `supervisorCountFrom` (a start time) is gone; a config.json that still
+has it starts as before and the board ignores it.
 
 ## The work store
 
