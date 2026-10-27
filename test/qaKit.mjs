@@ -74,3 +74,22 @@ export async function fileCheck(store, id, body, { worker = 'Checker', chat = 'c
   if (valueOf(await item(store.dir, qa), 'State') === 'refined') await takeQa(store, qa, worker, chat)
   return store[chat]({ action: 'checked', id, ...body })
 }
+
+/**
+ * The result check of the step `id` filed the way the board has it now, for a test with its own set-up: the board makes the
+ * step's QA task when none is open (`server`, the board's own call), gives it to `worker` (a worker of the test's chats that did
+ * not build the step), who takes it and files `body`. `ports`: `as(chat)` the calls of a chat, `server(body)` the board's own,
+ * `dir`, and `now` (the clock of the test's calls). Answers `checked`'s answer, or the first refusal on the way.
+ */
+export async function checkedBy(ports, id, body, worker = 'Checker') {
+  const { as, server, dir, now = NOW + 60_000 } = ports
+  const made = await server({ action: 'qa-task', id })
+  if (!made.ok) return made
+  const qa = made.result.id
+  if (valueOf(await item(dir, qa), 'State') === 'refined') {
+    await queueFor(dir, qa, worker, { now })
+    const taken = await as(worker)({ action: 'take', id: qa })
+    if (!taken.ok) return taken
+  }
+  return as(worker)({ action: 'checked', id, ...body })
+}

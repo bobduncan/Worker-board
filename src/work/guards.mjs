@@ -78,9 +78,10 @@ export const GUARDS = {
   // B567: and its worker is not on another step now: it stays parked until that one is reported.
   'its asks are answered': (item, ctx) => !asksOf(item, ctx).some(isOpen) && workingOnOther(ctx.store?.items ?? new Map(), item, ctx.prefix ?? '') === null,
   // B356: "the check" is the board's own, and for a step with agreed points or a Standard line also the result check
-  // by a helper that did not build it (resultCheck.mjs), on a board with a partner to make it.
-  'the check passed and no ask of kind look is open': (item, ctx) => gitCheckPassed(item)
-    && (!needsResultCheck(item) || ctx.hasPartner === false || resultCheckOf(item) === 'passed' || fixesThrough(item, ctx.store?.items))
+  // by a helper that did not build it (resultCheck.mjs), on a board with a partner to make it. T9.1.1: a Quality Assurance task
+  // (its head `Checks`) has no board check and no result check of its own: its worker's `work checked` ends it.
+  'the check passed and no ask of kind look is open': (item, ctx) => (valueOf(item, 'Checks') !== null || (gitCheckPassed(item)
+    && (!needsResultCheck(item) || ctx.hasPartner === false || resultCheckOf(item) === 'passed' || fixesThrough(item, ctx.store?.items))))
     && !asksOf(item, ctx).some(ask => isOpen(ask) && valueOf(ask, 'Asks') === 'look'),
 }
 

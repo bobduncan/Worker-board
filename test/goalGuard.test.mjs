@@ -16,6 +16,7 @@ import { GUARD_ATTEMPTS, evaluateWords, evaluationState, evaluationsDue, goalAtt
 import { parseConfig } from '../src/config.mjs'
 import { workApi } from '../src/work/api.mjs'
 import { queueFor } from './queueFor.mjs'
+import { checkedBy } from './qaKit.mjs'
 import { migrateBacklog } from '../src/work/migrate.mjs'
 import { readStore, writeStore } from '../src/work/store.mjs'
 
@@ -390,8 +391,10 @@ test('B525: a step already on sonnet and medium keeps sonnet but is lifted to ef
   const dir = await mkdtemp(join(tmpdir(), 'guard-'))
   const at = new Date(2026, 9, 19, 12, 0).getTime()
   await writeStore(dir, migrateBacklog(['# Backlog', '', '## Tiles', '- [ ] B1 Redraw the tiles', '- [ ] B2 Sort the crates', '- [ ] B3 Mop the floor', '- [ ] B4 Hang a lantern', ''].join('\n'), { now: at }), undefined, { now: at })
-  const ctx = { dir, now: at + 60_000, prefix: '', roleOf: chat => ({ Partner: 'advisor', Keeper: 'main', Painter: 'worker' })[chat] ?? null, freeChats: new Set(['Painter']), chats: ['Partner', 'Keeper', 'Painter'], evaluationOf: id => evaluationState(mapOf().byId.get(id)) }
+  const ctx = { dir, now: at + 60_000, prefix: '', roleOf: chat => ({ Partner: 'advisor', Keeper: 'main', Painter: 'worker', Checker: 'worker' })[chat] ?? null, freeChats: new Set(['Painter']), chats: ['Partner', 'Keeper', 'Painter', 'Checker'], evaluationOf: id => evaluationState(mapOf().byId.get(id)) }
   const as = chat => body => workApi({ chat, ...body }, ctx)
+  // T9.1.1: the result check is filed by the worker that holds the step's QA task, a worker that did not build it.
+  const checkedAs = (id, body) => checkedBy({ as, server: call => workApi(call, { ...ctx, as: 'server' }), dir, now: at + 60_000 }, id, body)
   const read = async id => (await readStore(dir)).items.get(id)
   const line = async (id, key) => (await read(id)).sections.get(key)?.[0] ?? null
   // Refined before the evaluation, on sonnet and medium; the evaluation then runs.
@@ -429,7 +432,7 @@ test('B525: a step already on sonnet and medium keeps sonnet but is lifted to ef
   assert.equal((await as('Painter')({ action: 'take', id: 'B1', branch: 'b1-tiles' })).ok, true)
   assert.equal((await as('Painter')({ action: 'report', id: 'B1', result: 'Four tiles.', merged: 'c0ffee1' })).ok, true)
   assert.equal((await workApi({ action: 'check', id: 'B1', passed: true, lines: ['branch gone'] }, { ...ctx, as: 'server' })).ok, true)
-  const checked = await as('Partner')({ action: 'checked', id: 'B1', evidence: 'none (x)', points: ['fail: the tiles do not read'] })
+  const checked = await checkedAs('B1', { evidence: 'none (x)', points: ['fail: the tiles do not read'] })
   assert.equal(checked.ok, true, checked.why)
   const fixId = checked.result.fix ?? (await readStore(dir)).items.keys().toArray().filter(id => id !== 'B1').at(-1)
   assert.match(await line(fixId, 'Model') ?? '', /^sonnet · /)
@@ -439,7 +442,7 @@ test('B525: a step already on sonnet and medium keeps sonnet but is lifted to ef
   assert.equal((await as('Painter')({ action: 'take', id: 'B4', branch: 'b4-lantern' })).ok, true)
   assert.equal((await as('Painter')({ action: 'report', id: 'B4', result: 'A lantern.', merged: 'c0ffee2' })).ok, true)
   assert.equal((await workApi({ action: 'check', id: 'B4', passed: true, lines: ['branch gone'] }, { ...ctx, as: 'server' })).ok, true)
-  const calmChecked = await as('Partner')({ action: 'checked', id: 'B4', evidence: 'none (x)', points: ['fail: the lantern is dark'] })
+  const calmChecked = await checkedAs('B4', { evidence: 'none (x)', points: ['fail: the lantern is dark'] })
   assert.equal(calmChecked.ok, true, calmChecked.why)
   const calmFix = calmChecked.result.fix ?? (await readStore(dir)).items.keys().toArray().filter(id => id !== 'B4').at(-1)
   assert.match(await line(calmFix, 'Model') ?? '', /^sonnet · /)

@@ -18,6 +18,7 @@ import { ANOTHER_WAY, chainTries } from '../../src/work/resultCheck.mjs'
 import { migrateBacklog, stamp } from '../../src/work/migrate.mjs'
 import { readStore, writeStore } from '../../src/work/store.mjs'
 import { queueFor } from '../queueFor.mjs'
+import { checkedBy } from '../qaKit.mjs'
 
 const MIN = 60_000
 const NOW = new Date(2026, 9, 25, 22, 36).getTime()
@@ -61,7 +62,7 @@ async function board(t) {
   t.after(() => rm(dir, { recursive: true, force: true }))
   const at = new Date(2026, 9, 25, 18, 0).getTime()
   await writeStore(dir, migrateBacklog(['# Backlog', '', '## Maps', '- [ ] B1 Prove round shapes made of square cells', ''].join('\n'), { now: at }), undefined, { now: at })
-  const ctx = { dir, now: at + MIN, prefix: '', roleOf: chat => ({ Partner: 'advisor', Keeper: 'main', Painter: 'worker' })[chat] ?? null, freeChats: new Set(['Painter']), chats: ['Partner', 'Keeper', 'Painter'] }
+  const ctx = { dir, now: at + MIN, prefix: '', roleOf: chat => ({ Partner: 'advisor', Keeper: 'main', Painter: 'worker', Checker: 'worker' })[chat] ?? null, freeChats: new Set(['Painter']), chats: ['Partner', 'Keeper', 'Painter', 'Checker'] }
   const as = chat => body => workApi({ chat, ...body }, ctx)
   const read = async id => (await readStore(dir)).items.get(id)
   const toReview = async (id, branch) => {
@@ -71,7 +72,8 @@ async function board(t) {
     assert.equal(reported.ok, true, reported.why)
     assert.equal((await workApi({ action: 'check', id, passed: true, lines: ['branch gone'] }, { ...ctx, as: 'server' })).ok, true)
   }
-  const fail = id => as('Partner')({ action: 'checked', id, evidence: 'none (x)', points: ['fail: the outline still steps', 'pass: whole cells'] })
+  // T9.1.1: the check is filed by the worker that holds the step's QA task, a worker that did not build it.
+  const fail = id => checkedBy({ as, server: call => workApi(call, { ...ctx, as: 'server' }), dir, now: at + MIN }, id, { evidence: 'none (x)', points: ['fail: the outline still steps', 'pass: whole cells'] })
   return { as, read, toReview, fail }
 }
 

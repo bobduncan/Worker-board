@@ -147,7 +147,7 @@ test('the work tool takes the helper\'s refine and refined as the partner\'s own
   }
 })
 
-test('the helper files a result check as the partner would', async () => {
+test('the helper no longer files a result check (a worker\'s QA task is the way); its ask under a worker\'s step stays the partner\'s own', async () => {
   const store = await fresh()
   try {
     const made = await store.partner({ action: 'new', title: 'Light the lamps', activity: 'Lamps', goal: 'G3', text: 'Warm light.', summary: 'A warm lamp on every path.', size: '1 h', what: ['a lamp at every bench'] })
@@ -157,11 +157,10 @@ test('the helper files a result check as the partner would', async () => {
     assert.equal((await store.lamplighter({ action: 'report', id, result: 'Every bench has a lamp.', merged: 'c0ffee1' })).ok, true)
     assert.equal((await store.server({ action: 'check', id, passed: true, lines: ['branch gone'] })).ok, true)
     const checked = await store.second({ action: 'checked', id, evidence: 'pictures/b3/evidence.png', points: ['pass: a lamp at every bench'] })
-    assert.equal(checked.ok, true, checked.why)
-    const three = await item(store.dir, id)
-    assert.equal(valueOf(three, 'State'), 'done')
-    assert.ok(three.sections.get('History').some(one => one.includes('Second:')), three.sections.get('History').join('\n'))
-    // A point only the person can judge: the helper asks it under the worker's step, as the partner's job says.
+    assert.deepEqual([checked.ok, checked.status], [false, 403])
+    assert.match(checked.why, new RegExp(`^${id} is checked by its QA task B\\d+ \\(not given yet\\): only its worker files the check`))
+    assert.equal(valueOf(await item(store.dir, id), 'State'), 'review')
+    // The helper asks the person a point under the worker's step, as the partner's job says.
     const asked = await store.second({ action: 'ask', of: 'B1', kind: 'look', text: 'Is the wick short enough?' })
     assert.equal(asked.ok, true, asked.why)
     // A goal stays the partner's: no re-check, no daily note, no ask of a goal by the helper.

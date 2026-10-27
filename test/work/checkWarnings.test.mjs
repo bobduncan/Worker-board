@@ -11,6 +11,7 @@ import test from 'node:test'
 
 import { workApi } from '../../src/work/api.mjs'
 import { queueFor } from '../queueFor.mjs'
+import { checkedBy } from '../qaKit.mjs'
 import { valueOf } from '../../src/work/item.mjs'
 import { migrateBacklog } from '../../src/work/migrate.mjs'
 import { boardWarningsOf, hasNoMutantWarning } from '../../src/work/resultCheck.mjs'
@@ -26,10 +27,13 @@ async function fresh() {
   await writeStore(dir, migrateBacklog(BACKLOG, { now: NOW }), undefined, { now: NOW })
   const ctx = { dir, now: NOW + 60_000, prefix: '', roleOf: chat => ROLES[chat] ?? null, chats: Object.keys(ROLES), freeChats: new Set(['Lamplighter', 'Sweeper']) }
   const as = chat => body => workApi({ chat, ...body }, ctx)
+  const server = body => workApi(body, { ...ctx, as: 'server' })
   return {
     dir, ctx, lamplighter: as('Lamplighter'), sweeper: as('Sweeper'), keeper: as('Keeper'), partner: as('Partner'),
     person: body => workApi(body, { ...ctx, as: 'person' }),
-    server: body => workApi(body, { ...ctx, as: 'server' }),
+    server,
+    // T9.1.1: the result check is filed by the worker that holds the step's QA task, one that did not build it (the Sweeper).
+    checks: (id, body) => checkedBy({ as, server, dir, now: ctx.now }, id, body, 'Sweeper'),
     // The same chats `minutes` later (a History line carries its minute).
     at: minutes => {
       const later = { ...ctx, now: ctx.now + minutes * 60_000 }
@@ -211,7 +215,7 @@ test('the recap card of a step is the board\'s own words: a report with files, i
     assert.equal((await one.lamplighter({ action: 'report', id, result, merged: 'c0ffee1' })).ok, true)
     const git = await one.server({ action: 'check', id, passed: true, lines: ['branch gone'], warnings: ['the Context holds file names (src/lamps.mjs), code words (lampPost): the card leaves those words out'] })
     assert.equal(git.ok, true, git.why)
-    const checked = await one.partner({ action: 'checked', id, evidence: 'none (nothing on screen)', points: ['pass: a lamp at every bench', 'pass: warm yellow light, never white'] })
+    const checked = await one.checks(id, { evidence: 'none (nothing on screen)', points: ['pass: a lamp at every bench', 'pass: warm yellow light, never white'] })
     assert.equal(checked.ok, true, checked.why)
     const notes = [...(await readStore(one.dir)).items.values()].filter(note => valueOf(note, 'Recap') !== null)
     assert.equal(notes.length, 1)

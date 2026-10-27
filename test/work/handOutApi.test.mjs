@@ -10,6 +10,7 @@ import { join } from 'node:path'
 import test from 'node:test'
 
 import { workApi } from '../../src/work/api.mjs'
+import { checkedBy } from '../qaKit.mjs'
 import { DEFAULT_FLOW, flowHandsOut, parseFlow } from '../../src/work/flow.mjs'
 import { GUARDS } from '../../src/work/guards.mjs'
 import { HEAD_KEYS, valueOf } from '../../src/work/item.mjs'
@@ -211,7 +212,8 @@ test('a failed result check makes its fix refined, for nobody: a follow-up of it
   })
   const one = await garden(built)
   try {
-    const checked = await one.as('Partner')({ action: 'checked', id: 'B1', evidence: 'none (nothing to see)', points: ['fail: a lamp at every bench (one bench has none)'] })
+    // T9.1.1: a worker that did not build it (Mower) holds the step's QA task and files the check.
+    const checked = await checkedBy({ as: one.as, server: one.server, dir: one.dir, now: NOW }, 'B1', { evidence: 'none (nothing to see)', points: ['fail: a lamp at every bench (one bench has none)'] }, 'Mower')
     assert.equal(checked.ok, true, checked.why)
     const fix = await one.read(checked.result.fix)
     assert.deepEqual(['State', 'Owner', 'Fix of', 'Refined'].map(key => valueOf(fix, key)), ['refined', null, 'B1', 'ready'])

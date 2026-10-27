@@ -9,6 +9,7 @@ import test from 'node:test'
 
 import { workApi } from '../src/work/api.mjs'
 import { queueFor } from './queueFor.mjs'
+import { checkedBy } from './qaKit.mjs'
 import { migrateBacklog } from '../src/work/migrate.mjs'
 import { agreedPoints, parentPointsOf } from '../src/work/resultCheck.mjs'
 import { readStore, writeStore } from '../src/work/store.mjs'
@@ -24,7 +25,7 @@ async function board() {
   const dir = await mkdtemp(join(tmpdir(), 'makes-pass-'))
   const at = new Date(2026, 9, 24, 12, 0).getTime()
   await writeStore(dir, migrateBacklog(['# Backlog', '', '## Tiles', '- [ ] B1 Redraw the tiles', ''].join('\n'), { now: at }), undefined, { now: at })
-  const ctx = { dir, now: at + 60_000, prefix: '', roleOf: chat => ({ Partner: 'advisor', Keeper: 'main', Painter: 'worker' })[chat] ?? null, freeChats: new Set(['Painter']), chats: ['Partner', 'Keeper', 'Painter'] }
+  const ctx = { dir, now: at + 60_000, prefix: '', roleOf: chat => ({ Partner: 'advisor', Keeper: 'main', Painter: 'worker', Checker: 'worker' })[chat] ?? null, freeChats: new Set(['Painter']), chats: ['Partner', 'Keeper', 'Painter', 'Checker'] }
   const as = chat => body => workApi({ chat, ...body }, ctx)
   const read = async id => (await readStore(dir)).items.get(id)
   // Build, report and pass the board's own check of a step, so it waits in review for its result check.
@@ -36,15 +37,17 @@ async function board() {
     assert.equal(reported.ok, true, reported.why)
     assert.equal((await workApi({ action: 'check', id, passed: true, lines: ['branch gone'] }, { ...ctx, as: 'server' })).ok, true)
   }
-  return { as, read, toReview }
+  // T9.1.1: the result check is filed by the worker that holds the step's QA task, a worker that did not build it.
+  const checkedAs = (id, body) => checkedBy({ as, server: call => workApi(call, { ...ctx, as: 'server' }), dir, now: at + 60_000 }, id, body)
+  return { as, read, toReview, checkedAs }
 }
 
 test('a fix made from a two-fail check carries a Makes pass line under each fail, in order, and its check must tick them', async () => {
-  const { as, read, toReview } = await board()
+  const { as, read, toReview, checkedAs } = await board()
   assert.equal((await as('Partner')({ action: 'refine', id: 'B1', summary: 'Redraw the tiles.' })).ok, true)
   assert.equal((await as('Partner')({ action: 'refined', id: 'B1', what: ['four tiles read as lava at play size', 'the edges glow where lava meets rock', 'a test for every tile', 'Not in it: new tiles'] })).ok, true)
   await toReview('B1', 'b1-tiles')
-  const checked = await as('Partner')({ action: 'checked', id: 'B1', evidence: 'none (x)', points: ['fail: the tiles use the old palette', 'pass: edges glow', 'fail: tileTest.mjs covers two of four', 'pass: not in it held'] })
+  const checked = await checkedAs('B1', { evidence: 'none (x)', points: ['fail: the tiles use the old palette', 'pass: edges glow', 'fail: tileTest.mjs covers two of four', 'pass: not in it held'] })
   assert.equal(checked.ok, true, checked.why)
   const fix = await read(checked.result.fix)
   assert.deepEqual(fix.sections.get('What we build'), [
@@ -59,10 +62,10 @@ test('a fix made from a two-fail check carries a Makes pass line under each fail
   // Its check: the fail texts alone are refused, with what to tick; all four lines pass and close both steps.
   const fixId = checked.result.fix
   await toReview(fixId, 'b2-fix')
-  const short = await as('Partner')({ action: 'checked', id: fixId, evidence: 'none (x)', points: ['pass: the new palette', 'pass: four tile tests'] })
+  const short = await checkedAs(fixId, { evidence: 'none (x)', points: ['pass: the new palette', 'pass: four tile tests'] })
   assert.equal(short.ok, false)
   assert.match(short.why, /is a fix of B1: tick each of its 4 agreed points, every fail text and every "Makes pass" line of its What we build, not 2/)
-  const whole = await as('Partner')({ action: 'checked', id: fixId, evidence: 'none (x)', points: ['pass: the new palette', 'pass: the tiles read as lava', 'pass: four tile tests', 'pass: a test for every tile'] })
+  const whole = await checkedAs(fixId, { evidence: 'none (x)', points: ['pass: the new palette', 'pass: the tiles read as lava', 'pass: four tile tests', 'pass: a test for every tile'] })
   assert.equal(whole.ok, true, whole.why)
   assert.equal((await read(fixId)).head.get('State'), 'done')
   assert.equal((await read('B1')).head.get('State'), 'done')

@@ -11,6 +11,7 @@ import test from 'node:test'
 import { refinedOf } from '../../src/backlog.mjs'
 import { workApi } from '../../src/work/api.mjs'
 import { queueFor } from '../queueFor.mjs'
+import { checkedBy } from '../qaKit.mjs'
 import { modelOf } from '../../src/work/effort.mjs'
 import { migrateBacklog } from '../../src/work/migrate.mjs'
 import { itemOfStep } from '../../src/work/read.mjs'
@@ -18,7 +19,7 @@ import { readStore, writeStore } from '../../src/work/store.mjs'
 
 const NOW = new Date(2026, 9, 23, 9, 0).getTime()
 const BACKLOG = ['# Backlog', '', '## Garden', '- [ ] B7 A hedge along the river path', '- [ ] B8 A gate at the river', ''].join('\n')
-const ROLES = { Main: 'main', Advisor: 'advisor', Digger: 'worker' }
+const ROLES = { Main: 'main', Advisor: 'advisor', Digger: 'worker', Checker: 'worker' }
 
 async function fresh() {
   const dir = await mkdtemp(join(tmpdir(), 'model-refine-'))
@@ -26,7 +27,9 @@ async function fresh() {
   const ctx = { dir, now: NOW + 60_000, prefix: 'Team - ', roleOf: chat => ROLES[chat] ?? null, freeChats: new Set(['Digger']) }
   const item = async id => (await readStore(dir)).items.get(id)
   const as = chat => body => workApi({ chat, ...body }, ctx)
-  return { dir, item, advisor: as('Advisor'), main: as('Main'), digger: as('Digger'), server: body => workApi(body, { ...ctx, as: 'server' }) }
+  const server = body => workApi(body, { ...ctx, as: 'server' })
+  // T9.1.1: the result check is filed by the worker that holds the step's QA task, a worker that did not build it.
+  return { dir, item, advisor: as('Advisor'), main: as('Main'), digger: as('Digger'), checker: as('Checker'), server, checks: (id, body) => checkedBy({ as, server, dir, now: ctx.now }, id, body) }
 }
 
 test('the model given at the refine stands under the step and in its block, before the effort, and stays for the ready block', async () => {
@@ -105,7 +108,7 @@ test('a fix step from a failed result check runs on the model of the step it fix
     assert.equal((await store.digger({ action: 'take', id, branch: 'gate' })).ok, true)
     assert.equal((await store.digger({ action: 'report', id, result: 'A lock on the gate.', merged: 'c0ffee1' })).ok, true)
     assert.equal((await store.server({ action: 'check', id, passed: true, lines: ['work in garden'] })).ok, true)
-    const checked = await store.advisor({ action: 'checked', id, evidence: 'none (nothing to see)', points: ['fail: a lock on the gate (it opens without a key)'] })
+    const checked = await store.checks(id, { evidence: 'none (nothing to see)', points: ['fail: a lock on the gate (it opens without a key)'] })
     assert.equal(checked.ok, true, checked.why)
     const fix = await store.item(checked.result.fix)
     assert.deepEqual(fix.sections.get('Model'), ['opus · a guard of the store'])

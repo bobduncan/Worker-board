@@ -11,6 +11,7 @@ import test from 'node:test'
 
 import { workApi } from '../../src/work/api.mjs'
 import { queueFor } from '../queueFor.mjs'
+import { checkedBy } from '../qaKit.mjs'
 import { valueOf } from '../../src/work/item.mjs'
 import { informationOf } from '../../src/work/lists.mjs'
 import { migrateBacklog } from '../../src/work/migrate.mjs'
@@ -20,7 +21,7 @@ import { readStore, writeStore } from '../../src/work/store.mjs'
 const NOW = new Date(2026, 9, 19, 9, 0).getTime()
 const HOUR = 60 * 60 * 1000
 const BACKLOG = ['# Backlog', '', '## Lamps', '- [ ] B1 Trim the wicks (for Lamplighter; about 1 h)', ''].join('\n')
-const ROLES = { Keeper: 'main', Lamplighter: 'worker', Partner: 'advisor' }
+const ROLES = { Keeper: 'main', Lamplighter: 'worker', Checker: 'worker', Partner: 'advisor' }
 
 async function fresh() {
   const dir = await mkdtemp(join(tmpdir(), 'work-recap-'))
@@ -31,10 +32,13 @@ async function fresh() {
     goalChecked: async body => ({ ok: true, result: { id: body.id, ticked: body.verdict === 'passed', title: 'A warm garden', attempts: 0 } }),
   }
   const as = chat => body => workApi({ chat, ...body }, ctx)
+  const server = (body, at = ctx.now) => workApi(body, { ...ctx, now: at, as: 'server' })
   return {
-    dir, lamplighter: as('Lamplighter'), keeper: as('Keeper'), partner: as('Partner'),
+    dir, lamplighter: as('Lamplighter'), checker: as('Checker'), keeper: as('Keeper'), partner: as('Partner'),
     person: (body, at = ctx.now) => workApi(body, { ...ctx, now: at, as: 'person' }),
-    server: (body, at = ctx.now) => workApi(body, { ...ctx, now: at, as: 'server' }),
+    server,
+    // T9.1.1: the result check of a step is filed by the worker that holds its QA task, a worker that did not build it.
+    checks: ({ id, action, ...body }) => checkedBy({ as, server, dir, now: ctx.now }, id, body),
   }
 }
 const store = async dir => ({ ok: true, ...(await readStore(dir)) })
@@ -61,10 +65,10 @@ test('a step through its result check gives the person one open recap: what they
   try {
     const id = await reported(one)
     assert.deepEqual(await recapNotes(one.dir), [])
-    assert.equal((await one.partner({ ...PASSED, id })).ok, true)
+    assert.equal((await one.checks({ ...PASSED, id })).ok, true)
     const [note, ...more] = await recapNotes(one.dir)
     assert.equal(more.length, 0)
-    assert.deepEqual(['Kind', 'From', 'To', 'State', 'Recap', 'Evidence'].map(key => valueOf(note, key)), ['note', 'Partner', 'you', 'unread', 'open', 'pictures/b2/evidence.png'])
+    assert.deepEqual(['Kind', 'From', 'To', 'State', 'Recap', 'Evidence'].map(key => valueOf(note, key)), ['note', 'Checker', 'you', 'unread', 'open', 'pictures/b2/evidence.png'])
     assert.deepEqual(note.sections.get('Text'), [`${id} Light the garden lamps is done`, 'Every path has a warm lamp.'])
     assert.deepEqual(note.sections.get('About'), [id])
     // The step is done already: a recap blocks nothing.
@@ -87,14 +91,14 @@ test('a failed check gives no recap; the step it fixes gets one once its fix is 
   const one = await fresh()
   try {
     const id = await reported(one)
-    const failed = await one.partner({ ...PASSED, id, points: ['pass: a lamp at every bench', 'fail: warm yellow light, never white (two are white)'] })
+    const failed = await one.checks({ ...PASSED, id, points: ['pass: a lamp at every bench', 'fail: warm yellow light, never white (two are white)'] })
     const fixId = failed.result.fix
     assert.deepEqual(await recapNotes(one.dir), [])
     await queueFor(one.dir, fixId, 'Lamplighter', { now: NOW })
     await one.lamplighter({ action: 'take', id: fixId, branch: 'b-fix-lamps' })
     await one.lamplighter({ action: 'report', id: fixId, result: 'All lamps are warm yellow.', merged: 'beef123' })
     await one.server({ action: 'check', id: fixId, passed: true, lines: ['branch gone'] })
-    assert.equal((await one.partner({ ...PASSED, id: fixId, evidence: 'pictures/fix/evidence.png', points: ['pass: two are warm now', 'pass: warm yellow light, never white'] })).ok, true)
+    assert.equal((await one.checks({ ...PASSED, id: fixId, evidence: 'pictures/fix/evidence.png', points: ['pass: two are warm now', 'pass: warm yellow light, never white'] })).ok, true)
     const notes = await recapNotes(one.dir)
     assert.equal(notes.length, 1)
     assert.deepEqual(notes[0].sections.get('About'), [id])
@@ -108,7 +112,7 @@ test('Overturn: the recap closes with the person\'s words, and the partner is wo
   const one = await fresh()
   try {
     const id = await reported(one)
-    await one.partner({ ...PASSED, id })
+    await one.checks({ ...PASSED, id })
     const [note] = await recapNotes(one.dir)
     const recap = valueOf(note, 'Id')
     // Words are needed; a chat cannot answer for the person.
@@ -139,7 +143,7 @@ test('B390: OK, seen approves the recap at once with no words: closed, its Histo
   const one = await fresh()
   try {
     const id = await reported(one)
-    await one.partner({ ...PASSED, id })
+    await one.checks({ ...PASSED, id })
     const [note] = await recapNotes(one.dir)
     const recap = valueOf(note, 'Id')
     // Only the person marks it seen.
@@ -165,7 +169,7 @@ test('B390: OK, seen needs no partner chat on the board: no words go anywhere', 
   const one = await fresh()
   try {
     const id = await reported(one)
-    await one.partner({ ...PASSED, id })
+    await one.checks({ ...PASSED, id })
     const [note] = await recapNotes(one.dir)
     const alone = await workApi({ action: 'seen', id: valueOf(note, 'Id') }, { dir: one.dir, now: NOW + HOUR, prefix: '', roleOf: () => null, chats: [], as: 'person' })
     assert.equal(alone.ok, true, alone.why)
@@ -179,7 +183,7 @@ test('B390: Feedback on a recap is gone: the action is refused and the recap sta
   const one = await fresh()
   try {
     const id = await reported(one)
-    await one.partner({ ...PASSED, id })
+    await one.checks({ ...PASSED, id })
     const [note] = await recapNotes(one.dir)
     assert.equal((await one.person({ action: 'feedback', id: valueOf(note, 'Id'), text: 'Lovely.' })).ok, false)
     assert.equal(valueOf((await readStore(one.dir)).items.get(valueOf(note, 'Id')), 'Recap'), 'open')
@@ -192,7 +196,7 @@ test('left alone, a recap approves itself 24 hours after it showed, and stays am
   const one = await fresh()
   try {
     const id = await reported(one)
-    await one.partner({ ...PASSED, id })
+    await one.checks({ ...PASSED, id })
     const [note] = await recapNotes(one.dir)
     const shownAt = recapsOf(await store(one.dir), NOW).at(0).at
     const early = await one.server({ action: 'approve-recaps' }, shownAt + RECAP_WINDOW_MS - 60_000)
@@ -236,7 +240,7 @@ test('the review: a step the reconciler moves to done once the person answered i
     const id = await reported(one)
     const asked = await one.partner({ action: 'ask', of: id, kind: 'look', text: 'Do the lamps look warm to you?', options: ['A yes', 'B no'], advice: 'A' })
     assert.equal(asked.ok, true, asked.why)
-    assert.equal((await one.partner({ ...PASSED, id })).ok, true)
+    assert.equal((await one.checks({ ...PASSED, id })).ok, true)
     assert.equal(valueOf((await readStore(one.dir)).items.get(id), 'State'), 'review')
     assert.deepEqual(await recapNotes(one.dir), [])
     assert.equal((await one.person({ action: 'answer', id: asked.result.id, verdict: 'approve', text: '' })).ok, true)
@@ -253,13 +257,14 @@ test('the review: a step the reconciler moves to done once the person answered i
 test('the review: when the board\'s own check passes after the result check, the step gets its recap then', async () => {
   const one = await fresh()
   try {
-    const made = await one.partner(LAMP)
-    const id = made.result.id
-    await queueFor(one.dir, id, 'Lamplighter', { now: NOW })
-    await one.lamplighter({ action: 'take', id, branch: 'b2-lamps' })
-    await one.lamplighter({ action: 'report', id, result: 'Every path has a warm lamp.', merged: 'c0ffee1' })
+    const id = await reported(one)
+    // The Checker holds the QA task when the builder reports again: the board's check is pending, then the check is filed.
+    const qa = (await one.server({ action: 'qa-task', id })).result.id
+    await queueFor(one.dir, qa, 'Checker', { now: NOW })
+    assert.equal((await one.checker({ action: 'take', id: qa })).ok, true)
+    assert.equal((await one.lamplighter({ action: 'report', id, result: SAID, merged: 'c0ffee2' })).ok, true)
     await one.server({ action: 'check', id, passed: false, lines: ['the branch b2-lamps is still there'] })
-    assert.equal((await one.partner({ ...PASSED, id })).ok, true)
+    assert.equal((await one.checker({ ...PASSED, id })).ok, true)
     assert.deepEqual(await recapNotes(one.dir), [])
     await one.server({ action: 'check', id, passed: true, lines: ['branch gone'] })
     assert.equal(valueOf((await readStore(one.dir)).items.get(id), 'State'), 'done')
@@ -273,7 +278,7 @@ test('the review: without a partner chat on the board an answer to a recap is re
   const one = await fresh()
   try {
     const id = await reported(one)
-    await one.partner({ ...PASSED, id })
+    await one.checks({ ...PASSED, id })
     const [note] = await recapNotes(one.dir)
     const alone = await workApi({ action: 'overturn', id: valueOf(note, 'Id'), text: 'The pond lamp is white.' },{ dir: one.dir, now: NOW + HOUR, prefix: '', roleOf: () => null, chats: [], as: 'person' })
     assert.equal(alone.status, 409)

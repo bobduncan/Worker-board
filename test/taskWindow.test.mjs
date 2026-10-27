@@ -18,6 +18,7 @@ import { checkedOf, parsePoints, triesOf } from '../src/work/resultCheck.mjs'
 import { checkLinesWarning } from '../src/work/recapWords.mjs'
 import { readStore, writeStore } from '../src/work/store.mjs'
 import { queueFor } from './queueFor.mjs'
+import { checkedBy } from './qaKit.mjs'
 
 const PUBLIC = join(dirname(fileURLToPath(import.meta.url)), '..', 'public')
 const script = await readFile(join(PUBLIC, 'board.js'), 'utf8')
@@ -74,16 +75,18 @@ test('the work store gives a step its tries and its standard, and "checked" file
   const dir = await mkdtemp(join(tmpdir(), 'task-window-'))
   const at = new Date(2026, 9, 26, 12, 0).getTime()
   await writeStore(dir, migrateBacklog(['# Backlog', '', '## Lava', '- [ ] B1 Moving lava on a painted map', ''].join('\n'), { now: at }), undefined, { now: at })
-  const ctx = { dir, now: at + 60_000, prefix: '', roleOf: chat => ({ Partner: 'advisor', Keeper: 'main', Painter: 'worker' })[chat] ?? null, freeChats: new Set(['Painter']), chats: ['Partner', 'Keeper', 'Painter'] }
+  const ctx = { dir, now: at + 60_000, prefix: '', roleOf: chat => ({ Partner: 'advisor', Keeper: 'main', Painter: 'worker', Checker: 'worker' })[chat] ?? null, freeChats: new Set(['Painter']), chats: ['Partner', 'Keeper', 'Painter', 'Checker'] }
   const as = chat => body => workApi({ chat, ...body }, ctx)
+  // T9.1.1: the result check is filed by the worker that holds the step's QA task, a worker that did not build it.
+  const checkedAs = (id, body) => checkedBy({ as, server: call => workApi(call, { ...ctx, as: 'server' }), dir, now: at + 60_000 }, id, body)
   assert.equal((await as('Partner')({ action: 'refine', id: 'B1', summary: 'A painted map where the lava really moves.' })).ok, true)
   assert.equal((await as('Partner')({ action: 'refined', id: 'B1', what: ['the lava moves', 'the painting sits on the layout'] })).ok, true)
   assert.equal((await queueFor(dir, 'B1', 'Painter', { now: at + 60_000 })).ok, true)
   assert.equal((await as('Painter')({ action: 'take', id: 'B1', branch: 'b1-lava' })).ok, true)
   assert.equal((await as('Painter')({ action: 'report', id: 'B1', result: 'Done.', merged: 'c0ffee1' })).ok, true)
   assert.equal((await workApi({ action: 'check', id: 'B1', passed: true, lines: ['branch gone'] }, { ...ctx, as: 'server' })).ok, true)
-  const checked = await as('Partner')({
-    action: 'checked', id: 'B1', evidence: 'none (nothing on screen)',
+  const checked = await checkedAs('B1', {
+    evidence: 'none (nothing on screen)',
     points: ['pass: the lava moves', 'tried: cut the lava out by its colour', 'fail: the painting sits on the layout', 'why: floors and props were cut away too', 'conclusion: cutting it better will not solve that'],
   })
   assert.equal(checked.ok, true, checked.why)
@@ -336,8 +339,9 @@ test('a failed check\'s plain lines are checked when it is filed: missing, or wi
   const dir = await mkdtemp(join(tmpdir(), 'task-window-'))
   const at = new Date(2026, 9, 26, 12, 0).getTime()
   await writeStore(dir, migrateBacklog(['# Backlog', '', '## Lava', '- [ ] B1 Moving lava on a painted map', '- [ ] B2 Warm benches', '- [ ] B3 Soft rugs', ''].join('\n'), { now: at }), undefined, { now: at })
-  const ctx = { dir, now: at + 60_000, prefix: '', roleOf: chat => ({ Partner: 'advisor', Keeper: 'main', Painter: 'worker' })[chat] ?? null, freeChats: new Set(['Painter']), chats: ['Partner', 'Keeper', 'Painter'] }
+  const ctx = { dir, now: at + 60_000, prefix: '', roleOf: chat => ({ Partner: 'advisor', Keeper: 'main', Painter: 'worker', Checker: 'worker' })[chat] ?? null, freeChats: new Set(['Painter']), chats: ['Partner', 'Keeper', 'Painter', 'Checker'] }
   const as = chat => body => workApi({ chat, ...body }, ctx)
+  const checkedAs = (id, body) => checkedBy({ as, server: call => workApi(call, { ...ctx, as: 'server' }), dir, now: at + 60_000 }, id, body)
   for (const id of ['B1', 'B2', 'B3']) {
     assert.equal((await as('Partner')({ action: 'refine', id, summary: 'A thing that should work.' })).ok, true)
     assert.equal((await as('Partner')({ action: 'refined', id, what: ['it works'] })).ok, true)
@@ -346,7 +350,7 @@ test('a failed check\'s plain lines are checked when it is filed: missing, or wi
     assert.equal((await as('Painter')({ action: 'report', id, result: 'Done.', merged: 'c0ffee1' })).ok, true)
     assert.equal((await workApi({ action: 'check', id, passed: true, lines: ['branch gone'] }, { ...ctx, as: 'server' })).ok, true)
   }
-  const file = (id, points) => as('Partner')({ action: 'checked', id, evidence: 'none (x)', points })
+  const file = (id, points) => checkedAs(id, { evidence: 'none (x)', points })
   // Plain lines: no warning anywhere.
   const good = await file('B1', ['fail: it works', 'tried: cut the lava out by its colour', 'why: floors and props were cut away too'])
   assert.equal(good.ok, true, good.why)

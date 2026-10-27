@@ -62,8 +62,9 @@ const ROLES = {
   unblock: ['main', 'worker', 'person', 'server'],
   new: ['main', 'worker', 'advisor', 'person'],
   refine: ['advisor', 'main'],
-  // B356: the result check, by a helper the partner runs.
-  checked: ['advisor'],
+  // B356: the result check, by a helper the partner runs. T9.1.1: a step's by the worker that holds its Quality Assurance task
+  // (the gate in `checked`); a goal's re-check is the partner's; the board files its own (the person's answers, `server`).
+  checked: ['advisor', 'worker', 'server'],
   'vibe-draft': ['advisor'],
   'how-draft': ['advisor'],
   // Redesign Part 2 (2026-10-25): the person pins a task to a worker; the board unpins one whose chat is gone.
@@ -87,11 +88,12 @@ const ROLES = {
  */
 const SUPERVISOR_MAY = new Set(['incident', 'turn-ended', 'pull', ...READS])
 /**
- * B424: what the partner's helper (the role 'helper' of the list) does as the partner's own: the refines and the result
- * checks of steps the partner hands it, and the asks under a step they lead to. Its History lines name the helper. A
- * goal is the partner's alone (its re-check and its asks). In everything else it is a worker, that no step is queued for.
+ * B424: what the partner's helper (the role 'helper' of the list) does as the partner's own: the refines of steps the
+ * partner hands it, and the asks under a step they lead to. Its History lines name the helper. A goal is the partner's
+ * alone (its re-check and its asks). In everything else it is a worker, that no step is queued for. T9.1.1: the result
+ * check is no longer the partner's or its helper's: a worker that holds the step's Quality Assurance task files it.
  */
-const HELPS = new Set(['refine', 'refined', 'checked', 'ask'])
+const HELPS = new Set(['refine', 'refined', 'ask'])
 for (const action of ['contract', 'candidate-review']) HELPS.add(action)
 for (const action of ROUTING_ACTIONS) CHANGES.add(action)
 const helps = body => HELPS.has(body.action) && !/^G\d+$/.test(String(body.action === 'ask' ? body.of ?? '' : body.id ?? '').trim())
@@ -400,8 +402,30 @@ function steady(body, w, chat) {
   const all = [...told, ...mine]
   const open = openOf(chat, w)
   if (all.length === 0) return { ok: true, result: { text: `Nothing is yours, ${chat}: no instruction is open and no step is taken, in progress or queued for you.`, items: [], open, changed: false } }
-  const text = `Yours, ${chat}:\n${all.map(item => oneLine(item, w.store.items, w.readyHeld ?? null)).join('\n')}\n\n${serializeItem(all[0])}`
+  const text = `Yours, ${chat}:\n${all.map(item => oneLine(item, w.store.items, w.readyHeld ?? null)).join('\n')}\n\n${serializeItem(all[0])}${qaWords(all[0], w.store.items)}`
   return { ok: true, result: { text, items: all.map(item => valueOf(item, 'Id')), id: valueOf(all[0], 'Id'), open, changed: false } }
+}
+
+/**
+ * T9.1.1: what `work next` adds for a Quality Assurance task: the step it checks (its title, where it stands, who built it),
+ * that step's agreed points and its standard, the lines the board's check word used to carry (`Why:`, `Board warnings:`,
+ * `Demand:`, from the task's Context), and where the job is written. '' for any other task.
+ */
+function qaWords(item, items) {
+  if (!isQaTask(item)) return ''
+  const checks = valueOf(item, 'Checks')
+  const step = items.get(checks)
+  const context = (item.sections.get('Context') ?? []).map(one => one.trim()).filter(one => /^(?:Built by|Why|Board warnings|Demand|The person said):/.test(one))
+  const points = step === undefined ? [] : agreedPoints(step)
+  const standard = step === undefined ? null : standardOf(step)
+  return [
+    '',
+    '',
+    `Quality Assurance task: check ${checks}${step === undefined ? '' : ` "${valueOf(step, 'Title') ?? ''}" (${stateOf(step)})`} against its agreed points and its standard. Read roles/worker.md, "A Quality Assurance task"; you file the check with work checked ${checks}; you never work report this task.`,
+    ...(points.length === 0 ? [] : ['Agreed points:', ...points.map(one => `- ${one}`)]),
+    ...(standard === null ? [] : [`Standard: ${standard}`]),
+    ...context,
+  ].join('\n')
 }
 
 /** `list`: every item in one line, and as fields for the page. */
@@ -686,7 +710,9 @@ async function ask(body, w) {
   const of = isAlone ? { ok: true, item: null, text: null } : await load(body.of, w, { kind: ['step'] })
   if (!of.ok) return of
   const holder = isAlone ? null : valueOf(of.item, 'Owner')
-  if (holder !== null && !['main', 'advisor', 'person'].includes(w.role) && !isOwner(of.item, w.who, w.prefix)) {
+  // T9.1.1: and the worker that checks the step (it holds, or held, its Quality Assurance task) asks the person under it, for a
+  // point only they can judge.
+  if (holder !== null && !['main', 'advisor', 'person'].includes(w.role) && !isOwner(of.item, w.who, w.prefix) && !isCheckerOf(of.item, w)) {
     return refuse(409, `${valueOf(of.item, 'Id')} is ${holder}'s: only ${holder}, the main chat, the partner or the person asks under it.`)
   }
   const kind = body.kind ?? 'decide'
@@ -1260,6 +1286,8 @@ async function report(body, w) {
   if (!found.ok) return found
   const id = valueOf(found.item, 'Id')
   if (!isOwner(found.item, w.who, w.prefix)) return refuse(409, `${id} is ${valueOf(found.item, 'Owner') ?? 'nobody'}'s, not ${w.who}'s.`)
+  // T9.1.1: a Quality Assurance task has no branch and no board check: its worker's work checked on the step it checks ends it.
+  if (isQaTask(found.item)) return refuse(409, `${id} is a Quality Assurance task: file work checked ${valueOf(found.item, 'Checks')}, never a report.`)
   // B569: room for the Context and the Change before the rest.
   const result = line(body.result, RESULT_CHARS)
   if (result === '') return refuse(400, 'Name the result in "result": what the person gets now.')
@@ -1486,8 +1514,66 @@ async function qaAsk(step, w, more = {}) {
   return made.ok ? { qa: made.id } : { qaWhy: made.why }
 }
 
+/** T9.1.1: whether the chat holds, or held, a Quality Assurance task that checks the step. */
+const isCheckerOf = (step, w) => [...w.store.items.values()].some(one => isQaTask(one) && valueOf(one, 'Checks') === valueOf(step, 'Id') && isOwner(one, w.who, w.prefix))
+
 /**
- * B356: the result check of a step in review, filed by the partner (a helper that did not build it checked it):
+ * T9.1.1: who may file the result check of the step `id`: the worker that holds its open Quality Assurance task, once it is in
+ * progress; the board itself (the role server, or `boardFiles`: its own filing of the person's answers). `{ ok, qa }`, `qa` the
+ * open task (null for the board's filing, when there is none), or a 403 naming the task and its worker: a builder, another
+ * worker, the partner and a helper are refused, and a step with no task yet says the board makes one.
+ */
+function checkHolder(id, w) {
+  const qa = openQaTaskOf(w.store.items, id)
+  if (w.role === 'server' || w.boardFiles === true) return { ok: true, qa }
+  if (qa === null) return refuse(403, `${id} has no QA task yet: the board makes one, and the worker it gives it to files the check.`)
+  const qaId = valueOf(qa, 'Id')
+  const holder = valueOf(qa, 'Owner')
+  const isBuilder = notByOf(qa).some(name => plain(name, w.prefix) === plain(w.who, w.prefix))
+  if (w.role !== 'worker' || holder === null || !isOwner(qa, w.who, w.prefix)) {
+    return refuse(403, `${id} is checked by its QA task ${qaId} (${holder ?? 'not given yet'}): only its worker files the check${isBuilder ? `; ${w.who} built ${id}` : ''}.`)
+  }
+  if (stateOf(qa) !== 'in progress') return refuse(409, `${qaId} is ${stateOf(qa)}: take it first (work take ${qaId}), then file the check of ${id}.`)
+  return { ok: true, qa }
+}
+
+/**
+ * T9.1.1: the open Quality Assurance task `qa` of a step whose check was filed ends. Filed by its worker (`how` 'done'): its History
+ * says "checked B<id>: <summary>", then in progress → review by the worker and review → done by the board, so the worker is free
+ * and cleared as after a reported step. Filed by the board itself, or the step left review (`how` 'dropped'): dropped, the History
+ * saying why. Read anew and tried three times; null, or why it could not be written.
+ */
+async function endQaTask(qa, how, words, w) {
+  const id = valueOf(qa, 'Id')
+  let why = 'it changed in the meantime'
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const found = await load(id, w, { kind: ['step'] })
+    if (!found.ok) return found.why
+    if (CLOSED_STEP.includes(stateOf(found.item))) return null
+    let item = found.item
+    if (how === 'done') {
+      item = said(item, w, `checked ${valueOf(item, 'Checks')}: ${words}`)
+      const reviewed = move(item, 'review', 'worker', w, flowCtx(w, [item]))
+      if (!reviewed.ok) return reviewed.why
+      const closed = move(reviewed.item, 'done', 'server', w, flowCtx(w, [reviewed.item]))
+      if (!closed.ok) return closed.why
+      item = closed.item
+    } else {
+      // The board drops its own task (the flow lets the person and the main chat drop a step): as the person would.
+      const dropped = move(item, 'dropped', 'person', w, flowCtx(w, [item]))
+      if (!dropped.ok) return dropped.why
+      item = underStep(dropped.item, [`Dropped by the board on ${at(w.now)}: ${words}`])
+    }
+    const saved = await save(ordered(item), found.text, w)
+    if (saved.ok) return null
+    why = saved.why
+  }
+  return why
+}
+
+/**
+ * B356: the result check of a step in review. T9.1.1: filed by the worker that holds the step's Quality Assurance task (a worker
+ * that did not build it; `checkHolder`), which ends that task (`endQaTask`):
  * `evidence` (the evidence picture's path, or "none (<why>)"), `points` (every agreed point, "pass: ...", "fail: ..."
  * or "ask: ..."; B701: with them the plain lines of the person's task window, "tried: ...", "why: ..." and "conclusion: ...",
  * kept beside the points and never counted), `score` at will ("82 of 75"). Kept under "## Checked". All pass: the step is done once the board's
@@ -1495,11 +1581,14 @@ async function qaAsk(step, w, more = {}) {
  * only the person can judge (ask) makes none: the partner asks them, and the step waits in review.
  */
 async function checked(body, w) {
-  // B358: the re-check of a goal before its tick.
-  if (typeof body.id === 'string' && /^G\d+$/.test(body.id.trim())) return goalCheck(body, w)
+  // B358: the re-check of a goal before its tick (T9.1.1: still the partner's).
+  if (typeof body.id === 'string' && /^G\d+$/.test(body.id.trim())) return w.role === 'advisor' ? goalCheck(body, w) : refuse(403, 'Only the partner re-checks a goal.')
   const found = await load(body.id, w, { kind: ['step'] })
   if (!found.ok) return found
   const id = valueOf(found.item, 'Id')
+  if (isQaTask(found.item)) return refuse(409, `${id} is a Quality Assurance task: it ends when its worker files work checked ${valueOf(found.item, 'Checks')}.`)
+  const holder = checkHolder(id, w)
+  if (!holder.ok) return holder
   if (stateOf(found.item) !== 'review') return refuse(409, `${id} is ${stateOf(found.item)}: only a step in review is checked.`)
   // The review: one fix at a time; its own check closes this step once it is done.
   const open = fixesOf(id, w.store.items).filter(one => !['done', 'dropped'].includes(stateOf(one))).map(one => valueOf(one, 'Id'))
@@ -1557,8 +1646,11 @@ async function checked(body, w) {
     return done
   }
   await afterDone(item, w)
+  // T9.1.1: the check is filed, so the step's Quality Assurance task ends: done when its worker filed it.
+  const isByHolder = holder.qa !== null && w.role === 'worker' && w.boardFiles !== true
+  const ended = holder.qa === null ? null : await endQaTask(holder.qa, isByHolder ? 'done' : 'dropped', isByHolder ? summary : `its check was filed by the board: ${summary}`, w)
   const recheck = stateOf(item) === 'done' ? await closeFixed(item, w) : null
-  return changed(item, unplain === '' ? undefined : `${serializeItem(item)}\nBoard warning: ${unplain}.`, { ...(fix === null ? {} : { fix }), ...(recheck === null ? {} : recheck), ...(unplain === '' ? {} : { warnings: unplain }) })
+  return changed(item, unplain === '' ? undefined : `${serializeItem(item)}\nBoard warning: ${unplain}.`, { ...(fix === null ? {} : { fix }), ...(recheck === null ? {} : recheck), ...(unplain === '' ? {} : { warnings: unplain }), ...(isByHolder && ended === null ? { qaDone: valueOf(holder.qa, 'Id') } : {}), ...(ended === null ? {} : { qaWhy: ended }) })
 }
 
 /**

@@ -8,7 +8,7 @@ import test from 'node:test'
 
 import { valueOf } from '../../src/work/item.mjs'
 import { queueFor } from '../queueFor.mjs'
-import { NOW, fresh, item, items, remove, reported } from '../qaKit.mjs'
+import { NOW, fileCheck, fresh, item, items, openQa, remove, reported } from '../qaKit.mjs'
 
 const qaTasksOf = async (dir, id) => [...(await items(dir)).values()].filter(one => valueOf(one, 'Checks') === id)
 
@@ -76,11 +76,10 @@ test('a fix whose check passes and leaves the step it fixes in review (a point f
   const store = await fresh()
   try {
     const { id } = await reported(store)
-    // The first QA task is dropped by the person, so none is open when the fix is done.
-    const [first] = await qaTasksOf(store.dir, id)
-    assert.equal((await store.person({ action: 'drop', id: valueOf(first, 'Id'), why: 'taken over by the test' })).ok, true)
-    const checked = await store.partner({ action: 'checked', id, evidence: 'pictures/b2/evidence.png', points: ['pass: a lamp at every bench', 'fail: warm yellow light, never white (two lamps are white)', 'ask: is the yellow warm enough?'] })
+    // The first QA task ends with the Checker's check: none is open when the fix is done.
+    const checked = await fileCheck(store, id, { evidence: 'pictures/b2/evidence.png', points: ['pass: a lamp at every bench', 'fail: warm yellow light, never white (two lamps are white)', 'ask: is the yellow warm enough?'] })
     assert.equal(checked.ok, true, checked.why)
+    assert.equal(await openQa(store.dir, id), null)
     const fixId = checked.result.fix
     assert.equal(await queueFor(store.dir, fixId, 'Lamplighter', { now: NOW + 60_000 }).then(() => true), true)
     await store.lamplighter({ action: 'take', id: fixId, branch: 'b-fix-lamps' })
@@ -90,7 +89,7 @@ test('a fix whose check passes and leaves the step it fixes in review (a point f
     const [fixQa] = await qaTasksOf(store.dir, fixId)
     assert.equal(fixChecked.result.qa, valueOf(fixQa, 'Id'))
     assert.equal(valueOf(fixQa, 'Title'), `Quality Assurance: ${fixId} Fix: warm yellow light, never white`)
-    const done = await store.partner({ action: 'checked', id: fixId, evidence: 'pictures/fix/evidence.png', points: ['pass: the two lamps are yellow', 'pass: warm yellow light, never white'] })
+    const done = await fileCheck(store, fixId, { evidence: 'pictures/fix/evidence.png', points: ['pass: the two lamps are yellow', 'pass: warm yellow light, never white'] }, { worker: 'Spare', chat: 'spare' })
     assert.equal(done.ok, true, done.why)
     // The step it fixes has a point for the person, so it is not through: it is checked again, by a new QA task.
     const [, again] = (await qaTasksOf(store.dir, id)).sort((a, b) => valueOf(a, 'Id').localeCompare(valueOf(b, 'Id'), 'en', { numeric: true }))
