@@ -1373,6 +1373,7 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
     stops: everyone.filter(one => one.suspended?.by === 'app').map(one => ({ at: one.suspended.since, limit: one.suspended.limit, resetsAt: one.suspended.named })),
     now,
     warnAt: config.limitWarnPercent,
+    weekStopAt: config.weekStopAt,
   })
   // B312: a worker's own pause for the limit ends early once a reading taken after it shows that limit back
   // (limits.mjs `pauseLifted`): its card is read again as if it had not paused, so it is free (or between two turns)

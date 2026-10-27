@@ -886,6 +886,35 @@ export function reportedBackgroundDue(state, outbox) {
 }
 
 /**
+ * B742 (X95, X96: at 98% of the week three workers kept working, with no word from the board): the line typed to a working
+ * worker when the week reaches the person's stop line (2026-10-19: all work stops at 98%).
+ */
+export const weekStopWords = (to, stopAt, resetsAt) => ({
+  to, ask: null, step: null, title: null, version: null, verdict: null, command: 'week-stop', weekResets: Number.isFinite(resetsAt) ? resetsAt : null,
+  text: `The weekly limit reached the stop line (${stopAt}%): bring your work to a safe point (commit, checkpoint), then send the paused note`,
+})
+
+/**
+ * B742: the lines still to type, one for each worker whose card says it works while the week stands at its stop line
+ * (state.limits.week: `level` full from `stopAt`, `used` at or over it; a stop held by a reset ahead is no reading of the
+ * stop line). Once for each week: not again while a word to the same chat for the same reset of the week was sent, whatever
+ * became of it. A worker suspended already, free or off gets none; never while the person pauses all chats.
+ * `outbox` is everything sent.
+ */
+export function weekStopDue(state, outbox) {
+  const week = state.limits?.week ?? null
+  if (isHolding(state.pause) || week === null || week.level !== 'full' || !Number.isFinite(week.used) || !Number.isFinite(week.stopAt) || week.used < week.stopAt) return []
+  const resets = Number.isFinite(week.resetsAt) ? week.resetsAt : null
+  const words = []
+  for (const lane of state.chats ?? []) {
+    if (lane.isLeftover === true || lane.isMain === true || lane.state !== 'working' || lane.isRunning === false) continue
+    const isTold = (outbox ?? []).some(sent => sent.command === 'week-stop' && sent.to === lane.name && (sent.weekResets ?? null) === resets)
+    if (!isTold) words.push(weekStopWords(lane.name, week.stopAt, resets))
+  }
+  return words
+}
+
+/**
  * B577: the main chat's word to wake a chat whose session was stopped (its turn cut by a stop, the main chat's or the
  * person's): the app drops every word to it until it gets input, and a message by its session id is input. `stop` is
  * the chat's stop (src/stopped.mjs `stoppedOf`), `clock` says a time as "21:40".

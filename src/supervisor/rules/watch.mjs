@@ -1045,6 +1045,35 @@ function boardSlow(view) {
   }]
 }
 
+/** B742: how long a worker may keep working after the board's word at the week's stop line before the rule opens. */
+const WEEK_STOP_WAIT_MS = 15 * MIN
+
+/**
+ * 20. B742 (X95, X96, the rule the sweep wanted: at 98% of the week Workers 2, 3 and 5 worked on from 22:20 to 22:32 with no
+ * lane suspended): the week stands at the person's stop line (view.limits.week: `level` full, `used` from `stopAt`), the board
+ * told a working worker to stop (the word `week-stop` in the outbox), it still works 15 min of running time after that word
+ * (the pause and the board's off time do not count), and no lane is suspended for the limit. One finding, naming the workers.
+ * It clears when a lane is suspended, the week falls back under the line, or nobody works.
+ */
+function weekStopIgnored(view, ctx) {
+  const week = view.limits?.week ?? null
+  if (isPaused(view) || week === null || week.level !== 'full' || !Number.isFinite(week.used) || !Number.isFinite(week.stopAt) || week.used < week.stopAt) return []
+  if (view.lanes.some(lane => lane.state === 'suspended')) return []
+  const late = []
+  for (const lane of workersOf(view).filter(one => one.state === 'working')) {
+    const word = (view.outbox ?? []).filter(sent => sent.command === 'week-stop' && sent.to === lane.name && Number.isFinite(sent.at)).reduce((a, b) => (a === null || b.at > a.at ? b : a), null)
+    if (word === null) continue
+    const ms = lasted(view, ctx, `week-stop-ignored ${lane.name}`, afterPause(view, word.at))
+    if (ms > WEEK_STOP_WAIT_MS) late.push({ name: lane.name, since: word.at, ms })
+  }
+  if (late.length === 0) return []
+  return [{
+    rule: 'week-stop-ignored', key: 'week-stop-ignored board', subject: 'board',
+    text: `the week is at ${Math.round(week.used)}%, its stop line is ${week.stopAt}%, and ${late.map(one => one.name).join(', ')} still work${late.length === 1 ? 's' : ''} with no lane suspended`,
+    evidence: `week ${Math.round(week.used)}% (stop line ${week.stopAt}%); the board's word to stop: ${late.map(one => `${one.name} at ${clockOf(one.since)}, ${minutes(one.ms)} min ago`).join('; ')}; no lane is suspended; threshold ${minutes(WEEK_STOP_WAIT_MS)} min`,
+  }]
+}
+
 /** Every watch rule, in the order the section shows them. */
 export const WATCH_RULES = [
   { id: 'unknown-lane', kind: 'watch', says: 'a worker unknown or off for too long that holds a step and that the board could not wake', check: unknownLane },
@@ -1071,4 +1100,5 @@ export const WATCH_RULES = [
   { id: 'old-limit-reading', kind: 'watch', says: 'a limit near a stop (5-hour 80%, weekly 90%) still last read over 60 min ago, not counting a pause, while a worker works and the supervisor has looked it up', check: oldLimitReading },
   { id: 'board-deaf', kind: 'watch', says: 'the board heard no chat for over 10 min while chats wrote their conversations', check: boardDeaf },
   { id: 'board-slow', kind: 'watch', says: 'two work calls within 2 min answered after the chat gave up on them', check: boardSlow },
+  { id: 'week-stop-ignored', kind: 'watch', says: 'the week at the stop line (98%), a worker told to stop still works 15 min later and no lane is suspended', check: weekStopIgnored },
 ]
