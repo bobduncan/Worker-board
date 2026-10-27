@@ -149,14 +149,15 @@ step therefore says what it touches ("Touches: ...").
 - Tests bite (B527): when your change touches a test file, make the mutant before you report: in a scratch copy
   (never on your branch), undo the fix, run the new tests, see which assertion fails, then delete the copy. Your
   report's result then holds one line `Tests bite: <what was undone in a copy> → <the assertion that
-  failed>`. Without that line a report of a change with test files still passes, with a warning, and the partner's
-  result check makes the mutant itself and demands it of the checker. A test that still passes without the fix tests
+  failed>`. Without that line a report of a change with test files still passes, with a warning, and the
+  worker that checks it makes the mutant itself and demands it of the checker. A test that still passes without the fix tests
   nothing: make it bite first.
 - A step with agreed points ("What we build") or a Standard line is done only after the result check (B356): once the
-  board's check of your report passed, the partner's helper, which did not build it, ticks every agreed point against
-  the standard. A failed point comes back as a fix step, "Fix: <the failed points>", on the board's list: the board
-  gives it to you when you are free at that moment, else to any worker; do it as any step; the step it fixes waits in
-  review and is done with it.
+  board's check of your report passed, the board makes a task for it, "B<n> Quality Assurance: B<id> <title>", and gives
+  it to a worker that did not build the step (never to you for your own; below, "A Quality Assurance task"), which ticks
+  every agreed point against the standard. A failed point comes back as a fix step, "Fix: <the failed points>", on the
+  board's list: the board gives it to you when you are free at that moment, else to any worker; do it as any step; the
+  step it fixes waits in review and is done with it.
 - A step whose work is outside git (pictures or pages in the project's folder, in no repository; B363): take it with
   branch `none`, report it with `merged` none and name the files it made in the result, by their paths in the project
   (`<picture folder>/b12/page.html`, or the folder `<picture folder>/b12/`). The board's check is then that a file
@@ -197,6 +198,81 @@ step therefore says what it touches ("Touches: ...").
   (the first of the board's `pictureRoots`), in the folder of its subject, and show it in your chat. A step that
   names that folder shows its pictures on the board.
 - All chats share the plan's usage limits. Never spend extra usage unless the user says so.
+
+## A Quality Assurance task
+
+The result check of a step is a task like any other (the user, 2026-10-27: "workers do the checks, as long as its a worker who
+didnt build the task and the task title is clear. e.g. B123 Quality Assurance ..."). Once the board's own check of a report passed,
+and the step has agreed points (its "What we build") or a Standard line, the board makes the task "B730 Quality Assurance: B701
+<the step's title>", ready at once and ahead of every new step and fix on its list, and gives it to a free worker that did not
+build B701: never to you for a step you built. It is no code task: no branch, no merge, no report.
+
+Take it as any task: `work next`, then `work take B730` (no branch), and write its checkpoint with `work step` as you do for a
+step. `work next` names the step it checks (its title, where it stands), that step's agreed points and its `Standard:`, and the
+lines the board carries in the task: `Built by:`, `Why:` (the check comes again: its fix is done, or the person answered an ask
+point; `keep Q<n> as an ask point` names each ask point still open, and `The person said:` their words), `Board warnings:` and
+`Demand:`. The board gives the task Sonnet at medium effort, Opus at high when the step judges art against a reference or ran
+on Opus (the task's Model and Effort lines); it switches your model and effort for it as for any step.
+
+1. Read the step's record (`work list`, its file in the work store): its agreed points, its `Standard:` line (the kind, its
+   reference picture, the target; the kind's definition of done stands in the project's briefing) and its report. A step on the
+   worker board itself is also checked against the board's design principles (`PRINCIPLES.md` in the board's folder): one point
+   per principle it touches, a break a fail unless the step says why. The board's own check does not send a report back for its
+   wording (2026-10-25, "check the work, not the wording"): what it passed with warnings stands in the task as `Board warnings:`.
+   **A change that touches tests with a report that names no mutant** (the task then also carries `Demand:`) is yours to demand:
+   make the mutant yourself, in a scratch copy and never on the branch (undo the fix, run the new tests, see which assertion
+   fails, delete the copy), and keep what you found in the check's evidence. A test that still passes without the fix is a
+   `fail:` point ("tests do not bite: <what was undone>"), which makes the fix step as any failed point. A report that names its
+   `Tests bite:` mutant needs no demand: you may repeat it.
+2. Check it yourself (start no helper chat for it): look at the result as the user would (the game at that place, the page, the
+   merged change), tick every agreed point `pass`, `fail` or `ask` (ask: a look only the user can judge), and score it against
+   the kind's definition of done where that has a rubric (the judges' middle score). A look point (what the player sees) is
+   ticked against its reference picture, never "on substance" (B451): when the result differs from the reference, the point is a
+   `fail` with the differences named, or an `ask` with the result's picture beside the reference for the user to judge; never a
+   `pass`.
+3. Make the evidence picture with the board's tool. A visible change (B569): confirm the builder's
+   `<picture folder>/B<id>/after.png` matches the merged result (else shoot it anew) and set it beside `before.png`: `node
+   <board>/tools/evidence.mjs --step B<id> --title "<title>" --before <before.png> --after <after.png>` (`before-after.png`, no
+   points on it). A kind with a reference picture and a target: `--reference <the reference picture> --result <the result's
+   picture> --points '<the ticked points as JSON>' --score <n> --target <n>`. Work with nothing to see has no picture: its
+   evidence is `none (nothing on screen)`.
+4. Remove the worktrees you made for the check (detached, named `check-b<id>`, and `check-b<id>-before` for the state before): a
+   link in one (a junction such as `node_modules`) first, alone (`cmd /c rmdir "<folder>\node_modules"` on Windows: the link only),
+   then `git worktree remove <folder>` (never `--force`: it follows links and deletes what they point to), then the empty folder
+   Windows may leave (leave the folder first: `cd` out of it in a command of its own; an empty one the board removes itself). The
+   board refuses `work checked` while one of them is left, and names it with how to remove it.
+5. File it: `work checked B701` (the checked step's id, not the task's) with `evidence` (the picture's path in the project, or
+   `none (<why>)`), `points` (every agreed point, each `pass: <point>`, `fail: <point>` or `ask: <point>`) and `score` ("82 of 75")
+   where there is one. That ends your task: the board moves it to done, and you are free and cleared as after a report. Never
+   `work report` it; the board refuses that. Only the worker that holds the task files the check: a builder, another worker, the
+   partner and the main chat are refused, naming the task and its worker.
+6. **The plain lines for the person's task window** (B701; the user, 2026-10-26: "2 lines of context, then brief what happened,
+   conclusion, possible options ... compactly and highover described, never any details. i want lots of pictures"). The window
+   of a step opens on a Summary the board draws from your check. With every check that fails a point, add three more lines to
+   `points`, in plain words for someone who forgot the context (no file names, code, ids or test counts; one line each, about 20
+   words): `tried: <the way this try went about it>`, `why: <what is wrong with the latest version and why it fell short of the
+   goal>`, and from the second failed try of a chain `conclusion: <one line: what the tries have in common and what that means>`.
+   The board keeps them apart from the points (they are never counted as pass or fail) and shows them as "What we tried", "Why
+   we're not there yet" and "Conclusion". Make the evidence picture show the failure (the result beside its reference). Pick the
+   pictures the window sets out (B706): the target (the standard's reference picture), the latest result, and with every failed
+   check that try's own evidence picture, so each bullet of "What we tried" has its picture. A failed check with no `tried` or
+   `why` line, or with one that holds file names, code words, ids or counts ("2688 tests", "7 of 10 points"), is taken without a
+   refusal, but the board warns you in the answer and in the step's History line that the window leaves those lines out
+   (principle 8: it says so once): read the warning and write the lines in plain words the next time.
+
+What follows your check: every point passes, and the board closes the step (once its own check passed too). A failed point, and
+the board makes the fix step itself ("Fix: <the failed points>", refined from them, on its list, the step's `Attempts` counted up);
+the step waits in review until its fix is done and checked (the fix gets a task of its own for a worker that did not build it).
+Under each fail text a fix carries `Makes pass: <point>`, the agreed point of the step it fixes that the fail was ticked against
+(B526; for a step checked on its Standard alone, its Standard line): its check ticks every fail text and every Makes pass line,
+and the board refuses a `checked` on a fix with fewer points. A point that is the user's to judge: once your check is filed, ask
+them under the step (`work ask`, kind look, the evidence picture, your advice; you may, as the worker that checked it); once they
+answered, the board files the check again by itself (B449): every answer a yes (Approved, Done, yes, keep it) makes the ask points
+pass and closes the step, a no (Rejected, no) fails them with their words and makes the fix. Words it cannot read as yes or no, or
+fewer answers than ask points, make a new Quality Assurance task for the step, with their words in `The person said:`: its worker
+files `work checked` again, that point pass or fail. A step whose fix passed its check is checked again by a new task the same
+way (`Why: its fix B<n> is done: file its check again`): file every point again, the ones the fix made pass as `pass:` and every
+ask point still open as `ask:`. Say nothing in your chat about a check; your card's line while you work: "Check B<id>".
 
 ## Pausing for the limit
 

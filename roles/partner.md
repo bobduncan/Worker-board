@@ -31,7 +31,7 @@ the user tells you, and what follows from it, is kept in the game's own reposito
 - You ask the user one question at a time, with your advice in it.
 - Every helper you start for a check, a re-check, a review, a measurement or to gather facts (a subagent, with the
   Agent tool) runs on Sonnet: start it with `model: "sonnet"` (the user, 2026-10-23: "the Advisor's check helpers on
-  Sonnet"). Your helper chat (below) does the same.
+  Sonnet").
 - Fable only with the user's yes (the user, 2026-10-24: "maximum run opus ... you cant run fable without my
   permission"). Never set any chat to Fable (`set_session_model` with a Fable id), never ask the main chat to, and
   never start a subagent with model: "fable". The only way Fable runs is the board's own `partner effort` word with
@@ -53,30 +53,6 @@ the user tells you, and what follows from it, is kept in the game's own reposito
   B<id>` with `commit` and `next`), and when the user pauses all chats stop as your Workers mod tells you, as a
   worker does (`roles/worker.md`, "A pause of all chats"); after the resume go on from the checkpoint it names.
 - An ask carried over from the old backlog has no asking chat: when the person answers it in your chat, close it with `work answered-in-chat <id> --text '<their words, with the date>'`. (B305)
-
-## Your helper
-
-The list of chats may name a helper of yours (`helper` in `.claude/chats/list.json`, for example "Advisor 2"): a
-second chat that does only what you hand it. The board shows it on its own card under yours, never as a worker, and no
-task is ever given or pinned to it (the work tool refuses that). The user, 2026-10-19: "is advisor given instructions to
-utilise advisor 2 when it's not working, if advisor 2 is busy it can pick up stuff itself".
-
-- Whenever it is free, hand it the next refine or result check the board typed into you: a message to its session id
-  (the chat tool's `list` and its card on the board say whether it is free), "Refine B<id> for <your name>, round <n>"
-  or "Check B<id> for <your name>, built by <worker>", with this file's section to follow ("Refine a step" or "The
-  check"). It files the work with its own work tool as you would (`work refine`, `work refined`, `work checked`, and
-  `work ask` under a step for a point only the user can judge): the board takes it as yours, and the step's History
-  names it. A goal stays yours: its re-check, its asks and its daily note.
-- The user's answers to its refine questions reach it, but the board types the next round of that step to you: hand
-  that round back to it ("Refine B<id> for <your name>, round <n>: the answers are in"), and tell it to wait for your
-  word before a next round, so the two of you never refine one step twice.
-- While it is busy, or not running, take the next one yourself. Never let a refine or a check wait while either of you
-  is free.
-- It runs on Sonnet at medium effort, as its own setting (the main chat sets it once), and it starts its own helpers
-  for checks and facts with `model: "sonnet"`, as you do. It refines as you do, with a model and an effort for every
-  step ("Refine a step").
-- The rest stays yours: the focus, its vibe and how, the questions to the user at goal height, the daily note, the
-  partner answers, the brainstorms and your rounds.
 
 ## Your two pages in the game
 
@@ -715,80 +691,18 @@ may name the user's own examples.
 
 ## The check
 
-No step is done on its worker's word alone (B356): a step with agreed points (its "What we build") or a Standard line
-is done only after a helper that did not build it checked the result. Once the board's own check of a report passed,
-the board types `check step`, `Step: B<id> <title>`, `Built by: <worker>` and `Your job: ...` into your chat: the
-board's word, never the user's.
+No step is done on its worker's word alone (B356), and since 2026-10-27 the check is not yours (T9.1.1; the user: "feels like
+the current advisor is a bottleneck ... maybe we can create a queue system similar to the workers"). Once the board's own check
+of a report passed, the board makes the task "B<n> Quality Assurance: B<id> <title>" itself and gives it to a free worker that
+did not build the step; that worker checks it and files `work checked B<id>` (`roles/worker.md`, "A Quality Assurance task").
+The board types no `check step` into your chat any more, and your own `work checked` on a step is refused with the task named;
+a goal's re-check stays yours ("The goal re-check"). What stays yours is what follows a check:
 
-1. Read the step's record (`work list`, its file in the store): its agreed points, its `Standard:` line (the kind, its
-   reference picture, the target; the kind's definition of done stands in your rounds under "Kinds of work") and its
-   report. A step on the worker board itself is also checked against the board's design principles
-   (`PRINCIPLES.md` in the board's folder): one point per principle it touches, a break a fail unless the step says why.
-   The board's own check no longer sends a report back for its wording (2026-10-25, "check the work, not the wording"):
-   what it passed with warnings stands in the board's word as `Board warnings:` (and in the step's History, "check
-   passed with warnings"). **A change that touches tests with a report that names no mutant** (the word then also
-   carries `Demand:`) is yours to demand: the helper makes the mutant itself, in a scratch copy and never on the branch
-   (undo the fix, run the new tests, see which assertion fails, delete the copy), and files it in the check's evidence.
-   A test that still passes without the fix is a `fail:` point ("tests do not bite: <what was undone>"), which makes
-   the fix step as any failed point. A report that names its `Tests bite:` mutant needs no demand: the helper may
-   repeat it.
-2. Hand the check to a fresh helper on Sonnet (`model: "sonnet"`), one that did not build it (never your own chat): it looks at the result as the
-   user would (the game at that place, the page, the merged change), ticks every agreed point pass, fail or ask (ask:
-   a look only the user can judge), and scores it against the kind's definition of done where that has a rubric (the
-   judges' middle score).
-3. The helper makes the evidence picture with the board's tool. A visible change (B569): it confirms the worker's
-   `<picture folder>/B<id>/after.png` matches the merged result (else shoots it anew) and sets it beside `before.png`:
-   `node <board>/tools/evidence.mjs --step B<id> --title "<title>" --before <before.png> --after <after.png>`
-   (`before-after.png`, no points on it). A kind with a reference picture and a target: `--reference <the reference
-   picture> --result <the result's picture> --points '<the ticked points as JSON>' --score <n> --target <n>`. Work
-   with nothing to see has no picture: its evidence is `none (nothing on screen)`.
-4. The helper removes the worktrees it made for the check (detached, named `check-b<id>`, and `check-b<id>-before`
-   for the state before): a link in one (a junction such as `node_modules`) first, alone (`cmd /c rmdir
-   "<folder>\node_modules"` on Windows: the link only), then `git worktree remove <folder>` (never `--force`: it
-   follows links and deletes what they point to), then the empty folder Windows may leave (leave the folder first: `cd` out of it in a command of
-   its own; an empty one the board removes itself). The board refuses `work
-   checked` while one of them is left, and names it with how to remove it.
-5. File it: `work checked B<id>` with `evidence` (the picture's path in the project, or `none (<why>)`), `points`
-   (every agreed point, each `pass: <point>`, `fail: <point>` or `ask: <point>`) and `score` ("82 of 75") where there is one.
-6. **The plain lines for the person's task window** (B701; the user, 2026-10-26: "2 lines of context, then brief what
-   happened, conclusion, possible options ... compactly and highover described, never any details. i want lots of
-   pictures"). The window of a step opens on a Summary the board draws from your check. With every check that fails
-   a point, add three more lines to `points`, in plain words for someone who forgot the context (no file names, code,
-   ids or test counts; one line each, about 20 words): `tried: <the way this try went about it>`, `why: <what is wrong with
-   the latest version and why it fell short of the goal>`, and from the second failed try of a chain `conclusion: <one
-   line: what the tries have in common and what that means>`. The board keeps them apart from the points (they are never
-   counted as pass or fail) and shows them as "What we tried", "Why we're not there yet" and "Conclusion". Make the
-   evidence picture show the failure (the result beside its reference), so the window shows what failed beside what was
-   wanted. Pick the pictures the window sets out (B706): the target (the standard's reference picture), the latest
-   result, and with every failed check that try's own evidence picture, so each bullet of "What we tried" has its picture.
-   A check without these lines still shows, with the step's title and "n of m points passed", but says little: write them.
-   A failed check with no `tried` or `why` line, or with one that holds file names, code words, ids or counts ("2688
-   tests", "7 of 10 points"), is taken without a refusal, but the board warns you in the answer and in the step's History
-   line that the window leaves those lines out (principle 8: it says so once): read the warning and write the lines in
-   plain words the next time.
-   An ask for a step that is stuck (`work ask`, kind decide) goes with its `options` (each letter first) and your
-   `advice`: the window shows them as option cards, the advised one marked, with a box for the user's own idea. It is
-   filed under the step it is about (`Of: B<id>`) and its title is its question: the window shows only the step's own
-   asks, each with its question above its cards.
-
-A look point (what the player sees) is ticked against its reference picture, never "on substance" (B451): when the
-result differs from the reference, the point is a `fail` with the differences named, or an `ask` with the result's
-picture beside the reference for the user to judge; it is never a `pass`. B395's redraw check listed six differences
-from design B and still passed, the same minute the user answered "they dont look even close".
-
-Every point passes: the board closes the step. A failed point: the board makes the fix step itself ("Fix: <the failed
-points>", refined from them, on the board's list for the worker that built it first, the step's `Attempts` counted up), and the step waits in
-review until its fix is done and checked; check a fix as any step. Under each fail text a fix carries `Makes pass:
-<point>`, the agreed point of the step it fixes that the fail was ticked against (B526; for a step checked on its
-Standard alone, its Standard line): its check ticks every fail text and every Makes pass line, and the board refuses a
-`checked` on a fix with fewer points. A fix that does what its fail text says but leaves its Makes pass point unmet
-fails that point. A point that is the user's to judge: ask them under
-the step (`work ask`, kind look, the evidence picture, your advice); once they answered, the board files `checked`
-again by itself (B449): every answer a yes (Approved, Done, yes, keep it) makes the ask points pass and closes the step, a
-no (Rejected, no) fails them with their words and makes the fix. Words it cannot read as yes or no, or fewer answers than
-ask points, wake you with `check B<id>: Q<n> answered` and their words: file `checked` again yourself, that point pass, or
-fail (then the fix comes). A step left in review 30 minutes with no check filed wakes you with `check step B<id>`, again
-every 30 minutes: check it then.
+Every point passes: the board closes the step. A failed point: the board makes the fix step itself ("Fix: <the failed points>",
+refined from them, on the board's list for the worker that built it first, the step's `Attempts` counted up), and the step
+waits in review until its fix is done and checked (a fix has a Quality Assurance task of its own). A point that is the user's to
+judge: the worker that checked asks them under the step; once they answered, the board files the check again by itself, or makes
+a new task for it when it cannot read the answer.
 
 **Two rounds, then another way** (the user, 2026-10-25, on maps stuck at 46 to 60 of 75 after rounds of small patches:
 "sure, lets try this. but i dont need to give approval for the first different approach"). When a thing's second try
@@ -820,14 +734,8 @@ one on the other (`block`, the main chat or the person sets it when you cannot),
 Parts that are proven, or separate parts each on its own test map with no shared code, may run side by side, and only
 on the user's yes (2026-10-25: "yes" to running G60's separate aspects side by side).
 
-Once a step's fix passed its check (B565), the step's check is yours to file again, at once: the board's word then
-carries `Why: its fix B<n> is done: file its check again`, and `; keep Q<n> as an ask point` for each ask of its check
-still open. File `work checked B<id>` again with the points the fix made pass as `pass:` and every open ask point kept
-as `ask:`; the step then waits for the user's answer. Never answer a check word with "no new check needed" while the
-step's line on the board says "waits for its check again": an ask still open does not make the check filed (X19: B510
-sat in review an hour after its fix B558 passed, its check never filed again because Q339 was open). Art below its target goes back to its worker for another try (the user,
-Q128, 2026-10-18), until the attempts stall; only then is it the user's call, with the gap named. Say nothing in your
-chat about a check; your card's line while you work: "Check B<id>".
+Art below its target goes back to its worker for another try (the user, Q128, 2026-10-18), until the attempts stall; only then is
+it the user's call, with the gap named.
 
 ## Incidents
 

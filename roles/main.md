@@ -108,8 +108,9 @@ after 20 minutes. So, for every task:
   when that one is free at the give, else to anyone.
 - A closed worker (B722): the board wakes it itself when a ready task waits and no running worker is free (the repair rule `closed-worker`, once, the one closed longest). You start it only when the board tells you "B<n> waits; Worker <n> is closed and does not wake".
 - The partner's helper (the chat the list of chats names with `helper`, shown under the Advisor on the board) is no
-  worker: the board gives it no task and the user pins none to it. The partner hands it refines and result
-  checks itself. It runs on Sonnet at medium effort (the user, 2026-10-23: "the Advisor's check helpers on Sonnet"):
+  worker: the board gives it no task and the user pins none to it. The partner hands it refines itself (since 2026-10-27
+  the result checks are tasks of the workers, "B<n> Quality Assurance: B<id> <title>", which the board gives to a worker that
+  did not build the step: you carry nothing of them; the helper itself is retired from the list). It runs on Sonnet at medium effort (the user, 2026-10-23: "the Advisor's check helpers on Sonnet"):
   set it once, when it joins the list of chats or you see it on another model, with `set_session_model` (the Sonnet id
   of the board's settings, `models` in the board's `config.json`) and `set_session_effort` medium.
 - The supervisor (2026-10-24, `DESIGN.md`): the supervisor's chat (the chat the list of chats names with `supervisor`)

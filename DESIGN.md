@@ -232,7 +232,7 @@ what to do next; takes no tasks"), a teal accent and a light for its sign:
   2026-10-26 (the person: "does this include ensuring the advisor also starts with B??? or Q???"): when it works and the
   board knows the item it is on, the line starts with that item the way a worker's line does: its id as a link (a step or
   an ask opens its window; an incident goes to the supervisor's part) and its title, taken from the newest board word to it
-  that it took (taken or typed) whose item is still open (incident to X<n>, result check and refine to B<n>, partner-ask to
+  that it took (taken or typed) whose item is still open (incident to X<n>, refine to B<n>, partner-ask to
   Q<n>; `advisorWorkOf`, the state's `advisor.on`). Its card's own text and its step count move to the tooltip.
   No such word: today's line.
 - *What it refines* (B287), as on the Advisor tab: "Refining B31, round 2", or "Your answers on B31 wait for it".
@@ -240,12 +240,11 @@ what to do next; takes no tasks"), a teal accent and a light for its sign:
   message"; rounds of the clock too), else "Nothing waits for it". 2026-10-26 (the person: "is the advisor currently
   working on them or not. is it in its queue?"): under its line, "Waiting for it:" lists ALL its waiting work, each a link
   to its step or ask with where it stands, from the board's own facts (`advisorWorkOf`, the state's `advisor.waiting`):
-  the questions it answers for you first (`Route: partner` asks), the result checks (steps in review that wait for their
-  check) and the refines it has open. Each item's **stand** (`workStand`, src/work/partnerAnswers.mjs): **the Advisor is on
+  the questions it answers for you first (`Route: partner` asks) and the refines it has open (T9.1.1: no result checks any
+  more: those are tasks of the workers, "Quality Assurance tasks" below). Each item's **stand** (`workStand`, src/work/partnerAnswers.mjs): **the Advisor is on
   it** when the board's word for the item was taken by the Advisor (state `taken` or `delivered`) or its current task, while
   it works, names the item's id; else **in the Advisor's queue** (no word, or one that waits, failed or was closed), since
-  the word or the item's wait began. A word counts for a check only when it is of this wait (not older than the board's
-  check that put the step in review). A question also says **when it comes to you** (30 minutes after it was filed, the
+  the word or the item's wait began. A question also says **when it comes to you** (30 minutes after it was filed, the
   rule that hands it to the person). Where the board cannot tell it says queued, never "on it". The same words stand
   after each row of "With your partner" and in the ask's window.
 - No queue, no "⋯", no Remove or Stop: it takes no tasks. A click, or Enter, opens its chat on the Advisor tab.
@@ -2577,6 +2576,11 @@ agnostic. it just needs to have clear ways on defining the goal, but also verify
 
 ## Done only after a check by a helper (B356)
 
+T9.1.1 (2026-10-27) changed who checks and how the check is asked: a worker that did not build the step checks it, as a task of
+the store ("Quality Assurance tasks: result checks handed out like steps" below). Items 3, 4 and 6 read with that: the board
+makes the task instead of typing `check step`, the worker files `work checked`, and the worker asks the person under the step.
+The rest stands.
+
 Part 3 of G11's how (agreed 2026-10-18 21:21). The vibe: a step is done only when a helper that did not build it
 ticked every agreed point against the standard and the reference. The person, 21:18: "verifying its actually reached
 and otherwise automatically create follow up steps to fix them"; Q128 (21:27): art below its target goes back to the
@@ -3096,10 +3100,10 @@ Advisor's check helpers on Sonnet". It builds on B468: the same word to the main
 The result check of B404 found four catches left in `server.mjs` that dropped their errors: nothing on the page,
 nothing in the log. They now run through the loops' record (`src/loops.mjs`) as the other loops do:
 
-1. After a chat's call on the store, asking the partner for a result check (`result-check`, "asking for a result
-   check"; the error names the step not asked for, `aboutError`) and the goal guard after a failed check (`guard`,
-   "the goal guard"; a store it cannot read now fails it, where it counted no attempt before). A failure never fails
-   the chat's call. Neither is asked again by itself: the page's note and the log say what was lost.
+1. After a chat's call on the store, the goal guard after a failed check (`guard`, "the goal guard"; a store it cannot
+   read now fails it, where it counted no attempt before). A failure never fails the chat's call. It is not asked again by
+   itself: the page's note and the log say what was lost. (Until T9.1.1 the board also asked the partner for a result check
+   here, as the loop `result-check`, "asking for a result check"; the work API makes that task itself now.)
 2. Making a picture of an idea (`picture`, "making a picture"): a making that throws still ends the idea's version
    ("The picture could not be made."); when that end cannot be written either, the one error names both (`afterError`).
 3. Measuring the tasks inside the look (`measure`, as on a board that shows another's history): its failure no longer
@@ -3170,7 +3174,7 @@ stuck that day was found by the person. They are now one list in the board, each
 | `refine-drop` | a yes to a refine question that drops the step (`Drop B<n> ...`), which the partner cannot do | a note to the main chat (Sent) |
 | `limit-back` | a worker suspended for the limit whose time has passed (`isBack`), holding a step, no limit full | "the limit is back: go on with B<n> from its checkpoint" (Woke); still suspended 10 min on: For Main |
 | `old-name` | a chat's mod refused under a name for over 2 min (one that follows the shown name, B463, joins at once), its session shown under another | a note to the main chat to have it join under the shown name (Sent) |
-| `helper` | the partner's helper not running while refines (not yet refined, not waiting for the person) or result checks the board sent the partner wait | the helper woken, which asks the main chat to start it (Woke); still not running 10 min on: the partner told to do them itself, and the main chat to start it (For Main) |
+| `helper` | the partner's helper not running while refines (not yet refined, not waiting for the person) or result checks the board sent the partner wait (T9.1.1: the helper is retired and the board sends no result check word, so it finds nothing) | the helper woken, which asks the main chat to start it (Woke); still not running 10 min on: the partner told to do them itself, and the main chat to start it (For Main) |
 | `closed-worker` | (B722) a ready task waits, no running worker is free, and a worker's chat is closed (by its card "off", or "free" and known not to run: the page words that lane "Closed", never "Available") | the closed worker closed longest woken once (Woke), the hand-out gives only to a running chat; not while the person pauses or a limit is full, a worker paused for the limit is `limit-back`'s, one holding a step `holder-not-running`'s; not back 10 min on: "B<n> waits; Worker <n> is closed and does not wake" (For Main) |
 | `partner-ask` | an ask routed to the partner open 10 min with no line about it in that time (the partner was busy) | the partner woken, busy or not (Woke) |
 | `refine-again` | (T9.4) a step still new whose refine word the Advisor took (arrived) 30 min ago or more, with no block written since, none waiting for the person's answers, the board not stopped on it (`refineStop`), not a fix | the Advisor woken with the same word, every 30 min, three times (Woke); then one note to the person (Sent) |
@@ -3196,7 +3200,7 @@ stuck that day was found by the person. They are now one list in the board, each
   next run.
 - **Asked again, then the person (T9.4)**: the person, 2026-10-26: "yes, build the follow-up for refines and incidents (ask again
   every 30 min, after 3 tries to me)". Work the Advisor took and then stopped on (cut off, a crash, a clear, forgot) came
-  back for questions routed to it (the reconciler) and for result checks (`unchecked`), but a plain refine and an
+  back for questions routed to it (the reconciler), but a plain refine and an
   incident were lost. `refine-again` and `incident-again` (`repair.mjs`, `askedAgain`) are stateless, by periods of 30
   minutes since the item began to wait (the word's arrival, `refineWait.mjs`; the incident's Since): periods 1 to 3 wake the
   Advisor again with the first word's text and a line "Asked again (n of 3)", once per period (the key is `<rule> <id> <n>` and
@@ -3350,7 +3354,8 @@ the AI sweep by a cheap supervisor chat and the hand-over to the Advisor, comes 
   (B544, the fix of X9: a chat whose card says an effort that is not a level; the partner's card holds the app's level in
   `appEffort` beside its high effort mode in `effort`, and `effort.mjs chatEffort` reads the level, so the health
   summary never says "[object Object]"), `review-stuck` (B543, the fix of X8: a step in review with no result check
-  filed for over 60 min, its first or again after its fix was done or its ask point answered; one that waits for an open fix,
+  filed for over 60 min, its first or again after its fix was done or its ask point answered, counted from its Quality
+  Assurance task (T9.1.1: one a worker is on is no case; one nobody took, or none, is); one that waits for an open fix,
   down a chain of fixes too, or for the person's answer is no case), `dropped-fix` (B630, the fix of X54: a step in
   review whose fix was dropped, with no new fix, no new check and no open step blocking it, for over 30 min; with a
   block, `reviewWaitOf` says kind 'blocked' and the step waits as planned, odd in the health summary only when a
@@ -3368,8 +3373,8 @@ the AI sweep by a cheap supervisor chat and the hand-over to the Advisor, comes 
   BOARD_TRIES; its line reads "waits for its fix B<n>, not refined yet"; the refine gate types such a fix's word again
   after an hour, `FIX_RETRY_MS`, up to BOARD_TRIES; a round with questions waits for the person and is no case). B664: the health
   summary judges a step in review as review-stuck, dropped-fix and review-held do, through one helper (`reviewLateOf`,
-  with the supervisor's memory of when it first saw each key): a fresh check word, the person's open ask and a hold the
-  watch only just saw are not odd there either,
+  with the supervisor's memory of when it first saw each key): a check whose QA task a worker is on, the person's open ask
+  and a hold the watch only just saw are not odd there either,
   `stale-checkpoint` (B572, the fix of X24: a step in progress over 120 min with no checkpoint within them, or whose
   last checkpoint's next action is to report, written over 30 min ago; one finding per step and checkpoint; not while
   the person pauses, a limit is full or its worker is suspended for the limit, and its suspended time does not count; the health summary shows each step in progress with its
@@ -4129,11 +4134,10 @@ work, and passes wording with a warning (principles 1 and 8: the board tidies, t
   (the latest report minute among its steps, in any state); a newer report replaces it, whatever its check says (`boardWarningsOf`, resultCheck.mjs).
   Nothing is marked or written: the Workers mod makes silent `work next` calls and throws their text away (register.tsx,
   after a clear, at session start, at a prompt), so a warning told once was lost (the review).
-- *The mutant.* The partner's result check asks for it: the board's word to the partner carries `Board warnings:` and,
-  for a report that names no mutant for a change touching tests, a `Demand:` line (`checkStepWords`, say.mjs; the
-  repair `unchecked` carries the same lines when it asks again, `warningLines`, resultCheck.mjs); the
-  helper makes the mutant in a scratch copy and a test that still passes is a fail point (roles/partner.md, "The
-  check").
+- *The mutant.* The result check asks for it: the Quality Assurance task of the step carries `Board warnings:` in its
+  Context and, for a report that names no mutant for a change touching tests, a `Demand:` line (`qaStep`, api.mjs; the
+  lines are `warningLines`, resultCheck.mjs, the same wherever the task is made); the worker that checks makes the mutant in a
+  scratch copy and a test that still passes is a fail point (roles/worker.md, "A Quality Assurance task").
 - *The card.* The recap's Context and Change are the board's own words (`recapParts`): as the worker wrote them when
   they read plain (cut at a word to 300 and 500 characters), else tidied by dropping each sentence that holds a
   file name, code word, hash, id or placeholder (an id turned into the step's title when the store is at hand and the
@@ -4392,3 +4396,48 @@ stuck. Two guesses built on a stuck report are out, as they read a real turn who
 (a screenshot) as no turn: the 30 s override of the chat's own busy report (B705) and the watch rule working-without-step with
 the lane's `hasNoTurn` (B712). A chat's own busy report is trusted. The tests in `test/clearedBusyReport.test.mjs` write
 transcripts to disk and read them with the board's tail reader.
+
+## Quality Assurance tasks: result checks handed out like steps (T9.1.1)
+
+The person, 2026-10-27 20:25: "feels like the current advisor is a bottleneck, is advisor 2 not being utilized properly? maybe
+we can create a queue system similar to the workers for the advisors so they can scale as well?" The case: 18 steps waited
+overnight for their result check; every check went through the Advisor (Opus, extra high), which checked one at a time and
+stopped while its card said working, Advisor 2 got nothing after 10-25, and workers 2, 3 and 5 stood idle. The person's
+decisions: workers do the checks, "as long as its a worker who didnt build the task and the task title is clear. e.g. B123
+Quality Assurance ..."; checks go before new steps on the list; refines stay with the Advisor for now and Advisor 2 is retired;
+a check runs on Sonnet medium, or Opus high when it judges art against a reference or checks an Opus step, and the Advisor goes
+from Opus extra high to Opus high. (Spec 2026-10-27, "Quality Assurance tasks".)
+
+1. **The task** (`qaStep`, api.mjs, modelled on `fixStep`; `src/work/qaTask.mjs` holds the pure helpers): a step the board makes
+   itself, titled `Quality Assurance: B<id> <the checked step's title>` (cut to 200 characters), state refined and ready at once,
+   with the head fields `Checks` (the checked step) and `Not by` (every chat that built it: its Owner and every chat its History
+   says took it, names joined with ", "), the checked step's activity and goal, a Model and an Effort line by what is checked
+   (`qaModelEffort`: Opus, high when its Standard names a reference picture or a target, or its Model is Opus; else Sonnet,
+   medium) and a Context with `Built by:`, `Why:` (`checkWhy`), `Board warnings:`, `Demand:` and, for an ask point the board
+   could not read, `The person said:`. One open task per step: making one when it exists answers the open one (`made: false`,
+   the store read fresh). It has no board check and no result check of its own (`needsResultCheck` is false for it).
+2. **When it is made**: where the board used to type `check step` to the Advisor: the board's own check of a report passed and
+   the step needs a result check (`check`), a fix's check left the step it fixes in review (`closeFixed`), a person's answer to an
+   ask point the board cannot read (`refileCheck`), and the supervisor's repair `unchecked` for any step that waits for its check
+   with no task (the work action `qa-task`, the board's own; no 30-minute wait). A board with no partner chat makes none.
+3. **Hand-out** (`handOut.mjs`): rank -1 on the ready list, before a fix (0) and the focus goal's tasks (1); never held for the
+   person's pick; no follow-up of anyone. `match` and the work API's `give` never give it to a chat in its `Not by` (a pin
+   neither); an idle builder holds back no new worker for it (`workerStart`).
+4. **Doing it** (roles/worker.md, "A Quality Assurance task"): the worker takes it without a branch, checks the step itself and
+   files `work checked B<id>`. Only the worker that holds the open task, once in progress, may (`checkHolder`); the board's own
+   filing (role server, the person's answers) may too; a builder, another worker, the Advisor, its helper and the main chat are
+   refused with the task named. Filing ends the task (`endQaTask`): its History says `checked B<id>: <summary>`, then in progress →
+   review by the worker and review → done by the board, so the worker is cleared as after a report. A task cannot be reported or
+   checked. The worker that checks may ask the person under the step (`isCheckerOf`). A failed point still makes the fix step, which
+   later gets its own task.
+5. **The supervisor**: `unchecked` makes the missing task and drops an open task whose step left review (the board drops its own
+   task: the flow lets the person and the main chat drop a step, so the work API drops a QA task for the board as the person
+   would); `review-stuck` counts from the task and clears a task a worker is on; the health line names where the task stands. The
+   sweep closes an old `result-check` word (and the sync check's `unchecked` wake) once its step has a task.
+6. **The page**: a step in review reads "waits for its check: B730, queued since 16:14" or "B730: Worker 3 is checking it since
+   16:20" (the step's `reviewStand`, from the task); the Advisor's waiting list has no checks; a task shows on the Backlog and on its
+   worker's lane like any step.
+7. **Go-live** (the supervisor chat's, not the code's): the repair makes a task for every step that waits for its check, so the
+   queue clears through the workers; `helper` leaves `.claude/chats/list.json` (the helper code stays: a list without one works);
+   the Advisor is set to Opus high.
+8. Not in it: refines (they stay with the Advisor), the Architect role, removing the helper code, changing what a check looks at.
