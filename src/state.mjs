@@ -11,7 +11,7 @@ import { pathKey } from './games.mjs'
 import { asksAtEnd, parseHandover } from './handover.mjs'
 import { gapsOf, hourEnd, hourStart, taskFacts, today } from './history.mjs'
 import { finishedList } from './finished.mjs'
-import { brainstormNeeds, brainstormsState } from './brainstorm.mjs'
+import { askFacts, brainstormNeeds, brainstormsState } from './brainstorm.mjs'
 import { DEMO_WORDS, demoGaveUp } from './focus.mjs'
 import { focusStage, goalAskList, goalAskNeeds, goalCounts, parseGoals, unlinkedSteps } from './goals.mjs'
 import { limitStop, limitsOf, newestPerWindow, parseUsageHistory, pauseLifted, pauseNote, storePause, usageReadings } from './limits.mjs'
@@ -1270,7 +1270,7 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
   // B255, B260: the goal map, read once for the Goals part and for the way to the next milestone.
   const goalMap = typeof raw.goalsText === 'string' ? parseGoals(raw.goalsText) : null
   // B259: the brainstorms' threads (config.brainstorms in the project), newest first.
-  const brainstorms = brainstormsState(raw.threadTexts ?? [], config.brainstorms)
+  const brainstorms = { ...brainstormsState(raw.threadTexts ?? [], config.brainstorms), asks: askFacts(raw.work?.items) }
   const folders = Array.isArray(raw.folders) ? raw.folders : null
   // An open step by its id, for a hand-over or a chat's own record that names one (not a step for the person).
   // With `whose`, only a step of that worker or of nobody.

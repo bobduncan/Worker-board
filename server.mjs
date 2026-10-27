@@ -2209,7 +2209,7 @@ async function main(args) {
       if (bridgeKey !== null && (state.advisor ?? null) !== null) {
         const now = clock()
         // B716: and the open question of a talk that cannot reach the person, once for each question.
-        for (const words of [...fixesToTell(state.brainstorms?.threads, store.outbox(), state.advisor), ...strandedToTell(state.brainstorms?.threads, store.outbox(), state.advisor, state.goals?.nodes ?? null)]) {
+        for (const words of [...fixesToTell(state.brainstorms?.threads, store.outbox(), state.advisor), ...strandedToTell(state.brainstorms?.threads, store.outbox(), state.advisor, state.goals?.nodes ?? null, state.brainstorms?.asks ?? [])]) {
           const message = { id: randomBytes(8).toString('hex'), at: now, ...words, state: 'waiting' }
           await store.say(message)
           const wake = wakeFor(message, state, store.outbox(), now, config.maxMessageChars)

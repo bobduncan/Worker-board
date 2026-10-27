@@ -4230,9 +4230,13 @@ server.mjs beside the title fix): "Q<n> in <thread> cannot reach the person: ask
 question, while it has no answer; the same question is never told twice, the next one is. G15's evaluation questions Q5 to
 Q7 (24 and 25 Oct) stood in such a talk and never reached the person; the evaluation (roles/partner.md) now asks the
 person's choice with `work ask` and keeps the talk as its record.
-B721: no word for a question that names its ask (`namesItsAsk`: "asked as Q428", "ask Q428"; G15's Q8, which the evaluation filed as Q428), nor for the talk
+B721: no word for the talk
 of a goal that is done or no longer in the goal map (`strandedQuestions(threads, goals)`, the map's nodes from the state; G33's Q11): both woke the
-partner for nothing on 26 Oct. The server's own pass is tested end to end (test/brainstormStrandedBoard.test.mjs: told once, also after the
+partner for nothing on 26 Oct.
+B733: and none for a question the store's own asks show was asked already: an open or answered ask of the talk's goal (`Of: G<n>`) filed at or after the
+question was written (`askFacts` from the state's work items, `questionTimes` for the talk's HH:MM dated from its start, a day on after midnight; G15's Q8 and
+the evaluation's Q428). The question's words decide nothing (B721 read "asked as Q428" and skipped a question whose ask did not exist): one that names an ask
+that does not exist, or one of another goal, a withdrawn ask or a free talk, is told as before, so nothing is dropped silently. The server's own pass is tested end to end (test/brainstormStrandedBoard.test.mjs: told once, also after the
 board starts anew).
 
 ## The goal demo before "Did we reach the goal?" (B677)
