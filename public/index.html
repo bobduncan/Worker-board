@@ -32,13 +32,12 @@
     <button class="waits-button" id="waits-for-you" type="button" title="Open Needs your attention on the Overview" hidden></button>
     <button class="quiet-button" id="pause-all" type="button" title="Before you quit Claude: every chat commits its work, writes its checkpoint and ends its turn" hidden>Pause all</button>
     <details class="settings" id="settings" hidden>
-      <summary class="icon-button settings-button" id="settings-button" title="Settings: CPU for the chats, when you are bothered, rebuilds, and the board's version" aria-label="Settings: CPU for the chats, when you are bothered, rebuilds, and the board's version">⚙</summary>
+      <summary class="icon-button settings-button" id="settings-button" title="Settings: CPU for Claude, when you are bothered, rebuilds, and the board's version" aria-label="Settings: CPU for Claude, when you are bothered, rebuilds, and the board's version">⚙</summary>
       <div class="settings-pop">
-        <div class="cpu" id="cpu" role="group" aria-label="CPU for the chats" hidden>
-          <span class="cpu-label" id="cpu-label">CPU for the chats</span>
-          <button class="cpu-level" type="button" data-cpu="off" title="The chats run as usual: normal priority, all cores">Off</button>
-          <button class="cpu-level" type="button" data-cpu="gentle" title="The chats and what they started run below normal priority: a game you play comes first">Gentle</button>
-          <button class="cpu-level" type="button" data-cpu="strong" title="The chats and what they started run at the lowest priority, on half of the cores">Strong</button>
+        <div class="cpu" id="cpu" role="group" aria-label="CPU for Claude" hidden>
+          <span class="cpu-label" id="cpu-label">CPU for Claude</span>
+          <button class="cpu-level" type="button" data-cpu="full" title="Claude runs at full power: normal priority, all cores">Full</button>
+          <button class="cpu-level" type="button" data-cpu="low" title="Everything the project started runs at the lowest priority, on two cores: never slows a game or other programs">Low</button>
           <span class="cpu-count" id="cpu-count"></span>
         </div>
         <div class="cpu board-setting" id="bother-me" role="group" aria-label="Bother me" hidden>

@@ -80,9 +80,9 @@ then says for an hour, in grey, who did not start ("Worker 6 did not start after
 the main chat that was only copied, because its chat did not run yet, stays on the restart banner, "Main's chat is not
 running yet: open Game - Main in the app (or click it in the sidebar) and paste with Ctrl+V", with **Copy again**
 and **Dismiss**, until the main chat has it or it no longer matters: "resume" once the main chat got "resume" another
-way, and any word after two hours), **CPU for the
-chats** (B311: Off, Gentle, Strong, one click each; when not Off, how many processes it applies to, "15 processes,
-below normal"; "not available here" off Windows; a listing that failed is one red line on top), **Bother me** (B361: At once, or Once a day: the recaps
+way, and any word after two hours), **CPU for
+Claude** (B311, B735: Full or Low, one click each; the line beside it says "full power", or under Low how many
+processes it applies to, "15 processes on 2 cores, lowest priority: tests and builds run slower"; "not available here" off Windows; a listing that failed is one red line on top), **Bother me** (B361: At once, or Once a day: the recaps
 and the questions that hold up no chat then gather under your partner's daily note on the Focus page; a question that
 holds up a chat always comes at once) and **Approve rebuilds by itself** (B361: Off, On; saved in the board's settings
 file), the board's

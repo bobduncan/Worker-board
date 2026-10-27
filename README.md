@@ -165,13 +165,14 @@ and the briefings for the main chat and the workers.
 - The head shows the plan's limits; a worker that paused for the limit shows as "Suspended" until it goes on.
 - Before you quit the app: "Pause all" on the board (each chat writes its checkpoint and stops; the board says when
   it is safe), and "Resume all" after it is open again (open the main chat when the board says so).
-- "CPU for the chats" in the head (B311, Windows only): when the PC lags while you play or work, click Gentle (the
-  project's chats and everything they started run below normal priority) or Strong (idle priority, on the higher
-  half of the cores); Off gives them normal priority and all cores back. The board keeps applying it at every refresh,
-  also to what the chats start later, and remembers it in `data\cpu.json`. Only the project's chats: never the Claude
-  app itself or another program, and never the board itself, its keeper or what the board starts (the game you
-  play), even when a chat started the board; at its start the board gives itself normal priority and all cores back.
-  "The higher half" counts all of the PC's cores, not the ones the board may use.
+- "CPU for Claude" in the head (B311, B735, Windows only): two choices you pick, no game detection. Full: everything
+  the project started runs at normal priority on all cores. Low: the chats and what they started, the board itself and
+  its keeper, the vite servers, codex and a headless browser run at the lowest priority on the last two cores, in
+  efficiency mode where Windows has it, so a game or any other program never slows (tests and builds run slower). The
+  board keeps applying it at every refresh, also to what starts later, and a restart of the board keeps it limited;
+  it remembers the choice in `data\cpu.json`. Never the Claude app itself, your own Edge or another program. Under
+  Full the board gives itself normal priority and all cores back at its start. The last two cores count all of the
+  PC's cores, not the ones the board may use. A level saved before (Strong) reads as Low, Off and Gentle as Full.
 - "✕ Remove" on a worker's lane asks the main chat to close that worker; a worker that is not free gets a warning
   first, which says what would stop.
 - The evidence picture (B357), the one picture a check shows you: `node tools/evidence.mjs --step B314 --title "..."
@@ -220,8 +221,8 @@ On). A click there writes them into config.json, every other setting kept, and t
 `work` (`.claude/work` unless set): the work store's folder, a path inside the project or a whole path of its own
 (a copy tried beside your board gives it a folder outside the project, and only then writes one). The store is
 required: without it the board shows no work and says on top what to run.
-`cpuLimit` (`"off"` unless set; `"gentle"` or `"strong"`): the level of "CPU for the chats" until one is clicked on the
-board; a copy beside your board starts at Off whatever it says.
+`cpuLimit` (`"full"` unless set; `"low"`; the older `"off"`, `"gentle"`, `"strong"` read as full, full, low): the level of "CPU for Claude" until one is clicked on the
+board; a copy beside your board starts at Full whatever it says.
 `kinds` (none unless set): the project's kinds of work, each `{ "kind": "<name>", "done": "<its definition of done>",
 "reference": "<its folder of reference pictures>" }`, paths inside `<project>` written with `/`; `examples\config.json`
 shows one. A refined step whose title or text names a kind carries its standard (`Standard: <kind> · <reference
@@ -379,7 +380,7 @@ Enter, and the main chat names itself, joins the list and starts the Advisor and
 ## What it writes
 
 `data\` in its folder, which git ignores: the history, what you sent (`outbox.jsonl`), when the board last ran,
-the Design tab's ideas and the level of "CPU for the chats" (`cpu.json`). Outside it: `<project>\.claude\board.json` while it runs (where the mod finds it), the
+the Design tab's ideas and the level of "CPU for Claude" (`cpu.json`). Outside it: `<project>\.claude\board.json` while it runs (where the mod finds it), the
 pictures Codex makes in the Design tab's ideas folder (`ideas` in the project's picture folder), the evidence pictures of `tools/evidence.mjs` (under the step in the picture folder), and the work store
 (`work`, `.claude\work` unless set), on the chats' `work` calls and your clicks, with `backlog.md` written from it as a
 view (see "The work store" above).

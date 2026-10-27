@@ -6,6 +6,7 @@ import { access, mkdir, open, readdir, readFile, rename, rm, writeFile } from 'n
 
 import { nextGoalId, parseGoals } from './goals.mjs'
 import { askTitleOf, titleProblem } from './work/askWords.mjs'
+import { askFiledMs, valueOf } from './work/item.mjs'
 import { addBrainstormNote, addGoal, changeGoalsFile, raiseLastLine, rewrite, setGoalLine } from './goalsWrite.mjs'
 
 const files = { readFile, writeFile, rename, rm, mkdir, access, readdir, open }
@@ -295,6 +296,7 @@ export function brainstormsState(texts, folder) {
         opening: thread.opening,
         questions: thread.questions.length,
         latest: thread.questions.at(-1) ?? null,
+        latestMs: questionTimes(thread.started, thread.questions).at(-1) ?? Number.NaN,
         earlier: thread.questions.slice(0, -1),
         proposal: thread.proposal,
         problems: thread.problems,
@@ -562,12 +564,32 @@ export function fixesToTell(threads, outbox, advisor) {
 }
 
 /**
- * B721: whether a question names the ask that carries it ("your choice is asked as Q428, not here"): the partner filed it
- * already, so the board has nothing to tell.
+ * B733: when a thread's question was written, to the millisecond-less minute: its HH:MM on the day the talk started, a
+ * day on for every time that stands earlier than the one before (the talk went past midnight). NaN when the head's
+ * start is not a date. Questions are in the order written.
  */
-const NAMES_ITS_ASK = /\b(?:asked|filed|raised)\s+(?:it\s+)?(?:as|in|under)\s+Q\d+\b|\bask(?:ed)?\s+Q\d+\b/i
-export const namesItsAsk = question => [question.text, question.context, question.why, ...(question.options ?? []).map(option => option.text)]
-  .some(part => NAMES_ITS_ASK.test(part ?? ''))
+export function questionTimes(started, questions) {
+  const day = String(started ?? '').match(/^(\d{4})-(\d\d)-(\d\d)/)
+  let offset = 0
+  let before = -1
+  return questions.map(one => {
+    const clock = String(one.at ?? '').match(/(\d{1,2}):(\d\d)/)
+    if (day === null || clock === null) return Number.NaN
+    const minutes = Number(clock[1]) * 60 + Number(clock[2])
+    if (minutes < before) offset += 1
+    before = minutes
+    return new Date(Number(day[1]), Number(day[2]) - 1, Number(day[3]) + offset, Number(clock[1]), Number(clock[2])).getTime()
+  })
+}
+
+/**
+ * B733: the asks of the board's own store that make a stranded question needless to tell: `{ goal, at }` for each open or
+ * answered ask of a goal (`Of: G<n>`), `at` its `Filed` time. A withdrawn ask is none: the question was never asked.
+ */
+export function askFacts(items) {
+  return [...(items?.values?.() ?? [])].filter(item => valueOf(item, 'Kind') === 'ask' && ['open', 'answered'].includes(valueOf(item, 'State')) && valueOf(item, 'Of') !== null)
+    .map(item => ({ goal: valueOf(item, 'Of'), at: askFiledMs(item) }))
+}
 
 /**
  * B716: the open question of a talk that cannot reach the person: its proposal was created (the board shows no question
@@ -575,14 +597,17 @@ export const namesItsAsk = question => [question.text, question.context, questio
  * done or discarded. `{ path, n, goal }`, the talk's last question only, and only while it has no answer: an earlier one
  * stands behind it. A running talk with no created proposal, or a proposal still to tick, reaches the person.
  * B721: none for a talk of a goal that is done or no longer in the map (`goals`: the map's nodes, `{ id, state }`; null
- * when the map is not known), nor for a question that names its ask (`namesItsAsk`): nothing is left to tell.
+ * when the map is not known).
+ * B733: nor for a question the board's own asks show was asked already (`asks`, `askFacts`): an open or answered ask of
+ * the talk's goal filed at or after the question was written. The question's words decide nothing: one that names an
+ * ask that does not exist, or one of another goal, is told as before.
  */
-export function strandedQuestions(threads, goals = null) {
+export function strandedQuestions(threads, goals = null, asks = []) {
   const byId = goals === null ? null : new Map(goals.map(one => [one.id, one]))
   return (threads ?? []).flatMap(thread => {
     const cannotReach = thread.state === 'done' || thread.state === 'discarded' || (thread.proposal?.created ?? null) !== null
     if (!cannotReach || thread.latest === null || thread.latest.answer !== null) return []
-    if (namesItsAsk(thread.latest)) return []
+    if (thread.goal !== null && asks.some(one => one.goal === thread.goal.id && one.at >= (thread.latestMs ?? Number.NaN))) return []
     if (byId !== null && thread.goal !== null) {
       const goal = byId.get(thread.goal.id)
       if (goal === undefined || goal.state === 'done') return []
@@ -606,8 +631,8 @@ export function brainstormStrandedWords({ to, path, n, goal }) {
 }
 
 /** B716: the words still to type to the partner: one for each stranded question not told before (`outbox` is everything sent), so a question is told once. Nothing without a partner (`advisor` null). */
-export function strandedToTell(threads, outbox, advisor, goals = null) {
+export function strandedToTell(threads, outbox, advisor, goals = null, asks = []) {
   if ((advisor ?? null) === null) return []
-  return strandedQuestions(threads, goals).map(one => brainstormStrandedWords({ to: advisor.name, ...one }))
+  return strandedQuestions(threads, goals, asks).map(one => brainstormStrandedWords({ to: advisor.name, ...one }))
     .filter(words => !(outbox ?? []).some(sent => sent.command === 'brainstorm-stranded' && sent.about === words.about && sent.text === words.text))
 }

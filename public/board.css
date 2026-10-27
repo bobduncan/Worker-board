@@ -72,7 +72,7 @@ button, textarea, select { font: inherit; color: inherit; }
 .tab.is-active { background: var(--inset); color: var(--text); border-bottom-color: var(--free); }
 .tab .count { margin-left: 8px; }
 .updated { color: var(--muted); font-size: 14px; }
-/* B311: "CPU for the chats", one click per level. */
+/* B311: "CPU for Claude", one click per level. */
 .cpu { display: flex; align-items: center; gap: 0; margin-right: 12px; font-size: 13.5px; white-space: nowrap; }
 .cpu[hidden] { display: none; }
 .cpu-label { margin-right: 8px; color: var(--muted); }
@@ -81,8 +81,6 @@ button, textarea, select { font: inherit; color: inherit; }
 .cpu-level:last-of-type { border-radius: 0 7px 7px 0; }
 .cpu-level:hover { color: var(--text); }
 .cpu-level.is-on { background: var(--inset); color: var(--text); border-color: #3a4a63; }
-.cpu-level.is-on[data-cpu="gentle"] { color: var(--waiting); }
-.cpu-level.is-on[data-cpu="strong"] { color: var(--warn); }
 .cpu-level:disabled { cursor: default; }
 .cpu-count { margin-left: 8px; color: var(--muted); }
 .quiet-button { margin-right: 12px; padding: 5px 12px; border: 1px solid var(--line); border-radius: 7px; background: transparent; color: var(--muted); font-size: 13.5px; cursor: pointer; }

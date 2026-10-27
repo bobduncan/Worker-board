@@ -190,8 +190,8 @@ export const DEFAULTS = {
    * others (way: Next milestone, plan: Game plan, suggestions, refine, chat) are hidden, not deleted: name them here.
    */
   advisorParts: ['focus', 'goals', 'brainstorm'],
-  /** B311: the chats' CPU until the person picks one on the board (data/cpu.json): "off", "gentle" or "strong". */
-  cpuLimit: 'off',
+  /** B311, B735: the CPU for Claude until the person picks one on the board (data/cpu.json): "full" or "low" ("off", "gentle" and "strong" of before read as full, full and low). */
+  cpuLimit: 'full',
   /**
    * B354: the project's kinds of work, each `{ kind, done, reference, look? }`: its name, its definition of done and its
    * reference folder, paths inside the project written with /; `look: true` (B451) marks a kind whose result the player
@@ -293,8 +293,9 @@ function readProviders(value) {
 const ADVISOR_PARTS = ['focus', 'way', 'goals', 'brainstorm', 'plan', 'suggestions', 'refine', 'chat']
 const isAdvisorParts = value => Array.isArray(value) && value.every(one => ADVISOR_PARTS.includes(one))
 
-/** B311: the levels of "CPU for the chats". */
-const CPU_LEVELS = ['off', 'gentle', 'strong']
+/** B311, B735: the levels of "CPU for Claude", and what the older names read as. */
+const CPU_LEVELS = { full: 'full', low: 'low', off: 'full', gentle: 'full', strong: 'low' }
+const cpuLevelOf = value => (typeof value === 'string' ? CPU_LEVELS[value.trim().toLowerCase()] ?? null : null)
 /** B360: the settings of botherMe. */
 const BOTHER = ['now', 'daily']
 
@@ -454,7 +455,7 @@ export function parseConfig(text, env) {
   if (Array.isArray(raw.runGame) && raw.runGame.every(word => typeof word === 'string' && word !== '')) config.runGame = [...raw.runGame]
   config.morningSkipPercent = Math.min(config.morningSkipPercent, 100)
   if (isAdvisorParts(raw.advisorParts) && raw.advisorParts.length > 0) config.advisorParts = [...new Set(raw.advisorParts)]
-  if (typeof raw.cpuLimit === 'string' && CPU_LEVELS.includes(raw.cpuLimit.trim().toLowerCase())) config.cpuLimit = raw.cpuLimit.trim().toLowerCase()
+  if (cpuLevelOf(raw.cpuLimit) !== null) config.cpuLimit = cpuLevelOf(raw.cpuLimit)
   // B354: the kinds that are right, each once.
   if (Array.isArray(raw.kinds)) {
     const seen = new Set()
@@ -515,7 +516,7 @@ export function configProblem(fileText) {
   if (has('weeklyRound') && typeof raw.weeklyRound !== 'boolean') return wrong('weeklyRound', 'true or false')
   if (has('runGame') && !(Array.isArray(raw.runGame) && raw.runGame.every(word => typeof word === 'string' && word !== ''))) return wrong('runGame', 'a list of words, the program first')
   if (has('advisorParts') && !(isAdvisorParts(raw.advisorParts) && raw.advisorParts.length > 0)) return wrong('advisorParts', `a list of one or more of the Focus tab's parts: ${ADVISOR_PARTS.join(', ')}`)
-  if (has('cpuLimit') && !(typeof raw.cpuLimit === 'string' && CPU_LEVELS.includes(raw.cpuLimit.trim().toLowerCase()))) return wrong('cpuLimit', '"off", "gentle" or "strong"')
+  if (has('cpuLimit') && cpuLevelOf(raw.cpuLimit) === null) return wrong('cpuLimit', '"full" or "low"')
   if (has('baseBranch') && !(typeof raw.baseBranch === 'string' && BRANCH.test(raw.baseBranch.trim()))) return wrong('baseBranch', 'a branch name such as "main"')
   if (has('usualModel') && !(typeof raw.usualModel === 'string' && MODELS.includes(raw.usualModel.trim().toLowerCase()))) return wrong('usualModel', MODELS.map(one => `"${one}"`).join(' or '))
   if (has('usualEffort') && !(typeof raw.usualEffort === 'string' && EFFORTS.includes(raw.usualEffort.trim().toLowerCase()))) return wrong('usualEffort', `one of ${EFFORTS.map(one => `"${one}"`).join(', ')}`)
