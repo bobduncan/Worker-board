@@ -56,7 +56,7 @@ import { createSpendingCollector } from './src/work/routing/collector.mjs'
 import { readRoutingRecord } from './src/work/routing/records.mjs'
 import { parseRoutingPolicy } from './src/work/routing/policy.mjs'
 import { adoptPicture, findDemo, findPicture, PICTURE_BYTES as SHOWN_PICTURE_BYTES, pictureProblem, pictureTooBig, shownFolders, shownRoots } from './src/pictures.mjs'
-import { answerWords, checkSay, checkStepWords, focusWords, reportedBackgroundDue, resumesDue, spawnWhenAlone, wakeFor, wakesDue, wakesStopped, withInstruction, workWords } from './src/say.mjs'
+import { answerWords, checkSay, checkStepWords, focusWords, reportedBackgroundDue, resumesDue, spawnWhenAlone, wakeFor, wakesDue, wakesStopped, weekStopDue, withInstruction, workWords } from './src/say.mjs'
 import { keepTalkPicture } from './src/talkPicture.mjs'
 import { firstLook, refineWhenDue } from './src/refineGate.mjs'
 import { recheckText, roundText, roundsNow } from './src/rounds.mjs'
@@ -2209,6 +2209,10 @@ async function main(args) {
         const running = reportedBackgroundDue(state, sentNow())
         for (const words of running) await store.say({ id: randomBytes(8).toString('hex'), at: now, ...words, state: 'waiting' })
         if (running.length > 0) readState.reset()
+        // B742 (X95, X96): the week reached the person's stop line: each working worker is told once to bring its work to a safe point.
+        const stops = weekStopDue(state, sentNow())
+        for (const words of stops) await store.say({ id: randomBytes(8).toString('hex'), at: now, ...words, state: 'waiting' })
+        if (stops.length > 0) readState.reset()
       }
       // Words that wait for a chat that is not running, sent while the main chat did not run either, are followed by
       // the word to start it once the main chat runs (say.mjs wakesDue). Only the board that delivers.
