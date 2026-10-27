@@ -178,6 +178,9 @@ function serial(dir, run) {
  * Answers `{ ok: true, result: { text, id, changed, ... } }` or `{ ok: false, status, why }`.
  */
 export function workApi(body, ctx) {
+  // B736 (X89: work health timed out twice behind a slow change): the health summary reads no store file, so it never
+  // waits in the store's queue.
+  if (body?.action === 'health') return act(body, ctx)
   return serial(ctx.dir, () => act(body, ctx))
 }
 

@@ -73,9 +73,58 @@ test('cached reads again after a reset, also when a read was under way', async (
   const before = read()
   read.reset()
   const after = read()
-  gates.forEach(open => open())
-  assert.deepEqual(await Promise.all([before, after]), [1, 2])
+  gates.shift()()
+  assert.equal(await before, 1)
+  await new Promise(done => setImmediate(done))
+  gates.shift()()
+  assert.equal(await after, 2)
   assert.equal(await read(), 2)
+})
+
+test('B736: resets while a read is under way never start a second read beside it: one waits for it, shared by every caller', async () => {
+  let count = 0
+  let running = 0
+  let most = 0
+  const gates = []
+  const read = cached(() => new Promise(resolve => {
+    count += 1
+    running += 1
+    most = Math.max(most, running)
+    const mine = count
+    gates.push(() => { running -= 1; resolve(mine) })
+  }), 60_000, () => 0)
+  const first = read()
+  const waiting = []
+  for (let i = 0; i < 5; i += 1) {
+    read.reset()
+    waiting.push(read())
+  }
+  assert.equal(count, 1)
+  gates.shift()()
+  assert.equal(await first, 1)
+  await new Promise(done => setImmediate(done))
+  assert.equal(count, 2)
+  gates.shift()()
+  assert.deepEqual(await Promise.all(waiting), [2, 2, 2, 2, 2])
+  assert.equal(most, 1)
+})
+
+test('B736: last gives the newest answer without waiting for a read, also one asked for before a reset', async () => {
+  let count = 0
+  const gates = []
+  const read = cached(() => new Promise(resolve => { count += 1; const mine = count; gates.push(() => resolve(mine)) }), 60_000, () => 0)
+  assert.equal(read.last(), undefined)
+  const first = read()
+  read.reset()
+  gates.shift()()
+  await first
+  assert.equal(read.last(), 1)
+  const second = read()
+  assert.equal(read.last(), 1)
+  await new Promise(done => setImmediate(done))
+  gates.shift()()
+  await second
+  assert.equal(read.last(), 2)
 })
 
 test('cached shares one read between callers that ask at the same moment', async () => {

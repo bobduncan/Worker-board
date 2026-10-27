@@ -81,17 +81,22 @@ export function gitRunner() {
   })
 }
 
-/** Keeps an answer for `ttlMs`, so the page's refresh does not start git again each time. */
+/**
+ * Keeps an answer for `ttlMs`, so the page's refresh does not start git again each time. B736 (X89: on 2026-10-27 the
+ * board answered calls minutes late while every reset started a whole read beside the one under way): one read at a
+ * time; a reset while one is under way has the next read wait for it, shared by every caller meanwhile.
+ */
 export function cached(read, ttlMs, now = Date.now) {
   let value
+  let latest
   let readAt = -Infinity
-  let pending = null
+  let running = null
+  let queued = null
   let round = 0
-  const fresh = () => {
-    if (now() - readAt < ttlMs) return Promise.resolve(value)
-    if (pending !== null) return pending
+  const start = () => {
     const mine = round
     const reading = read().then(answer => {
+      latest = answer
       // An answer that was asked for before `reset` is given to who waited for it, but not kept.
       if (mine === round) {
         value = answer
@@ -99,16 +104,27 @@ export function cached(read, ttlMs, now = Date.now) {
       }
       return answer
     }).finally(() => {
-      if (pending === reading) pending = null
+      if (running?.reading === reading) running = null
     })
-    pending = reading
+    running = { reading, round: mine }
     return reading
   }
-  /** Forgets the kept answer and a read that is under way: the next call reads again. */
+  const fresh = () => {
+    if (now() - readAt < ttlMs) return Promise.resolve(value)
+    if (running === null) return start()
+    if (running.round === round) return running.reading
+    queued ??= running.reading.catch(() => {}).then(() => {
+      queued = null
+      return fresh()
+    })
+    return queued
+  }
+  /** Forgets the kept answer: the next call reads again, after the read under way (whose answer is not kept). */
   fresh.reset = () => {
     round += 1
     readAt = -Infinity
-    pending = null
   }
+  /** B736: the newest answer any read gave, however old, or undefined before the first: for what must not wait for a read. */
+  fresh.last = () => latest
   return fresh
 }

@@ -49,6 +49,7 @@ import { chatsByRole, oldModNeed } from './src/oldMods.mjs'
 import { cached, gitRunner, readBranches, readFolders } from './src/folders.mjs'
 import { checkGame, createGames, gameLauncher, pathKey } from './src/games.mjs'
 import { parseHistory } from './src/history.mjs'
+import { hearingLog } from './src/hearing.mjs'
 import { seenFromState } from './src/finished.mjs'
 import { areaOf, freshScan, keptTasks, listText, readOn } from './src/taskTimes.mjs'
 import { createSpendingCollector } from './src/work/routing/collector.mjs'
@@ -883,8 +884,9 @@ async function main(args) {
     return paste
   }
   /** What the API goes by: who is who in the list of chats, who is free, where the view goes. */
-  const workCtx = async () => {
-    const state = await readState()
+  // B736 (X89): `kept`, the state the board has however old, for a read that must answer at once (work health).
+  const workCtx = async ({ kept = false } = {}) => {
+    const state = (kept ? readState.last() : undefined) ?? await readState()
     const lanes = (state.chats ?? []).filter(lane => !lane.isLeftover)
     const roles = new Map(lanes.map(lane => [lane.name, lane.isMain ? 'main' : 'worker']))
     if (state.advisor) roles.set(state.advisor.name, 'advisor')
@@ -993,7 +995,7 @@ async function main(args) {
     if (workDir === null) return { ok: false, status: 404, why: 'This board has no work store.' }
     if (workWriters === null && !workReads.has(body?.action)) return { ok: false, status: 409, why: `This board only shows. Change the work on the board that delivers: http://${HOST}:${recordingPort}/` }
     // Focus 4: a board that only shows reads the main chat's notes without marking them read.
-    const done = await workApi(body, { ...(await workCtx()), ...(as === undefined ? {} : { as }), ...(workWriters === null ? { onlyShows: true } : {}) })
+    const done = await workApi(body, { ...(await workCtx({ kept: body?.action === 'health' })), ...(as === undefined ? {} : { as }), ...(workWriters === null ? { onlyShows: true } : {}) })
     // B356, the second review: a fix's check that leaves the step it fixes in review asks the partner for that step again.
     // B446: both run as loops: a failure shows on the page and in the log (with the step not asked for), and never
     // fails the chat's call.
@@ -1160,6 +1162,8 @@ async function main(args) {
   // Redesign Part 1: each chat's last report of its turn state, by the name the board shows (bridge.mjs `noteReport`):
   // `{ state, since, background, at, session, mod }`. In memory only: after a restart the reports come within 5 s.
   const reports = bridgeKey === null ? null : new Map()
+  // B736 (X73, X87, X89): when the board heard no chat at all, and the work calls it answered after the chat's mod gave up.
+  const hearing = bridgeKey === null ? null : hearingLog({ startedAt, quietMs: (Number.isFinite(config.unknownAfterSeconds) ? config.unknownAfterSeconds : 30) * 1000 })
   /**
    * Redesign Part 2 (2026-10-25): the reconciler at once, for a chat whose report just turned idle: the board gives it a
    * ready task the moment it is free (principle 1). Set below on a board that writes the store; nothing elsewhere.
@@ -1169,6 +1173,7 @@ async function main(args) {
   const keepReport = (body, checked, keepIt) => {
     const before = checked?.ok === true && reports !== null ? reports.get(checked.chat)?.state ?? null : null
     const answer = keepIt()
+    if (checked?.ok === true) hearing?.heard(clock())
     const after = checked?.ok === true && reports !== null ? reports.get(checked.chat)?.state ?? null : null
     if (before !== 'idle' && after === 'idle') {
       readState.reset()
@@ -1340,6 +1345,7 @@ async function main(args) {
       aliveAt: historyFrom === undefined ? store.aliveAt?.() ?? null : null,
       seen,
       reports,
+      hearing: hearing?.view(clock()) ?? null,
       finishedSeen: finishedSeen ?? {},
       taskTimes: taskTimes.tasks,
       // B547: the Workers mod each chat's last call said, so a clear owed is named only to a mod that can run it.
@@ -1518,7 +1524,9 @@ async function main(args) {
    */
   const freshFor = new Map()
   const checkFresh = async body => {
-    const state = await readState()
+    // B736 (X73, X87: no chat's report was kept from 21:12 to 21:21 while each waited for a whole read of the board): a
+    // chat the board knows is checked against the state it has, however busy it is; only one it does not know waits.
+    const state = readState.last() ?? await readState()
     const checked = checkTake(body, state)
     if (checked.ok || checked.status !== 409 || !isUnknownSession(body, state)) return { checked, state }
     // Once in a while per session: a chat the board never shows asks every few seconds, and is not read anew each time.
@@ -1912,20 +1920,25 @@ async function main(args) {
       const session = String(body?.session ?? '')
       const kept = await requests.known(session, request)
       if (kept !== undefined) return kept
-      const { checked, state } = await checkFresh(body)
-      noteRefused(body, checked)
-      noteMod(body, checked)
-      if (!checked.ok) return checked
-      if (asked.action === 'save-log') return requests.answer(session, request, () => saveLog(asked, checked, state))
-      // B547: never a new step on an uncleared chat: a worker that owes a clear takes nothing until it is cleared (a mod
-      // that can clear only; the state is read anew first, so a clear that just ran counts).
-      if (asked.action === 'take' && modAtLeast(body?.mod ?? null)) {
-        readState.reset()
-        const owed = ((await readState()).chats ?? []).find(one => one.name === checked.chat && !one.isLeftover)?.clearOwed ?? null
-        if (owed !== null) return { ok: false, status: 409, why: takeRefusal(owed) }
+      // B736 (X89): a call answered after its mod gave up on it is counted for the rule board-slow.
+      try {
+        const { checked, state } = await checkFresh(body)
+        noteRefused(body, checked)
+        noteMod(body, checked)
+        if (!checked.ok) return checked
+        if (asked.action === 'save-log') return await requests.answer(session, request, () => saveLog(asked, checked, state))
+        // B547: never a new step on an uncleared chat: a worker that owes a clear takes nothing until it is cleared (a mod
+        // that can clear only; the state is read anew first, so a clear that just ran counts).
+        if (asked.action === 'take' && modAtLeast(body?.mod ?? null)) {
+          readState.reset()
+          const owed = ((await readState()).chats ?? []).find(one => one.name === checked.chat && !one.isLeftover)?.clearOwed ?? null
+          if (owed !== null) return { ok: false, status: 409, why: takeRefusal(owed) }
+        }
+        if (isReadAction(asked.action)) return await bridgeWorkOnce(asked, checked)
+        return await requests.answer(session, request, () => bridgeWorkOnce(asked, checked))
+      } finally {
+        hearing?.answered(request, clock())
       }
-      if (isReadAction(asked.action)) return bridgeWorkOnce(asked, checked)
-      return requests.answer(session, request, () => bridgeWorkOnce(asked, checked))
     }),
     take: counted(async body => {
       const { checked } = await checkFresh(body)
@@ -2333,6 +2346,9 @@ async function main(args) {
       supervisor = createSupervisor({
         state: () => readState(),
         items: async () => (await readStore(workDir)).items,
+        // B736 (X89: work health timed out twice while the board was busy): the health summary reads what the board has.
+        keptState: () => readState.last() ?? null,
+        keptItems: () => work.last?.()?.items ?? null,
         outbox: () => store.outbox(),
         keep,
         refused: () => [...refusedNames.values()],
