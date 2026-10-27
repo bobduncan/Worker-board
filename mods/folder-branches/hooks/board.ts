@@ -27,7 +27,7 @@ export const REQUEST_HEADER = 'X-Work-Request'
  * chat that runs an older Workers mod than the one installed. The same as `version` in .claude-plugin/plugin.json.
  */
 export const MOD_HEADER = 'X-Workers-Mod'
-export const MOD_VERSION = '0.20.0'
+export const MOD_VERSION = '0.21.0'
 /** The longest text typed for the board: its own limit for an answer, with room for the request's name around it. */
 export const MOST_CHARS = 3000
 
@@ -84,10 +84,12 @@ export function shownName(text: string): string | null {
  * not typed; its id is in `refused`, so the board is told it did not arrive, and `why` says why (B532: "too long: 9459 >
  * 3000 characters"), so the board does not try it again and the page names the reason.
  */
-export function parseTaken(text: string): { messages: Taken[]; refused: string[]; why: Record<string, string>; clear: OwedClear | null } {
+export function parseTaken(text: string): { messages: Taken[]; refused: string[]; why: Record<string, string>; clear: OwedClear | null; off: string[] } {
   const raw = parsed(text)
-  const taken: { messages: Taken[]; refused: string[]; why: Record<string, string>; clear: OwedClear | null } = { messages: [], refused: [], why: {}, clear: null }
+  const taken: { messages: Taken[]; refused: string[]; why: Record<string, string>; clear: OwedClear | null; off: string[] } = { messages: [], refused: [], why: {}, clear: null, off: [] }
   if (!isRecord(raw)) return taken
+  // B738: the chats the board shows as not running (its one verdict: ended, app restarted, silent).
+  if (Array.isArray(raw.off)) taken.off = raw.off.filter((name): name is string => typeof name === 'string' && name !== '' && name.length <= 80).slice(0, 50)
   // B547: a worker whose last report is newer than its last clear: the board names the clear (and holds its next step).
   const clear = raw.clear
   if (isRecord(clear) && typeof clear.reportedAt === 'number' && Number.isFinite(clear.reportedAt)) {

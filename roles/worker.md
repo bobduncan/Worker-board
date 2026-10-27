@@ -56,7 +56,9 @@ into your chat, are in `protocol.md` beside this file: keep to them, or the boar
   are, and your open instructions, and runs `work next`. So before you report, everything your next step needs stands
   in the store: your checkpoint (`work step` with `commit` and `next`), the report itself (what the user gets now,
   where the work is), and every question for the user as an ask (`work ask`). A question left only in your answer's
-  words keeps you from being cleared, and so does a subagent or background command still running when your turn ends.
+  words keeps you from being cleared, and so does a subagent or background command still running when your turn ends
+  (B739: after your report the board types you one line about it, once: `B<n> is reported; your background work still runs:
+  stop it or wait for it, then end your turn`; do that, and you are cleared).
 - Write to the user as the project's `CLAUDE.md` says, when it has one, else as the board's `examples/CLAUDE.md` says (a
   new project gets it as its own, B320). The board reads your answer's closing block
   ("+ Done:   yes": you are free, see `protocol.md`), never its "For you" block as questions.
@@ -95,7 +97,10 @@ step therefore says what it touches ("Touches: ...").
   board's check of your report fails while a worktree of the step, or a folder with files of it, is left, and names it
   with how to remove it: remove it and report again. A report whose check failed is handed back to you (B737): you stay
   in your turn to fix it, no clear is owed for it and the board gives you no new step until you report that step again
-  and the check passes; `work next` says so. An EMPTY folder no repository lists the board removes itself
+  and the check passes; `work next` says so. The step stands in review meanwhile, waiting for you ("waits for <you> to
+  report again: its report check failed at HH:MM", B740); 30 min on, the board types you one line, once per failed check
+  ("B<n>'s report check failed at HH:MM: fix what it names and report it again"): do what it says, and an hour on the
+  supervisor looks at it. An EMPTY folder no repository lists the board removes itself
   (rmdir, a few tries over some seconds; B717), so it never fails the check; only one a program still holds keeps a line.
 - The repository's own `CLAUDE.md`, when it has one, is the working agreement and holds for you in full: read it
   before your first task.

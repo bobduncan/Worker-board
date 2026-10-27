@@ -768,6 +768,14 @@ as the title". The picture is `art-inbox/worker-board/2026-10-13-b113-limits-res
   is; the week smaller beside it; and how old the figure is (marked when older than 20 minutes). Calm below 80%
   (`limitWarnPercent`), a warning colour from there, and at 100%, or while a stop's reset is ahead, "Limit reached"
   with when work goes on. After a known reset with no figure since, the bar is empty and says since when.
+- *The week's stop line (B742, the fix of X95 and X96).* The person's rule (2026-10-19) stops all work at 98% of the week,
+  so the week counts full from `weekStopAt` (config.json, 98; a missing or wrong value reads 98), the 5-hour limit still
+  at 100. That one level (`limits.mjs`, `stopAt` beside `level`) is what the hand-out, the rules that skip a full limit
+  and the bar's "(full)" follow. At the stop line the board types each working worker once per week (`say.mjs`
+  `weekStopDue`, command `week-stop`, the board's own word): "The weekly limit reached the stop line (98%): bring your
+  work to a safe point (commit, checkpoint), then send the paused note"; the worker's paused note then makes its lane
+  Suspended as before. The watch rule `week-stop-ignored` (`rules/watch.mjs`) opens one incident when the week is at the
+  line, a worker still works 15 min of running time after its word, and no lane is suspended.
 - *Suspended.* A state of its own, in place of working or free, in two cases. The app stopped the chat at the
   limit: its line is the last thing in the transcript, and names the time. Or a worker paused by itself: its last
   word to the main chat says in its first line "paused for the limit", with "until HH:MM" when it knows, and its
@@ -859,7 +867,8 @@ marks what waits for that chat taken, writes that down, then hands it out;
 the mod types it into its chat as the person's own words and tells the board what was typed and what was not
 (`POST /api/bridge/typed`), so the card says "handed to its chat", then "typed into its chat", or that it did not
 arrive. The engine runs it once the chat is idle, so a busy chat gets it after what it is doing. The key only
-takes: sending still needs the board's own page. A second board that starts while another one's file is there
+takes: sending still needs the board's own page. (B738) The answer also names the chats that do not run (`off`), so the
+mod's Workers list says "Not running" for them, as the page does. A second board that starts while another one's file is there
 and that board answers leaves the file alone. What remains, as with sending: a chat that wrote a `board.json` of
 its own could have its own text typed into the other chats; that takes a deliberate act, and the mod's note
 forbids touching the file. What is typed:
@@ -1798,38 +1807,51 @@ step on "check pending" for good.
   (the action on a store), `test/work/check.test.mjs` (no remote against a failed call).
 - Not in it: taking `main()` apart into modules (12 to 16 h, a later step).
 
-## CPU for the chats (B311)
+## CPU for Claude (B311, B735)
 
 The person, 2026-10-18, while playing the game: the workers made the PC lag; "i want the board to not completely stop
-but [not] prevent my ability to play the game". A setting in the board's head, beside Prepare restart.
+but [not] prevent my ability to play the game". A setting in the board's head, beside Prepare restart. B735
+(2026-10-27): "i want this option when off to let claude run at full power. if its strong then i never want it to
+iterfere with dota ... dont make the mode specific to dota": Strong (Idle on half the cores, the chats' trees only) still
+lagged the game (78% CPU: the board's own server and the vite servers ran at Normal).
 
-- **Three levels**, one click each: **Off** (Normal priority, all cores), **Gentle** (BelowNormal priority, all cores),
-  **Strong** (Idle priority, on at most half of the logical cores: the higher half of the affinity mask, so the lower
-  cores, where Windows starts most work, stay free for the game). Kept in `data/cpu.json`, so it survives a restart;
-  `cpuLimit` in config.json gives the level until one is clicked ("off" unless set). A copy of the board beside the
-  person's starts at Off whatever config.json says, and applies only what was clicked on it.
-- **Which processes** (`src/cpu.mjs`, `chosenProcesses`): every `claude.exe` whose command line names a session of
-  the project's list of chats (`--resume=<id>`; the sessions are the card files `.claude/chats/<session>.json` and the
-  chats the board lists), and its whole tree below (node, vite, a browser with a temporary profile, python, git, ...).
-  A child counts only when it started after its parent, so a reused process number leads nowhere. Never the desktop
-  app (its command line names no session, and it is no child of a chat), never anything else; the board's own server
-  only when a chat started it.
+- **Two choices** the person picks, one click each, no game detection: **Full** (Normal priority, all cores, efficiency
+  mode off) and **Low** (Idle priority on the last two logical cores, efficiency mode on). Kept in `data/cpu.json`, so
+  it survives a restart; `cpuLimit` in config.json gives the level until one is clicked ("full" unless set). A level
+  saved before reads on (`parseLevel`): "strong" is Low, "off" and "gentle" are Full. A copy of the board beside the
+  person's starts at Full whatever config.json says, and applies only what was clicked on it.
+- **Which processes** (`src/cpu.mjs`, `chosenProcesses`) are the ones the project started: every `claude.exe` whose
+  command line names a session of the project's list of chats (`--resume=<id>`; the sessions are the card files
+  `.claude/chats/<session>.json` and the chats the board lists), the board's own processes (its own and its keeper's
+  numbers, `spare`), the project's tools found by their command lines (`isProjectTool`: `codex.exe`, a `node.exe` whose
+  command line names vite, a headless or remote-driven `msedge.exe`), and the whole tree below each of them. A child
+  counts only when it started after its parent, so a reused process number leads nowhere. Never the desktop app (its
+  command line names no session, and it is no child of a chat), never the person's own Edge or a game.
 - **How** (`cpuLimiter`): at start and every refresh one PowerShell listing (`Get-CimInstance Win32_Process`, the
-  command line only of `claude.exe`). A process is set (`PriorityClass`, `ProcessorAffinity`, a second PowerShell call
-  with the changes on its standard input) only when it is not at the level: Windows reports another base priority, or
-  the board has not set it and its parent is not done (a child of a BelowNormal or Idle process inherits the priority
-  and the cores). Both calls lower their own priority first. Off lists nothing at all, apart from one pass right after
-  a limit was switched off, which gives every chosen process Normal and all cores back. A process that cannot be set
-  (gone, access denied) is passed over quietly and not tried again at that level; a listing that fails is one red line
-  on top, gone at the next listing that works.
+  command line only of `claude.exe`, `node.exe`, `codex.exe` and `msedge.exe`). A process is set (`PriorityClass`,
+  `ProcessorAffinity`, and efficiency mode through `SetProcessInformation(ProcessPowerThrottling)`, a second PowerShell
+  call with the changes on its standard input) when Windows reports another base priority or the board has not set it at
+  this level. A child that inherited Idle is still set once, for its cores and its efficiency mode, which Windows does
+  not report. Both calls lower their own priority first, and the board gives each helper BelowNormal at
+  once from outside (`setPriority`): a board at Idle starts its helper at Idle, which a busy PC starved for minutes. Full
+  lists nothing at all, apart from three passes (`RESTORE_PASSES`) right after Low was switched off, which give every
+  chosen process Normal, all cores and efficiency mode off back (a process born while Low was on inherited it). A process that
+  cannot be set (gone, access denied) is passed over quietly and not tried again at that level; a listing that fails is
+  one red line on top, gone at the next listing that works.
+- **The board under Low** is limited like the rest and stays so across its own restart (B735). Under Full its first
+  pass gives the board and its keeper Normal and all cores (`boardChanges`), since a chat that started the board
+  handed its own Idle priority on (B440); that pass is tried again each pass until Windows took both.
 - **Windows only.** Elsewhere the control says "not available here" and nothing runs; `POST /api/cpu` answers 409.
-- **The head** shows the level lit and, when not Off, how many processes it applies to ("15 processes, below normal",
-  "15 processes, idle, 12 of 24 cores"). `POST /api/cpu {level}` takes the click, from the board's own page only (token,
-  origin, JSON, as every action).
-- Tests (`test/cpu.test.mjs`): the level's parsing and storage, the setting, which processes are chosen from a made-up
-  list, the affinity mask for N cores, what is set and what is passed over, the Off pass, a failed listing, another
-  platform, the endpoint and the head's text; the PowerShell calls are the one object `windowsProcesses` that tests
-  replace.
+- **The head** shows the level lit and what applies: "full power", or "15 processes on 2 cores, lowest priority: tests
+  and builds run slower". `POST /api/cpu {level}` takes the click, from the board's own page only (token, origin, JSON,
+  as every action).
+- Tests (`test/cpu.test.mjs`): the level's parsing and storage (the old levels read right), the setting, which processes
+  are chosen from a made-up list (the board, vite, codex, a headless Edge in; the person's Edge out), the affinity mask
+  for N cores, what is set and what is passed over, the Full pass, the board kept limited across a restart, a process
+  started under Low limited on the next refresh, a failed listing, another platform, the endpoint and the head's text;
+  the PowerShell calls are the one object `windowsProcesses` that tests replace (the real calls were read back on this PC
+  with `Get-Process` and `GetProcessInformation`: Idle, the last two cores, efficiency mode on; then Normal, all cores,
+  efficiency mode off). Efficiency mode is checked by its call, not measured.
 - **B440** (2026-10-19): a board that a chat started was itself a process below a chat. Strong put it at Idle on one core,
   and while the PC was busy every request took 1.5 to 5 s, so the chats' work tool gave up. The board and its keeper
   are spared (`spare`, which also leaves out what they start; the parent only when it is the keeper), and both get
@@ -2151,7 +2173,7 @@ make Information smaller or bigger. Nothing is gone: what leaves a row is in its
    the queue is empty (`nextInQueue`); its tooltip has the length of the queue and its time.
 5. The head: which commit main is on, on hovering Run game (a running game keeps its link); "0 waiting for you" goes
    (`shownCounts`); how old the limits' figure is shows only when it is old.
-6. The top bar: CPU for the chats, its processes and the board's version sit behind ⚙ (`#settings`), whose tooltip says
+6. The top bar: CPU for Claude, its processes and the board's version sit behind ⚙ (`#settings`), whose tooltip says
    the level and the version; a click elsewhere or Escape folds it; on a phone it opens across the screen.
 
 ## The simple Overview (B327, B343)
@@ -2761,7 +2783,7 @@ Part 6 of G11's how (agreed 2026-10-18 21:21). The person, 20:56: "I want a sett
 right away or when i need to be notified, in the boards settings"; 21:18 on rebuilds: "this will normally require an
 approval from the user, but can be automatically approved."
 
-1. The ⚙ panel holds two switches beside CPU for the chats: **Bother me** (At once, Once a day; it says that a question
+1. The ⚙ panel holds two switches beside CPU for Claude: **Bother me** (At once, Once a day; it says that a question
    that holds up a chat always comes at once) and **Approve rebuilds by itself** (Off, On). They are the settings
    `botherMe` (B360) and `approveRebuilds` (B359): a click sends `POST /api/settings` with one key and value
    (src/boardSettings.mjs `checkSetting`), the board writes it into its config.json (`settingChanged`: every other
@@ -3356,7 +3378,8 @@ the AI sweep by a cheap supervisor chat and the hand-over to the Advisor, comes 
   summary never says "[object Object]"), `review-stuck` (B543, the fix of X8: a step in review with no result check
   filed for over 60 min, its first or again after its fix was done or its ask point answered, counted from its Quality
   Assurance task (T9.1.1: one a worker is on is no case; one nobody took, or none, is); one that waits for an open fix,
-  down a chain of fixes too, or for the person's answer is no case), `dropped-fix` (B630, the fix of X54: a step in
+  down a chain of fixes too, or for the person's answer is no case; B740, X92: also a step in review whose report check
+  failed and was not reported again, `reviewWaitOf` kind 'report', over 60 min of running time), `dropped-fix` (B630, the fix of X54: a step in
   review whose fix was dropped, with no new fix, no new check and no open step blocking it, for over 30 min; with a
   block, `reviewWaitOf` says kind 'blocked' and the step waits as planned, odd in the health summary only when a
   blocker is stalled itself), `review-held` (B656, X8 again: a step in review whose chain of open fixes ends in a refined
@@ -3384,7 +3407,15 @@ the AI sweep by a cheap supervisor chat and the hand-over to the Advisor, comes 
   does not count; the health summary says beside "wants" "switch asked HH:MM" or "switched", and marks the mismatch
   "!" only once it lasts).
   What a step in review waits for (`resultCheck.mjs reviewWaitOf`: its first check, its check again, the person's
-  answer, its fix B<n>, or its fix dropped) stands beside its title on the Backlog tab and in the work tool's `next`
+  answer, its fix B<n>, its fix dropped, or (B740, X92: B727's report check failed at 21:03 and its worker never reported it
+  again, so it sat in review an hour with nothing said) its worker's new report: "waits for <worker> to report again: its
+  report check failed at HH:MM (<why in a few words>)", for a step in review whose last board check line is "check failed" with
+  no report after it; a re-report ends it, the board's new check then pending as before; a dropped step says nothing). That
+  wait, 30 min of running time old (`REPORT_AGAIN_MINUTES` in reconcile.mjs; board-off time and the person's pause left out), has the board type
+  the worker one line, once per failed check (the key holds the check's minute; the reconciler's flag 'report again', delivered
+  like the check's word): "B<n>'s report check failed at HH:MM: fix what it names and report it again". The delivery holds
+  it while the person pauses, as every line. Past `reviewMinutes` of running time the rule `review-stuck` opens for it too.
+  It stands beside its title on the Backlog tab and in the work tool's `next`
   and `list`; the repair rule `fix-dropped` gives the main chat one word for a dropped fix, 30 min after the drop:
   close it or have it checked again. `not-cleared` (B547, the fix of X13 and X14: a worker whose last report is newer than its last clear and that took a new
   step since, at once, or that stays so for over 10 min, `notClearedMinutes`; one finding per worker per report, with
@@ -3408,6 +3439,11 @@ the AI sweep by a cheap supervisor chat and the hand-over to the Advisor, comes 
   (`afterPause`, as the rules about chats do), so a long pause does not file an incident before the lookup after the resume lands; the finding's text
   still names the figure's real age. B727 (X56 reopened 3 min after a 20 h sleep, X84 filed from a wall-clock step age): the board's off time
   (`boardOffMs`, the history's gap lines) does not count in the rule's age either, so after a wake the supervisor's next lookup comes first.
+  B736: `holder-not-running`, `working-not-running` and `not-cleared` also leave out the stretches the board heard no chat
+  (`deafMs`, the view's `deaf`: a stall or a restart of the board is no chat's fault). `board-deaf` (B736: the board heard no
+  chat for over 10 min while chats wrote their conversations; the lanes read as before from then on, so a hung board is not
+  hidden) and `board-slow` (B736, the rule X89's sweep wanted: two work calls within 2 min that the board answered after the
+  chat's Workers mod had given up, 10 s, read from each call's request id; one finding naming the longest wait).
   The clock of every age the supervisor measures: RUNNING TIME (board-off time left out by `boardOffMs`) in `stale-checkpoint`, `open-fix`,
   `effort-mismatch`, `review-stuck`, `dropped-fix`, `old-limit-reading` (B727) and the health summary's step and checkpoint ages (B727: a
   gap inside adds "(PC off <h>)"); WALL TIME on purpose in the health summary's chat-state age, the age of a step behind a blocker, a
@@ -3806,6 +3842,15 @@ with all its guards, at most once a minute, and refused it only writes why on th
 held to nothing; the row says "not cleared after B12" with what happens next, and the watch rule `not-cleared` names it.
 The mod's newest word why it did not clear now shows as its own kind (`not-cleared`), no longer hidden behind an older
 clear.
+B739 (X91, 2026-10-27: Worker 1 reported B720 at 21:39 and ended its turn with background work still running; its clear was
+refused and its next step held, and nothing told it): the board types such a worker one line, once for each report (`reportedBackgroundDue`
+in `src/say.mjs`, the server's pass beside the resume words; command `report-background`, typed as the board's own word): `B720 is
+reported; your background work still runs: stop it or wait for it, then end your turn`. It is given while the worker's turn has ended,
+the lane's `background` count (the transcript's, what the clear is refused for) is above 0, its clear is owed with a mod that can clear,
+its step is not dropped and the person does not pause; never again for the same report (chat, step and report time), a report again is
+another. The held step and the clear after it stay as they were; a worker that ignores the line stays held, and `not-cleared` opens its
+incident after `notClearedMinutes`. Test: `test/reportedBackground.test.mjs`, and `test/reportedBackgroundBoard.test.mjs` through a
+running board.
 B737 (X86, 2026-10-27: Worker 3 reported B727 at 21:02, the board's check failed at 21:03, Worker 3 rightly stayed in its
 turn to fix it; `not-cleared` counted from 21:02, and the board gave it B729 at 21:28 over the failed check): a report
 whose board check failed (the newest `server: check failed` after it, no `check passed` since) is handed back to its
@@ -3893,8 +3938,22 @@ timers. Now each chat says it (principle 3, know don't guess).
   least 1; principle 2: never wait for ever), "silent since HH:MM". Its `offSince` (which the rule working-not-running
   reads as a card left working) is set only when its last report said it worked: busy, asking, or idle with background
   work. An archived chat has no lane, as before.
+- **When the board hears no chat (B736, X73, X87, X89):** on 2026-10-27 from 21:12 to 21:21 no chat's report was kept
+  while every chat worked: each ping waited for a whole read of the board (a read takes 1 to 2 s idle, the store alone
+  over a second, and each reset started another read beside the one under way), so every lane read Unknown, then Not
+  running, and working-not-running opened for chats that were fine. Now a ping is checked against the state the board
+  has (`readState.last()`; only a session it does not know waits for a read), a reset while a read runs has the next read
+  wait for it (`cached`, one at a time), and `src/hearing.mjs` keeps the stretches in which the board heard no chat for
+  longer than `unknownAfterSeconds`: from its start to the first report, or between two. While one lasts and chats
+  still write their conversations, each lane is read as it was when the board last heard any chat, for up to 10 min
+  (`DEAF_KEEP_MS`); a chat already silent on its own stays as silent as it was. A stretch the Claude app started in, or
+  one in which no conversation was written (every chat closed), is no fault of the board and counts as before.
   (B728) A chat the board knows does not run whose card says free keeps the state `free` (the hand-out asks the main chat to start it,
   `workerStart`), but is shown "Not running" in its pill, its time column and the head count: one word for one fact.
+  (B738) The Workers list (the mod's chat list, Workers mod 0.21.0) says it too: the answer to a take carries `off`, the names of
+  the chats the board shows as not running (`isRunning` false: ended, app restarted, silent), and the list words such a
+  chat "Not running" instead of "free" (the main chat too); a worker that holds a task still reads "your turn". A board that
+  does not answer leaves the list as its files say (the list reads the last answer, it never waits for the board).
 - **Older mods and a restart:** a chat on a Workers mod older than 0.19.0 sends no report and keeps the board's
   reading, until the restart between steps (B570) brings it onto the new mod; the reading is removed in a later
   clean-up once no chat needs it. After the board restarts its reports are empty: each chat shows the board's reading
@@ -4234,9 +4293,13 @@ server.mjs beside the title fix): "Q<n> in <thread> cannot reach the person: ask
 question, while it has no answer; the same question is never told twice, the next one is. G15's evaluation questions Q5 to
 Q7 (24 and 25 Oct) stood in such a talk and never reached the person; the evaluation (roles/partner.md) now asks the
 person's choice with `work ask` and keeps the talk as its record.
-B721: no word for a question that names its ask (`namesItsAsk`: "asked as Q428", "ask Q428"; G15's Q8, which the evaluation filed as Q428), nor for the talk
+B721: no word for the talk
 of a goal that is done or no longer in the goal map (`strandedQuestions(threads, goals)`, the map's nodes from the state; G33's Q11): both woke the
-partner for nothing on 26 Oct. The server's own pass is tested end to end (test/brainstormStrandedBoard.test.mjs: told once, also after the
+partner for nothing on 26 Oct.
+B733: and none for a question the store's own asks show was asked already: an open or answered ask of the talk's goal (`Of: G<n>`) filed at or after the
+question was written (`askFacts` from the state's work items, `questionTimes` for the talk's HH:MM dated from its start, a day on after midnight; G15's Q8 and
+the evaluation's Q428). The question's words decide nothing (B721 read "asked as Q428" and skipped a question whose ask did not exist): one that names an ask
+that does not exist, or one of another goal, a withdrawn ask or a free talk, is told as before, so nothing is dropped silently. The server's own pass is tested end to end (test/brainstormStrandedBoard.test.mjs: told once, also after the
 board starts anew).
 
 ## The goal demo before "Did we reach the goal?" (B677)

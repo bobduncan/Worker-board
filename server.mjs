@@ -49,13 +49,14 @@ import { chatsByRole, oldModNeed } from './src/oldMods.mjs'
 import { cached, gitRunner, readBranches, readFolders } from './src/folders.mjs'
 import { checkGame, createGames, gameLauncher, pathKey } from './src/games.mjs'
 import { parseHistory } from './src/history.mjs'
+import { hearingLog } from './src/hearing.mjs'
 import { seenFromState } from './src/finished.mjs'
 import { areaOf, freshScan, keptTasks, listText, readOn } from './src/taskTimes.mjs'
 import { createSpendingCollector } from './src/work/routing/collector.mjs'
 import { readRoutingRecord } from './src/work/routing/records.mjs'
 import { parseRoutingPolicy } from './src/work/routing/policy.mjs'
 import { adoptPicture, findDemo, findPicture, PICTURE_BYTES as SHOWN_PICTURE_BYTES, pictureProblem, pictureTooBig, shownFolders, shownRoots } from './src/pictures.mjs'
-import { answerWords, checkSay, focusWords, resumesDue, spawnWhenAlone, wakeFor, wakesDue, wakesStopped, withInstruction, workWords } from './src/say.mjs'
+import { answerWords, checkSay, focusWords, reportedBackgroundDue, resumesDue, spawnWhenAlone, wakeFor, wakesDue, wakesStopped, weekStopDue, withInstruction, workWords } from './src/say.mjs'
 import { keepTalkPicture } from './src/talkPicture.mjs'
 import { firstLook, refineWhenDue } from './src/refineGate.mjs'
 import { recheckText, roundText, roundsNow } from './src/rounds.mjs'
@@ -227,7 +228,7 @@ export const POST_ROUTES = Object.freeze({
  *   `plan(body)`       2026-10-24: a move of the Vision tab, a word to the partner on the plan's own way, the same shape
  *   `work(body)`       B297: one action of the page on the work store (work/api.mjs), the same shape
  *   `bridgeWork(body)` B297: one action of a chat's work tool, the same shape; only with `bridgeKey`
- *   `cpu(body)`        B311: the level of "CPU for the chats" ({ level }), the same shape
+ *   `cpu(body)`        B311: the level of "CPU for Claude" ({ level }), the same shape
  *   `mayWrite()`       B529: null while this process may take the page's writes, else why not (refused with 409)
  */
 export function createBoard({
@@ -883,8 +884,9 @@ async function main(args) {
     return paste
   }
   /** What the API goes by: who is who in the list of chats, who is free, where the view goes. */
-  const workCtx = async () => {
-    const state = await readState()
+  // B736 (X89): `kept`, the state the board has however old, for a read that must answer at once (work health).
+  const workCtx = async ({ kept = false } = {}) => {
+    const state = (kept ? readState.last() : undefined) ?? await readState()
     const lanes = (state.chats ?? []).filter(lane => !lane.isLeftover)
     const roles = new Map(lanes.map(lane => [lane.name, lane.isMain ? 'main' : 'worker']))
     if (state.advisor) roles.set(state.advisor.name, 'advisor')
@@ -979,7 +981,7 @@ async function main(args) {
     if (workDir === null) return { ok: false, status: 404, why: 'This board has no work store.' }
     if (workWriters === null && !workReads.has(body?.action)) return { ok: false, status: 409, why: `This board only shows. Change the work on the board that delivers: http://${HOST}:${recordingPort}/` }
     // Focus 4: a board that only shows reads the main chat's notes without marking them read.
-    const done = await workApi(body, { ...(await workCtx()), ...(as === undefined ? {} : { as }), ...(workWriters === null ? { onlyShows: true } : {}) })
+    const done = await workApi(body, { ...(await workCtx({ kept: body?.action === 'health' })), ...(as === undefined ? {} : { as }), ...(workWriters === null ? { onlyShows: true } : {}) })
     // T9.1.1: a result check is a Quality Assurance task the work API makes itself (api.mjs `qaStep`): no word to the Advisor.
     // B359: a failed check counts an attempt of its goal: the guard looks whether it fires.
     if (done.ok && body?.action === 'checked' && (done.result.fix !== undefined || done.result.ticked === false)) await loops.run('guard', async () => guardNow(await goalOfChecked(body.id)))
@@ -1140,6 +1142,8 @@ async function main(args) {
   // Redesign Part 1: each chat's last report of its turn state, by the name the board shows (bridge.mjs `noteReport`):
   // `{ state, since, background, at, session, mod }`. In memory only: after a restart the reports come within 5 s.
   const reports = bridgeKey === null ? null : new Map()
+  // B736 (X73, X87, X89): when the board heard no chat at all, and the work calls it answered after the chat's mod gave up.
+  const hearing = bridgeKey === null ? null : hearingLog({ startedAt, quietMs: (Number.isFinite(config.unknownAfterSeconds) ? config.unknownAfterSeconds : 30) * 1000 })
   /**
    * Redesign Part 2 (2026-10-25): the reconciler at once, for a chat whose report just turned idle: the board gives it a
    * ready task the moment it is free (principle 1). Set below on a board that writes the store; nothing elsewhere.
@@ -1149,6 +1153,7 @@ async function main(args) {
   const keepReport = (body, checked, keepIt) => {
     const before = checked?.ok === true && reports !== null ? reports.get(checked.chat)?.state ?? null : null
     const answer = keepIt()
+    if (checked?.ok === true) hearing?.heard(clock())
     const after = checked?.ok === true && reports !== null ? reports.get(checked.chat)?.state ?? null : null
     if (before !== 'idle' && after === 'idle') {
       readState.reset()
@@ -1320,6 +1325,7 @@ async function main(args) {
       aliveAt: historyFrom === undefined ? store.aliveAt?.() ?? null : null,
       seen,
       reports,
+      hearing: hearing?.view(clock()) ?? null,
       finishedSeen: finishedSeen ?? {},
       taskTimes: taskTimes.tasks,
       // B547: the Workers mod each chat's last call said, so a clear owed is named only to a mod that can run it.
@@ -1411,9 +1417,9 @@ async function main(args) {
     setInterval(measure, TICK_MS)
   }
 
-  // B311: "CPU for the chats": the project's chats and what they started run at a lower priority, on fewer cores, while
+  // B311: "CPU for Claude": the project's chats, the board and what they started run at a lower priority, on fewer cores, while
   // the person plays (src/cpu.mjs). Every board but the demo and one that only shows another's history; a copy beside
-  // the person's board starts at Off whatever config.json says, and applies only what was clicked on it.
+  // the person's board starts at Full whatever config.json says, and applies only what was clicked on it.
   const chatSessions = async () => {
     // B467: no folder of cards is none; anything else fails this pass of the CPU loop (shown and logged). A state it
     // cannot read is a loop of its own: the chats of the cards are still limited, and a click on a level still works.
@@ -1423,9 +1429,9 @@ async function main(args) {
   }
   const cpu = isDemo || historyFrom !== undefined || config.project === '' ? null : cpuLimiter({
     file: join(HERE, 'data', 'cpu.json'),
-    fallback: isShowOnly ? 'off' : config.cpuLimit,
+    fallback: isShowOnly ? 'full' : config.cpuLimit,
     // 2026-10-19: the PC's cores, never the board's own, which a chat that started the board may have narrowed; and the
-    // board and its keeper are spared, and given Normal and all cores back at the first pass.
+    // board and its keeper are limited with the rest under Low, and given Normal and all cores back under Full.
     cores: logicalCores(),
     sessions: chatSessions,
     // B440: the parent is the keeper only when there is one (it talks to the board); otherwise it may be a chat.
@@ -1498,7 +1504,9 @@ async function main(args) {
    */
   const freshFor = new Map()
   const checkFresh = async body => {
-    const state = await readState()
+    // B736 (X73, X87: no chat's report was kept from 21:12 to 21:21 while each waited for a whole read of the board): a
+    // chat the board knows is checked against the state it has, however busy it is; only one it does not know waits.
+    const state = readState.last() ?? await readState()
     const checked = checkTake(body, state)
     if (checked.ok || checked.status !== 409 || !isUnknownSession(body, state)) return { checked, state }
     // Once in a while per session: a chat the board never shows asks every few seconds, and is not read anew each time.
@@ -1892,20 +1900,25 @@ async function main(args) {
       const session = String(body?.session ?? '')
       const kept = await requests.known(session, request)
       if (kept !== undefined) return kept
-      const { checked, state } = await checkFresh(body)
-      noteRefused(body, checked)
-      noteMod(body, checked)
-      if (!checked.ok) return checked
-      if (asked.action === 'save-log') return requests.answer(session, request, () => saveLog(asked, checked, state))
-      // B547: never a new step on an uncleared chat: a worker that owes a clear takes nothing until it is cleared (a mod
-      // that can clear only; the state is read anew first, so a clear that just ran counts).
-      if (asked.action === 'take' && modAtLeast(body?.mod ?? null)) {
-        readState.reset()
-        const owed = ((await readState()).chats ?? []).find(one => one.name === checked.chat && !one.isLeftover)?.clearOwed ?? null
-        if (owed !== null) return { ok: false, status: 409, why: takeRefusal(owed) }
+      // B736 (X89): a call answered after its mod gave up on it is counted for the rule board-slow.
+      try {
+        const { checked, state } = await checkFresh(body)
+        noteRefused(body, checked)
+        noteMod(body, checked)
+        if (!checked.ok) return checked
+        if (asked.action === 'save-log') return await requests.answer(session, request, () => saveLog(asked, checked, state))
+        // B547: never a new step on an uncleared chat: a worker that owes a clear takes nothing until it is cleared (a mod
+        // that can clear only; the state is read anew first, so a clear that just ran counts).
+        if (asked.action === 'take' && modAtLeast(body?.mod ?? null)) {
+          readState.reset()
+          const owed = ((await readState()).chats ?? []).find(one => one.name === checked.chat && !one.isLeftover)?.clearOwed ?? null
+          if (owed !== null) return { ok: false, status: 409, why: takeRefusal(owed) }
+        }
+        if (isReadAction(asked.action)) return await bridgeWorkOnce(asked, checked)
+        return await requests.answer(session, request, () => bridgeWorkOnce(asked, checked))
+      } finally {
+        hearing?.answered(request, clock())
       }
-      if (isReadAction(asked.action)) return bridgeWorkOnce(asked, checked)
-      return requests.answer(session, request, () => bridgeWorkOnce(asked, checked))
     }),
     take: counted(async body => {
       const { checked } = await checkFresh(body)
@@ -1931,7 +1944,9 @@ async function main(args) {
       // (2026-10-24: the goal guard's evaluate word of 9459 characters was refused and nobody saw why).
       const fit = fitsMod(handed)
       if (fit.refused.length > 0) await store.settle(checked.chat, fit, clock())
-      return { ok: true, result: { messages: fit.messages, ...(atTake.clear === null ? {} : { clear: atTake.clear }) } }
+      // B738: the chats the board shows as not running: the mod's list words them the same ("Not running"), from this one verdict.
+      const off = ((await readState()).chats ?? []).filter(lane => !lane.isLeftover && lane.isRunning === false).map(lane => lane.name)
+      return { ok: true, result: { messages: fit.messages, ...(atTake.clear === null ? {} : { clear: atTake.clear }), ...(off.length === 0 ? {} : { off }) } }
     }),
     // Redesign Part 1: the mod's report of its turn state the moment it changes; refused as a take is.
     report: counted(async body => {
@@ -2170,6 +2185,14 @@ async function main(args) {
         const resumes = resumesDue(state, sentNow())
         for (const resume of resumes) await store.say({ id: randomBytes(8).toString('hex'), at: now, ...resume, state: 'waiting' })
         if (resumes.length > 0) readState.reset()
+        // B739 (X91): a worker that reported its step and ended its turn with background work still running is told once.
+        const running = reportedBackgroundDue(state, sentNow())
+        for (const words of running) await store.say({ id: randomBytes(8).toString('hex'), at: now, ...words, state: 'waiting' })
+        if (running.length > 0) readState.reset()
+        // B742 (X95, X96): the week reached the person's stop line: each working worker is told once to bring its work to a safe point.
+        const stops = weekStopDue(state, sentNow())
+        for (const words of stops) await store.say({ id: randomBytes(8).toString('hex'), at: now, ...words, state: 'waiting' })
+        if (stops.length > 0) readState.reset()
       }
       // Words that wait for a chat that is not running, sent while the main chat did not run either, are followed by
       // the word to start it once the main chat runs (say.mjs wakesDue). Only the board that delivers.
@@ -2189,7 +2212,7 @@ async function main(args) {
       if (bridgeKey !== null && (state.advisor ?? null) !== null) {
         const now = clock()
         // B716: and the open question of a talk that cannot reach the person, once for each question.
-        for (const words of [...fixesToTell(state.brainstorms?.threads, store.outbox(), state.advisor), ...strandedToTell(state.brainstorms?.threads, store.outbox(), state.advisor, state.goals?.nodes ?? null)]) {
+        for (const words of [...fixesToTell(state.brainstorms?.threads, store.outbox(), state.advisor), ...strandedToTell(state.brainstorms?.threads, store.outbox(), state.advisor, state.goals?.nodes ?? null, state.brainstorms?.asks ?? [])]) {
           const message = { id: randomBytes(8).toString('hex'), at: now, ...words, state: 'waiting' }
           await store.say(message)
           const wake = wakeFor(message, state, store.outbox(), now, config.maxMessageChars)
@@ -2313,6 +2336,9 @@ async function main(args) {
       supervisor = createSupervisor({
         state: () => readState(),
         items: async () => (await readStore(workDir)).items,
+        // B736 (X89: work health timed out twice while the board was busy): the health summary reads what the board has.
+        keptState: () => readState.last() ?? null,
+        keptItems: () => work.last?.()?.items ?? null,
         outbox: () => store.outbox(),
         keep,
         refused: () => [...refusedNames.values()],

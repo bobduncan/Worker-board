@@ -650,7 +650,7 @@ The board shows the first line as the bold title and the `Context:` line (it may
 
 A title over 12 words, or none, is refused as an ask's is (B491): the board types `brainstorm fix`, `Thread:` and why at once; rewrite that open question in the thread (title, then `Context:`) and write nothing else.
 
-A question that stands in a talk the person can no longer reach (B716: its proposal is created, or it is done or discarded) shows nowhere under Needs your attention, and the board refuses an answer to it. The board then types `brainstorm stranded`, `Thread:` and `Q<n> in <thread> cannot reach the person: ask it with work ask`, once for each question: ask it now with `work ask` (`of` G<n>, kind decide, its options, your advice) and go on from the answer; the talk stays the record. The board types nothing for a question that names its ask ("your choice is asked as Q428, not here"), nor for a talk of a goal that is done or no longer in the goal map (B721): there is nothing to ask.
+A question that stands in a talk the person can no longer reach (B716: its proposal is created, or it is done or discarded) shows nowhere under Needs your attention, and the board refuses an answer to it. The board then types `brainstorm stranded`, `Thread:` and `Q<n> in <thread> cannot reach the person: ask it with work ask`, once for each question: ask it now with `work ask` (`of` G<n>, kind decide, its options, your advice) and go on from the answer; the talk stays the record. The board types nothing for a question the store already has an ask for (an open or answered ask of the talk's goal, `Of: G<n>`, filed at or after the question; B733: the question's words decide nothing, so "asked as Q428" with no such ask is told), nor for a talk of a goal that is done or no longer in the goal map (B721): there is nothing to ask.
 
 One question at a time, at most about eight in all; every question has an advised option and says what the answer
 decides; never ask what the thread already answers. The board writes the user's answer under the question
@@ -768,6 +768,9 @@ unless the fix changes what the user sees or decides.
    board shows it closed and counts it as fixed; a sighting of a case newer than the close opens it again as came back
    (an older one only counts). Only one open, came back or with the advisor can be closed; one being fixed or fixed is
    answered by its fix step. Never close one whose fault still stands, and never to make a count smaller.
+   Since B736 a stretch in which the board heard no chat (its stall or restart) counts for none of holder-not-running,
+   working-not-running and not-cleared, and the rules board-deaf and board-slow name the board itself: such an incident
+   about a chat right after a board restart is a fault again, never closed as "a restart" (X73 was, and came back).
 3. Name it: `work incident-fix X<n>` with `fix` B<id>. The board marks the incident fixed once that step is done, and
    open again (handing it to you anew) when the step is dropped.
 4. That is all: a fix stands first on the board's list (the redesign's Part 2), and the board gives it to the first

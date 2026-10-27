@@ -347,18 +347,18 @@ function drawModNote(state) {
 
 // cpu:start
 /**
- * B311: the head's control "CPU for the chats" (`cpu` from the state: `available`, `level`, `count`, `fault`, `cores`,
- * `strongCores`): which level is lit, the line beside it, its tip, and the note on top when the board could not read
+ * B311, B735: the head's control "CPU for Claude" (`cpu` from the state: `available`, `level`, `count`, `fault`, `cores`,
+ * `lowCores`): which level is lit, the line beside it, its tip, and the note on top when the board could not read
  * the processes. Null: no control (the demo).
  */
 function cpuView(cpu, pending = null) {
   if (cpu === null || cpu === undefined) return null
   const level = pending ?? cpu.level
-  if (cpu.available !== true) return { level: null, disabled: true, label: 'CPU for the chats: not available here', count: '', title: 'The board sets the CPU of the chats on Windows only.', note: null }
+  if (cpu.available !== true) return { level: null, disabled: true, label: 'CPU for Claude: not available here', count: '', title: 'The board sets the CPU for Claude on Windows only.', note: null }
   const processes = n => `${n} process${n === 1 ? '' : 'es'}`
-  const count = level === 'off' || pending !== null ? '' : level === 'gentle' ? `${processes(cpu.count)}, below normal` : `${processes(cpu.count)}, idle, ${cpu.strongCores} of ${cpu.cores} cores`
-  const title = level === 'off' ? 'The chats run as usual.' : `Applies to the project's chats and everything they started: ${processes(cpu.count)} now.`
-  return { level, disabled: pending !== null, label: 'CPU for the chats', count, title, note: typeof cpu.fault === 'string' ? cpu.fault : null }
+  const count = pending !== null ? '' : level === 'low' ? `${processes(cpu.count)} on ${cpu.lowCores} cores, lowest priority: tests and builds run slower` : 'full power'
+  const title = level === 'full' ? 'Claude runs at full power.' : `Applies to everything the project started, the board included: ${processes(cpu.count)} now.`
+  return { level, disabled: pending !== null, label: 'CPU for Claude', count, title, note: typeof cpu.fault === 'string' ? cpu.fault : null }
 }
 // cpu:end
 
@@ -425,7 +425,7 @@ function drawAppNote(state) {
   note.textContent = shown.text
 }
 
-/** B311: the head's "CPU for the chats" and its note on top (see `cpuView`). */
+/** B311: the head's "CPU for Claude" and its note on top (see `cpuView`). */
 function drawCpu(state) {
   const shown = cpuView(state.cpu ?? null, sending.has('cpu') ? cpuPending : null)
   const box = $('cpu')
@@ -450,7 +450,7 @@ function drawCpu(state) {
 }
 
 /**
- * B307: the ⚙ button on the top bar that holds CPU for the chats, its processes and the board's version; its tooltip
+ * B307: the ⚙ button on the top bar that holds CPU for Claude, its processes and the board's version; its tooltip
  * says the level and the version, so a hover tells them. Hidden when it holds nothing.
  */
 function drawSettings(state, cpu) {
@@ -460,10 +460,10 @@ function drawSettings(state, cpu) {
   $('new-project-button').hidden = state.newProject?.canMake !== true
   drawBoardSettings(state)
   settings.hidden = cpu === null && version === '' && $('new-project-button').hidden && (state.boardSettings ?? null) === null
-  const level = cpu === null || cpu.level === null ? null : `CPU for the chats: ${cpu.level[0].toUpperCase()}${cpu.level.slice(1)}${cpu.count === '' ? '' : ` (${cpu.count})`}`
+  const level = cpu === null || cpu.level === null ? null : `CPU for Claude: ${cpu.level[0].toUpperCase()}${cpu.level.slice(1)}${cpu.count === '' ? '' : ` (${cpu.count})`}`
   const shown = state.boardSettings ?? null
   const bother = shown === null ? null : `Bother me: ${shown.botherMe === 'daily' ? 'once a day' : 'at once'}`
-  $('settings-button').title = [level, bother, version].filter(part => part !== null && part !== '').join('\n') || 'CPU for the chats and the board\'s version'
+  $('settings-button').title = [level, bother, version].filter(part => part !== null && part !== '').join('\n') || 'CPU for Claude and the board\'s version'
 }
 
 /** B361: the setting being sent ({ key, value }), lit at once. */
@@ -548,7 +548,7 @@ $('cpu').addEventListener('click', async event => {
     if (!answer.ok) throw new Error((await answer.text()).trim() || `refused (${answer.status})`)
     board.cpu = await answer.json()
   } catch (error) {
-    problems.set('cpu', `CPU for the chats not changed: ${error instanceof Error ? error.message : 'the board did not answer'}`)
+    problems.set('cpu', `CPU for Claude not changed: ${error instanceof Error ? error.message : 'the board did not answer'}`)
   } finally {
     sending.delete('cpu')
     cpuPending = null

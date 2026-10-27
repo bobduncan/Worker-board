@@ -25,12 +25,14 @@ const REREAD_MS = 30_000
  */
 export function storeKeeper({ dir, clock = Date.now, fs, rereadMs = REREAD_MS }) {
   let kept = null
+  let last = null
   let readAt = 0
   const keeper = async () => {
     const now = clock()
     if (kept !== null && now - readAt < rereadMs) return kept
     try {
       kept = { ok: true, dir, ...(await readStore(dir, fs)) }
+      last = kept
       readAt = now
       return kept
     } catch (error) {
@@ -41,6 +43,8 @@ export function storeKeeper({ dir, clock = Date.now, fs, rereadMs = REREAD_MS })
   keeper.reset = () => {
     kept = null
   }
+  /** B736: the store as last read, or null: for a read that must not wait (the health summary). */
+  keeper.last = () => last
   return keeper
 }
 

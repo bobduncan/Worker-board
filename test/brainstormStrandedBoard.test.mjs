@@ -1,6 +1,7 @@
-// B721, end to end on a running board (B716's words through the server's own pass): the partner is told once of a question
-// that stands in a talk the person cannot reach, never for a question that names its ask or for a done goal's talk, and
-// not again after the board starts anew. A copy of the board on a made-up project in a temporary folder only.
+// B721, B733, end to end on a running board (B716's words through the server's own pass): the partner is told once of a
+// question that stands in a talk the person cannot reach, never for a question the store has an ask of its goal for (the
+// words decide nothing: one that only says "asked as Q428" is told) or for a done goal's talk, and not again after the
+// board starts anew. A copy of the board on a made-up project in a temporary folder only.
 
 import assert from 'node:assert/strict'
 import { spawn } from 'node:child_process'
@@ -73,7 +74,7 @@ const created = [
 ].join('\n')
 const question = why => `\n## Q3 (22:30)\nKeep the approach?\nContext: It failed three times.\nWhy: ${why}\n- A: keep (advised)\n- B: rebuild\n`
 
-test('a question in a talk the person cannot reach is told to the partner once; one that names its ask or a done goal\'s talk is not', { timeout: 300_000 }, async t => {
+test('a question in a talk the person cannot reach is told to the partner once; one the store has an ask for or a done goal\'s talk is not', { timeout: 300_000 }, async t => {
   const dir = await mkdtemp(join(tmpdir(), 'board-stranded-'))
   const started = []
   t.after(async () => {
@@ -94,10 +95,11 @@ test('a question in a talk the person cannot reach is told to the partner once; 
   await put(join(app, 'a', 'b', 'local_main.json'), appChat('Main', 'main-id'))
   await put(join(app, 'a', 'b', 'local_advisor.json'), appChat('Advisor', 'advisor-id'))
   for (const id of ['main-id', 'advisor-id']) await put(join(transcripts, `${id}.jsonl`), `${typed(NOW - 9 * MIN, 'Status?')}\n${answer(NOW - 8 * MIN, 'All fine.')}\n`)
-  await put(join(project, '.claude', 'goals.md'), '# Goals\nLast id: G7\n\n- [~] G6 Benches that match the picture\n- [x] G7 An old goal\n')
+  await put(join(project, '.claude', 'goals.md'), '# Goals\nLast id: G7\n\n- [~] G6 Benches that match the picture\n- [x] G7 An old goal\n- [~] G8 Lamps\n')
   const talks = join(project, '.claude', 'brainstorms')
-  await put(join(talks, '2026-10-15-stuck.md'), `${head(GOAL)}${created}${question('nothing new to choose.')}`)
-  await put(join(talks, '2026-10-15-names-its-ask.md'), `${head(GOAL)}${created}${question('your choice is asked as Q428, not here.')}`)
+  await put(join(talks, '2026-10-15-stuck.md'), `${head(GOAL)}${created}${question('your choice is asked as Q428, not here.')}`)
+  await put(join(talks, '2026-10-15-asked-in-store.md'), `${head('G8 Lamps')}${created}${question('nothing new to choose.')}`)
+  await put(join(project, '.claude', 'work', 'Q430.md'), ['Id: Q430', 'Kind: ask', 'Title: Keep the approach?', 'State: open', 'Owner: Advisor', `Since: ${new Date(NOW).toISOString().slice(0, 10)} 12:00`, `Filed: ${NOW}`, 'Asks: decide', 'Blocking: no', 'Of: G8', '', '## Text', 'Keep the approach?', ''].join('\n'))
   await put(join(talks, '2026-10-15-done-goal.md'), `${head('G7 An old goal')}${created}${question('nothing new to choose.')}`)
   await put(join(talks, '2026-10-15-running.md'), `${head(GOAL)}## Q1 (21:01)\nWhere first?\nContext: It decides the order.\n- A: by the gate (advised)\n- B: by the pond\n`)
   const port = await freePort()

@@ -10,8 +10,9 @@ import { allWords, closedForYou, minutesOf, forYou, noteSections, overview, queu
 import { pathKey } from './games.mjs'
 import { asksAtEnd, parseHandover } from './handover.mjs'
 import { gapsOf, hourEnd, hourStart, taskFacts, today } from './history.mjs'
+import { DEAF_KEEP_MS, deafSpans } from './hearing.mjs'
 import { finishedList } from './finished.mjs'
-import { brainstormNeeds, brainstormsState } from './brainstorm.mjs'
+import { askFacts, brainstormNeeds, brainstormsState } from './brainstorm.mjs'
 import { DEMO_WORDS, demoGaveUp } from './focus.mjs'
 import { focusStage, goalAskList, goalAskNeeds, goalCounts, parseGoals, unlinkedSteps } from './goals.mjs'
 import { limitStop, limitsOf, newestPerWindow, parseUsageHistory, pauseLifted, pauseNote, storePause, usageReadings } from './limits.mjs'
@@ -580,6 +581,8 @@ function card(chat, raw, { now, config, last, lines, main, prefix, stepOf = () =
     // The review of part 1: why it counts as working between two turns (task, background, branch), and whether its
     // transcript shows a turn open (also behind a "suspended" that may be stale).
     heldBy: held?.why ?? null,
+    // B739: how many pieces of background work it started still run (what its clear is refused for).
+    background,
     isTurnOpen: reported !== null ? state === 'working' && reported.entry?.state === 'busy' : turn === 'running' && !wasCutOff,
     eta,
     // A worker that works and has no time from anywhere: a fault to fix, and shown as one. The main chat hands
@@ -1213,7 +1216,7 @@ function focusRun(node, items, prefix, partner) {
   return { note, needs }
 }
 
-export function buildState(raw, { lines = [], outbox = [], runs = [], board = null, seen = null, aliveAt = null, reports = null, finishedSeen = {}, taskTimes = [], mods = {}, modsLately = null, handOutHeldAt = null, refusedGives = [], keptReadings = [], providers = [], now, config }) {
+export function buildState(raw, { lines = [], outbox = [], runs = [], board = null, seen = null, aliveAt = null, reports = null, hearing = null, finishedSeen = {}, taskTimes = [], mods = {}, modsLately = null, handOutHeldAt = null, refusedGives = [], keptReadings = [], providers = [], now, config }) {
   // The review of Pause 2: while the person pauses (2026-10-19: pausing only, no longer until running) what waits in
   // the outbox is held until the resume, but the board's own "resume" to the main chat; the page says so (`isHeld`).
   const isPaused = isHolding(raw.work?.pause)
@@ -1271,7 +1274,7 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
   // B255, B260: the goal map, read once for the Goals part and for the way to the next milestone.
   const goalMap = typeof raw.goalsText === 'string' ? parseGoals(raw.goalsText) : null
   // B259: the brainstorms' threads (config.brainstorms in the project), newest first.
-  const brainstorms = brainstormsState(raw.threadTexts ?? [], config.brainstorms)
+  const brainstorms = { ...brainstormsState(raw.threadTexts ?? [], config.brainstorms), asks: askFacts(raw.work?.items) }
   const folders = Array.isArray(raw.folders) ? raw.folders : null
   // An open step by its id, for a hand-over or a chat's own record that names one (not a step for the person).
   // With `whose`, only a step of that worker or of nobody.
@@ -1318,12 +1321,19 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
   // heard that turn start, `busyAt`); none when the board did not hear it start.
   const hasReportedStep = (name, busyAt) => Number.isFinite(busyAt) && itemsOf(raw.work).some(one => one.head.get('Kind') === 'step' && ['review', 'done'].includes(one.head.get('State'))
     && String(one.head.get('Owner') ?? '').replace(prefix, '').trim().toLowerCase() === name.toLowerCase() && sinceMs(one.head.get('Since')) >= busyAt)
+  // B736 (X73, X87): while the board itself hears no chat (hearing.mjs) though chats write their conversations, a lane
+  // is read as it was when the board last heard any chat, for up to DEAF_KEEP_MS: a stall or a restart of the board is
+  // no chat's fault. A chat silent on its own before then stays as silent as it was.
+  const ranSince = at => Object.values(raw.tails ?? {}).some(tail => Number.isFinite(tail?.modifiedAt) && tail.modifiedAt > at)
+  const deaf = !(reports instanceof Map) ? [] : deafSpans(hearing, { now, appStartedAt: raw.appStartedAt ?? null, ranSince })
+  const deafNow = deaf.find(span => span.to === now && Number.isFinite(hearing?.open?.from) && span.from === hearing.open.from) ?? null
+  const laneAt = deafNow !== null && now - deafNow.from <= DEAF_KEEP_MS ? deafNow.from : now
   const reportedOf = new Map(found.filter(chat => !chat.isLeftover).map(chat => {
     const entry = reports instanceof Map ? reports.get(chat.name) ?? null : null
     // Gap 1: no report from this session while its card says a mod that reports: unknown, then off, never guessed.
     if (entry === null || entry.session !== chat.cliSessionId) {
       const silent = !(reports instanceof Map) ? null : laneWithoutReport({
-        cardMod: cardModOf(raw, chat.cliSessionId), cardAt: raw.planLineAt?.[chat.cliSessionId] ?? null, boardStartedAt: board?.startedAt, now, unknownAfterMs, offAfterMs,
+        cardMod: cardModOf(raw, chat.cliSessionId), cardAt: raw.planLineAt?.[chat.cliSessionId] ?? null, boardStartedAt: board?.startedAt, now: laneAt, unknownAfterMs, offAfterMs,
       })
       return [chat.name, silent === null ? null : { ...silent, entry: null, words: silent.state === 'off' ? `no report since the board started at ${hourMinute(board.startedAt)}` : null }]
     }
@@ -1333,7 +1343,7 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
     // The review of chat-reports: a blocking ask routed to the partner waits for the partner, never for the person (B392).
     const forPartner = waits.partner?.get(key) ?? []
     const lane = laneFromReport(entry, {
-      now, unknownAfterMs, offAfterMs,
+      now: laneAt, unknownAfterMs, offAfterMs,
       holdsTask: holds.length > 0,
       hasBlockingAsk: waits.blocking.has(key) || (forPartner.length === 0 && holds.some(one => one.state === 'waiting on you')),
       waitsForPartner: forPartner.length > 0,
@@ -1364,6 +1374,7 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
     stops: everyone.filter(one => one.suspended?.by === 'app').map(one => ({ at: one.suspended.since, limit: one.suspended.limit, resetsAt: one.suspended.named })),
     now,
     warnAt: config.limitWarnPercent,
+    weekStopAt: config.weekStopAt,
   })
   // B312: a worker's own pause for the limit ends early once a reading taken after it shows that limit back
   // (limits.mjs `pauseLifted`): its card is read again as if it had not paused, so it is free (or between two turns)
@@ -1748,6 +1759,7 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
   // Redesign Part 2 (2026-10-25): the board hands out all work: the ready list in the focus goal's order, the settings,
   // what went into the outbox (for the take-back's clock), the steps the routing holds and whether a limit is full.
   const routingHeld = workOk ? routingHolds(itemsOf(raw.work), config.routing) : new Set()
+  const gaps = gapsOf(lines, now, aliveAt)
   const reconciled = !workOk ? null : reconcile({
     store: raw.work, flow: raw.work.flow, lanes: chats, now, times: { graceMs: GRACE_MS, askMs: ASK_MS, idleMs: IDLE_HOLD_MS }, prefix, hasPartner: advisorChat !== undefined, partner,
     standardHold: item => standardHold(item, plan?.standards ?? []),
@@ -1756,6 +1768,8 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
     limitsFull: ['fiveHour', 'week'].some(limit => limits[limit]?.level === 'full'),
     // The review of 2026-10-25: when the board last held the hand-out (the server's memory), and the gives refused lately.
     heldUntil: handOutHeldAt, refusedGives,
+    // B740: the time the board did not run, from the history's gap lines, for the running time of a failed report check's wait.
+    offMs: from => (Number.isFinite(from) ? gaps.reduce((sum, gap) => sum + Math.max(0, Math.min(gap.to, now) - Math.max(gap.from, from)), 0) : 0),
   })
   // B547: the steps whose line waits for their worker's clear (a mod that can clear only: an older one would wait for ever).
   // B587: not for a worker whose process ended: its line and the start word go at once.
@@ -1940,7 +1954,12 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
     today: today(lines.map(line => (line.source === 'prompt' || line.source === 'handover' ? { ...line, task: null } : line)), { from, to: now, names })
       .map((lane, index) => ({ ...lane, ahead: live[index].ahead })),
     // B710: when the board did not run, from the history's gap lines (all of it): the quiet-time rules leave it out.
-    gaps: gapsOf(lines, now, aliveAt),
+    gaps,
+    // B736: when the board heard no chat though chats ran (the age rules leave it out), the one that lasts now, and the
+    // work calls it answered after the chat's Workers mod gave up (the rules board-deaf and board-slow).
+    deaf,
+    deafNow,
+    lateCalls: Array.isArray(hearing?.lateCalls) ? hearing.lateCalls : [],
     restart,
     pause,
     // B124: the main chat (null when the list has none), the name and folder a new project makes it with, how many

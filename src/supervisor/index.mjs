@@ -123,8 +123,11 @@ export function createSupervisor(ports) {
   const healthNow = async () => {
     const now = runnerPorts.now()
     const kept = typeof runnerPorts.memory?.load === 'function' ? await runnerPorts.memory.load() : null
+    // B736 (X89): the state and the store the board has when it has them, so a busy board still answers within seconds.
+    const state = runnerPorts.keptState?.() ?? await runnerPorts.state()
+    const items = runnerPorts.keptItems?.() ?? await runnerPorts.items()
     const view = buildView({
-      state: await runnerPorts.state(), items: await runnerPorts.items(), outbox: runnerPorts.outbox(), repairs: memoryOf(kept).repairs, seen: memoryOf(kept).seen,
+      state, items, outbox: runnerPorts.outbox(), repairs: memoryOf(kept).repairs, seen: memoryOf(kept).seen,
       settings: settings.supervisor ?? {}, now,
     })
     return healthSummary(view, now)

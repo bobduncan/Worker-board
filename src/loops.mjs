@@ -15,7 +15,7 @@ export const LOOP_WORDS = {
   check: 'the check after a report',
   'stuck-checks': 'running a stuck check again',
   measure: 'measuring the tasks',
-  cpu: 'CPU for the chats',
+  cpu: 'CPU for Claude',
   request: 'answering the page',
   // B446: after a chat's checked, and the pictures of an idea.
   guard: 'the goal guard',

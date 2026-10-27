@@ -27,6 +27,7 @@ import { CLEAR_MOD, takenSince } from '../../clearOwed.mjs'
 import { readingAgeMinutes } from '../../limits.mjs'
 import { BOUNDED_RULES, COUNTS_BY_KEY } from './repair.mjs'
 import { BOARD_TRIES } from '../../refineGate.mjs'
+import { DEAF_KEEP_MS } from '../../hearing.mjs'
 
 const MIN = 60_000
 const HOUR = 60 * MIN
@@ -72,8 +73,8 @@ const afterPause = (view, since) => afterPauseOf(view.pause, since)
  * in its watch), whichever is earlier. The key is watched from now on, so a lasting thing is timed across runs. The
  * review: never from before the end of the person's last pause (the chats stood still at the person's word then).
  */
-function lasted(view, ctx, key, since = null) {
-  return spanOf(view, watchOf(ctx), key, since)
+function lasted(view, ctx, key, since = null, { heard = false } = {}) {
+  return spanOf(view, watchOf(ctx), key, since, { heard })
 }
 
 /** B664: since when the rules' watch first saw a key, with every key asked kept watched (the rules' `ctx`). */
@@ -82,11 +83,14 @@ const watchOf = ctx => key => {
   return ctx.seen.get(key)
 }
 
-/** `lasted`'s span, with `seenOf(key)` the time the key was first seen (undefined: now). */
-function spanOf(view, seenOf, key, since = null) {
+/**
+ * `lasted`'s span, with `seenOf(key)` the time the key was first seen (undefined: now). B736: `heard` (the rules about a
+ * chat that does not run) leaves out the stretches the board heard no chat too (`deafMs`).
+ */
+function spanOf(view, seenOf, key, since = null, { heard = false } = {}) {
   const first = Math.min(Number.isFinite(since) ? since : Infinity, seenOf(key) ?? view.now)
   const from = Math.max(first, pauseEndOf(view))
-  return view.now - from - boardOffMs(view, from)
+  return view.now - from - boardOffMs(view, from) - (heard ? deafMs(view, from) : 0)
 }
 
 /**
@@ -98,6 +102,18 @@ function spanOf(view, seenOf, key, since = null) {
 export function boardOffMs(view, from) {
   if (!Number.isFinite(from)) return 0
   return (view.gaps ?? []).reduce((sum, gap) => sum + Math.max(0, Math.min(gap.to, view.now) - Math.max(gap.from, from)), 0)
+}
+
+/**
+ * B736 (X73, X87: from 21:12 to 21:21 the board heard no chat while every chat worked, and three chats were "not running"
+ * for 8 minutes): how long between `from` and now the board heard no chat though chats ran (view.mjs `deaf`, the one that
+ * lasts now up to now). A stall or a restart of the board is no chat's fault: the rules about a chat that does not run
+ * (holder-not-running, working-not-running, not-cleared) leave it out, as they leave out `boardOffMs`.
+ */
+export function deafMs(view, from) {
+  if (!Number.isFinite(from)) return 0
+  const spans = (view.deaf ?? []).map(span => (view.deafNow !== null && view.deafNow !== undefined && span.from === view.deafNow.from ? { ...span, to: view.now } : span))
+  return spans.reduce((sum, span) => sum + Math.max(0, Math.min(span.to, view.now) - Math.max(span.from, from)), 0)
 }
 
 /**
@@ -254,7 +270,7 @@ function holderNotRunning(view, ctx) {
     if (lane === undefined || lane.state === 'suspended' || !(lane.isRunning === false || lane.state === 'off')) continue
     const id = idOf(item)
     const key = `holder-not-running ${id}`
-    const ms = lasted(view, ctx, key, afterPause(view, Number.isFinite(lane.offSince) ? lane.offSince : lane.state === 'off' ? view.since.get(lane.name) : null))
+    const ms = lasted(view, ctx, key, afterPause(view, Number.isFinite(lane.offSince) ? lane.offSince : lane.state === 'off' ? view.since.get(lane.name) : null), { heard: true })
     if (ms <= view.settings.notRunningMinutes * MIN) continue
     found.push({
       rule: 'holder-not-running', key, subject: id,
@@ -280,7 +296,7 @@ function workingNotRunning(view, ctx) {
     const isWorkingCard = lane.state === 'working' || (lane.state === 'off' && Number.isFinite(lane.offSince))
     if (!isWorkingCard || lane.isRunning !== false || holding.has(plain(lane.name, view.prefix))) continue
     const key = `working-not-running ${lane.name}`
-    const ms = lasted(view, ctx, key, afterPause(view, Number.isFinite(lane.offSince) ? lane.offSince : null))
+    const ms = lasted(view, ctx, key, afterPause(view, Number.isFinite(lane.offSince) ? lane.offSince : null), { heard: true })
     if (ms <= WORKING_NOT_RUNNING_MS) continue
     found.push({
       rule: 'working-not-running', key, subject: lane.name,
@@ -566,8 +582,19 @@ function reviewStuck(view, ctx) {
   if (isPaused(view)) return found
   for (const item of stepsOf(view).filter(one => stateOf(one) === 'review').sort((a, b) => byId(idOf(a), idOf(b)))) {
     const wait = reviewWaitOf(item, view.items, null, view.now)
-    if (wait?.kind !== 'check') continue
+    if (wait?.kind !== 'check' && wait?.kind !== 'report') continue
     const id = idOf(item)
+    // B740 (X92): a report whose check failed and was not reported again, an hour on: the worker's word, not the partner's.
+    if (wait.kind === 'report') {
+      const { late, key, ms, words } = reviewLateOf(view, item, wait, watchOf(ctx))
+      if (!late) continue
+      found.push({
+        rule: 'review-stuck', key, subject: id,
+        text: `${id} in review ${minutes(ms)} min: ${wait.text}`,
+        evidence: `since ${clockOf(view.now - ms)}; ${words.length === 0 ? `no word to ${valueOf(item, 'Owner') ?? 'its worker'}` : `${words.length} ${words.length === 1 ? 'word' : 'words'} to ${words[0].to ?? valueOf(item, 'Owner')}, the last at ${clockOf(words.at(-1).at)} (${words.at(-1).state ?? 'not known'})`}`,
+      })
+      continue
+    }
     // B664: judged by reviewLateOf, as the health summary judges it. T9.1.1: counted from the step's QA task.
     const { late, key, ms } = reviewLateOf(view, item, wait, watchOf(ctx))
     if (!late) continue
@@ -675,6 +702,14 @@ export function reviewLateOf(view, item, wait, seenOf = () => undefined) {
     if (qa !== null && ['refined', 'queued'].includes(valueOf(qa, 'State'))) return { ...not, key, ms }
     return { ...not, late: ms > view.settings.reviewMinutes * MIN, key, ms }
   }
+  if (wait.kind === 'report') {
+    // B740 (X92): the board's check of the report failed and the worker has not reported again. Counted in running time
+    // from the failed check; late past `reviewMinutes`, the word to the worker (reconcile.mjs) having had its chance.
+    if (isPaused(view)) return not
+    const key = `review-stuck ${id} report`
+    const ms = spanOf(view, seenOf, key, afterPause(view, wait.since))
+    return { ...not, late: ms > view.settings.reviewMinutes * MIN, key, ms, words: reportWordsOf(view, id, wait.since) }
+  }
   if (wait.kind === 'dropped') {
     if (isPaused(view)) return not
     const key = `fix-dropped ${id}`
@@ -763,6 +798,12 @@ function openFix(view, ctx) {
 /** B667: the refine words about the step `id` from `since` on (the board's and the person's), oldest first. */
 function refineWordsOf(view, id, since) {
   return (view.outbox ?? []).filter(message => message?.command === 'refine' && message.about === id && Number.isFinite(message.at) && message.at >= since)
+    .sort((a, b) => a.at - b.at)
+}
+
+/** B740: the words typed to a step's worker about its failed report check from `since` on (the board's, the check line's or the later one), oldest first. */
+export function reportWordsOf(view, id, since) {
+  return (view.outbox ?? []).filter(message => message?.about === id && message.command === 'work' && message.kind === 'check' && Number.isFinite(message.at) && message.at >= since)
     .sort((a, b) => a.at - b.at)
 }
 
@@ -905,7 +946,7 @@ function notCleared(view, ctx) {
     const owed = lane.clearOwed ?? null
     if (owed === null || !Number.isFinite(owed.reportedAt)) continue
     const key = `not-cleared ${lane.name} ${owed.step}`
-    const ms = lasted(view, ctx, key, afterPause(view, owed.reportedAt))
+    const ms = lasted(view, ctx, key, afterPause(view, owed.reportedAt), { heard: true })
     const took = takenSince(view.items, lane.name, owed.reportedAt, view.prefix)[0] ?? null
     if (took === null && ms <= view.settings.notClearedMinutes * MIN) continue
     const why = owed.why ?? 'no reason logged'
@@ -967,6 +1008,73 @@ function oldLimitReading(view) {
   return found
 }
 
+/**
+ * 18. B736 (the limit of X73's fix): the board heard no chat for longer than DEAF_KEEP_MS while chats wrote their
+ * conversations (view.mjs `deafNow`): from then on its lanes are read as before (unknown, then off), and this one finding
+ * says the board is what is stuck, so a hung board is never hidden behind lanes that keep their last state.
+ */
+function boardDeaf(view) {
+  const open = view.deafNow ?? null
+  if (open === null || isPaused(view)) return []
+  const ms = view.now - open.from
+  if (ms <= DEAF_KEEP_MS) return []
+  return [{
+    rule: 'board-deaf', key: 'board-deaf board', subject: 'board',
+    text: `the board heard no chat for ${minutes(ms)} min (since ${clockOf(open.from)}) while chats wrote their conversations`,
+    evidence: `no take or report reached the board since ${clockOf(open.from)}; chats wrote their conversations since; the lanes kept their last state for ${minutes(DEAF_KEEP_MS)} min, then read as before`,
+  }]
+}
+
+/** B736: two late answers this close together are a board that does not answer, not one slow call. */
+const SLOW_PAIR_MS = 2 * MIN
+/** B736: how far back a late answer still counts. */
+const SLOW_LOOK_MS = 10 * MIN
+
+/**
+ * 19. B736 (X89, the rule the sweep wanted: work health timed out twice in a row): two work calls within 2 minutes that the
+ * board answered after the chat's Workers mod had given up on them (view.mjs `lateCalls`, from each call's request id):
+ * one finding, naming the longest wait.
+ */
+function boardSlow(view) {
+  const recent = (view.lateCalls ?? []).filter(one => view.now - one.at <= SLOW_LOOK_MS).sort((a, b) => a.at - b.at)
+  if (!recent.some((one, index) => index > 0 && one.at - recent[index - 1].at <= SLOW_PAIR_MS)) return []
+  const worst = Math.max(...recent.map(one => one.ms))
+  return [{
+    rule: 'board-slow', key: 'board-slow board', subject: 'board',
+    text: `the board did not answer for ${Math.round(worst / 1000)} s: ${recent.length} work calls in ${minutes(SLOW_LOOK_MS)} min answered after the chat gave up`,
+    evidence: recent.slice(-6).map(one => `answered ${clockOf(one.at)} after ${Math.round(one.ms / 1000)} s`).join('; '),
+  }]
+}
+
+/** B742: how long a worker may keep working after the board's word at the week's stop line before the rule opens. */
+const WEEK_STOP_WAIT_MS = 15 * MIN
+
+/**
+ * 20. B742 (X95, X96, the rule the sweep wanted: at 98% of the week Workers 2, 3 and 5 worked on from 22:20 to 22:32 with no
+ * lane suspended): the week stands at the person's stop line (view.limits.week: `level` full, `used` from `stopAt`), the board
+ * told a working worker to stop (the word `week-stop` in the outbox), it still works 15 min of running time after that word
+ * (the pause and the board's off time do not count), and no lane is suspended for the limit. One finding, naming the workers.
+ * It clears when a lane is suspended, the week falls back under the line, or nobody works.
+ */
+function weekStopIgnored(view, ctx) {
+  const week = view.limits?.week ?? null
+  if (isPaused(view) || week === null || week.level !== 'full' || !Number.isFinite(week.used) || !Number.isFinite(week.stopAt) || week.used < week.stopAt) return []
+  if (view.lanes.some(lane => lane.state === 'suspended')) return []
+  const late = []
+  for (const lane of workersOf(view).filter(one => one.state === 'working')) {
+    const word = (view.outbox ?? []).filter(sent => sent.command === 'week-stop' && sent.to === lane.name && Number.isFinite(sent.at)).reduce((a, b) => (a === null || b.at > a.at ? b : a), null)
+    if (word === null) continue
+    const ms = lasted(view, ctx, `week-stop-ignored ${lane.name}`, afterPause(view, word.at))
+    if (ms > WEEK_STOP_WAIT_MS) late.push({ name: lane.name, since: word.at, ms })
+  }
+  if (late.length === 0) return []
+  return [{
+    rule: 'week-stop-ignored', key: 'week-stop-ignored board', subject: 'board',
+    text: `the week is at ${Math.round(week.used)}%, its stop line is ${week.stopAt}%, and ${late.map(one => one.name).join(', ')} still work${late.length === 1 ? 's' : ''} with no lane suspended`,
+    evidence: `week ${Math.round(week.used)}% (stop line ${week.stopAt}%); the board's word to stop: ${late.map(one => `${one.name} at ${clockOf(one.since)}, ${minutes(one.ms)} min ago`).join('; ')}; no lane is suspended; threshold ${minutes(WEEK_STOP_WAIT_MS)} min`,
+  }]
+}
+
 /** Every watch rule, in the order the section shows them. */
 export const WATCH_RULES = [
   { id: 'unknown-lane', kind: 'watch', says: 'a worker unknown or off for too long that holds a step and that the board could not wake', check: unknownLane },
@@ -991,4 +1099,7 @@ export const WATCH_RULES = [
   { id: 'not-cleared', kind: 'watch', says: 'a worker not cleared after its reported step', check: notCleared },
   { id: 'not-taking', kind: 'watch', says: 'a worker that did not take the task it was given', check: notTaking },
   { id: 'old-limit-reading', kind: 'watch', says: 'a limit near a stop (5-hour 80%, weekly 90%) still last read over 60 min ago, not counting a pause, while a worker works and the supervisor has looked it up', check: oldLimitReading },
+  { id: 'board-deaf', kind: 'watch', says: 'the board heard no chat for over 10 min while chats wrote their conversations', check: boardDeaf },
+  { id: 'board-slow', kind: 'watch', says: 'two work calls within 2 min answered after the chat gave up on them', check: boardSlow },
+  { id: 'week-stop-ignored', kind: 'watch', says: 'the week at the stop line (98%), a worker told to stop still works 15 min later and no lane is suspended', check: weekStopIgnored },
 ]

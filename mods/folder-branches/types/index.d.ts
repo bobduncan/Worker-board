@@ -114,6 +114,8 @@ export type ChatsView = {
   /** When the list was read, in milliseconds. */
   now: number
   rows: ChatRow[]
+  /** B738: the chats the board shows as not running, as its last answer named them; empty without a board. */
+  off?: string[]
 }
 
 declare module 'claude-code' {
