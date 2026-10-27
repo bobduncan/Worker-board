@@ -31,7 +31,7 @@ import { join } from 'node:path'
 
 import { readBranches } from '../folders.mjs'
 import { RESULT_CHARS, partsWarnings } from './recapWords.mjs'
-import { stepLeftovers } from './worktrees.mjs'
+import { isHeldLine, stepLeftovers } from './worktrees.mjs'
 
 /** A folder's last part, for Windows and other paths alike. */
 const nameOf = dir => String(dir).replace(/[\\/]+$/, '').split(/[\\/]/).pop()
@@ -87,7 +87,7 @@ export async function repoOfStep({ branch, merged, repos, run }) {
  * worktree of the step is left (worktrees.mjs `stepLeftovers`): `fs` the file system the project folder is read with
  * (worktrees.mjs `FILES`); null leaves the project folder unread.
  */
-export async function reportCheck({ id, branch, result, merged, repos, run, project = '', touches = [], exists = null, fs = null, cut = null }) {
+export async function reportCheck({ id, branch, result, merged, repos, run, project = '', touches = [], exists = null, fs = null, cut = null, inline = false, waits }) {
   // 2026-10-25: a result the board cut at its limit passes with a warning that says so.
   const warnings = cut === null ? [] : [`the result was ${cut} characters: the board kept the first ${RESULT_CHARS} and cut the rest; put what matters first`]
   // B363: work outside git (no branch of its own, no merged commit a repository holds): its files are checked instead.
@@ -95,7 +95,7 @@ export async function reportCheck({ id, branch, result, merged, repos, run, proj
   const own = typeof branch === 'string' ? branch.trim() : ''
   const isOwnBranch = own !== '' && own !== '-' && own.toLowerCase() !== 'none' && !repos.some(repo => repo.base === own)
   if (exists !== null && project !== '' && await repoOfCommit(merged, repos, run) === null && (!isOwnBranch || await isNowhere(own, repos, run))) {
-    const left = await stepLeftovers({ id, repos, project, run, fs })
+    const left = await stepLeftovers({ id, repos, project, run, fs, inline, ...(waits === undefined ? {} : { waits }) })
     return outsideCheck({ result, touches, project, repoDirs: repos.map(repo => repo.dir), exists, left, warnings })
   }
   const faults = []
@@ -130,7 +130,7 @@ export async function reportCheck({ id, branch, result, merged, repos, run, proj
     faults.unshift(`work in ${name}`)
   }
   // Worktree clean-up: no worktree on the step's branch, and none (or its folder) named for the step, is left.
-  faults.push(...await stepLeftovers({ id, branch: repo === null || isOnBase ? null : branch, repo, repos, project, run, fs }))
+  faults.push(...await stepLeftovers({ id, branch: repo === null || isOnBase ? null : branch, repo, repos, project, run, fs, inline, ...(waits === undefined ? {} : { waits }) }))
   if (String(result ?? '').trim() === '') faults.push('no result named')
   // B569, 2026-10-25: the recap card's Context and Change are the board's to build; what is off is a warning.
   const words = partsWarnings(result)
@@ -143,7 +143,7 @@ export async function reportCheck({ id, branch, result, merged, repos, run, proj
   const failed = faults.filter(line => !line.startsWith('work in '))
   return failed.length === 0
     ? { passed: true, lines: [...passed, isOnBase ? `worked on ${branch.trim()} itself` : 'branch gone', 'worktree gone', 'result named', ...(words.length === 0 ? ['context and change named'] : []), ...(bites ? ['tests bite named'] : [])], ...(warnings.length === 0 ? {} : { warnings }) }
-    : { passed: false, lines: faults }
+    : { passed: false, lines: faults, ...(failed.every(isHeldLine) ? { isHeldOnly: true } : {}) }
 }
 
 /** The warning for a change that touches tests and a result that names no mutant (the result check asks for one). */
@@ -292,7 +292,7 @@ async function outsideCheck({ result, touches, project, repoDirs, exists, left =
   if (found.length === 0 && missing.length === 0 && inGit.length === 0) lines.push('no file named: name the files it made in the result')
   lines.push(...left)
   if (String(result ?? '').trim() === '') lines.push('no result named')
-  if (lines.length > 1) return { passed: false, lines }
+  if (lines.length > 1) return { passed: false, lines, ...(lines.slice(1).every(isHeldLine) ? { isHeldOnly: true } : {}) }
   const words = partsWarnings(result)
   const warned = [...warnings, ...words]
   if (planned.missing.length > 0) warned.push(`Touches names files not there: ${planned.missing.join(', ')}`)
@@ -300,4 +300,25 @@ async function outsideCheck({ result, touches, project, repoDirs, exists, left =
   const saidMissing = said.missing.filter(path => !planned.missing.includes(path))
   if (saidMissing.length > 0) warned.push(`the result names ${saidMissing.join(', ')}, which ${saidMissing.length === 1 ? 'is' : 'are'} not there`)
   return { passed: true, lines: [...lines, `there: ${found.join(', ')}`, 'result named', ...(words.length === 0 ? ['context and change named'] : [])], ...(warned.length === 0 ? {} : { warnings: warned }) }
+}
+
+/** How many times, and how far apart (ms), the report check looks again at a folder a program still holds. */
+export const HELD_ROUNDS = 6
+export const HELD_EVERY_MS = 10_000
+
+/**
+ * The report check as the board's background loop runs it (nobody waits on it): the empty folder a worktree left is tried
+ * for a few seconds inside the check (`inline`); when a program still holds it, and that is all that fails, the check looks
+ * again after `every` ms, up to `rounds` times, and passes by itself once the folder is gone. Only then is it filed, so the
+ * worker is not messaged for a folder that frees itself. `sleep` is the clock's wait (a test's own). The outcome has no
+ * `isHeldOnly`: it is the board's own word between the rounds.
+ */
+export async function patientReportCheck(args, { rounds = HELD_ROUNDS, every = HELD_EVERY_MS, sleep = ms => new Promise(resolve => setTimeout(resolve, ms)) } = {}) {
+  let outcome = await reportCheck({ ...args, inline: true })
+  for (let round = 0; round < rounds && outcome.isHeldOnly === true; round += 1) {
+    await sleep(every)
+    outcome = await reportCheck({ ...args, inline: true })
+  }
+  const { isHeldOnly, ...filed } = outcome
+  return filed
 }

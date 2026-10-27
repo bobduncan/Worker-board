@@ -3,11 +3,14 @@
 // alive.json as written before it started: no minute look is awaited, and nothing writes a gap line.
 
 import { spawn } from 'node:child_process'
-import { cp, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { cp, mkdir, mkdtemp, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises'
 import { createServer } from 'node:http'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
+
+import { loopOwner } from '../../src/supervisor/loop.mjs'
+import { writeAtomic } from '../../src/write.mjs'
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..')
 const COPIED = ['server.mjs', 'run-game.mjs', 'start-board.mjs', 'package.json', 'src', 'public', 'roles', 'examples', 'fixtures']
@@ -49,6 +52,17 @@ async function stop(child) {
   await gone
 }
 
+/** A run that was killed leaves its folder (3.5 MB each): the ones of earlier runs, older than an hour, go at the start. */
+let cleared = null
+const clearOld = () => cleared ??= (async () => {
+  for (const name of await readdir(tmpdir()).catch(() => [])) {
+    if (!name.startsWith('board-sleep-')) continue
+    const folder = join(tmpdir(), name)
+    const old = await stat(folder).then(one => Date.now() - one.mtimeMs > HOUR, () => false)
+    if (old) await rm(folder, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }).catch(() => {})
+  }
+})()
+
 const wait = ms => new Promise(done => setTimeout(done, ms))
 
 /** Polls `check` until it answers something, or fails after `within` ms. */
@@ -70,6 +84,7 @@ export const working = at => ({ at, chat: 'Picker', state: 'working', task: 'Pic
  * `write(name, text)` rewrites a file of its data folder (the board's next look, 300 ms, reads it again), `close()` ends the board and removes its folder.
  */
 export async function startBoard(prepare) {
+  await clearOld()
   const dir = await mkdtemp(join(tmpdir(), 'board-sleep-'))
   let child = null
   let beat = null
@@ -96,11 +111,20 @@ export async function startBoard(prepare) {
     const port = await freePort()
     await writeFile(join(board, 'config.json'), JSON.stringify({ name: 'sleep', project, port, refreshSeconds: 5, morningRound: '00:00', weeklyRound: false, gamePort: 7400, gameRepo: '', appSessions: app, transcripts, usageHistory: join(app, 'none.json') }))
     await prepare({ start, put, board })
-    // Another process of this project holds the loops: this one only reads what that one keeps.
+    // Another process of this project holds the loops: this one only reads what that one keeps. The lock is held with the
+    // board's own lock code (loopOwner, written atomically as the board writes it), so a board never reads it empty and
+    // takes the loops, however busy the PC is.
     const lock = join(project, '.claude', 'sync-loop.json')
-    const hold = () => writeFile(lock, JSON.stringify({ pid: process.pid, port: 1, at: Date.now() }))
-    await hold()
-    beat = setInterval(() => hold().catch(() => {}), 500)
+    const holder = loopOwner({
+      read: () => readFile(lock, 'utf8'),
+      write: text => writeAtomic(lock, text),
+      alive: () => true,
+      pid: process.pid,
+      port: 1,
+      now: Date.now,
+    })
+    await holder()
+    beat = setInterval(() => holder().catch(() => {}), 500)
 
     child = await run(board, { WORKER_BOARD_HOME: join(dir, 'pc'), WORKER_BOARD_TICK_MS: '300' }, port)
     const page = await fetch(`http://127.0.0.1:${port}/`).then(res => res.text())

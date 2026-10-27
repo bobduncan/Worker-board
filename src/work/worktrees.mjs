@@ -28,6 +28,9 @@ const WALK_LIMIT = 100_000
 const REMOVE_SECONDS = 60
 /** Waits (ms) before each try at removing an empty folder a worktree left: Windows lets go of it within seconds. */
 export const EMPTY_WAITS = [0, 1000, 2000, 4000]
+/** The words of a line for an empty folder a program still holds: the report check reads them to try again by itself. */
+export const HELD_WORDS = 'a program still uses it'
+export const isHeldLine = line => String(line).includes(HELD_WORDS)
 
 /** The file system as this module uses it; tests may give another. */
 export const FILES = {
@@ -157,9 +160,9 @@ const isCheckFolder = name => name.toLowerCase().startsWith('check-')
  * Removes an empty folder a worktree left (rmdir, never recursive): one try now. A program that stood in the worktree
  * (a chat's shell) lets go within seconds, so when the folder is held the tries after each of `waits` (past the first)
  * run in the background, outside the work store's queue (Principle 5): the next check finds it gone. `null` when it is
- * gone now, else why it stayed.
+ * gone now, else why it stayed. `inline` (the report check's): all the tries run here, one after another.
  */
-async function removeEmptyFolder(path, fs, waits, later) {
+async function removeEmptyFolder(path, fs, waits, later, inline = false) {
   const [now, ...rest] = waits
   const attempt = async () => {
     try {
@@ -170,7 +173,16 @@ async function removeEmptyFolder(path, fs, waits, later) {
     }
   }
   if (now > 0) await new Promise(resolve => setTimeout(resolve, now))
-  const why = await attempt()
+  let why = await attempt()
+  // The report check runs in the board's background loop, where nobody waits: it tries through all the waits itself.
+  if (inline) {
+    for (const ms of rest) {
+      if (why === null) break
+      await new Promise(resolve => setTimeout(resolve, ms))
+      why = await attempt()
+    }
+    return why
+  }
   if (why !== null && rest.length > 0) later(async () => { for (const ms of rest) { await new Promise(resolve => setTimeout(resolve, ms)); if (await attempt() === null) return } })
   return why
 }
@@ -192,7 +204,7 @@ async function worktreeLine(path, state, fs, platform) {
  * result check's) or 'check' (a result check's own, check-<id>). `repos` the repositories the board knows; `fs` null
  * leaves the project folder unread. `run` runs git (folders.mjs `gitRunner`).
  */
-export async function stepLeftovers({ id, branch = null, repo = null, repos = [], project = '', run, fs = FILES, which = 'report', platform = process.platform, waits = EMPTY_WAITS, later = inBackground }) {
+export async function stepLeftovers({ id, branch = null, repo = null, repos = [], project = '', run, fs = FILES, which = 'report', platform = process.platform, waits = EMPTY_WAITS, later = inBackground, inline = false }) {
   const lines = []
   const told = new Set()
   const known = repo === null || repos.some(one => keyOf(one.dir, platform) === keyOf(repo.dir, platform)) ? repos : [...repos, repo]
@@ -230,8 +242,8 @@ export async function stepLeftovers({ id, branch = null, repo = null, repos = []
           continue
         }
         // The board removes it itself (a minute after a worker's `git worktree remove` the rmdir works); no chore for the person.
-        const why = typeof fs.rmdir === 'function' ? await removeEmptyFolder(folder.path, fs, waits, later) : 'no way to remove it here'
-        if (why !== null) lines.push(`the empty folder ${slashed(folder.path)} of a worktree is still there and could not be removed (${why}): a program still uses it, the board keeps trying in the background and again at the next check`)
+        const why = typeof fs.rmdir === 'function' ? await removeEmptyFolder(folder.path, fs, waits, later, inline) : 'no way to remove it here'
+        if (why !== null) lines.push(`the empty folder ${slashed(folder.path)} of a worktree is still there and could not be removed (${why}): ${HELD_WORDS}, the board keeps trying in the background and again at the next check`)
       }
       else if (looksLikeWorktree(folder.name, prefixes) || await hasGitFile(folder.path, fs)) {
         lines.push(`the folder ${slashed(folder.path)} of a worktree is still there, and no repository lists it: look what is in it, then delete it`)

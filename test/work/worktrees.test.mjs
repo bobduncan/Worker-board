@@ -12,6 +12,7 @@ import { join } from 'node:path'
 import test from 'node:test'
 
 import { gitRunner } from '../../src/folders.mjs'
+import { patientReportCheck } from '../../src/work/check.mjs'
 import { EMPTY_WAITS, FILES, cleanLeftover, findLeftovers, findLink, namesStep, stepLeftovers, worktreeBlocks } from '../../src/work/worktrees.mjs'
 
 const HOUR = 60 * 60_000
@@ -333,4 +334,79 @@ test('the dry run lists what the board would clean and what it leaves, and remov
   assert.throws(() => parseArgs(['--clean', 'yes']), /Unknown argument --clean/)
   const tool = await import('node:fs').then(fs => fs.readFileSync(new URL('../../tools/leftover-worktrees.mjs', import.meta.url), 'utf8'))
   assert.doesNotMatch(tool, /cleanLeftover|rmdir|worktree', 'remove/)
+})
+
+test('the report check tries an empty folder a program holds through all its waits itself, and looks again by itself until it is gone (B731)', async () => {
+  const one = world()
+  try {
+    const folder = join(one.project, 'garden-b3')
+    const busy = () => Object.assign(new Error('busy'), { code: 'EBUSY' })
+    const args = { id: 'B3', branch: 'b3-gone', repo: one.repos[0], repos: one.repos, project: one.project, run }
+    // Inline: every wait is tried here, nothing is handed to the background.
+    let tries = 0
+    const flaky = { ...FILES, rmdir: async path => { tries += 1; if (tries < 3) throw busy(); return FILES.rmdir(path) } }
+    const jobs = []
+    assert.deepEqual(await stepLeftovers({ ...args, fs: flaky, waits: [0, 1, 1, 1], inline: true, later: job => { jobs.push(job) } }), [])
+    assert.equal(tries, 3)
+    assert.equal(jobs.length, 0)
+    assert.equal(existsSync(folder), false)
+    // Held through every wait of the first check: the board sleeps and checks again; the folder is gone in round two and
+    // the check that is filed passes (one outcome, never a failed one for the owner chat).
+    mkdirSync(folder)
+    let held = true
+    const wedged = { ...FILES, rmdir: async path => { if (held) throw busy(); return FILES.rmdir(path) } }
+    const sleeps = []
+    const outcome = await patientReportCheck({ ...args, result: 'The lamps glow.', merged: git(one.repo, 'rev-parse', 'HEAD').trim(), fs: wedged, exists: async () => true, waits: [0, 1, 1] },
+      { rounds: 3, every: 5, sleep: async ms => { sleeps.push(ms); held = false } })
+    assert.equal(outcome.passed, true, JSON.stringify(outcome))
+    assert.deepEqual(sleeps, [5])
+    assert.equal('isHeldOnly' in outcome, false)
+    assert.equal(existsSync(folder), false)
+    // Held for good: it looks again `rounds` times, then files the failed check with the line, once.
+    mkdirSync(folder)
+    held = true
+    const slept = []
+    const failed = await patientReportCheck({ ...args, result: 'The lamps glow.', merged: git(one.repo, 'rev-parse', 'HEAD').trim(), fs: wedged, exists: async () => true, waits: [0, 1] },
+      { rounds: 2, every: 5, sleep: async ms => { slept.push(ms) } })
+    assert.equal(failed.passed, false)
+    assert.equal(slept.length, 2)
+    assert.match(failed.lines.join(' '), /a program still uses it/)
+    assert.equal('isHeldOnly' in failed, false)
+    // A fault that is not a held folder is filed at once: no waiting for it.
+    rmdirSync(folder)
+    const noResult = []
+    const other = await patientReportCheck({ ...args, result: '', merged: git(one.repo, 'rev-parse', 'HEAD').trim(), fs: wedged, exists: async () => true, waits: [0] }, { rounds: 3, every: 5, sleep: async ms => { noResult.push(ms) } })
+    assert.equal(other.passed, false)
+    assert.deepEqual(noResult, [])
+  } finally {
+    done(one)
+  }
+})
+
+test('the report check on a real held folder: a running program stands in it for 2 s, then lets go; the check passes by itself (B731)', { skip: process.platform !== 'win32' }, async () => {
+  const one = world()
+  const child = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { cwd: join(one.project, 'garden-b3'), stdio: 'ignore' })
+  try {
+    await new Promise(resolve => setTimeout(resolve, 500))
+    const merged = git(one.repo, 'rev-parse', 'HEAD').trim()
+    let rounds = 0
+    const outcome = await patientReportCheck({ id: 'B3', branch: 'b3-gone', result: 'The lamps glow.', merged, repos: one.repos, run, project: one.project, fs: FILES, exists: async () => true, waits: [0, 100] },
+      { rounds: 4, every: 50, sleep: async () => {
+        rounds += 1
+        if (rounds === 2) { child.kill(); await new Promise(resolve => child.once('exit', resolve)) }
+        await new Promise(resolve => setTimeout(resolve, 50))
+      } })
+    assert.equal(outcome.passed, true, JSON.stringify(outcome))
+    assert.equal(rounds >= 2, true)
+    assert.equal(existsSync(join(one.project, 'garden-b3')), false)
+  } finally {
+    child.kill()
+    done(one)
+  }
+})
+
+test('the board runs its report check through the patient one (B731)', async () => {
+  const { readFile } = await import('node:fs/promises')
+  const server = await readFile(new URL('../../server.mjs', import.meta.url), 'utf8')
+  assert.match(server, /const outcome = await patientReportCheck\(\{ id, branch, result, merged, repos,/)
 })
