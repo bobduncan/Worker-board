@@ -1758,6 +1758,7 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
   // Redesign Part 2 (2026-10-25): the board hands out all work: the ready list in the focus goal's order, the settings,
   // what went into the outbox (for the take-back's clock), the steps the routing holds and whether a limit is full.
   const routingHeld = workOk ? routingHolds(itemsOf(raw.work), config.routing) : new Set()
+  const gaps = gapsOf(lines, now, aliveAt)
   const reconciled = !workOk ? null : reconcile({
     store: raw.work, flow: raw.work.flow, lanes: chats, now, times: { graceMs: GRACE_MS, askMs: ASK_MS, idleMs: IDLE_HOLD_MS }, prefix, hasPartner: advisorChat !== undefined, partner,
     standardHold: item => standardHold(item, plan?.standards ?? []),
@@ -1766,6 +1767,8 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
     limitsFull: ['fiveHour', 'week'].some(limit => limits[limit]?.level === 'full'),
     // The review of 2026-10-25: when the board last held the hand-out (the server's memory), and the gives refused lately.
     heldUntil: handOutHeldAt, refusedGives,
+    // B740: the time the board did not run, from the history's gap lines, for the running time of a failed report check's wait.
+    offMs: from => (Number.isFinite(from) ? gaps.reduce((sum, gap) => sum + Math.max(0, Math.min(gap.to, now) - Math.max(gap.from, from)), 0) : 0),
   })
   // B547: the steps whose line waits for their worker's clear (a mod that can clear only: an older one would wait for ever).
   // B587: not for a worker whose process ended: its line and the start word go at once.
@@ -1939,7 +1942,7 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
     today: today(lines.map(line => (line.source === 'prompt' || line.source === 'handover' ? { ...line, task: null } : line)), { from, to: now, names })
       .map((lane, index) => ({ ...lane, ahead: live[index].ahead })),
     // B710: when the board did not run, from the history's gap lines (all of it): the quiet-time rules leave it out.
-    gaps: gapsOf(lines, now, aliveAt),
+    gaps,
     // B736: when the board heard no chat though chats ran (the age rules leave it out), the one that lasts now, and the
     // work calls it answered after the chat's Workers mod gave up (the rules board-deaf and board-slow).
     deaf,

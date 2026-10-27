@@ -11,10 +11,13 @@ import { askFiledMs, fixFirst, sinceMs, valueOf } from './item.mjs'
 import { PARTNER_AGAIN_MS, PARTNER_ANSWER_MS, isRoutedToPartner } from './partnerAnswers.mjs'
 import { isHolding } from './pause.mjs'
 import { REST_GUARD, REST_MS, flowRests, openAskIds, restsFree } from './parked.mjs'
+import { reportCheckFailedOf } from './resultCheck.mjs'
 
 /** The states in which a step is its Owner's work now. */
 const HOLDS = ['taken', 'in progress', 'waiting on you']
 const MIN = 60_000
+/** B740: a step whose report check failed and was not reported again, this long (running time) before its worker is told. */
+export const REPORT_AGAIN_MINUTES = 30
 
 const kindOf = item => valueOf(item, 'Kind') ?? 'step'
 const stateOf = item => valueOf(item, 'State')
@@ -70,7 +73,7 @@ const span = ms => {
  * a pause), so a give's clock starts again after it; `refusedGives` the gives the work API refused lately (`{ id, chat,
  * why, at }`), not tried again for a while and named on the ready list (`refused`); `handOutHeld` says whether it holds now.
  */
-export function reconcile({ store, flow = store.flow, lanes = [], now, times, prefix = '', hasPartner = true, partner = null, standardHold = null, focus = null, focusGoals = [], routingHeld = new Set(), settings = {}, sent = [], limitsFull = false, heldUntil = null, refusedGives = [] }) {
+export function reconcile({ store, flow = store.flow, lanes = [], now, times, prefix = '', hasPartner = true, partner = null, standardHold = null, focus = null, focusGoals = [], routingHeld = new Set(), settings = {}, sent = [], limitsFull = false, heldUntil = null, refusedGives = [], offMs = () => 0 }) {
   const items = store.items ?? new Map()
   const broken = new Set((store.problems ?? []).map(problem => problem.file?.match(/^([A-Z]\d+|L-[0-9a-f]{8})\.md$/)?.[1]).filter(Boolean))
   const live = lanes.filter(lane => !lane.isLeftover)
@@ -303,6 +306,22 @@ export function reconcile({ store, flow = store.flow, lanes = [], now, times, pr
   // The take-back's clock starts again once a pause, or (the review) a full limit, is over: its lines went only then.
   const pausedUntil = store.pause?.state === 'running' ? (store.pause.resumedSince ?? store.pause.since ?? null) : null
   const notBefore = Math.max(...[pausedUntil, heldUntil].filter(Number.isFinite), -Infinity)
+  // B740 (X92: B727's report check failed at 21:03 and its worker never reported it again): a step in review whose report
+  // check failed, with no report after it, for `REPORT_AGAIN_MINUTES` of running time (the time the board was off and the
+  // person's pause left out; `offMs(from)` is the board's off time since `from`): its worker is told once per failed check.
+  const againMs = REPORT_AGAIN_MINUTES * MIN
+  for (const item of ok.filter(one => stateOf(one) === 'review')) {
+    const refused = reportCheckFailedOf(item)
+    const lane = refused === null ? undefined : laneOf(valueOf(item, 'Owner'))
+    if (refused === null || lane === undefined || !Number.isFinite(refused.at)) continue
+    const from = Math.max(refused.at, Number.isFinite(pausedUntil) ? pausedUntil : -Infinity)
+    if (now - from - offMs(from) < againMs) continue
+    const id = valueOf(item, 'Id')
+    flags.push({
+      kind: 'report again', id, chat: lane.name, text: `${id}: its report check failed at ${refused.clock}; ${lane.name} has not reported it again`, button: null,
+      say: `work: ${id}'s report check failed at ${refused.clock}: fix what it names and report it again`, key: `${id} ${lane.name} report-again ${refused.stamp}`,
+    })
+  }
   // At rollout (plan Question 2): the tasks queued before the redesign go back on the list first (`retired`), once.
   const retired = handsOut ? oldQueued(items) : []
   const retiredIds = new Set(retired.map(one => one.id))

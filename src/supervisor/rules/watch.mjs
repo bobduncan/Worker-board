@@ -577,8 +577,19 @@ function reviewStuck(view, ctx) {
   const partner = view.partner?.name ?? 'the partner'
   for (const item of stepsOf(view).filter(one => stateOf(one) === 'review').sort((a, b) => byId(idOf(a), idOf(b)))) {
     const wait = reviewWaitOf(item, view.items)
-    if (wait?.kind !== 'check') continue
+    if (wait?.kind !== 'check' && wait?.kind !== 'report') continue
     const id = idOf(item)
+    // B740 (X92): a report whose check failed and was not reported again, an hour on: the worker's word, not the partner's.
+    if (wait.kind === 'report') {
+      const { late, key, ms, words } = reviewLateOf(view, item, wait, watchOf(ctx))
+      if (!late) continue
+      found.push({
+        rule: 'review-stuck', key, subject: id,
+        text: `${id} in review ${minutes(ms)} min: ${wait.text}`,
+        evidence: `since ${clockOf(view.now - ms)}; ${words.length === 0 ? `no word to ${valueOf(item, 'Owner') ?? 'its worker'}` : `${words.length} ${words.length === 1 ? 'word' : 'words'} to ${words[0].to ?? valueOf(item, 'Owner')}, the last at ${clockOf(words.at(-1).at)} (${words.at(-1).state ?? 'not known'})`}`,
+      })
+      continue
+    }
     // B662 (X60): a check word typed again restarts the wait; one still waiting, or younger than `checkWordMinutes`, is
     // no case yet. B664: judged by reviewLateOf, as the health summary judges it.
     const { late, key, ms, words } = reviewLateOf(view, item, wait, watchOf(ctx))
@@ -680,6 +691,14 @@ export function reviewLateOf(view, item, wait, seenOf = () => undefined) {
     const last = words.at(-1) ?? null
     return { late: last === null || view.now - last.at > view.settings.checkWordMinutes * MIN, key, ms, words }
   }
+  if (wait.kind === 'report') {
+    // B740 (X92): the board's check of the report failed and the worker has not reported again. Counted in running time
+    // from the failed check; late past `reviewMinutes`, the word to the worker (reconcile.mjs) having had its chance.
+    if (isPaused(view)) return not
+    const key = `review-stuck ${id} report`
+    const ms = spanOf(view, seenOf, key, afterPause(view, wait.since))
+    return { ...not, late: ms > view.settings.reviewMinutes * MIN, key, ms, words: reportWordsOf(view, id, wait.since) }
+  }
   if (wait.kind === 'dropped') {
     if (isPaused(view)) return not
     const key = `fix-dropped ${id}`
@@ -768,6 +787,12 @@ function openFix(view, ctx) {
 /** B667: the refine words about the step `id` from `since` on (the board's and the person's), oldest first. */
 function refineWordsOf(view, id, since) {
   return (view.outbox ?? []).filter(message => message?.command === 'refine' && message.about === id && Number.isFinite(message.at) && message.at >= since)
+    .sort((a, b) => a.at - b.at)
+}
+
+/** B740: the words typed to a step's worker about its failed report check from `since` on (the board's, the check line's or the later one), oldest first. */
+export function reportWordsOf(view, id, since) {
+  return (view.outbox ?? []).filter(message => message?.about === id && message.command === 'work' && message.kind === 'check' && Number.isFinite(message.at) && message.at >= since)
     .sort((a, b) => a.at - b.at)
 }
 

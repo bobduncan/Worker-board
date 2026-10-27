@@ -249,13 +249,38 @@ const heldMapOf = held => (held instanceof Map ? held : new Map((Array.isArray(h
 /** B656: a held why in a few words: the person's choice outside the focus goal without its how ("waits until you add it ..."). */
 const heldWords = why => String(why).replace(/^(outside the focus goal):.*$/, '$1')
 
+/** The clauses of a board check line that name what the report passed: a failed check's reason is the first clause that is none. */
+const PASS_CLAUSE = /^work (?:in|outside git)\b/
+/** B740: how long a failed check's reason may be on the wait line. */
+const WHY_CHARS = 80
+
+/**
+ * B740 (X92: B727's report check failed at 21:03 and its worker never reported it again; the step sat in review an hour
+ * while health's line said nothing of what it waits for): a step in review whose board check of its report failed, with
+ * no report after it. `{ at, stamp, clock, why }`: when the check line was written (ms, to the minute), its "YYYY-MM-DD HH:MM" and "HH:MM", and the
+ * refusal in a few words (the first clause that is no pass line, cut before its detail; "no reason given" for none). null
+ * for any other step.
+ */
+export function reportCheckFailedOf(item) {
+  if (valueOf(item, 'State') !== 'review') return null
+  const lines = historyOf(item)
+  const words = lines.map(wordsOf)
+  const at = words.findLastIndex(one => BOARD_CHECK_LINE.test(one))
+  if (at < 0 || !words[at].startsWith('check failed') || words.slice(at + 1).some(one => REPORTED.test(one))) return null
+  const when = lines[at].match(/^-\s+(\d{4}-\d{2}-\d{2} (\d{2}:\d{2}))/)
+  const reason = words[at].replace(/^check failed:?\s*/, '').split(';').map(one => one.trim()).find(one => one !== '' && !PASS_CLAUSE.test(one)) ?? ''
+  const short = reason.split(/ \(|: /)[0].trim()
+  return { at: sinceMs(when?.[1]), stamp: when?.[1] ?? '', clock: when?.[2] ?? '', why: short === '' ? 'no reason given' : short.length > WHY_CHARS ? `${short.slice(0, WHY_CHARS).trim()}…` : short }
+}
+
 /**
  * B543 (the fix of X8: steps sat in review for days behind a dropped fix): what a step in review waits for, or null
  * (not in review, its board check not passed, no result check needed, or its check passed). `{ kind, fix, since, text }`:
  * kind 'check', its result check (never filed, "waits for its first check"; or to be filed again once its ask point is
  * answered or its fix is done, "waits for its check again"); 'answer', the person's answer to an ask point of its check;
  * 'fix', its open fix `fix` ("waits for its fix B<n>"), also while that fix waits in review for one of its own; 'dropped',
- * its check failed and no fix of it is open or done ("its fix B<n> was dropped"); 'blocked' (B630), the same but the step
+ * its check failed and no fix of it is open or done ("its fix B<n> was dropped"); 'report' (B740), the board's check of its
+ * report failed and it was not reported again (`reportCheckFailedOf`; `since` the failed check, `clock`, `why`); 'blocked' (B630), the same but the step
  * is blocked by open steps `blockers`, so the drop is a plan. `since`: when the wait began (ms); B665: for 'dropped' the
  * later of the drop and the end of the block (`blockEnded`, `{ id, at }`: the last blocker to leave, dropped or done).
  * `items` is the store's items by id. B656: kind 'fix' also names its chain of open fixes followed down (`chain`, its
@@ -263,6 +288,11 @@ const heldWords = why => String(why).replace(/^(outside the focus goal):.*$/, '$
  * "waits for its fix B614, held: outside the focus goal".
  */
 export function reviewWaitOf(item, items, held = null) {
+  // B740: the board's check of the report failed and the worker has not reported again: the step waits for the worker.
+  const refused = reportCheckFailedOf(item)
+  if (refused !== null) {
+    return { kind: 'report', fix: null, since: refused.at, clock: refused.clock, why: refused.why, text: `waits for ${valueOf(item, 'Owner') ?? 'its worker'} to report again: its report check failed at ${refused.clock} (${refused.why})` }
+  }
   if (valueOf(item, 'State') !== 'review' || !gitCheckPassed(item) || !needsResultCheck(item)) return null
   const id = valueOf(item, 'Id')
   const result = resultCheckOf(item)

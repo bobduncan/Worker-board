@@ -75,9 +75,13 @@ sweep is meant to cost little (a few tens of thousands of tokens, mostly cached)
   blocked by B<n>, done") is odd.
 - Steps in review are checked and done; steps piling up in review are odd. A step in review says what it waits for
   ("waits for its fix B<n> (<state>, <owner>)", "waits for your answer to its check", "waits for its first check" or
-  "waits for its check again", "its fix B<n> was dropped"). One that waits for its fix or for the person's answer
+  "waits for its check again", "its fix B<n> was dropped", "waits for <worker> to report again: its report check failed at HH:MM (<why>)", B740). One that waits for its fix or for the person's answer
   waits as planned: no incident, and no "!" unless its fix is odd itself. So does one whose fix was dropped while an
   open step blocks it ("its fix B<n> was dropped, waits for B<m>", B630): odd only when that step is stalled itself. The
+  A step whose report check failed and was not reported again is its worker's to fix: the board types the worker one
+  line after 30 min of running time ("B<n>'s report check failed at HH:MM: fix what it names and report it again"), once per
+  failed check; the review-stuck rule opens past the review minutes if the worker still does not report (look at the
+  worker's chat: it may be off or stuck). The
   review-stuck rule watches a check not filed within the review minutes; the dropped-fix rule a dropped fix with no new
   fix, no new check and no block for over 30 min. A fix the board does not hand out leaves its step waiting for nothing
   that moves: "waits for its fix B<n>, held: <why>" (B656) is odd past the review minutes and the review-held rule's, unless the hold is the person's open ask (B660).
