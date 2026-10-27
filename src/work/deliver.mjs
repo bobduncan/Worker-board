@@ -250,7 +250,10 @@ export function givesRefused(dir, now) {
 export const startKey = (start, notOff, now = 0) => (typeof start.pinned === 'string'
   // Gap 2: a start for a pinned task goes once per start window (the reconciler asks again only after START_WAIT_MS).
   ? `board-start ${start.start} for ${start.pinned} ${Math.floor(now / START_WAIT_MS)}`
-  : `board-start ${start.start ?? 'spawn'} ${notOff}`)
+  // B728: so does every other start. A once-ever key ('board-start Worker 5 4') silenced a start for ever after one had gone
+  // for the same worker and the same count: B415 waited while Worker 5 was closed. The reconciler asks again only
+  // after START_WAIT_MS (`startsPending`), so one word per window is the same rule.
+  : `board-start ${start.start ?? 'spawn'} ${notOff} ${Math.floor(now / START_WAIT_MS)}`)
 
 /**
  * Redesign Part 2: the main chat's word for one more worker (`plan.start`): start a worker of the list whose chat is

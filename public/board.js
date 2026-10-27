@@ -1859,7 +1859,8 @@ function timeOf(lane, now) {
   if (lane.state === 'off') return { ...plain('Not running', 'bad', 'Process'), small: typeof lane.offWhy === 'string' ? [lane.offWhy] : [] }
   if (lane.state === 'waiting') return plain('Blocked', 'bad', 'ETA')
   // B722: free by its card but known not to run (its chat is closed): never "Available", the hand-out gives only to a running chat.
-  if (lane.state === 'free' && lane.isRunning === false) return { ...plain('Closed', 'bad', 'Process'), title: 'This chat is closed. The board wakes it when a task waits and no running worker is free.' }
+  // B728: free by its card but known not to run: the one word "Not running", as the pill and the head count say.
+  if (lane.state === 'free' && lane.isRunning === false) return { ...plain('Not running', 'bad', 'Process'), title: 'This chat does not run. The board asks for it to be started when a task waits and no running worker is free.' }
   if (lane.state === 'free') return plain('Available')
   if (lane.state !== 'working') return plain('Unknown')
   const eta = lane.eta ?? null
@@ -2455,7 +2456,7 @@ function drawLane(lane, state) {
   const who = el('div', 'who')
   const names = el('div', 'who-names')
   // B392: waiting for the partner's answer has a colour of its own.
-  names.append(el('h3', '', lane.name), el('span', `pill is-${(lane.waitsForPartner ?? []).length > 0 && !lane.isLeftover ? 'partner' : lane.state}`, lane.isLeftover ? 'Leftover' : laneStateText(lane)))
+  names.append(el('h3', '', lane.name), el('span', `pill is-${(lane.waitsForPartner ?? []).length > 0 && !lane.isLeftover ? 'partner' : lane.state === 'free' && lane.isRunning === false ? 'off' : lane.state}`, lane.isLeftover ? 'Leftover' : laneStateText(lane)))
   // The model chip (runchip) beside the pill: what the chat runs at now, and a switch it waits for. None for a leftover.
   const runChip = lane.isLeftover ? null : drawRunChip(runChipOf(lane))
   if (runChip !== null) names.append(runChip)
@@ -3767,7 +3768,8 @@ function decidedToggleText(view, isOpen) {
 /** A lane's state in words; the review's findings: a chat that waits on the partner's answer says so, not "for you". */
 function laneStateText(lane, states = STATES) {
   if ((lane.waitsForPartner ?? []).length > 0) return `Waiting for your partner (${lane.waitsForPartner.join(', ')})`
-  return states[lane.state]
+  // B728: free by its card but known not to run is "Not running", the same word as everywhere.
+  return states[lane.state === 'free' && lane.isRunning === false ? 'off' : lane.state]
 }
 // partner-answers:end
 

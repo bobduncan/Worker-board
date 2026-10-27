@@ -322,39 +322,35 @@ function helperIdle(view, { seen = new Map(), observed = [] } = {}) {
 
 /** The states in which a ready task's Touches hold it back from the hand-out: given or under way (work/handOut.mjs `match`). */
 const GIVEN_OR_UNDER_WAY = ['queued', 'taken', 'in progress', 'waiting on you']
-/** B722: a ready task waits this long, with no running worker free, before a closed worker is woken for it. */
-export const CLOSED_WAKE_MS = 2 * MIN
+/** B728: a closed worker the board asked the main chat to start this long ago, still closed, with a ready task waiting. */
+export const CLOSED_WAKE_MS = AGAIN_MS
 
 /**
- * B722 (the person, 2026-10-26: "i added it to the queu, why is it not picked up by worker 5?"): a ready task waits and
- * no running worker is free, but a worker's chat is closed (its lane is "off", or free by its card and known not to run). The hand-out gives only to
- * a running chat, so nobody acted. The board wakes the closed worker that has been closed longest, once, the way it wakes
- * the partner's helper; while the person pauses nobody is woken, and a worker paused for the limit is not "off" (its
- * own rule, limit-back, wakes it). A wake that brings no chat back is filed for the main chat: "B<n> waits; Worker <n>
- * is closed and does not wake".
+ * B722/B728 (the person, 2026-10-26: "i added it to the queu, why is it not picked up by worker 5?"): a ready task
+ * waits and no running worker is free, but a worker's chat is closed (its lane is "off", or free by its card and known
+ * not to run). The one path that wakes it is the hand-out's own start (`workerStart`, a start word to the main chat,
+ * once per start window, never while the person pauses or a limit is full); this rule starts nothing. It only files
+ * what that path cannot: the closed worker closed longest (lanes with an off time first, then by name) was asked to
+ * start CLOSED_WAKE_MS ago and still does not run: "B<n> waits; Worker <n> is closed and does not wake", for the main
+ * chat, once. A worker paused for the limit (`suspended`) is `limit-back`'s, one holding a step `holder-not-running`'s.
  */
-function closedWorker(view, { seen = new Map(), observed = [] } = {}) {
-  const { items = new Map(), prefix = '', now, ready = [] } = view
-  const { workers, steps, isHeld, isFull, wakeOr } = factsOf(view)
+function closedWorker(view) {
+  const { items = new Map(), prefix = '', now, outbox = [], ready = [] } = view
+  const { workers, steps, isHeld, isFull } = factsOf(view)
   if (isHeld || isFull || ready.length === 0) return []
   const holds = lane => steps.some(item => ['queued', 'taken', 'in progress'].includes(stateOf(item)) && plain(valueOf(item, 'Owner'), prefix) === plain(lane.name, prefix))
   if (workers.some(lane => lane.isRunning === true && lane.state === 'free' && !holds(lane))) return []
-  const since = lane => (Number.isFinite(lane.offSince) ? lane.offSince : -Infinity)
   const closed = workers.filter(lane => (lane.state === 'off' || lane.state === 'free') && lane.isRunning === false && !holds(lane))
-    .sort((a, b) => since(a) - since(b) || a.name.localeCompare(b.name))
-  if (closed.length === 0) return []
+    .sort((a, b) => Number.isFinite(a.offSince) === Number.isFinite(b.offSince) ? (a.offSince ?? 0) - (b.offSince ?? 0) || a.name.localeCompare(b.name) : Number.isFinite(a.offSince) ? -1 : 1)
   for (const one of ready) {
     const item = items.get(one.id)
     if (item === undefined || overlapIn(items, item, GIVEN_OR_UNDER_WAY) !== null) continue
     const lane = one.keptFor == null ? closed[0] : closed.find(each => plain(each.name, prefix) === plain(one.keptFor, prefix))
     if (lane === undefined) continue
-    const watch = `closed worker ${one.id}`
-    observed.push(watch)
-    if (now - (seen.get(watch) ?? now) < CLOSED_WAKE_MS) return []
-    const key = `closed-worker ${lane.name} ${one.id}`
-    const fix = wakeOr(key, { do: 'wake', chat: lane.name, id: one.id, text: `work: ${one.id} is ready for you; run work next` },
-      { do: 'main', text: `${one.id} waits; ${lane.name} is closed and does not wake: start it` })
-    return [finding('closed-worker', key, lane.name, `${one.id} waits; ${lane.name} is closed`, fix)]
+    const asked = outbox.findLast(word => word.command === 'start' && plain(word.about, prefix) === plain(lane.name, prefix) && Number.isFinite(word.at))
+    if (asked === undefined || now - asked.at < CLOSED_WAKE_MS) return []
+    const text = `${one.id} waits; ${lane.name} is closed and does not wake`
+    return [finding('closed-worker', `closed-worker ${lane.name} ${one.id}`, lane.name, text, { do: 'main', text: `${text}: start it` })]
   }
   return []
 }

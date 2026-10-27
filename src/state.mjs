@@ -1443,7 +1443,8 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
   })()
 
   const counts = { working: 0, waiting: 0, free: 0, unknown: 0, interrupted: 0, suspended: 0, off: 0 }
-  for (const lane of cards) if (!lane.isLeftover) counts[lane.state] += 1
+  // B728: a free lane known not to run counts as not running: one word for one fact (the lane's pill says it too).
+  for (const lane of cards) if (!lane.isLeftover) counts[lane.state === 'free' && runningOf(lane.name) === false ? 'off' : lane.state] += 1
 
   // The steps the workers are on right now, also the ones that name no branch (a check, a comparison, a merge):
   // they are in progress, not next in a queue.

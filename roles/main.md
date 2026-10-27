@@ -106,7 +106,7 @@ after 20 minutes. So, for every task:
   `work next` lists it first, the lanes and the Backlog tab show it with a "fix" chip. Do not hold it back for the
   focus, and ask the partner nothing about it. A result check's fix (`Fix of`) goes to the worker that built the step
   when that one is free at the give, else to anyone.
-- A closed worker (B722): the board wakes it itself when a ready task waits and no running worker is free (the repair rule `closed-worker`, once, the one closed longest). You start it only when the board tells you "B<n> waits; Worker <n> is closed and does not wake".
+- A closed worker (B722, B728): when a ready task waits and no running worker is free, the board asks you to start the worker whose chat is not running (its `start` word, once per 10 minutes, the one closed longest). Do it as the word says. When it still does not run 10 minutes on, the board tells you "B<n> waits; Worker <n> is closed and does not wake": start it yourself.
 - The partner's helper (the chat the list of chats names with `helper`, shown under the Advisor on the board) is no
   worker: the board gives it no task and the user pins none to it. The partner hands it refines and result
   checks itself. It runs on Sonnet at medium effort (the user, 2026-10-23: "the Advisor's check helpers on Sonnet"):
