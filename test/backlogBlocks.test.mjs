@@ -63,8 +63,8 @@ const GOALS = ['Last id: G33', 'Focus: G33', '', '- [~] G33 The refactor', '- [ 
 /** A board's state from a store of these items (`Key: value` heads), through the server's own `buildState`. */
 function stateOf(heads, more = {}) {
   const work = storeFromText('## Work\n', { now: NOW - 60 * 60_000 })
-  for (const head of heads) {
-    const one = parseItem(`${Object.entries({ Kind: 'step', Since: stamp(NOW - 60 * 60_000), ...head }).map(([key, value]) => `${key}: ${value}`).join('\n')}\n`)
+  for (const { Body = '', ...head } of heads) {
+    const one = parseItem(`${Object.entries({ Kind: 'step', Since: stamp(NOW - 60 * 60_000), ...head }).map(([key, value]) => `${key}: ${value}`).join('\n')}\n${Body}`)
     work.items.set(one.head.get('Id'), one)
     work.activities[0].steps.push(one.head.get('Id'))
   }
@@ -271,7 +271,14 @@ test('"Recently finished" folds away with a click on its head, kept in this brow
 
 test('T9.1.1: a Quality Assurance task stands first in the Queue, for any free worker but the ones that built the step it checks', () => {
   const state = stateOf([
-    { Id: 'B3', Title: 'Check the lanes', State: 'review', Owner: 'Worker 1', Goal: 'G9' },
+    // In review with an agreed point and its board check passed: it waits for its result check (a task for a step that waits for none is held).
+    { Id: 'B3', Title: 'Check the lanes', State: 'review', Owner: 'Worker 1', Goal: 'G9', Body: `
+## What we build
+- the lanes read right
+
+## History
+- ${stamp(NOW - 30 * 60_000)} server: check passed: merged
+` },
     { Id: 'B10', Title: 'Fix the loop lock', State: 'refined', Refined: 'ready', Priority: 'fix', Goal: 'G9' },
     { Id: 'B30', Title: 'Quality Assurance: B3 Check the lanes', State: 'refined', Refined: 'ready', Checks: 'B3', 'Not by': 'Worker 1, Worker 2', Goal: 'G9' },
   ])

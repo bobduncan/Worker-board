@@ -456,7 +456,7 @@ export function workerStart({ ready = [], gives = [], idle = [], lanes = [], max
   // T9.1.1: an idle worker that may take none of the tasks still waiting (it built the step of every QA task left) holds no
   // start back: the task waits for another worker, so one is asked for.
   const waiting = ready.filter(one => one.keptFor === null && !handed.has(one.id) && !refusedIds.has(one.id))
-  if (idle.some(lane => !given.has(lane.name) && (waiting.length === 0 || waiting.some(one => !isBarred(one, lane, prefix))))) return null
+  if (idle.some(lane => !given.has(lane.name) && (waiting.length === 0 || waiting.some(one => !isBarred(one, lane, prefix, items))))) return null
   let givable = 0
   for (const one of ready) {
     if (one.keptFor !== null || handed.has(one.id) || refusedIds.has(one.id)) continue
