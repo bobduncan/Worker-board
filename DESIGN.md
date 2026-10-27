@@ -3806,6 +3806,15 @@ with all its guards, at most once a minute, and refused it only writes why on th
 held to nothing; the row says "not cleared after B12" with what happens next, and the watch rule `not-cleared` names it.
 The mod's newest word why it did not clear now shows as its own kind (`not-cleared`), no longer hidden behind an older
 clear.
+B739 (X91, 2026-10-27: Worker 1 reported B720 at 21:39 and ended its turn with background work still running; its clear was
+refused and its next step held, and nothing told it): the board types such a worker one line, once for each report (`reportedBackgroundDue`
+in `src/say.mjs`, the server's pass beside the resume words; command `report-background`, typed as the board's own word): `B720 is
+reported; your background work still runs: stop it or wait for it, then end your turn`. It is given while the worker's turn has ended,
+the lane's `background` count (the transcript's, what the clear is refused for) is above 0, its clear is owed with a mod that can clear,
+its step is not dropped and the person does not pause; never again for the same report (chat, step and report time), a report again is
+another. The held step and the clear after it stay as they were; a worker that ignores the line stays held, and `not-cleared` opens its
+incident after `notClearedMinutes`. Test: `test/reportedBackground.test.mjs`, and `test/reportedBackgroundBoard.test.mjs` through a
+running board.
 B737 (X86, 2026-10-27: Worker 3 reported B727 at 21:02, the board's check failed at 21:03, Worker 3 rightly stayed in its
 turn to fix it; `not-cleared` counted from 21:02, and the board gave it B729 at 21:28 over the failed check): a report
 whose board check failed (the newest `server: check failed` after it, no `check passed` since) is handed back to its

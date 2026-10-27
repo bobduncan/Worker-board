@@ -580,6 +580,8 @@ function card(chat, raw, { now, config, last, lines, main, prefix, stepOf = () =
     // The review of part 1: why it counts as working between two turns (task, background, branch), and whether its
     // transcript shows a turn open (also behind a "suspended" that may be stale).
     heldBy: held?.why ?? null,
+    // B739: how many pieces of background work it started still run (what its clear is refused for).
+    background,
     isTurnOpen: reported !== null ? state === 'working' && reported.entry?.state === 'busy' : turn === 'running' && !wasCutOff,
     eta,
     // A worker that works and has no time from anywhere: a fault to fix, and shown as one. The main chat hands

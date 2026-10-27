@@ -185,8 +185,9 @@ function messageBody(message, clock, where) {
   // B173: a round of the board's clock is the clock's word, never the person's: it carries no mark of theirs.
   // B300: so is the work store's line that a step is the chat's ("work: B286 is yours; run work next").
   // The supervisor (spec 2026-10-24): so is its sweep word to the supervisor's chat. 2026-10-26: and the word that has a
-  // worker go on with its step after a crash (say.mjs `resumesDue`): the board's, never the person's.
-  if (message.command === 'round' || message.command === 'work' || message.command === 'sweep' || message.command === 'resume-step') return words
+  // worker go on with its step after a crash (say.mjs `resumesDue`): the board's, never the person's. B739: and the line that a
+  // reported step's worker still has background work running (say.mjs `reportedBackgroundDue`).
+  if (message.command === 'round' || message.command === 'work' || message.command === 'sweep' || message.command === 'resume-step' || message.command === 'report-background') return words
   if ((message.ask ?? null) === null) {
     const picture = typeof message.picture === 'string' ? pictureLine(where(message.picture)) : null
     return `${[words, picture].filter(part => part !== null && part !== '').join('\n')}\n(typed on the worker board, ${clock(message.at)})`

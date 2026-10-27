@@ -56,7 +56,9 @@ into your chat, are in `protocol.md` beside this file: keep to them, or the boar
   are, and your open instructions, and runs `work next`. So before you report, everything your next step needs stands
   in the store: your checkpoint (`work step` with `commit` and `next`), the report itself (what the user gets now,
   where the work is), and every question for the user as an ask (`work ask`). A question left only in your answer's
-  words keeps you from being cleared, and so does a subagent or background command still running when your turn ends.
+  words keeps you from being cleared, and so does a subagent or background command still running when your turn ends
+  (B739: after your report the board types you one line about it, once: `B<n> is reported; your background work still runs:
+  stop it or wait for it, then end your turn`; do that, and you are cleared).
 - Write to the user as the project's `CLAUDE.md` says, when it has one, else as the board's `examples/CLAUDE.md` says (a
   new project gets it as its own, B320). The board reads your answer's closing block
   ("+ Done:   yes": you are free, see `protocol.md`), never its "For you" block as questions.

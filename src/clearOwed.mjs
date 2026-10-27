@@ -68,9 +68,11 @@ function reportsOf(items, chat, prefix = '') {
  * handedBackOf): it is no report that ends the turn, so it owes no clear. `{ id, at }`, at to the minute; null for none.
  */
 export function lastReportOf(items, chat, prefix = '') {
-  const last = reportsOf(items, chat, prefix).filter(one => !one.failed).at(-1)
-  return last === undefined ? null : { id: last.id, at: last.at }
+  const last = lastPassedReport(items, chat, prefix)
+  return last === null ? null : { id: last.id, at: last.at }
 }
+
+const lastPassedReport = (items, chat, prefix) => reportsOf(items, chat, prefix).filter(one => !one.failed).at(-1) ?? null
 
 /**
  * B737 (X86): the report the board's check handed back: the chat's newest report, when its check failed and the chat has
@@ -103,8 +105,8 @@ export function takenSince(items, chat, at, prefix = '') {
 
 /**
  * The clear a worker owes (`lane`: the board's chat, state.mjs, with its card's `compaction`): its last report is newer
- * than its last clear, with "afterStep": "clear" in the list of chats. `{ step, reportedAt, clearedAt, why }`: the step
- * reported, when, the last clear (null for none), and the Workers mod's last word why it did not clear when that word
+ * than its last clear, with "afterStep": "clear" in the list of chats. `{ step, reportedAt, clearedAt, why, isDropped }`: the step
+ * reported (`isDropped`: it was dropped since), when, the last clear (null for none), and the Workers mod's last word why it did not clear when that word
  * came after the report (else null). Null when nothing is owed: no clear after steps, no worker, no report, or a clear
  * since. B547 (X48, X49, X61-X64): or its conversation began since (`conversationAt`, its transcript's start): the card's
  * mark of a clear is written anew every few seconds while the chat works, and a crash of the PC left such cards
@@ -112,7 +114,7 @@ export function takenSince(items, chat, at, prefix = '') {
  */
 export function clearOwed({ lane, items, prefix = '', afterStep = null, conversationAt = null }) {
   if (afterStep !== 'clear' || lane === null || lane === undefined || lane.isMain === true || lane.isLeftover === true) return null
-  const report = lastReportOf(items, lane.name, prefix)
+  const report = lastPassedReport(items, lane.name, prefix)
   if (report === null) return null
   const compaction = lane.compaction ?? null
   const cleared = compaction?.lastCleared ?? (compaction?.kind === 'cleared' ? { at: compaction.at, step: compaction.step ?? null } : null)
@@ -122,7 +124,7 @@ export function clearOwed({ lane, items, prefix = '', afterStep = null, conversa
   if (Number.isFinite(conversationAt) && conversationAt >= report.at) return null
   const note = compaction?.notCleared ?? null
   const why = note !== null && Number.isFinite(note.at) && note.at >= report.at && typeof note.why === 'string' ? note.why : null
-  return { step: report.id, reportedAt: report.at, clearedAt, why }
+  return { step: report.id, reportedAt: report.at, clearedAt, why, ...(report.dropped === true ? { isDropped: true } : {}) }
 }
 
 /** Whether an outbox message is the board's line that a step is the chat's ("work: B286 is yours; run work next"). */
