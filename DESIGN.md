@@ -3397,7 +3397,7 @@ the AI sweep by a cheap supervisor chat and the hand-over to the Advisor, comes 
   again, so it sat in review an hour with nothing said) its worker's new report: "waits for <worker> to report again: its
   report check failed at HH:MM (<why in a few words>)", for a step in review whose last board check line is "check failed" with
   no report after it; a re-report ends it, the board's new check then pending as before; a dropped step says nothing). That
-  wait, 30 min of running time old (`reportAgainMinutes`; board-off time and the person's pause left out), has the board type
+  wait, 30 min of running time old (`REPORT_AGAIN_MINUTES` in reconcile.mjs; board-off time and the person's pause left out), has the board type
   the worker one line, once per failed check (the key holds the check's minute; the reconciler's flag 'report again', delivered
   like the check's word): "B<n>'s report check failed at HH:MM: fix what it names and report it again". The delivery holds
   it while the person pauses, as every line. Past `reviewMinutes` of running time the rule `review-stuck` opens for it too.

@@ -42,8 +42,6 @@ export const SUPERVISOR_DEFAULTS = Object.freeze({
   reviewMinutes: 60,
   /** B662: a step in review is stuck only when its newest check word has gone unanswered this long (the repair had its chance). */
   checkWordMinutes: 30,
-  /** B740 (X92): a step in review whose report check failed and was not reported again this long (running time) before its worker is told once. */
-  reportAgainMinutes: 30,
   /** B667: a fix that waits for the partner's refine this long, its newest refine word older than `checkWordMinutes`. */
   openFixMinutes: 60,
   /** B663 (the fix of X67): a step whose board check failed twice is a case only once its second failure is older than this (the worker may be correcting its report). */
@@ -157,6 +155,8 @@ export const DEFAULTS = {
   /** B113: the file the app keeps its usage samples in, and the percentage from which a limit's bar warns. */
   usageHistory: '%APPDATA%\\Claude\\plan-usage-history.json',
   limitWarnPercent: 80,
+  /** B742 (X96): the percent of the week's limit from which all work stops (the person, 2026-10-19: 98), so the board counts the week full there. */
+  weekStopAt: 98,
   /**
    * B173: what one project sets for the Advisor (its job is the board's `roles/partner.md`). The backlog, in the
    * project; the game plan, the Advisor's decisions and the documents it reads first, in the game's repository; the
@@ -387,7 +387,7 @@ const PATHS = ['project', 'gameRepo', 'appSessions', 'transcripts']
 const PROJECT_PATHS = ['backlog', 'gamePlan', 'productPlan', 'advisorDecisions', 'designKinds']
 // Focus 1: the goal map's paths, inside the project or a whole path of their own (a copy's).
 const MAP_PATHS = ['goals', 'brainstorms', 'goalAsks', 'goalsHistory']
-const NUMBERS = ['port', 'refreshSeconds', 'quietMinutes', 'estimateOldMinutes', 'hoursBack', 'hoursAhead', 'maxMessageChars', 'messageKeepMinutes', 'answerKeepHours', 'unfiledAskHours', 'gamePort', 'gameIdleSeconds', 'gameOpenSeconds', 'limitWarnPercent', 'morningSkipPercent']
+const NUMBERS = ['port', 'refreshSeconds', 'quietMinutes', 'estimateOldMinutes', 'hoursBack', 'hoursAhead', 'maxMessageChars', 'messageKeepMinutes', 'answerKeepHours', 'unfiledAskHours', 'gamePort', 'gameIdleSeconds', 'gameOpenSeconds', 'limitWarnPercent', 'weekStopAt', 'morningSkipPercent']
 
 /**
  * B134: where the app keeps the transcripts of a project's chats: the user's `.claude\projects`, in a folder named

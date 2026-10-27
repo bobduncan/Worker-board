@@ -307,9 +307,9 @@ export function reconcile({ store, flow = store.flow, lanes = [], now, times, pr
   const pausedUntil = store.pause?.state === 'running' ? (store.pause.resumedSince ?? store.pause.since ?? null) : null
   const notBefore = Math.max(...[pausedUntil, heldUntil].filter(Number.isFinite), -Infinity)
   // B740 (X92: B727's report check failed at 21:03 and its worker never reported it again): a step in review whose report
-  // check failed, with no report after it, for `reportAgainMinutes` of running time (the time the board was off and the
+  // check failed, with no report after it, for `REPORT_AGAIN_MINUTES` of running time (the time the board was off and the
   // person's pause left out; `offMs(from)` is the board's off time since `from`): its worker is told once per failed check.
-  const againMs = (Number.isFinite(settings.reportAgainMinutes) ? settings.reportAgainMinutes : REPORT_AGAIN_MINUTES) * MIN
+  const againMs = REPORT_AGAIN_MINUTES * MIN
   for (const item of ok.filter(one => stateOf(one) === 'review')) {
     const refused = reportCheckFailedOf(item)
     const lane = refused === null ? undefined : laneOf(valueOf(item, 'Owner'))
