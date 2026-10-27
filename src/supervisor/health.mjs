@@ -197,7 +197,7 @@ function plannedWait(item, view, now, seen = new Set()) {
  * (B630: then it waits as planned). Null when it waits for none of these: its age decides.
  */
 function reviewLate(item, view, now, seen) {
-  const wait = reviewWaitOf(item, view.items, view.held)
+  const wait = reviewWaitOf(item, view.items, view.held, now)
   if (wait === null) return null
   // B664 (X8 a third time: a "!" on review where the rules stayed quiet, the gap of B660 and B662): the person's answer,
   // a check, a dropped fix and a fix the ready list holds are judged as the watch rules judge them (watch.mjs
@@ -309,7 +309,7 @@ function stepLines(view, now) {
     const ended = state === 'queued' ? ((valueOf(item, 'Blocked by') ?? '').match(/\bB\d+\b/g) ?? []).filter(blocker => ENDED.includes(stateIn(view.items, blocker))) : []
     // B563: a step in review names what it waits for, its open fix with that fix's state and owner; B656: its chain's
     // newest link and why that one waits.
-    const reviewWait = reviewWaitOf(item, view.items, view.held)
+    const reviewWait = reviewWaitOf(item, view.items, view.held, now)
     if (reviewWait?.kind === 'fix' && reviewWait.held !== null) {
       review.held += 1
       // B664 (X8 a third time: the line had a "!" for a hold the rules were quiet on): odd only for a hold the rules call late.
@@ -343,7 +343,7 @@ function stepLines(view, now) {
 function isChainLink(item, view) {
   const of = valueOf(item, 'Fix of')
   const parent = of === null ? undefined : view.items.get(of)
-  return parent !== undefined && valueOf(parent, 'State') === 'review' && reviewWaitOf(parent, view.items)?.fix === valueOf(item, 'Id')
+  return parent !== undefined && valueOf(parent, 'State') === 'review' && reviewWaitOf(parent, view.items, null, view.now)?.fix === valueOf(item, 'Id')
 }
 
 /**
@@ -354,7 +354,7 @@ function chainWords(id, wait, view) {
   const links = wait.chain.filter(link => stateIn(view.items, link) === 'review')
   const owner = link => valueOf(view.items.get(link), 'Owner') ?? 'no owner'
   if (links.length === 0 && wait.end === wait.fix) return ` (${stateIn(view.items, wait.fix)}, ${owner(wait.fix)})`
-  const newest = stateIn(view.items, wait.end) === 'review' ? reviewWaitOf(view.items.get(wait.end), view.items, view.held)?.text ?? null : null
+  const newest = stateIn(view.items, wait.end) === 'review' ? reviewWaitOf(view.items.get(wait.end), view.items, view.held, view.now)?.text ?? null : null
   return `; one chain, ${links.length + 1} in review: ${[id, ...links].join(' → ')}; newest link ${wait.end} ${stateIn(view.items, wait.end)}, ${owner(wait.end)}${newest === null ? '' : `, ${newest}`}`
 }
 

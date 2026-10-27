@@ -156,8 +156,14 @@ test('health and the rules agree: the Q408 hold and a fresh QA task are odd to n
   const fresh = { seen }
   assert.deepEqual(check('review-stuck', view(items(reviewed('B640', 90, null), task(10)), fresh), seen), [])
   assert.equal(lineOfStep(healthSummary(view(items(reviewed('B640', 90, null), task(10)), fresh), NOW), 'B640').startsWith('- B640 review'), true)
-  // Its task made 70 min ago and nobody took it, past reviewMinutes: a case for the rule, and "!" in health.
-  const stale = items(reviewed('B640', 90, null), task(70))
+  // Its task made 70 min ago, ready or given and not taken: the hand-out's to move (ready-while-free and not-taking watch it): odd to neither.
+  for (const state of ['refined', 'queued']) {
+    const waiting = items(reviewed('B640', 90, null), task(70, state))
+    assert.deepEqual(check('review-stuck', view(waiting, fresh), seen), [], state)
+    assert.equal(lineOfStep(healthSummary(view(waiting, fresh), NOW), 'B640').startsWith('- B640 review'), true, state)
+  }
+  // Its task taken 70 min ago and not begun, past reviewMinutes: a case for the rule, and "!" in health.
+  const stale = items(reviewed('B640', 90, null), task(70, 'taken', { Owner: 'Painter' }))
   assert.equal(check('review-stuck', view(stale, fresh), seen).length, 1)
   assert.equal(lineOfStep(healthSummary(view(stale, fresh), NOW), 'B640').startsWith('- ! B640 review'), true)
   // A worker on it: odd to neither, however long.

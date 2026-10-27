@@ -291,9 +291,12 @@ test('B532 undelivered: a word the outbox sweep drops is not named, nor an answe
   ]
   const board = more => view({ items: items(step('B5', 'new'), step('B6', 'done')), outbox, ...more })
   assert.deepEqual(check('undelivered', board()), [], 'superseded, its step done, an old answer')
-  const needed = { id: 'c2', to: 'Painter', command: 'result-check', about: 'B7', at, state: 'waiting' }
-  const found = check('undelivered', view({ items: items(step('B7', 'review')), outbox: [...outbox, needed] }))
-  assert.deepEqual(found.map(one => one.evidence), [`${clockOf(at)} result-check B7 (waiting)`])
+  const needed = { id: 'c2', to: 'Painter', command: 'refine', about: 'B7', at, state: 'waiting' }
+  const found = check('undelivered', view({ items: items(step('B7', 'new')), outbox: [...outbox, needed] }))
+  assert.deepEqual(found.map(one => one.evidence), [`${clockOf(at)} refine B7 (waiting)`])
+  // T9.1.1: an old check word is never needed, whatever its step is: a worker checks it now, the Advisor can no longer.
+  const old = { id: 'c3', to: 'Painter', command: 'result-check', about: 'B8', at, state: 'waiting' }
+  assert.deepEqual(check('undelivered', view({ items: items(step('B8', 'review')), outbox: [old] })), [])
 })
 
 test('report-check-twice: a step whose board check failed twice since its last pass trips; once, or passed after, does not', () => {

@@ -3,7 +3,7 @@
 // it names; the outbox sweep's whyClosed (outboxSweep.mjs) gives the health summary and rule 8 the same answer. Until
 // B589 only a waiting line was judged: one the chat could not type stayed failed, and was named, after its step was done.
 
-import { openQaTaskOf } from './qaTask.mjs'
+import { OLD_CHECK_WHY } from './qaTask.mjs'
 
 /** B465, the review: a line of the board's sync check holds at most this long; the check decides anew after it. */
 export const SYNC_LINE_MS = 30 * 60_000
@@ -34,18 +34,14 @@ export function workLineWhy(message, items, { prefix = '', now = Date.now() } = 
     // B465: the board's sync check woke a chat about something (a step, its helper's work, an ask, the limit). The
     // review: its line holds while what it is about is still open, for its owner's lines while the step is still that
     // chat's, and at most SYNC_LINE_MS: the check looks again every few minutes and decides anew.
+    // T9.1.1: the word that asked the Advisor for a result check again (the repair `unchecked`, gone now): closed whatever the step's
+    // state, for the Advisor can no longer file a step check: a worker does, by its Quality Assurance task.
+    if (/^unchecked /.test(String(message.syncKey ?? ''))) return OLD_CHECK_WHY
     const isStep = value(item, 'Kind') === 'step'
     if (item === undefined) return gone
     // T9.4: the words that ask the Advisor again hold while its refine is still to write (the step new), or its incident still with it.
     const again = /^(refine|incident)-again /.exec(String(message.syncKey ?? ''))?.[1] ?? null
     if (again === 'refine' ? state !== 'new' : again === 'incident' ? state !== 'with the advisor' : isStep ? ['done', 'dropped'].includes(state) : state !== 'open') return `${id} is ${state}`
-    // T9.1.1: the word that asked the Advisor for a result check again (the repair `unchecked`, gone now): not needed once the step
-    // left review or has its Quality Assurance task, which a worker does.
-    if (/^unchecked /.test(String(message.syncKey ?? ''))) {
-      if (state !== 'review') return `${id} left review`
-      const qa = openQaTaskOf(items, id)
-      if (qa !== null) return `${id} has its QA task ${value(qa, 'Id')}`
-    }
     const isOwnersLine = /^(?:not-taken|limit-back) /.test(String(message.syncKey ?? ''))
     if (isOwnersLine && (value(item, 'Owner') === null || plain(value(item, 'Owner'), prefix) !== plain(message.to, prefix))) return `${id} is no longer ${message.to}'s`
     return now - (message.at ?? 0) < SYNC_LINE_MS ? null : `the sync check decides anew after ${SYNC_LINE_MS / 60_000} min`

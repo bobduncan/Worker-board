@@ -232,7 +232,7 @@ test('B585 (X33), T9.1.1: a first check counts from the board check that asked i
   assert.match(line(qaTask('B530', 'B522', 'done', 51)), /check asked 10:08, no QA task yet\)/)
 })
 
-test('T9.1.1: a check whose QA task nobody took is odd past reviewMinutes from when the task was made; one a worker is on is never odd; none is odd from the ask', () => {
+test('T9.1.1: a check whose QA task was taken and not begun is odd past reviewMinutes from when the task was made; one ready, given or begun is not; none is odd from the ask', () => {
   const b664 = step('B664', 'review', { Owner: 'Worker 2', Since: stamp(ago(720)) }, {
     'What we build': ['- a lamp at every bench'],
     History: [`- ${stamp(ago(720))} Worker 2: in progress → review`, checkPassed(714)],
@@ -243,9 +243,11 @@ test('T9.1.1: a check whose QA task nobody took is odd past reviewMinutes from w
   }), NOW), 'B664')
   // The task was made 31 min ago: within the hour, quiet (the check was asked 12 h ago, but the board made no task until now).
   assert.equal(line(qaTask('B670', 'B664', 'refined', 31)).startsWith('- B664 review'), true)
-  // Made 90 min ago and nobody took it: odd.
-  assert.equal(line(qaTask('B670', 'B664', 'refined', 90)).startsWith('- ! B664 review'), true)
-  assert.match(line(qaTask('B670', 'B664', 'queued', 90, { Owner: 'Worker 3' })), /QA task B670 queued since 09:30 \(given to Worker 3\)/)
+  // Made 90 min ago and ready or given, not taken: the hand-out's to move (go-live gives them one by one): quiet, the line says where it stands.
+  assert.equal(line(qaTask('B670', 'B664', 'refined', 90)).startsWith('- B664 review'), true)
+  assert.match(line(qaTask('B670', 'B664', 'queued', 90, { Owner: 'Worker 3' })), /^- B664 review.*QA task B670 queued since 09:30 \(given to Worker 3\)/)
+  // Taken 90 min ago and not begun: odd.
+  assert.equal(line(qaTask('B670', 'B664', 'taken', 90, { Owner: 'Worker 3' })).startsWith('- ! B664 review'), true)
   // A worker on it for hours is no case for the Advisor: the watch rules of a step in progress see it.
   assert.equal(line(qaTask('B670', 'B664', 'in progress', 200, { Owner: 'Worker 3' })).startsWith('- B664 review'), true)
   // No task at all for 12 hours (the repair makes one at once, so this is a board that cannot): odd.

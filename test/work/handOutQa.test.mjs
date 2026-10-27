@@ -15,6 +15,8 @@ const T = (h, m) => new Date(2026, 9, 27, h, m).getTime()
 
 const file = (head, sections = {}) => parseItem(`${Object.entries(head).map(([key, value]) => `${key}: ${value}`).join('\n')}\n${Object.entries(sections).map(([name, lines]) => `\n## ${name}\n${lines.join('\n')}\n`).join('')}`)
 const step = (id, state, more = {}, sections = {}) => file({ Id: id, Kind: 'step', Title: `Task ${id}`, State: state, Since: '2026-10-27 10:00', ...(state === 'refined' ? { Refined: 'ready' } : {}), ...more }, sections)
+/** A step in review that waits for its result check: an agreed point, its board check passed, no result check yet. */
+const waiting = (id, more = {}, history = ['- 2026-10-27 11:00 server: check passed: merged']) => step(id, 'review', more, { 'What we build': ['- a point'], History: history })
 const qa = (id, checks, notBy, more = {}) => step(id, 'refined', { Title: `Quality Assurance: ${checks} Task ${checks}`, Checks: checks, ...(notBy === null ? {} : { 'Not by': notBy }), ...more })
 const mapOf = items => new Map(items.map(item => [item.head.get('Id'), item]))
 const list = (items, more = {}) => readyList(mapOf(items), { now: NOW, focus: 'G3', followUpMs: 10 * MIN, standardHold: () => null, routingHeld: new Set(), prefix: 'Team - ', ...more })
@@ -27,19 +29,19 @@ const gives = done => done.map(({ id, chat }) => ({ id, chat }))
 test('a QA task comes before a fix and the focus goal\'s tasks, whatever its id; each rank by id', () => {
   const done = list([
     step('B5', 'refined', { Goal: 'G3' }), step('B9', 'refined', { Priority: 'fix' }), step('B2', 'refined'),
-    step('B6', 'review'), step('B7', 'review'), qa('B40', 'B7', 'Worker 1'), qa('B31', 'B6', 'Worker 2'),
+    waiting('B6'), waiting('B7'), qa('B40', 'B7', 'Worker 1'), qa('B31', 'B6', 'Worker 2'),
   ])
   assert.deepEqual(done.ready.map(one => [one.id, one.rank]), [['B31', -1], ['B40', -1], ['B9', 0], ['B5', 1], ['B2', 2]])
 })
 
 test('a QA task\'s entry names whom it is never given to, and is kept for nobody; others carry no such field', () => {
-  const done = list([step('B6', 'review'), qa('B31', 'B6', 'Worker 1, Worker 2'), step('B2', 'refined')])
+  const done = list([waiting('B6'), qa('B31', 'B6', 'Worker 1, Worker 2'), step('B2', 'refined')])
   assert.deepEqual(done.ready[0], { id: 'B31', rank: -1, keptFor: null, keptUntil: null, pinned: null, prefers: null, notBy: ['Worker 1', 'Worker 2'] })
   assert.equal(Object.hasOwn(done.ready[1], 'notBy'), false)
 })
 
 test('a QA task is ready though its goal is not the focus and nobody added it; a plain task of that goal waits for the person\'s pick', () => {
-  const done = list([step('B6', 'review'), qa('B31', 'B6', 'Worker 1', { Goal: 'G9' }), step('B2', 'refined', { Goal: 'G9' })], { beyondFocus: false })
+  const done = list([waiting('B6'), qa('B31', 'B6', 'Worker 1', { Goal: 'G9' }), step('B2', 'refined', { Goal: 'G9' })], { beyondFocus: false })
   assert.deepEqual(done.ready.map(one => one.id), ['B31'])
   assert.deepEqual(done.held, [{ id: 'B2', why: CHOICE_WHY, choice: true }])
 })
@@ -48,7 +50,7 @@ test('a QA task is no follow-up of anyone: not kept for the builder that finishe
   const done = step('B5', 'done', { Owner: 'Worker 1' }, { History: ['- 2026-10-27 11:55 Worker 1: in progress → review', '- 2026-10-27 11:56 server: review → done'] })
   const task = qa('B31', 'B6', 'Worker 1', { 'Waits for': 'B5' })
   for (const followUpMs of [0, 10 * MIN]) {
-    const found = list([done, step('B6', 'review'), task], { followUpMs })
+    const found = list([done, waiting('B6'), task], { followUpMs })
     assert.deepEqual([found.ready[0].keptFor, found.ready[0].keptUntil, found.ready[0].prefers], [null, null, null], `follow-up ${followUpMs}`)
   }
 })
@@ -60,7 +62,7 @@ test('a QA task whose step is not in review is held, saying so: no worker is giv
     assert.deepEqual([found.ready.map(one => one.id), found.held], [[], [{ id: 'B31', why: `B6 is ${state}, not in review: nothing to check` }]], state)
   }
   assert.deepEqual(list([task]).held, [{ id: 'B31', why: 'B6 is not in the store: nothing to check' }])
-  assert.deepEqual(list([step('B6', 'review'), task]).held, [])
+  assert.deepEqual(list([waiting('B6'), task]).held, [])
 })
 
 test('match: a QA task goes to an idle worker that did not build the step, never to one in its Not by, with or without the list\'s prefix', () => {
@@ -90,7 +92,7 @@ test('match: when only a builder is idle the QA task waits, and the builder stil
 
 test('match: a QA task pinned to a builder (the person\'s pin) is still never given to that builder', () => {
   const items = mapOf([qa('B31', 'B6', 'Worker 1', { Pinned: 'Worker 1' })])
-  const found = list([step('B6', 'review'), qa('B31', 'B6', 'Worker 1', { Pinned: 'Worker 1' })])
+  const found = list([waiting('B6'), qa('B31', 'B6', 'Worker 1', { Pinned: 'Worker 1' })])
   assert.equal(found.ready[0].keptFor, 'Worker 1')
   assert.deepEqual(match({ ready: found.ready, idle: [lane('Worker 1'), lane('Worker 2')], items }), [])
 })
@@ -131,4 +133,24 @@ test('the work API\'s give refuses a QA task for a chat that built the step it c
   } finally {
     await remove(store.dir)
   }
+})
+
+test('a QA task nobody took is held while its step waits for the person (an open ask point, or the checker\'s ask owed) or for a fix; ready once a check is due', () => {
+  const judged = (at, more = {}) => waiting('B6', more, [`- 2026-10-27 11:00 server: check passed: merged`, `- 2026-10-27 ${at} Worker 3: result check waits for you: 1 of 2 points pass; 1 for you to judge`])
+  const ask = (state, more = {}) => step('Q1', state, { Kind: 'ask', Of: 'B6', Filed: String(new Date(2026, 9, 27, 11, 51).getTime()), ...more })
+  const task = qa('B31', 'B6', 'Worker 1')
+  // Its ask point is open: the step waits for the person's answer, not for a check.
+  const open = list([judged('11:50'), ask('open'), task])
+  assert.deepEqual([open.ready, open.held], [[], [{ id: 'B31', why: 'B6 waits for your answer to its check, not for a check: nothing to check' }]])
+  // The check is in a few minutes ago and the checker's ask is still to come: the same.
+  assert.equal(list([judged('11:50'), task]).held[0].why, 'B6 waits for your answer to its check, not for a check: nothing to check')
+  // Past 30 minutes with no ask the check is due again; so right after an answered ask.
+  assert.deepEqual(list([judged('11:20'), task]).ready.map(one => one.id), ['B31'])
+  assert.deepEqual(list([judged('11:50'), ask('answered'), task]).ready.map(one => one.id), ['B31'])
+  // An open fix: the step waits for it.
+  const fixed = waiting('B6', {}, [`- 2026-10-27 11:00 server: check passed: merged`, `- 2026-10-27 11:30 Worker 3: result check failed: 0 of 2 points pass; fix B8 for Worker 1`])
+  const fix = step('B8', 'queued', { 'Fix of': 'B6', Owner: 'Worker 1' })
+  assert.equal(list([fixed, fix, task]).held[0].why, 'B6 waits for its fix B8, not for a check: nothing to check')
+  // A step that waits for no result check at all (nothing to check, or its check passed).
+  assert.equal(list([step('B6', 'review'), task]).held[0].why, 'B6 waits for no result check: nothing to check')
 })

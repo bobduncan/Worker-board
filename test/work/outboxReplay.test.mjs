@@ -39,7 +39,7 @@ test('the replay with the steps\' states of then: 31 of 33 close, the Q300 answe
   // As the board's own first sweep closed them that evening.
   const why = {}
   for (const one of closed) why[one.why.replace(/ \(.*\)$/, '')] = (why[one.why.replace(/ \(.*\)$/, '')] ?? 0) + 1
-  assert.deepEqual(why, { 'superseded by a newer word of the same kind': 23, 'the step is done now, not in review': 4, 'the step is done now, not new': 3, 'waited longer than 48 hours': 1 })
+  assert.deepEqual(why, { 'superseded by a newer word of the same kind': 23, 'the Advisor can no longer file a step check: a worker checks it': 4, 'the step is done now, not new': 3, 'waited longer than 48 hours': 1 })
   // Q300's answer, three days old, is handed to Worker 5 at its next take, with its age.
   const taken = await takeFor({ dir, outbox: store, state: { chats: [] }, now: replay.at, keep, chat: 'Worker 5' })
   assert.deepEqual(taken.map(one => [one.step, Math.round(one.lateMs / HOUR)]), [['Q300', 77]])

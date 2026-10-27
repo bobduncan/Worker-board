@@ -8,7 +8,7 @@
 import { familyOf, modelOf } from './effort.mjs'
 import { UNDER_WAY, overlapIn, readyHold } from './guards.mjs'
 import { isFix, sinceMs, valueOf } from './item.mjs'
-import { isQaTask, notByOf } from './qaTask.mjs'
+import { barredFrom, isQaTask, notDueWhy } from './qaTask.mjs'
 
 /**
  * The settings' defaults (config.mjs): minutes to take a given task; minutes a follow-up is kept for its worker (0: a
@@ -93,13 +93,19 @@ function fixChain(item, items) {
   return chain
 }
 
-/** T9.1.1: why a QA task has nothing to check now (the step it checks is not in review), in one line; null for any other task. */
-function staleQaWhy(item, items) {
+/**
+ * T9.1.1: why a QA task has nothing to check now, in one line; null for any other task. The step it checks is not in review, or
+ * it is but waits for something else than a result check (the person's answer to an ask point, an open fix): the check
+ * the task would make is not due. (The repair `unchecked` drops such a task nobody took.)
+ */
+function staleQaWhy(item, items, now) {
   if (!isQaTask(item)) return null
   const checks = valueOf(item, 'Checks')
   const step = items.get(checks)
   if (step === undefined) return `${checks} is not in the store: nothing to check`
-  return stateOf(step) === 'review' ? null : `${checks} is ${stateOf(step)}, not in review: nothing to check`
+  if (stateOf(step) !== 'review') return `${checks} is ${stateOf(step)}, not in review: nothing to check`
+  const notDue = notDueWhy(step, items, now)
+  return notDue === null ? null : `${checks} ${notDue}: nothing to check`
 }
 
 /**
@@ -114,9 +120,10 @@ function staleQaWhy(item, items) {
  * A task of rank 2 neither pinned nor added is held for the person's choice (`choice: true`, CHOICE_WHY) unless
  * `beyondFocus`.
  * A QA task (qaTask.mjs) is never held for the person's pick (the step it checks was started already), is a follow-up of
- * nobody, and carries `notBy`, the chats it is never given to (the ones that built the step it checks). It is held, saying
- * so, while the step it checks is not in review (the person marked it done, dropped it: no worker checks a closed step; the
- * supervisor's repair `unchecked` drops the task).
+ * nobody, and carries `notBy`, the chats it is never given to (its stored `Not by` joined with the builders of the step it
+ * checks and of its fix chain now: qaTask.mjs `barredFrom`). It is held, saying so, while the step it checks is not in review
+ * (the person marked it done, dropped it: no worker checks a closed step) or waits for something else than a result check (the
+ * person's answer to an ask point, an open fix); the supervisor's repair `unchecked` drops the task.
  * Which steps go out by themselves (B691, B694, B697; the one place that states it): the focus is the goal `focus` and the
  * goals under it (`focusGoals`): a step of one is the focus's, rank 1. A fix goes out as its root does (its chain,
  * `fixChain`): it is the focus's when any step down its chain belongs to the focus, and picked when any step down its chain
@@ -132,7 +139,7 @@ export function readyList(items, { now, focus = null, focusGoals = [], followUpM
   const steps = [...items.values()].filter(item => kindOf(item) === 'step' && stateOf(item) === 'refined' && typeof idOf(item) === 'string')
   for (const item of steps.sort((a, b) => byId(idOf(a), idOf(b)))) {
     const id = idOf(item)
-    const why = staleQaWhy(item, items) ?? readyHold(item, ctx) ?? standardHold?.(item) ?? (routingHeld.has(id) ? 'held by its routing record' : null)
+    const why = staleQaWhy(item, items, now) ?? readyHold(item, ctx) ?? standardHold?.(item) ?? (routingHeld.has(id) ? 'held by its routing record' : null)
     if (why !== null) {
       held.push({ id, why })
       continue
@@ -154,7 +161,7 @@ export function readyList(items, { now, focus = null, focusGoals = [], followUpM
       held.push({ id, why: CHOICE_WHY, choice: true })
       continue
     }
-    ready.push({ id, rank, keptFor: pinned ?? (isKept ? follow?.worker ?? null : null), keptUntil: isKept ? follow?.until ?? null : null, pinned, prefers: isKept ? null : follow?.worker ?? null, ...(added === null ? {} : { added }), ...(isQa ? { notBy: notByOf(item) } : {}) })
+    ready.push({ id, rank, keptFor: pinned ?? (isKept ? follow?.worker ?? null : null), keptUntil: isKept ? follow?.until ?? null : null, pinned, prefers: isKept ? null : follow?.worker ?? null, ...(added === null ? {} : { added }), ...(isQa ? { notBy: barredFrom(item, items) } : {}) })
   }
   // Within rank 2 the person's additions come first, in the order they were added (one without a readable stamp last of them).
   const addedOrder = one => (one.rank !== 2 || one.added === undefined ? Infinity : Number.isFinite(addedAt(items.get(one.id))) ? addedAt(items.get(one.id)) : Number.MAX_SAFE_INTEGER)
@@ -216,10 +223,15 @@ export function idleWorkers(lanes, { items, prefix = '', restFree = [], stuck = 
 }
 
 /**
- * T9.1.1: whether a ready entry is never given to this worker: a Quality Assurance task (its `notBy`) to a chat that built the
- * step it checks, whatever the list's prefix and the letters of the name.
+ * T9.1.1: whether a ready entry is never given to this worker: a Quality Assurance task (its `notBy`, joined with the builders of
+ * the step it checks and of its fix chain as the store has them now: `barredFrom`) to a chat that built the step, whatever the
+ * list's prefix and the letters of the name.
  */
-const isBarred = (one, worker, prefix = '') => (one.notBy ?? []).some(name => plain(name, prefix) === plain(worker.name, prefix))
+const isBarred = (one, worker, prefix = '', items = null) => {
+  const task = items?.get(one.id)
+  const names = [...(one.notBy ?? []), ...(task !== undefined && isQaTask(task) ? barredFrom(task, items) : [])]
+  return names.some(name => plain(name, prefix) === plain(worker.name, prefix))
+}
 
 /** The key of a task and a worker the board does not give it to for a while (`skip` of `match`). */
 export const pairKey = (id, chat, prefix = '') => `${id} ${plain(chat, prefix)}`
@@ -246,7 +258,7 @@ export function match({ ready = [], idle = [], items, prefix = '', skip = new Se
   const overlaps = one => overlapIn(scratch, items.get(one.id), COUNTS_FOR_TOUCHES) !== null
   // The recheck: a pinned task is never barred from its own worker (a refusal or a held take-back bars others only).
   // T9.1.1: and a QA task is never given to a chat that built the step it checks, pinned or not.
-  const may = (one, worker) => !isBarred(one, worker, prefix) && ((one.pinned != null && plain(one.pinned, prefix) === plain(worker.name, prefix)) || !skip.has(pairKey(one.id, worker.name, prefix)))
+  const may = (one, worker) => !isBarred(one, worker, prefix, items) && ((one.pinned != null && plain(one.pinned, prefix) === plain(worker.name, prefix)) || !skip.has(pairKey(one.id, worker.name, prefix)))
   for (const one of ready.filter(task => task.keptFor !== null && items.has(task.id))) {
     const lane = free.find(worker => plain(worker.name, prefix) === plain(one.keptFor, prefix) && may(one, worker))
     if (lane === undefined || overlaps(one)) continue

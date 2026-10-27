@@ -12,7 +12,7 @@ import { RESUME_STEP, waitsLong } from '../say.mjs'
 import { isLate, keepMs } from '../store.mjs'
 import { stoppedOf } from '../stopped.mjs'
 import { stamp } from './migrate.mjs'
-import { openQaTaskOf } from './qaTask.mjs'
+import { OLD_CHECK_WHY } from './qaTask.mjs'
 import { readStore } from './store.mjs'
 import { workLineWhy } from './workLines.mjs'
 
@@ -64,12 +64,10 @@ export function whyClosed(message, ctx) {
     // A step is refined while it is new; a later round (B387: three in a row) also while it waits refined.
     const holds = state === 'new' || (state === 'refined' && (message.round ?? 1) > 1)
     if (!holds) return { state: 'dropped', why: item === undefined ? 'the step is gone' : `the step is ${state} now, not new` }
-  } else if (items !== null && message.command === 'result-check') {
-    if (state !== 'review') return { state: 'dropped', why: item === undefined ? 'the step is gone' : `the step is ${state} now, not in review` }
-    // T9.1.1: the result check is a Quality Assurance task now, not the Advisor's: an old word of the board's is not needed
-    // once its step has one.
-    const qa = openQaTaskOf(items, message.about)
-    if (qa !== null) return { state: 'dropped', why: `${message.about} has its QA task ${value(qa, 'Id')}: a worker checks it, not the Advisor` }
+  } else if (message.command === 'result-check') {
+    // T9.1.1: the result check is a Quality Assurance task now, and the Advisor can no longer file a step check: an old word of the
+    // board's is closed whatever the state of its step (also without a store to judge it by).
+    return { state: 'dropped', why: OLD_CHECK_WHY }
   } else if (message.command === 'start') {
     // The main chat's word to open a closed chat: not needed once that chat runs, nor when nothing waits for it any more.
     if (ctx.runs.get(message.about) === true) return { state: 'dropped', why: `${message.about} runs now` }

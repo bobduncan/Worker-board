@@ -1,6 +1,6 @@
 // B313: where the store names a chat, and an item moved to a chat's new name. The store names chats by their short name:
-// Owner on steps and asks, Chat on instructions, From and To on notes, and "for <chat>" in a step's `Queue when
-// refined`. Only open items follow a rename: a step not done or dropped, an open ask, an open instruction, an unread
+// Owner on steps and asks, Chat on instructions, From and To on notes, "for <chat>" in a step's `Queue when
+// refined`, and (T9.1.1) each chat in a Quality Assurance task's `Not by` (a list). Only open items follow a rename: a step not done or dropped, an open ask, an open instruction, an unread
 // note. What was done under the old name keeps it.
 
 import { valueOf } from './item.mjs'
@@ -40,6 +40,16 @@ export function renamedItem(item, from, to, prefix = '') {
     if (!names(value, from, prefix)) continue
     head.set(key, to)
     isMoved = true
+  }
+  // T9.1.1: a Quality Assurance task's `Not by` is a list of chats (names joined with ", "): each one that is `from` follows.
+  const notBy = kindOf(item) === 'step' ? valueOf(item, 'Not by') : null
+  if (notBy !== null) {
+    const parts = notBy.split(/\s*,\s*/)
+    const moved = parts.map(part => (names(part, from, prefix) ? to : part))
+    if (moved.some((part, at) => part !== parts[at])) {
+      head.set('Not by', moved.join(', '))
+      isMoved = true
+    }
   }
   const queue = kindOf(item) === 'step' ? valueOf(item, 'Queue when refined') : null
   if (queue !== null) {

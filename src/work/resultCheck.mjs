@@ -3,13 +3,20 @@
 // (the evidence picture, every agreed point pass, fail or ask, the score). It reads only the step's own points and its
 // standard; nothing of the project's work is named here.
 
-import { sinceMs, valueOf } from './item.mjs'
+import { askFiledMs, sinceMs, valueOf } from './item.mjs'
 import { standardOf } from './standard.mjs'
 
 const VERDICTS = ['pass', 'fail', 'ask']
 /** B701: the plain lines of a check the person's task window shows (what was tried, why it fell short, the one-line conclusion). */
 export const NOTES = ['tried', 'why', 'conclusion']
 const NOTE_MAX = 400
+/**
+ * B449, T9.1.1: how long after a result check that waits for the person the worker that checked is given to file its ask point
+ * (`reviewWaitOf`): until then the step waits for the person, not for a check again. After it, with still no ask of the step
+ * filed since the check line, it waits for a check again, so a checker that never asked wedges nothing. The repair `unchecked`
+ * (repair.mjs) shares it.
+ */
+export const UNCHECKED_MS = 30 * 60_000
 const HISTORY_TIME = /^-\s+\d{4}-\d{2}-\d{2} \d{2}:\d{2}\s+/
 
 /**
@@ -78,6 +85,15 @@ const lastResult = item => sinceReport(item).filter(one => RESULT.test(one)).at(
 export function resultCheckOf(item) {
   const last = lastResult(item)
   return last === undefined ? null : last.startsWith('result check passed') ? 'passed' : last.startsWith('result check failed') ? 'failed' : 'waits'
+}
+
+/**
+ * T9.1.1: the words of the step's last result check line without its verdict, up to the first ";" ("2 of 2 points pass, score
+ * 82 of 75"), or null when it has none: what the QA task's History says it checked, when the board ends the task itself.
+ */
+export function resultCheckSummary(item) {
+  const last = historyOf(item).map(wordsOf).filter(one => RESULT.test(one)).at(-1)
+  return last === undefined ? null : last.replace(/^result check (?:passed|failed|waits for you|waits)\s*:?\s*/, '').split(';')[0].trim() || null
 }
 
 /** When the step's last result check line was written (ms), or NaN: the History line's own minute. */
@@ -262,9 +278,10 @@ const heldWords = why => String(why).replace(/^(outside the focus goal):.*$/, '$
  * later of the drop and the end of the block (`blockEnded`, `{ id, at }`: the last blocker to leave, dropped or done).
  * `items` is the store's items by id. B656: kind 'fix' also names its chain of open fixes followed down (`chain`, its
  * fix first; `end`, the last) and, when `held` (the ready list's held steps) holds that last one, why (`held`, else null):
- * "waits for its fix B614, held: outside the focus goal".
+ * "waits for its fix B614, held: outside the focus goal". T9.1.1: `now` (ms), for a caller with a clock: a result check that waits
+ * for the person with no ask of the step filed since its line is not yet kind 'check' (UNCHECKED_MS): the checker is filing it.
  */
-export function reviewWaitOf(item, items, held = null) {
+export function reviewWaitOf(item, items, held = null, now = null) {
   if (valueOf(item, 'State') !== 'review' || !gitCheckPassed(item) || !needsResultCheck(item)) return null
   const id = valueOf(item, 'Id')
   const result = resultCheckOf(item)
@@ -275,9 +292,16 @@ export function reviewWaitOf(item, items, held = null) {
     return { kind: 'check', fix: null, since: Number.isFinite(asked) ? asked : sinceMs(valueOf(item, 'Since')), text: 'waits for its first check' }
   }
   if (result === 'waits') {
-    const open = [...(items?.values() ?? [])].some(one => valueOf(one, 'Kind') === 'ask' && valueOf(one, 'Of') === id && valueOf(one, 'State') === 'open')
-    return open ? { kind: 'answer', fix: null, since: resultCheckAtMs(item), text: 'waits for your answer to its check' }
-      : { kind: 'check', fix: null, since: resultCheckAtMs(item), text: 'waits for its check again' }
+    const asks = [...(items?.values() ?? [])].filter(one => valueOf(one, 'Kind') === 'ask' && valueOf(one, 'Of') === id)
+    const at = resultCheckAtMs(item)
+    const answer = { kind: 'answer', fix: null, since: at, text: 'waits for your answer to its check' }
+    if (asks.some(one => valueOf(one, 'State') === 'open')) return answer
+    // T9.1.1 (a second Quality Assurance task right after `checked`): the worker that checked files its ask point after the check
+    // line. Until it has (an ask of the step filed since the line, answered or withdrawn by now), and for UNCHECKED_MS after the
+    // line, the step still waits for the person; later it waits for a check again, so a checker that never asked wedges nothing.
+    const hasAsked = asks.some(one => askFiledMs(one) >= at)
+    if (!hasAsked && Number.isFinite(now) && Number.isFinite(at) && now - at < UNCHECKED_MS) return answer
+    return { kind: 'check', fix: null, since: at, text: 'waits for its check again' }
   }
   const fixes = fixesOf(id, items).sort((a, b) => numberOf(a) - numberOf(b))
   const open = fixes.filter(isOpenStep).at(-1)

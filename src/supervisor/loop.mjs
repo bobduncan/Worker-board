@@ -96,12 +96,14 @@ export async function applySync(findings, ports, noted = new Set()) {
         .catch(error => ({ ok: false, why: error instanceof Error ? error.message : String(error) }))
       if (done?.ok === true) row(one, 'Fixed', `${one.text}: checked again`)
       else row(one, 'For Main', `${one.text}: not checked again (${done?.why ?? 'no answer'})`)
-    } else if (fix.do === 'qa' || fix.do === 'qa-drop') {
-      // T9.1.1: the board makes the Quality Assurance task of a step that waits for its check, or drops the one of a step that left
-      // review (as the board: the work API lets it drop its own task); a file that changed while it was written is tried again next run.
-      const done = await Promise.resolve().then(() => ports.apply(fix.do === 'qa' ? { action: 'qa-task', id: fix.id } : { action: 'drop', id: fix.id, why: fix.why }))
+    } else if (fix.do === 'qa' || fix.do === 'qa-drop' || fix.do === 'qa-end') {
+      // T9.1.1: the board makes the Quality Assurance task of a step that waits for its check, drops the one of a step that left
+      // review or is not due (as the board: the work API lets it drop its own task), or ends the one whose check was filed but whose
+      // close failed (`qa-end`); a file that changed while it was written is tried again next run.
+      const body = fix.do === 'qa' ? { action: 'qa-task', id: fix.id } : fix.do === 'qa-end' ? { action: 'qa-end', id: fix.id } : { action: 'drop', id: fix.id, why: fix.why }
+      const done = await Promise.resolve().then(() => ports.apply(body))
         .catch(error => ({ ok: false, why: error instanceof Error ? error.message : String(error) }))
-      if (done?.ok === true) row(one, 'Fixed', fix.do === 'qa' ? `${fix.id}: its QA task ${done.result?.id ?? ''} made` : `${fix.id}: its QA task dropped (${fix.why})`)
+      if (done?.ok === true) row(one, 'Fixed', fix.do === 'qa' ? `${fix.id}: its QA task ${done.result?.id ?? ''} made` : fix.do === 'qa-end' ? `${fix.id}: its QA task ended (its check was filed)` : `${fix.id}: its QA task dropped (${fix.why})`)
       else {
         const text = `${one.text}: not fixed (${done?.why ?? 'no answer'})`
         row(one, 'For Main', text)

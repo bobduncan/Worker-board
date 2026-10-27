@@ -26,7 +26,7 @@ const stuck = (store, more = {}) => findStuck({ items: store, lanes: [], partner
 
 test('the rule keeps its id and table entry, and says what it does now', () => {
   assert.ok(REPAIR_RULES.some(rule => rule.id === 'unchecked'))
-  assert.equal(CHECKS.find(one => one.key === 'unchecked').words, 'a step that waits for its result check with no QA task: the board makes one; a QA task whose step left review: dropped')
+  assert.equal(CHECKS.find(one => one.key === 'unchecked').words, 'a step that waits for its result check with no QA task: the board makes one; a QA task nobody took whose step left review or waits for something else: dropped; one whose check was filed: ended')
 })
 
 test('a step that waits for its first check and has no QA task: the board makes one at once, no 30 minutes of waiting', () => {

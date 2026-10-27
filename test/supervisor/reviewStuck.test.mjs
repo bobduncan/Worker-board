@@ -115,20 +115,23 @@ test('review-stuck: a step with no result check for over an hour is stuck, one u
   assert.deepEqual(watch(view(items(reviewed('B7', 75)), { pause: { state: 'pausing', since: stamp(ago(10)) } })), [])
 })
 
-test('T9.1.1: a check counts from its QA task: one made an hour ago that nobody took is stuck, naming it; a worker on it is no case', () => {
+test('T9.1.1: a check counts from its QA task: one taken an hour ago and not begun is stuck, naming it; one ready or given, or a worker on it, is no case', () => {
   const evidence = (state, made, head = {}) => watch(view(items(reviewed('B655', 300), qaTask('B700', 'B655', state, made, head))))
   // B655 sat 300 min in review, but its task was made 20 minutes ago: no case yet.
-  assert.deepEqual(evidence('refined', 20), [])
-  // Made 75 min ago, not taken: a case, the evidence names the task and when it was made.
-  const late = evidence('refined', 75)
+  assert.deepEqual(evidence('taken', 20, { Owner: 'Worker 3' }), [])
+  // Made 75 min ago and taken, not begun: a case, the evidence names the task and when it was made.
+  const late = evidence('taken', 75, { Owner: 'Worker 3' })
   assert.deepEqual(late.map(one => one.key), ['review-stuck B655 check'])
-  assert.match(late[0].evidence, /its QA task B700 is queued since \d\d:\d\d, given to nobody/)
-  const given = evidence('queued', 75, { Owner: 'Worker 3' })
-  assert.match(given[0].evidence, /its QA task B700 is queued since \d\d:\d\d, given to Worker 3/)
+  assert.match(late[0].evidence, /its QA task B700 is queued since \d\d:\d\d, given to Worker 3/)
+  // Ready or given and not taken, however long (go-live makes them all at once and the hand-out gives them one by one): the rules
+  // ready-while-free and not-taking watch a task nobody takes; here it is no case.
+  assert.deepEqual(evidence('refined', 75), [])
+  assert.deepEqual(evidence('refined', 300), [])
+  assert.deepEqual(evidence('queued', 75, { Owner: 'Worker 3' }), [])
   // A worker on it (in progress), however long: the watch rules of a step in progress see it; nothing for the Advisor to wake.
   assert.deepEqual(evidence('in progress', 300, { Owner: 'Worker 3' }), [])
   // The setting moves the age; a done or dropped task counts for nothing (the step has none, so it counts from its check).
-  assert.equal(watch(view(items(reviewed('B655', 300), qaTask('B700', 'B655', 'refined', 75)), { settings: { reviewMinutes: 90 } })).length, 0)
+  assert.equal(watch(view(items(reviewed('B655', 300), qaTask('B700', 'B655', 'taken', 75, { Owner: 'Worker 3' })), { settings: { reviewMinutes: 90 } })).length, 0)
   assert.equal(evidence('dropped', 20).length, 1)
 })
 
@@ -241,7 +244,7 @@ test('the Backlog line says what a step in review waits for: on the Backlog tab 
   const row = page.slice(page.indexOf('function blockLine('), page.indexOf('function blockLine(') + 1600)
   assert.match(row, /step\.reviewWait/)
   const state = await readFile(join(HERE, '..', '..', 'src', 'state.mjs'), 'utf8')
-  assert.match(state, /reviewWait: reviewWaitOfStep\(raw\.work, step\.key, reconciled\?\.ready\?\.held \?\? null\)/)
+  assert.match(state, /reviewWait: reviewWaitOfStep\(raw\.work, step\.key, reconciled\?\.ready\?\.held \?\? null, now\)/)
   // The work tool's one line per step.
   const dir = await mkdtemp(join(tmpdir(), 'b543-'))
   t.after(() => rm(dir, { recursive: true, force: true }))

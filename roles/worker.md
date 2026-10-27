@@ -268,7 +268,7 @@ the step waits in review until its fix is done and checked (the fix gets a task 
 Under each fail text a fix carries `Makes pass: <point>`, the agreed point of the step it fixes that the fail was ticked against
 (B526; for a step checked on its Standard alone, its Standard line): its check ticks every fail text and every Makes pass line,
 and the board refuses a `checked` on a fix with fewer points. A point that is the user's to judge: once your check is filed, ask
-them under the step (`work ask`, kind look, the evidence picture, your advice; you may, as the worker that checked it); once they
+them under the step (`work ask`, kind look, the evidence picture, your advice; you may, as the worker that checked it; it goes to them, never to the partner first); once they
 answered, the board files the check again by itself (B449): every answer a yes (Approved, Done, yes, keep it) makes the ask points
 pass and closes the step, a no (Rejected, no) fails them with their words and makes the fix. Words it cannot read as yes or no, or
 fewer answers than ask points, make a new Quality Assurance task for the step, with their words in `The person said:`: its worker

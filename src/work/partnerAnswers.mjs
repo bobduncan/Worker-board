@@ -30,9 +30,13 @@ export function parsePartnerAnswers(text) {
   }
 }
 
-/** Whether a new ask goes to the partner first: the setting on, asked by a worker or the main chat with the work tool, a decide or look with options or advice. */
-export function routesToPartner({ setting, role, kind, options = [], advice = '', via = null }) {
-  if (setting?.on === false) return false
+/**
+ * Whether a new ask goes to the partner first: the setting on, asked by a worker or the main chat with the work tool, a decide or
+ * look with options or advice. T9.1.1: never the ask of the worker that checks the step (it holds, or held, the step's Quality
+ * Assurance task: `byChecker`): an `ask:` point of a check is a look only the person can judge.
+ */
+export function routesToPartner({ setting, role, kind, options = [], advice = '', via = null, byChecker = false }) {
+  if (setting?.on === false || byChecker === true) return false
   if (!['worker', 'main'].includes(role) || via !== null) return false
   return ['decide', 'look'].includes(kind) && (options.length > 0 || advice !== '')
 }

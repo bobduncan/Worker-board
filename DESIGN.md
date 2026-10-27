@@ -4428,7 +4428,7 @@ from Opus extra high to Opus high. (Spec 2026-10-27, "Quality Assurance tasks".)
 1. **The task** (`qaStep`, api.mjs, modelled on `fixStep`; `src/work/qaTask.mjs` holds the pure helpers): a step the board makes
    itself, titled `Quality Assurance: B<id> <the checked step's title>` (cut to 200 characters), state refined and ready at once,
    with the head fields `Checks` (the checked step) and `Not by` (every chat that built it: its Owner and every chat its History
-   says took it, names joined with ", "), the checked step's activity and goal, a Model and an Effort line by what is checked
+   says took it, and the builders of every step of its fix chain, a fix of a fix too; names joined with ", "), the checked step's activity and goal, a Model and an Effort line by what is checked
    (`qaModelEffort`: Opus, high when its Standard names a reference picture or a target, or its Model is Opus; else Sonnet,
    medium) and a Context with `Built by:`, `Why:` (`checkWhy`), `Board warnings:`, `Demand:` and, for an ask point the board
    could not read, `The person said:`. One open task per step: making one when it exists answers the open one (`made: false`,
@@ -4436,21 +4436,32 @@ from Opus extra high to Opus high. (Spec 2026-10-27, "Quality Assurance tasks".)
 2. **When it is made**: where the board used to type `check step` to the Advisor: the board's own check of a report passed and
    the step needs a result check (`check`), a fix's check left the step it fixes in review (`closeFixed`), a person's answer to an
    ask point the board cannot read (`refileCheck`), and the supervisor's repair `unchecked` for any step that waits for its check
-   with no task (the work action `qa-task`, the board's own; no 30-minute wait). A board with no partner chat makes none.
+   with no task (the work action `qa-task`, the board's own; no 30-minute wait). A board with no partner chat makes none. A step
+   whose check waits for the person (`ask:` points) waits for the person, not for a check, from the check line until the worker
+   that checked has filed its ask (`reviewWaitOf`, UNCHECKED_MS = 30 minutes; after that, with still no ask of the step filed
+   since the line, it waits for a check again, so nothing wedges): the repair makes no second task in between.
 3. **Hand-out** (`handOut.mjs`): rank -1 on the ready list, before a fix (0) and the focus goal's tasks (1); never held for the
    person's pick; no follow-up of anyone. `match` and the work API's `give` never give it to a chat in its `Not by` (a pin
-   neither); an idle builder holds back no new worker for it (`workerStart`).
+   neither); an idle builder holds back no new worker for it (`workerStart`). "Never given to" is the stored `Not by` joined with
+   the builders of the step and of its fix chain as the store has them now (`barredFrom`): the ready entry's `notBy`, `match`, the
+   `give`, the holder's `work checked` and the person's pin (refused, naming why) all read that. A task nobody took is held (and the
+   repair drops it) while its step waits for something else than a check (the person's answer, an open fix). A rename also
+   renames the chats in an open task's `Not by`.
 4. **Doing it** (roles/worker.md, "A Quality Assurance task"): the worker takes it without a branch, checks the step itself and
    files `work checked B<id>`. Only the worker that holds the open task, once in progress, may (`checkHolder`); the board's own
    filing (role server, the person's answers) may too; a builder, another worker, the Advisor, its helper and the main chat are
    refused with the task named. Filing ends the task (`endQaTask`): its History says `checked B<id>: <summary>`, then in progress →
    review by the worker and review → done by the board, so the worker is cleared as after a report. A task cannot be reported or
-   checked. The worker that checks may ask the person under the step (`isCheckerOf`). A failed point still makes the fix step, which
-   later gets its own task.
-5. **The supervisor**: `unchecked` makes the missing task and drops an open task whose step left review (the board drops its own
-   task: the flow lets the person and the main chat drop a step, so the work API drops a QA task for the board as the person
-   would); `review-stuck` counts from the task and clears a task a worker is on; the health line names where the task stands. The
-   sweep closes an old `result-check` word (and the sync check's `unchecked` wake) once its step has a task.
+   checked. The worker that checks may ask the person under the step (`isCheckerOf`): its ask goes to the person, never to the partner first
+   (`routesToPartner`, `byChecker`). A failed point still makes the fix step, which later gets its own task. A task whose check
+   was filed but whose close failed is ended by the board (`qa-end`, the repair `unchecked`: a result check line newer than the take).
+5. **The supervisor**: `unchecked` makes the missing task (only with a partner chat) and drops an open task whose step left review
+   or is not due (the board drops its own task: the flow lets the person and the main chat drop a step, so the work API drops a QA
+   task for the board as the person would, its History naming `server`; with or without a partner), and ends one a worker holds
+   whose check was filed (`qa-end`); it does nothing while the person pauses. `review-stuck` counts from the task and clears a task
+   a worker is on or that is ready or given and not taken yet (`ready-while-free`, which does not count a free builder named in
+   the task's `notBy`, and `not-taking` watch those); the health line names where the task stands. The sweep closes every old
+   `result-check` word (and the sync check's `unchecked` wake), whatever the step's state: the Advisor can no longer file a step check.
 6. **The page**: a step in review reads "waits for its check: B730, queued since 16:14" or "B730: Worker 3 is checking it since
    16:20" (the step's `reviewStand`, from the task); the Advisor's waiting list has no checks; a task shows on the Backlog and on its
    worker's lane like any step.

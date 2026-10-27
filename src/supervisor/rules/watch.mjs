@@ -190,7 +190,7 @@ const GIVEN_OR_UNDER_WAY = ['queued', 'taken', 'in progress', 'waiting on you']
  * hands out counts: the list's `ready` (a fix, the focus goal's, a pinned one), never its `held` (a task outside the
  * focus goal waits for the person by design); a kept task (its pin, its follow-up) only while its own worker is free.
  * A task whose Touches overlap one given or under way waits by design; a worker the board found stuck (not taking) is
- * that rule's. One finding per task. Not while the person pauses or a limit is full.
+ * that rule's; a QA task waits by design while only the chats in its `notBy` (the builders) are free. One finding per task. Not while the person pauses or a limit is full.
  */
 function readyWhileFree(view, ctx) {
   if (isPaused(view) || isFull(view)) return []
@@ -202,7 +202,9 @@ function readyWhileFree(view, ctx) {
   const found = []
   for (const one of view.ready) {
     const kept = one.keptFor ?? null
-    const waiting = kept === null ? free : free.filter(lane => plain(lane.name, view.prefix) === plain(kept, view.prefix))
+    // T9.1.1: a free worker the entry is never given to (a QA task's `notBy`: it built the step or a fix of it) is no free worker for it.
+    const may = free.filter(lane => !(one.notBy ?? []).some(name => plain(name, view.prefix) === plain(lane.name, view.prefix)))
+    const waiting = kept === null ? may : may.filter(lane => plain(lane.name, view.prefix) === plain(kept, view.prefix))
     if (waiting.length === 0) continue
     const item = view.items.get(one.id)
     if (item === undefined || overlapIn(view.items, item, GIVEN_OR_UNDER_WAY) !== null) continue
@@ -554,15 +556,16 @@ function oddEffort(view) {
  * fixes): a step in review says what it waits for (resultCheck.mjs `reviewWaitOf`). Waiting for an open fix, or for the
  * person's answer, is no case. Stuck: no result check filed for longer than `reviewMinutes` (its first, or again after
  * its fix was done or its ask point answered). T9.1.1: counted from its Quality Assurance task (made at once by the check or
- * the repair `unchecked`), which a worker at work on (in progress) clears: that is no case for the Advisor; a task nobody took,
- * or none, is. A dropped fix is
+ * the repair `unchecked`), which a worker at work on (in progress) clears: that is no case for the Advisor; nor is a task that
+ * is ready or given and not taken (go-live gives them one by one; the rules ready-while-free and not-taking watch them). A
+ * task taken and not begun, or none, is a case. A dropped fix is
  * the rule `dropped-fix` (B630; its id apart from the repair `fix-dropped`, the supervisor keys rules by id). Counted from the end of the person's last pause.
  */
 function reviewStuck(view, ctx) {
   const found = []
   if (isPaused(view)) return found
   for (const item of stepsOf(view).filter(one => stateOf(one) === 'review').sort((a, b) => byId(idOf(a), idOf(b)))) {
-    const wait = reviewWaitOf(item, view.items)
+    const wait = reviewWaitOf(item, view.items, null, view.now)
     if (wait?.kind !== 'check') continue
     const id = idOf(item)
     // B664: judged by reviewLateOf, as the health summary judges it. T9.1.1: counted from the step's QA task.
@@ -592,7 +595,7 @@ function fixDropped(view, ctx) {
   const found = []
   if (isPaused(view)) return found
   for (const item of stepsOf(view).filter(one => stateOf(one) === 'review').sort((a, b) => byId(idOf(a), idOf(b)))) {
-    const wait = reviewWaitOf(item, view.items)
+    const wait = reviewWaitOf(item, view.items, null, view.now)
     if (wait?.kind !== 'dropped') continue
     const id = idOf(item)
     const { late, key, ms } = reviewLateOf(view, item, wait, watchOf(ctx))
@@ -625,7 +628,7 @@ function reviewHeld(view, ctx) {
   const seen = new Set()
   // By id: a chain's first step comes before its fixes, so it names the case.
   for (const item of stepsOf(view).filter(one => stateOf(one) === 'review').sort((a, b) => byId(idOf(a), idOf(b)))) {
-    const wait = reviewWaitOf(item, view.items, view.held)
+    const wait = reviewWaitOf(item, view.items, view.held, view.now)
     if (wait?.kind !== 'fix' || wait.held === null || seen.has(wait.end)) continue
     seen.add(wait.end)
     const id = idOf(item)
@@ -647,7 +650,8 @@ function reviewHeld(view, ctx) {
  * late a step in review is by what it waits for (`wait`, resultCheck.mjs `reviewWaitOf`), one judgement for the rules
  * review-stuck, dropped-fix and review-held and the health summary (health.mjs). `seenOf(key)`: since when the watch
  * first saw the key (the rules' own watch; the health summary reads the supervisor's memory), undefined for not yet. Not
- * late: the person's answer, a hold that is their open ask, a check whose QA task a worker is at work on, anything while
+ * late: the person's answer, a hold that is their open ask, a check whose QA task a worker is at work on or that is ready or
+ * given and not taken yet (the hand-out's to move, and the rules ready-while-free and not-taking watch it), anything while
  * the person pauses. Any other hold counts from when the watch first saw it, a check from when its QA task was made (T9.1.1;
  * from when it was asked, with none), a dropped fix from the drop, each from the end of the last pause at the earliest.
  * `{ late, key, ms, words }` (`words` the refine words, for an open fix), or null for a wait the rules judge another way
@@ -666,6 +670,9 @@ export function reviewLateOf(view, item, wait, seenOf = () => undefined) {
     // The task knows when it was made, so the first time the watch saw the wait (the days before it existed) counts for nothing.
     const ms = qa === null ? spanOf(view, seenOf, key, afterPause(view, wait.since)) : spanOf(view, () => undefined, key, afterPause(view, madeAtMs(qa)))
     if (qa !== null && valueOf(qa, 'State') === 'in progress') return { ...not, key, ms }
+    // At go-live every waiting step gets its task at once and the hand-out gives them one by one: a task that is ready or given
+    // (not taken) is the hand-out's to move, and a task nobody takes is the rules `ready-while-free` and `not-taking`'s.
+    if (qa !== null && ['refined', 'queued'].includes(valueOf(qa, 'State'))) return { ...not, key, ms }
     return { ...not, late: ms > view.settings.reviewMinutes * MIN, key, ms }
   }
   if (wait.kind === 'dropped') {
@@ -736,7 +743,7 @@ function openFix(view, ctx) {
   if (isPaused(view)) return found
   const seen = new Set()
   for (const item of stepsOf(view).filter(one => stateOf(one) === 'review').sort((a, b) => byId(idOf(a), idOf(b)))) {
-    const wait = reviewWaitOf(item, view.items, view.held)
+    const wait = reviewWaitOf(item, view.items, view.held, view.now)
     if (wait?.kind !== 'fix' || (wait.unrefined ?? null) === null || seen.has(wait.end)) continue
     seen.add(wait.end)
     const { late, key, ms, words } = reviewLateOf(view, item, wait, watchOf(ctx))

@@ -7,6 +7,7 @@
 
 import { modelOf } from './effort.mjs'
 import { sinceMs, valueOf } from './item.mjs'
+import { fixesOf, reviewWaitOf } from './resultCheck.mjs'
 import { standardOf } from './standard.mjs'
 
 /** The start of a QA task's title: "Quality Assurance: B701 Show the damage". */
@@ -23,6 +24,12 @@ const TAKEN_FOR = /→ taken \(for (.+?)\)/
 
 /** Whether the item is a Quality Assurance task: its head `Checks` names the step it checks. */
 export const isQaTask = item => valueOf(item, 'Checks') !== null
+
+/**
+ * Why the board closes an old word that asked the Advisor for a step's result check (the `result-check` word, the sync check's
+ * `unchecked` wake), whatever the step's state: the Advisor can no longer file a step check, a worker does.
+ */
+export const OLD_CHECK_WHY = 'the Advisor can no longer file a step check: a worker checks it (a Quality Assurance task)'
 
 /** The id of the step a QA task checks, or null. */
 export const checkedIdOf = item => valueOf(item, 'Checks')
@@ -104,4 +111,52 @@ export function qaStandOf(qa) {
   const id = valueOf(qa, 'Id')
   if (state === 'in progress') return { kind: 'working', since: sinceMs(valueOf(qa, 'Since')), qa: id, who: valueOf(qa, 'Owner') }
   return { kind: 'queued', since: madeAtMs(qa), qa: id, who: valueOf(qa, 'Owner') }
+}
+
+/** Names once each, in order, whatever the letters (a chat's name is the same in any case). */
+const uniqueNames = names => names.reduce((all, name) => (all.some(one => one.toLowerCase() === name.toLowerCase()) ? all : [...all, name]), [])
+
+/**
+ * The steps of the fix chain of the step `stepId`, each once, nearest first: the fixes made of it (`Fix of`), the fixes of
+ * those, and so on, whatever their state (a dropped fix was built on too); a loop or a long chain ends it. `items` is the store's
+ * items by id.
+ */
+export function fixChainOf(stepId, items) {
+  const found = []
+  const seen = new Set([stepId])
+  const queue = [stepId]
+  for (let at = 0; at < queue.length && queue.length < 60; at += 1) {
+    for (const fix of fixesOf(queue[at], items)) {
+      const id = valueOf(fix, 'Id')
+      if (seen.has(id)) continue
+      seen.add(id)
+      queue.push(id)
+      found.push(fix)
+    }
+  }
+  return found
+}
+
+/** Every chat that built the step or a step of its fix chain (`fixChainOf`): their builders, each once, the step's first. */
+export const buildersWithFixes = (step, items) => uniqueNames([...buildersOf(step), ...fixChainOf(valueOf(step, 'Id'), items).flatMap(buildersOf)])
+
+/**
+ * The chats a QA task is never given to nor filed by: its stored `Not by` (the builders of the checked step when it was
+ * made) joined with the builders of that step and of every step of its fix chain as they are now, so a chat that took the
+ * step or one of its fixes later is barred too. `items` is the store's items by id.
+ */
+export function barredFrom(qa, items) {
+  const checked = items?.get(valueOf(qa, 'Checks'))
+  return uniqueNames([...notByOf(qa), ...(checked === undefined ? [] : buildersWithFixes(checked, items))])
+}
+
+/**
+ * Why the step a QA task checks is in review but not waiting for a result check (the person's answer to an ask point, an open
+ * fix, a check that passed): the task's check is not due; null while it is due, or when the step is not in review (its own words
+ * in the callers). `now` is the clock for resultCheck.mjs `reviewWaitOf`.
+ */
+export function notDueWhy(step, items, now = null) {
+  if (valueOf(step, 'State') !== 'review') return null
+  const wait = reviewWaitOf(step, items, null, now)
+  return wait?.kind === 'check' ? null : wait === null ? 'waits for no result check' : `${wait.text}, not for a check`
 }

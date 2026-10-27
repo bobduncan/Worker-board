@@ -1911,7 +1911,7 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
           // B296: where it stands in the flow (flow.json), for the strip in its window.
           flow: flowOfStep(raw.work, step.key),
           // B543: what it waits for while in review ("waits for its fix B<n>"), or null; B656: a fix the ready list holds, with why.
-          reviewWait: reviewWaitOfStep(raw.work, step.key, reconciled?.ready?.held ?? null),
+          reviewWait: reviewWaitOfStep(raw.work, step.key, reconciled?.ready?.held ?? null, now),
           // 2026-10-26, T9.1.1: a step in review that waits for its result check says where its QA task stands (queued since,
           // or the worker on it since: `{ kind, since, qa, who }`), or null.
           reviewStand: step.id === null ? null : checkStands.get(step.id) ?? null,

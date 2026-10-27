@@ -23,8 +23,8 @@ import { acceptRefine, answerRefine } from './refineText.mjs'
 import { gamePageIn, gamePageLabel, localAddressIn, placesIn } from '../places.mjs'
 import { DECIDED, GOAL_ID, NEEDS, UNDONE, decidedOf, isDailyNote, needsOf, undoneOf } from './dailyNote.mjs'
 import { HOW_MARK, openAsksOf as openAsksUnder, refineAsksOf as asksCounted } from './stepAsks.mjs'
-import { ANOTHER_WAY, NOTES, TRIES_BEFORE_ANOTHER_WAY, WARNINGS_MARK, agreedPoints, answerReading, boardWarningsOf, chainTries, checkedOf, checkWhy, fixesOf, fixesThrough, fixTitle, needsResultCheck, parentPointsOf, parsePoints, resultCheckAtMs, resultCheckOf, reviewWaitOf, warningLines } from './resultCheck.mjs'
-import { buildersOf, isQaTask, notByOf, openQaTaskOf, qaModelEffort, qaTitle } from './qaTask.mjs'
+import { ANOTHER_WAY, NOTES, TRIES_BEFORE_ANOTHER_WAY, WARNINGS_MARK, agreedPoints, answerReading, boardWarningsOf, chainTries, checkedOf, checkWhy, fixesOf, fixesThrough, fixTitle, needsResultCheck, parentPointsOf, parsePoints, resultCheckAtMs, resultCheckOf, resultCheckSummary, reviewWaitOf, warningLines } from './resultCheck.mjs'
+import { barredFrom, buildersWithFixes, isQaTask, openQaTaskOf, qaModelEffort, qaTitle } from './qaTask.mjs'
 import { RECAP_ANSWERS, dueRecaps, isRecap, recapMadeSince } from './recap.mjs'
 import { RESULT_CHARS, checkLinesWarning, goalParts, recapParts } from './recapWords.mjs'
 import { kindsNamed, noneForLook, parseStandard, standardNoneRefused, standardOf, standardWanted } from './standard.mjs'
@@ -44,7 +44,7 @@ export { overlapsIn, sinceMs }
 export const isReadAction = action => READS.has(action)
 
 const READS = new Set(['next', 'list', 'pause-state', 'health', ...ROUTING_READS])
-const CHANGES = new Set(['incident', 'incident-fix', 'incident-told', 'incidents-fixed', 'take', 'step', 'ask', 'withdraw', 'answered-in-chat', 'read', 'note', 'report', 'block', 'unblock', 'new', 'queue', 'pin', 'add-to-queue', 'remove-from-queue', 'close', 'drop', 'refine', 'refined', 'answer', 'tick', 'delete', 'refine-answer', 'refine-accept', 'check', 'checked', 'instruction', 'turn-ended', 'pull', 'advance', 'requeue', 'unqueue', 'recheck', 'undo', 'rename', 'pause-all', 'resume-all', 'resumed', 'end-resume', 'overturn', 'seen', 'approve-recaps', 'partner-answer', 'escalate', 'partner-answers', 'recheck-stuck', 'recheck-base', 'retire-queue', 'qa-task'])
+const CHANGES = new Set(['incident', 'incident-fix', 'incident-told', 'incidents-fixed', 'take', 'step', 'ask', 'withdraw', 'answered-in-chat', 'read', 'note', 'report', 'block', 'unblock', 'new', 'queue', 'pin', 'add-to-queue', 'remove-from-queue', 'close', 'drop', 'refine', 'refined', 'answer', 'tick', 'delete', 'refine-answer', 'refine-accept', 'check', 'checked', 'instruction', 'turn-ended', 'pull', 'advance', 'requeue', 'unqueue', 'recheck', 'undo', 'rename', 'pause-all', 'resume-all', 'resumed', 'end-resume', 'overturn', 'seen', 'approve-recaps', 'partner-answer', 'escalate', 'partner-answers', 'recheck-stuck', 'recheck-base', 'retire-queue', 'qa-task', 'qa-end'])
 /**
  * Focus 2: the partner's drafts of the focus goal's vibe and how. They change the goal map, not the store: the board's
  * `goalDraft` (src/focus.mjs) writes them; only the chat the list names the partner (role advisor) sends them.
@@ -55,7 +55,7 @@ const OFF_VIEW = new Set(['incident', 'incident-fix', 'incident-told', 'incident
 /** What only the person does, on the board's page; and what only the server does. */
 // The Backlog tab's blocks (2026-10-25): the person's "Add to queue" and "Remove" are the page's alone, never a chat's.
 const PERSON = new Set(['answer', 'read', 'tick', 'delete', 'refine-answer', 'refine-accept', 'recheck', 'undo', 'pause-all', 'resume-all', 'end-resume', 'overturn', 'seen', 'partner-answers', 'add-to-queue', 'remove-from-queue'])
-const SERVER = new Set(['incidents-fixed', 'incident-told', 'check', 'advance', 'resumed', 'approve-recaps', 'recheck-stuck', 'recheck-base', 'route-confirm', 'quality-job-result', 'retire-queue', 'qa-task'])
+const SERVER = new Set(['incidents-fixed', 'incident-told', 'check', 'advance', 'resumed', 'approve-recaps', 'recheck-stuck', 'recheck-base', 'route-confirm', 'quality-job-result', 'retire-queue', 'qa-task', 'qa-end'])
 /** Who may do what the flow does not decide (the default flow's table, spec section 5). */
 const ROLES = {
   block: ['main', 'worker', 'person'],
@@ -280,7 +280,7 @@ const isOwner = (item, chat, prefix) => valueOf(item, 'Owner') !== null && plain
 const byId = (a, b) => a.localeCompare(b, 'en', { numeric: true })
 
 /** One item in one line: id, state, what it waits for, title. */
-function oneLine(item, items, held = null) {
+function oneLine(item, items, held = null, now = null) {
   const isOpen = id => !CLEARED.includes(stateOf(items.get(id) ?? { head: new Map() }))
   const open = idsIn(valueOf(item, 'Blocked by')).filter(isOpen)
   // B306: what `Waits for` says holds the step: words until the main chat clears them, ids until each is resolved.
@@ -294,7 +294,7 @@ function oneLine(item, items, held = null) {
   const checks = open.filter(inReview)
   const waits = [before.length > 0 ? `after ${before.join(', ')}` : null, checks.length > 0 ? `waits for the check of ${checks.join(', ')}` : null, waiting,
     // B543: a step in review says what it waits for itself (its check, its fix B<n>); B656: a fix the ready list holds, with why.
-    reviewWaitOf(item, items, held)?.text ?? null,
+    reviewWaitOf(item, items, held, now)?.text ?? null,
     // B567: a step waiting on the person, or parked, says what it waits for and what the chat does meanwhile.
     ...waitingWords(item, items)].filter(Boolean)
   const missed = Number(valueOf(item, 'Missed') ?? 0)
@@ -412,7 +412,7 @@ function steady(body, w, chat) {
   const all = [...told, ...mine]
   const open = openOf(chat, w)
   if (all.length === 0) return { ok: true, result: { text: `Nothing is yours, ${chat}: no instruction is open and no step is taken, in progress or queued for you.`, items: [], open, changed: false } }
-  const text = `Yours, ${chat}:\n${all.map(item => oneLine(item, w.store.items, w.readyHeld ?? null)).join('\n')}\n\n${serializeItem(all[0])}${qaWords(all[0], w.store.items)}`
+  const text = `Yours, ${chat}:\n${all.map(item => oneLine(item, w.store.items, w.readyHeld ?? null, w.now)).join('\n')}\n\n${serializeItem(all[0])}${qaWords(all[0], w.store.items)}`
   return { ok: true, result: { text, items: all.map(item => valueOf(item, 'Id')), id: valueOf(all[0], 'Id'), open, changed: false } }
 }
 
@@ -445,7 +445,7 @@ function list(w) {
     id: valueOf(item, 'Id'), kind: kindOf(item), state: stateOf(item), owner: valueOf(item, 'Owner'),
     title: valueOf(item, 'Title') ?? valueOf(item, 'Text'), since: valueOf(item, 'Since'),
     // B543: what a step in review waits for, or null.
-    waits: kindOf(item) === 'step' ? reviewWaitOf(item, w.store.items, w.readyHeld ?? null)?.text ?? null : null,
+    waits: kindOf(item) === 'step' ? reviewWaitOf(item, w.store.items, w.readyHeld ?? null, w.now)?.text ?? null : null,
   }))
   const text = rows.map(row => [row.id, row.kind, row.waits === null ? row.state : `${row.state} (${row.waits})`, row.owner ?? '-', row.title ?? ''].join(' · ')).join('\n')
   return { ok: true, result: { text, items: rows, changed: false } }
@@ -527,14 +527,14 @@ function goOnOrPark(mine, w, ctx, why) {
   return { item: appendHistory(mine, 'server', parkWords(other), w.now), freed: false, parked: other }
 }
 
-/** Moves the item by the flow, as `role`; the History says from where to where. */
-function move(item, to, role, w, ctx = flowCtx(w, [item]), why = '') {
+/** Moves the item by the flow, as `role`; the History says from where to where, by `writer` (the chat of the call; the board's own: 'server'). */
+function move(item, to, role, w, ctx = flowCtx(w, [item]), why = '', writer = null) {
   const allowed = mayMove(w.store.flow, item, to, role, ctx)
   if (!allowed.ok) return refuse(409, allowed.why)
   const from = stateOf(item)
   const moved = put(copy(item), 'State', to)
   put(moved, 'Since', stamp(w.now))
-  return { ok: true, item: appendHistory(moved, role === 'server' ? 'server' : w.who, `${from} → ${to}${why}`, w.now) }
+  return { ok: true, item: appendHistory(moved, writer ?? (role === 'server' ? 'server' : w.who), `${from} → ${to}${why}`, w.now) }
 }
 
 const changed = (item, text = serializeItem(item), more = {}) => ({ ok: true, result: { id: valueOf(item, 'Id'), text, changed: true, ...more } })
@@ -796,7 +796,9 @@ async function ask(body, w) {
 
 Note: ${unlinked} is no link the person can open (the game runs only while the board has started it). File the ask again with play ("<branch>&page=<page>" or "<branch>&screen=<screen>") instead of an address.`
   // Partner answers (2026-10-19): a detail question goes to the partner first; the person sees it only once handed on.
-  const route = routesToPartner({ setting: w.store.partnerAnswers, role: w.role, kind, options, advice, via }) ? 'partner' : null
+  // T9.1.1: and never the ask of the worker that checks the step: an `ask:` point is a look only the person can judge.
+  const byChecker = !isAlone && isCheckerOf(of.item, w)
+  const route = routesToPartner({ setting: w.store.partnerAnswers, role: w.role, kind, options, advice, via, byChecker }) ? 'partner' : null
   const made = await makeAsk(w, { of: of.item, kind, blocking, text, options, advice, pictures, play, via, goal, route })
   if (!made.ok) return made
   const { question, id, title } = made
@@ -1539,10 +1541,13 @@ function checkHolder(id, w) {
   if (qa === null) return refuse(403, `${id} has no QA task yet: the board makes one, and the worker it gives it to files the check.`)
   const qaId = valueOf(qa, 'Id')
   const holder = valueOf(qa, 'Owner')
-  const isBuilder = notByOf(qa).some(name => plain(name, w.prefix) === plain(w.who, w.prefix))
+  // The stored `Not by` joined with the builders of the step and of its fix chain now (qaTask.mjs `barredFrom`): a chat that took
+  // the step or a fix of it after the task was made is a builder too.
+  const isBuilder = barredFrom(qa, w.store.items).some(name => plain(name, w.prefix) === plain(w.who, w.prefix))
   if (w.role !== 'worker' || holder === null || !isOwner(qa, w.who, w.prefix)) {
     return refuse(403, `${id} is checked by its QA task ${qaId} (${holder ?? 'not given yet'}): only its worker files the check${isBuilder ? `; ${w.who} built ${id}` : ''}.`)
   }
+  if (isBuilder) return refuse(403, `${id} is checked by its QA task ${qaId} (${holder}), but ${w.who} built ${id} or a fix of it: a builder never files its check. The main chat drops ${qaId}; the board then makes a new task for another worker.`)
   if (stateOf(qa) !== 'in progress') return refuse(409, `${qaId} is ${stateOf(qa)}: take it first (work take ${qaId}), then file the check of ${id}.`)
   return { ok: true, qa }
 }
@@ -1563,14 +1568,21 @@ async function endQaTask(qa, how, words, w) {
     let item = found.item
     if (how === 'done') {
       item = said(item, w, `checked ${valueOf(item, 'Checks')}: ${words}`)
+      // The board ends a task that was only taken (qa-end): it starts, as its worker would have, before it is reviewed.
+      if (stateOf(item) === 'taken') {
+        const started = move(item, 'in progress', 'worker', w, flowCtx(w, [item]))
+        if (!started.ok) return started.why
+        item = started.item
+      }
       const reviewed = move(item, 'review', 'worker', w, flowCtx(w, [item]))
       if (!reviewed.ok) return reviewed.why
       const closed = move(reviewed.item, 'done', 'server', w, flowCtx(w, [reviewed.item]))
       if (!closed.ok) return closed.why
       item = closed.item
     } else {
-      // The board drops its own task (the flow lets the person and the main chat drop a step): as the person would.
-      const dropped = move(item, 'dropped', 'person', w, flowCtx(w, [item]))
+      // The board drops its own task (the flow lets the person and the main chat drop a step): as the person would, but its
+      // History names the board, whoever's call it was (an answer of the person's that made the board file the check).
+      const dropped = move(item, 'dropped', 'person', w, flowCtx(w, [item]), '', 'server')
       if (!dropped.ok) return dropped.why
       item = underStep(dropped.item, [`Dropped by the board on ${at(w.now)}: ${words}`])
     }
@@ -1579,6 +1591,30 @@ async function endQaTask(qa, how, words, w) {
     why = saved.why
   }
   return why
+}
+
+/**
+ * T9.1.1 (the review): the board ends a Quality Assurance task that a worker holds (taken or in progress) when its check was
+ * filed after the take and the close failed (a file that changed, a write that was refused): the task moves to done as
+ * `endQaTask` does for the worker's own filing, its History saying what was checked. The repair `unchecked` asks for it
+ * through here (role server only). Refused for any other task, one nobody holds, and one whose step has no check line
+ * newer than the take.
+ */
+async function qaEnd(body, w) {
+  const found = await load(body.id, w, { kind: ['step'] })
+  if (!found.ok) return found
+  const id = valueOf(found.item, 'Id')
+  if (!isQaTask(found.item)) return refuse(409, `${id} is no Quality Assurance task.`)
+  if (!['taken', 'in progress'].includes(stateOf(found.item))) return refuse(409, `${id} is ${stateOf(found.item)}: only a task a worker holds (taken or in progress) is ended.`)
+  const checks = valueOf(found.item, 'Checks')
+  const step = w.store.items.get(checks)
+  if (step === undefined || !(resultCheckAtMs(step) > sinceMs(valueOf(found.item, 'Since')))) {
+    return refuse(409, `${step === undefined ? checks : `The check of ${checks}`} was not filed since ${id} was taken: nothing to end it for.`)
+  }
+  const summary = resultCheckSummary(step) ?? 'its check is filed'
+  const ended = await endQaTask(found.item, 'done', summary, w)
+  if (ended !== null) return refuse(409, ended)
+  return { ok: true, result: { id, qa: id, step: checks, text: `${id}: ended; ${checks} was checked: ${summary}.`, changed: true } }
 }
 
 /**
@@ -1812,7 +1848,7 @@ async function qaStep(checked, w, { why, warnings, personSaid = null } = {}) {
   if (open !== null) return { ok: true, id: valueOf(open, 'Id'), made: false }
   const activity = valueOf(checked, 'Activity')
   const goal = valueOf(checked, 'Goal')
-  const builders = buildersOf(checked)
+  const builders = buildersWithFixes(checked, read.items)
   const model = parseModel(qaModelEffort(checked).model).line
   const effort = parseEffort(qaModelEffort(checked).effort).line
   const reason = why === undefined ? checkWhy(checked, read.items) : why
@@ -1869,7 +1905,7 @@ async function qaTask(body, w) {
   if (!found.ok) return found
   const id = valueOf(found.item, 'Id')
   if (isQaTask(found.item)) return refuse(409, `${id} is a Quality Assurance task: it has no result check of its own.`)
-  const wait = reviewWaitOf(found.item, (await readStore(w.dir, w.fs)).items, w.readyHeld ?? null)
+  const wait = reviewWaitOf(found.item, (await readStore(w.dir, w.fs)).items, w.readyHeld ?? null, w.now)
   if (wait?.kind !== 'check') {
     return refuse(409, `${id} waits for no result check (${stateOf(found.item) === 'review' ? wait?.text ?? 'nothing to check or its board check has not passed' : `it is ${stateOf(found.item)}, not in review`}): no Quality Assurance task.`)
   }
@@ -2113,6 +2149,10 @@ async function pin(body, w) {
   const role = w.roleOf?.(chat) ?? null
   if (role === 'helper') return refuse(409, helperNoTask(chat))
   if (role !== 'worker') return refuse(409, `${chat} is no worker of the list: a task is pinned to a worker.`)
+  // T9.1.1: a Quality Assurance task is never pinned to a chat that built the step it checks (or a fix of it): the give would refuse it.
+  if (isQaTask(found.item) && barredFrom(found.item, w.store.items).some(name => plain(name, w.prefix) === plain(chat, w.prefix))) {
+    return refuse(409, `${id} is a Quality Assurance task: ${chat} built ${valueOf(found.item, 'Checks')} (or a fix of it), so it is not pinned to ${chat}.`)
+  }
   if (was !== null && plain(was, w.prefix) === plain(chat, w.prefix)) return { ok: true, result: { id, text: `${id} is pinned to ${was} already.`, changed: false } }
   const next = ordered(said(put(copy(found.item), 'Pinned', chat), w, `pinned to ${chat}`))
   const done = await save(next, found.text, w)
@@ -2940,7 +2980,7 @@ async function give(found, body, w) {
   const pinned = valueOf(found.item, 'Pinned')
   if (pinned !== null && plain(pinned, w.prefix) !== plain(chat, w.prefix)) return refuse(409, `${id} is pinned to ${pinned}, not given to ${chat}.`)
   // T9.1.1: a Quality Assurance task is never given to a chat that built the step it checks.
-  if (notByOf(found.item).some(name => plain(name, w.prefix) === plain(chat, w.prefix))) return refuse(409, `${id} is a Quality Assurance task: ${chat} built ${valueOf(found.item, 'Checks')}, so it does not check it.`)
+  if (isQaTask(found.item) && barredFrom(found.item, w.store.items).some(name => plain(name, w.prefix) === plain(chat, w.prefix))) return refuse(409, `${id} is a Quality Assurance task: ${chat} built ${valueOf(found.item, 'Checks')} (or a fix of it), so it does not check it.`)
   const holds = [...w.store.items.values()].find(one => kindOf(one) === 'step' && HOLDS_FOR_GIVE.includes(stateOf(one)) && isOwner(one, chat, w.prefix))
   if (holds !== undefined) return refuse(409, `${chat} holds ${valueOf(holds, 'Id')} (${stateOf(holds)}): no second task.`)
   const hold = w.standardHold?.(found.item) ?? null
@@ -3188,6 +3228,7 @@ const CHANGE = {
   'recheck-stuck': recheckStuck,
   'recheck-base': recheckBase,
   'qa-task': qaTask,
+  'qa-end': qaEnd,
   'partner-answer': partnerAnswer,
   escalate,
   'partner-answers': partnerSetting,

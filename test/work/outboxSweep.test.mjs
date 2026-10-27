@@ -77,7 +77,8 @@ test('a refine word for a step no longer new, and a check word for a step out of
     word({ command: 'refine', about: 'B3', round: 1, at: NOW - 6 * MIN }), word({ command: 'result-check', about: 'B4' }), word({ command: 'result-check', about: 'B5' }),
     word({ command: 'result-check', about: 'B9' })]
   const said = words.map(one => whyClosed(one, ctxOf(words.filter(other => other === one), { items }))?.why ?? null)
-  assert.deepEqual(said, ['the step is queued now, not new', null, null, 'the step is refined now, not new', null, 'the step is done now, not in review', 'the step is gone'])
+  const check = 'the Advisor can no longer file a step check: a worker checks it (a Quality Assurance task)'
+  assert.deepEqual(said, ['the step is queued now, not new', null, null, 'the step is refined now, not new', check, check, check])
   // Without a work store the board cannot judge a step: the word waits.
   assert.equal(whyClosed(words[0], ctxOf([words[0]], { items: null })), null)
 })

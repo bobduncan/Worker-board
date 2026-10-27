@@ -1,6 +1,6 @@
 // T9.1.1: at go-live the Advisor may still hold the board's old words for a result check ("check step", and the sync check's
-// "unchecked" wake). A result check is a Quality Assurance task now: once the step has one, or left review, the sweep closes
-// the word with that why, so the Advisor does not check what a worker checks, and the Advisor's own `work checked` on the step
+// "unchecked" wake). A result check is a Quality Assurance task now, and the Advisor can no longer file a step check: the sweep
+// closes every such word, whatever state its step is in, with that why, and the Advisor's own `work checked` on the step
 // is refused with a line naming the task. Made-up samples only.
 
 import assert from 'node:assert/strict'
@@ -17,29 +17,32 @@ const item = (id, head, extra = {}) => [id, { head: new Map(Object.entries({ Id:
 const word = fields => ({ id: 'w1', at: NOW - 5 * MIN, to: 'Partner', ask: null, step: null, title: null, version: null, verdict: null, state: 'waiting', text: 'check step', command: 'result-check', about: 'B701', ...fields })
 const ctxOf = items => ({ all: [], items: new Map(items), runs: new Map(), goals: [], now: NOW, keep, closing: new Map() })
 
-test('an old "check step" word is closed once its step has an open QA task, or is no longer in review; else it still waits', () => {
+const WHY = { state: 'dropped', why: 'the Advisor can no longer file a step check: a worker checks it (a Quality Assurance task)' }
+
+test('an old "check step" word is closed whatever the state of its step, with or without a QA task', () => {
   const review = item('B701', { State: 'review' })
   const task = state => item('B730', { State: state, Checks: 'B701', Title: 'Quality Assurance: B701 x' })
-  // No task yet (the repair makes it within the minute): the word still stands.
-  assert.equal(whyClosed(word(), ctxOf([review])), null)
-  for (const state of ['refined', 'queued', 'taken', 'in progress']) {
-    assert.deepEqual(whyClosed(word(), ctxOf([review, task(state)])), { state: 'dropped', why: 'B701 has its QA task B730: a worker checks it, not the Advisor' }, state)
-  }
-  // A done or dropped task is no open one.
-  assert.equal(whyClosed(word(), ctxOf([review, task('done')])), null)
-  // The step left review: as before.
-  assert.deepEqual(whyClosed(word(), ctxOf([item('B701', { State: 'done' })])), { state: 'dropped', why: 'the step is done now, not in review' })
-  assert.deepEqual(whyClosed(word(), ctxOf([])), { state: 'dropped', why: 'the step is gone' })
+  // No task yet, the step in review: the Advisor cannot file the check; the word is closed (the repair makes the task).
+  assert.deepEqual(whyClosed(word(), ctxOf([review])), WHY)
+  for (const state of ['refined', 'queued', 'taken', 'in progress', 'done']) assert.deepEqual(whyClosed(word(), ctxOf([review, task(state)])), WHY, state)
+  // The step left review, or is gone: the same why.
+  for (const state of ['done', 'dropped', 'in progress', 'queued']) assert.deepEqual(whyClosed(word(), ctxOf([item('B701', { State: state })])), WHY, state)
+  assert.deepEqual(whyClosed(word(), ctxOf([])), WHY)
+  // A word of another kind about a step that left review is judged as before.
+  assert.deepEqual(whyClosed(word({ command: 'refine' }), ctxOf([item('B701', { State: 'review' })])), { state: 'dropped', why: 'the step is review now, not new' })
 })
 
-test('the sync check\'s old "unchecked" wake is closed the same way: its step has an open QA task, or left review', () => {
+test('the sync check\'s old "unchecked" wake is closed the same way, whatever the state of its step', () => {
   const sync = { id: 's1', at: NOW - 5 * MIN, to: 'Partner', kind: 'sync', syncKey: 'unchecked B701 1', command: 'work', about: 'B701', state: 'waiting', text: 'check step B701' }
   const items = (...all) => new Map(all)
   const review = item('B701', { State: 'review' })
-  assert.equal(workLineWhy(sync, items(review), { now: NOW }), null)
-  assert.equal(workLineWhy(sync, items(review, item('B730', { State: 'queued', Checks: 'B701' })), { now: NOW }), 'B701 has its QA task B730')
-  assert.equal(workLineWhy(sync, items(item('B701', { State: 'in progress' })), { now: NOW }), 'B701 left review')
-  assert.equal(workLineWhy(sync, items(item('B701', { State: 'done' })), { now: NOW }), 'B701 is done')
+  const why = 'the Advisor can no longer file a step check: a worker checks it (a Quality Assurance task)'
+  assert.equal(workLineWhy(sync, items(review), { now: NOW }), why)
+  assert.equal(workLineWhy(sync, items(review, item('B730', { State: 'queued', Checks: 'B701' })), { now: NOW }), why)
+  for (const state of ['in progress', 'done', 'dropped']) assert.equal(workLineWhy(sync, items(item('B701', { State: state })), { now: NOW }), why, state)
+  assert.equal(workLineWhy(sync, items(), { now: NOW }), why)
+  // The sweep reads it the same way (a work line is the work store's to judge).
+  assert.deepEqual(whyClosed(sync, ctxOf([review])), { state: 'dropped', why })
   // Another sync word about a step in review is not touched by the QA task.
   assert.equal(workLineWhy({ ...sync, syncKey: 'not-taken B701 1' }, items(review, item('B730', { State: 'queued', Checks: 'B701' })), { now: NOW }), "B701 is no longer Partner's")
 })
