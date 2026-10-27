@@ -6,6 +6,7 @@
 import { GIVE_GUARD, flowHandsOut, mayMove, statesOf } from './flow.mjs'
 import { blockersOpen, overlapsIn, waitWords } from './guards.mjs'
 import { HAND_OUT_DEFAULTS, heldBacksOf, heldTwiceWords, idleWorkers, match, oldQueued, readyList, skipPairs, stuckTakeBacks, takeBacks as takeBacksOf, workerStart } from './handOut.mjs'
+import { handedBackOf } from '../clearOwed.mjs'
 import { askFiledMs, fixFirst, sinceMs, valueOf } from './item.mjs'
 import { PARTNER_AGAIN_MS, PARTNER_ANSWER_MS, isRoutedToPartner } from './partnerAnswers.mjs'
 import { isHolding } from './pause.mjs'
@@ -107,6 +108,9 @@ export function reconcile({ store, flow = store.flow, lanes = [], now, times, pr
     }
   }
   const restFree = live.filter(lane => restsFree(lane, ok, prefix, resting)).map(lane => lane.name)
+  // B737 (X86): a worker whose newest report failed the board's check was handed the step back: it gets no new step
+  // (neither a give nor a delivery) until it reports that step again and the check passes (src/clearOwed.mjs).
+  const handedBack = new Set(live.filter(lane => lane.isMain !== true && handedBackOf(items, lane.name, prefix) !== null).map(lane => lane.name))
 
   // A step queued whose guards hold and whose Owner is free: the Owner is woken (its `take` moves it to taken).
   // B567: a worker that rests while its steps wait on the person holds none of them for this.
@@ -116,7 +120,7 @@ export function reconcile({ store, flow = store.flow, lanes = [], now, times, pr
   for (const item of ok.filter(one => stateOf(one) === 'queued').sort(fixFirst)) {
     const owner = valueOf(item, 'Owner')
     const lane = laneOf(owner)
-    if (lane === undefined || (lane.state !== 'free' && !restFree.includes(lane.name)) || holding.has(plain(owner, prefix)) || deliveries.some(one => one.chat === lane.name)) continue
+    if (lane === undefined || (lane.state !== 'free' && !restFree.includes(lane.name)) || holding.has(plain(owner, prefix)) || handedBack.has(lane.name) || deliveries.some(one => one.chat === lane.name)) continue
     const ctx = { store: { items }, freeChats: new Set([owner]), now, overlaps }
     if (!mayMove(flow, item, 'taken', 'server', ctx).ok) continue
     const id = valueOf(item, 'Id')
@@ -304,11 +308,11 @@ export function reconcile({ store, flow = store.flow, lanes = [], now, times, pr
   const retiredIds = new Set(retired.map(one => one.id))
   const takeBacks = handOutHeld || !handsOut ? [] : takeBacksOf({ items, outbox: sent, lanes: live, now, takeWithinMs, heldGiveMs, prefix, notBefore: Number.isFinite(notBefore) ? notBefore : null })
     .filter(one => !retiredIds.has(one.id))
-  const idle = idleWorkers(live, { items, prefix, restFree, stuck: new Set(stuck.keys()) })
+  const idle = idleWorkers(live, { items, prefix, restFree, stuck: new Set([...stuck.keys(), ...handedBack]) })
   const skip = skipPairs({ items, refused: refusedGives, now, heldGiveMs, prefix })
   const gives = handOutHeld || !handsOut ? [] : match({ ready: ready.ready, idle, items, prefix, skip })
   const start = !handsOut ? null : workerStart({ ready: ready.ready, gives, idle, lanes: live, maxWorkers: settings.maxWorkers ?? null, isHeld: handOutHeld, items, sent, now, prefix, refused: refusedGives,
     // Gap 2: a pinned task's worker unknown this long counts as off.
     offAfterMs: Number.isFinite(settings.offAfterMinutes) ? settings.offAfterMinutes * MIN : Infinity })
-  return { moves, deliveries, flags, notes, partnerAsks, escalations, restFree, ready, gives, takeBacks, start, retired, handOutHeld, heldTwice }
+  return { moves, deliveries, flags, notes, partnerAsks, escalations, restFree, handedBack: [...handedBack], ready, gives, takeBacks, start, retired, handOutHeld, heldTwice }
 }

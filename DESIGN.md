@@ -3801,6 +3801,15 @@ with all its guards, at most once a minute, and refused it only writes why on th
 held to nothing; the row says "not cleared after B12" with what happens next, and the watch rule `not-cleared` names it.
 The mod's newest word why it did not clear now shows as its own kind (`not-cleared`), no longer hidden behind an older
 clear.
+B737 (X86, 2026-10-27: Worker 3 reported B727 at 21:02, the board's check failed at 21:03, Worker 3 rightly stayed in its
+turn to fix it; `not-cleared` counted from 21:02, and the board gave it B729 at 21:28 over the failed check): a report
+whose board check failed (the newest `server: check failed` after it, no `check passed` since) is handed back to its
+worker: `lastReportOf` skips it, so no clear is owed, `clearOwed` and `not-cleared` count from the last report whose
+check did not fail, and until the worker reports again and that check passes (`handedBackOf`; a dropped step holds
+nothing) the reconciler gives it no new step: no give (`idleWorkers`, `reconciled.handedBack`) and no delivery of a
+queued one, and its `work next` says "The board's check of your report B727 failed: fix what it names and report
+B727 again first". A worker that never reports again is `review-wait`'s and the health summary's, not this rule's.
+Tests: `test/failedCheckHandBack.test.mjs` (B727's lines through `buildState`, the rule, the `work next` words).
 B587 (X36: a worker restarted for a new mod at 22:45 owed the clear of the step it had just reported; its process
 ended with the archive, so it could not clear, and its next step's line waited until the board itself started anew
 8 minutes on): the clear holds the line only while the chat's process runs (`clearHolds`). A worker whose process ended
