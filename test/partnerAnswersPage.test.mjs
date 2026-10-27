@@ -1,89 +1,116 @@
 // Partner answers (the person, 2026-10-19), what the board shows: the switch on the Focus page, the routed ask kept
 // out of Needs your attention, the partner's answer with its Undo on the ask's closed card and in the daily note, the
 // line of an ask handed on or taken back; and the server's part: the asking chat woken from the work tool too, an Undo
-// of a partner's answer told to the asking chat, not typed to the partner. Made-up names only.
+// of a partner's answer told to the asking chat, not typed to the partner (test/partnerAnswersBoard.test.mjs, on a
+// running board). B415, B730: the page is only ever read and clicked through the DOM harness, with its own constants.
+// Made-up names only.
 import assert from 'node:assert/strict'
-import { readFile } from 'node:fs/promises'
-import { dirname, join } from 'node:path'
 import test from 'node:test'
-import { fileURLToPath } from 'node:url'
-import vm from 'node:vm'
 
 import { openPage, reply, TOKEN } from './pageHarness.mjs'
 import { asSent, DAY, GOALS, RUN_GOALS, L1, L2, L3, L4, MIN, NOW, answered, ask, build, note, parsed, sinceOf } from './partnerState.mjs'
 
-const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
-const script = await readFile(join(ROOT, 'public', 'board.js'), 'utf8')
-const server = await readFile(join(ROOT, 'server.mjs'), 'utf8')
-const cut = (from, to) => script.slice(script.indexOf(from), script.indexOf(to))
-const made = {}
-vm.runInNewContext(`${cut('// focus:start', '// focus:end')}\n${cut('// askstand:start', '// askstand:end')}\n${cut('// partner-answers:start', '// partner-answers:end')}
-Object.assign(this, { partnerSwitchView, focusNoteView, partnerAnswerView, withPartnerView, decidedView, laneStateText })`, made)
-const plain = value => JSON.parse(JSON.stringify(value))
+const waiting = parsed(`Id: B12\nKind: step\nTitle: Plant the hedge\nState: waiting on you\nOwner: Digger\nSince: ${sinceOf(NOW - 30 * MIN)}\n`)
+const routed = parsed(`Id: Q1\nKind: ask\nTitle: Box or yew?\nState: open\nOwner: Digger\nSince: ${sinceOf(NOW - 20 * MIN)}\nFiled: ${NOW - 20 * MIN}\nAsks: decide\nBlocking: yes\nOf: B12\nOptions: A box | B yew\nAdvice: B\nRoute: partner\n`)
+const takenBack = parsed(`Id: Q8\nKind: ask\nTitle: Icons?\nState: open\nOwner: Digger\nSince: ${sinceOf(NOW - 10 * MIN)}\nAsks: decide\nBlocking: no\nOf: B12\nRoute: person\nDaily note: N2\n\n## Route\nYour partner had answered: A; you took it back\n\n## Note line\n${L3}\n`)
+/** The garden after a day with the partner (the board adds `goalsEdit`: whether goals.md may be written): a question with it, an answer of today and one of two days ago, one taken back. */
+const garden = (goalsEdit = { canWrite: true }) => asSent({ ...build([
+  waiting, routed, takenBack,
+  answered('Q5', 'N1', L1, NOW - 2 * DAY), answered('Q6', 'N2', L2, NOW - 30 * MIN),
+  note('N1', NOW - 2 * DAY, [L1]), note('N2', NOW - 60 * MIN, [L2, 'Kept the icons', L3], [L3]),
+], undefined, RUN_GOALS), goalsEdit })
+const TAKE_BACK = 'Take back your partner\'s answer: the question comes to you, and its chat waits for your answer'
 
-test('the Focus page\'s switch: "Your partner answers detail questions", on or off as the store keeps it', () => {
-  assert.equal(made.partnerSwitchView(null), null, 'no store: no switch')
-  const on = plain(made.partnerSwitchView({ on: true }))
-  assert.deepEqual([on.label, on.on, on.isEnabled], ['Your partner answers detail questions', true, true])
-  assert.match(on.title, /questions only you can answer still come to you/)
-  const off = plain(made.partnerSwitchView({ on: false }))
-  assert.equal(off.on, false)
-  assert.match(off.title, /every question comes to you/)
+/** The Focus page of a garden whose store keeps the switch as `partner` (undefined: no store). */
+async function focusPage(partner) {
+  const state = asSent({ ...build([], partner, RUN_GOALS), goalsEdit: { canWrite: true } })
+  if (partner === undefined) delete state.partnerAnswers
+  const page = await openPage({ state })
+  await page.click('[data-tab="advice"]')
+  return page
+}
+
+test('the Focus page\'s switch: "Your partner answers detail questions", on or off as the store keeps it', async () => {
+  const none = await focusPage(undefined)
+  try { assert.equal(none.all('.focus-partner-switch').length, 0, 'no store: no switch') } finally { await none.close() }
+  const on = await focusPage({ on: true })
+  try {
+    assert.equal(on.text('.focus-partner-switch span'), 'Your partner answers detail questions')
+    assert.equal(on.find('[data-partner-answers="switch"]').checked, true)
+    assert.equal(on.find('[data-partner-answers="switch"]').disabled, false)
+    assert.match(on.find('.focus-partner-switch').getAttribute('title'), /questions only you can answer still come to you/)
+  } finally { await on.close() }
+  const off = await focusPage({ on: false })
+  try {
+    assert.equal(off.find('[data-partner-answers="switch"]').checked, false)
+    assert.match(off.find('.focus-partner-switch').getAttribute('title'), /every question comes to you/)
+  } finally { await off.close() }
 })
 
-test('the daily note: a partner\'s answer of an ask has its Undo, then "taken back" by its field; other lines keep "undo asked"', () => {
-  const focus = { note: { id: 'N4', decided: [
-    { text: 'Q1 (Digger, B1): Number or bar? → A number (your advice)', undoAsked: false, ask: 'Q1', takenBack: false },
-    { text: 'Q2 (Digger, B1): Yellow? → A (your advice)', undoAsked: true, ask: 'Q2', takenBack: true },
-    { text: 'Kept the icons', undoAsked: true },
-    // The review's findings: a line that only looks like an answer is the partner's own line.
-    { text: 'Q9 (old notes): kept the icons', undoAsked: false },
-  ] }, needs: [] }
-  const view = plain(made.focusNoteView(focus, true, null))
-  assert.deepEqual(view.decided.map(one => [one.undo.label, one.undo.isEnabled, one.ask ?? null]), [['Undo', true, 'Q1'], ['taken back', false, 'Q2'], ['undo asked', false, null], ['Undo', true, null]])
-  assert.match(view.decided[0].undo.title, /Take back your partner's answer: the question comes to you/)
-  assert.equal(view.decided[3].undo.title, 'Ask your partner to undo this')
+test('the daily note: a partner\'s answer of an ask has its Undo, then "taken back" by its field; other lines keep "undo asked"', async () => {
+  // The review's findings: a line that only looks like an answer ("Q9 (old notes): ...") is the partner's own line.
+  const state = asSent({ ...build([
+    answered('Q1', 'N4', 'Q1 (Digger, B1): Number or bar? → A number (your advice)', NOW - 30 * MIN),
+    parsed(`Id: Q2\nKind: ask\nTitle: Yellow?\nState: open\nOwner: Digger\nSince: ${sinceOf(NOW - 10 * MIN)}\nAsks: decide\nBlocking: no\nOf: B12\nRoute: person\nDaily note: N4\n\n## Route\nYour partner had answered: A; you took it back\n\n## Note line\nQ2 (Digger, B1): Yellow? → A (your advice)\n`),
+    note('N4', NOW - 60 * MIN, ['Q1 (Digger, B1): Number or bar? → A number (your advice)', 'Q2 (Digger, B1): Yellow? → A (your advice)', 'Kept the icons', 'Q9 (old notes): kept the icons'], ['Q2 (Digger, B1): Yellow? → A (your advice)', 'Kept the icons']),
+  ], undefined, RUN_GOALS), goalsEdit: { canWrite: true } })
+  const page = await openPage({ state })
+  try {
+    await page.click('[data-tab="advice"]')
+    const undos = page.all('.focus-daily .focus-undo')
+    assert.deepEqual(undos.map(one => [one.textContent, one.disabled, one.getAttribute('data-focus-ask')]), [['Undo', false, 'Q1'], ['taken back', true, 'Q2'], ['undo asked', true, null], ['Undo', false, null]])
+    assert.equal(undos[0].getAttribute('title'), TAKE_BACK)
+    assert.equal(undos[3].getAttribute('title'), 'Ask your partner to undo this')
+    assert.equal(undos[2].getAttribute('title'), 'You asked your partner to undo this')
+  } finally { await page.close() }
 })
 
-test('the review\'s findings: "With your partner" (count, a click lists them), "Decided for you" with Undo, the lane waiting for the partner', async () => {
-  const page = await openPage({ state: garden() })
-  const { STATES } = page.constants
-  await page.close()
-  assert.equal(made.withPartnerView([]), null)
-  assert.deepEqual(plain(made.withPartnerView([{ id: 'Q1', from: 'Digger', title: 'Number or bar?' }, { id: 'Q2', from: 'Lead', title: 'Icons?' }])), {
+test('the review\'s findings: "With your partner" (count, a click lists them as links), "Decided for you" with Undo, the lane waiting for the partner', async () => {
+  const none = await openPage({ state: asSent(build([waiting, ask('Q2', 'person', NOW - 40 * MIN)])) })
+  try {
+    assert.equal(none.all('[data-with-partner="toggle"]').length, 0, 'no question with the partner: no line')
+    assert.equal(none.all('[data-decided="toggle"]').length, 0, 'no answer decided for the person: no line')
+    // Without a question with the partner a lane says its state in the page's own words, not that it waits for the partner.
+    const { STATES } = none.constants
+    const pills = none.all('#lanes .pill').map(one => [one.closest('[data-lane]')?.dataset.lane ?? null, one.textContent])
+    assert.ok(pills.some(([lane, text]) => lane === 'Digger' && text === STATES.working), 'the lane says its state')
+    assert.ok(pills.every(([, text]) => !/partner/.test(text)))
+  } finally { await none.close() }
+  const two = await openPage({ state: asSent(build([waiting, routed, parsed(`Id: Q3\nKind: ask\nTitle: Icons?\nState: open\nOwner: Lead\nSince: ${sinceOf(NOW - 20 * MIN)}\nFiled: ${NOW - 20 * MIN}\nAsks: decide\nBlocking: no\nOf: B12\nOptions: A icons | B words\nAdvice: A\nRoute: partner\n`)])) })
+  try {
+    assert.equal(two.text('[data-with-partner="toggle"]'), '▸ With your partner: 2 questions')
+    await two.click('[data-with-partner="toggle"]')
     // The person, 2026-10-26: each row is a link that opens its ask ("i just need it clickable").
-    text: 'With your partner: 2 questions', rows: [
-      { id: 'Q1', href: '#details=Q1', text: 'Q1 · Digger: Number or bar?', stand: null },
-      { id: 'Q2', href: '#details=Q2', text: 'Q2 · Lead: Icons?', stand: null },
-    ],
-  })
-  assert.equal(plain(made.withPartnerView([{ id: 'Q1', from: 'Digger', title: 'Number or bar?' }])).text, 'With your partner: 1 question')
-  assert.equal(made.decidedView([]), null)
-  const decided = plain(made.decidedView([{ ask: 'Q5', line: 'Q5 (Digger, B12): Icons? → A (your advice)', at: 0 }]))
-  assert.equal(decided.title, 'Decided for you by your partner')
-  assert.deepEqual(decided.rows, [{ ask: 'Q5', text: 'Q5 (Digger, B12): Icons? → A (your advice)', undo: { id: 'Q5', label: 'Undo', title: 'Take back your partner\'s answer: the question comes to you, and its chat waits for your answer' } }])
-  assert.equal(made.laneStateText({ state: 'working', waitsForPartner: ['Q1'] }, STATES), 'Waiting for your partner (Q1)')
-  assert.equal(made.laneStateText({ state: 'waiting', waitsForPartner: null }, STATES), 'Waiting for you')
+    assert.deepEqual(two.all('.with-partner-ask').map(one => [one.textContent, one.getAttribute('href')]), [['Q1 · Digger: Box or yew?', '#details=Q1'], ['Q3 · Lead: Icons?', '#details=Q3']])
+  } finally { await two.close() }
+  const page = await openPage({ state: garden() })
+  try {
+    assert.equal(page.text('[data-with-partner="toggle"]'), '▸ With your partner: 1 question')
+    await page.click('[data-decided="toggle"]')
+    assert.match(page.text('[data-decided="toggle"]'), /^Decided for you by your partner · 1/)
+    assert.equal(page.find('.decided-for-you [data-take-back="Q5"]').getAttribute('title'), TAKE_BACK)
+    assert.match(page.text('.decided-for-you'), /Q5 \(Digger, B12\): Icons\? → A \(your advice\)/)
+  } finally { await page.close() }
 })
 
-test('the ask\'s card: the partner\'s answer with its why and Undo; the line of an ask handed on or taken back', () => {
-  const answered = plain(made.partnerAnswerView({ workId: 'Q1', answer: { by: 'partner', text: 'A number', why: 'your advice', at: 0 }, canTakeBack: true, routeNote: null }))
-  assert.deepEqual(answered, { text: 'Your partner answered: A number', why: 'Why: your advice', undo: { id: 'Q1', label: 'Undo', title: 'Take back your partner\'s answer: the question comes to you, and its chat waits for your answer' } })
-  const handed = plain(made.partnerAnswerView({ workId: 'Q2', answer: null, routeNote: 'Your partner hands this to you: it is about money', canTakeBack: false }))
-  assert.deepEqual(handed, { text: 'Your partner hands this to you: it is about money', why: null, undo: null })
-  assert.equal(made.partnerAnswerView({ workId: 'Q3', answer: null, routeNote: null }), null)
-})
-
-test('the server: the work tool\'s answer wakes the asking chat as the page\'s does; an Undo of a partner\'s answer tells the asking chat', () => {
-  // B412: a chat's work call is made once, in bridgeWorkOnce.
-  const bridge = server.slice(server.indexOf('const bridgeWorkOnce = async'), server.indexOf('const server = createBoard({'))
-  assert.match(bridge, /await sendWakes\(done/)
-  const page = server.slice(server.indexOf('work: async body => {'), server.indexOf('bridgeWork: async body => {'))
-  assert.match(page, /await sendWakes\(done/)
-  const undo = server.slice(server.indexOf('const undoNow = async body => {'), server.indexOf('/** What the API goes by'))
-  assert.match(undo, /tell: wake => sendWakes\(/)
-  // The partner's own ask is answered in its chat; the board's work context knows the focus goal for the note.
-  assert.match(server, /focusGoal: state\.focus\?\.id \?\? null/)
+test('the ask\'s card: the partner\'s answer with its why and Undo; the line of an ask handed on or taken back', async () => {
+  const handed = parsed(`Id: Q2\nKind: ask\nTitle: Money?\nState: open\nOwner: Digger\nSince: ${sinceOf(NOW - 10 * MIN)}\nAsks: decide\nBlocking: no\nOf: B12\nRoute: person\n\n## Route\nYour partner hands this to you: it is about money\n`)
+  const page = await openPage({ state: asSent(build([waiting, handed, takenBack, answered('Q6', 'N2', L2, NOW - 30 * MIN), note('N2', NOW - 60 * MIN, [L2, L3])], undefined, RUN_GOALS)) })
+  try {
+    await page.change('#needs-closed', true)
+    const [answeredCard] = page.all('.partner-answer').filter(one => one.closest('[data-id="work:Q6"]') !== null)
+    assert.ok(answeredCard, 'the answered ask has its part of the partner')
+    assert.match(answeredCard.textContent, /Your partner answered: A/)
+    assert.match(answeredCard.textContent, /Why: your advice/)
+    assert.equal(answeredCard.querySelector('[data-take-back="Q6"]').getAttribute('title'), TAKE_BACK)
+    const handedCard = page.find('[data-id="work:Q2"] .partner-answer')
+    assert.equal(handedCard.textContent, 'Your partner hands this to you: it is about money')
+    assert.equal(handedCard.querySelector('[data-take-back]'), null, 'a handed ask has no Undo')
+    assert.equal(page.text('[data-id="work:Q8"] .partner-answer'), 'Your partner had answered: A; you took it back')
+    // An ask the partner never touched has no part of the partner.
+    const plain = await openPage({ state: asSent(build([ask('Q3', null, NOW - 40 * MIN)])) })
+    try { assert.equal(plain.all('.partner-answer').length, 0) } finally { await plain.close() }
+  } finally { await page.close() }
 })
 
 // ---- the state ----
@@ -100,9 +127,6 @@ test('the state: a routed ask is not under Needs your attention; the partner is 
 })
 
 test('the review\'s findings, the state: the lane waits for the partner; "With your partner"; the note\'s lines by their asks; 7 days of Undo', () => {
-  const waiting = parsed(`Id: B12\nKind: step\nTitle: Plant the hedge\nState: waiting on you\nOwner: Digger\nSince: ${sinceOf(NOW - 30 * MIN)}\n`)
-  const routed = parsed(`Id: Q1\nKind: ask\nTitle: Box or yew?\nState: open\nOwner: Digger\nSince: ${sinceOf(NOW - 20 * MIN)}\nFiled: ${NOW - 20 * MIN}\nAsks: decide\nBlocking: yes\nOf: B12\nOptions: A box | B yew\nAdvice: B\nRoute: partner\n`)
-  const takenBack = parsed(`Id: Q8\nKind: ask\nTitle: Icons?\nState: open\nOwner: Digger\nSince: ${sinceOf(NOW - 10 * MIN)}\nAsks: decide\nBlocking: no\nOf: B12\nRoute: person\nDaily note: N2\n\n## Route\nYour partner had answered: A; you took it back\n\n## Note line\n${L3}\n`)
   const state = build([
     waiting, routed, takenBack,
     answered('Q5', 'N1', L1, NOW - 2 * DAY), answered('Q6', 'N2', L2, NOW - 30 * MIN), answered('Q7', 'N0', L4, NOW - 8 * DAY),
@@ -128,16 +152,6 @@ test('the review\'s findings, the state: the lane waits for the partner; "With y
 })
 
 // ---- the page, clicked (B415: through the DOM harness, with a fake fetch) ----
-
-const waiting = parsed(`Id: B12\nKind: step\nTitle: Plant the hedge\nState: waiting on you\nOwner: Digger\nSince: ${sinceOf(NOW - 30 * MIN)}\n`)
-const routed = parsed(`Id: Q1\nKind: ask\nTitle: Box or yew?\nState: open\nOwner: Digger\nSince: ${sinceOf(NOW - 20 * MIN)}\nFiled: ${NOW - 20 * MIN}\nAsks: decide\nBlocking: yes\nOf: B12\nOptions: A box | B yew\nAdvice: B\nRoute: partner\n`)
-const takenBack = parsed(`Id: Q8\nKind: ask\nTitle: Icons?\nState: open\nOwner: Digger\nSince: ${sinceOf(NOW - 10 * MIN)}\nAsks: decide\nBlocking: no\nOf: B12\nRoute: person\nDaily note: N2\n\n## Route\nYour partner had answered: A; you took it back\n\n## Note line\n${L3}\n`)
-/** The garden after a day with the partner (the board adds `goalsEdit`: whether goals.md may be written): a question with it, an answer of today and one of two days ago, one taken back. */
-const garden = (goalsEdit = { canWrite: true }) => asSent({ ...build([
-  waiting, routed, takenBack,
-  answered('Q5', 'N1', L1, NOW - 2 * DAY), answered('Q6', 'N2', L2, NOW - 30 * MIN),
-  note('N1', NOW - 2 * DAY, [L1]), note('N2', NOW - 60 * MIN, [L2, 'Kept the icons', L3], [L3]),
-], undefined, RUN_GOALS), goalsEdit })
 
 test('the page: the Focus page\'s switch is on as the store keeps it; a click sends the person\'s change of the store', async () => {
   const page = await openPage({ state: garden() })
