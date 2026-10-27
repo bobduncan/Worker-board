@@ -3401,7 +3401,13 @@ the AI sweep by a cheap supervisor chat and the hand-over to the Advisor, comes 
   `old-limit-reading` is quiet; the sweep word's job (`roles/supervisor.md`) names the deferred tool `mcp__ccd_session_mgmt__get_usage`,
   loaded with ToolSearch. B649 (the fix of B645's check): the rule counts the figure's age from the end of the last pause at the earliest
   (`afterPause`, as the rules about chats do), so a long pause does not file an incident before the lookup after the resume lands; the finding's text
-  still names the figure's real age. How long a thing
+  still names the figure's real age. B727 (X56 reopened 3 min after a 20 h sleep, X84 filed from a wall-clock step age): the board's off time
+  (`boardOffMs`, the history's gap lines) does not count in the rule's age either, so after a wake the supervisor's next lookup comes first.
+  The clock of every age the supervisor measures: RUNNING TIME (board-off time left out by `boardOffMs`) in `stale-checkpoint`, `open-fix`,
+  `effort-mismatch`, `review-stuck`, `dropped-fix`, `old-limit-reading` (B727) and the health summary's step and checkpoint ages (B727: a
+  gap inside adds "(PC off <h>)"); WALL TIME on purpose in the health summary's chat-state age, the age of a step behind a blocker, a
+  limit reading's "(old: N min)" and the clock times in the findings' texts (they say what the clock showed), and in the rules whose
+  words wait on a chat (`undelivered`, `unknown-lane`), which the chat's own clock decides. How long a thing
   lasted comes from the timeline (`state.today`), else from the supervisor's own watch.
 - **The supervisor's memory**, `<project>/.claude/supervisor.json`, beside `sync.json` and apart from it: its watch
   (`seen`), the repairs of the last day (`repairs`, for `repair-repeats`) and when each rule tripped (`trips`). Read at

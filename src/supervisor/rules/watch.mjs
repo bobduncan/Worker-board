@@ -94,7 +94,7 @@ function spanOf(view, seenOf, key, since = null) {
  * (`view.gaps`, state.mjs), not guessed from holes in today's window, which a gap that began before it escaped. Without
  * gap lines it is 0, and the wall time counts.
  */
-function boardOffMs(view, from) {
+export function boardOffMs(view, from) {
   if (!Number.isFinite(from)) return 0
   return (view.gaps ?? []).reduce((sum, gap) => sum + Math.max(0, Math.min(gap.to, view.now) - Math.max(gap.from, from)), 0)
 }
@@ -949,7 +949,9 @@ function oldLimitReading(view) {
   for (const [key, name] of [['fiveHour', '5-hour limit'], ['week', 'weekly limit']]) {
     // B649: counted from the end of the last pause at the earliest, as the other rules: the figure was not stale while nothing spent, and the supervisor's lookup after the resume has its time to land.
     const limit = view.limits?.[key]
-    const counted = Number.isFinite(limit?.at) ? readingAgeMinutes({ ...limit, at: afterPause(view, limit.at) }, view.now) : null
+    // B727 (X56 reopened 3 min after a 20 h sleep): the board's off time does not count either, as in the other rules; after a wake the supervisor's next lookup comes first.
+    const from = Number.isFinite(limit?.at) ? afterPause(view, limit.at) : null
+    const counted = from === null ? null : readingAgeMinutes({ at: from + boardOffMs(view, from) }, view.now)
     if (counted === null || counted <= view.settings.oldReadingIncidentMinutes) continue
     // X47, X55, X56: an old low reading changes no decision; only one near a stop matters.
     if (!isNearStop(limit, key, view.settings)) continue
