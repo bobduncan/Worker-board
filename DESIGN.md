@@ -3364,7 +3364,8 @@ the AI sweep by a cheap supervisor chat and the hand-over to the Advisor, comes 
   `appEffort` beside its high effort mode in `effort`, and `effort.mjs chatEffort` reads the level, so the health
   summary never says "[object Object]"), `review-stuck` (B543, the fix of X8: a step in review with no result check
   filed for over 60 min, its first or again after its fix was done or its ask point answered; one that waits for an open fix,
-  down a chain of fixes too, or for the person's answer is no case), `dropped-fix` (B630, the fix of X54: a step in
+  down a chain of fixes too, or for the person's answer is no case; B740, X92: also a step in review whose report check
+  failed and was not reported again, `reviewWaitOf` kind 'report', over 60 min of running time), `dropped-fix` (B630, the fix of X54: a step in
   review whose fix was dropped, with no new fix, no new check and no open step blocking it, for over 30 min; with a
   block, `reviewWaitOf` says kind 'blocked' and the step waits as planned, odd in the health summary only when a
   blocker is stalled itself), `review-held` (B656, X8 again: a step in review whose chain of open fixes ends in a refined
@@ -3392,7 +3393,15 @@ the AI sweep by a cheap supervisor chat and the hand-over to the Advisor, comes 
   does not count; the health summary says beside "wants" "switch asked HH:MM" or "switched", and marks the mismatch
   "!" only once it lasts).
   What a step in review waits for (`resultCheck.mjs reviewWaitOf`: its first check, its check again, the person's
-  answer, its fix B<n>, or its fix dropped) stands beside its title on the Backlog tab and in the work tool's `next`
+  answer, its fix B<n>, its fix dropped, or (B740, X92: B727's report check failed at 21:03 and its worker never reported it
+  again, so it sat in review an hour with nothing said) its worker's new report: "waits for <worker> to report again: its
+  report check failed at HH:MM (<why in a few words>)", for a step in review whose last board check line is "check failed" with
+  no report after it; a re-report ends it, the board's new check then pending as before; a dropped step says nothing). That
+  wait, 30 min of running time old (`reportAgainMinutes`; board-off time and the person's pause left out), has the board type
+  the worker one line, once per failed check (the key holds the check's minute; the reconciler's flag 'report again', delivered
+  like the check's word): "B<n>'s report check failed at HH:MM: fix what it names and report it again". The delivery holds
+  it while the person pauses, as every line. Past `reviewMinutes` of running time the rule `review-stuck` opens for it too.
+  It stands beside its title on the Backlog tab and in the work tool's `next`
   and `list`; the repair rule `fix-dropped` gives the main chat one word for a dropped fix, 30 min after the drop:
   close it or have it checked again. `not-cleared` (B547, the fix of X13 and X14: a worker whose last report is newer than its last clear and that took a new
   step since, at once, or that stays so for over 10 min, `notClearedMinutes`; one finding per worker per report, with

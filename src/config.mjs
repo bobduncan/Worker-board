@@ -42,6 +42,8 @@ export const SUPERVISOR_DEFAULTS = Object.freeze({
   reviewMinutes: 60,
   /** B662: a step in review is stuck only when its newest check word has gone unanswered this long (the repair had its chance). */
   checkWordMinutes: 30,
+  /** B740 (X92): a step in review whose report check failed and was not reported again this long (running time) before its worker is told once. */
+  reportAgainMinutes: 30,
   /** B667: a fix that waits for the partner's refine this long, its newest refine word older than `checkWordMinutes`. */
   openFixMinutes: 60,
   /** B663 (the fix of X67): a step whose board check failed twice is a case only once its second failure is older than this (the worker may be correcting its report). */

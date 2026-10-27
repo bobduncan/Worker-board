@@ -97,7 +97,10 @@ step therefore says what it touches ("Touches: ...").
   board's check of your report fails while a worktree of the step, or a folder with files of it, is left, and names it
   with how to remove it: remove it and report again. A report whose check failed is handed back to you (B737): you stay
   in your turn to fix it, no clear is owed for it and the board gives you no new step until you report that step again
-  and the check passes; `work next` says so. An EMPTY folder no repository lists the board removes itself
+  and the check passes; `work next` says so. The step stands in review meanwhile, waiting for you ("waits for <you> to
+  report again: its report check failed at HH:MM", B740); 30 min on, the board types you one line, once per failed check
+  ("B<n>'s report check failed at HH:MM: fix what it names and report it again"): do what it says, and an hour on the
+  supervisor looks at it. An EMPTY folder no repository lists the board removes itself
   (rmdir, a few tries over some seconds; B717), so it never fails the check; only one a program still holds keeps a line.
 - The repository's own `CLAUDE.md`, when it has one, is the working agreement and holds for you in full: read it
   before your first task.
