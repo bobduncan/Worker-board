@@ -8,6 +8,7 @@
 import { familyOf, modelOf } from './effort.mjs'
 import { UNDER_WAY, overlapIn, readyHold } from './guards.mjs'
 import { isFix, sinceMs, valueOf } from './item.mjs'
+import { isQaTask, notByOf } from './qaTask.mjs'
 
 /**
  * The settings' defaults (config.mjs): minutes to take a given task; minutes a follow-up is kept for its worker (0: a
@@ -95,13 +96,16 @@ function fixChain(item, items) {
 /**
  * The ready list: `{ ready, held }`. Every step in state refined; ready when nothing holds it (guards.mjs `readyHold`),
  * its kind's standard does not hold it (`standardHold(item)`, a why or null) and its routing record does not
- * (`routingHeld`, ids); else held, `{ id, why }` in one line. `ready` in the board's order: a fix first (rank 0), then a
+ * (`routingHeld`, ids); else held, `{ id, why }` in one line. `ready` in the board's order: a Quality Assurance task first
+ * (rank -1, T9.1.1: the person, 2026-10-27, "checks go before new steps"), then a fix (rank 0), then a
  * task of the focus goal (1), then the rest (2): the tasks the person added to the queue (`added`, its stamp) in the
- * order they were added, then the others by id; ranks 0 and 1 each by id. With the worker it is kept for (`keptFor`: its
+ * order they were added, then the others by id; ranks -1, 0 and 1 each by id. With the worker it is kept for (`keptFor`: its
  * pin, else, with `followUpMs` above 0, the worker it is a follow-up of, until `keptUntil`), its pin (`pinned`), and
  * (`followUpMs` 0, the default: a preference only) the worker it goes to when that one is idle at the give (`prefers`).
  * A task of rank 2 neither pinned nor added is held for the person's choice (`choice: true`, CHOICE_WHY) unless
  * `beyondFocus`.
+ * A QA task (qaTask.mjs) is never held for the person's pick (the step it checks was started already), is a follow-up of
+ * nobody, and carries `notBy`, the chats it is never given to (the ones that built the step it checks).
  * Which steps go out by themselves (B691, B694, B697; the one place that states it): the focus is the goal `focus` and the
  * goals under it (`focusGoals`): a step of one is the focus's, rank 1. A fix goes out as its root does (its chain,
  * `fixChain`): it is the focus's when any step down its chain belongs to the focus, and picked when any step down its chain
@@ -124,9 +128,10 @@ export function readyList(items, { now, focus = null, focusGoals = [], followUpM
     }
     const pinned = valueOf(item, 'Pinned') === null ? null : bare(valueOf(item, 'Pinned'), prefix)
     const isKept = followUpMs > 0
-    const follow = pinned === null ? followUpOf(item, items, { now, followUpMs: isKept ? followUpMs : Infinity, prefix }) : null
+    const isQa = isQaTask(item)
+    const follow = pinned === null && !isQa ? followUpOf(item, items, { now, followUpMs: isKept ? followUpMs : Infinity, prefix }) : null
     const chain = fixChain(item, items)
-    const rank = isFix(item) ? 0 : chain.some(one => inFocus.has(valueOf(one, 'Goal'))) ? 1 : 2
+    const rank = isQa ? -1 : isFix(item) ? 0 : chain.some(one => inFocus.has(valueOf(one, 'Goal'))) ? 1 : 2
     const added = addedStamp(item)
     // B691: a fix goes out as its root does: the person's pick (added or pinned) of any step down its chain is its own.
     // A dropped root has nothing left to make pass: its pick does not carry the fix.
@@ -138,7 +143,7 @@ export function readyList(items, { now, focus = null, focusGoals = [], followUpM
       held.push({ id, why: CHOICE_WHY, choice: true })
       continue
     }
-    ready.push({ id, rank, keptFor: pinned ?? (isKept ? follow?.worker ?? null : null), keptUntil: isKept ? follow?.until ?? null : null, pinned, prefers: isKept ? null : follow?.worker ?? null, ...(added === null ? {} : { added }) })
+    ready.push({ id, rank, keptFor: pinned ?? (isKept ? follow?.worker ?? null : null), keptUntil: isKept ? follow?.until ?? null : null, pinned, prefers: isKept ? null : follow?.worker ?? null, ...(added === null ? {} : { added }), ...(isQa ? { notBy: notByOf(item) } : {}) })
   }
   // Within rank 2 the person's additions come first, in the order they were added (one without a readable stamp last of them).
   const addedOrder = one => (one.rank !== 2 || one.added === undefined ? Infinity : Number.isFinite(addedAt(items.get(one.id))) ? addedAt(items.get(one.id)) : Number.MAX_SAFE_INTEGER)
@@ -199,6 +204,12 @@ export function idleWorkers(lanes, { items, prefix = '', restFree = [], stuck = 
     .sort((a, b) => (a.report.since ?? 0) - (b.report.since ?? 0) || byId(a.name, b.name))
 }
 
+/**
+ * T9.1.1: whether a ready entry is never given to this worker: a Quality Assurance task (its `notBy`) to a chat that built the
+ * step it checks, whatever the list's prefix and the letters of the name.
+ */
+const isBarred = (one, worker, prefix = '') => (one.notBy ?? []).some(name => plain(name, prefix) === plain(worker.name, prefix))
+
 /** The key of a task and a worker the board does not give it to for a while (`skip` of `match`). */
 export const pairKey = (id, chat, prefix = '') => `${id} ${plain(chat, prefix)}`
 
@@ -208,7 +219,8 @@ export const pairKey = (id, chat, prefix = '') => `${id} ${plain(chat, prefix)}`
  * list's order, each to the worker it prefers (a follow-up's builder) when that one is idle, else to an idle worker
  * already on its model family, else to the first idle one. A task whose Touches overlap a step given or under way, or
  * one given in this pass, is skipped; so is a task and worker of `skip` (`pairKey`: a give refused, or taken back after
- * its line was held).
+ * its line was held). T9.1.1: a QA task is never given to a worker in its `notBy`; with only such workers idle it waits
+ * for another, and the next task of the list goes on to them.
  */
 export function match({ ready = [], idle = [], items, prefix = '', skip = new Set() }) {
   const scratch = new Map(items)
@@ -222,7 +234,8 @@ export function match({ ready = [], idle = [], items, prefix = '', skip = new Se
   }
   const overlaps = one => overlapIn(scratch, items.get(one.id), COUNTS_FOR_TOUCHES) !== null
   // The recheck: a pinned task is never barred from its own worker (a refusal or a held take-back bars others only).
-  const may = (one, worker) => (one.pinned != null && plain(one.pinned, prefix) === plain(worker.name, prefix)) || !skip.has(pairKey(one.id, worker.name, prefix))
+  // T9.1.1: and a QA task is never given to a chat that built the step it checks, pinned or not.
+  const may = (one, worker) => !isBarred(one, worker, prefix) && ((one.pinned != null && plain(one.pinned, prefix) === plain(worker.name, prefix)) || !skip.has(pairKey(one.id, worker.name, prefix)))
   for (const one of ready.filter(task => task.keptFor !== null && items.has(task.id))) {
     const lane = free.find(worker => plain(worker.name, prefix) === plain(one.keptFor, prefix) && may(one, worker))
     if (lane === undefined || overlaps(one)) continue
@@ -417,7 +430,10 @@ export function workerStart({ ready = [], gives = [], idle = [], lanes = [], max
   const pinnedTo = pinnedStart({ ready, handed, refusedIds, workers, scratch, items, sent, now, prefix, offAfterMs, isOff })
   if (pinnedTo !== null) return isFull(workers.filter(lane => lane !== pinnedTo.lane)) ? null : { start: pinnedTo.lane.name, pinned: pinnedTo.id }
   const given = new Set(gives.map(one => one.chat))
-  if (idle.some(lane => !given.has(lane.name))) return null
+  // T9.1.1: an idle worker that may take none of the tasks still waiting (it built the step of every QA task left) holds no
+  // start back: the task waits for another worker, so one is asked for.
+  const waiting = ready.filter(one => one.keptFor === null && !handed.has(one.id) && !refusedIds.has(one.id))
+  if (idle.some(lane => !given.has(lane.name) && (waiting.length === 0 || waiting.some(one => !isBarred(one, lane, prefix))))) return null
   let givable = 0
   for (const one of ready) {
     if (one.keptFor !== null || handed.has(one.id) || refusedIds.has(one.id)) continue

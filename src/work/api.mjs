@@ -2835,6 +2835,8 @@ async function give(found, body, w) {
   if (w.roleOf !== undefined && role !== 'worker') return refuse(409, `${chat} is no worker of the list.`)
   const pinned = valueOf(found.item, 'Pinned')
   if (pinned !== null && plain(pinned, w.prefix) !== plain(chat, w.prefix)) return refuse(409, `${id} is pinned to ${pinned}, not given to ${chat}.`)
+  // T9.1.1: a Quality Assurance task is never given to a chat that built the step it checks.
+  if (notByOf(found.item).some(name => plain(name, w.prefix) === plain(chat, w.prefix))) return refuse(409, `${id} is a Quality Assurance task: ${chat} built ${valueOf(found.item, 'Checks')}, so it does not check it.`)
   const holds = [...w.store.items.values()].find(one => kindOf(one) === 'step' && HOLDS_FOR_GIVE.includes(stateOf(one)) && isOwner(one, chat, w.prefix))
   if (holds !== undefined) return refuse(409, `${chat} holds ${valueOf(holds, 'Id')} (${stateOf(holds)}): no second task.`)
   const hold = w.standardHold?.(found.item) ?? null
