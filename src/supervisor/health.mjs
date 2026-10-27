@@ -13,7 +13,7 @@ import { openQaTaskOf, qaStandOf } from '../work/qaTask.mjs'
 import { reviewWaitOf } from '../work/resultCheck.mjs'
 import { ACTIVE, heldReason, openAskIds, workingOnOther } from '../work/parked.mjs'
 import { readingAgeMinutes } from '../limits.mjs'
-import { checkpointLate, familyOf, reviewLateOf, switchOf, undeliveredWords, wordMatters } from './rules/watch.mjs'
+import { boardOffMs, checkpointLate, familyOf, reviewLateOf, switchOf, undeliveredWords, wordMatters } from './rules/watch.mjs'
 
 const MIN = 60_000
 const HOUR = 60 * MIN
@@ -295,7 +295,9 @@ function stepLines(view, now) {
     }
     const owner = valueOf(item, 'Owner')
     const since = sinceMs(valueOf(item, 'Since'))
-    const age = now - since
+    // B727 (X84: a 20 h sleep read as 'B726 in progress 20 h 52 min'): a step's and its checkpoint's age count the board's running time (boardOffMs, the stale-checkpoint rule's own count) and name the off time inside.
+    const off = boardOffMs(view, since)
+    const age = now - since - off
     const fix = valueOf(item, 'Priority') === 'fix' ? ', board fix' : ''
     const isChats = owner !== null && chats.has(plain(owner, view.prefix))
     const fixOf = staysWith(item, view)
@@ -323,14 +325,14 @@ function stepLines(view, now) {
     const checkpoint = state === 'in progress' ? checkpointOf(item) : null
     const checkpointWords = state !== 'in progress' ? ''
       : checkpoint === null ? ' [no checkpoint]'
-        : ` [last checkpoint ${Number.isFinite(checkpoint.at) ? `${lasting(now - checkpoint.at)} ago` : 'at a time not known'} (${checkpoint.commit ?? 'none'}): ${oneLine(checkpoint.next, 60)}]`
+        : ` [last checkpoint ${Number.isFinite(checkpoint.at) ? `${lasting(now - checkpoint.at - boardOffMs(view, checkpoint.at))} ago` : 'at a time not known'} (${checkpoint.commit ?? 'none'}): ${oneLine(checkpoint.next, 60)}]`
     // The steps every chat holds stay whatever is cut; a chat's queue before the rest.
     const tier = isChats && HELD.includes(state) ? 0 : isChats ? 1 : 2
     // B567: a step its worker holds while it is on another says so, with why it waits; none named is odd.
     const parked = parkedOf(item, view)
     const odd = isLate(item, view, now) || (owner !== null && !isChats) || checkpointLate(item, { ...view, now }) !== null || (parked !== null && parked.why === null)
     const parkedWords = parked === null ? '' : ` (parked: ${owner} is on ${parked.on}; ${parked.why ?? 'nothing names why it waits'})`
-    lines.push(lineOf(`${id} ${state} for ${lasting(age)}${stays}, ${owner === null ? 'no owner' : owner}${fix}${waits}${parkedWords}${checkpointWords}: ${oneLine(valueOf(item, 'Title'), 80)}`, { tier, odd, at: since }))
+    lines.push(lineOf(`${id} ${state} for ${lasting(age)}${off > 0 ? ` (PC off ${lasting(off)})` : ''}${stays}, ${owner === null ? 'no owner' : owner}${fix}${waits}${parkedWords}${checkpointWords}: ${oneLine(valueOf(item, 'Title'), 80)}`, { tier, odd, at: since }))
   }
   if (review.steps > 0) lines.push(lineOf(`in review: ${review.steps} ${review.steps === 1 ? 'step' : 'steps'} in ${review.chains} ${review.chains === 1 ? 'chain' : 'chains'} of fixes${review.held > 0 ? `, ${review.held} behind a fix the ready list holds` : ''}`, { tier: 1, odd: review.late > 0 }))
   if (backlog.new + backlog.refined > 0) lines.push(lineOf(`backlog, not queued: ${backlog.new} new, ${backlog.refined} refined${refinedWords(view)}`, { tier: 1 }))

@@ -76,7 +76,7 @@ import { buildState } from './src/state.mjs'
 import { isReadAction, workApi } from './src/work/api.mjs'
 import { effortOf } from './src/work/effort.mjs'
 import { isHolding, resumeEnds, resumeRetypeTo, resumeTypeTo } from './src/work/pause.mjs'
-import { basesNow, reportCheck } from './src/work/check.mjs'
+import { basesNow, patientReportCheck } from './src/work/check.mjs'
 import { deliverWork, givesRefused, pullFor, sendOnce } from './src/work/deliver.mjs'
 import { coalesce } from './src/work/again.mjs'
 import { REFUSED_MS, SUPERVISOR_RULES, createSupervisor, incidentCards, loopGate, loopOwner, tokensOfTurn } from './src/supervisor/index.mjs'
@@ -1008,7 +1008,7 @@ async function main(args) {
     const exists = path => stat(path).then(() => true, () => false)
     const running = loops.run(`check:${id}`, async () => {
       // Worktree clean-up (2026-10-24): no worktree of the step, nor its folder, is left in the project folder.
-      const outcome = await reportCheck({ id, branch, result, merged, repos, run: gitRunner(), project: config.project, touches, exists, fs: WORKTREE_FILES, cut })
+      const outcome = await patientReportCheck({ id, branch, result, merged, repos, run: gitRunner(), project: config.project, touches, exists, fs: WORKTREE_FILES, cut })
       const checked = await workApi({ action: 'check', id, ...outcome }, { ...(await workCtx()), as: 'server' })
       if (checked?.ok !== true) throw new Error(`the check of ${id} could not be written: ${checked?.why ?? 'no answer'}`)
       work.reset?.()

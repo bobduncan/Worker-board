@@ -3175,7 +3175,7 @@ stuck that day was found by the person. They are now one list in the board, each
 | `limit-back` | a worker suspended for the limit whose time has passed (`isBack`), holding a step, no limit full | "the limit is back: go on with B<n> from its checkpoint" (Woke); still suspended 10 min on: For Main |
 | `old-name` | a chat's mod refused under a name for over 2 min (one that follows the shown name, B463, joins at once), its session shown under another | a note to the main chat to have it join under the shown name (Sent) |
 | `helper` | the partner's helper not running while refines (not yet refined, not waiting for the person) or result checks the board sent the partner wait (T9.1.1: the helper is retired and the board sends no result check word, so it finds nothing) | the helper woken, which asks the main chat to start it (Woke); still not running 10 min on: the partner told to do them itself, and the main chat to start it (For Main) |
-| `closed-worker` | (B722) a ready task waits, no running worker is free, and a worker's chat is closed (by its card "off", or "free" and known not to run: the page words that lane "Closed", never "Available") | the closed worker closed longest woken once (Woke), the hand-out gives only to a running chat; not while the person pauses or a limit is full, a worker paused for the limit is `limit-back`'s, one holding a step `holder-not-running`'s; not back 10 min on: "B<n> waits; Worker <n> is closed and does not wake" (For Main) |
+| `closed-worker` | (B722, B728) a ready task waits, no running worker is free, and a worker's chat is closed (by its card "off", or "free" and known not to run: shown "Not running" everywhere, never "Free" or "Available"), and the hand-out's start word for it (`workerStart`, below) went 10 min ago | starts nothing: the one wake is that start word. Files for the main chat, once: "B<n> waits; Worker <n> is closed and does not wake" (For Main); the worker closed longest first (lanes with an off time, then by name); not while the person pauses or a limit is full, a worker paused for the limit is `limit-back`'s, one holding a step `holder-not-running`'s |
 | `partner-ask` | an ask routed to the partner open 10 min with no line about it in that time (the partner was busy) | the partner woken, busy or not (Woke) |
 | `refine-again` | (T9.4) a step still new whose refine word the Advisor took (arrived) 30 min ago or more, with no block written since, none waiting for the person's answers, the board not stopped on it (`refineStop`), not a fix | the Advisor woken with the same word, every 30 min, three times (Woke); then one note to the person (Sent) |
 | `incident-again` | (T9.4) an incident "with the advisor" for 30 min or more, with no fix named and not closed | the Advisor woken with the incident's word, every 30 min, three times (Woke); then one note to the person (Sent) |
@@ -3406,7 +3406,13 @@ the AI sweep by a cheap supervisor chat and the hand-over to the Advisor, comes 
   `old-limit-reading` is quiet; the sweep word's job (`roles/supervisor.md`) names the deferred tool `mcp__ccd_session_mgmt__get_usage`,
   loaded with ToolSearch. B649 (the fix of B645's check): the rule counts the figure's age from the end of the last pause at the earliest
   (`afterPause`, as the rules about chats do), so a long pause does not file an incident before the lookup after the resume lands; the finding's text
-  still names the figure's real age. How long a thing
+  still names the figure's real age. B727 (X56 reopened 3 min after a 20 h sleep, X84 filed from a wall-clock step age): the board's off time
+  (`boardOffMs`, the history's gap lines) does not count in the rule's age either, so after a wake the supervisor's next lookup comes first.
+  The clock of every age the supervisor measures: RUNNING TIME (board-off time left out by `boardOffMs`) in `stale-checkpoint`, `open-fix`,
+  `effort-mismatch`, `review-stuck`, `dropped-fix`, `old-limit-reading` (B727) and the health summary's step and checkpoint ages (B727: a
+  gap inside adds "(PC off <h>)"); WALL TIME on purpose in the health summary's chat-state age, the age of a step behind a blocker, a
+  limit reading's "(old: N min)" and the clock times in the findings' texts (they say what the clock showed), and in the rules whose
+  words wait on a chat (`undelivered`, `unknown-lane`), which the chat's own clock decides. How long a thing
   lasted comes from the timeline (`state.today`), else from the supervisor's own watch.
 - **The supervisor's memory**, `<project>/.claude/supervisor.json`, beside `sync.json` and apart from it: its watch
   (`seen`), the repairs of the last day (`repairs`, for `repair-repeats`) and when each rule tripped (`trips`). Read at
@@ -3800,6 +3806,15 @@ with all its guards, at most once a minute, and refused it only writes why on th
 held to nothing; the row says "not cleared after B12" with what happens next, and the watch rule `not-cleared` names it.
 The mod's newest word why it did not clear now shows as its own kind (`not-cleared`), no longer hidden behind an older
 clear.
+B737 (X86, 2026-10-27: Worker 3 reported B727 at 21:02, the board's check failed at 21:03, Worker 3 rightly stayed in its
+turn to fix it; `not-cleared` counted from 21:02, and the board gave it B729 at 21:28 over the failed check): a report
+whose board check failed (the newest `server: check failed` after it, no `check passed` since) is handed back to its
+worker: `lastReportOf` skips it, so no clear is owed, `clearOwed` and `not-cleared` count from the last report whose
+check did not fail, and until the worker reports again and that check passes (`handedBackOf`; a dropped step holds
+nothing) the reconciler gives it no new step: no give (`idleWorkers`, `reconciled.handedBack`) and no delivery of a
+queued one, and its `work next` says "The board's check of your report B727 failed: fix what it names and report
+B727 again first". A worker that never reports again is `review-wait`'s and the health summary's, not this rule's.
+Tests: `test/failedCheckHandBack.test.mjs` (B727's lines through `buildState`, the rule, the `work next` words).
 B587 (X36: a worker restarted for a new mod at 22:45 owed the clear of the step it had just reported; its process
 ended with the archive, so it could not clear, and its next step's line waited until the board itself started anew
 8 minutes on): the clear holds the line only while the chat's process runs (`clearHolds`). A worker whose process ended
@@ -3878,6 +3893,8 @@ timers. Now each chat says it (principle 3, know don't guess).
   least 1; principle 2: never wait for ever), "silent since HH:MM". Its `offSince` (which the rule working-not-running
   reads as a card left working) is set only when its last report said it worked: busy, asking, or idle with background
   work. An archived chat has no lane, as before.
+  (B728) A chat the board knows does not run whose card says free keeps the state `free` (the hand-out asks the main chat to start it,
+  `workerStart`), but is shown "Not running" in its pill, its time column and the head count: one word for one fact.
 - **Older mods and a restart:** a chat on a Workers mod older than 0.19.0 sends no report and keeps the board's
   reading, until the restart between steps (B570) brings it onto the new mod; the reading is removed in a later
   clean-up once no chat needs it. After the board restarts its reports are empty: each chat shows the board's reading
@@ -3952,7 +3969,7 @@ what code should do"). Now the board hands out every task itself (principle 1), 
   last 10 minutes that have not reported yet (a start word whose worker has not reported since; a spawn word, which
   carries how many workers had reported then), no idle worker is left after the gives, and fewer workers than
   `maxWorkers` are not off, the main chat is asked once per need (`board-start <who> <how
-  many ran>`): `start "<worker>"` for a worker of the list whose chat is off (the one off longest first), else `spawn
+  many ran> <start window>`, once per 10-minute window, B728: a once-ever key silenced a start for ever after one went for the same worker and count): `start "<worker>"` for a worker of the list whose chat is off or free and known not to run (shown "Not running"; the one off longest first), else `spawn
   workers` with `Count: 1`, `Why: ready tasks wait and no worker is free`. Without `maxWorkers` the board asks for none.
   Main does this without judgment: it is the board's hands (roles/main.md, "Main is the board's hands").
 - **The flow** (`src/work/flow.mjs`, `examples/work/flow.json`): `{ "from": "refined", "to": "queued", "by": "server",

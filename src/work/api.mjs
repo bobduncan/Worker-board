@@ -11,6 +11,7 @@ import { workWords } from '../say.mjs'
 import { stepLine, stepNotes } from './adapter.mjs'
 import { GIVE_GUARD, flowHandsOut, mayMove } from './flow.mjs'
 import { isPlacedBefore } from './handOut.mjs'
+import { handedBackOf } from '../clearOwed.mjs'
 import { blockersOpen, CLEARED, overlapsIn, waitIds, waitWords } from './guards.mjs'
 import { ASK_KINDS, HEAD_KEYS, askFiledMs, fixFirst, isFix, serializeItem, sinceMs, validateHead, valueOf } from './item.mjs'
 import { askIdsIn, askKey, askTitleOf, askWordsOf, refineQuestionProblem, refineTitleOf, sameAsk, titleProblem } from './askWords.mjs'
@@ -321,7 +322,7 @@ async function next(body, w) {
   const routed = w.role === 'advisor' ? routedAsks(w) : { text: '', ids: [] }
   const found = steady(body, w, chat)
   // 2026-10-25: the warnings the board's check passed the chat's newest report with, for as long as it is the newest.
-  const warned = found.ok ? reportWarningsWords(chat, w) : ''
+  const warned = found.ok ? [handedBackWords(chat, w), reportWarningsWords(chat, w)].filter(Boolean).join('\n') : ''
   if (!found.ok || (notes.ids.length === 0 && routed.ids.length === 0 && warned === '')) return found
   const text = [routed.text, notes.text, warned, found.result.text].filter(Boolean).join('\n\n')
   return { ok: true, result: { ...found.result, text, ...(routed.ids.length === 0 ? {} : { routed: routed.ids }), ...(notes.ids.length === 0 ? {} : { notes: notes.ids, changed: true }) } }
@@ -347,6 +348,15 @@ function reportWarningsWords(chat, w) {
     .sort((a, b) => reportedAtMs(b) - reportedAtMs(a) || byId(valueOf(b, 'Id'), valueOf(a, 'Id')))
   const warnings = reported.length === 0 ? null : boardWarningsOf(reported[0])
   return warnings === null ? '' : `Your last report (${valueOf(reported[0], 'Id')}) passed the board's check with warnings: ${warnings} - nothing to redo; do not report again`
+}
+
+/**
+ * B737 (X86): the step the board's check handed back (its newest report failed the check, no report again since): one line
+ * in `work next` telling the chat to fix it and report it again first, as the board gives it no new step meanwhile. '' for none.
+ */
+function handedBackWords(chat, w) {
+  const back = handedBackOf(w.store.items, chat, w.prefix)
+  return back === null ? '' : `The board's check of your report ${back.id} failed: fix what it names and report ${back.id} again first; the board gives you no new step before that report passes`
 }
 
 /** Partner answers (2026-10-19): the open asks routed to the partner, each in one line, and how to answer them; `{ text, ids }`. */

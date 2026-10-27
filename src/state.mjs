@@ -1444,7 +1444,8 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
   })()
 
   const counts = { working: 0, waiting: 0, free: 0, unknown: 0, interrupted: 0, suspended: 0, off: 0 }
-  for (const lane of cards) if (!lane.isLeftover) counts[lane.state] += 1
+  // B728: a free lane known not to run counts as not running: one word for one fact (the lane's pill says it too).
+  for (const lane of cards) if (!lane.isLeftover) counts[lane.state === 'free' && runningOf(lane.name) === false ? 'off' : lane.state] += 1
 
   // The steps the workers are on right now, also the ones that name no branch (a check, a comparison, a merge):
   // they are in progress, not next in a queue.
@@ -1844,7 +1845,7 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
     workFlags: [...(reconciled?.flags ?? []).filter(flag => flag.kind === 'broken').map(flag => flag.text),
       // Model per step: settings that name the model ids otherwise than both, each "claude-...": the effort alone.
       ...(typeof config.modelsProblem === 'string' ? [`Settings: ${config.modelsProblem}.`] : [])],
-    reconciled: reconciled === null ? null : { moves: reconciled.moves, deliveries: reconciled.deliveries.filter(one => !efforts.held.has(one.id) && !clearHeld.has(one.id)), efforts: efforts.words, held: [...efforts.held, ...clearHeld], holds: Object.fromEntries(efforts.holds), says: reconciled.flags.filter(flag => typeof flag.say === 'string'), notes: reconciled.notes ?? [], partnerAsks: reconciled.partnerAsks ?? [], escalations: reconciled.escalations ?? [], restarts: rollout?.words ?? [], restFree: reconciled.restFree ?? [], gives: reconciled.gives ?? [], takeBacks: reconciled.takeBacks ?? [], start: reconciled.start ?? null, retired: reconciled.retired ?? [], handOutHeld: reconciled.handOutHeld === true, heldTwice: reconciled.heldTwice ?? [] },
+    reconciled: reconciled === null ? null : { moves: reconciled.moves, deliveries: reconciled.deliveries.filter(one => !efforts.held.has(one.id) && !clearHeld.has(one.id)), efforts: efforts.words, held: [...efforts.held, ...clearHeld], holds: Object.fromEntries(efforts.holds), says: reconciled.flags.filter(flag => typeof flag.say === 'string'), notes: reconciled.notes ?? [], partnerAsks: reconciled.partnerAsks ?? [], escalations: reconciled.escalations ?? [], restarts: rollout?.words ?? [], restFree: reconciled.restFree ?? [], handedBack: reconciled.handedBack ?? [], gives: reconciled.gives ?? [], takeBacks: reconciled.takeBacks ?? [], start: reconciled.start ?? null, retired: reconciled.retired ?? [], handOutHeld: reconciled.handOutHeld === true, heldTwice: reconciled.heldTwice ?? [] },
     // B570: what each chat on an older Workers mod waits for, by name (the partner, its helper, the supervisor too).
     modRuns: Object.fromEntries(rollout?.runs ?? []),
     // Partner answers (2026-10-19): whether the partner answers detail questions first (the Focus page's switch); null

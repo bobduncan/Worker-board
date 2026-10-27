@@ -93,7 +93,9 @@ step therefore says what it touches ("Touches: ...").
   alone (`cmd /c rmdir "<folder>\node_modules"` on Windows: the link only, never what it points to), then `git worktree
   remove <folder>`, then the empty folder Windows may leave (`rmdir "<folder>"`, which fails when it is not empty). The
   board's check of your report fails while a worktree of the step, or a folder with files of it, is left, and names it
-  with how to remove it: remove it and report again. An EMPTY folder no repository lists the board removes itself
+  with how to remove it: remove it and report again. A report whose check failed is handed back to you (B737): you stay
+  in your turn to fix it, no clear is owed for it and the board gives you no new step until you report that step again
+  and the check passes; `work next` says so. An EMPTY folder no repository lists the board removes itself
   (rmdir, a few tries over some seconds; B717), so it never fails the check; only one a program still holds keeps a line.
 - The repository's own `CLAUDE.md`, when it has one, is the working agreement and holds for you in full: read it
   before your first task.
