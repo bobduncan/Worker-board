@@ -229,8 +229,13 @@ export function storePause(notes, entries, mains) {
   return { at: newest.at, isPaused: true, until: until === null ? null : clockAfter(newest.at, until[1]), ...pauseLimit(String(newest.text ?? '')) }
 }
 
+/** B742 (X96): the person's stop line for all work (2026-10-19: 98% of the week); the config's `weekStopAt` sets it. */
+export const WEEK_STOP_AT = 98
+/** The percent from which a limit counts as full: the 5-hour limit at 100, the week at the person's stop line (B742). */
+const stopLevel = (kind, weekStopAt) => (kind === 'week' && Number.isFinite(weekStopAt) ? Math.min(100, weekStopAt) : 100)
+
 /** One limit as the board shows it, or null when nothing is known of it. */
-function limitOf(kind, { sample, readings, stops, now, warnAt }) {
+function limitOf(kind, { sample, readings, stops, now, warnAt, weekStopAt }) {
   const mine = stops.filter(stop => stop.limit === kind)
   const figures = [
     ...(sample !== null && Number.isFinite(sample[kind]) ? [{ at: sample.at, used: sample[kind], resetsAt: null }] : []),
@@ -243,14 +248,15 @@ function limitOf(kind, { sample, readings, stops, now, warnAt }) {
   // The time it resets does not move while its window runs: the newest figure that names one knows it.
   const known = figures.filter(figure => Number.isFinite(figure.resetsAt)).reduce((a, b) => (a === null || b.at > a.at ? b : a), null)
   // That time has passed and nothing was read since: the limit is empty again, since then.
-  if (known !== null && known.resetsAt <= now && newest.at < known.resetsAt) return { used: 0, at: known.resetsAt, resetsAt: null, resetAt: known.resetsAt, level: 'ok' }
+  if (known !== null && known.resetsAt <= now && newest.at < known.resetsAt) return { used: 0, at: known.resetsAt, resetsAt: null, resetAt: known.resetsAt, level: 'ok', stopAt: stopLevel(kind, weekStopAt) }
   const isHeld = mine.some(stop => Number.isFinite(stop.resetsAt) && stop.resetsAt > now)
   return {
     used: newest.used,
     at: newest.at,
     resetsAt: known !== null && known.resetsAt > now ? known.resetsAt : null,
     resetAt: null,
-    level: newest.used >= 100 || isHeld ? 'full' : newest.used >= warnAt ? 'warn' : 'ok',
+    level: newest.used >= stopLevel(kind, weekStopAt) || isHeld ? 'full' : newest.used >= warnAt ? 'warn' : 'ok',
+    stopAt: stopLevel(kind, weekStopAt),
   }
 }
 
@@ -268,9 +274,10 @@ export function readingAgeMinutes(limit, now) {
  * level }` or null. `used` is the newest figure anything gave (the app's file `sample`, the chats' `readings`, a
  * `stop` by the app, which means full) and `at` says when that was; `resetsAt` is when it resets, null when no
  * chat read it in this window; `resetAt` is set when the known reset has passed and nothing was read since.
- * `level` is `ok`, `warn` from `warnAt` percent, and `full` at 100 or while a stop's reset is still ahead.
+ * `level` is `ok`, `warn` from `warnAt` percent, and `full` at 100 (the week: B742, from `weekStopAt`, the person's stop line, 98)
+ * or while a stop's reset is still ahead; `stopAt` says from which percent it is full.
  */
-export function limitsOf({ sample = null, readings = [], stops = [], now, warnAt = 80 }) {
-  const all = { sample, readings, stops, now, warnAt }
+export function limitsOf({ sample = null, readings = [], stops = [], now, warnAt = 80, weekStopAt = WEEK_STOP_AT }) {
+  const all = { sample, readings, stops, now, warnAt, weekStopAt }
   return { fiveHour: limitOf('fiveHour', all), week: limitOf('week', all) }
 }

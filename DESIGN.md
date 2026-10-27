@@ -769,6 +769,14 @@ as the title". The picture is `art-inbox/worker-board/2026-10-13-b113-limits-res
   is; the week smaller beside it; and how old the figure is (marked when older than 20 minutes). Calm below 80%
   (`limitWarnPercent`), a warning colour from there, and at 100%, or while a stop's reset is ahead, "Limit reached"
   with when work goes on. After a known reset with no figure since, the bar is empty and says since when.
+- *The week's stop line (B742, the fix of X95 and X96).* The person's rule (2026-10-19) stops all work at 98% of the week,
+  so the week counts full from `weekStopAt` (config.json, 98; a missing or wrong value reads 98), the 5-hour limit still
+  at 100. That one level (`limits.mjs`, `stopAt` beside `level`) is what the hand-out, the rules that skip a full limit
+  and the bar's "(full)" follow. At the stop line the board types each working worker once per week (`say.mjs`
+  `weekStopDue`, command `week-stop`, the board's own word): "The weekly limit reached the stop line (98%): bring your
+  work to a safe point (commit, checkpoint), then send the paused note"; the worker's paused note then makes its lane
+  Suspended as before. The watch rule `week-stop-ignored` (`rules/watch.mjs`) opens one incident when the week is at the
+  line, a worker still works 15 min of running time after its word, and no lane is suspended.
 - *Suspended.* A state of its own, in place of working or free, in two cases. The app stopped the chat at the
   limit: its line is the last thing in the transcript, and names the time. Or a worker paused by itself: its last
   word to the main chat says in its first line "paused for the limit", with "until HH:MM" when it knows, and its
