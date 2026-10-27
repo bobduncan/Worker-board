@@ -10,6 +10,7 @@ import { allWords, closedForYou, minutesOf, forYou, noteSections, overview, queu
 import { pathKey } from './games.mjs'
 import { asksAtEnd, parseHandover } from './handover.mjs'
 import { gapsOf, hourEnd, hourStart, taskFacts, today } from './history.mjs'
+import { DEAF_KEEP_MS, deafSpans } from './hearing.mjs'
 import { finishedList } from './finished.mjs'
 import { askFacts, brainstormNeeds, brainstormsState } from './brainstorm.mjs'
 import { DEMO_WORDS, demoGaveUp } from './focus.mjs'
@@ -1212,7 +1213,7 @@ function focusRun(node, items, prefix, partner) {
   return { note, needs }
 }
 
-export function buildState(raw, { lines = [], outbox = [], runs = [], board = null, seen = null, aliveAt = null, reports = null, finishedSeen = {}, taskTimes = [], mods = {}, modsLately = null, handOutHeldAt = null, refusedGives = [], keptReadings = [], providers = [], now, config }) {
+export function buildState(raw, { lines = [], outbox = [], runs = [], board = null, seen = null, aliveAt = null, reports = null, hearing = null, finishedSeen = {}, taskTimes = [], mods = {}, modsLately = null, handOutHeldAt = null, refusedGives = [], keptReadings = [], providers = [], now, config }) {
   // The review of Pause 2: while the person pauses (2026-10-19: pausing only, no longer until running) what waits in
   // the outbox is held until the resume, but the board's own "resume" to the main chat; the page says so (`isHeld`).
   const isPaused = isHolding(raw.work?.pause)
@@ -1317,12 +1318,19 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
   // heard that turn start, `busyAt`); none when the board did not hear it start.
   const hasReportedStep = (name, busyAt) => Number.isFinite(busyAt) && itemsOf(raw.work).some(one => one.head.get('Kind') === 'step' && ['review', 'done'].includes(one.head.get('State'))
     && String(one.head.get('Owner') ?? '').replace(prefix, '').trim().toLowerCase() === name.toLowerCase() && sinceMs(one.head.get('Since')) >= busyAt)
+  // B736 (X73, X87): while the board itself hears no chat (hearing.mjs) though chats write their conversations, a lane
+  // is read as it was when the board last heard any chat, for up to DEAF_KEEP_MS: a stall or a restart of the board is
+  // no chat's fault. A chat silent on its own before then stays as silent as it was.
+  const ranSince = at => Object.values(raw.tails ?? {}).some(tail => Number.isFinite(tail?.modifiedAt) && tail.modifiedAt > at)
+  const deaf = !(reports instanceof Map) ? [] : deafSpans(hearing, { now, appStartedAt: raw.appStartedAt ?? null, ranSince })
+  const deafNow = deaf.find(span => span.to === now && Number.isFinite(hearing?.open?.from) && span.from === hearing.open.from) ?? null
+  const laneAt = deafNow !== null && now - deafNow.from <= DEAF_KEEP_MS ? deafNow.from : now
   const reportedOf = new Map(found.filter(chat => !chat.isLeftover).map(chat => {
     const entry = reports instanceof Map ? reports.get(chat.name) ?? null : null
     // Gap 1: no report from this session while its card says a mod that reports: unknown, then off, never guessed.
     if (entry === null || entry.session !== chat.cliSessionId) {
       const silent = !(reports instanceof Map) ? null : laneWithoutReport({
-        cardMod: cardModOf(raw, chat.cliSessionId), cardAt: raw.planLineAt?.[chat.cliSessionId] ?? null, boardStartedAt: board?.startedAt, now, unknownAfterMs, offAfterMs,
+        cardMod: cardModOf(raw, chat.cliSessionId), cardAt: raw.planLineAt?.[chat.cliSessionId] ?? null, boardStartedAt: board?.startedAt, now: laneAt, unknownAfterMs, offAfterMs,
       })
       return [chat.name, silent === null ? null : { ...silent, entry: null, words: silent.state === 'off' ? `no report since the board started at ${hourMinute(board.startedAt)}` : null }]
     }
@@ -1332,7 +1340,7 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
     // The review of chat-reports: a blocking ask routed to the partner waits for the partner, never for the person (B392).
     const forPartner = waits.partner?.get(key) ?? []
     const lane = laneFromReport(entry, {
-      now, unknownAfterMs, offAfterMs,
+      now: laneAt, unknownAfterMs, offAfterMs,
       holdsTask: holds.length > 0,
       hasBlockingAsk: waits.blocking.has(key) || (forPartner.length === 0 && holds.some(one => one.state === 'waiting on you')),
       waitsForPartner: forPartner.length > 0,
@@ -1929,6 +1937,11 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
       .map((lane, index) => ({ ...lane, ahead: live[index].ahead })),
     // B710: when the board did not run, from the history's gap lines (all of it): the quiet-time rules leave it out.
     gaps: gapsOf(lines, now, aliveAt),
+    // B736: when the board heard no chat though chats ran (the age rules leave it out), the one that lasts now, and the
+    // work calls it answered after the chat's Workers mod gave up (the rules board-deaf and board-slow).
+    deaf,
+    deafNow,
+    lateCalls: Array.isArray(hearing?.lateCalls) ? hearing.lateCalls : [],
     restart,
     pause,
     // B124: the main chat (null when the list has none), the name and folder a new project makes it with, how many

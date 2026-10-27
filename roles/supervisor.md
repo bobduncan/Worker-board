@@ -40,6 +40,11 @@ over 60 min, once per limit, and only when its last reading is near a stop (the 
 weekly at 90% or more). For an old low reading (X47, X55, X56: readings of 2% and 64%) file nothing: it changes no
 decision, and the app writes its usage file only while it is in use.
 
+When `work health` itself does not answer (it timed out), file nothing for that: the rule board-slow names a board that
+answers work calls after the chats gave up, and board-deaf one that hears no chat (B736). `work health` answers from what
+the board has and never waits for a change in the store's queue, so a time-out is the board being stuck, which those
+rules say.
+
 Read only the health summary. Do not read files, logs or transcripts, do not run commands, and do not start agents: a
 sweep is meant to cost little (a few tens of thousands of tokens, mostly cached).
 

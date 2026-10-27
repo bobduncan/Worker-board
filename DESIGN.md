@@ -3403,6 +3403,11 @@ the AI sweep by a cheap supervisor chat and the hand-over to the Advisor, comes 
   (`afterPause`, as the rules about chats do), so a long pause does not file an incident before the lookup after the resume lands; the finding's text
   still names the figure's real age. B727 (X56 reopened 3 min after a 20 h sleep, X84 filed from a wall-clock step age): the board's off time
   (`boardOffMs`, the history's gap lines) does not count in the rule's age either, so after a wake the supervisor's next lookup comes first.
+  B736: `holder-not-running`, `working-not-running` and `not-cleared` also leave out the stretches the board heard no chat
+  (`deafMs`, the view's `deaf`: a stall or a restart of the board is no chat's fault). `board-deaf` (B736: the board heard no
+  chat for over 10 min while chats wrote their conversations; the lanes read as before from then on, so a hung board is not
+  hidden) and `board-slow` (B736, the rule X89's sweep wanted: two work calls within 2 min that the board answered after the
+  chat's Workers mod had given up, 10 s, read from each call's request id; one finding naming the longest wait).
   The clock of every age the supervisor measures: RUNNING TIME (board-off time left out by `boardOffMs`) in `stale-checkpoint`, `open-fix`,
   `effort-mismatch`, `review-stuck`, `dropped-fix`, `old-limit-reading` (B727) and the health summary's step and checkpoint ages (B727: a
   gap inside adds "(PC off <h>)"); WALL TIME on purpose in the health summary's chat-state age, the age of a step behind a blocker, a
@@ -3888,6 +3893,16 @@ timers. Now each chat says it (principle 3, know don't guess).
   least 1; principle 2: never wait for ever), "silent since HH:MM". Its `offSince` (which the rule working-not-running
   reads as a card left working) is set only when its last report said it worked: busy, asking, or idle with background
   work. An archived chat has no lane, as before.
+- **When the board hears no chat (B736, X73, X87, X89):** on 2026-10-27 from 21:12 to 21:21 no chat's report was kept
+  while every chat worked: each ping waited for a whole read of the board (a read takes 1 to 2 s idle, the store alone
+  over a second, and each reset started another read beside the one under way), so every lane read Unknown, then Not
+  running, and working-not-running opened for chats that were fine. Now a ping is checked against the state the board
+  has (`readState.last()`; only a session it does not know waits for a read), a reset while a read runs has the next read
+  wait for it (`cached`, one at a time), and `src/hearing.mjs` keeps the stretches in which the board heard no chat for
+  longer than `unknownAfterSeconds`: from its start to the first report, or between two. While one lasts and chats
+  still write their conversations, each lane is read as it was when the board last heard any chat, for up to 10 min
+  (`DEAF_KEEP_MS`); a chat already silent on its own stays as silent as it was. A stretch the Claude app started in, or
+  one in which no conversation was written (every chat closed), is no fault of the board and counts as before.
   (B728) A chat the board knows does not run whose card says free keeps the state `free` (the hand-out asks the main chat to start it,
   `workerStart`), but is shown "Not running" in its pill, its time column and the head count: one word for one fact.
 - **Older mods and a restart:** a chat on a Workers mod older than 0.19.0 sends no report and keeps the board's

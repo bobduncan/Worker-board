@@ -61,7 +61,12 @@ export function buildView({ state = {}, items = new Map(), outbox = [], keep = n
     bases: Object.freeze([...(Array.isArray(bases) ? bases : [])].map(one => Object.freeze({ ...one }))),
     timeline,
     // B710: the stretches the board did not run (state.mjs `gaps`, the history's gap lines).
-    gaps: Object.freeze((Array.isArray(state.gaps) ? state.gaps : []).filter(gap => Number.isFinite(gap?.from) && Number.isFinite(gap?.to)).map(gap => Object.freeze({ from: gap.from, to: gap.to }))),
+    gaps: Object.freeze(spansOf(state.gaps)),
+    // B736: the stretches the board heard no chat though chats ran (state.mjs `deaf`), the one that lasts now (`deafNow`, or
+    // null), and the work calls it answered after the chat's Workers mod gave up (`lateCalls`, `[{ at, ms }]`).
+    deaf: Object.freeze(spansOf(state.deaf)),
+    deafNow: Number.isFinite(state.deafNow?.from) ? Object.freeze({ from: state.deafNow.from, to: now }) : null,
+    lateCalls: Object.freeze((Array.isArray(state.lateCalls) ? state.lateCalls : []).filter(one => Number.isFinite(one?.at) && Number.isFinite(one?.ms)).map(one => Object.freeze({ at: one.at, ms: one.ms }))),
     since: statesSince(timeline, lanes),
     repairs: Object.freeze([...repairs]),
     // B664: since when the watch rules first saw each key (the supervisor's memory), so the health summary times a
@@ -71,6 +76,9 @@ export function buildView({ state = {}, items = new Map(), outbox = [], keep = n
     settings: Object.freeze({ ...SUPERVISOR_DEFAULTS, ...settings }),
   })
 }
+
+/** Stretches of time `[{ from, to }]`, each with both ends. */
+const spansOf = spans => (Array.isArray(spans) ? spans : []).filter(one => Number.isFinite(one?.from) && Number.isFinite(one?.to)).map(one => Object.freeze({ from: one.from, to: one.to }))
 
 /**
  * Since when each chat has been in its state now, by the timeline: the start of the run of spans at its end that show

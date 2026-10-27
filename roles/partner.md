@@ -860,6 +860,9 @@ unless the fix changes what the user sees or decides.
    board shows it closed and counts it as fixed; a sighting of a case newer than the close opens it again as came back
    (an older one only counts). Only one open, came back or with the advisor can be closed; one being fixed or fixed is
    answered by its fix step. Never close one whose fault still stands, and never to make a count smaller.
+   Since B736 a stretch in which the board heard no chat (its stall or restart) counts for none of holder-not-running,
+   working-not-running and not-cleared, and the rules board-deaf and board-slow name the board itself: such an incident
+   about a chat right after a board restart is a fault again, never closed as "a restart" (X73 was, and came back).
 3. Name it: `work incident-fix X<n>` with `fix` B<id>. The board marks the incident fixed once that step is done, and
    open again (handing it to you anew) when the step is dropped.
 4. That is all: a fix stands first on the board's list (the redesign's Part 2), and the board gives it to the first
