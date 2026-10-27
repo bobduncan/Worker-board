@@ -14,9 +14,11 @@ const HISTORY_TIME = /^-\s+\d{4}-\d{2}-\d{2} \d{2}:\d{2}\s+/
 
 /**
  * Whether a step needs the result check: it has agreed points ("What we build", "Not in it" lines left out) or a
- * Standard line that is not "none (...)".
+ * Standard line that is not "none (...)". T9.1.1: never a Quality Assurance task (its head `Checks` names the step it
+ * checks): it is the result check itself, ended by the holder's `work checked` on that step, and has no check of its own.
  */
 export function needsResultCheck(item) {
+  if (item?.head !== undefined && valueOf(item, 'Checks') !== null) return false
   const points = (item?.sections?.get('What we build') ?? []).map(one => one.replace(/^\s*[-*]\s+/, '').trim()).filter(one => one !== '' && !/^Not in it\b/i.test(one))
   const standard = standardOf(item)
   return points.length > 0 || (standard !== null && !/^none\b/i.test(standard))

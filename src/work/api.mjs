@@ -22,7 +22,8 @@ import { acceptRefine, answerRefine } from './refineText.mjs'
 import { gamePageIn, gamePageLabel, localAddressIn, placesIn } from '../places.mjs'
 import { DECIDED, GOAL_ID, NEEDS, UNDONE, decidedOf, isDailyNote, needsOf, undoneOf } from './dailyNote.mjs'
 import { HOW_MARK, openAsksOf as openAsksUnder, refineAsksOf as asksCounted } from './stepAsks.mjs'
-import { ANOTHER_WAY, NOTES, TRIES_BEFORE_ANOTHER_WAY, WARNINGS_MARK, agreedPoints, answerReading, boardWarningsOf, chainTries, checkedOf, checkWhy, fixesOf, fixesThrough, fixTitle, needsResultCheck, parentPointsOf, parsePoints, resultCheckAtMs, resultCheckOf, reviewWaitOf } from './resultCheck.mjs'
+import { ANOTHER_WAY, NOTES, TRIES_BEFORE_ANOTHER_WAY, WARNINGS_MARK, agreedPoints, answerReading, boardWarningsOf, chainTries, checkedOf, checkWhy, fixesOf, fixesThrough, fixTitle, needsResultCheck, parentPointsOf, parsePoints, resultCheckAtMs, resultCheckOf, reviewWaitOf, warningLines } from './resultCheck.mjs'
+import { buildersOf, isQaTask, notByOf, openQaTaskOf, qaModelEffort, qaTitle } from './qaTask.mjs'
 import { RECAP_ANSWERS, dueRecaps, isRecap, recapMadeSince } from './recap.mjs'
 import { RESULT_CHARS, checkLinesWarning, goalParts, recapParts } from './recapWords.mjs'
 import { kindsNamed, noneForLook, parseStandard, standardNoneRefused, standardOf, standardWanted } from './standard.mjs'
@@ -42,7 +43,7 @@ export { overlapsIn, sinceMs }
 export const isReadAction = action => READS.has(action)
 
 const READS = new Set(['next', 'list', 'pause-state', 'health', ...ROUTING_READS])
-const CHANGES = new Set(['incident', 'incident-fix', 'incident-told', 'incidents-fixed', 'take', 'step', 'ask', 'withdraw', 'answered-in-chat', 'read', 'note', 'report', 'block', 'unblock', 'new', 'queue', 'pin', 'add-to-queue', 'remove-from-queue', 'close', 'drop', 'refine', 'refined', 'answer', 'tick', 'delete', 'refine-answer', 'refine-accept', 'check', 'checked', 'instruction', 'turn-ended', 'pull', 'advance', 'requeue', 'unqueue', 'recheck', 'undo', 'rename', 'pause-all', 'resume-all', 'resumed', 'end-resume', 'overturn', 'seen', 'approve-recaps', 'partner-answer', 'escalate', 'partner-answers', 'recheck-stuck', 'recheck-base', 'retire-queue'])
+const CHANGES = new Set(['incident', 'incident-fix', 'incident-told', 'incidents-fixed', 'take', 'step', 'ask', 'withdraw', 'answered-in-chat', 'read', 'note', 'report', 'block', 'unblock', 'new', 'queue', 'pin', 'add-to-queue', 'remove-from-queue', 'close', 'drop', 'refine', 'refined', 'answer', 'tick', 'delete', 'refine-answer', 'refine-accept', 'check', 'checked', 'instruction', 'turn-ended', 'pull', 'advance', 'requeue', 'unqueue', 'recheck', 'undo', 'rename', 'pause-all', 'resume-all', 'resumed', 'end-resume', 'overturn', 'seen', 'approve-recaps', 'partner-answer', 'escalate', 'partner-answers', 'recheck-stuck', 'recheck-base', 'retire-queue', 'qa-task'])
 /**
  * Focus 2: the partner's drafts of the focus goal's vibe and how. They change the goal map, not the store: the board's
  * `goalDraft` (src/focus.mjs) writes them; only the chat the list names the partner (role advisor) sends them.
@@ -53,7 +54,7 @@ const OFF_VIEW = new Set(['incident', 'incident-fix', 'incident-told', 'incident
 /** What only the person does, on the board's page; and what only the server does. */
 // The Backlog tab's blocks (2026-10-25): the person's "Add to queue" and "Remove" are the page's alone, never a chat's.
 const PERSON = new Set(['answer', 'read', 'tick', 'delete', 'refine-answer', 'refine-accept', 'recheck', 'undo', 'pause-all', 'resume-all', 'end-resume', 'overturn', 'seen', 'partner-answers', 'add-to-queue', 'remove-from-queue'])
-const SERVER = new Set(['incidents-fixed', 'incident-told', 'check', 'advance', 'resumed', 'approve-recaps', 'recheck-stuck', 'recheck-base', 'route-confirm', 'quality-job-result', 'retire-queue'])
+const SERVER = new Set(['incidents-fixed', 'incident-told', 'check', 'advance', 'resumed', 'approve-recaps', 'recheck-stuck', 'recheck-base', 'route-confirm', 'quality-job-result', 'retire-queue', 'qa-task'])
 /** Who may do what the flow does not decide (the default flow's table, spec section 5). */
 const ROLES = {
   block: ['main', 'worker', 'person'],
@@ -1687,6 +1688,89 @@ async function fixStep(origin, failed, w, points = failed) {
 }
 
 /**
+ * T9.1.1 (the person, 2026-10-27: "workers do the checks, as long as its a worker who didnt build the task and the task
+ * title is clear. e.g. B123 Quality Assurance ..."): the result check of a step is a task of the store, made as a fix step
+ * is: "Quality Assurance: B<id> <title>", refined at once (ready), for any free worker but the step's builders (`Not by`).
+ * Model and effort by what is checked (qaTask.mjs `qaModelEffort`); its Context carries what the board's check word carried:
+ * `Built by:`, `Why:` (resultCheck.mjs `checkWhy`: a check again), `Board warnings:` and `Demand:`. `why` and `warnings`
+ * stand in for the step's own when given; `personSaid` the person's words that answered an ask point. One open task per step:
+ * made again, it answers the open one (`made: false`), the store read fresh, so two asks in one minute make one. Answers
+ * `{ ok, id, made }`.
+ */
+async function qaStep(checked, w, { why, warnings, personSaid = null } = {}) {
+  const checkedId = valueOf(checked, 'Id')
+  const read = await readStore(w.dir, w.fs)
+  const open = openQaTaskOf(read.items, checkedId)
+  if (open !== null) return { ok: true, id: valueOf(open, 'Id'), made: false }
+  const activity = valueOf(checked, 'Activity')
+  const goal = valueOf(checked, 'Goal')
+  const builders = buildersOf(checked)
+  const model = parseModel(qaModelEffort(checked).model).line
+  const effort = parseEffort(qaModelEffort(checked).effort).line
+  const reason = why === undefined ? checkWhy(checked, read.items) : why
+  const context = [`Built by: ${builders.length === 0 ? 'its worker' : builders.join(', ')}`, ...(reason ? [`Why: ${line(reason, 400)}`] : []),
+    ...warningLines(warnings === undefined ? boardWarningsOf(checked) : warnings), ...(personSaid ? [`The person said: ${line(personSaid, 400)}`] : [])]
+  const summary = `Check ${checkedId} against its agreed points and its standard.`
+  const what = [`- Check ${checkedId} against its agreed points and its standard (roles/worker.md, "A Quality Assurance task")`]
+  const block = [
+    `Refined (${stamp(w.now)}; ready; made by the board for the result check of ${checkedId}):`,
+    `Summary: ${summary}`,
+    ...(goal === null ? [] : [`Part of: ${goal}`]),
+    `Model: ${model}`,
+    `Effort: ${effort}`,
+    'What we build:',
+    ...what,
+  ].map(one => `  ${one}`)
+  const activitiesText = await readActivitiesText(w.dir, w.fs)
+  const id = await nextId(w.dir, 'B', w.fs)
+  const item = said(ordered({
+    head: new Map([['Id', id], ['Kind', 'step'], ['Title', qaTitle(checkedId, valueOf(checked, 'Title'))], ['State', 'refined'],
+      ...(activity === null ? [] : [['Activity', activity]]), ...(goal === null ? [] : [['Goal', goal]]), ['Since', stamp(w.now)], ['Checks', checkedId],
+      ...(builders.length === 0 ? [] : [['Not by', builders.join(', ')]]), ['Refined', 'ready']]),
+    sections: new Map([
+      ['Context', [...context.map(one => `  ${one}`), REFINED_MARK]],
+      ['Summary', [summary]],
+      ['Model', [model]],
+      ['Effort', [effort]],
+      ['What we build', what],
+      ['Refined', block],
+    ]),
+    problem: null,
+  }), w, `made for the result check of ${checkedId}`)
+  const wrote = await save(item, null, w)
+  if (!wrote.ok) return wrote
+  const index = read.activities.findIndex(one => one.name === activity)
+  if (index >= 0) {
+    const activities = read.activities.map((one, place) => (place === index ? { ...one, steps: [...(one.steps ?? []), id] } : one))
+    const listed = await writeActivities(w.dir, { preamble: read.preamble, activities }, w.fs, { expected: activitiesText })
+    if (!listed.ok) {
+      await removeItem(w.dir, id, w.fs)
+      return refuse(409, `activities.json: ${listed.why}; try again.`)
+    }
+  }
+  return { ok: true, id, made: true }
+}
+
+/**
+ * T9.1.1: the board makes the Quality Assurance task of the step `id` (the supervisor's repair rule `unchecked` asks for it
+ * through here): only for a step that waits for its result check (resultCheck.mjs `reviewWaitOf`, kind check). Idempotent:
+ * a step with an open task answers it. `{ id }` in the answer is the task's.
+ */
+async function qaTask(body, w) {
+  const found = await load(body.id, w, { kind: ['step'] })
+  if (!found.ok) return found
+  const id = valueOf(found.item, 'Id')
+  if (isQaTask(found.item)) return refuse(409, `${id} is a Quality Assurance task: it has no result check of its own.`)
+  const wait = reviewWaitOf(found.item, (await readStore(w.dir, w.fs)).items, w.readyHeld ?? null)
+  if (wait?.kind !== 'check') {
+    return refuse(409, `${id} waits for no result check (${stateOf(found.item) === 'review' ? wait?.text ?? 'nothing to check or its board check has not passed' : `it is ${stateOf(found.item)}, not in review`}): no Quality Assurance task.`)
+  }
+  const made = await qaStep(found.item, w)
+  if (!made.ok) return made
+  return { ok: true, result: { id: made.id, qa: made.id, step: id, made: made.made, text: made.made ? `${made.id}: the Quality Assurance task for ${id} is made.` : `${made.id}: the Quality Assurance task for ${id} is open already.`, changed: made.made } }
+}
+
+/**
  * B356: a fix step that is done closes the step it fixes, once no other fix of it is open: "result check passed: its
  * fix B<n> is done", then done by the flow (its own check passed before). Up the chain, a fix of a fix too.
  */
@@ -2991,6 +3075,7 @@ const CHANGE = {
   'approve-recaps': approveRecaps,
   'recheck-stuck': recheckStuck,
   'recheck-base': recheckBase,
+  'qa-task': qaTask,
   'partner-answer': partnerAnswer,
   escalate,
   'partner-answers': partnerSetting,
