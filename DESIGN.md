@@ -1799,38 +1799,51 @@ step on "check pending" for good.
   (the action on a store), `test/work/check.test.mjs` (no remote against a failed call).
 - Not in it: taking `main()` apart into modules (12 to 16 h, a later step).
 
-## CPU for the chats (B311)
+## CPU for Claude (B311, B735)
 
 The person, 2026-10-18, while playing the game: the workers made the PC lag; "i want the board to not completely stop
-but [not] prevent my ability to play the game". A setting in the board's head, beside Prepare restart.
+but [not] prevent my ability to play the game". A setting in the board's head, beside Prepare restart. B735
+(2026-10-27): "i want this option when off to let claude run at full power. if its strong then i never want it to
+iterfere with dota ... dont make the mode specific to dota": Strong (Idle on half the cores, the chats' trees only) still
+lagged the game (78% CPU: the board's own server and the vite servers ran at Normal).
 
-- **Three levels**, one click each: **Off** (Normal priority, all cores), **Gentle** (BelowNormal priority, all cores),
-  **Strong** (Idle priority, on at most half of the logical cores: the higher half of the affinity mask, so the lower
-  cores, where Windows starts most work, stay free for the game). Kept in `data/cpu.json`, so it survives a restart;
-  `cpuLimit` in config.json gives the level until one is clicked ("off" unless set). A copy of the board beside the
-  person's starts at Off whatever config.json says, and applies only what was clicked on it.
-- **Which processes** (`src/cpu.mjs`, `chosenProcesses`): every `claude.exe` whose command line names a session of
-  the project's list of chats (`--resume=<id>`; the sessions are the card files `.claude/chats/<session>.json` and the
-  chats the board lists), and its whole tree below (node, vite, a browser with a temporary profile, python, git, ...).
-  A child counts only when it started after its parent, so a reused process number leads nowhere. Never the desktop
-  app (its command line names no session, and it is no child of a chat), never anything else; the board's own server
-  only when a chat started it.
+- **Two choices** the person picks, one click each, no game detection: **Full** (Normal priority, all cores, efficiency
+  mode off) and **Low** (Idle priority on the last two logical cores, efficiency mode on). Kept in `data/cpu.json`, so
+  it survives a restart; `cpuLimit` in config.json gives the level until one is clicked ("full" unless set). A level
+  saved before reads on (`parseLevel`): "strong" is Low, "off" and "gentle" are Full. A copy of the board beside the
+  person's starts at Full whatever config.json says, and applies only what was clicked on it.
+- **Which processes** (`src/cpu.mjs`, `chosenProcesses`) are the ones the project started: every `claude.exe` whose
+  command line names a session of the project's list of chats (`--resume=<id>`; the sessions are the card files
+  `.claude/chats/<session>.json` and the chats the board lists), the board's own processes (its own and its keeper's
+  numbers, `spare`), the project's tools found by their command lines (`isProjectTool`: `codex.exe`, a `node.exe` whose
+  command line names vite, a headless or remote-driven `msedge.exe`), and the whole tree below each of them. A child
+  counts only when it started after its parent, so a reused process number leads nowhere. Never the desktop app (its
+  command line names no session, and it is no child of a chat), never the person's own Edge or a game.
 - **How** (`cpuLimiter`): at start and every refresh one PowerShell listing (`Get-CimInstance Win32_Process`, the
-  command line only of `claude.exe`). A process is set (`PriorityClass`, `ProcessorAffinity`, a second PowerShell call
-  with the changes on its standard input) only when it is not at the level: Windows reports another base priority, or
-  the board has not set it and its parent is not done (a child of a BelowNormal or Idle process inherits the priority
-  and the cores). Both calls lower their own priority first. Off lists nothing at all, apart from one pass right after
-  a limit was switched off, which gives every chosen process Normal and all cores back. A process that cannot be set
-  (gone, access denied) is passed over quietly and not tried again at that level; a listing that fails is one red line
-  on top, gone at the next listing that works.
+  command line only of `claude.exe`, `node.exe`, `codex.exe` and `msedge.exe`). A process is set (`PriorityClass`,
+  `ProcessorAffinity`, and efficiency mode through `SetProcessInformation(ProcessPowerThrottling)`, a second PowerShell
+  call with the changes on its standard input) when Windows reports another base priority or the board has not set it at
+  this level. A child that inherited Idle is still set once, for its cores and its efficiency mode, which Windows does
+  not report. Both calls lower their own priority first, and the board gives each helper BelowNormal at
+  once from outside (`setPriority`): a board at Idle starts its helper at Idle, which a busy PC starved for minutes. Full
+  lists nothing at all, apart from three passes (`RESTORE_PASSES`) right after Low was switched off, which give every
+  chosen process Normal, all cores and efficiency mode off back (a process born while Low was on inherited it). A process that
+  cannot be set (gone, access denied) is passed over quietly and not tried again at that level; a listing that fails is
+  one red line on top, gone at the next listing that works.
+- **The board under Low** is limited like the rest and stays so across its own restart (B735). Under Full its first
+  pass gives the board and its keeper Normal and all cores (`boardChanges`), since a chat that started the board
+  handed its own Idle priority on (B440); that pass is tried again each pass until Windows took both.
 - **Windows only.** Elsewhere the control says "not available here" and nothing runs; `POST /api/cpu` answers 409.
-- **The head** shows the level lit and, when not Off, how many processes it applies to ("15 processes, below normal",
-  "15 processes, idle, 12 of 24 cores"). `POST /api/cpu {level}` takes the click, from the board's own page only (token,
-  origin, JSON, as every action).
-- Tests (`test/cpu.test.mjs`): the level's parsing and storage, the setting, which processes are chosen from a made-up
-  list, the affinity mask for N cores, what is set and what is passed over, the Off pass, a failed listing, another
-  platform, the endpoint and the head's text; the PowerShell calls are the one object `windowsProcesses` that tests
-  replace.
+- **The head** shows the level lit and what applies: "full power", or "15 processes on 2 cores, lowest priority: tests
+  and builds run slower". `POST /api/cpu {level}` takes the click, from the board's own page only (token, origin, JSON,
+  as every action).
+- Tests (`test/cpu.test.mjs`): the level's parsing and storage (the old levels read right), the setting, which processes
+  are chosen from a made-up list (the board, vite, codex, a headless Edge in; the person's Edge out), the affinity mask
+  for N cores, what is set and what is passed over, the Full pass, the board kept limited across a restart, a process
+  started under Low limited on the next refresh, a failed listing, another platform, the endpoint and the head's text;
+  the PowerShell calls are the one object `windowsProcesses` that tests replace (the real calls were read back on this PC
+  with `Get-Process` and `GetProcessInformation`: Idle, the last two cores, efficiency mode on; then Normal, all cores,
+  efficiency mode off). Efficiency mode is checked by its call, not measured.
 - **B440** (2026-10-19): a board that a chat started was itself a process below a chat. Strong put it at Idle on one core,
   and while the PC was busy every request took 1.5 to 5 s, so the chats' work tool gave up. The board and its keeper
   are spared (`spare`, which also leaves out what they start; the parent only when it is the keeper), and both get
@@ -2152,7 +2165,7 @@ make Information smaller or bigger. Nothing is gone: what leaves a row is in its
    the queue is empty (`nextInQueue`); its tooltip has the length of the queue and its time.
 5. The head: which commit main is on, on hovering Run game (a running game keeps its link); "0 waiting for you" goes
    (`shownCounts`); how old the limits' figure is shows only when it is old.
-6. The top bar: CPU for the chats, its processes and the board's version sit behind ⚙ (`#settings`), whose tooltip says
+6. The top bar: CPU for Claude, its processes and the board's version sit behind ⚙ (`#settings`), whose tooltip says
    the level and the version; a click elsewhere or Escape folds it; on a phone it opens across the screen.
 
 ## The simple Overview (B327, B343)
@@ -2757,7 +2770,7 @@ Part 6 of G11's how (agreed 2026-10-18 21:21). The person, 20:56: "I want a sett
 right away or when i need to be notified, in the boards settings"; 21:18 on rebuilds: "this will normally require an
 approval from the user, but can be automatically approved."
 
-1. The ⚙ panel holds two switches beside CPU for the chats: **Bother me** (At once, Once a day; it says that a question
+1. The ⚙ panel holds two switches beside CPU for Claude: **Bother me** (At once, Once a day; it says that a question
    that holds up a chat always comes at once) and **Approve rebuilds by itself** (Off, On). They are the settings
    `botherMe` (B360) and `approveRebuilds` (B359): a click sends `POST /api/settings` with one key and value
    (src/boardSettings.mjs `checkSetting`), the board writes it into its config.json (`settingChanged`: every other

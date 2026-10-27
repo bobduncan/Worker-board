@@ -227,7 +227,7 @@ export const POST_ROUTES = Object.freeze({
  *   `plan(body)`       2026-10-24: a move of the Vision tab, a word to the partner on the plan's own way, the same shape
  *   `work(body)`       B297: one action of the page on the work store (work/api.mjs), the same shape
  *   `bridgeWork(body)` B297: one action of a chat's work tool, the same shape; only with `bridgeKey`
- *   `cpu(body)`        B311: the level of "CPU for the chats" ({ level }), the same shape
+ *   `cpu(body)`        B311: the level of "CPU for Claude" ({ level }), the same shape
  *   `mayWrite()`       B529: null while this process may take the page's writes, else why not (refused with 409)
  */
 export function createBoard({
@@ -1431,9 +1431,9 @@ async function main(args) {
     setInterval(measure, TICK_MS)
   }
 
-  // B311: "CPU for the chats": the project's chats and what they started run at a lower priority, on fewer cores, while
+  // B311: "CPU for Claude": the project's chats, the board and what they started run at a lower priority, on fewer cores, while
   // the person plays (src/cpu.mjs). Every board but the demo and one that only shows another's history; a copy beside
-  // the person's board starts at Off whatever config.json says, and applies only what was clicked on it.
+  // the person's board starts at Full whatever config.json says, and applies only what was clicked on it.
   const chatSessions = async () => {
     // B467: no folder of cards is none; anything else fails this pass of the CPU loop (shown and logged). A state it
     // cannot read is a loop of its own: the chats of the cards are still limited, and a click on a level still works.
@@ -1443,9 +1443,9 @@ async function main(args) {
   }
   const cpu = isDemo || historyFrom !== undefined || config.project === '' ? null : cpuLimiter({
     file: join(HERE, 'data', 'cpu.json'),
-    fallback: isShowOnly ? 'off' : config.cpuLimit,
+    fallback: isShowOnly ? 'full' : config.cpuLimit,
     // 2026-10-19: the PC's cores, never the board's own, which a chat that started the board may have narrowed; and the
-    // board and its keeper are spared, and given Normal and all cores back at the first pass.
+    // board and its keeper are limited with the rest under Low, and given Normal and all cores back under Full.
     cores: logicalCores(),
     sessions: chatSessions,
     // B440: the parent is the keeper only when there is one (it talks to the board); otherwise it may be a chat.
