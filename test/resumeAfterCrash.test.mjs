@@ -199,7 +199,7 @@ const reportOf = (name, at, state = 'idle') => [name, { state, since: at, backgr
 /** The board's state at `now`: `running` the chats whose mods report and ask lately, `withCards` which chats have a card. */
 function build({ now = NOW, running = [], outbox = [], startedAt = NOW - 10 * MIN, withCards = NAMES, steps = [['B670', 'in progress', 'Worker 3']], pause = null, wroteAt = null } = {}) {
   const work = storeFromText('## Board\n', { now: CRASH - HOUR })
-  for (const [id, state, owner] of steps) work.items.set(id, parseItem(`Id: ${id}\nKind: step\nTitle: Step ${id}\nState: ${state}\nOwner: ${owner}\nSince: ${stamp(CRASH - 40 * MIN)}\n`))
+  for (const [id, state, owner, more = ''] of steps) work.items.set(id, parseItem(`Id: ${id}\nKind: step\nTitle: Step ${id}\nState: ${state}\nOwner: ${owner}\nSince: ${stamp(CRASH - 40 * MIN)}\n${more}`))
   if (pause !== null) work.pause = pause
   // Worker 3 wrote to its conversation at `wroteAt` (it was started, ran a while and quit again), else it stands where the crash left it.
   const tailsNow = wroteAt === null ? tails : { ...tails, 'cli-Worker 3': { text: [typed(wroteAt - MIN, 'Go on.'), step(wroteAt, 'Paint the lava')].join('\n'), isCut: false, modifiedAt: wroteAt } }
@@ -406,4 +406,14 @@ test('a resume that no chat could carry is said as the wake-up says it, after th
   assert.deepEqual(wakesDue(state, outbox, NOW, MAX), [])
   assert.deepEqual(resumesDue(state, outbox), [])
   assert.deepEqual(wakeFailedOf(state, outbox, NOW).map(one => [one.chat, one.tries]), [['Worker 3', 3]])
+})
+
+test('T9.1.1: a worker that holds a Quality Assurance task in progress (no branch) is resumed as for any step', () => {
+  const outbox = []
+  const task = ['B730', 'in progress', 'Worker 3', 'Checks: B701\nNot by: Worker 1\n']
+  const stateAt = (now, running = ['Worker 5']) => build({ now, running, outbox, steps: [['B701', 'review', 'Worker 1'], task] })
+  assert.deepEqual(laneOf(stateAt(NOW), 'Worker 3').storeSteps.map(one => [one.id, one.state]), [['B730', 'in progress']])
+  const added = tick(outbox, stateAt, NOW)
+  assert.deepEqual(added.map(one => [one.to, one.command, one.about]), [['Worker 3', 'resume-step', 'B730'], ['Worker 5', 'start', 'Worker 3']])
+  assert.equal(added[0].text, 'resume your step B730 from your checkpoint')
 })

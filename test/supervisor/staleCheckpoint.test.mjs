@@ -184,3 +184,12 @@ test('B714: history lines to the rule: a read right after a wake, before and aft
   const later = new Date(2026, 9, 24, 23, 20).getTime()
   assert.equal(lateAt(gapsAt(written, later, later - 60_000), later, wake), 1)
 })
+
+test('T9.1.1: a Quality Assurance task in progress, with no branch, is watched as any step in progress: a stale checkpoint is named', () => {
+  const task = (more = {}) => step('B530', 'in progress', { Title: 'Quality Assurance: B522 Step B522 of the orchard', Checks: 'B522', 'Not by': 'Walker', ...more })
+  // No branch, and 2 h 36 min without a checkpoint: the rule names it, the summary marks it.
+  assert.deepEqual(check(view(items(task()))).map(one => [one.rule, one.subject]), [['stale-checkpoint', 'B530']])
+  assert.match(lineOfStep(healthSummary(view(items(task())), NOW), 'B530'), /^- ! B530 in progress for 2 h 36 min, Picker/)
+  // A checkpoint within the last 120 minutes keeps it quiet, as for any step.
+  assert.deepEqual(check(view(items(task({ Checkpoint: checkpoint('none', 'compare the lamps with the points of B522', ago(30)) })))), [])
+})
