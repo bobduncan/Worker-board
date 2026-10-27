@@ -79,15 +79,15 @@ test('a no fails the ask point with their words and makes a fix step for the wor
   }
 })
 
-test('words the board cannot read wake the partner once with the step and their words; the check is left to the partner', async () => {
+test('words the board cannot read make a Quality Assurance task for the step, with their words; the check is left to its worker', async () => {
   const store = await waiting()
   try {
     const done = await store.person({ action: 'answer', id: store.ask, text: 'Warm, but make it a bit more orange' })
     assert.equal(done.ok, true, done.why)
     assert.equal(done.result.fix, undefined)
-    assert.equal(done.result.wakePartner.to, 'Partner')
-    assert.equal(done.result.wakePartner.id, store.id)
-    assert.match(done.result.wakePartner.text, new RegExp(`^check ${store.id}: ${store.ask} answered\\nThe person said: Warm, but make it a bit more orange`))
+    assert.equal(done.result.wakePartner, undefined)
+    const qa = await item(store.dir, done.result.qa)
+    assert.equal(valueOf(qa, 'Checks'), store.id)
     assert.equal(valueOf(await item(store.dir, store.id), 'State'), 'review')
   } finally {
     await store.close()
@@ -101,7 +101,7 @@ test('a step with another ask still open waits for it', async () => {
     assert.equal(second.ok, true, second.why)
     const first = await store.person({ action: 'answer', id: store.ask, verdict: 'approve' })
     assert.equal(first.ok, true, first.why)
-    assert.deepEqual([first.result.fix, first.result.wakePartner, first.result.resultCheck], [undefined, undefined, undefined])
+    assert.deepEqual([first.result.fix, first.result.wakePartner, first.result.qa], [undefined, undefined, undefined])
     assert.equal(valueOf(await item(store.dir, store.id), 'State'), 'review')
   } finally {
     await store.close()

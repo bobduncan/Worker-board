@@ -39,14 +39,14 @@ export const items = async dir => (await readStore(dir)).items
 export const remove = dir => rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
 
 /** A step made by the partner, given to the builder, taken, reported, and its board check run: passed, or failed. */
-export async function reported(store, { gitPassed = true, lamp = LAMP, builder = 'lamplighter', owner = 'Lamplighter' } = {}) {
+export async function reported(store, { gitPassed = true, lamp = LAMP, builder = 'lamplighter', owner = 'Lamplighter', warnings = [] } = {}) {
   const made = await store.partner(lamp)
   assert.equal(made.ok, true, made.why)
   const id = made.result.id
   assert.equal((await queueFor(store.dir, id, owner, { now: NOW + 60_000 })).ok, true)
   assert.equal((await store[builder]({ action: 'take', id, branch: 'b-lamps' })).ok, true)
   assert.equal((await store[builder]({ action: 'report', id, result: 'Every path has a warm lamp.', merged: 'c0ffee1' })).ok, true)
-  const git = await store.server({ action: 'check', id, passed: gitPassed, lines: gitPassed ? ['work in garden', 'branch gone', 'result named'] : ['the branch b-lamps is still there'] })
+  const git = await store.server({ action: 'check', id, passed: gitPassed, lines: gitPassed ? ['work in garden', 'branch gone', 'result named'] : ['the branch b-lamps is still there'], ...(warnings.length === 0 ? {} : { warnings }) })
   return { id, git }
 }
 

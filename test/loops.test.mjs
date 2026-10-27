@@ -98,8 +98,9 @@ test('B446: a failure and the failure of its clean-up after it are one error, in
   assert.equal(about.cause.message, 'EBUSY: outbox\nstack')
 })
 
-test('B446: the page has words for the loops that run on a chat\'s report and for the pictures', () => {
-  assert.equal(wordsOf('result-check'), 'asking for a result check')
+test('B446: the page has words for the loops that run on a chat\'s checked and for the pictures', () => {
+  // T9.1.1: the result check is a task the work API makes; no loop asks for it any more.
+  assert.equal(wordsOf('result-check'), 'result-check')
   assert.equal(wordsOf('guard'), 'the goal guard')
   assert.equal(wordsOf('picture'), 'making a picture')
   assert.equal(wordsOf('measure'), 'measuring the tasks')

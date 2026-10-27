@@ -96,10 +96,10 @@ test('B467: the app\'s folder, the kinds of idea, another board\'s task times an
   assert.match(server, /loops\.failed\('bridge-note', error\)/)
 })
 
-test('B446: the result check and the goal guard after a chat\'s checked run as loops', () => {
+test('B446: the goal guard after a chat\'s checked runs as a loop', () => {
   const action = part('const workAction = async (body, as) => {', 'if (done.ok && done.result.changed !== false)')
-  // The error names the step that was not asked for: the loop runs for every step.
-  assert.match(action, /loops\.run\('result-check', \(\) => askResultCheck\(asked\)\.catch\(error => \{ throw aboutError\(asked\.id, error\) \}\)\)/)
+  // T9.1.1: no loop asks the Advisor for a result check any more: the work API makes the task.
+  assert.doesNotMatch(action, /result-check|askResultCheck/)
   assert.match(action, /loops\.run\('guard', async \(\) => guardNow\(await goalOfChecked\(body\.id\)\)\)/)
   // A store the guard cannot read fails its loop, instead of counting no attempt as a success.
   const guard = part('const guardNow = async id => {', 'const toPartner = async')

@@ -325,12 +325,6 @@ async function next(body, w) {
   return { ok: true, result: { ...found.result, text, ...(routed.ids.length === 0 ? {} : { routed: routed.ids }), ...(notes.ids.length === 0 ? {} : { notes: notes.ids, changed: true }) } }
 }
 
-/** 2026-10-25: `{ warnings }`, the text the step's newest board check passed with; `{}` when it has none. */
-const warningsOf = item => {
-  const warnings = boardWarningsOf(item)
-  return warnings === null ? {} : { warnings }
-}
-
 const REPORT_LINE = / → review\b|: reported again\b/
 const HISTORY_STAMP = /^-\s+(\d{4}-\d\d-\d\d \d\d:\d\d)\s/
 /** When the step was last reported (ms): the minute of its newest move to review or "reported again" in History; NaN for none. */
@@ -1474,10 +1468,22 @@ async function check(body, w) {
   // B360, the review: the board's check may be the last of the two to pass.
   await afterDone(item, w)
   const recheck = stateOf(item) === 'done' ? await closeFixed(item, w) : null
-  // B356: the board's check passed and the step waits for its result check, none asked yet: the server asks the partner.
+  // B356: the board's check passed and the step waits for its result check, none asked yet. T9.1.1: the board makes its
+  // Quality Assurance task (no word to the Advisor).
   const isWaiting = passed && stateOf(item) === 'review' && needsResultCheck(item) && resultCheckOf(item) === null
-  const ask = isWaiting ? { id: valueOf(item, 'Id'), title: valueOf(item, 'Title'), owner: valueOf(item, 'Owner'), ...warningsOf(item) } : recheck
-  return changed(item, undefined, ask === null ? {} : { resultCheck: ask })
+  const ask = isWaiting ? await qaAsk(item, w) : recheck
+  return changed(item, undefined, ask === null ? {} : ask)
+}
+
+/**
+ * T9.1.1: a step waits for its result check: its Quality Assurance task is made, or the open one is found (qaStep).
+ * `{ qa: <the task's id> }`; `{ qaWhy }` when it could not be made (the supervisor's repair makes it at its next run);
+ * null on a board with no partner (its own check closes the step, `hasPartner`).
+ */
+async function qaAsk(step, w, more = {}) {
+  if (w.hasPartner === false) return null
+  const made = await qaStep(step, w, more)
+  return made.ok ? { qa: made.id } : { qaWhy: made.why }
 }
 
 /**
@@ -1552,7 +1558,7 @@ async function checked(body, w) {
   }
   await afterDone(item, w)
   const recheck = stateOf(item) === 'done' ? await closeFixed(item, w) : null
-  return changed(item, unplain === '' ? undefined : `${serializeItem(item)}\nBoard warning: ${unplain}.`, { ...(fix === null ? {} : { fix }), ...(recheck === null ? {} : { resultCheck: recheck }), ...(unplain === '' ? {} : { warnings: unplain }) })
+  return changed(item, unplain === '' ? undefined : `${serializeItem(item)}\nBoard warning: ${unplain}.`, { ...(fix === null ? {} : { fix }), ...(recheck === null ? {} : recheck), ...(unplain === '' ? {} : { warnings: unplain }) })
 }
 
 /**
@@ -1788,8 +1794,8 @@ async function closeFixed(item, w) {
       // The second review: the step is not through (a point for the person, a report since): with no fix of it open,
       // the partner checks it again, so it does not wait in review for nobody.
       const open = fixesOf(originId, items).some(one => !['done', 'dropped'].includes(stateOf(one)))
-      // B565: the word says why it comes: its fix is done, its open ask points kept.
-      return open ? null : { id: originId, title: valueOf(found.item, 'Title'), owner: valueOf(found.item, 'Owner'), why: checkWhy(found.item, items), ...warningsOf(found.item) }
+      // B565: the task says why it comes: its fix is done, its open ask points kept (T9.1.1: in its Context, as the word had it).
+      return open ? null : qaAsk(found.item, w, { why: checkWhy(found.item, items) })
     }
     let origin = appendHistory(found.item, 'server', `result check passed: its fix ${valueOf(fixed, 'Id')} is done`, w.now)
     const closed = move(origin, 'done', 'server', { ...w, store: { ...w.store, items } }, flowCtx({ ...w, store: { ...w.store, items } }, [origin]))
@@ -2582,7 +2588,8 @@ async function answer(body, w) {
  * in review whose result check waits for them, the board files that check again by itself. All their answers read as
  * yes: the ask points pass, and the step is done. Any reads as no: the ask points fail with their words, and the fix
  * step is made as for any failed point. Words the board cannot read as yes or no (or fewer answers than ask points)
- * wake the partner once ("check B<id>: Q<n> answered"), who files the check. `{}` when the step is not waiting for that.
+ * make the step's Quality Assurance task (T9.1.1; its Context carries the person's words), whose worker files the check.
+ * `{}` when the step is not waiting for that.
  */
 async function refileCheck(stepId, w) {
   const read = await readStore(w.dir, w.fs).catch(() => null)
@@ -2599,12 +2606,11 @@ async function refileCheck(stepId, w) {
   if (answered.length === 0) return {}
   const words = answered.map(one => (one.sections.get('Answer') ?? []).join(' ').trim())
   const readings = words.map(answerReading)
-  const partner = (w.chats ?? []).find(chat => w.roleOf?.(chat) === 'advisor') ?? null
   const ids = answered.map(one => valueOf(one, 'Id')).join(', ')
-  const tell = why => partner === null ? {} : {
-    wakePartner: { to: partner, id: stepId, title: valueOf(step, 'Title') ?? '', text: [`check ${stepId}: ${ids} answered`, `The person said: ${words.join(' | ')}`, `Your job: file the result check of ${stepId} again with work checked (${why}), roles/partner.md, "The check"`].join('\n') },
-  }
-  if (readings.includes(null) || answered.length < points.length) return tell(readings.includes(null) ? 'the board could not read the answer as yes or no' : `${points.length} points wait for the person, ${answered.length} answers came`)
+  // T9.1.1: what the board cannot file itself is a Quality Assurance task: a worker that did not build the step reads the
+  // person's words and files the check (the task's Context holds them).
+  const tell = async () => (await qaAsk(step, fresh, { personSaid: words.filter(Boolean).join(' | ') })) ?? {}
+  if (readings.includes(null) || answered.length < points.length) return tell()
   const isNo = readings.includes('no')
   const spoken = words.filter(Boolean).join(' | ')
   const filed = await checked({
@@ -2612,10 +2618,10 @@ async function refileCheck(stepId, w) {
     evidence: check.evidence ?? `none (the person answered ${ids})`,
     ...(check.score === null ? {} : { score: check.score }),
     points: check.points.map(one => (one.verdict !== 'ask' ? `${one.verdict}: ${one.text}` : isNo ? `fail: ${one.text} (the person said: ${spoken})` : `pass: ${one.text}`)),
-  }, fresh)
-  if (!filed.ok) return tell(`the board could not file it by itself: ${filed.why}`)
-  const { fix, resultCheck } = filed.result
-  return { ...(fix === undefined ? {} : { fix }), ...(resultCheck === undefined ? {} : { resultCheck }) }
+  }, { ...fresh, boardFiles: true })
+  if (!filed.ok) return tell()
+  const { fix, qa } = filed.result
+  return { ...(fix === undefined ? {} : { fix }), ...(qa === undefined ? {} : { qa }) }
 }
 
 /**

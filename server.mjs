@@ -55,7 +55,7 @@ import { createSpendingCollector } from './src/work/routing/collector.mjs'
 import { readRoutingRecord } from './src/work/routing/records.mjs'
 import { parseRoutingPolicy } from './src/work/routing/policy.mjs'
 import { adoptPicture, findDemo, findPicture, PICTURE_BYTES as SHOWN_PICTURE_BYTES, pictureProblem, pictureTooBig, shownFolders, shownRoots } from './src/pictures.mjs'
-import { answerWords, checkSay, checkStepWords, focusWords, resumesDue, spawnWhenAlone, wakeFor, wakesDue, wakesStopped, withInstruction, workWords } from './src/say.mjs'
+import { answerWords, checkSay, focusWords, resumesDue, spawnWhenAlone, wakeFor, wakesDue, wakesStopped, withInstruction, workWords } from './src/say.mjs'
 import { keepTalkPicture } from './src/talkPicture.mjs'
 import { firstLook, refineWhenDue } from './src/refineGate.mjs'
 import { recheckText, roundText, roundsNow } from './src/rounds.mjs'
@@ -92,7 +92,7 @@ import { loads, readVersion } from './src/version.mjs'
 import { blockersOf, reportedNotLogged, selfUpdater } from './src/selfUpdate.mjs'
 import { findGameFile } from './src/gameFile.mjs'
 import { absentAs, readKept, writeAtomic } from './src/write.mjs'
-import { aboutError, afterError, failingLine, fileLog, loopRecord, settleWithin } from './src/loops.mjs'
+import { afterError, failingLine, fileLog, loopRecord, settleWithin } from './src/loops.mjs'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 /** Never 0.0.0.0: the board shows private chats and can type into one. */
@@ -859,13 +859,13 @@ async function main(args) {
   // B488: it runs where the board's loops run (`ownsLoops`, its port `owns`).
   let supervisor = null
   /**
-   * B299: the chats an action on the store wakes (`wake`, `wakeOwner`, B449 `wakePartner`): the chat that asked, with the answer to its ask
+   * B299: the chats an action on the store wakes (`wake`, `wakeOwner`): the chat that asked, with the answer to its ask
    * (bridge.mjs, as the person's answer reads), and the owner of the step the answer frees. Partner answers (2026-10-19):
    * also from the work tool (the partner's answer), and a line of its own (`line`: the person took a partner's answer
    * back). Only to a chat the board shows; copied without the Workers mod. What to paste, or null.
    */
   const sendWakes = async done => {
-    const wakes = done?.ok === true ? [done.result.wake ?? null, done.result.wakeOwner ?? null, done.result.wakePartner ?? null].filter(one => one !== null) : []
+    const wakes = done?.ok === true ? [done.result.wake ?? null, done.result.wakeOwner ?? null].filter(one => one !== null) : []
     let paste = null
     for (const wake of isShowOnly ? [] : wakes) {
       const state = await readState()
@@ -946,20 +946,6 @@ async function main(args) {
       readyHeld: state.readyList?.held ?? null,
     }
   }
-  /**
-   * B356: the partner is asked for a step's result check (`check step`), as every board word to it: copied without the
-   * Workers mod, and woken through the main chat when its chat does not run. Nothing without a partner on the board.
-   */
-  const askResultCheck = async step => {
-    const state = await readState()
-    if ((state.advisor ?? null) === null) return
-    const isCopied = state.bridge?.isMissing === true
-    const message = { id: randomBytes(8).toString('hex'), at: clock(), ...checkStepWords(state.advisor.name, step, join(HERE, 'roles', 'partner.md')), state: isCopied ? 'copied' : 'waiting' }
-    await store.say(isCopied ? { ...message, pasteText: messageText(message, timeOf) } : message)
-    const wake = isCopied ? null : wakeFor(message, state, store.outbox(), clock(), config.maxMessageChars)
-    if (wake !== null) await store.say({ id: randomBytes(8).toString('hex'), at: clock(), ...wake, state: 'waiting' })
-    readState.reset()
-  }
   /** B359: the goal a checked item counts for: the goal itself (G<n>), or the step's Goal in the store. */
   const goalOfChecked = async id => {
     const plain = String(id ?? '').trim()
@@ -994,11 +980,7 @@ async function main(args) {
     if (workWriters === null && !workReads.has(body?.action)) return { ok: false, status: 409, why: `This board only shows. Change the work on the board that delivers: http://${HOST}:${recordingPort}/` }
     // Focus 4: a board that only shows reads the main chat's notes without marking them read.
     const done = await workApi(body, { ...(await workCtx()), ...(as === undefined ? {} : { as }), ...(workWriters === null ? { onlyShows: true } : {}) })
-    // B356, the second review: a fix's check that leaves the step it fixes in review asks the partner for that step again.
-    // B446: both run as loops: a failure shows on the page and in the log (with the step not asked for), and never
-    // fails the chat's call.
-    const asked = done.ok ? done.result.resultCheck : undefined
-    if (asked !== undefined) await loops.run('result-check', () => askResultCheck(asked).catch(error => { throw aboutError(asked.id, error) }))
+    // T9.1.1: a result check is a Quality Assurance task the work API makes itself (api.mjs `qaStep`): no word to the Advisor.
     // B359: a failed check counts an attempt of its goal: the guard looks whether it fires.
     if (done.ok && body?.action === 'checked' && (done.result.fix !== undefined || done.result.ticked === false)) await loops.run('guard', async () => guardNow(await goalOfChecked(body.id)))
     // B450: and your no to a look of one of its steps counts an attempt too.
@@ -1029,8 +1011,6 @@ async function main(args) {
       const outcome = await reportCheck({ id, branch, result, merged, repos, run: gitRunner(), project: config.project, touches, exists, fs: WORKTREE_FILES, cut })
       const checked = await workApi({ action: 'check', id, ...outcome }, { ...(await workCtx()), as: 'server' })
       if (checked?.ok !== true) throw new Error(`the check of ${id} could not be written: ${checked?.why ?? 'no answer'}`)
-      // B356: the board's check passed and the step waits for its result check: the partner is asked for it.
-      if (checked?.ok === true && checked.result.resultCheck !== undefined) await askResultCheck(checked.result.resultCheck)
       work.reset?.()
       readState.reset()
     }).finally(() => runningChecks.delete(id))

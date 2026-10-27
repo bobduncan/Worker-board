@@ -139,7 +139,7 @@ test('the store is read once per work call; the reads are not kept by request', 
   assert.equal(reads, 1)
   // The server no longer reads the store itself for a call: the overlaps of Touches come from the call's own reading.
   const server = await readFile(join(HERE, '..', 'server.mjs'), 'utf8')
-  const ctx = server.slice(server.indexOf('const workCtx = async'), server.indexOf('const askResultCheck'))
+  const ctx = server.slice(server.indexOf('const workCtx = async'), server.indexOf('/** B359: the goal a checked item counts for'))
   assert.ok(ctx.includes('overlapsOfStore: true'))
   assert.ok(!ctx.includes('readStore('))
   assert.ok(isReadAction('next') && isReadAction('pause-state') && !isReadAction('report'))

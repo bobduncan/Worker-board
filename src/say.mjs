@@ -11,7 +11,6 @@ import { stoppedOf } from './stopped.mjs'
 import { SYNC_BOARD, lastSyncAnswer } from './sync.mjs'
 import { isTalkPicture } from './talkPicture.mjs'
 import { isHolding } from './work/pause.mjs'
-import { warningLines } from './work/resultCheck.mjs'
 
 const refuse = (status, why) => ({ ok: false, status, why })
 
@@ -277,20 +276,6 @@ const anotherWayWords = step => ((step.item?.what ?? []).some(one => /^Two round
 
 /** B309: the ids of the asks under a step answered since its refine block was written (backlog.mjs `withAsks`). */
 const answeredAsks = step => (step.refined?.asks ?? []).filter(ask => ask.answer !== null).map(ask => ask.id)
-
-/**
- * B356: the word that asks the partner for a step's result check, once the board's own check passed: a helper that
- * did not build it checks the result against the step's agreed points and its standard, and the partner files it with
- * `work checked` (roles/partner.md, "The check"). `step` is `{ id, title, owner }`.
- */
-export const checkStepWords = (to, step, job) => ({
-  to, ask: null, step: null, title: null, version: null, verdict: null, command: 'result-check', about: step.id,
-  // B565: `step.why` (resultCheck.mjs `checkWhy`), when the check is asked again, stands in a `Why:` line.
-  // 2026-10-25: `step.warnings`, what the board's check passed the report with, stands in a `Board warnings:` line; a
-  // report that names no mutant for a change that touches tests adds the `Demand:` line (the check no longer sends the
-  // worker back for it: this check asks for the mutant).
-  text: `check step\nStep: ${step.id} ${plainLine(step.title ?? '')}\nBuilt by: ${plainLine(step.owner ?? 'its worker')}${step.why ? `\nWhy: ${plainLine(step.why)}` : ''}${warningLines(step.warnings).map(one => `\n${one}`).join('')}\nYour job: ${job}, "The check"`,
-})
 
 /** B233: the Advisor refines a step that is not finished; one ask at a time per step. */
 function refineCheck(body, state) {

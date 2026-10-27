@@ -15,7 +15,6 @@ import { valueOf } from '../../src/work/item.mjs'
 import { migrateBacklog } from '../../src/work/migrate.mjs'
 import { boardWarningsOf, hasNoMutantWarning } from '../../src/work/resultCheck.mjs'
 import { RESULT_CHARS } from '../../src/work/recapWords.mjs'
-import { checkStepWords } from '../../src/say.mjs'
 import { readStore, writeStore } from '../../src/work/store.mjs'
 
 const NOW = new Date(2026, 9, 26, 9, 0).getTime()
@@ -129,7 +128,7 @@ test('a newer report replaces the warnings: its check pending or failed shows no
   }
 })
 
-test('a step in review that passed with warnings stays in review for its result check; the word to the partner carries them', async () => {
+test('a step in review that passed with warnings stays in review for its result check; its Quality Assurance task carries them', async () => {
   const one = await fresh()
   try {
     const made = await one.partner(LAMP)
@@ -141,18 +140,37 @@ test('a step in review that passed with warnings stays in review for its result 
     const noMutant = 'the change touches tests (test/lamps.test.mjs) but the result names no mutant: the result check asks for one (next time add "Tests bite: <what was undone in a copy> → <the assertion that failed>")'
     const git = await one.server({ action: 'check', id, passed: true, lines: ['work in garden'], warnings: [noMutant] })
     assert.equal(valueOf(await item(one.dir, id), 'State'), 'review')
-    assert.deepEqual(git.result.resultCheck, { id, title: 'Light the garden lamps', owner: 'Lamplighter', warnings: noMutant })
-    // The result check's word: the warnings, and the demand for a mutant.
-    const words = checkStepWords('Partner', git.result.resultCheck, 'roles/partner.md').text
-    assert.match(words, /\nBoard warnings: the change touches tests \(test\/lamps\.test\.mjs\) but the result names no mutant/)
-    assert.match(words, /\nDemand: the report names no mutant for a change that touches tests: the helper makes one in a scratch copy \(never on the branch\)/)
-    // Warnings of another kind add no demand; a step without warnings neither.
-    const other = checkStepWords('Partner', { id, title: 'x', owner: 'y', warnings: WARNINGS.join('; ') }, 'roles/partner.md').text
-    assert.match(other, /\nBoard warnings: the result names no Context/)
-    assert.doesNotMatch(other, /Demand:/)
-    assert.doesNotMatch(checkStepWords('Partner', { id, title: 'x', owner: 'y' }, 'roles/partner.md').text, /Board warnings|Demand:/)
+    // T9.1.1: the task's Context holds what the word to the partner held: the warnings, and the demand for a mutant.
+    const context = (await item(one.dir, git.result.qa)).sections.get('Context').map(line => line.trim())
+    assert.ok(context.includes('Built by: Lamplighter'))
+    assert.ok(context.some(line => line.startsWith('Board warnings: the change touches tests (test/lamps.test.mjs) but the result names no mutant')), context.join('\n'))
+    assert.ok(context.some(line => line.startsWith('Demand: the report names no mutant for a change that touches tests: the helper makes one in a scratch copy (never on the branch)')))
     assert.equal(hasNoMutantWarning(noMutant), true)
     assert.equal(hasNoMutantWarning(WARNINGS.join('; ')), false)
+  } finally {
+    await rm(one.dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
+  }
+})
+
+test('warnings of another kind add no demand to the task; a step without warnings neither', async () => {
+  const one = await fresh()
+  try {
+    const made = await one.partner({ ...LAMP, title: 'Sweep the lamp paths' })
+    const id = made.result.id
+    await queueFor(one.dir, id, 'Lamplighter', { now: NOW + 60_000 })
+    await one.lamplighter({ action: 'take', id, branch: 'b-sweep' })
+    await one.lamplighter({ action: 'report', id, result: 'Clean.', merged: 'abc1234' })
+    const git = await one.server({ action: 'check', id, passed: true, lines: ['branch gone'], warnings: WARNINGS })
+    const lines = (await item(one.dir, git.result.qa)).sections.get('Context').map(line => line.trim())
+    assert.ok(lines.some(line => line.startsWith('Board warnings: the result names no Context')))
+    assert.ok(!lines.some(line => line.startsWith('Demand:')))
+    // A step without warnings: neither line.
+    const clean = (await one.partner({ ...LAMP, title: 'Polish the lamp glass' })).result.id
+    await queueFor(one.dir, clean, 'Sweeper', { now: NOW + 60_000 })
+    await one.sweeper({ action: 'take', id: clean, branch: 'b-glass' })
+    await one.sweeper({ action: 'report', id: clean, result: 'Polished.', merged: 'abc1235' })
+    const other = await one.server({ action: 'check', id: clean, passed: true, lines: ['branch gone'] })
+    assert.ok(!(await item(one.dir, other.result.qa)).sections.get('Context').some(line => /Board warnings|Demand:/.test(line)))
   } finally {
     await rm(one.dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }

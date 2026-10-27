@@ -17,8 +17,7 @@ export const LOOP_WORDS = {
   measure: 'measuring the tasks',
   cpu: 'CPU for the chats',
   request: 'answering the page',
-  // B446: after a chat's report or checked, and the pictures of an idea.
-  'result-check': 'asking for a result check',
+  // B446: after a chat's checked, and the pictures of an idea.
   guard: 'the goal guard',
   // B528: an evaluation that has not ended, asked of the partner again.
   'evaluate-again': 'asking an evaluation again',

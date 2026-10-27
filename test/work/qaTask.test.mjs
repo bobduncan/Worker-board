@@ -122,9 +122,7 @@ test('qa-task: the second call makes none and answers the same id; a step checke
 test('qa-task: the context carries why the check is asked again and the board\'s warnings, as the check word did', async () => {
   const store = await fresh()
   try {
-    const { id } = await reported(store)
-    const warned = await store.server({ action: 'check', id, passed: true, lines: ['work in garden'], warnings: ['the change touches tests (a.test.mjs) but the result names no mutant'] })
-    assert.equal(warned.ok, true, warned.why)
+    const { id } = await reported(store, { warnings: ['the change touches tests (a.test.mjs) but the result names no mutant'] })
     const qa = await item(store.dir, await qaOf(store, id))
     const context = qa.sections.get('Context').map(one => one.trim())
     assert.ok(context.some(one => one.startsWith('Board warnings: the change touches tests')))
