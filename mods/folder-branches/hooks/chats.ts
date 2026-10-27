@@ -366,8 +366,15 @@ function taskText(task: ChatTask, left: number | null): string {
   return `${task.text}${plan}${left === null ? '' : ` · ${timeText(left)}`}`
 }
 
-/** What a chat is shown as: its mark and the rest of its line. `isYours` says the person is the one it waits for. */
-export function status(chat: ChatFile, all: readonly ChatFile[], now: number): { mark: string; text: string; isYours: boolean } {
+/** B738: the board's word for a chat that does not run. */
+export const NOT_RUNNING = 'Not running'
+
+/**
+ * What a chat is shown as: its mark and the rest of its line. `isYours` says the person is the one it waits for. B738:
+ * `off` names the chats the board shows as not running (its one verdict, the page's word): one of them with nothing
+ * waiting on the person reads "Not running", never "free"; a task it holds still reads as its own line says.
+ */
+export function status(chat: ChatFile, all: readonly ChatFile[], now: number, off: readonly string[] = []): { mark: string; text: string; isYours: boolean } {
   const yours = (): { mark: string; text: string; isYours: boolean } => (
     { mark: '◐', text: chat.task === null ? 'your turn' : `your turn · ${taskText(chat.task, null)}`, isYours: true }
   )
@@ -379,7 +386,9 @@ export function status(chat: ChatFile, all: readonly ChatFile[], now: number): {
 
     return { mark, text: taskText(chat.task, left), isYours: false }
   }
+  const isOff = off.includes(chat.name)
   if (chat.role === 'main') {
+    if (isOff) return { mark: '○', text: NOT_RUNNING, isYours: false }
     const busy = all.filter(other => other.role === 'worker' && isBusy(other, now)).length
     const text = busy === 0 ? 'free' : `waiting for ${busy} ${busy === 1 ? 'worker' : 'workers'}`
 
@@ -390,7 +399,7 @@ export function status(chat: ChatFile, all: readonly ChatFile[], now: number): {
   // A worker that stopped with its task still open waits for the person: a question, or work to look at.
   if (chat.task !== null) return yours()
 
-  return { mark: '○', text: 'free', isYours: false }
+  return { mark: '○', text: isOff ? NOT_RUNNING : 'free', isYours: false }
 }
 
 /** B570: a version as the mod writes it, "0.17.0". */
@@ -418,8 +427,8 @@ export function modNote(chat: ChatFile, all: readonly ChatFile[], now: number): 
 }
 
 /** A chat as one line of text. */
-export function chatLine(chat: ChatFile, all: readonly ChatFile[], now: number): string {
-  const { mark, text } = status(chat, all, now)
+export function chatLine(chat: ChatFile, all: readonly ChatFile[], now: number, off: readonly string[] = []): string {
+  const { mark, text } = status(chat, all, now, off)
   const mod = modNote(chat, all, now)
   return `${mark} ${chat.name}  ${text}${mod === null || !mod.includes('restarts') ? '' : `  (${mod})`}`
 }
@@ -447,9 +456,9 @@ export function uniqueByName<T extends ChatFile>(rows: readonly T[]): T[] {
 }
 
 /** The whole list as text, for the tool's answer. */
-export function chatsSummary(rows: readonly ChatRow[], now: number): string {
+export function chatsSummary(rows: readonly ChatRow[], now: number, off: readonly string[] = []): string {
   if (rows.length === 0) return 'No chat is in the list yet.'
-  return orderChats(rows).map(row => chatLine(row, rows, now)).join('\n')
+  return orderChats(rows).map(row => chatLine(row, rows, now, off)).join('\n')
 }
 
 /**

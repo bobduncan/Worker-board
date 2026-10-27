@@ -1964,7 +1964,9 @@ async function main(args) {
       // (2026-10-24: the goal guard's evaluate word of 9459 characters was refused and nobody saw why).
       const fit = fitsMod(handed)
       if (fit.refused.length > 0) await store.settle(checked.chat, fit, clock())
-      return { ok: true, result: { messages: fit.messages, ...(atTake.clear === null ? {} : { clear: atTake.clear }) } }
+      // B738: the chats the board shows as not running: the mod's list words them the same ("Not running"), from this one verdict.
+      const off = ((await readState()).chats ?? []).filter(lane => !lane.isLeftover && lane.isRunning === false).map(lane => lane.name)
+      return { ok: true, result: { messages: fit.messages, ...(atTake.clear === null ? {} : { clear: atTake.clear }), ...(off.length === 0 ? {} : { off }) } }
     }),
     // Redesign Part 1: the mod's report of its turn state the moment it changes; refused as a take is.
     report: counted(async body => {

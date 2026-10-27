@@ -860,7 +860,8 @@ marks what waits for that chat taken, writes that down, then hands it out;
 the mod types it into its chat as the person's own words and tells the board what was typed and what was not
 (`POST /api/bridge/typed`), so the card says "handed to its chat", then "typed into its chat", or that it did not
 arrive. The engine runs it once the chat is idle, so a busy chat gets it after what it is doing. The key only
-takes: sending still needs the board's own page. A second board that starts while another one's file is there
+takes: sending still needs the board's own page. (B738) The answer also names the chats that do not run (`off`), so the
+mod's Workers list says "Not running" for them, as the page does. A second board that starts while another one's file is there
 and that board answers leaves the file alone. What remains, as with sending: a chat that wrote a `board.json` of
 its own could have its own text typed into the other chats; that takes a deliberate act, and the mod's note
 forbids touching the file. What is typed:
@@ -3927,6 +3928,10 @@ timers. Now each chat says it (principle 3, know don't guess).
   one in which no conversation was written (every chat closed), is no fault of the board and counts as before.
   (B728) A chat the board knows does not run whose card says free keeps the state `free` (the hand-out asks the main chat to start it,
   `workerStart`), but is shown "Not running" in its pill, its time column and the head count: one word for one fact.
+  (B738) The Workers list (the mod's chat list, Workers mod 0.21.0) says it too: the answer to a take carries `off`, the names of
+  the chats the board shows as not running (`isRunning` false: ended, app restarted, silent), and the list words such a
+  chat "Not running" instead of "free" (the main chat too); a worker that holds a task still reads "your turn". A board that
+  does not answer leaves the list as its files say (the list reads the last answer, it never waits for the board).
 - **Older mods and a restart:** a chat on a Workers mod older than 0.19.0 sends no report and keeps the board's
   reading, until the restart between steps (B570) brings it onto the new mod; the reading is removed in a later
   clean-up once no chat needs it. After the board restarts its reports are empty: each chat shows the board's reading

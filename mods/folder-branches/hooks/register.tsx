@@ -10,7 +10,7 @@ import type { BoardRole, ChatFile, ChatList, ChatRole, ChatRow, ChatsView, Folde
 import { BOARD_FILE, BOARD_NOTE, LAUNCH_FILE, MOD_HEADER, MOD_VERSION, REPORT_PATH, REQUEST_HEADER, TAKE_PATH, TYPED_PATH, WORK_ACTIONS, WORK_FIELDS, WORK_PATH, boardStarts, isPaused, parseBoard, parsePause, parseTaken, pauseContexts, shownName, typedWhy } from './board'
 import type { Board, BoardStart, OwedClear, PauseState, PauseWhere, TurnReport } from './board'
 import {
-  BEAT_MS, CHATS_DIR, LEFT_MAX_SIZE, LEFT_TEXT, LIST_FILE, afterTurn, atTurnStart, cardGap, cardOld, chatNote, clearWhy, clearedStart, compactKeep, compactWhy, chatText, chatsSummary, fileName,
+  BEAT_MS, CHATS_DIR, NOT_RUNNING, LEFT_MAX_SIZE, LEFT_TEXT, LIST_FILE, afterTurn, atTurnStart, cardGap, cardOld, chatNote, clearWhy, clearedStart, compactKeep, compactWhy, chatText, chatsSummary, fileName,
   cardStep, foldersAbove, formAnswer, formQuestions, hasLeft, instructionsLine, isAgentId, isFiled, modNote, movedText, nameFromTitle, openFrom, orderChats, parseChat, personsWords, parseList, recordedLine, roleFrom, sessionOf, status, uniqueByName,
   unfiledAsk, withDone, withPlan, withSend, withState, withStep, workCard,
 } from './chats'
@@ -77,6 +77,8 @@ let turnReport: TurnReport = { state: 'idle', since: 0, background: false }
  */
 let reportRun = 0
 let reportSeq = 0
+/** B738: the chats the board's last answer to a take named as not running; empty when it did not answer. */
+let boardOff: string[] = []
 let openForms = 0
 let hasBackground = false
 let reportingSince: number | null = null
@@ -350,7 +352,7 @@ async function readChats($: EngineInterface): Promise<ChatRow[]> {
 
 /** What the pane shows of a reading: who is listed and each line's words, not the times the files were written. */
 function shown(view: ChatsView): string {
-  return JSON.stringify([view.me, view.rows.map(row => [row.id, row.name, status(row, view.rows, view.now)])])
+  return JSON.stringify([view.me, view.rows.map(row => [row.id, row.name, status(row, view.rows, view.now, view.off)])])
 }
 
 /**
@@ -359,7 +361,7 @@ function shown(view: ChatsView): string {
  */
 async function loadChats($: EngineInterface): Promise<ChatsView> {
   const rows = await readChats($)
-  const next: ChatsView = { me: await $.session.id(), now: await $.clock.now(), rows }
+  const next: ChatsView = { me: await $.session.id(), now: await $.clock.now(), rows, off: boardOff }
   const before = await read($, chatsAtom)
   if (shown(before) !== shown(next)) await update($, chatsAtom, () => next)
   return next
@@ -834,8 +836,15 @@ async function takeFromBoard($: EngineInterface): Promise<void> {
     const board = parseBoard(await $.fs.read(inFolder(project, BOARD_FILE)))
     if (board === null) return
     const answer = await askBoard($, board, TAKE_PATH)
-    if (answer === null) return
-    const taken = parseTaken(answer)
+    // B738: a board that does not answer leaves the list as the files say; the list reads this, never waits for the board.
+    const taken = answer === null ? null : parseTaken(answer)
+    const off = taken === null ? [] : taken.off
+    // The pane is drawn again when the board's verdict changed, not at every take.
+    if (JSON.stringify(off) !== JSON.stringify(boardOff)) {
+      boardOff = off
+      void refreshChats($)
+    }
+    if (taken === null) return
     if (taken.refused.length > 0) void reportTyped($, board, [], [], taken.why, taken.refused)
     // B547: the board names a clear this worker owes (its next step's line waits for it): run it while the chat is idle.
     if (taken.clear !== null) void clearOwed($, taken.clear).catch(() => null)
@@ -1503,7 +1512,7 @@ async function setTask($: EngineInterface, change: (chat: ChatFile) => TaskChang
   const chats = await loadChats($)
   const me = chats.rows.find(row => row.id === chats.me)
 
-  return me === undefined ? 'Recorded.' : `Recorded. The list shows: ${status(me, chats.rows, chats.now).text}`
+  return me === undefined ? 'Recorded.' : `Recorded. The list shows: ${status(me, chats.rows, chats.now, chats.off).text}`
 }
 
 /** A number the model gave, which may arrive as text; undefined when it gave none. */
@@ -1726,7 +1735,7 @@ async function chatLines($: EngineInterface): Promise<string> {
     const chats = await loadChats($)
     ensureChatWatch($)
 
-    return chatsSummary(chats.rows, chats.now)
+    return chatsSummary(chats.rows, chats.now, chats.off)
   } catch (err) {
     return `The list of chats could not be read (${reason(err)}).`
   }
@@ -2095,7 +2104,7 @@ export const register: Register = on => {
     }
     const chats = await loadChats($)
 
-    return { result: chatsSummary(chats.rows, chats.now) }
+    return { result: chatsSummary(chats.rows, chats.now, chats.off) }
   })
 
   // B297: the work tool: each call goes to the worker board as this chat; take and step keep the card as the chat tool does.
@@ -2209,7 +2218,7 @@ export const register: Register = on => {
     return (
       <Box flexDirection="column">
         {chats.rows.map(chat => {
-          const { mark, text, isYours } = status(chat, chats.rows, chats.now)
+          const { mark, text, isYours } = status(chat, chats.rows, chats.now, chats.off)
           // B570: the chat's Workers mod, and when the board has it restarted onto a newer one.
           const mod = modNote(chat, chats.rows, chats.now)
 
@@ -2218,7 +2227,7 @@ export const register: Register = on => {
               {`${mark} `}
               <Text bold={chat.id === chats.me}>{chat.name}</Text>
               {'  '}
-              <Text bold={isYours} dimColor={text === 'free'}>{text}</Text>
+              <Text bold={isYours} dimColor={text === 'free' || text === NOT_RUNNING}>{text}</Text>
               {mod === null ? null : <Text dimColor>{`  ${mod}`}</Text>}
             </Text>
           )

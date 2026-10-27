@@ -54,6 +54,25 @@ describe('what a chat is shown as', () => {
     expect(chatLine(one[0] as ChatFile, one, NOW)).toBe('◆ Main  waiting for 1 worker')
   })
 
+  test('B738: a chat the board shows as not running reads "Not running", one that waits for the person does not', () => {
+    const free = chat('Units', 'waiting')
+    const main = chat('Main', 'waiting', null, 'main')
+    const busy = chat('Cleanup', 'working')
+    const all = [main, free, busy]
+    // The board's verdict, whatever its why (ended, app restarted, silent): the same word as the page.
+    expect(chatLine(free, all, NOW, ['Units'])).toBe('○ Units  Not running')
+    expect(chatLine(main, all, NOW, ['Main'])).toBe('○ Main  Not running')
+    expect(chatsSummary(all.map((c, i) => ({ ...c, id: String(i) })), NOW, ['Units']).split('\n')).toContain('○ Units  Not running')
+    // Unknown (the board did not name it, or did not answer): as the files say.
+    expect(chatLine(free, all, NOW, [])).toBe('○ Units  free')
+    expect(chatLine(free, all, NOW)).toBe('○ Units  free')
+    expect(chatLine(main, all, NOW, ['Units'])).toBe('◆ Main  waiting for 1 worker')
+    // A worker with its task open still waits for the person; a turn that runs is running, whatever the board's last answer.
+    const waits = { ...chat('Units', 'waiting', task('Skeleton Archer', 2, 5, 20)), at: NOW - STALE_MS - 1 }
+    expect(chatLine(waits, [waits], NOW, ['Units'])).toBe('◐ Units  your turn · Skeleton Archer · 2 of 5')
+    expect(chatLine(busy, all, NOW, ['Cleanup'])).toBe('● Cleanup  working')
+  })
+
   test('a turn that stopped writing is taken as ended', () => {
     const gone = { ...chat('Units', 'working', task('Skeleton Archer', 3, 5, 40)), at: NOW - STALE_MS - 1 }
     expect(chatLine(gone, [gone], NOW)).toBe('◐ Units  your turn · Skeleton Archer · 3 of 5')

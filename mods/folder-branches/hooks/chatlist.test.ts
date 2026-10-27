@@ -717,6 +717,30 @@ describe('what the person answers on the worker board reaches the chat it is for
     expect(w.typedIn.map(line => line.split(':').pop())).toEqual([' approved. Tick this step in the backlog.', 'Sheet B'])
   })
 
+  test('B738: a chat the board names as not running reads "Not running" in the Workers pane; a board that does not answer leaves the files\' words', async ($, on) => {
+    const clock = mock.clock(on, { now: 1000 })
+    const w = world('units', { ...listed({
+      units: { name: 'Units', role: 'worker', state: 'waiting', task: null, at: 0 },
+      cleanup: { name: 'Cleanup', role: 'worker', state: 'waiting', task: null, at: 0 },
+    }), [BOARD]: board })
+    stand(on, w)
+    await $.session.start(START)
+    await $.classic.UserPromptSubmit({ prompt: 'hello', session_title: 'Game - Units' })
+    const ui = await $.ui.mount({ plugin: 'folder-branches', surface: 'desktop', ...PANE })
+    const cleanup = async (): Promise<string | undefined> => {
+      for (let i = 0; i < 10; i++) await settle()
+      return (await ui.find(lineOf('Cleanup')))?.text
+    }
+    expect(await cleanup()).toBe('○ Cleanup  free')
+    w.takeAnswers.push({ status: 200, text: JSON.stringify({ messages: [], off: ['Cleanup'] }) })
+    await clock.advance(5000)
+    expect(await cleanup()).toBe('○ Cleanup  Not running')
+    // The board went down: its last verdict is not kept.
+    w.takeAnswers.push({ status: 503, text: 'The board restarts: try again in a moment.' })
+    await clock.advance(5000)
+    expect(await cleanup()).toBe('○ Cleanup  free')
+  })
+
   test('B566 (X21): a take the board never answers gives up after 15 s; the next take hands the chat its word', async ($, on) => {
     const clock = mock.clock(on)
     const w = world('units', { ...listed(), [BOARD]: board })

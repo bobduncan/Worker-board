@@ -46,9 +46,12 @@ describe('the worker board, as the mod reads it', () => {
     // What cannot be typed is named, so the board can say it did not arrive.
     // B532: with why, so the board does not try it again and names the reason.
     expect(parseTaken(answer)).toEqual({ messages: [{ id: 'm1', text: 'Sheet B' }], refused: ['m2', 'm3', 'm4'],
-      why: { m2: `too long: ${MOST_CHARS + 1} > ${MOST_CHARS} characters`, m3: 'no text', m4: 'no text' }, clear: null })
-    expect(parseTaken('{"messages":"x"}')).toEqual({ messages: [], refused: [], why: {}, clear: null })
-    expect(parseTaken('')).toEqual({ messages: [], refused: [], why: {}, clear: null })
+      why: { m2: `too long: ${MOST_CHARS + 1} > ${MOST_CHARS} characters`, m3: 'no text', m4: 'no text' }, clear: null, off: [] })
+    expect(parseTaken('{"messages":"x"}')).toEqual({ messages: [], refused: [], why: {}, clear: null, off: [] })
+    expect(parseTaken('')).toEqual({ messages: [], refused: [], why: {}, clear: null, off: [] })
+    // B738: the chats the board shows as not running; anything that is no name is left out.
+    expect(parseTaken('{"messages":[],"off":["Worker 5",3,""]}').off).toEqual(['Worker 5'])
+    expect(parseTaken('{"messages":[],"off":"x"}').off).toEqual([])
     // B547: the clear the board names for a worker that owes one; a step id that is no id is left out, no time is no clear.
     expect(parseTaken('{"messages":[],"clear":{"step":"B12","reportedAt":5}}').clear).toEqual({ step: 'B12', reportedAt: 5 })
     expect(parseTaken('{"messages":[],"clear":{"step":"../x","reportedAt":5}}').clear).toEqual({ step: null, reportedAt: 5 })
