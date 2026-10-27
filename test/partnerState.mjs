@@ -4,9 +4,11 @@ import { answer, typed } from '../fixtures/lines.mjs'
 import { parseConfig } from '../src/config.mjs'
 import { parseItem } from '../src/work/item.mjs'
 import { storeFromText } from '../src/work/read.mjs'
+import { PAGE } from './pageHarness.mjs'
 import { buildState } from './withStore.mjs'
 
-export const MIN = 60_000
+/** The page's own minute: the fixtures are built in the time the page reads them in. */
+export const MIN = PAGE.MIN
 export const NOW = Date.UTC(2026, 9, 19, 10, 0)
 const config = { ...parseConfig('{}', {}), project: 'C:\\garden' }
 export const app = name => JSON.stringify({ title: `Garden · ${name}`, sessionId: `local_${name}`, cliSessionId: `cli-${name}`, cwd: 'C:\\garden', isArchived: false, createdAt: name.length, lastActivityAt: NOW - 5 * MIN, lastAssistantUuid: 'u-1' })
