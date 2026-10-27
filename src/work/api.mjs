@@ -1578,7 +1578,7 @@ async function endQaTask(qa, how, words, w) {
  * or "ask: ..."; B701: with them the plain lines of the person's task window, "tried: ...", "why: ..." and "conclusion: ...",
  * kept beside the points and never counted), `score` at will ("82 of 75"). Kept under "## Checked". All pass: the step is done once the board's
  * own check passed too. A failed point makes a fix step for the same worker (fixStep) and counts an attempt; a point
- * only the person can judge (ask) makes none: the partner asks them, and the step waits in review.
+ * only the person can judge (ask) makes none: the worker that checked asks them, and the step waits in review.
  */
 async function checked(body, w) {
   // B358: the re-check of a goal before its tick (T9.1.1: still the partner's).
