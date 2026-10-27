@@ -3416,6 +3416,11 @@ the AI sweep by a cheap supervisor chat and the hand-over to the Advisor, comes 
   (`afterPause`, as the rules about chats do), so a long pause does not file an incident before the lookup after the resume lands; the finding's text
   still names the figure's real age. B727 (X56 reopened 3 min after a 20 h sleep, X84 filed from a wall-clock step age): the board's off time
   (`boardOffMs`, the history's gap lines) does not count in the rule's age either, so after a wake the supervisor's next lookup comes first.
+  B736: `holder-not-running`, `working-not-running` and `not-cleared` also leave out the stretches the board heard no chat
+  (`deafMs`, the view's `deaf`: a stall or a restart of the board is no chat's fault). `board-deaf` (B736: the board heard no
+  chat for over 10 min while chats wrote their conversations; the lanes read as before from then on, so a hung board is not
+  hidden) and `board-slow` (B736, the rule X89's sweep wanted: two work calls within 2 min that the board answered after the
+  chat's Workers mod had given up, 10 s, read from each call's request id; one finding naming the longest wait).
   The clock of every age the supervisor measures: RUNNING TIME (board-off time left out by `boardOffMs`) in `stale-checkpoint`, `open-fix`,
   `effort-mismatch`, `review-stuck`, `dropped-fix`, `old-limit-reading` (B727) and the health summary's step and checkpoint ages (B727: a
   gap inside adds "(PC off <h>)"); WALL TIME on purpose in the health summary's chat-state age, the age of a step behind a blocker, a
@@ -3814,6 +3819,15 @@ with all its guards, at most once a minute, and refused it only writes why on th
 held to nothing; the row says "not cleared after B12" with what happens next, and the watch rule `not-cleared` names it.
 The mod's newest word why it did not clear now shows as its own kind (`not-cleared`), no longer hidden behind an older
 clear.
+B737 (X86, 2026-10-27: Worker 3 reported B727 at 21:02, the board's check failed at 21:03, Worker 3 rightly stayed in its
+turn to fix it; `not-cleared` counted from 21:02, and the board gave it B729 at 21:28 over the failed check): a report
+whose board check failed (the newest `server: check failed` after it, no `check passed` since) is handed back to its
+worker: `lastReportOf` skips it, so no clear is owed, `clearOwed` and `not-cleared` count from the last report whose
+check did not fail, and until the worker reports again and that check passes (`handedBackOf`; a dropped step holds
+nothing) the reconciler gives it no new step: no give (`idleWorkers`, `reconciled.handedBack`) and no delivery of a
+queued one, and its `work next` says "The board's check of your report B727 failed: fix what it names and report
+B727 again first". A worker that never reports again is `review-wait`'s and the health summary's, not this rule's.
+Tests: `test/failedCheckHandBack.test.mjs` (B727's lines through `buildState`, the rule, the `work next` words).
 B587 (X36: a worker restarted for a new mod at 22:45 owed the clear of the step it had just reported; its process
 ended with the archive, so it could not clear, and its next step's line waited until the board itself started anew
 8 minutes on): the clear holds the line only while the chat's process runs (`clearHolds`). A worker whose process ended
@@ -3892,6 +3906,16 @@ timers. Now each chat says it (principle 3, know don't guess).
   least 1; principle 2: never wait for ever), "silent since HH:MM". Its `offSince` (which the rule working-not-running
   reads as a card left working) is set only when its last report said it worked: busy, asking, or idle with background
   work. An archived chat has no lane, as before.
+- **When the board hears no chat (B736, X73, X87, X89):** on 2026-10-27 from 21:12 to 21:21 no chat's report was kept
+  while every chat worked: each ping waited for a whole read of the board (a read takes 1 to 2 s idle, the store alone
+  over a second, and each reset started another read beside the one under way), so every lane read Unknown, then Not
+  running, and working-not-running opened for chats that were fine. Now a ping is checked against the state the board
+  has (`readState.last()`; only a session it does not know waits for a read), a reset while a read runs has the next read
+  wait for it (`cached`, one at a time), and `src/hearing.mjs` keeps the stretches in which the board heard no chat for
+  longer than `unknownAfterSeconds`: from its start to the first report, or between two. While one lasts and chats
+  still write their conversations, each lane is read as it was when the board last heard any chat, for up to 10 min
+  (`DEAF_KEEP_MS`); a chat already silent on its own stays as silent as it was. A stretch the Claude app started in, or
+  one in which no conversation was written (every chat closed), is no fault of the board and counts as before.
   (B728) A chat the board knows does not run whose card says free keeps the state `free` (the hand-out asks the main chat to start it,
   `workerStart`), but is shown "Not running" in its pill, its time column and the head count: one word for one fact.
 - **Older mods and a restart:** a chat on a Workers mod older than 0.19.0 sends no report and keeps the board's
@@ -4234,9 +4258,13 @@ server.mjs beside the title fix): "Q<n> in <thread> cannot reach the person: ask
 question, while it has no answer; the same question is never told twice, the next one is. G15's evaluation questions Q5 to
 Q7 (24 and 25 Oct) stood in such a talk and never reached the person; the evaluation (roles/partner.md) now asks the
 person's choice with `work ask` and keeps the talk as its record.
-B721: no word for a question that names its ask (`namesItsAsk`: "asked as Q428", "ask Q428"; G15's Q8, which the evaluation filed as Q428), nor for the talk
+B721: no word for the talk
 of a goal that is done or no longer in the goal map (`strandedQuestions(threads, goals)`, the map's nodes from the state; G33's Q11): both woke the
-partner for nothing on 26 Oct. The server's own pass is tested end to end (test/brainstormStrandedBoard.test.mjs: told once, also after the
+partner for nothing on 26 Oct.
+B733: and none for a question the store's own asks show was asked already: an open or answered ask of the talk's goal (`Of: G<n>`) filed at or after the
+question was written (`askFacts` from the state's work items, `questionTimes` for the talk's HH:MM dated from its start, a day on after midnight; G15's Q8 and
+the evaluation's Q428). The question's words decide nothing (B721 read "asked as Q428" and skipped a question whose ask did not exist): one that names an ask
+that does not exist, or one of another goal, a withdrawn ask or a free talk, is told as before, so nothing is dropped silently. The server's own pass is tested end to end (test/brainstormStrandedBoard.test.mjs: told once, also after the
 board starts anew).
 
 ## The goal demo before "Did we reach the goal?" (B677)

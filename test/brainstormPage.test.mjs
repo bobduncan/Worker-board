@@ -7,7 +7,7 @@ import test from 'node:test'
 import { fileURLToPath } from 'node:url'
 import vm from 'node:vm'
 
-import { brainstormsState, fixesToTell, strandedQuestions, strandedToTell, titleFixes } from '../src/brainstorm.mjs'
+import { askFacts, brainstormsState, fixesToTell, strandedQuestions, strandedToTell, titleFixes } from '../src/brainstorm.mjs'
 import { brainstormFixWords, brainstormStrandedWords, isPartnerWord, wakeFor } from '../src/say.mjs'
 
 const PUBLIC = join(dirname(fileURLToPath(import.meta.url)), '..', 'public')
@@ -282,15 +282,59 @@ test('B716: the board tells the partner of a stranded question once, and the nex
   assert.deepEqual(strandedToTell([one(`${HEAD}${Q1}`)], [], advisor), [])
 })
 
-// B721: G15's Q8 (names its ask Q428) and G33's Q11 (a done goal) woke the partner for nothing.
+// B733: G15's Q8 (written 2026-10-26 22:36, in a talk that started on 2026-10-26) and the ask Q428 the evaluation filed after it.
 const NAMED = '\n## Q8 (22:36)\nIs the approach right?\nContext: Yes, it holds.\nWhy: a corrected how. Your choice is asked as Q428, not here.\n- A: keep (advised)\n- B: change\n'
 const goals = state => [{ id: 'G6', state }]
+const when = (day, clock) => new Date(`${day}T${clock}:00`).getTime()
+const ask = (id, of, state, filed) => [id, { head: new Map([['Id', id], ['Kind', 'ask'], ['State', state], ['Of', of], ['Filed', String(filed)]]), sections: new Map() }]
+const GONE_LATE = GONE.replace('Started: 2026-10-15 21:00', 'Started: 2026-10-26 21:00')
 
-test('B721: a question that names its ask is told nothing; one that only mentions a question is', () => {
-  assert.deepEqual(strandedQuestions([one(`${GONE}${NAMED}`)]), [])
-  assert.deepEqual(strandedToTell([one(`${GONE}${NAMED}`)], [], { name: 'Advisor' }), [])
-  assert.equal(strandedQuestions([one(`${GONE}${Q3.replace('It failed three times.', 'Q2 said it failed three times.')}`)]).length, 1)
-  assert.equal(strandedQuestions([one(`${GONE}${NAMED.replace('asked as Q428', 'asked later')}`)]).length, 1)
+test('B733: a stranded question is skipped when an ask of its goal was filed at or after it, and told otherwise', () => {
+  const stuck = one(`${GONE_LATE}${NAMED}`)
+  const asks = filed => askFacts(new Map([ask('Q428', 'G6', 'open', filed)]))
+  assert.deepEqual(strandedQuestions([stuck], null, asks(when('2026-10-26', '22:40'))), [])
+  assert.deepEqual(strandedQuestions([stuck], null, asks(when('2026-10-26', '22:36'))), [])
+  assert.deepEqual(strandedToTell([stuck], [], { name: 'Advisor' }, null, asks(when('2026-10-26', '22:40'))), [])
+  // an answered ask counts too
+  assert.deepEqual(strandedQuestions([stuck], null, askFacts(new Map([ask('Q428', 'G6', 'answered', when('2026-10-26', '23:00'))]))), [])
+  // no such ask: told, whatever the words say ("asked as Q428")
+  assert.equal(strandedQuestions([stuck], null, []).length, 1)
+  assert.equal(strandedQuestions([stuck]).length, 1)
+  assert.equal(strandedQuestions([one(`${GONE_LATE}${NAMED.replace('Q428', 'Q99999')}`)], null, []).length, 1)
+  // an ask filed before the question, a withdrawn one, one of another goal, one with no goal: told
+  assert.equal(strandedQuestions([stuck], null, asks(when('2026-10-26', '22:10'))).length, 1)
+  assert.equal(strandedQuestions([stuck], null, askFacts(new Map([ask('Q428', 'G6', 'withdrawn', when('2026-10-26', '22:40'))]))).length, 1)
+  assert.equal(strandedQuestions([stuck], null, askFacts(new Map([ask('Q429', 'G7', 'open', when('2026-10-26', '22:40'))]))).length, 1)
+  assert.equal(strandedQuestions([stuck], null, askFacts(new Map([['Q430', { head: new Map([['Kind', 'ask'], ['State', 'open'], ['Filed', String(when('2026-10-26', '22:40'))]]), sections: new Map() }]]))).length, 1)
+  // a free talk has no goal to match an ask by
+  assert.equal(strandedQuestions([one(`${GONE_LATE}${NAMED}`.replace('Goal: G6 Benches that match the picture', 'Goal: new'))], null, asks(when('2026-10-26', '22:40'))).length, 1)
+})
+
+test('B733: a question written after midnight is dated the next day', () => {
+  const late = one(`${GONE_LATE}${NAMED.replace('Q8 (22:36)', 'Q8 (00:20)')}`.replace('## Q1 (21:01)', '## Q1 (23:50)'))
+  assert.equal(late.latestMs, when('2026-10-27', '00:20'))
+  assert.equal(one(`${GONE_LATE}${NAMED}`).latestMs, when('2026-10-26', '22:36'))
+  // an ask of the evening before does not cover it
+  assert.equal(strandedQuestions([late], null, askFacts(new Map([ask('Q428', 'G6', 'open', when('2026-10-26', '23:55'))]))).length, 1)
+  assert.deepEqual(strandedQuestions([late], null, askFacts(new Map([ask('Q428', 'G6', 'open', when('2026-10-27', '00:30'))]))), [])
+})
+
+// B733: through the board's own pass (buildState reads the talk and the store), the ask facts are what the server hands the partner rule.
+test('B733: the state carries the asks of the store, and the rule skips the question the store answers for', async () => {
+  const { buildState } = await import('../src/state.mjs')
+  const { parseConfig } = await import('../src/config.mjs')
+  const { parseItem, valueOf } = await import('../src/work/item.mjs')
+  const { storeFromText } = await import('../src/work/read.mjs')
+  const NOW = new Date('2026-10-27T12:00:00').getTime()
+  const work = storeFromText('', { now: NOW })
+  const filed = when('2026-10-26', '22:40')
+  const item = parseItem(['Id: Q428', 'Kind: ask', 'Title: Pin it?', 'State: open', 'Owner: Advisor', 'Asks: decide', 'Blocking: no', 'Of: G6', `Filed: ${filed}`, 'Since: 2026-10-26 22:40', '', '## Text', 'Pin it?', ''].join('\n'))
+  work.items.set(valueOf(item, 'Id'), item)
+  const config = { ...parseConfig('{}', {}), project: 'C:\\garden', brainstorms: 'talks' }
+  const state = buildState({ listText: '{"prefix":"Game - ","main":"Main"}', appChatTexts: [], tails: {}, planLineTexts: {}, backlogText: '', adviceText: null, folders: null, askTexts: [], pictureLists: {}, threadTexts: [{ path: 'talks/b.md', text: `${GONE_LATE}${NAMED}`, at: 1 }], work }, { outbox: [], now: NOW, config })
+  assert.deepEqual(state.brainstorms.asks, [{ goal: 'G6', at: filed }])
+  assert.deepEqual(strandedQuestions(state.brainstorms.threads, null, state.brainstorms.asks), [])
+  assert.equal(strandedQuestions(state.brainstorms.threads, null, []).length, 1)
 })
 
 test('B721: the talk of a done goal, or of a goal no longer in the map, is told nothing; an open goal is', () => {

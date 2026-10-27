@@ -5,7 +5,9 @@
 // which sees both ends, keeps the account: a worker whose last report is newer than its last clear owes a clear. While
 // it does, the board holds the line of its next step, refuses its take, and once the chat is idle names the clear to its
 // Workers mod (bridge take, `clear`), which keeps the log and runs /clear; a mod older than CLEAR_MOD cannot, and the
-// supervisor's rule not-cleared names it. PURE.
+// supervisor's rule not-cleared names it. B737 (X86, 2026-10-27): a report whose board check failed counts for none of
+// this: the board hands the step back, its worker rightly stays in its turn to fix it (Worker 3 and B727, 21:02-21:28),
+// so it owes no clear and is given no new step (handedBackOf) until it reports again and that check passes. PURE.
 
 import { sinceMs, valueOf } from './work/item.mjs'
 
@@ -34,24 +36,50 @@ export function modAtLeast(a, b = CLEAR_MOD) {
   return true
 }
 
+/** The board's check of a report, in History ("- 2026-10-27 21:03 server: check failed: ..."); the result check is another line. */
+const CHECKED = /^-\s+\S+ \S+ server: check (passed|failed)\b/
+
 /**
- * The chat's last report: the newest History line of any step written by that chat (`chat`, its name with or without
- * the titles' `prefix`) that moves it to review or reports it again. `{ id, at }`, at to the minute; null for none.
+ * Every report of the chat (`chat`, its name with or without the titles' `prefix`), oldest first: `{ id, at, failed,
+ * dropped }`, one per History line of its own that moves a step to review or reports it again. B737 (X86): `failed` when
+ * the board's check of that report failed (and no later check of the step passed).
  */
-export function lastReportOf(items, chat, prefix = '') {
+function reportsOf(items, chat, prefix = '') {
   const me = plain(chat, prefix)
-  let last = null
+  const reports = []
   for (const item of items instanceof Map ? items.values() : items ?? []) {
     if ((valueOf(item, 'Kind') ?? 'step') !== 'step') continue
+    let current = null
     for (const line of item.sections?.get('History') ?? []) {
-      if (!REPORTED.test(line)) continue
-      const found = LINE.exec(line)
-      if (found === null || plain(found[2], prefix) !== me) continue
-      const at = sinceMs(found[1])
-      if (Number.isFinite(at) && (last === null || at > last.at)) last = { id: valueOf(item, 'Id'), at }
+      if (REPORTED.test(line)) {
+        const found = LINE.exec(line)
+        const at = found === null ? Number.NaN : sinceMs(found[1])
+        current = Number.isFinite(at) && plain(found[2], prefix) === me ? { id: valueOf(item, 'Id'), at, failed: false, dropped: valueOf(item, 'State') === 'dropped' } : null
+        if (current !== null) reports.push(current)
+      } else if (current !== null && CHECKED.test(line)) current.failed = CHECKED.exec(line)[1] === 'failed'
     }
   }
-  return last
+  return reports.sort((a, b) => a.at - b.at)
+}
+
+/**
+ * The chat's last report: the newest History line of any step written by that chat that moves it to review or reports it
+ * again, whose board check did not fail. B737 (X86): a report whose check failed is handed back to the worker (see
+ * handedBackOf): it is no report that ends the turn, so it owes no clear. `{ id, at }`, at to the minute; null for none.
+ */
+export function lastReportOf(items, chat, prefix = '') {
+  const last = reportsOf(items, chat, prefix).filter(one => !one.failed).at(-1)
+  return last === undefined ? null : { id: last.id, at: last.at }
+}
+
+/**
+ * B737 (X86): the report the board's check handed back: the chat's newest report, when its check failed and the chat has
+ * not reported again (a later report, or a later check that passed, ends it). `{ id, at }`, else null; a dropped step
+ * holds nothing. The worker stays in its turn to fix it, so it is given no new step until it reports that step again.
+ */
+export function handedBackOf(items, chat, prefix = '') {
+  const last = reportsOf(items, chat, prefix).at(-1)
+  return last === undefined || !last.failed || last.dropped ? null : { id: last.id, at: last.at }
 }
 
 /**
