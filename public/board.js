@@ -2889,19 +2889,18 @@ function advisorAsks(advisor) {
 /** B280: what waits for the Advisor, not in its chat yet: a count and its kinds ("1 refine, 2 messages"); null for nothing. */
 function advisorQueued(queued, waiting = []) {
   // The person, 2026-10-26 ("I also expect this Q423 is in the queue with the advisor"; then "all of it"): what waits for
-  // it besides messages (the state's `advisor.waiting`: the questions it answers for you first, result checks, refines),
+  // it besides messages (the state's `advisor.waiting`: the questions it answers for you first, refines),
   // each one a link to its step or ask with where it stands. An entry without a kind is a question (an older server).
   const items = Array.isArray(waiting) ? waiting.filter(one => typeof one?.id === 'string').map(one => ({ ...one, kind: one.kind ?? 'question' })) : []
   const of = kind => items.filter(one => one.kind === kind).length
   // The refines of the list are the refines; without any in it, the count of the words that wait.
   const refines = of('refine') > 0 ? of('refine') : queued?.refines ?? 0
-  const kinds = [[of('question'), 'question', 'questions'], [of('check'), 'result check', 'result checks'], [refines, 'refine', 'refines'], [queued?.rounds ?? 0, 'round of the clock', 'rounds of the clock'], [queued?.words ?? 0, 'message', 'messages']]
+  const kinds = [[of('question'), 'question', 'questions'], [refines, 'refine', 'refines'], [queued?.rounds ?? 0, 'round of the clock', 'rounds of the clock'], [queued?.words ?? 0, 'message', 'messages']]
   const count = kinds.reduce((sum, [one]) => sum + one, 0)
   if (count === 0) return null
   const text = kinds.filter(([one]) => one > 0).map(([one, single, many]) => `${one} ${one === 1 ? single : many}`).join(', ')
   if (items.length === 0) return { count, text }
-  const named = one => (one.kind === 'check' ? `check ${one.id}${one.who ? ` (built by ${one.who})` : ''}: ${one.title ?? ''}`
-    : one.kind === 'refine' ? `refine ${one.id}: ${one.title ?? ''}` : `${one.id} · ${one.from ?? one.who ?? 'nobody'}: ${one.title ?? ''}`)
+  const named = one => (one.kind === 'refine' ? `refine ${one.id}: ${one.title ?? ''}` : `${one.id} · ${one.from ?? one.who ?? 'nobody'}: ${one.title ?? ''}`)
   return { count, text, asks: items.map(one => ({ id: one.id, kind: one.kind, href: `#details=${one.id}`, text: named(one), stand: standWords(one.stand) })) }
 }
 
@@ -2934,9 +2933,8 @@ function drawWaitingAsks(asks) {
   for (const ask of asks) {
     const link = el('a', 'advisor-lane-ask', ask.text)
     link.href = ask.href
-    link.title = ask.kind === 'check' ? `Open ${ask.id}: the step whose result the Advisor checks`
-      : ask.kind === 'refine' ? `Open ${ask.id}: the step the Advisor refines`
-        : `Open ${ask.id}: the whole question, its options and advice, who asked it`
+    link.title = ask.kind === 'refine' ? `Open ${ask.id}: the step the Advisor refines`
+      : `Open ${ask.id}: the whole question, its options and advice, who asked it`
     link.addEventListener('click', event => event.stopPropagation())
     const row = el('span', 'advisor-lane-ask-row')
     row.append(link)
@@ -15308,15 +15306,17 @@ const blockNumber = step => (typeof step.id === 'string' ? Number(step.id.replac
 const newestFirst = (a, b) => Number(b.isFix) - Number(a.isFix) || blockNumber(b.step) - blockNumber(a.step)
 
 /**
- * 2026-10-26: where the result check of a step in review stands, in words for its state cell (the step's `reviewStand`, from
- * the server): "waits for its check: in the Advisor's queue since 16:14" or "the Advisor is checking it since 16:20". Null
- * when the server said nothing (the step waits for a fix, for an answer, or has nothing to check).
+ * 2026-10-26, T9.1.1 (the person, 2026-10-27: workers do the checks): where the result check of a step in review stands, in words
+ * for its state cell (the step's `reviewStand`, from the server: its Quality Assurance task, `{ kind, since, qa, who }`):
+ * "waits for its check: B730, queued since 16:14" or "B730: Worker 3 is checking it since 16:20". Null when the server said
+ * nothing (the step waits for a fix, for an answer, or has nothing to check).
  */
 function checkStandWords(stand) {
   const since = Number.isFinite(stand?.since) ? ` since ${clock(stand.since)}` : ''
-  const at = Number.isFinite(stand?.since) ? ` at ${clock(stand.since)}` : ''
-  return stand?.kind === 'queued' ? `waits for its check: in the Advisor's queue${since}` : stand?.kind === 'working' ? `the Advisor is checking it${since}`
-    : stand?.kind === 'taken' ? `waits for its check: the Advisor took it${at}, idle now` : null
+  const task = typeof stand?.qa === 'string' && stand.qa !== '' ? stand.qa : null
+  if (stand?.kind === 'queued') return `waits for its check: ${task ?? 'its QA task'}, queued${since}`
+  if (stand?.kind === 'working') return `${task ?? 'its QA task'}: ${typeof stand.who === 'string' && stand.who !== '' ? stand.who : 'a worker'} is checking it${since}`
+  return null
 }
 
 /**
@@ -15370,7 +15370,8 @@ function backlogBlocks(list, readyList, { showDone = false } = {}) {
       const isAdded = (one.added ?? null) !== null || base.isAdded
       rows.queue.push({
         ...base, n: one.n, isFix: one.rank === 0 || base.isFix, isFocus: one.rank === 1, isAdded, pinned: kept,
-        who: kept !== null ? `for ${kept} only` : (one.keptFor ?? null) !== null ? `kept for ${one.keptFor}` : 'any free worker',
+        // T9.1.1: a Quality Assurance task goes to any free worker but the ones that built the step it checks (`notBy`).
+        who: kept !== null ? `for ${kept} only` : (one.keptFor ?? null) !== null ? `kept for ${one.keptFor}` : (one.notBy ?? []).length > 0 ? `any free worker but ${one.notBy.join(', ')}` : 'any free worker',
         note: [(one.refused ?? null) === null ? null : `not given to ${one.refused.chat}: ${one.refused.why}`, one.note ?? null].filter(Boolean).join(' · '),
         canRemove: isAdded || kept !== null,
       })

@@ -93,6 +93,15 @@ function fixChain(item, items) {
   return chain
 }
 
+/** T9.1.1: why a QA task has nothing to check now (the step it checks is not in review), in one line; null for any other task. */
+function staleQaWhy(item, items) {
+  if (!isQaTask(item)) return null
+  const checks = valueOf(item, 'Checks')
+  const step = items.get(checks)
+  if (step === undefined) return `${checks} is not in the store: nothing to check`
+  return stateOf(step) === 'review' ? null : `${checks} is ${stateOf(step)}, not in review: nothing to check`
+}
+
 /**
  * The ready list: `{ ready, held }`. Every step in state refined; ready when nothing holds it (guards.mjs `readyHold`),
  * its kind's standard does not hold it (`standardHold(item)`, a why or null) and its routing record does not
@@ -105,7 +114,9 @@ function fixChain(item, items) {
  * A task of rank 2 neither pinned nor added is held for the person's choice (`choice: true`, CHOICE_WHY) unless
  * `beyondFocus`.
  * A QA task (qaTask.mjs) is never held for the person's pick (the step it checks was started already), is a follow-up of
- * nobody, and carries `notBy`, the chats it is never given to (the ones that built the step it checks).
+ * nobody, and carries `notBy`, the chats it is never given to (the ones that built the step it checks). It is held, saying
+ * so, while the step it checks is not in review (the person marked it done, dropped it: no worker checks a closed step; the
+ * supervisor's repair `unchecked` drops the task).
  * Which steps go out by themselves (B691, B694, B697; the one place that states it): the focus is the goal `focus` and the
  * goals under it (`focusGoals`): a step of one is the focus's, rank 1. A fix goes out as its root does (its chain,
  * `fixChain`): it is the focus's when any step down its chain belongs to the focus, and picked when any step down its chain
@@ -121,7 +132,7 @@ export function readyList(items, { now, focus = null, focusGoals = [], followUpM
   const steps = [...items.values()].filter(item => kindOf(item) === 'step' && stateOf(item) === 'refined' && typeof idOf(item) === 'string')
   for (const item of steps.sort((a, b) => byId(idOf(a), idOf(b)))) {
     const id = idOf(item)
-    const why = readyHold(item, ctx) ?? standardHold?.(item) ?? (routingHeld.has(id) ? 'held by its routing record' : null)
+    const why = staleQaWhy(item, items) ?? readyHold(item, ctx) ?? standardHold?.(item) ?? (routingHeld.has(id) ? 'held by its routing record' : null)
     if (why !== null) {
       held.push({ id, why })
       continue

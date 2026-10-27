@@ -6,7 +6,7 @@
 // own fields; nothing of the project's work is named here.
 
 import { modelOf } from './effort.mjs'
-import { valueOf } from './item.mjs'
+import { sinceMs, valueOf } from './item.mjs'
 import { standardOf } from './standard.mjs'
 
 /** The start of a QA task's title: "Quality Assurance: B701 Show the damage". */
@@ -83,4 +83,25 @@ export function qaModelEffort(checked) {
   return why === null
     ? { model: 'sonnet: a check of routine work', effort: 'medium: a check of routine work' }
     : { model: `opus: ${why}`, effort: `high: ${why}` }
+}
+
+const MINUTE_STAMP = /^-\s+(\d{4}-\d\d-\d\d \d\d:\d\d(?::\d\d)?)\s/
+
+/** When the task was made (ms): its first History line, else its Since; NaN when neither says. */
+export function madeAtMs(item) {
+  const first = (item?.sections?.get('History') ?? []).map(one => MINUTE_STAMP.exec(String(one))?.[1]).find(Boolean)
+  return sinceMs(first ?? valueOf(item, 'Since'))
+}
+
+/**
+ * Where a QA task stands, for the step in review it checks (the page's state cell, the board's health lines): `{ kind, since,
+ * qa, who }`. Worked on (in progress): kind 'working', since it was taken, `who` its worker; else (refined, given, taken)
+ * kind 'queued', since it was made, `who` the worker it was given to or null. Done and dropped tasks stand for nothing.
+ */
+export function qaStandOf(qa) {
+  const state = valueOf(qa, 'State')
+  if (CLOSED.includes(state)) return null
+  const id = valueOf(qa, 'Id')
+  if (state === 'in progress') return { kind: 'working', since: sinceMs(valueOf(qa, 'Since')), qa: id, who: valueOf(qa, 'Owner') }
+  return { kind: 'queued', since: madeAtMs(qa), qa: id, who: valueOf(qa, 'Owner') }
 }

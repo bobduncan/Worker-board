@@ -32,7 +32,8 @@ import { dailyNote, isDailyNote } from './work/dailyNote.mjs'
 import { SYNC_BOARD, syncChecks } from './sync.mjs'
 import { informationOf, instructionsOf, nameFinder, notesToMain, partnerDecidedOf, storeNeeds, storeWaits, withPartnerOf } from './work/lists.mjs'
 import { NOTE_LINE, isPartnerAnswered, isPartnerAskWord, stepWaitsForPartner } from './work/partnerAnswers.mjs'
-import { advisorWorkOf, isCheckWord } from './work/advisorWork.mjs'
+import { advisorWorkOf } from './work/advisorWork.mjs'
+import { openQaTaskOf, qaStandOf } from './work/qaTask.mjs'
 import { holdsRefine, isBlockWritten } from './work/refineWait.mjs'
 import { recapsOf } from './work/recap.mjs'
 import { isHolding, pauseFacts } from './work/pause.mjs'
@@ -772,9 +773,9 @@ function queuedFor(sent, name, now) {
     && (message.state === 'waiting' || (message.state === 'taken' && now - (message.takenAt ?? message.at) < TAKEN_SHOWN_MS)))
   const refines = open.filter(message => message.command === 'refine').length
   const rounds = open.filter(message => message.command === 'round' || message.command === 'recheck').length
-  // 2026-10-26: a result check and a question it answers first are items of its list of waiting work (advisorWork.mjs), each
-  // with its own stand: not a message waiting for it as well.
-  const listed = open.filter(message => isCheckWord(message) || isPartnerAskWord(message)).length
+  // 2026-10-26: a question it answers first is an item of its list of waiting work (advisorWork.mjs), with its own stand: not a
+  // message waiting for it as well. (T9.1.1: the result checks are Quality Assurance tasks, no longer its work.)
+  const listed = open.filter(message => isPartnerAskWord(message)).length
   return { refines, rounds, words: open.length - refines - rounds - listed }
 }
 
@@ -1794,11 +1795,22 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
     const item = raw.work?.items?.get(step.id)
     return word !== undefined && (item === undefined || holdsRefine(valueOf(item, 'State'), word)) ? [{ id: step.id, title: titleOf(step.id) ?? step.title, word }] : []
   })
-  // 2026-10-26: all the Advisor's waiting work (the questions it answers first, result checks, refines), each with where it
-  // stands, and the item it is on: the newest board word it took whose item is still open (while it works).
+  // 2026-10-26: all the Advisor's waiting work (the questions it answers first, refines), each with where it stands, and the
+  // item it is on: the newest board word it took whose item is still open (while it works).
   const advisorWork = !workOk || advisorChat === undefined ? { waiting: [], on: null }
-    : advisorWorkOf({ items: raw.work.items, held: reconciled?.ready?.held ?? null, outbox: sent, task: partnerWorks ? advisorCard.task ?? null : null, isWorking: partnerWorks, questions: withPartner, refines: refinesOpen, titleOf, nameOf: nameFinder(chatNames, prefix) })
-  const checkStands = new Map(advisorWork.waiting.filter(one => one.kind === 'check').map(one => [one.id, one.stand]))
+    : advisorWorkOf({ items: raw.work.items, outbox: sent, task: partnerWorks ? advisorCard.task ?? null : null, isWorking: partnerWorks, questions: withPartner, refines: refinesOpen })
+  // T9.1.1 (the person, 2026-10-27): where the result check of a step in review stands is where its Quality Assurance task
+  // stands: queued since (the board made it; the worker it was given to), or the worker on it since.
+  const checkStands = new Map()
+  if (workOk) {
+    const workerName = nameFinder(chatNames, prefix)
+    for (const step of raw.work.items.values()) {
+      if (valueOf(step, 'Kind') !== 'step' || valueOf(step, 'State') !== 'review') continue
+      const qa = openQaTaskOf(raw.work.items, valueOf(step, 'Id'))
+      const stand = qa === null ? null : qaStandOf(qa)
+      if (stand !== null) checkStands.set(valueOf(step, 'Id'), { ...stand, who: stand.who === null ? null : workerName(stand.who) })
+    }
+  }
 
   const built = {
     readAt: now,
@@ -1899,8 +1911,8 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
           flow: flowOfStep(raw.work, step.key),
           // B543: what it waits for while in review ("waits for its fix B<n>"), or null; B656: a fix the ready list holds, with why.
           reviewWait: reviewWaitOfStep(raw.work, step.key, reconciled?.ready?.held ?? null),
-          // 2026-10-26: a step in review that waits for its result check says where that stands (queued with the Advisor, or
-          // the Advisor is checking it), or null.
+          // 2026-10-26, T9.1.1: a step in review that waits for its result check says where its QA task stands (queued since,
+          // or the worker on it since: `{ kind, since, qa, who }`), or null.
           reviewStand: step.id === null ? null : checkStands.get(step.id) ?? null,
           // B299: the step as the store holds it, for its window.
           item,

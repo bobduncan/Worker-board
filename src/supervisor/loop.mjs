@@ -55,7 +55,8 @@ export async function readLoopLock(read) {
 
 /**
  * The findings carried out, in their order. `ports`: `unblock(id, on, why)` and `unpin(id)` (the work API as
- * the board: `{ ok, why }`), `recheck(id, why)` (B598: the board's check run again: `{ ok, why }`), `wake({ chat, id, text, key })` (the line sent once per key: the message, or null when it
+ * the board: `{ ok, why }`), `recheck(id, why)` (B598: the board's check run again: `{ ok, why }`), `apply(body)` (T9.1.1: the work API as the
+ * board, for `qa-task` and the drop of a QA task whose step left review: `{ ok, result, why }`), `wake({ chat, id, text, key })` (the line sent once per key: the message, or null when it
  * went before), `person({ of, text })` (T9.4: a note to the person about `of`, a board note of the supervisor's: `{ ok, why }`), `clean(leftover)` (worktree clean-up: `{ ok, why }`). `noted` the keys the main chat was told of before.
  * Answers `{ rows, note, keys, fine }`: a row per finding (`{ check, status, text }`, status Fixed, Woke, Sent, For
  * Main, Cleaned or Left), the lines of the one note to the main chat (what it was not told before), their keys, and
@@ -95,6 +96,17 @@ export async function applySync(findings, ports, noted = new Set()) {
         .catch(error => ({ ok: false, why: error instanceof Error ? error.message : String(error) }))
       if (done?.ok === true) row(one, 'Fixed', `${one.text}: checked again`)
       else row(one, 'For Main', `${one.text}: not checked again (${done?.why ?? 'no answer'})`)
+    } else if (fix.do === 'qa' || fix.do === 'qa-drop') {
+      // T9.1.1: the board makes the Quality Assurance task of a step that waits for its check, or drops the one of a step that left
+      // review (as the board: the work API lets it drop its own task); a file that changed while it was written is tried again next run.
+      const done = await Promise.resolve().then(() => ports.apply(fix.do === 'qa' ? { action: 'qa-task', id: fix.id } : { action: 'drop', id: fix.id, why: fix.why }))
+        .catch(error => ({ ok: false, why: error instanceof Error ? error.message : String(error) }))
+      if (done?.ok === true) row(one, 'Fixed', fix.do === 'qa' ? `${fix.id}: its QA task ${done.result?.id ?? ''} made` : `${fix.id}: its QA task dropped (${fix.why})`)
+      else {
+        const text = `${one.text}: not fixed (${done?.why ?? 'no answer'})`
+        row(one, 'For Main', text)
+        if (!/changed in the meantime/.test(done?.why ?? '')) tell(one, text)
+      }
     } else if (fix.do === 'wake') {
       // The review: a wake that throws is one finding not carried out, not the end of the run.
       const sent = await wakeBy(ports, { chat: fix.chat, id: fix.id, text: fix.text, key: one.key })
@@ -250,6 +262,7 @@ export function syncRunner(ports, rules = REPAIR_RULES, watch = []) {
       recheck: (id, why) => (typeof ports.recheck === 'function' ? ports.recheck(id, why) : ports.apply({ action: 'recheck-base', id, why })),
       // T9.4: the person's note, one of the board's (Via supervisor), as the incident lines are
       person: ({ of, text }) => ports.apply({ action: 'note', to: 'you', text, of, via: 'supervisor' }),
+      apply: ports.apply,
       wake: ports.wake,
       clean: ports.clean,
     }, noted)

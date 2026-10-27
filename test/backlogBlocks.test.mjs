@@ -53,7 +53,7 @@ const text = node => [node.textContent, ...(node.children ?? []).map(text)].join
 const all = (node, test) => [...(test(node) ? [node] : []), ...(node.children ?? []).flatMap(one => all(one, test))]
 const page = { document: { createElement: tag => new Node(tag) }, problems: new Map(), sending: new Set() }
 vm.runInNewContext([
-  cut('coordinate'), fn('el'), fn('fixChip'), constant('BLOCK_EMPTY'), fn('drawBlock'), fn('blockChip'), fn('blockLine'), fn('queueButton'), fn('editPart'),
+  'const MIN = 60000', cut('times'), cut('coordinate'), fn('el'), fn('fixChip'), constant('BLOCK_EMPTY'), fn('drawBlock'), fn('blockChip'), fn('blockLine'), fn('queueButton'), fn('editPart'),
   'Object.assign(this, { coordinateList, backlogBlocks, isBlockOpen, goalPlace, drawBlock, blockLine, BACKLOG_BLOCKS })',
 ].join('\n'), page)
 
@@ -267,4 +267,15 @@ test('"Recently finished" folds away with a click on its head, kept in this brow
   assert.match(click, /localStorage\.setItem\('finished-folded', finishedFolded \? 'yes' : 'no'\)/)
   // Above the blocks.
   assert.ok(html.indexOf('id="finished"') < html.indexOf('id="coordinate-list"'))
+})
+
+test('T9.1.1: a Quality Assurance task stands first in the Queue, for any free worker but the ones that built the step it checks', () => {
+  const state = stateOf([
+    { Id: 'B3', Title: 'Check the lanes', State: 'review', Owner: 'Worker 1', Goal: 'G9' },
+    { Id: 'B10', Title: 'Fix the loop lock', State: 'refined', Refined: 'ready', Priority: 'fix', Goal: 'G9' },
+    { Id: 'B30', Title: 'Quality Assurance: B3 Check the lanes', State: 'refined', Refined: 'ready', Checks: 'B3', 'Not by': 'Worker 1, Worker 2', Goal: 'G9' },
+  ])
+  const blocks = page.backlogBlocks(page.coordinateList(state.backlog), state.readyList)
+  const queue = blocks.find(block => block.key === 'queue')
+  assert.deepEqual(plain(queue.rows.map(row => [row.n, row.step.id, row.isFix, row.who])), [[1, 'B30', false, 'any free worker but Worker 1, Worker 2'], [2, 'B10', true, 'any free worker']])
 })

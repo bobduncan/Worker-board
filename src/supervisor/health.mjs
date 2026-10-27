@@ -9,16 +9,15 @@ import { chatEffort, effortOf, modelOf } from '../work/effort.mjs'
 import { sinceMs, valueOf } from '../work/item.mjs'
 import { checkpointOf, isHolding } from '../work/pause.mjs'
 import { isFailedForGood } from '../work/outboxSweep.mjs'
+import { openQaTaskOf, qaStandOf } from '../work/qaTask.mjs'
 import { reviewWaitOf } from '../work/resultCheck.mjs'
 import { ACTIVE, heldReason, openAskIds, workingOnOther } from '../work/parked.mjs'
 import { readingAgeMinutes } from '../limits.mjs'
-import { checkWordsOf, checkpointLate, familyOf, reviewLateOf, switchOf, undeliveredWords, wordMatters } from './rules/watch.mjs'
+import { checkpointLate, familyOf, reviewLateOf, switchOf, undeliveredWords, wordMatters } from './rules/watch.mjs'
 
 const MIN = 60_000
 const HOUR = 60 * MIN
 const DAY = 24 * HOUR
-/** B666: a check word this much later than the check was asked is a word typed again. */
-const AGAIN_MS = 5 * MIN
 /** The longest summary `work health` answers. */
 export const HEALTH_CHARS = 8000
 /** The longest line of it; a chat's line may be longer. */
@@ -374,18 +373,17 @@ function refinedWords(view) {
 }
 
 /**
- * B585 (X33: a check under way read as stuck): when the check of a step in review was asked, and the last check word
- * to the partner with its state: ", check asked 22:04, word to Partner (delivered)", or ", no check word yet".
+ * B585 (X33: a check under way read as stuck), T9.1.1 (the check is a Quality Assurance task): when the check of a step in
+ * review was asked, and where its QA task stands: ", check asked 22:04, QA task B730 queued since 22:04 (given to Worker 2)",
+ * ", check asked 22:04, QA task B730 with Worker 3 since 22:10", or ", check asked 22:04, no QA task yet".
  */
 function checkAskedWords(view, id, since, now) {
-  const words = checkWordsOf(view, id, since)
-  const last = words.at(-1)
-  // B666 (X74: the PC slept 8 h with a check under way, the board typed the word again at 07:30, and the sweep counted
-  // from "check asked 23:06"): a word typed again restarts the count, so the line names its time beside the first ask.
-  const again = words.length > 1 || (last !== undefined && last.at - since >= AGAIN_MS)
-  const word = last === undefined ? 'no check word yet'
-    : `word ${again ? `again ${dayClockOf(last.at, now)} ` : ''}to ${last.to ?? view.partner?.name ?? 'the partner'} (${last.state ?? 'not known'})`
-  return `, check asked ${dayClockOf(since, now)}, ${word}`
+  const qa = openQaTaskOf(view.items, id)
+  const stand = qa === null ? null : qaStandOf(qa)
+  const where = stand === null ? 'no QA task yet'
+    : stand.kind === 'working' ? `QA task ${stand.qa} with ${stand.who ?? 'a worker'} since ${dayClockOf(stand.since, now)}`
+      : `QA task ${stand.qa} queued since ${dayClockOf(stand.since, now)}${stand.who === null ? '' : ` (given to ${stand.who})`}`
+  return `, check asked ${dayClockOf(since, now)}, ${where}`
 }
 
 /** Each chat's queue as the board shows it, in its order, with why the first step waits. */

@@ -162,36 +162,31 @@ test('partner ask: an ask routed to the partner open ten minutes with no line ab
   assert.equal(of(findStuck(world({ pause: { state: 'pausing', since: stamp(ago(1)) } })), 'partner-ask').length, 0)
 })
 
-test('unchecked (B449): a step in review with no result check after 30 minutes wakes the partner once per 30 minutes; not before', () => {
+test('unchecked (B449, T9.1.1): a step in review that waits for its result check with no QA task gets the board\'s own task at once; no word to the partner', () => {
   const partner = { name: 'Partner', state: 'working', isRunning: true }
   const history = [`- ${stamp(ago(40))} server: check passed: merged`]
   const reviewed = (since, more = {}, sections = {}) => step('B7', 'review', { Since: stamp(ago(since)), ...more }, { 'What we build': ['- a lamp at every bench'], History: history, ...sections })
   const world = (more = {}) => base({ partner, items: items(reviewed(40)), ...more })
-  const woke = of(findStuck(world()), 'unchecked')
-  assert.deepEqual(woke.map(one => [one.fix.do, one.fix.chat, one.fix.id]), [['wake', 'Partner', 'B7']])
-  assert.match(woke[0].fix.text, /^check step B7/)
-  // Not before 30 minutes; not for a step that needs no check, one whose board check did not pass, or while the person pauses.
-  // B585: counted from the board check that asked it, so its History's check passed 25 minutes ago.
-  assert.equal(of(findStuck(world({ items: items(reviewed(25, {}, { History: [`- ${stamp(ago(25))} server: check passed: merged`] })) })), 'unchecked').length, 0)
+  const made = of(findStuck(world()), 'unchecked')
+  assert.deepEqual(made.map(one => one.fix), [{ do: 'qa', id: 'B7' }])
+  // At once, not after 30 minutes: counted from nothing (the maker is idempotent).
+  assert.equal(of(findStuck(world({ items: items(reviewed(2, {}, { History: [`- ${stamp(ago(1))} server: check passed: merged`] })) })), 'unchecked').length, 1)
+  // Not for a step that needs no check, one whose board check did not pass, or a board with no partner.
   assert.equal(of(findStuck(world({ items: items(step('B7', 'review', { Since: stamp(ago(40)) }, { History: history })) })), 'unchecked').length, 0)
   assert.equal(of(findStuck(world({ items: items(reviewed(40, {}, { History: [`- ${stamp(ago(40))} server: check failed: not merged`] })) })), 'unchecked').length, 0)
-  assert.equal(of(findStuck(world({ pause: { state: 'pausing', since: stamp(ago(1)) } })), 'unchecked').length, 0)
   assert.equal(of(findStuck(world({ partner: null })), 'unchecked').length, 0)
-  // A line to the partner about it still waiting, or sent within 30 minutes, counts as the wake; an old taken one does not.
+  // No word of the old days (a line to the partner, still waiting or sent lately) holds it back or counts as the wake.
   const line = more => ({ id: 'c1', command: 'result-check', about: 'B7', to: 'Partner', at: ago(40), state: 'taken', ...more })
-  assert.equal(of(findStuck(world({ outbox: [line({ state: 'waiting' })] })), 'unchecked').length, 0)
-  assert.equal(of(findStuck(world({ outbox: [line({ at: ago(10), state: 'taken' })] })), 'unchecked').length, 0)
-  assert.equal(of(findStuck(world({ outbox: [line()] })), 'unchecked').length, 1)
+  assert.equal(of(findStuck(world({ outbox: [line({ state: 'waiting' })] })), 'unchecked').length, 1)
+  assert.equal(of(findStuck(world({ outbox: [line({ at: ago(10), state: 'taken' })] })), 'unchecked').length, 1)
   // A check that was filed stops it; so does one that waits for the person while an ask under the step is still open.
-  const waits = [...history, `- ${stamp(ago(35))} Partner: result check waits for you: 1 of 2 points pass; 1 for you to judge`]
-  assert.equal(of(findStuck(world({ items: items(reviewed(40, {}, { History: [...history, `- ${stamp(ago(35))} Partner: result check passed: 1 of 1 points pass`] })) })), 'unchecked').length, 0)
+  const waits = [...history, `- ${stamp(ago(35))} Checker: result check waits for you: 1 of 2 points pass; 1 for you to judge`]
+  assert.equal(of(findStuck(world({ items: items(reviewed(40, {}, { History: [...history, `- ${stamp(ago(35))} Checker: result check passed: 1 of 1 points pass`] })) })), 'unchecked').length, 0)
   assert.equal(of(findStuck(world({ items: items(reviewed(40, {}, { History: waits }), ask('Q9', { Of: 'B7' })) })), 'unchecked').length, 0)
-  // Its ask point answered and no check filed again after 30 minutes: woken, saying so.
+  // Its ask point answered and no check filed again: a task at once, one key for the wait (where it began).
   const answered = of(findStuck(world({ items: items(reviewed(40, {}, { History: waits }), ask('Q9', { Of: 'B7', State: 'answered' })) })), 'unchecked')
-  assert.equal(answered.length, 1)
-  assert.match(answered[0].fix.text, /^check step B7 \(its ask point is answered/)
-  // Every 30 minutes anew: a new key per window.
-  assert.notEqual(woke[0].key, of(findStuck(world({ now: NOW + 31 * MIN })), 'unchecked')[0].key)
+  assert.deepEqual(answered.map(one => one.fix), [{ do: 'qa', id: 'B7' }])
+  assert.equal(of(findStuck(world({ now: NOW + 31 * MIN })), 'unchecked')[0].key, made[0].key, 'the same wait is the same key')
 })
 
 test('the fixes: each carried out through its port, with its row; what cannot be fixed goes to Main in one note, never twice', async () => {

@@ -2342,7 +2342,9 @@ async function drop(body, w) {
   if (!found.ok) return found
   const why = line(body.why, 300)
   if (why === '') return refuse(400, 'Say why in "why".')
-  const moved = move(found.item, 'dropped', w.role, w)
+  // T9.1.1: the board drops its own Quality Assurance task when the step it checks left review (the flow lets the person and the
+  // main chat drop a step): as the person would, its History naming the board.
+  const moved = move(found.item, 'dropped', isQaTask(found.item) && w.role === 'server' ? 'person' : w.role, w)
   if (!moved.ok) return moved
   const item = underStep(moved.item, [`Dropped by ${w.who} on ${at(w.now)}: ${why}`])
   const done = await save(item, found.text, w)

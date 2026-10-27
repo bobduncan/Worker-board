@@ -142,7 +142,7 @@ test('chain-long: no case for a fix with Tried before, an open fix for the partn
   assert.deepEqual(check('chain-long', view(ended)), [])
 })
 
-test('health and the rules agree: the Q408 hold and a fresh check word are odd to neither; past their time to both', () => {
+test('health and the rules agree: the Q408 hold and a fresh QA task are odd to neither; past their time to both', () => {
   // B603 behind B614, held for the person's answer to Q408 for hours: no case, no "!".
   const asked = items(reviewed('B603', 300, 'B614'), fixAt('B614', 'B603', 'refined', undefined, { Refined: 'ready', Since: stamp(ago(280)) }))
   const held = [{ id: 'B614', why: 'waits for the answer to Q408' }]
@@ -150,16 +150,20 @@ test('health and the rules agree: the Q408 hold and a fresh check word are odd t
   const askedText = healthSummary(view(asked, { held, seen: new Map([['review-held B614 waits for the answer to Q408', ago(280)]]) }), NOW)
   assert.doesNotMatch(askedText, /- ! B603/)
   assert.doesNotMatch(askedText, /- ! in review/)
-  // B640 in review 90 min, its first check asked then, the check word typed again 10 min ago: no case, no "!".
-  const waiting = items(reviewed('B640', 90, null))
-  const word = minutes => ({ id: `w${minutes}`, to: 'Partner', command: 'result-check', about: 'B640', at: ago(minutes), state: 'delivered' })
-  const fresh = { outbox: [word(90), word(10)], seen: new Map([['review-stuck B640 check', ago(90)]]) }
-  assert.deepEqual(check('review-stuck', view(waiting, fresh), fresh.seen), [])
-  assert.equal(lineOfStep(healthSummary(view(waiting, fresh), NOW), 'B640').startsWith('- B640 review'), true)
-  // Its last word 40 min ago, past checkWordMinutes: a case for the rule, and "!" in health.
-  const stale = { outbox: [word(90), word(40)], seen: fresh.seen }
-  assert.equal(check('review-stuck', view(waiting, stale), stale.seen).length, 1)
-  assert.equal(lineOfStep(healthSummary(view(waiting, stale), NOW), 'B640').startsWith('- ! B640 review'), true)
+  // B640 in review 90 min, its first check asked then, its QA task made 10 min ago (T9.1.1): no case, no "!".
+  const task = (minutes, state = 'refined', head = {}) => item({ Id: 'B700', Kind: 'step', Title: 'Quality Assurance: B640 Step B640', State: state, Checks: 'B640', 'Not by': 'Painter', Since: stamp(ago(minutes)), ...head }, { History: [`- ${stamp(ago(minutes))} server: made for the result check of B640`] })
+  const seen = new Map([['review-stuck B640 check', ago(90)]])
+  const fresh = { seen }
+  assert.deepEqual(check('review-stuck', view(items(reviewed('B640', 90, null), task(10)), fresh), seen), [])
+  assert.equal(lineOfStep(healthSummary(view(items(reviewed('B640', 90, null), task(10)), fresh), NOW), 'B640').startsWith('- B640 review'), true)
+  // Its task made 70 min ago and nobody took it, past reviewMinutes: a case for the rule, and "!" in health.
+  const stale = items(reviewed('B640', 90, null), task(70))
+  assert.equal(check('review-stuck', view(stale, fresh), seen).length, 1)
+  assert.equal(lineOfStep(healthSummary(view(stale, fresh), NOW), 'B640').startsWith('- ! B640 review'), true)
+  // A worker on it: odd to neither, however long.
+  const working = items(reviewed('B640', 90, null), task(70, 'in progress', { Owner: 'Painter' }))
+  assert.deepEqual(check('review-stuck', view(working, fresh), seen), [])
+  assert.equal(lineOfStep(healthSummary(view(working, fresh), NOW), 'B640').startsWith('- B640 review'), true)
   // Another hold counts from when the watch first saw it: 20 min, neither; 70 min, both.
   const choice = [{ id: 'B614', why: 'outside the focus goal: x' }]
   const store = items(reviewed('B603', 300, 'B614'), fixAt('B614', 'B603', 'refined', undefined, { Refined: 'ready', Since: stamp(ago(280)) }))

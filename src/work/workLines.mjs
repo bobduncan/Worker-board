@@ -3,6 +3,8 @@
 // it names; the outbox sweep's whyClosed (outboxSweep.mjs) gives the health summary and rule 8 the same answer. Until
 // B589 only a waiting line was judged: one the chat could not type stayed failed, and was named, after its step was done.
 
+import { openQaTaskOf } from './qaTask.mjs'
+
 /** B465, the review: a line of the board's sync check holds at most this long; the check decides anew after it. */
 export const SYNC_LINE_MS = 30 * 60_000
 
@@ -37,6 +39,13 @@ export function workLineWhy(message, items, { prefix = '', now = Date.now() } = 
     // T9.4: the words that ask the Advisor again hold while its refine is still to write (the step new), or its incident still with it.
     const again = /^(refine|incident)-again /.exec(String(message.syncKey ?? ''))?.[1] ?? null
     if (again === 'refine' ? state !== 'new' : again === 'incident' ? state !== 'with the advisor' : isStep ? ['done', 'dropped'].includes(state) : state !== 'open') return `${id} is ${state}`
+    // T9.1.1: the word that asked the Advisor for a result check again (the repair `unchecked`, gone now): not needed once the step
+    // left review or has its Quality Assurance task, which a worker does.
+    if (/^unchecked /.test(String(message.syncKey ?? ''))) {
+      if (state !== 'review') return `${id} left review`
+      const qa = openQaTaskOf(items, id)
+      if (qa !== null) return `${id} has its QA task ${value(qa, 'Id')}`
+    }
     const isOwnersLine = /^(?:not-taken|limit-back) /.test(String(message.syncKey ?? ''))
     if (isOwnersLine && (value(item, 'Owner') === null || plain(value(item, 'Owner'), prefix) !== plain(message.to, prefix))) return `${id} is no longer ${message.to}'s`
     return now - (message.at ?? 0) < SYNC_LINE_MS ? null : `the sync check decides anew after ${SYNC_LINE_MS / 60_000} min`

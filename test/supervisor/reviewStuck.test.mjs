@@ -93,15 +93,20 @@ test('the fix chain of X8 waits for its fixes: every step says which, and none o
   assert.deepEqual(repairs(CHAIN), [])
 })
 
+/** A Quality Assurance task of the step it checks, in `state`, made `made` minutes ago (T9.1.1). */
+const qaTask = (id, checks, state, made, head = {}) => item(
+  { Id: id, Kind: 'step', Title: `Quality Assurance: ${checks} Step ${checks}`, State: state, Checks: checks, 'Not by': 'Painter', Since: stamp(ago(made)), ...head },
+  { History: [`- ${stamp(ago(made))} server: made for the result check of ${checks}`] },
+)
+
 test('review-stuck: a step with no result check for over an hour is stuck, one under an hour is not', () => {
   assert.equal(SUPERVISOR_DEFAULTS.reviewMinutes, 60)
   assert.deepEqual(watch(view(items(reviewed('B7', 55)))), [])
   const found = watch(view(items(reviewed('B7', 75))), new Map())
   assert.deepEqual(found.map(one => [one.rule, one.key, one.subject]), [['review-stuck', 'review-stuck B7 check', 'B7']])
   assert.equal(found[0].text, 'B7 in review 75 min with no result check filed (waits for its first check)')
-  // The check words the partner was sent and did not answer stand in the evidence.
-  const outbox = [{ command: 'result-check', about: 'B7', to: 'Partner', at: ago(74), state: 'taken' }, { syncKey: 'unchecked B7 1', about: 'B7', to: 'Partner', at: ago(40), state: 'taken' }]
-  assert.match(watch(view(items(reviewed('B7', 75)), { outbox }))[0].evidence, /2 check words to Partner, the last at \d\d:\d\d/)
+  // The evidence says there is no QA task (the repair `unchecked` makes one at once).
+  assert.match(found[0].evidence, /no QA task \(the repair unchecked makes one\)/)
   // A check again after its fix was done counts from when the fix was done; the setting moves the threshold.
   const fixed = items(reviewed('B7', 300, [failed(280, 'B8')]), fixStep('B8', 'B7', 'done', 70))
   assert.equal(watch(view(fixed))[0].text, 'B7 in review 70 min with no result check filed (waits for its check again)')
@@ -110,22 +115,29 @@ test('review-stuck: a step with no result check for over an hour is stuck, one u
   assert.deepEqual(watch(view(items(reviewed('B7', 75)), { pause: { state: 'pausing', since: stamp(ago(10)) } })), [])
 })
 
-test('B662 (X60): a check word typed again gets its 30 minutes before a step in review is stuck', () => {
-  assert.equal(SUPERVISOR_DEFAULTS.checkWordMinutes, 30)
-  const word = minutes => [{ syncKey: 'unchecked B655 1', about: 'B655', to: 'Partner', at: ago(minutes), state: 'taken' }]
-  // B655: 97 min in review, the repair typed the check word a minute ago: no case yet.
-  assert.deepEqual(watch(view(items(reviewed('B655', 97)), { outbox: word(1) })), [])
-  assert.deepEqual(watch(view(items(reviewed('B655', 97)), { outbox: word(30) })), [])
-  // The same step half an hour later, the word unanswered for 31 minutes: a case, the evidence names the word.
-  const late = watch(view(items(reviewed('B655', 97)), { outbox: word(31) }))
+test('T9.1.1: a check counts from its QA task: one made an hour ago that nobody took is stuck, naming it; a worker on it is no case', () => {
+  const evidence = (state, made, head = {}) => watch(view(items(reviewed('B655', 300), qaTask('B700', 'B655', state, made, head))))
+  // B655 sat 300 min in review, but its task was made 20 minutes ago: no case yet.
+  assert.deepEqual(evidence('refined', 20), [])
+  // Made 75 min ago, not taken: a case, the evidence names the task and when it was made.
+  const late = evidence('refined', 75)
   assert.deepEqual(late.map(one => one.key), ['review-stuck B655 check'])
-  assert.match(late[0].evidence, /1 check word to Partner/)
-  // A word typed again restarts the 30 minutes: the older one does not count.
-  const again = [...word(80), { ...word(5)[0], syncKey: 'unchecked B655 2' }]
-  assert.deepEqual(watch(view(items(reviewed('B655', 97)), { outbox: again })), [])
-  // No word at all is a case as before; the setting moves the age.
+  assert.match(late[0].evidence, /its QA task B700 is queued since \d\d:\d\d, given to nobody/)
+  const given = evidence('queued', 75, { Owner: 'Worker 3' })
+  assert.match(given[0].evidence, /its QA task B700 is queued since \d\d:\d\d, given to Worker 3/)
+  // A worker on it (in progress), however long: the watch rules of a step in progress see it; nothing for the Advisor to wake.
+  assert.deepEqual(evidence('in progress', 300, { Owner: 'Worker 3' }), [])
+  // The setting moves the age; a done or dropped task counts for nothing (the step has none, so it counts from its check).
+  assert.equal(watch(view(items(reviewed('B655', 300), qaTask('B700', 'B655', 'refined', 75)), { settings: { reviewMinutes: 90 } })).length, 0)
+  assert.equal(evidence('dropped', 20).length, 1)
+})
+
+test('B662 (X60), T9.1.1: no word typed to the Advisor holds a step in review any more: an old check word counts for nothing', () => {
+  const word = minutes => [{ syncKey: 'unchecked B655 1', command: 'result-check', about: 'B655', to: 'Partner', at: ago(minutes), state: 'taken' }]
+  // 97 min in review with no task: a case, with or without an old word.
+  assert.equal(watch(view(items(reviewed('B655', 97)), { outbox: word(1) })).length, 1)
   assert.equal(watch(view(items(reviewed('B655', 97)))).length, 1)
-  assert.equal(watch(view(items(reviewed('B655', 97)), { outbox: word(31), settings: { checkWordMinutes: 45 } })).length, 0)
+  assert.doesNotMatch(watch(view(items(reviewed('B655', 97)), { outbox: word(40) }))[0].evidence, /check word/)
 })
 
 test('B585 (X33): a first check counts from the board check that asked it, not from the move to review', () => {
@@ -135,15 +147,15 @@ test('B585 (X33): a first check counts from the board check that asked it, not f
     { 'What we build': ['- a lamp at every bench'], History: [`- ${stamp(ago(review))} Painter: in progress → review`, `- ${stamp(ago(review - 1))} server: check failed: no tests bite`, `- ${stamp(ago(asked + 1))} Painter: reported again`, passed(asked)] },
   )
   assert.deepEqual(reviewWaitOf(b522(75, 52), items()), { kind: 'check', fix: null, since: ago(52), text: 'waits for its first check' })
-  // Under the review minutes from the check word: no finding, though over an hour in review.
-  assert.deepEqual(watch(view(items(b522(75, 52)), { outbox: [{ command: 'result-check', about: 'B522', to: 'Partner', at: ago(52), state: 'delivered' }] })), [])
-  // Past them from the check word: still one.
+  // Under the review minutes from the board check: no finding, though over an hour in review.
+  assert.deepEqual(watch(view(items(b522(75, 52)))), [])
+  // Past them from the board check: one.
   const late = watch(view(items(b522(100, 65))))
   assert.deepEqual(late.map(one => [one.key, one.text]), [['review-stuck B522 check', 'B522 in review 65 min with no result check filed (waits for its first check)']])
-  // The repair's wake counts from it too: under 30 minutes from the check word, no wake.
-  const wakes = minutes => findStuck({ items: items(b522(75, minutes)), lanes: [LEAD], partner: PARTNER, now: NOW }).filter(one => one.check === 'unchecked')
-  assert.deepEqual(wakes(20), [])
-  assert.equal(wakes(35).length, 1)
+  // The repair counts from nothing: it makes the QA task at once, the board check passed.
+  const repair = minutes => findStuck({ items: items(b522(75, minutes)), lanes: [LEAD], partner: PARTNER, now: NOW }).filter(one => one.check === 'unchecked')
+  assert.deepEqual(repair(20).map(one => one.fix), [{ do: 'qa', id: 'B522' }])
+  assert.deepEqual(repair(35).map(one => one.key), [`unchecked B522 ${stamp(ago(35))}`])
 })
 
 test('review-stuck: a step waiting for an open fix or for the person\'s answer is not stuck; a dropped fix is the rule dropped-fix\'s', () => {

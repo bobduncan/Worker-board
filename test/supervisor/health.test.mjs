@@ -196,54 +196,60 @@ test('B563 (X19): a step in review that waits for the person\'s answer or for it
 
 test('B563: a step in review that waits for its check past reviewMinutes is odd; within it, quiet; it names the check it waits for', () => {
   const first = healthSummary(x19Board([inReview('B540', 75, [], { Owner: 'Worker 2' })]), NOW)
-  assert.equal(lineOfStep(first, 'B540'), '- ! B540 review for 1 h 15 min, Worker 2 (waits for its first check, check asked 09:45, no check word yet): Step B540 of the garden')
+  assert.equal(lineOfStep(first, 'B540'), '- ! B540 review for 1 h 15 min, Worker 2 (waits for its first check, check asked 09:45, no QA task yet): Step B540 of the garden')
   // The same wait under a longer reviewMinutes is no "!".
-  assert.equal(lineOfStep(healthSummary(x19Board([inReview('B540', 75, [], { Owner: 'Worker 2' })], { reviewMinutes: 90 }), NOW), 'B540'), '- B540 review for 1 h 15 min, Worker 2 (waits for its first check, check asked 09:45, no check word yet): Step B540 of the garden')
+  assert.equal(lineOfStep(healthSummary(x19Board([inReview('B540', 75, [], { Owner: 'Worker 2' })], { reviewMinutes: 90 }), NOW), 'B540'), '- B540 review for 1 h 15 min, Worker 2 (waits for its first check, check asked 09:45, no QA task yet): Step B540 of the garden')
   // The ask answered: it waits for its check again, counted from that check, not from its review.
   const again = healthSummary(buildView({
     state: { chats: [lane('Lead', { isMain: true }), lane('Worker 2')], chatPrefix: '' },
     items: items(inReview('B510', 200, [`- ${stamp(ago(30))} Checker: result check waits for you: 2 of 3 points pass`], { Owner: 'Worker 2' }), askOf('Q339', 'B510', 'answered')),
     now: NOW,
   }), NOW)
-  assert.equal(lineOfStep(again, 'B510'), '- B510 review for 3 h 20 min, Worker 2 (waits for its check again, check asked 10:30, no check word yet): Step B510 of the garden')
+  assert.equal(lineOfStep(again, 'B510'), '- B510 review for 3 h 20 min, Worker 2 (waits for its check again, check asked 10:30, no QA task yet): Step B510 of the garden')
 })
 
-test('B585 (X33): a first check counts from the board check that asked it, and the line names the check word and its state', () => {
-  // B522: in review since 21:41 (here 75 min ago), its board check passed at 22:04 (52 min ago), the word to the partner delivered.
+/** A Quality Assurance task of the step it checks, in `state`, made `made` minutes ago (T9.1.1). */
+const qaTask = (id, checks, state, made, more = {}) => step(id, state, { Title: `Quality Assurance: ${checks} Step ${checks} of the garden`, Checks: checks, 'Not by': 'Worker 2', Since: stamp(ago(made)), ...more }, { History: [`- ${stamp(ago(made))} server: made for the result check of ${checks}`] })
+
+test('B585 (X33), T9.1.1: a first check counts from the board check that asked it, and the line names where its QA task stands', () => {
+  // B522: in review since 21:41 (here 75 min ago), its board check passed at 22:04 (52 min ago), its QA task made then.
   const b522 = step('B522', 'review', { Owner: 'Worker 2', Since: stamp(ago(75)) }, {
     'What we build': ['- a lamp at every bench'],
     History: [`- ${stamp(ago(75))} Worker 2: in progress → review`, `- ${stamp(ago(74))} server: check failed: no tests bite`, `- ${stamp(ago(53))} Worker 2: reported again`, checkPassed(52)],
   })
-  const board = outbox => buildView({
-    state: { chats: [lane('Lead', { isMain: true }), lane('Worker 2')], chatPrefix: '' },
-    items: items(b522), outbox, now: NOW,
+  const board = (...more) => buildView({
+    state: { chats: [lane('Lead', { isMain: true }), lane('Worker 2'), lane('Worker 3')], chatPrefix: '' },
+    items: items(b522, ...more), now: NOW,
   })
-  const word = { id: 'w9', command: 'result-check', about: 'B522', to: 'Partner', at: ago(52), state: 'delivered' }
-  assert.equal(lineOfStep(healthSummary(board([word]), NOW), 'B522'), '- B522 review for 1 h 15 min, Worker 2 (waits for its first check, check asked 10:08, word to Partner (delivered)): Step B522 of the garden')
-  // A word from before the check was asked is not its word.
-  assert.equal(lineOfStep(healthSummary(board([{ ...word, at: ago(70) }]), NOW), 'B522'), '- B522 review for 1 h 15 min, Worker 2 (waits for its first check, check asked 10:08, no check word yet): Step B522 of the garden')
+  const line = (...more) => lineOfStep(healthSummary(board(...more), NOW), 'B522')
+  // No task yet: asked at 10:08, 52 min ago, not odd within the hour.
+  assert.equal(line(), '- B522 review for 1 h 15 min, Worker 2 (waits for its first check, check asked 10:08, no QA task yet): Step B522 of the garden')
+  // Queued, given to a worker, or at work on: where it stands, with its time.
+  assert.equal(line(qaTask('B530', 'B522', 'refined', 51)), '- B522 review for 1 h 15 min, Worker 2 (waits for its first check, check asked 10:08, QA task B530 queued since 10:09): Step B522 of the garden')
+  assert.equal(line(qaTask('B530', 'B522', 'queued', 51, { Owner: 'Worker 3' })), '- B522 review for 1 h 15 min, Worker 2 (waits for its first check, check asked 10:08, QA task B530 queued since 10:09 (given to Worker 3)): Step B522 of the garden')
+  assert.equal(line(qaTask('B530', 'B522', 'in progress', 12, { Owner: 'Worker 3' })), '- B522 review for 1 h 15 min, Worker 2 (waits for its first check, check asked 10:08, QA task B530 with Worker 3 since 10:48): Step B522 of the garden')
+  // A task of the days before, done or dropped, is not where it stands.
+  assert.match(line(qaTask('B530', 'B522', 'done', 51)), /check asked 10:08, no QA task yet\)/)
 })
 
-test('B666 (X74): a check word typed again restarts the count: the line names both words and is not odd within checkWordMinutes', () => {
-  // The PC slept 8 h with the check under way: asked 23:06 (714 min before NOW), the word typed again at 10:59.
+test('T9.1.1: a check whose QA task nobody took is odd past reviewMinutes from when the task was made; one a worker is on is never odd; none is odd from the ask', () => {
   const b664 = step('B664', 'review', { Owner: 'Worker 2', Since: stamp(ago(720)) }, {
     'What we build': ['- a lamp at every bench'],
     History: [`- ${stamp(ago(720))} Worker 2: in progress → review`, checkPassed(714)],
   })
-  const board = outbox => buildView({
-    state: { chats: [lane('Lead', { isMain: true }), lane('Worker 2')], chatPrefix: '' },
-    items: items(b664), outbox, now: NOW,
-  })
-  const word = (minutes, state = 'taken') => ({ id: `w${minutes}`, command: 'result-check', about: 'B664', to: 'Advisor', at: ago(minutes), state })
-  const line = outbox => lineOfStep(healthSummary(board(outbox), NOW), 'B664')
-  assert.equal(line([word(714, 'delivered'), word(1)]), '- B664 review for 12 h, Worker 2 (waits for its first check, check asked 2026-10-23 23:06, word again 10:59 to Advisor (taken)): Step B664 of the garden')
-  // The same, read 31 min after the word typed again: past checkWordMinutes, odd.
-  assert.equal(line([word(714, 'delivered'), word(31)]).startsWith('- ! B664 review'), true)
-  assert.match(line([word(714, 'delivered'), word(31)]), /check asked 2026-10-23 23:06, word again 10:29 to Advisor/)
-  // No word since the first: odd, and the line says only the first word.
-  assert.equal(line([word(714, 'delivered')]), '- ! B664 review for 12 h, Worker 2 (waits for its first check, check asked 2026-10-23 23:06, word to Advisor (delivered)): Step B664 of the garden')
-  // A single word typed long after the ask is a word again too.
-  assert.match(line([word(1)]), /check asked 2026-10-23 23:06, word again 10:59 to Advisor \(taken\)/)
+  const line = (...more) => lineOfStep(healthSummary(buildView({
+    state: { chats: [lane('Lead', { isMain: true }), lane('Worker 2'), lane('Worker 3')], chatPrefix: '' },
+    items: items(b664, ...more), now: NOW,
+  }), NOW), 'B664')
+  // The task was made 31 min ago: within the hour, quiet (the check was asked 12 h ago, but the board made no task until now).
+  assert.equal(line(qaTask('B670', 'B664', 'refined', 31)).startsWith('- B664 review'), true)
+  // Made 90 min ago and nobody took it: odd.
+  assert.equal(line(qaTask('B670', 'B664', 'refined', 90)).startsWith('- ! B664 review'), true)
+  assert.match(line(qaTask('B670', 'B664', 'queued', 90, { Owner: 'Worker 3' })), /QA task B670 queued since 09:30 \(given to Worker 3\)/)
+  // A worker on it for hours is no case for the Advisor: the watch rules of a step in progress see it.
+  assert.equal(line(qaTask('B670', 'B664', 'in progress', 200, { Owner: 'Worker 3' })).startsWith('- B664 review'), true)
+  // No task at all for 12 hours (the repair makes one at once, so this is a board that cannot): odd.
+  assert.equal(line().startsWith('- ! B664 review'), true)
 })
 
 test('B563: a step in review whose fix was dropped is odd; so is one whose open fix is odd itself', () => {

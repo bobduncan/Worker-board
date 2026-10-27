@@ -27,30 +27,40 @@ const gives = done => done.map(({ id, chat }) => ({ id, chat }))
 test('a QA task comes before a fix and the focus goal\'s tasks, whatever its id; each rank by id', () => {
   const done = list([
     step('B5', 'refined', { Goal: 'G3' }), step('B9', 'refined', { Priority: 'fix' }), step('B2', 'refined'),
-    qa('B40', 'B7', 'Worker 1'), qa('B31', 'B6', 'Worker 2'),
+    step('B6', 'review'), step('B7', 'review'), qa('B40', 'B7', 'Worker 1'), qa('B31', 'B6', 'Worker 2'),
   ])
   assert.deepEqual(done.ready.map(one => [one.id, one.rank]), [['B31', -1], ['B40', -1], ['B9', 0], ['B5', 1], ['B2', 2]])
 })
 
 test('a QA task\'s entry names whom it is never given to, and is kept for nobody; others carry no such field', () => {
-  const done = list([qa('B31', 'B6', 'Worker 1, Worker 2'), step('B2', 'refined')])
+  const done = list([step('B6', 'review'), qa('B31', 'B6', 'Worker 1, Worker 2'), step('B2', 'refined')])
   assert.deepEqual(done.ready[0], { id: 'B31', rank: -1, keptFor: null, keptUntil: null, pinned: null, prefers: null, notBy: ['Worker 1', 'Worker 2'] })
   assert.equal(Object.hasOwn(done.ready[1], 'notBy'), false)
 })
 
 test('a QA task is ready though its goal is not the focus and nobody added it; a plain task of that goal waits for the person\'s pick', () => {
-  const done = list([qa('B31', 'B6', 'Worker 1', { Goal: 'G9' }), step('B2', 'refined', { Goal: 'G9' })], { beyondFocus: false })
+  const done = list([step('B6', 'review'), qa('B31', 'B6', 'Worker 1', { Goal: 'G9' }), step('B2', 'refined', { Goal: 'G9' })], { beyondFocus: false })
   assert.deepEqual(done.ready.map(one => one.id), ['B31'])
   assert.deepEqual(done.held, [{ id: 'B2', why: CHOICE_WHY, choice: true }])
 })
 
 test('a QA task is no follow-up of anyone: not kept for the builder that finished the step it checks, nor preferred', () => {
-  const done = step('B6', 'done', { Owner: 'Worker 1' }, { History: ['- 2026-10-27 11:55 Worker 1: in progress → review', '- 2026-10-27 11:56 server: review → done'] })
-  const task = qa('B31', 'B6', 'Worker 1', { 'Waits for': 'B6' })
+  const done = step('B5', 'done', { Owner: 'Worker 1' }, { History: ['- 2026-10-27 11:55 Worker 1: in progress → review', '- 2026-10-27 11:56 server: review → done'] })
+  const task = qa('B31', 'B6', 'Worker 1', { 'Waits for': 'B5' })
   for (const followUpMs of [0, 10 * MIN]) {
-    const found = list([done, task], { followUpMs })
+    const found = list([done, step('B6', 'review'), task], { followUpMs })
     assert.deepEqual([found.ready[0].keptFor, found.ready[0].keptUntil, found.ready[0].prefers], [null, null, null], `follow-up ${followUpMs}`)
   }
+})
+
+test('a QA task whose step is not in review is held, saying so: no worker is given a closed step to check', () => {
+  const task = qa('B31', 'B6', 'Worker 1')
+  for (const state of ['done', 'dropped', 'in progress']) {
+    const found = list([step('B6', state), task])
+    assert.deepEqual([found.ready.map(one => one.id), found.held], [[], [{ id: 'B31', why: `B6 is ${state}, not in review: nothing to check` }]], state)
+  }
+  assert.deepEqual(list([task]).held, [{ id: 'B31', why: 'B6 is not in the store: nothing to check' }])
+  assert.deepEqual(list([step('B6', 'review'), task]).held, [])
 })
 
 test('match: a QA task goes to an idle worker that did not build the step, never to one in its Not by, with or without the list\'s prefix', () => {
@@ -80,7 +90,7 @@ test('match: when only a builder is idle the QA task waits, and the builder stil
 
 test('match: a QA task pinned to a builder (the person\'s pin) is still never given to that builder', () => {
   const items = mapOf([qa('B31', 'B6', 'Worker 1', { Pinned: 'Worker 1' })])
-  const found = list([qa('B31', 'B6', 'Worker 1', { Pinned: 'Worker 1' })])
+  const found = list([step('B6', 'review'), qa('B31', 'B6', 'Worker 1', { Pinned: 'Worker 1' })])
   assert.equal(found.ready[0].keptFor, 'Worker 1')
   assert.deepEqual(match({ ready: found.ready, idle: [lane('Worker 1'), lane('Worker 2')], items }), [])
 })

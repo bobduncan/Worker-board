@@ -25,7 +25,8 @@ import { overlapIn, waitIds } from '../../work/guards.mjs'
 import { PARTNER_AGAIN_MS, isPartnerAskWord, isRoutedToPartner, partnerAskWords } from '../../work/partnerAnswers.mjs'
 import { afterPause, isHolding } from '../../work/pause.mjs'
 import { refineWaitOf } from '../../work/refineWait.mjs'
-import { boardWarningsOf, checkWhy, gitCheckPassed, needsResultCheck, resultCheckOf, reviewWaitOf, warningLines } from '../../work/resultCheck.mjs'
+import { isQaTask, openQaTaskOf } from '../../work/qaTask.mjs'
+import { gitCheckPassed, needsResultCheck, resultCheckOf, reviewWaitOf } from '../../work/resultCheck.mjs'
 import { asksOfStep } from '../../work/stepAsks.mjs'
 import { heldReason } from '../../work/parked.mjs'
 
@@ -40,7 +41,7 @@ export const AGAIN_MS = 10 * MIN
 export const REFUSED_MS = 10 * MIN
 /** Refusals of an old name over this long say the chat's mod does not follow the shown name by itself. */
 export const REFUSED_LASTS_MS = 2 * MIN
-/** B449: a step in review with no result check filed (or one the person answered) this long wakes the partner again. */
+/** B449: a fix dropped with nothing planned for its step this long (the rule fix-dropped); it also timed the old result-check word. */
 export const UNCHECKED_MS = 30 * MIN
 /**
  * T9.4 (the person, 2026-10-26: "ask again every 30 min, after 3 tries to me"): a refine or an incident the Advisor took
@@ -382,33 +383,34 @@ function partnerAsk(view) {
 }
 
 /**
- * B449 (G11's re-check: reports that sat unchecked, and checks that waited on an answer already given): a step in
- * review whose board check passed and whose result check was never filed, or waits for the person with every ask
- * under it answered, or (B565, X19) failed and its fix is done, for 30 minutes (resultCheck.mjs `reviewWaitOf`: it
- * waits for its check); the word says why (`checkWhy`): the partner is woken with "check step B<id>", once per 30 minutes (a line to
- * it about the step still waiting, or sent within that time, counts as the wake).
+ * B449 (G11's re-check: reports that sat unchecked, and checks that waited on an answer already given), T9.1.1 (the person,
+ * 2026-10-27: "feels like the current advisor is a bottleneck ... maybe we can create a queue system similar to the workers"):
+ * a step in review that waits for its result check (resultCheck.mjs `reviewWaitOf`, kind check: never filed, or again after its
+ * fix was done or its ask point answered) and has no open Quality Assurance task: the board makes one at once (the work API's
+ * `qa-task`, no word to the partner, no 30 minutes of waiting: the maker is idempotent, so the check path and this rule in one
+ * minute make one). And an open QA task whose step is no longer in review (done, dropped, gone) is dropped, with why, so no worker
+ * checks a closed step. A board with no partner chat has no step that waits for a check.
  */
 function unchecked(view) {
-  const { partner = null, now, outbox = [] } = view
-  const { all, steps, isHeld } = factsOf(view)
+  const { partner = null } = view
+  const { all, steps } = factsOf(view)
   const found = []
-  if (!(partner !== null && !isHeld)) return found
+  if (partner === null) return found
   const byId = new Map(all.map(one => [idOf(one), one]))
-  for (const item of steps.filter(one => stateOf(one) === 'review')) {
+  for (const item of steps.filter(one => stateOf(one) === 'review' && !isQaTask(one))) {
     const id = idOf(item)
     // B565 (X19): also a step whose check failed and whose fix is done: it waits for its check again.
     const wait = reviewWaitOf(item, byId)
-    if (wait?.kind !== 'check') continue
-    const result = resultCheckOf(item)
-    const since = wait.since
-    if (!(now - since >= UNCHECKED_MS)) continue
-    const lately = outbox.some(message => message.about === id && (message.command === 'result-check' || String(message.syncKey ?? '').startsWith('unchecked '))
-      && (message.state === 'waiting' || now - message.at < UNCHECKED_MS))
-    if (lately) continue
-    const key = `unchecked ${id} ${Math.floor((now - since) / UNCHECKED_MS)}`
-    const why = checkWhy(item, byId)
-    const text = `${id} in review ${minutes(now - since)} min with ${result === 'waits' ? 'its ask point answered and no check filed again' : wait.fix !== null ? `its fix ${wait.fix} done and no check filed again` : 'no result check'}`
-    found.push(finding('unchecked', key, id, text, { do: 'wake', chat: partner.name, id, text: [`check step ${id}${why === null ? '' : ` (${why})`}; see roles/partner.md, "The check"`, ...warningLines(boardWarningsOf(item))].join('\n') }))
+    if (wait?.kind !== 'check' || openQaTaskOf(byId, id) !== null) continue
+    found.push(finding('unchecked', `unchecked ${id} ${stamp(wait.since)}`, id, `${id} waits for its check with no QA task: the board makes one`, { do: 'qa', id }))
+  }
+  for (const task of steps.filter(one => isQaTask(one) && !CLOSED.includes(stateOf(one)))) {
+    const id = idOf(task)
+    const checks = valueOf(task, 'Checks')
+    const step = byId.get(checks)
+    if (step !== undefined && stateOf(step) === 'review') continue
+    const why = step === undefined ? `${checks} is not in the store` : `${checks} is ${stateOf(step)}`
+    found.push(finding('unchecked', `qa-drop ${id} ${checks} ${step === undefined ? 'gone' : stateOf(step)}`, id, `${id} checks ${checks}, but ${why}: its QA task is dropped`, { do: 'qa-drop', id, why }))
   }
   return found
 }
@@ -620,7 +622,7 @@ export const REPAIR_RULES = [
   { id: 'helper', kind: 'repair', says: 'the partner\'s helper not running while refines or result checks wait', check: helperIdle },
   { id: 'closed-worker', kind: 'repair', says: 'a ready task waits with no running worker free while a worker chat is closed', check: closedWorker },
   { id: 'partner-ask', kind: 'repair', says: 'an ask routed to the partner left unanswered', check: partnerAsk },
-  { id: 'unchecked', kind: 'repair', says: 'a reported step left without its result check, or with its ask point answered and no check filed again', check: unchecked },
+  { id: 'unchecked', kind: 'repair', says: 'a step that waits for its result check with no QA task: the board makes one; a QA task whose step left review: dropped', check: unchecked },
   { id: 'refine-again', kind: 'repair', says: 'a refine the Advisor took and did not write, asked again every 30 minutes, three times, then told to the person', check: refineAgain },
   { id: 'incident-again', kind: 'repair', says: 'an incident with the Advisor that gets no fix step, asked again every 30 minutes, three times, then told to the person', check: incidentAgain },
   { id: 'held-elsewhere', kind: 'repair', says: 'a step in progress over an hour while its worker is on another step, with nothing naming why', check: heldElsewhere },
@@ -648,7 +650,7 @@ export const CHECKS = REPAIR_RULES.map(rule => ({ key: rule.id, words: rule.says
  * What is stuck now: `[{ check, key, text, fix, ... }]`, in the order of `CHECKS`, from every repair rule but the
  * worktrees' (the loop looks at those). `key` names the finding (one note to the main chat per key, ever; the board's
  * wake for it carries it as `syncKey`); `text` says what stands; `fix` what to do: `{ do: 'unblock', id, on }`,
- * `{ do: 'unpin', id }`, `{ do: 'recheck', id, why }` (B598: the board's check run again), `{ do: 'person', id, text }` (T9.4: a note to the
+ * `{ do: 'unpin', id }`, `{ do: 'recheck', id, why }` (B598: the board's check run again), `{ do: 'qa', id }` and `{ do: 'qa-drop', id, why }` (T9.1.1: the board makes a step's Quality Assurance task, or drops one whose step left review), `{ do: 'person', id, text }` (T9.4: a note to the
  * person about `id`, its lines in `text`), `{ do: 'wake', chat, id, text }` (a line typed to the chat), `{ do: 'woken', at }` (woken
  * a moment ago: it waits for that), `{ do: 'send', text }` (a note to the main chat is the fix), `{ do: 'hand', chat, id,
  * text }` (the helper's work to the partner, and the main chat told), or `{ do: 'main', text }` (the board cannot fix

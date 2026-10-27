@@ -21,6 +21,7 @@ import { isFailedForGood, stoppedChats, whyClosed } from '../../work/outboxSweep
 import { FIRST_SAYING, chatsByRole, oldModFinding } from '../../oldMods.mjs'
 import { EFFORTS, chatEffort, effortOf, effortSaid, familyOf, modelOf } from '../../work/effort.mjs'
 import { chainTries, hasTriedBefore, reviewWaitOf } from '../../work/resultCheck.mjs'
+import { madeAtMs, openQaTaskOf, qaStandOf } from '../../work/qaTask.mjs'
 import { isWordingOnly } from '../../work/recapWords.mjs'
 import { CLEAR_MOD, takenSince } from '../../clearOwed.mjs'
 import { readingAgeMinutes } from '../../limits.mjs'
@@ -552,26 +553,27 @@ function oddEffort(view) {
  * 12. B543 (the fix of X8: a step sat in review for 3 days behind a dropped fix, four more for hours behind a chain of
  * fixes): a step in review says what it waits for (resultCheck.mjs `reviewWaitOf`). Waiting for an open fix, or for the
  * person's answer, is no case. Stuck: no result check filed for longer than `reviewMinutes` (its first, or again after
- * its fix was done or its ask point answered; the repair `unchecked` types the check word meanwhile), and its newest check word unanswered for over `checkWordMinutes` (B662). A dropped fix is
+ * its fix was done or its ask point answered). T9.1.1: counted from its Quality Assurance task (made at once by the check or
+ * the repair `unchecked`), which a worker at work on (in progress) clears: that is no case for the Advisor; a task nobody took,
+ * or none, is. A dropped fix is
  * the rule `dropped-fix` (B630; its id apart from the repair `fix-dropped`, the supervisor keys rules by id). Counted from the end of the person's last pause.
  */
 function reviewStuck(view, ctx) {
   const found = []
   if (isPaused(view)) return found
-  const partner = view.partner?.name ?? 'the partner'
   for (const item of stepsOf(view).filter(one => stateOf(one) === 'review').sort((a, b) => byId(idOf(a), idOf(b)))) {
     const wait = reviewWaitOf(item, view.items)
     if (wait?.kind !== 'check') continue
     const id = idOf(item)
-    // B662 (X60): a check word typed again restarts the wait; one still waiting, or younger than `checkWordMinutes`, is
-    // no case yet. B664: judged by reviewLateOf, as the health summary judges it.
-    const { late, key, ms, words } = reviewLateOf(view, item, wait, watchOf(ctx))
+    // B664: judged by reviewLateOf, as the health summary judges it. T9.1.1: counted from the step's QA task.
+    const { late, key, ms } = reviewLateOf(view, item, wait, watchOf(ctx))
     if (!late) continue
-    const last = words.at(-1) ?? null
+    const qa = openQaTaskOf(view.items, id)
+    const stand = qa === null ? null : qaStandOf(qa)
     found.push({
       rule: 'review-stuck', key, subject: id,
       text: `${id} in review ${minutes(ms)} min with no result check filed (${wait.text})`,
-      evidence: `since ${clockOf(view.now - ms)}; ${words.length === 0 ? `no check word to ${partner}` : `${words.length} check ${words.length === 1 ? 'word' : 'words'} to ${words[0].to ?? partner}, the last at ${clockOf(last.at)} (${last.state ?? 'not known'})`}`,
+      evidence: `since ${clockOf(view.now - ms)}; ${stand === null ? 'no QA task (the repair unchecked makes one)' : `its QA task ${stand.qa} is queued since ${clockOf(stand.since)}${stand.who === null ? ', given to nobody' : `, given to ${stand.who}`}`}`,
     })
   }
   return found
@@ -645,10 +647,11 @@ function reviewHeld(view, ctx) {
  * late a step in review is by what it waits for (`wait`, resultCheck.mjs `reviewWaitOf`), one judgement for the rules
  * review-stuck, dropped-fix and review-held and the health summary (health.mjs). `seenOf(key)`: since when the watch
  * first saw the key (the rules' own watch; the health summary reads the supervisor's memory), undefined for not yet. Not
- * late: the person's answer, a hold that is their open ask, a check word younger than `checkWordMinutes`, anything while
- * the person pauses. Any other hold counts from when the watch first saw it, a check from when it was asked, a dropped fix
- * from the drop, each from the end of the last pause at the earliest. `{ late, key, ms, words }` (`words` the check words,
- * for a check), or null for a wait the rules judge another way (an open fix at work, a block).
+ * late: the person's answer, a hold that is their open ask, a check whose QA task a worker is at work on, anything while
+ * the person pauses. Any other hold counts from when the watch first saw it, a check from when its QA task was made (T9.1.1;
+ * from when it was asked, with none), a dropped fix from the drop, each from the end of the last pause at the earliest.
+ * `{ late, key, ms, words }` (`words` the refine words, for an open fix), or null for a wait the rules judge another way
+ * (an open fix at work, a block).
  */
 export function reviewLateOf(view, item, wait, seenOf = () => undefined) {
   const id = idOf(item)
@@ -658,11 +661,12 @@ export function reviewLateOf(view, item, wait, seenOf = () => undefined) {
   if (wait.kind === 'check') {
     if (isPaused(view)) return not
     const key = `review-stuck ${id} check`
-    const ms = spanOf(view, seenOf, key, afterPause(view, wait.since))
-    if (ms <= view.settings.reviewMinutes * MIN) return { ...not, key, ms }
-    const words = checkWordsOf(view, id, wait.since)
-    const last = words.at(-1) ?? null
-    return { late: last === null || view.now - last.at > view.settings.checkWordMinutes * MIN, key, ms, words }
+    // T9.1.1: the check is a task of the store: counted from when it was made, and a worker at work on it (in progress) is no case.
+    const qa = openQaTaskOf(view.items, id)
+    // The task knows when it was made, so the first time the watch saw the wait (the days before it existed) counts for nothing.
+    const ms = qa === null ? spanOf(view, seenOf, key, afterPause(view, wait.since)) : spanOf(view, () => undefined, key, afterPause(view, madeAtMs(qa)))
+    if (qa !== null && valueOf(qa, 'State') === 'in progress') return { ...not, key, ms }
+    return { ...not, late: ms > view.settings.reviewMinutes * MIN, key, ms }
   }
   if (wait.kind === 'dropped') {
     if (isPaused(view)) return not
@@ -752,16 +756,6 @@ function openFix(view, ctx) {
 /** B667: the refine words about the step `id` from `since` on (the board's and the person's), oldest first. */
 function refineWordsOf(view, id, since) {
   return (view.outbox ?? []).filter(message => message?.command === 'refine' && message.about === id && Number.isFinite(message.at) && message.at >= since)
-    .sort((a, b) => a.at - b.at)
-}
-
-/**
- * The check words the partner was sent about the step `id` from `since` on (the board's ask for its check, the repair
- * `unchecked`'s wakes), oldest first: for the rule review-stuck and the health summary's review line (B585).
- */
-export function checkWordsOf(view, id, since) {
-  return (view.outbox ?? []).filter(message => message?.about === id && Number.isFinite(message.at) && message.at >= since
-    && (message.command === 'result-check' || String(message.syncKey ?? '').startsWith('unchecked ')))
     .sort((a, b) => a.at - b.at)
 }
 

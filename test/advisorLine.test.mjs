@@ -1,8 +1,10 @@
-// The person, 2026-10-26: the Advisor's line shows all the work waiting for it (result checks, refines, the questions it
-// answers first), each with where it stands and a link; its task line starts with the item it is on (X76, B701, Q423) the
-// way a worker's line does, its own card text and step count in the tooltip; and on the Backlog a step in review reads as
-// built by its worker and waiting for its check, not as its builder at work ("it says worker 4 is doing something").
-// The page only words what the server worked out (test/advisorWork.test.mjs). Made-up names only.
+// The person, 2026-10-26: the Advisor's line shows all the work waiting for it (refines, the questions it answers first),
+// each with where it stands and a link; its task line starts with the item it is on (X76, Q423) the way a worker's line
+// does, its own card text and step count in the tooltip; and on the Backlog a step in review reads as built by its worker and
+// waiting for its check, not as its builder at work ("it says worker 4 is doing something"). T9.1.1 (the person, 2026-10-27):
+// the check is a Quality Assurance task: the step's cell says where it stands ("waits for its check: B730, queued since
+// 16:14", "B730: Worker 3 is checking it since 16:20"); the Advisor's line has no checks. The page only words what the server
+// worked out (test/advisorWork.test.mjs). Made-up names only.
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
@@ -48,28 +50,24 @@ vm.runInNewContext([
   'Object.assign(this, { advisorQueued, drawWaitingAsks, advisorOnLine, checkStandWords, coordinateList, backlogBlocks, blockLine })',
 ].join('\n'), page)
 
-const queued = { kind: 'queued', since: at(16, 14) }
-const working = { kind: 'working', since: at(16, 20) }
+const queued = { kind: 'queued', since: at(16, 14), qa: 'B730', who: null }
+const working = { kind: 'working', since: at(16, 20), qa: 'B731', who: 'Worker 3' }
 const LIST = [
-  { kind: 'check', id: 'B701', title: 'Show the damage', who: 'Worker 4', stand: queued },
-  { kind: 'refine', id: 'B703', title: 'The Ranger as a pick', who: null, stand: working },
+  { kind: 'refine', id: 'B703', title: 'The Ranger as a pick', who: null, stand: { kind: 'working', since: at(16, 20) } },
   { kind: 'question', id: 'Q423', title: 'Merge the chain?', who: 'Worker 1', stand: { kind: 'queued', since: at(16, 10), toYouAt: at(16, 40) } },
 ]
 
-test('what waits for it: result checks, refines and questions, counted by kind, each a link to its step or ask with its stand in words', () => {
+test('what waits for it: refines and questions, counted by kind, each a link to its step or ask with its stand in words', () => {
   const view = plain(page.advisorQueued({ refines: 0, rounds: 1, words: 2 }, LIST))
-  assert.equal(view.count, 6)
-  assert.equal(view.text, '1 question, 1 result check, 1 refine, 1 round of the clock, 2 messages')
+  assert.equal(view.count, 5)
+  assert.equal(view.text, '1 question, 1 refine, 1 round of the clock, 2 messages')
   assert.deepEqual(view.asks.map(one => [one.id, one.href, one.text, one.stand]), [
-    ['B701', '#details=B701', 'check B701 (built by Worker 4): Show the damage', 'in the Advisor\'s queue since 16:14'],
     ['B703', '#details=B703', 'refine B703: The Ranger as a pick', 'the Advisor is on it since 16:20'],
     ['Q423', '#details=Q423', 'Q423 · Worker 1: Merge the chain?', 'in the Advisor\'s queue since 16:10 · comes to you at 16:40'],
   ])
   // Plural kinds; the refines of the list are the refines (not counted again from the words that wait).
   const many = plain(page.advisorQueued({ refines: 2, rounds: 0, words: 0 }, [LIST[0], { ...LIST[0], id: 'B702' }, LIST[1], { ...LIST[1], id: 'B704' }]))
-  assert.equal(many.text, '2 result checks, 2 refines')
-  // A check whose builder is not known names no builder.
-  assert.equal(plain(page.advisorQueued(undefined, [{ ...LIST[0], who: null }])).asks[0].text, 'check B701: Show the damage')
+  assert.equal(many.text, '2 questions, 2 refines')
   // Nothing waits: nothing to show.
   assert.equal(page.advisorQueued({ refines: 0, rounds: 0, words: 0 }, []), null)
 })
@@ -80,11 +78,10 @@ test('"Waiting for it": a link for each, then where it stands, on its own quiet 
   assert.match(words(line), /^Waiting for it: /)
   const rows = all(line, node => node.className.includes('advisor-lane-ask-row'))
   assert.deepEqual(rows.map(words), [
-    'check B701 (built by Worker 4): Show the damagein the Advisor\'s queue since 16:14',
     'refine B703: The Ranger as a pickthe Advisor is on it since 16:20',
     'Q423 · Worker 1: Merge the chain?in the Advisor\'s queue since 16:10 · comes to you at 16:40',
   ])
-  assert.deepEqual(all(line, node => node.tag === 'a').map(node => node.href), ['#details=B701', '#details=B703', '#details=Q423'])
+  assert.deepEqual(all(line, node => node.tag === 'a').map(node => node.href), ['#details=B703', '#details=Q423'])
 })
 
 test('its task line starts with the item it is on, as a link: B701, Q423; an incident links to the supervisor; the card text and step count go to the tooltip', () => {
@@ -118,7 +115,7 @@ test('the Advisor\'s card draws it: the item it is on in place of its card text,
   assert.match(lane, /taskTitle\(lane\)/)
 })
 
-test('the Backlog: a step in review is built by its worker, and says whom it waits for: the Advisor\'s queue, or the Advisor checking it', () => {
+test('the Backlog: a step in review is built by its worker, and says where its QA task stands: queued since, or the worker on it', () => {
   const list = (steps) => ({ groups: [{ name: 'Work', steps }] })
   const review = (id, more = {}) => ({ key: id, id, title: `Title of ${id}`, status: 'open', item: { state: 'review', owner: 'Worker 4', goal: null, pinned: null, queuedBy: null }, ...more })
   const blocks = steps => plain(page.backlogBlocks(list(steps), null)).find(block => block.key === 'progress').rows
@@ -129,23 +126,25 @@ test('the Backlog: a step in review is built by its worker, and says whom it wai
     { key: 'B704', id: 'B704', title: 'Working', status: 'progress', item: { state: 'in progress', owner: 'Worker 2', goal: null, pinned: null, queuedBy: null } },
   ])
   const byId = Object.fromEntries(rows.map(row => [row.step.id, row]))
-  assert.deepEqual([byId.B701.who, byId.B701.state, byId.B701.tone], ['built by Worker 4', 'waits for its check: in the Advisor\'s queue since 16:14', 'review'])
-  assert.deepEqual([byId.B702.who, byId.B702.state], ['built by Worker 4', 'the Advisor is checking it since 16:20'])
+  assert.deepEqual([byId.B701.who, byId.B701.state, byId.B701.tone], ['built by Worker 4', 'waits for its check: B730, queued since 16:14', 'review'])
+  assert.deepEqual([byId.B702.who, byId.B702.state], ['built by Worker 4', 'B731: Worker 3 is checking it since 16:20'])
   // Waiting for its fix, as today: "In review", the fix in its title.
   assert.deepEqual([byId.B703.who, byId.B703.state], ['built by Worker 4', 'In review'])
   // A step at work keeps its worker as it is.
   assert.deepEqual([byId.B704.who, byId.B704.state], ['Worker 2', 'In progress'])
   // The words alone, and none for what the server did not say.
-  assert.equal(page.checkStandWords(queued), 'waits for its check: in the Advisor\'s queue since 16:14')
-  assert.equal(page.checkStandWords({ kind: 'working', since: null }), 'the Advisor is checking it')
-  assert.equal(page.checkStandWords({ kind: 'taken', since: at(16, 20) }), 'waits for its check: the Advisor took it at 16:20, idle now')
+  assert.equal(page.checkStandWords(queued), 'waits for its check: B730, queued since 16:14')
+  assert.equal(page.checkStandWords(working), 'B731: Worker 3 is checking it since 16:20')
+  assert.equal(page.checkStandWords({ kind: 'working', since: null, qa: 'B731', who: null }), 'B731: a worker is checking it')
+  // A stand of the days when the Advisor checked has no meaning now.
+  assert.equal(page.checkStandWords({ kind: 'taken', since: at(16, 20) }), null)
   assert.equal(page.checkStandWords(null), null)
   assert.equal(page.checkStandWords(undefined), null)
   // The row: the state cell says it, and the title does not say it a second time.
   const line = page.blockLine(rows.find(row => row.step.id === 'B701'), 'progress')
   const text = words(line)
   assert.ok(text.includes('built by Worker 4'))
-  assert.ok(text.includes('waits for its check: in the Advisor\'s queue since 16:14'))
+  assert.ok(text.includes('waits for its check: B730, queued since 16:14'))
   assert.ok(!text.includes('(waits for its first check)'))
   const fix = page.blockLine(rows.find(row => row.step.id === 'B703'), 'progress')
   assert.ok(words(fix).includes('(waits for its fix B710)'), 'a wait for a fix stays in the title')
