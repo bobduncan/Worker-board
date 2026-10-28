@@ -532,3 +532,47 @@ test('a failed check whose fix passed counts no more: a step done after its fix 
   assert.deepEqual(counted.failures.map(one => one.id), ['B1', 'G2', 'B2'])
   assert.equal(counted.count, 3)
 })
+
+/** B791: a goal's ask, as the store keeps it: open or closed, its history's last line the moment it closed. */
+const rebuildAsk = (of, state, closedAt, title = `Rebuild ${of}: pick a way`) => ({
+  head: new Map([['Id', 'Q9'], ['Kind', 'ask'], ['Title', title], ['State', state], ['Owner', 'Partner'], ['Asks', 'decide'], ['Of', of]]),
+  sections: new Map([['History', [`- ${closedAt} person: ${state}`]]]),
+})
+
+test('B791: no word again while the goal\'s Rebuild ask waits for the person; 30 minutes after it closed, as before', () => {
+  const asked = parseGoals(evaluating).nodes
+  const at = minutes => new Date(2026, 9, 19, 9, 31).getTime() + minutes * 60_000
+  const ids = (asks, now, outbox = []) => evaluationsDue(asked, outbox, now, asks).map(node => node.id)
+  // No such ask: a word after 30 minutes (B528).
+  assert.deepEqual(ids([], at(30)), ['G2'])
+  // The open Rebuild ask of G2: none, however long it waits.
+  assert.deepEqual(ids([rebuildAsk('G2', 'open', '2026-10-19 09:50')], at(30)), [])
+  assert.deepEqual(ids([rebuildAsk('G2', 'open', '2026-10-19 09:50')], at(600)), [])
+  // Answered at 10:10 (39 minutes in, so due at 69): the word goes 30 minutes after that, not before.
+  const answered = [rebuildAsk('G2', 'answered', '2026-10-19 10:10')]
+  assert.deepEqual(ids(answered, at(60)), [])
+  assert.deepEqual(ids(answered, at(68)), [])
+  assert.deepEqual(ids(answered, at(69)), ['G2'])
+  // Withdrawn counts the same; a word after the answer holds the next for 30 minutes from that word.
+  assert.deepEqual(ids([rebuildAsk('G2', 'withdrawn', '2026-10-19 10:10')], at(69)), ['G2'])
+  assert.deepEqual(ids(answered, at(80), [{ id: 'm1', at: at(75), command: 'evaluate', about: 'G2', state: 'delivered' }]), [])
+  // A Rebuild ask of another goal, one of G2 not titled Rebuild, or a closed one from before this evaluation: no effect.
+  assert.deepEqual(ids([rebuildAsk('G3', 'open', '2026-10-19 09:50')], at(30)), ['G2'])
+  assert.deepEqual(ids([{ ...rebuildAsk('G3', 'open', '2026-10-19 09:50', 'Rebuild G2: pick a way') }], at(30)), ['G2'])
+  assert.deepEqual(ids([rebuildAsk('G2', 'open', '2026-10-19 09:50', 'Benches failed 3 times: evaluate?')], at(30)), ['G2'])
+  assert.deepEqual(ids([rebuildAsk('G2', 'answered', '2026-10-18 10:10')], at(30)), ['G2'])
+  // A done goal: none.
+  assert.deepEqual(evaluationsDue(parseGoals(evaluating.replace('- [~] G2', '- [x] G2')).nodes, [], at(90), [rebuildAsk('G2', 'answered', '2026-10-19 10:10')]), [])
+})
+
+test('B791: evaluationsAgain reads the store, and sends nothing while a Rebuild ask is open; one word 30 minutes after it was answered', async () => {
+  const fs = fakeFs({ [FILE]: latin(MAP) })
+  const base = { canWrite: true, goalsFile: FILE, historyDir: 'D:/Work/p/history', fs, partner: { name: 'Partner' }, job: 'j', approveRebuilds: false }
+  const fired = await guardFired('G2', { ...base, now: NOW, items: ITEMS })
+  const outbox = [{ id: 'm1', at: NOW + 17 * 60_000, ...fired.words, state: 'delivered' }]
+  const again = (asks, now) => evaluationsAgain({ ...base, outbox, items: async () => [...ITEMS, ...asks], now })
+  assert.deepEqual(await again([rebuildAsk('G2', 'open', '2026-10-19 10:05')], NOW + 60 * 60_000), [])
+  const closed = [rebuildAsk('G2', 'answered', '2026-10-19 11:00')]
+  assert.deepEqual(await again(closed, NOW + 89 * 60_000), [])
+  assert.equal((await again(closed, NOW + 90 * 60_000)).length, 1)
+})

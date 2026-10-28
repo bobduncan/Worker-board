@@ -2647,7 +2647,7 @@ using fable. yes, or no use opus."
    page's switch is refused it (`checkSay`, `SWITCH_MODES`); the server never sends `fable` itself, only the mode the
    answered asks give, and its why names the mode used.
 5. While evaluations run, the partner's mode is `evaluationsMode` (`partnerModeFor`): Fable only when every evaluation
-   that runs had the person's yes, else Opus at max; one asked again (B528) keeps its mode the same way. The trip ends
+   that runs had the person's yes, else Opus at max; one asked again (B528) keeps its mode the same way. B791: the word again (every 30 minutes) is not typed while the goal's `Rebuild G<n>` ask is open and the person has not chosen (the partner's answer is in); once it is answered or withdrawn and no marked how-draft ended the evaluation, it goes again 30 minutes after that (`evaluationsDue`, one test with `guardOf`'s state `rebuild`). The trip ends
    (`endTrip`: `Evaluation asked` and `Fable asked` taken away) with the evaluation's marked how-draft, with Go on a
    reopened how, and with the goal's tick (a passed re-check, or the person's overturn), so a reopened goal never brings
    Fable back on an old yes. Go or a tick while the board still asks withdraws its ask (the board owns it). The

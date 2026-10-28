@@ -316,6 +316,12 @@ export function partnerModeFor(nodes, items) {
 /** B669: the group of `attempts` the goal's evaluation is of ("Evaluation part:"), else null (the goal as a whole, or no failure of it left). */
 export const evaluationPartOf = (node, attempts) => ((node?.evaluationPart ?? null) === null ? null : attempts.groups.find(group => group.title === node.evaluationPart) ?? null)
 
+/** B791: the asks of the goal titled "Rebuild G<n>", open or closed: the person's pick on a rebuild (guardOf and evaluationsDue). */
+const rebuildAsksOf = (node, asks) => {
+  const rebuild = new RegExp(`^Rebuild ${node.id}\\b`, 'i')
+  return (asks ?? []).filter(one => one.head.get('Kind') === 'ask' && one.head.get('Of') === node.id && rebuild.test(String(one.head.get('Title') ?? '')))
+}
+
 /**
  * The guard as the Focus page shows it: `{ attempts, parts, of, state, ask }` (`attempts` the worst part's failed checks, or
  * those of the part under evaluation; `parts` every part's, `{ title, count }`, worst first), state `counting` (attempts
@@ -337,8 +343,7 @@ export function guardOf(node, items, asks) {
   const step = stepId === null ? {} : { step: stepId }
   if ((node.evaluationAsked ?? null) === null && (node.fableAsked ?? null) !== null) return { attempts, parts, ...part, ...step, of: GUARD_ATTEMPTS, state: 'asking', ask: node.fableAsked }
   if ((node.evaluationAsked ?? null) === null) return { attempts, parts, of: GUARD_ATTEMPTS, state: 'counting', ask: null }
-  const rebuild = new RegExp(`^Rebuild ${node.id}\\b`, 'i')
-  const waiting = (asks ?? []).find(one => one.head.get('Kind') === 'ask' && one.head.get('Of') === node.id && isOpenAsk(one) && rebuild.test(String(one.head.get('Title') ?? '')))
+  const waiting = rebuildAsksOf(node, asks).find(isOpenAsk)
   return { attempts, parts, ...part, of: GUARD_ATTEMPTS, state: waiting === undefined ? 'evaluating' : 'rebuild', ask: waiting?.head.get('Id') ?? null }
 }
 
@@ -407,14 +412,21 @@ export const EVALUATE_AGAIN_MS = 30 * 60_000
 /**
  * B528: the goals whose word goes to the partner again now: an open goal with "Evaluation asked" whose last `evaluate`
  * word about it in the outbox (else the time "Evaluation asked" says) is `EVALUATE_AGAIN_MS` old. A word the chat could
- * not type (failed, expired) counts as sent then: the ask is kept, and the next word goes at the same pace.
+ * not type (failed, expired) counts as sent then: the ask is kept, and the next word goes at the same pace. B791: not while
+ * an open ask of the goal titled "Rebuild G<n>" waits for the person (`asks` the store's items); once it closed, 30 minutes after.
  */
-export function evaluationsDue(nodes, outbox, now) {
+export function evaluationsDue(nodes, outbox, now, asks) {
   const due = []
   for (const node of nodes ?? []) {
     if (node.state === 'done' || (node.evaluationAsked ?? null) === null) continue
+    // B791: the partner's answer is in while the person's pick on the rebuild waits: no word again until it is made.
+    const rebuilds = rebuildAsksOf(node, asks)
+    if (rebuilds.some(isOpenAsk)) continue
     const last = (outbox ?? []).findLast(message => message.command === 'evaluate' && message.about === node.id)
-    const since = last?.at ?? sinceMs(node.evaluationAsked)
+    const asked = sinceMs(node.evaluationAsked)
+    // The pick (answered, withdrawn) of the rebuild counts as a word: the partner first gets the person's answer.
+    const closed = rebuilds.map(one => historyOf(one).at(-1)?.[1]).filter(Boolean).map(sinceMs).filter(Number.isFinite)
+    const since = Math.max(last?.at ?? asked, ...closed)
     if (Number.isFinite(since) && now - since >= EVALUATE_AGAIN_MS) due.push(node)
   }
   return due

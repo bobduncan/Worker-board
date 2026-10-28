@@ -1074,7 +1074,7 @@ each try was (the step, its check's line, its evidence picture; the person's no 
 and never suggest one: a way that keeps failing needs another way, never a stronger model. (A `Fable asked: Q<n>` line from before B752 still reads:
 answered A, that evaluation ran on Fable; still open, the board takes the ask back.) Until the evaluation ends, every next step of that goal that you refine or
 make gets `effort` high (the board lifts a lower effort to high, also on a fix step, B518, B525; it ends at the next Go); its `model` is as for any step, sonnet unless the step is hard (the person, 2026-10-25: Opus only where needed). The Focus page shows
-"Your partner evaluates the approach" meanwhile.
+"Your partner evaluates the approach" meanwhile. (B791: while the person's pick on your `Rebuild G<n>` ask is open, the board does not type the evaluation word again; it repeats only after the pick, if your marked how-draft has still not ended the evaluation.)
 
 The count is per part (B669; the user, 2026-10-26: "yes"): a part is one `Part:` line of the how with its steps and every fix made from them, a goal without parts counts per chain (a step and its fixes). The guard trips when one part trips (above), your `evaluate` word names that part (`Part: ...`, `Other parts: ...`), and the higher effort applies to that part's steps only (`Evaluation part: <part>` under the goal until the evaluation ends); the other parts go on. Look at that part first, and at the goal's how only where the part's answer changes it.
 

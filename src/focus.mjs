@@ -648,9 +648,12 @@ export async function evaluationsAgain(ctx) {
   if (ctx.canWrite !== true || (ctx.partner ?? null) === null) return []
   const text = await readMap(ctx.fs ?? files, ctx.goalsFile)
   if (text === null) return []
-  const due = evaluationsDue(parseGoals(text).nodes, ctx.outbox, ctx.now)
-  if (due.length === 0) return []
+  const nodes = parseGoals(text).nodes
+  // Without the store's asks this is the longest list; B791: the asks (a rebuild waiting for the person) then narrow it.
+  if (evaluationsDue(nodes, ctx.outbox, ctx.now).length === 0) return []
   const items = await ctx.items()
+  const due = evaluationsDue(nodes, ctx.outbox, ctx.now, items)
+  if (due.length === 0) return []
   return due.map(node => evaluateWords({
     to: ctx.partner.name, goal: node, attempts: goalAttempts(node, items), part: evaluationPartOf(node, goalAttempts(node, items)), approveRebuilds: ctx.approveRebuilds === true, job: ctx.job,
     maxChars: ctx.maxChars, again: node.evaluationAsked,
