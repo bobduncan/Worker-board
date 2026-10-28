@@ -227,6 +227,26 @@ test('the review: after a full limit the take-back clock starts anew; a worker i
   }
 })
 
+test('B764: after the pause of the person the take-back clock starts anew: a worker given a task before the pause is not taken back at once', async () => {
+  const one = await garden([task('B1')], { workers: ['W1'] })
+  try {
+    one.report('W1', 'idle', T0 - 60 * SEC, T0 - 2 * SEC)
+    await one.deliver(await one.build(T0), T0)
+    const T1 = T0 + 10 * SEC
+    await one.deliver(await one.build(T1), T1)
+    assert.deepEqual(lines(one.outbox), [['W1', 'B1', 'waiting']])
+    // The person paused at once and resumed 20 minutes on; the worker stopped before taking the task.
+    const resumed = T0 + 20 * MIN
+    await writePause(one.dir, { state: 'running', since: resumed + MIN, by: 'server', pausedSince: T0 + 15 * SEC, resumedSince: resumed })
+    one.report('W1', 'idle', T0 - 60 * SEC, resumed + 30 * SEC)
+    assert.deepEqual((await one.build(resumed + 30 * SEC)).reconciled.takeBacks, [])
+    one.report('W1', 'idle', T0 - 60 * SEC, resumed + 2 * MIN + 30 * SEC)
+    assert.deepEqual((await one.build(resumed + 2 * MIN + 30 * SEC)).reconciled.takeBacks, [{ id: 'B1', chat: 'W1', stuck: true, why: 'not taken within 2 min' }])
+  } finally {
+    await one.close()
+  }
+})
+
 test('the review: a give the work API refuses is not tried again for that worker a while; the worker gets another task, the list says why', async () => {
   const one = await garden([task('B1'), task('B2')], { workers: ['W1'] })
   try {
