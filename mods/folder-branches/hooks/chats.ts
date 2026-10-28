@@ -313,42 +313,6 @@ export function afterTurn(chat: ChatFile, reason: string, sent: { asked?: boolea
   return sent.asked === true ? { ...chat, task: { ...chat.task, asked: true } } : chat
 }
 
-/**
- * What a working chat's card lacks, in words for the chat: a task, a time, or a time that has not run out. Null
- * when the card has a topic and time left. The person's board shows a working chat without a time as a fault.
- */
-export function cardGap(chat: ChatFile, tool: string, now: number): string | null {
-  const how = `Send it together with your next tool call, not as a step of its own: call ${tool} with action`
-  if (chat.task === null) {
-    return `Your card is empty while you work, so the person's board shows this chat without a task and a time. ${how} "plan" `
-      + 'and "text" (the topic), "names" (your steps) and "minutes" (the working time you expect).'
-  }
-  if (chat.task.left === null) {
-    return `Your card has no time, so the person's board shows this chat as working without one. ${how} "plan" and `
-      + `"minutes" (the working time you still expect)${chat.task.steps === 0 ? ', with "names" (your steps)' : ''}.`
-  }
-  // The time counts down while the chat works, also since its file was last written.
-  const left = chat.task.left - (chat.state === 'working' ? Math.max(0, now - chat.at) : 0)
-  if (left <= 0) return `The time on your card has run out. ${how} "plan" and the "minutes" you now expect.`
-  if (chat.task.steps > 0 && chat.task.stepLeft === undefined) {
-    return `The step you are on has no time on your card. ${how} "plan" and "stepMinutes" (the working time this step still takes).`
-  }
-
-  return null
-}
-
-/**
- * What a chat is told when a request has run for a while and its card was not touched in it: the card may be the
- * one of the request before. Null without a card.
- */
-export function cardOld(chat: ChatFile, tool: string): string | null {
-  if (chat.task === null) return null
-
-  return `Your card still says "${chat.task.text}" from before this request. Together with your next tool call, not as a step `
-    + `of its own, call ${tool} with action "plan": with "minutes" alone when this request is still that task, or with `
-    + '"text", "names" and "minutes" when it is a new one.'
-}
-
 /** A stretch of time as a rough word: "~40 min", "~1.5 h", "over time" once none is left. */
 export function timeText(ms: number): string {
   if (ms <= 0) return 'over time'
