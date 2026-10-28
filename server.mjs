@@ -51,6 +51,7 @@ import { cached, gitRunner, readBranches, readFolders } from './src/folders.mjs'
 import { checkGame, createGames, gameLauncher, pathKey } from './src/games.mjs'
 import { parseHistory } from './src/history.mjs'
 import { hearingLog } from './src/hearing.mjs'
+import { readReports, reportsSaver } from './src/reportsKept.mjs'
 import { seenFromState } from './src/finished.mjs'
 import { areaOf, freshScan, keptTasks, listText, readOn } from './src/taskTimes.mjs'
 import { createSpendingCollector } from './src/work/routing/collector.mjs'
@@ -1222,8 +1223,14 @@ async function main(args) {
   // When each chat's mod last asked this board, by the chat's name: who asks runs. The demo has no bridge.
   const seen = bridgeKey === null ? null : { shown: {}, other: {} }
   // Redesign Part 1: each chat's last report of its turn state, by the name the board shows (bridge.mjs `noteReport`):
-  // `{ state, since, background, at, session, mod }`. In memory only: after a restart the reports come within 5 s.
-  const reports = bridgeKey === null ? null : new Map()
+  // `{ state, since, background, at, session, mod }`. T13: also in data/reports.json (src/reportsKept.mjs), read here once, so
+  // a restart keeps each chat's last state until its next ping; the demo and a board that shows another's history have none.
+  const REPORTS_FILE = join(HERE, 'data', 'reports.json')
+  const savedReports = bridgeKey === null ? null : await readReports(REPORTS_FILE, clock())
+  if (savedReports?.setAside != null) setAside.push({ file: basename(REPORTS_FILE), aside: basename(savedReports.setAside), why: null })
+  else if (savedReports?.unread != null) setAside.push({ file: basename(REPORTS_FILE), aside: null, why: savedReports.unread })
+  const reports = savedReports === null ? null : savedReports.reports
+  const reportsSave = reports === null ? null : reportsSaver({ file: REPORTS_FILE, reports, onError: error => loops.failed('reports-file', error), onSaved: () => loops.succeeded('reports-file') })
   // B736 (X73, X87, X89): when the board heard no chat at all, and the work calls it answered after the chat's mod gave up.
   const hearing = bridgeKey === null ? null : hearingLog({ startedAt, quietMs: (Number.isFinite(config.unknownAfterSeconds) ? config.unknownAfterSeconds : 30) * 1000 })
   /**
@@ -1233,10 +1240,14 @@ async function main(args) {
   let reconcileSoon = () => {}
   /** Redesign Part 2: a chat's report kept; when it turned idle (from anything else, or none), the board reads anew and hands out. */
   const keepReport = (body, checked, keepIt) => {
-    const before = checked?.ok === true && reports !== null ? reports.get(checked.chat)?.state ?? null : null
+    const entryBefore = checked?.ok === true && reports !== null ? reports.get(checked.chat) : undefined
+    const before = entryBefore?.state ?? null
     const answer = keepIt()
     if (checked?.ok === true) hearing?.heard(clock())
-    const after = checked?.ok === true && reports !== null ? reports.get(checked.chat)?.state ?? null : null
+    const entryAfter = checked?.ok === true && reports !== null ? reports.get(checked.chat) : undefined
+    // T13: a kept report is written to data/reports.json a moment later.
+    if (entryAfter !== entryBefore) reportsSave?.changed()
+    const after = entryAfter?.state ?? null
     if (before !== 'idle' && after === 'idle') {
       readState.reset()
       void reconcileSoon()
@@ -1659,6 +1670,8 @@ async function main(args) {
     return { ok: true, result: { at: clock() }, after: async () => {
       const inTime = await settleWithin([reconciling, ...runningChecks.values()], RESTART_WAIT_MS)
       if (!inTime) console.log('Restart: the board did not wait longer than 10 s for its running work; the next start checks again.')
+      // T13: the last reports are on disk before the new board reads them.
+      await reportsSave?.flush()
       process.exit(START_ANEW)
     } }
   }

@@ -1330,7 +1330,13 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
   const deafNow = deaf.find(span => span.to === now && Number.isFinite(hearing?.open?.from) && span.from === hearing.open.from) ?? null
   const laneAt = deafNow !== null && now - deafNow.from <= DEAF_KEEP_MS ? deafNow.from : now
   const reportedOf = new Map(found.filter(chat => !chat.isLeftover).map(chat => {
-    const entry = reports instanceof Map ? reports.get(chat.name) ?? null : null
+    const saved = reports instanceof Map ? reports.get(chat.name) ?? null : null
+    // T13: a report kept from before this board started (data/reports.json) is the chat's last word, and the time the board
+    // was down is no chat's fault: it counts as heard when the board started, so the lane reads as it said (and the age
+    // rules count from the start, with B736's keep above) until the chat reports anew. A chat the app stopped since
+    // (the app started after that report, B315's fact) is not kept as it was: read as with no report, as before.
+    const isOld = saved !== null && Number.isFinite(board?.startedAt) && saved.at < board.startedAt
+    const entry = isOld ? (Number.isFinite(raw.appStartedAt) && raw.appStartedAt > saved.at ? null : { ...saved, at: board.startedAt }) : saved
     // Gap 1: no report from this session while its card says a mod that reports: unknown, then off, never guessed.
     if (entry === null || entry.session !== chat.cliSessionId) {
       const silent = !(reports instanceof Map) ? null : laneWithoutReport({

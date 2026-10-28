@@ -112,7 +112,7 @@ export async function appendLines(file, text, fs = files) {
 
 const pad = value => String(value).padStart(2, '0')
 /** This machine's time as a file name takes it: `20261019-230509`. */
-const stampOf = ms => {
+export const stampOf = ms => {
   const at = new Date(ms)
   return `${at.getFullYear()}${pad(at.getMonth() + 1)}${pad(at.getDate())}-${pad(at.getHours())}${pad(at.getMinutes())}${pad(at.getSeconds())}`
 }

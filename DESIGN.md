@@ -3040,7 +3040,7 @@ someone deleted it.
    file is written plainly.
 2. `appendLines` ends a line torn by a power cut before it appends, so the next record of the outbox or the history
    never runs into it.
-3. At the start (`readKept`), finished.json, rounds.json, refine-gate.json, task-times.json and ideas.json that do
+3. At the start (`readKept`), finished.json, rounds.json, refine-gate.json, task-times.json, reports.json (T13) and ideas.json that do
    not parse are kept aside as `<name>.broken-<yyyymmdd-hhmmss>` and the board starts without them; one that is there
    but cannot be read, or not kept aside, is started without too and written anew. The state's `setAside` names them
    and the page says so on top (`setAsideNote`), a kept copy for as long as it is there. A board showing another's
@@ -4037,8 +4037,8 @@ timers. Now each chat says it (principle 3, know don't guess).
   every take, the mod's 5-second ping (`report` in its body). While a clear is on its way the take is skipped and the
   report alone goes at every ping, so a clear that takes long does not turn the chat unknown; the idle of the turn's
   end goes before the clear starts.
-- **The board keeps** each chat's last report in memory (`server.mjs`, `src/bridge.mjs` `noteReport`): by the name it
-  shows, and only from the session it shows under that name (another session, a renamed or replaced chat, is refused
+- **The board keeps** each chat's last report in memory, and since T13 in `data/reports.json` too (`server.mjs`,
+  `src/bridge.mjs` `noteReport`): by the name it shows, and only from the session it shows under that name (another session, a renamed or replaced chat, is refused
   as a take is, 409, and writes nothing); a state other than the four is refused, 400. Each report carries `run` (its
   process: when its session started there) and `seq` (rising by one with every report and take of that process): one
   of a lower `seq` than the kept one of the same session and run changes nothing but when the chat was last heard
@@ -4080,13 +4080,29 @@ timers. Now each chat says it (principle 3, know don't guess).
   the chats the board shows as not running (`isRunning` false: ended, app restarted, silent), and the list words such a
   chat "Not running" instead of "free" (the main chat too); a worker that holds a task still reads "your turn". A board that
   does not answer leaves the list as its files say (the list reads the last answer, it never waits for the board).
+- **A restart of the board keeps each chat's state (T13, part 1; the person, 2026-10-28: "the goal is to not have
+  'Unknown' or unintentionally 'Not running'"):** every board restart read all lanes Unknown for minutes, then Not
+  running, although the chats had not changed, because the reports lived in memory only. Now `src/reportsKept.mjs`
+  keeps them in `data/reports.json` (`{ "reports": { "<chat>": entry } }`): written with `writeAtomic` a second after a
+  report is kept (one write for the changes within that second, never two at once, flushed before the board starts
+  itself anew; a crash loses at most that second), read once at the start. A file that does not parse, or is no file of
+  reports, is set aside like the other data files (`setAside`, the page says so); an entry that is no report (a state
+  of its own, a time that is none or lies in the future, a wrong kind of field) is left out. The time the board was down
+  is no chat's fault, as B736's deaf stretch is none: `src/state.mjs` reads a saved report from before the board started
+  as heard at the board's start, so its lane reads as the chat said (free, working, asking, suspended, interrupted)
+  until the chat reports anew, and the unknown and off rules (and B736's 10 min keep) count from the start, not from
+  the old report. A chat the app stopped meanwhile (the app started after its saved report: B315's fact) is not kept as
+  it was; it is read as with no report, as before (part 3 of T13 will say more). The demo and a board that shows
+  another's history have no reports. Part 2 (the plan and time saved with the task), part 3 (an app restart) and part 4
+  (the board opening a chat when none runs) are not built yet.
 - **Older mods and a restart:** a chat on a Workers mod older than 0.19.0 sends no report and keeps the board's
   reading, until the restart between steps (B570) brings it onto the new mod; the reading is removed in a later
-  clean-up once no chat needs it. After the board restarts its reports are empty: each chat shows the board's reading
-  until its next ping, never Unknown or Not running.
+  clean-up once no chat needs it. After the board restarts its saved reports (T13, above) are read: each chat shows what it last said
+  until its next ping, never Unknown or Not running; a chat with no saved report shows the board's reading.
 - **Done when** (principle 6): for 4 hours after it is live none of these opens or comes back: a chat shown working
   whose chat does not run, a chat working with no task, a chat shown free while its turn runs.
-- Tests: `test/chatReport.test.mjs`, `test/chatReport.state.test.mjs`, `test/chatReport.review.test.mjs` (the review of
+- Tests: `test/chatReport.test.mjs`, `test/chatReport.state.test.mjs`, `test/reportsKept.test.mjs` and `test/reportsKeptLive.test.mjs` (T13: the file, the
+  writer, a restart), `test/chatReport.review.test.mjs` (the review of
   2026-10-25: a busy chat with no transcript to read, the partner's wait, ended and silent, the pause, offSince,
   background after a report, the words), `test/bridge.test.mjs`, `test/server.test.mjs`, `test/config.test.mjs`; in
   the mod, `hooks/chatlist.test.ts` ("Redesign Part 1").
