@@ -146,9 +146,10 @@ export function reconcile({ store, flow = store.flow, lanes = [], now, times, pr
   }
 
   // A step taken or in progress whose Owner is not running and not held by the limit: flagged after the grace time.
+  // T13 part 3: not an asleep Owner: it resumes by itself (its resume word); once that did not take, its lane is off.
   for (const item of ok.filter(one => ['taken', 'in progress'].includes(stateOf(one)))) {
     const lane = laneOf(valueOf(item, 'Owner'))
-    if (lane === undefined || lane.isRunning !== false || lane.state === 'suspended') continue
+    if (lane === undefined || lane.isRunning !== false || lane.state === 'suspended' || lane.asleep === true) continue
     const since = Math.max(Number.isFinite(sinceMs(valueOf(item, 'Since'))) ? sinceMs(valueOf(item, 'Since')) : 0, Number.isFinite(lane.lastActivityAt) ? lane.lastActivityAt : 0)
     if (now - since < times.graceMs) continue
     const id = valueOf(item, 'Id')

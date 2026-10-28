@@ -35,17 +35,19 @@ export function parseReport(value, now) {
  * caller keeps the older inference). `why` says what holds a working idle chat (`background`, `partner`) or why it is
  * off (`ended`, `silent`, `app`).
  *
- * - Ended: off at once. Stale (older than `unknownAfterMs`): off when the app started after it (`appRuns` false) or it
- *   is silent past `offAfterMs`, else unknown.
+ * - Ended: off at once. Stale (older than `unknownAfterMs`): T13 part 3, asleep when the app started after it (`appRuns`
+ *   false, from `appStartedAt`) or it is silent past `offAfterMs` (`asleepLane`), else unknown.
  * - Fresh: busy is working, asking waiting. Idle: waiting while a blocking ask on the person is open; working while
  *   background work runs (not once its task is reported, `isTaskReported`: B148) or a blocking ask waits for the
  *   partner's answer; interrupted while it holds a task (a worker stopped mid-task: never free, so no new work goes to
  *   it); else free. A chat that reports runs.
  */
-export function laneFromReport(entry, { now, unknownAfterMs, offAfterMs = Infinity, holdsTask, hasBlockingAsk, waitsForPartner = false, isTaskReported = false, appRuns }) {
+export function laneFromReport(entry, { now, unknownAfterMs, offAfterMs = Infinity, holdsTask, hasBlockingAsk, waitsForPartner = false, isTaskReported = false, appRuns, appStartedAt = null, wokenAt = null }) {
   if (entry === null || entry === undefined) return null
   if (entry.state === 'ended') return { state: 'off', isRunning: false, why: 'ended' }
   if (!Number.isFinite(entry.at) || now - entry.at > unknownAfterMs) {
+    const since = asleepSince(entry, { now, offAfterMs, appRuns, appStartedAt, holdsTask })
+    if (since !== null) return asleepLane(entry, { since, now, offAfterMs, holdsTask, hasBlockingAsk, waitsForPartner, isTaskReported, wokenAt })
     if (appRuns === false) return { state: 'off', isRunning: false, why: 'app' }
     if (!Number.isFinite(entry.at) || now - entry.at > offAfterMs) return { state: 'off', isRunning: false, why: 'silent' }
     return { state: 'unknown', isRunning: null }
@@ -57,6 +59,41 @@ export function laneFromReport(entry, { now, unknownAfterMs, offAfterMs = Infini
   if (waitsForPartner) return { state: 'working', isRunning: true, why: 'partner' }
   if (holdsTask) return { state: 'interrupted', isRunning: true }
   return { state: 'free', isRunning: true }
+}
+
+/**
+ * T13 part 3 (the person, 2026-10-28: after a restart "suspended keeps suspended, free = free, working is working,
+ * interrupted is interrupted. the goal is to not have 'Unknown' or unintentionally 'Not running'"): since when a chat whose
+ * last report stands sleeps, or null. Its process ended while nothing changed for it: the app started after the report
+ * (`appRuns` false, B315's fact: since the app's start), or (the coordinator, seen live 2026-10-28: Workers 2 and 3 run
+ * as routine chats, whose process ends with their turn) the board has heard nothing from it for longer than `offAfterMs`
+ * since a report of idle, or of busy on a task it holds (since the report). A chat busy on nothing, or asking, that falls
+ * silent is off as before (B736: a chat silent alone). Nothing but a message wakes it again.
+ */
+function asleepSince(entry, { now, offAfterMs, appRuns, appStartedAt, holdsTask }) {
+  if (!Number.isFinite(entry.at)) return null
+  if (appRuns === false) return Number.isFinite(appStartedAt) ? appStartedAt : entry.at
+  const canSleep = entry.state === 'idle' || (entry.state === 'busy' && holdsTask)
+  return canSleep && now - entry.at > offAfterMs ? entry.at : null
+}
+
+/**
+ * T13 part 3: the lane of an asleep chat (`since`): it keeps what its last report said, not running (`isRunning` false, so
+ * a word to it brings the board's start word), with `asleep` and `asleepSince`. Idle is free (the hand-out gives it a task,
+ * whose line wakes it); asking, or a blocking ask on the person, waits for the person; waiting for the partner's answer
+ * stays so; a turn that ran (busy, or background work, which ended with the process) or a task it holds is interrupted,
+ * and the board sends it one resume word (hands.mjs). Not running only once a wake did not take: a start or resume word
+ * reached it (`wokenAt`, since it fell asleep) and it stayed silent for longer than `offAfterMs` after it.
+ */
+function asleepLane(entry, { since, now, offAfterMs, holdsTask, hasBlockingAsk, waitsForPartner, isTaskReported, wokenAt }) {
+  if (Number.isFinite(wokenAt) && wokenAt >= since && now - wokenAt > offAfterMs) return { state: 'off', isRunning: false, why: 'woken', wokenAt }
+  const asleep = { isRunning: false, asleep: true, asleepSince: since }
+  if (entry.state === 'busy') return { state: 'interrupted', ...asleep }
+  if (entry.state === 'asking' || hasBlockingAsk) return { state: 'waiting', ...asleep }
+  if (entry.background === true && !isTaskReported) return { state: 'interrupted', ...asleep }
+  if (waitsForPartner) return { state: 'working', why: 'partner', ...asleep }
+  if (holdsTask) return { state: 'interrupted', ...asleep }
+  return { state: 'free', ...asleep }
 }
 
 /**

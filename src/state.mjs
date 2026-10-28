@@ -666,7 +666,12 @@ function card(chat, raw, { now, config, last, lines, main, prefix, stepOf = () =
     report: reported?.entry == null ? null : { state: reported.entry.state, since: reported.entry.since, background: reported.entry.background, at: reported.entry.at },
     // The review of chat-reports: why a reporting chat is not running, in words; null for any other.
     offWhy: state !== 'off' || reported === null ? null : reported.why === 'unreported' ? reported.words : reported.why === 'ended' ? `its session ended at ${hourMinute(reported.entry.since)}`
-      : reported.why === 'silent' ? `silent since ${hourMinute(reported.entry.at)}` : 'the app started again after its last report',
+      : reported.why === 'silent' ? `silent since ${hourMinute(reported.entry.at)}`
+        // T13 part 3: a wake that did not take.
+        : reported.why === 'woken' ? `woken at ${hourMinute(reported.wokenAt)}, it did not start` : 'the app started again after its last report',
+    // T13 part 3: its process ended while its last report stands (chatReport.mjs `asleepLane`): asleep since when, or null.
+    asleep: reported?.asleep === true,
+    asleepSince: reported?.asleep === true ? reported.asleepSince : null,
   }
 }
 
@@ -1264,7 +1269,7 @@ function focusRun(node, items, prefix, partner) {
   return { note, needs }
 }
 
-export function buildState(raw, { lines = [], outbox = [], runs = [], board = null, seen = null, aliveAt = null, reports = null, hearing = null, finishedSeen = {}, taskTimes = [], mods = {}, modsLately = null, handOutHeldAt = null, refusedGives = [], keptReadings = [], providers = [], now, config }) {
+export function buildState(raw, { lines = [], outbox = [], runs = [], board = null, seen = null, aliveAt = null, reports = null, asleepWakes = null, hearing = null, finishedSeen = {}, taskTimes = [], mods = {}, modsLately = null, handOutHeldAt = null, refusedGives = [], keptReadings = [], providers = [], now, config }) {
   // The review of Pause 2: while the person pauses (2026-10-19: pausing only, no longer until running) what waits in
   // the outbox is held until the resume, but the board's own "resume" to the main chat; the page says so (`isHeld`).
   const isPaused = isHolding(raw.work?.pause)
@@ -1376,14 +1381,23 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
   const deaf = !(reports instanceof Map) ? [] : deafSpans(hearing, { now, appStartedAt: raw.appStartedAt ?? null, ranSince })
   const deafNow = deaf.find(span => span.to === now && Number.isFinite(hearing?.open?.from) && span.from === hearing.open.from) ?? null
   const laneAt = deafNow !== null && now - deafNow.from <= DEAF_KEEP_MS ? deafNow.from : now
+  // T13 part 3: when the board last had a chat woken: a start or wake word about it that a chat took or sent (its hands, or
+  // the main chat), or its asleep resume word (`asleepWakes`, by name: `{ since, at }`, the server's, hands.mjs). Null: never.
+  const wokenAtOf = name => {
+    const times = sent.filter(message => (message.command === 'start' || message.command === 'wake') && message.about === name && ['taken', 'delivered'].includes(message.state))
+      .map(message => message.deliveredAt ?? message.takenAt ?? message.at)
+    const newest = Math.max(...[...times, asleepWakes instanceof Map ? asleepWakes.get(name)?.at : null].filter(Number.isFinite))
+    return Number.isFinite(newest) ? newest : null
+  }
   const reportedOf = new Map(found.filter(chat => !chat.isLeftover).map(chat => {
     const saved = reports instanceof Map ? reports.get(chat.name) ?? null : null
     // T13: a report kept from before this board started (data/reports.json) is the chat's last word, and the time the board
     // was down is no chat's fault: it counts as heard when the board started, so the lane reads as it said (and the age
-    // rules count from the start, with B736's keep above) until the chat reports anew. A chat the app stopped since
-    // (the app started after that report, B315's fact) is not kept as it was: read as with no report, as before.
+    // rules count from the start, with B736's keep above) until the chat reports anew. T13 part 3: a chat the app stopped
+    // since (the app started after that report, B315's fact) keeps the report as it was: it is asleep (`laneFromReport`).
     const isOld = saved !== null && Number.isFinite(board?.startedAt) && saved.at < board.startedAt
-    const entry = isOld ? (Number.isFinite(raw.appStartedAt) && raw.appStartedAt > saved.at ? null : { ...saved, at: board.startedAt }) : saved
+    const isAppAfter = saved !== null && Number.isFinite(raw.appStartedAt) && raw.appStartedAt > saved.at
+    const entry = isOld && !isAppAfter ? { ...saved, at: board.startedAt } : saved
     // Gap 1: no report from this session while its card says a mod that reports: unknown, then off, never guessed.
     if (entry === null || entry.session !== chat.cliSessionId) {
       const silent = !(reports instanceof Map) ? null : laneWithoutReport({
@@ -1404,6 +1418,8 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
       // B148 kept: background work holds no chat whose step is reported (in review or done) while it holds no other.
       isTaskReported: holds.length === 0 && hasReportedStep(chat.name, entry.busyAt),
       appRuns: Number.isFinite(raw.appStartedAt) && raw.appStartedAt > entry.at ? false : null,
+      // T13 part 3: asleep since the app's start, or since its report when silent past offAfterMs; Not running once a wake did not take.
+      appStartedAt: Number.isFinite(raw.appStartedAt) ? raw.appStartedAt : null, wokenAt: wokenAtOf(chat.name),
     })
     return [chat.name, lane === null ? null : { ...lane, entry }]
   }))
@@ -1488,7 +1504,8 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
     // B315: a card left "working" by a quit app, its process not running: "Not running", never "Working".
     const writtenAt = raw.tails?.[lane.session]?.modifiedAt ?? null
     if (shown.state === 'off') return offLane(shown, workedAt(lane.report))
-    const isStale = !lane.isLeftover && isStaleWork({ state: shown.state, isRunning: runningOf(lane.name), writtenAt, appStartedAt, now })
+    // T13 part 3: an asleep chat that waits for the partner's answer keeps that: the answer's word wakes it.
+    const isStale = !lane.isLeftover && !lane.asleep && isStaleWork({ state: shown.state, isRunning: runningOf(lane.name), writtenAt, appStartedAt, now })
     return isStale ? offLane(shown, writtenAt) : shown
   })
 
@@ -1512,7 +1529,8 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
 
   const counts = { working: 0, waiting: 0, free: 0, unknown: 0, interrupted: 0, suspended: 0, off: 0 }
   // B728: a free lane known not to run counts as not running: one word for one fact (the lane's pill says it too).
-  for (const lane of cards) if (!lane.isLeftover) counts[lane.state === 'free' && runningOf(lane.name) === false ? 'off' : lane.state] += 1
+  // T13 part 3: not an asleep one: it is free, and its task's line wakes it.
+  for (const lane of cards) if (!lane.isLeftover) counts[lane.state === 'free' && runningOf(lane.name) === false && !lane.asleep ? 'off' : lane.state] += 1
 
   // The steps the workers are on right now, also the ones that name no branch (a check, a comparison, a merge):
   // they are in progress, not next in a queue.
@@ -1615,6 +1633,9 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
       model: advisorCard.model ?? null,
       appEffort: advisorCard.effort ?? null,
       state,
+      // T13 part 3: asleep (its process ended while its last report stands), since when.
+      asleep: advisorCard.asleep === true,
+      asleepSince: advisorCard.asleepSince ?? null,
       doingNow: doing,
       messages: advisorEntries === null
         ? []
@@ -1759,9 +1780,10 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
   const information = informationOf(raw.work, now)
   const restart = {
     main: main === undefined ? null : main.name,
-    interrupted: live.filter(lane => lane.state === 'interrupted').map(lane => lane.name),
+    // T13 part 3: an asleep chat is neither: it resumes by itself (its resume word), or its task's line wakes it.
+    interrupted: live.filter(lane => lane.state === 'interrupted' && !lane.asleep).map(lane => lane.name),
     // B315: with the lanes whose card was left "working" by a quit app (`off`).
-    notRunning: live.filter(lane => lane.state === 'off' || runningOf(lane.name) === false).map(lane => lane.name),
+    notRunning: live.filter(lane => (lane.state === 'off' || runningOf(lane.name) === false) && !lane.asleep).map(lane => lane.name),
     // The chats the main chat was lately asked to start, each with how that word fared.
     starting: [...new Map(sent
       .filter(message => message.command === 'start' && typeof message.about === 'string' && now - message.at < 10 * MIN)
@@ -2066,6 +2088,9 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
       suspended: helperLane.suspended,
       asksYou: helperLane.state === 'waiting' || waits.asking.has(helperLane.name.toLowerCase()),
       isRunning: helperLane.state === 'off' ? false : runningOf(helperLane.name),
+      // T13 part 3: asleep, since when.
+      asleep: helperLane.asleep === true,
+      asleepSince: helperLane.asleepSince ?? null,
       // B546: when its transcript was last written, so the supervisor tells a helper the app's restart stopped.
       writtenAt: raw.tails?.[helperLane.session]?.modifiedAt ?? null,
     },
@@ -2083,6 +2108,9 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
       idle: supervisorLane.idle ?? null,
       compaction: supervisorLane.compaction ?? null,
       isRunning: supervisorLane.state === 'off' ? false : runningOf(supervisorLane.name),
+      // T13 part 3: asleep, since when.
+      asleep: supervisorLane.asleep === true,
+      asleepSince: supervisorLane.asleepSince ?? null,
     },
     // The supervisor: the name the list gives the chat that sweeps, also while no chat of that name is open.
     supervisorName: typeof list.supervisor === 'string' ? list.supervisor : null,

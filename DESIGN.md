@@ -4114,10 +4114,39 @@ timers. Now each chat says it (principle 3, know don't guess).
   is no chat's fault, as B736's deaf stretch is none: `src/state.mjs` reads a saved report from before the board started
   as heard at the board's start, so its lane reads as the chat said (free, working, asking, suspended, interrupted)
   until the chat reports anew, and the unknown and off rules (and B736's 10 min keep) count from the start, not from
-  the old report. A chat the app stopped meanwhile (the app started after its saved report: B315's fact) is not kept as
-  it was; it is read as with no report, as before (part 3 of T13 will say more). The demo and a board that shows
-  another's history have no reports. Part 2 (the plan and time saved with the task, "Time and estimates" above) is built; part 3 (an app restart) and part 4
-  (the board opening a chat when none runs) are not built yet.
+  the old report. A chat the app stopped meanwhile (the app started after its saved report: B315's fact) keeps its
+  report as it was, and is asleep (part 3, below). The demo and a board that shows
+  another's history have no reports. Part 2 (the plan and time saved with the task, "Time and estimates" above) and
+  part 3 are built; part 4 (the board opening a chat when none runs) is not built yet.
+- **A restart of the app keeps each chat's state: asleep (T13, part 3; the person, 2026-10-28: "suspended keeps
+  suspended, free = free, working is working, interrupted is interrupted"):** after every app or PC restart each chat
+  read Unknown, then Not running: its process ended with the app, and the board read a report from before the app's
+  start as none. Now such a chat is asleep (`src/chatReport.mjs` `asleepLane`): its process ended while its last report
+  stands, and only a message through the app wakes it. Asleep since the app's start when the app started after the
+  report, or (the coordinator, seen live the same day: Workers 2 and 3 run as routine chats, whose process ends with
+  their turn, and read Not running with nothing restarted) since the report when the board heard nothing for longer
+  than `offAfterMinutes` after a report of idle, or of busy on a task it holds; a chat busy on nothing, or asking, that
+  falls silent is off as before (B736's "silent alone"). The lane keeps the report's state with `asleep` and
+  `asleepSince`, `isRunning` false (so a word to it brings the board's start word, as to any chat that does not run):
+  idle is Free, and counts as a free worker for the hand-out (`idleWorkers`; `workerStart` counts it toward
+  `maxWorkers` and never asks for it, `startsPending` not twice): the task's line goes out with the start word beside
+  it, once (deliver.mjs `sendOnce`, say.mjs `wakeFor`), a running chat's hands send it (B753), and the given task waits
+  `START_WAIT_MS` for it, not the 2 min of a chat that runs. Asking, or a blocking ask on the person, is Your turn, no
+  wake; waiting for the partner's answer stays so (the answer's word wakes it). A turn that ran (busy, or background
+  work, which ended with the process) or a task it holds is Interrupted, "resumes by itself": the board makes one
+  resume word per asleep spell, Resume all's line "resume your step B<id> from your checkpoint" (a chat with no step,
+  such as the main chat, the partner or the supervisor: "Your chat stopped in the middle of your turn: go on from where
+  you were."), as a hand's job (`src/hands.mjs` `handJobs`, `asleep:<asleepSince>:<chat>`): the server keeps what it gave
+  by chat (`asleepWoken`, in memory; a send that failed may go again), none while the person pauses, none for a chat
+  Resume all's list wakes, and say.mjs `resumesDue` leaves an asleep chat to it. Nothing restarts them (B766's restart is
+  for running idle workers only): a message wakes each. Not running stays for a chat that never reported (gap 1), one
+  whose session ended, and one a wake did not start: a start or wake word about it taken or sent, or its resume word,
+  since it fell asleep, and silent for longer than `offAfterMinutes` after it ("woken at HH:MM, it did not start"); the
+  board's older ways (`resumesDue`, the start) then take over. While the person pauses the page shows an asleep
+  interrupted chat Suspended (`pausedLanes`). The page says Free with "asleep since 18:07, wakes when it gets a task",
+  and Interrupted "resumes by itself" in a quiet colour (`is-asleep`), never the alarm's; the restart banner names
+  neither as cut off or not running, the head counts an asleep free chat free, the reconciler flags no asleep holder as
+  "not running", and the Workers list (B738's `off`) leaves them out. Tests: `test/asleepAfterRestart.test.mjs`.
 - **Older mods and a restart:** a chat on a Workers mod older than 0.19.0 sends no report and keeps the board's
   reading, until the restart between steps (B570) brings it onto the new mod; the reading is removed in a later
   clean-up once no chat needs it. After the board restarts its saved reports (T13, above) are read: each chat shows what it last said

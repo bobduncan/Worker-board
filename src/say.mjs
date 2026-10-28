@@ -883,6 +883,8 @@ export function resumesDue(state, outbox) {
   for (const lane of state.chats ?? []) {
     if (lane.isLeftover === true || lane.isMain === true || lane.name === main) continue
     if (!(lane.isRunning === false || lane.state === 'off')) continue
+    // T13 part 3: an asleep chat gets its one resume word as a hand's job (hands.mjs `handJobs`), not this one.
+    if (lane.asleep === true) continue
     if (lane.state === 'suspended' || (lane.suspended ?? null) !== null || Number.isFinite(lane.removedAt) || lane.removal?.isOpen === true) continue
     if (stoppedOf(outbox, lane) !== null) continue
     const held = (lane.storeSteps ?? []).filter(one => RESUMED_STEPS.includes(one.state))

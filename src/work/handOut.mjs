@@ -220,11 +220,12 @@ const isWorkerLane = lane => lane.isMain !== true && lane.isLeftover !== true
  * a leftover) whose chat reports (`lane.report`, the Workers mod's own word), idle and free (or, B567, named in
  * `restFree`: it rests while its task waits on the person), running, holding no step given or under way, not stuck.
  * Free by the board's older reading of a chat, unknown, off, suspended or busy: none. The one idle longest first, then
- * by name.
+ * by name. T13 part 3: an asleep one (its process ended after it said idle: state.mjs `asleep`) is free too: its task's
+ * line wakes it (the board's start word beside it, deliver.mjs `sendOnce`).
  */
 export function idleWorkers(lanes, { items, prefix = '', restFree = [], stuck = new Set() }) {
   return lanes.filter(lane => isWorkerLane(lane) && lane.report !== null && lane.report !== undefined && lane.report.state === 'idle'
-    && (lane.state === 'free' || restFree.includes(lane.name)) && lane.isRunning === true
+    && (lane.state === 'free' || restFree.includes(lane.name)) && (lane.isRunning === true || lane.asleep === true)
     && !stuck.has(lane.name) && !holdsOf(items, lane.name, prefix))
     .sort((a, b) => (a.report.since ?? 0) - (b.report.since ?? 0) || byId(a.name, b.name))
 }
@@ -331,7 +332,9 @@ export function takeBacks({ items, outbox = [], lanes = [], now, takeWithinMs, h
       if (isGive && now - startAt >= heldGiveMs) backs.push({ id, chat: lane.name, stuck: false, why: `${HELD_WHY} ${minutesOf(heldGiveMs)} min` })
       continue
     }
-    if (now - lineAt < takeWithinMs) continue
+    // T13 part 3: an asleep worker is started by the start word beside its line first: it has the time a start takes.
+    const takeMs = lane.asleep === true ? Math.max(takeWithinMs, START_WAIT_MS) : takeWithinMs
+    if (now - lineAt < takeMs) continue
     const report = lane.report ?? null
     const isFresh = report !== null && lane.isRunning === true && !['unknown', 'off', 'suspended'].includes(lane.state)
     // The recheck: it reacted only when its line itself was taken (or typed) and its turn began after the line; a busy
@@ -340,7 +343,7 @@ export function takeBacks({ items, outbox = [], lanes = [], now, takeWithinMs, h
     const reacted = isFresh && isTaken && Number.isFinite(report.since) && report.since >= lineAt
     if (reacted && report.state !== 'idle') continue
     const stuck = isFresh && report.state === 'idle' && Number.isFinite(report.since) && report.since < lineAt
-    backs.push({ id, chat: lane.name, stuck, why: reacted ? 'not taken in the turn after its line' : `not taken within ${minutesOf(takeWithinMs)} min` })
+    backs.push({ id, chat: lane.name, stuck, why: reacted ? 'not taken in the turn after its line' : `not taken within ${minutesOf(takeMs)} min` })
   }
   return backs
 }
@@ -419,7 +422,8 @@ function startsPending({ workers, sent = [], now, prefix = '' }) {
     if (word.command === 'spawn' && Number.isFinite(word.reported)) pending += Math.max(0, (Number(word.count) || 1) - Math.max(0, reported - word.reported))
     if (word.command === 'start') {
       const lane = workers.find(one => plain(one.name, prefix) === plain(word.about, prefix))
-      if (lane !== undefined && !(lane.report?.at > word.at)) pending += 1
+      // T13 part 3: an asleep worker's start (its task's line wakes it) is counted as the worker it is already, not twice.
+      if (lane !== undefined && lane.asleep !== true && !(lane.report?.at > word.at)) pending += 1
     }
   }
   return pending
@@ -449,7 +453,8 @@ export function workerStart({ ready = [], gives = [], idle = [], lanes = [], max
   const refusedIds = new Set(refused.map(one => one.id))
   const workers = lanes.filter(isWorkerLane)
   const pending = startsPending({ workers, sent, now, prefix })
-  const isOff = lane => lane.state === 'off' || lane.isRunning === false
+  // T13 part 3: an asleep worker is no closed one: it counts toward `maxWorkers`, and its task's line or its resume word wakes it.
+  const isOff = lane => (lane.state === 'off' || lane.isRunning === false) && lane.asleep !== true
   // The person, 2026-10-25: "ensure the board can't make more than the allowed limit": the workers on their way count
   // toward `maxWorkers` too, so a start word sent before the last one reported never makes one too many. A worker on
   // its way may already show as a lane with no report yet: those and the pending starts are the same chats, counted once.

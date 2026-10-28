@@ -43,8 +43,9 @@ test('a fresh report is the lane\'s state, and the chat runs', () => {
   assert.deepEqual(laneFromReport(fresh('busy'), facts({ appRuns: false })), { state: 'working', isRunning: true })
 })
 
-test('a report older than the setting is unknown, or off when the app says the chat does not run', () => {
-  assert.deepEqual(laneFromReport(stale('busy'), facts({ appRuns: false })), { state: 'off', isRunning: false, why: 'app' })
+test('a report older than the setting is unknown, or asleep when the app says the chat does not run (T13 part 3, no longer off)', () => {
+  assert.deepEqual(laneFromReport(stale('busy'), facts({ appRuns: false })), { state: 'interrupted', isRunning: false, asleep: true, asleepSince: NOW - 31_000 })
+  assert.deepEqual(laneFromReport(stale('busy'), facts({ appRuns: false, appStartedAt: NOW - 20_000 })).asleepSince, NOW - 20_000)
   assert.deepEqual(laneFromReport(stale('busy'), facts({ appRuns: null })), { state: 'unknown', isRunning: null })
   assert.deepEqual(laneFromReport(stale('idle'), facts({ appRuns: true })), { state: 'unknown', isRunning: null })
   // Exactly at the setting it is still fresh.
@@ -80,7 +81,11 @@ test('review 3: a session that ended is off at once; a report silent past offAft
   assert.deepEqual(laneFromReport(later('ended'), full()), { state: 'off', isRunning: false, why: 'ended' })
   assert.deepEqual(laneFromReport(fresh('busy', { at: NOW - 5 * 60_000 - 1 }), full()), { state: 'off', isRunning: false, why: 'silent' })
   assert.deepEqual(laneFromReport(fresh('busy', { at: NOW - 4 * 60_000 }), full()), { state: 'unknown', isRunning: null })
-  assert.deepEqual(laneFromReport(stale('idle'), full({ appRuns: false })), { state: 'off', isRunning: false, why: 'app' })
+  // T13 part 3: asleep, no longer off: after the app's start, and silent past offAfterMs after an idle report or busy on a task.
+  assert.deepEqual(laneFromReport(stale('idle'), full({ appRuns: false })), { state: 'free', isRunning: false, asleep: true, asleepSince: NOW - 31_000 })
+  assert.deepEqual(laneFromReport(fresh('idle', { at: NOW - 5 * 60_000 - 1 }), full()), { state: 'free', isRunning: false, asleep: true, asleepSince: NOW - 5 * 60_000 - 1 })
+  assert.equal(laneFromReport(fresh('busy', { at: NOW - 5 * 60_000 - 1 }), full({ holdsTask: true })).state, 'interrupted')
+  assert.deepEqual(laneFromReport(fresh('asking', { at: NOW - 5 * 60_000 - 1 }), full()), { state: 'off', isRunning: false, why: 'silent' })
 })
 
 test('review 5b: background work does not hold a chat whose task is reported (B148)', () => {

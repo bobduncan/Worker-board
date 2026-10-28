@@ -199,30 +199,32 @@ test('a chat that reports after the restart is read from its new report; one tha
   const late = STARTED + 6 * MIN
   const log2 = quiet()
   for (let t = STARTED + 5_000; t <= late; t += 5_000) log2.heard(t)
-  const off = build({ now: late, reports, log: log2 })
-  assert.deepEqual([lane(off, 'Weeder').state, lane(off, 'Weeder').isRunning], ['off', false])
-  assert.equal(lane(off, 'Weeder').offWhy, `silent since 14:10`)
+  // T13 part 3: silent past offAfterMinutes after an idle report it is asleep since then (counted from the start), no longer off.
+  const asleep = build({ now: late, reports, log: log2 })
+  assert.deepEqual([lane(asleep, 'Weeder').state, lane(asleep, 'Weeder').isRunning, lane(asleep, 'Weeder').asleep, lane(asleep, 'Weeder').asleepSince], ['free', false, true, STARTED])
 })
 
 test('B736\'s keep still ends: past 10 minutes of hearing no chat the saved reports are read by the usual rules, counted from the start', () => {
   const log = quiet()
   const long = STARTED + 11 * MIN
   const state = build({ now: long, reports: saved(), log })
-  assert.deepEqual(NAMES.map(name => lane(state, name).state), ['off', 'off', 'off'])
+  // T13 part 3: the idle ones are asleep (free); Digger, busy on no task, is off as before.
+  assert.deepEqual(NAMES.map(name => lane(state, name).state), ['free', 'off', 'free'])
+  assert.deepEqual(NAMES.map(name => lane(state, name).asleep), [true, false, true])
 })
 
-test('a chat the app stopped while the board was down (the app started after its report) is not kept as it was: read as before this change', () => {
+test('a chat the app stopped while the board was down (the app started after its report) keeps its report as it was: asleep (T13 part 3)', () => {
   // The app started at 14:05, between the board's stop and its start: every chat's process ended with it.
   const appStartedAt = at(14, 5)
   const log = quiet()
   const written = at(13, 59)
   const restarted = build({ now: STARTED + 2 * MIN, reports: saved(), log, appStartedAt, written })
-  const none = build({ now: STARTED + 2 * MIN, reports: new Map(), log, appStartedAt, written })
-  assert.deepEqual(NAMES.map(name => lane(restarted, name).state), NAMES.map(name => lane(none, name).state))
-  assert.notEqual(lane(restarted, 'Digger').state, 'working')
-  assert.equal(lane(restarted, 'Digger').report, null)
-  // The same reports with the app started before them are kept: the guard is the app's start, nothing else.
+  // Not Unknown, not Not running: free, interrupted (its turn ran), free; none runs, each asleep since the app's start.
+  assert.deepEqual(NAMES.map(name => lane(restarted, name).state), ['free', 'interrupted', 'free'])
+  assert.deepEqual(NAMES.map(name => [lane(restarted, name).isRunning, lane(restarted, name).asleepSince]), NAMES.map(() => [false, appStartedAt]))
+  // The report is the one it saved, its own time kept (not counted as heard at the board's start).
+  assert.deepEqual([lane(restarted, 'Digger').report.state, lane(restarted, 'Digger').report.at], ['busy', STOPPED])
+  // The same reports with the app started before them are kept as heard at the board's start: the guard is the app's start.
   const kept = build({ now: STARTED, reports: saved(), log, appStartedAt: at(13, 0), written })
-  assert.equal(lane(kept, 'Digger').state, 'working')
-  assert.equal(lane(build({ now: STARTED, reports: saved(), log, appStartedAt, written }), 'Digger').state, lane(none, 'Digger').state)
+  assert.deepEqual([lane(kept, 'Digger').state, lane(kept, 'Digger').asleep], ['working', false])
 })

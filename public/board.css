@@ -968,6 +968,13 @@ body.is-resizing { cursor: col-resize; user-select: none; }
 .workers-panel .pill.is-off { background: rgba(141, 154, 174, 0.14); color: var(--muted); box-shadow: inset 0 0 0 1px rgba(141, 154, 174, 0.5); }
 .is-interrupted .fill { background: var(--warn); }
 .span.is-interrupted { background: var(--warn); }
+/* T13 part 3: an asleep chat whose turn was cut resumes by itself: a quiet cool tone, never the alarm's. */
+.pill.is-asleep { background: #5b7fae; color: var(--ink); }
+.workers-panel .pill.is-asleep { background: rgba(91, 127, 174, 0.16); color: #9db8dc; box-shadow: inset 0 0 0 1px rgba(91, 127, 174, 0.5); }
+.lane.is-interrupted.is-asleep { border-color: #34465f; }
+.lane.is-interrupted.is-asleep .fill { background: #5b7fae; }
+.is-asleep .avatar { color: #9db8dc; border-color: #34465f; }
+.worker-icon.is-asleep { color: #9db8dc; }
 
 .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px 16px; min-width: 0; }
 .panel h2, .inbox h2, .talk h2 { font-size: 21px; font-weight: 700; display: flex; align-items: baseline; gap: 12px; }
