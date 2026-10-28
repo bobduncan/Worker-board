@@ -51,7 +51,7 @@ const folder = given('folder') ?? await ask('Its folder (new or empty)', join(pa
 const prefix = given('prefix') ?? await ask('The chats\' titles start with', `${name.trim()} - `, true)
 // B767: the app lets a chat's code do the main chat's routine jobs only with allow rules in the project's settings,
 // so it is asked once here; without a keyboard only --allow-code yes allows them.
-const allowCode = /^y/i.test((given('allow-code') ?? await ask('Let the board\'s code do the main chat\'s routine jobs on this PC (wake chats, model and effort, restarts, new workers)? y/n', 'y')).trim())
+const allowCode = /^y/i.test((given('allow-code') ?? await ask('May the board start, wake and restart its chats and set their model by itself? It adds 7 tool permissions to the new project\'s own settings. y/n', 'y')).trim())
   && (process.stdin.isTTY || given('allow-code') !== undefined)
 asking.close()
 

@@ -16,7 +16,9 @@ irm https://raw.githubusercontent.com/bobduncan/Worker-board/main/tools/install.
 It checks Windows, the Claude desktop app, Node 24 or newer and git, one line each, and offers to install Node and git
 with winget (without the Claude app it says where to get it and stops). It gets the board into a folder of your choice
 (press Enter at "Where should the board go?" for the one it offers), installs the Workers mod, and asks your first
-project's name, folder and chats' prefix: the project, its own board and its icon on the desktop are made, and its
+project's name, folder and chats' prefix, and whether the board may start, wake and restart its chats and set their
+model by itself (it adds 7 tool permissions to the project's own settings; the board's ⚙ later shows what it does by
+itself and allows the rest with one click): the project, its own board and its icon on the desktop are made, and its
 board opens with one button that sets up the project's chats. Run the line again at any time: it checks what is there
 and redoes nothing; with a project on the PC it offers to make another. `$env:WORKER_BOARD_CHECK = 1` before it only
 checks.

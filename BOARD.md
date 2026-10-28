@@ -86,7 +86,7 @@ Claude** (B311, B735: Full or Low, one click each; the line beside it says "full
 processes it applies to, "15 processes on 2 cores, lowest priority: tests and builds run slower"; "not available here" off Windows; a listing that failed is one red line on top), **Bother me** (B361: At once, or Once a day: the recaps
 and the questions that hold up no chat then gather under your partner's daily note on the Focus page; a question that
 holds up a chat always comes at once), **Approve rebuilds by itself** (B361: Off, On; saved in the board's settings
-file) and **Done by code on this PC** (B767: each routine job of the main chat's, waking chats, model and effort,
+file) and **What the board does by itself on this PC** (B767: each routine job of the main chat's, waking chats, model and effort,
 restarts and new workers, "by code" or still the main chat's and why, as the running chats' Workers mod reports it;
 **Allow them for this project** adds the missing tool rules to the project's own `.claude\settings.local.json`, named
 in its tooltip; **Copy the line that makes the task** gives the line to paste into any chat for the stored

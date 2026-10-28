@@ -2325,7 +2325,7 @@ button.needs-you:hover small, button.needs-you:focus-visible small { color: var(
 .code-job-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
 .code-job { display: flex; gap: 8px; align-items: baseline; font-size: 13px; }
 .code-job-title { flex: 1; }
-.code-job-state { color: var(--muted); font-size: 12px; text-align: right; }
+.code-job-state { color: var(--muted); font-size: 12px; text-align: right; white-space: nowrap; }
 .code-job.is-code .code-job-state { color: #7fc8a9; }
 .settings-pop .cpu-count:empty { display: none; }
 .settings-pop .version { white-space: normal; }

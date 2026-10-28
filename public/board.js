@@ -497,7 +497,14 @@ function drawBoardSettings(state) {
  * lines, one per routine job of the main chat's (`state.codeJobs.rows`): by code, or still the main chat's and why.
  */
 function codeJobLines(jobs) {
-  return (jobs?.rows ?? []).map(row => ({ key: row.key, title: row.title, byCode: row.byCode === true, text: row.byCode === true ? 'by code' : `main chat: ${row.why}` }))
+  // Plain for a first-time user (the person, 2026-10-28: "as long as instructions are clear when a new user tries the
+  // board for the first time"): a short state, the full reason in its tooltip.
+  const short = { 'not allowed yet': 'needs your OK', 'no stored start-worker task on this PC': 'needs its start task', 'no chat with the Workers mod runs now': 'no chat runs now' }
+  return (jobs?.rows ?? []).map(row => ({
+    key: row.key, title: row.title, byCode: row.byCode === true,
+    text: row.byCode === true ? 'by itself' : short[row.why] ?? (String(row.why ?? '').startsWith('the last try failed') ? 'last try failed' : 'after a restart'),
+    why: row.byCode === true ? 'The board does this by itself.' : `The main chat does this for now: ${row.why}.`,
+  }))
 }
 
 /** B767: the note on top while a job of the main chat's could run by code once allowed or once the task is made. */
@@ -505,7 +512,7 @@ function codeJobsNote(jobs) {
   if (jobs === null || jobs === undefined) return null
   const lacking = (jobs.rows ?? []).filter(row => row.byCode !== true && (row.why === 'not allowed yet' || row.why === 'no stored start-worker task on this PC'))
   if (lacking.length === 0) return null
-  return `${lacking.length === 1 ? 'One routine job' : `${lacking.length} routine jobs`} of the main chat could run by code on this PC: ${lacking.map(row => row.title.toLowerCase()).join(', ')}.`
+  return `The board can do ${lacking.length === 1 ? 'one more job' : `${lacking.length} more jobs`} by itself on this PC once you allow ${lacking.length === 1 ? 'it' : 'them'}: ${lacking.map(row => row.title.toLowerCase()).join(', ')}.`
 }
 
 /** B767: the setup check in the settings panel and its note on top. */
@@ -519,6 +526,7 @@ function drawCodeJobs(state) {
   once('code-jobs', [jobs.rows, jobs.missing, jobs.taskLine, jobs.checked], () => {
     fill($('code-job-list'), codeJobLines(jobs).map(line => {
       const row = el('li', `code-job${line.byCode ? ' is-code' : ''}`)
+      row.title = line.why
       row.append(el('span', 'code-job-title', line.title), el('span', 'code-job-state', line.text))
       return row
     }))
@@ -529,8 +537,10 @@ function drawCodeJobs(state) {
   allow.title = `Adds to this project's .claude/settings.local.json: ${(jobs.missing ?? []).join(', ')}`
   $('code-jobs-task').hidden = typeof jobs.taskLine !== 'string'
   const problem = problems.get('code-jobs') ?? null
-  const checked = jobs.checked === null ? 'No chat with the Workers mod runs now.' : `Checked by ${jobs.checked.chat} at ${clock(jobs.checked.at)}.`
-  $('code-jobs-about').textContent = problem ?? `${checked} A job that cannot run by code still goes to the main chat.`
+  const checked = jobs.checked === null ? 'No chat runs now to check it.' : `Checked by ${jobs.checked.chat} at ${clock(jobs.checked.at)}.`
+  const open = (jobs.rows ?? []).some(row => row.byCode !== true)
+  const steps = [allow.hidden ? null : '"Allow them" adds the permissions to this project\'s own settings', $('code-jobs-task').hidden ? null : '"Copy the line" gives a line to paste into any chat of this project and send'].filter(Boolean)
+  $('code-jobs-about').textContent = problem ?? (open ? `What the board does not do by itself yet, the main chat does.${steps.length === 0 ? '' : ` ${steps.join('; ')}.`} ${checked}` : checked)
 }
 
 $('code-jobs-open').addEventListener('click', () => { $('settings').open = true })
