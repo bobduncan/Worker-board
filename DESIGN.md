@@ -3930,6 +3930,11 @@ nothing) the reconciler gives it no new step: no give (`idleWorkers`, `reconcile
 queued one, and its `work next` says "The board's check of your report B727 failed: fix what it names and report
 B727 again first". A worker that never reports again is `review-wait`'s and the health summary's, not this rule's.
 Tests: `test/failedCheckHandBack.test.mjs` (B727's lines through `buildState`, the rule, the `work next` words).
+B765 (X102, 2026-10-28: Worker 1 was cleared at 12:58, took B756 and reported it at 12:59; times are kept to the minute,
+so `takenSince` read B756's own take as "at or after" its report and `not-cleared` filed X102 at once): for the rule
+`not-cleared`, `takenSince` leaves out the reported step's own takes written before its last report line (one History,
+so their order is known); a take of another step in the report's minute, or one written after the report line, still
+counts. Test: `test/sameMinuteTake.test.mjs` (the real lines through `buildState` and the rule, three mutants).
 B587 (X36: a worker restarted for a new mod at 22:45 owed the clear of the step it had just reported; its process
 ended with the archive, so it could not clear, and its next step's line waited until the board itself started anew
 8 minutes on): the clear holds the line only while the chat's process runs (`clearHolds`). A worker whose process ended
