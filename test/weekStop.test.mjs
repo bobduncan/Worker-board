@@ -49,7 +49,8 @@ test('the week back under the line after its reset reads ok again', () => {
   assert.equal(limits(40).week.level, 'ok')
 })
 
-const lane = (name, more = {}) => ({ name, isMain: false, isLeftover: false, state: 'working', isRunning: true, ...more })
+// B771: a working worker holds a step not yet reported (in progress), as the store says (`storeSteps`).
+const lane = (name, more = {}) => ({ name, isMain: false, isLeftover: false, state: 'working', isRunning: true, storeSteps: [{ id: 'B1', title: 'A step', state: 'in progress' }], ...more })
 const board = (week, chats, more = {}) => ({ restart: { main: 'Main' }, chats: [{ name: 'Main', isMain: true, state: 'working' }, ...chats], limits: limits(week), pause: { state: 'running', since: NOW - 5 * 60 * MIN }, ...more })
 const THREE = [lane('Worker 2'), lane('Worker 3'), lane('Worker 5')]
 
@@ -74,6 +75,19 @@ test('the word is given once for each week: not again whatever became of it; a w
   assert.equal(weekStopDue(board(98, [lane('Worker 2')]), [{ ...first, weekResets: RESET - 7 * 24 * 60 * MIN }]).length, 1)
   assert.deepEqual(weekStopDue(board(98, [lane('Worker 2', { state: 'suspended' }), lane('Worker 3', { state: 'free' }), lane('Worker 4', { state: 'off' }), lane('Worker 5', { isRunning: false })]), []), [])
   assert.deepEqual(weekStopDue(board(98, THREE, { pause: { state: 'pausing', since: NOW - MIN } }), []), [])
+})
+
+test('B771 (X98): the word goes only to a worker that holds a step not yet reported: taken or in progress get it; a step in review, none, or a step waiting on the person get none', () => {
+  const held = state => lane('Worker 2', { storeSteps: [{ id: 'B742', title: 'A step', state }] })
+  for (const state of ['taken', 'in progress']) assert.deepEqual(weekStopDue(board(98, [held(state)]), []).map(one => one.to), ['Worker 2'], state)
+  // Worker 2 reported B742 and its turn runs on (the lane still reads working): the hand-out holds already; a word now starts a turn before its clear.
+  for (const state of ['review', 'waiting on you', 'done']) assert.deepEqual(weekStopDue(board(98, [held(state)]), []), [], state)
+  assert.deepEqual(weekStopDue(board(98, [lane('Worker 2', { storeSteps: [] }), lane('Worker 3', { storeSteps: undefined })]), []), [])
+  // Its report failed the board's check: handed back, it stays in its turn to fix the step, so it holds it (it gets the word).
+  const back = lane('Worker 2', { storeSteps: [{ id: 'B742', state: 'review' }] })
+  assert.deepEqual(weekStopDue({ ...board(98, [back, lane('Worker 3', { storeSteps: [{ id: 'B743', state: 'review' }] })]), reconciled: { handedBack: ['Worker 2'] } }, []).map(one => one.to), ['Worker 2'])
+  // One in review beside one still open: it holds a step.
+  assert.equal(weekStopDue(board(98, [lane('Worker 2', { storeSteps: [{ id: 'B1', state: 'review' }, { id: 'B2', state: 'taken' }] })]), []).length, 1)
 })
 
 const lanesOf = chats => [{ name: 'Main', isMain: true, state: 'working' }, ...chats]

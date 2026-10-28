@@ -846,6 +846,13 @@ export function wakeFailedOf(state, outbox, now) {
 const RESUMED_STEPS = ['taken', 'in progress']
 
 /**
+ * B771: whether the chat holds a step not yet reported: taken or in progress in the store (`storeSteps`, its Owner), or one the
+ * board's check handed back (`state.reconciled.handedBack`: its report failed, the worker stays in its turn to fix it). A step in
+ * review, or none, holds no work a stop word could stop.
+ */
+export const holdsOpenStep = (state, lane) => (lane.storeSteps ?? []).some(one => RESUMED_STEPS.includes(one.state)) || (state.reconciled?.handedBack ?? []).includes(lane.name)
+
+/**
  * 2026-10-26: the board's word to a worker that holds a step: `resume your step B<id> from your checkpoint`, the words the
  * main chat sends at Resume all (roles/main.md). Its chat is not running, so the word waits there and the board's wake-up
  * (`wakesDue`) has a chat that runs start it; once it runs, the Workers mod hands the chat its checkpoint.
@@ -932,8 +939,9 @@ export const weekStopWords = (to, stopAt, resetsAt) => ({
  * B742: the lines still to type, one for each worker whose card says it works while the week stands at its stop line
  * (state.limits.week: `level` full from `stopAt`, `used` at or over it; a stop held by a reset ahead is no reading of the
  * stop line). Once for each week: not again while a word to the same chat for the same reset of the week was sent, whatever
- * became of it. A worker suspended already, free or off gets none; never while the person pauses all chats.
- * `outbox` is everything sent.
+ * became of it. A worker suspended already, free or off gets none; B771 (X98): nor one that holds no step not yet reported
+ * (its step in review, or none: the hand-out already holds, and a word typed then starts a turn before its clear ran; one
+ * handed back by a failed check holds its step); never while the person pauses all chats. `outbox` is everything sent.
  */
 export function weekStopDue(state, outbox) {
   const week = state.limits?.week ?? null
@@ -941,7 +949,7 @@ export function weekStopDue(state, outbox) {
   const resets = Number.isFinite(week.resetsAt) ? week.resetsAt : null
   const words = []
   for (const lane of state.chats ?? []) {
-    if (lane.isLeftover === true || lane.isMain === true || lane.state !== 'working' || lane.isRunning === false) continue
+    if (lane.isLeftover === true || lane.isMain === true || lane.state !== 'working' || lane.isRunning === false || !holdsOpenStep(state, lane)) continue
     const isTold = (outbox ?? []).some(sent => sent.command === 'week-stop' && sent.to === lane.name && (sent.weekResets ?? null) === resets)
     if (!isTold) words.push(weekStopWords(lane.name, week.stopAt, resets))
   }
@@ -964,8 +972,8 @@ const FIVE_HOUR_WINDOW_MS = 5 * 60 * 60_000
  * B758: the lines still to type, one for each worker whose card says it works while the 5-hour limit stands at its stop line
  * (state.limits.fiveHour: `level` full, `used` from `stopAt`; a stop held by a reset ahead is no reading of the line). Once for
  * each window: not again while a word to the same chat for the same reset, or sent inside the window that reset ends, was
- * sent, whatever became of it. A worker suspended already, free or off gets none; never while the person pauses all chats.
- * `outbox` is everything sent.
+ * sent, whatever became of it. A worker suspended already, free or off gets none, nor one that holds no step not yet
+ * reported (B771, as `weekStopDue`); never while the person pauses all chats. `outbox` is everything sent.
  */
 export function fiveHourStopDue(state, outbox) {
   const five = state.limits?.fiveHour ?? null
@@ -973,7 +981,7 @@ export function fiveHourStopDue(state, outbox) {
   const resets = Number.isFinite(five.resetsAt) ? five.resetsAt : null
   const words = []
   for (const lane of state.chats ?? []) {
-    if (lane.isLeftover === true || lane.isMain === true || lane.state !== 'working' || lane.isRunning === false) continue
+    if (lane.isLeftover === true || lane.isMain === true || lane.state !== 'working' || lane.isRunning === false || !holdsOpenStep(state, lane)) continue
     const isTold = (outbox ?? []).some(sent => sent.command === 'five-hour-stop' && sent.to === lane.name
       && ((sent.fiveHourResets ?? null) === resets || (resets !== null && Number.isFinite(sent.at) && sent.at > resets - FIVE_HOUR_WINDOW_MS)))
     if (!isTold) words.push(fiveHourStopWords(lane.name, five.stopAt, resets))
