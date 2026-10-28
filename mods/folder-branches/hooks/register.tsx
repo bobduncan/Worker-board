@@ -1327,9 +1327,7 @@ async function afterClear($: EngineInterface): Promise<void> {
     const to = await $.session.id()
     if (to === moving.from) return
     const done = moving.clearing ?? markOf(moving.chat, moving.from, await $.clock.now())
-    trace($, 'afterClear move', { from: moving.from.slice(0, 8), mark: done !== null, role: lastRole })
     const moved = await moveCard($, { ...moving, clearing: done }, to)
-    trace($, 'afterClear moved', { moved: moved?.name ?? null, words: !(moved === null || (done === null && lastRole !== 'worker') || lastRole === 'supervisor' || (done !== null && done.log === null)) })
     clearing = null
     // A turn that started meanwhile keeps its own marks: its end is told as any turn's.
     if (!isInTurn) {
@@ -1353,7 +1351,6 @@ async function afterClear($: EngineInterface): Promise<void> {
     // the words still waited for the board's answer): the words stand ready at once, with the instructions known before
     // the clear; the board's answer only brings them up to date while no prompt has taken them yet.
     pendingStart = [words(known)]
-    trace($, 'words ready', { chars: pendingStart[0]?.length ?? 0 })
     const read = await workQuietly($, { action: 'next' })
     const open = openFrom(read)
     if (open !== null && pendingStart.length > 0) pendingStart = [words(open)]
@@ -1537,7 +1534,6 @@ async function whoamiAgain($: EngineInterface): Promise<void> {
     const every = eagerSince !== null && now - eagerSince < WHOAMI_EAGER_MS ? WHOAMI_AGAIN_MS : WHOAMI_MS
     if (now - lastWhoamiTick < every) return
     lastWhoamiTick = now
-    trace($, 'whoami again', {})
     await joinBySession($)
   } catch {
     // asked again at a later tick
@@ -1580,7 +1576,6 @@ async function handRound($: EngineInterface): Promise<void> {
         results.push({ id: job.id, ok: false, why: error instanceof Error ? error.message.slice(0, 300) : 'the tool failed' })
       }
     }
-    trace($, 'hands', { sent: results.filter(one => one.ok).map(one => one.id), failed: results.filter(one => !one.ok).map(one => one.id) })
     await askBoard($, board, HANDS_DONE_PATH, { results }).catch(() => null)
   } catch {
     // the next round tries again
@@ -1688,7 +1683,6 @@ async function joinBySession($: EngineInterface): Promise<void> {
     if (board === null || list === null) return
     lastWhoami = await $.clock.now()
     const who = await withinTime($, askWhoami($, board))
-    trace($, 'whoami', who === null ? { answer: null } : { name: who.name, role: who.role, card: who.card?.slice(0, 8) ?? null })
     // No answer, or no name yet (the app may write a new session into its list a moment after the start): asked again
     // after WHOAMI_AGAIN_MS, not a whole minute, so a cleared chat is named at its first prompt.
     if (who === null) {
@@ -1799,6 +1793,12 @@ async function isOwnAgent($: EngineInterface, to: string): Promise<boolean> {
   await noteAgents($)
 
   return ownAgents.has(name) || isAgentId(name)
+}
+
+/** Whether the chat has a window to draw a pane in (a chat started in the background has none). True when it cannot tell. */
+async function hasWindow($: EngineInterface): Promise<boolean> {
+  const surfaces = await Promise.resolve($.session.surfaces()).catch(() => null)
+  return !(Array.isArray(surfaces) && surfaces.length === 0)
 }
 
 async function openPane($: EngineInterface): Promise<string> {
@@ -2006,33 +2006,6 @@ async function sessionCleared($: EngineInterface, id: string): Promise<void> {
   }
 }
 
-/**
- * 2026-10-28 (the person's yes, after three tests on the work login in which a cleared worker's first prompt carried none
- * of this mod's words): a line per step of a clear and of a prompt, with the time, into the project's
- * `logs/workers-mod-trace.log` (its newest 300 lines). Written one after another in the background: it never throws and
- * never holds a hook.
- */
-let traceQueue: Promise<void> = Promise.resolve()
-let traceFile: string | null = null
-function trace($: EngineInterface, step: string, facts: Record<string, unknown> = {}): void {
-  traceQueue = traceQueue.then(async () => {
-    try {
-      const at = new Date(await $.clock.now()).toISOString()
-      if (traceFile === null) {
-        const dir = chatsDir ?? await findChatsDir($)
-        if (dir === null) return
-        traceFile = inFolder(inFolder(dir.slice(0, dir.length - CHATS_DIR.length - 1), 'logs'), 'workers-mod-trace.log')
-      }
-      const id = String(await $.session.id()).slice(0, 8)
-      const line = `${at} ${id} ${step} ${JSON.stringify(facts)}`
-      const before = await $.fs.read(traceFile).catch(() => '')
-      await $.fs.write(traceFile, `${[...before.split('\n').filter(one => one !== ''), line].slice(-300).join('\n')}\n`)
-    } catch {
-      // a trace never matters
-    }
-  })
-}
-
 /** How long the clear's own answer waits for what follows it to be made ready (the card's move, a worker's start words). */
 const PREPARE_MS = 8_000
 /** How long a prompt waits for a card's move on its way after a clear: the move itself, not the board's answer after it. */
@@ -2048,11 +2021,10 @@ const MOVE_WAIT_MS = 1_000
  */
 async function clearThenPrepare<T>($: EngineInterface, ran: Promise<T>): Promise<T> {
   const answer = await ran
-  // The trace's clock is read so that a session ending meanwhile throws nothing out of the clear.
+  // The clock is read so that a session ending meanwhile throws nothing out of the clear.
   const from = await Promise.resolve($.clock.now()).catch(() => 0)
   // A clear starts the eager asking again: the cleared conversation is listed by the app only after its first answer.
   eagerSince = from
-  trace($, 'clear ran', { carried: carried !== null, clearing: clearing !== null, moving: movingAfterClear !== null, myself: myself?.name ?? null, role: lastRole })
   try {
     const prepare = carried !== null || clearing !== null
       ? moveAfterClear($)
@@ -2064,7 +2036,6 @@ async function clearThenPrepare<T>($: EngineInterface, ran: Promise<T>): Promise
   } catch {
     // the first prompt moves the card, as before
   }
-  trace($, 'clear prepared', { ms: (await Promise.resolve($.clock.now()).catch(() => from)) - from, pending: pendingStart.length, myself: myself?.name ?? null, role: lastRole })
   return answer
 }
 
@@ -2093,9 +2064,13 @@ export const register: Register = on => {
     startHands($)
     // Review of B298: a chat started anew learns once which of the person's instructions are still open.
     if (myself !== null) void workQuietly($, { action: 'next' })
-    // Each pane opens unasked only where it has something to show: a branch, a chat.
-    if (view.rows.some(row => row.branch !== null)) void openPane($)
-    if (hasChats) void openWorkers($)
+    // Each pane opens unasked only where it has something to show: a branch, a chat. 2026-10-28 (the person: "Yes, fix all
+    // three"; a chat started in the background printed "ui.open: no-surface"): and only where the chat has a window;
+    // with none, /git and /workers open them later.
+    if (await hasWindow($)) {
+      if (view.rows.some(row => row.branch !== null)) void openPane($)
+      if (hasChats) void openWorkers($)
+    }
 
     return next(e)
   })
@@ -2105,12 +2080,8 @@ export const register: Register = on => {
     // holds them until then): nothing they say is lost. Beside the prompt, for the model only, its id and the person's
     // instructions still open (review: never in the system prompt, which stays the same words and stays cached).
     const context: string[] = []
-    // The trace follows the person's prompts only: a word this mod types itself is timed to the microtask (B300).
-    const tracing = e.origin.kind !== 'plugin' || e.origin.name !== PLUGIN
     // 2026-10-28: the app's note that a background task ended takes it off this chat's list of background work.
     if ((e.origin.kind as string) === 'task-notification') noteTaskEnded(e.text)
-    const began = tracing ? await $.clock.now() : 0
-    if (tracing) trace($, 'prompt in', { origin: e.origin.kind, command: e.command ?? null, carried: carried !== null, moving: movingAfterClear !== null, clearing: clearing !== null, pending: pendingStart.length, myself: myself?.name ?? null })
     if (e.command === undefined) {
       // Clear after each step: a prompt that comes in stops a clear that has not run yet; the first prompt after a clear
       // that no session start announced carries the start's words.
@@ -2122,9 +2093,7 @@ export const register: Register = on => {
       // 2026-10-28: and by its session id, before the context is built: a rename is followed, and a card moved after a
       // clear brings its start's words to this very prompt. Not for a word this mod types itself (the board's, from a take):
       // the chat is in the list then, and a rename is followed by its take.
-      if (tracing) trace($, 'prompt after move', { ms: (await $.clock.now()) - began, pending: pendingStart.length })
       if (e.origin.kind !== 'plugin' || e.origin.name !== PLUGIN) await joinBySession($)
-      if (tracing) trace($, 'prompt after whoami', { ms: (await $.clock.now()) - began, pending: pendingStart.length, myself: myself?.name ?? null })
       if (pendingStart.length > 0) context.push(...pendingStart.splice(0))
       // Pause 2: read beside the filing, so both hold the prompt 1.5 s at most together.
       const paused = pauseLines($, 'prompt', e.text)
@@ -2143,7 +2112,6 @@ export const register: Register = on => {
       if (left !== null) context.push(left)
       context.push(...await paused)
     }
-    if (tracing) trace($, 'prompt out', { ms: (await $.clock.now()) - began, lines: context.map(one => one.slice(0, 40)) })
 
     return next(context.length === 0 ? e : { ...e, context: [...(e.context ?? []), ...context] })
   })
@@ -2251,7 +2219,6 @@ export const register: Register = on => {
     if (e.tool !== TOOL && e.tool !== WORK && isInTurn && myself !== null) {
       const lines = await pauseLines($, 'batch')
       if (lines.length > 0) {
-        trace($, 'pause told at a tool call', { tool: e.tool })
         return { deny: [...lines, `(This ${e.tool} call did not run, so that you read this first: run it again only to commit your work.)`].join('\n') }
       }
     }
@@ -2315,7 +2282,6 @@ export const register: Register = on => {
   })
 
   on('session.end', async ($, e, next) => {
-    trace($, 'session.end', { reason: e.reason, session: String(e.sessionId).slice(0, 8) })
     isInTurn = false
     if (e.reason === 'clear') await sessionCleared($, e.sessionId)
     else {
