@@ -79,6 +79,7 @@ import { buildState } from './src/state.mjs'
 import { isReadAction, workApi } from './src/work/api.mjs'
 import { effortOf } from './src/work/effort.mjs'
 import { isHolding, pauseAnswer, resumeEnds, resumeRetypeTo, resumeTypeTo } from './src/work/pause.mjs'
+import { allowCodeJobs, codeJobsView, readCodeJobs, taskWords } from './src/codeJobs.mjs'
 import { handJobs, handResults, isForHandsYet, isHandWord, nextWorkerTitle, startTaskIds, workerNames } from './src/hands.mjs'
 import { basesNow, patientReportCheck } from './src/work/check.mjs'
 import { deliverWork, givesRefused, pullFor, sendOnce } from './src/work/deliver.mjs'
@@ -218,6 +219,8 @@ export const POST_ROUTES = Object.freeze({
   '/api/settings': { kind: 'json', guard: 'lock' },
   '/api/game': { kind: 'json', guard: 'free', why: 'starts or stops a game process of this board\'s own; writes nothing of the project' },
   '/api/cpu': { kind: 'json', guard: 'free', why: 'the CPU level kept in this board folder\'s own data, not the project\'s' },
+  // B767: the setup check's Allow: the missing tool rules into the project's own settings, on the person's click.
+  '/api/code-jobs': { kind: 'json', guard: 'lock' },
   '/api/new-project': { kind: 'json', guard: 'free', why: 'makes another project\'s folder, one at a time; writes nothing of this project' },
   '/api/restart': { kind: 'json', guard: 'free', why: 'starts this process itself anew' },
 })
@@ -239,6 +242,7 @@ export const POST_ROUTES = Object.freeze({
  *   `work(body)`       B297: one action of the page on the work store (work/api.mjs), the same shape
  *   `bridgeWork(body)` B297: one action of a chat's work tool, the same shape; only with `bridgeKey`
  *   `cpu(body)`        B311: the level of "CPU for Claude" ({ level }), the same shape
+ *   `codeJobs(body)`   B767: the setup check's Allow ({ action: 'allow' }), the same shape
  *   `mayWrite()`       B529: null while this process may take the page's writes, else why not (refused with 409)
  */
 export function createBoard({
@@ -259,6 +263,7 @@ export function createBoard({
   work = async () => ({ ok: false, status: 404, why: 'Not here.' }),
   bridgeWork = async () => ({ ok: false, status: 404, why: 'Not here.' }),
   cpu = async () => ({ ok: false, status: 404, why: 'Not here.' }),
+  codeJobs = async () => ({ ok: false, status: 404, why: 'Not here.' }),
   settings = async () => ({ ok: false, status: 404, why: 'Not here.' }),
   newProject = async () => ({ ok: false, status: 404, why: 'Not here.' }),
   recap = async () => ({ ok: false, status: 404, why: 'Not here.' }),
@@ -392,6 +397,10 @@ export function createBoard({
       }
       if (pathname === '/api/cpu') {
         const done = await cpu(parsed)
+        return done.ok ? json(res, done.result) : refuse(res, done.status, done.why)
+      }
+      if (pathname === '/api/code-jobs') {
+        const done = await codeJobs(parsed)
         return done.ok ? json(res, done.result) : refuse(res, done.status, done.why)
       }
       if (pathname === '/api/settings') {
@@ -1574,6 +1583,18 @@ async function main(args) {
   const freshWho = new Map()
   /** B753: when a hand last sent a resume line, by `<pause since>:<chat>`, so one goes again only after a while. */
   const resumesSent = new Map()
+  // B767: what each chat's mod said its code may do at its last claim of the hands (`{ can, at }` by name), and the
+  // last new worker that failed (`{ at, why }`), for the setup check.
+  const codeClaims = new Map()
+  let spawnFail = null
+  /** B767: the setup check as the page shows it; the files are read at most every 30 seconds. */
+  let codeRead = { at: -Infinity, read: null }
+  const codeJobsNow = async (prefix = '') => {
+    if (isDemo || config.project === '') return null
+    if (clock() - codeRead.at >= 30_000) codeRead = { at: clock(), read: await readCodeJobs({ project: resolve(HERE, config.project), folder: basename(resolve(HERE, config.project)) }) }
+    const view = codeJobsView({ claims: codeClaims, ...codeRead.read, spawnFail, now: clock() })
+    return { ...view, canAllow: !isShowOnly, taskLine: view.needsTask ? taskWords({ folder: basename(resolve(HERE, config.project)), prefix, board: HERE }) : null }
+  }
   const checkFresh = async body => {
     // B736 (X73, X87: no chat's report was kept from 21:12 to 21:21 while each waited for a whole read of the board): a
     // chat the board knows is checked against the state it has, however busy it is; only one it does not know waits.
@@ -1667,6 +1688,8 @@ async function main(args) {
       return { ...state, forYou: oldMods === null ? state.forYou : [oldMods, ...(state.forYou ?? [])], design, goalsEdit, cpu: cpu?.view() ?? null, loops: { failing: loops.failing(), line: failingLine(loops.failing(), timeOf) }, supervisor: supervised ?? (isDemo ? demoSupervisor(clock(), SUPERVISOR_RULES, incidentCards) : null), boardSettings: boardSettingsNow(), version: { commit: running, since: startedAt, ...(await versionNow()), canRestart, selfUpdate: updateShown }, mod: await modNow(),
         // B320: where the New project button suggests a new project's folder, and whether this board makes one.
         newProject: { parent: home === null ? null : dirname(home), canMake: !isDemo && !isShowOnly, isMaking: makingProject },
+        // B767: which of the main chat's routine jobs run by code on this PC, and what is missing.
+        codeJobs: await codeJobsNow(state.chatPrefix ?? ''),
         // B322: what the page needs to open a new project's first chats in the Claude app: the board's folder (their
         // job texts), the project's name and the Advisor's; only the board that delivers opens chats.
         openChats: isDemo || isShowOnly ? null : { board: HERE, name: config.name, advisor: typeof config.advisor === 'string' && config.advisor !== '' ? config.advisor : null } }
@@ -1743,6 +1766,18 @@ async function main(args) {
       return { ok: true, result: boardSettingsNow() }
     }),
     cpu: async body => (cpu === null ? { ok: false, status: 409, why: 'This board sets no CPU: it is the demo, or it shows the history of another board.' } : cpu.set(body?.level)),
+    // B767: the setup check's Allow: only the tool rules the check finds missing, into the project's own settings.
+    codeJobs: async body => {
+      if (body?.action !== 'allow') return { ok: false, status: 400, why: 'Allow only.' }
+      if (isDemo || isShowOnly || config.project === '') return { ok: false, status: 409, why: 'This board writes no project settings.' }
+      codeRead = { at: -Infinity, read: null }
+      const view = await codeJobsNow((await readState()).chatPrefix ?? '')
+      const done = await allowCodeJobs({ project: resolve(HERE, config.project), tools: view?.missing ?? [] })
+      if (!done.ok) return { ok: false, status: 409, why: done.why }
+      codeRead = { at: -Infinity, read: null }
+      readState.reset()
+      return { ok: true, result: { added: done.added } }
+    },
     design: body => designTurn(async () => {
       const state = await readState()
       const checked = checkDesign(body, designNow(state))
@@ -2052,6 +2087,7 @@ async function main(args) {
       // B766: a worker's restart only to one that may close and reopen chats ('restart'), a new worker only to one that
       // may rename and run the stored task ('spawn').
       const can = new Set(Array.isArray(body?.can) ? body.can.filter(one => typeof one === 'string') : [])
+      codeClaims.set(checked.chat, { can: [...can].slice(0, 10), at: clock() })
       const workers = workerNames(state)
       const isHand = message => isHandWord(message, { canSet: can.has('set'), canRestart: can.has('restart'), canSpawn: can.has('spawn'), workers })
       const taken = isHolding(state.pause) ? [] : await store.takeHands(checked.chat, clock(), keep, isHand)
@@ -2073,6 +2109,10 @@ async function main(args) {
       // A resume line that could not go may go again at the next claim.
       for (const id of failed) if (id.startsWith('resume:')) resumesSent.delete(id.slice('resume:'.length))
       const words = [...sent, ...failed].filter(id => !id.startsWith('resume:'))
+      // B767: a new worker that failed shows on the setup check with its why, until one is started.
+      for (const message of store.outbox().filter(one => one.command === 'spawn' && words.includes(one.id))) {
+        spawnFail = failed.includes(message.id) ? { at: clock(), why: why[message.id] ?? 'not started' } : null
+      }
       const byTo = new Map()
       for (const message of store.outbox().filter(one => words.includes(one.id) && one.state === 'taken')) {
         if (!byTo.has(message.to)) byTo.set(message.to, [])

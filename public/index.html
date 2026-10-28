@@ -14,6 +14,7 @@
   <button class="update-note" id="update-note" type="button" hidden></button>
   <p class="app-note" id="app-note" role="status" hidden></p>
   <p class="app-note" id="mod-note" role="status" hidden></p>
+  <p class="app-note is-info" id="code-jobs-note" role="status" hidden><span id="code-jobs-note-text"></span> <button class="cpu-level" type="button" id="code-jobs-open">Open the setup check</button></p>
   <p class="app-note is-problem" id="store-note" role="status" hidden></p>
   <p class="app-note is-problem" id="set-aside-note" role="status" hidden></p>
   <p class="app-note is-problem" id="cpu-note" role="status" hidden></p>
@@ -51,6 +52,13 @@
           <button class="cpu-level" type="button" data-setting="approveRebuilds" data-value="false" title="A rebuild your partner's evaluation proposes waits for your yes">Off</button>
           <button class="cpu-level" type="button" data-setting="approveRebuilds" data-value="true" title="A rebuild your partner's evaluation proposes goes ahead at once, and you get a recap">On</button>
         </div>
+        <section class="code-jobs" id="code-jobs" aria-labelledby="code-jobs-title" hidden>
+          <span class="cpu-label" id="code-jobs-title">Done by code on this PC</span>
+          <ul class="code-job-list" id="code-job-list"></ul>
+          <button class="cpu-level" type="button" id="code-jobs-allow" hidden>Allow them for this project</button>
+          <button class="cpu-level" type="button" id="code-jobs-task" hidden>Copy the line that makes the task</button>
+          <span class="cpu-count" id="code-jobs-about"></span>
+        </section>
         <span class="version" id="version"></span>
         <button class="new-project-button" type="button" id="new-project-button" hidden>New project…</button>
       </div>
