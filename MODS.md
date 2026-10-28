@@ -36,20 +36,20 @@ The same for each of them:
   preview, and starts games itself (Run game). Lost: the Run pane inside the app.
 - **Verdict: drop it from the board's setup; keep it as a personal tool if wanted.** No work on the board.
 
-## The Workers mod (folder-branches)
+## The Workers mod (`workers`, called `folder-branches` until 0.26.0)
 
 This one the board leans on. It is several things in one; each is weighed on its own.
 
 | Part | What it gives | Without it | A stand-in, and its cost | Verdict |
 |---|---|---|---|---|
 | The bridge | What you answer or type on the board (answers, Talk to Main, the restart, worker and queue buttons, the Design tab's step) is typed into the chat as your word, and wakes a chat that waits | Nothing outside the app can type into a chat or wake one | Copy the words and open the chat for you to paste them: a click more per answer, and an idle chat is not woken. About 2 to 3 h | **Keep, with the copy-and-open fallback** when no mod answers |
-| The cards | Each chat's topic, steps and times on its lane, with reminders when a time is missing | The lanes still show working, waiting or free (from the chats' transcripts), without the topic and the times | The chats write their card file themselves, told so in their job texts; no reminders. About 1 to 1.5 h | **Make optional:** the board reads both kinds of card |
+| The cards | Each chat's topic, steps and times on its lane (until 0.25.0 with reminders when a time is missing; dropped with the classic hooks) | The lanes still show working, waiting or free (from the chats' transcripts), without the topic and the times | The chats write their card file themselves, told so in their job texts; no reminders (the mod's own since 0.25.1). About 1 to 1.5 h | **Make optional:** the board reads both kinds of card |
 | Starting the board | The board starts with the first chat of the project | The person starts it by hand | A start script and a line in the README. About 1 h | **Make optional** |
 | Whether a chat runs | "Not running" on a lane and in the mod's Workers list (B738: from the board's verdict in the answer to a take), and the main chat starts such a chat | The board cannot tell a closed chat from an idle one | None on every system; drop the mark. About 30 min | **Keep with the mod only** |
 | Compacting a large worker, or clearing it (2026-10-23, `afterStep` "clear") | A worker is made smaller after it reports, or cleared with its conversation kept as a log by the board, so it does not re-read a long history; the main chat and the partners are compacted at rest | Chats grow until the app compacts them in the middle of work | None | **Keep with the mod only** |
 | The panes (Workers, Git) | The list of chats and the branches inside the app | The board shows both | None needed | **Keep with the mod** |
 | Filing a "For you" block (B317, 0.13.7) | At a chat's turn end, the items of the "For you" block its answer ends with go to the board with `turn-ended`; the board files those the chat filed no ask for as asks `Via: chat`, so they get an answer box | The chat's questions stand only in its chat, and the board warns "filed no ask" | The chats file every question with `work ask`, as their job texts say | **Keep with the mod only** |
-| Pause and resume (Pause 2, 0.13.9) | The work tool's `step` takes a checkpoint (`commit`, `next`). The mod reads the person's pause (`pause-state`, at most once per 20 s on a tool batch, and from `turn-ended`'s `pause`): while pausing a chat is told at the first tool batch of each turn to write its checkpoint, stop or wait for its background agents and end its turn, and a free worker pulls nothing; after Resume all the main chat, at its start or the board's `resume`, is told whom to wake by session id; a chat holding a step, at its first turn after the resume or at a session start, its checkpoint | The board still says from facts who works and who has no checkpoint; nobody tells a chat to stop or whom to wake | The person types the words into each chat | **Keep with the mod only** |
+| Pause and resume (Pause 2, 0.13.9) | The work tool's `step` takes a checkpoint (`commit`, `next`). The mod reads the person's pause (`pause-state`, at most once per 20 s at a tool call, and from `turn-ended`'s `pause`): while pausing a chat is told at the first tool call of each turn (the call is refused with the words, since 0.25.1 on every login) to write its checkpoint, stop or wait for its background agents and end its turn, and a free worker pulls nothing; after Resume all the main chat, at its first prompt or the board's `resume`, is told whom to wake by session id; a chat holding a step, at its first turn after the resume or at the first prompt of its process, its checkpoint | The board still says from facts who works and who has no checkpoint; nobody tells a chat to stop or whom to wake | The person types the words into each chat | **Keep with the mod only** |
 
 **Verdict: keep the Workers mod, but make the board work without it.** The bridge has no real stand-in, so with the
 mod the board stays better; without it the board still shows everything and asks the person to paste instead of
@@ -79,14 +79,14 @@ Each piece is merged on its own and changes nothing for a PC that has the mods.
 
 **In all:** about 5 to 6 hours of a worker's time, less than B146's 8 to 10, because the mod is kept and the board
 only learns to do without it. After step 5 a new project can run the board with no mod at all; installing the
-Workers mod then adds the bridge, the reminders and the compacting.
+Workers mod then adds the bridge and the compacting (the reminders went with the classic hooks in 0.25.1: the mod registers no classic hook, so the app's guard on a work login has nothing to skip).
 
 ## The Workers mod comes with the board (B251, 2026-10-15)
 
 The hard part of keeping the mod was installing it on a new PC: a private repository of mods, and the app's
 command-line program, which the app keeps in its own folder and does not put on the PATH. Now:
 
-- **The board carries the mod's source**, in `mods/folder-branches`, as a marketplace of one plugin named
+- **The board carries the mod's source**, in `mods/workers`, as a marketplace of one plugin named
   `worker-board` (`mods/.claude-plugin/marketplace.json`). The mod's own tests (`hooks/*.test.ts`) run in the
   plugin test kit, not in the board's `npm test`. Changes to the mod are made here.
 - **`npm run setup`** (`setup.mjs`, `src/setup.mjs`) finds the app's program (the newest under the app's folder, the
@@ -96,7 +96,10 @@ command-line program, which the app keeps in its own folder and does not put on 
   - a copy that is on, from any marketplace: leaves it as it is ("Nothing to do"), because two copies of one mod
     clash; the board's own copy, older than the board's: updates it;
   - a copy that is off: turns it on; two copies on, or the name `worker-board` taken by another folder: changes
-    nothing and says what to do.
+    nothing and says what to do;
+  - a copy under the mod's old name `folder-branches` (until 0.26.0): uninstalls it (it is no second copy that
+    clashes: it only counts as one to remove) and goes on as above with the name `workers`; the page names the
+    installed mod by either name until the reinstall.
   `npm run setup -- --check` only says what it would do.
 - **Tried first, and it does not work: a project that brings the mod by itself.** A project's `.claude/settings.json`
   can name a marketplace inside the project (`extraKnownMarketplaces`, a `directory` source) and turn its plugin on

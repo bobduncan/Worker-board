@@ -4,8 +4,8 @@
   "owner": { "name": "worker board" },
   "plugins": [
     {
-      "name": "folder-branches",
-      "source": "./folder-branches",
+      "name": "workers",
+      "source": "./workers",
       "description": "The Workers mod: each chat's card, your answers from the worker board typed into the chats, the board kept running, a large worker compacted after it reports; the Workers and Git panes."
     }
   ]

@@ -1075,6 +1075,40 @@ function weekStopIgnored(view, ctx) {
   }]
 }
 
+/**
+ * B758: how long the board may take to read a figure the app wrote: a give or a start sent this soon after the figure's own
+ * time may have gone before the board saw it, which is no fault of the stop line.
+ */
+const FIVE_HOUR_READ_MS = 2 * MIN
+
+/** B758: the History line of the board's give (api.mjs `give`), with its time. */
+const GIVEN_LINE = /^-\s+(\d{4}-\d{2}-\d{2} \d{2}:\d{2}(?::\d{2})?)\s+server: .*→ queued \(given by the board to /
+
+/**
+ * 21. B758 (X99, the rule the sweep wanted: at 99% of the 5-hour limit with its reset 25 min off, B744, B743 and B746 were given
+ * at 12:25 to 12:28 and Workers 1 to 3 started): the 5-hour limit stands at its stop line (view.limits.fiveHour: `level` full,
+ * `used` from `stopAt`; limits.mjs holds it only while the reset is over 10 min off, or at 100), and the board gave a step (the
+ * step's History line "refined → queued (given by the board to <chat>)", not the later line that tells the chat) or started a
+ * worker (a `start` or `spawn` word of the hand-out, which carries `reported`) after the figure was read. One finding naming
+ * them; it clears when the limit leaves its stop line.
+ */
+function fiveHourStopIgnored(view) {
+  const five = view.limits?.fiveHour ?? null
+  if (isPaused(view) || five === null || five.level !== 'full' || !Number.isFinite(five.used) || !Number.isFinite(five.stopAt) || five.used < five.stopAt || !Number.isFinite(five.at)) return []
+  const after = afterPause(view, five.at + FIVE_HOUR_READ_MS)
+  const sent = (view.outbox ?? []).filter(word => Number.isFinite(word.at) && word.at > after && ['failed', 'expired', 'dropped'].includes(word.state) === false)
+  const gives = stepsOf(view).flatMap(item => (item.sections?.get('History') ?? []).map(line => line.match(GIVEN_LINE)?.[1])
+    .filter(stamp => stamp !== undefined && sinceMs(stamp) >= after).map(stamp => ({ about: idOf(item), at: sinceMs(stamp) })))
+  const starts = sent.filter(word => (word.command === 'start' || word.command === 'spawn') && Number.isFinite(word.reported))
+  if (gives.length === 0 && starts.length === 0) return []
+  const names = [...gives.map(word => `${word.about} at ${clockOf(word.at)}`), ...starts.map(word => `${word.command === 'start' ? `start of ${word.about}` : 'a new worker'} at ${clockOf(word.at)}`)]
+  return [{
+    rule: 'five-hour-stop-ignored', key: 'five-hour-stop-ignored board', subject: 'board',
+    text: `the 5-hour limit is at ${Math.round(five.used)}%, its stop line is ${five.stopAt}%, and the board still gave or started: ${names.join(', ')}`,
+    evidence: `5-hour ${Math.round(five.used)}% read at ${clockOf(five.at)} (stop line ${five.stopAt}%${Number.isFinite(five.resetsAt) ? `, resets ${clockOf(five.resetsAt)}` : ', reset not known'}); sent after that: ${names.join('; ')}`,
+  }]
+}
+
 /** Every watch rule, in the order the section shows them. */
 export const WATCH_RULES = [
   { id: 'unknown-lane', kind: 'watch', says: 'a worker unknown or off for too long that holds a step and that the board could not wake', check: unknownLane },
@@ -1102,4 +1136,5 @@ export const WATCH_RULES = [
   { id: 'board-deaf', kind: 'watch', says: 'the board heard no chat for over 10 min while chats wrote their conversations', check: boardDeaf },
   { id: 'board-slow', kind: 'watch', says: 'two work calls within 2 min answered after the chat gave up on them', check: boardSlow },
   { id: 'week-stop-ignored', kind: 'watch', says: 'the week at the stop line (98%), a worker told to stop still works 15 min later and no lane is suspended', check: weekStopIgnored },
+  { id: 'five-hour-stop-ignored', kind: 'watch', says: 'a step given or a worker started while the 5-hour limit is at its stop line (95%) with its reset over 10 min off', check: fiveHourStopIgnored },
 ]

@@ -70,7 +70,7 @@ test('the state holds both limits: the figure of the app\'s file, and the reset 
   const reading = usageResult(at(18, 50), { fiveHour: { used: 6, resetsAt: at(23, 40) }, week: { used: 53, resetsAt: at(21, 0, 15) } })
   const state = build({ usageText: sample(NOW - 3 * MIN, 86, 64), tails: { Main: tail([typed(at(18, 49), 'Zebracorn'), step(at(18, 49), 'Look'), reading, answer(at(18, 51), 'Done.')]) } })
   assert.deepEqual(state.limits, {
-    fiveHour: { used: 86, at: NOW - 3 * MIN, resetsAt: at(23, 40), resetAt: null, level: 'warn', stopAt: 100 },
+    fiveHour: { used: 86, at: NOW - 3 * MIN, resetsAt: at(23, 40), resetAt: null, level: 'warn', stopAt: 95 },
     week: { used: 64, at: NOW - 3 * MIN, resetsAt: at(21, 0, 15), resetAt: null, level: 'ok', stopAt: 98 },
   })
 })

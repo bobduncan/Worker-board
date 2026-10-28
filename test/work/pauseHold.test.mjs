@@ -202,7 +202,7 @@ test('the page: a line held by the pause says "held until resume"', () => {
 test('the server: a take while paused hands out only "resume"; it types "resume" into a main chat that came up, once; the hold does not make lines late', async () => {
   const server = await readFile(join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'server.mjs'), 'utf8')
   // B547: else, for a worker that owes a clear, all but its next step's line. B755: and never a hand's word in its first minute.
-  assert.match(server, /isHolding\(\(await readState\(\)\)\.pause\) \? message => message\.command === 'resume'\s+: atTake\.hold \? message => !isStepLine\(message\) && !isForHandsYet\(message, now\) : message => !isForHandsYet\(message, now\)/)
+  assert.match(server, /isHolding\(\(await readState\(\)\)\.pause\) \? message => message\.command === 'resume'\s+: atTake\.hold \? message => !isStepLine\(message\) && !isForHandsYet\(message, now, workers\) : message => !isForHandsYet\(message, now, workers\)/)
   assert.match(server, /const retype = isShowOnly \? null : resumeRetypeTo\(state\)/)
   assert.match(server, /retyped\.add\(/)
   assert.match(server, /keep\.pause = raw\.work\?\.pause \?\? null/)

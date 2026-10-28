@@ -76,7 +76,8 @@ exactly:
     Note from <name of the chat>: paused for the limit until HH:MM
 
 HH:MM is the time it goes on. The worker board reads that first line and shows the worker as "Suspended" until then,
-so nothing else goes on that line.
+so nothing else goes on that line. The board types the same stop to a working chat when a limit reaches its stop line
+(the 5-hour limit at 95% while its reset is far off, the week at 98%): bring your work to a safe point and send that note.
 
 ## What this does not change
 

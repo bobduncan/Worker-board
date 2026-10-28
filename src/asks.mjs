@@ -1,5 +1,5 @@
 // What a chat needs from the person, in a fixed form: one JSON file per ask in `<project>\.claude\asks\`. A chat
-// writes its own asks (through the folder-branches mod) and closes them; the board only reads them. The form:
+// writes its own asks (through the Workers mod) and closes them; the board only reads them. The form:
 //
 //   { id, from, kind, title, text, at, state,
 //     options:  [ { label, picture, isRecommended } ],   a choice to make

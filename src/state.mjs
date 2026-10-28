@@ -40,6 +40,7 @@ import { recapsOf } from './work/recap.mjs'
 import { isHolding, pauseFacts } from './work/pause.mjs'
 import { reconcile } from './work/reconcile.mjs'
 import { effortPlan, runSettings } from './work/effort.mjs'
+import { supervisorEffortWord, supervisorRun, supervisorSetting } from './work/supervisorEffort.mjs'
 import { enforcementReadiness } from './work/routing/capabilities.mjs'
 import { routingHolds } from './work/routing/assignments.mjs'
 import { refineStop } from './refineGate.mjs'
@@ -1375,6 +1376,8 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
     now,
     warnAt: config.limitWarnPercent,
     weekStopAt: config.weekStopAt,
+    fiveHourStopAt: config.fiveHourStopAt,
+    fiveHourStopMinutes: config.fiveHourStopMinutes,
   })
   // B312: a worker's own pause for the limit ends early once a reading taken after it shows that limit back
   // (limits.mjs `pauseLifted`): its card is read again as if it had not paused, so it is free (or between two turns)
@@ -1693,6 +1696,12 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
     && !toMain.some(message => message.at > lastCopied.at && message.state !== 'copied' && (message.command ?? null) === (lastCopied.command ?? null))
   // Pause and resume (spec 2026-10-18): the pause banner says how a pause stands, from pause.json.
   const pauseRecord = workOk ? raw.work.pause ?? null : null
+  /** A word its chat took, after which the chat's own report says its turn ended (idle, or its session ended). */
+  const endedSince = message => {
+    const entry = reports instanceof Map ? reports.get(message.to) ?? null : null
+    const took = message.takenAt ?? message.at
+    return entry !== null && (entry.state === 'idle' || entry.state === 'ended') && Number.isFinite(entry.since) && Number.isFinite(took) && entry.since >= took
+  }
   // B299: notes and reports for the person; B438: the main chat's answer to a sync check is one of them.
   const information = informationOf(raw.work, now)
   const restart = {
@@ -1732,7 +1741,9 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
     // The review of Pause 2: a line handed to a chat and not typed yet starts a turn: no Safe while one is on its way.
     ...pauseFacts({
       pause: pauseRecord, items: raw.work.items, lanes: [...chats.filter(lane => !lane.isLeftover), ...[advisorCard, helperLane].filter(one => one !== null)], prefix, now,
-      pending: sent.filter(message => message.state === 'taken' && now - (message.takenAt ?? message.at) < TAKEN_SHOWN_MS),
+      // The person, 2026-10-28 ("adisor seems finished, why is that one still showing as running?"): a word the chat took
+      // starts a turn, but once the chat says its turn ended after the take, that turn is over: no typing any more.
+      pending: sent.filter(message => message.state === 'taken' && now - (message.takenAt ?? message.at) < TAKEN_SHOWN_MS && !endedSince(message)),
       held: sent.filter(message => message.isHeld === true),
     }),
     // `hasActed`: the main chat ran a turn since the pause's last change, or runs one now (the review of Pause 2: once its
@@ -1780,6 +1791,11 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
   // The partner and its helper are skipped: their own setting (B352, set once) is never the board's to overwrite.
   const efforts = reconciled === null ? null : effortPlan({ items: raw.work.items, lanes: chats, deliveries: reconciled.deliveries, sent, now, main: isBridgeMissing === true ? null : main?.name ?? null, prefix, skip: [advisorChat?.name, helperChat?.name], ...runSettings(config) })
   if (efforts) for (const id of routingHeld) efforts.held.add(id)
+  // T7.5 (the person, 2026-10-28: "do B"): the Supervisor's chat is held at its own setting (`supervisorModel`, `supervisorEffort`:
+  // Sonnet, low), by the same word and the same half-hour dedupe as a worker's: the plan above skips it, so its word is added.
+  const supervisorWants = supervisorSetting(config)
+  const supervisorWord = efforts === null ? null : supervisorEffortWord({ lane: supervisorLane, setting: supervisorWants, models: runSettings(config).models, sent, now, main: isBridgeMissing === true ? null : main?.name ?? null, prefix })
+  if (supervisorWord !== null) efforts.words.push(supervisorWord)
   // B570: a chat on an older Workers mod is restarted between its steps (work/modRollout.mjs): the words that ask its
   // restarter (the main chat; the partner for the main chat), and the line of an idle worker's next step held meanwhile.
   const side = (lane, name) => (lane === null || lane === undefined ? null : { ...lane, name, isRunning: lane.state === 'off' ? false : runningOf(name) })
@@ -2007,6 +2023,8 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
       appSession: supervisorLane.appSession,
       model: supervisorLane.model ?? null,
       effort: supervisorLane.effort ?? null,
+      // T7.5: the setting the board holds it at (`supervisorModel`, `supervisorEffort`) and whether its file shows it.
+      setting: supervisorRun({ lane: supervisorLane, setting: supervisorWants, models: runSettings(config).models }),
       state: supervisorLane.state,
       // B570: since when it is idle, for a chat on an older Workers mod (oldMods.mjs).
       idle: supervisorLane.idle ?? null,

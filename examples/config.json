@@ -52,6 +52,8 @@
   },
   "usualModel": "sonnet",
   "usualEffort": "medium",
+  "supervisorModel": "sonnet",
+  "supervisorEffort": "low",
   "kinds": [
     {
       "kind": "level",

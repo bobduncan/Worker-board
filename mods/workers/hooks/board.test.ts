@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'claude-code/testing'
 
-import { MOD_VERSION, MOST_CHARS, WHOAMI_PATH, WORK_ACTIONS, WORK_FIELDS, boardStarts, isPaused, parseBoard, parsePause, parseTaken, parseWhoami, pauseContexts, typedWhy } from './board'
+import { MOD_VERSION, MOST_CHARS, WHOAMI_PATH, WORK_ACTIONS, WORK_FIELDS, boardStarts, isPaused, parseBoard, parsePause, parseTaken, parseWhoami, pauseContexts, stopLine, typedWhy } from './board'
 
 const KEY = 'ab'.repeat(32)
 
@@ -48,9 +48,9 @@ describe('the worker board, as the mod reads it', () => {
     // What cannot be typed is named, so the board can say it did not arrive.
     // B532: with why, so the board does not try it again and names the reason.
     expect(parseTaken(answer)).toEqual({ messages: [{ id: 'm1', text: 'Sheet B' }], refused: ['m2', 'm3', 'm4'],
-      why: { m2: `too long: ${MOST_CHARS + 1} > ${MOST_CHARS} characters`, m3: 'no text', m4: 'no text' }, clear: null, off: [] })
-    expect(parseTaken('{"messages":"x"}')).toEqual({ messages: [], refused: [], why: {}, clear: null, off: [] })
-    expect(parseTaken('')).toEqual({ messages: [], refused: [], why: {}, clear: null, off: [] })
+      why: { m2: `too long: ${MOST_CHARS + 1} > ${MOST_CHARS} characters`, m3: 'no text', m4: 'no text' }, clear: null, off: [], stop: null })
+    expect(parseTaken('{"messages":"x"}')).toEqual({ messages: [], refused: [], why: {}, clear: null, off: [], stop: null })
+    expect(parseTaken('')).toEqual({ messages: [], refused: [], why: {}, clear: null, off: [], stop: null })
     // B738: the chats the board shows as not running; anything that is no name is left out.
     expect(parseTaken('{"messages":[],"off":["Worker 5",3,""]}').off).toEqual(['Worker 5'])
     expect(parseTaken('{"messages":[],"off":"x"}').off).toEqual([])
@@ -58,6 +58,13 @@ describe('the worker board, as the mod reads it', () => {
     expect(parseTaken('{"messages":[],"clear":{"step":"B12","reportedAt":5}}').clear).toEqual({ step: 'B12', reportedAt: 5 })
     expect(parseTaken('{"messages":[],"clear":{"step":"../x","reportedAt":5}}').clear).toEqual({ step: null, reportedAt: 5 })
     expect(parseTaken('{"messages":[],"clear":{"step":"B12"}}').clear).toBeNull()
+    // B769: the person's stop or remove for this worker, read safely, with the line it is told.
+    const stop = parseTaken('{"messages":[],"stop":{"id":"m9","kind":"stop","task":"B12 \\"Lava\\""}}').stop
+    expect(stop).toEqual({ id: 'm9', kind: 'stop', task: 'B12 "Lava"' })
+    expect(stopLine(stop!)).toContain('The person stops your task B12 "Lava" (Stop task on the board): reach a safe point now')
+    expect(stopLine({ id: 'm9', kind: 'remove', task: '' })).toContain('The board then takes you off the list and closes this chat.')
+    expect(parseTaken('{"messages":[],"stop":{"id":"m9","kind":"delete"}}').stop).toBeNull()
+    expect(parseTaken('{"messages":[],"stop":{"id":"../x","kind":"stop"}}').stop).toBeNull()
     // B532: why a word the chat did not take failed, in one short line.
     expect(typedWhy(new Error('engine  busy\nnow'), 'the chat did not take it')).toBe('the chat did not take it: engine busy now')
     expect(typedWhy('no prompt is taken now', 'a hook dropped it')).toBe('a hook dropped it: no prompt is taken now')
@@ -168,9 +175,8 @@ describe('Pause 2: the pause state as the mod reads it, and the contexts it give
     // The review of Pause 2: a new turn while the person still pauses is told again, at its first batch.
     expect(pauseContexts(holding, { role: 'worker', where: 'batch', given, turn: 2 })).toEqual([STOP])
     expect(pauseContexts(parsePause(answer('pausing')), { role: 'main', where: 'batch', given: new Set(), turn: 1 })).toEqual([FREE])
-    // Not at a prompt or a start: the next tool batch says it; and never "go on" while pausing.
+    // Not at a prompt: the next tool call says it; and never "go on" while pausing.
     expect(pauseContexts(holding, { role: 'worker', where: 'prompt', given: new Set(), isFirst: true })).toEqual([])
-    expect(pauseContexts(holding, { role: 'worker', where: 'start', given: new Set() })).toEqual([])
   })
 
   test('while resuming: the main chat gets whom to wake by app session id only; a holder its checkpoint; once each', () => {
@@ -181,7 +187,7 @@ describe('Pause 2: the pause state as the mod reads it, and the contexts it give
       { chat: 'Worker 4', session: 'cli-d', cliSession: 'cli-d', step: 'B16', checkpoint: null, branch: null, hasStarted: false },
     ]
     const given = new Set<string>()
-    const main = pauseContexts(parsePause(answer('resuming', [], wakes)), { role: 'main', where: 'start', given })
+    const main = pauseContexts(parsePause(answer('resuming', [], wakes)), { role: 'main', where: 'prompt', given })
     expect(main).toEqual([[
       "Resume: wake each chat below that has not started, by its session id with SendMessage, one line each: 'resume your step B<id> from your checkpoint'",
       "- Worker 1, session local_aaa: 'resume your step B12 from your checkpoint' (checkpoint 1a2b3c4 · write the tests)",
@@ -203,18 +209,18 @@ describe('Pause 2: the pause state as the mod reads it, and the contexts it give
     expect(pauseContexts(parsePause(answer('resuming', old)), { role: 'worker', where: 'prompt', given: new Set() })).toEqual(['You hold B12: no checkpoint since the pause; go on from its branch b12-strip.'])
   })
 
-  test('at a session start (or a process\'s first prompt) a chat that holds a step is told its checkpoint, once', () => {
+  test('at a process\'s first prompt a chat that holds a step is told its checkpoint, once', () => {
     const holds = [{ id: 'B12', checkpoint: { ...point, isSincePause: false } }]
     const given = new Set<string>()
-    expect(pauseContexts(parsePause(answer('running', holds)), { role: 'worker', where: 'start', given })).toEqual(['You hold B12: checkpoint 1a2b3c4 · write the tests; go on from there.'])
+    expect(pauseContexts(parsePause(answer('running', holds)), { role: 'worker', where: 'prompt', given, isFirst: true })).toEqual(['You hold B12: checkpoint 1a2b3c4 · write the tests; go on from there.'])
     expect(pauseContexts(parsePause(answer('running', holds)), { role: 'worker', where: 'prompt', given, isFirst: true })).toEqual([])
     expect(pauseContexts(parsePause(answer('running', holds)), { role: 'worker', where: 'prompt', given: new Set(), isFirst: true })).toHaveLength(1)
-    expect(pauseContexts(parsePause(answer('running', [{ id: 'B12', checkpoint: null }])), { role: 'worker', where: 'start', given: new Set() })).toEqual(['You hold B12: no checkpoint; go on from its record (work next).'])
+    expect(pauseContexts(parsePause(answer('running', [{ id: 'B12', checkpoint: null }])), { role: 'worker', where: 'prompt', given: new Set(), isFirst: true })).toEqual(['You hold B12: no checkpoint; go on from its record (work next).'])
     // A later prompt, a tool batch, or a chat that holds nothing: nothing.
     expect(pauseContexts(parsePause(answer('running', holds)), { role: 'worker', where: 'prompt', given: new Set() })).toEqual([])
     expect(pauseContexts(parsePause(answer('running', holds)), { role: 'worker', where: 'batch', given: new Set() })).toEqual([])
-    expect(pauseContexts(parsePause(answer('running')), { role: 'worker', where: 'start', given: new Set() })).toEqual([])
-    expect(pauseContexts(null, { role: 'worker', where: 'start', given: new Set() })).toEqual([])
+    expect(pauseContexts(parsePause(answer('running')), { role: 'worker', where: 'prompt', given: new Set(), isFirst: true })).toEqual([])
+    expect(pauseContexts(null, { role: 'worker', where: 'prompt', given: new Set(), isFirst: true })).toEqual([])
   })
 
   test('isPaused: pausing and resuming hold what starts a turn; running and no reading do not', () => {
@@ -228,7 +234,7 @@ describe('Pause 2: the pause state as the mod reads it, and the contexts it give
 describe('2026-10-28: the board names this chat by its session id', () => {
   test('the route, and the version the plugin states', () => {
     expect(WHOAMI_PATH).toBe('/api/bridge/whoami')
-    expect(MOD_VERSION).toBe('0.24.2')
+    expect(MOD_VERSION).toBe('0.26.1')
   })
 
   test('the answer: a name, the role the board gives it and the session its card is filed under', () => {

@@ -773,13 +773,26 @@ as the title". The picture is `art-inbox/worker-board/2026-10-13-b113-limits-res
   (`limitWarnPercent`), a warning colour from there, and at 100%, or while a stop's reset is ahead, "Limit reached"
   with when work goes on. After a known reset with no figure since, the bar is empty and says since when.
 - *The week's stop line (B742, the fix of X95 and X96).* The person's rule (2026-10-19) stops all work at 98% of the week,
-  so the week counts full from `weekStopAt` (config.json, 98; a missing or wrong value reads 98), the 5-hour limit still
-  at 100. That one level (`limits.mjs`, `stopAt` beside `level`) is what the hand-out, the rules that skip a full limit
+  so the week counts full from `weekStopAt` (config.json, 98; a missing or wrong value reads 98). That one level (`limits.mjs`, `stopAt` beside `level`) is what the hand-out, the rules that skip a full limit
   and the bar's "(full)" follow. At the stop line the board types each working worker once per week (`say.mjs`
   `weekStopDue`, command `week-stop`, the board's own word): "The weekly limit reached the stop line (98%): bring your
   work to a safe point (commit, checkpoint), then send the paused note"; the worker's paused note then makes its lane
   Suspended as before. The watch rule `week-stop-ignored` (`rules/watch.mjs`) opens one incident when the week is at the
   line, a worker still works 15 min of running time after its word, and no lane is suspended.
+- *The 5-hour limit's stop line (B758, the fix of X99).* At 99% of the 5-hour limit with its reset 25 min off (12:25 on
+  2026-10-28) the board gave B744, B743 and B746 and started Workers 1 to 3, and the work ran into paid extra usage: the
+  5-hour limit counted full only at 100. It now counts full from `fiveHourStopAt` (config.json, 95; a missing or wrong value
+  reads 95) while its reset is more than `fiveHourStopMinutes` (10) away; within 10 min of the reset it hands out as before,
+  and at 100 it is full always. A reset no chat read counts as far off (the line holds on a guess rather than spend extra
+  usage). The same one level (`limits.mjs`, `stopAt` beside `level`) is what the hand-out, the starts, the spawns, the rules
+  that skip a full limit and the "(full)" follow, as for the week. At the line the board types each working worker once per
+  window (`say.mjs` `fiveHourStopDue`, command `five-hour-stop`, the board's own word; a word sent inside the window the
+  reset ends counts for it): "The 5-hour limit reached the stop line (95%): bring your work to a safe point (commit,
+  checkpoint), then send the paused note until 12:50" (without "until ..." when the reset is not known); the worker's paused
+  note makes its lane Suspended until then and the lane goes on after it, as for the week. The watch rule
+  `five-hour-stop-ignored` (`rules/watch.mjs`) opens one incident when a step is given (the History line "refined → queued
+  (given by the board to ...)") or a worker is started (a `start` or `spawn` word of the hand-out) more than 2 min after
+  the figure at the line was read, while the limit stands at the line; it names them and clears when the limit leaves it.
 - *Suspended.* A state of its own, in place of working or free, in two cases. The app stopped the chat at the
   limit: its line is the last thing in the transcript, and names the time. Or a worker paused by itself: its last
   word to the main chat says in its first line "paused for the limit", with "until HH:MM" when it knows, and its
@@ -811,7 +824,12 @@ just like now". The picture is `art-inbox/worker-board/b124/2026-10-14-b124-resu
 
 - *The board only asks; the main chat starts the chats*, names them and gives them the shared briefing. The word
   it types into the main chat, as its other words: `spawn workers`, then `Count: N` (1 to 3), then `Why: no worker
-  is in the list` or `Why: asked with the button` (`spawnWords` in `src/say.mjs`).
+  is in the list` or `Why: asked with the button` (`spawnWords` in `src/say.mjs`). Since B766 (2026-10-28, phasing
+  out the main chat) a running chat's Workers mod starts the worker itself, by code, where the app allows it the
+  stored task's two tools: it renames the start-worker task "<prefix>Worker N" and runs it, one worker per claim
+  (src/hands.mjs `handJobs`, mods/workers/start-worker-task.md); the word reaches the main chat only when no
+  hand took it within a minute. So does a worker's `restart for mod` (closed and reopened by code; never the main
+  chat, the partner or the supervisor, whose conversation a restart on the work login empties).
 - *By itself, once.* When the list holds the main chat and no worker (the advisor is no worker), the board asks
   for three (`spawnWhenAlone`), at its minute's look, and only while the main chat's chat is open, so the word is
   taken and not lost. It asks once per empty list: again only after a worker was there since that ask (the
@@ -892,13 +910,15 @@ the asking session has a file of its own (`src/chatCards.mjs`; the case it is fo
 card stayed under the old session). A session the board shows under no name is read anew once per 30 s before it is
 answered "no chat" (a chat the app just made or moved). The route only reads (guard `free`), and counts as a call of the
 mod (`seen`, so `bridge.isMissing` is false; the version in `modOf`); a session of no chat counts in `seen.other` under
-`session <id>`, a key no lane reads. In the mod (`joinBySession`): at the session's start and before a prompt's
+`session <id>`, a key no lane reads. In the mod (`joinBySession`): at the session's start, at every tick while the chat is unnamed and before a prompt's
 context, at most once a minute per process, the chat joins under the name by the same code as a title does
 (`joinByTitle`, with the title `<prefix><name>`); a `card` from another session is moved to the chat's own session by
 the clear's own code (`moveCard`, from `carried` and `lastRole` built from the card and the answer, never from the
 process's memory), and a worker gets the start words of a clear (`clearedStart`) at its next prompt; the main chat, the
-partner and the supervisor get none. The classic handlers stay: on a personal login they still run, and the session id
-adds. What is typed:
+partner and the supervisor get none. Since 0.25.1 (2026-10-28, the person: "Yes, drop them") the classic handlers are
+gone: the mod registers no `classic.*` and no `prompt.compose` hook, the session id is the only route, and the standing
+note stands in the work tool's description (`describeWork`), so the app's guard has nothing to skip, its notices are
+gone and both logins behave the same. What is typed:
 
 | The person | Typed into the chat |
 |---|---|
@@ -1082,21 +1102,23 @@ choices: the mod starts the board, the workers carry on on their click, no compa
   off)" shows again. The link is built only for an app id (`local_` and a uuid); while no mod has asked the board, the
   banner says whether the main chat runs is not known yet. *The mod reads it* through
   the bridge: `pause-state` on `/api/bridge/work`, and the same answer in `turn-ended`'s `pause`.
-- *Pause 2: each chat stops and goes on by itself* (the Workers mod 0.13.9, `mods/folder-branches/hooks/board.ts`
+- *Pause 2: each chat stops and goes on by itself* (the Workers mod 0.13.9, `mods/workers/hooks/board.ts`
   `pauseContexts`). The work tool's `step` takes `commit` and `next`, and its description says to write a checkpoint
   with every commit and when the person pauses. The mod reads the pause only in calls it makes anyway: `turn-ended`'s
-  answer (kept as the last reading), and on a batch of tool calls `pause-state` at most once per 20 s, inside the 1.5 s
+  answer (kept as the last reading), and at a tool call `pause-state` at most once per 20 s, inside the 1.5 s
   the mod may hold anything; at a prompt only at the first one of its process, while the last reading was a pause or a
-  resume, or when the words speak of a resume (then anew); at a session start (the classic SessionStart hook) once.
-  Each line is given once, as context for the model, never typed: *while pausing*, at the chat's next tool batch, "The
+  resume, or when the words speak of a resume (then anew). Since 0.25.1 there is no session-start line (that was the
+  classic SessionStart hook): the first prompt of the process reads the pause.
+  Each line is given once, as context for the model, never typed (the pause's own words refuse the chat's next tool call,
+  once per turn, which runs when it is made again): *while pausing*, at the chat's next tool call, "The
   person pauses all chats: commit your work, write your checkpoint (work step B<id> --commit <hash> --next "<next
   action>"), then end your turn and start nothing new." (holding nothing: "end your turn and start nothing new");
-  *while resuming*, to the main chat at its session start or the board's `resume`, "Resume: wake each chat below that
+  *while resuming*, to the main chat at its first prompt or the board's `resume`, "Resume: wake each chat below that
   has not started, by its session id with SendMessage, one line each: 'resume your step B<id> from your checkpoint'"
   with one line per holder that has not started (its app session id, else its CLI one, its step and checkpoint); to a
   chat holding a step, at its first turn after the resume, "You hold B<id>: checkpoint <commit> · <next>; go on from
-  there." The same line goes in at a session start (or the first prompt of its process) while it holds a step and the
-  person does not pause. A board without `pause-state` changes nothing. *Gone* (spec point 7): the word "prepare
+  there." The same line goes in at the first prompt of its process while it holds a step and the person does not
+  pause. A board without `pause-state` changes nothing. *Gone* (spec point 7): the word "prepare
   restart" (the board refuses it), `.claude/restart.md` (not read, `restartNote`, `restartAt`), the "Safe point:"
   lines and their reading (B291 `safePointNote`, B314 `storeSafePoint`, the lane "Stopped for the restart", the
   banner's preparing and resume lines, the restart word kept a day); the copied-word banner (B315) stays for the
@@ -1120,8 +1142,8 @@ choices: the mod starts the board, the workers carry on on their click, no compa
   shown "held until resume" (`isHeld` in the state), and do not grow late for the time the pause held them
   (`heldMs`, `isLate` with `keep.pause`; running keeps `pausedSince`). After **Open <main>**: once the main chat's
   process runs while resuming, it has had no turn since Resume all and the board typed no `resume` since, the board
-  types `resume` into it, once (`resumeRetypeTo`, `pause.main.hasActed`). The mod: the stop line goes in at the first
-  tool batch of every turn while pausing (once per turn), says "stop or wait for your background agents", and the
+  types `resume` into it, once (`resumeRetypeTo`, `pause.main.hasActed`). The mod: the stop line refuses the first
+  tool call of every turn while pausing (once per turn), says "stop or wait for your background agents", and the
   cached reading is dropped at each turn's start, unless that turn's prompt just read it (one reading per turn's
   start); a free worker sends no pull while paused; the main chat's resume list goes in once per resume (keyed by
   pause.json's since, kept in the mod's own store, `pause-resume-given:<session>`, so a new process of the main chat
@@ -1245,7 +1267,7 @@ Decided on 2026-10-12:
 | History | Once a minute, records what changed per chat in `data/history.jsonl`. Gives the start of a task, its first estimate, time worked against time waiting, and the timeline | state |
 | Server | `127.0.0.1:4310`, serves the page, `GET /api/state`, and the chat box's endpoints. Node, no dependencies | all above |
 | Page | Workers, For you, Queue, Working folders, Today, Advice, and the chat dock. Asks for the state every 30 seconds | server |
-| Bridge | Delivers what is typed on the board into the main chat. Lives in the existing `folder-branches` mod | server, the mod |
+| Bridge | Delivers what is typed on the board into the main chat. Lives in the existing `workers` mod (called `folder-branches` until 0.26.0) | server, the mod |
 
 The board works without the workers' help. A worker's plan line adds the step and the estimate when it is there.
 
@@ -1319,7 +1341,8 @@ in `art-inbox/worker-board/b262/`.
   still a guess), and shows "Estimates lately: 7x too high" on the Overview (its tooltip per area) and "estimate 1 h,
   took 6 min" in the Backlog tab's "Recently finished". The tasks of one step are one there. Nothing is kept by hand.
   The picture: `art-inbox/worker-board/2026-10-14-b185-task-times.png`.
-- An estimate older than 15 minutes of work is marked as old. In step 4 the mod reminds a working chat to renew it.
+- An estimate older than 15 minutes of work is marked as old. In step 4 the mod reminded a working chat to renew it (the
+  reminder was dropped in 0.25.1 with the classic hooks: the person knows, and it was small).
 - A lane's main figure is the time left ("24 min left"); the clock time it ends at is the small one (B95). A time
   that has run out says by how much ("12 min over").
 - A working worker always has a time: its own, else the estimate of its step in the store, counted from the task's
@@ -3147,6 +3170,20 @@ Advisor's check helpers on Sonnet". It builds on B468: the same word to the main
     red or yellow: those mean "needs you" or a fault. While the lane's `effortRun` is not set yet and asks another setting,
     it shows the change with a dashed edge, "Sonnet · medium → Opus · high", and its tooltip says when the main chat was
     asked; no model and no effort is no chip (`runChipOf`, between `// runchip:start` and `// runchip:end`).
+11. **The Supervisor's own setting, held by code (T7.5, 2026-10-28).** The person: "do B" (its model and effort set by
+    code) and "A": **Sonnet, low**, what the Supervisor's chat runs on, set once by hand with nothing to keep it there. The
+    plan above never touches it (it is no worker, and no lane), so `src/work/supervisorEffort.mjs` does: the settings'
+    `supervisorModel` (`sonnet` or `opus`, never Fable) and `supervisorEffort` (a level of the app's) give its setting,
+    Sonnet and low unless set (`supervisorSetting`). When the app's file of the chat names its effort and the chat does not
+    run at the setting (another effort, or, where `models` names an id, another family), `supervisorEffortWord` gives the
+    one `worker-effort` word that `effortPlan` gives a worker, without a step; `state.mjs` adds it to `reconciled.efforts`,
+    so the delivery sends it with the same half-hour dedupe (`AGAIN_MS`, `sameTarget`), a running chat's Workers mod sets
+    it by code first (B755; the Supervisor's lane is among `shownChats`) and the main chat only when none did. The app
+    refuses a chat's own model and effort, so a word about the caller goes back by itself. The state's `supervisorChat`
+    carries `setting: { model, effort, isSet }`. The rules judge it by that setting already: the rule effort-mismatch reads a
+    worker against its step and the health summary lists no model and effort for the Supervisor, so nothing there changed.
+    It lives in `src/work` and not in `src/supervisor`, because `state.mjs` imports it and the supervisor's boundary
+    (`test/supervisor/boundary.test.mjs`) lets nothing outside its folder import its parts. Tests: `test/work/supervisorEffort.test.mjs`.
 
 ## The last silent catches (B446)
 
@@ -3833,9 +3870,11 @@ runs /clear (`$.command.run({ command: 'clear' })`, queued for when the chat is 
   that turn is none of the chat's (no turn's end told, nothing decided). Nothing is typed into the chat while the clear
   is on its way (a line the board put out waits for the conversation after it). /clear ends the conversation
   (`session.end`, reason `clear`) and the process goes on under a new session id.
-- **The same chat after it.** At the new conversation's start (`classic.SessionStart`, source `clear`; else the first
-  prompt or turn) the mod moves the card to the new session id, the old file holding only `{ "movedTo": "<new id>" }`
-  (a mod that lost its word of the clear in a reload finds the card by its mark). The board follows `movedTo` (in
+- **The same chat after it.** Once the /clear command has run (the mod's `command.run` hook for `clear`, before it
+  answers; else the next tick, the first prompt or turn; a process that knows nothing of the clear: the board's whoami
+  names the card) the mod moves the card to the new session id, the old file holding only `{ "movedTo": "<new id>" }`
+  (a mod that lost its word of the clear in a reload finds the card by its mark, from the board's whoami). Since 0.25.1
+  no classic start hook is behind it. The board follows `movedTo` (in
   `sources.mjs` and the state), so the lane, its card, its transcript, its steps, asks and open instructions (kept under
   the chat's name) stay the one chat's, whether or not the app's file names the new session yet; a session the board
   shows under no name is read anew once (at most every 30 s) before the bridge refuses it, so the first work call of
@@ -3938,10 +3977,12 @@ timers. Now each chat says it (principle 3, know don't guess).
 
 - **What is reported** (the Workers mod 0.19.0): `busy` from a turn's start, `idle` at its end, `asking` while a
   question to the person (the app's form, AskUserQuestion) is open, each with since when. Idle carries `background:
-  true` while the turn's Stop hook lists background work still running (a shell, a subagent, a monitor, a workflow);
-  its end wakes the chat with a turn of its own, whose end says it again. A turn that ends while the form is open stays
-  asking until the answer: then busy, or idle when no turn runs. Only a Stop hook sets `background`: a turn cut short
-  (Esc, an API error) runs none, and what the last one listed stands. When its session ends (not a /clear) it reports
+  true` while background work of the chat still runs: the shells and monitors it started (the mod keeps their task ids
+  from its own tool calls; a TaskStop and the app's note that a task ended take one out) and the subagents it started
+  (`$.agent.list`); since 0.25.1 no Stop hook is behind it (the app's guard skips the classic hooks on a work login). Its
+  end wakes the chat with a turn of its own, whose end says it again. A turn that ends while the form is open stays
+  asking until the answer: then busy, or idle when no turn runs. A turn cut short (Esc, an API error) changes no id:
+  what the chat started and the app has not said ended stands. When its session ends (not a /clear) it reports
   `ended` once. Model and effort are not reported: the app's record of the chat stays the one place for them.
 - **When:** at once on every change (`POST /api/bridge/report`, not awaited: no turn waits on the board), and with
   every take, the mod's 5-second ping (`report` in its body). While a clear is on its way the take is skipped and the
@@ -4275,7 +4316,7 @@ Each step ends with something the person can look at.
    A launch entry "worker-board" so the Run pane starts it.
 3. **The bridge for real**: typing on the board reaches the main chat; delivered and waiting are shown.
 4. **Later, after use**: answering a worker from the board (the buttons in the first design; the same bridge,
-   picked up in that worker's chat), the reminder to renew an estimate, and what the person misses by then.
+   picked up in that worker's chat), the reminder to renew an estimate (dropped in 0.25.1), and what the person misses by then.
 
 If step 1 fails, the board is still built; its chat dock then only shows the main chat, with a button that copies
 what was typed so it can be pasted into the app.

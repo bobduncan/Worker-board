@@ -178,6 +178,8 @@ test('"Now:" never shows a tool\'s own name', () => {
     ['Bash', { command: 'npm test' }, 'Running a command'],
     ['Bash', { command: 'npm test', description: 'Run the tests' }, 'Run the tests'],
     ['SendMessage', { to: 'Game - Main', message: 'x' }, 'Writing to another chat'],
+    ['mcp__workers__chat', { action: 'plan' }, 'Recording its task'],
+    // The mod was called folder-branches until 0.26.0: an older transcript keeps that name.
     ['mcp__folder-branches__chat', { action: 'plan' }, 'Recording its task'],
     ['mcp__some_server__some_tool', {}, 'Using a tool'],
     ['SomethingNew', {}, 'Using a tool'],

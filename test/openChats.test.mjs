@@ -44,7 +44,7 @@ test('setupChat: one chat to open, the main chat, while the project has none; it
   assert.equal(chat.title, 'Garden - Main')
   const asked = new URL(chat.link)
   assert.deepEqual([asked.searchParams.get('folder'), asked.searchParams.get('q')], [project, chat.words])
-  for (const words of ['"Garden - Main"', 'set_session_title', '"self"', 'mcp__folder-branches__chat', '"join"', 'name "Main"', 'role "main"',
+  for (const words of ['"Garden - Main"', 'set_session_title', '"self"', 'mcp__workers__chat', '"join"', 'name "Main"', 'role "main"',
     `${board}\\roles\\main.md`, `${board}\\roles\\protocol.md`, `${project}\\.claude\\main-briefing.md`, `${project}\\CLAUDE.md`, 'My garden',
     'mcp__ccd_session__start_session', 'mcp__ccd_session__spawn_task', 'whichever the app gives you', '"Garden - Advisor"', `${board}\\roles\\partner.md`, 'click it']) {
     assert.ok(chat.words.includes(words), words)

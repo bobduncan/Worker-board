@@ -138,7 +138,8 @@ The worker reported with `work report`: the board checks it all itself and write
 result named, the files of work outside git there. A failed check it tells the worker itself (B740), and the user
 gets the step's recap card with its picture once it is done (B360). Nothing of that is yours (2026-10-28, phasing out
 the main chat). What is left: read the plan's limits again (the app's usage tool), so the board's limits bar never
-stands hours old.
+stands hours old. Since B768 a running chat's Workers mod looks them up by code whenever the board's newest reading
+is ten minutes old: you need not, unless the board's limits bar says the reading is old.
 
 Close the check browsers left behind (B266): at every report check, close the browsers the chats started for checks
 and pictures and left running, those started with a temporary profile folder (headless, driven over CDP or by
@@ -177,7 +178,12 @@ running board chat now carries the board's `start`, `wake` and resume lines itse
 send-message tool and no model turn. Such a word reaches you only when no running chat could send it (its chat has no
 app id the board knows, or no board chat ran); then do it as below. B755: the same for `set model and effort`, `set
 effort` and `partner effort` (not Fable): a chat whose app allows its code the two set tools sets them, and such a word
-reaches you only when none did within a minute.
+reaches you only when none did within a minute. B766: the same for `restart for mod` of a worker (closed and reopened
+by code; a restart of yourself, the partner or the supervisor stays yours) and for `spawn workers` (the stored
+start-worker task renamed and run by code, one worker at a time). B769: and for `stop task` and `remove worker` of a
+worker whose Workers mod is 0.26.1 or newer: it is told at its next tool call, the board settles the stop once its
+turn ended and has a running chat take an idle or closed worker out of the list and close its chat; such a word
+reaches you only when nothing came of it in 15 minutes.
 
 - `resume`: the user resumed all chats after a pause (the board's Resume all). The Workers mod puts the list beside
   it, or beside your chat's start when you were not running: "Resume: wake each chat below that has not started",

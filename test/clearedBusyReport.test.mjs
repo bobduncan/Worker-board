@@ -32,8 +32,8 @@ const app = name => JSON.stringify({
 })
 /** What the Workers mod's /clear leaves in the new conversation: the app's caveat and the command, both written by the mod. */
 const cleared = at => [
-  line({ type: 'user', timestamp: iso(at), isMeta: true, origin: { kind: 'plugin', name: 'folder-branches' }, message: { role: 'user', content: '<local-command-caveat>The command below was run directly in Claude Code.</local-command-caveat>' } }),
-  line({ type: 'user', timestamp: iso(at), origin: { kind: 'plugin', name: 'folder-branches' }, message: { role: 'user', content: '<command-name>/clear</command-name>\n <command-message>clear</command-message>' } }),
+  line({ type: 'user', timestamp: iso(at), isMeta: true, origin: { kind: 'plugin', name: 'workers' }, message: { role: 'user', content: '<local-command-caveat>The command below was run directly in Claude Code.</local-command-caveat>' } }),
+  line({ type: 'user', timestamp: iso(at), origin: { kind: 'plugin', name: 'workers' }, message: { role: 'user', content: '<command-name>/clear</command-name>\n <command-message>clear</command-message>' } }),
 ]
 /**
  * The tail of a worker the mod cleared, in the shape the app wrote it (X76: Worker 1 at 16:11:43): the session-start hook's
@@ -42,8 +42,8 @@ const cleared = at => [
 const clearedAsWritten = at => [
   line({ type: 'attachment', timestamp: iso(at), attachment: { type: 'hook_success', hookName: 'SessionStart:clear', hookEvent: 'SessionStart', content: '', stdout: '{}', stderr: '', exitCode: 0 } }),
   line({ type: 'attachment', timestamp: iso(at), attachment: { type: 'hook_additional_context', content: ['Made-up context.'], hookName: 'SessionStart', hookEvent: 'SessionStart' }, renderedRole: 'system' }),
-  line({ type: 'user', timestamp: iso(at), isMeta: true, origin: { kind: 'plugin', name: 'folder-branches' }, message: { role: 'user', content: '<local-command-caveat>The command below was run directly in Claude Code.</local-command-caveat>' } }),
-  line({ type: 'user', timestamp: iso(at - 2_000), origin: { kind: 'plugin', name: 'folder-branches' }, message: { role: 'user', content: '<command-name>/clear</command-name>\n    <command-message>clear</command-message>' } }),
+  line({ type: 'user', timestamp: iso(at), isMeta: true, origin: { kind: 'plugin', name: 'workers' }, message: { role: 'user', content: '<local-command-caveat>The command below was run directly in Claude Code.</local-command-caveat>' } }),
+  line({ type: 'user', timestamp: iso(at - 2_000), origin: { kind: 'plugin', name: 'workers' }, message: { role: 'user', content: '<command-name>/clear</command-name>\n    <command-message>clear</command-message>' } }),
   line({ type: 'system', subtype: 'local_command', timestamp: iso(at), level: 'info', isMeta: false, commandRun: { command: 'clear', args: '' }, content: '<local-command-stdout></local-command-stdout>' }),
 ]
 const stepItem = (id, owner, state) => parseItem(`Id: ${id}\nKind: step\nTitle: Step ${id}\nState: ${state}\nOwner: ${owner}\nSince: ${stamp(NOW - 40 * MIN)}\n`)
