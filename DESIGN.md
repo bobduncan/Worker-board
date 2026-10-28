@@ -778,19 +778,15 @@ as the title". The picture is `art-inbox/worker-board/2026-10-13-b113-limits-res
   `weekStopDue`, command `week-stop`, the board's own word): "The weekly limit reached the stop line (98%): bring your
   work to a safe point (commit, checkpoint), then send the paused note"; the worker's paused note then makes its lane
   Suspended as before. The watch rule `week-stop-ignored` (`rules/watch.mjs`) opens one incident when the week is at the
-<<<<<<< HEAD
   line, a worker still works 15 min of running time after its word, and no lane is suspended. *Whom the word goes to (B771, the
   fix of X98).* Only a worker that holds a step not yet reported (`say.mjs` `holdsOpenStep`: taken or in progress in the store,
   or one the board's check handed back, which the worker stays in its turn to fix). At 22:50 on 2026-10-27 Worker 2 reported
   B742 and, 15 s later, was typed the stop word: it started a new turn before the worker's clear ran, and the worker stayed
   uncleared. A worker whose step is in review, or that holds none, needs no word: the hand-out already holds, and its clear runs.
-  The same rule serves the 5-hour limit's word. `test/stopOnStepBoard.test.mjs` runs that evening on a running board.
-=======
-  line, a worker still works 15 min of running time after its word, and no lane is suspended. (B759: `test/weekStopBoard.test.mjs`
+  The same rule serves the 5-hour limit's word. `test/stopOnStepBoard.test.mjs` runs that evening on a running board. (B759: `test/weekStopBoard.test.mjs`
   runs a board copy on the night's case, the week at 98 with B738 ready, Worker 4 free and Workers 2, 3 and 5 working: nothing is
   handed out, each of the three gets one word, however many times the looking loop passes; at 97, or at 98 with `weekStopAt` 99, B738
   goes to Worker 4 and nobody is told.)
->>>>>>> main
 - *The 5-hour limit's stop line (B758, the fix of X99).* At 99% of the 5-hour limit with its reset 25 min off (12:25 on
   2026-10-28) the board gave B744, B743 and B746 and started Workers 1 to 3, and the work ran into paid extra usage: the
   5-hour limit counted full only at 100. It now counts full from `fiveHourStopAt` (config.json, 95; a missing or wrong value
