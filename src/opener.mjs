@@ -48,6 +48,9 @@ export const isSessionId = session => typeof session === 'string' && /^[0-9a-f]{
  */
 export const isProgram = exe => typeof exe === 'string' && exe.length <= 400 && /^[A-Za-z]:\\(?:[\p{L}\p{N}_ .()+~-]+\\)*claude\.exe$/iu.test(exe)
 
+/** Whether `cwd` is a folder the launch may name: an absolute Windows path of the same plain characters as the program's. */
+export const isFolder = cwd => typeof cwd === 'string' && cwd.length <= 400 && /^[A-Za-z]:\\(?:[\p{L}\p{N}_ .()+~-]+\\?)*$/u.test(cwd)
+
 /**
  * Whether the hands are gone: no chat claimed them (`claims`, the server's `codeClaims`, `{ at }` by name) within
  * HANDS_GONE_MS. A board younger than that has heard no claim yet from chats that run: then a call of any chat since
@@ -111,11 +114,13 @@ export function openPlan({ now, handsGone: gone, waits, paused, last = -Infinity
  * program gets a console of its own (hidden) and no redirected output. Built from a checked program path and session id
  * only; null for anything else.
  */
-export function launchCommand({ exe, session }) {
-  if (!isProgram(exe) || !isSessionId(session)) return null
+export function launchCommand({ exe, session, cwd }) {
+  if (!isProgram(exe) || !isSessionId(session) || !isFolder(cwd)) return null
+  // The project's folder as the program's own: `--resume` finds a session under the folder it runs in (2026-10-28 live:
+  // the same launch without it left an asleep routine chat asleep; with it the chat started).
   return {
     file: 'powershell.exe',
-    args: ['-NoProfile', '-NonInteractive', '-Command', `Start-Process -FilePath '${exe}' -ArgumentList '--desktop','--resume','${session}' -WindowStyle Hidden`],
+    args: ['-NoProfile', '-NonInteractive', '-Command', `Start-Process -FilePath '${exe}' -ArgumentList '--desktop','--resume','${session}' -WorkingDirectory '${cwd}' -WindowStyle Hidden`],
   }
 }
 
@@ -125,16 +130,19 @@ export function launchCommand({ exe, session }) {
  * launch was made (the program or the session id is none the board may start).
  */
 export function openChat({ exe, session, cwd, spawn = nodeSpawn, waitMs = 30_000 }) {
-  const command = launchCommand({ exe, session })
+  const command = launchCommand({ exe, session, cwd })
   if (command === null) {
     const why = typeof exe !== 'string' ? 'the Claude app\'s program was not found'
-      : !isProgram(exe) ? 'the Claude app\'s program lies in a folder whose name the board does not pass on' : 'the chat\'s session id is no UUID'
+      : !isProgram(exe) ? 'the Claude app\'s program lies in a folder whose name the board does not pass on'
+        : !isFolder(cwd) ? 'the project\'s folder has a name the board does not pass on' : 'the chat\'s session id is no UUID'
     return Promise.resolve({ launched: false, ok: false, why })
   }
   return new Promise(done => {
     let child
     try {
-      child = spawn(command.file, command.args, { windowsHide: true, detached: true, stdio: 'ignore', ...(typeof cwd === 'string' ? { cwd } : {}) })
+      // Not detached (2026-10-28 live: a detached PowerShell's Start-Process left the chat asleep; this one woke it);
+      // PowerShell ends at once anyway, and the program it starts is not the board's child.
+      child = spawn(command.file, command.args, { windowsHide: true, detached: false, stdio: 'ignore', ...(typeof cwd === 'string' ? { cwd } : {}) })
     } catch (error) {
       done({ launched: true, ok: false, why: `PowerShell could not start: ${error?.message ?? error}` })
       return

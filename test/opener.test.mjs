@@ -111,7 +111,7 @@ test('only a UUID from the board\'s own list reaches the launch: a bad id gives 
   for (const bad of ['', 'not-an-id', `${ID(1)} --dangerously-skip-permissions`, `${ID(1)}'`, `'; calc; '`, `${ID(1)}\n`, 'local_abc', 12, null, undefined]) {
     assert.equal(isSessionId(bad), false, String(bad))
     assert.equal(chatToOpen({ chats: [lane('Lead', { isMain: true, session: bad })] }), null, String(bad))
-    assert.equal(launchCommand({ exe: EXE, session: bad }), null, String(bad))
+    assert.equal(launchCommand({ exe: EXE, session: bad, cwd: 'C:\\garden' }), null, String(bad))
   }
   // A main chat with a bad id is passed over for the next with a good one.
   assert.deepEqual(chatToOpen({ chats: [lane('Lead', { isMain: true, session: 'nope' })], advisor: { name: 'Advisor', session: ID(3) } }), { chat: 'Advisor', session: ID(3) })
@@ -121,17 +121,18 @@ test('only a UUID from the board\'s own list reaches the launch: a bad id gives 
 })
 
 test('the launch is exactly the fixed list: PowerShell\'s Start-Process with the program and --desktop --resume <uuid>; no shell character passes', () => {
-  assert.deepEqual(launchCommand({ exe: EXE, session: ID(1) }), {
+  assert.deepEqual(launchCommand({ exe: EXE, session: ID(1), cwd: 'C:\\garden' }), {
     file: 'powershell.exe',
-    args: ['-NoProfile', '-NonInteractive', '-Command', `Start-Process -FilePath '${EXE}' -ArgumentList '--desktop','--resume','${ID(1)}' -WindowStyle Hidden`],
+    args: ['-NoProfile', '-NonInteractive', '-Command', `Start-Process -FilePath '${EXE}' -ArgumentList '--desktop','--resume','${ID(1)}' -WorkingDirectory 'C:\\garden' -WindowStyle Hidden`],
   })
+  for (const bad of ["C:\\it's", 'C:\\a;calc', 'garden', '\\\\server\\share', null, '']) assert.equal(launchCommand({ exe: EXE, session: ID(1), cwd: bad }), null, String(bad))
   assert.equal(isProgram(EXE), true)
   assert.equal(isProgram('D:\\Programme\\Clàude\\claude.exe'), true)
   for (const bad of ["C:\\it's\\claude.exe", 'C:\\a;calc\\claude.exe', 'C:\\a&calc\\claude.exe', 'C:\\a|b\\claude.exe', 'C:\\$(calc)\\claude.exe', 'C:\\a`b\\claude.exe',
     'C:\\a"b\\claude.exe', 'C:\\a\nb\\claude.exe', 'C:\\a‘b\\claude.exe', 'C:\\a%PATH%\\claude.exe', 'C:\\a<b\\claude.exe', 'C:\\[x]\\claude.exe',
     'claude.exe', '.\\claude.exe', '\\\\server\\share\\claude.exe', 'C:\\Claude\\claude.cmd', 'C:\\Claude\\evil.exe', 'C:\\Claude\\claude.exe --x', null, '']) {
     assert.equal(isProgram(bad), false, String(bad))
-    assert.equal(launchCommand({ exe: bad, session: ID(1) }), null, String(bad))
+    assert.equal(launchCommand({ exe: bad, session: ID(1), cwd: 'C:\\garden' }), null, String(bad))
   }
 })
 
@@ -149,9 +150,9 @@ function fakeSpawn(code, calls) {
 test('opening starts PowerShell detached, with its own console and nothing redirected, in the project folder, and says how it ended', async () => {
   const calls = []
   assert.deepEqual(await openChat({ exe: EXE, session: ID(1), cwd: 'C:\\garden', spawn: fakeSpawn(0, calls) }), { launched: true, ok: true, why: null })
-  assert.deepEqual(calls, [{ file: 'powershell.exe', args: launchCommand({ exe: EXE, session: ID(1) }).args, options: { windowsHide: true, detached: true, stdio: 'ignore', cwd: 'C:\\garden' } }])
-  assert.deepEqual(await openChat({ exe: EXE, session: ID(1), spawn: fakeSpawn(1, []) }), { launched: true, ok: false, why: 'PowerShell ended with 1' })
-  assert.match((await openChat({ exe: EXE, session: ID(1), spawn: fakeSpawn(new Error('ENOENT'), []) })).why, /^PowerShell could not start: ENOENT/)
+  assert.deepEqual(calls, [{ file: 'powershell.exe', args: launchCommand({ exe: EXE, session: ID(1), cwd: 'C:\\garden' }).args, options: { windowsHide: true, detached: false, stdio: 'ignore', cwd: 'C:\\garden' } }])
+  assert.deepEqual(await openChat({ exe: EXE, session: ID(1), cwd: 'C:\\garden', spawn: fakeSpawn(1, []) }), { launched: true, ok: false, why: 'PowerShell ended with 1' })
+  assert.match((await openChat({ exe: EXE, session: ID(1), cwd: 'C:\\garden', spawn: fakeSpawn(new Error('ENOENT'), []) })).why, /^PowerShell could not start: ENOENT/)
   assert.deepEqual(await openChat({ exe: null, session: ID(1), spawn: fakeSpawn(0, []) }), { launched: false, ok: false, why: 'the Claude app\'s program was not found' })
 })
 
