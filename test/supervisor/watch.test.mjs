@@ -41,7 +41,7 @@ const check = (id, board, seen = new Map()) => {
 }
 
 test('the watch rules: nineteen, report only, each with what it says', () => {
-  assert.deepEqual(WATCH_RULES.map(one => one.id), ['unknown-lane', 'stale-suspended', 'ready-while-free', 'holder-not-running', 'working-not-running', 'opus-wait', 'skip-repeats', 'repair-repeats', 'undelivered', 'report-check-twice', 'old-mod', 'odd-effort', 'review-stuck', 'dropped-fix', 'review-held', 'chain-long', 'open-fix', 'stale-checkpoint', 'effort-mismatch', 'not-cleared', 'not-taking', 'old-limit-reading', 'board-deaf', 'board-slow', 'week-stop-ignored', 'five-hour-stop-ignored'])
+  assert.deepEqual(WATCH_RULES.map(one => one.id), ['unknown-lane', 'stale-suspended', 'ready-while-free', 'holder-not-running', 'working-not-running', 'opus-wait', 'skip-repeats', 'repair-repeats', 'undelivered', 'report-check-twice', 'old-mod', 'odd-effort', 'review-stuck', 'dropped-fix', 'review-held', 'chain-long', 'open-fix', 'stale-checkpoint', 'effort-mismatch', 'not-cleared', 'not-taking', 'old-limit-reading', 'board-deaf', 'board-slow', 'week-stop-ignored', 'five-hour-stop-ignored', 'pause-stale'])
   // Redesign Part 2: the rules of Main's queues are gone.
   for (const gone of ['idle-while-waiting', 'queued-not-running']) assert.equal(WATCH_RULES.some(one => one.id === gone), false, gone)
   assert.ok(WATCH_RULES.every(one => one.kind === 'watch' && typeof one.says === 'string' && one.says.length > 0 && typeof one.check === 'function'))
@@ -188,6 +188,31 @@ test('skip-repeats: the same clear or compaction skipped for the same reason twi
   // A compaction skipped because the chat is small is how it should be.
   const small = view({ chats: [lane('Lead', { isMain: true, compaction: { kind: 'skipped', at: ago(2), why: 'it is small enough' } })] })
   assert.deepEqual(check('skip-repeats', small, new Map([[`skip|Lead|compact|${ago(30)}|it is small enough`, ago(30)]])), [])
+})
+
+test('pause-stale (B763, X86, X100): Worker 3\'s clear skipped for the pause at 12:53 and 13:12, after the resume at 12:52, opens one incident; a skip inside the pause does not', () => {
+  const at = (h, m) => new Date(2026, 9, 28, h, m).getTime()
+  const why = 'the person pauses the chats'
+  // pause.json of that day: paused 12:28, Resume all 12:52, running since 12:52.
+  const PAUSE = { state: 'running', since: at(12, 52) + 20_000, pausedSince: at(12, 28), resumedSince: at(12, 52) }
+  const board = (skipAt, pause = PAUSE, reason = why) => view({
+    now: at(13, 15), pause,
+    chats: [LEAD, lane('Worker 3', { compaction: { kind: 'compacted', at: at(12, 29), before: 400_000, after: 90_000, notCleared: { at: skipAt, why: reason } } })],
+  })
+  for (const skipAt of [at(12, 54), at(13, 12)]) {
+    const found = check('pause-stale', board(skipAt))
+    assert.deepEqual(found.map(one => [one.key, one.subject]), [['pause-stale Worker 3', 'Worker 3']])
+    assert.match(found[0].text, /Worker 3: its clear was skipped at \d\d:\d\d for "the person pauses the chats", \d+ min after the pause ended/)
+    assert.match(found[0].evidence, /^pause 12:28 to 12:52; clear skipped at /)
+  }
+  // Inside the pause (12:29), or in the minute after the resume, as the mod's reading catches up: none.
+  assert.deepEqual(check('pause-stale', board(at(12, 29))), [])
+  assert.deepEqual(check('pause-stale', board(at(12, 52) + 50_000)), [])
+  // Another reason, the pause still holding, or no pause ever: none. While resuming, the resume's start ends the hold.
+  assert.deepEqual(check('pause-stale', board(at(13, 12), PAUSE, 'a subagent it started still runs (1)')), [])
+  assert.deepEqual(check('pause-stale', board(at(13, 12), { state: 'pausing', since: at(13, 0) })), [])
+  assert.deepEqual(check('pause-stale', board(at(13, 12), null)), [])
+  assert.equal(check('pause-stale', board(at(13, 12), { state: 'resuming', since: at(12, 52), pausedSince: at(12, 28) })).length, 1)
 })
 
 test('repair-repeats: the same repair three times in a day trips; twice, or once of them over a day ago, does not', () => {

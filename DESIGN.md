@@ -801,6 +801,9 @@ as the title". The picture is `art-inbox/worker-board/2026-10-13-b113-limits-res
   `five-hour-stop-ignored` (`rules/watch.mjs`) opens one incident when a step is given (the History line "refined → queued
   (given by the board to ...)") or a worker is started (a `start` or `spawn` word of the hand-out) more than 2 min after
   the figure at the line was read, while the limit stands at the line; it names them and clears when the limit leaves it.
+  (B773: `test/fiveHourStopBoard.test.mjs` runs this through a running board: at 96 each working worker is told once and
+  the hand-out holds; at 94, or at 96 with the stop line set to 97, nobody is told; without the server's call that types
+  the word it fails.)
   The word goes only to a worker that holds a step not yet reported (B771: see the week's stop line above).
 - *Suspended.* A state of its own, in place of working or free, in two cases. The app stopped the chat at the
   limit: its line is the last thing in the transcript, and names the time. Or a worker paused by itself: its last
@@ -3959,6 +3962,18 @@ nothing) the reconciler gives it no new step: no give (`idleWorkers`, `reconcile
 queued one, and its `work next` says "The board's check of your report B727 failed: fix what it names and report
 B727 again first". A worker that never reports again is `review-wait`'s and the health summary's, not this rule's.
 Tests: `test/failedCheckHandBack.test.mjs` (B727's lines through `buildState`, the rule, the `work next` words).
+B763 (X86 came back, X100, 2026-10-28: Worker 3 reported B727 at 12:28 as the person paused; its turn ended at 12:29 inside
+the pause, and after Resume all at 12:52 its mod refused the owed clear every minute "the person pauses the chats", so every
+step given to it waited 20 min and went back): the mod kept the pause its last turn's end had read (`pauseRead`) and read it
+anew only in a turn, so an idle chat held a pause reading for as long as it rested. Since Workers mod 0.26.2 every clear's
+decision (`clearAfter`: the owed clear, and the end of a reporting turn, also one the board answered late) reads the pause
+anew from the board, falling back to the kept reading only when the board does not answer; the pull at a turn's end reads it
+through `pauseNow` (anew once over 20 s old). A clear refused for the pause is tried again at the next minute, as before. The
+watch rule `pause-stale` (`rules/watch.mjs`) opens one incident per chat when its clear is skipped for "the person pauses the
+chats" more than a minute after the pause stopped holding (`holdEndOf` in `src/work/pause.mjs`: Resume all); a skip inside
+the pause is none. Tests: the mod's `chatlist.test.ts` ("B763", Worker 3's lines through the owed clear, a chat idle through
+the pause, one cut off mid-turn, a pause that begins while the clear is decided), `test/supervisor/watch.test.mjs`
+(`pause-stale`), `test/clearOwed.test.mjs` (a step dropped in the pause owes nothing).
 B765 (X102, 2026-10-28: Worker 1 was cleared at 12:58, took B756 and reported it at 12:59; times are kept to the minute,
 so `takenSince` read B756's own take as "at or after" its report and `not-cleared` filed X102 at once): for the rule
 `not-cleared`, `takenSince` leaves out the reported step's own takes written before its last report line (one History,

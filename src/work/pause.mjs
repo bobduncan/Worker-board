@@ -276,6 +276,16 @@ export function resumeRetypeTo(state) {
 }
 
 /**
+ * When the person's last pause stopped holding (`pause` the pause.json record): Resume all, its since while resuming, its
+ * `resumedSince` once running (a record from before then: its since). Null while it holds or when there is none.
+ */
+export function holdEndOf(pause) {
+  if (pause === null || pause === undefined || isHolding(pause)) return null
+  const end = pause.state === 'resuming' ? pause.since : pause.resumedSince ?? pause.since
+  return Number.isFinite(end) ? end : null
+}
+
+/**
  * The review of Pause 2: how long a line in the outbox was held by a pause (`pause` the pause.json record) between
  * when it was sent and `now`: it does not grow late while the board holds it. From the pause's start (pausing: its
  * since; resuming and running: `pausedSince`) to its end. Since 2026-10-19 only pausing holds, so the hold ends at the
@@ -284,7 +294,7 @@ export function resumeRetypeTo(state) {
 export function heldMs(message, now, pause) {
   if (pause === null || pause === undefined || !Number.isFinite(message?.at)) return 0
   const start = pause.state === 'pausing' ? pause.since : pause.pausedSince ?? null
-  const end = pause.state === 'pausing' ? now : pause.state === 'resuming' ? pause.since : pause.resumedSince ?? pause.since
+  const end = pause.state === 'pausing' ? now : holdEndOf(pause)
   if (!Number.isFinite(start) || !Number.isFinite(end)) return 0
   return Math.max(0, Math.min(end, now) - Math.max(start, message.at))
 }

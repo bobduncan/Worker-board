@@ -5,7 +5,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import { CLEAR_GRACE_MS, clearAtTake, clearOwed, isStepLine, lastReportOf, modAtLeast, takenSince, takeRefusal } from '../src/clearOwed.mjs'
+import { CLEAR_GRACE_MS, clearAtTake, clearOwed, handedBackOf, isStepLine, lastReportOf, modAtLeast, takenSince, takeRefusal } from '../src/clearOwed.mjs'
 import { parseList } from '../src/appChats.mjs'
 import { conversationStart } from '../src/transcript.mjs'
 import { stamp } from '../src/work/migrate.mjs'
@@ -115,4 +115,16 @@ test('only the line that a step is the chat\'s waits for the clear: no note line
   assert.equal(isStepLine({ ...workWords('Lead', 'N4', 'work: note N4 for you; run work next'), id: 'm2' }), false)
   assert.equal(isStepLine({ to: 'Painter', command: null, ask: 'Q3', text: 'yes' }), false)
   assert.equal(isStepLine({ ...workWords('Painter', 'B13', 'work: B13 is yours to answer for the person; run work next'), id: 'm3' }), false)
+})
+
+test('B763: a step dropped in the person\'s pause, its report handed back, owes no clear and holds nothing after the resume', () => {
+  const dropped = new Map([
+    ['B10', item({ Id: 'B10', State: 'done', Owner: 'Painter' }, [line(120, 'Painter', 'in progress → review'), line(118, 'server', 'check passed'), line(110, 'server', 'review → done')])],
+    ['B27', item({ Id: 'B27', State: 'dropped', Owner: 'Painter' }, [line(40, 'Painter', 'in progress → review'), line(39, 'server', 'check failed: a worktree is left'), line(20, 'Lead', 'review → dropped')])],
+  ])
+  const cleared = { kind: 'cleared', at: ago(100), step: 'B10', lastCleared: { at: ago(100), step: 'B10' } }
+  const owed = clearOwed({ lane: lane(cleared), items: dropped, afterStep: 'clear' })
+  assert.equal(owed, null)
+  assert.equal(handedBackOf(dropped, 'Painter'), null)
+  assert.deepEqual(clearAtTake({ owed, mod: '0.26.0', now: NOW, isIdle: true }), { hold: false, clear: null, why: null })
 })
