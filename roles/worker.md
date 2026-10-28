@@ -298,7 +298,9 @@ The note may be a work note (`work note --to main`, with that line first in its 
 The board also types you the word to stop (B742, B758): "The weekly limit reached the stop line (98%): bring your work to
 a safe point ..." or "The 5-hour limit reached the stop line (95%): bring your work to a safe point (commit, checkpoint),
 then send the paused note until HH:MM". Do the same at once: it is the board's word, the limit counts full from there and
-nothing more is handed out; use the time it names (the reset) for HH:MM, or the week's reset.
+nothing more is handed out; use the time it names (the reset) for HH:MM, or the week's reset. The board types it only to a
+worker whose step is not yet reported (B771): after you report your step you get no such word, as nothing is handed to you
+and your clear runs; a report the board's check handed back still counts as your step.
 
 ## A pause of all chats
 

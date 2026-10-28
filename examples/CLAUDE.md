@@ -78,6 +78,7 @@ exactly:
 HH:MM is the time it goes on. The worker board reads that first line and shows the worker as "Suspended" until then,
 so nothing else goes on that line. The board types the same stop to a working chat when a limit reaches its stop line
 (the 5-hour limit at 95% while its reset is far off, the week at 98%): bring your work to a safe point and send that note.
+It types it only to a chat that holds a step not yet reported: one that reported its step needs none (B771).
 
 ## What this does not change
 

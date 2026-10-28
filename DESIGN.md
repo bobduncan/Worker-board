@@ -778,7 +778,12 @@ as the title". The picture is `art-inbox/worker-board/2026-10-13-b113-limits-res
   `weekStopDue`, command `week-stop`, the board's own word): "The weekly limit reached the stop line (98%): bring your
   work to a safe point (commit, checkpoint), then send the paused note"; the worker's paused note then makes its lane
   Suspended as before. The watch rule `week-stop-ignored` (`rules/watch.mjs`) opens one incident when the week is at the
-  line, a worker still works 15 min of running time after its word, and no lane is suspended. (B759: `test/weekStopBoard.test.mjs`
+  line, a worker still works 15 min of running time after its word, and no lane is suspended. *Whom the word goes to (B771, the
+  fix of X98).* Only a worker that holds a step not yet reported (`say.mjs` `holdsOpenStep`: taken or in progress in the store,
+  or one the board's check handed back, which the worker stays in its turn to fix). At 22:50 on 2026-10-27 Worker 2 reported
+  B742 and, 15 s later, was typed the stop word: it started a new turn before the worker's clear ran, and the worker stayed
+  uncleared. A worker whose step is in review, or that holds none, needs no word: the hand-out already holds, and its clear runs.
+  The same rule serves the 5-hour limit's word. `test/stopOnStepBoard.test.mjs` runs that evening on a running board. (B759: `test/weekStopBoard.test.mjs`
   runs a board copy on the night's case, the week at 98 with B738 ready, Worker 4 free and Workers 2, 3 and 5 working: nothing is
   handed out, each of the three gets one word, however many times the looking loop passes; at 97, or at 98 with `weekStopAt` 99, B738
   goes to Worker 4 and nobody is told.)
@@ -796,6 +801,7 @@ as the title". The picture is `art-inbox/worker-board/2026-10-13-b113-limits-res
   `five-hour-stop-ignored` (`rules/watch.mjs`) opens one incident when a step is given (the History line "refined → queued
   (given by the board to ...)") or a worker is started (a `start` or `spawn` word of the hand-out) more than 2 min after
   the figure at the line was read, while the limit stands at the line; it names them and clears when the limit leaves it.
+  The word goes only to a worker that holds a step not yet reported (B771: see the week's stop line above).
 - *Suspended.* A state of its own, in place of working or free, in two cases. The app stopped the chat at the
   limit: its line is the last thing in the transcript, and names the time. Or a worker paused by itself: its last
   word to the main chat says in its first line "paused for the limit", with "until HH:MM" when it knows, and its
