@@ -264,6 +264,16 @@ export function resumeRetypeTo(state) {
 }
 
 /**
+ * When the person's last pause stopped holding (`pause` the pause.json record): Resume all, its since while resuming, its
+ * `resumedSince` once running (a record from before then: its since). Null while it holds or when there is none.
+ */
+export function holdEndOf(pause) {
+  if (pause === null || pause === undefined || isHolding(pause)) return null
+  const end = pause.state === 'resuming' ? pause.since : pause.resumedSince ?? pause.since
+  return Number.isFinite(end) ? end : null
+}
+
+/**
  * The review of Pause 2: how long a line in the outbox was held by a pause (`pause` the pause.json record) between
  * when it was sent and `now`: it does not grow late while the board holds it. From the pause's start (pausing: its
  * since; resuming and running: `pausedSince`) to its end. Since 2026-10-19 only pausing holds, so the hold ends at the
