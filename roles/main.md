@@ -133,10 +133,12 @@ after 20 minutes. So, for every task:
 
 ## A report comes in
 
-The worker reported with `work report`: the board checks the base branch against its remote and that the branch is
-gone, and writes the outcome in the step's History (`work list`, or the step's window). Check the picture exists and
-the branch's folder is gone; a step whose check failed you tell the worker about with `work note`. Send the user the
-picture. Then report in a few lines; the board hands out what waited for that step. Read the plan's limits again with the check (the app's usage tool), so the board's limits bar never stands hours old.
+The worker reported with `work report`: the board checks it all itself and writes the outcome in the step's History
+(`work list`, or the step's window): the base branch against its remote, the branch and its worktree folder gone, a
+result named, the files of work outside git there. A failed check it tells the worker itself (B740), and the user
+gets the step's recap card with its picture once it is done (B360). Nothing of that is yours (2026-10-28, phasing out
+the main chat). What is left: read the plan's limits again (the app's usage tool), so the board's limits bar never
+stands hours old.
 
 Close the check browsers left behind (B266): at every report check, close the browsers the chats started for checks
 and pictures and left running, those started with a temporary profile folder (headless, driven over CDP or by
@@ -253,8 +255,10 @@ reaches you only when none did within a minute.
 - `check sync <name>` or `check sync board` with what the board shows: the user thinks the board and that worker (or
   the whole board) are out of sync: below, "Check sync".
 - `advisor recommendation: yes` with "Recommended: ..." (and "Step: B<id>" when it is on the backlog, "Why: ..."): the
-  user said yes to the Advisor's next step on its tab. Make it a step with `work new` when it is not there; the board
-  hands it out as any task. A "no" goes to the Advisor, not to you.
+  user said yes to the Advisor's next step on its tab. Since 2026-10-28 the board writes that step itself (under the
+  recommendation's goal, linked in its Steps line) and the word no longer comes to you; only a copy of the board that
+  writes no store still sends it. Then make it a step with `work new` when it is not there; the board hands it out as
+  any task. A "no" goes to the Advisor, not to you.
 - "B<number> is approved and ticked on the worker board; ... Open steps that waited for it: ...": the board ticked the
   step itself; the steps that waited for it are delivered by the board once their workers are free.
 - `backlog step from the goal map` with Title, Goal, Description, Time and Worker: below, "A step from the goal map".

@@ -13856,7 +13856,10 @@ function drawWay(state) {
   }
 }
 
-/** B195: the Advisor's recommendation under the way: yes goes to the main chat, no with a reason to the Advisor. */
+/**
+ * B195: the Advisor's recommendation under the way: yes goes to the main chat, no with a reason to the Advisor. Since
+ * 2026-10-28 a board that writes the store carries a yes out itself: the step is on the backlog at once.
+ */
 function recommendationPart(rec, state) {
   if (rec === null) return []
   const main = state.workers?.mainTitle ?? state.workers?.main ?? 'the main chat'
@@ -13870,12 +13873,14 @@ function recommendationPart(rec, state) {
   const answer = rec.answer ?? null
   if (answer !== null) {
     const sent = answer.state === 'delivered' ? '' : ' (on its way)'
-    box.append(el('p', 'way-answered', answer.answer === 'yes'
+    box.append(el('p', 'way-answered', answer.answer === 'yes' && answer.byBoard === true
+      ? `You said yes at ${clock(answer.at)}: it is on the backlog as ${answer.step}; the board hands it out as any task.`
+      : answer.answer === 'yes'
       ? `You said yes at ${clock(answer.at)}${sent}: ${main} puts it on the backlog when it is not there and hands it out.`
       : `You said no at ${clock(answer.at)}${sent}: the Advisor proposes another task at its next round.`))
     return [box]
   }
-  const canYes = (state.workers?.main ?? null) !== null
+  const canYes = state.goalsEdit?.canWrite === true || (state.workers?.main ?? null) !== null
   const canNo = (state.advisor?.name ?? null) !== null
   const buttons = el('div', 'way-buttons')
   const button = (what, words, kind) => {
@@ -13947,7 +13952,7 @@ $('advisor-way').addEventListener('click', event => {
   }
   if (what === 'yes') {
     button.disabled = true
-    send({ to: board.workers.main, command: 'recommend', about: rec.id, answer: 'yes' }, 'recommend')
+    send({ to: board.workers?.main ?? null, command: 'recommend', about: rec.id, answer: 'yes' }, 'recommend')
     return
   }
   if (what === 'no') {
@@ -16777,7 +16782,7 @@ function draw(state) {
   })
   once('advice', [state.advice, state.gamePlan ?? null], () => drawAdvice(state))
   // B195: the way to the next milestone, also when an answer to its recommendation is on its way or refused.
-  once('way', [state.milestone ?? null, state.goalsFile ?? null, state.workers?.main ?? null, state.advisor?.name ?? null, sending.has('recommend'), problems.get('recommend') ?? null, state.advisor?.roundRuns ?? null, sending.has('recheck'), problems.get('recheck') ?? null], () => drawWay(state))
+  once('way', [state.milestone ?? null, state.goalsFile ?? null, state.workers?.main ?? null, state.goalsEdit?.canWrite ?? null, state.advisor?.name ?? null, sending.has('recommend'), problems.get('recommend') ?? null, state.advisor?.roundRuns ?? null, sending.has('recheck'), problems.get('recheck') ?? null], () => drawWay(state))
   once('advice-suggestions', [state.suggestions ?? [], state.rounds?.group ?? null], () => drawSuggestions(state))
   // B286: the steps by where their refine stands, drawn anew only when the list changes.
   const refining = refineGroups(state.backlog)

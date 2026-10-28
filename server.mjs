@@ -57,7 +57,7 @@ import { createSpendingCollector } from './src/work/routing/collector.mjs'
 import { readRoutingRecord } from './src/work/routing/records.mjs'
 import { parseRoutingPolicy } from './src/work/routing/policy.mjs'
 import { adoptPicture, findDemo, findPicture, PICTURE_BYTES as SHOWN_PICTURE_BYTES, pictureProblem, pictureTooBig, shownFolders, shownRoots } from './src/pictures.mjs'
-import { answerWords, checkSay, focusWords, goalStepOf, reportedBackgroundDue, resumesDue, spawnWhenAlone, wakeFor, wakesDue, wakesStopped, weekStopDue, withInstruction, workWords } from './src/say.mjs'
+import { answerWords, checkSay, focusWords, goalStepOf, recommendYesAnswer, recommendYesOf, reportedBackgroundDue, resumesDue, spawnWhenAlone, wakeFor, wakesDue, wakesStopped, weekStopDue, withInstruction, workWords } from './src/say.mjs'
 import { keepTalkPicture } from './src/talkPicture.mjs'
 import { firstLook, refineWhenDue } from './src/refineGate.mjs'
 import { recheckText, roundText, roundsNow } from './src/rounds.mjs'
@@ -781,15 +781,46 @@ async function main(args) {
     if (activity === null) return { ok: false, status: 409, why: 'The work store has no activity to put the step under.' }
     const made = await workAction({ action: 'new', title: step.title, activity, ...(step.goal === null ? {} : { goal: step.goal }), text: [`Description: ${step.description}`, `Time: ${step.cost}`, 'From the goal map.'] }, 'person')
     if (!made.ok) return made
-    if (step.goal !== null && writesMap) {
-      const goalsAt = { file: projectFile(config, 'goals'), historyDir: projectFile(config, 'goalsHistory'), now: clock() }
-      await changeGoalsFile(text => {
-        const node = parseGoals(text).byId.get(step.goal)
-        return node === undefined ? { ok: true, text } : setGoalSteps(text, step.goal, [...node.steps, made.result.id])
-      }, goalsAt)
-    }
+    await linkUnderGoal(step.goal, made.result.id)
     readState.reset()
     return { ok: true, result: { step: made.result.id } }
+  }
+  /** B754: a step the board wrote, added to its goal's Steps line in the goal map (the one link between the two). */
+  const linkUnderGoal = async (goal, id) => {
+    if (goal === null || !writesMap) return
+    const goalsAt = { file: projectFile(config, 'goals'), historyDir: projectFile(config, 'goalsHistory'), now: clock() }
+    await changeGoalsFile(text => {
+      const node = parseGoals(text).byId.get(goal)
+      return node === undefined ? { ok: true, text } : setGoalSteps(text, goal, [...node.steps, id])
+    }, goalsAt)
+  }
+  /**
+   * Phasing out the main chat (the person, 2026-10-28: "A, and send note"): a yes to the Advisor's recommendation,
+   * carried out by the board itself, as the main chat did: the step written as the person under the goal the
+   * recommendation is on and linked in its Steps line, or, when the recommendation names a step the store holds, that
+   * step left to the hand-out. The answer is kept as delivered, so it closes the recommendation.
+   */
+  const recommendYesNow = async (body, state) => {
+    const stored = await readStore(workDir)
+    const checked = recommendYesOf(body, state, id => stored?.items?.has(id) === true)
+    if (!checked.ok) return checked
+    let step = checked.rec.step
+    if (checked.step !== null) {
+      const goalsFile = projectFile(config, 'goals')
+      const text = existsSync(goalsFile) ? await readFile(goalsFile, 'utf8') : null
+      const goal = text === null ? null : parseGoals(text).nodes.find(node => node.recommendation?.id === checked.rec.id)?.id ?? null
+      const activity = goal === null ? stored?.activities?.[0]?.name ?? null : activityFor(goal, stored?.items, stored?.activities)
+      if (activity === null) return { ok: false, status: 409, why: 'The work store has no activity to put the step under.' }
+      const time = checked.step.cost === '' ? [] : [`Time: ${checked.step.cost}`]
+      const made = await workAction({ action: 'new', title: checked.step.title, activity, ...(goal === null ? {} : { goal }), text: [`Description: ${checked.step.description}`, ...time, 'From the Advisor\'s recommendation.'] }, 'person')
+      if (!made.ok) return made
+      step = made.result.id
+      await linkUnderGoal(goal, step)
+    }
+    const message = recommendYesAnswer({ rec: checked.rec, step, id: randomBytes(8).toString('hex'), now: clock() })
+    await store.say(message)
+    readState.reset()
+    return { ok: true, message }
   }
   const withdrawGuardAsk = (id, why) => {
     if (typeof id !== 'string' || !/^Q\d+$/.test(id)) return
@@ -1795,6 +1826,9 @@ async function main(args) {
       // B754: a ticked step of a created proposal is written by the board itself, as the person, and linked under its
       // goal in the goal map; the main chat is no longer asked.
       if (body?.command === 'goal-step') return goalStepNow(body, state)
+      // A yes to the Advisor's recommendation the board carries out itself where it writes the store; a copy that does not
+      // sends it to the main chat as before.
+      if (body?.command === 'recommend' && body?.answer === 'yes' && !isShowOnly && workDir !== null) return recommendYesNow(body, state)
       const checked = checkSay(body, state, config.maxMessageChars)
       if (!checked.ok) return checked
       // B167: the picture is named to the main chat by where it is, so it has to be there.

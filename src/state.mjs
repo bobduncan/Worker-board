@@ -2051,7 +2051,9 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
       const rec = way.recommendation
       if (rec === null) return way
       const said = sent.findLast(message => message.command === 'recommend' && message.about === rec.id && message.state !== 'failed' && message.state !== 'expired')
-      return { ...way, recommendation: { ...rec, answer: said === undefined ? null : { answer: said.answer, at: said.at, state: said.state } } }
+      // Phasing out the main chat (2026-10-28): a yes the board carried out itself (to no chat) names the step it wrote or left.
+      const byBoard = said !== undefined && said.to === null ? { byBoard: true, step: said.step ?? null } : {}
+      return { ...way, recommendation: { ...rec, answer: said === undefined ? null : { answer: said.answer, at: said.at, state: said.state, ...byBoard } } }
     })(),
     // B255: the goal map (config.goals in the project, spec 2026-10-15), each node with its counters against the
     // backlog as it stands, and the problems the file has. Null without a file; `goalsFile` says where it is looked for.

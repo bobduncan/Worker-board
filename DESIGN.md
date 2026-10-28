@@ -514,6 +514,10 @@ not started, and the milestone's own check last) with a bar of done, open and mi
 items under the row. "Yes, queue it" types "advisor recommendation: yes" with the step into the main chat, which
 puts it on the backlog when it is not there and hands it out; "No…" asks why and types "advisor recommendation: no"
 with the reason into the Advisor's chat. One answer per recommendation (its id); the box then says what was answered.
+Since 2026-10-28 (phasing out the main chat) a board that writes the store carries the yes out itself: it writes the
+step as the person under the recommendation's goal and links it in the goal's Steps line (as B754's goal steps), or
+leaves a step the recommendation names and the store holds to the hand-out; the answer is kept delivered, to no chat
+(`recommendYesOf`, `recommendYesAnswer`), and the box names the step.
 The mock-up the person agreed to ("1. yes. 2. yes."): `art-inbox/worker-board/b195/2026-10-14-b195-mockup.png`.
 Since B260 (2026-10-15, the Advisor's check of the goal map's design: "piece 6 right after piece 1") the way is read
 from the goal map, not from the JSON: the first goal with a `From the game plan: M<n>` line that is not done; every

@@ -385,16 +385,53 @@ export function goalStepOf(body, state) {
   return { ok: true, title: sayLine(step.title), goal: /^G\d+$/.test(String(goal)) ? goal : null, description: `from the brainstorm "${plainLine(thread.title)}" (${thread.path})${note}`, cost: sayLine(step.cost), worker: sayLine(step.worker), about: `${thread.path}#${body.step}` }
 }
 
+/** B195: the recommendation an answer is about, `{ ok, rec }`: the one that stands, not answered yet, with nothing else. */
+function standingRecommendation(body, state) {
+  const rec = state.milestone?.recommendation ?? null
+  if (rec === null || body.about !== rec.id) return refuse(409, 'That is no longer the Advisor\'s recommendation.')
+  if ((rec.answer ?? null) !== null) return refuse(409, 'This recommendation is answered already.')
+  if ((body.text ?? '') !== '' || (body.ask ?? null) !== null || (body.verdict ?? null) !== null) return refuse(400, 'A command carries nothing else.')
+  return { ok: true, rec }
+}
+
+/**
+ * Phasing out the main chat (the person, 2026-10-28: "A, and send note"): a yes to the Advisor's recommendation is the
+ * board's own to carry out. `{ ok, rec, step }`: the recommendation that stands, and the step to write (`title`,
+ * `description`, `cost`), or null when the recommendation names a step the store holds (`has`: whether it does), which
+ * the board hands out as any task. The step goes under the goal the recommendation is on (the server finds it).
+ */
+export function recommendYesOf(body, state, has = () => false) {
+  if (body.answer !== 'yes') return refuse(400, 'Yes only.')
+  const standing = standingRecommendation(body, state)
+  if (!standing.ok) return standing
+  const { rec } = standing
+  if (rec.step !== null && has(rec.step)) return { ok: true, rec, step: null }
+  const description = sayLine(rec.why ?? '') === '' ? 'the Advisor\'s recommendation on the way to the next milestone' : sayLine(rec.why)
+  return { ok: true, rec, step: { title: sayLine(rec.title), description, cost: sayLine(rec.cost ?? '') } }
+}
+
+/**
+ * The answer to the recommendation as the board keeps it, carried out by the board itself (`step`: the step it wrote, or
+ * the one the recommendation named): one record of the outbox, delivered at once, to no chat. It closes the
+ * recommendation as an answer the main chat typed did.
+ */
+export function recommendYesAnswer({ rec, step, id, now }) {
+  const named = step === null ? '' : `\nStep: ${step}`
+  return {
+    id, at: now, to: null, ask: null, step, title: null, version: null, verdict: null, command: 'recommend', about: rec.id, answer: 'yes',
+    text: `advisor recommendation: yes (carried out by the board)\nRecommended: ${rec.title}${named}`, state: 'delivered', deliveredAt: now,
+  }
+}
+
 /**
  * B195: the person's answer to the Advisor's recommendation on the way to the next milestone. Yes goes to the main
  * chat, which puts the step on the backlog when it is not there and hands it out; no goes to the Advisor with the
  * person's reason. What was recommended is read from the board's own state: the page sends the answer and a reason.
  */
 function recommendWords(body, state) {
-  const rec = state.milestone?.recommendation ?? null
-  if (rec === null || body.about !== rec.id) return refuse(409, 'That is no longer the Advisor\'s recommendation.')
-  if ((rec.answer ?? null) !== null) return refuse(409, 'This recommendation is answered already.')
-  if ((body.text ?? '') !== '' || (body.ask ?? null) !== null || (body.verdict ?? null) !== null) return refuse(400, 'A command carries nothing else.')
+  const standing = standingRecommendation(body, state)
+  if (!standing.ok) return standing
+  const { rec } = standing
   const base = { ask: null, step: null, title: null, version: null, verdict: null, command: 'recommend', about: rec.id, answer: body.answer }
   const step = rec.step === null ? '' : `\nStep: ${rec.step}`
   if (body.answer === 'yes') {

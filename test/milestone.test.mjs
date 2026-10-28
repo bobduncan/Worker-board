@@ -14,7 +14,7 @@ import { messageText } from '../src/bridge.mjs'
 import { parseConfig } from '../src/config.mjs'
 import { parseBacklog } from '../src/backlog.mjs'
 import { milestoneWay } from '../src/milestone.mjs'
-import { checkSay } from '../src/say.mjs'
+import { checkSay, recommendYesAnswer, recommendYesOf } from '../src/say.mjs'
 import { buildState } from './withStore.mjs'
 
 const MIN = 60_000
@@ -201,8 +201,44 @@ test('the page: the Advisor tab in four parts under their buttons, the way first
   // Vision (2026-10-19): the fifth tab, the product plan's; the chat still has none of its own.
   assert.equal((html.match(/class="tab[^"]*" type="button" data-tab=/g) ?? []).length, 6)
   assert.match(script, /const pane = ADVISOR_PANES\.includes\(name\) \? name : advisorFirstPart\(board\?\.advisorParts\)/)
-  // The answers: yes to the main chat, no with its reason to the Advisor; the way is drawn anew while one is sent.
-  assert.match(script, /send\(\{ to: board\.workers\.main, command: 'recommend', about: rec\.id, answer: 'yes' \}, 'recommend'\)/)
+  // The answers: yes to the main chat (since 2026-10-28 carried out by the board), no with its reason to the Advisor;
+  // the way is drawn anew while one is sent.
+  assert.match(script, /send\(\{ to: board\.workers\?\.main \?\? null, command: 'recommend', about: rec\.id, answer: 'yes' \}, 'recommend'\)/)
   assert.match(script, /send\(\{ to: board\.advisor\.name, command: 'recommend', about: rec\.id, answer: 'no', reason: wayReason\.trim\(\) \}, 'recommend'\)/)
-  assert.match(script, /once\('way', \[state\.milestone \?\? null, state\.goalsFile \?\? null, state\.workers\?\.main \?\? null, state\.advisor\?\.name \?\? null, sending\.has\('recommend'\), problems\.get\('recommend'\) \?\? null, state\.advisor\?\.roundRuns \?\? null, sending\.has\('recheck'\), problems\.get\('recheck'\) \?\? null\], \(\) => drawWay\(state\)\)/)
+  assert.match(script, /once\('way', \[state\.milestone \?\? null, state\.goalsFile \?\? null, state\.workers\?\.main \?\? null, state\.goalsEdit\?\.canWrite \?\? null, state\.advisor\?\.name \?\? null, sending\.has\('recommend'\), problems\.get\('recommend'\) \?\? null, state\.advisor\?\.roundRuns \?\? null, sending\.has\('recheck'\), problems\.get\('recheck'\) \?\? null\], \(\) => drawWay\(state\)\)/)
+})
+
+// Phasing out the main chat (the person, 2026-10-28: "A, and send note"): a yes the board carries out itself.
+
+test('a yes is the board\'s own: the step to write from the recommendation, or none when the store holds the step it names', () => {
+  const state = build()
+  const yes = recommendYesOf({ to: null, command: 'recommend', about: 'R1', answer: 'yes' }, state)
+  assert.equal(yes.ok, true)
+  assert.deepEqual(yes.step, { title: 'Build the outcome preview first', description: 'Three steps stand on it.', cost: 'About 2 hours.' })
+  const named = build({ goals: GOALS.replace('Three steps stand on it. · About 2 hours. · none', ' · About 2 hours. · B03') })
+  assert.equal(recommendYesOf({ command: 'recommend', about: 'R1', answer: 'yes' }, named, id => id === 'B03').step, null)
+  // A named step the store no longer holds is written anew, with a plain description.
+  assert.deepEqual(recommendYesOf({ command: 'recommend', about: 'R1', answer: 'yes' }, named, () => false).step.description, 'the Advisor\'s recommendation on the way to the next milestone')
+  // Only a yes, only the recommendation that stands, only once, with nothing else.
+  assert.equal(recommendYesOf({ command: 'recommend', about: 'R1', answer: 'no' }, state).status, 400)
+  assert.equal(recommendYesOf({ command: 'recommend', about: 'R0', answer: 'yes' }, state).status, 409)
+  assert.equal(recommendYesOf({ command: 'recommend', about: 'R1', answer: 'yes', text: 'x' }, state).status, 400)
+  assert.equal(recommendYesOf({ command: 'recommend', about: 'R1', answer: 'yes' }, build({ outbox: [said('yes')] })).status, 409)
+})
+
+test('the board\'s yes is kept delivered, to no chat, naming the step; it closes the recommendation and the page names the step', () => {
+  const rec = build().milestone.recommendation
+  const kept = recommendYesAnswer({ rec, step: 'B05', id: 'm2', now: NOW - MIN })
+  assert.deepEqual([kept.to, kept.state, kept.command, kept.about, kept.answer, kept.step], [null, 'delivered', 'recommend', 'R1', 'yes', 'B05'])
+  assert.deepEqual(build({ outbox: [kept] }).milestone.recommendation.answer, { answer: 'yes', at: NOW - MIN, state: 'delivered', byBoard: true, step: 'B05' })
+  assert.match(script, /it is on the backlog as \$\{answer\.step\}; the board hands it out as any task\./)
+  assert.match(script, /const canYes = state\.goalsEdit\?\.canWrite === true \|\| \(state\.workers\?\.main \?\? null\) !== null/)
+})
+
+test('the server carries a yes out itself where it writes the store: the step as the person, linked under its goal', async () => {
+  const server = await readFile(join(dirname(fileURLToPath(import.meta.url)), '..', 'server.mjs'), 'utf8')
+  assert.match(server, /if \(body\?\.command === 'recommend' && body\?\.answer === 'yes' && !isShowOnly && workDir !== null\) return recommendYesNow\(body, state\)/)
+  assert.match(server, /parseGoals\(text\)\.nodes\.find\(node => node\.recommendation\?\.id === checked\.rec\.id\)/)
+  assert.match(server, /'From the Advisor\\'s recommendation\.'\] \}, 'person'\)/)
+  assert.match(server, /await linkUnderGoal\(goal, step\)/)
 })
