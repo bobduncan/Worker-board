@@ -7,7 +7,9 @@
 // Workers mod (bridge take, `clear`), which keeps the log and runs /clear; a mod older than CLEAR_MOD cannot, and the
 // supervisor's rule not-cleared names it. B737 (X86, 2026-10-27): a report whose board check failed counts for none of
 // this: the board hands the step back, its worker rightly stays in its turn to fix it (Worker 3 and B727, 21:02-21:28),
-// so it owes no clear and is given no new step (handedBackOf) until it reports again and that check passes. PURE.
+// so it owes no clear and is given no new step (handedBackOf) until it reports again and that check passes. B765 (X102):
+// the rule not-cleared does not read the reported step's own take, written before its report in the same minute, as a
+// new step (takenSince). PURE.
 
 import { sinceMs, valueOf } from './work/item.mjs'
 
@@ -86,19 +88,27 @@ export function handedBackOf(items, chat, prefix = '') {
 
 /**
  * The steps the chat took after `at`: History lines of its own that move a step to taken (or straight to in progress),
- * newest first, as `{ id, at }`.
+ * newest first, as `{ id, at }`. B765 (X102): times are kept to the minute, so a step taken and reported in the same
+ * minute has its own take "at" its report's minute; with `reportedStep` (the step that report was of), that step's takes
+ * written before its last report line (one History, so their order is known) are its own work, not a new step: left
+ * out. A take of another step in that minute still counts.
  */
-export function takenSince(items, chat, at, prefix = '') {
+export function takenSince(items, chat, at, prefix = '', reportedStep = null) {
   const me = plain(chat, prefix)
   const taken = []
   for (const item of items instanceof Map ? items.values() : items ?? []) {
     if ((valueOf(item, 'Kind') ?? 'step') !== 'step') continue
-    for (const line of item.sections?.get('History') ?? []) {
-      if (!/: queued → (?:taken|in progress)\b/.test(line)) continue
+    const id = valueOf(item, 'Id')
+    const lines = item.sections?.get('History') ?? []
+    const ownReport = reportedStep !== null && id === reportedStep
+      ? lines.findLastIndex(line => REPORTED.test(line) && plain(LINE.exec(line)?.[2], prefix) === me)
+      : -1
+    lines.forEach((line, index) => {
+      if (!/: queued → (?:taken|in progress)\b/.test(line) || index < ownReport) return
       const found = LINE.exec(line)
       const when = found === null ? Number.NaN : sinceMs(found[1])
-      if (found !== null && plain(found[2], prefix) === me && when >= at) taken.push({ id: valueOf(item, 'Id'), at: when })
-    }
+      if (found !== null && plain(found[2], prefix) === me && when >= at) taken.push({ id, at: when })
+    })
   }
   return taken.sort((a, b) => b.at - a.at)
 }
