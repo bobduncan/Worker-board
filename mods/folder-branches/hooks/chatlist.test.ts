@@ -3350,6 +3350,27 @@ describe('2026-10-28: a chat learns which chat it is from the board, by its sess
     expect(w.files[`${CHATS}/units.json`]).toBe(LEFT_TEXT)
   })
 
+  // 2026-10-28 (the person: "Yes, move it"): where prompt.compose does not run, the standing note is in the work tool.
+  test('named by the board where no classic hook runs, the work tool\'s description carries the chat\'s standing note', async ($, on) => {
+    mock.clock(on)
+    const w = world('units', { ...listed(), [BOARD]: board })
+    w.whoami = { name: 'Units', role: 'worker', card: null }
+    stand(on, w)
+    await $.session.start(START)
+    expect(w.descriptions.work).toContain('This chat is "Units" in the person\'s list of chats')
+    expect(w.descriptions.work).toContain('(answered on the worker board, HH:MM)')
+  })
+
+  test('where the classic hooks run, the note stays in the prompt and the work tool keeps its own words', async ($, on) => {
+    mock.clock(on)
+    const w = world('units', { ...listed(), [BOARD]: board })
+    w.whoami = { name: 'Units', role: 'worker', card: null }
+    stand(on, w)
+    await $.classic.SessionStart({ source: 'startup', session_title: 'Game - Units' } as never)
+    await $.session.start(START)
+    expect(w.descriptions.work).not.toContain('This chat is "Units"')
+  })
+
   // 2026-10-28, the person's test on the work login: Worker 5 was named and its card moved, but its start's words were made
   // about 4 s after the first prompt had gone to the model. Now they are made when the clear runs.
   test('a person\'s /clear: the card moves and the start\'s words are made when the clear runs, before any prompt', async ($, on) => {

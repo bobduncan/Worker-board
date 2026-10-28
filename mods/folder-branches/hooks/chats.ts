@@ -484,8 +484,8 @@ export function chatNote(me: ChatFile, tool: string): string {
     + 'lists yours, and the flow file says who moves an item and when. '
   if (me.role === 'main') {
     return `${shared}Your card clears when you call "done" together with the last tool call of the request, or when `
-      + `you record the next request. You hand a step to a worker with ${work} action "queue": the board delivers it; no `
-      + 'message carries a task. When the turn in which a worker reported a step ends, the worker is cleared or compacted '
+      + `you record the next request. The board hands every step to a free worker itself; `
+      + 'no message carries a task. When the turn in which a worker reported a step ends, the worker is cleared or compacted '
       + 'by itself, as the list of chats says; a large main chat is compacted while it rests.'
   }
   return `${shared}Your card clears by itself when you report your step with ${work} action "report" and your turn `

@@ -359,11 +359,13 @@ describe('which chats are in the list', () => {
     for (const note of [worker, main]) {
       for (const part of ['"plan"', '"names"', '"minutes"', '"stepMinutes"', '"step"', 'at the start of every request', 'never as a step of their own', 'survives a compaction']) expect(note).toContain(part)
     }
-    // B301: a step ends with the work tool's report, never with a message; a step is handed out with "queue".
+    // B301: a step ends with the work tool's report, never with a message. 2026-10-28: the board hands every step out
+    // itself (its redesign's Part 2); the work tool has no queue, so the main chat is not told to queue.
     expect(worker).toContain('clears by itself when you report your step with mcp__folder-branches__work action "report"')
     expect(worker).toContain('no message to another chat clears it or ends a step')
     expect(worker).not.toContain('Report from')
-    expect(main).toContain('mcp__folder-branches__work action "queue"')
+    expect(main).toContain('The board hands every step to a free worker itself')
+    expect(main).not.toContain('action "queue"')
     expect(main).toContain('no message carries a task')
     expect(main).not.toContain('Task from')
     // B297: one line names the work tool, and that the flow file says who moves an item.
