@@ -1411,6 +1411,7 @@ async function tick($: EngineInterface): Promise<void> {
   }
   await settleClear($)
   if (myself === null) await whoamiAgain($)
+  await describeWork($)
   await refreshChats($)
   await keepBoards($)
   await takeFromBoard($)
@@ -1540,6 +1541,25 @@ async function backgroundNow($: EngineInterface): Promise<boolean> {
 }
 let eagerSince: number | null = null
 let lastWhoamiTick = -Infinity
+
+/**
+ * 2026-10-28 (the person: "Yes, move it"): where the app's guard skips prompt.compose (a work login), the chat's standing
+ * note (who it is, its card, where its work stands, the board's mark on the person's words) stands in the work tool's
+ * description instead: registered anew once the chat knows who it is, and again when its name or role changes.
+ */
+let describedAs: string | null = null
+async function describeWork($: EngineInterface): Promise<void> {
+  if (classicRuns || myself === null) return
+  const key = `${myself.name}|${myself.role}`
+  if (describedAs === key) return
+  try {
+    const me: ChatFile = { ...myself, state: 'waiting', task: null, at: 0 }
+    await $.tool.register({ ...WORK_TOOL, isDeferred: false, description: `${WORK_TOOL.description}\n\n${chatNote(me, TOOL)}${BOARD_NOTE}` })
+    describedAs = key
+  } catch {
+    // the next tick tries again
+  }
+}
 
 /** The tick's whoami while the chat does not know who it is (`myself` null). Never throws. */
 async function whoamiAgain($: EngineInterface): Promise<void> {
@@ -1671,6 +1691,7 @@ async function joinBySession($: EngineInterface): Promise<void> {
     if (who.role !== null) lastRole = who.role
     if (who.card !== null && who.card !== id) await moveCardFromBoard($, dir, list, who)
     await joinByTitle($, `${list.prefix}${who.name}`)
+    await describeWork($)
   } catch {
     // no board, or it did not answer: the chat joins by its title, or when asked to
   }
