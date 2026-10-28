@@ -189,7 +189,7 @@ and the briefings for the main chat and the workers.
 
 ## Settings
 
-`config.json`, next to `server.mjs`: `name` (the board's title), `weekStopAt` (the percent of the week from which all work stops, 98), `project`, `gameRepo`, `baseBranch` (the branch the
+`config.json`, next to `server.mjs`: `name` (the board's title), `weekStopAt` (the percent of the week from which all work stops, 98), `fiveHourStopAt` and `fiveHourStopMinutes` (the percent of the 5-hour limit from which all work stops, 95, while its reset is more than this many minutes away, 10), `project`, `gameRepo`, `baseBranch` (the branch the
 work is merged into, "main" unless set), `runGame` (the command that starts a working folder's game, a list of
 words with `{folder}`, `{port}`, `{idle}`, `{grace}`, `{cache}`, `{node}` and `{board}` filled in; it prints
 `ready <port>` once the game is served and ends by itself when nobody looks; `examples\config.json` has the one for

@@ -1375,6 +1375,8 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
     now,
     warnAt: config.limitWarnPercent,
     weekStopAt: config.weekStopAt,
+    fiveHourStopAt: config.fiveHourStopAt,
+    fiveHourStopMinutes: config.fiveHourStopMinutes,
   })
   // B312: a worker's own pause for the limit ends early once a reading taken after it shows that limit back
   // (limits.mjs `pauseLifted`): its card is read again as if it had not paused, so it is free (or between two turns)

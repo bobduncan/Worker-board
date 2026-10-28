@@ -57,7 +57,7 @@ import { createSpendingCollector } from './src/work/routing/collector.mjs'
 import { readRoutingRecord } from './src/work/routing/records.mjs'
 import { parseRoutingPolicy } from './src/work/routing/policy.mjs'
 import { adoptPicture, findDemo, findPicture, PICTURE_BYTES as SHOWN_PICTURE_BYTES, pictureProblem, pictureTooBig, shownFolders, shownRoots } from './src/pictures.mjs'
-import { answerWords, checkSay, focusWords, goalStepOf, recommendYesAnswer, recommendYesOf, reportedBackgroundDue, resumesDue, spawnWhenAlone, wakeFor, wakesDue, wakesStopped, weekStopDue, withInstruction, workWords } from './src/say.mjs'
+import { answerWords, checkSay, fiveHourStopDue, focusWords, goalStepOf, recommendYesAnswer, recommendYesOf, reportedBackgroundDue, resumesDue, spawnWhenAlone, wakeFor, wakesDue, wakesStopped, weekStopDue, withInstruction, workWords } from './src/say.mjs'
 import { keepTalkPicture } from './src/talkPicture.mjs'
 import { firstLook, refineWhenDue } from './src/refineGate.mjs'
 import { recheckText, roundText, roundsNow } from './src/rounds.mjs'
@@ -2346,6 +2346,10 @@ async function main(args) {
         const stops = weekStopDue(state, sentNow())
         for (const words of stops) await store.say({ id: randomBytes(8).toString('hex'), at: now, ...words, state: 'waiting' })
         if (stops.length > 0) readState.reset()
+        // B758 (X99): so does the 5-hour limit's stop line, while its reset is far off: the same word once per window, with the time it goes on.
+        const fiveStops = fiveHourStopDue(state, sentNow())
+        for (const words of fiveStops) await store.say({ id: randomBytes(8).toString('hex'), at: now, ...words, state: 'waiting' })
+        if (fiveStops.length > 0) readState.reset()
       }
       // Words that wait for a chat that is not running, sent while the main chat did not run either, are followed by
       // the word to start it once the main chat runs (say.mjs wakesDue). Only the board that delivers.

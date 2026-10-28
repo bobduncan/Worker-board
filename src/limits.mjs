@@ -231,11 +231,22 @@ export function storePause(notes, entries, mains) {
 
 /** B742 (X96): the person's stop line for all work (2026-10-19: 98% of the week); the config's `weekStopAt` sets it. */
 export const WEEK_STOP_AT = 98
-/** The percent from which a limit counts as full: the 5-hour limit at 100, the week at the person's stop line (B742). */
-const stopLevel = (kind, weekStopAt) => (kind === 'week' && Number.isFinite(weekStopAt) ? Math.min(100, weekStopAt) : 100)
+/**
+ * B758 (X99: at 99% of the 5-hour limit, 25 min before its reset, B744, B743 and B746 were given and Workers 1 to 3 were
+ * started, and the work ran into paid extra usage): the 5-hour limit counts full from this percent too (config `fiveHourStopAt`),
+ * while its reset is more than `FIVE_HOUR_STOP_MINUTES` away (config `fiveHourStopMinutes`); at 100 always.
+ */
+export const FIVE_HOUR_STOP_AT = 95
+export const FIVE_HOUR_STOP_MINUTES = 10
+/** The percent from which a limit counts as full: the 5-hour limit at its stop line (B758), the week at the person's (B742). */
+const stopLevel = (kind, { weekStopAt, fiveHourStopAt }) => {
+  const at = kind === 'week' ? weekStopAt : fiveHourStopAt
+  return Number.isFinite(at) ? Math.min(100, at) : 100
+}
 
 /** One limit as the board shows it, or null when nothing is known of it. */
-function limitOf(kind, { sample, readings, stops, now, warnAt, weekStopAt }) {
+function limitOf(kind, { sample, readings, stops, now, warnAt, weekStopAt, fiveHourStopAt, fiveHourStopMinutes }) {
+  const stopAt = stopLevel(kind, { weekStopAt, fiveHourStopAt })
   const mine = stops.filter(stop => stop.limit === kind)
   const figures = [
     ...(sample !== null && Number.isFinite(sample[kind]) ? [{ at: sample.at, used: sample[kind], resetsAt: null }] : []),
@@ -248,15 +259,19 @@ function limitOf(kind, { sample, readings, stops, now, warnAt, weekStopAt }) {
   // The time it resets does not move while its window runs: the newest figure that names one knows it.
   const known = figures.filter(figure => Number.isFinite(figure.resetsAt)).reduce((a, b) => (a === null || b.at > a.at ? b : a), null)
   // That time has passed and nothing was read since: the limit is empty again, since then.
-  if (known !== null && known.resetsAt <= now && newest.at < known.resetsAt) return { used: 0, at: known.resetsAt, resetsAt: null, resetAt: known.resetsAt, level: 'ok', stopAt: stopLevel(kind, weekStopAt) }
+  if (known !== null && known.resetsAt <= now && newest.at < known.resetsAt) return { used: 0, at: known.resetsAt, resetsAt: null, resetAt: known.resetsAt, level: 'ok', stopAt }
   const isHeld = mine.some(stop => Number.isFinite(stop.resetsAt) && stop.resetsAt > now)
+  const resetsAt = known !== null && known.resetsAt > now ? known.resetsAt : null
+  // B758: the 5-hour stop line holds only while the reset is far enough off to be worth the wait; a reset nothing read
+  // names counts as far, so no work runs into extra usage on a guess. At 100 it always holds.
+  const isStopLine = newest.used >= stopAt && (newest.used >= 100 || kind === 'week' || resetsAt === null || resetsAt - now > (Number.isFinite(fiveHourStopMinutes) ? fiveHourStopMinutes : FIVE_HOUR_STOP_MINUTES) * MIN)
   return {
     used: newest.used,
     at: newest.at,
-    resetsAt: known !== null && known.resetsAt > now ? known.resetsAt : null,
+    resetsAt,
     resetAt: null,
-    level: newest.used >= stopLevel(kind, weekStopAt) || isHeld ? 'full' : newest.used >= warnAt ? 'warn' : 'ok',
-    stopAt: stopLevel(kind, weekStopAt),
+    level: isStopLine || isHeld ? 'full' : newest.used >= warnAt ? 'warn' : 'ok',
+    stopAt,
   }
 }
 
@@ -274,10 +289,11 @@ export function readingAgeMinutes(limit, now) {
  * level }` or null. `used` is the newest figure anything gave (the app's file `sample`, the chats' `readings`, a
  * `stop` by the app, which means full) and `at` says when that was; `resetsAt` is when it resets, null when no
  * chat read it in this window; `resetAt` is set when the known reset has passed and nothing was read since.
- * `level` is `ok`, `warn` from `warnAt` percent, and `full` at 100 (the week: B742, from `weekStopAt`, the person's stop line, 98)
+ * `level` is `ok`, `warn` from `warnAt` percent, and `full` at 100 (the week: B742, from `weekStopAt`, the person's stop line, 98;
+ * the 5-hour limit: B758, from `fiveHourStopAt`, 95, while its reset is over `fiveHourStopMinutes`, 10, away)
  * or while a stop's reset is still ahead; `stopAt` says from which percent it is full.
  */
-export function limitsOf({ sample = null, readings = [], stops = [], now, warnAt = 80, weekStopAt = WEEK_STOP_AT }) {
-  const all = { sample, readings, stops, now, warnAt, weekStopAt }
+export function limitsOf({ sample = null, readings = [], stops = [], now, warnAt = 80, weekStopAt = WEEK_STOP_AT, fiveHourStopAt = FIVE_HOUR_STOP_AT, fiveHourStopMinutes = FIVE_HOUR_STOP_MINUTES }) {
+  const all = { sample, readings, stops, now, warnAt, weekStopAt, fiveHourStopAt, fiveHourStopMinutes }
   return { fiveHour: limitOf('fiveHour', all), week: limitOf('week', all) }
 }

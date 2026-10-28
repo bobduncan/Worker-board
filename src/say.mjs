@@ -949,6 +949,39 @@ export function weekStopDue(state, outbox) {
 }
 
 /**
+ * B758 (X99: at 99% of the 5-hour limit, 25 min before its reset, three steps were given, three workers started and the work
+ * ran into paid extra usage): the line typed to a working worker when the 5-hour limit reaches its stop line while its reset
+ * is far off (limits.mjs). The time it goes on comes at the end when the board knows it.
+ */
+export const fiveHourStopWords = (to, stopAt, resetsAt) => ({
+  to, ask: null, step: null, title: null, version: null, verdict: null, command: 'five-hour-stop', fiveHourResets: Number.isFinite(resetsAt) ? resetsAt : null,
+  text: `The 5-hour limit reached the stop line (${stopAt}%): bring your work to a safe point (commit, checkpoint), then send the paused note${Number.isFinite(resetsAt) ? ` until ${timeOfDay(resetsAt)}` : ''}`,
+})
+
+const FIVE_HOUR_WINDOW_MS = 5 * 60 * 60_000
+
+/**
+ * B758: the lines still to type, one for each worker whose card says it works while the 5-hour limit stands at its stop line
+ * (state.limits.fiveHour: `level` full, `used` from `stopAt`; a stop held by a reset ahead is no reading of the line). Once for
+ * each window: not again while a word to the same chat for the same reset, or sent inside the window that reset ends, was
+ * sent, whatever became of it. A worker suspended already, free or off gets none; never while the person pauses all chats.
+ * `outbox` is everything sent.
+ */
+export function fiveHourStopDue(state, outbox) {
+  const five = state.limits?.fiveHour ?? null
+  if (isHolding(state.pause) || five === null || five.level !== 'full' || !Number.isFinite(five.used) || !Number.isFinite(five.stopAt) || five.used < five.stopAt) return []
+  const resets = Number.isFinite(five.resetsAt) ? five.resetsAt : null
+  const words = []
+  for (const lane of state.chats ?? []) {
+    if (lane.isLeftover === true || lane.isMain === true || lane.state !== 'working' || lane.isRunning === false) continue
+    const isTold = (outbox ?? []).some(sent => sent.command === 'five-hour-stop' && sent.to === lane.name
+      && ((sent.fiveHourResets ?? null) === resets || (resets !== null && Number.isFinite(sent.at) && sent.at > resets - FIVE_HOUR_WINDOW_MS)))
+    if (!isTold) words.push(fiveHourStopWords(lane.name, five.stopAt, resets))
+  }
+  return words
+}
+
+/**
  * B577: the main chat's word to wake a chat whose session was stopped (its turn cut by a stop, the main chat's or the
  * person's): the app drops every word to it until it gets input, and a message by its session id is input. `stop` is
  * the chat's stop (src/stopped.mjs `stoppedOf`), `clock` says a time as "21:40".

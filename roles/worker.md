@@ -294,6 +294,10 @@ branch is on the remote), then sends the main chat a note whose first line is ex
 
 HH:MM is the time it goes on. The board shows the worker as "Suspended" until then, so nothing else goes on that line.
 The note may be a work note (`work note --to main`, with that line first in its text) or a message to the main chat.
+The board also types you the word to stop (B742, B758): "The weekly limit reached the stop line (98%): bring your work to
+a safe point ..." or "The 5-hour limit reached the stop line (95%): bring your work to a safe point (commit, checkpoint),
+then send the paused note until HH:MM". Do the same at once: it is the board's word, the limit counts full from there and
+nothing more is handed out; use the time it names (the reset) for HH:MM, or the week's reset.
 
 ## A pause of all chats
 

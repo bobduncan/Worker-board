@@ -773,13 +773,26 @@ as the title". The picture is `art-inbox/worker-board/2026-10-13-b113-limits-res
   (`limitWarnPercent`), a warning colour from there, and at 100%, or while a stop's reset is ahead, "Limit reached"
   with when work goes on. After a known reset with no figure since, the bar is empty and says since when.
 - *The week's stop line (B742, the fix of X95 and X96).* The person's rule (2026-10-19) stops all work at 98% of the week,
-  so the week counts full from `weekStopAt` (config.json, 98; a missing or wrong value reads 98), the 5-hour limit still
-  at 100. That one level (`limits.mjs`, `stopAt` beside `level`) is what the hand-out, the rules that skip a full limit
+  so the week counts full from `weekStopAt` (config.json, 98; a missing or wrong value reads 98). That one level (`limits.mjs`, `stopAt` beside `level`) is what the hand-out, the rules that skip a full limit
   and the bar's "(full)" follow. At the stop line the board types each working worker once per week (`say.mjs`
   `weekStopDue`, command `week-stop`, the board's own word): "The weekly limit reached the stop line (98%): bring your
   work to a safe point (commit, checkpoint), then send the paused note"; the worker's paused note then makes its lane
   Suspended as before. The watch rule `week-stop-ignored` (`rules/watch.mjs`) opens one incident when the week is at the
   line, a worker still works 15 min of running time after its word, and no lane is suspended.
+- *The 5-hour limit's stop line (B758, the fix of X99).* At 99% of the 5-hour limit with its reset 25 min off (12:25 on
+  2026-10-28) the board gave B744, B743 and B746 and started Workers 1 to 3, and the work ran into paid extra usage: the
+  5-hour limit counted full only at 100. It now counts full from `fiveHourStopAt` (config.json, 95; a missing or wrong value
+  reads 95) while its reset is more than `fiveHourStopMinutes` (10) away; within 10 min of the reset it hands out as before,
+  and at 100 it is full always. A reset no chat read counts as far off (the line holds on a guess rather than spend extra
+  usage). The same one level (`limits.mjs`, `stopAt` beside `level`) is what the hand-out, the starts, the spawns, the rules
+  that skip a full limit and the "(full)" follow, as for the week. At the line the board types each working worker once per
+  window (`say.mjs` `fiveHourStopDue`, command `five-hour-stop`, the board's own word; a word sent inside the window the
+  reset ends counts for it): "The 5-hour limit reached the stop line (95%): bring your work to a safe point (commit,
+  checkpoint), then send the paused note until 12:50" (without "until ..." when the reset is not known); the worker's paused
+  note makes its lane Suspended until then and the lane goes on after it, as for the week. The watch rule
+  `five-hour-stop-ignored` (`rules/watch.mjs`) opens one incident when a step is given (the History line "refined → queued
+  (given by the board to ...)") or a worker is started (a `start` or `spawn` word of the hand-out) more than 2 min after
+  the figure at the line was read, while the limit stands at the line; it names them and clears when the limit leaves it.
 - *Suspended.* A state of its own, in place of working or free, in two cases. The app stopped the chat at the
   limit: its line is the last thing in the transcript, and names the time. Or a worker paused by itself: its last
   word to the main chat says in its first line "paused for the limit", with "until HH:MM" when it knows, and its

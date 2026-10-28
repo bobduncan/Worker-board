@@ -108,8 +108,9 @@ tab) and never on the demo; once closed, the browser keeps that it was seen (`he
 - **The head:** the project's name (the setting `name`) with a refresh button; **Run game** (only for a project
   with a game: starts the base branch's game and opens it, with its commit and last change under it); the plan's
   limits (the 5-hour and the weekly bar, green, yellow from the warning percentage, red when full, with when they
-  reset and how old the reading is; the week is full from the stop line `weekStopAt`, 98 by default: nothing is handed
-  out then and each working worker is told once to stop at a safe point).
+  reset and how old the reading is; the week is full from the stop line `weekStopAt`, 98 by default, and the 5-hour limit from `fiveHourStopAt`, 95, while
+  its reset is over `fiveHourStopMinutes`, 10, away: nothing is handed out or started then and each working worker is
+  told once to stop at a safe point).
 - **Count pills:** how many workers are working, waiting for the person, free, suspended, cut off, not running or
   unknown.
 - **The Workers panel:** one row per chat of the list, the main chat first. Columns: **Worker** (its icon, name and

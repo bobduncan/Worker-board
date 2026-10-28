@@ -134,7 +134,7 @@ test('the newest figure is shown, and the reset comes from what a chat read whil
     readings: [reading(at(18, 50), 6, at(23, 40), { used: 53, resetsAt: at(21, 0, 15) })],
     now: at(22, 51),
   })
-  assert.deepEqual(limits.fiveHour, { used: 86, at: at(22, 48), resetsAt: at(23, 40), resetAt: null, level: 'warn', stopAt: 100 })
+  assert.deepEqual(limits.fiveHour, { used: 86, at: at(22, 48), resetsAt: at(23, 40), resetAt: null, level: 'warn', stopAt: 95 })
   assert.deepEqual(limits.week, { used: 64, at: at(22, 48), resetsAt: at(21, 0, 15), resetAt: null, level: 'ok', stopAt: 98 })
   // A reading newer than the file's sample is the figure.
   const newer = limitsOf({ sample: { at: at(22, 48), fiveHour: 86, week: 64 }, readings: [reading(at(22, 50), 93, at(23, 40))], now: at(22, 51) })
@@ -143,19 +143,19 @@ test('the newest figure is shown, and the reset comes from what a chat read whil
 
 test('the bar is calm below 80%, warns from there, and is full at 100% or while a stop\'s reset is still ahead', () => {
   const level = (used, more = {}) => limitsOf({ sample: { at: at(22), fiveHour: used, week: 10 }, now: at(22, 5), ...more }).fiveHour.level
-  assert.deepEqual([level(0), level(79), level(80), level(99), level(100)], ['ok', 'ok', 'warn', 'warn', 'full'])
+  assert.deepEqual([level(0), level(79), level(80), level(94), level(95), level(100)], ['ok', 'ok', 'warn', 'warn', 'full', 'full'])
   assert.equal(level(60, { warnAt: 50 }), 'warn')
   const stopped = limitsOf({ sample: { at: at(22), fiveHour: 97, week: 10 }, stops: [{ at: at(22, 3), limit: 'fiveHour', resetsAt: at(23, 40) }], now: at(22, 5) })
-  assert.deepEqual(stopped.fiveHour, { used: 100, at: at(22, 3), resetsAt: at(23, 40), resetAt: null, level: 'full', stopAt: 100 })
+  assert.deepEqual(stopped.fiveHour, { used: 100, at: at(22, 3), resetsAt: at(23, 40), resetAt: null, level: 'full', stopAt: 95 })
   assert.equal(stopped.week.level, 'ok')
 })
 
 test('once the known reset has passed and no figure is newer, the limit is empty again and says since when', () => {
   const limits = limitsOf({ sample: { at: at(23, 37), fiveHour: 95, week: 65 }, readings: [reading(at(18, 50), 6, at(23, 40))], now: at(23, 45) })
-  assert.deepEqual(limits.fiveHour, { used: 0, at: at(23, 40), resetsAt: null, resetAt: at(23, 40), level: 'ok', stopAt: 100 })
+  assert.deepEqual(limits.fiveHour, { used: 0, at: at(23, 40), resetsAt: null, resetAt: at(23, 40), level: 'ok', stopAt: 95 })
   // A figure from after the reset is that window's own; when it resets is not known until a chat looks.
   const after = limitsOf({ sample: { at: at(23, 52), fiveHour: 13, week: 66 }, readings: [reading(at(18, 50), 6, at(23, 40))], now: at(23, 55) })
-  assert.deepEqual(after.fiveHour, { used: 13, at: at(23, 52), resetsAt: null, resetAt: null, level: 'ok', stopAt: 100 })
+  assert.deepEqual(after.fiveHour, { used: 13, at: at(23, 52), resetsAt: null, resetAt: null, level: 'ok', stopAt: 95 })
   // A stop that is over holds nothing any more.
   const over = limitsOf({ sample: { at: at(23, 52), fiveHour: 13, week: 66 }, stops: [{ at: at(23, 37), limit: 'fiveHour', resetsAt: at(23, 40) }], now: at(23, 55) })
   assert.equal(over.fiveHour.level, 'ok')
