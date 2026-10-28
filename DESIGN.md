@@ -871,7 +871,30 @@ takes: sending still needs the board's own page. (B738) The answer also names th
 mod's Workers list says "Not running" for them, as the page does. A second board that starts while another one's file is there
 and that board answers leaves the file alone. What remains, as with sending: a chat that wrote a `board.json` of
 its own could have its own text typed into the other chats; that takes a deliberate act, and the mod's note
-forbids touching the file. What is typed:
+forbids touching the file.
+
+**Who a chat is, by its session id** (2026-10-28, Workers mod 0.22.0; the person: "'which chat you' are by session id even
+seems more robust"). A chat used to learn its name only from the app's title (`session_title`, in the mod's `classic.*`
+hooks), which fails on a work login (the app's guard `sec-default` skips every user mod's `classic.*` hooks), after an
+account switch (a stale title) and when a chat is renamed or doubled. Now the mod asks the board `POST
+/api/bridge/whoami` with `{ session }` (what `$.session.id()` returns), with the bridge's key and its version header as
+every call of the bridge. The board answers `{ name, role, card }` from the app's chat list it already reads (the chats of
+`shownChats`, each with its `cliSessionId`: the reading that makes a take's 409 name the chat, `src/bridge.mjs`
+`whoamiOf`): `name` is the name the board shows that session under, null for a session of no chat of the list (also a
+leftover lane, or a name the mod would not take); `role` the one the board gives that chat (main, worker, advisor, helper
+or supervisor); `card` the session the chat's card is filed under when that is another than the asking one (a
+`.claude/chats/<session>.json` of that name which is no left file, no `movedTo` stub and no other shown chat's), null when
+the asking session has a file of its own (`src/chatCards.mjs`; the case it is for: a worker cleared in a new process, whose
+card stayed under the old session). A session the board shows under no name is read anew once per 30 s before it is
+answered "no chat" (a chat the app just made or moved). The route only reads (guard `free`), and counts as a call of the
+mod (`seen`, so `bridge.isMissing` is false; the version in `modOf`); a session of no chat counts in `seen.other` under
+`session <id>`, a key no lane reads. In the mod (`joinBySession`): at the session's start and before a prompt's
+context, at most once a minute per process, the chat joins under the name by the same code as a title does
+(`joinByTitle`, with the title `<prefix><name>`); a `card` from another session is moved to the chat's own session by
+the clear's own code (`moveCard`, from `carried` and `lastRole` built from the card and the answer, never from the
+process's memory), and a worker gets the start words of a clear (`clearedStart`) at its next prompt; the main chat, the
+partner and the supervisor get none. The classic handlers stay: on a personal login they still run, and the session id
+adds. What is typed:
 
 | The person | Typed into the chat |
 |---|---|

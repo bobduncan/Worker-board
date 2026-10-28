@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'claude-code/testing'
 
-import { MOST_CHARS, WORK_ACTIONS, WORK_FIELDS, boardStarts, isPaused, parseBoard, parsePause, parseTaken, pauseContexts, typedWhy } from './board'
+import { MOD_VERSION, MOST_CHARS, WHOAMI_PATH, WORK_ACTIONS, WORK_FIELDS, boardStarts, isPaused, parseBoard, parsePause, parseTaken, parseWhoami, pauseContexts, typedWhy } from './board'
 
 const KEY = 'ab'.repeat(32)
 
@@ -220,5 +220,32 @@ describe('Pause 2: the pause state as the mod reads it, and the contexts it give
     expect(isPaused(parsePause(answer('resuming')))).toBe(true)
     expect(isPaused(parsePause(answer('running')))).toBe(false)
     expect(isPaused(null)).toBe(false)
+  })
+})
+
+describe('2026-10-28: the board names this chat by its session id', () => {
+  test('the route, and the version the plugin states', () => {
+    expect(WHOAMI_PATH).toBe('/api/bridge/whoami')
+    expect(MOD_VERSION).toBe('0.22.0')
+  })
+
+  test('the answer: a name, the role the board gives it and the session its card is filed under', () => {
+    expect(parseWhoami('{"name":"Worker 5","role":"worker","card":"53d8e277-aaaa-4bbb-8ccc-0123456789ab"}')).toEqual({ name: 'Worker 5', role: 'worker', card: '53d8e277-aaaa-4bbb-8ccc-0123456789ab' })
+    expect(parseWhoami('{"name":" Main ","role":"main","card":null}')).toEqual({ name: 'Main', role: 'main', card: null })
+    for (const role of ['main', 'worker', 'advisor', 'helper', 'supervisor']) expect(parseWhoami(JSON.stringify({ name: 'A', role, card: null }))?.role).toBe(role)
+    // An older board says no role and no card: the name still counts.
+    expect(parseWhoami('{"name":"Units"}')).toEqual({ name: 'Units', role: null, card: null })
+    // A role the board does not know, and a card that is no session id, are left out.
+    expect(parseWhoami('{"name":"Units","role":"boss","card":"../etc/passwd"}')).toEqual({ name: 'Units', role: null, card: null })
+    expect(parseWhoami(JSON.stringify({ name: 'Units', card: 'x'.repeat(121) }))?.card).toBeNull()
+  })
+
+  test('no name, no chat: a session of no chat, a name that is empty, no text or too long, and what is no JSON', () => {
+    expect(parseWhoami('{"name":null,"role":null,"card":null}')).toBeNull()
+    expect(parseWhoami('{"name":"   "}')).toBeNull()
+    expect(parseWhoami('{"name":7}')).toBeNull()
+    expect(parseWhoami(JSON.stringify({ name: 'N'.repeat(81) }))).toBeNull()
+    expect(parseWhoami(JSON.stringify({ name: 'N'.repeat(80) }))?.name).toBe('N'.repeat(80))
+    for (const text of ['', 'Not here.', '[]', 'null', '"Units"', '<html>']) expect(parseWhoami(text)).toBeNull()
   })
 })

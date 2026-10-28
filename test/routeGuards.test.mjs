@@ -34,7 +34,7 @@ function post(port, path, { type = 'application/json', body = '{}' } = {}) {
 async function board(why) {
   const did = []
   const answer = name => async () => { did.push(name); return { ok: true, result: {} } }
-  const names = ['take', 'typed', 'report', 'bridgeWork', 'reference', 'talkPicture', 'design', 'backlog', 'goals', 'plan', 'brainstorm', 'work', 'settings', 'game', 'cpu', 'newProject']
+  const names = ['take', 'typed', 'report', 'whoami', 'bridgeWork', 'reference', 'talkPicture', 'design', 'backlog', 'goals', 'plan', 'brainstorm', 'work', 'settings', 'game', 'cpu', 'newProject']
   const server = createBoard({
     token: TOKEN, bridgeKey: KEY, getState: async () => ({}),
     say: async () => { did.push('say'); return { ok: true, message: {} } },
@@ -60,7 +60,7 @@ test('B539: every route the server takes a POST on states its guard: the loop lo
       const sent = await post(port, path, sendAs(path))
       if (!(sent.status === 405 && /Only GET/.test(sent.text))) taking.push(path)
     }
-    assert.ok(taking.length >= 18, `the routes found: ${taking.join(', ')}`)
+    assert.ok(taking.length >= 19, `the routes found: ${taking.join(', ')}`)
     for (const path of taking) {
       const route = POST_ROUTES[path]
       assert.ok(route !== undefined, `${path} takes a POST but says nothing in POST_ROUTES`)
@@ -75,7 +75,7 @@ test('B539: every route the server takes a POST on states its guard: the loop lo
 
 test('B539: the decisions for the routes outside the old list: the mod\'s writes are the holder\'s; a game, the CPU, a new project and a restart are this process\'s own', () => {
   for (const path of ['/api/bridge/work', '/api/bridge/take', '/api/bridge/typed']) assert.equal(POST_ROUTES[path].guard, 'lock', path)
-  for (const path of ['/api/game', '/api/cpu', '/api/new-project', '/api/restart', '/api/bridge/report']) assert.equal(POST_ROUTES[path].guard, 'free', path)
+  for (const path of ['/api/game', '/api/cpu', '/api/new-project', '/api/restart', '/api/bridge/report', '/api/bridge/whoami']) assert.equal(POST_ROUTES[path].guard, 'free', path)
 })
 
 test('B539: on a board process without the loops every guarded route is refused with 409 naming the holder\'s page, and does nothing; the free ones still run', async () => {
@@ -92,7 +92,7 @@ test('B539: on a board process without the loops every guarded route is refused 
     for (const path of Object.keys(POST_ROUTES).filter(path => POST_ROUTES[path].guard === 'free')) {
       assert.equal((await post(port, path, sendAs(path))).status, 200, path)
     }
-    assert.deepEqual(did.sort(), ['cpu', 'game', 'newProject', 'report', 'restart'])
+    assert.deepEqual(did.sort(), ['cpu', 'game', 'newProject', 'report', 'restart', 'whoami'])
     // Once it holds the lock, a chat's work call is taken.
     why = null
     assert.equal((await post(port, '/api/bridge/work', { body: '{"action":"next"}' })).status, 200)

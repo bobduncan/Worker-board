@@ -23,7 +23,8 @@ person, and lets the person answer, talk to the main chat, and plan. Every answe
   `POST /api/game` (start or stop a game), `POST /api/design` and `/api/design/reference` (the Design tab),
   `POST /api/talk/picture` (a pasted picture), `POST /api/restart` (a new version), `POST /api/work` (the store;
   also `pause-all` and `resume-all`, which write `pause.json`), and for the Workers mod `POST /api/bridge/take`,
-  `/api/bridge/typed` and `/api/bridge/work` (the work tool; `pause-state` reads the pause). Every POST of the page
+  `/api/bridge/typed`, `/api/bridge/report`, `/api/bridge/whoami` (a chat's name, role and card by its session id) and
+  `/api/bridge/work` (the work tool; `pause-state` reads the pause). Every POST of the page
   needs its token and its own origin; the mod's need the bridge's key.
 - **The page** is `public/index.html`, `public/board.css` and `public/board.js` (no framework). It draws the state
   it is given and redraws only what changed, so typing is never lost.
