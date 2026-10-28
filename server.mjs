@@ -73,14 +73,14 @@ import { evaluationFor } from './src/goalGuard.mjs'
 import { readSources } from './src/sources.mjs'
 import { backgroundRunning, parseTail, readTail } from './src/transcript.mjs'
 import { clearAtTake, isStepLine, modAtLeast, takeRefusal } from './src/clearOwed.mjs'
-import { keptReadingsOf } from './src/limits.mjs'
+import { keptReadingsOf, newestPerWindow, readingOfAnswer } from './src/limits.mjs'
 import { checkProviders } from './src/providers/index.mjs'
 import { buildState } from './src/state.mjs'
 import { isReadAction, workApi } from './src/work/api.mjs'
 import { effortOf } from './src/work/effort.mjs'
 import { isHolding, pauseAnswer, resumeEnds, resumeRetypeTo, resumeTypeTo } from './src/work/pause.mjs'
 import { allowCodeJobs, codeJobsView, readCodeJobs, taskWords } from './src/codeJobs.mjs'
-import { handJobs, handResults, isForHandsYet, isHandWord, nextWorkerTitle, startTaskIds, workerNames } from './src/hands.mjs'
+import { handJobs, handResults, isForHandsYet, isHandWord, nextWorkerTitle, startTaskIds, usageDue, workerNames } from './src/hands.mjs'
 import { basesNow, patientReportCheck } from './src/work/check.mjs'
 import { deliverWork, givesRefused, pullFor, sendOnce } from './src/work/deliver.mjs'
 import { coalesce } from './src/work/again.mjs'
@@ -1587,6 +1587,8 @@ async function main(args) {
   // last new worker that failed (`{ at, why }`), for the setup check.
   const codeClaims = new Map()
   let spawnFail = null
+  // B768: when the last lookup of the limits was given to a hand.
+  let usageGivenAt = -Infinity
   /** B767: the setup check as the page shows it; the files are read at most every 30 seconds. */
   let codeRead = { at: -Infinity, read: null }
   const codeJobsNow = async (prefix = '') => {
@@ -2096,7 +2098,10 @@ async function main(args) {
       const resumeList = pause?.state === 'resuming' ? pauseAnswer({ pause, items: read.items, lanes, prefix: state.chatPrefix ?? '', chat: checked.chat, role: 'main' }).resumeList : []
       const prefix = state.chatPrefix ?? ''
       const spawn = can.has('spawn') && config.project !== '' ? { title: nextWorkerTitle((state.chats ?? []).map(lane => lane.name), prefix), tasks: startTaskIds(basename(config.project)) } : null
-      const { jobs, back } = handJobs({ caller: checked.chat, taken, lanes, resumeList, since: pause?.since ?? null, sentAt: resumesSent, now: clock(), spawn })
+      // B768: a lookup of the limits when the newest reading is old, to one chat that may (its mod says `can: ['usage']`).
+      const usage = can.has('usage') && READINGS_FILE !== null && !isShowOnly && usageDue({ readings: state.limitReadings ?? [], givenAt: usageGivenAt, now: clock() })
+      if (usage) usageGivenAt = clock()
+      const { jobs, back } = handJobs({ caller: checked.chat, taken, lanes, resumeList, since: pause?.since ?? null, sentAt: resumesSent, now: clock(), spawn, usage })
       if (back.length > 0) await store.back(back)
       for (const job of jobs) if (job.id.startsWith('resume:')) resumesSent.set(job.id.slice('resume:'.length), clock())
       if (taken.length > back.length) readState.reset()
@@ -2105,7 +2110,15 @@ async function main(args) {
     handsDone: counted(async body => {
       const { checked } = await checkFresh(body)
       if (!checked.ok) return checked
-      const { sent, failed, why } = handResults(body)
+      const { sent, failed, why, texts } = handResults(body)
+      // B768: a lookup of the limits by code is kept as the supervisor's lookups are (B640): the newest reading of each
+      // window in the project's limit-readings file, which every reading of the state takes in.
+      for (const [id, text] of Object.entries(texts)) {
+        const reading = READINGS_FILE === null || isShowOnly ? null : readingOfAnswer(text, Number(id.slice('usage:'.length)) || clock())
+        if (reading === null) continue
+        await writeAtomic(READINGS_FILE, JSON.stringify(newestPerWindow([...(await readingsOnDisk()), reading])))
+        readState.reset()
+      }
       // A resume line that could not go may go again at the next claim.
       for (const id of failed) if (id.startsWith('resume:')) resumesSent.delete(id.slice('resume:'.length))
       const words = [...sent, ...failed].filter(id => !id.startsWith('resume:'))

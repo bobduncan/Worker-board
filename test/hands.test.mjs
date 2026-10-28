@@ -51,7 +51,7 @@ test('what a hand reports is read safely: sent and failed by id, each why kept s
   assert.deepEqual(read.sent, ['a'])
   assert.deepEqual(read.failed, ['b', 'c'])
   assert.equal(read.why.b.length, 300)
-  assert.deepEqual(handResults(null), { sent: [], failed: [], why: {} })
+  assert.deepEqual(handResults(null), { sent: [], failed: [], why: {}, texts: {} })
 })
 
 test('the outbox: a hand takes each start and wake word once, whoever it is for; one put back waits again; a settle per addressee closes them', async () => {
@@ -162,6 +162,20 @@ test('B766: the server gives the restart and spawn words only by what the claimi
   assert.match(server, /isHandWord\(message, \{ canSet: can\.has\('set'\), canRestart: can\.has\('restart'\), canSpawn: can\.has\('spawn'\), workers \}\)/)
   assert.match(server, /title: nextWorkerTitle\(\(state\.chats \?\? \[\]\)\.map\(lane => lane\.name\), prefix\), tasks: startTaskIds\(basename\(config\.project\)\)/)
   assert.match(server, /!isForHandsYet\(message, now, workers\)/)
+})
+
+// B768: a lookup of the plan's limits by code when the board's newest reading is old.
+test('B768: a lookup is due when the newest reading is ten minutes old, not again within two minutes of the last', async () => {
+  const { USAGE_AGAIN_MS, USAGE_EVERY_MS, usageDue } = await import('../src/hands.mjs')
+  assert.equal(usageDue({ readings: [], now: 0 }), true)
+  assert.equal(usageDue({ readings: [{ at: 0 }, { at: 5 * MIN }], now: 5 * MIN + USAGE_EVERY_MS - 1 }), false)
+  assert.equal(usageDue({ readings: [{ at: 0 }], now: USAGE_EVERY_MS }), true)
+  assert.equal(usageDue({ readings: [{ at: 0 }], givenAt: USAGE_EVERY_MS, now: USAGE_EVERY_MS + USAGE_AGAIN_MS - 1 }), false)
+  // The job goes to the claiming chat, after its other jobs; its answer comes back with the result, cut at 20000.
+  const { jobs } = handJobs({ caller: 'Worker 1', taken: [], lanes: LANES, now: 7, usage: true })
+  assert.deepEqual(jobs, [{ id: 'usage:7', chat: 'Worker 1', usage: true }])
+  const read = handResults({ results: [{ id: 'usage:7', ok: true, text: 'x'.repeat(30_000) }, { id: 'a', ok: true, text: 'not kept' }] })
+  assert.deepEqual([Object.keys(read.texts), read.texts['usage:7'].length], [['usage:7'], 20_000])
 })
 
 test('the routes: a hand claims and reports through the bridge, behind the board\'s key and its lock', () => {

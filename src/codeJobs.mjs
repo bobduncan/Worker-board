@@ -1,6 +1,6 @@
 // B767 (the person, 2026-10-28: "is this clear for new users of the worker board for new pc's?", then "Yes, build it"):
 // the setup check. Which of the main chat's routine jobs run by code on this PC (B753 wake, start and resume; B755 model
-// and effort; B766 restarts and new workers), and why not where one does not. The truth is what the running chats'
+// and effort; B766 restarts and new workers; B768 the limits), and why not where one does not. The truth is what the running chats'
 // Workers mod reports with each claim of the hands (its `can`, from the app's own verdict); the settings files and the
 // stored start-worker task's folder say what is missing. Allow writes the missing tool rules into the project's own
 // `.claude/settings.local.json`, on the person's click (a chat may not change its own permissions: the app refuses it).
@@ -17,6 +17,8 @@ export const CODE_JOBS = [
   { key: 'set', title: 'Model and effort per step', tools: ['mcp__ccd_session_mgmt__set_session_model', 'mcp__ccd_session_mgmt__set_session_effort'] },
   { key: 'restart', title: 'Restart a worker for a new mod', tools: ['mcp__ccd_session_mgmt__archive_session', 'mcp__ccd_session_mgmt__unarchive_session', 'mcp__ccd_session_mgmt__list_sessions'] },
   { key: 'spawn', title: 'Start a new worker', tools: ['mcp__scheduled-tasks__update_scheduled_task', 'mcp__scheduled-tasks__run_scheduled_task'] },
+  // B768: the plan's limits, looked up when the board's newest reading is ten minutes old.
+  { key: 'usage', title: 'Read your usage limits', tools: ['mcp__ccd_session_mgmt__get_usage'] },
 ]
 /** A chat's claim of the hands counts this long: they come every 20 s while it runs. */
 export const CLAIM_MS = 2 * 60_000

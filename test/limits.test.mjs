@@ -173,3 +173,20 @@ test('B291: a pause sent to the main chat by the app\'s id for it counts as by i
   assert.deepEqual(pauseNote(entries(byId), [MAIN, 'local_main-1']), { at: at(22, 40), until: at(23, 40), limit: 'fiveHour', percent: null })
   assert.equal(pauseNote(entries(byId), MAIN), null)
 })
+
+// B768: one answer of the app's usage tool, from a chat's transcript or from the Workers mod's lookup by code.
+test('B768: one answer of the usage tool as a reading: the 5-hour limit and the week of all models; anything else is none', async () => {
+  const { readingOfAnswer } = await import('../src/limits.mjs')
+  const answer = JSON.stringify({ plan: { windows: [
+    { label: '5-hour limit', percentUsed: 60, resetsAt: '2026-10-28T16:50:00.970Z' },
+    { label: 'Weekly · all models', percentUsed: 48, resetsAt: '2026-10-31T14:00:00.970Z' },
+    { label: 'Weekly · Some model', percentUsed: 0, resetsAt: '2026-10-31T14:00:00.000Z' },
+  ] } })
+  const reading = readingOfAnswer(answer, 1000)
+  assert.equal(reading.at, 1000)
+  assert.deepEqual([reading.fiveHour.used, reading.week.used], [60, 48])
+  assert.equal(reading.fiveHour.resetsAt, Date.parse('2026-10-28T16:51:00.000Z') - 60_000)
+  assert.equal(readingOfAnswer('not json {"windows"', 1), null)
+  assert.equal(readingOfAnswer(JSON.stringify({ plan: { windows: [] } }), 1), null)
+  assert.equal(readingOfAnswer(null, 1), null)
+})

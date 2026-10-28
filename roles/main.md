@@ -138,7 +138,8 @@ The worker reported with `work report`: the board checks it all itself and write
 result named, the files of work outside git there. A failed check it tells the worker itself (B740), and the user
 gets the step's recap card with its picture once it is done (B360). Nothing of that is yours (2026-10-28, phasing out
 the main chat). What is left: read the plan's limits again (the app's usage tool), so the board's limits bar never
-stands hours old.
+stands hours old. Since B768 a running chat's Workers mod looks them up by code whenever the board's newest reading
+is ten minutes old: you need not, unless the board's limits bar says the reading is old.
 
 Close the check browsers left behind (B266): at every report check, close the browsers the chats started for checks
 and pictures and left running, those started with a temporary profile folder (headless, driven over CDP or by

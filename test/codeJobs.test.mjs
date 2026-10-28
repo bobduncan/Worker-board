@@ -30,8 +30,8 @@ test('Allow adds only the missing rules and keeps the rest of the file; a broken
 })
 
 test('a job runs by code when a chat that claimed lately may do it; else the main chat does it, with the reason', () => {
-  const view = codeJobsView({ claims: claims(['Worker 1', ['set', 'restart', 'spawn']]), allowed: new Set(ALL), tasks: ['my-project-start-worker'], now: NOW })
-  assert.deepEqual(view.rows.map(row => [row.key, row.byCode]), [['wake', true], ['set', true], ['restart', true], ['spawn', true]])
+  const view = codeJobsView({ claims: claims(['Worker 1', ['set', 'restart', 'spawn', 'usage']]), allowed: new Set(ALL), tasks: ['my-project-start-worker'], now: NOW })
+  assert.deepEqual(view.rows.map(row => [row.key, row.byCode]), [['wake', true], ['set', true], ['restart', true], ['spawn', true], ['usage', true]])
   assert.deepEqual(view.missing, [])
   assert.deepEqual(view.checked, { chat: 'Worker 1', at: NOW })
   // No chat claimed lately: nothing runs by code, whatever the files allow.
@@ -46,7 +46,9 @@ test('what is missing: the rules not allowed yet, the stored task, an older mod,
   assert.equal(rows.set.why, 'the running chats have an older Workers mod; their next restart brings the new one')
   assert.equal(rows.restart.why, 'not allowed yet')
   assert.equal(rows.spawn.why, 'no stored start-worker task on this PC')
-  assert.deepEqual(view.missing, [...CODE_JOBS[2].tools, ...CODE_JOBS[3].tools])
+  assert.deepEqual(view.missing, [...CODE_JOBS[2].tools, ...CODE_JOBS[3].tools, ...CODE_JOBS[4].tools])
+  // B768: reading the limits is one of the jobs, allowed by the app's usage tool.
+  assert.equal(rows.usage.why, 'not allowed yet')
   assert.equal(view.needsTask, true)
   const failed = byKey(codeJobsView({ claims: claims(['Main', ['spawn']]), allowed: new Set(ALL), tasks: ['x'], spawnFail: { at: NOW, why: 'refused' }, now: NOW }))
   assert.deepEqual([failed.spawn.byCode, failed.spawn.why], [false, 'the last try failed: refused'])

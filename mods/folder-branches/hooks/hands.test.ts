@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'claude-code/testing'
 
-import { ARCHIVE_TOOL, EFFORT_TOOL, HANDS_DONE_PATH, HANDS_PATH, LIST_TOOL, MODEL_TOOL, SEND_TOOL, TASK_RUN_TOOL, TASK_UPDATE_TOOL, UNARCHIVE_TOOL, archivedOf, canFrom, parseJobs, plainResult, sendResult, setResult } from './hands'
+import { ARCHIVE_TOOL, EFFORT_TOOL, HANDS_DONE_PATH, HANDS_PATH, LIST_TOOL, MODEL_TOOL, SEND_TOOL, TASK_RUN_TOOL, TASK_UPDATE_TOOL, UNARCHIVE_TOOL, USAGE_TOOL, archivedOf, canFrom, parseJobs, plainResult, sendResult, setResult, usageResult } from './hands'
 
 // B753: the board's hands in code: the jobs the board hands this chat, and what the app's tool answered for each.
 describe('the board\'s hands', () => {
@@ -89,5 +89,15 @@ describe('the board\'s hands', () => {
     const listed = { result: [], text: JSON.stringify([{ sessionId: 'local_w1', isArchived: true }, { sessionId: 'local_w2', isArchived: false }, { isArchived: true }]) }
     expect([...archivedOf(listed)]).toEqual(['local_w1'])
     expect([...archivedOf({ text: 'not json' })]).toEqual([])
+  })
+
+  // B768: a lookup of the plan's limits by code.
+  test('a lookup job has a usage id and no target; its result keeps the plan and leaves this chat out', () => {
+    expect(parseJobs(JSON.stringify({ jobs: [{ id: 'usage:7', chat: 'Worker 1', usage: true }, { id: 'usage:x', usage: true }] }))).toEqual([{ id: 'usage:7', chat: 'Worker 1', usage: true }])
+    const answer = { result: {}, text: JSON.stringify({ plan: { windows: [{ label: '5-hour limit', percentUsed: 60 }] }, context: { tokensUsed: 9 } }) }
+    expect(usageResult('usage:7', answer)).toEqual({ id: 'usage:7', ok: true, text: JSON.stringify({ plan: { windows: [{ label: '5-hour limit', percentUsed: 60 }] } }) })
+    expect(usageResult('usage:7', { deny: 'no' }).ok).toBe(false)
+    expect(usageResult('usage:7', { result: {}, text: 'plain words' }).ok).toBe(false)
+    expect(canFrom({ [USAGE_TOOL]: { decision: 'allow' } })).toEqual(['usage'])
   })
 })

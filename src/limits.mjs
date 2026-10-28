@@ -50,23 +50,32 @@ export function usageReadings(entries) {
     if (entry.type !== 'user' || entry.isSidechain) continue
     for (const block of entry.blocks) {
       if (block.type !== 'tool_result') continue
-      const words = resultText(block).trim()
-      if (!words.startsWith('{') || !words.includes('"windows"')) continue
-      let answer
-      try {
-        answer = JSON.parse(words)
-      } catch {
-        continue
-      }
-      const windows = Array.isArray(answer?.plan?.windows) ? answer.plan.windows.filter(one => one !== null && typeof one === 'object' && typeof one.label === 'string') : []
-      const weekly = windows.filter(one => /^weekly/i.test(one.label))
-      const fiveHour = windowOf(windows.find(one => /^5-hour/i.test(one.label)))
-      // The week of all models is the one the plan stops at; a model's own week is beside it.
-      const week = windowOf(weekly.find(one => /all models/i.test(one.label)) ?? weekly[0])
-      if (fiveHour !== null || week !== null) readings.push({ at: entry.at, fiveHour, week })
+      const reading = readingOfAnswer(resultText(block), entry.at)
+      if (reading !== null) readings.push(reading)
     }
   }
   return readings
+}
+
+/**
+ * B768: one answer of the app's tool for the limits (its text) as a reading taken `at`, `{ at, fiveHour, week }`, or
+ * null when the text is no such answer: a chat's lookup in its transcript, or the Workers mod's lookup by code.
+ */
+export function readingOfAnswer(text, at) {
+  const words = String(text ?? '').trim()
+  if (!words.startsWith('{') || !words.includes('"windows"')) return null
+  let answer
+  try {
+    answer = JSON.parse(words)
+  } catch {
+    return null
+  }
+  const windows = Array.isArray(answer?.plan?.windows) ? answer.plan.windows.filter(one => one !== null && typeof one === 'object' && typeof one.label === 'string') : []
+  const weekly = windows.filter(one => /^weekly/i.test(one.label))
+  const fiveHour = windowOf(windows.find(one => /^5-hour/i.test(one.label)))
+  // The week of all models is the one the plan stops at; a model's own week is beside it.
+  const week = windowOf(weekly.find(one => /all models/i.test(one.label)) ?? weekly[0])
+  return fiveHour !== null || week !== null ? { at, fiveHour, week } : null
 }
 
 /**

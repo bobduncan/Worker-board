@@ -32,6 +32,23 @@ export const HAND_LINE = 'The worker board holds words for you; they come in now
  * not arrive (the work login). Three claims of a hand.
  */
 export const HANDS_FIRST_MS = 60_000
+/**
+ * B768 (the person, 2026-10-28: "A: limits timer"): the plan's limits are looked up by code when the board's newest
+ * reading is this old: the week and 5-hour stops (B742, B758) and the old-reading rule need fresh ones.
+ */
+export const USAGE_EVERY_MS = 10 * 60_000
+/** B768: a lookup job goes again after this long when the last one brought no reading. */
+export const USAGE_AGAIN_MS = 2 * 60_000
+
+/**
+ * B768: whether a lookup of the limits is due: the newest of the board's `readings` (`{ at }`) is older than
+ * USAGE_EVERY_MS (or there is none) and no lookup was given in the last USAGE_AGAIN_MS (`givenAt`).
+ */
+export function usageDue({ readings = [], givenAt = -Infinity, now }) {
+  const newest = readings.reduce((best, one) => (Number.isFinite(one?.at) && one.at > best ? one.at : best), -Infinity)
+  return now - newest >= USAGE_EVERY_MS && now - givenAt >= USAGE_AGAIN_MS
+}
+
 /** A resume line goes again to a chat that has not started this long after the last one. */
 export const RESUME_AGAIN_MS = 5 * 60_000
 
@@ -112,9 +129,9 @@ export const startTaskIds = folder => {
  * that go back to waiting for the main chat: a chat with no app id the board knows, or the caller itself (the app
  * refuses a chat's own model and effort too), a second new worker, or one with no `spawn` to give. A resume line goes to
  * each chat that has not started and has an app id, unless one went to it within RESUME_AGAIN_MS (`sentAt`, by
- * `<since>:<chat>`).
+ * `<since>:<chat>`). With `usage` (B768) one more job, `{ id: 'usage:<now>', chat, usage: true }`: look the limits up.
  */
-export function handJobs({ caller, taken = [], lanes = [], resumeList = [], since = null, sentAt = new Map(), now, spawn = null }) {
+export function handJobs({ caller, taken = [], lanes = [], resumeList = [], since = null, sentAt = new Map(), now, spawn = null, usage = false }) {
   const jobs = []
   const back = []
   const laneOf = name => lanes.find(lane => lane.name === name)
@@ -142,22 +159,30 @@ export function handJobs({ caller, taken = [], lanes = [], resumeList = [], sinc
     if (now - (sentAt.get(key) ?? -Infinity) < RESUME_AGAIN_MS) continue
     jobs.push({ id: `resume:${key}`, to: one.session, chat: one.chat, text: `resume your step ${one.step} from your checkpoint` })
   }
+  // B768: a lookup of the limits, when the board said one is due.
+  if (usage) jobs.push({ id: `usage:${now}`, chat: caller, usage: true })
   return { jobs, back }
 }
 
-/** What a hand reports back, `[{ id, ok, why }]`, read safely: the words it sent and those it could not, by id. */
+/**
+ * What a hand reports back, `[{ id, ok, why, text }]`, read safely: the words it sent and those it could not, by id, and
+ * (B768) the answer of a lookup of the limits (`texts`, by its `usage:` id, 20000 characters at most).
+ */
 export function handResults(body) {
   const list = Array.isArray(body?.results) ? body.results : []
   const sent = []
   const failed = []
   const why = {}
+  const texts = {}
   for (const one of list) {
     if (one === null || typeof one !== 'object' || typeof one.id !== 'string' || one.id.length > 200) continue
-    if (one.ok === true) sent.push(one.id)
-    else {
+    if (one.ok === true) {
+      sent.push(one.id)
+      if (one.id.startsWith('usage:') && typeof one.text === 'string') texts[one.id] = one.text.slice(0, 20_000)
+    } else {
       failed.push(one.id)
       why[one.id] = String(one.why ?? 'not sent').slice(0, 300)
     }
   }
-  return { sent, failed, why }
+  return { sent, failed, why, texts }
 }

@@ -16,7 +16,7 @@ import {
 } from './chats'
 import type { OpenInstruction, TaskChange } from './chats'
 import { blockAsksLine, forYouCount, forYouItems, leftOutLine } from './foryou'
-import { ARCHIVE_TOOL, CAN_SET_MS, CAN_TOOLS, EFFORT_TOOL, HANDS_DONE_PATH, HANDS_MS, HANDS_PATH, LIST_TOOL, MODEL_TOOL, SEND_TOOL, TASK_RUN_TOOL, TASK_UPDATE_TOOL, UNARCHIVE_TOOL, archivedOf, canFrom, parseJobs, plainResult, sendResult, setResult } from './hands'
+import { ARCHIVE_TOOL, CAN_SET_MS, CAN_TOOLS, EFFORT_TOOL, HANDS_DONE_PATH, HANDS_MS, HANDS_PATH, LIST_TOOL, MODEL_TOOL, SEND_TOOL, TASK_RUN_TOOL, TASK_UPDATE_TOOL, UNARCHIVE_TOOL, USAGE_TOOL, archivedOf, canFrom, parseJobs, plainResult, sendResult, setResult, usageResult } from './hands'
 import type { HandResult, HandSet } from './hands'
 import {
   SELF, UNKNOWN, branchList, branchName, detached, folderName, inFolder, isListed, ordered, summary,
@@ -1574,6 +1574,7 @@ async function handRound($: EngineInterface): Promise<void> {
         if ('text' in job) results.push(sendResult(job.id, await $.tool.call({ tool: SEND_TOOL, session_id: job.to, message: job.text } as never)))
         else if ('set' in job) results.push(await setChat($, job.id, job.to, job.set))
         else if ('restart' in job) results.push(await restartChat($, job.id, job.to, job.restart.keep))
+        else if ('usage' in job) results.push(usageResult(job.id, await $.tool.call({ tool: USAGE_TOOL } as never)))
         else results.push(await startWorker($, job.id, job.spawn.title, job.spawn.tasks))
       } catch (error) {
         results.push({ id: job.id, ok: false, why: error instanceof Error ? error.message.slice(0, 300) : 'the tool failed' })

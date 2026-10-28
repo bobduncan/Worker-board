@@ -11,6 +11,9 @@
 // B766 (the person, 2026-10-28: "Yes, build it"): likewise a worker's restart for a new mod (close it and reopen it,
 // with the board's other chats the close took along) and a new worker (the stored start-worker task renamed and run),
 // each claimed only where the app allows its code those tools with no question.
+//
+// B768 (the person, 2026-10-28: "A: limits timer"): and a lookup of the plan's limits when the board's newest reading is
+// old: the app's usage tool, called by code, its answer sent back with the result.
 
 export const HANDS_PATH = '/api/bridge/hands'
 export const HANDS_DONE_PATH = '/api/bridge/hands-done'
@@ -28,11 +31,14 @@ export const LIST_TOOL = 'mcp__ccd_session_mgmt__list_sessions'
 /** B766: the app's tools that rename a stored task and run it once now (it starts a new chat). */
 export const TASK_UPDATE_TOOL = 'mcp__scheduled-tasks__update_scheduled_task'
 export const TASK_RUN_TOOL = 'mcp__scheduled-tasks__run_scheduled_task'
+/** B768: the app's tool that answers the plan's limits (and this chat's context, which the board does not keep). */
+export const USAGE_TOOL = 'mcp__ccd_session_mgmt__get_usage'
 /** What a chat may do by code, each with the tools the app must allow for it with no question. */
 export const CAN_TOOLS: Record<string, string[]> = {
   set: [MODEL_TOOL, EFFORT_TOOL],
   restart: [ARCHIVE_TOOL, UNARCHIVE_TOOL, LIST_TOOL],
   spawn: [TASK_UPDATE_TOOL, TASK_RUN_TOOL],
+  usage: [USAGE_TOOL],
 }
 /** B755: how long a chat's answer to "may my code set model and effort?" holds before it asks the app again. */
 export const CAN_SET_MS = 10 * 60_000
@@ -42,7 +48,8 @@ export const EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max']
 export type HandSet = { model: string | null; effort: string }
 export type HandJob = { id: string; to: string; chat: string; text: string } | { id: string; to: string; chat: string; set: HandSet }
   | { id: string; to: string; chat: string; restart: { keep: string[] } } | { id: string; chat: string; spawn: { title: string; tasks: string[] } }
-export type HandResult = { id: string; ok: boolean; why?: string }
+  | { id: string; chat: string; usage: true }
+export type HandResult = { id: string; ok: boolean; why?: string; text?: string }
 
 const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null && !Array.isArray(value)
 const isText = (value: unknown): value is string => typeof value === 'string' && value !== ''
@@ -80,6 +87,10 @@ export function parseJobs(text: string | null): HandJob[] {
   const parsed: HandJob[] = []
   for (const one of jobs) {
     if (!isRecord(one) || !isText(one.id)) continue
+    if (one.usage === true && /^usage:\d{1,16}$/.test(one.id)) {
+      parsed.push({ id: one.id, chat: isText(one.chat) ? one.chat : '', usage: true })
+      continue
+    }
     if (one.spawn !== undefined) {
       const spawn = spawnOf(one.spawn)
       if (spawn !== null) parsed.push({ id: one.id, chat: spawn.title, spawn })
@@ -132,6 +143,23 @@ export function plainResult(id: string, answer: unknown): HandResult {
   if (isRecord(answer) && typeof answer.deny === 'string') return { id, ok: false, why: answer.deny.slice(0, 300) || 'refused' }
   if (isRecord(answer) && answer.isError !== true && answer.result !== undefined) return { id, ok: true }
   return { id, ok: false, why: answerText(answer).slice(0, 300) || 'no answer' }
+}
+
+/**
+ * B768: a lookup of the limits as a hand's result: done with the plan's part of the answer (its limits; this chat's
+ * context is left out), or not, with why.
+ */
+export function usageResult(id: string, answer: unknown): HandResult {
+  const done = plainResult(id, answer)
+  if (!done.ok) return done
+  let read: unknown
+  try {
+    read = JSON.parse(answerText(answer))
+  } catch {
+    return { id, ok: false, why: 'the usage tool answered no JSON' }
+  }
+  if (!isRecord(read) || !isRecord(read.plan)) return { id, ok: false, why: 'the usage tool named no plan' }
+  return { id, ok: true, text: JSON.stringify({ plan: read.plan }) }
 }
 
 /** B766: the app ids of the archived sessions out of what the app's list tool answered (its JSON text). */
