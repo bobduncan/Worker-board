@@ -175,3 +175,30 @@ test('review: the turn\'s start is compared to the millisecond: a line filed in 
     await rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
 })
+
+// The person, 2026-10-28 ("1. yes built"): the instruction that started a turn in which its chat made a step is closed by
+// the board ("became step B<n>"): the request lives on as that step. Others stay open and are missed as before.
+test('a turn that made a step closes the instruction that started it; an older one, or a turn without a step, leaves them open', async () => {
+  const { dir, main } = await fresh()
+  try {
+    await main({ action: 'instruction', text: 'An older wish' }, NOW - 10 * 60 * SEC)
+    const turn = NOW
+    await main({ action: 'instruction', text: 'Make a step for the menu' }, turn - 2 * SEC)
+    const made = await main({ action: 'new', title: 'Draw the menu', activity: 'Board work' }, turn + 20 * SEC)
+    assert.equal(made.ok, true, made.why)
+    const ended = await main({ action: 'turn-ended', since: turn }, turn + 60 * SEC)
+    assert.equal(ended.ok, true, ended.why)
+    assert.deepEqual(ended.result.closed, [`I2 (became step ${made.result.id})`])
+    assert.deepEqual(ended.result.missed, ['I1'])
+    assert.match(ended.result.text, /^Closed by the board: I2 \(became step B\d+\)\. Left open: I1\./)
+    const two = await item(dir, 'I2')
+    assert.deepEqual(['State', 'Closed as'].map(key => valueOf(two, key)), ['closed', `became step ${made.result.id}`])
+    // A later turn without a step closes nothing.
+    await main({ action: 'instruction', text: 'Just a question' }, turn + 3 * 60 * SEC)
+    const quiet = await main({ action: 'turn-ended', since: turn + 3 * 60 * SEC }, turn + 4 * 60 * SEC)
+    assert.equal(quiet.result.closed, undefined)
+    assert.equal(valueOf(await item(dir, 'I3'), 'State'), 'open')
+  } finally {
+    await rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
+  }
+})

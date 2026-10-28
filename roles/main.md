@@ -154,7 +154,8 @@ profile.
   store: read it, never edit it.
 - Every line the user types to you, in your chat or in Talk to Main, is filed as an instruction `I<n>` ("Recorded as
   I17", and your open ones under "Open instructions"): close each with `work close I<n>` and what came of it (a step
-  made, a question answered) once it is done. A turn that ends with one open shows it red on the board.
+  made, a question answered) once it is done. A turn that ends with one open shows it red on the board. One whose turn
+  made a step (`work new`) the board closes itself at the turn's end, "became step B<n>" (2026-10-28).
 - The board gives the ids; an id is never used twice. A new step goes under the activity it belongs to. Never drop
   or reword a step, and never change the focus, unless the user asks.
 - A step's title: 5 to 10 words of your own, starting with a verb, saying what the user gets; never the user's

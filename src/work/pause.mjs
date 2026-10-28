@@ -2,8 +2,10 @@
 // carries a checkpoint in its record (`Checkpoint: <commit or none> · <next action> · <date time>`, written with work
 // step's `commit` and `next`). The person's "Pause all" and "Resume all" write `<work>/pause.json`
 // (`{ state: pausing | resuming | running, since, by, pausedSince, resumedSince, notStarted }`); the board says from
-// facts alone whether it is safe to restart, and whom a resume still waits for. Nothing here reads a chat's words.
+// facts alone whether it is safe to restart, and whom a resume still waits for and wakes: every chat
+// holding a step (HELD, review left out) and, since B764, one holding a step the board gave it and it has not taken. Nothing here reads a chat's words.
 
+import { isGiven } from './handOut.mjs'
 import { sinceMs, valueOf } from './item.mjs'
 
 export const PAUSE_FILE = 'pause.json'
@@ -20,7 +22,16 @@ export const HELD = ['taken', 'in progress', 'waiting on you', 'review']
  * kept the banner up for twenty minutes, and its name for an hour after).
  */
 export const RESUMED = HELD.filter(state => state !== 'review')
-const isResumed = (items, holder) => RESUMED.includes(valueOf(items?.get?.(holder.id), 'State') ?? '')
+/**
+ * B764 (X101): a step the board gave a worker and the worker had not taken (queued, its newest move to queued the board's
+ * give) is waited for and woken at a resume too: the person paused five seconds after B746 was given, its worker stopped
+ * before taking it, and the resume named only the chats cut off in a turn. Not held for a checkpoint (it has none to
+ * write): only the resume counts it, through `holdersOf`'s `given`.
+ */
+const isResumed = (items, holder) => {
+  const item = items?.get?.(holder.id)
+  return RESUMED.includes(valueOf(item, 'State') ?? '') || isGiven(item)
+}
 /**
  * The review of Pause 2: the states in which the board hands out nothing that starts a turn. Since 2026-10-19 pausing
  * only: while resuming everything goes as when running. Resuming is there to get chats started; holding the person's
@@ -107,13 +118,13 @@ const isSince = (checkpoint, since) => checkpoint !== null && Number.isFinite(ch
 const historyOf = item => (item?.sections?.get?.('History') ?? []).map(one => String(one).replace(/^-\s*/, '').trim()).filter(Boolean).slice(-HISTORY_LINES)
 
 /**
- * The steps a chat holds (`HELD`), in id order: `{ id, chat, checkpoint, branch, history }`, `chat` without the prefix;
+ * The steps a chat holds (`HELD`; with `given` also the ones the board gave it and it has not taken, B764), in id order: `{ id, chat, checkpoint, branch, history }`, `chat` without the prefix;
  * `branch` and the last History lines are what a resume goes by when the step has no checkpoint (the review of Pause 2).
  */
-export function holdersOf(items, prefix = '') {
+export function holdersOf(items, prefix = '', { given = false } = {}) {
   const byId = (a, b) => a.localeCompare(b, 'en', { numeric: true })
   return [...(items?.values?.() ?? [])]
-    .filter(item => valueOf(item, 'Kind') === 'step' && HELD.includes(valueOf(item, 'State')) && (valueOf(item, 'Owner') ?? '') !== '')
+    .filter(item => valueOf(item, 'Kind') === 'step' && (HELD.includes(valueOf(item, 'State')) || (given && isGiven(item))) && (valueOf(item, 'Owner') ?? '') !== '')
     .map(item => ({ id: valueOf(item, 'Id'), owner: valueOf(item, 'Owner'), checkpoint: checkpointOf(item), branch: valueOf(item, 'Branch') ?? null, history: historyOf(item) }))
     .sort((a, b) => byId(a.id, b.id))
     .map(({ id, owner, ...rest }) => {
@@ -184,7 +195,8 @@ export function pauseFacts({ pause, items, lanes = [], prefix = '', pending = []
     }
   }
   if (pause.state === 'resuming') {
-    const waiting = byChat(holders.filter(holder => isResumed(items, holder) && !hasStarted(laneOf(holder.chat), pause.since)), prefix)
+    const resumed = holdersOf(items, prefix, { given: true }).filter(holder => laneOf(holder.chat) !== undefined)
+    const waiting = byChat(resumed.filter(holder => isResumed(items, holder) && !hasStarted(laneOf(holder.chat), pause.since)), prefix)
     return { state: 'resuming', since: pause.since, waiting, isResumed: waiting.length === 0, until: Number.isFinite(pause.since) ? pause.since + RESUME_WAIT_MS : null }
   }
   const isShown = Number.isFinite(now) && Number.isFinite(pause.since) && now - pause.since < NOT_STARTED_SHOWN_MS
@@ -231,7 +243,7 @@ export function pauseAnswer({ pause, items, lanes = [], prefix = '', chat, role 
   const holds = holders.filter(holder => plain(holder.chat, prefix) === plain(chat, prefix))
     .map(holder => ({ id: holder.id, checkpoint: withMark(holder.checkpoint), branch: holder.branch, history: holder.history }))
   const laneOf = name => lanes.find(lane => plain(lane.name, prefix) === plain(name, prefix))
-  const resumeList = state !== 'resuming' || role !== 'main' ? [] : holders
+  const resumeList = state !== 'resuming' || role !== 'main' ? [] : holdersOf(items, prefix, { given: true })
     .filter(holder => plain(holder.chat, prefix) !== plain(chat, prefix) && laneOf(holder.chat) !== undefined && isResumed(items, holder))
     .map(holder => {
       const lane = laneOf(holder.chat)
