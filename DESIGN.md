@@ -3170,6 +3170,20 @@ Advisor's check helpers on Sonnet". It builds on B468: the same word to the main
     red or yellow: those mean "needs you" or a fault. While the lane's `effortRun` is not set yet and asks another setting,
     it shows the change with a dashed edge, "Sonnet · medium → Opus · high", and its tooltip says when the main chat was
     asked; no model and no effort is no chip (`runChipOf`, between `// runchip:start` and `// runchip:end`).
+11. **The Supervisor's own setting, held by code (T7.5, 2026-10-28).** The person: "do B" (its model and effort set by
+    code) and "A": **Sonnet, low**, what the Supervisor's chat runs on, set once by hand with nothing to keep it there. The
+    plan above never touches it (it is no worker, and no lane), so `src/work/supervisorEffort.mjs` does: the settings'
+    `supervisorModel` (`sonnet` or `opus`, never Fable) and `supervisorEffort` (a level of the app's) give its setting,
+    Sonnet and low unless set (`supervisorSetting`). When the app's file of the chat names its effort and the chat does not
+    run at the setting (another effort, or, where `models` names an id, another family), `supervisorEffortWord` gives the
+    one `worker-effort` word that `effortPlan` gives a worker, without a step; `state.mjs` adds it to `reconciled.efforts`,
+    so the delivery sends it with the same half-hour dedupe (`AGAIN_MS`, `sameTarget`), a running chat's Workers mod sets
+    it by code first (B755; the Supervisor's lane is among `shownChats`) and the main chat only when none did. The app
+    refuses a chat's own model and effort, so a word about the caller goes back by itself. The state's `supervisorChat`
+    carries `setting: { model, effort, isSet }`. The rules judge it by that setting already: the rule effort-mismatch reads a
+    worker against its step and the health summary lists no model and effort for the Supervisor, so nothing there changed.
+    It lives in `src/work` and not in `src/supervisor`, because `state.mjs` imports it and the supervisor's boundary
+    (`test/supervisor/boundary.test.mjs`) lets nothing outside its folder import its parts. Tests: `test/work/supervisorEffort.test.mjs`.
 
 ## The last silent catches (B446)
 

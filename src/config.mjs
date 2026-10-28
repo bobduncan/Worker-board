@@ -215,6 +215,12 @@ export const DEFAULTS = {
   /** Model per step: what a worker runs at between steps, a family of `models` and an effort level of the app's. */
   usualModel: 'sonnet',
   usualEffort: 'medium',
+  /**
+   * T7.5 (the person, 2026-10-28): the Supervisor's own setting, held by the board with the same word as a worker's
+   * (src/work/supervisorEffort.mjs): a family of `models` and an effort level of the app's.
+   */
+  supervisorModel: 'sonnet',
+  supervisorEffort: 'low',
   /** The supervisor's thresholds (SUPERVISOR_DEFAULTS). */
   supervisor: SUPERVISOR_DEFAULTS,
   /**
@@ -473,6 +479,8 @@ export function parseConfig(text, env) {
   config.modelsProblem = ids.problem
   if (typeof raw.usualModel === 'string' && MODELS.includes(raw.usualModel.trim().toLowerCase())) config.usualModel = raw.usualModel.trim().toLowerCase()
   if (typeof raw.usualEffort === 'string' && EFFORTS.includes(raw.usualEffort.trim().toLowerCase())) config.usualEffort = raw.usualEffort.trim().toLowerCase()
+  if (typeof raw.supervisorModel === 'string' && MODELS.includes(raw.supervisorModel.trim().toLowerCase())) config.supervisorModel = raw.supervisorModel.trim().toLowerCase()
+  if (typeof raw.supervisorEffort === 'string' && EFFORTS.includes(raw.supervisorEffort.trim().toLowerCase())) config.supervisorEffort = raw.supervisorEffort.trim().toLowerCase()
   config.routing = parseRoutingPolicy(raw.routing)
   config.providers = readProviders(raw.providers).providers
   // The supervisor: each threshold given as a number above 0 replaces its default; others are left alone.
@@ -525,6 +533,8 @@ export function configProblem(fileText) {
   if (has('baseBranch') && !(typeof raw.baseBranch === 'string' && BRANCH.test(raw.baseBranch.trim()))) return wrong('baseBranch', 'a branch name such as "main"')
   if (has('usualModel') && !(typeof raw.usualModel === 'string' && MODELS.includes(raw.usualModel.trim().toLowerCase()))) return wrong('usualModel', MODELS.map(one => `"${one}"`).join(' or '))
   if (has('usualEffort') && !(typeof raw.usualEffort === 'string' && EFFORTS.includes(raw.usualEffort.trim().toLowerCase()))) return wrong('usualEffort', `one of ${EFFORTS.map(one => `"${one}"`).join(', ')}`)
+  if (has('supervisorModel') && !(typeof raw.supervisorModel === 'string' && MODELS.includes(raw.supervisorModel.trim().toLowerCase()))) return wrong('supervisorModel', MODELS.map(one => `"${one}"`).join(' or '))
+  if (has('supervisorEffort') && !(typeof raw.supervisorEffort === 'string' && EFFORTS.includes(raw.supervisorEffort.trim().toLowerCase()))) return wrong('supervisorEffort', `one of ${EFFORTS.map(one => `"${one}"`).join(', ')}`)
   if (has('supervisorSweepMinutes') && !(Number.isFinite(raw.supervisorSweepMinutes) && raw.supervisorSweepMinutes >= 0)) return wrong('supervisorSweepMinutes', 'a number of minutes, 0 or more (0: no sweep by the clock)')
   if (has('supervisorSweepAtLeastHours') && !(Number.isFinite(raw.supervisorSweepAtLeastHours) && raw.supervisorSweepAtLeastHours > 0)) return wrong('supervisorSweepAtLeastHours', 'a number of hours above 0')
   if (has('supervisor')) {

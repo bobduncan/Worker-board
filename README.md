@@ -238,6 +238,8 @@ has these). Every step runs on the model its refine names (`Model: sonnet` unles
 main chat sets the worker's chat to both before the step goes to it, and an opus step waits until the app says its
 worker runs on Opus. Without both ids, each starting with `claude-`, the board sets the effort alone and says so on
 top. `usualModel` and `usualEffort` (`"sonnet"` and `"medium"` unless set): what a worker runs at between steps.
+`supervisorModel` (`"sonnet"` or `"opus"`, `"sonnet"` unless set) and `supervisorEffort` (a level of the app's, `"low"` unless
+set): what the Supervisor's chat runs at; the board holds it there by code, the way it sets a worker's chat (T7.5).
 `providers` (T9.3, the defaults below unless set): who provides each kind of asset, an object from asset kind (`visual`, `music`,
 `sound effect`) to a provider's name: `{ "visual": "codex", "music": "person-suno", "sound effect": "sound-library" }`.
 `codex` makes pictures by itself, `person-suno` is you making music in Suno, `sound-library` is a folder of sounds in

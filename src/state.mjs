@@ -40,6 +40,7 @@ import { recapsOf } from './work/recap.mjs'
 import { isHolding, pauseFacts } from './work/pause.mjs'
 import { reconcile } from './work/reconcile.mjs'
 import { effortPlan, runSettings } from './work/effort.mjs'
+import { supervisorEffortWord, supervisorRun, supervisorSetting } from './work/supervisorEffort.mjs'
 import { enforcementReadiness } from './work/routing/capabilities.mjs'
 import { routingHolds } from './work/routing/assignments.mjs'
 import { refineStop } from './refineGate.mjs'
@@ -1790,6 +1791,11 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
   // The partner and its helper are skipped: their own setting (B352, set once) is never the board's to overwrite.
   const efforts = reconciled === null ? null : effortPlan({ items: raw.work.items, lanes: chats, deliveries: reconciled.deliveries, sent, now, main: isBridgeMissing === true ? null : main?.name ?? null, prefix, skip: [advisorChat?.name, helperChat?.name], ...runSettings(config) })
   if (efforts) for (const id of routingHeld) efforts.held.add(id)
+  // T7.5 (the person, 2026-10-28: "do B"): the Supervisor's chat is held at its own setting (`supervisorModel`, `supervisorEffort`:
+  // Sonnet, low), by the same word and the same half-hour dedupe as a worker's: the plan above skips it, so its word is added.
+  const supervisorWants = supervisorSetting(config)
+  const supervisorWord = efforts === null ? null : supervisorEffortWord({ lane: supervisorLane, setting: supervisorWants, models: runSettings(config).models, sent, now, main: isBridgeMissing === true ? null : main?.name ?? null, prefix })
+  if (supervisorWord !== null) efforts.words.push(supervisorWord)
   // B570: a chat on an older Workers mod is restarted between its steps (work/modRollout.mjs): the words that ask its
   // restarter (the main chat; the partner for the main chat), and the line of an idle worker's next step held meanwhile.
   const side = (lane, name) => (lane === null || lane === undefined ? null : { ...lane, name, isRunning: lane.state === 'off' ? false : runningOf(name) })
@@ -2017,6 +2023,8 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
       appSession: supervisorLane.appSession,
       model: supervisorLane.model ?? null,
       effort: supervisorLane.effort ?? null,
+      // T7.5: the setting the board holds it at (`supervisorModel`, `supervisorEffort`) and whether its file shows it.
+      setting: supervisorRun({ lane: supervisorLane, setting: supervisorWants, models: runSettings(config).models }),
       state: supervisorLane.state,
       // B570: since when it is idle, for a chat on an older Workers mod (oldMods.mjs).
       idle: supervisorLane.idle ?? null,
