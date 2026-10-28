@@ -80,7 +80,7 @@ import { isReadAction, workApi } from './src/work/api.mjs'
 import { effortOf } from './src/work/effort.mjs'
 import { isHolding, pauseAnswer, resumeEnds, resumeRetypeTo, resumeTypeTo } from './src/work/pause.mjs'
 import { allowCodeJobs, codeJobsView, readCodeJobs, taskWords } from './src/codeJobs.mjs'
-import { STOP_MOD, handJobs, handResults, isForHandsYet, isHandWord, isStopWord, nextWorkerTitle, startTaskIds, stopStep, stopTaskOf, usageDue, workerNames } from './src/hands.mjs'
+import { STOP_MOD, handJobs, handResults, isForHandsYet, isHandWord, isStopWord, nextSpawn, stopStep, stopTaskOf, usageDue, workerNames } from './src/hands.mjs'
 import { basesNow, patientReportCheck } from './src/work/check.mjs'
 import { deliverWork, givesRefused, pullFor, sendOnce } from './src/work/deliver.mjs'
 import { coalesce } from './src/work/again.mjs'
@@ -1597,12 +1597,14 @@ async function main(args) {
   // B768: when the last lookup of the limits was given to a hand.
   let usageGivenAt = -Infinity
   /** B767: the setup check as the page shows it; the files are read at most every 30 seconds. */
-  let codeRead = { at: -Infinity, read: null }
+  let codeRead = { at: -Infinity, max: null, read: null }
   const codeJobsNow = async (prefix = '') => {
     if (isDemo || config.project === '') return null
-    if (clock() - codeRead.at >= 30_000) codeRead = { at: clock(), read: await readCodeJobs({ project: resolve(HERE, config.project), folder: basename(resolve(HERE, config.project)) }) }
-    const view = codeJobsView({ claims: codeClaims, ...codeRead.read, spawnFail, now: clock() })
-    return { ...view, canAllow: !isShowOnly, taskLine: view.needsTask ? taskWords({ folder: basename(resolve(HERE, config.project)), prefix, board: HERE }) : null }
+    // T12: one routine per worker slot up to `maxWorkers`, so a changed limit is read again at once.
+    const folder = basename(resolve(HERE, config.project))
+    if (clock() - codeRead.at >= 30_000 || codeRead.max !== config.maxWorkers) codeRead = { at: clock(), max: config.maxWorkers, read: await readCodeJobs({ project: resolve(HERE, config.project), folder, maxWorkers: config.maxWorkers }) }
+    const view = codeJobsView({ claims: codeClaims, ...codeRead.read, folder, maxWorkers: config.maxWorkers, spawnFail, now: clock() })
+    return { ...view, canAllow: !isShowOnly, taskLine: view.needsTask ? taskWords({ folder, prefix, board: HERE, slots: view.missingRoutines }) : null }
   }
   const checkFresh = async body => {
     // B736 (X73, X87: no chat's report was kept from 21:12 to 21:21 while each waited for a whole read of the board): a
@@ -2117,7 +2119,8 @@ async function main(args) {
       const pause = read?.pause ?? null
       const resumeList = pause?.state === 'resuming' ? pauseAnswer({ pause, items: read.items, lanes, prefix: state.chatPrefix ?? '', chat: checked.chat, role: 'main' }).resumeList : []
       const prefix = state.chatPrefix ?? ''
-      const spawn = can.has('spawn') && config.project !== '' ? { title: nextWorkerTitle((state.chats ?? []).map(lane => lane.name), prefix), tasks: startTaskIds(basename(config.project)) } : null
+      // T12: the new worker's own routine first, the shared start-worker task only as the fallback.
+      const spawn = can.has('spawn') && config.project !== '' ? nextSpawn((state.chats ?? []).map(lane => lane.name), prefix, basename(config.project)) : null
       // B769: the person's stop and remove words carried out by code: a stop is settled once its worker's turn ended; a
       // remove is a job for a chat that may close chats (never the worker itself), once its worker is idle or off.
       const removing = []

@@ -180,8 +180,9 @@ send-message tool and no model turn. Such a word reaches you only when no runnin
 app id the board knows, or no board chat ran); then do it as below. B755: the same for `set model and effort`, `set
 effort` and `partner effort` (not Fable): a chat whose app allows its code the two set tools sets them, and such a word
 reaches you only when none did within a minute. B766: the same for `restart for mod` of a worker (closed and reopened
-by code; a restart of yourself, the partner or the supervisor stays yours) and for `spawn workers` (the stored
-start-worker task renamed and run by code, one worker at a time). B769: and for `stop task` and `remove worker` of a
+by code; a restart of yourself, the partner or the supervisor stays yours) and for `spawn workers` (the new
+worker's own stored routine run by code, T12; the shared start-worker task renamed and run only as the fallback; one
+worker at a time). B769: and for `stop task` and `remove worker` of a
 worker whose Workers mod is 0.26.1 or newer: it is told at its next tool call, the board settles the stop once its
 turn ended and has a running chat take an idle or closed worker out of the list and close its chat; such a word
 reaches you only when nothing came of it in 15 minutes.
@@ -333,10 +334,11 @@ none): write the step without a link.
 
 Start one when the board asks: `spawn workers` with "Count: N" (redesign Part 2: ready tasks wait, no worker is free,
 and fewer run than the board's setting `maxWorkers` allows; or the user pressed the Workers panel's button). Where the
-project has a start-worker task (its briefing names it): give it the title "<prefix>Worker N" (the lowest
-N not in the list), run it, and wait for the new chat's note that it is ready; then hand over by its session id.
-One start at a time. Without such a task: put up a chip or a start card (the app's `spawn_task` or `start_session`,
-whichever it gives you) titled "<prefix>Worker N" whose text tells the chat to read
+project has a routine for each worker (T12: `<folder>-worker-N` titled "<prefix>Worker N", its briefing names them):
+take the lowest N not in the list, run that worker's own routine, and wait for the new chat's note that it is ready;
+then hand over by its session id. Only when it has no routine for that N but the one shared start-worker task: give
+that task the title "<prefix>Worker N" and run it. One start at a time. Without such a routine or task: put up a chip
+or a start card (the app's `spawn_task` or `start_session`, whichever it gives you) titled "<prefix>Worker N" whose text tells the chat to read
 `<project>\.claude\worker-briefing.md`, to join the list as "Worker N", and to wait for its first task; the user
 starts it with one click. Workers have no fixed subject; an older chat's name is a home area only.
 

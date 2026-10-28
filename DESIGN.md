@@ -833,6 +833,19 @@ just like now". The picture is `art-inbox/worker-board/b124/2026-10-14-b124-resu
   (src/hands.mjs `handJobs`, mods/workers/start-worker-task.md); the word reaches the main chat only when no
   hand took it within a minute. So does a worker's `restart for mod` (closed and reopened by code; never the main
   chat, the partner or the supervisor, whose conversation a restart on the work login empties).
+  *Each worker its own routine (T12).* The person, 2026-10-28: the app's Routines page showed one shared routine
+  renamed for every start ("Game - Worker 9" holding Workers 6, 7 and 8 as unnamed runs); they wanted one card per
+  worker, "<project> - Worker N" (the list's `prefix`, "Lava Tactics - "). So the project keeps a fixed set of stored
+  routines, one per worker slot up to `maxWorkers` (5 unless set), made once: `<folder>-worker-N` titled
+  "<prefix>Worker N" (`workerTaskIds`; "-2" for a second login, as for the shared task). The hands route gives the
+  spawn job the new worker's own ids first and the shared task's after them (`nextSpawn`: the lowest free number, its
+  title and the ids), so the mod's rename of a worker's own routine to its own title changes nothing and the board runs
+  a worker's routine only when that worker has no chat; a PC without the per-worker routines goes on with the shared
+  task. The setup check (`src/codeJobs.mjs`) reads the stored ids of both, counts a routine as a stored task, and
+  while some slots have one and others not, says "needs routines for Worker 4, 5" on the "Start a new worker" row
+  instead of "by itself" (the shared task does not cover the slots); its line to paste (`taskWords`) makes exactly the
+  missing routines. The shared task alone still counts as "by itself". Main, Advisor and Supervisor stay normal chats;
+  making the routines on a PC is the person's paste, not the board's.
 - *By itself, once.* When the list holds the main chat and no worker (the advisor is no worker), the board asks
   for three (`spawnWhenAlone`), at its minute's look, and only while the main chat's chat is open, so the word is
   taken and not lost. It asks once per empty list: again only after a worker was there since that ask (the

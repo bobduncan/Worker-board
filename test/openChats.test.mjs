@@ -91,3 +91,13 @@ test('one box, one button: in the workers part and under the simple view\'s bar;
   assert.match(script, /document\.addEventListener\('click', event => \{\n  const button = event\.target\.closest\('\[data-initialise\]'\)/)
   assert.match(style, /\.open-chats-button \{/)
 })
+
+test('T12: firstWords puts the line that makes the routines in as a step, its closing sentence cut off, the main chat\'s own ending kept', async () => {
+  const { taskWords } = await import('../src/codeJobs.mjs')
+  const task = taskWords({ folder: 'My garden', prefix: 'Garden - ', board, slots: [1, 2] })
+  const words = page.firstWords({ title: 'Garden - Main', name: 'Main', projectName: 'My garden', project, board, advisor: null, task })
+  assert.ok(words.includes('4. Make the worker board\'s stored routines'), words)
+  assert.ok(words.includes('title "Garden - Worker 2"'), words)
+  assert.ok(!words.includes('that they are made'), words)
+  assert.ok(words.trimEnd().endsWith('Then say in one line that you are ready: the board then asks you for workers.'), words)
+})
