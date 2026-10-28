@@ -15,7 +15,9 @@ export const HEAD_KEYS = {
   // queue", the work API's `add-to-queue`): outside the focus goal it is handed out too, in the order added.
   // T9.1.1 (2026-10-27): a Quality Assurance task: `Checks` the step it checks (resultCheck.mjs, qaTask.mjs), `Not by` the
   // chats that built that step (names joined with ", "), which the board never gives the task to.
-  step: ['Id', 'Kind', 'Title', 'Priority', 'State', 'Owner', 'Pinned', 'Queued by', 'Activity', 'Goal', 'Blocked by', 'Waits for', 'Since', 'Estimate', 'Branch', 'Checkpoint', 'Fix of', 'Checks', 'Not by', 'Attempts', 'Pictures', 'Refined', 'Asks', 'Queue when refined', 'Queue note', 'Line'],
+  // T13 (2026-10-28): `Plan` the holder's plan saved with the step: its parts, the part it is on and the absolute times its
+  // estimate runs out (stepPlan.mjs), so a chat that takes the step over shows the plan and the time left at once.
+  step: ['Id', 'Kind', 'Title', 'Priority', 'State', 'Owner', 'Pinned', 'Queued by', 'Activity', 'Goal', 'Blocked by', 'Waits for', 'Since', 'Estimate', 'Branch', 'Checkpoint', 'Plan', 'Fix of', 'Checks', 'Not by', 'Attempts', 'Pictures', 'Refined', 'Asks', 'Queue when refined', 'Queue note', 'Line'],
   // B299: `Advice` is the option the asking chat advises; `Via` says how it was asked: form (the app's question form,
   // answered in the chat only) or refine (a question of the Advisor's refine of the step it is Of). Warnings
   // (2026-10-19): `Filed` when it was filed, to the millisecond, as an instruction's (`askFiledMs`). Partner answers

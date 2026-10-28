@@ -25,6 +25,7 @@ import { splitPicture } from './talkPicture.mjs'
 import { isClockLine } from './rounds.mjs'
 import { taskTimesOf } from './taskTimes.mjs'
 import { isFix, sinceMs, valueOf } from './work/item.mjs'
+import { planOf } from './work/stepPlan.mjs'
 import { planStarting, planState, withPlanWork } from './plan.mjs'
 import { standardHold } from './work/standardHold.mjs'
 import { askIdsIn, askKey, askPartsOf, sameAsk } from './work/askWords.mjs'
@@ -330,6 +331,41 @@ function feedbackLine(words) {
   return one.length > FEEDBACK_CHARS ? `${one.slice(0, FEEDBACK_CHARS - 1).trimEnd()}…` : one
 }
 
+/** T13: whether a card's task holds a plan of its own: parts, a count of them, or a time (a topic alone is none). */
+const hasCardPlan = task => task.names !== null || task.steps > 0 || task.leftMs !== null || task.stepLeftMs !== null
+
+/**
+ * T13: a time saved as the moment it runs out (`until`), as the card gives one: counted from when it was said
+ * (`estimateAt`) with what was left then (`leftMs`, never negative: a time past reads as an overrun). Nulls for none.
+ */
+function savedCountdown(until, writtenAt) {
+  if (until === null || writtenAt === null) return { leftMs: null, at: null }
+  const leftMs = Math.max(0, until - writtenAt)
+  return { leftMs, at: until - leftMs }
+}
+
+/** T13: the task fields a step's saved plan (work/stepPlan.mjs `planOf`) gives, in the card's own words. */
+function savedTaskFields(plan) {
+  const left = savedCountdown(plan.until, plan.writtenAt)
+  const stepLeft = savedCountdown(plan.stepUntil, plan.writtenAt)
+  return {
+    names: plan.names.length === 0 ? null : plan.names, step: plan.on, steps: plan.steps ?? (plan.names.length === 0 ? null : plan.names.length),
+    leftMs: left.leftMs, estimateAt: left.at, stepLeftMs: stepLeft.leftMs, stepEstimateAt: stepLeft.at, isSavedPlan: true,
+  }
+}
+
+/**
+ * T13: what a step of the store gives its holder's lane besides its Estimate: the plan saved with it (`plan`), the size
+ * its refine gave in minutes (`refineMinutes`, its "Size:" line) and when it was taken (`takenAt`: its Since, the minute it
+ * moved in progress). Nothing for a step the store does not hold.
+ */
+function savedWith(item) {
+  if (item === undefined) return {}
+  const size = (item.sections?.get('Refined') ?? []).map(one => one.trim().match(/^Size:\s*(.*)$/)?.[1]).find(one => one !== undefined)
+  const takenAt = sinceMs(item.head.get('Since'))
+  return { plan: planOf(item), refineMinutes: size === undefined ? null : sizeMinutes(size), takenAt: Number.isFinite(takenAt) ? takenAt : null }
+}
+
 /**
  * The task a chat is on, as the chat recorded it: the topic, the steps and the time of its plan line (`source:
  * 'plan'`). A busy chat that has recorded nothing shows the step the store holds for it (`source: 'step'`). With
@@ -338,7 +374,8 @@ function feedbackLine(words) {
  * is read from a chat's words). `step` is the step the store holds in progress for the chat, `stepById` finds an
  * open step by its id; a step gives the task its id and, for a chat with no estimate of its own, its time. A chat that
  * recorded its task is on a step too (`stepId`): the store's, else the open one of its own (or of nobody) that its
- * record names by id.
+ * record names by id. T13: a card that holds no plan for that step shows the plan saved with the step instead
+ * (`isSavedPlan`, work/stepPlan.mjs), and a step with no plan at all and no time of its own has its refine's size.
  */
 function taskOf({ chat, plan, scan, state, before, lines, prefix, now, step = null, stepById = () => null }) {
   // `scan` holds the entries that can start a task: the tail, after a longer look back when there is one.
@@ -362,6 +399,9 @@ function taskOf({ chat, plan, scan, state, before, lines, prefix, now, step = nu
     else if (state === 'working') task = { text: '', ...bare }
   }
   if (task === null) return null
+  // T13: a card that holds no plan for the step the chat is on (a new chat's card after a restart holds a topic only)
+  // shows the plan saved with the step; a card's own plan is never replaced.
+  if (onStep?.plan != null && !hasCardPlan(task)) task = { ...task, ...savedTaskFields(onStep.plan) }
 
   // A task without words has no name the history could know it by.
   const facts = task.text === '' ? null : taskFacts(lines, chat.name, task.text, now)
@@ -395,6 +435,8 @@ function taskOf({ chat, plan, scan, state, before, lines, prefix, now, step = nu
     // The step the chat works on, and the time the store gives it (Estimate), when it has one.
     stepId: onStep?.id ?? null,
     stepMinutes: onStep?.minutes ?? null,
+    // T13: with no time of its own, the size its refine gave, counted from when the step was taken (`etaOf`).
+    ...((onStep?.refineMinutes ?? null) === null ? {} : { refineMinutes: onStep.refineMinutes, takenAt: onStep.takenAt ?? null }),
   }
 }
 
@@ -402,19 +444,24 @@ function taskOf({ chat, plan, scan, state, before, lines, prefix, now, step = nu
 /**
  * When a working chat expects to be done: when it gave its estimate, plus what it said was left (`isOwn`, `from:
  * 'own'`). A chat that gave none gets the time of its step (its Estimate, `from: 'step'`), counted from the task's
- * start: an estimate that is not its own. Null when neither is there.
+ * start: an estimate that is not its own. T13: a step with no Estimate has its refine's size (`from: 'refine'`), counted from
+ * when the step was taken. Null when none is there.
  */
 function etaOf(task, state, now) {
   if (state !== 'working' || task === null) return null
   const isOwn = task.leftMs !== null && task.estimateAt !== null
-  const minutes = task.stepMinutes
-  if (!isOwn && (minutes === null || !Number.isFinite(task.startedAt))) return null
-  const at = isOwn ? task.estimateAt + task.leftMs : task.startedAt + minutes * MIN
+  // T13: a step that names no time of its own has the size its refine gave (`from: 'refine'`), counted from when the
+  // step was taken, until the worker records a plan of its own.
+  const isRefine = !isOwn && task.stepMinutes === null && (task.refineMinutes ?? null) !== null
+  const minutes = task.stepMinutes ?? task.refineMinutes ?? null
+  const start = isRefine && Number.isFinite(task.takenAt) ? task.takenAt : task.startedAt
+  if (!isOwn && (minutes === null || !Number.isFinite(start))) return null
+  const at = isOwn ? task.estimateAt + task.leftMs : start + minutes * MIN
   // B185: over its estimate (`isOverdue`, shown as a fault) only when over twice it and by at least 10 minutes, the
   // person's yes against false alarms; a little over is only that (`isOver`).
-  const spanMs = Number.isFinite(task.startedAt) ? at - task.startedAt : 0
-  const isOverdue = now - at >= 10 * MIN && (spanMs <= 0 || now - task.startedAt > 2 * spanMs)
-  return { at, leftMs: Math.max(0, at - now), isOverdue, isOver: at < now, isOwn, from: isOwn ? 'own' : 'step' }
+  const spanMs = Number.isFinite(start) ? at - start : 0
+  const isOverdue = now - at >= 10 * MIN && (spanMs <= 0 || now - start > 2 * spanMs)
+  return { at, leftMs: Math.max(0, at - now), isOverdue, isOver: at < now, isOwn, from: isOwn ? 'own' : isRefine ? 'refine' : 'step' }
 }
 
 /**
@@ -1282,7 +1329,7 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
   const openSteps = backlog.activities.flatMap(activity => activity.steps).filter(one => !one.isDone && !one.isYou && one.id !== null)
   const stepById = (id, whose = null) => {
     const one = openSteps.find(found => found.id === id && (whose === null || found.worker === null || found.worker === whose))
-    return one === undefined ? null : { id: one.id, title: one.title, minutes: one.minutes, branch: one.ownBranch, about: aboutLine(one.notes) }
+    return one === undefined ? null : { id: one.id, title: one.title, minutes: one.minutes, branch: one.ownBranch, about: aboutLine(one.notes), ...savedWith(raw.work?.items?.get?.(one.id)) }
   }
   // B300: the step a chat is on is the one the store holds taken, in progress or waiting on the person for it, with or
   // without a branch.
@@ -1301,7 +1348,7 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
     const blockedBy = (String(item.head.get('Blocked by') ?? '').match(/\bB\d+\b/g) ?? [])
       .filter(one => !['done', 'dropped'].includes(raw.work.items.get(one)?.head.get('State') ?? 'done'))
     // B363: a step taken with branch none has its work outside git: no branch to show or play.
-    return { id, title: withoutNotes(item.head.get('Title') ?? ''), minutes: minutesOf(`about ${item.head.get('Estimate') ?? ''}`), branch: branch === undefined || branch === '-' || branch === '' || branch.toLowerCase() === 'none' ? null : branch, about: null, blockedBy }
+    return { id, title: withoutNotes(item.head.get('Title') ?? ''), minutes: minutesOf(`about ${item.head.get('Estimate') ?? ''}`), branch: branch === undefined || branch === '-' || branch === '' || branch.toLowerCase() === 'none' ? null : branch, about: null, blockedBy, ...savedWith(item) }
   }
   // B438, the review: every step the store holds for a chat and is not finished with, with its state, oldest first.
   const storeStepsOf = name => itemsOf(raw.work)

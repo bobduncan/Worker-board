@@ -1993,7 +1993,11 @@ function timeOf(lane, now) {
       ? { label: 'ETA', main: 'No time', tone: 'fault', small: soFar, from: null, title: 'This worker works without a time: it gave none, and its step names none.' }
       : { label: '', main: 'Working', tone: 'muted', small: soFar, from: null }
   }
-  const from = eta.isOwn !== false ? null : {
+  // T13: a task with no time of its own and no plan recorded yet has the size its refine gave, counted from its take.
+  const from = eta.isOwn !== false ? null : eta.from === 'refine' ? {
+    text: "refine's estimate",
+    title: `The worker has recorded no plan yet: this is the size the refine of ${lane.task?.stepId ?? 'its step'} gave, counted from when the task was taken.`,
+  } : {
     text: `from ${lane.task?.stepId ?? 'its step'}`,
     title: 'The worker gave no estimate of its own: this is the time its step names, counted from when the task started.',
   }
@@ -2455,7 +2459,9 @@ function drawMore(lane, state) {
     if (task.leftMs !== null && task.estimateAt !== null) list.append(el('li', '', `Said ${span(task.leftMs)} left, ${ago(task.estimateAt, now)}`))
     if (task.source === 'unrecorded') list.append(el('li', 'muted', 'It has recorded no task yet: no topic, no steps and no time.'))
     if (task.source === 'step') list.append(el('li', 'muted', 'It named no task: this is the task the work store holds for it.'))
-    if (lane.eta !== null && lane.eta.isOwn === false) list.append(el('li', 'muted', `It gave no estimate: ${task.stepId ?? 'its step'} says ${about(task.stepMinutes)}, counted from the start.`))
+    if (lane.eta !== null && lane.eta.isOwn === false && lane.eta.from === 'refine') list.append(el('li', 'muted', `It has recorded no plan yet: the refine of ${task.stepId ?? 'its step'} gave its size, ${about(task.refineMinutes)}, counted from when the task was taken.`))
+    else if (lane.eta !== null && lane.eta.isOwn === false) list.append(el('li', 'muted', `It gave no estimate: ${task.stepId ?? 'its step'} says ${about(task.stepMinutes)}, counted from the start.`))
+    if (task.isSavedPlan === true) list.append(el('li', 'muted', `Its card holds no plan: this is the plan saved with ${task.stepId ?? 'its step'}.`))
     if (task.source === 'plan' && (task.stepId ?? null) !== null) list.append(el('li', 'muted', `It is on task ${task.stepId} of the backlog.`))
   }
   // B307: what the row no longer says, here in full.

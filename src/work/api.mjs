@@ -34,6 +34,7 @@ import { openNaming, renamedItem } from './names.mjs'
 import { readNamesFile, readPartnerAnswersFile, readPauseFile, writeNames, writePartnerAnswers, writePause } from './store.mjs'
 import { NOTE_LINE, isPartnerAnswered, isRoutedToPartner, routesToPartner, takenBackWords } from './partnerAnswers.mjs'
 import { HELD, checkpointLine, isHolding, pauseAnswer, pauseFacts } from './pause.mjs'
+import { nextPlan, planMinutes, planOf, planText } from './stepPlan.mjs'
 import { ACTIVE, parkWords, parkedAfter, workingOnOther } from './parked.mjs'
 import { routingAction, ROUTING_ACTIONS, ROUTING_READS } from './routing/api.mjs'
 import { writeView } from './view.mjs'
@@ -579,7 +580,8 @@ async function take(body, w) {
   }
   const started = move(item, 'in progress', w.role, w)
   if (!started.ok) return started
-  item = clearedAtTake(started.item, w)
+  // T13: a step taken from the queue starts on a plan of its own: one saved from an earlier run of it is no longer its plan.
+  item = put(copy(clearedAtTake(started.item, w)), 'Plan', null)
   const branch = line(body.branch, 120)
   if (branch !== '') {
     if (!/^[\w./-]+$/.test(branch)) return refuse(400, 'A branch is a name such as b12-the-strip.')
@@ -599,7 +601,7 @@ async function step(body, w) {
   if (!found.ok) return found
   const id = valueOf(found.item, 'Id')
   const isCheckpoint = body.commit !== undefined || body.next !== undefined
-  const isPlan = ['step', 'steps', 'names', 'name', 'minutes'].some(key => body[key] !== undefined) || !isCheckpoint
+  const isPlan = ['step', 'steps', 'names', 'name', 'minutes', 'stepMinutes'].some(key => body[key] !== undefined) || !isCheckpoint
   // A checkpoint stands on every step a chat holds (pause.mjs `HELD`), as the pause counts them.
   const states = isPlan ? ['in progress', 'waiting on you'] : HELD
   if (!isOwner(found.item, w.who, w.prefix) || !states.includes(stateOf(found.item))) return refuse(409, `${id} is not in progress for ${w.who}: take it first.`)
@@ -611,14 +613,17 @@ async function step(body, w) {
     return done.ok ? changed(item, `${id}: checkpoint ${checkpoint.commit} · ${checkpoint.next}.`) : done
   }
   const names = Array.isArray(body.names) ? body.names.map(one => line(one, 60)).filter(Boolean) : []
-  const total = names.length > 0 ? names.length : Number.isInteger(Number(body.steps)) && Number(body.steps) > 0 ? Number(body.steps) : null
+  const count = Number.isInteger(Number(body.steps)) && Number(body.steps) > 0 ? Number(body.steps) : null
+  const total = names.length > 0 ? names.length : count
   const number = body.step === undefined ? null : Number(body.step)
   if (number !== null && !(Number.isInteger(number) && number >= 1)) return refuse(400, '"step" is the number of the step you are on now.')
   const minutes = body.minutes === undefined ? null : Number(body.minutes)
   const name = number !== null ? names[number - 1] ?? line(body.name, 60) : line(body.name, 60)
   const words = [number === null ? 'a new plan' : `step ${number}${total === null ? '' : `/${total}`}`, name === '' || name === undefined ? null : name, Number.isFinite(minutes) && minutes > 0 ? `about ${Math.round(minutes)} min left` : null].filter(Boolean).join(', ')
-  const planned = said(found.item, w, words)
-  const item = checkpoint === null ? planned : ordered(said(put(copy(planned), 'Checkpoint', checkpointLine({ ...checkpoint, now: w.now })), w, `checkpoint ${checkpoint.commit} · ${checkpoint.next}`))
+  // T13: the plan stays with the step, as the mod's card holds it, so a chat that takes the step over shows it (stepPlan.mjs).
+  const saved = nextPlan(planOf(found.item), { names, steps: count, step: number, minutes: planMinutes(body.minutes), stepMinutes: planMinutes(body.stepMinutes) }, w.now)
+  const planned = said(saved === null ? found.item : put(copy(found.item), 'Plan', planText(saved)), w, words)
+  const item = ordered(checkpoint === null ? planned : said(put(copy(planned), 'Checkpoint', checkpointLine({ ...checkpoint, now: w.now })), w, `checkpoint ${checkpoint.commit} · ${checkpoint.next}`))
   const done = await save(item, found.text, w)
   return done.ok ? changed(item, `${id}: ${words}.${checkpoint === null ? '' : ` Checkpoint ${checkpoint.commit} · ${checkpoint.next}.`}`) : done
 }
