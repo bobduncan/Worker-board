@@ -5,7 +5,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import { HAND_LINE, HANDS_FIRST_MS, RESUME_AGAIN_MS, handJobs, handResults, isForHandsYet, isHandWord, setOf } from '../src/hands.mjs'
+import { HAND_LINE, HANDS_FIRST_MS, RESUME_AGAIN_MS, handJobs, handResults, isForHandsYet, isHandWord, nextWorkerTitle, setOf, startTaskIds, workerNames } from '../src/hands.mjs'
 import { memoryStore } from '../src/store.mjs'
 import { POST_ROUTES } from '../server.mjs'
 
@@ -112,6 +112,56 @@ test('B755: a chat\'s own take leaves a hand\'s word to the hands for a minute, 
   const only = now => message => !isForHandsYet(message, now)
   assert.deepEqual((await store.take('Main', HANDS_FIRST_MS - 1, keep, only(HANDS_FIRST_MS - 1))).map(one => one.id), ['c'])
   assert.deepEqual((await store.take('Main', HANDS_FIRST_MS, keep, only(HANDS_FIRST_MS))).map(one => one.id), ['a', 'b'])
+})
+
+// B766: a worker's restart for a new mod, and a new worker, by code. Made-up chats.
+const restartWord = (id, about) => ({ ...word(id, 'mod-restart', about), version: '0.25.0' })
+const spawnWord = id => ({ id, at: 0, to: 'Main', ask: null, command: 'spawn', count: 1, why: 'board', text: 'spawn workers', state: 'waiting' })
+const STATE = { chats: [{ name: 'Main', isMain: true }, { name: 'Worker 1' }, { name: 'Worker 2' }, { name: 'Old', isLeftover: true }, { name: 'Advisor' }], advisor: { name: 'Advisor' }, supervisorChat: { name: 'Supervisor' } }
+
+test('B766: the board\'s workers are its lanes that are no main chat, leftover, partner, helper or supervisor', () => {
+  assert.deepEqual([...workerNames(STATE)], ['Worker 1', 'Worker 2'])
+  assert.deepEqual([...workerNames(null)], [])
+})
+
+test('B766: a restart is a hand\'s only for a worker and a chat that may restart; a new worker only for one that may spawn', () => {
+  const workers = workerNames(STATE)
+  assert.equal(isHandWord(restartWord('a', 'Worker 1'), { canRestart: true, workers }), true)
+  assert.equal(isHandWord(restartWord('a', 'Worker 1'), { workers }), false)
+  // Never the main chat, the partner or the supervisor: on the work login a restarted chat starts an empty conversation.
+  for (const chat of ['Main', 'Advisor', 'Supervisor', 'Nobody']) assert.equal(isHandWord(restartWord('b', chat), { canRestart: true, workers }), false, chat)
+  assert.equal(isHandWord(spawnWord('c'), { canSpawn: true }), true)
+  assert.equal(isHandWord(spawnWord('c'), { canRestart: true, canSet: true }), false)
+  // The main chat's take leaves them to the hands for a minute, a restart only of a worker.
+  assert.equal(isForHandsYet(restartWord('a', 'Worker 1'), 0, workers), true)
+  assert.equal(isForHandsYet(restartWord('a', 'Main'), 0, workers), false)
+  assert.equal(isForHandsYet(spawnWord('c'), HANDS_FIRST_MS - 1), true)
+  assert.equal(isForHandsYet(spawnWord('c'), HANDS_FIRST_MS), false)
+})
+
+test('B766: the jobs: a restart names the board\'s chats to reopen; one new worker per claim, the next free title and the task ids', () => {
+  const spawn = { title: nextWorkerTitle(['Main', 'Worker 1', 'Worker 2', 'Worker 4'], 'Studio · '), tasks: startTaskIds('my-project') }
+  assert.deepEqual(spawn, { title: 'Studio · Worker 3', tasks: ['my-project-start-worker-2', 'my-project-start-worker'] })
+  const taken = [restartWord('a', 'Worker 1'), spawnWord('b'), spawnWord('c')]
+  const { jobs, back } = handJobs({ caller: 'Supervisor', taken, lanes: LANES, now: 0, spawn })
+  assert.deepEqual(jobs, [
+    { id: 'a', to: 'local_w1', chat: 'Worker 1', restart: { keep: ['local_main', 'local_w1', 'local_adv'] } },
+    { id: 'b', chat: 'Studio · Worker 3', spawn: { title: 'Studio · Worker 3', tasks: ['my-project-start-worker-2', 'my-project-start-worker'] } },
+  ])
+  assert.deepEqual(back, ['c'])
+  // A board that gives no spawn (no project, or the chat may not) puts the word back for the main chat.
+  assert.deepEqual(handJobs({ caller: 'Supervisor', taken: [spawnWord('d')], lanes: LANES, now: 0 }).back, ['d'])
+  // A chat never restarts itself.
+  assert.deepEqual(handJobs({ caller: 'Worker 1', taken: [restartWord('e', 'Worker 1')], lanes: LANES, now: 0 }).back, ['e'])
+  assert.deepEqual(startTaskIds(''), [])
+})
+
+test('B766: the server gives the restart and spawn words only by what the claiming chat may do', async () => {
+  const { readFile } = await import('node:fs/promises')
+  const server = await readFile(new URL('../server.mjs', import.meta.url), 'utf8')
+  assert.match(server, /isHandWord\(message, \{ canSet: can\.has\('set'\), canRestart: can\.has\('restart'\), canSpawn: can\.has\('spawn'\), workers \}\)/)
+  assert.match(server, /title: nextWorkerTitle\(\(state\.chats \?\? \[\]\)\.map\(lane => lane\.name\), prefix\), tasks: startTaskIds\(basename\(config\.project\)\)/)
+  assert.match(server, /!isForHandsYet\(message, now, workers\)/)
 })
 
 test('the routes: a hand claims and reports through the bridge, behind the board\'s key and its lock', () => {

@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'claude-code/testing'
 
-import { EFFORT_TOOL, HANDS_DONE_PATH, HANDS_PATH, MODEL_TOOL, SEND_TOOL, canSetFrom, parseJobs, sendResult, setResult } from './hands'
+import { ARCHIVE_TOOL, EFFORT_TOOL, HANDS_DONE_PATH, HANDS_PATH, LIST_TOOL, MODEL_TOOL, SEND_TOOL, TASK_RUN_TOOL, TASK_UPDATE_TOOL, UNARCHIVE_TOOL, archivedOf, canFrom, parseJobs, plainResult, sendResult, setResult } from './hands'
 
 // B753: the board's hands in code: the jobs the board hands this chat, and what the app's tool answered for each.
 describe('the board\'s hands', () => {
@@ -56,10 +56,38 @@ describe('the board\'s hands', () => {
     expect(setResult('e', null).ok).toBe(false)
   })
 
-  test('code may set only where the app allows both tools with no question', () => {
-    expect(canSetFrom([{ decision: 'allow' }, { decision: 'allow' }])).toBe(true)
-    expect(canSetFrom([{ decision: 'allow' }, { decision: 'ask' }])).toBe(false)
-    expect(canSetFrom([{ decision: 'allow' }, null])).toBe(false)
-    expect(canSetFrom([])).toBe(false)
+  test('code may do a job only where the app allows each of its tools with no question', () => {
+    const allow = { decision: 'allow' }
+    expect(canFrom({ [MODEL_TOOL]: allow, [EFFORT_TOOL]: allow })).toEqual(['set'])
+    expect(canFrom({ [MODEL_TOOL]: allow, [EFFORT_TOOL]: { decision: 'ask' } })).toEqual([])
+    expect(canFrom({ [ARCHIVE_TOOL]: allow, [UNARCHIVE_TOOL]: allow, [LIST_TOOL]: allow, [TASK_UPDATE_TOOL]: allow, [TASK_RUN_TOOL]: allow })).toEqual(['restart', 'spawn'])
+    expect(canFrom({ [ARCHIVE_TOOL]: allow, [UNARCHIVE_TOOL]: allow, [LIST_TOOL]: null })).toEqual([])
+    expect(canFrom({})).toEqual([])
+  })
+
+  // B766: a worker's restart for a new mod, and a new worker, by code.
+  test('a restart job keeps only app ids to reopen; a new worker needs a plain title and the stored task ids', () => {
+    const text = JSON.stringify({ jobs: [
+      { id: 'a', to: 'local_w1', chat: 'Worker 1', restart: { keep: ['local_main', 'cli-x', 7, 'local_w1'] } },
+      { id: 'b', chat: 'Studio · Worker 6', spawn: { title: 'Studio · Worker 6', tasks: ['my-project-start-worker-2', 'Bad Id', 'my-project-start-worker'] } },
+      { id: 'c', spawn: { title: 'rm -rf /; echo', tasks: ['x'] } },
+      { id: 'd', spawn: { title: 'Studio · Worker 7', tasks: [] } },
+      { id: 'e', to: 'cli-w2', restart: { keep: [] } },
+    ] })
+    expect(parseJobs(text)).toEqual([
+      { id: 'a', to: 'local_w1', chat: 'Worker 1', restart: { keep: ['local_main', 'local_w1'] } },
+      { id: 'b', chat: 'Studio · Worker 6', spawn: { title: 'Studio · Worker 6', tasks: ['my-project-start-worker-2', 'my-project-start-worker'] } },
+    ])
+  })
+
+  test('a tool plain answer: done unless it refused or said it failed; the archived ids out of the app list', () => {
+    expect(plainResult('a', { ref: 'r', result: {}, text: 'Session archived.' })).toEqual({ id: 'a', ok: true })
+    expect(plainResult('b', { deny: 'no verdict' })).toEqual({ id: 'b', ok: false, why: 'no verdict' })
+    const missing = plainResult('c', { ref: 'r', result: {}, text: 'Session local_x not found.', isError: true })
+    expect([missing.ok, missing.why]).toEqual([false, 'Session local_x not found.'])
+    expect(plainResult('d', null).ok).toBe(false)
+    const listed = { result: [], text: JSON.stringify([{ sessionId: 'local_w1', isArchived: true }, { sessionId: 'local_w2', isArchived: false }, { isArchived: true }]) }
+    expect([...archivedOf(listed)]).toEqual(['local_w1'])
+    expect([...archivedOf({ text: 'not json' })]).toEqual([])
   })
 })

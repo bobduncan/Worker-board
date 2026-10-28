@@ -824,7 +824,12 @@ just like now". The picture is `art-inbox/worker-board/b124/2026-10-14-b124-resu
 
 - *The board only asks; the main chat starts the chats*, names them and gives them the shared briefing. The word
   it types into the main chat, as its other words: `spawn workers`, then `Count: N` (1 to 3), then `Why: no worker
-  is in the list` or `Why: asked with the button` (`spawnWords` in `src/say.mjs`).
+  is in the list` or `Why: asked with the button` (`spawnWords` in `src/say.mjs`). Since B766 (2026-10-28, phasing
+  out the main chat) a running chat's Workers mod starts the worker itself, by code, where the app allows it the
+  stored task's two tools: it renames the start-worker task "<prefix>Worker N" and runs it, one worker per claim
+  (src/hands.mjs `handJobs`, mods/folder-branches/start-worker-task.md); the word reaches the main chat only when no
+  hand took it within a minute. So does a worker's `restart for mod` (closed and reopened by code; never the main
+  chat, the partner or the supervisor, whose conversation a restart on the work login empties).
 - *By itself, once.* When the list holds the main chat and no worker (the advisor is no worker), the board asks
   for three (`spawnWhenAlone`), at its minute's look, and only while the main chat's chat is open, so the word is
   taken and not lost. It asks once per empty list: again only after a worker was there since that ask (the

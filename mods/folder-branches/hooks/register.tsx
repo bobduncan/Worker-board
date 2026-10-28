@@ -16,7 +16,7 @@ import {
 } from './chats'
 import type { OpenInstruction, TaskChange } from './chats'
 import { blockAsksLine, forYouCount, forYouItems, leftOutLine } from './foryou'
-import { CAN_SET_MS, EFFORT_TOOL, HANDS_DONE_PATH, HANDS_MS, HANDS_PATH, MODEL_TOOL, SEND_TOOL, canSetFrom, parseJobs, sendResult, setResult } from './hands'
+import { ARCHIVE_TOOL, CAN_SET_MS, CAN_TOOLS, EFFORT_TOOL, HANDS_DONE_PATH, HANDS_MS, HANDS_PATH, LIST_TOOL, MODEL_TOOL, SEND_TOOL, TASK_RUN_TOOL, TASK_UPDATE_TOOL, UNARCHIVE_TOOL, archivedOf, canFrom, parseJobs, plainResult, sendResult, setResult } from './hands'
 import type { HandResult, HandSet } from './hands'
 import {
   SELF, UNKNOWN, branchList, branchName, detached, folderName, inFolder, isListed, ordered, summary,
@@ -57,8 +57,8 @@ let watch: Timer | null = null
 let chatWatch: Timer | null = null
 /** B753: the timer of the board's hands in this process, and whether a round of them runs. */
 let handsWatch: Timer | null = null
-/** B755: whether the app lets this chat's code set model and effort, and when it was last asked. */
-let canSet = { at: -Infinity, yes: false }
+/** B755, B766: what the app lets this chat's code do (`CAN_TOOLS`'s keys), and when it was last asked. */
+let canHere: { at: number; can: string[] } = { at: -Infinity, can: [] }
 let isHanding = false
 let isReading = false
 let isReadingChats = false
@@ -1596,14 +1596,16 @@ async function handRound($: EngineInterface): Promise<void> {
     const board = parseBoard(await $.fs.read(inFolder(project, BOARD_FILE)).catch(() => ''))
     // Only a board that says it hands out jobs is asked: an older one has no such route.
     if (board === null || !board.hands) return
-    const jobs = parseJobs(await askBoard($, board, HANDS_PATH, (await canSetHere($)) ? { can: ['set'] } : {}).catch(() => null))
+    const can = await canNow($)
+    const jobs = parseJobs(await askBoard($, board, HANDS_PATH, can.length > 0 ? { can } : {}).catch(() => null))
     if (jobs.length === 0) return
     const results: HandResult[] = []
     for (const job of jobs) {
       try {
-        results.push('text' in job
-          ? sendResult(job.id, await $.tool.call({ tool: SEND_TOOL, session_id: job.to, message: job.text } as never))
-          : await setChat($, job.id, job.to, job.set))
+        if ('text' in job) results.push(sendResult(job.id, await $.tool.call({ tool: SEND_TOOL, session_id: job.to, message: job.text } as never)))
+        else if ('set' in job) results.push(await setChat($, job.id, job.to, job.set))
+        else if ('restart' in job) results.push(await restartChat($, job.id, job.to, job.restart.keep))
+        else results.push(await startWorker($, job.id, job.spawn.title, job.spawn.tasks))
       } catch (error) {
         results.push({ id: job.id, ok: false, why: error instanceof Error ? error.message.slice(0, 300) : 'the tool failed' })
       }
@@ -1618,17 +1620,53 @@ async function handRound($: EngineInterface): Promise<void> {
 }
 
 /**
- * B755: whether the app lets this chat's code set another chat's model and effort with no question: its verdict for
- * both tools (the allow rule in the project's local settings), asked again after CAN_SET_MS. Without the rule a call is
- * denied in auto mode, so such a chat claims no set jobs.
+ * B755, B766: what the app lets this chat's code do with no question: its verdict for each tool of `CAN_TOOLS` (allow
+ * rules in the settings), asked again after CAN_SET_MS. Without a rule a call is denied in auto mode, so such a chat
+ * claims none of those jobs.
  */
-async function canSetHere($: EngineInterface): Promise<boolean> {
+async function canNow($: EngineInterface): Promise<string[]> {
   const now = await $.clock.now()
-  if (now - canSet.at < CAN_SET_MS) return canSet.yes
-  const probe = { session_id: 'local_none', model: 'claude-opus-5-5', effort: 'medium' }
-  const verdicts = await Promise.all([MODEL_TOOL, EFFORT_TOOL].map(tool => $.tool.check({ tool, input: probe } as never).catch(() => null)))
-  canSet = { at: now, yes: canSetFrom(verdicts) }
-  return canSet.yes
+  if (now - canHere.at < CAN_SET_MS) return canHere.can
+  const probe = { session_id: 'local_none', model: 'claude-opus-5-5', effort: 'medium', taskId: 'none' }
+  const tools = [...new Set(Object.values(CAN_TOOLS).flat())]
+  const verdicts = await Promise.all(tools.map(tool => $.tool.check({ tool, input: probe } as never).catch(() => null)))
+  canHere = { at: now, can: canFrom(Object.fromEntries(tools.map((tool, at) => [tool, verdicts[at]]))) }
+  return canHere.can
+}
+
+/**
+ * B766: restarts the idle worker `to` for a new Workers mod: closes it (its process ends), checks in the app's list that
+ * it is closed, reopens every chat of the board's (`keep`) the close took along, then the worker itself; its next word
+ * starts it on the installed mod. The app refuses a working chat, or one open on the person's screen: the result says
+ * why, and the board asks again later.
+ */
+async function restartChat($: EngineInterface, id: string, to: string, keep: string[]): Promise<HandResult> {
+  const reason = 'The worker board restarts this idle worker so it starts on the newly installed Workers mod'
+  const closed = plainResult(id, await $.tool.call({ tool: ARCHIVE_TOOL, session_id: to, reason } as never))
+  if (!closed.ok) return closed
+  const archived = archivedOf(await $.tool.call({ tool: LIST_TOOL, include_archived: true, limit: 100 } as never))
+  if (!archived.has(to)) return { id, ok: false, why: 'the app did not close the chat (it may be working, or open on the screen)' }
+  for (const other of keep) {
+    if (other !== to && archived.has(other)) await $.tool.call({ tool: UNARCHIVE_TOOL, session_id: other } as never)
+  }
+  return plainResult(id, await $.tool.call({ tool: UNARCHIVE_TOOL, session_id: to } as never))
+}
+
+/**
+ * B766: starts one new worker: gives the stored start-worker task the worker's title and runs it once (start-worker-task.md);
+ * the new chat joins the board by itself and the board hands it a task. The first of `tasks` this login has is used.
+ */
+async function startWorker($: EngineInterface, id: string, title: string, tasks: string[]): Promise<HandResult> {
+  let why = 'no stored start-worker task on this login'
+  for (const task of tasks) {
+    const renamed = plainResult(id, await $.tool.call({ tool: TASK_UPDATE_TOOL, taskId: task, title } as never))
+    if (!renamed.ok) {
+      why = renamed.why ?? why
+      continue
+    }
+    return plainResult(id, await $.tool.call({ tool: TASK_RUN_TOOL, taskId: task } as never))
+  }
+  return { id, ok: false, why }
 }
 
 /** B755: sets the chat `to`'s model (when the job names one) and then its effort; the result says why not, if not. */

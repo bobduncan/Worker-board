@@ -177,7 +177,9 @@ running board chat now carries the board's `start`, `wake` and resume lines itse
 send-message tool and no model turn. Such a word reaches you only when no running chat could send it (its chat has no
 app id the board knows, or no board chat ran); then do it as below. B755: the same for `set model and effort`, `set
 effort` and `partner effort` (not Fable): a chat whose app allows its code the two set tools sets them, and such a word
-reaches you only when none did within a minute.
+reaches you only when none did within a minute. B766: the same for `restart for mod` of a worker (closed and reopened
+by code; a restart of yourself, the partner or the supervisor stays yours) and for `spawn workers` (the stored
+start-worker task renamed and run by code, one worker at a time).
 
 - `resume`: the user resumed all chats after a pause (the board's Resume all). The Workers mod puts the list beside
   it, or beside your chat's start when you were not running: "Resume: wake each chat below that has not started",
