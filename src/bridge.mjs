@@ -70,6 +70,82 @@ export function answerReport(reports, body, checked, now) {
   return noteReport(reports, body, checked, now) ? { ok: true, result: { ok: true } } : refuse(400, 'Not a report: its state is busy, idle, asking or ended.')
 }
 
+/**
+ * 2026-10-28 (the person: "'which chat you' are by session id even seems more robust"): the name the board shows a
+ * session under, for `POST /api/bridge/whoami`; null when the session is no chat of the list. It reads the chats a take is
+ * checked against (`shownChats`, the app's chat list with each chat's `cliSessionId`), so the answer is the name the
+ * refusal of a take would give (`notShown`): a name that is empty or too long for the mod to take is no name.
+ */
+export function whoamiOf(state, session) {
+  const id = typeof session === 'string' ? session.trim() : ''
+  if (id === '' || id.length > 120) return null
+  const name = shownChats(state).find(one => (one.session ?? null) === id)?.name
+  const shown = typeof name === 'string' ? name.trim() : ''
+  return shown === '' || shown.length > 80 ? null : shown
+}
+
+/** The session a whoami call names, trimmed; null when it names none (or one too long to be a session id). */
+export function whoamiSession(body) {
+  if (body === null || typeof body !== 'object' || Array.isArray(body)) return null
+  const session = typeof body.session === 'string' ? body.session.trim() : ''
+  return session === '' || session.length > 120 ? null : session
+}
+
+/**
+ * The whoami call's answer: `{ name, role, card }`. `name`: the name the board shows the session under (null for a session
+ * of no chat of the list), `role` the one it gives that chat (main, worker, advisor, helper or supervisor, as the work
+ * store does), `card` (`cardSession`, read from the project's files by the caller) the session the chat's card is filed
+ * under when that is another than the asking one, else null. 400 for no session.
+ */
+export function answerWhoami(state, body, cardSession = null) {
+  const session = whoamiSession(body)
+  if (session === null) return refuse(400, body !== null && typeof body === 'object' && !Array.isArray(body) ? 'Name the session.' : 'Not a request.')
+  const name = whoamiOf(state, session)
+  return { ok: true, result: { name, role: name === null ? null : laneRole(state, name), card: name === null ? null : cardSession } }
+}
+
+/** The sessions the board shows under a name: a card filed under one of them is that chat's, never another chat's. */
+export const shownSessions = state => new Set(shownChats(state).map(one => one.session).filter(session => typeof session === 'string' && session !== ''))
+
+/**
+ * 2026-10-28 (a worker cleared in a new process: its card stayed under the old session): the session the card of the chat
+ * called `name` is filed under, when it is not `session`, the one that asks. `rows` are the files of `.claude/chats`
+ * (`{ session, text }`, src/chatCards.mjs). Only a card counts: a file of a chat that left the list (`left`), or one that
+ * says where its chat went on (`movedTo`) describes no chat; nor one filed under a session the board shows under a name
+ * (`shown`: another chat's card). The newest by its own `at` when several of the name remain; null for none.
+ */
+export function cardSessionOf(rows, { name, session, shown = new Set() }) {
+  const wanted = String(name ?? '').trim().toLowerCase()
+  if (wanted === '') return null
+  const found = []
+  for (const row of rows) {
+    if (row.session === session || shown.has(row.session)) continue
+    let card
+    try {
+      card = JSON.parse(row.text)
+    } catch {
+      continue
+    }
+    if (card === null || typeof card !== 'object' || Array.isArray(card) || card.left === true || 'movedTo' in card) continue
+    if (typeof card.name !== 'string' || card.name.trim().toLowerCase() !== wanted) continue
+    found.push({ session: row.session, at: Number.isFinite(card.at) ? card.at : 0 })
+  }
+  found.sort((a, b) => b.at - a.at || (a.session < b.session ? -1 : 1))
+  return found[0]?.session ?? null
+}
+
+/**
+ * 2026-10-28: a whoami call says its mod runs, as every accepted call of the bridge does (`noteCall`). A session the board
+ * shows under a name counts under it (`seen.shown`, also for the chat's own lane); one it shows under none has no name
+ * to count under, so it counts in `seen.other` under a key no chat's name can be (`session <id>`): the board still knows
+ * a mod runs (`isBridgeMissing`), and no lane reads it.
+ */
+export function noteWhoami(seen, session, name, now) {
+  if (seen === null || seen === undefined) return
+  if (typeof name === 'string' && name !== '') seen.shown[name] = now
+  else seen.other[`session ${String(session).slice(0, 120)}`] = now
+}
+
 export function checkTake(body, state) {
   if (body === null || typeof body !== 'object' || Array.isArray(body)) return refuse(400, 'Not a request.')
   const chat = typeof body.chat === 'string' ? body.chat.trim() : ''

@@ -2,6 +2,8 @@
 // The board is a page on this machine where the person answers the chats' requests; what they answer there is typed
 // into the chat it is for, as their own words. A chat only takes: nothing can be sent through the bridge.
 
+import type { BoardRole } from '../types'
+
 /** The file the board writes in the project's folder while it runs: where it is, and the key for taking. */
 export const BOARD_FILE = '.claude/board.json'
 /** Where the board hands out what waits for a chat, and where it is told what was typed. */
@@ -18,6 +20,11 @@ export const REPORT_PATH = '/api/bridge/report'
  * of chat-reports: `ended` once, when its session ends (not a /clear): the board shows it not running at once.
  */
 export type TurnReport = { state: 'busy' | 'idle' | 'asking' | 'ended'; since: number; background: boolean }
+/**
+ * 2026-10-28 (the person: "'which chat you' are by session id even seems more robust"): where the mod asks the board, with
+ * this session's id, which chat it is: the name the board shows it under, its role and the session its card is filed under.
+ */
+export const WHOAMI_PATH = '/api/bridge/whoami'
 /** B297: where the work tool's calls go: the board's work store. */
 export const WORK_PATH = '/api/bridge/work'
 /** B412: the header that carries a work call's request id: the board answers a repeat of it the same way. */
@@ -27,7 +34,7 @@ export const REQUEST_HEADER = 'X-Work-Request'
  * chat that runs an older Workers mod than the one installed. The same as `version` in .claude-plugin/plugin.json.
  */
 export const MOD_HEADER = 'X-Workers-Mod'
-export const MOD_VERSION = '0.21.0'
+export const MOD_VERSION = '0.22.0'
 /** The longest text typed for the board: its own limit for an answer, with room for the request's name around it. */
 export const MOST_CHARS = 3000
 
@@ -76,6 +83,29 @@ export function shownName(text: string): string | null {
     return typeof name === 'string' && name.trim() !== '' && name.trim().length <= 80 ? name.trim() : null
   } catch {
     return null
+  }
+}
+
+/** 2026-10-28: what the board answers to `WHOAMI_PATH`: the chat's name, the role the board gives it, and where its card is filed. */
+export type Whoami = { name: string; role: BoardRole | null; card: string | null }
+
+/**
+ * 2026-10-28: the board's answer to `WHOAMI_PATH`; null when it names no chat (a session of no chat of the list, an older
+ * board, an answer that is no JSON). Only a name the mod would take counts (as `shownName`: 1 to 80 characters), a role of
+ * the five the board knows, and a card that is a session id as a card file names it.
+ */
+export function parseWhoami(text: string): Whoami | null {
+  const raw = parsed(text)
+  if (!isRecord(raw) || typeof raw.name !== 'string') return null
+  const name = raw.name.trim()
+  if (name === '' || name.length > 80) return null
+  const role = raw.role
+  const card = raw.card
+
+  return {
+    name,
+    role: role === 'main' || role === 'worker' || role === 'advisor' || role === 'helper' || role === 'supervisor' ? role : null,
+    card: typeof card === 'string' && /^[A-Za-z0-9_-]{1,120}$/.test(card) ? card : null,
   }
 }
 

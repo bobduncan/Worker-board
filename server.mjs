@@ -30,7 +30,8 @@ import { fileURLToPath } from 'node:url'
 
 
 import { minutesOf } from './src/backlog.mjs'
-import { answerReport, bridgeNote, checkTake, checkTyped, clearRefusal, fitsMod, isUnknownSession, laneRole, messageText, noteCall, noteReport, shownChats } from './src/bridge.mjs'
+import { answerReport, answerWhoami, bridgeNote, checkTake, checkTyped, clearRefusal, fitsMod, isUnknownSession, laneRole, messageText, noteCall, noteReport, noteWhoami, shownChats, shownSessions, whoamiOf, whoamiSession } from './src/bridge.mjs'
+import { cardFiledUnder } from './src/chatCards.mjs'
 import { chatLogKeeper, isReadOut, leftSubjects } from './src/chatLogs.mjs'
 import { findCodex, makePicture } from './src/codex.mjs'
 import { checkSetting, panelSettings, settingChanged } from './src/boardSettings.mjs'
@@ -197,6 +198,7 @@ export const POST_ROUTES = Object.freeze({
   '/api/bridge/work': { kind: 'bridge', guard: 'lock' },
   '/api/bridge/typed': { kind: 'bridge', guard: 'lock' },
   '/api/bridge/report': { kind: 'bridge', guard: 'free', why: 'the chat\'s turn state, kept in memory only; the hand-out it wakes runs on the holder only' },
+  '/api/bridge/whoami': { kind: 'bridge', guard: 'free', why: 'only reads: the name the board shows a session under and where its card is filed; it writes nothing' },
   '/api/design/reference': { kind: 'picture', guard: 'lock' },
   '/api/talk/picture': { kind: 'picture', guard: 'lock' },
   '/api/say': { kind: 'json', guard: 'lock' },
@@ -221,6 +223,7 @@ export const POST_ROUTES = Object.freeze({
  *   `game(body)`       starts or stops a branch's game: `{ ok: true, result }` or `{ ok: false, status, why }`
  *   `take(body)`       hands the mod what waits for its chat, the same shape; only with `bridgeKey`
  *   `typed(body)`      takes the mod's word on what it typed, the same shape; only with `bridgeKey`
+ *   `whoami(body)`     2026-10-28: names a session ({ name, role, card }), the same shape; only with `bridgeKey`
  *   `design(body)`     the Design tab's calls (make a picture, change it, agree, ask for the step), the same shape
  *   `reference(bytes)` keeps a reference picture the person added to an idea, the same shape
  *   `talkPicture(bytes)` keeps a picture the person pasted into Talk to Main (B167), the same shape
@@ -236,6 +239,7 @@ export function createBoard({
   game = async () => ({ ok: false, status: 404, why: 'Not here.' }),
   bridgeKey = null, take = async () => ({ ok: false, status: 404, why: 'Not here.' }), typed = async () => ({ ok: false, status: 404, why: 'Not here.' }),
   report = async () => ({ ok: false, status: 404, why: 'Not here.' }),
+  whoami = async () => ({ ok: false, status: 404, why: 'Not here.' }),
   design = async () => ({ ok: false, status: 404, why: 'Not here.' }), reference = async () => ({ ok: false, status: 404, why: 'Not here.' }),
   talkPicture = async () => ({ ok: false, status: 404, why: 'Not here.' }),
   plan = async () => ({ ok: false, status: 404, why: 'Not here.' }),
@@ -313,7 +317,7 @@ export function createBoard({
         const { mod: _ignored, ...rest } = parsed
         parsed = { ...rest, ...(typeof given === 'string' && /^\d{1,4}(?:\.\d{1,4}){0,3}$/.test(given.trim()) ? { mod: given.trim() } : {}) }
       }
-      const taken = await (pathname === '/api/bridge/take' ? take : pathname === '/api/bridge/work' ? bridgeWork : pathname === '/api/bridge/report' ? report : typed)(parsed)
+      const taken = await (pathname === '/api/bridge/take' ? take : pathname === '/api/bridge/work' ? bridgeWork : pathname === '/api/bridge/report' ? report : pathname === '/api/bridge/whoami' ? whoami : typed)(parsed)
       return taken.ok ? json(res, taken.result) : refuse(res, taken.status, taken.why)
     }
 
@@ -1502,6 +1506,8 @@ async function main(args) {
    * ago (its card moved): the state is read anew once before the bridge refuses it.
    */
   const freshFor = new Map()
+  /** 2026-10-28: the same for the whoami call, kept apart: a session's whoami never uses up the read its first take needs. */
+  const freshWho = new Map()
   const checkFresh = async body => {
     // B736 (X73, X87: no chat's report was kept from 21:12 to 21:21 while each waited for a whole read of the board): a
     // chat the board knows is checked against the state it has, however busy it is; only one it does not know waits.
@@ -1954,6 +1960,29 @@ async function main(args) {
       noteRefused(body, checked)
       noteMod(body, checked)
       return keepReport(body, checked, () => answerReport(reports, body, checked, clock()))
+    }),
+    // 2026-10-28 (the person: "'which chat you' are by session id even seems more robust"): a chat's mod asks by its session
+    // id who it is: the name and role the board shows it under (the app's chat list, as a refused take names it), and the
+    // session its card is filed under when that is another (a chat cleared in a new process). It reads and writes nothing;
+    // it counts as a call of the mod (`seen`, its version), also for a session the board shows under no name.
+    whoami: counted(async body => {
+      const session = whoamiSession(body)
+      let state = readState.last() ?? await readState()
+      // As `checkFresh`: a session the board shows under no name may be a chat the app just made or moved: the state is read
+      // anew once in a while before the answer is "no chat".
+      if (session !== null && whoamiOf(state, session) === null && clock() - (freshWho.get(session) ?? -Infinity) >= FRESH_MS) {
+        freshWho.set(session, clock())
+        for (const [one, at] of freshWho) if (clock() - at >= FRESH_MS) freshWho.delete(one)
+        readState.reset()
+        state = await readState()
+      }
+      const name = session === null ? null : whoamiOf(state, session)
+      if (session !== null) {
+        if (name !== null) noteMod(body, { ok: true, chat: name })
+        noteWhoami(seen, session, name, clock())
+      }
+      const card = name === null ? null : await cardFiledUnder(join(config.project, '.claude', 'chats'), { name, session, shown: shownSessions(state) })
+      return answerWhoami(state, body, card)
     }),
     typed: counted(async body => {
       const checked = checkTyped(body, await readState())

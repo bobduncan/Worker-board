@@ -91,8 +91,8 @@ step therefore says what it touches ("Touches: ...").
   point to.
 - A log or a scratch file of a step (test, check or server output, a helper script, a trial picture) goes into the
   project folder's `logs/` (`logs/b<id>-check.log`), never loose in the project folder itself; a picture for the user
-  goes where the project keeps its pictures, as any picture (the user, 2026-10-28: "there is a lot of mess here like the
-  .logs ... can they not be in a subfolder logs?").
+  goes to the project's picture folder (the user, 2026-10-28: "there is a lot of mess here like the .logs ... can they not be in a
+  subfolder logs?").
 - The step's end, before `work report`: remove its worktree. First leave it: `cd` to the main checkout in a command of
   its own, so your chat's working folder is no longer the worktree (a shell standing in it makes Windows refuse the
   last folder: "Permission denied", an empty folder stays). A link in it (a junction such as `node_modules`) first,

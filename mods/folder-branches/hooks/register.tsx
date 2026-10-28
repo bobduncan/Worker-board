@@ -7,8 +7,8 @@ import { atom, read, update } from 'claude-code'
 import type { EngineInterface, FsEntry, Register, Timer } from 'claude-code'
 
 import type { BoardRole, ChatFile, ChatList, ChatRole, ChatRow, ChatsView, FolderRow, FoldersView } from '../types'
-import { BOARD_FILE, BOARD_NOTE, LAUNCH_FILE, MOD_HEADER, MOD_VERSION, REPORT_PATH, REQUEST_HEADER, TAKE_PATH, TYPED_PATH, WORK_ACTIONS, WORK_FIELDS, WORK_PATH, boardStarts, isPaused, parseBoard, parsePause, parseTaken, pauseContexts, shownName, typedWhy } from './board'
-import type { Board, BoardStart, OwedClear, PauseState, PauseWhere, TurnReport } from './board'
+import { BOARD_FILE, BOARD_NOTE, LAUNCH_FILE, MOD_HEADER, MOD_VERSION, REPORT_PATH, REQUEST_HEADER, TAKE_PATH, TYPED_PATH, WHOAMI_PATH, WORK_ACTIONS, WORK_FIELDS, WORK_PATH, boardStarts, isPaused, parseBoard, parsePause, parseTaken, parseWhoami, pauseContexts, shownName, typedWhy } from './board'
+import type { Board, BoardStart, OwedClear, PauseState, PauseWhere, TurnReport, Whoami } from './board'
 import {
   BEAT_MS, CHATS_DIR, NOT_RUNNING, LEFT_MAX_SIZE, LEFT_TEXT, LIST_FILE, afterTurn, atTurnStart, cardGap, cardOld, chatNote, clearWhy, clearedStart, compactKeep, compactWhy, chatText, chatsSummary, fileName,
   cardStep, foldersAbove, formAnswer, formQuestions, hasLeft, instructionsLine, isAgentId, isFiled, modNote, movedText, nameFromTitle, openFrom, orderChats, parseChat, personsWords, parseList, recordedLine, roleFrom, sessionOf, status, uniqueByName,
@@ -1466,6 +1466,84 @@ async function joinByTitle($: EngineInterface, title: unknown, state: ChatFile['
   }
 }
 
+/**
+ * 2026-10-28 (the person: "'which chat you' are by session id even seems more robust"): how often this process asks the
+ * board which chat its session is: a rename is followed within a minute of the next prompt, and a prompt is never held long.
+ */
+const WHOAMI_MS = 60_000
+/** A whoami that got no name is asked again this soon. */
+const WHOAMI_AGAIN_MS = 5_000
+/** When this process last asked (when the question went out, answered or not). */
+let lastWhoami = -Infinity
+
+/** One question to the board, as no chat yet (`myself` may be null): its answer, or null. It never throws. */
+async function askWhoami($: EngineInterface, board: Board): Promise<Whoami | null> {
+  try {
+    const answer = await $.http.fetch(`${board.url}${WHOAMI_PATH}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Board-Key': board.key, [MOD_HEADER]: MOD_VERSION },
+      body: JSON.stringify({ session: await $.session.id() }),
+    })
+    return answer.ok ? parseWhoami(answer.text) : null
+  } catch {
+    return null
+  }
+}
+
+/**
+ * 2026-10-28: a chat learns which chat it is from the board, by its session id (what `$.session.id()` returns): the app's
+ * title reaches the mod's `classic.*` hooks only, which the app's guard skips on a work login, and it is stale after an
+ * account switch or a rename. At the session's start and before a prompt's context, at most once a minute per process, held
+ * 1.5 s at most; quiet when there is no board, no answer or no chat of that session. With a name the chat joins as by its
+ * title (`joinByTitle`, the title `<prefix><name>`: no second join code), so a rename is followed and a chat that left
+ * stays out. A card the board names under another session (a worker cleared in a new process) is moved here first.
+ */
+async function joinBySession($: EngineInterface): Promise<void> {
+  try {
+    // At most once a minute: the cheapest look first, so a prompt is held by nothing else.
+    if ((await $.clock.now()) - lastWhoami < WHOAMI_MS) return
+    const dir = await findChatsDir($, true)
+    if (dir === null) return
+    const id = await $.session.id()
+    // A /clear this process knows of moves the card by its own code, at the start after it or the next prompt.
+    if (carried !== null || movingAfterClear !== null || (clearing !== null && clearing.from !== id)) return
+    const project = dir.slice(0, dir.length - CHATS_DIR.length - 1)
+    const board = parseBoard(await $.fs.read(inFolder(project, BOARD_FILE)).catch(() => ''))
+    const list = parseList(await $.fs.read(inFolder(dir, LIST_FILE)).catch(() => ''))
+    if (board === null || list === null) return
+    lastWhoami = await $.clock.now()
+    const who = await withinTime($, askWhoami($, board))
+    // No answer, or no name yet (the app may write a new session into its list a moment after the start): asked again
+    // after WHOAMI_AGAIN_MS, not a whole minute, so a cleared chat is named at its first prompt.
+    if (who === null) {
+      lastWhoami = (await $.clock.now()) - WHOAMI_MS + WHOAMI_AGAIN_MS
+      return
+    }
+    if (who.card !== null && who.card !== id) await moveCardFromBoard($, dir, list, who)
+    await joinByTitle($, `${list.prefix}${who.name}`)
+  } catch {
+    // no board, or it did not answer: the chat joins by its title, or when asked to
+  }
+}
+
+/**
+ * 2026-10-28: the board says this chat's card is filed under another session: the chat was cleared and its new
+ * conversation started in a process of its own, which knows nothing of the clear (`carried`, `clearing` and `lastRole`
+ * are lost). The card moves by the clear's own code (`afterClear`: `moveCard`, then the start's words for a worker),
+ * from what the card and the board's answer say now: the card's mark of a clear on its way (`markOf`), and the role the
+ * board gives (else the card's, and the list's for the supervisor). Never over a file this session already has.
+ */
+async function moveCardFromBoard($: EngineInterface, dir: string, list: ChatList, who: Whoami): Promise<void> {
+  if (who.card === null) return
+  const own = await $.fs.read(inFolder(dir, fileName(await $.session.id()))).catch(() => null)
+  if (own !== null) return
+  const old = await readChat($, dir, who.card)
+  if (old === null || old.name.toLowerCase() !== who.name.toLowerCase()) return
+  lastRole = who.role ?? (isSupervisorOf(list, old) ? 'supervisor' : old.role === 'main' ? 'main' : 'worker')
+  carried = { from: who.card, chat: old, clearing: markOf(old, who.card, await $.clock.now()) }
+  await moveAfterClear($, undefined, true)
+}
+
 /** Writes every file under a name as one that left; true when this session's own was among them. */
 async function applyLeave($: EngineInterface, dir: string, name: string): Promise<boolean> {
   const id = await $.session.id()
@@ -1786,6 +1864,8 @@ export const register: Register = on => {
     const view = await load($)
     ensureWatch($)
     const hasChats = await startChats($)
+    // 2026-10-28: the chat learns who it is from the board, by its session id (the app's title may never reach the mod).
+    await joinBySession($)
     // Review of B298: a chat started anew learns once which of the person's instructions are still open.
     if (myself !== null) void workQuietly($, { action: 'next' })
     // Each pane opens unasked only where it has something to show: a branch, a chat.
@@ -1819,6 +1899,10 @@ export const register: Register = on => {
       // that no session start announced carries the start's words.
       promptCount += 1
       if (carried !== null || movingAfterClear !== null || (clearing !== null && (await $.session.id()) !== clearing.from)) await moveAfterClear($, undefined, true)
+      // 2026-10-28: and by its session id, before the context is built: a rename is followed, and a card moved after a
+      // clear brings its start's words to this very prompt. Not for a word this mod types itself (the board's, from a take):
+      // the chat is in the list then, and a rename is followed by its take.
+      if (e.origin.kind !== 'plugin' || e.origin.name !== PLUGIN) await joinBySession($)
       if (pendingStart.length > 0) context.push(...pendingStart.splice(0))
       // Pause 2: read beside the filing, so both hold the prompt 1.5 s at most together.
       const paused = pauseLines($, 'prompt', e.text)

@@ -3,7 +3,7 @@ import type { Engine } from 'claude-code/testing'
 import type { FsEntry, On } from 'claude-code'
 
 import type { ChatFile, ChatTask } from '../types'
-import { chatText, parseChat } from './chats'
+import { LEFT_TEXT, chatText, parseChat } from './chats'
 import { forYouItems } from './foryou'
 import { MOD_VERSION, WORK_ACTIONS } from './board'
 
@@ -100,6 +100,15 @@ type World = {
   formHold: Promise<void> | null
   /** How many reports had gone out each time a /clear ran. */
   reportsAtClear: number[]
+  /** 2026-10-28: each question to the board's whoami (POST /api/bridge/whoami): its body; what the board answers (the
+   * name, role and card it gives the session; none: a session of no chat), or an answer that is no answer. */
+  whoamis: string[]
+  whoami: Record<string, unknown>
+  whoamiAnswer: { status: number; text: string } | null
+  /** The headers each whoami call carried. */
+  whoamiHeaders: Record<string, string>[]
+  /** True when the board holds a whoami call and never answers it. */
+  whoamiHangs: boolean
 }
 
 /** The review of chat-reports: a report as the board reads what it says, without its order (`run`, `seq`). */
@@ -122,7 +131,7 @@ async function settle(): Promise<void> {
 }
 
 function world(id: string, files: Record<string, string> = {}): World {
-  return { id, files, agents: [], tools: [], opened: [], sent: [], whileAsked: null, waiting: [], takeAnswers: [], fetched: [], typedIn: [], reported: [], refusesTyping: false, up: null, spawned: [], comesUp: true, tokens: 50_000, refusesCompact: false, isHeadless: false, commanded: [], compactions: [], toasts: [], worked: [], workAnswer: { status: 200, text: '{"text":"Yours, Units:"}' }, formAnswers: {}, workAnswers: [], formResponse: null, formCloses: false, hangs: false, takeHangs: false, contexts: [], workedAt: [], pauseAnswer: RUNNING, pauseReads: 0, descriptions: {}, stored: {}, requests: [], cuts: [], held: null, byAction: {}, holdAction: null, sequence: [], holdCompact: null, writes: [], modHeaders: [], reports: [], formHold: null, reportsAtClear: [] }
+  return { id, files, agents: [], tools: [], opened: [], sent: [], whileAsked: null, waiting: [], takeAnswers: [], fetched: [], typedIn: [], reported: [], refusesTyping: false, up: null, spawned: [], comesUp: true, tokens: 50_000, refusesCompact: false, isHeadless: false, commanded: [], compactions: [], toasts: [], worked: [], workAnswer: { status: 200, text: '{"text":"Yours, Units:"}' }, formAnswers: {}, workAnswers: [], formResponse: null, formCloses: false, hangs: false, takeHangs: false, contexts: [], workedAt: [], pauseAnswer: RUNNING, pauseReads: 0, descriptions: {}, stored: {}, requests: [], cuts: [], held: null, byAction: {}, holdAction: null, sequence: [], holdCompact: null, writes: [], modHeaders: [], reports: [], formHold: null, reportsAtClear: [], whoamis: [], whoami: { name: null, role: null, card: null }, whoamiAnswer: null, whoamiHeaders: [], whoamiHangs: false }
 }
 
 /** The project's list of chats, with the titles that join by themselves. */
@@ -292,6 +301,15 @@ function stand(on: On, w: World): void {
       w.held = null
 
       return held.then(() => ({ value }))
+    }
+    // 2026-10-28: the board names a session; kept apart from the takes and work calls the tests count.
+    if (e.url.endsWith('/api/bridge/whoami')) {
+      w.whoamis.push(e.init?.body ?? '')
+      w.whoamiHeaders.push({ ...(e.init?.headers ?? {}) })
+      if (w.whoamiHangs) return new Promise<never>(() => {})
+      const answer = w.whoamiAnswer ?? { status: 200, text: JSON.stringify(w.whoami) }
+
+      return { value: { status: answer.status, ok: answer.status === 200, headers: {}, text: answer.text } }
     }
     if (e.url.endsWith('/api/bridge/report')) {
       w.reports.push(e.init?.body ?? '')
@@ -3094,5 +3112,322 @@ describe('Redesign Part 1: the chat reports its turn state to the board', () => 
     await $.turn.complete({ ...ENDED, turnId: 't1' })
     await settle()
     expect(w.reports).toEqual([])
+  })
+})
+
+describe('2026-10-28: a chat learns which chat it is from the board, by its session id', () => {
+  const KEY = 'ab'.repeat(32)
+  const LOG = '.claude/chat-logs/Units/2026-10-28 0830 B12.txt'
+  const settled = async (): Promise<void> => {
+    for (let i = 0; i < 200; i++) await Promise.resolve()
+  }
+  /** Real time passing, for what the kit runs on its own timers. */
+  const real = (ms: number): Promise<void> => new Promise(resolve => { (globalThis as unknown as { setTimeout: (done: () => void, ms: number) => void }).setTimeout(resolve, ms) })
+  const sent = (w: World): Record<string, unknown>[] => w.worked.map(body => JSON.parse(body) as Record<string, unknown>)
+  const prompt = ($: Engine, text = 'who are you?'): Promise<unknown> => $.prompt.submit({ text, origin: { kind: 'composer' } } as never)
+  const cardOf = (name: string, role: 'main' | 'worker' = 'worker', more: Partial<ChatFile> = {}): ChatFile => ({ name, role, state: 'waiting', task: null, at: 0, ...more })
+  const startsWith = (w: World, index: number, words: string): boolean => w.contexts[index]?.some(line => line.startsWith(words)) ?? false
+
+  test('it joins with no title at all: the board names its session, and every call carries the key and the mod\'s version', async ($, on) => {
+    const clock = mock.clock(on)
+    const w = world('units', { ...listed(), [BOARD]: board })
+    w.whoami = { name: 'Units', role: 'worker', card: null }
+    stand(on, w)
+    await $.session.start(START)
+    // Asked while the chat is in no list yet, by its session's id alone.
+    expect(w.whoamis).toEqual(['{"session":"units"}'])
+    expect(w.whoamiHeaders).toEqual([{ 'Content-Type': 'application/json', 'X-Board-Key': KEY, 'X-Workers-Mod': MOD_VERSION }])
+    expect(fileOf(w)).toEqual({ name: 'Units', role: 'worker', state: 'waiting', task: null, at: clock.now() })
+    expect((await $.tool.call({ tool: TOOL, action: 'list' })).result).toBe('○ Units  free')
+    // The mod then works as a chat of the list: the board is asked as it, by its name.
+    await $.turn.start({ text: 'go', turnId: 't1' })
+    w.worked = []
+    await $.tool.call({ tool: WORK, action: 'next' } as never)
+    expect(sent(w)).toEqual([{ action: 'next', chat: 'Units', session: 'units' }])
+  })
+
+  test('the main chat of the list joins as the main chat', async ($, on) => {
+    mock.clock(on)
+    const w = world('main-id', { ...listed(), [BOARD]: board })
+    w.whoami = { name: 'Main', role: 'main', card: null }
+    stand(on, w)
+    await $.session.start(START)
+    expect(fileOf(w)?.role).toBe('main')
+  })
+
+  for (const [why, set] of [
+      ['a session of no chat', (x: World) => { x.whoami = { name: null, role: null, card: null } }],
+      ['an empty name', (x: World) => { x.whoami = { name: '  ', role: 'worker', card: null } }],
+      ['a name that is no text', (x: World) => { x.whoami = { name: 7, role: 'worker', card: null } }],
+      ['a name too long', (x: World) => { x.whoami = { name: 'N'.repeat(81), role: 'worker', card: null } }],
+      ['an answer that is no JSON', (x: World) => { x.whoamiAnswer = { status: 200, text: '<html>' } }],
+      ['a refusal', (x: World) => { x.whoamiAnswer = { status: 409, text: 'Another board process of this project runs the loops.' } }],
+      ['a board that does not know the route', (x: World) => { x.whoamiAnswer = { status: 404, text: 'Not here.' } }],
+  ] as const) {
+    test(`${why}: the board was asked, and the chat joins nothing`, async ($, on) => {
+      mock.clock(on)
+      const w = world('other', { ...listed(), [BOARD]: board })
+      set(w)
+      stand(on, w)
+      await $.session.start(START)
+      expect(fileOf(w)).toBeNull()
+      expect(w.whoamis.length).toBe(1)
+    })
+  }
+
+  test('a name change is followed within a minute of the next prompt, and the board is asked once a minute at most per process', async ($, on) => {
+    const clock = mock.clock(on)
+    const w = world('units', { ...listed(), [BOARD]: board })
+    w.whoami = { name: 'Units', role: 'worker', card: null }
+    stand(on, w)
+    await $.session.start(START)
+    expect(w.whoamis.length).toBe(1)
+    // The person renamed the chat in the app: the next prompt, within the minute, asks nothing and keeps the name.
+    w.whoami = { name: 'Sound', role: 'worker', card: null }
+    await prompt($)
+    await prompt($, 'and again')
+    expect(w.whoamis.length).toBe(1)
+    expect(fileOf(w)?.name).toBe('Units')
+    expect(w.typedIn).toEqual(['composer:framed:who are you?', 'composer:framed:and again'])
+    // A minute after the first question the next prompt asks again, and the chat goes on under the new name before its turn.
+    await clock.advance(60_000)
+    await settled()
+    await prompt($, 'a minute on')
+    expect(w.whoamis.length).toBe(2)
+    expect([fileOf(w)?.name, fileOf(w)?.role, fileOf(w)?.state]).toEqual(['Sound', 'worker', 'waiting'])
+    // And once more within the next minute: no question.
+    await prompt($, 'right after')
+    expect(w.whoamis.length).toBe(2)
+    expect(w.typedIn.at(-1)).toBe('composer:framed:right after')
+  })
+
+  test('a word the mod types itself (the board\'s) asks nothing', async ($, on) => {
+    const clock = mock.clock(on)
+    const w = world('units', { ...listed(), [BOARD]: board })
+    w.whoami = { name: 'Units', role: 'worker', card: null }
+    stand(on, w)
+    await $.session.start(START)
+    await clock.advance(60_000)
+    await settled()
+    const before = w.whoamis.length
+    await $.prompt.submit({ text: '(answered on the worker board, 11:05) Q2 "Box or yew?": yew', origin: { kind: 'plugin', name: 'folder-branches', asUser: true } } as never)
+    expect(w.whoamis.length).toBe(before)
+    expect(w.typedIn.at(-1)).toContain('Q2 "Box or yew?": yew')
+    // The person's own prompt a minute on does ask.
+    await prompt($)
+    expect(w.whoamis.length).toBe(before + 1)
+  })
+
+  test('quiet when the board is down: nothing is joined, nothing throws, the prompt goes in', async ($, on) => {
+    mock.clock(on)
+    const down = world('units', { ...listed(), [BOARD]: board })
+    down.up = []
+    stand(on, down)
+    await $.session.start(START)
+    expect(fileOf(down)).toBeNull()
+    await prompt($)
+    expect(down.typedIn).toEqual(['composer:framed:who are you?'])
+  })
+
+  test('a board that holds the call holds the session start and a prompt a moment and a half at most', async ($, on) => {
+    const clock = mock.clock(on)
+    const held = world('units', { ...listed(), [BOARD]: board })
+    held.whoamiHangs = true
+    stand(on, held)
+    const started = $.session.start(START)
+    for (let i = 0; i < 100 && held.whoamis.length === 0; i++) await real(5)
+    expect(held.whoamis.length).toBe(1)
+    await clock.advance(1500)
+    await started
+    expect(fileOf(held)).toBeNull()
+    // A prompt a minute on is held the same way, and goes in unnamed.
+    await clock.advance(60_000)
+    await settled()
+    const submitted = prompt($, 'hello')
+    for (let i = 0; i < 100 && held.whoamis.length < 2; i++) await real(5)
+    expect(held.whoamis.length).toBe(2)
+    expect(held.typedIn).toEqual([])
+    await clock.advance(1500)
+    await submitted
+    expect(held.typedIn).toEqual(['composer:framed:hello'])
+    expect(held.whoamis.length).toBe(2)
+  })
+
+  test('no board file: no question at all', async ($, on) => {
+    mock.clock(on)
+    const noBoard = world('units', listed())
+    noBoard.whoami = { name: 'Units', role: 'worker', card: null }
+    stand(on, noBoard)
+    await $.session.start(START)
+    await prompt($)
+    expect(noBoard.whoamis).toEqual([])
+  })
+
+  test('no list of chats: no question at all', async ($, on) => {
+    mock.clock(on)
+    const noList = world('units', { [BOARD]: board })
+    noList.whoami = { name: 'Units', role: 'worker', card: null }
+    stand(on, noList)
+    await $.session.start(START)
+    await prompt($)
+    expect(noList.whoamis).toEqual([])
+  })
+
+  test('a chat that was taken out stays out, whatever name the board gives its session', async ($, on) => {
+    mock.clock(on)
+    const w = world('units', { ...listed(), [BOARD]: board, [`${CHATS}/units.json`]: LEFT_TEXT })
+    w.whoami = { name: 'Units', role: 'worker', card: null }
+    stand(on, w)
+    await $.session.start(START)
+    await prompt($)
+    expect(fileOf(w)).toBeNull()
+    expect(w.files[`${CHATS}/units.json`]).toBe(LEFT_TEXT)
+  })
+
+  describe('a chat cleared in a process that knows nothing of it: its card is under the old session', () => {
+    /** A new process: no clear in its memory, the app's new session, the card still under the old one, the board naming it. */
+    function fresh(card: ChatFile, who: Record<string, unknown>, id = 'units-2', old = 'units'): World {
+      const w = world(id, { ...listed({ [old]: card }), [BOARD]: board })
+      w.whoami = who
+      w.byAction = { next: { status: 200, text: JSON.stringify({ text: 'Yours, Units:', open: [{ id: 'I7', turns: 1, text: 'Use the red cape' }] }) } }
+      return w
+    }
+    const movedTo = (w: World, old = 'units'): unknown => (JSON.parse(w.files[`${CHATS}/${old}.json`] ?? '{}') as { movedTo?: unknown }).movedTo
+
+    test('a worker the mod cleared: the card moves to its own session at the start, and its first prompt carries the start\'s words with the log', async ($, on) => {
+      const clock = mock.clock(on)
+      const w = fresh(cardOf('Units', 'worker', { clearing: { at: 0, step: 'B12', log: LOG } }), { name: 'Units', role: 'worker', card: 'units' })
+      stand(on, w)
+      await $.session.start(START)
+      expect(movedTo(w)).toBe('units-2')
+      expect(fileOf(w, 'units-2')).toEqual({ name: 'Units', role: 'worker', state: 'waiting', task: null, at: clock.now(), cleared: { at: clock.now(), step: 'B12', log: LOG } })
+      // The board is asked as the chat under its own session, and the work tool answers for it.
+      expect(sent(w).at(-1)).toEqual({ action: 'next', chat: 'Units', session: 'units-2' })
+      // The words wait for the first prompt: who it is, its rules, the log, the open instructions, and work next.
+      await prompt($)
+      const words = w.contexts[0]?.filter(line => line.startsWith('This chat is')) ?? []
+      expect(words.length).toBe(1)
+      expect(words[0]).toContain('This chat is "Game - Units", a worker')
+      expect(words[0]).toContain('after your step B12 was reported, so this conversation starts empty')
+      expect(slashed(words[0] ?? '')).toContain('D:/Work/project/.claude/chat-logs/Units/2026-10-28 0830 B12.txt')
+      expect(words[0]).toContain('I7 (missed 1 turn): "Use the red cape"')
+      expect(words[0]).toContain('action "next" now')
+      // Said once.
+      await prompt($, 'and again')
+      expect(startsWith(w, 1, 'This chat is')).toBe(false)
+      expect(movedTo(w)).toBe('units-2')
+    })
+
+    test('a worker the person cleared (no mark on the card) is told the same, without a log', async ($, on) => {
+      mock.clock(on)
+      const w = fresh(cardOf('Units'), { name: 'Units', role: 'worker', card: 'units' })
+      stand(on, w)
+      await $.session.start(START)
+      expect(movedTo(w)).toBe('units-2')
+      expect(fileOf(w, 'units-2')?.cleared).toBeUndefined()
+      await prompt($)
+      const words = w.contexts[0]?.find(line => line.startsWith('This chat is')) ?? ''
+      expect(words).toContain('a worker in the person\'s list of chats, listed as "Units"')
+      expect(words).toContain('Your earlier conversation was cleared, so this conversation starts empty.')
+      expect(words).not.toContain('by the Workers mod')
+      expect(words).not.toContain('chat-logs')
+    })
+
+    test('a board that names the chat only at a prompt a minute later: the move and the words come with that very prompt', async ($, on) => {
+      const clock = mock.clock(on)
+      const w = fresh(cardOf('Units'), { name: null, role: null, card: null })
+      stand(on, w)
+      await $.session.start(START)
+      expect(fileOf(w, 'units-2')).toBeNull()
+      await clock.advance(60_000)
+      await settled()
+      w.whoami = { name: 'Units', role: 'worker', card: 'units' }
+      await prompt($)
+      expect(movedTo(w)).toBe('units-2')
+      expect(startsWith(w, 0, 'This chat is "Game - Units", a worker')).toBe(true)
+    })
+
+    for (const [role, name, kind] of [['main', 'Main', 'main'], ['advisor', 'Advisor', 'worker'], ['helper', 'Advisor 2', 'worker'], ['supervisor', 'Supervisor', 'worker']] as const) {
+      test(`the ${role} chat: the card moves, and no start's words are given`, async ($, on) => {
+        const clock = mock.clock(on)
+        const w = fresh(cardOf(name, kind), { name, role, card: 'old-id' }, 'new-id', 'old-id')
+        stand(on, w)
+        await $.session.start(START)
+        expect(movedTo(w, 'old-id')).toBe('new-id')
+        expect(fileOf(w, 'new-id')).toEqual({ name, role: kind, state: 'waiting', task: null, at: clock.now() })
+        await prompt($)
+        expect(startsWith(w, 0, 'This chat is')).toBe(false)
+        expect(w.typedIn[0]).toBe('composer:framed:who are you?')
+      })
+    }
+
+    test('the board gives no role: the card of the main chat says it, and no words are given', async ($, on) => {
+      mock.clock(on)
+      const asMain = fresh(cardOf('Main', 'main'), { name: 'Main', card: 'units' })
+      stand(on, asMain)
+      await $.session.start(START)
+      await prompt($)
+      expect(startsWith(asMain, 0, 'This chat is')).toBe(false)
+      expect(fileOf(asMain, 'units-2')?.role).toBe('main')
+    })
+
+    test('the board gives no role: the list names the supervisor, and no words are given', async ($, on) => {
+      mock.clock(on)
+      const asSupervisor = fresh(cardOf('Watcher'), { name: 'Watcher', card: 'units' })
+      asSupervisor.files[`${CHATS}/list.json`] = '{ "prefix": "Game - ", "main": "Main", "supervisor": "Watcher" }\n'
+      stand(on, asSupervisor)
+      await $.session.start(START)
+      await prompt($)
+      expect(startsWith(asSupervisor, 0, 'This chat is')).toBe(false)
+      expect(movedTo(asSupervisor)).toBe('units-2')
+    })
+
+    test('the board gives no role: any other card is a worker\'s, and gets the words', async ($, on) => {
+      mock.clock(on)
+      const asWorker = fresh(cardOf('Units'), { name: 'Units', card: 'units' })
+      stand(on, asWorker)
+      await $.session.start(START)
+      await prompt($)
+      expect(startsWith(asWorker, 0, 'This chat is "Game - Units", a worker')).toBe(true)
+    })
+
+    test('a chat whose card is already under its own session gets nothing: no move, no words, though an older card of its name stands beside it', async ($, on) => {
+      const clock = mock.clock(on)
+      const w = fresh(cardOf('Units', 'worker', { task: task('B12 Give the golem', 1, 3, 20) }), { name: 'Units', role: 'worker', card: null })
+      w.files[`${CHATS}/units-2.json`] = chatText(cardOf('Units', 'worker', { task: task('B13 The cape', 2, 4, 30), at: 5 }))
+      stand(on, w)
+      await $.session.start(START)
+      await prompt($)
+      expect(movedTo(w)).toBeUndefined()
+      expect(fileOf(w, 'units')?.task?.text).toBe('B12 Give the golem')
+      expect(fileOf(w, 'units-2')?.task?.text).toBe('B13 The cape')
+      expect(startsWith(w, 0, 'This chat is')).toBe(false)
+      // Not even when a board that is behind still names the old session: the file of its own is never written over.
+      w.whoami = { name: 'Units', role: 'worker', card: 'units' }
+      await clock.advance(60_000)
+      await settled()
+      await prompt($, 'again')
+      expect(w.whoamis.length).toBe(2)
+      expect(movedTo(w)).toBeUndefined()
+      expect(fileOf(w, 'units-2')?.task?.text).toBe('B13 The cape')
+    })
+
+    test('a card named under a session that holds none: nothing moves, the chat joins as it is named', async ($, on) => {
+      mock.clock(on)
+      const gone = fresh(cardOf('Units'), { name: 'Units', role: 'worker', card: 'nowhere' })
+      stand(on, gone)
+      await $.session.start(START)
+      expect(fileOf(gone, 'units-2')?.name).toBe('Units')
+      expect(movedTo(gone)).toBeUndefined()
+    })
+
+    test('a card of another name under the named session moves nothing', async ($, on) => {
+      mock.clock(on)
+      const other = fresh(cardOf('Sound'), { name: 'Units', role: 'worker', card: 'units' })
+      stand(on, other)
+      await $.session.start(START)
+      expect(movedTo(other)).toBeUndefined()
+      expect(fileOf(other, 'units')?.name).toBe('Sound')
+    })
   })
 })
