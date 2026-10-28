@@ -1,6 +1,7 @@
 // B669: the goal guard counts failed checks per part, not per goal (the person, 2026-10-26: "yes" to counting per part, after
 // G60 and G15 failed three times while most of their parts passed). A part is one 'Part:' line of the goal's how with the
-// steps it names and every fix made from them; a goal without parts, or a step in no part, counts per chain. Made-up names only.
+// steps it names and every fix made from them; a goal without parts, or a step in no part, counts per chain. B752: each
+// step's checks here pass one point more each time (real progress), so a part trips at its third. Made-up names only.
 import assert from 'node:assert/strict'
 import { mkdtemp } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
@@ -9,14 +10,14 @@ import test from 'node:test'
 
 import { focusMove, guardGoal } from '../src/focus.mjs'
 import { parseGoals } from '../src/goals.mjs'
-import { attemptsOfGroup, evaluateWords, evaluationCovers, evaluationFor, fableAskOf, goalAttempts, guardOf, guardStep, needsEvaluation } from '../src/goalGuard.mjs'
+import { attemptsOfGroup, evaluateWords, evaluationCovers, evaluationFor, goalAttempts, guardOf, guardStep, needsEvaluation } from '../src/goalGuard.mjs'
 import { workApi } from '../src/work/api.mjs'
 import { migrateBacklog } from '../src/work/migrate.mjs'
 import { readStore, writeStore } from '../src/work/store.mjs'
 
 const step = (id, goal, failedAt, more = {}) => ({
   head: new Map([['Id', id], ['Kind', 'step'], ['Title', `Step ${id}`], ['State', 'in progress'], ['Goal', goal], ...Object.entries(more)]),
-  sections: new Map([['History', failedAt.map(at => `- 2026-10-25 ${at} Partner: result check failed: 0 of 1 points pass; fix B999 for W1`)], ['Checked', []]]),
+  sections: new Map([['History', failedAt.map((at, n) => `- 2026-10-25 ${at} Partner: result check failed: ${n} of 4 points pass; fix B999 for W1`)], ['Checked', []]]),
 })
 
 // Ten parts, as G60 of 2026-10-25 had them; each part's first step is B200 + its place, its fix B300 + its place.
@@ -91,25 +92,17 @@ test('the goal\'s own re-checks and its looks are one group of their own: three 
   const rechecked = goal(MAP.replace('  How agreed: 2026-10-25 08:00', ['  How agreed: 2026-10-25 08:00', ...[9, 10, 11].map(hour => `  Rechecked (2026-10-25 ${String(hour).padStart(2, '0')}:00, Partner): failed · 1 of 2 points pass · gap: water is flat · evidence none`)].join('\n')))
   const counted = goalAttempts(rechecked, [])
   assert.deepEqual([counted.tripped.title, counted.tripped.count], ['Whole goal', 3])
-  const body = fableAskOf({ goal: rechecked, attempts: counted })
-  assert.equal(body.title, 'G60 failed 3 times: evaluate the strategy with Fable?')
+  // B752: a re-check carries no points to compare, so its second failure is no progress: the group trips there.
+  assert.deepEqual(counted.tripped.trip, { at: '2026-10-25 10:00', reason: 'no progress' })
+  assert.doesNotMatch(evaluateWords({ to: 'Partner', goal: rechecked, attempts: counted, approveRebuilds: false, job: 'j' }).text, /\nPart: /)
 })
 
-test('the ask and the word to the partner name the part that tripped, and count and list its failures alone', () => {
+test('the word to the partner names the part that tripped, and counts and lists its failures alone', () => {
   const node = goal()
   const counted = goalAttempts(node, SPREAD)
-  const ask = fableAskOf({ goal: node, attempts: counted })
-  assert.equal(ask.title, 'G60 · Cliffs failed 3 times: evaluate the strategy with Fable?')
-  assert.match(ask.text.split('\n')[0], /^G60 Terrain that reads as one world \(Cliffs\): 3 checks failed since Go; the latest, B300: /)
-  // A long part name still leaves the title at 12 words or fewer.
-  const long = { ...counted.tripped, title: 'The long ridges of the northern mountains' }
-  const longAsk = fableAskOf({ goal: node, attempts: counted, part: long })
-  assert.equal(longAsk.title.split(/\s+/).length <= 12, true, longAsk.title)
-  assert.match(longAsk.text.split('\n')[0], /\(The long ridges of the northern mountains\)/)
-
   const words = evaluateWords({ to: 'Partner', goal: node, attempts: counted, part: counted.tripped, approveRebuilds: false, job: 'j' }).text.split('\n')
   assert.equal(words[1], 'Part: Cliffs (steps B200, B300): the evaluation is of this part, the other parts go on')
-  assert.equal(words[2], 'Attempts: 3 failed checks of this part since Go (2026-10-25 08:00)')
+  assert.equal(words[2], 'Attempts: 3 failed checks of this part since Go (2026-10-25 08:00); what each tried:')
   assert.match(words[3], /^Other parts: Edges 3, Round shapes 2, Water 2, /)
   assert.deepEqual(words.filter(line => line.startsWith('- ')).map(line => line.slice(0, 7)), ['- B200 ', '- B200 ', '- B300 '], 'only the part\'s failed checks')
   assert.match(words.find(line => line.startsWith('Next steps')), /^Next steps: refine every next step of G60's part Cliffs with Effort: high/)
@@ -171,14 +164,10 @@ test('the guard writes the part that tripped, lifts the effort of that part\'s s
   const at = new Date(2026, 9, 25, 14, 0).getTime()
   await writeStore(dir, migrateBacklog(['# Backlog', '', '## Terrain', '- [ ] B200 Draw the cliffs', '- [ ] B201 Draw the edges', ''].join('\n'), { now: at }), undefined, { now: at })
   const base = { canWrite: true, goalsFile: FILE, historyDir: 'D:/Work/p/history', now: NOW, fs, partner: { name: 'Partner' }, job: 'j', items: SPREAD, approveRebuilds: false }
-  const filed = []
-  const asked = await guardGoal('G60', { ...base, fileAsk: async body => { filed.push(body); return { ok: true, result: { id: 'Q90' } } } })
-  assert.deepEqual([asked.ok, asked.result.asked, asked.words], [true, 'Q90', null])
-  assert.equal(filed[0].title, 'G60 · Cliffs failed 3 times: evaluate the strategy with Fable?')
-  assert.deepEqual([read(fs).fableAsked, read(fs).evaluationPart], ['Q90', 'Cliffs'])
-  const answer = { head: new Map([['Id', 'Q90'], ['Kind', 'ask'], ['Title', filed[0].title], ['State', 'answered'], ['Owner', 'server'], ['Asks', 'decide'], ['Of', 'G60']]), sections: new Map([['Answer', ['B Opus 5.5 (max)']]]) }
-  const fired = await guardGoal('G60', { ...base, items: [...SPREAD, answer] })
-  assert.equal(fired.result.fired, true)
+  // B752: no ask to the person: it fires at once, with the part that tripped.
+  const fired = await guardGoal('G60', base)
+  assert.deepEqual([fired.ok, fired.result.fired, fired.result.mode, fired.result.ask], [true, true, 'high', null])
+  assert.deepEqual([read(fs).fableAsked, read(fs).evaluationPart], [null, 'Cliffs'])
   assert.match(fired.words.text, /\nPart: Cliffs \(steps B200, B300\): the evaluation is of this part/)
   assert.equal(read(fs).evaluationPart, 'Cliffs', 'kept while the evaluation runs')
   // The effort: the step of the part is lifted to high, the step of another part is left as it was.

@@ -10971,13 +10971,14 @@ function focusGuardView(focus) {
   // B669: failed checks are counted per part: the part under evaluation is named, the other parts go on.
   const ofPart = typeof guard.part === 'string' && guard.part !== '' ? ` on ${guard.part}` : ''
   if (guard.state === 'asking') return { tone: 'asking', title: 'Fable or Opus? The board asks you', text: `${guard.attempts} checks failed${ofPart}: before your partner evaluates the approach, answer ${guard.ask} under Needs your attention: A Yes, Fable 5.1 (the strongest, far more tokens), or B No, Opus 5.5. Nothing starts before your answer.`, needs }
-  if (guard.state === 'evaluating') return { tone: 'evaluating', title: 'Your partner evaluates the approach', text: `${guard.attempts} checks failed${ofPart}: on high effort your partner asks whether the how is right and what caps the result, then corrects the how or proposes a rebuild.${ofPart === '' ? '' : ' The other parts go on.'}` }
+  if (guard.state === 'evaluating') return { tone: 'evaluating', title: 'Your partner evaluates the approach', text: `${guard.attempts} checks failed${ofPart}: on high effort your partner asks whether the how is right and what caps the result, then brings you 2 or 3 other ways to pick.${ofPart === '' ? '' : ' The other parts go on.'}` }
   if (guard.attempts === 0) return null
   // 2026-10-25 (the user: "if everything is done, i assumed the red checks failed would disappear"): information, calm.
   // B669: the count per part, worst first, in the calm colour: "Cliffs 3 · Round shapes 1".
   const perPart = (guard.parts ?? []).filter(one => one.count > 0).map(one => `${one.title} ${one.count}`).join(' · ')
-  if (perPart !== '') return { tone: 'counting', title: perPart, text: `Failed checks not fixed yet, per part. At ${guard.of} on one part, your partner looks again at whether the approach is right; the other parts go on. A check whose fix passed counts no more.` }
-  return { tone: 'counting', title: `${guard.attempts} failed check${guard.attempts === 1 ? '' : 's'} not fixed yet`, text: `At ${guard.of}, your partner looks again at whether the approach is right. A check whose fix passed counts no more.` }
+  // B752: two rounds without real progress, else three, and the partner brings other ways.
+  if (perPart !== '') return { tone: 'counting', title: perPart, text: `Failed checks not fixed yet, per part. At 2 on one part without real progress, or ${guard.of}, your partner looks again at the approach and brings you other ways; the other parts go on. A check whose fix passed counts no more.` }
+  return { tone: 'counting', title: `${guard.attempts} failed check${guard.attempts === 1 ? '' : 's'} not fixed yet`, text: `At 2 without real progress, or ${guard.of}, your partner looks again at the approach and brings you other ways. A check whose fix passed counts no more.` }
 }
 
 /** B354: whether a goal (or the focus) has a Done when line with words in it. */

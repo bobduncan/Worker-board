@@ -7,7 +7,7 @@ import { access, mkdir, open, readdir, readFile, rename, rm, writeFile } from 'n
 
 import { editThread, parseThread, setThreadState } from './brainstorm.mjs'
 import { focusStage, hasDemo, hasDoneWhen, nextGoalId, parseGoals } from './goals.mjs'
-import { askingOf, evaluateWords, evaluationPartOf, evaluationsDue, fableAskOf, goalAttempts, guardStep, openFableAsk, partnerModeFor } from './goalGuard.mjs'
+import { askingOf, evaluateWords, evaluationPartOf, evaluationsDue, goalAttempts, guardStep, partnerModeFor } from './goalGuard.mjs'
 import { addGoal, addGoalLine, addGoalNote, agreeHow, agreeVibe, changeGoalsFile, raiseLastLine, reopenHow, rewrite, setFocus, setGoalLine, setGoalState, setHow, setVibe } from './goalsWrite.mjs'
 import { focusWords } from './say.mjs'
 import { absentAs, again } from './write.mjs'
@@ -526,19 +526,16 @@ async function reopenGoal({ id, words }, ctx) {
 }
 
 /**
- * B359: the goal guard for goal `id` when its failed attempts (since Go, else since its first refined step) reached the
- * third (src/goalGuard.mjs `guardStep`). 2026-10-24: first it asks the person, once per trip: the board's ask (Fable or
- * Opus, `fableAskOf`) filed with `ctx.fileAsk(body)` (the work API as the board), and "Fable asked: Q<n>" under the goal;
- * while it stands open nothing more happens. On its answer: "Evaluation asked: <date time>" under the goal, and the word
- * `evaluate G<n>` to the partner (`ctx.partner`), with what failed and whether a rebuild needs the person's yes
- * (`ctx.approveRebuilds`). `ctx.items` are the store's (or a function that reads them, read fresh at each step).
- * Answers `{ ok, result: { id, fired, asked?, mode?, ask? }, words }`: `asked` the ask just filed; once fired, `mode` the
- * partner's for this evaluation ('fable' only for the person's yes, else 'high') and `ask` its ask; words is null when
- * the guard did not fire. Without `ctx.fileAsk` it starts nothing.
- * The review of 2026-10-24: the ask is never filed while the map's turn is held (the work API's own turn waits on the
- * map's for a draft or a goal's re-check: both held at once was a deadlock). The guard runs one at a time in a turn of
- * its own: the map's step under the map's turn, the ask through the work API outside it, then its line under the map's
- * turn again. An ask filed for a trip that ended meanwhile is withdrawn (`ctx.withdrawAsk(id, why)`).
+ * B359: the goal guard for goal `id` when one of its parts tripped (src/goalGuard.mjs `guardStep`; B752: its second failed
+ * check without real progress, else its third, since Go, else since its first refined step). B752: no model question:
+ * "Evaluation asked: <date time>" (and "Evaluation part: <part>") under the goal at once, and the word `evaluate G<n>` to
+ * the partner (`ctx.partner`), with what was tried and the 2 or 3 other ways it brings the person (`ctx.approveRebuilds`:
+ * its advised way at once). `ctx.items` are the store's (or a function that reads them, read fresh at each step).
+ * Answers `{ ok, result: { id, fired, mode?, ask? }, words }`: once fired, `mode` the partner's for this evaluation
+ * ('high', Opus at max; 'fable' only for an ask answered A before B752) and `ask` the ask from before under it, if any;
+ * words is null when the guard did not fire. An ask from before that still stands open is taken back
+ * (`ctx.withdrawAsk(id, why)`), outside the map's turn: the work API's own turn waits on the map's (the review of
+ * 2026-10-24: both held at once was a deadlock). The guard runs one at a time in a turn of its own.
  */
 let guardTurn = Promise.resolve()
 export function guardGoal(id, ctx) {
@@ -558,30 +555,10 @@ async function runGuard(id, ctx) {
   const calm = { ok: true, result: { id, fired: false }, words: null }
   if (ctx.canWrite !== true || (ctx.partner ?? null) === null || !isId(id)) return calm
   const itemsNow = async () => (typeof ctx.items === 'function' ? ctx.items() : ctx.items)
-  const first = await underMapTurn(async () => fireGuard(id, { ...ctx, items: await itemsNow() }))
-  if (first.ok !== true || first.ask === undefined) return first
-  // Never an evaluation without the person's answer: a board that cannot ask starts nothing.
-  if (typeof ctx.fileAsk !== 'function') return calm
-  // An open ask of the board's for this goal (its line lost) is used again, read fresh: the person is never asked twice.
-  let asked = openFableAsk(id, await itemsNow())?.head.get('Id') ?? null
-  const isNew = asked === null
-  if (isNew) {
-    const filed = await ctx.fileAsk(first.ask)
-    if (filed?.ok !== true) return refuse(filed?.status ?? 500, `The ask for ${id}'s evaluation could not be filed: ${filed?.why ?? 'no answer'}`)
-    asked = filed.result.id
-  }
-  const goalsAt = { file: ctx.goalsFile, historyDir: ctx.historyDir, now: ctx.now, fs: ctx.fs }
-  const done = await underMapTurn(() => changeGoalsFile(now => {
-    const goal = parseGoals(now).byId.get(id)
-    // Read again: the goal may have been ticked, or its trip ended or begun meanwhile.
-    if (goal === undefined || goal.state === 'done' || (goal.fableAsked ?? null) !== null || (goal.evaluationAsked ?? null) !== null) return { ok: false, why: 'calm' }
-    const lined = setGoalLine(now, id, 'Fable asked', asked)
-    // B669: the part that tripped the guard, kept until the evaluation ends (none: the goal as a whole).
-    return lined.ok && first.part ? setGoalLine(lined.text, id, 'Evaluation part', first.part) : lined
-  }, goalsAt))
-  if (!done.ok && done.why === 'calm' && isNew) await ctx.withdrawAsk?.(asked, `${id} changed while the board asked: the ask is no longer needed`)
-  if (!done.ok) return done.why === 'calm' ? calm : failed(done.why)
-  return { ok: true, result: { id, fired: false, asked }, words: null }
+  const { withdraw = null, ...first } = await underMapTurn(async () => fireGuard(id, { ...ctx, items: await itemsNow() }))
+  // B752: an ask from before that still stood open: the evaluation started without it, so the board takes it back.
+  if (first.ok === true && withdraw !== null) await ctx.withdrawAsk?.(withdraw, `${id}: the evaluation started without a model question (B752)`)
+  return first
 }
 
 /**
@@ -625,37 +602,41 @@ function endTrip(text, id) {
 }
 
 /**
- * The guard's step under the map's turn: calm or waiting, the ask to file (`ask`, the body; filed by `runGuard` outside
- * the turn), or the evaluation started ("Evaluation asked" written; a deleted ask's line taken away, on Opus).
+ * The guard's step under the map's turn: calm, or the evaluation started ("Evaluation asked" written, B752: with the part
+ * that tripped as "Evaluation part"; the line of an ask from before the store no longer holds taken away). `withdraw`
+ * names an ask from before that stood open, for `runGuard` to take back outside the turn.
  */
 async function fireGuard(id, ctx) {
   const calm = { ok: true, result: { id, fired: false }, words: null }
   const goalsAt = { file: ctx.goalsFile, historyDir: ctx.historyDir, now: ctx.now, fs: ctx.fs }
   const text = await readMap(ctx.fs, ctx.goalsFile)
   if (text === null) return calm
-  const node0 = parseGoals(text).byId.get(id)
-  const first = guardStep(node0, ctx.items)
-  if (first === null || first.do === 'wait') return calm
-  if (first.do === 'ask') {
-    const attempts = goalAttempts(node0, ctx.items)
-    return { ...calm, ask: fableAskOf({ goal: node0, attempts }), part: attempts.tripped?.key === 'goal' ? null : attempts.tripped?.title ?? null }
-  }
+  if (guardStep(parseGoals(text).byId.get(id), ctx.items) === null) return calm
   let node = null
   let step = null
   const done = await changeGoalsFile(now => {
     const goal = parseGoals(now).byId.get(id)
-    // B382: any goal with an agreed how, the focus or not: its evaluation ends with a marked how-draft of that goal.
+    // Read again: the goal may have been ticked, or its trip ended or begun meanwhile. B382: any goal with an agreed how,
+    // the focus or not: its evaluation ends with a marked how-draft of that goal.
     step = guardStep(goal, ctx.items)
     if (step?.do !== 'start') return { ok: false, why: 'calm' }
     node = goal
-    const asked = setGoalLine(now, id, 'Evaluation asked', minuteOf(ctx.now))
+    let lined = setGoalLine(now, id, 'Evaluation asked', minuteOf(ctx.now))
     // An ask the store no longer holds: the evaluation runs on Opus, and the line that named it goes.
-    return asked.ok && step.gone ? setGoalLine(asked.text, id, 'Fable asked', '') : asked
+    if (lined.ok && step.gone) lined = setGoalLine(lined.text, id, 'Fable asked', '')
+    // B669, B752: the part that tripped the guard, kept until the evaluation ends (none: the goal as a whole). An ask from
+    // before wrote it already.
+    const tripped = step.ask === null ? goalAttempts(goal, ctx.items).tripped : null
+    if (lined.ok && tripped !== null && tripped.key !== 'goal') {
+      lined = setGoalLine(lined.text, id, 'Evaluation part', tripped.title)
+      node = { ...goal, evaluationPart: tripped.title }
+    }
+    return lined
   }, goalsAt)
   if (!done.ok) return done.why === 'calm' ? calm : failed(done.why)
   const attempts = goalAttempts(node, ctx.items)
   const words = evaluateWords({ to: ctx.partner.name, goal: node, attempts, part: evaluationPartOf(node, attempts), approveRebuilds: ctx.approveRebuilds === true, job: ctx.job, maxChars: ctx.maxChars })
-  return { ok: true, result: { id, fired: true, mode: step.mode, ask: step.ask }, words }
+  return { ok: true, result: { id, fired: true, mode: step.mode, ask: step.ask }, words, withdraw: step.withdraw ? step.ask : null }
 }
 
 /**

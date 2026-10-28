@@ -304,13 +304,14 @@ it and leaves you a recap, a failed one names the gap and the attempt under the 
 that close it. While the re-check runs, a click on the dot asks your partner again, and a second click ticks it
 without the re-check: that overturn is written under the goal. **Take the re-check back** leaves the goal open.
 
-B359, since 2026-10-24: after a goal's third failed check (or your no to a look of one of its steps) the board asks you
-first, under Needs your attention: "G<n> failed 3 times: evaluate the strategy with Fable?", with **A Yes: Fable 5.1
-(max), only for this evaluation** or **B No: Opus 5.5 (max)**, and no advice. The run says "Fable or Opus? The board
-asks you". Nothing starts before your answer, and you are asked once. A (or an answer that starts with yes) puts your
-partner on Fable for that evaluation only; B, or any other answer, on Opus at max. The evaluation's end, Go, or the
-goal ticked switches it back to the usual partner (an ask still open is withdrawn). Nothing else on the board ever sets
-a chat to Fable.
+B359, B752 (since 2026-10-28): two rounds, then another way. When a part of a goal fails its check twice without real
+progress (its score not up by 5, or not fewer of its points failing), or three times in all (your no to a look of one
+of its steps counts as a failed check), your partner evaluates the approach at once, on Opus at max: no model question
+to you. It gets what each try was (the step, its check, its evidence) and brings you 2 or 3 other ways, with its advice
+and a picture per way where they differ in look, as one question under Needs your attention ("Rebuild G<n>: ...").
+Your pick counts as Go, and the count starts anew. The evaluation's end, Go, or the goal ticked switches your partner
+back to usual. Nothing on the board sets a chat to Fable (an ask "evaluate the strategy with Fable?" from before
+2026-10-28 that still stands is taken back).
 
 B383: beside the map (under it on a narrower screen), **Steps for this goal** shows the goal you zoomed into: its
 **Associated steps** (All, Open or Done; each numbered with its title, one line, its state and its chat, a menu to open

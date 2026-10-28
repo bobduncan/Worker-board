@@ -67,7 +67,7 @@ import { activityFor, missingToSteps } from './src/goalSteps.mjs'
 import { PLAN_MOVES, planMove } from './src/planMoves.mjs'
 import { FOCUS_DRAFTS, FOCUS_MOVES, demoAgain, evaluationsAgain, evaluationsMode, evaluationsRunning, focusAllDone, focusMove, goalChecked, goalReopened, guardGoal, guardsAsking, partDropRefusal, undoLine } from './src/focus.mjs'
 import { PARTNER_MODES, effortBack, fableBack, partnerEffortWords } from './src/partnerEffort.mjs'
-import { GUARD_ATTEMPTS, evaluationFor } from './src/goalGuard.mjs'
+import { evaluationFor } from './src/goalGuard.mjs'
 import { readSources } from './src/sources.mjs'
 import { backgroundRunning, parseTail, readTail } from './src/transcript.mjs'
 import { clearAtTake, isStepLine, modAtLeast, takeRefusal } from './src/clearOwed.mjs'
@@ -764,9 +764,9 @@ async function main(args) {
   }
   /**
    * B359: the goal guard, after a failed check of goal `id` (a step's result check or the goal's re-check), or an answer
-   * of one of its asks: at the third failed attempt (since Go, else since its first refined step) the board asks the
-   * person first (2026-10-24: Fable or Opus, filed as the board through the work API), once; on their answer the partner
-   * is switched to that mode (Fable only for an A) and asked for the fundamental evaluation.
+   * of one of its asks: when a part trips (B752: its second failed check without real progress, else its third, since
+   * Go, else since its first refined step) the partner is switched to Opus at max and asked for the fundamental
+   * evaluation at once, with what was tried: no model question to the person (the person, 2026-10-28).
    */
   const guardNow = async id => {
     if (!writesMap || workDir === null || id === null) return
@@ -774,17 +774,16 @@ async function main(args) {
     if ((state.advisor ?? null) === null) return
     // B446: a store it cannot read fails the guard's loop (shown and logged) instead of counting no attempt.
     const items = async () => [...(await readStore(workDir)).items.values()]
-    // The review of 2026-10-24: the guard files its ask outside the goal map's turn (src/focus.mjs `guardGoal`), reading
-    // the store anew at each step.
+    // The review of 2026-10-24: an ask from before B752 that stood open is withdrawn outside the goal map's turn
+    // (src/focus.mjs `guardGoal`), reading the store anew at each step.
     const done = await guardGoal(id, {
       canWrite: writesMap, goalsFile: projectFile(config, 'goals'), historyDir: projectFile(config, 'goalsHistory'), now: clock(),
       partner: state.advisor, job: join(HERE, 'roles', 'partner.md'), items, approveRebuilds: config.approveRebuilds === true, maxChars: config.maxMessageChars,
-      fileAsk: body => workAction(body, 'server'),
       withdrawAsk: async (ask, why) => withdrawGuardAsk(ask, why),
     })
     if (!done.ok) throw new Error(done.why ?? `the goal guard of ${id} failed`)
     if (done.words === null) return
-    await partnerModeNow(state, (mode, yes) => `the goal guard: ${id} failed ${GUARD_ATTEMPTS} attempts: a fundamental evaluation on ${PARTNER_MODES[mode].label}${mode === 'fable' ? `, the person's yes on ${yes}` : ''}`)
+    await partnerModeNow(state, (mode, yes) => `the goal guard: ${id} keeps failing its checks: a fundamental evaluation on ${PARTNER_MODES[mode].label}${mode === 'fable' ? `, the person's yes on ${yes}` : ''}`)
     await toPartner(done.words, {}, state)
   }
   /**

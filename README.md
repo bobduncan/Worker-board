@@ -207,10 +207,11 @@ unless set) are the folders for the map's brainstorms (one thread file each, whi
 shows and answers), the Advisor's long answers to the asks on it (its "More:" lines point there) and its daily copy.
 These four may also be a whole path of their own, as `work`: a copy tried beside your board reads its own goal map.
 `approveRebuilds` (false unless set, B359): whether a rebuild the goal guard's evaluation calls for goes ahead
-without your yes. The guard: at a goal's third failed attempt (its steps' result checks, its re-checks and your no to a look, counted from its Go, else from its
+without your yes. The guard (B752): when a part of a goal fails twice without real progress, or three times (its steps' result checks, its re-checks and your no to a look, counted from its Go, else from its
 first refined step; any goal, the focus or not, B382, B450; the goal's next steps then are lifted to Effort: high while it evaluates, and the steps made from the how that ends it until the next Go, B518, B525; their model stays as given, 2026-10-25), the
-board switches the partner to high effort and asks it for a fundamental evaluation of the approach; the Focus page shows
-the count, the evaluation, and a rebuild that waits for you.
+board switches the partner to high effort and asks it for a fundamental evaluation of the approach, with what was tried;
+it brings you 2 or 3 other ways to pick (with `approveRebuilds` on, it goes ahead with its advised way and gives you a
+recap); the Focus page shows the count, the evaluation, and a rebuild that waits for you.
 `botherMe` (`"now"` unless set, B360; `"daily"`): where the recaps of finished work and the questions that hold up no
 chat reach you: each as a card under Needs your attention as it comes, or gathered under your partner's daily note on
 the Focus page, answered there. A question that holds up a chat always comes at once.

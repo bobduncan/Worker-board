@@ -35,8 +35,9 @@ the user tells you, and what follows from it, is kept in the game's own reposito
 - Fable only with the user's yes (the user, 2026-10-24: "maximum run opus ... you cant run fable without my
   permission"). Never set any chat to Fable (`set_session_model` with a Fable id), never ask the main chat to, and
   never start a subagent with model: "fable". The only way Fable runs is the board's own `partner effort` word with
-  `Mode: fable`, after the user answered yes on the board's ask (below, "The fundamental evaluation"). Need it for
-  something else? Ask the user with `work ask` first, and still set nothing yourself.
+  `Mode: fable`, for an ask of the board's the user answered yes before B752 (2026-10-28). Work that keeps failing gets
+  other ways, never a stronger model (below, "The fundamental evaluation"). Need Fable for something else? Ask the user
+  with `work ask` first, and still set nothing yourself.
 - Whoever asks the user asks once (B261). When you need something from the user (a decision, an answer, a look at a
   picture), file it with `work ask` (`kind` decide, look, provide or do, your options and advice, its pictures): the
   board shows it under Needs your attention, and the user's answer comes straight back into your chat, never through
@@ -1061,30 +1062,34 @@ A goal that keeps failing its checks gets a fresh look at its approach (B359; th
 of attempts and it keeps failing the goal it will fundamentally evaluate with a higher model if the current approach is
 right, and might require a big rebuild to reach the goal"). The board counts a goal's failed attempts (B450), from its Go, or from its first
 refined step when no how is agreed yet: every failed result check of its steps, every failed re-check of the goal, and
-every look of one of its steps that the person answered no or rejected. At the third it first asks the user, as the
-board, once: an ask of the goal, "G<n> failed 3 times: evaluate the strategy with Fable?" (A Yes: Fable 5.1 at max,
-only for this evaluation; B No: Opus 5.5 at max; no advice), and writes `Fable asked: Q<n>` under the goal (the user, 2026-10-24:
-"i want to be asked"). Never answer, route or withdraw that ask: it is the user's. The evaluation waits for their
-answer. Then the board writes `Evaluation asked: <date time>` under the goal, has the main chat switch you to Fable 5.1
-at max (their yes: A, or an answer that starts with yes) or Opus 5.5 at max (B, or anything else), and types `evaluate G<n> <title>`,
-`Attempts:` with each failed check (the person's no to a look named as theirs), `Next steps:`, `Rebuilds:` and
-`Your job: ...` into your chat: their word. Until the evaluation ends, every next step of that goal that you refine or
+every look of one of its steps that the person answered no or rejected. Two rounds, then another way (B752; the user,
+2026-10-28: "after 2 attempts without significantly improvements it goes back to the person who managed the goals and
+redesigns a new approach instead of asking for opus/fable. give it the information what it tried and see what other
+options we have and present that to me"): a part trips at its second failed check when that one is no real progress
+over the one before (its score not up by 5, or not fewer of its points failing), and always at its third. There is no
+model question any more: the board writes `Evaluation asked: <date time>` (and `Evaluation part: <part>`) under the
+goal at once, has the main chat switch you to Opus 5.5 at max, and types `evaluate G<n> <title>`, `Attempts:` with what
+each try was (the step, its check's line, its evidence picture; the person's no to a look named as theirs),
+`Next steps:`, `Your answer:` and `Your job: ...` into your chat: their word. Never answer it with a stronger model,
+and never suggest one: a way that keeps failing needs another way, never a stronger model. (A `Fable asked: Q<n>` line from before B752 still reads:
+answered A, that evaluation ran on Fable; still open, the board takes the ask back.) Until the evaluation ends, every next step of that goal that you refine or
 make gets `effort` high (the board lifts a lower effort to high, also on a fix step, B518, B525; it ends at the next Go); its `model` is as for any step, sonnet unless the step is hard (the person, 2026-10-25: Opus only where needed). The Focus page shows
 "Your partner evaluates the approach" meanwhile.
 
-The count is per part (B669; the user, 2026-10-26: "yes"): a part is one `Part:` line of the how with its steps and every fix made from them, a goal without parts counts per chain (a step and its fixes). The guard trips when one part reaches three, the ask and your `evaluate` word name that part (`Part: ...`, `Other parts: ...`), and the higher effort applies to that part's steps only (`Evaluation part: <part>` under the goal until the evaluation ends); the other parts go on. Look at that part first, and at the goal's how only where the part's answer changes it.
+The count is per part (B669; the user, 2026-10-26: "yes"): a part is one `Part:` line of the how with its steps and every fix made from them, a goal without parts counts per chain (a step and its fixes). The guard trips when one part trips (above), your `evaluate` word names that part (`Part: ...`, `Other parts: ...`), and the higher effort applies to that part's steps only (`Evaluation part: <part>` under the goal until the evaluation ends); the other parts go on. Look at that part first, and at the goal's how only where the part's answer changes it.
 
 1. Step back from the steps: is the current approach right at all? What caps the result (the art pipeline, a rule, the
    standard, the reference, the size of the parts)? Read the failed points, the goal's vibe and Done when, its how and
    its steps' evidence; a fresh helper may gather them.
 2. Write the evaluation into the goal's talk, as questions and answers (the Q-form of the talk): is the approach right,
-   what caps the result, and what you propose: a corrected how (the done parts kept, the failing part done another way)
-   or a rebuild (a new how that replaces parts, with what it costs: hours, and what is thrown away). The talk is the
+   what caps the result, and the 2 or 3 different ways you see (B752): each a corrected how (the done parts kept, the
+   failing part done another way) or a rebuild (a new how that replaces parts), never the same way again, each with what
+   it changes, why it may work where the tries did not, and what it costs (hours, and what is thrown away). The talk is the
    record, not the way to the person (B716): the goal's talk may have ended in a created proposal long ago, and then none
    of its later questions reaches them (G15's Q5 to Q7 never did). Every choice of the person's in the evaluation goes as
    `work ask` (`of` G<n>, kind decide, its options, your advice), so it shows under Needs your attention and its answer
    comes back; write it into the talk as well, as the record.
-3. A corrected how, or "keep going" when the approach is right after all: send it with `work how-draft` (the same how
+3. The way the person picked (step 4), or "keep going" only when they picked it among your ways: send it with `work how-draft` (the same how
    again for keep going), with one `partnerDecides` line `Evaluation: <its outcome in a line>`: that line marks the
    draft as the evaluation's end (a draft without it, such as follow-up steps added to a part, keeps the usual rule and
    the evaluation runs on). Any goal is evaluated, the focus or not (B382, B450): draft that goal by its id. Your marked draft of a goal with an agreed how is agreed at once: it counts as Go, the count starts
@@ -1092,11 +1097,11 @@ The count is per part (B669; the user, 2026-10-26: "yes"): a part is one `Part:`
    back to the usual mode: Fable never stays on. Make
    the steps of a changed part at once, as at Go. A goal with no agreed how has its evaluation ended by your marked
    draft too, and the count starts anew, but the draft waits for the person's Go.
-4. A rebuild, with `Rebuilds: ask the person first`: ask them (`work ask` with `of` G<n>, kind decide, its title
-   beginning `Rebuild G<n>:`, the evaluation and its cost in its text, the options keep the how, the corrected how, the
-   rebuild, your advice); the Focus page shows "A rebuild waits for you" while it is open. On their answer, send the how
-   they chose with `work how-draft`, marked (step 3). With `Rebuilds: approved by the board` (their setting "Approve rebuilds by
-   itself" is on), send the rebuilt how at once, marked, make its steps, and give them a recap in your daily note: what was
-   rebuilt and why.
+4. Your ways go to the person as one ask (`work ask` with `of` G<n>, kind decide, its title beginning
+   `Rebuild G<n>:`, in its text what was tried and why it fell short in plain words, the options your 2 or 3 ways with
+   their cost, your advice, and a picture per option where they differ in what the person would see); the Focus page
+   shows "A rebuild waits for you" while it is open. On their answer, send the how they chose with `work how-draft`,
+   marked (step 3). When `Your answer:` says "Approve rebuilds by itself" is on, send your advised way at once, marked,
+   make its steps, and give them a recap in your daily note: the ways, your pick and why.
 
 Your card's line while you work: "Evaluate G<n>".

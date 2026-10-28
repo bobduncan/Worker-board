@@ -2511,6 +2511,8 @@ other model/effort, lets call it high effort mode. so like fable 5.1 max effort.
 
 ## The goal guard asks before Fable (2026-10-24)
 
+Superseded on 2026-10-28 by B752 ("Two rounds, then another way", below): the ask is gone; what follows is the record.
+
 The person, 2026-10-24: "i want to prevent any chat running fable. i run out of tokens too quickly. maximum run opus.
 if you really require fable somereason exclicitly ask, you cant run fable without my permission"; and "on 3 failed
 attempts is important context. i want to be asked. hey this task failed 3 times, we would like to evaluate strategy
@@ -4532,3 +4534,30 @@ from Opus extra high to Opus high. (Spec 2026-10-27, "Quality Assurance tasks".)
    queue clears through the workers; `helper` leaves `.claude/chats/list.json` (the helper code stays: a list without one works);
    the Advisor is set to Opus high.
 8. Not in it: refines (they stay with the Advisor), the Architect role, removing the helper code, changing what a check looks at.
+
+## Two rounds, then another way (B752, 2026-10-28)
+
+The person, 2026-10-28, on the ask "G15 · The open failed 3 times: evaluate the strategy with Fable?": "I really hate
+this message. what can we do? maybe after 2 attempts without significantly improvements it goes back to the person who
+managed the goals and redesigns a new approach instead of asking for opus/fable. give it the information what it tried
+and see what other options we have and present that to me?" It replaces the ask of 2026-10-24 (above).
+
+1. The trip (`src/goalGuard.mjs`, `goalAttempts`, `tripIndexOf`, `isRealProgress`): per part (B669), at its second failed
+   check when that one is no real progress over the one before, and always at its third. Real progress: the check's
+   score ("score X of T" with T at least 50) rose by `PROGRESS_SCORE` (5), or fewer of its points fail while the share
+   that passes did not drop ("N of M points pass"). A no to a look, or a re-check, carries no numbers: no progress.
+   Each group carries `trip: { at, reason }` ('no progress' or 'third').
+2. No model question: `guardStep` answers `start` at the trip, on Opus at max ('high'); `src/focus.mjs` `fireGuard`
+   writes `Evaluation asked` and the part that tripped (`Evaluation part`) in one change of the map, and the word goes to
+   the partner. `fableAskOf`, `openFableAsk` and the board's `fileAsk` are gone.
+3. The word (`evaluateWords`) says why it tripped, lists what each try was (the step's id and title, its check's line,
+   the evidence picture of its last check) and asks for 2 or 3 different ways, never the same way again, each with what
+   it changes, why it may work and its cost, as one decide ask of the goal titled "Rebuild G<n>: ..." with a picture per
+   option where they differ in look; the person's pick is the marked how-draft (Go). With `approveRebuilds` on, the
+   partner sends its advised way at once and gives the person a recap. `roles/partner.md`, "The fundamental evaluation",
+   says the same, and that a way that keeps failing needs another way, never a stronger model.
+4. From before: a `Fable asked` line whose ask was answered keeps the mode it gave (A Fable, else Opus) for that
+   evaluation; one whose ask still stands open starts the evaluation on Opus, and the board takes the ask back outside the
+   map's turn (`ctx.withdrawAsk`); one whose ask is gone starts on Opus and its line goes.
+5. Tests: `test/goalGuard.test.mjs` (two without progress trip, with progress the third; the word), `test/goalGuardParts.test.mjs`,
+   `test/fableAsk.test.mjs` (no ask, no Fable; the asks from before).
