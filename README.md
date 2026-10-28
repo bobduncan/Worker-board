@@ -168,6 +168,9 @@ and the briefings for the main chat and the workers.
 - The head shows the plan's limits; a worker that paused for the limit shows as "Suspended" until it goes on.
 - Before you quit the app: "Pause all" on the board (each chat writes its checkpoint and stops; the board says when
   it is safe), and "Resume all" after it is open again (open the main chat when the board says so).
+- When no chat runs (after an app or PC restart, or once every chat went idle) and work waits for one, the board opens
+  one chat of the project in the Claude app by itself (Windows; T13 part 4), the main chat first: its Workers mod then
+  wakes the rest. At most once in 3 minutes; when two opens bring no chat back, it stops and asks you to open a chat.
 - "CPU for Claude" in the head (B311, B735, Windows only): two choices you pick, no game detection. Full: everything
   the project started runs at normal priority on all cores. Low: the chats and what they started, the board itself and
   its keeper, the vite servers, codex and a headless browser run at the lowest priority on the last two cores, in
@@ -397,7 +400,9 @@ view (see "The work store" above).
 The server listens on 127.0.0.1 only. The page gets a random token at each start; reading needs it, and sending
 also needs the page's own origin and a JSON body, so another website in your browser can do neither. An answer is
 accepted only for a request that is open and only to the chat that asked. What a chat said is shown on the page
-and kept in `data\`; it is never printed or logged.
+and kept in `data\`; it is never printed or logged. To open a chat when none runs (T13 part 4) the board starts only
+the Claude app's own `claude.exe` with `--desktop --resume <session id>`, the id from its own list of chats and
+checked as a UUID; nothing a request carries goes into it.
 
 ## Working on the board itself
 

@@ -83,6 +83,7 @@ import { effortOf } from './src/work/effort.mjs'
 import { isHolding, pauseAnswer, resumeEnds, resumeRetypeTo, resumeTypeTo } from './src/work/pause.mjs'
 import { allowCodeJobs, codeJobsView, readCodeJobs, taskWords } from './src/codeJobs.mjs'
 import { STOP_MOD, asleepOfJob, handJobs, handResults, isForHandsYet, isHandWord, isStopWord, nextSpawn, stopStep, stopTaskOf, usageDue, workerNames } from './src/hands.mjs'
+import { OPEN_CHECK_MS, OPEN_FIRST_MS, OPEN_TRIES, chatToOpen, failuresOf, handWorkWaits, handsGone, openChat, openPlan, openerNote, openerRow } from './src/opener.mjs'
 import { basesNow, patientReportCheck } from './src/work/check.mjs'
 import { deliverWork, givesRefused, pullFor, sendOnce } from './src/work/deliver.mjs'
 import { coalesce } from './src/work/again.mjs'
@@ -1612,6 +1613,51 @@ async function main(args) {
   let spawnFail = null
   // B768: when the last lookup of the limits was given to a hand.
   let usageGivenAt = -Infinity
+  // T13 part 4 (the person, 2026-10-28: after a restart work must come back by itself, without a timer that costs tokens):
+  // when no chat's hands checked in for a minute and work waits that only they carry, the board opens one chat in the
+  // Claude app (src/opener.mjs): its process starts and its Workers mod checks in, with no model turn. At most one open in
+  // 3 minutes; after two in a row that brought no hand back it stops, and the page says so. Only the board that delivers,
+  // on Windows. Each open goes into board.log, the last ten (`{ at, chat, ok }`) stay in memory for the page.
+  const canOpen = !isShowOnly && bridgeKey !== null && config.project !== '' && process.platform === 'win32'
+  const opens = []
+  /** T13 part 4: why the board could not launch the app's program at its last try (no program found), or null. */
+  let openBlocked = null
+  let isOpening = false
+  const openCheck = async (given = null) => {
+    if (!canOpen || isClosing || isOpening) return
+    const now = clock()
+    // Next to nothing while a chat runs: its claims are in memory, nothing is read.
+    const gone = handsGone({ claims: codeClaims, now, startedAt, calls: seen?.shown ?? {} })
+    if (!gone || !(await ownsLoops())) return
+    const state = given ?? readState.last() ?? await readState()
+    const waits = handWorkWaits(state, store.outbox().filter(message => !isLate(message, now, keep)), { asleepSent: asleepWoken })
+    const plan = openPlan({ now, handsGone: gone, waits, paused: isHolding(state.pause), last: opens.at(-1)?.at ?? -Infinity, failures: failuresOf({ opens, claims: codeClaims, now }) })
+    if (!plan.open) return
+    // The board's own list gives the chat and its session id; nothing of a request goes into the launch.
+    const target = chatToOpen(state)
+    if (target === null) return
+    isOpening = true
+    try {
+      const done = await openChat({ exe: await findClaude(), session: target.session, cwd: resolve(HERE, config.project) })
+      if (!done.launched) {
+        if (openBlocked !== done.why) console.log(`T13: the board cannot open a chat when none runs: ${done.why}.`)
+        openBlocked = done.why
+        return
+      }
+      openBlocked = null
+      opens.push({ at: now, chat: target.chat, ok: done.ok })
+      if (opens.length > 10) opens.shift()
+      console.log(`T13: no chat ran and work waited: opened ${target.chat} (${target.session}) in the Claude app at ${timeOf(now)}: ${done.ok ? 'started' : done.why}.`)
+    } finally {
+      isOpening = false
+    }
+  }
+  /** T13 part 4: the ⚙ panel's row of it, and the page's line about the last opens. */
+  const openerRowNow = () => openerRow({
+    blocked: !canOpen ? (isShowOnly ? 'only the board that delivers opens a chat' : 'only on Windows') : openBlocked,
+    failed: failuresOf({ opens, claims: codeClaims, now: clock() }) >= OPEN_TRIES ? opens.at(-1)?.chat ?? null : null,
+  })
+  const openerNoteNow = () => (canOpen ? openerNote({ opens, failures: failuresOf({ opens, claims: codeClaims, now: clock() }), now: clock(), timeOf }) : null)
   /** B767: the setup check as the page shows it; the files are read at most every 30 seconds. */
   let codeRead = { at: -Infinity, max: null, read: null }
   const codeJobsNow = async (prefix = '') => {
@@ -1620,7 +1666,8 @@ async function main(args) {
     const folder = basename(resolve(HERE, config.project))
     if (clock() - codeRead.at >= 30_000 || codeRead.max !== config.maxWorkers) codeRead = { at: clock(), max: config.maxWorkers, read: await readCodeJobs({ project: resolve(HERE, config.project), folder, maxWorkers: config.maxWorkers }) }
     const view = codeJobsView({ claims: codeClaims, ...codeRead.read, folder, maxWorkers: config.maxWorkers, spawnFail, now: clock() })
-    return { ...view, canAllow: !isShowOnly, taskLine: view.needsTask ? taskWords({ folder, prefix, board: HERE, slots: view.missingRoutines }) : null }
+    // T13 part 4: and the board's own opening of a chat when none runs.
+    return { ...view, rows: [...view.rows, openerRowNow()], canAllow: !isShowOnly, taskLine: view.needsTask ? taskWords({ folder, prefix, board: HERE, slots: view.missingRoutines }) : null }
   }
   const checkFresh = async body => {
     // B736 (X73, X87: no chat's report was kept from 21:12 to 21:21 while each waited for a whole read of the board): a
@@ -1723,6 +1770,8 @@ async function main(args) {
         newProject: { parent: home === null ? null : dirname(home), canMake: !isDemo && !isShowOnly, isMaking: makingProject },
         // B767: which of the main chat's routine jobs run by code on this PC, and what is missing.
         codeJobs: await codeJobsNow(state.chatPrefix ?? ''),
+        // T13 part 4: the line about the chat the board opened when none ran (`{ tone, text }`), or null.
+        opener: openerNoteNow(),
         // B322: what the page needs to open a new project's first chats in the Claude app: the board's folder (their
         // job texts), the project's name and the Advisor's; only the board that delivers opens chats.
         openChats: isDemo || isShowOnly ? null : { board: HERE, name: config.name, advisor: typeof config.advisor === 'string' && config.advisor !== '' ? config.advisor : null } }
@@ -2044,6 +2093,8 @@ async function main(args) {
       // when it does not, the banner opens it, and its Workers mod reads the resume from pause.json.
       if (done.ok && body?.action === 'resume-all' && !isShowOnly) {
         const state = await readState()
+        // T13 part 4: and when no chat runs, the board opens one at once; its hands wake the rest.
+        void loops.run('opener', () => openCheck(state))
         const main = resumeTypeTo(state)
         const typed = main === null ? null : await sayNow({ to: main, command: 'resume' })
         return { ok: true, result: { ...done.result, typed: typed?.ok === true } }
@@ -2394,6 +2445,14 @@ async function main(args) {
       done.after?.()
     })
     setInterval(lookAtUpdate, 3000)
+  }
+
+  // T13 part 4: the board opens a chat when none runs and work waits: its own timer, once a minute and once 10 s after the
+  // start (not at every refresh), and at once after Resume all (above). Never on the demo or a board that only shows.
+  if (!isDemo && canOpen) {
+    const lookToOpen = () => loops.run('opener', () => openCheck())
+    setTimeout(lookToOpen, OPEN_FIRST_MS)
+    setInterval(lookToOpen, OPEN_CHECK_MS)
   }
 
   if (!isDemo && historyFrom === undefined) {

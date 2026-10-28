@@ -47,6 +47,8 @@ export const LOOP_WORDS = {
   providers: 'checking the asset providers',
   // B454: the board's look at its own new version.
   'self-update': 'starting the new version by itself',
+  // T13 part 4: the board opens a chat when none runs and work waits for one.
+  opener: 'opening a chat when none runs',
 }
 
 /** The page's words for a loop; `check:<id>` is the check after the report of that step. */

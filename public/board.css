@@ -118,6 +118,8 @@ button, textarea, select { font: inherit; color: inherit; }
 .pause-key.is-working, .pause-key.is-typing { background: var(--waiting); }
 .pause-key.is-asking { background: var(--ask); }
 .restart:has(.pause-panel.is-done) { border-color: #1f6b45; }
+/* T13 part 4: the board's quiet line that it opened a chat, alone in the box, is no alarm. */
+.restart:has(> .opener-note.muted:only-child) { border-color: var(--line); }
 .pause-details { flex: 1 1 260px; color: var(--muted); font-size: 13px; }
 .pause-details summary { cursor: pointer; text-decoration: underline; width: fit-content; }
 .pause-details p { margin: 4px 0 0; }
