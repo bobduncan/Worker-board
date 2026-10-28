@@ -1751,7 +1751,8 @@ async function main(args) {
       }
     },
     // B361: "Bother me" and "Approve rebuilds by itself" from the settings panel: into config.json, and at once into
-    // the settings the board runs on. The demo changes them in memory only.
+    // the settings the board runs on. The demo changes them in memory only. B-max: "Workers at most" goes the same way
+    // (`config.maxWorkers`), the next pass of the hand-out reads it.
     settings: body => settingsTurn(async () => {
       const checked = checkSetting(body)
       if (!checked.ok) return checked

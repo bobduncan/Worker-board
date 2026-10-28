@@ -470,19 +470,32 @@ function drawSettings(state, cpu) {
 /** B361: the setting being sent ({ key, value }), lit at once. */
 let settingPending = null
 
-/** B361: "Bother me" and "Approve rebuilds by itself" in the settings panel, lit as the board runs them. */
+/** B-max: the ends of "Workers at most" (the board's own range is MAX_WORKERS_RANGE in src/boardSettings.mjs). */
+const WORKERS_AT_MOST = [1, 10]
+
+/** B361: "Bother me", "Approve rebuilds by itself" and (B-max) "Workers at most" in the settings panel, lit as the board runs them. */
 function drawBoardSettings(state) {
   const shown = state.boardSettings ?? null
   const problem = problems.get('setting') ?? null
   $('settings-note').hidden = problem === null
   if (problem !== null) $('settings-note').textContent = problem
-  for (const id of ['bother-me', 'approve-rebuilds']) {
+  for (const id of ['bother-me', 'approve-rebuilds', 'max-workers']) {
     const group = $(id)
-    group.hidden = shown === null
+    group.hidden = shown === null || (id === 'max-workers' && !Number.isInteger(shown.maxWorkers))
     group.title = shown === null || shown.canSet ? '' : shown.whyNot ?? ''
   }
   if (shown === null) return
-  for (const button of $('settings').querySelectorAll('[data-setting]')) {
+  // B-max: the number, and the two buttons that send it one lower or one higher (the answer's number, kept in range);
+  // the button at an end of the range is off, as is each of them while a change is on its way.
+  const workers = settingPending !== null && settingPending.key === 'maxWorkers' ? settingPending.value : shown.maxWorkers
+  if (Number.isInteger(workers)) $('max-workers-value').textContent = String(workers)
+  for (const button of $('settings').querySelectorAll('[data-setting="maxWorkers"]')) {
+    const step = Number(button.dataset.step)
+    button.dataset.value = String(Math.min(WORKERS_AT_MOST[1], Math.max(WORKERS_AT_MOST[0], workers + step)))
+    const atEnd = step > 0 ? workers >= WORKERS_AT_MOST[1] : workers <= WORKERS_AT_MOST[0]
+    button.disabled = shown.canSet !== true || sending.has('setting') || atEnd
+  }
+  for (const button of $('settings').querySelectorAll('[data-setting]:not([data-step])')) {
     const key = button.dataset.setting
     const value = settingPending !== null && settingPending.key === key ? settingPending.value : shown[key]
     const isOn = button.dataset.value === String(value)
@@ -574,9 +587,10 @@ $('code-jobs-task').addEventListener('click', () => {
 
 $('settings').addEventListener('click', async event => {
   const button = event.target.closest('[data-setting]')
-  if (button === null || board === null || sending.has('setting') || board.boardSettings?.canSet !== true) return
+  if (button === null || button.disabled || board === null || sending.has('setting') || board.boardSettings?.canSet !== true) return
   const key = button.dataset.setting
-  const value = key === 'approveRebuilds' ? button.dataset.value === 'true' : button.dataset.value
+  // B-max: "Workers at most" sends a number (the stepper's `data-value`), the others a word or a flag.
+  const value = key === 'approveRebuilds' ? button.dataset.value === 'true' : key === 'maxWorkers' ? Number(button.dataset.value) : button.dataset.value
   if (board.boardSettings[key] === value) return
   settingPending = { key, value }
   sending.add('setting')

@@ -179,6 +179,15 @@ test('workerStart: a worker is asked for only when ready tasks wait, none is idl
   assert.equal(workerStart({ ...base, ready: [], lanes: [busy('W1')], maxWorkers: 3 }), null)
 })
 
+test('B-max (the person: "default is 5"): maxWorkers left out is 5 workers at most; given as no number, none', () => {
+  const busy = name => lane(name, T(10, 0), { state: 'working' })
+  const base = { ready: ready('B1'), gives: [], idle: [], isHeld: false }
+  const four = ['W1', 'W2', 'W3', 'W4'].map(busy)
+  assert.deepEqual(workerStart({ ...base, lanes: four }), { spawn: 1 })
+  assert.equal(workerStart({ ...base, lanes: [...four, busy('W5')] }), null)
+  assert.equal(workerStart({ ...base, lanes: four, maxWorkers: null }), null)
+})
+
 test('the person: the board never asks for more workers than maxWorkers, the ones on their way included', () => {
   const busy = name => lane(name, T(10, 0), { state: 'working', report: { state: 'busy', since: T(10, 0), at: NOW - 1000 } })
   const nine = ['W1', 'W2', 'W3', 'W4', 'W5', 'W6', 'W7', 'W8', 'W9'].map(busy)

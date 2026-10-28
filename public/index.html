@@ -52,6 +52,13 @@
           <button class="cpu-level" type="button" data-setting="approveRebuilds" data-value="false" title="A rebuild your partner's evaluation proposes waits for your yes">Off</button>
           <button class="cpu-level" type="button" data-setting="approveRebuilds" data-value="true" title="A rebuild your partner's evaluation proposes goes ahead at once, and you get a recap">On</button>
         </div>
+        <div class="cpu board-setting" id="max-workers" role="group" aria-label="Workers at most" hidden>
+          <span class="cpu-label">Workers at most</span>
+          <button class="cpu-level cpu-step" type="button" data-setting="maxWorkers" data-step="-1" title="One worker fewer at most" aria-label="One worker fewer">−</button>
+          <span class="cpu-number" id="max-workers-value" role="status"></span>
+          <button class="cpu-level cpu-step" type="button" data-setting="maxWorkers" data-step="1" title="One worker more at most" aria-label="One worker more">+</button>
+          <span class="cpu-count">The board starts a new worker when tasks wait and none is free, up to this. Workers already running stay.</span>
+        </div>
         <section class="code-jobs" id="code-jobs" aria-labelledby="code-jobs-title" hidden>
           <span class="cpu-label" id="code-jobs-title">What the board does by itself on this PC</span>
           <ul class="code-job-list" id="code-job-list"></ul>
