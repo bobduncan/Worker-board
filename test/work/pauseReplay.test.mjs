@@ -25,7 +25,7 @@ import { readStore, writePause, writeStore } from '../../src/work/store.mjs'
 
 const SEC = 1000
 const MIN = 60 * SEC
-const PROJECT = 'C:\\Web\\lava-tactics-project'
+const PROJECT = 'C:\\garden'
 const PREFIX = 'Game - '
 const WORKERS = ['Worker 1', 'Worker 2', 'Worker 5']
 const ROLES = { Main: 'main', 'Worker 1': 'worker', 'Worker 2': 'worker', 'Worker 5': 'worker' }
