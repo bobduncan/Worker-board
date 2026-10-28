@@ -3965,6 +3965,11 @@ chats" more than a minute after the pause stopped holding (`holdEndOf` in `src/w
 the pause is none. Tests: the mod's `chatlist.test.ts` ("B763", Worker 3's lines through the owed clear, a chat idle through
 the pause, one cut off mid-turn, a pause that begins while the clear is decided), `test/supervisor/watch.test.mjs`
 (`pause-stale`), `test/clearOwed.test.mjs` (a step dropped in the pause owes nothing).
+B765 (X102, 2026-10-28: Worker 1 was cleared at 12:58, took B756 and reported it at 12:59; times are kept to the minute,
+so `takenSince` read B756's own take as "at or after" its report and `not-cleared` filed X102 at once): for the rule
+`not-cleared`, `takenSince` leaves out the reported step's own takes written before its last report line (one History,
+so their order is known); a take of another step in the report's minute, or one written after the report line, still
+counts. Test: `test/sameMinuteTake.test.mjs` (the real lines through `buildState` and the rule, three mutants).
 B587 (X36: a worker restarted for a new mod at 22:45 owed the clear of the step it had just reported; its process
 ended with the archive, so it could not clear, and its next step's line waited until the board itself started anew
 8 minutes on): the clear holds the line only while the chat's process runs (`clearHolds`). A worker whose process ended
