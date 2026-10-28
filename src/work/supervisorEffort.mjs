@@ -42,14 +42,14 @@ const runsAt = (lane, setting, compareModel) => lane.effort === setting.effort &
  * delivery sends it with the same half-hour dedupe.
  *
  * A word only when the chat is there and a main chat is (as for a worker: no main chat, no word); the app's file names
- * its effort (else the board could not see it set); the chat does not run at the setting (another effort, or, where the
+ * its effort, one the app knows (else the board could not see it set); the chat does not run at the setting (another effort, or, where the
  * settings name a model id, another family: a file that names no model counts as not set); and the newest word for the
  * chat is not one for the same target of the last half hour (`AGAIN_MS`), also when it went untaken. A word for a new
  * target goes at once.
  */
 export function supervisorEffortWord({ lane, setting, models = {}, sent = [], now, main = null, prefix = '' }) {
   if (lane === null || lane === undefined || main === null || main === undefined) return null
-  if (typeof lane.effort !== 'string' || lane.effort === '') return null
+  if (!EFFORTS.includes(lane.effort)) return null
   const id = idOf(setting, models)
   if (runsAt(lane, setting, id !== null)) return null
   const last = lastWord(sent, lane.name, prefix)
