@@ -171,11 +171,12 @@ const ownAgents = new Set<string>()
  * Pause 2 (spec 2026-10-18-pause-resume-design.md): the person's pause as the board last answered it (its
  * `pause-state`, or turn-ended's `pause`), and when; null before the first reading. A reading is kept this long, so
  * a batch of tool calls asks the board at most once in that time.
- * B763: a turn drops it at its start and its first batch reads anew, but nothing refreshes it between turns: an idle
+ * B763: a turn marks it old at its start and its first batch reads anew, but nothing refreshes it between turns: an idle
  * chat keeps the reading of its last turn's end for as long as it rests, the person's pause and resume between. So
  * every clear's decision (`clearAfter`: the owed clear of B547 runs outside any turn, a late turn's end's decision
  * seconds after its answer) reads it anew, and the pull at a turn's end through `pauseNow`, never the kept reading
  * itself. Only a prompt keeps a "running" reading (`pauseLines`): its turn's first batch reads anew.
+ * B786: only an answer that names a pause replaces it; a silent board leaves the last reading (hold when in doubt).
  */
 let pauseRead: { pause: PauseState | null; at: number } | null = null
 const PAUSE_MS = 20000
@@ -654,8 +655,9 @@ async function endedLate($: EngineInterface, retry: EndedRetry): Promise<Record<
 
 /** What a turn's end the board answered brings: the pause, the asks it filed of the block, the role; true when it put out a line for this chat. */
 async function tookEnded($: EngineInterface, ended: Record<string, unknown>): Promise<boolean> {
-  // Pause 2: the same answer carries the pause state: the next batch needs no call of its own.
-  pauseRead = { pause: parsePause(ended.pause), at: await $.clock.now() }
+  // Pause 2: the same answer carries the pause state: the next batch needs no call of its own. B786: one that names
+  // none leaves the last reading.
+  pauseRead = { pause: parsePause(ended.pause) ?? pauseRead?.pause ?? null, at: await $.clock.now() }
   const filed = ended.asked
   if (Array.isArray(filed)) blockAsks = filed.filter((id): id is string => typeof id === 'string')
   const left = ended.left
@@ -715,16 +717,20 @@ async function withinTime<T>($: EngineInterface, run: Promise<T>, waitMs = BOARD
   return Promise.race([run, $.clock.sleep(waitMs).then(() => null, () => null)])
 }
 
-/** Pause 2: the pause state, read from the board unless the last reading is younger than `PAUSE_MS`. Never throws. */
+/**
+ * Pause 2: the pause state, read from the board unless the last reading is younger than `PAUSE_MS`. Never throws.
+ * B786: a board that names no pause (silent, late, an old board's refusal) is no reading: the last one stands, so a
+ * pause is never taken as over before the board said so; the board is asked again after `PAUSE_MS`, as after a reading.
+ */
 async function pauseNow($: EngineInterface, isFresh = false): Promise<PauseState | null> {
   try {
     const now = await $.clock.now()
     if (!isFresh && pauseRead !== null && now - pauseRead.at < PAUSE_MS) return pauseRead.pause
-    const read = await workQuietly($, { action: 'pause-state' })
-    pauseRead = { pause: parsePause(read), at: now }
+    const pause = parsePause(await workQuietly($, { action: 'pause-state' }))
+    pauseRead = { pause: pause ?? pauseRead?.pause ?? null, at: now }
     return pauseRead.pause
   } catch {
-    return null
+    return pauseRead?.pause ?? null
   }
 }
 
@@ -1202,9 +1208,8 @@ async function clearAfter($: EngineInterface, c: { list: ChatList; chat: ChatFil
   const busy = isInTurn ? 'a turn is running' : c.asked ? 'it sent another chat a message in this turn and waits for its answer' : await busyWhy($)
   // B763: the pause as it stands now, read anew: the kept reading may be the last turn's end's, inside a pause that has
   // ended since, or a late turn's end's, from before a pause that began while the decision waited. A board that does not
-  // answer leaves the kept reading.
-  const kept = pauseRead?.pause ?? null
-  const pause = (await pauseNow($, true)) ?? kept
+  // answer leaves the last reading (`pauseNow`, B786).
+  const pause = await pauseNow($, true)
   const why = clearWhy({ role: c.role, isReported: c.isReported, isPaused: pause?.state === 'pausing', isUnfiled, busy })
   if (why !== null) return instead(why)
   const from = await $.session.id()
@@ -2170,9 +2175,10 @@ export const register: Register = on => {
       hasAsked = false
       hasReported = false
       reportedStep = null
-      // The review of Pause 2: each turn reads the pause anew at its first batch, unless its prompt just read it.
+      // The review of Pause 2: each turn reads the pause anew at its first batch, unless its prompt just read it. B786:
+      // the reading is marked old, not dropped: a board silent at that batch leaves it standing.
       turnNumber += 1
-      if (!isReadForTurn) pauseRead = null
+      if (!isReadForTurn && pauseRead !== null) pauseRead = { ...pauseRead, at: -Infinity }
       isReadForTurn = false
       // A report from a turn that was cut short does not count for this one.
       await changeMine($, chat => atTurnStart(chat)).catch(() => null)

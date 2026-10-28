@@ -2552,6 +2552,44 @@ describe('clear after each step', () => {
       w.pauseAnswer = null
       await aMinuteOn(clock, w)
       expect([saves(w), w.commanded]).toEqual([0, []])
+      // B786: and it stands every minute the board stays silent: a silent answer is no reading.
+      await aMinuteOn(clock, w)
+      await aMinuteOn(clock, w)
+      expect([saves(w), w.commanded]).toEqual([0, []])
+      expect(fileOf(w)?.clearNote?.why).toBe('the person pauses the chats')
+      // The board answers again, the pause over: the first minute after, the clear runs.
+      w.pauseAnswer = RUNNING
+      await aMinuteOn(clock, w)
+      expect(w.commanded).toEqual(['/clear by plugin workers'])
+    })
+
+    test('B786: a turn\'s end answered without a pause, and a turn\'s start, keep the last reading: no clear on a pause not known to be over', async ($, on) => {
+      const clock = mock.clock(on)
+      on('tool.call', { tool: 'Bash' }, () => ({ result: 'done' }) as never)
+      const w = await worker($, on, null)
+      w.byAction['turn-ended'] = ok({ missed: [], open: [], role: 'worker', pause: PAUSING })
+      w.pauseAnswer = PAUSING
+      await $.turn.complete({ ...ENDED, turnId: 't1' })
+      await wait(50)
+      // The board goes silent on the pause; a turn runs (its start drops the reading for a fresh one) and ends with
+      // an answer that names no pause.
+      w.pauseAnswer = null
+      w.byAction['turn-ended'] = ok({ missed: [], open: [], role: 'worker' })
+      await clock.advance(21_000)
+      const reads = w.pauseReads
+      const ends = sent(w).filter(one => one.action === 'turn-ended').length
+      await $.turn.start({ text: 'go', turnId: 't2' })
+      await $.tool.call({ tool: 'Bash', command: 'git status' } as never)
+      expect(w.pauseReads).toBe(reads + 1)
+      await $.turn.complete({ ...ENDED, answer: 'ok', turnId: 't2' })
+      await wait(50)
+      expect(sent(w).filter(one => one.action === 'turn-ended').length).toBe(ends + 1)
+      await aMinuteOn(clock, w)
+      await aMinuteOn(clock, w)
+      expect([saves(w), w.commanded]).toEqual([0, []])
+      w.pauseAnswer = RUNNING
+      await aMinuteOn(clock, w)
+      expect(w.commanded).toEqual(['/clear by plugin workers'])
     })
   })
 

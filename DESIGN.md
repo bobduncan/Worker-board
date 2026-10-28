@@ -3974,6 +3974,14 @@ chats" more than a minute after the pause stopped holding (`holdEndOf` in `src/w
 the pause is none. Tests: the mod's `chatlist.test.ts` ("B763", Worker 3's lines through the owed clear, a chat idle through
 the pause, one cut off mid-turn, a pause that begins while the clear is decided), `test/supervisor/watch.test.mjs`
 (`pause-stale`), `test/clearOwed.test.mjs` (a step dropped in the pause owes nothing).
+B786 (the result check of B763 by Worker 3, 2026-10-28): the fall-back held one minute only: a board that did not answer
+`pause-state` had `pauseNow` store the empty answer over the kept "pausing", so the next minute's owed clear ran in a pause
+never seen to end (principles 3 and 8). Since Workers mod 0.26.3 only an answer that names a pause replaces the reading
+(`pauseNow`, and a turn's end through `tookEnded`); a silent board leaves the last reading standing and is asked again after
+20 s, as after a reading; a turn's start marks the reading old instead of dropping it, so its first batch reads anew and a
+silent board there leaves it too. The decisions (`clearAfter`, the pull at a turn's end) read only through `pauseNow`, with no
+fall-back of their own. Tests: the mod's `chatlist.test.ts` ("a board that does not answer the pause", now three silent
+minutes, then the resume; "B786", a turn's start and a turn's end that name no pause).
 B765 (X102, 2026-10-28: Worker 1 was cleared at 12:58, took B756 and reported it at 12:59; times are kept to the minute,
 so `takenSince` read B756's own take as "at or after" its report and `not-cleared` filed X102 at once): for the rule
 `not-cleared`, `takenSince` leaves out the reported step's own takes written before its last report line (one History,
