@@ -46,9 +46,10 @@ test('what is missing: the rules not allowed yet, the stored task, an older mod,
   assert.equal(rows.set.why, 'the running chats have an older Workers mod; their next restart brings the new one')
   assert.equal(rows.restart.why, 'not allowed yet')
   assert.equal(rows.spawn.why, 'no stored start-worker task on this PC')
-  assert.deepEqual(view.missing, [...CODE_JOBS[2].tools, ...CODE_JOBS[3].tools, ...CODE_JOBS[4].tools])
+  assert.deepEqual(view.missing, [...CODE_JOBS[2].tools, ...CODE_JOBS[3].tools])
   // B768: reading the limits is one of the jobs, allowed by the app's usage tool.
-  assert.equal(rows.usage.why, 'not allowed yet')
+  // The app allows its usage tool itself: no rule is missing, only a chat on the newer mod.
+  assert.equal(rows.usage.why, 'the running chats have an older Workers mod; their next restart brings the new one')
   assert.equal(view.needsTask, true)
   const failed = byKey(codeJobsView({ claims: claims(['Main', ['spawn']]), allowed: new Set(ALL), tasks: ['x'], spawnFail: { at: NOW, why: 'refused' }, now: NOW }))
   assert.deepEqual([failed.spawn.byCode, failed.spawn.why], [false, 'the last try failed: refused'])

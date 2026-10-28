@@ -17,8 +17,9 @@ export const CODE_JOBS = [
   { key: 'set', title: 'Model and effort per step', tools: ['mcp__ccd_session_mgmt__set_session_model', 'mcp__ccd_session_mgmt__set_session_effort'] },
   { key: 'restart', title: 'Restart a worker for a new mod', tools: ['mcp__ccd_session_mgmt__archive_session', 'mcp__ccd_session_mgmt__unarchive_session', 'mcp__ccd_session_mgmt__list_sessions'] },
   { key: 'spawn', title: 'Start a new worker', tools: ['mcp__scheduled-tasks__update_scheduled_task', 'mcp__scheduled-tasks__run_scheduled_task'] },
-  // B768: the plan's limits, looked up when the board's newest reading is ten minutes old.
-  { key: 'usage', title: 'Read your usage limits', tools: ['mcp__ccd_session_mgmt__get_usage'] },
+  // B768: the plan's limits, looked up when the board's newest reading is ten minutes old. The app allows its own usage
+  // tool with no rule of the person's (seen 2026-10-28: no settings file names it), so nothing is missing for it.
+  { key: 'usage', title: 'Read your usage limits', tools: [] },
 ]
 /** A chat's claim of the hands counts this long: they come every 20 s while it runs. */
 export const CLAIM_MS = 2 * 60_000
