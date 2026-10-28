@@ -82,7 +82,7 @@ import { isReadAction, workApi } from './src/work/api.mjs'
 import { effortOf } from './src/work/effort.mjs'
 import { isHolding, pauseAnswer, resumeEnds, resumeRetypeTo, resumeTypeTo } from './src/work/pause.mjs'
 import { allowCodeJobs, codeJobsView, readCodeJobs, taskWords } from './src/codeJobs.mjs'
-import { STOP_MOD, handJobs, handResults, isForHandsYet, isHandWord, isStopWord, nextSpawn, stopStep, stopTaskOf, usageDue, workerNames } from './src/hands.mjs'
+import { STOP_MOD, asleepOfJob, handJobs, handResults, isForHandsYet, isHandWord, isStopWord, nextSpawn, stopStep, stopTaskOf, usageDue, workerNames } from './src/hands.mjs'
 import { basesNow, patientReportCheck } from './src/work/check.mjs'
 import { deliverWork, givesRefused, pullFor, sendOnce } from './src/work/deliver.mjs'
 import { coalesce } from './src/work/again.mjs'
@@ -1232,6 +1232,9 @@ async function main(args) {
   else if (savedReports?.unread != null) setAside.push({ file: basename(REPORTS_FILE), aside: null, why: savedReports.unread })
   const reports = savedReports === null ? null : savedReports.reports
   const reportsSave = reports === null ? null : reportsSaver({ file: REPORTS_FILE, reports, onError: error => loops.failed('reports-file', error), onSaved: () => loops.succeeded('reports-file') })
+  // T13 part 3: the asleep chats a hand was given the resume word for, by name: `{ since (its asleep spell), at }`. Once per
+  // spell (hands.mjs `handJobs`); the state reads it as when the chat was woken. In memory: after a restart it may go once more.
+  const asleepWoken = new Map()
   // B736 (X73, X87, X89): when the board heard no chat at all, and the work calls it answered after the chat's mod gave up.
   const hearing = bridgeKey === null ? null : hearingLog({ startedAt, quietMs: (Number.isFinite(config.unknownAfterSeconds) ? config.unknownAfterSeconds : 30) * 1000 })
   /**
@@ -1420,6 +1423,7 @@ async function main(args) {
       aliveAt: historyFrom === undefined ? store.aliveAt?.() ?? null : null,
       seen,
       reports,
+      asleepWakes: asleepWoken,
       hearing: hearing?.view(clock()) ?? null,
       finishedSeen: finishedSeen ?? {},
       taskTimes: taskTimes.tasks,
@@ -2106,7 +2110,8 @@ async function main(args) {
       const fit = fitsMod(handed)
       if (fit.refused.length > 0) await store.settle(checked.chat, fit, clock())
       // B738: the chats the board shows as not running: the mod's list words them the same ("Not running"), from this one verdict.
-      const off = ((await readState()).chats ?? []).filter(lane => !lane.isLeftover && lane.isRunning === false).map(lane => lane.name)
+      // T13 part 3: not an asleep chat: free, or resuming by itself, as the board's page says.
+      const off = ((await readState()).chats ?? []).filter(lane => !lane.isLeftover && lane.isRunning === false && lane.asleep !== true).map(lane => lane.name)
       // B769: a stop or remove of this worker the board carries out by code: its mod tells it at its next tool call.
       const stopping = store.outbox().findLast(message => isStopWord(message) && message.about === checked.chat && message.state === 'waiting')
       const stop = stopping === undefined ? {} : { stop: { id: stopping.id, kind: stopping.command, task: stopTaskOf(stopping) } }
@@ -2152,14 +2157,17 @@ async function main(args) {
       // B768: a lookup of the limits when the newest reading is old, to one chat that may (its mod says `can: ['usage']`).
       const usage = can.has('usage') && READINGS_FILE !== null && !isShowOnly && usageDue({ readings: state.limitReadings ?? [], givenAt: usageGivenAt, now: clock() })
       if (usage) usageGivenAt = clock()
-      const { jobs, back } = handJobs({ caller: checked.chat, taken, lanes, resumeList, since: pause?.since ?? null, sentAt: resumesSent, now: clock(), spawn, usage })
+      // T13 part 3: and one resume word for each asleep chat whose turn was cut, once per spell, never while the person pauses.
+      const { jobs, back } = handJobs({ caller: checked.chat, taken, lanes, resumeList, since: pause?.since ?? null, sentAt: resumesSent, now: clock(), spawn, usage, asleepSent: asleepWoken, isPaused: isHolding(state.pause) })
       for (const message of removed) {
         const lane = lanes.find(one => one.name === message.about)
         jobs.push({ id: message.id, ...(typeof lane?.appSession === 'string' && /^local_[\w-]{1,80}$/.test(lane.appSession) ? { to: lane.appSession } : {}), chat: message.about, remove: true })
       }
       if (back.length > 0) await store.back(back)
       for (const job of jobs) if (job.id.startsWith('resume:')) resumesSent.set(job.id.slice('resume:'.length), clock())
-      if (taken.length > back.length) readState.reset()
+      const asleep = jobs.map(job => asleepOfJob(job.id)).filter(one => one !== null)
+      for (const one of asleep) asleepWoken.set(one.chat, { since: one.since, at: clock() })
+      if (taken.length > back.length || asleep.length > 0) readState.reset()
       return { ok: true, result: { jobs } }
     }),
     handsDone: counted(async body => {
@@ -2176,7 +2184,12 @@ async function main(args) {
       }
       // A resume line that could not go may go again at the next claim.
       for (const id of failed) if (id.startsWith('resume:')) resumesSent.delete(id.slice('resume:'.length))
-      const words = [...sent, ...failed].filter(id => !id.startsWith('resume:'))
+      // T13 part 3: so may an asleep chat's resume word: it was not woken.
+      for (const one of failed.map(asleepOfJob).filter(found => found !== null)) {
+        if (asleepWoken.get(one.chat)?.since === one.since) asleepWoken.delete(one.chat)
+        readState.reset()
+      }
+      const words = [...sent, ...failed].filter(id => !id.startsWith('resume:') && asleepOfJob(id) === null)
       // B767: a new worker that failed shows on the setup check with its why, until one is started.
       for (const message of store.outbox().filter(one => one.command === 'spawn' && words.includes(one.id))) {
         spawnFail = failed.includes(message.id) ? { at: clock(), why: why[message.id] ?? 'not started' } : null

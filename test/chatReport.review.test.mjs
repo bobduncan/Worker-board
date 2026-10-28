@@ -35,7 +35,7 @@ const askItem = (id, owner, more = '') => parseItem(`Id: ${id}\nKind: ask\nTitle
 const report = (name, state, more = {}) => [name, { state, since: NOW - 2 * MIN, background: false, at: NOW - 5_000, session: `cli-${name}`, mod: '0.19.0', ...more }]
 
 /** Every chat's transcript shows a turn running (but those in `noTail`, which have none); the board started 30 min ago. */
-function build({ reports = [], items = [], noTail = [], appStartedAt = NOW - 3 * 60 * MIN, settings = {} } = {}) {
+function build({ reports = [], items = [], noTail = [], appStartedAt = NOW - 3 * 60 * MIN, settings = {}, asleepWakes = null } = {}) {
   const work = storeFromText('## Board\n', { now: NOW - 60 * MIN })
   for (const item of items) work.items.set(item.head.get('Id'), item)
   const raw = {
@@ -46,7 +46,7 @@ function build({ reports = [], items = [], noTail = [], appStartedAt = NOW - 3 *
   }
   return buildState(raw, {
     lines: [], outbox: [], runs: [], now: NOW, config: { ...config, ...settings }, seen: { shown: { Main: NOW - 5_000 }, other: {} },
-    board: { startedAt: NOW - 30 * MIN, offSince: null }, reports: new Map(reports),
+    board: { startedAt: NOW - 30 * MIN, offSince: null }, reports: new Map(reports), asleepWakes,
   })
 }
 const lane = (state, name) => state.chats.find(chat => chat.name === name)
@@ -96,18 +96,23 @@ test('review 3: the pause does not count a chat whose reports stopped as one run
   assert.deepEqual(unread.working, ['Board'])
 })
 
-test('review 4: a chat idle at its last report, off after an app restart, is no card left working: no working-not-running incident', () => {
+test('review 4: a chat idle at its last report, after an app restart, is no card left working: no working-not-running incident', () => {
+  // T13 part 3: after the app's restart an idle chat is free and a busy one interrupted, both asleep (no longer off).
   const idle = lane(build({ reports: [report('Board', 'idle', { at: NOW - 40_000 })], appStartedAt: NOW - 20_000 }), 'Board')
-  assert.deepEqual([idle.state, idle.offSince], ['off', null])
+  assert.deepEqual([idle.state, idle.asleep], ['free', true])
   const busy = lane(build({ reports: [report('Board', 'busy', { at: NOW - 40_000 })], appStartedAt: NOW - 20_000 }), 'Board')
-  assert.deepEqual([busy.state, busy.offSince], ['off', NOW - 40_000])
+  assert.deepEqual([busy.state, busy.asleep], ['interrupted', true])
   const background = lane(build({ reports: [report('Board', 'idle', { at: NOW - 40_000, background: true })], appStartedAt: NOW - 20_000 }), 'Board')
-  assert.equal(background.offSince, NOW - 40_000)
+  assert.deepEqual([background.state, background.asleep], ['interrupted', true])
   const rule = WATCH_RULES.find(one => one.id === 'working-not-running')
   const view = lanes => buildView({ state: { chats: lanes, today: [], limits: {}, pause: null, chatPrefix: '' }, items: new Map(), now: NOW })
   const ctx = { seen: new Map([['working-not-running Board', NOW - 20 * MIN]]), observed: [] }
   assert.deepEqual(rule.check(view([{ ...lane(build(), 'Main') }, idle]), ctx), [])
-  assert.equal(rule.check(view([{ ...lane(build(), 'Main') }, busy]), ctx).length, 1)
+  assert.deepEqual(rule.check(view([{ ...lane(build(), 'Main') }, busy]), ctx), [])
+  // A busy one whose wake did not take (woken 9 min ago, silent since) is off as a card left working: the incident opens.
+  const woken = lane(build({ reports: [report('Board', 'busy', { at: NOW - 11 * MIN })], appStartedAt: NOW - 10 * MIN, asleepWakes: new Map([['Board', { since: NOW - 10 * MIN, at: NOW - 9 * MIN }]]) }), 'Board')
+  assert.deepEqual([woken.state, woken.offSince], ['off', NOW - 11 * MIN])
+  assert.equal(rule.check(view([{ ...lane(build(), 'Main') }, woken]), ctx).length, 1)
 })
 
 test('review 5b (B148): background work does not hold a worker whose step it reported in its last turn; it does while it holds the step', () => {

@@ -61,10 +61,11 @@ test('a worker the transcript reads as working, whose report says idle with no t
   assert.deepEqual([background.state, background.isRunning, background.between], ['working', true, 'Its turn has ended; background work it started is still running.'])
 })
 
-test('a report older than unknownAfterSeconds is unknown; off once the app started after it (its process ended with the app)', () => {
+test('a report older than unknownAfterSeconds is unknown; asleep once the app started after it (its process ended with the app)', () => {
   const old = report('Board', 'busy', { at: NOW - 40_000 })
-  assert.deepEqual(shown(build({ reports: [old], appStartedAt: NOW - 20_000 }), 'Board'), ['off', false])
-  assert.equal(lane(build({ reports: [old], appStartedAt: NOW - 20_000 }), 'Board').offSince, NOW - 40_000)
+  // T13 part 3: asleep, no longer off: its turn was cut, it resumes by itself.
+  assert.deepEqual(shown(build({ reports: [old], appStartedAt: NOW - 20_000 }), 'Board'), ['interrupted', false])
+  assert.deepEqual([lane(build({ reports: [old], appStartedAt: NOW - 20_000 }), 'Board').asleep, lane(build({ reports: [old], appStartedAt: NOW - 20_000 }), 'Board').asleepSince], [true, NOW - 20_000])
   assert.deepEqual(shown(build({ reports: [old], appStartedAt: NOW - 3 * 60 * MIN }), 'Board'), ['unknown', null])
   assert.deepEqual(shown(build({ reports: [old], appStartedAt: null }), 'Board'), ['unknown', null])
   // The setting decides how old is too old.
@@ -128,9 +129,10 @@ test('the helper\'s and the supervisor\'s lanes follow their reports the same wa
   const state = build({ reports: [report('Helper', 'idle'), report('Watcher', 'asking')] })
   assert.deepEqual([state.advisorHelper.state, state.advisorHelper.isRunning], ['free', true])
   assert.deepEqual([state.supervisorChat.state, state.supervisorChat.isRunning], ['waiting', true])
+  // T13 part 3: after the app's start a busy one is asleep and interrupted, no longer off.
   const stale = build({ reports: [report('Helper', 'busy', { at: NOW - 40_000 }), report('Watcher', 'busy', { at: NOW - 40_000 })], appStartedAt: NOW - 20_000 })
-  assert.deepEqual([stale.advisorHelper.state, stale.advisorHelper.isRunning], ['off', false])
-  assert.deepEqual([stale.supervisorChat.state, stale.supervisorChat.isRunning], ['off', false])
+  assert.deepEqual([stale.advisorHelper.state, stale.advisorHelper.isRunning, stale.advisorHelper.asleep], ['interrupted', false, true])
+  assert.deepEqual([stale.supervisorChat.state, stale.supervisorChat.isRunning, stale.supervisorChat.asleep], ['interrupted', false, true])
 })
 
 test('the counts add up over the reported states', () => {

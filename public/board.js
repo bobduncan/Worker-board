@@ -1674,7 +1674,8 @@ function pausedLanes(chats, pause) {
     const id = lane.task?.stepId ?? null
     return unsaved.some(one => one?.chat === lane.name && (id === null || one.id === id))
   }
-  return chats.map(lane => (lane?.state === 'interrupted' && !isUnsaved(lane) ? { ...lane, state: 'suspended', suspended: { by: 'pause', since: pause.since ?? null, until: null, isBack: false } } : lane))
+  // T13 part 3: an asleep one (its process ended with its turn cut) waits for Resume all too: the board sends it nothing meanwhile.
+  return chats.map(lane => (lane?.state === 'interrupted' && (lane.asleep === true || !isUnsaved(lane)) ? { ...lane, state: 'suspended', suspended: { by: 'pause', since: pause.since ?? null, until: null, isBack: false } } : lane))
 }
 
 /** What a suspended lane says: who held it (the app's stop, or its own pause) and when it goes on. */
@@ -1967,6 +1968,9 @@ const about = minutes => (minutes === null ? null : `~ ${span(minutes * MIN)}`)
 function timeOf(lane, now) {
   const plain = (main, tone = 'muted', label = '') => ({ label, main, tone, small: [], from: null })
   if (lane.isLeftover) return plain('Leftover')
+  // T13 part 3: a chat whose process ended while its turn ran (or it held a task) resumes by itself: the board sends it
+  // its resume word. No alarm: nothing is wrong yet.
+  if (lane.state === 'interrupted' && lane.asleep === true) return { ...plain('resumes by itself', 'muted', 'Interrupted'), small: [asleepWords(lane)] }
   // The review of chat-reports: a chat whose Workers mod reported idle with its task open says that, since when.
   if (lane.state === 'interrupted' && lane.report?.state === 'idle') return plain(`since ${clock(lane.report.since)}`, 'bad', 'Idle, task open')
   if (lane.state === 'interrupted') return plain(lane.cutOffAt === null ? 'by a restart' : `at ${clock(lane.cutOffAt)}`, 'bad', 'Cut off')
@@ -1982,7 +1986,9 @@ function timeOf(lane, now) {
   if (lane.state === 'waiting') return plain('Blocked', 'bad', 'ETA')
   // B722: free by its card but known not to run (its chat is closed): never "Available", the hand-out gives only to a running chat.
   // B728: free by its card but known not to run: the one word "Not running", as the pill and the head count say.
-  if (lane.state === 'free' && lane.isRunning === false) return { ...plain('Not running', 'bad', 'Process'), title: 'This chat does not run. The board asks for it to be started when a task waits and no running worker is free.' }
+  // T13 part 3: not an asleep one: it is free, and the line of the task it gets wakes it.
+  if (lane.state === 'free' && lane.isRunning === false && lane.asleep !== true) return { ...plain('Not running', 'bad', 'Process'), title: 'This chat does not run. The board asks for it to be started when a task waits and no running worker is free.' }
+  if (lane.state === 'free' && lane.asleep === true) return { ...plain('Available'), small: [asleepWords(lane)] }
   if (lane.state === 'free') return plain('Available')
   if (lane.state !== 'working') return plain('Unknown')
   const eta = lane.eta ?? null
@@ -2006,6 +2012,17 @@ function timeOf(lane, now) {
   // B185: a little over is no fault: over twice its estimate and by 10 minutes is (above).
   if (eta.isOver === true) return { label: 'ETA', main: `${span(now - eta.at)} over`, tone: 'time', small: [`was ${clock(eta.at)}`], from }
   return { label: 'ETA', main: `${span(eta.leftMs)} left`, tone: 'time', small: [`until ${clock(eta.at)}`], from }
+}
+
+/**
+ * T13 part 3: the quiet note of an asleep chat (its process ended while its last report stands; the board wakes it with a
+ * message): since when, and what wakes it.
+ */
+function asleepWords(lane) {
+  const since = Number.isFinite(lane.asleepSince) ? `asleep since ${clock(lane.asleepSince)}` : 'asleep'
+  if (lane.state === 'interrupted') return `${since}; the board sends it its resume word`
+  if (lane.state === 'free') return `${since}, wakes when it gets a task`
+  return `${since}, wakes when a word comes for it`
 }
 // lanetime:end
 
@@ -2269,6 +2286,8 @@ function simpleIdle(lane) {
   if (lane.state === 'waiting') return 'waits for you'
   if (lane.state === 'suspended') return Number.isFinite(lane.suspended?.until) ? `paused until ${clock(lane.suspended.until)}` : 'paused'
   if (lane.state === 'off') return typeof lane.offWhy === 'string' ? `not running (${lane.offWhy})` : 'not running'
+  // T13 part 3: an asleep one resumes by itself.
+  if (lane.state === 'interrupted' && lane.asleep === true) return 'interrupted, resumes by itself'
   if (lane.state === 'interrupted') return lane.report?.state === 'idle' ? 'idle, task open' : 'cut off'
   return String(lane.state ?? '')
 }
@@ -2577,20 +2596,27 @@ function drawRunChip(view) {
 
 function drawLane(lane, state) {
   const isOpen = openLanes.has(lane.name)
-  const card = el('article', `lane is-${lane.state}${lane.isLeftover ? ' is-leftover' : ''}${isOpen ? ' is-open' : ''}`)
+  // T13 part 3: an asleep chat whose turn was cut resumes by itself: a quiet colour, no alarm (`is-asleep`).
+  const isAsleepCut = lane.asleep === true && lane.state === 'interrupted'
+  const card = el('article', `lane is-${lane.state}${isAsleepCut ? ' is-asleep' : ''}${lane.isLeftover ? ' is-leftover' : ''}${isOpen ? ' is-open' : ''}`)
   card.dataset.lane = lane.name
   const row = el('div', 'lane-row')
 
   const who = el('div', 'who')
   const names = el('div', 'who-names')
   // B392: waiting for the partner's answer has a colour of its own.
-  names.append(el('h3', '', lane.name), el('span', `pill is-${(lane.waitsForPartner ?? []).length > 0 && !lane.isLeftover ? 'partner' : lane.state === 'free' && lane.isRunning === false ? 'off' : lane.state}`, lane.isLeftover ? 'Leftover' : laneStateText(lane)))
+  names.append(el('h3', '', lane.name), el('span', `pill is-${(lane.waitsForPartner ?? []).length > 0 && !lane.isLeftover ? 'partner' : lane.state === 'free' && lane.isRunning === false && lane.asleep !== true ? 'off' : isAsleepCut ? 'asleep' : lane.state}`, lane.isLeftover ? 'Leftover' : laneStateText(lane)))
   // The model chip (runchip) beside the pill: what the chat runs at now, and a switch it waits for. None for a leftover.
   const runChip = lane.isLeftover ? null : drawRunChip(runChipOf(lane))
   if (runChip !== null) names.append(runChip)
-  // B315: a lane that is "Not running" says so in its pill already.
-  if (lane.isRunning === false && lane.state !== 'off') {
-    // After a restart of the app a chat does not run until it is opened, or messaged through the app.
+  // T13 part 3: an asleep chat says so quietly, with since when and what wakes it.
+  if (lane.asleep === true && lane.state !== 'off') {
+    const asleep = el('small', 'not-running', 'asleep')
+    asleep.title = `${asleepWords(lane)}. Its process ended; a message through the app wakes it.`
+    names.append(asleep)
+  } else if (lane.isRunning === false && lane.state !== 'off') {
+    // B315 (a lane that is "Not running" says so in its pill already): after a restart of the app a chat does not run
+    // until it is opened, or messaged through the app.
     const idle = el('small', 'not-running', 'not running')
     idle.title = `This chat's process is not running: nothing reaches it until its chat is opened, or ${board?.workers?.mainTitle ?? 'the main chat'} starts it.`
     names.append(idle)
@@ -2640,7 +2666,7 @@ function drawLane(lane, state) {
   const sync = syncPart(lane, state)
   if (sync !== null) tools.push(sync)
   // B159: the worker's icon takes the colour of its state.
-  const sign = el('span', `worker-icon is-${lane.isLeftover ? 'leftover' : lane.state}`)
+  const sign = el('span', `worker-icon is-${lane.isLeftover ? 'leftover' : isAsleepCut ? 'asleep' : lane.state}`)
   sign.setAttribute('aria-hidden', 'true')
   sign.append(icon('chat'))
   who.append(sign, names)
@@ -2686,7 +2712,9 @@ function drawLane(lane, state) {
   if (steps !== null) progress.append(drawStepLine(lane, steps))
   else if (hasSteps) progress.append(el('small', 'progress-count', `${task.step} of ${task.steps}`))
   else if (task !== null) progress.append(el('small', 'progress-count', 'no steps given'))
-  if (lane.state === 'interrupted') what.append(el('p', 'alert', lane.report?.state === 'idle' ? 'Idle with its task open: its turn ended before its task was reported; it does nothing until it is woken.' : 'Cut off in the middle of its turn: it does nothing until it is resumed.'))
+  // T13 part 3: an asleep one is no alarm: the board sends it its resume word.
+  if (isAsleepCut) what.append(el('p', 'off-idle', `Interrupted when its chat stopped: it resumes by itself (${asleepWords(lane)}).`))
+  else if (lane.state === 'interrupted') what.append(el('p', 'alert', lane.report?.state === 'idle' ? 'Idle with its task open: its turn ended before its task was reported; it does nothing until it is woken.' : 'Cut off in the middle of its turn: it does nothing until it is resumed.'))
   // B315: its process does not run. With work it waits for, that is the alarm; without, a muted line.
   if (offWork !== null) what.append(el('p', isQuietOff ? 'off-idle' : 'alert', offWork.text))
   if (lane.state === 'suspended') what.append(el('p', `held${lane.suspended.isBack ? ' is-back' : ''}`, heldText(lane.suspended)))
@@ -2996,7 +3024,9 @@ function drawWorkers(state) {
  * current task ... show the advisor in the workers tab on the overview but distinct from the workers".
  */
 function advisorStanding(advisor) {
-  if (advisor.isRunning === false) return { key: 'off', label: 'Not running' }
+  // T13 part 3: an asleep one (its process ended while its last report stands) is no closed one: a message wakes it.
+  if (advisor.isRunning === false && advisor.asleep !== true) return { key: 'off', label: 'Not running' }
+  if (advisor.asleep === true && advisor.state === 'interrupted') return { key: 'asleep', label: 'Interrupted, resumes by itself' }
   if (advisor.state === 'working') return { key: 'working', label: 'Working' }
   // A server without the card's fields: an Advisor that waits (its question form) asks you something.
   if (advisor.asksYou === true || (advisor.asksYou === undefined && advisor.state === 'waiting')) return { key: 'waiting', label: 'Needs your answer' }
@@ -3967,8 +3997,8 @@ function decidedToggleText(view, isOpen) {
 /** A lane's state in words; the review's findings: a chat that waits on the partner's answer says so, not "for you". */
 function laneStateText(lane, states = STATES) {
   if ((lane.waitsForPartner ?? []).length > 0) return `Waiting for your partner (${lane.waitsForPartner.join(', ')})`
-  // B728: free by its card but known not to run is "Not running", the same word as everywhere.
-  return states[lane.state === 'free' && lane.isRunning === false ? 'off' : lane.state]
+  // B728: free by its card but known not to run is "Not running", the same word as everywhere. T13 part 3: an asleep one is Free.
+  return states[lane.state === 'free' && lane.isRunning === false && lane.asleep !== true ? 'off' : lane.state]
 }
 // partner-answers:end
 
@@ -6542,7 +6572,8 @@ function planOf(lane, now) {
  * one, or one that waits for the person (that one opens what it waits for, B100).
  */
 function laneWindowOf(lane, now, mainTitle) {
-  const chip = lane.state === 'interrupted' && lane.report?.state === 'idle' ? 'Idle, task open' : LANE_WINDOW_STATES[lane.state]
+  // T13 part 3: an asleep one resumes by itself: "Interrupted", not "Cut off".
+  const chip = lane.state === 'interrupted' && lane.asleep === true ? 'Interrupted' : lane.state === 'interrupted' && lane.report?.state === 'idle' ? 'Idle, task open' : LANE_WINDOW_STATES[lane.state]
   if (chip === undefined) return null
   const task = lane.task ?? null
   const given = lane.givenTask ?? null

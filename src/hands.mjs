@@ -83,6 +83,19 @@ export function stopStep(message, lane) {
 /** A resume line goes again to a chat that has not started this long after the last one. */
 export const RESUME_AGAIN_MS = 5 * 60_000
 
+/**
+ * T13 part 3 (the person, 2026-10-28: "interrupted is interrupted"): the line an asleep chat whose turn was cut gets when it
+ * holds no step (the main chat, the partner, the supervisor, a worker on the person's words); one holding a step gets Resume
+ * all's line, "resume your step B<id> from your checkpoint".
+ */
+export const ASLEEP_LINE = 'Your chat stopped in the middle of your turn: go on from where you were.'
+
+/** T13 part 3: the chat and the asleep spell (its `asleepSince`) an asleep resume job's id names, `{ chat, since }`, or null. */
+export function asleepOfJob(id) {
+  const found = /^asleep:(\d{1,16}):(.{1,200})$/.exec(String(id ?? ''))
+  return found === null ? null : { since: Number(found[1]), chat: found[2] }
+}
+
 /** The app's id of a chat (local_...): the only one its send-message tool reaches. */
 export const isAppId = session => typeof session === 'string' && /^local_[\w-]{1,80}$/.test(session)
 
@@ -195,8 +208,13 @@ export function nextSpawn(names, prefix, folder) {
  * refuses a chat's own model and effort too), a second new worker, or one with no `spawn` to give. A resume line goes to
  * each chat that has not started and has an app id, unless one went to it within RESUME_AGAIN_MS (`sentAt`, by
  * `<since>:<chat>`). With `usage` (B768) one more job, `{ id: 'usage:<now>', chat, usage: true }`: look the limits up.
+ * T13 part 3: one resume job, `asleep:<asleepSince>:<chat>`, for each board chat (`lanes`) that is asleep and interrupted
+ * (its process ended while its turn ran or it held a task: chatReport.mjs `asleepLane`) and has an app id: its step's line
+ * (the task it names first, else the oldest taken or in progress), or ASLEEP_LINE without one. Once per asleep spell: not
+ * when `asleepSent` (by chat, `{ since }`) names that spell; none while the person pauses (`isPaused`), and none for a
+ * chat Resume all's list wakes already.
  */
-export function handJobs({ caller, taken = [], lanes = [], resumeList = [], since = null, sentAt = new Map(), now, spawn = null, usage = false }) {
+export function handJobs({ caller, taken = [], lanes = [], resumeList = [], since = null, sentAt = new Map(), now, spawn = null, usage = false, asleepSent = new Map(), isPaused = false }) {
   const jobs = []
   const back = []
   const laneOf = name => lanes.find(lane => lane.name === name)
@@ -223,6 +241,13 @@ export function handJobs({ caller, taken = [], lanes = [], resumeList = [], sinc
     const key = `${since ?? 0}:${one.chat}`
     if (now - (sentAt.get(key) ?? -Infinity) < RESUME_AGAIN_MS) continue
     jobs.push({ id: `resume:${key}`, to: one.session, chat: one.chat, text: `resume your step ${one.step} from your checkpoint` })
+  }
+  for (const lane of isPaused ? [] : lanes) {
+    if (lane.asleep !== true || lane.state !== 'interrupted' || lane.name === caller || !isAppId(lane.appSession) || !Number.isFinite(lane.asleepSince)) continue
+    if (asleepSent.get(lane.name)?.since === lane.asleepSince || resumeList.some(one => one.chat === lane.name)) continue
+    const held = (lane.storeSteps ?? []).filter(one => one.state === 'taken' || one.state === 'in progress')
+    const step = held.find(one => one.id === lane.task?.stepId) ?? held[0] ?? null
+    jobs.push({ id: `asleep:${lane.asleepSince}:${lane.name}`, to: lane.appSession, chat: lane.name, text: step === null ? ASLEEP_LINE : `resume your step ${step.id} from your checkpoint` })
   }
   // B768: a lookup of the limits, when the board said one is due.
   if (usage) jobs.push({ id: `usage:${now}`, chat: caller, usage: true })

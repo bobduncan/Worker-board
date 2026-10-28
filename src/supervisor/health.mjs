@@ -80,7 +80,8 @@ function chatLines(view, now) {
     const mine = steps.filter(item => plain(valueOf(item, 'Owner'), view.prefix) === plain(lane.name, view.prefix))
     const since = view.since.get(lane.name)
     const state = `${lane.state ?? 'not known'}${Number.isFinite(since) ? ` since ${dayClockOf(since, now)} (${lasting(now - since)})` : ''}`
-    const running = lane.isRunning === false ? ', its chat does not run' : ''
+    // T13 part 3: an asleep chat (its process ended while its last report stands) is woken by the board's message, no fault.
+    const running = lane.isRunning === false ? (lane.asleep === true ? `, asleep${Number.isFinite(lane.asleepSince) ? ` since ${dayClockOf(lane.asleepSince, now)}` : ''} (the board's message wakes it)` : ', its chat does not run') : ''
     // B544: the level, never the partner's mode object ("[object Object]", X9).
     const runs = `runs ${familyOf(lane.model) ?? 'a model not known'} · ${chatEffort(lane) ?? 'effort not known'}`
     // The step it is on: its card's, else the one the store holds for it.
@@ -104,7 +105,7 @@ function chatLines(view, now) {
     const waitsForPartner = Array.isArray(lane.waitsForPartner) && lane.waitsForPartner.length > 0
     // X46: a chat that is off or unknown, does not run and holds no step is closed, which is normal.
     const isClosed = (lane.state === 'off' || lane.state === 'unknown') && lane.isRunning !== true && onId === null
-    const odd = (purpose === null && !isClosed && (ODD_STATES.includes(lane.state) || (lane.isRunning === false && onId !== null)))
+    const odd = (purpose === null && !isClosed && lane.asleep !== true && (ODD_STATES.includes(lane.state) || (lane.isRunning === false && onId !== null)))
       || (lane.state === 'working' && onId === null && handed === null && role === 'worker' && !waitsForPartner) || (role === 'worker' && switching?.late === true)
     return lineOf(`${lane.name} (${role}): ${state}${suspended}${running}; ${runs}${wants}${onWords}${report}; ${clearWords(lane.compaction, now)}`, { tier: 0, odd, at: since, max: CHAT_CHARS })
   })

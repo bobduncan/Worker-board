@@ -38,7 +38,7 @@ const report = (name, state, { since, heard, ...more }) => [name, { state, since
 const stepItem = (id, owner, state, now) => parseItem(`Id: ${id}\nKind: step\nTitle: Step ${id}\nState: ${state}\nOwner: ${owner}\nSince: ${stamp(now - 40 * MIN)}\n`)
 
 /** The board's state at `now`: every chat's conversation written at `written`, the reports and the board's hearing given. */
-function build({ now, reports = [], hearing = null, items = [], written = now - 20_000, appStartedAt = at(9, 0), startedAt = at(20, 59) }) {
+function build({ now, reports = [], hearing = null, items = [], written = now - 20_000, appStartedAt = at(9, 0), startedAt = at(20, 59), asleepWakes = null }) {
   const work = storeFromText('## Garden\n', { now: now - 60 * MIN })
   for (const item of items) work.items.set(item.head.get('Id'), item)
   const raw = {
@@ -49,7 +49,7 @@ function build({ now, reports = [], hearing = null, items = [], written = now - 
   }
   return buildState(raw, {
     lines: [], outbox: [], runs: [], now, config, seen: { shown: {}, other: {} },
-    board: { startedAt, offSince: null }, reports: new Map(reports), hearing,
+    board: { startedAt, offSince: null }, reports: new Map(reports), hearing, asleepWakes,
   })
 }
 const lane = (state, name) => state.chats.find(chat => chat.name === name)
@@ -118,10 +118,14 @@ test('holder-not-running and not-cleared leave the time the board heard nobody o
   const reports = [report('Lead', 'idle', { since: at(21, 9), heard: now - 3_000 }), report('Digger', 'busy', { since: at(21, 9), heard: at(21, 30) })]
   const items = [stepItem('B12', 'Digger', 'in progress', now)]
   const hearing = deaf => ({ deaf, open: null, lateCalls: [] })
+  // T13 part 3: a holder silent past offAfterMinutes is asleep first (its resume word goes); off once that wake did not
+  // take: woken at 21:31, silent since.
+  const asleepWakes = new Map([['Digger', { since: at(21, 30), at: at(21, 31) }]])
+  assert.deepEqual(check('holder-not-running', build({ now, reports, items, hearing: hearing([]) }), now, [], items), [])
   // Off since 21:30 (40 min); 30 is the threshold: with 15 of them the board's own, 25 remain.
-  const held = build({ now, reports, items, hearing: hearing([{ from: at(21, 30), to: at(21, 45) }]) })
+  const held = build({ now, reports, items, hearing: hearing([{ from: at(21, 30), to: at(21, 45) }]), asleepWakes })
   assert.deepEqual(check('holder-not-running', held, now, [], items), [])
-  assert.deepEqual(subjects(check('holder-not-running', build({ now, reports, items, hearing: hearing([]) }), now, [], items)), ['B12'])
+  assert.deepEqual(subjects(check('holder-not-running', build({ now, reports, items, hearing: hearing([]), asleepWakes }), now, [], items)), ['B12'])
   const gone = [stepItem('B12', 'Digger', 'dropped', now)]
   assert.deepEqual(check('holder-not-running', build({ now, reports, items: gone, hearing: hearing([]) }), now, [], gone), [])
   // Not cleared 14 min after its report: over 10; 6 of them the board heard nobody: 8 remain.
