@@ -1471,6 +1471,8 @@ async function joinByTitle($: EngineInterface, title: unknown, state: ChatFile['
  * board which chat its session is: a rename is followed within a minute of the next prompt, and a prompt is never held long.
  */
 const WHOAMI_MS = 60_000
+/** A whoami that got no name is asked again this soon. */
+const WHOAMI_AGAIN_MS = 5_000
 /** When this process last asked (when the question went out, answered or not). */
 let lastWhoami = -Infinity
 
@@ -1511,7 +1513,12 @@ async function joinBySession($: EngineInterface): Promise<void> {
     if (board === null || list === null) return
     lastWhoami = await $.clock.now()
     const who = await withinTime($, askWhoami($, board))
-    if (who === null) return
+    // No answer, or no name yet (the app may write a new session into its list a moment after the start): asked again
+    // after WHOAMI_AGAIN_MS, not a whole minute, so a cleared chat is named at its first prompt.
+    if (who === null) {
+      lastWhoami = (await $.clock.now()) - WHOAMI_MS + WHOAMI_AGAIN_MS
+      return
+    }
     if (who.card !== null && who.card !== id) await moveCardFromBoard($, dir, list, who)
     await joinByTitle($, `${list.prefix}${who.name}`)
   } catch {
