@@ -1389,6 +1389,21 @@ in `art-inbox/worker-board/b262/`.
 - A working worker always has a time: its own, else the estimate of its step in the store, counted from the task's
   start and saying where it is from (B301: a hand-over's time is no longer read). A worker that works with neither is
   a fault, shown in the warning colour ("No time"). The main chat has no task to time.
+- **A task's plan and time stay with the task (T13, part 2; the person, 2026-10-28: "still no ETA per task"):** a worker's
+  plan (its parts, the part it is on, the minutes left) lived only on its chat's card, so a task that moved to a new chat
+  showed "no steps given" and "No time" until the worker recorded a plan again. Now the work tool's `step` call also saves it
+  on the step's item, one line the board writes the way the mod writes the card (`src/work/stepPlan.mjs`): `Plan: step 2/3 |
+  parts Sheet; Clips; Merge | until <date time> | step until <date time> | at <date time>`, with the absolute times the task's
+  and the part's estimate run out (to the second, as a checkpoint's), so the time left is worked out whenever it is read;
+  each call replaces the line (a call without a time keeps the task's, and the part's only while the part stays), a checkpoint
+  alone leaves it, and a step taken from the queue starts without one. A lane whose card holds no plan for its step (no
+  parts, count or time: a new chat's card holds a topic only) shows the saved plan: its parts, the part it is on and its
+  times as its own estimate (`task.isSavedPlan`, `src/state.mjs` `taskOf`); a time past reads as an overrun (never a negative
+  time left), as for the card's. The card's own plan always wins when it has one. A step with no plan at all and no time of
+  its own (its Estimate) shows the size its refine gave ("Size: about 1 h") as a first estimate, counted from when the step
+  was taken (its Since) and marked "refine's estimate" (`eta.from: 'refine'`), until the worker records a plan; a step with no
+  size keeps "No time". Tests: `test/work/stepPlan.test.mjs` (the line is written and replaced), `test/stepPlanCard.test.mjs`
+  (a new session shows the saved plan, the card wins, the size, no size, the page's words).
 - One turn can hold several tasks. When the board still showed another task the chat had named, a task starts when it
   was named (B94).
 - A message that arrives while a chat works is not a user entry in the transcript: the app keeps it with the turn as
@@ -4116,7 +4131,7 @@ timers. Now each chat says it (principle 3, know don't guess).
   until the chat reports anew, and the unknown and off rules (and B736's 10 min keep) count from the start, not from
   the old report. A chat the app stopped meanwhile (the app started after its saved report: B315's fact) is not kept as
   it was; it is read as with no report, as before (part 3 of T13 will say more). The demo and a board that shows
-  another's history have no reports. Part 2 (the plan and time saved with the task), part 3 (an app restart) and part 4
+  another's history have no reports. Part 2 (the plan and time saved with the task, "Time and estimates" above) is built; part 3 (an app restart) and part 4
   (the board opening a chat when none runs) are not built yet.
 - **Older mods and a restart:** a chat on a Workers mod older than 0.19.0 sends no report and keeps the board's
   reading, until the restart between steps (B570) brings it onto the new mod; the reading is removed in a later
