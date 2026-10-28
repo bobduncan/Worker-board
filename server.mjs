@@ -37,7 +37,7 @@ import { findCodex, makePicture } from './src/codex.mjs'
 import { checkSetting, panelSettings, settingChanged } from './src/boardSettings.mjs'
 import { cpuLimiter, logicalCores, sessionsOfCards } from './src/cpu.mjs'
 import { BrokenConfig, configProblem, firstStart, followApp, isOwnWork, loadConfig, ownMapNow, projectFile, workFolder } from './src/config.mjs'
-import { REFERENCE_BYTES, ideasFolder, referencesFolder, checkDesign, designState, inTurn, parseDesignSettings, promptFor } from './src/design.mjs'
+import { REFERENCE_BYTES, ideasFolder, referencesFolder, checkDesign, designActivity, designState, picturesActivity, inTurn, parseDesignSettings, promptFor } from './src/design.mjs'
 import { ideasFile, ideasOver, placeReferences } from './src/ideas.mjs'
 import { START_ANEW, keep } from './src/keeper.mjs'
 import { GAME_SPAN, boardAddress, boardsFile, recordingBoardPort, launchEntry, registerHome, resolvePort, withEntry } from './src/ports.mjs'
@@ -57,13 +57,14 @@ import { createSpendingCollector } from './src/work/routing/collector.mjs'
 import { readRoutingRecord } from './src/work/routing/records.mjs'
 import { parseRoutingPolicy } from './src/work/routing/policy.mjs'
 import { adoptPicture, findDemo, findPicture, PICTURE_BYTES as SHOWN_PICTURE_BYTES, pictureProblem, pictureTooBig, shownFolders, shownRoots } from './src/pictures.mjs'
-import { answerWords, checkSay, focusWords, reportedBackgroundDue, resumesDue, spawnWhenAlone, wakeFor, wakesDue, wakesStopped, weekStopDue, withInstruction, workWords } from './src/say.mjs'
+import { answerWords, checkSay, focusWords, goalStepOf, reportedBackgroundDue, resumesDue, spawnWhenAlone, wakeFor, wakesDue, wakesStopped, weekStopDue, withInstruction, workWords } from './src/say.mjs'
 import { keepTalkPicture } from './src/talkPicture.mjs'
 import { firstLook, refineWhenDue } from './src/refineGate.mjs'
 import { recheckText, roundText, roundsNow } from './src/rounds.mjs'
 import { editStep, settleByBoard } from './src/tick.mjs'
 import { editThread, fixesToTell, strandedToTell } from './src/brainstorm.mjs'
-import { changeGoalsFile, editGoals } from './src/goalsWrite.mjs'
+import { changeGoalsFile, editGoals, setGoalSteps } from './src/goalsWrite.mjs'
+import { parseGoals } from './src/goals.mjs'
 import { activityFor, missingToSteps } from './src/goalSteps.mjs'
 import { PLAN_MOVES, planMove } from './src/planMoves.mjs'
 import { FOCUS_DRAFTS, FOCUS_MOVES, demoAgain, evaluationsAgain, evaluationsMode, evaluationsRunning, focusAllDone, focusMove, goalChecked, goalReopened, guardGoal, guardsAsking, partDropRefusal, undoLine } from './src/focus.mjs'
@@ -766,6 +767,30 @@ async function main(args) {
    * 2026-10-24: the board withdraws its own ask before an evaluation once the trip ended without it (Go, a tick, a goal
    * changed meanwhile). Never awaited inside a turn: it runs as a loop of its own.
    */
+  /**
+   * B754 (the person, 2026-10-28: phase out the main chat): a ticked step of a created proposal, written by the board
+   * itself as the person (the work API's `new`, under the activity most of its goal's steps are in) and linked in its
+   * goal's Steps line, as the main chat did. Answers `{ ok, result: { step } }` or why not.
+   */
+  const goalStepNow = async (body, state) => {
+    if (isShowOnly || workDir === null) return { ok: false, status: 409, why: 'This board cannot write a step.' }
+    const step = goalStepOf(body, state)
+    if (!step.ok) return step
+    const stored = await readStore(workDir)
+    const activity = step.goal === null ? stored?.activities?.[0]?.name ?? null : activityFor(step.goal, stored?.items, stored?.activities)
+    if (activity === null) return { ok: false, status: 409, why: 'The work store has no activity to put the step under.' }
+    const made = await workAction({ action: 'new', title: step.title, activity, ...(step.goal === null ? {} : { goal: step.goal }), text: [`Description: ${step.description}`, `Time: ${step.cost}`, 'From the goal map.'] }, 'person')
+    if (!made.ok) return made
+    if (step.goal !== null && writesMap) {
+      const goalsAt = { file: projectFile(config, 'goals'), historyDir: projectFile(config, 'goalsHistory'), now: clock() }
+      await changeGoalsFile(text => {
+        const node = parseGoals(text).byId.get(step.goal)
+        return node === undefined ? { ok: true, text } : setGoalSteps(text, step.goal, [...node.steps, made.result.id])
+      }, goalsAt)
+    }
+    readState.reset()
+    return { ok: true, result: { step: made.result.id } }
+  }
   const withdrawGuardAsk = (id, why) => {
     if (typeof id !== 'string' || !/^Q\d+$/.test(id)) return
     void loops.run('guard', async () => {
@@ -1585,8 +1610,9 @@ async function main(args) {
         canMake,
         why: whyNoPicture,
         busy: making === null ? null : { idea: making.idea, version: making.version, since: making.since },
-        canSend: !isDemo && !isShowOnly && (state.restart?.main ?? null) !== null,
-        whyNot: isDemo ? 'This is the demo: it asks nobody.' : isShowOnly ? `This board only shows. Do this on the board that delivers: http://${HOST}:${recordingPort}/` : 'No main chat is open to ask.',
+        // B754: the board writes the step itself: no main chat is needed.
+        canSend: !isDemo && !isShowOnly && workDir !== null,
+        whyNot: isDemo ? 'This is the demo: it asks nobody.' : isShowOnly ? `This board only shows. Do this on the board that delivers: http://${HOST}:${recordingPort}/` : 'This board has no work store to write the step into.',
         outbox: sentNow(),
         backlog: state.backlog,
         missing: isDemo ? [] : await missingReferences(),
@@ -1711,12 +1737,18 @@ async function main(args) {
       if (checked.action === 'agree') await ideas.agree(checked.idea, checked.version)
       if (checked.action === 'drop') await ideas.drop(checked.idea, now)
       if (checked.action === 'send') {
-        // The step is asked of the main chat in the board's own wording; the main chat writes it.
-        const message = { id: randomBytes(8).toString('hex'), at: now, to: state.restart.main, ask: null, step: null, title: null, version: null, verdict: null, command: 'step', text: checked.text, state: 'waiting' }
-        await store.say(message)
+        // B754 (the person, 2026-10-28: phase out the main chat): the board writes the step itself, as the person,
+        // through its own work API: the same lines the main chat wrote, under the activity the idea's kind names. The
+        // click answers with the step, or with why there is none; nothing waits on a chat.
+        const stored = await readStore(workDir)
+        const activity = designActivity(checked.kind, stored?.activities, picturesActivity(stored?.items))
+        if (activity === null) return { ok: false, status: 409, why: 'The work store has no activity to put the step under.' }
+        const made = await workAction({ action: 'new', title: checked.title, activity, text: checked.lines }, 'person')
+        if (!made.ok) return made
         // B368: a step asked without an idea has no idea to mark.
-        if (checked.idea !== null) await ideas.send(checked.idea, { at: now, where: checked.where, worker: checked.worker, title: checked.title, message: message.id })
+        if (checked.idea !== null) await ideas.send(checked.idea, { at: now, where: checked.where, worker: checked.worker, title: checked.title, message: null, step: made.result.id })
         readState.reset()
+        return { ok: true, result: { step: made.result.id } }
       }
       return { ok: true, result: {} }
     }),
@@ -1760,6 +1792,9 @@ async function main(args) {
         return { ok: true, message: { command: 'sync', checkedAt: done.run?.at ?? null, sweep: done.sweep } }
       }
       const state = await readState()
+      // B754: a ticked step of a created proposal is written by the board itself, as the person, and linked under its
+      // goal in the goal map; the main chat is no longer asked.
+      if (body?.command === 'goal-step') return goalStepNow(body, state)
       const checked = checkSay(body, state, config.maxMessageChars)
       if (!checked.ok) return checked
       // B167: the picture is named to the main chat by where it is, so it has to be there.

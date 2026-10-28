@@ -117,6 +117,41 @@ export function stepWord({ where, title, kind, description, requirements, folder
   ].filter(line => line !== null).join('\n')
 }
 
+/**
+ * B754 (the person, 2026-10-28: phase out the main chat; "verify that a) it becomes more reliable or equal"): the board
+ * writes the step itself, with the lines Main wrote from the word above: what it is about, the description, the
+ * requirements, the pictures and the time, each the person's own words, and where it came from.
+ */
+export function stepLines(send) {
+  return stepWord(send).split('\n').slice(1).filter(line => !line.startsWith('Title: ')).concat('From the Design tab.')
+}
+
+/**
+ * B754: the activity of a step from the Design tab: the one whose name begins with the idea's kind ("screen" for
+ * "Screens and content"), else `usual` (the activity most of the latest steps with pictures went to, `picturesActivity`),
+ * else the first; null with none.
+ */
+export function designActivity(kind, activities, usual = null) {
+  const names = (activities ?? []).map(one => one.name).filter(name => typeof name === 'string' && name !== '')
+  const word = String(kind ?? '').trim().toLowerCase()
+  const first = name => name.toLowerCase().split(/[^a-z0-9]+/).find(part => part !== '') ?? ''
+  const byKind = word === '' ? undefined : names.find(name => first(name) === word || first(name) === `${word}s`)
+  const byUsual = typeof usual === 'string' ? names.find(name => name.toLowerCase() === usual.trim().toLowerCase()) : undefined
+  return byKind ?? byUsual ?? names[0] ?? null
+}
+
+/** B754: the activity most of the latest `last` steps that name pictures ("Pictures: ...") went to, else null. */
+export function picturesActivity(items, last = 20) {
+  const steps = [...(items?.values?.() ?? [])].filter(item => item.head.get('Kind') === 'step'
+    && [...item.sections.values()].some(lines => (lines ?? []).some(line => /^\s*(?:-\s*)?Pictures: /.test(line))))
+  const counts = new Map()
+  for (const item of steps.slice(-last)) {
+    const activity = item.head.get('Activity')
+    if (activity) counts.set(activity, (counts.get(activity) ?? 0) + 1)
+  }
+  return [...counts].sort((a, b) => b[1] - a[1])[0]?.[0] ?? null
+}
+
 const lastDone = idea => idea.versions.findLast(version => version.state === 'done') ?? null
 const isMaking = idea => idea.versions.at(-1)?.state === 'making'
 /** Handed to the main chat, and the word is on its way or has arrived. One that did not arrive leaves the idea free. */
@@ -185,10 +220,11 @@ export function checkDesign(body, design) {
     return isMaking(idea) ? refuse(409, 'Its picture is being made: wait for it.') : { ok: true, action: 'drop', idea: idea.id }
   }
   if (body.action === 'send') {
-    if (design.canSend !== true || (design.main ?? null) === null) return refuse(409, design.whyNot ?? 'This board cannot ask the main chat.')
+    // B754: the board writes the step itself: no main chat is needed.
+    if (design.canSend !== true) return refuse(409, design.whyNot ?? 'This board cannot write a step.')
     // B379: an idea is as it was: its step names its agreed picture, which links the idea to the step it became.
     if (idea !== null && idea.agreed === null) return refuse(409, 'Agree to a picture first, or choose New idea for a step without one.')
-    if (idea !== null && isHanded(idea)) return refuse(409, 'This idea was handed to the main chat already.')
+    if (idea !== null && isHanded(idea)) return refuse(409, 'This idea is a step already.')
     if (body.where !== 'backlog' && body.where !== 'queue') return refuse(400, 'On the backlog, or on the list.')
     const title = oneLine(body.title, LIMITS.title + 1)
     if (title === '') return refuse(400, 'Give it a title.')
@@ -209,7 +245,7 @@ export function checkDesign(body, design) {
     // It is typed into a chat, and a chat is typed at most so much at once: nothing is cut off silently.
     const most = design.maxChars ?? 2500
     if (text.length > most) return refuse(413, `Together that is ${text.length} characters; a step is asked in at most ${most}. Shorten the description or the requirements.`)
-    return { ok: true, action: 'send', idea: idea?.id ?? null, ...send, text }
+    return { ok: true, action: 'send', idea: idea?.id ?? null, ...send, kind, text, lines: stepLines({ ...send, kind, folder: agreed === null ? null : idea.folder, picture: agreed?.picture ?? null }) }
   }
   return refuse(400, 'No such action.')
 }

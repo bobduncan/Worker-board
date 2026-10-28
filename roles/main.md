@@ -303,6 +303,10 @@ list does not know. Do it now, in this turn:
 
 ## A step from the goal map
 
+B754 (the person, 2026-10-28: phase out the main chat): the board now writes these steps itself, as the person, and
+links them under their goal; so it does a step from the Design tab. The words below no longer come to you; the rest of
+this section is the record of how it was done.
+
 The board types `backlog step from the goal map`, `Title:`, `Goal: G<id>`, `Description:`, `Time:` and `Worker:` into
 your chat when the user created a brainstorm's proposal on the Advisor tab: their word, one message per step they
 ticked. Write the step as any other (`work new` with the title, the goal and the description; the board hands it out,
