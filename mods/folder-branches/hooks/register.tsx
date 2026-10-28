@@ -1552,7 +1552,9 @@ async function askWhoami($: EngineInterface, board: Board): Promise<Whoami | nul
 async function joinBySession($: EngineInterface): Promise<void> {
   try {
     // At most once a minute: the cheapest look first, so a prompt is held by nothing else.
-    if ((await $.clock.now()) - lastWhoami < WHOAMI_MS) return
+    // A chat that does not know who it is asks at every prompt (the person's test, 2026-10-28 11:08: the answer at its start
+    // came before the app had listed the new session, and the first prompt, 0.3 s later, did not ask again).
+    if (myself !== null && (await $.clock.now()) - lastWhoami < WHOAMI_MS) return
     const dir = await findChatsDir($, true)
     if (dir === null) return
     const id = await $.session.id()
@@ -1596,7 +1598,8 @@ async function moveCardFromBoard($: EngineInterface, dir: string, list: ChatList
   if (old === null || old.name.toLowerCase() !== who.name.toLowerCase()) return
   lastRole = who.role ?? (isSupervisorOf(list, old) ? 'supervisor' : old.role === 'main' ? 'main' : 'worker')
   carried = { from: who.card, chat: old, clearing: markOf(old, who.card, await $.clock.now()) }
-  await moveAfterClear($, undefined, true)
+  // The words stand ready once the card has moved; the board's answer after it does not hold a prompt (as in prompt.submit).
+  await withinTime($, moveAfterClear($, undefined, true), MOVE_WAIT_MS)
 }
 
 /** Writes every file under a name as one that left; true when this session's own was among them. */

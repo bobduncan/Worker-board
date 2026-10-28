@@ -106,6 +106,8 @@ const FOLDERS_MS = 60_000
 const STATE_MS = 2_000
 /** Clear after each step: a session the board shows under no name is read anew at most this often (src/bridge.mjs). */
 const FRESH_MS = 30_000
+/** 2026-10-28: how soon a whoami of a session the board shows under no name reads the state anew. */
+const WHO_FRESH_MS = 1_000
 const TICK_MS = Number(process.env.WORKER_BOARD_TICK_MS) > 0 ? Number(process.env.WORKER_BOARD_TICK_MS) : 60_000
 /** T9.3 part 1: how often the board checks whether each kind of asset's provider can work. */
 const PROVIDERS_MS = 10 * 60_000
@@ -2014,7 +2016,10 @@ async function main(args) {
       let state = readState.last() ?? await readState()
       // As `checkFresh`: a session the board shows under no name may be a chat the app just made or moved: the state is read
       // anew once in a while before the answer is "no chat".
-      if (session !== null && whoamiOf(state, session) === null && clock() - (freshWho.get(session) ?? -Infinity) >= FRESH_MS) {
+      // The person's test (2026-10-28 11:08): a chat started anew asked at its start, 0.3 s before its first prompt, while the
+      // app had not yet written the new session into its list; a second read only 30 s on left that prompt unnamed. A session
+      // the board shows under no name is read anew at most once a second.
+      if (session !== null && whoamiOf(state, session) === null && clock() - (freshWho.get(session) ?? -Infinity) >= WHO_FRESH_MS) {
         freshWho.set(session, clock())
         for (const [one, at] of freshWho) if (clock() - at >= FRESH_MS) freshWho.delete(one)
         readState.reset()
