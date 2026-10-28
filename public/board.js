@@ -1559,8 +1559,22 @@ function whyText(why) {
   }
 }
 
+/**
+ * The person, 2026-10-28 ("i expect red mean unexpected ... i feel pausing is better to have it purple, suspended"): while
+ * the person pauses all chats, a chat that stopped with its task open and wrote its checkpoint since the pause stopped as
+ * asked: the page shows it suspended by the pause, not interrupted. One with no checkpoint since the pause (the pause
+ * view's `unsaved`) stays interrupted: that one is unexpected. Only what the page shows changes; the board's own reading
+ * of the chat stays as it is. Plain data in, a copy out.
+ */
+function pausedLanes(chats, pause) {
+  if (pause?.state !== 'pausing' || !Array.isArray(chats)) return chats
+  const unsaved = new Set((pause.unsaved ?? []).map(one => one?.chat))
+  return chats.map(lane => (lane?.state === 'interrupted' && !unsaved.has(lane.name) ? { ...lane, state: 'suspended', suspended: { by: 'pause', since: pause.since ?? null, until: null, isBack: false } } : lane))
+}
+
 /** What a suspended lane says: who held it (the app's stop, or its own pause) and when it goes on. */
 function heldText(held) {
+  if (held.by === 'pause') return 'Paused by you · stopped at its checkpoint; goes on at Resume all'
   if (held.by === 'parked') return `Suspended on purpose · goes on once ${held.on.join(' and ')} ${held.on.length === 1 ? 'is' : 'are'} done`
   const who = `${held.by === 'app' ? 'Stopped by the app at' : 'Paused for'} the ${LIMIT_NAMES[held.limit] ?? 'session'} limit`
   if (held.isBack) return `${who} · the limit is back${held.until === null ? '' : ` since ${clock(held.until)}`}, and it has not gone on yet`
@@ -1679,8 +1693,11 @@ function pauseLines(pause) {
  */
 function stoppedLines(restart, chats = []) {
   const reported = new Set(chats.filter(lane => lane.state === 'interrupted' && lane.report?.state === 'idle').map(lane => lane.name))
-  const idle = restart.interrupted.filter(name => reported.has(name))
-  const cut = restart.interrupted.filter(name => !reported.has(name))
+  // 2026-10-28: a chat that stopped for the person's pause at its checkpoint (`pausedLanes`) is no stop to name here.
+  const paused = new Set(chats.filter(lane => lane.state === 'suspended' && lane.suspended?.by === 'pause').map(lane => lane.name))
+  const stopped = restart.interrupted.filter(name => !paused.has(name))
+  const idle = stopped.filter(name => reported.has(name))
+  const cut = stopped.filter(name => !reported.has(name))
   return [
     ...(cut.length > 0 ? [`Cut off in the middle of a task: ${cut.join(', ')}.`] : []),
     ...(idle.length > 0 ? [`Idle with its task open: ${idle.join(', ')}.`] : []),
@@ -16744,7 +16761,9 @@ $('phone-more').addEventListener('click', () => {
 
 // Reading and sending
 
-function draw(state) {
+function draw(given) {
+  // 2026-10-28: while the person pauses, a chat stopped at its checkpoint shows as suspended (`pausedLanes`).
+  const state = given?.pause?.state === 'pausing' ? { ...given, chats: pausedLanes(given.chats, given.pause) } : given
   board = state
   restoreKept()
   window.BoardSpending?.draw(state)

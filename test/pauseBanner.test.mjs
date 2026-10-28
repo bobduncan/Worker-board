@@ -48,7 +48,7 @@ const NAMES = ['Main', 'Board', 'Support']
 const ALL_RUN = { shown: { Main: NOW - 5_000, Board: NOW - 5_000, Support: NOW - 5_000 }, other: {} }
 const BOARD = { startedAt: NOW - 60 * MIN, offSince: null }
 
-function build({ pause = null, steps = [held('B269', 'Board'), held('B280', 'Support')], tails = {}, outbox = [], seen = ALL_RUN, board = BOARD, restartNote = null } = {}) {
+function build({ pause = null, steps = [held('B269', 'Board'), held('B280', 'Support')], tails = {}, outbox = [], seen = ALL_RUN, board = BOARD, restartNote = null, reports = null } = {}) {
   const work = storeFromText('## Board\n', { now: NOW - 120 * MIN })
   for (const item of steps) work.items.set(item.head.get('Id'), item)
   work.pause = pause
@@ -61,7 +61,7 @@ function build({ pause = null, steps = [held('B269', 'Board'), held('B280', 'Sup
     work, adviceText: null, folders: null, askTexts: [], pictureLists: {},
     appStartedAt: NOW - 3 * 60 * MIN, restartNote,
   }
-  return buildState(raw, { lines: [], outbox, runs: [], now: NOW, config, seen, board })
+  return buildState(raw, { lines: [], outbox, runs: [], now: NOW, config, seen, board, reports })
 }
 const MAIN = { name: 'Main', title: 'Game - Main', session: 'local_Main', isRunning: true, hasActed: false }
 
@@ -231,3 +231,33 @@ test('B442: a line the pause holds back is not typing: safe to restart, the line
   assert.deepEqual(once.map(one => one.id), ['h1'])
   assert.deepEqual(await outbox.take('Support', NOW + 2 * MIN, { ...keep, pause: resuming }, isHolding(resuming) ? () => false : undefined), [])
 })
+
+// The person, 2026-10-28 ("adisor seems finished, why is that one still showing as running?"): a word the chat took started
+// a turn; once the chat's own report says that turn ended after the take, it no longer counts as typing.
+test('pausing: a word a chat took counts as typing until the chat reports its turn ended after it', () => {
+  const pause = { state: 'pausing', since: PAUSED, by: 'person' }
+  const word = { id: 'w1', at: NOW - 4 * MIN, takenAt: NOW - 3 * MIN, to: 'Support', command: 'work', text: 'work: Q1 is yours', state: 'taken' }
+  assert.deepEqual(build({ pause, outbox: [word] }).pause.typing, ['Support'])
+  const idleAfter = new Map([['Support', { state: 'idle', since: NOW - MIN, at: NOW - MIN, background: false, session: 'cli-Support' }]])
+  assert.deepEqual(build({ pause, outbox: [word], reports: idleAfter }).pause.typing, [])
+  // Idle since before the take: the word's turn may still run.
+  const idleBefore = new Map([['Support', { state: 'idle', since: NOW - 5 * MIN, at: NOW - MIN, background: false, session: 'cli-Support' }]])
+  assert.deepEqual(build({ pause, outbox: [word], reports: idleBefore }).pause.typing, ['Support'])
+})
+
+// The person, 2026-10-28 ("i expect red mean unexpected ... pausing is better to have it purple, suspended").
+test('the page: while pausing, a chat stopped with its task open at its checkpoint shows suspended by the pause; one with no checkpoint stays interrupted', async () => {
+  const script = await readFile(join(dirname(fileURLToPath(import.meta.url)), '..', 'public', 'board.js'), 'utf8')
+  const source = name => script.match(new RegExp(`^function ${name}\\([\\s\\S]*?^}$`, 'm'))[0]
+  const ctx = { LIMIT_NAMES: {}, clock: () => '' }
+  vm.runInNewContext(`${source('pausedLanes')}\n${source('heldText')}\nthis.pausedLanes = pausedLanes; this.heldText = heldText`, ctx)
+  const chats = [{ name: 'Worker 1', state: 'interrupted' }, { name: 'Worker 2', state: 'interrupted' }, { name: 'Worker 3', state: 'working' }]
+  const pausing = { state: 'pausing', since: PAUSED, unsaved: [{ chat: 'Worker 2', id: 'B2' }] }
+  const shown = ctx.pausedLanes(chats, pausing)
+  assert.deepEqual(shown.map(lane => lane.state), ['suspended', 'interrupted', 'working'])
+  assert.equal(shown[0].suspended.by, 'pause')
+  assert.equal(ctx.heldText(shown[0].suspended), 'Paused by you · stopped at its checkpoint; goes on at Resume all')
+  // Not pausing: nothing changes.
+  assert.deepEqual(ctx.pausedLanes(chats, { state: 'running' }).map(lane => lane.state), ['interrupted', 'interrupted', 'working'])
+})
+

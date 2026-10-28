@@ -1695,6 +1695,12 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
     && !toMain.some(message => message.at > lastCopied.at && message.state !== 'copied' && (message.command ?? null) === (lastCopied.command ?? null))
   // Pause and resume (spec 2026-10-18): the pause banner says how a pause stands, from pause.json.
   const pauseRecord = workOk ? raw.work.pause ?? null : null
+  /** A word its chat took, after which the chat's own report says its turn ended (idle, or its session ended). */
+  const endedSince = message => {
+    const entry = reports instanceof Map ? reports.get(message.to) ?? null : null
+    const took = message.takenAt ?? message.at
+    return entry !== null && (entry.state === 'idle' || entry.state === 'ended') && Number.isFinite(entry.since) && Number.isFinite(took) && entry.since >= took
+  }
   // B299: notes and reports for the person; B438: the main chat's answer to a sync check is one of them.
   const information = informationOf(raw.work, now)
   const restart = {
@@ -1734,7 +1740,9 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
     // The review of Pause 2: a line handed to a chat and not typed yet starts a turn: no Safe while one is on its way.
     ...pauseFacts({
       pause: pauseRecord, items: raw.work.items, lanes: [...chats.filter(lane => !lane.isLeftover), ...[advisorCard, helperLane].filter(one => one !== null)], prefix, now,
-      pending: sent.filter(message => message.state === 'taken' && now - (message.takenAt ?? message.at) < TAKEN_SHOWN_MS),
+      // The person, 2026-10-28 ("adisor seems finished, why is that one still showing as running?"): a word the chat took
+      // starts a turn, but once the chat says its turn ended after the take, that turn is over: no typing any more.
+      pending: sent.filter(message => message.state === 'taken' && now - (message.takenAt ?? message.at) < TAKEN_SHOWN_MS && !endedSince(message)),
       held: sent.filter(message => message.isHeld === true),
     }),
     // `hasActed`: the main chat ran a turn since the pause's last change, or runs one now (the review of Pause 2: once its
