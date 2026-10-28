@@ -2002,6 +2002,45 @@ describe('Pause 2: each chat reads the person\'s pause in its own calls to the b
   const mainChat = (): Record<string, string> => ({ ...listed({ main: { name: 'Main', role: 'main', state: 'waiting', task: null, at: 0 } }), [BOARD]: board })
   const sent = (w: World): Record<string, unknown>[] => w.worked.map(body => JSON.parse(body) as Record<string, unknown>)
 
+  // 2026-10-28: on the work login the app's guard skips classic.PostToolBatch; the pause comes at the next tool call.
+  test('where no classic hook runs, a working chat is told at its next tool call: that call does not run, the next one does', async ($, on) => {
+    mock.clock(on)
+    const w = world('units', units())
+    stand(on, w)
+    const ran: string[] = []
+    on('tool.call', { tool: 'Bash' }, (_$, e) => {
+      ran.push(String((e as { command?: unknown }).command))
+      return { result: 'done' } as never
+    })
+    await $.session.start(START)
+    await $.turn.start({ text: 'go', turnId: 't1' })
+    w.pauseAnswer = state('pausing', [{ id: 'B12', checkpoint: null }])
+    const held = await $.tool.call({ tool: 'Bash', command: 'npm test' } as never)
+    expect(JSON.stringify(held)).toContain('pauses all chats')
+    expect(ran).toEqual([])
+    // Told once: the next call runs, so the chat can commit its work and write its checkpoint.
+    const next = await $.tool.call({ tool: 'Bash', command: 'git commit' } as never)
+    expect(JSON.stringify(next)).not.toContain('pauses all chats')
+    expect(ran).toEqual(['git commit'])
+  })
+
+  test('where the classic hooks run (a personal login), the pause comes at the batch only: no tool call is held', async ($, on) => {
+    mock.clock(on)
+    const w = world('units', units())
+    stand(on, w)
+    const ran: string[] = []
+    on('tool.call', { tool: 'Bash' }, (_$, e) => {
+      ran.push(String((e as { command?: unknown }).command))
+      return { result: 'done' } as never
+    })
+    await $.session.start(START)
+    await $.classic.SessionStart({ source: 'startup', session_title: 'Game - Units' } as never)
+    await $.turn.start({ text: 'go', turnId: 't1' })
+    w.pauseAnswer = state('pausing', [{ id: 'B12', checkpoint: null }])
+    await $.tool.call({ tool: 'Bash', command: 'npm test' } as never)
+    expect(ran).toEqual(['npm test'])
+  })
+
   test('the work tool writes a checkpoint: its description says when, and commit and next reach the board', async ($, on) => {
     mock.clock(on)
     const w = world('units', units())

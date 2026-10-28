@@ -1494,6 +1494,8 @@ const WHOAMI_AGAIN_MS = 5_000
  * then once a minute (a chat of no list asks no more than that).
  */
 const WHOAMI_EAGER_MS = 2 * 60_000
+/** 2026-10-28: whether any classic hook of this mod ran in this process (on a work login the app's guard skips them all). */
+let classicRuns = false
 let eagerSince: number | null = null
 let lastWhoamiTick = -Infinity
 
@@ -2025,6 +2027,7 @@ export const register: Register = on => {
 
   // The app gives a chat's title to the classic hooks: a chat of the project joins the list under it.
   on('classic.SessionStart', async ($, e, next) => {
+    classicRuns = true
     // Clear after each step: after a /clear the chat goes on under the new session id with its card, and is told where
     // it stands (before the title joins it: it is the same chat, never a new one).
     const cleared = e.agent_type === undefined ? await startAfterClear($, e.session_title, e.source === 'clear') : []
@@ -2084,6 +2087,7 @@ export const register: Register = on => {
   })
 
   on('classic.UserPromptSubmit', async ($, e, next) => {
+    classicRuns = true
     await joinByTitle($, e.session_title)
 
     return next(e)
@@ -2102,6 +2106,7 @@ export const register: Register = on => {
   // anyway: no step of its own, and nothing for a request that is answered without tools.
   // Pause 2: the same batch carries the person's pause: while pausing, the chat is told once to checkpoint and stop.
   on('classic.PostToolBatch', async ($, e, next) => {
+    classicRuns = true
     const result = await next(e)
     if (e.agent_id !== undefined || !isInTurn || myself === null) return result
     const more = [...await pauseLines($, 'batch'), ...await cardReminder($)]
@@ -2208,6 +2213,7 @@ export const register: Register = on => {
   // (shells, subagents, monitors, workflows); its end wakes the chat with a turn of its own. The review of chat-reports:
   // only a Stop sets it: a turn cut short (Esc, an API error) runs none, and what the last one listed stands.
   on('classic.Stop', async ($, e, next) => {
+    classicRuns = true
     if (e.agent_id === undefined) hasBackground = Array.isArray(e.background_tasks) && e.background_tasks.length > 0
 
     return next(e)
@@ -2217,6 +2223,18 @@ export const register: Register = on => {
   // B299: each question is filed on the worker board as an ask of kind decide (the app's form: answered in the chat
   // only), under the step the card names when the board takes it there, so the board shows it too; once the form is
   // answered, or closed without an answer, the board is told.
+  // 2026-10-28 (the person: "Yes, build it"; the work login's guard skips classic.PostToolBatch, which told a working chat
+  // to stop): while the person pauses, a working chat whose classic hooks never ran in this process is told at its next
+  // tool call instead. That call does not run: its refusal carries the pause's words, once per turn as at a batch. The
+  // chat's own tools (chat, work) always run, so it can write its checkpoint; a subagent's calls are left alone.
+  on('tool.call', async ($, e, next) => {
+    if (classicRuns || e.agentId !== undefined || e.tool === TOOL || e.tool === WORK || !isInTurn || myself === null) return next(e)
+    const lines = await pauseLines($, 'batch')
+    if (lines.length === 0) return next(e)
+    trace($, 'pause told at a tool call', { tool: e.tool })
+    return { deny: [...lines, `(This ${e.tool} call did not run, so that you read this first: run it again only to commit your work.)`].join('\n') }
+  })
+
   on('tool.call', { tool: 'AskUserQuestion' }, async ($, e, next) => {
     if (e.agentId !== undefined) return next(e)
     // Redesign Part 1: asking until the person answers (or closes the form); then busy again, or idle when the turn ended.
