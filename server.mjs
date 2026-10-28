@@ -1972,7 +1972,8 @@ async function main(args) {
       if (!checked.ok) return checked
       const state = await readState()
       const lanes = shownChats(state)
-      const taken = await store.takeHands(checked.chat, clock(), keep, isHandWord)
+      // While the person pauses no chat is started or woken: the words wait for the resume, as for a take.
+      const taken = isHolding(state.pause) ? [] : await store.takeHands(checked.chat, clock(), keep, isHandWord)
       const read = workDir === null ? null : await readStore(workDir)
       const pause = read?.pause ?? null
       const resumeList = pause?.state === 'resuming' ? pauseAnswer({ pause, items: read.items, lanes, prefix: state.chatPrefix ?? '', chat: checked.chat, role: 'main' }).resumeList : []
