@@ -96,6 +96,11 @@ async function boardAt(t, fiveHour, week = 10, settings = {}) {
     await put(join(transcripts, `${id}-id.jsonl`), `${[typed(NOW - 20 * MIN, 'Go on.'), answer(NOW - 3 * MIN, state === 'working' ? 'Working.' : DONE)].join('\n')}\n`)
   }
   await writeStore(join(project, '.claude', 'work'), migrateBacklog('## Board\n- [ ] B738 Draw the shield (about 1 h)\n', { now: NOW }), undefined, { now: NOW })
+  // B771: a stop word goes only to a worker on a step not yet reported, so each working worker holds one in progress.
+  for (const [at, name] of WORKING.entries()) {
+    const history = [`- ${stamp(NOW - 30 * MIN)} ${name}: queued → taken`, `- ${stamp(NOW - 29 * MIN)} ${name}: taken → in progress`]
+    await put(join(project, '.claude', 'work', `B90${at}.md`), [`Id: B90${at}`, 'Kind: step', 'Title: A board step', 'State: in progress', `Owner: ${name}`, 'Activity: Board', `Since: ${stamp(NOW - 5 * MIN)}`, '', '## History', ...history, ''].join('\n'))
+  }
   // B738 is refined, ready and queued by the person: the board's list of what it may hand out holds it.
   await put(join(project, '.claude', 'work', 'B738.md'), `Id: B738\nKind: step\nTitle: Draw the shield\nState: refined\nRefined: ready\nGoal: G15\nQueued by: person, 2026-10-27 22:20:00\nSince: ${stamp(NOW - 5 * MIN)}\n`)
   // The app's own usage history: the 5-hour window at `fiveHour`, the week at `week`.
