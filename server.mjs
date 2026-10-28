@@ -79,7 +79,7 @@ import { buildState } from './src/state.mjs'
 import { isReadAction, workApi } from './src/work/api.mjs'
 import { effortOf } from './src/work/effort.mjs'
 import { isHolding, pauseAnswer, resumeEnds, resumeRetypeTo, resumeTypeTo } from './src/work/pause.mjs'
-import { handJobs, handResults, isHandWord } from './src/hands.mjs'
+import { handJobs, handResults, isForHandsYet, isHandWord } from './src/hands.mjs'
 import { basesNow, patientReportCheck } from './src/work/check.mjs'
 import { deliverWork, givesRefused, pullFor, sendOnce } from './src/work/deliver.mjs'
 import { coalesce } from './src/work/again.mjs'
@@ -1984,7 +1984,10 @@ async function main(args) {
       // longer running: while resuming every line goes, so an answer to a chat that has not started reaches it).
       // B547: a worker that owes a clear: the line of its next step waits for the clear, which its mod is named once it is idle.
       const atTake = await clearAtTakeOf(body, checked.chat)
-      const only = isHolding((await readState()).pause) ? message => message.command === 'resume' : atTake.hold ? message => !isStepLine(message) : undefined
+      // B755: a hand's word goes to the hands first, to the chat it is addressed to only once none claimed it in a minute.
+      const now = clock()
+      const only = isHolding((await readState()).pause) ? message => message.command === 'resume'
+        : atTake.hold ? message => !isStepLine(message) && !isForHandsYet(message, now) : message => !isForHandsYet(message, now)
       // B532: what no longer matters is closed first, so a chat is never handed a word whose purpose is gone.
       const taken = await takeFor({ dir: workDir, outbox: store, state: await readState(), now: clock(), keep, chat: checked.chat, only })
       // What was taken shows as on its way at once.
@@ -2001,6 +2004,7 @@ async function main(args) {
     // B753: the board's hands in code. A running chat's Workers mod claims the start and wake words (whoever they are
     // addressed to) and, while resuming, a resume line for each chat that has not started; it sends each with the app's
     // send-message tool and says what it sent (`handsDone`). A word it cannot send goes back to waiting for the main chat.
+    // B755: and the words that set a chat's model and effort, which it sets with the app's session tools.
     hands: counted(async body => {
       const { checked } = await checkFresh(body)
       noteMod(body, checked)
@@ -2008,7 +2012,9 @@ async function main(args) {
       const state = await readState()
       const lanes = shownChats(state)
       // While the person pauses no chat is started or woken: the words wait for the resume, as for a take.
-      const taken = isHolding(state.pause) ? [] : await store.takeHands(checked.chat, clock(), keep, isHandWord)
+      // B755: the model and effort words only to a chat whose app lets its code set them (its mod says `can: ['set']`).
+      const canSet = Array.isArray(body?.can) && body.can.includes('set')
+      const taken = isHolding(state.pause) ? [] : await store.takeHands(checked.chat, clock(), keep, message => isHandWord(message, { canSet }))
       const read = workDir === null ? null : await readStore(workDir)
       const pause = read?.pause ?? null
       const resumeList = pause?.state === 'resuming' ? pauseAnswer({ pause, items: read.items, lanes, prefix: state.chatPrefix ?? '', chat: checked.chat, role: 'main' }).resumeList : []

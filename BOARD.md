@@ -240,8 +240,9 @@ is missing and sends your words. A line under the head says what each move did, 
 
 B352: under the talk, **High effort mode** with a switch: off is the usual partner (Opus 5.5, extra high effort), on
 is Opus 5.5 at max effort (never Fable without your yes, since 2026-10-24), for the vibe and the how of a hard goal; it
-reads "on: Fable 5.1, max" only while an evaluation you said yes to runs, and flipping it then goes back to the usual partner. Flipping it types `partner effort` into the main
-chat, which sets your partner's chat; until your partner's next answer runs on that model and effort (its transcript
+reads "on: Fable 5.1, max" only while an evaluation you said yes to runs, and flipping it then goes back to the usual partner. Flipping it makes a `partner effort` word:
+a running chat's Workers mod sets your partner's chat by code (B755, where the app allows it; else the main chat does, a
+minute later); until your partner's next answer runs on that model and effort (its transcript
 names both) the line is dashed and says "Switching…", then solid. Go on the how and another goal as your focus switch
 it back to off by themselves; a word the main chat never took says so and changes nothing. The switch stands as the
 last word asked (kept however long your partner is idle), else as what your partner runs on, so it

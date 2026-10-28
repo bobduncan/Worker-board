@@ -12,7 +12,8 @@
 // refine too, `Model: sonnet|opus` with a one-line reason; a step without one counts as sonnet. The app's model ids come
 // from the settings (`models`), never from the code: for a family without an id the board sets the effort only, as
 // B468 did. The main chat sets both in one word ("set model and effort") with set_session_model and
-// set_session_effort, and the step's line waits until both are read back: from the app's file of the chat, or the
+// set_session_effort (B755: a running chat's Workers mod sets them by code first, src/hands.mjs; the main chat only
+// when none did within a minute), and the step's line waits until both are read back: from the app's file of the chat, or the
 // model from the chat's answer after the word (its transcript names the model of each answer, as for the partner,
 // B352). Between steps a worker runs at its usual setting from the settings (`usualModel`, `usualEffort`: Sonnet,
 // medium), never at what it ran at before.

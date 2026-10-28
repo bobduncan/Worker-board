@@ -3101,7 +3101,9 @@ Advisor's check helpers on Sonnet". It builds on B468: the same word to the main
    is not shown (the state's `model` of a step is null).
 3. One word to the main chat sets both (`effortWords`, command `worker-effort` as before): `set model and effort`,
    "Chat:", "Session:", "Step:" (none when back to the usual setting), "Model:" (the id), "Effort:", "Why:". The main
-   chat runs `set_session_model` and `set_session_effort` (roles/main.md); its own model stays. A word counts as asked
+   chat runs `set_session_model` and `set_session_effort` (roles/main.md); its own model stays. B755: a running chat's
+   Workers mod claims the word first and runs both tools by code (src/hands.mjs), where the app allows its code both
+   with no question; the main chat's take leaves the word to the hands for a minute (`HANDS_FIRST_MS`). A word counts as asked
    for a setting when both its effort and its model are that setting's (`sameTarget`), also in the delivery's check.
 4. The step's line to its worker waits until both are read back (`isSet`), from the app's file of the chat: the app
    writes the session's record there on every change of the model (Claude 3.1623: `setModel` → `commitSessionModel`,

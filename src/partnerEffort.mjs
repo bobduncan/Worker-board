@@ -1,7 +1,8 @@
 // B352: the partner's high effort mode. The person, 2026-10-18 (I16): "while refining a goal, i want a button to change
 // the claude chat working on it, to other model/effort, lets call it high effort mode. so like fable 5.1 max effort.
 // otherwise it will use opus extra". The board cannot change a chat itself: the switch on the Focus page types
-// `partner effort` into the main chat, which sets the partner's chat with the app's session tools (roles/main.md). That
+// `partner effort` into the main chat, which sets the partner's chat with the app's session tools (roles/main.md; B755:
+// a running chat's Workers mod sets it by code first, never Fable, src/hands.mjs). That
 // it is set the board reads from the partner's own transcript, whose every answer names the model and the effort it ran
 // on. Go on the how and a new focus switch it back to the usual partner (the person's yes, 2026-10-18).
 

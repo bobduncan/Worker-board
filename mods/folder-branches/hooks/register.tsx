@@ -16,8 +16,8 @@ import {
 } from './chats'
 import type { OpenInstruction, TaskChange } from './chats'
 import { blockAsksLine, forYouCount, forYouItems, leftOutLine } from './foryou'
-import { HANDS_DONE_PATH, HANDS_MS, HANDS_PATH, SEND_TOOL, parseJobs, sendResult } from './hands'
-import type { HandResult } from './hands'
+import { CAN_SET_MS, EFFORT_TOOL, HANDS_DONE_PATH, HANDS_MS, HANDS_PATH, MODEL_TOOL, SEND_TOOL, canSetFrom, parseJobs, sendResult, setResult } from './hands'
+import type { HandResult, HandSet } from './hands'
 import {
   SELF, UNKNOWN, branchList, branchName, detached, folderName, inFolder, isListed, ordered, summary,
 } from './folders'
@@ -57,6 +57,8 @@ let watch: Timer | null = null
 let chatWatch: Timer | null = null
 /** B753: the timer of the board's hands in this process, and whether a round of them runs. */
 let handsWatch: Timer | null = null
+/** B755: whether the app lets this chat's code set model and effort, and when it was last asked. */
+let canSet = { at: -Infinity, yes: false }
 let isHanding = false
 let isReading = false
 let isReadingChats = false
@@ -1534,12 +1536,14 @@ async function handRound($: EngineInterface): Promise<void> {
     const board = parseBoard(await $.fs.read(inFolder(project, BOARD_FILE)).catch(() => ''))
     // Only a board that says it hands out jobs is asked: an older one has no such route.
     if (board === null || !board.hands) return
-    const jobs = parseJobs(await askBoard($, board, HANDS_PATH).catch(() => null))
+    const jobs = parseJobs(await askBoard($, board, HANDS_PATH, (await canSetHere($)) ? { can: ['set'] } : {}).catch(() => null))
     if (jobs.length === 0) return
     const results: HandResult[] = []
     for (const job of jobs) {
       try {
-        results.push(sendResult(job.id, await $.tool.call({ tool: SEND_TOOL, session_id: job.to, message: job.text } as never)))
+        results.push('text' in job
+          ? sendResult(job.id, await $.tool.call({ tool: SEND_TOOL, session_id: job.to, message: job.text } as never))
+          : await setChat($, job.id, job.to, job.set))
       } catch (error) {
         results.push({ id: job.id, ok: false, why: error instanceof Error ? error.message.slice(0, 300) : 'the tool failed' })
       }
@@ -1551,6 +1555,29 @@ async function handRound($: EngineInterface): Promise<void> {
   } finally {
     isHanding = false
   }
+}
+
+/**
+ * B755: whether the app lets this chat's code set another chat's model and effort with no question: its verdict for
+ * both tools (the allow rule in the project's local settings), asked again after CAN_SET_MS. Without the rule a call is
+ * denied in auto mode, so such a chat claims no set jobs.
+ */
+async function canSetHere($: EngineInterface): Promise<boolean> {
+  const now = await $.clock.now()
+  if (now - canSet.at < CAN_SET_MS) return canSet.yes
+  const probe = { session_id: 'local_none', model: 'claude-opus-5-5', effort: 'medium' }
+  const verdicts = await Promise.all([MODEL_TOOL, EFFORT_TOOL].map(tool => $.tool.check({ tool, input: probe } as never).catch(() => null)))
+  canSet = { at: now, yes: canSetFrom(verdicts) }
+  return canSet.yes
+}
+
+/** B755: sets the chat `to`'s model (when the job names one) and then its effort; the result says why not, if not. */
+async function setChat($: EngineInterface, id: string, to: string, set: HandSet): Promise<HandResult> {
+  if (set.model !== null) {
+    const model = setResult(id, await $.tool.call({ tool: MODEL_TOOL, session_id: to, model: set.model } as never))
+    if (!model.ok) return model
+  }
+  return setResult(id, await $.tool.call({ tool: EFFORT_TOOL, session_id: to, effort: set.effort } as never))
 }
 
 /** One question to the board, as no chat yet (`myself` may be null): its answer, or null. It never throws. */

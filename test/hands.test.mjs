@@ -5,7 +5,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import { HAND_LINE, RESUME_AGAIN_MS, handJobs, handResults, isHandWord } from '../src/hands.mjs'
+import { HAND_LINE, HANDS_FIRST_MS, RESUME_AGAIN_MS, handJobs, handResults, isForHandsYet, isHandWord, setOf } from '../src/hands.mjs'
 import { memoryStore } from '../src/store.mjs'
 import { POST_ROUTES } from '../server.mjs'
 
@@ -69,6 +69,49 @@ test('the outbox: a hand takes each start and wake word once, whoever it is for;
   assert.equal(store.outbox().find(one => one.id === 'b').state, 'waiting')
   await store.settle('Main', { typed: ['a'] }, 3 * MIN)
   assert.equal(store.outbox().find(one => one.id === 'a').state, 'delivered')
+})
+
+// B755: a chat's model and effort set by code. Made-up chats; the model ids are the app's form, as the settings name them.
+const setWord = (id, about, more) => ({ ...word(id, 'worker-effort', about), effort: 'high', model: 'claude-opus-5-5', ...more })
+
+test('B755: a set word is a hand\'s only for a chat that can set, and only with values code may set: never Fable', () => {
+  assert.equal(isHandWord(setWord('a', 'Worker 1')), false)
+  assert.equal(isHandWord(setWord('a', 'Worker 1'), { canSet: true }), true)
+  assert.deepEqual(setOf(setWord('a', 'Worker 1')), { model: 'claude-opus-5-5', effort: 'high' })
+  assert.deepEqual(setOf(setWord('b', 'Worker 1', { model: null })), { model: null, effort: 'high' })
+  assert.deepEqual(setOf({ ...word('c', 'partner-effort', 'Advisor'), mode: 'high' }), { model: 'claude-opus-5-5', effort: 'max' })
+  assert.deepEqual(setOf({ ...word('d', 'partner-effort', 'Advisor'), mode: 'usual' }), { model: 'claude-opus-5-5', effort: 'xhigh' })
+  for (const bad of [
+    { ...word('e', 'partner-effort', 'Advisor'), mode: 'fable' },
+    setWord('f', 'Worker 1', { model: 'claude-fable-5-1' }),
+    setWord('g', 'Worker 1', { model: 'gpt-5' }),
+    setWord('h', 'Worker 1', { effort: 'ultra' }),
+    setWord('i', 'Worker 1', { model: 'claude-opus-5-5; rm -rf' }),
+  ]) {
+    assert.equal(setOf(bad), null, bad.id)
+    assert.equal(isHandWord(bad, { canSet: true }), false, bad.id)
+  }
+})
+
+test('B755: a set job carries the target\'s app id and the values, no line; the caller\'s own chat goes back to the main chat', () => {
+  const taken = [setWord('a', 'Worker 1'), { ...word('b', 'partner-effort', 'Advisor'), mode: 'high' }, setWord('c', 'Worker 2')]
+  const { jobs, back } = handJobs({ caller: 'Supervisor', taken, lanes: LANES, now: 0 })
+  assert.deepEqual(jobs, [
+    { id: 'a', to: 'local_w1', chat: 'Worker 1', set: { model: 'claude-opus-5-5', effort: 'high' } },
+    { id: 'b', to: 'local_adv', chat: 'Advisor', set: { model: 'claude-opus-5-5', effort: 'max' } },
+  ])
+  assert.deepEqual(back, ['c'])
+  assert.deepEqual(handJobs({ caller: 'Worker 1', taken: [setWord('a', 'Worker 1')], lanes: LANES, now: 0 }).back, ['a'])
+})
+
+test('B755: a chat\'s own take leaves a hand\'s word to the hands for a minute, then takes it; other words go at once', async () => {
+  const store = memoryStore()
+  await store.say({ ...setWord('a', 'Worker 1'), at: 0 })
+  await store.say({ ...word('b', 'start', 'Worker 2'), at: 0 })
+  await store.say({ ...word('c', 'refine', 'Worker 1'), at: 0 })
+  const only = now => message => !isForHandsYet(message, now)
+  assert.deepEqual((await store.take('Main', HANDS_FIRST_MS - 1, keep, only(HANDS_FIRST_MS - 1))).map(one => one.id), ['c'])
+  assert.deepEqual((await store.take('Main', HANDS_FIRST_MS, keep, only(HANDS_FIRST_MS))).map(one => one.id), ['a', 'b'])
 })
 
 test('the routes: a hand claims and reports through the bridge, behind the board\'s key and its lock', () => {
