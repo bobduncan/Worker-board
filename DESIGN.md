@@ -796,6 +796,9 @@ as the title". The picture is `art-inbox/worker-board/2026-10-13-b113-limits-res
   `five-hour-stop-ignored` (`rules/watch.mjs`) opens one incident when a step is given (the History line "refined → queued
   (given by the board to ...)") or a worker is started (a `start` or `spawn` word of the hand-out) more than 2 min after
   the figure at the line was read, while the limit stands at the line; it names them and clears when the limit leaves it.
+  (B773: `test/fiveHourStopBoard.test.mjs` runs this through a running board: at 94 nothing is typed, at 95 each working
+  worker gets the word once however often the looking loop passes, and the hand-out holds; with the server's call that
+  types the word removed it fails.)
 - *Suspended.* A state of its own, in place of working or free, in two cases. The app stopped the chat at the
   limit: its line is the last thing in the transcript, and names the time. Or a worker paused by itself: its last
   word to the main chat says in its first line "paused for the limit", with "until HH:MM" when it knows, and its
