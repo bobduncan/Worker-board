@@ -459,7 +459,8 @@ function drawSettings(state, cpu) {
   // B320: the New project button, on the board that delivers.
   $('new-project-button').hidden = state.newProject?.canMake !== true
   drawBoardSettings(state)
-  settings.hidden = cpu === null && version === '' && $('new-project-button').hidden && (state.boardSettings ?? null) === null
+  drawCodeJobs(state)
+  settings.hidden = cpu === null && version === '' && $('new-project-button').hidden && (state.boardSettings ?? null) === null && (state.codeJobs ?? null) === null
   const level = cpu === null || cpu.level === null ? null : `CPU for Claude: ${cpu.level[0].toUpperCase()}${cpu.level.slice(1)}${cpu.count === '' ? '' : ` (${cpu.count})`}`
   const shown = state.boardSettings ?? null
   const bother = shown === null ? null : `Bother me: ${shown.botherMe === 'daily' ? 'once a day' : 'at once'}`
@@ -490,6 +491,86 @@ function drawBoardSettings(state) {
     button.disabled = shown.canSet !== true || sending.has('setting')
   }
 }
+
+/**
+ * B767 (the person, 2026-10-28: "is this clear for new users of the worker board for new pc's?"): the setup check's
+ * lines, one per routine job of the main chat's (`state.codeJobs.rows`): by code, or still the main chat's and why.
+ */
+function codeJobLines(jobs) {
+  // Plain for a first-time user (the person, 2026-10-28: "as long as instructions are clear when a new user tries the
+  // board for the first time"): a short state, the full reason in its tooltip.
+  const short = { 'not allowed yet': 'needs your OK', 'no stored start-worker task on this PC': 'needs its start task', 'no chat with the Workers mod runs now': 'no chat runs now' }
+  return (jobs?.rows ?? []).map(row => ({
+    key: row.key, title: row.title, byCode: row.byCode === true,
+    text: row.byCode === true ? 'by itself' : short[row.why] ?? (String(row.why ?? '').startsWith('the last try failed') ? 'last try failed' : 'after a restart'),
+    why: row.byCode === true ? 'The board does this by itself.' : `The main chat does this for now: ${row.why}.`,
+  }))
+}
+
+/** B767: the note on top while a job of the main chat's could run by code once allowed or once the task is made. */
+function codeJobsNote(jobs) {
+  if (jobs === null || jobs === undefined) return null
+  const lacking = (jobs.rows ?? []).filter(row => row.byCode !== true && (row.why === 'not allowed yet' || row.why === 'no stored start-worker task on this PC'))
+  if (lacking.length === 0) return null
+  return `The board can do ${lacking.length === 1 ? 'one more job' : `${lacking.length} more jobs`} by itself on this PC once you allow ${lacking.length === 1 ? 'it' : 'them'}: ${lacking.map(row => row.title.toLowerCase()).join(', ')}.`
+}
+
+/** B767: the setup check in the settings panel and its note on top. */
+function drawCodeJobs(state) {
+  const jobs = state.codeJobs ?? null
+  const note = codeJobsNote(jobs)
+  $('code-jobs-note').hidden = note === null
+  if (note !== null) $('code-jobs-note-text').textContent = note
+  $('code-jobs').hidden = jobs === null
+  if (jobs === null) return
+  once('code-jobs', [jobs.rows, jobs.missing, jobs.taskLine, jobs.checked], () => {
+    fill($('code-job-list'), codeJobLines(jobs).map(line => {
+      const row = el('li', `code-job${line.byCode ? ' is-code' : ''}`)
+      row.title = line.why
+      row.append(el('span', 'code-job-title', line.title), el('span', 'code-job-state', line.text))
+      return row
+    }))
+  })
+  const allow = $('code-jobs-allow')
+  allow.hidden = jobs.canAllow !== true || (jobs.missing ?? []).length === 0
+  allow.disabled = sending.has('code-jobs')
+  allow.title = `Adds to this project's .claude/settings.local.json: ${(jobs.missing ?? []).join(', ')}`
+  $('code-jobs-task').hidden = typeof jobs.taskLine !== 'string'
+  const problem = problems.get('code-jobs') ?? null
+  const checked = jobs.checked === null ? 'No chat runs now to check it.' : `Checked by ${jobs.checked.chat} at ${clock(jobs.checked.at)}.`
+  const open = (jobs.rows ?? []).some(row => row.byCode !== true)
+  const steps = [allow.hidden ? null : '"Allow them" adds the permissions to this project\'s own settings', $('code-jobs-task').hidden ? null : '"Copy the line" gives a line to paste into any chat of this project and send'].filter(Boolean)
+  $('code-jobs-about').textContent = problem ?? (open ? `What the board does not do by itself yet, the main chat does.${steps.length === 0 ? '' : ` ${steps.join('; ')}.`} ${checked}` : checked)
+}
+
+$('code-jobs-open').addEventListener('click', () => { $('settings').open = true })
+
+$('code-jobs-allow').addEventListener('click', async () => {
+  if (board === null || sending.has('code-jobs')) return
+  sending.add('code-jobs')
+  problems.delete('code-jobs')
+  drawCodeJobs(board)
+  try {
+    const answer = await fetch('/api/code-jobs', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Board-Token': TOKEN }, body: JSON.stringify({ action: 'allow' }) })
+    if (!answer.ok) throw new Error((await answer.text()).trim() || `refused (${answer.status})`)
+    const done = await answer.json()
+    problems.set('code-jobs', done.added.length === 0 ? 'Nothing was missing.' : `Allowed: ${done.added.length} tools. The chats see it within ten minutes.`)
+  } catch (error) {
+    problems.set('code-jobs', `Not allowed: ${error instanceof Error ? error.message : 'the board did not answer'}`)
+  } finally {
+    sending.delete('code-jobs')
+    drawCodeJobs(board)
+  }
+})
+
+$('code-jobs-task').addEventListener('click', () => {
+  const line = board?.codeJobs?.taskLine ?? null
+  if (line === null) return
+  navigator.clipboard.writeText(line).then(
+    () => problems.set('code-jobs', 'Copied: paste it into any chat of this project and send it.'),
+    () => problems.set('code-jobs', 'Not copied: the browser refused the clipboard.'),
+  ).finally(() => drawCodeJobs(board))
+})
 
 $('settings').addEventListener('click', async event => {
   const button = event.target.closest('[data-setting]')
@@ -1559,8 +1640,28 @@ function whyText(why) {
   }
 }
 
+/**
+ * The person, 2026-10-28 ("i expect red mean unexpected ... i feel pausing is better to have it purple, suspended"): while
+ * the person pauses all chats, a chat that stopped with its task open and wrote its checkpoint since the pause stopped as
+ * asked: the page shows it suspended by the pause, not interrupted. One with no checkpoint since the pause (the pause
+ * view's `unsaved`) stays interrupted: that one is unexpected. Only what the page shows changes; the board's own reading
+ * of the chat stays as it is. Plain data in, a copy out.
+ */
+function pausedLanes(chats, pause) {
+  if (pause?.state !== 'pausing' || !Array.isArray(chats)) return chats
+  const unsaved = pause.unsaved ?? []
+  // Its own step decides (the person's look, 13:40: Worker 3 checkpointed B757 and stayed red for B736, a step of it in
+  // review); a lane that names no step is decided by any step of its chat.
+  const isUnsaved = lane => {
+    const id = lane.task?.stepId ?? null
+    return unsaved.some(one => one?.chat === lane.name && (id === null || one.id === id))
+  }
+  return chats.map(lane => (lane?.state === 'interrupted' && !isUnsaved(lane) ? { ...lane, state: 'suspended', suspended: { by: 'pause', since: pause.since ?? null, until: null, isBack: false } } : lane))
+}
+
 /** What a suspended lane says: who held it (the app's stop, or its own pause) and when it goes on. */
 function heldText(held) {
+  if (held.by === 'pause') return 'Paused by you · stopped at its checkpoint; goes on at Resume all'
   if (held.by === 'parked') return `Suspended on purpose · goes on once ${held.on.join(' and ')} ${held.on.length === 1 ? 'is' : 'are'} done`
   const who = `${held.by === 'app' ? 'Stopped by the app at' : 'Paused for'} the ${LIMIT_NAMES[held.limit] ?? 'session'} limit`
   if (held.isBack) return `${who} · the limit is back${held.until === null ? '' : ` since ${clock(held.until)}`}, and it has not gone on yet`
@@ -1679,8 +1780,11 @@ function pauseLines(pause) {
  */
 function stoppedLines(restart, chats = []) {
   const reported = new Set(chats.filter(lane => lane.state === 'interrupted' && lane.report?.state === 'idle').map(lane => lane.name))
-  const idle = restart.interrupted.filter(name => reported.has(name))
-  const cut = restart.interrupted.filter(name => !reported.has(name))
+  // 2026-10-28: a chat that stopped for the person's pause at its checkpoint (`pausedLanes`) is no stop to name here.
+  const paused = new Set(chats.filter(lane => lane.state === 'suspended' && lane.suspended?.by === 'pause').map(lane => lane.name))
+  const stopped = restart.interrupted.filter(name => !paused.has(name))
+  const idle = stopped.filter(name => reported.has(name))
+  const cut = stopped.filter(name => !reported.has(name))
   return [
     ...(cut.length > 0 ? [`Cut off in the middle of a task: ${cut.join(', ')}.`] : []),
     ...(idle.length > 0 ? [`Idle with its task open: ${idle.join(', ')}.`] : []),
@@ -2671,17 +2775,19 @@ function openChatLink(folder, words) {
  * joins the list of chats, reads its job and the project's own facts, and starts the Advisor by a start card or a chip
  * (`advisor`, its title, when the settings name one).
  */
-function firstWords({ title, name, projectName, project, board, advisor = null }) {
+function firstWords({ title, name, projectName, project, board, advisor = null, task = null }) {
   // Review: a path as the board's folder writes it (a Mac's with /).
   const sep = board.includes('\\') || !board.includes('/') ? '\\' : '/'
   const at = (base, ...parts) => [base.replace(/[\\/]+$/, ''), ...parts].join(sep)
   return [
     `You are the main chat of the project ${projectName}, worked on with the worker board.`,
     `1. Name this chat "${title}": call the app's session tool set_session_title (mcp__ccd_session_mgmt__set_session_title) with session_id "self" and that title.`,
-    `2. Join the list of chats: when the tool mcp__folder-branches__chat is there, call it with action "join", name "${name}", role "main".`,
+    `2. Join the list of chats: when the tool mcp__workers__chat is there, call it with action "join", name "${name}", role "main".`,
     `3. Read your job, ${at(board, 'roles', 'main.md')}, the words the board and the chats share, ${at(board, 'roles', 'protocol.md')}, this project's facts, ${at(project, '.claude', 'main-briefing.md')}, and how to answer the user, ${at(project, 'CLAUDE.md')}.`,
     // B324: the trial's main chat had no spawn_task, only start cards: the words name both and take the one there is.
     ...(advisor === null ? [] : [`4. Start the Advisor as you start a worker: a new chat titled "${advisor.title}" (a start card, mcp__ccd_session__start_session, or a chip, mcp__ccd_session__spawn_task, whichever the app gives you), whose prompt tells it that it is the Advisor (the partner) of this project, to join the list as "${advisor.name}" with role "worker", and to read ${at(board, 'roles', 'partner.md')}, ${at(board, 'roles', 'protocol.md')} and ${at(project, 'CLAUDE.md')}. Tell the user in one line to click it.`]),
+    // B767: the stored start-worker task, made in this first turn the person typed (only then is its Auto mode saved).
+    ...(task === null ? [] : [`${advisor === null ? 4 : 5}. ${task.replace(/ Then say in one line that it is made\.$/, '')}`]),
     'Then say in one line that you are ready: the board then asks you for workers.',
   ].join('\n')
 }
@@ -2700,7 +2806,8 @@ function setupChat(state) {
   const name = workers.mainTitle.slice(prefix.length) || 'Main'
   // An Advisor named as the main chat would be a second main chat.
   const hasAdvisor = typeof open.advisor === 'string' && open.advisor !== '' && open.advisor.toLowerCase() !== name.toLowerCase() && (state.advisor ?? null) === null
-  const words = firstWords({ title: workers.mainTitle, name, projectName: open.name || name, project: workers.project, board: open.board, advisor: hasAdvisor ? { name: open.advisor, title: `${prefix}${open.advisor}` } : null })
+  const task = typeof state.codeJobs?.taskLine === 'string' ? state.codeJobs.taskLine : null
+  const words = firstWords({ title: workers.mainTitle, name, projectName: open.name || name, project: workers.project, board: open.board, advisor: hasAdvisor ? { name: open.advisor, title: `${prefix}${open.advisor}` } : null, task })
   return { title: workers.mainTitle, words, link: openChatLink(workers.project, words) }
 }
 
@@ -16838,6 +16945,8 @@ async function read() {
     }
     if (!answer.ok) throw new Error(String(answer.status))
     const state = await answer.json()
+    // 2026-10-28: while the person pauses, a chat stopped at its checkpoint shows as suspended (`pausedLanes`).
+    if (state?.pause?.state === 'pausing') state.chats = pausedLanes(state.chats, state.pause)
     withAnswers(state)
     draw(state)
     awaySince = null

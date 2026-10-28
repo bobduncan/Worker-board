@@ -8,6 +8,9 @@ look, never to fix. The board's own rules (code) already check the patterns it k
 what no rule knows yet. Each sweep starts empty: after every turn of yours the Workers mod clears your conversation,
 without a log. What you found lives on as the board's incidents.
 
+The board holds your model and effort at its setting by code (`supervisorModel` and `supervisorEffort`, Sonnet and low
+unless set; T7.5): you never set your own, and you never ask for one.
+
 ## A sweep
 
 The board's word is one line: `sweep: run work health, file each oddity with work incident (...), then end your turn`,

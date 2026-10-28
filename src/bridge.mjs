@@ -265,8 +265,8 @@ function messageBody(message, clock, where) {
   // The supervisor (spec 2026-10-24): so is its sweep word to the supervisor's chat. 2026-10-26: and the word that has a
   // worker go on with its step after a crash (say.mjs `resumesDue`): the board's, never the person's. B739: and the line that a
   // reported step's worker still has background work running (say.mjs `reportedBackgroundDue`). B742: and the line that the
-  // week reached the person's stop line (say.mjs `weekStopDue`).
-  if (message.command === 'round' || message.command === 'work' || message.command === 'sweep' || message.command === 'resume-step' || message.command === 'report-background' || message.command === 'week-stop') return words
+  // week reached the person's stop line (say.mjs `weekStopDue`). B758: and the 5-hour limit's (`fiveHourStopDue`).
+  if (message.command === 'round' || message.command === 'work' || message.command === 'sweep' || message.command === 'resume-step' || message.command === 'report-background' || message.command === 'week-stop' || message.command === 'five-hour-stop') return words
   if ((message.ask ?? null) === null) {
     const picture = typeof message.picture === 'string' ? pictureLine(where(message.picture)) : null
     return `${[words, picture].filter(part => part !== null && part !== '').join('\n')}\n(typed on the worker board, ${clock(message.at)})`

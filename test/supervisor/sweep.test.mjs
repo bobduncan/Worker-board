@@ -334,8 +334,8 @@ test('the setting supervisorSweepMinutes: 10 unless set, 0 for none, never below
 })
 
 test('the Workers mod says its version with every call: the same as its plugin.json, and the one a sweep needs; the server keeps it per chat', async () => {
-  const plugin = JSON.parse(await readFile(join(ROOT, 'mods', 'folder-branches', '.claude-plugin', 'plugin.json'), 'utf8'))
-  const board = await readFile(join(ROOT, 'mods', 'folder-branches', 'hooks', 'board.ts'), 'utf8')
+  const plugin = JSON.parse(await readFile(join(ROOT, 'mods', 'workers', '.claude-plugin', 'plugin.json'), 'utf8'))
+  const board = await readFile(join(ROOT, 'mods', 'workers', 'hooks', 'board.ts'), 'utf8')
   assert.equal(board.match(/export const MOD_VERSION = '([\d.]+)'/)?.[1], plugin.version)
   assert.equal(SWEEP_MOD, '0.16.0')
   const server = await readFile(join(ROOT, 'server.mjs'), 'utf8')

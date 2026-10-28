@@ -17,7 +17,7 @@ const said = (text, code = 0) => {
 }
 const words = args.filter(arg => !arg.startsWith('-'))
 const command = words.slice(0, words[1] === 'marketplace' ? 3 : 2).join(' ')
-const versionIn = dir => JSON.parse(readFileSync(join(dir, 'folder-branches', '.claude-plugin', 'plugin.json'), 'utf8')).version
+const versionIn = dir => JSON.parse(readFileSync(join(dir, 'workers', '.claude-plugin', 'plugin.json'), 'utf8')).version
 
 if (state.isBroken) {
   said('Something went wrong inside the program.\n', 1)
@@ -44,6 +44,9 @@ if (state.isBroken) {
     state.plugins.push({ id, version: versionIn(known.path), scope: 'user', enabled: true })
     said(`Successfully installed plugin: ${id} (scope: user)\n`)
   }
+} else if (command === 'plugin uninstall' || command === 'plugin remove') {
+  state.plugins = state.plugins.filter(one => one.id !== args[2])
+  said(`Successfully uninstalled plugin: ${args[2]}\n`)
 } else if (command === 'plugin enable') {
   const plugin = state.plugins.find(one => one.id === args[2])
   if (plugin !== undefined) plugin.enabled = true

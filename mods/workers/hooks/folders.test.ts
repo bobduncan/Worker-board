@@ -106,7 +106,7 @@ function stand(on: On, world: World): void {
 /** The side pane as a surface draws it. */
 const PANE = {
   component: 'Pane',
-  requestId: 'folder-branches',
+  requestId: 'git',
   props: { title: 'Git', isFocused: false, bodyColumns: 40, placement: 'dock', scroll: { offset: 0, bodyRows: 30 }, view: {} },
 } as const
 
@@ -140,7 +140,7 @@ describe('the Git pane', () => {
     await $.session.start({ cwd: world.root, ...START })
 
     for (const surface of ['terminal', 'desktop', 'vscode', 'mobile'] as const) {
-      const ui = await $.ui.mount({ plugin: 'folder-branches', surface, ...PANE })
+      const ui = await $.ui.mount({ plugin: 'workers', surface, ...PANE })
       // The folders in git, folded; the others say "no git"; a file, a dot folder and a dead link are not listed.
       expect((await ui.findAll({ type: 'Button' })).map(b => b.text)).toEqual([
         '▸ game · look/shape', '▸ game-sound · feature/sound-board',
@@ -155,7 +155,7 @@ describe('the Git pane', () => {
       await ui.unmount()
     }
 
-    const ui = await $.ui.mount({ plugin: 'folder-branches', surface: 'desktop', ...PANE })
+    const ui = await $.ui.mount({ plugin: 'workers', surface: 'desktop', ...PANE })
     await ui.press({ key: 'folder:game' })
     expect((await ui.find({ key: 'folder:game' }))?.text).toBe('▾ game · look/shape')
     // Every local branch, the one checked out marked.
@@ -177,7 +177,7 @@ describe('the Git pane', () => {
     const world = project()
     stand(on, world)
     await $.session.start({ cwd: world.root, ...START })
-    const ui = await $.ui.mount({ plugin: 'folder-branches', surface: 'desktop', ...PANE })
+    const ui = await $.ui.mount({ plugin: 'workers', surface: 'desktop', ...PANE })
     await ui.press({ key: 'folder:game' })
 
     world.repos['D:/Work/project/game'] = { branch: 'main', branches: BRANCHES }
@@ -206,7 +206,7 @@ describe('the Git pane', () => {
     world.repos['D:/Work/project/game-sound'] = { branch: 'main', branches: [], isBroken: true }
     stand(on, world)
     await $.session.start({ cwd: world.root, ...START })
-    const ui = await $.ui.mount({ plugin: 'folder-branches', surface: 'terminal', ...PANE })
+    const ui = await $.ui.mount({ plugin: 'workers', surface: 'terminal', ...PANE })
     expect((await ui.find({ key: 'folder:game' }))?.text).toBe('▸ game · (none, at commit abc1234)')
     expect((await ui.find({ key: 'folder:game-sound' }))?.text).toBe('▸ game-sound · (unknown)')
     await ui.press({ key: 'folder:game' })
@@ -232,7 +232,7 @@ describe('the Git pane', () => {
     }
     stand(on, world)
     await $.session.start({ cwd: world.root, surface: 'terminal', isInteractive: true })
-    const ui = await $.ui.mount({ plugin: 'folder-branches', surface: 'terminal', ...PANE })
+    const ui = await $.ui.mount({ plugin: 'workers', surface: 'terminal', ...PANE })
     expect((await ui.findAll({ type: 'Button' })).map(b => b.text)).toEqual([
       '▸ game (this folder) · feature/sound-board', '▸ vendor-lib · v2',
     ])
@@ -248,7 +248,7 @@ describe('the Git pane', () => {
     stand(on, world)
     await $.session.start({ cwd: world.root, ...START })
     // There are branches to show: the pane opens by itself.
-    expect(world.opened).toEqual(['folder-branches:Git'])
+    expect(world.opened).toEqual(['git:Git'])
     const answer = await $.command.run({ command: 'git', args: '', ...ASKED })
     expect(answer.text).toBe([
       'game: look/shape', 'game-sound: feature/sound-board', 'art-inbox: no git', 'linked: no git',
@@ -266,7 +266,7 @@ describe('the Git pane', () => {
     await $.session.start({ cwd: world.root, surface: 'terminal', isInteractive: true })
     expect(world.opened).toEqual([])
     expect(world.asked).toEqual([])
-    const ui = await $.ui.mount({ plugin: 'folder-branches', surface: 'terminal', ...PANE })
+    const ui = await $.ui.mount({ plugin: 'workers', surface: 'terminal', ...PANE })
     expect(await ui.find({ type: 'Text', text: 'drafts · no git' })).toBeDefined()
 
     world.entries = [file('todo.md')]

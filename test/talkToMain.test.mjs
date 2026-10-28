@@ -17,7 +17,7 @@ const app = name => JSON.stringify({
   title: `Game - ${name}`, sessionId: `local_${name}`, cliSessionId: `cli-${name}`, cwd: PROJECT, isArchived: false,
   createdAt: name.length, lastActivityAt: NOW - 5 * MIN, lastAssistantUuid: 'u-1',
 })
-const viaBoard = (at, text) => user(at, text, { origin: { kind: 'plugin', name: 'folder-branches', asUser: true } })
+const viaBoard = (at, text) => user(at, text, { origin: { kind: 'plugin', name: 'workers', asUser: true } })
 
 const MAIN_TAIL = [
   typed(NOW - 30 * MIN, 'Add a snowy mountain area.'),

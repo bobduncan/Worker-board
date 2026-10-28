@@ -157,6 +157,9 @@ export const DEFAULTS = {
   limitWarnPercent: 80,
   /** B742 (X96): the percent of the week's limit from which all work stops (the person, 2026-10-19: 98), so the board counts the week full there. */
   weekStopAt: 98,
+  /** B758 (X99): the 5-hour limit counts full from this percent while its reset is over `fiveHourStopMinutes` away (at 100 always); nothing is handed out or started then. */
+  fiveHourStopAt: 95,
+  fiveHourStopMinutes: 10,
   /**
    * B173: what one project sets for the Advisor (its job is the board's `roles/partner.md`). The backlog, in the
    * project; the game plan, the Advisor's decisions and the documents it reads first, in the game's repository; the
@@ -212,6 +215,12 @@ export const DEFAULTS = {
   /** Model per step: what a worker runs at between steps, a family of `models` and an effort level of the app's. */
   usualModel: 'sonnet',
   usualEffort: 'medium',
+  /**
+   * T7.5 (the person, 2026-10-28): the Supervisor's own setting, held by the board with the same word as a worker's
+   * (src/work/supervisorEffort.mjs): a family of `models` and an effort level of the app's.
+   */
+  supervisorModel: 'sonnet',
+  supervisorEffort: 'low',
   /** The supervisor's thresholds (SUPERVISOR_DEFAULTS). */
   supervisor: SUPERVISOR_DEFAULTS,
   /**
@@ -387,7 +396,7 @@ const PATHS = ['project', 'gameRepo', 'appSessions', 'transcripts']
 const PROJECT_PATHS = ['backlog', 'gamePlan', 'productPlan', 'advisorDecisions', 'designKinds']
 // Focus 1: the goal map's paths, inside the project or a whole path of their own (a copy's).
 const MAP_PATHS = ['goals', 'brainstorms', 'goalAsks', 'goalsHistory']
-const NUMBERS = ['port', 'refreshSeconds', 'quietMinutes', 'estimateOldMinutes', 'hoursBack', 'hoursAhead', 'maxMessageChars', 'messageKeepMinutes', 'answerKeepHours', 'unfiledAskHours', 'gamePort', 'gameIdleSeconds', 'gameOpenSeconds', 'limitWarnPercent', 'weekStopAt', 'morningSkipPercent']
+const NUMBERS = ['port', 'refreshSeconds', 'quietMinutes', 'estimateOldMinutes', 'hoursBack', 'hoursAhead', 'maxMessageChars', 'messageKeepMinutes', 'answerKeepHours', 'unfiledAskHours', 'gamePort', 'gameIdleSeconds', 'gameOpenSeconds', 'limitWarnPercent', 'weekStopAt', 'fiveHourStopAt', 'fiveHourStopMinutes', 'morningSkipPercent']
 
 /**
  * B134: where the app keeps the transcripts of a project's chats: the user's `.claude\projects`, in a folder named
@@ -470,6 +479,8 @@ export function parseConfig(text, env) {
   config.modelsProblem = ids.problem
   if (typeof raw.usualModel === 'string' && MODELS.includes(raw.usualModel.trim().toLowerCase())) config.usualModel = raw.usualModel.trim().toLowerCase()
   if (typeof raw.usualEffort === 'string' && EFFORTS.includes(raw.usualEffort.trim().toLowerCase())) config.usualEffort = raw.usualEffort.trim().toLowerCase()
+  if (typeof raw.supervisorModel === 'string' && MODELS.includes(raw.supervisorModel.trim().toLowerCase())) config.supervisorModel = raw.supervisorModel.trim().toLowerCase()
+  if (typeof raw.supervisorEffort === 'string' && EFFORTS.includes(raw.supervisorEffort.trim().toLowerCase())) config.supervisorEffort = raw.supervisorEffort.trim().toLowerCase()
   config.routing = parseRoutingPolicy(raw.routing)
   config.providers = readProviders(raw.providers).providers
   // The supervisor: each threshold given as a number above 0 replaces its default; others are left alone.
@@ -522,6 +533,8 @@ export function configProblem(fileText) {
   if (has('baseBranch') && !(typeof raw.baseBranch === 'string' && BRANCH.test(raw.baseBranch.trim()))) return wrong('baseBranch', 'a branch name such as "main"')
   if (has('usualModel') && !(typeof raw.usualModel === 'string' && MODELS.includes(raw.usualModel.trim().toLowerCase()))) return wrong('usualModel', MODELS.map(one => `"${one}"`).join(' or '))
   if (has('usualEffort') && !(typeof raw.usualEffort === 'string' && EFFORTS.includes(raw.usualEffort.trim().toLowerCase()))) return wrong('usualEffort', `one of ${EFFORTS.map(one => `"${one}"`).join(', ')}`)
+  if (has('supervisorModel') && !(typeof raw.supervisorModel === 'string' && MODELS.includes(raw.supervisorModel.trim().toLowerCase()))) return wrong('supervisorModel', MODELS.map(one => `"${one}"`).join(' or '))
+  if (has('supervisorEffort') && !(typeof raw.supervisorEffort === 'string' && EFFORTS.includes(raw.supervisorEffort.trim().toLowerCase()))) return wrong('supervisorEffort', `one of ${EFFORTS.map(one => `"${one}"`).join(', ')}`)
   if (has('supervisorSweepMinutes') && !(Number.isFinite(raw.supervisorSweepMinutes) && raw.supervisorSweepMinutes >= 0)) return wrong('supervisorSweepMinutes', 'a number of minutes, 0 or more (0: no sweep by the clock)')
   if (has('supervisorSweepAtLeastHours') && !(Number.isFinite(raw.supervisorSweepAtLeastHours) && raw.supervisorSweepAtLeastHours > 0)) return wrong('supervisorSweepAtLeastHours', 'a number of hours above 0')
   if (has('supervisor')) {

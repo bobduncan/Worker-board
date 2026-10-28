@@ -16,7 +16,9 @@ irm https://raw.githubusercontent.com/bobduncan/Worker-board/main/tools/install.
 It checks Windows, the Claude desktop app, Node 24 or newer and git, one line each, and offers to install Node and git
 with winget (without the Claude app it says where to get it and stops). It gets the board into a folder of your choice
 (press Enter at "Where should the board go?" for the one it offers), installs the Workers mod, and asks your first
-project's name, folder and chats' prefix: the project, its own board and its icon on the desktop are made, and its
+project's name, folder and chats' prefix, and whether the board may start, wake and restart its chats and set their
+model by itself (it adds 7 tool permissions to the project's own settings; the board's ⚙ later shows what it does by
+itself and allows the rest with one click): the project, its own board and its icon on the desktop are made, and its
 board opens with one button that sets up the project's chats. Run the line again at any time: it checks what is there
 and redoes nothing; with a project on the PC it offers to make another. `$env:WORKER_BOARD_CHECK = 1` before it only
 checks.
@@ -55,7 +57,7 @@ and gives each project its own copy (A new project in one click, below).
 |---|---|
 | Windows, the Claude desktop app, signed in | The board reads the app's list of chats and their transcripts on this PC. Not tried on a Mac. |
 | Node 24 or newer, and git | Node runs the board (no `npm install`, no dependencies; `package.json` names the Node it needs and the scripts `start`, `demo`, `test` and `setup`); git gets it and lists the working folders. |
-| The Workers mod `folder-branches` (optional; the board carries it and `npm run setup` installs it, `MODS.md`) | Keeps each chat's card (a chat without it can write its card itself, see `roles/worker.md`), types your answers from the board into the chats (without it the board copies them for you to paste, B212, and says under the lanes what it cannot tell, B213), and keeps the board running. |
+| The Workers mod `workers` (optional; the board carries it and `npm run setup` installs it, `MODS.md`) | Keeps each chat's card (a chat without it can write its card itself, see `roles/worker.md`), types your answers from the board into the chats (without it the board copies them for you to paste, B212, and says under the lanes what it cannot tell, B213), and keeps the board running. |
 | A project folder | Holds the code's repository and the board as folders of their own. Every chat of the project is opened in the project folder itself, not in a folder inside it: the app keeps the transcripts per folder. |
 | One main chat, titled `<prefix>Main` | It hands out the work, and the board types its words (resume, start a chat) into it. |
 | `<project>\.claude\chats\list.json` | Names the prefix of the chats' titles and the main chat. |
@@ -85,17 +87,18 @@ and the briefings for the main chat and the workers.
    usable meanwhile. Only one heavy run at a time happens on the PC: `npm test` waits its turn when another run holds
    it (`tools/one-at-a-time.mjs`). `npm run demo -- --port 4311` shows the page with made-up data, if you
    want to look first (Ctrl+C ends it).
-3. **The Workers mod (optional).** The board carries it, in `mods\folder-branches` (B251). In the board's folder:
+3. **The Workers mod (optional).** The board carries it, in `mods\workers` (B251). In the board's folder:
    ```
    npm run setup
    ```
    Setup finds the Claude app's own command-line program (the app keeps it in its own folder, not on the PATH), and
    with it adds the board's `mods` folder to your Claude settings as a source of mods and installs the mod for you.
-   → it ends with `The Claude app's program lists it: folder-branches@worker-board, version ..., on.` and asks you to
+   → it ends with `The Claude app's program lists it: workers@worker-board, version ..., on.` and asks you to
    quit the Claude app fully (also from the system tray) and open it again: a chat gets the mod only when its process
    starts, and `/reload-plugins` does not do it. → a new chat has the command `/workers`. A copy of the mod that is
    installed already, from anywhere, is recognised and left as it is ("Nothing to do"), so no second copy clashes
-   with it; `npm run setup -- --check` only says what setup would do. The board also works without the mod (B209 to
+   with it, except a copy under the mod's old name `folder-branches` (until 0.26.0), which setup uninstalls before it
+   installs `workers`; `npm run setup -- --check` only says what setup would do. The board also works without the mod (B209 to
    B213, `MODS.md`): start it with `node start-board.mjs` (step 7), the chats keep their own cards
    (`roles\worker.md`), and you paste what the board copies for you. With the mod the board types your answers in,
    wakes the chats and keeps the cards by itself.
@@ -189,7 +192,7 @@ and the briefings for the main chat and the workers.
 
 ## Settings
 
-`config.json`, next to `server.mjs`: `name` (the board's title), `weekStopAt` (the percent of the week from which all work stops, 98), `project`, `gameRepo`, `baseBranch` (the branch the
+`config.json`, next to `server.mjs`: `name` (the board's title), `weekStopAt` (the percent of the week from which all work stops, 98), `fiveHourStopAt` and `fiveHourStopMinutes` (the percent of the 5-hour limit from which all work stops, 95, while its reset is more than this many minutes away, 10), `project`, `gameRepo`, `baseBranch` (the branch the
 work is merged into, "main" unless set), `runGame` (the command that starts a working folder's game, a list of
 words with `{folder}`, `{port}`, `{idle}`, `{grace}`, `{cache}`, `{node}` and `{board}` filled in; it prints
 `ready <port>` once the game is served and ends by itself when nobody looks; `examples\config.json` has the one for
@@ -235,6 +238,8 @@ has these). Every step runs on the model its refine names (`Model: sonnet` unles
 main chat sets the worker's chat to both before the step goes to it, and an opus step waits until the app says its
 worker runs on Opus. Without both ids, each starting with `claude-`, the board sets the effort alone and says so on
 top. `usualModel` and `usualEffort` (`"sonnet"` and `"medium"` unless set): what a worker runs at between steps.
+`supervisorModel` (`"sonnet"` or `"opus"`, `"sonnet"` unless set) and `supervisorEffort` (a level of the app's, `"low"` unless
+set): what the Supervisor's chat runs at; the board holds it there by code, the way it sets a worker's chat (T7.5).
 `providers` (T9.3, the defaults below unless set): who provides each kind of asset, an object from asset kind (`visual`, `music`,
 `sound effect`) to a provider's name: `{ "visual": "codex", "music": "person-suno", "sound effect": "sound-library" }`.
 `codex` makes pictures by itself, `person-suno` is you making music in Suno, `sound-library` is a folder of sounds in

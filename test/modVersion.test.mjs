@@ -46,7 +46,11 @@ test('installedVersion: the Workers mod as the app\'s list of installed plugins 
     [BOARD_ID]: [{ scope: 'user', installPath: 'C:\\x', version: '0.13.5' }],
   } }
   assert.deepEqual(installedVersion(JSON.stringify(list)), { id: BOARD_ID, version: '0.13.5' })
-  assert.deepEqual(installedVersion(JSON.stringify({ version: 2, plugins: { 'folder-branches@team-mods': [{ version: '0.9.0' }] } })), { id: 'folder-branches@team-mods', version: '0.9.0' })
+  assert.deepEqual(installedVersion(JSON.stringify({ version: 2, plugins: { 'workers@team-mods': [{ version: '0.9.0' }] } })), { id: 'workers@team-mods', version: '0.9.0' })
+  // The mod's old name (folder-branches, until 0.26.0): the new name is preferred, wherever it stands in the list; the old one answers when there is none.
+  const both = { version: 2, plugins: { 'folder-branches@worker-board': [{ version: '0.25.3' }], [BOARD_ID]: [{ version: '0.26.0' }] } }
+  assert.deepEqual(installedVersion(JSON.stringify(both)), { id: BOARD_ID, version: '0.26.0' })
+  assert.deepEqual(installedVersion(JSON.stringify({ version: 2, plugins: { 'folder-branches@worker-board': [{ version: '0.25.3' }] } })), { id: 'folder-branches@worker-board', version: '0.25.3' })
   // A list without it: not installed. No list, or one that cannot be read: nobody can tell (undefined).
   assert.equal(installedVersion(JSON.stringify({ version: 2, plugins: {} })), null)
   for (const unknown of ['', 'not json', '[]', '{"plugins":3}']) assert.equal(installedVersion(unknown), undefined, unknown)

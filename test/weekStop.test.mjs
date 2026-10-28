@@ -23,13 +23,13 @@ const limits = (week, fiveHour = 40, more = {}) => limitsOf({
   sample: { at: NOW - 2 * MIN, fiveHour, week }, readings: [{ at: NOW - 2 * MIN, fiveHour: null, week: { used: week, resetsAt: RESET } }], stops: [], now: NOW, ...more,
 })
 
-test('the week counts full from the stop line: 97 warns, 98 is full, 100 is full; the 5-hour limit is full only at 100', () => {
+test('the week counts full from the stop line: 97 warns, 98 is full, 100 is full; the 5-hour limit has its own line (B758: 95, see fiveHourStop.test.mjs)', () => {
   assert.equal(limits(97).week.level, 'warn')
   assert.equal(limits(98).week.level, 'full')
   assert.equal(limits(98).week.stopAt, 98)
   assert.equal(limits(100).week.level, 'full')
-  assert.equal(limits(10, 98).fiveHour.level, 'warn')
-  assert.equal(limits(10, 99).fiveHour.level, 'warn')
+  assert.equal(limits(10, 94).fiveHour.level, 'warn')
+  assert.equal(limits(10, 95).fiveHour.level, 'full')
   assert.equal(limits(10, 100).fiveHour.level, 'full')
 })
 

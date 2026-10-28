@@ -57,7 +57,7 @@ import { createSpendingCollector } from './src/work/routing/collector.mjs'
 import { readRoutingRecord } from './src/work/routing/records.mjs'
 import { parseRoutingPolicy } from './src/work/routing/policy.mjs'
 import { adoptPicture, findDemo, findPicture, PICTURE_BYTES as SHOWN_PICTURE_BYTES, pictureProblem, pictureTooBig, shownFolders, shownRoots } from './src/pictures.mjs'
-import { answerWords, checkSay, focusWords, goalStepOf, recommendYesAnswer, recommendYesOf, reportedBackgroundDue, resumesDue, spawnWhenAlone, wakeFor, wakesDue, wakesStopped, weekStopDue, withInstruction, workWords } from './src/say.mjs'
+import { answerWords, checkSay, fiveHourStopDue, focusWords, goalStepOf, recommendYesAnswer, recommendYesOf, reportedBackgroundDue, resumesDue, spawnWhenAlone, wakeFor, wakesDue, wakesStopped, weekStopDue, withInstruction, workWords } from './src/say.mjs'
 import { keepTalkPicture } from './src/talkPicture.mjs'
 import { firstLook, refineWhenDue } from './src/refineGate.mjs'
 import { recheckText, roundText, roundsNow } from './src/rounds.mjs'
@@ -73,13 +73,14 @@ import { evaluationFor } from './src/goalGuard.mjs'
 import { readSources } from './src/sources.mjs'
 import { backgroundRunning, parseTail, readTail } from './src/transcript.mjs'
 import { clearAtTake, isStepLine, modAtLeast, takeRefusal } from './src/clearOwed.mjs'
-import { keptReadingsOf } from './src/limits.mjs'
+import { keptReadingsOf, newestPerWindow, readingOfAnswer } from './src/limits.mjs'
 import { checkProviders } from './src/providers/index.mjs'
 import { buildState } from './src/state.mjs'
 import { isReadAction, workApi } from './src/work/api.mjs'
 import { effortOf } from './src/work/effort.mjs'
 import { isHolding, pauseAnswer, resumeEnds, resumeRetypeTo, resumeTypeTo } from './src/work/pause.mjs'
-import { handJobs, handResults, isForHandsYet, isHandWord } from './src/hands.mjs'
+import { allowCodeJobs, codeJobsView, readCodeJobs, taskWords } from './src/codeJobs.mjs'
+import { STOP_MOD, handJobs, handResults, isForHandsYet, isHandWord, isStopWord, nextWorkerTitle, startTaskIds, stopStep, stopTaskOf, usageDue, workerNames } from './src/hands.mjs'
 import { basesNow, patientReportCheck } from './src/work/check.mjs'
 import { deliverWork, givesRefused, pullFor, sendOnce } from './src/work/deliver.mjs'
 import { coalesce } from './src/work/again.mjs'
@@ -224,6 +225,8 @@ export const POST_ROUTES = Object.freeze({
   '/api/settings': { kind: 'json', guard: 'lock' },
   '/api/game': { kind: 'json', guard: 'free', why: 'starts or stops a game process of this board\'s own; writes nothing of the project' },
   '/api/cpu': { kind: 'json', guard: 'free', why: 'the CPU level kept in this board folder\'s own data, not the project\'s' },
+  // B767: the setup check's Allow: the missing tool rules into the project's own settings, on the person's click.
+  '/api/code-jobs': { kind: 'json', guard: 'lock' },
   '/api/new-project': { kind: 'json', guard: 'free', why: 'makes another project\'s folder, one at a time; writes nothing of this project' },
   '/api/restart': { kind: 'json', guard: 'free', why: 'starts this process itself anew' },
 })
@@ -245,6 +248,7 @@ export const POST_ROUTES = Object.freeze({
  *   `work(body)`       B297: one action of the page on the work store (work/api.mjs), the same shape
  *   `bridgeWork(body)` B297: one action of a chat's work tool, the same shape; only with `bridgeKey`
  *   `cpu(body)`        B311: the level of "CPU for Claude" ({ level }), the same shape
+ *   `codeJobs(body)`   B767: the setup check's Allow ({ action: 'allow' }), the same shape
  *   `mayWrite()`       B529: null while this process may take the page's writes, else why not (refused with 409)
  */
 export function createBoard({
@@ -265,6 +269,7 @@ export function createBoard({
   work = async () => ({ ok: false, status: 404, why: 'Not here.' }),
   bridgeWork = async () => ({ ok: false, status: 404, why: 'Not here.' }),
   cpu = async () => ({ ok: false, status: 404, why: 'Not here.' }),
+  codeJobs = async () => ({ ok: false, status: 404, why: 'Not here.' }),
   settings = async () => ({ ok: false, status: 404, why: 'Not here.' }),
   newProject = async () => ({ ok: false, status: 404, why: 'Not here.' }),
   recap = async () => ({ ok: false, status: 404, why: 'Not here.' }),
@@ -398,6 +403,10 @@ export function createBoard({
       }
       if (pathname === '/api/cpu') {
         const done = await cpu(parsed)
+        return done.ok ? json(res, done.result) : refuse(res, done.status, done.why)
+      }
+      if (pathname === '/api/code-jobs') {
+        const done = await codeJobs(parsed)
         return done.ok ? json(res, done.result) : refuse(res, done.status, done.why)
       }
       if (pathname === '/api/settings') {
@@ -1581,6 +1590,20 @@ async function main(args) {
   const freshWho = new Map()
   /** B753: when a hand last sent a resume line, by `<pause since>:<chat>`, so one goes again only after a while. */
   const resumesSent = new Map()
+  // B767: what each chat's mod said its code may do at its last claim of the hands (`{ can, at }` by name), and the
+  // last new worker that failed (`{ at, why }`), for the setup check.
+  const codeClaims = new Map()
+  let spawnFail = null
+  // B768: when the last lookup of the limits was given to a hand.
+  let usageGivenAt = -Infinity
+  /** B767: the setup check as the page shows it; the files are read at most every 30 seconds. */
+  let codeRead = { at: -Infinity, read: null }
+  const codeJobsNow = async (prefix = '') => {
+    if (isDemo || config.project === '') return null
+    if (clock() - codeRead.at >= 30_000) codeRead = { at: clock(), read: await readCodeJobs({ project: resolve(HERE, config.project), folder: basename(resolve(HERE, config.project)) }) }
+    const view = codeJobsView({ claims: codeClaims, ...codeRead.read, spawnFail, now: clock() })
+    return { ...view, canAllow: !isShowOnly, taskLine: view.needsTask ? taskWords({ folder: basename(resolve(HERE, config.project)), prefix, board: HERE }) : null }
+  }
   const checkFresh = async body => {
     // B736 (X73, X87: no chat's report was kept from 21:12 to 21:21 while each waited for a whole read of the board): a
     // chat the board knows is checked against the state it has, however busy it is; only one it does not know waits.
@@ -1675,6 +1698,8 @@ async function main(args) {
       return { ...state, forYou: oldMods === null ? state.forYou : [oldMods, ...(state.forYou ?? [])], design, goalsEdit, cpu: cpu?.view() ?? null, loops: { failing: loops.failing(), line: failingLine(loops.failing(), timeOf) }, supervisor: supervised ?? (isDemo ? demoSupervisor(clock(), SUPERVISOR_RULES, incidentCards) : null), boardSettings: boardSettingsNow(), version: { commit: running, since: startedAt, ...(await versionNow()), canRestart, selfUpdate: updateShown }, mod: await modNow(),
         // B320: where the New project button suggests a new project's folder, and whether this board makes one.
         newProject: { parent: home === null ? null : dirname(home), canMake: !isDemo && !isShowOnly, isMaking: makingProject },
+        // B767: which of the main chat's routine jobs run by code on this PC, and what is missing.
+        codeJobs: await codeJobsNow(state.chatPrefix ?? ''),
         // B322: what the page needs to open a new project's first chats in the Claude app: the board's folder (their
         // job texts), the project's name and the Advisor's; only the board that delivers opens chats.
         openChats: isDemo || isShowOnly ? null : { board: HERE, name: config.name, advisor: typeof config.advisor === 'string' && config.advisor !== '' ? config.advisor : null } }
@@ -1751,6 +1776,18 @@ async function main(args) {
       return { ok: true, result: boardSettingsNow() }
     }),
     cpu: async body => (cpu === null ? { ok: false, status: 409, why: 'This board sets no CPU: it is the demo, or it shows the history of another board.' } : cpu.set(body?.level)),
+    // B767: the setup check's Allow: only the tool rules the check finds missing, into the project's own settings.
+    codeJobs: async body => {
+      if (body?.action !== 'allow') return { ok: false, status: 400, why: 'Allow only.' }
+      if (isDemo || isShowOnly || config.project === '') return { ok: false, status: 409, why: 'This board writes no project settings.' }
+      codeRead = { at: -Infinity, read: null }
+      const view = await codeJobsNow((await readState()).chatPrefix ?? '')
+      const done = await allowCodeJobs({ project: resolve(HERE, config.project), tools: view?.missing ?? [] })
+      if (!done.ok) return { ok: false, status: 409, why: done.why }
+      codeRead = { at: -Infinity, read: null }
+      readState.reset()
+      return { ok: true, result: { added: done.added } }
+    },
     design: body => designTurn(async () => {
       const state = await readState()
       const checked = checkDesign(body, designNow(state))
@@ -1865,6 +1902,14 @@ async function main(args) {
       }
       // B298: a line to a chat is filed as an instruction first and carries its id.
       message = await withInstruction(message, body => workAction(body, 'person'))
+      // B769: Stop task and Remove worker go by code for a worker whose mod can (told at its next tool call), and a
+      // remove also for one whose chat does not run (a hand closes it); else the main chat does them, as before.
+      if (message.command === 'stop' || message.command === 'remove') {
+        const runs = modOf.get(message.about)
+        const isNew = runs !== undefined && clock() - runs.at < 2 * 60_000 && modAtLeast(runs.version, STOP_MOD)
+        const isOff = message.command === 'remove' && (state.chats ?? []).some(lane => lane.name === message.about && lane.isRunning === false)
+        if (isNew || isOff) message = { ...message, byCode: true }
+      }
       // B315: the words as they were copied are kept with them, so the restart banner can copy them again and tell when
       // the main chat has them.
       if (isCopied) message = { ...message, pasteText: messageText(message, timeOf, path => inProject(config.project, path)) }
@@ -2028,8 +2073,9 @@ async function main(args) {
       const atTake = await clearAtTakeOf(body, checked.chat)
       // B755: a hand's word goes to the hands first, to the chat it is addressed to only once none claimed it in a minute.
       const now = clock()
+      const workers = workerNames(await readState())
       const only = isHolding((await readState()).pause) ? message => message.command === 'resume'
-        : atTake.hold ? message => !isStepLine(message) && !isForHandsYet(message, now) : message => !isForHandsYet(message, now)
+        : atTake.hold ? message => !isStepLine(message) && !isForHandsYet(message, now, workers) : message => !isForHandsYet(message, now, workers)
       // B532: what no longer matters is closed first, so a chat is never handed a word whose purpose is gone.
       const taken = await takeFor({ dir: workDir, outbox: store, state: await readState(), now: clock(), keep, chat: checked.chat, only })
       // What was taken shows as on its way at once.
@@ -2041,12 +2087,16 @@ async function main(args) {
       if (fit.refused.length > 0) await store.settle(checked.chat, fit, clock())
       // B738: the chats the board shows as not running: the mod's list words them the same ("Not running"), from this one verdict.
       const off = ((await readState()).chats ?? []).filter(lane => !lane.isLeftover && lane.isRunning === false).map(lane => lane.name)
-      return { ok: true, result: { messages: fit.messages, ...(atTake.clear === null ? {} : { clear: atTake.clear }), ...(off.length === 0 ? {} : { off }) } }
+      // B769: a stop or remove of this worker the board carries out by code: its mod tells it at its next tool call.
+      const stopping = store.outbox().findLast(message => isStopWord(message) && message.about === checked.chat && message.state === 'waiting')
+      const stop = stopping === undefined ? {} : { stop: { id: stopping.id, kind: stopping.command, task: stopTaskOf(stopping) } }
+      return { ok: true, result: { messages: fit.messages, ...(atTake.clear === null ? {} : { clear: atTake.clear }), ...(off.length === 0 ? {} : { off }), ...stop } }
     }),
     // B753: the board's hands in code. A running chat's Workers mod claims the start and wake words (whoever they are
     // addressed to) and, while resuming, a resume line for each chat that has not started; it sends each with the app's
     // send-message tool and says what it sent (`handsDone`). A word it cannot send goes back to waiting for the main chat.
-    // B755: and the words that set a chat's model and effort, which it sets with the app's session tools.
+    // B755: and the words that set a chat's model and effort, which it sets with the app's session tools. B766: and a
+    // worker's restart for a new mod, and a new worker (the stored start-worker task, renamed and run).
     hands: counted(async body => {
       const { checked } = await checkFresh(body)
       noteMod(body, checked)
@@ -2055,12 +2105,37 @@ async function main(args) {
       const lanes = shownChats(state)
       // While the person pauses no chat is started or woken: the words wait for the resume, as for a take.
       // B755: the model and effort words only to a chat whose app lets its code set them (its mod says `can: ['set']`).
-      const canSet = Array.isArray(body?.can) && body.can.includes('set')
-      const taken = isHolding(state.pause) ? [] : await store.takeHands(checked.chat, clock(), keep, message => isHandWord(message, { canSet }))
+      // B766: a worker's restart only to one that may close and reopen chats ('restart'), a new worker only to one that
+      // may rename and run the stored task ('spawn').
+      const can = new Set(Array.isArray(body?.can) ? body.can.filter(one => typeof one === 'string') : [])
+      codeClaims.set(checked.chat, { can: [...can].slice(0, 10), at: clock() })
+      const workers = workerNames(state)
+      const isHand = message => isHandWord(message, { canSet: can.has('set'), canRestart: can.has('restart'), canSpawn: can.has('spawn'), workers })
+      const taken = isHolding(state.pause) ? [] : await store.takeHands(checked.chat, clock(), keep, isHand)
       const read = workDir === null ? null : await readStore(workDir)
       const pause = read?.pause ?? null
       const resumeList = pause?.state === 'resuming' ? pauseAnswer({ pause, items: read.items, lanes, prefix: state.chatPrefix ?? '', chat: checked.chat, role: 'main' }).resumeList : []
-      const { jobs, back } = handJobs({ caller: checked.chat, taken, lanes, resumeList, since: pause?.since ?? null, sentAt: resumesSent, now: clock() })
+      const prefix = state.chatPrefix ?? ''
+      const spawn = can.has('spawn') && config.project !== '' ? { title: nextWorkerTitle((state.chats ?? []).map(lane => lane.name), prefix), tasks: startTaskIds(basename(config.project)) } : null
+      // B769: the person's stop and remove words carried out by code: a stop is settled once its worker's turn ended; a
+      // remove is a job for a chat that may close chats (never the worker itself), once its worker is idle or off.
+      const removing = []
+      for (const message of store.outbox().filter(one => isStopWord(one) && one.state === 'waiting' && one.about !== checked.chat)) {
+        const step = stopStep(message, lanes.find(lane => lane.name === message.about))
+        if (step === 'settle') {
+          await store.settle(message.to, { typed: [message.id] }, clock())
+          readState.reset()
+        } else if (step === 'remove' && can.has('restart')) removing.push(message.id)
+      }
+      const removed = removing.length === 0 ? [] : await store.takeHands(checked.chat, clock(), keep, message => removing.includes(message.id))
+      // B768: a lookup of the limits when the newest reading is old, to one chat that may (its mod says `can: ['usage']`).
+      const usage = can.has('usage') && READINGS_FILE !== null && !isShowOnly && usageDue({ readings: state.limitReadings ?? [], givenAt: usageGivenAt, now: clock() })
+      if (usage) usageGivenAt = clock()
+      const { jobs, back } = handJobs({ caller: checked.chat, taken, lanes, resumeList, since: pause?.since ?? null, sentAt: resumesSent, now: clock(), spawn, usage })
+      for (const message of removed) {
+        const lane = lanes.find(one => one.name === message.about)
+        jobs.push({ id: message.id, ...(typeof lane?.appSession === 'string' && /^local_[\w-]{1,80}$/.test(lane.appSession) ? { to: lane.appSession } : {}), chat: message.about, remove: true })
+      }
       if (back.length > 0) await store.back(back)
       for (const job of jobs) if (job.id.startsWith('resume:')) resumesSent.set(job.id.slice('resume:'.length), clock())
       if (taken.length > back.length) readState.reset()
@@ -2069,10 +2144,22 @@ async function main(args) {
     handsDone: counted(async body => {
       const { checked } = await checkFresh(body)
       if (!checked.ok) return checked
-      const { sent, failed, why } = handResults(body)
+      const { sent, failed, why, texts } = handResults(body)
+      // B768: a lookup of the limits by code is kept as the supervisor's lookups are (B640): the newest reading of each
+      // window in the project's limit-readings file, which every reading of the state takes in.
+      for (const [id, text] of Object.entries(texts)) {
+        const reading = READINGS_FILE === null || isShowOnly ? null : readingOfAnswer(text, Number(id.slice('usage:'.length)) || clock())
+        if (reading === null) continue
+        await writeAtomic(READINGS_FILE, JSON.stringify(newestPerWindow([...(await readingsOnDisk()), reading])))
+        readState.reset()
+      }
       // A resume line that could not go may go again at the next claim.
       for (const id of failed) if (id.startsWith('resume:')) resumesSent.delete(id.slice('resume:'.length))
       const words = [...sent, ...failed].filter(id => !id.startsWith('resume:'))
+      // B767: a new worker that failed shows on the setup check with its why, until one is started.
+      for (const message of store.outbox().filter(one => one.command === 'spawn' && words.includes(one.id))) {
+        spawnFail = failed.includes(message.id) ? { at: clock(), why: why[message.id] ?? 'not started' } : null
+      }
       const byTo = new Map()
       for (const message of store.outbox().filter(one => words.includes(one.id) && one.state === 'taken')) {
         if (!byTo.has(message.to)) byTo.set(message.to, [])
@@ -2354,6 +2441,10 @@ async function main(args) {
         const stops = weekStopDue(state, sentNow())
         for (const words of stops) await store.say({ id: randomBytes(8).toString('hex'), at: now, ...words, state: 'waiting' })
         if (stops.length > 0) readState.reset()
+        // B758 (X99): so does the 5-hour limit's stop line, while its reset is far off: the same word once per window, with the time it goes on.
+        const fiveStops = fiveHourStopDue(state, sentNow())
+        for (const words of fiveStops) await store.say({ id: randomBytes(8).toString('hex'), at: now, ...words, state: 'waiting' })
+        if (fiveStops.length > 0) readState.reset()
       }
       // Words that wait for a chat that is not running, sent while the main chat did not run either, are followed by
       // the word to start it once the main chat runs (say.mjs wakesDue). Only the board that delivers.
