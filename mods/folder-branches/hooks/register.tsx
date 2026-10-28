@@ -1498,6 +1498,46 @@ const WHOAMI_AGAIN_MS = 5_000
 const WHOAMI_EAGER_MS = 2 * 60_000
 /** 2026-10-28: whether any classic hook of this mod ran in this process (on a work login the app's guard skips them all). */
 let classicRuns = false
+
+/**
+ * 2026-10-28 (the person: "Yes, background work"; the work login's guard skips classic.Stop, whose list said what still
+ * ran at a turn's end): the background shells and monitors this chat started, by their task id, kept from the chat's own
+ * tool calls: a Bash or Monitor call run in the background adds its id, a TaskStop and the app's note that the task ended
+ * take it out. Subagents are asked of the engine itself (`$.agent.list`).
+ */
+const backgroundIds = new Set<string>()
+/** A task id as the app writes it: letters, digits, "-" and "_". */
+const TASK_ID = /^[\w-]{3,80}$/
+/** A background start in a tool's answer: "Command running in background with ID: b4zduzypn", or a monitor's id. */
+const STARTED_ID = /(?:running in background with ID|[Tt]ask ID|task_id)["':\s]+([\w-]{3,80})/
+
+/** Notes a tool call of this chat (never a subagent's) that starts or stops background work. */
+function noteBackground(e: { tool?: unknown; run_in_background?: unknown; task_id?: unknown; shell_id?: unknown }, out: unknown): void {
+  const tool = String(e.tool ?? '')
+  if (tool === 'TaskStop') {
+    const id = String(e.task_id ?? e.shell_id ?? '')
+    if (TASK_ID.test(id)) backgroundIds.delete(id)
+    return
+  }
+  const isStart = (tool === 'Bash' || tool === 'PowerShell') ? e.run_in_background === true : tool === 'Monitor'
+  if (!isStart) return
+  const found = STARTED_ID.exec(JSON.stringify(out ?? ''))?.[1]
+  if (found !== undefined) backgroundIds.add(found)
+}
+
+/** The app's note that a background task ended (a prompt of origin task-notification): its id leaves the list. */
+function noteTaskEnded(text: string): void {
+  const id = /<task-id>([\w-]{3,80})<\/task-id>/.exec(text)?.[1]
+  const status = /<status>(\w+)<\/status>/.exec(text)?.[1] ?? ''
+  if (id !== undefined && status !== '' && status !== 'running') backgroundIds.delete(id)
+}
+
+/** Whether background work of this chat still runs: the Stop hook's list where it runs, else the ids kept and the subagents. */
+async function backgroundNow($: EngineInterface): Promise<boolean> {
+  if (classicRuns) return hasBackground
+  if (backgroundIds.size > 0) return true
+  return (await busyWhy($)) !== null
+}
 let eagerSince: number | null = null
 let lastWhoamiTick = -Infinity
 
@@ -2074,6 +2114,8 @@ export const register: Register = on => {
     const context: string[] = []
     // The trace follows the person's prompts only: a word this mod types itself is timed to the microtask (B300).
     const tracing = e.origin.kind !== 'plugin' || e.origin.name !== PLUGIN
+    // 2026-10-28: the app's note that a background task ended takes it off this chat's list of background work.
+    if ((e.origin.kind as string) === 'task-notification') noteTaskEnded(e.text)
     const began = tracing ? await $.clock.now() : 0
     if (tracing) trace($, 'prompt in', { origin: e.origin.kind, command: e.command ?? null, carried: carried !== null, moving: movingAfterClear !== null, clearing: clearing !== null, pending: pendingStart.length, myself: myself?.name ?? null })
     if (e.command === undefined) {
@@ -2184,7 +2226,7 @@ export const register: Register = on => {
         isInTurn = false
         // Redesign Part 1: idle the moment the turn ends, before any clear; with background work still running, so; a
         // question still open to the person (Review Focus 4) keeps it asking until the answer.
-        if (openForms === 0) await setReport($, 'idle', hasBackground)
+        if (openForms === 0) await setReport($, 'idle', await backgroundNow($))
         await say($, 'waiting', e.reason)
         // B63: the step was reported in this turn (B301: `work report`) and the turn has ended: the moment a worker is
         // cleared or compacted (below). Its words are used up here, so neither a second end of the same turn nor a later
@@ -2254,12 +2296,19 @@ export const register: Register = on => {
   // to stop): while the person pauses, a working chat whose classic hooks never ran in this process is told at its next
   // tool call instead. That call does not run: its refusal carries the pause's words, once per turn as at a batch. The
   // chat's own tools (chat, work) always run, so it can write its checkpoint; a subagent's calls are left alone.
+  // The same hook keeps the background shells and monitors this chat starts and stops, where classic.Stop does not say.
   on('tool.call', async ($, e, next) => {
-    if (classicRuns || e.agentId !== undefined || e.tool === TOOL || e.tool === WORK || !isInTurn || myself === null) return next(e)
-    const lines = await pauseLines($, 'batch')
-    if (lines.length === 0) return next(e)
-    trace($, 'pause told at a tool call', { tool: e.tool })
-    return { deny: [...lines, `(This ${e.tool} call did not run, so that you read this first: run it again only to commit your work.)`].join('\n') }
+    if (classicRuns || e.agentId !== undefined) return next(e)
+    if (e.tool !== TOOL && e.tool !== WORK && isInTurn && myself !== null) {
+      const lines = await pauseLines($, 'batch')
+      if (lines.length > 0) {
+        trace($, 'pause told at a tool call', { tool: e.tool })
+        return { deny: [...lines, `(This ${e.tool} call did not run, so that you read this first: run it again only to commit your work.)`].join('\n') }
+      }
+    }
+    const out = await next(e)
+    noteBackground(e as never, out)
+    return out
   })
 
   on('tool.call', { tool: 'AskUserQuestion' }, async ($, e, next) => {
@@ -2278,7 +2327,7 @@ export const register: Register = on => {
       return out
     } finally {
       openForms -= 1
-      if (openForms === 0) await setReport($, isInTurn ? 'busy' : 'idle', hasBackground)
+      if (openForms === 0) await setReport($, isInTurn ? 'busy' : 'idle', await backgroundNow($))
       // An interrupted turn has ended by now: its file is not set back to working.
       if (isInTurn) await say($, 'working')
       // Review of B299: a form that returned is answered, also in the person's own words; one closed unanswered goes.

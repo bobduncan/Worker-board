@@ -3093,6 +3093,31 @@ describe('Redesign Part 1: the chat reports its turn state to the board', () => 
     expect(states(w)).toEqual(['busy', 'asking', 'idle'])
   })
 
+  // 2026-10-28: on the work login the app's guard skips classic.Stop; the chat keeps the list of its background work itself.
+  test('where no Stop hook runs, a background shell started in the turn reports idle with background, and its end plain idle', async ($, on) => {
+    const clock = mock.clock(on)
+    const w = world('units', { ...listed(), [BOARD]: board })
+    w.whoami = { name: 'Units', role: 'worker', card: null }
+    stand(on, w)
+    w.workAnswer = { status: 503, text: 'No work store.' }
+    on('tool.call', { tool: 'Bash' }, () => ({ result: { stdout: 'Command running in background with ID: b4zduzypn. Output is being written to: x' } }) as never)
+    await $.session.start(START)
+    await settle()
+    expect(fileOf(w)?.name).toBe('Units')
+    await clock.advance(1000)
+    await $.turn.start({ text: 'go', turnId: 't1' })
+    await $.tool.call({ tool: 'Bash', command: 'npm test', run_in_background: true } as never)
+    await $.turn.complete({ ...ENDED, turnId: 't1' })
+    await settle()
+    expect(states(w)).toEqual(['busy', 'idle+background'])
+    // The app's note that it ended starts a turn of its own; that turn's end, with nothing left running, is plain idle.
+    await $.prompt.submit({ text: '<task-notification>\n<task-id>b4zduzypn</task-id>\n<status>completed</status>\n</task-notification>', origin: { kind: 'task-notification' } } as never)
+    await $.turn.start({ text: '', turnId: 't2' })
+    await $.turn.complete({ ...ENDED, turnId: 't2' })
+    await settle()
+    expect(states(w)).toEqual(['busy', 'idle+background', 'busy', 'idle'])
+  })
+
   test("background work still running at the turn's end (the Stop hook's list) reports idle with background", async ($, on) => {
     const { w } = await joined($, on)
     await $.turn.start({ text: 'go', turnId: 't1' })
