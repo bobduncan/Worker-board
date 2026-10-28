@@ -110,6 +110,12 @@ const FRESH_MS = 30_000
 /** 2026-10-28: how soon a whoami of a session the board shows under no name reads the state anew. */
 const WHO_FRESH_MS = 1_000
 const TICK_MS = Number(process.env.WORKER_BOARD_TICK_MS) > 0 ? Number(process.env.WORKER_BOARD_TICK_MS) : 60_000
+/**
+ * B760: a test's whole read of the board's state and of the store made slow (as on the busy PC of 2026-10-27, X89), so a
+ * copy of the board shows end to end that a chat's ping and work health never wait for one. 0 (none) on a real board.
+ */
+const READ_DELAY_MS = Number(process.env.WORKER_BOARD_READ_DELAY_MS) > 0 ? Number(process.env.WORKER_BOARD_READ_DELAY_MS) : 0
+const slowRead = () => (READ_DELAY_MS > 0 ? new Promise(done => setTimeout(done, READ_DELAY_MS)) : undefined)
 /** T9.3 part 1: how often the board checks whether each kind of asset's provider can work. */
 const PROVIDERS_MS = 10 * 60_000
 /** B142: how long the board's look at its folder's version is kept. */
@@ -1378,6 +1384,7 @@ async function main(args) {
     }
   }
   const readState = cached(async () => {
+    await slowRead()
     const raw = await readRaw()
     const keptReadings = await readingsOnDisk()
     // The review of Pause 2: a line the person's pause holds does not grow late (store.mjs isLate, pause.mjs heldMs).
@@ -1593,7 +1600,8 @@ async function main(args) {
   const bridgeWorkOnce = async (body, checked) => {
     const done = await workAction({ ...body, chat: checked.chat })
     // The supervisor's Part 2: its chat's health read, incidents and turn's end tell the sweep that runs how it went.
-    if (supervisor !== null && ['health', 'incident', 'turn-ended'].includes(body?.action) && done.ok && laneRole(await readState(), checked.chat) === 'supervisor') {
+    // B760: by the state the board has, as the check of the call: work health's answer never waits for a whole read.
+    if (supervisor !== null && ['health', 'incident', 'turn-ended'].includes(body?.action) && done.ok && laneRole(readState.last() ?? await readState(), checked.chat) === 'supervisor') {
       await supervisor.heard({ action: body.action, ok: true, session: typeof body.session === 'string' ? body.session : null, since: body.since ?? null })
     }
     // Partner answers (2026-10-19): the partner's answer wakes the chat that asked, as the person's answer on the page does.
@@ -2488,7 +2496,10 @@ async function main(args) {
       const SUPERVISOR_FILE = join(config.project, '.claude', 'supervisor.json')
       supervisor = createSupervisor({
         state: () => readState(),
-        items: async () => (await readStore(workDir)).items,
+        items: async () => {
+          await slowRead()
+          return (await readStore(workDir)).items
+        },
         // B736 (X89: work health timed out twice while the board was busy): the health summary reads what the board has.
         keptState: () => readState.last() ?? null,
         keptItems: () => work.last?.()?.items ?? null,

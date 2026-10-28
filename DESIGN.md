@@ -3979,6 +3979,11 @@ timers. Now each chat says it (principle 3, know don't guess).
   still write their conversations, each lane is read as it was when the board last heard any chat, for up to 10 min
   (`DEAF_KEEP_MS`); a chat already silent on its own stays as silent as it was. A stretch the Claude app started in, or
   one in which no conversation was written (every chat closed), is no fault of the board and counts as before.
+  Work health reads the state and the store the board has, and so does the bridge's check of who called it (B760: it
+  still waited for a whole read after its answer). Checked end to end on a copy of the board (B760): the evening
+  replayed through its own pass, with the settings' least unknown and off times (`test/boardDeafLive.test.mjs`), and a
+  copy whose every whole read takes 5 s (`WORKER_BOARD_READ_DELAY_MS`, for tests only) keeps a report and answers work
+  health within 2 s while one runs, and counts late work calls (`test/boardSlowRead.test.mjs`).
   (B728) A chat the board knows does not run whose card says free keeps the state `free` (the hand-out asks the main chat to start it,
   `workerStart`), but is shown "Not running" in its pill, its time column and the head count: one word for one fact.
   (B738) The Workers list (the mod's chat list, Workers mod 0.21.0) says it too: the answer to a take carries `off`, the names of
