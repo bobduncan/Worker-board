@@ -39,7 +39,7 @@ const app = name => JSON.stringify({
 const call = (when, name, input = {}) => [assistant(when, 'tool_use', [tool(name, input)]), toolResult(when + 1000)]
 /** A turn that ends with the pause filed as a work note at 11:49, closed a minute later. */
 const pausedTurn = (text = PAUSE) => [typed(NOW - 30 * MIN, 'Go on with B269.'), step(NOW - 29 * MIN, 'Build'), toolResult(NOW - 28 * MIN),
-  ...call(NOW - 11 * MIN, 'mcp__folder-branches__work', { action: 'note', to: 'main', of: 'B269', text }), answer(NOW - 10 * MIN, 'I stop here.')]
+  ...call(NOW - 11 * MIN, 'mcp__workers__work', { action: 'note', to: 'main', of: 'B269', text }), answer(NOW - 10 * MIN, 'I stop here.')]
 /** The app's usage file with these samples: `[when, 5-hour %, week %]`. */
 const usage = (...samples) => JSON.stringify({ samples: samples.map(([t, fh, sd]) => ({ t, org: 'o', u: { fh, sd } })) })
 

@@ -120,7 +120,7 @@ export type ChatsView = {
 
 declare module 'claude-code' {
   interface PluginState {
-    'folder-branches': {
+    workers: {
       view: FoldersView
       /** The ids of the folders whose local branches are shown. */
       expanded: string[]

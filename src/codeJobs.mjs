@@ -96,7 +96,7 @@ export function codeJobsView({ claims = new Map(), allowed = new Set(), tasks = 
  */
 export function taskWords({ folder, prefix, board }) {
   const [, plain] = startTaskIds(folder)
-  const text = join(board, 'mods', 'folder-branches', 'start-worker-task.md')
+  const text = join(board, 'mods', 'workers', 'start-worker-task.md')
   return `Make the worker board's stored start-worker task: call mcp__scheduled-tasks__create_scheduled_task with no schedule, taskId "${plain}" (when the app says that id is taken, the one it names), notifyOnCompletion false, title "${prefix}Worker 1", description "Starts one worker chat of the worker board", and as prompt the text under "The task's text" in ${text}. Then say in one line that it is made.`
 }
 

@@ -36,7 +36,7 @@ The same for each of them:
   preview, and starts games itself (Run game). Lost: the Run pane inside the app.
 - **Verdict: drop it from the board's setup; keep it as a personal tool if wanted.** No work on the board.
 
-## The Workers mod (folder-branches)
+## The Workers mod (`workers`, called `folder-branches` until 0.26.0)
 
 This one the board leans on. It is several things in one; each is weighed on its own.
 
@@ -86,7 +86,7 @@ Workers mod then adds the bridge and the compacting (the reminders went with the
 The hard part of keeping the mod was installing it on a new PC: a private repository of mods, and the app's
 command-line program, which the app keeps in its own folder and does not put on the PATH. Now:
 
-- **The board carries the mod's source**, in `mods/folder-branches`, as a marketplace of one plugin named
+- **The board carries the mod's source**, in `mods/workers`, as a marketplace of one plugin named
   `worker-board` (`mods/.claude-plugin/marketplace.json`). The mod's own tests (`hooks/*.test.ts`) run in the
   plugin test kit, not in the board's `npm test`. Changes to the mod are made here.
 - **`npm run setup`** (`setup.mjs`, `src/setup.mjs`) finds the app's program (the newest under the app's folder, the
@@ -96,7 +96,10 @@ command-line program, which the app keeps in its own folder and does not put on 
   - a copy that is on, from any marketplace: leaves it as it is ("Nothing to do"), because two copies of one mod
     clash; the board's own copy, older than the board's: updates it;
   - a copy that is off: turns it on; two copies on, or the name `worker-board` taken by another folder: changes
-    nothing and says what to do.
+    nothing and says what to do;
+  - a copy under the mod's old name `folder-branches` (until 0.26.0): uninstalls it (it is no second copy that
+    clashes: it only counts as one to remove) and goes on as above with the name `workers`; the page names the
+    installed mod by either name until the reinstall.
   `npm run setup -- --check` only says what it would do.
 - **Tried first, and it does not work: a project that brings the mod by itself.** A project's `.claude/settings.json`
   can name a marketplace inside the project (`extraKnownMarketplaces`, a `directory` source) and turn its plugin on

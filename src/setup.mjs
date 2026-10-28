@@ -13,8 +13,10 @@ import { join, posix, win32 } from 'node:path'
 import { appFolder } from './config.mjs'
 
 /** The Workers mod's name, and the name of the board's marketplace that holds it (`mods/.claude-plugin`). */
-export const MOD = 'folder-branches'
+export const MOD = 'workers'
 export const MARKETPLACE = 'worker-board'
+/** The mod's earlier names (0.26.0 renamed it from folder-branches): a copy installed under one is an old copy, and setup removes it. */
+const OLD_MODS = ['folder-branches']
 
 const RESTART = 'Now quit the Claude app fully (also from the system tray) and open it again: a chat gets the mod only '
   + 'when its process starts. A new chat in the project then has the command /workers.'
@@ -66,19 +68,23 @@ function parsed(text) {
   }
 }
 
+/** The name the mod is installed under in this plugin id (`<name>@<marketplace>`): its current name or an earlier one; else undefined. */
+const nameIn = id => [MOD, ...OLD_MODS].find(name => id.startsWith(`${name}@`))
+
 /**
- * Every installed copy of the Workers mod in what `claude plugin list --json` printed, from any marketplace; null
- * when the words are no such list (then nobody can tell what is installed).
+ * Every installed copy of the Workers mod in what `claude plugin list --json` printed, from any marketplace, also one
+ * under an earlier name (`isOld: true`); null when the words are no such list (then nobody can tell what is installed).
  */
 export function installedCopies(text) {
   const list = parsed(text)
   if (!Array.isArray(list)) return null
-  return list.filter(one => typeof one?.id === 'string' && one.id.startsWith(`${MOD}@`)).map(one => ({
+  return list.filter(one => typeof one?.id === 'string' && nameIn(one.id) !== undefined).map(one => ({
     id: one.id,
-    marketplace: one.id.slice(MOD.length + 1),
+    marketplace: one.id.slice(nameIn(one.id).length + 1),
     version: typeof one.version === 'string' ? one.version : '',
     scope: typeof one.scope === 'string' ? one.scope : '',
     isOn: one.enabled === true,
+    isOld: nameIn(one.id) !== MOD,
   }))
 }
 
@@ -101,8 +107,22 @@ function samePlace(a, b, platform) {
  * What setup does, from what is installed: the `claude` calls, what it says, a problem that stops it, and whether
  * the app has to be started anew. `copies` from `installedCopies`, `known` the board's marketplace as the program
  * knows it (or null), `modsDir` this board's `mods` folder, `version` the version of the mod in it.
+ * A copy under an earlier name of the mod (`isOld`) is uninstalled first; it counts for nothing else, and the rest of
+ * the plan is made from the copies under the mod's current name.
  */
 export function setupPlan({ copies, known, modsDir, version, platform = process.platform }) {
+  const old = copies.filter(copy => copy.isOld === true)
+  const plan = planFor({ copies: copies.filter(copy => copy.isOld !== true), known, modsDir, version, platform })
+  if (old.length === 0 || plan.problem !== null) return plan
+  return {
+    calls: [...old.map(copy => ['plugin', 'uninstall', copy.id]), ...plan.calls],
+    lines: [...old.map(copy => `The Workers mod's old copy ${copy.id} is removed: it is now called "${MOD}".`), ...plan.lines],
+    problem: null,
+    isRestart: true,
+  }
+}
+
+function planFor({ copies, known, modsDir, version, platform }) {
   const boardId = `${MOD}@${MARKETPLACE}`
   const plan = (calls, lines) => ({ calls, lines, problem: null, isRestart: calls.length > 0 })
   const stop = problem => ({ calls: [], lines: [], problem, isRestart: false })
@@ -185,15 +205,19 @@ export function pluginsFile(env = process.env) {
 
 /**
  * B319: the Workers mod in the text of that list, from any marketplace: `{ id, version }`; null when the list holds
- * none (it is not installed); undefined when the text is no such list (nobody can tell).
+ * none (it is not installed); undefined when the text is no such list (nobody can tell). A copy under the mod's current
+ * name is preferred; one under an earlier name answers when there is none, so the page does not say "not installed"
+ * between the board's update and the reinstall.
  */
 export function installedVersion(text) {
   const list = parsed(text)
   if (list === null || typeof list !== 'object' || Array.isArray(list) || list.plugins === null || typeof list.plugins !== 'object' || Array.isArray(list.plugins)) return undefined
-  for (const [id, copies] of Object.entries(list.plugins)) {
-    if (!id.startsWith(`${MOD}@`) || !Array.isArray(copies)) continue
-    const found = copies.find(one => typeof one?.version === 'string' && one.version !== '')
-    if (found !== undefined) return { id, version: found.version }
+  for (const name of [MOD, ...OLD_MODS]) {
+    for (const [id, copies] of Object.entries(list.plugins)) {
+      if (!id.startsWith(`${name}@`) || !Array.isArray(copies)) continue
+      const found = copies.find(one => typeof one?.version === 'string' && one.version !== '')
+      if (found !== undefined) return { id, version: found.version }
+    }
   }
   return null
 }
@@ -213,7 +237,7 @@ export async function modVersions({ modsDir, file, markets, platform = process.p
   const carried = (await boardVersion(modsDir)) || null
   const found = installedVersion(await readFile(file, 'utf8').catch(() => ''))
   const known = parsed(await readFile(markets, 'utf8').catch(() => ''))
-  const market = found?.id?.slice(MOD.length + 1) ?? null
+  const market = found?.id?.slice(found.id.indexOf('@') + 1) ?? null
   const source = market === null || known === null || typeof known !== 'object' ? null : known[market]
   const from = [source?.source?.path, source?.installLocation].find(one => typeof one === 'string' && one !== '') ?? null
   return { carried, installed: found === undefined || found === null ? found : found.version, from, isHere: from !== null && samePlace(from, modsDir, platform) }
@@ -242,7 +266,7 @@ export async function runSetup({ command, modsDir, isCheck = false, seconds = 12
   const lines = [...plan.lines]
   if (plan.calls.length > 0) {
     const after = (await ask(['plugin', 'list', '--json'])).out
-    const now = (installedCopies(after) ?? []).find(copy => copy.isOn)
+    const now = (installedCopies(after) ?? []).find(copy => copy.isOn && !copy.isOld)
     if (now === undefined) return { ok: false, lines: [...lines, 'But the Claude app\'s program does not list the Workers mod as on afterwards: run setup again, or see the README.'] }
     lines.push(`The Claude app's program lists it: ${now.id}, version ${now.version}, on.`)
   }

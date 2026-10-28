@@ -1,4 +1,4 @@
-// folder-branches: two side panes. "Git": the folders directly inside the session's folder, each with the git branch
+// workers: two side panes. "Git": the folders directly inside the session's folder, each with the git branch
 // checked out in it, or "no git"; a folder in git unfolds to its local branches; /git opens it and answers the list
 // as text. "Workers": the chats of the project, one main chat that hands out work and the workers that do it, each
 // with what it is doing now (its task, the step it is on, the time it expects; your turn; free); /workers opens it,
@@ -22,11 +22,11 @@ import {
   SELF, UNKNOWN, branchList, branchName, detached, folderName, inFolder, isListed, ordered, summary,
 } from './folders'
 
-const PANE = 'folder-branches'
+const PANE = 'git'
 const WORKERS = 'workers'
-const TOOL = 'mcp__folder-branches__chat'
+const TOOL = 'mcp__workers__chat'
 /** B297: the tool a chat works the store's items with, on the worker board. */
-const WORK = 'mcp__folder-branches__work'
+const WORK = 'mcp__workers__work'
 /** How often the folders are read again, so a branch switched in a terminal shows in the pane: half a minute. */
 const REFRESH_MS = 30000
 /** How often the chat list is read again, so another chat's change shows in the pane. */
@@ -41,9 +41,9 @@ const EMPTY: FoldersView = { root: null, rows: [], error: null }
 const NO_CHATS: ChatsView = { me: null, now: 0, rows: [] }
 const NONE: string[] = []
 
-const viewAtom = atom({ plugin: 'folder-branches', key: 'view' } as const, EMPTY)
-const expandedAtom = atom({ plugin: 'folder-branches', key: 'expanded' } as const, NONE)
-const chatsAtom = atom({ plugin: 'folder-branches', key: 'chats' } as const, NO_CHATS)
+const viewAtom = atom({ plugin: 'workers', key: 'view' } as const, EMPTY)
+const expandedAtom = atom({ plugin: 'workers', key: 'expanded' } as const, NONE)
+const chatsAtom = atom({ plugin: 'workers', key: 'chats' } as const, NO_CHATS)
 
 // Lost on a reload, with the timers they name.
 let watch: Timer | null = null
@@ -119,7 +119,7 @@ let movingAfterClear: Promise<void> | null = null
 /** Clear after each step: a turn the engine runs for a /clear or /compact of the mod's, should it run one: no turn of the chat's. */
 let isCommandTurn = false
 /** The plugin's own name, as the engine gives it on what the plugin started (`origin.name`). */
-const PLUGIN = 'folder-branches'
+const PLUGIN = 'workers'
 /** Clear after each step: the words a turn of a slash command begins with (a /clear or /compact the engine runs as a turn). */
 const COMMAND_TURN = /^\s*(?:\/(?:clear|compact)\b|<command-(?:name|message)>\/?(?:clear|compact)\b)/
 /** When this process last looked at the boards, and when it last tried to start each. */

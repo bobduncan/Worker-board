@@ -26,7 +26,7 @@ joins the list by itself and reports idle, and the board hands it a task. This n
 rules in the project's `.claude/settings.local.json`; the mod checks them with `$.tool.check`). Without them the word
 goes to the main chat, which does the same by hand:
 
-1. The next free name: the lowest "Worker N" that the list of chats (`mcp__folder-branches__chat`, action "list")
+1. The next free name: the lowest "Worker N" that the list of chats (`mcp__workers__chat`, action "list")
    does not hold.
 2. `update_scheduled_task` with the task's id and `title` "<prefix>Worker N" (the prefix from
    `.claude/chats/list.json`), then `run_scheduled_task`: it answers with the new chat's session id.
@@ -44,7 +44,7 @@ You are a new worker chat of the project in this folder, started by the project'
 Do these steps in order, and nothing else in this first turn (the setup is no task and needs no card):
 1. Read .claude/chats/list.json in this folder. "prefix" names the chats: a chat's title is the prefix followed by its short name, for example "My Project - Worker 2".
 2. Load the tool mcp__ccd_session_mgmt__get_session with ToolSearch. Call it with session_id "self": your title is your full name, and your short name is the title without the prefix (the title "My Project - Worker 2" gives "Worker 2").
-3. Join the list of chats: call mcp__folder-branches__chat with action "join", your short name, role "worker".
+3. Join the list of chats: call mcp__workers__chat with action "join", your short name, role "worker".
 4. Read the project's worker briefing, .claude/worker-briefing.md, if it is there, and keep to it from now on.
-Then end your turn: the worker board sees you idle and hands you your first task. If a step fails, say which and why in a note with mcp__folder-branches__work (action "note", to "main") instead of guessing, then end your turn.
+Then end your turn: the worker board sees you idle and hands you your first task. If a step fails, say which and why in a note with mcp__workers__work (action "note", to "main") instead of guessing, then end your turn.
 ```

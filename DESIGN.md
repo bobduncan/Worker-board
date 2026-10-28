@@ -827,7 +827,7 @@ just like now". The picture is `art-inbox/worker-board/b124/2026-10-14-b124-resu
   is in the list` or `Why: asked with the button` (`spawnWords` in `src/say.mjs`). Since B766 (2026-10-28, phasing
   out the main chat) a running chat's Workers mod starts the worker itself, by code, where the app allows it the
   stored task's two tools: it renames the start-worker task "<prefix>Worker N" and runs it, one worker per claim
-  (src/hands.mjs `handJobs`, mods/folder-branches/start-worker-task.md); the word reaches the main chat only when no
+  (src/hands.mjs `handJobs`, mods/workers/start-worker-task.md); the word reaches the main chat only when no
   hand took it within a minute. So does a worker's `restart for mod` (closed and reopened by code; never the main
   chat, the partner or the supervisor, whose conversation a restart on the work login empties).
 - *By itself, once.* When the list holds the main chat and no worker (the advisor is no worker), the board asks
@@ -1102,7 +1102,7 @@ choices: the mod starts the board, the workers carry on on their click, no compa
   off)" shows again. The link is built only for an app id (`local_` and a uuid); while no mod has asked the board, the
   banner says whether the main chat runs is not known yet. *The mod reads it* through
   the bridge: `pause-state` on `/api/bridge/work`, and the same answer in `turn-ended`'s `pause`.
-- *Pause 2: each chat stops and goes on by itself* (the Workers mod 0.13.9, `mods/folder-branches/hooks/board.ts`
+- *Pause 2: each chat stops and goes on by itself* (the Workers mod 0.13.9, `mods/workers/hooks/board.ts`
   `pauseContexts`). The work tool's `step` takes `commit` and `next`, and its description says to write a checkpoint
   with every commit and when the person pauses. The mod reads the pause only in calls it makes anyway: `turn-ended`'s
   answer (kept as the last reading), and at a tool call `pause-state` at most once per 20 s, inside the 1.5 s
@@ -1267,7 +1267,7 @@ Decided on 2026-10-12:
 | History | Once a minute, records what changed per chat in `data/history.jsonl`. Gives the start of a task, its first estimate, time worked against time waiting, and the timeline | state |
 | Server | `127.0.0.1:4310`, serves the page, `GET /api/state`, and the chat box's endpoints. Node, no dependencies | all above |
 | Page | Workers, For you, Queue, Working folders, Today, Advice, and the chat dock. Asks for the state every 30 seconds | server |
-| Bridge | Delivers what is typed on the board into the main chat. Lives in the existing `folder-branches` mod | server, the mod |
+| Bridge | Delivers what is typed on the board into the main chat. Lives in the existing `workers` mod (called `folder-branches` until 0.26.0) | server, the mod |
 
 The board works without the workers' help. A worker's plan line adds the step and the estimate when it is there.
 

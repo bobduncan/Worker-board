@@ -221,7 +221,7 @@ test('conversation: what was typed, the answers, and reports; tool calls and com
 })
 
 test('conversation: a line typed on the board is yours and says where it came from', () => {
-  const viaBoard = user(min(1), 'Hello (typed on the worker board, 10:01)', { origin: { kind: 'plugin', name: 'folder-branches', asUser: true } })
+  const viaBoard = user(min(1), 'Hello (typed on the worker board, 10:01)', { origin: { kind: 'plugin', name: 'workers', asUser: true } })
   assert.deepEqual(conversation(entries([viaBoard]), { prefix: 'Game - ' }), [
     { at: min(1), from: 'you', who: 'You', via: 'board', text: 'Hello (typed on the worker board, 10:01)' },
   ])

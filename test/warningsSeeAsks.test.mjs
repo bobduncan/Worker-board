@@ -29,7 +29,7 @@ const PROJECT = 'C:\\game'
 const config = { ...parseConfig('{"unfiledAskHours":24}', {}), project: PROJECT }
 
 /** The person's answer as the board types it into the chat (the Workers mod, as the person). */
-const byBoard = (time, words) => user(time, words, { origin: { kind: 'plugin', name: 'folder-branches', asUser: true } })
+const byBoard = (time, words) => user(time, words, { origin: { kind: 'plugin', name: 'workers', asUser: true } })
 /** A helper's report coming back: it goes on with the turn before (transcript.mjs). */
 const handBack = time => user(time, 'Another Claude session sent a message:\n<agent-message from="a99b">\n[Subagent hand-back] The review found nothing.\n</agent-message>', {
   isMeta: true, origin: { kind: 'peer', from: 'a99b', senderTaskId: 'a99b', name: 'general-purpose', body: '[Subagent hand-back] The review found nothing.', handback: true },
@@ -54,8 +54,8 @@ ${closing('B333 is yours', '+ Done:   yes')}`
 /** Worker 2: took B356 at 00:00, asked Q153 at 00:02, ended its last turn at 00:30:56 with Q153 in its "For you" block. */
 const WORKER_2 = [
   byBoard(at(0, 0, 54), 'work: B356 is yours; run work next'),
-  step(at(0, 0, 57), 'Take B356', 'mcp__folder-branches__work'), toolResult(at(0, 0, 58)),
-  step(at(0, 2, 44), 'Ask Q153', 'mcp__folder-branches__work'), toolResult(at(0, 2, 45)),
+  step(at(0, 0, 57), 'Take B356', 'mcp__workers__work'), toolResult(at(0, 0, 58)),
+  step(at(0, 2, 44), 'Ask Q153', 'mcp__workers__work'), toolResult(at(0, 2, 45)),
   answer(at(0, 11, 26), 'B356 is not finished yet: the review runs.'),
   handBack(at(0, 16, 15)), step(at(0, 16, 46), 'Fix the findings'), toolResult(at(0, 16, 47)),
   answer(at(0, 19, 16), 'The findings are fixed; a second review runs.'),
@@ -65,11 +65,11 @@ const WORKER_2 = [
 /** Worker 4: its turn began 00:02:06, it asked Q154 at 00:28:34 and answered 00:28:52; the mod compacted it then. */
 const WORKER_4_NIGHT = [
   byBoard(at(0, 2, 6), '(answered on the worker board, 00:00) Q149 "The boss after the Bat fix": A'),
-  step(at(0, 2, 27), 'Take B333', 'mcp__folder-branches__work'), toolResult(at(0, 2, 28)),
+  step(at(0, 2, 27), 'Take B333', 'mcp__workers__work'), toolResult(at(0, 2, 28)),
   step(at(0, 17, 39), 'Review B333', 'Agent'), toolResult(at(0, 17, 40)),
   answer(at(0, 22, 54), 'The review runs; I go on once it reports.'),
   handBack(at(0, 25, 17)),
-  step(at(0, 28, 34), 'Ask Q154', 'mcp__folder-branches__work'), toolResult(at(0, 28, 35)),
+  step(at(0, 28, 34), 'Ask Q154', 'mcp__workers__work'), toolResult(at(0, 28, 35)),
   answer(at(0, 28, 52), W4_ANSWER),
   ...modCompaction(at(0, 29, 42)),
 ]

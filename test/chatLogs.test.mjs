@@ -23,13 +23,13 @@ function transcriptLines() {
     { type: 'user', timestamp: iso(AT + 4000), message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'toolu_1', content: 'knight.png\nsheet.png' }] } },
     { type: 'user', timestamp: iso(AT + 5000), message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'toolu_2', is_error: true, content: [{ type: 'text', text: 'not found' }, { type: 'image', source: { media_type: 'image/png', data: 'A'.repeat(4096) } }] }] } },
     { type: 'user', timestamp: iso(AT + 6000), isMeta: true, origin: { kind: 'peer', name: 'Game - Main' }, message: { role: 'user', content: 'Another Claude session sent a message:\n<cross-session-message from="local_1" name="Game - Main">\nQueue B13 next.\n</cross-session-message>' } },
-    { type: 'user', timestamp: iso(AT + 7000), origin: { kind: 'plugin', name: 'folder-branches', asUser: true }, message: { role: 'user', content: 'Use the red cape.\n(typed on the worker board, 14:05)' } },
-    { type: 'user', timestamp: iso(AT + 7500), origin: { kind: 'plugin', name: 'folder-branches', asUser: true }, message: { role: 'user', content: 'work: B13 is yours; run work next' } },
+    { type: 'user', timestamp: iso(AT + 7000), origin: { kind: 'plugin', name: 'workers', asUser: true }, message: { role: 'user', content: 'Use the red cape.\n(typed on the worker board, 14:05)' } },
+    { type: 'user', timestamp: iso(AT + 7500), origin: { kind: 'plugin', name: 'workers', asUser: true }, message: { role: 'user', content: 'work: B13 is yours; run work next' } },
     { type: 'attachment', timestamp: iso(AT + 8000), attachment: { type: 'queued_command', prompt: '<task-notification>\n<status>completed</status>\n</task-notification>', origin: { kind: 'task-notification' } } },
     { type: 'system', subtype: 'compact_boundary', timestamp: iso(AT + 9000), compactMetadata: { trigger: 'manual' } },
     { type: 'user', timestamp: iso(AT + 9100), isCompactSummary: true, message: { role: 'user', content: 'Summary: the knight is drawn.' } },
     { type: 'user', timestamp: iso(AT + 9200), isMeta: true, message: { role: 'user', content: '<local-command-caveat>The command below was run directly.</local-command-caveat>' } },
-    { type: 'user', timestamp: iso(AT + 9300), origin: { kind: 'plugin', name: 'folder-branches' }, message: { role: 'user', content: '<command-name>/compact</command-name>\n<command-message>compact</command-message>\n<command-args>keep the knight</command-args>' } },
+    { type: 'user', timestamp: iso(AT + 9300), origin: { kind: 'plugin', name: 'workers' }, message: { role: 'user', content: '<command-name>/compact</command-name>\n<command-message>compact</command-message>\n<command-args>keep the knight</command-args>' } },
     { type: 'assistant', timestamp: iso(AT + 10_000), message: { role: 'assistant', stop_reason: 'end_turn', content: [{ type: 'text', text: 'The knight is in.' }] } },
   ].map(line => JSON.stringify(line))
 }

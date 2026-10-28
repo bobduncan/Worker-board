@@ -205,7 +205,7 @@ export function pauseNote(entries, mainTitle) {
  * B310: what a paused worker may still do without working again: a word to a chat, and its card on the board.
  * Anything else (a command, a file read or written, a helper) is work.
  */
-const isCoordination = name => name === 'SendMessage' || /^mcp__folder-branches__/.test(name)
+const isCoordination = name => name === 'SendMessage' || /^mcp__(workers|folder-branches)__/.test(name)
   // B310: also the app's end of a turn (its recap and plan) and a look at the limits.
   || /^mcp__ccd_turn__/.test(name) || name === 'mcp__ccd_session_mgmt__get_usage'
 

@@ -98,7 +98,7 @@ test('the talk shows the picture in the person\'s message, also while it waits f
     title: `Game - ${name}`, sessionId: `local_${name}`, cliSessionId: `cli-${name}`, cwd: PROJECT, isArchived: false,
     createdAt: name.length, lastActivityAt: NOW - 5 * MIN, lastAssistantUuid: 'u-1',
   })
-  const viaBoard = (at, text) => user(at, text, { origin: { kind: 'plugin', name: 'folder-branches', asUser: true } })
+  const viaBoard = (at, text) => user(at, text, { origin: { kind: 'plugin', name: 'workers', asUser: true } })
   const tail = [
     viaBoard(NOW - 10 * MIN, 'This button looks off.\nPicture: C:\\game\\pictures\\talk\\2026-10-14-1144.png\n(typed on the worker board, 10:20)'),
     answer(NOW - 9 * MIN, 'I see it: the border is cut. Handed to Game - Units.'),

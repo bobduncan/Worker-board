@@ -301,7 +301,7 @@ const DOING = [
   [/^(Skill|ToolSearch)$/, 'Looking up how to do it'],
   [/^(TodoWrite|TaskCreate|TaskUpdate)$/, 'Updating its to-do list'],
   [/^mcp__(Claude_Browser|claude-in-chrome)__/, 'Working in the browser'],
-  [/^mcp__folder-branches__/, 'Recording its task'],
+  [/^mcp__(workers|folder-branches)__/, 'Recording its task'],
   [/^mcp__backlog__/, 'Updating the backlog'],
   [/^mcp__terminal__/, 'Working in the terminal'],
   [/^mcp__visualize__/, 'Drawing a picture'],

@@ -7,7 +7,7 @@ import { LEFT_TEXT, chatText, parseChat } from './chats'
 import { forYouItems } from './foryou'
 import { MOD_VERSION, WORK_ACTIONS } from './board'
 
-const TOOL = 'mcp__folder-branches__chat'
+const TOOL = 'mcp__workers__chat'
 const ROOT = 'D:\\Work\\project'
 const CHATS = 'D:/Work/project/.claude/chats'
 const MIN = 60000
@@ -172,7 +172,7 @@ function stand(on: On, w: World): void {
     w.tools.push(`${e.name}:${String(e.isDeferred)}`)
     w.descriptions[e.name] = e.description
 
-    return { value: { tool: `mcp__folder-branches__${e.name}` } }
+    return { value: { tool: `mcp__workers__${e.name}` } }
   })
   on('agent.list', () => ({ value: w.agents.map(a => ({ ...a, description: '', type: 'general-purpose', status: 'running' as const })) }))
   on('ui.open', (_$, e) => {
@@ -339,7 +339,7 @@ const PANE = {
   props: { title: 'Workers', isFocused: false, bodyColumns: 40, placement: 'dock', scroll: { offset: 0, bodyRows: 30 }, view: {} },
 } as const
 /** The Git pane: the folders and their branches. */
-const GIT = { ...PANE, requestId: 'folder-branches', props: { ...PANE.props, title: 'Git' } } as const
+const GIT = { ...PANE, requestId: 'git', props: { ...PANE.props, title: 'Git' } } as const
 
 const START = { cwd: ROOT, surface: 'desktop', isInteractive: true } as const
 const ASKED = { origin: { kind: 'composer' }, presentation: { isFullscreen: false, columns: 100 } } as const
@@ -351,7 +351,7 @@ const BY_MODEL = { origin: { kind: 'model' } } as const
 /** B297: where the worker board says it is, with its key, and the work tool the mod registers. */
 const BOARD = 'D:/Work/project/.claude/board.json'
 const board = JSON.stringify({ url: 'http://127.0.0.1:4311', key: 'ab'.repeat(32), startedAt: 1 })
-const WORK = 'mcp__folder-branches__work'
+const WORK = 'mcp__workers__work'
 
 /** B301: the chat reports its step with the work tool, and the board takes it, naming the chat's next step (`more`) or none. */
 async function reported($: { tool: { call(input: never): Promise<unknown> } }, w: World, more: string | null = null): Promise<void> {
@@ -409,7 +409,7 @@ describe('a chat keeps its own line in the list', () => {
     await $.prompt.submit({ text: 'the archer', ...ASKED } as never)
     expect(fileOf(w)).toEqual({ name: 'Units', role: 'worker', state: 'waiting', task: null, at: clock.now() })
     await $.turn.start({ text: 'the archer', turnId: 't1' })
-    const ui = await $.ui.mount({ plugin: 'folder-branches', surface: 'desktop', ...PANE })
+    const ui = await $.ui.mount({ plugin: 'workers', surface: 'desktop', ...PANE })
     const line = async (): Promise<string | undefined> => (await ui.find(lineOf('Units')))?.text
     expect(await line()).toBe('● Units  working')
 
@@ -517,13 +517,13 @@ describe('the list in the Workers pane', () => {
     // There are chats to show and no branch: the Workers pane opens by itself, the Git pane does not.
     expect(w.opened).toEqual(['workers:Workers'])
     for (const surface of ['terminal', 'desktop', 'vscode', 'mobile'] as const) {
-      const ui = await $.ui.mount({ plugin: 'folder-branches', surface, ...PANE })
+      const ui = await $.ui.mount({ plugin: 'workers', surface, ...PANE })
       const drawn: string[] = []
       for (const name of ['Main', 'Cleanup', 'Features', 'Levels', 'Units']) drawn.push((await ui.find(lineOf(name)))?.text ?? '')
       expect(drawn).toEqual(LINES)
       expect(await ui.find({ type: 'Text', text: /folder/ })).toBeUndefined()
       await ui.unmount()
-      const git = await $.ui.mount({ plugin: 'folder-branches', surface, ...GIT })
+      const git = await $.ui.mount({ plugin: 'workers', surface, ...GIT })
       expect(await git.find({ type: 'Text', text: 'This folder holds no folders.' })).toBeDefined()
       expect(await git.find(lineOf('Units'))).toBeUndefined()
       await git.unmount()
@@ -542,7 +542,7 @@ describe('the list in the Workers pane', () => {
     const w = world('cleanup', listed(chats))
     stand(on, w)
     await $.session.start(START)
-    const ui = await $.ui.mount({ plugin: 'folder-branches', surface: 'desktop', ...PANE })
+    const ui = await $.ui.mount({ plugin: 'workers', surface: 'desktop', ...PANE })
     w.files[`${CHATS}/levels.json`] = chatText({ name: 'Levels', role: 'worker', state: 'working', task: task('Torches', 1, 3, 15), at: 4000 })
     await clock.advance(5000)
     for (let i = 0; i < 50 && (await ui.find(lineOf('Levels')))?.text === '● Levels  working'; i++) await Promise.resolve()
@@ -567,7 +567,7 @@ describe('a line that stays true when a session ends badly or changes its id', (
     expect(fileOf(w)?.state).toBe('waiting')
     // The turn that died worked two minutes at most since its file was written.
     expect(fileOf(w)?.task?.left).toBe(18 * MIN)
-    const ui = await $.ui.mount({ plugin: 'folder-branches', surface: 'desktop', ...PANE })
+    const ui = await $.ui.mount({ plugin: 'workers', surface: 'desktop', ...PANE })
     expect((await ui.find(lineOf('Units')))?.text).toBe('◐ Units  your turn · Skeleton Archer · 2 of 5')
     await clock.advance(5 * MIN)
     expect(fileOf(w)?.state).toBe('waiting')
@@ -734,11 +734,11 @@ describe('who is in the list', () => {
     await $.session.end({ reason: 'other', sessionId: 's1', resume: { id: 's1' } })
     expect(w.files).toEqual({})
     expect(noteOf(w)).toBeUndefined()
-    const ui = await $.ui.mount({ plugin: 'folder-branches', surface: 'terminal', ...GIT })
+    const ui = await $.ui.mount({ plugin: 'workers', surface: 'terminal', ...GIT })
     expect(await ui.find({ type: 'Text', text: 'This folder holds no folders.' })).toBeDefined()
     expect(await ui.find({ type: 'Text', text: /free|working|your turn/ })).toBeUndefined()
     await ui.unmount()
-    const workers = await $.ui.mount({ plugin: 'folder-branches', surface: 'terminal', ...PANE })
+    const workers = await $.ui.mount({ plugin: 'workers', surface: 'terminal', ...PANE })
     expect(await workers.find({ type: 'Text', text: 'No chat is in the list yet.' })).toBeDefined()
     await workers.unmount()
     expect((await $.command.run({ command: 'workers', args: '', ...ASKED })).text).toBe('No chat is in the list yet.\nThe Workers pane is open.')
@@ -785,7 +785,7 @@ describe('what the person answers on the worker board reaches the chat it is for
     }), [BOARD]: board })
     stand(on, w)
     await startedAs($, w, 'Units')
-    const ui = await $.ui.mount({ plugin: 'folder-branches', surface: 'desktop', ...PANE })
+    const ui = await $.ui.mount({ plugin: 'workers', surface: 'desktop', ...PANE })
     const cleanup = async (): Promise<string | undefined> => {
       for (let i = 0; i < 10; i++) await settle()
       return (await ui.find(lineOf('Cleanup')))?.text
@@ -1279,7 +1279,7 @@ describe('B297: the work tool asks the worker board', () => {
   const BOARD = 'D:/Work/project/.claude/board.json'
   const KEY = 'ab'.repeat(32)
   const board = JSON.stringify({ url: 'http://127.0.0.1:4311', key: KEY, startedAt: 1 })
-  const WORK = 'mcp__folder-branches__work'
+  const WORK = 'mcp__workers__work'
 
   test('a call reaches the board with the chat, its session and the fields, and answers the text of the board', async ($, on) => {
     mock.clock(on)
@@ -1888,7 +1888,7 @@ describe('B299: a question asked with the app\u2019s form stands on the worker b
     stand(on, w)
     await begin($, w)
     w.workAnswer = { status: 200, text: JSON.stringify({ id: 'Q7', text: 'Q7 answered in the chat.' }) }
-    expect((await $.tool.call({ tool: 'mcp__folder-branches__work', action: 'answered-in-chat', id: 'Q7', text: 'yes, B' } as never)).result).toBe('Q7 answered in the chat.')
+    expect((await $.tool.call({ tool: 'mcp__workers__work', action: 'answered-in-chat', id: 'Q7', text: 'yes, B' } as never)).result).toBe('Q7 answered in the chat.')
     expect(sent(w).at(-1)).toEqual({ action: 'answered-in-chat', id: 'Q7', text: 'yes, B', chat: 'Units', session: 'units' })
   })
 })
@@ -1916,7 +1916,7 @@ describe('B319: two projects on one PC, each with its own board', () => {
       await $.session.start({ ...START, cwd: own.root })
       await settle()
       await $.turn.start({ text: 'go', turnId: 't1' })
-      await $.tool.call({ tool: 'mcp__folder-branches__work', action: 'next' })
+      await $.tool.call({ tool: 'mcp__workers__work', action: 'next' })
       // Its start asked its own board which chat it is and for its open instructions, and its call went there too.
       expect(w.whoamis.length).toBe(1)
       expect(w.workedAt).toEqual(Array(2).fill(`${own.url}/api/bridge/work ${own.key}`))
@@ -2255,7 +2255,7 @@ describe('B468: the Advisor gives a step its effort with the work tool', () => {
 })
 
 /** A /clear as the mod runs it: from the plugin, by its name. */
-const CLEAR_ARGS = { command: 'clear', args: '', origin: { kind: 'plugin', name: 'folder-branches' }, presentation: { isFullscreen: false, columns: 100 } }
+const CLEAR_ARGS = { command: 'clear', args: '', origin: { kind: 'plugin', name: 'workers' }, presentation: { isFullscreen: false, columns: 100 } }
 const CLEAR_BY_MOD = CLEAR_ARGS as never
 
 describe('clear after each step', () => {
@@ -2310,7 +2310,7 @@ describe('clear after each step', () => {
     await wait(50)
     expect(w.sequence).toEqual(['report', 'turn-ended', 'save-log', '/clear'])
     expect(sent(w).find(one => one.action === 'save-log')).toEqual({ action: 'save-log', stepId: 'B12', chat: 'Units', session: 'units' })
-    expect(w.commanded).toEqual(['/clear by plugin folder-branches'])
+    expect(w.commanded).toEqual(['/clear by plugin workers'])
     expect(w.compactions).toEqual([])
     // The mark on the card, just before /clear.
     expect(fileOf(w)?.clearing).toEqual({ at: fileOf(w)?.clearing?.at, step: 'B12', log: LOG })
@@ -2369,7 +2369,7 @@ describe('clear after each step', () => {
     await $.turn.complete({ ...ENDED, turnId: 't1' })
     await wait(50)
     expect(w.typedIn).toEqual([])
-    expect(w.commanded).toEqual(['/clear by plugin folder-branches'])
+    expect(w.commanded).toEqual(['/clear by plugin workers'])
     await cleared($, w)
     // The next tick takes it, into the new conversation.
     await clock.advance(5000)
@@ -2427,7 +2427,7 @@ describe('clear after each step', () => {
     await clock.advance(5000)
     for (let i = 0; i < 50 && w.commanded.length === 0; i++) await settle()
     await wait(50)
-    expect(w.commanded).toEqual(['/clear by plugin folder-branches'])
+    expect(w.commanded).toEqual(['/clear by plugin workers'])
     expect(w.sequence.slice(-2)).toEqual(['save-log', '/clear'])
     expect(sent(w).filter(one => one.action === 'save-log').at(-1)).toEqual({ action: 'save-log', stepId: 'B12', chat: 'Units', session: 'units' })
     expect(fileOf(w)?.clearing?.step).toBe('B12')
@@ -2485,14 +2485,14 @@ describe('clear after each step', () => {
     const w = await worker($, on)
     await $.turn.complete({ ...ENDED, turnId: 't1' })
     await wait(50)
-    expect(w.commanded).toEqual(['/clear by plugin folder-branches'])
+    expect(w.commanded).toEqual(['/clear by plugin workers'])
     // As if the queued /clear came only after a new turn had started: the turn drops the clear, its /clear is refused.
     await $.turn.start({ text: 'one more thing', turnId: 't2' })
     expect(fileOf(w)?.clearNote?.why).toBe('a new turn started before the clear ran')
     expect(fileOf(w)?.clearing).toBeUndefined()
     const ran = await $.command.run(CLEAR_BY_MOD)
     expect(ran.text).toBe('Not cleared: this /clear of the Workers mod was let go before it ran.')
-    expect(w.commanded).toEqual(['/clear by plugin folder-branches'])
+    expect(w.commanded).toEqual(['/clear by plugin workers'])
   })
 
   test('review 1: a clear dropped while a turn runs long: the turn is told to the board, and the late /clear is refused, then and later', async ($, on) => {
@@ -2515,7 +2515,7 @@ describe('clear after each step', () => {
     // The /clear that was queued comes now, after the turn: refused; and the person's own /clear still runs.
     expect((await $.command.run(CLEAR_BY_MOD)).text).toBe('Not cleared: this /clear of the Workers mod was let go before it ran.')
     await $.command.run({ ...CLEAR_ARGS, origin: { kind: 'composer' } } as never)
-    expect(w.commanded).toEqual(['/clear by plugin folder-branches', '/clear by composer'])
+    expect(w.commanded).toEqual(['/clear by plugin workers', '/clear by composer'])
   })
 
   test('review 1: should the engine run the mod\'s /clear as a turn, that turn is no turn of the chat\'s', async ($, on) => {
@@ -2623,7 +2623,7 @@ describe('clear after each step', () => {
     release()
     for (let i = 0; i < 50 && w.commanded.length === 0; i++) await settle()
     expect(w.sequence).toEqual(['report', 'turn-ended', 'save-log', '/clear'])
-    expect(w.commanded).toEqual(['/clear by plugin folder-branches'])
+    expect(w.commanded).toEqual(['/clear by plugin workers'])
     expect(w.typedIn).toEqual([])
   })
 
@@ -2636,7 +2636,7 @@ describe('clear after each step', () => {
     expect(w.sequence).toEqual(['report', 'turn-ended', 'turn-ended', 'save-log', '/clear'])
     const ids = w.requests.slice(-3, -1)
     expect(ids[0]).toBe(ids[1])
-    expect(w.commanded).toEqual(['/clear by plugin folder-branches'])
+    expect(w.commanded).toEqual(['/clear by plugin workers'])
   })
 
   test('slow answer: no answer at all within the 15 s: compacted as before, the card saying why', async ($, on) => {
@@ -2813,7 +2813,7 @@ describe('clear after each step', () => {
     w.reports = []
     await $.turn.complete({ ...ENDED, turnId: 't1' })
     await wait(50)
-    expect(w.commanded).toEqual(['/clear by plugin folder-branches'])
+    expect(w.commanded).toEqual(['/clear by plugin workers'])
     expect(w.reports.map(body => JSON.parse(body).report.state)).toEqual(['idle'])
     expect(w.reportsAtClear).toEqual([1])
     // The clear is on its way until the conversation after it starts: no take, a report at every ping.
@@ -2853,7 +2853,7 @@ describe('clear after each step', () => {
     await wait(50)
     // No report and no step: the turn's end goes to the board, then /clear; no log is asked for, nothing is compacted.
     expect(w.sequence).toEqual(['turn-ended', '/clear'])
-    expect(w.commanded).toEqual(['/clear by plugin folder-branches'])
+    expect(w.commanded).toEqual(['/clear by plugin workers'])
     expect(w.compactions).toEqual([])
     expect(w.toasts).toEqual([])
     expect(fileOf(w)?.clearing).toEqual({ at: clock.now(), step: null, log: null })
@@ -2870,7 +2870,7 @@ describe('clear after each step', () => {
     const w = await watcher($, on, { status: 503, text: 'The board restarts: try again in a moment.' })
     await $.turn.complete({ ...ENDED, turnId: 't1' })
     await wait(50)
-    expect(w.commanded).toEqual(['/clear by plugin folder-branches'])
+    expect(w.commanded).toEqual(['/clear by plugin workers'])
     expect(w.sequence.filter(one => one === 'save-log')).toEqual([])
   })
 
@@ -3201,7 +3201,7 @@ describe('2026-10-28: a chat learns which chat it is from the board, by its sess
     await clock.advance(60_000)
     await settled()
     const before = w.whoamis.length
-    await $.prompt.submit({ text: '(answered on the worker board, 11:05) Q2 "Box or yew?": yew', origin: { kind: 'plugin', name: 'folder-branches', asUser: true } } as never)
+    await $.prompt.submit({ text: '(answered on the worker board, 11:05) Q2 "Box or yew?": yew', origin: { kind: 'plugin', name: 'workers', asUser: true } } as never)
     expect(w.whoamis.length).toBe(before)
     expect(w.typedIn.at(-1)).toContain('Q2 "Box or yew?": yew')
     // The person's own prompt a minute on does ask.

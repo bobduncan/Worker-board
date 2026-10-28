@@ -58,7 +58,7 @@ test('the line that makes the stored task names the plain id, the first worker\'
   const line = taskWords({ folder: 'My project', prefix: 'Studio · ', board: 'D:\\boards\\worker-board' })
   assert.match(line, /taskId "my-project-start-worker"/)
   assert.match(line, /title "Studio · Worker 1"/)
-  assert.match(line, /mods.folder-branches.start-worker-task\.md/)
+  assert.match(line, /mods.workers.start-worker-task\.md/)
 })
 
 test('reading this PC and Allow work through the file system they are given', async () => {

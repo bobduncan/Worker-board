@@ -32,7 +32,7 @@ const app = name => JSON.stringify({
   createdAt: name.length, lastActivityAt: NOW - 5 * MIN, lastAssistantUuid: 'u-1',
 })
 const call = (when, name, input = {}) => [assistant(when, 'tool_use', [tool(name, input)]), toolResult(when + 1000)]
-const noted = (when, text = PAUSE) => call(when, 'mcp__folder-branches__work', { action: 'note', to: 'main', of: 'B269', text })
+const noted = (when, text = PAUSE) => call(when, 'mcp__workers__work', { action: 'note', to: 'main', of: 'B269', text })
 /** A turn that ends with the pause filed as a work note at `when` (11:49), closed a minute later. */
 const pausedTurn = (when = NOW - 11 * MIN) => [typed(NOW - 30 * MIN, 'Go on with B269.'), step(NOW - 29 * MIN, 'Build'), toolResult(NOW - 28 * MIN), ...noted(when), answer(when + MIN, 'I stop here.')]
 
@@ -104,7 +104,8 @@ test('the newer of a note and a message to the main chat decides', () => {
 test('it stays suspended through a word to the board or a look at the limits, and works again after real work', () => {
   // Units, 2026-10-18: after its note the board's "work" prompt came in; it looked at its step and its limits, and stopped.
   const coordinates = [...pausedTurn(), typed(NOW - 8 * MIN, 'work: B32 is yours; run work next'),
-    ...call(NOW - 8 * MIN, 'mcp__folder-branches__work', { action: 'next' }), ...call(NOW - 8 * MIN + 2000, 'mcp__ccd_session_mgmt__get_usage'),
+    ...call(NOW - 8 * MIN, 'mcp__workers__work', { action: 'next' }), ...call(NOW - 8 * MIN + 2000, 'mcp__ccd_session_mgmt__get_usage'),
+    // A call under the mod's old name (folder-branches, until 0.26.0) is a word to the board as well.
     ...call(NOW - 7 * MIN, 'mcp__folder-branches__chat', { action: 'done' }), ...call(NOW - 7 * MIN + 2000, 'mcp__ccd_turn__wrap_up', { recap: 'Paused.' }), answer(NOW - 7 * MIN + 5000, 'Paused until 14:40.')]
   assert.equal(lane(build({ Board: coordinates }, [...STEPS, note('N37', 'Board', NOW - 11 * MIN, PAUSE)]), 'Board').state, 'suspended')
   // A command in the same minute as the note (its time is written to the minute) is part of the turn that paused.

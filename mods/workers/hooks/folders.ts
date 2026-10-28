@@ -1,4 +1,4 @@
-// The parts of folder-branches that need no engine: paths, the order of the rows, and reading what git prints.
+// The parts of the Workers mod that need no engine: paths, the order of the rows, and reading what git prints.
 import type { FolderRow } from '../types'
 
 /** The row id of the session's own folder: no folder inside it can have this name. */
