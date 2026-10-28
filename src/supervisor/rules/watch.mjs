@@ -16,7 +16,7 @@ import { SUPERVISOR_DEFAULTS } from '../../config.mjs'
 import { sinceMs, valueOf } from '../../work/item.mjs'
 import { overlapIn } from '../../work/guards.mjs'
 import { stuckTakeBacks } from '../../work/handOut.mjs'
-import { afterPause as afterPauseOf, checkpointOf, heldMs, isHolding, pauseEndOf as pauseEnd } from '../../work/pause.mjs'
+import { afterPause as afterPauseOf, checkpointOf, heldMs, holdEndOf, isHolding, pauseEndOf as pauseEnd } from '../../work/pause.mjs'
 import { isFailedForGood, stoppedChats, whyClosed } from '../../work/outboxSweep.mjs'
 import { FIRST_SAYING, chatsByRole, oldModFinding } from '../../oldMods.mjs'
 import { EFFORTS, chatEffort, effortOf, effortSaid, familyOf, modelOf } from '../../work/effort.mjs'
@@ -1109,6 +1109,34 @@ function fiveHourStopIgnored(view) {
   }]
 }
 
+/** B763: the Workers mod's words for a clear it skipped because the person pauses (its chats.ts `clearWhy`). */
+const PAUSE_WHY = 'the person pauses the chats'
+/** B763: how long after the resume a chat's mod may still decide on a reading from before it (it reads anew per clear). */
+const PAUSE_READ_MS = MIN
+
+/**
+ * 22. B763 (X86, X100, the rule the sweep wanted: Worker 3 reported B727 as the person paused at 12:28; after the resume at
+ * 12:52 its Workers mod refused its own clear every minute "the person pauses the chats", from the reading its last turn's
+ * end had left, and every step given to it waited 20 min and went back): a chat's clear skipped for the pause more than a
+ * minute after the pause stopped holding (`holdEndOf`). One finding per chat, which counts up while it lasts; a skip inside
+ * the pause, or while a new one holds, is none.
+ */
+function pauseStale(view) {
+  const end = holdEndOf(view.pause)
+  if (end === null) return []
+  const found = []
+  for (const lane of view.lanes.filter(one => !one.isLeftover)) {
+    const skip = lane.compaction?.notCleared ?? null
+    if (skip?.why !== PAUSE_WHY || !Number.isFinite(skip.at) || skip.at <= end + PAUSE_READ_MS) continue
+    found.push({
+      rule: 'pause-stale', key: `pause-stale ${lane.name}`, subject: lane.name,
+      text: `${lane.name}: its clear was skipped at ${clockOf(skip.at)} for "${PAUSE_WHY}", ${minutes(skip.at - end)} min after the pause ended`,
+      evidence: `pause ${Number.isFinite(view.pause?.pausedSince) ? `${clockOf(view.pause.pausedSince)} ` : ''}to ${clockOf(end)}; clear skipped at ${clockOf(skip.at)}: ${PAUSE_WHY}; its Workers mod decided on a pause reading from before the resume`,
+    })
+  }
+  return found
+}
+
 /** Every watch rule, in the order the section shows them. */
 export const WATCH_RULES = [
   { id: 'unknown-lane', kind: 'watch', says: 'a worker unknown or off for too long that holds a step and that the board could not wake', check: unknownLane },
@@ -1137,4 +1165,5 @@ export const WATCH_RULES = [
   { id: 'board-slow', kind: 'watch', says: 'two work calls within 2 min answered after the chat gave up on them', check: boardSlow },
   { id: 'week-stop-ignored', kind: 'watch', says: 'the week at the stop line (98%), a worker told to stop still works 15 min later and no lane is suspended', check: weekStopIgnored },
   { id: 'five-hour-stop-ignored', kind: 'watch', says: 'a step given or a worker started while the 5-hour limit is at its stop line (95%) with its reset over 10 min off', check: fiveHourStopIgnored },
+  { id: 'pause-stale', kind: 'watch', says: 'a chat\'s clear skipped for the person\'s pause over a minute after the pause ended', check: pauseStale },
 ]

@@ -282,7 +282,7 @@ export function holdEndOf(pause) {
 export function heldMs(message, now, pause) {
   if (pause === null || pause === undefined || !Number.isFinite(message?.at)) return 0
   const start = pause.state === 'pausing' ? pause.since : pause.pausedSince ?? null
-  const end = pause.state === 'pausing' ? now : pause.state === 'resuming' ? pause.since : pause.resumedSince ?? pause.since
+  const end = pause.state === 'pausing' ? now : holdEndOf(pause)
   if (!Number.isFinite(start) || !Number.isFinite(end)) return 0
   return Math.max(0, Math.min(end, now) - Math.max(start, message.at))
 }

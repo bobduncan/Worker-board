@@ -2483,7 +2483,7 @@ describe('clear after each step', () => {
       // 12:52: Resume all. No turn of the chat since; the first minute after, the clear runs.
       w.pauseAnswer = RUNNING
       await aMinuteOn(clock, w)
-      expect(w.commanded).toEqual(['/clear by plugin folder-branches'])
+      expect(w.commanded).toEqual(['/clear by plugin workers'])
       expect(w.sequence.slice(-2)).toEqual(['save-log', '/clear'])
       expect(fileOf(w)?.clearing?.step).toBe('B12')
     })
@@ -2505,23 +2505,26 @@ describe('clear after each step', () => {
       expect(fileOf(w)?.clearNote?.why).toBe('the person pauses the chats')
       w.pauseAnswer = RUNNING
       await aMinuteOn(clock, w)
-      expect(w.commanded).toEqual(['/clear by plugin folder-branches'])
+      expect(w.commanded).toEqual(['/clear by plugin workers'])
     })
 
     test('a chat cut off mid-turn by the pause, its step reported: cleared at the first minute after the resume', async ($, on) => {
       const clock = mock.clock(on)
+      on('tool.call', { tool: 'Bash' }, () => ({ result: 'done' }) as never)
       const w = await worker($, on, null)
-      // The pause comes while the report's turn runs: its batch reads pausing, and the turn is cut off.
+      // The pause comes while the report's turn runs: its next tool call reads pausing, and the turn is cut off.
       w.pauseAnswer = PAUSING
       await clock.advance(21_000)
-      await $.classic.PostToolBatch({ hook_event_name: 'PostToolBatch', session_id: 'units', transcript_path: 'x', cwd: ROOT, tool_calls: [] } as never)
+      const reads = w.pauseReads
+      await $.tool.call({ tool: 'Bash', command: 'git commit' } as never)
+      expect(w.pauseReads).toBe(reads + 1)
       await $.turn.complete({ ...ENDED, answer: 'ok', turnId: 't1', reason: 'aborted' } as never)
       await wait(50)
       await aMinuteOn(clock, w)
       expect([saves(w), w.commanded]).toEqual([0, []])
       w.pauseAnswer = RUNNING
       await aMinuteOn(clock, w)
-      expect(w.commanded).toEqual(['/clear by plugin folder-branches'])
+      expect(w.commanded).toEqual(['/clear by plugin workers'])
     })
 
     test('a pause that begins while the clear is decided (the turn\'s end answered late, saying running): no clear until the resume', async ($, on) => {
@@ -2535,7 +2538,7 @@ describe('clear after each step', () => {
       expect([saves(w), w.commanded, fileOf(w)?.clearNote?.why]).toEqual([0, [], 'the person pauses the chats'])
       w.pauseAnswer = RUNNING
       await aMinuteOn(clock, w)
-      expect(w.commanded).toEqual(['/clear by plugin folder-branches'])
+      expect(w.commanded).toEqual(['/clear by plugin workers'])
     })
 
     test('a board that does not answer the pause keeps the last reading: no clear on a pause not known to be over', async ($, on) => {
