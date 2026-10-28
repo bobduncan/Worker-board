@@ -137,7 +137,8 @@ export async function applySync(findings, ports, noted = new Set()) {
       // Worktree clean-up: removed by the board; one that could not be is listed, and no chat is told.
       const done = await Promise.resolve().then(() => ports.clean(fix.leftover))
         .catch(error => ({ ok: false, why: error instanceof Error ? error.message : String(error) }))
-      if (done?.ok === true) row(one, 'Cleaned', one.text)
+      // B751: a folder with files and no git is moved aside, and the row says where.
+      if (done?.ok === true) row(one, 'Cleaned', typeof done.movedTo === 'string' ? `${one.text}: moved to ${String(done.movedTo).replace(/\\/g, '/')}` : one.text)
       else row(one, 'Left', `${one.text}: not removed (${done?.why ?? 'no answer'})`)
     } else if (fix.do === 'list') {
       row(one, 'Left', one.text)

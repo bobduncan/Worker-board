@@ -11,10 +11,17 @@
 // Windows safety: `git worktree remove --force` follows junctions and deletes what they point to. Nothing here uses
 // --force or removes a folder recursively: a worktree is removed only when nothing in it is a link (a junction or a
 // symlink), by `git worktree remove` without --force, and a folder only by rmdir, which fails when it is not empty.
+//
+// B751 (the person, 2026-10-28: "i want also a rule to remove leftover working trees", after Main removed four by hand
+// that the clean-up had left): what kept them is let go where it is safe. A worker's `node_modules` link into the main
+// checkout's own is taken away alone first (never followed); changes of line endings alone count as none (put back with
+// git before the removal); a worktree not merged goes after a day unused, its branch kept; one named for a finished step
+// counts wherever it lies; one that names no step waits 6 h unused; and a folder named as a worktree's, with files but
+// no git, goes into the project's logs/scratch after a day unused.
 
 import { execFile } from 'node:child_process'
-import { lstat, readdir, rmdir } from 'node:fs/promises'
-import { join } from 'node:path'
+import { lstat, mkdir, readdir, readlink, rename, rmdir, unlink } from 'node:fs/promises'
+import { dirname, isAbsolute, join, resolve } from 'node:path'
 
 import { valueOf } from './item.mjs'
 
@@ -23,6 +30,12 @@ const MIN = 60_000
 export const OPEN_STATES = ['queued', 'taken', 'in progress', 'review', 'waiting on you']
 /** A worktree made or used this lately, or a folder made this lately, is left for now: a chat may be setting it up. */
 export const RECENT_MS = 20 * MIN
+/** B751: a worktree that names no step (a chat's own, say) is left until it has not been used this long. */
+export const NO_STEP_IDLE_MS = 6 * 60 * MIN
+/** B751: a worktree not merged (its branch kept), or a folder with files and no git, is left until unused this long. */
+export const STALE_MS = 24 * 60 * MIN
+/** B751: the one link a worktree may hold for its removal: a worker's link to the main checkout's packages. */
+const PACKAGES = 'node_modules'
 /** A folder with more entries than this is not looked through to its end: it is left, never removed unseen. */
 const WALK_LIMIT = 100_000
 const REMOVE_SECONDS = 60
@@ -37,6 +50,11 @@ export const FILES = {
   entries: path => readdir(path, { withFileTypes: true }),
   lstat: path => lstat(path),
   rmdir: path => rmdir(path),
+  // B751: a link's target, a symlink's removal (a junction goes by rmdir), and a folder moved aside.
+  readlink: path => readlink(path),
+  unlink: path => unlink(path),
+  rename: (from, to) => rename(from, to),
+  mkdir: path => mkdir(path, { recursive: true }),
 }
 
 /** Runs `job` after the caller has answered; a failure of it is its own (the folder just stays for the next check). */
@@ -107,9 +125,10 @@ const isLinkLike = entry => entry.isSymbolicLink() || (!entry.isFile() && !entry
 
 /**
  * The first link in a folder, breadth first, by its path inside it ("." when the folder is one itself): `{ link,
- * isUnknown }`; `isUnknown` when the folder could not be looked through to its end.
+ * isUnknown }`; `isUnknown` when the folder could not be looked through to its end. B751: `skip`, names right in the
+ * folder that are passed over (the one link the caller has looked at itself).
  */
-export async function findLink(path, fs = FILES, limit = WALK_LIMIT) {
+export async function findLink(path, fs = FILES, limit = WALK_LIMIT, skip = []) {
   const self = await lstatOr(fs, path)
   if (self === null || self === 'gone') return { link: null, isUnknown: true }
   if (self.isSymbolicLink() || !self.isDirectory()) return { link: '.', isUnknown: false }
@@ -120,6 +139,7 @@ export async function findLink(path, fs = FILES, limit = WALK_LIMIT) {
     const entries = await entriesOr(fs, inner === '' ? path : join(path, ...inner.split('/')))
     if (entries === null) return { link: null, isUnknown: true }
     for (const entry of entries) {
+      if (inner === '' && skip.includes(entry.name)) continue
       seen += 1
       if (seen > limit) return { link: null, isUnknown: true }
       const where = inner === '' ? entry.name : `${inner}/${entry.name}`
@@ -283,6 +303,39 @@ async function lastUsed(path, run, fs) {
   return newest
 }
 
+/** B751: where a link points, as a full path ("\\?\" taken off), or null when it cannot be read. */
+async function linkTarget(path, fs) {
+  try {
+    const target = String(await fs.readlink(path)).replace(/^\\\\\?\\/, '')
+    return isAbsolute(target) ? target : resolve(dirname(path), target)
+  } catch {
+    return null
+  }
+}
+
+/** B751: whether `path` is a link to the main checkout's own packages folder (`main`'s node_modules), and nothing else. */
+async function isPackagesLink(path, main, fs, platform) {
+  // A plain folder has no target (readlink refuses it): never one.
+  const target = await linkTarget(path, fs)
+  return target !== null && keyOf(target, platform) === keyOf(join(main, PACKAGES), platform)
+}
+
+/** B751: the newest change of a folder with files: its own and that of what is right in it. */
+async function lastTouched(path, fs) {
+  let newest = -Infinity
+  const self = await lstatOr(fs, path)
+  if (self !== null && self !== 'gone') newest = self.mtimeMs
+  for (const entry of await entriesOr(fs, path) ?? []) {
+    const found = await lstatOr(fs, join(path, entry.name))
+    if (found !== null && found !== 'gone') newest = Math.max(newest, found.mtimeMs)
+  }
+  return newest
+}
+
+/** B751: a step's id in a folder's name ("b660" in "b660-wt", "b12" in "check-b12-before"). */
+const STEP_IN_NAME = /(?:^|[^a-z0-9])b\d+(?![0-9])/i
+const hours = ms => `${Math.round(ms / (60 * MIN))} h`
+
 /**
  * The sync list's check `worktrees`: every worktree of the repositories the board knows (`repos`, `{ dir, base }`) but
  * their main checkouts and the folders of `keep`, and every folder right in the project folder that looks like a
@@ -292,12 +345,21 @@ async function lastUsed(path, run, fs) {
  * in its repository's base, that no open step holds (by its branch, or its id in the folder's name), named as the
  * steps and checks name theirs ("<repository's folder>-..." or "check-..."), not made or used in the last RECENT_MS
  * and with no link in it; and an empty folder that is no link, not made in the last RECENT_MS, that no open step names.
+ * B751 widens it: changes of line endings alone count as none (`lineEndings`: git puts them back first); a link
+ * `node_modules` to the main checkout's own is no bar (`unlink`: taken away alone first); a worktree named for a step
+ * that is done or dropped counts wherever it lies; one not merged goes after STALE_MS unused when a branch keeps its
+ * commits ("its branch stays"); one that names no step waits NO_STEP_IDLE_MS unused; and a folder named as a worktree's
+ * with files and no git, untouched for STALE_MS and with no link, is moved into the project's logs/scratch (`moveTo`).
  * `items` the store's items, `run` git (folders.mjs `gitRunner`), `now` the time.
  */
 export async function findLeftovers({ repos, project = '', items = [], run, fs = FILES, now = Date.now(), keep = [], platform = process.platform }) {
   const steps = [...(items instanceof Map ? items.values() : items)]
     .filter(item => (valueOf(item, 'Kind') ?? 'step') === 'step' && OPEN_STATES.includes(valueOf(item, 'State')) && typeof valueOf(item, 'Id') === 'string')
   const holder = (path, branch) => steps.find(item => namesStep(nameOf(path), valueOf(item, 'Id')) || (branch !== null && ownBranch(valueOf(item, 'Branch')) === branch))
+  // B751: a worktree named for a step that is done or dropped is that step's, wherever it lies.
+  const closed = [...(items instanceof Map ? items.values() : items)]
+    .filter(item => (valueOf(item, 'Kind') ?? 'step') === 'step' && ['done', 'dropped'].includes(valueOf(item, 'State')) && typeof valueOf(item, 'Id') === 'string')
+  const finished = path => closed.some(item => namesStep(nameOf(path), valueOf(item, 'Id')))
   const lists = await readWorktrees(repos, run)
   const kept = new Set([...keep, ...repos.map(repo => repo.dir)].filter(path => typeof path === 'string' && path !== '').map(path => keyOf(path, platform)))
   for (const { list } of lists) if (list?.[0]) kept.add(keyOf(list[0].path, platform))
@@ -331,8 +393,10 @@ export async function findLeftovers({ repos, project = '', items = [], run, fs =
         leave(`held by ${valueOf(held, 'Id')}`)
         continue
       }
-      // Only a worktree named as the steps and checks name theirs; another (a chat's own, say) may be in use.
-      if (!looksLikeWorktree(nameOf(one.path), prefixes)) {
+      // Only a worktree named as the steps and checks name theirs, or (B751) for a finished step; another (a chat's own,
+      // say) may be in use.
+      const name = nameOf(one.path)
+      if (!looksLikeWorktree(name, prefixes) && !finished(one.path)) {
         leave('not named as a step\'s or a check\'s worktree')
         continue
       }
@@ -345,20 +409,42 @@ export async function findLeftovers({ repos, project = '', items = [], run, fs =
         leave('git did not answer for it')
         continue
       }
+      // B751: changes of line endings alone count as none; anything else, or a file git does not track, does.
+      let isLineEndings = false
       if (status.trim() !== '') {
-        leave('has changes')
-        continue
+        const isUntracked = status.split('\n').some(line => line.startsWith('??'))
+        // --numstat, not --name-only: the names come whatever the option ignores, the counts only for real changes.
+        const real = isUntracked ? null : await run(['-C', one.path, 'diff', 'HEAD', '--ignore-cr-at-eol', '--numstat'])
+        if (real === null || real.trim() !== '') {
+          leave('has changes')
+          continue
+        }
+        isLineEndings = true
       }
       const merged = await isMerged(repo, one.head, run)
-      if (merged !== true) {
-        leave(merged === false ? `not merged into ${repo.base}` : 'git did not answer whether it is merged')
+      if (merged === null) {
+        leave('git did not answer whether it is merged')
         continue
       }
-      if (now - await lastUsed(one.path, run, fs) < RECENT_MS) {
-        leave('made or used in the last 20 min')
+      // B751: one not merged keeps its commits on its branch: its folder may go after a day unused; detached, never.
+      if (merged === false && one.branch === null) {
+        leave(`not merged into ${repo.base}, and on no branch that would keep it`)
         continue
       }
-      const { link, isUnknown } = await findLink(one.path, fs)
+      const namesAStep = STEP_IN_NAME.test(name)
+      const idle = now - await lastUsed(one.path, run, fs)
+      const needs = merged === false ? STALE_MS : namesAStep ? RECENT_MS : NO_STEP_IDLE_MS
+      if (idle < needs) {
+        leave(merged === false ? `not merged into ${repo.base}` : namesAStep ? 'made or used in the last 20 min' : `names no step: left until unused for ${hours(NO_STEP_IDLE_MS)}`)
+        continue
+      }
+      // B751: a worker's link to the main checkout's packages is taken away alone first; any other link keeps it.
+      let { link, isUnknown } = await findLink(one.path, fs)
+      let isPackages = false
+      if (link === PACKAGES && await isPackagesLink(join(one.path, PACKAGES), list[0]?.path ?? repo.dir, fs, platform)) {
+        isPackages = true;
+        ({ link, isUnknown } = await findLink(one.path, fs, WALK_LIMIT, [PACKAGES]))
+      }
       if (link !== null) {
         leave(`holds a link (${link}): remove the link alone first`)
         continue
@@ -367,7 +453,12 @@ export async function findLeftovers({ repos, project = '', items = [], run, fs =
         leave('could not be looked through')
         continue
       }
-      found.push({ path: one.path, kind: 'worktree', repo: repo.dir, branch: one.branch, what, clean: true, why: null })
+      found.push({
+        path: one.path, kind: 'worktree', repo: repo.dir, branch: one.branch,
+        what: merged === false ? `${what}, not merged: its branch stays` : what, clean: true, why: null,
+        ...(isPackages ? { unlink: PACKAGES, packages: join(list[0]?.path ?? repo.dir, PACKAGES) } : {}),
+        ...(isLineEndings ? { lineEndings: true } : {}),
+      })
     }
   }
   if (project !== '') {
@@ -379,7 +470,17 @@ export async function findLeftovers({ repos, project = '', items = [], run, fs =
       const entries = await entriesOr(fs, folder.path)
       if (entries === null) continue
       if (entries.length > 0) {
-        if (hasGit) found.push({ path: folder.path, kind: 'folder', repo: null, what: 'a folder of a worktree', clean: false, why: 'not empty, and no repository the board knows lists it' })
+        if (hasGit) {
+          found.push({ path: folder.path, kind: 'folder', repo: null, what: 'a folder of a worktree', clean: false, why: 'not empty, and no repository the board knows lists it' })
+          continue
+        }
+        // B751: a folder named as a worktree's, with files and no git at all (never a repository of its own), that no
+        // open step names and nobody touched for a day: moved into the project's logs/scratch, never deleted.
+        if (entries.some(entry => entry.name === '.git') || holder(folder.path, null) !== undefined) continue
+        if (now - await lastTouched(folder.path, fs) < STALE_MS) continue
+        const { link, isUnknown } = await findLink(folder.path, fs)
+        if (link !== null || isUnknown) continue
+        found.push({ path: folder.path, kind: 'folder', repo: null, what: 'a folder named as a worktree\'s, with files and no git', clean: true, why: null, moveTo: join(project, 'logs', 'scratch', folder.name) })
         continue
       }
       const what = 'an empty folder'
@@ -408,9 +509,40 @@ export function gitWrite(args) {
  * folder Windows may leave by rmdir (never recursive: it fails on one that is not empty); a folder by rmdir alone.
  * `{ ok: true }`, or `{ ok: false, why }`.
  */
-export async function cleanLeftover(one, { git = gitWrite, fs = FILES } = {}) {
+export async function cleanLeftover(one, { git = gitWrite, fs = FILES, platform = process.platform } = {}) {
   if (one?.clean !== true || !['worktree', 'folder'].includes(one.kind)) return { ok: false, why: 'it is not one the board may remove' }
+  // B751: a folder with files and no git is moved aside, never deleted; a name taken there gets a number.
+  if (one.kind === 'folder' && typeof one.moveTo === 'string') {
+    const { link, isUnknown } = await findLink(one.path, fs)
+    if (link !== null || isUnknown) return { ok: false, why: link !== null ? `it holds a link now (${link})` : 'it could not be looked through' }
+    try {
+      await fs.mkdir(dirname(one.moveTo))
+      let to = one.moveTo
+      for (let n = 2; await lstatOr(fs, to) !== 'gone'; n += 1) to = `${one.moveTo}-${n}`
+      await fs.rename(one.path, to)
+      return { ok: true, movedTo: to }
+    } catch (error) {
+      return { ok: false, why: `it could not be moved (${error?.code ?? error?.message ?? 'no answer'})` }
+    }
+  }
   if (one.kind === 'worktree') {
+    // B751: a worker's link to the main checkout's packages goes first, alone: the link, never what it points to.
+    if (one.unlink === PACKAGES) {
+      const at = join(one.path, PACKAGES)
+      if (!(await isPackagesLink(at, dirname(one.packages ?? ''), fs, platform))) return { ok: false, why: `its ${PACKAGES} is no longer the link to the main checkout's` }
+      try {
+        // A junction goes by rmdir (the link alone); a symlink by unlink.
+        await fs.rmdir(at).catch(error => (error?.code === 'ENOTDIR' ? fs.unlink(at) : Promise.reject(error)))
+      } catch (error) {
+        return { ok: false, why: `its ${PACKAGES} link could not be taken away (${error?.code ?? error?.message ?? 'no answer'})` }
+      }
+      if (await lstatOr(fs, at) !== 'gone') return { ok: false, why: `its ${PACKAGES} link is still there` }
+    }
+    // B751: changes of line endings alone are put back (git restores the files as committed) before the removal.
+    if (one.lineEndings === true) {
+      const back = await git(['-C', one.path, 'checkout', '--', '.'])
+      if (!back.ok) return { ok: false, why: `its line endings could not be put back (${back.why})` }
+    }
     // The review: looked at again right before, as its folder may have changed since it was found.
     const { link, isUnknown } = await findLink(one.path, fs)
     if (link !== null || isUnknown) return { ok: false, why: link !== null ? `it holds a link now (${link})` : 'it could not be looked through' }

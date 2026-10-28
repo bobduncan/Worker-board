@@ -4584,3 +4584,26 @@ and see what other options we have and present that to me?" It replaces the ask 
    map's turn (`ctx.withdrawAsk`); one whose ask is gone starts on Opus and its line goes.
 5. Tests: `test/goalGuard.test.mjs` (two without progress trip, with progress the third; the word), `test/goalGuardParts.test.mjs`,
    `test/fableAsk.test.mjs` (no ask, no Fable; the asks from before).
+
+## Leftover worktrees: what kept them is let go (B751, 2026-10-28)
+
+The person, 2026-10-28: "i want also a rule to remove leftover working trees", after the goal-management chat removed
+by hand four that the sync list's check `worktrees` (above, 2026-10-24) had only listed: worker-board-qa (merged and
+clean, but a worker's `node_modules` junction in it), worker-board-managed-routing (a parked branch, not merged),
+b660-wt (in a chat's own folder, named for the finished B660, with 500 changes of line endings alone) and
+worker-board-fbmerge (a folder with one stray file and no git). `findLeftovers` and `cleanLeftover` now let go of
+each where it is safe:
+
+1. A link `node_modules` right in the worktree that points to the main checkout's own `node_modules` is no bar: the
+   board takes the link away alone first (rmdir on a junction, unlink on a symlink; never followed, looked at again
+   right before), then removes the worktree. Any other link still keeps it, listed.
+2. Changes of line endings alone count as none (`git diff HEAD --ignore-cr-at-eol --numstat` is empty, no untracked
+   file): git puts the files back as committed (`git checkout -- .`) right before the removal. A real change keeps it.
+3. A worktree not merged goes once it has not been used for a day (`STALE_MS`), when a branch keeps its commits ("its
+   branch stays"); on no branch it never goes.
+4. A worktree named for a step that is done or dropped counts wherever it lies, not only when named as the steps name
+   theirs; one that names no step (a chat's own, say) waits until unused for 6 h (`NO_STEP_IDLE_MS`), not 20 min.
+5. A folder right in the project folder named as a worktree's, with files, no git and no link, untouched for a day, is
+   moved into the project's `logs/scratch` (a number added to a name taken there), never deleted; a folder with its own
+   `.git` (a repository of its own) is never moved. The supervisor's row says where it went.
+6. Tests: `test/work/worktreeSweep.test.mjs`, on real temporary repositories with real links.
