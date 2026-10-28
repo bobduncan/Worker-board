@@ -1096,7 +1096,8 @@ choices: the mod starts the board, the workers carry on on their click, no compa
   banner says so with a link **Open <its title>**, `claude://claude.ai/epitaxy/<the app's id for it>` (title from the
   list of chats, the id from its app card), and its Workers mod reads the resume from the flag. The banner names each
   chat holding a step that has not started a turn since the resume (its last turn began after it, or it runs one now),
-  once, with the steps it holds; once none is left, or 20 minutes after Resume all (*Resuming holds nothing*, below),
+  once, with the steps it holds, a step the board gave it and it has not taken included (B764, X101: given five seconds
+  before the pause, its worker stopped before taking it; `not taking` stays the net for a chat the wake does not reach); once none is left, or 20 minutes after Resume all (*Resuming holds nothing*, below),
   the board sets `running` (`resumed`, the server's only) and the banner goes; **End resume** (the person's
   `end-resume`) does the same for a chat that will never start. `running` counts as no pause: the old "Resume all (N cut
   off)" shows again. The link is built only for an app id (`local_` and a uuid); while no mod has asked the board, the

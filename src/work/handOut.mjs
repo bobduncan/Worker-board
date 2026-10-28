@@ -185,6 +185,12 @@ export function isPlacedBefore(item) {
   return last !== undefined && !GIVE_LINE.test(last)
 }
 
+/** B764: a step the board gave a worker and the worker has not taken: queued, with an Owner, its newest move to queued the board's give. */
+export function isGiven(item) {
+  if (stateOf(item) !== 'queued' || valueOf(item, 'Owner') === null) return false
+  return GIVE_LINE.test(historyOf(item).findLast(line => QUEUED_LINE.test(line)) ?? '')
+}
+
 /**
  * Redesign Part 2, at rollout (plan Question 2): the tasks queued before the board handed out all work: every step
  * queued whose newest placement is such a line, not the board's give, and every step that keeps a queue asked before its
