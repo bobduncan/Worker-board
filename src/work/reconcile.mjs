@@ -65,8 +65,9 @@ const span = ms => {
  * `routingHeld` the ids the routing holds); `gives`: `[{ id, chat, why }]`, a ready task to each worker whose report says
  * idle; `takeBacks`: `[{ id, chat, stuck, why }]`, the given tasks not taken within `settings.takeWithinMinutes`
  * (`sent` the outbox, for when each work line went); `start`: `{ start: chat }`, `{ spawn: 1 }` or null, the word to the
- * main chat for one more worker (`settings.maxWorkers`). No give, start or take-back while the person pauses or resumes,
- * or a limit is full (`limitsFull`); none either when the flow lets the board hand out nothing (a line on top says so).
+ * main chat for one more worker (`settings.maxWorkers`; B-max: left out 5, null none). No give, start or take-back while
+ * the person pauses or resumes, or a limit is full (`limitsFull`); none either when the flow lets the board hand out
+ * nothing (a line on top says so).
  * A worker the board took a task back from while it sat idle shows a `not taking` flag until it reports anew.
  * `retired`: `[{ id }]`, the tasks queued before the redesign, which go back on the list once (work/handOut.mjs `oldQueued`).
  * The review of 2026-10-25: `heldUntil` the last time the board held the hand-out (the server's memory: a full limit,
@@ -330,7 +331,7 @@ export function reconcile({ store, flow = store.flow, lanes = [], now, times, pr
   const idle = idleWorkers(live, { items, prefix, restFree, stuck: new Set([...stuck.keys(), ...handedBack]) })
   const skip = skipPairs({ items, refused: refusedGives, now, heldGiveMs, prefix })
   const gives = handOutHeld || !handsOut ? [] : match({ ready: ready.ready, idle, items, prefix, skip })
-  const start = !handsOut ? null : workerStart({ ready: ready.ready, gives, idle, lanes: live, maxWorkers: settings.maxWorkers ?? null, isHeld: handOutHeld, items, sent, now, prefix, refused: refusedGives,
+  const start = !handsOut ? null : workerStart({ ready: ready.ready, gives, idle, lanes: live, maxWorkers: settings.maxWorkers, isHeld: handOutHeld, items, sent, now, prefix, refused: refusedGives,
     // Gap 2: a pinned task's worker unknown this long counts as off.
     offAfterMs: Number.isFinite(settings.offAfterMinutes) ? settings.offAfterMinutes * MIN : Infinity })
   return { moves, deliveries, flags, notes, partnerAsks, escalations, restFree, handedBack: [...handedBack], ready, gives, takeBacks, start, retired, handOutHeld, heldTwice }

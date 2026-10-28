@@ -9,7 +9,7 @@ import { mkdir, readFile, stat, writeFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
 
-import { startTaskIds } from './hands.mjs'
+import { startTaskIds, workerTaskIds } from './hands.mjs'
 
 /** The jobs, in the order the page lists them, each with the app tools its code needs allowed with no question. */
 export const CODE_JOBS = [
@@ -25,6 +25,21 @@ export const CODE_JOBS = [
 export const CLAIM_MS = 2 * 60_000
 
 const isRecord = value => typeof value === 'object' && value !== null && !Array.isArray(value)
+
+/** T12: the worker slots that have a routine of their own: 1 to `maxWorkers` (5 when it is no whole number from 1). */
+const slotsOf = maxWorkers => Array.from({ length: Number.isInteger(maxWorkers) && maxWorkers >= 1 ? maxWorkers : 5 }, (_, at) => at + 1)
+
+/**
+ * T12 (the person, 2026-10-28: every worker its own routine): the worker slots, 1 to `maxWorkers`, that still need a routine
+ * of their own, from the stored tasks' ids (`tasks`) of the project's `folder`. A PC that has the shared start-worker task
+ * and no routine of a worker's own goes on with it (the fallback): none is missing. A PC with none stored needs all; one
+ * with some routines needs the others, whatever the shared task covers.
+ */
+export function missingRoutines({ tasks = [], folder = '', maxWorkers }) {
+  const slots = slotsOf(maxWorkers)
+  const lacking = slots.filter(n => !workerTaskIds(folder, n).some(id => tasks.includes(id)))
+  return lacking.length === slots.length && tasks.length > 0 ? [] : lacking
+}
 
 /** The allow rules of the settings files' texts (user, project, project-local), as one set; a text that is no JSON gives none. */
 export function allowedIn(texts) {
@@ -64,16 +79,22 @@ export function withAllowRules(text, tools) {
 }
 
 /**
- * What the page shows: `{ rows: [{ key, title, byCode, why }], missing, needsTask, checked }`. `claims` the chats'
- * claims by name (`{ can, at }`), `allowed` the allow rules found (`allowedIn`), `tasks` the stored start-worker tasks
- * found, `spawnFail` the last new worker that failed (`{ at, why }`, or null). A job runs by code when a chat that claimed
- * in the last CLAIM_MS may do it (a new worker also needs a stored task and no failure since). `missing` the tools to
- * allow for the jobs that do not; `checked` the newest claim's chat and time.
+ * What the page shows: `{ rows: [{ key, title, byCode, why }], missing, needsTask, missingRoutines, checked }`. `claims` the
+ * chats' claims by name (`{ can, at }`), `allowed` the allow rules found (`allowedIn`), `tasks` the stored start-worker
+ * tasks found (T12: the shared one and a worker's own routines, of `folder`, one per worker up to `maxWorkers`),
+ * `spawnFail` the last new worker that failed (`{ at, why }`, or null). A job runs by code when a chat that claimed in the
+ * last CLAIM_MS may do it (a new worker also needs a stored task and no failure since; T12: and a routine for every
+ * worker slot, which else the row names: "needs routines for Worker 4, 5", `missingRoutines` the slots, also what the
+ * pasted line makes; `needsTask` is true while one is missing). `missing` the tools to allow for the jobs that do not;
+ * `checked` the newest claim's chat and time.
  */
-export function codeJobsView({ claims = new Map(), allowed = new Set(), tasks = [], spawnFail = null, now }) {
+export function codeJobsView({ claims = new Map(), allowed = new Set(), tasks = [], spawnFail = null, folder = '', maxWorkers, now }) {
   const recent = [...claims].filter(([, claim]) => Number.isFinite(claim?.at) && now - claim.at < CLAIM_MS)
   const newest = recent.reduce((best, one) => (best === null || one[1].at > best[1].at ? one : best), null)
   const missing = []
+  const absent = missingRoutines({ tasks, folder, maxWorkers })
+  // Some routines stored, not all: the shared task would still start the others, but each worker is to have its own.
+  const fewRoutines = tasks.length > 0 && absent.length > 0 ? `needs routines for Worker ${absent.join(', ')}` : null
   const rows = CODE_JOBS.map(job => {
     if (job.key === 'wake') return { key: job.key, title: job.title, byCode: recent.length > 0, why: recent.length > 0 ? null : 'no chat with the Workers mod runs now' }
     const lacking = job.tools.filter(tool => !allowed.has(tool))
@@ -81,33 +102,38 @@ export function codeJobsView({ claims = new Map(), allowed = new Set(), tasks = 
     let why = null
     if (job.key === 'spawn' && tasks.length === 0) why = 'no stored start-worker task on this PC'
     else if (job.key === 'spawn' && spawnFail !== null && may) why = `the last try failed: ${spawnFail.why}`
-    else if (may) why = null
+    else if (may) why = job.key === 'spawn' ? fewRoutines : null
     else if (lacking.length > 0) why = 'not allowed yet'
     else if (recent.length === 0) why = 'no chat with the Workers mod runs now'
     else why = 'the running chats have an older Workers mod; their next restart brings the new one'
-    if (why !== null) missing.push(...lacking)
+    if (why !== null && why !== fewRoutines) missing.push(...lacking)
     return { key: job.key, title: job.title, byCode: why === null, why }
   })
-  return { rows, missing: [...new Set(missing)], needsTask: tasks.length === 0, checked: newest === null ? null : { chat: newest[0], at: newest[1].at } }
+  return { rows, missing: [...new Set(missing)], needsTask: absent.length > 0, missingRoutines: absent, checked: newest === null ? null : { chat: newest[0], at: newest[1].at } }
 }
 
 /**
- * The line the person pastes into any chat of the project, in a turn they type, to make the stored start-worker task
- * (only a chat can make it, and its Auto mode is saved with the task only from a turn the person typed).
+ * The line the person pastes into any chat of the project, in a turn they type, to make the stored routine of each worker
+ * in `slots` (T12: Worker N's own, `<folder>-worker-N`, titled "<prefix>Worker N"; only a chat can make it, and its Auto
+ * mode is saved with the routine only from a turn the person typed). The page cuts the closing sentence off where the line
+ * goes into the main chat's first words.
  */
-export function taskWords({ folder, prefix, board }) {
-  const [, plain] = startTaskIds(folder)
+export function taskWords({ folder, prefix, board, slots = [1] }) {
   const text = join(board, 'mods', 'workers', 'start-worker-task.md')
-  return `Make the worker board's stored start-worker task: call mcp__scheduled-tasks__create_scheduled_task with no schedule, taskId "${plain}" (when the app says that id is taken, the one it names), notifyOnCompletion false, title "${prefix}Worker 1", description "Starts one worker chat of the worker board", and as prompt the text under "The task's text" in ${text}. Then say in one line that it is made.`
+  const each = slots.map(n => `taskId "${workerTaskIds(folder, n)[0]}", title "${prefix}Worker ${n}", description "Starts ${prefix}Worker ${n} of the worker board"`)
+  return `Make the worker board's stored routines, one for each worker: call mcp__scheduled-tasks__create_scheduled_task once for each of these, ${each.join('; ')}, each with no schedule, notifyOnCompletion false (when the app says a taskId is taken, use the one it names) and as prompt the text under "The task's text" in ${text}. Then say in one line that they are made.`
 }
 
 const FILES = { readFile, writeFile, mkdir, stat }
 
-/** What the setup check reads from this PC: `{ allowed, tasks }`, the allow rules and the stored tasks' ids found. */
-export async function readCodeJobs({ project, folder, home = homedir(), fs = FILES }) {
+/**
+ * What the setup check reads from this PC: `{ allowed, tasks }`, the allow rules and the stored tasks' ids found (T12: the
+ * shared task's and each worker's own routine, one per slot up to `maxWorkers`).
+ */
+export async function readCodeJobs({ project, folder, maxWorkers, home = homedir(), fs = FILES }) {
   const read = path => fs.readFile(path, 'utf8').catch(() => '')
   const texts = await Promise.all([join(home, '.claude', 'settings.json'), join(project, '.claude', 'settings.json'), join(project, '.claude', 'settings.local.json')].map(read))
-  const ids = startTaskIds(folder)
+  const ids = [...startTaskIds(folder), ...slotsOf(maxWorkers).flatMap(n => workerTaskIds(folder, n))]
   const there = await Promise.all(ids.map(id => fs.stat(join(home, '.claude', 'scheduled-tasks', id, 'SKILL.md')).then(found => found.isFile(), () => false)))
   return { allowed: allowedIn(texts), tasks: ids.filter((id, at) => there[at]) }
 }

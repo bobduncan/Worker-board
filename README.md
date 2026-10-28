@@ -219,7 +219,8 @@ recap); the Focus page shows the count, the evaluation, and a rebuild that waits
 chat reach you: each as a card under Needs your attention as it comes, or gathered under your partner's daily note on
 the Focus page, answered there. A question that holds up a chat always comes at once.
 Both are also the board's ⚙ panel (B361): "Bother me" (At once, Once a day) and "Approve rebuilds by itself" (Off,
-On). A click there writes them into config.json, every other setting kept, and the board runs on them at once.
+On); B-max adds "Workers at most" (`maxWorkers`, 5 unless set: a "−", the number and a "+", 1 to 10). A click there writes the
+setting into config.json, every other setting kept, and the board runs on it at once.
 `advisorParts` (`["focus", "goals", "brainstorm"]` unless set): the parts the Focus tab's bar shows, by name; add
 `"way"` (Next milestone), `"plan"` (Game plan), `"suggestions"`, `"refine"` or `"chat"` to bring one back.
 `work` (`.claude/work` unless set): the work store's folder, a path inside the project or a whole path of its own
@@ -297,7 +298,7 @@ once it is refined the board keeps it on one ready list (fixes first, then the f
 first suitable one to a worker the moment its chat reports idle (the person may pin a task to a worker). It types one
 line into the worker's chat, "work: B286 is yours; run work next", once per step and worker; a worker that does not
 take it within two minutes (`takeWithinMinutes`) gets it taken back and shows stuck, and with ready tasks waiting and
-no worker free the board asks the main chat for one more (`maxWorkers`) (kept in `<work>\delivered.json`, so a restart sends nothing
+no worker free the board asks the main chat for one more, up to `maxWorkers` (5 unless set, B-max; the ⚙ panel's "Workers at most", 1 to 10) (kept in `<work>\delivered.json`, so a restart sends nothing
 twice); a worker that ends a turn with nothing in progress asks for it itself (the Workers mod 0.12.0 or newer). A worker that holds a step but does not
 run is flagged on its lane after ten minutes with a button "Start <worker>" (the main chat starts it); so are a failed
 check and a card that names another step, and a file of the store the board cannot read stands on the top line.

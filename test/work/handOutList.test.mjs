@@ -5,6 +5,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
+import { DEFAULTS } from '../../src/config.mjs'
 import { isReady } from '../../src/work/guards.mjs'
 import { CHOICE_WHY, HAND_OUT_DEFAULTS, addedAt, followUpOf, readyList } from '../../src/work/handOut.mjs'
 import { parseItem } from '../../src/work/item.mjs'
@@ -22,8 +23,10 @@ const mapOf = items => new Map(items.map(item => [item.head.get('Id'), item]))
 const list = (items, more = {}) => readyList(mapOf(items), { now: NOW, focus: 'G3', followUpMs: 10 * MIN, standardHold: () => null, routingHeld: new Set(), prefix: 'Team - ', ...more })
 const at = ms => `- ${stamp(ms)}`
 
-test('the defaults: two minutes to take, a follow-up a preference only, 20 minutes for a held give, no number of workers', () => {
-  assert.deepEqual(HAND_OUT_DEFAULTS, { takeWithinMinutes: 2, followUpMinutes: 0, heldGiveMinutes: 20, maxWorkers: null, handOutBeyondFocus: false })
+test('the defaults: two minutes to take, a follow-up a preference only, 20 minutes for a held give, 5 workers at most (B-max)', () => {
+  assert.deepEqual(HAND_OUT_DEFAULTS, { takeWithinMinutes: 2, followUpMinutes: 0, heldGiveMinutes: 20, maxWorkers: 5, handOutBeyondFocus: false })
+  // The same defaults as the settings file's: one number for both.
+  assert.equal(HAND_OUT_DEFAULTS.maxWorkers, DEFAULTS.maxWorkers)
 })
 
 test('the order: a fix first, then the focus goal\'s tasks, then the rest; each by id', () => {
