@@ -17,7 +17,7 @@ project's code.
 
 ## Starting a worker
 
-- <the project's start-worker task and where its steps are, or "a chip">
+- <the project's start-worker routines (one per worker, `<folder>-worker-N`) or its shared start-worker task, and where its steps are, or "a chip">
 
 ## Standing permissions
 

@@ -339,3 +339,25 @@ test('review 5: a checkpoint counts from the pause to the millisecond; End resum
     await rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
 })
+
+test('B764 (X101): a step given and not taken (queued) is waited for and woken at a resume, and held for no checkpoint', () => {
+  // B746 was given to Support five seconds before the person paused; Support stopped before taking it.
+  const given = (id, owner, state = 'queued') => ({ ...held(id, owner, state), sections: new Map([['History', ['- 2026-10-18 20:59 server: refined → queued (given by the board to Support)']]]) })
+  const items = new Map([['B1', held('B1', 'Board', 'in progress')], ['B2', given('B2', 'Support')]])
+  const pausing = pauseFacts({ pause: { state: 'pausing', since: NOW, by: 'person' }, items, lanes: calm })
+  // A given step has no checkpoint to write: it is no `unsaved` one.
+  assert.deepEqual(pausing.unsaved, [{ chat: 'Board', id: 'B1' }])
+  const pause = { state: 'resuming', since: NOW + MIN, by: 'person' }
+  assert.deepEqual(pauseFacts({ pause, items, lanes: calm }).waiting, [{ chat: 'Board', ids: ['B1'] }, { chat: 'Support', ids: ['B2'] }])
+  assert.deepEqual(pauseAnswer({ pause, items, lanes: calm, chat: 'Main', role: 'main' }).resumeList.map(one => one.step), ['B1', 'B2'])
+  // Taken after the resume (its chat started a turn since): the wait ends.
+  const started = calm.map(lane => (lane.name === 'Support' ? { ...lane, turnAt: NOW + 2 * MIN } : lane))
+  assert.deepEqual(pauseFacts({ pause, items, lanes: started }).waiting, [{ chat: 'Board', ids: ['B1'] }])
+  // Taken back meanwhile (refined, no owner), dropped, or queued some other way (no give): nothing is named.
+  const back = new Map([['B2', { head: new Map([['Id', 'B2'], ['Kind', 'step'], ['State', 'refined']]), sections: new Map() }]])
+  const dropped = new Map([['B2', given('B2', 'Support', 'dropped')]])
+  const old = new Map([['B2', held('B2', 'Support', 'queued')]])
+  for (const none of [back, dropped, old]) {
+    assert.deepEqual([pauseFacts({ pause, items: none, lanes: calm }).waiting, pauseAnswer({ pause, items: none, lanes: calm, chat: 'Main', role: 'main' }).resumeList], [[], []])
+  }
+})

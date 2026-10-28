@@ -17,6 +17,10 @@
 // unarchive_session) and rename and run the stored start-worker task (update_scheduled_task, run_scheduled_task). Only
 // workers are restarted: on the work login a restarted chat starts an empty conversation, which a worker (cleared after
 // every step) does not miss, but the main chat, the partner and the supervisor would; theirs stay the main chat's.
+//
+// T12 (the person, 2026-10-28: every worker its own routine, named "<project> - Worker N", so the app's Routines page shows
+// one card per worker and not one shared routine renamed for every start): a new worker starts from the stored routine of
+// its own number first (`workerTaskIds`), the shared start-worker task only as the fallback (`nextSpawn`).
 
 import { PARTNER_MODES, SWITCH_MODES } from './partnerEffort.mjs'
 import { EFFORTS, MODEL_ID } from './work/effort.mjs'
@@ -125,8 +129,12 @@ export const isForHandsYet = (message, now, workers = null) =>
   (isHandWord(message, { canSet: true, canRestart: true, canSpawn: true, workers }) && now - message.at < HANDS_FIRST_MS)
   || (isStopWord(message) && now - message.at < STOP_HANDS_MS)
 
-/** B766: the title of the next new worker: the prefix and the lowest "Worker N" no chat of the board has (`names`). */
-export function nextWorkerTitle(names, prefix = '') {
+/**
+ * T12 (the person, 2026-10-28: every worker its own routine, so the app's Routines page shows one card per worker): the
+ * next new worker, `{ title, n }`: the prefix and the lowest "Worker N" no chat of the board has (`names`), and N.
+ * B766: the title alone is `nextWorkerTitle`.
+ */
+export function nextWorker(names, prefix = '') {
   const used = new Set()
   for (const name of names) {
     const plain = String(name ?? '').startsWith(prefix) ? String(name).slice(prefix.length) : String(name ?? '')
@@ -135,16 +143,45 @@ export function nextWorkerTitle(names, prefix = '') {
   }
   let n = 1
   while (used.has(n)) n += 1
-  return `${prefix}Worker ${n}`
+  return { title: `${prefix}Worker ${n}`, n }
+}
+
+/** B766: the title of the next new worker: the prefix and the lowest "Worker N" no chat of the board has (`names`). */
+export const nextWorkerTitle = (names, prefix = '') => nextWorker(names, prefix).title
+
+/**
+ * The project's folder name as the stored tasks' ids use it: lower case, runs of other characters one "-". Given a path,
+ * its last folder (the server passes the name; a whole path means the same project).
+ */
+const taskBase = folder => String(folder ?? '').replace(/[\\/]+$/, '').split(/[\\/]/).pop().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')
+
+/**
+ * B766: the ids of the shared stored task that starts a worker, by the project's folder name (start-worker-task.md): the
+ * app keeps the tasks per login, so a second login has its own under "-2". The hand tries them in this order. T12: now
+ * only the fallback, for a PC without a routine per worker.
+ */
+export const startTaskIds = folder => {
+  const base = taskBase(folder)
+  return base === '' ? [] : [`${base}-start-worker-2`, `${base}-start-worker`]
 }
 
 /**
- * B766: the ids of the stored task that starts a worker, by the project's folder name (start-worker-task.md): the
- * app keeps the tasks per login, so a second login has its own under "-2". The hand tries them in this order.
+ * T12: the ids of worker N's own stored routine, titled "<prefix>Worker N" (start-worker-task.md), by the project's folder
+ * name: the plain id, and "-2" for a second login, as for the shared task.
  */
-export const startTaskIds = folder => {
-  const base = String(folder ?? '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')
-  return base === '' ? [] : [`${base}-start-worker-2`, `${base}-start-worker`]
+export const workerTaskIds = (folder, n) => {
+  const base = taskBase(folder)
+  return base === '' ? [] : [`${base}-worker-${n}`, `${base}-worker-${n}-2`]
+}
+
+/**
+ * T12: the next new worker as a hand job needs it, `{ title, tasks }`: its title and the task ids the hand tries in order,
+ * the worker's own routine first (its title is already its name, so the rename is no change), the shared task only as the
+ * fallback, so a PC without the per-worker routines goes on working.
+ */
+export function nextSpawn(names, prefix, folder) {
+  const { title, n } = nextWorker(names, prefix)
+  return { title, tasks: [...workerTaskIds(folder, n), ...startTaskIds(folder)] }
 }
 
 /**

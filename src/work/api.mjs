@@ -2250,19 +2250,52 @@ async function instruction(body, w) {
 }
 
 /**
+ * The person, 2026-10-28 ("1. yes built"): an instruction that started a turn in which its chat made a step (`work new`)
+ * is closed by the board, "became step B<n>": the request lives on as that step, so none is lost. It was filed within
+ * this long before the turn started (the prompt that started it), or a moment after.
+ */
+export const TURN_START_MS = 60_000
+const STARTED_LATE_MS = 10_000
+const MADE = /^- (\d{4}-\d\d-\d\d \d\d:\d\d) (.+?): made$/
+
+/** The steps `chat` made from `since` on (to the minute, as History keeps it), by their first History line. */
+export function stepsMadeSince(items, chat, since, prefix = '') {
+  const minute = since - (since % 60_000)
+  return [...items.values()].filter(one => kindOf(one) === 'step').filter(one => {
+    const made = MADE.exec((one.sections.get('History') ?? [])[0] ?? '')
+    return made !== null && plain(made[2], prefix) === plain(chat, prefix) && sinceMs(made[1]) >= minute
+  }).map(one => valueOf(one, 'Id')).sort(byId)
+}
+
+/**
  * B298: a turn of the chat ended (the Workers mod says so, with `since`, when that turn started): every instruction of
- * the chat filed before then and still open is missed once more (`Missed`, a History line). Nothing is closed.
+ * the chat filed before then and still open is missed once more (`Missed`, a History line). Only the instruction that
+ * started this turn is closed, and only when the chat made a step in it (`TURN_START_MS`).
  */
 async function turnEnded(body, w) {
   const chat = chatOf(body, w)
   if (chat === '') return refuse(400, 'Name the chat.')
   const since = Number(body.since)
   if (body.since === undefined || body.since === null || !Number.isFinite(since)) return refuse(400, '"since" is when the turn started.')
-  const due = [...w.store.items.values()].filter(one => kindOf(one) === 'instruction' && stateOf(one) === 'open'
-    && plain(valueOf(one, 'Chat'), w.prefix) === plain(chat, w.prefix) && filedMs(one) <= since)
+  const mine = [...w.store.items.values()].filter(one => kindOf(one) === 'instruction' && stateOf(one) === 'open'
+    && plain(valueOf(one, 'Chat'), w.prefix) === plain(chat, w.prefix))
     .sort((a, b) => byId(valueOf(a, 'Id'), valueOf(b, 'Id')))
-  const missed = []
+  const made = stepsMadeSince(w.store.items, chat, since, w.prefix)
+  const starting = made.length === 0 ? [] : mine.filter(one => filedMs(one) >= since - TURN_START_MS && filedMs(one) <= since + STARTED_LATE_MS)
+  const closed = []
   const fresh = []
+  for (const one of starting) {
+    const found = await load(valueOf(one, 'Id'), w, { kind: ['instruction'] })
+    if (!found.ok || stateOf(found.item) !== 'open') continue
+    const as = `became step ${made.join(', ')}`
+    const item = ordered(appendHistory(put(put(copy(found.item), 'State', 'closed'), 'Closed as', as), 'server', `closed: ${as}`, w.now))
+    const done = await save(item, found.text, w)
+    if (!done.ok) continue
+    closed.push(`${valueOf(item, 'Id')} (${as})`)
+    fresh.push(item)
+  }
+  const due = mine.filter(one => filedMs(one) <= since && !starting.includes(one))
+  const missed = []
   for (const one of due) {
     const found = await load(valueOf(one, 'Id'), w, { kind: ['instruction'] })
     if (!found.ok || stateOf(found.item) !== 'open') continue
@@ -2281,7 +2314,8 @@ async function turnEnded(body, w) {
   const filedLine = asked === undefined || asked.length === 0 ? '' : ` Filed from your "For you" block: ${asked.join(', ')}; close one the person answers in the chat with work answered-in-chat.`
   // B474, the review: an item left out as asked already is named, so a chat whose new question looked alike can file it.
   const leftLine = (fromBlock?.left.length ?? 0) === 0 ? '' : ` Not filed from your "For you" block, as asked already: ${fromBlock.left.join('; ')}. If one is a new question, file it with work ask.`
-  const text = `${missed.length === 0 ? 'No instruction was left open.' : `Left open: ${missed.join(', ')}. Close each with work close <id> --as "what came of it", or say why it stays open.`}${filedLine}${leftLine}`
+  const closedLine = closed.length === 0 ? '' : `Closed by the board: ${closed.join(', ')}. `
+  const text = `${closedLine}${missed.length === 0 ? 'No instruction was left open.' : `Left open: ${missed.join(', ')}. Close each with work close <id> --as "what came of it", or say why it stays open.`}${filedLine}${leftLine}`
   // The review of B300: with `pull`, the same call answers the chat's pull (one call at a turn's end).
   const pulled = body.pull === true ? (({ changed: _, ...rest }) => rest)(pull(body, { ...w, who: chat }).result) : undefined
   // Pause and resume (spec 2026-10-18): the same call answers the pause state, so the mod needs no call of its own.
@@ -2289,7 +2323,7 @@ async function turnEnded(body, w) {
   // Clear after each step: the chat's role as the board knows it (the Workers mod clears a worker only, and compacts the
   // main chat and the partners at rest), and how many items of its "For you" block the board could not file.
   const role = w.roleOf?.(chat) ?? null
-  return { ok: true, result: { text, missed, open, changed: missed.length > 0 || (asked?.length ?? 0) > 0, ...(asked === undefined ? {} : { asked }), ...((fromBlock?.left.length ?? 0) === 0 ? {} : { left: fromBlock.left }), ...((fromBlock?.unfiled ?? 0) === 0 ? {} : { unfiled: fromBlock.unfiled }), ...(pulled === undefined ? {} : { pull: pulled }), pause, ...(role === null ? {} : { role }) } }
+  return { ok: true, result: { text, missed, ...(closed.length === 0 ? {} : { closed }), open, changed: missed.length > 0 || closed.length > 0 || (asked?.length ?? 0) > 0, ...(asked === undefined ? {} : { asked }), ...((fromBlock?.left.length ?? 0) === 0 ? {} : { left: fromBlock.left }), ...((fromBlock?.unfiled ?? 0) === 0 ? {} : { unfiled: fromBlock.unfiled }), ...(pulled === undefined ? {} : { pull: pulled }), pause, ...(role === null ? {} : { role }) } }
 }
 
 const ASK_REF = /^Q\d+$/

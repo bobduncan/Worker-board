@@ -89,8 +89,9 @@ holds up a chat always comes at once), **Approve rebuilds by itself** (B361: Off
 file) and **What the board does by itself on this PC** (B767: each routine job of the main chat's, waking chats, model and effort,
 restarts and new workers, "by code" or still the main chat's and why, as the running chats' Workers mod reports it;
 **Allow them for this project** adds the missing tool rules to the project's own `.claude\settings.local.json`, named
-in its tooltip; **Copy the line that makes the task** gives the line to paste into any chat for the stored
-start-worker task; while one of them could help, a blue note on top says so), the board's
+in its tooltip; **Copy the line that makes the routines** gives the line to paste into any chat for the stored
+routine of each worker (T12: "My Project - Worker 3", one per worker up to "Workers at most"; the row says "needs
+routines for Worker 4, 5" while some are missing); while one of them could help, a blue note on top says so), the board's
 version and since when, "Last updated", and a refresh button. When the board's folder holds a newer version, a
 yellow note on top says so; a click starts the new version. When a data file of the board was torn (by a restart or a
 power cut) and could not be read at its start, a red note on top names it and the copy it was kept aside as

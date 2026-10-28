@@ -778,7 +778,10 @@ as the title". The picture is `art-inbox/worker-board/2026-10-13-b113-limits-res
   `weekStopDue`, command `week-stop`, the board's own word): "The weekly limit reached the stop line (98%): bring your
   work to a safe point (commit, checkpoint), then send the paused note"; the worker's paused note then makes its lane
   Suspended as before. The watch rule `week-stop-ignored` (`rules/watch.mjs`) opens one incident when the week is at the
-  line, a worker still works 15 min of running time after its word, and no lane is suspended.
+  line, a worker still works 15 min of running time after its word, and no lane is suspended. (B759: `test/weekStopBoard.test.mjs`
+  runs a board copy on the night's case, the week at 98 with B738 ready, Worker 4 free and Workers 2, 3 and 5 working: nothing is
+  handed out, each of the three gets one word, however many times the looking loop passes; at 97, or at 98 with `weekStopAt` 99, B738
+  goes to Worker 4 and nobody is told.)
 - *The 5-hour limit's stop line (B758, the fix of X99).* At 99% of the 5-hour limit with its reset 25 min off (12:25 on
   2026-10-28) the board gave B744, B743 and B746 and started Workers 1 to 3, and the work ran into paid extra usage: the
   5-hour limit counted full only at 100. It now counts full from `fiveHourStopAt` (config.json, 95; a missing or wrong value
@@ -830,6 +833,19 @@ just like now". The picture is `art-inbox/worker-board/b124/2026-10-14-b124-resu
   (src/hands.mjs `handJobs`, mods/workers/start-worker-task.md); the word reaches the main chat only when no
   hand took it within a minute. So does a worker's `restart for mod` (closed and reopened by code; never the main
   chat, the partner or the supervisor, whose conversation a restart on the work login empties).
+  *Each worker its own routine (T12).* The person, 2026-10-28: the app's Routines page showed one shared routine
+  renamed for every start ("Game - Worker 9" holding Workers 6, 7 and 8 as unnamed runs); they wanted one card per
+  worker, "<project> - Worker N" (the list's `prefix`, "Lava Tactics - "). So the project keeps a fixed set of stored
+  routines, one per worker slot up to `maxWorkers` (5 unless set), made once: `<folder>-worker-N` titled
+  "<prefix>Worker N" (`workerTaskIds`; "-2" for a second login, as for the shared task). The hands route gives the
+  spawn job the new worker's own ids first and the shared task's after them (`nextSpawn`: the lowest free number, its
+  title and the ids), so the mod's rename of a worker's own routine to its own title changes nothing and the board runs
+  a worker's routine only when that worker has no chat; a PC without the per-worker routines goes on with the shared
+  task. The setup check (`src/codeJobs.mjs`) reads the stored ids of both, counts a routine as a stored task, and
+  while some slots have one and others not, says "needs routines for Worker 4, 5" on the "Start a new worker" row
+  instead of "by itself" (the shared task does not cover the slots); its line to paste (`taskWords`) makes exactly the
+  missing routines. The shared task alone still counts as "by itself". Main, Advisor and Supervisor stay normal chats;
+  making the routines on a PC is the person's paste, not the board's.
 - *By itself, once.* When the list holds the main chat and no worker (the advisor is no worker), the board asks
   for three (`spawnWhenAlone`), at its minute's look, and only while the main chat's chat is open, so the word is
   taken and not lost. It asks once per empty list: again only after a worker was there since that ask (the
@@ -1096,7 +1112,8 @@ choices: the mod starts the board, the workers carry on on their click, no compa
   banner says so with a link **Open <its title>**, `claude://claude.ai/epitaxy/<the app's id for it>` (title from the
   list of chats, the id from its app card), and its Workers mod reads the resume from the flag. The banner names each
   chat holding a step that has not started a turn since the resume (its last turn began after it, or it runs one now),
-  once, with the steps it holds; once none is left, or 20 minutes after Resume all (*Resuming holds nothing*, below),
+  once, with the steps it holds, a step the board gave it and it has not taken included (B764, X101: given five seconds
+  before the pause, its worker stopped before taking it; `not taking` stays the net for a chat the wake does not reach); once none is left, or 20 minutes after Resume all (*Resuming holds nothing*, below),
   the board sets `running` (`resumed`, the server's only) and the banner goes; **End resume** (the person's
   `end-resume`) does the same for a chat that will never start. `running` counts as no pause: the old "Resume all (N cut
   off)" shows again. The link is built only for an app id (`local_` and a uuid); while no mod has asked the board, the
@@ -2844,7 +2861,13 @@ approval from the user, but can be automatically approved."
 2. Once a day: Needs your attention leaves out the store's asks that hold up no chat (not blocking, not a refine
    question, not of the app's form; `gatheredAsks`), and the Focus page shows them under the partner's daily note,
    beside the recaps of B360, as their own cards: their pictures, options and answer, answered there.
-3. Not in it: new kinds of notification.
+3. B-max (the person, 2026-10-28: "make the worker limit configurable in the settings default is 5."): a third group,
+   **Workers at most** (`maxWorkers`: a "−", the number and a "+", 1 to 10; the button at an end of the range is off),
+   with one line under it: the board starts a new worker when tasks wait and none is free, up to this, and workers
+   already running stay. It goes the same way (`POST /api/settings` with a number; `checkSetting` refuses any other
+   value; `settingChanged` writes it as a number), and `maxWorkers` absent from config.json now means 5 (it had no
+   default: the board started no worker).
+4. Not in it: new kinds of notification.
 
 ## A calm Needs your attention: the log (2026-10-19)
 
@@ -4104,9 +4127,9 @@ what code should do"). Now the board hands out every task itself (principle 1), 
   Touches overlapping nothing given or under way, as `match` checks), more of them than the workers asked for in the
   last 10 minutes that have not reported yet (a start word whose worker has not reported since; a spawn word, which
   carries how many workers had reported then), no idle worker is left after the gives, and fewer workers than
-  `maxWorkers` are not off, the main chat is asked once per need (`board-start <who> <how
+  `maxWorkers` (5 unless set, B-max) are not off, the main chat is asked once per need (`board-start <who> <how
   many ran> <start window>`, once per 10-minute window, B728: a once-ever key silenced a start for ever after one went for the same worker and count): `start "<worker>"` for a worker of the list whose chat is off or free and known not to run (shown "Not running"; the one off longest first), else `spawn
-  workers` with `Count: 1`, `Why: ready tasks wait and no worker is free`. Without `maxWorkers` the board asks for none.
+  workers` with `Count: 1`, `Why: ready tasks wait and no worker is free`. `maxWorkers` set to no number (a unit test only) asks for none.
   Main does this without judgment: it is the board's hands (roles/main.md, "Main is the board's hands").
 - **The flow** (`src/work/flow.mjs`, `examples/work/flow.json`): `{ "from": "refined", "to": "queued", "by": "server",
   "sets": ["Owner"], "when": "the board hands it out" }`, `{ "from": "queued", "to": "refined", "by": "server" }` and
@@ -4125,7 +4148,7 @@ what code should do"). Now the board hands out every task itself (principle 1), 
   person's queue or requeue, the board's incident queue, a result check's fix) goes back on the list once: refined, or
   new when its refine is not ready; a placement the person made last becomes its pin; a kept `Queue when refined` goes.
   History "back on the ready list: the board hands out all tasks now".
-- **Settings** (`config.json`, top level): `maxWorkers` (a whole number ≥ 1; none: no worker is asked for),
+- **Settings** (`config.json`, top level): `maxWorkers` (a whole number ≥ 1; 5 unless set, B-max: the ⚙ panel sets 1 to 10),
   `takeWithinMinutes` (2, at least 1), `followUpMinutes` (0: a preference only; above 0 a keep that long),
   `heldGiveMinutes` (20, at least 1 and never under `takeWithinMinutes`), beside Part 1's `unknownAfterSeconds`.
 - **Done when** (principle 6): for 4 hours after it is live none of these opens or comes back: `ready-while-free` (a

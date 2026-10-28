@@ -5,7 +5,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import { HAND_LINE, HANDS_FIRST_MS, RESUME_AGAIN_MS, handJobs, handResults, isForHandsYet, isHandWord, nextWorkerTitle, setOf, startTaskIds, workerNames } from '../src/hands.mjs'
+import { HAND_LINE, HANDS_FIRST_MS, RESUME_AGAIN_MS, handJobs, handResults, isForHandsYet, isHandWord, nextSpawn, nextWorker, nextWorkerTitle, setOf, startTaskIds, workerNames, workerTaskIds } from '../src/hands.mjs'
 import { memoryStore } from '../src/store.mjs'
 import { POST_ROUTES } from '../server.mjs'
 
@@ -139,14 +139,43 @@ test('B766: a restart is a hand\'s only for a worker and a chat that may restart
   assert.equal(isForHandsYet(spawnWord('c'), HANDS_FIRST_MS), false)
 })
 
+// T12 (the person, 2026-10-28: every worker its own routine): the ids of a worker's own stored routine, tried before the shared task's.
+const OWN_3 = ['my-project-worker-3', 'my-project-worker-3-2']
+const SHARED = ['my-project-start-worker-2', 'my-project-start-worker']
+
+test('T12: a worker\'s own routine ids: the plain id and "-2" for a second login; none without a folder; a path means its last folder', () => {
+  assert.deepEqual(workerTaskIds('D:\\Work\\garden-project', 3), ['garden-project-worker-3', 'garden-project-worker-3-2'])
+  assert.deepEqual(workerTaskIds('My project', 12), ['my-project-worker-12', 'my-project-worker-12-2'])
+  assert.deepEqual(workerTaskIds('D:\\Work\\My Project\\', 1), ['my-project-worker-1', 'my-project-worker-1-2'])
+  assert.deepEqual(workerTaskIds('', 3), [])
+  assert.deepEqual(workerTaskIds(undefined, 3), [])
+  // The shared task keeps its ids, and its base is the same one.
+  assert.deepEqual(startTaskIds('D:\\Work\\garden-project'), ['garden-project-start-worker-2', 'garden-project-start-worker'])
+})
+
+test('T12: the next worker is the lowest free number, its title and its number; the title alone as before', () => {
+  assert.deepEqual(nextWorker(['Main', 'Worker 1', 'Worker 2', 'Worker 4'], 'Studio · '), { title: 'Studio · Worker 3', n: 3 })
+  assert.deepEqual(nextWorker(['Studio · Main', 'Studio · Worker 1', 'Studio · Worker 3'], 'Studio · '), { title: 'Studio · Worker 2', n: 2 })
+  assert.deepEqual(nextWorker([]), { title: 'Worker 1', n: 1 })
+  assert.equal(nextWorkerTitle(['Worker 1', 'Worker 2', 'Worker 4'], ''), 'Worker 3')
+})
+
+test('T12: a new worker\'s task ids: its own routine first, then the shared task\'s as the fallback, for the lowest free number', () => {
+  // Workers 1, 2 and 4 are on the board: the new one is Worker 3, its own routine's ids come before the shared ones.
+  assert.deepEqual(nextSpawn(['Main', 'Studio · Worker 1', 'Studio · Worker 2', 'Studio · Worker 4'], 'Studio · ', 'my-project'), { title: 'Studio · Worker 3', tasks: [...OWN_3, ...SHARED] })
+  assert.deepEqual(nextSpawn([], '', 'my-project').tasks, ['my-project-worker-1', 'my-project-worker-1-2', ...SHARED])
+  // No folder: no task to try at all.
+  assert.deepEqual(nextSpawn([], '', '').tasks, [])
+})
+
 test('B766: the jobs: a restart names the board\'s chats to reopen; one new worker per claim, the next free title and the task ids', () => {
-  const spawn = { title: nextWorkerTitle(['Main', 'Worker 1', 'Worker 2', 'Worker 4'], 'Studio · '), tasks: startTaskIds('my-project') }
-  assert.deepEqual(spawn, { title: 'Studio · Worker 3', tasks: ['my-project-start-worker-2', 'my-project-start-worker'] })
+  const spawn = nextSpawn(['Main', 'Worker 1', 'Worker 2', 'Worker 4'], 'Studio · ', 'my-project')
+  assert.deepEqual(spawn, { title: 'Studio · Worker 3', tasks: [...OWN_3, ...SHARED] })
   const taken = [restartWord('a', 'Worker 1'), spawnWord('b'), spawnWord('c')]
   const { jobs, back } = handJobs({ caller: 'Supervisor', taken, lanes: LANES, now: 0, spawn })
   assert.deepEqual(jobs, [
     { id: 'a', to: 'local_w1', chat: 'Worker 1', restart: { keep: ['local_main', 'local_w1', 'local_adv'] } },
-    { id: 'b', chat: 'Studio · Worker 3', spawn: { title: 'Studio · Worker 3', tasks: ['my-project-start-worker-2', 'my-project-start-worker'] } },
+    { id: 'b', chat: 'Studio · Worker 3', spawn: { title: 'Studio · Worker 3', tasks: [...OWN_3, ...SHARED] } },
   ])
   assert.deepEqual(back, ['c'])
   // A board that gives no spawn (no project, or the chat may not) puts the word back for the main chat.
@@ -160,7 +189,7 @@ test('B766: the server gives the restart and spawn words only by what the claimi
   const { readFile } = await import('node:fs/promises')
   const server = await readFile(new URL('../server.mjs', import.meta.url), 'utf8')
   assert.match(server, /isHandWord\(message, \{ canSet: can\.has\('set'\), canRestart: can\.has\('restart'\), canSpawn: can\.has\('spawn'\), workers \}\)/)
-  assert.match(server, /title: nextWorkerTitle\(\(state\.chats \?\? \[\]\)\.map\(lane => lane\.name\), prefix\), tasks: startTaskIds\(basename\(config\.project\)\)/)
+  assert.match(server, /nextSpawn\(\(state\.chats \?\? \[\]\)\.map\(lane => lane\.name\), prefix, basename\(config\.project\)\)/)
   assert.match(server, /!isForHandsYet\(message, now, workers\)/)
 })
 

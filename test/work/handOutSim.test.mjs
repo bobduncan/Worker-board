@@ -167,6 +167,20 @@ test('ready tasks wait and no worker is free: the main chat is asked for one wor
   }
 })
 
+test('B-max: a board whose settings name no maxWorkers runs on 5: a fifth worker is asked for, a sixth never', async () => {
+  const busyTasks = names => names.map((name, at) => task(`B${at + 2}`, { State: 'in progress', Owner: name }))
+  for (const [names, start] of [[['W1', 'W2', 'W3', 'W4'], { spawn: 1 }], [['W1', 'W2', 'W3', 'W4', 'W5'], null]]) {
+    const one = await garden([task('B1'), ...busyTasks(names)], { workers: names })
+    try {
+      for (const name of names) one.report(name, 'busy', T0 - 60 * SEC, T0 - 2 * SEC)
+      const state = await one.build(T0)
+      assert.deepEqual(state.reconciled.start, start, `${names.length} busy workers`)
+    } finally {
+      await one.close()
+    }
+  }
+})
+
 test('while the person pauses, nothing is given and no worker is asked for', async () => {
   const one = await garden([task('B1'), task('B2')], { settings: { maxWorkers: 3 } })
   try {
@@ -222,6 +236,26 @@ test('the review: after a full limit the take-back clock starts anew; a worker i
     assert.deepEqual((await one.build(ended + 30 * SEC, { heldAt: ended })).reconciled.takeBacks, [])
     one.report('W1', 'idle', T0 - 60 * SEC, ended + 2 * MIN)
     assert.deepEqual((await one.build(ended + 2 * MIN + SEC, { heldAt: ended })).reconciled.takeBacks, [{ id: 'B1', chat: 'W1', stuck: true, why: 'not taken within 2 min' }])
+  } finally {
+    await one.close()
+  }
+})
+
+test('B764: after the pause of the person the take-back clock starts anew: a worker given a task before the pause is not taken back at once', async () => {
+  const one = await garden([task('B1')], { workers: ['W1'] })
+  try {
+    one.report('W1', 'idle', T0 - 60 * SEC, T0 - 2 * SEC)
+    await one.deliver(await one.build(T0), T0)
+    const T1 = T0 + 10 * SEC
+    await one.deliver(await one.build(T1), T1)
+    assert.deepEqual(lines(one.outbox), [['W1', 'B1', 'waiting']])
+    // The person paused at once and resumed 20 minutes on; the worker stopped before taking the task.
+    const resumed = T0 + 20 * MIN
+    await writePause(one.dir, { state: 'running', since: resumed + MIN, by: 'server', pausedSince: T0 + 15 * SEC, resumedSince: resumed })
+    one.report('W1', 'idle', T0 - 60 * SEC, resumed + 30 * SEC)
+    assert.deepEqual((await one.build(resumed + 30 * SEC)).reconciled.takeBacks, [])
+    one.report('W1', 'idle', T0 - 60 * SEC, resumed + 2 * MIN + 30 * SEC)
+    assert.deepEqual((await one.build(resumed + 2 * MIN + 30 * SEC)).reconciled.takeBacks, [{ id: 'B1', chat: 'W1', stuck: true, why: 'not taken within 2 min' }])
   } finally {
     await one.close()
   }
