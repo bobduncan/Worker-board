@@ -1519,6 +1519,9 @@ async function joinBySession($: EngineInterface): Promise<void> {
       lastWhoami = (await $.clock.now()) - WHOAMI_MS + WHOAMI_AGAIN_MS
       return
     }
+    // The role the board gives holds from now on (a turn's end says it again): a clear before any turn ended here still
+    // knows a worker is a worker, and tells it its start's words.
+    if (who.role !== null) lastRole = who.role
     if (who.card !== null && who.card !== id) await moveCardFromBoard($, dir, list, who)
     await joinByTitle($, `${list.prefix}${who.name}`)
   } catch {
@@ -1847,6 +1850,33 @@ async function sessionCleared($: EngineInterface, id: string): Promise<void> {
   }
 }
 
+/** How long the clear's own answer waits for what follows it to be made ready (the card's move, a worker's start words). */
+const PREPARE_MS = 8_000
+
+/**
+ * 2026-10-28 (the person's test of a clear on the work login: Worker 5 was named and its card moved, but its start words
+ * were made about 4 s after the first prompt had gone to the model): once a /clear has run, and before it answers, the card
+ * moves and a worker's start words are made, so the first prompt only adds them (`pendingStart`). With the clear this process
+ * knows of (`carried`, `clearing`) by the clear's own code; without (a process that knows nothing of it) the board names
+ * the chat and its card by the session id (`joinBySession`). At most PREPARE_MS; anything left is done at the first prompt,
+ * as before.
+ */
+async function clearThenPrepare<T>($: EngineInterface, ran: Promise<T>): Promise<T> {
+  const answer = await ran
+  try {
+    const prepare = carried !== null || clearing !== null
+      ? moveAfterClear($, undefined, true)
+      : (async () => {
+          lastWhoami = -Infinity
+          await joinBySession($)
+        })()
+    await withinTime($, prepare, PREPARE_MS)
+  } catch {
+    // the first prompt moves the card, as before
+  }
+  return answer
+}
+
 export const register: Register = on => {
   on('session.start', async ($, e, next) => {
     await $.command.register({
@@ -2130,12 +2160,12 @@ export const register: Register = on => {
   // decided stops it, and the chat is left as it is (its new work has started).
   on('command.run', { command: 'clear' }, async ($, e, next) => {
     // The person's own /clear, or another plugin's, runs as it is.
-    if (e.origin.kind !== 'plugin' || e.origin.name !== PLUGIN) return next(e)
+    if (e.origin.kind !== 'plugin' || e.origin.name !== PLUGIN) return clearThenPrepare($, next(e))
     // This mod's: the oldest it queued. It runs only as the /clear of the clear still on its way, while nothing came in.
     const ticket = queuedClears.shift() ?? null
     const decided = clearing
     if (decided !== null && decided.ticket === ticket) {
-      if (!isInTurn && promptCount === decided.prompts && turnNumber === decided.turn) return next(e)
+      if (!isInTurn && promptCount === decided.prompts && turnNumber === decided.turn) return clearThenPrepare($, next(e))
       await dropClear($, 'a new prompt came in before the clear ran')
       return { text: 'Not cleared: a new prompt came in before the clear ran.' }
     }
@@ -2143,7 +2173,7 @@ export const register: Register = on => {
     const marked = ticket === null && decided === null ? await pendingMark($) : null
     if (marked !== null) {
       clearing = marked
-      return next(e)
+      return clearThenPrepare($, next(e))
     }
     return { text: 'Not cleared: this /clear of the Workers mod was let go before it ran.' }
   })

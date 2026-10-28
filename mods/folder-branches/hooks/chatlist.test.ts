@@ -3284,6 +3284,28 @@ describe('2026-10-28: a chat learns which chat it is from the board, by its sess
     expect(w.files[`${CHATS}/units.json`]).toBe(LEFT_TEXT)
   })
 
+  // 2026-10-28, the person's test on the work login: Worker 5 was named and its card moved, but its start's words were made
+  // about 4 s after the first prompt had gone to the model. Now they are made when the clear runs.
+  test('a person\'s /clear: the card moves and the start\'s words are made when the clear runs, before any prompt', async ($, on) => {
+    mock.clock(on)
+    const w = world('units', { ...listed(), [BOARD]: board })
+    w.whoami = { name: 'Units', role: 'worker', card: null }
+    w.byAction = { next: { status: 200, text: JSON.stringify({ text: 'Yours, Units:', open: [] }) } }
+    stand(on, w)
+    await $.session.start(START)
+    expect(fileOf(w)?.name).toBe('Units')
+    // The clear: the old conversation ends, the app's new one has another id, and the command answers.
+    await $.session.end({ reason: 'clear', sessionId: 'units', resume: { id: 'units' } } as never)
+    w.id = 'units-2'
+    await $.command.run({ command: 'clear', args: '', origin: { kind: 'composer' }, presentation: { isFullscreen: false, columns: 100 } } as never)
+    // Before any prompt: the card is under the new session already.
+    expect((JSON.parse(w.files[`${CHATS}/units.json`] ?? '{}') as { movedTo?: unknown }).movedTo).toBe('units-2')
+    expect(fileOf(w, 'units-2')?.name).toBe('Units')
+    // The first prompt only adds the words made at the clear.
+    await prompt($)
+    expect(startsWith(w, 0, 'This chat is')).toBe(true)
+  })
+
   describe('a chat cleared in a process that knows nothing of it: its card is under the old session', () => {
     /** A new process: no clear in its memory, the app's new session, the card still under the old one, the board naming it. */
     function fresh(card: ChatFile, who: Record<string, unknown>, id = 'units-2', old = 'units'): World {
