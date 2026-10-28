@@ -5,7 +5,7 @@ import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 import test from 'node:test'
 
-import { CLAIM_MS, CODE_JOBS, allowCodeJobs, allowedIn, codeJobsView, readCodeJobs, taskWords, withAllowRules } from '../src/codeJobs.mjs'
+import { CLAIM_MS, CODE_JOBS, allowCodeJobs, allowedIn, codeJobsView, missingRoutines, readCodeJobs, taskWords, withAllowRules } from '../src/codeJobs.mjs'
 
 const MIN = 60_000
 const NOW = 100 * MIN
@@ -51,15 +51,73 @@ test('what is missing: the rules not allowed yet, the stored task, an older mod,
   // The app allows its usage tool itself: no rule is missing, only a chat on the newer mod.
   assert.equal(rows.usage.why, 'the running chats have an older Workers mod; their next restart brings the new one')
   assert.equal(view.needsTask, true)
+  // T12: with nothing stored, a routine is missing for every worker slot (5 unless the limit says more).
+  assert.deepEqual(view.missingRoutines, [1, 2, 3, 4, 5])
   const failed = byKey(codeJobsView({ claims: claims(['Main', ['spawn']]), allowed: new Set(ALL), tasks: ['x'], spawnFail: { at: NOW, why: 'refused' }, now: NOW }))
   assert.deepEqual([failed.spawn.byCode, failed.spawn.why], [false, 'the last try failed: refused'])
 })
 
-test('the line that makes the stored task names the plain id, the first worker\'s title and the task text', () => {
-  const line = taskWords({ folder: 'My project', prefix: 'Studio · ', board: 'D:\\boards\\worker-board' })
-  assert.match(line, /taskId "my-project-start-worker"/)
-  assert.match(line, /title "Studio · Worker 1"/)
+// T12 (the person, 2026-10-28: every worker its own routine, "<project> - Worker N"): which worker slots have a routine.
+const PROJECT = 'my-project'
+const ROUTINES = (...slots) => slots.map(n => `${PROJECT}-worker-${n}`)
+const SHARED = [`${PROJECT}-start-worker-2`, `${PROJECT}-start-worker`]
+const spawnRow = tasks => byKey(codeJobsView({ claims: claims(['Worker 1', ['spawn']]), allowed: new Set(ALL), tasks, folder: PROJECT, maxWorkers: 5, now: NOW })).spawn
+
+test('T12: a routine for every worker up to the limit starts workers by itself; the second login\'s "-2" ids count too', () => {
+  assert.deepEqual(spawnRow(ROUTINES(1, 2, 3, 4, 5)), { key: 'spawn', title: 'Start a new worker', byCode: true, why: null })
+  assert.equal(spawnRow(ROUTINES(1, 2, 3, 4, 5).map(id => `${id}-2`)).byCode, true)
+  assert.equal(spawnRow([...ROUTINES(1, 2, 3), 'my-project-worker-4-2', 'my-project-worker-5']).byCode, true)
+  assert.deepEqual(missingRoutines({ tasks: ROUTINES(1, 2, 3, 4, 5), folder: PROJECT, maxWorkers: 5 }), [])
+  // A routine beyond the limit is no one's: a lower limit needs fewer.
+  assert.deepEqual(missingRoutines({ tasks: ROUTINES(1, 2, 3), folder: PROJECT, maxWorkers: 3 }), [])
+  assert.deepEqual(missingRoutines({ tasks: ROUTINES(1, 2, 3), folder: PROJECT, maxWorkers: 6 }), [4, 5, 6])
+})
+
+test('T12: routines for some workers only: the row says which are missing, whatever the shared task covers', () => {
+  const few = spawnRow(ROUTINES(1, 2, 3))
+  assert.deepEqual([few.byCode, few.why], [false, 'needs routines for Worker 4, 5'])
+  // The shared task still starts a worker, but it does not make the routines of Workers 4 and 5.
+  const withShared = spawnRow([...ROUTINES(1, 2, 3), ...SHARED])
+  assert.deepEqual([withShared.byCode, withShared.why], [false, 'needs routines for Worker 4, 5'])
+  // A gap in the middle, and the one that is missing alone.
+  assert.equal(spawnRow([...ROUTINES(1, 3, 4, 5)]).why, 'needs routines for Worker 2')
+  assert.equal(spawnRow(ROUTINES(2, 4)).why, 'needs routines for Worker 1, 3, 5')
+  // It is the setup, not a tool to allow: nothing is added to Allow, and the line to paste is offered.
+  const view = codeJobsView({ claims: claims(['Worker 1', ['spawn']]), allowed: new Set(), tasks: ROUTINES(1, 2, 3), folder: PROJECT, maxWorkers: 5, now: NOW })
+  assert.deepEqual([view.needsTask, view.missingRoutines], [true, [4, 5]])
+  assert.deepEqual(view.missing, [...CODE_JOBS[1].tools, ...CODE_JOBS[2].tools])
+  // The reasons that come first stay first: a failed try, a tool not allowed yet.
+  const failed = byKey(codeJobsView({ claims: claims(['Worker 1', ['spawn']]), allowed: new Set(ALL), tasks: ROUTINES(1, 2, 3), folder: PROJECT, maxWorkers: 5, spawnFail: { at: NOW, why: 'refused' }, now: NOW })).spawn
+  assert.equal(failed.why, 'the last try failed: refused')
+  const notAllowed = byKey(codeJobsView({ claims: claims(['Worker 1', ['set']]), allowed: new Set(), tasks: ROUTINES(1, 2, 3), folder: PROJECT, maxWorkers: 5, now: NOW })).spawn
+  assert.equal(notAllowed.why, 'not allowed yet')
+})
+
+test('T12: the shared task alone still starts workers by itself (the fallback); nothing stored needs all the routines', () => {
+  assert.deepEqual(spawnRow(SHARED), { key: 'spawn', title: 'Start a new worker', byCode: true, why: null })
+  assert.deepEqual(spawnRow([SHARED[1]]).why, null)
+  assert.deepEqual(missingRoutines({ tasks: SHARED, folder: PROJECT, maxWorkers: 5 }), [])
+  const shared = codeJobsView({ claims: claims(['Worker 1', ['spawn']]), allowed: new Set(ALL), tasks: SHARED, folder: PROJECT, maxWorkers: 5, now: NOW })
+  assert.deepEqual([shared.needsTask, shared.missingRoutines], [false, []])
+  const none = spawnRow([])
+  assert.deepEqual([none.byCode, none.why], [false, 'no stored start-worker task on this PC'])
+  assert.deepEqual(missingRoutines({ tasks: [], folder: PROJECT, maxWorkers: 7 }), [1, 2, 3, 4, 5, 6, 7])
+  // No limit given or one that is no whole number: 5, as the board's setting.
+  assert.deepEqual(missingRoutines({ tasks: [], folder: PROJECT }), [1, 2, 3, 4, 5])
+  assert.deepEqual(missingRoutines({ tasks: [], folder: PROJECT, maxWorkers: 2.5 }), [1, 2, 3, 4, 5])
+})
+
+test('T12: the line that makes the routines names each missing worker\'s id, title and description, and the task text', () => {
+  const line = taskWords({ folder: 'My project', prefix: 'Studio · ', board: 'D:\\boards\\worker-board', slots: [4, 5] })
+  assert.match(line, /taskId "my-project-worker-4", title "Studio · Worker 4", description "Starts Studio · Worker 4 of the worker board"/)
+  assert.match(line, /taskId "my-project-worker-5", title "Studio · Worker 5", description "Starts Studio · Worker 5 of the worker board"/)
+  assert.doesNotMatch(line, /worker-[123]"|Worker [123]"/)
+  assert.match(line, /no schedule, notifyOnCompletion false \(when the app says a taskId is taken, use the one it names\)/)
   assert.match(line, /mods.workers.start-worker-task\.md/)
+  // The page cuts this closing sentence off where the line goes into the main chat's first words.
+  assert.match(line, / Then say in one line that they are made\.$/)
+  // Without slots, the first worker's.
+  assert.match(taskWords({ folder: 'My project', prefix: 'Studio · ', board: 'D:\\boards\\worker-board' }), /taskId "my-project-worker-1", title "Studio · Worker 1"/)
 })
 
 test('reading this PC and Allow work through the file system they are given', async () => {
@@ -74,6 +132,14 @@ test('reading this PC and Allow work through the file system they are given', as
   files.set('H/.claude/scheduled-tasks/my-project-start-worker-2/SKILL.md', 'x')
   const read = await readCodeJobs({ project: 'P', folder: 'my-project', home: 'H', fs })
   assert.deepEqual([[...read.allowed], read.tasks], [[CODE_JOBS[1].tools[0]], ['my-project-start-worker-2']])
+  // T12: and each worker's own routine, one per slot up to the limit (5 unless given): a routine beyond it is not looked for.
+  for (const id of ['my-project-worker-1', 'my-project-worker-3-2', 'my-project-worker-5', 'my-project-worker-6']) files.set(`H/.claude/scheduled-tasks/${id}/SKILL.md`, 'x')
+  const own = await readCodeJobs({ project: 'P', folder: 'my-project', home: 'H', fs })
+  assert.deepEqual(own.tasks, ['my-project-start-worker-2', 'my-project-worker-1', 'my-project-worker-3-2', 'my-project-worker-5'])
+  const more = await readCodeJobs({ project: 'P', folder: 'my-project', maxWorkers: 6, home: 'H', fs })
+  assert.deepEqual(more.tasks.slice(-2), ['my-project-worker-5', 'my-project-worker-6'])
+  const fewer = await readCodeJobs({ project: 'P', folder: 'my-project', maxWorkers: 2, home: 'H', fs })
+  assert.deepEqual(fewer.tasks, ['my-project-start-worker-2', 'my-project-worker-1'])
   const done = await allowCodeJobs({ project: 'P', tools: ['A', 'B'], fs })
   assert.deepEqual(done, { ok: true, added: ['A', 'B'] })
   assert.deepEqual(JSON.parse(files.get('P/.claude/settings.local.json')), { permissions: { allow: ['A', 'B'] } })
@@ -83,6 +149,10 @@ test('the server keeps each chat\'s claim, shows the check in the state and allo
   const server = await readFile(new URL('../server.mjs', import.meta.url), 'utf8')
   assert.match(server, /codeClaims\.set\(checked\.chat, \{ can: \[\.\.\.can\]\.slice\(0, 10\), at: clock\(\) \}\)/)
   assert.match(server, /codeJobs: await codeJobsNow\(state\.chatPrefix \?\? ''\)/)
+  // T12: one routine per worker slot up to the limit: read for it, shown by it, and the pasted line makes the missing ones.
+  assert.match(server, /readCodeJobs\(\{ project: resolve\(HERE, config\.project\), folder, maxWorkers: config\.maxWorkers \}\)/)
+  assert.match(server, /codeJobsView\(\{ claims: codeClaims, \.\.\.codeRead\.read, folder, maxWorkers: config\.maxWorkers, spawnFail, now: clock\(\) \}\)/)
+  assert.match(server, /taskWords\(\{ folder, prefix, board: HERE, slots: view\.missingRoutines \}\)/)
   assert.match(server, /'\/api\/code-jobs': \{ kind: 'json', guard: 'lock' \}/)
   assert.match(server, /allowCodeJobs\(\{ project: resolve\(HERE, config\.project\), tools: view\?\.missing \?\? \[\] \}\)/)
   const page = await readFile(new URL('../public/board.js', import.meta.url), 'utf8')
@@ -91,4 +161,29 @@ test('the server keeps each chat\'s claim, shows the check in the state and allo
   const html = await readFile(new URL('../public/index.html', import.meta.url), 'utf8')
   assert.match(html, /id="code-jobs-allow"/)
   assert.match(html, /id="code-jobs-note"/)
+})
+
+test('T12: the page names the workers that have no routine yet, and the button keeps the line that makes them', async () => {
+  const { openPage } = await import('./pageHarness.mjs')
+  const { asSent, build, ask, MIN: PAGE_MIN, NOW: PAGE_NOW } = await import('./partnerState.mjs')
+  const rows = [
+    { key: 'wake', title: 'Wake, start and resume chats', byCode: true, why: null },
+    { key: 'spawn', title: 'Start a new worker', byCode: false, why: 'needs routines for Worker 4, 5' },
+  ]
+  const jobs = { rows, missing: [], needsTask: true, missingRoutines: [4, 5], checked: null, canAllow: true, taskLine: 'Make the routines.' }
+  const page = await openPage({ state: { ...asSent(build([ask('Q2', 'person', PAGE_NOW - 40 * PAGE_MIN)])), codeJobs: jobs } })
+  try {
+    const lines = page.all('#code-job-list li').map(line => [line.querySelector('.code-job-title').textContent, line.querySelector('.code-job-state').textContent, line.title])
+    assert.deepEqual(lines, [
+      ['Wake, start and resume chats', 'by itself', 'The board does this by itself.'],
+      ['Start a new worker', 'needs routines for Worker 4, 5', 'The board starts a worker by itself when that worker has a routine of its own: needs routines for Worker 4, 5.'],
+    ])
+    assert.equal(page.find('#code-jobs-task').hidden, false)
+    assert.match(page.text('#code-jobs-task'), /makes the routines$/)
+    // With no routine stored at all the row says so in a word.
+    const none = await openPage({ state: { ...asSent(build([ask('Q2', 'person', PAGE_NOW - 40 * PAGE_MIN)])), codeJobs: { ...jobs, rows: [{ ...rows[1], why: 'no stored start-worker task on this PC' }] } } })
+    try {
+      assert.equal(none.text('#code-job-list .code-job-state'), 'needs its routines')
+    } finally { await none.close() }
+  } finally { await page.close() }
 })

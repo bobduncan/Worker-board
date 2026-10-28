@@ -103,8 +103,12 @@ export const DEFAULTS = {
    * a clear, a mod restart, or its chat went off) goes back on the list, not stuck. At least takeWithinMinutes.
    */
   heldGiveMinutes: 20,
-  // Redesign Part 2: `maxWorkers`, how many workers the board has the main chat run at most, has no default: without
-  // it the board asks for no worker. Any number (the person: "weither its 2 workers or 10").
+  /**
+   * Redesign Part 2: `maxWorkers`, how many workers the board has the main chat run at most. B-max (the person,
+   * 2026-10-28: "make the worker limit configurable in the settings default is 5."): 5 unless the file or the ⚙ panel
+   * sets another (the panel takes 1 to 10; a whole number of at least 1 in the file wins, whatever it is).
+   */
+  maxWorkers: 5,
   /** An estimate older than this is shown as old. */
   estimateOldMinutes: 15,
   /** How far the timeline looks back from now, and at least how far ahead: the person plans with what comes. */
@@ -437,7 +441,7 @@ export function parseConfig(text, env) {
   }
   if (Number.isFinite(raw.unknownAfterSeconds) && raw.unknownAfterSeconds >= 5) config.unknownAfterSeconds = raw.unknownAfterSeconds
   if (Number.isFinite(raw.offAfterMinutes) && raw.offAfterMinutes >= 1) config.offAfterMinutes = raw.offAfterMinutes
-  // Redesign Part 2: the hand-out's settings; one that is not right is left at its default (maxWorkers: absent).
+  // Redesign Part 2: the hand-out's settings; one that is not right is left at its default (maxWorkers: 5).
   if (Number.isInteger(raw.maxWorkers) && raw.maxWorkers >= 1) config.maxWorkers = raw.maxWorkers
   if (Number.isFinite(raw.takeWithinMinutes) && raw.takeWithinMinutes >= 1) config.takeWithinMinutes = raw.takeWithinMinutes
   if (Number.isFinite(raw.followUpMinutes) && raw.followUpMinutes >= 0) config.followUpMinutes = raw.followUpMinutes

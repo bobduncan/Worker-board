@@ -167,6 +167,20 @@ test('ready tasks wait and no worker is free: the main chat is asked for one wor
   }
 })
 
+test('B-max: a board whose settings name no maxWorkers runs on 5: a fifth worker is asked for, a sixth never', async () => {
+  const busyTasks = names => names.map((name, at) => task(`B${at + 2}`, { State: 'in progress', Owner: name }))
+  for (const [names, start] of [[['W1', 'W2', 'W3', 'W4'], { spawn: 1 }], [['W1', 'W2', 'W3', 'W4', 'W5'], null]]) {
+    const one = await garden([task('B1'), ...busyTasks(names)], { workers: names })
+    try {
+      for (const name of names) one.report(name, 'busy', T0 - 60 * SEC, T0 - 2 * SEC)
+      const state = await one.build(T0)
+      assert.deepEqual(state.reconciled.start, start, `${names.length} busy workers`)
+    } finally {
+      await one.close()
+    }
+  }
+})
+
 test('while the person pauses, nothing is given and no worker is asked for', async () => {
   const one = await garden([task('B1'), task('B2')], { settings: { maxWorkers: 3 } })
   try {

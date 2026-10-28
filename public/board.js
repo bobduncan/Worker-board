@@ -470,19 +470,32 @@ function drawSettings(state, cpu) {
 /** B361: the setting being sent ({ key, value }), lit at once. */
 let settingPending = null
 
-/** B361: "Bother me" and "Approve rebuilds by itself" in the settings panel, lit as the board runs them. */
+/** B-max: the ends of "Workers at most" (the board's own range is MAX_WORKERS_RANGE in src/boardSettings.mjs). */
+const WORKERS_AT_MOST = [1, 10]
+
+/** B361: "Bother me", "Approve rebuilds by itself" and (B-max) "Workers at most" in the settings panel, lit as the board runs them. */
 function drawBoardSettings(state) {
   const shown = state.boardSettings ?? null
   const problem = problems.get('setting') ?? null
   $('settings-note').hidden = problem === null
   if (problem !== null) $('settings-note').textContent = problem
-  for (const id of ['bother-me', 'approve-rebuilds']) {
+  for (const id of ['bother-me', 'approve-rebuilds', 'max-workers']) {
     const group = $(id)
-    group.hidden = shown === null
+    group.hidden = shown === null || (id === 'max-workers' && !Number.isInteger(shown.maxWorkers))
     group.title = shown === null || shown.canSet ? '' : shown.whyNot ?? ''
   }
   if (shown === null) return
-  for (const button of $('settings').querySelectorAll('[data-setting]')) {
+  // B-max: the number, and the two buttons that send it one lower or one higher (the answer's number, kept in range);
+  // the button at an end of the range is off, as is each of them while a change is on its way.
+  const workers = settingPending !== null && settingPending.key === 'maxWorkers' ? settingPending.value : shown.maxWorkers
+  if (Number.isInteger(workers)) $('max-workers-value').textContent = String(workers)
+  for (const button of $('settings').querySelectorAll('[data-setting="maxWorkers"]')) {
+    const step = Number(button.dataset.step)
+    button.dataset.value = String(Math.min(WORKERS_AT_MOST[1], Math.max(WORKERS_AT_MOST[0], workers + step)))
+    const atEnd = step > 0 ? workers >= WORKERS_AT_MOST[1] : workers <= WORKERS_AT_MOST[0]
+    button.disabled = shown.canSet !== true || sending.has('setting') || atEnd
+  }
+  for (const button of $('settings').querySelectorAll('[data-setting]:not([data-step])')) {
     const key = button.dataset.setting
     const value = settingPending !== null && settingPending.key === key ? settingPending.value : shown[key]
     const isOn = button.dataset.value === String(value)
@@ -499,12 +512,16 @@ function drawBoardSettings(state) {
 function codeJobLines(jobs) {
   // Plain for a first-time user (the person, 2026-10-28: "as long as instructions are clear when a new user tries the
   // board for the first time"): a short state, the full reason in its tooltip.
-  const short = { 'not allowed yet': 'needs your OK', 'no stored start-worker task on this PC': 'needs its start task', 'no chat with the Workers mod runs now': 'no chat runs now' }
-  return (jobs?.rows ?? []).map(row => ({
-    key: row.key, title: row.title, byCode: row.byCode === true,
-    text: row.byCode === true ? 'by itself' : short[row.why] ?? (String(row.why ?? '').startsWith('the last try failed') ? 'last try failed' : 'after a restart'),
-    why: row.byCode === true ? 'The board does this by itself.' : `The main chat does this for now: ${row.why}.`,
-  }))
+  const short = { 'not allowed yet': 'needs your OK', 'no stored start-worker task on this PC': 'needs its routines', 'no chat with the Workers mod runs now': 'no chat runs now' }
+  return (jobs?.rows ?? []).map(row => {
+    // T12: each worker starts from a routine of its own; the row names the workers that have none yet.
+    const fewRoutines = String(row.why ?? '').startsWith('needs routines for')
+    return {
+      key: row.key, title: row.title, byCode: row.byCode === true,
+      text: row.byCode === true ? 'by itself' : fewRoutines ? row.why : short[row.why] ?? (String(row.why ?? '').startsWith('the last try failed') ? 'last try failed' : 'after a restart'),
+      why: row.byCode === true ? 'The board does this by itself.' : fewRoutines ? `The board starts a worker by itself when that worker has a routine of its own: ${row.why}.` : `The main chat does this for now: ${row.why}.`,
+    }
+  })
 }
 
 /** B767: the note on top while a job of the main chat's could run by code once allowed or once the task is made. */
@@ -574,9 +591,10 @@ $('code-jobs-task').addEventListener('click', () => {
 
 $('settings').addEventListener('click', async event => {
   const button = event.target.closest('[data-setting]')
-  if (button === null || board === null || sending.has('setting') || board.boardSettings?.canSet !== true) return
+  if (button === null || button.disabled || board === null || sending.has('setting') || board.boardSettings?.canSet !== true) return
   const key = button.dataset.setting
-  const value = key === 'approveRebuilds' ? button.dataset.value === 'true' : button.dataset.value
+  // B-max: "Workers at most" sends a number (the stepper's `data-value`), the others a word or a flag.
+  const value = key === 'approveRebuilds' ? button.dataset.value === 'true' : key === 'maxWorkers' ? Number(button.dataset.value) : button.dataset.value
   if (board.boardSettings[key] === value) return
   settingPending = { key, value }
   sending.add('setting')
@@ -2787,7 +2805,7 @@ function firstWords({ title, name, projectName, project, board, advisor = null, 
     // B324: the trial's main chat had no spawn_task, only start cards: the words name both and take the one there is.
     ...(advisor === null ? [] : [`4. Start the Advisor as you start a worker: a new chat titled "${advisor.title}" (a start card, mcp__ccd_session__start_session, or a chip, mcp__ccd_session__spawn_task, whichever the app gives you), whose prompt tells it that it is the Advisor (the partner) of this project, to join the list as "${advisor.name}" with role "worker", and to read ${at(board, 'roles', 'partner.md')}, ${at(board, 'roles', 'protocol.md')} and ${at(project, 'CLAUDE.md')}. Tell the user in one line to click it.`]),
     // B767: the stored start-worker task, made in this first turn the person typed (only then is its Auto mode saved).
-    ...(task === null ? [] : [`${advisor === null ? 4 : 5}. ${task.replace(/ Then say in one line that it is made\.$/, '')}`]),
+    ...(task === null ? [] : [`${advisor === null ? 4 : 5}. ${task.replace(/ Then say in one line that they are made\.$/, '')}`]),
     'Then say in one line that you are ready: the board then asks you for workers.',
   ].join('\n')
 }

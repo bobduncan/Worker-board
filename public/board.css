@@ -83,6 +83,10 @@ button, textarea, select { font: inherit; color: inherit; }
 .cpu-level.is-on { background: var(--inset); color: var(--text); border-color: #3a4a63; }
 .cpu-level:disabled { cursor: default; }
 .cpu-count { margin-left: 8px; color: var(--muted); }
+/* B-max: "Workers at most", a number between its "−" and "+"; the button at an end of the range is dimmed. */
+.cpu-number { min-width: 36px; padding: 5px 0; border: solid var(--line); border-width: 1px 0; color: var(--text); text-align: center; font-variant-numeric: tabular-nums; }
+.cpu-step[data-step="1"] { border-left-width: 1px; }
+.cpu-step:disabled { opacity: 0.4; }
 .quiet-button { margin-right: 12px; padding: 5px 12px; border: 1px solid var(--line); border-radius: 7px; background: transparent; color: var(--muted); font-size: 13.5px; cursor: pointer; }
 .quiet-button:hover { color: var(--text); border-color: #3a4a63; }
 .quiet-button:disabled { opacity: 0.5; cursor: default; }
