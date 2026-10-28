@@ -171,6 +171,11 @@ const ownAgents = new Set<string>()
  * Pause 2 (spec 2026-10-18-pause-resume-design.md): the person's pause as the board last answered it (its
  * `pause-state`, or turn-ended's `pause`), and when; null before the first reading. A reading is kept this long, so
  * a batch of tool calls asks the board at most once in that time.
+ * B763: a turn drops it at its start and its first batch reads anew, but nothing refreshes it between turns: an idle
+ * chat keeps the reading of its last turn's end for as long as it rests, the person's pause and resume between. So
+ * every clear's decision (`clearAfter`: the owed clear of B547 runs outside any turn, a late turn's end's decision
+ * seconds after its answer) reads it anew, and the pull at a turn's end through `pauseNow`, never the kept reading
+ * itself. Only a prompt keeps a "running" reading (`pauseLines`): its turn's first batch reads anew.
  */
 let pauseRead: { pause: PauseState | null; at: number } | null = null
 const PAUSE_MS = 20000
@@ -1156,7 +1161,9 @@ let lastOwedTry = -Infinity
  * after the reporting turn did not run (its log refused while background work ran, a restart or the person's pause
  * between, an older mod). It runs as that clear, with every guard of it, once a minute at most while the board names it;
  * refused, the card says why and nothing is compacted instead (the board names it again). A clear since the report (the
- * board read the card before it) is not run twice.
+ * board read the card before it) is not run twice. B763 (X86, X100): the pause is read anew for it (`clearAfter`), never
+ * the reading the last turn's end left: a chat that rested through the person's pause is cleared at the first minute
+ * after the resume.
  */
 async function clearOwed($: EngineInterface, owed: OwedClear): Promise<void> {
   if (isInTurn || isCommandTurn || clearing !== null || isDecidingClear || myself?.role !== 'worker') return
@@ -1193,7 +1200,12 @@ async function clearAfter($: EngineInterface, c: { list: ChatList; chat: ChatFil
   const isUnfiled = unfiledAsk(c.answer, c.ended, handed.filter(item => item.kind !== 'do').length) || forYouCount(c.answer) > handed.length
   // A message to another chat in this turn (a question to the main chat): its answer would come into a cleared conversation.
   const busy = isInTurn ? 'a turn is running' : c.asked ? 'it sent another chat a message in this turn and waits for its answer' : await busyWhy($)
-  const why = clearWhy({ role: c.role, isReported: c.isReported, isPaused: pauseRead?.pause?.state === 'pausing', isUnfiled, busy })
+  // B763: the pause as it stands now, read anew: the kept reading may be the last turn's end's, inside a pause that has
+  // ended since, or a late turn's end's, from before a pause that began while the decision waited. A board that does not
+  // answer leaves the kept reading.
+  const kept = pauseRead?.pause ?? null
+  const pause = (await pauseNow($, true)) ?? kept
+  const why = clearWhy({ role: c.role, isReported: c.isReported, isPaused: pause?.state === 'pausing', isUnfiled, busy })
   if (why !== null) return instead(why)
   const from = await $.session.id()
   // What the chat had seen when the decision began: at the turn's end, also when it waited for the board.
@@ -2205,7 +2217,8 @@ export const register: Register = on => {
           // nothing changes for the chat (the board says so on its page). B317: an answer that ends with a "For you" block
           // hands its items over in the same call; the board files those the chat filed no ask for (Via: chat).
           // The review of Pause 2: while the person pauses (until running) a free worker takes nothing new.
-          const pulls = !isPaused(pauseRead?.pause ?? null) && await withinTime($, holdsNothing($)) === true
+          // B763: read through pauseNow: the turn's last batch may be long past.
+          const pulls = await withinTime($, holdsNothing($)) === true && !isPaused(await pauseNow($))
           const fields = { action: 'turn-ended', since, ...(pulls ? { pull: true } : {}), ...(forYou.length > 0 ? { forYou } : {}) }
           const call = await workLate($, fields, forYou.length > 0 ? ASKED_WAIT_MS : BOARD_WAIT_MS)
           if (call.read === null && call.late !== null && forYou.length > 0) void takeLateEnded($, call.late, await $.session.id())
