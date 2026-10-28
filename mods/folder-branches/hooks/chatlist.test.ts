@@ -3306,6 +3306,32 @@ describe('2026-10-28: a chat learns which chat it is from the board, by its sess
     expect(startsWith(w, 0, 'This chat is')).toBe(true)
   })
 
+  // The second test that day: the card moved at the clear, the prompt came 2 s later, and the words still waited for the
+  // board's answer to "next". They stand ready at once now.
+  test('the start\'s words do not wait for the board: a prompt while its answer is still on the way carries them', async ($, on) => {
+    const clock = mock.clock(on)
+    const w = world('units', { ...listed(), [BOARD]: board })
+    w.whoami = { name: 'Units', role: 'worker', card: null }
+    w.byAction = { next: { status: 200, text: JSON.stringify({ text: 'Yours, Units:', open: [] }) } }
+    stand(on, w)
+    await $.session.start(START)
+    let release: () => void = () => {}
+    w.holdAction = { action: 'next', until: new Promise<void>(done => { release = done }) }
+    await $.session.end({ reason: 'clear', sessionId: 'units', resume: { id: 'units' } } as never)
+    w.id = 'units-2'
+    // The clear answers while the board still holds "next"; the prompt comes before it answers.
+    void $.command.run({ command: 'clear', args: '', origin: { kind: 'composer' }, presentation: { isFullscreen: false, columns: 100 } } as never)
+    await real(50)
+    // The prompt does not wait for the board: it goes on within about a second, with the words.
+    const asked = prompt($).then(() => 'went')
+    await real(50)
+    await clock.advance(1_100)
+    const went = await Promise.race([asked, real(3_000).then(() => 'held')])
+    release()
+    expect(went).toBe('went')
+    expect(startsWith(w, 0, 'This chat is')).toBe(true)
+  })
+
   describe('a chat cleared in a process that knows nothing of it: its card is under the old session', () => {
     /** A new process: no clear in its memory, the app's new session, the card still under the old one, the board naming it. */
     function fresh(card: ChatFile, who: Record<string, unknown>, id = 'units-2', old = 'units'): World {

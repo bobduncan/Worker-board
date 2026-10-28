@@ -1374,13 +1374,18 @@ async function afterClear($: EngineInterface, title: unknown, isClear: boolean):
     // B298: the board names the open instructions, kept under the chat's name; the ones it named before the clear stand
     // in when it does not answer in time.
     const known = openInstructions
-    const read = await workQuietly($, { action: 'next' })
-    const open = openFrom(read) ?? known
     const project = chatsDir === null ? null : chatsDir.slice(0, chatsDir.length - CHATS_DIR.length - 1)
     const sep = project?.includes('\\') === true ? '\\' : '/'
     const log = done?.file ?? (done?.log !== null && done?.log !== undefined && project !== null ? inFolder(project, done.log.split('/').join(sep)) : null)
     const at = { name: moved.name, title: list === null ? moved.name : `${list.prefix}${moved.name}`, role: 'worker' as const, main: list === null ? 'the main chat' : `${list.prefix}${list.main}` }
-    pendingStart = [clearedStart({ ...at, step: done?.step ?? null, log, open }, TOOL)]
+    const words = (open: OpenInstruction[]): string => clearedStart({ ...at, step: done?.step ?? null, log, open }, TOOL)
+    // 2026-10-28 (the person's second test on the work login: the card moved at the clear, the prompt came 2 s later, and
+    // the words still waited for the board's answer): the words stand ready at once, with the instructions known before
+    // the clear; the board's answer only brings them up to date while no prompt has taken them yet.
+    pendingStart = [words(known)]
+    const read = await workQuietly($, { action: 'next' })
+    const open = openFrom(read)
+    if (open !== null && pendingStart.length > 0) pendingStart = [words(open)]
   } catch {
     // the card moves at the next prompt or turn
   }
@@ -1852,6 +1857,8 @@ async function sessionCleared($: EngineInterface, id: string): Promise<void> {
 
 /** How long the clear's own answer waits for what follows it to be made ready (the card's move, a worker's start words). */
 const PREPARE_MS = 8_000
+/** How long a prompt waits for a card's move on its way after a clear: the move itself, not the board's answer after it. */
+const MOVE_WAIT_MS = 1_000
 
 /**
  * 2026-10-28 (the person's test of a clear on the work login: Worker 5 was named and its card moved, but its start words
@@ -1928,7 +1935,10 @@ export const register: Register = on => {
       // Clear after each step: a prompt that comes in stops a clear that has not run yet; the first prompt after a clear
       // that no session start announced carries the start's words.
       promptCount += 1
-      if (carried !== null || movingAfterClear !== null || (clearing !== null && (await $.session.id()) !== clearing.from)) await moveAfterClear($, undefined, true)
+      // 2026-10-28: a move on its way (begun at the clear) is waited for briefly: its words stand ready as soon as the card
+      // has moved, while the board's answer that only brings them up to date may take seconds, and the app sends the
+      // prompt on without this hook's words when it holds the prompt too long (the person's tests on the work login).
+      if (carried !== null || movingAfterClear !== null || (clearing !== null && (await $.session.id()) !== clearing.from)) await withinTime($, moveAfterClear($, undefined, true), MOVE_WAIT_MS)
       // 2026-10-28: and by its session id, before the context is built: a rename is followed, and a card moved after a
       // clear brings its start's words to this very prompt. Not for a word this mod types itself (the board's, from a take):
       // the chat is in the list then, and a rename is followed by its take.
