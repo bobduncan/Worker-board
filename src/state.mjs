@@ -33,7 +33,7 @@ import { dailyNote, isDailyNote } from './work/dailyNote.mjs'
 import { SYNC_BOARD, syncChecks } from './sync.mjs'
 import { informationOf, instructionsOf, nameFinder, notesToMain, partnerDecidedOf, storeNeeds, storeWaits, withPartnerOf } from './work/lists.mjs'
 import { NOTE_LINE, isPartnerAnswered, isPartnerAskWord, stepWaitsForPartner } from './work/partnerAnswers.mjs'
-import { advisorWorkOf } from './work/advisorWork.mjs'
+import { advisorNextOf, advisorWorkOf, leaveOut } from './work/advisorWork.mjs'
 import { openQaTaskOf, qaStandOf } from './work/qaTask.mjs'
 import { holdsRefine, isBlockWritten } from './work/refineWait.mjs'
 import { recapsOf } from './work/recap.mjs'
@@ -772,9 +772,10 @@ export function refineAsk(step, sent, now, openMs = REFINE_OPEN_MS) {
  * recommendation). One taken and never settled waits no more after ten minutes, as the outbox shows it (store.mjs).
  */
 const TAKEN_SHOWN_MS = 10 * MIN
+/** Whether a word of the board to a chat is on its way and not in its chat yet: it waits, or was taken less than ten minutes ago. */
+const isOpenWord = (message, now) => message.state === 'waiting' || (message.state === 'taken' && now - (message.takenAt ?? message.at) < TAKEN_SHOWN_MS)
 function queuedFor(sent, name, now) {
-  const open = sent.filter(message => message.to === name
-    && (message.state === 'waiting' || (message.state === 'taken' && now - (message.takenAt ?? message.at) < TAKEN_SHOWN_MS)))
+  const open = sent.filter(message => message.to === name && isOpenWord(message, now))
   const refines = open.filter(message => message.command === 'refine').length
   const rounds = open.filter(message => message.command === 'round' || message.command === 'recheck').length
   // 2026-10-26: a question it answers first is an item of its list of waiting work (advisorWork.mjs), with its own stand: not a
@@ -1836,6 +1837,12 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
   // item it is on: the newest board word it took whose item is still open (while it works).
   const advisorWork = !workOk || advisorChat === undefined ? { waiting: [], on: null }
     : advisorWorkOf({ items: raw.work.items, outbox: sent, task: partnerWorks ? advisorCard.task ?? null : null, isWorking: partnerWorks, questions: withPartner, refines: refinesOpen })
+  // 2026-10-28 (the person: "B774 is waiting for B774 which is also confusing"): the item it is on stands in no list of what waits for
+  // it; "Next for it" is the whole queue in pick-up order: its waiting work and the board's other open words (the steps to refine
+  // next are added by the server, which keeps the refine gate).
+  const advisorOn = partnerWorks ? advisorWork.on : null
+  const advisorNext = advisorChat === undefined ? []
+    : advisorNextOf({ waiting: advisorWork.waiting, on: advisorOn, words: sent.filter(message => message.to === advisorChat.name && isOpenWord(message, now)), items: workOk ? raw.work.items : new Map(), task: partnerWorks ? advisorCard.task ?? null : null, isWorking: partnerWorks })
   // T9.1.1 (the person, 2026-10-27): where the result check of a step in review stands is where its Quality Assurance task
   // stands: queued since (the board made it; the worker it was given to), or the worker on it since.
   const checkStands = new Map()
@@ -2001,7 +2008,7 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
         ask: spawnAsk(sent.findLast(message => message.command === 'spawn'), workerChats, now),
       }
     })(),
-    advisor: advisor === null ? null : { ...advisor, isRunning: runningOf(advisor.name), waiting: advisorWork.waiting, on: partnerWorks ? advisorWork.on : null },
+    advisor: advisor === null ? null : { ...advisor, isRunning: runningOf(advisor.name), waiting: leaveOut(advisorWork.waiting, advisorOn), next: advisorNext, on: advisorOn },
     // B424: the partner's helper, on its own card under the Advisor's: how it stands, its task and its time.
     advisorHelper: helperLane === null ? null : {
       name: helperLane.name,

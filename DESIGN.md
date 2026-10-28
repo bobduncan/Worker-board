@@ -247,6 +247,21 @@ what to do next; takes no tasks"), a teal accent and a light for its sign:
   the word or the item's wait began. A question also says **when it comes to you** (30 minutes after it was filed, the
   rule that hands it to the person). Where the board cannot tell it says queued, never "on it". The same words stand
   after each row of "With your partner" and in the ask's window.
+  2026-10-28 (the person: "it's not clear what else will be picked up from the refinement. i see B774 is waiting for B774
+  which is also confusing. i cant click on the 5 waiting for it and get an expand of what those 5 are"): the item it is on
+  stands in no list of its waiting work (the same kind and id as `advisor.on` is left out of `advisor.waiting`), and the
+  count is a button, **Next for it (N)** (quiet, no colour of attention), closed at first (open or closed is kept over the
+  page's redraws; its click never opens the Advisor's chat). A click lists under its task line, in **pick-up order**, one row
+  each (`advisorNextOf`, the state's `advisor.next`): the board's open words to it (`waiting`, or taken less than 10 minutes
+  ago, as `queuedFor` counts them), oldest first (the questions it answers first and the refines it was asked, as above;
+  incidents, goal evaluations, any other word by its command, else "message"), then the steps the board will ask it to refine
+  next, each **next to refine**, in the board's own order (`refineQueue`, src/refineGate.mjs, the order `refineWhenDue` asks
+  in; the server adds them in `getState`, as only it keeps the refine gate). A row's id is the word's `about` when that is an
+  item's id; its title the store item's, else the first line of the word (100 characters at most); its link `#details=` for
+  B, Q, I, `#supervisor` for X, the Goals part for G, none for a word without an id. The same kind and id twice (a goal asked
+  twice) is one row; a word about an incident that is fixed or closed or a step that is done or dropped is not shown. N is
+  the rows and the rounds of the clock (no row: they are in the tooltip's counts). Nothing waits: no button. A server that
+  sends no `advisor.next` (an older board): "N waiting for it" and the list as it was.
 - No queue, no "⋯", no Remove or Stop: it takes no tasks. A click, or Enter, opens its chat on the Advisor tab.
 
 On the Advisor tab, while it works, "Working: <its topic>" stands right above the typing box, with "What you type waits

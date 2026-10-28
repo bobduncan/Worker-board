@@ -11,7 +11,7 @@ import test from 'node:test'
 
 import { answer, typed } from '../fixtures/lines.mjs'
 import { parseConfig } from '../src/config.mjs'
-import { firstLook, isRefined, refineStateOf, refineWhenDue } from '../src/refineGate.mjs'
+import { firstLook, isRefined, refineQueue, refineStateOf, refineWhenDue } from '../src/refineGate.mjs'
 import { checkSay } from '../src/say.mjs'
 import { buildState } from './withStore.mjs'
 
@@ -246,4 +246,38 @@ test('where refining began: the highest step, and the steps queued then unrefine
   // B15 was queued before: the board does not refine it for its queue, nor keep it to tell the main chat about it.
   const due = refineWhenDue(build({ backlogText: ticked('B11', 'B12', 'B14') }), [], gate(30, ['B15']), NOW)
   assert.deepEqual([due.refine, due.kept.waiting], [null, []])
+})
+
+// The person, 2026-10-28 ("it's not clear what else will be picked up from the refinement"): the Advisor's "Next for it" lists
+// the steps the board will ask it to refine, in the order it asks.
+
+test('the refine queue: every step the board will ask next, in its order; the first is the pick of refineWhenDue', () => {
+  // B15 was queued before it was refined; B11, B12, B14 and B20 are new above 10 and need a round (B19 is refined, B13 waits for the person).
+  const queue = since => refineQueue(build(), [], gate(since), NOW).map(one => [one.step.id, one.why])
+  assert.deepEqual(queue(10), [['B15', 'queued'], ['B11', 'new'], ['B12', 'new'], ['B14', 'new'], ['B20', 'new']])
+  assert.deepEqual(queue(19), [['B15', 'queued'], ['B20', 'new']])
+  assert.deepEqual(queue(30), [['B15', 'queued']])
+  for (const since of [10, 19, 30]) assert.equal(refineWhenDue(build(), [], gate(since), NOW).refine?.about, queue(since)[0][0], `the pick at ${since}`)
+  // Asked and not refined yet: it is no longer next; one that did not arrive is next again.
+  const asked = refineSent(NOW - 2 * MIN, 'B15')
+  assert.deepEqual(refineQueue(build({ outbox: [asked] }), [asked], gate(19), NOW).map(one => one.step.id), ['B20'])
+  const failed = refineSent(NOW - 2 * HOUR, 'B15', { state: 'failed' })
+  assert.deepEqual(refineQueue(build({ outbox: [failed] }), [failed], gate(19), NOW).map(one => one.step.id), ['B15', 'B20'])
+  // Nothing is next once every step is refined or the person's; a board without an Advisor asks nobody.
+  assert.deepEqual(refineQueue(build({ backlogText: ticked('B10', 'B11', 'B12', 'B14', 'B15', 'B20') }), [], gate(10), NOW), [])
+  assert.deepEqual(refineQueue(build({ chats: ['Lead', 'Worker 1'] }), [], gate(10), NOW), [])
+})
+
+test('the refine queue by the board\'s table: queued, then fixes, then answers, then new; each step once; it lists on while a refine is open', () => {
+  const step = (id, more = {}) => ({ id, status: 'open', refined: null, item: {}, ...more })
+  const state = { advisor: { name: 'Advisor' }, backlog: [{ steps: [
+    step('B30'), step('B31', { item: { fixOf: 'B5' } }), step('B32', { status: 'queued' }), step('B33', { item: { fixOf: 'B6' } }), step('B12'),
+  ] }] }
+  // B31 is a fix and above 20: it is a fix, once. B12 is old and has no new answer: not in it.
+  assert.deepEqual(refineQueue(state, [], gate(20), NOW).map(one => [one.step.id, one.why]), [['B32', 'queued'], ['B31', 'fix'], ['B33', 'fix'], ['B30', 'new']])
+  assert.equal(refineWhenDue(state, [], gate(20), NOW).refine?.about, 'B32')
+  // A refine is open for B30: refineWhenDue asks for nothing, but the queue still says what comes after.
+  const open = { ...state, backlog: [{ steps: [...state.backlog[0].steps.slice(1), step('B30', { refineAsk: { isOpen: true } })] }] }
+  assert.equal(refineWhenDue(open, [], gate(20), NOW).refine, null)
+  assert.deepEqual(refineQueue(open, [], gate(20), NOW).map(one => one.step.id), ['B32', 'B31', 'B33', 'B30'])
 })

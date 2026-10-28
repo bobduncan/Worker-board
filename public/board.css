@@ -2348,6 +2348,17 @@ button.needs-you:hover small, button.needs-you:focus-visible small { color: var(
 .queue-next .why { display: inline; margin: 0; white-space: normal; overflow: visible; }
 .step-list .step-list-time { margin-left: 8px; }
 .advisor-waits-count { color: var(--text); }
+/* The person, 2026-10-28: "Next for it (N)" on the Advisor's card is a button that opens what is next for it. Information, so a
+   quiet count with a chevron (never amber, gold, orange or red: those mean attention); one row per item in the list under its line. */
+button.advisor-waits-count { align-self: flex-start; padding: 0; border: 0; background: none; font: inherit; font-size: 13px; line-height: 1.35; text-align: left; cursor: pointer; }
+button.advisor-waits-count::after { content: "›"; display: inline-block; margin-left: 6px; color: var(--muted); font-size: 16px; line-height: 1; vertical-align: -1px; transition: transform 0.12s; }
+button.advisor-waits-count[aria-expanded="true"]::after { transform: rotate(90deg); }
+button.advisor-waits-count:hover { text-decoration: underline; text-decoration-color: var(--muted); }
+button.advisor-waits-count:focus-visible { outline: 2px solid var(--advisor); outline-offset: 2px; border-radius: 4px; }
+button.advisor-waits-count:disabled { cursor: default; text-decoration: none; }
+button.advisor-waits-count:disabled::after { content: none; }
+.advisor-lane-asks { margin: 6px 0 0; font-size: 13px; }
+.advisor-lane-ask-row { padding: 2px 0; }
 
 .info-resizer { flex: none; position: relative; height: 10px; border-top: 1px solid var(--line); outline: 0; cursor: row-resize; touch-action: none; }
 .info-resizer[hidden] { display: none; }

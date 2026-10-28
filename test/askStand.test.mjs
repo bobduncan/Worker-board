@@ -270,7 +270,7 @@ test('With your partner: each row carries its stand in words, after the row', ()
   assert.equal(all(page.drawWithPartner({ withPartner: asks, ui: { withPartnerOpen: false } }), node => node.tag === 'li').length, 0)
 })
 
-test('the Advisor\'s line: "Waiting for it", each question a link, with its stand in words', () => {
+test('the Advisor\'s line from an older server: "Waiting for it", each question a link, with its stand in words', () => {
   const view = page.advisorQueued({ refines: 0, rounds: 0, words: 0 }, asks)
   assert.deepEqual(plain(view.asks).map(one => [one.id, one.href, one.stand]), [
     ['Q1', '#details=Q1', 'in the Advisor\'s queue since 14:02 · comes to you at 14:32'],
@@ -290,7 +290,7 @@ test('the Advisor\'s line: "Waiting for it", each question a link, with its stan
   assert.equal(words(page.drawWaitingAsks(bare.asks)), 'Waiting for it: Q9 · Digger: Icons?')
   // The lane draws it where it drew the line before.
   const lane = source('drawAdvisorLane')
-  assert.match(lane, /drawWaitingAsks\(queued\.asks\)/)
+  assert.match(lane, /drawWaitingAsks\(queued\.asks, queued\.isNext === true \? 'Next for it: ' : undefined\)/)
 })
 
 test('the ask\'s window: its question, options, advice and step, and where it stands', () => {

@@ -57,7 +57,7 @@ const LIST = [
   { kind: 'question', id: 'Q423', title: 'Merge the chain?', who: 'Worker 1', stand: { kind: 'queued', since: at(16, 10), toYouAt: at(16, 40) } },
 ]
 
-test('what waits for it: refines and questions, counted by kind, each a link to its step or ask with its stand in words', () => {
+test('what waits for it, from an older server with no queue: refines and questions, counted by kind, each a link to its step or ask with its stand in words', () => {
   const view = plain(page.advisorQueued({ refines: 0, rounds: 1, words: 2 }, LIST))
   assert.equal(view.count, 5)
   assert.equal(view.text, '1 question, 1 refine, 1 round of the clock, 2 messages')
@@ -72,7 +72,7 @@ test('what waits for it: refines and questions, counted by kind, each a link to 
   assert.equal(page.advisorQueued({ refines: 0, rounds: 0, words: 0 }, []), null)
 })
 
-test('"Waiting for it": a link for each, then where it stands, on its own quiet line', () => {
+test('"Waiting for it" (the list of an older server): a link for each, then where it stands, on its own quiet line', () => {
   const view = page.advisorQueued({ refines: 0, rounds: 0, words: 0 }, LIST)
   const line = page.drawWaitingAsks(view.asks)
   assert.match(words(line), /^Waiting for it: /)
@@ -110,7 +110,7 @@ test('the Advisor\'s card draws it: the item it is on in place of its card text,
   assert.match(lane, /const on = advisor\.on \?\? null/)
   assert.match(lane, /advisorOnLine\(on, lane\)/)
   assert.match(lane, /advisorProgress\(on === null \? lane\.task : null\)/)
-  assert.match(lane, /advisorQueued\(advisor\.queued, advisor\.waiting \?\? \(state\.withPartner \?\? \[\]\)\)/)
+  assert.match(lane, /advisorQueued\(advisor\.queued, advisor\.waiting \?\? \(state\.withPartner \?\? \[\]\), advisor\.next\)/)
   // Today's line stays when it names no item.
   assert.match(lane, /taskTitle\(lane\)/)
 })

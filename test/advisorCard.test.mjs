@@ -156,7 +156,7 @@ test('the card keeps the keyboard focus over a redraw, says its standing in its 
   assert.match(style, /\.lane\.is-advisor \.pill\.is-off/)
 })
 
-test('what waits for it, as a count and its kinds; nothing says nothing', () => {
+test('what waits for it, as a count and its kinds; nothing says nothing (a server that sends no queue: the lines as they were)', () => {
   assert.deepEqual({ ...page.advisorQueued({ refines: 1, rounds: 0, words: 2 }) }, { count: 3, text: '1 refine, 2 messages' })
   assert.deepEqual({ ...page.advisorQueued({ refines: 0, rounds: 2, words: 0 }) }, { count: 2, text: '2 rounds of the clock' })
   assert.equal(page.advisorQueued({ refines: 0, rounds: 0, words: 0 }), null)
@@ -168,9 +168,9 @@ test('what waits for it, as a count and its kinds; nothing says nothing', () => 
   assert.deepEqual(JSON.parse(JSON.stringify(withAsk.asks)), [{ id: 'Q423', kind: 'question', href: '#details=Q423', text: 'Q423 · Worker 1: Merge the chain?', stand: null }])
   assert.deepEqual({ ...page.advisorQueued(undefined, [{ id: 'Q1', from: 'Digger', title: 'Icons?' }]) }.count, 1)
   const lane = script.slice(script.indexOf('function drawAdvisorLane(state)'), script.indexOf('function drawAdvisorLane(state)') + 9000)
-  assert.match(lane, /advisorQueued\(advisor\.queued, advisor\.waiting \?\? \(state\.withPartner \?\? \[\]\)\)/)
-  assert.match(lane, /drawWaitingAsks\(queued\.asks\)/)
-  assert.match(script.slice(script.indexOf('function drawWaitingAsks(asks)'), script.indexOf('// advisorlane:end')), /el\('a', 'advisor-lane-ask', ask\.text\)/)
+  assert.match(lane, /advisorQueued\(advisor\.queued, advisor\.waiting \?\? \(state\.withPartner \?\? \[\]\), advisor\.next\)/)
+  assert.match(lane, /drawWaitingAsks\(queued\.asks, queued\.isNext === true \? 'Next for it: ' : undefined\)/)
+  assert.match(script.slice(script.indexOf('function drawWaitingAsks('), script.indexOf('// advisorlane:end')), /el\('a', 'advisor-lane-ask', ask\.text\)/)
 })
 
 test('the card stands under the workers, set apart, with no queue or worker buttons, and opens its chat on the Advisor tab', () => {

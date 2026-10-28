@@ -3012,8 +3012,45 @@ function advisorAsks(advisor) {
   return { text: `Asks you (${asks[0].id}${more}): ${asks[0].title}`, tone: 'waiting' }
 }
 
+/**
+ * The person, 2026-10-28 ("it's not clear what else will be picked up from the refinement ... i cant click on the 5 waiting for it
+ * and get an expand of what those 5 are"): where an item of the Advisor's queue leads: a step, an ask or an instruction opens its
+ * window, an incident goes to the supervisor's part, a goal to the Goals part; null for any other word.
+ */
+function advisorNextHref(id) {
+  const code = String(id ?? '')
+  return /^[BQI]\d+$/.test(code) ? `#details=${code}` : /^X\d+$/.test(code) ? '#supervisor' : /^G\d+$/.test(code) ? `#advice/goals/${code}` : null
+}
+
+/** One row of the Advisor's queue in words: "Q2 · Lead: Icons?", "refine B770: <title>", "incident X104: <title>", "evaluate G61: <title>". */
+function advisorNextWords(one) {
+  const tail = (one.title ?? '') === '' ? '' : `: ${one.title}`
+  return one.kind === 'question' ? `${one.id} · ${one.who ?? one.from ?? 'nobody'}${tail}` : `${[one.kind, one.id].filter(Boolean).join(' ')}${tail}`
+}
+
+/**
+ * "Next for it (N)": the server's whole queue of the Advisor (the state's `advisor.next`, in pick-up order, the item it is on left
+ * out) as `{ count, text, asks, isNext }`: N is the rows and the rounds of the board's clock (which have no row, only the tooltip's
+ * words); each row a link where it has one, with where it stands. Null when nothing waits.
+ */
+function advisorNextView(queued, next) {
+  const rows = next.filter(one => one !== null && typeof one === 'object' && typeof one.kind === 'string')
+  const rounds = queued?.rounds ?? 0
+  if (rows.length + rounds === 0) return null
+  const kinds = [['question', 'question', 'questions'], ['refine', 'refine', 'refines'], ['incident', 'incident', 'incidents'], ['evaluate', 'evaluation', 'evaluations']]
+    .map(([kind, single, many]) => [rows.filter(one => one.kind === kind).length, single, many])
+  kinds.push([rows.length - kinds.reduce((sum, [one]) => sum + one, 0), 'message', 'messages'], [rounds, 'round of the clock', 'rounds of the clock'])
+  return {
+    count: rows.length + rounds, isNext: true,
+    text: kinds.filter(([one]) => one > 0).map(([one, single, many]) => `${one} ${one === 1 ? single : many}`).join(', '),
+    asks: rows.map(one => ({ id: one.id ?? null, kind: one.kind, href: advisorNextHref(one.id), text: advisorNextWords(one), stand: standWords(one.stand) })),
+  }
+}
+
 /** B280: what waits for the Advisor, not in its chat yet: a count and its kinds ("1 refine, 2 messages"); null for nothing. */
-function advisorQueued(queued, waiting = []) {
+function advisorQueued(queued, waiting = [], next = null) {
+  // 2026-10-28: a server that sends its whole queue (`advisor.next`): that is the list; an older one, the lines as they were.
+  if (Array.isArray(next)) return advisorNextView(queued, next)
   // The person, 2026-10-26 ("I also expect this Q423 is in the queue with the advisor"; then "all of it"): what waits for
   // it besides messages (the state's `advisor.waiting`: the questions it answers for you first, refines),
   // each one a link to its step or ask with where it stands. An entry without a kind is a question (an older server).
@@ -3050,24 +3087,55 @@ function advisorOnLine(on, lane) {
 }
 
 /**
- * The questions it answers for you first, on its line: "Waiting for it:", each a link that opens its ask (the click does
- * not open its chat) and, in quiet words after it, where it stands (the person, 2026-10-26: queued, or the Advisor is on it).
+ * What waits for it, on its line: "Next for it:" (an older server: "Waiting for it:"), each a link that opens its item where it
+ * has one (the click does not open its chat) and, in quiet words after it, where it stands (the person, 2026-10-26: queued, or the
+ * Advisor is on it; 2026-10-28: next to refine).
  */
-function drawWaitingAsks(asks) {
+function drawWaitingAsks(asks, head = 'Waiting for it: ') {
   const line = el('p', 'advisor-lane-asks')
-  line.append(el('span', 'muted', 'Waiting for it: '))
+  line.append(el('span', 'muted', head))
   for (const ask of asks) {
-    const link = el('a', 'advisor-lane-ask', ask.text)
-    link.href = ask.href
-    link.title = ask.kind === 'refine' ? `Open ${ask.id}: the step the Advisor refines`
-      : `Open ${ask.id}: the whole question, its options and advice, who asked it`
-    link.addEventListener('click', event => event.stopPropagation())
     const row = el('span', 'advisor-lane-ask-row')
-    row.append(link)
+    if ((ask.href ?? null) === null) row.append(el('span', 'advisor-lane-ask', ask.text))
+    else {
+      const link = el('a', 'advisor-lane-ask', ask.text)
+      link.href = ask.href
+      link.title = ask.kind === 'refine' ? `Open ${ask.id}: the step the Advisor refines`
+        : ask.kind === 'incident' ? `Incident ${ask.id}: the supervisor's part on the Overview`
+          : ask.kind === 'evaluate' ? `Goal ${ask.id} on the Goals part`
+            : ask.kind === 'question' ? `Open ${ask.id}: the whole question, its options and advice, who asked it`
+              : `Open ${ask.id}`
+      link.addEventListener('click', event => event.stopPropagation())
+      row.append(link)
+    }
     if ((ask.stand ?? null) !== null) row.append(el('span', 'advisor-lane-ask-stand muted', ask.stand))
     line.append(row)
   }
   return line
+}
+
+/** Whether "Next for it" is open on the Advisor's card: this page only; it survives the board's redraws. */
+const advisorNextUi = { isOpen: false }
+
+/**
+ * "Next for it (N)", the count in the Advisor's card as a quiet button: a click opens and closes the list under its line. The
+ * click is the button's: it does not open the Advisor's chat (the card's own click). With no row to show (only rounds of the
+ * clock) it is a count alone.
+ */
+function advisorNextButton(queued) {
+  const button = el('button', 'advisor-waits-count', `Next for it (${queued.count})`)
+  button.type = 'button'
+  button.dataset.advisorNext = ''
+  button.title = queued.text
+  button.disabled = queued.asks.length === 0
+  button.setAttribute('aria-expanded', advisorNextUi.isOpen && queued.asks.length > 0 ? 'true' : 'false')
+  button.addEventListener('click', event => {
+    event.stopPropagation()
+    advisorNextUi.isOpen = !advisorNextUi.isOpen
+    if (board !== null) drawLanes(board)
+    $('lanes').querySelector('[data-advisor-next]')?.focus()
+  })
+  return button
 }
 // advisorlane:end
 
@@ -3175,15 +3243,17 @@ function drawAdvisorLane(state) {
   const time = advisor.state === 'working' ? drawEta(lane, state.readAt) : el('div', 'eta is-muted')
 
   // B307: what waits for it, by kind in the tooltip; nothing when nothing waits (or the server does not count it).
-  const queued = advisorQueued(advisor.queued, advisor.waiting ?? (state.withPartner ?? []))
+  const queued = advisorQueued(advisor.queued, advisor.waiting ?? (state.withPartner ?? []), advisor.next)
   const waits = el('div', 'queue advisor-waits')
-  if (queued !== null) {
+  if (queued !== null && queued.isNext === true) waits.append(advisorNextButton(queued))
+  else if (queued !== null) {
     const count = el('span', 'advisor-waits-count', `${queued.count} waiting for it`)
     count.title = queued.text
     waits.append(count)
   }
-  // The questions it answers for you first, under its line, each opening its ask (the click does not open its chat).
-  if ((queued?.asks ?? []).length > 0) what.append(drawWaitingAsks(queued.asks))
+  // What is next for it, under its line, once "Next for it (N)" is open, each opening its item (the click does not open its chat);
+  // an older server's list stays as it was.
+  if ((queued?.asks ?? []).length > 0 && (queued.isNext !== true || advisorNextUi.isOpen)) what.append(drawWaitingAsks(queued.asks, queued.isNext === true ? 'Next for it: ' : undefined))
 
   const open = el('div', 'lane-menu-cell')
   open.append(el('span', 'advisor-open', '›'))
@@ -3795,7 +3865,7 @@ function standWords(stand) {
   // `taken`: the Advisor took it and is not at work now (handed on to its helper, cut off, or waiting).
   const at = Number.isFinite(stand?.since) ? ` at ${clock(stand.since)}` : ''
   const where = stand?.kind === 'queued' ? "in the Advisor's queue" : stand?.kind === 'working' ? 'the Advisor is on it'
-    : stand?.kind === 'taken' ? `the Advisor took it${at}, idle now` : null
+    : stand?.kind === 'taken' ? `the Advisor took it${at}, idle now` : stand?.kind === 'next' ? 'next to refine' : null
   if (where === null) return null
   return [Number.isFinite(stand.since) && stand.kind !== 'taken' ? `${where} since ${clock(stand.since)}` : where, Number.isFinite(stand.toYouAt) ? `comes to you at ${clock(stand.toYouAt)}` : null]
     .filter(Boolean).join(' · ')

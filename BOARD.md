@@ -161,6 +161,14 @@ tab) and never on the demo; once closed, the browser keeps that it was seen (`he
   minutes); and, folded, **Refined, but held (n)** with why each waits ("blocked by B3 (in
   progress)", "waits for the answer to Q4", its standard). The board gives the first suitable one to a worker the
   moment its chat reports idle; the person does not hand out work, and neither does the main chat.
+- **The Advisor's card** (under the workers; a click opens its chat): its task line names the item it is on (B774, Q423, X76)
+  as a link, and that item stands nowhere else on the card. Under its task, the person's words of 2026-10-28, "it's not
+  clear what else will be picked up from the refinement ... i cant click on the 5 waiting for it and get an expand of what
+  those 5 are": the count is a button, **Next for it (N)**, closed at first; a click lists under the task line the whole
+  queue in the order the Advisor picks it up, one row each with a link where it has one: what was sent to it and waits (the
+  questions it answers for you, the refines, incidents, goal evaluations, other words), oldest first, with where each stands,
+  then the steps the board will ask it to refine next ("next to refine"). What is out of date (an incident fixed, a step done)
+  is left out; rounds of the board's clock only count (tooltip). Nothing waits: no button.
 - **The timeline:** from a few hours back to some hours ahead, one row per chat: what it did (green working,
   yellow waiting, blue free, purple suspended, grey not seen), what it expects (hatched) and its queue (striped),
   task changes as marks, and "Now" as a line.

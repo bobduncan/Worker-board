@@ -123,6 +123,35 @@ function needsRefine(step, outbox, now, again = Infinity) {
 }
 
 /**
+ * The steps the board will ask the Advisor to refine, in the order it asks: `[{ step, why }]`, each step once (the first `why`
+ * wins), by the `order` of the board's own table: `queued` (the main chat queued it while not refined; not one of
+ * `queuedBefore`), `fix` (a fix the board made open), `answer` (the person answered since its block was last written),
+ * then `new` (a step above `since`), each that `needsRefine`. It lists what comes after, so it ignores that a refine is open
+ * now (`refineWhenDue` asks for the first only while none is). Empty without an Advisor. The Advisor's "Next for it" shows it.
+ */
+export function refineQueue(state, outbox, kept, now) {
+  const steps = (state.backlog ?? []).flatMap(activity => activity.steps ?? []).filter(step => typeof step.id === 'string')
+  if ((state.advisor?.name ?? null) === null) return []
+  const isOpen = step => step.status === 'open' || step.status === 'queued'
+  const order = [
+    // A step queued while not refined (from before the redesign) is refined first.
+    ['queued', step => step.status === 'queued' && !kept.queuedBefore.includes(step.id)],
+    // B664: a fix the board made open (a chain's third try: another way) holds its step in review: it goes next.
+    ['fix', step => isOpen(step) && typeof step.item?.fixOf === 'string'],
+    // B312: an answer since the block was last written waits for a round, also on an old step.
+    ['answer', step => isOpen(step) && hasNewAnswer(step)],
+    ['new', step => isOpen(step) && numberOf(step.id) > kept.since],
+  ]
+  const queue = []
+  for (const [why, wants] of order) {
+    for (const step of steps) {
+      if (wants(step) && !queue.some(one => one.step.id === step.id) && needsRefine(step, outbox, now, why === 'fix' ? FIX_RETRY_MS : Infinity)) queue.push({ step, why })
+    }
+  }
+  return queue
+}
+
+/**
  * What the board does by itself at one look (the board that delivers). `outbox` is everything it sent, also long ago,
  * with what waited too long marked `expired`; `kept` is `firstLook`'s. Answers:
  * - `release`: the held queue asks (say.mjs, `held`) whose step is refined now, or all of them when there is no
@@ -148,23 +177,8 @@ export function refineWhenDue(state, outbox, kept, now) {
 
   let refine = null
   if (advisor !== null && !steps.some(step => step.refineAsk?.isOpen === true)) {
-    const isOpen = step => step.status === 'open' || step.status === 'queued'
-    const order = [
-      // A step queued while not refined (from before the redesign) is refined first.
-      ['queued', step => step.status === 'queued' && !kept.queuedBefore.includes(step.id)],
-      // B664: a fix the board made open (a chain's third try: another way) holds its step in review: it goes next.
-      ['fix', step => isOpen(step) && typeof step.item?.fixOf === 'string'],
-      // B312: an answer since the block was last written waits for a round, also on an old step.
-      ['answer', step => isOpen(step) && hasNewAnswer(step)],
-      ['new', step => isOpen(step) && numberOf(step.id) > kept.since],
-    ]
-    for (const [why, wants] of order) {
-      const step = steps.find(one => wants(one) && needsRefine(one, outbox, now, why === 'fix' ? FIX_RETRY_MS : Infinity))
-      if (step !== undefined) {
-        refine = { ...refineWords(advisor, step, (step.refined?.round ?? 0) + 1), why, board: true, before: refinedKey(step.refined) }
-        break
-      }
-    }
+    const first = refineQueue(state, outbox, kept, now)[0]
+    if (first !== undefined) refine = { ...refineWords(advisor, first.step, (first.step.refined?.round ?? 0) + 1), why: first.why, board: true, before: refinedKey(first.step.refined) }
   }
   return { release, drop, refine, notice, kept: { ...kept, waiting: [] } }
 }
