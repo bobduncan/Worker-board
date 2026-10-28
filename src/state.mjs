@@ -1421,6 +1421,8 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
       appRuns: Number.isFinite(raw.appStartedAt) && raw.appStartedAt > entry.at ? false : null,
       // T13 part 3: asleep since the app's start, or since its report when silent past offAfterMs; Not running once a wake did not take.
       appStartedAt: Number.isFinite(raw.appStartedAt) ? raw.appStartedAt : null, wokenAt: wokenAtOf(chat.name),
+      // T13 part 3: a chat whose session ended is asleep while the app still has it (a message wakes it by its app id).
+      hasAppSession: typeof chat.appSessionId === 'string' && chat.appSessionId !== '',
     })
     return [chat.name, lane === null ? null : { ...lane, entry }]
   }))

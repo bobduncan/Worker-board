@@ -4141,7 +4141,9 @@ timers. Now each chat says it (principle 3, know don't guess).
   report, or (the coordinator, seen live the same day: Workers 2 and 3 run as routine chats, whose process ends with
   their turn, and read Not running with nothing restarted) since the report when the board heard nothing for longer
   than `offAfterMinutes` after a report of idle, or of busy on a task it holds; a chat busy on nothing, or asking, that
-  falls silent is off as before (B736's "silent alone"). The lane keeps the report's state with `asleep` and
+  falls silent is off as before (B736's "silent alone"). A chat whose session ended (its report `ended`; the coordinator, seen
+  live: Worker 3, a routine chat, ended its session after its idle turn) is asleep at once, since it ended, while the app
+  still has it (an app session to message); off only without one. The lane keeps the report's state with `asleep` and
   `asleepSince`, `isRunning` false (so a word to it brings the board's start word, as to any chat that does not run):
   idle is Free, and counts as a free worker for the hand-out (`idleWorkers`; `workerStart` counts it toward
   `maxWorkers` and never asks for it, `startsPending` not twice): the task's line goes out with the start word beside
@@ -4155,7 +4157,7 @@ timers. Now each chat says it (principle 3, know don't guess).
   by chat (`asleepWoken`, in memory; a send that failed may go again), none while the person pauses, none for a chat
   Resume all's list wakes, and say.mjs `resumesDue` leaves an asleep chat to it. Nothing restarts them (B766's restart is
   for running idle workers only): a message wakes each. Not running stays for a chat that never reported (gap 1), one
-  whose session ended, and one a wake did not start: a start or wake word about it taken or sent, or its resume word,
+  whose session ended with no app session left, and one a wake did not start: a start or wake word about it taken or sent, or its resume word,
   since it fell asleep, and silent for longer than `offAfterMinutes` after it ("woken at HH:MM, it did not start"); the
   board's older ways (`resumesDue`, the start) then take over. While the person pauses the page shows an asleep
   interrupted chat Suspended (`pausedLanes`). The page says Free with "asleep since 18:07, wakes when it gets a task",

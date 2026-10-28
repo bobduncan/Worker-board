@@ -177,8 +177,9 @@ async function pass(fiveHour, now) {
     const config = { ...parseConfig(JSON.stringify({ handOutBeyondFocus: true, maxWorkers: 3 }), {}), project: PROJECT }
     const reports = new Map([
       ['W1', { state: 'idle', since: now - 60 * SEC, background: false, at: now - 2 * SEC, session: 'cli-W1', mod: '0.19.0' }],
-      ['W2', { state: 'ended', since: now - 30 * MIN, background: false, at: now - 30 * MIN, session: 'cli-W2', mod: '0.19.0' }],
-      ['W3', { state: 'ended', since: now - 30 * MIN, background: false, at: now - 30 * MIN, session: 'cli-W3', mod: '0.19.0' }],
+      // T13 part 3: a chat whose session ended is asleep now (it gets a task); a closed one is silent on no task.
+      ['W2', { state: 'busy', since: now - 30 * MIN, background: false, at: now - 30 * MIN, session: 'cli-W2', mod: '0.19.0' }],
+      ['W3', { state: 'busy', since: now - 30 * MIN, background: false, at: now - 30 * MIN, session: 'cli-W3', mod: '0.19.0' }],
     ])
     const outbox = memoryStore()
     const raw = {

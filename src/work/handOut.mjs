@@ -224,7 +224,8 @@ const isWorkerLane = lane => lane.isMain !== true && lane.isLeftover !== true
  * line wakes it (the board's start word beside it, deliver.mjs `sendOnce`).
  */
 export function idleWorkers(lanes, { items, prefix = '', restFree = [], stuck = new Set() }) {
-  return lanes.filter(lane => isWorkerLane(lane) && lane.report !== null && lane.report !== undefined && lane.report.state === 'idle'
+  // T13 part 3: or asleep after its session ended (a routine chat ends it after its idle turn).
+  return lanes.filter(lane => isWorkerLane(lane) && lane.report !== null && lane.report !== undefined && (lane.report.state === 'idle' || (lane.asleep === true && lane.report.state === 'ended'))
     && (lane.state === 'free' || restFree.includes(lane.name)) && (lane.isRunning === true || lane.asleep === true)
     && !stuck.has(lane.name) && !holdsOf(items, lane.name, prefix))
     .sort((a, b) => (a.report.since ?? 0) - (b.report.since ?? 0) || byId(a.name, b.name))

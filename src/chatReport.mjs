@@ -35,16 +35,24 @@ export function parseReport(value, now) {
  * caller keeps the older inference). `why` says what holds a working idle chat (`background`, `partner`) or why it is
  * off (`ended`, `silent`, `app`).
  *
- * - Ended: off at once. Stale (older than `unknownAfterMs`): T13 part 3, asleep when the app started after it (`appRuns`
+ * - Ended: T13 part 3, asleep at once (off only without an app session, `hasAppSession`). Stale (older than
+ *   `unknownAfterMs`): asleep when the app started after it (`appRuns`
  *   false, from `appStartedAt`) or it is silent past `offAfterMs` (`asleepLane`), else unknown.
  * - Fresh: busy is working, asking waiting. Idle: waiting while a blocking ask on the person is open; working while
  *   background work runs (not once its task is reported, `isTaskReported`: B148) or a blocking ask waits for the
  *   partner's answer; interrupted while it holds a task (a worker stopped mid-task: never free, so no new work goes to
  *   it); else free. A chat that reports runs.
  */
-export function laneFromReport(entry, { now, unknownAfterMs, offAfterMs = Infinity, holdsTask, hasBlockingAsk, waitsForPartner = false, isTaskReported = false, appRuns, appStartedAt = null, wokenAt = null }) {
+export function laneFromReport(entry, { now, unknownAfterMs, offAfterMs = Infinity, holdsTask, hasBlockingAsk, waitsForPartner = false, isTaskReported = false, appRuns, appStartedAt = null, wokenAt = null, hasAppSession = true }) {
   if (entry === null || entry === undefined) return null
-  if (entry.state === 'ended') return { state: 'off', isRunning: false, why: 'ended' }
+  // T13 part 3 (the coordinator, seen live 2026-10-28: Worker 3, a routine chat, ended its session after its idle turn and
+  // read Not running): a chat on the board whose session ended is asleep since then (since the app's start when the app
+  // started after it), as any asleep chat: a message wakes it. Off only without an app session to wake it by.
+  if (entry.state === 'ended') {
+    const since = appRuns === false && Number.isFinite(appStartedAt) ? appStartedAt : Number.isFinite(entry.since) ? entry.since : entry.at
+    if (!hasAppSession || !Number.isFinite(since)) return { state: 'off', isRunning: false, why: 'ended' }
+    return asleepLane(entry, { since, now, offAfterMs, holdsTask, hasBlockingAsk, waitsForPartner, isTaskReported, wokenAt })
+  }
   if (!Number.isFinite(entry.at) || now - entry.at > unknownAfterMs) {
     const since = asleepSince(entry, { now, offAfterMs, appRuns, appStartedAt, holdsTask })
     if (since !== null) return asleepLane(entry, { since, now, offAfterMs, holdsTask, hasBlockingAsk, waitsForPartner, isTaskReported, wokenAt })

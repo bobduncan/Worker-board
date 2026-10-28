@@ -117,13 +117,32 @@ test('the app started after the reports: an idle chat is Free and asleep, a busy
   assert.deepEqual(shown(build({ appStartedAt: null }), 'Weeder'), ['free', false, true, BEFORE])
 })
 
-test('never reported: Unknown, then Not running, as before; a chat that ended its session is Not running at once', () => {
+test('never reported: Unknown, then Not running, as before', () => {
   assert.deepEqual(shown(build({ startedAt: NOW - MIN }), 'Quiet').slice(0, 2), ['unknown', null])
   const late = build()
   assert.deepEqual(shown(late, 'Quiet').slice(0, 3), ['off', false, false])
   assert.match(lane(late, 'Quiet').offWhy, /^no report since the board started/)
-  const ended = build({ reports: [...REPORTS, report('Weeder', 'ended')] })
-  assert.deepEqual(shown(ended, 'Weeder').slice(0, 3), ['off', false, false])
+})
+
+// The coordinator, seen live 2026-10-28: Worker 3, a routine chat, finished its task idle, its process ended, and the Workers
+// mod's last report was `ended`. The app still has the chat (it is on the board), so a message wakes it: asleep, not off.
+test('a chat whose session ended while the app has it is asleep since then: Free without a task, Interrupted with its step', () => {
+  const ended = build({ reports: [...REPORTS, report('Weeder', 'ended', NOW - 2 * MIN), report('Digger', 'ended', NOW - 3 * MIN)], appStartedAt: at(17, 0) })
+  assert.deepEqual(shown(ended, 'Weeder'), ['free', false, true, NOW - 2 * MIN])
+  assert.deepEqual(shown(ended, 'Digger'), ['interrupted', false, true, NOW - 3 * MIN])
+  // After an app start that came later, asleep since that start, as any asleep chat.
+  assert.deepEqual(shown(build({ reports: [...REPORTS, report('Weeder', 'ended')] }), 'Weeder'), ['free', false, true, APP])
+})
+
+test('a chat whose session ended holding a step gets exactly one resume word, by a running chat\'s hands', () => {
+  const state = build({ reports: [...REPORTS, report('Digger', 'ended', NOW - 3 * MIN)], appStartedAt: at(17, 0) })
+  const lanes = shownChats(state)
+  const sent = new Map()
+  const { jobs } = handJobs({ caller: 'Lead', lanes, now: NOW, asleepSent: sent })
+  assert.deepEqual(jobs, [{ id: `asleep:${NOW - 3 * MIN}:Digger`, to: 'local_Digger', chat: 'Digger', text: 'resume your step B12 from your checkpoint' }])
+  sent.set('Digger', asleepOfJob(jobs[0].id))
+  assert.deepEqual(handJobs({ caller: 'Lead', lanes, now: NOW + 20_000, asleepSent: sent }).jobs, [])
+  assert.deepEqual(resumesDue(state, []), [])
 })
 
 // ---- The hand-out: an asleep free worker gets the task, and one start word wakes it.
@@ -153,6 +172,8 @@ for (const [why, reports] of [
   // The coordinator's addition, seen live 2026-10-28: Workers 2 and 3 run as routine chats; their process ended with their
   // idle turn, nothing restarted, and the board read them Not running. Silent past offAfterMinutes, no app start since.
   ['a routine chat: idle, then silent past offAfterMinutes with no app start since', [...REPORTS, report('Weeder', 'idle', NOW - 8 * MIN)]],
+  // The coordinator, seen live: Worker 3's last report was `ended`, its session closed after its idle turn.
+  ['a routine chat whose session ended after its idle turn', [...REPORTS, report('Weeder', 'ended', NOW - 2 * MIN)]],
 ]) {
   test(`${why}: Free and asleep, it gets a ready task, and one start word goes to a running chat to wake it`, async t => {
     const { pass, outbox } = await passes(t, reports)
@@ -257,7 +278,12 @@ test('the rule on its own: asleep keeps the report\'s state; woken past offAfter
   assert.deepEqual(laneFromReport(entry('idle', { at: NOW - 6 * MIN }), facts()).asleepSince, NOW - 6 * MIN)
   assert.deepEqual(laneFromReport(entry('idle'), facts({ ...app, wokenAt: NOW - 6 * MIN })), { state: 'off', isRunning: false, why: 'woken', wokenAt: NOW - 6 * MIN })
   assert.equal(laneFromReport(entry('idle'), facts({ ...app, wokenAt: NOW - 4 * MIN })).state, 'free')
-  assert.deepEqual(laneFromReport(entry('ended'), facts(app)), { state: 'off', isRunning: false, why: 'ended' })
+  // An ended session is asleep since it ended (since the app's start when that came later); off without an app session.
+  assert.deepEqual(laneFromReport(entry('ended'), facts(app)), { state: 'free', isRunning: false, asleep: true, asleepSince: APP })
+  assert.deepEqual(laneFromReport(entry('ended', { since: NOW - MIN, at: NOW - MIN }), facts()), { state: 'free', isRunning: false, asleep: true, asleepSince: NOW - MIN })
+  assert.deepEqual(laneFromReport(entry('ended', { since: NOW - MIN, at: NOW - MIN }), facts({ holdsTask: true })).state, 'interrupted')
+  assert.deepEqual(laneFromReport(entry('ended'), facts({ ...app, hasAppSession: false })), { state: 'off', isRunning: false, why: 'ended' })
+  assert.deepEqual(laneFromReport(entry('ended'), facts({ ...app, wokenAt: NOW - 6 * MIN })).why, 'woken')
 })
 
 // ---- The page's words: no alarm for these two.

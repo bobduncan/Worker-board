@@ -155,7 +155,8 @@ test('ready tasks wait and no worker is free: the main chat is asked for one wor
   try {
     two.report('W1', 'busy', T0 - 60 * SEC, T0 - 2 * SEC)
     two.report('W2', 'busy', T0 - 60 * SEC, T0 - 2 * SEC)
-    two.report('W3', 'ended', T0 - 30 * MIN, T0 - 30 * MIN)
+    // T13 part 3: a chat whose session ended is asleep now (it gets a task directly); off is one silent on no task.
+    two.report('W3', 'busy', T0 - 30 * MIN, T0 - 30 * MIN)
     const state = await two.build(T0)
     assert.deepEqual(state.reconciled.start, { start: 'W3' })
     await two.deliver(state, T0)
@@ -317,7 +318,8 @@ test('the recheck: a task taken back twice because its line was held says so on 
 test('gap 2: a task pinned to a worker whose chat is off has the main chat start that worker, beside an idle one; once per start window', async () => {
   const one = await garden([task('B590', { Pinned: 'W1', Priority: 'fix' })], { settings: { maxWorkers: 3 } })
   try {
-    one.report('W1', 'ended', T0 - 30 * MIN, T0 - 30 * MIN)
+    // T13 part 3: a chat whose session ended is asleep now (it gets its task directly); off is one silent on no task.
+    one.report('W1', 'busy', T0 - 30 * MIN, T0 - 30 * MIN)
     one.report('W2', 'idle', T0 - 60 * SEC, T0 - 2 * SEC)
     const state = await one.build(T0)
     assert.deepEqual(state.reconciled.gives, [], 'it waits for its own worker')

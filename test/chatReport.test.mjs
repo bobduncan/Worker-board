@@ -78,7 +78,9 @@ test('review 2: idle with a blocking ask routed to the partner works between two
 
 test('review 3: a session that ended is off at once; a report silent past offAfterMs is off; under it unknown', () => {
   assert.equal(REPORT_STATES.includes('ended'), true)
-  assert.deepEqual(laneFromReport(later('ended'), full()), { state: 'off', isRunning: false, why: 'ended' })
+  // T13 part 3: a session that ended is asleep since it ended while the app has the chat; off only without an app session.
+  assert.deepEqual(laneFromReport(later('ended'), full()), { state: 'free', isRunning: false, asleep: true, asleepSince: NOW - 60_000 })
+  assert.deepEqual(laneFromReport(later('ended'), full({ hasAppSession: false })), { state: 'off', isRunning: false, why: 'ended' })
   assert.deepEqual(laneFromReport(fresh('busy', { at: NOW - 5 * 60_000 - 1 }), full()), { state: 'off', isRunning: false, why: 'silent' })
   assert.deepEqual(laneFromReport(fresh('busy', { at: NOW - 4 * 60_000 }), full()), { state: 'unknown', isRunning: null })
   // T13 part 3: asleep, no longer off: after the app's start, and silent past offAfterMs after an idle report or busy on a task.

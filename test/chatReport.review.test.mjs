@@ -74,9 +74,10 @@ test('review 2 (B392): an idle worker whose blocking ask waits for the partner w
   assert.ok(line !== undefined && !line.startsWith('- !'), line)
 })
 
-test('review 3: a session that ended is not running at once; a chat silent past offAfterMinutes is not running, "silent since HH:MM"', () => {
+test('review 3: a session that ended is asleep at once (T13 part 3); a chat silent past offAfterMinutes is not running, "silent since HH:MM"', () => {
+  // T13 part 3: the app still has the chat, so a message wakes it: Free and asleep since its session ended, not Not running.
   const ended = lane(build({ reports: [report('Board', 'ended', { since: NOW - MIN, at: NOW - MIN })] }), 'Board')
-  assert.deepEqual([ended.state, ended.isRunning, ended.offWhy], ['off', false, `its session ended at ${hhmm(NOW - MIN)}`])
+  assert.deepEqual([ended.state, ended.isRunning, ended.asleep, ended.asleepSince, ended.offWhy], ['free', false, true, NOW - MIN, null])
   const silent = lane(build({ reports: [report('Board', 'busy', { at: NOW - 6 * MIN })] }), 'Board')
   assert.deepEqual([silent.state, silent.isRunning, silent.offWhy], ['off', false, `silent since ${hhmm(NOW - 6 * MIN)}`])
   assert.match(workerState(silent).words, new RegExp(`^not running \\(silent since ${hhmm(NOW - 6 * MIN)}\\)`))
