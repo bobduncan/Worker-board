@@ -16860,9 +16860,9 @@ async function read() {
       return
     }
     if (!answer.ok) throw new Error(String(answer.status))
-    const read = await answer.json()
+    const state = await answer.json()
     // 2026-10-28: while the person pauses, a chat stopped at its checkpoint shows as suspended (`pausedLanes`).
-    const state = read?.pause?.state === 'pausing' ? { ...read, chats: pausedLanes(read.chats, read.pause) } : read
+    if (state?.pause?.state === 'pausing') state.chats = pausedLanes(state.chats, state.pause)
     withAnswers(state)
     draw(state)
     awaySince = null
