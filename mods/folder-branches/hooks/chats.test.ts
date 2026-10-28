@@ -2,7 +2,7 @@ import { describe, expect, test } from 'claude-code/testing'
 
 import type { ChatFile, ChatTask } from '../types'
 import {
-  LEFT_MAX_SIZE, LEFT_TEXT, STALE_MS, afterTurn, asksPerson, atTurnStart, cardGap, cardOld, chatLine, chatNote, compactKeep, compactWhy, chatText, chatsSummary, fileName, foldersAbove, hasLeft,
+  LEFT_MAX_SIZE, LEFT_TEXT, STALE_MS, afterTurn, asksPerson, atTurnStart, chatLine, chatNote, compactKeep, compactWhy, chatText, chatsSummary, fileName, foldersAbove, hasLeft,
   isAgentId, nameFromTitle, orderChats, parseChat, parseList, sessionOf, status, timeText, uniqueByName, withDone, withPlan,
   withSend, withState, withStep, workCard, instructionsLine, isFiled, openFrom, personsWords, recordedLine,
   clearWhy, clearedStart, movedText, roleFrom, unfiledAsk, isOlderMod, modNote,
@@ -313,35 +313,6 @@ describe('which chats are in the list', () => {
     expect(withPlan(planned, { stepMinutes: 3 }).chat?.task).toEqual({ ...task('Skeleton Archer', 1, 3, 40), names: ['Cut', 'Wire', 'Check'], stepLeft: 3 * MIN })
     expect(withPlan(planned, { stepMinutes: 0 }).error).toContain('"stepMinutes"')
     expect(withStep(planned, { stepMinutes: 5000 }).error).toContain('"stepMinutes"')
-  })
-
-  test('a working chat whose step has no time is told so, after the task has one', () => {
-    const tool = 'mcp__folder-branches__chat'
-    const gap = cardGap(chat('Units', 'working', task('Archer', 1, 3, 10)), tool, NOW)
-    expect(gap).toContain('"stepMinutes"')
-    expect(gap).toContain('"plan"')
-    expect(cardGap(chat('Units', 'working', { ...task('Archer', 1, 3, 10), stepLeft: 4 * MIN }), tool, NOW)).toBeNull()
-    // A task without steps has no step to time.
-    expect(cardGap(chat('Units', 'working', task('Archer', 0, 0, 10)), tool, NOW)).toBeNull()
-  })
-
-  test('a working chat is told what its card lacks: a task, a time, or a time that has not run out', () => {
-    const tool = 'mcp__folder-branches__chat'
-    expect(cardGap(chat('Units', 'working'), tool, NOW)).toContain('"plan"')
-    expect(cardGap(chat('Units', 'working', task('Archer')), tool, NOW)).toContain('"minutes"')
-    expect(cardGap(chat('Units', 'working', task('Archer', 1, 3)), tool, NOW)).toContain('"minutes"')
-    const over = cardGap(chat('Units', 'working', { ...task('Archer', 1, 3, 10), left: 0 }), tool, NOW)
-    expect(over).toContain('run out')
-    // Renewing the time is a "plan" with minutes: "step" would move the card on by a step.
-    expect(over).not.toContain('"step"')
-    expect(cardGap(chat('Units', 'working', { ...task('Archer', 1, 3, 10), stepLeft: MIN }), tool, NOW)).toBeNull()
-    // The time counts down while the chat works, also between two writes of its file.
-    expect(cardGap(chat('Units', 'working', task('Archer', 1, 3, 10)), tool, NOW + 11 * MIN)).toContain('run out')
-    // Every one says to send it along with a call the chat makes anyway.
-    for (const gap of [cardGap(chat('Units', 'working'), tool, NOW), cardGap(chat('Units', 'working', task('Archer')), tool, NOW)]) expect(gap).toContain('next tool call')
-    // A card that was not touched in this request may be the one before: it is asked about, by its topic.
-    expect(cardOld(chat('Units', 'working', task('Archer', 2, 3, 10)), tool)).toContain('"Archer"')
-    expect(cardOld(chat('Units', 'working'), tool)).toBeNull()
   })
 
   test('B301: what the compaction after a report keeps names the steps of the store, not a hand-over', () => {

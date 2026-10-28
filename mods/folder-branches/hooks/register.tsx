@@ -10,7 +10,7 @@ import type { BoardRole, ChatFile, ChatList, ChatRole, ChatRow, ChatsView, Folde
 import { BOARD_FILE, BOARD_NOTE, LAUNCH_FILE, MOD_HEADER, MOD_VERSION, REPORT_PATH, REQUEST_HEADER, TAKE_PATH, TYPED_PATH, WHOAMI_PATH, WORK_ACTIONS, WORK_FIELDS, WORK_PATH, boardStarts, isPaused, parseBoard, parsePause, parseTaken, parseWhoami, pauseContexts, shownName, typedWhy } from './board'
 import type { Board, BoardStart, OwedClear, PauseState, PauseWhere, TurnReport, Whoami } from './board'
 import {
-  BEAT_MS, CHATS_DIR, NOT_RUNNING, LEFT_MAX_SIZE, LEFT_TEXT, LIST_FILE, afterTurn, atTurnStart, cardGap, cardOld, chatNote, clearWhy, clearedStart, compactKeep, compactWhy, chatText, chatsSummary, fileName,
+  BEAT_MS, CHATS_DIR, NOT_RUNNING, LEFT_MAX_SIZE, LEFT_TEXT, LIST_FILE, afterTurn, atTurnStart, chatNote, clearWhy, clearedStart, compactKeep, compactWhy, chatText, chatsSummary, fileName,
   cardStep, foldersAbove, formAnswer, formQuestions, hasLeft, instructionsLine, isAgentId, isFiled, modNote, movedText, nameFromTitle, openFrom, orderChats, parseChat, personsWords, parseList, recordedLine, roleFrom, sessionOf, status, uniqueByName,
   unfiledAsk, withDone, withPlan, withSend, withState, withStep, workCard,
 } from './chats'
@@ -34,13 +34,6 @@ const CHATS_MS = 5000
 /** How often a chat looks whether the project's boards answer, and how long it waits before it starts one again. */
 const BOARDS_MS = 15000
 const BOARD_RETRY_MS = 60000
-/**
- * A turn may make this many batches of tool calls before a card without a time is spoken of, then it is said again
- * every so many batches, a few times at most in one turn: a word in time, not a nag.
- */
-const REMIND_AFTER = 2
-const REMIND_EVERY = 8
-const REMIND_MOST = 3
 /** How long one git question may take. */
 const GIT_MS = 5000
 
@@ -74,8 +67,8 @@ let mine: Promise<unknown> = Promise.resolve()
 let isInTurn = false
 /**
  * Redesign Part 1: this chat's turn state as the board is told it, at once on every change (`setReport`) and with every
- * take. The questions to the person still open (the chat stays asking until the last is answered), whether the Stop
- * hook of the turn now ending listed background work still running, and since when a report at a ping is under way.
+ * take. The questions to the person still open (the chat stays asking until the last is answered), whether background
+ * work of the turn now ending still runs, and since when a report at a ping is under way.
  */
 let turnReport: TurnReport = { state: 'idle', since: 0, background: false }
 /**
@@ -87,7 +80,6 @@ let reportSeq = 0
 /** B738: the chats the board's last answer to a take named as not running; empty when it did not answer. */
 let boardOff: string[] = []
 let openForms = 0
-let hasBackground = false
 let reportingSince: number | null = null
 /** This session as the list names it, as last read or written; null while it is not in the list. */
 let myself: { name: string; role: ChatRole } | null = null
@@ -108,7 +100,7 @@ let reportedStep: string | null = null
 let promptCount = 0
 /** Clear after each step: the turn the main chat or a partner was last looked at for a compaction at rest. */
 let restTurn = -1
-/** Clear after each step: the start's words for a conversation after a clear whose start no hook heard, for its first prompt. */
+/** Clear after each step: the start's words for a conversation after a clear, for its first prompt. */
 let pendingStart: string[] = []
 /**
  * Clear after each step: the /clear commands this process queued and its hook has not seen yet, oldest first, by
@@ -134,11 +126,6 @@ const COMMAND_TURN = /^\s*(?:\/(?:clear|compact)\b|<command-(?:name|message)>\/?
 let lastBoardsLook = -Infinity
 let isLookingAtBoards = false
 const startTried = new Map<string, number>()
-/** The batches of tool calls in this session's running turn, and how often its card was spoken of in it. */
-let batches = 0
-let reminders = 0
-/** True once the chat recorded or renewed its card in this turn, or was asked about a card it left untouched. */
-let isCardSeen = false
 /** How long the line about a compaction stays up: the person may be looking at another chat when it happens. */
 const TELL_MS = 20000
 /** True once the chat sent another chat a note or a question in this turn: it then waits for that chat. */
@@ -1030,7 +1017,7 @@ async function settleClear($: EngineInterface): Promise<void> {
   if (decided === null) return
   try {
     if ((await $.session.id()) !== decided.from) {
-      if (!isInTurn) await moveAfterClear($, undefined, true)
+      if (!isInTurn) await moveAfterClear($)
       return
     }
     if ((await $.clock.now()) - decided.at < CLEAR_WAIT_MS) return
@@ -1316,51 +1303,25 @@ async function moveCard($: EngineInterface, moving: Carried, to: string): Promis
   return next
 }
 
-/** Clear after each step: the chat whose card holds the mark of a clear on its way, when this process lost its own word of it. */
-async function markedClear($: EngineInterface, title: unknown): Promise<Carried | null> {
-  if (typeof title !== 'string' || title.trim() === '') return null
-  const dir = await findChatsDir($, true)
-  if (dir === null) return null
-  const list = parseList(await $.fs.read(inFolder(dir, LIST_FILE)).catch(() => ''))
-  const named = list === null ? null : nameFromTitle(title.trim(), list)
-  if (named === null) return null
-  const now = await $.clock.now()
-  const me = await $.session.id()
-  const found = (await readFiles($))
-    .filter(row => row.id !== me && row.name.toLowerCase() === named.name.toLowerCase() && row.clearing !== undefined && now - row.clearing.at < MARK_MS)
-    .sort((a, b) => (b.clearing?.at ?? 0) - (a.clearing?.at ?? 0))[0]
-  if (found === undefined) return null
-  const { id, ...chat } = found
-  return { from: id, chat, clearing: markOf(chat, id, now) }
-}
-
 /**
- * Clear after each step: the start of the conversation after a /clear (`isClear`, the start's own word, or the chat
- * the /clear ended): the card moves to the new session id, and the fresh conversation is told who it is, where its
- * rules and its old conversation are, the person's instructions still open, and to run work next. Neither the clear
- * nor this start is a turn: no turn's end is told for them, so no instruction counts as missed for them. Lines of
- * start context; none for any other start.
+ * Clear after each step: the move after a clear, once: a second caller waits for the one on its way. The card moves to the
+ * new session id, and the fresh conversation is told (`pendingStart`, given at its first prompt) who it is, where its rules
+ * and its old conversation are, the person's instructions still open, and to run work next. Neither the clear nor the
+ * start after it is a turn: no turn's end is told for them, so no instruction counts as missed for them.
  */
-async function startAfterClear($: EngineInterface, title: unknown, isClear: boolean): Promise<string[]> {
-  await moveAfterClear($, title, isClear)
-  return pendingStart.splice(0)
-}
-
-/** Clear after each step: the move after a clear, once: a second caller waits for the one on its way. */
-function moveAfterClear($: EngineInterface, title: unknown, isClear: boolean): Promise<void> {
-  movingAfterClear ??= afterClear($, title, isClear).finally(() => {
+function moveAfterClear($: EngineInterface): Promise<void> {
+  movingAfterClear ??= afterClear($).finally(() => {
     movingAfterClear = null
   })
   return movingAfterClear
 }
 
 /** Clear after each step: moves the card after a clear and keeps the start's words in `pendingStart`. */
-async function afterClear($: EngineInterface, title: unknown, isClear: boolean): Promise<void> {
+async function afterClear($: EngineInterface): Promise<void> {
   try {
-    // The chat the /clear ended; when the start comes before that end, the clear this process decided; else (a reload
-    // between) the mark the card holds.
+    // The chat the /clear ended; when the start comes before that end, the clear this process decided.
     const decided = clearing
-    const moving = carried ?? (!isClear ? null : decided !== null ? { from: decided.from, chat: decided.chat, clearing: decided } : await markedClear($, title))
+    const moving = carried ?? (decided !== null ? { from: decided.from, chat: decided.chat, clearing: decided } : null)
     carried = null
     if (moving === null) return
     const to = await $.session.id()
@@ -1457,8 +1418,8 @@ async function join($: EngineInterface, name: string, role: ChatRole, state: Cha
 }
 
 /**
- * A chat whose title says it is one of the project's joins the list by itself, and follows a new title: the
- * project's `.claude/chats/list.json` names the titles' shared beginning.
+ * A chat the board names joins the list under the title `<prefix><name>` (`joinBySession`, `followShown`), and follows a new
+ * name: the project's `.claude/chats/list.json` names the titles' shared beginning. A chat that was taken out stays out.
  */
 async function joinByTitle($: EngineInterface, title: unknown, state: ChatFile['state'] = isInTurn ? 'working' : 'waiting'): Promise<void> {
   try {
@@ -1497,14 +1458,12 @@ const WHOAMI_AGAIN_MS = 5_000
  * then once a minute (a chat of no list asks no more than that).
  */
 const WHOAMI_EAGER_MS = 2 * 60_000
-/** 2026-10-28: whether any classic hook of this mod ran in this process (on a work login the app's guard skips them all). */
-let classicRuns = false
 
 /**
- * 2026-10-28 (the person: "Yes, background work"; the work login's guard skips classic.Stop, whose list said what still
- * ran at a turn's end): the background shells and monitors this chat started, by their task id, kept from the chat's own
- * tool calls: a Bash or Monitor call run in the background adds its id, a TaskStop and the app's note that the task ended
- * take it out. Subagents are asked of the engine itself (`$.agent.list`).
+ * 2026-10-28 (the person: "Yes, background work"): the background shells and monitors this chat started, by their task id,
+ * kept from the chat's own tool calls: a Bash or Monitor call run in the background adds its id, a TaskStop and the app's
+ * note that the task ended take it out. Subagents are asked of the engine itself (`$.agent.list`). The mod uses no classic
+ * hook (the app's guard skips them on a work login), so it never relies on a Stop hook's list.
  */
 const backgroundIds = new Set<string>()
 /** A task id as the app writes it: letters, digits, "-" and "_". */
@@ -1533,9 +1492,8 @@ function noteTaskEnded(text: string): void {
   if (id !== undefined && status !== '' && status !== 'running') backgroundIds.delete(id)
 }
 
-/** Whether background work of this chat still runs: the Stop hook's list where it runs, else the ids kept and the subagents. */
+/** Whether background work of this chat still runs: the ids kept and the subagents. */
 async function backgroundNow($: EngineInterface): Promise<boolean> {
-  if (classicRuns) return hasBackground
   if (backgroundIds.size > 0) return true
   return (await busyWhy($)) !== null
 }
@@ -1543,13 +1501,24 @@ let eagerSince: number | null = null
 let lastWhoamiTick = -Infinity
 
 /**
- * 2026-10-28 (the person: "Yes, move it"): where the app's guard skips prompt.compose (a work login), the chat's standing
- * note (who it is, its card, where its work stands, the board's mark on the person's words) stands in the work tool's
- * description instead: registered anew once the chat knows who it is, and again when its name or role changes.
+ * 2026-10-28 (the person: "Yes, move it"): the chat's standing note (who it is, its card, where its work stands, the board's
+ * mark on the person's words) stands in the work tool's description (the mod adds nothing to the system prompt: the app's
+ * guard skips the system prompt's compose hook on a work login): registered anew once the chat knows who it is, and again
+ * when its name or role changes; a chat that left the list gets the plain description back.
  */
 let describedAs: string | null = null
 async function describeWork($: EngineInterface): Promise<void> {
-  if (classicRuns || myself === null) return
+  if (myself === null) {
+    // A clear on its way brings the chat back under the same name: no churn for it.
+    if (describedAs === null || carried !== null || movingAfterClear !== null) return
+    try {
+      await $.tool.register({ ...WORK_TOOL, isDeferred: chatsDir === null })
+      describedAs = null
+    } catch {
+      // the next tick tries again
+    }
+    return
+  }
   const key = `${myself.name}|${myself.role}`
   if (describedAs === key) return
   try {
@@ -1693,12 +1662,13 @@ async function askWhoami($: EngineInterface, board: Board): Promise<Whoami | nul
 }
 
 /**
- * 2026-10-28: a chat learns which chat it is from the board, by its session id (what `$.session.id()` returns): the app's
- * title reaches the mod's `classic.*` hooks only, which the app's guard skips on a work login, and it is stale after an
- * account switch or a rename. At the session's start and before a prompt's context, at most once a minute per process, held
- * 1.5 s at most; quiet when there is no board, no answer or no chat of that session. With a name the chat joins as by its
- * title (`joinByTitle`, the title `<prefix><name>`: no second join code), so a rename is followed and a chat that left
- * stays out. A card the board names under another session (a worker cleared in a new process) is moved here first.
+ * 2026-10-28: a chat learns which chat it is from the board, by its session id (what `$.session.id()` returns), the only
+ * way on every login: the app's title reaches the classic hooks only, which the app's guard skips on a work
+ * login, so the mod has none. At the session's start, at every tick while it does not know who it is, and before a prompt's
+ * context, at most once a minute per process, held 1.5 s at most; quiet when there is no board, no answer or no chat of that
+ * session. With a name the chat joins under the title `<prefix><name>` (`joinByTitle`: one join code), so a rename is
+ * followed and a chat that left stays out. A card the board names under another session (a worker cleared in a new
+ * process) is moved here first.
  */
 async function joinBySession($: EngineInterface): Promise<void> {
   try {
@@ -1731,7 +1701,7 @@ async function joinBySession($: EngineInterface): Promise<void> {
     await joinByTitle($, `${list.prefix}${who.name}`)
     await describeWork($)
   } catch {
-    // no board, or it did not answer: the chat joins by its title, or when asked to
+    // no board, or it did not answer: the chat joins at a later ask, or when asked to
   }
 }
 
@@ -1751,7 +1721,7 @@ async function moveCardFromBoard($: EngineInterface, dir: string, list: ChatList
   lastRole = who.role ?? (isSupervisorOf(list, old) ? 'supervisor' : old.role === 'main' ? 'main' : 'worker')
   carried = { from: who.card, chat: old, clearing: markOf(old, who.card, await $.clock.now()) }
   // The words stand ready once the card has moved; the board's answer after it does not hold a prompt (as in prompt.submit).
-  await withinTime($, moveAfterClear($, undefined, true), MOVE_WAIT_MS)
+  await withinTime($, moveAfterClear($), MOVE_WAIT_MS)
 }
 
 /** Writes every file under a name as one that left; true when this session's own was among them. */
@@ -1994,28 +1964,6 @@ async function startChats($: EngineInterface): Promise<boolean> {
   }
 }
 
-/** The word about a card without a time, at the right batch of tool calls; none most of the time. */
-async function cardReminder($: EngineInterface): Promise<string[]> {
-  try {
-    if (reminders >= REMIND_MOST) return []
-    batches += 1
-    if (batches < REMIND_AFTER || (batches - REMIND_AFTER) % REMIND_EVERY !== 0) return []
-    const dir = await findChatsDir($)
-    const chat = dir === null ? null : await readChat($, dir, await $.session.id())
-    const lacks = chat === null ? null : cardGap(chat, TOOL, await $.clock.now())
-    // A card with a task that this request has not touched may be the one before: that is asked first, once.
-    const old = chat === null || isCardSeen ? null : cardOld(chat, TOOL)
-    const gap = old ?? lacks
-    if (gap === null) return []
-    if (old !== null) isCardSeen = true
-    reminders += 1
-
-    return [gap]
-  } catch {
-    return []
-  }
-}
-
 /** The chats as lines of text, for the command's answer. */
 async function chatLines($: EngineInterface): Promise<string> {
   try {
@@ -2035,9 +1983,9 @@ async function turnStarts($: EngineInterface): Promise<void> {
   try {
     // Clear after each step: the start of the conversation after a /clear moves the card; a turn moves it when no start did.
     const id = await $.session.id()
-    if (carried !== null || movingAfterClear !== null || (clearing !== null && clearing.from !== id)) await moveAfterClear($, undefined, true)
+    if (carried !== null || movingAfterClear !== null || (clearing !== null && clearing.from !== id)) await moveAfterClear($)
   } catch {
-    // it joins again by its title, or when asked
+    // it joins again at its next ask of the board, or when asked
   }
   await say($, 'working')
 }
@@ -2106,7 +2054,7 @@ async function clearThenPrepare<T>($: EngineInterface, ran: Promise<T>): Promise
   trace($, 'clear ran', { carried: carried !== null, clearing: clearing !== null, moving: movingAfterClear !== null, myself: myself?.name ?? null, role: lastRole })
   try {
     const prepare = carried !== null || clearing !== null
-      ? moveAfterClear($, undefined, true)
+      ? moveAfterClear($)
       : (async () => {
           lastWhoami = -Infinity
           await joinBySession($)
@@ -2136,8 +2084,8 @@ export const register: Register = on => {
     const view = await load($)
     ensureWatch($)
     const hasChats = await startChats($)
-    // 2026-10-28: the chat learns who it is from the board, by its session id (the app's title may never reach the mod);
-    // until it does, its tick asks again (`whoamiAgain`).
+    // 2026-10-28: the chat learns who it is from the board, by its session id (the mod has no title, and uses no classic
+    // hook); until it does, its tick asks again (`whoamiAgain`).
     eagerSince = await $.clock.now()
     await joinBySession($)
     // B753: the board's hands: this chat sends the start, wake and resume lines the board holds, by code.
@@ -2149,21 +2097,6 @@ export const register: Register = on => {
     if (hasChats) void openWorkers($)
 
     return next(e)
-  })
-
-  // The app gives a chat's title to the classic hooks: a chat of the project joins the list under it.
-  on('classic.SessionStart', async ($, e, next) => {
-    classicRuns = true
-    // Clear after each step: after a /clear the chat goes on under the new session id with its card, and is told where
-    // it stands (before the title joins it: it is the same chat, never a new one).
-    const cleared = e.agent_type === undefined ? await startAfterClear($, e.session_title, e.source === 'clear') : []
-    await joinByTitle($, e.session_title)
-    const result = await next(e)
-    // Pause 2: a main chat that starts while the person resumes learns whom to wake; a chat holding a step, its checkpoint.
-    const lines = e.agent_type === undefined ? await pauseLines($, 'start') : []
-    const more = [...cleared, ...lines]
-
-    return more.length === 0 ? result : { ...result, additionalContext: [...(result.additionalContext ?? []), ...more] }
   })
 
   on('prompt.submit', async ($, e, next) => {
@@ -2184,7 +2117,7 @@ export const register: Register = on => {
       // 2026-10-28: a move on its way (begun at the clear) is waited for briefly: its words stand ready as soon as the card
       // has moved, while the board's answer that only brings them up to date may take seconds, and the app sends the
       // prompt on without this hook's words when it holds the prompt too long (the person's tests on the work login).
-      if (carried !== null || movingAfterClear !== null || (clearing !== null && (await $.session.id()) !== clearing.from)) await withinTime($, moveAfterClear($, undefined, true), MOVE_WAIT_MS)
+      if (carried !== null || movingAfterClear !== null || (clearing !== null && (await $.session.id()) !== clearing.from)) await withinTime($, moveAfterClear($), MOVE_WAIT_MS)
       // 2026-10-28: and by its session id, before the context is built: a rename is followed, and a card moved after a
       // clear brings its start's words to this very prompt. Not for a word this mod types itself (the board's, from a take):
       // the chat is in the list then, and a rename is followed by its take.
@@ -2214,34 +2147,6 @@ export const register: Register = on => {
     return next(context.length === 0 ? e : { ...e, context: [...(e.context ?? []), ...context] })
   })
 
-  on('classic.UserPromptSubmit', async ($, e, next) => {
-    classicRuns = true
-    await joinByTitle($, e.session_title)
-
-    return next(e)
-  })
-
-  // A chat in the list learns here how the list is kept: the same words at every request, so the prompt stays cached.
-  on('prompt.compose', async ($, e, next) => {
-    const composed = await next(e)
-    if (myself === null) return composed
-    const me: ChatFile = { ...myself, state: 'waiting', task: null, at: 0 }
-
-    return { ...composed, sections: [...composed.sections, { id: 'folder-branches:chat', text: `${chatNote(me, TOOL)}${BOARD_NOTE}`, scope: 'session' }] }
-  })
-
-  // A working chat without a time on its card is told so, with the results of a batch of tool calls it made
-  // anyway: no step of its own, and nothing for a request that is answered without tools.
-  // Pause 2: the same batch carries the person's pause: while pausing, the chat is told once to checkpoint and stop.
-  on('classic.PostToolBatch', async ($, e, next) => {
-    classicRuns = true
-    const result = await next(e)
-    if (e.agent_id !== undefined || !isInTurn || myself === null) return result
-    const more = [...await pauseLines($, 'batch'), ...await cardReminder($)]
-
-    return more.length === 0 ? result : { ...result, additionalContext: [...(result.additionalContext ?? []), ...more] }
-  })
-
   on('turn.start', async ($, e, next) => {
     // Clear after each step: should the engine run the mod's /clear or /compact as a turn, it is no turn of the chat's.
     if (!isInTurn && e.agentId === undefined && COMMAND_TURN.test(e.text)) {
@@ -2254,11 +2159,8 @@ export const register: Register = on => {
     if (!isInTurn) {
       // Clear after each step: a real turn on the session a clear was decided for: the clear is dropped, its /clear refused.
       if (clearing !== null && (await $.session.id()) === clearing.from) await dropClear($, 'a new turn started before the clear ran')
-      batches = 0
-      reminders = 0
       turnStartedAt = await $.clock.now()
       isTurnEndTold = false
-      isCardSeen = false
       hasAsked = false
       hasReported = false
       reportedStep = null
@@ -2337,27 +2239,14 @@ export const register: Register = on => {
     }
   })
 
-  // Redesign Part 1: the Stop hook of the chat's own turn lists the background work still running as the turn ends
-  // (shells, subagents, monitors, workflows); its end wakes the chat with a turn of its own. The review of chat-reports:
-  // only a Stop sets it: a turn cut short (Esc, an API error) runs none, and what the last one listed stands.
-  on('classic.Stop', async ($, e, next) => {
-    classicRuns = true
-    if (e.agent_id === undefined) hasBackground = Array.isArray(e.background_tasks) && e.background_tasks.length > 0
-
-    return next(e)
-  })
-
-  // A question to the person holds the turn: the list says whose move it is.
-  // B299: each question is filed on the worker board as an ask of kind decide (the app's form: answered in the chat
-  // only), under the step the card names when the board takes it there, so the board shows it too; once the form is
-  // answered, or closed without an answer, the board is told.
-  // 2026-10-28 (the person: "Yes, build it"; the work login's guard skips classic.PostToolBatch, which told a working chat
-  // to stop): while the person pauses, a working chat whose classic hooks never ran in this process is told at its next
-  // tool call instead. That call does not run: its refusal carries the pause's words, once per turn as at a batch. The
+  // 2026-10-28 (the person: "Yes, build it"): while the person pauses, a working chat is told at its next tool call, the
+  // one place the pause reaches it mid-turn (the app's guard skips the classic after-tool-batch hook on a work login, so
+  // the mod uses no classic hook). That call does not run: its refusal carries the pause's words, once per turn. The
   // chat's own tools (chat, work) always run, so it can write its checkpoint; a subagent's calls are left alone.
-  // The same hook keeps the background shells and monitors this chat starts and stops, where classic.Stop does not say.
+  // The same hook keeps the background shells and monitors this chat starts and stops, which the report of its turn's
+  // end (idle, with background work or not) reads: a Stop hook's list is no source on a work login.
   on('tool.call', async ($, e, next) => {
-    if (classicRuns || e.agentId !== undefined) return next(e)
+    if (e.agentId !== undefined) return next(e)
     if (e.tool !== TOOL && e.tool !== WORK && isInTurn && myself !== null) {
       const lines = await pauseLines($, 'batch')
       if (lines.length > 0) {
@@ -2370,6 +2259,10 @@ export const register: Register = on => {
     return out
   })
 
+  // A question to the person holds the turn: the list says whose move it is.
+  // B299: each question is filed on the worker board as an ask of kind decide (the app's form: answered in the chat
+  // only), under the step the card names when the board takes it there, so the board shows it too; once the form is
+  // answered, or closed without an answer, the board is told.
   on('tool.call', { tool: 'AskUserQuestion' }, async ($, e, next) => {
     if (e.agentId !== undefined) return next(e)
     // Redesign Part 1: asking until the person answers (or closes the form); then busy again, or idle when the turn ended.
@@ -2476,7 +2369,6 @@ export const register: Register = on => {
     if (action !== 'list' && e.agentId !== undefined) {
       return { result: "Only the chat's main conversation keeps its line in the list: nothing was changed." }
     }
-    if (action === 'plan' || action === 'step' || action === 'done') isCardSeen = true
     if (action === 'plan') {
       const text = typeof input.text === 'string' ? input.text : undefined
       const names = Array.isArray(input.names) ? input.names : undefined
@@ -2536,7 +2428,6 @@ export const register: Register = on => {
       return { result: text }
     }
     if (action !== 'take' && action !== 'step') return { result: text }
-    isCardSeen = true
     const card = {
       id: input.id, title: read.title, names: Array.isArray(input.names) ? input.names : undefined, steps: numberOf(input.steps),
       step: numberOf(input.step), minutes: numberOf(input.minutes), stepMinutes: numberOf(input.stepMinutes),

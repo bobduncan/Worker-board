@@ -168,9 +168,8 @@ describe('Pause 2: the pause state as the mod reads it, and the contexts it give
     // The review of Pause 2: a new turn while the person still pauses is told again, at its first batch.
     expect(pauseContexts(holding, { role: 'worker', where: 'batch', given, turn: 2 })).toEqual([STOP])
     expect(pauseContexts(parsePause(answer('pausing')), { role: 'main', where: 'batch', given: new Set(), turn: 1 })).toEqual([FREE])
-    // Not at a prompt or a start: the next tool batch says it; and never "go on" while pausing.
+    // Not at a prompt: the next tool call says it; and never "go on" while pausing.
     expect(pauseContexts(holding, { role: 'worker', where: 'prompt', given: new Set(), isFirst: true })).toEqual([])
-    expect(pauseContexts(holding, { role: 'worker', where: 'start', given: new Set() })).toEqual([])
   })
 
   test('while resuming: the main chat gets whom to wake by app session id only; a holder its checkpoint; once each', () => {
@@ -181,7 +180,7 @@ describe('Pause 2: the pause state as the mod reads it, and the contexts it give
       { chat: 'Worker 4', session: 'cli-d', cliSession: 'cli-d', step: 'B16', checkpoint: null, branch: null, hasStarted: false },
     ]
     const given = new Set<string>()
-    const main = pauseContexts(parsePause(answer('resuming', [], wakes)), { role: 'main', where: 'start', given })
+    const main = pauseContexts(parsePause(answer('resuming', [], wakes)), { role: 'main', where: 'prompt', given })
     expect(main).toEqual([[
       "Resume: wake each chat below that has not started, by its session id with SendMessage, one line each: 'resume your step B<id> from your checkpoint'",
       "- Worker 1, session local_aaa: 'resume your step B12 from your checkpoint' (checkpoint 1a2b3c4 · write the tests)",
@@ -203,18 +202,18 @@ describe('Pause 2: the pause state as the mod reads it, and the contexts it give
     expect(pauseContexts(parsePause(answer('resuming', old)), { role: 'worker', where: 'prompt', given: new Set() })).toEqual(['You hold B12: no checkpoint since the pause; go on from its branch b12-strip.'])
   })
 
-  test('at a session start (or a process\'s first prompt) a chat that holds a step is told its checkpoint, once', () => {
+  test('at a process\'s first prompt a chat that holds a step is told its checkpoint, once', () => {
     const holds = [{ id: 'B12', checkpoint: { ...point, isSincePause: false } }]
     const given = new Set<string>()
-    expect(pauseContexts(parsePause(answer('running', holds)), { role: 'worker', where: 'start', given })).toEqual(['You hold B12: checkpoint 1a2b3c4 · write the tests; go on from there.'])
+    expect(pauseContexts(parsePause(answer('running', holds)), { role: 'worker', where: 'prompt', given, isFirst: true })).toEqual(['You hold B12: checkpoint 1a2b3c4 · write the tests; go on from there.'])
     expect(pauseContexts(parsePause(answer('running', holds)), { role: 'worker', where: 'prompt', given, isFirst: true })).toEqual([])
     expect(pauseContexts(parsePause(answer('running', holds)), { role: 'worker', where: 'prompt', given: new Set(), isFirst: true })).toHaveLength(1)
-    expect(pauseContexts(parsePause(answer('running', [{ id: 'B12', checkpoint: null }])), { role: 'worker', where: 'start', given: new Set() })).toEqual(['You hold B12: no checkpoint; go on from its record (work next).'])
+    expect(pauseContexts(parsePause(answer('running', [{ id: 'B12', checkpoint: null }])), { role: 'worker', where: 'prompt', given: new Set(), isFirst: true })).toEqual(['You hold B12: no checkpoint; go on from its record (work next).'])
     // A later prompt, a tool batch, or a chat that holds nothing: nothing.
     expect(pauseContexts(parsePause(answer('running', holds)), { role: 'worker', where: 'prompt', given: new Set() })).toEqual([])
     expect(pauseContexts(parsePause(answer('running', holds)), { role: 'worker', where: 'batch', given: new Set() })).toEqual([])
-    expect(pauseContexts(parsePause(answer('running')), { role: 'worker', where: 'start', given: new Set() })).toEqual([])
-    expect(pauseContexts(null, { role: 'worker', where: 'start', given: new Set() })).toEqual([])
+    expect(pauseContexts(parsePause(answer('running')), { role: 'worker', where: 'prompt', given: new Set(), isFirst: true })).toEqual([])
+    expect(pauseContexts(null, { role: 'worker', where: 'prompt', given: new Set(), isFirst: true })).toEqual([])
   })
 
   test('isPaused: pausing and resuming hold what starts a turn; running and no reading do not', () => {
@@ -228,7 +227,7 @@ describe('Pause 2: the pause state as the mod reads it, and the contexts it give
 describe('2026-10-28: the board names this chat by its session id', () => {
   test('the route, and the version the plugin states', () => {
     expect(WHOAMI_PATH).toBe('/api/bridge/whoami')
-    expect(MOD_VERSION).toBe('0.25.0')
+    expect(MOD_VERSION).toBe('0.25.1')
   })
 
   test('the answer: a name, the role the board gives it and the session its card is filed under', () => {

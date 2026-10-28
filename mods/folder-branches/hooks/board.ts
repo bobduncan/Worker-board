@@ -34,7 +34,7 @@ export const REQUEST_HEADER = 'X-Work-Request'
  * chat that runs an older Workers mod than the one installed. The same as `version` in .claude-plugin/plugin.json.
  */
 export const MOD_HEADER = 'X-Workers-Mod'
-export const MOD_VERSION = '0.25.0'
+export const MOD_VERSION = '0.25.1'
 /** The longest text typed for the board: its own limit for an answer, with room for the request's name around it. */
 export const MOST_CHARS = 3000
 
@@ -247,8 +247,8 @@ export function parsePause(raw: unknown): PauseState | null {
   return { state: raw.state as PauseState['state'], since: typeof raw.since === 'number' ? raw.since : null, holds, mustStop: forChat.mustStop === true, resumeList }
 }
 
-/** Where a context goes in: a session's start, a prompt, a batch of tool calls. */
-export type PauseWhere = 'start' | 'prompt' | 'batch'
+/** Where a context goes in: a prompt, or a tool call (the mod uses no classic hook, so no session start or batch of its own). */
+export type PauseWhere = 'prompt' | 'batch'
 
 /** The review of Pause 2: while the person pauses (until running) the chat starts nothing: no pull at its turn's end. */
 export const isPaused = (pause: PauseState | null): boolean => pause?.state === 'pausing' || pause?.state === 'resuming'
@@ -282,9 +282,9 @@ function wakeLine(one: PauseWake): string {
 /**
  * Pause 2: the lines this chat gets as context for the pause, each once (`given` keeps what was said, and is added
  * to). While pausing, at the first batch of tool calls of each turn (`turn`, the review of Pause 2): commit, write the
- * checkpoint, stop or wait for the background agents and end the turn (holding nothing: the agents and the turn). While resuming: the main chat, at its start or a prompt, whom to wake by session id; a chat that
- * holds a step, at its first turn after the resume, its checkpoint. Also at a session start (or the first prompt of
- * its process, `isFirst`) a chat holding a step is told its checkpoint, unless the person pauses.
+ * checkpoint, stop or wait for the background agents and end the turn (holding nothing: the agents and the turn). While resuming: the main chat, at a prompt, whom to wake by session id; a chat that
+ * holds a step, at its first turn after the resume, its checkpoint. Also at the first prompt of its process
+ * (`isFirst`) a chat holding a step is told its checkpoint, unless the person pauses.
  */
 export function pauseContexts(pause: PauseState | null, at: { role: string; where: PauseWhere; given: Set<string>; isFirst?: boolean; turn?: number }): string[] {
   if (pause === null) return []
@@ -303,7 +303,7 @@ export function pauseContexts(pause: PauseState | null, at: { role: string; wher
       : `The person pauses all chats: commit your work, write your checkpoint (work step ${first.id} --commit <hash> --next "<next action>"${more.length === 0 ? '' : `; the same for ${more.map(hold => hold.id).join(', ')}`}), stop or wait for your background agents, then end your turn and start nothing new.`)
     return lines
   }
-  const isStart = at.where === 'start' || (at.where === 'prompt' && at.isFirst === true)
+  const isStart = at.where === 'prompt' && at.isFirst === true
   if (pause.state === 'resuming' && at.where !== 'batch') {
     const wake = pause.resumeList.filter(one => !one.hasStarted)
     if (at.role === 'main' && wake.length > 0) {
