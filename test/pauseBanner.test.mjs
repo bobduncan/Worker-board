@@ -259,5 +259,9 @@ test('the page: while pausing, a chat stopped with its task open at its checkpoi
   assert.equal(ctx.heldText(shown[0].suspended), 'Paused by you · stopped at its checkpoint; goes on at Resume all')
   // Not pausing: nothing changes.
   assert.deepEqual(ctx.pausedLanes(chats, { state: 'running' }).map(lane => lane.state), ['interrupted', 'interrupted', 'working'])
+  // Its own step decides: another step of the chat with no checkpoint (one in review) does not keep it red.
+  const own = [{ name: 'Worker 3', state: 'interrupted', task: { stepId: 'B757' } }]
+  assert.equal(ctx.pausedLanes(own, { state: 'pausing', unsaved: [{ chat: 'Worker 3', id: 'B736' }] })[0].state, 'suspended')
+  assert.equal(ctx.pausedLanes(own, { state: 'pausing', unsaved: [{ chat: 'Worker 3', id: 'B757' }] })[0].state, 'interrupted')
 })
 

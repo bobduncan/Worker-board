@@ -1568,8 +1568,14 @@ function whyText(why) {
  */
 function pausedLanes(chats, pause) {
   if (pause?.state !== 'pausing' || !Array.isArray(chats)) return chats
-  const unsaved = new Set((pause.unsaved ?? []).map(one => one?.chat))
-  return chats.map(lane => (lane?.state === 'interrupted' && !unsaved.has(lane.name) ? { ...lane, state: 'suspended', suspended: { by: 'pause', since: pause.since ?? null, until: null, isBack: false } } : lane))
+  const unsaved = pause.unsaved ?? []
+  // Its own step decides (the person's look, 13:40: Worker 3 checkpointed B757 and stayed red for B736, a step of it in
+  // review); a lane that names no step is decided by any step of its chat.
+  const isUnsaved = lane => {
+    const id = lane.task?.stepId ?? null
+    return unsaved.some(one => one?.chat === lane.name && (id === null || one.id === id))
+  }
+  return chats.map(lane => (lane?.state === 'interrupted' && !isUnsaved(lane) ? { ...lane, state: 'suspended', suspended: { by: 'pause', since: pause.since ?? null, until: null, isBack: false } } : lane))
 }
 
 /** What a suspended lane says: who held it (the app's stop, or its own pause) and when it goes on. */
@@ -16761,9 +16767,7 @@ $('phone-more').addEventListener('click', () => {
 
 // Reading and sending
 
-function draw(given) {
-  // 2026-10-28: while the person pauses, a chat stopped at its checkpoint shows as suspended (`pausedLanes`).
-  const state = given?.pause?.state === 'pausing' ? { ...given, chats: pausedLanes(given.chats, given.pause) } : given
+function draw(state) {
   board = state
   restoreKept()
   window.BoardSpending?.draw(state)
@@ -16856,7 +16860,9 @@ async function read() {
       return
     }
     if (!answer.ok) throw new Error(String(answer.status))
-    const state = await answer.json()
+    const read = await answer.json()
+    // 2026-10-28: while the person pauses, a chat stopped at its checkpoint shows as suspended (`pausedLanes`).
+    const state = read?.pause?.state === 'pausing' ? { ...read, chats: pausedLanes(read.chats, read.pause) } : read
     withAnswers(state)
     draw(state)
     awaySince = null
