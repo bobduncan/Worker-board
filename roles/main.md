@@ -180,7 +180,10 @@ app id the board knows, or no board chat ran); then do it as below. B755: the sa
 effort` and `partner effort` (not Fable): a chat whose app allows its code the two set tools sets them, and such a word
 reaches you only when none did within a minute. B766: the same for `restart for mod` of a worker (closed and reopened
 by code; a restart of yourself, the partner or the supervisor stays yours) and for `spawn workers` (the stored
-start-worker task renamed and run by code, one worker at a time).
+start-worker task renamed and run by code, one worker at a time). B769: and for `stop task` and `remove worker` of a
+worker whose Workers mod is 0.26.1 or newer: it is told at its next tool call, the board settles the stop once its
+turn ended and has a running chat take an idle or closed worker out of the list and close its chat; such a word
+reaches you only when nothing came of it in 15 minutes.
 
 - `resume`: the user resumed all chats after a pause (the board's Resume all). The Workers mod puts the list beside
   it, or beside your chat's start when you were not running: "Resume: wake each chat below that has not started",

@@ -34,7 +34,7 @@ export const REQUEST_HEADER = 'X-Work-Request'
  * chat that runs an older Workers mod than the one installed. The same as `version` in .claude-plugin/plugin.json.
  */
 export const MOD_HEADER = 'X-Workers-Mod'
-export const MOD_VERSION = '0.26.0'
+export const MOD_VERSION = '0.26.1'
 /** The longest text typed for the board: its own limit for an answer, with room for the request's name around it. */
 export const MOST_CHARS = 3000
 
@@ -115,10 +115,15 @@ export function parseWhoami(text: string): Whoami | null {
  * not typed; its id is in `refused`, so the board is told it did not arrive, and `why` says why (B532: "too long: 9459 >
  * 3000 characters"), so the board does not try it again and the page names the reason.
  */
-export function parseTaken(text: string): { messages: Taken[]; refused: string[]; why: Record<string, string>; clear: OwedClear | null; off: string[] } {
+export function parseTaken(text: string): { messages: Taken[]; refused: string[]; why: Record<string, string>; clear: OwedClear | null; off: string[]; stop: StopAsk | null } {
   const raw = parsed(text)
-  const taken: { messages: Taken[]; refused: string[]; why: Record<string, string>; clear: OwedClear | null; off: string[] } = { messages: [], refused: [], why: {}, clear: null, off: [] }
+  const taken: { messages: Taken[]; refused: string[]; why: Record<string, string>; clear: OwedClear | null; off: string[]; stop: StopAsk | null } = { messages: [], refused: [], why: {}, clear: null, off: [], stop: null }
   if (!isRecord(raw)) return taken
+  // B769: the person stops this worker's task or removes it: told at its next tool call and its next prompt.
+  const stop = raw.stop
+  if (isRecord(stop) && typeof stop.id === 'string' && /^[\w-]{1,40}$/.test(stop.id) && (stop.kind === 'stop' || stop.kind === 'remove')) {
+    taken.stop = { id: stop.id, kind: stop.kind, task: typeof stop.task === 'string' ? stop.task.replace(/\s+/g, ' ').trim().slice(0, 200) : '' }
+  }
   // B738: the chats the board shows as not running (its one verdict: ended, app restarted, silent).
   if (Array.isArray(raw.off)) taken.off = raw.off.filter((name): name is string => typeof name === 'string' && name !== '' && name.length <= 80).slice(0, 50)
   // B547: a worker whose last report is newer than its last clear: the board names the clear (and holds its next step).
@@ -138,6 +143,17 @@ export function parseTaken(text: string): { messages: Taken[]; refused: string[]
   }
 
   return taken
+}
+
+/** B769: the person's Stop task or Remove worker for this chat, as the board's take names it. */
+export type StopAsk = { id: string; kind: 'stop' | 'remove'; task: string }
+
+/** B769: what a worker is told at its next tool call or prompt when the person stops its task or removes it. */
+export function stopLine(stop: StopAsk): string {
+  const safe = 'reach a safe point now: commit and push your work and start nothing new; write where you left off as a checkpoint of your step (work step <id> --commit <hash> --next "<next action>")'
+  return stop.kind === 'remove'
+    ? `The person removes you from the worker board (Remove worker): ${safe}, then end your turn. The board then takes you off the list and closes this chat.`
+    : `The person stops your task${stop.task === '' ? '' : ` ${stop.task}`} (Stop task on the board): ${safe}, then end your turn.`
 }
 
 /** B532: why a word could not be typed, as one short line for the board: an error's message, or what a hook said. */

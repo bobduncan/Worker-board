@@ -49,6 +49,33 @@ export function usageDue({ readings = [], givenAt = -Infinity, now }) {
   return now - newest >= USAGE_EVERY_MS && now - givenAt >= USAGE_AGAIN_MS
 }
 
+/**
+ * B769 (the person, 2026-10-28: "Yes, B next"): the person's Stop task and Remove worker, by code. A worker whose
+ * Workers mod is STOP_MOD or newer is told at its next tool call (the pause's route) from its take; the board settles a
+ * stop once the worker's turn ended, and a running chat removes an idle or closed worker (out of the list, its chat
+ * archived). Such a word (`byCode`) waits STOP_HANDS_MS for that before the main chat takes it after all.
+ */
+export const STOP_MOD = '0.26.1'
+export const STOP_HANDS_MS = 15 * 60_000
+
+/** B769: a stop or remove word the board carries out by code. */
+export const isStopWord = message => (message?.command === 'stop' || message?.command === 'remove') && message.byCode === true && typeof message.about === 'string'
+
+/** B769: the task a stop word names ("Task: B12 \"...\""), or ''. */
+export const stopTaskOf = message => /^Task: (.{1,200})$/m.exec(String(message?.text ?? ''))?.[1] ?? ''
+
+/**
+ * B769: what becomes of an open stop or remove word about `lane` now: 'settle' (a stop whose worker's turn ended after
+ * it, or whose chat does not run: nothing more to do), 'remove' (a remove whose worker is idle after it, or off: a hand
+ * takes it out), or 'wait'.
+ */
+export function stopStep(message, lane) {
+  const isOver = lane === undefined || lane.isRunning === false
+    || (['idle', 'asking'].includes(lane.report?.state) && Number.isFinite(lane.report?.since) && lane.report.since > message.at)
+  if (!isOver) return 'wait'
+  return message.command === 'remove' ? (lane === undefined ? 'settle' : 'remove') : 'settle'
+}
+
 /** A resume line goes again to a chat that has not started this long after the last one. */
 export const RESUME_AGAIN_MS = 5 * 60_000
 
@@ -95,7 +122,8 @@ export function isHandWord(message, { canSet = false, canRestart = false, canSpa
  * the `workers`.
  */
 export const isForHandsYet = (message, now, workers = null) =>
-  isHandWord(message, { canSet: true, canRestart: true, canSpawn: true, workers }) && now - message.at < HANDS_FIRST_MS
+  (isHandWord(message, { canSet: true, canRestart: true, canSpawn: true, workers }) && now - message.at < HANDS_FIRST_MS)
+  || (isStopWord(message) && now - message.at < STOP_HANDS_MS)
 
 /** B766: the title of the next new worker: the prefix and the lowest "Worker N" no chat of the board has (`names`). */
 export function nextWorkerTitle(names, prefix = '') {

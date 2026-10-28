@@ -100,4 +100,14 @@ describe('the board\'s hands', () => {
     expect(usageResult('usage:7', { result: {}, text: 'plain words' }).ok).toBe(false)
     expect(canFrom({ [USAGE_TOOL]: { decision: 'allow' } })).toEqual(['usage'])
   })
+
+  // B769: a worker the person removed.
+  test('a remove job names the worker and its app id when it has one; one without a plain name is left out', () => {
+    const text = JSON.stringify({ jobs: [{ id: 'm1', to: 'local_w5', chat: 'Worker 5', remove: true }, { id: 'm2', chat: 'Worker 6', remove: true }, { id: 'm3', to: 'cli-x', chat: 'Worker 7', remove: true }, { id: 'm4', remove: true }] })
+    expect(parseJobs(text)).toEqual([
+      { id: 'm1', to: 'local_w5', chat: 'Worker 5', remove: true },
+      { id: 'm2', chat: 'Worker 6', remove: true },
+      { id: 'm3', chat: 'Worker 7', remove: true },
+    ])
+  })
 })

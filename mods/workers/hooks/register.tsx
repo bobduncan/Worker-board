@@ -7,8 +7,8 @@ import { atom, read, update } from 'claude-code'
 import type { EngineInterface, FsEntry, Register, Timer } from 'claude-code'
 
 import type { BoardRole, ChatFile, ChatList, ChatRole, ChatRow, ChatsView, FolderRow, FoldersView } from '../types'
-import { BOARD_FILE, BOARD_NOTE, LAUNCH_FILE, MOD_HEADER, MOD_VERSION, REPORT_PATH, REQUEST_HEADER, TAKE_PATH, TYPED_PATH, WHOAMI_PATH, WORK_ACTIONS, WORK_FIELDS, WORK_PATH, boardStarts, isPaused, parseBoard, parsePause, parseTaken, parseWhoami, pauseContexts, shownName, typedWhy } from './board'
-import type { Board, BoardStart, OwedClear, PauseState, PauseWhere, TurnReport, Whoami } from './board'
+import { BOARD_FILE, BOARD_NOTE, LAUNCH_FILE, MOD_HEADER, MOD_VERSION, REPORT_PATH, REQUEST_HEADER, TAKE_PATH, TYPED_PATH, WHOAMI_PATH, WORK_ACTIONS, WORK_FIELDS, WORK_PATH, boardStarts, isPaused, parseBoard, parsePause, parseTaken, parseWhoami, pauseContexts, shownName, stopLine, typedWhy } from './board'
+import type { Board, BoardStart, OwedClear, PauseState, PauseWhere, StopAsk, TurnReport, Whoami } from './board'
 import {
   BEAT_MS, CHATS_DIR, NOT_RUNNING, LEFT_MAX_SIZE, LEFT_TEXT, LIST_FILE, afterTurn, atTurnStart, chatNote, clearWhy, clearedStart, compactKeep, compactWhy, chatText, chatsSummary, fileName,
   cardStep, foldersAbove, formAnswer, formQuestions, hasLeft, instructionsLine, isAgentId, isFiled, modNote, movedText, nameFromTitle, openFrom, orderChats, parseChat, personsWords, parseList, recordedLine, roleFrom, sessionOf, status, uniqueByName,
@@ -50,6 +50,9 @@ let watch: Timer | null = null
 let chatWatch: Timer | null = null
 /** B753: the timer of the board's hands in this process, and whether a round of them runs. */
 let handsWatch: Timer | null = null
+/** B769: the person's stop or remove for this worker as the board's last take named it, and where it was told. */
+let stopAsked: StopAsk | null = null
+const stopGiven = new Set<string>()
 /** B755, B766: what the app lets this chat's code do (`CAN_TOOLS`'s keys), and when it was last asked. */
 let canHere: { at: number; can: string[] } = { at: -Infinity, can: [] }
 let isHanding = false
@@ -842,6 +845,8 @@ async function takeFromBoard($: EngineInterface): Promise<void> {
     if (taken.refused.length > 0) void reportTyped($, board, [], [], taken.why, taken.refused)
     // B547: the board names a clear this worker owes (its next step's line waits for it): run it while the chat is idle.
     if (taken.clear !== null) void clearOwed($, taken.clear).catch(() => null)
+    // B769: the person's stop or remove for this worker, told at its next tool call and prompt (once each).
+    stopAsked = taken.stop
     for (const message of taken.messages) {
       if (typedIds.has(message.id)) continue
       typedIds.add(message.id)
@@ -1571,6 +1576,7 @@ async function handRound($: EngineInterface): Promise<void> {
         else if ('set' in job) results.push(await setChat($, job.id, job.to, job.set))
         else if ('restart' in job) results.push(await restartChat($, job.id, job.to, job.restart.keep))
         else if ('usage' in job) results.push(usageResult(job.id, await $.tool.call({ tool: USAGE_TOOL } as never)))
+        else if ('remove' in job) results.push(await removeChat($, job.id, job.to ?? null, job.chat))
         else results.push(await startWorker($, job.id, job.spawn.title, job.spawn.tasks))
       } catch (error) {
         results.push({ id: job.id, ok: false, why: error instanceof Error ? error.message.slice(0, 300) : 'the tool failed' })
@@ -1615,6 +1621,20 @@ async function restartChat($: EngineInterface, id: string, to: string, keep: str
     if (other !== to && archived.has(other)) await $.tool.call({ tool: UNARCHIVE_TOOL, session_id: other } as never)
   }
   return plainResult(id, await $.tool.call({ tool: UNARCHIVE_TOOL, session_id: to } as never))
+}
+
+/**
+ * B769: removes the worker `name` the person removed, once it is idle or closed: out of the list (as the chat tool's
+ * leave), then, with its app id `to`, its chat archived. The app refuses a working chat or one open on the screen:
+ * the result says why, and the board asks again.
+ */
+async function removeChat($: EngineInterface, id: string, to: string | null, name: string): Promise<HandResult> {
+  if (to !== null) {
+    const closed = plainResult(id, await $.tool.call({ tool: ARCHIVE_TOOL, session_id: to, reason: 'The person removed this worker on the worker board' } as never))
+    if (!closed.ok) return closed
+  }
+  await leave($, name)
+  return { id, ok: true }
 }
 
 /**
@@ -2097,6 +2117,11 @@ export const register: Register = on => {
       if (pendingStart.length > 0) context.push(...pendingStart.splice(0))
       // Pause 2: read beside the filing, so both hold the prompt 1.5 s at most together.
       const paused = pauseLines($, 'prompt', e.text)
+      // B769: the person's stop or remove for this worker, once at a prompt too.
+      if (stopAsked !== null && !stopGiven.has(`prompt:${stopAsked.id}`)) {
+        stopGiven.add(`prompt:${stopAsked.id}`)
+        context.push(stopLine(stopAsked))
+      }
       if (isFiled(e.text, e.origin)) {
         const filed = await workQuietly($, { action: 'instruction', text: personsWords(e.text) })
         const said = typeof filed?.id === 'string' ? recordedLine([filed.id], []) : null
@@ -2217,6 +2242,11 @@ export const register: Register = on => {
   on('tool.call', async ($, e, next) => {
     if (e.agentId !== undefined) return next(e)
     if (e.tool !== TOOL && e.tool !== WORK && isInTurn && myself !== null) {
+      // B769: the person's stop or remove for this worker comes first, once per ask.
+      if (stopAsked !== null && !stopGiven.has(`batch:${stopAsked.id}`)) {
+        stopGiven.add(`batch:${stopAsked.id}`)
+        return { deny: [stopLine(stopAsked), `(This ${e.tool} call did not run, so that you read this first: run it again only to commit your work.)`].join('\n') }
+      }
       const lines = await pauseLines($, 'batch')
       if (lines.length > 0) {
         return { deny: [...lines, `(This ${e.tool} call did not run, so that you read this first: run it again only to commit your work.)`].join('\n') }

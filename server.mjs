@@ -80,7 +80,7 @@ import { isReadAction, workApi } from './src/work/api.mjs'
 import { effortOf } from './src/work/effort.mjs'
 import { isHolding, pauseAnswer, resumeEnds, resumeRetypeTo, resumeTypeTo } from './src/work/pause.mjs'
 import { allowCodeJobs, codeJobsView, readCodeJobs, taskWords } from './src/codeJobs.mjs'
-import { handJobs, handResults, isForHandsYet, isHandWord, nextWorkerTitle, startTaskIds, usageDue, workerNames } from './src/hands.mjs'
+import { STOP_MOD, handJobs, handResults, isForHandsYet, isHandWord, isStopWord, nextWorkerTitle, startTaskIds, stopStep, stopTaskOf, usageDue, workerNames } from './src/hands.mjs'
 import { basesNow, patientReportCheck } from './src/work/check.mjs'
 import { deliverWork, givesRefused, pullFor, sendOnce } from './src/work/deliver.mjs'
 import { coalesce } from './src/work/again.mjs'
@@ -1894,6 +1894,14 @@ async function main(args) {
       }
       // B298: a line to a chat is filed as an instruction first and carries its id.
       message = await withInstruction(message, body => workAction(body, 'person'))
+      // B769: Stop task and Remove worker go by code for a worker whose mod can (told at its next tool call), and a
+      // remove also for one whose chat does not run (a hand closes it); else the main chat does them, as before.
+      if (message.command === 'stop' || message.command === 'remove') {
+        const runs = modOf.get(message.about)
+        const isNew = runs !== undefined && clock() - runs.at < 2 * 60_000 && modAtLeast(runs.version, STOP_MOD)
+        const isOff = message.command === 'remove' && (state.chats ?? []).some(lane => lane.name === message.about && lane.isRunning === false)
+        if (isNew || isOff) message = { ...message, byCode: true }
+      }
       // B315: the words as they were copied are kept with them, so the restart banner can copy them again and tell when
       // the main chat has them.
       if (isCopied) message = { ...message, pasteText: messageText(message, timeOf, path => inProject(config.project, path)) }
@@ -2071,7 +2079,10 @@ async function main(args) {
       if (fit.refused.length > 0) await store.settle(checked.chat, fit, clock())
       // B738: the chats the board shows as not running: the mod's list words them the same ("Not running"), from this one verdict.
       const off = ((await readState()).chats ?? []).filter(lane => !lane.isLeftover && lane.isRunning === false).map(lane => lane.name)
-      return { ok: true, result: { messages: fit.messages, ...(atTake.clear === null ? {} : { clear: atTake.clear }), ...(off.length === 0 ? {} : { off }) } }
+      // B769: a stop or remove of this worker the board carries out by code: its mod tells it at its next tool call.
+      const stopping = store.outbox().findLast(message => isStopWord(message) && message.about === checked.chat && message.state === 'waiting')
+      const stop = stopping === undefined ? {} : { stop: { id: stopping.id, kind: stopping.command, task: stopTaskOf(stopping) } }
+      return { ok: true, result: { messages: fit.messages, ...(atTake.clear === null ? {} : { clear: atTake.clear }), ...(off.length === 0 ? {} : { off }), ...stop } }
     }),
     // B753: the board's hands in code. A running chat's Workers mod claims the start and wake words (whoever they are
     // addressed to) and, while resuming, a resume line for each chat that has not started; it sends each with the app's
@@ -2098,10 +2109,25 @@ async function main(args) {
       const resumeList = pause?.state === 'resuming' ? pauseAnswer({ pause, items: read.items, lanes, prefix: state.chatPrefix ?? '', chat: checked.chat, role: 'main' }).resumeList : []
       const prefix = state.chatPrefix ?? ''
       const spawn = can.has('spawn') && config.project !== '' ? { title: nextWorkerTitle((state.chats ?? []).map(lane => lane.name), prefix), tasks: startTaskIds(basename(config.project)) } : null
+      // B769: the person's stop and remove words carried out by code: a stop is settled once its worker's turn ended; a
+      // remove is a job for a chat that may close chats (never the worker itself), once its worker is idle or off.
+      const removing = []
+      for (const message of store.outbox().filter(one => isStopWord(one) && one.state === 'waiting' && one.about !== checked.chat)) {
+        const step = stopStep(message, lanes.find(lane => lane.name === message.about))
+        if (step === 'settle') {
+          await store.settle(message.to, { typed: [message.id] }, clock())
+          readState.reset()
+        } else if (step === 'remove' && can.has('restart')) removing.push(message.id)
+      }
+      const removed = removing.length === 0 ? [] : await store.takeHands(checked.chat, clock(), keep, message => removing.includes(message.id))
       // B768: a lookup of the limits when the newest reading is old, to one chat that may (its mod says `can: ['usage']`).
       const usage = can.has('usage') && READINGS_FILE !== null && !isShowOnly && usageDue({ readings: state.limitReadings ?? [], givenAt: usageGivenAt, now: clock() })
       if (usage) usageGivenAt = clock()
       const { jobs, back } = handJobs({ caller: checked.chat, taken, lanes, resumeList, since: pause?.since ?? null, sentAt: resumesSent, now: clock(), spawn, usage })
+      for (const message of removed) {
+        const lane = lanes.find(one => one.name === message.about)
+        jobs.push({ id: message.id, ...(typeof lane?.appSession === 'string' && /^local_[\w-]{1,80}$/.test(lane.appSession) ? { to: lane.appSession } : {}), chat: message.about, remove: true })
+      }
       if (back.length > 0) await store.back(back)
       for (const job of jobs) if (job.id.startsWith('resume:')) resumesSent.set(job.id.slice('resume:'.length), clock())
       if (taken.length > back.length) readState.reset()

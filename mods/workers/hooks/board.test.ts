@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'claude-code/testing'
 
-import { MOD_VERSION, MOST_CHARS, WHOAMI_PATH, WORK_ACTIONS, WORK_FIELDS, boardStarts, isPaused, parseBoard, parsePause, parseTaken, parseWhoami, pauseContexts, typedWhy } from './board'
+import { MOD_VERSION, MOST_CHARS, WHOAMI_PATH, WORK_ACTIONS, WORK_FIELDS, boardStarts, isPaused, parseBoard, parsePause, parseTaken, parseWhoami, pauseContexts, stopLine, typedWhy } from './board'
 
 const KEY = 'ab'.repeat(32)
 
@@ -48,9 +48,9 @@ describe('the worker board, as the mod reads it', () => {
     // What cannot be typed is named, so the board can say it did not arrive.
     // B532: with why, so the board does not try it again and names the reason.
     expect(parseTaken(answer)).toEqual({ messages: [{ id: 'm1', text: 'Sheet B' }], refused: ['m2', 'm3', 'm4'],
-      why: { m2: `too long: ${MOST_CHARS + 1} > ${MOST_CHARS} characters`, m3: 'no text', m4: 'no text' }, clear: null, off: [] })
-    expect(parseTaken('{"messages":"x"}')).toEqual({ messages: [], refused: [], why: {}, clear: null, off: [] })
-    expect(parseTaken('')).toEqual({ messages: [], refused: [], why: {}, clear: null, off: [] })
+      why: { m2: `too long: ${MOST_CHARS + 1} > ${MOST_CHARS} characters`, m3: 'no text', m4: 'no text' }, clear: null, off: [], stop: null })
+    expect(parseTaken('{"messages":"x"}')).toEqual({ messages: [], refused: [], why: {}, clear: null, off: [], stop: null })
+    expect(parseTaken('')).toEqual({ messages: [], refused: [], why: {}, clear: null, off: [], stop: null })
     // B738: the chats the board shows as not running; anything that is no name is left out.
     expect(parseTaken('{"messages":[],"off":["Worker 5",3,""]}').off).toEqual(['Worker 5'])
     expect(parseTaken('{"messages":[],"off":"x"}').off).toEqual([])
@@ -58,6 +58,13 @@ describe('the worker board, as the mod reads it', () => {
     expect(parseTaken('{"messages":[],"clear":{"step":"B12","reportedAt":5}}').clear).toEqual({ step: 'B12', reportedAt: 5 })
     expect(parseTaken('{"messages":[],"clear":{"step":"../x","reportedAt":5}}').clear).toEqual({ step: null, reportedAt: 5 })
     expect(parseTaken('{"messages":[],"clear":{"step":"B12"}}').clear).toBeNull()
+    // B769: the person's stop or remove for this worker, read safely, with the line it is told.
+    const stop = parseTaken('{"messages":[],"stop":{"id":"m9","kind":"stop","task":"B12 \\"Lava\\""}}').stop
+    expect(stop).toEqual({ id: 'm9', kind: 'stop', task: 'B12 "Lava"' })
+    expect(stopLine(stop!)).toContain('The person stops your task B12 "Lava" (Stop task on the board): reach a safe point now')
+    expect(stopLine({ id: 'm9', kind: 'remove', task: '' })).toContain('The board then takes you off the list and closes this chat.')
+    expect(parseTaken('{"messages":[],"stop":{"id":"m9","kind":"delete"}}').stop).toBeNull()
+    expect(parseTaken('{"messages":[],"stop":{"id":"../x","kind":"stop"}}').stop).toBeNull()
     // B532: why a word the chat did not take failed, in one short line.
     expect(typedWhy(new Error('engine  busy\nnow'), 'the chat did not take it')).toBe('the chat did not take it: engine busy now')
     expect(typedWhy('no prompt is taken now', 'a hook dropped it')).toBe('a hook dropped it: no prompt is taken now')
@@ -227,7 +234,7 @@ describe('Pause 2: the pause state as the mod reads it, and the contexts it give
 describe('2026-10-28: the board names this chat by its session id', () => {
   test('the route, and the version the plugin states', () => {
     expect(WHOAMI_PATH).toBe('/api/bridge/whoami')
-    expect(MOD_VERSION).toBe('0.26.0')
+    expect(MOD_VERSION).toBe('0.26.1')
   })
 
   test('the answer: a name, the role the board gives it and the session its card is filed under', () => {

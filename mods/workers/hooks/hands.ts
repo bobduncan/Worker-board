@@ -14,6 +14,9 @@
 //
 // B768 (the person, 2026-10-28: "A: limits timer"): and a lookup of the plan's limits when the board's newest reading is
 // old: the app's usage tool, called by code, its answer sent back with the result.
+//
+// B769 (the person, 2026-10-28: "Yes, B next"): and a worker the person removes, once it is idle or closed: taken out of
+// the list and its chat archived.
 
 export const HANDS_PATH = '/api/bridge/hands'
 export const HANDS_DONE_PATH = '/api/bridge/hands-done'
@@ -48,7 +51,7 @@ export const EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max']
 export type HandSet = { model: string | null; effort: string }
 export type HandJob = { id: string; to: string; chat: string; text: string } | { id: string; to: string; chat: string; set: HandSet }
   | { id: string; to: string; chat: string; restart: { keep: string[] } } | { id: string; chat: string; spawn: { title: string; tasks: string[] } }
-  | { id: string; chat: string; usage: true }
+  | { id: string; chat: string; usage: true } | { id: string; to?: string; chat: string; remove: true }
 export type HandResult = { id: string; ok: boolean; why?: string; text?: string }
 
 const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null && !Array.isArray(value)
@@ -87,6 +90,11 @@ export function parseJobs(text: string | null): HandJob[] {
   const parsed: HandJob[] = []
   for (const one of jobs) {
     if (!isRecord(one) || !isText(one.id)) continue
+    // B769: a worker the person removes: out of the list, and its chat closed when it has an app id.
+    if (one.remove === true && isText(one.chat) && one.chat.length <= 80) {
+      parsed.push({ id: one.id, ...(isText(one.to) && APP_ID.test(one.to) ? { to: one.to } : {}), chat: one.chat, remove: true })
+      continue
+    }
     if (one.usage === true && /^usage:\d{1,16}$/.test(one.id)) {
       parsed.push({ id: one.id, chat: isText(one.chat) ? one.chat : '', usage: true })
       continue

@@ -178,6 +178,35 @@ test('B768: a lookup is due when the newest reading is ten minutes old, not agai
   assert.deepEqual([Object.keys(read.texts), read.texts['usage:7'].length], [['usage:7'], 20_000])
 })
 
+// B769: the person's Stop task and Remove worker, by code.
+test('B769: a stop is settled once its worker\'s turn ended after it, or its chat is off; a remove then becomes a job', async () => {
+  const { STOP_HANDS_MS, isStopWord, stopStep, stopTaskOf } = await import('../src/hands.mjs')
+  const stop = { id: 's', at: 100, to: 'Main', command: 'stop', about: 'Worker 1', byCode: true, text: 'stop task\nName: Worker 1\nTask: B12 "Lava"\nWhy: stopped with the button', state: 'waiting' }
+  const remove = { ...stop, id: 'r', command: 'remove', text: 'remove worker' }
+  assert.equal(isStopWord(stop), true)
+  assert.equal(isStopWord({ ...stop, byCode: undefined }), false)
+  assert.equal(stopTaskOf(stop), 'B12 "Lava"')
+  const working = { name: 'Worker 1', isRunning: true, report: { state: 'busy', since: 200 } }
+  const ended = { name: 'Worker 1', isRunning: true, report: { state: 'idle', since: 200 } }
+  const before = { name: 'Worker 1', isRunning: true, report: { state: 'idle', since: 50 } }
+  assert.deepEqual([stopStep(stop, working), stopStep(stop, ended), stopStep(stop, before)], ['wait', 'settle', 'wait'])
+  assert.deepEqual([stopStep(remove, ended), stopStep(remove, { name: 'Worker 1', isRunning: false })], ['remove', 'remove'])
+  // A worker the board no longer shows: nothing more to do.
+  assert.deepEqual([stopStep(stop, undefined), stopStep(remove, undefined)], ['settle', 'settle'])
+  // The main chat's own take leaves it to code for a while, then takes it after all.
+  assert.equal(isForHandsYet(stop, 100 + STOP_HANDS_MS - 1), true)
+  assert.equal(isForHandsYet(stop, 100 + STOP_HANDS_MS), false)
+})
+
+test('B769: the server marks stop and remove for code, names the stop in the worker\'s take and gives the remove job', async () => {
+  const { readFile } = await import('node:fs/promises')
+  const server = await readFile(new URL('../server.mjs', import.meta.url), 'utf8')
+  assert.match(server, /if \(isNew \|\| isOff\) message = \{ \.\.\.message, byCode: true \}/)
+  assert.match(server, /\{ stop: \{ id: stopping\.id, kind: stopping\.command, task: stopTaskOf\(stopping\) \} \}/)
+  assert.match(server, /else if \(step === 'remove' && can\.has\('restart'\)\) removing\.push\(message\.id\)/)
+  assert.match(server, /chat: message\.about, remove: true \}\)/)
+})
+
 test('the routes: a hand claims and reports through the bridge, behind the board\'s key and its lock', () => {
   assert.deepEqual(POST_ROUTES['/api/bridge/hands'], { kind: 'bridge', guard: 'lock' })
   assert.deepEqual(POST_ROUTES['/api/bridge/hands-done'], { kind: 'bridge', guard: 'lock' })
