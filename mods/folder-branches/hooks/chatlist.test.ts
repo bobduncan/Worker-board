@@ -2446,7 +2446,8 @@ describe('clear after each step', () => {
   })
 
   for (const [why, set, words] of [
-    ['the person pauses', (w: World) => { w.byAction['turn-ended'] = ok({ missed: [], open: [], role: 'worker', pause: { ...RUNNING, state: 'pausing', since: 1 } }) }, 'the person pauses the chats'],
+    // B763: the decision reads the pause anew, as the board says it now.
+    ['the person pauses', (w: World) => { w.pauseAnswer = { ...RUNNING, state: 'pausing', since: 1 }; w.byAction['turn-ended'] = ok({ missed: [], open: [], role: 'worker', pause: w.pauseAnswer }) }, 'the person pauses the chats'],
     ['a question the board did not file', (w: World) => { w.byAction['turn-ended'] = ok({ missed: [], open: [], role: 'worker', pause: RUNNING, unfiled: 1 }) }, 'did not file as an ask'],
     ['the log could not be saved', (w: World) => { w.byAction['save-log'] = { status: 409, text: 'Background work it started is still running: its answer would come into a cleared conversation.' } }, 'could not be saved as a log (Background work it started is still running'],
     ['a subagent still runs', (w: World) => { w.agents = [{ id: 'a1b2c3d4e5', name: 'judge' }] }, 'a subagent it started still runs (1)'],
@@ -2519,6 +2520,104 @@ describe('clear after each step', () => {
     await settle()
     expect(w.sequence.includes('save-log')).toBe(false)
     expect(w.commanded).toEqual([])
+  })
+
+  describe('B763 (X86, X100): an owed clear reads the person\'s pause anew, never the reading the last turn left', () => {
+    const PAUSING = { ...RUNNING, state: 'pausing', since: 1 }
+    const named = (w: World): void => { w.takeAnswers.push({ status: 200, text: JSON.stringify({ messages: [], clear: { step: 'B12', reportedAt: 1 } }) }) }
+    /** One minute on, the board names the owed clear at a take, and the chat acts on it. */
+    async function aMinuteOn(clock: { advance: (ms: number) => Promise<void> }, w: World): Promise<void> {
+      await clock.advance(60_000)
+      named(w)
+      await clock.advance(5000)
+      for (let i = 0; i < 50 && w.commanded.length === 0; i++) await settle()
+      await wait(20)
+    }
+    const saves = (w: World): number => w.sequence.filter(one => one === 'save-log').length
+
+    test('the real case: Worker 3 reported B727 as the person paused (12:28) and rested through it; refused in the pause, cleared at the first minute after the resume (12:52)', async ($, on) => {
+      const clock = mock.clock(on)
+      const w = await worker($, on, null)
+      // The report's turn ended at 12:29, inside the pause: its end's answer said pausing.
+      w.byAction['turn-ended'] = ok({ missed: [], open: [], role: 'worker', pause: PAUSING })
+      w.pauseAnswer = PAUSING
+      await $.turn.complete({ ...ENDED, turnId: 't1' })
+      await wait(50)
+      expect([w.commanded, fileOf(w)?.clearNote?.why]).toEqual([[], 'the person pauses the chats'])
+      // 12:30 to 12:51: the board names the clear every minute; the pause stands, so it is refused, nothing saved.
+      for (let minute = 0; minute < 3; minute++) await aMinuteOn(clock, w)
+      expect([saves(w), w.commanded]).toEqual([0, []])
+      expect(fileOf(w)?.clearNote?.why).toBe('the person pauses the chats')
+      // 12:52: Resume all. No turn of the chat since; the first minute after, the clear runs.
+      w.pauseAnswer = RUNNING
+      await aMinuteOn(clock, w)
+      expect(w.commanded).toEqual(['/clear by plugin folder-branches'])
+      expect(w.sequence.slice(-2)).toEqual(['save-log', '/clear'])
+      expect(fileOf(w)?.clearing?.step).toBe('B12')
+    })
+
+    test('a chat idle through the whole pause: its last reading said running, yet no clear runs while the board says pausing', async ($, on) => {
+      const clock = mock.clock(on)
+      const w = await worker($, on, null)
+      // The report's turn ended while nobody paused; its log was refused then (background work still ran).
+      w.byAction['save-log'] = { status: 409, text: 'Background work it started is still running: its answer would come into a cleared conversation.' }
+      await $.turn.complete({ ...ENDED, turnId: 't1' })
+      await wait(50)
+      expect(saves(w)).toBe(1)
+      // The work ends, and the person pauses while the chat rests.
+      w.byAction['save-log'] = ok({ text: `Saving the conversation to ${FILE}.`, log: LOG, file: FILE })
+      w.pauseAnswer = PAUSING
+      await aMinuteOn(clock, w)
+      await aMinuteOn(clock, w)
+      expect([saves(w), w.commanded]).toEqual([1, []])
+      expect(fileOf(w)?.clearNote?.why).toBe('the person pauses the chats')
+      w.pauseAnswer = RUNNING
+      await aMinuteOn(clock, w)
+      expect(w.commanded).toEqual(['/clear by plugin folder-branches'])
+    })
+
+    test('a chat cut off mid-turn by the pause, its step reported: cleared at the first minute after the resume', async ($, on) => {
+      const clock = mock.clock(on)
+      const w = await worker($, on, null)
+      // The pause comes while the report's turn runs: its batch reads pausing, and the turn is cut off.
+      w.pauseAnswer = PAUSING
+      await clock.advance(21_000)
+      await $.classic.PostToolBatch({ hook_event_name: 'PostToolBatch', session_id: 'units', transcript_path: 'x', cwd: ROOT, tool_calls: [] } as never)
+      await $.turn.complete({ ...ENDED, answer: 'ok', turnId: 't1', reason: 'aborted' } as never)
+      await wait(50)
+      await aMinuteOn(clock, w)
+      expect([saves(w), w.commanded]).toEqual([0, []])
+      w.pauseAnswer = RUNNING
+      await aMinuteOn(clock, w)
+      expect(w.commanded).toEqual(['/clear by plugin folder-branches'])
+    })
+
+    test('a pause that begins while the clear is decided (the turn\'s end answered late, saying running): no clear until the resume', async ($, on) => {
+      const clock = mock.clock(on)
+      const w = await worker($, on, null)
+      const release = await endsSlowly($, clock, w)
+      // The person pauses while the decision waits for the board; its late answer still says running.
+      w.pauseAnswer = PAUSING
+      release()
+      for (let i = 0; i < 50 && fileOf(w)?.clearNote === undefined; i++) await settle()
+      expect([saves(w), w.commanded, fileOf(w)?.clearNote?.why]).toEqual([0, [], 'the person pauses the chats'])
+      w.pauseAnswer = RUNNING
+      await aMinuteOn(clock, w)
+      expect(w.commanded).toEqual(['/clear by plugin folder-branches'])
+    })
+
+    test('a board that does not answer the pause keeps the last reading: no clear on a pause not known to be over', async ($, on) => {
+      const clock = mock.clock(on)
+      const w = await worker($, on, null)
+      w.byAction['turn-ended'] = ok({ missed: [], open: [], role: 'worker', pause: PAUSING })
+      w.pauseAnswer = PAUSING
+      await $.turn.complete({ ...ENDED, turnId: 't1' })
+      await wait(50)
+      // The board answers no pause-state (an old board refuses it): the kept "pausing" stands.
+      w.pauseAnswer = null
+      await aMinuteOn(clock, w)
+      expect([saves(w), w.commanded]).toEqual([0, []])
+    })
   })
 
   test('not cleared when more of the same work follows and it may not be cleared: then not compacted either, as before', async ($, on) => {
