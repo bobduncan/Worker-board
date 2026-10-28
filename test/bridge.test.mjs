@@ -86,7 +86,7 @@ test('a title cannot dress up as a message of the board: it is one line, without
 })
 
 test('bridgeNote: where the board is, for the mod to find it', () => {
-  assert.deepEqual(JSON.parse(bridgeNote({ port: 4311, key: 'k', at: 5 })), { url: 'http://127.0.0.1:4311', key: 'k', startedAt: 5 })
+  assert.deepEqual(JSON.parse(bridgeNote({ port: 4311, key: 'k', at: 5 })), { url: 'http://127.0.0.1:4311', key: 'k', startedAt: 5, hands: true })
 })
 
 test('taking hands out what waits for one chat, once; the mod then says whether it was typed', async () => {

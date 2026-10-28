@@ -141,6 +141,36 @@ function storeOver(lines, messages, alive, write) {
       return taken.map(message => ({ ...message, ...(isAged(message) ? { lateMs: now - message.at } : {}) }))
     },
     /**
+     * B753: hands out the words that are a hand's to send (`isHand`, src/hands.mjs `isHandWord`), whoever they are
+     * addressed to, for the chat `by` whose Workers mod sends them by code: marked taken at once and written down, as a
+     * take, so two hands never send one. `back(ids)` puts a word the hand cannot send back to waiting.
+     */
+    async takeHands(by, now, keep, isHand) {
+      const taken = messages.filter(message => message.state === 'waiting' && !isLate(message, now, keep) && isHand(message))
+      for (const message of taken) Object.assign(message, { state: 'taken', takenAt: now, takenBy: by })
+      try {
+        if (taken.length > 0) await write.outbox(taken.map(message => ({ id: message.id, state: 'taken', takenAt: now, takenBy: by })))
+      } catch (error) {
+        for (const message of taken) {
+          message.state = 'waiting'
+          delete message.takenAt
+          delete message.takenBy
+        }
+        throw error
+      }
+      return taken.map(message => ({ ...message }))
+    },
+    async back(ids) {
+      const again = messages.filter(message => ids.includes(message.id) && message.state === 'taken')
+      for (const message of again) {
+        message.state = 'waiting'
+        delete message.takenAt
+        delete message.takenBy
+      }
+      if (again.length > 0) await write.outbox(again.map(message => ({ id: message.id, state: 'waiting' })))
+      return again.length
+    },
+    /**
      * B532: closes a waiting word with its reason (`state` dropped: no longer needed; expired: waited too long), written
      * down with the time, so the outbox holds only words that still matter and the page says what became of the rest.
      * B571: also a failed word that is not tried again (its purpose gone, outboxSweep.mjs).

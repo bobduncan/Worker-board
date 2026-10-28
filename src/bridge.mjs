@@ -239,7 +239,9 @@ export function checkTyped(body, state) {
 }
 
 /** The file that tells the mod where the board is. It holds no words of a chat. */
-export const bridgeNote = ({ port, key, at }) => JSON.stringify({ url: `http://127.0.0.1:${port}`, key, startedAt: at })
+// B753: `hands` says this board hands out start, wake and resume jobs to the chats' mods (src/hands.mjs); an older board
+// does not, so no mod asks it.
+export const bridgeNote = ({ port, key, at }) => JSON.stringify({ url: `http://127.0.0.1:${port}`, key, startedAt: at, hands: true })
 
 /**
  * The words that are typed into the chat for a message. An answer says which request it is about and what the

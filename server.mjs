@@ -77,7 +77,8 @@ import { checkProviders } from './src/providers/index.mjs'
 import { buildState } from './src/state.mjs'
 import { isReadAction, workApi } from './src/work/api.mjs'
 import { effortOf } from './src/work/effort.mjs'
-import { isHolding, resumeEnds, resumeRetypeTo, resumeTypeTo } from './src/work/pause.mjs'
+import { isHolding, pauseAnswer, resumeEnds, resumeRetypeTo, resumeTypeTo } from './src/work/pause.mjs'
+import { handJobs, handResults, isHandWord } from './src/hands.mjs'
 import { basesNow, patientReportCheck } from './src/work/check.mjs'
 import { deliverWork, givesRefused, pullFor, sendOnce } from './src/work/deliver.mjs'
 import { coalesce } from './src/work/again.mjs'
@@ -195,6 +196,9 @@ export function pictureKind(bytes) {
  */
 export const POST_ROUTES = Object.freeze({
   '/api/bridge/take': { kind: 'bridge', guard: 'lock' },
+  // B753: the board's hands in code: a running chat's Workers mod claims the start, wake and resume jobs and says what it sent.
+  '/api/bridge/hands': { kind: 'bridge', guard: 'lock' },
+  '/api/bridge/hands-done': { kind: 'bridge', guard: 'lock' },
   '/api/bridge/work': { kind: 'bridge', guard: 'lock' },
   '/api/bridge/typed': { kind: 'bridge', guard: 'lock' },
   '/api/bridge/report': { kind: 'bridge', guard: 'free', why: 'the chat\'s turn state, kept in memory only; the hand-out it wakes runs on the holder only' },
@@ -240,6 +244,7 @@ export function createBoard({
   bridgeKey = null, take = async () => ({ ok: false, status: 404, why: 'Not here.' }), typed = async () => ({ ok: false, status: 404, why: 'Not here.' }),
   report = async () => ({ ok: false, status: 404, why: 'Not here.' }),
   whoami = async () => ({ ok: false, status: 404, why: 'Not here.' }),
+  hands = async () => ({ ok: false, status: 404, why: 'Not here.' }), handsDone = async () => ({ ok: false, status: 404, why: 'Not here.' }),
   design = async () => ({ ok: false, status: 404, why: 'Not here.' }), reference = async () => ({ ok: false, status: 404, why: 'Not here.' }),
   talkPicture = async () => ({ ok: false, status: 404, why: 'Not here.' }),
   plan = async () => ({ ok: false, status: 404, why: 'Not here.' }),
@@ -317,7 +322,8 @@ export function createBoard({
         const { mod: _ignored, ...rest } = parsed
         parsed = { ...rest, ...(typeof given === 'string' && /^\d{1,4}(?:\.\d{1,4}){0,3}$/.test(given.trim()) ? { mod: given.trim() } : {}) }
       }
-      const taken = await (pathname === '/api/bridge/take' ? take : pathname === '/api/bridge/work' ? bridgeWork : pathname === '/api/bridge/report' ? report : pathname === '/api/bridge/whoami' ? whoami : typed)(parsed)
+      const taken = await (pathname === '/api/bridge/take' ? take : pathname === '/api/bridge/work' ? bridgeWork : pathname === '/api/bridge/report' ? report : pathname === '/api/bridge/whoami' ? whoami
+        : pathname === '/api/bridge/hands' ? hands : pathname === '/api/bridge/hands-done' ? handsDone : typed)(parsed)
       return taken.ok ? json(res, taken.result) : refuse(res, taken.status, taken.why)
     }
 
@@ -1508,6 +1514,8 @@ async function main(args) {
   const freshFor = new Map()
   /** 2026-10-28: the same for the whoami call, kept apart: a session's whoami never uses up the read its first take needs. */
   const freshWho = new Map()
+  /** B753: when a hand last sent a resume line, by `<pause since>:<chat>`, so one goes again only after a while. */
+  const resumesSent = new Map()
   const checkFresh = async body => {
     // B736 (X73, X87: no chat's report was kept from 21:12 to 21:21 while each waited for a whole read of the board): a
     // chat the board knows is checked against the state it has, however busy it is; only one it does not know waits.
@@ -1952,6 +1960,42 @@ async function main(args) {
       // B738: the chats the board shows as not running: the mod's list words them the same ("Not running"), from this one verdict.
       const off = ((await readState()).chats ?? []).filter(lane => !lane.isLeftover && lane.isRunning === false).map(lane => lane.name)
       return { ok: true, result: { messages: fit.messages, ...(atTake.clear === null ? {} : { clear: atTake.clear }), ...(off.length === 0 ? {} : { off }) } }
+    }),
+    // B753: the board's hands in code. A running chat's Workers mod claims the start and wake words (whoever they are
+    // addressed to) and, while resuming, a resume line for each chat that has not started; it sends each with the app's
+    // send-message tool and says what it sent (`handsDone`). A word it cannot send goes back to waiting for the main chat.
+    hands: counted(async body => {
+      const { checked } = await checkFresh(body)
+      noteMod(body, checked)
+      if (!checked.ok) return checked
+      const state = await readState()
+      const lanes = shownChats(state)
+      const taken = await store.takeHands(checked.chat, clock(), keep, isHandWord)
+      const read = workDir === null ? null : await readStore(workDir)
+      const pause = read?.pause ?? null
+      const resumeList = pause?.state === 'resuming' ? pauseAnswer({ pause, items: read.items, lanes, prefix: state.chatPrefix ?? '', chat: checked.chat, role: 'main' }).resumeList : []
+      const { jobs, back } = handJobs({ caller: checked.chat, taken, lanes, resumeList, since: pause?.since ?? null, sentAt: resumesSent, now: clock() })
+      if (back.length > 0) await store.back(back)
+      for (const job of jobs) if (job.id.startsWith('resume:')) resumesSent.set(job.id.slice('resume:'.length), clock())
+      if (taken.length > back.length) readState.reset()
+      return { ok: true, result: { jobs } }
+    }),
+    handsDone: counted(async body => {
+      const { checked } = await checkFresh(body)
+      if (!checked.ok) return checked
+      const { sent, failed, why } = handResults(body)
+      // A resume line that could not go may go again at the next claim.
+      for (const id of failed) if (id.startsWith('resume:')) resumesSent.delete(id.slice('resume:'.length))
+      const words = [...sent, ...failed].filter(id => !id.startsWith('resume:'))
+      const byTo = new Map()
+      for (const message of store.outbox().filter(one => words.includes(one.id) && one.state === 'taken')) {
+        if (!byTo.has(message.to)) byTo.set(message.to, [])
+        byTo.get(message.to).push(message.id)
+      }
+      let changed = 0
+      for (const [to, ids] of byTo) changed += await store.settle(to, { typed: sent.filter(id => ids.includes(id)), failed: failed.filter(id => ids.includes(id)), why }, clock())
+      if (changed > 0) readState.reset()
+      return { ok: true, result: { settled: changed } }
     }),
     // Redesign Part 1: the mod's report of its turn state the moment it changes; refused as a take is.
     report: counted(async body => {

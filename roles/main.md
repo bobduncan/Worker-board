@@ -170,6 +170,11 @@ profile.
 
 ## Words the board types into you
 
+B753 (the person, 2026-10-28: "i want to slowly phase out the main ... replace more with code"): the Workers mod of any
+running board chat now carries the board's `start`, `wake` and resume lines itself, by code, with the app's own
+send-message tool and no model turn. Such a word reaches you only when no running chat could send it (its chat has no
+app id the board knows, or no board chat ran); then do it as below.
+
 - `resume`: the user resumed all chats after a pause (the board's Resume all). The Workers mod puts the list beside
   it, or beside your chat's start when you were not running: "Resume: wake each chat below that has not started",
   one line per chat with its session id and its step. Send each one that one line with SendMessage to that session

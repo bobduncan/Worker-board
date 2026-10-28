@@ -34,14 +34,15 @@ export const REQUEST_HEADER = 'X-Work-Request'
  * chat that runs an older Workers mod than the one installed. The same as `version` in .claude-plugin/plugin.json.
  */
 export const MOD_HEADER = 'X-Workers-Mod'
-export const MOD_VERSION = '0.22.3'
+export const MOD_VERSION = '0.23.0'
 /** The longest text typed for the board: its own limit for an answer, with room for the request's name around it. */
 export const MOST_CHARS = 3000
 
 /** The project's launch entries, which the app's Run pane starts from too. */
 export const LAUNCH_FILE = '.claude/launch.json'
 
-export type Board = { url: string; key: string }
+/** B753: `hands`, whether the board hands out start, wake and resume jobs (its note says `hands: true`). */
+export type Board = { url: string; key: string; hands: boolean }
 /** A board the mod keeps running: the name of its launch entry, its command, and where it answers. */
 export type BoardStart = { name: string; argv: string[]; url: string }
 export type Taken = { id: string; text: string }
@@ -67,7 +68,7 @@ export function parseBoard(text: string): Board | null {
   if (!isRecord(raw) || typeof raw.url !== 'string' || typeof raw.key !== 'string') return null
   if (!/^http:\/\/127\.0\.0\.1:\d{2,5}$/.test(raw.url) || !/^[0-9a-f]{32,128}$/.test(raw.key)) return null
 
-  return { url: raw.url, key: raw.key }
+  return { url: raw.url, key: raw.key, hands: raw.hands === true }
 }
 
 /**

@@ -16,6 +16,8 @@ import {
 } from './chats'
 import type { OpenInstruction, TaskChange } from './chats'
 import { blockAsksLine, forYouCount, forYouItems, leftOutLine } from './foryou'
+import { HANDS_DONE_PATH, HANDS_MS, HANDS_PATH, SEND_TOOL, parseJobs, sendResult } from './hands'
+import type { HandResult } from './hands'
 import {
   SELF, UNKNOWN, branchList, branchName, detached, folderName, inFolder, isListed, ordered, summary,
 } from './folders'
@@ -53,6 +55,9 @@ const chatsAtom = atom({ plugin: 'folder-branches', key: 'chats' } as const, NO_
 // Lost on a reload, with the timers they name.
 let watch: Timer | null = null
 let chatWatch: Timer | null = null
+/** B753: the timer of the board's hands in this process, and whether a round of them runs. */
+let handsWatch: Timer | null = null
+let isHanding = false
 let isReading = false
 let isReadingChats = false
 /** The folder that holds the project's chat files; null when the project has none. */
@@ -1484,6 +1489,44 @@ const WHOAMI_AGAIN_MS = 5_000
 /** When this process last asked (when the question went out, answered or not). */
 let lastWhoami = -Infinity
 
+/**
+ * B753 (the person, 2026-10-28: "i want to slowly phase out the main ... replace more with code"): the board's hands. Every
+ * HANDS_MS this chat, once it knows which board chat it is, claims the board's start, wake and resume jobs and sends each
+ * with the app's own send-message tool, by code and with no model turn; then it says what it sent. The board hands each
+ * job to one chat only. Quiet when there is no board or no job; it never throws.
+ */
+function startHands($: EngineInterface): void {
+  if (handsWatch !== null) return
+  handsWatch = $.clock.every(HANDS_MS, () => { void handRound($) })
+}
+
+async function handRound($: EngineInterface): Promise<void> {
+  if (isHanding || myself === null || chatsDir === null) return
+  isHanding = true
+  try {
+    const project = chatsDir.slice(0, chatsDir.length - CHATS_DIR.length - 1)
+    const board = parseBoard(await $.fs.read(inFolder(project, BOARD_FILE)).catch(() => ''))
+    // Only a board that says it hands out jobs is asked: an older one has no such route.
+    if (board === null || !board.hands) return
+    const jobs = parseJobs(await askBoard($, board, HANDS_PATH).catch(() => null))
+    if (jobs.length === 0) return
+    const results: HandResult[] = []
+    for (const job of jobs) {
+      try {
+        results.push(sendResult(job.id, await $.tool.call({ tool: SEND_TOOL, session_id: job.to, message: job.text } as never)))
+      } catch (error) {
+        results.push({ id: job.id, ok: false, why: error instanceof Error ? error.message.slice(0, 300) : 'the tool failed' })
+      }
+    }
+    trace($, 'hands', { sent: results.filter(one => one.ok).map(one => one.id), failed: results.filter(one => !one.ok).map(one => one.id) })
+    await askBoard($, board, HANDS_DONE_PATH, { results }).catch(() => null)
+  } catch {
+    // the next round tries again
+  } finally {
+    isHanding = false
+  }
+}
+
 /** One question to the board, as no chat yet (`myself` may be null): its answer, or null. It never throws. */
 async function askWhoami($: EngineInterface, board: Board): Promise<Whoami | null> {
   try {
@@ -1938,6 +1981,8 @@ export const register: Register = on => {
     const hasChats = await startChats($)
     // 2026-10-28: the chat learns who it is from the board, by its session id (the app's title may never reach the mod).
     await joinBySession($)
+    // B753: the board's hands: this chat sends the start, wake and resume lines the board holds, by code.
+    startHands($)
     // Review of B298: a chat started anew learns once which of the person's instructions are still open.
     if (myself !== null) void workQuietly($, { action: 'next' })
     // Each pane opens unasked only where it has something to show: a branch, a chat.
