@@ -947,7 +947,7 @@ function notCleared(view, ctx) {
     if (owed === null || !Number.isFinite(owed.reportedAt)) continue
     const key = `not-cleared ${lane.name} ${owed.step}`
     const ms = lasted(view, ctx, key, afterPause(view, owed.reportedAt), { heard: true })
-    const took = takenSince(view.items, lane.name, owed.reportedAt, view.prefix)[0] ?? null
+    const took = takenSince(view.items, lane.name, owed.reportedAt, view.prefix, owed.step)[0] ?? null
     if (took === null && ms <= view.settings.notClearedMinutes * MIN) continue
     const why = owed.why ?? 'no reason logged'
     const repair = owed.canClear === true
