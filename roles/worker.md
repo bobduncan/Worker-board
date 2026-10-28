@@ -201,7 +201,8 @@ step therefore says what it touches ("Touches: ...").
   sentences on why you ask, what you found (the numbers go here) and what each choice means.
 - Every line the user types to you, in your chat or on the board, is filed as an instruction `I<n>`: the board names
   its id with your first tool results ("Recorded as I17") and your open ones under "Open instructions"; close each with
-  `work close I<n>` and what came of it once it is done. A turn that ends with one open shows it red on the board.
+  `work close I<n>` and what came of it once it is done. A turn that ends with one open shows it red on the board. One whose
+  turn made a step (`work new`) the board closes itself at the turn's end, "became step B<n>" (2026-10-28).
 - Work you find: `work new` under the activity it belongs to. Its title is 5 to 10 words of your own, starting with a
   verb, saying what the user gets, never the user's request read back; their words go in its text.
 - The backlog file is the board's view of the store: read it, never edit it.
