@@ -2320,6 +2320,13 @@ button.needs-you:hover small, button.needs-you:focus-visible small { color: var(
 .settings-pop .cpu { margin-right: 0; flex-wrap: wrap; row-gap: 6px; white-space: normal; }
 .settings-pop .cpu-label { flex-basis: 100%; margin: 0; }
 .settings-pop .cpu-count { flex-basis: 100%; margin: 0; }
+/* B767: the setup check in the settings panel: one line per job of the main chat's, by code or not, and why. */
+.code-jobs { display: flex; flex-direction: column; gap: 6px; padding-top: 8px; border-top: 1px solid #2a3850; }
+.code-job-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.code-job { display: flex; gap: 8px; align-items: baseline; font-size: 13px; }
+.code-job-title { flex: 1; }
+.code-job-state { color: var(--muted); font-size: 12px; text-align: right; white-space: nowrap; }
+.code-job.is-code .code-job-state { color: #7fc8a9; }
 .settings-pop .cpu-count:empty { display: none; }
 .settings-pop .version { white-space: normal; }
 .settings-pop .version:empty { display: none; }

@@ -2,7 +2,7 @@ import { describe, expect, test } from 'claude-code/testing'
 
 import type { ChatFile, ChatTask } from '../types'
 import {
-  LEFT_MAX_SIZE, LEFT_TEXT, STALE_MS, afterTurn, asksPerson, atTurnStart, cardGap, cardOld, chatLine, chatNote, compactKeep, compactWhy, chatText, chatsSummary, fileName, foldersAbove, hasLeft,
+  LEFT_MAX_SIZE, LEFT_TEXT, STALE_MS, afterTurn, asksPerson, atTurnStart, chatLine, chatNote, compactKeep, compactWhy, chatText, chatsSummary, fileName, foldersAbove, hasLeft,
   isAgentId, nameFromTitle, orderChats, parseChat, parseList, sessionOf, status, timeText, uniqueByName, withDone, withPlan,
   withSend, withState, withStep, workCard, instructionsLine, isFiled, openFrom, personsWords, recordedLine,
   clearWhy, clearedStart, movedText, roleFrom, unfiledAsk, isOlderMod, modNote,
@@ -315,35 +315,6 @@ describe('which chats are in the list', () => {
     expect(withStep(planned, { stepMinutes: 5000 }).error).toContain('"stepMinutes"')
   })
 
-  test('a working chat whose step has no time is told so, after the task has one', () => {
-    const tool = 'mcp__folder-branches__chat'
-    const gap = cardGap(chat('Units', 'working', task('Archer', 1, 3, 10)), tool, NOW)
-    expect(gap).toContain('"stepMinutes"')
-    expect(gap).toContain('"plan"')
-    expect(cardGap(chat('Units', 'working', { ...task('Archer', 1, 3, 10), stepLeft: 4 * MIN }), tool, NOW)).toBeNull()
-    // A task without steps has no step to time.
-    expect(cardGap(chat('Units', 'working', task('Archer', 0, 0, 10)), tool, NOW)).toBeNull()
-  })
-
-  test('a working chat is told what its card lacks: a task, a time, or a time that has not run out', () => {
-    const tool = 'mcp__folder-branches__chat'
-    expect(cardGap(chat('Units', 'working'), tool, NOW)).toContain('"plan"')
-    expect(cardGap(chat('Units', 'working', task('Archer')), tool, NOW)).toContain('"minutes"')
-    expect(cardGap(chat('Units', 'working', task('Archer', 1, 3)), tool, NOW)).toContain('"minutes"')
-    const over = cardGap(chat('Units', 'working', { ...task('Archer', 1, 3, 10), left: 0 }), tool, NOW)
-    expect(over).toContain('run out')
-    // Renewing the time is a "plan" with minutes: "step" would move the card on by a step.
-    expect(over).not.toContain('"step"')
-    expect(cardGap(chat('Units', 'working', { ...task('Archer', 1, 3, 10), stepLeft: MIN }), tool, NOW)).toBeNull()
-    // The time counts down while the chat works, also between two writes of its file.
-    expect(cardGap(chat('Units', 'working', task('Archer', 1, 3, 10)), tool, NOW + 11 * MIN)).toContain('run out')
-    // Every one says to send it along with a call the chat makes anyway.
-    for (const gap of [cardGap(chat('Units', 'working'), tool, NOW), cardGap(chat('Units', 'working', task('Archer')), tool, NOW)]) expect(gap).toContain('next tool call')
-    // A card that was not touched in this request may be the one before: it is asked about, by its topic.
-    expect(cardOld(chat('Units', 'working', task('Archer', 2, 3, 10)), tool)).toContain('"Archer"')
-    expect(cardOld(chat('Units', 'working'), tool)).toBeNull()
-  })
-
   test('B301: what the compaction after a report keeps names the steps of the store, not a hand-over', () => {
     const keep = compactKeep('Game - Units', 'Game - Main')
     expect(keep).toContain('every step the store holds for it that it has not reported yet')
@@ -351,9 +322,9 @@ describe('which chats are in the list', () => {
   })
 
   test('a chat in the list is told how to keep its line', () => {
-    const worker = chatNote(chat('Units', 'working'), 'mcp__folder-branches__chat')
-    for (const part of ['"Units"', 'mcp__folder-branches__chat', '"plan"', '"step"', 'worker']) expect(worker).toContain(part)
-    const main = chatNote(chat('Main', 'working', null, 'main'), 'mcp__folder-branches__chat')
+    const worker = chatNote(chat('Units', 'working'), 'mcp__workers__chat')
+    for (const part of ['"Units"', 'mcp__workers__chat', '"plan"', '"step"', 'worker']) expect(worker).toContain(part)
+    const main = chatNote(chat('Main', 'working', null, 'main'), 'mcp__workers__chat')
     expect(main).toContain('You are the main chat')
     // Every chat keeps a card, the main chat too, and is told to send it along with a call it makes anyway.
     for (const note of [worker, main]) {
@@ -361,7 +332,7 @@ describe('which chats are in the list', () => {
     }
     // B301: a step ends with the work tool's report, never with a message. 2026-10-28: the board hands every step out
     // itself (its redesign's Part 2); the work tool has no queue, so the main chat is not told to queue.
-    expect(worker).toContain('clears by itself when you report your step with mcp__folder-branches__work action "report"')
+    expect(worker).toContain('clears by itself when you report your step with mcp__workers__work action "report"')
     expect(worker).toContain('no message to another chat clears it or ends a step')
     expect(worker).not.toContain('Report from')
     expect(main).toContain('The board hands every step to a free worker itself')
@@ -369,9 +340,9 @@ describe('which chats are in the list', () => {
     expect(main).toContain('no message carries a task')
     expect(main).not.toContain('Task from')
     // B297: one line names the work tool, and that the flow file says who moves an item.
-    for (const note of [worker, main]) for (const part of ['mcp__folder-branches__work', '"next"', 'flow file']) expect(note).toContain(part)
+    for (const note of [worker, main]) for (const part of ['mcp__workers__work', '"next"', 'flow file']) expect(note).toContain(part)
     // The note is part of the system prompt: it reads the same whatever the chat is doing.
-    expect(chatNote(chat('Units', 'waiting', task('Archer', 2, 3, 10)), 'mcp__folder-branches__chat')).toBe(worker)
+    expect(chatNote(chat('Units', 'waiting', task('Archer', 2, 3, 10)), 'mcp__workers__chat')).toBe(worker)
   })
 })
 
@@ -474,15 +445,15 @@ describe('clear after each step', () => {
   test('the conversation after a clear starts with who it is, its rules, its old log, its open instructions and work next', () => {
     const open = openFrom({ open: [{ id: 'I17', turns: 2, text: 'Make the strip   blue' }, { id: 'I18', turns: 0 }] }) ?? []
     expect(open).toEqual([{ id: 'I17', turns: 2, text: 'Make the strip   blue' }, { id: 'I18', turns: 0 }])
-    const text = clearedStart({ name: 'Units', title: 'Game - Units', role: 'worker', main: 'Game - Main', step: 'B482', log: 'D:/p/.claude/chat-logs/Units/2026-10-23 1405 B482.txt', open }, 'mcp__folder-branches__chat')
+    const text = clearedStart({ name: 'Units', title: 'Game - Units', role: 'worker', main: 'Game - Main', step: 'B482', log: 'D:/p/.claude/chat-logs/Units/2026-10-23 1405 B482.txt', open }, 'mcp__workers__chat')
     expect(text).toContain('This chat is "Game - Units", a worker in the person\'s list of chats, listed as "Units"; "Game - Main" is the main chat.')
     expect(text).toContain('cleared by the Workers mod after your step B482 was reported')
     expect(text).toContain('kept word for word in D:/p/.claude/chat-logs/Units/2026-10-23 1405 B482.txt')
     expect(text).toContain('CLAUDE.md and .claude/worker-briefing.md')
-    expect(text).toContain('run mcp__folder-branches__work with action "next" now')
+    expect(text).toContain('run mcp__workers__work with action "next" now')
     expect(text).toContain('I17 (missed 2 turns): "Make the strip blue"; I18.')
     // A /clear the person ran: no step, no log; nothing open, no line about it.
-    const plain = clearedStart({ name: 'Units', title: 'Game - Units', role: 'worker', main: 'Game - Main', step: null, log: null, open: [] }, 'mcp__folder-branches__chat')
+    const plain = clearedStart({ name: 'Units', title: 'Game - Units', role: 'worker', main: 'Game - Main', step: null, log: null, open: [] }, 'mcp__workers__chat')
     expect(plain).not.toContain('kept word for word')
     expect(plain).not.toContain('instructions')
     expect(plain).toContain('Your earlier conversation was cleared, so this conversation starts empty.')

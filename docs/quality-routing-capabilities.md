@@ -5,7 +5,7 @@ Board tests: `node tools/test.mjs`. On the restricted Windows executor, use a wr
 Installed mod runtime: Claude Code 2.1.299, mod 0.13.18. Exact test command on this PC:
 
 ```powershell
-& '<installed Claude runtime>\claude.exe' plugin test '<board-worktree>\mods\folder-branches'
+& '<installed Claude runtime>\claude.exe' plugin test '<board-worktree>\mods\workers'
 ```
 
 The SDK tests use `claude-code/testing`; they are separate from Node tests. Baseline: 158 tests pass. Existing hooks intercept selected `tool.call` events and inject post-batch context. This does **not** establish that every execution tool, arbitrary shell wrapper, external writer and child is covered, or that native setting changes and actual-route attribution can be confirmed before every mutation. No all-tools enforcement capability is advertised without that proof.

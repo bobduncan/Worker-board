@@ -344,7 +344,7 @@ const plan = (now, task, minutesAgo) =>
 const resetOf = now => Math.round((now + 52 * MIN) / MIN) * MIN
 const clockOf = at => `${String(new Date(at).getHours()).padStart(2, '0')}:${String(new Date(at).getMinutes()).padStart(2, '0')}`
 // What the board typed into a chat for the person (the Workers mod types it as their own words).
-const viaBoard = (at, text) => user(at, text, { origin: { kind: 'plugin', name: 'folder-branches', asUser: true } })
+const viaBoard = (at, text) => user(at, text, { origin: { kind: 'plugin', name: 'workers', asUser: true } })
 
 function transcripts(now) {
   const ago = minutes => now - minutes * MIN

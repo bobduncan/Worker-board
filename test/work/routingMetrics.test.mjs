@@ -30,7 +30,7 @@ test('all-in spending includes reviewers and failed work and keeps unattributed 
   assert.ok(spendingCsv({...summary,chats:[{key:'=FORMULA',low:1,high:1,messages:1}]}).includes("'=FORMULA"))
 })
 test('task phase can come from an actual work call and absent IDs remain unknown',()=>{
-  const e=entry('review',{input:1,cacheRead:0,cacheWrite:0,output:1},{blocks:[{type:'tool_use',name:'mcp__folder-branches__work',input:{action:'checked',id:'B9'}}]})
+  const e=entry('review',{input:1,cacheRead:0,cacheWrite:0,output:1},{blocks:[{type:'tool_use',name:'mcp__workers__work',input:{action:'checked',id:'B9'}}]})
   const found=attributeUsage({entries:[e,entry(null,null)],sourceSessionId:'advisor',chat:'Advisor',role:'advisor'})
   assert.equal(found.events[0].taskId,'B9')
   assert.equal(found.events[0].phase,'review')
@@ -38,7 +38,7 @@ test('task phase can come from an actual work call and absent IDs remain unknown
 })
 test('later streaming lines can complete task attribution, and wholly unknown tokens stay unknown',()=>{
   const initial=entry('stream',{input:null,cacheRead:null,cacheWrite:null,output:null})
-  const complete={...initial,blocks:[{type:'tool_use',name:'mcp__folder-branches__work',input:{action:'checked',id:'B8'}}]}
+  const complete={...initial,blocks:[{type:'tool_use',name:'mcp__workers__work',input:{action:'checked',id:'B8'}}]}
   const found=attributeUsage({entries:[initial,complete],sourceSessionId:'s',chat:'Advisor',role:'advisor'})
   assert.equal(found.events[0].taskId,'B8')
   const summary=routingSummary({events:found.events,now:at+1})

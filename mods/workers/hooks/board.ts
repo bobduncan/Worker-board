@@ -34,7 +34,7 @@ export const REQUEST_HEADER = 'X-Work-Request'
  * chat that runs an older Workers mod than the one installed. The same as `version` in .claude-plugin/plugin.json.
  */
 export const MOD_HEADER = 'X-Workers-Mod'
-export const MOD_VERSION = '0.24.2'
+export const MOD_VERSION = '0.26.1'
 /** The longest text typed for the board: its own limit for an answer, with room for the request's name around it. */
 export const MOST_CHARS = 3000
 
@@ -115,10 +115,15 @@ export function parseWhoami(text: string): Whoami | null {
  * not typed; its id is in `refused`, so the board is told it did not arrive, and `why` says why (B532: "too long: 9459 >
  * 3000 characters"), so the board does not try it again and the page names the reason.
  */
-export function parseTaken(text: string): { messages: Taken[]; refused: string[]; why: Record<string, string>; clear: OwedClear | null; off: string[] } {
+export function parseTaken(text: string): { messages: Taken[]; refused: string[]; why: Record<string, string>; clear: OwedClear | null; off: string[]; stop: StopAsk | null } {
   const raw = parsed(text)
-  const taken: { messages: Taken[]; refused: string[]; why: Record<string, string>; clear: OwedClear | null; off: string[] } = { messages: [], refused: [], why: {}, clear: null, off: [] }
+  const taken: { messages: Taken[]; refused: string[]; why: Record<string, string>; clear: OwedClear | null; off: string[]; stop: StopAsk | null } = { messages: [], refused: [], why: {}, clear: null, off: [], stop: null }
   if (!isRecord(raw)) return taken
+  // B769: the person stops this worker's task or removes it: told at its next tool call and its next prompt.
+  const stop = raw.stop
+  if (isRecord(stop) && typeof stop.id === 'string' && /^[\w-]{1,40}$/.test(stop.id) && (stop.kind === 'stop' || stop.kind === 'remove')) {
+    taken.stop = { id: stop.id, kind: stop.kind, task: typeof stop.task === 'string' ? stop.task.replace(/\s+/g, ' ').trim().slice(0, 200) : '' }
+  }
   // B738: the chats the board shows as not running (its one verdict: ended, app restarted, silent).
   if (Array.isArray(raw.off)) taken.off = raw.off.filter((name): name is string => typeof name === 'string' && name !== '' && name.length <= 80).slice(0, 50)
   // B547: a worker whose last report is newer than its last clear: the board names the clear (and holds its next step).
@@ -138,6 +143,17 @@ export function parseTaken(text: string): { messages: Taken[]; refused: string[]
   }
 
   return taken
+}
+
+/** B769: the person's Stop task or Remove worker for this chat, as the board's take names it. */
+export type StopAsk = { id: string; kind: 'stop' | 'remove'; task: string }
+
+/** B769: what a worker is told at its next tool call or prompt when the person stops its task or removes it. */
+export function stopLine(stop: StopAsk): string {
+  const safe = 'reach a safe point now: commit and push your work and start nothing new; write where you left off as a checkpoint of your step (work step <id> --commit <hash> --next "<next action>")'
+  return stop.kind === 'remove'
+    ? `The person removes you from the worker board (Remove worker): ${safe}, then end your turn. The board then takes you off the list and closes this chat.`
+    : `The person stops your task${stop.task === '' ? '' : ` ${stop.task}`} (Stop task on the board): ${safe}, then end your turn.`
 }
 
 /** B532: why a word could not be typed, as one short line for the board: an error's message, or what a hook said. */
@@ -247,8 +263,8 @@ export function parsePause(raw: unknown): PauseState | null {
   return { state: raw.state as PauseState['state'], since: typeof raw.since === 'number' ? raw.since : null, holds, mustStop: forChat.mustStop === true, resumeList }
 }
 
-/** Where a context goes in: a session's start, a prompt, a batch of tool calls. */
-export type PauseWhere = 'start' | 'prompt' | 'batch'
+/** Where a context goes in: a prompt, or a tool call (the mod uses no classic hook, so no session start or batch of its own). */
+export type PauseWhere = 'prompt' | 'batch'
 
 /** The review of Pause 2: while the person pauses (until running) the chat starts nothing: no pull at its turn's end. */
 export const isPaused = (pause: PauseState | null): boolean => pause?.state === 'pausing' || pause?.state === 'resuming'
@@ -282,9 +298,9 @@ function wakeLine(one: PauseWake): string {
 /**
  * Pause 2: the lines this chat gets as context for the pause, each once (`given` keeps what was said, and is added
  * to). While pausing, at the first batch of tool calls of each turn (`turn`, the review of Pause 2): commit, write the
- * checkpoint, stop or wait for the background agents and end the turn (holding nothing: the agents and the turn). While resuming: the main chat, at its start or a prompt, whom to wake by session id; a chat that
- * holds a step, at its first turn after the resume, its checkpoint. Also at a session start (or the first prompt of
- * its process, `isFirst`) a chat holding a step is told its checkpoint, unless the person pauses.
+ * checkpoint, stop or wait for the background agents and end the turn (holding nothing: the agents and the turn). While resuming: the main chat, at a prompt, whom to wake by session id; a chat that
+ * holds a step, at its first turn after the resume, its checkpoint. Also at the first prompt of its process
+ * (`isFirst`) a chat holding a step is told its checkpoint, unless the person pauses.
  */
 export function pauseContexts(pause: PauseState | null, at: { role: string; where: PauseWhere; given: Set<string>; isFirst?: boolean; turn?: number }): string[] {
   if (pause === null) return []
@@ -303,7 +319,7 @@ export function pauseContexts(pause: PauseState | null, at: { role: string; wher
       : `The person pauses all chats: commit your work, write your checkpoint (work step ${first.id} --commit <hash> --next "<next action>"${more.length === 0 ? '' : `; the same for ${more.map(hold => hold.id).join(', ')}`}), stop or wait for your background agents, then end your turn and start nothing new.`)
     return lines
   }
-  const isStart = at.where === 'start' || (at.where === 'prompt' && at.isFirst === true)
+  const isStart = at.where === 'prompt' && at.isFirst === true
   if (pause.state === 'resuming' && at.where !== 'batch') {
     const wake = pause.resumeList.filter(one => !one.hasStarted)
     if (at.role === 'main' && wake.length > 0) {

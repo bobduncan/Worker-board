@@ -26,7 +26,7 @@ const app = name => JSON.stringify({
   createdAt: name.length, lastActivityAt: NOW - 5 * MIN, lastAssistantUuid: 'u-1',
 })
 const tail = lines => ({ text: lines.join('\n'), isCut: false, modifiedAt: NOW })
-const viaBoard = (at, text) => user(at, text, { origin: { kind: 'plugin', name: 'folder-branches', asUser: true } })
+const viaBoard = (at, text) => user(at, text, { origin: { kind: 'plugin', name: 'workers', asUser: true } })
 
 function build(advisor = [answer(NOW - 30 * MIN, 'ok')], outbox = []) {
   const raw = {

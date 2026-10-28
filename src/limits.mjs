@@ -50,23 +50,32 @@ export function usageReadings(entries) {
     if (entry.type !== 'user' || entry.isSidechain) continue
     for (const block of entry.blocks) {
       if (block.type !== 'tool_result') continue
-      const words = resultText(block).trim()
-      if (!words.startsWith('{') || !words.includes('"windows"')) continue
-      let answer
-      try {
-        answer = JSON.parse(words)
-      } catch {
-        continue
-      }
-      const windows = Array.isArray(answer?.plan?.windows) ? answer.plan.windows.filter(one => one !== null && typeof one === 'object' && typeof one.label === 'string') : []
-      const weekly = windows.filter(one => /^weekly/i.test(one.label))
-      const fiveHour = windowOf(windows.find(one => /^5-hour/i.test(one.label)))
-      // The week of all models is the one the plan stops at; a model's own week is beside it.
-      const week = windowOf(weekly.find(one => /all models/i.test(one.label)) ?? weekly[0])
-      if (fiveHour !== null || week !== null) readings.push({ at: entry.at, fiveHour, week })
+      const reading = readingOfAnswer(resultText(block), entry.at)
+      if (reading !== null) readings.push(reading)
     }
   }
   return readings
+}
+
+/**
+ * B768: one answer of the app's tool for the limits (its text) as a reading taken `at`, `{ at, fiveHour, week }`, or
+ * null when the text is no such answer: a chat's lookup in its transcript, or the Workers mod's lookup by code.
+ */
+export function readingOfAnswer(text, at) {
+  const words = String(text ?? '').trim()
+  if (!words.startsWith('{') || !words.includes('"windows"')) return null
+  let answer
+  try {
+    answer = JSON.parse(words)
+  } catch {
+    return null
+  }
+  const windows = Array.isArray(answer?.plan?.windows) ? answer.plan.windows.filter(one => one !== null && typeof one === 'object' && typeof one.label === 'string') : []
+  const weekly = windows.filter(one => /^weekly/i.test(one.label))
+  const fiveHour = windowOf(windows.find(one => /^5-hour/i.test(one.label)))
+  // The week of all models is the one the plan stops at; a model's own week is beside it.
+  const week = windowOf(weekly.find(one => /all models/i.test(one.label)) ?? weekly[0])
+  return fiveHour !== null || week !== null ? { at, fiveHour, week } : null
 }
 
 /**
@@ -196,7 +205,7 @@ export function pauseNote(entries, mainTitle) {
  * B310: what a paused worker may still do without working again: a word to a chat, and its card on the board.
  * Anything else (a command, a file read or written, a helper) is work.
  */
-const isCoordination = name => name === 'SendMessage' || /^mcp__folder-branches__/.test(name)
+const isCoordination = name => name === 'SendMessage' || /^mcp__(workers|folder-branches)__/.test(name)
   // B310: also the app's end of a turn (its recap and plan) and a look at the limits.
   || /^mcp__ccd_turn__/.test(name) || name === 'mcp__ccd_session_mgmt__get_usage'
 
