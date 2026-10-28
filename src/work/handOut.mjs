@@ -13,9 +13,10 @@ import { barredFrom, isQaTask, notDueWhy } from './qaTask.mjs'
 /**
  * The settings' defaults (config.mjs): minutes to take a given task; minutes a follow-up is kept for its worker (0: a
  * preference only, the review of 2026-10-25: the builder is mostly busy again by then); minutes a give may wait for its
- * line (a model switch, a clear, a mod restart, a chat off) before it goes back; no number of workers.
+ * line (a model switch, a clear, a mod restart, a chat off) before it goes back; 5 workers at most (B-max, the person,
+ * 2026-10-28: "default is 5").
  */
-export const HAND_OUT_DEFAULTS = Object.freeze({ takeWithinMinutes: 2, followUpMinutes: 0, heldGiveMinutes: 20, maxWorkers: null, handOutBeyondFocus: false })
+export const HAND_OUT_DEFAULTS = Object.freeze({ takeWithinMinutes: 2, followUpMinutes: 0, heldGiveMinutes: 20, maxWorkers: 5, handOutBeyondFocus: false })
 /** How long a worker the board asked the main chat to start counts as on its way (it has not reported yet). */
 export const START_WAIT_MS = 10 * 60_000
 
@@ -426,7 +427,8 @@ function startsPending({ workers, sent = [], now, prefix = '' }) {
 
 /**
  * Whether the board asks for one more worker now: `{ start: name }` (a worker of the list whose chat is off, the one off
- * longest first), `{ spawn: 1 }` (a new one), or null. Null when `maxWorkers` is no number (the board starts none),
+ * longest first), `{ spawn: 1 }` (a new one), or null. `maxWorkers` left out is 5 (B-max); null when it is given as no
+ * number (the board starts none),
  * while held (the person pauses, a limit is full), while an idle worker is left after this pass's gives, or when the
  * workers not off are `maxWorkers` already. Only tasks a new worker could take count: ready, kept for nobody (a pinned
  * task waits for its worker only: Review Focus 5), not given in this pass, their Touches overlapping no step given or
@@ -435,7 +437,7 @@ function startsPending({ workers, sent = [], now, prefix = '' }) {
  * `offAfterMs` by its last report, has that worker started first (`{ start: name, pinned: id }`: a start word, never a
  * spawn; also while another worker is idle), once per START_WAIT_MS, and counted toward `maxWorkers` as any start.
  */
-export function workerStart({ ready = [], gives = [], idle = [], lanes = [], maxWorkers = null, isHeld = false, items = new Map(), sent = [], now = Date.now(), prefix = '', refused = [], offAfterMs = Infinity }) {
+export function workerStart({ ready = [], gives = [], idle = [], lanes = [], maxWorkers = HAND_OUT_DEFAULTS.maxWorkers, isHeld = false, items = new Map(), sent = [], now = Date.now(), prefix = '', refused = [], offAfterMs = Infinity }) {
   if (!Number.isFinite(maxWorkers) || isHeld) return null
   const handed = new Set(gives.map(one => one.id))
   const scratch = new Map(items)
