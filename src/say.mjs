@@ -361,16 +361,28 @@ function brainstormCheck(body, state) {
 function goalStepCheck(body, state, text) {
   if (body.to !== state.restart?.main) return refuse(400, 'A step from the goal map goes to the main chat.')
   if (text !== '' || (body.ask ?? null) !== null || (body.verdict ?? null) !== null) return refuse(400, 'A command carries nothing else.')
+  const step = goalStepOf(body, state)
+  if (!step.ok) return step
+  return { ok: true, message: {
+    to: body.to, ask: null, step: null, title: null, version: null, verdict: null, command: 'goal-step', about: step.about,
+    text: ['backlog step from the goal map', `Title: ${step.title}`, `Goal: ${step.goal ?? 'none'}`, `Description: ${step.description}`, `Time: ${step.cost}`, `Worker: ${step.worker}`].join('\n'),
+  } }
+}
+
+/**
+ * B754 (the person, 2026-10-28: phase out the main chat): the step a ticked step of a created proposal becomes, as the
+ * board writes it itself: `{ ok, title, goal (G<n> or null), description, about }`, or a refusal. Its goal is the first
+ * goal the brainstorm made, else the goal it was about.
+ */
+export function goalStepOf(body, state) {
   const thread = threadIn(state, body.thread)
   const created = thread?.proposal?.created ?? null
   if (created === null) return refuse(409, 'Only a created proposal asks for its steps.')
   const step = Number.isInteger(body.step) ? thread.proposal.steps[body.step] : undefined
   if (step === undefined || created.leftOut.includes(leftOutKey(step.title))) return refuse(409, 'That step is not one the proposal created.')
   const note = thread.proposal.note ? `: ${sayLine(thread.proposal.note)}` : ''
-  return { ok: true, message: {
-    to: body.to, ask: null, step: null, title: null, version: null, verdict: null, command: 'goal-step', about: `${thread.path}#${body.step}`,
-    text: ['backlog step from the goal map', `Title: ${sayLine(step.title)}`, `Goal: ${created.goals[0] ?? thread.goal?.id ?? 'none'}`, `Description: from the brainstorm "${plainLine(thread.title)}" (${thread.path})${note}`, `Time: ${sayLine(step.cost)}`, `Worker: ${sayLine(step.worker)}`].join('\n'),
-  } }
+  const goal = created.goals[0] ?? thread.goal?.id ?? null
+  return { ok: true, title: sayLine(step.title), goal: /^G\d+$/.test(String(goal)) ? goal : null, description: `from the brainstorm "${plainLine(thread.title)}" (${thread.path})${note}`, cost: sayLine(step.cost), worker: sayLine(step.worker), about: `${thread.path}#${body.step}` }
 }
 
 /**

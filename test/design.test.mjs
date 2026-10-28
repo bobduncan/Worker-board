@@ -5,7 +5,7 @@ import { dirname, join } from 'node:path'
 import test from 'node:test'
 import { fileURLToPath } from 'node:url'
 
-import { LIMITS, checkDesign, designState, inTurn, parseDesignSettings, promptFor, shortName, stepWord } from '../src/design.mjs'
+import { LIMITS, checkDesign, designState, inTurn, parseDesignSettings, promptFor, shortName, stepWord, designActivity, picturesActivity } from '../src/design.mjs'
 import { ideasFile, ideasOver, parseIdeas, placeReferences } from '../src/ideas.mjs'
 import { pictureKind } from '../server.mjs'
 
@@ -162,10 +162,28 @@ test('asking for the step: an agreed picture and a title; no worker (redesign Pa
   assert.equal(checkDesign({ ...send, title: 'x'.repeat(LIMITS.title + 1) }, agreed).status, 413)
   assert.equal(checkDesign({ ...send, minutes: 2.5 }, agreed).status, 400)
   assert.equal(checkDesign({ ...send, requirements: Array.from({ length: 13 }, () => 'x') }, agreed).status, 400)
-  // Not twice, and not on a board that cannot ask the main chat.
+  // Not twice, and not on a board that cannot write it.
   assert.equal(checkDesign(send, design([idea({ agreed: 1, sent: { at: NOW, where: 'queue', message: 'm1', state: 'waiting' } })])).status, 409)
   assert.deepEqual(checkDesign(send, design([idea({ agreed: 1 })], { canSend: false, whyNot: 'This board only shows.' })), { ok: false, status: 409, why: 'This board only shows.' })
-  assert.equal(checkDesign(send, design([idea({ agreed: 1 })], { main: null })).status, 409)
+  // B754: the board writes the step itself: no main chat is needed, and its lines are the word's without the first.
+  assert.equal(checkDesign(send, design([idea({ agreed: 1 })], { main: null })).ok, true)
+  assert.deepEqual(ok.lines, [...ok.text.split('\n').slice(2), 'From the Design tab.'])
+  assert.equal(ok.kind, 'game screen')
+})
+
+test('B754: a step from the Design tab goes under the activity its kind names, else the setting\'s, else the first', () => {
+  const activities = [{ name: 'Goal map and brainstorm' }, { name: 'Screens and content' }, { name: 'Look: maps' }]
+  assert.equal(designActivity('screen', activities), 'Screens and content')
+  // Only the first word counts: "map" is not the goal map's activity.
+  assert.equal(designActivity('map', activities), 'Goal map and brainstorm')
+  assert.equal(designActivity('map', activities, 'look: maps'), 'Look: maps')
+  assert.equal(designActivity('unit', activities, 'Nowhere'), 'Goal map and brainstorm')
+  assert.equal(designActivity('unit', []), null)
+  // The usual one: where most of the latest steps with pictures went.
+  const step = (id, activity, pictures) => [id, { head: new Map([['Id', id], ['Kind', 'step'], ['Activity', activity]]), sections: new Map([['Context', pictures ? ['  Pictures: art-inbox/x'] : ['no picture']]]) }]
+  const items = new Map([step('B1', 'Look: maps', true), step('B2', 'Look: maps', true), step('B3', 'Screens and content', true), step('B4', 'Goal map and brainstorm', false)])
+  assert.equal(picturesActivity(items), 'Look: maps')
+  assert.equal(picturesActivity(new Map()), null)
 })
 
 test('the ideas with what was done to them, kept and there again after a new start', async t => {
