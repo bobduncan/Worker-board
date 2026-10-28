@@ -514,6 +514,15 @@ function codeJobLines(jobs) {
   // board for the first time"): a short state, the full reason in its tooltip.
   const short = { 'not allowed yet': 'needs your OK', 'no stored start-worker task on this PC': 'needs its routines', 'no chat with the Workers mod runs now': 'no chat runs now' }
   return (jobs?.rows ?? []).map(row => {
+    // T13 part 4: the board's own job, no chat's: opening a chat when none runs; it stopped after tries that brought none back.
+    if (row.key === 'open') {
+      const failed = String(row.why ?? '').startsWith('the last try failed')
+      return {
+        key: row.key, title: row.title, byCode: row.byCode === true,
+        text: row.byCode === true ? 'by itself' : failed ? 'last try failed' : 'not on this board',
+        why: row.byCode === true ? 'When no chat runs and work waits for one, the board opens a chat of the project in the Claude app.' : `The board does not open a chat by itself now: ${row.why}${failed ? '; open any chat of the project yourself' : ''}.`,
+      }
+    }
     // T12: each worker starts from a routine of its own; the row names the workers that have none yet.
     const fewRoutines = String(row.why ?? '').startsWith('needs routines for')
     return {
@@ -1823,11 +1832,14 @@ function drawRestart(state) {
   const pauseAll = $('pause-all')
   pauseAll.hidden = restart === null || restart.main === null || pause?.state === 'pausing'
   pauseAll.disabled = sending.has('restart')
+  const line = (className, text) => el('p', className, text)
+  // T13 part 4: the chat the board opened when none ran, in one quiet line; amber once its tries brought no chat back.
+  const opened = typeof state.opener?.text === 'string' ? line(`opener-note ${state.opener.tone === 'attention' ? 'alert' : 'muted'}`, state.opener.text) : null
   if (restart === null || restart.main === null) {
-    box.hidden = true
+    box.hidden = opened === null
+    if (opened !== null) fill(box, [opened])
     return
   }
-  const line = (className, text) => el('p', className, text)
   const button = (label, className, command) => {
     const node = el('button', `button ${className}`, label)
     node.type = 'button'
@@ -1837,6 +1849,7 @@ function drawRestart(state) {
   }
   const parts = []
   if (restart.off !== null) parts.push(line('muted', `The board was off from ${clock(restart.off.from)} to ${clock(restart.off.to)} (${span(restart.off.to - restart.off.from)}).`))
+  if (opened !== null) parts.push(opened)
   for (const text of stoppedLines(restart, state.chats ?? [])) parts.push(line('alert', text))
   // Who has to be started before it can carry on: said where a restart is at hand, not all day long.
   const down = restart.notRunning ?? []

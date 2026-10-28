@@ -4131,8 +4131,8 @@ timers. Now each chat says it (principle 3, know don't guess).
   until the chat reports anew, and the unknown and off rules (and B736's 10 min keep) count from the start, not from
   the old report. A chat the app stopped meanwhile (the app started after its saved report: B315's fact) keeps its
   report as it was, and is asleep (part 3, below). The demo and a board that shows
-  another's history have no reports. Part 2 (the plan and time saved with the task, "Time and estimates" above) and
-  part 3 are built; part 4 (the board opening a chat when none runs) is not built yet.
+  another's history have no reports. Part 2 (the plan and time saved with the task, "Time and estimates" above), part 3
+  and part 4 (the board opening a chat when none runs, below) are built.
 - **A restart of the app keeps each chat's state: asleep (T13, part 3; the person, 2026-10-28: "suspended keeps
   suspended, free = free, working is working, interrupted is interrupted"):** after every app or PC restart each chat
   read Unknown, then Not running: its process ended with the app, and the board read a report from before the app's
@@ -4164,6 +4164,32 @@ timers. Now each chat says it (principle 3, know don't guess).
   and Interrupted "resumes by itself" in a quiet colour (`is-asleep`), never the alarm's; the restart banner names
   neither as cut off or not running, the head counts an asleep free chat free, the reconciler flags no asleep holder as
   "not running", and the Workers list (B738's `off`) leaves them out. Tests: `test/asleepAfterRestart.test.mjs`.
+- **The board opens a chat when none runs (T13, part 4; the person, 2026-10-28: after a restart work must come back by
+  itself, without a timer that costs tokens):** the hands (B753) carry every start, wake and resume, but only while a
+  chat with the Workers mod runs; after an app or PC restart, or once every chat went idle and its process closed,
+  Resume all, the asleep chats' resume words (part 3) and the start words of a task given to an asleep worker all
+  waited. The board cannot message a chat, but the app's own program opens one: `claude.exe --desktop --resume <the
+  chat's CLI session id>` (tried on the work login 2026-10-28 19:40: the chat's process started and its mod checked in
+  as a hand, with no model turn). `src/opener.mjs` decides: the hands are gone (`handsGone`: no claim of the hands for
+  60 s; a board younger than that also needs no call of a chat since its start, so a restart of the board itself opens
+  nothing), hand work waits (`handWorkWaits`: a waiting start, wake, resume, spawn, model or effort, mod-restart or
+  remove word, a resume with a chat not started, or an asleep interrupted chat whose resume word no hand was given),
+  the person does not pause, the last open was 3 min ago (`OPEN_EVERY_MS`) and fewer than two opens in a row
+  (`OPEN_TRIES`) brought no hand back (`failuresOf`: an open with no claim within `OPEN_WAIT_MS`, 2 min; a claim
+  resets it). It opens the main chat while the list has one on the board, else the partner, the supervisor, a worker
+  (`chatToOpen`; never one left behind or removed, never by the name "Main" alone, the goal chat's point 1), by its
+  CLI session id from the board's own state, checked as a UUID. The launch is fixed (point 2): PowerShell
+  `Start-Process -FilePath '<claude.exe>' -ArgumentList '--desktop','--resume','<uuid>' -WindowStyle Hidden`, built
+  only from the program `findClaude` resolves (an absolute path to `claude.exe` whose folder names hold no quote or
+  other character PowerShell reads) and the UUID; PowerShell starts detached with nothing redirected, so the program
+  gets a console of its own (it refuses `--desktop` with redirected output). The server runs the check on its own timer
+  (once a minute, once 10 s after its start, at once after Resume all; while a chat's hands claim, nothing is read),
+  only on the board that delivers and runs the loops, on Windows; each open goes into board.log, the last ten in
+  memory. The page says it where the restart banner is: "Opened <chat> at HH:MM to wake the chats." in a quiet line
+  for 15 min; after two failed opens (point 3: a login whose guard keeps the mod from loading) the board opens nothing
+  more and says "Opened <chat> twice, but no chat came back: open any chat of the project yourself." in amber, until a
+  hand checks in. The ⚙ panel's "What the board does by itself" has the row "Wake the chats when none runs" (by itself,
+  or last try failed). Tests: `test/opener.test.mjs`.
 - **Older mods and a restart:** a chat on a Workers mod older than 0.19.0 sends no report and keeps the board's
   reading, until the restart between steps (B570) brings it onto the new mod; the reading is removed in a later
   clean-up once no chat needs it. After the board restarts its saved reports (T13, above) are read: each chat shows what it last said
