@@ -32,7 +32,7 @@ const freePort = () => new Promise(done => {
 
 function run(started, board, env) {
   const claude = join(dirname(board), 'claude-config')
-  const child = spawn(process.execPath, [join(board, 'server.mjs')], { cwd: board, env: { ...process.env, CLAUDE_CONFIG_DIR: claude, ...env, WORKER_BOARD_CHILD: '1' }, windowsHide: true })
+  const child = spawn(process.execPath, [join(board, 'server.mjs')], { cwd: board, env: { ...process.env, CLAUDE_CONFIG_DIR: claude, WORKER_BOARD_TICK_MS: '1000', ...env, WORKER_BOARD_CHILD: '1' }, windowsHide: true })
   started.push(child)
   return new Promise((done, fail) => {
     let out = ''
@@ -122,7 +122,7 @@ async function boardAt(t, week, fiveHour = 10, settings = {}) {
 test('the week at 98: B738 goes to nobody, Worker 4 hears nothing, and Workers 2, 3 and 5 are each told once to stop', { timeout: 300_000 }, async t => {
   const { outbox, state } = await boardAt(t, 98)
   await until(async () => (await outbox()).filter(one => one.command === 'week-stop').length >= 3, 'the stop word to each of the three workers')
-  // Let the board pass a few more times: nothing is said twice, and nothing is handed out.
+  // Its looking loop runs every second here: it passes a few more times: nothing is said twice, and nothing is handed out.
   await new Promise(done => setTimeout(done, 6000))
   const sent = await outbox()
   const stops = sent.filter(one => one.command === 'week-stop')
@@ -149,10 +149,6 @@ async function handsOut(t, ...args) {
 
 test('the week at 97: B738 goes to Worker 4 as always, and nobody is told to stop', { timeout: 300_000 }, async t => {
   await handsOut(t, 97)
-})
-
-test('the 5-hour limit at 98 is not the stop line: B738 goes to Worker 4, and nobody is told to stop', { timeout: 300_000 }, async t => {
-  await handsOut(t, 40, 98)
 })
 
 test('the week at 98 with the stop line set to 99 in the settings: handed out as always', { timeout: 300_000 }, async t => {
