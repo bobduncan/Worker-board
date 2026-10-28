@@ -1408,6 +1408,7 @@ async function tick($: EngineInterface): Promise<void> {
     // tried again at the next tick
   }
   await settleClear($)
+  if (myself === null) await whoamiAgain($)
   await refreshChats($)
   await keepBoards($)
   await takeFromBoard($)
@@ -1486,6 +1487,29 @@ async function joinByTitle($: EngineInterface, title: unknown, state: ChatFile['
 const WHOAMI_MS = 60_000
 /** A whoami that got no name is asked again this soon. */
 const WHOAMI_AGAIN_MS = 5_000
+/**
+ * 2026-10-28 (the person's choice A, after the trace showed it): the app lists a new conversation under its chat only after
+ * that conversation's first answer, so a chat started anew or cleared cannot be named at its first prompt. It asks again on
+ * its own at every tick while it does not know who it is: every WHOAMI_AGAIN_MS for this long after its start or clear,
+ * then once a minute (a chat of no list asks no more than that).
+ */
+const WHOAMI_EAGER_MS = 2 * 60_000
+let eagerSince: number | null = null
+let lastWhoamiTick = -Infinity
+
+/** The tick's whoami while the chat does not know who it is (`myself` null). Never throws. */
+async function whoamiAgain($: EngineInterface): Promise<void> {
+  try {
+    const now = await $.clock.now()
+    const every = eagerSince !== null && now - eagerSince < WHOAMI_EAGER_MS ? WHOAMI_AGAIN_MS : WHOAMI_MS
+    if (now - lastWhoamiTick < every) return
+    lastWhoamiTick = now
+    trace($, 'whoami again', {})
+    await joinBySession($)
+  } catch {
+    // asked again at a later tick
+  }
+}
 /** When this process last asked (when the question went out, answered or not). */
 let lastWhoami = -Infinity
 
@@ -1949,6 +1973,8 @@ async function clearThenPrepare<T>($: EngineInterface, ran: Promise<T>): Promise
   const answer = await ran
   // The trace's clock is read so that a session ending meanwhile throws nothing out of the clear.
   const from = await Promise.resolve($.clock.now()).catch(() => 0)
+  // A clear starts the eager asking again: the cleared conversation is listed by the app only after its first answer.
+  eagerSince = from
   trace($, 'clear ran', { carried: carried !== null, clearing: clearing !== null, moving: movingAfterClear !== null, myself: myself?.name ?? null, role: lastRole })
   try {
     const prepare = carried !== null || clearing !== null
@@ -1982,7 +2008,9 @@ export const register: Register = on => {
     const view = await load($)
     ensureWatch($)
     const hasChats = await startChats($)
-    // 2026-10-28: the chat learns who it is from the board, by its session id (the app's title may never reach the mod).
+    // 2026-10-28: the chat learns who it is from the board, by its session id (the app's title may never reach the mod);
+    // until it does, its tick asks again (`whoamiAgain`).
+    eagerSince = await $.clock.now()
     await joinBySession($)
     // B753: the board's hands: this chat sends the start, wake and resume lines the board holds, by code.
     startHands($)

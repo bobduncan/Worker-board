@@ -3240,17 +3240,19 @@ describe('2026-10-28: a chat learns which chat it is from the board, by its sess
     await clock.advance(1500)
     await started
     expect(fileOf(held)).toBeNull()
-    // A prompt a minute on is held the same way, and goes in unnamed.
+    // A prompt a minute on is held the same way, and goes in unnamed. Meanwhile the unnamed chat asked again on its own
+    // (the tick's `whoamiAgain`, 2026-10-28), each ask held the same way.
     await clock.advance(60_000)
     await settled()
+    const before = held.whoamis.length
+    expect(before).toBeGreaterThan(1)
     const submitted = prompt($, 'hello')
-    for (let i = 0; i < 100 && held.whoamis.length < 2; i++) await real(5)
-    expect(held.whoamis.length).toBe(2)
+    for (let i = 0; i < 100 && held.whoamis.length <= before; i++) await real(5)
+    expect(held.whoamis.length).toBe(before + 1)
     expect(held.typedIn).toEqual([])
     await clock.advance(1500)
     await submitted
     expect(held.typedIn).toEqual(['composer:framed:hello'])
-    expect(held.whoamis.length).toBe(2)
   })
 
   test('no board file: no question at all', async ($, on) => {
@@ -3364,6 +3366,22 @@ describe('2026-10-28: a chat learns which chat it is from the board, by its sess
       await prompt($, 'and again')
       expect(startsWith(w, 1, 'This chat is')).toBe(false)
       expect(movedTo(w)).toBe('units-2')
+    })
+
+    // 2026-10-28, the person's choice A: the app lists a new conversation only after its first answer.
+    test('unnamed at its start, it asks again on its own: named seconds later, its card moves, and its next prompt carries the words', async ($, on) => {
+      const clock = mock.clock(on)
+      const w = fresh(cardOf('Units'), { name: null, role: null, card: null })
+      stand(on, w)
+      await $.session.start(START)
+      expect(movedTo(w)).toBeUndefined()
+      // The app has listed the conversation now: the tick's next ask names it.
+      w.whoami = { name: 'Units', role: 'worker', card: 'units' }
+      await clock.advance(5_000)
+      for (let i = 0; i < 100 && movedTo(w) === undefined; i++) await real(5)
+      expect(movedTo(w)).toBe('units-2')
+      await prompt($)
+      expect(startsWith(w, 0, 'This chat is')).toBe(true)
     })
 
     test('a worker the person cleared (no mark on the card) is told the same, without a log', async ($, on) => {
