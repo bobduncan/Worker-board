@@ -4887,7 +4887,9 @@ which of these things are obsolete." The flow, one piece per place:
    dropped keeps its state) and is withdrawn; any other ask is withdrawn with the why, its chat not woken (a step waiting on
    it goes on); an incident is closed with the why (the one case where the person closes an incident, as the partner can,
    B685; `drop X<n>` stays the partner's). An id the check does not hold refuses the whole call; an item that was answered
-   meanwhile is named as not closed and the rest close. Nothing closes by itself.
+   meanwhile is named as not closed and the rest close. Since 2026-10-31 (the person: "remove items from my needs attention
+   if it considers it obsolete otherwise to leave it") the partner's answer (`work obsolete`) closes its obsolete
+   verdicts this same way at once (`closeFromCheck`); the page has no ticks any more, and unsure and open ones stay.
 5. **The failure shows itself**: the watch rule `obsolete-wrong` (`rules/watch.mjs`) opens one incident when something the
    person closed from the check was still needed: an ask withdrawn that way (its History says "person: withdrawn: obsolete:
    ...") that the same chat filed again within a day (same title, filed after the close), or an incident closed that way

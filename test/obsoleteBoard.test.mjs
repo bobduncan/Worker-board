@@ -104,7 +104,7 @@ async function garden(t, { advisor = '' } = {}) {
 }
 const idOf = reply => reply.body.result?.id ?? reply.body.id
 
-test('Find obsolete items on a running board: one word to the partner, its verdicts, the close of the ticked, none woken', { timeout: 300_000 }, async t => {
+test('Find obsolete items on a running board: one word to the partner, its verdicts close the obsolete ones at once, none woken', { timeout: 300_000 }, async t => {
   const g = await garden(t)
   assert.equal((await g.asChat('Digger', { action: 'take', id: 'B12', branch: 'b12' })).status, 200)
   const first = await g.asChat('Digger', { action: 'ask', of: 'B12', kind: 'provide', text: 'Which spade?' })
@@ -132,20 +132,15 @@ test('Find obsolete items on a running board: one word to the partner, its verdi
   assert.equal((await g.asChat('Advisor', { action: 'obsolete', points: ['obsolete: Q99 · stale · none'] })).status, 400, 'an id the check does not hold')
   const verdicts = await g.asChat('Advisor', { action: 'obsolete', points: [`obsolete: ${q1} · the hedge is planted · B12 is in progress`, `open: ${q2} · the board still needs it · no restart since`] })
   assert.equal(verdicts.status, 200, JSON.stringify(verdicts.body))
-  const done = (await g.state()).obsolete
-  assert.deepEqual(done.rows.map(row => [row.id, row.verdict, row.ticked]), [[q1, 'obsolete', true], [q2, 'open', false]])
-
-  // The close: only the ticked id; the ask is withdrawn, and no word goes to the chat that asked.
-  const before = (await g.outbox()).length
-  assert.equal((await g.asChat('Advisor', { action: 'obsolete-close', ids: [q1] })).status, 403, 'a chat never closes')
-  const closed = await g.asPerson('/api/work', { action: 'obsolete-close', ids: [q1] })
-  assert.equal(closed.status, 200, closed.body)
+  // The person, 2026-10-31: the obsolete one closes at once, as the person would; the open one stays; nobody is woken.
+  assert.deepEqual(verdicts.body.result?.closed ?? verdicts.body.closed, [q1])
   assert.match(await g.item(q1), /State: withdrawn/)
-  assert.match(await g.item(q1), /person: withdrawn: obsolete: the hedge is planted/)
+  assert.match(await g.item(q1), /withdrawn: obsolete: the hedge is planted/)
   assert.match(await g.item(q2), /State: open/)
-  assert.deepEqual((await g.outbox()).slice(before).filter(message => message.to === 'Digger'), [], 'nobody is woken')
+  assert.deepEqual((await g.outbox()).filter(message => message.to === 'Digger' && message.command !== 'work'), [], 'nobody is woken')
   const left = (await g.state()).obsolete
-  assert.deepEqual(left.rows.map(row => row.id), [q2])
+  assert.deepEqual(left.rows.map(row => [row.id, row.verdict]), [[q2, 'open']])
+  assert.equal((await g.asChat('Advisor', { action: 'obsolete-close', ids: [q2] })).status, 403, 'a chat never closes by hand')
   assert.equal(left.last.closed, 1)
 })
 
