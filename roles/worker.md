@@ -47,6 +47,11 @@ into your chat, are in `protocol.md` beside this file: keep to them, or the boar
   started with a temporary profile folder of yours, and close it: none of yours is left running when you report. Left
   behind, they add up and take the computer's memory. Never close the user's own browser: it runs with the user's own
   profile, not a temporary one.
+- Work already built (B818, X106): when you find the work of your taken step already stands on the base branch from
+  other steps, do not report (a report names no work of its own and is refused, again and again). At once file `work ask`
+  under your step, kind decide, blocking: "Close B<id> as already done?", naming those steps and their merged commits.
+  The board's refusal "no file named" says the same: nothing built because it already exists? Do not report again, ask
+  to close it.
 - A step ends with `work report` and nothing else: no message to the main chat ends it (B301). Information for the
   main chat goes with `work note`; a message to it, when you need one, starts "Note from <your title>: ..." or
   "Question from <your title>: ...", and your card then says you wait for its answer.

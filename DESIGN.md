@@ -2254,6 +2254,26 @@ or failed, whose purpose is gone closes at a refresh; every other command (scann
 past its keep is closed by the sweep, and failed is judged. A failed word of minutes (not `waitsLong`) is judged by
 its time: rule 8 names it for its two hours, the summary for a day.
 
+### A failure that passes by itself (B813)
+
+X2 came back after B532 (count 25): the word of 2026-10-30 23:13 that set Worker 4 back to its usual setting failed
+once ("The app has not reported its model list yet; try again in a moment."), and the board was off from 23:13:29 to
+23:41:40. Back on, the word was older than a steering word is kept (10 minutes), so the outbox did not try it again,
+and the effort plan's half-hour dedupe (`AGAIN_MS`) held a new one: nothing went, and rule 8 named it for two hours.
+The outbox's failures of that week by their why (`src/work/passing.mjs`): passing by themselves the auto mode
+classifier's no verdict (8), a prompt removed from the queue (2), a scheduled run already running (1), a chat still
+working (1), the model list not reported yet (1); never passing a scheduled task not found (6) and a tool that needs a
+person's approval (2). Now:
+
+1. `passesBySelf(why)`: a why that never passes (not found, a person's approval, not allowed) is not tried again
+   (`retryFailed`) and rule 8 names it at once; every other is, a minute after it failed, three tries in all.
+2. A worker's effort word that failed for a passing reason and is not tried again (too old) holds no new word within the
+   half hour (`goesAgain`, effort.mjs, in the plan and in deliver.mjs): the plan, which judges what the worker needs
+   now, sends a new word with its own time, while fewer than three words for that setting failed in a row.
+3. The sweep closes a worker's effort word, waiting or failed, once a newer one for the same worker stands ("superseded
+   by a newer word for Worker 4's setting (…)") or the worker runs at its setting already.
+4. Rule 8's evidence names a failed word's last why. `test/work/passingFailure.test.mjs` replays the real case.
+
 ## A step's title without its note (B292)
 
 The person, 2026-10-17, of Support's lane showing B29's whole line: "tasks still dont have a compact name. i dont
@@ -4476,7 +4496,10 @@ work, and passes wording with a warning (principles 1 and 8: the board tidies, t
   the merged commit or the branch; no result is named (the work API already refuses an empty one); for work outside git,
   work that sits in a repository (the result names a file in one: "report that work with its merged commit", so the
   base against its remote is still checked), and a report whose Touches and result together name no file that is there
-  ("not there: ..." or "no file named"). The independent review of the same day kept these two as refusals.
+  ("not there: ..." or "no file named"). The independent review of the same day kept these two as refusals. B818 (X106, a step
+  whose work other steps had already built was reported three times, each refused): "no file named" adds a second line,
+  "nothing built because it already exists? Do not report again: ask to close it", and the worker's rule says the same
+  before any report (`roles/worker.md`): ask "Close B<id> as already done?" at once, naming those steps and their merges.
 - *Warns for outside git.* Touches is a plan written before the work, often relative to a repository, and the worker
   cannot edit it: a Touches path that is not there warns ("Touches names files not there: ...") once the result names
   a file that is; so does a path in the result's prose that is not there (it misread words such as "done/level.md",
