@@ -353,7 +353,7 @@ export async function deliverWork({ state, dir, outbox, apply, now, maxChars, ne
   // its model with it: not when the newest word for the chat is one for the same setting of the last half hour, also
   // when two refreshes plan it before the state shows it.
   for (const one of plan.efforts ?? []) {
-    const last = lastWord(outbox.outbox(), one.chat, state.chatPrefix ?? '')
+    const last = lastWord(outbox.outbox(), one.chat, state.chatPrefix ?? '', one.session ?? null)
     if ((last !== undefined && sameTarget(last, one.level, one.model ?? null) && now - last.at < AGAIN_MS) || one.to === null) continue
     const message = { id: newId(), at: now, ...effortWords(one), state: 'waiting' }
     try {

@@ -175,8 +175,9 @@ export const withEffort = body => withLine(body, 'effort', /^(?:[-*]\s+)?Effort:
  */
 export const withModel = body => withLine(body, 'model', /^(?:[-*]\s+)?Model:\s*(?:sonnet|opus)(?![\w-])/i)
 
-/** The newest word that set `chat`'s model and effort, or undefined. */
-export const lastWord = (sent, chat, prefix = '') => sent.findLast(message => message.command === 'worker-effort' && plain(message.about, prefix) === plain(chat, prefix))
+/** The newest word that set `chat`'s model and effort, or undefined; B820: with `session`, only a word for that app session. */
+export const lastWord = (sent, chat, prefix = '', session = null) => sent.findLast(message => message.command === 'worker-effort' && plain(message.about, prefix) === plain(chat, prefix)
+  && (session === null || sessionOf(message) === null || sessionOf(message) === session))
 
 /** Whether a word asked for `level` and the model id `model` (null: no model, the effort alone). */
 export const sameTarget = (word, level, model) => word.effort === level && (word.model ?? null) === (model ?? null)
@@ -225,9 +226,13 @@ export function effortWords({ to, chat, session, level, model = null, usual, usu
     : ['set model and effort', `Chat: ${chat}`, ...id, ...forStep, `Model: ${model}`, `Effort: ${level}`, `Why: ${why}`]
   return {
     to, ask: null, step: null, title: null, version: null, verdict: null, command: 'worker-effort', about: chat, effort: level, model, usual, usualModel, forStep: step,
+    session: id.length === 0 ? null : session,
     text: text.join('\n'),
   }
 }
+
+/** B820: the app session a word named: its `session`, else (a word of before) the "Session:" line of its text, or null. */
+const sessionOf = word => (typeof word.session === 'string' && word.session !== '' ? word.session : /^Session: (\S+)$/m.exec(String(word.text ?? ''))?.[1] ?? null)
 
 const clockOf = ms => { const at = new Date(ms); return `${String(at.getHours()).padStart(2, '0')}:${String(at.getMinutes()).padStart(2, '0')}` }
 
@@ -287,7 +292,10 @@ export function effortPlan({ items, lanes = [], deliveries = [], sent = [], now,
     const next = working ?? (delivery === undefined ? undefined : items.get(delivery.id)) ?? holding
       ?? steps.filter(item => owned(item, lane.name) && valueOf(item, 'State') === 'queued' && blockersOpen(item, { store: { items } }).length === 0)
         .sort((a, b) => fixFirst(a, b) || byId(valueOf(a, 'Id'), valueOf(b, 'Id')))[0]
-    const mine = sent.filter(message => message.command === 'worker-effort' && plain(message.about, prefix) === plain(lane.name, prefix))
+    // B820, the fix of X110: a word counts only for the app session it named. A fresh chat under the same name (another
+    // session, running the app's default) is not set by the word of the old one: it is asked again at the next reading.
+    const mine = sent.filter(message => message.command === 'worker-effort' && plain(message.about, prefix) === plain(lane.name, prefix)
+      && (lane.appSession == null || sessionOf(message) === null || sessionOf(message) === lane.appSession))
     const last = mine.at(-1)
     const live = mine.filter(message => !LOST.includes(message.state))
     const current = typeof lane.effort === 'string' && EFFORTS.includes(lane.effort) ? lane.effort : null

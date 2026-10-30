@@ -5,7 +5,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import { AGAIN_MS, HOLD_MS, effortOf, effortPlan, effortWords, parseEffort, withEffort } from '../../src/work/effort.mjs'
+import { AGAIN_MS, HOLD_MS, effortOf, effortPlan, effortWords, lastWord, parseEffort, withEffort } from '../../src/work/effort.mjs'
 
 const NOW = new Date(2026, 9, 21, 9, 0).getTime()
 
@@ -166,4 +166,26 @@ test('the review: the usual level is the settings\', also beside an older word t
 test('the review: an effort line in questions or what given as one text', () => {
   assert.deepEqual(withEffort({ questions: 'Effort: low: a text fix\nShould it fold? Advised: yes' }), { questions: ['Should it fold? Advised: yes'], effort: 'low: a text fix' })
   assert.deepEqual(withEffort({ what: 'A field' }), { what: 'A field' })
+})
+
+test('B820 (X110): a word counts only for the session it named, so a fresh chat under the same name is set at once', () => {
+  const items = itemsOf(step('B810', { Owner: 'Units', State: 'in progress' }, { Effort: ['high · a fix'] }))
+  const old = { ...word('Units', 'high', 'medium', NOW - 20 * 60_000), session: 'local_old', text: 'set effort\nChat: Units\nEffort: high\nSession: local_old' }
+  // The old session was set; the lane now shows a new session on the app's default: a new word goes.
+  const fresh = effortPlan({ items, lanes: [lane('Units', { appSession: 'local_new', effort: 'medium' })], sent: [old], now: NOW, main: 'Main' })
+  assert.deepEqual(fresh.words.map(one => [one.session, one.level]), [['local_new', 'high']])
+  assert.equal(fresh.runs.get('Units').asked, null)
+  // The same session: the word still counts as asked.
+  assert.deepEqual(effortPlan({ items, lanes: [lane('Units', { appSession: 'local_old', effort: 'medium' })], sent: [old], now: NOW, main: 'Main' }).words, [])
+  // A word of before (no session field) names its session in its text: read from there.
+  const legacy = { ...old, session: undefined }
+  assert.equal(effortPlan({ items, lanes: [lane('Units', { appSession: 'local_new', effort: 'medium' })], sent: [legacy], now: NOW, main: 'Main' }).words.length, 1)
+  // A word that names no session at all, or a lane whose session the board does not know, counts as before.
+  assert.deepEqual(effortPlan({ items, lanes: [lane('Units', { appSession: null, effort: 'medium' })], sent: [old], now: NOW, main: 'Main' }).words, [])
+  assert.deepEqual(effortPlan({ items, lanes: [lane('Units', { appSession: 'local_new', effort: 'medium' })], sent: [word('Units', 'high', 'medium', NOW - 60_000)], now: NOW, main: 'Main' }).words, [])
+  // The word carries its session; lastWord filters by it (deliver.mjs asks before sending).
+  assert.equal(effortWords({ to: 'Main', chat: 'Units', session: 'local_new', level: 'high', usual: 'medium', step: 'B810', why: 'x' }).session, 'local_new')
+  assert.equal(lastWord([old], 'Units', '', 'local_new'), undefined)
+  assert.equal(lastWord([old], 'Units', '', 'local_old'), old)
+  assert.equal(lastWord([old], 'Units'), old)
 })
