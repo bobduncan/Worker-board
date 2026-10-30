@@ -23,10 +23,11 @@ export const CODE_JOBS = [
   // tool with no rule of the person's (seen 2026-10-28: no settings file names it), so nothing is missing for it.
   { key: 'usage', title: 'Read your usage limits', tools: [] },
   // The person, 2026-10-30 (a worker asked approval to start the game: "ensure its a generic permission also in the setup
-  // guide"): no job of the code's but the workers' own tools: a worker starts, checks and stops the game's
-  // preview (the app's built-in browser, from the project's own .claude/launch.json) with no popup only once these are
-  // allowed. `settingsOnly`: the settings files alone say whether it is (no chat's claim reports it).
-  { key: 'preview', title: 'Start the game preview with no popup', tools: ['mcp__Claude_Browser__preview_start', 'mcp__Claude_Browser__preview_stop', 'mcp__Claude_Browser__preview_list', 'mcp__Claude_Browser__preview_logs'], settingsOnly: true },
+  // guide"): your own preview of the game (the app's built-in browser, from the project's .claude/launch.json) starts
+  // with no popup only once these are allowed. B814: the workers do not use it; each starts its test server as a
+  // plain background command on a port of its own. `settingsOnly`: the settings files alone say whether it is (no
+  // chat's claim reports it).
+  { key: 'preview', title: 'Start your own game preview with no popup', tools: ['mcp__Claude_Browser__preview_start', 'mcp__Claude_Browser__preview_stop', 'mcp__Claude_Browser__preview_list', 'mcp__Claude_Browser__preview_logs'], settingsOnly: true },
 ]
 /** A chat's claim of the hands counts this long: they come every 20 s while it runs. */
 export const CLAIM_MS = 2 * 60_000

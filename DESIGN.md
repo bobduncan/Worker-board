@@ -870,6 +870,14 @@ just like now". The picture is `art-inbox/worker-board/b124/2026-10-14-b124-resu
   instead of "by itself" (the shared task does not cover the slots); its line to paste (`taskWords`) makes exactly the
   missing routines. The shared task alone still counts as "by itself". Main, Advisor and Supervisor stay normal chats;
   making the routines on a PC is the person's paste, not the board's.
+
+  *A worker's test server (B814, the person, 2026-10-30).* A new work folder meant a new entry in `.claude/launch.json`,
+  and the app asks the person to allow each new server command ("Allow Claude to start the w3-b435-dev server?"; only
+  "Allow once"). So a worker starts its game's test server as a plain background command on a port of its own: `workerPort`
+  (`src/ports.mjs`) gives "Worker N" the project's game port + `WORKER_PORTS_FROM` (90) + N (N 1 to 9), the take's answer names it
+  ("Test server port for Worker N"), and `gamePortFor` keeps the board's play servers below 90 so the two never clash.
+  It is stopped before the worker's report or drop. The setup check's `preview` row is now only for the person's own
+  preview ("Start your own game preview with no popup"). The launch file keeps the person's own entries.
 - *By itself, once.* When the list holds the main chat and no worker (the advisor is no worker), the board asks
   for three (`spawnWhenAlone`), at its minute's look, and only while the main chat's chat is open, so the word is
   taken and not lost. It asks once per empty list: again only after a worker was there since that ask (the
