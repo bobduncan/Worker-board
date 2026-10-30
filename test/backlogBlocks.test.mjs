@@ -53,7 +53,7 @@ const text = node => [node.textContent, ...(node.children ?? []).map(text)].join
 const all = (node, test) => [...(test(node) ? [node] : []), ...(node.children ?? []).flatMap(one => all(one, test))]
 const page = { document: { createElement: tag => new Node(tag) }, problems: new Map(), sending: new Set() }
 vm.runInNewContext([
-  'const MIN = 60000', cut('times'), cut('coordinate'), fn('el'), fn('fixChip'), constant('BLOCK_EMPTY'), fn('drawBlock'), fn('blockChip'), fn('blockLine'), fn('queueButton'), fn('editPart'),
+  'const MIN = 60000', cut('times'), cut('coordinate'), fn('el'), fn('fixChip'), constant('BLOCK_EMPTY'), fn('drawBlock'), fn('blockChip'), fn('blockLine'), fn('queueChoice'), fn('queueButton'), fn('editPart'),
   'Object.assign(this, { coordinateList, backlogBlocks, isBlockOpen, goalPlace, drawBlock, blockLine, BACKLOG_BLOCKS })',
 ].join('\n'), page)
 
