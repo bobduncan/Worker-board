@@ -64,7 +64,7 @@ test('which failures pass by themselves: the outbox\'s whys of the last week', (
   for (const why of [WHY, 'The server-side auto mode classifier gave no verdict for mcp__ccd_session_mgmt__send_message: the request timed out',
     'a hook dropped it: the prompt was removed from the queue before it ran', 'Scheduled task "x" is already running in session local_1. Follow it there.',
     'Session local_1 ("Lava Tactics - Worker 3") was not archived: it is still working (a turn in progress)', undefined]) assert.equal(passesBySelf(why), true, why)
-  for (const why of ['Scheduled task "lava-tactics-project-start-worker-6" not found. Use list_scheduled_tasks to see available tasks.',
+  for (const why of ['Scheduled task "garden-start-worker-6" not found. Use list_scheduled_tasks to see available tasks.',
     "mcp__scheduled-tasks__update_scheduled_task needs a person's approval, and nobody has opened this scheduled run"]) assert.equal(passesBySelf(why), false, why)
 })
 
@@ -136,7 +136,7 @@ test('a failure that passes, while the word is fresh: the outbox tries it again 
 
 test('a failure that never passes is not tried again and is named once, with its why', async () => {
   const at = 1793398390260
-  const why = 'Scheduled task "lava-tactics-project-start-worker-6" not found. Use list_scheduled_tasks to see available tasks.'
+  const why = 'Scheduled task "garden-start-worker-6" not found. Use list_scheduled_tasks to see available tasks.'
   const spawn = { id: 's1', at, to: 'Main', ask: null, command: 'spawn', about: 'Worker 6', text: 'spawn workers\nCount: 1', state: 'failed', failedAt: at + 5_000, tries: 1, why }
   const outbox = outboxOf([spawn])
   for (const now of [at + 2 * MIN, at + 4 * MIN, at + 8 * MIN]) await sweepOutbox({ dir: null, outbox, state: { chats: lanesAt('low') }, now, keep })
