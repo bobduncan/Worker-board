@@ -3651,7 +3651,10 @@ function pinClick(button) {
 // Redesign Part 2: the pin's buttons in a task's window.
 $('details').addEventListener('click', event => {
   const button = event.target.closest('[data-pin-move], [data-pin-step], [data-unpin-step]')
-  if (button !== null) pinClick(button)
+  if (button !== null) return pinClick(button)
+  // The person, 2026-10-30: the window's "Add to queue" or "Remove", as a Backlog row's.
+  const queue = event.target.closest('[data-queue-add], [data-queue-remove]')
+  if (queue !== null) queueClick(queue)
 })
 
 // B143: "✕ Remove" asks at once for a free worker with nothing queued, else opens (or closes) the warning;
@@ -15709,17 +15712,17 @@ function backlogBlocks(list, readyList, { showDone = false } = {}) {
         // T9.1.1: a Quality Assurance task goes to any free worker but the ones that built the step it checks (`notBy`).
         who: kept !== null ? `for ${kept} only` : (one.keptFor ?? null) !== null ? `kept for ${one.keptFor}` : (one.notBy ?? []).length > 0 ? `any free worker but ${one.notBy.join(', ')}` : 'any free worker',
         note: [(one.refused ?? null) === null ? null : `not given to ${one.refused.chat}: ${one.refused.why}`, one.note ?? null].filter(Boolean).join(' · '),
-        canRemove: isAdded || kept !== null,
+        canRemove: queueChoice({ inQueue: true, isAdded, pinned: kept }).canRemove,
       })
       continue
     }
     if (state === 'refined') {
       const hold = typeof step.id === 'string' ? held.get(step.id) ?? null : null
-      const canAdd = hold?.choice === true && !base.isAdded
-      rows.refined.push({ ...base, who: forWho, canAdd, why: canAdd ? '' : hold?.why ?? '', canRemove: !canAdd && isOwn })
+      const { canAdd, canRemove } = queueChoice({ state, isAdded: base.isAdded, pinned, choice: hold?.choice })
+      rows.refined.push({ ...base, who: forWho, canAdd, why: canAdd ? '' : hold?.why ?? '', canRemove })
       continue
     }
-    rows.new.push({ ...base, who: forWho, wait: step.status === 'you' ? 'waits for your answer' : REFINE_WAITS[step.refineState] ?? '', canRemove: isOwn })
+    rows.new.push({ ...base, who: forWho, wait: step.status === 'you' ? 'waits for your answer' : REFINE_WAITS[step.refineState] ?? '', canRemove: queueChoice({ isAdded: base.isAdded, pinned }).canRemove })
   }
   const sorted = {
     progress: rows.progress.sort((a, b) => Number(b.isFix) - Number(a.isFix) || a.order - b.order || blockNumber(b.step) - blockNumber(a.step)),
@@ -15754,16 +15757,41 @@ let coordinateFilter = 'all'
 let coordinateGoal = null
 
 /**
- * Redesign Part 2 (2026-10-25): the board hands out every task; the person may pin a new or refined task (open, with
- * an id) to a worker in its window, and the board gives it to that worker only. Pinned: "Pinned to <worker>" with
- * Unpin and Move to. Not pinned: "Pin to" with the workers beside it. Null for any other task, or without a worker on
- * the board. The Backlog tab's blocks (2026-10-25): only in the window; a row has "Add to queue" instead.
+ * The person's choice on a new or refined task, the same in a Backlog row and in its window: "Add to queue" (`canAdd`)
+ * on a refined task the ready list holds for their choice (`choice`) and they did not add yet; "Remove" (`canRemove`) on
+ * their own (added, or pinned), in the queue (`inQueue`) or not.
+ */
+function queueChoice({ state = null, isAdded = false, pinned = null, inQueue = false, choice = false }) {
+  const isOwn = isAdded || pinned !== null
+  const canAdd = !inQueue && state === 'refined' && choice === true && !isAdded
+  return { canAdd, canRemove: !canAdd && isOwn }
+}
+
+/**
+ * Redesign Part 2 (2026-10-25): the board hands out every task; a pinned task's window says "Pinned to <worker>" with
+ * Unpin and Move to. Not pinned: the person, 2026-10-30 ("we replaced pin to worker 1 option with add to queue. so also
+ * change this in the popups"): "Add to queue" or "Remove" as its Backlog row has (`queueChoice`, `queueButton`), with
+ * where it stands. Null for any other task, or with nothing to say.
  */
 function pinPart(step, state) {
   if (step.status !== 'open' || typeof step.id !== 'string') return null
   const workers = (state.chats ?? []).filter(one => !one.isMain && !one.isLeftover).map(one => one.name)
   const pinned = step.item?.pinned ?? null
-  if (workers.length === 0 && pinned === null) return null
+  if (pinned === null) {
+    const one = (state.readyList?.ready ?? []).find(ready => ready.id === step.id)
+    const hold = (state.readyList?.held ?? []).find(held => held.id === step.id) ?? null
+    const isAdded = (step.item?.queuedBy ?? null) !== null || (one?.added ?? null) !== null
+    const choice = queueChoice({ state: step.item?.state ?? null, isAdded, inQueue: one !== undefined, choice: hold?.choice })
+    const button = queueButton({ step, pinned, ...choice })
+    const where = one !== undefined ? 'In the queue: the first free worker takes it.'
+      : choice.canAdd ? 'Not in the queue: it waits for your choice.' : hold?.why ?? ''
+    if (button === null && where === '') return null
+    const line = el('div', 'step-queue-line')
+    if (button !== null) line.append(button, ' ')
+    if (where !== '') line.append(el('span', 'muted', where))
+    return line
+  }
+  // Pinned: Unpin, and Move to the other workers.
   const key = `pin:${step.id}`
   const line = el('div', 'step-queue-line')
   const pick = (label, others) => {
@@ -15786,14 +15814,9 @@ function pinPart(step, state) {
     one.setAttribute('aria-label', `${label}: ${step.id} ${step.title}`)
     return one
   }
-  if (pinned !== null) {
-    line.append(el('span', 'step-pinned', `Pinned to ${pinned}`), ' ', button('Unpin', 'unpinStep', 'Back on the list: the board gives it to the first free worker'))
-    const others = workers.filter(name => name !== pinned)
-    if (others.length > 0) line.append(' ', button('Move to', 'pinStep', 'Pin it to another worker'), pick('Move to', others))
-  } else {
-    line.append(button('Pin to', 'pinStep', 'The board gives it to this worker only, once nothing holds it'), pick('Pin to', workers))
-    line.append(el('span', 'muted', ' Not pinned: the first free worker takes it once it is in the queue.'))
-  }
+  line.append(el('span', 'step-pinned', `Pinned to ${pinned}`), ' ', button('Unpin', 'unpinStep', 'Back on the list: the board gives it to the first free worker'))
+  const others = workers.filter(name => name !== pinned)
+  if (others.length > 0) line.append(' ', button('Move to', 'pinStep', 'Pin it to another worker'), pick('Move to', others))
   if (problems.has(key)) line.append(el('p', 'problem', problems.get(key)))
   return line
 }

@@ -382,20 +382,20 @@ test('Settings holds what the step\'s window had: worker, state, model and effor
   const text = node => [node.textContent, ...(node.children ?? []).map(text)].join(' ')
   const find = (node, test) => [...(test(node) ? [node] : []), ...(node.children ?? []).flatMap(one => find(one, test))]
   const sandbox = { document: { createElement: tag => new Node(tag) }, problems: new Map(), sending: new Set() }
-  const names = ['el', 'section', 'copyRow', 'flowPart', 'itemPart', 'holding', 'pinPart', 'pinChangePart', 'editPart', 'taskSettings', 'taskSettingsTab']
+  const names = ['el', 'section', 'copyRow', 'flowPart', 'itemPart', 'holding', 'queueChoice', 'queueButton', 'pinPart', 'pinChangePart', 'editPart', 'taskSettings', 'taskSettingsTab']
   vm.runInNewContext(`${cut('item')}\n${cut('taskwindow')}\n${names.map(fn).join('\n')}\nObject.assign(this, { taskSettingsTab })`, sandbox)
   const item = {
     id: 'B12', state: 'in progress', owner: 'Worker 3', summary: [], picture: null, goal: 'G5', what: [], requirements: [], touches: [], history: [], checked: null, fixOf: null,
     effort: { level: 'high', isSet: true, why: 'the window is used everywhere' }, model: { family: 'sonnet', isSet: true, why: 'the design is agreed' },
   }
   const strip = { states: [{ name: 'taken', tone: 'plain' }, { name: 'in progress', tone: 'working' }], isKnown: true, state: 'in progress', next: ['review'] }
-  const state = { chats: [{ name: 'Worker 1', isMain: false, isLeftover: false, folders: [] }, { name: 'Worker 3', isMain: false, isLeftover: false, folders: [{ branch: 'b12-x', path: 'C:/work/b12' }] }], otherFolders: [], taskTimes: { efforts: [] } }
-  const step = { id: 'B12', title: 'Build the shop', status: 'open', item: { pinned: null }, branch: 'b12-x' }
+  const state = { chats: [{ name: 'Worker 1', isMain: false, isLeftover: false, folders: [] }, { name: 'Worker 3', isMain: false, isLeftover: false, folders: [{ branch: 'b12-x', path: 'C:/work/b12' }] }], otherFolders: [], taskTimes: { efforts: [] }, readyList: { ready: [], held: [{ id: 'B12', choice: true }] } }
+  const step = { id: 'B12', title: 'Build the shop', status: 'open', item: { pinned: null, state: 'refined' }, branch: 'b12-x' }
   const nodes = sandbox.taskSettingsTab({ item, need: null, subject: { step }, lane: null, step, strip, state })
   const all = nodes.map(text).join(' | ')
   for (const word of ['Worker', 'Worker 3', 'State', 'in progress', 'Model and effort', 'Sonnet', 'high', 'Flow', 'taken', 'Files / Branch', 'C:/work/b12', 'b12-x']) assert.ok(all.includes(word), `Settings lacks "${word}": ${all}`)
   const buttons = nodes.flatMap(one => find(one, node => node.tag === 'button'))
-  assert.deepEqual(plain(buttons.map(one => one.textContent).filter(one => one !== 'Copy')), ['Pin to', 'Close task', 'Delete task'])
+  assert.deepEqual(plain(buttons.map(one => one.textContent).filter(one => one !== 'Copy')), ['Add to queue', 'Close task', 'Delete task'])
   assert.deepEqual(plain(buttons.filter(one => one.dataset.editAction !== undefined).map(one => [one.dataset.editAction, one.dataset.editStep])), [['close', 'B12'], ['delete', 'B12']])
   // Pinned: Unpin; a step the board gave to its lane: the lane's note.
   const pinned = sandbox.taskSettingsTab({ item, need: null, subject: { step: { ...step, item: { pinned: 'Worker 1' } } }, lane: null, step, strip, state })

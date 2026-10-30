@@ -39,18 +39,27 @@ class Node {
 const text = node => [node.textContent, ...(node.children ?? []).map(text)].join('')
 const all = (node, test) => [...(test(node) ? [node] : []), ...(node.children ?? []).flatMap(one => all(one, test))]
 const page = { document: { createElement: tag => new Node(tag) }, problems: new Map(), sending: new Set() }
-vm.runInNewContext(`${fn('el')}\n${fn('pinPart')}\n${fn('pinChangePart')}\nObject.assign(this, { pinPart, pinChangePart })`, page)
+vm.runInNewContext(`${fn('el')}\n${fn('queueChoice')}\n${fn('queueButton')}\n${fn('pinPart')}\n${fn('pinChangePart')}\nObject.assign(this, { pinPart, pinChangePart })`, page)
 
 const STATE = { chats: [{ name: 'Lead', isMain: true, isLeftover: false }, { name: 'Worker 1', isMain: false, isLeftover: false }, { name: 'Worker 3', isMain: false, isLeftover: false }, { name: 'Old', isMain: false, isLeftover: true }] }
 const step = (more = {}) => ({ id: 'B12', title: 'Build the shop', status: 'open', item: { pinned: null }, ...more })
 
-test('a refined task\'s window has "Pin to" with the workers beside it; a pinned one says so, with Unpin and Move to', () => {
-  const free = page.pinPart(step(), STATE)
-  const buttons = all(free, node => node.tag === 'button')
-  assert.deepEqual(buttons.map(one => [one.textContent, one.dataset.pinStep]), [['Pin to', 'B12']])
-  const pick = all(free, node => node.tag === 'select')[0]
-  assert.equal(pick.dataset.pinTarget, 'B12')
-  assert.deepEqual(pick.children.map(one => one.value), ['Worker 1', 'Worker 3'], 'the workers of the list, no main chat, no leftover')
+test('a task\'s window has "Add to queue" or "Remove" as its Backlog row; a pinned one says so, with Unpin and Move to', () => {
+  // The person, 2026-10-30: "we replaced pin to worker 1 option with add to queue. so also change this in the popups".
+  const held = { ...STATE, readyList: { ready: [], held: [{ id: 'B12', choice: true, why: 'waits for your choice' }] } }
+  const free = page.pinPart(step({ item: { pinned: null, state: 'refined' } }), held)
+  assert.deepEqual(all(free, node => node.tag === 'button').map(one => [one.textContent, one.dataset.queueAdd]), [['Add to queue', 'B12']])
+  assert.deepEqual(all(free, node => node.tag === 'select'), [], 'no worker to pick')
+  assert.match(text(free), /Not in the queue: it waits for your choice\./)
+  const queued = { ...STATE, readyList: { ready: [{ id: 'B12', added: 'person' }], held: [] } }
+  const mine = page.pinPart(step({ item: { pinned: null, state: 'refined', queuedBy: 'person' } }), queued)
+  assert.deepEqual(all(mine, node => node.tag === 'button').map(one => [one.textContent, one.dataset.queueRemove]), [['Remove', 'B12']])
+  assert.match(text(mine), /In the queue: the first free worker takes it\./)
+  // The board's own pick (a fix, the focus): in the queue, nothing of the person's to remove.
+  const boards = page.pinPart(step({ item: { pinned: null, state: 'refined' } }), { ...STATE, readyList: { ready: [{ id: 'B12' }], held: [] } })
+  assert.deepEqual(all(boards, node => node.tag === 'button'), [])
+  // Not refined yet and not the person's: nothing to choose.
+  assert.equal(page.pinPart(step({ item: { pinned: null, state: 'new' } }), STATE), null)
   const pinned = page.pinPart(step({ item: { pinned: 'Worker 3' } }), STATE)
   assert.match(text(pinned), /^Pinned to Worker 3/)
   assert.deepEqual(all(pinned, node => node.tag === 'button').map(one => [one.textContent, one.dataset.unpinStep ?? one.dataset.pinStep]), [['Unpin', 'B12'], ['Move to', 'B12']])
