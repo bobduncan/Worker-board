@@ -24,7 +24,7 @@ const plain = (name, prefix) => {
 /**
  * The commits of `repos` (`[{ dir, base }]`) whose message names `id` as a word, newest first, at most a few, each with its day
  * and whether it came before or after the item was made (`at`, ms): a step built before its question was asked is as obsolete
- * as one built after. `["20ceb5f 2026-10-26 (after it was made) on main of lava-tactics: Terraces holes"]`. A repository that
+ * as one built after. `["20ceb5f 2026-10-26 (after it was made) on main of garden: Hedge planted"]`. A repository that
  * cannot be read counts for none.
  */
 export async function commitsNaming(id, at, { repos, run }) {
