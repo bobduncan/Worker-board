@@ -1,8 +1,10 @@
 // B311: "CPU for Claude". The person, 2026-10-18, while playing: the workers made the PC lag. B735 (2026-10-27): two
 // choices the person picks, no game detection. Full: everything the project started runs at Normal priority on all
-// cores. Low: the chats' trees, the board's own processes and what they started, the vite servers, codex and a headless
-// browser run at Idle priority on the last two cores, in efficiency mode where Windows has it, so a game or any other
-// program never slows. Never the desktop app, never a program the project did not start.
+// cores. Low: the chats' trees, what the board's own processes started, the vite servers, codex and a headless browser
+// run at Idle priority on the last two cores, in efficiency mode where Windows has it, so a game or any other program
+// never slows. Never the desktop app, never a program the project did not start. The board's own processes (its server
+// and its keeper) stay at Normal on all cores in Low too (the person, 2026-10-30, the board blank for minutes at Idle
+// while a game ran: "it should not slow the board itself").
 //
 // Windows only: the processes are read with one PowerShell call per refresh, and set with a second one only when a
 // process needs it. Elsewhere the control says "not available here" and nothing runs.
@@ -244,9 +246,10 @@ export const windowsProcesses = {
  * (`windowsProcesses` on Windows). `apply()` runs at start and every refresh: one listing, and a second call only when a
  * process is not at the level. Full does nothing, apart from a few passes (`RESTORE_PASSES`) that give everything back after Low. A process
  * that cannot be set (gone, access denied) is passed over quietly; a listing that fails is the one line `fault`.
- * `spare`: the board's own processes (its own and its keeper's numbers). Under Low they are chosen with everything
- * below them and stay limited, a restart of the board included; under Full the first pass gives them Normal and all
- * cores, since a chat that started the board handed its own Idle priority on (2026-10-19).
+ * `spare`: the board's own processes (its own and its keeper's numbers). Under Low what they start is limited, never
+ * they themselves (2026-10-30: "it should not slow the board itself"): a pass that finds one of them below Normal (a
+ * chat that started the board handed its Idle priority on) gives it Normal and all cores; under Full the first pass
+ * does the same (2026-10-19).
  */
 export function cpuLimiter({ file, fallback = 'full', platform = process.platform, cores, sessions, processes = windowsProcesses, now = Date.now, spare = [], log = () => {} }) {
   const available = platform === 'win32'
@@ -292,8 +295,12 @@ export function cpuLimiter({ file, fallback = 'full', platform = process.platfor
       return
     }
     fault = null
-    const chosen = chosenProcesses(list, await sessions(), { boardPids: spare })
+    // The board's own processes are roots of what is chosen (their children are limited), never limited themselves.
+    const own = new Set(spare.filter(Number.isInteger))
+    const chosen = chosenProcesses(list, await sessions(), { boardPids: spare }).filter(one => !own.has(one.pid))
     const { changes } = changesFor(chosen, current, applied, cores, { all: current === 'full' })
+    const slowed = list.filter(one => own.has(one.pid) && one.priority !== BASE_PRIORITY.Normal).map(one => one.pid)
+    if (current === 'low' && slowed.length > 0) changes.push(...boardChanges(slowed, cores))
     if (changes.length > 0) {
       try {
         await processes.set(changes)

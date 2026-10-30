@@ -241,7 +241,8 @@ test('Full from the start gives the board and its keeper Normal and all cores, o
   assert.equal(windows.calls.lists, 0)
 })
 
-test('B735: under Low the board and its keeper are limited with the rest, and a restart of the board keeps them limited, never Normal', async t => {
+// The person, 2026-10-30 (the board blank for minutes at Idle while a game ran): "it should not slow the board itself".
+test('under Low what the board and its keeper start is limited with the rest, never they themselves; one found below Normal gets Normal and all cores', async t => {
   const dir = await mkdtemp(join(tmpdir(), 'cpu-'))
   t.after(() => rm(dir, { recursive: true, force: true }))
   const { state, settle } = toolsMachine()
@@ -250,17 +251,18 @@ test('B735: under Low the board and its keeper are limited with the rest, and a 
   const limiter = make()
   await limiter.apply()
   const first = windows.calls.sets.flat()
-  assert.deepEqual(sorted(first), [200, 201, 202, 203, 300, 301, 700, 800, 810, 811, 900, 901, 902])
+  assert.deepEqual(sorted(first), [200, 201, 202, 203, 300, 301, 700, 800, 810, 811, 902])
   assert.ok(first.every(one => one.priority === 'Idle' && one.affinity === String(0xC00000) && one.eco === true))
-  assert.equal(limiter.view().count, 13)
+  assert.equal(limiter.view().count, 11)
   settle(first)
-  // The board restarts (a new limiter, a new process picture): the board is Normal again at its start, and it is limited again, never given Normal.
-  state.get(901).priority = 8
+  // The board restarts from a chat at Idle (a new limiter, a new process picture): its Idle is undone, Normal on all cores.
+  state.get(901).priority = 4
   windows.calls.sets.length = 0
   const again = make()
   await again.apply()
-  assert.deepEqual(windows.calls.sets.flat().map(one => one.pid).sort((x, y) => x - y), [200, 201, 202, 203, 300, 301, 700, 800, 810, 811, 900, 901, 902])
-  assert.ok(windows.calls.sets.flat().every(one => one.priority === 'Idle'), 'nothing is set to Normal under Low')
+  const board = windows.calls.sets.flat().filter(one => one.pid === 901 || one.pid === 900)
+  assert.deepEqual(board.map(one => [one.pid, one.priority, one.affinity]), [[901, 'Normal', String(0xFFFFFF)]])
+  assert.ok(windows.calls.sets.flat().filter(one => one.pid !== 901).every(one => one.priority === 'Idle'), 'everything else stays limited')
 })
 
 test('B735: a process started under Low is limited on the next refresh; a program not of the project is never touched', async t => {
