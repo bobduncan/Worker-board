@@ -3225,6 +3225,11 @@ Advisor's check helpers on Sonnet". It builds on B468: the same word to the main
    Workers mod claims the word first and runs both tools by code (src/hands.mjs), where the app allows its code both
    with no question; the main chat's take leaves the word to the hands for a minute (`HANDS_FIRST_MS`). A word counts as asked
    for a setting when both its effort and its model are that setting's (`sameTarget`), also in the delivery's check.
+   B820 (the fix of X110): **a word counts only for the app session it named** (its `session`, else the "Session:" line of
+   its text). A fresh chat under the same name is another session, running the app's default, so the word for the old
+   session is no word for it: `effortPlan` and the delivery's check (`lastWord` with the session) ask again at the next
+   reading, not after half an hour. A word that names no session, or a chat whose session the board does not know,
+   counts as before.
 4. The step's line to its worker waits until both are read back (`isSet`), from the app's file of the chat: the app
    writes the session's record there on every change of the model (Claude 3.1623: `setModel` → `commitSessionModel`,
    which sets the record's `model` and saves the session; for an idle chat once its process took the model), so an

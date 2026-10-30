@@ -354,7 +354,7 @@ export async function deliverWork({ state, dir, outbox, apply, now, maxChars, ne
   // when two refreshes plan it before the state shows it.
   // B813: a last word that failed for a passing reason, and that the sweep above did not try again, holds none.
   for (const one of plan.efforts ?? []) {
-    const last = lastWord(outbox.outbox(), one.chat, state.chatPrefix ?? '')
+    const last = lastWord(outbox.outbox(), one.chat, state.chatPrefix ?? '', one.session ?? null)
     const mine = () => outbox.outbox().filter(message => message.command === 'worker-effort' && message.about === last.about)
     if ((last !== undefined && sameTarget(last, one.level, one.model ?? null) && now - last.at < AGAIN_MS && !goesAgain(last, mine(), now)) || one.to === null) continue
     const message = { id: newId(), at: now, ...effortWords(one), state: 'waiting' }
