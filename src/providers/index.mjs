@@ -9,6 +9,7 @@
 // nothing asks a provider for an asset yet.
 
 import { codex } from './codex.mjs'
+import { elevenlabs } from './elevenlabs.mjs'
 import { personSuno } from './person-suno.mjs'
 import { soundLibrary } from './sound-library.mjs'
 
@@ -16,7 +17,7 @@ import { soundLibrary } from './sound-library.mjs'
 export const ASSET_KINDS = ['visual', 'music', 'sound effect']
 
 /** The providers the board knows, by name (no prototype: a setting's "constructor" is no provider). */
-export const PROVIDERS = Object.freeze(Object.assign(Object.create(null), Object.fromEntries([codex, personSuno, soundLibrary].map(one => [one.name, one]))))
+export const PROVIDERS = Object.freeze(Object.assign(Object.create(null), Object.fromEntries([codex, personSuno, soundLibrary, elevenlabs].map(one => [one.name, one]))))
 
 /** The setting of each kind when `providers` does not name it: `{ provider, folder? }`. */
 export const DEFAULT_PROVIDERS = Object.freeze({

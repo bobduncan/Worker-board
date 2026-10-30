@@ -4440,6 +4440,10 @@ do: no work action, no mod change, no Codex run of its own.
   `codex` is ok when `findCodex` (src/codex.mjs) finds Codex, with the same `given` path the Design tab uses
   (`tools.codexPath`, the `codex` of the design settings); `person-suno` is always ok; `sound-library` is ok when its
   folder is there and holds a sound file (`.wav`, `.mp3`, `.ogg`, `.flac`, in the folder or up to four folders deep).
+  `elevenlabs` (B770, `sound effect`, `auto`, never the default) is ok when the key is there (`ELEVENLABS_API_KEY` of the board's
+  environment, else on Windows the user variable) and `GET /v1/user/subscription` (no credits) takes it within 10 s: why "works"
+  with the plan (free: "for testing only") and the credits left, "ElevenLabs refused the key", "ElevenLabs did not answer", or
+  "No ElevenLabs key". The key goes only to api.elevenlabs.io and is in no why, state or error; making sounds is part 2.
   `index.mjs` holds the known providers by name, `providerFor(settings, kind)` and `checkProviders(settings, tools)`,
   which answers `[{ kind, provider, mode, ok, why }]` in the order visual, music, sound effect. Part 2's
   `provide(request, tools)` has its place in the same face; it is not built.

@@ -274,7 +274,7 @@ set): what the Supervisor's chat runs at; the board holds it there by code, the 
 `codex` makes pictures by itself, `person-suno` is you making music in Suno, `sound-library` is a folder of sounds in
 the project (`.wav`, `.mp3`, `.ogg`, `.flac`) a chat picks from; `"sound effect": { "provider": "sound-library", "folder":
 "sound-library" }` names the folder (inside `<project>`, written with `/`). A kind you leave out keeps its default; an
-unknown kind or provider, or a provider set for a kind it cannot serve, stops the board at its start with one line. The
+`"sound effect": "elevenlabs"` makes sound effects with ElevenLabs (the board only checks it now: your key is read from the user variable `ELEVENLABS_API_KEY`, never a file or a chat, and goes only to api.elevenlabs.io; free-plan output is for testing only, commercial use needs a paid plan). An unknown kind or provider, or a provider set for a kind it cannot serve, stops the board at its start with one line. The
 Design tab's "Asset providers" shows, for each kind, its provider and whether it works (checked at the start and every
 10 minutes). Nothing asks a provider for an asset yet.
 `supervisor` (the defaults unless set): the thresholds of the board's watch rules, which report what does not look right

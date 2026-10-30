@@ -361,11 +361,11 @@ test('T9.3 part 1: a wrong providers setting is refused with one line; parseConf
     '{"providers": {"image": "codex"}}': '"providers.image" is no asset kind; the kinds are visual, music, sound effect',
     '{"providers": {"sound effects": "sound-library"}}': '"providers.sound effects" is no asset kind; the kinds are visual, music, sound effect',
     // An unknown provider: also one that is only a name of JavaScript's objects.
-    '{"providers": {"visual": "midjourney"}}': '"providers.visual" must name a provider the board knows (codex, person-suno, sound-library), not "midjourney"',
-    '{"providers": {"visual": "constructor"}}': '"providers.visual" must name a provider the board knows (codex, person-suno, sound-library), not "constructor"',
-    '{"providers": {"visual": 5}}': '"providers.visual" must name a provider the board knows (codex, person-suno, sound-library), not 5',
-    '{"providers": {"visual": {}}}': '"providers.visual" must name a provider the board knows (codex, person-suno, sound-library), not undefined',
-    '{"providers": {"visual": null}}': '"providers.visual" must name a provider the board knows (codex, person-suno, sound-library), not null',
+    '{"providers": {"visual": "midjourney"}}': '"providers.visual" must name a provider the board knows (codex, person-suno, sound-library, elevenlabs), not "midjourney"',
+    '{"providers": {"visual": "constructor"}}': '"providers.visual" must name a provider the board knows (codex, person-suno, sound-library, elevenlabs), not "constructor"',
+    '{"providers": {"visual": 5}}': '"providers.visual" must name a provider the board knows (codex, person-suno, sound-library, elevenlabs), not 5',
+    '{"providers": {"visual": {}}}': '"providers.visual" must name a provider the board knows (codex, person-suno, sound-library, elevenlabs), not undefined',
+    '{"providers": {"visual": null}}': '"providers.visual" must name a provider the board knows (codex, person-suno, sound-library, elevenlabs), not null',
     // A provider set for a kind it cannot serve.
     '{"providers": {"music": "codex"}}': '"providers.music" is set to "codex", which serves visual, not music',
     '{"providers": {"visual": {"provider": "sound-library"}}}': '"providers.visual" is set to "sound-library", which serves sound effect, not visual',
