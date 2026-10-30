@@ -180,6 +180,9 @@ and the briefings for the main chat and the workers.
 - When no chat runs (after an app or PC restart, or once every chat went idle) and work waits for one, the board opens
   one chat of the project in the Claude app by itself (Windows; T13 part 4), the main chat first: its Workers mod then
   wakes the rest. At most once in 3 minutes; when two opens bring no chat back, it stops and asks you to open a chat.
+  While other chats run, a worker whose chat is asleep and has work waiting for a minute (a step queued for it, or a
+  word of the board's) is opened the same way, directly: a message cannot wake a closed chat. One open per minute's
+  look, at most once in 3 minutes per worker, and not again after two opens left it asleep.
 - "CPU for Claude" in the head (B311, B735, Windows only): two choices you pick, no game detection. Full: everything
   the project started runs at normal priority on all cores. Low: the chats and what they started, the board itself and
   its keeper, the vite servers, codex and a headless browser run at the lowest priority on the last two cores, in

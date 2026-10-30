@@ -83,7 +83,7 @@ import { effortOf } from './src/work/effort.mjs'
 import { isHolding, pauseAnswer, resumeEnds, resumeRetypeTo, resumeTypeTo } from './src/work/pause.mjs'
 import { allowCodeJobs, codeJobsView, readCodeJobs, taskWords } from './src/codeJobs.mjs'
 import { STOP_MOD, asleepOfJob, handJobs, handResults, isForHandsYet, isHandWord, isStopWord, nextSpawn, stopStep, stopTaskOf, usageDue, workerNames } from './src/hands.mjs'
-import { OPEN_CHECK_MS, OPEN_FIRST_MS, OPEN_TRIES, chatToOpen, failuresOf, handWorkWaits, handsGone, openChat, openPlan, openerNote, openerRow } from './src/opener.mjs'
+import { OPEN_CHECK_MS, OPEN_FIRST_MS, OPEN_TRIES, asleepPlan, asleepWithWork, chatToOpen, failuresOf, handWorkWaits, handsGone, openChat, openPlan, openerNote, openerRow } from './src/opener.mjs'
 import { basesNow, patientReportCheck } from './src/work/check.mjs'
 import { deliverWork, givesRefused, pullFor, sendOnce } from './src/work/deliver.mjs'
 import { coalesce } from './src/work/again.mjs'
@@ -1656,7 +1656,7 @@ async function main(args) {
     const now = clock()
     // Next to nothing while a chat runs: its claims are in memory, nothing is read.
     const gone = handsGone({ claims: codeClaims, now, startedAt, calls: seen?.shown ?? {} })
-    if (!gone || !(await ownsLoops())) return
+    if (!gone || !(await ownsLoops())) return gone ? undefined : openAsleep(now, given)
     const state = given ?? readState.last() ?? await readState()
     const waits = handWorkWaits(state, store.outbox().filter(message => !isLate(message, now, keep)), { asleepSent: asleepWoken })
     const plan = openPlan({ now, handsGone: gone, waits, paused: isHolding(state.pause), last: opens.at(-1)?.at ?? -Infinity, failures: failuresOf({ opens, claims: codeClaims, now }) })
@@ -1678,6 +1678,39 @@ async function main(args) {
       console.log(`T13: no chat ran and work waited: opened ${target.chat} (${target.session}) in the Claude app at ${timeOf(now)}: ${done.ok ? 'started' : done.why}.`)
     } finally {
       isOpening = false
+    }
+  }
+  // The person, 2026-10-30: while other chats run, an asleep worker with work waiting is opened by the board itself
+  // (src/opener.mjs `asleepWithWork`, `asleepPlan`): a message does not wake a closed chat. When its work was first seen
+  // waiting, by chat; its opens go with the others into `opens`.
+  const asleepWaiting = new Map()
+  const openAsleep = async (now, given) => {
+    if (!(await ownsLoops())) return
+    const state = given ?? readState.last()
+    if (!state) return
+    const waiting = asleepWithWork(state, store.outbox().filter(message => !isLate(message, now, keep)))
+    for (const name of asleepWaiting.keys()) if (!waiting.some(one => one.chat === name)) asleepWaiting.delete(name)
+    for (const one of waiting) {
+      if (!asleepWaiting.has(one.chat)) asleepWaiting.set(one.chat, now)
+      const plan = asleepPlan({ now, chat: one.chat, since: one.since, waitingSince: asleepWaiting.get(one.chat), opens, paused: isHolding(state.pause) })
+      if (!plan.open) continue
+      isOpening = true
+      try {
+        const done = await openChat({ exe: await findClaude(), session: one.session, cwd: resolve(HERE, config.project) })
+        if (!done.launched) {
+          if (openBlocked !== done.why) console.log(`T13: the board cannot open an asleep chat: ${done.why}.`)
+          openBlocked = done.why
+          return
+        }
+        openBlocked = null
+        opens.push({ at: now, chat: one.chat, ok: done.ok })
+        if (opens.length > 10) opens.shift()
+        console.log(`T13: ${one.chat} was asleep with work waiting: opened it (${one.session}) in the Claude app at ${timeOf(now)}: ${done.ok ? 'started' : done.why}.`)
+      } finally {
+        isOpening = false
+      }
+      // One open per check: the next waits for the next minute's look.
+      return
     }
   }
   /** T13 part 4: the ⚙ panel's row of it, and the page's line about the last opens. */
