@@ -2701,12 +2701,14 @@ async function settleAsk(w, ask, state, text, why) {
 /**
  * B464: a refine question that asks to drop the step, answered yes: a note to the main chat at once, as the partner
  * cannot drop a step (B17's "yes" waited two days for it). `question` may carry an earlier answer behind it.
+ * B810: the question names the step itself ("Drop B7?", "drop it", "drop this step"); one that drops a part of the step
+ * ("Drop the one-minute guess once ...?", B804's: its yes had Main drop the whole step) makes no note.
  */
 async function dropNote(w, stepId, question, answer) {
   const asked = question.replace(/ Answer: [\s\S]*$/, '').trim()
   // The review: only a question that drops this step ("Drop B7 ...", "Should we drop it?"), and a plain yes, without a
   // "but", "not" or "keep" after it.
-  const dropsIt = /^\s*(?:should we\s+|shall we\s+)?drop\b/i.test(asked) || new RegExp(`\\bdrop (?:it|this step|${stepId})\\b`, 'i').test(asked)
+  const dropsIt = new RegExp(`\\bdrop (?:it|this step|${stepId})\\b`, 'i').test(asked)
   const isYes = /^\s*(?:yes|yep|yeah|ja|ok|okay|sure|drop)\b/i.test(answer) && !/\b(?:but|not|don'?t|keep)\b/i.test(answer)
   if (!dropsIt || /\b(?:don'?t|not)\s+drop\b/i.test(asked) || !isYes) return
   await makeNote(w, 'main', [`${stepId}: the person answered "${line(answer, 200)}" to "${line(asked, 300)}": drop it; the partner cannot drop a step.`], stepId)
