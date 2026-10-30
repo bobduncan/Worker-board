@@ -635,7 +635,7 @@ const WAKE_PENDING_MS = 10 * 60_000
 
 /** The commands the board puts to a chat other than the main one: a word the chat's work stands on (wakeFor). */
 // B570: and the board's word that asks the partner to restart the main chat on a new Workers mod.
-const PARTNER_WORDS = ['recommend', 'refine', 'result-check', 'evaluate', 'work', 'recheck', 'goal-ask', 'brainstorm', 'brainstorm-answer', 'brainstorm-wrap', 'brainstorm-change', 'brainstorm-fix', 'brainstorm-stranded', 'incident', 'mod-restart', ...FOCUS_COMMANDS]
+const PARTNER_WORDS = ['recommend', 'refine', 'result-check', 'evaluate', 'work', 'recheck', 'goal-ask', 'brainstorm', 'brainstorm-answer', 'brainstorm-wrap', 'brainstorm-change', 'brainstorm-fix', 'brainstorm-stranded', 'incident', 'mod-restart', 'obsolete-check', ...FOCUS_COMMANDS]
 export const isPartnerWord = command => typeof command === 'string' && (command.startsWith('plan-') || PARTNER_WORDS.includes(command))
 
 /** 2026-10-26: the command of the board's word that has a worker holding a step go on from its checkpoint (`resumesDue`). */
@@ -1087,6 +1087,24 @@ export function incidentWords(to, incident, job) {
       `Evidence: ${wordsLine(incident.evidence) || 'none given'}`,
       ...(incident.ruleWanted ? [`Rule wanted: ${wordsLine(incident.ruleWanted)}`] : []),
       `Your job: ${job}, "Incidents"`,
+    ].join('\n'),
+  }
+}
+
+/**
+ * B775: the board's word to the partner to judge the open items of Needs your attention: how many, their ids, and where to
+ * read each with its evidence (`work obsolete` without points: the word is short, the evidence is not). The partner answers
+ * once with `work obsolete` and one line per item (roles/partner.md, "Find obsolete items"); nothing is closed by it.
+ */
+export function obsoleteWords(to, { ids, job }) {
+  const shown = ids.slice(0, 60)
+  return {
+    to, ask: null, step: null, title: null, version: null, verdict: null, command: 'obsolete-check', about: 'obsolete',
+    text: [
+      `obsolete check: ${ids.length} open item${ids.length === 1 ? '' : 's'} under Needs your attention`,
+      `Items: ${shown.join(', ')}${ids.length > shown.length ? `, and ${ids.length - shown.length} more` : ''}`,
+      'Read each with its evidence: work obsolete (no points). Answer once: work obsolete with points, one line per item "obsolete|unsure|open: <id> · <why> · <evidence>".',
+      `Your job: ${job}, "Find obsolete items"`,
     ].join('\n'),
   }
 }

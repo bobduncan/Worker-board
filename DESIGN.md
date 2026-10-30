@@ -4819,3 +4819,43 @@ each where it is safe:
    moved into the project's `logs/scratch` (a number added to a name taken there), never deleted; a folder with its own
    `.git` (a repository of its own) is never moved. The supervisor's row says where it went.
 6. Tests: `test/work/worktreeSweep.test.mjs`, on real temporary repositories with real links.
+
+## Find obsolete items (B775, 2026-10-30)
+
+The person, 2026-10-28, after seven obsolete items (six refine questions on steps the goal chat had built, one Do left from
+the outage of 2026-10-27): "I might want a button for this to evaluate in the future in the needs your attention to evaluate
+which of these things are obsolete." The flow, one piece per place:
+
+1. **The click** (the page, `drawObsolete`; the work API's `obsolete-check`, person only): the board takes the open items
+   under Needs your attention (`openItemsOf`: an ask for the person, a refine question and a Do among them, and an incident
+   that is open, came back or is with the advisor; not an ask the partner has first), gathers each one's evidence by code
+   (`obsoleteEvidence`: when and by whom it was asked, its step's state and last History line, the commits of the board's
+   repositories that name its step, before or after the item was made, its chat in the list and what it does, and whether
+   the board restarted since) and writes the check in `<work>/obsolete-check.json` (`state: checking`). The server then types
+   one word, `obsolete check: N open items`, with the ids, to the partner (`obsoleteWords`; a partner word, so it waits for a
+   busy chat and wakes a closed one). The word is short because the evidence is not: a board word holds 2000 characters.
+   One check at a time; one the partner did not answer in 15 minutes (`LATE_MS`) is late: the page says so, with Try again.
+   A board with no partner chat refuses before anything is written.
+2. **The verdicts** (the partner, the work tool's new action `obsolete`; the Workers mod 0.26.5, one word in `WORK_ACTIONS`, no
+   new field): without `points` it reads the check, with `points` it answers once, one line per item,
+   `obsolete|unsure|open: <id> · <why> · <evidence>`. A line for an id outside the check refuses the whole answer, an item
+   that is not open any more is left out, an item without a line stands as unsure. `roles/partner.md`, "Find obsolete
+   items", says how to judge: obsolete only on evidence, unsure where it points but does not prove.
+3. **The list** (`obsoleteView`): each item with its verdict, why and evidence and a tick; obsolete ones come ticked, unsure
+   and open ones do not. The person's ticks live on the page.
+4. **The close** (`obsolete-close`, person only, `ids`): exactly the ids ticked, one after the other as the person would: a
+   refine question ticks its step done while no chat holds it (new, refined or queued: a step at work, in review, done or
+   dropped keeps its state) and is withdrawn; any other ask is withdrawn with the why, its chat not woken (a step waiting on
+   it goes on); an incident is closed with the why (the one case where the person closes an incident, as the partner can,
+   B685; `drop X<n>` stays the partner's). An id the check does not hold refuses the whole call; an item that was answered
+   meanwhile is named as not closed and the rest close. Nothing closes by itself.
+5. **The failure shows itself**: the watch rule `obsolete-wrong` (`rules/watch.mjs`) opens one incident when something the
+   person closed from the check was still needed: an ask withdrawn that way (its History says "person: withdrawn: obsolete:
+   ...") that the same chat filed again within a day (same title, filed after the close), or an incident closed that way
+   that came back. Its fix is a stricter judging in `roles/partner.md`, never a limit on the person's close.
+6. **Tests**: `test/supervisor/obsoleteWrong.test.mjs` (the rule), `test/work/obsolete.test.mjs` (the work API), `test/work/obsoleteEvidence.test.mjs`, `test/obsoletePage.test.mjs`
+   (the DOM harness), `test/obsoleteBoard.test.mjs` (a running board: the word, the verdicts, the close, nobody woken) and
+   `test/work/obsoleteReplay.test.mjs`: the seven real items put back open from the project's own store (skipped where there is
+   none), the evidence naming the commits that built the six steps, the close ending as the person's hand did. Mutants, each
+   caught: a close without a tick, an ask closed with a wake, a verdict for an item not in the check or not open, two checks at
+   once, the page sending every row, a held step ticked, an obsolete verdict that comes unticked.

@@ -31,7 +31,8 @@ import { kindsNamed, noneForLook, parseStandard, standardNoneRefused, standardOf
 import { EFFORTS, effortOf, modelOf, parseEffort, parseModel, withEffort, withModel } from './effort.mjs'
 import { appendHistory, nextId, putBack, readActivitiesText, readItemFile, readStore, removeItem, writeActivities, writeItem } from './store.mjs'
 import { openNaming, renamedItem } from './names.mjs'
-import { readNamesFile, readPartnerAnswersFile, readPauseFile, writeNames, writePartnerAnswers, writePause } from './store.mjs'
+import { readNamesFile, readObsoleteFile, readPartnerAnswersFile, readPauseFile, writeNames, writeObsoleteFile, writePartnerAnswers, writePause } from './store.mjs'
+import { checkWords, isLate, obsoletePointsOf, openItemsOf } from './obsolete.mjs'
 import { NOTE_LINE, isPartnerAnswered, isRoutedToPartner, routesToPartner, takenBackWords } from './partnerAnswers.mjs'
 import { HELD, checkpointLine, isHolding, pauseAnswer, pauseFacts } from './pause.mjs'
 import { nextPlan, planMinutes, planOf, planText } from './stepPlan.mjs'
@@ -45,17 +46,17 @@ export { overlapsIn, sinceMs }
 export const isReadAction = action => READS.has(action)
 
 const READS = new Set(['next', 'list', 'pause-state', 'health', ...ROUTING_READS])
-const CHANGES = new Set(['incident', 'incident-fix', 'incident-told', 'incidents-fixed', 'take', 'step', 'ask', 'withdraw', 'answered-in-chat', 'read', 'note', 'report', 'block', 'unblock', 'new', 'queue', 'pin', 'add-to-queue', 'remove-from-queue', 'close', 'drop', 'refine', 'refined', 'answer', 'tick', 'delete', 'refine-answer', 'refine-accept', 'check', 'checked', 'instruction', 'turn-ended', 'pull', 'advance', 'requeue', 'unqueue', 'recheck', 'undo', 'rename', 'pause-all', 'resume-all', 'resumed', 'end-resume', 'overturn', 'seen', 'approve-recaps', 'partner-answer', 'escalate', 'partner-answers', 'recheck-stuck', 'recheck-base', 'retire-queue', 'qa-task', 'qa-end'])
+const CHANGES = new Set(['incident', 'incident-fix', 'incident-told', 'incidents-fixed', 'take', 'step', 'ask', 'withdraw', 'answered-in-chat', 'read', 'note', 'report', 'block', 'unblock', 'new', 'queue', 'pin', 'add-to-queue', 'remove-from-queue', 'close', 'drop', 'refine', 'refined', 'answer', 'tick', 'delete', 'refine-answer', 'refine-accept', 'check', 'checked', 'instruction', 'turn-ended', 'pull', 'advance', 'requeue', 'unqueue', 'recheck', 'undo', 'rename', 'pause-all', 'resume-all', 'resumed', 'end-resume', 'overturn', 'seen', 'approve-recaps', 'partner-answer', 'escalate', 'partner-answers', 'obsolete-check', 'obsolete', 'obsolete-close', 'recheck-stuck', 'recheck-base', 'retire-queue', 'qa-task', 'qa-end'])
 /**
  * Focus 2: the partner's drafts of the focus goal's vibe and how. They change the goal map, not the store: the board's
  * `goalDraft` (src/focus.mjs) writes them; only the chat the list names the partner (role advisor) sends them.
  */
 const GOAL_MAP = new Set(['vibe-draft', 'how-draft'])
 /** B298: what never shows on the backlog view: it is not written anew for these. */
-const OFF_VIEW = new Set(['incident', 'incident-fix', 'incident-told', 'incidents-fixed', 'instruction', 'turn-ended', 'close', 'read', 'pull', 'undo', 'pause-all', 'resume-all', 'resumed', 'end-resume', 'overturn', 'seen', 'approve-recaps', 'partner-answers', 'recheck-stuck', 'recheck-base'])
+const OFF_VIEW = new Set(['incident', 'incident-fix', 'incident-told', 'incidents-fixed', 'instruction', 'turn-ended', 'close', 'read', 'pull', 'undo', 'pause-all', 'resume-all', 'resumed', 'end-resume', 'overturn', 'seen', 'approve-recaps', 'partner-answers', 'obsolete-check', 'obsolete', 'recheck-stuck', 'recheck-base'])
 /** What only the person does, on the board's page; and what only the server does. */
 // The Backlog tab's blocks (2026-10-25): the person's "Add to queue" and "Remove" are the page's alone, never a chat's.
-const PERSON = new Set(['answer', 'read', 'tick', 'delete', 'refine-answer', 'refine-accept', 'recheck', 'undo', 'pause-all', 'resume-all', 'end-resume', 'overturn', 'seen', 'partner-answers', 'add-to-queue', 'remove-from-queue'])
+const PERSON = new Set(['answer', 'read', 'tick', 'delete', 'refine-answer', 'refine-accept', 'recheck', 'undo', 'pause-all', 'resume-all', 'end-resume', 'overturn', 'seen', 'partner-answers', 'obsolete-check', 'obsolete-close', 'add-to-queue', 'remove-from-queue'])
 const SERVER = new Set(['incidents-fixed', 'incident-told', 'check', 'advance', 'resumed', 'approve-recaps', 'recheck-stuck', 'recheck-base', 'route-confirm', 'quality-job-result', 'retire-queue', 'qa-task', 'qa-end'])
 /** Who may do what the flow does not decide (the default flow's table, spec section 5). */
 const ROLES = {
@@ -82,6 +83,8 @@ const ROLES = {
   'incident-fix': ['advisor'],
   // The supervisor's Task 5: the board's health summary, for the supervisor chat's sweep (src/supervisor/health.mjs).
   health: ['supervisor'],
+  // B775: the check's verdicts are the partner's alone; the person starts the check and closes what they tick.
+  obsolete: ['advisor'],
 }
 /**
  * The supervisor: what its chat may do. It reads, and files incidents; it never changes anything else (spec, section 5).
@@ -2411,8 +2414,9 @@ async function askForYou(value, since, w) {
  * closed, Since now, the why and who in its History. Only one open, came back or with the advisor; one being fixed or
  * fixed has its fix step to answer for it.
  */
-async function closeIncident(body, w) {
-  if (w.role !== 'advisor') return refuse(403, 'Only the partner closes an incident.')
+async function closeIncident(body, w, { person = false } = {}) {
+  // B775: the person closes one too, from the obsolete check's ticks (`obsoleteClose`); `drop` stays the partner's.
+  if (w.role !== 'advisor' && !(person && w.role === 'person')) return refuse(403, 'Only the partner closes an incident.')
   const found = await load(body.id, w, { kind: ['incident'] })
   if (!found.ok) return found
   const id = valueOf(found.item, 'Id')
@@ -2425,6 +2429,102 @@ async function closeIncident(body, w) {
   const next = ordered(said(put(put(copy(found.item), 'State', 'closed'), 'Since', stamp(w.now)), w, `closed: ${why}`))
   const done = await save(next, found.text, w)
   return done.ok ? changed(next, `${id}: closed: ${why}`) : done
+}
+
+/**
+ * B775: the person's click on "Find obsolete items": the open items Needs your attention holds, each with the evidence the
+ * board gathers (`w.obsoleteEvidence(items)`, the server's git and chat facts), are written as a check waiting for the
+ * Advisor's verdicts (`obsolete-check.json`). One check at a time; one the Advisor did not answer in 15 minutes is late and
+ * may be asked again. The server then types the word to the Advisor (`result.obsoleteCheck`, not `check`: that field starts the board's check of a reported step); nothing is closed here.
+ */
+async function obsoleteCheck(body, w) {
+  const file = await readObsoleteFile(w.dir, w.fs)
+  if (file.record?.state === 'checking' && !isLate(file.record, w.now)) return refuse(409, 'The Advisor is checking already: one check at a time.')
+  const open = openItemsOf(w.store.items)
+  if (open.length === 0) return { ok: true, result: { text: 'Nothing is open: nothing to check.', none: true, changed: false } }
+  const evidence = await Promise.resolve(w.obsoleteEvidence?.(open, w.store.items)).catch(() => null)
+  const record = {
+    state: 'checking', at: w.now, answeredAt: null, verdicts: {}, last: null,
+    items: open.map(one => ({ id: one.id, kind: one.kind, title: one.title, of: one.of, owner: one.owner, at: Number.isFinite(one.at) ? one.at : null, evidence: evidence?.get(one.id) ?? [] })),
+  }
+  const done = await writeObsoleteFile(w.dir, record, w.fs, { expected: file.text })
+  if (!done.ok) return refuse(409, `${done.why}; try again.`)
+  return { ok: true, result: { text: `The Advisor is checking ${open.length} open item${open.length === 1 ? '' : 's'}.`, changed: true, obsoleteCheck: { ids: open.map(one => one.id), at: w.now } } }
+}
+
+/**
+ * B775: the Advisor's verdicts of the check (`points`: "obsolete|unsure|open: <id> · <why> · <evidence>", one line per item),
+ * kept once. Without `points` it reads: the items with their evidence. A line for an id the check does not hold refuses the
+ * whole answer; an item that is not open any more is left out. Nothing is closed: the person ticks and closes.
+ */
+async function obsolete(body, w) {
+  const file = await readObsoleteFile(w.dir, w.fs)
+  const record = file.record
+  if (record?.state !== 'checking') return refuse(409, record === null ? 'No check was asked: nothing to judge.' : 'The last check is answered already: the person starts the next.')
+  const given = Array.isArray(body.points) ? body.points : typeof body.points === 'string' ? body.points.split('\n') : []
+  if (given.every(one => typeof one !== 'string' || one.trim() === '')) return { ok: true, result: { text: checkWords(record), changed: false } }
+  const parsed = obsoletePointsOf(given)
+  if (parsed.bad !== null) return refuse(400, `"${parsed.bad}" is no line of the form obsolete|unsure|open: <id> · <why> · <evidence>.`)
+  const asked = new Set(record.items.map(one => one.id))
+  const unknown = Object.keys(parsed.verdicts).filter(id => !asked.has(id))
+  if (unknown.length > 0) return refuse(400, `${unknown.join(', ')} ${unknown.length === 1 ? 'is' : 'are'} not in this check (it holds ${[...asked].join(', ')}): nothing was recorded.`)
+  const open = new Set(openItemsOf(w.store.items).map(one => one.id))
+  const items = record.items.filter(one => open.has(one.id))
+  const verdicts = Object.fromEntries(Object.entries(parsed.verdicts).filter(([id]) => open.has(id)))
+  const done = await writeObsoleteFile(w.dir, { ...record, state: 'done', answeredAt: w.now, items, verdicts }, w.fs, { expected: file.text })
+  if (!done.ok) return refuse(409, `${done.why}; try again.`)
+  const count = which => Object.values(verdicts).filter(one => one.verdict === which).length
+  return { ok: true, result: { text: `Recorded ${Object.keys(verdicts).length} verdicts: ${count('obsolete')} obsolete, ${count('unsure')} unsure, ${count('open')} open. Nothing is closed: the person closes the ones they tick.`, changed: true } }
+}
+
+/**
+ * B775: the person's "Close the ticked": each id they kept ticked, and only those, closed as the person would. A refine
+ * question: its step done (a tick) while no chat holds it, and the question withdrawn; any other ask: withdrawn with the why
+ * (its chat is not woken; a step waiting on it goes on); an incident: closed with the why. An id the check does not hold
+ * refuses the whole call. `closed` and `failed` (`{ id, why }`) are answered; the closed ones leave the check.
+ */
+async function obsoleteClose(body, w) {
+  const ids = [...new Set((Array.isArray(body.ids) ? body.ids : []).map(one => line(one, 20)).filter(one => one !== ''))]
+  if (ids.length === 0) return refuse(400, 'Tick at least one item to close.')
+  const file = await readObsoleteFile(w.dir, w.fs)
+  const record = file.record
+  if (record?.state !== 'done') return refuse(409, 'There is no answered check to close from.')
+  const listed = new Set(record.items.map(one => one.id))
+  const unknown = ids.filter(id => !listed.has(id))
+  if (unknown.length > 0) return refuse(400, `${unknown.join(', ')}: not in the check; nothing was closed.`)
+  const closed = []
+  const failed = []
+  for (const id of ids) {
+    w.store = { ok: true, dir: w.dir, ...(await readStore(w.dir, w.fs)) }
+    const why = line(`obsolete: ${record.verdicts[id]?.why ?? 'the check found it obsolete'}`, 300)
+    const done = await closeObsolete(id, why, w)
+    if (done.ok) closed.push(id)
+    else failed.push({ id, why: done.why })
+  }
+  const gone = new Set(closed)
+  const left = { ...record, items: record.items.filter(one => !gone.has(one.id)), verdicts: Object.fromEntries(Object.entries(record.verdicts).filter(([id]) => !gone.has(id))), last: { at: w.now, closed: closed.length } }
+  const saved = await writeObsoleteFile(w.dir, left, w.fs)
+  const text = `Closed ${closed.length}${closed.length === 0 ? '' : `: ${closed.join(', ')}`}${failed.length === 0 ? '' : `; not closed: ${failed.map(one => `${one.id} (${one.why})`).join('; ')}`}.`
+  return { ok: true, result: { text: saved.ok ? text : `${text} The check list could not be updated: ${saved.why}.`, closed, failed, changed: closed.length > 0 } }
+}
+
+/** B775: one ticked item closed (see `obsoleteClose`). */
+async function closeObsolete(id, why, w) {
+  const item = w.store.items.get(id)
+  if (item === undefined) return refuse(404, `${id}: no such item in the store.`)
+  if (kindOf(item) === 'incident') return closeIncident({ id, why }, w, { person: true })
+  if (kindOf(item) !== 'ask') return refuse(409, `${id} is neither an ask nor an incident.`)
+  if (stateOf(item) !== 'open') return refuse(409, `${id} is not open any more.`)
+  const of = valueOf(item, 'Of')
+  if (valueOf(item, 'Via') === 'refine' && of !== null && STEP_ID.test(of)) {
+    const step = w.store.items.get(of)
+    // Only a step no chat holds is ticked; one at work, in review, done or dropped keeps its state.
+    if (step !== undefined && ['new', 'refined', 'queued'].includes(stateOf(step))) {
+      const ticked = await tick({ id: of, line: `${id} was obsolete: closed from the obsolete check` }, w)
+      if (!ticked.ok) return ticked
+    }
+  }
+  return withdraw({ id, why }, w)
 }
 
 /** A step is dropped, and why. */
@@ -3274,4 +3374,7 @@ const CHANGE = {
   'partner-answer': partnerAnswer,
   escalate,
   'partner-answers': partnerSetting,
+  'obsolete-check': obsoleteCheck,
+  obsolete,
+  'obsolete-close': obsoleteClose,
 }

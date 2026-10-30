@@ -163,6 +163,15 @@ and the briefings for the main chat and the workers.
   a card under "Needs your attention", which you answer on the board; a question it asks with the app's own form you
   answer in its chat. A chat that wrote questions in its chat without filing an ask shows there as a warning, with a
   button to its chat (B301).
+- **Find obsolete items** (B775, under Needs your attention, shown while something is open there): one click has the
+  partner judge every open item (refine questions, asks, Do items, incidents) against what happened since it was
+  made: the board gathers each item's evidence by code (its step's state, the commits that name its step, its chat in
+  the list, board restarts), the partner answers once, and the list shows each item as obsolete, unsure or still open
+  with a line why and the evidence. Obsolete ones come ticked; "Close the N ticked" closes exactly the ones you keep
+  ticked, as you would: a refine question closes its step as done (when no chat holds it) and is withdrawn, an ask is
+  withdrawn without waking its chat, an incident is closed. Nothing closes by itself. The button reads "The Advisor
+  is checking" meanwhile, and "Try again" when it did not answer in 15 minutes. It needs a partner chat in the list and
+  the Workers mod 0.26.5 (the partner's `work obsolete`).
 - A lane shows what a worker does now and the time it expects to need; a step that waits says why ("Not started:
   ...").
 - The head shows the plan's limits; a worker that paused for the limit shows as "Suspended" until it goes on.

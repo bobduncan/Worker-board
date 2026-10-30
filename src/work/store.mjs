@@ -16,6 +16,7 @@ import { heldLine } from './names.mjs'
 import { stamp } from './migrate.mjs'
 import { PAUSE_FILE, parsePause } from './pause.mjs'
 import { PARTNER_FILE, parsePartnerAnswers } from './partnerAnswers.mjs'
+import { OBSOLETE_FILE, parseObsolete } from './obsolete.mjs'
 
 const files = { readFile, writeFile, rename, rm, mkdir, readdir, open }
 const ITEM_FILE = /^([A-Z]\d+|L-[0-9a-f]{8})\.md$/
@@ -374,5 +375,18 @@ export async function readPartnerAnswersFile(dir, fs = files) {
 export async function writePartnerAnswers(dir, record, fs = files, { expected } = {}) {
   await fs.mkdir(dir, { recursive: true })
   return putInPlace(join(dir, PARTNER_FILE), `${JSON.stringify(record)}
+`, fs, expected)
+}
+
+/** B775: `<dir>/obsolete-check.json` as it is now (`record`, null for none) with its text. */
+export async function readObsoleteFile(dir, fs = files) {
+  const text = await readOr(fs, join(dir, OBSOLETE_FILE), null)
+  return { record: parseObsolete(text), text }
+}
+
+/** B775: writes obsolete-check.json, only while the file still holds `expected` (the text it was read from; null: none yet). */
+export async function writeObsoleteFile(dir, record, fs = files, { expected } = {}) {
+  await fs.mkdir(dir, { recursive: true })
+  return putInPlace(join(dir, OBSOLETE_FILE), `${JSON.stringify(record)}
 `, fs, expected)
 }
