@@ -5,7 +5,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import { isTestFile, reportCheck } from '../../src/work/check.mjs'
+import { NOTHING_BUILT_LINE, isTestFile, reportCheck } from '../../src/work/check.mjs'
 import { hasNoMutantWarning } from '../../src/work/resultCheck.mjs'
 
 /** A git that answers from a table of "<repo> <args>" lines; null where it has none. */
@@ -113,7 +113,9 @@ test('B363: a report whose Touches and result name no file that is there fails; 
   assert.deepEqual(missing, { passed: false, lines: ['work outside git', 'not there: art-inbox/gap-9/gap.html, art-inbox/gap-9'] })
   // No path named anywhere (the prose names none, Touches none): "no file named" refuses, as before.
   const nothing = await reportCheck(outside({ branch: 'none', result: SAID + 'The five pictures and the page.' }))
-  assert.deepEqual(nothing, { passed: false, lines: ['work outside git', 'no file named: name the files it made in the result'] })
+  assert.deepEqual(nothing, { passed: false, lines: ['work outside git', 'no file named: name the files it made in the result', NOTHING_BUILT_LINE] })
+  // B818: the line says what to do instead of reporting again.
+  assert.match(nothing.lines[2], /already exists\? Do not report again: ask to close it/)
   // Touches is a plan: a Touches path that is not there warns when the result names a file that is.
   const plan = await reportCheck(outside({ branch: 'none', touches: ['art-inbox/gap-9/gap.html', 'src/other.mjs'], exists: files(['/projects/art-inbox/gap-9']) }))
   assert.deepEqual(plan, { passed: true, lines: ['work outside git', 'there: art-inbox/gap-9', 'result named', 'context and change named'], warnings: ['Touches names files not there: art-inbox/gap-9/gap.html, src/other.mjs'] })
@@ -375,4 +377,13 @@ test('tests bite: the worker\'s role and the protocol say how, in a scratch copy
   assert.match(worker, /Tests bite: <what was undone in a copy> → <the assertion that\s+failed>/)
   assert.match(worker, /scratch copy\s+\(never on your branch\)/)
   assert.match(protocol, /Tests bite: <what was undone in a copy> → <the assertion that failed>/)
+})
+
+test('B818: the worker\'s role, the protocol and DESIGN tell a step already built elsewhere to be asked about, not reported', async () => {
+  const { readFile } = await import('node:fs/promises')
+  const read = name => readFile(new URL(`../../${name}`, import.meta.url), 'utf8')
+  assert.match(await read('roles/worker.md'), /Close B<id> as already done\?/)
+  assert.match(await read('roles/protocol.md'), /Close B<id> as already done\?/)
+  assert.match(await read('DESIGN.md'), /nothing built because it already exists\? Do not report again: ask to close it/)
+  assert.match(NOTHING_BUILT_LINE, /Close B<id> as already done\?/)
 })

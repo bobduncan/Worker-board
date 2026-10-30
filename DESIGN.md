@@ -4493,7 +4493,10 @@ work, and passes wording with a warning (principles 1 and 8: the board tidies, t
   the merged commit or the branch; no result is named (the work API already refuses an empty one); for work outside git,
   work that sits in a repository (the result names a file in one: "report that work with its merged commit", so the
   base against its remote is still checked), and a report whose Touches and result together name no file that is there
-  ("not there: ..." or "no file named"). The independent review of the same day kept these two as refusals.
+  ("not there: ..." or "no file named"). The independent review of the same day kept these two as refusals. B818 (X106, a step
+  whose work other steps had already built was reported three times, each refused): "no file named" adds a second line,
+  "nothing built because it already exists? Do not report again: ask to close it", and the worker's rule says the same
+  before any report (`roles/worker.md`): ask "Close B<id> as already done?" at once, naming those steps and their merges.
 - *Warns for outside git.* Touches is a plan written before the work, often relative to a repository, and the worker
   cannot edit it: a Touches path that is not there warns ("Touches names files not there: ...") once the result names
   a file that is; so does a path in the result's prose that is not there (it misread words such as "done/level.md",
