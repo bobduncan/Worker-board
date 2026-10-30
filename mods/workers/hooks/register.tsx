@@ -1669,12 +1669,13 @@ async function handRound($: EngineInterface): Promise<void> {
 /**
  * B755, B766: what the app lets this chat's code do with no question: its verdict for each tool of `CAN_TOOLS` (allow
  * rules in the settings), asked again after CAN_SET_MS. Without a rule a call is denied in auto mode, so such a chat
- * claims none of those jobs.
+ * claims none of those jobs. T14: the send-message tool too ('send'): a query has no tool_use_id, so the popup watch's
+ * tool.check hook notes nothing of it.
  */
 async function canNow($: EngineInterface): Promise<string[]> {
   const now = await $.clock.now()
   if (now - canHere.at < CAN_SET_MS) return canHere.can
-  const probe = { session_id: 'local_none', model: 'claude-opus-5-5', effort: 'medium', taskId: 'none' }
+  const probe = { session_id: 'local_none', model: 'claude-opus-5-5', effort: 'medium', taskId: 'none', message: 'none' }
   const tools = [...new Set(Object.values(CAN_TOOLS).flat())]
   const verdicts = await Promise.all(tools.map(tool => $.tool.check({ tool, input: probe } as never).catch(() => null)))
   canHere = { at: now, can: canFrom(Object.fromEntries(tools.map((tool, at) => [tool, verdicts[at]]))) }

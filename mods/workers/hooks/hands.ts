@@ -17,6 +17,12 @@
 //
 // B769 (the person, 2026-10-28: "Yes, B next"): and a worker the person removes, once it is idle or closed: taken out of
 // the list and its chat archived.
+//
+// T14 (the person, 2026-10-30: "B", fix A for X1 / X103): a chat in Auto mode cannot send by code: the app puts the mod's
+// send-message call to its Auto classifier, which denied it ("gave no verdict"). So the chat says `can: ['send']` only
+// where `$.tool.check` answers allow for the send-message tool (an allow rule, or a mode that allows it with no
+// decider); an ask (the Auto classifier, a dialog, a host) or a deny is no 'send', and the board gives such a chat no
+// start, wake or resume line.
 
 export const HANDS_PATH = '/api/bridge/hands'
 export const HANDS_DONE_PATH = '/api/bridge/hands-done'
@@ -42,6 +48,8 @@ export const CAN_TOOLS: Record<string, string[]> = {
   restart: [ARCHIVE_TOOL, UNARCHIVE_TOOL, LIST_TOOL],
   spawn: [TASK_UPDATE_TOOL, TASK_RUN_TOOL],
   usage: [USAGE_TOOL],
+  // T14: the start, wake and resume lines.
+  send: [SEND_TOOL],
 }
 /** B755: how long a chat's answer to "may my code set model and effort?" holds before it asks the app again. */
 export const CAN_SET_MS = 10 * 60_000
@@ -142,7 +150,10 @@ export function setResult(id: string, answer: unknown): HandResult {
   return { id, ok: false, why: text.slice(0, 300) || 'no answer' }
 }
 
-/** B766: what this chat may do by code (`CAN_TOOLS`'s keys), from the app's verdict for each tool, by its name. */
+/**
+ * B766: what this chat may do by code (`CAN_TOOLS`'s keys), from the app's verdict for each tool, by its name: only
+ * `allow` counts (T14: an `ask` goes to the mode's decider, in Auto mode the classifier, which denies a send by code).
+ */
 export const canFrom = (verdicts: Record<string, unknown>): string[] =>
   Object.keys(CAN_TOOLS).filter(what => CAN_TOOLS[what].every(tool => isRecord(verdicts[tool]) && verdicts[tool].decision === 'allow'))
 

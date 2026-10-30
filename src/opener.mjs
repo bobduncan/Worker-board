@@ -16,7 +16,7 @@
 import { spawn as nodeSpawn } from 'node:child_process'
 
 import { shownChats } from './bridge.mjs'
-import { isAppId } from './hands.mjs'
+import { isAppId, maySend } from './hands.mjs'
 import { RESTART_COMMAND } from './work/modRollout.mjs'
 
 /** No hand checked in for this long: no chat with the Workers mod runs (a running one claims every 20 s). */
@@ -52,12 +52,19 @@ export const isProgram = exe => typeof exe === 'string' && exe.length <= 400 && 
 export const isFolder = cwd => typeof cwd === 'string' && cwd.length <= 400 && /^[A-Za-z]:\\(?:[\p{L}\p{N}_ .()+~-]+\\?)*$/u.test(cwd)
 
 /**
- * Whether the hands are gone: no chat claimed them (`claims`, the server's `codeClaims`, `{ at }` by name) within
- * HANDS_GONE_MS. A board younger than that has heard no claim yet from chats that run: then a call of any chat since
- * its start (`calls`, the bridge's `seen.shown`, time by name) says one runs, and the minute's check decides.
+ * T14: the newest time a hand that may send claimed (`maySend`: its mod says 'send', or is older than the first that
+ * says it), out of `claims`; a chat in Auto mode without the allow rule is no such hand: its sends are denied.
+ */
+const newestSender = claims => [...claims.values()].reduce((best, claim) => (Number.isFinite(claim?.at) && claim.at > best && maySend(claim) ? claim.at : best), -Infinity)
+
+/**
+ * Whether the hands are gone: no chat that may send (T14) claimed them (`claims`, the server's `codeClaims`, `{ at, can,
+ * mod }` by name) within HANDS_GONE_MS. A board younger than that has heard no claim yet from chats that run: then a call
+ * of any chat since its start (`calls`, the bridge's `seen.shown`, time by name) says one runs, and the minute's check
+ * decides.
  */
 export function handsGone({ claims = new Map(), now, startedAt = -Infinity, calls = {} }) {
-  const newest = [...claims.values()].reduce((best, claim) => (Number.isFinite(claim?.at) && claim.at > best ? claim.at : best), -Infinity)
+  const newest = newestSender(claims)
   if (now - newest < HANDS_GONE_MS) return false
   if (now - startedAt >= HANDS_GONE_MS) return true
   return !Object.values(calls ?? {}).some(at => Number.isFinite(at) && at >= startedAt)
@@ -89,10 +96,11 @@ export function chatToOpen(state) {
 
 /**
  * How many opens in a row brought no hand back: the opens (`{ at, ok }`) since the newest claim, each once OPEN_WAIT_MS
- * passed without one (a launch that did not start at once). A hand checking in resets it.
+ * passed without one (a launch that did not start at once). A hand checking in resets it; T14: a hand that may send, as
+ * in `handsGone`, so the claims of Auto-mode workers do not keep the board opening a chat that does not come back.
  */
 export function failuresOf({ opens = [], claims = new Map(), now }) {
-  const back = [...claims.values()].reduce((best, claim) => (Number.isFinite(claim?.at) && claim.at > best ? claim.at : best), -Infinity)
+  const back = newestSender(claims)
   return opens.filter(one => one.at > back && (one.ok !== true || now - one.at >= OPEN_WAIT_MS)).length
 }
 

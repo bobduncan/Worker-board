@@ -87,7 +87,8 @@ processes it applies to, "15 processes on 2 cores, lowest priority: tests and bu
 and the questions that hold up no chat then gather under your partner's daily note on the Focus page; a question that
 holds up a chat always comes at once), **Approve rebuilds by itself** (B361: Off, On; saved in the board's settings
 file) and **What the board does by itself on this PC** (B767: each routine job of the main chat's, waking chats, model and effort,
-restarts and new workers, "by code" or still the main chat's and why, as the running chats' Workers mod reports it;
+restarts and new workers, "by code" or still the main chat's and why, as the running chats' Workers mod reports it; T14:
+waking chats "needs your OK" while only chats in Auto mode run, until the project allows the send-message tool;
 **Allow them for this project** adds the missing tool rules to the project's own `.claude\settings.local.json`, named
 in its tooltip; **Copy the line that makes the routines** gives the line to paste into any chat for the stored
 routine of each worker (T12: "My Project - Worker 3", one per worker up to "Workers at most"; the row says "needs

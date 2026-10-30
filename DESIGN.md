@@ -4190,6 +4190,26 @@ timers. Now each chat says it (principle 3, know don't guess).
   more and says "Opened <chat> twice, but no chat came back: open any chat of the project yourself." in amber, until a
   hand checks in. The ⚙ panel's "What the board does by itself" has the row "Wake the chats when none runs" (by itself,
   or last try failed). Tests: `test/opener.test.mjs`.
+- **Only hands that may send carry the sends (T14; the person, 2026-10-30: "B", fix A for incidents X1 and X103 with the
+  allow rule the person adds):** a chat in Auto mode cannot send by code: the app puts its mod's send_message call to the
+  Auto classifier, which denied it ("gave no verdict"), so a worker routine (Auto mode) that claimed a start, wake or
+  resume failed it; only the main chat and the partner (not Auto) carried them. Since Workers mod 0.26.5 the claim's
+  `can` holds 'send' only where `$.tool.check` answers allow for `mcp__ccd_session_mgmt__send_message` (an allow rule, or
+  a mode that allows it with no decider); an ask (the classifier, a dialog, a host) or a deny is none
+  (`mods/workers/hooks/hands.ts` `CAN_TOOLS`). The board keeps each claim's mod version (`codeClaims`: `{ can, at, mod }`)
+  and a claim may send (`src/hands.mjs` `maySend`) when it says 'send' or its mod is older than `SEND_MOD` (0.26.5; one
+  that says no version too): such a mod never says it and keeps today's share until its restart brings the new one. The
+  jobs sent with the send-message tool, the start and wake words' line (`isHandWord`), the resume lines and the asleep
+  resume words (`handJobs`), go only to a caller that may (`canSend`; a start or wake word such a caller took goes
+  back); set, restart, spawn, usage and remove jobs are as before. The opener counts only such claims (`handsGone`,
+  `failuresOf`), so with only Auto-mode workers running the board opens the main chat, and their claims do not reset its
+  tries. The ⚙ row "Wake, start and resume chats" says "by itself" only while a chat that may send runs; while only
+  others run it says "needs your OK", its tooltip "chats in Auto mode may not send messages until the project allows
+  mcp__ccd_session_mgmt__send_message" (`SEND_WHY`), and Allow adds that rule to the project's `.claude/settings.local.json`
+  on the person's click (no chat writes it: the app refuses a chat that changes its own permissions); with the rule
+  there and no claim saying 'send' yet, "within 10 min" (the mod asks the app again every 10 minutes). Tests:
+  `test/hands.test.mjs`, `test/opener.test.mjs`, `test/codeJobs.test.mjs` (T14), the mod's `hooks/hands.test.ts` and
+  `hooks/chatlist.test.ts` ("the hands say whether this chat may send by code").
 - **Older mods and a restart:** a chat on a Workers mod older than 0.19.0 sends no report and keeps the board's
   reading, until the restart between steps (B570) brings it onto the new mod; the reading is removed in a later
   clean-up once no chat needs it. After the board restarts its saved reports (T13, above) are read: each chat shows what it last said

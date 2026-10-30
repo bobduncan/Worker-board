@@ -4,16 +4,18 @@
 // Workers mod reports with each claim of the hands (its `can`, from the app's own verdict); the settings files and the
 // stored start-worker task's folder say what is missing. Allow writes the missing tool rules into the project's own
 // `.claude/settings.local.json`, on the person's click (a chat may not change its own permissions: the app refuses it).
+// T14 (2026-10-30): the wake row needs the send-message tool allowed too wherever the chats run in Auto mode.
 
 import { mkdir, readFile, stat, writeFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
 
-import { startTaskIds, workerTaskIds } from './hands.mjs'
+import { maySend, startTaskIds, workerTaskIds } from './hands.mjs'
 
 /** The jobs, in the order the page lists them, each with the app tools its code needs allowed with no question. */
 export const CODE_JOBS = [
-  { key: 'wake', title: 'Wake, start and resume chats', tools: [] },
+  // T14: a chat in Auto mode may send by code only once an allow rule names the send-message tool (`maySend`).
+  { key: 'wake', title: 'Wake, start and resume chats', tools: ['mcp__ccd_session_mgmt__send_message'] },
   { key: 'set', title: 'Model and effort per step', tools: ['mcp__ccd_session_mgmt__set_session_model', 'mcp__ccd_session_mgmt__set_session_effort'] },
   { key: 'restart', title: 'Restart a worker for a new mod', tools: ['mcp__ccd_session_mgmt__archive_session', 'mcp__ccd_session_mgmt__unarchive_session', 'mcp__ccd_session_mgmt__list_sessions'] },
   { key: 'spawn', title: 'Start a new worker', tools: ['mcp__scheduled-tasks__update_scheduled_task', 'mcp__scheduled-tasks__run_scheduled_task'] },
@@ -23,6 +25,10 @@ export const CODE_JOBS = [
 ]
 /** A chat's claim of the hands counts this long: they come every 20 s while it runs. */
 export const CLAIM_MS = 2 * 60_000
+/** T14: why the wake row is not by itself while chats run but none may send (the page shows "needs your OK"). */
+export const SEND_WHY = 'chats in Auto mode may not send messages until the project allows mcp__ccd_session_mgmt__send_message'
+/** T14: the same once the rule is there: the running chats' mods ask the app again within 10 min (the mod's CAN_SET_MS). */
+export const SEND_SOON = 'allowed: the running chats see it within ten minutes'
 
 const isRecord = value => typeof value === 'object' && value !== null && !Array.isArray(value)
 
@@ -86,7 +92,8 @@ export function withAllowRules(text, tools) {
  * last CLAIM_MS may do it (a new worker also needs a stored task and no failure since; T12: and a routine for every
  * worker slot, which else the row names: "needs routines for Worker 4, 5", `missingRoutines` the slots, also what the
  * pasted line makes; `needsTask` is true while one is missing). `missing` the tools to allow for the jobs that do not;
- * `checked` the newest claim's chat and time.
+ * `checked` the newest claim's chat and time. T14: the wake row by itself only while a chat that may send claimed
+ * (`maySend`, the claims' `{ can, mod }`); else, while chats run, SEND_WHY (the send-message tool missing) or SEND_SOON.
  */
 export function codeJobsView({ claims = new Map(), allowed = new Set(), tasks = [], spawnFail = null, folder = '', maxWorkers, now }) {
   const recent = [...claims].filter(([, claim]) => Number.isFinite(claim?.at) && now - claim.at < CLAIM_MS)
@@ -96,8 +103,16 @@ export function codeJobsView({ claims = new Map(), allowed = new Set(), tasks = 
   // Some routines stored, not all: the shared task would still start the others, but each worker is to have its own.
   const fewRoutines = tasks.length > 0 && absent.length > 0 ? `needs routines for Worker ${absent.join(', ')}` : null
   const rows = CODE_JOBS.map(job => {
-    if (job.key === 'wake') return { key: job.key, title: job.title, byCode: recent.length > 0, why: recent.length > 0 ? null : 'no chat with the Workers mod runs now' }
     const lacking = job.tools.filter(tool => !allowed.has(tool))
+    // T14: by itself only while a chat that may send runs (`maySend`); while only chats that may not run (Auto mode
+    // without the rule), the send-message tool is what Allow adds.
+    if (job.key === 'wake') {
+      let why = null
+      if (recent.length === 0) why = 'no chat with the Workers mod runs now'
+      else if (!recent.some(([, claim]) => maySend(claim))) why = lacking.length > 0 ? SEND_WHY : SEND_SOON
+      if (why === SEND_WHY) missing.push(...lacking)
+      return { key: job.key, title: job.title, byCode: why === null, why }
+    }
     const may = recent.some(([, claim]) => Array.isArray(claim.can) && claim.can.includes(job.key))
     let why = null
     if (job.key === 'spawn' && tasks.length === 0) why = 'no stored start-worker task on this PC'

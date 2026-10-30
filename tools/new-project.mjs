@@ -50,8 +50,10 @@ for (;;) {
 const folder = given('folder') ?? await ask('Its folder (new or empty)', join(parent, name.trim()))
 const prefix = given('prefix') ?? await ask('The chats\' titles start with', `${name.trim()} - `, true)
 // B767: the app lets a chat's code do the main chat's routine jobs only with allow rules in the project's settings,
-// so it is asked once here; without a keyboard only --allow-code yes allows them.
-const allowCode = /^y/i.test((given('allow-code') ?? await ask('May the board start, wake and restart its chats and set their model by itself? It adds 7 tool permissions to the new project\'s own settings. y/n', 'y')).trim())
+// so it is asked once here; without a keyboard only --allow-code yes allows them. T14: send_message among them, which a
+// chat in Auto mode (the worker routines) needs to wake, start and resume other chats by code.
+const CODE_TOOLS = CODE_JOBS.flatMap(job => job.tools)
+const allowCode = /^y/i.test((given('allow-code') ?? await ask(`May the board start, wake and restart its chats and set their model by itself? It adds ${CODE_TOOLS.length} tool permissions to the new project's own settings. y/n`, 'y')).trim())
   && (process.stdin.isTTY || given('allow-code') !== undefined)
 asking.close()
 
@@ -63,6 +65,6 @@ if (!made.ok) {
 }
 for (const line of made.lines) console.log(line)
 if (allowCode) {
-  const allowed = await allowCodeJobs({ project: folder, tools: CODE_JOBS.flatMap(job => job.tools) })
+  const allowed = await allowCodeJobs({ project: folder, tools: CODE_TOOLS })
   console.log(allowed.ok ? `The board's code may do the main chat's routine jobs: ${allowed.added.length} tools allowed in the project's .claude\\settings.local.json.` : `The routine jobs stay the main chat's: ${allowed.why}`)
 }

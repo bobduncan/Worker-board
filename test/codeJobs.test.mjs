@@ -5,7 +5,7 @@ import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 import test from 'node:test'
 
-import { CLAIM_MS, CODE_JOBS, allowCodeJobs, allowedIn, codeJobsView, missingRoutines, readCodeJobs, taskWords, withAllowRules } from '../src/codeJobs.mjs'
+import { CLAIM_MS, CODE_JOBS, SEND_SOON, SEND_WHY, allowCodeJobs, allowedIn, codeJobsView, missingRoutines, readCodeJobs, taskWords, withAllowRules } from '../src/codeJobs.mjs'
 
 const MIN = 60_000
 const NOW = 100 * MIN
@@ -55,6 +55,47 @@ test('what is missing: the rules not allowed yet, the stored task, an older mod,
   assert.deepEqual(view.missingRoutines, [1, 2, 3, 4, 5])
   const failed = byKey(codeJobsView({ claims: claims(['Main', ['spawn']]), allowed: new Set(ALL), tasks: ['x'], spawnFail: { at: NOW, why: 'refused' }, now: NOW }))
   assert.deepEqual([failed.spawn.byCode, failed.spawn.why], [false, 'the last try failed: refused'])
+})
+
+// T14 (the person, 2026-10-30: "B", fix A for X1 / X103): the app puts an Auto-mode chat's send by code to its classifier.
+test('T14: waking, starting and resuming is by itself only while a chat that may send runs; else it needs the rule', () => {
+  const SEND = 'mcp__ccd_session_mgmt__send_message'
+  assert.deepEqual(CODE_JOBS[0].tools, [SEND])
+  const view = (list, allowed = new Set()) => codeJobsView({ claims: new Map(list.map(([name, can, mod]) => [name, { can, mod, at: NOW }])), allowed, tasks: ['x'], now: NOW })
+  // Only workers in Auto mode on the new mod run: the rule is what is missing, and Allow adds it.
+  const auto = view([['Worker 1', ['spawn'], '0.26.5'], ['Worker 2', [], '0.26.5']])
+  assert.deepEqual([byKey(auto).wake.byCode, byKey(auto).wake.why], [false, SEND_WHY])
+  assert.match(SEND_WHY, /^chats in Auto mode may not send messages until the project allows mcp__ccd_session_mgmt__send_message$/)
+  assert.ok(auto.missing.includes(SEND))
+  // The rule is there, the chats have not asked the app again yet.
+  const soon = view([['Worker 1', [], '0.26.5']], new Set([SEND]))
+  assert.deepEqual([byKey(soon).wake.byCode, byKey(soon).wake.why, soon.missing.includes(SEND)], [false, SEND_SOON, false])
+  // A chat that may send runs (its mod says so, or is older than the first that says it): by itself, nothing missing for it.
+  for (const runs of [[['Lead', ['send'], '0.26.5']], [['Worker 1', [], '0.26.4']], [['Worker 1', [], null]]]) {
+    const one = view([['Worker 2', [], '0.26.5'], ...runs])
+    assert.deepEqual([byKey(one).wake.byCode, byKey(one).wake.why, one.missing.includes(SEND)], [true, null, false], JSON.stringify(runs))
+  }
+  // No chat runs: as before.
+  assert.equal(byKey(view([])).wake.why, 'no chat with the Workers mod runs now')
+})
+
+test('T14: the page says the wake row needs your OK, with the reason in its tooltip, and counts it in the note', async () => {
+  const { openPage } = await import('./pageHarness.mjs')
+  const { asSent, build, ask, MIN: PAGE_MIN, NOW: PAGE_NOW } = await import('./partnerState.mjs')
+  const rows = [{ key: 'wake', title: 'Wake, start and resume chats', byCode: false, why: SEND_WHY }]
+  const jobs = { rows, missing: ['mcp__ccd_session_mgmt__send_message'], needsTask: false, missingRoutines: [], checked: null, canAllow: true, taskLine: null }
+  const page = await openPage({ state: { ...asSent(build([ask('Q2', 'person', PAGE_NOW - 40 * PAGE_MIN)])), codeJobs: jobs } })
+  try {
+    const line = page.find('#code-job-list li')
+    assert.equal(line.querySelector('.code-job-state').textContent, 'needs your OK')
+    assert.equal(line.title, `The main chat does this for now: ${SEND_WHY}.`)
+    assert.match(page.text('#code-jobs-note-text'), /once you allow it: wake, start and resume chats\.$/)
+    assert.equal(page.find('#code-jobs-allow').hidden, false)
+  } finally { await page.close() }
+  const soon = await openPage({ state: { ...asSent(build([ask('Q2', 'person', PAGE_NOW - 40 * PAGE_MIN)])), codeJobs: { ...jobs, missing: [], rows: [{ ...rows[0], why: SEND_SOON }] } } })
+  try {
+    assert.equal(soon.text('#code-job-list .code-job-state'), 'within 10 min')
+  } finally { await soon.close() }
 })
 
 // T12 (the person, 2026-10-28: every worker its own routine, "<project> - Worker N"): which worker slots have a routine.
@@ -147,7 +188,8 @@ test('reading this PC and Allow work through the file system they are given', as
 
 test('the server keeps each chat\'s claim, shows the check in the state and allows only what is missing; the page draws it', async () => {
   const server = await readFile(new URL('../server.mjs', import.meta.url), 'utf8')
-  assert.match(server, /codeClaims\.set\(checked\.chat, \{ can: \[\.\.\.can\]\.slice\(0, 10\), at: clock\(\) \}\)/)
+  // T14: with the mod's version, for whether the claim may send.
+  assert.match(server, /const claim = \{ can: \[\.\.\.can\]\.slice\(0, 10\), at: clock\(\), mod: typeof body\?\.mod === 'string' \? body\.mod : null \}\n\s+codeClaims\.set\(checked\.chat, claim\)/)
   assert.match(server, /codeJobs: await codeJobsNow\(state\.chatPrefix \?\? ''\)/)
   // T12: one routine per worker slot up to the limit: read for it, shown by it, and the pasted line makes the missing ones.
   assert.match(server, /readCodeJobs\(\{ project: resolve\(HERE, config\.project\), folder, maxWorkers: config\.maxWorkers \}\)/)
