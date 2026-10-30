@@ -157,6 +157,37 @@ export function taskFacts(lines, chat, taskText, now) {
   return { firstSeenAt: run.find(line => line.gap !== true).at, startedAt, firstEstimate, waitedMs, workedMs }
 }
 
+/**
+ * B793: how much of the time from `from` to `now` a chat did not work on its task: a pause, a limit's stop, an asleep or
+ * closed chat, the wait for the person, and the board being off (a gap line, or the gap still open, `aliveAt`). The time
+ * left of a task counts working time only (as B727 made the health lines), so each of these is added to the moment it
+ * runs out. Time before the chat's first line counts as worked, as for `taskFacts`; a chat with no line counts all as worked.
+ * Returns the count as a function of `from`, so the chat's lines are read once for several starts.
+ */
+export function notWorkedCounter(lines, chat, now, aliveAt = null) {
+  const open = Number.isFinite(aliveAt) ? startGap(lines, aliveAt, now) : null
+  const mine = lines.filter(line => line.gap === true || line.chat === chat)
+  if (open !== null) mine.push(open)
+  const firstAt = mine.find(line => line.gap !== true)?.at
+  if (firstAt === undefined) return () => 0
+  return from => {
+    if (!Number.isFinite(from)) return 0
+    const start = Math.max(from, firstAt)
+    if (start >= now) return 0
+    let worked = 0
+    for (let i = 0; i < mine.length; i += 1) {
+      if (mine[i].gap === true || mine[i].state !== 'working') continue
+      // A span ends at the next line, which may be the gap where the board stopped watching.
+      const end = Math.min(mine[i + 1]?.at ?? now, now)
+      worked += Math.max(0, end - Math.max(mine[i].at, start))
+    }
+    return Math.max(0, now - start - worked)
+  }
+}
+
+/** B793: `notWorkedCounter` for one start. */
+export const notWorkedSince = (lines, chat, from, now, aliveAt = null) => notWorkedCounter(lines, chat, now, aliveAt)(from)
+
 /** The full hour at or before a time, on the local clock. */
 export function hourStart(time) {
   const start = new Date(time)

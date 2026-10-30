@@ -9,7 +9,7 @@ import { ASK_MS, GRACE_MS, IDLE_HOLD_MS } from './config.mjs'
 import { allWords, closedForYou, minutesOf, forYou, noteSections, overview, queue, refineStateOf, withoutNotes } from './backlog.mjs'
 import { pathKey } from './games.mjs'
 import { asksAtEnd, parseHandover } from './handover.mjs'
-import { gapsOf, hourEnd, hourStart, taskFacts, today } from './history.mjs'
+import { gapsOf, hourEnd, hourStart, notWorkedCounter, taskFacts, today } from './history.mjs'
 import { DEAF_KEEP_MS, deafSpans } from './hearing.mjs'
 import { finishedList } from './finished.mjs'
 import { askFacts, brainstormNeeds, brainstormsState } from './brainstorm.mjs'
@@ -377,7 +377,7 @@ function savedWith(item) {
  * record names by id. T13: a card that holds no plan for that step shows the plan saved with the step instead
  * (`isSavedPlan`, work/stepPlan.mjs), and a step with no plan at all and no time of its own has its refine's size.
  */
-function taskOf({ chat, plan, scan, state, before, lines, prefix, now, step = null, stepById = () => null }) {
+function taskOf({ chat, plan, scan, state, before, lines, prefix, now, aliveAt = null, step = null, stepById = () => null }) {
   // `scan` holds the entries that can start a task: the tail, after a longer look back when there is one.
   const opening = scan === null ? null : turnStart(scan, { prefix })
   const bare = { step: null, steps: null, names: null, leftMs: null, estimateAt: null, stepLeftMs: null, stepEstimateAt: null, source: 'unrecorded', by: null }
@@ -425,9 +425,20 @@ function taskOf({ chat, plan, scan, state, before, lines, prefix, now, step = nu
   const workedMs = facts === null
     ? (state === 'working' ? now - startedAt : 0)
     : Math.max(0, facts.firstSeenAt - startedAt) + facts.workedMs
+  // B793: the time left counts the time the chat worked, as B727 made the health lines do: what it did not work since a time
+  // (a pause, a stop, a closed or asleep chat, a wait for the person, the board off) is added to the moment that time
+  // runs out. The estimates keep the times the chat gave (`estimateAt`, `stepEstimateAt`); `countAt` and `stepCountAt` are
+  // the same moments counted in working time, and `offStartMs`, `offTakenMs` the time not worked since the task started
+  // and since its step was taken, for the times counted from those.
+  const notWorked = notWorkedCounter(lines, chat.name, now, aliveAt)
+  const takenAt = onStep?.takenAt ?? null
   return {
     ...task,
     startedAt,
+    countAt: task.estimateAt === null ? null : task.estimateAt + notWorked(task.estimateAt),
+    stepCountAt: task.stepEstimateAt === null ? null : task.stepEstimateAt + notWorked(task.stepEstimateAt),
+    offStartMs: notWorked(startedAt),
+    offTakenMs: Number.isFinite(takenAt) ? notWorked(takenAt) : null,
     // The whole task as first estimated: the time already spent when the estimate was given, plus what it said was left.
     firstEstimateMs: first === null ? null : Math.max(0, first.at - startedAt) + first.leftMs,
     waitedMs: facts?.waitedMs ?? 0,
@@ -454,13 +465,17 @@ function etaOf(task, state, now) {
   // step was taken, until the worker records a plan of its own.
   const isRefine = !isOwn && task.stepMinutes === null && (task.refineMinutes ?? null) !== null
   const minutes = task.stepMinutes ?? task.refineMinutes ?? null
-  const start = isRefine && Number.isFinite(task.takenAt) ? task.takenAt : task.startedAt
+  const isFromTake = isRefine && Number.isFinite(task.takenAt)
+  const start = isFromTake ? task.takenAt : task.startedAt
   if (!isOwn && (minutes === null || !Number.isFinite(start))) return null
-  const at = isOwn ? task.estimateAt + task.leftMs : start + minutes * MIN
+  // B793: every time counts the time the chat worked: what it did not work since the start (`offTakenMs`, `offStartMs`) is
+  // added, and a plan's own time counts from `countAt`, the moment it gave it moved on by what was not worked since.
+  const idleMs = (isFromTake ? task.offTakenMs : task.offStartMs) ?? 0
+  const at = isOwn ? (task.countAt ?? task.estimateAt) + task.leftMs : start + idleMs + minutes * MIN
   // B185: over its estimate (`isOverdue`, shown as a fault) only when over twice it and by at least 10 minutes, the
-  // person's yes against false alarms; a little over is only that (`isOver`).
-  const spanMs = Number.isFinite(start) ? at - start : 0
-  const isOverdue = now - at >= 10 * MIN && (spanMs <= 0 || now - start > 2 * spanMs)
+  // person's yes against false alarms; a little over is only that (`isOver`). Both spans are working time.
+  const spanMs = Number.isFinite(start) ? at - start - idleMs : 0
+  const isOverdue = now - at >= 10 * MIN && (spanMs <= 0 || now - start - idleMs > 2 * spanMs)
   return { at, leftMs: Math.max(0, at - now), isOverdue, isOver: at < now, isOwn, from: isOwn ? 'own' : isRefine ? 'refine' : 'step' }
 }
 
@@ -474,7 +489,7 @@ function finishedWith(waits) {
   return { ...waits, handover: parseHandover(waits.words) }
 }
 
-function card(chat, raw, { now, config, last, lines, main, prefix, stepOf = () => null, stepById = () => null, briefOf = () => null, waits, notes = new Map(), pauseOver = () => false, movedInto = new Map(), reportOf = () => null }) {
+function card(chat, raw, { now, aliveAt = null, config, last, lines, main, prefix, stepOf = () => null, stepById = () => null, briefOf = () => null, waits, notes = new Map(), pauseOver = () => false, movedInto = new Map(), reportOf = () => null }) {
   // `session` is the id the chat's own process knows itself by: the bridge serves only that one under this name.
   // `appSession` is the id the app knows the chat by: the main chat starts a chat that is not running with it.
   // B468: `effort` is what the app's file of the chat says it runs at, or null.
@@ -570,7 +585,7 @@ function card(chat, raw, { now, config, last, lines, main, prefix, stepOf = () =
   const isLeftBehind = plan?.task != null && !plan.task.isReported && (isDone || state === 'free')
   // A reported chat that stopped mid-task, or whose reports stopped, keeps its task as one cut off does.
   const isKept = wasCutOff || paused !== null || parked !== null || (reported !== null && ['interrupted', 'off', 'unknown'].includes(state))
-  const task = taskOf({ chat, plan: isLeftBehind ? { ...plan, task: null } : plan, state: isKept ? 'working' : state, before: last.get(chat.name), lines, prefix, now, scan, step, stepById })
+  const task = taskOf({ chat, plan: isLeftBehind ? { ...plan, task: null } : plan, state: isKept ? 'working' : state, before: last.get(chat.name), lines, prefix, now, aliveAt, scan, step, stepById })
   const eta = etaOf(task, state, now)
   // B151: the person's words that gave it the task it is on, as they arrived, for the window a click on its lane opens;
   // with the step it is on, else the first open one those words name. B301: another chat's message gives no task.
@@ -1303,7 +1318,7 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
   // B310: the notes each chat filed to the main chat: a pause for the limit may come that way.
   const notes = notesToMain(raw.work, { prefix, main: list.main ?? 'main' })
   const context = {
-    now, config, last, lines, prefix, waits, notes, movedInto: movedBack,
+    now, aliveAt, config, last, lines, prefix, waits, notes, movedInto: movedBack,
     // How a message from the main chat is known: by its title, or by the app's id for it.
     main: { mainTitle: list.main === null ? null : `${prefix}${list.main}`, mainSession: main?.appSessionId ?? null },
   }
