@@ -33,7 +33,7 @@ const listOf = (value, split) => (Array.isArray(value) ? value : typeof value ==
  * `{ by, question, advice }`), the options, what was shown, or what words without a question were about (`about`, a
  * refine's summary); under it the person's words (`answer`, lines or one string).
  *
- *   3. 2026-10-30 21:22 · answer to Q520 (Worker 1 asked: "Do you accept this look?"; options: yes / no; shown: art-inbox/b497/evidence.png)
+ *   3. 2026-10-30 21:22 · answer to Q520 (Worker 1 asked: "Do you accept this look?"; options: yes / no; shown: pictures/b497/evidence.png)
  *      You: Rejected. It feels a bit square.
  */
 export function wordsPoint({ n, at, how, ask = null, about = '', options = [], shown = [], answer }) {
