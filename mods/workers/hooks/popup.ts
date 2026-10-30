@@ -1,52 +1,55 @@
 // A popup in a chat that waits for the person (the person, 2026-10-28: "worker 1 had a popup in claude code but it was not
 // visible until looked, it was not visible in the worker board. how can we prevent this in the future?"; Worker 1 waited
-// 16 min on the app's popup for its game preview). A tool call of the chat's own that the permission check put to a
-// decider (an ask) and is still waiting after POPUP_SHOWN_MS shows a popup to the person; any other call still running
-// after STUCK_SHOWN_MS may wait on a popup of the app (one the permission check never sees), unless it is a kind that
-// runs long by itself. Either is filed on the worker board as an ask in the chat's name and the chat reports itself
-// asking, as the app's question form does; once the call goes on, the ask is closed and the chat busy again.
+// 16 min on the app's popup for its game preview). A call of the chat's own still running after STUCK_SHOWN_MS may wait
+// on a popup, unless it is a kind that runs long by itself: it is filed on the worker board as an ask in the chat's name
+// and the chat reports itself asking, as the app's question form does; once the call goes on, or its turn ends, the ask
+// is withdrawn and the chat busy again. 2026-10-30 (the person: "i got a popup for all workers. i checked each but they
+// didnt need an approve"): an ask of the permission check is no sign of a popup: in auto mode the mode settles it, often
+// slowly and with none, so it shows nothing by itself.
 
-/** An ask the permission check made, still unanswered after this long: a popup waits for the person. */
-export const POPUP_SHOWN_MS = 15_000
-/** Any other call still running after this long may wait on a popup of the app. */
+/** A call still running after this long may wait on a popup. */
 export const STUCK_SHOWN_MS = 60_000
 
 /**
- * The calls that run long by themselves (a shell, a subagent, a wait): only an ask of the permission check shows them,
- * never their time. The question form has its own hook (it files its questions itself).
+ * The calls that run long by themselves (a shell, a subagent, a wait) and the question form, which files its questions
+ * itself: never shown for their time.
  */
-const LONG_RUNS = new Set(['Bash', 'PowerShell', 'Agent', 'Task', 'TaskOutput', 'TaskStop', 'Monitor', 'Workflow', 'Skill', 'ScheduleWakeup', 'mcp__ccd_session_mgmt__send_message'])
-const OWN_FORMS = new Set(['AskUserQuestion'])
+const NOT_SHOWN = new Set(['AskUserQuestion', 'Bash', 'PowerShell', 'Agent', 'Task', 'TaskOutput', 'TaskStop', 'Monitor', 'Workflow', 'Skill', 'ScheduleWakeup', 'mcp__ccd_session_mgmt__send_message'])
 
-/** Whether a call of this tool is watched at all (the question form files itself). */
-export const isWatched = (tool: string): boolean => !OWN_FORMS.has(tool)
+/** Whether a call of this tool may be shown for its time (not one that runs long by itself). */
+export const isShownForTime = (tool: string): boolean => !NOT_SHOWN.has(tool)
 
-/** Whether a call of this tool may be shown for its time alone (not one that runs long by itself). */
-export const isShownForTime = (tool: string): boolean => isWatched(tool) && !LONG_RUNS.has(tool)
-
-/** A tool as the person reads it: `mcp__Claude_Browser__preview_start` is "Claude_Browser preview_start". */
-export function toolName(tool: string): string {
-  const parts = tool.split('__')
-  return parts.length >= 3 && parts[0] === 'mcp' ? `${parts[1]} ${parts.slice(2).join('__')}` : tool
+/** What a call of the tool does, in plain words (the person, 2026-10-30: the card showed the whole raw command). */
+const PLAIN: Record<string, string> = {
+  Bash: 'run a command', PowerShell: 'run a command', Edit: 'change a file', Write: 'write a file', NotebookEdit: 'change a notebook',
+  Read: 'read a file', Glob: 'look for files', Grep: 'search the files', WebFetch: 'open a web page', WebSearch: 'search the web',
+  ExitPlanMode: 'start on its plan', mcp__Claude_Browser__preview_start: 'start a preview in its browser',
+  mcp__Claude_Browser__navigate: 'open a page in its browser',
 }
-
-/** What the call does, in at most `max` characters: a shell's command, a file's path, else its arguments. */
-export function callGist(input: unknown, max = 90): string {
-  const fields = (input ?? {}) as Record<string, unknown>
-  const said = ['command', 'file_path', 'path', 'url', 'name', 'pattern'].map(key => fields[key]).find(value => typeof value === 'string' && value.trim() !== '') as string | undefined
-  const shown = said ?? Object.entries(fields).filter(([key]) => !['tool', 'tool_use_id', 'agentId', 'consent', 'requestMeta'].includes(key)).map(([key, value]) => `${key}: ${typeof value === 'string' ? value : JSON.stringify(value)}`).join(', ')
-  const flat = shown.replace(/\s+/g, ' ').trim()
-  return flat.length > max ? `${flat.slice(0, max - 1)}…` : flat
+export function plainAction(tool: string): string {
+  if (PLAIN[tool] !== undefined) return PLAIN[tool]
+  const parts = tool.split('__')
+  return parts.length >= 3 && parts[0] === 'mcp' ? `use ${parts[1].replace(/_/g, ' ')} (${parts.slice(2).join(' ').replace(/_/g, ' ')})` : `use ${tool}`
 }
 
 /**
- * The ask's words: for a call the permission check asked about, that its popup waits for the person's OK; for one that
- * only runs long, that a popup may wait. The person answers in the chat: the board names the chat beside the ask.
+ * The call's detail in a few words: a command's first words (up to its first `&&`, `;`, `|` or redirect), a file's
+ * name, a preview's name or a page's address; at most 40 characters; empty when there is none.
  */
-export function popupText(tool: string, input: unknown, isAsked: boolean): string {
-  const gist = callGist(input)
-  const what = gist === '' ? toolName(tool) : `${toolName(tool)}: ${gist}`
-  return isAsked
-    ? `Its popup waits for your OK to run ${what}. Open its chat and answer the popup.`
-    : `Its ${what} has run over a minute: a popup in its chat may wait for you. Open its chat and look.`
+export function shortDetail(input: unknown, max = 40): string {
+  const fields = (input ?? {}) as Record<string, unknown>
+  const text = (key: string): string => (typeof fields[key] === 'string' ? (fields[key] as string).trim() : '')
+  const command = text('command').split(/&&|\|\||;|\||\s\d?>|\n/)[0].replace(/\s+/g, ' ').trim()
+  const path = text('file_path') || text('notebook_path') || text('path')
+  const said = command !== '' ? command.split(' ').slice(0, 4).join(' ') : path !== '' ? path.split(/[\\/]/).pop() ?? '' : text('name') || text('url') || text('pattern')
+  return said.length > max ? `${said.slice(0, max - 1)}…` : said
+}
+
+/**
+ * The ask's words, short and plain (its first sentence is the card's title): a popup may wait. The person answers in
+ * the chat: the board names the chat beside the ask.
+ */
+export function popupText(tool: string, input: unknown): string {
+  const detail = shortDetail(input)
+  return `A popup in its chat may wait for you: it has tried to ${plainAction(tool)}${detail === '' ? '' : ` (${detail})`} for over a minute. Open its chat and look.`
 }

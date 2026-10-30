@@ -16,7 +16,7 @@ import {
 } from './chats'
 import type { OpenInstruction, TaskChange } from './chats'
 import { blockAsksLine, forYouCount, forYouItems, leftOutLine } from './foryou'
-import { POPUP_SHOWN_MS, STUCK_SHOWN_MS, isShownForTime, isWatched, popupText } from './popup'
+import { STUCK_SHOWN_MS, isShownForTime, popupText } from './popup'
 import { ARCHIVE_TOOL, CAN_SET_MS, CAN_TOOLS, EFFORT_TOOL, HANDS_DONE_PATH, HANDS_MS, HANDS_PATH, LIST_TOOL, MODEL_TOOL, SEND_TOOL, TASK_RUN_TOOL, TASK_UPDATE_TOOL, UNARCHIVE_TOOL, USAGE_TOOL, archivedOf, canFrom, parseJobs, plainResult, sendResult, setResult, usageResult } from './hands'
 import type { HandResult, HandSet } from './hands'
 import {
@@ -84,8 +84,8 @@ let reportSeq = 0
 /** B738: the chats the board's last answer to a take named as not running; empty when it did not answer. */
 let boardOff: string[] = []
 let openForms = 0
-/** The calls of this chat's own that the permission check put to a decider (an ask), by their tool_use_id, while they run. */
-const askedCalls = new Set<string>()
+/** The popup asks this chat filed (popup.ts), by the call's tool_use_id, the ask's id once the board gave it, until closed. */
+const openPopups = new Map<string, Promise<string | null>>()
 let reportingSince: number | null = null
 /** This session as the list names it, as last read or written; null while it is not in the list. */
 let myself: { name: string; role: ChatRole } | null = null
@@ -785,50 +785,53 @@ async function holdsNothing($: EngineInterface): Promise<boolean> {
 
 /** B299: files the questions of the app's question form on the board as asks: `[{ id, text }]` of those it took. */
 /**
- * A popup that waits for the person (popup.ts): from the moment a call was shown, the chat reports itself asking and the
- * board holds an ask in its name (under the card's step when the board takes it there); `stop` once the call goes on
- * closes the ask (answered in the chat, or withdrawn when it was only shown for its time) and the chat is busy again.
+ * A popup that may wait for the person (popup.ts): a call that does not run long by itself and is still running after
+ * STUCK_SHOWN_MS is filed on the board as an ask in the chat's name (under the card's step when the board takes it
+ * there) and the chat reports itself asking; `stop` once the call goes on withdraws the ask first, then the chat is busy
+ * again. 2026-10-30 (the person: "i got a popup for all workers ... they didnt need an approve"): no card for the
+ * permission check's asks any more: in auto mode the mode settles them, often slowly, with no popup.
  */
 function watchPopup($: EngineInterface, call: { tool: string; tool_use_id?: string; input: unknown }): { stop: () => Promise<void> } {
   const id = call.tool_use_id
-  if (id === undefined || !isWatched(call.tool)) return { stop: async () => {} }
+  if (id === undefined || !isShownForTime(call.tool)) return { stop: async () => {} }
   let isStopped = false
-  let shown: { isAsked: boolean; ask: Promise<string | null> } | null = null
-  const show = async (isAsked: boolean): Promise<void> => {
-    if (isStopped || shown !== null) return
+  let isShown = false
+  const show = async (): Promise<void> => {
+    if (isStopped || isShown) return
+    isShown = true
     openForms += 1
-    const ask = filePopup($, call, isAsked)
-    shown = { isAsked, ask }
+    openPopups.set(id, filePopup($, call))
     await setReport($, 'asking')
     await say($, 'asking')
   }
-  const timers = [
-    $.clock.after(POPUP_SHOWN_MS, () => { if (askedCalls.has(id)) void show(true).catch(() => null) }),
-    ...(isShownForTime(call.tool) ? [$.clock.after(STUCK_SHOWN_MS, () => { void show(askedCalls.has(id)).catch(() => null) })] : []),
-  ]
+  const timer = $.clock.after(STUCK_SHOWN_MS, () => { void show().catch(() => null) })
   return {
     stop: async () => {
       isStopped = true
-      for (const timer of timers) timer.cancel()
-      askedCalls.delete(id)
-      if (shown === null) return
+      timer.cancel()
+      if (!isShown) return
+      // The ask goes first: a report that fails must not leave the card standing ("why dont the popups dissappear").
+      closePopup($, id, 'the call went on')
       openForms -= 1
       if (openForms === 0) await setReport($, isInTurn ? 'busy' : 'idle', await backgroundNow($))
       if (isInTurn) await say($, 'working')
-      const { isAsked, ask } = shown
-      void ask.then(askId => (askId === null ? null : workQuietly($, isAsked
-        ? { action: 'answered-in-chat', id: askId, text: 'answered in the chat: the call went on' }
-        : { action: 'withdraw', id: askId, why: 'the call went on' }))).catch(() => null)
     },
   }
 }
 
+/** Withdraws the popup ask of that call, once its id is known; nothing when it has none. */
+function closePopup($: EngineInterface, id: string, why: string): void {
+  const ask = openPopups.get(id)
+  openPopups.delete(id)
+  if (ask !== undefined) void ask.then(askId => (askId === null ? null : workQuietly($, { action: 'withdraw', id: askId, why }))).catch(() => null)
+}
+
 /** The ask for a popup (popup.ts `popupText`), kind do, answered in the chat only; its id, or null when none was filed. */
-async function filePopup($: EngineInterface, call: { tool: string; input: unknown }, isAsked: boolean): Promise<string | null> {
+async function filePopup($: EngineInterface, call: { tool: string; input: unknown }): Promise<string | null> {
   try {
     const dir = await findChatsDir($)
     const of = dir === null ? null : cardStep(await readChat($, dir, await $.session.id()))
-    const ask = { action: 'ask', kind: 'do', via: 'form', text: popupText(call.tool, call.input, isAsked) }
+    const ask = { action: 'ask', kind: 'do', via: 'form', text: popupText(call.tool, call.input) }
     let filed = of === null ? null : await workLate($, { ...ask, of })
     if (filed === null || filed.isRefused) filed = await workLate($, ask)
     return idOf(filed.read) ?? (filed.late === null ? null : idOf(await filed.late))
@@ -2245,6 +2248,8 @@ export const register: Register = on => {
   })
 
   on('turn.complete', async ($, e, next) => {
+    // A popup ask still standing when the turn ends is withdrawn (popup.ts): no call of the turn waits any more.
+    for (const id of [...openPopups.keys()]) closePopup($, id, 'its turn ended')
     try {
       return await next(e)
     } finally {
@@ -2337,14 +2342,6 @@ export const register: Register = on => {
     } finally {
       if (popup !== null) await popup.stop()
     }
-  })
-
-  // A popup that waits for the person (popup.ts): a call of the chat's own that the permission check puts to a decider
-  // is noted, so its popup shows on the board while it waits. The verdict itself is left as it is.
-  on('tool.check', async ($, e, next) => {
-    const verdict = await next(e)
-    if (e.agentId === undefined && typeof e.tool_use_id === 'string' && verdict?.decision === 'ask') askedCalls.add(e.tool_use_id)
-    return verdict
   })
 
   // A question to the person holds the turn: the list says whose move it is.
