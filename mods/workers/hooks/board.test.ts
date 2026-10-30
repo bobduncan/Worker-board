@@ -139,6 +139,13 @@ describe('the supervisor: its chat reads the health summary and files incidents 
   })
 })
 
+describe('B775: the partner judges the open items of Needs your attention with the work tool', () => {
+  test('obsolete is an action of the tool, and its lines go in the points the result check uses (no new field)', () => {
+    expect(WORK_ACTIONS.includes('obsolete')).toBe(true)
+    expect(WORK_FIELDS.includes('points')).toBe(true)
+  })
+})
+
 describe("B313: the main chat moves a renamed chat's work with the work tool", () => {
   test('rename is an action of the tool, with from and to', () => {
     expect(WORK_ACTIONS.includes('rename')).toBe(true)
@@ -234,7 +241,7 @@ describe('Pause 2: the pause state as the mod reads it, and the contexts it give
 describe('2026-10-28: the board names this chat by its session id', () => {
   test('the route, and the version the plugin states', () => {
     expect(WHOAMI_PATH).toBe('/api/bridge/whoami')
-    expect(MOD_VERSION).toBe('0.26.4')
+    expect(MOD_VERSION).toBe('0.26.5')
   })
 
   test('the answer: a name, the role the board gives it and the session its card is filed under', () => {

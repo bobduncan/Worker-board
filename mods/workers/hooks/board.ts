@@ -34,7 +34,7 @@ export const REQUEST_HEADER = 'X-Work-Request'
  * chat that runs an older Workers mod than the one installed. The same as `version` in .claude-plugin/plugin.json.
  */
 export const MOD_HEADER = 'X-Workers-Mod'
-export const MOD_VERSION = '0.26.4'
+export const MOD_VERSION = '0.26.5'
 /** The longest text typed for the board: its own limit for an answer, with room for the request's name around it. */
 export const MOST_CHARS = 3000
 
@@ -169,9 +169,10 @@ export function typedWhy(reason: unknown, fallback: string): string {
  * answers (2026-10-19): the partner answers an ask routed to it for the person (`partner-answer`: "id", "text", "why")
  * or hands it to the person (`escalate`: "id", "why"). The supervisor (spec 2026-10-24): its chat reads the board's
  * health summary (`health`) and files what looks wrong (`incident`: "title", "subject", "evidence", "rule", "key"); the
- * partner names the step that fixes an incident (`incident-fix`: "id" X<n>, "fix" B<n>).
+ * partner names the step that fixes an incident (`incident-fix`: "id" X<n>, "fix" B<n>). B775: the partner's verdicts of the
+ * obsolete check (`obsolete`: "points", one line per item; without points it reads the check). No new field.
  */
-export const WORK_ACTIONS = ['next', 'take', 'step', 'ask', 'withdraw', 'answered-in-chat', 'note', 'report', 'block', 'unblock', 'new', 'close', 'drop', 'refine', 'refined', 'checked', 'vibe-draft', 'how-draft', 'list', 'rename', 'partner-answer', 'escalate', 'health', 'incident', 'incident-fix']
+export const WORK_ACTIONS = ['next', 'take', 'step', 'ask', 'withdraw', 'answered-in-chat', 'note', 'report', 'block', 'unblock', 'new', 'close', 'drop', 'refine', 'refined', 'checked', 'vibe-draft', 'how-draft', 'list', 'rename', 'partner-answer', 'escalate', 'health', 'incident', 'incident-fix', 'obsolete']
 
 /** B297: the fields a call of the work tool may carry to the board; anything else stays here. */
 export const WORK_FIELDS = ['action', 'id', 'branch', 'step', 'steps', 'names', 'name', 'minutes', 'stepMinutes', 'of', 'kind', 'blocking', 'text', 'options',
