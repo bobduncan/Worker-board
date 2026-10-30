@@ -82,7 +82,7 @@ import { isReadAction, workApi } from './src/work/api.mjs'
 import { effortOf } from './src/work/effort.mjs'
 import { isHolding, pauseAnswer, resumeEnds, resumeRetypeTo, resumeTypeTo } from './src/work/pause.mjs'
 import { allowCodeJobs, codeJobsView, readCodeJobs, taskWords } from './src/codeJobs.mjs'
-import { STOP_MOD, asleepOfJob, handJobs, handResults, isForHandsYet, isHandWord, isStopWord, nextSpawn, stopStep, stopTaskOf, usageDue, workerNames } from './src/hands.mjs'
+import { STOP_MOD, asleepOfJob, handJobs, handResults, isForHandsYet, isHandWord, isStopWord, maySend, nextSpawn, stopStep, stopTaskOf, usageDue, workerNames } from './src/hands.mjs'
 import { OPEN_CHECK_MS, OPEN_FIRST_MS, OPEN_TRIES, chatToOpen, failuresOf, handWorkWaits, handsGone, openChat, openPlan, openerNote, openerRow } from './src/opener.mjs'
 import { basesNow, patientReportCheck } from './src/work/check.mjs'
 import { deliverWork, givesRefused, pullFor, sendOnce } from './src/work/deliver.mjs'
@@ -1607,8 +1607,8 @@ async function main(args) {
   const freshWho = new Map()
   /** B753: when a hand last sent a resume line, by `<pause since>:<chat>`, so one goes again only after a while. */
   const resumesSent = new Map()
-  // B767: what each chat's mod said its code may do at its last claim of the hands (`{ can, at }` by name), and the
-  // last new worker that failed (`{ at, why }`), for the setup check.
+  // B767: what each chat's mod said its code may do at its last claim of the hands (`{ can, at, mod }` by name; T14: with
+  // its mod's version, null for none said), and the last new worker that failed (`{ at, why }`), for the setup check.
   const codeClaims = new Map()
   let spawnFail = null
   // B768: when the last lookup of the limits was given to a hand.
@@ -2183,10 +2183,14 @@ async function main(args) {
       // B755: the model and effort words only to a chat whose app lets its code set them (its mod says `can: ['set']`).
       // B766: a worker's restart only to one that may close and reopen chats ('restart'), a new worker only to one that
       // may rename and run the stored task ('spawn').
+      // T14: the start, wake and resume lines only to a chat that may send by code (its mod says `can: ['send']`, or is
+      // older than the first that says it): the app puts an Auto-mode chat's send to its classifier, which denies it.
       const can = new Set(Array.isArray(body?.can) ? body.can.filter(one => typeof one === 'string') : [])
-      codeClaims.set(checked.chat, { can: [...can].slice(0, 10), at: clock() })
+      const claim = { can: [...can].slice(0, 10), at: clock(), mod: typeof body?.mod === 'string' ? body.mod : null }
+      codeClaims.set(checked.chat, claim)
+      const canSend = maySend(claim)
       const workers = workerNames(state)
-      const isHand = message => isHandWord(message, { canSet: can.has('set'), canRestart: can.has('restart'), canSpawn: can.has('spawn'), workers })
+      const isHand = message => isHandWord(message, { canSend, canSet: can.has('set'), canRestart: can.has('restart'), canSpawn: can.has('spawn'), workers })
       const taken = isHolding(state.pause) ? [] : await store.takeHands(checked.chat, clock(), keep, isHand)
       const read = workDir === null ? null : await readStore(workDir)
       const pause = read?.pause ?? null
@@ -2209,7 +2213,7 @@ async function main(args) {
       const usage = can.has('usage') && READINGS_FILE !== null && !isShowOnly && usageDue({ readings: state.limitReadings ?? [], givenAt: usageGivenAt, now: clock() })
       if (usage) usageGivenAt = clock()
       // T13 part 3: and one resume word for each asleep chat whose turn was cut, once per spell, never while the person pauses.
-      const { jobs, back } = handJobs({ caller: checked.chat, taken, lanes, resumeList, since: pause?.since ?? null, sentAt: resumesSent, now: clock(), spawn, usage, asleepSent: asleepWoken, isPaused: isHolding(state.pause) })
+      const { jobs, back } = handJobs({ caller: checked.chat, taken, lanes, resumeList, since: pause?.since ?? null, sentAt: resumesSent, now: clock(), spawn, usage, asleepSent: asleepWoken, isPaused: isHolding(state.pause), canSend })
       for (const message of removed) {
         const lane = lanes.find(one => one.name === message.about)
         jobs.push({ id: message.id, ...(typeof lane?.appSession === 'string' && /^local_[\w-]{1,80}$/.test(lane.appSession) ? { to: lane.appSession } : {}), chat: message.about, remove: true })

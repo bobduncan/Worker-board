@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'claude-code/testing'
 
-import { ARCHIVE_TOOL, EFFORT_TOOL, HANDS_DONE_PATH, HANDS_PATH, LIST_TOOL, MODEL_TOOL, SEND_TOOL, TASK_RUN_TOOL, TASK_UPDATE_TOOL, UNARCHIVE_TOOL, USAGE_TOOL, archivedOf, canFrom, parseJobs, plainResult, sendResult, setResult, usageResult } from './hands'
+import { ARCHIVE_TOOL, CAN_TOOLS, EFFORT_TOOL, HANDS_DONE_PATH, HANDS_PATH, LIST_TOOL, MODEL_TOOL, SEND_TOOL, TASK_RUN_TOOL, TASK_UPDATE_TOOL, UNARCHIVE_TOOL, USAGE_TOOL, archivedOf, canFrom, parseJobs, plainResult, sendResult, setResult, usageResult } from './hands'
 
 // B753: the board's hands in code: the jobs the board hands this chat, and what the app's tool answered for each.
 describe('the board\'s hands', () => {
@@ -63,6 +63,20 @@ describe('the board\'s hands', () => {
     expect(canFrom({ [ARCHIVE_TOOL]: allow, [UNARCHIVE_TOOL]: allow, [LIST_TOOL]: allow, [TASK_UPDATE_TOOL]: allow, [TASK_RUN_TOOL]: allow })).toEqual(['restart', 'spawn'])
     expect(canFrom({ [ARCHIVE_TOOL]: allow, [UNARCHIVE_TOOL]: allow, [LIST_TOOL]: null })).toEqual([])
     expect(canFrom({})).toEqual([])
+  })
+
+  // T14: the start, wake and resume lines only from a chat whose app lets its code send with no question.
+  test('send only where the app allows the send-message tool: an ask (the Auto classifier, a dialog) or a deny is no send', () => {
+    expect(CAN_TOOLS.send).toEqual([SEND_TOOL])
+    expect(canFrom({ [SEND_TOOL]: { decision: 'allow', rule: SEND_TOOL } })).toEqual(['send'])
+    // A mode that allows it with no rule (bypass) counts too: the verdict is what counts, not the rule.
+    expect(canFrom({ [SEND_TOOL]: { decision: 'allow' } })).toEqual(['send'])
+    // Auto mode with no rule: the check answers ask (its decider is the classifier, which denies a send by code).
+    expect(canFrom({ [SEND_TOOL]: { decision: 'ask' } })).toEqual([])
+    expect(canFrom({ [SEND_TOOL]: { decision: 'deny', reason: 'no' } })).toEqual([])
+    expect(canFrom({ [SEND_TOOL]: null })).toEqual([])
+    // Beside the others, in the order CAN_TOOLS names them.
+    expect(canFrom({ [MODEL_TOOL]: { decision: 'allow' }, [EFFORT_TOOL]: { decision: 'allow' }, [SEND_TOOL]: { decision: 'allow' } })).toEqual(['set', 'send'])
   })
 
   // B766: a worker's restart for a new mod, and a new worker, by code.

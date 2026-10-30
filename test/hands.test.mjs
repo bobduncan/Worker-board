@@ -188,7 +188,7 @@ test('B766: the jobs: a restart names the board\'s chats to reopen; one new work
 test('B766: the server gives the restart and spawn words only by what the claiming chat may do', async () => {
   const { readFile } = await import('node:fs/promises')
   const server = await readFile(new URL('../server.mjs', import.meta.url), 'utf8')
-  assert.match(server, /isHandWord\(message, \{ canSet: can\.has\('set'\), canRestart: can\.has\('restart'\), canSpawn: can\.has\('spawn'\), workers \}\)/)
+  assert.match(server, /isHandWord\(message, \{ canSend, canSet: can\.has\('set'\), canRestart: can\.has\('restart'\), canSpawn: can\.has\('spawn'\), workers \}\)/)
   assert.match(server, /nextSpawn\(\(state\.chats \?\? \[\]\)\.map\(lane => lane\.name\), prefix, basename\(config\.project\)\)/)
   assert.match(server, /!isForHandsYet\(message, now, workers\)/)
 })
@@ -239,4 +239,48 @@ test('B769: the server marks stop and remove for code, names the stop in the wor
 test('the routes: a hand claims and reports through the bridge, behind the board\'s key and its lock', () => {
   assert.deepEqual(POST_ROUTES['/api/bridge/hands'], { kind: 'bridge', guard: 'lock' })
   assert.deepEqual(POST_ROUTES['/api/bridge/hands-done'], { kind: 'bridge', guard: 'lock' })
+})
+
+// T14 (the person, 2026-10-30: "B", fix A for X1 / X103): the app puts an Auto-mode chat's send by code to its classifier,
+// which denies it, so the jobs sent with the send-message tool go only to a chat that may send.
+test('T14: a chat may send when its mod says send, or runs a mod older than the first that says it', async () => {
+  const { SEND_MOD, maySend } = await import('../src/hands.mjs')
+  assert.equal(SEND_MOD, '0.26.5')
+  assert.equal(maySend({ can: ['set', 'send'], mod: '0.26.5' }), true)
+  assert.equal(maySend({ can: ['set'], mod: '0.26.5' }), false)
+  assert.equal(maySend({ can: [], mod: '0.27.0' }), false)
+  // An older mod never says it: it keeps today's share, so nothing stops before the chats run the new mod.
+  assert.equal(maySend({ can: ['set'], mod: '0.26.4' }), true)
+  assert.equal(maySend({ can: [], mod: null }), true)
+  assert.equal(maySend({ can: [] }), true)
+})
+
+test('T14: the start and wake words, the resume lines and the asleep resume words only to a caller that may send', () => {
+  const start = word('a', 'start', 'Worker 1')
+  assert.equal(isHandWord(start, { canSend: false }), false)
+  assert.equal(isHandWord(word('b', 'wake', 'Worker 1'), { canSend: false, canSet: true, canRestart: true, canSpawn: true }), false)
+  assert.equal(isHandWord(start, { canSend: true }), true)
+  // The other jobs stay as they are: a set word, a new worker.
+  const set = { ...word('s', 'worker-effort', 'Worker 1'), effort: 'high', model: null }
+  assert.equal(isHandWord(set, { canSend: false, canSet: true }), true)
+  assert.equal(isHandWord({ id: 'n', at: 0, command: 'spawn' }, { canSend: false, canSpawn: true }), true)
+  // The main chat's own take still leaves them to a hand for a minute.
+  assert.equal(isForHandsYet(start, HANDS_FIRST_MS - 1), true)
+
+  const resumeList = [{ chat: 'Worker 1', session: 'local_w1', step: 'B12', hasStarted: false }]
+  const lanes = [...LANES, { name: 'Worker 3', appSession: 'local_w3', asleep: true, state: 'interrupted', asleepSince: 5, storeSteps: [{ id: 'B30', state: 'in progress' }] }]
+  const all = { caller: 'Advisor', taken: [start, set], lanes, resumeList, since: 100, now: 10 * MIN }
+  assert.deepEqual(handJobs({ ...all, canSend: true }).jobs.map(job => job.id), ['a', 's', 'resume:100:Worker 1', 'asleep:5:Worker 3'])
+  const without = handJobs({ ...all, canSend: false })
+  assert.deepEqual(without.jobs, [{ id: 's', to: 'local_w1', chat: 'Worker 1', set: { model: null, effort: 'high' } }])
+  // A start or wake word such a caller took anyway goes back to waiting.
+  assert.deepEqual(without.back, ['a'])
+})
+
+test('T14: the server keeps the claim\'s mod and gives the send jobs by it', async () => {
+  const { readFile } = await import('node:fs/promises')
+  const server = await readFile(new URL('../server.mjs', import.meta.url), 'utf8')
+  assert.match(server, /const claim = \{ can: \[\.\.\.can\]\.slice\(0, 10\), at: clock\(\), mod: typeof body\?\.mod === 'string' \? body\.mod : null \}/)
+  assert.match(server, /const canSend = maySend\(claim\)/)
+  assert.match(server, /isPaused: isHolding\(state\.pause\), canSend \}\)/)
 })
