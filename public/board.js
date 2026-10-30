@@ -512,7 +512,12 @@ function drawBoardSettings(state) {
 function codeJobLines(jobs) {
   // Plain for a first-time user (the person, 2026-10-28: "as long as instructions are clear when a new user tries the
   // board for the first time"): a short state, the full reason in its tooltip.
-  const short = { 'not allowed yet': 'needs your OK', 'no stored start-worker task on this PC': 'needs its routines', 'no chat with the Workers mod runs now': 'no chat runs now' }
+  // T14: the wake row while only chats in Auto mode run (src/codeJobs.mjs SEND_WHY, SEND_SOON); the reason in its tooltip.
+  const short = {
+    'not allowed yet': 'needs your OK', 'no stored start-worker task on this PC': 'needs its routines', 'no chat with the Workers mod runs now': 'no chat runs now',
+    'chats in Auto mode may not send messages until the project allows mcp__ccd_session_mgmt__send_message': 'needs your OK',
+    'allowed: the running chats see it within ten minutes': 'within 10 min',
+  }
   return (jobs?.rows ?? []).map(row => {
     // T13 part 4: the board's own job, no chat's: opening a chat when none runs; it stopped after tries that brought none back.
     if (row.key === 'open') {
@@ -536,7 +541,8 @@ function codeJobLines(jobs) {
 /** B767: the note on top while a job of the main chat's could run by code once allowed or once the task is made. */
 function codeJobsNote(jobs) {
   if (jobs === null || jobs === undefined) return null
-  const lacking = (jobs.rows ?? []).filter(row => row.byCode !== true && (row.why === 'not allowed yet' || row.why === 'no stored start-worker task on this PC'))
+  const needsOk = ['not allowed yet', 'no stored start-worker task on this PC', 'chats in Auto mode may not send messages until the project allows mcp__ccd_session_mgmt__send_message']
+  const lacking = (jobs.rows ?? []).filter(row => row.byCode !== true && needsOk.includes(row.why))
   if (lacking.length === 0) return null
   return `The board can do ${lacking.length === 1 ? 'one more job' : `${lacking.length} more jobs`} by itself on this PC once you allow ${lacking.length === 1 ? 'it' : 'them'}: ${lacking.map(row => row.title.toLowerCase()).join(', ')}.`
 }
