@@ -118,10 +118,13 @@ const ORDER = { obsolete: 0, unsure: 1, open: 2 }
  * The check as the page draws it: `{ state: 'none' | 'checking' | 'late' | 'done', at, openCount, rows, last }`. Each row:
  * `{ id, kind, title, of, verdict, why, evidence, ticked }`: obsolete ones come ticked, unsure and open ones do not; an item
  * the Advisor gave no line gets unsure. `openCount` the items open now (the button shows only when there are any).
+ * `openIds` (the ids open now, when given): an item answered, withdrawn or closed since the check leaves its rows (the
+ * person, 2026-10-31: "these Q rows never go away now").
  */
-export function obsoleteView(record, { now, openCount }) {
+export function obsoleteView(record, { now, openCount, openIds = null }) {
   if (record === null) return { state: 'none', at: null, openCount, rows: [], last: null }
-  const rows = record.items.map(one => {
+  const stillOpen = openIds === null ? () => true : (ids => one => ids.has(one.id))(new Set(openIds))
+  const rows = record.items.filter(stillOpen).map(one => {
     const given = record.verdicts[one.id]
     const verdict = record.state === 'checking' ? null : given?.verdict ?? 'unsure'
     return {

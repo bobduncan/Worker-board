@@ -210,3 +210,15 @@ test('the incident drop stays the partner\'s: the person\'s `drop X1` is refused
   assert.equal((await s.person({ action: 'drop', id: 'X1', why: 'no' })).ok, false)
   assert.equal(state(await s.item('X1')), 'open')
 })
+
+// The person, 2026-10-31: "these Q rows never go away now".
+test('an item answered or closed after the check leaves its rows on the page', async t => {
+  const s = await garden(t)
+  await s.person({ action: 'obsolete-check' })
+  await s.chat('Partner', { action: 'obsolete', points: ['unsure: Q4 · at work · none', 'open: Q6 · waits · none'] })
+  await s.person({ action: 'tick', id: 'Q6' })
+  const open = openItemsOf((await readStore(s.dir)).items).map(one => one.id)
+  const view = obsoleteView(await s.file(), { now: NOW, openCount: open.length, openIds: open })
+  assert.equal(view.rows.some(row => row.id === 'Q6'), false, 'answered since: gone')
+  assert.equal(view.rows.some(row => row.id === 'Q4'), true, 'still open: stays')
+})
