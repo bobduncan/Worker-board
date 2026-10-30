@@ -11,6 +11,7 @@ import { shownChats } from '../bridge.mjs'
 import { RESUME_STEP, isStopWord, waitsLong } from '../say.mjs'
 import { isLate, keepMs } from '../store.mjs'
 import { stoppedOf } from '../stopped.mjs'
+import { familyOf, sameModel } from './effort.mjs'
 import { stamp } from './migrate.mjs'
 import { OLD_CHECK_WHY } from './qaTask.mjs'
 import { readStore } from './store.mjs'
@@ -33,7 +34,7 @@ const isStanding = message => ['waiting', 'taken', 'delivered', 'copied'].includ
 /**
  * The reason a waiting word no longer matters, or null. `ctx`: `all` (every word of the outbox), `items` (the work store's
  * items by id, null when the board has no store), `runs` (chat name to whether it runs), `goals` (the goal map's nodes),
- * `now`, `keep`, `closing` (what this sweep closes already).
+ * `now`, `keep`, `closing` (what this sweep closes already), `lanes` (the board's chats, with the effort and model each runs at).
  */
 export function whyClosed(message, ctx) {
   // A person's answer waits for its chat, also one that is off on purpose.
@@ -48,6 +49,16 @@ export function whyClosed(message, ctx) {
   }
   // B812 (X109): a stop word waits for its worker's next idle moment however long its turn runs, while it holds a step.
   if (isStopWord(message.command)) return stopWordWhy(message, ctx)
+  // B813 (X2): the word that sets a worker's model and effort no longer matters once a newer one for that worker stands,
+  // or the worker runs at its setting already; waiting or failed.
+  if (message.command === 'worker-effort') {
+    const newer = all.find(one => one.id !== message.id && one.at > message.at && isStanding(one) && kindOf(one) === kindOf(message))
+    if (newer !== undefined) return { state: 'dropped', why: `superseded by a newer word for ${message.about}'s setting (${stamp(newer.at)})` }
+    const lane = (ctx.lanes ?? []).find(one => one.name === message.about && !one.isLeftover)
+    if (lane !== undefined && lane.effort === message.effort && ((message.model ?? null) === null || sameModel(lane.model, message.model))) {
+      return { state: 'dropped', why: `${message.about} runs at ${(message.model ?? null) === null ? '' : `${familyOf(message.model)} · `}${message.effort} already` }
+    }
+  }
   // A word that is stale in minutes (a pause's resume, a line typed in a talk) is only closed once it is late.
   if (!waitsLong(message.command)) return isLate(message, now, keep) ? expired(message, keep) : null
   // B571: the goal guard's word: not needed once the goal is done or was evaluated after the word was sent (B359),
@@ -161,7 +172,7 @@ export async function sweepOutbox({ dir, outbox, state, now, keep, fs, dry = fal
   const off = new Set(shownChats(state ?? {}).filter(chat => chat.isRunning === false).map(chat => chat.name))
   const all = outbox.outbox()
   const closing = new Map()
-  const ctx = { all, items, runs, goals: state?.goals?.nodes ?? [], now, keep, closing, stopped: stoppedChats(all, state), prefix: state?.chatPrefix ?? '', ready: state?.readyList?.ready ?? [], main: state?.restart?.main ?? null, off, handedBack: state?.reconciled?.handedBack ?? [] }
+  const ctx = { all, items, runs, goals: state?.goals?.nodes ?? [], now, keep, closing, stopped: stoppedChats(all, state), prefix: state?.chatPrefix ?? '', ready: state?.readyList?.ready ?? [], main: state?.restart?.main ?? null, off, handedBack: state?.reconciled?.handedBack ?? [], lanes: state?.chats ?? [] }
   // The starts last: they depend on what the other words become.
   const ordered = [...waiting.filter(message => message.command !== 'start'), ...waiting.filter(message => message.command === 'start')]
   for (const message of ordered) {

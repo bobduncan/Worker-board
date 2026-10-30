@@ -71,7 +71,7 @@ test('a failed word that still matters, under two hours: the sweep keeps it, the
   const view = viewOf([refine()])
   assert.match(wordsPart(healthSummary(view, NOW)), /^- ! 20:35 refine B7 to Advisor: failed for 40 min$/m)
   const found = undelivered(view)
-  assert.deepEqual(found.map(one => [one.key, one.evidence]), [['undelivered Advisor', '20:35 refine B7 (failed)']])
+  assert.deepEqual(found.map(one => [one.key, one.evidence]), [['undelivered Advisor', '20:35 refine B7 (failed: the chat was busy)']])
   // Three hours later the rule no longer names it, and the summary drops its "!" with it.
   const later = viewOf([refine()], NOW + 3 * HOUR)
   assert.deepEqual(undelivered(later), [])
