@@ -938,7 +938,8 @@ async function main(args) {
   const obsoleteNow = async state => {
     if (workDir === null || isDemo) return null
     const stored = await work()
-    const view = obsoleteView((await readObsoleteFile(workDir)).record, { now: clock(), openCount: stored?.ok === true ? openItemsOf(stored.items).length : 0 })
+    const open = stored?.ok === true ? openItemsOf(stored.items).map(one => one.id) : []
+    const view = obsoleteView((await readObsoleteFile(workDir)).record, { now: clock(), openCount: open.length, openIds: open })
     const why = isShowOnly ? `This board only shows. Do this on the board that delivers: http://${HOST}:${recordingPort}/` : (state.advisor ?? null) === null ? 'No partner chat is on the board to judge the items.' : null
     return { ...view, canCheck: why === null, whyNot: why }
   }

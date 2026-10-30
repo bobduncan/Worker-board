@@ -109,8 +109,8 @@ test('with nothing open there is nothing to check, and the person alone starts a
   assert.equal(await s.file(), null)
 })
 
-test('the Advisor reads the check with `work obsolete` and answers once; its verdicts come back as the page\'s rows, obsolete ones ticked', async t => {
-  const s = await garden(t, { evidence: async open => new Map(open.map(one => [one.id, [`${one.id}: its step stands refined`]])) })
+test('the Advisor reads the check with `work obsolete` and answers once; the obsolete ones close at once, as the person would, none woken (the person, 2026-10-31)', async t => {
+  const s = await garden(t, { evidence: async open => new Map(open.map(one => [one.id, [one.id + ': its step stands refined']])) })
   assert.equal((await s.chat('Partner', { action: 'obsolete' })).status, 409, 'no check asked yet')
   await s.person({ action: 'obsolete-check' })
   const read = await s.chat('Partner', { action: 'obsolete' })
@@ -121,17 +121,33 @@ test('the Advisor reads the check with `work obsolete` and answers once; its ver
   assert.equal((await s.person({ action: 'obsolete', points: POINTS })).ok, false, 'nor does the person')
   const done = await s.chat('Partner', { action: 'obsolete', points: POINTS })
   assert.equal(done.ok, true)
-  assert.match(done.result.text, /Recorded 7 verdicts: 5 obsolete, 1 unsure, 1 open/)
-  const view = obsoleteView(await s.file(), { now: NOW, openCount: 7 })
+  assert.match(done.result.text, /Recorded 7 verdicts: 5 obsolete, 1 unsure, 1 open; closed 5 obsolete\. Unsure and open ones stay/)
+  assert.deepEqual(done.result.closed, ['Q1', 'Q2', 'Q3', 'Q5', 'X1'])
+  assert.deepEqual(done.result.failed, [])
+  // No wake of any chat: the answer carries no word to the asking chat or the step's owner.
+  assert.equal(done.result.wake, undefined)
+  assert.equal(done.result.wakeOwner, undefined)
+  // The refine questions: their steps are done (no chat holds them), they are withdrawn with the why, in the partner's name.
+  for (const id of ['B1', 'B2']) assert.equal(state(await s.item(id)), 'done', id)
+  for (const id of ['Q1', 'Q2', 'Q3']) {
+    const one = await s.item(id)
+    assert.equal(state(one), 'withdrawn', id)
+    assert.match(history(one).at(-1), /Partner: withdrawn: obsolete: B[12] was built since$/)
+  }
+  assert.equal(state(await s.item('Q5')), 'withdrawn')
+  const x1 = await s.item('X1')
+  assert.equal(state(x1), 'closed')
+  assert.match(history(x1).at(-1), /closed: obsolete: it did not come back$/)
+  // Unsure and open: untouched, and listed for the person.
+  assert.equal(state(await s.item('Q4')), 'open', 'unsure')
+  assert.equal(state(await s.item('Q6')), 'open', 'open')
+  assert.equal(state(await s.item('B3')), 'in progress')
+  const view = obsoleteView(await s.file(), { now: NOW, openCount: 2 })
   assert.equal(view.state, 'done')
-  assert.deepEqual(view.rows.map(row => [row.id, row.verdict, row.ticked]), [
-    ['Q1', 'obsolete', true], ['Q2', 'obsolete', true], ['Q3', 'obsolete', true], ['Q5', 'obsolete', true], ['X1', 'obsolete', true], ['Q4', 'unsure', false], ['Q6', 'open', false]])
-  assert.deepEqual([view.rows[0].why, view.rows[0].evidence], ['B1 was built since', 'commit abc1234 names B1'])
+  assert.deepEqual(view.rows.map(row => [row.id, row.verdict]), [['Q4', 'unsure'], ['Q6', 'open']])
+  assert.deepEqual((await s.file()).last, { at: NOW, closed: 5 })
   // Once: a second answer is refused.
   assert.equal((await s.chat('Partner', { action: 'obsolete', points: POINTS })).status, 409)
-  // Nothing was closed by the verdicts.
-  for (const id of ['Q1', 'Q5', 'X1']) assert.notEqual(state(await s.item(id)), 'closed')
-  assert.equal(state(await s.item('Q1')), 'open')
 })
 
 test('a verdict for an id the check does not hold, or a line that is none, refuses the whole answer; one not open any more is left out', async t => {
@@ -145,92 +161,64 @@ test('a verdict for an id the check does not hold, or a line that is none, refus
   const bad = await s.chat('Partner', { action: 'obsolete', points: ['probably obsolete: Q1'] })
   assert.equal(bad.status, 400)
   assert.equal((await s.file()).state, 'checking', 'nothing was recorded')
-  // Q2 is answered meanwhile: its verdict is left out.
+  assert.equal(state(await s.item('Q1')), 'open', 'nothing was closed')
+  // Q2 is answered meanwhile: its verdict is left out; Q1 closes.
   await s.person({ action: 'tick', id: 'Q2' })
-  assert.equal((await s.chat('Partner', { action: 'obsolete', points: ['obsolete: Q1 · built · commit', 'obsolete: Q2 · built · commit'] })).ok, true)
+  const answered = await s.chat('Partner', { action: 'obsolete', points: ['obsolete: Q1 · built · commit', 'obsolete: Q2 · built · commit'] })
+  assert.equal(answered.ok, true)
+  assert.deepEqual(answered.result.closed, ['Q1'])
   const record = await s.file()
-  assert.deepEqual(record.items.map(one => one.id).includes('Q2'), false)
-  assert.deepEqual(Object.keys(record.verdicts), ['Q1'])
-  // An item the Advisor gave no line is unsure, never ticked.
+  assert.equal(record.items.map(one => one.id).includes('Q2'), false)
+  assert.equal(record.items.map(one => one.id).includes('Q1'), false, 'the closed one leaves the check')
+  // An item the Advisor gave no line is unsure, and stays.
   const view = obsoleteView(record, { now: NOW, openCount: 5 })
-  assert.deepEqual(view.rows.filter(row => row.id === 'Q3').map(row => [row.verdict, row.ticked]), [['unsure', false]])
-})
-
-test('Close the ticked closes only the ticked ones: a refine question ticks its step and is withdrawn, a Do is withdrawn, an incident is closed; none is woken', async t => {
-  const s = await garden(t)
-  await s.person({ action: 'obsolete-check' })
-  await s.chat('Partner', { action: 'obsolete', points: POINTS })
-  s.tick(30)
-  const closed = await s.person({ action: 'obsolete-close', ids: ['Q1', 'Q3', 'Q5', 'X1'] })
-  assert.equal(closed.ok, true)
-  assert.deepEqual(closed.result.closed, ['Q1', 'Q3', 'Q5', 'X1'])
-  assert.deepEqual(closed.result.failed, [])
-  // No wake of any chat: the answer carries no word to the asking chat or the step's owner.
-  assert.equal(closed.result.wake, undefined)
-  assert.equal(closed.result.wakeOwner, undefined)
-  // The refine questions: their steps are done, they are withdrawn with the why, by the person.
-  for (const id of ['B1', 'B2']) assert.equal(state(await s.item(id)), 'done', id)
-  for (const id of ['Q1', 'Q3']) {
-    const one = await s.item(id)
-    assert.equal(state(one), 'withdrawn', id)
-    assert.match(history(one).at(-1), /person: withdrawn: obsolete: B[12] was built since$/)
-  }
-  assert.equal(state(await s.item('Q5')), 'withdrawn')
-  const x1 = await s.item('X1')
-  assert.equal(state(x1), 'closed')
-  assert.match(history(x1).at(-1), /person: closed: obsolete: it did not come back$/)
-  // Not ticked: untouched, whatever its verdict.
-  assert.equal(state(await s.item('Q2')), 'open', 'obsolete but not ticked')
-  assert.equal(state(await s.item('Q4')), 'open', 'unsure')
-  assert.equal(state(await s.item('Q6')), 'open', 'open')
-  assert.equal(state(await s.item('B3')), 'in progress')
-  // The check keeps what is left, with what the close did.
-  const record = await s.file()
-  assert.deepEqual(record.items.map(one => one.id), ['Q2', 'Q4', 'Q6'])
-  assert.deepEqual(record.last, { at: NOW + 30 * MIN, closed: 4 })
+  assert.deepEqual(view.rows.filter(row => row.id === 'Q3').map(row => row.verdict), ['unsure'])
+  assert.equal(state(await s.item('Q3')), 'open')
 })
 
 test('a refine question of a step a worker holds is only withdrawn: the step keeps its state; a step waiting on an ask goes on when it is withdrawn', async t => {
   const s = await garden(t)
   await s.person({ action: 'obsolete-check' })
-  await s.chat('Partner', { action: 'obsolete', points: ['obsolete: Q4 · stale · none', 'obsolete: Q6 · its worker went on · none'] })
-  const closed = await s.person({ action: 'obsolete-close', ids: ['Q4', 'Q6'] })
-  assert.deepEqual(closed.result.closed, ['Q4', 'Q6'])
+  const done = await s.chat('Partner', { action: 'obsolete', points: ['obsolete: Q4 · stale · none', 'obsolete: Q6 · its worker went on · none'] })
+  assert.deepEqual(done.result.closed, ['Q4', 'Q6'])
   assert.equal(state(await s.item('B3')), 'in progress', 'the held step is not ticked')
   assert.equal(state(await s.item('Q4')), 'withdrawn')
   assert.equal(state(await s.item('B4')), 'in progress', 'the step that waited on Q6 goes on')
 })
 
-test('Close the ticked refuses an id the check does not hold (nothing closed), and needs an answered check and at least one tick', async t => {
+test('the close by ids still works on what the check left: it refuses an id the check does not hold, and needs an answered check and an id', async t => {
   const s = await garden(t)
   assert.equal((await s.person({ action: 'obsolete-close', ids: ['Q1'] })).status, 409, 'no check')
   await s.person({ action: 'obsolete-check' })
   assert.equal((await s.person({ action: 'obsolete-close', ids: ['Q1'] })).status, 409, 'not answered yet')
-  await s.chat('Partner', { action: 'obsolete', points: POINTS })
-  assert.equal((await s.person({ action: 'obsolete-close', ids: [] })).status, 400, 'no tick')
+  await s.chat('Partner', { action: 'obsolete', points: ['unsure: Q1 · maybe · none', 'open: Q6 · waits · none'] })
+  assert.equal((await s.person({ action: 'obsolete-close', ids: [] })).status, 400, 'no id')
   const unknown = await s.person({ action: 'obsolete-close', ids: ['Q1', 'Q7'] })
   assert.equal(unknown.status, 400)
   assert.match(unknown.why, /Q7: not in the check/)
   assert.equal(state(await s.item('Q1')), 'open')
-  // Only the person closes.
+  // Only the person closes by hand.
   assert.equal((await s.chat('Partner', { action: 'obsolete-close', ids: ['Q1'] })).ok, false)
   assert.equal((await s.chat('Lead', { action: 'obsolete-close', ids: ['Q1'] })).ok, false)
-  assert.equal(state(await s.item('Q1')), 'open')
-})
-
-test('an item that was answered after the check is reported as not closed, and the rest still close', async t => {
-  const s = await garden(t)
-  await s.person({ action: 'obsolete-check' })
-  await s.chat('Partner', { action: 'obsolete', points: POINTS })
-  await s.person({ action: 'tick', id: 'Q5' })
-  const closed = await s.person({ action: 'obsolete-close', ids: ['Q5', 'X1'] })
-  assert.deepEqual(closed.result.closed, ['X1'])
-  assert.deepEqual(closed.result.failed, [{ id: 'Q5', why: 'Q5 is not open any more.' }])
-  assert.match(closed.result.text, /Closed 1: X1; not closed: Q5/)
+  const closed = await s.person({ action: 'obsolete-close', ids: ['Q1'] })
+  assert.deepEqual(closed.result.closed, ['Q1'])
+  assert.equal(state(await s.item('Q6')), 'open', 'only the named id closes')
 })
 
 test('the incident drop stays the partner\'s: the person\'s `drop X1` is refused as before', async t => {
   const s = await garden(t)
   assert.equal((await s.person({ action: 'drop', id: 'X1', why: 'no' })).ok, false)
   assert.equal(state(await s.item('X1')), 'open')
+})
+
+// The person, 2026-10-31: "these Q rows never go away now".
+test('an item answered or closed after the check leaves its rows on the page', async t => {
+  const s = await garden(t)
+  await s.person({ action: 'obsolete-check' })
+  await s.chat('Partner', { action: 'obsolete', points: ['unsure: Q4 · at work · none', 'open: Q6 · waits · none'] })
+  await s.person({ action: 'tick', id: 'Q6' })
+  const open = openItemsOf((await readStore(s.dir)).items).map(one => one.id)
+  const view = obsoleteView(await s.file(), { now: NOW, openCount: open.length, openIds: open })
+  assert.equal(view.rows.some(row => row.id === 'Q6'), false, 'answered since: gone')
+  assert.equal(view.rows.some(row => row.id === 'Q4'), true, 'still open: stays')
 })

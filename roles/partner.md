@@ -800,9 +800,9 @@ items`, with the ids. It is one short turn: judge, answer once, change nothing e
    `obsolete|unsure|open: <id> · <why> · <evidence>`, the why in one short line, the evidence naming the fact
    ("commit 2ea4710 names B755", "B753 is done"). A line for an id outside the check refuses the whole answer. An item you
    leave out stands as unsure.
-4. Close nothing, withdraw nothing, answer no ask and do not file a step: the person ticks the items the list holds (obsolete
-   ones come ticked) and closes them on the board. A wrong "obsolete" costs them a click to untick; a wrong "open" costs
-   them an item they read again: when in doubt, unsure.
+4. Close nothing, withdraw nothing, answer no ask and do not file a step yourself: the board closes every item you call
+   obsolete as soon as your answer is in (the person, 2026-10-31), and leaves unsure and open ones for the person. A wrong
+   "obsolete" closes something still needed; a wrong "open" costs them an item they read again: when in doubt, unsure.
 
 ## The board asks you to start a chat
 

@@ -184,9 +184,9 @@ and the briefings for the main chat and the workers.
   partner judge every open item (refine questions, asks, Do items, incidents) against what happened since it was
   made: the board gathers each item's evidence by code (its step's state, the commits that name its step, its chat in
   the list, board restarts), the partner answers once, and the list shows each item as obsolete, unsure or still open
-  with a line why and the evidence. Obsolete ones come ticked; "Close the N ticked" closes exactly the ones you keep
-  ticked, as you would: a refine question closes its step as done (when no chat holds it) and is withdrawn, an ask is
-  withdrawn without waking its chat, an incident is closed. Nothing closes by itself. The button reads "The Advisor
+  with a line why and the evidence. Since 2026-10-31 (your word) the obsolete ones close by themselves when the partner
+  answers, as you would close them: a refine question closes its step as done (when no chat holds it) and is withdrawn,
+  an ask is withdrawn without waking its chat, an incident is closed. Unsure and open ones stay, listed with their why. The button reads "The Advisor
   is checking" meanwhile, and "Try again" when it did not answer in 15 minutes. It needs a partner chat in the list and
   the Workers mod 0.26.6 (the partner's `work obsolete`).
 - A lane shows what a worker does now and the time it expects to need; a step that waits says why ("Not started:
