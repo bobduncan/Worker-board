@@ -17614,9 +17614,19 @@ function helpAtStart(state) {
   if (helpOpensAtStart({ seen, hash: helpStartHash, isDemo: state?.isDemo === true })) openHelp()
 }
 
+// The person, 2026-10-31: the reload icon spins while the board reads again (at least a moment, so a quick read shows too).
+async function readSpinning() {
+  const buttons = ['refresh', 'refresh-title'].map(id => $(id))
+  for (const button of buttons) button.classList.add('is-loading')
+  try {
+    await Promise.all([read(), new Promise(done => setTimeout(done, 600))])
+  } finally {
+    for (const button of buttons) button.classList.remove('is-loading')
+  }
+}
 for (const id of ['refresh', 'refresh-title']) {
   $(id).append(icon('refresh'))
-  $(id).addEventListener('click', read)
+  $(id).addEventListener('click', readSpinning)
 }
 document.addEventListener('visibilitychange', () => {
   if (!document.hidden) read()

@@ -2938,3 +2938,5 @@ ul.task-tried { list-style: disc; padding-left: 20px; display: flex; flex-direct
 ul.task-history { list-style: none; display: flex; flex-direction: column; gap: 4px; color: var(--muted); }
 .task-facts { display: grid; grid-template-columns: max-content 1fr; gap: 4px 18px; }
 .task-facts dd { margin: 0; font-weight: 600; }
+/* The person, 2026-10-31: the reload icon spins while the board reads again. */
+.icon-button.is-loading svg { animation: design-turn 0.9s linear infinite; }
