@@ -91,7 +91,7 @@ test('a failed work line whose step is still that chat\'s and open stays failed,
   assert.deepEqual(done.withdrawn, [])
   assert.equal(store.outbox()[0].state, 'failed')
   const view = viewOf([kept], items)
-  assert.deepEqual(undelivered(view).map(one => one.evidence), ['22:30 work B30 (failed)'])
+  assert.deepEqual(undelivered(view).map(one => one.evidence), ['22:30 work B30 (failed: a hook dropped it: the session was stopped and nobody has sent input since)'])
   assert.match(wordsPart(healthSummary(view, NOW)), /^- ! 22:30 work B30 to Digger: failed for 40 min$/m)
   // Another chat's by now, or gone: closed with that why.
   const moved = new Map([step('B30', 'in progress', 'Builder')])

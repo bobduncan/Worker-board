@@ -9,6 +9,7 @@ import { join } from 'node:path'
 import { changes, GAP_MS, lastByChat, parseHistory, startGap } from './history.mjs'
 import { isStopWord, waitsLong } from './say.mjs'
 import { isStoppedWhy } from './stopped.mjs'
+import { AGAIN_AFTER_MS, TRIES, passesBySelf } from './work/passing.mjs'
 import { heldMs } from './work/pause.mjs'
 import { appendLines, writeAtomic } from './write.mjs'
 
@@ -194,10 +195,11 @@ function storeOver(lines, messages, alive, write) {
      * not late; then it stays failed. It goes as a new word with its own id (`retryOf` the failed one, which names it in
      * `retriedAs`): the Workers mod types an id once per process. Not again: a word the mod refused for good (`final`, too
      * long or empty), a work line (src/work/deliver.mjs sends its own), and a word that failed before `failedAt` was kept.
+     * B813: nor one whose why never passes by itself (a scheduled task not found): it is named at once (work/passing.mjs).
      */
-    async retryFailed(now, keep, { afterMs = 60_000, tries = 3, newId = () => randomBytes(8).toString('hex') } = {}) {
+    async retryFailed(now, keep, { afterMs = AGAIN_AFTER_MS, tries = TRIES, newId = () => randomBytes(8).toString('hex') } = {}) {
       const again = messages.filter(message => message.state === 'failed' && Number.isFinite(message.failedAt) && message.final !== true
-        && message.command !== 'work' && message.retriedAs === undefined && (message.tries ?? 1) < tries
+        && passesBySelf(message.why) && message.command !== 'work' && message.retriedAs === undefined && (message.tries ?? 1) < tries
         && now - message.failedAt >= afterMs && !isLate(message, now, keep))
       const sent = []
       for (const message of again) {
