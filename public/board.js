@@ -2011,7 +2011,8 @@ function timeOf(lane, now) {
   if (lane.state === 'free') return plain('Available')
   if (lane.state !== 'working') return plain('Unknown')
   const eta = lane.eta ?? null
-  const soFar = lane.task === null || !Number.isFinite(lane.task.startedAt) ? [] : [`${span(now - lane.task.startedAt)} so far`]
+  // B793: the time worked, not the time since: a pause, a stop or a restart is no time spent.
+  const soFar = lane.task === null || !Number.isFinite(lane.task.startedAt) ? [] : [`${span(now - lane.task.startedAt - (lane.task.offStartMs ?? 0))} so far`]
   if (eta === null) {
     // The main chat hands out work and answers: it has no task to time.
     return lane.isWithoutTime === true
@@ -2379,7 +2380,8 @@ function stepLine(lane, now) {
   const at = Number.isInteger(task.step) && task.step >= 1 ? task.step : null
   const name = at === null ? 'No step yet' : task.names[at - 1] ?? `Step ${at}`
   const given = Number.isFinite(task.stepLeftMs) && Number.isFinite(task.stepEstimateAt)
-  const leftMs = !given ? null : lane.state === 'working' ? task.stepEstimateAt + task.stepLeftMs - now : task.stepLeftMs
+  // B793: it counts down in working time: the moment it runs out is moved on by what was not worked since it was given.
+  const leftMs = !given ? null : lane.state === 'working' ? (task.stepCountAt ?? task.stepEstimateAt) + task.stepLeftMs - now : task.stepLeftMs
   const time = leftMs === null ? 'no time for this step' : leftMs < 0 ? `${span(-leftMs)} over` : `${span(leftMs)} left`
   return {
     count: `${at ?? '–'}/${total}`,
@@ -2452,8 +2454,10 @@ function alertsOf(lane, state) {
   // Left (timeOf, leftView), so no line under the task repeats them.
   const leftSaysOver = lane.eta != null && (lane.eta.isOverdue === true || lane.eta.isOver === true)
   if (task !== null && task.firstEstimateMs !== null && task.workedMs > task.firstEstimateMs + MIN && !leftSaysOver) alerts.push(`${span(task.workedMs - task.firstEstimateMs)} over its first estimate`)
-  if (lane.state === 'working' && task !== null && task.estimateAt !== null && state.readAt - task.estimateAt > state.estimateOldMs) {
-    alerts.push(`estimate ${span(state.readAt - task.estimateAt)} old`)
+  // B793: how old the estimate is counts working time too (a pause or a restart does not age it).
+  const estimateAge = task === null || task.estimateAt === null ? null : state.readAt - (task.countAt ?? task.estimateAt)
+  if (lane.state === 'working' && estimateAge !== null && estimateAge > state.estimateOldMs) {
+    alerts.push(`estimate ${span(estimateAge)} old`)
   }
   return alerts
 }
@@ -2492,7 +2496,7 @@ function drawMore(lane, state) {
   const task = lane.task
   if (task !== null) {
     const waited = task.waitedMs >= MIN ? `, ${span(task.waitedMs)} of it waiting for you` : ''
-    list.append(el('li', '', `Started ${clock(task.startedAt)}: ${span(now - task.startedAt)} so far${waited}`))
+    list.append(el('li', '', `Started ${clock(task.startedAt)}: ${span(now - task.startedAt - (task.offStartMs ?? 0))} worked so far${waited}`))
     if (task.firstEstimateMs !== null) list.append(el('li', '', `First estimate ${span(task.firstEstimateMs)}, worked ${span(task.workedMs)}`))
     if (task.leftMs !== null && task.estimateAt !== null) list.append(el('li', '', `Said ${span(task.leftMs)} left, ${ago(task.estimateAt, now)}`))
     if (task.source === 'unrecorded') list.append(el('li', 'muted', 'It has recorded no task yet: no topic, no steps and no time.'))

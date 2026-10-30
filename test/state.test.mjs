@@ -109,7 +109,8 @@ test('a working chat shows the task of its plan line and what it does now', () =
   assert.deepEqual(units.task, {
     text: 'Shadow Beast', step: 2, steps: 6, names: null, leftMs: 40 * MIN, estimateAt: NOW - 3 * MIN, stepLeftMs: null, stepEstimateAt: null, source: 'plan', by: null,
     // First seen now, in a turn the person opened 20 minutes ago, with an estimate given 3 minutes ago.
-    startedAt: NOW - 20 * MIN, firstEstimateMs: 57 * MIN, waitedMs: 0, workedMs: 20 * MIN, stepId: null, stepMinutes: null,
+    // B793: no history here, so the working-time moments are the ones the chat gave and nothing was not worked.
+    startedAt: NOW - 20 * MIN, countAt: NOW - 3 * MIN, stepCountAt: null, offStartMs: 0, offTakenMs: null, firstEstimateMs: 57 * MIN, waitedMs: 0, workedMs: 20 * MIN, stepId: null, stepMinutes: null,
   })
 })
 
@@ -406,7 +407,7 @@ test('a worker that recorded nothing has a task without words, from when its tur
   })
   assert.deepEqual(chatNamed(state, 'Units').task, {
     text: '', step: null, steps: null, names: null, leftMs: null, estimateAt: null, stepLeftMs: null, stepEstimateAt: null, source: 'unrecorded', by: null,
-    startedAt: NOW - 30 * MIN, firstEstimateMs: null, waitedMs: 0, workedMs: 30 * MIN, stepId: null, stepMinutes: null,
+    startedAt: NOW - 30 * MIN, countAt: null, stepCountAt: null, offStartMs: 0, offTakenMs: null, firstEstimateMs: null, waitedMs: 0, workedMs: 30 * MIN, stepId: null, stepMinutes: null,
   })
   // A report is no task for the main chat; it works, on something it has not recorded.
   assert.deepEqual([chatNamed(state, 'Main').task.source, chatNamed(state, 'Main').task.text], ['unrecorded', ''])
@@ -419,7 +420,7 @@ test('a working chat that recorded no task has one without words, from when its 
   const units = chatNamed(state, 'Units')
   assert.deepEqual(units.task, {
     text: '', step: null, steps: null, names: null, leftMs: null, estimateAt: null, stepLeftMs: null, stepEstimateAt: null, source: 'unrecorded', by: null,
-    startedAt: NOW - 25 * MIN, firstEstimateMs: null, waitedMs: 0, workedMs: 25 * MIN, stepId: null, stepMinutes: null,
+    startedAt: NOW - 25 * MIN, countAt: null, stepCountAt: null, offStartMs: 0, offTakenMs: null, firstEstimateMs: null, waitedMs: 0, workedMs: 25 * MIN, stepId: null, stepMinutes: null,
   })
   assert.ok(!outsideWindow(state).includes('lava'))
   const main = chatNamed(build({

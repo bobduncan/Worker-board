@@ -3580,6 +3580,17 @@ the AI sweep by a cheap supervisor chat and the hand-over to the Advisor, comes 
   limit reading's "(old: N min)" and the clock times in the findings' texts (they say what the clock showed), and in the rules whose
   words wait on a chat (`undelivered`, `unknown-lane`), which the chat's own clock decides. How long a thing
   lasted comes from the timeline (`state.today`), else from the supervisor's own watch.
+  B793 (the person, 2026-10-30: the Left column read "45 h 33 over" on Worker 1's B781, which had been paused, restarted and the board
+  off since its plan of 28 Oct): the same rule holds for a lane's time left. RUNNING TIME = what the chat worked on its task, from
+  the history's lines (`history.mjs notWorkedCounter`: a pause, the limit's stop, a closed or asleep chat, the wait for the person and
+  the board being off count for nothing; the time before a chat's first line counts as worked). `taskOf` moves each time on by what was
+  not worked since it was given: `countAt` (the plan's, `estimateAt` stays as the chat gave it), `stepCountAt` (the step's), and
+  `offStartMs`, `offTakenMs` (not worked since the task started and since its step was taken, for the time counted from a step's
+  Estimate or its refine's size). `etaOf` reads them (`at`, the overdue rule: twice its estimate and 10 min, both in working time),
+  so the Left column, the timeline, the hand-out's time left and `say.mjs` follow; the page's step line reads `stepCountAt`, "so
+  far" subtracts `offStartMs` and the age of an estimate counts from `countAt`. A task that runs again counts on from what was left
+  when it stopped (not from its full time again); a new plan from the chat replaces the old and counts from when it was given.
+  Without history lines the clock is the wall clock as before. Tests: `test/workingTimeLeft.test.mjs`.
 - **The supervisor's memory**, `<project>/.claude/supervisor.json`, beside `sync.json` and apart from it: its watch
   (`seen`), the repairs of the last day (`repairs`, for `repair-repeats`) and when each rule tripped (`trips`). Read at
   every run, as `sync.json` is, so a restart or another board taking the loop over goes on from it. `sync.json` and
