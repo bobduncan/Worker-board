@@ -13,7 +13,7 @@
 // (what it sees now; the loop keeps those and forgets the rest). PURE.
 
 import { SUPERVISOR_DEFAULTS } from '../../config.mjs'
-import { sinceMs, valueOf } from '../../work/item.mjs'
+import { askFiledMs, sinceMs, valueOf } from '../../work/item.mjs'
 import { overlapIn } from '../../work/guards.mjs'
 import { stuckTakeBacks } from '../../work/handOut.mjs'
 import { afterPause as afterPauseOf, checkpointOf, heldMs, holdEndOf, isHolding, pauseEndOf as pauseEnd } from '../../work/pause.mjs'
@@ -1137,6 +1137,54 @@ function pauseStale(view) {
   return found
 }
 
+/** A History line of the person's close from the obsolete check: "- 2026-10-28 16:01 person: withdrawn: obsolete: <why>" (an incident: "closed:"). */
+const OBSOLETE_CLOSE = /^-\s+(\d{4}-\d{2}-\d{2} \d{2}:\d{2}(?::\d{2})?)\s+person:\s+(?:withdrawn|closed):\s+obsolete:\s*(.*)$/
+
+/**
+ * 28. B775 (the obsolete check showing that it failed): something the person closed from "Find obsolete items" that its chat
+ * still needed. An ask withdrawn that way which the chat that asked filed again (an open ask of the same chat with the same
+ * title, filed after the close) within a day; an incident closed that way that came back. One finding per closed item, so it is
+ * an incident once; the partner's fix is a stricter judging (roles/partner.md, "Find obsolete items"), never a rule that stops
+ * the person closing.
+ */
+function obsoleteWrong(view) {
+  const found = []
+  const all = [...(view.items?.values() ?? [])]
+  for (const item of all) {
+    const kind = valueOf(item, 'Kind')
+    const state = valueOf(item, 'State')
+    const history = (item.sections?.get('History') ?? []).map(line => line.trim())
+    const at = history.findLastIndex(line => OBSOLETE_CLOSE.test(line))
+    if (at < 0) continue
+    const closed = history[at].match(OBSOLETE_CLOSE)
+    const closedAt = sinceMs(closed[1])
+    if (!Number.isFinite(closedAt) || view.now - closedAt > DAY) continue
+    const id = idOf(item)
+    if (kind === 'incident') {
+      const back = history.slice(at + 1).find(line => /:\s+came back\b/.test(line))
+      if (back === undefined) continue
+      found.push({
+        rule: 'obsolete-wrong', key: `obsolete-wrong ${id}`, subject: id,
+        text: `${id} was closed from the obsolete check at ${closed[1].slice(11, 16)} and came back`,
+        evidence: `closed as obsolete: ${closed[2].slice(0, 160)}; later: ${back.replace(/^-\s+/, '').slice(0, 120)}`,
+      })
+      continue
+    }
+    if (kind !== 'ask' || state !== 'withdrawn') continue
+    const owner = valueOf(item, 'Owner')
+    const title = String(valueOf(item, 'Title') ?? '').trim().toLowerCase()
+    const again = all.find(other => other !== item && valueOf(other, 'Kind') === 'ask' && valueOf(other, 'State') === 'open' && valueOf(other, 'Owner') === owner
+      && String(valueOf(other, 'Title') ?? '').trim().toLowerCase() === title && askFiledMs(other) > closedAt)
+    if (again === undefined) continue
+    found.push({
+      rule: 'obsolete-wrong', key: `obsolete-wrong ${id}`, subject: owner ?? id,
+      text: `${owner ?? 'A chat'} asked again what the obsolete check closed: ${id} became ${idOf(again)}`,
+      evidence: `${id} "${title.slice(0, 80)}" was withdrawn at ${closed[1].slice(11, 16)} as obsolete (${closed[2].slice(0, 120)}); ${idOf(again)} asks it again, still open`,
+    })
+  }
+  return found
+}
+
 /** Every watch rule, in the order the section shows them. */
 export const WATCH_RULES = [
   { id: 'unknown-lane', kind: 'watch', says: 'a worker unknown or off for too long that holds a step and that the board could not wake', check: unknownLane },
@@ -1166,4 +1214,5 @@ export const WATCH_RULES = [
   { id: 'week-stop-ignored', kind: 'watch', says: 'the week at the stop line (98%), a worker told to stop still works 15 min later and no lane is suspended', check: weekStopIgnored },
   { id: 'five-hour-stop-ignored', kind: 'watch', says: 'a step given or a worker started while the 5-hour limit is at its stop line (95%) with its reset over 10 min off', check: fiveHourStopIgnored },
   { id: 'pause-stale', kind: 'watch', says: 'a chat\'s clear skipped for the person\'s pause over a minute after the pause ended', check: pauseStale },
+  { id: 'obsolete-wrong', kind: 'watch', says: 'something the person closed from "Find obsolete items" that its chat asked again, or an incident closed that way that came back', check: obsoleteWrong },
 ]

@@ -292,6 +292,15 @@ button, textarea, select { font: inherit; color: inherit; }
 .advisor-on-code:hover { text-decoration: underline; }
 .partner-ask-stand { margin: 0 0 4px; color: var(--text); }
 .decided-for-you h3 { font-size: 14px; margin: 6px 0 2px; }
+/* B775: "Find obsolete items": the button, then each item with its verdict, why and evidence; quiet tones, information, not attention. */
+.obsolete-head { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.obsolete-rows { margin: 8px 0 6px; display: flex; flex-direction: column; gap: 6px; }
+.obsolete-row { display: flex; gap: 10px; align-items: flex-start; padding: 6px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--inset); }
+.obsolete-row input { margin-top: 4px; flex: none; }
+.obsolete-words { display: flex; flex-direction: column; min-width: 0; overflow-wrap: anywhere; }
+.obsolete-verdict { display: inline-block; margin-left: 6px; padding: 0 8px; border-radius: 999px; border: 1px solid var(--line); color: var(--muted); font-size: 12px; line-height: 1.5; white-space: nowrap; }
+.obsolete-row.is-obsolete .obsolete-verdict { color: var(--text); border-color: var(--free); }
+.obsolete-why, .obsolete-evidence { display: block; font-size: 12.5px; }
 /* B466: folded to one line with its count, under what needs you; opens on a click. */
 .decided-toggle { display: block; width: 100%; margin: 6px 0 2px; padding: 8px 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--inset); color: var(--muted); font: inherit; font-size: 14px; font-weight: 600; text-align: left; cursor: pointer; }
 .decided-toggle:hover { color: var(--text); }

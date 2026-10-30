@@ -58,7 +58,7 @@ import { createSpendingCollector } from './src/work/routing/collector.mjs'
 import { readRoutingRecord } from './src/work/routing/records.mjs'
 import { parseRoutingPolicy } from './src/work/routing/policy.mjs'
 import { adoptPicture, findDemo, findPicture, PICTURE_BYTES as SHOWN_PICTURE_BYTES, pictureProblem, pictureTooBig, shownFolders, shownRoots } from './src/pictures.mjs'
-import { answerWords, checkSay, fiveHourStopDue, focusWords, goalStepOf, recommendYesAnswer, recommendYesOf, reportedBackgroundDue, resumesDue, spawnWhenAlone, wakeFor, wakesDue, wakesStopped, weekStopDue, withInstruction, workWords } from './src/say.mjs'
+import { answerWords, checkSay, fiveHourStopDue, focusWords, goalStepOf, recommendYesAnswer, obsoleteWords, recommendYesOf, reportedBackgroundDue, resumesDue, spawnWhenAlone, wakeFor, wakesDue, wakesStopped, weekStopDue, withInstruction, workWords } from './src/say.mjs'
 import { keepTalkPicture } from './src/talkPicture.mjs'
 import { firstLook, refineQueue, refineWhenDue } from './src/refineGate.mjs'
 import { recheckText, roundText, roundsNow } from './src/rounds.mjs'
@@ -93,7 +93,9 @@ import { followRenames } from './src/work/rename.mjs'
 import { standardHold } from './src/work/standardHold.mjs'
 import { itemsOf, storeKeeper } from './src/work/read.mjs'
 import { requestKeeper } from './src/work/requests.mjs'
-import { readStore } from './src/work/store.mjs'
+import { readObsoleteFile, readStore } from './src/work/store.mjs'
+import { obsoleteView, openItemsOf } from './src/work/obsolete.mjs'
+import { obsoleteEvidence } from './src/work/obsoleteEvidence.mjs'
 import { stoppedChats, takeFor } from './src/work/outboxSweep.mjs'
 import { dismissCopied, fileStore, isLate, memoryStore, outboxNow, tick } from './src/store.mjs'
 import { loads, readVersion } from './src/version.mjs'
@@ -920,6 +922,27 @@ async function main(args) {
     return { ok: true, result: { ...result, said: message.id } }
   }
   /**
+   * B775: the person's "Find obsolete items": the work API writes the check with each open item's evidence, then the board
+   * types one word to the partner (`obsolete-check`: the ids; the partner reads the evidence with `work obsolete`). A partner
+   * not running is woken as for any word to it; a board with no partner chat refuses before the check is written.
+   */
+  const obsoleteStart = async () => {
+    const state = await readState()
+    const partner = state.advisor ?? null
+    if (partner === null) return { ok: false, status: 409, why: 'No partner chat is on the board: the setting advisor names none.' }
+    const done = await workAction({ action: 'obsolete-check' }, 'person')
+    if (!done.ok || done.result.obsoleteCheck === undefined) return done
+    return toPartner(obsoleteWords(partner.name, { ids: done.result.obsoleteCheck.ids, job: join(HERE, 'roles', 'partner.md') }), done.result, state)
+  }
+  /** B775: the check as the page draws it (src/work/obsolete.mjs `obsoleteView`), null where the board has no store. */
+  const obsoleteNow = async state => {
+    if (workDir === null || isDemo) return null
+    const stored = await work()
+    const view = obsoleteView((await readObsoleteFile(workDir)).record, { now: clock(), openCount: stored?.ok === true ? openItemsOf(stored.items).length : 0 })
+    const why = isShowOnly ? `This board only shows. Do this on the board that delivers: http://${HOST}:${recordingPort}/` : (state.advisor ?? null) === null ? 'No partner chat is on the board to judge the items.' : null
+    return { ...view, canCheck: why === null, whyNot: why }
+  }
+  /**
    * Focus 3 (spec 2026-10-18, sections 5 and 6): the person's Undo of a line the partner decided for them, from the Focus
    * page (`note-undo` on /api/goals, or `undo` on /api/work; `note` the daily note, `line` its words): the board types
    * `undo: <line>` to the partner, then the store marks it "undo asked" (work/api.mjs `undo`); a second Undo types
@@ -1031,6 +1054,11 @@ async function main(args) {
       focusGoal: state.focus?.id ?? null,
       // B656: the ready list's held steps, so a step in review whose fix it holds says why in work next and list.
       readyHeld: state.readyList?.held ?? null,
+      // B775: the facts the obsolete check hands the Advisor for each open item: its step, the commits naming it since, its chat.
+      obsoleteEvidence: async (open, items) => obsoleteEvidence(open, {
+        items, lanes: lanes.map(lane => ({ name: lane.name, state: lane.state ?? null, task: lane.task ?? null, isRunning: lane.isRunning ?? null })),
+        prefix: state.chatPrefix ?? '', repos: knownRepos(), run: gitRunner(), board: { startedAt }, mod: (await modNow())?.installed ?? null,
+      }),
     }
   }
   /** B359: the goal a checked item counts for: the goal itself (G<n>), or the step's Goal in the store. */
@@ -1798,7 +1826,7 @@ async function main(args) {
       // 2026-10-28: the Advisor's "Next for it" ends with the steps the board will ask it to refine next (only the board holds the refine gate).
       const refineGateNow = Array.isArray(state.advisor?.next) ? firstLook(refineKept, state) : null
       const advisor = refineGateNow === null ? state.advisor : { ...state.advisor, next: withRefineQueue(state.advisor.next, refineQueue(state, sentNow(), refineGateNow, clock()), state.advisor.on) }
-      return { ...state, advisor, forYou: oldMods === null ? state.forYou : [oldMods, ...(state.forYou ?? [])], design, goalsEdit, cpu: cpu?.view() ?? null, loops: { failing: loops.failing(), line: failingLine(loops.failing(), timeOf) }, supervisor: supervised ?? (isDemo ? demoSupervisor(clock(), SUPERVISOR_RULES, incidentCards) : null), boardSettings: boardSettingsNow(), version: { commit: running, since: startedAt, ...(await versionNow()), canRestart, selfUpdate: updateShown }, mod: await modNow(),
+      return { ...state, advisor, forYou: oldMods === null ? state.forYou : [oldMods, ...(state.forYou ?? [])], design, goalsEdit, cpu: cpu?.view() ?? null, loops: { failing: loops.failing(), line: failingLine(loops.failing(), timeOf) }, supervisor: supervised ?? (isDemo ? demoSupervisor(clock(), SUPERVISOR_RULES, incidentCards) : null), boardSettings: boardSettingsNow(), obsolete: await obsoleteNow(state), version: { commit: running, since: startedAt, ...(await versionNow()), canRestart, selfUpdate: updateShown }, mod: await modNow(),
         // B320: where the New project button suggests a new project's folder, and whether this board makes one.
         newProject: { parent: home === null ? null : dirname(home), canMake: !isDemo && !isShowOnly, isMaking: makingProject },
         // B767: which of the main chat's routine jobs run by code on this PC, and what is missing.
@@ -2116,6 +2144,8 @@ async function main(args) {
     work: async body => {
       // Focus 3, the review: the person's Undo goes the one way that types the word before it marks the line.
       if (body?.action === 'undo') return undoNow({ note: body.id, line: body.line })
+      // B775: the check's start types a word to the partner after the store has written it.
+      if (body?.action === 'obsolete-check') return obsoleteStart()
       // B360, the review: an Overturn of a goal's recap opens the goal first; the recap closes only once it is open.
       if (body?.action === 'overturn') {
         const opened = await openOverturnedGoal(body)

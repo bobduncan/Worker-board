@@ -779,6 +779,31 @@ unless the fix changes what the user sees or decides.
    "yours to queue" note. Never leave an incident without its fix step, except one with no fault left, which you close
    (step 2, "No fault left").
 
+## Find obsolete items
+
+The person clicked "Find obsolete items" under Needs your attention (B775). The board types one word, `obsolete check: N open
+items`, with the ids. It is one short turn: judge, answer once, change nothing else.
+
+1. `work obsolete` without `points` reads the check: every open item (a refine question, an ask, a Do, an incident), each
+   with the facts the board gathered by code: when and by whom it was asked, its step's state and last History line, the
+   commits that name its step (before or after the item was made), its chat in the list and what it does, and whether the
+   board restarted since. Read the facts, not your memory of the project.
+2. Judge each item, from that evidence only:
+   - **obsolete**: the evidence proves the question or task is moot: its step is done or dropped, or was built since (a
+     commit names it and says the work is in), its chat is gone and nothing waits on it, the question was answered
+     elsewhere, or the cause it names ended (a Do left from an outage the board has recovered from since). Never obsolete for
+     an item whose step is still at work and waits for it.
+   - **unsure**: the evidence points to obsolete but does not prove it (a commit names the step, but the question may still
+     stand), or you cannot tell.
+   - **open**: it still stands.
+3. Answer once: `work obsolete` with `points`, one line per item, in this form (the whole check or nothing):
+   `obsolete|unsure|open: <id> · <why> · <evidence>`, the why in one short line, the evidence naming the fact
+   ("commit 2ea4710 names B755", "B753 is done"). A line for an id outside the check refuses the whole answer. An item you
+   leave out stands as unsure.
+4. Close nothing, withdraw nothing, answer no ask and do not file a step: the person ticks the items the list holds (obsolete
+   ones come ticked) and closes them on the board. A wrong "obsolete" costs them a click to untick; a wrong "open" costs
+   them an item they read again: when in doubt, unsure.
+
 ## The board asks you to start a chat
 
 Since 2026-10-25 the board's `start "<chat>"` word goes to any chat that runs. You are the chat it asks first when the main

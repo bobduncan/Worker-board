@@ -58,7 +58,8 @@ test('no focus: the partner\'s asks in the order they came; none of the partner\
 test('the inbox draws the partner\'s group first, before every other part, and the state marks its cards', async () => {
   const draw = script.slice(script.indexOf('function drawNeeds(state)'), script.indexOf('/** Who runs and who was asked'))
   assert.match(draw, /partnerFirst\(/)
-  assert.match(draw, /fill\(box, \[none, drawPartnerNeeds\(/)
+  // B775: only the quiet "Find obsolete items" line stands above it (the person's own tool, not a question).
+  assert.match(draw, /fill\(box, \[none, drawObsolete\(state\), drawPartnerNeeds\(/)
   const state = await readFile(join(ROOT, 'src', 'state.mjs'), 'utf8')
   assert.match(state, /forYou: markPartner\(\[/)
 })

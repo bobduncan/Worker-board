@@ -5077,6 +5077,8 @@ const withPartnerUi = { isOpen: false }
 /** B466: whether "Decided for you by your partner" is open; folded unless the person left it open (this browser). */
 const decidedUi = { isOpen: false }
 try { decidedUi.isOpen = localStorage.getItem('decided-open') === 'yes' } catch { /* a browser without storage: folded */ }
+/** B775: the ticks of the obsolete check's rows the person changed (id → ticked); a row not here is ticked when its verdict is obsolete. */
+const obsoleteUi = { set: new Map() }
 
 /**
  * B408: the page's one click handler, with a table of acts. A button names its act by a data attribute (the table's
@@ -5090,6 +5092,16 @@ const CLICK_ACTS = {
   // Partner answers, the review's findings: the "With your partner" line opens and closes its list.
   'with-partner': () => {
     withPartnerUi.isOpen = !withPartnerUi.isOpen
+    redrawNeeds()
+  },
+  // B775: "Find obsolete items" asks the partner to judge the open items; "Close the N ticked" closes the ticked ones.
+  'obsolete': button => {
+    if (button.dataset.obsolete === 'check') return sendWork({ action: 'obsolete-check' }, 'obsolete:check')
+    const ids = obsoleteRows(board?.obsolete ?? null).filter(row => row.ticked).map(row => row.id)
+    if (ids.length > 0) sendWork({ action: 'obsolete-close', ids }, 'obsolete:close')
+  },
+  'obsolete-tick': box => {
+    obsoleteUi.set.set(box.dataset.obsoleteTick, box.checked)
     redrawNeeds()
   },
   // B466: "Decided for you by your partner" opens and closes; the page remembers it.
@@ -5296,6 +5308,69 @@ function drawPartnerNeeds(cards, open) {
   return part
 }
 
+// obsolete:start
+/** B775: the verdicts' words on the page. */
+const OBSOLETE_WORDS = { obsolete: 'Obsolete', unsure: 'Unsure', open: 'Still open' }
+
+/** B775: the check's rows with the person's ticks: a row they changed keeps their tick, any other is ticked when obsolete. */
+function obsoleteRows(view, set = obsoleteUi.set) {
+  return (view?.rows ?? []).map(row => ({ ...row, ticked: set.has(row.id) ? set.get(row.id) === true : row.ticked }))
+}
+
+/**
+ * B775: the part under Needs your attention that finds the open items that are obsolete: the button (it reads "The Advisor is
+ * checking" while the partner judges, "Try again" when it did not answer in 15 minutes), then each item with its verdict, why
+ * and evidence and a tick (obsolete ones come ticked), and "Close the N ticked". Nothing closes without the person's click.
+ */
+function drawObsolete(state) {
+  const view = state.obsolete ?? null
+  if (view === null || (view.openCount === 0 && view.state === 'none' && view.last === null)) return null
+  const rows = obsoleteRows(view, new Map(state.ui?.obsoleteSet ?? []))
+  const part = el('section', 'information obsolete-check')
+  const isChecking = view.state === 'checking'
+  const head = el('div', 'obsolete-head')
+  const label = isChecking ? 'The Advisor is checking' : view.state === 'late' ? 'Try again' : view.state === 'done' ? 'Check again' : 'Find obsolete items'
+  const button = el('button', 'choice', label)
+  button.type = 'button'
+  button.dataset.obsolete = 'check'
+  button.disabled = isChecking || sending.has('obsolete:check') || view.canCheck === false
+  button.title = view.canCheck === false ? view.whyNot : 'Your partner judges every open item here against what happened since it was made; you close the ones you tick'
+  head.append(button)
+  if (view.state === 'late') head.append(el('small', 'muted', 'The Advisor did not answer in 15 minutes.'))
+  else if (view.state === 'none' || view.state === 'done') head.append(el('small', 'muted', `${view.openCount} open item${view.openCount === 1 ? '' : 's'} here`))
+  part.append(head)
+  if (problems.has('obsolete:check')) part.append(el('p', 'problem', problems.get('obsolete:check')))
+  if (view.state === 'done' && rows.length === 0) part.append(el('p', 'muted obsolete-none', view.last === null ? 'Nothing is left to look at.' : `Closed ${view.last.closed}. Nothing is left to look at.`))
+  if (rows.length > 0) {
+    part.append(fill(el('ul', 'obsolete-rows'), rows.map(row => {
+      const item = el('li', `obsolete-row is-${row.verdict}`)
+      const tick = el('input')
+      tick.type = 'checkbox'
+      tick.checked = row.ticked
+      tick.dataset.obsoleteTick = row.id
+      tick.title = 'Tick the items to close'
+      tick.setAttribute('aria-label', `Close ${row.id}`)
+      const words = el('div', 'obsolete-words')
+      const line = el('div', 'obsolete-line')
+      line.append(el('b', 'task-code', row.id), ' ', row.title, ' ', el('span', 'obsolete-verdict', OBSOLETE_WORDS[row.verdict] ?? row.verdict))
+      words.append(line, el('small', 'muted obsolete-why', row.why))
+      if (row.evidence !== '') words.append(el('small', 'muted obsolete-evidence', row.evidence))
+      item.append(tick, words)
+      return item
+    })))
+    const ticked = rows.filter(row => row.ticked).length
+    const close = el('button', 'choice obsolete-close', `Close the ${ticked} ticked`)
+    close.type = 'button'
+    close.dataset.obsolete = 'close'
+    close.disabled = ticked === 0 || sending.has('obsolete:close')
+    close.title = 'Closes each ticked item as you would: a refine question closes its step as done, an ask is withdrawn without waking its chat, an incident is closed'
+    part.append(close)
+    if (problems.has('obsolete:close')) part.append(el('p', 'problem', problems.get('obsolete:close')))
+  }
+  return part
+}
+// obsolete:end
+
 function drawNeeds(state) {
   const box = $('needs')
   const focused = focusedNeed(box)
@@ -5331,7 +5406,7 @@ function drawNeeds(state) {
   const none = cardsOpen.length > 0 || lines.length > 0 || missed.length > 0 || nobodyRunsText(state.nobodyRuns) !== null || (state.wakeFailed ?? []).length > 0 || (state.goalAskNeeds ?? []).length > 0 || (state.brainstormNeeds ?? []).length > 0 ? null : el('p', 'empty', answered > 0 && !showsClosed() ? `Nothing waits for you. ${answered} answered, hidden.` : 'Nothing waits for you.')
   // B360: the recaps of finished work, as information after what asks for an answer.
   const recaps = shownRecaps(state, showsClosed()).map(recap => drawRecap(recap, state))
-  fill(box, [none, drawPartnerNeeds(partnerCards, partner.filter(need => !isClosed(need) && !isAnswered(need)).length), drawMissed(missed), drawSupervisorLine(supervised), drawGoalAskNeeds(state), drawBrainstormNeeds(state), ...oldCards, drawRefineNeeds(state), ...cards, drawWithPartner(state), drawDecidedForYou(state), ...recaps])
+  fill(box, [none, drawObsolete(state), drawPartnerNeeds(partnerCards, partner.filter(need => !isClosed(need) && !isAnswered(need)).length), drawMissed(missed), drawSupervisorLine(supervised), drawGoalAskNeeds(state), drawBrainstormNeeds(state), ...oldCards, drawRefineNeeds(state), ...cards, drawWithPartner(state), drawDecidedForYou(state), ...recaps])
   // T9.4: no chat runs, so nobody can wake the chats words wait for (and the chats the board asked in vain): one line each on top of the panel, in the attention colour.
   const nobodyLines = [drawNobodyRuns(state.nobodyRuns), ...(drawWakeFailed(state.wakeFailed) ?? [])].filter(line => line !== null)
   if (nobodyLines.length > 0) box.prepend(...nobodyLines)
@@ -5390,6 +5465,8 @@ function needsView(state, ui) {
     goalsEdit: { canWrite: state.goalsEdit?.canWrite ?? null, whyNot: state.goalsEdit?.whyNot ?? null },
     withPartner: state.withPartner ?? [],
     partnerDecided: state.partnerDecided ?? [],
+    // B775: the obsolete check (its rows come with the ticks in `ui`).
+    obsolete: state.obsolete ?? null,
     // B541: the card of chats on an older Workers mod says how the pause stands.
     pause: { state: state.pause?.state ?? null },
     ui,
@@ -5433,7 +5510,7 @@ function focusPageView(state, ui) {
 }
 
 /** B408: what the person does in Needs your attention, for its view: the order, Show closed, what is picked, sent, open. */
-const needsUi = () => ({ showsClosed: showsClosed(), order: $('needs-order').value, withPartnerOpen: withPartnerUi.isOpen, decidedOpen: decidedUi.isOpen, chosen: [...chosen], problems: [...problems], sending: [...sending], openForms: [...openForms], starting: [...starting] })
+const needsUi = () => ({ obsoleteSet: [...obsoleteUi.set], showsClosed: showsClosed(), order: $('needs-order').value, withPartnerOpen: withPartnerUi.isOpen, decidedOpen: decidedUi.isOpen, chosen: [...chosen], problems: [...problems], sending: [...sending], openForms: [...openForms], starting: [...starting] })
 
 /**
  * B408: what the person does on the Focus page, for its view: the moves of focusUi (not the words typed, which a redraw

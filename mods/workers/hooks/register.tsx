@@ -1978,7 +1978,9 @@ const WORK_TOOL = {
     + 'stands in the partner\'s daily note with an Undo. "escalate" ("id", "why"): the partner hands a routed ask to the person. '
     + '"health": the supervisor chat reads the board\'s health summary. "incident" ("title", "subject", "evidence", "rule", "key"): '
     + 'the supervisor chat files what looks wrong; the same "key" again only counts it. "incident-fix" ("id" X<n>, "fix" B<n>): '
-    + 'the partner names the step that fixes an incident; the board marks it fixed once that step is done.',
+    + 'the partner names the step that fixes an incident; the board marks it fixed once that step is done. "obsolete" ("points"): the partner judges the open items of '
+    + 'Needs your attention once the board asks it: without "points" it reads them with their evidence, with "points" it answers, '
+    + 'one line per item, "obsolete|unsure|open: <id> · <why> · <evidence>"; nothing is closed by it.',
   inputSchema: {
     type: 'object',
     properties: {
@@ -2018,7 +2020,7 @@ const WORK_TOOL = {
       rule: { type: 'string', description: 'incident: the code rule that could catch it next time, in one line ("a worker working with no step for 30 min").' },
       key: { type: 'string', description: 'incident: what makes it the same finding next time, "<what> <subject>" ("working-without-step Worker 2"); the key of an incident the summary lists counts that one.' },
       fix: { type: 'string', description: 'incident-fix: the step that fixes the incident ("B490").' },
-      points: { type: 'array', items: { type: 'string' }, description: 'checked: every agreed point of the step, each "pass: <point>", "fail: <point>" or "ask: <point>" (a point only the person can judge).' },
+      points: { type: 'array', items: { type: 'string' }, description: 'checked: every agreed point of the step, each "pass: <point>", "fail: <point>" or "ask: <point>" (a point only the person can judge). obsolete: one line per open item, "obsolete|unsure|open: <id> · <why> · <evidence>".' },
       score: { type: 'string', description: 'checked: the score beside its target, "82 of 75", where the kind\'s definition of done has a rubric.' },
       questions: { type: 'array', items: { type: 'string' }, description: 'refine: the questions for the person.' },
       what: { type: 'array', items: { type: 'string' }, description: 'refined, and new from an agreed how (the partner: with goal and summary, the step is made refined): what we build, one part per line.' },
