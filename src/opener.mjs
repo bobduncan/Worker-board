@@ -118,6 +118,39 @@ export function openPlan({ now, handsGone: gone, waits, paused, last = -Infinity
 }
 
 /**
+ * The person, 2026-10-30 ("why cant the board connect directly to the chats using the same command, bypassing main?"):
+ * while other chats run, a worker whose chat is asleep and has work waiting (a step queued for it, or a word of the
+ * board's for it) is opened by the board itself, as it opens a chat when none runs. A message cannot wake a closed chat,
+ * and a hand in an Auto chat may not send one (X1): seen 2026-10-30 20:16, B775, B774 and B770 queued for Workers 2, 4
+ * and 5, all asleep, while Main ran.
+ */
+/** Work has waited this long for an asleep worker before the board opens it: a wake by message gets that minute first. */
+export const ASLEEP_WAIT_MS = 60_000
+
+/** The asleep workers with work waiting, `[{ chat, session, since }]`: `since` the start of its asleep spell. */
+export function asleepWithWork(state, outbox = []) {
+  const words = new Set((outbox ?? []).filter(message => message?.state === 'waiting' && typeof message.to === 'string').map(message => message.to))
+  return (state?.chats ?? [])
+    .filter(lane => lane?.isLeftover !== true && (lane?.removedAt ?? null) === null && lane?.isMain !== true && lane?.asleep === true && isSessionId(lane.session))
+    .filter(lane => (lane.queue ?? []).length > 0 || words.has(lane.name))
+    .map(lane => ({ chat: lane.name, session: lane.session, since: Number.isFinite(lane.asleepSince) ? lane.asleepSince : -Infinity }))
+}
+
+/**
+ * Whether the board opens this asleep worker now, `{ open, why }`: the person does not pause, its work waited
+ * ASLEEP_WAIT_MS (`waitingSince`, the server's first sight of it), its last open (`opens`, `{ at, chat, ok }`) is
+ * OPEN_EVERY_MS ago, and fewer than OPEN_TRIES opens in this asleep spell (`since`) left it asleep.
+ */
+export function asleepPlan({ now, chat, since = -Infinity, waitingSince, opens = [], paused }) {
+  const mine = opens.filter(one => one.chat === chat && one.at > since)
+  if (paused) return { open: false, why: 'the person pauses the chats' }
+  if (!(now - waitingSince >= ASLEEP_WAIT_MS)) return { open: false, why: 'its work waits less than a minute' }
+  if (mine.filter(one => one.ok !== true || now - one.at >= OPEN_WAIT_MS).length >= OPEN_TRIES) return { open: false, why: `${OPEN_TRIES} opens left it asleep` }
+  if (now - (mine.at(-1)?.at ?? -Infinity) < OPEN_EVERY_MS) return { open: false, why: 'it was opened less than 3 minutes ago' }
+  return { open: true, why: 'it is asleep and work waits for it' }
+}
+
+/**
  * The launch, `{ file, args }`: PowerShell's Start-Process with the program and `--desktop --resume <session>`, so the
  * program gets a console of its own (hidden) and no redirected output. Built from a checked program path and session id
  * only; null for anything else.

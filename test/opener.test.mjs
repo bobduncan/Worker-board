@@ -234,3 +234,45 @@ test('the page shows the line where the restart banner is, quiet or amber, also 
     assert.match(failed.find('#code-job-list li').title, /no chat came back after the board opened Lead twice; open any chat of the project yourself\.$/)
   } finally { await failed.close() }
 })
+
+// The person, 2026-10-30: "why cant the board connect directly to the chats using the same command, bypassing main?"
+test('while other chats run, an asleep worker with a queued step or a waiting word is the one to open; never the main chat, one awake or left', async () => {
+  const { asleepWithWork } = await import('../src/opener.mjs')
+  const state = {
+    chats: [
+      lane('Lead', { isMain: true, asleep: true, queue: [{ id: 'B1' }] }),
+      lane('Digger', { asleep: true, asleepSince: NOW - 10 * MIN, queue: [{ id: 'B2' }] }),
+      lane('Miner', { asleep: true, asleepSince: NOW - 5 * MIN, queue: [] }),
+      lane('Smith', { asleep: true, queue: [] }),
+      lane('Awake', { asleep: false, queue: [{ id: 'B3' }] }),
+      lane('Gone', { asleep: true, isLeftover: true, queue: [{ id: 'B4' }] }),
+      lane('NoId', { asleep: true, session: 'not-a-uuid', queue: [{ id: 'B5' }] }),
+    ],
+  }
+  const outbox = [{ ...word('work'), to: 'Miner' }, { ...word('work', 'delivered'), to: 'Smith' }]
+  assert.deepEqual(asleepWithWork(state, outbox).map(one => [one.chat, one.since]), [['Digger', NOW - 10 * MIN], ['Miner', NOW - 5 * MIN]])
+  assert.deepEqual(asleepWithWork({ chats: [] }, outbox), [])
+})
+
+test('an asleep worker opens after its work waited a minute, at most once in 3 minutes, and not after two opens left it asleep', async () => {
+  const { ASLEEP_WAIT_MS, asleepPlan } = await import('../src/opener.mjs')
+  const at = more => asleepPlan({ now: NOW, chat: 'Digger', since: NOW - 30 * MIN, waitingSince: NOW - ASLEEP_WAIT_MS, opens: [], paused: false, ...more })
+  assert.equal(at().open, true)
+  assert.equal(at({ waitingSince: NOW - ASLEEP_WAIT_MS + 1 }).open, false)
+  assert.equal(at({ paused: true }).open, false)
+  assert.equal(at({ opens: [{ at: NOW - OPEN_EVERY_MS + 1, chat: 'Digger', ok: true }] }).open, false)
+  assert.equal(at({ opens: [{ at: NOW - OPEN_EVERY_MS, chat: 'Digger', ok: true }] }).open, true)
+  // Another chat's open does not count, nor one before this asleep spell.
+  assert.equal(at({ opens: [{ at: NOW - MIN, chat: 'Miner', ok: true }, { at: NOW - 40 * MIN, chat: 'Digger', ok: false }] }).open, true)
+  const failed = [{ at: NOW - 20 * MIN, chat: 'Digger', ok: true }, { at: NOW - 10 * MIN, chat: 'Digger', ok: false }]
+  assert.equal(at({ opens: failed }).open, false)
+  assert.equal(at({ opens: failed.slice(0, OPEN_TRIES - 1) }).open, true)
+})
+
+test('the server opens an asleep worker on the same minute\'s look while other chats run, with the list\'s id only, one per look', async () => {
+  const server = await readFile(new URL('../server.mjs', import.meta.url), 'utf8')
+  assert.match(server, /if \(!gone \|\| !\(await ownsLoops\(\)\)\) return gone \? undefined : openAsleep\(now, given\)/)
+  assert.match(server, /const waiting = asleepWithWork\(state, store\.outbox\(\)\.filter\(message => !isLate\(message, now, keep\)\)\)/)
+  assert.match(server, /asleepPlan\(\{ now, chat: one\.chat, since: one\.since, waitingSince: asleepWaiting\.get\(one\.chat\), opens, paused: isHolding\(state\.pause\) \}\)/)
+  assert.match(server, /openChat\(\{ exe: await findClaude\(\), session: one\.session, cwd: resolve\(HERE, config\.project\) \}\)/)
+})
