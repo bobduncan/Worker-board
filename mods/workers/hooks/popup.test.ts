@@ -27,7 +27,7 @@ describe('a popup that may wait for the person', () => {
   test('the detail in a few words: a command up to its first join or redirect, a file\'s name, a name or address', () => {
     expect(shortDetail({ command: 'git worktree add ../w4-x -b x main 2>&1 | tail -2; cd ../w4-x && npm test' })).toBe('git worktree add ../w4-x')
     expect(shortDetail({ command: 'npm   test\n  -- --quiet' })).toBe('npm test')
-    expect(shortDetail({ file_path: 'C:\\Web\\project\\src\\game.ts' })).toBe('game.ts')
+    expect(shortDetail({ file_path: 'D:\\work\\demo\\src\\game.ts' })).toBe('game.ts')
     expect(shortDetail({ name: 'map-dev' })).toBe('map-dev')
     expect(shortDetail({ command: `echo ${'a'.repeat(80)}` }).length).toBe(40)
     expect(shortDetail({ level: 2 })).toBe('')
