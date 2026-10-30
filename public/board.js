@@ -5344,8 +5344,11 @@ function drawObsolete(state) {
   const part = el('section', 'information obsolete-check')
   const isChecking = view.state === 'checking'
   const head = el('div', 'obsolete-head')
-  const label = isChecking ? 'The Advisor is checking' : view.state === 'late' ? 'Try again' : view.state === 'done' ? 'Check again' : 'Find obsolete items'
+  const isSending = sending.has('obsolete:check')
+  const label = isSending ? 'Asking the Advisor…' : isChecking ? 'The Advisor is checking' : view.state === 'late' ? 'Try again' : view.state === 'done' ? 'Check again' : 'Find obsolete items'
   const button = el('button', 'choice', label)
+  // The person, 2026-10-31: a press shows at once: a spinner and the button greyed while it is sent and while the partner checks.
+  if (isSending || isChecking) button.prepend(el('span', 'calm-spinner'))
   button.type = 'button'
   button.dataset.obsolete = 'check'
   button.disabled = isChecking || sending.has('obsolete:check') || view.canCheck === false
