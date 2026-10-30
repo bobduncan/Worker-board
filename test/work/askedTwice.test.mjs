@@ -165,7 +165,7 @@ test('work ask refuses a question the chat holds open under the same step or goa
 })
 
 test('work ask refuses a question the person answered a moment ago, with the answer; later it is a new ask (Q160 then Q162; Q190 then Q192)', async () => {
-  const { dir, board, person } = await fresh()
+  const { dir, board, advisor, person } = await fresh()
   try {
     await board({ action: 'take', id: 'B1' }, NOW)
     const gate = { kind: 'decide', of: 'B1', title: 'Which gate do I build?', text: 'A: oak gate with two lamps beside the hedge; B: iron gate with a stone arch over the path.', options: ['A oak', 'B iron'] }
@@ -174,9 +174,19 @@ test('work ask refuses a question the person answered a moment ago, with the ans
     const soon = await board({ action: 'ask', ...gate }, NOW + 2 * MIN + 30_000)
     assert.equal(soon.ok, false)
     assert.match(soon.why, /^Q1 asks this already and the person answered it: A oak/)
-    // After a change, the chat asks again in the same words: a new ask.
+    // Your words (2026-10-30): under a step the answer stands in its "Your words", so the same question later is refused
+    // with it too: the chat acts on the answer and asks only what is new.
     const later = await board({ action: 'ask', ...gate }, NOW + 9 * MIN)
-    assert.equal(later.ok, true, later.why)
+    assert.equal(later.status, 409)
+    assert.match(later.why, /^B1: the person answered this already on \d{4}-\d\d-\d\d \d\d:\d\d \(Q1\): "A oak"\. Act on their answer/)
+    // A question of a goal stands on no step: there a moment ago is refused, later it is a new ask.
+    const goal = { kind: 'decide', of: 'G2', title: 'Which gate do we build for the garden?', options: ['A oak', 'B iron'] }
+    const first = await advisor({ action: 'ask', ...goal }, NOW + 10 * MIN)
+    assert.equal(first.ok, true, first.why)
+    await person({ action: 'answer', id: first.result.id, text: 'A oak' }, NOW + 11 * MIN)
+    assert.match((await advisor({ action: 'ask', ...goal }, NOW + 11 * MIN + 30_000)).why, new RegExp(`^${first.result.id} asks this already and the person answered it: A oak`))
+    const again = await advisor({ action: 'ask', ...goal }, NOW + 20 * MIN)
+    assert.equal(again.ok, true, again.why)
   } finally {
     await cleanUp(dir)
   }

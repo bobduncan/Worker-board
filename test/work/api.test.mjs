@@ -151,7 +151,8 @@ test('ask with Blocking yes moves the step to waiting on you; answer moves it ba
     assert.equal((await person({ action: 'answer', id: 'Q1', text: 'again' })).why, 'Q1 is answered already.')
     // An ask that blocks nothing leaves the step where it is; a board address makes the picture a link.
     const link = await workApi({ action: 'ask', chat: 'Board', of: 'B1', kind: 'do', text: 'Restart the app' }, { dir, now: NOW, prefix: 'Team - ', roleOf: () => 'worker', boardUrl: 'http://127.0.0.1:4310' })
-    assert.equal(link.result.text, '> **For you**\n> 1. **Do:** Restart the app (Q2, do on task B1)')
+    // Your words (2026-10-30): B1 holds the person's answer to Q1, so the answer ends saying so.
+    assert.equal(link.result.text, '> **For you**\n> 1. **Do:** Restart the app (Q2, do on task B1)\nThe person\'s words on B1: 1 point, see its "Your words".')
     assert.equal(await state(dir, 'B1'), 'in progress')
   } finally {
     await rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })

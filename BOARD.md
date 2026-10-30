@@ -222,6 +222,12 @@ tab) and never on the demo; once closed, the browser keeps that it was seen (`he
   reason, and who runs at it ("Units runs at Sonnet · low until the step ends, then at its usual setting (Sonnet ·
   medium)", or that the main chat was asked and it is not set yet). A worker's task window shows the same as a chip,
   "Sonnet · low".
+- **Your words** (2026-10-30, the person: "I like it to retain the feedback i gave it so when i tries to suggest new
+  ways to accomplish what i want it can verify what i originally asked so it can determine if it was actually done or
+  not"; and "ensure my answer/rejection/note has context of what i answered it to. so a simple 'yes' is not meaningless
+  because it needs context"): a step's window shows the person's answers, rejections and notes on it, newest last, each
+  with what it answered (who asked what, the options, the advice, what was shown): first on a taken step's Summary,
+  after the Summary on a new or refined one. **Add a note** under them puts the person's own words on the step.
 - **A picture** (`04-picture-popup.png`, a click on any picture or `#picture=<path>`): the picture large with its
   path; a click closes it.
 - **A game** (`#play=<branch>&<settings>`): the branch's game started and this tab turned into it.

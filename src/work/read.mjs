@@ -13,6 +13,7 @@ import { checkedOf, reviewWaitOf, triesOf } from './resultCheck.mjs'
 import { standardOf } from './standard.mjs'
 import { refineAsksOf } from './stepAsks.mjs'
 import { readStore } from './store.mjs'
+import { yourWordsOf } from './yourWords.mjs'
 
 /** How long a read of the store is kept when nothing changed it through the board: a hand edit shows within this time. */
 const REREAD_MS = 30_000
@@ -152,6 +153,8 @@ export function itemOfStep(work, key) {
     // B468: the effort its worker runs at (medium when its refine gave none), and who holds it in which state. Model per
     // step: and the model (sonnet when its refine gave none).
     effort: effortOf(item), model: modelOf(item), owner: valueOf(item, 'Owner'), state: valueOf(item, 'State'),
+    // Your words (2026-10-30): the person's answers, rejections and notes on it, each with what it answered, oldest first.
+    yourWords: yourWordsOf(item),
   }
 }
 

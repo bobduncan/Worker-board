@@ -5817,8 +5817,11 @@ function effortKeptLine(level, efforts = []) {
  */
 function itemPartsOf(item, hasFlow, { lanes = [], efforts = [] } = {}) {
   if (item === null || item === undefined) return []
+  const words = item.yourWords ?? []
   const parts = [
     item.summary.length > 0 ? { key: 'summary', title: 'Summary', lines: item.summary, isFolded: false } : null,
+    // Your words (2026-10-30): the person's answers and notes on it, each with what it answered, and "Add a note".
+    words.length > 0 ? { key: 'yourwords', title: 'Your words', lines: yourWordsRows(words).map(one => one.head), isFolded: false, id: item.id, points: words } : null,
     item.picture !== null ? { key: 'picture', title: 'Picture', lines: [item.picture], isFolded: false } : null,
     item.goal !== null ? { key: 'goal', title: 'Goal', lines: [item.goal], isFolded: false } : null,
     // Model per step: its model with it, where the board sets one (the settings name the model ids; else none).
@@ -5833,6 +5836,32 @@ function itemPartsOf(item, hasFlow, { lanes = [], efforts = [] } = {}) {
     item.history.length > 0 ? { key: 'history', title: 'History', lines: item.history, isFolded: false } : null,
   ]
   return parts.filter(part => part !== null)
+}
+
+/**
+ * Your words (the person, 2026-10-30: "ensure my answer/rejection/note has context of what i answered it to"): each point
+ * of a step's "Your words" as its window shows it, newest last: its head (number, time, how, in plain words: B701, no ids),
+ * its context (who asked what, the options, the advice), the pictures it showed (shown as pictures, not paths) and the
+ * person's words.
+ */
+function yourWordsRows(points) {
+  const isPicture = path => /\.(?:png|jpe?g|gif|webp)$/i.test(path)
+  return (points ?? []).map(one => {
+    const shown = one.shown ?? []
+    return {
+      n: one.n,
+      head: `${one.n}. ${one.at} · your ${String(one.how ?? '').replace(/^answer to Q\d+, a refine question/, 'answer to a refine question').replace(/^answer to Q\d+/, 'answer')}`,
+      context: [
+        (one.question ?? null) === null ? '' : `${one.by === null || one.by === undefined ? 'Asked' : `${one.by} asked`}: "${one.question}"`,
+        (one.about ?? null) === null ? '' : `About: "${one.about}"`,
+        (one.options ?? []).length === 0 ? '' : `options: ${one.options.join(' / ')}`,
+        (one.advice ?? null) === null ? '' : `advised: ${one.advice}`,
+        shown.some(path => !isPicture(path)) ? 'with a play link' : '',
+      ].filter(Boolean).join(' · '),
+      pictures: shown.filter(isPicture),
+      words: `You: ${one.answer}`,
+    }
+  })
 }
 
 /** B356: a result check's lines: "2 of 3 points pass · score 82 of 75", then each point with its tick. */
@@ -7349,7 +7378,9 @@ function drawDetails(state) {
   // B293: a refine's goal stands in the head already, as its chip: not a second time here.
   const isGoalInHead = (refined?.partOf ?? '') !== ''
   if (isItemShown) left.append(...itemParts.filter(part => part.key !== 'history' && !(part.key === 'goal' && isGoalInHead)).map(part => itemPart(part, strip)))
-  else {
+  // Your words (2026-10-30): "Add a note" on a step of the store without words of the person's yet (with them, it stands in their part).
+  if (isItemShown && !itemParts.some(part => part.key === 'yourwords')) left.append(...yourWordsNodes(itemNow.id, []))
+  if (!isItemShown) {
     if (isReady) left.append(refine)
     if (waiting !== null) { /* said above */ } else if (described.length > 0) left.append(section(isReady ? 'Notes' : 'Description', described))
     else if (!view.hasNotes && !isSummed) left.append(section('Description', [el('p', 'muted', 'Nothing more is written about it. Lines under the task in the backlog show here.')]))
@@ -7517,10 +7548,79 @@ function taskOptions(need, isGuard) {
   return part
 }
 
+/** Your words: the note the person is writing per step (its id), kept while the window is drawn anew. */
+const noteDrafts = new Map()
+
+/**
+ * Your words (the person, 2026-10-30: "I like it to retain the feedback i gave it so when i tries to suggest new ways to
+ * accomplish what i want it can verify what i originally asked"): the points of a step's "Your words", newest last, each
+ * its head, what it answered and the person's words; then "Add a note" for a step with an id.
+ */
+function yourWordsNodes(id, points) {
+  const nodes = []
+  if ((points ?? []).length > 0) {
+    const list = el('ol', 'your-words')
+    for (const row of yourWordsRows(points)) {
+      const point = el('li', 'your-word')
+      point.append(el('p', 'your-word-head', row.head))
+      if (row.context !== '') point.append(el('p', 'muted your-word-context', row.context))
+      if (row.pictures.length > 0) {
+        const pictures = el('div', 'your-word-pics')
+        for (const path of row.pictures) pictures.append(picture(path, 'What you were shown'))
+        point.append(pictures)
+      }
+      point.append(el('p', 'your-word-text', row.words))
+      list.append(point)
+    }
+    nodes.push(list)
+  }
+  if (typeof id === 'string' && /^B\d+$/.test(id)) nodes.push(addNotePart(id))
+  return nodes
+}
+
+/** Your words: "Add a note" folded under the points: the person's words go on the step (the work API's `words`). */
+function addNotePart(id) {
+  const key = `words:${id}`
+  const fold = el('details', 'item-fold your-words-add')
+  fold.open = noteDrafts.has(id) || problems.has(key) || sending.has(key)
+  fold.append(el('summary', '', 'Add a note'))
+  const area = el('textarea')
+  area.rows = 3
+  area.placeholder = 'Your words on this task: every chat on it reads them before it asks or reports'
+  area.dataset.wordsText = id
+  area.value = noteDrafts.get(id) ?? ''
+  const send = el('button', 'task-send', sending.has(key) ? 'Adding…' : 'Add note')
+  send.type = 'button'
+  send.dataset.wordsSend = id
+  send.disabled = sending.has(key)
+  const row = el('div', 'task-send-row')
+  if (problems.has(key)) row.append(el('p', 'problem', problems.get(key)))
+  row.append(send)
+  fold.append(area, row)
+  return fold
+}
+
+/** Your words: the click on "Add note": the words go to the step, and the window shows them as its newest point. */
+async function sendWords(id) {
+  const key = `words:${id}`
+  const text = (noteDrafts.get(id) ?? '').trim()
+  if (text === '') problems.set(key, 'Write your note first.')
+  else {
+    problems.delete(key)
+    const problem = await sendWork({ action: 'words', id, text, where: 'on the board' }, key)
+    if (problem === null) noteDrafts.delete(id)
+  }
+  detailsShown = null
+  if (board !== null && detailsOf !== null) drawDetails(board)
+}
+
 /** B701: the Summary tab: only the parts that have something to say. */
 function taskSummary(item, asks, guardAsk) {
   const view = summaryOf(item)
   const parts = []
+  // Your words (2026-10-30): the person's words on the step stand first; without any, only "Add a note", last.
+  const words = item.yourWords ?? []
+  if (words.length > 0) parts.push(taskPart('Your words', yourWordsNodes(item.id, words)))
   if (view.want.length > 0) parts.push(taskPart('What we want', view.want.map(one => el('p', '', one))))
   const pictures = el('div', 'task-pics')
   if (view.target !== null) pictures.append(taskFigure(view.target, 'Target', 'what it should look like'))
@@ -7547,6 +7647,7 @@ function taskSummary(item, asks, guardAsk) {
   if (view.conclusion !== null) parts.push(taskPart('Conclusion', [el('p', '', view.conclusion)]))
   // The step's open questions, each with its own cards (the guard's, when it is about this step, among them).
   for (const need of asks) parts.push(taskOptions(need, guardAsk !== null && need.workId === guardAsk))
+  if (words.length === 0) parts.push(...yourWordsNodes(item.id, []))
   return parts
 }
 
@@ -7716,9 +7817,19 @@ $('details').addEventListener('click', event => {
     return drawDetails(board)
   }
   const send = event.target.closest('[data-task-send]')
-  if (send !== null) sendTask(send.dataset.taskSend)
+  if (send !== null) return sendTask(send.dataset.taskSend)
+  // Your words: "Add note" of a step's window.
+  const words = event.target.closest('[data-words-send]')
+  if (words !== null && !words.disabled) sendWords(words.dataset.wordsSend)
 })
 $('details').addEventListener('input', event => {
+  // Your words: the note being written is kept, so a window drawn anew keeps it.
+  if (event.target.matches('[data-words-text]')) {
+    const id = event.target.dataset.wordsText
+    if (event.target.value.trim() === '') noteDrafts.delete(id)
+    else noteDrafts.set(id, event.target.value)
+    return
+  }
   if (!event.target.matches('[data-task-words]')) return
   const id = event.target.dataset.taskWords
   calmWords.set(id, event.target.value)
@@ -7750,6 +7861,8 @@ function itemPart(part, strip) {
     return section(part.title, [...((part.model ?? null) === null ? [] : [models, modelWhy]), levels, why, ...(part.run === null ? [] : [el('p', 'effort-run', part.run)]), el('p', 'muted effort-kept', part.kept)])
   }
   if (part.key === 'summary') return section('Summary', part.lines.map(one => el('p', '', one)))
+  // Your words (2026-10-30): every point with what it answered, newest last, and "Add a note".
+  if (part.key === 'yourwords') return section(part.title, yourWordsNodes(part.id, part.points))
   // B293: what we build as the refine shows it, "Not in it" greyed.
   if (part.key === 'what') return section('What we build', [buildList(part.lines)])
   // B356: the ticks of the result check, each point green, red or amber, and the evidence picture under them.

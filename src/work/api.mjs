@@ -39,6 +39,7 @@ import { nextPlan, planMinutes, planOf, planText } from './stepPlan.mjs'
 import { ACTIVE, parkWords, parkedAfter, workingOnOther } from './parked.mjs'
 import { routingAction, ROUTING_ACTIONS, ROUTING_READS } from './routing/api.mjs'
 import { writeView } from './view.mjs'
+import { YOUR_WORDS, answeredBefore, askPoint, isPersonsWords, isPopupAsk, withYourWords, yourWordsLine, yourWordsOf } from './yourWords.mjs'
 
 // B300: kept here for those who import them from the API.
 export { overlapsIn, sinceMs }
@@ -46,7 +47,7 @@ export { overlapsIn, sinceMs }
 export const isReadAction = action => READS.has(action)
 
 const READS = new Set(['next', 'list', 'pause-state', 'health', ...ROUTING_READS])
-const CHANGES = new Set(['incident', 'incident-fix', 'incident-told', 'incidents-fixed', 'take', 'step', 'ask', 'withdraw', 'answered-in-chat', 'read', 'note', 'report', 'block', 'unblock', 'new', 'queue', 'pin', 'add-to-queue', 'remove-from-queue', 'close', 'drop', 'refine', 'refined', 'answer', 'tick', 'delete', 'refine-answer', 'refine-accept', 'check', 'checked', 'instruction', 'turn-ended', 'pull', 'advance', 'requeue', 'unqueue', 'recheck', 'undo', 'rename', 'pause-all', 'resume-all', 'resumed', 'end-resume', 'overturn', 'seen', 'approve-recaps', 'partner-answer', 'escalate', 'partner-answers', 'obsolete-check', 'obsolete', 'obsolete-close', 'recheck-stuck', 'recheck-base', 'retire-queue', 'qa-task', 'qa-end'])
+const CHANGES = new Set(['incident', 'incident-fix', 'incident-told', 'incidents-fixed', 'take', 'step', 'ask', 'withdraw', 'answered-in-chat', 'read', 'note', 'report', 'block', 'unblock', 'new', 'queue', 'pin', 'add-to-queue', 'remove-from-queue', 'close', 'drop', 'refine', 'refined', 'answer', 'tick', 'delete', 'refine-answer', 'refine-accept', 'check', 'checked', 'instruction', 'turn-ended', 'pull', 'advance', 'requeue', 'unqueue', 'recheck', 'undo', 'rename', 'pause-all', 'resume-all', 'resumed', 'end-resume', 'overturn', 'seen', 'approve-recaps', 'partner-answer', 'escalate', 'partner-answers', 'obsolete-check', 'obsolete', 'obsolete-close', 'recheck-stuck', 'recheck-base', 'retire-queue', 'qa-task', 'qa-end', 'words'])
 /**
  * Focus 2: the partner's drafts of the focus goal's vibe and how. They change the goal map, not the store: the board's
  * `goalDraft` (src/focus.mjs) writes them; only the chat the list names the partner (role advisor) sends them.
@@ -85,6 +86,8 @@ const ROLES = {
   health: ['supervisor'],
   // B775: the check's verdicts are the partner's alone; the person starts the check and closes what they tick.
   obsolete: ['advisor'],
+  // Your words (2026-10-30): the person's note on a step, from its window; the main chat's, for words the person said in its chat.
+  words: ['person', 'main'],
 }
 /**
  * The supervisor: what its chat may do. It reads, and files incidents; it never changes anything else (spec, section 5).
@@ -435,6 +438,8 @@ function qaWords(item, items) {
   const context = (item.sections.get('Context') ?? []).map(one => one.trim()).filter(one => /^(?:Built by|Why|Board warnings|Demand|The person said):/.test(one))
   const points = step === undefined ? [] : agreedPoints(step)
   const standard = step === undefined ? null : standardOf(step)
+  // Your words (2026-10-30): what the person said on the step checked, each point with what it answered.
+  const words = step === undefined ? [] : step.sections.get(YOUR_WORDS) ?? []
   return [
     '',
     '',
@@ -442,6 +447,7 @@ function qaWords(item, items) {
     ...(points.length === 0 ? [] : ['Agreed points:', ...points.map(one => `- ${one}`)]),
     ...(standard === null ? [] : [`Standard: ${standard}`]),
     ...context,
+    ...(words.length === 0 ? [] : [`The person's words on ${checks} (check each point too, met or not met; never ask the person what they answered there):`, ...words]),
   ].join('\n')
 }
 
@@ -720,20 +726,27 @@ export function forYouBlock({ id, of = null, kind, blocking = false, title, opti
  * ask may stand alone (`of` left out: a question the app's form asked while no step is the chat's); `advice` names the
  * option the chat advises; `via: "form"` says the app's question form asked it (the mod files those).
  */
-async function ask(body, w) {
+async function ask(body, w, { alone = false } = {}) {
   // Focus 3: an ask of a goal (the partner's question on the focus) stands under no step; its Of names the goal.
   const goal = typeof body.of === 'string' && GOAL_ID.test(body.of) ? body.of : null
   // The review: only the partner asks of a goal, and only of one in the goal map (`hasGoal`, from the board). 2026-10-24:
   // and the board itself, for its goal guard's ask before an evaluation (Fable or Opus, src/goalGuard.mjs `fableAskOf`).
   if (goal !== null && w.role !== 'advisor' && w.role !== 'server') return refuse(403, 'Only the partner asks of a goal; ask under a step.')
   if (goal !== null && w.hasGoal?.(goal) !== true) return refuse(409, `${goal} is not in the goal map.`)
-  const isAlone = goal !== null || body.of === undefined || body.of === null || body.of === ''
-  const of = isAlone ? { ok: true, item: null, text: null } : await load(body.of, w, { kind: ['step'] })
+  const isGiven = !(body.of === undefined || body.of === null || body.of === '')
+  // Your words (2026-10-30, Q520 stood under no step, so the person's answer never reached B497): an ask with no step from
+  // a worker or the partner that holds one step is that step's (`heldStepOf`), so the person's answer lands on it.
+  const held = goal === null && !isGiven && !alone && ['worker', 'advisor'].includes(w.role) ? heldStepOf(w) : null
+  let isAlone = goal !== null || (!isGiven && held === null)
+  let of = isAlone ? { ok: true, item: null, text: null } : await load(isGiven ? body.of : held, w, { kind: ['step'] })
+  // A step the board found that refuses the ask (it cannot be read): the ask stands alone, as before.
+  if (!of.ok && !isGiven) [isAlone, of] = [true, { ok: true, item: null, text: null }]
   if (!of.ok) return of
   const holder = isAlone ? null : valueOf(of.item, 'Owner')
   // T9.1.1: and the worker that checks the step (it holds, or held, its Quality Assurance task) asks the person under it, for a
   // point only they can judge.
   if (holder !== null && !['main', 'advisor', 'person'].includes(w.role) && !isOwner(of.item, w.who, w.prefix) && !isCheckerOf(of.item, w)) {
+    if (!isGiven) return ask(body, w, { alone: true })
     return refuse(409, `${valueOf(of.item, 'Id')} is ${holder}'s: only ${holder}, the main chat, the partner or the person asks under it.`)
   }
   const kind = body.kind ?? 'decide'
@@ -764,6 +777,17 @@ async function ask(body, w) {
       const who = valueOf(found, 'Answered by') === 'partner' ? 'the partner' : 'the person'
       const answered = stateOf(found) === 'answered' ? ` and ${who} answered it: ${(found.sections.get('Answer') ?? []).join(' ').slice(0, 200)}` : ' and it stands open'
       return refuse(409, `${same.id} asks this already${answered}. Wait for its answer or use it; to ask it anew, withdraw ${same.id} first.`)
+    }
+  }
+  // Your words (2026-10-30, Q530 asked what the person had answered in Q520 four minutes before): a chat's question the
+  // person answered on the step already is refused with their answer. Not the app's question form (it stands before the
+  // person in the chat whatever the board files) and never the board's own asks. The question itself (its title), not
+  // its context: a new question whose context quotes the earlier one, as the refusal tells the chat to, is not refused.
+  if (!isAlone && via !== 'form' && !['person', 'server'].includes(w.role)) {
+    const before = answeredBefore(of.item, text[0])
+    if (before !== null) {
+      const stepId = valueOf(of.item, 'Id')
+      return { ...refuse(409, `${stepId}: the person answered this already on ${before.at}${before.ask === null ? '' : ` (${before.ask})`}: "${line(before.answer, 600)}". Act on their answer; ask only what is new, and quote their answer.`), answeredBefore: before }
     }
   }
   const options = lines(body.options, LINE_CHARS).slice(0, 8)
@@ -828,7 +852,24 @@ Note: ${unlinked} is no link the person can open (the game runs only while the b
   }
   const done = await save(item, of.text, w)
   if (!done.ok) return done
-  return changed(question, `${block}${moved}${unlinkedNote}`, routed)
+  // Your words: the step holds the person's words: the answer ends saying so, so the chat reads them before it goes on.
+  const words = yourWordsLine(of.item)
+  return changed(question, `${block}${moved}${unlinkedNote}${words === '' ? '' : `\n${words}`}`, { ...routed, ...(isGiven ? {} : { of: stepId }) })
+}
+
+/**
+ * Your words (2026-10-30): the one step a chat holds, for an ask it filed under none: its one step in progress, else its
+ * one step taken, in progress, waiting on you or in review (pause.mjs `HELD`; B497 was in review when Q520 was asked).
+ * A Quality Assurance task stands for the step it checks: the person's words belong on that one. Null when it holds none
+ * or several.
+ */
+function heldStepOf(w) {
+  const mine = [...w.store.items.values()].filter(one => kindOf(one) === 'step' && HELD.includes(stateOf(one)) && isOwner(one, w.who, w.prefix))
+  const working = mine.filter(one => stateOf(one) === 'in progress')
+  const one = working.length === 1 ? working[0] : mine.length === 1 ? mine[0] : null
+  if (one === null) return null
+  const checks = isQaTask(one) ? valueOf(one, 'Checks') : null
+  return checks !== null && w.store.items.has(checks) && kindOf(w.store.items.get(checks)) === 'step' ? checks : valueOf(one, 'Id')
 }
 
 /** B299: writes a new ask `Q<n>` (under the step `of`, an item, or alone): `{ ok, question, id, title }`. */
@@ -873,11 +914,34 @@ async function answeredInChat(body, w) {
   if (isOrphan && valueOf(found.item, 'Of') === null && !/^Qd+$/.test(id)) item = underStep(item, [`Answered in ${w.who}'s chat by the person on ${at(w.now)}: ${short}`])
   item = said(item, w, isOrphan ? `answered in its chat by the person: ${short}` : `answered in the chat${short === '' ? '' : `: ${short}`}`)
   const of = valueOf(found.item, 'Of')
+  // Your words: the person's own words land on the step with what they answered; the mod's automatic closes do not.
+  const isWords = isPersonsWords(text) && !isPopupAsk(found.item)
+  const asker = valueOf(found.item, 'Owner')
   const done = await answerStep(w, item, found.text, of, step => {
-    const mine = said(underStep(step, [`${id} answered in ${w.who}'s chat${isOrphan ? ' by the person' : ''} on ${at(w.now)}${short === '' ? '' : `: ${short}`}`]), w, `${id} answered`)
+    let mine = said(underStep(step, [`${id} answered in ${w.who}'s chat${isOrphan ? ' by the person' : ''} on ${at(w.now)}${short === '' ? '' : `: ${short}`}`]), w, `${id} answered`)
+    if (isWords) mine = withYourWords(mine, askPoint(found.item, { at: stamp(w.now), how: `answer to ${id}, in ${bare(w.who, w.prefix)}'s chat`, by: asker === null ? '' : bare(asker, w.prefix), answer: text }))
     return stateOf(mine) === 'waiting on you' ? goOnOrPark(mine, w, flowCtx(w, [item, mine]), ` (${id} answered)`).item : mine
   })
   return done.ok ? { ok: true, result: { ...done.result, text: `${id} answered in the chat.` } } : done
+}
+
+/**
+ * Your words (2026-10-30): a note of the person's on a step (`id` B<n>, `text`, `where` they said it), a point of its
+ * "Your words": from the step's window ("Add a note"), or by the main chat for words the person said in its chat.
+ */
+async function words(body, w) {
+  const found = await load(body.id, w, { kind: ['step'] })
+  if (!found.ok) return found
+  const id = valueOf(found.item, 'Id')
+  const text = lines(body.text)
+  if (text.length === 0) return refuse(400, 'Give the person\'s words in "text".')
+  const where = line(body.where, 120).replace(/[()]/g, '') || (w.role === 'person' ? 'on the board' : `in ${bare(w.who, w.prefix)}'s chat`)
+  const noted = withYourWords(found.item, { at: stamp(w.now), how: `note (${where})`, answer: text })
+  const item = said(noted, w, `the person's words noted: ${line(text.join(' '), 200)}`)
+  const done = await save(item, found.text, w)
+  if (!done.ok) return done
+  const n = yourWordsOf(item).at(-1)?.n ?? 1
+  return changed(item, `${id}: the person's words stand as point ${n} of its "Your words".`)
 }
 
 /** Information, never a question: a note `N<n>` to the person or to the main chat. */
@@ -1825,6 +1889,8 @@ async function fixStep(origin, failed, w, points = failed) {
       ...(effort === null ? [] : [['Effort', [effort]]]),
       ['What we build', what],
       ['Refined', block],
+      // Your words (2026-10-30, B806 was made without the person's rejection of B497): the fix carries what they said.
+      ...(origin.sections.has(YOUR_WORDS) ? [[YOUR_WORDS, [...origin.sections.get(YOUR_WORDS)]]] : []),
     ]),
     problem: null,
   }), w, `made by the result check of ${originId}${anotherWay ? `, open: ${tries.length} tries, the partner refines it another way` : ''}`)
@@ -2369,8 +2435,8 @@ async function askForYou(value, since, w) {
     own: asks.filter(one => isOwner(one, w.who, w.prefix) && stateOf(one) === 'open').map(repeatFactsOf),
     others: asks.filter(one => !isOwner(one, w.who, w.prefix) && stateOf(one) === 'open').map(repeatFactsOf),
   }
-  const held = all.filter(one => kindOf(one) === 'step' && stateOf(one) === 'in progress' && isOwner(one, w.who, w.prefix))
-  const of = held.length === 1 ? valueOf(held[0], 'Id') : null
+  // Your words (2026-10-30): the one step the chat holds, also one in review (Q520 stood under none while B497 was).
+  const of = heldStepOf(w)
   const asked = []
   const left = []
   // Clear after each step: items past the nine the board files stay the chat's questions only: they count as unfiled.
@@ -2393,8 +2459,13 @@ async function askForYou(value, since, w) {
     }
     const fields = { kind, text, options: one.options, advice: one.advice, pictures: one.pictures, play: one.play, via: 'chat', blocking: false }
     // Under the step when the board takes it there, else on its own.
-    let made = of === null ? await ask(fields, w) : await ask({ ...fields, of }, w)
-    if (!made.ok && of !== null) made = await ask(fields, w)
+    let made = of === null ? await ask(fields, w, { alone: true }) : await ask({ ...fields, of }, w)
+    // Your words: what the person answered on the step already is not filed again; the chat is told their answer.
+    if (!made.ok && made.answeredBefore !== undefined) {
+      left.push(`"${line(text[0], 100).trimEnd()}" the person answered on ${of} already (${made.answeredBefore.at}${made.answeredBefore.ask === null ? '' : `, ${made.answeredBefore.ask}`}): "${line(made.answeredBefore.answer, 300)}"`)
+      continue
+    }
+    if (!made.ok && of !== null) made = await ask(fields, w, { alone: true })
     // Clear after each step: an item the board could not file stays the chat's question only: the Workers mod then
     // does not clear the chat.
     if (!made.ok) {
@@ -2843,8 +2914,11 @@ async function answer(body, w) {
   // Focus 3, the review: the owner of the step this answer frees.
   let freed = null
   let parked = null
+  const asker = valueOf(found.item, 'Owner')
   const done = await answerStep(w, item, found.text, of, step => {
     let mine = said(underStep(step, [`${id} answered by you on ${at(w.now)}: ${short}`]), w, `${id} answered`)
+    // Your words: the answer, rejection or approval lands on the step with the question it answered.
+    mine = withYourWords(mine, askPoint(found.item, { at: stamp(w.now), how: `answer to ${id}`, by: asker === null ? '' : bare(asker, w.prefix), answer: text }))
     // B293: a refine question answered here is answered in the step's refine block too, as in the step's window.
     if (isRefine) mine = withRefineAnswer(mine, found.item, short, w)
     if (stateOf(mine) === 'waiting on you') {
@@ -2856,7 +2930,7 @@ async function answer(body, w) {
     return mine
   })
   // B299: the chat that asked is woken with the answer (the server sends it); an ask the person made wakes nobody.
-  const owner = valueOf(found.item, 'Owner')
+  const owner = asker
   const told = { id, title: valueOf(found.item, 'Title') ?? '', text: `${text.join('\n')}${parkedWords(parked)}` }
   const wake =owner === null || !/^Q\d+$/.test(id) ? null : { to: owner, ...told }
   // B464: a "yes" to a refine question that drops its step goes to the main chat at once.
@@ -2961,6 +3035,14 @@ async function tick(body, w) {
     item = moved.item
   }
   if (under !== '') item = underStep(item, [under])
+  // Your words: the person's line on a ticked ask lands on its step with the question it answered, written with the ask
+  // as an answer is.
+  const of = kindOf(found.item) === 'ask' ? valueOf(found.item, 'Of') : null
+  if (under !== '' && of !== null && STEP_ID.test(of)) {
+    const asker = valueOf(found.item, 'Owner')
+    const point = askPoint(found.item, { at: stamp(w.now), how: `answer to ${id}, ticked on the board`, by: asker === null ? '' : bare(asker, w.prefix), answer: under })
+    return answerStep(w, item, found.text, of, step => said(withYourWords(step, point), w, `${id} answered on the board`))
+  }
   const done = await save(item, found.text, w)
   if (done.ok && kindOf(item) === 'step') await unblockDependants(item, w)
   return done.ok ? changed(item) : done
@@ -3001,12 +3083,13 @@ async function refineText(body, w) {
     else item.sections.delete(name)
   }
   put(item, 'Refined', valueOf(back, 'Refined'))
-  const next = said(item, w, w.action === 'refine-accept' ? 'accepted the refine' : 'answered the refine questions')
+  const questions = blockQuestions(found.item)
+  const answers = Array.isArray(body.answers) ? body.answers : []
+  const noted = w.action === 'refine-accept' ? item : refineWords(item, found.item, questions, answers, line(body.feedback, 1000), w)
+  const next = said(noted, w, w.action === 'refine-accept' ? 'accepted the refine' : 'answered the refine questions')
   const done = await save(next, found.text, w)
   if (!done.ok) return done
   // B299: the refine's asks follow: each question answered here is answered; accepting answers the rest.
-  const questions = blockQuestions(found.item)
-  const answers = Array.isArray(body.answers) ? body.answers : []
   for (const ask of refineAsksOf(w, id)) {
     if (w.action === 'refine-accept') await settleAsk(w, ask, 'answered', 'Accepted as refined.', 'accepted as refined')
     else {
@@ -3023,6 +3106,32 @@ async function refineText(body, w) {
     }
   }
   return changed(next)
+}
+
+/**
+ * Your words (2026-10-30): the person's answers in a step's refine window as points of its "Your words": one per question
+ * answered (with the question, who refined it and the ask that carried it), one for the round's feedback (with the
+ * refine's summary it answers). `before` is the step as it was, `questions` its block's questions (blockQuestions).
+ */
+function refineWords(item, before, questions, answers, feedback, w) {
+  const head = (before.sections.get('Refined') ?? [])[0] ?? ''
+  const by = /\bby ([^,;)]+)/.exec(head)?.[1]?.trim() ?? ''
+  const round = /\bround\s+(\d+)/i.exec(head)?.[1] ?? null
+  const asks = new Map(refineAsksOf(w, valueOf(before, 'Id')).map(one => [questionIndex(questions, one, w), valueOf(one, 'Id')]))
+  let next = item
+  for (const one of answers) {
+    const question = questions[one?.index]
+    const given = typeof one?.answer === 'string' ? one.answer.trim() : ''
+    if (typeof question !== 'string' || given === '') continue
+    const asked = question.replace(/\s+Answer:\s[\s\S]*$/, '').trim()
+    const ask = asks.get(one.index) ?? null
+    next = withYourWords(next, { at: stamp(w.now), how: `answer to ${ask === null ? 'a refine question' : `${ask}, a refine question`}${round === null ? '' : ` of round ${round}`}`, ask: { by, question: asked }, answer: given })
+  }
+  if (feedback !== '') {
+    const summary = (before.sections.get('Summary') ?? []).join(' ')
+    next = withYourWords(next, { at: stamp(w.now), how: `feedback on the refine${round === null ? '' : ` of round ${round}`}`, about: summary, answer: feedback })
+  }
+  return next
 }
 
 /**
@@ -3349,7 +3458,7 @@ const CHANGE = {
   'incident-fix': incidentFix,
   'incident-told': incidentTold,
   'incidents-fixed': incidentsFixed,
-  take, step, ask, withdraw, note, report, check, checked, recheck, new: make, queue, requeue, unqueue, pin, 'add-to-queue': addToQueue, 'remove-from-queue': removeFromQueue, 'retire-queue': retireQueue, close, drop, refine, refined, answer, tick, instruction, pull, advance,
+  take, step, ask, withdraw, note, words, report, check, checked, recheck, new: make, queue, requeue, unqueue, pin, 'add-to-queue': addToQueue, 'remove-from-queue': removeFromQueue, 'retire-queue': retireQueue, close, drop, refine, refined, answer, tick, instruction, pull, advance,
   'turn-ended': turnEnded,
   'answered-in-chat': answeredInChat,
   read,

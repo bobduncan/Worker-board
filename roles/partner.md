@@ -940,6 +940,12 @@ the feedback. It reads as the finished description, not as a talk:
   words before it, is refused. An answer may also be the user's own words. An answer that raises a new question opens
   one more short round with only that question; keep what is settled under "What we build" already. No question at
   all: write it ready at once.
+- **Your words** (the user, 2026-10-30: "retain the feedback i gave it so when i tries to suggest new ways to accomplish
+  what i want it can verify what i originally asked"): read the step's `## Your words` (a fix step carries its step's)
+  before you ask, refine again or suggest another way. Each point is an answer, rejection or note of the user's with what
+  it answered; fold every one into "What we build" and say per point met or not met. Never ask what they answered there
+  (a `work ask` of it is refused with their answer); their answers to your refine questions and their feedback land
+  there too.
 - No other step on the backlog or on the board's list may do the same work: say so as a question when one does.
 - The technical detail (Requirements, Touches) stays in the step's own lines, written by the main chat; never change
   the step's title or its other lines.
@@ -995,7 +1001,8 @@ yours to answer for the person; run work next`. Your `work next` lists them firs
 
 - **Answer it**: `work partner-answer Q<n>` with `text` (your answer, normally the worker's advice) and `why` (one
   line). Take the worker's advice unless it goes against the agreed vibe, a standard (the kind's definition of done),
-  or something you know the user decided. The asking chat gets your answer as it would get the user's, and the board
+  or something you know the user decided: the step's "Your words" hold what they said on it. Your answer is yours,
+  never written there as theirs. The asking chat gets your answer as it would get the user's, and the board
   adds the line to today's note (`decided`) with an Undo; you write nothing more for it.
 - **Hand it to the user**: `work escalate Q<n>` with `why` (one line, shown on its card). Always for anything about
   money, deleting, publishing, a new screen, a rule of the game, anything that adds more than about an hour of work,

@@ -4895,3 +4895,20 @@ which of these things are obsolete." The flow, one piece per place:
    none), the evidence naming the commits that built the six steps, the close ending as the person's hand did. Mutants, each
    caught: a close without a tick, an ask closed with a wake, a verdict for an item not in the check or not open, two checks at
    once, the page sending every row, a held step ticked, an obsolete verdict that comes unticked.
+
+## Your words on every step (2026-10-30)
+
+The person, 2026-10-30: "I like it to retain the feedback i gave it so when i tries to suggest new ways to accomplish what i
+want it can verify what i originally asked so it can determine if it was actually done or not." And: "ensure my
+answer/rejection/note has context of what i answered it to. so a simple 'yes' is not meaningless because it needs context."
+Q520 was filed from a worker's "For you" block with no step while its step B497 was in review, so the person's rejection
+never reached B497; the check failed, its fix B806 was made without their words, and the checker asked the same question
+again (Q530). Now every answer, rejection or note of the person's lands on its step as a numbered point of `## Your words`
+(`src/work/yourWords.mjs`, pure): the answer on the board, `answered-in-chat` with their own words (not the mod's automatic
+closes), a ticked ask's line, each refine answer and the round's feedback, and `work words` (the step window's "Add a note",
+or the main chat for words said in its chat); each point quotes what it answered, and is written in the same step write as
+the Context line. Never the partner's answers. An ask filed under no step by a worker or the partner stands under the one step
+it holds (also in review; a Quality Assurance task stands for the step it checks). `work next`, `work take`, a fix step and a
+QA task's `work next` carry the words; `work ask` refuses, with the answer quoted, a question the person answered on the step
+already (its question alike as `ASKED_AGAIN`, not its context; not the app's question form, the board's own asks, a check's `ask:` points or the refine
+repair words). Tests: `test/work/yourWords.test.mjs`, `test/work/yourWordsApi.test.mjs`, `test/yourWordsPage.test.mjs`.

@@ -41,6 +41,15 @@ into your chat, are in `protocol.md` beside this file: keep to them, or the boar
   itself. An ask that sends the person to a page or screen of the game carries `play` (`<branch>&page=soundboard`,
   `<branch>&screen=shop`), never a bare address: the game runs only while the board has started it (B675).
   An item of your "For you" block you filed no ask for is filed for you when your turn ends (B317: `Via: chat`, named beside your next prompt); when the user answers it in your chat instead, close it in that turn with `work answered-in-chat Q<id>` and their words.
+- Read the step's "Your words" first (the user, 2026-10-30: "retain the feedback i gave it so when i tries to suggest new
+  ways to accomplish what i want it can verify what i originally asked so it can determine if it was actually done or
+  not"). Every answer, rejection or note of the user's on a step stands in its `## Your words`, numbered, each with what it
+  answered (the question, who asked it, its options, what was shown), so a bare "yes" keeps its meaning; `work next` and
+  `work take` show it, a fix step carries the words of the step it fixes. Before you ask the user, report done or suggest
+  a new way, read them and say per point whether it is met or not met ("Your words 1, round not square: met"). Never ask
+  what they answered there: the board refuses it with their answer (`<step>: the person answered this already ...`); act
+  on that answer and ask only what is new, quoting it. An ask you file with no step stands under the one step you hold
+  (also one in review), so its answer lands there.
 - Close every browser you start (B266). A browser you start for a check or a picture (a headless one, one driven over
   CDP or by Playwright, one with a temporary profile folder) is closed in the same script that started it, also when
   the script fails (close it in a `finally`). Before you report, look among the running browser processes for one
@@ -223,7 +232,8 @@ Take it as any task: `work next`, then `work take B730` (no branch), and write i
 step. `work next` names the step it checks (its title, where it stands), that step's agreed points and its `Standard:`, and the
 lines the board carries in the task: `Built by:`, `Why:` (the check comes again: its fix is done, or the person answered an ask
 point; `keep Q<n> as an ask point` names each ask point still open, and `The person said:` their words), `Board warnings:` and
-`Demand:`. The board gives the task Sonnet at medium effort, Opus at high when the step judges art against a reference or ran
+`Demand:`, and the person's words on the step (its "Your words"): check each of them too, met or not met, and never ask the
+person what they answered there. The board gives the task Sonnet at medium effort, Opus at high when the step judges art against a reference or ran
 on Opus (the task's Model and Effort lines); it switches your model and effort for it as for any step.
 
 1. Read the step's record (`work list`, its file in the work store): its agreed points, its `Standard:` line (the kind, its

@@ -50,13 +50,18 @@ test('an ask naming the sound board carries a play link on the step\'s branch, i
 test('a play the worker gave stays; an address of the sound board becomes the link; an ask under no step uses main', async () => {
   const { dir, board } = await fresh()
   try {
-    await board({ action: 'take', id: 'B1', branch: 'b1-sound' })
-    const given = await board({ action: 'ask', of: 'B1', kind: 'do', title: 'Pick the best sound', text: 'Open the sound board.', play: 'b1-sound&screen=shop' })
-    assert.match(given.result.text, /#play=b1-sound&screen=shop\)/)
+    // A chat that holds no step asks under none: the link plays main.
     const address = await board({ action: 'ask', kind: 'look', goal: 'G1', title: 'Try the new sounds in the game', text: 'Open http://localhost:5173/soundboard.html and listen.' })
     assert.equal(address.ok, true, address.why)
     assert.match(address.result.text, /#play=main&page=soundboard\)/)
     assert.doesNotMatch(address.result.text, /Note:/)
+    await board({ action: 'take', id: 'B1', branch: 'b1-sound' })
+    const given = await board({ action: 'ask', of: 'B1', kind: 'do', title: 'Pick the best sound', text: 'Open the sound board.', play: 'b1-sound&screen=shop' })
+    assert.match(given.result.text, /#play=b1-sound&screen=shop\)/)
+    // Your words (2026-10-30): once it holds B1, an ask with no step stands under B1, so its link plays B1's branch.
+    const held = await board({ action: 'ask', kind: 'look', title: 'Try the louder sounds in the game', text: 'Open http://localhost:5173/soundboard.html and listen again.' })
+    assert.equal(held.ok, true, held.why)
+    assert.match(held.result.text, /#play=b1-sound&page=soundboard\)/)
   } finally {
     await rm(dir, { recursive: true, force: true })
   }
