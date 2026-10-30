@@ -234,7 +234,7 @@ describe('Pause 2: the pause state as the mod reads it, and the contexts it give
 describe('2026-10-28: the board names this chat by its session id', () => {
   test('the route, and the version the plugin states', () => {
     expect(WHOAMI_PATH).toBe('/api/bridge/whoami')
-    expect(MOD_VERSION).toBe('0.26.3')
+    expect(MOD_VERSION).toBe('0.26.4')
   })
 
   test('the answer: a name, the role the board gives it and the session its card is filed under', () => {
