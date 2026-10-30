@@ -528,6 +528,14 @@ function codeJobLines(jobs) {
         why: row.byCode === true ? 'When no chat runs and work waits for one, the board opens a chat of the project in the Claude app.' : `The board does not open a chat by itself now: ${row.why}${failed ? '; open any chat of the project yourself' : ''}.`,
       }
     }
+    // The person, 2026-10-30: the workers' own preview tools, allowed or not (src/codeJobs.mjs, settingsOnly): no main chat's job.
+    if (row.key === 'preview') {
+      return {
+        key: row.key, title: row.title, byCode: row.byCode === true,
+        text: row.byCode === true ? 'no popup' : 'needs your OK',
+        why: row.byCode === true ? 'A worker starts, checks and stops the game preview with no popup.' : 'Each worker asks you in a popup before it starts the game preview: allow it for this project.',
+      }
+    }
     // T12: each worker starts from a routine of its own; the row names the workers that have none yet.
     const fewRoutines = String(row.why ?? '').startsWith('needs routines for')
     return {

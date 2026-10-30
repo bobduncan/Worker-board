@@ -114,7 +114,11 @@ and the briefings for the main chat and the workers.
    `mcp__ccd_session_mgmt__archive_session`, `mcp__ccd_session_mgmt__unarchive_session` and
    `mcp__ccd_session_mgmt__list_sessions` restart an idle worker for a new mod; `mcp__scheduled-tasks__update_scheduled_task`
    and `mcp__scheduled-tasks__run_scheduled_task` start a new worker from its stored routine. Reading your usage limits
-   needs no rule. A job without its rules stays the main chat's.
+   needs no rule. A job without its rules stays the main chat's. One row is the workers' own:
+   `mcp__Claude_Browser__preview_start`, `mcp__Claude_Browser__preview_stop`, `mcp__Claude_Browser__preview_list` and
+   `mcp__Claude_Browser__preview_logs` let a worker start, check and stop the game's preview (the app's built-in browser,
+   from the project's own `.claude\launch.json`) with no popup; without them every worker asks you each time it starts
+   the game. Other browser actions (opening outside sites) keep asking.
 4. **The project's files.** Make `<project>\.claude\` and copy into it from `examples\`: `list.json` into
    `.claude\chats\` with your prefix, `main-briefing.md` and `worker-briefing.md`; in the two briefings
    replace `<project>`, `<prefix>` and `<repository>`. For the Design tab, also `design.json` into `.claude\`, with

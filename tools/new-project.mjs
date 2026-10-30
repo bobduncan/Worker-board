@@ -53,7 +53,7 @@ const prefix = given('prefix') ?? await ask('The chats\' titles start with', `${
 // so it is asked once here; without a keyboard only --allow-code yes allows them. T14: send_message among them, which a
 // chat in Auto mode (the worker routines) needs to wake, start and resume other chats by code.
 const CODE_TOOLS = CODE_JOBS.flatMap(job => job.tools)
-const allowCode = /^y/i.test((given('allow-code') ?? await ask(`May the board start, wake and restart its chats and set their model by itself? It adds ${CODE_TOOLS.length} tool permissions to the new project's own settings. y/n`, 'y')).trim())
+const allowCode = /^y/i.test((given('allow-code') ?? await ask(`May the board start, wake and restart its chats and set their model by itself, and its workers start the game preview with no popup? It adds ${CODE_TOOLS.length} tool permissions to the new project's own settings. y/n`, 'y')).trim())
   && (process.stdin.isTTY || given('allow-code') !== undefined)
 asking.close()
 

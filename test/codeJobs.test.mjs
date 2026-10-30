@@ -31,7 +31,7 @@ test('Allow adds only the missing rules and keeps the rest of the file; a broken
 
 test('a job runs by code when a chat that claimed lately may do it; else the main chat does it, with the reason', () => {
   const view = codeJobsView({ claims: claims(['Worker 1', ['set', 'restart', 'spawn', 'usage']]), allowed: new Set(ALL), tasks: ['my-project-start-worker'], now: NOW })
-  assert.deepEqual(view.rows.map(row => [row.key, row.byCode]), [['wake', true], ['set', true], ['restart', true], ['spawn', true], ['usage', true]])
+  assert.deepEqual(view.rows.map(row => [row.key, row.byCode]), [['wake', true], ['set', true], ['restart', true], ['spawn', true], ['usage', true], ['preview', true]])
   assert.deepEqual(view.missing, [])
   assert.deepEqual(view.checked, { chat: 'Worker 1', at: NOW })
   // No chat claimed lately: nothing runs by code, whatever the files allow.
@@ -46,7 +46,7 @@ test('what is missing: the rules not allowed yet, the stored task, an older mod,
   assert.equal(rows.set.why, 'the running chats have an older Workers mod; their next restart brings the new one')
   assert.equal(rows.restart.why, 'not allowed yet')
   assert.equal(rows.spawn.why, 'no stored start-worker task on this PC')
-  assert.deepEqual(view.missing, [...CODE_JOBS[2].tools, ...CODE_JOBS[3].tools])
+  assert.deepEqual(view.missing, [...CODE_JOBS[2].tools, ...CODE_JOBS[3].tools, ...CODE_JOBS[5].tools])
   // B768: reading the limits is one of the jobs, allowed by the app's usage tool.
   // The app allows its usage tool itself: no rule is missing, only a chat on the newer mod.
   assert.equal(rows.usage.why, 'the running chats have an older Workers mod; their next restart brings the new one')
@@ -55,6 +55,19 @@ test('what is missing: the rules not allowed yet, the stored task, an older mod,
   assert.deepEqual(view.missingRoutines, [1, 2, 3, 4, 5])
   const failed = byKey(codeJobsView({ claims: claims(['Main', ['spawn']]), allowed: new Set(ALL), tasks: ['x'], spawnFail: { at: NOW, why: 'refused' }, now: NOW }))
   assert.deepEqual([failed.spawn.byCode, failed.spawn.why], [false, 'the last try failed: refused'])
+})
+
+// The person, 2026-10-30 (a worker asked approval to start the game): "ensure its a generic permission also in the setup
+// guide": the workers' preview tools are a row of the check, read from the settings files alone.
+test('the game preview with no popup: allowed or not by the settings files alone, whatever the chats claim', () => {
+  const preview = ['mcp__Claude_Browser__preview_start', 'mcp__Claude_Browser__preview_stop', 'mcp__Claude_Browser__preview_list', 'mcp__Claude_Browser__preview_logs']
+  assert.deepEqual(CODE_JOBS.find(job => job.key === 'preview').tools, preview)
+  const lacking = codeJobsView({ claims: claims(), allowed: new Set(), tasks: [], now: NOW })
+  assert.deepEqual([byKey(lacking).preview.byCode, byKey(lacking).preview.why], [false, 'not allowed yet'])
+  assert.ok(preview.every(tool => lacking.missing.includes(tool)))
+  const allowed = codeJobsView({ claims: claims(), allowed: new Set(preview), tasks: [], now: NOW })
+  assert.deepEqual([byKey(allowed).preview.byCode, byKey(allowed).preview.why], [true, null])
+  assert.ok(!preview.some(tool => allowed.missing.includes(tool)))
 })
 
 // T14 (the person, 2026-10-30: "B", fix A for X1 / X103): the app puts an Auto-mode chat's send by code to its classifier.
@@ -126,7 +139,7 @@ test('T12: routines for some workers only: the row says which are missing, whate
   // It is the setup, not a tool to allow: nothing is added to Allow, and the line to paste is offered.
   const view = codeJobsView({ claims: claims(['Worker 1', ['spawn']]), allowed: new Set(), tasks: ROUTINES(1, 2, 3), folder: PROJECT, maxWorkers: 5, now: NOW })
   assert.deepEqual([view.needsTask, view.missingRoutines], [true, [4, 5]])
-  assert.deepEqual(view.missing, [...CODE_JOBS[1].tools, ...CODE_JOBS[2].tools])
+  assert.deepEqual(view.missing, [...CODE_JOBS[1].tools, ...CODE_JOBS[2].tools, ...CODE_JOBS[5].tools])
   // The reasons that come first stay first: a failed try, a tool not allowed yet.
   const failed = byKey(codeJobsView({ claims: claims(['Worker 1', ['spawn']]), allowed: new Set(ALL), tasks: ROUTINES(1, 2, 3), folder: PROJECT, maxWorkers: 5, spawnFail: { at: NOW, why: 'refused' }, now: NOW })).spawn
   assert.equal(failed.why, 'the last try failed: refused')
