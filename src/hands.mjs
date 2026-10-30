@@ -21,8 +21,16 @@
 // T12 (the person, 2026-10-28: every worker its own routine, named "<project> - Worker N", so the app's Routines page shows
 // one card per worker and not one shared routine renamed for every start): a new worker starts from the stored routine of
 // its own number first (`workerTaskIds`), the shared start-worker task only as the fallback (`nextSpawn`).
+//
+// T14 (the person, 2026-10-30: "B", fix A for X1 / X103 with the allow rule the person adds): a chat in Auto mode cannot
+// send by code: the app puts its mod's send-message call to the Auto classifier, which denied it ("gave no verdict"), so a
+// worker routine (Auto mode) that claimed a start, wake or resume failed it. Since Workers mod SEND_MOD a chat says
+// `can: ['send']` where the app allows its code the send-message tool with no question (an allow rule, or a mode that
+// allows it); only such a chat gets the jobs sent with it (`canSend`, `maySend`). A chat on an older mod never says it
+// and keeps today's share until its restart brings the new mod.
 
 import { PARTNER_MODES, SWITCH_MODES } from './partnerEffort.mjs'
+import { isOlder, versionOf } from './oldMods.mjs'
 import { EFFORTS, MODEL_ID } from './work/effort.mjs'
 import { RESTART_COMMAND } from './work/modRollout.mjs'
 
@@ -80,6 +88,20 @@ export function stopStep(message, lane) {
   return message.command === 'remove' ? (lane === undefined ? 'settle' : 'remove') : 'settle'
 }
 
+/** T14: the first Workers mod that says whether its chat may send by code (`can: ['send']`). */
+export const SEND_MOD = '0.26.5'
+
+/**
+ * T14: whether a chat's claim of the hands (`{ can, mod }`, the server's `codeClaims`) may send by code: its mod says
+ * 'send', or it is older than SEND_MOD (none said: older than any that says its version), which never says it and keeps
+ * sending as before.
+ */
+export function maySend(claim) {
+  if (Array.isArray(claim?.can) && claim.can.includes('send')) return true
+  const mine = versionOf(claim?.mod ?? null)
+  return mine === null || isOlder(mine, versionOf(SEND_MOD))
+}
+
 /** A resume line goes again to a chat that has not started this long after the last one. */
 export const RESUME_AGAIN_MS = 5 * 60_000
 
@@ -122,14 +144,14 @@ export function workerNames(state) {
 }
 
 /**
- * A word of the outbox that is a hand's to send: a start or a wake; (B755) for a chat that `canSet`, a set word code may
- * set (`setOf`); (B766) for one that `canRestart`, a restart for a new mod of one of the `workers`; for one that
- * `canSpawn`, a word for a new worker.
+ * A word of the outbox that is a hand's to send: a start or a wake, (T14) for a chat that `canSend` (`maySend`; true
+ * unless told); (B755) for a chat that `canSet`, a set word code may set (`setOf`); (B766) for one that `canRestart`, a
+ * restart for a new mod of one of the `workers`; for one that `canSpawn`, a word for a new worker.
  */
-export function isHandWord(message, { canSet = false, canRestart = false, canSpawn = false, workers = null } = {}) {
+export function isHandWord(message, { canSend = true, canSet = false, canRestart = false, canSpawn = false, workers = null } = {}) {
   if (canSpawn && message?.command === 'spawn') return true
   if (typeof message?.about !== 'string') return false
-  if (HAND_COMMANDS.includes(message.command)) return true
+  if (canSend && HAND_COMMANDS.includes(message.command)) return true
   if (canSet && setOf(message) !== null) return true
   return canRestart && message.command === RESTART_COMMAND && workers instanceof Set && workers.has(message.about)
 }
@@ -139,7 +161,7 @@ export function isHandWord(message, { canSet = false, canRestart = false, canSpa
  * the `workers`.
  */
 export const isForHandsYet = (message, now, workers = null) =>
-  (isHandWord(message, { canSet: true, canRestart: true, canSpawn: true, workers }) && now - message.at < HANDS_FIRST_MS)
+  (isHandWord(message, { canSend: true, canSet: true, canRestart: true, canSpawn: true, workers }) && now - message.at < HANDS_FIRST_MS)
   || (isStopWord(message) && now - message.at < STOP_HANDS_MS)
 
 /**
@@ -213,8 +235,11 @@ export function nextSpawn(names, prefix, folder) {
  * (the task it names first, else the oldest taken or in progress), or ASLEEP_LINE without one. Once per asleep spell: not
  * when `asleepSent` (by chat, `{ since }`) names that spell; none while the person pauses (`isPaused`), and none for a
  * chat Resume all's list wakes already.
+ * T14: the jobs sent with the app's send-message tool (a taken start or wake word's line, the resume lines, the asleep
+ * resume words) only for a caller that `canSend` (`maySend`; true unless told): for one that may not, a taken start or
+ * wake word goes `back` and no resume line is made.
  */
-export function handJobs({ caller, taken = [], lanes = [], resumeList = [], since = null, sentAt = new Map(), now, spawn = null, usage = false, asleepSent = new Map(), isPaused = false }) {
+export function handJobs({ caller, taken = [], lanes = [], resumeList = [], since = null, sentAt = new Map(), now, spawn = null, usage = false, asleepSent = new Map(), isPaused = false, canSend = true }) {
   const jobs = []
   const back = []
   const laneOf = name => lanes.find(lane => lane.name === name)
@@ -234,15 +259,17 @@ export function handJobs({ caller, taken = [], lanes = [], resumeList = [], sinc
     const set = setOf(message)
     const head = { id: message.id, to: lane.appSession, chat: lane.name }
     if (message.command === RESTART_COMMAND) jobs.push({ ...head, restart: { keep: lanes.map(one => one.appSession).filter(isAppId) } })
-    else jobs.push(set === null ? { ...head, text: HAND_LINE } : { ...head, set })
+    else if (set !== null) jobs.push({ ...head, set })
+    else if (canSend) jobs.push({ ...head, text: HAND_LINE })
+    else back.push(message.id)
   }
-  for (const one of resumeList) {
+  for (const one of canSend ? resumeList : []) {
     if (one.hasStarted === true || one.chat === caller || !isAppId(one.session)) continue
     const key = `${since ?? 0}:${one.chat}`
     if (now - (sentAt.get(key) ?? -Infinity) < RESUME_AGAIN_MS) continue
     jobs.push({ id: `resume:${key}`, to: one.session, chat: one.chat, text: `resume your step ${one.step} from your checkpoint` })
   }
-  for (const lane of isPaused ? [] : lanes) {
+  for (const lane of isPaused || !canSend ? [] : lanes) {
     if (lane.asleep !== true || lane.state !== 'interrupted' || lane.name === caller || !isAppId(lane.appSession) || !Number.isFinite(lane.asleepSince)) continue
     if (asleepSent.get(lane.name)?.since === lane.asleepSince || resumeList.some(one => one.chat === lane.name)) continue
     const held = (lane.storeSteps ?? []).filter(one => one.state === 'taken' || one.state === 'in progress')

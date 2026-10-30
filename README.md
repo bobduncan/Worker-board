@@ -17,8 +17,8 @@ It checks Windows, the Claude desktop app, Node 24 or newer and git, one line ea
 with winget (without the Claude app it says where to get it and stops). It gets the board into a folder of your choice
 (press Enter at "Where should the board go?" for the one it offers), installs the Workers mod, and asks your first
 project's name, folder and chats' prefix, and whether the board may start, wake and restart its chats and set their
-model by itself (it adds 7 tool permissions to the project's own settings; the board's ⚙ later shows what it does by
-itself and allows the rest with one click): the project, its own board and its icon on the desktop are made, and its
+model by itself (it adds 8 tool permissions to the project's own settings, listed under By hand, step 3; the board's ⚙
+later shows what it does by itself and allows the rest with one click): the project, its own board and its icon on the desktop are made, and its
 board opens with one button that sets up the project's chats. Run the line again at any time: it checks what is there
 and redoes nothing; with a project on the PC it offers to make another. `$env:WORKER_BOARD_CHECK = 1` before it only
 checks.
@@ -102,6 +102,19 @@ and the briefings for the main chat and the workers.
    B213, `MODS.md`): start it with `node start-board.mjs` (step 7), the chats keep their own cards
    (`roles\worker.md`), and you paste what the board copies for you. With the mod the board types your answers in,
    wakes the chats and keeps the cards by itself.
+   **The allow rules (B767, T14).** The mod does the main chat's routine jobs by code, with no model turn, only where
+   the app lets a chat's code call their tools with no question: allow rules in `<project>\.claude\settings.local.json`
+   (`permissions.allow`). A chat may not add them to its own permissions (the app refuses it): the new-project flow
+   asks once and adds them, and the board's ⚙ "What the board does by itself on this PC" names what is missing and
+   "Allow them for this project" adds it on your click. The rules and why:
+   `mcp__ccd_session_mgmt__send_message` wakes, starts and resumes chats (a chat in Auto mode, as the worker routines
+   run, has its code's send put to the app's Auto classifier, which denies it: without this rule only chats in another
+   mode send, and the ⚙ row says "needs your OK"); `mcp__ccd_session_mgmt__set_session_model` and
+   `mcp__ccd_session_mgmt__set_session_effort` set a worker's model and effort per step;
+   `mcp__ccd_session_mgmt__archive_session`, `mcp__ccd_session_mgmt__unarchive_session` and
+   `mcp__ccd_session_mgmt__list_sessions` restart an idle worker for a new mod; `mcp__scheduled-tasks__update_scheduled_task`
+   and `mcp__scheduled-tasks__run_scheduled_task` start a new worker from its stored routine. Reading your usage limits
+   needs no rule. A job without its rules stays the main chat's.
 4. **The project's files.** Make `<project>\.claude\` and copy into it from `examples\`: `list.json` into
    `.claude\chats\` with your prefix, `main-briefing.md` and `worker-briefing.md`; in the two briefings
    replace `<project>`, `<prefix>` and `<repository>`. For the Design tab, also `design.json` into `.claude\`, with
@@ -171,7 +184,7 @@ and the briefings for the main chat and the workers.
   ticked, as you would: a refine question closes its step as done (when no chat holds it) and is withdrawn, an ask is
   withdrawn without waking its chat, an incident is closed. Nothing closes by itself. The button reads "The Advisor
   is checking" meanwhile, and "Try again" when it did not answer in 15 minutes. It needs a partner chat in the list and
-  the Workers mod 0.26.5 (the partner's `work obsolete`).
+  the Workers mod 0.26.6 (the partner's `work obsolete`).
 - A lane shows what a worker does now and the time it expects to need; a step that waits says why ("Not started:
   ...").
 - The head shows the plan's limits; a worker that paused for the limit shows as "Suspended" until it goes on.

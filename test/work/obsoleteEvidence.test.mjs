@@ -43,14 +43,14 @@ test('each open item gets its facts: asked when and by whom, its step and last H
   const built = Math.floor((NOW - 3_600_000) / 1000)
   const run = async args => (args.includes('--grep=B1') ? `abc1234\t2026-10-28\t${built}\tB1 built the hedge\n` : '')
   const lanes = [{ name: 'Garden · Painter', state: 'working', task: 'Gate', isRunning: true }]
-  const evidence = await obsoleteEvidence(open, { items, lanes, prefix: 'Garden · ', repos: [{ dir: '/game', base: 'main' }], run, board: { startedAt: NOW }, mod: '0.26.5' })
+  const evidence = await obsoleteEvidence(open, { items, lanes, prefix: 'Garden · ', repos: [{ dir: '/game', base: 'main' }], run, board: { startedAt: NOW }, mod: '0.26.6' })
   assert.deepEqual(evidence.get('Q1'), [
     'asked 2026-10-28 09:10 by Partner',
     'B1 is refined since 2026-10-28 09:00',
     'B1 last History: 2026-10-28 09:05 Advisor: refined is ready',
     '1 commit naming B1: abc1234 2026-10-28 (after it was made) on main of game: B1 built the hedge',
     'Partner is not in the list of chats',
-    'the board restarted 2026-10-28 16:00, after it was made; Workers mod 0.26.5 is installed',
+    'the board restarted 2026-10-28 16:00, after it was made; Workers mod 0.26.6 is installed',
   ])
   assert.equal(evidence.get('Q2').some(line => /Gone is not in the list of chats/.test(line)), true)
   assert.equal(evidence.get('Q2').some(line => /commit/.test(line)), false, 'a Do names no step: no commit lookup')
@@ -67,7 +67,7 @@ test('each open item gets its facts: asked when and by whom, its step and last H
 
 test('without a restart after it was made, no line says so; a step that is not in the store says so', async () => {
   const lonely = new Map([['Q9', item('Id: Q9\nKind: ask\nTitle: Gone step?\nState: open\nOwner: Partner\nSince: 2026-10-28 09:10\nOf: B99\nAsks: decide\n')]])
-  const evidence = await obsoleteEvidence(openItemsOf(lonely), { items: lonely, board: { startedAt: NOW - 10 * 86_400_000 }, mod: '0.26.5', repos: [], run: async () => null })
+  const evidence = await obsoleteEvidence(openItemsOf(lonely), { items: lonely, board: { startedAt: NOW - 10 * 86_400_000 }, mod: '0.26.6', repos: [], run: async () => null })
   assert.equal(evidence.get('Q9').some(line => line === 'B99 is not in the store'), true)
   assert.equal(evidence.get('Q9').some(line => /restarted/.test(line)), false)
 })

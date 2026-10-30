@@ -40,6 +40,21 @@ test('the hands are gone once no chat claimed them for a minute; a young board w
   assert.equal(handsGone({ claims: new Map(), now: NOW, startedAt: NOW - HANDS_GONE_MS, calls: { Lead: NOW - 1000 } }), true)
 })
 
+// T14 (the person, 2026-10-30: "B", fix A for X1 / X103): a chat in Auto mode without the allow rule cannot send by code.
+test('T14: only hands that may send keep the hands present; Auto-mode workers alone on the new mod do not', () => {
+  const auto = { can: ['set', 'spawn'], mod: '0.26.5', at: NOW - 10_000 }
+  const sender = { can: ['send'], mod: '0.26.5', at: NOW - 10_000 }
+  assert.equal(handsGone({ claims: new Map([['Worker 1', auto], ['Worker 2', { ...auto, can: [] }]]), now: NOW }), true)
+  assert.equal(handsGone({ claims: new Map([['Worker 1', auto], ['Lead', sender]]), now: NOW }), false)
+  // An older mod never says it, and keeps counting as before.
+  assert.equal(handsGone({ claims: new Map([['Worker 1', { ...auto, mod: '0.26.4' }]]), now: NOW }), false)
+  assert.equal(handsGone({ claims: new Map([['Worker 1', { ...auto, mod: null }]]), now: NOW }), false)
+  // So with only such workers running, the board opens the main chat, and their claims do not reset its tries.
+  const opens = [{ at: NOW - 10 * MIN, chat: 'Lead', ok: true }, { at: NOW - 6 * MIN, chat: 'Lead', ok: true }]
+  assert.equal(failuresOf({ opens, claims: new Map([['Worker 1', auto]]), now: NOW }), 2)
+  assert.equal(failuresOf({ opens, claims: new Map([['Lead', sender]]), now: NOW }), 0)
+})
+
 test('hand work waits: a waiting start, wake, resume, new worker, set, restart or remove word; a resume with a chat not started; an asleep cut-off chat', () => {
   for (const command of ['start', 'wake', 'resume', 'spawn', 'worker-effort', 'partner-effort', 'mod-restart', 'remove']) assert.equal(handWorkWaits({}, [word(command)]), true, command)
   // Taken, delivered or no hand's word: nothing waits.

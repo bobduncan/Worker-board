@@ -3640,3 +3640,32 @@ describe('2026-10-28: a chat learns which chat it is from the board, by its sess
     })
   })
 })
+
+// T14 (the person, 2026-10-30: "B", fix A for X1 / X103): the claim of the board's hands says 'send' only where the app's
+// check allows this chat's code the send-message tool with no question; an ask (in Auto mode the classifier) says nothing.
+describe('the hands say whether this chat may send by code', () => {
+  test('the claim names send only while the check of the send-message tool answers allow', async ($, on) => {
+    const clock = mock.clock(on)
+    const w = world('units', { ...listed(), [BOARD]: JSON.stringify({ url: 'http://127.0.0.1:4311', key: 'ab'.repeat(32), startedAt: 1, hands: true }) })
+    let send = 'ask'
+    const asked: unknown[] = []
+    on('tool.check', (_$, e) => {
+      if (e.tool !== 'mcp__ccd_session_mgmt__send_message') return { decision: 'ask' as const }
+      asked.push(e.tool_use_id)
+      return { decision: send as 'allow' | 'ask' }
+    })
+    stand(on, w)
+    await startedAs($, w, 'Units')
+    const claims = (): unknown[] => w.fetched.filter(one => one.url.endsWith('/api/bridge/hands')).map(one => (JSON.parse(one.body) as { can?: unknown }).can ?? [])
+    await clock.advance(20_000)
+    await settle()
+    expect(claims()).toEqual([[]])
+    // A query: no call id, so the popup watch notes nothing.
+    expect(asked).toEqual([undefined])
+    // The rule is added: the chat asks the app again after 10 minutes and says it may send.
+    send = 'allow'
+    await clock.advance(10 * MIN)
+    await settle()
+    expect(claims().at(-1)).toEqual(['send'])
+  })
+})

@@ -19,7 +19,7 @@ import { MIN } from './partnerState.mjs'
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 const COPIED = ['server.mjs', 'run-game.mjs', 'start-board.mjs', 'package.json', 'src', 'public', 'roles', 'examples', 'fixtures']
 const NOW = Date.now()
-const MOD = '0.26.5'
+const MOD = '0.26.6'
 
 const freePort = () => new Promise(done => {
   const server = createServer().listen(0, '127.0.0.1', () => {
