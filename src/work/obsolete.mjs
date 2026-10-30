@@ -1,6 +1,6 @@
 // B775: the button "Find obsolete items" under Needs your attention. The board gathers each open item's evidence (code),
-// the Advisor judges them once (obsolete, unsure or open, one line each: `work obsolete`), and the person closes the ones
-// they keep ticked (`obsolete-close`). Nothing closes by itself. The check lives in the store's folder
+// the Advisor judges them once (obsolete, unsure or open, one line each: `work obsolete`), and the obsolete ones close at once
+// (the person, 2026-10-31); unsure and open ones stay. `obsolete-close` still closes given ids as the person would. The check lives in the store's folder
 // (`obsolete-check.json`), so a restart of the board keeps it. PURE (the file and the page's view); the work API writes it.
 
 import { valueOf, sinceMs } from './item.mjs'

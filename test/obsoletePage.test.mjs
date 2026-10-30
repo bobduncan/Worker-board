@@ -57,50 +57,25 @@ test('while the Advisor checks the button says so and is off; late, it says the 
   } finally { await late.close() }
 })
 
-test('the answer is a list: verdict, why, evidence, a tick (obsolete ticked, unsure and open not), and Close the N ticked sends the ticked ids only', async () => {
-  const page = await openPage({ state: garden(view({ state: 'done', at: 1, rows: ROWS })), answers: () => ({ status: 200, body: JSON.stringify(POST), headers: { 'Content-Type': 'application/json' } }) })
+test('the answer lists what the check left, each with its verdict, why and evidence; no ticks and no close button (the person, 2026-10-31)', async () => {
+  // The obsolete ones close on the board as the Advisor answers; a row can still say Obsolete when its close failed.
+  const page = await openPage({ state: garden(view({ state: 'done', at: 1, rows: ROWS, last: { at: 1, closed: 3 } })) })
   try {
     const rows = page.all('.obsolete-row')
-    assert.equal(rows.length, 4)
     assert.deepEqual(rows.map(row => row.querySelector('.task-code').textContent), ['Q1', 'Q5', 'Q4', 'Q6'])
     assert.deepEqual(rows.map(row => row.querySelector('.obsolete-verdict').textContent), ['Obsolete', 'Obsolete', 'Unsure', 'Still open'])
-    assert.deepEqual(rows.map(row => row.querySelector('input').checked), [true, true, false, false])
     assert.equal(rows[0].querySelector('.obsolete-why').textContent, 'B12 was built since')
     assert.equal(rows[0].querySelector('.obsolete-evidence').textContent, 'commit abc1234 names B12')
-    assert.equal(page.find('.obsolete-close').textContent, 'Close the 2 ticked')
-    // The person unticks one and ticks an unsure one: the close names exactly those ticked.
-    await page.click('[data-obsolete-tick="Q5"]')
-    await page.click('[data-obsolete-tick="Q4"]')
-    assert.equal(page.find('.obsolete-close').textContent, 'Close the 2 ticked')
-    assert.deepEqual(page.all('.obsolete-row').map(row => row.querySelector('input').checked), [true, false, true, false])
-    await page.click('[data-obsolete="close"]')
-    assert.deepEqual(page.sent('/api/work').map(one => one.body), [{ action: 'obsolete-close', ids: ['Q1', 'Q4'] }])
+    assert.deepEqual(page.all('.obsolete-row input'), [], 'no tick')
+    assert.deepEqual(page.all('.obsolete-close'), [], 'no close button')
+    assert.match(page.text('.obsolete-none'), /Closed 3 obsolete. These stay:/)
   } finally { await page.close() }
 })
 
-test('with nothing ticked Close is off and sends nothing', async () => {
-  const page = await openPage({ state: garden(view({ state: 'done', at: 1, rows: ROWS.filter(row => row.verdict !== 'obsolete') })) })
-  try {
-    assert.equal(page.find('.obsolete-close').textContent, 'Close the 0 ticked')
-    assert.equal(page.find('.obsolete-close').disabled, true)
-    await page.click('[data-obsolete="close"]')
-    assert.deepEqual(page.sent('/api/work'), [])
-  } finally { await page.close() }
-})
-
-test('after a close nothing is left: the part says how many were closed', async () => {
+test('after the check nothing is left: the part says how many obsolete ones closed', async () => {
   const page = await openPage({ state: garden(view({ state: 'done', at: 1, openCount: 0, rows: [], last: { at: 2, closed: 7 } })) })
   try {
-    assert.match(page.text('.obsolete-none'), /Closed 7\. Nothing is left to look at\./)
+    assert.match(page.text('.obsolete-none'), /Closed 7 obsolete. Nothing is left to look at./)
     assert.equal(page.find('[data-obsolete="check"]').textContent, 'Check again')
-  } finally { await page.close() }
-})
-
-test('a refused close shows its problem under the list and keeps the ticks', async () => {
-  const page = await openPage({ state: garden(view({ state: 'done', at: 1, rows: ROWS })), answers: () => reply('Q1: not in the check; nothing was closed.', 400) })
-  try {
-    await page.click('[data-obsolete="close"]')
-    assert.match(page.text('.obsolete-check .problem'), /Not sent: Q1: not in the check; nothing was closed\./)
-    assert.equal(page.all('.obsolete-row input').filter(box => box.checked).length, 2)
   } finally { await page.close() }
 })
