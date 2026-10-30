@@ -597,7 +597,12 @@ async function take(body, w) {
     put(item, 'Branch', branch)
   }
   const done = await save(ordered(item), found.text, w)
-  return done.ok ? changed(ordered(item), undefined, { title: valueOf(item, 'Title') }) : done
+  const port = w.testPort?.(w.who) ?? null
+  // B814: the worker's own test-server port, for the vite of its worktree started as a plain background command.
+  const text = port === null ? undefined : `${serializeItem(ordered(item))}
+
+Test server port for ${w.who}: ${port}. Start the game's vite of your worktree on it as a background command (--port ${port} --strictPort), never through .claude/launch.json or preview_start; stop it before work report.`
+  return done.ok ? changed(ordered(item), text, { title: valueOf(item, 'Title'), ...(port === null ? {} : { testPort: port }) }) : done
 }
 
 /**

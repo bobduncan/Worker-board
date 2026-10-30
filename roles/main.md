@@ -228,7 +228,8 @@ reaches you only when nothing came of it in 15 minutes.
   the Effort line, both (load them with ToolSearch when they are deferred); find the chat by its session id, else by
   its title. Nothing else: no message to the worker. The board reads both back from the app and sends the step's line
   to the worker once they are set: three minutes at most for a sonnet step, and an opus step only once the app says
-  Opus (its lane says it waits; the board asks again each half hour). Set them in the order the words came. When a
+  Opus (its lane says it waits; the board asks again each half hour; B820: a word counts only for the session it names,
+  so a chat started fresh under the same name gets a new word at once). Set them in the order the words came. When a
   tool refuses, tell the user in one line. `set effort`
   (the same lines without "Model:": the board's settings name no model id for the step's model) sets the effort alone.
   Your own model and effort stay as they are.

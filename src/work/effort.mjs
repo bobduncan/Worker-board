@@ -20,6 +20,7 @@
 
 import { blockersOpen } from './guards.mjs'
 import { fixFirst, valueOf } from './item.mjs'
+import { AGAIN_AFTER_MS, TRIES, passesBySelf } from './passing.mjs'
 
 /** The levels, lowest first, as the app names them. */
 export const EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max']
@@ -175,11 +176,28 @@ export const withEffort = body => withLine(body, 'effort', /^(?:[-*]\s+)?Effort:
  */
 export const withModel = body => withLine(body, 'model', /^(?:[-*]\s+)?Model:\s*(?:sonnet|opus)(?![\w-])/i)
 
-/** The newest word that set `chat`'s model and effort, or undefined. */
-export const lastWord = (sent, chat, prefix = '') => sent.findLast(message => message.command === 'worker-effort' && plain(message.about, prefix) === plain(chat, prefix))
+/** The newest word that set `chat`'s model and effort, or undefined; B820: with `session`, only a word for that app session. */
+export const lastWord = (sent, chat, prefix = '', session = null) => sent.findLast(message => message.command === 'worker-effort' && plain(message.about, prefix) === plain(chat, prefix)
+  && (session === null || sessionOf(message) === null || sessionOf(message) === session))
 
 /** Whether a word asked for `level` and the model id `model` (null: no model, the effort alone). */
 export const sameTarget = (word, level, model) => word.effort === level && (word.model ?? null) === (model ?? null)
+
+/**
+ * B813 (X2: the word of 23:13 that set Worker 4 back to its usual setting failed, "The app has not reported its model
+ * list yet; try again in a moment", while the board went off for 28 minutes; back on, the word was too old for the
+ * outbox to try again, and this half hour's dedupe held a new one, so nothing went): whether a word that failed for good
+ * for a reason that passes by itself (passing.mjs) lets a new word for its setting go within the half hour, a minute
+ * after it failed, while the words for that setting failed fewer than TRIES times in a row. `words`: the chat's
+ * worker-effort words, oldest first.
+ */
+export function goesAgain(word, words, now) {
+  if (word?.state !== 'failed' || word.retriedAs !== undefined || word.final === true || !passesBySelf(word.why)) return false
+  if (!(Number.isFinite(word.failedAt) && now - word.failedAt >= AGAIN_AFTER_MS)) return false
+  let failed = 0
+  for (let at = words.length - 1; at >= 0 && words[at].state === 'failed' && sameTarget(words[at], word.effort, word.model ?? null); at -= 1) failed += 1
+  return failed < TRIES
+}
 
 /** Model per step: a model id the settings may name, plainly: "claude-..." ("claude-opus-5-5", "claude-opus-5-5[1m]"). */
 export const MODEL_ID = /^claude-[\w.:-]{1,73}(?:\[[\w.-]{1,20}\])?$/
@@ -225,9 +243,13 @@ export function effortWords({ to, chat, session, level, model = null, usual, usu
     : ['set model and effort', `Chat: ${chat}`, ...id, ...forStep, `Model: ${model}`, `Effort: ${level}`, `Why: ${why}`]
   return {
     to, ask: null, step: null, title: null, version: null, verdict: null, command: 'worker-effort', about: chat, effort: level, model, usual, usualModel, forStep: step,
+    session: id.length === 0 ? null : session,
     text: text.join('\n'),
   }
 }
+
+/** B820: the app session a word named: its `session`, else (a word of before) the "Session:" line of its text, or null. */
+const sessionOf = word => (typeof word.session === 'string' && word.session !== '' ? word.session : /^Session: (\S+)$/m.exec(String(word.text ?? ''))?.[1] ?? null)
 
 const clockOf = ms => { const at = new Date(ms); return `${String(at.getHours()).padStart(2, '0')}:${String(at.getMinutes()).padStart(2, '0')}` }
 
@@ -287,7 +309,10 @@ export function effortPlan({ items, lanes = [], deliveries = [], sent = [], now,
     const next = working ?? (delivery === undefined ? undefined : items.get(delivery.id)) ?? holding
       ?? steps.filter(item => owned(item, lane.name) && valueOf(item, 'State') === 'queued' && blockersOpen(item, { store: { items } }).length === 0)
         .sort((a, b) => fixFirst(a, b) || byId(valueOf(a, 'Id'), valueOf(b, 'Id')))[0]
-    const mine = sent.filter(message => message.command === 'worker-effort' && plain(message.about, prefix) === plain(lane.name, prefix))
+    // B820, the fix of X110: a word counts only for the app session it named. A fresh chat under the same name (another
+    // session, running the app's default) is not set by the word of the old one: it is asked again at the next reading.
+    const mine = sent.filter(message => message.command === 'worker-effort' && plain(message.about, prefix) === plain(lane.name, prefix)
+      && (lane.appSession == null || sessionOf(message) === null || sessionOf(message) === lane.appSession))
     const last = mine.at(-1)
     const live = mine.filter(message => !LOST.includes(message.state))
     const current = typeof lane.effort === 'string' && EFFORTS.includes(lane.effort) ? lane.effort : null
@@ -319,7 +344,8 @@ export function effortPlan({ items, lanes = [], deliveries = [], sent = [], now,
       const wasBack = last !== undefined && sameTarget(last, usualEffort, usualId)
       if (last === undefined || current === null || isUsual || (wasBack && !LOST.includes(last.state))) continue
     }
-    const asked = last !== undefined && sameTarget(last, level, id) && now - last.at < AGAIN_MS ? last : null
+    // B813: a word for it that failed for a passing reason asks for it no longer.
+    const asked = last !== undefined && sameTarget(last, level, id) && now - last.at < AGAIN_MS && !goesAgain(last, mine, now) ? last : null
     const isModelSet = against === null && runsOn(id)
     const isSet = isModelSet && current === level
     // Model per step: an opus step is not given to a chat that does not run on Opus, however long that takes.

@@ -253,6 +253,9 @@ function pathsIn(words, project) {
   return found
 }
 
+/** B818: the second line of the "no file named" refusal: do not report again, ask to close the step. */
+export const NOTHING_BUILT_LINE = 'nothing built because it already exists? Do not report again: ask to close it (work ask, kind decide: "Close B<id> as already done?", naming the steps that built it)'
+
 /**
  * B363: the check of a step whose work is outside git: a file the report names is there in the project's folder,
  * outside every repository (`repoDirs`): a file in a repository is work in git, reported with its merged commit, and
@@ -290,6 +293,8 @@ async function outsideCheck({ result, touches, project, repoDirs, exists, left =
   if (found.length === 0 && missing.length > 0) lines.push(`not there: ${missing.join(', ')}`)
   if (inGit.length > 0) lines.push(`in a repository: ${inGit.join(', ')}; report that work with its merged commit`)
   if (found.length === 0 && missing.length === 0 && inGit.length === 0) lines.push('no file named: name the files it made in the result')
+  // B818 (X106): a report that names no file of its own is often a step whose work other steps already built.
+  if (found.length === 0 && missing.length === 0 && inGit.length === 0) lines.push(NOTHING_BUILT_LINE)
   lines.push(...left)
   if (String(result ?? '').trim() === '') lines.push('no result named')
   if (lines.length > 1) return { passed: false, lines, ...(lines.slice(1).every(isHeldLine) ? { isHeldOnly: true } : {}) }

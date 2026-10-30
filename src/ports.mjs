@@ -130,6 +130,22 @@ export async function resolvePort({ here, given, configured, run, project = null
 /** How many ports a project's games have from their first one: no two projects' ranges meet. */
 export const GAME_SPAN = 100
 
+/**
+ * B814: a worker's own test server (the vite of its worktree, a plain background command, never the browser pane's
+ * launch list) takes a port of its own at the top of the project's game range: `gamePort + WORKER_PORTS_FROM + n` for
+ * "Worker n" (n from 1 to 9). The board's play servers (`gamePortFor`) stay below it, and 5173 stays the person's.
+ */
+export const WORKER_PORTS_FROM = 90
+
+/** The test-server port of the worker named `who` ("Worker 3" is gamePort + 93), or null for a name with no number 1 to 9. */
+export function workerPort(gamePort, who) {
+  const number = /(?:^|\s)(\d)\s*$/.exec(String(who ?? '').trim())?.[1]
+  return isPort(gamePort) && number !== undefined && Number(number) >= 1 ? gamePort + WORKER_PORTS_FROM + Number(number) : null
+}
+
+/** The port of the play server for the `place`-th working folder: inside the range, passing over the workers' ports. */
+export const gamePortFor = (gamePort, place) => gamePort + (Math.max(0, place) % WORKER_PORTS_FROM)
+
 /** Ports given by hand (`--port`: the demo, a board that shows another's history), which a board that moves passes over. */
 export const HAND_PORTS = [4311, 4312]
 /** A board that moves also passes over the copies' ports. */

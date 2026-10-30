@@ -870,6 +870,14 @@ just like now". The picture is `art-inbox/worker-board/b124/2026-10-14-b124-resu
   instead of "by itself" (the shared task does not cover the slots); its line to paste (`taskWords`) makes exactly the
   missing routines. The shared task alone still counts as "by itself". Main, Advisor and Supervisor stay normal chats;
   making the routines on a PC is the person's paste, not the board's.
+
+  *A worker's test server (B814, the person, 2026-10-30).* A new work folder meant a new entry in `.claude/launch.json`,
+  and the app asks the person to allow each new server command ("Allow Claude to start the w3-b435-dev server?"; only
+  "Allow once"). So a worker starts its game's test server as a plain background command on a port of its own: `workerPort`
+  (`src/ports.mjs`) gives "Worker N" the project's game port + `WORKER_PORTS_FROM` (90) + N (N 1 to 9), the take's answer names it
+  ("Test server port for Worker N"), and `gamePortFor` keeps the board's play servers below 90 so the two never clash.
+  It is stopped before the worker's report or drop. The setup check's `preview` row is now only for the person's own
+  preview ("Start your own game preview with no popup"). The launch file keeps the person's own entries.
 - *By itself, once.* When the list holds the main chat and no worker (the advisor is no worker), the board asks
   for three (`spawnWhenAlone`), at its minute's look, and only while the main chat's chat is open, so the word is
   taken and not lost. It asks once per empty list: again only after a worker was there since that ask (the
@@ -2246,6 +2254,26 @@ or failed, whose purpose is gone closes at a refresh; every other command (scann
 past its keep is closed by the sweep, and failed is judged. A failed word of minutes (not `waitsLong`) is judged by
 its time: rule 8 names it for its two hours, the summary for a day.
 
+### A failure that passes by itself (B813)
+
+X2 came back after B532 (count 25): the word of 2026-10-30 23:13 that set Worker 4 back to its usual setting failed
+once ("The app has not reported its model list yet; try again in a moment."), and the board was off from 23:13:29 to
+23:41:40. Back on, the word was older than a steering word is kept (10 minutes), so the outbox did not try it again,
+and the effort plan's half-hour dedupe (`AGAIN_MS`) held a new one: nothing went, and rule 8 named it for two hours.
+The outbox's failures of that week by their why (`src/work/passing.mjs`): passing by themselves the auto mode
+classifier's no verdict (8), a prompt removed from the queue (2), a scheduled run already running (1), a chat still
+working (1), the model list not reported yet (1); never passing a scheduled task not found (6) and a tool that needs a
+person's approval (2). Now:
+
+1. `passesBySelf(why)`: a why that never passes (not found, a person's approval, not allowed) is not tried again
+   (`retryFailed`) and rule 8 names it at once; every other is, a minute after it failed, three tries in all.
+2. A worker's effort word that failed for a passing reason and is not tried again (too old) holds no new word within the
+   half hour (`goesAgain`, effort.mjs, in the plan and in deliver.mjs): the plan, which judges what the worker needs
+   now, sends a new word with its own time, while fewer than three words for that setting failed in a row.
+3. The sweep closes a worker's effort word, waiting or failed, once a newer one for the same worker stands ("superseded
+   by a newer word for Worker 4's setting (…)") or the worker runs at its setting already.
+4. Rule 8's evidence names a failed word's last why. `test/work/passingFailure.test.mjs` replays the real case.
+
 ## A step's title without its note (B292)
 
 The person, 2026-10-17, of Support's lane showing B29's whole line: "tasks still dont have a compact name. i dont
@@ -3197,6 +3225,11 @@ Advisor's check helpers on Sonnet". It builds on B468: the same word to the main
    Workers mod claims the word first and runs both tools by code (src/hands.mjs), where the app allows its code both
    with no question; the main chat's take leaves the word to the hands for a minute (`HANDS_FIRST_MS`). A word counts as asked
    for a setting when both its effort and its model are that setting's (`sameTarget`), also in the delivery's check.
+   B820 (the fix of X110): **a word counts only for the app session it named** (its `session`, else the "Session:" line of
+   its text). A fresh chat under the same name is another session, running the app's default, so the word for the old
+   session is no word for it: `effortPlan` and the delivery's check (`lastWord` with the session) ask again at the next
+   reading, not after half an hour. A word that names no session, or a chat whose session the board does not know,
+   counts as before.
 4. The step's line to its worker waits until both are read back (`isSet`), from the app's file of the chat: the app
    writes the session's record there on every change of the model (Claude 3.1623: `setModel` → `commitSessionModel`,
    which sets the record's `model` and saves the session; for an idle chat once its process took the model), so an
@@ -4468,7 +4501,10 @@ work, and passes wording with a warning (principles 1 and 8: the board tidies, t
   the merged commit or the branch; no result is named (the work API already refuses an empty one); for work outside git,
   work that sits in a repository (the result names a file in one: "report that work with its merged commit", so the
   base against its remote is still checked), and a report whose Touches and result together name no file that is there
-  ("not there: ..." or "no file named"). The independent review of the same day kept these two as refusals.
+  ("not there: ..." or "no file named"). The independent review of the same day kept these two as refusals. B818 (X106, a step
+  whose work other steps had already built was reported three times, each refused): "no file named" adds a second line,
+  "nothing built because it already exists? Do not report again: ask to close it", and the worker's rule says the same
+  before any report (`roles/worker.md`): ask "Close B<id> as already done?" at once, naming those steps and their merges.
 - *Warns for outside git.* Touches is a plan written before the work, often relative to a repository, and the worker
   cannot edit it: a Touches path that is not there warns ("Touches names files not there: ...") once the result names
   a file that is; so does a path in the result's prose that is not there (it misread words such as "done/level.md",

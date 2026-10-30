@@ -56,6 +56,11 @@ into your chat, are in `protocol.md` beside this file: keep to them, or the boar
   started with a temporary profile folder of yours, and close it: none of yours is left running when you report. Left
   behind, they add up and take the computer's memory. Never close the user's own browser: it runs with the user's own
   profile, not a temporary one.
+- Work already built (B818, X106): when you find the work of your taken step already stands on the base branch from
+  other steps, do not report (a report names no work of its own and is refused, again and again). At once file `work ask`
+  under your step, kind decide, blocking: "Close B<id> as already done?", naming those steps and their merged commits.
+  The board's refusal "no file named" says the same: nothing built because it already exists? Do not report again, ask
+  to close it.
 - A step ends with `work report` and nothing else: no message to the main chat ends it (B301). Information for the
   main chat goes with `work note`; a message to it, when you need one, starts "Note from <your title>: ..." or
   "Question from <your title>: ...", and your card then says you wait for its answer.
@@ -115,6 +120,13 @@ step therefore says what it touches ("Touches: ...").
   ("B<n>'s report check failed at HH:MM: fix what it names and report it again"): do what it says, and an hour on the
   supervisor looks at it. An EMPTY folder no repository lists the board removes itself
   (rmdir, a few tries over some seconds; B717), so it never fails the check; only one a program still holds keeps a line.
+- Your game test server (B814, the person, 2026-10-30) is a plain background command, never a `preview_start` and never a new
+  entry in `.claude/launch.json` (the app asks the person to allow each new entry). Start the vite of your worktree
+  on your own port, which `work take` names ("Test server port for Worker N": the project's game port + 90 + N, e.g.
+  5393) with `--port <port> --strictPort`, check the game with headless Edge pictures, and stop the server before
+  `work report` and when your step is dropped. A leftover server on your port is stopped at the next start, after you
+  checked that it is a vite of a worktree of this project (`netstat -ano`, then the process's command line); when the
+  app refuses the stop, file a Do ask with the exact command and never work around it. 5173 stays the person's.
 - The repository's own `CLAUDE.md`, when it has one, is the working agreement and holds for you in full: read it
   before your first task.
 - Push a branch when you make it and as it grows. Run the repository's checks before a merge; after it push main,

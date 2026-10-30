@@ -25,8 +25,8 @@ const PROJECT = 'C:\\garden'
 const config = { ...parseConfig('{}', {}), project: PROJECT }
 const BACKLOG = ['# Backlog', '', '## Garden', '- [ ] B1 Plant the hedge (for Digger; about 1 h)', ''].join('\n')
 
-const app = (name, at, effort, model = null) => JSON.stringify({
-  title: `Garden · ${name}`, sessionId: `local_${name}`, cliSessionId: `cli-${name}`, cwd: PROJECT, isArchived: false, createdAt: name.length, lastActivityAt: at, lastAssistantUuid: 'u-1', effort,
+const app = (name, at, effort, model = null, session = `local_${name}`) => JSON.stringify({
+  title: `Garden · ${name}`, sessionId: session, cliSessionId: `cli-${name}`, cwd: PROJECT, isArchived: false, createdAt: name.length, lastActivityAt: at, lastAssistantUuid: 'u-1', effort,
   ...(model === null ? {} : { model }),
 })
 const tail = at => ({ text: [typed(at - 10 * MIN, 'Plant it'), answer(at, 'Done for now.')].join('\n'), isCut: false, modifiedAt: at })
@@ -40,10 +40,10 @@ async function garden(settings = config, model = null) {
   const ctx = at => ({ dir, now: at, prefix: 'Garden · ', roleOf: chat => ({ Lead: 'main', Digger: 'worker' })[chat] ?? null, freeChats: new Set(['Digger']) })
   const server = (body, at = NOW) => workApi(body, { ...ctx(at), as: 'server' })
   /** The board's state at `now`, the digger's chat at `effort` (and on `model`) as the app's file says. */
-  const build = async ({ now = NOW, effort = 'xhigh', model = null, outbox = [] } = {}) => {
+  const build = async ({ now = NOW, effort = 'xhigh', model = null, outbox = [], session = undefined } = {}) => {
     const work = { ok: true, dir, ...(await readStore(dir)) }
     const raw = {
-      listText: '{"prefix":"Garden · ","main":"Lead"}', appChatTexts: [app('Lead', NOW - 5 * MIN, 'medium'), app('Digger', NOW - 5 * MIN, effort, model)],
+      listText: '{"prefix":"Garden · ","main":"Lead"}', appChatTexts: [app('Lead', NOW - 5 * MIN, 'medium'), app('Digger', NOW - 5 * MIN, effort, model, session)],
       tails: { 'cli-Digger': tail(NOW - 5 * MIN) }, planLineTexts: {}, backlogText: BACKLOG, adviceText: null, folders: null, askTexts: [], pictureLists: {}, work,
     }
     const seen = { shown: { Lead: now, Digger: now }, other: {} }
@@ -78,6 +78,23 @@ test('the main chat is asked to set the worker to its step\'s level first; the s
     assert.equal(state.chats.find(lane => lane.name === 'Digger').effortRun.isSet, true)
     const sent = await deliver(state, outbox, NOW + 2 * MIN)
     assert.deepEqual(sent.sent.map(one => [one.to, one.text]), [['Digger', 'work: B1 is yours; run work next']])
+  } finally {
+    await rm(dir, { recursive: true, force: true })
+  }
+})
+
+test('B820 (X110): a fresh chat under the same name is asked again at once, not held back by the word for the old session', async () => {
+  const { dir, build, deliver } = await garden()
+  try {
+    const outbox = memoryStore()
+    await deliver(await build(), outbox)
+    // Two minutes later the chat was replaced: another session, on the app's default. The old word does not count.
+    const state = await build({ now: NOW + 2 * MIN, outbox: outbox.outbox(), session: 'local_Digger2' })
+    assert.deepEqual(state.reconciled.efforts.map(one => [one.chat, one.session, one.level]), [['Digger', 'local_Digger2', 'low']])
+    const done = await deliver(state, outbox, NOW + 2 * MIN)
+    assert.deepEqual(done.sent.map(one => [one.command, one.session]), [['worker-effort', 'local_Digger2']])
+    // Planned again before the state shows the new word: still one word per session.
+    assert.deepEqual((await deliver(state, outbox, NOW + 2 * MIN)).sent, [])
   } finally {
     await rm(dir, { recursive: true, force: true })
   }

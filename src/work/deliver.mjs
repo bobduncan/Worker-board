@@ -16,7 +16,7 @@ import { isHolding } from './pause.mjs'
 import { isFailedForGood, sweepOutbox } from './outboxSweep.mjs'
 import { SYNC_LINE_MS, workLineWhy } from './workLines.mjs'
 import { PARTNER_AGAIN_MS, isPartnerAskWord, partnerAskWords } from './partnerAnswers.mjs'
-import { AGAIN_MS, effortWords, lastWord, sameTarget } from './effort.mjs'
+import { AGAIN_MS, effortWords, goesAgain, lastWord, sameTarget } from './effort.mjs'
 import { RESTART_AGAIN_MS, RESTART_COMMAND, restartWords } from './modRollout.mjs'
 import { START_WAIT_MS } from './handOut.mjs'
 
@@ -352,9 +352,11 @@ export async function deliverWork({ state, dir, outbox, apply, now, maxChars, ne
   // B468: the words that have the main chat set a worker's effort (effort.mjs, `effortPlan`), and since model per step
   // its model with it: not when the newest word for the chat is one for the same setting of the last half hour, also
   // when two refreshes plan it before the state shows it.
+  // B813: a last word that failed for a passing reason, and that the sweep above did not try again, holds none.
   for (const one of plan.efforts ?? []) {
-    const last = lastWord(outbox.outbox(), one.chat, state.chatPrefix ?? '')
-    if ((last !== undefined && sameTarget(last, one.level, one.model ?? null) && now - last.at < AGAIN_MS) || one.to === null) continue
+    const last = lastWord(outbox.outbox(), one.chat, state.chatPrefix ?? '', one.session ?? null)
+    const mine = () => outbox.outbox().filter(message => message.command === 'worker-effort' && message.about === last.about)
+    if ((last !== undefined && sameTarget(last, one.level, one.model ?? null) && now - last.at < AGAIN_MS && !goesAgain(last, mine(), now)) || one.to === null) continue
     const message = { id: newId(), at: now, ...effortWords(one), state: 'waiting' }
     try {
       await outbox.say(message)

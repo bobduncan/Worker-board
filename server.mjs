@@ -40,7 +40,7 @@ import { BrokenConfig, configProblem, firstStart, followApp, isOwnWork, loadConf
 import { REFERENCE_BYTES, ideasFolder, referencesFolder, checkDesign, designActivity, designState, picturesActivity, inTurn, parseDesignSettings, promptFor } from './src/design.mjs'
 import { ideasFile, ideasOver, placeReferences } from './src/ideas.mjs'
 import { START_ANEW, keep } from './src/keeper.mjs'
-import { GAME_SPAN, boardAddress, boardsFile, recordingBoardPort, launchEntry, registerHome, resolvePort, withEntry } from './src/ports.mjs'
+import { boardAddress, gamePortFor, workerPort, boardsFile, recordingBoardPort, launchEntry, registerHome, resolvePort, withEntry } from './src/ports.mjs'
 import { findClaude, marketsFile, modVersions, pluginsFile } from './src/setup.mjs'
 import { dayRecaps } from './src/dayRecap.mjs'
 import { dayOf, doneSteps, isDay, lastDays, recapText, stepsOfDay } from './src/work/doneDays.mjs'
@@ -1045,6 +1045,8 @@ async function main(args) {
       adoptPicture: (path, subject) => adoptPicture(config.project, shownFolders(config)[0], subject, path),
       // Model per step: why a step's line waits for its worker's model or effort (effort.mjs `holds`), or null.
       stepHold: id => state.reconciled?.holds?.[id] ?? null,
+      // B814: the port of a worker's own test server, named in its take answer.
+      testPort: who => workerPort(config.gamePort, who),
       // The guard (2026-10-21): a step of a kind waits for its standard's confirm and its foundation (the product plan).
       standardHold: item => standardHold(item, state.plan?.standards ?? []),
       // B356: a board without a partner chat makes no result check: its own check closes a step.
@@ -2379,7 +2381,7 @@ async function main(args) {
         // A folder keeps its port from one start to the next, so the game finds what it saved in the browser.
         const place = ((await folders()) ?? []).findIndex(folder => pathKey(folder.path) === pathKey(checked.path))
         // B319: inside its project's range, which no other project's board uses.
-        const url = await games.start({ path: checked.path, port: config.gamePort + (Math.max(0, place) % GAME_SPAN) })
+        const url = await games.start({ path: checked.path, port: gamePortFor(config.gamePort, place) })
         readState.reset()
         // B675: a page of the game: only a file the game's folder holds.
         if (checked.page !== undefined) {

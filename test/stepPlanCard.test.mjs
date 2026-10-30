@@ -142,3 +142,10 @@ test('the page marks the refine\'s size as the refine\'s estimate, and a step\'s
   const none = timeOf(lane())
   assert.deepEqual([none.main, none.tone], ['No time', 'fault'])
 })
+
+// Live 2026-10-31 (the person: "Why is there no ETA?"): B818's refine said "Size: about 45 minutes" and B820's "about 1 hour";
+// the size was read only as "45 min" or "1 h", so their workers showed "No time".
+test('the refine\'s size in words counts too: about 45 minutes, about 1 hour, about 1.5 hours', () => {
+  const sized = size => lane({ text: backlog({ extra: REFINED.map(one => (one.startsWith('Size:') ? `Size: ${size}` : one)) }) }).task.refineMinutes
+  assert.deepEqual(['about 45 minutes', 'about 1 hour', 'about 1.5 hours', 'about 2 hours 30 minutes', 'about 1 h', 'about 30 min'].map(sized), [45, 60, 90, 150, 60, 30])
+})
