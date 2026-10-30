@@ -875,6 +875,10 @@ not Codex. Using Codex needs no ask (CLAUDE.md, part 5).
     Questions:
     - <the question itself, at most 12 words, answered with yes or no?> <its numbers and why, short> Advised: yes, <the reason in a few words>
 
+A question that drops the step names it ("Drop B<n>?", "Should we drop it?"): its yes sends the main chat a drop note at
+once (B464). A question about dropping a part of the step ("Drop the one-minute guess once ...?") makes no drop note
+(B810: B804's such yes had the main chat drop the whole step); fold its answer into "What we build" as any other.
+
 **Ready,** once every question is answered (the user's answers stand behind them as ` Answer: ...`, their feedback
 under `Feedback:`): fold the answers and the feedback into "What we build" and remove the questions, the answers and
 the feedback. It reads as the finished description, not as a talk:

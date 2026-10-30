@@ -2949,3 +2949,7 @@ ol.your-words { list-style: none; display: flex; flex-direction: column; gap: 10
 ul.task-history { list-style: none; display: flex; flex-direction: column; gap: 4px; color: var(--muted); }
 .task-facts { display: grid; grid-template-columns: max-content 1fr; gap: 4px 18px; }
 .task-facts dd { margin: 0; font-weight: 600; }
+/* The person, 2026-10-31: the reload icon spins while the board reads again. */
+.icon-button.is-loading svg { animation: design-turn 0.9s linear infinite; }
+/* The person, 2026-10-31: "Find obsolete items" greys out while it is sent and while the partner checks. */
+.obsolete-head .choice:disabled { opacity: 0.55; cursor: default; }

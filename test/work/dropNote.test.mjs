@@ -1,6 +1,8 @@
 // B464: a refine question that asks to drop a step, answered "yes", goes to the main chat as a note at once: the
 // partner cannot drop a step, so the answer never waits on it (B17 waited two days). The person, 2026-10-21: "i dont
 // see this. please fix the notification for that". Made-up samples only.
+// B810: the question names the step itself ("Drop B7?", "drop it"); a question about dropping one part of the step
+// (B804's "Drop the one-minute guess once ...?") makes no note: its yes had Main drop the whole step.
 
 import assert from 'node:assert/strict'
 import { mkdtemp, rm } from 'node:fs/promises'
@@ -72,5 +74,27 @@ test('B464: the same when the drop question is answered under Needs your attenti
     assert.deepEqual(await notesToMain(again.dir), [])
   } finally {
     await rm(again.dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
+  }
+})
+
+test('B810: "yes" to dropping a part of the step makes no note; a question that names the step still does', async () => {
+  const cases = [
+    ['Drop the one-minute guess once the app\'s signal works? Then each card comes from one source and no popup shows twice; a call that hangs without a popup is no approval. Advised: yes, one source, no double cards', 0],
+    ['Drop the spade rack before digging?', 0],
+    ['Drop B7, since every part of it stands in another step?', 1],
+    ['Drop B7?', 1],
+    ['Should we drop it?', 1],
+    ['Drop this step, as B9 covers it?', 1],
+  ]
+  for (const [question, want] of cases) {
+    const { dir, advisor, person } = await fresh()
+    try {
+      await advisor({ action: 'refine', id: 'B7', summary: 'Maybe.', questions: [question] })
+      const done = await person({ action: 'refine-answer', id: 'B7', answers: [{ index: 0, answer: 'yes' }], feedback: '' })
+      assert.equal(done.ok, true, done.why)
+      assert.equal((await notesToMain(dir)).length, want, question)
+    } finally {
+      await rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
+    }
   }
 })

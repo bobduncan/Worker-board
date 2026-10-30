@@ -1932,7 +1932,10 @@ lagged the game (78% CPU: the board's own server and the vite servers ran at Nor
   numbers, `spare`), the project's tools found by their command lines (`isProjectTool`: `codex.exe`, a `node.exe` whose
   command line names vite, a headless or remote-driven `msedge.exe`), and the whole tree below each of them. A child
   counts only when it started after its parent, so a reused process number leads nowhere. Never the desktop app (its
-  command line names no session, and it is no child of a chat), never the person's own Edge or a game.
+  command line names no session, and it is no child of a chat), never the person's own Edge or a game. The board's own
+  processes count only as roots: what they start is limited, they themselves stay at Normal on all cores in Low too, and
+  a pass that finds one below Normal (a chat that started the board handed its Idle on) sets it back (the person,
+  2026-10-30, the board blank for minutes at Idle while a game ran: "it should not slow the board itself").
 - **How** (`cpuLimiter`): at start and every refresh one PowerShell listing (`Get-CimInstance Win32_Process`, the
   command line only of `claude.exe`, `node.exe`, `codex.exe` and `msedge.exe`). A process is set (`PriorityClass`,
   `ProcessorAffinity`, and efficiency mode through `SetProcessInformation(ProcessPowerThrottling)`, a second PowerShell

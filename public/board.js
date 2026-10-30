@@ -5344,8 +5344,11 @@ function drawObsolete(state) {
   const part = el('section', 'information obsolete-check')
   const isChecking = view.state === 'checking'
   const head = el('div', 'obsolete-head')
-  const label = isChecking ? 'The Advisor is checking' : view.state === 'late' ? 'Try again' : view.state === 'done' ? 'Check again' : 'Find obsolete items'
+  const isSending = sending.has('obsolete:check')
+  const label = isSending ? 'Asking the Advisor…' : isChecking ? 'The Advisor is checking' : view.state === 'late' ? 'Try again' : view.state === 'done' ? 'Check again' : 'Find obsolete items'
   const button = el('button', 'choice', label)
+  // The person, 2026-10-31: a press shows at once: a spinner and the button greyed while it is sent and while the partner checks.
+  if (isSending || isChecking) button.prepend(el('span', 'calm-spinner'))
   button.type = 'button'
   button.dataset.obsolete = 'check'
   button.disabled = isChecking || sending.has('obsolete:check') || view.canCheck === false
@@ -17727,9 +17730,19 @@ function helpAtStart(state) {
   if (helpOpensAtStart({ seen, hash: helpStartHash, isDemo: state?.isDemo === true })) openHelp()
 }
 
+// The person, 2026-10-31: the reload icon spins while the board reads again (at least a moment, so a quick read shows too).
+async function readSpinning() {
+  const buttons = ['refresh', 'refresh-title'].map(id => $(id))
+  for (const button of buttons) button.classList.add('is-loading')
+  try {
+    await Promise.all([read(), new Promise(done => setTimeout(done, 600))])
+  } finally {
+    for (const button of buttons) button.classList.remove('is-loading')
+  }
+}
 for (const id of ['refresh', 'refresh-title']) {
   $(id).append(icon('refresh'))
-  $(id).addEventListener('click', read)
+  $(id).addEventListener('click', readSpinning)
 }
 document.addEventListener('visibilitychange', () => {
   if (!document.hidden) read()
