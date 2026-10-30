@@ -7,7 +7,7 @@ import { mkdir, readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 
 import { changes, GAP_MS, lastByChat, parseHistory, startGap } from './history.mjs'
-import { waitsLong } from './say.mjs'
+import { isStopWord, waitsLong } from './say.mjs'
 import { isStoppedWhy } from './stopped.mjs'
 import { heldMs } from './work/pause.mjs'
 import { appendLines, writeAtomic } from './write.mjs'
@@ -54,7 +54,9 @@ const TAKEN_SHOWN_MS = 10 * 60_000
 // did), and a plain word (a line typed to a chat, a resume) expired after messageMs; now an answer waits however old,
 // and a plain word as long as an answer used to.
 const isPlain = message => (message.command ?? null) === null || message.command === 'resume'
-export const keepMs = (message, keep) => (isAnswer(message) ? Infinity
+// B812 (X109): a stop word waits for its worker however long its turn runs; the outbox sweep closes it once the worker
+// holds no step not yet reported, or the limit reset (src/work/outboxSweep.mjs).
+export const keepMs = (message, keep) => (isAnswer(message) || isStopWord(message.command) ? Infinity
   : isPlain(message) || ['step', 'refined', 'work', 'incident'].includes(message.command) || waitsLong(message.command) ? keep.answerMs : keep.messageMs)
 export const isLate = (message, now, keep) => now - message.at - heldMs(message, now, keep.pause ?? null) > keepMs(message, keep)
 
@@ -116,6 +118,11 @@ function storeOver(lines, messages, alive, write) {
     async say(message) {
       messages.push(message)
       await write.outbox([message])
+    },
+    /** B812: several words at once: all in the outbox before anything is awaited (say.mjs `sayStopWords`), then written. */
+    async sayAll(added) {
+      messages.push(...added)
+      await write.outbox(added)
     },
     /**
      * Hands out what waits for one chat, for the mod to type there. Every message is marked taken at once, before

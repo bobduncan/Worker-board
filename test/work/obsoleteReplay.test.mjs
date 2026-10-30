@@ -64,12 +64,12 @@ test('the seven items closed by hand on 2026-10-28, put back open: the check fin
   assert.match(read.result.text, /Q435 \(Do\): Restart the worker board/)
   assert.match(read.result.text, /Worker 2 is in the list, working: a step/)
 
-  // The judgement is the Advisor's (a model); here it says what the person said. The person closes all seven.
+  // The judgement is the Advisor's (a model); here it says what the person said. All seven close as it answers (2026-10-31).
   const points = [...QUESTIONS.map((one, at) => `obsolete: ${one} · ${STEPS[at]} was built by the goal chat · commits name ${STEPS[at]}`), 'obsolete: Q435 · the board works again since the outage · Worker 2 worked on since']
-  assert.equal((await advisor({ action: 'obsolete', points })).ok, true)
-  const closed = await person({ action: 'obsolete-close', ids: ['Q435', ...QUESTIONS] })
+  const closed = await advisor({ action: 'obsolete', points })
   assert.equal(closed.ok, true, closed.why)
   assert.deepEqual(closed.result.failed, [])
+  assert.equal(closed.result.closed.length, 7)
   const items = (await readStore(dir)).items
   for (const id of STEPS) assert.equal(items.get(id).head.get('State'), 'done', id)
   for (const id of [...QUESTIONS, 'Q435']) assert.equal(items.get(id).head.get('State'), 'withdrawn', id)

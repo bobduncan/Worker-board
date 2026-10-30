@@ -5334,8 +5334,9 @@ function obsoleteRows(view, set = obsoleteUi.set) {
 
 /**
  * B775: the part under Needs your attention that finds the open items that are obsolete: the button (it reads "The Advisor is
- * checking" while the partner judges, "Try again" when it did not answer in 15 minutes), then each item with its verdict, why
- * and evidence and a tick (obsolete ones come ticked), and "Close the N ticked". Nothing closes without the person's click.
+ * checking" while the partner judges, "Try again" when it did not answer in 15 minutes), how many the check closed, and each
+ * item it left with its verdict, why and evidence. The person, 2026-10-31: the obsolete ones close by themselves when the
+ * Advisor answers; unsure and open ones stay as they are.
  */
 function drawObsolete(state) {
   const view = state.obsolete ?? null
@@ -5352,38 +5353,27 @@ function drawObsolete(state) {
   button.type = 'button'
   button.dataset.obsolete = 'check'
   button.disabled = isChecking || sending.has('obsolete:check') || view.canCheck === false
-  button.title = view.canCheck === false ? view.whyNot : 'Your partner judges every open item here against what happened since it was made; you close the ones you tick'
+  button.title = view.canCheck === false ? view.whyNot : 'Your partner judges every open item here against what happened since it was made; the obsolete ones close by themselves'
   head.append(button)
   if (view.state === 'late') head.append(el('small', 'muted', 'The Advisor did not answer in 15 minutes.'))
   else if (view.state === 'none' || view.state === 'done') head.append(el('small', 'muted', `${view.openCount} open item${view.openCount === 1 ? '' : 's'} here`))
   part.append(head)
   if (problems.has('obsolete:check')) part.append(el('p', 'problem', problems.get('obsolete:check')))
-  if (view.state === 'done' && rows.length === 0) part.append(el('p', 'muted obsolete-none', view.last === null ? 'Nothing is left to look at.' : `Closed ${view.last.closed}. Nothing is left to look at.`))
+  if (view.state === 'done') {
+    const closed = view.last === null ? '' : `Closed ${view.last.closed} obsolete. `
+    part.append(el('p', 'muted obsolete-none', rows.length === 0 ? `${closed}Nothing is left to look at.` : `${closed}These stay:`))
+  }
   if (rows.length > 0) {
     part.append(fill(el('ul', 'obsolete-rows'), rows.map(row => {
       const item = el('li', `obsolete-row is-${row.verdict}`)
-      const tick = el('input')
-      tick.type = 'checkbox'
-      tick.checked = row.ticked
-      tick.dataset.obsoleteTick = row.id
-      tick.title = 'Tick the items to close'
-      tick.setAttribute('aria-label', `Close ${row.id}`)
       const words = el('div', 'obsolete-words')
       const line = el('div', 'obsolete-line')
       line.append(el('b', 'task-code', row.id), ' ', row.title, ' ', el('span', 'obsolete-verdict', OBSOLETE_WORDS[row.verdict] ?? row.verdict))
       words.append(line, el('small', 'muted obsolete-why', row.why))
       if (row.evidence !== '') words.append(el('small', 'muted obsolete-evidence', row.evidence))
-      item.append(tick, words)
+      item.append(words)
       return item
     })))
-    const ticked = rows.filter(row => row.ticked).length
-    const close = el('button', 'choice obsolete-close', `Close the ${ticked} ticked`)
-    close.type = 'button'
-    close.dataset.obsolete = 'close'
-    close.disabled = ticked === 0 || sending.has('obsolete:close')
-    close.title = 'Closes each ticked item as you would: a refine question closes its step as done, an ask is withdrawn without waking its chat, an incident is closed'
-    part.append(close)
-    if (problems.has('obsolete:close')) part.append(el('p', 'problem', problems.get('obsolete:close')))
   }
   return part
 }

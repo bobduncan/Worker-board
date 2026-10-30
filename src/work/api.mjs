@@ -2455,7 +2455,9 @@ async function obsoleteCheck(body, w) {
 /**
  * B775: the Advisor's verdicts of the check (`points`: "obsolete|unsure|open: <id> · <why> · <evidence>", one line per item),
  * kept once. Without `points` it reads: the items with their evidence. A line for an id the check does not hold refuses the
- * whole answer; an item that is not open any more is left out. Nothing is closed: the person ticks and closes.
+ * whole answer; an item that is not open any more is left out. The person, 2026-10-31 ("i asked it to remove items from my
+ * needs attention if it considers it obsolete otherwise to leave it"): the obsolete ones close at once, as the person's
+ * close would (`closeFromCheck`); unsure and open ones stay, listed with their verdict.
  */
 async function obsolete(body, w) {
   const file = await readObsoleteFile(w.dir, w.fs)
@@ -2471,10 +2473,34 @@ async function obsolete(body, w) {
   const open = new Set(openItemsOf(w.store.items).map(one => one.id))
   const items = record.items.filter(one => open.has(one.id))
   const verdicts = Object.fromEntries(Object.entries(parsed.verdicts).filter(([id]) => open.has(id)))
-  const done = await writeObsoleteFile(w.dir, { ...record, state: 'done', answeredAt: w.now, items, verdicts }, w.fs, { expected: file.text })
+  const answered = { ...record, state: 'done', answeredAt: w.now, items, verdicts }
+  const done = await writeObsoleteFile(w.dir, answered, w.fs, { expected: file.text })
   if (!done.ok) return refuse(409, `${done.why}; try again.`)
   const count = which => Object.values(verdicts).filter(one => one.verdict === which).length
-  return { ok: true, result: { text: `Recorded ${Object.keys(verdicts).length} verdicts: ${count('obsolete')} obsolete, ${count('unsure')} unsure, ${count('open')} open. Nothing is closed: the person closes the ones they tick.`, changed: true } }
+  // The person's standing word does the close: as theirs (the role), written in the partner's name (who).
+  const gone = await closeFromCheck(Object.keys(verdicts).filter(id => verdicts[id].verdict === 'obsolete'), answered, { ...w, role: 'person' })
+  const closedWords = `closed ${gone.closed.length} obsolete${gone.failed.length === 0 ? '' : `; not closed: ${gone.failed.map(one => `${one.id} (${one.why})`).join('; ')}`}`
+  return { ok: true, result: { text: `Recorded ${Object.keys(verdicts).length} verdicts: ${count('obsolete')} obsolete, ${count('unsure')} unsure, ${count('open')} open; ${closedWords}. Unsure and open ones stay for the person.`, closed: gone.closed, failed: gone.failed, changed: true } }
+}
+
+/**
+ * B775: closes the given ids of an answered check (`record`), each as the person would (`closeObsolete`), and writes the
+ * check without the closed ones (`last`: when, how many). `{ closed, failed, saved }`.
+ */
+async function closeFromCheck(ids, record, w) {
+  const closed = []
+  const failed = []
+  for (const id of ids) {
+    w.store = { ok: true, dir: w.dir, ...(await readStore(w.dir, w.fs)) }
+    const why = line(`obsolete: ${record.verdicts[id]?.why ?? 'the check found it obsolete'}`, 300)
+    const done = await closeObsolete(id, why, w)
+    if (done.ok) closed.push(id)
+    else failed.push({ id, why: done.why })
+  }
+  const gone = new Set(closed)
+  const left = { ...record, items: record.items.filter(one => !gone.has(one.id)), verdicts: Object.fromEntries(Object.entries(record.verdicts).filter(([id]) => !gone.has(id))), last: { at: w.now, closed: closed.length } }
+  const saved = await writeObsoleteFile(w.dir, left, w.fs)
+  return { closed, failed, saved }
 }
 
 /**
@@ -2492,18 +2518,7 @@ async function obsoleteClose(body, w) {
   const listed = new Set(record.items.map(one => one.id))
   const unknown = ids.filter(id => !listed.has(id))
   if (unknown.length > 0) return refuse(400, `${unknown.join(', ')}: not in the check; nothing was closed.`)
-  const closed = []
-  const failed = []
-  for (const id of ids) {
-    w.store = { ok: true, dir: w.dir, ...(await readStore(w.dir, w.fs)) }
-    const why = line(`obsolete: ${record.verdicts[id]?.why ?? 'the check found it obsolete'}`, 300)
-    const done = await closeObsolete(id, why, w)
-    if (done.ok) closed.push(id)
-    else failed.push({ id, why: done.why })
-  }
-  const gone = new Set(closed)
-  const left = { ...record, items: record.items.filter(one => !gone.has(one.id)), verdicts: Object.fromEntries(Object.entries(record.verdicts).filter(([id]) => !gone.has(id))), last: { at: w.now, closed: closed.length } }
-  const saved = await writeObsoleteFile(w.dir, left, w.fs)
+  const { closed, failed, saved } = await closeFromCheck(ids, record, w)
   const text = `Closed ${closed.length}${closed.length === 0 ? '' : `: ${closed.join(', ')}`}${failed.length === 0 ? '' : `; not closed: ${failed.map(one => `${one.id} (${one.why})`).join('; ')}`}.`
   return { ok: true, result: { text: saved.ok ? text : `${text} The check list could not be updated: ${saved.why}.`, closed, failed, changed: closed.length > 0 } }
 }

@@ -8,7 +8,7 @@
 // rule 8 stop naming it; one that still matters stays failed, for the person to see.
 
 import { shownChats } from '../bridge.mjs'
-import { RESUME_STEP, waitsLong } from '../say.mjs'
+import { RESUME_STEP, isStopWord, waitsLong } from '../say.mjs'
 import { isLate, keepMs } from '../store.mjs'
 import { stoppedOf } from '../stopped.mjs'
 import { stamp } from './migrate.mjs'
@@ -46,6 +46,8 @@ export function whyClosed(message, ctx) {
     const why = items instanceof Map ? workLineWhy(message, items, { prefix: ctx.prefix ?? '', now }) : null
     return why === null ? null : { state: 'dropped', why }
   }
+  // B812 (X109): a stop word waits for its worker's next idle moment however long its turn runs, while it holds a step.
+  if (isStopWord(message.command)) return stopWordWhy(message, ctx)
   // A word that is stale in minutes (a pause's resume, a line typed in a talk) is only closed once it is late.
   if (!waitsLong(message.command)) return isLate(message, now, keep) ? expired(message, keep) : null
   // B571: the goal guard's word: not needed once the goal is done or was evaluated after the word was sent (B359),
@@ -97,6 +99,24 @@ export function whyClosed(message, ctx) {
   return isLate(message, now, keep) ? expired(message, keep) : null
 }
 
+/**
+ * B812 (X109: the week's stop word to Worker 4, which held B494, expired after the 10 min keep while its turn ran on): the
+ * reason a stop word no longer matters, or null while it does. It matters until its limit resets, and while its worker holds
+ * a step not yet reported (taken or in progress as its Owner, or handed back by a failed check: say.mjs `holdsOpenStep`).
+ * Without a store the board cannot tell what the worker holds: the word waits until the reset (its window, when no reset is known).
+ */
+function stopWordWhy(message, ctx) {
+  const resets = message.command === 'week-stop' ? message.weekResets : message.fiveHourResets
+  const limit = message.command === 'week-stop' ? 'the weekly limit' : 'the 5-hour limit'
+  if (Number.isFinite(resets) && ctx.now >= resets) return { state: 'dropped', why: `${limit} reset at ${stamp(resets)}` }
+  // A reset the board did not know: the word lasts the limit's window at most, so it never waits for ever.
+  if (!Number.isFinite(resets) && ctx.now - message.at >= (message.command === 'week-stop' ? 7 * 24 : 5) * 3_600_000) return { state: 'dropped', why: `${limit} has reset since the word was sent` }
+  if (!(ctx.items instanceof Map) || (ctx.handedBack ?? []).includes(message.to)) return null
+  const name = plainName(message.to, ctx.prefix ?? '')
+  const holds = [...ctx.items.values()].some(item => ['taken', 'in progress'].includes(value(item, 'State')) && plainName(value(item, 'Owner'), ctx.prefix ?? '') === name)
+  return holds ? null : { state: 'dropped', why: `${message.to} holds no step not yet reported, so there is no work to stop` }
+}
+
 /** A chat's name for comparing: without the list's prefix, in lower case. */
 const plainName = (name, prefix = '') => {
   const words = String(name ?? '').trim()
@@ -141,7 +161,7 @@ export async function sweepOutbox({ dir, outbox, state, now, keep, fs, dry = fal
   const off = new Set(shownChats(state ?? {}).filter(chat => chat.isRunning === false).map(chat => chat.name))
   const all = outbox.outbox()
   const closing = new Map()
-  const ctx = { all, items, runs, goals: state?.goals?.nodes ?? [], now, keep, closing, stopped: stoppedChats(all, state), prefix: state?.chatPrefix ?? '', ready: state?.readyList?.ready ?? [], main: state?.restart?.main ?? null, off }
+  const ctx = { all, items, runs, goals: state?.goals?.nodes ?? [], now, keep, closing, stopped: stoppedChats(all, state), prefix: state?.chatPrefix ?? '', ready: state?.readyList?.ready ?? [], main: state?.restart?.main ?? null, off, handedBack: state?.reconciled?.handedBack ?? [] }
   // The starts last: they depend on what the other words become.
   const ordered = [...waiting.filter(message => message.command !== 'start'), ...waiting.filter(message => message.command === 'start')]
   for (const message of ordered) {

@@ -991,6 +991,21 @@ export function fiveHourStopDue(state, outbox) {
   return words
 }
 
+/** B812 (X109): the board's stop words, the week's (B742) and the 5-hour limit's (B758). */
+export const isStopWord = command => command === 'week-stop' || command === 'five-hour-stop'
+
+/**
+ * B812 (X109: at 22:06 three looks of the board ran side by side; each read the outbox before the others wrote, so Worker 4
+ * got the week's stop word three times): the stop words still due, checked and put in the outbox in one go with no wait in
+ * between, so a look beside it sees them and says none again. `sent()` is everything sent as the board sees it now;
+ * `store.sayAll` puts the words in at once and writes them after. Answers the words said.
+ */
+export async function sayStopWords(state, store, sent, now, newId) {
+  const said = [...weekStopDue(state, sent()), ...fiveHourStopDue(state, sent())].map(words => ({ id: newId(), at: now, ...words, state: 'waiting' }))
+  if (said.length > 0) await store.sayAll(said)
+  return said
+}
+
 /**
  * B577: the main chat's word to wake a chat whose session was stopped (its turn cut by a stop, the main chat's or the
  * person's): the app drops every word to it until it gets input, and a message by its session id is input. `stop` is

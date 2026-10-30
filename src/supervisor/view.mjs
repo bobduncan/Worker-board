@@ -42,6 +42,8 @@ export function buildView({ state = {}, items = new Map(), outbox = [], keep = n
     // rule 8 judges a waiting word as the outbox sweep does.
     keep: keep ?? DEFAULT_KEEP,
     goals: state.goals?.nodes ?? [],
+    // B812: the workers a failed check handed their step back to (they hold it, so their stop word still matters).
+    handedBack: Object.freeze([...(state.reconciled?.handedBack ?? [])]),
     // B564: the focus goal's id (state.mjs focusState), or null.
     focus: typeof state.focus?.id === 'string' ? state.focus.id : null,
     // Redesign Part 2: the board's ready list (the rule ready-while-free).
