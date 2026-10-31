@@ -3160,3 +3160,61 @@ ul.task-history { list-style: none; display: flex; flex-direction: column; gap: 
 .task-more > summary::-webkit-details-marker { display: none; }
 .need > .task-story, .calm-ask > .task-story { padding: 8px 0 10px; border-bottom: 1px solid var(--line); margin-bottom: 10px; }
 .task-window .details-main.task-calm { padding: 18px 22px 22px; gap: 12px; }
+
+/* The task window's questions (the person, 2026-10-31, on the agreed mock): while a question waits it stands first, large, with
+   every option a card (two to a row) and its pictures large; the rest sits under one "Details". The mock's calm blues and greys:
+   no amber or red for plain information (the count of questions is a quiet blue chip, not the amber of "waiting"). */
+.details-chips .chip.is-ask { background: #14233f; border-color: #2c4a7a; color: #8fb4ff; font-weight: 600; }
+.task-window .details-main.task-ask { gap: 18px; }
+.q-block { display: flex; flex-direction: column; gap: 12px; }
+.q-block + .q-block { border-top: 1px solid #22304a; padding-top: 18px; }
+.q-count { margin: 0; font-size: 12.5px; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); }
+.q-question { margin: 0; font-size: 26px; line-height: 1.25; font-weight: 700; color: #e6edf7; overflow-wrap: anywhere; }
+.q-why { margin: -4px 0 4px; color: #a9b6c9; font-size: 15.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.q-busy, .q-wish { margin: 0; font-size: 13.5px; }
+.q-cards { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px; }
+.q-cards.is-one { grid-template-columns: minmax(0, 1fr); }
+.q-card { display: flex; flex-direction: column; gap: 10px; min-width: 0; padding: 14px; border: 1px solid #2b3a52; border-radius: 12px; background: #131d30; }
+.q-card.is-advised { border-color: #3d6fd6; box-shadow: 0 0 0 1px #3d6fd6 inset; }
+.q-card.is-chosen { border-color: #6aa0ff; box-shadow: 0 0 0 2px #6aa0ff inset; background: #112240; }
+.q-card-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; }
+.q-letter { font-size: 22px; font-weight: 700; color: #e6edf7; }
+.q-title { flex: 0 1 auto; min-width: 0; font-size: 17px; font-weight: 600; color: #e6edf7; overflow-wrap: anywhere; }
+.q-advised { font-size: 12.5px; color: #8fb4ff; border: 1px solid #3a4a63; border-radius: 6px; padding: 1px 8px; }
+.q-pics { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.q-pics.is-one { grid-template-columns: minmax(0, 1fr); }
+.q-pic { position: relative; margin: 0; min-width: 0; }
+.q-pic .picture { display: block; position: relative; width: 100%; height: 250px; padding: 0; border: 0; border-radius: 8px; background: #000; overflow: hidden; cursor: zoom-in; }
+.q-pic .picture img { display: block; width: 100%; height: 100%; aspect-ratio: auto; object-fit: cover; background: #000; }
+.q-pic > span.q-pic-caption { position: absolute; pointer-events: none; left: 8px; bottom: 8px; max-width: calc(100% - 16px); padding: 2px 8px; border-radius: 5px; background: rgba(10, 15, 24, .85); color: #e6edf7; font-size: 12.5px; }
+.q-pic .picture > span.muted { display: flex; align-items: center; justify-content: center; height: 100%; padding: 0; font-size: 14px; }
+.q-nopic { display: flex; align-items: center; justify-content: center; min-height: 110px; border: 1px dashed #2b3a52; border-radius: 8px; color: #8a97ab; font-size: 14px; background: rgba(255, 255, 255, .015); }
+.q-text { margin: 0; color: #a9b6c9; font-size: 14.5px; line-height: 1.45; overflow-wrap: anywhere; }
+.q-text.is-why { color: #8a97ab; font-size: 13.5px; }
+.q-time { color: #8a97ab; font-size: 13px; }
+.q-choose { align-self: flex-start; margin-top: auto; padding: 8px 18px; border-radius: 8px; border: 1px solid #3a4a63; background: transparent; color: #e6edf7; font: inherit; font-size: 15px; font-weight: 600; cursor: pointer; }
+.q-choose:hover:not(:disabled) { border-color: #6aa0ff; }
+.q-choose.is-primary, .q-choose[aria-pressed="true"] { background: #2f6fe0; border-color: #2f6fe0; color: #fff; }
+.q-choose[aria-pressed="true"] { border-color: #6aa0ff; }
+.q-choose:disabled { opacity: .55; cursor: default; }
+.q-choose:focus-visible, .q-send:focus-visible, .q-ask-pictures:focus-visible, .q-field:focus-visible { outline: 2px solid var(--free); outline-offset: 2px; }
+.q-pictures-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
+.q-ask-pictures { padding: 5px 12px; border: 1px solid var(--line); border-radius: 8px; background: none; color: var(--muted); font-size: 13.5px; cursor: pointer; }
+.q-ask-pictures:hover:not(:disabled) { color: var(--text); border-color: #3a4a63; }
+.q-ask-pictures:disabled { opacity: .6; cursor: default; }
+.q-else { display: flex; gap: 10px; }
+.q-field { flex: 1; min-width: 0; padding: 9px 12px; border: 1px solid #2b3a52; border-radius: 8px; background: #0b1220; color: #e6edf7; font: inherit; font-size: 14.5px; }
+.q-field::placeholder { color: #8a97ab; }
+.q-send { padding: 8px 16px; border: 1px solid #3a4a63; border-radius: 8px; background: transparent; color: #c5d0e0; font: inherit; cursor: pointer; }
+.q-send:disabled { opacity: .5; cursor: default; }
+.q-details { border-top: 1px solid #22304a; padding-top: 12px; margin: 0; }
+.task-calm .q-details > summary { color: #8fb4ff; font-size: 14.5px; font-weight: 500; cursor: pointer; }
+.q-details > summary small { margin-left: 8px; font-size: 13px; }
+.q-status { margin: 0; font-size: 13px; }
+@media (max-width: 760px) {
+  .q-cards { grid-template-columns: minmax(0, 1fr); }
+  .q-question { font-size: 22px; }
+}
+.q-choose[aria-pressed="true"]::before { content: "✓ "; }
+.q-cards:has(.q-card.is-chosen) .q-choose.is-primary:not([aria-pressed="true"]) { background: transparent; border-color: #3a4a63; }
+.q-details[open] > summary { margin-bottom: 10px; }

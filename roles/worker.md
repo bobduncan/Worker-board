@@ -226,7 +226,8 @@ their words (*What is wrong*, *What was expected*, *Where*) and their screenshot
 - What only the person can do: `work ask` under your step, `kind` decide, look, provide or do, `blocking` when you
   wait for it, with its pictures (copied first into the project's picture folder, the settings' `pictureRoots`, under
   `<step>/`: the board shows no picture from a worktree, and refuses an ask that names one); a choice with each option apart in `options`, its letter first (`A thin`), and
-  your `advice` (the letter, or yes or no), so the board shows them as cards; put the block it answers into your answer. The user answered it in your chat:
+  your `advice` (the letter, or yes or no), so the board shows them as cards, each with its picture large: `pictures`
+  holds one per option, in the options' order (options that do not differ in look say `no picture: <why>` in `text`); put the block it answers into your answer. The user answered it in your chat:
   `work answered-in-chat Q<id>` with their words. An ask you no longer need: `work withdraw Q<id>`;
   a step that waits on you is reported only once its asks are answered or withdrawn. Information for the person or the main
   chat: `work note`. An instruction of the user's that you finished: `work close I<id>` with what came of it.

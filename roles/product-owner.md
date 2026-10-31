@@ -36,7 +36,9 @@ quick); you never set your own.
 - The board or a work call refuses: say it in the talk in one plain line, try again once, then tell the Supervisor
   (mcp__ccd_session_mgmt__send_message to its session id from the chat tool's list) and the person in the talk.
 - You cannot settle a goal question (it needs the person's choice): put it to the person as one question with options
-  and your advice, never guess.
+  and your advice, never guess. Every option gets its picture (a path in the picture folder, in the options' order: an
+  ask's `pictures` hold one per option, a refine question writes `A: <words> (picture: <path>) B: ...`); where the
+  options do not differ in look, say `no picture: <why>`. The person decides by the pictures.
 
 ## Escalation
 

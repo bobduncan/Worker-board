@@ -164,7 +164,8 @@ profile.
 - A step's title: 5 to 10 words of your own, starting with a verb, saying what the user gets; never the user's
   request read back. Their words go under it (description, "Context:").
 - What only the user can do is an ask under its step: `work ask` with `kind` decide, look, provide or do; it names
-  its pictures, a choice its options apart (`A thin`) with your `advice`, and the block it answers goes into your answer.
+  its pictures, a choice its options apart (`A thin`) with your `advice` and one picture per option, in the options'
+  order (`no picture: <why>` in `text` when they look alike), and the block it answers goes into your answer.
   An ask with advice or options may be answered by the partner first (partner answers, 2026-10-19): the tool says so.
   Its `title` is the question itself in at most 12 words (refused when longer); its `text` the brief context, two to
   four plain sentences: why you ask, what was found, what each choice means (B452).

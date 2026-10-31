@@ -229,6 +229,16 @@ tab) and never on the demo; once closed, the browser keeps that it was seen (`he
   because it needs context"): a step's window shows the person's answers, rejections and notes on it, newest last, each
   with what it answered (who asked what, the options, the advice, what was shown): first on a taken step's Summary,
   after the Summary on a new or refined one. **Add a note** under them puts the person's own words on the step.
+- **The question first** (2026-10-31, the person, on the window of B893: "i have no clue what this is about the UI sucks. too
+  cluttered"; on the agreed mock: "yes this mockup is much better", "i always want pictures in the main focus its the
+  easiest for me to decide"): while a task's question waits for the person (a refine question, or an ask under the task) the
+  window opens on it: the question large, one line of why, and every option a card (two to a row) with its letter and
+  words, its time, its pictures large (about 250 px high, a caption on each, a click opens one), **advised** on the advised
+  card, and **Choose A** (**Chosen** once picked). An option without a picture says "No picture yet", and **Ask for pictures**
+  asks the chat that asked for one per option; a question that says `no picture: <why>` shows neither. Under the cards: "Something
+  else? Say it in your own words…" and **Send**. Several questions stand one under the other, "1 of 2", and the head's
+  count is exactly how many are shown. Everything else (the three lines, your words, what we build, model and effort, flow,
+  history, other details) is under one **Details**, closed. The chats write the questions for it: roles/partner.md.
 - **A picture** (`04-picture-popup.png`, a click on any picture or `#picture=<path>`): the picture large with its
   path; a click closes it.
 - **A game** (`#play=<branch>&<settings>`): the branch's game started and this tab turned into it.

@@ -420,6 +420,24 @@ under it holds only the questions; the goal shows once, as the head's chip. A re
 your attention is written into the block too (`withRefineAnswer`), and the lines the store adds under a step go above
 the block, never into it; lines added after a block before this, and a lone bracketed line at its end, end it.
 
+**The question first, every option with its picture (2026-10-31).** The person, on the window of B893 (a refine question
+under "Context", "Problem", a note field and a model box, its options in one sentence, "Picture: the painting's green lava
+beside the game" and no picture): "i have no clue what this is about the UI sucks. too cluttered"; on the agreed mock:
+"yes this mockup is much better" and "i always want pictures in the main focus its the easiest for me to decide". While a
+question waits for the person, a task's window (`drawStepWindow`) opens on it and folds everything else under one
+"Details". One shape serves every question it asks (`parseQuestionText`, `refineQuestionOf`, `askQuestionOf`, the region
+`question` of `public/board.js`): `{ id, question, why, options: [{ letter, words, time, pictures }], advice, adviceWhy,
+pictures }`. A refine question reads as `<question>? A: <words> (picture: <path>) B: <words> (picture: <path>) Advised: A — <why>`
+(a time, "about 1 h", is taken out of an option's words and shown apart; a path in its words or brackets is its picture;
+"Picture: <path>" is the question's own, "Picture: <words>" with no path is kept as a wish; "no picture: <why>" says the options
+look alike); a question with "Advised: yes|no" is a Yes/No question, the older form with neither has only the person's words. An
+ask's `pictures` belong to its options in order when there are as many, else they stand above the options. The count in the head
+is the questions the window shows, never the refine's open questions plus their twin asks. Choose writes `<letter>: <words>`
+(`yes` or `no` for a Yes/No question) through the window's own send: a refine's "Send answers" (`refine-answer`, which keeps the
+question with the answer in "Your words"), an ask's answer. An option without a picture says "No picture yet", and "Ask for
+pictures" asks the chat that asked: the Advisor through the refine's feedback and a new round, an ask's chat through its words.
+The chats' rule is in roles/partner.md, roles/product-owner.md, roles/worker.md and roles/protocol.md.
+
 **Refined before a queue (B285).** The person, on goal G17 (2026-10-17): "every item on the backlog automatically Before
 it gets put in the queue. if main wants to put it in the queue automatically/directly, refine it first". A step is
 refined when the first line of its block says "; ready" (the person approved what "refined" means on 2026-10-17: one

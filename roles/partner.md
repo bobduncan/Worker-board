@@ -812,6 +812,13 @@ not Codex. Using Codex needs no ask (CLAUDE.md, part 5).
     Effort: <low, medium, high, xhigh or max> · <why, in one line>
     Questions:
     - <the question itself, at most 12 words, answered with yes or no?> <its numbers and why, short> Advised: yes, <the reason in a few words>
+    - <the question itself, ending in "?"> A: <words> (picture: <path>) B: <words> (picture: <path>) Advised: A — <the reason in a few words>
+
+A question with options gives **every option its picture** (the user, 2026-10-31: "i always want pictures in the main
+focus its the easiest for me to decide"): a path in the picture folder in `(picture: <path>)` behind each option, in the
+options' order. The task window shows the options as cards with their pictures large, and an option without one as "No
+picture yet" with a button that asks you for it. A question whose options do not differ in look says so, `no picture:
+<why>`, and its cards show no placeholder; a Yes/No question needs none.
 
 A question that drops the step names it ("Drop B<n>?", "Should we drop it?"): its yes sends the main chat a drop note at
 once (B464). A question about dropping a part of the step ("Drop the one-minute guess once ...?") makes no drop note
@@ -880,7 +887,7 @@ the feedback. It reads as the finished description, not as a talk:
   ending in "?", with its numbers and why after it ("Should the Ranger start with Long Shot and Pinning Arrow? 5 HP,
   4 AP; Long Shot hits within 6 for 2. Advised: yes, far and weak up close"); a refine with a longer question, or with
   words before it, is refused. An answer may also be the user's own words. An answer that raises a new question opens
-  one more short round with only that question; keep what is settled under "What we build" already. No question at
+  one more short round with only that question (a question with options gives each its picture, see above); keep what is settled under "What we build" already. No question at
   all: write it ready at once.
 - **Your words** (the user, 2026-10-30: "retain the feedback i gave it so when i tries to suggest new ways to accomplish
   what i want it can verify what i originally asked"): read the step's `## Your words` (a fix step carries its step's)
