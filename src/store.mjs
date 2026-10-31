@@ -6,6 +6,7 @@ import { randomBytes } from 'node:crypto'
 import { mkdir, readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 
+import { takeStop } from './boardSelf.mjs'
 import { changes, GAP_MS, lastByChat, parseHistory, startGap } from './history.mjs'
 import { isStopWord, waitsLong } from './say.mjs'
 import { isStoppedWhy } from './stopped.mjs'
@@ -59,6 +60,16 @@ const isPlain = message => (message.command ?? null) === null || message.command
 // holds no step not yet reported, or the limit reset (src/work/outboxSweep.mjs).
 export const keepMs = (message, keep) => (isAnswer(message) || isStopWord(message.command) ? Infinity
   : isPlain(message) || ['step', 'refined', 'work', 'incident', 'handover'].includes(message.command) || waitsLong(message.command) ? keep.answerMs : keep.messageMs)
+/**
+ * B891 (the result check of B880: a word went twice): a hand's call that gave no answer in time may still have acted (the
+ * real case's ran the Product owner's routine and never answered). A word given back after such a call is in doubt from its
+ * `doubtAt`: no hand and no chat takes it for this long, so its first hand's late answer still settles it (`deliveredLate`) and
+ * the outbox sweep closes it once what it asked is on the board; only with no sign of it by then is it tried again. A
+ * routine's chat checks in within a minute or two (its mod joins at its start); a spawn or set word is kept 10 minutes.
+ */
+export const DOUBT_MS = 5 * 60_000
+/** B891: whether a word waits in doubt now (`doubtAt`, DOUBT_MS). */
+export const isInDoubt = (message, now) => Number.isFinite(message?.doubtAt) && now - message.doubtAt < DOUBT_MS
 export const isLate = (message, now, keep) => now - message.at - heldMs(message, now, keep.pause ?? null) > keepMs(message, keep)
 
 /**
@@ -132,7 +143,7 @@ function storeOver(lines, messages, alive, write) {
      * `only`, when given, says which may go now (while the person pauses, the board's own "resume"); the rest wait.
      */
     async take(to, now, keep, only = () => true) {
-      const taken = messages.filter(message => message.to === to && message.state === 'waiting' && !isLate(message, now, keep) && only(message))
+      const taken = messages.filter(message => message.to === to && message.state === 'waiting' && !isLate(message, now, keep) && !isInDoubt(message, now) && only(message))
       // B880: a word a hand gave back names no hand once its chat takes it (the log keeps the last `takenBy`, so it is cleared).
       const hadHand = new Set(taken.filter(message => typeof message.takenBy === 'string').map(message => message.id))
       for (const message of taken) Object.assign(message, { state: 'taken', takenAt: now }, hadHand.has(message.id) ? { takenBy: null } : {})
@@ -155,9 +166,11 @@ function storeOver(lines, messages, alive, write) {
      * addressed to, for the chat `by` whose Workers mod sends them by code: marked taken at once and written down, as a
      * take, so two hands never send one. `back(ids)` puts a word the hand cannot send back to waiting.
      * B880: `back(ids, from)` writes down which hand gave it back (`backFrom`), so its late answer (`deliveredLate`) still counts.
+     * B891: `back(ids, from, now, doubt)`: the words of `doubt` (their call gave no answer: it may have acted) wait in doubt from
+     * `now` (`isInDoubt`); the rest are free at once.
      */
     async takeHands(by, now, keep, isHand) {
-      const taken = messages.filter(message => message.state === 'waiting' && !isLate(message, now, keep) && isHand(message))
+      const taken = messages.filter(message => message.state === 'waiting' && !isLate(message, now, keep) && !isInDoubt(message, now) && isHand(message))
       // B880: `handTakenAt` marks the take as a hand's (src/hands.mjs `isHandTaken`).
       for (const message of taken) Object.assign(message, { state: 'taken', takenAt: now, takenBy: by, handTakenAt: now })
       try {
@@ -172,7 +185,7 @@ function storeOver(lines, messages, alive, write) {
       }
       return taken.map(message => ({ ...message }))
     },
-    async back(ids, from = null) {
+    async back(ids, from = null, now = null, doubt = []) {
       const again = messages.filter(message => ids.includes(message.id) && message.state === 'taken')
       for (const message of again) {
         message.state = 'waiting'
@@ -180,9 +193,25 @@ function storeOver(lines, messages, alive, write) {
         // B880: null, not left out: the log keeps a field a later line leaves out.
         message.takenBy = null
         if (from !== null) message.backFrom = from
+        message.doubtAt = Number.isFinite(now) && doubt.includes(message.id) ? now : null
       }
-      if (again.length > 0) await write.outbox(again.map(message => ({ id: message.id, state: 'waiting', takenBy: null, ...(from === null ? {} : { backFrom: from }) })))
+      if (again.length > 0) await write.outbox(again.map(message => ({ id: message.id, state: 'waiting', takenBy: null, doubtAt: message.doubtAt, ...(from === null ? {} : { backFrom: from }) })))
       return again.length
+    },
+    /**
+     * B891: the chat a hand's job for a word makes (a new worker's title), by id (`[[id, chat]]`), so the sweep knows a spawn
+     * in doubt went once that chat is on the board.
+     */
+    async handChats(pairs) {
+      const named = []
+      for (const [id, chat] of pairs) {
+        const message = messages.find(one => one.id === id)
+        if (message === undefined || typeof chat !== 'string' || chat === '') continue
+        message.handChat = chat
+        named.push({ id, handChat: chat })
+      }
+      if (named.length > 0) await write.outbox(named)
+      return named.length
     },
     /**
      * B880: a hand gave a word back when the app did not answer in time, and the app answered later that it went: kept as
@@ -220,7 +249,7 @@ function storeOver(lines, messages, alive, write) {
         && now - message.failedAt >= afterMs && !isLate(message, now, keep))
       const sent = []
       for (const message of again) {
-        const { takenAt, takenBy, handTakenAt, backFrom, failedAt, why, retriedAs, failedSession, stoppedAt, stoppedSession, ...rest } = message
+        const { takenAt, takenBy, handTakenAt, backFrom, doubtAt, handChat, failedAt, why, retriedAs, failedSession, stoppedAt, stoppedSession, ...rest } = message
         const copy = { ...rest, id: newId(), state: 'waiting', retryOf: message.id }
         message.retriedAs = copy.id
         messages.push(copy)
@@ -251,7 +280,7 @@ function storeOver(lines, messages, alive, write) {
         if (message.to !== to || message.state !== 'taken') continue
         if (typed.includes(message.id)) changed.push(Object.assign(message, { state: 'delivered', deliveredAt: now }))
         else if (failed.includes(message.id) && !refused.includes(message.id) && isStoppedWhy(why[message.id])) {
-          const { takenAt, takenBy, handTakenAt, backFrom, failedAt, why: _why, retriedAs, failedSession, stoppedAt, stoppedSession, ...rest } = message
+          const { takenAt, takenBy, handTakenAt, backFrom, doubtAt, handChat, failedAt, why: _why, retriedAs, failedSession, stoppedAt, stoppedSession, ...rest } = message
           const copy = { ...rest, id: newId(), state: 'waiting', retryOf: message.id, stoppedAt: now, ...(session === null ? {} : { stoppedSession: session }) }
           // Not "failed": nothing failed for good, and the word that stands for it waits.
           changed.push(Object.assign(message, { state: 'stopped', failedAt: now, tries: message.tries ?? 0, why: why[message.id], retriedAs: copy.id }))
@@ -284,7 +313,7 @@ function storeOver(lines, messages, alive, write) {
         && Number.isFinite(message.failedAt) && now - message.failedAt < dayMs && !isLate(message, now, keep))
       const sent = []
       for (const message of again) {
-        const { takenAt, takenBy, handTakenAt, backFrom, failedAt, why, retriedAs, failedSession, stoppedAt, stoppedSession, ...rest } = message
+        const { takenAt, takenBy, handTakenAt, backFrom, doubtAt, handChat, failedAt, why, retriedAs, failedSession, stoppedAt, stoppedSession, ...rest } = message
         const copy = { ...rest, id: newId(), state: 'waiting', retryOf: message.id, revivedFor: sessions.get(message.to) }
         message.retriedAs = copy.id
         messages.push(copy)
@@ -324,7 +353,7 @@ async function read(file) {
 /** The store over the files in `dir`. It marks the time the board was off as a gap. */
 export async function fileStore(dir, now) {
   await mkdir(dir, { recursive: true })
-  const files = { history: join(dir, 'history.jsonl'), outbox: join(dir, 'outbox.jsonl'), alive: join(dir, 'alive.json') }
+  const files = { history: join(dir, 'history.jsonl'), outbox: join(dir, 'outbox.jsonl'), alive: join(dir, 'alive.json'), stop: join(dir, 'stop.json') }
   const lines = parseHistory(await read(files.history))
   let aliveAt = null
   try {
@@ -338,10 +367,13 @@ export async function fileStore(dir, now) {
     alive: at => writeAtomic(files.alive, JSON.stringify({ at })),
     outbox: changed => appendLines(files.outbox, jsonLines(changed)),
   })
-  const gap = startGap(lines, aliveAt, now)
+  // Signals change 1: why the board ended last (data/stop.json), taken once: the file is removed at this start.
+  const gap = startGap(lines, aliveAt, now, takeStop(files.stop))
   if (gap !== null) await store.record([gap])
   return {
     ...store,
+    /** The gap line this start wrote, or null for a start without a gap (the state's `board.lastStop` is made of it). */
+    startedGap: gap,
     /**
      * B488: reads the files again into the memory the store holds, in place. Of two board processes on one folder only
      * one writes (the one that runs the loops): the other reads what it wrote, and the one that takes over starts
@@ -365,7 +397,7 @@ export async function tick(store, state, now) {
   const aliveAt = store.aliveAt()
   const last = store.lines().at(-1)
   // After a start the gap is written already (`startGap`); a sleep in the middle of a run is written here.
-  if (aliveAt !== null && now - aliveAt > GAP_MS && last !== undefined && last.gap !== true) {
+  if (aliveAt !== null && now - aliveAt > GAP_MS && last !== undefined && (last.gap !== true || aliveAt > last.at)) {
     await store.record([{ at: Math.max(aliveAt, last.at), gap: true }])
   }
   const chats = state.chats.filter(chat => !chat.isLeftover)

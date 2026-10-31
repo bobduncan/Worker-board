@@ -39,6 +39,10 @@ usage and incomplete history are disclosed. The initial model-routing release su
 automatic model changes remain disabled until the bridge proves the execution safeguards. See
 [`docs/model-routing.md`](docs/model-routing.md) for the policy, limitations and tuning workflow.
 
+The line at the top of the page always says whether the board is alive, with a time from the board's own clock:
+Running (updated 14:03:22), Slow (no answer for 12 s, showing 14:01's data), Off since 14:03, or Restarting (a new
+version starts, usually back within 30 s); when the board is back it says for a minute why it was off.
+
 The Overview shows a lane per chat (working, waiting for you, free; its task, step and time left; its queue), what
 waits for you with a form to answer it, and the day's timeline; your answer is typed into the chat it is for. Further
 tabs: Focus (the goal you work towards, its goal definition and how, with a partner chat, the Advisor), Backlog (the whole work,

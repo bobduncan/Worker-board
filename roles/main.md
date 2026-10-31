@@ -193,7 +193,9 @@ worker whose Workers mod is 0.26.1 or newer: it is told at its next tool call, t
 turn ended and has a running chat take an idle or closed worker out of the list and close its chat; such a word
 reaches you only when nothing came of it in 15 minutes. B880: a word a chat's hand took and said nothing of in 3
 minutes (its call never answered) comes back to waiting, for another hand or for you; and a start word for a chat
-that is on the board by then (`start the Product owner` once its chat is there) is closed as moot, never yours.
+that is on the board by then (`start the Product owner` once its chat is there) is closed as moot, never yours. B891:
+such a word waits in doubt for 5 minutes first (its call may have gone), so it never reaches you or another hand while
+it may have been done; a `spawn workers` whose new worker is on the board by then is closed as done.
 
 - `resume`: the user resumed all chats after a pause (the board's Resume all). The Workers mod puts the list beside
   it, or beside your chat's start when you were not running: "Resume: wake each chat below that has not started",

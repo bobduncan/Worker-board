@@ -94,7 +94,7 @@ waking chats "needs your OK" while only chats in Auto mode run, until the projec
 in its tooltip; **Copy the line that makes the routines** gives the line to paste into any chat for the stored
 routine of each worker (T12: "My Project - Worker 3", one per worker up to "Workers at most"; the row says "needs
 routines for Worker 4, 5" while some are missing); while one of them could help, a blue note on top says so), the board's
-version and since when, "Last updated", and a refresh button. When the board's folder holds a newer version, a
+version and since when, and a refresh button. The line at the top says Running, Slow, Off since or Restarting from the board's own clock (DESIGN.md, "The board's own banner"). When the board's folder holds a newer version, a
 yellow note on top says so; a click starts the new version. When a data file of the board was torn (by a restart or a
 power cut) and could not be read at its start, a red note on top names it and the copy it was kept aside as
 (`<name>.broken-<time>`, B406): the board started without it. Without the Workers mod a bar on top says that what the

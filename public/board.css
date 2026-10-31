@@ -71,7 +71,10 @@ button, textarea, select { font: inherit; color: inherit; }
 .tab:hover { color: var(--text); }
 .tab.is-active { background: var(--inset); color: var(--text); border-bottom-color: var(--free); }
 .tab .count { margin-left: 8px; }
-.updated { color: var(--muted); font-size: 14px; }
+/* Signals change 1: the banner never wraps: a long text is cut with an ellipsis (the whole text is its title), so the header's pills stay on one line.
+   The pills do not shrink with it (a shrunk pill wrapped its words), and the banner keeps a few characters so it never vanishes. */
+.updated { flex: 0 1 auto; min-width: 9ch; max-width: 44ch; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; color: var(--muted); font-size: 14px; }
+.tabs .waits-button, .tabs .quiet-button { flex: none; white-space: nowrap; }
 /* B311: "CPU for Claude", one click per level. */
 .cpu { display: flex; align-items: center; gap: 0; margin-right: 12px; font-size: 13.5px; white-space: nowrap; }
 .cpu[hidden] { display: none; }

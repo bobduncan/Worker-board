@@ -40,6 +40,7 @@ import { BrokenConfig, configProblem, firstStart, followApp, isOwnWork, loadConf
 import { REFERENCE_BYTES, ideasFolder, referencesFolder, checkDesign, designActivity, designState, picturesActivity, inTurn, parseDesignSettings, promptFor } from './src/design.mjs'
 import { bugsState, fileBug, waitingFolder } from './src/bugs.mjs'
 import { ideasFile, ideasOver, placeReferences } from './src/ideas.mjs'
+import { boardView, exitAt, lastStopOf, stopWhy, writeStop } from './src/boardSelf.mjs'
 import { START_ANEW, keep } from './src/keeper.mjs'
 import { boardAddress, gamePortFor, workerPort, boardsFile, recordingBoardPort, launchEntry, registerHome, resolvePort, withEntry } from './src/ports.mjs'
 import { findClaude, marketsFile, modVersions, pluginsFile } from './src/setup.mjs'
@@ -1360,6 +1361,10 @@ async function main(args) {
   // is shown on the page's note; the calls of the chats being answered now and the last chat log asked for are counted here.
   const selfUpdate = selfUpdater({ now: clock })
   let updateShown = null
+  // Signals change 1: set where the exit for a new version is decided (restartNow), before the wait; the state says it.
+  let leaving = null
+  // Signals change 1: set once the server listens: only then the board's exit is written as a stop (data/stop.json).
+  let isUp = false
   let callsNow = 0
   let lastLogAt = null
   const loggedAt = new Map()
@@ -1958,11 +1963,16 @@ async function main(args) {
     if (!check.ok) return { ok: false, status: 500, why: `The new version does not start: ${check.why}` }
     // B404: the board stops taking work and waits up to 10 s for the reconciler's pass and the running checks.
     isClosing = true
+    leaving = { at: clock(), why: 'new-version' }
     return { ok: true, result: { at: clock() }, after: async () => {
       const inTime = await settleWithin([reconciling, ...runningChecks.values()], RESTART_WAIT_MS)
       if (!inTime) console.log('Restart: the board did not wait longer than 10 s for its running work; the next start checks again.')
       // T13: the last reports are on disk before the new board reads them.
       await reportsSave?.flush()
+      // Gap 2 of the live proof: the page asks every refreshSeconds, so the board keeps answering `leaving` for one refresh
+      // and a second before it ends (in parallel with the wait above, not after it).
+      const wait = exitAt({ leavingAt: leaving.at, workSettledAt: clock(), refreshSeconds: config.refreshSeconds, waitMs: RESTART_WAIT_MS }) - clock()
+      if (wait > 0) await new Promise(done => setTimeout(done, wait))
       process.exit(START_ANEW)
     } }
   }
@@ -2010,7 +2020,9 @@ async function main(args) {
       // The Product owner (2026-10-31): the talk partner as the page draws it, the Advisor with its whole queue when it is the one.
       const talkPartner = talkPartnerOf({ ...state, advisor })
       // Light state (2026-10-31): the finished steps go light to the page (src/state.mjs lightState); `step` gives one whole.
-      return lightState({ ...state, advisor, talkPartner, forYou: oldMods === null ? state.forYou : [oldMods, ...(state.forYou ?? [])], design, bugs, goalsEdit, cpu: cpu?.view() ?? null, loops: { failing: loops.failing(), line: failingLine(loops.failing(), timeOf) }, supervisor: supervised ?? (isDemo ? demoSupervisor(clock(), SUPERVISOR_RULES, incidentCards) : null), boardSettings: boardSettingsNow(), obsolete: await obsoleteNow(state), version: { commit: running, since: startedAt, ...(await versionNow()), canRestart, selfUpdate: updateShown }, mod: await modNow(),
+      return lightState({ ...state, advisor, talkPartner, forYou: oldMods === null ? state.forYou : [oldMods, ...(state.forYou ?? [])], design, bugs, goalsEdit, cpu: cpu?.view() ?? null, loops: { failing: loops.failing(), line: failingLine(loops.failing(), timeOf) }, supervisor: supervised ?? (isDemo ? demoSupervisor(clock(), SUPERVISOR_RULES, incidentCards) : null), boardSettings: boardSettingsNow(), obsolete: await obsoleteNow(state), version: { commit: running, since: startedAt, ...(await versionNow()), canRestart, selfUpdate: updateShown },
+        // Signals change 1: the board's own clock, its work loop's last run, a restart on its way, and why it was off.
+        board: boardView({ now: clock(), startedAt, aliveAt: store.aliveAt?.() ?? null, leaving, waiting: updateShown?.state === 'waiting' ? updateShown : null, lastStop: lastStopOf(store.startedGap ?? null, startedAt) }), mod: await modNow(),
         // B320: where the New project button suggests a new project's folder, and whether this board makes one.
         newProject: { parent: home === null ? null : dirname(home), canMake: !isDemo && !isShowOnly, isMaking: makingProject },
         // B767: which of the main chat's routine jobs run by code on this PC, and what is missing.
@@ -2532,6 +2544,10 @@ async function main(args) {
         }
       }
       if (back.length > 0) await store.back(back)
+      // B891: the worker a spawn's job makes (its name on the board: the title without the prefix), so the sweep knows the
+      // spawn went should its call give no answer.
+      const making = jobs.filter(job => job.spawn !== undefined).map(job => [job.id, prefix !== '' && job.chat.startsWith(prefix) ? job.chat.slice(prefix.length) : job.chat])
+      if (making.length > 0) await store.handChats(making)
       for (const job of jobs) if (job.id.startsWith('resume:')) resumesSent.set(job.id.slice('resume:'.length), clock())
       const asleep = jobs.map(job => asleepOfJob(job.id)).filter(one => one !== null)
       for (const one of asleep) asleepWoken.set(one.chat, { since: one.since, at: clock() })
@@ -2541,10 +2557,11 @@ async function main(args) {
     handsDone: counted(async body => {
       const { checked } = await checkFresh(body)
       if (!checked.ok) return checked
-      const { sent, failed, back, why, texts } = handResults(body)
+      const { sent, failed, back, doubt, why, texts } = handResults(body)
       // B880: the words this hand gives back unsent (the app gave no answer in time, or its process cannot call tools) wait again,
       // for another hand or their addressee; a word it gave back that the app sent after all is kept as delivered.
-      const givenBack = back.length === 0 ? 0 : await store.back(store.outbox().filter(one => back.includes(one.id) && one.state === 'taken' && one.takenBy === checked.chat).map(one => one.id), checked.chat)
+      // B891: one whose call gave no answer (`doubt`) waits in doubt first: no one else takes it while that answer may come.
+      const givenBack = back.length === 0 ? 0 : await store.back(store.outbox().filter(one => back.includes(one.id) && one.state === 'taken' && one.takenBy === checked.chat).map(one => one.id), checked.chat, clock(), doubt)
       const late = sent.length === 0 ? 0 : await store.deliveredLate(sent, checked.chat, clock())
       if (givenBack + late > 0) readState.reset()
       // B768: a lookup of the limits by code is kept as the supervisor's lookups are (B640): the newest reading of each
@@ -2671,7 +2688,9 @@ async function main(args) {
   })
 
   for (const signal of ['SIGINT', 'SIGTERM', 'SIGHUP']) process.on(signal, () => process.exit(0))
-  process.on('exit', () => {
+  process.on('exit', code => {
+    // Signals change 1: why the board ended, for the next start's gap line (a board that records, once it listened).
+    if (isUp && !isDemo && historyFrom === undefined) writeStop(join(HERE, 'data', 'stop.json'), { at: clock(), why: stopWhy({ code }) })
     games.stopAll()
     // A picture that is being made ends with the board, and its folder under the temporary folder goes with it.
     making?.stop()
@@ -2747,6 +2766,7 @@ async function main(args) {
     await claimBridge()
   }
   server.listen(config.port, HOST, async () => {
+    isUp = true
     // B529: the loops' first owner finishes the open chat logs; one that gains the loops later does it then.
     const owns = await ownsLoops()
     if (owns) void chatLogs?.resume().catch(error => loops.failed('chat-logs', error))

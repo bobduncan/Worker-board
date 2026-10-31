@@ -17,7 +17,7 @@ import {
 import type { OpenInstruction, TaskChange } from './chats'
 import { blockAsksLine, forYouCount, forYouItems, leftOutLine } from './foryou'
 import { STUCK_SHOWN_MS, isShownForTime, popupText } from './popup'
-import { ARCHIVE_TOOL, CAN_SET_MS, CAN_TOOLS, EFFORT_TOOL, HAND_CALL_MS, HANDS_DONE_PATH, HANDS_MS, HANDS_PATH, LIST_TOOL, MODEL_TOOL, NO_ANSWER_WHY, NO_SESSION_MS, NO_SESSION_WHY, SEND_TOOL, TASK_RUN_TOOL, TASK_UPDATE_TOOL, UNARCHIVE_TOOL, USAGE_TOOL, archivedOf, canFrom, mayClaim, parseJobs, plainResult, raceJob, sendResult, setResult, usageResult } from './hands'
+import { ARCHIVE_TOOL, CAN_SET_MS, CAN_TOOLS, EFFORT_TOOL, HAND_CALL_MS, HANDS_DONE_PATH, HANDS_MS, HANDS_PATH, LIST_TOOL, MODEL_TOOL, NO_SESSION_MS, NO_SESSION_WHY, NOT_TRIED_WHY, SEND_TOOL, TASK_RUN_TOOL, TASK_UPDATE_TOOL, UNARCHIVE_TOOL, USAGE_TOOL, archivedOf, canFrom, mayClaim, parseJobs, plainResult, raceJob, sendResult, setResult, usageResult } from './hands'
 import type { HandJob, HandResult, HandSet } from './hands'
 import {
   SELF, UNKNOWN, branchList, branchName, detached, folderName, inFolder, isListed, ordered, summary,
@@ -1913,7 +1913,7 @@ async function handRound($: EngineInterface): Promise<void> {
     for (const job of jobs) {
       // B880: after a call that hung or found no session, the rest of the round go back unsent.
       if (!mayClaim({ hung: handsHung, offUntil: handsOffUntil, now: await $.clock.now() })) {
-        results.push({ id: job.id, ok: false, back: true, why: handsHung > 0 ? NO_ANSWER_WHY : NO_SESSION_WHY })
+        results.push({ id: job.id, ok: false, back: true, why: handsHung > 0 ? NOT_TRIED_WHY : NO_SESSION_WHY })
         continue
       }
       const call = runJob($, job)

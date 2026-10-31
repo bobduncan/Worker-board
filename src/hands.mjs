@@ -34,6 +34,9 @@ import { isOlder, versionOf } from './oldMods.mjs'
 import { EFFORTS, MODEL_ID } from './work/effort.mjs'
 import { RESTART_COMMAND } from './work/modRollout.mjs'
 import { ownerFirst } from './talkPartner.mjs'
+import { DOUBT_MS, isInDoubt } from './store.mjs'
+
+export { DOUBT_MS, isInDoubt }
 
 /** The words of the board's that are a chat's hands: start a chat that does not run, wake one whose turn was stopped. */
 export const HAND_COMMANDS = ['start', 'wake']
@@ -67,12 +70,17 @@ export const heldTooLong = (outbox, now) => outbox
 /**
  * B880: a start word that names its chat (`about`: the Product owner's routine; a worker's spawn names none) whose chat is on
  * the board now (`onBoard`, the names): moot, as nothing more is to start. No hand takes it, and the outbox sweep closes it.
+ * B891: a worker's spawn in doubt (`doubtAt`) names the chat its hand's job made (`handChat`): it went once that chat is on the
+ * board, so it is never started twice.
  */
-/** B880: why a moot start word is closed (the outbox sweep and a hand's claim say the same). */
-export const mootWhy = message => `${message.about} is on the board now`
+const spawnChatOf = message => (typeof message?.about === 'string' && message.about !== '' ? message.about
+  : Number.isFinite(message?.doubtAt) && typeof message?.handChat === 'string' && message.handChat !== '' ? message.handChat : null)
 
-export const isMootSpawn = (message, onBoard) => message?.command === 'spawn' && typeof message.about === 'string' && message.about !== ''
-  && onBoard instanceof Set && onBoard.has(message.about)
+/** B880: why a moot start word is closed (the outbox sweep and a hand's claim say the same). */
+export const mootWhy = message => `${spawnChatOf(message)} is on the board now`
+
+export const isMootSpawn = (message, onBoard) => message?.command === 'spawn' && spawnChatOf(message) !== null
+  && onBoard instanceof Set && onBoard.has(spawnChatOf(message))
 
 /**
  * B768 (the person, 2026-10-28: "A: limits timer"): the plan's limits are looked up by code when the board's newest
@@ -328,12 +336,14 @@ function routineOf(message) {
  * What a hand reports back, `[{ id, ok, why, text, back }]`, read safely: the words it sent and those it could not, by id, and
  * (B768) the answer of a lookup of the limits (`texts`, by its `usage:` id, 20000 characters at most). B880: `back` the
  * words it gives back unsent (the app gave no answer in time, or its process cannot call tools): they wait again, no try spent.
+ * B891: `doubt` those of them whose call gave no answer (`doubt: true`; a B880 mod says it only in its why): it may have acted.
  */
 export function handResults(body) {
   const list = Array.isArray(body?.results) ? body.results : []
   const sent = []
   const failed = []
   const back = []
+  const doubt = []
   const why = {}
   const texts = {}
   for (const one of list) {
@@ -341,11 +351,13 @@ export function handResults(body) {
     if (one.ok === true) {
       sent.push(one.id)
       if (one.id.startsWith('usage:') && typeof one.text === 'string') texts[one.id] = one.text.slice(0, 20_000)
-    } else if (one.back === true) back.push(one.id)
-    else {
+    } else if (one.back === true) {
+      back.push(one.id)
+      if (one.doubt === true || /gave no answer/.test(String(one.why ?? ''))) doubt.push(one.id)
+    } else {
       failed.push(one.id)
       why[one.id] = String(one.why ?? 'not sent').slice(0, 300)
     }
   }
-  return { sent, failed, back, why, texts }
+  return { sent, failed, back, doubt, why, texts }
 }
