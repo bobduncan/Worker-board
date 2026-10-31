@@ -870,7 +870,23 @@ button.goal-dot:hover, button.goal-dot:focus-visible { box-shadow: 0 0 0 3px #2a
 .brainstorm-opening { margin: 0; color: var(--muted); font-size: 12.5px; overflow-wrap: anywhere; }
 .brainstorm-opening .goals-link { font-size: 12.5px; }
 .brainstorm-over { margin: 0; font-size: 13px; }
-.brainstorm-problems { margin: 0; color: var(--waiting); font-size: 12.5px; overflow-wrap: anywhere; }
+/* 2026-10-31: the lines of a thread the board told the partner to write anew are counted in the "…" menu, quietly (never amber). */
+.brainstorm-menu-note { margin: 0; padding: 6px 12px 4px; border-top: 1px solid var(--line); color: var(--muted); font-size: 12px; }
+/* 2026-10-31: the Result card of a created proposal: the same calm frame, a thin quiet-green border, muted words and quiet tones. */
+.brainstorm-box.brainstorm-result { padding: 20px 26px 22px; border-color: #2f7d57; }
+.brainstorm-result-title { margin: 0 0 6px; font-size: 18px; }
+.brainstorm-result-line { margin: 0 0 4px; font-size: 14.5px; line-height: 1.5; overflow-wrap: anywhere; }
+.brainstorm-result h5 { margin: 14px 0 6px; color: var(--muted); font-size: 11.5px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; }
+.brainstorm-result-list { display: flex; flex-direction: column; gap: 6px; margin: 0; }
+.brainstorm-result-task, .brainstorm-result-drop, .brainstorm-result-goal { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; padding: 8px 12px; border: 1px solid var(--line); border-radius: 8px; background: rgba(10, 15, 24, 0.55); font-size: 14px; overflow-wrap: anywhere; }
+.brainstorm-result-name { flex: 1 1 14em; min-width: 0; }
+.brainstorm-task-stand { margin-left: auto; padding: 1px 10px; border: 1px solid var(--line); border-radius: 9px; background: var(--inset); color: var(--muted); font-size: 12px; white-space: nowrap; }
+.brainstorm-task-stand.tone-refining, .brainstorm-task-stand.tone-queued { border-color: #2a3a58; background: #182438; color: #8fb4ff; }
+.brainstorm-task-stand.tone-working { border-color: #2a4a7d; background: #13213a; color: #cfe0ff; }
+.brainstorm-task-stand.tone-done { border-color: #1f6b43; color: var(--working); }
+.brainstorm-result-next, .brainstorm-result-replaced { margin: 12px 0 0; font-size: 13px; }
+.brainstorm-result-replaced { margin-top: 4px; }
+.brainstorm-result .goals-action { margin-top: 12px; }
 /* The proposal views keep their function; they stand in the same calm card. */
 .brainstorm-box.is-proposal { padding: 20px 24px 22px; }
 .brainstorm-proposal > :first-child { margin-top: 0; }
@@ -881,7 +897,6 @@ button.goal-dot:hover, button.goal-dot:focus-visible { box-shadow: 0 0 0 3px #2a
 .brainstorm-tick small { margin-left: auto; text-align: right; font-size: 12px; }
 .brainstorm-tick.is-off > span { color: var(--muted); text-decoration: line-through; }
 .brainstorm-note-kept { margin: 0; padding: 6px 12px; border-left: 3px solid #2a3a58; font-size: 14px; }
-.brainstorm-created { margin: 14px 0 0; color: var(--working); font-size: 13.5px; }
 .brainstorm-change { display: flex; flex-direction: column; gap: 6px; margin-top: 10px; }
 .brainstorm-change .goals-action { align-self: flex-start; }
 /* "Change this goal" (2026-10-31): the change's talk, what the partner understood, the goal's draft and its re-plan.

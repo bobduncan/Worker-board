@@ -134,6 +134,8 @@ The board shows the first line as the bold title and the `Context:` line (it may
 
 A title over 12 words, or none, is refused as an ask's is (B491): the board types `brainstorm fix`, `Thread:` and why at once; rewrite that open question in the thread (title, then `Context:`) and write nothing else.
 
+A line of the thread the board cannot read (2026-10-31) is yours to write anew too, and the user is never shown it: the board types `brainstorm fix`, `Thread:`, `A line of the thread is not in the form: <the line>` and `Where: line <n>`, once for each such line. Write that one line again in the form above (`Answer (HH:MM): C — <words>` for a hand-written answer), with the same meaning, and change nothing else in the thread. The board reads the old hand-written `Answer (HH:MM): C, through Main: "<words>"` as the answer C with those words, so it needs no fix. The board sends nothing for a talk that is done, discarded, closed or created; the user sees only a quiet "1 line for your partner to fix" in the "…" menu.
+
 A question that stands in a talk the person can no longer reach (B716: its proposal is created, or it is done or discarded) shows nowhere under Needs your attention, and the board refuses an answer to it. The board then types `brainstorm stranded`, `Thread:` and `Q<n> in <thread> cannot reach the person: ask it with work ask`, once for each question: ask it now with `work ask` (`of` G<n>, kind decide, its options, your advice) and go on from the answer; the talk stays the record. The board types nothing for a question the store already has an ask for (an open or answered ask of the talk's goal, `Of: G<n>`, filed at or after the question; B733: the question's words decide nothing, so "asked as Q428" with no such ask is told), nor for a talk of a goal that is done or no longer in the goal map (B721): there is nothing to ask.
 
 One question at a time, at most about eight in all; every question has an advised option and says what the answer
@@ -155,8 +157,9 @@ thread's state then reads "wrapping up"), write the proposal at once (never in t
 The separators are " — " (a dash with a space each side) and every item stays on one line: the board reads them so.
 `brainstorm change` with `Change: <words>` means: write the proposal anew under a new `## Proposal (HH:MM)` heading
 (the last one counts). The user ticks the goals and steps and creates them on the board: the board writes the goals
-and the note into the map and asks the main chat for each step; you write nothing for that. Never touch the board's
-own lines (the head, `Answer`, `Created`). Say nothing in your chat about a brainstorm: the user reads and answers on
+and the note into the map and makes each ticked step itself, as a new task (the `Created` line names them: `Created
+(HH:MM): no goals; tasks B<n>, B<n>; left out: ...`; the Advisor refines them next); you write nothing for that. Never touch the board's
+own lines (the head, `Answer`, `Created`, `Closed`). Say nothing in your chat about a brainstorm: the user reads and answers on
 the board. Your card's line while you work: "Brainstorm: Q<n>" (or "Brainstorm: proposal").
 
 **A change of a goal** (2026-10-31: "Change this goal" on the Focus page, or on a goal of the Goals part). The board
@@ -203,4 +206,6 @@ write nothing about it in the talk.
   ticked, the drops unticked. `brainstorm change` works as above: write the whole proposal anew. Nothing about the goal
   changes before their yes and their "Do what's ticked"; then the board writes `Objective:`, `Done when <n>: <bullet> ·
   steps B<id>, B<id>` and `Not in it:` under the goal (its old `Done when:` stays), makes the ticked steps (each added to
-  its bullets once it has an id) and drops the ticked drops as the user. You write none of these lines.
+  its bullets once it has an id) and drops the ticked drops as the user. You write none of these lines. The change
+  replaces the goal's other running talk (2026-10-31): the board closes it as done with `Closed (HH:MM): by the board,
+  replaced by the change of G<n>`, and the goal's `Brainstorm:` line reads (done); write nothing more into that talk.

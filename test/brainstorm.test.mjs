@@ -78,7 +78,8 @@ test('a proposal is read and marked created once (Review Focus 5)', () => {
   assert.equal(thread.proposal.note, 'why 75: the same bar as the units.')
   assert.equal(thread.proposal.created, null)
   const created = markCreated(PROPOSAL, { at: '20:01', goals: ['G10'], steps: ['B61'], leftOut: ['Score the benches against the picture'] })
-  assert.ok(created.text.endsWith('Note: why 75: the same bar as the units.\nCreated (20:01): G10; B61; left out: Score the benches against the picture\n'))
+  // 2026-10-31: the Created line names the tasks the board made ("tasks B61"), not the id alone.
+  assert.ok(created.text.endsWith('Note: why 75: the same bar as the units.\nCreated (20:01): G10; tasks B61; left out: Score the benches against the picture\n'))
   assert.equal(markCreated(created.text, { at: '20:02', goals: [], steps: [], leftOut: [] }).why, 'twice')
   assert.equal(parseThread(setThreadState(created.text, 'done').text).state, 'done')
   assert.deepEqual(parseThread(created.text).proposal.created, { at: '20:01', goals: ['G10'], steps: ['B61'], asked: 1, leftOut: ['Score the benches against the picture'] })
@@ -90,7 +91,8 @@ test('the steps the main chat was asked for are counted when their ids are not k
   assert.ok(created.text.endsWith('Created (20:01): G10, G11; 2 steps asked of the main chat; left out: nothing\n'))
   assert.deepEqual(parseThread(created.text).proposal.created, { at: '20:01', goals: ['G10', 'G11'], steps: [], asked: 2, leftOut: [] })
   const none = markCreated(PROPOSAL, { at: '20:01', goals: [], steps: [], asked: 0, leftOut: ['A', 'B'] })
-  assert.ok(none.text.endsWith('Created (20:01): no goals; no steps; left out: A · B\n'))
+  // 2026-10-31: the board's word for what it makes is "tasks": "no tasks", where the line said "no steps".
+  assert.ok(none.text.endsWith('Created (20:01): no goals; no tasks; left out: A · B\n'))
 })
 
 test('a changed proposal stands under a new heading: the last one counts', () => {

@@ -373,7 +373,8 @@ longer one), the options as big buttons that answer at once with the advised one
 your earlier answers as small chips above (a click shows the question and the whole answer); what your partner understood
 comes as a card with a thin green border, "Yes, that's it" and "Not quite…"; your opening words are one collapsed line
 with "show all"; at the end a proposal: what was decided, new goals for the map and steps for the backlog, each with a
-tick, and a note; "Create what's ticked" puts the goals into the map and asks the main chat for each step; "Change…" asks
+tick, and a note; "Create what's ticked" puts the goals into the map and makes each ticked step itself as a new task (a created proposal then shows
+a Result card: what was written, the new tasks with where each stands now, what was dropped, what happens next); "Change…" asks
 your partner for another proposal; a question or a proposal waiting is also a line under Needs your attention),
 **Game plan** (the game plan from the game's repository, with when it was written; being reworked in B218 at the time
 of this page), **Suggestions** (the Advisor's open suggestions with their Why, Cost and Unblocks, and when its rounds

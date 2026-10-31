@@ -55,7 +55,10 @@ function answerOf(at, value) {
   const back = value.match(/^back to Q(\d+)$/)
   if (back !== null) return { at, back: Number(back[1]) }
   const key = value.match(/^([A-Z]|Other)(?: — (.*))?$/)
-  return key === null ? null : { at, key: key[1], words: (key[2] ?? '').trim() }
+  if (key !== null) return { at, key: key[1], words: (key[2] ?? '').trim() }
+  // 2026-10-31: the old hand-written form, when a chat wrote the person's answer for them: `C, through Main: "<words>"`.
+  const told = value.match(/^([A-Z]|Other),\s*through\s+[^:]{1,60}:\s*(.*)$/)
+  return told === null ? null : { at, key: told[1], words: told[2].trim().replace(/^"([\s\S]*)"$/, '$1').trim() }
 }
 
 /** "under G6" → "G6" (words after the id, "under G6 (benches)", are the Advisor's own); "under top" → null. */
@@ -95,13 +98,21 @@ function bulletItem(n, value) {
 }
 
 /**
- * `Created (<at>): G10, G11; B61 (or "2 steps asked of the main chat"); left out: <titles, " · " between>`, and for a
- * change "; dropped: B757, B758" at its end (the steps it dropped, kept as `dropped` only then).
+ * `Created (<at>): G10, G11; tasks B61, B62; left out: <titles, " · " between>`, and for a change "; dropped: B757, B758"
+ * before "left out:" (the steps it dropped, kept as `dropped` only then). 2026-10-31: the board makes the tasks itself and
+ * names them ("tasks B869, B870"); the old wording, "2 steps asked of the main chat" (or the ids alone), and "dropped" at
+ * the end of the line are still read in old threads.
  */
 function createdOf(at, line) {
   const drops = line.match(/; dropped: (B\d+(?:, B\d+)*)$/)
   const value = drops === null ? line : line.slice(0, drops.index)
   const [goals = '', steps = '', ...rest] = value.split('; ')
+  let dropped = drops === null ? null : drops[1].split(', ')
+  const before = dropped === null ? rest[0]?.match(/^dropped: (B\d+(?:, B\d+)*)$/) ?? null : null
+  if (before !== null) {
+    dropped = before[1].split(', ')
+    rest.shift()
+  }
   const left = rest.join('; ').replace(/^left out:\s*/, '').trim()
   const ids = steps.match(/\bB\d+\b/g) ?? []
   const asked = steps.match(/^(\d+) steps? asked/)
@@ -111,7 +122,7 @@ function createdOf(at, line) {
     steps: ids,
     asked: ids.length > 0 ? ids.length : asked === null ? 0 : Number(asked[1]),
     leftOut: left === '' || left === 'nothing' ? [] : left.split(' · ').map(one => one.trim()).filter(Boolean),
-    ...(drops === null ? {} : { dropped: drops[1].split(', ') }),
+    ...(dropped === null ? {} : { dropped }),
   }
 }
 
@@ -128,7 +139,7 @@ export const leftOutKey = title => oneLine(title, 2000).replace(/ · /g, ' - ')
  * a new heading) or null, and the lines the form does not know, each named once with its line ("line 9: ...").
  */
 export function parseThread(text) {
-  const thread = { title: null, goal: null, kind: null, started: null, state: 'running', opening: '', context: [], questions: [], understood: null, proposal: null, closed: null, problems: [] }
+  const thread = { title: null, goal: null, kind: null, started: null, state: 'running', opening: '', context: [], questions: [], understood: null, proposal: null, closed: null, problems: [], oddLines: [] }
   let section = 'head'
   let question = null
   let proposal = null
@@ -136,7 +147,11 @@ export function parseThread(text) {
   let list = null
   // The head's own lines count once: a "Goal:" in the Advisor's context under them is context.
   const seen = new Set()
-  const odd = (index, line) => thread.problems.push(`line ${index + 1}: ${line.slice(0, 80)}`)
+  // 2026-10-31: an odd line is kept whole beside its short problem text: the board tells the partner which line to write anew.
+  const odd = (index, line) => {
+    thread.problems.push(`line ${index + 1}: ${line.slice(0, 80)}`)
+    thread.oddLines.push({ line: index + 1, text: line.slice(0, 300) })
+  }
   split(text).lines.forEach((raw, index) => {
     const line = raw.trim()
     const asQuestion = line.match(QUESTION)
@@ -348,22 +363,23 @@ export function setThreadState(text, state) {
 }
 
 /**
- * What came of the last proposal, under it: `Created (<at>): <goals>; <steps>; left out: <titles>`. The steps are the
- * backlog's ids when known, else how many the main chat was asked for (`asked`). Refused `none` without a proposal,
- * `twice` when one was created already (Review Focus 5). "Change this goal": the steps it dropped end it,
- * "; dropped: B757" (only when it dropped any).
+ * What came of the last proposal, under it: `Created (<at>): <goals>; tasks <ids>; left out: <titles>`. 2026-10-31: the board
+ * makes the tasks itself, so the line names the ids it made ("tasks B869, B870"), "no tasks" when it made none; only a
+ * board that made none (`asked`: how many the main chat was asked for) says "2 steps asked of the main chat", as before.
+ * Refused `none` without a proposal, `twice` when one was created already (Review Focus 5). "Change this goal": the steps
+ * it dropped stand before "left out:", "; dropped: B757" (only when it dropped any).
  */
 export function markCreated(text, { at, goals = [], steps = [], asked = 0, leftOut = [], dropped = [] }) {
   const thread = parseThread(text)
   if (thread.proposal === null) return refuse('none')
   if (thread.proposal.created !== null) return refuse('twice')
   const goalPart = goals.length > 0 ? goals.join(', ') : 'no goals'
-  const stepPart = steps.length > 0 ? steps.join(', ') : asked > 0 ? `${asked} step${asked === 1 ? '' : 's'} asked of the main chat` : 'no steps'
+  const stepPart = steps.length > 0 ? `tasks ${steps.join(', ')}` : asked > 0 ? `${asked} step${asked === 1 ? '' : 's'} asked of the main chat` : 'no tasks'
   const left = leftOut.length > 0 ? leftOut.map(leftOutKey).join(' · ') : 'nothing'
   const file = split(text)
   const last = sections(file.lines).filter(one => PROPOSAL.test(one.line)).at(-1)
   const drops = dropped.filter(one => /^B\d+$/.test(one))
-  file.lines.splice(lastFilled(file.lines, last) + 1, 0, `Created (${oneLine(at, 40)}): ${goalPart}; ${stepPart}; left out: ${left}${drops.length === 0 ? '' : `; dropped: ${drops.join(', ')}`}`)
+  file.lines.splice(lastFilled(file.lines, last) + 1, 0, `Created (${oneLine(at, 40)}): ${goalPart}; ${stepPart}; ${drops.length === 0 ? '' : `dropped: ${drops.join(', ')}; `}left out: ${left}`)
   return { ok: true, text: join(file) }
 }
 
@@ -412,6 +428,8 @@ export function brainstormsState(texts, folder) {
         // 2026-10-31: the person closed it ("Close it": `{ at, by }`), or null.
         closed: thread.closed,
         problems: thread.problems,
+        // 2026-10-31: the lines of the thread the board cannot read, whole, for the partner's fix word.
+        oddLines: thread.oddLines,
       }
     }),
   }
@@ -421,8 +439,9 @@ export function brainstormsState(texts, folder) {
  * 2026-10-31 (the person: "per topic also reevaluate when the last interaction was because i feel a lot of older topics might
  * still be open otherwise"): the person's "Close it" on a talk that still runs: done with no proposal, and the board's line
  * `Closed (<at>): by the person` at its end. Refused `ended` for one that is over.
+ * 2026-10-31: `by` is the board's own words when it closes one, "by the board, replaced by the change of G60".
  */
-export function closeThread(text, at) {
+export function closeThread(text, at, by = 'by the person') {
   const thread = parseThread(text)
   if (thread.state === 'done' || thread.state === 'discarded') return refuse('ended')
   const state = setThreadState(text, 'done')
@@ -430,7 +449,7 @@ export function closeThread(text, at) {
   const file = split(state.text)
   let end = file.lines.length
   while (end > 0 && file.lines[end - 1].trim() === '') end -= 1
-  file.lines.splice(end, 0, '', `Closed (${oneLine(at, 40)}): by the person`)
+  file.lines.splice(end, 0, '', `Closed (${oneLine(at, 40)}): ${oneLine(by, 200)}`)
   return { ok: true, text: join(file) }
 }
 
@@ -520,8 +539,12 @@ const isLive = thread => thread.state === 'running' || thread.state === 'wrappin
  * partner's "what I understand you want"; `create` of a change writes the goal's draft (Objective, Done when <n> with the
  * steps that cover each, Not in it) under its goal, only after that yes, and drops the ticked drops (`drops`, indexes
  * into the proposal's Drop list) through `drop(id, why)`, the work store's drop as the person.
+ * 2026-10-31: `step({ thread, index, goal })` makes a ticked task of the proposal (the board writes it itself, as the person)
+ * and answers `{ ok: true, result: { id } }`: `create` makes the ticked ones before it marks the thread created, so the
+ * Created line names their ids; a change also closes the goal's other running talk (not a change): done, with the board's
+ * Closed line, and its goal line reads (done). Without `step` no task is made here (the page asks for them, as before).
  */
-export async function editThread(body, { canWrite, dir, folder, goalsFile, historyDir, now, fs = files, drop = null }) {
+export async function editThread(body, { canWrite, dir, folder, goalsFile, historyDir, now, fs = files, drop = null, step = null }) {
   if (canWrite !== true) return { ok: false, status: 403, why: 'This board only shows: brainstorm on the board that delivers.' }
   if (body === null || typeof body !== 'object' || Array.isArray(body)) return failed('form')
   const base = String(dir).replace(/[\\/]+$/, '')
@@ -535,7 +558,7 @@ export async function editThread(body, { canWrite, dir, folder, goalsFile, histo
     if (creating.has(file)) return failed('twice')
     creating.add(file)
     try {
-      return await createFrom(body, { file, goalsAt, now, fs, drop })
+      return await createFrom(body, { file, base, folder, goalsAt, now, fs, drop, step })
     } finally {
       creating.delete(file)
     }
@@ -638,7 +661,7 @@ async function makeThread({ title, opening, goalId, kind = null, base, folder, g
   return failed('write')
 }
 
-async function createFrom(body, { file, goalsAt, now, fs, drop = null }) {
+async function createFrom(body, { file, base = null, folder = null, goalsAt, now, fs, drop = null, step = null }) {
   const before = await readUtf8(fs, file)
   if (before === null) return failed('gone')
   if (Number.isInteger(body.seen) && body.seen !== before.length) return failed('changed')
@@ -706,14 +729,59 @@ async function createFrom(body, { file, goalsAt, now, fs, drop = null }) {
     if (done?.ok === true) dropped.push(one.id)
     else notDropped.push({ id: one.id, why: done?.why ?? 'not dropped' })
   }
+  // 2026-10-31: the ticked tasks, made by the board itself (the `step` it was given), one after the other in the proposal's
+  // order and before the Created line, so the line names their ids. One it could not make has no id and is left to the page
+  // (it asks again, and offers "Make the tasks again" when that fails too).
+  const goalOfSteps = made[0]?.id ?? thread.goal?.id ?? null
+  const taskIds = new Map()
+  if (step !== null) {
+    for (const one of steps) {
+      const index = proposal.steps.indexOf(one)
+      const done = await Promise.resolve().then(() => step({ thread: { ...thread, path: body.path }, index, goal: goalOfSteps })).catch(error => ({ ok: false, why: error.message }))
+      if (done?.ok === true && /^B\d+$/.test(String(done.result?.id ?? ''))) taskIds.set(one, done.result.id)
+    }
+  }
   const marked = await rewriteThread(file, text => {
-    const created = markCreated(text, { at: timeOf(now), goals: made.map(one => one.id), steps: [], asked: steps.length, leftOut, dropped })
+    const created = markCreated(text, { at: timeOf(now), goals: made.map(one => one.id), steps: [...taskIds.values()], asked: step === null ? steps.length : 0, leftOut, dropped })
     return created.ok ? setThreadState(created.text, 'done') : created
   }, fs)
   if (!marked.ok) return failed(marked.why)
+  // 2026-10-31: a change replaces the goal's other running talk: it is closed, by the board, as the person's "Close it" does.
+  const replaced = isChanging && base !== null && folder !== null ? await closeReplacedTalks({ thread, file, base, folder, goalsAt, now, fs }) : []
   const serves = made[0]?.id ?? home
-  const result = { goals: made, steps: steps.map(one => ({ title: one.title, worker: one.worker, cost: one.cost, goal: serves, ...(one.for === undefined ? {} : { for: one.for }) })) }
-  return { ok: true, result: isChanging ? { ...result, dropped, notDropped } : result }
+  const result = {
+    goals: made,
+    steps: steps.map(one => ({ title: one.title, worker: one.worker, cost: one.cost, goal: serves, ...(one.for === undefined ? {} : { for: one.for }), ...(taskIds.has(one) ? { id: taskIds.get(one), index: proposal.steps.indexOf(one) } : {}) })),
+  }
+  return { ok: true, result: isChanging ? { ...result, dropped, notDropped, replaced } : result }
+}
+
+/**
+ * 2026-10-31: a change of a goal replaces its other running talk (not a change; running, or wrapping up): each is closed as done,
+ * `Closed (<at>): by the board, replaced by the change of G<n>` under it, and its goal line reads (done). The paths closed
+ * (a talk that cannot be closed now is left as it is).
+ */
+async function closeReplacedTalks({ thread, file, base, folder, goalsAt, now, fs }) {
+  const goal = thread.goal?.id ?? null
+  if (goal === null) return []
+  const closed = []
+  const names = (await fs.readdir(base).catch(() => [])).filter(name => /\.md$/.test(name))
+  for (const name of names) {
+    const other = `${base}/${name}`
+    if (other === file) continue
+    const read = parseThread((await readUtf8(fs, other)) ?? '')
+    if (read.goal?.id !== goal || !isLive(read) || isChange(read)) continue
+    const done = await rewriteThread(other, text => closeThread(text, timeOf(now), `by the board, replaced by the change of ${goal}`), fs).catch(() => ({ ok: false }))
+    if (!done.ok) continue
+    // The goal's line reads (done) when it names this talk, or none; a line that names another talk is left alone.
+    await changeGoalsFile(text => {
+      const node = parseGoals(text).byId.get(goal)
+      if (node === undefined || (node.brainstorm !== null && node.brainstorm.path !== `${folder}/${name}`)) return { ok: true, text }
+      return setGoalLine(text, goal, 'Brainstorm', `${folder}/${name} (done)`)
+    }, goalsAt).catch(() => null)
+    closed.push(`${folder}/${name}`)
+  }
+  return closed
 }
 
 /**
@@ -722,7 +790,7 @@ async function createFrom(body, { file, goalsAt, now, fs, drop = null }) {
  * answered or earlier question, or a talk that is over, asks for nothing. The board types each to the Advisor at once.
  */
 export function titleFixes(threads) {
-  return (threads ?? []).filter(thread => thread.state === 'running' || thread.state === 'wrapping up').flatMap(thread => {
+  return (threads ?? []).filter(isTold).flatMap(thread => {
     const latest = thread.latest
     if (latest === null || latest.answer !== null || (latest.problem ?? null) === null) return []
     return [{ path: thread.path, n: latest.n, title: latest.title ?? latest.text, problem: latest.problem }]
@@ -730,17 +798,47 @@ export function titleFixes(threads) {
 }
 
 /**
+ * 2026-10-31: a thread the board sends fix words about, and the page counts "lines for your partner to fix" of: it runs (or
+ * wraps up), its proposal is not created and the person did not close it. A done, created, closed or discarded thread asks
+ * for nothing.
+ */
+export const isTold = thread => (thread.state === 'running' || thread.state === 'wrapping up') && (thread.proposal?.created ?? null) === null && (thread.closed ?? null) === null
+
+/**
+ * 2026-10-31 (the person: "the thread has a line the board cannot read ... this isnt clear to me"): the lines of a talk that
+ * runs which the form does not know, each once per talk (the same line twice is one). `{ path, line, odd }`: the line's number
+ * and its words. The board tells the partner to write each anew; the person is never shown one.
+ */
+export function lineFixes(threads) {
+  return (threads ?? []).filter(isTold).flatMap(thread => {
+    const seen = new Set()
+    return (thread.oddLines ?? []).filter(one => !seen.has(one.text) && seen.add(one.text)).map(one => ({ path: thread.path, line: one.line, odd: one.text }))
+  })
+}
+
+/** The line of a fix word that names a line of the thread: `A line of the thread is not in the form: <the line>`. */
+const LINE_FIX = /^A line of the thread is not in the form: /
+
+/**
  * B491: the board's word to the partner that its open brainstorm question has a title the board refuses (over 12 words,
  * or none; B452 refuses the same of an ask): rewrite it in the thread at once, as the form says. Typed on the board's own
  * clock, not as the person's word.
  */
-export function brainstormFixWords({ to, path, n, title, problem, role = null }) {
+export function brainstormFixWords({ to, path, n, title, problem, line, odd, role = null }) {
   const plain = value => String(value ?? '').replace(/\s+/g, ' ').trim()
   const shown = plain(title).slice(0, 200)
   // The problem begins with the thread's own words ("'s title is too long. ..." or "has no title: ..."): keep the reason only.
   const reason = plain(problem).replace(/^'s title is /, '').replace(/^has no title/, 'it has no title')
   // The Product owner (2026-10-31) keeps the form in its own job text.
   const form = role === 'owner' ? 'roles/product-owner.md, "How a talk goes"' : 'roles/partner.md, "A brainstorm"'
+  // 2026-10-31: a line the form does not know (`line`, `odd`): the partner writes that line in the form, with the same meaning.
+  if (line !== undefined) {
+    return {
+      to, ask: null, step: null, title: null, version: null, verdict: null, command: 'brainstorm-fix', about: path,
+      text: [`brainstorm fix`, `Thread: ${path}`, `A line of the thread is not in the form: ${plain(odd).slice(0, 300)}`, `Where: line ${line}`,
+        `Your job: write that line anew in the form (${form}), with the same meaning, and change nothing else in the thread.`].join('\n'),
+    }
+  }
   return {
     to, ask: null, step: null, title: null, version: null, verdict: null, command: 'brainstorm-fix', about: path,
     text: [`brainstorm fix`, `Thread: ${path}`, `Q${n}'s title is refused: ${reason}`, `Now: ${shown === '' ? '(none)' : shown}`,
@@ -756,8 +854,15 @@ export function brainstormFixWords({ to, path, n, title, problem, role = null })
  */
 export function fixesToTell(threads, outbox, advisor) {
   if ((advisor ?? null) === null) return []
-  return titleFixes(threads).map(fix => brainstormFixWords({ to: advisor.name, role: advisor.role ?? null, ...fix }))
-    .filter(words => !(outbox ?? []).some(one => one.command === 'brainstorm-fix' && one.about === words.about && one.text === words.text))
+  // 2026-10-31: a title is told again when its wording changes (the whole word); a line of the thread once, by its words (not
+  // its number: a line that moved is the same line).
+  const same = (sent, words) => {
+    if (sent.command !== 'brainstorm-fix' || sent.about !== words.about) return false
+    const mine = words.text.split('\n')[2] ?? ''
+    return LINE_FIX.test(mine) ? (sent.text ?? '').split('\n')[2] === mine : sent.text === words.text
+  }
+  return [...titleFixes(threads), ...lineFixes(threads)].map(fix => brainstormFixWords({ to: advisor.name, role: advisor.role ?? null, ...fix }))
+    .filter(words => !(outbox ?? []).some(one => same(one, words)))
 }
 
 /**

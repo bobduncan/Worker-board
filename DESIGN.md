@@ -691,8 +691,8 @@ section 5). The **thread** is `<brainstorms>/<yyyy-mm-dd>-<title's words>.md` (s
 (or `Other — <words>`, `skipped`, `back to Q<m>`) under each, and at the end the Advisor's `## Proposal (HH:MM)`
 (`Decided:`, `Goals:` "- [ ] <title> — under G<id> or top — Done when: …", `Steps:` "- [ ] <title> — <worker> —
 about <time>", `Note:`; a changed one under a new heading, the last counts) and the board's
-`Created (HH:MM): <goals>; <n> steps asked of the main chat; left out: <titles>` (`src/brainstorm.mjs`, read and
-written line by line, as the map is). The **Brainstorm part** is the Advisor tab's third. The screen (2026-10-31, the person:
+`Created (HH:MM): <goals>; tasks B<n>, B<n>; left out: <titles>` (2026-10-31: the board makes the tasks itself and names them;
+before, `<n> steps asked of the main chat`, still read; `src/brainstorm.mjs`, read and written line by line, as the map is). The **Brainstorm part** is the Advisor tab's third. The screen (2026-10-31, the person:
 "it looks terrible. cluttered too much text to little focus on the interaction, no feedback if its working on it"; mocks in
 the project's art inbox, `brainstorm-mocks`): at the left "+ New brainstorm…" and a slim row per brainstorm, its title and
 one small status word (`brainstormStatusOf`: "your turn" for an open question, what the partner understood or a proposal
@@ -4755,6 +4755,29 @@ question was written (`askFacts` from the state's work items, `questionTimes` fo
 the evaluation's Q428). The question's words decide nothing (B721 read "asked as Q428" and skipped a question whose ask did not exist): one that names an ask
 that does not exist, or one of another goal, a withdrawn ask or a free talk, is told as before, so nothing is dropped silently. The server's own pass is tested end to end (test/brainstormStrandedBoard.test.mjs: told once, also after the
 board starts anew).
+
+2026-10-31, four fixes found on the first real "Change this goal" (the person: "once i clicked to create new tasks it was closed
+immediatedly. i do not see if it created the new tasks or not. who is picking that up?", and on an old talk: "this isnt clear to
+me"), all in `src/brainstorm.mjs` and the brainstorm part of `public/board.js` (test/brainstormFixes.test.mjs, and
+test/brainstormCreateBoard.test.mjs on a running board):
+1. A thread whose proposal was created shows a Result card whenever it is opened (`brainstormResultView`, `brainstormResultCard`):
+   "Done", what was written (a change: the goal now has its objective and k Done-when bullets, with a link to the Focus page when
+   the goal is the focus; a plain proposal: the goals made), the new tasks by id and title, each a link, with where each stands now
+   (read from the backlog rows: "being refined by the Advisor", "on the list for a worker", "Worker 3 is on it", "done"), what was
+   dropped, one line on what happens next, and the earlier talk the change closed. Quiet colours only. A Created line in the old
+   wording names no id: its tasks are found by the ticked steps' titles where each is one task.
+2. Creating a change closes the goal's other running talk that is not a change (`closeReplacedTalks`): State done, under it
+   `Closed (HH:MM): by the board, replaced by the change of G<n>`, and the goal's `Brainstorm:` line reads (done) when it named that talk.
+3. A line of the thread the board cannot read is never shown to the person. The parser keeps each whole (`oddLines`); `fixesToTell`
+   types them to the talk partner as `brainstorm fix` ("A line of the thread is not in the form: ...", `Where: line <n>`), once for
+   each line (its words, not its number), beside the title fixes, and only for a talk that runs with no created proposal and no
+   Closed line. The page counts them in the "..." menu ("1 line for your partner to fix", `brainstormFixCount`). The old
+   hand-written `Answer (HH:MM): C, through Main: "<words>"` is read as the answer C with those words.
+4. The board makes the ticked tasks itself while it creates (`step` of `editThread`, the server's `writeGoalStep`, the same task
+   the Design tab's form makes), before it writes the Created line, so the line names the ids: `Created (HH:MM): no goals; tasks
+   B869, B870, B871; dropped: B757; left out: ...` ("dropped" before "left out"; the old order and the old wording, "3 steps asked
+   of the main chat", are still read). A task the board could not make has no id in the answer and is asked for again by the page
+   ("Make the tasks again" when that fails too); a task made by that retry is not added to the Created line.
 
 ## The goal demo before "Did we reach the goal?" (B677)
 

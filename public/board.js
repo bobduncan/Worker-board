@@ -11260,6 +11260,101 @@ function brainstormChosen(threads, open) {
   if (list.some(thread => thread.path === open)) return open
   return (list.find(thread => thread.state === 'running' || thread.state === 'wrapping up') ?? list[0])?.path ?? null
 }
+
+/**
+ * 2026-10-31 (the person, on the first "Change this goal": "once i clicked to create new tasks it was closed immediatedly. i do
+ * not see if it created the new tasks or not. who is picking that up?"): where one new task stands now, from its row of the
+ * backlog (`row`: the state's step, with its store item and flow; undefined when the backlog does not hold it): `{ state, words,
+ * tone }`. A quiet tone each, never amber or red: 'refining' (the Advisor has it), 'queued' (on the list for a worker, or given
+ * to one), 'working', 'done', 'quiet'. `prefix` is the chats' prefix, taken off a worker's name.
+ */
+function brainstormTaskStand(row, prefix = '') {
+  if (row === undefined || row === null) return { state: null, words: 'not on the task list now', tone: 'quiet' }
+  const state = row.item?.state ?? row.flow?.state ?? (row.status === 'done' ? 'done' : null)
+  const raw = String(row.item?.owner ?? '').trim()
+  const owner = prefix !== '' && raw.startsWith(prefix) ? raw.slice(prefix.length).trim() : raw
+  if (state === 'done') return { state, words: 'done', tone: 'done' }
+  if (state === 'dropped') return { state, words: 'dropped', tone: 'quiet' }
+  if (state === 'new') return { state, words: 'being refined by the Advisor', tone: 'refining' }
+  if (state === 'refined') return { state, words: 'on the list for a worker', tone: 'queued' }
+  if (state === 'queued') return { state, words: owner === '' ? 'on the list for a worker' : `given to ${owner}`, tone: 'queued' }
+  if (state === 'taken' || state === 'in progress') return { state, words: owner === '' ? 'a worker is on it' : `${owner} is on it`, tone: 'working' }
+  if (state === 'waiting on you') return { state, words: owner === '' ? 'waits for an answer' : `${owner} waits for an answer`, tone: 'working' }
+  if (state === 'review') return { state, words: 'in review', tone: 'working' }
+  // A board with no store reads the backlog's own status.
+  if (row.status === 'progress') return { state: 'in progress', words: 'a worker is on it', tone: 'working' }
+  if (row.status === 'queued') return { state: 'queued', words: 'on the list for a worker', tone: 'queued' }
+  return { state: null, words: 'on the task list', tone: 'quiet' }
+}
+
+/**
+ * 2026-10-31 (the person, on "The thread has a line the board cannot read": "this isnt clear to me"): how many lines of a talk
+ * the board told its partner to write anew, for the "…" menu's quiet "1 line for your partner to fix": the lines the form does
+ * not know (each once) and the open question's title when the board refuses it. Only while the board tells them (a talk that
+ * runs, its proposal not created, not closed: src/brainstorm.mjs `isTold`); never the lines themselves.
+ */
+function brainstormFixCount(thread) {
+  if (thread.state !== 'running' && thread.state !== 'wrapping up') return 0
+  if ((thread.proposal?.created ?? null) !== null || (thread.closed ?? null) !== null) return 0
+  const lines = new Set((thread.oddLines ?? []).map(one => one.text)).size
+  const latest = thread.latest ?? null
+  return lines + (latest !== null && latest.answer === null && (latest.problem ?? null) !== null ? 1 : 0)
+}
+
+/** The Result card's one line on what happens next. */
+const BRAINSTORM_NEXT_WORDS = 'The Advisor refines each new task; then the board gives it to a free worker.'
+
+/**
+ * The Result card of a thread whose proposal was created (2026-10-31), or null for one that was not: "Done" and what was
+ * written (`written`: a change says its goal now has its objective and so many Done-when bullets; a plain proposal names the
+ * goals it made), the new tasks by id and title with where each stands now (`tasks`, from `backlog`, the state's activities),
+ * what was dropped (`dropped`), one line on what happens next (`next`) and the earlier talk this change replaced (`replaced`,
+ * the paths of the other threads of the goal the board closed at that minute). A Created line from before the tasks were named
+ * (`2 steps asked of the main chat`) names none: its tasks are the backlog's steps with the ticked steps' titles, when each
+ * title is one task only; else `unnamed` says how many. `titles` is the backlog's titles by id (brainstormTitles), `goalTitles`
+ * the goals' by id, `threads` all the state's threads, `prefix` the chats' prefix.
+ */
+function brainstormResultView(thread, { backlog = [], titles = {}, goalTitles = {}, threads = [], prefix = '' } = {}) {
+  const proposal = thread.proposal
+  const created = proposal?.created ?? null
+  if (created === null) return null
+  const rows = new Map()
+  const byTitle = new Map()
+  for (const activity of backlog ?? []) {
+    for (const step of activity.steps ?? []) {
+      if (typeof step.id !== 'string') continue
+      rows.set(step.id, step)
+      byTitle.set(step.title, [...(byTitle.get(step.title) ?? []), step])
+    }
+  }
+  let ids = created.steps
+  // The old wording names no id: the ticked steps' titles find them where each is one step of the backlog.
+  if (ids.length === 0 && created.asked > 0) {
+    const ticked = proposal.steps.filter(step => !created.leftOut.includes(brainstormLeftKey(step.title)))
+    const found = ticked.map(step => byTitle.get(step.title) ?? [])
+    if (found.length > 0 && found.every(list => list.length === 1)) ids = found.map(list => list[0].id)
+  }
+  const tasks = ids.map(id => ({ id, title: rows.get(id)?.title ?? titles[id] ?? null, ...brainstormTaskStand(rows.get(id), prefix) }))
+  const isChange = thread.kind === 'change'
+  const goal = thread.goal ?? null
+  const dropped = (created.dropped ?? []).map(id => ({ id, title: titles[id] ?? null, why: proposal.drops.find(one => one.id === id)?.why ?? '' }))
+  const open = tasks.some(task => task.state !== 'done' && task.state !== 'dropped')
+  const replaced = !isChange || goal === null ? [] : (threads ?? []).filter(other => other.path !== thread.path && other.goal?.id === goal.id && other.kind !== 'change'
+    && (other.closed?.by ?? '').startsWith('by the board, replaced by the change of') && other.closed?.at === created.at).map(other => other.path)
+  return {
+    at: created.at,
+    isChange,
+    goal,
+    written: isChange
+      ? { kind: 'change', goal: goal === null ? null : goal.id, bullets: proposal.doneWhen.length, hasObjective: typeof proposal.objective === 'string' && proposal.objective !== '' }
+      : { kind: 'goals', goals: created.goals.map(id => ({ id, title: goalTitles[id] ?? null })) },
+    tasks,
+    unnamed: tasks.length === 0 ? created.asked : 0,
+    dropped,
+    next: tasks.length > 0 && open ? BRAINSTORM_NEXT_WORDS : null,
+    replaced,
+  }
+}
 // brainstorm:end
 
 /**
@@ -11284,7 +11379,9 @@ function brainstormData(state) {
     brainstormUi.open, brainstormUi.newAbout === undefined ? 'closed' : brainstormUi.newAbout,
     [...brainstormUi.unticked].map(([path, keys]) => [path, [...keys]]), [...brainstormUi.failedSteps], brainstormUi.changing, brainstormUi.confirm, brainstormUi.busy, brainstormUi.note,
     brainstormUi.notQuite, [...brainstormUi.agreed], [...brainstormUi.dropsTicked].map(([path, keys]) => [path, [...keys]]), Object.entries(brainstormTitles(state)),
-    brainstormUi.menu, [...brainstormUi.opening], [...brainstormUi.why], brainstormUi.chip]
+    brainstormUi.menu, [...brainstormUi.opening], [...brainstormUi.why], brainstormUi.chip,
+    // 2026-10-31: where the new tasks of a created proposal stand now (the Result card).
+    (state.brainstorms?.threads ?? []).filter(thread => thread.path === brainstormChosen(state.brainstorms?.threads ?? [], brainstormUi.open) && (thread.proposal?.created ?? null) !== null).map(thread => brainstormResultOf(thread, state))]
 }
 
 /** "Change this goal": the titles of the backlog's steps by their ids, for the re-plan's covered steps and drops. */
@@ -11292,6 +11389,12 @@ function brainstormTitles(state) {
   const titles = {}
   for (const activity of state?.backlog ?? []) for (const step of activity.steps ?? []) if (typeof step.id === 'string') titles[step.id] = step.title
   return titles
+}
+
+/** The Result card's view of a created thread (brainstormResultView) over the state: its backlog, titles, goals, threads and chat prefix. */
+function brainstormResultOf(thread, state) {
+  const goalTitles = Object.fromEntries((state.goals?.nodes ?? []).map(node => [node.id, node.title]))
+  return brainstormResultView(thread, { backlog: state.backlog ?? [], titles: brainstormTitles(state), goalTitles, threads: state.brainstorms?.threads ?? [], prefix: typeof state.chatPrefix === 'string' ? state.chatPrefix : '' })
 }
 
 /** "Change this goal": the key of a change's proposal the person agreed the goal draft of. */
@@ -11372,14 +11475,16 @@ function brainstormCard(thread, state) {
     parts.push(understoodPart(thread, view.understood, canWrite))
     if (canWrite) parts.push(el('p', 'brainstorm-next muted', `Next: your ${view.who} drafts the new goal`))
   } else if (view.partner !== null) parts.push(brainstormPartnerCard(view.partner, canWrite && isLive))
+  // 2026-10-31: a proposal that was created shows what came of it, whenever the thread is opened.
+  else if (thread.proposal !== null && thread.proposal.created !== null) parts.push(brainstormResultCard(thread, state, canWrite))
   else if (thread.proposal !== null) {
     const box = el('section', 'brainstorm-box is-proposal')
     box.append(thread.kind === 'change' ? changeProposalPart(thread, canWrite, state) : proposalPart(thread, canWrite))
     parts.push(box)
   }
   if (brainstormUi.note !== null && brainstormUi.note.path === thread.path) parts.push(el('p', `brainstorm-note${brainstormUi.note.isProblem ? ' is-error' : ''}`, brainstormUi.note.text))
-  // Lines of the thread the board cannot read: the Advisor is asked to write them in the form.
-  if (thread.problems.length > 0) parts.push(el('p', 'brainstorm-problems', `The thread has ${thread.problems.length === 1 ? 'a line' : 'lines'} the board cannot read (${thread.problems.slice(0, 3).join(' · ')}${thread.problems.length > 3 ? ' …' : ''}): ask your partner to write ${thread.problems.length === 1 ? 'it' : 'them'} as roles/partner.md shows.`))
+  // 2026-10-31: a line the board cannot read is the partner's to write anew (the board tells it); the person is never shown one.
+  // Only the "…" menu counts them, quietly.
   if (thread.state === 'discarded') parts.push(el('p', 'muted brainstorm-over', 'Discarded: nothing of it was created.'))
   // 2026-10-31: a talk the person closed says when and by whom.
   if (view.closed !== null) parts.push(el('p', 'muted brainstorm-over brainstorm-closed', `Closed ${view.closed.at}${view.closed.by ? `: ${view.closed.by}` : ''}. Nothing more of it is asked.`))
@@ -11447,6 +11552,9 @@ function brainstormMenu(thread, view, canWrite, isLive) {
     discard.title = 'End it without creating anything'
     list.append(discard)
   }
+  // 2026-10-31: lines the board told the partner to write anew, counted quietly; never the lines themselves.
+  const fixes = brainstormFixCount(thread)
+  if (fixes > 0) list.append(el('p', 'brainstorm-menu-note', `${fixes} line${fixes === 1 ? '' : 's'} for your ${view.who} to fix`))
   wrap.append(list)
   return wrap
 }
@@ -11577,6 +11685,56 @@ function understoodPart(thread, understood, canWrite) {
   return part
 }
 
+/**
+ * 2026-10-31: what came of a proposal that was created (the person: "once i clicked to create new tasks it was closed
+ * immediatedly. i do not see if it created the new tasks or not. who is picking that up?"): one calm card, whenever the thread
+ * is opened. "Done" and what was written (a change: the goal now has its objective and its Done-when bullets, with a link to
+ * the Focus page; a plain proposal: the goals made), the new tasks by id and title, each a link, with where each stands now,
+ * what was dropped, one line on what happens next, and the earlier talk this change closed. Quiet colours only.
+ */
+function brainstormResultCard(thread, state, canWrite) {
+  const view = brainstormResultOf(thread, state)
+  const box = el('section', 'brainstorm-box brainstorm-result')
+  box.setAttribute('role', 'status')
+  box.append(el('h4', 'brainstorm-result-title', 'Done'))
+  const bullets = view.written.bullets
+  if (view.written.kind === 'change') {
+    const goal = view.written.goal ?? 'The goal'
+    const line = linkedEl('p', 'brainstorm-result-line', `${goal} now has its objective and ${bullets} Done-when bullet${bullets === 1 ? '' : 's'}.`)
+    // The Focus page shows the goal when it is the focus; else the goal's own id above leads to it on the Goals part.
+    if (view.written.goal !== null && state.focus?.id === view.written.goal) {
+      const focus = el('button', 'ask-link brainstorm-result-focus', 'See it on the Focus page')
+      focus.type = 'button'
+      focus.dataset.place = '#advice/focus'
+      focus.title = 'Open the Focus page'
+      line.append(' ', focus)
+    }
+    box.append(line)
+  } else if (view.written.goals.length > 0) {
+    box.append(el('h5', '', 'Goals made'), fill(el('ul', 'brainstorm-result-list'), view.written.goals.map(goal => linkedEl('li', 'brainstorm-result-goal', goal.title === null ? goal.id : `${goal.id} ${goal.title}`))))
+  } else box.append(el('p', 'brainstorm-result-line', 'No new goals were made.'))
+  if (view.tasks.length > 0) {
+    box.append(el('h5', '', `New task${view.tasks.length === 1 ? '' : 's'}`), fill(el('ul', 'brainstorm-result-list'), view.tasks.map(task => {
+      const row = el('li', `brainstorm-result-task tone-${task.tone}`)
+      row.append(linkedEl('span', 'brainstorm-result-id', task.id), el('span', 'brainstorm-result-name', task.title ?? ''), el('small', `brainstorm-task-stand tone-${task.tone}`, task.words))
+      return row
+    })))
+  } else if (view.unnamed > 0) box.append(el('p', 'muted brainstorm-result-line', `${view.unnamed} new task${view.unnamed === 1 ? ' was' : 's were'} asked for; this thread did not write down which.`))
+  if (view.dropped.length > 0) {
+    box.append(el('h5', '', 'Dropped'), fill(el('ul', 'brainstorm-result-list'), view.dropped.map(drop => {
+      const row = el('li', 'brainstorm-result-drop')
+      row.append(linkedEl('span', 'brainstorm-result-id', drop.id), el('span', 'brainstorm-result-name', drop.title ?? ''))
+      if (drop.why !== '') row.append(el('small', 'muted', drop.why))
+      return row
+    })))
+  }
+  if (view.next !== null) box.append(el('p', 'muted brainstorm-result-next', view.next))
+  if (view.replaced.length > 0) box.append(el('p', 'muted brainstorm-result-replaced', `${view.goal.id}'s earlier talk${view.replaced.length === 1 ? ' is' : 's are'} closed: this change replaced ${view.replaced.length === 1 ? 'it' : 'them'}.`))
+  const failed = brainstormUi.failedSteps.get(thread.path) ?? []
+  if (canWrite && failed.length > 0) box.append(brainstormButton(`Make the ${failed.length} task${failed.length === 1 ? '' : 's'} again`, 'steps-again', 'goals-action is-send'))
+  return box
+}
+
 /** The box to change a proposal, under its buttons, while open: the person's words go to the Advisor (`brainstorm change`). */
 function brainstormChangeBox() {
   const change = el('div', 'brainstorm-change')
@@ -11661,12 +11819,6 @@ function changeProposalPart(thread, canWrite, state) {
     part.append(row)
   }
   if (view.note) part.append(el('h5', '', 'The note kept under the goal'), el('p', 'brainstorm-note-kept', view.note))
-  if (view.created !== null) {
-    part.append(el('p', 'brainstorm-created', view.created))
-    const failed = brainstormUi.failedSteps.get(thread.path) ?? []
-    if (canWrite && failed.length > 0) part.append(brainstormButton(`Make the ${failed.length} task${failed.length === 1 ? '' : 's'} again`, 'steps-again', 'goals-action is-send'))
-    return part
-  }
   if (canWrite && thread.state !== 'discarded') {
     const buttons = el('div', 'brainstorm-buttons')
     const back = brainstormButton('‹ The goal draft', 'unagree', 'goals-lines')
@@ -11700,12 +11852,6 @@ function proposalPart(thread, canWrite) {
   if (view.goals.length > 0) part.append(el('h5', '', 'New goals for the map'), ...view.goals.map(goal => tick(goal, goal.title, `${goal.where} · Done when: ${goal.doneWhen}`)))
   if (view.steps.length > 0) part.append(el('h5', '', 'New tasks for the backlog'), ...view.steps.map(step => tick(step, step.title, `${step.worker} · ${step.cost}`)))
   if (view.note) part.append(el('h5', '', 'The note kept under the goal'), el('p', 'brainstorm-note-kept', view.note))
-  if (view.created !== null) {
-    part.append(el('p', 'brainstorm-created', view.created))
-    const failed = brainstormUi.failedSteps.get(thread.path) ?? []
-    if (canWrite && failed.length > 0) part.append(brainstormButton(`Ask the main chat again for ${failed.length} step${failed.length === 1 ? '' : 's'}`, 'steps-again', 'goals-action is-send'))
-    return part
-  }
   if (canWrite && thread.state !== 'discarded') {
     const buttons = el('div', 'brainstorm-buttons')
     const create = brainstormButton('Create what\'s ticked', 'create', 'goals-action is-send')
@@ -11916,10 +12062,13 @@ async function brainstormAct(act, path, key = null) {
         : { command: 'create', path, goals: view.goals.filter(goal => goal.ticked).map(goal => goal.index), steps, seen: thread.length }
       const made = await sendBrainstorm(body)
       if (made !== null) {
-        // One message per step to the main chat, which writes it on the backlog and links it to its goal.
-        let asked = 0
+        // 2026-10-31: the board makes the ticked tasks itself while it creates (their ids stand in the Created line); one it
+        // could not make comes back without an id and is asked for once more, here, one message per task.
+        const madeAlready = new Set((made.steps ?? []).filter(one => typeof one.id === 'string' && Number.isInteger(one.index)).map(one => one.index))
+        let asked = madeAlready.size
         const failed = []
         for (const index of steps) {
+          if (madeAlready.has(index)) continue
           if (await sayBrainstorm({ to: main, command: 'goal-step', thread: path, step: index }, path)) asked += 1
           else failed.push(index)
         }

@@ -58,7 +58,7 @@ import { createSpendingCollector } from './src/work/routing/collector.mjs'
 import { readRoutingRecord } from './src/work/routing/records.mjs'
 import { parseRoutingPolicy } from './src/work/routing/policy.mjs'
 import { adoptPicture, findDemo, findPicture, PICTURE_BYTES as SHOWN_PICTURE_BYTES, pictureProblem, pictureTooBig, shownFolders, shownRoots } from './src/pictures.mjs'
-import { answerWords, checkSay, focusWords, goalStepOf, recommendYesAnswer, obsoleteWords, recommendYesOf, reportedBackgroundDue, resumesDue, sayStopWords, spawnWhenAlone, wakeFor, wakesDue, wakesStopped, withInstruction, workWords } from './src/say.mjs'
+import { answerWords, checkSay, focusWords, goalStepFor, goalStepOf, recommendYesAnswer, obsoleteWords, recommendYesOf, reportedBackgroundDue, resumesDue, sayStopWords, spawnWhenAlone, wakeFor, wakesDue, wakesStopped, withInstruction, workWords } from './src/say.mjs'
 import { keepTalkPicture } from './src/talkPicture.mjs'
 import { firstLook, refineQueue, refineWhenDue } from './src/refineGate.mjs'
 import { recheckText, roundText, roundsNow } from './src/rounds.mjs'
@@ -814,6 +814,14 @@ async function main(args) {
     if (isShowOnly || workDir === null) return { ok: false, status: 409, why: 'This board cannot write a step.' }
     const step = goalStepOf(body, state)
     if (!step.ok) return step
+    return writeGoalStep(step)
+  }
+  /**
+   * The step `goalStepOf` / `goalStepFor` worked out, written as the person and linked under its goal (and the Done when
+   * bullets it is for). 2026-10-31: also what Create of a proposal does for each ticked step (`step` of the brainstorm route),
+   * so the thread's Created line names the ids.
+   */
+  const writeGoalStep = async step => {
     const stored = await readStore(workDir)
     const activity = step.goal === null ? stored?.activities?.[0]?.name ?? null : activityFor(step.goal, stored?.items, stored?.activities)
     if (activity === null) return { ok: false, status: 409, why: 'The work store has no activity to put the step under.' }
@@ -2170,6 +2178,12 @@ async function main(args) {
         now: clock(),
         // "Change this goal" (2026-10-31): a ticked drop of a change's proposal is the work store's drop, as the person.
         drop: (id, why) => workAction({ action: 'drop', id, why }, 'person'),
+        // 2026-10-31: a ticked step of the proposal is written by the board while it creates, so the Created line names its id.
+        step: async ({ thread, index, goal }) => {
+          if (isShowOnly || workDir === null) return { ok: false, why: 'This board cannot write a step.' }
+          const made = await writeGoalStep(goalStepFor(thread, index, goal))
+          return made.ok ? { ok: true, result: { id: made.result.step } } : { ok: false, why: made.why }
+        },
       })
       readState.reset()
       return done

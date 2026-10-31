@@ -123,7 +123,8 @@ test('answerUnderstood writes yes or not quite under the open Understood, once; 
   // A question asked after it: the Understood is not the open one.
   assert.equal(answerUnderstood(`${open}## Q2 (09:07)\nThe gate too?\n`, { at: '09:08', yes: true }).why, 'none')
   const created = markCreated(`${open}${YES}${PROPOSAL}`, { at: '09:20', asked: 1, leftOut: ['Sweep the gravel'], dropped: ['B14'] })
-  assert.match(created.text, /\nCreated \(09:20\): no goals; 1 step asked of the main chat; left out: Sweep the gravel; dropped: B14\n$/)
+  // 2026-10-31: "dropped:" stands before "left out:" (the last part holds the titles, which may hold "; " themselves).
+  assert.match(created.text, /\nCreated \(09:20\): no goals; 1 step asked of the main chat; dropped: B14; left out: Sweep the gravel\n$/)
   assert.deepEqual(parseThread(created.text).proposal.created, { at: '09:20', goals: [], steps: [], asked: 1, leftOut: ['Sweep the gravel'], dropped: ['B14'] })
   // No drops: the line as before.
   assert.deepEqual(parseThread(markCreated(`${open}${YES}${PROPOSAL}`, { at: '09:20' }).text).proposal.created, { at: '09:20', goals: [], steps: [], asked: 0, leftOut: [] })
@@ -254,6 +255,8 @@ test('nothing about the goal changes before the yes; create writes the draft, ke
     steps: [{ title: 'Sign the gate from every bench', worker: 'Digger', cost: 'about 1 h', goal: 'G6', for: [2] }, { title: 'Join the dead ends', worker: 'Main decides', cost: 'about 30 min', goal: 'G6', for: [2, 3] }],
     dropped: ['B14'],
     notDropped: [{ id: 'B15', why: 'B15 is in progress.' }],
+    // 2026-10-31: a change also says which running talks of the goal it closed (none here: only its own thread stands).
+    replaced: [],
   })
   assert.deepEqual(drops, [['B14', 'the old maze is no longer needed'], ['B15', 'the hedge maze went with it']])
   const node = mapOf(fs).byId.get('G6')
