@@ -31,15 +31,22 @@ test('cases: none stands in it, not known, more than three, a long command, no p
   assert.equal(command.length, COMMAND_CHARS)
   assert.equal(command.endsWith('…'), true)
   assert.doesNotMatch(long, /\n/)
+  // A chat's own shell command, as Claude Code wraps it: its own command is shown, not the wrapper's snapshot.
+  const chat = holderWords([{ pid: 9, name: 'bash.exe', parent: 'claude.exe', command: `"C:\\Program Files\\Git\\bin\\bash.exe" -c "source /c/Users/x/.claude/shell-snapshots/snapshot-bash-1.sh 2>/dev/null || true && eval 'sleep 1500; tail -3 check.log' && pwd -P >| /tmp/cwd"` }])
+  assert.equal(chat, ' (bash.exe 9 from claude.exe: sleep 1500; tail -3 check.log): stop it (a chat\'s background command or monitor: TaskStop)')
 })
 
-test('the reader: its JSON as holders; one process as an object; no list is not known; off Windows nothing is read', async () => {
-  assert.deepEqual(parseHolders('[{"pid":5,"name":"bash.exe","parent":"node.exe","command":"bash"}]'), [{ pid: 5, name: 'bash.exe', parent: 'node.exe', command: 'bash' }])
-  assert.deepEqual(parseHolders('{"pid":5,"name":"bash.exe","parent":null,"command":null}'), [{ pid: 5, name: 'bash.exe', parent: null, command: null }])
-  assert.deepEqual(parseHolders(''), [])
+test('the reader: its marked JSON as holders; one process as an object; a reader that failed is not known; off Windows nothing is read', async () => {
+  assert.deepEqual(parseHolders('HOLDERS [{"pid":5,"name":"bash.exe","parent":"node.exe","command":"bash"}]\r\n'), [{ pid: 5, name: 'bash.exe', parent: 'node.exe', command: 'bash' }])
+  assert.deepEqual(parseHolders('HOLDERS {"pid":5,"name":"bash.exe","parent":null,"command":null}'), [{ pid: 5, name: 'bash.exe', parent: null, command: null }])
+  assert.deepEqual(parseHolders('HOLDERS []'), [])
+  // The review of B844: an Add-Type that failed half-way printed "[]" and read as "no program"; without the mark it is not known.
+  assert.equal(parseHolders(''), null)
+  assert.equal(parseHolders('[]'), null)
   assert.equal(parseHolders('Add-Type: error'), null)
+  assert.equal(parseHolders('HOLDERS [{'), null)
   let asked = 0
-  const run = async () => { asked += 1; return '[]' }
+  const run = async () => { asked += 1; return 'HOLDERS []' }
   assert.equal(await folderHolders('/projects/game-b3', { platform: 'linux', run }), null)
   assert.equal(asked, 0)
   assert.deepEqual(await folderHolders('C:/projects/game-b3', { platform: 'win32', run }), [])

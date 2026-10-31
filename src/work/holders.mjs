@@ -17,6 +17,9 @@ export const NAMED_MAX = 3
 /** Characters of a program's command kept in the line. */
 export const COMMAND_CHARS = 80
 
+/** What the reader's answer starts with: output without it (a reader that failed half-way) is not known. */
+const MARK = 'HOLDERS '
+
 // Reads each process's working folder (its PEB's ProcessParameters.CurrentDirectory, 64-bit offsets) and answers, as
 // JSON, the processes whose working folder is the folder on standard input or inside it, with their parent's name.
 const READER = `using System; using System.Runtime.InteropServices; using System.Text;
@@ -42,13 +45,16 @@ public static class FolderHolders {
 }`
 const SCRIPT = [
   "try { (Get-Process -Id $PID).PriorityClass = 'BelowNormal' } catch {}",
+  // A reader that fails says so (it ends with an error, and prints no MARK): never an empty list that reads as "none".
+  "$ErrorActionPreference = 'Stop'",
+  '[Console]::OutputEncoding = [Text.Encoding]::UTF8',
   `Add-Type -TypeDefinition @'\n${READER}\n'@`,
   "$folder = ($env:BOARD_HOLDERS_OF -replace '/', '\\').TrimEnd('\\').ToLowerInvariant()",
   '$all = @(Get-CimInstance Win32_Process)',
   '$names = @{}; foreach ($p in $all) { $names[[int]$p.ProcessId] = $p.Name }',
   '$found = @()',
   "foreach ($p in $all) { if ([int]$p.ProcessId -eq $PID) { continue }; $c = [FolderHolders]::Cwd([int]$p.ProcessId); if ($c -eq $null) { continue }; $c = $c.TrimEnd('\\').ToLowerInvariant(); if ($c -eq $folder -or $c.StartsWith($folder + '\\')) { $found += [pscustomobject]@{ pid = [int]$p.ProcessId; name = $p.Name; parent = $names[[int]$p.ParentProcessId]; command = $p.CommandLine } } }",
-  'ConvertTo-Json -Compress -InputObject @($found)',
+  `'${MARK}' + (ConvertTo-Json -Compress -InputObject @($found))`,
 ].join("\n")
 
 /** Runs the reader for `folder`; answers its output, or null when PowerShell failed or took longer than `timeoutMs`. */
@@ -71,11 +77,13 @@ function runReader(folder, timeoutMs) {
   })
 }
 
-/** The reader's JSON as holders `{ pid, name, parent, command }`; null when it is no list. */
+/** The reader's answer (MARK, then its JSON) as holders `{ pid, name, parent, command }`; null when it is none. */
 export function parseHolders(text) {
+  const line = String(text ?? '').split('\n').map(one => one.trim()).find(one => one.startsWith(MARK))
+  if (line === undefined) return null
   let parsed
   try {
-    parsed = JSON.parse(String(text ?? '').trim() === '' ? '[]' : text)
+    parsed = JSON.parse(line.slice(MARK.length))
   } catch {
     return null
   }
@@ -98,9 +106,13 @@ export async function folderHolders(folder, { platform = process.platform, timeo
   return out === null ? null : parseHolders(out)
 }
 
-/** A command on one line, cut at COMMAND_CHARS. */
+/**
+ * A command on one line, cut at COMMAND_CHARS. A chat's own shell command is wrapped by Claude Code ("bash -c \"source
+ * <snapshot> ... eval '<the command>' && pwd -P ...\""): its own command is what is shown.
+ */
 const shortCommand = command => {
-  const line = String(command ?? '').replace(/\s+/g, ' ').trim()
+  const wrapped = /\beval '([\s\S]*?)' && pwd -P/.exec(String(command ?? ''))
+  const line = String(wrapped === null ? command ?? '' : wrapped[1]).replace(/\s+/g, ' ').trim()
   return line.length > COMMAND_CHARS ? `${line.slice(0, COMMAND_CHARS - 1)}…` : line
 }
 

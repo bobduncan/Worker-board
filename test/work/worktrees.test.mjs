@@ -262,6 +262,11 @@ test('an empty folder a worktree left: removed now, or in the background when he
     // B844: and names it, what started it and its command, and says how to stop it; only the held folder is looked up.
     assert.match(lines[0], /a program still uses it \(bash\.exe 4242 from claude\.exe: bash -c "sleep 1500; tail -3 check\.log"\): stop it \(a chat's background command or monitor: TaskStop\), the board keeps trying/)
     assert.deepEqual(asked, [slashed(folder)])
+    // A refusal that is no program's hold (ENOTEMPTY) looks nobody up.
+    const refusing = { ...FILES, rmdir: async () => { throw Object.assign(new Error('not empty'), { code: 'ENOTEMPTY' }) } }
+    const notEmpty = await stepLeftovers({ id: 'B3', branch: 'b3-gone', ...args, fs: refusing, waits: [0], later })
+    assert.match(notEmpty[0], /could not be removed \(ENOTEMPTY\): a program still uses it, the board keeps trying/)
+    assert.deepEqual(asked, [slashed(folder)])
     assert.doesNotMatch(lines[0], /delete it/)
     assert.equal(existsSync(folder), true)
     assert.equal(jobs.length, 1)
@@ -349,7 +354,8 @@ test('the report check tries an empty folder a program holds through all its wai
   try {
     const folder = join(one.project, 'garden-b3')
     const busy = () => Object.assign(new Error('busy'), { code: 'EBUSY' })
-    const holders = async () => [{ pid: 4242, name: 'bash.exe', parent: 'claude.exe', command: 'sleep 1500' }]
+    let looked = 0
+    const holders = async () => { looked += 1; return [{ pid: 4242, name: 'bash.exe', parent: 'claude.exe', command: 'sleep 1500' }] }
     const args = { id: 'B3', branch: 'b3-gone', repo: one.repos[0], repos: one.repos, project: one.project, run, holders }
     // Inline: every wait is tried here, nothing is handed to the background.
     let tries = 0
@@ -374,12 +380,15 @@ test('the report check tries an empty folder a program holds through all its wai
     // Held for good: it looks again `rounds` times, then files the failed check with the line, once.
     mkdirSync(folder)
     held = true
+    looked = 0
     const slept = []
     const failed = await patientReportCheck({ ...args, result: 'The lamps glow.', merged: git(one.repo, 'rev-parse', 'HEAD').trim(), fs: wedged, exists: async () => true, waits: [0, 1] },
       { rounds: 2, every: 5, sleep: async ms => { slept.push(ms) } })
     assert.equal(failed.passed, false)
     assert.equal(slept.length, 2)
     assert.match(failed.lines.join(' '), /a program still uses it \(bash\.exe 4242 from claude\.exe: sleep 1500\): stop it/)
+    // B844's review: the programs are looked up once, in the round that is filed, not in every round.
+    assert.equal(looked, 1)
     assert.equal('isHeldOnly' in failed, false)
     // A fault that is not a held folder is filed at once: no waiting for it.
     rmdirSync(folder)

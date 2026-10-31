@@ -157,7 +157,7 @@ async function factsCheck({ id, branch, result, merged, repos, run, project = ''
   const own = typeof branch === 'string' ? branch.trim() : ''
   const isOwnBranch = own !== '' && own !== '-' && own.toLowerCase() !== 'none' && !repos.some(repo => repo.base === own)
   if (exists !== null && project !== '' && await repoOfCommit(merged, repos, run) === null && (!isOwnBranch || await isNowhere(own, repos, run))) {
-    const left = await stepLeftovers({ id, repos, project, run, fs, inline, ...(waits === undefined ? {} : { waits }), ...(holders === undefined ? {} : { holders }) })
+    const left = await stepLeftovers({ id, repos, project, run, fs, inline, ...(waits === undefined ? {} : { waits }), ...(typeof holders === 'function' ? { holders } : {}) })
     return outsideCheck({ result, touches, project, repoDirs: repos.map(repo => repo.dir), exists, left, warnings })
   }
   const faults = []
@@ -192,7 +192,7 @@ async function factsCheck({ id, branch, result, merged, repos, run, project = ''
     faults.unshift(`work in ${name}`)
   }
   // Worktree clean-up: no worktree on the step's branch, and none (or its folder) named for the step, is left.
-  faults.push(...await stepLeftovers({ id, branch: repo === null || isOnBase ? null : branch, repo, repos, project, run, fs, inline, ...(waits === undefined ? {} : { waits }), ...(holders === undefined ? {} : { holders }) }))
+  faults.push(...await stepLeftovers({ id, branch: repo === null || isOnBase ? null : branch, repo, repos, project, run, fs, inline, ...(waits === undefined ? {} : { waits }), ...(typeof holders === 'function' ? { holders } : {}) }))
   if (String(result ?? '').trim() === '') faults.push('no result named')
   // B569, 2026-10-25: the recap card's Context and Change are the board's to build; what is off is a warning.
   const words = partsWarnings(result)
@@ -381,10 +381,12 @@ export const HELD_EVERY_MS = 10_000
  * `isHeldOnly`: it is the board's own word between the rounds.
  */
 export async function patientReportCheck(args, { rounds = HELD_ROUNDS, every = HELD_EVERY_MS, sleep = ms => new Promise(resolve => setTimeout(resolve, ms)) } = {}) {
-  let outcome = await reportCheck({ ...args, inline: true })
+  // B844: the programs that hold the folder are looked up only in the round that can be filed (the last), once.
+  const quiet = { holders: async () => null }
+  let outcome = await reportCheck({ ...args, inline: true, ...(rounds > 0 ? quiet : {}) })
   for (let round = 0; round < rounds && outcome.isHeldOnly === true; round += 1) {
     await sleep(every)
-    outcome = await reportCheck({ ...args, inline: true })
+    outcome = await reportCheck({ ...args, inline: true, ...(round < rounds - 1 ? quiet : {}) })
   }
   const { isHeldOnly, ...filed } = outcome
   return filed
