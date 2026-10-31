@@ -51,6 +51,10 @@ export function buildView({ state = {}, items = new Map(), outbox = [], keep = n
     // Gap 3: what the list holds back, `{ id, why }` (outside the focus goal, a blocker, an ask, a standard), or null
     // without a list: the health summary tells them apart, so a sweep does not take them for work a free worker misses.
     held: Array.isArray(state.readyList?.held) ? Object.freeze(state.readyList.held.map(one => Object.freeze({ ...one }))) : null,
+    // B868 (X115): the refine asks that hold the board's refine gate now (state.mjs refineAsk, per backlog step), `{ id, round, state, at }`,
+    // so a rule that finds a refine word unanswered can name the ask that keeps the next one from going out.
+    refineHeld: Object.freeze((state.backlog ?? []).flatMap(activity => activity.steps ?? []).filter(step => step.refineAsk?.isOpen === true)
+      .map(step => Object.freeze({ id: step.id, round: step.refineAsk.round ?? 1, state: step.refineAsk.state, at: step.refineAsk.at }))),
     // X65: the board wakes a chat that words wait for by itself; these two say it could not (state.mjs wakeFailed, nobodyRuns).
     wakeFailed: Object.freeze((Array.isArray(state.wakeFailed) ? state.wakeFailed : []).map(one => Object.freeze({ ...one }))),
     nobodyRuns: state.nobodyRuns !== null && typeof state.nobodyRuns === 'object'

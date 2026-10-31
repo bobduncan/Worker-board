@@ -35,7 +35,7 @@ const word = (minutes, state = 'delivered') => ({ id: `r${minutes}`, to: 'Partne
 
 const LANES = [{ name: 'Lead', isMain: true, isLeftover: false, state: 'free', isRunning: true, queue: [] }, { name: 'Painter', isMain: false, isLeftover: false, state: 'free', isRunning: true, queue: [] }]
 const view = (store, more = {}) => buildView({
-  state: { chats: LANES, advisor: { name: 'Partner' }, today: [], limits: {}, pause: more.pause ?? null, chatPrefix: '', readyList: { ready: [], held: [] } },
+  state: { chats: LANES, advisor: { name: 'Partner' }, backlog: more.backlog, today: [], limits: {}, pause: more.pause ?? null, chatPrefix: '', readyList: { ready: [], held: [] } },
   items: store, outbox: more.outbox ?? [], settings: {}, seen: null, now: NOW,
 })
 const check = board => WATCH_RULES.find(one => one.id === 'open-fix').check(board, { seen: new Map(), observed: [] })
@@ -71,7 +71,7 @@ test('open-fix: past an hour with no refine word answered for 30 min, a case for
   assert.equal(stopped.key, 'open-fix B659')
   assert.equal(stopped.subject, 'B659')
   assert.equal(stopped.text, 'B659 waits 3 h for the partner\'s refine, and B636 in review behind it: the board stopped asking after 3 refine words')
-  assert.match(stopped.evidence, /^the chain B636 → B654 → B659; B659 made \d\d:\d\d, no refine round since; refine words 04:38 delivered, 05:38 delivered, 06:38 delivered$/)
+  assert.match(stopped.evidence, /^the chain B636 → B654 → B659; B659 made \d\d:\d\d, no refine round since; refine words 04:38 delivered, 05:38 delivered, 06:38 delivered; refine gate free$/)
   // +2 d: still a case, one per fix (B636 and B654 in review behind it).
   assert.equal(check(view(chain(2 * 24 * 60), { outbox: [word(2880)] })).length, 1)
 })
@@ -95,4 +95,16 @@ test('the board types an open fix\'s refine word again after an hour, up to its 
   assert.equal(due([sent(70)]).board, true)
   // BOARD_TRIES words arrived with no round: the board stops on it (the rule names it).
   assert.equal(due(Array.from({ length: BOARD_TRIES }, (_, at) => sent(70 + at * 60))), null)
+})
+
+// B868 (X115): the evidence names the refine ask that holds the gate, so the next sighting shows its cause.
+test('open-fix: the evidence names the refine ask that holds the refine gate, or says it is free', () => {
+  const held = [{ name: 'Maps', steps: [
+    { id: 'B854', status: 'open', refineAsk: { isOpen: true, state: 'taken', round: 2, at: ago(150) } },
+    { id: 'B855', status: 'open', refineAsk: { isOpen: false, state: 'delivered', round: 1, at: ago(170) } },
+  ] }]
+  const [found] = check(view(chain(180), { outbox: [word(180)], backlog: held }))
+  assert.match(found.evidence, /; refine gate held by B854 round 2 \(taken since \d\d:\d\d\)$/)
+  const [free] = check(view(chain(180), { outbox: [word(180)], backlog: [] }))
+  assert.match(free.evidence, /; refine gate free$/)
 })

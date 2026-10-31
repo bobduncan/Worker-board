@@ -798,11 +798,15 @@ function openFix(view, ctx) {
     found.push({
       rule: 'open-fix', key, subject: wait.end,
       text: `${wait.end} waits ${lasting(ms)} for the partner's refine, and ${id} in review behind it${stopped ? `: the board stopped asking after ${words.length} refine words` : ''}`,
-      evidence: `the chain ${[id, ...wait.chain].join(' → ')}; ${wait.end} made ${clockOf(wait.unrefined.since)}, no refine round since; refine words ${words.length === 0 ? 'none' : words.map(one => `${clockOf(one.at)} ${one.state}`).join(', ')}`,
+      evidence: `the chain ${[id, ...wait.chain].join(' → ')}; ${wait.end} made ${clockOf(wait.unrefined.since)}, no refine round since; refine words ${words.length === 0 ? 'none' : words.map(one => `${clockOf(one.at)} ${one.state}`).join(', ')}; ${gateOf(view)}`,
     })
   }
   return found
 }
+
+/** B868 (X115): what holds the board's refine gate now, for the evidence: the refine asks that are open (step, round, state, since), or that none is. */
+const gateOf = view => (view.refineHeld.length === 0 ? 'refine gate free'
+  : `refine gate held by ${view.refineHeld.map(one => `${one.id} round ${one.round} (${one.state} since ${clockOf(one.at)})`).join(', ')}`)
 
 /** B667: the refine words about the step `id` from `since` on (the board's and the person's), oldest first. */
 function refineWordsOf(view, id, since) {

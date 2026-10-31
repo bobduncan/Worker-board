@@ -280,3 +280,24 @@ test('the Advisor\'s job and the protocol name the new form', async () => {
   assert.match(protocol, /B293/)
   assert.match(protocol, /; ready\):/)
 })
+
+// B868 (X115): a refine word that never arrived (waiting, taken) or a step that is finished held the refine gate for good.
+test('a refine ask holds the gate only for a step still open to refine, and a word on its way for half an hour', () => {
+  const at = new Date(2026, 9, 31, 10, 58, 53).getTime()
+  const min = 60_000
+  const step = (status, extra = {}) => ({ id: 'B854', status, refined: { round: 1, at: '2026-10-31 10:40', ready: false }, ...extra })
+  for (const state of ['waiting', 'taken']) {
+    const sent = [{ command: 'refine', about: 'B854', round: 2, at, state, ...(state === 'taken' ? { takenAt: at + 3000 } : {}) }]
+    // Fresh: still holds. Older than half an hour: the next refine goes out.
+    assert.equal(refineAsk(step('open'), sent, at + 10 * min).isOpen, true, `${state}, fresh`)
+    assert.equal(refineAsk(step('open'), sent, at + 31 * min).isOpen, false, `${state}, over 30 min`)
+    // The Advisor's waiting list keeps it (Infinity).
+    assert.equal(refineAsk(step('open'), sent, at + 31 * min, Infinity).isOpen, true, `${state}, Infinity`)
+    // A finished (done or dropped) step or one in progress holds nothing, however fresh.
+    assert.equal(refineAsk(step('done'), sent, at + min).isOpen, false, `${state}, done step`)
+    assert.equal(refineAsk(step('progress'), sent, at + min).isOpen, false, `${state}, step in progress`)
+  }
+  const delivered = [{ command: 'refine', about: 'B854', round: 2, at, state: 'delivered', deliveredAt: at + 20_000 }]
+  assert.equal(refineAsk(step('done'), delivered, at + min).isOpen, false, 'delivered, done step')
+  assert.equal(refineAsk(step('open'), delivered, at + min).isOpen, true, 'delivered, open step')
+})
