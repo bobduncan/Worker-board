@@ -1040,6 +1040,8 @@ async function main(args) {
         return done
       },
       dir: workDir, now: clock(), prefix: state.chatPrefix ?? '', roleOf: chat => roles.get(chat) ?? null,
+      // One question per task (2026-10-31): the step a chat's card names at that moment (the lane's task), for an ask that names none.
+      cardStepOf: chat => [...lanes, ...(state.advisor ? [state.advisor] : []), ...(state.advisorHelper ? [state.advisorHelper] : [])].find(lane => lane.name === chat)?.task?.stepId ?? null,
       routingPolicy: config.routing,
       routingCapabilities: null,
       sessionOf: name => {

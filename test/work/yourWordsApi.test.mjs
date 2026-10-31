@@ -65,7 +65,8 @@ test('the Q530 case: the checker reads the person\'s words, its question they an
     const again = await store.checker({ action: 'ask', of: id, kind: 'look', title: 'Accept the crumbling look now and leave the rest for later?' })
     assert.equal(again.status, 409)
     assert.match(again.why, new RegExp(`^${id}: the person answered this already on \\d{4}-\\d\\d-\\d\\d \\d\\d:\\d\\d \\(${q}\\): "Rejected\\. the look is okay but it feels a bit square, make it more of a crater, round\\. Also it lags the moment it happens\\."\\. Act on their answer; ask only what is new, and quote their answer\\.$`))
-    // A different question is asked, and its answer says the step holds the person's words.
+    // A different question of the checker is no card for the person (it checks the step): it is kept as an ask point of the check,
+    // and its answer says the step holds the person's words.
     const other = await store.checker({ action: 'ask', of: id, kind: 'decide', title: 'Should the crater edge glow at night?' })
     assert.equal(other.ok, true, other.why)
     assert.match(other.result.text, new RegExp(`\\nThe person's words on ${id}: 1 point, see its "Your words"\\.$`))
@@ -75,6 +76,8 @@ test('the Q530 case: the checker reads the person\'s words, its question they an
     // The check's own ask point (a look only the person can judge) is filed as it was: never refused for their words.
     const checked = await store.checker({ action: 'checked', size: '30 min', id, evidence: 'none (a look)', points: ['pass: a lamp at every bench', `ask: ${QUESTION}`] })
     assert.equal(checked.ok, true, checked.why)
+    // The two questions it kept while it checked are ask points of the check too.
+    assert.deepEqual((await item(store.dir, id)).sections.get('Checked').filter(one => one.startsWith('- ask: ')), [`- ask: ${QUESTION}`, '- ask: Should the crater edge glow at night?', '- ask: How deep should the crater be?'])
   } finally {
     await remove(store.dir)
   }
@@ -189,9 +192,11 @@ test('an ask with no step from a worker stands under its one held step, its one 
     assert.equal((await store.lamplighter({ action: 'take', minutes: 30, id: 'B1' })).ok, true)
     const working = await store.lamplighter({ action: 'ask', kind: 'decide', title: 'Should the wicks be trimmed at night?' })
     assert.equal(valueOf(await item(store.dir, working.result.id), 'Of'), 'B1')
-    // The checker that holds only its QA task: the step it checks.
+    // The checker that holds only its QA task: the step it checks. It never asks the person about it (one question per task):
+    // its question joins the builder's open ask under that step.
     await takeQa(store, await qaOf(store, id))
     const checking = await store.checker({ action: 'ask', kind: 'look', title: 'Is the warm light warm enough?' })
+    assert.equal(checking.result.merged, one.result.id)
     assert.equal(valueOf(await item(store.dir, checking.result.id), 'Of'), id)
     // The main chat, which holds none, asks alone.
     const alone = await store.keeper({ action: 'ask', kind: 'decide', title: 'Should the garden open on Sunday?' })

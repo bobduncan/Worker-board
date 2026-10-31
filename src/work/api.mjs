@@ -14,8 +14,9 @@ import { isPlacedBefore } from './handOut.mjs'
 import { handedBackOf } from '../clearOwed.mjs'
 import { blockersOpen, CLEARED, overlapsIn, waitIds, waitWords } from './guards.mjs'
 import { ASK_KINDS, HEAD_KEYS, askFiledMs, fixFirst, isFix, serializeItem, sinceMs, validateHead, valueOf } from './item.mjs'
+import { isAlike, joinTarget, stepOfAsk } from './askPlace.mjs'
 import { askIdsIn, askKey, askTitleOf, askWordsOf, refineQuestionProblem, refineTitleOf, sameAsk, titleProblem } from './askWords.mjs'
-import { JUST_ANSWERED_MS, closedMsOf, forYouRepeat, isWithdrawn, openRepeat, repeatFactsOf } from './askRepeat.mjs'
+import { ASKED_AGAIN, JUST_ANSWERED_MS, STILL_OPEN, askTextOf, closedMsOf, forYouRepeat, isWithdrawn, openRepeat, repeatFactsOf } from './askRepeat.mjs'
 import { lineFields } from './line.mjs'
 import { REFINED_MARK, migrateBacklog, stamp } from './migrate.mjs'
 import { storeFault, touchesLines } from './read.mjs'
@@ -752,8 +753,9 @@ async function ask(body, w, { alone = false } = {}) {
   if (goal !== null && w.hasGoal?.(goal) !== true) return refuse(409, `${goal} is not in the goal map.`)
   const isGiven = !(body.of === undefined || body.of === null || body.of === '')
   // Your words (2026-10-30, Q520 stood under no step, so the person's answer never reached B497): an ask with no step from
-  // a worker or the partner that holds one step is that step's (`heldStepOf`), so the person's answer lands on it.
-  const held = goal === null && !isGiven && !alone && ['worker', 'advisor'].includes(w.role) ? heldStepOf(w) : null
+  // a worker or the partner that holds one step is that step's (`stepOfAskBy`), so the person's answer lands on it.
+  // One question per task (2026-10-31): the step the ask's words name, else the chat's card step, else its held step (`stepOfAsk`).
+  const held = goal === null && !isGiven && !alone && ['worker', 'advisor'].includes(w.role) ? stepOfAskBy(w, [...lines(body.title), ...lines(body.context ?? body.text)]) : null
   let isAlone = goal !== null || (!isGiven && held === null)
   let of = isAlone ? { ok: true, item: null, text: null } : await load(isGiven ? body.of : held, w, { kind: ['step'] })
   // A step the board found that refuses the ask (it cannot be read): the ask stands alone, as before.
@@ -807,6 +809,12 @@ async function ask(body, w, { alone = false } = {}) {
       return { ...refuse(409, `${stepId}: the person answered this already on ${before.at}${before.ask === null ? '' : ` (${before.ask})`}: "${line(before.answer, 600)}". Act on their answer; ask only what is new, and quote their answer.`), answeredBefore: before }
     }
   }
+  // One question per task (2026-10-31): a quality checker never asks the person about the step it checks; its question goes
+  // to the builder's open ask as a line, else it is kept as an ask: point of its check.
+  const qaHeld = !isAlone && via !== 'form' && !['person', 'server'].includes(w.role) ? qaHeldFor(w, valueOf(of.item, 'Id')) : null
+  if (qaHeld !== null && !(await joinOpenAskOf(w, of.item, kind, text, { anyKind: true })).found) {
+    return keepAsAskPoint(qaHeld, of.item, text, w)
+  }
   const options = lines(body.options, LINE_CHARS).slice(0, 8)
   const pictures = (Array.isArray(body.pictures) ? body.pictures : typeof body.pictures === 'string' ? body.pictures.split(',') : []).map(one => line(one, 200)).filter(Boolean).slice(0, 8)
   // 2026-10-24: a picture the board cannot show is refused here, with where to put it, so the person never meets a
@@ -851,6 +859,11 @@ Note: ${unlinked} is no link the person can open (the game runs only while the b
   // T9.1.1: and never the ask of the worker that checks the step: an `ask:` point is a look only the person can judge.
   const byChecker = !isAlone && isCheckerOf(of.item, w)
   const route = routesToPartner({ setting: w.store.partnerAnswers, role: w.role, kind, options, advice, via, byChecker }) ? 'partner' : null
+  // One question per task: a second question on a step that has the person's open ask joins that ask as a line.
+  if (!isAlone && via !== 'form' && !blocking && route === null && !['person', 'server'].includes(w.role)) {
+    const joined = await joinOpenAskOf(w, of.item, kind, text, { anyKind: qaHeld !== null, options, advice, pictures, play, qa: qaHeld !== null })
+    if (joined.found) return joined.done
+  }
   const made = await makeAsk(w, { of: of.item, kind, blocking, text, options, advice, pictures, play, via, goal, route })
   if (!made.ok) return made
   const { question, id, title } = made
@@ -875,18 +888,84 @@ Note: ${unlinked} is no link the person can open (the game runs only while the b
 }
 
 /**
- * Your words (2026-10-30): the one step a chat holds, for an ask it filed under none: its one step in progress, else its
- * one step taken, in progress, waiting on you or in review (pause.mjs `HELD`; B497 was in review when Q520 was asked).
- * A Quality Assurance task stands for the step it checks: the person's words belong on that one. Null when it holds none
- * or several.
+ * Your words (2026-10-30) and one question per task (the person, 2026-10-31): the step an ask that names none stands under,
+ * in this order: a held step its words name by id; a held step it names by goal or title words, when only one does; the
+ * chat's card step at that moment (`w.cardStepOf`, the lane's task as the board knows it); the chat's one step in progress,
+ * else its one held step (`HELD`: taken, in progress, waiting on you or in review; B497 was in review when Q520 was asked).
+ * A Quality Assurance task stands for the step it checks: the person's words belong on that one. Null when none fits.
  */
-function heldStepOf(w) {
-  const mine = [...w.store.items.values()].filter(one => kindOf(one) === 'step' && HELD.includes(stateOf(one)) && isOwner(one, w.who, w.prefix))
-  const working = mine.filter(one => stateOf(one) === 'in progress')
-  const one = working.length === 1 ? working[0] : mine.length === 1 ? mine[0] : null
-  if (one === null) return null
-  const checks = isQaTask(one) ? valueOf(one, 'Checks') : null
-  return checks !== null && w.store.items.has(checks) && kindOf(w.store.items.get(checks)) === 'step' ? checks : valueOf(one, 'Id')
+function stepOfAskBy(w, words) {
+  return stepOfAsk({ items: w.store.items, mine: heldStepsOf(w), words, cardStep: w.cardStepOf?.(w.who) ?? null })
+}
+
+/** The steps (and Quality Assurance tasks) the chat holds: taken, in progress, waiting on you or in review. */
+const heldStepsOf = w => [...w.store.items.values()].filter(one => kindOf(one) === 'step' && HELD.includes(stateOf(one)) && isOwner(one, w.who, w.prefix))
+
+/** The Quality Assurance task the chat holds for the step `stepId`, or null. */
+const qaHeldFor = (w, stepId) => heldStepsOf(w).find(one => isQaTask(one) && valueOf(one, 'Checks') === stepId) ?? null
+
+/** An item with the lines added to its section `name`; a section new to it stands before its History. */
+function withLines(item, name, added) {
+  const lines = [...(item.sections.get(name) ?? []), ...added]
+  const sections = new Map()
+  const isNew = !item.sections.has(name)
+  for (const [key, kept] of item.sections) {
+    if (isNew && key === 'History') sections.set(name, lines)
+    sections.set(key, key === name ? lines : kept)
+  }
+  if (!sections.has(name)) sections.set(name, lines)
+  return { ...item, head: new Map(item.head), sections }
+}
+
+/**
+ * A Quality Assurance task's question about the step it checks, not filed for the person: kept as an "ask:" point on the
+ * task (`checked` adds it to the check's points when the checker leaves it out), so the person is asked once, in the
+ * builder's question or by the checker after its check.
+ */
+async function keepAsAskPoint(qa, step, text, w) {
+  const qaId = valueOf(qa, 'Id')
+  const stepId = valueOf(step, 'Id')
+  const found = await load(qaId, w, { kind: ['step'] })
+  if (!found.ok) return found
+  const next = said(withLines(found.item, 'Ask points', [`- ${line(text[0], 300)}`]), w, `ask point kept for the check of ${stepId}: ${line(text[0], 120)}`)
+  const done = await save(next, found.text, w)
+  if (!done.ok) return done
+  return changed(next, `Not filed for the person: you check ${stepId}, and a quality checker never asks about the task it checks. It is kept as an ask: point of your check (${qaId}); put it in work checked ${stepId} as "ask: ..." (the board adds it if you leave it out). The person is asked once, in the builder's question.${yourWordsLine(step) === '' ? '' : `
+${yourWordsLine(step)}`}`, { kept: qaId, step: stepId })
+}
+
+/**
+ * One question per task: when another chat has an open ask of the person under the step, the new ask joins it as a line
+ * ("Also from <who>: ..."; from a quality check, "Also from the quality check (<who>): ..."), with its options, advice,
+ * pictures and play. `{ found: false }` when there is none; without `options` it only looks (`found`).
+ */
+async function joinOpenAskOf(w, step, kind, text, { anyKind = false, options, advice = '', pictures = [], play = '', qa = false } = {}) {
+  const stepId = valueOf(step, 'Id')
+  const target = joinTarget(w.store.items, stepId, { who: w.who, kind, anyKind, isMine: (one, chat) => isOwner(one, chat, w.prefix) })
+  if (target === undefined) return { found: false }
+  if (options === undefined) return { found: true }
+  const id = valueOf(target, 'Id')
+  const asker = bare(valueOf(target, 'Owner') ?? 'another chat', w.prefix ?? '')
+  const found = await load(id, w, { kind: ['ask'] })
+  if (!found.ok) return { found: true, done: found }
+  const alike = isAlike(text.join(' '), askTextOf(found.item), STILL_OPEN)
+  const label = qa ? `the quality check (${bare(w.who, w.prefix ?? '')})` : bare(w.who, w.prefix ?? '')
+  let next = found.item
+  if (!alike) {
+    next = withLines(next, 'Text', [`Also from ${label}: ${line(text[0], 300)}`, ...text.slice(1, 4).map(one => `  ${line(one, 300)}`),
+      ...(options.length === 0 ? [] : [`  Options: ${options.join(' | ')}`]), ...(advice === '' ? [] : [`  Advised: ${advice}`])])
+    const shown = (valueOf(next, 'Pictures') ?? '').split(', ').filter(Boolean)
+    const more = pictures.filter(one => !shown.includes(one))
+    if (more.length > 0) next = put(copy(next), 'Pictures', [...shown, ...more].slice(0, 8).join(', '))
+    if (play !== '' && (next.sections.get('Play') ?? []).length === 0) next = withLines(next, 'Play', [play])
+  }
+  next = said(next, w, alike ? `${label} asked the same: ${line(text[0], 120)}` : `also from ${label}: ${line(text[0], 120)}`)
+  const done = await save(next, found.text, w)
+  if (!done.ok) return { found: true, done }
+  const words = alike
+    ? `${id} asks this already (${asker} asked it under ${stepId}); nothing was added.`
+    : `${id} is open for the person already, under ${stepId} (asked by ${asker}): your question is added to it as a line, so the person answers once. Nothing new is filed; wait for its answer.`
+  return { found: true, done: changed(next, words, { merged: id, step: stepId }) }
 }
 
 /** B299: writes a new ask `Q<n>` (under the step `of`, an item, or alone): `{ ok, question, id, title }`. */
@@ -1740,6 +1819,12 @@ async function checked(body, w) {
   const fixOf = valueOf(found.item, 'Fix of')
   const owed = fixOf === null ? 0 : agreedPoints(found.item).filter(one => !/^Not in it\b/i.test(one)).length
   if (read.points.length < owed) return refuse(400, `${id} is a fix of ${fixOf}: tick each of its ${owed} agreed points, every fail text and every "Makes pass" line of its What we build, not ${read.points.length}.`)
+  // One question per task (2026-10-31): what the checker asked while it checked was kept on its task as ask: points; the check
+  // carries each one it leaves out.
+  const askedWhileChecking = holder.qa === null ? [] : (holder.qa.sections.get('Ask points') ?? []).map(one => one.replace(/^-\s*/, '').trim()).filter(Boolean)
+  for (const point of askedWhileChecking) {
+    if (!read.points.some(one => one.verdict === 'ask' && (sameAsk(askKey(one.text), askKey(point)) || isAlike(one.text, point, ASKED_AGAIN)))) read.points.push({ verdict: 'ask', text: point })
+  }
   const score = line(body.score, 60)
   // Worktree clean-up (the person, 2026-10-24): the check's own worktrees (check-<id>, check-<id>-before) are gone
   // before its result is filed, as a worker's are before its report passes (`checkWorktrees`, worktrees.mjs
@@ -2412,8 +2497,9 @@ async function turnEnded(body, w) {
   const filedLine = asked === undefined || asked.length === 0 ? '' : ` Filed from your "For you" block: ${asked.join(', ')}; close one the person answers in the chat with work answered-in-chat.`
   // B474, the review: an item left out as asked already is named, so a chat whose new question looked alike can file it.
   const leftLine = (fromBlock?.left.length ?? 0) === 0 ? '' : ` Not filed from your "For you" block, as asked already: ${fromBlock.left.join('; ')}. If one is a new question, file it with work ask.`
+  const keptLine = (fromBlock?.kept.length ?? 0) === 0 ? '' : ` Not filed for the person, as you check that step: ${fromBlock.kept.join('; ')}. Put each in work checked as "ask: ...".`
   const closedLine = closed.length === 0 ? '' : `Closed by the board: ${closed.join(', ')}. `
-  const text = `${closedLine}${missed.length === 0 ? 'No instruction was left open.' : `Left open: ${missed.join(', ')}. Close each with work close <id> --as "what came of it", or say why it stays open.`}${filedLine}${leftLine}`
+  const text = `${closedLine}${missed.length === 0 ? 'No instruction was left open.' : `Left open: ${missed.join(', ')}. Close each with work close <id> --as "what came of it", or say why it stays open.`}${filedLine}${leftLine}${keptLine}`
   // The review of B300: with `pull`, the same call answers the chat's pull (one call at a turn's end).
   const pulled = body.pull === true ? (({ changed: _, ...rest }) => rest)(pull(body, { ...w, who: chat }).result) : undefined
   // Pause and resume (spec 2026-10-18): the same call answers the pause state, so the mod needs no call of its own.
@@ -2421,7 +2507,7 @@ async function turnEnded(body, w) {
   // Clear after each step: the chat's role as the board knows it (the Workers mod clears a worker only, and compacts the
   // main chat and the partners at rest), and how many items of its "For you" block the board could not file.
   const role = w.roleOf?.(chat) ?? null
-  return { ok: true, result: { text, missed, ...(closed.length === 0 ? {} : { closed }), open, changed: missed.length > 0 || closed.length > 0 || (asked?.length ?? 0) > 0, ...(asked === undefined ? {} : { asked }), ...((fromBlock?.left.length ?? 0) === 0 ? {} : { left: fromBlock.left }), ...((fromBlock?.unfiled ?? 0) === 0 ? {} : { unfiled: fromBlock.unfiled }), ...(pulled === undefined ? {} : { pull: pulled }), pause, ...(role === null ? {} : { role }) } }
+  return { ok: true, result: { text, missed, ...(closed.length === 0 ? {} : { closed }), open, changed: missed.length > 0 || closed.length > 0 || (asked?.length ?? 0) > 0 || (fromBlock?.kept.length ?? 0) > 0, ...(asked === undefined ? {} : { asked }), ...((fromBlock?.left.length ?? 0) === 0 ? {} : { left: fromBlock.left }), ...((fromBlock?.unfiled ?? 0) === 0 ? {} : { unfiled: fromBlock.unfiled }), ...((fromBlock?.kept.length ?? 0) === 0 ? {} : { kept: fromBlock.kept }), ...(pulled === undefined ? {} : { pull: pulled }), pause, ...(role === null ? {} : { role }) } }
 }
 
 const ASK_REF = /^Q\d+$/
@@ -2459,10 +2545,9 @@ async function askForYou(value, since, w) {
     own: asks.filter(one => isOwner(one, w.who, w.prefix) && stateOf(one) === 'open').map(repeatFactsOf),
     others: asks.filter(one => !isOwner(one, w.who, w.prefix) && stateOf(one) === 'open').map(repeatFactsOf),
   }
-  // Your words (2026-10-30): the one step the chat holds, also one in review (Q520 stood under none while B497 was).
-  const of = heldStepOf(w)
   const asked = []
   const left = []
+  const kept = []
   // Clear after each step: items past the nine the board files stay the chat's questions only: they count as unfiled.
   let unfiled = given.length - items.length
   for (const one of items) {
@@ -2482,6 +2567,9 @@ async function askForYou(value, since, w) {
       continue
     }
     const fields = { kind, text, options: one.options, advice: one.advice, pictures: one.pictures, play: one.play, via: 'chat', blocking: false }
+    // Your words (2026-10-30): the step the item's words name, else the chat's card step, else the one step it holds, also
+    // one in review (Q520 stood under none while B497 was).
+    const of = stepOfAskBy(w, text)
     // Under the step when the board takes it there, else on its own.
     let made = of === null ? await ask(fields, w, { alone: true }) : await ask({ ...fields, of }, w)
     // Your words: what the person answered on the step already is not filed again; the chat is told their answer.
@@ -2496,12 +2584,23 @@ async function askForYou(value, since, w) {
       unfiled += 1
       continue
     }
+    // One question per task: an item a quality check keeps as an ask: point, or one that joined another chat's open ask.
+    if (made.result.kept !== undefined) {
+      kept.push(`"${line(text[0], 100).trimEnd()}" under ${made.result.step}: kept as an ask: point of your check ${made.result.kept}`)
+      known.push(key)
+      continue
+    }
+    if (made.result.merged !== undefined) {
+      if (!asked.includes(made.result.merged)) asked.push(made.result.merged)
+      known.push(key)
+      continue
+    }
     asked.push(made.result.id)
     known.push(key)
     // The review: two items of one block are one question only when as alike as an open ask.
     repeats.own.push({ id: made.result.id, words: text.join(' '), of })
   }
-  return { asked, left, unfiled }
+  return { asked, left, unfiled, kept }
 }
 
 /**
