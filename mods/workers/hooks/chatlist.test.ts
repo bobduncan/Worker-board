@@ -109,6 +109,8 @@ type World = {
   whoamiHeaders: Record<string, string>[]
   /** True when the board holds a whoami call and never answers it. */
   whoamiHangs: boolean
+  /** T8.5: everything that went out, in one order: each work call's action, each /clear, each prompt typed in ("prompt"), each typed report ("typed"). */
+  order: string[]
 }
 
 /** The review of chat-reports: a report as the board reads what it says, without its order (`run`, `seq`). */
@@ -131,7 +133,7 @@ async function settle(): Promise<void> {
 }
 
 function world(id: string, files: Record<string, string> = {}): World {
-  return { id, files, agents: [], tools: [], opened: [], sent: [], whileAsked: null, waiting: [], takeAnswers: [], fetched: [], typedIn: [], reported: [], refusesTyping: false, up: null, spawned: [], comesUp: true, tokens: 50_000, refusesCompact: false, isHeadless: false, commanded: [], compactions: [], toasts: [], worked: [], workAnswer: { status: 200, text: '{"text":"Yours, Units:"}' }, formAnswers: {}, workAnswers: [], formResponse: null, formCloses: false, hangs: false, takeHangs: false, contexts: [], workedAt: [], pauseAnswer: RUNNING, pauseReads: 0, descriptions: {}, stored: {}, requests: [], cuts: [], held: null, byAction: {}, holdAction: null, sequence: [], holdCompact: null, writes: [], modHeaders: [], reports: [], formHold: null, reportsAtClear: [], whoamis: [], whoami: { name: null, role: null, card: null }, whoamiAnswer: null, whoamiHeaders: [], whoamiHangs: false }
+  return { id, files, agents: [], tools: [], opened: [], sent: [], whileAsked: null, waiting: [], takeAnswers: [], fetched: [], typedIn: [], reported: [], refusesTyping: false, up: null, spawned: [], comesUp: true, tokens: 50_000, refusesCompact: false, isHeadless: false, commanded: [], compactions: [], toasts: [], worked: [], workAnswer: { status: 200, text: '{"text":"Yours, Units:"}' }, formAnswers: {}, workAnswers: [], formResponse: null, formCloses: false, hangs: false, takeHangs: false, contexts: [], workedAt: [], pauseAnswer: RUNNING, pauseReads: 0, descriptions: {}, stored: {}, requests: [], cuts: [], held: null, byAction: {}, holdAction: null, sequence: [], holdCompact: null, writes: [], modHeaders: [], reports: [], formHold: null, reportsAtClear: [], whoamis: [], whoami: { name: null, role: null, card: null }, whoamiAnswer: null, whoamiHeaders: [], whoamiHangs: false, order: [] }
 }
 
 /** The project's list of chats, with the titles that join by themselves. */
@@ -184,6 +186,7 @@ function stand(on: On, w: World): void {
   on('command.run', { command: 'clear' }, (_$, e) => {
     w.commanded.push(`/clear by ${e.origin.kind}${e.origin.kind === 'plugin' ? ` ${e.origin.name}` : ''}`)
     w.sequence.push('/clear')
+    w.order.push('/clear')
     w.reportsAtClear.push(w.reports.length)
     return { text: '' }
   })
@@ -273,6 +276,7 @@ function stand(on: On, w: World): void {
     if (e.url.endsWith('/api/bridge/work')) {
       const action = String((JSON.parse(e.init?.body ?? '{}') as { action?: unknown }).action)
       w.sequence.push(action)
+      w.order.push(action)
       const own = w.byAction[action]
       if (own !== undefined) {
         w.worked.push(e.init?.body ?? '')
@@ -313,6 +317,7 @@ function stand(on: On, w: World): void {
     }
     if (e.url.endsWith('/api/bridge/typed')) {
       w.reported.push(e.init?.body ?? '')
+      w.order.push('typed')
 
       return { value: { status: 200, ok: true, headers: {}, text: '{}' } }
     }
@@ -325,6 +330,7 @@ function stand(on: On, w: World): void {
   })
   on('prompt.submit', (_$, e) => {
     if (w.refusesTyping) return { drop: 'no prompt is taken now' }
+    w.order.push('prompt')
     w.typedIn.push(`${e.origin.kind}:${e.origin.kind === 'plugin' && e.origin.asUser === true ? 'as the person' : 'framed'}:${e.text}`)
     w.contexts.push([...(e.context ?? [])])
 
@@ -3688,5 +3694,285 @@ describe('the hands say whether this chat may send by code', () => {
     await clock.advance(10 * MIN)
     await settle()
     expect(claims().at(-1)).toEqual(['send'])
+  })
+})
+
+describe('T8.5: the board\'s hand-over as one envelope (Workers mod 0.27.0)', () => {
+  /** Real time passing, for the work the engine queues (a command run once the chat is idle). */
+  const wait = (ms: number): Promise<void> => new Promise(resolve => { (globalThis as unknown as { setTimeout: (done: () => void, ms: number) => void }).setTimeout(resolve, ms) })
+  const sent = (w: World): Record<string, unknown>[] => w.worked.map(body => JSON.parse(body) as Record<string, unknown>)
+  const ok = (fields: Record<string, unknown>): { status: number; text: string } => ({ status: 200, text: JSON.stringify(fields) })
+  const LOG = '.claude/chat-logs/Units/2026-10-31 1405 B12.txt'
+  const FILE = 'D:/Work/project/.claude/chat-logs/Units/2026-10-31 1405 B12.txt'
+  const LINE = 'work: B13 is yours; run work next'
+  const ID = '0123456789abcdef'
+  /** The board's envelope as DESIGN.md's contract has it: a task with the clear its worker owes, unless `more` says otherwise. */
+  const envelope = (more: Record<string, unknown> = {}): Record<string, unknown> => ({ id: ID, kind: 'task', step: 'B13', clear: { step: 'B12', reportedAt: 5 }, restart: false, set: null, line: LINE, ...more })
+  /** The board's `handover` in its answer to a turn's end. */
+  const handover = (env: Record<string, unknown> | null, state = 'handing'): Record<string, unknown> => ({ state, why: null, step: (env?.step as string | undefined) ?? null, envelope: env, waits: null })
+  /** The outcomes the mod told the board (`typed` with `handover`), in order. */
+  const outcomes = (w: World): Record<string, unknown>[] => w.reported.map(body => JSON.parse(body) as Record<string, unknown>).filter(body => body.handover !== undefined)
+  const DONE = { cleared: null, set: null, typed: null, restarted: null, background: false, why: null }
+  /** What the hand-over did, in order: the log, the /clear, a prompt typed in, the outcome told. */
+  const steps = (w: World): string[] => w.order.filter(one => ['save-log', '/clear', 'prompt', 'typed'].includes(one))
+
+  /** A worker Units of a list that clears after a step, its step B12 reported in its turn; the board answers its turn's end with `answer` as `handover` (null: none). */
+  async function worker($: Engine, on: On, answer: Record<string, unknown> | null): Promise<{ w: World; clock: ReturnType<typeof mock.clock> }> {
+    const clock = mock.clock(on)
+    const w = world('units', { [`${CHATS}/list.json`]: '{ "prefix": "Game - ", "main": "Main", "afterStep": "clear" }\n', [BOARD]: board })
+    stand(on, w)
+    w.tokens = 400_000
+    w.byAction = {
+      report: ok({ id: 'B12', text: 'B12 is in review.', more: null }),
+      'turn-ended': ok({ text: 'No instruction was left open.', missed: [], open: [], role: 'worker', pause: RUNNING, ...(answer === null ? {} : { handover: answer }) }),
+      'save-log': ok({ text: `Saving the conversation to ${FILE}.`, log: LOG, file: FILE }),
+      next: ok({ text: 'Yours, Units: B13 (queued).', open: [] }),
+    }
+    await startedAs($, w, 'Units')
+    w.order = []
+    await $.turn.start({ text: 'go', turnId: 't1' })
+    await $.tool.call({ tool: WORK, action: 'report', id: 'B12', result: 'it is in' } as never)
+    return { w, clock }
+  }
+  /** The /clear runs: the old conversation ends, the new one starts under another id; the stand-in's record of this /clear is taken out. */
+  async function cleared($: Engine, w: World, clock: ReturnType<typeof mock.clock>, to = 'units-2'): Promise<void> {
+    const at = w.order.length
+    await $.session.end({ reason: 'clear', sessionId: w.id, resume: { id: w.id } } as never)
+    w.id = to
+    await $.command.run({ ...CLEAR_ARGS, origin: { kind: 'composer' } } as never)
+    w.commanded.pop()
+    w.reportsAtClear.pop()
+    const index = w.order.indexOf('/clear', at)
+    if (index >= 0) w.order.splice(index, 1)
+    // The line goes at the next ping after the clear.
+    await settle()
+    expect(w.typedIn).toEqual([])
+    await clock.advance(5000)
+    for (let i = 0; i < 50 && outcomes(w).length === 0; i++) await settle()
+  }
+  /** A take at the next ping, the board answering `answer`. */
+  async function take(clock: ReturnType<typeof mock.clock>, w: World, answer: Record<string, unknown>): Promise<void> {
+    w.takeAnswers.push({ status: 200, text: JSON.stringify({ messages: [], ...answer }) })
+    await clock.advance(5000)
+    for (let i = 0; i < 50 && w.takeAnswers.length > 0; i++) await settle()
+    for (let i = 0; i < 20; i++) await settle()
+  }
+
+  test('change 1, 2, 3: an envelope with a clear: no clear of its own; the log, the mark, /clear, then the line with the start\'s words as one prompt, then the outcome once', async ($, on) => {
+    const { w, clock } = await worker($, on, handover(envelope()))
+    await $.turn.complete({ ...ENDED, turnId: 't1' })
+    await wait(50)
+    expect(steps(w)).toEqual(['save-log', '/clear'])
+    expect(sent(w).filter(one => one.action === 'save-log')).toEqual([{ action: 'save-log', stepId: 'B12', chat: 'Units', session: 'units' }])
+    expect(fileOf(w)?.clearing?.step).toBe('B12')
+    expect(fileOf(w)?.clearing?.log).toBe(LOG)
+    expect(w.commanded).toEqual(['/clear by plugin workers'])
+    expect(w.compactions).toEqual([])
+    // Mutant "settle before the line is typed": nothing is typed or told before the /clear has run.
+    expect(w.typedIn).toEqual([])
+    expect(outcomes(w)).toEqual([])
+    await cleared($, w, clock)
+    // One prompt: the words a cleared worker gets (who it is, its rules, its log), then the line. The app hands a mod's own
+    // prompt to none of its hooks, so they stand in its text.
+    expect(w.typedIn.length).toBe(1)
+    const typed = w.typedIn[0] ?? ''
+    expect(typed.startsWith('plugin:as the person:This chat is "Game - Units", a worker')).toBe(true)
+    expect(typed).toContain('after your step B12 was reported')
+    expect(typed).toContain(FILE)
+    expect(typed).toContain('.claude/worker-briefing.md')
+    expect(typed.endsWith(`\n\n${LINE}`)).toBe(true)
+    expect(typed.split('This chat is').length).toBe(2)
+    // The set is the board's hands' (done before): null. Told once, after the line was typed.
+    expect(outcomes(w)).toEqual([{ chat: 'Units', session: 'units-2', handover: ID, outcome: { ...DONE, cleared: true, typed: true } }])
+    expect(steps(w)).toEqual(['save-log', '/clear', 'prompt', 'typed'])
+    expect(fileOf(w, 'units-2')?.cleared?.step).toBe('B12')
+  })
+
+  test('mutant "carry an envelope twice": the same id again at a take or a later turn\'s end does nothing', async ($, on) => {
+    const { w, clock } = await worker($, on, handover(envelope()))
+    await $.turn.complete({ ...ENDED, turnId: 't1' })
+    await wait(50)
+    await cleared($, w, clock)
+    expect(outcomes(w).length).toBe(1)
+    await take(clock, w, { handover: envelope() })
+    await $.turn.start({ text: LINE, turnId: 't2' })
+    await $.turn.complete({ ...ENDED, turnId: 't2' })
+    await wait(50)
+    for (let i = 0; i < 20; i++) await settle()
+    expect(steps(w)).toEqual(['save-log', '/clear', 'prompt', 'typed'])
+    expect(w.typedIn.map(one => one.endsWith(`\n\n${LINE}`))).toEqual([true])
+    expect(outcomes(w).length).toBe(1)
+    // Kept for the next process of the mod too.
+    expect(w.stored['handover-carried']).toEqual([ID])
+  })
+
+  test('change 2 at a take: an envelope with no clear: the line typed at once, then the outcome; no log, no /clear', async ($, on) => {
+    const clock = mock.clock(on)
+    const w = world('units', { ...listed(), [BOARD]: board })
+    stand(on, w)
+    await startedAs($, w, 'Units')
+    w.order = []
+    // Change 3: a set the board's hands made before: the mod sets nothing and says null.
+    await take(clock, w, { handover: envelope({ clear: null, set: { model: 'claude-opus-4-1', effort: 'high' } }) })
+    expect(w.typedIn).toEqual([`plugin:as the person:${LINE}`])
+    expect((w.contexts.at(-1) ?? []).some(line => line.startsWith('This chat is'))).toBe(false)
+    expect(outcomes(w)).toEqual([{ chat: 'Units', session: 'units', handover: ID, outcome: { ...DONE, typed: true } }])
+    expect(steps(w)).toEqual(['prompt', 'typed'])
+  })
+
+  test('change 4, mutant "clear before restart": a restart keeps the log and marks the card, and nothing else: no /clear, no line', async ($, on) => {
+    const { w } = await worker($, on, handover(envelope({ kind: 'restart', restart: true, version: '0.27.1' }), 'restarting'))
+    await $.turn.complete({ ...ENDED, turnId: 't1' })
+    await wait(50)
+    for (let i = 0; i < 20; i++) await settle()
+    expect(steps(w)).toEqual(['save-log', 'typed'])
+    expect(w.commanded).toEqual([])
+    expect(w.typedIn).toEqual([])
+    expect(w.compactions).toEqual([])
+    expect(fileOf(w)?.clearing?.log).toBe(LOG)
+    expect(w.toasts).toContain(`Restarting for the Workers mod 0.27.1: its conversation is kept in ${FILE}.`)
+    expect(outcomes(w)).toEqual([{ chat: 'Units', session: 'units', handover: ID, outcome: { ...DONE, restarted: true } }])
+  })
+
+  for (const [why, set, words, isBackground] of [
+    ['the board refuses the log while background work runs', (w: World) => { w.byAction['save-log'] = { status: 409, text: 'Background work it started is still running: its answer would come into a cleared conversation.' } }, 'Background work it started is still running', true],
+    ['a subagent it started still runs', (w: World) => { w.agents = [{ id: 'a1b2c3d4e5', name: 'judge' }] }, 'a subagent it started still runs (1)', true],
+    ['the person pauses', (w: World) => { w.pauseAnswer = { ...RUNNING, state: 'pausing', since: 1 } }, 'the person pauses the chats', false],
+    ['it sent another chat a message in this turn', (_w: World) => {}, 'waits for its answer', false],
+  ] as const) {
+    test(`a clear with every guard of today's: not run when ${why}: the envelope fails at once, nothing compacted, no line`, async ($, on) => {
+      const { w } = await worker($, on, handover(envelope()))
+      set(w)
+      if (why === 'it sent another chat a message in this turn') await $.session.send({ to: 'local_main', text: 'B12?', origin: { kind: 'model' } } as never)
+      await $.turn.complete({ ...ENDED, turnId: 't1' })
+      await wait(50)
+      for (let i = 0; i < 20; i++) await settle()
+      expect(w.commanded).toEqual([])
+      expect(w.compactions).toEqual([])
+      expect(w.typedIn).toEqual([])
+      expect(fileOf(w)?.clearNote?.why).toContain(words)
+      const told = outcomes(w)
+      expect(told.length).toBe(1)
+      const outcome = told[0]?.outcome as Record<string, unknown>
+      expect({ ...outcome, why: null }).toEqual({ ...DONE, cleared: false, background: isBackground })
+      expect(String(outcome.why)).toContain(words)
+    })
+  }
+
+  test('a turn that starts before the envelope\'s /clear ran drops it: told failed, its line never typed', async ($, on) => {
+    const { w } = await worker($, on, handover(envelope()))
+    await $.turn.complete({ ...ENDED, turnId: 't1' })
+    await wait(50)
+    expect(w.commanded).toEqual(['/clear by plugin workers'])
+    await $.turn.start({ text: 'one more thing', turnId: 't2' })
+    for (let i = 0; i < 20; i++) await settle()
+    expect(outcomes(w)).toEqual([{ chat: 'Units', session: 'units', handover: ID, outcome: { ...DONE, cleared: false, why: 'a new turn started before the clear ran' } }])
+    expect(w.typedIn).toEqual([])
+  })
+
+  test('change 1: a `handover` with no envelope (the board checks the report): no clear of its own, no compaction, nothing told', async ($, on) => {
+    const { w } = await worker($, on, handover(null, 'checking'))
+    await $.turn.complete({ ...ENDED, turnId: 't1' })
+    await wait(50)
+    expect(steps(w)).toEqual([])
+    expect(w.compactions).toEqual([])
+    expect(fileOf(w)?.clearNote).toBeUndefined()
+    expect(outcomes(w)).toEqual([])
+  })
+
+  test('no `handover` in the answer (an older board, the setting "timers"): as 0.26.10, its own clear after the report', async ($, on) => {
+    const { w } = await worker($, on, null)
+    await $.turn.complete({ ...ENDED, turnId: 't1' })
+    await wait(50)
+    expect(steps(w)).toEqual(['save-log', '/clear'])
+    expect(sent(w).find(one => one.action === 'turn-ended')?.pull).toBe(true)
+    expect(outcomes(w)).toEqual([])
+  })
+
+  test('change 5: every answered turn\'s end is told, also while it holds a step; on the sequence it pulls nothing', async ($, on) => {
+    mock.clock(on)
+    const w = world('units', { ...listed(), [BOARD]: board })
+    stand(on, w)
+    await startedAs($, w, 'Units')
+    w.workAnswer = ok({ missed: [], open: [], role: 'worker', pause: RUNNING, handover: handover(null, 'free') })
+    await $.turn.start({ text: 'go', turnId: 't1' })
+    await $.turn.complete({ ...ENDED, turnId: 't1' })
+    // It takes a step: its card holds it, and its turns' ends are told all the same.
+    w.workAnswer = ok({ id: 'B13', title: 'Plant the hedge', text: 'B13 is yours.' })
+    await $.turn.start({ text: LINE, turnId: 't2' })
+    await $.tool.call({ tool: WORK, action: 'take', id: 'B13', branch: 'b13' } as never)
+    w.workAnswer = ok({ missed: [], open: [], role: 'worker', pause: RUNNING, handover: handover(null, 'working') })
+    await $.turn.complete({ ...ENDED, turnId: 't2' })
+    await $.turn.start({ text: 'more', turnId: 't3' })
+    await $.turn.complete({ ...ENDED, turnId: 't3' })
+    const ends = sent(w).filter(one => one.action === 'turn-ended')
+    expect(ends.length).toBe(3)
+    // The first, before the board said it is on the sequence, pulled as before; none after.
+    expect(ends.map(one => one.pull ?? null)).toEqual([true, null, null])
+  })
+
+  test('change 6: while idle the background work is read anew at each 5-second ping: its end reaches the board without a turn', async ($, on) => {
+    const clock = mock.clock(on)
+    const w = world('units', { ...listed(), [BOARD]: board })
+    stand(on, w)
+    w.workAnswer = { status: 503, text: 'No work store.' }
+    await startedAs($, w, 'Units')
+    const states = (): string[] => w.reports.map(body => {
+      const report = (JSON.parse(body) as { report: { state: string; background: boolean } }).report
+      return report.background ? `${report.state}+background` : report.state
+    })
+    await $.turn.start({ text: 'go', turnId: 't1' })
+    w.agents = [{ id: 'a1b2-judge', name: 'judge' }]
+    await $.turn.complete({ ...ENDED, turnId: 't1' })
+    await settle()
+    expect(states()).toEqual(['busy', 'idle+background'])
+    await clock.advance(5000)
+    await settle()
+    expect(states()).toEqual(['busy', 'idle+background'])
+    // The subagent ends with no turn of the chat's: the next ping tells the board.
+    w.agents = []
+    await clock.advance(5000)
+    for (let i = 0; i < 20; i++) await settle()
+    expect(states()).toEqual(['busy', 'idle+background', 'idle'])
+  })
+
+  test('a reported step\'s turn\'s end answered late with an envelope: its clear, never the mod\'s own as well', async ($, on) => {
+    const { w, clock } = await worker($, on, handover(envelope()))
+    let release = (): void => {}
+    w.holdAction = { action: 'turn-ended', until: new Promise<void>(done => { release = done }) }
+    const ending = $.turn.complete({ ...ENDED, turnId: 't1' })
+    await settle()
+    await clock.advance(2000)
+    await ending
+    expect(steps(w)).toEqual([])
+    release()
+    for (let i = 0; i < 100 && !w.commanded.includes('/clear by plugin workers'); i++) await wait(5)
+    await wait(50)
+    expect(steps(w)).toEqual(['save-log', '/clear'])
+    expect(w.compactions).toEqual([])
+    await cleared($, w, clock)
+    expect(w.typedIn.map(one => one.startsWith('plugin:as the person:This chat is') && one.endsWith(`\n\n${LINE}`))).toEqual([true])
+    expect(outcomes(w).map(one => one.outcome)).toEqual([{ ...DONE, cleared: true, typed: true }])
+  })
+
+  test('a free worker\'s turn\'s end answered late with an envelope: carried out when the answer comes', async ($, on) => {
+    const clock = mock.clock(on)
+    const w = world('units', { ...listed(), [BOARD]: board })
+    stand(on, w)
+    await startedAs($, w, 'Units')
+    w.order = []
+    w.byAction['turn-ended'] = ok({ missed: [], open: [], role: 'worker', pause: RUNNING, handover: handover(envelope({ clear: null })) })
+    let release = (): void => {}
+    w.holdAction = { action: 'turn-ended', until: new Promise<void>(done => { release = done }) }
+    await $.turn.start({ text: 'go', turnId: 't1' })
+    const ending = $.turn.complete({ ...ENDED, turnId: 't1' })
+    await settle()
+    await clock.advance(2000)
+    await ending
+    expect(w.typedIn).toEqual([])
+    release()
+    for (let i = 0; i < 50 && outcomes(w).length === 0; i++) await settle()
+    expect(w.typedIn).toEqual([`plugin:as the person:${LINE}`])
+    expect(outcomes(w).map(one => one.outcome)).toEqual([{ ...DONE, typed: true }])
   })
 })

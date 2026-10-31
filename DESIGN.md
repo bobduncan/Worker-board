@@ -4774,6 +4774,23 @@ restart envelope its mod carried out gets the hands' `mod-restart` word once.
 (B12)", "restarting for the new Workers mod", "B12: the board checks its report" (`laneWords`; the state's
 `lane.handover` is `{ state, why, step }`).
 
+**The Supervisor's rules for it (step 4).** Only for a worker on the sequence (`lane.onSequence`); a worker on the timers
+keeps every old rule unchanged, and the new rules never fire for it:
+
+- `handover-held`: its lane's hand-over is **held** (its last envelope failed: its clear, set or restart did not run, and
+  its task went back at once) for over `notClearedMinutes` (10) of the board's running time from the failure (the pause,
+  the board off and the stretches it heard no chat left out). One finding per worker and report (key `handover-held
+  <worker> <the step its clear is owed for>`), with the Workers mod's why. In place of not-cleared and the clear part of
+  skip-repeats.
+- `handover-unanswered`: the net fired (`netAt` on an envelope of its): one finding per envelope, for a day after the net.
+  In place of not-taking.
+- `ready-while-free`: such a worker is free only in the hand-over's own **free** (its lane's `handover.state`), never by
+  the hand-out's older reading (R7, X111).
+- `review-stuck`: its report part (a failed check not reported again) skips a step whose worker is on the sequence (the
+  decision tells it at its first turn's end); the result-check part stays.
+
+Tests: `test/supervisor/handoverRules.test.mjs`.
+
 ### The envelope's contract for the Workers mod
 
 For step 3 (Workers mod 0.27.0). The board side is live behind `handover: "sequence"`; with `"timers"` the board answers
@@ -4841,6 +4858,28 @@ task back at once and holds the worker with the why.
 The mod also sends `turn-ended` after every answered turn of a worker, also when it holds a step (the pull flag goes),
 and while idle reads its background count anew at each 5-second ping, so a report gone idle with nothing in the
 background reaches the board (the spec's mod changes 5 and 6).
+
+**The mod side (Workers mod 0.27.0, `mods/workers/hooks/register.tsx` `carryEnvelope`).** Built to the contract above,
+with these readings of it:
+
+- Once per id: the ids carried out are kept in the process and in the mod's store (`handover-carried`, the newest 50),
+  so a take or a later turn's end that brings the same envelope does nothing; the outcome is posted once per id (asked
+  again at most twice, 2 s apart, only when the board did not answer).
+- The clear is today's `clearAfter` with the envelope beside it: every guard (no turn running, no message to another
+  chat in that turn, no subagent running, the pause read anew, no question unfiled, no prompt since, the log kept, the
+  card marked), but a clear that may not run is not compacted instead: the card's `clearNote` says why and the outcome
+  is `cleared: false` with `background` true when a subagent of its own ran or the board refused the log with 409. A
+  clear dropped later (a turn that started first, the /clear let go after 2 minutes, the command refused) settles the
+  same way. The line is never typed and nothing is settled before the /clear has run.
+- The line after a clear goes at the next 5-second ping (the app takes no prompt from inside the /clear's own hook),
+  and the start's words stand in its text, before the line: the app hands a mod's own prompt to none of its own hooks,
+  so they cannot go as context. Without a clear the line is typed at once (as a take's word, `asUser`).
+- A restart keeps the log (`save-log` with the step the turn reported, if any) and writes the card's mark as before a
+  clear (`clearing`: the step, the log), and nothing else: no /clear, no line, `restarted: true`. It does not mark the
+  card cleared: the board's hands reopen the same conversation, so the clear it owes comes in the envelope on the new mod.
+- A turn's end the board answered late: the reported step's decision (`clearWhenAnswered`) reads the late answer's
+  `handover` itself; any other worker's turn's end carries an envelope the late answer brings.
+- A worker whose last turn's end was answered with `handover` sends no `pull`; one answered without it pulls as before.
 
 ## What it does not do
 
