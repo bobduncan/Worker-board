@@ -895,7 +895,10 @@ button.goal-dot:hover, button.goal-dot:focus-visible { box-shadow: 0 0 0 3px #2a
 .brainstorm-proposal .brainstorm-draft-title, .brainstorm-proposal .brainstorm-replan-title { margin: 2px 0 8px; font-size: 17px; }
 .brainstorm-draft { padding: 4px 16px 12px; border: 1px solid var(--line); border-radius: 10px; background: rgba(10, 15, 24, 0.55); }
 .brainstorm-objective, .brainstorm-not-in-it { margin: 0; font-size: 14px; line-height: 1.5; overflow-wrap: anywhere; }
-.brainstorm-done-when { margin: 0; padding-left: 22px; font-size: 14px; line-height: 1.6; }
+/* The person, 2026-10-31: "this needs to show 'done when' using bullet points": numbered, as the re-plan names them. */
+.brainstorm-done-when { margin: 0; padding-left: 26px; font-size: 14px; line-height: 1.6; list-style: decimal; }
+.brainstorm-done-when li { display: list-item; list-style: decimal; padding-left: 2px; margin: 2px 0; }
+.brainstorm-done-when li::marker { color: var(--muted); }
 .brainstorm-bullet { margin-top: 10px; padding: 8px 14px 10px; border: 1px solid var(--line); border-radius: 10px; background: rgba(10, 15, 24, 0.55); }
 .brainstorm-proposal .brainstorm-bullet-title { margin: 2px 0 6px; color: var(--text); font-size: 14.5px; text-transform: none; letter-spacing: 0; }
 .brainstorm-covered { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 4px 0; font-size: 13.5px; }
