@@ -84,6 +84,8 @@ async function liveThreads(goal, { brainstormDir, brainstormFolder, fs }) {
   const found = []
   for (const name of names) {
     const thread = parseThread(await readText(fs, `${base}/${name}`, ''))
+    // "Change this goal" (2026-10-31): a change of the goal runs beside its talk, on the Brainstorm part: never the talk.
+    if (thread.kind === 'change') continue
     if (thread.goal?.id === goal && (thread.state === 'running' || thread.state === 'wrapping up')) found.push({ path: `${brainstormFolder}/${name}`, file: `${base}/${name}`, thread })
   }
   return found

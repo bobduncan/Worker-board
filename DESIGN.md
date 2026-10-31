@@ -710,6 +710,27 @@ counts them; so does the part's button. The Advisor's job: roles/partner.md, "A 
 stands above the card, and the Advisor tab's buttons wrap. Pictures: `art-inbox/board-goals/b259-card.png` and
 `b259-proposal.png`.
 
+**Change this goal** (2026-10-31, the person: steps were missing from a goal, and they wanted to say what should
+change, brainstorm it first, then re-plan). "Change this goal" stands beside "Change focus" in the Focus page's head
+and beside "Brainstorm this" on a goal of the Goals part, only with a partner. Its box asks "What should change about
+this goal?"; "Start the brainstorm" starts a thread with `Kind: change` in its head (one change at a time on a goal,
+beside the goal's own talk, which it never becomes, and which keeps the goal's `Brainstorm:` line) and keeps the words
+under the goal as `Your words: <date time> · <words>`. The partner asks until it can say back what the person wants,
+`## Understood (HH:MM)`; the card shows it with "Yes, that's it" (the board writes `Answer (HH:MM): yes` and types
+`brainstorm understood`) and "Not quite…" (their words under it, typed as `brainstorm answer` with `Understood: not
+quite — <words>`). The proposal of a change adds `Objective:`, `Done when:` bullets (`- 1. <bullet> — Picture: <path>`),
+`Not in it:`, `Covered:` (`- 1: B<id>, B<id>`), steps with `— for <n>` and `Drop:` (`- [ ] B<id> — <why>`). The card
+shows the goal's draft first (Agree, Change…), then the re-plan per bullet: covered steps, new steps ticked, drops
+unticked ("Do what's ticked", Change…). Create is refused before the yes; it writes `Objective:`, `Done when <n>:
+<bullet> · steps B<id>` (the covered ones; a new step joins its bullets once the board made it) and `Not in it:` under
+the goal (its old `Done when:` stays), drops the ticked drops in the store as the person with their why (`; dropped:
+B<id>` ends the Created line) and makes the ticked steps as any created proposal does. The map's rules paragraph gets a
+sentence naming the new lines the first time one is written. The Focus page shows a goal's Objective under its title
+(in place of the vibe's line) and its Done when bullets above the rest, each met (all its steps done, green) or not
+(grey), with its step ids as links; a goal without an Objective shows nothing new. Code: `src/brainstorm.mjs`,
+`src/goals.mjs`, `src/goalsWrite.mjs` (`setGoalChange`, `addDoneWhenStep`, `addYourWords`, `withChangeRules`), tests:
+`test/changeGoal.test.mjs`.
+
 **The game plan, readable (B218).** The person, 2026-10-14: "advisor game plan has links that dont work i want to be
 able to click them in the UI", and "too much text ... adding collapsing headers so this page feel more manageable".
 In the Advisor tab's Game plan part every heading folds what stands under it, folded at first with its first line

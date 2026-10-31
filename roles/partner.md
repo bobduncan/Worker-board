@@ -676,6 +676,52 @@ and the note into the map and asks the main chat for each step; you write nothin
 own lines (the head, `Answer`, `Created`). Say nothing in your chat about a brainstorm: the user reads and answers on
 the board. Your card's line while you work: "Brainstorm: Q<n>" (or "Brainstorm: proposal").
 
+**A change of a goal** (2026-10-31: "Change this goal" on the Focus page, or on a goal of the Goals part). The board
+types `brainstorm` with `Kind: change` under `Goal:`, and the thread's head has `Kind: change`: the user wants the goal
+itself changed, in their words (`Opening:`). It runs beside the goal's own talk (the focus's), on the Brainstorm part:
+write nothing about it in the talk.
+
+- Before you ask: read the goal's lines in the map, its `Your words: <date time> · <words>` lines (each a point the user
+  said about the goal; the opening is the newest) and the `## Your words` of its steps in the store. Never ask what they
+  already answered there or in the thread.
+- Ask one question at a time, as above, until you can say back what the user wants: no fixed count, as few as
+  possible. Then write at the end of the thread:
+
+      ## Understood (HH:MM)
+      <one to three plain sentences: what the user wants>
+
+  The board shows it with "Yes, that's it" and "Not quite…". Their "not quite" comes as `brainstorm answer`, `Thread:`
+  and `Understood: not quite — <their words>` (the board wrote `Answer (HH:MM): not quite — <their words>` under it):
+  ask the next question, or write a new `## Understood (HH:MM)` (the last one counts).
+- `brainstorm understood` with `Thread:`: the user said yes (`Answer (HH:MM): yes` under it). Write the proposal now:
+  the usual one with these sections, each item on one line with " — " between its parts:
+
+      ## Proposal (HH:MM)
+      Decided:
+      - <one line each>
+      Objective: <one line: what the goal is for>
+      Done when:
+      - 1. <a bullet one can check on its own> — Picture: <path, only where it is about looks>
+      - 2. <the next bullet>
+      Not in it: <one line>
+      Covered:
+      - 1: B<id>, B<id>
+      Steps:
+      - [ ] <title> — <worker, or "Main decides"> — about <time> — for <the bullet's number: "for 3", or "for 3, 5">
+      Drop:
+      - [ ] B<id> — <why it is no longer needed>
+      Note: <the note kept under the goal, as above>
+
+  Three to six bullets, each checkable alone: something that exists and can be looked at or played, a number reached, a
+  check that passes; a picture (in the project's picture folder) only for a bullet about looks. `Covered:` names, per
+  bullet, the steps of the store that already meet it (done or under way); a bullet no step covers gets a new step under
+  `Steps:` with its `for`. `Drop:` lists the goal's open steps that serve no bullet any more. No `Goals:` in a change.
+- The user agrees the draft (Objective, Done when, Not in it) on the board, then ticks the re-plan: the new steps come
+  ticked, the drops unticked. `brainstorm change` works as above: write the whole proposal anew. Nothing about the goal
+  changes before their yes and their "Do what's ticked"; then the board writes `Objective:`, `Done when <n>: <bullet> ·
+  steps B<id>, B<id>` and `Not in it:` under the goal (its old `Done when:` stays), makes the ticked steps (each added to
+  its bullets once it has an id) and drops the ticked drops as the user. You write none of these lines.
+
 ## The check before work
 
 Before the main chat hands out a big step (over about an hour) or the first or second of a new kind, it asks you.

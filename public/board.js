@@ -4800,10 +4800,11 @@ function drawBrainstormNeeds(state) {
     const line = el('div', 'info')
     const words = el('p', '')
     words.append(el('b', '', need.title), ' ', need.text)
-    const open = el('button', 'choice', need.what === 'question' ? 'Answer it →' : 'Tick it →')
+    // "Change this goal": the partner's "what I understand you want" waits for a yes or a "not quite".
+    const open = el('button', 'choice', need.what === 'question' ? 'Answer it →' : need.what === 'understood' ? 'Say yes or not quite →' : 'Tick it →')
     open.type = 'button'
     open.dataset.brainstormNeed = need.path
-    line.append(words, el('small', 'muted', need.what === 'question' ? 'the Advisor asks' : 'the Advisor proposes'), open)
+    line.append(words, el('small', 'muted', need.what === 'question' ? 'the Advisor asks' : need.what === 'understood' ? 'the Advisor understood' : 'the Advisor proposes'), open)
     part.append(line)
   }
   return part
@@ -9463,6 +9464,8 @@ function drawGoals(state) {
       if ((state.advisor ?? null) !== null) tools.insertBefore(goalButton('goals-tool is-ask', 'Ask the Advisor…', { goalTool: 'ask' }), tools.children[1] ?? null)
       // B259: think it through with the Advisor, one question at a time, on the Brainstorm part.
       if ((state.advisor ?? null) !== null) tools.insertBefore(goalButton('goals-tool is-ask', 'Brainstorm this', { goalTool: 'brainstorm' }), tools.children[2] ?? null)
+      // "Change this goal" (2026-10-31): say what should change; the partner brainstorms it first, then re-plans.
+      if ((state.advisor ?? null) !== null && focus.state !== 'done') tools.insertBefore(goalButton('goals-tool is-ask', 'Change this goal', { goalTool: 'change' }), tools.children[3] ?? null)
       // B358, the review: a re-check that is asked can be taken back; the goal stays open.
       if ((focus.recheckAsked ?? null) !== null && focus.state !== 'done') tools.append(goalButton('goals-tool', 'Take the re-check back', { goalTool: 'recheck-back' }))
       // B354: a goal without a Done when is not ticked and not picked as the focus: the partner is asked to write one.
@@ -10703,8 +10706,12 @@ function brainstormCardView(thread, advisor) {
   const isOver = thread.state === 'done' || thread.state === 'discarded'
   const isOpen = !isOver && thread.state === 'running' && thread.proposal === null && latest !== null && latest.answer === null
   const asked = [...thread.earlier, ...(latest === null || isOpen ? [] : [latest])]
+  // "Change this goal" (2026-10-31): the partner's "what I understand you want", while it is the open one, with the
+  // person's answer once given; unanswered, it waits for the person, not for the Advisor.
+  const said = !isOver && thread.understood?.isOpen === true ? thread.understood : null
+  const understood = said === null ? null : { text: said.text, at: said.at, answer: said.answer === null ? null : said.answer.yes === true ? 'yes' : `not quite: "${said.answer.words}"`, canAnswer: said.answer === null }
   let waiting = null
-  if (!isOver && !isOpen && thread.proposal === null) {
+  if (!isOver && !isOpen && thread.proposal === null && understood?.canAnswer !== true) {
     const doing = advisor?.state === 'working' ? String(advisor.doingNow ?? '').trim() : ''
     waiting = advisor === null || advisor === undefined ? 'No Advisor is on the board: a brainstorm waits for one.'
       : advisor.isRunning === false ? 'The Advisor\'s chat is not running: start it from the Workers lane (the main chat starts it)'
@@ -10717,6 +10724,8 @@ function brainstormCardView(thread, advisor) {
     canAnswer: isOpen,
     canBack: isOpen && thread.earlier.length > 0,
     waiting,
+    understood,
+    isChange: thread.kind === 'change',
     earlier: asked.map(question => ({ n: question.n, title: question.title ?? question.text, context: question.context ?? '', answerText: brainstormAnswerText(question) })),
   }
 }
@@ -10744,6 +10753,56 @@ function proposalView(thread, unticked) {
   }
 }
 
+/**
+ * "Change this goal" (2026-10-31): the proposal of a change as the card shows it. First the goal's draft (`stage`
+ * 'draft': the Objective, the Done when bullets, what is not in it) with Agree and Change…; once agreed (`agreed`, the
+ * page's own) the re-plan ('replan'): per bullet the steps that cover it (`titles` names them) and the new steps for it,
+ * ticked unless in `unticked` ("s1"), the new steps for no bullet, and the steps no longer needed, unticked unless in
+ * `dropsTicked` ("d0"); once created ('created') the ticks as they went. Create needs the person's yes to what the
+ * partner understood and a draft; nothing ticked still writes the draft.
+ */
+function changeProposalView(thread, { unticked = [], dropsTicked = [], agreed = false, titles = {} } = {}) {
+  const proposal = thread.proposal
+  const off = new Set(unticked)
+  const on = new Set(dropsTicked)
+  const created = proposal.created
+  const isOver = thread.state === 'done' || thread.state === 'discarded'
+  const steps = proposal.steps.map((step, index) => ({
+    index, key: `s${index}`, title: step.title, worker: step.worker, cost: step.cost, for: step.for ?? [],
+    ticked: created === null ? !off.has(`s${index}`) : !created.leftOut.includes(brainstormLeftKey(step.title)),
+  }))
+  const drops = proposal.drops.map((drop, index) => ({
+    index, key: `d${index}`, id: drop.id, why: drop.why, title: titles[drop.id] ?? null,
+    ticked: created === null ? on.has(`d${index}`) : (created.dropped ?? []).includes(drop.id),
+  }))
+  const numbers = new Set(proposal.doneWhen.map(bullet => bullet.n))
+  const bullets = proposal.doneWhen.map(bullet => ({
+    n: bullet.n, text: bullet.text, picture: bullet.picture,
+    covered: proposal.covered.filter(one => one.n === bullet.n).flatMap(one => one.steps).map(id => ({ id, title: titles[id] ?? null })),
+    steps: steps.filter(step => step.for.includes(bullet.n)),
+  }))
+  const understood = thread.understood ?? null
+  const hasYes = understood !== null && understood.answer !== null && understood.answer.yes === true
+  const hasDraft = typeof proposal.objective === 'string' && proposal.objective !== '' && proposal.doneWhen.length > 0
+  const droppedWords = (created?.dropped ?? []).length > 0 ? `dropped ${created.dropped.join(', ')}` : null
+  const stepWords = created === null ? '' : created.steps.length > 0 ? created.steps.join(', ') : created.asked > 0 ? `${created.asked} new task${created.asked === 1 ? '' : 's'}` : 'no new tasks'
+  return {
+    at: proposal.at,
+    goal: thread.goal,
+    stage: created !== null ? 'created' : agreed ? 'replan' : 'draft',
+    objective: proposal.objective,
+    notInIt: proposal.notInIt,
+    bullets,
+    loose: steps.filter(step => !step.for.some(n => numbers.has(n))),
+    drops,
+    note: proposal.note,
+    hasYes,
+    hasDraft,
+    created: created === null ? null : [`Changed at ${created.at}: the goal's draft is under ${thread.goal?.id ?? 'its goal'}`, stepWords, droppedWords].filter(Boolean).join(' · '),
+    canCreate: created === null && !isOver && hasYes && hasDraft,
+  }
+}
+
 /** A title as the Created line keeps it among what was left out (src/brainstorm.mjs, leftOutKey). */
 function brainstormLeftKey(title) { return String(title ?? '').replace(/\s+/g, ' ').trim().slice(0, 2000).replace(/ · /g, ' - ') }
 
@@ -10756,9 +10815,11 @@ function brainstormListView(threads) {
     const count = thread.questions === 0 ? null : `${thread.questions} question${thread.questions === 1 ? '' : 's'}`
     const isOpen = thread.state === 'running' && thread.proposal === null && thread.latest !== null && thread.latest.answer === null
     const hasProposal = thread.proposal !== null && thread.proposal.created === null
+    // "Change this goal": the partner's "what I understand you want" waits for the person's yes or "not quite".
+    const isSaid = thread.state === 'running' && thread.understood?.isOpen === true && thread.understood.answer === null
     if (thread.state === 'running' || thread.state === 'wrapping up') {
-      const what = isOpen ? `question ${thread.latest.n} waits for you` : hasProposal ? 'proposal to tick' : thread.state === 'wrapping up' ? 'wrapping up with the Advisor' : 'with the Advisor'
-      running.push({ path: thread.path, title: thread.title, line: [day, isOpen ? null : count, what].filter(Boolean).join(' · '), waits: isOpen || hasProposal })
+      const what = isOpen ? `question ${thread.latest.n} waits for you` : isSaid ? 'what it understood waits for you' : hasProposal ? 'proposal to tick' : thread.state === 'wrapping up' ? 'wrapping up with the Advisor' : 'with the Advisor'
+      running.push({ path: thread.path, title: thread.title, line: [day, isOpen ? null : count, what].filter(Boolean).join(' · '), waits: isOpen || isSaid || hasProposal })
       continue
     }
     const created = thread.proposal?.created ?? null
@@ -10783,14 +10844,27 @@ function brainstormChosen(threads, open) {
  * words typed per brainstorm, the ticks taken away per proposal, the box to change a proposal, a "click again" to
  * discard, whether a change is on its way, and the line after it.
  */
-const brainstormUi = { open: null, newAbout: undefined, chosen: new Map(), other: new Map(), unticked: new Map(), changing: null, changeWords: '', confirm: null, busy: false, note: null, failedSteps: new Map() }
+// "Change this goal" (2026-10-31): the box of a "Not quite…" (`notQuite`, by path) and its words, the proposals whose
+// goal draft the person agreed (`agreed`, "<path>@<the proposal's time>"), and the drops ticked per proposal.
+const brainstormUi = { open: null, newAbout: undefined, chosen: new Map(), other: new Map(), unticked: new Map(), changing: null, changeWords: '', confirm: null, busy: false, note: null, failedSteps: new Map(), notQuite: null, notQuiteWords: '', agreed: new Set(), dropsTicked: new Map() }
 
 function brainstormData(state) {
   return [state.brainstorms ?? null, state.advisor?.name ?? null, state.advisor?.isRunning ?? null, state.advisor?.state ?? null, state.advisor?.doingNow ?? null,
     state.goalsEdit?.canWrite ?? null, state.restart?.main ?? null, (state.goals?.nodes ?? []).map(node => [node.id, node.title]),
     brainstormUi.open, brainstormUi.newAbout === undefined ? 'closed' : brainstormUi.newAbout, [...brainstormUi.chosen],
-    [...brainstormUi.unticked].map(([path, keys]) => [path, [...keys]]), [...brainstormUi.failedSteps], brainstormUi.changing, brainstormUi.confirm, brainstormUi.busy, brainstormUi.note]
+    [...brainstormUi.unticked].map(([path, keys]) => [path, [...keys]]), [...brainstormUi.failedSteps], brainstormUi.changing, brainstormUi.confirm, brainstormUi.busy, brainstormUi.note,
+    brainstormUi.notQuite, [...brainstormUi.agreed], [...brainstormUi.dropsTicked].map(([path, keys]) => [path, [...keys]]), Object.entries(brainstormTitles(state))]
 }
+
+/** "Change this goal": the titles of the backlog's steps by their ids, for the re-plan's covered steps and drops. */
+function brainstormTitles(state) {
+  const titles = {}
+  for (const activity of state?.backlog ?? []) for (const step of activity.steps ?? []) if (typeof step.id === 'string') titles[step.id] = step.title
+  return titles
+}
+
+/** "Change this goal": the key of a change's proposal the person agreed the goal draft of. */
+const agreedKey = thread => `${thread.path}@${thread.proposal?.at ?? ''}`
 function redrawBrainstorm() {
   if (board !== null && board !== undefined) once('brainstorm', brainstormData(board), () => drawBrainstorm(board))
 }
@@ -10825,7 +10899,7 @@ function drawBrainstorm(state) {
   const thread = threads.find(one => one.path === chosen) ?? null
   // The box typed in keeps the keys, and the cursor where it was.
   const active = document.activeElement
-  const typing = $('brainstorm-card').contains(active) && /^(?:brainstorm-other|brainstorm-change-text)$/.test(active.id) ? { id: active.id, at: active.selectionStart } : null
+  const typing = $('brainstorm-card').contains(active) && /^(?:brainstorm-other|brainstorm-change-text|brainstorm-not-quite-text)$/.test(active.id) ? { id: active.id, at: active.selectionStart } : null
   fill($('brainstorm-card'), thread === null ? [] : brainstormCard(thread, state))
   const again = typing === null ? null : $(typing.id)
   if (again !== null && !again.disabled) {
@@ -10856,9 +10930,11 @@ function brainstormCard(thread, state) {
     goal.title = 'Open it in the goal map'
     about.append(goal)
   }
-  const box = el('section', `brainstorm-box is-${thread.state.replace(' ', '-')}`)
-  const step = view.question !== null ? `question ${view.question.n}` : thread.proposal !== null ? 'proposal' : thread.state
-  box.append(el('small', 'brainstorm-meta', `Brainstorm · with the Advisor · ${step} · started ${thread.started ?? ''}`), el('h3', 'brainstorm-title', thread.title))
+  const box = el('section', `brainstorm-box is-${thread.state.replace(' ', '-')}${view.isChange ? ' is-change' : ''}`)
+  const step = view.question !== null ? `question ${view.question.n}` : view.understood !== null ? 'what it understood' : thread.proposal !== null ? 'proposal' : thread.state
+  box.append(el('small', 'brainstorm-meta', `${view.isChange ? `Change of ${thread.goal?.id ?? 'a goal'}` : 'Brainstorm'} · with the Advisor · ${step} · started ${thread.started ?? ''}`), el('h3', 'brainstorm-title', thread.title))
+  // "Change this goal": the Advisor asks until it can say back what the person wants.
+  if (view.isChange) box.append(el('p', 'muted brainstorm-change-sub', 'Your partner asks until it can say back what you want. Nothing about the goal changes before your yes.'))
   if (thread.opening) box.append(el('p', 'brainstorm-opening', `You opened with: ${thread.opening}`))
   if (view.question !== null) {
     box.append(el('h4', 'brainstorm-question', view.question.title))
@@ -10903,6 +10979,7 @@ function brainstormCard(thread, state) {
       box.append(foot)
     }
   }
+  if (view.understood !== null) box.append(understoodPart(thread, view.understood, canWrite))
   if (view.waiting !== null) {
     const waiting = el('p', `brainstorm-waiting${/not running|No Advisor/.test(view.waiting) ? ' is-off' : ''}`, view.waiting)
     // Nothing comes back for long: the last word is typed into the Advisor's chat once more.
@@ -10915,7 +10992,7 @@ function brainstormCard(thread, state) {
   }
   // Lines of the thread the board cannot read: the Advisor is asked to write them in the form.
   if (thread.problems.length > 0) box.append(el('p', 'brainstorm-problems', `The thread has ${thread.problems.length === 1 ? 'a line' : 'lines'} the board cannot read (${thread.problems.slice(0, 3).join(' · ')}${thread.problems.length > 3 ? ' …' : ''}): ask the Advisor to write ${thread.problems.length === 1 ? 'it' : 'them'} as roles/partner.md shows.`))
-  if (thread.proposal !== null) box.append(proposalPart(thread, canWrite))
+  if (thread.proposal !== null) box.append(thread.kind === 'change' ? changeProposalPart(thread, canWrite, state) : proposalPart(thread, canWrite))
   if (thread.state === 'discarded') box.append(el('p', 'muted', 'Discarded: nothing of it was created.'))
   if (view.earlier.length > 0) {
     const earlier = el('details', 'brainstorm-earlier')
@@ -10941,6 +11018,140 @@ function brainstormCard(thread, state) {
   const parts = [about, box, foot]
   if (brainstormUi.note !== null && brainstormUi.note.path === thread.path) parts.splice(2, 0, el('p', `brainstorm-note${brainstormUi.note.isProblem ? ' is-error' : ''}`, brainstormUi.note.text))
   return parts
+}
+
+/**
+ * "Change this goal" (2026-10-31): the partner's "what I understand you want", with "Yes, that's it" and "Not quite…"
+ * (a box for the person's words, which go to the partner as their next answer); once answered, the answer.
+ */
+function understoodPart(thread, understood, canWrite) {
+  const part = el('section', 'brainstorm-understood')
+  part.append(el('h4', '', 'What I understand you want'), el('p', 'brainstorm-understood-text', understood.text))
+  if (understood.answer !== null) {
+    part.append(el('p', 'muted', understood.answer === 'yes' ? 'You said yes: your partner writes the new goal and the tasks.' : `You said ${understood.answer}. Your partner asks on.`))
+    return part
+  }
+  if (!canWrite) return part
+  const buttons = el('div', 'brainstorm-buttons')
+  buttons.append(brainstormButton('Yes, that\'s it', 'understood-yes', 'goals-action is-send'), brainstormButton(brainstormUi.notQuite === thread.path ? 'Not quite… ▾' : 'Not quite…', 'not-quite'))
+  part.append(buttons)
+  if (brainstormUi.notQuite === thread.path) {
+    const box = el('div', 'brainstorm-change')
+    const words = el('textarea')
+    words.id = 'brainstorm-not-quite-text'
+    words.rows = 2
+    words.maxLength = 1000
+    words.placeholder = 'What is not quite it? Your partner asks on, or says it back anew.'
+    words.value = brainstormUi.notQuiteWords
+    words.disabled = brainstormUi.busy
+    box.append(words, brainstormButton('Send', 'send-not-quite', 'goals-action is-send'))
+    part.append(box)
+  }
+  return part
+}
+
+/** The box to change a proposal, under its buttons, while open: the person's words go to the Advisor (`brainstorm change`). */
+function brainstormChangeBox() {
+  const change = el('div', 'brainstorm-change')
+  const words = el('textarea')
+  words.id = 'brainstorm-change-text'
+  words.rows = 2
+  words.maxLength = 1000
+  words.placeholder = 'What should the Advisor change in the proposal?'
+  words.value = brainstormUi.changeWords
+  words.disabled = brainstormUi.busy
+  change.append(words, brainstormButton('Send the change', 'send-change', 'goals-action is-send'))
+  return change
+}
+
+/**
+ * "Change this goal" (2026-10-31): the proposal of a change. First the goal's new draft (Objective, Done when, Not in
+ * it) with "Change…" and "Agree"; after Agree the re-plan per bullet (the steps that cover it, the new steps ticked) and
+ * the steps no longer needed (unticked), with "Change…" and "Do what's ticked"; once done, what came of it.
+ */
+function changeProposalPart(thread, canWrite, state) {
+  const view = changeProposalView(thread, { unticked: [...(brainstormUi.unticked.get(thread.path) ?? [])], dropsTicked: [...(brainstormUi.dropsTicked.get(thread.path) ?? [])], agreed: brainstormUi.agreed.has(agreedKey(thread)), titles: brainstormTitles(state) })
+  const goal = view.goal === null ? '' : `${view.goal.id} · ${view.goal.title}`
+  const part = el('section', `brainstorm-proposal brainstorm-change-proposal is-${view.stage}`)
+  const isLocked = !canWrite || view.created !== null || brainstormUi.busy
+  if (view.stage === 'draft') {
+    part.append(el('small', 'brainstorm-draft-label', `The goal · new draft · ${view.at}`), el('h4', 'brainstorm-draft-title', goal))
+    const card = el('div', 'brainstorm-draft')
+    card.append(el('h5', '', 'Objective'), el('p', 'brainstorm-objective', view.objective ?? 'Not written yet.'), el('h5', '', 'Done when'))
+    const list = el('ol', 'brainstorm-done-when')
+    for (const bullet of view.bullets) {
+      const item = el('li', '', bullet.text)
+      item.value = bullet.n
+      if (bullet.picture) item.append(' · ', focusLook('the picture', { path: bullet.picture, caption: `Done when ${bullet.n}: ${bullet.text}` }))
+      list.append(item)
+    }
+    card.append(list)
+    if (view.notInIt) card.append(el('h5', '', 'Not in it'), el('p', 'brainstorm-not-in-it', view.notInIt))
+    part.append(card)
+    if (canWrite && thread.state !== 'discarded') {
+      const buttons = el('div', 'brainstorm-buttons')
+      const agree = brainstormButton('Agree', 'agree', 'goals-action is-send')
+      agree.disabled = brainstormUi.busy || !view.hasDraft
+      agree.title = view.hasDraft ? 'The draft is right: see the tasks it needs next. Nothing is written yet.' : 'The draft has no Objective or Done when yet'
+      buttons.append(brainstormButton(brainstormUi.changing === thread.path ? 'Change… ▾' : 'Change…', 'change'), agree)
+      part.append(buttons)
+      if (brainstormUi.changing === thread.path) part.append(brainstormChangeBox())
+    }
+    return part
+  }
+  part.append(el('h4', 'brainstorm-replan-title', `Re-plan ${view.goal?.id ?? ''} · each bullet against the tasks`))
+  const tick = (item, words, data) => {
+    const label = el('label', `brainstorm-tick${item.ticked ? '' : ' is-off'}`)
+    const box = el('input')
+    box.type = 'checkbox'
+    box.checked = item.ticked
+    box.dataset[data] = item.key
+    box.disabled = isLocked
+    label.append(box, el('span', '', words))
+    return label
+  }
+  const stepWords = step => `New task: ${step.title} · ${step.worker} · ${step.cost}`
+  for (const bullet of view.bullets) {
+    const row = el('div', 'brainstorm-bullet')
+    row.append(el('h5', 'brainstorm-bullet-title', `${bullet.n}. ${bullet.text}`))
+    for (const one of bullet.covered) {
+      const covered = el('p', 'brainstorm-covered')
+      covered.append(el('span', 'brainstorm-covered-mark', '✓'), 'Covered: ', linkedEl('span', '', one.id), one.title === null ? '' : ` ${one.title}`)
+      row.append(covered)
+    }
+    for (const step of bullet.steps) row.append(tick(step, stepWords(step), 'tick'))
+    if (bullet.covered.length === 0 && bullet.steps.length === 0) row.append(el('p', 'muted brainstorm-uncovered', 'No task for it yet: ask your partner with Change….'))
+    part.append(row)
+  }
+  if (view.loose.length > 0) {
+    const row = el('div', 'brainstorm-bullet')
+    row.append(el('h5', 'brainstorm-bullet-title', 'Other new tasks'), ...view.loose.map(step => tick(step, stepWords(step), 'tick')))
+    part.append(row)
+  }
+  if (view.drops.length > 0) {
+    const row = el('div', 'brainstorm-bullet brainstorm-drops')
+    row.append(el('h5', 'brainstorm-bullet-title', 'No longer needed'), ...view.drops.map(drop => tick(drop, `Drop ${drop.id}${drop.title === null ? '' : ` ${drop.title}`}: ${drop.why}`, 'dropTick')))
+    part.append(row)
+  }
+  if (view.note) part.append(el('h5', '', 'The note kept under the goal'), el('p', 'brainstorm-note-kept', view.note))
+  if (view.created !== null) {
+    part.append(el('p', 'brainstorm-created', view.created))
+    const failed = brainstormUi.failedSteps.get(thread.path) ?? []
+    if (canWrite && failed.length > 0) part.append(brainstormButton(`Make the ${failed.length} task${failed.length === 1 ? '' : 's'} again`, 'steps-again', 'goals-action is-send'))
+    return part
+  }
+  if (canWrite && thread.state !== 'discarded') {
+    const buttons = el('div', 'brainstorm-buttons')
+    const back = brainstormButton('‹ The goal draft', 'unagree', 'goals-lines')
+    back.title = 'Back to the goal draft'
+    const create = brainstormButton('Do what\'s ticked', 'create', 'goals-action is-send')
+    create.disabled = brainstormUi.busy || !view.canCreate
+    create.title = view.canCreate ? 'The goal\'s draft goes under the goal, the ticked tasks are made and the ticked drops dropped' : 'Say yes to what your partner understood first'
+    buttons.append(back, el('span', 'brainstorm-gap'), brainstormButton(brainstormUi.changing === thread.path ? 'Change… ▾' : 'Change…', 'change'), create)
+    part.append(buttons)
+    if (brainstormUi.changing === thread.path) part.append(brainstormChangeBox())
+  }
+  return part
 }
 
 /** The proposal: what was decided, the goals and the steps with their ticks, the note; Create, Change… and what came of it. */
@@ -10975,18 +11186,7 @@ function proposalPart(thread, canWrite) {
     create.title = 'The goals go into the map now; the main chat is asked for each step'
     buttons.append(create, brainstormButton(brainstormUi.changing === thread.path ? 'Change… ▾' : 'Change…', 'change'))
     part.append(buttons)
-    if (brainstormUi.changing === thread.path) {
-      const change = el('div', 'brainstorm-change')
-      const words = el('textarea')
-      words.id = 'brainstorm-change-text'
-      words.rows = 2
-      words.maxLength = 1000
-      words.placeholder = 'What should the Advisor change in the proposal?'
-      words.value = brainstormUi.changeWords
-      words.disabled = brainstormUi.busy
-      change.append(words, brainstormButton('Send the change', 'send-change', 'goals-action is-send'))
-      part.append(change)
-    }
+    if (brainstormUi.changing === thread.path) part.append(brainstormChangeBox())
   }
   return part
 }
@@ -11016,7 +11216,7 @@ function showBrainstormNew(state) {
 function openBrainstorm(goal, opening = '', isNew = false) {
   show('advice')
   showAdvisorPane('brainstorm')
-  const running = goal === null ? null : (board?.brainstorms?.threads ?? []).find(thread => thread.goal?.id === goal && (thread.state === 'running' || thread.state === 'wrapping up')) ?? null
+  const running = goal === null ? null : (board?.brainstorms?.threads ?? []).find(thread => thread.goal?.id === goal && thread.kind !== 'change' && (thread.state === 'running' || thread.state === 'wrapping up')) ?? null
   if (running !== null && isNew) goal = null
   else if (running !== null) {
     brainstormUi.open = running.path
@@ -11065,8 +11265,11 @@ async function brainstormAct(act, path) {
   if (thread === null || brainstormUi.busy) return
   if (act === 'again' && brainstormUi.busy === false) {
     // The word the brainstorm waits on: the start, the answer to the last question, or the wrap-up.
+    const said = thread.proposal === null && thread.understood?.isOpen === true ? thread.understood.answer : null
     const word = thread.state === 'wrapping up' && thread.proposal === null ? { command: 'brainstorm-wrap' }
-      : thread.questions === 0 && thread.proposal === null ? { command: 'brainstorm' }
+      // "Change this goal": the person's yes or "not quite" to what the partner understood.
+      : said !== null && said !== undefined ? { command: said.yes === true ? 'brainstorm-understood' : 'brainstorm-not-quite' }
+      : thread.questions === 0 && thread.proposal === null && thread.understood === null ? { command: 'brainstorm' }
         : thread.latest !== null && thread.latest.answer !== null && thread.proposal === null ? { command: 'brainstorm-answer', n: thread.latest.n } : null
     if (word === null) return
     brainstormUi.busy = true
@@ -11080,6 +11283,19 @@ async function brainstormAct(act, path) {
     brainstormUi.changing = brainstormUi.changing === path ? null : path
     redrawBrainstorm()
     return $('brainstorm-change-text')?.focus()
+  }
+  // "Change this goal": "Not quite…" opens the box for the person's words; Agree shows the re-plan (the page's own:
+  // nothing is written before "Do what's ticked").
+  if (act === 'not-quite') {
+    brainstormUi.notQuite = brainstormUi.notQuite === path ? null : path
+    redrawBrainstorm()
+    return $('brainstorm-not-quite-text')?.focus()
+  }
+  if (act === 'agree' || act === 'unagree') {
+    if (act === 'agree') brainstormUi.agreed.add(agreedKey(thread))
+    else brainstormUi.agreed.delete(agreedKey(thread))
+    brainstormUi.changing = null
+    return redrawBrainstorm()
   }
   if (act === 'discard' && brainstormUi.confirm !== path) {
     brainstormUi.confirm = path
@@ -11107,6 +11323,19 @@ async function brainstormAct(act, path) {
         brainstormUi.other.delete(path)
         await sayBrainstorm({ to: advisor, command: 'brainstorm-answer', thread: path, n }, path)
       }
+    } else if (act === 'understood-yes') {
+      // "Change this goal": the yes is written under what the partner understood, then typed to it: it writes the proposal.
+      if (await sendBrainstorm({ command: 'understood', path, yes: true }) !== null && await sayBrainstorm({ to: advisor, command: 'brainstorm-understood', thread: path }, path)) {
+        brainstormUi.note = { path, isProblem: false, text: 'Your partner writes the new goal and the tasks it needs.' }
+      }
+    } else if (act === 'send-not-quite') {
+      const words = brainstormUi.notQuiteWords.trim()
+      if (words === '') brainstormUi.note = { path, isProblem: true, text: 'Say what is not quite it.' }
+      else if (await sendBrainstorm({ command: 'understood', path, words }) !== null) {
+        brainstormUi.notQuite = null
+        brainstormUi.notQuiteWords = ''
+        if (await sayBrainstorm({ to: advisor, command: 'brainstorm-not-quite', thread: path }, path)) brainstormUi.note = { path, isProblem: false, text: 'Sent to your partner: it asks on.' }
+      }
     } else if (act === 'wrap') {
       if (await sendBrainstorm({ command: 'wrap', path }) !== null) await sayBrainstorm({ to: advisor, command: 'brainstorm-wrap', thread: path }, path)
     } else if (act === 'discard') {
@@ -11129,9 +11358,14 @@ async function brainstormAct(act, path) {
         brainstormUi.note = { path, isProblem: false, text: 'The main chat is asked for every step.' }
       }
     } else if (act === 'create') {
-      const view = proposalView(thread, brainstormUi.unticked.get(path) ?? [])
-      const steps = view.steps.filter(step => step.ticked).map(step => step.index)
-      const made = await sendBrainstorm({ command: 'create', path, goals: view.goals.filter(goal => goal.ticked).map(goal => goal.index), steps, seen: thread.length })
+      // "Change this goal": the draft, the ticked new steps and the ticked drops; a change makes no new goals.
+      const isChanging = thread.kind === 'change'
+      const view = isChanging ? null : proposalView(thread, brainstormUi.unticked.get(path) ?? [])
+      const change = isChanging ? changeProposalView(thread, { unticked: [...(brainstormUi.unticked.get(path) ?? [])], dropsTicked: [...(brainstormUi.dropsTicked.get(path) ?? [])], agreed: true }) : null
+      const steps = isChanging ? [...change.bullets.flatMap(bullet => bullet.steps), ...change.loose].filter(step => step.ticked).map(step => step.index).filter((index, at, all) => all.indexOf(index) === at) : view.steps.filter(step => step.ticked).map(step => step.index)
+      const body = isChanging ? { command: 'create', path, goals: [], steps, drops: change.drops.filter(drop => drop.ticked).map(drop => drop.index), seen: thread.length }
+        : { command: 'create', path, goals: view.goals.filter(goal => goal.ticked).map(goal => goal.index), steps, seen: thread.length }
+      const made = await sendBrainstorm(body)
       if (made !== null) {
         // One message per step to the main chat, which writes it on the backlog and links it to its goal.
         let asked = 0
@@ -11142,7 +11376,10 @@ async function brainstormAct(act, path) {
         }
         if (failed.length > 0) brainstormUi.failedSteps.set(path, failed)
         const goals = made.goals.map(goal => goal.id).join(', ')
-        if (brainstormUi.note === null) brainstormUi.note = { path, isProblem: false, text: `Created: ${goals || 'no goals'}${steps.length > 0 ? `; the main chat is asked for ${asked} of ${steps.length} step${steps.length === 1 ? '' : 's'}` : ''}.` }
+        // "Change this goal": what was done, and a drop the store refused, with why.
+        const notDropped = (made.notDropped ?? []).map(one => `${one.id} not dropped: ${one.why}`).join(' ')
+        if (isChanging && brainstormUi.note === null) brainstormUi.note = { path, isProblem: notDropped !== '', text: `Done: the goal's draft is under ${thread.goal?.id ?? 'its goal'}${steps.length > 0 ? `; ${asked} of ${steps.length} new task${steps.length === 1 ? '' : 's'} made` : ''}${(made.dropped ?? []).length > 0 ? `; dropped ${made.dropped.join(', ')}` : ''}.${notDropped === '' ? '' : ` ${notDropped}`}` }
+        else if (brainstormUi.note === null) brainstormUi.note = { path, isProblem: false, text: `Created: ${goals || 'no goals'}${steps.length > 0 ? `; the main chat is asked for ${asked} of ${steps.length} step${steps.length === 1 ? '' : 's'}` : ''}.` }
       }
     }
   } finally {
@@ -11183,6 +11420,15 @@ $('brainstorm-card').addEventListener('click', event => {
 $('brainstorm-card').addEventListener('change', event => {
   const tick = event.target.closest('[data-tick]')
   const path = brainstormChosen(board?.brainstorms?.threads ?? [], brainstormUi.open)
+  // "Change this goal": a drop is ticked by the person (none is by itself).
+  const drop = event.target.closest('[data-drop-tick]')
+  if (drop !== null && path !== null) {
+    const on = new Set(brainstormUi.dropsTicked.get(path) ?? [])
+    if (drop.checked) on.add(drop.dataset.dropTick)
+    else on.delete(drop.dataset.dropTick)
+    brainstormUi.dropsTicked.set(path, on)
+    return redrawBrainstorm()
+  }
   if (tick === null || path === null) return
   const off = new Set(brainstormUi.unticked.get(path) ?? [])
   if (tick.checked) off.delete(tick.dataset.tick)
@@ -11194,6 +11440,7 @@ $('brainstorm-card').addEventListener('change', event => {
 $('brainstorm-card').addEventListener('input', event => {
   // The words of a change stay while the card is drawn anew.
   if (event.target.id === 'brainstorm-change-text') brainstormUi.changeWords = event.target.value
+  if (event.target.id === 'brainstorm-not-quite-text') brainstormUi.notQuiteWords = event.target.value
   if (event.target.id !== 'brainstorm-other') return
   const path = brainstormChosen(board?.brainstorms?.threads ?? [], brainstormUi.open)
   brainstormUi.other.set(path, event.target.value)
@@ -11244,6 +11491,84 @@ $('brainstorm-new').addEventListener('submit', async event => {
   }
   brainstormUi.busy = false
   redrawBrainstorm()
+})
+
+/**
+ * "Change this goal" (2026-10-31): the box that starts a change of a goal, from the Focus page's head or a goal of the
+ * Goals part. The person's words are the opening of a brainstorm of kind change (and a point of the goal's "Your
+ * words"); the partner is told, and the Brainstorm part opens on it. A change that runs already opens instead.
+ */
+const changeGoalUi = { goal: null, busy: false }
+
+/** The change of a goal that runs (running, or wrapping up), or null. */
+function runningChangeOf(threads, goal) {
+  return (threads ?? []).find(thread => thread.kind === 'change' && thread.goal?.id === goal && (thread.state === 'running' || thread.state === 'wrapping up')) ?? null
+}
+
+/** The Brainstorm part, on the thread at `path`. */
+function showBrainstormThread(path) {
+  show('advice')
+  showAdvisorPane('brainstorm')
+  brainstormUi.open = path
+  brainstormUi.newAbout = undefined
+  redrawBrainstorm()
+}
+
+function openChangeGoal(goal) {
+  const node = goalById(board?.goals ?? { nodes: [] }, goal)
+  if (node === null) return
+  const running = runningChangeOf(board?.brainstorms?.threads, goal)
+  if (running !== null) return showBrainstormThread(running.path)
+  if (changeGoalUi.goal !== goal) $('change-goal-words').value = ''
+  changeGoalUi.goal = goal
+  $('change-goal-title').textContent = `Change ${node.id} · ${node.title}`
+  changeGoalSay('', false)
+  if (!$('change-goal').open) $('change-goal').showModal()
+  $('change-goal-words').focus()
+}
+
+function changeGoalSay(text, isProblem) {
+  $('change-goal-status').textContent = text
+  $('change-goal-status').classList.toggle('is-problem', isProblem)
+}
+
+$('change-goal-cancel').addEventListener('click', () => {
+  if (!changeGoalUi.busy) $('change-goal').close()
+})
+$('change-goal-form').addEventListener('submit', async event => {
+  event.preventDefault()
+  const goal = changeGoalUi.goal
+  const advisor = board?.advisor?.name ?? null
+  const words = $('change-goal-words').value.trim()
+  if (changeGoalUi.busy || goal === null) return
+  if (words === '') return changeGoalSay('Say what should change, in your words.', true)
+  if (advisor === null) return changeGoalSay('No partner chat is on the board: the setting advisor names none.', true)
+  const node = goalById(board?.goals ?? { nodes: [] }, goal)
+  changeGoalUi.busy = true
+  $('change-goal-start').disabled = true
+  $('change-goal-start').textContent = 'Starting…'
+  try {
+    let started = null
+    let why = null
+    try {
+      const answer = await fetch('/api/brainstorm', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Board-Token': TOKEN }, body: JSON.stringify({ command: 'start', kind: 'change', goal, title: `Change: ${node?.title ?? goal}`, opening: words }) })
+      if (answer.ok) started = await answer.json()
+      else why = (await answer.text()).trim() || `refused (${answer.status})`
+    } catch {
+      why = 'the board\'s server does not answer.'
+    }
+    if (started === null) return changeGoalSay(`Not started: ${why}`, true)
+    $('change-goal-words').value = ''
+    $('change-goal').close()
+    await read()
+    showBrainstormThread(started.path)
+    await sayBrainstorm({ to: advisor, command: 'brainstorm', thread: started.path }, started.path)
+    redrawBrainstorm()
+  } finally {
+    changeGoalUi.busy = false
+    $('change-goal-start').disabled = false
+    $('change-goal-start').textContent = 'Start the brainstorm'
+  }
 })
 
 // B289: a step under no goal opens its window.
@@ -11350,6 +11675,7 @@ $('goals-frame').addEventListener('click', event => {
   // B358: the re-check taken back: the goal stays open.
   if (tool === 'recheck-back') return sendGoals({ command: 'line', id: focus, name: 'Recheck asked', value: '' }).then(done => { if (done !== null) goalsSay(done.unchanged ? 'There was no re-check to take back.' : 'The re-check is taken back: the goal stays open.', 'ok') })
   if (tool === 'brainstorm') return openBrainstorm(focus)
+  if (tool === 'change') return openChangeGoal(focus)
   // B354: the partner is asked to write the goal's Done when; the map itself is not changed.
   // The review: without the Workers mod the word is put on the clipboard to paste, as every word to the partner.
   if (tool === 'done-when') {
@@ -11762,6 +12088,10 @@ function focusView(focus, goals, can = null, ui = {}) {
     buttons: [],
     // The review of Focus 2: in every stage a way back to the pick list.
     change: { label: 'Change focus', isEnabled: allowed, title: allowed ? 'Pick another goal as your focus' : why },
+    // "Change this goal" (2026-10-31): say what should change; the partner brainstorms it first, then re-plans.
+    changeGoal: stage === 'done' ? null : { label: 'Change this goal', isEnabled: allowed, title: allowed ? 'Say what should change about this goal: your partner asks until it understands, then proposes the new goal and its tasks' : why },
+    // and, once a change gave it one, the goal's objective and its Done when bullets.
+    definition: focusDefinitionView(focus),
   }
   const hasVibe = focus.vibe.length > 0 || focus.vibePicture !== null
   if (stage === 'vibe') view.buttons = [
@@ -11840,6 +12170,21 @@ function focusView(focus, goals, can = null, ui = {}) {
     view.back = { label: `Back to ${focus.id}`, act: 'keep-focus' }
   }
   return view
+}
+
+/**
+ * "Change this goal" (2026-10-31): the focus goal's objective and its Done when bullets, each met (its steps all done) or
+ * not, with its step ids; null for a goal without an objective, which shows nothing new.
+ */
+function focusDefinitionView(focus) {
+  const objective = typeof focus?.objective === 'string' ? focus.objective.trim() : ''
+  if (objective === '') return null
+  return {
+    objective,
+    title: 'Done when',
+    bullets: (focus.doneBullets ?? []).map(bullet => ({ n: bullet.n, text: bullet.text, steps: bullet.steps ?? [], met: bullet.met === true, state: bullet.met === true ? 'met' : 'not met' })),
+    notInIt: typeof focus.notInIt === 'string' && focus.notInIt.trim() !== '' ? focus.notInIt.trim() : null,
+  }
 }
 
 /** Partner answers (2026-10-19): what the Undo of a partner's answer of an ask does. */
@@ -14145,7 +14490,10 @@ function drawFocus(state) {
     const head = el('header', 'focus-head')
     const title = el('div', 'focus-title')
     title.append(el('small', 'focus-label', view.head.label), el('h2', '', `${view.head.id} · ${view.head.title}`))
-    if (view.head.vibeLine !== null) title.append(el('p', 'focus-vibe-line', view.head.vibeLine))
+    // "Change this goal": a goal's objective, once a change gave it one, stands under its title in place of the vibe's line.
+    if ((view.definition ?? null) !== null) title.append(el('p', 'focus-objective', view.definition.objective))
+    else if (view.head.vibeLine !== null) title.append(el('p', 'focus-vibe-line', view.head.vibeLine))
+    if ((view.changeGoal ?? null) !== null && (state.advisor ?? null) !== null && view.back === undefined) title.append(focusButton({ ...view.changeGoal, act: 'change-goal' }, 'focus-change is-change-goal'))
     if (view.change !== null && view.back === undefined) title.append(focusButton({ ...view.change, act: 'change-focus' }, 'focus-change'))
     const side = el('div', 'focus-side')
     const strip = el('ol', 'focus-strip')
@@ -14168,6 +14516,8 @@ function drawFocus(state) {
     head.append(title, side)
     parts.push(head)
   }
+  // "Change this goal": the goal's Done when bullets above the rest (the how), each met or not.
+  if ((view.definition ?? null) !== null && view.back === undefined) parts.push(focusDefinitionCard(view.definition))
   if (view.stage === 'pick' || view.stage === 'done' || view.back !== undefined) parts.push(focusPickCard(view))
   else {
     const body = el('div', 'focus-body')
@@ -14219,6 +14569,27 @@ function drawFocus(state) {
   }
 }
 
+/** "Change this goal" (2026-10-31): the goal's Done when, a row per bullet: met (green) or not met (grey), its steps as links. */
+function focusDefinitionCard(definition) {
+  const card = el('section', 'focus-card focus-done-when')
+  card.append(el('h3', '', definition.title))
+  const list = el('ol', 'focus-bullets')
+  for (const bullet of definition.bullets) {
+    const row = el('li', `focus-bullet is-${bullet.met ? 'met' : 'open'}`)
+    const mark = el('span', 'focus-bullet-mark', bullet.met ? '✓' : '')
+    mark.title = bullet.state
+    mark.setAttribute('aria-label', bullet.state)
+    const steps = el('span', 'focus-bullet-steps')
+    if (bullet.steps.length === 0) steps.append(el('span', 'muted', 'no task yet'))
+    bullet.steps.forEach((id, at) => steps.append(...(at === 0 ? [] : [', ']), linkedEl('span', '', id)))
+    row.append(mark, el('b', 'focus-bullet-text', `${bullet.n}. ${bullet.text}`), steps)
+    list.append(row)
+  }
+  card.append(list)
+  if (definition.notInIt !== null) card.append(el('p', 'muted focus-not-in-it', `Not in it: ${definition.notInIt}`))
+  return card
+}
+
 /** Partner answers (2026-10-19): the switch drawn (partnerSwitchView), with the problem of its last change. */
 function partnerSwitch(state) {
   const view = partnerSwitchView(state.partnerAnswers ?? null)
@@ -14263,6 +14634,8 @@ async function sendFocus(body, done) {
 async function focusAct(act, goal = null, extra = null) {
   if (act === 'effort') return switchEffort()
   const focus = board?.focus ?? null
+  // "Change this goal": the box that starts its change.
+  if (act === 'change-goal' && focus !== null) return openChangeGoal(focus.id)
   if (focusUi.busy) return
   if (act === 'change-focus' || act === 'keep-focus') {
     if (act === 'change-focus') focusUi.picking = true

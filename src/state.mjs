@@ -1196,14 +1196,18 @@ export function focusState(goalMap, items, threads, prefix, partner = null, now 
       const waitsForPartner = stepWaitsForPartner(one, items ?? [])
       return { id: one.head.get('Id'), title: withoutNotes(one.head.get('Title') ?? ''), state, owner, ...(waitsForPartner === null ? {} : { waitsForPartner }) }
     })
-  const own = (threads ?? []).filter(one => one.goal?.id === node.id)
-  const thread = own.find(one => one.state === 'running') ?? (threads ?? []).find(one => one.path === node.brainstorm?.path) ?? own[0] ?? null
+  // "Change this goal" (2026-10-31): a change of the goal runs beside its talk, on the Brainstorm part: never the talk.
+  const own = (threads ?? []).filter(one => one.goal?.id === node.id && one.kind !== 'change')
+  const thread = own.find(one => one.state === 'running') ?? (threads ?? []).find(one => one.path === node.brainstorm?.path && one.kind !== 'change') ?? own[0] ?? null
   return {
     id: node.id,
     title: node.title,
     stage: focusStage(node),
     // B354: the goal gets its tick against its Done when.
     doneWhen: node.doneWhen,
+    // "Change this goal" (2026-10-31): the goal's objective and its Done when bullets, each met once its steps are all
+    // done (doneBulletsOf); nothing of them for a goal without an objective.
+    ...(node.objective ? { objective: node.objective, doneBullets: doneBulletsOf(node, steps), notInIt: node.notInIt ?? null } : {}),
     // B358: its re-check before the tick: asked (the time), and the last outcome with the attempts so far.
     recheckAsked: node.recheckAsked ?? null,
     lastRecheck: node.rechecks?.at(-1) ?? null,
@@ -1231,6 +1235,19 @@ export function focusState(goalMap, items, threads, prefix, partner = null, now 
     thread: thread?.path ?? null,
     ...focusRun(node, items ?? [], prefix, partner),
   }
+}
+
+/**
+ * "Change this goal" (2026-10-31): the goal's Done when bullets for the Focus page, `{ n, text, steps, met }`: met when
+ * its steps (a dropped one left out) are all done or closed, and there is at least one; a step the store does not hold is
+ * not done. `steps` maps a step's id to its item.
+ */
+export function doneBulletsOf(node, steps) {
+  return (node?.doneBullets ?? []).map(bullet => {
+    const counted = bullet.steps.filter(id => steps.get(id)?.head.get('State') !== 'dropped')
+    const met = counted.length > 0 && counted.every(id => ['done', 'closed'].includes(steps.get(id)?.head.get('State')))
+    return { n: bullet.n, text: bullet.text, steps: bullet.steps, met }
+  })
 }
 
 /** Whether an option is the one advised: its text, or its letter ("B" of "B thick"). */
