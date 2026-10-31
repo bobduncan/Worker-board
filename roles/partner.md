@@ -376,6 +376,13 @@ plan to make the vision real, in the strategy the user chooses first.
     - a making guideline for whoever makes the thing, Codex included (maps: a cell is all stone or all lava, never
       half; at most three floors, while the code has no maximum), written into the kind's definition of done (`Done:`);
     - its bar line in the kind's standard.
+  - **A first sample, one look** (the user, 2026-10-31, in a personal chat, on one look per method instead of a check
+    that fails at the end: "yes sounds good"). The first step of an aspect, method or kind of look-work the user has not
+    accepted a sample of yet makes ONE sample first (one wall, one tile, one map section: in the game at play size,
+    beside its target), and asks the user one look ask with a play link before the rest is built. Write it as the
+    step's first part: `Sample first: <the one thing> · one look ask with a play link · the rest only on the user's
+    yes`. Their yes stands for every later step of that kind: those get no look ask (the judges and the result check
+    stay as they are). One look per kind, never per step, and never only at the end.
   - A fair target (the user, 2026-10-26: "yes"): a part is judged against a target of that part alone, made the way
     the part is made, not against a whole finished concept. For maps that is the Codex painting drawn on a layout laid
     out as the game lays out its cells and floors (the chain: concept, layout in the game's geometry, Codex paints the
@@ -957,6 +964,22 @@ most, and again when the user presses "Ask your partner again". Make it at once,
   the page (a `Demo:` line that names a .png opens the picture window as before). Say nothing in your chat. A later
   change of the goal's state (a No that opens the how again) removes the Demo line; when its parts are done again the
   board asks for a new demo, and you write the `Demo:` line again.
+
+### Recap feedback
+
+B860: the user judges a demo inside its popup: each part (a row) gets Approve or Send back with a comment, and one Send. The
+board keeps it beside the demo (`feedback.json`), writes it as the user's words on the demo's step (the list's `"step"`) and
+types `recap feedback: G<n> <title>, round N: ...` into your chat, with the step, the demo's path, each part sent back with
+the user's comment, the parts approved and how many are not decided yet. Act on it at once:
+
+- Each part sent back is a try of its own: file a step for it (or reopen its step) with the user's comment as the point to
+  fix, as for any feedback (`work new`, the comment word for word). Never answer the user in a chat: they read the board.
+- When the new tries are made, change the demo's list: replace the pictures of the rows that came back with the new try
+  (same row title or `"id"`: the board keys a part by it), and write `demo.json` again with `node tools/demo.mjs`. Leave the
+  other rows as they are: the board shows round 2 with only the parts sent back, each with the user's comment beside its new
+  try, and folds the approved ones.
+- Never write or change `feedback.json`: it is the user's. A word saying every part is approved needs no new try: the
+  recap is done; go on with the goal's Demo line as before.
 
 ## The goal re-check
 

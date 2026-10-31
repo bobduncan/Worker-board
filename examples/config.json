@@ -30,6 +30,7 @@
   "takeWithinMinutes": 2,
   "followUpMinutes": 0,
   "heldGiveMinutes": 20,
+  "handover": "timers",
   "unfiledAskHours": 2,
   "advisor": "Advisor",
   "backlog": ".claude/backlog.md",

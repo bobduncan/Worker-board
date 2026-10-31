@@ -657,7 +657,7 @@ const WAKE_PENDING_MS = 10 * 60_000
 
 /** The commands the board puts to a chat other than the main one: a word the chat's work stands on (wakeFor). */
 // B570: and the board's word that asks the partner to restart the main chat on a new Workers mod.
-const PARTNER_WORDS = ['recommend', 'refine', 'result-check', 'evaluate', 'work', 'recheck', 'goal-ask', 'brainstorm', 'brainstorm-answer', 'brainstorm-wrap', 'brainstorm-change', 'brainstorm-understood', 'brainstorm-not-quite', 'brainstorm-fix', 'brainstorm-stranded', 'incident', 'mod-restart', 'obsolete-check', ...FOCUS_COMMANDS]
+const PARTNER_WORDS = ['recommend', 'refine', 'result-check', 'evaluate', 'work', 'recheck', 'goal-ask', 'brainstorm', 'brainstorm-answer', 'brainstorm-wrap', 'brainstorm-change', 'brainstorm-understood', 'brainstorm-not-quite', 'brainstorm-fix', 'brainstorm-stranded', 'incident', 'mod-restart', 'obsolete-check', 'recap-feedback', ...FOCUS_COMMANDS]
 export const isPartnerWord = command => typeof command === 'string' && (command.startsWith('plan-') || PARTNER_WORDS.includes(command))
 
 /** 2026-10-26: the command of the board's word that has a worker holding a step go on from its checkpoint (`resumesDue`). */
@@ -1142,6 +1142,27 @@ export function obsoleteWords(to, { ids, job }) {
       `Items: ${shown.join(', ')}${ids.length > shown.length ? `, and ${ids.length - shown.length} more` : ''}`,
       'Read each with its evidence: work obsolete (no points). Answer once: work obsolete with points, one line per item "obsolete|unsure|open: <id> · <why> · <evidence>".',
       `Your job: ${job}, "Find obsolete items"`,
+    ].join('\n'),
+  }
+}
+
+/**
+ * B860: the person's Send of feedback on a goal demo (the recap's popup): which parts they approved and which they sent back,
+ * with their comments. The partner makes the next tries and updates the demo (roles/partner.md, "Recap feedback"); the board
+ * shows the next round with only the parts sent back.
+ */
+export function recapFeedbackWords(to, { goal, title, step, round, approved, back, done, left, path, job }) {
+  const one = value => String(value ?? '').replace(/\s+/g, ' ').trim()
+  return {
+    to, ask: null, step: step ?? null, title: null, version: null, verdict: null, command: 'recap-feedback', about: goal,
+    text: [
+      `recap feedback: ${goal} ${one(title)}, round ${round}: ${done ? 'every part approved' : `${back.length} part${back.length === 1 ? '' : 's'} sent back`}`,
+      ...(step === null || step === undefined ? [] : [`Step: ${step}`]),
+      `Demo: ${path}`,
+      ...(back.length === 0 ? [] : ['Sent back:', ...back.map(part => `- ${one(part.title)}: "${one(part.comment)}"`)]),
+      ...(approved.length === 0 ? [] : [`Approved: ${approved.map(one).join('; ')}`]),
+      ...(left > 0 ? [`Not decided yet: ${left}`] : []),
+      `Your job: ${job}, "Recap feedback"`,
     ].join('\n'),
   }
 }

@@ -57,8 +57,8 @@ import { areaOf, freshScan, keptTasks, listText, readOn } from './src/taskTimes.
 import { createSpendingCollector } from './src/work/routing/collector.mjs'
 import { readRoutingRecord } from './src/work/routing/records.mjs'
 import { parseRoutingPolicy } from './src/work/routing/policy.mjs'
-import { adoptPicture, findDemo, findPicture, PICTURE_BYTES as SHOWN_PICTURE_BYTES, pictureProblem, pictureTooBig, shownFolders, shownRoots } from './src/pictures.mjs'
-import { answerWords, checkSay, focusWords, goalStepOf, recommendYesAnswer, obsoleteWords, recommendYesOf, reportedBackgroundDue, resumesDue, sayStopWords, spawnWhenAlone, wakeFor, wakesDue, wakesStopped, withInstruction, workWords } from './src/say.mjs'
+import { adoptPicture, findDemo, findPicture, readDemo, writeFeedback, PICTURE_BYTES as SHOWN_PICTURE_BYTES, pictureProblem, pictureTooBig, shownFolders, shownRoots } from './src/pictures.mjs'
+import { recapFeedbackWords, answerWords, checkSay, focusWords, goalStepOf, recommendYesAnswer, obsoleteWords, recommendYesOf, reportedBackgroundDue, resumesDue, sayStopWords, spawnWhenAlone, wakeFor, wakesDue, wakesStopped, withInstruction, workWords } from './src/say.mjs'
 import { keepTalkPicture } from './src/talkPicture.mjs'
 import { firstLook, refineQueue, refineWhenDue } from './src/refineGate.mjs'
 import { recheckText, roundText, roundsNow } from './src/rounds.mjs'
@@ -68,6 +68,7 @@ import { addDoneWhenStep, changeGoalsFile, editGoals, setGoalSteps } from './src
 import { parseGoals } from './src/goals.mjs'
 import { activityFor, missingToSteps } from './src/goalSteps.mjs'
 import { PLAN_MOVES, planMove } from './src/planMoves.mjs'
+import { checkSend, roundPage, stampOf, withRound, wordsOfRound } from './src/demoFeedback.mjs'
 import { FOCUS_DRAFTS, FOCUS_MOVES, demoAgain, evaluationsAgain, evaluationsMode, evaluationsRunning, focusAllDone, focusMove, goalChecked, goalReopened, guardGoal, guardsAsking, partDropRefusal, undoLine } from './src/focus.mjs'
 import { PARTNER_MODES, effortBack, fableBack, partnerEffortWords } from './src/partnerEffort.mjs'
 import { evaluationFor } from './src/goalGuard.mjs'
@@ -88,6 +89,8 @@ import { STOP_MOD, asleepOfJob, handJobs, handResults, isForHandsYet, isHandWord
 import { OPEN_CHECK_MS, OPEN_FIRST_MS, OPEN_TRIES, asleepPlan, asleepWithWork, chatToOpen, failuresOf, handWorkWaits, handsGone, openChat, openPlan, openerNote, openerRow } from './src/opener.mjs'
 import { basesNow, patientReportCheck } from './src/work/check.mjs'
 import { deliverWork, givesRefused, pullFor, sendOnce } from './src/work/deliver.mjs'
+import { HANDOVER_COMMAND, onSequence, outcomeOf } from './src/work/handover.mjs'
+import { handOut, handOver, handoverPass, inTurn as handoverTurn, settle as settleEnvelope } from './src/work/handoverBoard.mjs'
 import { coalesce } from './src/work/again.mjs'
 import { REFUSED_MS, SUPERVISOR_RULES, createSupervisor, incidentCards, loopGate, loopOwner, tokensOfTurn } from './src/supervisor/index.mjs'
 import { FILES as WORKTREE_FILES, cleanLeftover, findLeftovers, stepLeftovers } from './src/work/worktrees.mjs'
@@ -231,6 +234,8 @@ export const POST_ROUTES = Object.freeze({
   '/api/plan': { kind: 'json', guard: 'lock' },
   '/api/brainstorm': { kind: 'json', guard: 'lock' },
   '/api/work': { kind: 'json', guard: 'lock' },
+  // B860: the person's feedback on a goal demo's parts: feedback.json beside the demo, words on its step, one word to the partner.
+  '/api/demo-feedback': { kind: 'json', guard: 'lock' },
   '/api/settings': { kind: 'json', guard: 'lock' },
   '/api/game': { kind: 'json', guard: 'free', why: 'starts or stops a game process of this board\'s own; writes nothing of the project' },
   '/api/cpu': { kind: 'json', guard: 'free', why: 'the CPU level kept in this board folder\'s own data, not the project\'s' },
@@ -278,6 +283,7 @@ export function createBoard({
   goals = async () => ({ ok: false, status: 404, why: 'Not here.' }),
   brainstorm = async () => ({ ok: false, status: 404, why: 'Not here.' }),
   work = async () => ({ ok: false, status: 404, why: 'Not here.' }),
+  demoFeedback = async () => ({ ok: false, status: 404, why: 'Not here.' }),
   bridgeWork = async () => ({ ok: false, status: 404, why: 'Not here.' }),
   cpu = async () => ({ ok: false, status: 404, why: 'Not here.' }),
   codeJobs = async () => ({ ok: false, status: 404, why: 'Not here.' }),
@@ -407,6 +413,10 @@ export function createBoard({
       }
       if (pathname === '/api/backlog') {
         const done = await backlog(parsed)
+        return done.ok ? json(res, done.result) : refuse(res, done.status, done.why)
+      }
+      if (pathname === '/api/demo-feedback') {
+        const done = await demoFeedback(parsed)
         return done.ok ? json(res, done.result) : refuse(res, done.status, done.why)
       }
       if (pathname === '/api/work') {
@@ -934,6 +944,51 @@ async function main(args) {
       partner: state.advisor, job: join(HERE, 'roles', 'partner.md'), focus: state.focus ?? null,
     })
     for (const one of words) await toPartner(one, {}, state)
+  }
+  /** B860: why the person's feedback on a goal demo cannot be taken here, or null. */
+  const demoFeedbackWhyNot = async () => {
+    if (isDemo) return 'This is the demo: it keeps no feedback.'
+    if (!writesMap) return `This board only shows. Send your feedback on the board that delivers: http://${HOST}:${recordingPort}/`
+    if (((await readState()).advisor ?? null) === null) return 'No partner chat is on the board to take your feedback: start it first.'
+    return null
+  }
+  /**
+   * B860: the person's Send on a goal demo: each part Approved or Sent back with a comment. Checked against the round the demo
+   * shows (a round sent already, a part the demo lacks, a part sent back without words: refused, nothing written); then
+   * feedback.json beside the demo, the person's words on the demo's step (once), and one word to the partner. One Send at a time.
+   */
+  let demoTurn = Promise.resolve()
+  const demoFeedbackNow = body => {
+    const run = async () => {
+      const why = await demoFeedbackWhyNot()
+      if (why !== null) return { ok: false, status: 409, why }
+      const state = await readState()
+      const found = await readDemo(state.project, shownRoots(config), body?.path)
+      if (found === null) return { ok: false, status: 404, why: 'No such goal demo.' }
+      if (found.why !== undefined) return { ok: false, status: 422, why: found.why }
+      const checked = checkSend(roundPage(found.base, found.feedback), body)
+      if (!checked.ok) return checked
+      await writeFeedback(found.file, withRound(found.feedback, checked.round, checked.parts, stampOf(clock())))
+      readState.reset()
+      const said = wordsOfRound(found.base, checked.round, checked.parts)
+      const after = roundPage(found.base, withRound(found.feedback, checked.round, checked.parts, ''))
+      // The person's words stand on the demo's step; a step that is gone does not stop the feedback (it is kept and the partner has it).
+      let notedOn = null
+      if (found.base.step !== null && workDir !== null) {
+        const noted = await workAction({ action: 'words', id: found.base.step, text: said.lines.join('\n'), where: 'in the goal demo' }, 'person')
+        if (noted.ok) notedOn = found.base.step
+      }
+      const left = after.sections.flatMap(section => section.rows).filter(row => row.said === undefined).length
+      await toPartner(recapFeedbackWords(state.advisor.name, {
+        goal: found.base.goal, title: found.base.title, step: notedOn ?? found.base.step, round: checked.round, approved: said.approved, back: said.back,
+        done: after.feedback.done, left, path: body.path, job: join(HERE, 'roles', 'partner.md'),
+      }), {}, state)
+      return { ok: true, result: { round: checked.round, approved: said.approved.length, sentBack: said.back.length, done: after.feedback.done, notedOn } }
+    }
+    const turn = demoTurn.then(run, run)
+    // The caller has the turn itself, with its error; the next Send only waits for this one to end.
+    demoTurn = turn.then(() => undefined, error => { console.error(`The goal demo's feedback failed: ${error?.message ?? error}`) })
+    return turn
   }
   /** Focus 2: the person's word to the partner into the outbox (copied without the Workers mod); a partner not running is woken. */
   const toPartner = async (words, result, state) => {
@@ -1659,6 +1714,33 @@ async function main(args) {
     return atTake
   }
   /**
+   * T8.5 (spec 2026-10-31, part 4): whether the chat that calls is a worker on the sequence: the one predicate
+   * (handover.mjs `onSequence`), with the version its mod says in this very call. Its lane, or null for none.
+   */
+  const sequenceLane = async (chat, mod) => {
+    const lane = ((readState.last() ?? await readState()).chats ?? []).find(one => one.name === chat && !one.isLeftover) ?? null
+    return lane !== null && onSequence({ ...lane, mod: typeof mod === 'string' ? mod : lane.mod ?? null }, config) ? lane : null
+  }
+  /**
+   * T8.5: one decision for a worker on the sequence, carried out (src/work/handoverBoard.mjs), one at a time per store
+   * with the refresh's. The state is read anew first, so what just changed counts. `{ decision, envelope }`.
+   */
+  const decideFor = async (chat, mod, event) => {
+    if (workDir === null || isShowOnly || workWriters === null) return null
+    return handoverTurn(workDir, async () => {
+      readState.reset()
+      const state = await readState()
+      const lane = (state.chats ?? []).find(one => one.name === chat && !one.isLeftover) ?? null
+      if (lane === null || !onSequence({ ...lane, mod: typeof mod === 'string' ? mod : lane.mod ?? null }, config)) return null
+      const done = await handOver({ lane: { ...lane, mod: typeof mod === 'string' ? mod : lane.mod }, state, dir: workDir, outbox: store, apply: body => workAction(body, 'server'), config, installed: (await modNow())?.installed ?? null, now: clock(), newId: () => randomBytes(8).toString('hex'), event })
+      if (done.envelope !== null || done.decision.takeBack !== null || done.decision.give !== null || done.decision.net !== null) {
+        work.reset?.()
+        readState.reset()
+      }
+      return done
+    })
+  }
+  /**
    * Clear after each step: a session the state shows under no name may be a chat that went on under a new id a moment
    * ago (its card moved): the state is read anew once before the bridge refuses it.
    */
@@ -1783,6 +1865,8 @@ async function main(args) {
   }
   /** B297: one call of a chat's work tool, made once (B412: `requests` gives a repeat of it the same answer). */
   const bridgeWorkOnce = async (body, checked) => {
+    // T8.5: the version its mod said with this very call (noteMod keeps it before the call is answered).
+    const mod = modOf.get(checked.chat)?.version ?? null
     const done = await workAction({ ...body, chat: checked.chat })
     // The supervisor's Part 2: its chat's health read, incidents and turn's end tell the sweep that runs how it went.
     // B760: by the state the board has, as the check of the call: work health's answer never waits for a whole read.
@@ -1791,6 +1875,19 @@ async function main(args) {
     }
     // Partner answers (2026-10-19): the partner's answer wakes the chat that asked, as the person's answer on the page does.
     if (body?.action === 'partner-answer') await sendWakes(done)
+    // T8.5: a worker on the sequence: its turn end is the trigger. The board decides once and answers the envelope (or, while
+    // its set is on its way, that it comes with a take); the mod clears only when an envelope says so. No pull line.
+    if (body?.action === 'turn-ended' && done.ok && await sequenceLane(checked.chat, mod) !== null) {
+      const since = Number(body.since)
+      const decided = await decideFor(checked.chat, mod, { kind: 'turn-ended', since })
+      if (decided !== null) {
+        const envelope = await handOut(store, checked.chat, clock(), keep)
+        if (envelope !== null) readState.reset()
+        const { pull: _pull, ...rest } = done.result
+        const waits = envelope === null && decided.envelope !== null && typeof decided.envelope.waitsFor === 'string' ? 'set' : null
+        return { ok: true, result: { ...rest, handover: { state: decided.decision.state, why: decided.decision.why, step: decided.decision.step, envelope, waits } } }
+      }
+    }
     // B300: a free worker's pull at the end of its turn (with its turn-ended, or alone): its line goes into the outbox
     // once per step, chat and queueing (as the reconciler's delivery), and the mod takes it at once. Nothing for a chat
     // that is held by the limit or busy, as the board reads it anew now, or when the line went before.
@@ -2103,7 +2200,14 @@ async function main(args) {
       return { ok: true, message }
     },
     gameFile: (path, alt) => findGameFile(config, path, alt),
-    demo: async path => findDemo((await readState()).project, shownRoots(config), path),
+    // B860: the page of the round the person answers, with whether they may send feedback (and why not).
+    demo: async path => {
+      const found = await findDemo((await readState()).project, shownRoots(config), path)
+      if (found?.page === undefined) return found
+      const whyNot = await demoFeedbackWhyNot()
+      return { page: { ...found.page, feedback: { ...found.page.feedback, canSend: whyNot === null && found.page.feedback.parts > 0 && !found.page.feedback.done, whyNot } } }
+    },
+    demoFeedback: async body => demoFeedbackNow(body),
     picture: async path => {
       const { project } = await readState()
       const found = await findPicture(project, shownRoots(config), path)
@@ -2227,8 +2331,9 @@ async function main(args) {
         if (!checked.ok) return checked
         if (asked.action === 'save-log') return await requests.answer(session, request, () => saveLog(asked, checked, state))
         // B547: never a new step on an uncleared chat: a worker that owes a clear takes nothing until it is cleared (a mod
-        // that can clear only; the state is read anew first, so a clear that just ran counts).
-        if (asked.action === 'take' && modAtLeast(body?.mod ?? null)) {
+        // that can clear only; the state is read anew first, so a clear that just ran counts). T8.5: not a worker on the
+        // sequence: its envelope clears it before its line, and the take is its own.
+        if (asked.action === 'take' && modAtLeast(body?.mod ?? null) && await sequenceLane(checked.chat, body?.mod) === null) {
           readState.reset()
           const owed = ((await readState()).chats ?? []).find(one => one.name === checked.chat && !one.isLeftover)?.clearOwed ?? null
           if (owed !== null) return { ok: false, status: 409, why: takeRefusal(owed) }
@@ -2252,12 +2357,16 @@ async function main(args) {
       // "resume" to the main chat goes. The rest waits in the outbox, held until the resume (2026-10-19: Resume all, no
       // longer running: while resuming every line goes, so an answer to a chat that has not started reaches it).
       // B547: a worker that owes a clear: the line of its next step waits for the clear, which its mod is named once it is idle.
-      const atTake = await clearAtTakeOf(body, checked.chat)
+      // T8.5: a worker on the sequence: no clear named here and no line held for one (its envelope clears it first).
+      const onIt = await sequenceLane(checked.chat, body?.mod) !== null
+      const atTake = onIt ? { hold: false, clear: null, why: null } : await clearAtTakeOf(body, checked.chat)
       // B755: a hand's word goes to the hands first, to the chat it is addressed to only once none claimed it in a minute.
       const now = clock()
       const workers = workerNames(await readState())
-      const only = isHolding((await readState()).pause) ? message => message.command === 'resume'
+      const base = isHolding((await readState()).pause) ? message => message.command === 'resume'
         : atTake.hold ? message => !isStepLine(message) && !isForHandsYet(message, now, workers) : message => !isForHandsYet(message, now, workers)
+      // T8.5: an envelope is no word to type: it goes as `handover` (below), once its set is done; never while the person pauses.
+      const only = message => message.command !== HANDOVER_COMMAND && base(message)
       // B532: what no longer matters is closed first, so a chat is never handed a word whose purpose is gone.
       const taken = await takeFor({ dir: workDir, outbox: store, state: await readState(), now: clock(), keep, chat: checked.chat, only })
       // What was taken shows as on its way at once.
@@ -2273,7 +2382,9 @@ async function main(args) {
       // B769: a stop or remove of this worker the board carries out by code: its mod tells it at its next tool call.
       const stopping = store.outbox().findLast(message => isStopWord(message) && message.about === checked.chat && message.state === 'waiting')
       const stop = stopping === undefined ? {} : { stop: { id: stopping.id, kind: stopping.command, task: stopTaskOf(stopping) } }
-      return { ok: true, result: { messages: fit.messages, ...(atTake.clear === null ? {} : { clear: atTake.clear }), ...(off.length === 0 ? {} : { off }), ...stop } }
+      const envelope = !onIt || isHolding((await readState()).pause) ? null : await handOut(store, checked.chat, clock(), keep)
+      if (envelope !== null) readState.reset()
+      return { ok: true, result: { messages: fit.messages, ...(atTake.clear === null ? {} : { clear: atTake.clear }), ...(off.length === 0 ? {} : { off }), ...stop, ...(envelope === null ? {} : { handover: envelope }) } }
     }),
     // B753: the board's hands in code. A running chat's Workers mod claims the start and wake words (whoever they are
     // addressed to) and, while resuming, a resume line for each chat that has not started; it sends each with the app's
@@ -2424,6 +2535,18 @@ async function main(args) {
       noteMod(body, checked)
       if (!checked.ok) return checked
       if (await store.settle(checked.chat, checked, clock()) > 0) readState.reset()
+      // T8.5: an envelope's outcome, once (D): settled, and the worker's decision runs at once (a failed clear or set takes
+      // its task back now, not after a clock).
+      const outcome = outcomeOf(body?.outcome)
+      if (typeof body?.handover === 'string' && outcome !== null) {
+        const settled = await handoverTurn(workDir ?? HERE, () => settleEnvelope(store, checked.chat, body.handover, outcome, clock()))
+        if (settled) {
+          readState.reset()
+          await decideFor(checked.chat, body?.mod ?? null, { kind: 'pass' })
+          return { ok: true, result: { settled: true } }
+        }
+        return { ok: true, result: { settled: false } }
+      }
       return { ok: true, result: {} }
     }),
     game: async body => {
@@ -2778,6 +2901,17 @@ async function main(args) {
           readState.reset()
         }
         gaveTask = done.given.length > 0
+        // T8.5: the sequence's events at the refresh (a ready task for a free worker, the check's end, a pause or a resume,
+        // a limit, a new mod, a report gone idle, the net), for every worker on it; on its own, so a failure stops no delivery.
+        if (config.handover === 'sequence') {
+          await loops.run('handover', async () => {
+            const passed = await handoverPass({ state: await readState(), dir: workDir, outbox: store, apply: body => workAction(body, 'server'), config, installed: (await modNow())?.installed ?? null, now: clock(), newId: () => randomBytes(8).toString('hex') })
+            if (passed.wrote > 0) {
+              work.reset?.()
+              readState.reset()
+            }
+          })
+        }
         loops.succeeded('reconcile')
         // B528: an evaluation that has not ended is asked of the partner again; on its own, so a failure stops no delivery.
         await loops.run('evaluate-again', () => evaluateAgainNow(state))

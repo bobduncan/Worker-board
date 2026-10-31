@@ -247,7 +247,8 @@ function readyWhileFree(view, ctx) {
 function notTaking(view) {
   const stuck = stuckTakeBacks({ items: view.items, lanes: workersOf(view), prefix: view.prefix })
   const found = []
-  for (const lane of workersOf(view)) {
+  // T8.5: a worker on the sequence has no take clock: its hand-over's net is the new rule's (step 4).
+  for (const lane of workersOf(view).filter(one => one.onSequence !== true)) {
     const flag = (lane.flags ?? []).find(one => one.kind === 'not taking')
     if (flag === undefined) continue
     const back = stuck.get(lane.name) ?? null
@@ -335,7 +336,8 @@ function skipRepeats(view, ctx) {
     const compaction = lane.compaction ?? null
     const skips = [
       ...(compaction?.kind === 'skipped' && !BY_DESIGN.includes(compaction.why) ? [{ kind: 'compact', at: compaction.at, why: compaction.why }] : []),
-      ...(compaction?.notCleared ? [{ kind: 'clear', at: compaction.notCleared.at, why: compaction.notCleared.why }] : []),
+      // T8.5: a worker on the sequence clears only by its envelope: a skipped clear of its is the held state's, not this.
+      ...(compaction?.notCleared && lane.onSequence !== true ? [{ kind: 'clear', at: compaction.notCleared.at, why: compaction.notCleared.why }] : []),
     ].filter(one => Number.isFinite(one.at) && typeof one.why === 'string' && one.why !== '')
     for (const skip of skips) {
       const head = `skip|${lane.name}|${skip.kind}|`
@@ -955,7 +957,8 @@ function effortMismatch(view) {
 function notCleared(view, ctx) {
   const found = []
   if (isPaused(view)) return found
-  for (const lane of workersOf(view)) {
+  // T8.5: a worker on the sequence is cleared by its envelope; a clear that did not run holds it (the rule handover-held, step 4).
+  for (const lane of workersOf(view).filter(one => one.onSequence !== true)) {
     const owed = lane.clearOwed ?? null
     if (owed === null || !Number.isFinite(owed.reportedAt)) continue
     const key = `not-cleared ${lane.name} ${owed.step}`
