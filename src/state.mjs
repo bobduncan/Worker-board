@@ -1,6 +1,7 @@
 // Puts the sources together into the one object the page asks for. Everything here is a pure function of the
 // texts that were read: a source that is missing or broken gives "unknown" or an empty list, never an error.
 
+import { createHash } from 'node:crypto'
 import { join } from 'node:path'
 
 import { boardChats, parseAppChat, parseList } from './appChats.mjs'
@@ -2210,3 +2211,88 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
   const nobodyRuns = nobodyRunsOf(built, sent)
   return { ...built, nobodyRuns, wakeFailed: wakeFailedOf(built, sent, now).filter(one => !(nobodyRuns?.chats ?? []).includes(one.chat)) }
 }
+
+// lightstate:start
+/**
+ * Light state (2026-10-31, the person: "my board stopped working why"): `/api/state` was 7.6 MB on every refresh, six of
+ * it the finished steps' windows, and at Low CPU mode the page stayed blank for a minute. A finished step (done or
+ * dropped) goes to the page as a light row: what its lists, filters, Completed by day, the goal parts and the timeline
+ * read without opening it. Its window reads the full row from `GET /api/step` (`fullStepOf`). Open, refined, queued and
+ * in-progress steps go as they are, and so does a finished step an open ask names (the cards draw its three lines from it).
+ */
+/** The fields of a step's row that a light row keeps as they are, always: what the lists show of a finished step. */
+export const LIGHT_FIELDS = ['key', 'id', 'title', 'status', 'worker', 'branch', 'doneAt']
+/**
+ * The fields it keeps only when they say something (not null, not false): a fix's chip, a refine word still open (the
+ * Advisor's card), what a step in review waits for. The rest of a row (its time, its after, its asks, its card, its refine's
+ * stand) the lists read of open steps only.
+ */
+const LIGHT_WHEN_SET = ['isFix', 'refineAsk', 'reviewWait', 'reviewStand']
+/** How long the goal part's line of a step is, as the page cuts it. */
+const LIGHT_LINE = 140
+
+/** Whether a row of the state's backlog goes light: a finished step (its key is its id, or "<activity>:<place>" for an old line without one). */
+const isLightRow = step => step?.status === 'done' && typeof step.key === 'string' && step.key !== ''
+
+/**
+ * A finished step's light row: `LIGHT_FIELDS`, and from its item what the lists read of it (`goal`, `state` (done or
+ * dropped), `owner` where it is not its `worker`, and `line`: the goal part's line, its Summary's first line or else its
+ * first point to build). `rev` changes whenever its full row does, so the page reads it anew; `light` says the window must
+ * read it first.
+ */
+export function lightRow(step) {
+  const row = {}
+  for (const field of LIGHT_FIELDS) row[field] = step[field] ?? null
+  for (const field of LIGHT_WHEN_SET) if (step[field] !== null && step[field] !== undefined && step[field] !== false) row[field] = step[field]
+  const item = step.item ?? null
+  const owner = item?.owner ?? null
+  const line = String(item?.summary?.[0] ?? item?.what?.[0] ?? '').replace(/\s+/g, ' ').trim()
+  return {
+    ...row,
+    goal: item?.goal ?? null,
+    state: step.flow?.state ?? item?.state ?? null,
+    ...(owner === null || owner === row.worker ? {} : { owner }),
+    ...(line === '' ? {} : { line: line.length > LIGHT_LINE ? `${line.slice(0, LIGHT_LINE - 1)}…` : line }),
+    light: true,
+    rev: createHash('sha1').update(JSON.stringify(step)).digest('hex').slice(0, 16),
+  }
+}
+
+/** The ids of the steps an ask of the state names (`of`): their rows go whole, so the asks' cards keep their three lines. */
+function askedSteps(state) {
+  const lists = [state.forYou, state.backlogForYou, state.backlogClosed, state.withPartner, state.recaps]
+  return new Set(lists.flatMap(list => (Array.isArray(list) ? list : [])).map(need => need?.of).filter(id => typeof id === 'string'))
+}
+
+/** The light backlog made of a backlog, kept by the backlog it was made of and the asked steps (a state is built every 2 s, sent at each page's refresh). */
+const lightKept = new WeakMap()
+
+/**
+ * The state as `/api/state` sends it: each finished step of `backlog` a light row (`lightRow`), but the ones an ask
+ * names; the rest of the state as it is. A state without a backlog is given back as it is.
+ */
+export function lightState(state) {
+  if (state === null || typeof state !== 'object' || !Array.isArray(state.backlog)) return state
+  const asked = askedSteps(state)
+  const sign = [...asked].sort().join(' ')
+  const kept = lightKept.get(state.backlog)
+  if (kept !== undefined && kept.sign === sign) return { ...state, backlog: kept.backlog }
+  const backlog = state.backlog.map(activity => (!Array.isArray(activity?.steps) ? activity
+    : { ...activity, steps: activity.steps.map(step => (isLightRow(step) && !asked.has(step.key) ? lightRow(step) : step)) }))
+  lightKept.set(state.backlog, { sign, backlog })
+  return { ...state, backlog }
+}
+
+/**
+ * One step's full row of the state's backlog by its key (its id, as B12; "<activity>:<place>" for an old line without
+ * one), as the state had it before it went light; null for a key it does not hold.
+ */
+export function fullStepOf(state, key) {
+  if (typeof key !== 'string' || key === '') return null
+  for (const activity of Array.isArray(state?.backlog) ? state.backlog : []) {
+    const found = (Array.isArray(activity?.steps) ? activity.steps : []).find(step => step?.key === key)
+    if (found !== undefined) return found
+  }
+  return null
+}
+// lightstate:end

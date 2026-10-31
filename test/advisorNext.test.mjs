@@ -337,5 +337,6 @@ test('the server adds the steps to refine next to the Advisor\'s queue where it 
   const getState = server.slice(start, server.indexOf('openChats:', start))
   assert.match(getState, /Array\.isArray\(state\.advisor\?\.next\) \? firstLook\(refineKept, state\) : null/)
   assert.match(getState, /withRefineQueue\(state\.advisor\.next, refineQueue\(state, sentNow\(\), refineGateNow, clock\(\)\), state\.advisor\.on\)/)
-  assert.match(getState, /return \{ \.\.\.state, advisor,/)
+  // Light state (2026-10-31): the state goes to the page light, with the Advisor's queue as above.
+  assert.match(getState, /return lightState\(\{ \.\.\.state, advisor,/)
 })

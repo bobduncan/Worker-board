@@ -76,7 +76,7 @@ import { backgroundRunning, parseTail, readTail } from './src/transcript.mjs'
 import { clearAtTake, isStepLine, modAtLeast, takeRefusal } from './src/clearOwed.mjs'
 import { keptReadingsOf, newestPerWindow, readingOfAnswer } from './src/limits.mjs'
 import { checkProviders } from './src/providers/index.mjs'
-import { buildState } from './src/state.mjs'
+import { buildState, fullStepOf, lightState } from './src/state.mjs'
 import { withRefineQueue } from './src/work/advisorWork.mjs'
 import { isReadAction, workApi } from './src/work/api.mjs'
 import { effortOf } from './src/work/effort.mjs'
@@ -111,6 +111,8 @@ const BODY_BYTES = 16 * 1024
 const PICTURE_BYTES = REFERENCE_BYTES
 const FOLDERS_MS = 60_000
 const STATE_MS = 2_000
+/** Light state: what `GET /api/step?id=` takes, a step's key: its id (B12), or "<activity>:<place>" for an old line without one. */
+const STEP_KEY = /^(?:[A-Za-z][A-Za-z0-9-]{0,40}|\d{1,4}:\d{1,5})$/
 /** Clear after each step: a session the board shows under no name is read anew at most this often (src/bridge.mjs). */
 const FRESH_MS = 30_000
 /** 2026-10-28: how soon a whoami of a session the board shows under no name reads the state anew. */
@@ -239,6 +241,8 @@ export const POST_ROUTES = Object.freeze({
 /**
  * The server, not yet listening. Handed in, so the tests need no real files:
  *   `getState()`       the `/api/state` object
+ *   `step(key)`        light state: one step's full row of the backlog by its key (B12), as the state had it before it
+ *                      went light; null for a key the board does not hold
  *   `say(body)`        checks and keeps what the page sent: `{ ok: true, message }` or `{ ok: false, status, why }`
  *   `picture(path)`    a picture the board may show: `{ type, body }`, or null
  *   `game(body)`       starts or stops a branch's game: `{ ok: true, result }` or `{ ok: false, status, why }`
@@ -278,6 +282,7 @@ export function createBoard({
   settings = async () => ({ ok: false, status: 404, why: 'Not here.' }),
   newProject = async () => ({ ok: false, status: 404, why: 'Not here.' }),
   recap = async () => ({ ok: false, status: 404, why: 'Not here.' }),
+  step = async () => null,
   project = '',
   mayWrite = async () => null,
 }) {
@@ -464,6 +469,14 @@ export function createBoard({
     if (pathname === '/api/state') {
       if (!mayUse) return refuse(res, 403, 'Only the board\'s own page may read.')
       return json(res, await getState())
+    }
+    // Light state (2026-10-31): a finished step comes light in the state; its window reads its full row here.
+    if (pathname === '/api/step') {
+      if (!mayUse) return refuse(res, 403, 'Only the board\'s own page may read.')
+      const key = searchParams.get('id') ?? ''
+      if (!STEP_KEY.test(key)) return refuse(res, 400, 'A step\'s id, as B12.')
+      const row = await step(key)
+      return row === null ? refuse(res, 404, `No step ${key} on the board.`) : json(res, row)
     }
     // B579: a day of the Backlog tab's Completed by day, with its recap (src/dayRecap.mjs).
     if (pathname === '/api/recap') {
@@ -1829,7 +1842,8 @@ async function main(args) {
       // 2026-10-28: the Advisor's "Next for it" ends with the steps the board will ask it to refine next (only the board holds the refine gate).
       const refineGateNow = Array.isArray(state.advisor?.next) ? firstLook(refineKept, state) : null
       const advisor = refineGateNow === null ? state.advisor : { ...state.advisor, next: withRefineQueue(state.advisor.next, refineQueue(state, sentNow(), refineGateNow, clock()), state.advisor.on) }
-      return { ...state, advisor, forYou: oldMods === null ? state.forYou : [oldMods, ...(state.forYou ?? [])], design, goalsEdit, cpu: cpu?.view() ?? null, loops: { failing: loops.failing(), line: failingLine(loops.failing(), timeOf) }, supervisor: supervised ?? (isDemo ? demoSupervisor(clock(), SUPERVISOR_RULES, incidentCards) : null), boardSettings: boardSettingsNow(), obsolete: await obsoleteNow(state), version: { commit: running, since: startedAt, ...(await versionNow()), canRestart, selfUpdate: updateShown }, mod: await modNow(),
+      // Light state (2026-10-31): the finished steps go light to the page (src/state.mjs lightState); `step` gives one whole.
+      return lightState({ ...state, advisor, forYou: oldMods === null ? state.forYou : [oldMods, ...(state.forYou ?? [])], design, goalsEdit, cpu: cpu?.view() ?? null, loops: { failing: loops.failing(), line: failingLine(loops.failing(), timeOf) }, supervisor: supervised ?? (isDemo ? demoSupervisor(clock(), SUPERVISOR_RULES, incidentCards) : null), boardSettings: boardSettingsNow(), obsolete: await obsoleteNow(state), version: { commit: running, since: startedAt, ...(await versionNow()), canRestart, selfUpdate: updateShown }, mod: await modNow(),
         // B320: where the New project button suggests a new project's folder, and whether this board makes one.
         newProject: { parent: home === null ? null : dirname(home), canMake: !isDemo && !isShowOnly, isMaking: makingProject },
         // B767: which of the main chat's routine jobs run by code on this PC, and what is missing.
@@ -1838,8 +1852,10 @@ async function main(args) {
         opener: openerNoteNow(),
         // B322: what the page needs to open a new project's first chats in the Claude app: the board's folder (their
         // job texts), the project's name and the Advisor's; only the board that delivers opens chats.
-        openChats: isDemo || isShowOnly ? null : { board: HERE, name: config.name, advisor: typeof config.advisor === 'string' && config.advisor !== '' ? config.advisor : null } }
+        openChats: isDemo || isShowOnly ? null : { board: HERE, name: config.name, advisor: typeof config.advisor === 'string' && config.advisor !== '' ? config.advisor : null } })
     },
+    // Light state (2026-10-31): a finished step's full row, from the same state the page's light row came from.
+    step: async key => fullStepOf(await readState(), key),
     // B579: a day of Completed by day: its finished steps, the last days with their counts, and its recap. Only the board
     // that runs the loops calls for a recap, never while the person paused all chats or a limit is near.
     recap: async asked => {

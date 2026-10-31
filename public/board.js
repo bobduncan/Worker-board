@@ -7368,6 +7368,8 @@ function drawDetails(state) {
   }
   if (subject.laneTask !== undefined) return drawLaneWindow(box, subject.laneTask, state)
   if (subject.partnerAsk !== undefined) return drawPartnerAskWindow(box, subject.partnerAsk, state)
+  // Light state: a finished step comes short in the state; its window reads its full row first.
+  if (subject.step?.light === true) return drawLightStep(box, subject.step, state)
   const { need, lane, place } = subject
   const step = subject.step ?? (need === null ? lane.queue[place] : null)
   const now = state.readAt
@@ -8071,6 +8073,88 @@ $('details').addEventListener('input', event => {
   if (problems.delete(`calm:${id}`)) event.target.closest('.task-options')?.querySelector('.problem')?.remove()
 })
 
+// lightstep:start
+/**
+ * Light state (2026-10-31, the person: "my board stopped working why"): the state sends a finished step as a light row
+ * (`light`, with its `rev`): what the lists read, without its item, notes, refine or flow. Its window reads the full row
+ * from GET /api/step first and draws it as before. The rows read are kept for this page's session by their key, with the
+ * `rev` they were read at: a light row of that rev is put back as the kept row at every read of the state; one whose rev
+ * moved (the step changed) is read anew while its window shows it, and forgotten otherwise.
+ */
+const fullSteps = new Map()
+/** The reads on their way, as "<key> <rev>"; and why a read failed, by key, until its window is opened again. */
+const fullStepLoads = new Set()
+const fullStepProblems = new Map()
+/** How many full rows this page keeps at most; the first read goes first. */
+const FULL_STEPS_KEPT = 200
+
+/** A light row's full row as this page read it, or null. One that changed since is read anew while its window shows it (the kept row stands meanwhile). */
+function fullStepFor(step) {
+  if (step?.light !== true) return null
+  const kept = fullSteps.get(step.key)
+  if (kept === undefined) return null
+  if (kept.rev === step.rev) return kept.row
+  if (detailsOf?.step === step.key) {
+    loadFullStep(step)
+    return kept.row
+  }
+  fullSteps.delete(step.key)
+  return null
+}
+
+/** The state's backlog with every light row this page read whole put back as its full row (in place); the state. */
+function withFullSteps(state) {
+  for (const activity of Array.isArray(state?.backlog) ? state.backlog : []) {
+    if (Array.isArray(activity?.steps)) activity.steps = activity.steps.map(step => fullStepFor(step) ?? step)
+  }
+  return state
+}
+
+/** Reads a light row's full row (once at a time), keeps it, puts it into the board's backlog and draws the window again. */
+function loadFullStep(step) {
+  const reading = `${step.key} ${step.rev}`
+  if (fullStepLoads.has(reading) || fullStepProblems.has(step.key)) return
+  fullStepLoads.add(reading)
+  fetch(`/api/step?id=${encodeURIComponent(step.key)}`, { headers: { 'X-Board-Token': TOKEN }, cache: 'no-store' })
+    .then(async answer => {
+      if (!answer.ok) throw new Error((await answer.text()).trim() || `the board answered ${answer.status}`)
+      const row = await answer.json()
+      fullSteps.delete(step.key)
+      fullSteps.set(step.key, { rev: step.rev, row })
+      while (fullSteps.size > FULL_STEPS_KEPT) fullSteps.delete(fullSteps.keys().next().value)
+      for (const activity of board?.backlog ?? []) {
+        if (Array.isArray(activity?.steps)) activity.steps = activity.steps.map(one => (one?.key === step.key ? row : one))
+      }
+    })
+    .catch(error => {
+      const why = String(error?.message ?? error).replace(/[.\s]+$/, '')
+      fullStepProblems.set(step.key, `This task could not be read: ${/fetch|network/i.test(why) ? 'the board\'s server does not answer' : why}.`)
+    })
+    .finally(() => {
+      fullStepLoads.delete(reading)
+      if (board !== null && detailsOf !== null) drawDetails(board)
+    })
+}
+
+/** The window of a light row while its full row is read: its id and title with a quiet "Loading…", or the one line of why it could not be read. */
+function drawLightStep(box, step, state) {
+  loadFullStep(step)
+  const problem = fullStepProblems.get(step.key) ?? null
+  const showing = JSON.stringify(['light', step.key, problem])
+  if (box.open && detailsShown === showing) return
+  detailsShown = showing
+  box.classList.remove('is-calm')
+  delete box.dataset.calmAt
+  delete box.dataset.taskShown
+  const head = detailsHead({ code: step.id ?? null, title: step.title, chips: [], at: null }, el('span', 'kind is-queued', '≡'), state.readAt)
+  const main = el('div', 'details-main')
+  main.append(problem === null ? el('p', 'muted step-loading', 'Loading…') : el('p', 'problem step-loading', problem))
+  const body = el('div', 'details-body is-single')
+  body.append(main)
+  fill(box, [head, body])
+}
+// lightstep:end
+
 /** B299: a step's item as the store holds it, for its window: from the Backlog tab's step, else found by its id. */
 function itemFor(step, state) {
   if (step === null || step === undefined) return null
@@ -8161,6 +8245,8 @@ function optionChoices(need) {
 
 function openDetails(what) {
   detailsOf = what
+  // Light state: a task that could not be read is read again when its window is opened again.
+  if (typeof what?.step === 'string') fullStepProblems.delete(what.step)
   if (board === null) return
   drawDetails(board)
   if (detailsOf !== null && !$('details').open) $('details').showModal()
@@ -9198,7 +9284,15 @@ function goalTreeDrop(goals, layout, fromId, x, y) {
 // B383: the right side of the Goals page, "Steps for this goal" (as the person's design picture of the page has it):
 // the selected goal's steps and what it still misses.
 
-/** A step's badge in the panel, from where it stands in the flow: its words and its tone. */
+/** Light state: a step row's goal and its state in the store, from its item and flow, or from a finished step's light row. */
+function rowGoalOf(step) {
+  return step.item?.goal ?? step.goal ?? null
+}
+function rowStateOf(step) {
+  return step.flow?.state ?? step.item?.state ?? step.state ?? null
+}
+
+/** A step's badge in the panel, from where it stands in the flow: its words and its tone. A light row is a finished step: Done. */
 function goalStepBadge(step) {
   const state = step.flow?.state ?? null
   if (state === 'done' || step.status === 'done') return ['Done', 'done']
@@ -9226,11 +9320,12 @@ function goalStepsView(goals, goalId, backlog, ui = {}) {
   const byId = new Map(steps.map(step => [step.id, step]))
   const named = [...new Set([...(node.steps ?? []), ...(node.parts ?? []).flatMap(part => part.steps ?? [])])]
   const number = id => Number(String(id).slice(1))
-  const others = steps.filter(step => step.item?.goal === node.id && !named.includes(step.id)).map(step => step.id).sort((a, b) => number(a) - number(b))
+  // Light state: a finished step's goal, state and line come on its light row.
+  const others = steps.filter(step => rowGoalOf(step) === node.id && !named.includes(step.id)).map(step => step.id).sort((a, b) => number(a) - number(b))
   // The review: a step keeps its number whatever the filter shows.
-  const all = [...named, ...others].map(id => byId.get(id)).filter(step => step !== undefined && step.flow?.state !== 'dropped').map((step, index) => {
+  const all = [...named, ...others].map(id => byId.get(id)).filter(step => step !== undefined && rowStateOf(step) !== 'dropped').map((step, index) => {
     const [badge, tone] = goalStepBadge(step)
-    const line = String(step.item?.summary?.[0] ?? step.item?.what?.[0] ?? '').replace(/\s+/g, ' ').trim()
+    const line = String(step.item?.summary?.[0] ?? step.item?.what?.[0] ?? step.line ?? '').replace(/\s+/g, ' ').trim()
     return { n: index + 1, id: step.id, key: step.key ?? step.id, title: step.title, line: line.length > 140 ? `${line.slice(0, 139)}…` : line, badge, tone, chat: step.worker ?? '' }
   })
   const done = all.filter(row => row.tone === 'done')
@@ -16040,13 +16135,14 @@ function backlogBlocks(list, readyList, { showDone = false } = {}) {
   const steps = list.groups.flatMap(group => group.steps.map(step => ({ ...step, activity: step.activity ?? group.name })))
   for (const step of steps) {
     const item = step.item ?? null
-    const state = item?.state ?? null
+    // Light state: a finished step's light row has no item; its state, goal and owner stand on the row.
+    const state = item?.state ?? step.state ?? null
     const pinned = item?.pinned ?? null
-    const base = { step, goal: item?.goal ?? null, pinned, isAdded: (item?.queuedBy ?? null) !== null, isFix: isOpenFix(step) }
+    const base = { step, goal: item?.goal ?? step.goal ?? null, pinned, isAdded: (item?.queuedBy ?? null) !== null, isFix: isOpenFix(step) }
     const isOwn = base.isAdded || pinned !== null
     const forWho = pinned === null ? '' : `for ${pinned} only`
     if (step.status === 'done' || FINISHED_STATES.includes(state)) {
-      if (showDone) rows.done.push({ ...base, who: item?.owner ?? step.worker ?? '' })
+      if (showDone) rows.done.push({ ...base, who: item?.owner ?? step.owner ?? step.worker ?? '' })
       continue
     }
     const under = state !== null ? (Object.hasOwn(UNDER_WAY_STATES, state) ? UNDER_WAY_STATES[state] : null)
@@ -17551,6 +17647,8 @@ async function read() {
     // 2026-10-28: while the person pauses, a chat stopped at its checkpoint shows as suspended (`pausedLanes`).
     if (state?.pause?.state === 'pausing') state.chats = pausedLanes(state.chats, state.pause)
     withAnswers(state)
+    // Light state: the finished steps this page read whole stand whole again.
+    withFullSteps(state)
     draw(state)
     awaySince = null
     helpAtStart(state)

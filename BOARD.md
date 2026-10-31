@@ -18,8 +18,9 @@ person, and lets the person answer, talk to the main chat, and plan. Every answe
   `127.0.0.1` only. It reads: the project's list of chats, each chat's card, the app's list of chats and their
   transcripts, the backlog, the asks, the game's working folders through git, the app's usage file, the game plan
   (see the README, "What it reads"). It writes only its own `data/` and, on the person's click, a tick in the backlog.
-- **Its routes:** `GET /` (the page), `GET /api/state` (everything the page shows, read anew every `refreshSeconds`),
-  `GET /api/picture` (a picture of the project's picture folders), `POST /api/say` (an answer or a line for a chat),
+- **Its routes:** `GET /` (the page), `GET /api/state` (everything the page shows, read anew every `refreshSeconds`;
+  a finished step comes as a light row), `GET /api/step?id=B12` (one step's full row, for the window of a finished
+  step), `GET /api/picture` (a picture of the project's picture folders), `POST /api/say` (an answer or a line for a chat),
   `POST /api/game` (start or stop a game), `POST /api/design` and `/api/design/reference` (the Design tab),
   `POST /api/talk/picture` (a pasted picture), `POST /api/restart` (a new version), `POST /api/work` (the store;
   also `pause-all` and `resume-all`, which write `pause.json`), and for the Workers mod `POST /api/bridge/take`,
