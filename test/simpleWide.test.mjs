@@ -21,7 +21,8 @@ const html = await readFile(join(PUBLIC, 'index.html'), 'utf8')
 const css = await readFile(join(PUBLIC, 'board.css'), 'utf8')
 const cut = name => script.slice(script.indexOf(`// ${name}:start`), script.indexOf(`// ${name}:end`))
 const page = {}
-vm.runInNewContext(`const MIN = 60000\n${cut('times')}\n${cut('stepline')}\n${cut('lanetime')}\n${cut('lanewindow')}\n${cut('calmoverview')}\n${cut('focus')}\n${cut('runchip')}\n${cut('simpleoverview')}\nObject.assign(this, { simpleView, simpleSteps, simpleWorkers, clock })`, page)
+vm.runInNewContext(`const MIN = 60000\n${cut('times')}
+${cut('chatword')}\n${cut('stepline')}\n${cut('lanetime')}\n${cut('lanewindow')}\n${cut('calmoverview')}\n${cut('focus')}\n${cut('runchip')}\n${cut('simpleoverview')}\nObject.assign(this, { simpleView, simpleSteps, simpleWorkers, clock })`, page)
 const plain = value => JSON.parse(JSON.stringify(value))
 
 const GOALS = [
@@ -107,14 +108,14 @@ test('the workers column: each chat with its step, a bar of its steps and its ti
   const view = plain(page.simpleWorkers(CHATS, { working: 2, free: 2, suspended: 1 }, AT))
   assert.equal(view.busy, '2 of 5 busy')
   assert.deepEqual(view.rows, [
-    { name: 'Main', code: null, task: null, percent: null, left: 'free', tone: 'free' },
+    { name: 'Main', code: null, task: null, percent: null, left: 'Free', tone: 'free' },
     { name: 'Worker 1', code: 'B329', task: 'Cliffs you cannot climb', percent: 40, left: '1 h 45', tone: 'working' },
     { name: 'Worker 2', code: 'B2', task: 'Step B2', percent: 25, left: '1 h 50', tone: 'working' },
-    { name: 'Worker 3', code: null, task: null, percent: null, left: 'free', tone: 'free' },
+    { name: 'Worker 3', code: null, task: null, percent: null, left: 'Free', tone: 'free' },
     // any other state in a few words: paused for the limit, waiting for the person, not running, cut off
-    { name: 'Worker 4', code: null, task: null, percent: null, left: `paused until ${page.clock(AT + 40 * MIN)}`, tone: 'suspended' },
+    { name: 'Worker 4', code: null, task: null, percent: null, left: `Paused until ${page.clock(AT + 40 * MIN)}`, tone: 'paused' },
   ])
-  assert.equal(page.simpleWorkers([lane('Worker 5', 'waiting'), lane('Worker 6', 'off')], {}, AT).rows.map(row => row.left).join(', '), 'waits for you, not running')
+  assert.equal(page.simpleWorkers([lane('Worker 5', 'waiting'), lane('Worker 6', 'off')], {}, AT).rows.map(row => row.left).join(', '), 'Waiting for you, Not running')
   // a leftover chat is not one of the workers
   assert.equal(page.simpleWorkers([...CHATS, { ...lane('Old', 'free'), isLeftover: true }], {}, AT).rows.length, 5)
 })

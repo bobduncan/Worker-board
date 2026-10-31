@@ -23,13 +23,14 @@ test('the lanes sit in one panel with its name, the add button and the columns n
 })
 
 test('each worker\'s icon takes the colour of its state, the one its pill names', () => {
-  // T13 part 3: an asleep chat whose turn was cut has the quiet colour its pill has (`isAsleepCut`).
-  assert.match(script, /el\('span', `worker-icon is-\$\{lane\.isLeftover \? 'leftover' : isAsleepCut \? 'asleep' : lane\.state\}`\)/)
+  // Signals change 2: the icon takes the colour of the chat's one word (its key), as its pill does.
+  assert.match(script, /el\('span', `worker-icon is-\$\{lane\.isLeftover \? 'leftover' : found\?\.key \?\? lane\.state\}`\)/)
   assert.match(script, /sign\.append\(icon\('chat'\)\)/)
-  const colours = { working: 'var(--working)', waiting: 'var(--waiting)', free: '#7fb0ff', suspended: 'var(--suspended)', interrupted: 'var(--warn)', asleep: '#9db8dc' }
+  const colours = { working: 'var(--working)', waiting: 'var(--waiting)', free: '#7fb0ff', paused: 'var(--suspended)', held: 'var(--warn)', stopped: '#9db8dc', asleep: '#9db8dc' }
   for (const [state, colour] of Object.entries(colours)) {
-    assert.ok(style.includes(`.worker-icon.is-${state} { color: ${colour}; }`), state)
-    assert.match(style, new RegExp(`\\.workers-panel \\.pill\\.is-${state} \\{[^}]*color: ${colour.replace(/[()-]/g, '\\$&')}`), state)
+    const escaped = colour.replace(/[()-]/g, '\\$&')
+    assert.match(style, new RegExp(`\\.worker-icon\\.is-${state}[^{]*\\{ color: ${escaped}; \\}`), state)
+    assert.match(style, new RegExp(`\\.workers-panel \\.pill\\.is-${state}[^{]*\\{[^}]*color: ${escaped}`), state)
   }
 })
 

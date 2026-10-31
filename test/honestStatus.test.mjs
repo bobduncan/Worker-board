@@ -21,9 +21,11 @@ import { chainWaitOf, reviewWaitOf } from '../src/work/resultCheck.mjs'
 const script = await readFile(join(dirname(fileURLToPath(import.meta.url)), '..', 'public', 'board.js'), 'utf8')
 const cut = name => script.slice(script.indexOf(`// ${name}:start`), script.indexOf(`// ${name}:end`))
 const page = {}
-vm.runInNewContext(`const MIN = 60000\n${cut('times')}\n${cut('stepline')}\n${cut('lanetime')}\n${cut('lanewindow')}\n${cut('calmoverview')}\n${cut('focus')}\n${cut('runchip')}\n${cut('simpleoverview')}\nObject.assign(this, { focusView, simpleSteps })`, page)
+vm.runInNewContext(`const MIN = 60000\n${cut('times')}
+${cut('chatword')}\n${cut('stepline')}\n${cut('lanetime')}\n${cut('lanewindow')}\n${cut('calmoverview')}\n${cut('focus')}\n${cut('runchip')}\n${cut('simpleoverview')}\nObject.assign(this, { focusView, simpleSteps })`, page)
 const backlogPage = {}
-vm.runInNewContext(`const MIN = 60000\n${cut('times')}\n${cut('coordinate')}\nObject.assign(this, { backlogBlocks, checkStandWords })`, backlogPage)
+vm.runInNewContext(`const MIN = 60000\n${cut('times')}
+${cut('chatword')}\n${cut('coordinate')}\nObject.assign(this, { backlogBlocks, checkStandWords })`, backlogPage)
 const plain = value => JSON.parse(JSON.stringify(value))
 
 const NOW = new Date(2026, 9, 31, 12, 0).getTime()

@@ -632,6 +632,8 @@ test('roles/supervisor.md: "What is no incident" names the three false alarms wi
   const part = role.slice(role.indexOf('## What is no incident'), role.indexOf('## The board asks you to start a chat'))
   assert.ok(part.length > 100, 'the part is there')
   assert.match(part, /does not run and holds no step: closed is normal \(X46:/)
-  assert.match(part, /stopped, suspended or interrupted on purpose: its step waits for another step or for an ask, the person parked it .* or its lane says "Suspended on purpose" \(X51, X52:.*X53:/)
+  assert.match(part, /stopped or paused on purpose: its step waits for another step or for an ask, the person parked it .* or its lane says the word \*\*Paused\*\* with "until B<n>" \(X51, X52:.*X53:/)
+  // Signals change 2: the chat's one word is display only; Restarting, Asleep and Stopped (resumes by itself) are no incident.
+  assert.match(part, /\*\*Restarting\*\* for the two minutes after a clear, \*\*Asleep\*\*.*are no incident/)
   assert.match(part, /What a code rule already covers: unknown lanes \(X65:.*limit readings \(X47, X55, X56\), clears and checks/)
 })

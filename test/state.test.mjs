@@ -3,6 +3,7 @@ import test from 'node:test'
 
 import { demoSources } from '../fixtures/demo.mjs'
 import { answer, assistant, fromChat, modCompaction, step, tool, toolResult, typed } from '../fixtures/lines.mjs'
+import { countsOf } from '../src/chatWord.mjs'
 import { parseConfig } from '../src/config.mjs'
 import { hourEnd, hourStart } from '../src/history.mjs'
 import { chatState } from '../src/state.mjs'
@@ -137,7 +138,7 @@ test('a chat whose turn ended with nothing open is free, and one without a trans
   assert.equal(chatNamed(state, 'Units').state, 'free')
   assert.equal(chatNamed(state, 'Levels').state, 'unknown')
   assert.equal(chatNamed(state, 'Main').state, 'unknown')
-  assert.deepEqual(state.counts, { working: 0, waiting: 0, free: 1, unknown: 2, interrupted: 0, suspended: 0, off: 0 })
+  assert.deepEqual(state.counts, { ...countsOf([]), free: 1, unknown: 2 })
 })
 
 test('a chat that asked a question in its own chat waits for you', () => {
@@ -557,7 +558,7 @@ test('a leftover chat is greyed and not counted, and the advisor has no lane', (
     backlog: '## Next to hand out (Game - Main)\n- [ ] Main menu (for Units; about 40 min)\n- [ ] Advice round (for Advisor)\n',
   })
   assert.deepEqual(state.chats.map(chat => [chat.name, chat.isLeftover]), [['Main', false], ['Units', false], ['Main (fork)', true]])
-  assert.deepEqual(state.counts, { working: 1, waiting: 0, free: 1, unknown: 0, interrupted: 0, suspended: 0, off: 0 })
+  assert.deepEqual(state.counts, { ...countsOf([]), working: 1, free: 1 })
   assert.deepEqual(chatNamed(state, 'Units').queue.map(step => step.title), ['Main menu'])
   assert.deepEqual(state.unassigned.map(step => step.title), ['Advice round'])
   assert.deepEqual(state.today.map(lane => lane.chat), ['Main', 'Units'])
@@ -604,7 +605,7 @@ test('the demo shows the second design: six lanes with their queues, three reque
     // B262: its turn ended without a closing message.
     ['Audio', 'free', 0],
   ])
-  assert.deepEqual(state.counts, { working: 2, waiting: 1, free: 2, unknown: 0, interrupted: 0, suspended: 1, off: 0 })
+  assert.deepEqual(state.counts, { ...countsOf([]), working: 2, waiting: 1, free: 2, paused: 1 })
   assert.deepEqual(state.chats[5].idle, { since: NOW - 26 * MIN, from: 'transcript', isSilent: true })
   // B155: the steps finished this morning, newest first: one approved by the person, one closed through the work store, one with only the day.
   assert.deepEqual(state.finished.map(one => [one.id, one.how, one.by]), [['B05', 'line', 'you'], ['B06', 'store', 'Cleanup'], ['B07', 'day', 'Levels / Environment']])
@@ -735,7 +736,7 @@ test('a chat cut off in the middle of its turn is interrupted: its own file was 
   assert.equal(units.task.text, 'Shadow Beast')
   assert.deepEqual([units.eta, units.isQuiet, units.doingNow], [null, false, null])
   assert.equal(units.cutOffAt, NOW - 6 * MIN)
-  assert.equal(state.counts.interrupted, 1)
+  assert.equal(state.counts.stopped, 1)
   assert.deepEqual(state.restart.interrupted, ['Units'])
   assert.equal(state.forYou.some(need => need.id === 'quiet:Units'), false)
 })

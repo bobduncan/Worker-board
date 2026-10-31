@@ -13,7 +13,8 @@ const script = await readFile(join(PUBLIC, 'board.js'), 'utf8')
 const style = await readFile(join(PUBLIC, 'board.css'), 'utf8')
 const cut = name => script.slice(script.indexOf(`// ${name}:start`), script.indexOf(`// ${name}:end`))
 const page = {}
-vm.runInNewContext(`const MIN = 60000\n${cut('times')}\n${cut('stepline')}\n${cut('lanetime')}\n${cut('lanewindow')}\nObject.assign(this, { shortTask })`, page)
+vm.runInNewContext(`const MIN = 60000\n${cut('times')}
+${cut('chatword')}\n${cut('stepline')}\n${cut('lanetime')}\n${cut('lanewindow')}\nObject.assign(this, { shortTask })`, page)
 
 test('the short task is the main chat\'s first line without its frame: what is asked, not who asks or how long', () => {
   assert.equal(page.shortTask('Task from Game - Main: B201, a zebracorn that sings at dawn. About 1 hour 30 minutes.\n\nWhy: the person asked.'), 'A zebracorn that sings at dawn.')
@@ -39,7 +40,8 @@ test('a long task is cut, so the window\'s two lines hold it', () => {
 // The top part in plain words (the person, 2026-10-14: "non technical and highover")
 
 const more = {}
-vm.runInNewContext(`const MIN = 60000\n${cut('times')}\n${cut('stepline')}\n${cut('lanetime')}\n${cut('lanewindow')}\nObject.assign(this, { plainWords, planOf, laneWindowOf, isTechnical })`, more)
+vm.runInNewContext(`const MIN = 60000\n${cut('times')}
+${cut('chatword')}\n${cut('stepline')}\n${cut('lanetime')}\n${cut('lanewindow')}\nObject.assign(this, { plainWords, planOf, laneWindowOf, isTechnical })`, more)
 const plain = value => JSON.parse(JSON.stringify(value))
 
 test('what it did keeps its plain sentences and leaves the technical ones out', () => {

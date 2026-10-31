@@ -78,7 +78,8 @@ const design = await readFile(join(HERE, '..', 'DESIGN.md'), 'utf8')
 const stateSource = await readFile(join(HERE, '..', 'src', 'state.mjs'), 'utf8')
 const cut = name => script.slice(script.indexOf(`// ${name}:start`), script.indexOf(`// ${name}:end`))
 const page = {}
-vm.runInNewContext(`const MIN = 60000\n${cut('times')}\n${cut('stepline')}\n${cut('lanetime')}\n${cut('lanewindow')}\nObject.assign(this, { laneWindowOf, shortTitle })`, page)
+vm.runInNewContext(`const MIN = 60000\n${cut('times')}
+${cut('chatword')}\n${cut('stepline')}\n${cut('lanetime')}\n${cut('lanewindow')}\nObject.assign(this, { laneWindowOf, shortTitle })`, page)
 const plain = value => JSON.parse(JSON.stringify(value))
 
 // In the state

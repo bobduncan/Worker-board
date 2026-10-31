@@ -57,6 +57,7 @@ import { standardOf } from './work/standard.mjs'
 import { rolloutPlan } from './work/modRollout.mjs'
 import { chatsByRole } from './oldMods.mjs'
 import { decide, laneWords, onSequence } from './work/handover.mjs'
+import { countsOf, wordOf } from './chatWord.mjs'
 import { factsOf } from './work/handoverBoard.mjs'
 import { stoppedOf } from './stopped.mjs'
 import { laneFromReport, laneWithoutReport, modReports } from './chatReport.mjs'
@@ -1731,10 +1732,8 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
     return isStaleWork({ state: shown.state, isRunning: runningOf(lane.name), writtenAt, appStartedAt, now }) ? offLane(shown, writtenAt) : shown
   })()
 
-  const counts = { working: 0, waiting: 0, free: 0, unknown: 0, interrupted: 0, suspended: 0, off: 0 }
-  // B728: a free lane known not to run counts as not running: one word for one fact (the lane's pill says it too).
-  // T13 part 3: not an asleep one: it is free, and its task's line wakes it.
-  for (const lane of cards) if (!lane.isLeftover) counts[lane.state === 'free' && runningOf(lane.name) === false && !lane.asleep ? 'off' : lane.state] += 1
+  // Signals change 2 (the brief of 2026-10-31): the head's counts are one number per word (`countsOf`, chatWord.mjs), counted
+  // where the words are made, below (`words`): the word needs the hand-over and the mod rollout, which come after the lanes.
 
   // The steps the workers are on right now, also the ones that name no branch (a check, a comparison, a merge):
   // they are in progress, not next in a queue.
@@ -2093,6 +2092,16 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
     ...factsOf({ lane, state: { chatPrefix: prefix, readyList: null, limits, gaps }, items: raw.work.items, pause: pauseRecord, sent, config, installed: modsLately?.installed ?? null, now, event: { kind: 'pass' } }),
     ready: [], owed: null,
   })))
+  // Signals change 2 (the brief of 2026-10-31): every chat's ONE word, from one pure function (chatWord.mjs), display only: `state`,
+  // `isRunning`, `asleep`, `report` and `handover` stay as the decisions read them; nothing here is read back by one.
+  const isPersonPause = pause?.state === 'pausing'
+  const wordFor = (lane, { handover = null, modRun = null } = {}) => {
+    if (lane.isLeftover === true) return { word: null, why: null, since: null, reportAt: null, age: null }
+    // The moved card keeps `cleared.at` after a clear (register.tsx): a new conversation that has not reported reads Restarting.
+    const cleared = lane.compaction?.lastCleared?.at ?? (lane.compaction?.kind === 'cleared' ? lane.compaction.at : null)
+    const isUnsaved = isPersonPause && (pause.unsaved ?? []).some(one => one?.chat === lane.name && ((lane.task?.stepId ?? null) === null || one.id === lane.task.stepId))
+    return wordOf({ lane, handover, modRun, clearedAt: Number.isFinite(cleared) ? cleared : null, isPersonPause, isUnsaved, now, unknownAfterMs })
+  }
   const oldAsks = new Set((reconciled?.flags ?? []).filter(flag => flag.kind === 'old ask').map(flag => `work:${flag.id}`))
   const flagsOf = name => (reconciled?.flags ?? []).filter(flag => flag.chat === name && LANE_FLAGS.includes(flag.kind)).map(({ kind, id, text, button }) => ({ kind, id, text, button }))
   // 2026-10-31 (B689): with the workers' cards, so the Focus page names a worker only where its card shows the step.
@@ -2158,6 +2167,20 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
     }
   }
 
+  // B300: each with the reconciler's flags on it.
+  // B468: and with what it runs at for its step (`effortRun`, effort.mjs), or null; model per step: its model too.
+  // An opus step that waits for its worker to run on Opus says so on the lane (`waitsFor`).
+  // Signals change 2: and with its one word (`word`, `why`, `since`, `reportAt`, `age`).
+  const shownChats = chats.map(lane => {
+    const run = efforts?.runs.get(lane.name) ?? null
+    const waits = run?.waitsFor == null ? [] : [{ kind: 'model', id: run.step, text: run.waitsFor.text, button: null }]
+    // T8.5: where its hand-over stands (handing, offered, held with its why, "did not answer"), a quiet line on the lane.
+    const handover = handoverOf(lane)
+    const said = handover === null ? null : laneWords(handover)
+    const told = said === null ? [] : [{ kind: 'handover', id: handover.step, text: said, button: null }]
+    const modRun = lane.onSequence === true ? null : rollout?.runs.get(lane.name) ?? null
+    return { ...lane, flags: [...flagsOf(lane.name), ...waits, ...told], effortRun: run, modRun, handover, ...wordFor(lane, { handover, modRun }) }
+  })
   const built = {
     readAt: now,
     recapWaits,
@@ -2168,7 +2191,8 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
     refreshSeconds: config.refreshSeconds,
     estimateOldMs: config.estimateOldMinutes * MIN,
     maxMessageChars: config.maxMessageChars,
-    counts,
+    // Signals change 2: one number per word (the Working count is the busy count).
+    counts: countsOf(shownChats),
     // B155: the steps finished last, newest first, with when (and from where the board knows it) and who. B301: the
     // store says when a step went done, not a chat's report.
     finished: finishedList(backlog, { stored: doneAtOf, seen: finishedSeen ?? {}, prefix }),
@@ -2178,18 +2202,7 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
     limits,
     // B640: the newest reading of each window any chat gave, kept by the server for the next read.
     limitReadings: newestPerWindow(readings),
-    // B300: each with the reconciler's flags on it.
-    // B468: and with what it runs at for its step (`effortRun`, effort.mjs), or null; model per step: its model too.
-    // An opus step that waits for its worker to run on Opus says so on the lane (`waitsFor`).
-    chats: chats.map(lane => {
-      const run = efforts?.runs.get(lane.name) ?? null
-      const waits = run?.waitsFor == null ? [] : [{ kind: 'model', id: run.step, text: run.waitsFor.text, button: null }]
-      // T8.5: where its hand-over stands (handing, offered, held with its why, "did not answer"), a quiet line on the lane.
-      const handover = handoverOf(lane)
-      const said = handover === null ? null : laneWords(handover)
-      const told = said === null ? [] : [{ kind: 'handover', id: handover.step, text: said, button: null }]
-      return { ...lane, flags: [...flagsOf(lane.name), ...waits, ...told], effortRun: run, modRun: lane.onSequence === true ? null : rollout?.runs.get(lane.name) ?? null, handover }
-    }),
+    chats: shownChats,
     // B300: the reconciler's lines on top (a broken file, an id twice, a state the flow does not know), and what the
     // server carries out; empty and null while the store cannot be read.
     // T8.5 step 6: and, on a board whose setting `handover` is not "sequence", the one line that says the hand-over is off.
@@ -2316,7 +2329,8 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
         ask: spawnAsk(sent.findLast(message => message.command === 'spawn'), workerChats, now),
       }
     })(),
-    advisor: advisor === null ? null : { ...advisor, isRunning: runningOf(advisor.name), waiting: leaveOut(advisorWork.waiting, advisorOn), next: advisorNext, on: advisorOn },
+    // Signals change 2: each side chat carries its one word too (`wordFor`), from its card, its running and its mod rollout.
+    advisor: advisor === null ? null : { ...advisor, ...wordFor({ ...advisorCard, isRunning: runningOf(advisor.name) }, { modRun: rollout?.runs.get(advisor.name) ?? null }), isRunning: runningOf(advisor.name), waiting: leaveOut(advisorWork.waiting, advisorOn), next: advisorNext, on: advisorOn },
     // B424: the partner's helper, on its own card under the Advisor's: how it stands, its task and its time.
     advisorHelper: helperLane === null ? null : {
       name: helperLane.name,
@@ -2334,6 +2348,7 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
       suspended: helperLane.suspended,
       asksYou: helperLane.state === 'waiting' || waits.asking.has(helperLane.name.toLowerCase()),
       isRunning: helperLane.state === 'off' ? false : runningOf(helperLane.name),
+      ...wordFor({ ...helperLane, isRunning: helperLane.state === 'off' ? false : runningOf(helperLane.name) }, { modRun: rollout?.runs.get(helperLane.name) ?? null }),
       // T13 part 3: asleep, since when.
       asleep: helperLane.asleep === true,
       asleepSince: helperLane.asleepSince ?? null,
@@ -2354,6 +2369,7 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
       idle: supervisorLane.idle ?? null,
       compaction: supervisorLane.compaction ?? null,
       isRunning: supervisorLane.state === 'off' ? false : runningOf(supervisorLane.name),
+      ...wordFor({ ...supervisorLane, isRunning: supervisorLane.state === 'off' ? false : runningOf(supervisorLane.name) }, { modRun: rollout?.runs.get(supervisorLane.name) ?? null }),
       // T13 part 3: asleep, since when.
       asleep: supervisorLane.asleep === true,
       asleepSince: supervisorLane.asleepSince ?? null,
@@ -2379,6 +2395,7 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
       suspended: ownerLane.suspended,
       compaction: ownerLane.compaction ?? null,
       isRunning: ownerLane.state === 'off' ? false : runningOf(ownerLane.name),
+      ...wordFor({ ...ownerLane, isRunning: ownerLane.state === 'off' ? false : runningOf(ownerLane.name) }, { modRun: rollout?.runs.get(ownerLane.name) ?? null }),
       asleep: ownerLane.asleep === true,
       asleepSince: ownerLane.asleepSince ?? null,
       writtenAt: raw.tails?.[ownerLane.session]?.modifiedAt ?? null,

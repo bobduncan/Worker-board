@@ -522,7 +522,8 @@ test('(7) a chat that cannot carry a word now is passed over: a stopped turn, a 
 
 test('the page says it for the chats nobody could wake: one line each, in the same style as the "No chat is running" line', () => {
   const page = {}
-  vm.runInNewContext(`${cut('times')}\n${cut('nobodyruns')}\nObject.assign(this, { wakeFailedText })`, page)
+  vm.runInNewContext(`${cut('times')}
+${cut('chatword')}\n${cut('nobodyruns')}\nObject.assign(this, { wakeFailedText })`, page)
   const at = new Date(2026, 9, 25, 16, 7).getTime()
   assert.equal(page.wakeFailedText({ chat: 'Worker 4', tries: 3, since: at }), 'Nobody could wake Worker 4 after 3 tries since 16:07: open it yourself.')
   assert.equal(page.wakeFailedText({ chat: 'Main', tries: 1, since: at }), 'Nobody could wake Main after 1 try since 16:07: open it yourself.')

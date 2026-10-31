@@ -201,7 +201,8 @@ const cut = name => {
   return script.slice(from, to)
 }
 const page = {}
-vm.runInNewContext(`const MIN = 60000\n${cut('times')}\n${cut('lanetime')}\n${cut('rich')}\n${cut('window')}\nObject.assign(this, { clock, span, timeOf, partsOf, adviceAge, windowOf })`, page)
+vm.runInNewContext(`const MIN = 60000\n${cut('times')}
+${cut('chatword')}\n${cut('lanetime')}\n${cut('rich')}\n${cut('window')}\nObject.assign(this, { clock, span, timeOf, partsOf, adviceAge, windowOf })`, page)
 const plain = value => JSON.parse(JSON.stringify(value))
 const timeOf = one => plain(page.timeOf(one, NOW))
 const working = { state: 'working', isLeftover: false, isWithoutTime: false, task: { startedAt: NOW - 5 * MIN, stepId: 'B08' } }
@@ -234,8 +235,9 @@ test('a worker that works without a time is shown as a fault, on one line, with 
 })
 
 test('the other states of a lane say what they said before', () => {
-  assert.deepEqual([timeOf({ state: 'free' }).main, timeOf({ state: 'waiting' }).main, timeOf({ state: 'unknown' }).main, timeOf({ isLeftover: true, state: 'unknown' }).main], ['Available', 'Blocked', 'Unknown', 'Leftover'])
-  assert.deepEqual([timeOf({ state: 'interrupted', cutOffAt: null }).label, timeOf({ state: 'interrupted', cutOffAt: null }).main], ['Cut off', 'by a restart'])
+  assert.deepEqual([timeOf({ state: 'free' }).main, timeOf({ state: 'waiting' }).main, timeOf({ state: 'unknown' }).main, timeOf({ isLeftover: true, state: 'unknown' }).main], ['Free', 'Blocked', 'Unknown', 'Leftover'])
+  assert.deepEqual([timeOf({ state: 'interrupted', cutOffAt: null }).label, timeOf({ state: 'interrupted', cutOffAt: null }).main], ['Stopped', 'Stopped'])
+  assert.deepEqual([timeOf({ state: 'interrupted', word: 'Stopped', why: 'cut off by a restart' }).label, timeOf({ state: 'interrupted', word: 'Stopped', why: 'cut off by a restart' }).main], ['Stopped', 'cut off by a restart'])
 })
 
 test('a table as a chat writes it is read as a table: its head, its rows, and the text around it', () => {

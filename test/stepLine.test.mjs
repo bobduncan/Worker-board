@@ -59,7 +59,8 @@ const script = await readFile(join(PUBLIC, 'board.js'), 'utf8')
 const style = await readFile(join(PUBLIC, 'board.css'), 'utf8')
 const cut = name => script.slice(script.indexOf(`// ${name}:start`), script.indexOf(`// ${name}:end`))
 const page = {}
-vm.runInNewContext(`const MIN = 60000\n${cut('times')}\n${cut('stepline')}\nObject.assign(this, { stepLine })`, page)
+vm.runInNewContext(`const MIN = 60000\n${cut('times')}
+${cut('chatword')}\n${cut('stepline')}\nObject.assign(this, { stepLine })`, page)
 const stepLine = lane => JSON.parse(JSON.stringify(page.stepLine(lane, NOW)))
 const lane = (task, state = 'working') => ({ name: 'Units', state, task: { text: 'Redesign', step: 1, steps: 5, names: NAMES, stepLeftMs: null, stepEstimateAt: null, ...task } })
 

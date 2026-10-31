@@ -108,7 +108,8 @@ const html = await readFile(join(PUBLIC, 'index.html'), 'utf8')
 const style = await readFile(join(PUBLIC, 'board.css'), 'utf8')
 const cut = name => script.slice(script.indexOf(`// ${name}:start`), script.indexOf(`// ${name}:end`))
 const page = {}
-vm.runInNewContext(`const MIN = 60000\n${cut('times')}\n${cut('waiting')}\nObject.assign(this, { waitingOf })`, page)
+vm.runInNewContext(`const MIN = 60000\n${cut('times')}
+${cut('chatword')}\n${cut('waiting')}\nObject.assign(this, { waitingOf })`, page)
 
 test('the window knows the main chat', () => {
   const need = { id: 'unfiled:Lead:1', isMain: true, canAnswer: false, answer: null, text: '', task: null, waits: { at: NOW, words: MAIN_ANSWER, questions: [], plan: null, handover: parseHandover(MAIN_ANSWER) } }

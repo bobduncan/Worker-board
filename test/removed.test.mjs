@@ -77,7 +77,8 @@ test('a card that is no JSON, or says nothing of leaving, keeps the lane', () =>
 const script = await readFile(join(dirname(fileURLToPath(import.meta.url)), '..', 'public', 'board.js'), 'utf8')
 const cut = name => script.slice(script.indexOf(`// ${name}:start`), script.indexOf(`// ${name}:end`))
 const page = {}
-vm.runInNewContext(`const MIN = 60000\n${cut('times')}\n${cut('remove')}\nObject.assign(this, { clock, removalView })`, page)
+vm.runInNewContext(`const MIN = 60000\n${cut('times')}
+${cut('chatword')}\n${cut('remove')}\nObject.assign(this, { clock, removalView })`, page)
 
 test('a removed worker\'s lane says it was removed, and its control waits', () => {
   const at = new Date(2026, 9, 14, 10, 29).getTime()

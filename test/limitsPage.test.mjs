@@ -18,7 +18,8 @@ const cut = name => {
   return script.slice(from, to)
 }
 const page = {}
-vm.runInNewContext(`const MIN = 60000\n${cut('times')}\n${cut('limits')}\n${cut('lanetime')}\nObject.assign(this, { clock, span, limitsView, whyText, heldText, timeOf })`, page)
+vm.runInNewContext(`const MIN = 60000\n${cut('times')}
+${cut('chatword')}\n${cut('limits')}\n${cut('lanetime')}\nObject.assign(this, { clock, span, limitsView, whyText, heldText, timeOf })`, page)
 const plain = value => JSON.parse(JSON.stringify(value))
 
 const MIN = 60_000
@@ -79,8 +80,8 @@ test('each reason reads as one plain line', () => {
   assert.equal(said({ reason: 'limit', limit: 'fiveHour', until: at(23, 40) }), 'Not started: the session limit is reached, work goes on at 23:40')
   assert.equal(said({ reason: 'limit', limit: 'fiveHour', until: null }), 'Not started: the session limit is reached')
   assert.equal(said({ reason: 'limit', limit: 'week', until: null }), 'Not started: the weekly limit is reached')
-  assert.equal(said({ reason: 'suspended', worker: 'Features', until: at(23, 40), isBack: false }), 'Not started: Features is suspended until 23:40')
-  assert.equal(said({ reason: 'suspended', worker: 'Features', until: null, isBack: false }), 'Not started: Features is suspended')
+  assert.equal(said({ reason: 'suspended', worker: 'Features', until: at(23, 40), isBack: false }), 'Not started: Features is paused until 23:40')
+  assert.equal(said({ reason: 'suspended', worker: 'Features', until: null, isBack: false }), 'Not started: Features is paused')
   assert.equal(said({ reason: 'suspended', worker: 'Features', until: at(22, 40), isBack: true }), 'Not started: Features has not gone on since the limit came back')
   assert.equal(said({ reason: 'after', steps: ['B110'] }), 'Not started: waits for B110')
   assert.equal(said({ reason: 'after', steps: ['B110', 'B55', 'B63'] }), 'Not started: waits for B110, B55 and B63')
@@ -90,7 +91,7 @@ test('each reason reads as one plain line', () => {
   assert.equal(said({ reason: 'busy', worker: 'Units', leftMs: 48 * MIN }), 'Not started: Units is busy, about 48 min left')
   assert.equal(said({ reason: 'busy', worker: 'Units', leftMs: null }), 'Not started: Units is busy')
   assert.equal(said({ reason: 'you', worker: 'Units' }), 'Not started: Units waits for you')
-  assert.equal(said({ reason: 'cut', worker: 'Units' }), 'Not started: Units was cut off')
+  assert.equal(said({ reason: 'cut', worker: 'Units' }), 'Not started: Units is stopped')
   // Redesign Part 2: the board hands it out: given to its free worker, or pinned to it.
   assert.equal(said({ reason: 'ready', worker: 'Units', isPinned: false }), 'Not started: given to Units; it takes it now')
   assert.equal(said({ reason: 'ready', worker: 'Units', isPinned: true }), 'Not started: pinned to Units; the board gives it once nothing holds it')
@@ -115,7 +116,7 @@ test('a suspended lane says who held it and when it goes on, and its time column
   assert.equal(page.heldText(held({ by: 'app' })), 'Stopped by the app at the session limit · goes on at 23:40')
   assert.equal(page.heldText(held({ by: 'app', limit: 'week', until: null })), 'Stopped by the app at the weekly limit · no time known yet')
   assert.deepEqual(plain(page.timeOf(laneOf(held()), NOW)), { label: 'Goes on', main: '23:40', tone: 'time', small: ['in 52 min'], from: null })
-  assert.deepEqual(plain(page.timeOf(laneOf(held({ until: null })), NOW)), { label: '', main: 'Suspended', tone: 'muted', small: [], from: null })
+  assert.deepEqual(plain(page.timeOf(laneOf(held({ until: null })), NOW)), { label: '', main: 'Paused', tone: 'muted', small: [], from: null })
 })
 
 test('once the limit is back the lane says so, as something that needs a hand', () => {
@@ -132,6 +133,6 @@ test('the page has one place for the limits, in the head beside the title, and k
   assert.equal(html.match(/id="limits"/g).length, 1)
   const head = html.slice(html.indexOf('<header class="head">'), html.indexOf('</header>'))
   assert.ok(head.indexOf('<h1>') < head.indexOf('id="limits"') && head.indexOf('id="limits"') < head.indexOf('id="counts"'))
-  assert.match(script, /suspended: 'Suspended'/)
+  assert.match(script, /suspended: 'Paused'/)
   for (const rule of ['.pill.is-suspended', '.lane.is-suspended', '.span.is-suspended', '.count-pill.is-suspended', '.limit.is-warn', '.limit.is-full', '.queue-item .why']) assert.ok(style.includes(rule), rule)
 })

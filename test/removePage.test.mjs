@@ -17,7 +17,8 @@ const cut = name => {
   return script.slice(from, to)
 }
 const page = {}
-vm.runInNewContext(`const MIN = 60000\n${cut('times')}\n${cut('remove')}\nObject.assign(this, { clock, removalView })`, page)
+vm.runInNewContext(`const MIN = 60000\n${cut('times')}
+${cut('chatword')}\n${cut('remove')}\nObject.assign(this, { clock, removalView })`, page)
 const plain = value => JSON.parse(JSON.stringify(value))
 
 const MIN = 60_000
@@ -42,7 +43,7 @@ test('the warning says what the worker is doing and what would stop, for every s
   assert.deepEqual(view({ state: 'waiting', task }).reasons, ['It waits for you on "Build the first level", step 2 of 6: your answer would no longer be taken.'])
   const until = new Date(2026, 9, 14, 11, 0).getTime()
   assert.deepEqual(view({ state: 'suspended', suspended: { until } }).reasons, ['It paused for the limit until 11:00: that task would not go on.'])
-  assert.deepEqual(view({ state: 'interrupted', task }).reasons, ['It was cut off in the middle of "Build the first level", step 2 of 6: that work would not be resumed.'])
+  assert.deepEqual(view({ state: 'interrupted', task }).reasons, ['It is stopped in the middle of "Build the first level", step 2 of 6: that work would not be resumed.'])
   assert.deepEqual(view({ state: 'unknown' }).reasons, ['The board cannot tell what it is doing.'])
 })
 

@@ -128,10 +128,13 @@ You look for what is really wrong, nothing else.
 
 - A chat that does not run and holds no step: closed is normal (X46: Advisor 2 "off, its chat does not run", no step,
   no report).
-- A worker stopped, suspended or interrupted on purpose: its step waits for another step or for an ask, the person
-  parked it (its last checkpoint says so, "parked on the user's word", "G59 paused"), or its lane says "Suspended on
-  purpose" (X51, X52: Workers 3 and 4 "interrupted" on B611 and B613, which wait for B623; X53: three workers "suspended
-  for a limit" while the limits had room).
+- A worker stopped or paused on purpose: its step waits for another step or for an ask, the person
+  parked it (its last checkpoint says so, "parked on the user's word", "G59 paused"), or its lane says the word **Paused**
+  with "until B<n>" (X51, X52: Workers 3 and 4 stopped on B611 and B613, which wait for B623; X53: three workers paused
+  for a limit while the limits had room). A chat's one word (Working, Waiting for you, Checking, Handing, Offered, Held, Did
+  not answer, Paused, Restarting, Stopped, Free, Asleep, Not running, Unknown) is display only: **Restarting** for the two
+  minutes after a clear, **Asleep** (a process that ended while idle) and **Stopped** with "resumes by itself" are no incident;
+  a word with an age ("no report for 40 s") is an incident only by the rules' own limits, never by the word.
 - What a code rule already covers: unknown lanes (X65: the board wakes a chat by itself, and the rule unknown-lane
   names the one it could not wake), limit readings (X47, X55, X56), clears and checks. File what the rules do not name,
   not a second copy of what they do.
