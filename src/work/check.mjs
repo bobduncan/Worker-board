@@ -149,7 +149,7 @@ export async function findUnmerged({ id, branch, result, touches = [], project =
 }
 
 /** The report check's facts (see `reportCheck`, which adds the branch that holds unmerged work). */
-async function factsCheck({ id, branch, result, merged, repos, run, project = '', touches = [], exists = null, fs = null, cut = null, inline = false, waits }) {
+async function factsCheck({ id, branch, result, merged, repos, run, project = '', touches = [], exists = null, fs = null, cut = null, inline = false, waits, holders }) {
   // 2026-10-25: a result the board cut at its limit passes with a warning that says so.
   const warnings = cut === null ? [] : [`the result was ${cut} characters: the board kept the first ${RESULT_CHARS} and cut the rest; put what matters first`]
   // B363: work outside git (no branch of its own, no merged commit a repository holds): its files are checked instead.
@@ -157,7 +157,7 @@ async function factsCheck({ id, branch, result, merged, repos, run, project = ''
   const own = typeof branch === 'string' ? branch.trim() : ''
   const isOwnBranch = own !== '' && own !== '-' && own.toLowerCase() !== 'none' && !repos.some(repo => repo.base === own)
   if (exists !== null && project !== '' && await repoOfCommit(merged, repos, run) === null && (!isOwnBranch || await isNowhere(own, repos, run))) {
-    const left = await stepLeftovers({ id, repos, project, run, fs, inline, ...(waits === undefined ? {} : { waits }) })
+    const left = await stepLeftovers({ id, repos, project, run, fs, inline, ...(waits === undefined ? {} : { waits }), ...(holders === undefined ? {} : { holders }) })
     return outsideCheck({ result, touches, project, repoDirs: repos.map(repo => repo.dir), exists, left, warnings })
   }
   const faults = []
@@ -192,7 +192,7 @@ async function factsCheck({ id, branch, result, merged, repos, run, project = ''
     faults.unshift(`work in ${name}`)
   }
   // Worktree clean-up: no worktree on the step's branch, and none (or its folder) named for the step, is left.
-  faults.push(...await stepLeftovers({ id, branch: repo === null || isOnBase ? null : branch, repo, repos, project, run, fs, inline, ...(waits === undefined ? {} : { waits }) }))
+  faults.push(...await stepLeftovers({ id, branch: repo === null || isOnBase ? null : branch, repo, repos, project, run, fs, inline, ...(waits === undefined ? {} : { waits }), ...(holders === undefined ? {} : { holders }) }))
   if (String(result ?? '').trim() === '') faults.push('no result named')
   // B569, 2026-10-25: the recap card's Context and Change are the board's to build; what is off is a warning.
   const words = partsWarnings(result)

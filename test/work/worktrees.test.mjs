@@ -234,7 +234,10 @@ test('the report check\'s part: a worktree on the step\'s branch, and a folder o
 test('an empty folder a worktree left: removed now, or in the background when held; one a program holds keeps a line; a folder with files is never removed (B717, B723)', async () => {
   const one = world()
   try {
-    const args = { repo: one.repos[0], repos: one.repos, project: one.project, run }
+    // B844: the programs that stand in a held folder, as the reader answers them (a chat's background wait).
+    const asked = []
+    const holders = async path => { asked.push(slashed(path)); return [{ pid: 4242, name: 'bash.exe', parent: 'claude.exe', command: 'bash -c "sleep 1500; tail -3 check.log"' }] }
+    const args = { repo: one.repos[0], repos: one.repos, project: one.project, run, holders }
     const busy = () => Object.assign(new Error('busy'), { code: 'EBUSY' })
     const folder = join(one.project, 'garden-b3')
     // Free at once: removed, no line, nothing waited for.
@@ -256,6 +259,9 @@ test('an empty folder a worktree left: removed now, or in the background when he
     assert.equal(tries, 1)
     assert.equal(lines.length, 1)
     assert.match(lines[0], /could not be removed \(EBUSY\): a program still uses it/)
+    // B844: and names it, what started it and its command, and says how to stop it; only the held folder is looked up.
+    assert.match(lines[0], /a program still uses it \(bash\.exe 4242 from claude\.exe: bash -c "sleep 1500; tail -3 check\.log"\): stop it \(a chat's background command or monitor: TaskStop\), the board keeps trying/)
+    assert.deepEqual(asked, [slashed(folder)])
     assert.doesNotMatch(lines[0], /delete it/)
     assert.equal(existsSync(folder), true)
     assert.equal(jobs.length, 1)
@@ -295,6 +301,8 @@ test('an empty folder a running program stands in keeps a line and is removed on
     const lines = await stepLeftovers(args)
     assert.equal(lines.length, 1)
     assert.match(lines[0], /could not be removed .*a program still uses it/)
+    // B844: the program that stands in it is named by its process id, with its command.
+    assert.match(lines[0], new RegExp(`a program still uses it \\(node\\.exe ${child.pid} from node\\.exe: .*setInterval.*\\): stop it`))
     assert.equal(existsSync(join(one.project, 'garden-b3')), true)
     child.kill()
     await new Promise(resolve => child.once('exit', resolve))
@@ -341,7 +349,8 @@ test('the report check tries an empty folder a program holds through all its wai
   try {
     const folder = join(one.project, 'garden-b3')
     const busy = () => Object.assign(new Error('busy'), { code: 'EBUSY' })
-    const args = { id: 'B3', branch: 'b3-gone', repo: one.repos[0], repos: one.repos, project: one.project, run }
+    const holders = async () => [{ pid: 4242, name: 'bash.exe', parent: 'claude.exe', command: 'sleep 1500' }]
+    const args = { id: 'B3', branch: 'b3-gone', repo: one.repos[0], repos: one.repos, project: one.project, run, holders }
     // Inline: every wait is tried here, nothing is handed to the background.
     let tries = 0
     const flaky = { ...FILES, rmdir: async path => { tries += 1; if (tries < 3) throw busy(); return FILES.rmdir(path) } }
@@ -370,7 +379,7 @@ test('the report check tries an empty folder a program holds through all its wai
       { rounds: 2, every: 5, sleep: async ms => { slept.push(ms) } })
     assert.equal(failed.passed, false)
     assert.equal(slept.length, 2)
-    assert.match(failed.lines.join(' '), /a program still uses it/)
+    assert.match(failed.lines.join(' '), /a program still uses it \(bash\.exe 4242 from claude\.exe: sleep 1500\): stop it/)
     assert.equal('isHeldOnly' in failed, false)
     // A fault that is not a held folder is filed at once: no waiting for it.
     rmdirSync(folder)
