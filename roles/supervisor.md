@@ -62,22 +62,23 @@ sweep is meant to cost little (a few tens of thousands of tokens, mostly cached)
   report over 30 min ago.
 - A step moves forward: queued, taken, in progress, review, done. One that goes back and forth (queued again, taken
   again, its check failing again) is odd.
-- The board hands out all work (redesign Part 2, 2026-10-25): a task it gives a worker is taken within two minutes, or
-  the board takes it back and the worker shows "Stuck" (the rule not-taking names it); a ready task that waits while a
-  worker is free (the rule ready-while-free) is odd. Ready means what the board hands out: a fix, a task of the focus
+- The board hands out all work (redesign Part 2, 2026-10-25; since T8.5 by one hand-over at the worker's turn end): a
+  task it gives a worker is taken in the turn its line started, or the board takes it back at once; a ready task that
+  waits while a worker is free (the rule ready-while-free) is odd. Ready means what the board hands out: a fix, a task of the focus
   goal or of a goal under it, a fix of a step the person queued or pinned (not a dropped one; the rule: the comment above `readyList` in `src/work/handOut.mjs`), or a pinned one (the backlog line's "ready to hand out"). Refined tasks outside the focus goal (the rule: `readyList` in `src/work/handOut.mjs`) wait for the
   person's pin or a focus switch by design (the backlog line's "outside the focus goal, waiting for the person by
   design"), and so do those "held otherwise": workers idle while only such tasks wait is no incident. A task pinned to a
   worker waits for that worker by design (the board has the main chat start that worker when its chat is off), and a
-  worker holding a given task whose line waits (its model, a clear, a restart) is no free worker: no incident; such a
-  give goes back by itself after 20 minutes. A worker the board reads free but whose own mod reports busy (asking the
-  person, say) is no free worker either (B834: the rule counts free as the hand-out does). Main hands out nothing, so a step Main did not
+  worker whose hand-over is under way (its set word, its clear) is no free worker: no incident. A worker is free only
+  when its hand-over says so (B834, T8.5: the rule counts free as the hand-over does). Main hands out nothing, so a step Main did not
   queue is no incident either.
 - A worker on the hand-over sequence (T8.5: the board's setting "sequence" and its Workers mod 0.27.0 or newer; its lane
-  says where its hand-over stands) has no take clock and no clear account: its lane is "free" only when its hand-over says
-  so (ready-while-free), "held: <why>" when its clear, set or restart did not run (the rule handover-held names one held
-  over 10 minutes of running time), and "did not answer its hand-over" when the net fired (the rule handover-unanswered,
-  once per hand-over). not-cleared, not-taking and the report part of review-stuck say nothing of such a worker.
+  says where its hand-over stands): its lane is "free" only when its hand-over says so (ready-while-free), "held: <why>"
+  when its clear, set or restart did not run (the rule handover-held names one held over 10 minutes of running time),
+  and "did not answer its hand-over" when the net fired (the rule handover-unanswered, once per hand-over). Since step 6
+  the old rules not-cleared and not-taking are gone, and so is the report part of review-stuck. A worker not on the
+  sequence (an older Workers mod) is handed nothing: its lane says it waits for a restart; the setting "timers" hands
+  out nothing at all and the board's top line says so.
 - A step that waits for another step (its Blocked by, or the steps its Waits for names) waits as planned while that
   step moves: the summary says "waits as planned for B<n> (<state> <age>)" and marks no "!" for its age: no incident.
   Only a stalled blocker (past its state's limit: "stalled") or a step still blocked after its blocker ended ("still
@@ -87,10 +88,9 @@ sweep is meant to cost little (a few tens of thousands of tokens, mostly cached)
   "waits for its check again", "its fix B<n> was dropped", "waits for <worker> to report again: its report check failed at HH:MM (<why>)", B740). One that waits for its fix or for the person's answer
   waits as planned: no incident, and no "!" unless its fix is odd itself. So does one whose fix was dropped while an
   open step blocks it ("its fix B<n> was dropped, waits for B<m>", B630): odd only when that step is stalled itself. The
-  A step whose report check failed and was not reported again is its worker's to fix: the board types the worker one
-  line after 30 min of running time ("B<n>'s report check failed at HH:MM: fix what it names and report it again"), once per
-  failed check; the review-stuck rule opens past the review minutes if the worker still does not report (look at the
-  worker's chat: it may be off or stuck). The
+  A step whose report check failed and was not reported again is its worker's to fix: the board's hand-over types the
+  worker one line at its first turn's end without that report ("B<n>'s report check failed at HH:MM (...): fix what it
+  names and report it again"), once per failed check; no rule watches it by the clock. The
   review-stuck rule watches a check not filed within the review minutes; the dropped-fix rule a dropped fix with no new
   fix, no new check and no block for over 30 min. A fix the board does not hand out leaves its step waiting for nothing
   that moves: "waits for its fix B<n>, held: <why>" (B656) is odd past the review minutes and the review-held rule's, unless the hold is the person's open ask (B660).

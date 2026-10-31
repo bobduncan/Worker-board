@@ -19,6 +19,7 @@ import { storeFromText } from '../../src/work/read.mjs'
 import { reviewWaitOf } from '../../src/work/resultCheck.mjs'
 import { readStore, writeStore } from '../../src/work/store.mjs'
 import { buildState } from '../withStore.mjs'
+import { decide } from '../../src/work/handover.mjs'
 
 const SAID = 'Context: The list of pages was hard to read. Change: The page list has a mockup now. Details: src/pages/list.mjs and pages/list-mock.html.'
 const DIR = '/projects/board'
@@ -111,21 +112,21 @@ function build(item) {
   })
 }
 
-test('the lane shows "not merged yet: back with Digger" (no Check again) and the worker is sent the words once; a failed check keeps its flag', () => {
+test('the lane shows "not merged yet: back with Digger" (no Check again) and the hand-over sends the worker the words once (T8.5 step 6); a failed check keeps its flag', () => {
   const state = build(notMerged())
   const digger = built => built.chats.find(chat => chat.name === 'Digger')
   assert.equal(digger(state).state, 'free')
   assert.deepEqual(digger(state).flags.map(({ kind, id, text, button }) => [kind, id, text, button]), [['not merged', 'B799', 'B799: not merged yet: back with Digger', null]])
-  const says = state.reconciled.says.filter(flag => flag.id === 'B799')
-  // The check failed 39 minutes ago: the word at once, and the 30-minute reminder (B740) with the same words.
-  const words = `work: ${WORDS.slice('not merged: '.length)}`
-  assert.deepEqual(says.map(flag => flag.say), [words, words])
-  assert.match(says[1].key, /report-again/)
-  assert.match(says[0].key, /^B799 Digger check /)
+  // The pass says nothing; the hand-over sends the words at the turn end, once per failed check.
+  assert.equal(state.reconciled.says, undefined)
+  const item = notMerged()
+  const told = decide({ worker: { name: 'Digger', report: { state: 'idle', since: NOW - 60_000, at: NOW }, isRunning: true }, items: new Map([['B799', item]]), prefix: 'Team - ', now: NOW, event: { kind: 'turn-ended', since: NOW - 60_000 } })
+  assert.equal(told.envelope.line, `work: ${WORDS.slice('not merged: '.length)}`)
+  assert.equal(decide({ worker: { name: 'Digger', report: { state: 'idle' }, isRunning: true }, items: new Map([['B799', item]]), prefix: 'Team - ', now: NOW, envelopes: [{ ...told.envelope, at: NOW, state: 'delivered' }], event: { kind: 'turn-ended', since: NOW } }).envelope, null)
   // Any other failed check is still "check failed", with its Check again button for the person.
   const other = build(stepItem([line(40, 'Digger', 'in progress → review'), line(39, 'server', 'check failed: work outside git; not there: a/b.md')]))
   assert.deepEqual(digger(other).flags.map(flag => [flag.kind, flag.button]), [['check failed', null]])
-  assert.match(other.reconciled.says[0].say, /the board's check of B799 failed/)
+  assert.equal(other.reconciled.says, undefined)
 })
 
 test('the wait line of the step reads "not merged yet: back with Digger"', () => {

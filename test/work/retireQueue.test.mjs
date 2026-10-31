@@ -80,8 +80,8 @@ test('retire-queue puts each back on the ready list once; a person\'s placement 
 
 test('the reconciler names them at every refresh until none is left, before anything is given', async () => {
   const items = new Map(ALL().map(one => [one.head.get('Id'), one]))
-  const plan = reconcile({ store: { items, flow: DEFAULT_FLOW, problems: [] }, lanes: ['Worker 1', 'Worker 3'].map(name => ({ name, state: 'working', isMain: false, isLeftover: false, isRunning: true })), now: NOW, times: { graceMs: 10 * MIN, askMs: 60 * MIN, idleMs: 30 * MIN }, prefix: '' })
+  const plan = reconcile({ store: { items, flow: DEFAULT_FLOW, problems: [] }, lanes: ['Worker 1', 'Worker 3'].map(name => ({ name, state: 'working', isMain: false, isLeftover: false, isRunning: true, onSequence: true })), now: NOW, times: { graceMs: 10 * MIN, askMs: 60 * MIN, idleMs: 30 * MIN }, prefix: '' })
   assert.deepEqual(plan.retired, [{ id: 'B1' }, { id: 'B2' }, { id: 'B3' }, { id: 'B4' }])
-  // None of them is taken back as well.
-  assert.deepEqual(plan.takeBacks.map(one => one.id), [])
+  // None of them is taken back as well (T8.5 step 6: nor named a stranded give).
+  assert.deepEqual(plan.stranded.map(one => one.id), [])
 })

@@ -26,7 +26,9 @@ const text = (head, sections = {}) => `${Object.entries(head).map(([key, value])
 const step = (id, state, more = {}) => text({ Id: id, Kind: 'step', Title: `Step ${id}`, State: state, Since: '2026-10-17 11:00', ...more })
 const ask = (id, state) => text({ Id: id, Kind: 'ask', Title: `Ask ${id}`, State: state, Owner: 'Kites', Since: '2026-10-17 11:00', Asks: 'decide', Blocking: 'no' })
 const storeOf = texts => ({ items: new Map(texts.map(one => parseItem(one)).map(item => [valueOf(item, 'Id'), item])), flow: DEFAULT_FLOW, problems: [] })
-const lane = (name, more = {}) => ({ name, state: 'free', isMain: false, isLeftover: false, isRunning: true, lastActivityAt: NOW - 30 * MIN, task: null, ...more })
+// T8.5 step 6: a queued step's line goes from this pass to the main chat only (a worker's comes in its hand-over), so the
+// guards of the delivery are tested on a main chat's lane.
+const lane = (name, more = {}) => ({ name, state: 'free', isMain: true, isLeftover: false, isRunning: true, lastActivityAt: NOW - 30 * MIN, task: null, ...more })
 const run = (texts, lanes, now = NOW) => reconcile({ store: storeOf(texts), flow: DEFAULT_FLOW, lanes, now, times: TIMES, prefix: 'Crew - ' })
 
 test('B306: the ids Waits for names hold a step until each is resolved: a step done or dropped, an ask answered or withdrawn', () => {

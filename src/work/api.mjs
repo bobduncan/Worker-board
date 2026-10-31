@@ -605,9 +605,6 @@ async function take(body, w) {
   }
   if (state === 'queued') {
     if (owner === null || !isOwner(item, w.who, w.prefix)) return refuse(409, `${id} is queued for ${owner ?? 'nobody'}, not for ${w.who}.`)
-    // Model per step: a step whose line waits for its worker's model or effort is not taken before the board sends it.
-    const hold = w.stepHold?.(id) ?? null
-    if (hold !== null) return refuse(409, `${hold} Take it once the board sends it.`)
     // B305: the chat takes its own queued step once what blocks it is resolved (the flow's move by the worker), also
     // while it still holds another. A flow.json without that move: the board's move, the chat taking it counted free.
     const byChat = (w.store.flow.step?.moves ?? []).some(one => one.from === 'queued' && one.to === 'taken' && (Array.isArray(one.by) ? one.by : [one.by]).includes(w.role))
@@ -3518,7 +3515,7 @@ async function retireQueue(body, w) {
 const HOLDS_FOR_GIVE = ['queued', 'taken', 'in progress']
 
 /**
- * Redesign Part 2: the board gives a ready task to a worker (the reconciler's `gives`, work/handOut.mjs), by the flow's
+ * Redesign Part 2: the board gives a ready task to a worker (since T8.5 step 6 the hand-over's decision, handover.mjs), by the flow's
  * server move "the board hands it out". Checked anew here, so two refreshes or two idle reports at once give one task to
  * one worker (Review Focus 4): refused when the guard does not hold (no longer ready, its Touches overlap one given or
  * under way), its standard holds it, it is pinned to another chat, or the worker holds a task given or under way.
@@ -3551,9 +3548,10 @@ async function give(found, body, w) {
 }
 
 /**
- * Redesign Part 2: the board takes a given task back (the reconciler's `takeBacks`): only one queued for the chat named
- * (a task given anew meanwhile stays where it is). Back to refined, no Owner; History "queued → refined (taken back
- * from <chat>: <why>)", with "; stuck" when its worker never reacted (principle 2: the board shows it stuck).
+ * Redesign Part 2: the board takes a given task back (since T8.5 step 6 only the hand-over's decision does, handover.mjs:
+ * not taken in its turn, a failed envelope, the net, a pause): only one queued for the chat named (a task given anew
+ * meanwhile stays where it is). Back to refined, no Owner; History "queued → refined (taken back from <chat>: <why>)",
+ * with "; stuck" when the caller says so.
  */
 async function takeBackGiven(found, back, w) {
   const id = valueOf(found.item, 'Id')

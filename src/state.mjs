@@ -48,7 +48,7 @@ import { enforcementReadiness } from './work/routing/capabilities.mjs'
 import { routingHolds } from './work/routing/assignments.mjs'
 import { refineStop } from './refineGate.mjs'
 import { contextOfStep, flowOfStep, itemOfStep, itemsOf, reviewWaitOfStep, storeBacklog } from './work/read.mjs'
-import { clearHolds, clearOwed, modAtLeast } from './clearOwed.mjs'
+import { clearOwed, modAtLeast } from './clearOwed.mjs'
 import { nobodyRunsOf, wakeFailedOf } from './say.mjs'
 import { chainWaitOf, checkedOf, fixesOf, fixOutcomeOf, reviewWaitOf } from './work/resultCheck.mjs'
 import { recapWaitsOf } from './recaps.mjs'
@@ -87,8 +87,7 @@ const FEEDBACK_CHARS = 300
 /** B161: the first lines of what the board types into the main chat for itself (say.mjs, design.mjs): not the person's talk. */
 const BOARD_WORDS = /^(?:restart for mod|spawn workers|remove worker|prepare restart|resume|start "|backlog step from the Design tab|list step from the Design tab|queue step from the Design tab|queue step from the backlog|advisor recommendation|refine step|check step|step refined|ask from the goal map|partner effort|set model and effort|set effort|backlog step from the goal map|check sync)\b/
 /** B300: the reconciler's flags a lane shows; an old ask stands under Needs your attention, a broken file on top. */
-// Redesign Part 2: 'not taking', a worker the board took a task back from while it sat idle (work/handOut.mjs).
-const LANE_FLAGS = ['stuck', 'not taking', 'check failed', 'not merged', 'back', 'card', 'waits']
+const LANE_FLAGS = ['stuck', 'check failed', 'not merged', 'back', 'card', 'waits']
 /** How long a window of the 5-hour limit lasts. */
 const FIVE_HOURS = 5 * HOUR
 /** B124: an ask for workers that arrived stays open this long while the workers have not all come. */
@@ -1454,7 +1453,7 @@ function focusRun(node, items, prefix, partner) {
   return { note, needs }
 }
 
-export function buildState(raw, { lines = [], outbox = [], runs = [], board = null, seen = null, aliveAt = null, reports = null, asleepWakes = null, hearing = null, finishedSeen = {}, taskTimes = [], mods = {}, modsLately = null, handOutHeldAt = null, refusedGives = [], keptReadings = [], providers = [], now, config }) {
+export function buildState(raw, { lines = [], outbox = [], runs = [], board = null, seen = null, aliveAt = null, reports = null, asleepWakes = null, hearing = null, finishedSeen = {}, taskTimes = [], mods = {}, modsLately = null, keptReadings = [], providers = [], now, config }) {
   // The review of Pause 2: while the person pauses (2026-10-19: pausing only, no longer until running) what waits in
   // the outbox is held until the resume, but the board's own "resume" to the main chat; the page says so (`isHeld`).
   const isPaused = isHolding(raw.work?.pause)
@@ -2003,7 +2002,7 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
   }
 
   // T8.5 (spec 2026-10-31, part 4): the one predicate per worker: on the sequence (the setting "sequence" and the Workers mod
-  // 0.27.0 or newer), every old mechanism of the hand-over skips it; else it keeps today's path.
+  // 0.27.0 or newer). Since step 6 the old path is gone: a worker not on it is handed nothing.
   const withSequence = lane => ({ ...lane, onSequence: onSequence(lane, config) })
   const chats = lanes.map(lane => withSequence({
     ...lane,
@@ -2053,30 +2052,22 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
   // The guard (2026-10-21): the product plan's standards hold a task back from the hand-out.
   const plan = planState(raw.productPlanText ?? null, itemsOf(raw.work), config.productPlan)
   // Redesign Part 2 (2026-10-25): the board hands out all work: the ready list in the focus goal's order, the settings,
-  // what went into the outbox (for the take-back's clock), the steps the routing holds and whether a limit is full.
+  // what went into the outbox (for the starts on their way), the steps the routing holds and whether a limit is full.
+  // T8.5 step 6: the give itself is the hand-over's (work/handover.mjs); `handover` other than "sequence" hands out nothing.
   const routingHeld = workOk ? routingHolds(itemsOf(raw.work), config.routing) : new Set()
   const gaps = gapsOf(lines, now, aliveAt)
   const reconciled = !workOk ? null : reconcile({
     store: raw.work, flow: raw.work.flow, lanes: chats, now, times: { graceMs: GRACE_MS, askMs: ASK_MS, idleMs: IDLE_HOLD_MS }, prefix, hasPartner: advisorChat !== undefined, partner,
     standardHold: item => standardHold(item, plan?.standards ?? []),
     focus: goalMap?.focus ?? null, focusGoals: goalsUnder(goalMap, goalMap?.focus ?? null), routingHeld, sent,
-    settings: { maxWorkers: config.maxWorkers, takeWithinMinutes: config.takeWithinMinutes, followUpMinutes: config.followUpMinutes, heldGiveMinutes: config.heldGiveMinutes, handOutBeyondFocus: config.handOutBeyondFocus === true, offAfterMinutes: config.offAfterMinutes },
+    settings: { maxWorkers: config.maxWorkers, followUpMinutes: config.followUpMinutes, handOutBeyondFocus: config.handOutBeyondFocus === true, offAfterMinutes: config.offAfterMinutes, handover: config.handover ?? 'sequence' },
     limitsFull: ['fiveHour', 'week'].some(limit => limits[limit]?.level === 'full'),
-    // The review of 2026-10-25: when the board last held the hand-out (the server's memory), and the gives refused lately.
-    heldUntil: handOutHeldAt, refusedGives,
-    // B740: the time the board did not run, from the history's gap lines, for the running time of a failed report check's wait.
-    offMs: from => (Number.isFinite(from) ? gaps.reduce((sum, gap) => sum + Math.max(0, Math.min(gap.to, now) - Math.max(gap.from, from)), 0) : 0),
   })
-  // B547: the steps whose line waits for their worker's clear (a mod that can clear only: an older one would wait for ever).
-  // B587: not for a worker whose process ended: its line and the start word go at once.
-  // T8.5: a worker on the sequence is cleared by its envelope: no line of its waits here.
-  const clearHeld = clearHolds({ lanes: chats.filter(lane => lane.onSequence !== true), deliveries: reconciled?.deliveries ?? [] })
-  // B468: what each worker runs at for its step, the words that have the main chat set it (none without the Workers mod),
-  // and the steps whose line to their worker waits until it is set. Model per step: its model too, by the settings'
-  // model ids, and the usual setting between steps from the settings.
+  // B468: what each worker runs at for its step, and the words that have the main chat set it (none without the Workers
+  // mod). Model per step: its model too, by the settings' model ids, and the usual setting between steps from the settings.
+  // T8.5 step 6: no line waits for a clear or a setting here: the hand-over's envelope carries both before its line.
   // The partner and its helper are skipped: their own setting (B352, set once) is never the board's to overwrite.
-  const efforts = reconciled === null ? null : effortPlan({ items: raw.work.items, lanes: chats, deliveries: reconciled.deliveries, sent, now, main: isBridgeMissing === true ? null : main?.name ?? null, prefix, skip: [advisorChat?.name, helperChat?.name, ownerChat?.name], ...runSettings(config) })
-  if (efforts) for (const id of routingHeld) efforts.held.add(id)
+  const efforts = reconciled === null ? null : effortPlan({ items: raw.work.items, lanes: chats, sent, now, main: isBridgeMissing === true ? null : main?.name ?? null, prefix, skip: [advisorChat?.name, helperChat?.name, ownerChat?.name], ...runSettings(config) })
   // T8.5: a worker on the sequence is set by its envelope's `set`, at its hand-over: no word of the old plan for it.
   if (efforts) efforts.words = efforts.words.filter(word => chats.find(lane => lane.name === word.chat)?.onSequence !== true)
   // T7.5 (the person, 2026-10-28: "do B"): the Supervisor's chat is held at its own setting (`supervisorModel`, `supervisorEffort`:
@@ -2088,15 +2079,14 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
   const ownerWord = efforts === null ? null : supervisorEffortWord({ lane: ownerLane, setting: OWNER_SETTING, models: runSettings(config).models, sent, now, main: isBridgeMissing === true ? null : main?.name ?? null, prefix, who: OWNER_LABEL })
   if (ownerWord !== null) efforts.words.push(ownerWord)
   // B570: a chat on an older Workers mod is restarted between its steps (work/modRollout.mjs): the words that ask its
-  // restarter (the main chat; the partner for the main chat), and the line of an idle worker's next step held meanwhile.
+  // restarter (the main chat; the partner for the main chat). T8.5 step 6: no worker: it restarts by its envelope.
   const side = (lane, name) => (lane === null || lane === undefined ? null : { ...lane, name, isRunning: lane.state === 'off' ? false : runningOf(name) })
   const rollout = efforts === null ? null : rolloutPlan({
-    mods: modsLately, items: raw.work.items, deliveries: reconciled.deliveries, sent, now, prefix,
+    mods: modsLately, items: raw.work.items, sent, now, prefix,
     // T8.5: a worker on the sequence restarts by its envelope (`restart`), not by the rollout's words.
     chats: chatsByRole({ chats: chats.filter(lane => lane.onSequence !== true), advisor: side(advisorCard, advisorChat?.name), advisorHelper: side(helperLane, helperLane?.name), supervisorChat: side(supervisorLane, supervisorLane?.name), productOwner: side(ownerLane, ownerLane?.name) }),
     main: isBridgeMissing === true ? null : main?.name ?? null, partner: isBridgeMissing === true ? null : advisorChat?.name ?? null,
   })
-  if (rollout !== null) for (const id of rollout.held) if (!efforts.held.has(id)) { efforts.held.add(id); efforts.holds.set(id, rollout.holds.get(id)) }
   // T8.5: a worker on the sequence: its state now, as the one decision reads it. Nothing is decided here (no ready task and
   // no clear are offered, so only what the facts say shows); the board's refresh and the worker's turn end carry it out.
   const handoverOf = lane => (lane.onSequence !== true || !workOk ? null : (({ state, why, step }) => ({ state, why, step }))(decide({
@@ -2202,10 +2192,11 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
     }),
     // B300: the reconciler's lines on top (a broken file, an id twice, a state the flow does not know), and what the
     // server carries out; empty and null while the store cannot be read.
-    workFlags: [...(reconciled?.flags ?? []).filter(flag => flag.kind === 'broken').map(flag => flag.text),
+    // T8.5 step 6: and, on a board whose setting `handover` is not "sequence", the one line that says the hand-over is off.
+    workFlags: [...(reconciled?.flags ?? []).filter(flag => flag.kind === 'broken' || flag.kind === 'handover off').map(flag => flag.text),
       // Model per step: settings that name the model ids otherwise than both, each "claude-...": the effort alone.
       ...(typeof config.modelsProblem === 'string' ? [`Settings: ${config.modelsProblem}.`] : [])],
-    reconciled: reconciled === null ? null : { moves: reconciled.moves, deliveries: reconciled.deliveries.filter(one => !efforts.held.has(one.id) && !clearHeld.has(one.id)), efforts: efforts.words, held: [...efforts.held, ...clearHeld], holds: Object.fromEntries(efforts.holds), says: reconciled.flags.filter(flag => typeof flag.say === 'string'), notes: reconciled.notes ?? [], partnerAsks: reconciled.partnerAsks ?? [], escalations: reconciled.escalations ?? [], restarts: rollout?.words ?? [], restFree: reconciled.restFree ?? [], handedBack: reconciled.handedBack ?? [], gives: reconciled.gives ?? [], takeBacks: reconciled.takeBacks ?? [], start: reconciled.start ?? null, retired: reconciled.retired ?? [], handOutHeld: reconciled.handOutHeld === true, heldTwice: reconciled.heldTwice ?? [] },
+    reconciled: reconciled === null ? null : { moves: reconciled.moves, deliveries: reconciled.deliveries, efforts: efforts.words, notes: reconciled.notes ?? [], partnerAsks: reconciled.partnerAsks ?? [], escalations: reconciled.escalations ?? [], restarts: rollout?.words ?? [], restFree: reconciled.restFree ?? [], handedBack: reconciled.handedBack ?? [], start: reconciled.start ?? null, retired: reconciled.retired ?? [], stranded: reconciled.stranded ?? [], handOutHeld: reconciled.handOutHeld === true },
     // B570: what each chat on an older Workers mod waits for, by name (the partner, its helper, the supervisor too).
     modRuns: Object.fromEntries(rollout?.runs ?? []),
     // Partner answers (2026-10-19): whether the partner answers detail questions first (the Focus page's switch); null

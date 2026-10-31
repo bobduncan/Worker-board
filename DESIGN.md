@@ -1269,8 +1269,9 @@ choices: the mod starts the board, the workers carry on on their click, no compa
   banner says so with a link **Open <its title>**, `claude://claude.ai/epitaxy/<the app's id for it>` (title from the
   list of chats, the id from its app card), and its Workers mod reads the resume from the flag. The banner names each
   chat holding a step that has not started a turn since the resume (its last turn began after it, or it runs one now),
-  once, with the steps it holds, a step the board gave it and it has not taken included (B764, X101: given five seconds
-  before the pause, its worker stopped before taking it; `not taking` stays the net for a chat the wake does not reach); once none is left, or 20 minutes after Resume all (*Resuming holds nothing*, below),
+  once, with the steps it holds (B764 had a step the board gave it and it had not taken counted too, X101; since T8.5
+  step 6 the pause takes that one task in flight back and the resume decides the hand-over anew, so a given step is no
+  holder); once none is left, or 20 minutes after Resume all (*Resuming holds nothing*, below),
   the board sets `running` (`resumed`, the server's only) and the banner goes; **End resume** (the person's
   `end-resume`) does the same for a chat that will never start. `running` counts as no pause: the old "Resume all (N cut
   off)" shows again. The link is built only for an app id (`local_` and a uuid); while no mod has asked the board, the
@@ -3385,9 +3386,9 @@ level it needs. the worker will adjust to this new effort level". Every chat ran
    level the person set by hand after a word back arrived is left alone. None for a chat whose effort the app's file
    does not say, none without a main chat or the Workers mod, none while the person pauses.
 4. The app applies a new effort from the chat's next turn on, so the line of a worker's next step ("work: B<id> is
-   yours") waits while that step's effort is not set, at most three minutes after the word (`HOLD_MS`); then it goes
-   anyway. The reconciler's line and the worker's own pull at its turn's end both wait (`state.reconciled.held`,
-   `pullFor`).
+   yours") waits until that step's effort is set. Since T8.5 step 6 it is the hand-over's envelope that waits, for the
+   set word's done (`waitsFor`, "The hand-over as one sequence"); the line holds of the effort plan (`HOLD_MS`,
+   `state.reconciled.held`) are gone.
 5. The step's window shows its effort after the goal: the five levels with its own lit, its reason (or "counts as
    medium"), who runs at it until the step ends or that the main chat was asked and it is not set yet, and what was
    kept for that level (`itemPartsOf`, `effortRunLine`, `effortKeptLine`). The worker's window has "Effort: <level>"
@@ -3444,9 +3445,9 @@ Advisor's check helpers on Sonnet". It builds on B468: the same word to the main
    minutes, for a lost word, without a main chat or with a file that names no effort. Its word goes only once a word
    for another model on its way was applied (the main chat sets them in their order, so the reading that frees it
    comes after both), and again each half hour (`AGAIN_MS`). The lane says so, "B<id> waits for Opus since HH:MM: <why>"
-   (a flag of kind `model`, amber), and `work take` refuses the step while it waits, with that line (`stepHold`, the
-   state's `reconciled.holds`). Any other step keeps B468's hold: three minutes at most after its word (`HOLD_MS`), a
-   lost word frees the line; running a sonnet step on Opus costs tokens at worst.
+   (a flag of kind `model`, amber). Since T8.5 step 6 nothing is held here and `work take` refuses nothing for it (`stepHold`
+   and `reconciled.holds` are gone): the hand-over's envelope waits for the set word, and a set that failed bars that
+   model's steps from the worker until it runs it.
 5. Between steps a worker runs at its usual setting from the settings, `usualModel` and `usualEffort` (sonnet and
    medium unless set; `runSettings`), never at what it ran at before the board's first word (B468 kept that one, extra
    high on Opus for every worker). The board moves a worker back only after one of its words changed it, as in B468; a
@@ -3783,16 +3784,15 @@ the AI sweep by a cheap supervisor chat and the hand-over to the Advisor, comes 
   answer, its fix B<n>, its fix dropped, or (B740, X92: B727's report check failed at 21:03 and its worker never reported it
   again, so it sat in review an hour with nothing said) its worker's new report: "waits for <worker> to report again: its
   report check failed at HH:MM (<why in a few words>)", for a step in review whose last board check line is "check failed" with
-  no report after it; a re-report ends it, the board's new check then pending as before; a dropped step says nothing). That
-  wait, 30 min of running time old (`REPORT_AGAIN_MINUTES` in reconcile.mjs; board-off time and the person's pause left out), has the board type
-  the worker one line, once per failed check (the key holds the check's minute; the reconciler's flag 'report again', delivered
-  like the check's word): "B<n>'s report check failed at HH:MM: fix what it names and report it again". The delivery holds
-  it while the person pauses, as every line. Past `reviewMinutes` of running time the rule `review-stuck` opens for it too.
+  no report after it; a re-report ends it, the board's new check then pending as before; a dropped step says nothing).
+  Since T8.5 step 6 the board's word for it is the hand-over's `back` envelope, typed at the worker's first turn's end
+  without that report, once per failed check ("The hand-over as one sequence", rule 3 of the decision); the 30-minute
+  word of the reconciler (`REPORT_AGAIN_MINUTES`) and the report part of `review-stuck` are gone, and the health
+  summary counts such a wait as no late one.
   It stands beside its title on the Backlog tab and in the work tool's `next`
   and `list`; the repair rule `fix-dropped` gives the main chat one word for a dropped fix, 30 min after the drop:
-  close it or have it checked again. `not-cleared` (B547, the fix of X13 and X14: a worker whose last report is newer than its last clear and that took a new
-  step since, at once, or that stays so for over 10 min, `notClearedMinutes`; one finding per worker per report, with
-  the mod's why and the repair). `queued-not-running` (B587, the fix of X36: a free worker whose chat does not run while
+  close it or have it checked again. `not-cleared` (B547, the fix of X13 and X14) went with T8.5 step 6: a clear that did
+  not run holds its worker, the rule `handover-held`'s, which uses `notClearedMinutes`. `queued-not-running` (B587, the fix of X36: a free worker whose chat does not run while
   its next queued step waits over 15 min with no `start` of it on its way to the main chat; one finding per step).
   `old-limit-reading` (B601, the fix of X47: a limit whose newest figure is older than `oldReadingIncidentMinutes`, 60 (B632, the fix of X55
   and X56: past `oldReadingMinutes`, 30, the supervisor chat first looks the limits up once with `get_usage`, which counts as a chat
@@ -4054,18 +4054,18 @@ it can. The person: "It just needs to observe, periodically, not consume a lot o
   partner word so a partner that does not run is started) to its restarter: the main chat, or the partner for the main
   chat (roles/main.md, roles/partner.md: archive, unarchive the list's chats archived with it, unarchive it, no message).
   Again each half hour while it still runs the older mod, three times at most per installed version; `deliver.mjs`
-  skips a twin of the last half hour. A free worker's next step line waits for it (`reconciled.held`, the hold's
-  words in `holds`), ten minutes at most after the word, so the step starts on the new mod; a chat with a step in
-  progress "restarts after B<id>" (each lane's `modRun`, every chat's in `modRuns`). Once its process ended its mod no
-  longer asks, so it no longer counts as old and the line goes (the board's `start` word to the main chat wakes it).
+  skips a twin of the last half hour. A chat with a step in progress "restarts after B<id>" (each lane's `modRun`, every
+  chat's in `modRuns`). Since T8.5 step 6 **no worker** gets this word and no line waits for it (`RESTART_HOLD_MS` and
+  B587's release are gone): a worker on the hand-over sequence restarts by its envelope (`restart`, "The hand-over as one
+  sequence"), and a worker on a mod older than the sequence's 0.27.0 is handed nothing; its lane says "Workers mod <v>:
+  gets no task until its chat is restarted on <installed>" (status `by-hand`). The partner's, the main chat's, the
+  helper's, the supervisor's and the Product owner's restarts stay as described here.
   B541's card and the rule `old-mod` now name only a chat still idle on the older mod 30 minutes after the board's
   first word for it (`overdueChats`, from the outbox): the restart did not reach it. A restart word stays known in the
   outbox a day (`store.mjs`), so its three tries are counted. The partner sends the restarted main chat one line, as no
   board word starts the main chat (the review). The merging worker of a mod change runs the CLI's marketplace update and
-  plugin update once (roles/worker.md); the person restarts nothing. B587: the hold never outlasts the restart: a chat
-  whose process ended is not held, and a word typed over two minutes ago whose restarter's turn has ended with the chat
-  still running (refused, or the archive was) holds nothing either (`REFUSED_AFTER_MS`). Tests: `test/modRollout.test.mjs`,
-  `test/work/modRolloutDeliver.test.mjs`, `test/oldMods.test.mjs`, `test/supervisor/watch.test.mjs`.
+  plugin update once (roles/worker.md); the person restarts nothing. Tests: `test/modRollout.test.mjs`,
+  `test/oldMods.test.mjs`, `test/supervisor/watch.test.mjs`.
 
 ## The supervisor's incident cards (2026-10-24)
 
@@ -4212,6 +4212,13 @@ runs /clear (`$.command.run({ command: 'clear' })`, queued for when the chat is 
   `"compactAbove": 150000` in the project's `list.json`.
 
 ### The board keeps the account of clears (B547, 2026-10-24)
+
+**Since T8.5 step 6 (2026-10-31)** the account (`clearOwed`) is what the hand-over's envelope reads: the owed clear is its
+first field, before the next task's line, and a clear that cannot run fails the envelope and holds the worker with its why
+(the rule `handover-held`; see "The hand-over as one sequence"). What this part describes besides the account is gone: the
+held line (`clearHolds`), the take's `clear` and its 2-minute grace (`clearAtTake`, `CLEAR_GRACE_MS`), the take refused
+while a clear is owed (`takeRefusal`), the rule `not-cleared` and its `takenSince` (B765), and B587's release of the
+held line for a restarted chat (the restart is the envelope's own). The history below is kept for why.
 
 On 2026-10-24 three reported steps ended in no clear: Workers 4 and 1 (an older mod, 18:22 and 18:23) left no
 turn-ended, no log and no reason on the board, and Worker 2 (19:10) was refused its log while its background work ran
@@ -4484,6 +4491,13 @@ what code should do"). Now the board hands out every task itself (principle 1), 
 3: Part 1's reports). The spec: `.claude/specs/2026-10-24-board-redesign-design.md`, Part 2; the plan:
 `.claude/plans/2026-10-25-board-hands-out-work-plan.md`.
 
+**Since T8.5 step 6 (2026-10-31)** the give, its line and every clock around them are the hand-over's one decision at the
+worker's turn end (see "The hand-over as one sequence" below): the give and its line in one envelope, a task not taken in
+its turn back at once, one 10-minute net. The reconciler's own give, its later line, the take-back clocks
+(`takeBacks`, `takeWithinMinutes`), the held give (`heldGiveMinutes`, `skipPairs`), the refused-give memory
+(`givesRefused`) and the stuck mark are gone. What stays here: the ready list, the matching rules (`match`, called by
+`decide` for one worker), one more worker (`workerStart`), the flow, the rollout of old queues.
+
 - **One ready list** (`src/work/handOut.mjs` `readyList`, `src/work/guards.mjs` `readyHold`): every step in state
   refined whose refine is ready (`Refined: ready`), with nothing it is blocked by or waits for open (a blocker in review
   still holds: the worker's own take needs it done), no words to clear, no blocking ask open and no answer the partner
@@ -4506,35 +4520,19 @@ what code should do"). Now the board hands out every task itself (principle 1), 
   2026-10-25: by the time the blocker is done its builder is mostly busy again, so a keep only delayed the work): in the
   list's order it goes to that worker when it is idle at the give, else to anyone (`prefers`). `followUpMinutes` above 0
   keeps it for that worker that long instead (`keptFor`, `keptUntil`); its default is 0.
-- **The give** (`match`, `idleWorkers`): only a worker whose own report says idle and free (or, B567, it rests while its
-  task waits on the person), running, holding no step given or under way, not stuck, gets a task; the one idle longest
-  first. Unknown, off, suspended, busy, and a chat the board still reads by its older inference (no report: an older
-  mod, or the board just restarted) get none (Review Focus 2). Among the rest a worker already on the task's model
-  family is preferred; a task whose Touches overlap a step given or under way, or one given in the same pass, waits.
-  The reconciler names the gives (`gives`); the server makes each through the work API as the server: the flow's move
-  refined → queued by server when "the board hands it out" (`advance` with `for`). The API checks it anew and refuses a
-  second give of a task, or a give to a worker that holds a step queued, taken or in progress (Review Focus 4: two idle
-  reports at once, two refreshes). History "refined → queued (given by the board to <worker>)". The next pass sends the
-  worker its line (the existing delivery, with its holds: the model switch, the clear, the mod restart). The server
-  runs the reconciler the moment a chat's report turns idle (`src/work/again.mjs` `coalesce`: one pass at a time, a call
-  meanwhile makes exactly one more), and once more after a pass that gave a task.
-- **The take-back** (`takeBacks`, principle 2): a given task whose newest work line to its worker is `takeWithinMinutes`
-  (2) old and still not taken goes back (queued → refined, Owner cleared; History "queued → refined (taken back from
-  <worker>: not taken within 2 min)"). With "; stuck" when the worker's fresh report has said idle since before that
-  line: it never reacted. A worker that reacted (its report went busy after the line: the person typed to it, or it
-  thinks long before `work take`) is waited for (Review Focus 3); once it reports idle again without having taken the
-  task, the task goes back, not stuck ("not taken in the turn after its line"). A task whose line has not gone (held for
-  its model, a clear, a restart, or its chat went off or unknown first) is not on that clock (Review Focus 1), but on a
-  second, longer one (the review of 2026-10-25: an Opus task given to a worker whose model was never switched locked both
-  for ever): `heldGiveMinutes` (20) after the give it goes back, not stuck ("its line was held"), and `skipPairs` keeps
-  that task from that worker for as long. A task given to a chat missing from the list (an account switch drops chats
-  for a while) is on the same clock as any, from its line, else from the give: never at once. A stuck worker's lane has
-  the flag `not taking`, "Stuck: did not take B<n> within 2 min; it went back on the list", and gets no task, until its
-  report's since is newer than the take-back (`stuckWorkers`). None while the person pauses or resumes, or a limit is
-  full; after either the clock starts anew (a pause's resume, from pause.json; a full limit's end, from the server's
-  memory of when it last held the hand-out, `handOutHeldAt`). A give the work API refuses (managed routing, a race) is
-  kept by the server 15 minutes (`deliver.mjs` `givesRefused`): not tried again for that worker, and the ready list says
-  "not given to <worker>: <why>".
+- **The give** (`match`): since T8.5 step 6 the hand-over's decision (`src/work/handover.mjs` `decide`) calls it for the one
+  worker whose turn ended (or that is free at a refresh): the list's first task that worker may take (its pin first,
+  then a follow-up of its own, then a task on its model family, else the next; never one whose Touches overlap a step
+  given or under way). The give is made through the work API as the server, in the same call as the envelope that
+  carries its line: the flow's move refined → queued by server when "the board hands it out" (`advance` with `for`).
+  The API checks it anew and refuses a second give of a task, or a give to a worker that holds a step queued, taken or
+  in progress (Review Focus 4); a refused give moves to the next candidate in the same call. History "refined → queued
+  (given by the board to <worker>)". The server runs the hand-over's pass at every refresh and the moment a chat's
+  report turns idle (`src/work/again.mjs` `coalesce`: one pass at a time).
+- **Taken back** (principle 2): only by the hand-over (not taken in the turn its line started, a failed envelope, the
+  net, a pause), each at once and once; and, by the reconciler, a give no hand-over will ever carry on
+  (`strandedGives`: its worker is not on the sequence, at once; its chat missing from the list, 10 minutes after the
+  give). History "queued → refined (taken back from <worker>: <why>)".
 - **One more worker** (`workerStart`): when ready tasks that a new worker could take wait (kept for nobody, their
   Touches overlapping nothing given or under way, as `match` checks), more of them than the workers asked for in the
   last 10 minutes that have not reported yet (a start word whose worker has not reported since; a spawn word, which
@@ -4561,13 +4559,12 @@ what code should do"). Now the board hands out every task itself (principle 1), 
   new when its refine is not ready; a placement the person made last becomes its pin; a kept `Queue when refined` goes.
   History "back on the ready list: the board hands out all tasks now".
 - **Settings** (`config.json`, top level): `maxWorkers` (a whole number ≥ 1; 5 unless set, B-max: the ⚙ panel sets 1 to 10),
-  `takeWithinMinutes` (2, at least 1), `followUpMinutes` (0: a preference only; above 0 a keep that long),
-  `heldGiveMinutes` (20, at least 1 and never under `takeWithinMinutes`), beside Part 1's `unknownAfterSeconds`.
+  `followUpMinutes` (0: a preference only; above 0 a keep that long), beside Part 1's `unknownAfterSeconds`. Since T8.5
+  step 6 `takeWithinMinutes` and `heldGiveMinutes` are gone (an old config.json that has them is read without complaint).
 - **Done when** (principle 6): for 4 hours after it is live none of these opens or comes back: `ready-while-free` (a
-  ready task kept for nobody waits over `idleMinutes` while a worker whose report says free, and that holds no given
-  task, stands idle; B834: free exactly as the hand-out's `idleWorkers` counts it, so a worker the board reads free but
-  whose mod reports busy is no free worker, X111/X112), `not-taking`
-  (a worker the board took a task back from, flagged), `holder-not-running` (a chat that does not run has work).
+  ready task kept for nobody waits over `idleMinutes` while a worker is free; since T8.5 step 6 free is the hand-over's
+  own FREE, X111/X112), `handover-unanswered` (in place of `not-taking`), `holder-not-running` (a chat that does not run
+  has work).
 - Tests: `test/work/handOutList.test.mjs`, `test/work/handOutMatch.test.mjs`, `test/work/handOutApi.test.mjs`,
   `test/work/handOutSim.test.mjs` (simulated chats through `buildState` and `deliverWork`), `test/work/again.test.mjs`,
   `test/work/retireQueue.test.mjs`, `test/pinTask.test.mjs`, `test/focusHandout.test.mjs`, `test/config.test.mjs`,
@@ -4808,17 +4805,22 @@ within 2 minutes, the held give of 20 minutes, the resume's wait, the rollout's 
 almost every hand-over incident since 27 Oct was two of them disagreeing (X91, X94, X98, X100, X101, X102, X105, X111).
 Now, for a worker on the sequence, the board decides once and sends one message.
 
-**Behind a setting, per worker.** `handover` in config.json: `"timers"` (unless set: today's path, unchanged) or
-`"sequence"`. A worker is on the sequence when the setting is `"sequence"` and its Workers mod is 0.27.0 or newer
-(`HANDOVER_MOD`), read from the version its calls say (the board's `modOf`, else its kept report's `mod`). The one
-predicate is `onSequence(lane, config)` (`src/work/handover.mjs`); the state marks every lane with it (`lane.onSequence`)
-and every old mechanism skips such a worker through it: the reconciler's deliveries, gives (a free worker on the
-sequence still counts as free for the start of one more worker), take-backs and stuck marks, the words of a failed check
-and of report again (`src/work/reconcile.mjs`); `clearHolds`, the effort plan's words and the rollout's restarts
-(`src/state.mjs`); the take's `clear` and the take refusal of an uncleared chat, the pull at a turn's end (`server.mjs`);
-B764's given task on the resume list (`src/work/pause.mjs`); the rules not-cleared, not-taking and the clear part of
-skip-repeats (`src/supervisor/rules/watch.mjs`; the new rules are step 4's). A worker on the timers or an older mod keeps
-all of it.
+**Per worker; the old path is gone (step 6).** A worker is on the sequence when the setting `handover` is `"sequence"`
+(unless set, since step 6) and its Workers mod is 0.27.0 or newer (`HANDOVER_MOD`), read from the version its calls say
+(the board's `modOf`, else its kept report's `mod`). The one predicate is `onSequence(lane, config)`
+(`src/work/handover.mjs`); the state marks every lane with it (`lane.onSequence`). Step 2 had every old mechanism skip
+such a worker; step 6 (2026-10-31, after five clean hand-overs on the person's board) removed them for every worker: the
+reconciler's gives, its deliveries to a worker, the take-backs (`takeBacks`, `takeWithinMinutes`), the stuck marks
+(`stuckTakeBacks`), the held give (`heldGiveMinutes`, `skipPairs`), the refused-give memory (`givesRefused`), the words of a
+failed check and of report again (`REPORT_AGAIN_MINUTES`); `clearHolds`, `clearAtTake` and the take refusal of an
+uncleared chat; the line holds of the effort plan (`HOLD_MS`) and of the rollout (`RESTART_HOLD_MS`) with the rollout's
+restart words for workers; B764's given task on the resume list; the pull's line to a worker at its turn's end; the rules
+not-cleared, not-taking, the clear part of skip-repeats and the report part of review-stuck. So a worker not on the
+sequence is handed nothing: one on an older mod waits to be restarted by hand (its lane says so), and `"timers"`, kept as
+the escape hatch, hands out nothing new and starts no worker, with one line on top: "the hand-over is off: set handover
+to sequence" (`HANDOVER_OFF`, `src/work/reconcile.mjs`). A task given that no hand-over carries on goes back on the list
+(`strandedGives`, `src/work/handOut.mjs`: at once for a worker not on the sequence, 10 minutes after the give for a chat
+gone from the list). Tests: `test/work/oldPathGone.test.mjs` (and the mutants named there).
 
 **The decision** (`decide`, `src/work/handover.mjs`, pure). The worker's turn end (the mod's `turn-ended`, which it
 already sends) is the one trigger. Facts: the store (steps, their History, the ready list), the worker's lane (its mod's
@@ -4872,19 +4874,19 @@ restart envelope its mod carried out gets the hands' `mod-restart` word once.
 (B12)", "restarting for the new Workers mod", "B12: the board checks its report" (`laneWords`; the state's
 `lane.handover` is `{ state, why, step }`).
 
-**The Supervisor's rules for it (step 4).** Only for a worker on the sequence (`lane.onSequence`); a worker on the timers
-keeps every old rule unchanged, and the new rules never fire for it:
+**The Supervisor's rules for it (step 4).** Only for a worker on the sequence (`lane.onSequence`); the new rules never fire
+for another, and since step 6 the old rules are gone for every worker:
 
 - `handover-held`: its lane's hand-over is **held** (its last envelope failed: its clear, set or restart did not run, and
   its task went back at once) for over `notClearedMinutes` (10) of the board's running time from the failure (the pause,
   the board off and the stretches it heard no chat left out). One finding per worker and report (key `handover-held
   <worker> <the step its clear is owed for>`), with the Workers mod's why. In place of not-cleared and the clear part of
-  skip-repeats.
+  skip-repeats (both gone since step 6).
 - `handover-unanswered`: the net fired (`netAt` on an envelope of its): one finding per envelope, for a day after the net.
   In place of not-taking.
 - `ready-while-free`: such a worker is free only in the hand-over's own **free** (its lane's `handover.state`), never by
   the hand-out's older reading (R7, X111).
-- `review-stuck`: its report part (a failed check not reported again) skips a step whose worker is on the sequence (the
+- `review-stuck`: its report part (a failed check not reported again) is gone since step 6, for every worker (the
   decision tells it at its first turn's end); the result-check part stays.
 
 Tests: `test/supervisor/handoverRules.test.mjs`.
@@ -4892,7 +4894,7 @@ Tests: `test/supervisor/handoverRules.test.mjs`.
 ### The envelope's contract for the Workers mod
 
 For step 3 (Workers mod 0.27.0). The board side is live behind `handover: "sequence"`; with `"timers"` the board answers
-none of this and a 0.27.0 mod behaves as 0.26.10.
+none of this and a 0.27.0 mod behaves as 0.26.10; since step 6 such a board hands it nothing (and "sequence" is the default).
 
 **The turn-ended answer.** `POST /api/bridge/work` with `{ action: "turn-ended", chat, session, since }` (the mod's
 header `X-Workers-Mod` names its version) answers, for a worker on the sequence, the usual fields without `pull`, plus:

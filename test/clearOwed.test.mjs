@@ -1,15 +1,14 @@
 // B547 (X13, X14): every reported step ends in a cleared chat. The board keeps the account (src/clearOwed.mjs): a worker
-// whose last report is newer than its last clear owes one; while it does, its next step's line waits and, once it is
-// idle, its Workers mod is named the clear. Made-up chats and steps only.
+// whose last report is newer than its last clear owes one (T8.5 step 6: the hand-over's envelope carries that clear before
+// the next step's line; the take's own clear and the line's hold are gone). Made-up chats and steps only.
 
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import { CLEAR_GRACE_MS, clearAtTake, clearOwed, handedBackOf, isStepLine, lastReportOf, modAtLeast, takenSince, takeRefusal } from '../src/clearOwed.mjs'
+import { clearOwed, handedBackOf, lastReportOf } from '../src/clearOwed.mjs'
 import { parseList } from '../src/appChats.mjs'
 import { conversationStart } from '../src/transcript.mjs'
 import { stamp } from '../src/work/migrate.mjs'
-import { workWords } from '../src/say.mjs'
 
 const MIN = 60_000
 const NOW = new Date(2026, 9, 24, 19, 0).getTime()
@@ -38,8 +37,6 @@ test('a chat\'s last report is the newest move to review it wrote itself, to the
   assert.equal(lastReportOf(items, 'Lead'), null)
   const again = new Map([...items, ['B15', item({ Id: 'B15', State: 'review' }, [line(2, 'Painter', 'reported again')])]])
   assert.deepEqual(lastReportOf(again, 'Painter'), { id: 'B15', at: ago(2) })
-  assert.deepEqual(takenSince(items, 'Painter', ago(90)), [{ id: 'B12', at: ago(60) }])
-  assert.deepEqual(takenSince(items, 'Painter', ago(30)), [])
 })
 
 test('a clear is owed when the last report is newer than the last clear, with the mod\'s why when it came after the report', () => {
@@ -91,32 +88,6 @@ test('a transcript\'s conversation began at the earliest time of its first whole
   for (const text of ['', '\u0000'.repeat(500), JSON.stringify({ type: 'custom-title' }), '{"timestamp":"not a time"}\n', null]) assert.equal(conversationStart(text), null)
 })
 
-test('at a take: the next step\'s line waits while a clear is owed; the clear is named once the chat is idle, after the grace', () => {
-  const owed = { step: 'B12', reportedAt: ago(30), clearedAt: ago(100), why: null }
-  const at = more => clearAtTake({ owed, mod: '0.17.0', now: NOW, isIdle: true, ...more })
-  assert.deepEqual(at({}), { hold: true, clear: { step: 'B12', reportedAt: ago(30) }, why: 'not cleared after B12 yet: its Workers mod clears it now' })
-  assert.deepEqual(at({ background: 1 }), { hold: true, clear: null, why: 'not cleared after B12 yet: background work it started still runs' })
-  assert.deepEqual(at({ isIdle: false }).clear, null)
-  assert.deepEqual(at({ isPaused: true }).clear, null)
-  // Right after the report the mod's own clear goes first: held, not named.
-  assert.deepEqual(clearAtTake({ owed: { ...owed, reportedAt: NOW - CLEAR_GRACE_MS + 1000 }, mod: '0.17.0', now: NOW, isIdle: true }).clear, null)
-  // Nothing owed, or a mod older than 0.17.0 (it could not clear): nothing held, nothing named.
-  assert.deepEqual(clearAtTake({ owed: null, mod: '0.17.0', now: NOW, isIdle: true }), { hold: false, clear: null, why: null })
-  for (const mod of ['0.16.1', null, 'x']) assert.deepEqual(clearAtTake({ owed, mod, now: NOW, isIdle: true }), { hold: false, clear: null, why: null })
-  assert.equal(modAtLeast('0.17.0'), true)
-  assert.equal(modAtLeast('0.17.1'), true)
-  assert.equal(modAtLeast('1.0'), true)
-  assert.equal(modAtLeast('0.16.9'), false)
-  assert.match(takeRefusal(owed), /^Not yet: this chat is cleared after B12 first/)
-})
-
-test('only the line that a step is the chat\'s waits for the clear: no note line, no answer of the person\'s', () => {
-  assert.equal(isStepLine({ ...workWords('Painter', 'B13'), id: 'm1' }), true)
-  assert.equal(isStepLine({ ...workWords('Lead', 'N4', 'work: note N4 for you; run work next'), id: 'm2' }), false)
-  assert.equal(isStepLine({ to: 'Painter', command: null, ask: 'Q3', text: 'yes' }), false)
-  assert.equal(isStepLine({ ...workWords('Painter', 'B13', 'work: B13 is yours to answer for the person; run work next'), id: 'm3' }), false)
-})
-
 test('B763: a step dropped in the person\'s pause, its report handed back, owes no clear and holds nothing after the resume', () => {
   const dropped = new Map([
     ['B10', item({ Id: 'B10', State: 'done', Owner: 'Painter' }, [line(120, 'Painter', 'in progress → review'), line(118, 'server', 'check passed'), line(110, 'server', 'review → done')])],
@@ -126,5 +97,4 @@ test('B763: a step dropped in the person\'s pause, its report handed back, owes 
   const owed = clearOwed({ lane: lane(cleared), items: dropped, afterStep: 'clear' })
   assert.equal(owed, null)
   assert.equal(handedBackOf(dropped, 'Painter'), null)
-  assert.deepEqual(clearAtTake({ owed, mod: '0.26.0', now: NOW, isIdle: true }), { hold: false, clear: null, why: null })
 })

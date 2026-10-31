@@ -3,7 +3,8 @@
 // clear of the old path and no envelope twice; the outcome through `typed` (D) with a refused clear takes the task back at
 // once; its report gone idle with nothing in the background (B) brings the next envelope at the refresh; a turn that
 // ended after the line without a take gives it back at once and the next task in the same answer; the take of the task
-// is its own (no old refusal). A worker on an older mod on the same board keeps today's path (its take names the clear).
+// is its own (no old refusal). Step 6: a worker on an older mod on the same board is handed nothing at all (no clear at
+// its take, no envelope, no line).
 // A copy of the board on a made-up project in a temporary folder only.
 
 import assert from 'node:assert/strict'
@@ -71,7 +72,7 @@ async function until(check, what) {
 
 const file = (head, history) => parseItem(`${Object.entries(head).map(([key, value]) => `${key}: ${value}`).join('\n')}\n\n## History\n${history.join('\n')}\n`)
 
-test('the sequence on a running board: T answers the envelope, D takes back at once, B decides again, an untaken line goes back; an older mod keeps today\'s path', { timeout: 300_000 }, async t => {
+test('the sequence on a running board: T answers the envelope, D takes back at once, B decides again, an untaken line goes back; an older mod is handed nothing (step 6)', { timeout: 300_000 }, async t => {
   const dir = await mkdtemp(join(tmpdir(), 'board-handover-'))
   const started = []
   t.after(async () => {
@@ -162,14 +163,14 @@ test('the sequence on a running board: T answers the envelope, D takes back at o
   const taken = await call('work', { action: 'take', minutes: 30, id: 'B14', branch: 'b14', chat: 'Units', session: 'units-id' }, NEW)
   assert.equal(taken.status, 200, JSON.stringify(taken.body))
 
-  // Props on an older mod keeps today's path: its take names its clear (B20); no envelope for it.
-  let old = null
-  await until(async () => {
-    old = await ping('Props', 'props-id', '0.26.10', { state: 'idle', since: Date.now() - 3 * MIN, background: false })
-    return old.status === 200 && old.body.clear !== undefined
-  }, 'the old path\'s clear named to the older mod')
-  assert.equal(old.body.clear.step, 'B20')
-  assert.equal(old.body.handover, undefined)
+  // Props on an older mod: idle, with B13 ready, and a clear owed for B20; step 6: handed nothing (the old path is gone).
+  for (let n = 0; n < 3; n += 1) {
+    const old = await ping('Props', 'props-id', '0.26.10', { state: 'idle', since: Date.now() - 3 * MIN, background: false })
+    assert.equal(old.status, 200, JSON.stringify(old.body))
+    assert.deepEqual([old.body.clear, old.body.handover], [undefined, undefined])
+    await new Promise(done => setTimeout(done, 2000))
+  }
   const outbox = (await readFile(join(board, 'data', 'outbox.jsonl'), 'utf8')).trim().split('\n').map(line => JSON.parse(line))
-  assert.equal(outbox.some(one => one.command === 'handover' && one.to === 'Props'), false)
+  assert.equal(outbox.some(one => one.to === 'Props' && ['handover', 'work'].includes(one.command)), false)
+  assert.notEqual(await head('B13', 'Owner'), 'Props')
 })

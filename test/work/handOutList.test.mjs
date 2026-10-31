@@ -23,8 +23,8 @@ const mapOf = items => new Map(items.map(item => [item.head.get('Id'), item]))
 const list = (items, more = {}) => readyList(mapOf(items), { now: NOW, focus: 'G3', followUpMs: 10 * MIN, standardHold: () => null, routingHeld: new Set(), prefix: 'Team - ', ...more })
 const at = ms => `- ${stamp(ms)}`
 
-test('the defaults: two minutes to take, a follow-up a preference only, 20 minutes for a held give, 5 workers at most (B-max)', () => {
-  assert.deepEqual(HAND_OUT_DEFAULTS, { takeWithinMinutes: 2, followUpMinutes: 0, heldGiveMinutes: 20, maxWorkers: 5, handOutBeyondFocus: false })
+test('the defaults: a follow-up a preference only, 5 workers at most (B-max); no take or held-give clock (T8.5 step 6)', () => {
+  assert.deepEqual(HAND_OUT_DEFAULTS, { followUpMinutes: 0, maxWorkers: 5, handOutBeyondFocus: false })
   // The same defaults as the settings file's: one number for both.
   assert.equal(HAND_OUT_DEFAULTS.maxWorkers, DEFAULTS.maxWorkers)
 })

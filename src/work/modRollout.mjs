@@ -4,8 +4,8 @@
 // only when its process starts anew; an idle chat is restarted alone by archiving and unarchiving it in the app (its
 // process ends, its next word starts it on the installed mod, nothing is spent until then). A chat cannot do that to
 // itself, so the board asks: the main chat for every chat, the partner for the main chat. Only an idle chat is asked
-// for (its turn ended, nothing in the background, no step in progress); the line of a worker's next step waits for it a
-// few minutes, so the step starts on the new mod. PURE.
+// for (its turn ended, nothing in the background, no step in progress). T8.5 step 6: not a worker any more: a worker on
+// the hand-over sequence restarts by its envelope (`restart`, handover.mjs), and nothing holds a worker's line here. PURE.
 
 import { FIRST_SAYING, isOlder, versionOf } from '../oldMods.mjs'
 
@@ -14,13 +14,6 @@ const MIN = 60_000
 export const RESTART_AGAIN_MS = 30 * MIN
 /** At most this many words per chat and installed version; after them the person is shown it (oldMods.mjs). */
 export const RESTART_TRIES = 3
-/** How long the line of a worker's next step waits for its restart after the word went. */
-export const RESTART_HOLD_MS = 10 * MIN
-/**
- * B587: a word typed this long ago whose restarter's turn has ended while the chat still runs was not carried out (an
- * archive takes seconds, and a chat whose process ended stops running for the board within half a minute).
- */
-export const REFUSED_AFTER_MS = 2 * MIN
 /** The outbox command of the word. */
 export const RESTART_COMMAND = 'mod-restart'
 
@@ -51,26 +44,24 @@ export function restartWords({ to, chat, session, runs, installed, why }) {
 /**
  * The chats to bring onto the installed Workers mod, and how. `mods` is `{ installed, chats }` (the version each chat's
  * mod said lately, by name; null: older than FIRST_SAYING). `chats` are the board's chats by role (oldMods.mjs
- * chatsByRole: `name`, `role`, `state`, `isRunning`, `session`, `idleSince`), `items` the store's items, `deliveries` the
- * reconciler's lines to free workers, `sent` the outbox, `main` and `partner` the names of the chats that restart (null:
+ * chatsByRole: `name`, `role`, `state`, `isRunning`, `session`, `idleSince`), `items` the store's items, `sent` the outbox, `main` and `partner` the names of the chats that restart (null:
  * none on the board).
  *
  * A chat on an older mod that is idle (free, its process running, no step taken or in progress) gets a word to its
  * restarter: the partner for the main chat, the main chat for every other. Again after RESTART_AGAIN_MS while it still
- * runs the older mod, RESTART_TRIES times at most. A chat that holds a step "restarts after its step". The line of an idle
- * old worker's next step waits (`held`) while its word is on its way, RESTART_HOLD_MS at most, so the step starts on the
- * new mod; with nobody to restart it, it does not wait.
+ * runs the older mod, RESTART_TRIES times at most. A chat that holds a step "restarts after its step".
+ * T8.5 step 6: a worker (role 'worker') gets no word here: one on the hand-over sequence restarts by its envelope, and one
+ * on a mod older than the sequence's (handover.mjs HANDOVER_MOD) is handed nothing until its chat is restarted by hand
+ * (`status` 'by-hand', its lane says so).
  *
- * `{ words: [restartWords input], held: Set<step id>, holds: Map<step id, why>, runs: Map<chat, { runs, installed,
- * status, text }> }`, `status` 'after-step', 'asked', 'due', 'tried' or 'none' (nobody to restart it).
+ * `{ words: [restartWords input], runs: Map<chat, { runs, installed, status, text }> }`, `status` 'after-step', 'asked',
+ * 'due', 'tried', 'by-hand' or 'none' (nobody to restart it).
  */
-export function rolloutPlan({ mods, chats = [], items = new Map(), deliveries = [], sent = [], now, main = null, partner = null, prefix = '' }) {
+export function rolloutPlan({ mods, chats = [], items = new Map(), sent = [], now, main = null, partner = null, prefix = '' }) {
   const words = []
-  const held = new Set()
-  const holds = new Map()
   const runs = new Map()
   const installed = versionOf(mods?.installed)
-  if (installed === null) return { words, held, holds, runs }
+  if (installed === null) return { words, runs }
   const said = mods?.chats ?? {}
   const steps = [...items.values()].filter(item => (valueOf(item, 'Kind') ?? 'step') === 'step')
   const owned = (item, name) => plain(valueOf(item, 'Owner'), prefix) === plain(name, prefix)
@@ -87,6 +78,10 @@ export function rolloutPlan({ mods, chats = [], items = new Map(), deliveries = 
     const info = { runs: was, installed: mods.installed }
     if (holding !== undefined) {
       runs.set(chat.name, { ...info, status: 'after-step', text: `Workers mod ${was}: restarts after ${valueOf(holding, 'Id')}` })
+      continue
+    }
+    if (chat.role === 'worker') {
+      runs.set(chat.name, { ...info, status: 'by-hand', text: `Workers mod ${was}: gets no task until its chat is restarted on ${mods.installed}` })
       continue
     }
     const isIdle = chat.state === 'free' && chat.isRunning === true
@@ -110,20 +105,6 @@ export function rolloutPlan({ mods, chats = [], items = new Map(), deliveries = 
         : status === 'asked' ? `Workers mod ${was}: ${by} was asked to restart it at ${clockOf(last.at)}`
           : `Workers mod ${was}: asked ${mine.length} times, still not restarted`,
     })
-    // The line of its next step waits while the word is on its way, a few minutes at most.
-    if (chat.role !== 'worker') continue
-    const delivery = deliveries.find(one => one.chat === chat.name)
-    if (delivery === undefined) continue
-    // B587 (X36): the hold never outlasts the restart. A chat whose process ended is not idle (above), so its line goes
-    // with the board's start; one the restarter left running (its turn ended REFUSED_AFTER_MS after the word was typed:
-    // it refused, or the archive was) waits no more either.
-    const restarter = chats.find(one => plain(one?.name, prefix) === plain(by, prefix))
-    const isRefused = last?.state === 'delivered' && Number.isFinite(last.deliveredAt) && now - last.deliveredAt >= REFUSED_AFTER_MS
-      && restarter !== undefined && restarter.state !== 'working'
-    const isOnItsWay = isDue || (now - last.at < RESTART_HOLD_MS && !LOST.includes(last.state) && !isRefused)
-    if (!isOnItsWay) continue
-    held.add(delivery.id)
-    holds.set(delivery.id, `${delivery.id} waits until ${chat.name} is restarted on Workers mod ${mods.installed} (${RESTART_HOLD_MS / MIN} minutes at most after the word to ${by}).`)
   }
-  return { words, held, holds, runs }
+  return { words, runs }
 }

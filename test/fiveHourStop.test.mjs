@@ -19,7 +19,9 @@ import { buildState } from '../src/state.mjs'
 import { buildView } from '../src/supervisor/view.mjs'
 import { WATCH_RULES } from '../src/supervisor/rules/watch.mjs'
 import { workApi } from '../src/work/api.mjs'
-import { deliverWork, givesRefused } from '../src/work/deliver.mjs'
+import { deliverWork } from '../src/work/deliver.mjs'
+import { handoverPass } from '../src/work/handoverBoard.mjs'
+import { valueOf } from '../src/work/item.mjs'
 import { stamp } from '../src/work/migrate.mjs'
 import { readStore, writeStore } from '../src/work/store.mjs'
 
@@ -159,7 +161,8 @@ test('five-hour-stop-ignored: quiet below the line, within 10 min of the reset, 
   assert.deepEqual(run(viewOf(99, { items, more: { pause: { state: 'pausing', since: at(12, 26) } } })), [])
 })
 
-// The real case through the server's own pass: state → reconcile → delivery
+// The real case through the server's own pass: state → reconcile → delivery → the hand-over's pass (T8.5 step 6: the give
+// is the hand-over's), and the state of the next refresh for the start
 
 const PROJECT = 'C:\\garden'
 const ROLES = { Lead: 'main', W1: 'worker', W2: 'worker', W3: 'worker' }
@@ -176,23 +179,28 @@ async function pass(fiveHour, now) {
     await writeStore(dir, { items, activities: [{ name: 'Garden', isFocus: false, steps: [...items.keys()], notes: [], loose: [] }] }, undefined, { now: NOW - 60 * MIN })
     const config = { ...parseConfig(JSON.stringify({ handOutBeyondFocus: true, maxWorkers: 3 }), {}), project: PROJECT }
     const reports = new Map([
-      ['W1', { state: 'idle', since: now - 60 * SEC, background: false, at: now - 2 * SEC, session: 'cli-W1', mod: '0.19.0' }],
+      ['W1', { state: 'idle', since: now - 60 * SEC, background: false, at: now - 2 * SEC, session: 'cli-W1', mod: '0.27.2' }],
       // T13 part 3: a chat whose session ended is asleep now (it gets a task); a closed one is silent on no task.
-      ['W2', { state: 'busy', since: now - 30 * MIN, background: false, at: now - 30 * MIN, session: 'cli-W2', mod: '0.19.0' }],
-      ['W3', { state: 'busy', since: now - 30 * MIN, background: false, at: now - 30 * MIN, session: 'cli-W3', mod: '0.19.0' }],
+      ['W2', { state: 'busy', since: now - 30 * MIN, background: false, at: now - 30 * MIN, session: 'cli-W2', mod: '0.27.2' }],
+      ['W3', { state: 'busy', since: now - 30 * MIN, background: false, at: now - 30 * MIN, session: 'cli-W3', mod: '0.27.2' }],
     ])
     const outbox = memoryStore()
-    const raw = {
+    const raw = async () => ({
       listText: '{"prefix":"Garden · ","main":"Lead"}', appChatTexts: ['Lead', 'W1', 'W2', 'W3'].map(name => app(name)), tails: {}, planLineTexts: {}, adviceText: null, folders: null, askTexts: [], pictureLists: {},
       usageText: usage(at(12, 24), fiveHour, 40), work: { ok: true, dir, ...(await readStore(dir)) },
-    }
-    const state = buildState(raw, {
+    })
+    const build = async () => buildState(await raw(), {
       lines: [], outbox: outbox.outbox(), runs: [], board: { startedAt: NOW - 60 * MIN, offSince: null }, seen: { shown: { Lead: now }, other: {} }, reports, now, config,
-      keptReadings: [{ at: at(12, 0), fiveHour: { used: 90, resetsAt: RESET }, week: { used: 40, resetsAt: WEEK_RESET } }], refusedGives: givesRefused(dir, now),
+      keptReadings: [{ at: at(12, 0), fiveHour: { used: 90, resetsAt: RESET }, week: { used: 40, resetsAt: WEEK_RESET } }],
     })
     let n = 0
-    const done = await deliverWork({ state, dir, outbox, apply: async body => workApi(body, { dir, now, prefix: 'Garden · ', roleOf: chat => ROLES[chat] ?? null, as: 'server' }), now, maxChars: 2000, newId: () => `m${(n += 1)}` })
-    return { level: state.limits.fiveHour.level, gives: state.reconciled.gives.map(one => one.id), start: state.reconciled.start, given: done.given, sent: outbox.outbox().map(one => one.command) }
+    const apply = async body => workApi(body, { dir, now, prefix: 'Garden · ', roleOf: chat => ROLES[chat] ?? null, as: 'server' })
+    const state = await build()
+    await deliverWork({ state, dir, outbox, apply, now, maxChars: 2000, newId: () => `m${(n += 1)}` })
+    await handoverPass({ state, dir, outbox, apply, config, installed: '0.27.2', now, newId: () => `m${(n += 1)}` })
+    const given = [...(await readStore(dir)).items.values()].filter(one => valueOf(one, 'State') === 'queued').map(one => valueOf(one, 'Id'))
+    const next = await build()
+    return { level: state.limits.fiveHour.level, start: next.reconciled.start, given, sent: outbox.outbox().map(one => one.command) }
   } finally {
     await rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
@@ -200,19 +208,18 @@ async function pass(fiveHour, now) {
 
 test('the real case (5-hour 99% read at 12:24, reset 12:50, B743, B744 and B746 ready, Workers 1 to 3): no give and no start until 12:40, then as today', async () => {
   const early = await pass(99, NOW)
-  assert.deepEqual([early.level, early.gives, early.start, early.given, early.sent], ['full', [], null, [], []])
+  assert.deepEqual([early.level, early.start, early.given, early.sent], ['full', null, [], []])
   const late = await pass(99, at(12, 39))
-  assert.deepEqual([late.level, late.gives, late.start, late.given], ['full', [], null, []])
+  assert.deepEqual([late.level, late.start, late.given], ['full', null, []])
   // 12:40 on: the reset is no more than 10 min off, and the board hands out as before.
   const open = await pass(99, at(12, 40))
   assert.equal(open.level, 'warn')
-  assert.deepEqual(open.gives, ['B743'])
   assert.deepEqual(open.start, { start: 'W2' })
   assert.deepEqual(open.given, ['B743'])
 })
 
 test('the real case at 94%: the board hands out as today', async () => {
   const today = await pass(94, NOW)
-  assert.deepEqual([today.level, today.gives, today.given], ['warn', ['B743'], ['B743']])
+  assert.deepEqual([today.level, today.given], ['warn', ['B743']])
   assert.deepEqual(today.start, { start: 'W2' })
 })

@@ -5,7 +5,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import { AGAIN_MS, HOLD_MS, effortOf, effortPlan, effortWords, lastWord, parseEffort, withEffort } from '../../src/work/effort.mjs'
+import { AGAIN_MS, effortOf, effortPlan, effortWords, lastWord, parseEffort, withEffort } from '../../src/work/effort.mjs'
 
 const NOW = new Date(2026, 9, 21, 9, 0).getTime()
 
@@ -60,25 +60,24 @@ test('the word to the main chat names the chat, the level, its session, the step
   assert.equal(back.text, ['set effort', 'Chat: Units', 'Effort: xhigh', 'Why: back'].join('\n'))
 })
 
-test('a worker given a step asks the main chat for its level, and the line of the step waits until it is set', () => {
+test('a worker given a step asks the main chat for its level, once; no line waits here (T8.5 step 6: its hand-over waits for the set)', () => {
   const items = itemsOf(step('B7', { Owner: 'Units' }, { Effort: ['low · a text fix'] }))
   const deliveries = [{ id: 'B7', chat: 'Units' }]
   const plan = effortPlan({ items, lanes: [lane('Units'), lane('Main', { isMain: true })], deliveries, sent: [], now: NOW, main: 'Main' })
   // Without model ids in the settings, the word sets the effort alone (model per step).
   assert.deepEqual(plan.words, [{ to: 'Main', chat: 'Units', session: 'local_units', level: 'low', model: null, usual: 'medium', usualModel: null, step: 'B7', why: "B7 is Units's next step; its refine says low (a text fix)" }])
-  assert.deepEqual([...plan.held], ['B7'])
+  assert.equal(plan.held, undefined)
   assert.deepEqual(plan.runs.get('Units'), { level: 'low', model: null, usual: 'medium', usualModel: null, step: 'B7', why: 'a text fix', modelWhy: null, isSet: false, asked: null, waitsFor: null })
-  // Asked a minute ago: no second word, the line still waits.
+  // Asked a minute ago: no second word.
   const asked = effortPlan({ items, lanes: [lane('Units')], deliveries, sent: [word('Units', 'low', 'xhigh', NOW - 60_000, 'taken')], now: NOW, main: 'Main' })
   assert.deepEqual(asked.words, [])
-  assert.deepEqual([...asked.held], ['B7'])
-  // Set: the line goes.
+  // Set: nothing more to ask.
   const set = effortPlan({ items, lanes: [lane('Units', { effort: 'low' })], deliveries, sent: [word('Units', 'low', 'xhigh', NOW - 60_000)], now: NOW, main: 'Main' })
-  assert.deepEqual([set.words, [...set.held]], [[], []])
+  assert.deepEqual(set.words, [])
   assert.equal(set.runs.get('Units').isSet, true)
-  // Not set after a few minutes (the main chat busy, or the app asked the person): the line goes anyway.
-  const late = effortPlan({ items, lanes: [lane('Units')], deliveries, sent: [word('Units', 'low', 'xhigh', NOW - HOLD_MS)], now: NOW, main: 'Main' })
-  assert.deepEqual([late.words, [...late.held]], [[], []])
+  // Not set after a few minutes (the main chat busy, or the app asked the person): not asked again within the half hour.
+  const late = effortPlan({ items, lanes: [lane('Units')], deliveries, sent: [word('Units', 'low', 'xhigh', NOW - 3 * 60_000)], now: NOW, main: 'Main' })
+  assert.deepEqual(late.words, [])
   // A word that went untaken goes once more only after half an hour.
   const lost = word('Units', 'low', 'xhigh', NOW - 10 * 60_000, 'expired')
   assert.deepEqual(effortPlan({ items, lanes: [lane('Units')], deliveries, sent: [lost], now: NOW, main: 'Main' }).words, [])
@@ -90,8 +89,6 @@ test('a step refined without an effort runs at medium', () => {
   const plan = effortPlan({ items, lanes: [lane('Units')], sent: [], now: NOW, main: 'Main' })
   assert.equal(plan.words[0].level, 'medium')
   assert.equal(plan.words[0].why, "B8 is Units's step; its refine gives no effort, so medium")
-  // The step is no delivery: nothing waits.
-  assert.deepEqual([...plan.held], [])
 })
 
 test('a worker that holds no step goes back to its usual level, only after a word of the board changed it', () => {
@@ -121,12 +118,12 @@ test('no word without a main chat, for the main chat, the partner or a leftover,
   const items = itemsOf(step('B7', { Owner: 'Units' }, { Effort: ['low · a text fix'] }), step('B8', { Owner: 'Advisor', State: 'in progress' }, { Effort: ['low · x'] }))
   const deliveries = [{ id: 'B7', chat: 'Units' }]
   const none = effortPlan({ items, lanes: [lane('Units')], deliveries, sent: [], now: NOW, main: null })
-  assert.deepEqual([none.words, [...none.held]], [[], []])
+  assert.deepEqual(none.words, [])
   assert.equal(none.runs.get('Units').level, 'low')
   const skipped = effortPlan({ items, lanes: [lane('Units', { isLeftover: true }), lane('Advisor')], deliveries, sent: [], now: NOW, main: 'Main', skip: ['Advisor'] })
   assert.deepEqual(skipped.words, [])
   const unknown = effortPlan({ items, lanes: [lane('Units', { effort: null })], deliveries, sent: [], now: NOW, main: 'Main' })
-  assert.deepEqual([unknown.words, [...unknown.held]], [[], []])
+  assert.deepEqual(unknown.words, [])
   assert.equal(unknown.runs.get('Units').isSet, false)
 })
 
@@ -136,13 +133,11 @@ test('the review: only the newest word counts as asked, so a level asked earlier
   const sent = [word('Units', 'medium', 'xhigh', NOW - 25 * 60_000), word('Units', 'high', 'xhigh', NOW - 13 * 60_000)]
   const plan = effortPlan({ items, lanes: [lane('Units', { effort: 'high' })], deliveries: [{ id: 'B12', chat: 'Units' }], sent, now: NOW, main: 'Main' })
   assert.deepEqual(plan.words.map(one => [one.level, one.usual, one.step]), [['medium', 'medium', 'B12']])
-  assert.deepEqual([...plan.held], ['B12'])
 })
 
-test('the review: the next step waits also while its worker is busy, so its own pull does not take it before it is set', () => {
+test('the review: the next step is asked for also while its worker is busy', () => {
   const items = itemsOf(step('B7', { Owner: 'Units', State: 'review' }, { Effort: ['low · x'] }), step('B13', { Owner: 'Units' }, { Effort: ['high · new art'] }))
   const plan = effortPlan({ items, lanes: [lane('Units', { effort: 'low' })], deliveries: [], sent: [word('Units', 'low', 'xhigh', NOW - 3_600_000)], now: NOW, main: 'Main' })
-  assert.deepEqual([...plan.held], ['B13'])
   assert.deepEqual(plan.words.map(one => [one.level, one.usual]), [['high', 'medium']])
 })
 

@@ -105,21 +105,21 @@ const lane = (name, state = 'free', more = {}) => ({ name, state, isMain: false,
 const run = (items, lanes) => reconcile({ store: { items: new Map(items.map(item => [item.head.get('Id'), item])), problems: [] }, flow: DEFAULT_FLOW, lanes, now: NOW, times: { graceMs: 10 * MIN, askMs: 60 * MIN }, prefix: '' })
 
 test('a delivery is keyed on the step, its owner and when it was queued for that owner: a re-queue delivers again', () => {
-  const first = run([step('B286', 'queued', { Owner: 'Units', Since: '2026-10-17 11:00' })], [lane('Units')]).deliveries[0]
-  const again = run([step('B286', 'queued', { Owner: 'Units', Since: '2026-10-17 11:40' })], [lane('Units')]).deliveries[0]
+  // T8.5 step 6: a line from this pass goes to the main chat only.
+  const first = run([step('B286', 'queued', { Owner: 'Units', Since: '2026-10-17 11:00' })], [lane('Units', 'free', { isMain: true })]).deliveries[0]
+  const again = run([step('B286', 'queued', { Owner: 'Units', Since: '2026-10-17 11:40' })], [lane('Units', 'free', { isMain: true })]).deliveries[0]
   assert.deepEqual(first, { id: 'B286', chat: 'Units', since: '2026-10-17 11:00', why: 'deliver B286 to Units' })
   assert.notEqual(deliveryKey(first.id, first.chat, first.since), deliveryKey(again.id, again.chat, again.since))
 })
 
-test('redesign Part 2: a step given and not taken raises no flag of its own: the board takes it back after its time', () => {
+test('redesign Part 2: a step given and not taken raises no flag of its own: its hand-over takes it back', () => {
   const queued = step('B286', 'queued', { Owner: 'Units', Since: '2026-10-17 11:00' })
   assert.deepEqual(run([queued], [lane('Units', 'free', { idle: { since: NOW - 11 * MIN } })]).flags.filter(flag => flag.chat === 'Units'), [])
 })
 
-test('the line of a failed check goes by the delivery\'s rules: not to a chat that is busy, held by the limit or gone', () => {
+test('the line of a failed check: none from this pass, to any chat (T8.5 step 6: the hand-over tells the worker once)', () => {
   const failed = step('B285', 'review', { Owner: 'Units' }, { History: ['- 2026-10-17 11:41 server: check failed: the branch is still there'] })
-  assert.equal(typeof run([failed], [lane('Units')]).flags[0].say, 'string')
-  for (const lanes of [[lane('Units', 'working')], [lane('Units', 'suspended')], []]) assert.equal(run([failed], lanes).flags[0].say, undefined)
+  for (const lanes of [[lane('Units')], [lane('Units', 'working')], [lane('Units', 'suspended')], []]) assert.equal(run([failed], lanes).flags[0].say, undefined)
 })
 
 test('a pull is answered only for a chat on the board that is free: not held by the limit, not busy', async () => {
