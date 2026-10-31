@@ -36,13 +36,13 @@ test('the fake clock: the page reads the board again when the clock reaches its 
   }, /no fake clock/)
 })
 
-test('the fake clock: a board that is away is told in words with the time it has been away', async () => {
+test('the fake clock: a board that is away is told in words with the time it was last heard', async () => {
   let up = true
   const page = await openPage({ state: () => { if (!up) throw new TypeError('fetch failed'); return state() }, now: NOW })
   try {
     up = false
     await page.advance(30_000)
-    assert.match(page.text('#updated'), /^The board has not answered since \d\d:\d\d \(under a minute\)\. Asking again every few seconds; showing what was read at \d\d:\d\d\.$/)
+    assert.match(page.text('#updated'), /^Off since \d\d:\d\d$/)
   } finally { await page.close() }
 })
 

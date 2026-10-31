@@ -25,8 +25,8 @@ test('foldOutbox: one message per id, the last line about it wins', () => {
 
 test('startGap: a board that was off leaves a gap from the moment it was last alive', () => {
   const lines = [{ at: 10 * MIN, chat: 'Units', state: 'working' }]
-  assert.deepEqual(startGap(lines, 12 * MIN, 60 * MIN), { at: 12 * MIN, gap: true })
-  assert.deepEqual(startGap(lines, null, 60 * MIN), { at: 10 * MIN, gap: true })
+  assert.deepEqual(startGap(lines, 12 * MIN, 60 * MIN), { at: 12 * MIN, gap: true, why: 'unknown' })
+  assert.deepEqual(startGap(lines, null, 60 * MIN), { at: 10 * MIN, gap: true, why: 'unknown' })
   assert.equal(startGap(lines, 59 * MIN, 60 * MIN), null)
   assert.equal(startGap([], 12 * MIN, 60 * MIN), null)
   assert.equal(startGap([{ at: 12 * MIN, gap: true }], 12 * MIN, 60 * MIN), null)
