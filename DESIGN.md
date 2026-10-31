@@ -4753,6 +4753,23 @@ restart envelope its mod carried out gets the hands' `mod-restart` word once.
 (B12)", "restarting for the new Workers mod", "B12: the board checks its report" (`laneWords`; the state's
 `lane.handover` is `{ state, why, step }`).
 
+**The Supervisor's rules for it (step 4).** Only for a worker on the sequence (`lane.onSequence`); a worker on the timers
+keeps every old rule unchanged, and the new rules never fire for it:
+
+- `handover-held`: its lane's hand-over is **held** (its last envelope failed: its clear, set or restart did not run, and
+  its task went back at once) for over `notClearedMinutes` (10) of the board's running time from the failure (the pause,
+  the board off and the stretches it heard no chat left out). One finding per worker and report (key `handover-held
+  <worker> <the step its clear is owed for>`), with the Workers mod's why. In place of not-cleared and the clear part of
+  skip-repeats.
+- `handover-unanswered`: the net fired (`netAt` on an envelope of its): one finding per envelope, for a day after the net.
+  In place of not-taking.
+- `ready-while-free`: such a worker is free only in the hand-over's own **free** (its lane's `handover.state`), never by
+  the hand-out's older reading (R7, X111).
+- `review-stuck`: its report part (a failed check not reported again) skips a step whose worker is on the sequence (the
+  decision tells it at its first turn's end); the result-check part stays.
+
+Tests: `test/supervisor/handoverRules.test.mjs`.
+
 ### The envelope's contract for the Workers mod
 
 For step 3 (Workers mod 0.27.0). The board side is live behind `handover: "sequence"`; with `"timers"` the board answers
