@@ -5,7 +5,7 @@
 // not inside a child's block.
 import { access, mkdir, open, readFile, rename, rm, writeFile } from 'node:fs/promises'
 
-import { FOCUS_LINE, GOAL_LINE, LAST_LINE, hasDoneWhen, nextAskId, nextGoalId, parseGoals } from './goals.mjs'
+import { FOCUS_LINE, GOAL_LINE, LAST_LINE, doneBulletOf, hasDoneWhen, nextAskId, nextGoalId, parseGoals } from './goals.mjs'
 import { besideOf, moveInPlace, writeAtomic, writeNew } from './write.mjs'
 
 const files = { readFile, writeFile, rename, rm, mkdir, access, open }
@@ -279,6 +279,80 @@ export function addBrainstormNote(text, id, date, note) {
 }
 
 export const setGoalSteps = (text, id, ids) => setGoalLine(text, id, 'Steps', [...new Set(ids.filter(one => /^B\d+$/.test(one)))].join(', '))
+
+/** "Change this goal" (2026-10-31): the lines a change of the goal writes, by their names. */
+const CHANGE_LINE = /^(?:Objective|Not in it|Done when \d+):/
+const bulletLine = (n, text, steps) => {
+  const ids = [...new Set((steps ?? []).filter(one => /^B\d+$/.test(one)))]
+  return `Done when ${n}: ${oneLine(text, 300)}${ids.length === 0 ? '' : ` · steps ${ids.join(', ')}`}`
+}
+
+/**
+ * "Change this goal" (2026-10-31): the goal's new definition as a change brainstorm agreed it, `Objective: <one line>`,
+ * `Done when <n>: <bullet> · steps B<n>, B<n>` per bullet (`bullets`: `{ n, text, steps }`, its steps left out while
+ * none) and `Not in it: <one line>`, in place of the ones it had, where the first of them stood, else after its own
+ * lines at its top. The old one-line `Done when:` stays as it is, and so does every other line.
+ */
+export function setGoalChange(text, id, { objective, bullets, notInIt }) {
+  const aim = oneLine(objective, 300)
+  const list = (Array.isArray(bullets) ? bullets : []).filter(one => Number.isInteger(one?.n) && one.n > 0 && oneLine(one.text, 300) !== '')
+  if (aim === '' || list.length === 0) return refuse('form')
+  const file = split(text)
+  const found = blockOf(file.lines, id)
+  if (!found.ok) return found
+  const own = ownLines(file.lines, found).filter(index => CHANGE_LINE.test(file.lines[index].trimStart()))
+  const at = own.length > 0 ? own[0] : ownLinesEnd(file.lines, found)
+  for (const index of own.toReversed()) file.lines.splice(index, 1)
+  const out = oneLine(notInIt, 300)
+  const lines = [`Objective: ${aim}`, ...list.map(one => bulletLine(one.n, one.text, one.steps)), ...(out === '' ? [] : [`Not in it: ${out}`])]
+  file.lines.splice(at, 0, ...lines.map(line => `${' '.repeat(found.depth + 2)}${line}`))
+  return { ok: true, text: join(file) }
+}
+
+/**
+ * "Change this goal": a step made for bullet `n` of the goal's Done when, added to that bullet's steps (once). A goal
+ * without that bullet stays as it is.
+ */
+export function addDoneWhenStep(text, id, n, step) {
+  if (!/^B\d+$/.test(String(step))) return refuse('form')
+  const file = split(text)
+  const found = blockOf(file.lines, id)
+  if (!found.ok) return found
+  const at = ownLines(file.lines, found).find(index => file.lines[index].trimStart().startsWith(`Done when ${n}:`))
+  if (at === undefined) return { ok: true, text }
+  const bullet = doneBulletOf(n, file.lines[at].trimStart().slice(`Done when ${n}:`.length))
+  if (bullet.steps.includes(step)) return { ok: true, text }
+  file.lines[at] = `${' '.repeat(found.depth + 2)}${bulletLine(n, bullet.text, [...bullet.steps, step])}`
+  return { ok: true, text: join(file) }
+}
+
+/** "Change this goal": the person's words about the goal kept as a point under it, `Your words: <date time> · <words>`. */
+export function addYourWords(text, id, at, words) {
+  const said = oneLine(words, 2000)
+  return said === '' ? refuse('form') : appendOwnLine(text, id, `Your words: ${oneLine(at, 40)} · ${said}`)
+}
+
+/** The sentence the rules at the top of the map get for the lines of a goal's change (`withChangeRules`). */
+export const CHANGE_RULES = 'A goal changed with "Change this goal" also has "Objective: <one line>", "Done when <n>: <a bullet one can check> · steps B<n>, B<n>" (one per bullet; its old "Done when:" stays), "Not in it: <one line>", and "Your words: <date time> · <the person\'s words>" for each thing the person said about it.'
+
+/**
+ * "Change this goal": the rules paragraph at the top of the map (the margin lines from "Rules:" on, up to a blank line
+ * or the first goal) names the change's lines: the sentence `CHANGE_RULES` added after it once, unless it names them
+ * already. A map without a rules paragraph is left as it is.
+ */
+export function withChangeRules(text) {
+  const file = split(text)
+  const firstGoal = file.lines.findIndex(line => GOAL_LINE.test(line))
+  const head = firstGoal < 0 ? file.lines.length : firstGoal
+  const start = file.lines.slice(0, head).findIndex(line => line.startsWith('Rules:'))
+  if (start < 0) return text
+  let end = start + 1
+  while (end < head && file.lines[end].trim() !== '' && !/^\s/.test(file.lines[end]) && !LAST_LINE.test(file.lines[end]) && !FOCUS_LINE.test(file.lines[end]) && !file.lines[end].startsWith('#')) end += 1
+  const words = file.lines.slice(start, end).join(' ')
+  if (words.includes(CHANGE_RULES) || (words.includes('"Objective:') && words.includes('"Your words:') && words.includes('"Not in it:') && words.includes('"Done when <n>:'))) return text
+  file.lines.splice(end, 0, CHANGE_RULES)
+  return join(file)
+}
 
 /** A link line's value of ids alone ("G1, G7"): rewritten as ids; one with words of its own keeps them. */
 const ONLY_IDS = /^[\s,]*(?:G\d+[\s,]*)*$/

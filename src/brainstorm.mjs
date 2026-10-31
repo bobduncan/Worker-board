@@ -7,7 +7,7 @@ import { access, mkdir, open, readdir, readFile, rename, rm, writeFile } from 'n
 import { nextGoalId, parseGoals } from './goals.mjs'
 import { askTitleOf, titleProblem } from './work/askWords.mjs'
 import { askFiledMs, valueOf } from './work/item.mjs'
-import { addBrainstormNote, addGoal, changeGoalsFile, raiseLastLine, rewrite, setGoalLine } from './goalsWrite.mjs'
+import { addBrainstormNote, addGoal, addYourWords, changeGoalsFile, raiseLastLine, rewrite, setGoalChange, setGoalLine, withChangeRules } from './goalsWrite.mjs'
 
 const files = { readFile, writeFile, rename, rm, mkdir, access, readdir, open }
 const refuse = why => ({ ok: false, why })
@@ -17,8 +17,17 @@ const oneLine = (value, max) => String(value ?? '').replace(/\s+/g, ' ').trim().
 const HEAD_TITLE = /^# Brainstorm:\s*(.*)$/
 const HEAD_GOAL = /^Goal:\s*(?:(G\d+)\s+(.*)|new)\s*$/
 const HEAD_STARTED = /^Started:\s*(.+?)\s*·\s*State:\s*(running|wrapping up|done|discarded)\s*$/
+// "Change this goal" (2026-10-31): the kind of a thread that changes its goal (`Kind: change`), the partner's
+// "what I understand you want" and the person's yes or "not quite" under it.
+const HEAD_KIND = /^Kind:\s*([a-z][a-z-]*)\s*$/
 const QUESTION = /^## Q(\d+) \(([^)]+)\)\s*$/
 const PROPOSAL = /^## Proposal \(([^)]+)\)\s*$/
+const UNDERSTOOD = /^## Understood \(([^)]+)\)\s*$/
+const NOT_QUITE = /^not quite — (.+)$/
+const BULLET_ITEM = /^- (\d+)\. (.+)$/
+const COVERED_ITEM = /^- (\d+):\s*(.*)$/
+const DROP_ITEM = /^(B\d+)(?: — (.*))?$/
+const FOR_PART = /^for (\d+(?:\s*,\s*\d+)*)$/
 const OPTION = /^- ([A-Z]): (.*?)( \(advised\))?$/
 const ANSWER = /^Answer \(([^)]+)\):\s*(.*)$/
 const CREATED = /^Created \(([^)]+)\):\s*(.*)$/
@@ -63,14 +72,33 @@ function goalItem(value) {
   return { title: parts.slice(0, at - 1).join(PART).trim(), under, doneWhen: parts.slice(at).join(PART).trim().replace(/^Done when:\s*/, '') }
 }
 
+/**
+ * "<title> — <worker> — about <time>", and in a change's proposal " — for 3" (or "for 3, 5"): the bullets of the goal's
+ * Done when the step is for, kept as `for` only when it has one.
+ */
 function stepItem(value) {
   const parts = value.split(PART)
+  const bullets = parts.length >= 4 ? parts.at(-1).trim().match(FOR_PART) : null
+  if (bullets !== null) parts.pop()
   if (parts.length < 3) return null
-  return { title: parts.slice(0, -2).join(PART).trim(), worker: parts.at(-2).trim(), cost: parts.at(-1).trim() }
+  const step = { title: parts.slice(0, -2).join(PART).trim(), worker: parts.at(-2).trim(), cost: parts.at(-1).trim() }
+  return bullets === null ? step : { ...step, for: bullets[1].split(/\s*,\s*/).map(Number) }
 }
 
-/** `Created (<at>): G10, G11; B61 (or "2 steps asked of the main chat"); left out: <titles, " · " between>`. */
-function createdOf(at, value) {
+/** "Change this goal": a bullet of the new Done when, "<text> — Picture: <path>" (the picture only where it is about looks). */
+function bulletItem(n, value) {
+  const parts = value.split(PART)
+  const picture = parts.length >= 2 && /^Picture:/.test(parts.at(-1).trim()) ? parts.pop().trim().replace(/^Picture:\s*/, '') : null
+  return { n: Number(n), text: parts.join(PART).trim(), picture: picture === '' ? null : picture }
+}
+
+/**
+ * `Created (<at>): G10, G11; B61 (or "2 steps asked of the main chat"); left out: <titles, " · " between>`, and for a
+ * change "; dropped: B757, B758" at its end (the steps it dropped, kept as `dropped` only then).
+ */
+function createdOf(at, line) {
+  const drops = line.match(/; dropped: (B\d+(?:, B\d+)*)$/)
+  const value = drops === null ? line : line.slice(0, drops.index)
   const [goals = '', steps = '', ...rest] = value.split('; ')
   const left = rest.join('; ').replace(/^left out:\s*/, '').trim()
   const ids = steps.match(/\bB\d+\b/g) ?? []
@@ -81,6 +109,7 @@ function createdOf(at, value) {
     steps: ids,
     asked: ids.length > 0 ? ids.length : asked === null ? 0 : Number(asked[1]),
     leftOut: left === '' || left === 'nothing' ? [] : left.split(' · ').map(one => one.trim()).filter(Boolean),
+    ...(drops === null ? {} : { dropped: drops[1].split(', ') }),
   }
 }
 
@@ -97,10 +126,11 @@ export const leftOutKey = title => oneLine(title, 2000).replace(/ · /g, ' - ')
  * a new heading) or null, and the lines the form does not know, each named once with its line ("line 9: ...").
  */
 export function parseThread(text) {
-  const thread = { title: null, goal: null, started: null, state: 'running', opening: '', context: [], questions: [], proposal: null, problems: [] }
+  const thread = { title: null, goal: null, kind: null, started: null, state: 'running', opening: '', context: [], questions: [], understood: null, proposal: null, problems: [] }
   let section = 'head'
   let question = null
   let proposal = null
+  let understood = null
   let list = null
   // The head's own lines count once: a "Goal:" in the Advisor's context under them is context.
   const seen = new Set()
@@ -109,6 +139,15 @@ export function parseThread(text) {
     const line = raw.trim()
     const asQuestion = line.match(QUESTION)
     const asProposal = line.match(PROPOSAL)
+    const asUnderstood = line.match(UNDERSTOOD)
+    // "Change this goal": the partner says back what it understood; the last one counts, and `after` is how many
+    // questions stand before it (a question after it is the one asked now).
+    if (asUnderstood !== null) {
+      understood = { at: asUnderstood[1], text: '', answer: null, after: thread.questions.length }
+      thread.understood = understood
+      section = 'understood'
+      return
+    }
     if (asQuestion !== null) {
       question = { n: Number(asQuestion[1]), at: asQuestion[2], text: '', context: null, why: null, options: [], picture: null, answer: null, line: index + 1 }
       thread.questions.push(question)
@@ -116,7 +155,7 @@ export function parseThread(text) {
       return
     }
     if (asProposal !== null) {
-      proposal = { at: asProposal[1], decided: [], goals: [], steps: [], note: null, created: null }
+      proposal = { at: asProposal[1], decided: [], goals: [], steps: [], note: null, created: null, objective: null, doneWhen: [], notInIt: null, covered: [], drops: [] }
       thread.proposal = proposal
       section = 'proposal'
       list = null
@@ -132,6 +171,7 @@ export function parseThread(text) {
       else if (goal !== null && once('goal')) thread.goal = goal[1] === undefined ? null : { id: goal[1], title: goal[2].trim() }
       else if (started !== null && once('started')) [thread.started, thread.state] = [started[1], started[2]]
       else if (line.startsWith('Opening:') && once('opening')) thread.opening = line.slice('Opening:'.length).trim()
+      else if (HEAD_KIND.test(line) && once('kind')) thread.kind = line.match(HEAD_KIND)[1]
       // What the Advisor writes under the opening: its short context head ("Context:" first), read as it is.
       else thread.context.push(line)
       return
@@ -155,16 +195,44 @@ export function parseThread(text) {
       else odd(index, line)
       return
     }
+    if (section === 'understood') {
+      // One to three plain sentences, then the person's answer under it: yes, or not quite with their words.
+      const answer = line.match(ANSWER)
+      const value = answer === null ? null : answer[2].trim()
+      if (answer !== null && value === 'yes') understood.answer = { at: answer[1], yes: true }
+      else if (answer !== null && NOT_QUITE.test(value)) understood.answer = { at: answer[1], yes: false, words: value.match(NOT_QUITE)[1].trim() }
+      else if (answer === null && understood.answer === null) understood.text = understood.text === '' ? line : `${understood.text} ${line}`
+      else odd(index, line)
+      return
+    }
     // The proposal.
     const created = line.match(CREATED)
     if (line === 'Decided:') list = 'decided'
     else if (line === 'Goals:') list = 'goals'
     else if (line === 'Steps:') list = 'steps'
-    else if (line.startsWith('Note:')) {
+    // "Change this goal": the goal's draft (Objective, Done when, Not in it) and the re-plan (Covered, Drop).
+    else if (line === 'Done when:') list = 'doneWhen'
+    else if (line === 'Covered:') list = 'covered'
+    else if (line === 'Drop:') list = 'drops'
+    else if (line.startsWith('Objective:')) {
+      proposal.objective = line.slice('Objective:'.length).trim()
+      list = null
+    } else if (line.startsWith('Not in it:')) {
+      proposal.notInIt = line.slice('Not in it:'.length).trim()
+      list = null
+    } else if (line.startsWith('Note:')) {
       proposal.note = line.slice(5).trim()
       list = null
     } else if (created !== null) proposal.created = createdOf(created[1], created[2])
     else if (list === 'decided' && line.startsWith('- ')) proposal.decided.push(line.slice(2).trim())
+    else if (list === 'doneWhen' && BULLET_ITEM.test(line)) proposal.doneWhen.push(bulletItem(...line.match(BULLET_ITEM).slice(1)))
+    else if (list === 'covered' && COVERED_ITEM.test(line)) {
+      const [, n, ids] = line.match(COVERED_ITEM)
+      proposal.covered.push({ n: Number(n), steps: ids.match(/\bB\d+\b/g) ?? [] })
+    } else if (list === 'drops' && GOAL_ITEM.test(line) && DROP_ITEM.test(line.match(GOAL_ITEM)[1].trim())) {
+      const [, id, why = ''] = line.match(GOAL_ITEM)[1].trim().match(DROP_ITEM)
+      proposal.drops.push({ id, why: why.trim() })
+    }
     else if ((list === 'goals' || list === 'steps') && GOAL_ITEM.test(line)) {
       const item = (list === 'goals' ? goalItem : stepItem)(line.match(GOAL_ITEM)[1])
       if (item === null) odd(index, line)
@@ -234,6 +302,33 @@ export function answerQuestion(text, n, answer) {
   return { ok: true, text: join(file) }
 }
 
+/**
+ * "Change this goal": whether the partner's "what I understand you want" is the open one: there is one, no question
+ * stands after it and no proposal yet.
+ */
+export const isUnderstoodOpen = thread => (thread?.understood ?? null) !== null && thread.understood.after === (Array.isArray(thread.questions) ? thread.questions.length : thread.questions) && (thread.proposal ?? null) === null
+
+/**
+ * "Change this goal": the person's answer to the partner's "what I understand you want", under its last `## Understood`
+ * section: `Answer (<at>): yes`, or `Answer (<at>): not quite — <their words>` (`answer`: `{ at, yes: true }` or
+ * `{ at, words }`). Only while it is the open one (isUnderstoodOpen) and has no answer: refused `answered` when it has
+ * one, `none` without one open, `form` for empty words. A blank line follows it, for the partner's next part.
+ */
+export function answerUnderstood(text, answer) {
+  const thread = parseThread(text)
+  if (thread.understood === null) return refuse('none')
+  if (thread.understood.answer !== null) return refuse('answered')
+  if (!isUnderstoodOpen(thread)) return refuse('none')
+  const words = oneLine(answer?.words, 1000)
+  if (answer?.yes !== true && words === '') return refuse('form')
+  const file = split(text)
+  const section = sections(file.lines).findLast(one => UNDERSTOOD.test(one.line))
+  const at = lastFilled(file.lines, section) + 1
+  file.lines.splice(at, 0, `Answer (${oneLine(answer.at, 40)}): ${answer?.yes === true ? 'yes' : `not quite — ${words}`}`)
+  if (at + 1 >= file.lines.length || file.lines[at + 1].trim() !== '') file.lines.splice(at + 1, 0, '')
+  return { ok: true, text: join(file) }
+}
+
 /** The state in the head's "Started: … · State: …" line: running, wrapping up, done or discarded. */
 export function setThreadState(text, state) {
   if (!THREAD_STATES.includes(state)) return refuse('form')
@@ -247,9 +342,10 @@ export function setThreadState(text, state) {
 /**
  * What came of the last proposal, under it: `Created (<at>): <goals>; <steps>; left out: <titles>`. The steps are the
  * backlog's ids when known, else how many the main chat was asked for (`asked`). Refused `none` without a proposal,
- * `twice` when one was created already (Review Focus 5).
+ * `twice` when one was created already (Review Focus 5). "Change this goal": the steps it dropped end it,
+ * "; dropped: B757" (only when it dropped any).
  */
-export function markCreated(text, { at, goals = [], steps = [], asked = 0, leftOut = [] }) {
+export function markCreated(text, { at, goals = [], steps = [], asked = 0, leftOut = [], dropped = [] }) {
   const thread = parseThread(text)
   if (thread.proposal === null) return refuse('none')
   if (thread.proposal.created !== null) return refuse('twice')
@@ -258,14 +354,16 @@ export function markCreated(text, { at, goals = [], steps = [], asked = 0, leftO
   const left = leftOut.length > 0 ? leftOut.map(leftOutKey).join(' · ') : 'nothing'
   const file = split(text)
   const last = sections(file.lines).filter(one => PROPOSAL.test(one.line)).at(-1)
-  file.lines.splice(lastFilled(file.lines, last) + 1, 0, `Created (${oneLine(at, 40)}): ${goalPart}; ${stepPart}; left out: ${left}`)
+  const drops = dropped.filter(one => /^B\d+$/.test(one))
+  file.lines.splice(lastFilled(file.lines, last) + 1, 0, `Created (${oneLine(at, 40)}): ${goalPart}; ${stepPart}; left out: ${left}${drops.length === 0 ? '' : `; dropped: ${drops.join(', ')}`}`)
   return { ok: true, text: join(file) }
 }
 
 /** The head of a new thread, as the Advisor reads it; a free brainstorm is about "new". */
-export function newThread({ title, goal, started, opening }) {
+export function newThread({ title, goal, started, opening, kind = null }) {
   const about = goal === null || goal === undefined ? 'new' : `${goal.id} ${oneLine(goal.title, 160)}`
-  return `# Brainstorm: ${oneLine(title, 120)}\nGoal: ${about}\nStarted: ${started} · State: running\nOpening: ${oneLine(opening, 2000)}\n\n`
+  // "Change this goal" (2026-10-31): `Kind: change` under its goal.
+  return `# Brainstorm: ${oneLine(title, 120)}\nGoal: ${about}\n${kind === null ? '' : `Kind: ${kind}\n`}Started: ${started} · State: running\nOpening: ${oneLine(opening, 2000)}\n\n`
 }
 
 /** "2026-10-15-the-reference-look-on-every-map": the day, then the title's words in small letters, at most 40 characters. */
@@ -291,6 +389,10 @@ export function brainstormsState(texts, folder) {
         length: String(text ?? '').length,
         title: thread.title ?? path.split('/').pop(),
         goal: thread.goal,
+        // "Change this goal": the kind ('change', or null for a brainstorm as before) and the partner's "what I understand
+        // you want" (`isOpen`: the one the person answers now).
+        kind: thread.kind,
+        understood: thread.understood === null ? null : { ...thread.understood, isOpen: isUnderstoodOpen(thread) },
         started: thread.started,
         state: thread.state,
         opening: thread.opening,
@@ -312,6 +414,8 @@ export function brainstormsState(texts, folder) {
 export function brainstormNeeds(threads) {
   return (threads ?? []).filter(thread => thread.state === 'running' || thread.state === 'wrapping up').flatMap(thread => {
     if (thread.proposal !== null) return thread.proposal.created === null ? [{ kind: 'brainstorm', what: 'proposal', path: thread.path, title: thread.title, text: 'Its proposal waits for you to tick and create it.' }] : []
+    // "Change this goal": the partner says back what it understood: it waits for the person's yes or "not quite".
+    if (thread.understood?.isOpen === true && thread.understood.answer === null) return [{ kind: 'brainstorm', what: 'understood', path: thread.path, title: thread.title, text: `Your partner says what it understood: ${thread.understood.text}` }]
     // While it wraps up, the Advisor writes the proposal: the question left open waits for nobody.
     if (thread.state === 'running' && thread.latest !== null && thread.latest.answer === null) return [{ kind: 'brainstorm', what: 'question', path: thread.path, title: thread.title, text: thread.latest.title ?? thread.latest.text }]
     return []
@@ -331,6 +435,10 @@ const WHY = {
   answered: [409, 'That question has its answer already.'],
   ended: [409, 'That brainstorm is over: done or discarded.'],
   running: [409, 'A brainstorm on this goal runs already: answer it there.'],
+  // "Change this goal" (2026-10-31).
+  changing: [409, 'A change of this goal runs already: answer it there.'],
+  understood: [409, 'Say yes to what your partner understood first: nothing about the goal changes before that.'],
+  draft: [409, 'The proposal has no goal draft yet (an Objective and its Done when bullets): ask your partner with Change….'],
   goal: [409, 'That goal is not in the map.'],
   changed: [409, 'The brainstorm changed since you read it: look at it again.'],
   proposal: [409, 'That brainstorm has no proposal yet.'],
@@ -365,6 +473,11 @@ const creating = new Set()
 /** A start under way, by its goal: a second one at the same time is refused, as one after it would be. */
 const starting = new Set()
 
+/** "Change this goal": whether a thread is a change of its goal. */
+export const isChange = thread => thread?.kind === 'change'
+/** A thread that is not over: running, or wrapping up. */
+const isLive = thread => thread.state === 'running' || thread.state === 'wrapping up'
+
 /**
  * One change to a brainstorm from the page (POST /api/brainstorm), on the board that delivers only (`canWrite`):
  * `start { title, goal, opening }` makes the thread (`<folder>/<date>-<title>.md`; a second running one on the same
@@ -374,14 +487,20 @@ const starting = new Set()
  * proposal) and the note into the goal map, marks the thread created and done, and answers the goals made and the
  * ticked steps, which the page then asks of the main chat. `seen` is the thread's length as the page read it: a thread
  * that changed since is not created. `dir` is the folder on disk, `folder` the setting as the paths name it.
+ * "Change this goal" (2026-10-31): `start { kind: 'change', goal, title, opening }` makes a change thread (`Kind:
+ * change`; one change at a time on a goal, beside the goal's other talk) and keeps the opening as a point of the goal's
+ * `Your words`; `understood { path, yes: true }` or `understood { path, words }` writes the person's answer to the
+ * partner's "what I understand you want"; `create` of a change writes the goal's draft (Objective, Done when <n> with the
+ * steps that cover each, Not in it) under its goal, only after that yes, and drops the ticked drops (`drops`, indexes
+ * into the proposal's Drop list) through `drop(id, why)`, the work store's drop as the person.
  */
-export async function editThread(body, { canWrite, dir, folder, goalsFile, historyDir, now, fs = files }) {
+export async function editThread(body, { canWrite, dir, folder, goalsFile, historyDir, now, fs = files, drop = null }) {
   if (canWrite !== true) return { ok: false, status: 403, why: 'This board only shows: brainstorm on the board that delivers.' }
   if (body === null || typeof body !== 'object' || Array.isArray(body)) return failed('form')
   const base = String(dir).replace(/[\\/]+$/, '')
   const goalsAt = { file: goalsFile, historyDir, now, fs }
   if (body.command === 'start') return startThread(body, { base, folder, goalsAt, now, fs })
-  if (!['answer', 'skip', 'back', 'wrap', 'discard', 'create'].includes(body.command)) return failed('form')
+  if (!['answer', 'skip', 'back', 'wrap', 'discard', 'create', 'understood'].includes(body.command)) return failed('form')
   const name = nameOf(body.path, folder)
   if (name === null) return failed('path')
   const file = `${base}/${name}`
@@ -389,7 +508,7 @@ export async function editThread(body, { canWrite, dir, folder, goalsFile, histo
     if (creating.has(file)) return failed('twice')
     creating.add(file)
     try {
-      return await createFrom(body, { file, goalsAt, now, fs })
+      return await createFrom(body, { file, goalsAt, now, fs, drop })
     } finally {
       creating.delete(file)
     }
@@ -402,7 +521,11 @@ export async function editThread(body, { canWrite, dir, folder, goalsFile, histo
   if (body.command === 'wrap') done = await rewriteThread(file, text => setThreadState(text, 'wrapping up'), fs)
   else if (body.command === 'discard') {
     done = await rewriteThread(file, text => setThreadState(text, 'discarded'), fs)
-    if (done.ok && thread.goal !== null) await linkUnder(thread.goal.id, body.path, 'discarded', goalsAt)
+    if (done.ok && thread.goal !== null && !isChange(thread)) await linkUnder(thread.goal.id, body.path, 'discarded', goalsAt)
+  } else if (body.command === 'understood') {
+    if (body.yes !== true && typeof body.words !== 'string') return failed('form')
+    const answer = body.yes === true ? { at: timeOf(now), yes: true } : { at: timeOf(now), words: body.words }
+    done = await rewriteThread(file, text => answerUnderstood(text, answer), fs)
   } else {
     if (!Number.isInteger(body.n)) return failed('form')
     const at = timeOf(now)
@@ -430,31 +553,37 @@ async function startThread(body, { base, folder, goalsAt, now, fs }) {
   if (title === '' || opening === '') return failed('words')
   const goalId = body.goal ?? null
   if (goalId !== null && !(typeof goalId === 'string' && /^G\d+$/.test(goalId))) return failed('form')
-  if (goalId !== null && starting.has(goalId)) return failed('running')
-  if (goalId !== null) starting.add(goalId)
+  // "Change this goal": a change is always of a goal.
+  const kind = body.kind === 'change' ? 'change' : null
+  if (body.kind !== undefined && body.kind !== null && kind === null) return failed('form')
+  if (kind !== null && goalId === null) return failed('form')
+  const key = `${goalId}:${kind}`
+  if (goalId !== null && starting.has(key)) return failed(kind === null ? 'running' : 'changing')
+  if (goalId !== null) starting.add(key)
   try {
-    return await makeThread({ title, opening, goalId, base, folder, goalsAt, now, fs })
+    return await makeThread({ title, opening, goalId, kind, base, folder, goalsAt, now, fs })
   } finally {
-    starting.delete(goalId)
+    starting.delete(key)
   }
 }
 
-async function makeThread({ title, opening, goalId, base, folder, goalsAt, now, fs }) {
+async function makeThread({ title, opening, goalId, kind = null, base, folder, goalsAt, now, fs }) {
   const names = (await fs.readdir(base).catch(() => [])).filter(name => /\.md$/.test(name))
   let goal = null
   if (goalId !== null) {
     const node = parseGoals((await readUtf8(fs, goalsAt.file)) ?? '').byId.get(goalId)
     if (node === undefined) return failed('goal')
     goal = { id: node.id, title: node.title }
-    // One brainstorm at a time on a goal: a running one is answered where it is.
+    // One brainstorm at a time on a goal: a running one is answered where it is. "Change this goal": a change runs
+    // beside the goal's other talk (the focus's), one change at a time.
     for (const name of names) {
       const other = parseThread((await readUtf8(fs, `${base}/${name}`)) ?? '')
-      if (other.goal?.id === goalId && (other.state === 'running' || other.state === 'wrapping up')) return failed('running')
+      if (other.goal?.id === goalId && isLive(other) && isChange(other) === (kind === 'change')) return failed(kind === 'change' ? 'changing' : 'running')
     }
   }
   await fs.mkdir(base, { recursive: true }).catch(() => {})
   const slug = threadSlug(title, dayOf(now))
-  const text = Buffer.from(newThread({ title, goal, started: `${dayOf(now)} ${timeOf(now)}`, opening }), 'utf8')
+  const text = Buffer.from(newThread({ title, goal, started: `${dayOf(now)} ${timeOf(now)}`, opening, kind }), 'utf8')
   for (let count = 1; count <= 99; count += 1) {
     const name = `${slug}${count === 1 ? '' : `-${count}`}.md`
     try {
@@ -464,13 +593,21 @@ async function makeThread({ title, opening, goalId, base, folder, goalsAt, now, 
       return failed('write')
     }
     const path = `${folder}/${name}`
-    if (goal !== null) await linkUnder(goal.id, path, 'running', goalsAt)
+    // "Change this goal": a change is found by its kind and goal; the goal's Brainstorm line stays the goal's talk. The
+    // person's words are kept on the goal, a point of its "Your words", and the map's rules name the line.
+    if (goal !== null && kind === null) await linkUnder(goal.id, path, 'running', goalsAt)
+    if (kind === 'change') {
+      await changeGoalsFile(map => {
+        const kept = addYourWords(map, goal.id, `${dayOf(now)} ${timeOf(now)}`, opening)
+        return kept.ok ? { ok: true, text: withChangeRules(kept.text) } : kept
+      }, goalsAt).catch(() => null)
+    }
     return { ok: true, result: { path } }
   }
   return failed('write')
 }
 
-async function createFrom(body, { file, goalsAt, now, fs }) {
+async function createFrom(body, { file, goalsAt, now, fs, drop = null }) {
   const before = await readUtf8(fs, file)
   if (before === null) return failed('gone')
   if (Number.isInteger(body.seen) && body.seen !== before.length) return failed('changed')
@@ -479,10 +616,16 @@ async function createFrom(body, { file, goalsAt, now, fs }) {
   const proposal = thread.proposal
   if (proposal === null) return failed('proposal')
   if (proposal.created !== null) return failed('twice')
+  // "Change this goal": nothing about the goal changes before the person's yes to what the partner understood, and a
+  // change's proposal holds the goal's draft.
+  const isChanging = isChange(thread)
+  if (isChanging && thread.understood?.answer?.yes !== true) return failed('understood')
+  if (isChanging && (thread.goal === null || !proposal.objective || proposal.doneWhen.length === 0)) return failed('draft')
   const pick = (list, indexes) => (Array.isArray(indexes) && indexes.every(at => Number.isInteger(at) && at >= 0 && at < list.length) ? list.filter((one, at) => indexes.includes(at)) : null)
   const goals = pick(proposal.goals, body.goals ?? [])
   const steps = pick(proposal.steps, body.steps ?? [])
-  if (goals === null || steps === null) return failed('pick')
+  const drops = isChanging ? pick(proposal.drops, body.drops ?? []) : []
+  if (goals === null || steps === null || drops === null) return failed('pick')
   const leftOut = [...proposal.goals.filter(one => !goals.includes(one)), ...proposal.steps.filter(one => !steps.includes(one))].map(one => one.title)
   // The goals, the note and the link to the thread, in one change of the map; read anew on each try.
   let made = []
@@ -507,19 +650,39 @@ async function createFrom(body, { file, goalsAt, now, fs }) {
         const noted = addBrainstormNote(out, home, dayOf(now), proposal.note)
         if (noted.ok) out = noted.text
       }
-      if (home !== null) out = setGoalLine(out, home, 'Brainstorm', `${body.path} (done)`).text
+      // "Change this goal": the goal's new Objective, its Done when bullets with the steps that cover each, and what is
+      // not in it, under the goal; its old one-line Done when stays.
+      if (isChanging) {
+        if (about === null) return { ok: false, why: 'goal' }
+        const covered = n => proposal.covered.filter(one => one.n === n).flatMap(one => one.steps)
+        const changed = setGoalChange(out, about, { objective: proposal.objective, bullets: proposal.doneWhen.map(one => ({ n: one.n, text: one.text, steps: covered(one.n) })), notInIt: proposal.notInIt })
+        if (!changed.ok) return changed
+        out = withChangeRules(changed.text)
+      }
+      // A change runs beside the goal's own talk: the goal's Brainstorm line stays the talk's.
+      if (home !== null && !isChanging) out = setGoalLine(out, home, 'Brainstorm', `${body.path} (done)`).text
       return { ok: true, text: out }
     }, goalsAt)
     // No map, and nothing for it: the thread alone is marked.
-    if (!written.ok && !(written.why === 'gone' && goals.length === 0)) return failed(written.why === 'gone' ? 'map' : written.why)
+    if (!written.ok && !(written.why === 'gone' && goals.length === 0 && !isChanging)) return failed(written.why === 'gone' ? 'map' : written.why)
+  }
+  // "Change this goal": the ticked drops, each dropped in the work store as the person, with its why.
+  const dropped = []
+  const notDropped = []
+  for (const one of drops) {
+    const why = one.why || `no longer needed for ${thread.goal.id} after its change`
+    const done = drop === null ? { ok: false, why: 'This board cannot drop a step.' } : await Promise.resolve().then(() => drop(one.id, why)).catch(error => ({ ok: false, why: error.message }))
+    if (done?.ok === true) dropped.push(one.id)
+    else notDropped.push({ id: one.id, why: done?.why ?? 'not dropped' })
   }
   const marked = await rewriteThread(file, text => {
-    const created = markCreated(text, { at: timeOf(now), goals: made.map(one => one.id), steps: [], asked: steps.length, leftOut })
+    const created = markCreated(text, { at: timeOf(now), goals: made.map(one => one.id), steps: [], asked: steps.length, leftOut, dropped })
     return created.ok ? setThreadState(created.text, 'done') : created
   }, fs)
   if (!marked.ok) return failed(marked.why)
   const serves = made[0]?.id ?? home
-  return { ok: true, result: { goals: made, steps: steps.map(one => ({ title: one.title, worker: one.worker, cost: one.cost, goal: serves })) } }
+  const result = { goals: made, steps: steps.map(one => ({ title: one.title, worker: one.worker, cost: one.cost, goal: serves, ...(one.for === undefined ? {} : { for: one.for }) })) }
+  return { ok: true, result: isChanging ? { ...result, dropped, notDropped } : result }
 }
 
 /**

@@ -26,7 +26,24 @@ const ids = value => value.match(IDS) ?? []
 const stepIds = value => value.split(/[,\s]+/).filter(part => /^B\d+$/.test(part))
 
 function node(id, title, state, depth, line) {
-  return { id, title: title.trim(), state, depth, parent: null, children: [], line, doneWhen: null, demo: null, demoAsked: null, why: null, enables: [], alsoPartOf: [], steps: [], partsDropped: [], missing: [], notes: [], asks: [], brainstorm: null, fromPlan: null, recommendation: null, vibe: [], vibePicture: null, vibeAgreed: null, parts: [], partnerDecides: [], youDecide: [], howAgreed: null, recheckAsked: null, rechecks: [], overturned: [], evaluationAsked: null, evaluations: [], evaluatedAt: [], fableAsked: null, evaluationPart: null }
+  return { id, title: title.trim(), state, depth, parent: null, children: [], line, doneWhen: null, demo: null, demoAsked: null, why: null, enables: [], alsoPartOf: [], steps: [], partsDropped: [], missing: [], notes: [], asks: [], brainstorm: null, fromPlan: null, recommendation: null, vibe: [], vibePicture: null, vibeAgreed: null, parts: [], partnerDecides: [], youDecide: [], howAgreed: null, recheckAsked: null, rechecks: [], overturned: [], evaluationAsked: null, evaluations: [], evaluatedAt: [], fableAsked: null, evaluationPart: null, objective: null, doneBullets: [], notInIt: null, yourWords: [] }
+}
+
+/**
+ * "Change this goal" (2026-10-31): a bullet of the goal's Done when, `Done when <n>: <text> · steps B1, B2` (the steps
+ * that meet it, left out while none), as `{ n, text, steps }`. Its text may hold " · " itself: only a last part that is
+ * "steps" and ids is read as the steps.
+ */
+export const DONE_BULLET = /^Done when (\d+):\s*(.*)$/
+export function doneBulletOf(n, value) {
+  const found = String(value ?? '').trim().match(/^(.*?)(?:\s*·\s*steps\s+(B\d+(?:\s*,\s*B\d+)*))?\s*$/)
+  return { n: Number(n), text: found[1].trim(), steps: found[2] === undefined ? [] : stepIds(found[2]) }
+}
+
+/** "Change this goal": the person's words kept under the goal, `Your words: <date time> · <their words>`. */
+function yourWordsOf(value) {
+  const at = value.indexOf(' · ')
+  return at < 0 ? { at: '', text: value.trim() } : { at: value.slice(0, at).trim(), text: value.slice(at + 3).trim() }
 }
 
 /** Focus 1: "<title> · <size> · steps B1, B2", the size and the steps each left out at will. */
@@ -58,11 +75,19 @@ function recheckOf(text) {
 
 /** One named line under a node, put on it. A line in a form the map does not know goes to `notes`, so nothing is lost. */
 function takeLine(target, text) {
+  // "Change this goal": a numbered bullet of the Done when, which NAMED does not take (its name holds a number).
+  const bullet = text.match(DONE_BULLET)
+  if (bullet !== null) return target.doneBullets.push(doneBulletOf(bullet[1], bullet[2]))
   const named = text.match(NAMED)
   if (named === null) return target.notes.push(text)
   const [, name, stamp = '', value] = named
   switch (name) {
     case 'Done when': target.doneWhen = value; return
+    // "Change this goal" (2026-10-31): the goal's objective and what is not in it, as a change brainstorm agreed them,
+    // and the person's own words about the goal, each a point with its time.
+    case 'Objective': target.objective = value; return
+    case 'Not in it': target.notInIt = value; return
+    case 'Your words': target.yourWords.push(yourWordsOf(value)); return
     case 'Why': target.why = value; return
     case 'Enables': target.enables.push(...ids(value)); return
     case 'Also part of': target.alsoPartOf.push(...ids(value)); return

@@ -323,6 +323,10 @@ const sayLine = value => String(value ?? '').replace(/\s+/g, ' ').trim()
  * Advisor has not taken yet (no question, no proposal: no second word for the same thread, Review Focus 4);
  * `brainstorm answer` for the last question once the board wrote its answer; `brainstorm wrap up` once marked so;
  * `brainstorm change` for a proposal not created yet, with the person's words.
+ * "Change this goal" (2026-10-31): the `brainstorm` of a change has `Kind: change`; `brainstorm understood` once the
+ * board wrote the person's yes under the partner's "what I understand you want" (the partner writes the proposal now);
+ * `brainstorm answer` with `Understood: not quite — <their words>` once it wrote their "not quite" (the partner asks
+ * on, or says it back anew).
  */
 function brainstormCheck(body, state) {
   const advisor = state.advisor?.name ?? null
@@ -335,7 +339,14 @@ function brainstormCheck(body, state) {
   const head = `Thread: ${thread.path}`
   if (body.command === 'brainstorm') {
     if (thread.state !== 'running' || thread.questions > 0 || thread.proposal !== null) return refuse(409, 'The Advisor has this brainstorm already.')
-    return words(`brainstorm\n${head}\nGoal: ${thread.goal === null ? 'new' : `${thread.goal.id} ${plainLine(thread.goal.title)}`}\nOpening: ${sayLine(thread.opening)}`)
+    return words(`brainstorm\n${head}\nGoal: ${thread.goal === null ? 'new' : `${thread.goal.id} ${plainLine(thread.goal.title)}`}${thread.kind === 'change' ? '\nKind: change' : ''}\nOpening: ${sayLine(thread.opening)}`)
+  }
+  if (body.command === 'brainstorm-understood' || body.command === 'brainstorm-not-quite') {
+    const understood = thread.understood ?? null
+    const answer = understood?.answer ?? null
+    const wanted = body.command === 'brainstorm-understood'
+    if (isOver || thread.kind !== 'change' || understood?.isOpen !== true || answer === null || answer.yes !== wanted) return refuse(409, 'That is not the answer the change waits for.')
+    return words(wanted ? `brainstorm understood\n${head}` : `brainstorm answer\n${head}\nUnderstood: not quite — ${sayLine(answer.words)}`)
   }
   if (body.command === 'brainstorm-answer') {
     const latest = thread.latest
@@ -382,7 +393,9 @@ export function goalStepOf(body, state) {
   if (step === undefined || created.leftOut.includes(leftOutKey(step.title))) return refuse(409, 'That step is not one the proposal created.')
   const note = thread.proposal.note ? `: ${sayLine(thread.proposal.note)}` : ''
   const goal = created.goals[0] ?? thread.goal?.id ?? null
-  return { ok: true, title: sayLine(step.title), goal: /^G\d+$/.test(String(goal)) ? goal : null, description: `from the brainstorm "${plainLine(thread.title)}" (${thread.path})${note}`, cost: sayLine(step.cost), worker: sayLine(step.worker), about: `${thread.path}#${body.step}` }
+  // "Change this goal": the bullets of the goal's Done when the step is for (its id is added to them once it has one).
+  const bullets = thread.kind === 'change' && Array.isArray(step.for) ? step.for.filter(n => Number.isInteger(n) && n > 0) : []
+  return { ok: true, title: sayLine(step.title), goal: /^G\d+$/.test(String(goal)) ? goal : null, description: `from the brainstorm "${plainLine(thread.title)}" (${thread.path})${note}`, cost: sayLine(step.cost), worker: sayLine(step.worker), about: `${thread.path}#${body.step}`, ...(bullets.length === 0 ? {} : { for: bullets }) }
 }
 
 /** B195: the recommendation an answer is about, `{ ok, rec }`: the one that stands, not answered yet, with nothing else. */
@@ -476,7 +489,7 @@ export function checkSay(body, state, maxChars) {
   if (body.command !== undefined && body.command !== null) {
     // The board's words, never the page's. Pause 2: a pause is pause.json, no word; "resume" is typed after Resume all
     // into a main chat that runs, and its Workers mod gives it whom to wake.
-    if (!['resume', 'start', 'spawn', 'remove', 'recommend', 'stop', 'refine', 'recheck', 'goal-ask', 'brainstorm', 'brainstorm-answer', 'brainstorm-wrap', 'brainstorm-change', 'goal-step', 'partner-effort', 'sync'].includes(body.command)) return refuse(400, 'No such command.')
+    if (!['resume', 'start', 'spawn', 'remove', 'recommend', 'stop', 'refine', 'recheck', 'goal-ask', 'brainstorm', 'brainstorm-answer', 'brainstorm-wrap', 'brainstorm-change', 'brainstorm-understood', 'brainstorm-not-quite', 'goal-step', 'partner-effort', 'sync'].includes(body.command)) return refuse(400, 'No such command.')
     // B195: the one answer that may go to the Advisor as well as to the main chat.
     if (body.command === 'recommend') return recommendWords(body, state)
     // B233, B258: the commands that go to the Advisor only.
@@ -635,7 +648,7 @@ const WAKE_PENDING_MS = 10 * 60_000
 
 /** The commands the board puts to a chat other than the main one: a word the chat's work stands on (wakeFor). */
 // B570: and the board's word that asks the partner to restart the main chat on a new Workers mod.
-const PARTNER_WORDS = ['recommend', 'refine', 'result-check', 'evaluate', 'work', 'recheck', 'goal-ask', 'brainstorm', 'brainstorm-answer', 'brainstorm-wrap', 'brainstorm-change', 'brainstorm-fix', 'brainstorm-stranded', 'incident', 'mod-restart', 'obsolete-check', ...FOCUS_COMMANDS]
+const PARTNER_WORDS = ['recommend', 'refine', 'result-check', 'evaluate', 'work', 'recheck', 'goal-ask', 'brainstorm', 'brainstorm-answer', 'brainstorm-wrap', 'brainstorm-change', 'brainstorm-understood', 'brainstorm-not-quite', 'brainstorm-fix', 'brainstorm-stranded', 'incident', 'mod-restart', 'obsolete-check', ...FOCUS_COMMANDS]
 export const isPartnerWord = command => typeof command === 'string' && (command.startsWith('plan-') || PARTNER_WORDS.includes(command))
 
 /** 2026-10-26: the command of the board's word that has a worker holding a step go on from its checkpoint (`resumesDue`). */
