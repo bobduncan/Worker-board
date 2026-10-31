@@ -80,9 +80,9 @@ test('the work store gives a step its tries and its standard, and "checked" file
   // T9.1.1: the result check is filed by the worker that holds the step's QA task, a worker that did not build it.
   const checkedAs = (id, body) => checkedBy({ as, server: call => workApi(call, { ...ctx, as: 'server' }), dir, now: at + 60_000 }, id, body)
   assert.equal((await as('Partner')({ action: 'refine', id: 'B1', summary: 'A painted map where the lava really moves.' })).ok, true)
-  assert.equal((await as('Partner')({ action: 'refined', id: 'B1', what: ['the lava moves', 'the painting sits on the layout'] })).ok, true)
+  assert.equal((await as('Partner')({ action: 'refined', size: '30 min', id: 'B1', what: ['the lava moves', 'the painting sits on the layout'] })).ok, true)
   assert.equal((await queueFor(dir, 'B1', 'Painter', { now: at + 60_000 })).ok, true)
-  assert.equal((await as('Painter')({ action: 'take', id: 'B1', branch: 'b1-lava' })).ok, true)
+  assert.equal((await as('Painter')({ action: 'take', minutes: 30, id: 'B1', branch: 'b1-lava' })).ok, true)
   assert.equal((await as('Painter')({ action: 'report', id: 'B1', result: 'Done.', merged: 'c0ffee1' })).ok, true)
   assert.equal((await workApi({ action: 'check', id: 'B1', passed: true, lines: ['branch gone'] }, { ...ctx, as: 'server' })).ok, true)
   const checked = await checkedAs('B1', {
@@ -344,9 +344,9 @@ test('a failed check\'s plain lines are checked when it is filed: missing, or wi
   const checkedAs = (id, body) => checkedBy({ as, server: call => workApi(call, { ...ctx, as: 'server' }), dir, now: at + 60_000 }, id, body)
   for (const id of ['B1', 'B2', 'B3']) {
     assert.equal((await as('Partner')({ action: 'refine', id, summary: 'A thing that should work.' })).ok, true)
-    assert.equal((await as('Partner')({ action: 'refined', id, what: ['it works'] })).ok, true)
+    assert.equal((await as('Partner')({ action: 'refined', size: '30 min', id, what: ['it works'] })).ok, true)
     assert.equal((await queueFor(dir, id, 'Painter', { now: at + 60_000 })).ok, true)
-    assert.equal((await as('Painter')({ action: 'take', id, branch: `${id.toLowerCase()}-x` })).ok, true)
+    assert.equal((await as('Painter')({ action: 'take', minutes: 30, id, branch: `${id.toLowerCase()}-x` })).ok, true)
     assert.equal((await as('Painter')({ action: 'report', id, result: 'Done.', merged: 'c0ffee1' })).ok, true)
     assert.equal((await workApi({ action: 'check', id, passed: true, lines: ['branch gone'] }, { ...ctx, as: 'server' })).ok, true)
   }

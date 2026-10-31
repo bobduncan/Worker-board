@@ -165,6 +165,9 @@ profile.
   An ask with advice or options may be answered by the partner first (partner answers, 2026-10-19): the tool says so.
   Its `title` is the question itself in at most 12 words (refused when longer); its `text` the brief context, two to
   four plain sentences: why you ask, what was found, what each choice means (B452).
+- The user's feedback on a step, said in your chat (an answer, a rejection, a note), goes on that step with `work
+  words B<id>` (`text` their words as they said them, `where` what they answered and when, so a bare "yes" keeps its
+  meaning): it stands in the step's "Your words", and every later try is checked against it (the user, 2026-10-31).
 - A step's time: before you give a new step its time, read the board's task times (`data/task-times.md`
   in the board's folder) and use the typical time of its kind; a kind with fewer than 5 tasks there is still a guess.
 - A step's text (`work new`, `text`): one line of description, "Requirements:" with "- " points, "Touches: ...",

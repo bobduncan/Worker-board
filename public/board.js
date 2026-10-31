@@ -4823,7 +4823,7 @@ function drawNeed(need, state) {
   else top.append(el('span', 'kind', kind.sign), el('b', '', need.from ?? 'the board'), el('span', 'tag', storeAskParts(need)?.tag ?? kind.tag), since(need.at, state.readAt))
   // B426: its ids and the pages it names are links in the title too
   head.append(top, linkedEl('h4', '', need.title))
-  card.append(head, ...storeAskLines(need, state))
+  card.append(head, ...[askStoryCard(need, state.stories)].filter(one => one !== null), ...storeAskLines(need, state))
   // B397: its ids and the pages it names are links, and an ask it points to stands inline.
   if (need.text !== '') {
     const words = el('p')
@@ -5452,6 +5452,7 @@ function cardsView(state) {
     advisor: runnerOf(state.advisor),
     restart: { main: state.restart?.main ?? null, starting: state.restart?.starting ?? [] },
     backlog: stepKeysOf(state.backlog),
+    stories: storiesOf(state, [...(state.forYou ?? []), ...(state.backlogForYou ?? []), ...(state.backlogClosed ?? [])]),
     maxMessageChars: state.maxMessageChars ?? null,
     readAt: minuteOf(state.readAt),
   }
@@ -5500,6 +5501,7 @@ function focusPageView(state, ui) {
     recaps: linkable(state.recaps),
     recapsShow: state.recapsShow ?? null,
     backlog: stepKeysOf(state.backlog),
+    stories: storiesOf(state, [...(state.forYou ?? []), ...(state.backlogForYou ?? []), ...(state.backlogClosed ?? [])]),
     // The main chat alone (its name, whether it runs): the talk's line says whether it can start a partner that does
     // not run (mainChatOf); the other chats are not drawn here.
     chats: (state.chats ?? []).filter(chat => chat.name === (state.restart?.main ?? null)).map(runnerOf),
@@ -5880,6 +5882,81 @@ function pictureOfLine(line) {
 }
 // item:end
 // window:end
+
+// story:start
+/**
+ * Calm task window (the person, 2026-10-31: "i need to understand the context ... the clear backlog item description of
+ * context, problem, solution"): the three plain lines a task and its asks open with. Pure, for the test.
+ */
+const STORY_MOST = 160
+/** A text on one line, cut at a word to at most `most` characters (a cut ends with "…"). */
+const storyCut = (text, most = STORY_MOST) => {
+  const line = String(text ?? '').replace(/\s+/g, ' ').trim()
+  return line.length <= most ? line : `${line.slice(0, most).replace(/\s+\S*$/, '')}…`
+}
+/** The first sentence of a text (a sentence ends at . ! ? before a capital or a digit). */
+const storySentence = text => String(text ?? '').replace(/\s+/g, ' ').trim().split(/(?<=[.!?])\s+(?=[A-Z0-9"“])/)[0] ?? ''
+const storyUp = text => text.charAt(0).toUpperCase() + text.slice(1)
+/** A line without its closing full stops. */
+const storyBare = text => text.replace(/[.\s]+$/, '')
+
+/** The labelled lines ("Context: ...", "Problem: ...", "Solution: ...") a refine's Summary carries, by label (lower case). */
+function storyLabelled(lines) {
+  const found = {}
+  for (const raw of lines) {
+    const line = String(raw).replace(/^[-*]\s+/, '').replace(/^Summary:\s*/i, '').trim()
+    const label = line.match(/^(Context|Problem|Solution):\s*(\S.*)$/i)
+    if (label !== null && found[label[1].toLowerCase()] === undefined) found[label[1].toLowerCase()] = label[2].trim()
+  }
+  return found
+}
+
+/**
+ * The three lines of a step (`item`, the state's item of it; `items`, `{ id, title }` of the steps the board knows, for a
+ * fix's step; `goalTitle`, its goal's name): `{ context, problem, solution }`, each one line of at most about 160
+ * characters, '' when nothing says it. Lines the refine wrote itself ("Context: ...", "Problem: ...", "Solution: ...",
+ * in its Summary or its Refined block) win. Otherwise: Context is, for a fix (made by a result check), "A fix of <id>
+ * (<its title>): its result check found one point short", else the first sentence of the step's Context, else its goal's
+ * title; Problem is, for a fix, the point the check found short (the part in brackets after "Found:" says why), else the
+ * Summary's first sentence; Solution is the first point of What we build, in one sentence.
+ */
+function stepStory(item, items = [], goalTitle = null) {
+  const summary = item.summary ?? []
+  const given = { ...storyLabelled(item.refinedLines ?? []), ...storyLabelled(summary) }
+  const plainSummary = summary.filter(one => !/^(?:[-*]\s+)?(?:Summary:\s*)?(?:Context|Problem|Solution):/i.test(one))
+  const fixed = String(item.fixOf ?? '').match(/\bB\d+\b/)?.[0] ?? null
+  const isFix = fixed !== null
+  const title = fixed === null ? '' : String((items ?? []).find(one => one.id === fixed)?.title ?? '').replace(/\s+/g, ' ').trim()
+  const found = isFix ? summary.join(' ').match(/\bFound:\s*(.+)$/i)?.[1].trim() ?? '' : ''
+  const brackets = found.match(/\(([^()]*)\)\s*$/)
+  const point = storyBare(brackets === null ? found : found.slice(0, brackets.index))
+  const context = given.context
+    ?? (isFix ? `A fix of ${fixed}${title === '' ? '' : ` (${storyCut(title, 70)})`}: its result check found one point short.` : null)
+    ?? (storySentence((item.context ?? []).filter(one => !/^(?:Touches:|Requirements:|Reported|Asked Q|Q\d+ answered|-\s)/.test(one)).join(' ')) || null)
+    ?? (goalTitle ?? null)
+    ?? ''
+  const problem = given.problem
+    ?? (isFix && found !== '' ? `The result check found one point short: ${storyBare(brackets === null ? point : brackets[1])}.` : null)
+    ?? (storySentence(plainSummary.join(' ')) || null)
+    ?? ''
+  const first = (item.what ?? [])[0] ?? ''
+  const solution = given.solution ?? (storySentence(isFix ? first.replace(/\s*\([^()]*\)\s*$/, '') : first) || '')
+  return { context: storyCut(context), problem: storyCut(problem), solution: storyCut(solution) }
+}
+
+/**
+ * The one quiet status line of a step: its model and effort, the time it takes (the refine's size, else what the board
+ * kept for that effort level, `efforts`), and who holds it since when (the stamp of its last History line).
+ */
+function stepStatus(item, { size = '', efforts = [] } = {}) {
+  const run = (item.effort ?? null) === null ? null : runWords(item.model?.family ?? null, item.effort.level)
+  const kept = (item.effort ?? null) === null ? undefined : efforts.find(one => one.level === item.effort.level)
+  const time = String(size ?? '').trim() !== '' ? String(size).trim() : kept === undefined ? null : `about ${effortMinutes(kept.typicalMin)}`
+  const stamp = (item.history ?? []).at(-1)?.match(/^(\d{4}-\d\d-\d\d \d\d:\d\d)/)?.[1] ?? null
+  const holder = item.owner === null || item.owner === undefined ? `Nobody has it yet (${item.state})` : `${item.owner} holds it (${item.state})`
+  return [run, time, `${holder}${stamp === null ? '' : ` since ${stamp}`}`].filter(part => part !== null && part !== '').join(' · ')
+}
+// story:end
 
 // taskwindow:start
 /**
@@ -6974,7 +7051,7 @@ function drawCalm(box, need, state) {
   const title = el('h3', 'calm-question')
   title.append(...linkedWords(capitalized(question), state))
   title.tabIndex = -1
-  ask.append(title)
+  ask.append(...[askStoryNode(need, state)].filter(one => one !== null), title)
   const why = [rest, need.text].filter(one => one !== '').join('\n')
   if (why !== '') {
     const words = el('p', 'calm-why')
@@ -7329,6 +7406,11 @@ function drawDetails(state) {
   // B299: a step of the store shows its Touches in the item's folded part, not a second time among the notes.
   const itemNow = need === null ? itemFor(subject.step ?? step ?? null, state) : null
   const notes = noteParts((itemNow?.touches.length ?? 0) > 0 ? view.notes.filter(note => note.title !== 'Touches') : view.notes)
+  // Calm task window (layout A): a task of the store that is not taken yet.
+  if (itemNow !== null && itemPartsOf(itemNow, false).length > 0) {
+    const typingField = box.contains(document.activeElement) ? document.activeElement.dataset?.refineField ?? null : null
+    return drawStepWindow(box, { state, subject, lane, step, item: itemNow, head, notes, scroll, focused, typing: typingField })
+  }
   // A request a chat filed has its own text. A step of the backlog is one line, which is the title above; what
   // describes it further are the lines written under it.
   // B397: an ask's ids and the pages it names are links, and an ask it points to stands inline.
@@ -7340,6 +7422,7 @@ function drawDetails(state) {
     words.push(text)
   }
   if (asked) words.push(...pointedAskBox(need, state))
+  if (asked) words.unshift(...[askStoryNode(need, state)].filter(one => one !== null))
   // The step's own line in full: the title above is the short of it.
   const full = need !== null && isStep(need) && typeof need.words === 'string' && need.words !== need.title ? [el('p', '', need.words)] : []
   const described = [...words, ...full, ...notes.lead]
@@ -7608,13 +7691,171 @@ async function sendWords(id) {
   if (board !== null && detailsOf !== null) drawDetails(board)
 }
 
+/** Calm task window: the steps (`{ id, title }`) the board knows, for a fix's "A fix of B436 (its title)". */
+function storyItems(state) {
+  return (state.backlog ?? []).flatMap(activity => activity.steps).filter(one => one.id !== null && one.id !== undefined).map(one => ({ id: one.id, title: one.title }))
+}
+
+/** Calm task window: the three lines of a task (see `stepStory`). */
+function storyLines(item, state) {
+  const goalId = String(item.goal ?? '').match(/\bG\d+\b/)?.[0] ?? null
+  return stepStory(item, storyItems(state), goalId === null ? null : goalNameOf(goalId, state.goals?.nodes))
+}
+
+/** Calm task window: Context, Problem and Solution of a task, one plain line each. */
+function storyNode(item, state) {
+  return storyRows(storyLines(item, state))
+}
+
+/** Calm task window: three lines (`{ context, problem, solution }`) as the window draws them. */
+function storyRows(story) {
+  const box = el('div', 'task-story')
+  for (const [label, key] of [['Context', 'context'], ['Problem', 'problem'], ['Solution', 'solution']]) {
+    const row = el('p', 'task-story-row')
+    row.dataset.story = key
+    row.append(el('b', '', label), ' ', story[key] === '' ? el('span', 'muted', 'Not written yet.') : story[key])
+    box.append(row)
+  }
+  return box
+}
+
+/** Calm task window: the three lines of the task an ask belongs to (its `of`), above the question; null for an ask of no task. */
+function askStoryNode(need, state) {
+  if (need.of === null || need.of === undefined || isStep(need)) return null
+  const item = itemFor({ id: need.of }, state)
+  return item === null ? null : storyNode(item, state)
+}
+
+/** Calm task window: the same on a card of Needs your attention, which reads only `stories` of its view (cardsView). */
+function askStoryCard(need, stories) {
+  const story = need.of === null || need.of === undefined || isStep(need) ? undefined : stories?.[need.of]
+  return story === undefined ? null : storyRows(story)
+}
+
+/** Calm task window: the three lines of the tasks the given asks belong to, by task id, for the cards of Needs your attention. */
+function storiesOf(state, needs) {
+  const stories = {}
+  for (const need of needs) {
+    if (need.of === null || need.of === undefined || stories[need.of] !== undefined) continue
+    const item = itemFor({ id: need.of }, state)
+    if (item !== null) stories[need.of] = storyLines(item, state)
+  }
+  return stories
+}
+
+/** Calm task window: the one quiet status line of a task (see `stepStatus`). */
+function statusNode(item, state, size = '') {
+  return el('p', 'muted task-status', stepStatus(item, { size, efforts: state.taskTimes?.efforts ?? [] }))
+}
+
+/** Calm task window: a part folded behind one line, closed unless `isOpen` (a window drawn anew keeps what the person opened). */
+function calmFold(key, title, nodes, isOpen) {
+  const fold = el('details', 'item-fold task-fold')
+  fold.dataset.fold = key
+  fold.open = isOpen
+  fold.append(el('summary', '', title), ...nodes)
+  return fold
+}
+
+/** Calm task window: a part drawn by `itemPart` without its own heading (the fold's line is the heading). */
+function unheaded(node) {
+  node.querySelector('h3')?.remove()
+  return node
+}
+
+/**
+ * Calm task window (the person, 2026-10-31, layout A): a task of the store that is not taken yet (new, refined, queued)
+ * as its window: title, goal and state chips; then Context, Problem and Solution, "Your words" with "Add a note", one
+ * quiet status line, and the main action. What we build, Model and effort, Flow and History stand folded, closed;
+ * Refine again and Delete task behind "More".
+ */
+function drawStepWindow(box, { state, subject, lane, step, item, head, notes, scroll, focused, typing }) {
+  const strip = flowStripOf(flowFor(subject.step ?? step ?? null, null, state))
+  const parts = itemPartsOf(item, strip !== null, { lanes: state.chats ?? [], efforts: state.taskTimes?.efforts ?? [] })
+  const refined = subject.step?.refined ?? step?.refined ?? null
+  const refine = subject.step !== undefined ? refinePart(subject.step, state, true) : null
+  const keep = box.open && box.dataset.calmStep === item.id ? new Set([...box.querySelectorAll('details[data-fold][open]')].map(one => one.dataset.fold)) : new Set()
+  box.dataset.calmStep = item.id
+  const words = item.yourWords ?? []
+
+  const main = el('div', 'details-main task-calm')
+  main.append(storyNode(item, state))
+  main.append(...(words.length > 0 ? [taskPart('Your words', yourWordsNodes(item.id, words))] : yourWordsNodes(item.id, [])))
+  main.append(statusNode(item, state, refined?.size ?? ''))
+  if (refine !== null) main.append(refine)
+  const folds = []
+  const what = parts.find(part => part.key === 'what')
+  if (what !== undefined) folds.push(calmFold('what', `What we build (${what.lines.length})`, [buildList(what.lines)], keep.has('what')))
+  const effort = parts.find(part => part.key === 'effort')
+  if (effort !== undefined) folds.push(calmFold('effort', 'Model and effort', [unheaded(itemPart(effort, strip))], keep.has('effort')))
+  if (strip !== null) folds.push(calmFold('flow', 'Flow', [unheaded(flowPart(strip))], keep.has('flow')))
+  if (item.history.length > 0) folds.push(calmFold('history', `History (${item.history.length})`, [listOf(item.history)], keep.has('history')))
+  // What the window had besides: the picture, the check, what it requires and touches, where its files lie, its notes.
+  const other = parts.filter(part => ['picture', 'checked', 'requirements', 'touches'].includes(part.key)).map(part => itemPart(part, strip))
+  const branch = step?.branch ?? null
+  const folder = branch === null ? null : [...(state.chats ?? []).flatMap(one => one.folders), ...(state.otherFolders ?? [])].find(one => one.branch === branch) ?? null
+  const files = [...(folder === null ? [] : [copyRow('Folder', folder.path)]), ...(branch === null ? [] : [copyRow('Branch', branch)])]
+  if (files.length > 0) other.push(section('Files / Branch', files))
+  other.push(...notes.named)
+  if (notes.context.length > 0) {
+    const context = el('div', 'box')
+    context.append(...notes.context)
+    other.push(section('Additional context', [context]))
+  }
+  if (other.length > 0) folds.push(calmFold('other', 'Other details', other, keep.has('other')))
+  main.append(...folds)
+  const body = el('div', 'details-body is-single task-window')
+  body.append(main)
+
+  // The foot: the state's main action (Add to queue, the pin's choices; else Close task), the Refine buttons while there is
+  // something to answer, and behind "More" what is rarer: Refine again, Close task, Delete task.
+  const foot = el('footer', 'details-foot task-calm-foot')
+  const pin = subject.step !== undefined ? pinPart(subject.step, state) : null
+  const change = subject.step === undefined && lane !== null && lane !== undefined ? pinChangePart(lane, step, state) : null
+  const refineBox = subject.step !== undefined ? refineButtons(subject.step, state) : null
+  const isRefineAgain = subject.step !== undefined && refineView(subject.step, state.advisor?.name ?? null)?.isReady === true
+  const edit = subject.step !== undefined ? editPart(subject.step, true) : null
+  const editButtons = edit === null ? [] : [...edit.querySelectorAll('button')]
+  const closeButton = editButtons.find(one => one.dataset.editAction === 'close') ?? null
+  const deleteButton = editButtons.find(one => one.dataset.editAction === 'delete') ?? null
+  const mainAction = pin ?? change
+  const isCloseMain = mainAction === null && closeButton !== null
+  foot.append(...[mainAction, isCloseMain ? closeButton : null, refineBox !== null && !isRefineAgain ? refineBox : null].filter(one => one !== null))
+  const more = []
+  if (refineBox !== null && isRefineAgain) more.push(refineBox)
+  const buttons = el('div', 'step-edit-line')
+  buttons.append(...[!isCloseMain ? closeButton : null, deleteButton].filter(one => one !== null))
+  if (buttons.children.length > 0) more.push(buttons)
+  if (more.length > 0) {
+    const fold = el('details', 'task-more')
+    fold.dataset.fold = 'more'
+    fold.open = keep.has('more')
+    fold.append(el('summary', '', 'More'), ...more)
+    foot.append(fold)
+  }
+  const problem = edit?.querySelector('.problem') ?? null
+  if (problem !== null) foot.append(problem)
+
+  keepUnfolded(box, () => fill(box, foot.children.length === 0 ? [head, body] : [head, body, foot]))
+  body.scrollTop = scroll
+  refocus(box, focused)
+  const field = typing === null ? null : [...box.querySelectorAll('[data-refine-field]')].find(one => one.dataset.refineField === typing)
+  if (field) {
+    field.focus()
+    field.setSelectionRange(field.value.length, field.value.length)
+  }
+}
+
 /** B701: the Summary tab: only the parts that have something to say. */
-function taskSummary(item, asks, guardAsk) {
+function taskSummary(item, asks, guardAsk, lead = []) {
   const view = summaryOf(item)
   const parts = []
   // Your words (2026-10-30): the person's words on the step stand first; without any, only "Add a note", last.
   const words = item.yourWords ?? []
+  // Calm task window: Context, Problem and Solution first, "Your words" right under them, then the status line.
+  parts.push(...lead.slice(0, 1))
   if (words.length > 0) parts.push(taskPart('Your words', yourWordsNodes(item.id, words)))
+  parts.push(...lead.slice(1))
   if (view.want.length > 0) parts.push(taskPart('What we want', view.want.map(one => el('p', '', one))))
   const pictures = el('div', 'task-pics')
   if (view.target !== null) pictures.append(taskFigure(view.target, 'Target', 'what it should look like'))
@@ -7726,7 +7967,7 @@ function drawTaskWindow(box, { state, need, lane, subject, step, item, asks, str
     nav.append(button)
   }
   const content = el('div', 'task-body')
-  if (tab === 'summary') content.append(...taskSummary(item, asks, taskGuardAsk(item, state.focus)))
+  if (tab === 'summary') content.append(...taskSummary(item, asks, taskGuardAsk(item, state.focus), [storyNode(item, state), statusNode(item, state)]))
   else if (tab === 'checks') content.append(...taskChecks(item, strip))
   else if (tab === 'history') {
     const list = el('ul', 'task-history')

@@ -94,14 +94,14 @@ test('at its take a step no longer names a blocker done, with a History line; on
     B1: { State: 'done' }, B5: { State: 'done' },
     B2: { State: 'queued', Owner: 'Painter', 'Blocked by': 'B1 and B5', 'Waits for': 'B1 and B5' },
   })
-  const taken = await workApi({ chat: 'Painter', action: 'take', id: 'B2', branch: 'b2' }, ctx)
+  const taken = await workApi({ chat: 'Painter', action: 'take', minutes: 30, id: 'B2', branch: 'b2' }, ctx)
   assert.equal(taken.ok, true, taken.why)
   assert.deepEqual([await head('B2', 'State'), await head('B2', 'Blocked by'), await head('B2', 'Waits for')], ['in progress', null, null])
   assert.match(await history('B2'), /Painter: no longer blocked by B1, B5 at its take \(B1 is done, B5 is done\)/)
   assert.match(await history('B2'), /Painter: no longer waits for: B1 and B5 at its take \(B1 is done, B5 is done\)/)
   // The flow lets a worker take its step once what blocks it is resolved: a blocker in review still holds it.
   const { ctx: early } = await storeWith(t, { B5: { State: 'review' }, B2: { State: 'queued', Owner: 'Painter', 'Blocked by': 'B5' } })
-  const held = await workApi({ chat: 'Painter', action: 'take', id: 'B2', branch: 'b2' }, early)
+  const held = await workApi({ chat: 'Painter', action: 'take', minutes: 30, id: 'B2', branch: 'b2' }, early)
   assert.equal(held.ok, false)
   assert.match(held.why, /B5 is review/)
 })
@@ -111,7 +111,7 @@ test('a step taken while its blocker is in review (the main chat\'s take) drops 
     B5: { State: 'review' },
     B2: { State: 'taken', Owner: 'Painter', 'Blocked by': 'B5' },
   })
-  const started = await workApi({ chat: 'Painter', action: 'take', id: 'B2', branch: 'b2' }, ctx)
+  const started = await workApi({ chat: 'Painter', action: 'take', minutes: 30, id: 'B2', branch: 'b2' }, ctx)
   assert.equal(started.ok, true, started.why)
   assert.equal(await head('B2', 'Blocked by'), null)
   assert.match(await history('B2'), /Painter: no longer blocked by B5 at its take \(B5 is review\)/)

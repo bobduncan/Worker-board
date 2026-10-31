@@ -72,9 +72,9 @@ test('the check goes to the other idle worker before a plain task, though the bu
     assert.deepEqual([step.reviewStand.kind, step.reviewStand.qa], ['queued', 'B2'])
     // W2 takes it and files the check; the builder cannot, W2 can.
     const at = T0 + 30 * SEC
-    assert.equal((await one.call(at, 'W2')({ action: 'take', id: 'B2' })).ok, true)
-    assert.equal((await one.call(at, 'W1')({ action: 'checked', id: 'B1', evidence: 'none (x)', points: ['pass: a lamp at every bench'] })).status, 403)
-    const filed = await one.call(at, 'W2')({ action: 'checked', id: 'B1', evidence: 'none (x)', points: ['pass: a lamp at every bench'] })
+    assert.equal((await one.call(at, 'W2')({ action: 'take', minutes: 30, id: 'B2' })).ok, true)
+    assert.equal((await one.call(at, 'W1')({ action: 'checked', size: '30 min', id: 'B1', evidence: 'none (x)', points: ['pass: a lamp at every bench'] })).status, 403)
+    const filed = await one.call(at, 'W2')({ action: 'checked', size: '30 min', id: 'B1', evidence: 'none (x)', points: ['pass: a lamp at every bench'] })
     assert.equal(filed.ok, true, filed.why)
     assert.deepEqual([valueOf(await one.read('B1'), 'State'), valueOf(await one.read('B2'), 'State')], ['done', 'done'])
     // W2 holds nothing now: it is free for the next task.

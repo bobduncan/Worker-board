@@ -433,17 +433,17 @@ test('B525: a step already on sonnet and medium keeps sonnet but is lifted to ef
   const line = async (id, key) => (await read(id)).sections.get(key)?.[0] ?? null
   // Refined before the evaluation, on sonnet and medium; the evaluation then runs.
   assert.equal((await as('Partner')({ action: 'refine', id: 'B1', summary: 'Redraw the tiles.', goal: 'G5', model: 'sonnet: a plain redraw', effort: 'medium: a plain redraw' })).ok, true)
-  assert.equal((await as('Partner')({ action: 'refined', id: 'B1', what: ['four tiles'] })).ok, true)
+  assert.equal((await as('Partner')({ action: 'refined', size: '30 min', id: 'B1', what: ['four tiles'] })).ok, true)
   assert.equal((await as('Partner')({ action: 'refine', id: 'B2', summary: 'Sort the crates.', goal: 'G5', model: 'sonnet: a plain chore', effort: 'medium: a plain chore' })).ok, true)
   assert.equal((await as('Partner')({ action: 'refine', id: 'B3', summary: 'Mop the floor.', goal: 'G5', model: 'sonnet: a plain chore', effort: 'medium: a plain chore' })).ok, true)
-  assert.equal((await as('Partner')({ action: 'refined', id: 'B3', what: ['a clean floor'] })).ok, true)
+  assert.equal((await as('Partner')({ action: 'refined', size: '30 min', id: 'B3', what: ['a clean floor'] })).ok, true)
   assert.equal((await as('Partner')({ action: 'refine', id: 'B4', summary: 'Hang a lantern.', goal: 'G3', model: 'sonnet: a plain chore', effort: 'medium: a plain chore' })).ok, true)
-  assert.equal((await as('Partner')({ action: 'refined', id: 'B4', what: ['a lantern'] })).ok, true)
+  assert.equal((await as('Partner')({ action: 'refined', size: '30 min', id: 'B4', what: ['a lantern'] })).ok, true)
   assert.match(await line('B1', 'Model') ?? '', /^sonnet · /)
   assert.match(await line('B3', 'Model') ?? '', /^sonnet · /)
   assert.equal((await guardFired('G5', base)).result.fired, true)
   // The refined call alone lifts the effort of a step still on sonnet and medium (B3 had no refine since the evaluation began); its model stays.
-  assert.equal((await as('Partner')({ action: 'refined', id: 'B3', what: ['a clean floor'] })).ok, true)
+  assert.equal((await as('Partner')({ action: 'refined', size: '30 min', id: 'B3', what: ['a clean floor'] })).ok, true)
   assert.match(await line('B3', 'Model') ?? '', /^sonnet · a plain chore$/)
   assert.match(await line('B3', 'Effort') ?? '', /^high · the goal guard: G5 /)
   // A refine that gives sonnet and medium: the effort is lifted, not obeyed; the sonnet is obeyed.
@@ -456,14 +456,14 @@ test('B525: a step already on sonnet and medium keeps sonnet but is lifted to ef
   assert.match(await line('B2', 'Model') ?? '', /^sonnet · a plain chore$/)
   assert.match(await line('B2', 'Effort') ?? '', /^high · the goal guard: G5 /)
   // The refined of a step on sonnet keeps sonnet too.
-  assert.equal((await as('Partner')({ action: 'refined', id: 'B2', what: ['crates in rows'] })).ok, true)
+  assert.equal((await as('Partner')({ action: 'refined', size: '30 min', id: 'B2', what: ['crates in rows'] })).ok, true)
   assert.match(await line('B2', 'Model') ?? '', /^sonnet · /)
   // A step given opus in a goal in evaluation stays on opus (2026-10-25: opus only where the Advisor says so).
   assert.equal((await as('Partner')({ action: 'refine', id: 'B2', summary: 'Sort the crates, hard.', model: 'opus: a hard sort' })).ok, true)
   assert.match(await line('B2', 'Model') ?? '', /^opus · a hard sort$/)
   // The failed result check of B1, still on sonnet, makes a fix step that runs on sonnet and effort high.
   assert.equal((await queueFor(dir, 'B1', 'Painter', { now: at + 60_000 })).ok, true)
-  assert.equal((await as('Painter')({ action: 'take', id: 'B1', branch: 'b1-tiles' })).ok, true)
+  assert.equal((await as('Painter')({ action: 'take', minutes: 30, id: 'B1', branch: 'b1-tiles' })).ok, true)
   assert.equal((await as('Painter')({ action: 'report', id: 'B1', result: 'Four tiles.', merged: 'c0ffee1' })).ok, true)
   assert.equal((await workApi({ action: 'check', id: 'B1', passed: true, lines: ['branch gone'] }, { ...ctx, as: 'server' })).ok, true)
   const checked = await checkedAs('B1', { evidence: 'none (x)', points: ['fail: the tiles do not read'] })
@@ -473,7 +473,7 @@ test('B525: a step already on sonnet and medium keeps sonnet but is lifted to ef
   assert.match(await line(fixId, 'Effort') ?? '', /^high · /)
   // A goal that is not in evaluation: the fix step of its failed check keeps the step's sonnet and medium.
   assert.equal((await queueFor(dir, 'B4', 'Painter', { now: at + 60_000 })).ok, true)
-  assert.equal((await as('Painter')({ action: 'take', id: 'B4', branch: 'b4-lantern' })).ok, true)
+  assert.equal((await as('Painter')({ action: 'take', minutes: 30, id: 'B4', branch: 'b4-lantern' })).ok, true)
   assert.equal((await as('Painter')({ action: 'report', id: 'B4', result: 'A lantern.', merged: 'c0ffee2' })).ok, true)
   assert.equal((await workApi({ action: 'check', id: 'B4', passed: true, lines: ['branch gone'] }, { ...ctx, as: 'server' })).ok, true)
   const calmChecked = await checkedAs('B4', { evidence: 'none (x)', points: ['fail: the lantern is dark'] })

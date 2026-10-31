@@ -32,7 +32,7 @@ async function board() {
   const toReview = async (id, branch) => {
     // Redesign Part 2: the board gives it to the worker (a fix step too: it is on the list, a follow-up of its builder).
     assert.equal((await queueFor(dir, id, 'Painter', { now: at + 60_000 })).ok, true)
-    assert.equal((await as('Painter')({ action: 'take', id, branch })).ok, true)
+    assert.equal((await as('Painter')({ action: 'take', minutes: 30, id, branch })).ok, true)
     const reported = await as('Painter')({ action: 'report', id, result: 'Done.', merged: 'c0ffee1' })
     assert.equal(reported.ok, true, reported.why)
     assert.equal((await workApi({ action: 'check', id, passed: true, lines: ['branch gone'] }, { ...ctx, as: 'server' })).ok, true)
@@ -45,7 +45,7 @@ async function board() {
 test('a fix made from a two-fail check carries a Makes pass line under each fail, in order, and its check must tick them', async () => {
   const { as, read, toReview, checkedAs } = await board()
   assert.equal((await as('Partner')({ action: 'refine', id: 'B1', summary: 'Redraw the tiles.' })).ok, true)
-  assert.equal((await as('Partner')({ action: 'refined', id: 'B1', what: ['four tiles read as lava at play size', 'the edges glow where lava meets rock', 'a test for every tile', 'Not in it: new tiles'] })).ok, true)
+  assert.equal((await as('Partner')({ action: 'refined', size: '30 min', id: 'B1', what: ['four tiles read as lava at play size', 'the edges glow where lava meets rock', 'a test for every tile', 'Not in it: new tiles'] })).ok, true)
   await toReview('B1', 'b1-tiles')
   const checked = await checkedAs('B1', { evidence: 'none (x)', points: ['fail: the tiles use the old palette', 'pass: edges glow', 'fail: tileTest.mjs covers two of four', 'pass: not in it held'] })
   assert.equal(checked.ok, true, checked.why)

@@ -52,7 +52,7 @@ test('the Advisor\'s own work checked on a step is refused, naming the QA task a
   try {
     const { id } = await reported(store)
     const qa = await qaOf(store, id)
-    const refused = await store.partner({ action: 'checked', id, evidence: 'x.png', points: ['pass: a lamp at every bench', 'pass: warm yellow light, never white'] })
+    const refused = await store.partner({ action: 'checked', size: '30 min', id, evidence: 'x.png', points: ['pass: a lamp at every bench', 'pass: warm yellow light, never white'] })
     assert.deepEqual([refused.ok, refused.status], [false, 403])
     assert.equal(refused.why, `${id} is checked by its QA task ${qa} (not given yet): only its worker files the check.`)
   } finally {

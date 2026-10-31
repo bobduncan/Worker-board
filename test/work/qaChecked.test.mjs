@@ -47,7 +47,7 @@ test('a builder, another worker, the Advisor and the main chat are refused, each
     const { id } = await reported(store)
     const qa = await qaOf(store, id)
     await takeQa(store, qa)
-    const refused = async (who, body = CHECK) => store[who]({ action: 'checked', id, ...body })
+    const refused = async (who, body = CHECK) => store[who]({ action: 'checked', size: '30 min', id, ...body })
     const builder = await refused('lamplighter')
     assert.deepEqual([builder.ok, builder.status], [false, 403])
     assert.equal(builder.why, `${id} is checked by its QA task ${qa} (Checker): only its worker files the check; Lamplighter built ${id}.`)
@@ -59,7 +59,7 @@ test('a builder, another worker, the Advisor and the main chat are refused, each
     assert.match(partner.why, new RegExp(`^${id} is checked by its QA task ${qa} \\(Checker\\)`))
     const main = await refused('keeper')
     assert.equal(main.ok, false)
-    const person = await store.person({ action: 'checked', id, ...CHECK })
+    const person = await store.person({ action: 'checked', size: '30 min', id, ...CHECK })
     assert.equal(person.ok, false)
     // Nothing was filed, and the holder still can.
     assert.equal(valueOf(await item(store.dir, id), 'State'), 'review')
@@ -75,12 +75,12 @@ test('a QA task given but not taken yet cannot file: take it first; a step with 
     const { id } = await reported(store)
     const qa = await qaOf(store, id)
     assert.equal((await queueFor(store.dir, qa, 'Checker', { now: NOW + 60_000 })).ok, true)
-    const early = await store.checker({ action: 'checked', id, ...CHECK })
+    const early = await store.checker({ action: 'checked', size: '30 min', id, ...CHECK })
     assert.deepEqual([early.ok, early.status], [false, 409])
     assert.match(early.why, new RegExp(`^${qa} is queued: take it first`))
     // The person drops the task: nobody holds a check any more, until the board makes one again.
     assert.equal((await store.person({ action: 'drop', id: qa, why: 'test' })).ok, true)
-    const none = await store.checker({ action: 'checked', id, ...CHECK })
+    const none = await store.checker({ action: 'checked', size: '30 min', id, ...CHECK })
     assert.deepEqual([none.ok, none.status], [false, 403])
     assert.match(none.why, new RegExp(`^${id} has no QA task yet: the board makes one`))
   } finally {
@@ -94,7 +94,7 @@ test('a QA task is no step to check: its own check is refused, naming the step i
     const { id } = await reported(store)
     const qa = await qaOf(store, id)
     await takeQa(store, qa)
-    const own = await store.checker({ action: 'checked', id: qa, ...CHECK })
+    const own = await store.checker({ action: 'checked', size: '30 min', id: qa, ...CHECK })
     assert.deepEqual([own.ok, own.status], [false, 409])
     assert.match(own.why, new RegExp(`${qa} is a Quality Assurance task.*work checked ${id}`))
   } finally {
@@ -116,7 +116,7 @@ test('a failed point still makes the fix step and still ends the QA task; the fi
     assert.equal(valueOf(await item(store.dir, id), 'State'), 'review')
     // The builder fixes it; its board check passes; the fix waits for its own check: a new QA task, for the fix.
     await queueFor(store.dir, fixId, 'Lamplighter', { now: NOW + 60_000 })
-    await store.lamplighter({ action: 'take', id: fixId, branch: 'b-fix-lamps' })
+    await store.lamplighter({ action: 'take', minutes: 30, id: fixId, branch: 'b-fix-lamps' })
     await store.lamplighter({ action: 'report', id: fixId, result: 'All lamps are warm yellow.', merged: 'beef123' })
     const git = await store.server({ action: 'check', id: fixId, passed: true, lines: ['branch gone'] })
     const fixQa = await item(store.dir, git.result.qa)
@@ -170,7 +170,7 @@ test('the board\'s own filing (the role server) is allowed and drops the step\'s
   try {
     const { id } = await reported(store)
     const qa = await qaOf(store, id)
-    const filed = await store.server({ action: 'checked', id, ...CHECK })
+    const filed = await store.server({ action: 'checked', size: '30 min', id, ...CHECK })
     assert.equal(filed.ok, true, filed.why)
     assert.equal(filed.result.qaDone, undefined)
     const task = await item(store.dir, qa)

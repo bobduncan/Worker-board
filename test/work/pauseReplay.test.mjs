@@ -79,7 +79,7 @@ async function replay() {
   const server = (now, chat = 'server') => body => workApi(body, { dir, now, prefix: PREFIX, roleOf: name => ROLES[name] ?? null, as: chat })
   const deliver = (state, now) => deliverWork({ state, dir, outbox, apply: async body => server(now)(body), now, maxChars: 2000, newId: () => `m${(n += 1)}` })
   const read = async id => (await readStore(dir)).items.get(id)
-  return { dir, report, build, deliver, read, outbox, close: () => rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }), take: (now, chat, id) => workApi({ action: 'take', chat, id, branch: 'b746-check' }, { dir, now, prefix: PREFIX, roleOf: name => ROLES[name] ?? null }) }
+  return { dir, report, build, deliver, read, outbox, close: () => rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }), take: (now, chat, id) => workApi({ action: 'take', minutes: 30, chat, id, branch: 'b746-check' }, { dir, now, prefix: PREFIX, roleOf: name => ROLES[name] ?? null }) }
 }
 
 test('B782: the lines of 2026-10-28, 12:27-12:56, through the server\'s own pass: the resume names Worker 2 with B746, and not-taking opens nothing', async () => {

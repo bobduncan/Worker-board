@@ -53,7 +53,7 @@ test('an answer in the refine window answers the ask made for that question, wit
     // The other one in the window too: the fold is no longer refused.
     await person({ action: 'refine-answer', id: 'B7', answers: [{ index: 0, answer: 'no' }], feedback: '' })
     assert.equal(valueOf(await item(dir, 'Q1'), 'State'), 'answered')
-    const folded = await advisor({ action: 'refined', id: 'B7', what: ['Bats come one at a time.'] })
+    const folded = await advisor({ action: 'refined', size: '30 min', id: 'B7', what: ['Bats come one at a time.'] })
     assert.equal(folded.ok, true, folded.why)
   } finally {
     await rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })

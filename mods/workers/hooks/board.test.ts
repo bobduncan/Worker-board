@@ -241,7 +241,7 @@ describe('Pause 2: the pause state as the mod reads it, and the contexts it give
 describe('2026-10-28: the board names this chat by its session id', () => {
   test('the route, and the version the plugin states', () => {
     expect(WHOAMI_PATH).toBe('/api/bridge/whoami')
-    expect(MOD_VERSION).toBe('0.26.7')
+    expect(MOD_VERSION).toBe('0.26.8')
   })
 
   test('the answer: a name, the role the board gives it and the session its card is filed under', () => {
@@ -262,5 +262,12 @@ describe('2026-10-28: the board names this chat by its session id', () => {
     expect(parseWhoami(JSON.stringify({ name: 'N'.repeat(81) }))).toBeNull()
     expect(parseWhoami(JSON.stringify({ name: 'N'.repeat(80) }))?.name).toBe('N'.repeat(80))
     for (const text of ['', 'Not here.', '[]', 'null', '"Units"', '<html>']) expect(parseWhoami(text)).toBeNull()
+  })
+})
+
+describe("Your words: the main chat puts the person's words on a step (the person, 2026-10-31)", () => {
+  test('words is an action of the tool and where one of its fields', () => {
+    expect(WORK_ACTIONS.includes('words')).toBe(true)
+    expect(WORK_FIELDS.includes('where')).toBe(true)
   })
 })

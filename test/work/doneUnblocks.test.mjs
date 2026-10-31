@@ -44,7 +44,7 @@ test('a step that goes done leaves its dependants\' Blocked by in the same move,
   assert.equal(await blockedBy('B2'), 'B1')
   assert.equal(await blockedBy('B4'), 'B1 and B3')
 
-  await board({ action: 'take', id: 'B1', branch: 'b1-strip' })
+  await board({ action: 'take', minutes: 30, id: 'B1', branch: 'b1-strip' })
   assert.equal((await board({ action: 'report', id: 'B1', result: 'The strip shows.', merged: 'abc1234' })).ok, true)
   // In review: still blocking (the sync check frees it once its check passed).
   assert.equal(await blockedBy('B2'), 'B1')
@@ -55,7 +55,7 @@ test('a step that goes done leaves its dependants\' Blocked by in the same move,
   assert.equal(await blockedBy('B4'), 'B3')
   assert.equal(await last('B4'), '- 2026-10-24 21:06 server: no longer blocked by B1: done')
   // The freed step can be taken at once.
-  assert.equal((await board({ action: 'take', id: 'B2' })).ok, true)
+  assert.equal((await board({ action: 'take', minutes: 30, id: 'B2' })).ok, true)
 
   // The person ticks B3 done: B4 is free too.
   assert.equal((await person({ action: 'tick', id: 'B3' })).ok, true)

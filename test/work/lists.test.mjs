@@ -56,7 +56,7 @@ test('an ask stands under Needs your attention after the chat\'s next answer wit
   try {
     // Partner answers (2026-10-19) off: the person answers it, as before.
     await writeFile(join(dir, 'partner-answers.json'), '{"on":false}\n')
-    await asks({ action: 'take', id: 'B1' })
+    await asks({ action: 'take', minutes: 30, id: 'B1' })
     await asks({ action: 'ask', of: 'B1', kind: 'decide', blocking: true, text: 'Box or yew?', options: ['A box', 'B yew'], advice: 'B' })
     const state = await build(PLAIN)
     const need = state.forYou.find(one => one.id === 'work:Q1')
@@ -74,7 +74,7 @@ test('an ask stands under Needs your attention after the chat\'s next answer wit
 test('B269: an ask carries its whole first line as its question, also when its title is cut at a double quote', async () => {
   const { dir, digger: asks, build } = await garden()
   try {
-    await asks({ action: 'take', id: 'B1' })
+    await asks({ action: 'take', minutes: 30, id: 'B1' })
     await asks({ action: 'ask', of: 'B1', kind: 'look', blocking: false, text: 'Does the "low" hedge read right? I advise yes.\nIt stands by the gate.' })
     const need = (await build(PLAIN)).forYou.find(one => one.id === 'work:Q1')
     assert.equal(need.question, 'Does the "low" hedge read right? I advise yes.')
@@ -160,7 +160,7 @@ test('a note lands under Information and never under Needs your attention; read,
 test('an answered ask wakes its chat with its id and title, and the chat waits no more', async () => {
   const { dir, digger: asks, person, build } = await garden()
   try {
-    await asks({ action: 'take', id: 'B1' })
+    await asks({ action: 'take', minutes: 30, id: 'B1' })
     await asks({ action: 'ask', of: 'B1', kind: 'decide', blocking: true, text: 'Box or yew?' })
     const done = await person({ action: 'answer', id: 'Q1', text: 'Yew' })
     const words = answerWords(done.result.wake)
@@ -190,7 +190,7 @@ test('a question of the app\'s form stands as a card that is answered in its cha
 test('a lane on a step of the store carries the step\'s title as the store holds it', async () => {
   const { dir, digger: takes, build } = await garden()
   try {
-    await takes({ action: 'take', id: 'B1', branch: 'b1-hedge' })
+    await takes({ action: 'take', minutes: 30, id: 'B1', branch: 'b1-hedge' })
     const lane = digger(await build(PLAIN))
     assert.deepEqual([lane.task?.stepId, lane.task?.title], ['B1', 'Plant the hedge'])
   } finally {

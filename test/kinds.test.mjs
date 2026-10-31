@@ -97,11 +97,11 @@ test('refine writes the Standard line into the block, after the size, and keeps 
 test('refined is refused for a step that names a kind of the settings and has no standard; given one, or none with why, it is ready', async () => {
   const { dir, advisor } = await fresh()
   await advisor({ ...REFINE, id: 'B1' })
-  const refused = await advisor({ action: 'refined', id: 'B1', what: ['three forest levels'] })
+  const refused = await advisor({ action: 'refined', size: '30 min', id: 'B1', what: ['three forest levels'] })
   assert.equal(refused.status, 409)
   assert.equal(refused.why, 'B1 names the kind of work "level": give its standard in "standard" (or as a line of "what" that starts with "Standard:"), as "level · <a reference picture from art/levels> · target <score>" (checked against docs/done/level.md), or "none (<why>)" when it makes no level.')
   assert.equal(valueOf(await itemOf(dir, 'B1'), 'Refined'), 'open')
-  const ready = await advisor({ action: 'refined', id: 'B1', what: ['three forest levels'], standard: 'level · art/levels/forest.png · target 8' })
+  const ready = await advisor({ action: 'refined', size: '30 min', id: 'B1', what: ['three forest levels'], standard: 'level · art/levels/forest.png · target 8' })
   assert.equal(ready.ok, true, ready.why)
   const step = await itemOf(dir, 'B1')
   const block = step.sections.get('Refined').map(one => one.trim())
@@ -109,15 +109,15 @@ test('refined is refused for a step that names a kind of the settings and has no
   assert.equal(valueOf(step, 'Refined'), 'ready')
   // A step that names no kind needs none; one that names a kind by chance says why it has none.
   await advisor({ ...REFINE, id: 'B2', summary: 'The page draws faster.' })
-  assert.equal((await advisor({ action: 'refined', id: 'B2', what: ['half the time'] })).ok, true)
+  assert.equal((await advisor({ action: 'refined', size: '30 min', id: 'B2', what: ['half the time'] })).ok, true)
   const { advisor: other, dir: there } = await fresh()
   await other({ ...REFINE, id: 'B1' })
-  assert.equal((await other({ action: 'refined', id: 'B1', what: ['a level test'], standard: 'none (it tests the loader, no level is drawn)' })).ok, true)
+  assert.equal((await other({ action: 'refined', size: '30 min', id: 'B1', what: ['a level test'], standard: 'none (it tests the loader, no level is drawn)' })).ok, true)
   assert.equal(standardOf(await itemOf(there, 'B1')), 'none (it tests the loader, no level is drawn)')
   // Without kinds in the settings nothing is asked.
   const { advisor: free } = await fresh([])
   await free({ ...REFINE, id: 'B1' })
-  assert.equal((await free({ action: 'refined', id: 'B1', what: ['three forest levels'] })).ok, true)
+  assert.equal((await free({ action: 'refined', size: '30 min', id: 'B1', what: ['three forest levels'] })).ok, true)
 })
 
 test('B451: "none" is refused for a step that names a look kind; a kind\'s standard is taken', async () => {
@@ -134,11 +134,11 @@ test('B451: "none" is refused for a step that names a look kind; a kind\'s stand
   assert.deepEqual(parseConfig(JSON.stringify({ kinds: [{ ...LOOK[0] }, { ...LOOK[1], look: 'yes' }] }), {}).kinds.map(one => one.look), [true])
   const { dir, advisor } = await fresh(LOOK)
   await advisor({ ...REFINE, id: 'B1', summary: 'Three forest levels to walk.' })
-  const refused = await advisor({ action: 'refined', id: 'B1', what: ['three forest levels, drawn in the art'], standard: 'none (rules as data)' })
+  const refused = await advisor({ action: 'refined', size: '30 min', id: 'B1', what: ['three forest levels, drawn in the art'], standard: 'none (rules as data)' })
   assert.equal(refused.status, 409)
   assert.match(refused.why, /^B1 names the look kind "level", so it changes what the player sees: "none \(\.\.\.\)" is refused\. Give a kind's standard, "level · <a reference picture from art\/levels> · target <score>".*no look change: <why>/)
   assert.equal(valueOf(await itemOf(dir, 'B1'), 'Refined'), 'open')
-  const ready = await advisor({ action: 'refined', id: 'B1', what: ['three forest levels, drawn in the art'], standard: 'level · art/levels/forest.png · target 75' })
+  const ready = await advisor({ action: 'refined', size: '30 min', id: 'B1', what: ['three forest levels, drawn in the art'], standard: 'level · art/levels/forest.png · target 75' })
   assert.equal(ready.ok, true, ready.why)
 })
 
@@ -201,7 +201,7 @@ test('the partner\'s rounds name the kinds of work with their definitions of don
 test('a chat whose work tool has no "standard" yet gives it as a line of "what" that starts with Standard:', async () => {
   const { dir, advisor } = await fresh()
   await advisor({ ...REFINE, id: 'B1' })
-  const ready = await advisor({ action: 'refined', id: 'B1', what: ['Standard: level · art/levels/forest.png · target 8', 'three forest levels'] })
+  const ready = await advisor({ action: 'refined', size: '30 min', id: 'B1', what: ['Standard: level · art/levels/forest.png · target 8', 'three forest levels'] })
   assert.equal(ready.ok, true, ready.why)
   const step = await itemOf(dir, 'B1')
   assert.equal(standardOf(step), 'level · art/levels/forest.png · target 8')

@@ -39,7 +39,7 @@ test('the advisor takes its own queued step, reports it, and it goes to review; 
     const ctx = { dir, now: NOW + 60_000, prefix: 'Team - ', roleOf: chat => ROLES[chat] ?? null, freeChats: new Set() }
     const as = chat => body => workApi({ chat, ...body }, ctx)
     const state = async id => valueOf((await readStore(dir)).items.get(id), 'State')
-    const taken = await as('Advisor')({ action: 'take', id: 'B1', branch: 'b1-goals' })
+    const taken = await as('Advisor')({ action: 'take', minutes: 30, id: 'B1', branch: 'b1-goals' })
     assert.equal(taken.ok, true, taken.why)
     assert.equal(await state('B1'), 'in progress')
     const history = (await readStore(dir)).items.get('B1').sections.get('History')
@@ -49,7 +49,7 @@ test('the advisor takes its own queued step, reports it, and it goes to review; 
     assert.equal(await state('B1'), 'review')
     assert.equal((await as('Advisor')({ action: 'report', id: 'B1', result: 'Sorted again.' })).ok, true)
     // The main chat too.
-    assert.equal((await as('Main')({ action: 'take', id: 'B2' })).ok, true)
+    assert.equal((await as('Main')({ action: 'take', minutes: 30, id: 'B2' })).ok, true)
     assert.equal(await state('B2'), 'in progress')
     assert.equal((await as('Main')({ action: 'report', id: 'B2', result: 'The queue is tidy.' })).ok, true)
     assert.equal(await state('B2'), 'review')

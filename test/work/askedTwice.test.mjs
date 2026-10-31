@@ -36,7 +36,7 @@ const cleanUp = dir => rm(dir, { recursive: true, force: true, maxRetries: 5, re
 test('a "For you" item that asks in other words what the chat asked this turn files nothing (Q96, then Q97)', async () => {
   const { dir, board } = await fresh()
   try {
-    await board({ action: 'take', id: 'B1' }, NOW)
+    await board({ action: 'take', minutes: 30, id: 'B1' }, NOW)
     await board({ action: 'ask', of: 'B1', kind: 'decide', title: 'The hedge of yew and its gate: merge it?', text: 'Yew hedge along the west fence, an oak gate in the middle, lit by two lamps.' }, NOW + MIN)
     const ended = await board({ action: 'turn-ended', since: NOW + MIN - 1, forYou: [item('Merge the yew hedge with its oak gate? A yes, merge it, or B not yet, and say what to change.')] }, NOW + 2 * MIN)
     assert.deepEqual(ended.result.asked ?? [], [])
@@ -80,7 +80,7 @@ test('B480: an item that asks again what the chat withdrew unanswered is a new a
 test('an item that leads with another chat\'s open ask, or asks what it asks, files nothing (Q202 then Q204; Q225 then Q227)', async () => {
   const { dir, main, board, advisor } = await fresh()
   try {
-    await board({ action: 'take', id: 'B1' }, NOW)
+    await board({ action: 'take', minutes: 30, id: 'B1' }, NOW)
     await board({ action: 'ask', of: 'B1', kind: 'decide', title: 'Which of the ten pond proposals become steps?', text: 'The page lists ten weak places of the pond, each with its cost.' }, NOW + MIN)
     await advisor({ action: 'ask', kind: 'decide', title: 'Does a fall from two terraces do two damage?', text: 'One damage per terrace dropped, unless the gnome lands in the pond.' }, NOW + MIN)
     const pointer = await main({ action: 'turn-ended', since: NOW + 2 * MIN, forYou: [
@@ -167,7 +167,7 @@ test('work ask refuses a question the chat holds open under the same step or goa
 test('work ask refuses a question the person answered a moment ago, with the answer; later it is a new ask (Q160 then Q162; Q190 then Q192)', async () => {
   const { dir, board, advisor, person } = await fresh()
   try {
-    await board({ action: 'take', id: 'B1' }, NOW)
+    await board({ action: 'take', minutes: 30, id: 'B1' }, NOW)
     const gate = { kind: 'decide', of: 'B1', title: 'Which gate do I build?', text: 'A: oak gate with two lamps beside the hedge; B: iron gate with a stone arch over the path.', options: ['A oak', 'B iron'] }
     await board({ action: 'ask', ...gate }, NOW + MIN)
     await person({ action: 'answer', id: 'Q1', text: 'A oak' }, NOW + 2 * MIN)
@@ -209,7 +209,7 @@ test('the measure of alike: one question in other words is alike, two questions 
 test('the warning "filed no ask" stays away for an item the board left out as asked already by another chat (Q204)', async () => {
   const { dir, main, board } = await fresh()
   try {
-    await board({ action: 'take', id: 'B1' }, NOW)
+    await board({ action: 'take', minutes: 30, id: 'B1' }, NOW)
     await board({ action: 'ask', of: 'B1', kind: 'decide', title: 'Which of the ten pond proposals become steps?', text: 'The page lists ten weak places of the pond, each with its cost.' }, NOW + MIN)
     const PROJECT = 'C:\\garden'
     const config = { ...parseConfig('{}', {}), project: PROJECT }

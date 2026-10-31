@@ -67,7 +67,7 @@ async function board(t) {
   const read = async id => (await readStore(dir)).items.get(id)
   const toReview = async (id, branch) => {
     assert.equal((await queueFor(dir, id, 'Painter', { now: at + MIN })).ok, true)
-    assert.equal((await as('Painter')({ action: 'take', id, branch })).ok, true)
+    assert.equal((await as('Painter')({ action: 'take', minutes: 30, id, branch })).ok, true)
     const reported = await as('Painter')({ action: 'report', id, result: 'Done.', merged: 'c0ffee1' })
     assert.equal(reported.ok, true, reported.why)
     assert.equal((await workApi({ action: 'check', id, passed: true, lines: ['branch gone'] }, { ...ctx, as: 'server' })).ok, true)
@@ -80,7 +80,7 @@ async function board(t) {
 test('a chain with two tries gets its next fix open for the partner; the first fix stays refined for the worker', async t => {
   const { as, read, toReview, fail } = await board(t)
   assert.equal((await as('Partner')({ action: 'refine', id: 'B1', summary: 'Round shapes.' })).ok, true)
-  assert.equal((await as('Partner')({ action: 'refined', id: 'B1', what: ['round islands on whole cells', 'whole cells'] })).ok, true)
+  assert.equal((await as('Partner')({ action: 'refined', size: '30 min', id: 'B1', what: ['round islands on whole cells', 'whole cells'] })).ok, true)
   // B618's check fails: one try, so its fix (as B636) is refined, ready for the worker, as before.
   await toReview('B1', 'b1-round')
   const first = await fail('B1')
@@ -102,7 +102,7 @@ test('a chain with two tries gets its next fix open for the partner; the first f
   assert.match(third.sections.get('History').join('\n'), /open: 2 tries, the partner refines it another way/)
   // The partner refines it another way; its what starts with Tried before, and it goes to the ready list.
   assert.equal((await as('Partner')({ action: 'refine', id: again.result.fix, summary: 'Cut the islands from a painting.' })).ok, true)
-  const done = await as('Partner')({ action: 'refined', id: again.result.fix, what: ['Tried before: cell-by-cell outlines, 60 and 71 of 75, the steps stay', 'islands cut from one painting'] })
+  const done = await as('Partner')({ action: 'refined', size: '30 min', id: again.result.fix, what: ['Tried before: cell-by-cell outlines, 60 and 71 of 75, the steps stay', 'islands cut from one painting'] })
   assert.equal(done.ok, true, done.why)
   assert.equal((await read(again.result.fix)).head.get('State'), 'refined')
 })

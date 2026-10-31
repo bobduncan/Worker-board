@@ -37,7 +37,7 @@ test('gamePageIn: the sound board by its words or by its address; an address of 
 test('an ask naming the sound board carries a play link on the step\'s branch, in the block', async () => {
   const { dir, board } = await fresh()
   try {
-    await board({ action: 'take', id: 'B1', branch: 'b1-sound' })
+    await board({ action: 'take', minutes: 30, id: 'B1', branch: 'b1-sound' })
     const made = await board({ action: 'ask', of: 'B1', kind: 'do', title: 'Pick the best sound', text: 'Open the sound board and pick one.' })
     assert.equal(made.ok, true, made.why)
     assert.match(made.result.text, /\[Play it: the sound board\]\(http:\/\/127\.0\.0\.1:4310\/#play=b1-sound&page=soundboard\)/)
@@ -55,7 +55,7 @@ test('a play the worker gave stays; an address of the sound board becomes the li
     assert.equal(address.ok, true, address.why)
     assert.match(address.result.text, /#play=main&page=soundboard\)/)
     assert.doesNotMatch(address.result.text, /Note:/)
-    await board({ action: 'take', id: 'B1', branch: 'b1-sound' })
+    await board({ action: 'take', minutes: 30, id: 'B1', branch: 'b1-sound' })
     const given = await board({ action: 'ask', of: 'B1', kind: 'do', title: 'Pick the best sound', text: 'Open the sound board.', play: 'b1-sound&screen=shop' })
     assert.match(given.result.text, /#play=b1-sound&screen=shop\)/)
     // Your words (2026-10-30): once it holds B1, an ask with no step stands under B1, so its link plays B1's branch.
@@ -70,7 +70,7 @@ test('a play the worker gave stays; an address of the sound board becomes the li
 test('a do ask with a local address the board cannot link gets a note, and is not refused', async () => {
   const { dir, board } = await fresh()
   try {
-    await board({ action: 'take', id: 'B1', branch: 'b1-sound' })
+    await board({ action: 'take', minutes: 30, id: 'B1', branch: 'b1-sound' })
     const made = await board({ action: 'ask', of: 'B1', kind: 'do', title: 'Check the tool page', text: 'Open http://localhost:5173/tool.html and check it.' })
     assert.equal(made.ok, true, made.why)
     assert.match(made.result.text, /\n\nNote: http:\/\/localhost:5173\/tool\.html is no link the person can open/)

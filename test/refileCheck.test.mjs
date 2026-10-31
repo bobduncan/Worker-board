@@ -35,7 +35,7 @@ async function waiting() {
   const made = await store.partner({ action: 'new', title: 'Light the lamps', activity: 'Lamps', goal: 'G3', text: 'Warm light.', summary: 'A warm lamp on every path.', size: '1 h', what: ['a lamp at every bench', 'the glow feels warm'] })
   const id = made.result.id
   assert.equal((await queueFor(dir, id, 'Lamplighter', { now: clock })).ok, true)
-  assert.equal((await store.lamplighter({ action: 'take', id, branch: 'b3-lamps' })).ok, true)
+  assert.equal((await store.lamplighter({ action: 'take', minutes: 30, id, branch: 'b3-lamps' })).ok, true)
   assert.equal((await store.lamplighter({ action: 'report', id, result: 'Every bench has a lamp.', merged: 'c0ffee1' })).ok, true)
   assert.equal((await store.server({ action: 'check', id, passed: true, lines: ['branch gone'] })).ok, true)
   const checked = await checkedBy({ as, server, dir, now: clock }, id, { evidence: 'pictures/b3/evidence.png', points: ['pass: a lamp at every bench', 'ask: the glow feels warm'] })

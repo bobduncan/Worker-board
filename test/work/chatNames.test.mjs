@@ -95,7 +95,7 @@ test('an Owner already written as prefix + a known name counts as that name: its
     const plan = reconcile({ store, lanes: [{ name: 'Worker 2', state: 'free', isRunning: true }], now: NOW, times: { graceMs: 600_000, askMs: 3_600_000, idleMs: 1_800_000 }, prefix: ctx.prefix })
     assert.deepEqual(plan.deliveries.map(one => [one.id, one.chat]), [['B1', 'Worker 2']])
     assert.match((await as('Worker 2')({ action: 'next' })).result.text, /B1 queued/)
-    const taken = await as('Worker 2')({ action: 'take', id: 'B1', branch: 'b1-damage' })
+    const taken = await as('Worker 2')({ action: 'take', minutes: 30, id: 'B1', branch: 'b1-damage' })
     assert.equal(taken.ok, true, taken.why)
     assert.equal(valueOf(await item(dir, 'B1'), 'State'), 'in progress')
     // Repaired once its chat takes it: the list's name.

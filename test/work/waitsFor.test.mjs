@@ -84,7 +84,7 @@ const itemOf = async (dir, id) => (await readStore(dir)).items.get(id)
 test('B306: take refuses a step that waits for words, naming them and how the main chat clears them; pull wakes nobody for it', async () => {
   const { dir, kites } = await fresh([step('B43', 'queued', { Owner: 'Kites', 'Waits for': "today's crew work" })])
   try {
-    const took = await kites({ action: 'take', id: 'B43', branch: 'b43-x' })
+    const took = await kites({ action: 'take', minutes: 30, id: 'B43', branch: 'b43-x' })
     assert.equal(took.status, 409)
     assert.equal(took.why, "B43 waits for: today's crew work; the main chat clears it with work unblock B43")
     assert.equal(valueOf(await itemOf(dir, 'B43'), 'State'), 'queued')
@@ -98,11 +98,11 @@ test('B306: take refuses a step that waits for words, naming them and how the ma
 test('B306: take refuses a step whose Waits for names an open ask, naming it; once answered it is taken', async () => {
   const { dir, kites } = await fresh([ask('B77', 'open'), step('B76', 'queued', { Owner: 'Kites', 'Waits for': 'B77 says keep it' })])
   try {
-    const took = await kites({ action: 'take', id: 'B76' })
+    const took = await kites({ action: 'take', minutes: 30, id: 'B76' })
     assert.equal(took.status, 409)
     assert.equal(took.why, 'B76: "Blocked by all done" does not hold (flow.json): B77 is open')
     await writeFile(join(dir, 'B77.md'), ask('B77', 'answered'))
-    const again = await kites({ action: 'take', id: 'B76' })
+    const again = await kites({ action: 'take', minutes: 30, id: 'B76' })
     assert.equal(again.ok, true, again.why)
     assert.equal(valueOf(await itemOf(dir, 'B76'), 'State'), 'in progress')
   } finally {
@@ -143,7 +143,7 @@ test('B306: unblock without "on" clears Waits for: the main chat or the person, 
     const item = await itemOf(dir, 'B43')
     assert.equal(valueOf(item, 'Waits for'), null)
     assert.equal(item.sections.get('History').at(-1), "- 2026-10-17 12:00 Main: no longer waits for: today's crew work")
-    assert.equal((await kites({ action: 'take', id: 'B43' })).ok, true)
+    assert.equal((await kites({ action: 'take', minutes: 30, id: 'B43' })).ok, true)
     assert.equal((await person({ action: 'unblock', id: 'B45' })).ok, true)
     assert.equal((await itemOf(dir, 'B45')).sections.get('History').at(-1), '- 2026-10-17 12:00 person: no longer waits for: the new sails')
     // Nothing to clear: nothing changes.

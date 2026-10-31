@@ -106,7 +106,7 @@ const idOf = reply => reply.body.result?.id ?? reply.body.id
 
 test('Find obsolete items on a running board: one word to the partner, its verdicts close the obsolete ones at once, none woken', { timeout: 300_000 }, async t => {
   const g = await garden(t)
-  assert.equal((await g.asChat('Digger', { action: 'take', id: 'B12', branch: 'b12' })).status, 200)
+  assert.equal((await g.asChat('Digger', { action: 'take', minutes: 30, id: 'B12', branch: 'b12' })).status, 200)
   const first = await g.asChat('Digger', { action: 'ask', of: 'B12', kind: 'provide', text: 'Which spade?' })
   const second = await g.asChat('Digger', { action: 'ask', of: 'B12', kind: 'do', text: 'Restart the board' })
   assert.equal(first.status, 200, JSON.stringify(first.body))
@@ -146,7 +146,7 @@ test('Find obsolete items on a running board: one word to the partner, its verdi
 
 test('a board whose list holds no partner chat refuses the check, and writes none', { timeout: 300_000 }, async t => {
   const g = await garden(t, { advisor: 'Nobody' })
-  await g.asChat('Digger', { action: 'take', id: 'B12', branch: 'b12' })
+  await g.asChat('Digger', { action: 'take', minutes: 30, id: 'B12', branch: 'b12' })
   assert.equal((await g.asChat('Digger', { action: 'ask', of: 'B12', kind: 'provide', text: 'Which spade?' })).status, 200)
   const view = (await g.state()).obsolete
   assert.equal(view.canCheck, false)

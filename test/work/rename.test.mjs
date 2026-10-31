@@ -77,7 +77,7 @@ test('B313: after the rename the chat takes and reports its step under its new n
     const reported = await worker4({ action: 'report', id: 'B1', result: 'the strip' })
     assert.equal(reported.ok, true, reported.why)
     assert.equal(await field(dir, 'B1', 'State'), 'review')
-    assert.equal((await units({ action: 'take', id: 'B2' })).status, 409)
+    assert.equal((await units({ action: 'take', minutes: 30, id: 'B2' })).status, 409)
   } finally {
     await rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }

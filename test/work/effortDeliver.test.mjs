@@ -187,13 +187,13 @@ test('the review: an opus step stays held past three minutes, the lane says sinc
     assert.deepEqual(state.chats.find(lane => lane.name === 'Digger').flags, [{ kind: 'model', id: 'B1', text, button: null }])
     assert.equal(state.reconciled.holds.B1, text)
     // Its own take is refused while it waits, with why.
-    const take = await workApi({ chat: 'Digger', action: 'take', id: 'B1', branch: 'b1-hedge' }, { ...ctx(later), stepHold: id => state.reconciled.holds?.[id] ?? null })
+    const take = await workApi({ chat: 'Digger', action: 'take', minutes: 30, id: 'B1', branch: 'b1-hedge' }, { ...ctx(later), stepHold: id => state.reconciled.holds?.[id] ?? null })
     assert.equal(take.status, 409)
     assert.equal(take.why, `${text} Take it once the board sends it.`)
     // On Opus now: the line goes, and the take is the worker's.
     state = await build({ now: later + MIN, effort: 'low', model: 'claude-opus-test', outbox: outbox.outbox() })
     assert.deepEqual([state.reconciled.deliveries.map(one => one.id), state.reconciled.held, state.reconciled.holds], [['B1'], [], {}])
-    assert.equal((await workApi({ chat: 'Digger', action: 'take', id: 'B1', branch: 'b1-hedge' }, { ...ctx(later + MIN), stepHold: id => state.reconciled.holds?.[id] ?? null })).ok, true)
+    assert.equal((await workApi({ chat: 'Digger', action: 'take', minutes: 30, id: 'B1', branch: 'b1-hedge' }, { ...ctx(later + MIN), stepHold: id => state.reconciled.holds?.[id] ?? null })).ok, true)
   } finally {
     await rm(dir, { recursive: true, force: true })
   }

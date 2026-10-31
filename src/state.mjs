@@ -6,7 +6,7 @@ import { join } from 'node:path'
 import { boardChats, parseAppChat, parseList } from './appChats.mjs'
 import { parseAsk } from './asks.mjs'
 import { ASK_MS, GRACE_MS, IDLE_HOLD_MS } from './config.mjs'
-import { allWords, closedForYou, minutesOf, forYou, noteSections, overview, queue, refineStateOf, withoutNotes } from './backlog.mjs'
+import { allWords, closedForYou, minutesOf, sizeMinutes, forYou, noteSections, overview, queue, refineStateOf, withoutNotes } from './backlog.mjs'
 import { pathKey } from './games.mjs'
 import { asksAtEnd, parseHandover } from './handover.mjs'
 import { gapsOf, hourEnd, hourStart, notWorkedCounter, taskFacts, today } from './history.mjs'
@@ -1065,14 +1065,6 @@ export function lookingFor({ list, prefix, config, chats }) {
   return lines
 }
 
-/** Focus 1: the minutes a part's size names ("about 1 h", "30 min", "1.5 h", "2 h 30 min"); null when it names none. */
-function sizeMinutes(size) {
-  // "1 h" and "1 hour", "45 min" and "45 minutes" (2026-10-31: a refine in words gave its worker no time).
-  const hours = String(size ?? '').match(/(\d+(?:[.,]\d+)?)\s*h(?:ours?|rs?)?\b/)
-  const minutes = String(size ?? '').match(/(\d+)\s*min(?:utes?|s)?\b/)
-  if (hours === null && minutes === null) return null
-  return Math.round((hours === null ? 0 : Number(hours[1].replace(',', '.')) * 60) + (minutes === null ? 0 : Number(minutes[1])))
-}
 
 const FINISHED = ['done', 'closed', 'dropped']
 const UNDER_WAY = ['taken', 'in progress', 'waiting on you', 'review']

@@ -222,7 +222,7 @@ test('the review: a chat of role supervisor may end its turns (turn-ended), read
   const ended = await s.chat('Watcher', { action: 'turn-ended', since: NOW - MIN })
   assert.equal(ended.ok, true, ended.why)
   for (const action of ['next', 'pull', 'list']) assert.equal((await s.chat('Watcher', { action })).ok, true, action)
-  for (const body of [{ action: 'note', to: 'main', text: ['x'] }, { action: 'new', title: 'x' }, { action: 'take', id: 'B12' }, { action: 'block', id: 'B12', on: 'B13' }, { action: 'incident-fix', id: 'X1', fix: 'B12' }]) {
+  for (const body of [{ action: 'note', to: 'main', text: ['x'] }, { action: 'new', title: 'x' }, { action: 'take', minutes: 30, id: 'B12' }, { action: 'block', id: 'B12', on: 'B13' }, { action: 'incident-fix', id: 'X1', fix: 'B12' }]) {
     assert.equal((await s.chat('Watcher', body)).status, 403, body.action)
   }
 })

@@ -26,12 +26,12 @@ async function secondRound(store) {
   assert.equal(filed.ok, true, filed.why)
   const fix = filed.result.fix
   await queueFor(store.dir, fix, 'Spare', { now: NOW + 60_000 })
-  assert.equal((await store.spare({ action: 'take', id: fix, branch: 'b-fix-lamps' })).ok, true)
+  assert.equal((await store.spare({ action: 'take', minutes: 30, id: fix, branch: 'b-fix-lamps' })).ok, true)
   assert.equal((await store.spare({ action: 'report', id: fix, result: 'Every bench has a lamp.', merged: 'beef123' })).ok, true)
   const git = await store.server({ action: 'check', id: fix, passed: true, lines: ['branch gone'] })
   assert.equal(git.ok, true, git.why)
   await takeQa(store, git.result.qa)
-  const fixed = await store.checker({ action: 'checked', id: fix, evidence: 'none (test)', points: ['pass: a lamp at every bench', 'pass: Makes pass: a lamp at every bench'] })
+  const fixed = await store.checker({ action: 'checked', size: '30 min', id: fix, evidence: 'none (test)', points: ['pass: a lamp at every bench', 'pass: Makes pass: a lamp at every bench'] })
   assert.equal(fixed.ok, true, fixed.why)
   assert.match(fixed.result.qa, /^B\d+$/, 'the fixed step waits for its check again')
   return { id, fix, qa: fixed.result.qa }
@@ -84,7 +84,7 @@ test('4b: the hand-out bars the stored Not by joined with the builders now: the 
     assert.equal((await store.server({ action: 'advance', id: qa, to: 'queued', for: 'Lamplighter' })).ok, false)
     // The holder gate: a chat that took a fix of the step after the task was given to it cannot file its check.
     await rewrite(store.dir, qa, head => head.set('Owner', 'Spare').set('State', 'in progress'))
-    const filed = await store.spare({ action: 'checked', id, evidence: 'none (test)', points: ['pass: a lamp at every bench', 'pass: warm yellow light, never white'] })
+    const filed = await store.spare({ action: 'checked', size: '30 min', id, evidence: 'none (test)', points: ['pass: a lamp at every bench', 'pass: warm yellow light, never white'] })
     assert.deepEqual([filed.ok, filed.status], [false, 403])
     assert.match(filed.why, /but Spare built B\d+ or a fix of it: a builder never files its check/)
     assert.equal(valueOf(await item(store.dir, id), 'State'), 'review')

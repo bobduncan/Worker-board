@@ -35,7 +35,7 @@ async function garden() {
   await writeStore(dir, migrateBacklog(BACKLOG, { now: NOW - 60 * MIN }), undefined, { now: NOW - 60 * MIN })
   const ctx = (now = NOW) => ({ dir, now, prefix: 'Garden · ', roleOf: chat => ROLES[chat] ?? null, chats: Object.keys(ROLES), freeChats: new Set(), hasGoal: () => false })
   const as = chat => (body, now) => workApi({ chat, ...body }, ctx(now))
-  await as('Digger')({ action: 'take', id: 'B1', branch: 'b1' })
+  await as('Digger')({ action: 'take', minutes: 30, id: 'B1', branch: 'b1' })
   return { dir, digger: as('Digger'), sage: as('Sage'), server: (body, now) => workApi(body, { ...ctx(now), as: 'server' }) }
 }
 

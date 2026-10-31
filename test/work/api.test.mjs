@@ -51,7 +51,7 @@ test('B301: no store, or a store folder that cannot be read: every action, the r
   const dir = await mkdtemp(join(tmpdir(), 'work-api-'))
   try {
     const ctx = { dir: join(dir, 'work'), now: NOW, prefix: 'Team - ', roleOf: chat => ROLES[chat] ?? null, freeChats: new Set(), backlogFile: join(dir, 'backlog.md') }
-    for (const body of [{ action: 'take', id: 'B1' }, { action: 'next' }, { action: 'list' }]) {
+    for (const body of [{ action: 'take', minutes: 30, id: 'B1' }, { action: 'next' }, { action: 'list' }]) {
       const none = await workApi({ chat: 'Board', ...body }, ctx)
       assert.equal(none.status, 503)
       assert.equal(none.why, `No work store in ${ctx.dir}: the board shows no work. In the board's folder, make it from the backlog with "node tools/migrate-backlog.mjs --backlog ${ctx.backlogFile} --work ${ctx.dir} --make-store", or make an empty one with "node tools/migrate-backlog.mjs --work ${ctx.dir} --init".`)
@@ -81,14 +81,14 @@ test('a chat that is not in the list, and an unknown action, are refused', async
 test('take: the board moves a queued step to taken for its chat, the chat to in progress, with the branch', async () => {
   const { dir, board } = await fresh()
   try {
-    const taken = await board({ action: 'take', id: 'B1', branch: 'b1-strip' })
+    const taken = await board({ action: 'take', minutes: 30, id: 'B1', branch: 'b1-strip' })
     assert.equal(taken.ok, true, taken.why)
     assert.equal(taken.result.title, 'Draw the strip')
     assert.equal(await state(dir, 'B1'), 'in progress')
     assert.equal(valueOf(await item(dir, 'B1'), 'Branch'), 'b1-strip')
     assert.deepEqual((await history(dir, 'B1')).slice(-2), ['- 2026-10-17 11:06 Board: queued → taken', '- 2026-10-17 11:06 Board: taken → in progress'])
     // Its step waits for B1: the flow's guard says no.
-    assert.deepEqual(await board({ action: 'take', id: 'B2' }), { ok: false, status: 409, why: 'B2: "Blocked by all done" does not hold (flow.json): B1 is in progress' })
+    assert.deepEqual(await board({ action: 'take', minutes: 30, id: 'B2' }), { ok: false, status: 409, why: 'B2: "Blocked by all done" does not hold (flow.json): B1 is in progress' })
   } finally {
     await rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
@@ -97,14 +97,14 @@ test('take: the board moves a queued step to taken for its chat, the chat to in 
 test('take twice refuses the second with the holder\'s name', async () => {
   const { dir, board, support } = await fresh()
   try {
-    assert.deepEqual(await support({ action: 'take', id: 'B1' }), { ok: false, status: 409, why: 'B1 is queued for Board, not for Support.' })
+    assert.deepEqual(await support({ action: 'take', minutes: 30, id: 'B1' }), { ok: false, status: 409, why: 'B1 is queued for Board, not for Support.' })
     // Two takes at once: one wins, the other is told who holds it.
-    const both = await Promise.all([board({ action: 'take', id: 'B1' }), support({ action: 'take', id: 'B1' })])
+    const both = await Promise.all([board({ action: 'take', minutes: 30, id: 'B1' }), support({ action: 'take', minutes: 30, id: 'B1' })])
     assert.equal(both[0].ok, true)
     assert.deepEqual(both[1], { ok: false, status: 409, why: 'B1: Board holds it (in progress).' })
     // A step the chat holds already is no change.
-    assert.equal(await support({ action: 'take', id: 'B4' }).then(done => done.result.changed), false)
-    assert.deepEqual(await board({ action: 'take', id: 'B4' }), { ok: false, status: 409, why: 'B4: Team - Support holds it (in progress).' })
+    assert.equal(await support({ action: 'take', minutes: 30, id: 'B4' }).then(done => done.result.changed), false)
+    assert.deepEqual(await board({ action: 'take', minutes: 30, id: 'B4' }), { ok: false, status: 409, why: 'B4: Team - Support holds it (in progress).' })
   } finally {
     await rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
@@ -114,7 +114,7 @@ test('step writes one History line on the step the chat holds', async () => {
   const { dir, board, support } = await fresh()
   try {
     assert.equal((await board({ action: 'step', id: 'B1', step: 2 })).status, 409)
-    await board({ action: 'take', id: 'B1' })
+    await board({ action: 'take', minutes: 30, id: 'B1' })
     const stepped = await board({ action: 'step', id: 'B1', step: 2, names: ['Read', 'Draw', 'Test'], minutes: 40 })
     assert.equal(stepped.result.text, 'B1: step 2/3, Draw, about 40 min left.')
     assert.equal((await history(dir, 'B1')).at(-1), '- 2026-10-17 11:06 Board: step 2/3, Draw, about 40 min left')
@@ -129,7 +129,7 @@ test('ask with Blocking yes moves the step to waiting on you; answer moves it ba
   try {
     // Partner answers (2026-10-19) off: the person answers it, as before.
     await writeFile(join(dir, 'partner-answers.json'), '{"on":false}\n')
-    await board({ action: 'take', id: 'B1' })
+    await board({ action: 'take', minutes: 30, id: 'B1' })
     const asked = await board({ action: 'ask', of: 'B1', kind: 'look', blocking: 'yes', text: 'Is the strip readable at a glance?', options: ['A thin', 'B thick (I advise B)'], pictures: 'pictures/strip.png' })
     assert.equal(asked.ok, true, asked.why)
     assert.equal(asked.result.id, 'Q1')
@@ -162,7 +162,7 @@ test('ask with Blocking yes moves the step to waiting on you; answer moves it ba
 test('report moves to review and records "check pending"; the board\'s check closes it; the main chat gets a note', async () => {
   const { dir, board, server } = await fresh()
   try {
-    await board({ action: 'take', id: 'B1', branch: 'b1-strip' })
+    await board({ action: 'take', minutes: 30, id: 'B1', branch: 'b1-strip' })
     assert.equal((await board({ action: 'report', id: 'B1' })).status, 400)
     const reported = await board({ action: 'report', id: 'B1', result: 'The strip shows on the board.', merged: 'abc1234' })
     assert.equal(reported.ok, true, reported.why)
@@ -233,7 +233,7 @@ test('refine writes today\'s block and Refined: open; refined makes it ready and
   const { dir, advisor, board, person } = await fresh()
   try {
     assert.equal((await board({ action: 'refine', id: 'B7', summary: 'x' })).status, 403)
-    assert.equal((await advisor({ action: 'refined', id: 'B7', what: ['x'] })).why, 'B7 has no refine block yet: refine it first.')
+    assert.equal((await advisor({ action: 'refined', size: '30 min', id: 'B7', what: ['x'] })).why, 'B7 has no refine block yet: refine it first.')
     const refined = await advisor({ action: 'refine', id: 'B7', summary: 'One strip per step.', goal: 'G4', size: '1 h', questions: ['Thin or thick? I advise thick.'] })
     assert.equal(refined.ok, true, refined.why)
     let seven = await item(dir, 'B7')
@@ -294,7 +294,7 @@ test('a hand-edited file with a broken head is refused, not moved', async () => 
   try {
     const text = await readFile(join(dir, 'B1.md'), 'utf8')
     await writeFile(join(dir, 'B1.md'), text.replace('Owner: Board', 'Owner Board'))
-    assert.deepEqual(await board({ action: 'take', id: 'B1' }), { ok: false, status: 409, why: 'B1: its file is broken (line 5 is no head line: "Owner Board"); fix it by hand first.' })
+    assert.deepEqual(await board({ action: 'take', minutes: 30, id: 'B1' }), { ok: false, status: 409, why: 'B1: its file is broken (line 5 is no head line: "Owner Board"); fix it by hand first.' })
     assert.equal((await readFile(join(dir, 'B1.md'), 'utf8')).includes('Owner Board'), true)
   } finally {
     await rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
@@ -306,12 +306,12 @@ test('after a change the view is written, and it reads back as the store', async
   try {
     const file = join(dir, '..', `${dir.split(/[\\/]/).at(-1)}-backlog.md`)
     const viewed = { ...ctx, viewFile: file }
-    await workApi({ action: 'take', chat: 'Board', id: 'B1' }, viewed)
+    await workApi({ action: 'take', minutes: 30, chat: 'Board', id: 'B1' }, viewed)
     await main({ action: 'new', title: 'Another step', activity: 'Board work' })
     await workApi({ action: 'drop', chat: 'Main', id: 'B3', why: 'not now' }, viewed)
     const view = await readFile(file, 'utf8')
     assert.match(view.split('\n')[0], /^<!-- generated by the worker board from .*; edit nothing here -->$/)
-    assert.match(view, /^- \[ \] B1 Draw the strip \(for Board; about 1 h\)\n {2}\[store\] State: in progress$/m)
+    assert.match(view, /^- \[ \] B1 Draw the strip \(for Board; about 1 h\)\n {2}\[store\] State: in progress · Plan: until .*$/m)
     assert.match(view, /^- \[x\] B3 A new idea/m)
     assert.match(view, /^- \[ \] B8 Another step$/m)
     const store = await readStore(dir)
@@ -398,7 +398,7 @@ test('B378 review: a repository named in a later part, backslashes, words before
 test('review 1: the chat that asked withdraws a blocking ask; the step goes on, and a report waits for that', async () => {
   const { dir, board, support, main } = await fresh()
   try {
-    await board({ action: 'take', id: 'B1' })
+    await board({ action: 'take', minutes: 30, id: 'B1' })
     await board({ action: 'ask', of: 'B1', kind: 'decide', blocking: true, text: 'Thin or thick?' })
     assert.equal(await state(dir, 'B1'), 'waiting on you')
     assert.equal((await board({ action: 'report', id: 'B1', result: 'done' })).why, 'B1 waits on Q1: withdraw it (work withdraw Q1) or wait for the answer.')
@@ -422,11 +422,11 @@ test('review 2: a step in progress without an owner is claimed by the chat that 
     // B4's line names Team - Support; a migrated step may name nobody.
     const text = await readFile(join(dir, 'B4.md'), 'utf8')
     await writeFile(join(dir, 'B4.md'), text.replace(/^Owner: .*\n/m, ''))
-    const claimed = await board({ action: 'take', id: 'B4' })
+    const claimed = await board({ action: 'take', minutes: 30, id: 'B4' })
     assert.equal(claimed.ok, true, claimed.why)
     assert.equal(valueOf(await item(dir, 'B4'), 'Owner'), 'Board')
     assert.equal((await history(dir, 'B4')).at(-1), '- 2026-10-17 11:06 Board: claimed (in progress)')
-    assert.equal((await support({ action: 'take', id: 'B4' })).why, 'B4: Board holds it (in progress).')
+    assert.equal((await support({ action: 'take', minutes: 30, id: 'B4' })).why, 'B4: Board holds it (in progress).')
   } finally {
     await rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
@@ -435,7 +435,7 @@ test('review 2: a step in progress without an owner is claimed by the chat that 
 test('review 5: the person closing a step in progress records it done, not dropped', async () => {
   const { dir, board, person } = await fresh()
   try {
-    await board({ action: 'take', id: 'B1' })
+    await board({ action: 'take', minutes: 30, id: 'B1' })
     await person({ action: 'tick', id: 'B1', line: 'Closed by you on the worker board.' })
     assert.equal(await state(dir, 'B1'), 'done')
     await person({ action: 'tick', id: 'B3', line: '' })
@@ -448,7 +448,7 @@ test('review 5: the person closing a step in progress records it done, not dropp
 test('review 6: an answer whose ask cannot be written leaves the step and the ask as they were', async () => {
   const { dir, ctx, board } = await fresh()
   try {
-    await board({ action: 'take', id: 'B1' })
+    await board({ action: 'take', minutes: 30, id: 'B1' })
     await board({ action: 'ask', of: 'B1', kind: 'decide', blocking: true, text: 'Thin or thick?' })
     const before = [await readFile(join(dir, 'B1.md'), 'utf8'), await readFile(join(dir, 'Q1.md'), 'utf8')]
     const real = await import('node:fs/promises')
@@ -464,7 +464,7 @@ test('review 6: an answer whose ask cannot be written leaves the step and the as
 test('review 7: a chat asks only under its own step, or one nobody holds; Main and the person under any', async () => {
   const { dir, board, support, main } = await fresh()
   try {
-    await board({ action: 'take', id: 'B1' })
+    await board({ action: 'take', minutes: 30, id: 'B1' })
     assert.equal((await support({ action: 'ask', of: 'B1', text: 'Mine?' })).why, 'B1 is Board\'s: only Board, the main chat, the partner or the person asks under it.')
     assert.equal((await main({ action: 'ask', of: 'B1', text: 'Go on?' })).ok, true)
     assert.equal((await support({ action: 'ask', of: 'B7', text: 'Which?' })).ok, true)
@@ -501,7 +501,7 @@ test('B305: a worker that still holds a step takes its next queued one; an older
       const support = body => workApi({ chat: 'Support', ...body }, { ...ctx, freeChats: new Set() })
       assert.equal(await state(dir, 'B4'), 'in progress')
       assert.equal((await queueFor(dir, 'B5', 'Support', { now: NOW + 60_000 })).ok, true)
-      const taken = await support({ action: 'take', id: 'B5', branch: 'b5-strip' })
+      const taken = await support({ action: 'take', minutes: 30, id: 'B5', branch: 'b5-strip' })
       assert.equal(taken.ok, true, taken.why)
       assert.equal(await state(dir, 'B5'), 'in progress')
       assert.equal((await history(dir, 'B5')).at(-2), isOld ? '- 2026-10-17 11:06 server: queued → taken (for Support)' : '- 2026-10-17 11:06 Support: queued → taken')

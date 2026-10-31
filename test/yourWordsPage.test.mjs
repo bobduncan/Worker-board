@@ -72,11 +72,13 @@ test('a refused note keeps its words and says why; a step with no words yet stil
   }
 })
 
-test('a refined step\'s window shows "Your words" after its Summary, with "Add a note"', async () => {
+test('a refined step\'s window (the calm layout) shows "Your words" right under Context, Problem and Solution, with "Add a note"', async () => {
   const page = await openPage({ state: stateWith(step('refined')), hash: 'details=B12' })
   try {
-    const titles = page.all('#details .details-part h3').map(one => one.textContent)
-    assert.deepEqual(titles.slice(0, 2), ['Summary', 'Your words'])
+    // Calm task window: the three lines first, then the person's words; no Summary part any more.
+    const order = [...page.find('#details .task-calm').children].map(one => one.className.split(' ')[0])
+    assert.deepEqual(order.slice(0, 2), ['task-story', 'task-part'])
+    assert.equal(page.text('#details .task-calm > .task-part h3'), 'Your words')
     assert.equal(page.all('#details .your-word').length, 2)
     assert.equal(page.all('#details [data-words-send="B12"]').length, 1)
   } finally {

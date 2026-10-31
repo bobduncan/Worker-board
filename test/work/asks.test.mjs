@@ -53,7 +53,7 @@ test('ask answers with that block and keeps the advice; an answer carries the as
   try {
     // Partner answers (2026-10-19) off: the person answers it, as before.
     await writeFile(join(dir, 'partner-answers.json'), '{"on":false}\n')
-    await board({ action: 'take', id: 'B1' })
+    await board({ action: 'take', minutes: 30, id: 'B1' })
     const first = await board({ action: 'ask', of: 'B1', kind: 'decide', text: 'Thin or thick?', options: ['A thin', 'B thick'], advice: 'B', blocking: true })
     assert.equal(first.ok, true, first.why)
     assert.equal(first.result.text, '> **For you**\n> 1. **Answer:** Thin or thick? A thin or B thick; I advise B (Q1, decide, blocks task B1)')
@@ -83,16 +83,16 @@ test('refine makes one decide ask per question under the step; refined with one 
     assert.deepEqual(refined.result.asks, ['Q1', 'Q2'])
     const q1 = await item(dir, 'Q1')
     assert.deepEqual(['Asks', 'Of', 'Via', 'Owner', 'Blocking', 'Title'].map(key => valueOf(q1, key)), ['decide', 'B7', 'refine', 'Advisor', 'no', 'Thin or thick?'])
-    assert.equal((await advisor({ action: 'refined', id: 'B7', what: ['x'] })).why, 'B7: Q1 ("Thin or thick?"), Q2 ("Which colour?") are still open: the person answers first.')
+    assert.equal((await advisor({ action: 'refined', size: '30 min', id: 'B7', what: ['x'] })).why, 'B7: Q1 ("Thin or thick?"), Q2 ("Which colour?") are still open: the person answers first.')
     // Answered in the step's window: the ask with that question is answered too.
     await person({ action: 'refine-answer', id: 'B7', answers: [{ index: 1, answer: 'blue' }], feedback: '' })
     assert.deepEqual([await state(dir, 'Q1'), await state(dir, 'Q2')], ['open', 'answered'])
     assert.deepEqual((await item(dir, 'Q2')).sections.get('Answer'), ['blue'])
-    assert.equal((await advisor({ action: 'refined', id: 'B7', what: ['x'] })).why, 'B7: Q1 ("Thin or thick?") is still open: the person answers first.')
+    assert.equal((await advisor({ action: 'refined', size: '30 min', id: 'B7', what: ['x'] })).why, 'B7: Q1 ("Thin or thick?") is still open: the person answers first.')
     // Answered under Needs your attention: it wakes the Advisor, and the refine may be ready.
     const answered = await person({ action: 'answer', id: 'Q1', text: 'thick' })
     assert.equal(answered.result.wake.to, 'Advisor')
-    assert.equal((await advisor({ action: 'refined', id: 'B7', what: ['x'] })).ok, true)
+    assert.equal((await advisor({ action: 'refined', size: '30 min', id: 'B7', what: ['x'] })).ok, true)
     // A new round withdraws the questions of the one before that are still open.
     await advisor({ action: 'refine', id: 'B7', summary: 'Again.', questions: ['Left or right?'] })
     await advisor({ action: 'refine', id: 'B7', summary: 'Once more.', questions: ['Up or down?'] })
@@ -141,7 +141,7 @@ test('a note is read by the person and by nobody else', async () => {
 test('review: the asking chat closes its own ask with the person\'s words from the chat; the step it blocked goes on', async () => {
   const { dir, board, support } = await fresh()
   try {
-    await board({ action: 'take', id: 'B1' })
+    await board({ action: 'take', minutes: 30, id: 'B1' })
     await board({ action: 'ask', of: 'B1', kind: 'decide', blocking: true, text: 'Thin or thick?' })
     assert.equal(await state(dir, 'B1'), 'waiting on you')
     assert.equal((await support({ action: 'answered-in-chat', id: 'Q1', text: 'thick' })).status, 409)
@@ -221,7 +221,7 @@ test('B305: an ask with no asking chat is closed in the main chat or the Advisor
 test('B305: an ask with an asking chat stays that chat\'s to close, also for the main chat and the Advisor', async () => {
   const { dir, main, advisor, board } = await fresh()
   try {
-    await board({ action: 'take', id: 'B1' })
+    await board({ action: 'take', minutes: 30, id: 'B1' })
     await board({ action: 'ask', of: 'B1', kind: 'decide', blocking: true, text: 'Thin or thick?' })
     assert.equal((await main({ action: 'answered-in-chat', id: 'Q1', text: 'thick' })).status, 409)
     assert.equal((await advisor({ action: 'answered-in-chat', id: 'Q1', text: 'thick' })).status, 409)
@@ -235,7 +235,7 @@ test('B305: an ask with an asking chat stays that chat\'s to close, also for the
 test('B305: the step an ask with no asking chat blocked goes on when the main chat closes it', async () => {
   const { dir, main, board } = await fresh()
   try {
-    await board({ action: 'take', id: 'B1' })
+    await board({ action: 'take', minutes: 30, id: 'B1' })
     await board({ action: 'ask', of: 'B1', kind: 'decide', blocking: true, text: 'Thin or thick?' })
     assert.equal(await state(dir, 'B1'), 'waiting on you')
     const store = await readStore(dir)

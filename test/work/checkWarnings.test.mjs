@@ -48,7 +48,7 @@ const WARNINGS = ["the result names no Context: the card's Context is made from 
 
 /** B1 reported by the Lamplighter with a result that has a wording problem, and the board's check passed with warnings. */
 async function warned(one, warnings = WARNINGS) {
-  assert.equal((await one.lamplighter({ action: 'take', id: 'B1', branch: 'b1-wicks' })).ok, true)
+  assert.equal((await one.lamplighter({ action: 'take', minutes: 30, id: 'B1', branch: 'b1-wicks' })).ok, true)
   assert.equal((await one.lamplighter({ action: 'report', id: 'B1', result: 'The wicks are trimmed.', merged: 'abc1234' })).ok, true)
   const checked = await one.server({ action: 'check', id: 'B1', passed: true, lines: ['work in garden', 'branch gone'], warnings })
   assert.equal(checked.ok, true, checked.why)
@@ -63,7 +63,7 @@ test('a check that passed with warnings closes the step as a pass does; its Hist
     assert.deepEqual((await history(one.dir, 'B1')).slice(-2), [`- 2026-10-26 09:01 server: check passed with warnings: work in garden; branch gone | warnings: ${WARNINGS.join('; ')}`, '- 2026-10-26 09:01 server: review → done'])
     assert.equal(boardWarningsOf(await item(one.dir, 'B1')), WARNINGS.join('; '))
     // A check that failed names its faults only; warnings given to it are not kept.
-    await one.sweeper({ action: 'take', id: 'B3', branch: 'b3-paths' })
+    await one.sweeper({ action: 'take', minutes: 30, id: 'B3', branch: 'b3-paths' })
     await one.sweeper({ action: 'report', id: 'B3', result: 'x', merged: 'abc1235' })
     await one.server({ action: 'check', id: 'B3', passed: false, lines: ['the branch b3-paths is still there'], warnings: ['no Context'] })
     assert.equal((await history(one.dir, 'B3')).at(-1), '- 2026-10-26 09:01 server: check failed: the branch b3-paths is still there')
@@ -105,7 +105,7 @@ test('a newer report replaces the warnings: its check pending or failed shows no
   try {
     await warned(one)
     // B4 reported 5 minutes later: the newest report is B4's, whose check is pending.
-    await one.lamplighter({ action: 'take', id: 'B4', branch: 'b4-lenses' })
+    await one.lamplighter({ action: 'take', minutes: 30, id: 'B4', branch: 'b4-lenses' })
     const later = one.at(5)
     assert.equal((await later.lamplighter({ action: 'report', id: 'B4', result: 'The lenses shine.', merged: 'abc1236' })).ok, true)
     assert.doesNotMatch((await later.lamplighter({ action: 'next' })).result.text, /Your last report/)
@@ -139,7 +139,7 @@ test('a step in review that passed with warnings stays in review for its result 
     assert.equal(made.ok, true, made.why)
     const id = made.result.id
     assert.equal((await queueFor(one.dir, id, 'Lamplighter', { now: NOW + 60_000 })).ok, true)
-    assert.equal((await one.lamplighter({ action: 'take', id, branch: 'b2-lamps' })).ok, true)
+    assert.equal((await one.lamplighter({ action: 'take', minutes: 30, id, branch: 'b2-lamps' })).ok, true)
     assert.equal((await one.lamplighter({ action: 'report', id, result: 'Every path has a warm lamp.', merged: 'c0ffee1' })).ok, true)
     const noMutant = 'the change touches tests (test/lamps.test.mjs) but the result names no mutant: the result check asks for one (next time add "Tests bite: <what was undone in a copy> → <the assertion that failed>")'
     const git = await one.server({ action: 'check', id, passed: true, lines: ['work in garden'], warnings: [noMutant] })
@@ -162,7 +162,7 @@ test('warnings of another kind add no demand to the task; a step without warning
     const made = await one.partner({ ...LAMP, title: 'Sweep the lamp paths' })
     const id = made.result.id
     await queueFor(one.dir, id, 'Lamplighter', { now: NOW + 60_000 })
-    await one.lamplighter({ action: 'take', id, branch: 'b-sweep' })
+    await one.lamplighter({ action: 'take', minutes: 30, id, branch: 'b-sweep' })
     await one.lamplighter({ action: 'report', id, result: 'Clean.', merged: 'abc1234' })
     const git = await one.server({ action: 'check', id, passed: true, lines: ['branch gone'], warnings: WARNINGS })
     const lines = (await item(one.dir, git.result.qa)).sections.get('Context').map(line => line.trim())
@@ -171,7 +171,7 @@ test('warnings of another kind add no demand to the task; a step without warning
     // A step without warnings: neither line.
     const clean = (await one.partner({ ...LAMP, title: 'Polish the lamp glass' })).result.id
     await queueFor(one.dir, clean, 'Sweeper', { now: NOW + 60_000 })
-    await one.sweeper({ action: 'take', id: clean, branch: 'b-glass' })
+    await one.sweeper({ action: 'take', minutes: 30, id: clean, branch: 'b-glass' })
     await one.sweeper({ action: 'report', id: clean, result: 'Polished.', merged: 'abc1235' })
     const other = await one.server({ action: 'check', id: clean, passed: true, lines: ['branch gone'] })
     assert.ok(!(await item(one.dir, other.result.qa)).sections.get('Context').some(line => /Board warnings|Demand:/.test(line)))
@@ -183,7 +183,7 @@ test('warnings of another kind add no demand to the task; a step without warning
 test('a result over the limit is cut and the check is told how long it was; a recheck keeps it, a shorter report takes it away', async () => {
   const one = await fresh()
   try {
-    await one.lamplighter({ action: 'take', id: 'B1', branch: 'b1-wicks' })
+    await one.lamplighter({ action: 'take', minutes: 30, id: 'B1', branch: 'b1-wicks' })
     const long = `Context: The wicks were long. Change: They are trimmed. Details: ${'word '.repeat(500)}`
     const reported = await one.lamplighter({ action: 'report', id: 'B1', result: long, merged: 'abc1234' })
     assert.equal(reported.ok, true, reported.why)
@@ -210,7 +210,7 @@ test('the recap card of a step is the board\'s own words: a report with files, i
     const made = await one.partner(LAMP)
     const id = made.result.id
     assert.equal((await queueFor(one.dir, id, 'Lamplighter', { now: NOW + 60_000 })).ok, true)
-    await one.lamplighter({ action: 'take', id, branch: 'b2-lamps' })
+    await one.lamplighter({ action: 'take', minutes: 30, id, branch: 'b2-lamps' })
     const result = `Context: The lampPost rule in src/lamps.mjs was wrong. The garden paths were dark at night. Change: Every path has a warm lamp now, see B1. Details: lamps.mjs`
     assert.equal((await one.lamplighter({ action: 'report', id, result, merged: 'c0ffee1' })).ok, true)
     const git = await one.server({ action: 'check', id, passed: true, lines: ['branch gone'], warnings: ['the Context holds file names (src/lamps.mjs), code words (lampPost): the card leaves those words out'] })
@@ -240,11 +240,11 @@ test('the newest report is the one reported last, not the one with the higher id
   const one = await fresh()
   try {
     // B4 reported first, its check passed with warnings; B1 reported 5 minutes later, its check pending.
-    await one.lamplighter({ action: 'take', id: 'B4', branch: 'b4-lenses' })
+    await one.lamplighter({ action: 'take', minutes: 30, id: 'B4', branch: 'b4-lenses' })
     await one.lamplighter({ action: 'report', id: 'B4', result: 'The lenses shine.', merged: 'abc1236' })
     await one.server({ action: 'check', id: 'B4', passed: true, lines: ['work in garden'], warnings: ['the result names no Context'] })
     assert.ok((await one.lamplighter({ action: 'next' })).result.text.includes('Your last report (B4) passed'))
-    await one.lamplighter({ action: 'take', id: 'B1', branch: 'b1-wicks' })
+    await one.lamplighter({ action: 'take', minutes: 30, id: 'B1', branch: 'b1-wicks' })
     const later = one.at(5)
     await later.lamplighter({ action: 'report', id: 'B1', result: 'The wicks are trimmed.', merged: 'abc1234' })
     assert.doesNotMatch((await later.lamplighter({ action: 'next' })).result.text, /Your last report/)

@@ -37,7 +37,7 @@ const DECIDE = { n: 2, kind: 'decide', text: ['Which strip: A thin or B thick? I
 test('the items without an ask are filed as asks Via chat, under the one step the chat holds in progress, not blocking', async () => {
   const { dir, board } = await fresh()
   try {
-    await board({ action: 'take', id: 'B1' }, NOW + MIN)
+    await board({ action: 'take', minutes: 30, id: 'B1' }, NOW + MIN)
     const ended = await board({ action: 'turn-ended', since: NOW + 2 * MIN, forYou: [LOOK, DECIDE] })
     assert.equal(ended.ok, true, ended.why)
     assert.deepEqual(ended.result.asked, ['Q1', 'Q2'])
@@ -56,7 +56,7 @@ test('the items without an ask are filed as asks Via chat, under the one step th
 test('an item the chat filed this turn, one it still holds open, or one naming an ask of the store is not filed again', async () => {
   const { dir, board } = await fresh()
   try {
-    await board({ action: 'take', id: 'B1' }, NOW + MIN)
+    await board({ action: 'take', minutes: 30, id: 'B1' }, NOW + MIN)
     await board({ action: 'ask', of: 'B1', kind: 'look', text: 'Is the strip readable now?' }, NOW + 3 * MIN)
     const first = await board({ action: 'turn-ended', since: NOW + 2 * MIN, forYou: [LOOK, { ...DECIDE, ref: 'Q1' }] })
     assert.deepEqual(first.result.asked, [])
@@ -75,7 +75,7 @@ test('an item the chat filed this turn, one it still holds open, or one naming a
 test('B362: an item in the chat\'s own words that names an open ask of its own by its Q id, in any form, files nothing new', async () => {
   const { dir, board, main, person } = await fresh()
   try {
-    await board({ action: 'take', id: 'B1' }, NOW + MIN)
+    await board({ action: 'take', minutes: 30, id: 'B1' }, NOW + MIN)
     await board({ action: 'ask', of: 'B1', kind: 'decide', text: 'Which strip do you want?', options: ['A thin', 'B thick'], advice: 'B' }, NOW + 3 * MIN)
     const worded = text => ({ ...DECIDE, text: [text], ref: null })
     const forms = [
@@ -112,8 +112,8 @@ test('with no step or two in progress the ask stands alone; a do is a do; nothin
     const alone = await main({ action: 'turn-ended', since: NOW, forYou: [{ ...DECIDE, kind: 'do', text: ['Restart the app.'], options: [], advice: '' }] })
     assert.deepEqual(alone.result.asked, ['Q1'])
     assert.deepEqual(head(await item(dir, 'Q1'), ['Asks', 'Of', 'Owner', 'Via']), ['do', null, 'Main', 'chat'])
-    await board({ action: 'take', id: 'B1' }, NOW + MIN)
-    await board({ action: 'take', id: 'B2' }, NOW + MIN)
+    await board({ action: 'take', minutes: 30, id: 'B1' }, NOW + MIN)
+    await board({ action: 'take', minutes: 30, id: 'B2' }, NOW + MIN)
     const two = await board({ action: 'turn-ended', since: NOW + 2 * MIN, forYou: [DECIDE] })
     assert.equal(valueOf(await item(dir, two.result.asked[0]), 'Of'), null)
     const none = await board({ action: 'turn-ended', since: NOW + 2 * MIN })
@@ -129,7 +129,7 @@ test('with no step or two in progress the ask stands alone; a do is a do; nothin
 test('an auto-filed ask answered on the board wakes the chat; answered in the chat, the chat closes it', async () => {
   const { dir, board, person } = await fresh()
   try {
-    await board({ action: 'take', id: 'B1' }, NOW + MIN)
+    await board({ action: 'take', minutes: 30, id: 'B1' }, NOW + MIN)
     await board({ action: 'turn-ended', since: NOW + 2 * MIN, forYou: [DECIDE, LOOK] })
     const answered = await person({ action: 'answer', id: 'Q1', text: 'B' })
     assert.equal(answered.ok, true, answered.why)

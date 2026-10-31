@@ -15,7 +15,7 @@ const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 test('1: a blocking ask by the partner or the main chat under a worker\'s step leaves the step in progress; the worker reports it', async () => {
   const { dir, partner, main, features } = await fresh()
   try {
-    assert.equal((await features({ action: 'take', id: 'B1' })).ok, true)
+    assert.equal((await features({ action: 'take', minutes: 30, id: 'B1' })).ok, true)
     const asked = await partner({ action: 'ask', of: 'B1', kind: 'decide', text: 'A number or a bar?', blocking: true })
     assert.equal(asked.ok, true, asked.why)
     assert.equal(await state(dir, 'B1'), 'in progress')
@@ -33,7 +33,7 @@ test('1: a blocking ask by the partner or the main chat under a worker\'s step l
 test('1: an answer that frees a step waiting on the person wakes the step\'s owner too, when another chat asked', async () => {
   const { dir, features, person } = await fresh()
   try {
-    await features({ action: 'take', id: 'B1' })
+    await features({ action: 'take', minutes: 30, id: 'B1' })
     await features({ action: 'ask', of: 'B1', kind: 'decide', text: 'Yellow or white?', blocking: true })
     assert.equal(await state(dir, 'B1'), 'waiting on you')
     // The worker's own ask: the asker is the owner, one wake.
