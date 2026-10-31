@@ -10,6 +10,7 @@ import { RECHECK_HEAD } from './rounds.mjs'
 import { stoppedOf } from './stopped.mjs'
 import { SYNC_BOARD, lastSyncAnswer } from './sync.mjs'
 import { isTalkPicture } from './talkPicture.mjs'
+import { OWNER_ROLE, isOwnerName, isTalkWord, talkPartnerOf } from './talkPartner.mjs'
 import { isHolding } from './work/pause.mjs'
 
 const refuse = (status, why) => ({ ok: false, status, why })
@@ -329,13 +330,15 @@ const sayLine = value => String(value ?? '').replace(/\s+/g, ' ').trim()
  * on, or says it back anew).
  */
 function brainstormCheck(body, state) {
-  const advisor = state.advisor?.name ?? null
-  if (advisor === null || body.to !== advisor) return refuse(400, 'A brainstorm goes to the Advisor.')
+  // The Product owner (2026-10-31): a brainstorm goes to the talk partner, the Product owner when the list names one on the
+  // board, else the Advisor as before; a page that still names the Advisor is routed the same way.
+  const partner = talkPartnerOf(state)?.name ?? null
+  if (partner === null || (body.to !== partner && body.to !== (state.advisor?.name ?? null))) return refuse(400, 'A brainstorm goes to the Advisor.')
   if ((body.ask ?? null) !== null || (body.verdict ?? null) !== null) return refuse(400, 'A command carries nothing else.')
   const thread = threadIn(state, body.thread)
   if (thread === undefined) return refuse(409, 'That brainstorm is not on the board.')
   const isOver = thread.state === 'done' || thread.state === 'discarded'
-  const words = text => ({ ok: true, message: { to: advisor, ask: null, step: null, title: null, version: null, verdict: null, command: body.command, about: thread.path, text } })
+  const words = text => ({ ok: true, message: { to: partner, ask: null, step: null, title: null, version: null, verdict: null, command: body.command, about: thread.path, text } })
   const head = `Thread: ${thread.path}`
   if (body.command === 'brainstorm') {
     if (thread.state !== 'running' || thread.questions > 0 || thread.proposal !== null) return refuse(409, 'The Advisor has this brainstorm already.')
@@ -476,7 +479,10 @@ export function checkSay(body, state, maxChars) {
   if (state.advisorHelper?.name) names.push(state.advisorHelper.name)
   // The supervisor (spec 2026-10-24): and the supervisor's chat, which the board wakes for a sweep.
   if (state.supervisorChat?.name) names.push(state.supervisorChat.name)
+  // The Product owner (2026-10-31): the talk words go to it, and the person's own lines; nothing else does (below).
+  if (state.productOwner?.name) names.push(state.productOwner.name)
   if (typeof body.to !== 'string' || !names.includes(body.to)) return refuse(400, 'No such chat on the board.')
+  if (isOwnerName(state, body.to) && body.command !== undefined && body.command !== null && !isTalkWord(body.command)) return refuse(409, 'The Product owner takes the person\'s talks only.')
   // B167: a picture pasted into Talk to Main, which the board kept beforehand: one of its own names, to the main chat,
   // with a plain message. B282: the same into the Advisor's chat.
   const picture = body.picture ?? null
@@ -601,6 +607,8 @@ export function checkSay(body, state, maxChars) {
 const boardLanes = state => [
   ...(state.chats ?? []).filter(chat => !chat.isLeftover),
   ...(state.advisor ? [state.advisor] : []), ...(state.advisorHelper ? [state.advisorHelper] : []), ...(state.supervisorChat ? [state.supervisorChat] : []),
+  // The Product owner (2026-10-31): started and woken as any chat, but it never carries a start word (`wakerOrder`).
+  ...(state.productOwner ? [state.productOwner] : []),
 ]
 
 /**
@@ -614,6 +622,7 @@ function startCheck(body, state, text) {
   if (text !== '' || (body.ask ?? null) !== null || (body.verdict ?? null) !== null) return refuse(400, 'A command carries nothing else.')
   const lanes = boardLanes(state)
   if (body.to !== (state.restart?.main ?? null) && body.to === state.advisorHelper?.name) return refuse(409, 'The partner\'s helper does only what the partner hands it.')
+  if (isOwnerName(state, body.to)) return refuse(409, 'The Product owner takes the person\'s talks only.')
   if (body.to !== (state.restart?.main ?? null) && lanes.find(chat => chat.name === body.to)?.isRunning !== true) return refuse(409, 'That chat does not run, so it cannot start another.')
   const target = lanes.find(chat => chat.name === body.chat)
   if (target === undefined || target.name === body.to || target.isRunning !== false) return refuse(409, 'That chat runs, or is not on the board.')
@@ -1041,7 +1050,7 @@ Its turn was stopped at ${clock(stop.since)} and the app drops every word to it 
 export function wakesStopped(state, stopped, outbox, clock) {
   const main = state.restart?.main ?? null
   if (main === null) return []
-  const lanes = [...(state.chats ?? []).filter(chat => !chat.isLeftover), ...(state.advisor ? [state.advisor] : []), ...(state.advisorHelper ? [state.advisorHelper] : []), ...(state.supervisorChat ? [state.supervisorChat] : [])]
+  const lanes = boardLanes(state)
   return lanes.filter(lane => lane.name !== main && (stopped.get(lane.name) ?? null) !== null)
     .filter(lane => !outbox.some(sent => sent.command === 'wake' && sent.about === lane.name && sent.stoppedAt === stopped.get(lane.name).since))
     .map(lane => wakeStoppedWords(main, lane, stopped.get(lane.name), clock))

@@ -11,6 +11,7 @@ import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
 
 import { maySend, startTaskIds, workerTaskIds } from './hands.mjs'
+import { OWNER_LABEL, ownerTaskIds } from './talkPartner.mjs'
 
 /** The jobs, in the order the page lists them, each with the app tools its code needs allowed with no question. */
 export const CODE_JOBS = [
@@ -47,10 +48,21 @@ const slotsOf = maxWorkers => Array.from({ length: Number.isInteger(maxWorkers) 
  * and no routine of a worker's own goes on with it (the fallback): none is missing. A PC with none stored needs all; one
  * with some routines needs the others, whatever the shared task covers.
  */
-export function missingRoutines({ tasks = [], folder = '', maxWorkers }) {
+export function missingRoutines({ tasks = [], folder = '', maxWorkers, owner = false }) {
   const slots = slotsOf(maxWorkers)
-  const lacking = slots.filter(n => !workerTaskIds(folder, n).some(id => tasks.includes(id)))
-  return lacking.length === slots.length && tasks.length > 0 ? [] : lacking
+  // The Product owner's routine is none of the workers': the shared task's fallback is read over the workers' alone.
+  const own = ownerTaskIds(folder)
+  const workers = tasks.filter(id => !own.includes(id))
+  const lacking = slots.filter(n => !workerTaskIds(folder, n).some(id => workers.includes(id)))
+  const missing = lacking.length === slots.length && workers.length > 0 ? [] : lacking
+  // The Product owner (2026-10-31): once the list names one, its own routine `<folder>-product-owner` (no fallback starts it).
+  return owner && !own.some(id => tasks.includes(id)) ? [...missing, 'owner'] : missing
+}
+
+/** The routines `slots` names in words: "Worker 4, 5", "the Product owner", or both with "and". */
+const routineNames = slots => {
+  const workers = slots.filter(n => n !== 'owner')
+  return [workers.length === 0 ? null : `Worker ${workers.join(', ')}`, slots.includes('owner') ? `the ${OWNER_LABEL}` : null].filter(Boolean).join(' and ')
 }
 
 /** The allow rules of the settings files' texts (user, project, project-local), as one set; a text that is no JSON gives none. */
@@ -101,13 +113,16 @@ export function withAllowRules(text, tools) {
  * `checked` the newest claim's chat and time. T14: the wake row by itself only while a chat that may send claimed
  * (`maySend`, the claims' `{ can, mod }`); else, while chats run, SEND_WHY (the send-message tool missing) or SEND_SOON.
  */
-export function codeJobsView({ claims = new Map(), allowed = new Set(), tasks = [], spawnFail = null, folder = '', maxWorkers, now }) {
+export function codeJobsView({ claims = new Map(), allowed = new Set(), tasks = [], spawnFail = null, folder = '', maxWorkers, now, owner = false }) {
   const recent = [...claims].filter(([, claim]) => Number.isFinite(claim?.at) && now - claim.at < CLAIM_MS)
   const newest = recent.reduce((best, one) => (best === null || one[1].at > best[1].at ? one : best), null)
   const missing = []
-  const absent = missingRoutines({ tasks, folder, maxWorkers })
+  // The Product owner (2026-10-31): with `owner` (the list names one) its own routine counts as one more to have.
+  const absent = missingRoutines({ tasks, folder, maxWorkers, owner })
+  const own = ownerTaskIds(folder)
+  const workerTasks = tasks.filter(id => !own.includes(id))
   // Some routines stored, not all: the shared task would still start the others, but each worker is to have its own.
-  const fewRoutines = tasks.length > 0 && absent.length > 0 ? `needs routines for Worker ${absent.join(', ')}` : null
+  const fewRoutines = workerTasks.length > 0 && absent.length > 0 ? `needs routines for ${routineNames(absent)}` : null
   const rows = CODE_JOBS.map(job => {
     const lacking = job.tools.filter(tool => !allowed.has(tool))
     // T14: by itself only while a chat that may send runs (`maySend`); while only chats that may not run (Auto mode
@@ -125,7 +140,7 @@ export function codeJobsView({ claims = new Map(), allowed = new Set(), tasks = 
     }
     const may = recent.some(([, claim]) => Array.isArray(claim.can) && claim.can.includes(job.key))
     let why = null
-    if (job.key === 'spawn' && tasks.length === 0) why = 'no stored start-worker task on this PC'
+    if (job.key === 'spawn' && workerTasks.length === 0) why = 'no stored start-worker task on this PC'
     else if (job.key === 'spawn' && spawnFail !== null && may) why = `the last try failed: ${spawnFail.why}`
     else if (may) why = job.key === 'spawn' ? fewRoutines : null
     else if (lacking.length > 0) why = 'not allowed yet'
@@ -143,10 +158,19 @@ export function codeJobsView({ claims = new Map(), allowed = new Set(), tasks = 
  * mode is saved with the routine only from a turn the person typed). The page cuts the closing sentence off where the line
  * goes into the main chat's first words.
  */
-export function taskWords({ folder, prefix, board, slots = [1] }) {
+export function taskWords({ folder, prefix, board, slots = [1], owner = null }) {
   const text = join(board, 'mods', 'workers', 'start-worker-task.md')
-  const each = slots.map(n => `taskId "${workerTaskIds(folder, n)[0]}", title "${prefix}Worker ${n}", description "Starts ${prefix}Worker ${n} of the worker board"`)
-  return `Make the worker board's stored routines, one for each worker: call mcp__scheduled-tasks__create_scheduled_task once for each of these, ${each.join('; ')}, each with no schedule, notifyOnCompletion false (when the app says a taskId is taken, use the one it names) and as prompt the text under "The task's text" in ${text}. Then say in one line that they are made.`
+  const workers = slots.filter(n => n !== 'owner')
+  const each = workers.map(n => `taskId "${workerTaskIds(folder, n)[0]}", title "${prefix}Worker ${n}", description "Starts ${prefix}Worker ${n} of the worker board"`)
+  const workerLine = `call mcp__scheduled-tasks__create_scheduled_task once for each of these, ${each.join('; ')}, each with no schedule, notifyOnCompletion false (when the app says a taskId is taken, use the one it names) and as prompt the text under "The task's text" in ${text}`
+  if (!slots.includes('owner')) return `Make the worker board's stored routines, one for each worker: ${workerLine}. Then say in one line that they are made.`
+  // The Product owner (2026-10-31): its own routine, `<folder>-product-owner`, titled with the list's name for it, its text
+  // beside the workers' (start-product-owner-task.md), with the board's folder written in for its job text.
+  const name = typeof owner === 'string' && owner.trim() !== '' ? owner.trim() : OWNER_LABEL
+  const ownText = join(board, 'mods', 'workers', 'start-product-owner-task.md')
+  const ownerLine = `call it once more with taskId "${ownerTaskIds(folder)[0]}", title "${prefix}${name}", description "Starts ${prefix}${name} of the worker board", no schedule, notifyOnCompletion false (when the app says the taskId is taken, use the one it names) and as prompt the text under "The task's text" in ${ownText}, with <the worker board's folder> in it written as ${board}`
+  if (workers.length === 0) return `Make the worker board's stored routine of the ${OWNER_LABEL}: ${ownerLine.replace(/^call it once more with/, 'call mcp__scheduled-tasks__create_scheduled_task once with')}. Then say in one line that it is made.`
+  return `Make the worker board's stored routines, one for each worker and one for the ${OWNER_LABEL}: ${workerLine}; then ${ownerLine}. Then say in one line that they are made.`
 }
 
 const FILES = { readFile, writeFile, mkdir, stat }
@@ -158,7 +182,8 @@ const FILES = { readFile, writeFile, mkdir, stat }
 export async function readCodeJobs({ project, folder, maxWorkers, home = homedir(), fs = FILES }) {
   const read = path => fs.readFile(path, 'utf8').catch(() => '')
   const texts = await Promise.all([join(home, '.claude', 'settings.json'), join(project, '.claude', 'settings.json'), join(project, '.claude', 'settings.local.json')].map(read))
-  const ids = [...startTaskIds(folder), ...slotsOf(maxWorkers).flatMap(n => workerTaskIds(folder, n))]
+  // The Product owner's own routine too (2026-10-31): the view counts it only while the list names an owner.
+  const ids = [...startTaskIds(folder), ...slotsOf(maxWorkers).flatMap(n => workerTaskIds(folder, n)), ...ownerTaskIds(folder)]
   const there = await Promise.all(ids.map(id => fs.stat(join(home, '.claude', 'scheduled-tasks', id, 'SKILL.md')).then(found => found.isFile(), () => false)))
   return { allowed: allowedIn(texts), tasks: ids.filter((id, at) => there[at]) }
 }

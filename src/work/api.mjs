@@ -97,6 +97,15 @@ const ROLES = {
  */
 const SUPERVISOR_MAY = new Set(['incident', 'turn-ended', 'pull', ...READS])
 /**
+ * The Product owner (2026-10-31, roles/product-owner.md): what its chat may do. It talks with the person: the focus's drafts
+ * (vibe-draft, how-draft), a question of a talk the person can no longer reach asked of its goal (ask), its notes, its asks
+ * taken back or answered in its chat, its instructions closed; and reads, as every chat (`turn-ended`, `pull` from its Workers
+ * mod). It never takes, refines, checks or files incidents: those stay with the partner and the workers.
+ */
+const OWNER_MAY = new Set(['turn-ended', 'pull', 'ask', 'withdraw', 'answered-in-chat', 'note', 'close', 'vibe-draft', 'how-draft', ...READS])
+/** What the Product owner does as the partner did before it: a goal's drafts and an ask of a goal. */
+const OWNER_AS_PARTNER = new Set(['vibe-draft', 'how-draft', 'ask'])
+/**
  * B424: what the partner's helper (the role 'helper' of the list) does as the partner's own: the refines of steps the
  * partner hands it, and the asks under a step they lead to. Its History lines name the helper. A goal is the partner's
  * alone (its re-check and its asks). In everything else it is a worker, that no step is queued for. T9.1.1: the result
@@ -217,6 +226,10 @@ async function act(body, ctx) {
     role = ctx.roleOf?.(who) ?? null
     if (role === null) return refuse(403, `${who} is no chat of the list.`)
     if (role === 'helper') role = helps(body) ? 'advisor' : 'worker'
+    if (role === 'owner') {
+      if (!OWNER_MAY.has(action)) return refuse(403, `The Product owner only talks with the person (its drafts, asks and notes): ${action} is not its, see roles/product-owner.md.`)
+      if (OWNER_AS_PARTNER.has(action)) role = 'advisor'
+    }
   }
   if (PERSON.has(action) && role !== 'person') return refuse(403, 'Only the person does that, on the board.')
   if (role === 'supervisor' && !SUPERVISOR_MAY.has(action)) return refuse(403, 'The supervisor chat only reads and files incidents (work incident).')

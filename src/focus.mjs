@@ -10,6 +10,7 @@ import { focusStage, hasDemo, hasDoneWhen, nextGoalId, parseGoals } from './goal
 import { askingOf, evaluateWords, evaluationPartOf, evaluationsDue, goalAttempts, guardStep, partnerModeFor } from './goalGuard.mjs'
 import { addGoal, addGoalLine, addGoalNote, agreeHow, agreeVibe, changeGoalsFile, raiseLastLine, reopenHow, rewrite, setFocus, setGoalLine, setGoalState, setHow, setVibe } from './goalsWrite.mjs'
 import { focusWords } from './say.mjs'
+import { isTalkWord } from './talkPartner.mjs'
 import { absentAs, again } from './write.mjs'
 import { sinceMs } from './work/item.mjs'
 
@@ -102,6 +103,14 @@ async function talkOf(node, ctx) {
 }
 
 /**
+ * The Product owner (2026-10-31, src/talkPartner.mjs): the chat a word of the Focus page goes to. A talk word (the focus
+ * picked, the talk bar, the vibe's and the how's "not yet", the vibe agreed, a Done when asked) goes to the talk partner
+ * (`ctx.talkPartner`, the owner when the list names one, with its job `ctx.talkJob`); every other word to the partner.
+ */
+const toOf = (command, ctx) => (isTalkWord(command) && (ctx.talkPartner ?? null) !== null ? ctx.talkPartner.name : ctx.partner.name)
+const jobOf = (command, ctx) => (isTalkWord(command) && (ctx.talkPartner ?? null) !== null ? ctx.talkJob ?? ctx.job : ctx.job)
+
+/**
  * One move or draft (`body.command`, `body.id` the goal, `body.text` the person's words or a new goal's line, the
  * drafts' `lines`, `picture`, `parts`, `partnerDecides`, `youDecide`). `ctx`: `canWrite` (the board writes the map),
  * the files (`goalsFile`, `historyDir`, `brainstormDir`, `brainstormFolder`), `now`, `partner` (the state's advisor:
@@ -138,7 +147,7 @@ async function move(body, ctx) {
   // Focus 3: a second Yes to "Is the vibe there?" finds the goal ticked and the focus gone: nothing more.
   if (command === 'vibe-there-yes' && node.state === 'done') return { ok: true, result: { unchanged: true }, words: null }
   if (parseGoals(text).focus !== body.id) return refuse(409, 'That goal is not your focus any more.')
-  const say = async (kind, words = null) => focusWords(kind, { to: ctx.partner.name, goal: node, thread: await talkOf(node, ctx), words })
+  const say = async (kind, words = null) => focusWords(kind, { to: toOf(kind, ctx), goal: node, thread: await talkOf(node, ctx), words })
   const stage = focusStage(node)
   const words = oneLine(body.text, 1000)
   if (command === 'talk') return talkBar(node, words, ctx, goalsAt)
@@ -239,7 +248,7 @@ async function talkBar(node, words, ctx, goalsAt) {
   if (!talk.ok) return talk
   const result = { id: node.id, thread: talk.thread }
   const about = `${node.id} ${oneLine(node.title, 200)}`
-  const word = (command, text) => ({ to: ctx.partner.name, ask: null, step: null, title: null, version: null, verdict: null, command, about: talk.thread, text })
+  const word = (command, text) => ({ to: toOf(command, ctx), ask: null, step: null, title: null, version: null, verdict: null, command, about: talk.thread, text })
   if (talk.isStarted) return { ok: true, result, words: word('brainstorm', `brainstorm\nThread: ${talk.thread}\nGoal: ${about}\nOpening: ${words}`) }
   const base = String(ctx.brainstormDir).replace(/[\\/]+$/, '')
   const file = `${base}/${talk.thread.split('/').pop()}`
@@ -252,7 +261,7 @@ async function talkBar(node, words, ctx, goalsAt) {
     if (!answered.ok) return answered
     return { ok: true, result, words: word('brainstorm-answer', `brainstorm answer\nThread: ${talk.thread}\nQ${latest.n}: Other — ${words}`) }
   }
-  return { ok: true, result, words: { ...focusWords('talk', { to: ctx.partner.name, goal: node, thread: talk.thread, words }) } }
+  return { ok: true, result, words: { ...focusWords('talk', { to: toOf('talk', ctx), goal: node, thread: talk.thread, words }) } }
 }
 
 /**
@@ -296,7 +305,7 @@ async function pick(body, before, ctx, goalsAt) {
   if (!written.ok) return written.why === 'doneWhen' ? refuse(409, NO_DONE_WHEN(id)) : failed(written.why)
   const node = parseGoals(await readMap(ctx.fs, ctx.goalsFile)).byId.get(id)
   if (node === undefined) return failed('gone')
-  if (isNew) return { ok: true, result: { id, isFocus: false }, words: focusWords('done-when', { to: ctx.partner.name, goal: node, words: oneLine(body.text, 2000), job: ctx.job }) }
+  if (isNew) return { ok: true, result: { id, isFocus: false }, words: focusWords('done-when', { to: toOf('done-when', ctx), goal: node, words: oneLine(body.text, 2000), job: jobOf('done-when', ctx) }) }
   const talk = await talkFor(id, node, isNew ? oneLine(body.text, 2000) : 'I pick this goal as my focus.', ctx, goalsAt)
   if (!talk.ok) return talk
   const { thread, isNewThread } = talk
@@ -306,7 +315,7 @@ async function pick(body, before, ctx, goalsAt) {
   // word go out, with the stage of the goal as read before: a click again would find nothing changed and send none.
   const after = await readMap(ctx.fs, ctx.goalsFile).catch(error => (console.error(`The goal map could not be read again after ${id} became the focus: ${error.message}`), null))
   const stage = focusStage((after === null ? undefined : parseGoals(after).byId.get(id)) ?? node)
-  return { ok: true, result, words: focusWords('focus', { to: ctx.partner.name, goal: node, thread, stage: STAGE_WORDS[stage], job: ctx.job }) }
+  return { ok: true, result, words: focusWords('focus', { to: toOf('focus', ctx), goal: node, thread, stage: STAGE_WORDS[stage], job: jobOf('focus', ctx) }) }
 }
 
 /** B354: why a goal without a Done when is not picked. */
@@ -320,7 +329,7 @@ function askDoneWhen(node, ctx) {
   if (node === undefined) return refuse(409, 'That goal is not in the map.')
   if (node.state === 'done') return refuse(409, `${node.id} is done already.`)
   if (hasDoneWhen(node)) return refuse(409, `${node.id} has a Done when already: change it on the Goals part.`)
-  return { ok: true, result: { id: node.id }, words: focusWords('done-when', { to: ctx.partner.name, goal: node, job: ctx.job }) }
+  return { ok: true, result: { id: node.id }, words: focusWords('done-when', { to: toOf('done-when', ctx), goal: node, job: jobOf('done-when', ctx) }) }
 }
 
 /** B677: the goal demo is asked of the partner again this often while it is not there, at most DEMO_WORDS times in all. */

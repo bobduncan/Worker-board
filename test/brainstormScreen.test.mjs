@@ -14,6 +14,7 @@ import { fileURLToPath } from 'node:url'
 import vm from 'node:vm'
 
 import { brainstormsState } from '../src/brainstorm.mjs'
+import { talkPartnerOf } from '../src/talkPartner.mjs'
 import { openPage, reply, settle } from './pageHarness.mjs'
 import { asSent, build } from './partnerState.mjs'
 
@@ -49,7 +50,9 @@ const other = (id, since = AT - 5 * MIN) => ({ kind: 'refine', id, title: `Title
 const GOALS = ['Last id: G6', 'Focus: G6', '', '- [~] G6 The polish', '    Done when: you judge a fight fun', ''].join('\n')
 function pageState(texts, advisor = {}) {
   const state = asSent({ ...build([], undefined, GOALS, { threadTexts: texts.map(([path, text], at) => ({ path, text, at: at + 1 })) }), goalsEdit: { canWrite: true } })
-  return { ...state, advisor: { ...state.advisor, isRunning: true, ...advisor } }
+  const changed = { ...state, advisor: { ...state.advisor, isRunning: true, ...advisor } }
+  // The Product owner (2026-10-31): the talk partner as the server sends it, from the partner changed here.
+  return { ...changed, talkPartner: talkPartnerOf(changed) }
 }
 /** The Brainstorm part opened on it. */
 async function open(texts, { advisor, answers, hash } = {}) {
@@ -171,7 +174,7 @@ test('the partner\'s card on the page: a pulsing dot, the line, the muted line; 
     assert.equal(busy.text('.brainstorm-wait-line'), `Your partner is busy with refine B7 (Hero hurt gets a sound) since ${hhmm(AT - 12 * MIN)}.`)
     assert.equal(busy.text('.brainstorm-wait-sub'), 'Your brainstorm is number 2 in its queue.')
     assert.equal(busy.text('.brainstorm-head .brainstorm-status'), 'waiting for your partner')
-    assert.equal(busy.text('.brainstorm-row .brainstorm-status'), 'waiting for your partner')
+    assert.equal(busy.text('.brainstorm-row .brainstorm-status'), 'waiting for your partner · just now')
   } finally { await busy.close() }
   const off = await open(answered, { advisor: { isRunning: false } })
   try {
@@ -303,11 +306,13 @@ test('the head: the title, its status word and a small "…"; the facts of the t
 test('the list at the left: a slim row each, the title and one status word, and the one chosen marked', async () => {
   const page = await open([[PATH, `${HEAD}${Q1}`], [OTHER, `${HEAD.replace('Lanterns', 'Benches')}${Q1}${A1}`]])
   try {
+    // 2026-10-31: each word with its age after it (the made-up board's clock stands before these talks: "just now").
     assert.deepEqual(page.all('.brainstorm-row').map(one => [one.querySelector('b').textContent, one.querySelector('small').textContent, one.title, one.classList.contains('is-chosen')]), [
-      ['Lanterns', 'your turn', '2026-10-31 · 1 question · with your partner', true],
-      ['Benches', 'your partner is thinking', '2026-10-31 · 1 question · with your partner', false],
+      ['Lanterns', 'your turn · just now', '2026-10-31 · 1 question · with your partner', true],
+      ['Benches', 'your partner is thinking · just now', '2026-10-31 · 1 question · with your partner', false],
     ])
-    assert.equal(page.all('.brainstorm-group').length, 0)
+    // The groups (2026-10-31): only "Active" holds a thread here.
+    assert.deepEqual(page.all('.brainstorm-group').map(one => one.textContent), ['Active'])
     assert.equal(page.text('.brainstorm-start'), '+ New brainstorm…')
     await page.click(`[data-brainstorm-open="${OTHER}"]`)
     assert.equal(page.text('.brainstorm-head .brainstorm-title'), 'Benches')

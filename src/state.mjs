@@ -43,6 +43,7 @@ import { isHolding, pauseFacts } from './work/pause.mjs'
 import { reconcile } from './work/reconcile.mjs'
 import { effortPlan, runSettings } from './work/effort.mjs'
 import { supervisorEffortWord, supervisorRun, supervisorSetting } from './work/supervisorEffort.mjs'
+import { OWNER_LABEL, OWNER_SETTING, talkPartnerOf } from './talkPartner.mjs'
 import { enforcementReadiness } from './work/routing/capabilities.mjs'
 import { routingHolds } from './work/routing/assignments.mjs'
 import { refineStop } from './refineGate.mjs'
@@ -1347,7 +1348,12 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
   // queue, no worker: the board wakes it for a sweep and shows how it stands in the supervisor's section.
   const isSupervisor = chat => !chat.isLeftover && !chat.isMain && !isAdvisor(chat) && !isHelper(chat) && typeof list.supervisor === 'string' && chat.name.toLowerCase() === list.supervisor.toLowerCase()
   const supervisorChat = found.find(isSupervisor)
-  const names = found.filter(chat => !isAdvisor(chat) && !isHelper(chat) && !isSupervisor(chat) && !chat.isLeftover).map(chat => chat.name)
+  // The Product owner (2026-10-31, roles/product-owner.md): the list's "owner", the chat that takes the person's talks. No
+  // lane, no queue, no worker: shown under the Advisor's card; the talks go to it (src/talkPartner.mjs), nothing else does.
+  const isOwner = chat => !chat.isLeftover && !chat.isMain && !isAdvisor(chat) && !isHelper(chat) && !isSupervisor(chat) && typeof list.owner === 'string' && chat.name.toLowerCase() === list.owner.toLowerCase()
+  const ownerChat = found.find(isOwner)
+  const isSide = chat => isAdvisor(chat) || isHelper(chat) || isSupervisor(chat) || isOwner(chat)
+  const names = found.filter(chat => !isSide(chat) && !chat.isLeftover).map(chat => chat.name)
 
   // B296, B301: the backlog from the work store, the one source of the work. `store` is the line about it on the Backlog
   // tab and, when it cannot be read, on top of the page; `raw.work` is missing where the board has no store. Nothing is
@@ -1460,15 +1466,16 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
   // B425: the brief of the step a worker is on, built for that step only.
   const hasModels = Object.keys(runSettings(config).models).length > 0
   const briefOf = id => stepBrief(raw.work, id, goalMap, hasModels)
-  const workerChats = found.filter(chat => !isAdvisor(chat) && !isHelper(chat) && !isSupervisor(chat))
+  const workerChats = found.filter(chat => !isSide(chat))
   const firstRead = workerChats.map(chat => card(chat, raw, { ...context, stepOf: stepOfChat, stepById, briefOf }))
   const firstAdvisor = advisorChat === undefined ? null : card(advisorChat, raw, context)
   const firstHelper = helperChat === undefined ? null : card(helperChat, raw, context)
   const firstSupervisor = supervisorChat === undefined ? null : card(supervisorChat, raw, context)
+  const firstOwner = ownerChat === undefined ? null : card(ownerChat, raw, context)
 
   // B113: the plan's limits, from what is on this machine: the app's own file, what any chat looked up, and a
   // chat the app stopped. Reading them asks no chat and costs nothing. A pause by a note changes none of these.
-  const everyone = [...firstRead, firstAdvisor, firstHelper, firstSupervisor].filter(one => one !== null)
+  const everyone = [...firstRead, firstAdvisor, firstHelper, firstSupervisor, firstOwner].filter(one => one !== null)
   // B640: and what the board kept of them: a chat that looked the limits up and was cleared since took its transcript with it.
   const readings = [...everyone.flatMap(one => one.usage), ...keptReadings]
   const limits = limitsOf({
@@ -1491,6 +1498,7 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
   const advisorCard = isLifted(firstAdvisor) ? card(advisorChat, raw, { ...context, pauseOver }) : firstAdvisor
   const helperCard = isLifted(firstHelper) ? card(helperChat, raw, { ...context, pauseOver }) : firstHelper
   const supervisorCard = isLifted(firstSupervisor) ? card(supervisorChat, raw, { ...context, pauseOver }) : firstSupervisor
+  const ownerCard = isLifted(firstOwner) ? card(ownerChat, raw, { ...context, pauseOver }) : firstOwner
   // B299: a lane on a step of the store shows the step's title as the store holds it.
   // B292: without the note in brackets a migrated title kept.
   const titleOf = id => {
@@ -1554,6 +1562,15 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
   // The supervisor's chat, read as the helper's: one left "working" by a quit app is "Not running".
   const supervisorLane = supervisorCard === null ? null : (() => {
     const { usage, ...lane } = supervisorCard
+    const shown = { ...lane, suspended: heldUntil(lane.suspended, limits, now) }
+    const writtenAt = raw.tails?.[lane.session]?.modifiedAt ?? null
+    if (shown.state === 'off') return offLane(shown, workedAt(lane.report))
+    return isStaleWork({ state: shown.state, isRunning: runningOf(lane.name), writtenAt, appStartedAt, now }) ? offLane(shown, writtenAt) : shown
+  })()
+
+  // The Product owner's chat, read as the supervisor's: one left "working" by a quit app is "Not running".
+  const ownerLane = ownerCard === null ? null : (() => {
+    const { usage, ...lane } = ownerCard
     const shown = { ...lane, suspended: heldUntil(lane.suspended, limits, now) }
     const writtenAt = raw.tails?.[lane.session]?.modifiedAt ?? null
     if (shown.state === 'off') return offLane(shown, workedAt(lane.report))
@@ -1848,7 +1865,7 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
   const pause = pauseRecord === null ? null : {
     // The review of Pause 2: a line handed to a chat and not typed yet starts a turn: no Safe while one is on its way.
     ...pauseFacts({
-      pause: pauseRecord, items: raw.work.items, lanes: [...chats.filter(lane => !lane.isLeftover), ...[advisorCard, helperLane].filter(one => one !== null)], prefix, now,
+      pause: pauseRecord, items: raw.work.items, lanes: [...chats.filter(lane => !lane.isLeftover), ...[advisorCard, helperLane, ownerLane].filter(one => one !== null)], prefix, now,
       // The person, 2026-10-28 ("adisor seems finished, why is that one still showing as running?"): a word the chat took
       // starts a turn, but once the chat says its turn ended after the take, that turn is over: no typing any more.
       pending: sent.filter(message => message.state === 'taken' && now - (message.takenAt ?? message.at) < TAKEN_SHOWN_MS && !endedSince(message)),
@@ -1897,19 +1914,22 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
   // and the steps whose line to their worker waits until it is set. Model per step: its model too, by the settings'
   // model ids, and the usual setting between steps from the settings.
   // The partner and its helper are skipped: their own setting (B352, set once) is never the board's to overwrite.
-  const efforts = reconciled === null ? null : effortPlan({ items: raw.work.items, lanes: chats, deliveries: reconciled.deliveries, sent, now, main: isBridgeMissing === true ? null : main?.name ?? null, prefix, skip: [advisorChat?.name, helperChat?.name], ...runSettings(config) })
+  const efforts = reconciled === null ? null : effortPlan({ items: raw.work.items, lanes: chats, deliveries: reconciled.deliveries, sent, now, main: isBridgeMissing === true ? null : main?.name ?? null, prefix, skip: [advisorChat?.name, helperChat?.name, ownerChat?.name], ...runSettings(config) })
   if (efforts) for (const id of routingHeld) efforts.held.add(id)
   // T7.5 (the person, 2026-10-28: "do B"): the Supervisor's chat is held at its own setting (`supervisorModel`, `supervisorEffort`:
   // Sonnet, low), by the same word and the same half-hour dedupe as a worker's: the plan above skips it, so its word is added.
   const supervisorWants = supervisorSetting(config)
   const supervisorWord = efforts === null ? null : supervisorEffortWord({ lane: supervisorLane, setting: supervisorWants, models: runSettings(config).models, sent, now, main: isBridgeMissing === true ? null : main?.name ?? null, prefix })
   if (supervisorWord !== null) efforts.words.push(supervisorWord)
+  // The Product owner (2026-10-31): held at Opus, medium by code, by the same word and dedupe as the Supervisor's (src/talkPartner.mjs).
+  const ownerWord = efforts === null ? null : supervisorEffortWord({ lane: ownerLane, setting: OWNER_SETTING, models: runSettings(config).models, sent, now, main: isBridgeMissing === true ? null : main?.name ?? null, prefix, who: OWNER_LABEL })
+  if (ownerWord !== null) efforts.words.push(ownerWord)
   // B570: a chat on an older Workers mod is restarted between its steps (work/modRollout.mjs): the words that ask its
   // restarter (the main chat; the partner for the main chat), and the line of an idle worker's next step held meanwhile.
   const side = (lane, name) => (lane === null || lane === undefined ? null : { ...lane, name, isRunning: lane.state === 'off' ? false : runningOf(name) })
   const rollout = efforts === null ? null : rolloutPlan({
     mods: modsLately, items: raw.work.items, deliveries: reconciled.deliveries, sent, now, prefix,
-    chats: chatsByRole({ chats, advisor: side(advisorCard, advisorChat?.name), advisorHelper: side(helperLane, helperLane?.name), supervisorChat: side(supervisorLane, supervisorLane?.name) }),
+    chats: chatsByRole({ chats, advisor: side(advisorCard, advisorChat?.name), advisorHelper: side(helperLane, helperLane?.name), supervisorChat: side(supervisorLane, supervisorLane?.name), productOwner: side(ownerLane, ownerLane?.name) }),
     main: isBridgeMissing === true ? null : main?.name ?? null, partner: isBridgeMissing === true ? null : advisorChat?.name ?? null,
   })
   if (rollout !== null) for (const id of rollout.held) if (!efforts.held.has(id)) { efforts.held.add(id); efforts.holds.set(id, rollout.holds.get(id)) }
@@ -1917,7 +1937,7 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
   const flagsOf = name => (reconciled?.flags ?? []).filter(flag => flag.chat === name && LANE_FLAGS.includes(flag.kind)).map(({ kind, id, text, button }) => ({ kind, id, text, button }))
   const focus = focusState(goalMap, itemsOf(raw.work), brainstorms.threads, prefix, advisorChat?.name ?? null, now)
   // The chats on the board by name, for a store's owner (with or without the list's prefix).
-  const chatNames = [...names, ...[advisorChat, helperChat].filter(one => one !== undefined).map(one => one.name)]
+  const chatNames = [...names, ...[advisorChat, helperChat, ownerChat].filter(one => one !== undefined).map(one => one.name)]
   // Partner answers, the review's findings: the asks with the partner now, and its answers of the last 7 days that the
   // Focus page's note does not show, each with its Undo. The person, 2026-10-26: each with where it stands (`stand`:
   // in the partner's queue, or the partner is on it: its word was taken, or its task, while it works, names the ask).
@@ -1944,6 +1964,20 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
   const advisorOn = partnerWorks ? advisorWork.on : null
   const advisorNext = advisorChat === undefined ? []
     : advisorNextOf({ waiting: advisorWork.waiting, on: advisorOn, words: sent.filter(message => message.to === advisorChat.name && isOpenWord(message, now)), items: workOk ? raw.work.items : new Map(), task: partnerWorks ? advisorCard.task ?? null : null, isWorking: partnerWorks })
+  // The Product owner (2026-10-31): the talk words that wait for it, in pick-up order (as the Advisor's "Next for it": a
+  // brainstorm's row names its thread), and the one it is on while it works: the newest word it took in the last hour.
+  const ownerWorks = ownerLane?.state === 'working'
+  const ownerWords = ownerChat === undefined ? [] : sent.filter(message => message.to === ownerChat.name && isOpenWord(message, now))
+  const ownerNext = ownerChat === undefined ? [] : advisorNextOf({ words: ownerWords, items: workOk ? raw.work.items : new Map(), task: null, isWorking: ownerWorks })
+  const ownerOn = !ownerWorks ? null : (() => {
+    const took = sent.filter(message => message.to === ownerChat.name && (message.state === 'taken' || message.state === 'delivered') && now - (message.takenAt ?? message.deliveredAt ?? message.at) < HOUR)
+      .reduce((best, message) => (best === undefined || (message.takenAt ?? message.deliveredAt ?? message.at) > (best.takenAt ?? best.deliveredAt ?? best.at) ? message : best), undefined)
+    if (took === undefined) return null
+    const thread = (brainstorms.threads ?? []).find(one => one.path === took.about)
+    const id = /^[BQIXG]\d+$/.test(String(took.about ?? '')) ? took.about : null
+    return { kind: took.command ?? 'message', id, title: thread?.title ?? String(took.text ?? '').split('\n')[0].replace(/\s+/g, ' ').trim().slice(0, 100), since: took.takenAt ?? took.deliveredAt ?? took.at, ...(thread === undefined ? {} : { thread: thread.path }) }
+  })()
+
   // T9.1.1 (the person, 2026-10-27): where the result check of a step in review stands is where its Quality Assurance task
   // stands: queued since (the board made it; the worker it was given to), or the worker on it since.
   const checkStands = new Map()
@@ -1961,7 +1995,7 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
     readAt: now,
     // Clear after each step: the sessions the chats went on from, while the app still names them (read on to their ends).
     movedFrom: found.filter(chat => !chat.isLeftover && movedBack.has(chat.cliSessionId)).map(chat => ({ session: movedBack.get(chat.cliSessionId), name: chat.name })),
-    spendingSubjects: found.filter(chat => !chat.isLeftover).map(chat => ({ session: chat.cliSessionId, appSession: chat.appSessionId, name: chat.name, model: chat.model, effort: chat.effort, role: chat.isMain ? 'main' : isAdvisor(chat) ? 'advisor' : isHelper(chat) ? 'helper' : isSupervisor(chat) ? 'supervisor' : 'worker' })),
+    spendingSubjects: found.filter(chat => !chat.isLeftover).map(chat => ({ session: chat.cliSessionId, appSession: chat.appSessionId, name: chat.name, model: chat.model, effort: chat.effort, role: chat.isMain ? 'main' : isAdvisor(chat) ? 'advisor' : isHelper(chat) ? 'helper' : isSupervisor(chat) ? 'supervisor' : isOwner(chat) ? 'owner' : 'worker' })),
     routing: { mode: config.routing?.ok === false ? 'invalid' : config.routing?.policy?.mode ?? 'off', problem: config.routing?.why ?? null, readiness: enforcementReadiness(null) },
     refreshSeconds: config.refreshSeconds,
     estimateOldMs: config.estimateOldMinutes * MIN,
@@ -2016,9 +2050,9 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
       ...needsOf(asks, lanes, sent, gameOf, now, config.baseBranch, { advisor: advisorCard, advisorWaits, helper: helperLane, waits, idle: (reconciled?.flags ?? []).filter(flag => flag.kind === 'idle hold') }),
       // B299: the store's asks, answered through POST /api/work.
       // B300: a blocking ask that waited longer than the ask time stands first (`isOld`).
-      ...storeNeeds(raw.work, { now, names: [...names, ...[advisorChat, helperChat].filter(one => one !== undefined).map(one => one.name)], prefix, answerOf: id => answerOf(sent, id) })
+      ...storeNeeds(raw.work, { now, names: chatNames, prefix, answerOf: id => answerOf(sent, id) })
         .map(need => (oldAsks.has(need.id) ? { ...need, isOld: true } : need)),
-    ].sort((a, b) => Number(b.isOld === true) - Number(a.isOld === true) || (b.at ?? 0) - (a.at ?? 0)), [config.advisor ?? null, helperChat?.name ?? null], prefix),
+    ].sort((a, b) => Number(b.isOld === true) - Number(a.isOld === true) || (b.at ?? 0) - (a.at ?? 0)), [config.advisor ?? null, helperChat?.name ?? null, ownerChat?.name ?? null], prefix),
     // B299: notes and reports for the person.
     information,
     withPartner,
@@ -2096,7 +2130,7 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
     // workers there are, and the newest ask for workers.
     workers: (() => {
       // B152: a worker that was removed is no worker any more, also while its lane still says so.
-      const workerChats = found.filter(chat => !chat.isLeftover && !chat.isMain && !isAdvisor(chat) && !isHelper(chat) && !isSupervisor(chat) && chat.removedAt === null)
+      const workerChats = found.filter(chat => !chat.isLeftover && !chat.isMain && !isSide(chat) && chat.removedAt === null)
       return {
         main: main === undefined ? null : main.name,
         mainTitle: context.main.mainTitle,
@@ -2153,6 +2187,33 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
     },
     // The supervisor: the name the list gives the chat that sweeps, also while no chat of that name is open.
     supervisorName: typeof list.supervisor === 'string' ? list.supervisor : null,
+    // The Product owner (2026-10-31, roles/product-owner.md): the chat the list names "owner", shown under the Advisor's card:
+    // how it stands, what it is on and what waits for it, and the setting the board holds it at (Opus, medium).
+    productOwner: ownerLane === null ? null : {
+      name: ownerLane.name,
+      session: ownerLane.session,
+      appSession: ownerLane.appSession,
+      model: ownerLane.model ?? null,
+      effort: ownerLane.effort ?? null,
+      setting: supervisorRun({ lane: ownerLane, setting: OWNER_SETTING, models: runSettings(config).models }),
+      state: ownerLane.state,
+      doingNow: ownerLane.doingNow,
+      task: ownerLane.task,
+      eta: ownerLane.eta,
+      between: ownerLane.between,
+      idle: ownerLane.idle ?? null,
+      turnAt: ownerLane.turnAt ?? null,
+      suspended: ownerLane.suspended,
+      compaction: ownerLane.compaction ?? null,
+      isRunning: ownerLane.state === 'off' ? false : runningOf(ownerLane.name),
+      asleep: ownerLane.asleep === true,
+      asleepSince: ownerLane.asleepSince ?? null,
+      writtenAt: raw.tails?.[ownerLane.session]?.modifiedAt ?? null,
+      on: ownerOn,
+      next: ownerNext,
+    },
+    // The name the list gives the Product owner, also while no chat of that name is open (its routine starts it).
+    ownerName: typeof list.owner === 'string' ? list.owner : null,
     // B212: no Workers mod has asked this board for its words since it started: what is sent is copied for the person
     // to paste instead (null on a board that does not deliver). `chatPrefix` makes a chat's name its title.
     bridge: isBridgeMissing === null ? null : { isMissing: isBridgeMissing },
@@ -2222,7 +2283,8 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
   // And the chats the board asked in vain (wakeFailedOf: three asks, or every chat that runs was asked): the person opens them.
   // A chat that line already names is not said twice.
   const nobodyRuns = nobodyRunsOf(built, sent)
-  return { ...built, nobodyRuns, wakeFailed: wakeFailedOf(built, sent, now).filter(one => !(nobodyRuns?.chats ?? []).includes(one.chat)) }
+  // The Product owner (2026-10-31): who the person talks with now, the owner or else the partner (src/talkPartner.mjs).
+  return { ...built, talkPartner: talkPartnerOf(built), nobodyRuns, wakeFailed: wakeFailedOf(built, sent, now).filter(one => !(nobodyRuns?.chats ?? []).includes(one.chat)) }
 }
 
 // lightstate:start

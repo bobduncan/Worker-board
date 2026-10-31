@@ -83,6 +83,7 @@ import { isReadAction, workApi } from './src/work/api.mjs'
 import { effortOf } from './src/work/effort.mjs'
 import { isHolding, pauseAnswer, resumeEnds, resumeRetypeTo, resumeTypeTo } from './src/work/pause.mjs'
 import { allowCodeJobs, codeJobsView, readCodeJobs, taskWords } from './src/codeJobs.mjs'
+import { OWNER_JOB, OWNER_ROLE, ownerStartWords, talkPartnerOf } from './src/talkPartner.mjs'
 import { STOP_MOD, asleepOfJob, handJobs, handResults, isForHandsYet, isHandWord, isStopWord, maySend, nextSpawn, stopStep, stopTaskOf, usageDue, workerNames } from './src/hands.mjs'
 import { OPEN_CHECK_MS, OPEN_FIRST_MS, OPEN_TRIES, asleepPlan, asleepWithWork, chatToOpen, failuresOf, handWorkWaits, handsGone, openChat, openPlan, openerNote, openerRow } from './src/opener.mjs'
 import { basesNow, patientReportCheck } from './src/work/check.mjs'
@@ -746,6 +747,9 @@ async function main(args) {
       now: clock(),
       partner: state.advisor ?? null,
       job: join(HERE, 'roles', 'partner.md'),
+      // The Product owner (2026-10-31): the talk words go to the talk partner, with its job (src/talkPartner.mjs).
+      talkPartner: talkPartnerOf(state),
+      talkJob: join(HERE, 'roles', talkPartnerOf(state)?.role === OWNER_ROLE ? OWNER_JOB : 'partner.md'),
       // Focus 3: "Is the vibe there?" is answered only once every part of the how is done, as the store says.
       allDone: focusAllDone(state.focus ?? null, body?.id),
     })
@@ -1024,6 +1028,8 @@ async function main(args) {
     if (state.advisorHelper) roles.set(state.advisorHelper.name, 'helper')
     // The supervisor (spec 2026-10-24): its chat reads (work health) and files incidents, nothing else.
     if (state.supervisorChat) roles.set(state.supervisorChat.name, 'supervisor')
+    // The Product owner (2026-10-31): its talks' drafts, asks and notes (work/api.mjs OWNER_MAY), nothing of a worker's.
+    if (state.productOwner) roles.set(state.productOwner.name, 'owner')
     return {
       // The supervisor's Task 5: the board's health summary for the supervisor chat's sweep (src/supervisor/health.mjs).
       ...(supervisor === null ? {} : { health: () => supervisor.health() }),
@@ -1691,7 +1697,7 @@ async function main(args) {
     const plan = openPlan({ now, handsGone: gone, waits, paused: isHolding(state.pause), last: opens.at(-1)?.at ?? -Infinity, failures: failuresOf({ opens, claims: codeClaims, now }) })
     if (!plan.open) return
     // The board's own list gives the chat and its session id; nothing of a request goes into the launch.
-    const target = chatToOpen(state)
+    const target = chatToOpen(state, store.outbox().filter(message => !isLate(message, now, keep)))
     if (target === null) return
     isOpening = true
     try {
@@ -1750,14 +1756,15 @@ async function main(args) {
   const openerNoteNow = () => (canOpen ? openerNote({ opens, failures: failuresOf({ opens, claims: codeClaims, now: clock() }), now: clock(), timeOf }) : null)
   /** B767: the setup check as the page shows it; the files are read at most every 30 seconds. */
   let codeRead = { at: -Infinity, max: null, read: null }
-  const codeJobsNow = async (prefix = '') => {
+  const codeJobsNow = async (prefix = '', owner = null) => {
     if (isDemo || config.project === '') return null
     // T12: one routine per worker slot up to `maxWorkers`, so a changed limit is read again at once.
     const folder = basename(resolve(HERE, config.project))
     if (clock() - codeRead.at >= 30_000 || codeRead.max !== config.maxWorkers) codeRead = { at: clock(), max: config.maxWorkers, read: await readCodeJobs({ project: resolve(HERE, config.project), folder, maxWorkers: config.maxWorkers }) }
-    const view = codeJobsView({ claims: codeClaims, ...codeRead.read, folder, maxWorkers: config.maxWorkers, spawnFail, now: clock() })
+    // The Product owner (2026-10-31): once the list names one, its own routine is checked and made the same way.
+    const view = codeJobsView({ claims: codeClaims, ...codeRead.read, folder, maxWorkers: config.maxWorkers, spawnFail, now: clock(), owner: typeof owner === 'string' && owner !== '' })
     // T13 part 4: and the board's own opening of a chat when none runs.
-    return { ...view, rows: [...view.rows, openerRowNow()], canAllow: !isShowOnly, taskLine: view.needsTask ? taskWords({ folder, prefix, board: HERE, slots: view.missingRoutines }) : null }
+    return { ...view, rows: [...view.rows, openerRowNow()], canAllow: !isShowOnly, taskLine: view.needsTask ? taskWords({ folder, prefix, board: HERE, slots: view.missingRoutines, owner }) : null }
   }
   const checkFresh = async body => {
     // B736 (X73, X87: no chat's report was kept from 21:12 to 21:21 while each waited for a whole read of the board): a
@@ -1855,12 +1862,14 @@ async function main(args) {
       // 2026-10-28: the Advisor's "Next for it" ends with the steps the board will ask it to refine next (only the board holds the refine gate).
       const refineGateNow = Array.isArray(state.advisor?.next) ? firstLook(refineKept, state) : null
       const advisor = refineGateNow === null ? state.advisor : { ...state.advisor, next: withRefineQueue(state.advisor.next, refineQueue(state, sentNow(), refineGateNow, clock()), state.advisor.on) }
+      // The Product owner (2026-10-31): the talk partner as the page draws it, the Advisor with its whole queue when it is the one.
+      const talkPartner = talkPartnerOf({ ...state, advisor })
       // Light state (2026-10-31): the finished steps go light to the page (src/state.mjs lightState); `step` gives one whole.
-      return lightState({ ...state, advisor, forYou: oldMods === null ? state.forYou : [oldMods, ...(state.forYou ?? [])], design, goalsEdit, cpu: cpu?.view() ?? null, loops: { failing: loops.failing(), line: failingLine(loops.failing(), timeOf) }, supervisor: supervised ?? (isDemo ? demoSupervisor(clock(), SUPERVISOR_RULES, incidentCards) : null), boardSettings: boardSettingsNow(), obsolete: await obsoleteNow(state), version: { commit: running, since: startedAt, ...(await versionNow()), canRestart, selfUpdate: updateShown }, mod: await modNow(),
+      return lightState({ ...state, advisor, talkPartner, forYou: oldMods === null ? state.forYou : [oldMods, ...(state.forYou ?? [])], design, goalsEdit, cpu: cpu?.view() ?? null, loops: { failing: loops.failing(), line: failingLine(loops.failing(), timeOf) }, supervisor: supervised ?? (isDemo ? demoSupervisor(clock(), SUPERVISOR_RULES, incidentCards) : null), boardSettings: boardSettingsNow(), obsolete: await obsoleteNow(state), version: { commit: running, since: startedAt, ...(await versionNow()), canRestart, selfUpdate: updateShown }, mod: await modNow(),
         // B320: where the New project button suggests a new project's folder, and whether this board makes one.
         newProject: { parent: home === null ? null : dirname(home), canMake: !isDemo && !isShowOnly, isMaking: makingProject },
         // B767: which of the main chat's routine jobs run by code on this PC, and what is missing.
-        codeJobs: await codeJobsNow(state.chatPrefix ?? ''),
+        codeJobs: await codeJobsNow(state.chatPrefix ?? '', state.ownerName ?? null),
         // T13 part 4: the line about the chat the board opened when none ran (`{ tone, text }`), or null.
         opener: openerNoteNow(),
         // B322: what the page needs to open a new project's first chats in the Claude app: the board's folder (their
@@ -1947,7 +1956,8 @@ async function main(args) {
       if (body?.action !== 'allow') return { ok: false, status: 400, why: 'Allow only.' }
       if (isDemo || isShowOnly || config.project === '') return { ok: false, status: 409, why: 'This board writes no project settings.' }
       codeRead = { at: -Infinity, read: null }
-      const view = await codeJobsNow((await readState()).chatPrefix ?? '')
+      const read = await readState()
+      const view = await codeJobsNow(read.chatPrefix ?? '', read.ownerName ?? null)
       const done = await allowCodeJobs({ project: resolve(HERE, config.project), tools: view?.missing ?? [] })
       if (!done.ok) return { ok: false, status: 409, why: done.why }
       codeRead = { at: -Infinity, read: null }
@@ -2310,7 +2320,8 @@ async function main(args) {
       const usage = can.has('usage') && READINGS_FILE !== null && !isShowOnly && usageDue({ readings: state.limitReadings ?? [], givenAt: usageGivenAt, now: clock() })
       if (usage) usageGivenAt = clock()
       // T13 part 3: and one resume word for each asleep chat whose turn was cut, once per spell, never while the person pauses.
-      const { jobs, back } = handJobs({ caller: checked.chat, taken, lanes, resumeList, since: pause?.since ?? null, sentAt: resumesSent, now: clock(), spawn, usage, asleepSent: asleepWoken, isPaused: isHolding(state.pause), canSend })
+      // The Product owner (2026-10-31): its start, wake and resume go first: the person waits for its talk.
+      const { jobs, back } = handJobs({ caller: checked.chat, taken, lanes, resumeList, since: pause?.since ?? null, sentAt: resumesSent, now: clock(), spawn, usage, asleepSent: asleepWoken, isPaused: isHolding(state.pause), canSend, first: state.productOwner?.name ?? null })
       for (const message of removed) {
         const lane = lanes.find(one => one.name === message.about)
         jobs.push({ id: message.id, ...(typeof lane?.appSession === 'string' && /^local_[\w-]{1,80}$/.test(lane.appSession) ? { to: lane.appSession } : {}), chat: message.about, remove: true })
@@ -2360,7 +2371,8 @@ async function main(args) {
       }
       const words = [...sent, ...failed].filter(id => !id.startsWith('resume:') && asleepOfJob(id) === null)
       // B767: a new worker that failed shows on the setup check with its why, until one is started.
-      for (const message of store.outbox().filter(one => one.command === 'spawn' && words.includes(one.id))) {
+      // The Product owner's own routine (its spawn word names `routine`) is no new worker: its result leaves the row alone.
+      for (const message of store.outbox().filter(one => one.command === 'spawn' && (one.routine ?? null) === null && words.includes(one.id))) {
         spawnFail = failed.includes(message.id) ? { at: clock(), why: why[message.id] ?? 'not started' } : null
       }
       const byTo = new Map()
@@ -2671,16 +2683,24 @@ async function main(args) {
       }
       // B491: the open brainstorm question whose title the board refuses (over 12 words, or none) goes back to the
       // Advisor at once, once for each wording. Only the board that delivers, and only while there is an Advisor.
-      if (bridgeKey !== null && (state.advisor ?? null) !== null) {
+      // The Product owner (2026-10-31): a talk's fix and stranded words go to the talk partner, the owner when there is one.
+      const talker = talkPartnerOf(state)
+      if (bridgeKey !== null && talker !== null) {
         const now = clock()
         // B716: and the open question of a talk that cannot reach the person, once for each question.
-        for (const words of [...fixesToTell(state.brainstorms?.threads, store.outbox(), state.advisor), ...strandedToTell(state.brainstorms?.threads, store.outbox(), state.advisor, state.goals?.nodes ?? null, state.brainstorms?.asks ?? [])]) {
+        for (const words of [...fixesToTell(state.brainstorms?.threads, store.outbox(), talker), ...strandedToTell(state.brainstorms?.threads, store.outbox(), talker, state.goals?.nodes ?? null, state.brainstorms?.asks ?? [])]) {
           const message = { id: randomBytes(8).toString('hex'), at: now, ...words, state: 'waiting' }
           await store.say(message)
           const wake = wakeFor(message, state, store.outbox(), now, config.maxMessageChars)
           if (wake !== null) await store.say({ id: randomBytes(8).toString('hex'), at: now, ...wake, state: 'waiting' })
           readState.reset()
         }
+      }
+      // The Product owner (2026-10-31, T12): the list names one and no chat of it is on the board: a hand runs its own routine.
+      const ownerStart = bridgeKey === null || config.project === '' ? null : ownerStartWords({ state, outbox: store.outbox(), now: clock(), folder: basename(resolve(HERE, config.project)), isPaused: isHolding(state.pause) })
+      if (ownerStart !== null) {
+        await store.say({ id: randomBytes(8).toString('hex'), at: clock(), ...ownerStart, state: 'waiting' })
+        readState.reset()
       }
       // B124: the main chat alone in the list is asked for workers, once. Only the board that delivers asks.
       const ask = bridgeKey === null ? null : spawnWhenAlone(state, store.outbox(), store.lines())

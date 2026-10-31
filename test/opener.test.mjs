@@ -191,7 +191,8 @@ test('the server checks on its own timer, at the start and after Resume all, nev
   // The cheap exit first: nothing is read while a chat's hands claimed within the minute.
   assert.match(server, /const gone = handsGone\(\{ claims: codeClaims, now, startedAt, calls: seen\?\.shown \?\? \{\} \}\)\n {4}if \(!gone \|\| !\(await ownsLoops\(\)\)\) return/)
   assert.match(server, /paused: isHolding\(state\.pause\)/)
-  assert.match(server, /const target = chatToOpen\(state\)/)
+  // The Product owner (2026-10-31): with the outbox, so a talk word that waits for it opens its chat first.
+  assert.match(server, /const target = chatToOpen\(state, store\.outbox\(\)\.filter\(message => !isLate\(message, now, keep\)\)\)/)
   assert.match(server, /openChat\(\{ exe: await findClaude\(\), session: target\.session, cwd: resolve\(HERE, config\.project\) \}\)/)
   assert.match(server, /opens\.push\(\{ at: now, chat: target\.chat, ok: done\.ok \}\)/)
   assert.match(server, /rows: \[\.\.\.view\.rows, openerRowNow\(\)\]/)

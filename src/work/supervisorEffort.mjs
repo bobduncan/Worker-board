@@ -6,6 +6,8 @@
 // chat's Workers mod sets by code first (src/hands.mjs, B755) and the main chat only when none did. A chat cannot set
 // its own model or effort (the app refuses that), so a word about the caller goes back by itself (handJobs). The chat
 // never sets its own setting and never asks for one: roles/supervisor.md. Pure: it reads what it is given.
+// The Product owner (2026-10-31) is held the same way at its own fixed setting, Opus and medium (src/talkPartner.mjs
+// OWNER_SETTING): `who` names it in the word's why.
 
 import { AGAIN_MS, EFFORTS, EFFORT_WORDS, MODELS, MODEL_WORDS, familyOf, lastWord, sameTarget } from './effort.mjs'
 
@@ -47,7 +49,7 @@ const runsAt = (lane, setting, compareModel) => lane.effort === setting.effort &
  * chat is not one for the same target of the last half hour (`AGAIN_MS`), also when it went untaken. A word for a new
  * target goes at once.
  */
-export function supervisorEffortWord({ lane, setting, models = {}, sent = [], now, main = null, prefix = '' }) {
+export function supervisorEffortWord({ lane, setting, models = {}, sent = [], now, main = null, prefix = '', who = 'Supervisor' }) {
   if (lane === null || lane === undefined || main === null || main === undefined) return null
   if (!EFFORTS.includes(lane.effort)) return null
   const id = idOf(setting, models)
@@ -56,7 +58,7 @@ export function supervisorEffortWord({ lane, setting, models = {}, sent = [], no
   if (last !== undefined && sameTarget(last, setting.effort, id) && now - last.at < AGAIN_MS) return null
   return {
     to: main, chat: lane.name, session: lane.appSession ?? null, level: setting.effort, model: id, usual: setting.effort, usualModel: id, step: null,
-    why: `the Supervisor's setting on the board: ${MODEL_WORDS[setting.model]}, ${EFFORT_WORDS[setting.effort]}`,
+    why: `the ${who}'s setting on the board: ${MODEL_WORDS[setting.model]}, ${EFFORT_WORDS[setting.effort]}`,
   }
 }
 

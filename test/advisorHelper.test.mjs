@@ -194,9 +194,10 @@ const server = await readFile(join(ROOT, 'server.mjs'), 'utf8')
 test('the Overview draws the helper\'s card right under the Advisor\'s, set apart, with no queue, no worker buttons and nothing to open', () => {
   const part = script.slice(script.indexOf('function drawAdvisorLane'), script.indexOf('function drawLanes'))
   assert.ok(part.includes('const helper = drawHelperCard(state)'))
-  assert.ok(part.includes('part.append(label, card, ...(helper === null ? [] : [helper]))'))
+  // The Product owner (2026-10-31): its card goes right after the helper's.
+  assert.ok(part.includes('part.append(label, card, ...[helper, owner].filter(one => one !== null))'))
   // A helper without an Advisor on the board still shows, under the Advisor's label.
-  assert.ok(part.includes('if (advisor === null && helper === null) return null'))
+  assert.ok(part.includes('if (advisor === null && helper === null && owner === null) return null'))
   const from = script.indexOf('function drawHelperCard')
   const card = script.slice(from, script.indexOf('\n}\n', from))
   for (const words of ["el('article', 'lane is-advisor is-helper')", 'const standing = advisorStanding(helper)', "el('h3', '', helper.name)", 'taskTitle(lane)', 'drawEta(lane, state.readAt)', 'advisorProgress(lane.task)', 'refines and result checks']) {
@@ -224,7 +225,8 @@ test('the Simple view lists the partner and its helper under the workers, apart 
   // Without a partner or a helper on the board there is no such group; a page that passes none has none.
   assert.deepEqual(JSON.parse(JSON.stringify(page.simpleWorkers([], {}, AT, [null, undefined]))).partner, [])
   assert.deepEqual(JSON.parse(JSON.stringify(page.simpleWorkers([], {}, AT))).partner, [])
-  assert.ok(script.includes('simpleWorkers(state.chats ?? [], state.counts ?? {}, state.readAt, [state.advisor, state.advisorHelper])'))
+  // The Product owner (2026-10-31): listed with them, apart from the workers.
+  assert.ok(script.includes('simpleWorkers(state.chats ?? [], state.counts ?? {}, state.readAt, [state.advisor, state.advisorHelper, state.productOwner])'))
   assert.ok(script.includes("[el('h3', 'simple-sub-head', 'Advisor'), ...workers.partner.map(rowOf)]"))
   assert.match(style, /\.simple-sub-head \{/)
 })

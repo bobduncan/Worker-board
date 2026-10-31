@@ -33,6 +33,7 @@ import { PARTNER_MODES, SWITCH_MODES } from './partnerEffort.mjs'
 import { isOlder, versionOf } from './oldMods.mjs'
 import { EFFORTS, MODEL_ID } from './work/effort.mjs'
 import { RESTART_COMMAND } from './work/modRollout.mjs'
+import { ownerFirst } from './talkPartner.mjs'
 
 /** The words of the board's that are a chat's hands: start a chat that does not run, wake one whose turn was stopped. */
 export const HAND_COMMANDS = ['start', 'wake']
@@ -137,9 +138,9 @@ export function setOf(message) {
   return { model, effort: message.effort }
 }
 
-/** B766: the board's workers by name, out of its state: the lanes that are no main chat, partner, helper or supervisor. */
+/** B766: the board's workers by name, out of its state: the lanes that are no main chat, partner, helper, supervisor or Product owner. */
 export function workerNames(state) {
-  const others = new Set([state?.advisor?.name, state?.advisorHelper?.name, state?.supervisorChat?.name].filter(Boolean))
+  const others = new Set([state?.advisor?.name, state?.advisorHelper?.name, state?.supervisorChat?.name, state?.productOwner?.name].filter(Boolean))
   return new Set((state?.chats ?? []).filter(lane => !lane.isMain && !lane.isLeftover && !others.has(lane.name)).map(lane => lane.name))
 }
 
@@ -239,15 +240,19 @@ export function nextSpawn(names, prefix, folder) {
  * resume words) only for a caller that `canSend` (`maySend`; true unless told): for one that may not, a taken start or
  * wake word goes `back` and no resume line is made.
  */
-export function handJobs({ caller, taken = [], lanes = [], resumeList = [], since = null, sentAt = new Map(), now, spawn = null, usage = false, asleepSent = new Map(), isPaused = false, canSend = true }) {
+export function handJobs({ caller, taken = [], lanes = [], resumeList = [], since = null, sentAt = new Map(), now, spawn = null, usage = false, asleepSent = new Map(), isPaused = false, canSend = true, first = null }) {
   const jobs = []
   const back = []
   const laneOf = name => lanes.find(lane => lane.name === name)
   let spawning = false
   for (const message of taken) {
     if (message.command === 'spawn') {
-      if (spawn === null || spawning) back.push(message.id)
-      else jobs.push({ id: message.id, chat: spawn.title, spawn: { title: spawn.title, tasks: [...spawn.tasks] } })
+      // The Product owner (2026-10-31): a spawn word that names a routine of its own (talkPartner.mjs `ownerStartWords`) runs
+      // that routine, the owner's, not the next worker's.
+      const own = routineOf(message)
+      const made = own ?? spawn
+      if (made === null || spawning) back.push(message.id)
+      else jobs.push({ id: message.id, chat: made.title, spawn: { title: made.title, tasks: [...made.tasks] } })
       spawning = true
       continue
     }
@@ -278,7 +283,16 @@ export function handJobs({ caller, taken = [], lanes = [], resumeList = [], sinc
   }
   // B768: a lookup of the limits, when the board said one is due.
   if (usage) jobs.push({ id: `usage:${now}`, chat: caller, usage: true })
-  return { jobs, back }
+  // The Product owner (2026-10-31: the person never waits for a talk): its start, wake and resume go before every other job.
+  return { jobs: ownerFirst(jobs, first), back }
+}
+
+/** A spawn word's own routine (`routine`: `{ title, tasks }`, the Product owner's), read safely; null for a worker's spawn. */
+function routineOf(message) {
+  const routine = message?.routine
+  if (routine === null || typeof routine !== 'object' || typeof routine.title !== 'string' || routine.title === '' || !Array.isArray(routine.tasks)) return null
+  const tasks = routine.tasks.filter(one => typeof one === 'string' && /^[a-z0-9-]{1,80}$/.test(one)).slice(0, 3)
+  return tasks.length === 0 ? null : { title: routine.title, tasks }
 }
 
 /**

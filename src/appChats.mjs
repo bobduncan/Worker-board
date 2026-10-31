@@ -72,9 +72,12 @@ export function parseList(fileText) {
   const helper = named(raw?.helper)?.trim() ?? null
   // The supervisor (spec 2026-10-24): the chat whose sweeps look the board over ("supervisor": its name), no lane either.
   const supervisor = named(raw?.supervisor)?.trim() ?? null
+  // The Product owner (2026-10-31, roles/product-owner.md): the chat that takes the person's talks ("owner": its name), no
+  // lane either; while the list names none, the talks stay with the partner (src/talkPartner.mjs).
+  const owner = named(raw?.owner)?.trim() ?? null
   // B547: "afterStep": "clear": the Workers mod clears a worker after each reported step, and the board keeps the account.
   const afterStep = raw?.afterStep === 'clear' ? 'clear' : null
-  return { prefix, main, problem: prefix === null || main === null ? 'incomplete' : null, ...(helper === null ? {} : { helper }), ...(supervisor === null ? {} : { supervisor }), ...(afterStep === null ? {} : { afterStep }) }
+  return { prefix, main, problem: prefix === null || main === null ? 'incomplete' : null, ...(helper === null ? {} : { helper }), ...(supervisor === null ? {} : { supervisor }), ...(owner === null ? {} : { owner }), ...(afterStep === null ? {} : { afterStep }) }
 }
 
 /**

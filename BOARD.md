@@ -356,10 +356,16 @@ question about that goal, with pictures pasted or picked: the ask stands under t
 answer comes there, with its pictures and "More ↗" for its whole page; "Make a step from this", "Ask again" and
 "Done" (read) under it; an answer not read is also a line under Needs your attention), **Brainstorm** (think something
 through with your partner, one question at a time: "+ New brainstorm…" or "Brainstorm this" on a goal starts one with
-your opening words; the list at the left is a slim row per brainstorm, its title and one small word: "your turn", "your
-partner is thinking", "waiting for your partner", "done", "created" or "discarded" (the dates and counts are in the row's
-tooltip); at the right the open one has a head (its title, the same word, a small "…" menu: the thread file, "Type it to
-your partner again", Discard, and on a question also Skip, Back and "Enough, wrap up") and one calm card: while your partner
+your opening words; the list at the left is a slim row per brainstorm in three groups, the newest first in each:
+**Active** (running, its last move within 3 days, or waiting on you), **Older, still open** (running, its last move over 3
+days ago) and **Closed** (done, created, discarded, or closed by you); each row its title and one small word with its age:
+"your turn · 2 h ago", "your partner is thinking", "waiting for your partner", "stopped · 6 days ago" (in a quiet grey: no
+word of it is queued or taken and your last move is over 30 minutes old), "done", "closed", "created" or "discarded" (the
+dates and counts are in the row's tooltip); with a Product owner listed (the list of chats' `"owner"`, 2026-10-31) the words
+say "your Product owner", and every talk goes to it, its card under the Advisor's; at the right the open one has a head
+(its title, the same word, a small "…" menu: the thread file, "Type it to your partner again", "Close it" on an old open
+one (done, with nothing created, and the board's line `Closed (HH:MM): by the person`), Discard, and on a question also
+Skip, Back and "Enough, wrap up") and one calm card (a stopped one has "Type it to your partner again" as its main button): while your partner
 has the turn a softly pulsing dot and what it does ("is reading your words", "is writing the next question", "is drafting
 the new goal", "is writing the proposal"), or, when it is busy with something else, what and since when and where your
 brainstorm stands in its queue; on your turn one question large, its context as one muted line ("Why I ask" folds out a
