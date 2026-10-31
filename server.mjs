@@ -88,7 +88,7 @@ import { isHolding, pauseAnswer, resumeEnds, resumeRetypeTo, resumeTypeTo } from
 import { allowCodeJobs, codeJobsView, readCodeJobs, taskWords } from './src/codeJobs.mjs'
 import { OWNER_JOB, OWNER_ROLE, ownerStartWords, talkPartnerOf } from './src/talkPartner.mjs'
 import { STOP_MOD, asleepOfJob, handJobs, handResults, isForHandsYet, isHandWord, isMootSpawn, isStopWord, mootWhy, maySend, nextSpawn, stopStep, stopTaskOf, usageDue, workerNames } from './src/hands.mjs'
-import { OPEN_CHECK_MS, OPEN_FIRST_MS, OPEN_TRIES, asleepPlan, asleepWithWork, chatToOpen, failuresOf, handWorkWaits, handsGone, openChat, openPlan, openerNote, openerRow } from './src/opener.mjs'
+import { OPEN_CHECK_MS, OPEN_FIRST_MS, OPEN_TRIES, asleepPlan, asleepWithWork, chatToOpen, failuresOf, handWorkWaits, handsGone, openChat, openOrder, openPlan, openerNote, openerRow } from './src/opener.mjs'
 import { basesNow, patientReportCheck } from './src/work/check.mjs'
 import { deliverWork, pullFor, sendOnce } from './src/work/deliver.mjs'
 import { HANDOVER_COMMAND, onSequence, outcomeOf } from './src/work/handover.mjs'
@@ -1790,34 +1790,44 @@ async function main(args) {
   /** T13 part 4: why the board could not launch the app's program at its last try (no program found), or null. */
   let openBlocked = null
   let isOpening = false
+  // Change 4a (2026-10-31): the order of one minute's check (src/opener.mjs `openOrder`). 1. Nothing while the board closes or
+  // an open is under way. 2. While the hands are gone and this board owns the loops: the none-runs plan (work waits for a
+  // chat: a hand word, or whatever the page's own banner counts, `nobodyRunsOf`); when it opens a chat (the main chat first),
+  // that launch is the whole check, one per minute. 3. Otherwise, whatever the plan's why (nothing waits, cooldown, failures,
+  // hands present): the look at the asleep workers with work waiting (`openAsleep`), with the state already read.
   const openCheck = async (given = null) => {
     if (!canOpen || isClosing || isOpening) return
     const now = clock()
     // Next to nothing while a chat runs: its claims are in memory, nothing is read.
     const gone = handsGone({ claims: codeClaims, now, startedAt, calls: seen?.shown ?? {} })
-    if (!gone || !(await ownsLoops())) return gone ? undefined : openAsleep(now, given)
-    const state = given ?? readState.last() ?? await readState()
-    const waits = handWorkWaits(state, store.outbox().filter(message => !isLate(message, now, keep)), { asleepSent: asleepWoken })
-    const plan = openPlan({ now, handsGone: gone, waits, paused: isHolding(state.pause), last: opens.at(-1)?.at ?? -Infinity, failures: failuresOf({ opens, claims: codeClaims, now }) })
-    if (!plan.open) return
-    // The board's own list gives the chat and its session id; nothing of a request goes into the launch.
-    const target = chatToOpen(state, store.outbox().filter(message => !isLate(message, now, keep)))
-    if (target === null) return
-    isOpening = true
-    try {
-      const done = await openChat({ exe: await findClaude(), session: target.session, cwd: resolve(HERE, config.project) })
-      if (!done.launched) {
-        if (openBlocked !== done.why) console.log(`T13: the board cannot open a chat when none runs: ${done.why}.`)
-        openBlocked = done.why
+    let state = given
+    if (gone && await ownsLoops()) {
+      state = given ?? readState.last() ?? await readState()
+      const outbox = store.outbox().filter(message => !isLate(message, now, keep))
+      const waits = handWorkWaits(state, outbox, { asleepSent: asleepWoken })
+      const plan = openPlan({ now, handsGone: gone, waits, paused: isHolding(state.pause), last: opens.at(-1)?.at ?? -Infinity, failures: failuresOf({ opens, claims: codeClaims, now }) })
+      // The board's own list gives the chat and its session id; nothing of a request goes into the launch.
+      const target = chatToOpen(state, outbox)
+      if (openOrder({ plan, target }) === 'main') {
+        isOpening = true
+        try {
+          const done = await openChat({ exe: await findClaude(), session: target.session, cwd: resolve(HERE, config.project) })
+          if (!done.launched) {
+            if (openBlocked !== done.why) console.log(`T13: the board cannot open a chat when none runs: ${done.why}.`)
+            openBlocked = done.why
+            return
+          }
+          openBlocked = null
+          opens.push({ at: now, chat: target.chat, ok: done.ok })
+          if (opens.length > 10) opens.shift()
+          console.log(`T13: no chat ran and work waited: opened ${target.chat} (${target.session}) in the Claude app at ${timeOf(now)}: ${done.ok ? 'started' : done.why}.`)
+        } finally {
+          isOpening = false
+        }
         return
       }
-      openBlocked = null
-      opens.push({ at: now, chat: target.chat, ok: done.ok })
-      if (opens.length > 10) opens.shift()
-      console.log(`T13: no chat ran and work waited: opened ${target.chat} (${target.session}) in the Claude app at ${timeOf(now)}: ${done.ok ? 'started' : done.why}.`)
-    } finally {
-      isOpening = false
     }
+    return openAsleep(now, state)
   }
   // The person, 2026-10-30: while other chats run, an asleep worker with work waiting is opened by the board itself
   // (src/opener.mjs `asleepWithWork`, `asleepPlan`): a message does not wake a closed chat. When its work was first seen

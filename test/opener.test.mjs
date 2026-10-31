@@ -12,7 +12,7 @@ import test from 'node:test'
 
 import {
   HANDS_GONE_MS, OPEN_EVERY_MS, OPEN_TRIES, OPEN_WAIT_MS, OPEN_SHOWN_MS, chatToOpen, failuresOf, handWorkWaits, handsGone, isProgram, isSessionId,
-  launchCommand, openChat, openPlan, openerNote, openerRow,
+  launchCommand, openChat, openOrder, openPlan, openerNote, openerRow,
 } from '../src/opener.mjs'
 
 const MIN = 60_000
@@ -189,10 +189,10 @@ test('the server checks on its own timer, at the start and after Resume all, nev
   assert.match(server, /if \(!isDemo && canOpen\) \{\n {4}const lookToOpen = \(\) => loops\.run\('opener', \(\) => openCheck\(\)\)\n {4}setTimeout\(lookToOpen, OPEN_FIRST_MS\)\n {4}setInterval\(lookToOpen, OPEN_CHECK_MS\)/)
   assert.match(server, /body\?\.action === 'resume-all' && !isShowOnly\) \{\n {8}const state = await readState\(\)\n.*\n {8}void loops\.run\('opener', \(\) => openCheck\(state\)\)/)
   // The cheap exit first: nothing is read while a chat's hands claimed within the minute.
-  assert.match(server, /const gone = handsGone\(\{ claims: codeClaims, now, startedAt, calls: seen\?\.shown \?\? \{\} \}\)\n {4}if \(!gone \|\| !\(await ownsLoops\(\)\)\) return/)
+  assert.match(server, /const gone = handsGone\(\{ claims: codeClaims, now, startedAt, calls: seen\?\.shown \?\? \{\} \}\)\n {4}let state = given\n {4}if \(gone && await ownsLoops\(\)\) \{/)
   assert.match(server, /paused: isHolding\(state\.pause\)/)
   // The Product owner (2026-10-31): with the outbox, so a talk word that waits for it opens its chat first.
-  assert.match(server, /const target = chatToOpen\(state, store\.outbox\(\)\.filter\(message => !isLate\(message, now, keep\)\)\)/)
+  assert.match(server, /const target = chatToOpen\(state, outbox\)/)
   assert.match(server, /openChat\(\{ exe: await findClaude\(\), session: target\.session, cwd: resolve\(HERE, config\.project\) \}\)/)
   assert.match(server, /opens\.push\(\{ at: now, chat: target\.chat, ok: done\.ok \}\)/)
   assert.match(server, /rows: \[\.\.\.view\.rows, openerRowNow\(\)\]/)
@@ -272,8 +272,91 @@ test('an asleep worker opens after its work waited a minute, at most once in 3 m
 
 test('the server opens an asleep worker on the same minute\'s look while other chats run, with the list\'s id only, one per look', async () => {
   const server = await readFile(new URL('../server.mjs', import.meta.url), 'utf8')
-  assert.match(server, /if \(!gone \|\| !\(await ownsLoops\(\)\)\) return gone \? undefined : openAsleep\(now, given\)/)
+  // Change 4a: no early return on the open asleep; the check falls through to it with the state it read.
+  assert.match(server, /return openAsleep\(now, state\)\n {2}\}\n {2}\/\/ The person, 2026-10-30/)
   assert.match(server, /const waiting = asleepWithWork\(state, store\.outbox\(\)\.filter\(message => !isLate\(message, now, keep\)\)\)/)
   assert.match(server, /asleepPlan\(\{ now, chat: one\.chat, since: one\.since, waitingSince: asleepWaiting\.get\(one\.chat\), opens, paused: isHolding\(state\.pause\) \}\)/)
   assert.match(server, /openChat\(\{ exe: await findClaude\(\), session: one\.session, cwd: resolve\(HERE, config\.project\) \}\)/)
+})
+
+// Change 4a (2026-10-31): since 17:00 a refine word and an incident word waited for the Advisor while every chat was asleep, and the
+// board opened nothing: the page's rule (nobodyRunsOf) counted them, the opener's rule did not. Made-up names.
+const asleepBoard = (more = {}) => ({
+  chats: [lane('Lead', { isMain: true, isRunning: false, session: ID(1) }), lane('Digger', { isRunning: false, session: ID(2), asleep: true, asleepSince: NOW - 20 * MIN })],
+  advisor: { name: 'Advisor', isRunning: false, state: 'free', session: ID(3) },
+  supervisorChat: { name: 'Supervisor', isRunning: false, state: 'free', session: ID(4) },
+  restart: { main: 'Lead' },
+  ...more,
+})
+const refineWord = { id: 'w-refine', at: NOW - 30 * MIN, to: 'Advisor', ask: null, command: 'refine', about: 'B900', round: 1, state: 'waiting' }
+const incidentWord = { ...refineWord, id: 'w-incident', command: 'incident', about: 'X1' }
+const envelope = { id: 'w-hand', at: NOW - 6 * MIN, to: 'Digger', command: 'handover', kind: 'restart', about: null, state: 'waiting' }
+
+test('4a: every chat asleep and a refine or incident word waits for the partner: hand work waits, and the main chat is the one to open', () => {
+  const state = asleepBoard()
+  for (const one of [refineWord, incidentWord]) {
+    assert.equal(handWorkWaits(state, [one]), true, one.command)
+    assert.deepEqual(chatToOpen(state, [one]), { chat: 'Lead', session: ID(1) }, one.command)
+    assert.equal(openOrder({ plan: plan({ waits: handWorkWaits(state, [one]) }), target: chatToOpen(state, [one]) }), 'main', one.command)
+  }
+  // Taken or delivered: nothing waits any more.
+  assert.equal(handWorkWaits(state, [{ ...refineWord, state: 'taken' }, { ...incidentWord, state: 'delivered' }]), false)
+})
+
+test('4a: the opener and the page read one rule: whatever nobodyRunsOf counts waits, a chat running or an unknown chat says nothing', () => {
+  // A chat that runs carries the word itself: nobody needs opening.
+  const runs = asleepBoard({ advisor: { name: 'Advisor', isRunning: true, state: 'free', session: ID(3) } })
+  assert.equal(handWorkWaits(runs, [refineWord]), false)
+  // Unknown state on a board the mod has called: the page's rule says nothing, so the opener's does not either, ...
+  const unknown = asleepBoard({ advisor: { name: 'Advisor', state: 'free', session: ID(3) }, chats: [] })
+  assert.equal(handWorkWaits(unknown, [refineWord]), false)
+  // ... but a start word to it still counts, through HAND_WAITS alone.
+  assert.equal(handWorkWaits(unknown, [{ ...refineWord, command: 'start' }]), true)
+  // On a board no mod has called since it started, an unknown state counts as not running.
+  assert.equal(handWorkWaits({ ...unknown, bridge: { isMissing: true } }, [refineWord]), true)
+  // A word the board does not wake a chat for (a delivered note, a step) is no wait.
+  assert.equal(handWorkWaits(asleepBoard(), [{ ...refineWord, command: 'step' }]), false)
+  // A handover envelope is no wake word to the main chat's rule: the none-runs path does not open the main chat for it.
+  assert.equal(handWorkWaits(asleepBoard(), [envelope]), false)
+})
+
+test('4a: an envelope to an asleep worker is opened by the asleep look while every chat is asleep, not by the main chat', async () => {
+  const { asleepWithWork } = await import('../src/opener.mjs')
+  const state = asleepBoard()
+  assert.equal(handWorkWaits(state, [envelope]), false)
+  const target = chatToOpen(state, [envelope])
+  // The none-runs plan has nothing to open (it does not wait), so the check falls through to the asleep look.
+  assert.equal(openOrder({ plan: plan({ waits: handWorkWaits(state, [envelope]) }), target }), 'asleep')
+  assert.deepEqual(asleepWithWork(state, [envelope]).map(one => one.chat), ['Digger'])
+})
+
+test('4a: the order of one check: the main chat when the plan opens it (and nothing else), else the asleep look, whatever the plan\'s why', () => {
+  const state = asleepBoard()
+  const both = [refineWord, envelope]
+  const target = chatToOpen(state, both)
+  // Both waiting at once: the main chat this check; the asleep look is left for the next minute.
+  assert.equal(openOrder({ plan: plan({ waits: handWorkWaits(state, both) }), target }), 'main')
+  // Every reason the plan does not open falls through to the asleep look.
+  for (const [why, more] of [['nothing waits', { waits: false }], ['cooldown', { last: NOW - MIN }], ['failures', { failures: OPEN_TRIES }], ['the person pauses', { paused: true }], ['hands present', { handsGone: false }]]) {
+    assert.equal(openOrder({ plan: plan(more), target }), 'asleep', why)
+  }
+  // No chat to open, though the plan says open: the asleep look too.
+  assert.equal(openOrder({ plan: plan({}), target: null }), 'asleep')
+})
+
+test('4a: the server\'s openCheck keeps that order: the main launch ends the check, every other way ends in the asleep look with the state it read', async () => {
+  const server = await readFile(new URL('../server.mjs', import.meta.url), 'utf8')
+  const check = server.slice(server.indexOf('const openCheck = async'), server.indexOf('const asleepWaiting = new Map()'))
+  assert.match(check, /handWorkWaits\(state, outbox, \{ asleepSent: asleepWoken \}\)/)
+  assert.match(check, /if \(openOrder\(\{ plan, target \}\) === 'main'\) \{[\s\S]*?\} finally \{\n {10}isOpening = false\n {8}\}\n {8}return\n {6}\}\n {4}\}\n {4}return openAsleep\(now, state\)\n {2}\}/)
+  // Only one place calls the asleep look, and the main launch is not followed by it.
+  assert.equal((check.match(/openAsleep\(/g) ?? []).length, 1)
+  assert.doesNotMatch(check, /openAsleep\(now, given\)/)
+})
+
+test('4a: the opener copies no list of the page\'s words: it reads nobodyRunsOf', async () => {
+  const source = await readFile(new URL('../src/opener.mjs', import.meta.url), 'utf8')
+  assert.match(source, /import \{ nobodyRunsOf \} from '\.\/say\.mjs'/)
+  assert.match(source, /nobodyRunsOf\(state \?\? \{\}, outbox \?\? \[\]\) !== null/)
+  assert.doesNotMatch(source, /'refine'|'incident'/)
 })

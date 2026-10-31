@@ -17,6 +17,7 @@ import { spawn as nodeSpawn } from 'node:child_process'
 
 import { shownChats } from './bridge.mjs'
 import { isAppId, maySend } from './hands.mjs'
+import { nobodyRunsOf } from './say.mjs'
 import { RESTART_COMMAND } from './work/modRollout.mjs'
 
 /** No hand checked in for this long: no chat with the Workers mod runs (a running one claims every 20 s). */
@@ -73,10 +74,13 @@ export function handsGone({ claims = new Map(), now, startedAt = -Infinity, call
 /**
  * Whether something waits that only a hand carries: a waiting word of HAND_WAITS in `outbox` (the server leaves out the
  * late ones), a resume (pause state resuming) with a chat that has not started, or (part 3) an asleep chat whose turn
- * was cut and whose resume word no hand was given for this spell (`asleepSent`, the server's, `{ since }` by chat).
+ * was cut and whose resume word no hand was given for this spell (`asleepSent`, the server's, `{ since }` by chat). Change 4a
+ * (2026-10-31, after an hour of stand-still with every chat asleep): and whatever the page itself says waits for a chat that
+ * is off (`nobodyRunsOf`, say.mjs: a refine or incident word to the partner, ...), so the banner and the opener read one rule.
  */
 export function handWorkWaits(state, outbox = [], { asleepSent = new Map() } = {}) {
   if ((outbox ?? []).some(message => message?.state === 'waiting' && HAND_WAITS.includes(message.command))) return true
+  if (nobodyRunsOf(state ?? {}, outbox ?? []) !== null) return true
   if (state?.pause?.state === 'resuming' && (state.pause.waiting ?? []).length > 0) return true
   // The Product owner (2026-10-31): a talk word waits for its chat while it does not run (no chat runs to wake it by message).
   const owner = state?.productOwner ?? null
@@ -109,6 +113,15 @@ export function chatToOpen(state, outbox = []) {
 export function failuresOf({ opens = [], claims = new Map(), now }) {
   const back = newestSender(claims)
   return opens.filter(one => one.at > back && (one.ok !== true || now - one.at >= OPEN_WAIT_MS)).length
+}
+
+/**
+ * Change 4a: what one minute's check does, in order (server.mjs `openCheck`): 'main' when the none-runs plan opens a chat
+ * (`plan.open` with a `target` from `chatToOpen`): that one launch is the whole check; else 'asleep': the look at the
+ * asleep workers with work waiting, whatever the plan's why (nothing waits, cooldown, failures, hands present).
+ */
+export function openOrder({ plan, target }) {
+  return plan?.open === true && target !== null && target !== undefined ? 'main' : 'asleep'
 }
 
 /**
