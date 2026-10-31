@@ -85,7 +85,7 @@ import { effortOf } from './src/work/effort.mjs'
 import { isHolding, pauseAnswer, resumeEnds, resumeRetypeTo, resumeTypeTo } from './src/work/pause.mjs'
 import { allowCodeJobs, codeJobsView, readCodeJobs, taskWords } from './src/codeJobs.mjs'
 import { OWNER_JOB, OWNER_ROLE, ownerStartWords, talkPartnerOf } from './src/talkPartner.mjs'
-import { STOP_MOD, asleepOfJob, handJobs, handResults, isForHandsYet, isHandWord, isStopWord, maySend, nextSpawn, stopStep, stopTaskOf, usageDue, workerNames } from './src/hands.mjs'
+import { STOP_MOD, asleepOfJob, handJobs, handResults, isForHandsYet, isHandWord, isMootSpawn, isStopWord, mootWhy, maySend, nextSpawn, stopStep, stopTaskOf, usageDue, workerNames } from './src/hands.mjs'
 import { OPEN_CHECK_MS, OPEN_FIRST_MS, OPEN_TRIES, asleepPlan, asleepWithWork, chatToOpen, failuresOf, handWorkWaits, handsGone, openChat, openPlan, openerNote, openerRow } from './src/opener.mjs'
 import { basesNow, patientReportCheck } from './src/work/check.mjs'
 import { deliverWork, givesRefused, pullFor, sendOnce } from './src/work/deliver.mjs'
@@ -101,7 +101,7 @@ import { requestKeeper } from './src/work/requests.mjs'
 import { readObsoleteFile, readStore } from './src/work/store.mjs'
 import { obsoleteView, openItemsOf } from './src/work/obsolete.mjs'
 import { obsoleteEvidence } from './src/work/obsoleteEvidence.mjs'
-import { stoppedChats, takeFor } from './src/work/outboxSweep.mjs'
+import { giveBackHeld, stoppedChats, takeFor } from './src/work/outboxSweep.mjs'
 import { dismissCopied, fileStore, isLate, memoryStore, outboxNow, tick } from './src/store.mjs'
 import { loads, readVersion } from './src/version.mjs'
 import { blockersOf, reportedNotLogged, selfUpdater } from './src/selfUpdate.mjs'
@@ -2408,7 +2408,15 @@ async function main(args) {
       codeClaims.set(checked.chat, claim)
       const canSend = maySend(claim)
       const workers = workerNames(state)
-      const isHand = message => isHandWord(message, { canSend, canSet: can.has('set'), canRestart: can.has('restart'), canSpawn: can.has('spawn'), workers })
+      // B880 (X2): a word a hand has held without a word of it for HAND_HOLD_MS goes back first (its call never answered, or
+      // its process ended; the outbox sweep does it at every refresh too), and a start word for a chat on the board is no
+      // hand's: the sweep closes it as moot.
+      if ((await giveBackHeld(store, clock())) > 0) readState.reset()
+      const onBoard = new Set(lanes.map(lane => lane.name))
+      for (const message of store.outbox().filter(one => one.state === 'waiting' && isMootSpawn(one, onBoard))) {
+        if (await store.close(message.id, 'dropped', mootWhy(message), clock())) readState.reset()
+      }
+      const isHand = message => !isMootSpawn(message, onBoard) && isHandWord(message, { canSend, canSet: can.has('set'), canRestart: can.has('restart'), canSpawn: can.has('spawn'), workers })
       const taken = isHolding(state.pause) ? [] : await store.takeHands(checked.chat, clock(), keep, isHand)
       const read = workDir === null ? null : await readStore(workDir)
       const pause = read?.pause ?? null
@@ -2456,7 +2464,12 @@ async function main(args) {
     handsDone: counted(async body => {
       const { checked } = await checkFresh(body)
       if (!checked.ok) return checked
-      const { sent, failed, why, texts } = handResults(body)
+      const { sent, failed, back, why, texts } = handResults(body)
+      // B880: the words this hand gives back unsent (the app gave no answer in time, or its process cannot call tools) wait again,
+      // for another hand or their addressee; a word it gave back that the app sent after all is kept as delivered.
+      const givenBack = back.length === 0 ? 0 : await store.back(store.outbox().filter(one => back.includes(one.id) && one.state === 'taken' && one.takenBy === checked.chat).map(one => one.id), checked.chat)
+      const late = sent.length === 0 ? 0 : await store.deliveredLate(sent, checked.chat, clock())
+      if (givenBack + late > 0) readState.reset()
       // B768: a lookup of the limits by code is kept as the supervisor's lookups are (B640): the newest reading of each
       // window in the project's limit-readings file, which every reading of the state takes in.
       for (const [id, text] of Object.entries(texts)) {
@@ -2487,7 +2500,8 @@ async function main(args) {
         spawnFail = failed.includes(message.id) ? { at: clock(), why: why[message.id] ?? 'not started' } : null
       }
       const byTo = new Map()
-      for (const message of store.outbox().filter(one => words.includes(one.id) && one.state === 'taken')) {
+      // B880: only the words this hand holds: one given back and taken by another meanwhile is that one's to report.
+      for (const message of store.outbox().filter(one => words.includes(one.id) && one.state === 'taken' && one.takenBy === checked.chat)) {
         if (!byTo.has(message.to)) byTo.set(message.to, [])
         byTo.get(message.to).push(message.id)
       }

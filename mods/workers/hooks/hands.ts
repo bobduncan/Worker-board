@@ -61,7 +61,44 @@ export type HandJob = { id: string; to: string; chat: string; text: string } | {
   | { id: string; to: string; chat: string; restart: { keep: string[] } } | { id: string; chat: string; spawn: { title: string; tasks: string[] } }
   | { id: string; chat: string; usage: true } | { id: string; to?: string; chat: string; remove: true }
   | { id: string; to: string; chat: string; archive: true }
-export type HandResult = { id: string; ok: boolean; why?: string; text?: string }
+export type HandResult = { id: string; ok: boolean; why?: string; text?: string; back?: boolean }
+
+/**
+ * B880 (X2 a third time: Worker 2's hand held the Product owner's start word for half an hour; its call ran the routine but
+ * never answered, until the process lost its session and the call failed, "$.tool.call is not available in this mode"): a
+ * hand waits this long for the app's answer to one job, then gives the word back to the board (`back`), which hands it to
+ * another hand or its addressee. The slowest answer of the week took 45 s.
+ */
+export const HAND_CALL_MS = 120_000
+/** B880: after the app said this process cannot call tools (no session bound), it claims no job for this long. */
+export const NO_SESSION_MS = 10 * 60_000
+export const NO_ANSWER_WHY = 'the app gave no answer within 2 minutes: given back for another hand'
+export const NO_SESSION_WHY = 'the process of this chat cannot call tools now (no session bound): given back for another hand'
+
+/** B880: whether a call failed because this process has no session to call tools in (it would fail every call). */
+export const isNoSession = (error: unknown): boolean =>
+  /not available in this mode|no session is bound/i.test(error instanceof Error ? error.message : String(error ?? ''))
+
+/**
+ * B880: one job's call against the hand's patience: its result; or, when `wait` ends first, the word given back (`hung`: the
+ * call may still answer, and a late send then counts); or, when the process has no session, the word given back unsent
+ * (`noSession`). Any other failure is the job's own, with its why.
+ */
+export async function raceJob(id: string, call: Promise<HandResult>, wait: Promise<unknown>): Promise<{ result: HandResult; hung: boolean; noSession: boolean }> {
+  const late = Symbol('late')
+  const outcome = call.then(
+    result => ({ result, noSession: false }),
+    (error: unknown) => (isNoSession(error)
+      ? { result: { id, ok: false, back: true, why: NO_SESSION_WHY }, noSession: true }
+      : { result: { id, ok: false, why: error instanceof Error ? error.message.slice(0, 300) : 'the tool failed' }, noSession: false }),
+  )
+  const first = await Promise.race([outcome, wait.then(() => late, () => late)])
+  if (typeof first === 'symbol') return { result: { id, ok: false, back: true, why: NO_ANSWER_WHY }, hung: true, noSession: false }
+  return { ...first, hung: false }
+}
+
+/** B880: whether this process claims jobs now: none while one of its calls hangs, nor for NO_SESSION_MS after it had no session. */
+export const mayClaim = ({ hung, offUntil, now }: { hung: number; offUntil: number; now: number }): boolean => hung === 0 && now >= offUntil
 
 const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null && !Array.isArray(value)
 const isText = (value: unknown): value is string => typeof value === 'string' && value !== ''

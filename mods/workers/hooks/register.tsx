@@ -17,8 +17,8 @@ import {
 import type { OpenInstruction, TaskChange } from './chats'
 import { blockAsksLine, forYouCount, forYouItems, leftOutLine } from './foryou'
 import { STUCK_SHOWN_MS, isShownForTime, popupText } from './popup'
-import { ARCHIVE_TOOL, CAN_SET_MS, CAN_TOOLS, EFFORT_TOOL, HANDS_DONE_PATH, HANDS_MS, HANDS_PATH, LIST_TOOL, MODEL_TOOL, SEND_TOOL, TASK_RUN_TOOL, TASK_UPDATE_TOOL, UNARCHIVE_TOOL, USAGE_TOOL, archivedOf, canFrom, parseJobs, plainResult, sendResult, setResult, usageResult } from './hands'
-import type { HandResult, HandSet } from './hands'
+import { ARCHIVE_TOOL, CAN_SET_MS, CAN_TOOLS, EFFORT_TOOL, HAND_CALL_MS, HANDS_DONE_PATH, HANDS_MS, HANDS_PATH, LIST_TOOL, MODEL_TOOL, NO_ANSWER_WHY, NO_SESSION_MS, NO_SESSION_WHY, SEND_TOOL, TASK_RUN_TOOL, TASK_UPDATE_TOOL, UNARCHIVE_TOOL, USAGE_TOOL, archivedOf, canFrom, mayClaim, parseJobs, plainResult, raceJob, sendResult, setResult, usageResult } from './hands'
+import type { HandJob, HandResult, HandSet } from './hands'
 import {
   SELF, UNKNOWN, branchList, branchName, detached, folderName, inFolder, isListed, ordered, summary,
 } from './folders'
@@ -57,6 +57,10 @@ const stopGiven = new Set<string>()
 /** B755, B766: what the app lets this chat's code do (`CAN_TOOLS`'s keys), and when it was last asked. */
 let canHere: { at: number; can: string[] } = { at: -Infinity, can: [] }
 let isHanding = false
+/** B880: the calls of this process that gave no answer in time and still run; their late results for the board; no claims until. */
+let handsHung = 0
+let handsLate: HandResult[] = []
+let handsOffUntil = -Infinity
 let isReading = false
 let isReadingChats = false
 /** The folder that holds the project's chat files; null when the project has none. */
@@ -1650,21 +1654,33 @@ async function handRound($: EngineInterface): Promise<void> {
     const board = parseBoard(await $.fs.read(inFolder(project, BOARD_FILE)).catch(() => ''))
     // Only a board that says it hands out jobs is asked: an older one has no such route.
     if (board === null || !board.hands) return
+    // B880: a late answer of a call that hung: the board keeps a word it went for as delivered.
+    if (handsLate.length > 0) {
+      const late = handsLate
+      handsLate = []
+      if ((await askBoard($, board, HANDS_DONE_PATH, { results: late }).catch(() => null)) === null) handsLate.push(...late)
+    }
+    // B880: a process whose call hangs, or that cannot call tools, takes no word: another hand or its addressee does.
+    if (!mayClaim({ hung: handsHung, offUntil: handsOffUntil, now: await $.clock.now() })) return
     const can = await canNow($)
     const jobs = parseJobs(await askBoard($, board, HANDS_PATH, can.length > 0 ? { can } : {}).catch(() => null))
     if (jobs.length === 0) return
     const results: HandResult[] = []
     for (const job of jobs) {
-      try {
-        if ('text' in job) results.push(sendResult(job.id, await $.tool.call({ tool: SEND_TOOL, session_id: job.to, message: job.text } as never)))
-        else if ('set' in job) results.push(await setChat($, job.id, job.to, job.set))
-        else if ('restart' in job) results.push(await restartChat($, job.id, job.to, job.restart.keep))
-        else if ('usage' in job) results.push(usageResult(job.id, await $.tool.call({ tool: USAGE_TOOL } as never)))
-        else if ('remove' in job) results.push(await removeChat($, job.id, job.to ?? null, job.chat))
-        else if ('archive' in job) results.push(plainResult(job.id, await $.tool.call({ tool: ARCHIVE_TOOL, session_id: job.to, reason: 'A newer run of this worker\'s routine replaced this chat: the worker board archives it' } as never)))
-        else results.push(await startWorker($, job.id, job.spawn.title, job.spawn.tasks))
-      } catch (error) {
-        results.push({ id: job.id, ok: false, why: error instanceof Error ? error.message.slice(0, 300) : 'the tool failed' })
+      // B880: after a call that hung or found no session, the rest of the round go back unsent.
+      if (!mayClaim({ hung: handsHung, offUntil: handsOffUntil, now: await $.clock.now() })) {
+        results.push({ id: job.id, ok: false, back: true, why: handsHung > 0 ? NO_ANSWER_WHY : NO_SESSION_WHY })
+        continue
+      }
+      const call = runJob($, job)
+      const { result, hung, noSession } = await raceJob(job.id, call, $.clock.sleep(HAND_CALL_MS))
+      results.push(result)
+      if (noSession) handsOffUntil = (await $.clock.now()) + NO_SESSION_MS
+      if (hung) {
+        handsHung += 1
+        void call.then(late => {
+          if (late.ok) handsLate.push(late)
+        }, () => undefined).finally(() => { handsHung -= 1 })
       }
     }
     await askBoard($, board, HANDS_DONE_PATH, { results }).catch(() => null)
@@ -1673,6 +1689,17 @@ async function handRound($: EngineInterface): Promise<void> {
   } finally {
     isHanding = false
   }
+}
+
+/** B880: one job of the board's, by its kind, as a hand's result; rejects as the app's tool does (raceJob reads why). */
+async function runJob($: EngineInterface, job: HandJob): Promise<HandResult> {
+  if ('text' in job) return sendResult(job.id, await $.tool.call({ tool: SEND_TOOL, session_id: job.to, message: job.text } as never))
+  if ('set' in job) return setChat($, job.id, job.to, job.set)
+  if ('restart' in job) return restartChat($, job.id, job.to, job.restart.keep)
+  if ('usage' in job) return usageResult(job.id, await $.tool.call({ tool: USAGE_TOOL } as never))
+  if ('remove' in job) return removeChat($, job.id, job.to ?? null, job.chat)
+  if ('archive' in job) return plainResult(job.id, await $.tool.call({ tool: ARCHIVE_TOOL, session_id: job.to, reason: 'A newer run of this worker\'s routine replaced this chat: the worker board archives it' } as never))
+  return startWorker($, job.id, job.spawn.title, job.spawn.tasks)
 }
 
 /**

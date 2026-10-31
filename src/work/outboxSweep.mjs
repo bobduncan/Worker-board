@@ -8,6 +8,7 @@
 // rule 8 stop naming it; one that still matters stays failed, for the person to see.
 
 import { shownChats } from '../bridge.mjs'
+import { heldTooLong, isMootSpawn, mootWhy } from '../hands.mjs'
 import { RESUME_STEP, isStopWord, waitsLong } from '../say.mjs'
 import { isLate, keepMs } from '../store.mjs'
 import { stoppedOf } from '../stopped.mjs'
@@ -34,7 +35,8 @@ const isStanding = message => ['waiting', 'taken', 'delivered', 'copied'].includ
 /**
  * The reason a waiting word no longer matters, or null. `ctx`: `all` (every word of the outbox), `items` (the work store's
  * items by id, null when the board has no store), `runs` (chat name to whether it runs), `goals` (the goal map's nodes),
- * `now`, `keep`, `closing` (what this sweep closes already), `lanes` (the board's chats, with the effort and model each runs at).
+ * `now`, `keep`, `closing` (what this sweep closes already), `lanes` (the board's chats, with the effort and model each runs at),
+ * `onBoard` (B880: the names of the chats on the board now, the partner, helper, supervisor and Product owner among them).
  */
 export function whyClosed(message, ctx) {
   // A person's answer waits for its chat, also one that is off on purpose.
@@ -68,6 +70,8 @@ export function whyClosed(message, ctx) {
       return { state: 'dropped', why: `${message.about} runs at ${(message.model ?? null) === null ? '' : `${familyOf(message.model)} · `}${message.effort} already` }
     }
   }
+  // B880 (X2): a start word for a chat that is on the board now (the Product owner's routine) is moot, waiting or failed.
+  if (isMootSpawn(message, ctx.onBoard)) return { state: 'dropped', why: mootWhy(message) }
   // A word that is stale in minutes (a pause's resume, a line typed in a talk) is only closed once it is late.
   if (!waitsLong(message.command)) return isLate(message, now, keep) ? expired(message, keep) : null
   // B571: the goal guard's word: not needed once the goal is done or was evaluated after the word was sent (B359),
@@ -167,6 +171,7 @@ const expired = (message, keep) => ({ state: 'expired', why: `waited longer than
 export async function sweepOutbox({ dir, outbox, state, now, keep, fs, dry = false, to = null }) {
   // Without the outbox's keep (a caller that delivers work lines only) nothing is judged.
   if ((keep ?? null) === null) return []
+  if (!dry) await giveBackHeld(outbox, now)
   if (!dry) await outbox.retryFailed(now, keep)
   // B577: at a refresh, the words that failed for a chat's old session go to the session the board shows under its name now.
   if (!dry && to === null && typeof outbox.revive === 'function') await outbox.revive(sessionsOf(state), now, keep)
@@ -181,7 +186,7 @@ export async function sweepOutbox({ dir, outbox, state, now, keep, fs, dry = fal
   const off = new Set(shownChats(state ?? {}).filter(chat => chat.isRunning === false).map(chat => chat.name))
   const all = outbox.outbox()
   const closing = new Map()
-  const ctx = { all, items, runs, goals: state?.goals?.nodes ?? [], now, keep, closing, stopped: stoppedChats(all, state), prefix: state?.chatPrefix ?? '', ready: state?.readyList?.ready ?? [], main: state?.restart?.main ?? null, off, handedBack: state?.reconciled?.handedBack ?? [], lanes: state?.chats ?? [] }
+  const ctx = { all, items, runs, goals: state?.goals?.nodes ?? [], now, keep, closing, stopped: stoppedChats(all, state), prefix: state?.chatPrefix ?? '', ready: state?.readyList?.ready ?? [], main: state?.restart?.main ?? null, off, handedBack: state?.reconciled?.handedBack ?? [], lanes: state?.chats ?? [], onBoard: new Set(shownChats(state ?? {}).map(chat => chat.name)) }
   // The starts last: they depend on what the other words become.
   const ordered = [...waiting.filter(message => message.command !== 'start'), ...waiting.filter(message => message.command === 'start')]
   for (const message of ordered) {
@@ -190,6 +195,20 @@ export async function sweepOutbox({ dir, outbox, state, now, keep, fs, dry = fal
   }
   if (!dry) for (const one of closing.values()) await outbox.close(one.id, one.state, one.why, now)
   return [...closing.values()]
+}
+
+/**
+ * B880 (X2): the words a hand has held for HAND_HOLD_MS without a word of them go back to waiting, each in its hand's name (its
+ * late answer still counts: store.mjs `deliveredLate`), with a line in the board's log. How many went back.
+ */
+export async function giveBackHeld(outbox, now, log = line => console.log(line)) {
+  const held = heldTooLong(outbox.outbox(), now)
+  for (const message of outbox.outbox().filter(one => held.includes(one.id))) {
+    const since = new Date(message.takenAt).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })
+    log(`B880: gave back the word ${message.id} (${message.command ?? 'answer'}${message.about ? ` ${message.about}` : ''}) that ${message.takenBy}'s hand held since ${since} without a word of it.`)
+    await outbox.back([message.id], message.takenBy)
+  }
+  return held.length
 }
 
 /** B577: the session the board shows under each chat's name. */

@@ -51,7 +51,7 @@ test('what a hand reports is read safely: sent and failed by id, each why kept s
   assert.deepEqual(read.sent, ['a'])
   assert.deepEqual(read.failed, ['b', 'c'])
   assert.equal(read.why.b.length, 300)
-  assert.deepEqual(handResults(null), { sent: [], failed: [], why: {}, texts: {} })
+  assert.deepEqual(handResults(null), { sent: [], failed: [], back: [], why: {}, texts: {} })
 })
 
 test('the outbox: a hand takes each start and wake word once, whoever it is for; one put back waits again; a settle per addressee closes them', async () => {

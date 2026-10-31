@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'claude-code/testing'
 
-import { ARCHIVE_TOOL, CAN_TOOLS, EFFORT_TOOL, HANDS_DONE_PATH, HANDS_PATH, LIST_TOOL, MODEL_TOOL, SEND_TOOL, TASK_RUN_TOOL, TASK_UPDATE_TOOL, UNARCHIVE_TOOL, USAGE_TOOL, archivedOf, canFrom, parseJobs, plainResult, sendResult, setResult, usageResult } from './hands'
+import { ARCHIVE_TOOL, CAN_TOOLS, EFFORT_TOOL, HAND_CALL_MS, HANDS_DONE_PATH, HANDS_PATH, LIST_TOOL, MODEL_TOOL, SEND_TOOL, TASK_RUN_TOOL, TASK_UPDATE_TOOL, UNARCHIVE_TOOL, USAGE_TOOL, NO_ANSWER_WHY, NO_SESSION_WHY, archivedOf, canFrom, isNoSession, mayClaim, parseJobs, plainResult, raceJob, sendResult, setResult, usageResult } from './hands'
 
 // B753: the board's hands in code: the jobs the board hands this chat, and what the app's tool answered for each.
 describe('the board\'s hands', () => {
@@ -129,5 +129,30 @@ describe('the board\'s hands', () => {
   test('an archive job needs the app id of the chat to close and carries no list change', () => {
     const text = JSON.stringify({ jobs: [{ id: 'archive:local_old', to: 'local_old', chat: 'Worker 1', archive: true }, { id: 'archive:x', to: 'cli-x', chat: 'Worker 1', archive: true }, { id: 'archive:y', chat: 'Worker 1', archive: true }] })
     expect(parseJobs(text)).toEqual([{ id: 'archive:local_old', to: 'local_old', chat: 'Worker 1', archive: true }])
+  })
+
+  // B880 (X2): Worker 2's hand held the Product owner's start word for half an hour: its call never answered, then failed when
+  // the process lost its session. Now a call that does not answer in time, or finds no session, gives the word back.
+  const NO_SESSION = '$.tool.call is not available in this mode: no session is bound in this process (the REPL has not mounted and no headless session is built); catch it and carry on'
+  const never = new Promise<never>(() => undefined)
+
+  test('a call that answers in time is its result; one that does not gives the word back, and may still answer late', async () => {
+    expect(HAND_CALL_MS).toBe(120_000)
+    expect(await raceJob('a', Promise.resolve({ id: 'a', ok: true }), never)).toEqual({ result: { id: 'a', ok: true }, hung: false, noSession: false })
+    expect(await raceJob('b', never, Promise.resolve())).toEqual({ result: { id: 'b', ok: false, back: true, why: NO_ANSWER_WHY }, hung: true, noSession: false })
+  })
+
+  test('a call that finds no session gives the word back unsent; any other failure is the job\'s own, with its why', async () => {
+    expect(isNoSession(new Error(`workers: ${NO_SESSION}`))).toBe(true)
+    expect(isNoSession(new Error('Scheduled task "x" not found'))).toBe(false)
+    expect(await raceJob('c', Promise.reject(new Error(NO_SESSION)), never)).toEqual({ result: { id: 'c', ok: false, back: true, why: NO_SESSION_WHY }, hung: false, noSession: true })
+    expect(await raceJob('d', Promise.reject(new Error('Scheduled task "x" not found')), never)).toEqual({ result: { id: 'd', ok: false, why: 'Scheduled task "x" not found' }, hung: false, noSession: false })
+  })
+
+  test('a process claims no job while one of its calls hangs, nor for a while after it found no session', () => {
+    expect(mayClaim({ hung: 0, offUntil: -Infinity, now: 5 })).toBe(true)
+    expect(mayClaim({ hung: 1, offUntil: -Infinity, now: 5 })).toBe(false)
+    expect(mayClaim({ hung: 0, offUntil: 10, now: 5 })).toBe(false)
+    expect(mayClaim({ hung: 0, offUntil: 10, now: 10 })).toBe(true)
   })
 })

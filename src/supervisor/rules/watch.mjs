@@ -453,11 +453,14 @@ function undelivered(view) {
     return {
       rule: 'undelivered', key: `undelivered ${chat}`, subject: chat, since: oldest.at,
       text: `${words.length} ${words.length === 1 ? 'word' : 'words'} to ${chat} not delivered, the oldest for ${minutes(view.now - oldest.at)} min`,
-      // B813: a failed word with its last why.
-      evidence: words.map(one => `${clockOf(one.at)} ${one.command ?? 'answer'}${one.about ? ` ${one.about}` : ''} (${one.state}${one.state === 'failed' && typeof one.why === 'string' && one.why.trim() !== '' ? `: ${shortWhy(one.why)}` : ''})`).join('; '),
+      // B813: a failed word with its last why. B880: and the hand that holds a taken word, or failed it.
+      evidence: words.map(one => `${clockOf(one.at)} ${one.command ?? 'answer'}${one.about ? ` ${one.about}` : ''} (${one.state}${handOf(one)}${one.state === 'failed' && typeof one.why === 'string' && one.why.trim() !== '' ? `: ${shortWhy(one.why)}` : ''})`).join('; '),
     }
   })
 }
+
+/** B880: whose mod holds a word a hand took (", held by Worker 2's mod"), or failed it; '' for a chat's own take. */
+const handOf = word => (typeof word.takenBy !== 'string' ? '' : word.state === 'taken' ? `, held by ${word.takenBy}'s mod` : word.state === 'failed' ? ` by ${word.takenBy}'s mod` : '')
 
 /** B813: a failure's why on one line, cut to fit the evidence. */
 const shortWhy = why => {
@@ -475,7 +478,7 @@ export function wordMatters(view) {
   const runs = new Map(view.lanes.filter(chat => !chat.isLeftover).map(chat => [chat.name, chat.isRunning === true]))
   // T9.4: the chats known not to run (outboxSweep.mjs): a start word one of them holds is closed, so it matters to no rule.
   const off = new Set([...view.lanes.filter(chat => !chat.isLeftover), view.partner, view.helper, view.supervisor].filter(chat => chat?.isRunning === false).map(chat => chat.name))
-  const ctx = { all: view.outbox, items: view.items, runs, goals: view.goals ?? [], now: view.now, keep: view.keep, closing: new Map(), stopped: stoppedOfView(view), prefix: view.prefix ?? '', main: view.lanes.find(chat => chat.isMain === true)?.name ?? null, off, handedBack: view.handedBack ?? [], lanes: view.lanes }
+  const ctx = { all: view.outbox, items: view.items, runs, goals: view.goals ?? [], now: view.now, keep: view.keep, closing: new Map(), stopped: stoppedOfView(view), prefix: view.prefix ?? '', main: view.lanes.find(chat => chat.isMain === true)?.name ?? null, off, handedBack: view.handedBack ?? [], lanes: view.lanes, onBoard: new Set([...view.lanes.filter(chat => !chat.isLeftover), view.partner, view.helper, view.supervisor, view.owner].filter(chat => typeof chat?.name === 'string').map(chat => chat.name)) }
   return message => whyClosed(message, ctx)?.state !== 'dropped'
 }
 
@@ -502,6 +505,8 @@ export function undeliveredWords(view) {
     const held = message.at + heldMs(message, view.now, view.pause)
     const since = afterPause(view, Number.isFinite(message.releasedAt) ? Math.max(held, message.releasedAt) : held)
     if (message.state === 'waiting') return view.now - since > limit && stillWaits(message)
+    // B880: a word a hand took and still holds (its call gave no answer): named as one that waits, with the hand.
+    if (message.state === 'taken' && typeof message.takenBy === 'string') return view.now - since > limit && stillWaits(message)
     return (message.state === 'expired' || isFailedForGood(message)) && view.now - message.at < UNDELIVERED_LOOK_MS && view.now - since > limit && stillWaits(message)
   })
 }

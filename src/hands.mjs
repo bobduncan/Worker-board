@@ -46,6 +46,29 @@ export const HAND_LINE = 'The worker board holds words for you; they come in now
  */
 export const HANDS_FIRST_MS = 60_000
 /**
+ * B880 (X2 a third time: Worker 2's hand held the Product owner's start word for half an hour, its call never answering): a word a
+ * hand took (`takenBy`) and has said nothing of this long goes back to waiting, for another hand or its addressee. A hand gives a
+ * word back itself after two minutes without the app's answer (the Workers mod's HAND_CALL_MS); this catches a hand whose process
+ * ended, or a mod older than that. The slowest hand of the week took 45 s.
+ */
+export const HAND_HOLD_MS = 3 * 60_000
+
+/** B880: the ids of the words a hand took (`takenBy`; a chat's own take names none) and has held for HAND_HOLD_MS or longer. */
+export const heldTooLong = (outbox, now) => outbox
+  .filter(message => message.state === 'taken' && typeof message.takenBy === 'string' && Number.isFinite(message.takenAt) && now - message.takenAt >= HAND_HOLD_MS)
+  .map(message => message.id)
+
+/**
+ * B880: a start word that names its chat (`about`: the Product owner's routine; a worker's spawn names none) whose chat is on
+ * the board now (`onBoard`, the names): moot, as nothing more is to start. No hand takes it, and the outbox sweep closes it.
+ */
+/** B880: why a moot start word is closed (the outbox sweep and a hand's claim say the same). */
+export const mootWhy = message => `${message.about} is on the board now`
+
+export const isMootSpawn = (message, onBoard) => message?.command === 'spawn' && typeof message.about === 'string' && message.about !== ''
+  && onBoard instanceof Set && onBoard.has(message.about)
+
+/**
  * B768 (the person, 2026-10-28: "A: limits timer"): the plan's limits are looked up by code when the board's newest
  * reading is this old: the week and 5-hour stops (B742, B758) and the old-reading rule need fresh ones.
  */
@@ -296,13 +319,15 @@ function routineOf(message) {
 }
 
 /**
- * What a hand reports back, `[{ id, ok, why, text }]`, read safely: the words it sent and those it could not, by id, and
- * (B768) the answer of a lookup of the limits (`texts`, by its `usage:` id, 20000 characters at most).
+ * What a hand reports back, `[{ id, ok, why, text, back }]`, read safely: the words it sent and those it could not, by id, and
+ * (B768) the answer of a lookup of the limits (`texts`, by its `usage:` id, 20000 characters at most). B880: `back` the
+ * words it gives back unsent (the app gave no answer in time, or its process cannot call tools): they wait again, no try spent.
  */
 export function handResults(body) {
   const list = Array.isArray(body?.results) ? body.results : []
   const sent = []
   const failed = []
+  const back = []
   const why = {}
   const texts = {}
   for (const one of list) {
@@ -310,10 +335,11 @@ export function handResults(body) {
     if (one.ok === true) {
       sent.push(one.id)
       if (one.id.startsWith('usage:') && typeof one.text === 'string') texts[one.id] = one.text.slice(0, 20_000)
-    } else {
+    } else if (one.back === true) back.push(one.id)
+    else {
       failed.push(one.id)
       why[one.id] = String(one.why ?? 'not sent').slice(0, 300)
     }
   }
-  return { sent, failed, why, texts }
+  return { sent, failed, back, why, texts }
 }

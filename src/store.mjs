@@ -133,9 +133,11 @@ function storeOver(lines, messages, alive, write) {
      */
     async take(to, now, keep, only = () => true) {
       const taken = messages.filter(message => message.to === to && message.state === 'waiting' && !isLate(message, now, keep) && only(message))
-      for (const message of taken) Object.assign(message, { state: 'taken', takenAt: now })
+      // B880: a word a hand gave back names no hand once its chat takes it (the log keeps the last `takenBy`, so it is cleared).
+      const hadHand = new Set(taken.filter(message => typeof message.takenBy === 'string').map(message => message.id))
+      for (const message of taken) Object.assign(message, { state: 'taken', takenAt: now }, hadHand.has(message.id) ? { takenBy: null } : {})
       try {
-        if (taken.length > 0) await write.outbox(taken.map(message => ({ id: message.id, state: 'taken', takenAt: now })))
+        if (taken.length > 0) await write.outbox(taken.map(message => ({ id: message.id, state: 'taken', takenAt: now, ...(hadHand.has(message.id) ? { takenBy: null } : {}) })))
       } catch (error) {
         for (const message of taken) {
           message.state = 'waiting'
@@ -152,6 +154,7 @@ function storeOver(lines, messages, alive, write) {
      * B753: hands out the words that are a hand's to send (`isHand`, src/hands.mjs `isHandWord`), whoever they are
      * addressed to, for the chat `by` whose Workers mod sends them by code: marked taken at once and written down, as a
      * take, so two hands never send one. `back(ids)` puts a word the hand cannot send back to waiting.
+     * B880: `back(ids, from)` writes down which hand gave it back (`backFrom`), so its late answer (`deliveredLate`) still counts.
      */
     async takeHands(by, now, keep, isHand) {
       const taken = messages.filter(message => message.state === 'waiting' && !isLate(message, now, keep) && isHand(message))
@@ -168,15 +171,28 @@ function storeOver(lines, messages, alive, write) {
       }
       return taken.map(message => ({ ...message }))
     },
-    async back(ids) {
+    async back(ids, from = null) {
       const again = messages.filter(message => ids.includes(message.id) && message.state === 'taken')
       for (const message of again) {
         message.state = 'waiting'
         delete message.takenAt
-        delete message.takenBy
+        // B880: null, not left out: the log keeps a field a later line leaves out.
+        message.takenBy = null
+        if (from !== null) message.backFrom = from
       }
-      if (again.length > 0) await write.outbox(again.map(message => ({ id: message.id, state: 'waiting' })))
+      if (again.length > 0) await write.outbox(again.map(message => ({ id: message.id, state: 'waiting', takenBy: null, ...(from === null ? {} : { backFrom: from }) })))
       return again.length
+    },
+    /**
+     * B880: a hand gave a word back when the app did not answer in time, and the app answered later that it went: kept as
+     * delivered while it still waits (no other hand or chat took it meanwhile), so it is never sent twice. Only the hand that
+     * gave it back (`by`) counts.
+     */
+    async deliveredLate(ids, by, now) {
+      const late = messages.filter(message => ids.includes(message.id) && message.state === 'waiting' && message.backFrom === by)
+      for (const message of late) Object.assign(message, { state: 'delivered', deliveredAt: now })
+      if (late.length > 0) await write.outbox(late.map(message => ({ id: message.id, state: 'delivered', deliveredAt: now, why: `${by}'s hand sent it after it had given it back` })))
+      return late.length
     },
     /**
      * B532: closes a waiting word with its reason (`state` dropped: no longer needed; expired: waited too long), written
@@ -203,7 +219,7 @@ function storeOver(lines, messages, alive, write) {
         && now - message.failedAt >= afterMs && !isLate(message, now, keep))
       const sent = []
       for (const message of again) {
-        const { takenAt, failedAt, why, retriedAs, failedSession, stoppedAt, stoppedSession, ...rest } = message
+        const { takenAt, takenBy, backFrom, failedAt, why, retriedAs, failedSession, stoppedAt, stoppedSession, ...rest } = message
         const copy = { ...rest, id: newId(), state: 'waiting', retryOf: message.id }
         message.retriedAs = copy.id
         messages.push(copy)
@@ -234,7 +250,7 @@ function storeOver(lines, messages, alive, write) {
         if (message.to !== to || message.state !== 'taken') continue
         if (typed.includes(message.id)) changed.push(Object.assign(message, { state: 'delivered', deliveredAt: now }))
         else if (failed.includes(message.id) && !refused.includes(message.id) && isStoppedWhy(why[message.id])) {
-          const { takenAt, failedAt, why: _why, retriedAs, failedSession, stoppedAt, stoppedSession, ...rest } = message
+          const { takenAt, takenBy, backFrom, failedAt, why: _why, retriedAs, failedSession, stoppedAt, stoppedSession, ...rest } = message
           const copy = { ...rest, id: newId(), state: 'waiting', retryOf: message.id, stoppedAt: now, ...(session === null ? {} : { stoppedSession: session }) }
           // Not "failed": nothing failed for good, and the word that stands for it waits.
           changed.push(Object.assign(message, { state: 'stopped', failedAt: now, tries: message.tries ?? 0, why: why[message.id], retriedAs: copy.id }))
@@ -267,7 +283,7 @@ function storeOver(lines, messages, alive, write) {
         && Number.isFinite(message.failedAt) && now - message.failedAt < dayMs && !isLate(message, now, keep))
       const sent = []
       for (const message of again) {
-        const { takenAt, failedAt, why, retriedAs, failedSession, stoppedAt, stoppedSession, ...rest } = message
+        const { takenAt, takenBy, backFrom, failedAt, why, retriedAs, failedSession, stoppedAt, stoppedSession, ...rest } = message
         const copy = { ...rest, id: newId(), state: 'waiting', retryOf: message.id, revivedFor: sessions.get(message.to) }
         message.retriedAs = copy.id
         messages.push(copy)

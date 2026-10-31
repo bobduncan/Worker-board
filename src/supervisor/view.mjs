@@ -33,6 +33,8 @@ export function buildView({ state = {}, items = new Map(), outbox = [], keep = n
     helper: state.advisorHelper ?? null,
     // B541: the supervisor's own chat, which runs a Workers mod too (the rule old-mod).
     supervisor: state.supervisorChat ?? null,
+    // B880: the Product owner's chat, so a start word for it is judged as the outbox sweep judges it (moot once it is on the board).
+    owner: state.productOwner ?? null,
     prefix: state.chatPrefix ?? '',
     // B546: when the Claude app last started (state.mjs), or null: a helper quiet since before it stopped for the restart.
     appStartedAt: Number.isFinite(state.appStartedAt) ? state.appStartedAt : null,

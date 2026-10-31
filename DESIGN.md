@@ -2361,6 +2361,33 @@ person's approval (2). Now:
    by a newer word for Worker 4's setting (…)") or the worker runs at its setting already.
 4. Rule 8's evidence names a failed word's last why. `test/work/passingFailure.test.mjs` replays the real case.
 
+### A word a hand holds, and a start word made moot (B880)
+
+X2 came back after B813 (count 41): the board's word of 2026-10-31 12:22 to start the Product owner (outbox
+20e17b272740a56f) was taken 7 s later by Worker 2's hand (B753). Its call ran the routine (the Product owner's chat began
+at 12:23:12) but never answered; the round waited on it for half an hour, until the process lost its session at 12:52 and
+the call failed ("$.tool.call is not available in this mode: no session is bound in this process"). The word was moot by
+then (the Product owner took words from 12:36), yet rule 8 named it. The week's outbox: 282 words a hand took, the
+slowest answered in 45 s; this the only one held longer, and the only "no session" failure. Now:
+
+1. **A hand's patience** (Workers mod, `hooks/hands.ts`): each job's call races `HAND_CALL_MS` (2 minutes); no answer by
+   then gives the word back (`back: true` in the hand's results: no try spent) and the call may still answer late: a late
+   send is reported with the next round, and the board keeps the word delivered while it still waits (`deliveredLate`,
+   only for the hand that gave it back), so it is never sent twice. A call that finds no session gives the word back unsent.
+2. **A hand takes words only while its process can call tools** (`mayClaim`): none while one of its calls hangs, none for
+   10 minutes after a call found no session; the rest of such a round goes back unsent.
+3. **The board's own hold** (`HAND_HOLD_MS`, 3 minutes, src/hands.mjs `heldTooLong`): a word a hand took (`takenBy`) and
+   said nothing of goes back at every refresh and every claim (outboxSweep.mjs `giveBackHeld`, one line in the board's log),
+   for a hand whose process ended or a mod without the patience. The words go back in their hand's name (`backFrom`); a
+   chat's own take and a retry's copy name no hand (`takenBy` null, as the log keeps a field a later line leaves out).
+4. **A start word for a chat on the board is moot** (`isMootSpawn`): a spawn that names its chat (`about`: the Product
+   owner's routine; a worker's spawn names none) whose chat is on the board now is taken by no hand and closed, at a claim
+   and by the sweep, waiting or failed ("Product owner is on the board now"); rule 8 judges it the same (the view's `owner`).
+5. **Rule 8 says where a word stuck**: a word a hand still holds past the limit is named ("taken, held by Worker 2's mod"),
+   and a failed one names the hand that failed it. A hand reports only the words it holds (`takenBy`), so a late result of
+   a word another hand took meanwhile changes nothing. `test/work/heldHandWord.test.mjs` and
+   `test/heldHandWordBoard.test.mjs` (a running board) replay the real case.
+
 ## A step's title without its note (B292)
 
 The person, 2026-10-17, of Support's lane showing B29's whole line: "tasks still dont have a compact name. i dont
