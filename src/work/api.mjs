@@ -24,7 +24,7 @@ import { acceptRefine, answerRefine } from './refineText.mjs'
 import { gamePageIn, gamePageLabel, localAddressIn, placesIn } from '../places.mjs'
 import { DECIDED, GOAL_ID, NEEDS, UNDONE, decidedOf, isDailyNote, needsOf, undoneOf } from './dailyNote.mjs'
 import { HOW_MARK, openAsksOf as openAsksUnder, refineAsksOf as asksCounted } from './stepAsks.mjs'
-import { ANOTHER_WAY, NOTES, TRIES_BEFORE_ANOTHER_WAY, WARNINGS_MARK, agreedPoints, answerReading, boardWarningsOf, chainTries, checkedOf, checkWhy, fixesOf, fixesThrough, fixTitle, needsResultCheck, parentPointsOf, parsePoints, resultCheckAtMs, resultCheckOf, resultCheckSummary, reportCheckFailedOf, reviewWaitOf, warningLines } from './resultCheck.mjs'
+import { ACCEPT_OPTIONS, ACCEPT_VIA, ANOTHER_WAY, NOTES, TRIES_BEFORE_ANOTHER_WAY, WARNINGS_MARK, agreedPoints, acceptCardDue, acceptReading, answerReading, boardWarningsOf, chainTries, checkedOf, checkWhy, fixesOf, fixesThrough, fixTitle, needsResultCheck, parentPointsOf, parsePoints, resultCheckAtMs, resultCheckOf, resultCheckSummary, reportCheckFailedOf, reviewWaitOf, warningLines } from './resultCheck.mjs'
 import { barredFrom, buildersWithFixes, isQaTask, openQaTaskOf, qaModelEffort, qaTitle } from './qaTask.mjs'
 import { RECAP_ANSWERS, dueRecaps, isRecap, recapMadeSince } from './recap.mjs'
 import { RESULT_CHARS, checkLinesWarning, goalParts, recapParts } from './recapWords.mjs'
@@ -48,7 +48,7 @@ export { overlapsIn, sinceMs }
 export const isReadAction = action => READS.has(action)
 
 const READS = new Set(['next', 'list', 'pause-state', 'health', ...ROUTING_READS])
-const CHANGES = new Set(['incident', 'incident-fix', 'incident-told', 'incidents-fixed', 'take', 'step', 'ask', 'withdraw', 'answered-in-chat', 'read', 'note', 'report', 'block', 'unblock', 'new', 'queue', 'pin', 'add-to-queue', 'remove-from-queue', 'close', 'drop', 'refine', 'refined', 'answer', 'tick', 'delete', 'refine-answer', 'refine-accept', 'check', 'checked', 'instruction', 'turn-ended', 'pull', 'advance', 'requeue', 'unqueue', 'recheck', 'undo', 'rename', 'pause-all', 'resume-all', 'resumed', 'end-resume', 'overturn', 'seen', 'approve-recaps', 'partner-answer', 'escalate', 'partner-answers', 'obsolete-check', 'obsolete', 'obsolete-close', 'recheck-stuck', 'recheck-base', 'retire-queue', 'qa-task', 'qa-end', 'words'])
+const CHANGES = new Set(['incident', 'incident-fix', 'incident-told', 'incidents-fixed', 'take', 'step', 'ask', 'withdraw', 'answered-in-chat', 'read', 'note', 'report', 'block', 'unblock', 'new', 'queue', 'pin', 'add-to-queue', 'remove-from-queue', 'close', 'drop', 'refine', 'refined', 'answer', 'tick', 'delete', 'refine-answer', 'refine-accept', 'check', 'checked', 'instruction', 'turn-ended', 'pull', 'advance', 'requeue', 'unqueue', 'recheck', 'undo', 'rename', 'pause-all', 'resume-all', 'resumed', 'end-resume', 'overturn', 'seen', 'approve-recaps', 'partner-answer', 'escalate', 'partner-answers', 'obsolete-check', 'obsolete', 'obsolete-close', 'recheck-stuck', 'recheck-base', 'retire-queue', 'qa-task', 'qa-end', 'words', 'accept-cards'])
 /**
  * Focus 2: the partner's drafts of the focus goal's vibe and how. They change the goal map, not the store: the board's
  * `goalDraft` (src/focus.mjs) writes them; only the chat the list names the partner (role advisor) sends them.
@@ -59,7 +59,7 @@ const OFF_VIEW = new Set(['incident', 'incident-fix', 'incident-told', 'incident
 /** What only the person does, on the board's page; and what only the server does. */
 // The Backlog tab's blocks (2026-10-25): the person's "Add to queue" and "Remove" are the page's alone, never a chat's.
 const PERSON = new Set(['answer', 'read', 'tick', 'delete', 'refine-answer', 'refine-accept', 'recheck', 'undo', 'pause-all', 'resume-all', 'end-resume', 'overturn', 'seen', 'partner-answers', 'obsolete-check', 'obsolete-close', 'add-to-queue', 'remove-from-queue'])
-const SERVER = new Set(['incidents-fixed', 'incident-told', 'check', 'advance', 'resumed', 'approve-recaps', 'recheck-stuck', 'recheck-base', 'route-confirm', 'quality-job-result', 'retire-queue', 'qa-task', 'qa-end'])
+const SERVER = new Set(['incidents-fixed', 'incident-told', 'check', 'advance', 'resumed', 'approve-recaps', 'recheck-stuck', 'recheck-base', 'route-confirm', 'quality-job-result', 'retire-queue', 'qa-task', 'qa-end', 'accept-cards'])
 /** Who may do what the flow does not decide (the default flow's table, spec section 5). */
 const ROLES = {
   block: ['main', 'worker', 'person'],
@@ -988,13 +988,14 @@ async function joinOpenAskOf(w, step, kind, text, { anyKind = false, options, ad
 }
 
 /** B299: writes a new ask `Q<n>` (under the step `of`, an item, or alone): `{ ok, question, id, title }`. */
-async function makeAsk(w, { of = null, kind, blocking = false, text, options = [], advice = '', pictures = [], play = '', via = null, goal = null, route = null, title: given = null }) {
+async function makeAsk(w, { of = null, kind, blocking = false, text, options = [], advice = '', pictures = [], play = '', via = null, goal = null, route = null, title: given = null, owner = undefined }) {
   const id = await nextId(w.dir, 'Q', w.fs)
   // B452: the question its words lead with (a title over 12 words came from the mod's form or a "For you" block).
   // B462: a refine question gives its own, found before its advice.
   const title = line(given ?? askTitleOf(text).title, 200)
   let question = ordered({
-    head: new Map([['Id', id], ['Kind', 'ask'], ['Title', title], ['State', 'open'], ['Owner', w.role === 'person' ? '-' : w.who], ['Activity', of === null ? '-' : valueOf(of, 'Activity') ?? '-'],
+    // B883: `owner` null: no chat asked it (the board's card for the person), so nobody is woken by its answer.
+    head: new Map([['Id', id], ['Kind', 'ask'], ['Title', title], ['State', 'open'], ['Owner', owner === null || w.role === 'person' ? '-' : w.who], ['Activity', of === null ? '-' : valueOf(of, 'Activity') ?? '-'],
       ['Since', stamp(w.now)], ['Filed', String(w.now)], ['Pictures', pictures.length === 0 ? '-' : pictures.join(', ')], ['Asks', kind], ['Blocking', blocking ? 'yes' : 'no'], ['Of', of === null ? goal ?? '-' : valueOf(of, 'Id')],
       ['Options', options.length === 0 ? '-' : options.join(' | ')], ['Advice', advice === '' ? '-' : advice], ['Via', via ?? '-'], ['Route', route ?? '-']].filter(([, value]) => value !== '-')),
     sections: new Map([['Text', text], ...(play === '' ? [] : [['Play', [play]]])]),
@@ -1480,6 +1481,86 @@ async function approveRecaps(body, w) {
     if (done.ok) approved.push(valueOf(item, 'Id'))
   }
   return { ok: true, result: { text: approved.length === 0 ? 'No recap is due.' : `Approved by itself: ${approved.join(', ')}.`, approved, changed: approved.length > 0 } }
+}
+
+/** B883: the target of a step's standard ("ground look · a.png · target 75" → "75"), or null. */
+const targetOf = item => standardOf(item)?.match(/\btarget\s+(\d+)\b/i)?.[1] ?? null
+/** B883: what a reported step gives the person: its report's "Change:" words, else its Summary; null for neither. */
+function changeOf(item) {
+  const reported = (item.sections.get('Context') ?? []).filter(one => /^\s*Reported by\b/.test(one)).at(-1) ?? ''
+  const change = reported.match(/\bChange:\s*(.+?)(?:\s+Details:|$)/)?.[1] ?? (item.sections.get('Summary') ?? []).join(' ')
+  const words = line(change, 400)
+  return words === '' ? null : words
+}
+/** B883: why its newest dropped fix was dropped (its "Dropped by <who> on <when>: <why>" line), or null. */
+function dropWhyOf(fixId, w) {
+  const fix = fixId === null ? undefined : w.store.items.get(fixId)
+  if (fix === undefined) return null
+  const lines = [...(fix.sections.get('Context') ?? []), ...(fix.sections.get('Notes') ?? [])]
+  const found = lines.map(one => one.match(/^\s*Dropped by (.+?) on \d{4}-\d{2}-\d{2} at \d{2}:\d{2}:\s*(.+)$/)).filter(Boolean).at(-1)
+  return found === undefined ? null : { who: found[1].trim(), why: line(found[2], 200) }
+}
+
+/**
+ * B883 (X117): the board's pass over the steps in review that nothing closes (resultCheck.mjs `acceptCardDue`): each gets the
+ * person's card, an ask under it (`Via` accept, no asking chat) with what it gives, its score beside its bar, its evidence and
+ * the drop's why, and Accept or Send back. An open card whose step went on (a new fix, a check, a block, done or dropped) is
+ * withdrawn. The person's answer is read in `answer` (`acceptAnswer`).
+ */
+async function acceptCards(body, w) {
+  const filed = []
+  const gone = []
+  const steps = [...w.store.items.values()].filter(one => kindOf(one) === 'step')
+  for (const item of steps.filter(one => stateOf(one) === 'review')) {
+    if (!acceptCardDue(item, w.store.items, w.now, w.recaps ?? null)) continue
+    const id = valueOf(item, 'Id')
+    const wait = reviewWaitOf(item, w.store.items, null, w.now, w.recaps ?? null)
+    const check = checkedOf(item)
+    const target = targetOf(item)
+    const score = check?.score ?? null
+    const scored = score === null ? null : target === null || new RegExp(`\\bof ${target}\\b`).test(score) ? score : `${score}, its bar ${target}`
+    const dropped = dropWhyOf(wait.fix, w)
+    const gives = changeOf(item)
+    const text = [
+      `${id} stays in review: ${wait.fix === null ? 'its check failed and made no fix' : `its fix ${wait.fix} was dropped${dropped === null ? '' : ` by ${dropped.who} (${dropped.why})`}`}, and only you close a result below its bar.`,
+      ...(gives === null ? [] : [`What it gives: ${gives}`]),
+      `Its check: ${scored ?? 'no score'}${check === null || check.total === 0 ? '' : `, ${check.passed} of ${check.total} points pass`}.`,
+      'Accept marks it done as it is. Send back gives your note to the partner, who makes another try.',
+    ]
+    const evidence = check?.evidence ?? null
+    const pictures = evidence !== null && !/^none\b/i.test(evidence) && (w.pictureProblem?.(evidence) ?? null) === null ? [evidence] : []
+    const title = `Accept ${id}${score === null ? '' : ` at ${score}`}, or send it back?`
+    const made = await makeAsk(w, { of: item, kind: 'decide', text, options: ACCEPT_OPTIONS, pictures, via: ACCEPT_VIA, title, owner: null })
+    if (!made.ok) continue
+    filed.push(made.id)
+    const found = await load(id, w, { kind: ['step'] })
+    if (found.ok) await save(said(found.item, w, `asked you to accept it or send it back: ${made.id}`), found.text, w)
+  }
+  // An open card whose step no longer waits for it: withdrawn, so the person never answers what went on without them.
+  for (const card of [...w.store.items.values()].filter(one => kindOf(one) === 'ask' && valueOf(one, 'Via') === ACCEPT_VIA && stateOf(one) === 'open')) {
+    const step = w.store.items.get(valueOf(card, 'Of') ?? '')
+    const wait = step === undefined || stateOf(step) !== 'review' ? null : reviewWaitOf(step, w.store.items, null, w.now, w.recaps ?? null)
+    if (wait?.kind === 'accept') continue
+    const why = step === undefined ? 'its step is gone' : stateOf(step) !== 'review' ? `its step is ${stateOf(step)}` : `its step went on: ${wait?.text ?? 'nothing holds it'}`
+    const done = await withdraw({ id: valueOf(card, 'Id'), why }, { ...w, role: 'person' })
+    if (done.ok) gone.push(valueOf(card, 'Id'))
+  }
+  const all = [...filed, ...gone]
+  return { ok: true, result: { text: all.length === 0 ? 'No step waits for your Accept.' : `Filed: ${filed.join(', ') || 'none'}; withdrawn: ${gone.join(', ') || 'none'}.`, filed, withdrawn: gone, changed: all.length > 0 } }
+}
+
+/**
+ * B883: the person's answer to a card: Accept marks the step done as theirs (the verdict in its History); Send back needs their
+ * note, from which the board makes the step's next try, a fix the partner refines (`acceptAnswer`). Their words stand on the
+ * step either way (`answer`). `{ ok, step, reading, note }`, or a refusal before anything is written.
+ */
+function acceptPlan(ask, text) {
+  const step = valueOf(ask, 'Of')
+  const reading = acceptReading(text)
+  if (reading === 'accept') return { ok: true, step, reading }
+  const note = text.join('\n').replace(/^(?:B\b|Send back)[^\n]*\n?/i, '').trim()
+  if (note === '') return refuse(400, 'Say in the note what the next try must change: your partner makes it from your words.')
+  return { ok: true, step, reading, note }
 }
 
 /** The chat reports its step: in progress → review; the board's check is pending; the main chat gets a note. */
@@ -1969,7 +2050,7 @@ async function undoFix(id, w) {
  * the result check of B<id>"), with the step's activity, goal and standard, queued for the same worker. Answers
  * `{ ok, id }`. B468: it runs at the effort of the step it fixes; model per step: and on its model.
  */
-async function fixStep(origin, failed, w, points = failed, size = '') {
+async function fixStep(origin, failed, w, points = failed, size = '', { open = false, context = null, history = null } = {}) {
   const originId = valueOf(origin, 'Id')
   const activity = valueOf(origin, 'Activity')
   const goal = valueOf(origin, 'Goal')
@@ -1986,6 +2067,8 @@ async function fixStep(origin, failed, w, points = failed, size = '') {
   // to the partner, who refines it another way ("Tried before: ..."), roles/partner.md "Two rounds, then another way".
   const tries = chainTries(originId, w.store.items)
   const anotherWay = tries.length >= TRIES_BEFORE_ANOTHER_WAY
+  // B883: the person's Send back of a step nothing else closed: its fix waits open for the partner's refine, as B664's does.
+  const isOpen = anotherWay || open
   const what = [...(anotherWay ? [`- ${ANOTHER_WAY} (tried: ${tries.join(', ')})`] : []),
     ...failed.flatMap((one, place) => [`- ${one.text}`, ...(passes[place] === null ? [] : [`- Makes pass: ${passes[place]}`])])]
   const named = passes.filter(one => one !== null)
@@ -1993,7 +2076,7 @@ async function fixStep(origin, failed, w, points = failed, size = '') {
     ? `Fix what the result check of ${originId} found: ${failed.map(one => one.text).join('; ')}`
     : `Fix what the result check of ${originId} found, so its agreed ${named.length === 1 ? 'point passes' : 'points pass'}: ${named.join('; ')}. Found: ${failed.map(one => one.text).join('; ')}`).slice(0, 600)
   const block = [
-    `Refined (${stamp(w.now)}; ${anotherWay ? 'open' : 'ready'}; from the result check of ${originId} by ${w.who}):`,
+    `Refined (${stamp(w.now)}; ${isOpen ? 'open' : 'ready'}; from the result check of ${originId} by ${w.who}):`,
     `Summary: ${summary}`,
     ...(goal === null ? [] : [`Part of: ${goal}`]),
     ...(size === '' ? [] : [`Size: about ${size}`]),
@@ -2006,11 +2089,11 @@ async function fixStep(origin, failed, w, points = failed, size = '') {
   const activitiesText = await readActivitiesText(w.dir, w.fs)
   const id = await nextId(w.dir, 'B', w.fs)
   let item = said(ordered({
-    head: new Map([['Id', id], ['Kind', 'step'], ['Title', fixTitle(failed)], ...(isFix(origin) ? [['Priority', 'fix']] : []), ['State', anotherWay ? 'new' : 'refined'],
-      ...(activity === null ? [] : [['Activity', activity]]), ...(goal === null ? [] : [['Goal', goal]]), ['Since', stamp(w.now)], ['Fix of', originId], ['Refined', anotherWay ? 'open' : 'ready']]),
+    head: new Map([['Id', id], ['Kind', 'step'], ['Title', fixTitle(failed)], ...(isFix(origin) ? [['Priority', 'fix']] : []), ['State', isOpen ? 'new' : 'refined'],
+      ...(activity === null ? [] : [['Activity', activity]]), ...(goal === null ? [] : [['Goal', goal]]), ['Since', stamp(w.now)], ['Fix of', originId], ['Refined', isOpen ? 'open' : 'ready']]),
     sections: new Map([
       // B381: the failed points whole, in the Context too.
-      ['Context', [`  Fix of ${originId}: the result check by ${w.who} failed on ${failed.length === 1 ? 'one point' : `${failed.length} points`}.`, ...what.map(one => `  ${one}`), REFINED_MARK]],
+      ['Context', [`  ${context ?? `Fix of ${originId}: the result check by ${w.who} failed on ${failed.length === 1 ? 'one point' : `${failed.length} points`}.`}`, ...what.map(one => `  ${one}`), REFINED_MARK]],
       ['Summary', [summary]],
       ...(standard === null ? [] : [['Standard', [standard]]]),
       ...(model === null ? [] : [['Model', [model]]]),
@@ -2021,7 +2104,7 @@ async function fixStep(origin, failed, w, points = failed, size = '') {
       ...(origin.sections.has(YOUR_WORDS) ? [[YOUR_WORDS, [...origin.sections.get(YOUR_WORDS)]]] : []),
     ]),
     problem: null,
-  }), w, `made by the result check of ${originId}${anotherWay ? `, open: ${tries.length} tries, the partner refines it another way` : ''}`)
+  }), w, history ?? `made by the result check of ${originId}${anotherWay ? `, open: ${tries.length} tries, the partner refines it another way` : ''}`)
   const wrote = await save(item, null, w)
   if (!wrote.ok) return wrote
   const index = w.store.activities.findIndex(one => one.name === activity)
@@ -3080,6 +3163,9 @@ async function answer(body, w) {
   if (body.verdict === 'reject' && words.length === 0) return refuse(400, 'Say why you reject it.')
   const text = verdict === null ? words : [`${verdict}.${words.length === 0 ? '' : ` ${words[0].trim()}`}`, ...words.slice(1)]
   if (text.length === 0) return refuse(400, 'Give the answer in "text".')
+  // B883: the person's card for a step nothing else closes: a Send back needs their note and a partner to take it.
+  const card = valueOf(found.item, 'Via') === ACCEPT_VIA ? acceptPlan(found.item, text) : null
+  if (card !== null && !card.ok) return card
   const short = line(text.join(' '), 200)
   const of = valueOf(found.item, 'Of')
   let item = put(copy(found.item), 'State', 'answered')
@@ -3117,7 +3203,30 @@ async function answer(body, w) {
   const wakeOwner = freed !== null && (owner === null || plain(freed, w.prefix) !== plain(owner, w.prefix)) ? { to: freed, ...told } : null
   // B449: the ask point of a result check that waits for the person: the check is filed again, or the partner woken.
   const refiled = done.ok && of !== null && /^B\d+$/.test(of) ? await refileCheck(of, w) : {}
+  if (done.ok && card !== null) return { ok: true, result: { ...done.result, ...(await acceptAnswer(found.item, card, short, w)), wakeOwner, ...refiled } }
   return done.ok ? { ok: true, result: { ...done.result, wake, wakeOwner, ...refiled } } : done
+}
+
+/**
+ * B883: what the person's answer to a card does once it is written (`acceptPlan`): Accept ticks the step done, "accepted by you
+ * in Q<n>" in its History; Send back makes the step's next try from their note, a fix of it left open (not refined), so the
+ * board's refine word takes their words to the partner, who refines it (refineGate.mjs; the rule open-fix watches it) and
+ * the step waits for that fix. `{ accepted }` or `{ fix }`.
+ */
+async function acceptAnswer(ask, card, short, w) {
+  const id = valueOf(ask, 'Id')
+  const fresh = { ...w, role: 'person', store: { ok: true, dir: w.dir, ...(await readStore(w.dir, w.fs)) } }
+  const step = fresh.store.items.get(card.step)
+  const score = step === undefined ? null : checkedOf(step)?.score ?? null
+  if (card.reading === 'accept') {
+    const ticked = await tick({ id: card.step, verdict: `accepted by you in ${id}${score === null ? '' : ` at ${score}`}: ${short}` }, fresh)
+    return ticked.ok ? { accepted: card.step } : { accepted: null, acceptRefused: ticked.why }
+  }
+  if (step === undefined || stateOf(step) !== 'review') return { fix: null }
+  const made = await fixStep(step, [{ text: line(card.note, 1000) }], fresh, undefined, '', {
+    open: true, context: `Fix of ${card.step}: you sent it back in ${id}${score === null ? '' : ` at ${score}`}, after its fix was dropped.`, history: `made by your Send back in ${id}, open: the partner refines it from your words`,
+  })
+  return { fix: made.ok ? made.id : null, ...(made.ok ? {} : { fixRefused: made.why }) }
 }
 
 /**
@@ -3657,6 +3766,7 @@ const CHANGE = {
   overturn: recapAnswer,
   seen: recapAnswer,
   'approve-recaps': approveRecaps,
+  'accept-cards': acceptCards,
   'recheck-stuck': recheckStuck,
   'recheck-base': recheckBase,
   'qa-task': qaTask,

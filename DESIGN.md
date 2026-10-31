@@ -3684,7 +3684,8 @@ the AI sweep by a cheap supervisor chat and the hand-over to the Advisor, comes 
   blocker is stalled itself; B665 and B878, X70, X71, X116: counted from when the block ended, the blocker's own move to done
   or dropped or the step's "no longer blocked by B<n>" line, as a done blocker leaves Blocked by at once (B574); a step whose
   part waits for the person's verdict in a goal's recap is kind 'recap', "waits for your verdict in the recap of G<n>", no
-  case and not odd; a part sent back counts from the Send back), `review-held` (B656, X8 again: a step in review whose chain of open fixes ends in a refined
+  case and not odd; a part sent back counts from the Send back; B883, X117: a step with the person's open card is kind 'accept', "waits
+  for your Accept in Q<n>", no case and not odd; a Send back counts from the answer), `review-held` (B656, X8 again: a step in review whose chain of open fixes ends in a refined
   fix the ready list holds, for over 60 min from when the board first saw that hold (B660, X59: not from the fix's Since; a changed why
   starts again; a hold that is the person's open ask, "waits for the answer to Q<n>", is no case and not odd); one case per chain, named by its first step, with the
   held why; a chain whose last fix is at work is no case, however deep; its line reads "waits for its fix B<n>, held:
@@ -5067,6 +5068,35 @@ the rule dropped-fix raised it a minute later; and the recap's Approve and Send 
 Tests: test/supervisor/recapVerdict.test.mjs (B821's case: a block ended by done a minute ago is no case, 31 min later it is;
 waiting for the verdict is none, also after 10 h; a Send back counts from the Send), test/recapVerdictBoard.test.mjs (on a
 running board: the Backlog line, a Send back's words, an Approve that closes the steps in review only).
+
+## A step nothing else closes goes to the person: Accept or Send back (B883)
+
+X117 (X54 and X116 before): B851 sat in review after its fix B875 was dropped on the partner's decision to accept it at 74 of
+75 (Q568 B). A result below its bar is closed only by the person's done; nobody told them, and the rule dropped-fix raised the
+step again and again. Every way into this state ends the same: a fix dropped (by the main chat, the person or the partner's
+note), or a check that made no fix, with no new fix, check, block or recap verdict after it.
+
+1. Each tick the board's pass `accept-cards` (work/api.mjs `acceptCards`, server.mjs) files the person's card for every step in
+   review that waits so (resultCheck.mjs `acceptCardDue`: `reviewWaitOf` kind 'dropped', for ACCEPT_GRACE_MS, 10 min, after the
+   drop or the end of what held it, not sent back since, no card of it filed since the drop). The card is an ask under the step,
+   `Via: accept`, kind decide, from no chat (no Owner: its answer wakes nobody): "Accept B851 at 72 of 75, or send it back?",
+   what it gives (the report's Change, else the Summary), its score beside its bar, how many points pass, the drop's why (the
+   fix's "Dropped by <who> on <when>: <why>" line) and the evidence picture; options `A Accept: done as it is` and `B Send
+   back: the partner makes another try from your note`. The step's History says "asked you to accept it or send it back: Q<n>".
+2. While the card is open the step is kind 'accept', "waits for your Accept in Q<n>" (Backlog, work next and list, the health
+   summary, a chain above it, and "Waits for your Accept" on its Focus part): `reviewLateOf` never calls it late, so no
+   dropped-fix incident and no fix-dropped word to the main chat. Left alone the card never closes the step.
+3. The person's answer (`answer`, `acceptPlan`, `acceptAnswer`; `acceptReading`: A, Accept or a plain yes accepts, anything
+   else sends back): Accept ticks the step done as theirs, "person: accepted by you in Q<n> at 72 of 75: ..." in its History.
+   Send back needs their note (refused without one) and makes the step's next try at once: a fix of it, "Fix: <their note>",
+   open (state new, `Refined: open`, `fixStep` with `open`), so the board's refine word takes their words to the partner, who
+   refines it; the step waits for that fix (the rule open-fix watches it). Their words stand on the step either way.
+4. A card whose step went on (a new fix, a check, a block, done or dropped) is withdrawn by the same pass. A card answered
+   Accept that did not close the step, or withdrawn, is not filed again: the rule dropped-fix raises that.
+
+Tests: test/acceptCard.test.mjs (B851's case: the card, its words and picture, no incident however long; Accept closes it;
+Send back without a note is refused, with one makes the open fix; a card whose step went on is withdrawn; a blocked step gets
+none; how an answer reads).
 
 ## A part with only dropped steps is Stopped (B680)
 

@@ -50,7 +50,7 @@ import { refineStop } from './refineGate.mjs'
 import { contextOfStep, flowOfStep, itemOfStep, itemsOf, reviewWaitOfStep, storeBacklog } from './work/read.mjs'
 import { clearHolds, clearOwed, modAtLeast } from './clearOwed.mjs'
 import { nobodyRunsOf, wakeFailedOf } from './say.mjs'
-import { chainWaitOf, checkedOf, fixesOf, fixOutcomeOf } from './work/resultCheck.mjs'
+import { chainWaitOf, checkedOf, fixesOf, fixOutcomeOf, reviewWaitOf } from './work/resultCheck.mjs'
 import { recapWaitsOf } from './recaps.mjs'
 import { guardOf } from './goalGuard.mjs'
 import { standardOf } from './work/standard.mjs'
@@ -1157,9 +1157,12 @@ function partStepOf(item, steps, prefix, all = steps, lanes = null, now = null, 
   // 2026-10-31: a chain whose last link stopped (its own fix dropped, nothing blocks it) is stopped as B695's is, not waiting.
   const chainStopped = chainWait?.last?.kind === 'dropped'
   const fixWaits = chainWait !== null && !chainWait.atWork && !chainStopped
+  // B883: a step whose own card waits for the person's Accept or Send back waits for them, it is not stopped.
+  const ownWait = state === 'review' && outcome !== null && outcome.isOpen !== true ? reviewWaitOf(item, all, null, now, recaps) : null
+  const forAccept = ownWait?.kind === 'accept'
   // B695: a step in review whose failed check has only a dropped fix is stopped, not being checked.
-  const fixStopped = chainStopped || (state === 'review' && fix !== null && !fix.isOpen && !fix.isFixed && fix.passed === null && fix.total === null)
-  const tone = fixStopped ? 'stop' : fixWaits ? 'wait' : stepToneOf(state)
+  const fixStopped = !forAccept && (chainStopped || (state === 'review' && fix !== null && !fix.isOpen && !fix.isFixed && fix.passed === null && fix.total === null))
+  const tone = fixStopped ? 'stop' : fixWaits || forAccept ? 'wait' : stepToneOf(state)
   const waitsFor = (String(item.head.get('Blocked by') ?? '').match(/\bB\d+\b/g) ?? [])
     .filter(one => steps.has(one) && !FINISHED.includes(steps.get(one).head.get('State')))
     .map(one => ({ id: one, title: withoutNotes(steps.get(one).head.get('Title') ?? '') }))
@@ -1169,13 +1172,13 @@ function partStepOf(item, steps, prefix, all = steps, lanes = null, now = null, 
     tone,
     // B690: a step in review whose check failed and whose fix is open is being fixed, not checked; 2026-10-31 (B689): only
     // while its chain is at work, else its fix waits.
-    state: tone === 'done' ? 'Finished' : fixStopped ? 'Fix stopped' : tone === 'stop' ? 'Stopped' : state === 'review' ? (fix?.isOpen === true ? (fixWaits ? 'Fix waiting' : 'Being fixed') : 'Being checked') : tone === 'now' ? 'Being built' : 'Waiting',
+    state: tone === 'done' ? 'Finished' : forAccept ? 'Waits for your Accept' : fixStopped ? 'Fix stopped' : tone === 'stop' ? 'Stopped' : state === 'review' ? (fix?.isOpen === true ? (fixWaits ? 'Fix waiting' : 'Being fixed') : 'Being checked') : tone === 'now' ? 'Being built' : 'Waiting',
     isFailed: checked !== null && checked.total > 0 && checked.passed < checked.total && fix?.isFixed !== true,
     owner: String(item.head.get('Owner') ?? '').replace(prefix, '').trim() || null,
     onIt: FINISHED.includes(state) ? null : workerOn(id, all, lanes, prefix),
     // 2026-10-31 (B689): who built it, for a step built (in review or finished): history, never "on it".
     builtBy: ['review', 'done', 'closed'].includes(state) ? String(item.head.get('Owner') ?? '').replace(prefix, '').trim() || null : null,
-    check: checked === null || checked.total === 0 ? null : { passed: checked.passed, total: checked.total, evidence: checked.evidence, ...(fix === null ? {} : { fix }) },
+    check: checked === null || checked.total === 0 ? null : { passed: checked.passed, total: checked.total, evidence: checked.evidence, ...(fix === null ? {} : { fix: forAccept ? { ...fix, note: `${fix.note}: ${ownWait.text}` } : fix }) },
     waitsFor,
   }
 }
