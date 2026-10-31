@@ -124,6 +124,8 @@ const ANY_ID = /^(?:[A-Z]\d+|L-[0-9a-f]{8})$/
 const ONLY_IDS = /^B\d+(?:(?:\s*,\s*|\s+and\s+)B\d+)*$/
 const TEXT_CHARS = 4000
 const LINE_CHARS = 300
+/** B856: in the text or picture of a new step, this becomes the step's own id (the Bugs tab names its pictures by it). */
+export const STEP_ID_TOKEN = '{step-id}'
 /** 2026-10-25: a warning of the board's check may name a few test files and the words to add: room for them. */
 const WARNING_CHARS = 450
 
@@ -2260,11 +2262,17 @@ async function make(call, w) {
   if (!priority.ok) return priority
   const activitiesText = await readActivitiesText(w.dir, w.fs)
   const id = await nextId(w.dir, 'B', w.fs)
+  // B856: the Bugs tab names its pictures by the step's own id, which is only known here: STEP_ID_TOKEN becomes the id.
+  const withId = text => text.replaceAll(STEP_ID_TOKEN, id)
+  const context = lines(body.text).map(one => `  ${withId(one).trim()}`)
   let item = said(ordered({
     head: new Map([['Id', id], ['Kind', 'step'], ['Title', title], ['State', 'new'], ['Activity', names[index]], ...(goal === '' ? [] : [['Goal', goal]]), ['Since', stamp(w.now)]]),
-    sections: new Map(lines(body.text).length === 0 ? [] : [['Context', lines(body.text).map(one => `  ${one.trim()}`)]]),
+    sections: new Map(context.length === 0 ? [] : [['Context', context]]),
     problem: null,
   }), w, 'made')
+  // B856: a step made with a picture (not from a how, whose block holds its own) keeps it as its Picture, shown in its window.
+  const picture = body.what === undefined ? line(body.picture, 200) : ''
+  if (picture !== '') item.sections.set('Picture', [withId(picture)])
   if (priority.fix) item = ordered(markedFix(item, w))
   if (standard !== null) item.sections.set('Standard', [standard.line])
   if (model !== null) item.sections.set('Model', [model.line])

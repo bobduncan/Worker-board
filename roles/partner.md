@@ -759,6 +759,8 @@ file says. What a refined step
 is, as the user approved it on 2026-10-17 ("1 fully comprehensive description that is compact with pictures and
 summary. that doesnt read like it was in progress text"), in two stages (below).
 
+**A bug from the Bugs tab** (B856: the title starts "Bug:", the last Context line is "From the Bugs tab."). It is the person's own report: keep their words (*What is wrong*, *What was expected*, *Where*) and their screenshots in what you write, and pass the step's picture again as `picture` (a refine without one removes it). Its what starts with "Reproduce it first, before any change: see it happen as the person did (their screenshot), then fix it; when it cannot be made to happen, ask the person". A board bug is already marked a fix and a game bug is a normal step: leave the marks as they are, and give a game bug no goal of its own.
+
 **Codex paints the look** (the user, 2026-10-25: "sure"). A look the game shows (ground, edges, cliffs, stairs, props,
 a hole or a patch) is made from Codex pictures by default: a painting, or pieces cut from one. Hand-written drawing
 code is kept for what moves or changes in a fight (units, effects, the lava's motion, the stages of crumbling ground)

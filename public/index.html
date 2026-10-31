@@ -27,6 +27,7 @@
       <button class="tab" type="button" data-tab="advice"><span class="tab-long">Focus</span><span class="tab-short">Focus</span></button>
       <button class="tab" type="button" data-tab="coordinate">Backlog</button>
       <button class="tab" type="button" data-tab="design">Design</button>
+      <button class="tab" type="button" data-tab="bugs">Bugs</button>
       <button class="tab" type="button" data-tab="spending">Spending</button>
     </div>
     <span class="grow"></span>
@@ -346,6 +347,35 @@
       <section class="panel design-providers" id="design-providers" aria-labelledby="design-providers-title" hidden>
         <h2 id="design-providers-title">Asset providers</h2>
         <ul class="provider-list" id="design-provider-list"></ul>
+      </section>
+    </main>
+  </div>
+
+  <div class="view is-single" id="view-bugs" hidden>
+    <main class="design bugs">
+      <header class="design-top">
+        <h1>Bugs <small>Something is wrong? Show it, say it, and it becomes a fix</small></h1>
+        <p class="design-note" id="bugs-note" hidden></p>
+      </header>
+      <section class="panel bugs-form" aria-labelledby="bugs-form-title">
+        <h2 id="bugs-form-title">Report a bug</h2>
+        <p class="design-label" id="bugs-pictures-label">Screenshot (optional, one or more)</p>
+        <div class="design-references" id="bugs-pictures" role="group" aria-labelledby="bugs-pictures-label"></div>
+        <input type="file" id="bugs-file" accept="image/png,image/jpeg,image/webp" multiple hidden>
+        <label class="design-label" for="bugs-wrong">What is wrong (required)</label>
+        <input type="text" id="bugs-wrong" placeholder="The move squares are cut in half" autocomplete="off">
+        <label class="design-label" for="bugs-expected">What you expected (optional)</label>
+        <input type="text" id="bugs-expected" placeholder="Whole squares around the unit" autocomplete="off">
+        <p class="design-label" id="bugs-where-label">Where</p>
+        <div class="design-kinds" id="bugs-where" role="group" aria-labelledby="bugs-where-label"></div>
+        <button class="button design-wide" id="bugs-report" type="button">Report bug</button>
+        <p class="muted" id="bugs-sent" role="status" hidden></p>
+        <p class="problem" id="bugs-problem" hidden></p>
+      </section>
+      <section class="panel design-ideas" aria-labelledby="bugs-list-title">
+        <h2 id="bugs-list-title">Your reports so far</h2>
+        <p class="muted" id="bugs-empty">None yet.</p>
+        <ul class="bugs-list" id="bugs-list"></ul>
       </section>
     </main>
   </div>
