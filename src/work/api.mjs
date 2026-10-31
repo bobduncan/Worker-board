@@ -34,7 +34,8 @@ import { appendHistory, nextId, oneRead, putBack, readActivitiesText, readItemFi
 import { openNaming, renamedItem } from './names.mjs'
 import { readNamesFile, readObsoleteFile, readPartnerAnswersFile, readPauseFile, writeNames, writeObsoleteFile, writePartnerAnswers, writePause } from './store.mjs'
 import { checkWords, isLate, obsoletePointsOf, openItemsOf } from './obsolete.mjs'
-import { NOTE_LINE, isPartnerAnswered, isRoutedToPartner, routesToPartner, takenBackWords } from './partnerAnswers.mjs'
+import { NOTE_LINE, PARTNER_ANSWER_MS, isDecidedForYou, isRoutedToPartner, routesToPartner, takenBackWords } from './partnerAnswers.mjs'
+import { REFINE_BACK_WORDS, SENT_BACK, TOOK_ADVICE, adviceAnswerOf, autopilotRoute, dropsStep, isAutopilotRouted, isExplicitPerson, recapGoneWords, refineAdviceOf, routedAt, routedWords } from './autopilot.mjs'
 import { HELD, checkpointLine, isHolding, pauseAnswer, pauseFacts } from './pause.mjs'
 import { nextPlan, planMinutes, planOf, planText } from './stepPlan.mjs'
 import { ACTIVE, parkWords, parkedAfter, workingOnOther } from './parked.mjs'
@@ -48,7 +49,7 @@ export { overlapsIn, sinceMs }
 export const isReadAction = action => READS.has(action)
 
 const READS = new Set(['next', 'list', 'pause-state', 'health', ...ROUTING_READS])
-const CHANGES = new Set(['incident', 'incident-fix', 'incident-told', 'incidents-fixed', 'take', 'step', 'ask', 'withdraw', 'answered-in-chat', 'read', 'note', 'report', 'block', 'unblock', 'new', 'queue', 'pin', 'add-to-queue', 'remove-from-queue', 'close', 'drop', 'refine', 'refined', 'answer', 'tick', 'delete', 'refine-answer', 'refine-accept', 'check', 'checked', 'instruction', 'turn-ended', 'pull', 'advance', 'requeue', 'unqueue', 'recheck', 'undo', 'rename', 'pause-all', 'resume-all', 'resumed', 'end-resume', 'overturn', 'seen', 'approve-recaps', 'partner-answer', 'escalate', 'partner-answers', 'obsolete-check', 'obsolete', 'obsolete-close', 'recheck-stuck', 'recheck-base', 'retire-queue', 'qa-task', 'qa-end', 'words', 'accept-cards'])
+const CHANGES = new Set(['incident', 'incident-fix', 'incident-told', 'incidents-fixed', 'take', 'step', 'ask', 'withdraw', 'answered-in-chat', 'read', 'note', 'report', 'block', 'unblock', 'new', 'queue', 'pin', 'add-to-queue', 'remove-from-queue', 'close', 'drop', 'refine', 'refined', 'answer', 'tick', 'delete', 'refine-answer', 'refine-accept', 'check', 'checked', 'instruction', 'turn-ended', 'pull', 'advance', 'requeue', 'unqueue', 'recheck', 'undo', 'rename', 'pause-all', 'resume-all', 'resumed', 'end-resume', 'overturn', 'seen', 'approve-recaps', 'partner-answer', 'escalate', 'partner-answers', 'obsolete-check', 'obsolete', 'obsolete-close', 'recheck-stuck', 'recheck-base', 'retire-queue', 'qa-task', 'qa-end', 'words', 'accept-cards', 'autopilot', 'recap-answered'])
 /**
  * Focus 2: the partner's drafts of the focus goal's goal definition and how. They change the goal map, not the store: the
  * board's `goalDraft` (src/focus.mjs) writes them; only the chat the list names the partner (role advisor) sends them.
@@ -61,7 +62,7 @@ const OFF_VIEW = new Set(['incident', 'incident-fix', 'incident-told', 'incident
 /** What only the person does, on the board's page; and what only the server does. */
 // The Backlog tab's blocks (2026-10-25): the person's "Add to queue" and "Remove" are the page's alone, never a chat's.
 const PERSON = new Set(['answer', 'read', 'tick', 'delete', 'refine-answer', 'refine-accept', 'recheck', 'undo', 'pause-all', 'resume-all', 'end-resume', 'overturn', 'seen', 'partner-answers', 'obsolete-check', 'obsolete-close', 'add-to-queue', 'remove-from-queue'])
-const SERVER = new Set(['incidents-fixed', 'incident-told', 'check', 'advance', 'resumed', 'approve-recaps', 'recheck-stuck', 'recheck-base', 'route-confirm', 'quality-job-result', 'retire-queue', 'qa-task', 'qa-end', 'accept-cards'])
+const SERVER = new Set(['incidents-fixed', 'incident-told', 'check', 'advance', 'resumed', 'approve-recaps', 'recheck-stuck', 'recheck-base', 'route-confirm', 'quality-job-result', 'retire-queue', 'qa-task', 'qa-end', 'accept-cards', 'autopilot', 'recap-answered'])
 /** Who may do what the flow does not decide (the default flow's table, spec section 5). */
 const ROLES = {
   block: ['main', 'worker', 'person'],
@@ -79,9 +80,9 @@ const ROLES = {
   pin: ['person', 'server'],
   rename: ['main', 'person', 'server'],
   // Partner answers (2026-10-19): the partner answers an ask routed to it, or hands it to the person; so does the board
-  // when the partner did not answer in time.
-  'partner-answer': ['advisor'],
-  escalate: ['advisor', 'server'],
+  // when the partner did not answer in time. Autopilot (2026-10-31): and the main chat, an ask routed to it (Route: main).
+  'partner-answer': ['advisor', 'main'],
+  escalate: ['advisor', 'main', 'server'],
   // The supervisor (spec 2026-10-24): an incident is filed by the board's watch rules or the supervisor chat's sweep; the
   // partner names the step that fixes it.
   incident: ['server', 'supervisor'],
@@ -349,7 +350,8 @@ async function next(body, w) {
   // Focus 4: the main chat's unread notes come first, and are read once shown (the board woke it for them).
   const notes = w.role === 'main' && w.onlyShows !== true ? await readNotes(chat, w) : { text: '', ids: [] }
   // Partner answers (2026-10-19): the asks the partner answers for the person stand first in its next.
-  const routed = w.role === 'advisor' ? routedAsks(w) : { text: '', ids: [] }
+  // Autopilot (2026-10-31): and the asks the main chat does for the person stand first in its next.
+  const routed = w.role === 'advisor' ? routedAsks(w) : w.role === 'main' ? mainRoutedAsks(w) : { text: '', ids: [] }
   const found = steady(body, w, chat)
   // 2026-10-25: the warnings the board's check passed the chat's newest report with, for as long as it is the newest.
   const warned = found.ok ? [handedBackWords(chat, w), reportWarningsWords(chat, w)].filter(Boolean).join('\n') : ''
@@ -812,7 +814,7 @@ async function ask(body, w, { alone = false } = {}) {
     const same = openRepeat(text.join(' '), isAlone ? goal : valueOf(of.item, 'Id'), mine.map(repeatFactsOf))
     if (same !== undefined) {
       const found = w.store.items.get(same.id)
-      const who = valueOf(found, 'Answered by') === 'partner' ? 'the partner' : 'the person'
+      const who = { partner: 'the partner', autopilot: 'the board\'s Autopilot', main: 'the main chat' }[valueOf(found, 'Answered by')] ?? 'the person'
       const answered = stateOf(found) === 'answered' ? ` and ${who} answered it: ${(found.sections.get('Answer') ?? []).join(' ').slice(0, 200)}` : ' and it stands open'
       return refuse(409, `${same.id} asks this already${answered}. Wait for its answer or use it; to ask it anew, withdraw ${same.id} first.`)
     }
@@ -877,19 +879,26 @@ Note: ${unlinked} is no link the person can open (the game runs only while the b
   // Partner answers (2026-10-19): a detail question goes to the partner first; the person sees it only once handed on.
   // T9.1.1: and never the ask of the worker that checks the step: an `ask:` point is a look only the person can judge.
   const byChecker = !isAlone && isCheckerOf(of.item, w)
-  const route = routesToPartner({ setting: w.store.partnerAnswers, role: w.role, kind, options, advice, via, byChecker }) ? 'partner' : null
+  // Autopilot (2026-10-31): the partner's answers count as on, and every ask a chat files is routed at once, as the board's
+  // sweep would route it (src/work/autopilot.mjs); the app's question form stays the person's, in its chat.
+  const setting = w.autopilot === true ? { on: true } : w.store.partnerAnswers
+  const pilot = w.autopilot === true && !['person', 'server'].includes(w.role) && via !== 'form'
+    ? autopilotRoute(askShape({ owner: w.who, kind, of: isAlone ? goal : valueOf(of.item, 'Id'), options, advice, via, text }), routeCtx(w))
+    : null
+  const route = pilot?.to ?? (routesToPartner({ setting, role: w.role, kind, options, advice, via, byChecker }) ? 'partner' : null)
   // One question per task: a second question on a step that has the person's open ask joins that ask as a line.
-  if (!isAlone && via !== 'form' && !blocking && route === null && !['person', 'server'].includes(w.role)) {
+  if (!isAlone && via !== 'form' && !blocking && (route === null || (pilot !== null && route === 'person')) && !['person', 'server'].includes(w.role)) {
     const joined = await joinOpenAskOf(w, of.item, kind, text, { anyKind: qaHeld !== null, options, advice, pictures, play, qa: qaHeld !== null })
     if (joined.found) return joined.done
   }
-  const made = await makeAsk(w, { of: of.item, kind, blocking, text, options, advice, pictures, play, via, goal, route })
+  const made = await makeAsk(w, { of: of.item, kind, blocking, text, options, advice, pictures, play, via, goal, route, pilot: pilot !== null })
   if (!made.ok) return made
   const { question, id, title } = made
   const stepId = isAlone ? null : valueOf(of.item, 'Id')
   const block = route === 'partner'
     ? `${id} goes to your partner first: it answers it for the person (normally with your advice) or hands it to them. Nothing is for the person now, so do not ask it in your answer: the answer comes to this chat as the person's would.`
-    : forYouBlock({ id, of: stepId ?? goal, kind, blocking, title, options, advice, pictures, play, places: placesIn([title, ...options, advice].join(' '), placesKnown(w, id)) }, w.boardUrl ?? '')
+    : route !== null && route !== 'person' ? autopilotFiledWords(id, route)
+      : forYouBlock({ id, of: stepId ?? goal, kind, blocking, title, options, advice, pictures, play, places: placesIn([title, ...options, advice].join(' '), placesKnown(w, id)) }, w.boardUrl ?? '')
   const routed = route === null ? {} : { route }
   if (isAlone) return changed(question, `${block}${unlinkedNote}`, routed)
   let item = said(underStep(of.item, [`Asked ${id} (${kind}${blocking ? ', blocking' : ''}): ${title}`]), w, `asked ${id}`)
@@ -987,8 +996,30 @@ async function joinOpenAskOf(w, step, kind, text, { anyKind = false, options, ad
   return { found: true, done: changed(next, words, { merged: id, step: stepId }) }
 }
 
+/**
+ * Autopilot (2026-10-31): an ask as the routing reads it, before it is written (`autopilotRoute` takes the store's items): its
+ * asking chat, kind, step or goal, options, advice, Via and words.
+ */
+function askShape({ owner, kind, of = null, options = [], advice = '', via = null, text = [] }) {
+  return {
+    head: new Map([['Kind', 'ask'], ['Title', line(askTitleOf(text).title, 200)], ['State', 'open'], ['Owner', owner], ['Asks', kind], ...(of === null ? [] : [['Of', of]]),
+      ...(options.length === 0 ? [] : [['Options', options.join(' | ')]]), ...(advice === '' ? [] : [['Advice', advice]]), ...(via === null ? [] : [['Via', via]])]),
+    sections: new Map([['Text', text]]),
+  }
+}
+
+/** Autopilot: what the routing reads of the board: each chat's role, the store's items, the focus goal, the chats' title start. */
+const routeCtx = w => ({ roleOf: name => w.roleOf?.(name) ?? null, items: w.store.items, focusGoal: w.focusGoal ?? null, prefix: w.prefix ?? '' })
+
+/** Autopilot: what the asking chat is told of an ask routed away from the person at once. */
+function autopilotFiledWords(id, route) {
+  if (route === 'advice') return `${id}: Autopilot is on, so the board takes your advice as the answer; it stands in the daily note with an Undo. Nothing is for the person now, so do not ask it in your answer.`
+  if (route === 'recap') return `${id} waits for the goal's recap (Autopilot): the person judges it there, and the step stays as it is. Nothing is for the person now, so do not ask it in your answer: the recap's answer comes to this chat.`
+  return `${id} goes to the main chat (Autopilot): it does it if a chat can, else hands it to the person. Nothing is for the person now, so do not ask it in your answer: the answer comes to this chat.`
+}
+
 /** B299: writes a new ask `Q<n>` (under the step `of`, an item, or alone): `{ ok, question, id, title }`. */
-async function makeAsk(w, { of = null, kind, blocking = false, text, options = [], advice = '', pictures = [], play = '', via = null, goal = null, route = null, title: given = null, owner = undefined }) {
+async function makeAsk(w, { of = null, kind, blocking = false, text, options = [], advice = '', pictures = [], play = '', via = null, goal = null, route = null, title: given = null, owner = undefined, pilot = false }) {
   const id = await nextId(w.dir, 'Q', w.fs)
   // B452: the question its words lead with (a title over 12 words came from the mod's form or a "For you" block).
   // B462: a refine question gives its own, found before its advice.
@@ -1002,6 +1033,8 @@ async function makeAsk(w, { of = null, kind, blocking = false, text, options = [
     problem: null,
   })
   question = said(question, w, `asked (${kind}${blocking ? ', blocking' : ''}${via === 'form' ? ', with the app\'s question form' : via === 'refine' ? ', refining' : via === 'chat' ? ', from its "For you" block' : ''})${route === 'partner' ? ': to the partner first' : ''}`)
+  // Autopilot: the route's one line, as the board's sweep writes it.
+  if (pilot && route !== null) question = appendHistory(question, 'server', routedWords(route), w.now)
   const wrote = await save(question, null, w)
   return wrote.ok ? { ok: true, question, id, title } : wrote
 }
@@ -1178,37 +1211,60 @@ async function undo(body, w) {
  * The ask is answered by the partner, the asking chat is woken as with the person's answer (and the owner of the step it
  * frees), and the answer stands as a line in the partner's daily note of the day (the newest note of the focus written
  * today, else a new one; without a focus a note of the day), with an Undo.
+ * Autopilot (2026-10-31): the main chat answers an ask routed to it (Route: main) the same way, with what it did.
  */
 async function partnerAnswer(body, w) {
   const found = await load(body.id, w, { kind: ['ask'] })
   if (!found.ok) return found
   const id = valueOf(found.item, 'Id')
   if (stateOf(found.item) !== 'open') return refuse(409, `${id} is ${stateOf(found.item)} already.`)
-  if (valueOf(found.item, 'Route') !== 'partner') return refuse(409, `${id} is not yours to answer: only an ask routed to you (Route: partner) is; the person answers this one.`)
+  const isMain = w.role === 'main'
+  if (isMain && valueOf(found.item, 'Route') !== 'main') return refuse(409, `${id} is not yours to answer: only an ask routed to you (Route: main) is; the person answers this one.`)
+  if (!isMain && valueOf(found.item, 'Route') !== 'partner') return refuse(409, `${id} is not yours to answer: only an ask routed to you (Route: partner) is; the person answers this one.`)
   const why = line(body.why, 200)
-  if (why === '') return refuse(400, 'Say why in one line in "why": it stands in your daily note beside the answer.')
+  if (why === '') return refuse(400, `Say why in one line in "why": it stands in ${isMain ? 'the partner\'s' : 'your'} daily note beside the answer.`)
   const given = lines(body.text)
   const advice = valueOf(found.item, 'Advice')
-  const text = given.length > 0 ? given : advice === null ? [] : [advice]
-  if (text.length === 0) return refuse(400, 'Give your answer in "text" (normally the advice).')
+  const text = given.length > 0 ? given : advice === null || isMain ? [] : [advice]
+  if (text.length === 0) return refuse(400, isMain ? 'Say what you did in "text".' : 'Give your answer in "text" (normally the advice).')
+  return decideFor(found, { text, why, by: isMain ? 'main' : 'partner' }, w)
+}
+
+/** Autopilot: how each decider is named in History, on the step and to the asking chat. */
+const DECIDED_BY = {
+  partner: { history: 'the partner', told: 'Your partner answered this for the person' },
+  autopilot: { history: 'the board\'s Autopilot', told: 'Autopilot is on: the board took your advice for the person' },
+  main: { history: 'the main chat', told: 'The main chat did this for the person' },
+}
+
+/**
+ * Partner answers, and Autopilot (2026-10-31): an open ask decided for the person (`by` partner, autopilot or main; `text`
+ * the answer, `why` one line): answered, its step goes on, the line in the partner's daily note of today with an Undo, and
+ * the chats to wake (`wake`, `wakeOwner`).
+ */
+async function decideFor(found, { text, why, by }, w) {
+  const id = valueOf(found.item, 'Id')
+  const named = DECIDED_BY[by]
   const short = line(text.join(' '), 200)
   const asker = valueOf(found.item, 'Owner')
   const of = valueOf(found.item, 'Of')
   const title = valueOf(found.item, 'Title') ?? (found.item.sections.get('Text') ?? [])[0] ?? ''
   const entry = line(`${id} (${[asker === null ? null : bare(asker, w.prefix), of].filter(Boolean).join(', ')}): ${line(title, 120)} → ${short} (${why})`)
-  const note = noteOfToday(w, w.focusGoal ?? null)
+  // The partner's note of today holds every decided line, also the board's and the main chat's.
+  const writer = by === 'partner' ? w.who : partnerNameOf(w) ?? w.who
+  const note = noteOfToday(w, w.focusGoal ?? null, writer)
   const noteId = note === null ? await nextId(w.dir, 'N', w.fs) : valueOf(note, 'Id')
-  let item = put(put(put(put(copy(found.item), 'State', 'answered'), 'Since', stamp(w.now)), 'Answered by', 'partner'), 'Daily note', noteId)
+  let item = put(put(put(put(copy(found.item), 'State', 'answered'), 'Since', stamp(w.now)), 'Answered by', by), 'Daily note', noteId)
   item.sections.set('Answer', text)
   item.sections.set('Why', [why])
   item.sections.set(NOTE_LINE, [entry])
-  item = ordered(appendHistory(item, w.who, `answered by the partner: ${short} (why: ${why})`, w.now))
+  item = ordered(appendHistory(item, w.who, by === 'autopilot' ? `${TOOK_ADVICE}: ${short}` : `answered by ${named.history}: ${short} (why: ${why})`, w.now))
   let freed = null
   let parked = null
   const done = await answerStep(w, item, found.text, of, step => {
-    let mine = appendHistory(underStep(step, [`${id} answered by the partner on ${at(w.now)}: ${short}`]), w.who, `${id} answered by the partner`, w.now)
+    let mine = appendHistory(underStep(step, [`${id} answered by ${named.history} on ${at(w.now)}: ${short}`]), w.who, `${id} answered by ${named.history}`, w.now)
     if (stateOf(mine) === 'waiting on you') {
-      const goes = goOnOrPark(mine, w, flowCtx(w, [item, mine]), ` (${id} answered by the partner)`)
+      const goes = goOnOrPark(mine, w, flowCtx(w, [item, mine]), ` (${id} answered by ${named.history})`)
       mine = goes.item
       if (goes.freed) freed = valueOf(mine, 'Owner')
       parked = goes.parked === null ? null : { step: of, after: goes.parked }
@@ -1216,35 +1272,43 @@ async function partnerAnswer(body, w) {
     return mine
   })
   if (!done.ok) return done
-  const listed = await listAnswer(w, note, noteId, entry, id)
-  const told = { id, title: valueOf(found.item, 'Title') ?? '', text: `Your partner answered this for the person: ${line(text.join(' '), 1000)} (why: ${why}). The person may still take it back.${parkedWords(parked)}` }
-  const wake = asker === null ? null : { to: asker, ...told }
+  const listed = await listAnswer(w, note, noteId, entry, id, writer)
+  const told = { id, title: valueOf(found.item, 'Title') ?? '', text: `${named.told}: ${line(text.join(' '), 1000)} (why: ${why}). The person may still take it back.${parkedWords(parked)}` }
+  // The main chat that did its own ask is not woken by its own answer.
+  const wake = asker === null || (by === 'main' && plain(asker, w.prefix) === plain(w.who, w.prefix)) ? null : { to: asker, ...told }
   const wakeOwner = freed !== null && (asker === null || plain(freed, w.prefix) !== plain(asker, w.prefix)) ? { to: freed, ...told } : null
-  const where = listed.ok ? `It stands in your daily note ${noteId} with an Undo` : `Your daily note could not take its line (${listed.why})`
-  return { ok: true, result: { ...done.result, text: `${id} answered for the person: ${short}. ${where}; ${asker === null ? 'nobody asked it' : `${bare(asker, w.prefix)} is woken`}.`, wake, wakeOwner, note: noteId } }
+  const where = listed.ok ? `It stands in ${by === 'partner' ? 'your' : 'the'} daily note ${noteId} with an Undo` : `${by === 'partner' ? 'Your' : 'The'} daily note could not take its line (${listed.why})`
+  return { ok: true, result: { ...done.result, text: `${id} answered for the person: ${short}. ${where}; ${asker === null ? 'nobody asked it' : wake === null ? 'nobody else is woken' : `${bare(asker, w.prefix)} is woken`}.`, wake, wakeOwner, note: noteId } }
 }
 
-/** The partner's note of today on `goal` (null: of no goal): its newest note to the person with decided lines made today, or null. */
-function noteOfToday(w, goal) {
+/** The partner chat's name in the list (the role advisor), or null. */
+const partnerNameOf = w => (w.chats ?? []).find(chat => w.roleOf?.(chat) === 'advisor') ?? null
+
+/**
+ * The partner's note of today on `goal` (null: of no goal): its newest note to the person with decided lines made today, or null.
+ * `from` the note's writer (Autopilot: the partner's name, when the board or the main chat lists an answer in it).
+ */
+function noteOfToday(w, goal, from = w.who) {
   const focus = goal
   const today = stamp(w.now).slice(0, 10)
   const madeOn = item => ((item.sections.get('History') ?? [])[0]?.match(/^- (\d{4}-\d\d-\d\d) /)?.[1] ?? valueOf(item, 'Since') ?? '').slice(0, 10)
   return [...w.store.items.values()]
     .filter(item => kindOf(item) === 'note' && valueOf(item, 'To') === 'you' && item.sections.has(DECIDED) && valueOf(item, 'Recap') === null
-      && plain(valueOf(item, 'From'), w.prefix) === plain(w.who, w.prefix) && valueOf(item, 'Of') === focus && madeOn(item) === today)
+      && plain(valueOf(item, 'From'), w.prefix) === plain(from, w.prefix) && valueOf(item, 'Of') === focus && madeOn(item) === today)
     .sort((a, b) => byId(valueOf(b, 'Id'), valueOf(a, 'Id')))[0] ?? null
 }
 
-/** The partner's answer as a decided line: added to its note of today (`note`), or a new note `noteId`. */
-async function listAnswer(w, note, noteId, entry, askId) {
+/** The partner's answer as a decided line: added to its note of today (`note`), or a new note `noteId` written by `from`. */
+async function listAnswer(w, note, noteId, entry, askId, from = w.who) {
   const focus = w.focusGoal ?? null
   const count = (decided, needs) => noteCount(focus, decided, needs, w)
+  const whose = from === w.who ? 'the partner\'s' : `${w.who === 'server' ? 'the board' : w.who}'s`
   if (note === null) {
     const item = appendHistory({
-      head: new Map([['Id', noteId], ['Kind', 'note'], ['From', w.who], ['To', 'you'], ...(focus === null ? [] : [['Of', focus]]), ['State', 'unread'], ['Since', stamp(w.now)], ['Text', count(1, 0)]]),
+      head: new Map([['Id', noteId], ['Kind', 'note'], ['From', from], ['To', 'you'], ...(focus === null ? [] : [['Of', focus]]), ['State', 'unread'], ['Since', stamp(w.now)], ['Text', count(1, 0)]]),
       sections: new Map([[DECIDED, [`- ${entry}`]], ...(focus === null ? [] : [[NEEDS, []]])]),
       problem: null,
-    }, w.who, `noted (the partner's answer of ${askId})`, w.now)
+    }, w.who, `noted (${whose} answer of ${askId})`, w.now)
     return save(item, null, w)
   }
   const found = await load(noteId, w, { kind: ['note'] })
@@ -1253,29 +1317,234 @@ async function listAnswer(w, note, noteId, entry, askId) {
   item.sections.set(DECIDED, [...(found.item.sections.get(DECIDED) ?? []), `- ${entry}`])
   // A note whose line only counted its lines counts them anew.
   if (COUNTED.test(valueOf(item, 'Text') ?? '')) put(item, 'Text', count(decidedOf(item).length, (item.sections.get(NEEDS) ?? []).filter(one => one.trim() !== '').length))
-  return save(appendHistory(item, w.who, `the partner's answer of ${askId} added`, w.now), found.text, w)
+  return save(appendHistory(item, w.who, `${whose} answer of ${askId} added`, w.now), found.text, w)
 }
 
 /**
  * Partner answers (2026-10-19): an ask routed to the partner goes to the person (`Route: person`), with a line on its card
  * that says why: the partner's own (`escalate`), or the board's when the partner did not answer in time, is not on the
- * board, or the setting is off.
+ * board, or the setting is off. Autopilot (2026-10-31): the main chat hands on an ask routed to it (Route: main) with one line
+ * why no chat can do it; the board does when the main chat did not answer in time.
  */
 async function escalate(body, w) {
   const found = await load(body.id, w, { kind: ['ask'] })
   if (!found.ok) return found
   const id = valueOf(found.item, 'Id')
-  if (stateOf(found.item) !== 'open' || valueOf(found.item, 'Route') !== 'partner') return refuse(409, `${id} is not routed to the partner${stateOf(found.item) === 'open' ? '' : ` (it is ${stateOf(found.item)})`}: nothing to hand on.`)
+  const route = valueOf(found.item, 'Route')
+  const routes = w.role === 'main' ? ['main'] : w.role === 'server' ? ['partner', 'main'] : ['partner']
+  if (stateOf(found.item) !== 'open' || !routes.includes(route)) return refuse(409, `${id} is not routed to ${w.role === 'main' ? 'you' : 'the partner'}${stateOf(found.item) === 'open' ? '' : ` (it is ${stateOf(found.item)})`}: nothing to hand on.`)
   const why = line(body.why, 300)
   if (why === '') return refuse(400, 'Say in one line in "why" why the person answers it: it stands on its card.')
   const card = w.role === 'server'
     ? /^the partner /i.test(why) ? `Your partner ${why.replace(/^the partner /i, '')}: it is yours` : `${why[0].toUpperCase()}${why.slice(1)}: it is yours`
-    : `Your partner hands this to you: ${why}`
+    : w.role === 'main' ? `The main chat hands this to you: ${why}` : `Your partner hands this to you: ${why}`
   const item = put(put(copy(found.item), 'Route', 'person'), 'Since', stamp(w.now))
   item.sections.set('Route', [card])
   const next = appendHistory(item, w.role === 'server' ? 'server' : w.who, `to the person: ${why}`, w.now)
   const done = await save(next, found.text, w)
   return done.ok ? changed(next, `${id} goes to the person: ${why}.`) : done
+}
+
+/** Autopilot (2026-10-31): the store's open asks (Q<n>) in id order, as `w` reads them. */
+const openAsksAll = w => [...w.store.items.values()].filter(one => kindOf(one) === 'ask' && stateOf(one) === 'open' && /^Q\d+$/.test(valueOf(one, 'Id') ?? ''))
+  .sort((a, b) => byId(valueOf(a, 'Id'), valueOf(b, 'Id')))
+
+/** Autopilot: `w` with the store read anew (within the call: the files it wrote, B867). */
+const freshOf = async w => ({ ...w, store: { ...w.store, ...(await readStore(w.dir, w.fs)) } })
+
+/** Autopilot: an open ask given its route (`to`), once: the Route field and one History line. Partner: its 30 minutes start now. */
+async function routeAsk(id, to, w, card = null) {
+  const found = await load(id, w, { kind: ['ask'] })
+  if (!found.ok || stateOf(found.item) !== 'open') return { ok: false }
+  let item = put(copy(found.item), 'Route', to)
+  // The partner's 30-minute rule reads the ask's filing (reconcile.mjs): an older ask routed now gets its 30 minutes from now.
+  if (to === 'partner') put(item, 'Filed', String(w.now))
+  if (card !== null) item.sections.set('Route', [card])
+  item = ordered(appendHistory(item, 'server', routedWords(to), w.now))
+  const done = await save(item, found.text, w)
+  return done.ok ? { ok: true, item } : done
+}
+
+/**
+ * Autopilot (2026-10-31): the board's pass at each refresh (`on`: the setting). While on, every open ask without a route (or
+ * with the default `Route: person`, never one handed on) is routed once (autopilot.mjs `autopilotRoute`). Whatever the setting,
+ * what was routed runs its course: an ask routed to `advice` is answered with its advice (`Answered by: autopilot`, the
+ * partner's daily note with Undo); one routed to the main chat goes to the person after the partner's 30 minutes; one that
+ * waits for a recap whose step is of no focus goal any more goes to the person. While on, a step's open refine questions are
+ * answered with their advice and the step goes on (`refines`: the board sends the refine word); a question without advice
+ * goes back to the Advisor once per step. Answers `{ routed, answered, escalated, mainAsks, refines, wakes }`.
+ */
+async function autopilot(body, w) {
+  const on = body.on === true
+  const ctx = routeCtx(w)
+  const routed = []
+  const answered = []
+  const escalated = []
+  const refines = []
+  const wakes = []
+  if (on) {
+    for (const item of openAsksAll(w)) {
+      const route = valueOf(item, 'Route')
+      if (valueOf(item, 'Via') === 'refine' || isAutopilotRouted(item)) continue
+      if (route !== null && !(route === 'person' && !isExplicitPerson(item))) continue
+      const to = autopilotRoute(item, ctx).to
+      const done = await routeAsk(valueOf(item, 'Id'), to, w)
+      if (done.ok) routed.push({ id: valueOf(item, 'Id'), to })
+    }
+  }
+  let now = await freshOf(w)
+  for (const item of openAsksAll(now).filter(one => valueOf(one, 'Route') === 'advice')) {
+    const id = valueOf(item, 'Id')
+    const found = await load(id, now, { kind: ['ask'] })
+    if (!found.ok || stateOf(found.item) !== 'open' || valueOf(found.item, 'Route') !== 'advice') continue
+    const answer = adviceAnswerOf(found.item)
+    const done = answer === null
+      ? await routeAsk(id, 'person', now, 'Autopilot found no advice to take: it is yours')
+      : await decideFor(found, { text: [answer], why: TOOK_ADVICE, by: 'autopilot' }, now)
+    if (!done.ok) continue
+    if (answer === null) escalated.push(id)
+    else {
+      answered.push(id)
+      for (const wake of [done.result.wake, done.result.wakeOwner]) if (wake !== null && wake !== undefined) wakes.push(wake)
+    }
+    now = await freshOf(w)
+  }
+  const mainAsks = []
+  const limit = Number.isFinite(body.limitMs) ? body.limitMs : PARTNER_ANSWER_MS
+  for (const item of openAsksAll(now).filter(one => ['main', 'recap'].includes(valueOf(one, 'Route')))) {
+    const id = valueOf(item, 'Id')
+    if (valueOf(item, 'Route') === 'main') {
+      const since = Number.isFinite(routedAt(item, 'main')) ? routedAt(item, 'main') : askFiledMs(item)
+      if (Number.isFinite(since) && now.now - since >= limit) {
+        const done = await escalate({ id, why: `the main chat did not do it in ${Math.round(limit / 60_000)} min` }, { ...now, role: 'server', who: 'server' })
+        if (done.ok) escalated.push(id)
+      } else mainAsks.push(id)
+      continue
+    }
+    // A recap wait whose step is gone, or of no focus goal now: its recap will not come; it is the person's.
+    const step = now.store.items.get(valueOf(item, 'Of') ?? '')
+    const isFocus = step !== undefined && (now.focusGoal ?? null) !== null && valueOf(step, 'Goal') === now.focusGoal
+    if (isFocus) continue
+    const done = await routeAsk(id, 'person', now, recapGoneWords)
+    if (done.ok) escalated.push(id)
+  }
+  if (on) {
+    const byStep = new Map()
+    for (const item of openAsksAll(now).filter(one => valueOf(one, 'Via') === 'refine' && STEP_ID.test(valueOf(one, 'Of') ?? ''))) {
+      byStep.set(valueOf(item, 'Of'), [...(byStep.get(valueOf(item, 'Of')) ?? []), item])
+    }
+    for (const [stepId, asks] of byStep) {
+      const done = await refineByAdvice(stepId, asks, now)
+      if (done === null) continue
+      refines.push(done)
+      now = await freshOf(w)
+    }
+  }
+  const count = routed.length + answered.length + escalated.length + refines.length
+  const text = count === 0 ? 'Nothing to route.' : [
+    routed.length === 0 ? null : `Routed ${routed.map(one => `${one.id} to ${one.to}`).join(', ')}`,
+    answered.length === 0 ? null : `answered with the advice: ${answered.join(', ')}`,
+    escalated.length === 0 ? null : `to the person: ${escalated.join(', ')}`,
+    refines.length === 0 ? null : `refine questions: ${refines.map(one => one.step).join(', ')}`,
+  ].filter(Boolean).join('; ')
+  return { ok: true, result: { text: `${text}.`, changed: count > 0, routed, answered, escalated, mainAsks, refines, wakes } }
+}
+
+/**
+ * Autopilot: a step's open refine questions (`asks`), as "Take the advice" would answer them: each with advice gets it as its
+ * answer, written with its question in the step's refine block ("autopilot: took the advice" in History); a question without
+ * advice sends the refine back to the Advisor with REFINE_BACK_WORDS, once per step (a later one stays the person's). A question
+ * that drops the step stays the person's. `{ step, took, back }`, or null when nothing was written.
+ */
+async function refineByAdvice(stepId, asks, w) {
+  const found = await load(stepId, w, { kind: ['step'] })
+  if (!found.ok || CLOSED_STEP.includes(stateOf(found.item))) return null
+  const questions = blockQuestions(found.item)
+  const sentBefore = (found.item.sections.get('History') ?? []).some(one => one.includes(SENT_BACK))
+  const took = []
+  let back = false
+  for (const ask of asks) {
+    const index = questionIndex(questions, ask, w)
+    if (index < 0 || / Answer: /.test(questions[index]) || dropsStep(questions[index], stepId)) continue
+    const { answer } = refineAdviceOf(questions[index])
+    if (answer !== null) took.push({ index, answer, ask })
+    else if (!sentBefore) back = true
+  }
+  if (took.length === 0 && !back) return null
+  const text = `## -\n${stepLine(found.item)}\n${stepNotes(found.item).join('\n')}\n`
+  const written = answerRefine(text, stepId, took.map(({ index, answer }) => ({ index, answer })), back ? REFINE_BACK_WORDS : '')
+  if (!written.ok) return null
+  const read = migrateBacklog(written.text, { now: w.now }).items.get(stepId)
+  if (read === undefined) return null
+  let item = copy(found.item)
+  for (const name of ['Summary', 'Picture', 'What we build', 'Refined']) {
+    if (read.sections.has(name)) item.sections.set(name, read.sections.get(name))
+    else item.sections.delete(name)
+  }
+  put(item, 'Refined', valueOf(read, 'Refined'))
+  if (took.length > 0) item = appendHistory(item, 'server', `${TOOK_ADVICE}: ${took.map(one => valueOf(one.ask, 'Id')).join(', ')}`, w.now)
+  if (back) item = appendHistory(item, 'server', `${SENT_BACK}: ${REFINE_BACK_WORDS}`, w.now)
+  const done = await save(item, found.text, w)
+  if (!done.ok) return null
+  for (const one of took) await settleAsk(w, one.ask, 'answered', one.answer, `${TOOK_ADVICE}: ${line(one.answer, 200)}`)
+  return { step: stepId, took: took.map(one => valueOf(one.ask, 'Id')), back }
+}
+
+/**
+ * Autopilot (2026-10-31): the person's answer of a goal's recap (the goal demo's Send, server.mjs): each ask that waits for the
+ * recap (Route: recap) under a step of a part they approved or sent back closes with that answer, and the chat that asked is
+ * woken with it (`wakes`). `body`: `{ goal, round, parts: [{ verdict, steps, comment, title }] }`.
+ */
+async function recapAnswered(body, w) {
+  const goal = line(body.goal, 20)
+  const round = Number.isInteger(body.round) ? body.round : null
+  const closed = []
+  const wakes = []
+  for (const part of Array.isArray(body.parts) ? body.parts : []) {
+    const isApproved = part?.verdict === 'approved'
+    if (!isApproved && part?.verdict !== 'sent-back') continue
+    const answer = isApproved
+      ? `Approved in the recap of ${goal}${round === null ? '' : `, round ${round}`}${part.title ? `: ${line(part.title, 120)}` : ''}.`
+      : `Sent back in the recap of ${goal}${round === null ? '' : `, round ${round}`}${part.title ? `: ${line(part.title, 120)}` : ''}: "${line(part.comment, 600)}"`
+    for (const stepId of (Array.isArray(part.steps) ? part.steps : []).filter(one => STEP_ID.test(String(one)))) {
+      const waiting = openAsksAll(w).filter(one => valueOf(one, 'Route') === 'recap' && valueOf(one, 'Of') === stepId && !closed.includes(valueOf(one, 'Id')))
+      for (const ask of waiting) {
+        const id = valueOf(ask, 'Id')
+        const found = await load(id, w, { kind: ['ask'] })
+        if (!found.ok || stateOf(found.item) !== 'open') continue
+        let item = put(put(copy(found.item), 'State', 'answered'), 'Since', stamp(w.now))
+        item.sections.set('Answer', [answer])
+        item = ordered(appendHistory(item, 'server', `closed by the goal's recap: ${line(answer, 200)}`, w.now))
+        const done = await answerStep(w, item, found.text, stepId, step => {
+          const mine = appendHistory(underStep(step, [`${id} closed by the recap of ${goal} on ${at(w.now)}: ${line(answer, 200)}`]), 'server', `${id} closed by the goal's recap`, w.now)
+          return stateOf(mine) === 'waiting on you' ? goOnOrPark(mine, w, flowCtx(w, [item, mine]), ` (${id} closed by the recap)`).item : mine
+        })
+        if (!done.ok) continue
+        closed.push(id)
+        const asker = valueOf(found.item, 'Owner')
+        if (asker !== null) wakes.push({ to: asker, id, title: valueOf(found.item, 'Title') ?? '', text: `The person answered this in the goal's recap: ${answer}` })
+      }
+    }
+  }
+  return { ok: true, result: { text: closed.length === 0 ? 'No ask waited for this recap.' : `Closed by the recap: ${closed.join(', ')}.`, changed: closed.length > 0, closed, wakes } }
+}
+
+/** Autopilot (2026-10-31): the open asks routed to the main chat, each in one line, and how to answer them; `{ text, ids }`. */
+function mainRoutedAsks(w) {
+  const routed = openAsksAll(w).filter(item => valueOf(item, 'Route') === 'main')
+  if (routed.length === 0) return { text: '', ids: [] }
+  const shown = routed.map(item => {
+    const of = valueOf(item, 'Of')
+    const owner = valueOf(item, 'Owner')
+    const advice = valueOf(item, 'Advice')
+    return `- ${valueOf(item, 'Id')} ${valueOf(item, 'Asks') ?? 'do'} from ${owner === null ? 'nobody' : bare(owner, w.prefix)}${of === null ? '' : ` on ${of}`}: ${valueOf(item, 'Title') ?? ''}${advice === null ? '' : ` · advised: ${advice}`}`
+  })
+  const first = valueOf(routed[0], 'Id')
+  return {
+    text: ['Asks you do for the person (Autopilot; roles/main.md, "Autopilot"):', ...shown,
+      `Do each if a chat can, then: work partner-answer ${first} with "text" (what was done) and "why" (one line). If no chat can (an account, money, a permission, the app itself): work escalate ${first} with "why" (one line why no chat can).`].join('\n'),
+    ids: routed.map(item => valueOf(item, 'Id')),
+  }
 }
 
 /**
@@ -1288,7 +1557,7 @@ async function takeBack(ask, body, w) {
   const id = valueOf(ask.item, 'Id')
   const noteId = valueOf(ask.item, 'Daily note')
   const routeLines = ask.item.sections.get('Route') ?? []
-  if (!isPartnerAnswered(ask.item)) {
+  if (!isDecidedForYou(ask.item)) {
     if (stateOf(ask.item) === 'open' && routeLines.some(one => / you took it back$/.test(one))) return { ok: true, result: { id, text: 'Taken back already.', changed: false, asked: true } }
     return refuse(409, `${id} is no answer of your partner's: there is nothing to take back.`)
   }
@@ -1311,12 +1580,15 @@ async function takeBack(ask, body, w) {
   }
   const answered = line((ask.item.sections.get('Answer') ?? []).join(' '), 200)
   const asker = valueOf(ask.item, 'Owner')
+  // Autopilot (2026-10-31): the board's taken advice and the main chat's action are taken back the same way.
+  const by = valueOf(ask.item, 'Answered by')
+  const had = by === 'autopilot' ? 'Decided for you (Autopilot)' : by === 'main' ? 'The main chat had answered' : 'Your partner had answered'
   let item = put(put(put(copy(ask.item), 'State', 'open'), 'Route', 'person'), 'Since', stamp(w.now))
   item.head.delete('Answered by')
   item.sections.delete('Answer')
   item.sections.delete('Why')
-  item.sections.set('Route', [`Your partner had answered: ${answered}; you took it back`])
-  item = ordered(said(item, w, `took back the partner's answer: ${answered}; open for the person`))
+  item.sections.set('Route', [`${had}: ${answered}; you took it back`])
+  item = ordered(said(item, w, `took back the ${by === 'autopilot' ? 'board\'s Autopilot' : by === 'main' ? 'main chat\'s' : 'partner\'s'} answer: ${answered}; open for the person`))
   const of = valueOf(ask.item, 'Of')
   const done = await answerStep(w, item, ask.text, of, step => {
     let mine = said(underStep(step, [`${id}: the person took back the partner's answer on ${at(w.now)}; it waits for their answer`]), w, `${id} taken back`)
@@ -3805,6 +4077,8 @@ const CHANGE = {
   'qa-end': qaEnd,
   'partner-answer': partnerAnswer,
   escalate,
+  autopilot,
+  'recap-answered': recapAnswered,
   'partner-answers': partnerSetting,
   'obsolete-check': obsoleteCheck,
   obsolete,

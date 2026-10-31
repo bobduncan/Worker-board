@@ -33,8 +33,9 @@ import { askIdsIn, askKey, askPartsOf, sameAsk } from './work/askWords.mjs'
 import { forYouRepeat } from './work/askRepeat.mjs'
 import { dailyNote, isDailyNote } from './work/dailyNote.mjs'
 import { SYNC_BOARD, syncChecks } from './sync.mjs'
-import { informationOf, instructionsOf, nameFinder, notesToMain, partnerDecidedOf, storeNeeds, storeWaits, withPartnerOf } from './work/lists.mjs'
-import { NOTE_LINE, isPartnerAnswered, isPartnerAskWord, stepWaitsForPartner } from './work/partnerAnswers.mjs'
+import { decidedTodayOf, informationOf, instructionsOf, nameFinder, notesToMain, partnerDecidedOf, routedAwayOf, storeNeeds, storeWaits, withPartnerOf } from './work/lists.mjs'
+import { botherMeOf } from './boardSettings.mjs'
+import { NOTE_LINE, isDecidedForYou, isPartnerAskWord, stepWaitsForPartner } from './work/partnerAnswers.mjs'
 import { advisorNextOf, advisorWorkOf, leaveOut } from './work/advisorWork.mjs'
 import { openQaTaskOf, qaStandOf } from './work/qaTask.mjs'
 import { holdsRefine, isBlockWritten } from './work/refineWait.mjs'
@@ -1433,7 +1434,7 @@ function focusRun(node, items, prefix, partner) {
     .map(item => [(item.sections.get(NOTE_LINE) ?? [])[0], item]))
   const note = newest === undefined ? null : (read => ({ ...read, decided: read.decided.map(one => {
     const ask = listedBy.get(one.text)
-    return ask === undefined ? one : { ...one, ask: valueOf(ask, 'Id'), takenBack: !isPartnerAnswered(ask) }
+    return ask === undefined ? one : { ...one, ask: valueOf(ask, 'Id'), takenBack: !isDecidedForYou(ask) }
   }) }))(dailyNote(newest))
   const ofs = new Set([node.id, ...node.steps, ...node.parts.flatMap(part => part.steps)])
   const named = note?.needs ?? []
@@ -2055,8 +2056,9 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
   // T8.5 step 6: the give itself is the hand-over's (work/handover.mjs); `handover` other than "sequence" hands out nothing.
   const routingHeld = workOk ? routingHolds(itemsOf(raw.work), config.routing) : new Set()
   const gaps = gapsOf(lines, now, aliveAt)
+  // Autopilot (2026-10-31): the partner's answers count as on while it is (the Focus page's switch reads "covered by Autopilot").
   const reconciled = !workOk ? null : reconcile({
-    store: raw.work, flow: raw.work.flow, lanes: chats, now, times: { graceMs: GRACE_MS, askMs: ASK_MS, idleMs: IDLE_HOLD_MS }, prefix, hasPartner: advisorChat !== undefined, partner,
+    store: config.autopilot === true ? { ...raw.work, partnerAnswers: { on: true } } : raw.work, flow: raw.work.flow, lanes: chats, now, times: { graceMs: GRACE_MS, askMs: ASK_MS, idleMs: IDLE_HOLD_MS }, prefix, hasPartner: advisorChat !== undefined, partner,
     standardHold: item => standardHold(item, plan?.standards ?? []),
     focus: goalMap?.focus ?? null, focusGoals: goalsUnder(goalMap, goalMap?.focus ?? null), routingHeld, sent,
     settings: { maxWorkers: config.maxWorkers, followUpMinutes: config.followUpMinutes, handOutBeyondFocus: config.handOutBeyondFocus === true, offAfterMinutes: config.offAfterMinutes, handover: config.handover ?? 'sequence' },
@@ -2109,6 +2111,16 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
   const focus = focusState(goalMap, itemsOf(raw.work), brainstorms.threads, prefix, advisorChat?.name ?? null, now, chats, recapWaits, raw.recaps ?? null)
   // The chats on the board by name, for a store's owner (with or without the list's prefix).
   const chatNames = [...names, ...[advisorChat, helperChat, ownerChat].filter(one => one !== undefined).map(one => one.name)]
+  // Autopilot (2026-10-31): each asking chat's role, as the work API names them, for where an ask goes (src/work/autopilot.mjs).
+  const plainOf = name => {
+    const words = String(name ?? '').trim()
+    return (prefix !== '' && words.toLowerCase().startsWith(prefix.toLowerCase()) ? words.slice(prefix.length) : words).trim().toLowerCase()
+  }
+  const roleOfChat = owner => {
+    const named = plainOf(owner)
+    const is = chat => chat !== undefined && plainOf(chat.name) === named
+    return is(main) ? 'main' : is(advisorChat) ? 'advisor' : is(helperChat) ? 'helper' : is(ownerChat) ? 'owner' : is(supervisorChat) ? 'supervisor' : names.some(name => plainOf(name) === named) ? 'worker' : null
+  }
   // Partner answers, the review's findings: the asks with the partner now, and its answers of the last 7 days that the
   // Focus page's note does not show, each with its Undo. The person, 2026-10-26: each with where it stands (`stand`:
   // in the partner's queue, or the partner is on it: its word was taken, or its task, while it works, names the ask).
@@ -2236,7 +2248,8 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
       ...needsOf(asks, lanes, sent, gameOf, now, config.baseBranch, { advisor: advisorCard, advisorWaits, helper: helperLane, waits, idle: (reconciled?.flags ?? []).filter(flag => flag.kind === 'idle hold') }),
       // B299: the store's asks, answered through POST /api/work.
       // B300: a blocking ask that waited longer than the ask time stands first (`isOld`).
-      ...storeNeeds(raw.work, { now, names: chatNames, prefix, answerOf: id => answerOf(sent, id) })
+      // Autopilot (2026-10-31): only what is routed to the person, while it is on (src/work/autopilot.mjs).
+      ...storeNeeds(raw.work, { now, names: chatNames, prefix, answerOf: id => answerOf(sent, id), autopilot: config.autopilot === true, roleOf: roleOfChat, focusGoal: goalMap?.focus ?? null })
         .map(need => (oldAsks.has(need.id) ? { ...need, isOld: true } : need)),
     ].sort((a, b) => Number(b.isOld === true) - Number(a.isOld === true) || (b.at ?? 0) - (a.at ?? 0)), [config.advisor ?? null, helperChat?.name ?? null, ownerChat?.name ?? null], prefix),
     // B299: notes and reports for the person.
@@ -2244,8 +2257,13 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
     withPartner,
     partnerDecided: !workOk ? [] : partnerDecidedOf(raw.work, { now, shownNote: focus?.note?.id ?? null, names, prefix }),
     // B360: the recaps of finished work, and where they show: "now" in Needs your attention, "daily" in the daily note.
+    // Autopilot (2026-10-31): always "now" while it is on.
     recaps: recapsOf(raw.work, now),
-    recapsShow: config.botherMe ?? 'now',
+    recapsShow: botherMeOf(config),
+    // Autopilot (2026-10-31): whether it is on, and how many asks were decided for the person today (the quiet line on top
+    // of Needs your attention); the asks it routed to the main chat or to a goal's recap (their window, "For your recap").
+    autopilot: { on: config.autopilot === true, decidedToday: !workOk ? 0 : decidedTodayOf(raw.work, now) },
+    routedAway: !workOk ? [] : routedAwayOf(raw.work, { names: chatNames, prefix }),
     // B296, B301: the work store: its folder, how many items, its problems, and why it cannot be read (`why`).
     store: shown.store,
     // B298: the person's words per chat, filed as instructions (work/lists.mjs).

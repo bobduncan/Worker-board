@@ -7,7 +7,8 @@ import { askKey, askPartsOf, askWordsOf } from './askWords.mjs'
 import { repeatFactsOf } from './askRepeat.mjs'
 import { askFiledMs, valueOf } from './item.mjs'
 import { itemsOf } from './read.mjs'
-import { NOTE_LINE, TAKE_BACK_MS, isPartnerAnswered, isRoutedToPartner, partnerAskStand } from './partnerAnswers.mjs'
+import { NOTE_LINE, PARTNER_ANSWER_MS, TAKE_BACK_MS, isDecidedForYou, isRoutedToPartner, partnerAskStand } from './partnerAnswers.mjs'
+import { TOOK_ADVICE, routedAt, standsForPerson } from './autopilot.mjs'
 import { isRecap } from './recap.mjs'
 
 const DAY = 24 * 60 * 60_000
@@ -123,14 +124,17 @@ const isAdvised = (option, advice) => advice !== null && (option === advice || o
  * one the partner answered stays among the closed cards for a day, its answer `by: 'partner'` with its `why`, and may
  * be taken back (`canTakeBack`); `route` and `routeNote` say whether it came to the person by the partner and why.
  */
-export function storeNeeds(work, { now, names = [], prefix = '', answerOf = () => ({ answer: null, earlier: null }) }) {
+export function storeNeeds(work, { now, names = [], prefix = '', answerOf = () => ({ answer: null, earlier: null }), autopilot = false, roleOf = () => null, focusGoal = null }) {
   const items = new Map(itemsOf(work).map(item => [valueOf(item, 'Id'), item]))
   const nameOf = owner => names.find(name => plainName(name, prefix) === plainName(owner, prefix)) ?? owner
   return asksOfStore(work).flatMap(item => {
     const state = valueOf(item, 'State')
     const since = sinceMs(valueOf(item, 'Since'))
-    const byPartner = isPartnerAnswered(item)
-    if (isRoutedToPartner(item)) return []
+    // Autopilot (2026-10-31): an answer decided for the person (the partner's, the board's taken advice, the main chat's).
+    const byPartner = isDecidedForYou(item)
+    // Autopilot: an open ask routed away from the person (partner, advice, recap, main) stands nowhere here; while Autopilot is
+    // on, neither one the board routes away at its next refresh (autopilot.mjs `standsForPerson`).
+    if (state === 'open' && !standsForPerson(item, { autopilot, now, items, roleOf, focusGoal, prefix })) return []
     // The review's findings: a partner's answer keeps its card (and its Undo) for 7 days.
     if (state !== 'open' && !(state === 'answered' && Number.isFinite(since) && now - since < (byPartner ? TAKE_BACK_MS : KEEP_ANSWERED_MS))) return []
     const id = valueOf(item, 'Id')
@@ -148,7 +152,7 @@ export function storeNeeds(work, { now, names = [], prefix = '', answerOf = () =
     const stored = { at: since, verdict: null, text: (item.sections.get('Answer') ?? []).join(' '), state: 'delivered', takenAt: null, deliveredAt: since }
     const why = byPartner ? (item.sections.get('Why') ?? []).join(' ').trim() || null : null
     // Partner answers: the partner's answer as the store holds it, with where its word to the chat is.
-    const answer = byPartner ? { ...stored, ...(known.answer === null ? {} : { state: known.answer.state, takenAt: known.answer.takenAt ?? null, deliveredAt: known.answer.deliveredAt ?? since }), by: 'partner', why }
+    const answer = byPartner ? { ...stored, ...(known.answer === null ? {} : { state: known.answer.state, takenAt: known.answer.takenAt ?? null, deliveredAt: known.answer.deliveredAt ?? since }), by: valueOf(item, 'Answered by'), why }
       : known.answer ?? (state === 'open' ? null : stored)
     const routeNote = (item.sections.get('Route') ?? []).join(' ').trim()
     return [{
@@ -202,13 +206,57 @@ export function withPartnerOf(work, { names = [], prefix = '', outbox = [], task
  */
 export function partnerDecidedOf(work, { now, shownNote = null, names = [], prefix = '' }) {
   const nameOf = owner => names.find(name => plainName(name, prefix) === plainName(owner, prefix)) ?? owner
-  return asksOfStore(work).filter(item => isPartnerAnswered(item) && (shownNote === null || valueOf(item, 'Daily note') !== shownNote)).flatMap(item => {
+  return asksOfStore(work).filter(item => isDecidedForYou(item) && (shownNote === null || valueOf(item, 'Daily note') !== shownNote)).flatMap(item => {
     const at = sinceMs(valueOf(item, 'Since'))
     if (!Number.isFinite(at) || now - at >= TAKE_BACK_MS) return []
     const id = valueOf(item, 'Id')
     const line = (item.sections.get(NOTE_LINE) ?? [])[0] ?? `${id}: ${valueOf(item, 'Title') ?? ''} → ${(item.sections.get('Answer') ?? []).join(' ')}`
-    return [{ ask: id, line, from: valueOf(item, 'Owner') === null ? null : nameOf(valueOf(item, 'Owner')), at }]
+    return [{ ask: id, line, from: valueOf(item, 'Owner') === null ? null : nameOf(valueOf(item, 'Owner')), at, by: valueOf(item, 'Answered by') }]
   }).sort((a, b) => b.at - a.at || b.ask.localeCompare(a.ask, 'en', { numeric: true }))
+}
+
+/**
+ * Autopilot (2026-10-31): the open asks the board routed to the main chat or to a goal's recap, for the window a click on
+ * one opens (they stand in no list of Needs your attention) and the Focus page's "For your recap": `[{ id, route, from,
+ * title, of, ofTitle, goal, text, advice, options, pictures, at, toYouAt }]`, oldest first. `toYouAt`: when one routed to the
+ * main chat comes to the person (the partner's 30 minutes from its route), else null.
+ */
+export function routedAwayOf(work, { names = [], prefix = '', limitMs = PARTNER_ANSWER_MS } = {}) {
+  const nameOf = nameFinder(names, prefix)
+  const items = new Map(itemsOf(work).map(item => [valueOf(item, 'Id'), item]))
+  return asksOfStore(work).filter(item => valueOf(item, 'State') === 'open' && ['main', 'recap'].includes(valueOf(item, 'Route'))).map(item => {
+    const id = valueOf(item, 'Id')
+    const route = valueOf(item, 'Route')
+    const of = valueOf(item, 'Of')
+    const step = of === null ? undefined : items.get(of)
+    const advice = valueOf(item, 'Advice')
+    const at = askFiledMs(item)
+    const routed = routedAt(item, route)
+    return {
+      id, route, from: valueOf(item, 'Owner') === null ? null : nameOf(valueOf(item, 'Owner')), title: askPartsOf(item).title, of,
+      ofTitle: step === undefined ? null : valueOf(step, 'Title'), goal: step === undefined ? null : valueOf(step, 'Goal'),
+      text: askPartsOf(item).context.join('\n'), advice,
+      options: (valueOf(item, 'Options') ?? '').split(' | ').filter(one => one.trim() !== '').map(label => ({ label, isRecommended: isAdvised(label, advice) })),
+      pictures: (valueOf(item, 'Pictures') ?? '').split(',').map(one => one.trim()).filter(Boolean),
+      at: Number.isFinite(at) ? at : null, toYouAt: route === 'main' && Number.isFinite(routed) ? routed + limitMs : null,
+    }
+  }).sort((a, b) => a.id.localeCompare(b.id, 'en', { numeric: true }))
+}
+
+/**
+ * Autopilot (2026-10-31): how many asks were decided for the person today (the partner's answers, the board's taken advice,
+ * the main chat's actions, and refine questions the board answered with their advice), for the quiet line on top of Needs
+ * your attention. Taken back ones do not count.
+ */
+export function decidedTodayOf(work, now) {
+  const today = new Date(now).toDateString()
+  const isToday = ms => Number.isFinite(ms) && new Date(ms).toDateString() === today
+  return asksOfStore(work).filter(item => {
+    if (isDecidedForYou(item)) return isToday(sinceMs(valueOf(item, 'Since')))
+    if (valueOf(item, 'Via') !== 'refine' || valueOf(item, 'State') !== 'answered') return false
+    const last = (item.sections.get('History') ?? []).at(-1) ?? ''
+    return last.includes(TOOK_ADVICE) && isToday(sinceMs(last.match(/^-\s+(\d{4}-\d\d-\d\d \d\d:\d\d)/)?.[1]))
+  }).length
 }
 
 /**

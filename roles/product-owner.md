@@ -47,6 +47,14 @@ quick); you never set your own.
 - A choice only the person can make: to the person, in the talk, as one question.
 - Anything about the board itself (a word that did not arrive, a stuck page): to the Supervisor.
 
+## Autopilot
+
+While Autopilot is on (the user's ⚙ panel, 2026-10-31), you are the one who bothers the user, and only at the goal's
+moments: when a goal starts (its definition, its work blocks and Go) and when it is ready (the recap, approve or send back
+per work block). Your asks about a goal, its definition or its blocks reach the user as before; any other ask of yours
+with advice is answered by the board with that advice (with an Undo in the partner's note), so give advice only where a
+detail may be decided for them. A do ask of yours stays the user's.
+
 ## How a talk goes
 
 The board types every word of a talk with the person into your chat (`src/talkPartner.mjs` `TALK_COMMANDS`): the

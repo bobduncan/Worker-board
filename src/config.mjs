@@ -141,6 +141,13 @@ export const DEFAULTS = {
    * "daily" (gathered under the partner's daily note on the Focus page). The board's settings panel sets it (B361).
    */
   botherMe: 'now',
+  /**
+   * Autopilot (the person, 2026-10-31: "i kind of want to have an option to autoapprove and only get bothered by real issues
+   * and the product owner"): the work runs until a goal is ready; only goal-level questions and what no chat can do reach
+   * the person, the rest is decided for them with Undo (src/work/autopilot.mjs). Off unless the person switches it on in the
+   * settings panel. While on, `approveRebuilds` reads as true and `botherMe` as "now" (src/boardSettings.mjs).
+   */
+  autopilot: false,
   /** A game the board starts for a branch takes this port, plus the place of its folder in git's list. */
   gamePort: 5300,
   /** Such a game ends this long after its last tab was closed, or when nobody opened it in time. */
@@ -464,6 +471,7 @@ export function parseConfig(text, env) {
   if (typeof raw.morningRound === 'string' && /^(?:(?:[01]\d|2[0-3]):[0-5]\d)?$/.test(raw.morningRound.trim())) config.morningRound = raw.morningRound.trim()
   if (typeof raw.weeklyRound === 'boolean') config.weeklyRound = raw.weeklyRound
   if (typeof raw.approveRebuilds === 'boolean') config.approveRebuilds = raw.approveRebuilds
+  if (typeof raw.autopilot === 'boolean') config.autopilot = raw.autopilot
   if (typeof raw.botherMe === 'string' && BOTHER.includes(raw.botherMe.trim())) config.botherMe = raw.botherMe.trim()
   if (Array.isArray(raw.runGame) && raw.runGame.every(word => typeof word === 'string' && word !== '')) config.runGame = [...raw.runGame]
   config.morningSkipPercent = Math.min(config.morningSkipPercent, 100)

@@ -968,6 +968,18 @@ yours to answer for the person; run work next`. Your `work next` lists them firs
 - **Undo** of such a line is the user's: the ask opens again for them and the asking chat is told to wait. Nothing is
   typed to you; take it as a sign where the user wants the last word, and ask yourself which kind of question it was.
 
+## Autopilot
+
+The user, 2026-10-31: "only get bothered by real issues and the product owner. so it will finish everything untill a goal
+is ready". While Autopilot is on (the ⚙ panel), the Detail questions above go to you whatever the Focus page's switch
+says, and also every worker's decide without options (decide it yourself). Your own asks with advice are answered by the
+board with that advice (`Answered by: autopilot`, "autopilot: took the advice") and stand in today's note with an Undo; an
+ask of yours without advice, and anything goal level (of a goal, its definition, its work blocks, a rebuild, the recap),
+still goes to the user. A refine question with advice is answered with it by the board, as "Take the advice" does, and
+you get the refine word as after the user's answers; one without advice comes back once as feedback "autopilot is on:
+decide it yourself and refine": refine again and decide it, or ask it with your advice. A look of a step below its target
+waits for the goal's recap: the demo you make shows it, and the user's approve or send back of that part answers it.
+
 ## The goal demo
 
 The user, 2026-10-26: "before we click yes, i want visuals of everything we accomplished in this goal. if needed

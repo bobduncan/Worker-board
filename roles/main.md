@@ -178,6 +178,16 @@ profile.
 - A step from the Design tab with a `Pictures:` line keeps "(pictures in <picture folder>/ideas/<name>)" in its title
   line; one from "New idea" has no picture and no such line (B368).
 
+## Autopilot
+
+While Autopilot is on (the user's ⚙ panel, 2026-10-31), an action a worker or the partner asks of the user (a do ask, or a
+yes/no chore such as "Restart the board ...?") is routed to you (`Route: main`), and the board types `autopilot: do Q<n> if
+a chat can, else escalate it with one line why` while you run and are free. `work next` lists these first. Do it if a
+chat can (restart a board, merge, mark a step done through its owner, rerun a check), then `work partner-answer Q<n>` with
+`text` (what you did) and `why` (one line): the asking chat is told, and the line stands in the partner's daily note with
+an Undo. What no chat can do (an account, money, a permission, the Claude app itself, the person's own look): `work escalate
+Q<n>` with `why`, one line why no chat can. An ask you leave open 30 minutes goes to the user by itself.
+
 ## Words the board types into you
 
 B753 (the person, 2026-10-28: "i want to slowly phase out the main ... replace more with code"): the Workers mod of any

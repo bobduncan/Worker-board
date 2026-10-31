@@ -34,7 +34,8 @@ import { answerReport, answerWhoami, bridgeNote, checkTake, checkTyped, clearRef
 import { cardFiledUnder } from './src/chatCards.mjs'
 import { chatLogKeeper, isReadOut, leftSubjects } from './src/chatLogs.mjs'
 import { findCodex, makePicture } from './src/codex.mjs'
-import { checkSetting, panelSettings, settingChanged } from './src/boardSettings.mjs'
+import { checkSetting, panelSettings, rebuildsApproved, settingChanged } from './src/boardSettings.mjs'
+import { mainAskWords } from './src/work/autopilot.mjs'
 import { cpuLimiter, logicalCores, sessionsOfCards } from './src/cpu.mjs'
 import { BrokenConfig, configProblem, firstStart, followApp, isOwnWork, loadConfig, ownMapNow, projectFile, workFolder } from './src/config.mjs'
 import { REFERENCE_BYTES, ideasFolder, referencesFolder, checkDesign, designActivity, designState, picturesActivity, inTurn, parseDesignSettings, promptFor } from './src/design.mjs'
@@ -70,7 +71,7 @@ import { addDoneWhenStep, addPartStep, changeGoalsFile, editGoals, setGoalSteps 
 import { parseGoals } from './src/goals.mjs'
 import { activityFor, missingToSteps } from './src/goalSteps.mjs'
 import { PLAN_MOVES, planMove } from './src/planMoves.mjs'
-import { checkSend, roundPage, stampOf, withRound, wordsOfRound } from './src/demoFeedback.mjs'
+import { checkSend, roundPage, rowsOf as rowsOfDemo, stampOf, withRound, wordsOfRound } from './src/demoFeedback.mjs'
 import { FOCUS_DRAFTS, FOCUS_MOVES, demoAgain, evaluationsAgain, evaluationsMode, evaluationsRunning, focusAllDone, focusMove, goalChecked, goalReopened, guardGoal, guardsAsking, partDropRefusal, undoLine } from './src/focus.mjs'
 import { PARTNER_MODES, effortBack, fableBack, partnerEffortWords } from './src/partnerEffort.mjs'
 import { evaluationFor } from './src/goalGuard.mjs'
@@ -90,7 +91,7 @@ import { OWNER_JOB, OWNER_ROLE, ownerStartWords, talkPartnerOf } from './src/tal
 import { STOP_MOD, asleepOfJob, handJobs, handResults, isForHandsYet, isHandWord, isMootSpawn, isStopWord, mootWhy, maySend, nextSpawn, stopStep, stopTaskOf, usageDue, workerNames } from './src/hands.mjs'
 import { OPEN_CHECK_MS, OPEN_FIRST_MS, OPEN_TRIES, asleepPlan, asleepWithWork, chatToOpen, failuresOf, handWorkWaits, handsGone, openChat, openPlan, openerNote, openerRow } from './src/opener.mjs'
 import { basesNow, patientReportCheck } from './src/work/check.mjs'
-import { deliverWork, pullFor, sendOnce } from './src/work/deliver.mjs'
+import { deliverWork, mayWake, pullFor, sendOnce } from './src/work/deliver.mjs'
 import { HANDOVER_COMMAND, onSequence, outcomeOf } from './src/work/handover.mjs'
 import { handOut, handOver, handoverPass, inTurn as handoverTurn, settle as settleEnvelope } from './src/work/handoverBoard.mjs'
 import { coalesce } from './src/work/again.mjs'
@@ -924,7 +925,7 @@ async function main(args) {
     // (src/focus.mjs `guardGoal`), reading the store anew at each step.
     const done = await guardGoal(id, {
       canWrite: writesMap, goalsFile: projectFile(config, 'goals'), historyDir: projectFile(config, 'goalsHistory'), now: clock(),
-      partner: state.advisor, job: join(HERE, 'roles', 'partner.md'), items, approveRebuilds: config.approveRebuilds === true, maxChars: config.maxMessageChars,
+      partner: state.advisor, job: join(HERE, 'roles', 'partner.md'), items, approveRebuilds: rebuildsApproved(config), maxChars: config.maxMessageChars,
       withdrawAsk: async (ask, why) => withdrawGuardAsk(ask, why),
     })
     if (!done.ok) throw new Error(done.why ?? `the goal guard of ${id} failed`)
@@ -950,7 +951,7 @@ async function main(args) {
     const again = await evaluationsAgain({
       canWrite: writesMap, goalsFile: projectFile(config, 'goals'), now: clock(), outbox: store.outbox(), partner: state.advisor,
       items: async () => [...(await readStore(workDir)).items.values()], job: join(HERE, 'roles', 'partner.md'),
-      approveRebuilds: config.approveRebuilds === true, maxChars: config.maxMessageChars,
+      approveRebuilds: rebuildsApproved(config), maxChars: config.maxMessageChars,
     })
     if (again.length === 0) return
     await partnerModeNow(state, mode => `the goal guard: the evaluation of ${again.map(words => words.about).join(', ')} has not ended (${PARTNER_MODES[mode].label})`)
@@ -967,6 +968,47 @@ async function main(args) {
       partner: state.advisor, job: join(HERE, 'roles', 'partner.md'), focus: state.focus ?? null,
     })
     for (const one of words) await toPartner(one, {}, state)
+  }
+  /**
+   * Autopilot (2026-10-31, src/work/autopilot.mjs): the board's pass over the asks (the work API's `autopilot`), then what it
+   * names: the chats an answer wakes, the Advisor's refine word for a step whose questions it answered or sent back (as the
+   * page's "Take the advice" does), and the main chat's word for each ask routed to it.
+   */
+  const autopilotNow = async state => {
+    if (workDir === null || isShowOnly) return
+    const done = await workAction({ action: 'autopilot', on: config.autopilot === true }, 'server')
+    if (!done.ok) throw new Error(done.why ?? 'autopilot was refused')
+    for (const wake of done.result.wakes ?? []) await sendWakes({ ok: true, result: { wake } })
+    const advisor = state.advisor?.name ?? null
+    for (const one of done.result.refines ?? []) {
+      if (advisor !== null && sayNow !== null) await sayNow({ to: advisor, command: 'refine', step: one.step })
+    }
+    await mainAsksNow(await readState(), done.result.mainAsks ?? [])
+  }
+  /**
+   * Autopilot: the main chat is woken for an ask routed to it as the partner is for one routed to it: the work line through
+   * the delivery's `sendOnce` (command `work`, kind `main-ask`), once per ask (once more when its word was closed). Only while
+   * the main chat runs and is free: a word for it never waits for a main chat that does not run (it is closed here), so it is
+   * never a reason to open a chat by itself (say.mjs `nobodyRunsOf`). Its answer comes by `work partner-answer` or `work escalate`;
+   * after the partner's 30 minutes the board hands the ask to the person (work API `autopilot`).
+   */
+  const MAIN_ASK = 'main-ask'
+  const mainAsksNow = async (state, ids) => {
+    const main = (state.chats ?? []).find(lane => lane.isMain && !lane.isLeftover) ?? null
+    const runs = main !== null && main.isRunning === true
+    for (const message of store.outbox().filter(one => one.kind === MAIN_ASK && one.state === 'waiting' && (!runs || one.to !== main.name))) {
+      await store.update(message.id, { state: 'dropped', why: 'the main chat does not run: Autopilot asks it again once it is free', closedAt: clock() })
+    }
+    if (!runs || !mayWake(state, main.name)) return
+    for (const id of ids) {
+      const words = store.outbox().filter(one => one.kind === MAIN_ASK && one.about === id)
+      if (words.length >= 2 || words.some(one => ['waiting', 'taken', 'delivered'].includes(one.state))) continue
+      await sendOnce({
+        dir: workDir, key: `main-ask ${id} ${main.name}${words.length > 0 ? ' again' : ''}`, words: { ...workWords(main.name, id, mainAskWords(id)), kind: MAIN_ASK },
+        outbox: store, state, now: clock(), maxChars: config.maxMessageChars, newId: () => randomBytes(8).toString('hex'), keep,
+      })
+    }
+    readState.reset()
   }
   /** B860: why the person's feedback on a goal demo cannot be taken here, or null. */
   const demoFeedbackWhyNot = async () => {
@@ -1004,6 +1046,13 @@ async function main(args) {
       // B878 (X116): the person's Approve closes the steps the part shows that wait in review (done, their verdict in the
       // History); a step sent back gets their words, and the partner's word names it, so the partner makes its fix.
       const closed = []
+      // Autopilot (2026-10-31): each ask that waits for this recap (Route: recap) under a step of a part they judged closes with
+      // their verdict first, and its chat is told.
+      if (workDir !== null) {
+        const parts = checked.parts.map(part => ({ ...part, steps: rowsOfDemo(found.base).find(row => row.key === part.key)?.steps ?? [], title: rowsOfDemo(found.base).find(row => row.key === part.key)?.title ?? '' }))
+        const answered = await workAction({ action: 'recap-answered', goal: found.base.goal, round: checked.round, parts }, 'server')
+        for (const wake of answered.ok ? answered.result.wakes ?? [] : []) await sendWakes({ ok: true, result: { wake } })
+      }
       if (workDir !== null) {
         const stored = await readStore(workDir)
         const inReview = id => stored.items.get(id)?.head.get('State') === 'review'
@@ -1177,6 +1226,8 @@ async function main(args) {
       checkWorktrees: id => stepLeftovers({ id, which: 'check', repos: knownRepos(), project: config.project, run: gitRunner(), fs: WORKTREE_FILES }),
       // Partner answers (2026-10-19): the focus goal, whose daily note lists the partner's answers of the day.
       focusGoal: state.focus?.id ?? null,
+      // Autopilot (2026-10-31): whether it is on; an ask a chat files is routed at once (src/work/autopilot.mjs).
+      autopilot: config.autopilot === true,
       // B656: the ready list's held steps, so a step in review whose fix it holds says why in work next and list.
       readyHeld: state.readyList?.held ?? null,
       // B878: the steps the goals' recaps show, so a step whose part waits for the person's verdict says so in work next and list.
@@ -2082,6 +2133,8 @@ async function main(args) {
       if (checked.key === 'routingMode') config.routing = parseRoutingPolicy({ ...(config.routing?.policy ?? {}), mode: checked.value })
       else config[checked.key] = checked.value
       readState.reset()
+      // Autopilot (2026-10-31): switched on, the open asks are routed at once; switched off, nothing is routed back by itself.
+      if (checked.key === 'autopilot' && checked.value === true && workDir !== null && !isShowOnly) await loops.run('autopilot', async () => autopilotNow(await readState()))
       return { ok: true, result: boardSettingsNow() }
     }),
     cpu: async body => (cpu === null ? { ok: false, status: 409, why: 'This board sets no CPU: it is the demo, or it shows the history of another board.' } : cpu.set(body?.level)),
@@ -2974,6 +3027,9 @@ async function main(args) {
             if (!fixed.ok) throw new Error(fixed.why ?? 'incidents-fixed was refused')
           })
         }
+        // Autopilot (2026-10-31): the board routes the open asks, takes the advice, wakes the main chat for its asks and hands on
+        // what waited too long (src/work/autopilot.mjs); on its own, so a failure stops no delivery.
+        await loops.run('autopilot', () => autopilotNow(state))
         const done = await deliverWork({
           state, dir: workDir, outbox: store, apply: body => workAction(body, 'server'), now: clock(), maxChars: config.maxMessageChars,
           newId: () => randomBytes(8).toString('hex'), keep,

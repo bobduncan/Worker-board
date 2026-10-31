@@ -5628,3 +5628,59 @@ numbers looking fresh), wrote "has not answered since" with its own clock only a
    (a running board: the state's `board`, a restart ending with code 75 and its record, the keeper's disconnect ending with 0).
    Mutants, each caught: the fetch without the abort limit, Off with the page's clock, Restarting that never gives up, the stop
    record not removed after use.
+
+## Autopilot: the work runs until a goal is ready (2026-10-31)
+
+The person, on the settings panel: "idk what bother me, approve rebuild all mean but i kind of want to have an option to
+autoapprove and only get bothered by real issues and the product owner. so it will finish everything untill a goal is
+ready, the PO bothers me and only then i interact." On the plan (from Go until the goal is ready everything runs by itself;
+mid-goal choices take the advised option and show later as "decided for you" with Undo; asked only when a goal starts, when
+it is ready, and for real issues): "yes to the plan go build". Mid-goal looks below their target: "A" (they wait for the
+goal's recap). It extends Partner answers (2026-10-19), still with no blanket approve: every decision keeps its Undo.
+
+1. **The setting** `autopilot` (config.json, false unless set; `PANEL_SETTINGS`, `/api/settings`; the ⚙ panel's Off / On
+   with its line). While on, `rebuildsApproved(config)` is true and `botherMeOf(config)` "now" (src/boardSettings.mjs: the
+   goal guard's two readers in server.mjs, the state's `recapsShow`, the page's), the reconciler reads the partner's
+   answers as on, and the panel hides Bother me and Approve rebuilds by itself.
+2. **The routing**, one pure module (src/work/autopilot.mjs `autopilotRoute(ask, ctx)`), in this order: an explicit
+   `Route: person` (a line on its card, or the board's own route) and the app's question form → person; goal level (of a
+   goal, the goal guard's words, the goal's recap or demo link; the partner's or Product owner's words about the goal
+   definition, its work blocks, a change of the goal) → person; what no chat can do (accounts, money, permissions, the app
+   restart, the week's limit) → person; the board's "Accept or send back" card, a look of the step's checker, a look of a
+   step below its target → recap when the step is of the focus goal, else person; a do (not the Product owner's) and a
+   yes/no chore ("Restart ...? I advise yes") → main; the partner's and the Product owner's asks with advice → advice
+   (a refine question without advice → back to the Advisor); a worker's or the main chat's decide, or look with options or
+   advice → partner; the rest → person.
+3. **The sweep** (the work API's `autopilot`, at each refresh, and at once when switched on): while on, every open ask with
+   no route (or a bare `Route: person`) gets its `Route` and one History line `autopilot: routed to <who>`, once; a refine
+   question gets none (its step's refine goes on). A route to the partner sets `Filed` to the route's time, so the
+   partner's 30 minutes start then. Whatever the setting, what was routed runs its course: `advice` is answered with the
+   advice as the person's pick (`<letter>: <option words>`, `Answered by: autopilot`, the line in the partner's note of
+   today, written in the partner's name); `main` goes to the person after PARTNER_ANSWER_MS from its route ("the main chat
+   did not do it in 30 min"); `recap` whose step is gone or of no focus goal goes to the person. A chat's new ask is routed
+   as it is filed (its answer says where).
+4. **The main chat** is woken for a `main` ask as the partner is for its own: the delivery's `sendOnce` with `workWords`
+   (command `work`, kind `main-ask`, "autopilot: do Q<n> if a chat can, else escalate it with one line why"), only while it
+   runs and is free; a word of it that waits for a main chat that does not run is closed, so it is never a reason to open a
+   chat by itself (no new word kind in say.mjs; `nobodyRunsOf` unchanged). It answers with `work partner-answer`
+   (`Answered by: main`) or hands on with `work escalate` (role main, Route main only).
+5. **Waits for the recap**: `Route: recap` asks stand in no list of Needs your attention; the state's `routedAway` lists
+   them with the main chat's, for their window and the Focus page's "For your recap (n)". The goal demo's Send closes each
+   one under a step of a judged part first (`recap-answered`: "Approved in the recap of G<n>, round <r>: ..." or "Sent back
+   ...: "<comment>""), and its chat is told.
+6. **Refine questions**: while on, a step's open refine questions with advice get it as their answer in the refine block
+   (`answerRefine`, as "Take the advice"; History "autopilot: took the advice") and the board types the refine word; one
+   without advice sends the refine back with the feedback "autopilot is on: decide it yourself and refine", once per step
+   (`autopilot: sent back to the Advisor` in its History); a later one, and one that drops the step, is the person's.
+7. **What the person sees**: `standsForPerson` keeps an open ask out of Needs your attention while it is routed away, and
+   while on one the board routes away at its next refresh (for ten minutes at most: nothing is lost when it could not);
+   one quiet line on top, "Autopilot is on · decided for you today: <n>" (`decidedTodayOf`); the board's own lines stay.
+   The Undo of a decided one (`takeBack`) opens it for the person ("Decided for you (Autopilot): ...; you took it back"),
+   and the board never routes it again.
+8. **Not in it**: lane states and the chats' state words, the hand-out and the hand-over, the mod, the delivery itself
+   (deliver.mjs, reconcile.mjs), no detector of a stuck step or chat ("stuck" is goal level only: the goal guard's asks).
+9. **Tests**: test/autopilotRoute.test.mjs (every row, twins of the eleven open asks of 2026-10-31, `standsForPerson`),
+   test/autopilotSweep.test.mjs (routes once, the escalated kept, off routes nothing; advice with its note line and Undo;
+   recap closed by the recap's answer, and to the person without its focus; the main chat's next, answer, escalate and
+   timeout; refine with and without advice; routed as filed), test/autopilotPage.test.mjs (the panel, the two readers,
+   Needs your attention with the wake lines, the window, the Focus page), test/autopilotBoard.test.mjs (end to end).

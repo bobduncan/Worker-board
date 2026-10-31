@@ -400,6 +400,15 @@ B<id>: checkpoint <commit> · <next>; go on from there" may be all you get, and 
 checkpoint (`work next` shows it; without one, from its branch and History) and do nothing else: no report, no note, no
 new step because of the word. If you no longer hold the step (it is in review, done, dropped or another worker's), say nothing.
 
+## Autopilot
+
+While Autopilot is on (the user's ⚙ panel, 2026-10-31), your asks are routed as you file them, and the tool's answer says
+where: a choice or a look with your advice goes to the partner, an action (a do) to the main chat, a look of a step
+below its target, or the one you ask as a step's checker, waits for the goal's recap. None stands before the user then:
+do not put it in a "For you" block. The answer comes to your chat as the user's would; a recap's answer comes when the
+user judges the goal's recap, and your step stays as it is until then. Give your advice with every choice: without it a
+partner decides alone.
+
 ## Not yours
 
 The tools the board relies on in the chats (the Workers mod and the other mods) belong to whoever the project names
