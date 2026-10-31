@@ -16,11 +16,11 @@ import { sinceMs, valueOf } from './item.mjs'
 import { reportCheckFailedOf } from './resultCheck.mjs'
 
 const MIN = 60_000
-/** The Workers mod that carries out the board's envelope: a worker on an older one stays on today's path (the timers). */
+/** The Workers mod that carries out the board's envelope: a worker on an older one is handed nothing (T8.5 step 6). */
 export const HANDOVER_MOD = '0.27.0'
 /** The outbox's command of an envelope. */
 export const HANDOVER_COMMAND = 'handover'
-/** The settings' values of `handover`: today's path (the default) or the sequence. */
+/** The settings' values of `handover`: the sequence (the default), or "timers", the escape hatch: since T8.5 step 6 it hands out nothing. */
 export const HANDOVER_MODES = ['timers', 'sequence']
 /**
  * The one safety net (principle 2): an envelope with a task that has no outcome that ended it, no take and no turn end
@@ -64,8 +64,8 @@ const escaped = text => String(text).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 /**
  * The one predicate (spec part 4, "Old and new must never run for the same worker"): a worker is on the sequence when the
  * settings say `handover: "sequence"` and its Workers mod (`lane.mod`, the version its last call said) is HANDOVER_MOD or
- * newer. The main chat, a leftover, the partner and the supervisor never are. Every old mechanism of the hand-over skips a
- * worker for which this holds; every other worker keeps today's path unchanged.
+ * newer. The main chat, a leftover, the partner and the supervisor never are. T8.5 step 6: the old path is gone, so a worker
+ * for which this does not hold is handed nothing (the setting "timers", or a Workers mod older than HANDOVER_MOD).
  */
 export function onSequence(lane, config) {
   if (config?.handover !== 'sequence' || lane === null || lane === undefined) return false
@@ -73,7 +73,7 @@ export function onSequence(lane, config) {
   return modAtLeast(lane.mod ?? null, HANDOVER_MOD)
 }
 
-/** The line that gives a worker its task (the one the board has always typed; clearOwed.mjs `isStepLine` reads it). */
+/** The line that gives a worker its task (the one the board has always typed). */
 export const lineFor = id => `work: ${id} is yours; run work next`
 
 /** The worker's envelopes in the outbox (`sent`), oldest first. */

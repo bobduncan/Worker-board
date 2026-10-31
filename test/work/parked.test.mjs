@@ -40,12 +40,13 @@ const run = (items, lanes, more = {}) => reconcile({ store: { ...store(items), p
 // X21's case: B547 (here B47) in progress, its ask Q38 not blocking, its worker resting; B34 queued behind it.
 const X21 = () => [step('B47', 'in progress'), ask('Q38', 'B47'), step('B34', 'queued', { Since: stamp(ago(60)) })]
 
-test('X21: a step whose worker rests over 15 min on an open ask waits on you, and the worker gets its queued step', () => {
+test('X21: a step whose worker rests over 15 min on an open ask waits on you, and the worker counts free', () => {
   assert.equal(REST_MS, 15 * MIN)
   const done = run(X21(), [lane('Digger')])
   assert.deepEqual(done.moves, [{ id: 'B47', to: 'waiting on you', ask: 'Q38', why: 'in progress → waiting on you (rests for Q38)' }])
   assert.deepEqual(done.restFree, ['Digger'])
-  assert.deepEqual(done.deliveries.map(one => [one.id, one.chat]), [['B34', 'Digger']])
+  // T8.5 step 6: no line from this pass; its next step is its hand-over's.
+  assert.deepEqual(done.deliveries, [])
   // The board's line may go to it, as to a free chat.
   assert.equal(mayWake({ chats: [lane('Digger')], reconciled: { restFree: done.restFree } }, 'Digger'), true)
   assert.equal(mayWake({ chats: [lane('Digger')], reconciled: { restFree: [] } }, 'Digger'), false)
@@ -72,10 +73,10 @@ test('nothing moves in a turn, under 15 min, while suspended, not running, pause
 
 test('a worker whose steps already wait on you, resting, counts free; one with a step in progress does not', () => {
   const waiting = [step('B47', 'waiting on you'), ask('Q38', 'B47', { Blocking: 'yes' }), step('B34', 'queued')]
-  assert.deepEqual(run(waiting, [lane('Digger', { state: 'waiting' })]).deliveries.map(one => one.id), ['B34'])
-  assert.deepEqual(run([...waiting, step('B50', 'in progress')], [lane('Digger', { state: 'waiting' })]).deliveries, [])
-  // Not resting (its turn runs): no line.
-  assert.deepEqual(run(waiting, [lane('Digger', { state: 'waiting', resting: null })]).deliveries, [])
+  assert.deepEqual(run(waiting, [lane('Digger', { state: 'waiting' })]).restFree, ['Digger'])
+  assert.deepEqual(run([...waiting, step('B50', 'in progress')], [lane('Digger', { state: 'waiting' })]).restFree, [])
+  // Not resting (its turn runs): not free.
+  assert.deepEqual(run(waiting, [lane('Digger', { state: 'waiting', resting: null })]).restFree, [])
 })
 
 /** A garden: Digger holds B1 in progress with a not-blocking ask Q1 open, and has B2 queued. */

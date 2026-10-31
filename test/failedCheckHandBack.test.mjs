@@ -2,7 +2,9 @@
 // remove) and Worker 3 rightly stayed in its turn to fix it. The rule not-cleared counted from 21:02 and filed X86, and
 // the board gave Worker 3 B729 at 21:28 while B727's check still stood failed. A report whose check failed is handed
 // back: no clear is owed for it and no new step is given, until the worker reports again and that check passes. These
-// tests run B727's History lines through buildState (the server's own pass), then the `work next` words. Made-up names.
+// tests run B727's History lines through buildState (the server's own pass), then the `work next` words. (T8.5 step 6:
+// the give and the words to the worker are the hand-over's, test/work/handover.test.mjs; the rule not-cleared is gone.)
+// Made-up names.
 
 import assert from 'node:assert/strict'
 import { mkdtemp, rm, writeFile } from 'node:fs/promises'
@@ -10,10 +12,8 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import test from 'node:test'
 
-import { handedBackOf, lastReportOf, takenSince } from '../src/clearOwed.mjs'
+import { handedBackOf, lastReportOf } from '../src/clearOwed.mjs'
 import { parseConfig } from '../src/config.mjs'
-import { WATCH_RULES } from '../src/supervisor/rules/watch.mjs'
-import { buildView } from '../src/supervisor/view.mjs'
 import { workApi } from '../src/work/api.mjs'
 import { parseItem, serializeItem } from '../src/work/item.mjs'
 import { migrateBacklog, stamp } from '../src/work/migrate.mjs'
@@ -56,9 +56,6 @@ function build(items, { afterStep = 'clear' } = {}) {
     board: { startedAt: ago(60), offSince: null }, reports: new Map([['Digger', idle]]),
   })
 }
-/** The supervisor's rule not-cleared on the board's own state, 10 minutes after a report counts (X86 opened it from the failed one). */
-const notCleared = (state, items) => WATCH_RULES.find(one => one.id === 'not-cleared')
-  .check(buildView({ state, items: new Map(items.map(item => [item.head.get('Id'), item])), settings: { notClearedMinutes: 10 }, now: NOW }), { seen: new Map(), observed: [] })
 const digger = state => state.chats.find(chat => chat.name === 'Digger')
 
 test('B727\'s lines (report, check failed, no report again): no clear is owed and no new step is given', () => {
@@ -66,23 +63,12 @@ test('B727\'s lines (report, check failed, no report again): no clear is owed an
   assert.equal(digger(state).state, 'free')
   assert.equal(digger(state).clearOwed, null)
   assert.deepEqual(state.reconciled.handedBack, ['Digger'])
-  assert.deepEqual(state.reconciled.gives, [])
-  assert.deepEqual(notCleared(state, [reportedAndFailed(), NEXT()]), [])
 })
 
-test('the same lines with a check that passed: the clear is owed from the report and the next step is given as before', () => {
+test('the same lines with a check that passed: the clear is owed from the report and nothing holds the worker back', () => {
   const state = build([stepItem('B1', 'review', [line(28, 'Digger', 'in progress → review'), line(28, 'server', 'check pending'), line(27, 'server', 'check passed')]), NEXT()])
   assert.equal(digger(state).clearOwed.step, 'B1')
   assert.deepEqual(state.reconciled.handedBack, [])
-  assert.deepEqual(state.reconciled.gives.map(one => [one.id, one.chat]), [['B2', 'Digger']])
-  assert.deepEqual(notCleared(state, [stepItem('B1', 'review', [line(28, 'Digger', 'in progress → review'), line(28, 'server', 'check pending'), line(27, 'server', 'check passed')]), NEXT()]).map(one => one.key), ['not-cleared Digger B1'])
-})
-
-test('a queued step is not delivered to a worker whose report was handed back; it is when the check passed', () => {
-  const queued = () => stepItem('B3', 'queued', [line(5, 'server', 'refined → queued')])
-  assert.deepEqual(build([reportedAndFailed(), queued()], { afterStep: null }).reconciled.deliveries, [])
-  const passed = stepItem('B1', 'review', [line(28, 'Digger', 'in progress → review'), line(27, 'server', 'check passed with warnings: x | warnings: y')])
-  assert.deepEqual(build([passed, queued()], { afterStep: null }).reconciled.deliveries.map(one => [one.id, one.chat]), [['B3', 'Digger']])
 })
 
 test('reported again: a check that passed counts from the re-report; one still pending counts as a report; one that failed again hands it back', () => {
@@ -111,10 +97,9 @@ test('a report whose check passed is the last report even when a newer step fail
   assert.deepEqual(lastReportOf(new Map([['B5', resultFailed]]), 'Digger'), { id: 'B5', at: ago(28) })
 })
 
-test('a step taken on the old conversation after a report that passed still opens the rule at once; a dropped step holds no hand-out', () => {
+test('a step taken on the old conversation after a report that passed: the clear is still owed for that report; a dropped step holds no hand-out', () => {
   const passed = stepItem('B1', 'done', [line(28, 'Digger', 'in progress → review'), line(27, 'server', 'check passed')])
   const taken = stepItem('B4', 'in progress', [line(5, 'Digger', 'queued → taken')])
-  assert.deepEqual(takenSince(new Map([['B1', passed], ['B4', taken]]), 'Digger', ago(28)).map(one => one.id), ['B4'])
   assert.deepEqual(build([passed, taken]).chats.find(chat => chat.name === 'Digger').clearOwed.step, 'B1')
   const dropped = reportedAndFailed(line(3, 'Lead', 'review → dropped'))
   dropped.head.set('State', 'dropped')

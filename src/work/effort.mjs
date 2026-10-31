@@ -34,8 +34,6 @@ export const MODELS = ['sonnet', 'opus']
 export const DEFAULT_MODEL = 'sonnet'
 /** A worker's usual model family between steps when the settings name none (`usualModel`). */
 export const USUAL_MODEL = 'sonnet'
-/** How long a step's line to its worker waits for the worker's model and effort to be set. */
-export const HOLD_MS = 3 * 60_000
 /** A word to the main chat for the same setting of the same chat goes once in this time, also when it went untaken. */
 export const AGAIN_MS = 30 * 60_000
 /** The words the page says a level with. */
@@ -256,8 +254,7 @@ const clockOf = ms => { const at = new Date(ms); return `${String(at.getHours())
 /**
  * What each worker should run at, and the words to the main chat that set it. `items` the store's items, `lanes` the
  * board's chats (`name`, `isMain`, `isLeftover`, `appSession`, `effort` and `model`: what the app's file of the chat
- * says, or null, and `lastAnswer`: the model of its last answer and when, `{ model, at }`, or null), `deliveries` the
- * reconciler's lines to free workers, `sent` the outbox, `main` the main chat's name (null: none on the board, so no
+ * says, or null, and `lastAnswer`: the model of its last answer and when, `{ model, at }`, or null), `sent` the outbox, `main` the main chat's name (null: none on the board, so no
  * word), `skip` the names that are no workers (the partner and its helper), `models` the app's id of each model family
  * and `usual` the usual setting between steps (`runSettings`).
  *
@@ -272,23 +269,19 @@ const clockOf = ms => { const at = new Date(ms); return `${String(at.getHours())
  * newest word that is not lost, of the last half hour, whose setting the file does not show yet) will change the chat
  * after any reading now: while it is, the step is not set.
  *
- * The line of its next step to a worker waits (`held`, also its own pull; `holds` says why). An opus step waits until
- * the chat runs on Opus, however long: no release after a few minutes, nor for a lost word, a missing main chat or a
- * file that names no effort; its word goes only once a word for another model on its way has been applied (so the
- * reading that releases it comes after both), and again each half hour. Any other step waits as B468 does: while its
- * setting is not read back and its word went less than HOLD_MS ago (it costs tokens at worst). A chat whose effort the
- * app's file does not say gets no word for such a step: the board could not see it set. A family without a model id
- * is not set: the word sets the effort alone.
+ * T8.5 step 6: no line waits here any more: a worker on the hand-over sequence gets its next step's model and effort
+ * in its envelope (`set`, handoverBoard.mjs), which waits for the set word's done instead. An opus step's word goes only
+ * once a word for another model on its way has been applied, and again each half hour; `waitsFor` says, for the lane,
+ * that its next opus step waits for Opus. A chat whose effort the app's file does not say gets no word for a step that
+ * is not an opus one: the board could not see it set. A family without a model id is not set: the word sets the effort
+ * alone.
  *
- * `{ words: [{ to, chat, session, level, model, usual, usualModel, step, why }], held: Set<step id>, holds: Map<step
- * id, why>, runs: Map<chat, run> }`, `run` for the page: `{ level, model, usual, usualModel, step, why, modelWhy,
+ * `{ words: [{ to, chat, session, level, model, usual, usualModel, step, why }], runs: Map<chat, run> }`, `run` for the page: `{ level, model, usual, usualModel, step, why, modelWhy,
  * isSet, asked: { at, state } | null, waitsFor: { model, since, text } | null }` (`model` and `usualModel` families,
  * null when the settings name no model ids).
  */
-export function effortPlan({ items, lanes = [], deliveries = [], sent = [], now, main = null, prefix = '', skip = [], models = {}, usual = {} }) {
+export function effortPlan({ items, lanes = [], sent = [], now, main = null, prefix = '', skip = [], models = {}, usual = {} }) {
   const words = []
-  const held = new Set()
-  const holds = new Map()
   const runs = new Map()
   const settings = runSettings({ models, usualModel: usual.model, usualEffort: usual.effort })
   const hasModels = Object.keys(settings.models).length > 0
@@ -302,11 +295,10 @@ export function effortPlan({ items, lanes = [], deliveries = [], sent = [], now,
   for (const lane of lanes) {
     if (lane.isMain || lane.isLeftover || others.has(plain(lane.name, prefix))) continue
     const holding = steps.find(item => owned(item, lane.name) && HOLDS.includes(valueOf(item, 'State')))
-    const delivery = deliveries.find(one => one.chat === lane.name)
     // The step it gets next, in the order its own pull takes them (fix first, then by id).
     // B567: a worker resting while its step waits on the person gets its next step: that one's setting counts.
     const working = holding !== undefined && valueOf(holding, 'State') !== 'waiting on you' ? holding : undefined
-    const next = working ?? (delivery === undefined ? undefined : items.get(delivery.id)) ?? holding
+    const next = working ?? holding
       ?? steps.filter(item => owned(item, lane.name) && valueOf(item, 'State') === 'queued' && blockersOpen(item, { store: { items } }).length === 0)
         .sort((a, b) => fixFirst(a, b) || byId(valueOf(a, 'Id'), valueOf(b, 'Id')))[0]
     // B820, the fix of X110: a word counts only for the app session it named. A fresh chat under the same name (another
@@ -348,17 +340,17 @@ export function effortPlan({ items, lanes = [], deliveries = [], sent = [], now,
     const asked = last !== undefined && sameTarget(last, level, id) && now - last.at < AGAIN_MS && !goesAgain(last, mine, now) ? last : null
     const isModelSet = against === null && runsOn(id)
     const isSet = isModelSet && current === level
-    // Model per step: an opus step is not given to a chat that does not run on Opus, however long that takes.
+    // Model per step: an opus step is asked for even when the app's file names no effort; the lane says it waits for Opus.
     const isStrict = step !== null && hasModels && family === 'opus'
     const who = holding === undefined ? `${lane.name}'s next step` : `${lane.name}'s step`
     const why = step === null ? `${lane.name} holds no step now: back to its usual ${id === null ? 'level' : 'setting'}`
       : id === null ? `${step} is ${who}; ${effort.isSet ? `its refine says ${level} (${effort.why})` : `its refine gives no effort, so ${level}`}`
         : `${step} is ${who}; model ${family} (${model.isSet ? model.why : 'its refine gives none'}), effort ${level} (${effort.isSet ? effort.why : 'its refine gives none'})`
-    // An opus step's word waits while a word for another model is on its way, so the reading that sets it free comes
-    // after both (the main chat sets them in their order).
+    // An opus step's word waits while a word for another model is on its way, so the reading after both is right (the
+    // main chat sets them in their order).
     const isAgainstModel = against !== null && (against.model ?? null) !== null && !sameModel(against.model, id)
     const canAsk = main !== null && !isSet && asked === null && (isStrict ? !isAgainstModel : current !== null)
-    // Only the step whose line waits: one it holds already is set as soon as can be, its line gone.
+    // Only a step it does not hold yet waits for Opus: one it holds already is set as soon as can be.
     let waitsFor = null
     if (isStrict && !isModelSet && holding === undefined) {
       const since = mine.find(word => word.forStep === step && sameTarget(word, level, id))?.at ?? null
@@ -373,19 +365,6 @@ export function effortPlan({ items, lanes = [], deliveries = [], sent = [], now,
       asked: asked === null ? null : { at: asked.at, state: asked.state }, waitsFor,
     })
     if (canAsk) words.push({ to: main, chat: lane.name, session: lane.appSession ?? null, level, model: id, usual: usualEffort, usualModel: usualId, step, why })
-    if (holding !== undefined || step === null || isSet) continue
-    if (waitsFor !== null) {
-      held.add(step)
-      holds.set(step, waitsFor.text)
-      continue
-    }
-    if (main === null || current === null) continue
-    // B468: a word that went less than HOLD_MS ago and is not lost holds the line; none sent yet holds it until it goes.
-    const willGo = canAsk || asked === null
-    if (willGo || (now - asked.at < HOLD_MS && !LOST.includes(asked.state))) {
-      held.add(step)
-      holds.set(step, `${step} waits until ${lane.name} runs at ${hasModels ? `${MODEL_WORDS[family]} · ` : ''}${level} (${HOLD_MS / 60_000} minutes at most after the word to the main chat).`)
-    }
   }
-  return { words, held, holds, runs }
+  return { words, runs }
 }

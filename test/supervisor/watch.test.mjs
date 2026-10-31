@@ -40,10 +40,11 @@ const check = (id, board, seen = new Map()) => {
   return Object.defineProperty(found, 'observed', { value: observed, enumerable: false })
 }
 
-test('the watch rules: thirty, report only, each with what it says', () => {
-  assert.deepEqual(WATCH_RULES.map(one => one.id), ['unknown-lane', 'stale-suspended', 'ready-while-free', 'holder-not-running', 'working-not-running', 'opus-wait', 'skip-repeats', 'repair-repeats', 'undelivered', 'report-check-twice', 'old-mod', 'odd-effort', 'review-stuck', 'dropped-fix', 'review-held', 'chain-long', 'open-fix', 'stale-checkpoint', 'effort-mismatch', 'not-cleared', 'not-taking', 'handover-held', 'handover-unanswered', 'old-limit-reading', 'board-deaf', 'board-slow', 'week-stop-ignored', 'five-hour-stop-ignored', 'pause-stale', 'obsolete-wrong'])
+test('the watch rules: twenty-eight, report only, each with what it says', () => {
+  assert.deepEqual(WATCH_RULES.map(one => one.id), ['unknown-lane', 'stale-suspended', 'ready-while-free', 'holder-not-running', 'working-not-running', 'opus-wait', 'skip-repeats', 'repair-repeats', 'undelivered', 'report-check-twice', 'old-mod', 'odd-effort', 'review-stuck', 'dropped-fix', 'review-held', 'chain-long', 'open-fix', 'stale-checkpoint', 'effort-mismatch', 'handover-held', 'handover-unanswered', 'old-limit-reading', 'board-deaf', 'board-slow', 'week-stop-ignored', 'five-hour-stop-ignored', 'pause-stale', 'obsolete-wrong'])
   // Redesign Part 2: the rules of Main's queues are gone.
-  for (const gone of ['idle-while-waiting', 'queued-not-running']) assert.equal(WATCH_RULES.some(one => one.id === gone), false, gone)
+  // T8.5 step 6: the old hand-over rules are gone (their findings are handover-held and handover-unanswered now).
+  for (const gone of ['idle-while-waiting', 'queued-not-running', 'not-cleared', 'not-taking']) assert.equal(WATCH_RULES.some(one => one.id === gone), false, gone)
   assert.ok(WATCH_RULES.every(one => one.kind === 'watch' && typeof one.says === 'string' && one.says.length > 0 && typeof one.check === 'function'))
 })
 
@@ -120,8 +121,10 @@ test('stale-suspended: suspended with its reset passed, or with usage under full
   assert.deepEqual(check('stale-suspended', full, new Map([['stale-suspended Painter', ago(30)]])), [])
 })
 
-test('ready-while-free: a ready task kept for nobody waits 11 min while a worker whose report says free stands idle; 9 min, a kept task or a busy worker do not', () => {
-  const free = (name, since = ago(40)) => lane(name, { state: 'free', report: { state: 'idle', since, background: false, at: ago(0) } })
+test('ready-while-free: a ready task kept for nobody waits 11 min while a worker free in its hand-over stands idle; 9 min, a kept task or a worker not free do not', () => {
+  // T8.5 step 6: free is the hand-over's own FREE (its lane's `handover`), on the sequence.
+  const handover = state => ({ state, why: null, step: null })
+  const free = (name, since = ago(40), state = 'free') => lane(name, { state: 'free', onSequence: true, handover: handover(state), report: { state: 'idle', since, background: false, at: ago(0) } })
   const ready = (...rows) => ({ ready: rows.map(row => ({ rank: 2, keptFor: null, keptUntil: null, pinned: null, ...row })), held: [] })
   const board = (more = {}) => view({ chats: [LEAD, free('Painter'), lane('Mason', { state: 'working' })], items: items(step('B5', 'refined', { Refined: 'ready' })), readyList: ready({ id: 'B5' }), ...more })
   const seen = minutes => new Map([['ready-while-free B5', ago(minutes)]])
@@ -134,18 +137,16 @@ test('ready-while-free: a ready task kept for nobody waits 11 min while a worker
   assert.deepEqual(check('ready-while-free', board({ chats: [LEAD, free('Painter', ago(5))] }), seen(30)), [])
   // Kept for a busy worker (its pin or its follow-up): it waits for that one by design.
   assert.deepEqual(check('ready-while-free', board({ readyList: ready({ id: 'B5', keptFor: 'Mason' }) }), seen(30)), [])
-  // No worker free by its own report: free by the board's older reading, busy, or stuck (the rule not-taking's).
+  // No worker free in its hand-over: free by the board's older reading, idle by its report but not on the sequence, busy.
   assert.deepEqual(check('ready-while-free', board({ chats: [LEAD, lane('Painter', { state: 'free' })] }), seen(30)), [])
+  const notOnIt = lane('Painter', { state: 'free', report: { state: 'idle', since: ago(40), background: false, at: ago(0) } })
+  assert.deepEqual(check('ready-while-free', board({ chats: [LEAD, notOnIt] }), seen(30)), [])
   assert.deepEqual(check('ready-while-free', board({ chats: [LEAD, lane('Mason', { state: 'working' })] }), seen(30)), [])
-  // B834 (X111): the board reads the worker free, but its own mod reports it busy (it is asking the person): no free worker, as for the hand-out.
-  const busyByReport = lane('Painter', { state: 'free', report: { state: 'busy', since: ago(40), background: false, at: ago(0) } })
-  assert.deepEqual(check('ready-while-free', board({ chats: [LEAD, busyByReport] }), seen(30)), [])
-  assert.equal(check('ready-while-free', board({ chats: [LEAD, free('Painter')] }), seen(30)).length, 1, 'idle by its report: the finding as before')
-  const stuck = lane('Painter', { state: 'free', report: { state: 'idle', since: ago(40), at: ago(0) }, flags: [{ kind: 'not taking', id: 'B4', text: 'x', button: null }] })
-  assert.deepEqual(check('ready-while-free', board({ chats: [LEAD, stuck] }), seen(30)), [])
-  // The review: a worker that holds a task given to it (its line may wait for its model) is no free worker.
-  const holding = items(step('B5', 'refined', { Refined: 'ready' }), step('B7', 'queued', { Owner: 'Painter' }))
-  assert.deepEqual(check('ready-while-free', board({ items: holding }), seen(30)), [])
+  // B834 (X111): its own mod reports it busy (it is asking the person), handing over, held or checking: no free worker.
+  for (const state of ['working', 'handing', 'offered', 'held', 'checking', 'unknown']) {
+    assert.deepEqual(check('ready-while-free', board({ chats: [LEAD, free('Painter', ago(40), state)] }), seen(30)), [], state)
+  }
+  assert.equal(check('ready-while-free', board({ chats: [LEAD, free('Painter')] }), seen(30)).length, 1, 'free in its hand-over: the finding as before')
   // Its Touches overlap a task under way: it waits by design.
   const touching = items(step('B5', 'refined', { Refined: 'ready' }, { Context: ['  Touches: src/a.mjs'] }), step('B6', 'in progress', { Owner: 'Mason' }, { Context: ['  Touches: src'] }))
   assert.deepEqual(check('ready-while-free', board({ items: touching }), seen(30)), [])
@@ -174,24 +175,27 @@ test('opus-wait: an opus step held for Opus for 16 min trips; 14 min does not', 
   assert.deepEqual(check('opus-wait', board(14)), [])
 })
 
-test('skip-repeats: the same clear or compaction skipped for the same reason twice in a row trips; another reason, a first one or a reason by design does not', () => {
+test('skip-repeats: the same compaction skipped for the same reason twice in a row trips; another reason, a first one or a reason by design does not; a skipped clear is no case (T8.5 step 6)', () => {
   const why = 'its conversation could not be saved as a log'
-  const board = (at, reason = why) => view({ chats: [LEAD, lane('Painter', { compaction: { kind: 'skipped', at: ago(1), why: 'its last task is not reported yet', notCleared: { at, why: reason } } })] })
-  const before = new Map([[`skip|Painter|clear|${ago(40)}|${why}`, ago(40)]])
+  const board = (at, reason = why) => view({ chats: [LEAD, lane('Painter', { compaction: { kind: 'skipped', at, why: reason } })] })
+  const before = new Map([[`skip|Painter|compact|${ago(40)}|${why}`, ago(40)]])
   const found = check('skip-repeats', board(ago(2)), before)
-  assert.deepEqual(found.map(one => [one.key, one.subject]), [[`skip-repeats Painter clear ${why}`, 'Painter']])
-  assert.equal(found[0].text, `Painter: its clear was skipped twice in a row: ${why}`)
+  assert.deepEqual(found.map(one => [one.key, one.subject]), [[`skip-repeats Painter compact ${why}`, 'Painter']])
+  assert.equal(found[0].text, `Painter: its compaction was skipped twice in a row: ${why}`)
   // Both skips stay watched while it stands, so the next run finds it again.
-  assert.ok(found.observed.includes(`skip|Painter|clear|${ago(40)}|${why}`) && found.observed.includes(`skip|Painter|clear|${ago(2)}|${why}`))
+  assert.ok(found.observed.includes(`skip|Painter|compact|${ago(40)}|${why}`) && found.observed.includes(`skip|Painter|compact|${ago(2)}|${why}`))
   assert.deepEqual(check('skip-repeats', board(ago(2), 'a subagent of it still runs'), before), [])
   const first = check('skip-repeats', board(ago(2)))
   assert.deepEqual(first, [])
-  assert.ok(first.observed.includes(`skip|Painter|clear|${ago(2)}|${why}`), 'the first is kept for the next run')
+  assert.ok(first.observed.includes(`skip|Painter|compact|${ago(2)}|${why}`), 'the first is kept for the next run')
   // The same skip seen again (the same time) is not a second one.
   assert.deepEqual(check('skip-repeats', board(ago(40)), before), [])
   // A compaction skipped because the chat is small is how it should be.
   const small = view({ chats: [lane('Lead', { isMain: true, compaction: { kind: 'skipped', at: ago(2), why: 'it is small enough' } })] })
   assert.deepEqual(check('skip-repeats', small, new Map([[`skip|Lead|compact|${ago(30)}|it is small enough`, ago(30)]])), [])
+  // A clear skipped twice for the same reason is the hand-over's (a failed envelope holds its worker: handover-held).
+  const cleared = at => view({ chats: [LEAD, lane('Painter', { compaction: { kind: 'cleared', at: ago(90), notCleared: { at, why } } })] })
+  assert.deepEqual(check('skip-repeats', cleared(ago(2)), new Map([[`skip|Painter|clear|${ago(40)}|${why}`, ago(40)]])), [])
 })
 
 test('pause-stale (B763, X86, X100): Worker 3\'s clear skipped for the pause at 12:53 and 13:12, after the resume at 12:52, opens one incident; a skip inside the pause does not', () => {
@@ -496,40 +500,7 @@ test('the review: a compaction skipped because more of the same work follows is 
   assert.deepEqual(check('skip-repeats', board, new Map([[`skip|Painter|compact|${ago(40)}|${why}`, ago(40)]])), [])
 })
 
-test('B547: not-cleared names a worker whose last report is newer than its last clear, once per report: at once when it took a new step, else after 10 min', () => {
-  const reported = (id, minutes, who = 'Painter') => `- ${stamp(ago(minutes))} ${who}: in progress → review`
-  const taken = (minutes, who = 'Painter') => `- ${stamp(ago(minutes))} ${who}: queued → taken`
-  const owed = more => ({ step: 'B12', reportedAt: ago(30), clearedAt: ago(90), why: null, canClear: true, ...more })
-  const board = (clearOwed, more = {}) => view({
-    chats: [LEAD, lane('Painter', { clearOwed })],
-    items: items(step('B12', 'done', {}, { History: [reported('B12', 30)] }), step('B13', 'in progress', {}, { History: more.took ? [taken(20)] : [] })),
-    settings: more.settings ?? {},
-  })
-  // Cleared since its report: nothing owed, no case.
-  assert.deepEqual(check('not-cleared', board(null, { took: true })), [])
-  // It took B13 on the old conversation: a finding at once, with the repair.
-  const found = check('not-cleared', board(owed(), { took: true, settings: { notClearedMinutes: 600 } }))
-  assert.deepEqual(found.map(one => [one.rule, one.key, one.subject, one.text]), [['not-cleared', 'not-cleared Painter B12', 'Painter', 'Painter took B13 on the conversation of B12: not cleared after that report (no reason logged)']])
-  assert.match(found[0].evidence, new RegExp(`^last report B12 at ${clockOf(ago(30))}; last clear at ${clockOf(ago(90))}; took B13 at ${clockOf(ago(20))}; repair: the board holds its next step`))
-  // No new step: only after notClearedMinutes, with the mod's why; an older mod's repair is the restart.
-  assert.deepEqual(check('not-cleared', board(owed(), { settings: { notClearedMinutes: 31 } })), [])
-  const late = check('not-cleared', board(owed({ why: 'its conversation could not be saved as a log (Background work it started is still running)', canClear: false })))
-  assert.deepEqual(late.map(one => one.text), ['Painter not cleared 30 min after it reported B12: its conversation could not be saved as a log (Background work it started is still running)'])
-  assert.match(late[0].evidence, /older than 0\.17\.0 and cannot run a clear the board names: its chat needs a restart/)
-  // The person pauses: the chats stand still on purpose.
-  assert.deepEqual(check('not-cleared', view({ chats: [LEAD, lane('Painter', { clearOwed: owed() })], pause: { state: 'pausing', since: ago(5) } })), [])
-})
-
-test('B584: the findings name when their case began (since): not-cleared its take or its report, undelivered its oldest word, report-check-twice its second failure', () => {
-  const owed = { step: 'B12', reportedAt: ago(30), clearedAt: ago(90), why: null, canClear: true }
-  const took = view({
-    chats: [LEAD, lane('Painter', { clearOwed: owed })],
-    items: items(step('B12', 'done'), step('B13', 'in progress', {}, { History: [`- ${stamp(ago(20))} Painter: queued → taken`] })),
-    settings: { notClearedMinutes: 600 },
-  })
-  assert.deepEqual(check('not-cleared', took).map(one => one.since), [ago(20)])
-  const late = view({ chats: [LEAD, lane('Painter', { clearOwed: owed })], items: items(step('B12', 'done')) })
-  assert.deepEqual(check('not-cleared', late).map(one => one.since), [ago(30)])
+test('B584: the findings name when their case began (since): undelivered its oldest word, report-check-twice its second failure', () => {
   const word = minutes => ({ id: `m${minutes}`, to: 'Painter', command: 'work', about: 'B5', at: ago(minutes), state: 'waiting' })
   assert.deepEqual(check('undelivered', view({ outbox: [word(12), word(40), word(20)], items: items(step('B5', 'queued', { Owner: 'Painter' })) })).map(one => one.since), [ago(40)])
   const line = (minutes, words) => `- ${stamp(ago(minutes))} server: ${words}`
@@ -537,19 +508,8 @@ test('B584: the findings name when their case began (since): not-cleared its tak
   assert.deepEqual(check('report-check-twice', twice).map(one => one.since), [ago(40)])
 })
 
-test('not-taking: a worker the board took a task back from while it sat idle, once per take-back, about the worker', () => {
-  const flagged = since => lane('Painter', { state: 'free', report: { state: 'idle', since, at: ago(0) }, flags: [{ kind: 'not taking', id: 'B4', text: 'Stuck: did not take B4 within 2 min; it went back on the list', button: null }] })
-  const back = items(step('B4', 'refined', { Refined: 'ready' }, { History: [`- ${stamp(ago(3))} server: queued → refined (taken back from Painter: not taken within 2 min; stuck)`] }))
-  const found = check('not-taking', view({ chats: [LEAD, flagged(ago(10))], items: back }))
-  assert.deepEqual(found.map(one => [one.rule, one.key, one.subject]), [['not-taking', `not-taking Painter ${stamp(ago(3))}`, 'Painter']])
-  assert.equal(found[0].text, 'Painter did not take B4; it went back on the list')
-  assert.match(found[0].evidence, /^Stuck: did not take B4 within 2 min; it went back on the list; taken back at /)
-  // No flag (it reported anew since): nothing.
-  assert.deepEqual(check('not-taking', view({ chats: [LEAD, lane('Painter', { state: 'free', report: { state: 'idle', since: ago(1), at: ago(0) }, flags: [] })], items: back })), [])
-})
-
 test('gap 3: ready-while-free counts only what the board hands out: never a task held outside the focus goal; a task pinned to the free worker does', async () => {
-  const free = (name, since = ago(40)) => lane(name, { state: 'free', report: { state: 'idle', since, background: false, at: ago(0) } })
+  const free = (name, since = ago(40)) => lane(name, { state: 'free', onSequence: true, handover: { state: 'free', why: null, step: null }, report: { state: 'idle', since, background: false, at: ago(0) } })
   const list = (ready, held) => ({ ready: ready.map(row => ({ rank: 1, keptFor: null, keptUntil: null, pinned: null, ...row })), held })
   const OUTSIDE = 'outside the focus goal: waits until you pin it or switch the focus'
   const board = readyList => view({ chats: [LEAD, free('Painter')], items: items(step('B5', 'refined', { Refined: 'ready' }), step('B6', 'refined', { Refined: 'ready' })), readyList })

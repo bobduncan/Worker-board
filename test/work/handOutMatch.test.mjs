@@ -1,14 +1,13 @@
 // Redesign Part 2 (spec 2026-10-24, "Matching, the moment a worker reports idle"): an idle worker that holds no task gets
-// the first suitable task of the list; a kept task waits for its worker; a worker that does not take its task within
-// the time gets it taken back and shows stuck (principle 2); the board asks for a worker only when ready tasks wait and
-// none is idle. Only a chat whose own report says free gets a task (principle 3). Made-up samples only.
+// the first suitable task of the list; a kept task waits for its worker (T8.5 step 6: the hand-over's decision calls
+// `match` for one worker; the take-back and stuck clocks are gone); the board asks for a worker only when ready tasks
+// wait and none is idle. Only a chat whose own report says free gets a task (principle 3). Made-up samples only.
 
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import { idleWorkers, match, pairKey, skipPairs, stuckWorkers, takeBacks, workerStart } from '../../src/work/handOut.mjs'
+import { idleWorkers, match, workerStart } from '../../src/work/handOut.mjs'
 import { parseItem } from '../../src/work/item.mjs'
-import { stamp } from '../../src/work/migrate.mjs'
 
 const T = (h, m, s = 0) => new Date(2026, 9, 25, h, m, s).getTime()
 const NOW = T(10, 10)
@@ -86,79 +85,11 @@ test('only a worker whose own report says free gets a task: never by inference, 
   assert.deepEqual(idleWorkers(lanes, { items, stuck: new Set(['W4']), restFree: ['W9'] }).map(one => one.name), ['W1', 'W9'])
 })
 
-test('takeBacks: not taken in time goes back on the list; stuck only when the worker sat idle since before its line', () => {
-  const items = mapOf([step('B1', 'queued', { Owner: 'W1', Since: stamp(NOW - 3 * MIN) })])
-  const line = (more = {}) => ({ id: 'm1', at: NOW - 121_000, to: 'W1', command: 'work', about: 'B1', state: 'taken', ...more })
-  const run = (lanes, outbox, more = {}) => takeBacks({ items, outbox, lanes, now: NOW, takeWithinMs: 2 * MIN, ...more })
-  assert.deepEqual(run([lane('W1', NOW - 10 * MIN)], [line()]), [{ id: 'B1', chat: 'W1', stuck: true, why: 'not taken within 2 min' }])
-  // The review of 2026-10-25: it reacted (its report went busy after the line: the person typed to it, or it thinks
-  // long before it takes): waited for while it works; once idle again without taking it: back, not stuck.
-  const typedTo = lane('W1', NOW - 30_000, { report: { state: 'busy', since: NOW - 60_000, background: false, at: NOW - 1000 }, state: 'working' })
-  assert.deepEqual(run([typedTo], [line()]), [])
-  assert.deepEqual(run([typedTo], [line()], { now: NOW + 30 * MIN }), [])
-  const idleAgain = lane('W1', NOW - 10_000, { report: { state: 'idle', since: NOW - 10_000, background: false, at: NOW - 1000 } })
-  assert.deepEqual(run([idleAgain], [line()]), [{ id: 'B1', chat: 'W1', stuck: false, why: 'not taken in the turn after its line' }])
-  // The recheck: busy with something else while its line still waits (the person typed to it right after the give): no
-  // reaction; back after the two minutes, not stuck.
-  assert.deepEqual(run([typedTo], [line({ state: 'waiting' })]), [{ id: 'B1', chat: 'W1', stuck: false, why: 'not taken within 2 min' }])
-  // Its line is not two minutes old yet; no line yet, ten minutes on (held for its model: Review Focus 1); the sync
-  // check's line is not the work line.
-  assert.deepEqual(run([lane('W1', NOW - 10 * MIN)], [line({ at: NOW - 100_000 })]), [])
-  assert.deepEqual(run([lane('W1', NOW - 10 * MIN)], [], { now: NOW + 10 * MIN }), [])
-  assert.deepEqual(run([lane('W1', NOW - 10 * MIN)], [line({ syncKey: 'not-taken B1 W1' })]), [])
-  // A line of an earlier give of the same task to the same worker (taken back, given anew since) does not count.
-  assert.deepEqual(run([lane('W1', NOW - 10 * MIN)], [line({ at: NOW - 20 * MIN })]), [])
-  // The review: a worker missing from the list (an account switch drops chats a while): the same clock as any, from its
-  // line, else from the give; never at once.
-  assert.deepEqual(run([lane('W2')], [line()]), [{ id: 'B1', chat: 'W1', stuck: false, why: 'W1 is no worker of the list' }])
-  assert.deepEqual(run([lane('W2')], [line({ at: NOW - 60_000 })]), [])
-  // The recheck: no line yet (its model switch pending): the held limit, not two minutes.
-  assert.deepEqual(run([lane('W2')], []), [])
-  assert.deepEqual(run([lane('W2')], [], { now: NOW + 18 * MIN }), [{ id: 'B1', chat: 'W1', stuck: false, why: 'W1 is no worker of the list' }])
-  const fresh = mapOf([step('B1', 'queued', { Owner: 'W1', Since: stamp(NOW - MIN) })])
-  assert.deepEqual(takeBacks({ items: fresh, outbox: [], lanes: [lane('W2')], now: NOW, takeWithinMs: 2 * MIN }), [])
-  // A board that reads no worker at all (the list of chats could not be read) takes nothing back.
-  assert.deepEqual(run([lane('Main', NOW, { isMain: true })], []), [])
-  // A report that is not fresh: not stuck.
-  assert.deepEqual(run([lane('W1', NOW - 10 * MIN, { state: 'unknown', isRunning: null })], [line()]).map(one => one.stuck), [false])
-})
-
-test('the review: a give whose line never goes (held for its model, or its chat went off first) goes back after heldGiveMinutes, not stuck', () => {
-  const given = { History: [`- ${stamp(NOW - 21 * MIN)} server: refined → queued (given by the board to W1)`] }
-  const items = mapOf([step('B1', 'queued', { Owner: 'W1', Since: stamp(NOW - 21 * MIN) }, given)])
-  const run = (lanes, now = NOW) => takeBacks({ items, outbox: [], lanes, now, takeWithinMs: 2 * MIN, heldGiveMs: 20 * MIN })
-  // A step queued by other means (the backlog's migration) goes by its line alone.
-  assert.deepEqual(takeBacks({ items: mapOf([step('B1', 'queued', { Owner: 'W1', Since: stamp(NOW - 21 * MIN) })]), outbox: [], lanes: [lane('W1')], now: NOW, takeWithinMs: 2 * MIN, heldGiveMs: 20 * MIN }), [])
-  assert.deepEqual(run([lane('W1', NOW - 30 * MIN)]), [{ id: 'B1', chat: 'W1', stuck: false, why: 'its line was held 20 min' }])
-  assert.deepEqual(run([lane('W1', NOW - 30 * MIN, { state: 'off', isRunning: false })]), [{ id: 'B1', chat: 'W1', stuck: false, why: 'its line was held 20 min' }])
-  assert.deepEqual(run([lane('W1', NOW - 30 * MIN)], NOW - 2 * MIN), [])
-  // Taken back so, that task goes to another worker meanwhile.
-  const back = step('B1', 'refined', {}, { History: [`- ${stamp(NOW - 5 * MIN)} server: queued → refined (taken back from W1: its line was held 20 min)`] })
-  const skip = skipPairs({ items: mapOf([back]), now: NOW, heldGiveMs: 20 * MIN })
-  assert.deepEqual([...skip], [pairKey('B1', 'W1')])
-  assert.deepEqual(skipPairs({ items: mapOf([back]), now: NOW + 16 * MIN, heldGiveMs: 20 * MIN }).size, 0)
-  const both = [lane('W1', T(10, 0)), lane('W2', T(10, 1))]
-  assert.deepEqual(gives(match({ ready: ready('B1'), idle: both, items: mapOf([back]), skip })), [{ id: 'B1', chat: 'W2' }])
-  assert.deepEqual(gives(match({ ready: ready('B1'), idle: [lane('W1')], items: mapOf([back]), skip })), [])
-  // The recheck: a task pinned to that worker is never barred from it.
-  assert.deepEqual(gives(match({ ready: ready({ id: 'B1', keptFor: 'W1', pinned: 'W1' }), idle: [lane('W1')], items: mapOf([back]), skip })), [{ id: 'B1', chat: 'W1' }])
-})
-
 test('the review: a follow-up is a preference: to its worker when idle at the give, else to anyone at once', () => {
   const items = mapOf([step('B1', 'refined'), step('B2', 'refined')])
   const idle = [lane('W1', T(10, 0)), lane('W2', T(10, 1))]
   assert.deepEqual(gives(match({ ready: ready({ id: 'B1', prefers: 'W2' }, 'B2'), idle, items })), [{ id: 'B1', chat: 'W2' }, { id: 'B2', chat: 'W1' }])
   assert.deepEqual(gives(match({ ready: ready({ id: 'B1', prefers: 'W3' }), idle: [lane('W1')], items })), [{ id: 'B1', chat: 'W1' }])
-})
-
-test('stuckWorkers: stuck from the take-back until the worker reports anew', () => {
-  const back = step('B1', 'refined', {}, { History: [`- ${stamp(T(10, 2))} server: queued → refined (taken back from W1: not taken within 2 min; stuck)`] })
-  const items = mapOf([back])
-  assert.deepEqual([...stuckWorkers({ items, lanes: [lane('W1', T(10, 0))] })], ['W1'])
-  assert.deepEqual([...stuckWorkers({ items, lanes: [lane('W1', T(10, 3))] })], [])
-  // A take-back without "stuck" makes no stuck worker.
-  const plainBack = mapOf([step('B1', 'refined', {}, { History: [`- ${stamp(T(10, 2))} server: queued → refined (taken back from W1: not taken within 2 min)`] })])
-  assert.deepEqual([...stuckWorkers({ items: plainBack, lanes: [lane('W1', T(10, 0))] })], [])
 })
 
 test('workerStart: a worker is asked for only when ready tasks wait, none is idle, and fewer run than the setting allows', () => {

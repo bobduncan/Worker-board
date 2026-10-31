@@ -23,7 +23,9 @@ import { resumesDue } from '../src/say.mjs'
 import { memoryStore } from '../src/store.mjs'
 import { workApi } from '../src/work/api.mjs'
 import { deliverWork } from '../src/work/deliver.mjs'
-import { START_WAIT_MS, takeBacks } from '../src/work/handOut.mjs'
+import { HANDOVER_COMMAND } from '../src/work/handover.mjs'
+import { handoverPass } from '../src/work/handoverBoard.mjs'
+import { valueOf } from '../src/work/item.mjs'
 import { parseItem } from '../src/work/item.mjs'
 import { stamp } from '../src/work/migrate.mjs'
 import { storeFromText } from '../src/work/read.mjs'
@@ -145,12 +147,14 @@ test('a chat whose session ended holding a step gets exactly one resume word, by
   assert.deepEqual(resumesDue(state, []), [])
 })
 
-// ---- The hand-out: an asleep free worker gets the task, and one start word wakes it.
+// ---- The hand-out: an asleep free worker gets the task in its hand-over (T8.5 step 6: the envelope waits for it in the
+// outbox; the board opens an asleep chat a word waits for).
 
 const roleOf = chat => ({ Lead: 'main', Digger: 'worker', Weeder: 'worker', Asker: 'worker', Quiet: 'worker' })[chat] ?? null
 
-/** One pass after another of the server's own reconcile and delivery, on a store in a folder, as closedStart.test.mjs does. */
-async function passes(t, reports) {
+/** One pass after another of the server's own reconcile, delivery and hand-over, on a store in a folder; the workers on the sequence's mod. */
+async function passes(t, given) {
+  const reports = given.map(([name, one]) => [name, roleOf(name) === 'worker' ? { ...one, mod: '0.27.2' } : one])
   const dir = await mkdtemp(join(tmpdir(), 'asleep-'))
   t.after(() => rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }))
   await writeStore(dir, storeWith(), undefined, { now: at(16, 0) })
@@ -161,11 +165,12 @@ async function passes(t, reports) {
     const state = build({ reports, work: { ...await readStore(dir), ok: true }, now, outbox: outbox.outbox() })
     const apply = body => workApi(body, { dir, now, prefix: 'Garden · ', roleOf, as: 'server' })
     await deliverWork({ state, dir, outbox, apply, now, maxChars: 2000, newId: () => `m${++n}` })
+    await handoverPass({ state, dir, outbox, apply, config, installed: '0.27.2', now, newId: () => `m${++n}` })
     return state
   }
-  return { pass, outbox, dir }
+  const owner = async id => [valueOf((await readStore(dir)).items.get(id), 'State'), valueOf((await readStore(dir)).items.get(id), 'Owner')]
+  return { pass, outbox, dir, owner }
 }
-const starts = outbox => outbox.outbox().filter(one => one.command === 'start')
 
 for (const [why, reports] of [
   ['the app started after its idle report', REPORTS],
@@ -175,33 +180,22 @@ for (const [why, reports] of [
   // The coordinator, seen live: Worker 3's last report was `ended`, its session closed after its idle turn.
   ['a routine chat whose session ended after its idle turn', [...REPORTS, report('Weeder', 'ended', NOW - 2 * MIN)]],
 ]) {
-  test(`${why}: Free and asleep, it gets a ready task, and one start word goes to a running chat to wake it`, async t => {
-    const { pass, outbox } = await passes(t, reports)
+  test(`${why}: Free and asleep, it gets a ready task in one hand-over`, async t => {
+    const { pass, outbox, owner } = await passes(t, reports)
     const first = await pass(NOW)
     assert.deepEqual(shown(first, 'Weeder').slice(0, 3), ['free', false, true])
-    assert.deepEqual(first.reconciled.gives.map(one => [one.id, one.chat]), [['B20', 'Weeder']])
     // It counts as a worker there is: no start or spawn is asked beside its give.
     assert.equal(first.reconciled.start, null)
-    // The next pass delivers the line, with the start word beside it: to the main chat, which runs; its hands send it.
-    await pass(NOW + 10_000)
-    assert.deepEqual(outbox.outbox().filter(one => one.command === 'work').map(one => [one.to, one.about]), [['Weeder', 'B20']])
-    assert.deepEqual(starts(outbox).map(one => [one.to, one.about]), [['Lead', 'Weeder']])
-    // Later passes send no second one.
+    assert.deepEqual(await owner('B20'), ['queued', 'Weeder'])
+    const envelopes = () => outbox.outbox().filter(one => one.command === HANDOVER_COMMAND).map(one => [one.to, one.step, one.state])
+    assert.deepEqual(envelopes(), [['Weeder', 'B20', 'waiting']])
+    // Later passes send no second one, and no line beside it.
     await pass(NOW + 20_000)
     await pass(NOW + 60_000)
-    assert.equal(starts(outbox).length, 1)
+    assert.deepEqual(envelopes(), [['Weeder', 'B20', 'waiting']])
+    assert.deepEqual(outbox.outbox().filter(one => one.command === 'work'), [])
   })
 }
-
-test('the given task waits for an asleep worker as long as a start takes, not the 2 minutes of one that runs', () => {
-  const lanes = [{ name: 'Weeder', isMain: false, isLeftover: false, state: 'free', isRunning: false, asleep: true, report: { state: 'idle', since: BEFORE, at: BEFORE } }]
-  const items = new Map([['B20', stepItem(`Id: B20\nKind: step\nTitle: Step B20\nState: queued\nOwner: Weeder\nSince: ${stamp(NOW)}\n- ${stamp(NOW)} server: refined → queued (given by the board to Weeder)\n`)]])
-  const line = { id: 'w', command: 'work', to: 'Weeder', about: 'B20', at: NOW, state: 'waiting' }
-  const backs = later => takeBacks({ items, outbox: [line], lanes, now: later, takeWithinMs: 2 * MIN })
-  assert.deepEqual(backs(NOW + 3 * MIN), [])
-  assert.deepEqual(backs(NOW + START_WAIT_MS).map(one => [one.id, one.stuck]), [['B20', false]])
-  assert.deepEqual(takeBacks({ items, outbox: [line], lanes: [{ ...lanes[0], asleep: false, isRunning: true }], now: NOW + 3 * MIN, takeWithinMs: 2 * MIN }).length, 1)
-})
 
 // ---- The resume word: one per app start, by a running chat's hands, never while the person pauses.
 

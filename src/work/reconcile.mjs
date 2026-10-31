@@ -5,19 +5,20 @@
 
 import { GIVE_GUARD, flowHandsOut, mayMove, statesOf } from './flow.mjs'
 import { blockersOpen, overlapsIn, waitWords } from './guards.mjs'
-import { HAND_OUT_DEFAULTS, heldBacksOf, heldTwiceWords, idleWorkers, match, oldQueued, readyList, skipPairs, stuckTakeBacks, takeBacks as takeBacksOf, workerStart } from './handOut.mjs'
+import { HAND_OUT_DEFAULTS, idleWorkers, oldQueued, readyList, strandedGives, workerStart } from './handOut.mjs'
+import { NET_MS } from './handover.mjs'
 import { handedBackOf } from '../clearOwed.mjs'
 import { askFiledMs, fixFirst, sinceMs, valueOf } from './item.mjs'
 import { PARTNER_AGAIN_MS, PARTNER_ANSWER_MS, isRoutedToPartner } from './partnerAnswers.mjs'
 import { isHolding } from './pause.mjs'
 import { REST_GUARD, REST_MS, flowRests, openAskIds, restsFree } from './parked.mjs'
-import { NOT_MERGED, backWordsOf, reportCheckFailedOf } from './resultCheck.mjs'
+import { NOT_MERGED, backWordsOf } from './resultCheck.mjs'
 
 /** The states in which a step is its Owner's work now. */
 const HOLDS = ['taken', 'in progress', 'waiting on you']
 const MIN = 60_000
-/** B740: a step whose report check failed and was not reported again, this long (running time) before its worker is told. */
-export const REPORT_AGAIN_MINUTES = 30
+/** T8.5 step 6: the one line on top of a board whose setting `handover` is not "sequence" (the escape hatch). */
+export const HANDOVER_OFF = 'the hand-over is off: set handover to sequence'
 
 const kindOf = item => valueOf(item, 'Kind') ?? 'step'
 const stateOf = item => valueOf(item, 'State')
@@ -51,9 +52,9 @@ const span = ms => {
  * `{ store, flow, lanes, now, times, prefix }` → `{ moves, deliveries, flags }`. `store` is readStore's answer (`items`,
  * `problems`), `flow` its flow, `lanes` the board's chats (`name`, `state`, `isMain`, `isRunning`, `isLeftover`,
  * `lastActivityAt`, `task`, `resting`), `times` `{ graceMs, askMs, idleMs }` (src/config.mjs). `moves`: `[{ id, to, why
- * }]`; `deliveries`: `[{ id, chat, why }]`, one per chat; `notes` (Focus 4): `[{ id, chat, from, since }]`, the unread
+ * }]`; `deliveries`: `[{ id, chat, why }]`, one per chat (the main chat only: a worker's line is its hand-over's); `notes` (Focus 4): `[{ id, chat, from, since }]`, the unread
  * notes to the main chat, which it is woken for (not while it is suspended); `flags`: `[{ kind, id, chat, text, button }]`, a lane's when
- * `chat` is set, else a line on top; a flag with `say` tells its chat that once (`key`); an `idle hold` flag (B308) also
+ * `chat` is set, else a line on top; an `idle hold` flag (B308) also
  * names all its chat's steps (`ids`) and is a hint under Needs your attention, not on the lane. Partner answers
  * (2026-10-19): `partner` is the partner's card (`name`, `state`, `isRunning`, `idle`; null: no partner chat on the
  * board); `partnerAsks`: `[{ id, chat, since }]`, the asks routed to it that it is woken for while it is free (never
@@ -62,19 +63,19 @@ const span = ms => {
  * or the setting is off.
  * Redesign Part 2 (2026-10-25): the board hands out all work (work/handOut.mjs). `ready`: `{ ready, held }`, the ready
  * list in its order and what holds the rest (`focus` the goal map's focus, `standardHold(item)` a why or null,
- * `routingHeld` the ids the routing holds); `gives`: `[{ id, chat, why }]`, a ready task to each worker whose report says
- * idle; `takeBacks`: `[{ id, chat, stuck, why }]`, the given tasks not taken within `settings.takeWithinMinutes`
- * (`sent` the outbox, for when each work line went); `start`: `{ start: chat }`, `{ spawn: 1 }` or null, the word to the
- * main chat for one more worker (`settings.maxWorkers`; B-max: left out 5, null none). No give, start or take-back while
- * the person pauses or resumes, or a limit is full (`limitsFull`); none either when the flow lets the board hand out
- * nothing (a line on top says so).
- * A worker the board took a task back from while it sat idle shows a `not taking` flag until it reports anew.
- * `retired`: `[{ id }]`, the tasks queued before the redesign, which go back on the list once (work/handOut.mjs `oldQueued`).
- * The review of 2026-10-25: `heldUntil` the last time the board held the hand-out (the server's memory: a full limit,
- * a pause), so a give's clock starts again after it; `refusedGives` the gives the work API refused lately (`{ id, chat,
- * why, at }`), not tried again for a while and named on the ready list (`refused`); `handOutHeld` says whether it holds now.
+ * `routingHeld` the ids the routing holds); `start`: `{ start: chat }`, `{ spawn: 1 }` or null, the word to the main chat
+ * for one more worker (`settings.maxWorkers`; B-max: left out 5, null none). No start while the person pauses or resumes,
+ * or a limit is full (`limitsFull`); none either when the flow lets the board hand out nothing, or the hand-over is off
+ * (a line on top says so).
+ * T8.5 step 6: the give itself is the hand-over's one decision at a worker's turn end (handover.mjs `decide`,
+ * handoverBoard.mjs `handoverPass`): this pass gives nothing, takes nothing back, delivers no line to a worker and tells
+ * a worker nothing of a failed check. `settings.handover` other than "sequence" (the escape hatch "timers") hands out
+ * nothing at all: a line on top says so (`HANDOVER_OFF`).
+ * `retired`: `[{ id }]`, the tasks queued before the redesign, which go back on the list once (work/handOut.mjs `oldQueued`);
+ * `stranded`: `[{ id, chat, why }]`, the given tasks no hand-over carries on, back on the list (handOut.mjs `strandedGives`).
+ * `handOutHeld` says whether the hand-out holds now (a pause, a resume, a full limit).
  */
-export function reconcile({ store, flow = store.flow, lanes = [], now, times, prefix = '', hasPartner = true, partner = null, standardHold = null, focus = null, focusGoals = [], routingHeld = new Set(), settings = {}, sent = [], limitsFull = false, heldUntil = null, refusedGives = [], offMs = () => 0 }) {
+export function reconcile({ store, flow = store.flow, lanes = [], now, times, prefix = '', hasPartner = true, partner = null, standardHold = null, focus = null, focusGoals = [], routingHeld = new Set(), settings = {}, sent = [], limitsFull = false }) {
   const items = store.items ?? new Map()
   const broken = new Set((store.problems ?? []).map(problem => problem.file?.match(/^([A-Z]\d+|L-[0-9a-f]{8})\.md$/)?.[1]).filter(Boolean))
   const live = lanes.filter(lane => !lane.isLeftover)
@@ -113,12 +114,11 @@ export function reconcile({ store, flow = store.flow, lanes = [], now, times, pr
   }
   const restFree = live.filter(lane => restsFree(lane, ok, prefix, resting)).map(lane => lane.name)
   // B737 (X86): a worker whose newest report failed the board's check was handed the step back: it gets no new step
-  // (neither a give nor a delivery) until it reports that step again and the check passes (src/clearOwed.mjs).
+  // until it reports that step again and the check passes (src/clearOwed.mjs); it counts as no idle worker for a start.
   const handedBack = new Set(live.filter(lane => lane.isMain !== true && handedBackOf(items, lane.name, prefix) !== null).map(lane => lane.name))
-  // T8.5 (spec 2026-10-31, part 4): a worker on the sequence (lane.onSequence, handover.mjs `onSequence`) is handed over by
-  // the board's one decision at its turn end: no delivery, give, take-back, stuck mark or word of this pass is its.
-  const onSequence = new Set(live.filter(lane => lane.onSequence === true).map(lane => lane.name))
-  const isOld = lane => lane !== undefined && !onSequence.has(lane.name)
+  // T8.5 step 6: a worker is handed over by the board's one decision at its turn end (handover.mjs): no line of this pass
+  // is a worker's. Only the main chat is still woken here for a step queued for it.
+  const isMainLane = lane => lane !== undefined && lane.isMain === true
 
   // A step queued whose guards hold and whose Owner is free: the Owner is woken (its `take` moves it to taken).
   // B567: a worker that rests while its steps wait on the person holds none of them for this.
@@ -128,7 +128,7 @@ export function reconcile({ store, flow = store.flow, lanes = [], now, times, pr
   for (const item of ok.filter(one => stateOf(one) === 'queued').sort(fixFirst)) {
     const owner = valueOf(item, 'Owner')
     const lane = laneOf(owner)
-    if (!isOld(lane) || (lane.state !== 'free' && !restFree.includes(lane.name)) || holding.has(plain(owner, prefix)) || handedBack.has(lane.name) || deliveries.some(one => one.chat === lane.name)) continue
+    if (!isMainLane(lane) || (lane.state !== 'free' && !restFree.includes(lane.name)) || holding.has(plain(owner, prefix)) || handedBack.has(lane.name) || deliveries.some(one => one.chat === lane.name)) continue
     const ctx = { store: { items }, freeChats: new Set([owner]), now, overlaps }
     if (!mayMove(flow, item, 'taken', 'server', ctx).ok) continue
     const id = valueOf(item, 'Id')
@@ -209,7 +209,8 @@ export function reconcile({ store, flow = store.flow, lanes = [], now, times, pr
   // An instruction open for more than one turn of its chat: the Open instructions list shows it with its age and chat
   // (B298, work/lists.mjs); nothing here.
 
-  // A step in review whose check failed: flagged on its Owner's lane, and the Owner is told once.
+  // A step in review whose check failed: flagged on its Owner's lane. T8.5 step 6: its worker is told by the hand-over's
+  // "back to you" envelope at its first turn's end (handover.mjs `decide`, rule 3), not here.
   for (const item of ok.filter(one => stateOf(one) === 'review')) {
     const checks = (item.sections.get('History') ?? []).filter(line => /\bserver: check (?:passed|failed)\b/.test(line))
     const failed = checks.at(-1)?.match(/^- (\S+ \S+) server: check failed(?::\s*(.*))?$/)
@@ -219,27 +220,18 @@ export function reconcile({ store, flow = store.flow, lanes = [], now, times, pr
     const chat = lane?.name ?? valueOf(item, 'Owner')
     const detail = failed[2]?.trim() || 'no reason given'
     // 2026-10-31 (B799): the work is on a branch that is not merged: the step is back with its worker, not a failure for the person.
-    const back = detail.startsWith(NOT_MERGED) ? detail.slice(NOT_MERGED.length).trim() : null
-    if (back !== null) {
-      flags.push({
-        kind: 'not merged', id, chat, text: `${id}: not merged yet: back with ${chat}`, button: null,
-        ...(!isOld(lane) || lane.state !== 'free' ? {} : { say: `work: ${back}`, key: `${id} ${chat} check ${failed[1]}` }),
-      })
+    if (detail.startsWith(NOT_MERGED)) {
+      flags.push({ kind: 'not merged', id, chat, text: `${id}: not merged yet: back with ${chat}`, button: null })
       continue
     }
     // T8 (what counts as finished): any other mismatch the worker can fix is back with it too: a quiet line, no Check again.
     const handed = backWordsOf(detail)
     if (handed !== null) {
-      flags.push({
-        kind: 'back', id, chat, text: `${id}: back with ${chat}: ${handed.words.length > 120 ? `${handed.words.slice(0, 120).trim()}…` : handed.words}`, button: null,
-        ...(!isOld(lane) || lane.state !== 'free' ? {} : { say: `work: the board's check sent ${id} back to you: ${handed.words}; then report ${id} again`, key: `${id} ${chat} check ${failed[1]}` }),
-      })
+      flags.push({ kind: 'back', id, chat, text: `${id}: back with ${chat}: ${handed.words.length > 120 ? `${handed.words.slice(0, 120).trim()}…` : handed.words}`, button: null })
       continue
     }
-    // The review of B300: its Owner is told by the delivery's rules: a chat on the board that is free.
     flags.push({
       kind: 'check failed', id, chat, text: `${id}: the board's check failed: ${detail}`, button: null,
-      ...(!isOld(lane) || lane.state !== 'free' ? {} : { say: `work: the board's check of ${id} failed (${detail}); see work next`, key: `${id} ${chat} check ${failed[1]}` }),
     })
   }
 
@@ -298,66 +290,30 @@ export function reconcile({ store, flow = store.flow, lanes = [], now, times, pr
       else if (!isHeld && isFree) partnerAsks.push({ id, chat: partner.name, since: valueOf(item, 'Since'), ...(Number.isFinite(filed) && now - filed >= (times?.partnerAgainMs ?? PARTNER_AGAIN_MS) ? { again: true } : {}) })
     }
   }
-  // Redesign Part 2 (2026-10-25): the hand-out. One ready list; a ready task to each worker whose own report says idle,
-  // the moment it does (principle 1); a given task not taken in time goes back, and its worker shows stuck when it sat
-  // idle through it (principle 2); one more worker asked of the main chat only when ready tasks wait and none is idle.
-  const takeWithinMs = Math.max(1, Number.isFinite(settings.takeWithinMinutes) ? settings.takeWithinMinutes : HAND_OUT_DEFAULTS.takeWithinMinutes) * MIN
+  // Redesign Part 2 (2026-10-25): the hand-out. One ready list, in the board's order; the give itself is the hand-over's one
+  // decision at a worker's turn end (T8.5, handover.mjs), which hands each worker the list's first task it may take. Here
+  // only one more worker is asked of the main chat, when ready tasks wait and no worker is free for them.
   const followUpMs = Math.max(0, Number.isFinite(settings.followUpMinutes) ? settings.followUpMinutes : HAND_OUT_DEFAULTS.followUpMinutes) * MIN
-  const heldGiveMs = Math.max(takeWithinMs, (Number.isFinite(settings.heldGiveMinutes) ? settings.heldGiveMinutes : HAND_OUT_DEFAULTS.heldGiveMinutes) * MIN)
-  const listed = readyList(items, { now, focus, focusGoals, followUpMs, standardHold, routingHeld, prefix, beyondFocus: settings.handOutBeyondFocus === true })
-  // The review: a give the API refused stands on the list with why, and goes to another worker meanwhile.
-  const refusedOf = id => refusedGives.filter(one => one.id === id).sort((a, b) => b.at - a.at)[0] ?? null
-  // The recheck: a task taken back twice because its line was held says so on the list, and once to the main chat.
-  const heldTwice = listed.ready.filter(one => heldBacksOf(items.get(one.id)) >= 2).map(one => ({ id: one.id, text: heldTwiceWords(items.get(one.id)) }))
-  const noteOf = id => heldTwice.find(one => one.id === id)?.text ?? null
-  const ready = {
-    ...listed,
-    ready: listed.ready.map(one => ({
-      ...one,
-      ...(refusedOf(one.id) === null ? {} : { refused: { chat: refusedOf(one.id).chat, why: refusedOf(one.id).why } }),
-      ...(noteOf(one.id) === null ? {} : { note: noteOf(one.id) }),
-    })),
-  }
+  const ready = readyList(items, { now, focus, focusGoals, followUpMs, standardHold, routingHeld, prefix, beyondFocus: settings.handOutBeyondFocus === true })
   const handOutHeld = ['pausing', 'resuming'].includes(store.pause?.state) || limitsFull === true
   const handsOut = flowHandsOut(flow)
   if (!handsOut) {
     flags.push({ kind: 'broken', id: null, chat: null, text: `flow.json lets the board hand out no task: add the move refined → queued by server when "${GIVE_GUARD}" (examples/work/flow.json)`, button: null })
   }
-  const stuck = stuckTakeBacks({ items, lanes: live.filter(isOld), prefix })
-  for (const [chat, back] of stuck) {
-    flags.push({ kind: 'not taking', id: back.id, chat, text: `Stuck: did not take ${back.id} within ${Math.round(takeWithinMs / MIN)} min; it went back on the list`, button: null })
-  }
-  // The take-back's clock starts again once a pause, or (the review) a full limit, is over: its lines went only then.
-  const pausedUntil = store.pause?.state === 'running' ? (store.pause.resumedSince ?? store.pause.since ?? null) : null
-  const notBefore = Math.max(...[pausedUntil, heldUntil].filter(Number.isFinite), -Infinity)
-  // B740 (X92: B727's report check failed at 21:03 and its worker never reported it again): a step in review whose report
-  // check failed, with no report after it, for `REPORT_AGAIN_MINUTES` of running time (the time the board was off and the
-  // person's pause left out; `offMs(from)` is the board's off time since `from`): its worker is told once per failed check.
-  const againMs = REPORT_AGAIN_MINUTES * MIN
-  for (const item of ok.filter(one => stateOf(one) === 'review')) {
-    const refused = reportCheckFailedOf(item)
-    const lane = refused === null ? undefined : laneOf(valueOf(item, 'Owner'))
-    if (refused === null || !isOld(lane) || !Number.isFinite(refused.at)) continue
-    const from = Math.max(refused.at, Number.isFinite(pausedUntil) ? pausedUntil : -Infinity)
-    if (now - from - offMs(from) < againMs) continue
-    const id = valueOf(item, 'Id')
-    flags.push({
-      kind: 'report again', id, chat: lane.name, text: refused.notMerged !== null ? `${id}: not merged yet: back with ${lane.name}` : refused.back !== null ? `${id}: back with ${lane.name} since ${refused.clock}` : `${id}: its report check failed at ${refused.clock}; ${lane.name} has not reported it again`, button: null,
-      say: refused.notMerged !== null ? `work: ${refused.notMerged}` : refused.back !== null ? `work: the board's check sent ${id} back to you at ${refused.clock}: ${refused.back}; then report ${id} again` : `work: ${id}'s report check failed at ${refused.clock}: fix what it names and report it again`, key: `${id} ${lane.name} report-again ${refused.stamp}`,
-    })
-  }
+  // T8.5 step 6: the escape hatch. With the old path gone, a board whose setting `handover` is not "sequence" hands out
+  // nothing new (no worker is on the sequence) and starts no worker; one line on top says so.
+  const isHandoverOn = (settings.handover ?? 'sequence') === 'sequence'
+  if (!isHandoverOn) flags.push({ kind: 'handover off', id: null, chat: null, text: HANDOVER_OFF, button: null })
   // At rollout (plan Question 2): the tasks queued before the redesign go back on the list first (`retired`), once.
   const retired = handsOut ? oldQueued(items) : []
+  // T8.5 step 6: a task the board gave that no hand-over carries on (its worker is not on the sequence, or gone from the
+  // list for the net's time) goes back on the list; not while the hand-out holds.
   const retiredIds = new Set(retired.map(one => one.id))
-  const takeBacks = handOutHeld || !handsOut ? [] : takeBacksOf({ items, outbox: sent, lanes: live, now, takeWithinMs, heldGiveMs, prefix, notBefore: Number.isFinite(notBefore) ? notBefore : null })
-    .filter(one => !retiredIds.has(one.id) && !onSequence.has(one.chat))
-  // A free worker on the sequence counts as free for the start of one more worker (its task comes by the sequence).
-  const idleAll = idleWorkers(live, { items, prefix, restFree, stuck: new Set([...stuck.keys(), ...handedBack]) })
-  const idle = idleAll.filter(isOld)
-  const skip = skipPairs({ items, refused: refusedGives, now, heldGiveMs, prefix })
-  const gives = handOutHeld || !handsOut ? [] : match({ ready: ready.ready, idle, items, prefix, skip })
-  const start = !handsOut ? null : workerStart({ ready: ready.ready, gives, idle: idleAll, lanes: live, maxWorkers: settings.maxWorkers, isHeld: handOutHeld, items, sent, now, prefix, refused: refusedGives,
+  const stranded = handOutHeld || !handsOut ? [] : strandedGives({ items, lanes: live, now, waitMs: NET_MS, prefix }).filter(one => !retiredIds.has(one.id))
+  // A free worker counts as free for the start of one more worker (its task comes by the hand-over).
+  const idle = idleWorkers(live, { items, prefix, restFree, stuck: handedBack })
+  const start = !handsOut || !isHandoverOn ? null : workerStart({ ready: ready.ready, idle, lanes: live, maxWorkers: settings.maxWorkers, isHeld: handOutHeld, items, sent, now, prefix,
     // Gap 2: a pinned task's worker unknown this long counts as off.
     offAfterMs: Number.isFinite(settings.offAfterMinutes) ? settings.offAfterMinutes * MIN : Infinity })
-  return { moves, deliveries, flags, notes, partnerAsks, escalations, restFree, handedBack: [...handedBack], ready, gives, takeBacks, start, retired, handOutHeld, heldTwice }
+  return { moves, deliveries, flags, notes, partnerAsks, escalations, restFree, handedBack: [...handedBack], ready, start, retired, stranded, handOutHeld }
 }

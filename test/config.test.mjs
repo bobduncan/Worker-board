@@ -303,20 +303,19 @@ test('the review of chat-reports: a chat whose reports stay silent offAfterMinut
   assert.equal(parseConfig('{"offAfterMinutes":0.5}', env).offAfterMinutes, 5)
 })
 
-test('Redesign Part 2: the hand-out settings: two minutes to take, a follow-up a preference only, 20 for a held give, 5 workers at most unless set (B-max)', () => {
+test('Redesign Part 2: the hand-out settings: a follow-up a preference only, 5 workers at most unless set (B-max); T8.5 step 6: no take or held-give minutes, those of an old file are ignored', () => {
   const read = parseConfig('{}', env)
-  assert.deepEqual([read.takeWithinMinutes, read.followUpMinutes, read.heldGiveMinutes, read.maxWorkers], [2, 0, 20, 5])
-  assert.equal(parseConfig('{"heldGiveMinutes": 30}', env).heldGiveMinutes, 30)
-  assert.equal(parseConfig('{"heldGiveMinutes": 0}', env).heldGiveMinutes, 20)
+  assert.deepEqual([read.followUpMinutes, read.maxWorkers, read.handover], [0, 5, 'sequence'])
+  const old = parseConfig('{"takeWithinMinutes": 2, "heldGiveMinutes": 30}', env)
+  assert.deepEqual([old.takeWithinMinutes, old.heldGiveMinutes], [undefined, undefined])
+  assert.equal(configProblem('{"takeWithinMinutes": 2, "heldGiveMinutes": 30}'), null)
   assert.equal(parseConfig('{"followUpMinutes": 10}', env).followUpMinutes, 10)
   assert.equal(parseConfig('{"maxWorkers": 6}', env).maxWorkers, 6)
-  // B-max: a whole number of at least 1 from the file wins, even above the panel's 10; any other leaves the 5. A take within 0
-  // minutes would take every task back at once.
+  // B-max: a whole number of at least 1 from the file wins, even above the panel's 10; any other leaves the 5.
   assert.equal(parseConfig('{"maxWorkers": 12}', env).maxWorkers, 12)
   assert.equal(parseConfig('{"maxWorkers": 0}', env).maxWorkers, 5)
   assert.equal(parseConfig('{"maxWorkers": 2.5}', env).maxWorkers, 5)
   assert.equal(parseConfig('{"maxWorkers": "7"}', env).maxWorkers, 5)
-  assert.equal(parseConfig('{"takeWithinMinutes": 0}', env).takeWithinMinutes, 2)
   assert.equal(parseConfig('{"followUpMinutes": 0}', env).followUpMinutes, 0)
   assert.equal(parseConfig('{"followUpMinutes": -1}', env).followUpMinutes, 0)
 })

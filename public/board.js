@@ -3801,9 +3801,6 @@ function drawReadyList(state) {
     (one.added ?? null) === null ? null : 'added by you',
     one.pinned !== null ? `pinned to ${one.pinned}` : one.keptFor !== null ? `kept for ${one.keptFor}${Number.isFinite(one.keptUntil) ? ` until ${clock(one.keptUntil)}` : ''}`
       : (one.prefers ?? null) !== null ? `to ${one.prefers} first when it is free` : null,
-    // The review of 2026-10-25: a give the board's work API refused, and why; a task whose line was held twice.
-    (one.refused ?? null) === null ? null : `not given to ${one.refused.chat}: ${one.refused.why}`,
-    (one.note ?? null) === null ? null : one.note,
   ].filter(Boolean).join(' · ') || null
   const parts = [el('h3', '', `Ready for a worker (${list.ready.length})`)]
   const ready = el('ol', 'ready-rows')

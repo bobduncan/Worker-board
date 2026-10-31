@@ -1,5 +1,6 @@
 // B300: the reconciler (spec 2026-10-17, section 7): one rule per row, over the store's files and the board's lanes.
-// It moves only what the flow lets the server move, and names the deliveries and the flags. Made-up samples only.
+// It moves only what the flow lets the server move, and names the deliveries and the flags. T8.5 step 6: a line for a
+// queued step goes only to the main chat; a worker gets its line in its hand-over's envelope. Made-up samples only.
 
 import assert from 'node:assert/strict'
 import test from 'node:test'
@@ -18,6 +19,8 @@ const file = (head, sections = {}) => parseItem(`${Object.entries(head).map(([ke
 const step = (id, state, more = {}, sections = {}) => file({ Id: id, Kind: 'step', Title: `Step ${id}`, State: state, Since: '2026-10-17 11:00', ...more }, sections)
 const store = (items, problems = []) => ({ items: new Map(items.map(item => [item.head.get('Id'), item])), flow: DEFAULT_FLOW, problems })
 const lane = (name, state = 'free', more = {}) => ({ name, state, isMain: false, isLeftover: false, isRunning: true, lastActivityAt: NOW - 30 * MIN, task: null, ...more })
+/** The main chat's lane: the one chat a step's line still goes to from this pass. */
+const main = (name, state = 'free', more = {}) => lane(name, state, { isMain: true, ...more })
 const run = (items, lanes, more = {}) => reconcile({ store: store(items, more.problems), flow: more.flow ?? DEFAULT_FLOW, lanes, now: more.now ?? NOW, times: TIMES, prefix: 'Team - ' })
 
 test('the times stand in the config beside the board\'s other times', () => {
@@ -25,11 +28,13 @@ test('the times stand in the config beside the board\'s other times', () => {
   assert.equal(ASK_MS, 60 * MIN)
 })
 
-test('a queued step whose guards hold and whose Owner is free is delivered to its Owner, not moved', () => {
-  const done = run([step('B1', 'done'), step('B286', 'queued', { Owner: 'Team - Units', 'Blocked by': 'B1' }), step('B287', 'queued', { Owner: 'Units' })], [lane('Units')])
+test('a queued step whose guards hold and whose Owner, the main chat, is free is delivered to it, not moved; a worker gets no line here', () => {
+  const done = run([step('B1', 'done'), step('B286', 'queued', { Owner: 'Team - Units', 'Blocked by': 'B1' }), step('B287', 'queued', { Owner: 'Units' })], [main('Units')])
   // One line per chat: the first of its steps.
   assert.deepEqual(done.deliveries, [{ id: 'B286', chat: 'Units', since: '2026-10-17 11:00', why: 'deliver B286 to Units' }])
   assert.deepEqual(done.moves, [])
+  // A worker: its hand-over carries its line (mutant: a delivery of the old pass left in).
+  assert.deepEqual(run([step('B287', 'queued', { Owner: 'Units' })], [lane('Units')]).deliveries, [])
 })
 
 test('no delivery while the Owner works, holds another step, is not on the board, or the step waits on another', () => {
@@ -62,14 +67,13 @@ test('a blocking ask open longer than the ask time is marked old; nothing is sen
 test('an open instruction is the Open instructions list\'s: no flag, no move', () => {
   const told = file({ Id: 'I17', Kind: 'instruction', Chat: 'Units', State: 'open', Since: '2026-10-17 09:00:00', Missed: '3', Text: 'Make it blue' })
   const quiet = run([told], [lane('Units')])
-  assert.deepEqual({ ...quiet, ready: undefined }, { moves: [], deliveries: [], flags: [], notes: [], partnerAsks: [], escalations: [], restFree: [], handedBack: [], gives: [], takeBacks: [], start: null, retired: [], handOutHeld: false, heldTwice: [], ready: undefined })
+  assert.deepEqual({ ...quiet, ready: undefined }, { moves: [], deliveries: [], flags: [], notes: [], partnerAsks: [], escalations: [], restFree: [], handedBack: [], start: null, retired: [], stranded: [], handOutHeld: false, ready: undefined })
 })
 
-test('a step in review whose check failed is flagged on its Owner\'s lane, and its Owner is told once', () => {
+test('a step in review whose check failed is flagged on the lane of its Owner; the pass tells it nothing (its hand-over does)', () => {
   const failed = step('B285', 'review', { Owner: 'Support' }, { History: ['- 2026-10-17 11:40 server: check pending', '- 2026-10-17 11:41 server: check failed: the branch b285-strip is still there'] })
   assert.deepEqual(run([failed], [lane('Support')]).flags, [{
     kind: 'check failed', id: 'B285', chat: 'Support', text: 'B285: the board\'s check failed: the branch b285-strip is still there', button: null,
-    say: 'work: the board\'s check of B285 failed (the branch b285-strip is still there); see work next', key: 'B285 Support check 2026-10-17 11:41',
   }])
 })
 
@@ -144,7 +148,7 @@ test('B308: a worker that holds steps, has ended its turn with nothing running a
 test('B305: a step blocked by an ask that is answered or withdrawn is delivered, as after a step done or dropped; an open ask still holds it', () => {
   const ask = (id, state) => file({ Id: id, Kind: 'ask', Title: `Ask ${id}`, State: state, Since: '2026-10-17 11:00' })
   const after = on => step('B286', 'queued', { Owner: 'Units', 'Blocked by': on })
-  assert.deepEqual(run([ask('B279', 'answered'), after('B279')], [lane('Units')]).deliveries.map(one => one.id), ['B286'])
-  assert.deepEqual(run([ask('B279', 'withdrawn'), after('B279')], [lane('Units')]).deliveries.map(one => one.id), ['B286'])
-  assert.deepEqual(run([ask('B279', 'open'), after('B279')], [lane('Units')]).deliveries, [])
+  assert.deepEqual(run([ask('B279', 'answered'), after('B279')], [main('Units')]).deliveries.map(one => one.id), ['B286'])
+  assert.deepEqual(run([ask('B279', 'withdrawn'), after('B279')], [main('Units')]).deliveries.map(one => one.id), ['B286'])
+  assert.deepEqual(run([ask('B279', 'open'), after('B279')], [main('Units')]).deliveries, [])
 })

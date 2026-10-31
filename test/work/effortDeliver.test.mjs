@@ -1,7 +1,7 @@
 // B468: a worker runs at its step's effort. The board reads what the app's file of each chat says it runs at, asks the
-// main chat to set the worker's chat to the step's level before the step's line goes to it (the app applies a new
-// effort from the chat's next turn on), and sends that line once it is set, or after a few minutes anyway. Made-up
-// samples only.
+// main chat to set the worker's chat to the step's level (the app applies a new effort from the chat's next turn on).
+// T8.5 step 6: no line waits here for it: a worker's line comes only in its hand-over's envelope, which waits for the set
+// (test/work/handoverBoard.test.mjs). Made-up samples only.
 
 import assert from 'node:assert/strict'
 import { mkdtemp, rm } from 'node:fs/promises'
@@ -13,8 +13,7 @@ import { answer, typed } from '../../fixtures/lines.mjs'
 import { parseConfig } from '../../src/config.mjs'
 import { buildState } from '../withStore.mjs'
 import { memoryStore, outboxNow } from '../../src/store.mjs'
-import { deliverWork, pullFor } from '../../src/work/deliver.mjs'
-import { HOLD_MS } from '../../src/work/effort.mjs'
+import { deliverWork } from '../../src/work/deliver.mjs'
 import { workApi } from '../../src/work/api.mjs'
 import { migrateBacklog } from '../../src/work/migrate.mjs'
 import { readStore, writeStore } from '../../src/work/store.mjs'
@@ -54,7 +53,7 @@ async function garden(settings = config, model = null) {
   return { dir, build, deliver, ctx }
 }
 
-test('the main chat is asked to set the worker to its step\'s level first; the step\'s line goes once it is set', async () => {
+test('the main chat is asked to set the worker to the level of its step, once; no line goes to the worker from this pass', async () => {
   const { dir, build, deliver } = await garden()
   try {
     const outbox = memoryStore()
@@ -67,17 +66,17 @@ test('the main chat is asked to set the worker to its step\'s level first; the s
     const done = await deliver(state, outbox)
     assert.deepEqual(done.sent.map(one => [one.to, one.command]), [['Lead', 'worker-effort']])
     assert.equal(done.sent[0].text, ['set effort', 'Chat: Digger', 'Effort: low', 'Session: local_Digger', 'Step: B1', "Why: B1 is Digger's next step; its refine says low (a text fix in one file)"].join('\n'))
-    // The next refresh, before the main chat set it: no second word, the line still waits.
+    // The next refresh, before the main chat set it: no second word.
     state = await build({ now: NOW + MIN, outbox: outbox.outbox() })
     assert.deepEqual([state.reconciled.deliveries, state.reconciled.efforts], [[], []])
     assert.equal(state.chats.find(lane => lane.name === 'Digger').effortRun.asked.at, NOW)
     assert.deepEqual((await deliver(state, outbox, NOW + MIN)).sent, [])
-    // Set by the main chat: the line goes.
+    // Set by the main chat: nothing more to ask, and still no line from this pass.
     state = await build({ now: NOW + 2 * MIN, effort: 'low', outbox: outbox.outbox() })
-    assert.deepEqual(state.reconciled.deliveries.map(one => one.id), ['B1'])
+    assert.deepEqual([state.reconciled.deliveries, state.reconciled.efforts], [[], []])
     assert.equal(state.chats.find(lane => lane.name === 'Digger').effortRun.isSet, true)
     const sent = await deliver(state, outbox, NOW + 2 * MIN)
-    assert.deepEqual(sent.sent.map(one => [one.to, one.text]), [['Digger', 'work: B1 is yours; run work next']])
+    assert.deepEqual(sent.sent, [])
   } finally {
     await rm(dir, { recursive: true, force: true })
   }
@@ -100,49 +99,17 @@ test('B820 (X110): a fresh chat under the same name is asked again at once, not 
   }
 })
 
-test('the review: a worker\'s own pull at its turn\'s end waits as the reconciler\'s line does', async () => {
-  const { dir, build } = await garden()
-  try {
-    const outbox = memoryStore()
-    const result = { text: 'work: B1 is yours; run work next', id: 'B1', since: '2026-10-21 10:05', wake: { to: 'Digger', id: 'B1' }, changed: false }
-    const pull = state => pullFor({ dir, result, state, outbox, now: NOW, maxChars: 2000, newId: () => 'p1' })
-    let state = await build()
-    assert.deepEqual(state.reconciled.held, ['B1'])
-    assert.equal((await pull(state)).text, '')
-    assert.deepEqual(outbox.outbox(), [])
-    state = await build({ effort: 'low' })
-    assert.equal((await pull(state)).text, 'work: B1 is yours; run work next')
-    assert.deepEqual(outbox.outbox().map(one => one.to), ['Digger'])
-  } finally {
-    await rm(dir, { recursive: true, force: true })
-  }
-})
-
-test('not set within a few minutes, the step\'s line goes anyway', async () => {
-  const { dir, build, deliver } = await garden()
-  try {
-    const outbox = memoryStore()
-    await deliver(await build(), outbox)
-    const state = await build({ now: NOW + HOLD_MS, outbox: outbox.outbox() })
-    assert.deepEqual(state.reconciled.deliveries.map(one => one.id), ['B1'])
-    assert.deepEqual(state.reconciled.efforts, [])
-  } finally {
-    await rm(dir, { recursive: true, force: true })
-  }
-})
-
-test('a worker already at its step\'s level gets its line at once, and the main chat no word', async () => {
+test('a worker already at the level of its step: the main chat no word', async () => {
   const { dir, build } = await garden()
   try {
     const state = await build({ effort: 'low' })
-    assert.deepEqual(state.reconciled.deliveries.map(one => one.id), ['B1'])
     assert.deepEqual(state.reconciled.efforts, [])
   } finally {
     await rm(dir, { recursive: true, force: true })
   }
 })
 
-test('model per step: with the settings\' model ids, the main chat is asked for model and effort in one word, and the line waits for both', async () => {
+test('model per step: with the model ids of the settings, the main chat is asked for model and effort in one word, once', async () => {
   const settings = { ...parseConfig(JSON.stringify({ models: { sonnet: 'claude-sonnet-test', opus: 'claude-opus-test' } }), {}), project: PROJECT }
   const { dir, build, deliver } = await garden(settings)
   try {
@@ -154,23 +121,19 @@ test('model per step: with the settings\' model ids, the main chat is asked for 
     const done = await deliver(state, outbox)
     assert.deepEqual(done.sent.map(one => [one.to, one.command]), [['Lead', 'worker-effort']])
     assert.equal(done.sent[0].text, ['set model and effort', 'Chat: Digger', 'Session: local_Digger', 'Step: B1', 'Model: claude-sonnet-test', 'Effort: low', "Why: B1 is Digger's next step; model sonnet (its refine gives none), effort low (a text fix in one file)"].join('\n'))
-    // The effort set, the model not yet: the line still waits, and no second word goes.
+    // The effort set, the model not yet: no second word goes.
     state = await build({ now: NOW + MIN, effort: 'low', model: 'claude-opus-test', outbox: outbox.outbox() })
     assert.deepEqual([state.reconciled.deliveries, state.reconciled.efforts], [[], []])
     assert.deepEqual((await deliver(state, outbox, NOW + MIN)).sent, [])
-    // Both set: the line goes.
+    // Both set: the lane says so.
     state = await build({ now: NOW + 2 * MIN, effort: 'low', model: 'claude-sonnet-test', outbox: outbox.outbox() })
-    assert.deepEqual(state.reconciled.deliveries.map(one => one.id), ['B1'])
     assert.deepEqual(state.chats.find(lane => lane.name === 'Digger').effortRun, { level: 'low', model: 'sonnet', usual: 'medium', usualModel: 'sonnet', step: 'B1', why: 'a text fix in one file', modelWhy: null, isSet: true, asked: { at: NOW, state: 'waiting' }, waitsFor: null })
-    // Not set within three minutes: the line goes anyway (B468).
-    state = await build({ now: NOW + HOLD_MS, effort: 'low', model: 'claude-opus-test', outbox: outbox.outbox() })
-    assert.deepEqual(state.reconciled.deliveries.map(one => one.id), ['B1'])
   } finally {
     await rm(dir, { recursive: true, force: true })
   }
 })
 
-test('the review: an opus step stays held past three minutes, the lane says since when, and the worker\'s own take is refused', async () => {
+test('the review: the lane of an opus step says since when it waits for Opus; nothing is held here and the take is the worker own', async () => {
   const settings = { ...parseConfig(JSON.stringify({ models: { sonnet: 'claude-sonnet-test', opus: 'claude-opus-test' } }), {}), project: PROJECT }
   const { dir, build, deliver, ctx } = await garden(settings, 'opus · the work store')
   try {
@@ -178,22 +141,16 @@ test('the review: an opus step stays held past three minutes, the lane says sinc
     let state = await build({ model: 'claude-sonnet-test', effort: 'xhigh' })
     assert.deepEqual(state.reconciled.efforts.map(one => [one.chat, one.model, one.level, one.step]), [['Digger', 'claude-opus-test', 'low', 'B1']])
     await deliver(state, outbox)
-    // The effort set, the model not: three minutes and more on, B1 still waits.
-    const later = NOW + HOLD_MS + MIN
+    // The effort set, the model not: four minutes on, the lane says B1 waits for Opus.
+    const later = NOW + 4 * MIN
     state = await build({ now: later, effort: 'low', model: 'claude-sonnet-test', outbox: outbox.outbox() })
-    assert.deepEqual([state.reconciled.deliveries, state.reconciled.held], [[], ['B1']])
+    assert.deepEqual([state.reconciled.deliveries, state.reconciled.held], [[], undefined])
     const at = `${String(new Date(NOW).getHours()).padStart(2, '0')}:${String(new Date(NOW).getMinutes()).padStart(2, '0')}`
     const text = `B1 waits for Opus since ${at}: the main chat was asked, and the app does not say Opus yet; it goes once Digger runs on Opus.`
     assert.deepEqual(state.chats.find(lane => lane.name === 'Digger').flags, [{ kind: 'model', id: 'B1', text, button: null }])
-    assert.equal(state.reconciled.holds.B1, text)
-    // Its own take is refused while it waits, with why.
-    const take = await workApi({ chat: 'Digger', action: 'take', minutes: 30, id: 'B1', branch: 'b1-hedge' }, { ...ctx(later), stepHold: id => state.reconciled.holds?.[id] ?? null })
-    assert.equal(take.status, 409)
-    assert.equal(take.why, `${text} Take it once the board sends it.`)
-    // On Opus now: the line goes, and the take is the worker's.
-    state = await build({ now: later + MIN, effort: 'low', model: 'claude-opus-test', outbox: outbox.outbox() })
-    assert.deepEqual([state.reconciled.deliveries.map(one => one.id), state.reconciled.held, state.reconciled.holds], [['B1'], [], {}])
-    assert.equal((await workApi({ chat: 'Digger', action: 'take', minutes: 30, id: 'B1', branch: 'b1-hedge' }, { ...ctx(later + MIN), stepHold: id => state.reconciled.holds?.[id] ?? null })).ok, true)
+    assert.equal(state.reconciled.holds, undefined)
+    // Its own take is not refused by the board (T8.5 step 6: its hand-over envelope waits for the set, not its take).
+    assert.equal((await workApi({ chat: 'Digger', action: 'take', minutes: 30, id: 'B1', branch: 'b1-hedge' }, ctx(later))).ok, true)
   } finally {
     await rm(dir, { recursive: true, force: true })
   }

@@ -121,8 +121,9 @@ test('a chat suspended by its note is handed nothing and is no "may wait for you
   assert.deepEqual(state.forYou.filter(need => need.kind === 'idle'), [])
   // Without the note it would be the hint: the turn ended long enough ago with B269 held.
   assert.equal(build({ Board: pausedTurn() }, [held('B269', 'Board')]).forYou.filter(need => need.kind === 'idle').length, 1)
-  // A step queued for it is not delivered while it is suspended; a free chat gets it.
+  // A step queued for it is not delivered while it is suspended (T8.5 step 6: nor while free: a worker's line is its
+  // hand-over's, and its hand-over is suspended with its lane).
   const queued = [parseItem(`Id: B32\nKind: step\nTitle: The shop\nState: queued\nOwner: Board\nSince: ${sinceOf(NOW - 60 * MIN)}\n`), note('N37', 'Board', NOW - 11 * MIN, PAUSE)]
   assert.deepEqual(build({ Board: pausedTurn() }, queued).reconciled.deliveries, [])
-  assert.deepEqual(build({ Board: pausedTurn() }, queued.slice(0, 1)).reconciled.deliveries.map(one => [one.id, one.chat]), [['B32', 'Board']])
+  assert.deepEqual(build({ Board: pausedTurn() }, queued.slice(0, 1)).reconciled.deliveries, [])
 })

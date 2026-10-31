@@ -92,7 +92,8 @@ test('an Owner already written as prefix + a known name counts as that name: its
     step.head.set('Owner', 'Game - Worker 2')
     await writeFile(join(dir, 'B1.md'), serializeItem(step))
     const store = await readStore(dir)
-    const plan = reconcile({ store, lanes: [{ name: 'Worker 2', state: 'free', isRunning: true }], now: NOW, times: { graceMs: 600_000, askMs: 3_600_000, idleMs: 1_800_000 }, prefix: ctx.prefix })
+    // T8.5 step 6: the pass delivers a line to the main chat only, so the name is matched on a main lane here.
+    const plan = reconcile({ store, lanes: [{ name: 'Worker 2', state: 'free', isRunning: true, isMain: true }], now: NOW, times: { graceMs: 600_000, askMs: 3_600_000, idleMs: 1_800_000 }, prefix: ctx.prefix })
     assert.deepEqual(plan.deliveries.map(one => [one.id, one.chat]), [['B1', 'Worker 2']])
     assert.match((await as('Worker 2')({ action: 'next' })).result.text, /B1 queued/)
     const taken = await as('Worker 2')({ action: 'take', minutes: 30, id: 'B1', branch: 'b1-damage' })

@@ -147,8 +147,9 @@ test('2: while the person pauses no step is delivered, no pull is answered, and 
     await person({ action: 'end-resume' }, NOW - 2 * MIN)
     assert.deepEqual(JSON.parse(await readFile(join(dir, 'pause.json'), 'utf8')), { state: 'running', since: NOW - 2 * MIN, by: 'person', pausedSince: NOW - 10 * MIN, resumedSince: NOW - 5 * MIN })
     assert.deepEqual((await digger({ action: 'pull' })).result.wake, { to: 'Digger', id: 'B1' })
+    // T8.5 step 6: the line itself is no longer this pass's to send a worker: its hand-over carries it.
     const again = await deliver(await build(), outbox)
-    assert.equal(again.sent.length, 1)
+    assert.equal(again.sent.length, 0)
   } finally {
     await rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
@@ -201,8 +202,8 @@ test('the page: a line held by the pause says "held until resume"', () => {
 
 test('the server: a take while paused hands out only "resume"; it types "resume" into a main chat that came up, once; the hold does not make lines late', async () => {
   const server = await readFile(join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'server.mjs'), 'utf8')
-  // B547: else, for a worker that owes a clear, all but its next step's line. B755: and never a hand's word in its first minute.
-  assert.match(server, /isHolding\(\(await readState\(\)\)\.pause\) \? message => message\.command === 'resume'\s+: atTake\.hold \? message => !isStepLine\(message\) && !isForHandsYet\(message, now, workers\) : message => !isForHandsYet\(message, now, workers\)/)
+  // B755: never a hand's word in its first minute. T8.5 step 6: no line is held back for a clear any more.
+  assert.match(server, /isHolding\(\(await readState\(\)\)\.pause\) \? message => message\.command === 'resume' : message => !isForHandsYet\(message, now, workers\)/)
   assert.match(server, /const retype = isShowOnly \? null : resumeRetypeTo\(state\)/)
   assert.match(server, /retyped\.add\(/)
   assert.match(server, /keep\.pause = raw\.work\?\.pause \?\? null/)

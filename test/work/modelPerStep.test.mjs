@@ -1,13 +1,13 @@
 // Model per step (the token-saving plan, step 2). The person, 2026-10-23: "workers Sonnet by default, Opus only for
 // steps the Advisor marks hard (architecture, the board's core, unclear bugs)". A step names its model family at the
-// refine with its effort; the main chat sets both before the step's line goes to its worker; between steps a worker
+// refine with its effort; the main chat sets both for its worker (T8.5 step 6: its hand-over waits for that set); between steps a worker
 // runs at the settings' usual setting, Sonnet and medium. Made-up samples and model ids only.
 
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
 import { configProblem, parseConfig } from '../../src/config.mjs'
-import { AGAIN_MS, HOLD_MS, effortPlan, effortWords, modelIds, modelOf, parseModel, runSettings, sameModel, withModel } from '../../src/work/effort.mjs'
+import { AGAIN_MS, effortPlan, effortWords, modelIds, modelOf, parseModel, runSettings, sameModel, withModel } from '../../src/work/effort.mjs'
 
 const NOW = new Date(2026, 9, 23, 9, 0).getTime()
 const MODELS = { sonnet: 'claude-sonnet-test', opus: 'claude-opus-test' }
@@ -76,10 +76,10 @@ test('the review: model ids count only as both sonnet and opus, each "claude-...
   }
   assert.deepEqual(modelIds({ sonnet: 'claude-sonnet-test', opus: 'claude-opus-test' }), { models: { sonnet: 'claude-sonnet-test', opus: 'claude-opus-test' }, problem: null })
   assert.deepEqual(modelIds(undefined), { models: {}, problem: null })
-  // With one id only, an opus step is set at its effort alone, and never held for a model the board cannot set.
+  // With one id only, an opus step is set at its effort alone, and never waits for a model the board cannot set.
   const items = itemsOf(step('B8', { Owner: 'Units' }, { Model: ['opus · a guard'], Effort: ['high · many parts'] }))
   const half = effortPlan({ now: NOW, main: 'Main', models: { opus: MODELS.opus }, items, lanes: [lane('Units', { model: MODELS.sonnet, effort: 'high' })], deliveries: [{ id: 'B8', chat: 'Units' }], sent: [] })
-  assert.deepEqual([half.words, [...half.held], half.runs.get('Units').model], [[], [], null])
+  assert.deepEqual([half.words, half.runs.get('Units').model], [[], null])
   assert.equal(sameModel('claude-opus-test', 'claude-opus-test[1m]'), true)
   assert.equal(sameModel('claude-opus-test', null), false)
 })
@@ -92,11 +92,10 @@ test('the word to the main chat names the chat, its session, the step, the model
   assert.equal(effortWords({ to: 'Main', chat: 'Units', session: null, level: 'low', usual: 'medium', step: 'B7', why: 'x' }).text, ['set effort', 'Chat: Units', 'Effort: low', 'Step: B7', 'Why: x'].join('\n'))
 })
 
-test('a step without a model counts as sonnet: a worker on Opus is asked onto Sonnet before the step goes to it', () => {
+test('a step without a model counts as sonnet: a worker on Opus is asked onto Sonnet for it', () => {
   const items = itemsOf(step('B7', { Owner: 'Units' }, { Effort: ['medium · a board fix'] }))
   const done = plan({ items, lanes: [lane('Units')], deliveries: [{ id: 'B7', chat: 'Units' }] })
   assert.deepEqual(done.words, [{ to: 'Main', chat: 'Units', session: 'local_units', level: 'medium', model: MODELS.sonnet, usual: 'medium', usualModel: MODELS.sonnet, step: 'B7', why: "B7 is Units's next step; model sonnet (its refine gives none), effort medium (a board fix)" }])
-  assert.deepEqual([...done.held], ['B7'])
   assert.deepEqual(done.runs.get('Units'), { level: 'medium', model: 'sonnet', usual: 'medium', usualModel: 'sonnet', step: 'B7', why: 'a board fix', modelWhy: null, isSet: false, asked: null, waitsFor: null })
 })
 
@@ -109,25 +108,23 @@ test('an opus step asks the main chat for Opus, with its effort, in one word', (
   assert.equal(done.runs.get('Units').modelWhy, 'a guard of the work store')
 })
 
-test('the step\'s line waits until both model and effort are read back from the app\'s file of the chat', () => {
+test('a step counts as set only once both model and effort are read back from the file of the chat in the app', () => {
   const items = itemsOf(step('B8', { Owner: 'Units' }, { Model: ['opus · a guard'], Effort: ['high · many parts'] }))
   const deliveries = [{ id: 'B8', chat: 'Units' }]
   const sent = [word('Units', 'high', MODELS.opus, NOW - 60_000, 'taken', 'B8')]
-  // Asked a minute ago: the effort set, the model not yet: it waits, and no second word goes.
+  // Asked a minute ago: the effort set, the model not yet: not set, and no second word goes.
   const effortOnly = plan({ items, lanes: [lane('Units', { model: MODELS.sonnet, effort: 'high' })], deliveries, sent })
-  assert.deepEqual([effortOnly.words, [...effortOnly.held], effortOnly.runs.get('Units').isSet], [[], ['B8'], false])
-  // The model set, the effort not yet: it waits.
+  assert.deepEqual([effortOnly.words, effortOnly.runs.get('Units').isSet], [[], false])
+  // The model set, the effort not yet: not set.
   const modelOnly = plan({ items, lanes: [lane('Units', { model: MODELS.opus, effort: 'medium' })], deliveries, sent })
-  assert.deepEqual([[...modelOnly.held], modelOnly.runs.get('Units').isSet], [['B8'], false])
-  // Both, as the app's file of the chat says: the line goes.
+  assert.deepEqual(modelOnly.runs.get('Units').isSet, false)
+  // Both, as the app's file of the chat says: set.
   const both = plan({ items, lanes: [lane('Units', { model: MODELS.opus, effort: 'high' })], deliveries, sent })
-  assert.deepEqual([both.words, [...both.held], both.runs.get('Units').isSet], [[], [], true])
+  assert.deepEqual([both.words, both.runs.get('Units').isSet], [[], true])
   // The file decides when it names a model: an answer on Opus does not overrule a file that says Sonnet.
   const fileSays = plan({ items, lanes: [lane('Units', { model: MODELS.sonnet, effort: 'high', lastAnswer: { model: MODELS.opus, at: NOW - 30_000 } })], deliveries, sent })
-  assert.deepEqual([...fileSays.held], ['B8'])
   // A file that names no model: the chat's last answer says it, when no word for another model went after it.
   const noFile = plan({ items, lanes: [lane('Units', { model: null, effort: 'high', lastAnswer: { model: `${MODELS.opus}[1m]`, at: NOW - 30_000 } })], deliveries, sent })
-  assert.deepEqual([...noFile.held], [])
 })
 
 test('the review: an old reading is no confirmation (a file without a model and an answer from before the word back)', () => {
@@ -137,13 +134,12 @@ test('the review: an old reading is no confirmation (a file without a model and 
   const back = word('Units', 'medium', MODELS.sonnet, NOW - 10 * 60_000, 'taken', null)
   const stale = lane('Units', { model: null, effort: 'medium', lastAnswer: { model: MODELS.opus, at: NOW - 20 * 60_000 } })
   const a = plan({ items, deliveries, lanes: [stale], sent: [back] })
-  assert.deepEqual([[...a.held], a.runs.get('Units').isSet], [['B2'], false])
+  assert.deepEqual(a.runs.get('Units').isSet, false)
   // The opus word just went over it, not applied: still no confirmation from B1's old answer.
   const a2 = plan({ items, deliveries, lanes: [stale], sent: [back, word('Units', 'medium', MODELS.opus, NOW - 10_000, 'waiting', 'B2')] })
-  assert.deepEqual([a2.words, [...a2.held], a2.runs.get('Units').isSet], [[], ['B2'], false])
+  assert.deepEqual([a2.words, a2.runs.get('Units').isSet], [[], false])
   // An answer on Opus after both words: it runs on Opus.
   const after = plan({ items, deliveries, lanes: [{ ...stale, lastAnswer: { model: MODELS.opus, at: NOW - 5_000 } }], sent: [back, word('Units', 'medium', MODELS.opus, NOW - 10_000, 'delivered', 'B2')] })
-  assert.deepEqual([...after.held], [])
 })
 
 test('the review: a word for another setting still on its way keeps the step unset; the opus word goes once it is applied', () => {
@@ -152,61 +148,45 @@ test('the review: a word for another setting still on its way keeps the step uns
   const back = word('Units', 'medium', MODELS.sonnet, NOW - 30_000, 'waiting', null)
   // The word back to Sonnet waits in the main chat's queue; the file still says Opus (from B1): B2 does not go on it.
   const pending = plan({ items, deliveries, lanes: [lane('Units', { model: MODELS.opus, effort: 'medium' })], sent: [back] })
-  assert.deepEqual([pending.words, [...pending.held], pending.runs.get('Units').isSet], [[], ['B2'], false])
+  assert.deepEqual([pending.words, pending.runs.get('Units').isSet], [[], false])
   assert.match(pending.runs.get('Units').waitsFor.text, /^B2 waits for Opus: the word to set it to Sonnet first is not applied yet; it goes once Units runs on Opus\.$/)
   // Applied (the file says Sonnet): now the opus word goes, and the step waits for it.
   const applied = plan({ now: NOW + 60_000, items, deliveries, lanes: [lane('Units', { model: MODELS.sonnet, effort: 'medium' })], sent: [{ ...back, state: 'delivered' }] })
-  assert.deepEqual([applied.words.map(one => [one.model, one.step]), [...applied.held]], [[[MODELS.opus, 'B2']], ['B2']])
-  // The opus word applied after it: the line goes.
+  assert.deepEqual(applied.words.map(one => [one.model, one.step]), [[MODELS.opus, 'B2']])
+  // The opus word applied after it: set.
   const sent = [{ ...back, state: 'delivered' }, word('Units', 'medium', MODELS.opus, NOW + 60_000, 'delivered', 'B2')]
   const set = plan({ now: NOW + 120_000, items, deliveries, lanes: [lane('Units', { model: MODELS.opus, effort: 'medium' })], sent })
-  assert.deepEqual([set.words, [...set.held], set.runs.get('Units').isSet], [[], [], true])
+  assert.deepEqual([set.words, set.runs.get('Units').isSet], [[], true])
   // A word back that was lost changes nothing: the file is right.
   const lost = plan({ items, deliveries, lanes: [lane('Units', { model: MODELS.opus, effort: 'medium' })], sent: [{ ...back, state: 'expired' }] })
-  assert.deepEqual([...lost.held], [])
 })
 
-test('the review: an opus step not set in time stays held, the lane says since when, and the word goes again after half an hour', () => {
+test('the review: the lane of an opus step not set in time says since when it waits for Opus, and the word goes again after half an hour', () => {
   const items = itemsOf(step('B8', { Owner: 'Units' }, { Model: ['opus · a guard'], Effort: ['high · many parts'] }))
   const deliveries = [{ id: 'B8', chat: 'Units' }]
   const lanes = [lane('Units', { model: MODELS.sonnet, effort: 'medium' })]
-  const asked = new Date(NOW - HOLD_MS)
+  const asked = new Date(NOW - 3 * 60_000)
   const at = `${String(asked.getHours()).padStart(2, '0')}:${String(asked.getMinutes()).padStart(2, '0')}`
-  // Not applied within three minutes: held all the same, no second word yet.
-  const late = plan({ items, lanes, deliveries, sent: [word('Units', 'high', MODELS.opus, NOW - HOLD_MS, 'delivered', 'B8')] })
-  assert.deepEqual([late.words, [...late.held]], [[], ['B8']])
+  // Not applied within three minutes: the lane still says it waits for Opus, no second word yet.
+  const late = plan({ items, lanes, deliveries, sent: [word('Units', 'high', MODELS.opus, NOW - 3 * 60_000, 'delivered', 'B8')] })
+  assert.deepEqual(late.words, [])
   assert.equal(late.runs.get('Units').waitsFor.text, `B8 waits for Opus since ${at}: the main chat was asked, and the app does not say Opus yet; it goes once Units runs on Opus.`)
-  assert.equal(late.holds.get('B8'), late.runs.get('Units').waitsFor.text)
-  // A lost word holds it too, and goes once more after half an hour.
+  // A lost word goes once more after half an hour.
   const lost = word('Units', 'high', MODELS.opus, NOW - 60_000, 'expired', 'B8')
-  assert.deepEqual([...plan({ items, lanes, deliveries, sent: [lost] }).held], ['B8'])
   const again = plan({ items, lanes, deliveries, sent: [{ ...lost, at: NOW - AGAIN_MS }] })
-  assert.deepEqual([again.words.map(one => one.model), [...again.held]], [[MODELS.opus], ['B8']])
-  // No main chat (or no Workers mod): held, and the lane says why.
+  assert.deepEqual(again.words.map(one => one.model), [MODELS.opus])
+  // No main chat (or no Workers mod): no word, and the lane says why.
   const alone = effortPlan({ now: NOW, main: null, models: MODELS, items, lanes, deliveries, sent: [] })
-  assert.deepEqual([alone.words, [...alone.held]], [[], ['B8']])
+  assert.deepEqual(alone.words, [])
   assert.match(alone.runs.get('Units').waitsFor.text, /no main chat/)
   // A file that names no effort: the word goes all the same (the model can be read back), and the step waits for Opus.
   const noEffort = plan({ items, lanes: [lane('Units', { model: MODELS.sonnet, effort: null })], deliveries })
-  assert.deepEqual([noEffort.words.map(one => one.model), [...noEffort.held]], [[MODELS.opus], ['B8']])
+  assert.deepEqual(noEffort.words.map(one => one.model), [MODELS.opus])
   // A word for another model on its way first: the opus word waits for it to be applied.
   assert.deepEqual(plan({ items, lanes, deliveries, sent: [word('Units', 'high', MODELS.sonnet, NOW - 60_000, 'taken', 'B8')] }).words, [])
   // A step the worker holds already (in progress) cannot wait: its word goes, and the lane names no wait.
   const holding = plan({ items: itemsOf(step('B8', { Owner: 'Units', State: 'in progress' }, { Model: ['opus · a guard'], Effort: ['high · many parts'] })), lanes })
-  assert.deepEqual([holding.words.map(one => one.model), [...holding.held], holding.runs.get('Units').waitsFor], [[MODELS.opus], [], null])
-})
-
-test('a sonnet step keeps B468\'s timeout: not read back within three minutes, its line goes', () => {
-  const items = itemsOf(step('B9', { Owner: 'Units' }, { Effort: ['low · a text fix'] }))
-  const deliveries = [{ id: 'B9', chat: 'Units' }]
-  const lanes = [lane('Units', { model: MODELS.opus, effort: 'xhigh' })]
-  const fresh = plan({ items, lanes, deliveries, sent: [word('Units', 'low', MODELS.sonnet, NOW - 60_000, 'taken', 'B9')] })
-  assert.deepEqual([[...fresh.held], fresh.runs.get('Units').waitsFor], [['B9'], null])
-  assert.deepEqual([...plan({ items, lanes, deliveries, sent: [word('Units', 'low', MODELS.sonnet, NOW - HOLD_MS, 'delivered', 'B9')] }).held], [])
-  assert.deepEqual([...plan({ items, lanes, deliveries, sent: [word('Units', 'low', MODELS.sonnet, NOW - 60_000, 'expired', 'B9')] }).held], [])
-  // Without a main chat, or with a file that names no effort, it is not held at all (B468).
-  assert.deepEqual([...effortPlan({ now: NOW, main: null, models: MODELS, items, lanes, deliveries, sent: [] }).held], [])
-  assert.deepEqual([...plan({ items, lanes: [lane('Units', { effort: null })], deliveries }).held], [])
+  assert.deepEqual([holding.words.map(one => one.model), holding.runs.get('Units').waitsFor], [[MODELS.opus], null])
 })
 
 test('the review: the partner and its helper are skipped, so their own setting is never overwritten', () => {

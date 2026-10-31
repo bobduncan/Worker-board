@@ -89,26 +89,18 @@ export const DEFAULTS = {
   /** The review of chat-reports (principle 2): a chat whose reports stay silent this long is "Not running". */
   offAfterMinutes: 5,
   /**
-   * Redesign Part 2 (2026-10-25): a worker given a task and not taking it within this many minutes gets it taken back,
-   * and shows stuck when it sat idle (principle 2). At least 1.
-   */
-  takeWithinMinutes: 2,
-  /**
    * Redesign Part 2: a task that waits on one a worker finished is kept for that worker this many minutes. 0 (the
    * review of 2026-10-25): a preference only, it goes to that worker when it is idle at the give, else to anyone.
    */
   followUpMinutes: 0,
   /**
-   * Redesign Part 2, the review: a give whose line has not gone this many minutes after it (held for the worker's model,
-   * a clear, a mod restart, or its chat went off) goes back on the list, not stuck. At least takeWithinMinutes.
+   * T8.5 (spec 2026-10-31): how a worker is handed from one task to the next. "sequence" (unless set): the board's one
+   * decision at the worker's turn end and one envelope, for each worker whose Workers mod is 0.27.0 or newer (an older one
+   * is handed nothing). "timers" is the escape hatch: since step 6 removed the old timers it hands out nothing new, and the
+   * page says so in one line ("the hand-over is off: set handover to sequence"). (The old settings takeWithinMinutes and
+   * heldGiveMinutes are read without complaint and ignored.)
    */
-  heldGiveMinutes: 20,
-  /**
-   * T8.5 (spec 2026-10-31): how a worker is handed from one task to the next. "timers" (today's path: the mod's own clear,
-   * the give and its line, the take and held clocks) unless set; "sequence": the board's one decision at the worker's turn
-   * end and one envelope, for each worker whose Workers mod is 0.27.0 or newer (an older one keeps "timers").
-   */
-  handover: 'timers',
+  handover: 'sequence',
   /**
    * Redesign Part 2: `maxWorkers`, how many workers the board has the main chat run at most. B-max (the person,
    * 2026-10-28: "make the worker limit configurable in the settings default is 5."): 5 unless the file or the ⚙ panel
@@ -449,10 +441,8 @@ export function parseConfig(text, env) {
   if (Number.isFinite(raw.offAfterMinutes) && raw.offAfterMinutes >= 1) config.offAfterMinutes = raw.offAfterMinutes
   // Redesign Part 2: the hand-out's settings; one that is not right is left at its default (maxWorkers: 5).
   if (Number.isInteger(raw.maxWorkers) && raw.maxWorkers >= 1) config.maxWorkers = raw.maxWorkers
-  if (Number.isFinite(raw.takeWithinMinutes) && raw.takeWithinMinutes >= 1) config.takeWithinMinutes = raw.takeWithinMinutes
   if (Number.isFinite(raw.followUpMinutes) && raw.followUpMinutes >= 0) config.followUpMinutes = raw.followUpMinutes
-  if (Number.isFinite(raw.heldGiveMinutes) && raw.heldGiveMinutes >= 1) config.heldGiveMinutes = raw.heldGiveMinutes
-  // T8.5: any other value keeps today's path.
+  // T8.5: any other value keeps the default. Step 6: an old config.json's takeWithinMinutes and heldGiveMinutes are ignored.
   if (raw.handover === 'sequence' || raw.handover === 'timers') config.handover = raw.handover
   // 2026-10-25: true hands out tasks beyond the fixes, the focus goal's and the pinned ones too (oldest first).
   if (typeof raw.handOutBeyondFocus === 'boolean') config.handOutBeyondFocus = raw.handOutBeyondFocus

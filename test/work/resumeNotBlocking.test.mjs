@@ -94,7 +94,7 @@ test('the deadlock of 2026-10-19: while resuming, the person\'s answer to a hold
   }
 })
 
-test('1: only pausing holds; while resuming deliveries, pulls, note-wakes and every outbox line go as when running', async () => {
+test('1: only pausing holds; while resuming pulls, note-wakes and every outbox line go as when running', async () => {
   assert.equal(isHolding({ state: 'pausing', since: PAUSED }), true)
   assert.equal(isHolding({ state: 'resuming', since: RESUMED }), false)
   assert.equal(isHolding({ state: 'running', since: RESUMED }), false)
@@ -115,8 +115,10 @@ test('1: only pausing holds; while resuming deliveries, pulls, note-wakes and ev
     assert.deepEqual((await digger({ action: 'pull' })).result.wake, { to: 'Digger', id: 'B1' })
     assert.deepEqual((await digger({ action: 'turn-ended', since: NOW - MIN, pull: true })).result.pull.wake, { to: 'Digger', id: 'B1' })
     const outbox = memoryStore()
+    // T8.5 step 6: the workers' lines are their hand-overs' (the resume decides each anew: test/work/handover.test.mjs), so
+    // this pass sends them none; it holds nothing back either.
     const done = await deliver(resuming, outbox)
-    assert.deepEqual(done.sent.map(one => [one.to, one.about]), [['Digger', 'B1'], ['Raker', 'B2']])
+    assert.deepEqual(done.sent, [])
   } finally {
     await rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }

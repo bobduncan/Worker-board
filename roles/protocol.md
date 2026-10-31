@@ -71,14 +71,15 @@ tool answers with the record: work from it, not from a message.
   that worker when it is idle at the give (`followUpMinutes` 0, a preference only; above 0 it is kept for it that long),
   else to a worker on the step's model, else to the next; never one whose Touches overlap a step given or under way. The give is
   the flow's server move refined → queued ("the board hands it out"): Owner the worker, History "refined → queued
-  (given by the board to <worker>)". A step not taken within two minutes of its line goes back (queued → refined,
-  History "queued → refined (taken back from <worker>: not taken within 2 min)", with "; stuck" when the worker sat
-  idle through it: its lane shows "Stuck" until it reports anew). A worker that went busy after its line is waited for,
-  and its step goes back, not stuck, once it reports idle without having taken it. A step whose line has not gone
-  `heldGiveMinutes` (20) after the give (held for the worker's model, a clear, a mod restart, or its chat off) goes back,
-  not stuck ("its line was held"), and goes to another worker for that long. A step given to a chat missing from the
-  list goes back on the same clock (from its line, else from the give). A give the work API refuses is not tried again
-  for that worker for 15 minutes, and the ready list says why. With ready steps waiting, no worker idle and fewer workers running than the setting `maxWorkers`,
+  (given by the board to <worker>)". Since T8.5 the give is the hand-over's one decision at the worker's turn end
+  (DESIGN.md, "The hand-over as one sequence"): one envelope clears the chat, sets its model and effort, and types the
+  line. A step not taken in the turn its line started goes back at once (History "queued → refined (taken back from
+  <worker>: did not take it in its turn)") and is not offered to that worker again until it takes another; a hand-over
+  whose clear, set or line failed gives it back at once and holds the worker with the why; one the worker did not answer
+  in 10 minutes of the board's running time gives it back once ("did not answer its hand-over"). A step given to a
+  worker not on the sequence (the setting "timers", an older Workers mod) goes back at once, and one given to a chat
+  missing from the list 10 minutes after the give. A give the work API refuses moves to the next task in the same
+  decision. With ready steps waiting, no worker idle and fewer workers running than the setting `maxWorkers`,
   the board asks the main chat once for one more (`start "<chat>"` for a worker of the list whose chat is off, else
   `spawn workers`), counting only the steps a new worker could take (no Touches overlap) less the workers asked for in
   the last 10 minutes that have not reported yet. Nothing is given, taken back or asked for while the person pauses or
@@ -175,7 +176,7 @@ Typed by the Workers mod as the person's own words; each line below is the board
 | `resume` | the person pressed Resume all, and the main chat runs (2026-10-18: Pause all types nothing; a main chat that does not run reads the resume from `pause.json` through its Workers mod). B315: "not running" includes a chat whose card was left working by the quit app (its lane says "Not running"). A word only copied (no chat ran to take it) stays on the restart banner, with **Copy again**, until the main chat's transcript shows it, or a turn of the main chat has the word "resume" | `src/say.mjs`, `src/state.mjs` (`restart.copied`, `isStaleWork`) |
 | `start "<name>"` and its session id | a message waits for a chat that is not running, or the person pressed "Start <name>" on a lane the board flagged. T9.4 (2026-10-25): it goes to the main chat when that runs, else to the partner, else to another chat that runs (a free one first, the supervisor's last), and a word to the main chat that waits while it is off has one of them start the main chat; its words are the same for any chat (one line with SendMessage to its session id). When no chat runs the state says so (`nobodyRuns`) and Needs your attention shows one line | `src/say.mjs` (`wakeFor`, `wakerFor`, `nobodyRunsOf`) |
 | `work: notes N<id>, N<id> for you; run work next` (no mark: the board's word, to the main chat) | Focus 4: the notes to the main chat it has not read, written with `work note --to main` by another chat (never its own, never the board's note of a report, `Via: report`), in one line per refresh; none while such a line waits or was taken, none for notes filed before the board first did this (`notesFrom` in `delivered.json`), not while the main chat is suspended; its `work next` marks them read by it | `src/work/reconcile.mjs` (`notes`), `src/work/deliver.mjs` (`noteKey`), `src/work/api.mjs` (`next`) |
-| `work: B<id> is yours; run work next` (no mark: the board's word) | the board gave the step to that worker (redesign Part 2), or the worker's own pull at the end of a turn finds one given to it: take it now (within two minutes, or it goes back on the list); once per step, worker and give | `src/say.mjs` (`workWords`), `src/work/deliver.mjs` |
+| `work: B<id> is yours; run work next` (no mark: the board's word) | the board gave the step to that worker (redesign Part 2), as the line of its hand-over's envelope (T8.5): take it now, in this turn, or it goes back on the list; once per step, worker and give | `src/work/handover.mjs` (`lineFor`), `src/work/handoverBoard.mjs` |
 | `work: the board's check of B<id> failed (...); see work next` | the board's check after a report failed; once | `src/work/reconcile.mjs`, `src/work/deliver.mjs` |
 | `work: Q<id> is yours to answer for the person; run work next` (no mark: the board's word, to the partner) | Partner answers (2026-10-19): an ask routed to the partner, once per ask, while the partner is free (its chat not running: the main chat is asked to start it), never while the person pauses; withdrawn once the ask is answered or handed on | `src/work/reconcile.mjs` (`partnerAsks`), `src/work/deliver.mjs` (`partnerAskKey`), `src/work/partnerAnswers.mjs` |
 | `(answered on the worker board, HH:MM) Q<id> "<title>": Your partner answered this for the person: <answer> (why: <why>). The person may still take it back.` | Partner answers: the partner answered the chat's routed ask | `src/work/api.mjs` (`partnerAnswer`), `server.mjs` (`sendWakes`) |
@@ -250,8 +251,12 @@ Context for the model only, never typed into the chat, read from `pause-state` (
 
 The board leaves its own lines out of the talk it shows (`src/state.mjs`, `BOARD_WORDS`, `isClockLine`).
 
-Clear after each step (2026-10-23, the mod 0.14.0): when the list of chats says `"afterStep": "clear"`, the Workers
-mod clears a worker after the turn in which it reported its step, even when more work follows: first `save-log`
+Clear after each step (2026-10-23, the mod 0.14.0): when the list of chats says `"afterStep": "clear"`, a worker is
+cleared after the turn in which it reported its step, even when more work follows. Since T8.5 (Workers mod 0.27.0, the
+setting `handover: "sequence"`) the board decides that clear: it is the first field of the hand-over envelope the
+turn-ended answer brings (DESIGN.md, "The envelope's contract for the Workers mod"), and the mod runs it as below, then
+types the next task's line; a clear that cannot run fails the envelope and holds the worker with the why (the rule
+handover-held). Before that the mod decided it itself (a mod older than 0.27.0 still does, and is handed no task): first `save-log`
 (`stepId`, the mod's own work call, never the model's: the board refuses it for the main chat, the partner, its helper
 and a chat with background work still running), then the mark on the card, then /clear once the chat is idle (a
 prompt or turn that comes in first stops it: a real turn on the same session drops the clear, and a /clear of the mod
@@ -260,10 +265,9 @@ the board does not answer that it is a worker (`role` in turn-ended's answer), t
 person something the board did not file (`unfiled` in turn-ended's answer, which also counts the items past the nine
 the board files), it sent another chat a message in that turn, a subagent of it still runs, or the log could not be
 saved. A turn-ended answered late (the board checks a report then) is waited for apart, up to 15 s, asked again with
-the same request id (0.14.2). B547 (mod 0.17.0): a worker whose last report is newer than its last clear gets no new
-step until it is cleared: its step's line waits, its `take` is refused ("Not yet: this chat is cleared after B12 first
-..."), and once it is idle the bridge's take answer names the clear (`clear: { step, reportedAt }`), which the mod runs
-as above. The board reads the session it left on to its end for the task times and the spending (`left` in
+the same request id (0.14.2). B547 (mod 0.17.0): the board keeps the account of a clear owed (a worker whose last report
+is newer than its last clear); since T8.5 step 6 that account is what the envelope's `clear` reads, and the take no
+longer names a clear nor refuses a worker that owes one. The board reads the session it left on to its end for the task times and the spending (`left` in
 `data/chat-logs.json`, and the state's `movedFrom`). The conversation after the clear is told, as the start's context:
 
 | The words | When | Written in |

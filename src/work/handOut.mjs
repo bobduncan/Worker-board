@@ -1,9 +1,9 @@
 // Redesign Part 2 (2026-10-24 spec, "The board hands out all work"; plan 2026-10-25): one ordered list of the tasks
 // that are ready, and the board gives the first suitable one to a worker the moment it reports idle (principle 1: code
-// before chat). This is the pure part: the list (`readyList`), who gets what (`match`), what goes back on the list
-// (`takeBacks`), who shows stuck (`stuckWorkers`) and when the board asks for a worker (`workerStart`). The reconciler
-// names them (reconcile.mjs), the server carries them out through the work API (deliver.mjs). The code says "step"; the
-// person reads "task".
+// before chat). This is the pure part: the list (`readyList`), who gets what (`match`) and when the board asks for a
+// worker (`workerStart`). Since T8.5 step 6 the give itself is the hand-over's one decision at the worker's turn end
+// (handover.mjs `decide`, which calls `match` for that one worker); the take-back and stuck clocks are gone. The code
+// says "step"; the person reads "task".
 
 import { familyOf, modelOf } from './effort.mjs'
 import { UNDER_WAY, overlapIn, readyHold } from './guards.mjs'
@@ -11,12 +11,10 @@ import { isFix, sinceMs, valueOf } from './item.mjs'
 import { barredFrom, isQaTask, notDueWhy } from './qaTask.mjs'
 
 /**
- * The settings' defaults (config.mjs): minutes to take a given task; minutes a follow-up is kept for its worker (0: a
- * preference only, the review of 2026-10-25: the builder is mostly busy again by then); minutes a give may wait for its
- * line (a model switch, a clear, a mod restart, a chat off) before it goes back; 5 workers at most (B-max, the person,
- * 2026-10-28: "default is 5").
+ * The settings' defaults (config.mjs): minutes a follow-up is kept for its worker (0: a preference only, the review of
+ * 2026-10-25: the builder is mostly busy again by then); 5 workers at most (B-max, the person, 2026-10-28: "default is 5").
  */
-export const HAND_OUT_DEFAULTS = Object.freeze({ takeWithinMinutes: 2, followUpMinutes: 0, heldGiveMinutes: 20, maxWorkers: 5, handOutBeyondFocus: false })
+export const HAND_OUT_DEFAULTS = Object.freeze({ followUpMinutes: 0, maxWorkers: 5, handOutBeyondFocus: false })
 /** How long a worker the board asked the main chat to start counts as on its way (it has not reported yet). */
 export const START_WAIT_MS = 10 * 60_000
 
@@ -186,18 +184,11 @@ export function isPlacedBefore(item) {
   return last !== undefined && !GIVE_LINE.test(last)
 }
 
-/** B764: a step the board gave a worker and the worker has not taken: queued, with an Owner, its newest move to queued the board's give. */
-export function isGiven(item) {
-  if (stateOf(item) !== 'queued' || valueOf(item, 'Owner') === null) return false
-  return GIVE_LINE.test(historyOf(item).findLast(line => QUEUED_LINE.test(line)) ?? '')
-}
-
 /**
  * Redesign Part 2, at rollout (plan Question 2): the tasks queued before the board handed out all work: every step
  * queued whose newest placement is such a line, not the board's give, and every step that keeps a queue asked before its
  * refine (`Queue when refined`). `[{ id }]` by id; the board puts them back on the list once (api.mjs `retire-queue`), so
- * it finds none after. A queued step with neither line (one the backlog's migration made queued) is left to the
- * take-back, as any given task.
+ * it finds none after. A queued step with neither line (one the backlog's migration made queued) is left as it is.
  */
 export function oldQueued(items) {
   return [...items.values()].filter(item => kindOf(item) === 'step' && typeof idOf(item) === 'string' && (
@@ -216,9 +207,38 @@ const holdsOf = (items, name, prefix) => [...items.values()].some(item => kindOf
 const isWorkerLane = lane => lane.isMain !== true && lane.isLeftover !== true
 
 /**
+ * T8.5 step 6: the tasks the board gave that no hand-over will ever carry on (principle 2: nothing waits for ever), back
+ * on the list: `[{ id, chat, why }]`. A step queued by the board's give (its newest move to queued is the give) whose Owner
+ * is a worker of the list not on the sequence (the setting turned to "timers", its mod older than the sequence's) goes
+ * back at once; one whose Owner is no worker of the list (dropped from the app's list, gone) goes back `waitMs` after the
+ * give (the list may lose a chat for a while). A worker on the sequence is its hand-over's (its net). A board that reads
+ * no worker at all (the app's list of chats could not be read) takes nothing back.
+ */
+export function strandedGives({ items, lanes = [], now, waitMs, prefix = '' }) {
+  const backs = []
+  const workers = lanes.filter(isWorkerLane)
+  if (workers.length === 0) return backs
+  const queued = [...items.values()].filter(item => kindOf(item) === 'step' && stateOf(item) === 'queued' && valueOf(item, 'Owner') !== null
+    && GIVE_LINE.test(historyOf(item).findLast(line => QUEUED_LINE.test(line)) ?? ''))
+  for (const item of queued.sort((a, b) => byId(idOf(a), idOf(b)))) {
+    const owner = bare(valueOf(item, 'Owner'), prefix)
+    const lane = workers.find(one => plain(one.name, prefix) === plain(owner, prefix))
+    if (lane?.onSequence === true) continue
+    if (lane !== undefined) {
+      backs.push({ id: idOf(item), chat: lane.name, why: `${lane.name} is not on the hand-over` })
+      continue
+    }
+    const givenAt = sinceMs(valueOf(item, 'Since'))
+    if (Number.isFinite(givenAt) && now - givenAt >= waitMs) backs.push({ id: idOf(item), chat: owner, why: `${owner} is no worker of the list` })
+  }
+  return backs
+}
+
+/**
  * The workers that get a task now (principle 3: only what a chat told the board): a worker lane (not the main chat, not
  * a leftover) whose chat reports (`lane.report`, the Workers mod's own word), idle and free (or, B567, named in
- * `restFree`: it rests while its task waits on the person), running, holding no step given or under way, not stuck.
+ * `restFree`: it rests while its task waits on the person), running, holding no step given or under way, not in `stuck`
+ * (the reconciler's: a worker its failed report check was handed back to).
  * Free by the board's older reading of a chat, unknown, off, suspended or busy: none. The one idle longest first, then
  * by name. T13 part 3: an asleep one (its process ended after it said idle: state.mjs `asleep`) is free too: its task's
  * line wakes it (the board's start word beside it, deliver.mjs `sendOnce`).
@@ -242,19 +262,16 @@ const isBarred = (one, worker, prefix = '', items = null) => {
   return names.some(name => plain(name, prefix) === plain(worker.name, prefix))
 }
 
-/** The key of a task and a worker the board does not give it to for a while (`skip` of `match`). */
-export const pairKey = (id, chat, prefix = '') => `${id} ${plain(chat, prefix)}`
-
 /**
  * Who gets what now: `[{ id, chat, why }]`, each worker and each task at most once. First each kept task (its pin, its
  * follow-up) to its worker when that worker is idle; a kept task whose worker is not idle waits. Then the rest in the
  * list's order, each to the worker it prefers (a follow-up's builder) when that one is idle, else to an idle worker
  * already on its model family, else to the first idle one. A task whose Touches overlap a step given or under way, or
- * one given in this pass, is skipped; so is a task and worker of `skip` (`pairKey`: a give refused, or taken back after
- * its line was held). T9.1.1: a QA task is never given to a worker in its `notBy`; with only such workers idle it waits
- * for another, and the next task of the list goes on to them.
+ * one given in this pass, is skipped. T9.1.1: a QA task is never given to a worker in its `notBy`; with only such workers
+ * idle it waits for another, and the next task of the list goes on to them. (T8.5 step 6: the hand-over's `decide` calls
+ * it for one worker at a time; what it may not offer that worker it leaves out of `ready` itself.)
  */
-export function match({ ready = [], idle = [], items, prefix = '', skip = new Set() }) {
+export function match({ ready = [], idle = [], items, prefix = '' }) {
   const scratch = new Map(items)
   const free = [...idle]
   const given = []
@@ -265,9 +282,8 @@ export function match({ ready = [], idle = [], items, prefix = '', skip = new Se
     given.push({ id: one.id, chat: lane.name, why })
   }
   const overlaps = one => overlapIn(scratch, items.get(one.id), COUNTS_FOR_TOUCHES) !== null
-  // The recheck: a pinned task is never barred from its own worker (a refusal or a held take-back bars others only).
-  // T9.1.1: and a QA task is never given to a chat that built the step it checks, pinned or not.
-  const may = (one, worker) => !isBarred(one, worker, prefix, items) && ((one.pinned != null && plain(one.pinned, prefix) === plain(worker.name, prefix)) || !skip.has(pairKey(one.id, worker.name, prefix)))
+  // T9.1.1: a QA task is never given to a chat that built the step it checks, pinned or not.
+  const may = (one, worker) => !isBarred(one, worker, prefix, items)
   for (const one of ready.filter(task => task.keptFor !== null && items.has(task.id))) {
     const lane = free.find(worker => plain(worker.name, prefix) === plain(one.keptFor, prefix) && may(one, worker))
     if (lane === undefined || overlaps(one)) continue
@@ -286,129 +302,6 @@ export function match({ ready = [], idle = [], items, prefix = '', skip = new Se
   }
   return given
 }
-
-/** A work line of the board's to a chat about a step (not the sync check's): the line the take is counted from. */
-const isWorkLine = (message, id, owner, prefix) => message.command === 'work' && message.about === id && (message.syncKey ?? null) === null
-  && plain(message.to, prefix) === plain(owner, prefix) && Number.isFinite(message.at)
-
-/** The why of a take-back of a give whose line never went (`takeBacks`): no stuck mark, and that worker is skipped a while. */
-export const HELD_WHY = 'its line was held'
-
-/**
- * The given tasks that go back on the list (principle 2): `[{ id, chat, stuck, why }]`. The clock of a give runs from
- * its newest work line to its Owner (a line of an earlier give is older than its Since and does not count), and never
- * from before `notBefore` (the end of a pause or of a full limit: the board held its lines then).
- * - Not taken `takeWithinMs` after its line: back. `stuck` only when the worker's report is fresh and has said idle
- *   since before that line: it never reacted. A worker that reacted (its report went busy after the line) is waited
- *   for: once it reports idle again without having taken it, the task goes back, not stuck.
- * - No line yet (held for its model, a clear, a mod restart, or its chat went off or unknown before it): a give of the
- *   board's goes back `heldGiveMs` after it, not stuck ("its line was held"), so no give waits for ever.
- * - Its Owner no worker lane of the list (dropped from the app's list for a while, or gone): the same clocks as any:
- *   from the line, else (no line yet) the held limit from the give; never at once.
- */
-export function takeBacks({ items, outbox = [], lanes = [], now, takeWithinMs, heldGiveMs = HAND_OUT_DEFAULTS.heldGiveMinutes * 60_000, prefix = '', notBefore = null }) {
-  const backs = []
-  const workers = lanes.filter(isWorkerLane)
-  // A board that reads no worker at all (the app's list of chats could not be read) takes nothing back.
-  if (workers.length === 0) return backs
-  const floor = Number.isFinite(notBefore) ? notBefore : -Infinity
-  const minutesOf = ms => Math.round(ms / 60_000)
-  const queued = [...items.values()].filter(item => kindOf(item) === 'step' && stateOf(item) === 'queued' && valueOf(item, 'Owner') !== null)
-  for (const item of queued.sort((a, b) => byId(idOf(a), idOf(b)))) {
-    const id = idOf(item)
-    const owner = bare(valueOf(item, 'Owner'), prefix)
-    const givenAt = sinceMs(valueOf(item, 'Since'))
-    const line = outbox.filter(message => isWorkLine(message, id, owner, prefix) && !(message.at < givenAt)).sort((a, b) => a.at - b.at).at(-1)
-    const lineAt = line === undefined ? null : Math.max(line.at, floor)
-    const startAt = Math.max(Number.isFinite(givenAt) ? givenAt : now, floor)
-    const lane = workers.find(one => plain(one.name, prefix) === plain(owner, prefix))
-    if (lane === undefined) {
-      if (lineAt === null ? now - startAt >= heldGiveMs : now - lineAt >= takeWithinMs) backs.push({ id, chat: owner, stuck: false, why: `${owner} is no worker of the list` })
-      continue
-    }
-    if (lineAt === null) {
-      // Only a give of the board's (its newest move to queued is the give): a step queued otherwise (the backlog's
-      // migration) goes by its line alone.
-      const isGive = GIVE_LINE.test(historyOf(item).findLast(one => QUEUED_LINE.test(one)) ?? '')
-      if (isGive && now - startAt >= heldGiveMs) backs.push({ id, chat: lane.name, stuck: false, why: `${HELD_WHY} ${minutesOf(heldGiveMs)} min` })
-      continue
-    }
-    // T13 part 3: an asleep worker is started by the start word beside its line first: it has the time a start takes.
-    const takeMs = lane.asleep === true ? Math.max(takeWithinMs, START_WAIT_MS) : takeWithinMs
-    if (now - lineAt < takeMs) continue
-    const report = lane.report ?? null
-    const isFresh = report !== null && lane.isRunning === true && !['unknown', 'off', 'suspended'].includes(lane.state)
-    // The recheck: it reacted only when its line itself was taken (or typed) and its turn began after the line; a busy
-    // turn of something else while the line still waits (the person typed to it) is no reaction.
-    const isTaken = ['taken', 'delivered'].includes(line.state)
-    const reacted = isFresh && isTaken && Number.isFinite(report.since) && report.since >= lineAt
-    if (reacted && report.state !== 'idle') continue
-    const stuck = isFresh && report.state === 'idle' && Number.isFinite(report.since) && report.since < lineAt
-    backs.push({ id, chat: lane.name, stuck, why: reacted ? 'not taken in the turn after its line' : `not taken within ${minutesOf(takeMs)} min` })
-  }
-  return backs
-}
-
-/** The recheck: how many times a step was taken back because its line was held (its History). */
-export const heldBacksOf = item => historyOf(item).filter(line => HELD_BACK_LINE.test(line)).length
-
-/**
- * The recheck: the words for a task taken back twice because its line was held (an Opus task no worker runs on, the
- * switch never made): said once to the main chat and on the ready list.
- */
-export function heldTwiceWords(item) {
-  return modelOf(item).family === 'opus'
-    ? `${idOf(item)} waits for a worker on Opus: the switch did not happen`
-    : `${idOf(item)} was taken back twice: its line was held (a model or effort switch, a clear or a restart did not happen)`
-}
-
-/**
- * The tasks and workers the board does not give together for now (`pairKey`): a give the work API refused lately
- * (`refused`, `{ id, chat }`, kept a while by the server), and a give taken back because its line was held, for
- * `heldGiveMs` after the take-back (its History line), so a task held for a worker's model goes to another one.
- */
-export function skipPairs({ items, refused = [], now, heldGiveMs = HAND_OUT_DEFAULTS.heldGiveMinutes * 60_000, prefix = '' }) {
-  const skip = new Set(refused.map(one => pairKey(one.id, one.chat, prefix)))
-  for (const item of items.values()) {
-    if (kindOf(item) !== 'step' || stateOf(item) !== 'refined') continue
-    for (const line of historyOf(item)) {
-      const hit = line.match(HELD_BACK_LINE)
-      if (hit !== null && now - sinceMs(hit[1]) < heldGiveMs) skip.add(pairKey(idOf(item), hit[2], prefix))
-    }
-  }
-  return skip
-}
-const HELD_BACK_LINE = new RegExp(`^-\\s+(\\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2})\\s+server: queued → refined \\(taken back from (.+?): ${HELD_WHY}\\b`)
-
-/** The History line of a take-back that left its worker stuck (api.mjs `advance` with `takeBack`). */
-const STUCK_LINE = /^-\s+(\d{4}-\d{2}-\d{2} \d{2}:\d{2})\s+server: queued → refined \(taken back from (.+?): .*; stuck\)$/
-
-/**
- * The stuck take-backs per worker lane: `Map<lane name, { id, at, stamp }>`, the newest whose stamp is at or after the
- * lane's report's since (the stamp is to the minute; a take-back comes at least `takeWithinMinutes` ≥ 1 after the line
- * the worker sat idle through, so a report since before it is older than that minute). A worker that reported anew is
- * no longer stuck.
- */
-export function stuckTakeBacks({ items, lanes = [], prefix = '' }) {
-  const found = new Map()
-  const workers = lanes.filter(lane => isWorkerLane(lane) && Number.isFinite(lane.report?.since))
-  if (workers.length === 0) return found
-  for (const item of items.values()) {
-    if (kindOf(item) !== 'step') continue
-    for (const line of historyOf(item)) {
-      const hit = line.match(STUCK_LINE)
-      if (hit === null) continue
-      const lane = workers.find(one => plain(one.name, prefix) === plain(hit[2], prefix))
-      const at = sinceMs(hit[1])
-      if (lane === undefined || !(at >= lane.report.since)) continue
-      if (!found.has(lane.name) || found.get(lane.name).at <= at) found.set(lane.name, { id: idOf(item), at, stamp: hit[1] })
-    }
-  }
-  return found
-}
-
-/** The worker lanes that are stuck now (`stuckTakeBacks`), by name. */
-export const stuckWorkers = facts => new Set(stuckTakeBacks(facts).keys())
 
 /**
  * The workers on their way (the review of 2026-10-25: one ready task made two spawns): a worker of the list the main

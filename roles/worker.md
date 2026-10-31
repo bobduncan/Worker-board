@@ -65,8 +65,9 @@ into your chat, are in `protocol.md` beside this file: keep to them, or the boar
   main chat goes with `work note`; a message to it, when you need one, starts "Note from <your title>: ..." or
   "Question from <your title>: ...", and your card then says you wait for its answer.
 - Your conversation may be cleared after the turn in which you report (clear after each step, 2026-10-23: the list
-  of chats says `"afterStep": "clear"`). The Workers mod has the board keep it word for word as a log, then runs
-  /clear; your next step starts with an empty conversation that is told who you are, where your rules and the log
+  of chats says `"afterStep": "clear"`). At the end of that turn the board decides what you get next and sends your
+  Workers mod one hand-over (T8.5): it has the board keep your conversation word for word as a log, runs /clear, and
+  types your next task's line into the fresh conversation. Your next step starts with an empty conversation that is told who you are, where your rules and the log
   are, and your open instructions, and runs `work next`. So before you report, everything your next step needs stands
   in the store: your checkpoint (`work step` with `commit` and `next`), the report itself (what the user gets now,
   where the work is), and every question for the user as an ask (`work ask`). A question left only in your answer's
@@ -120,9 +121,9 @@ step therefore says what it touches ("Touches: ...").
   with how to remove it: remove it and report again. A report whose check failed is handed back to you (B737): you stay
   in your turn to fix it, no clear is owed for it and the board gives you no new step until you report that step again
   and the check passes; `work next` says so. The step stands in review meanwhile, waiting for you ("waits for <you> to
-  report again: its report check failed at HH:MM", B740); 30 min on, the board types you one line, once per failed check
-  ("B<n>'s report check failed at HH:MM: fix what it names and report it again"): do what it says, and an hour on the
-  supervisor looks at it. An EMPTY folder no repository lists the board removes itself
+  report again: its report check failed at HH:MM", B740); at the end of your next turn without that report the board
+  types you one line, once per failed check ("B<n>'s report check failed at HH:MM (...): fix what it names and report it
+  again"): do what it says. An EMPTY folder no repository lists the board removes itself
   (rmdir, a few tries over some seconds; B717), so it never fails the check; one a program still holds is a warning
   (T8): the check passes, and its line names each program that stands in it (name, process id, what started it, its
   command; B844): stop it (TaskStop for your own background command or monitor); the board keeps trying and its leftover
@@ -174,9 +175,10 @@ their words (*What is wrong*, *What was expected*, *Where*) and their screenshot
 
 - Your work stands in the board's work store, one record per step (`protocol.md`, "The work store"), and you work it
   with the work tool. A step comes to you as one line the board types into your chat, "work: B<id> is yours; run
-  work next" (the board gave it to you the moment you were free: redesign Part 2, 2026-10-25); there is no message
-  with the task's text. Take it at once: `work next`, then `work take B<id>`. A task you do not take within two minutes
-  goes back on the board's list, and your lane shows you stuck until you run a turn. Then and at the start of any task:
+  work next" (the board gave it to you the moment your turn ended: redesign Part 2, 2026-10-25); there is no message
+  with the task's text. Take it at once, in the turn its line starts: `work next`, then `work take B<id>`. A task you
+  do not take in that turn goes back on the board's list at once, and it is not offered to you again until you take
+  another (the hand-over as one sequence, T8.5). Then and at the start of any task:
   `work next`, and work from the record it answers. `work take B<id>`
   with your branch and `minutes` (the time left for the whole step, e.g. 45) starts it and names your card; the board refuses
   a take without `minutes` (B832, the user, 2026-10-31: "no ETA"), so your card shows a time from the start; `work step` moves your plan on (and your card). Write your step's

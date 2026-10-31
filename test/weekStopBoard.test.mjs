@@ -1,6 +1,6 @@
 // B759 (B742's check), end to end on a running board: the case of 2026-10-27, the week at 98% from 22:20. B738 waits
-// ready, Worker 4 is free and runs, Workers 2, 3 and 5 work. At the stop line the board hands B738 to nobody (no word to
-// Worker 4, so no "not taking" either) and types its one stop word to each working worker; at 97% it hands out as before and
+// ready, Worker 4 is free and runs, Workers 2, 3 and 5 work. At the stop line the board hands B738 to nobody (no hand-over
+// to Worker 4; T8.5 step 6: the workers are on the sequence, Workers mod 0.27.0) and types its one stop word to each working worker; at 97% it hands out as before and
 // says nothing. A copy of the board on a made-up project in a temporary folder only.
 
 import assert from 'node:assert/strict'
@@ -115,7 +115,7 @@ async function boardAt(t, week, fiveHour = 10, settings = {}) {
   const { key } = JSON.parse(await readFile(join(project, '.claude', 'board.json'), 'utf8'))
   for (const [name, state] of lanes) {
     const sent = await fetch(`${base}/api/bridge/report`, {
-      method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Board-Key': key, 'X-Workers-Mod': '0.24.2' },
+      method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Board-Key': key, 'X-Workers-Mod': '0.27.0' },
       body: JSON.stringify({ chat: name, session: `${name.toLowerCase().replace(/\W+/g, '-')}-id`, report: { state: state === 'working' ? 'busy' : 'idle', since: NOW - 3 * MIN, seq: 1, run: 1 } }),
     })
     assert.equal(sent.status, 200, await sent.text())
@@ -139,16 +139,16 @@ test('the week at 98: B738 goes to nobody, Worker 4 hears nothing, and Workers 2
   const seen = await state()
   assert.deepEqual(seen.readyList.ready.map(one => one.id), ['B738'])
   assert.equal(seen.reconciled.handOutHeld, true)
-  assert.deepEqual(seen.reconciled.gives, [])
 })
 
 /** Handed out as always: B738 goes to Worker 4 and nobody is told to stop. */
 async function handsOut(t, ...args) {
   const { outbox } = await boardAt(t, ...args)
-  await until(async () => (await outbox()).some(one => one.command === 'work' && one.about === 'B738'), 'the line of B738 in the outbox')
+  // T8.5 step 6: B738 goes in Worker 4's hand-over (one envelope with its line).
+  await until(async () => (await outbox()).some(one => one.command === 'handover' && one.step === 'B738'), 'the hand-over of B738 in the outbox')
   await new Promise(done => setTimeout(done, 3000))
   const sent = await outbox()
-  assert.equal(sent.find(one => one.about === 'B738').to, 'Worker 4')
+  assert.equal(sent.find(one => one.step === 'B738').to, 'Worker 4')
   assert.deepEqual(sent.filter(one => one.command === 'week-stop'), [])
 }
 

@@ -155,7 +155,9 @@ test('two board processes on one project: each line goes out once, and the other
   const job = (id, session) => ({ id, chat: 'Units', session, step: 'B9', at: NOW, state: 'copy', source: join(transcripts, `${session}.jsonl`), jsonl: join(logs, `${id}.jsonl`), txt: join(logs, `${id}.txt`), log: `.claude/chat-logs/Units/${id}.txt` })
   await put(journal, JSON.stringify({ jobs: [job('gone', 'gone-id')], left: [] }))
   const store = join(project, '.claude', 'work')
-  const FOR = { B13: 'Units', B14: 'Maps', B15: 'Units' }
+  // T8.5 step 6: a line from the board's pass goes to the main chat only (a worker's comes in its hand-over), so the steps
+  // whose lines are counted are the main chat's.
+  const FOR = { B13: 'Main', B14: 'Maps', B15: 'Main' }
   const steps = (ids, refined = [], done = []) => migrateBacklog(`## Art\n${ids.map(id => `- [${done.includes(id) ? 'x' : ' '}] ${id} Draw the shield (for ${FOR[id]}; about 1 h)\n${refined.includes(id) ? '  Refined (2026-10-24 09:00; ready):\n  Summary: A shield.\n' : ''}`).join('')}`, { now: NOW })
   await writeStore(store, steps(['B13', 'B14']), undefined, { now: NOW })
   const [one, two] = [await freePort(), await freePort()]
@@ -227,7 +229,7 @@ test('two board processes on one project: each line goes out once, and the other
   await until(async () => (await sent(isRefineOf('B15'))).length > 0, 'the refine of B15', 10_000)
   await wait(8_000)
   assert.equal((await sent(isLineOf('B15'))).length, 1, 'the line of B15 went out once')
-  assert.equal((await sent(isLineOf('B14'))).length, 1, 'the line of B14 was not sent again')
+  assert.equal((await sent(isLineOf('B14'))).length, 0, 'no line of B14: its worker gets it in its hand-over')
   assert.equal((await sent(isLineOf('B13'))).length, 1, 'the line of B13 was not sent again')
   assert.equal((await sent(isRound)).length, 1, 'the round was not sent again')
   assert.equal((await sent(isRefineOf('B14'))).length, 1, 'the refine of B14 was not sent again')

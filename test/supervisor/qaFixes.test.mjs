@@ -145,7 +145,8 @@ test('7, through the real work API: the check is saved, the close fails; the boa
 
 const lane = (name, more = {}) => ({ name, isMain: false, isLeftover: false, state: 'free', isRunning: true, session: `s-${name}`, ...more })
 const LEAD = lane('Lead', { isMain: true, state: 'working' })
-const free = (name, since = ago(40)) => lane(name, { state: 'free', report: { state: 'idle', since, background: false, at: ago(0) } })
+// T8.5 step 6: a free worker is one free in its hand-over, on the sequence.
+const free = (name, since = ago(40)) => lane(name, { state: 'free', onSequence: true, handover: { state: 'free', why: null, step: null }, report: { state: 'idle', since, background: false, at: ago(0) } })
 const view = (more = {}) => buildView({
   state: { chats: more.chats ?? [LEAD], today: [], limits: {}, pause: more.pause ?? null, chatPrefix: '', readyList: more.readyList ?? null, wakeFailed: [], nobodyRuns: null },
   items: more.items ?? new Map(), outbox: more.outbox ?? [], repairs: [], mods: null, settings: more.settings ?? {}, now: more.now ?? NOW,

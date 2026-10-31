@@ -3,8 +3,9 @@
 // hand-over rules become four, each tied to one step of the sequence: `handover-held` (a worker HELD, its clear, set or
 // restart did not run, for over notClearedMinutes of running time, with the mod's why), `handover-unanswered` (the net
 // fired, one per envelope), `ready-while-free` read from the hand-over's own FREE, and `review-stuck` without its report
-// part (the decision tells the worker at its turn's end). not-cleared, not-taking and the clear part of skip-repeats skip such
-// a worker since step 2. A worker on the timers keeps every old rule, and the new rules never fire for it. Made-up names.
+// part (the decision tells the worker at its turn's end). Step 6: not-cleared, not-taking, the clear part of skip-repeats
+// and the report part of review-stuck are gone for every worker; a worker not on the sequence is handed nothing, so it is
+// never free for ready-while-free, and the new rules never fire for it. Made-up names.
 
 import assert from 'node:assert/strict'
 import test from 'node:test'
@@ -42,9 +43,10 @@ const view = (more = {}) => buildView({
 })
 const check = (id, board, seen = new Map()) => WATCH_RULES.find(one => one.id === id).check(board, { seen, observed: [] })
 
-test('the watch rules: the two of the sequence stand beside not-taking, report only', () => {
+test('the watch rules: the two of the sequence stand where not-cleared and not-taking stood, report only (mutant: the list not updated)', () => {
   const ids = WATCH_RULES.map(one => one.id)
-  assert.deepEqual(ids.slice(ids.indexOf('not-taking'), ids.indexOf('not-taking') + 3), ['not-taking', 'handover-held', 'handover-unanswered'])
+  assert.deepEqual(ids.slice(ids.indexOf('effort-mismatch'), ids.indexOf('effort-mismatch') + 3), ['effort-mismatch', 'handover-held', 'handover-unanswered'])
+  for (const gone of ['not-cleared', 'not-taking']) assert.equal(ids.includes(gone), false, gone)
   for (const id of ['handover-held', 'handover-unanswered']) assert.equal(WATCH_RULES.find(one => one.id === id).kind, 'watch')
 })
 
@@ -92,7 +94,7 @@ test('handover-unanswered: the net fired: one finding per envelope, for a day; a
   assert.deepEqual(check('handover-unanswered', view({ chats: [LEAD, onTimers('Digger', 'unknown')], outbox: [sent('e1', 12, 2)] })), [])
 })
 
-test('ready-while-free reads the hand-over\'s own FREE for a worker on the sequence (R7, X111): held, handing or checking is not free; a timers worker as before', () => {
+test('ready-while-free reads the hand-over FREE only (R7, X111): held, handing or checking is not free; a worker not on the sequence never is', () => {
   const B5 = parseItem(`Id: B5\nKind: step\nTitle: Step B5\nState: refined\nRefined: ready\nSince: ${stamp(ago(60))}\n`)
   const ready = { ready: [{ id: 'B5', rank: 2, keptFor: null, keptUntil: null, pinned: null }], held: [] }
   const board = chats => view({ chats: [LEAD, ...chats], items: new Map([['B5', B5]]), readyList: ready })
@@ -105,18 +107,16 @@ test('ready-while-free reads the hand-over\'s own FREE for a worker on the seque
   for (const state of ['held', 'handing', 'offered', 'checking', 'unknown', 'restarting', 'suspended', 'working']) {
     assert.deepEqual(check('ready-while-free', board([onIt('Digger', state)]), seen), [], state)
   }
-  // A worker on the timers: the hand-out's own test as before (its report says busy: not free), whatever its lane's handover says.
+  // A worker not on the sequence (the timers, an older mod) is handed nothing: never free here, whatever its report or lane say.
   assert.deepEqual(check('ready-while-free', board([onTimers('Digger', 'free', { report: { ...idle(), state: 'busy' } })]), seen), [])
-  assert.equal(check('ready-while-free', board([onTimers('Digger', 'held')]), seen).length, 1, 'a timers worker idle by its report is free, as before')
+  assert.deepEqual(check('ready-while-free', board([onTimers('Digger', 'free')]), seen), [], 'idle by its report, not on the sequence')
 })
 
-test('review-stuck: the report part skips a worker on the sequence (its turn\'s end tells it); the result-check part and a timers worker stay', () => {
+test('review-stuck: the report part is gone for every worker (the hand-over tells it at its turn end); the result-check part stays', () => {
   const line = (minutes, who, what) => `- ${stamp(ago(minutes))} ${who}: ${what}`
   const failed = owner => parseItem(`Id: B1\nKind: step\nTitle: Step B1\nState: review\nOwner: ${owner}\nSince: ${stamp(ago(80))}\n\n## History\n${[line(75, owner, 'in progress → review'), line(75, 'server', 'check pending'), line(74, 'server', 'check failed: a branch of the step is left')].join('\n')}\n\n## What we build\n- one lamp\n`)
   const board = (owner, chats) => view({ chats: [LEAD, ...chats], items: new Map([['B1', failed(owner)]]) })
-  const timers = check('review-stuck', board('Digger', [onTimers('Digger', 'free')]))
-  assert.equal(timers.length, 1, 'a timers worker: an hour on, named as before')
-  assert.match(timers[0].text, /^B1 in review \d+ min: waits for Digger to report again/)
+  assert.deepEqual(check('review-stuck', board('Digger', [onTimers('Digger', 'free')])), [], 'not on the sequence: no case either')
   assert.deepEqual(check('review-stuck', board('Digger', [onIt('Digger', 'working')])), [])
   // The result-check part is no hand-over: a step whose board check passed an hour ago, with no result check, still counts.
   const passed = parseItem(`Id: B2\nKind: step\nTitle: Step B2\nState: review\nOwner: Digger\nSince: ${stamp(ago(80))}\n\n## History\n${line(75, 'server', 'check passed: merged')}\n\n## What we build\n- one lamp\n`)
@@ -125,13 +125,9 @@ test('review-stuck: the report part skips a worker on the sequence (its turn\'s 
   assert.match(qa[0].text, /^B2 in review \d+ min with no result check filed/)
 })
 
-test('the old hand-over rules leave a worker on the sequence to the new ones (step 2), and keep a timers worker', () => {
+test('step 6: the old hand-over rules are gone; the new ones never fire for a worker not on the sequence', () => {
   const owed = { step: 'B12', reportedAt: ago(40), clearedAt: ago(90), why: 'a subagent it started still runs (1)', canClear: true }
-  const flags = [{ kind: 'not taking', id: 'B13', text: 'did not take B13', button: null }]
-  const seq = onIt('Digger', 'held', { clearOwed: owed, flags })
-  const old = onTimers('Digger', 'free', { clearOwed: owed, flags })
-  assert.deepEqual(check('not-cleared', view({ chats: [LEAD, seq] })), [])
-  assert.equal(check('not-cleared', view({ chats: [LEAD, old] })).length, 1)
-  assert.deepEqual(check('not-taking', view({ chats: [LEAD, seq] })), [])
-  assert.equal(check('not-taking', view({ chats: [LEAD, old] })).length, 1)
+  const old = onTimers('Digger', 'held', { clearOwed: owed, handover: { state: 'held', why: HELD_WHY, step: 'B13' } })
+  for (const gone of ['not-cleared', 'not-taking']) assert.equal(WATCH_RULES.find(one => one.id === gone), undefined, gone)
+  assert.deepEqual(check('handover-held', view({ chats: [LEAD, old], outbox: [failedEnvelope('Digger', 30)] })), [])
 })

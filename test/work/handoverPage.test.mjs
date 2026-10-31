@@ -1,7 +1,8 @@
 // T8.5, step 2: the page's words for the sequence. A worker on it (the setting "sequence" and its mod 0.27.0) carries
 // `onSequence` and where its hand-over stands (`handover`), and its lane a quiet line: "held: <why>", "handing over B12",
 // "offered B12, not taken yet", "did not answer its hand-over (B12)". On the timers, or on an older mod, nothing of it.
-// The setting itself: "timers" unless set. Made-up samples only.
+// The setting itself: "sequence" unless set (step 6); "timers", the escape hatch, puts one line on top: the hand-over is
+// off. Made-up samples only.
 
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
@@ -28,10 +29,18 @@ function build({ handover, mod, outbox = [] }) {
 }
 const failed = { id: 'e1', at: NOW - 2 * MIN, to: 'Worker 1', command: HANDOVER_COMMAND, text: 'hand-over', state: 'failed', kind: 'clear', step: null, clear: { step: 'B12', reportedAt: NOW - 3 * MIN }, restart: false, set: null, line: null, settledAt: NOW - MIN, outcome: { cleared: false, background: true, why: 'background work it started still runs' } }
 
-test('the setting: "timers" unless set; "sequence" when set; anything else keeps the timers', () => {
-  assert.equal(parseConfig('{}', {}).handover, 'timers')
-  assert.equal(parseConfig('{"handover":"sequence"}', {}).handover, 'sequence')
-  assert.equal(parseConfig('{"handover":"clocks"}', {}).handover, 'timers')
+test('the setting: "sequence" unless set (step 6); "timers" when set; anything else keeps the sequence', () => {
+  assert.equal(parseConfig('{}', {}).handover, 'sequence')
+  assert.equal(parseConfig('{"handover":"timers"}', {}).handover, 'timers')
+  assert.equal(parseConfig('{"handover":"clocks"}', {}).handover, 'sequence')
+})
+
+test('step 6: a "timers" board says on top that the hand-over is off, and hands its free worker nothing; on the sequence no such line', () => {
+  const timers = build({ handover: 'timers', mod: '0.27.0' })
+  assert.deepEqual(timers.workFlags.filter(line => /hand-over/.test(line)), ['the hand-over is off: set handover to sequence'])
+  assert.equal(timers.chats.find(one => one.name === 'Worker 1').onSequence, false)
+  assert.equal(timers.reconciled.start, null)
+  assert.deepEqual(build({ mod: '0.27.0' }).workFlags.filter(line => /hand-over/.test(line)), [])
 })
 
 test('a worker on the sequence carries its state and a quiet line on its lane; on the timers or an older mod, none', () => {
@@ -40,7 +49,7 @@ test('a worker on the sequence carries its state and a quiet line on its lane; o
   assert.equal(on.onSequence, true)
   assert.equal(on.handover.state, STATES.HELD)
   assert.deepEqual(on.flags.filter(flag => flag.kind === 'handover').map(flag => flag.text), ['held: its clear did not run: background work it started still runs'])
-  for (const off of [build({ mod: '0.27.0', outbox: [failed] }), build({ handover: 'sequence', mod: '0.26.10', outbox: [failed] })]) {
+  for (const off of [build({ handover: 'timers', mod: '0.27.0', outbox: [failed] }), build({ handover: 'sequence', mod: '0.26.10', outbox: [failed] })]) {
     assert.equal(lane(off).onSequence, false)
     assert.equal(lane(off).handover, null)
     assert.deepEqual(lane(off).flags.filter(flag => flag.kind === 'handover'), [])
