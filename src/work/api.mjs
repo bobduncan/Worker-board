@@ -23,7 +23,7 @@ import { acceptRefine, answerRefine } from './refineText.mjs'
 import { gamePageIn, gamePageLabel, localAddressIn, placesIn } from '../places.mjs'
 import { DECIDED, GOAL_ID, NEEDS, UNDONE, decidedOf, isDailyNote, needsOf, undoneOf } from './dailyNote.mjs'
 import { HOW_MARK, openAsksOf as openAsksUnder, refineAsksOf as asksCounted } from './stepAsks.mjs'
-import { ANOTHER_WAY, NOTES, TRIES_BEFORE_ANOTHER_WAY, WARNINGS_MARK, agreedPoints, answerReading, boardWarningsOf, chainTries, checkedOf, checkWhy, fixesOf, fixesThrough, fixTitle, needsResultCheck, parentPointsOf, parsePoints, resultCheckAtMs, resultCheckOf, resultCheckSummary, reviewWaitOf, warningLines } from './resultCheck.mjs'
+import { ANOTHER_WAY, NOTES, TRIES_BEFORE_ANOTHER_WAY, WARNINGS_MARK, agreedPoints, answerReading, boardWarningsOf, chainTries, checkedOf, checkWhy, fixesOf, fixesThrough, fixTitle, needsResultCheck, parentPointsOf, parsePoints, resultCheckAtMs, resultCheckOf, resultCheckSummary, reportCheckFailedOf, reviewWaitOf, warningLines } from './resultCheck.mjs'
 import { barredFrom, buildersWithFixes, isQaTask, openQaTaskOf, qaModelEffort, qaTitle } from './qaTask.mjs'
 import { RECAP_ANSWERS, dueRecaps, isRecap, recapMadeSince } from './recap.mjs'
 import { RESULT_CHARS, checkLinesWarning, goalParts, recapParts } from './recapWords.mjs'
@@ -366,7 +366,11 @@ function reportWarningsWords(chat, w) {
  */
 function handedBackWords(chat, w) {
   const back = handedBackOf(w.store.items, chat, w.prefix)
-  return back === null ? '' : `The board's check of your report ${back.id} failed: fix what it names and report ${back.id} again first; the board gives you no new step before that report passes`
+  if (back === null) return ''
+  // 2026-10-31 (B799): the work is on a branch that is not merged: the words the check sent, as they are.
+  const notMerged = reportCheckFailedOf(w.store.items.get(back.id))?.notMerged ?? null
+  if (notMerged !== null) return `${notMerged} The board gives you no new step before that report passes`
+  return `The board's check of your report ${back.id} failed: fix what it names and report ${back.id} again first; the board gives you no new step before that report passes`
 }
 
 /** Partner answers (2026-10-19): the open asks routed to the partner, each in one line, and how to answer them; `{ text, ids }`. */

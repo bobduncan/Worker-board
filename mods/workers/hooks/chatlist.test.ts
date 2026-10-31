@@ -590,6 +590,7 @@ describe('a line that stays true when a session ends badly or changes its id', (
     expect((await $.tool.call({ tool: TOOL, action: 'list' })).result).toBe('● Units  Skeleton Archer · 13 of 20 · ~55 min')
   })
 
+
   test('after a /clear the chat goes on under its new session id with its card, and its old file names the new one', async ($, on) => {
     const clock = mock.clock(on, { now: 5000 })
     const w = world('s1', { [`${CHATS}/list.json`]: '{}\n', [`${CHATS}/s1.json`]: chatText({ ...ARCHER, state: 'waiting' }) })
@@ -1339,6 +1340,9 @@ describe('B297: the work tool asks the worker board', () => {
     const text = String((await reported).result)
     expect(text).toContain('not known whether it was recorded')
     expect(text).toContain('work next')
+    // 2026-10-31: a board that gave no answer is reported to the Supervisor, never to the person.
+    expect(text).toContain('tell the Supervisor with mcp__ccd_session_mgmt__send_message')
+    expect(text).toContain('never ask the person to start the board')
     expect(w.worked.length).toBe(4)
     // Cut, then refused: the refusal does not say the first was not recorded.
     w.cuts = ['socket hang up']
@@ -1349,10 +1353,11 @@ describe('B297: the work tool asks the worker board', () => {
     const said = String((await refused).result)
     expect(said).toContain('not known whether it was recorded')
     expect(said).toContain('Units is no chat of the list.')
+    expect(said).not.toContain('tell the Supervisor')
     // A board that took no connection at all has recorded nothing: it says so at once, and is not asked again.
     w.worked = []
     w.cuts = ['ECONNREFUSED']
-    expect((await $.tool.call({ tool: WORK, action: 'note', to: 'main', text: 'hello' })).result).toMatch(/^The worker board did not answer \(.*ECONNREFUSED.*\): nothing was recorded\. Try again in a moment\.$/)
+    expect((await $.tool.call({ tool: WORK, action: 'note', to: 'main', text: 'hello' })).result).toMatch(/^The worker board did not answer \(.*ECONNREFUSED.*\): nothing was recorded\. Try again in a moment\. If it still does not answer in a minute, tell the Supervisor with mcp__ccd_session_mgmt__send_message \(its session id is in the list of chats, mcp__workers__chat action list\) and go on with your step; never ask the person to start the board\.$/)
     expect(w.worked.length).toBe(1)
   })
 
@@ -1437,7 +1442,7 @@ describe('B297: the work tool asks the worker board', () => {
     w.up = []
     stand(on, w)
     await $.session.start(START)
-    expect((await $.tool.call({ tool: WORK, action: 'next' })).result).toMatch(/^The worker board did not answer \(.+\): nothing was recorded\. Try again in a moment\.$/)
+    expect((await $.tool.call({ tool: WORK, action: 'next' })).result).toMatch(/^The worker board did not answer \(.+\): nothing was recorded\. Try again in a moment\. If it still does not answer in a minute, tell the Supervisor with mcp__ccd_session_mgmt__send_message \(its session id is in the list of chats, mcp__workers__chat action list\) and go on with your step; never ask the person to start the board\.$/)
   })
 
   test('B445: a board that holds the call is a time-out with its seconds; a refusal shows the HTTP status beside the board\'s words', async ($, on) => {
@@ -3347,6 +3352,22 @@ describe('2026-10-28: a chat learns which chat it is from the board, by its sess
     // The person's own prompt a minute on does ask.
     await prompt($)
     expect(w.whoamis.length).toBe(before + 1)
+  })
+
+  test('2026-10-31: the list names the Supervisor and its session id, as the board told it, so a chat can tell it the board is down', async ($, on) => {
+    const clock = mock.clock(on)
+    const w = world('units', { ...listed(), [BOARD]: board })
+    stand(on, w)
+    await startedAs($, w, 'Units')
+    // The board named no Supervisor at the start: the list says none.
+    expect((await $.tool.call({ tool: TOOL, action: 'list' })).result).not.toContain('The Supervisor')
+    // A chat of the same process hears it with its next whoami answer (a minute on at the latest), and the list names it.
+    w.whoami = { name: 'Units', role: 'worker', card: null, supervisor: { name: 'Supervisor', session: 'local_9f2c-11' } }
+    await clock.advance(60_000)
+    await settled()
+    await prompt($, 'a minute on')
+    const listing = String((await $.tool.call({ tool: TOOL, action: 'list' })).result)
+    expect(listing).toContain('\nThe Supervisor: Supervisor, session id local_9f2c-11 (the id for mcp__ccd_session_mgmt__send_message)')
   })
 
   test('quiet when the board is down: nothing is joined, nothing throws, the prompt goes in', async ($, on) => {

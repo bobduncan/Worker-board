@@ -2576,7 +2576,8 @@ function laneFlags(lane, restart = null) {
   return (lane.flags ?? []).map(flag => ({
     text: flag.text,
     // Model per step: a step that waits for its worker to run on Opus is a wait, no fault.
-    tone: flag.kind === 'card' || flag.kind === 'model' ? 'warn' : 'problem',
+    // 2026-10-31 (B799): a step whose work is on a branch not merged is back with its worker: a quiet line, no button for the person.
+    tone: flag.kind === 'card' || flag.kind === 'model' ? 'warn' : flag.kind === 'not merged' ? 'quiet' : 'problem',
     // B304: a failed check is the person's to run again ("Check again", `data-recheck`: the work API's `recheck`).
     button: flag.kind === 'check failed' ? { label: 'Check again', recheck: flag.id }
       : flag.button === null || main === null || main === lane.name ? null : { label: flag.button, start: lane.name, isAsked },

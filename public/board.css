@@ -2197,6 +2197,7 @@ button.needs-you:hover small, button.needs-you:focus-visible small { color: var(
 /* B300: the reconciler's flags on a lane. */
 .lane-flag { margin: 4px 0 0; padding: 3px 8px; border-left: 3px solid var(--waiting); font-size: 13px; }
 .lane-flag.is-problem { border-left-color: #c0504d; }
+.lane-flag.is-quiet { border-left-color: var(--free); color: var(--muted); }
 .lane-flag .choice { margin-left: 6px; }
 
 /* B280: the Advisor's card under the workers, set apart: its own label and line, a teal accent, no queue. */
