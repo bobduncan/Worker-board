@@ -6446,27 +6446,17 @@ function questionMarkers(text) {
 }
 
 /**
- * One option from its letter and the words written for it: `{ letter, words, time, pictures, raw, outside }`. `raw` is the
- * words as written (the answer's); `words` those shown, with the picture marks and a time that ends them taken off. The last
- * option's later sentences that name a picture stand outside it (`outside`: the question's own).
+ * One option from its letter and the words written for it: `{ letter, words, time, pictures, raw }`. `raw` is the words as
+ * written (the answer's); `words` those shown, with the picture marks and a time that ends them taken off. A picture path in
+ * a later sentence ("A: red. See pics/d/red.png.") is the picture of the option whose words it follows.
  */
-function questionOption(letter, written, isLast = false) {
+function questionOption(letter, written) {
   const pictures = []
   const take = path => {
     if (!pictures.some(one => one.path === path)) pictures.push({ path, caption: pictureWords(path) })
   }
   // A comma or a semicolon that only closes an option's words is no part of its answer.
   let raw = String(written ?? '').replace(/\s+/g, ' ').trim().replace(/[\s,;]+$/, '')
-  const outside = { pictures: [], text: '' }
-  if (isLast) {
-    const sentences = raw.split(/(?<=[.!?])\s+(?=[A-Z0-9"“(])/)
-    const moved = sentences.slice(1).filter(one => questionImages(one).length > 0 && !/^\(|^pictures?\s*:/i.test(one))
-    if (moved.length > 0) {
-      raw = sentences.filter((one, at) => at === 0 || !moved.includes(one)).join(' ')
-      outside.text = moved.join(' ')
-      outside.pictures = [...new Set(questionImages(outside.text))].map(path => ({ path, caption: pictureWords(path) }))
-    }
-  }
   let words = raw
   // "(picture: pics/x.png)", "(pictures: a.png, b.png)", "(see: x.png)".
   words = words.replace(/\(\s*(?:pictures?|see)\s*:\s*([^)]*)\)/gi, (whole, inside) => {
@@ -6484,11 +6474,15 @@ function questionOption(letter, written, isLast = false) {
     questionImages(inside).forEach(take)
     return ' '
   })
-  // A path that ends the words, with the "see" before it.
-  words = words.replace(/(?:\bsee\s+)?([^\s,;()"'<>]+\.(?:png|jpe?g|webp|gif))[\s.;,]*$/i, (_whole, path) => {
-    take(path)
-    return ''
-  })
+  // A path that ends the words, with the "see" before it: when it is the option's one sentence or a sentence of its own
+  // ("See pics/x.png."); a path inside a later sentence of words stays in them (it is the option's picture all the same).
+  const sentences = words.split(/(?<=[.!?])\s+(?=[A-Z0-9"“(])/)
+  if (sentences.length === 1 || /^(?:see\s+|pictures?\s*:\s*)?[^\s,;()"'<>]+\.(?:png|jpe?g|webp|gif)[\s.;,]*$/i.test(sentences.at(-1))) {
+    words = words.replace(/(?:\bsee\s+)?([^\s,;()"'<>]+\.(?:png|jpe?g|webp|gif))[\s.;,]*$/i, (_whole, path) => {
+      take(path)
+      return ''
+    })
+  }
   questionImages(words).forEach(take)
   // A time shows apart only when it ENDS the words; a time anywhere else is words, and stays.
   const timed = words.match(Q_TIME_TAIL)
@@ -6497,7 +6491,7 @@ function questionOption(letter, written, isLast = false) {
     time = (timed[1] ?? timed[2] ?? timed[3]).replace(/\s+/g, ' ').trim()
     words = words.slice(0, timed.index)
   }
-  return { letter, words: questionTidy(words), time, pictures, raw, outside }
+  return { letter, words: questionTidy(words), time, pictures, raw }
 }
 
 /** A "no picture: <why>" mark (in brackets or as a sentence) cut out of a text: `{ text, why }`, `why` null without one. */
@@ -6587,8 +6581,8 @@ const Q_YES_NO = [{ letter: '', words: 'Yes', time: '', pictures: [], answer: 'y
  * A question's words (a refine question as the block holds it, or an ask's whole text) as the question's parts: `{ question,
  * why, moved, options, advice, adviceWhy, adviceWords, pictures, wish, noPicture, noPictureWhy }`. The options are the lettered
  * ones of "<question>? A: <words> B: <words> ...", each with the pictures and time inside its words; "Advised: A — <why>"
- * and the question's own "Picture: ..." and "no picture: ..." are taken out first. `moved` is the text of the last option's
- * later sentences that name a picture (the question's own).
+ * and the question's own "Picture: ..." and "no picture: ..." are taken out first. `moved` is what follows an "I advise A."
+ * sentence. A picture path before the first option is the question's; one after an option's words is that option's.
  */
 function parseQuestionText(text) {
   const none = questionNoPicture(questionNormal(text))
@@ -6596,14 +6590,16 @@ function parseQuestionText(text) {
   const advice = questionAdvice(questionNormal(picture.text))
   const body = advice.text
   const markers = questionMarkers(body)
-  const split = splitAsk(markers.length > 0 ? body.slice(0, markers[0].at).trim() : body)
+  const head = markers.length > 0 ? body.slice(0, markers[0].at).trim() : body
+  const split = splitAsk(head)
   // An option that another follows ends before the comma and the "or" or "and" that join them ("A: keep it, or B: drop it").
   const made = markers.map((one, place) => {
     const isLast = place === markers.length - 1
     const span = body.slice(one.end, isLast ? body.length : markers[place + 1].at)
-    return questionOption(one.letter, isLast ? span : span.replace(/[\s,;]*(?:\b(?:or|and)\b)?[\s,;]*$/i, ''), isLast)
+    return questionOption(one.letter, isLast ? span : span.replace(/[\s,;]*(?:\b(?:or|and)\b)?[\s,;]*$/i, ''))
   })
-  const outside = made.at(-1)?.outside ?? { pictures: [], text: '' }
+  // A picture path before the first option is the question's own.
+  const named = [...new Set(questionImages(head))].filter(path => !picture.pictures.some(shown => shown.path === path)).map(path => ({ path, caption: pictureWords(path) }))
   const options = made.map(one => {
     const answer = questionAnswer(one.letter, one.raw)
     return { letter: one.letter, words: one.words, time: one.time, pictures: one.pictures, answer, pick: answer, isAdvised: advice.advice === one.letter }
@@ -6611,12 +6607,12 @@ function parseQuestionText(text) {
   return {
     question: split.question,
     why: split.rest,
-    moved: [outside.text, advice.rest].filter(Boolean).join(" "),
+    moved: advice.rest,
     options,
     advice: options.some(one => one.letter === advice.advice) ? advice.advice : advice.advice === 'yes' || advice.advice === 'no' ? advice.advice : null,
     adviceWhy: advice.advice === null ? '' : advice.why,
     adviceWords: advice.words,
-    pictures: [...picture.pictures, ...outside.pictures.filter(one => !picture.pictures.some(shown => shown.path === one.path))],
+    pictures: [...picture.pictures, ...named],
     wish: picture.wish,
     noPicture: none.why !== null || picture.none !== null,
     noPictureWhy: none.why ?? picture.none ?? '',
@@ -6683,13 +6679,15 @@ function askQuestionOf(need) {
       return { letter: made.letter, words: made.words, time: made.time, pictures: made.pictures, answer: card.key === null ? option.label : questionAnswer(card.key, made.raw), pick: option.label, isAdvised: card.isAdvised }
     })
   } else {
-    // An ask of no options carries them in its words, in its title or past it ("Which? A: ... B: ...").
-    parsed = parseQuestionText([title, context].filter(Boolean).join('\n'))
-    if (parsed.options.length > 0) options = parsed.options.map(option => ({ ...option, isAdvised: given.advice === option.letter || (given.advice === null && option.isAdvised) }))
+    // A decide ask of no options carries them in its words, in its title or past it ("Which? A: ... B: ..."). A look or a do keeps
+    // its own buttons (Approve and Reject, Done), and its lettered lines stay its text.
+    const joined = [title, context].filter(Boolean).join('\n')
+    parsed = need.asks !== 'decide' && questionMarkers(joined).length > 0 ? null : parseQuestionText(joined)
+    if (parsed !== null && parsed.options.length > 0) options = parsed.options.map(option => ({ ...option, isAdvised: given.advice === option.letter || (given.advice === null && option.isAdvised) }))
     else {
       isYesNo = need.asks !== 'provide'
       // An advice in the words ("I advise yes") marks the card as the store's own advice would.
-      const says = given.advice === null ? parsed.advice : null
+      const says = given.advice === null && parsed !== null ? parsed.advice : null
       options = cardsOf(need).map(card => ({ letter: '', words: card.title, time: '', pictures: [], answer: card.verdict, pick: card.verdict, isAdvised: card.isAdvised || (says !== null && ['yes', 'approve'].includes(card.verdict) === (says === 'yes') && ['yes', 'no', 'approve', 'reject'].includes(card.verdict)) }))
     }
   }
@@ -6726,10 +6724,11 @@ function askQuestionOf(need) {
 
 /**
  * The options an ask has in its words ("A: ... B: ..." in its title or its context) as the cards of `cardsOf` have them
- * (`verdict` is the pick as the task window keeps it, "A: <words>"); none when it has options of its own or none in its words.
+ * (`verdict` is the pick as the task window keeps it, "A: <words>"); none when it has options of its own or none in its words,
+ * and none for an ask that is not a decide (a look has Approve and Reject, a do Done, whatever its text lists).
  */
 function askTextOptions(need) {
-  if (Array.isArray(need.options) && need.options.length > 0) return []
+  if (need.asks !== 'decide' || (Array.isArray(need.options) && need.options.length > 0)) return []
   const title = questionNoPicture(questionNormal(need.question ?? need.title ?? '')).text.trim()
   const context = questionNoPicture(questionNormal(need.text ?? '')).text.trim()
   const given = questionAdvice(`Advised: ${String(need.advice ?? '').trim()}`)
@@ -8365,11 +8364,19 @@ function questionFreeWords(question) {
   return questionPicked(question, draft) < 0 ? draft : ''
 }
 
+/** The answer a step's refine question has written already (by its place), or null: what an unchanged draft is the same as. */
+function writtenAnswer(stepId, place) {
+  const step = (board?.backlog ?? []).flatMap(activity => activity.steps).find(one => one.id === stepId)
+  const answer = /^\d+$/.test(String(place)) ? step?.refined?.questions?.[Number(place)]?.answer : undefined
+  return typeof answer === 'string' ? answer.trim() : null
+}
+
 /** Whether the question's Send has something to send: for a refine question any answer or feedback of its step, for an ask its pick or words. */
 function questionHasAnswer(question) {
   if (question.kind === 'refine') {
+    // Words that are what the question's answer says already (a Change not changed) are nothing to send.
     const mine = [...drafts].filter(([name]) => name.startsWith(`refine:${question.stepId}:`))
-    return mine.some(([, text]) => String(text).trim() !== '')
+    return mine.some(([name, text]) => String(text).trim() !== '' && String(text).trim() !== writtenAnswer(question.stepId, name.slice(`refine:${question.stepId}:`.length)))
   }
   return questionWritten(question) !== '' || String(calmWords.get(question.needId) ?? '').trim() !== ''
 }
@@ -18883,6 +18890,8 @@ async function refineClick(button) {
     }
     answers = taken.answers
   }
+  // An answer that is the one written already (a Change left as it was) is sent no more: no second point of Your words, no second settle.
+  answers = answers.filter(one => one.answer.trim() !== writtenAnswer(step.id, one.index))
   sending.add(key)
   redrawNeeds()
   let problem = null
