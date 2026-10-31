@@ -247,7 +247,8 @@ function readyWhileFree(view, ctx) {
 function notTaking(view) {
   const stuck = stuckTakeBacks({ items: view.items, lanes: workersOf(view), prefix: view.prefix })
   const found = []
-  for (const lane of workersOf(view)) {
+  // T8.5: a worker on the sequence has no take clock: its hand-over's net is the new rule's (step 4).
+  for (const lane of workersOf(view).filter(one => one.onSequence !== true)) {
     const flag = (lane.flags ?? []).find(one => one.kind === 'not taking')
     if (flag === undefined) continue
     const back = stuck.get(lane.name) ?? null
@@ -335,7 +336,8 @@ function skipRepeats(view, ctx) {
     const compaction = lane.compaction ?? null
     const skips = [
       ...(compaction?.kind === 'skipped' && !BY_DESIGN.includes(compaction.why) ? [{ kind: 'compact', at: compaction.at, why: compaction.why }] : []),
-      ...(compaction?.notCleared ? [{ kind: 'clear', at: compaction.notCleared.at, why: compaction.notCleared.why }] : []),
+      // T8.5: a worker on the sequence clears only by its envelope: a skipped clear of its is the held state's, not this.
+      ...(compaction?.notCleared && lane.onSequence !== true ? [{ kind: 'clear', at: compaction.notCleared.at, why: compaction.notCleared.why }] : []),
     ].filter(one => Number.isFinite(one.at) && typeof one.why === 'string' && one.why !== '')
     for (const skip of skips) {
       const head = `skip|${lane.name}|${skip.kind}|`
@@ -798,11 +800,15 @@ function openFix(view, ctx) {
     found.push({
       rule: 'open-fix', key, subject: wait.end,
       text: `${wait.end} waits ${lasting(ms)} for the partner's refine, and ${id} in review behind it${stopped ? `: the board stopped asking after ${words.length} refine words` : ''}`,
-      evidence: `the chain ${[id, ...wait.chain].join(' → ')}; ${wait.end} made ${clockOf(wait.unrefined.since)}, no refine round since; refine words ${words.length === 0 ? 'none' : words.map(one => `${clockOf(one.at)} ${one.state}`).join(', ')}`,
+      evidence: `the chain ${[id, ...wait.chain].join(' → ')}; ${wait.end} made ${clockOf(wait.unrefined.since)}, no refine round since; refine words ${words.length === 0 ? 'none' : words.map(one => `${clockOf(one.at)} ${one.state}`).join(', ')}; ${gateOf(view)}`,
     })
   }
   return found
 }
+
+/** B868 (X115): what holds the board's refine gate now, for the evidence: the refine asks that are open (step, round, state, since), or that none is. */
+const gateOf = view => (view.refineHeld.length === 0 ? 'refine gate free'
+  : `refine gate held by ${view.refineHeld.map(one => `${one.id} round ${one.round} (${one.state} since ${clockOf(one.at)})`).join(', ')}`)
 
 /** B667: the refine words about the step `id` from `since` on (the board's and the person's), oldest first. */
 function refineWordsOf(view, id, since) {
@@ -951,7 +957,8 @@ function effortMismatch(view) {
 function notCleared(view, ctx) {
   const found = []
   if (isPaused(view)) return found
-  for (const lane of workersOf(view)) {
+  // T8.5: a worker on the sequence is cleared by its envelope; a clear that did not run holds it (the rule handover-held, step 4).
+  for (const lane of workersOf(view).filter(one => one.onSequence !== true)) {
     const owed = lane.clearOwed ?? null
     if (owed === null || !Number.isFinite(owed.reportedAt)) continue
     const key = `not-cleared ${lane.name} ${owed.step}`

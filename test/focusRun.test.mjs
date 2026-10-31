@@ -33,7 +33,7 @@ const GOALS = [
   '',
 ].join('\n')
 const step = (id, state, owner = null) => parseItem(`Id: ${id}\nKind: step\nTitle: Step ${id}\nState: ${state}\n${owner === null ? '' : `Owner: ${owner}\n`}Since: 2026-10-18 09:00\n`)
-const run = items => focusState(parseGoals(GOALS), items, [], 'Game - ')
+const run = (items, lanes = null) => focusState(parseGoals(GOALS), items, [], 'Game - ', null, null, lanes)
 
 test('a part is done when every step is finished (done, closed or dropped)', () => {
   const state = run([step('B1', 'done'), step('B2', 'dropped'), step('B3', 'queued', 'Game - Units')])
@@ -41,10 +41,13 @@ test('a part is done when every step is finished (done, closed or dropped)', () 
   assert.equal(state.parts[1].state, 'next')
 })
 
-test('a part is in progress, with its owner, while a step is taken, in progress, waiting on you or in review', () => {
+test('a part is in progress, with the worker its card shows, while a step is taken, in progress, waiting on you or in review', () => {
+  // 2026-10-31 (B689): the worker on it is one whose card shows the step; its Owner alone names nobody.
+  const cards = [{ name: 'Features', isLeftover: false, task: { stepId: 'B2' } }]
   for (const busy of ['taken', 'in progress', 'waiting on you', 'review']) {
-    const state = run([step('B1', 'done'), step('B2', busy, 'Game - Features')])
+    const state = run([step('B1', 'done'), step('B2', busy, 'Game - Features')], cards)
     assert.deepEqual([state.parts[0].state, state.parts[0].owner], ['now', 'Features'], busy)
+    assert.equal(run([step('B1', 'done'), step('B2', busy, 'Game - Features')]).parts[0].owner, null, busy)
   }
 })
 
@@ -58,7 +61,8 @@ test('else a part is next: steps queued, or none known to the store; made but no
 })
 
 test('the progress counts the parts done of all, and the time the parts not done still name', () => {
-  const state = run([step('B1', 'done'), step('B2', 'done'), step('B3', 'done'), step('B4', 'in progress', 'Game - Map'), step('B6', 'queued')])
+  // 2026-10-31 (B689): Map's card shows B4, so Map is on it.
+  const state = run([step('B1', 'done'), step('B2', 'done'), step('B3', 'done'), step('B4', 'in progress', 'Game - Map'), step('B6', 'queued')], [{ name: 'Map', isLeftover: false, task: { stepId: 'B4' } }])
   assert.deepEqual(state.progress, { done: 2, total: 4, minutesLeft: 90 })
   const view = focusView(state, null)
   assert.deepEqual(view.progress, { text: '2 of 4 done · about 1.5 h left', percent: 50 })

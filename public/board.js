@@ -2294,10 +2294,12 @@ function simpleSteps(focus, chats = [], now = Date.now()) {
   if (focus === null || focus === undefined) return null
   const chips = { done: 'Done', now: 'Working', next: 'Next' }
   const rows = (focus.steps ?? []).map(step => {
-    const lane = step.state !== 'now' || step.owner === null ? null : (chats ?? []).find(one => one.name === step.owner
-      && one.state === 'working' && [null, step.id].includes(laneTaskOf(one).code)) ?? null
+    // 2026-10-31 (B689): a step at work names the worker whose card shows it (the state's `onIt`), never its Owner alone (its
+    // builder, its card on another task); its time left is that worker's while it works.
+    const name = step.state === 'now' ? step.onIt ?? null : step.owner
+    const lane = step.state !== 'now' || name === null ? null : (chats ?? []).find(one => one.name === name && one.state === 'working') ?? null
     const left = lane === null ? null : simpleLeft(lane, now)
-    const who = step.owner === null ? null : left === null ? step.owner : `${step.owner} · ${left}`
+    const who = name === null ? null : left === null ? name : `${name} · ${left}`
     // B392: a step at work whose open blocking asks all wait for the partner says so.
     if ((step.waitsForPartner ?? []).length > 0) return { id: step.id, title: step.title, chip: 'Waits for your partner', tone: 'partner', who: step.owner }
     return { id: step.id, title: step.title, chip: chips[step.state] ?? 'Next', tone: chips[step.state] === undefined ? 'next' : step.state, who }
@@ -2579,7 +2581,8 @@ function laneFlags(lane, restart = null) {
     // Model per step: a step that waits for its worker to run on Opus is a wait, no fault.
     // 2026-10-31 (B799): a step whose work is on a branch not merged is back with its worker: a quiet line, no button for the person.
     // T8: so is any other mismatch its worker can fix (flag 'back').
-    tone: flag.kind === 'card' || flag.kind === 'model' ? 'warn' : flag.kind === 'not merged' || flag.kind === 'back' ? 'quiet' : 'problem',
+    // T8.5: where a worker's hand-over stands (handing, offered, held with why, "did not answer") is information: quiet.
+    tone: flag.kind === 'card' || flag.kind === 'model' ? 'warn' : flag.kind === 'handover' || flag.kind === 'not merged' || flag.kind === 'back' ? 'quiet' : 'problem',
     // B304: a failed check is the person's to run again ("Check again", `data-recheck`: the work API's `recheck`).
     button: flag.kind === 'check failed' ? { label: 'Check again', recheck: flag.id }
       : flag.button === null || main === null || main === lane.name ? null : { label: flag.button, start: lane.name, isAsked },
@@ -8543,15 +8546,66 @@ document.addEventListener('click', event => {
 })
 
 // demo:start
-/** B699: the goal demo's page body from the board's page model (src/demo.mjs demoPage): the verdict of each part, its labelled pictures at their own size (a click opens the picture window), the follow-up last. Words, order and labels are the model's. */
-function demoBody(page) {
+/** B860: what the popup shows of the person's answer to one part: the words after the part's name in the side panel. */
+function demoAnswerWords(answer) {
+  if (answer === undefined || answer.verdict === undefined) return 'not decided yet'
+  return answer.verdict === 'approved' ? 'approved' : `sent back${answer.comment.trim() === '' ? ': needs a comment' : `: "${answer.comment.trim()}"`}`
+}
+
+/**
+ * B860: the side panel of the popup: the person's answers so far, one line per part the round shows, and the one Send. `draft`:
+ * `{ parts: Map(key → { verdict, comment }), problem, notice }`. Nothing is sent before the click on Send.
+ */
+function demoSide(page, draft) {
+  const feedback = page.feedback
+  const side = el('aside', 'demo-side')
+  side.append(el('h3', '', 'Your feedback'))
+  if (draft.notice !== '') side.append(el('p', 'demo-notice', draft.notice))
+  if (feedback.done) {
+    side.append(el('p', 'demo-done', 'Every part is approved: the recap is done.'))
+    return side
+  }
+  if (!feedback.canSend) {
+    side.append(el('p', 'demo-muted', feedback.whyNot ?? 'Feedback cannot be sent here.'))
+    return side
+  }
+  const list = el('ul', 'demo-answers')
+  for (const section of page.sections) {
+    for (const row of section.rows) {
+      const answer = draft.parts.get(row.key)
+      const item = el('li', `demo-answer is-${answer?.verdict ?? 'open'}`)
+      const jump = el('button', 'demo-answer-jump', row.title)
+      jump.type = 'button'
+      jump.dataset.demoGoto = row.key
+      item.append(jump, el('span', 'demo-answer-words', demoAnswerWords(answer)))
+      list.append(item)
+    }
+  }
+  side.append(list)
+  if (draft.problem !== '') side.append(el('p', 'problem demo-problem', draft.problem))
+  side.append(el('p', 'demo-muted', 'Nothing is sent until you press Send feedback.'))
+  const send = el('button', 'demo-send', draft.sending ? 'Sending...' : 'Send feedback')
+  send.type = 'button'
+  send.dataset.demoSend = ''
+  send.disabled = draft.sending === true
+  side.append(send)
+  return side
+}
+
+/** B699: the goal demo's page body from the board's page model (src/demo.mjs demoPage): the verdict of each part, its labelled pictures at their own size (a click opens the picture window), the follow-up last. Words, order and labels are the model's. B860: with the person's feedback on each part (Approve, Send back, a comment) when the board takes it. */
+function demoBody(page, draft = null) {
   const body = el('div', 'demo-body')
+  const feedback = page.feedback ?? null
   const bullets = (items, className) => {
     const list = el('ul', className)
     for (const item of items) list.append(el('li', '', item))
     return list
   }
   body.append(el('h2', 'demo-title', `${page.goal} · ${page.title}: the goal demo`), el('p', 'demo-intro', page.intro))
+  if (feedback !== null && feedback.round > 1) {
+    body.append(el('p', 'demo-round', `Round ${feedback.round}: only what you sent back or did not decide yet.`))
+    if (feedback.folded.length > 0) body.append(el('p', 'demo-folded', `Approved, folded away: ${feedback.folded.map(one => one.title).join(' · ')}`))
+  }
   for (const section of page.sections) {
     const part = el('section', `demo-section is-${section.kind}`)
     part.append(el('div', 'demo-band', section.band))
@@ -8559,10 +8613,12 @@ function demoBody(page) {
     if (section.items.length > 0) part.append(bullets(section.items, 'demo-items'))
     for (const row of section.rows) {
       const card = el('div', 'demo-row')
+      card.dataset.demoRow = row.key
       const head = el('h3', 'demo-row-title')
       head.append(el('span', 'demo-verdict', section.verdict), el('span', '', row.title))
       card.append(head)
       if (row.note !== '') card.append(el('p', 'demo-row-note', row.note))
+      if (row.said !== undefined) card.append(el('p', 'demo-said', `You said (round ${row.said.round}): "${row.said.comment}"`))
       const shots = el('div', 'demo-pictures')
       for (const one of row.pictures) {
         const figure = el('figure', one.kind === null ? 'demo-figure' : `demo-figure is-${one.kind}`)
@@ -8574,6 +8630,24 @@ function demoBody(page) {
         shots.append(figure)
       }
       card.append(shots)
+      if (feedback !== null && feedback.canSend && draft !== null) {
+        const answer = draft.parts.get(row.key)
+        const bar = el('div', 'demo-feedback')
+        const approve = el('button', `demo-approve${answer?.verdict === 'approved' ? ' is-on' : ''}`, 'Approve')
+        const back = el('button', `demo-send-back${answer?.verdict === 'sent-back' ? ' is-on' : ''}`, 'Send back')
+        for (const [button, verdict] of [[approve, 'approved'], [back, 'sent-back']]) {
+          button.type = 'button'
+          button.dataset.demoVerdict = verdict
+          button.dataset.demoKey = row.key
+        }
+        const comment = el('textarea', 'demo-comment')
+        comment.rows = 2
+        comment.placeholder = 'Your comment on this part...'
+        comment.value = answer?.comment ?? ''
+        comment.dataset.demoComment = row.key
+        bar.append(approve, back, comment)
+        card.append(bar)
+      }
       part.append(card)
     }
     body.append(part)
@@ -8592,8 +8666,27 @@ function demoBody(page) {
 }
 // demo:end
 
+/** B860: the person's unsent answers on the goal demo that is open: kept while the popup is closed and opened again, dropped once sent or when the round moves on. */
+let demoDraft = null
+
+/** B860: the popup's body and its side panel from the demo's page and the draft, drawn into the open window (the scroll place stays). */
+function drawDemo(page) {
+  const box = $('demo-page')
+  const scroll = box.querySelector('.demo-scroll')
+  const at = scroll === null ? 0 : scroll.scrollTop
+  const side = page.feedback === undefined ? null : demoSide(page, demoDraft)
+  const body = el('div', 'demo-scroll')
+  body.append(demoBody(page, demoDraft))
+  const layout = el('div', side === null ? 'demo-layout' : 'demo-layout has-side')
+  layout.append(body)
+  if (side !== null) layout.append(side)
+  box.querySelector('.demo-layout')?.remove()
+  box.append(layout)
+  body.scrollTop = at
+}
+
 /** B699: the goal demo of a demo.json as a page of its own: each picture stays its own file, opened at its own size with a click. */
-async function openDemo(path) {
+async function openDemo(path, notice = '') {
   const box = $('demo-page')
   const head = el('header', 'file-view-head')
   const close = el('button', 'icon-button', '✕')
@@ -8602,19 +8695,94 @@ async function openDemo(path) {
   close.setAttribute('aria-label', 'Close')
   head.append(el('h2', '', 'The goal demo'), close)
   const answer = await fetch(`/api/demo?path=${encodeURIComponent(path)}`, { headers: { 'X-Board-Token': TOKEN } }).catch(() => null)
-  let body
-  if (answer === null) body = el('p', 'problem', 'The board\'s server does not answer.')
-  else if (!answer.ok) body = el('p', 'problem', (await answer.text()).trim() || 'This goal demo is not shown.')
-  else body = demoBody(await answer.json())
-  const scroll = el('div', 'demo-scroll')
-  scroll.append(body)
-  fill(box, [head, scroll])
+  box.replaceChildren(head)
+  if (answer === null || !answer.ok) {
+    const scroll = el('div', 'demo-scroll')
+    scroll.append(el('p', 'problem', answer === null ? 'The board\'s server does not answer.' : (await answer.text()).trim() || 'This goal demo is not shown.'))
+    const layout = el('div', 'demo-layout')
+    layout.append(scroll)
+    box.append(layout)
+  } else {
+    const page = await answer.json()
+    // B860: the unsent answers of the same round stay; a new round starts clean.
+    if (page.feedback !== undefined && (demoDraft === null || demoDraft.path !== path || demoDraft.round !== page.feedback.round)) {
+      demoDraft = { path, round: page.feedback.round, parts: new Map(), problem: '', notice: '', sending: false, page: null }
+    }
+    if (demoDraft !== null) {
+      demoDraft.page = page
+      if (notice !== '') demoDraft.notice = notice
+    }
+    drawDemo(page)
+  }
   if (!box.open) box.showModal()
 }
+
+/** B860: the side panel again after an answer or a word typed (the rows' buttons are set by the caller). */
+function redrawDemoSide() {
+  const old = $('demo-page').querySelector('.demo-side')
+  if (old !== null && demoDraft !== null && demoDraft.page !== null) old.replaceWith(demoSide(demoDraft.page, demoDraft))
+}
+
+/** B860: the click on Send feedback: what the person decided goes to the board (each part Approve or Send back); the popup then shows the next round. */
+async function sendDemoFeedback() {
+  const draft = demoDraft
+  if (draft === null || draft.sending) return
+  const shown = draft.page.sections.flatMap(section => section.rows)
+  const parts = shown.filter(row => draft.parts.get(row.key)?.verdict !== undefined).map(row => ({ key: row.key, ...draft.parts.get(row.key) }))
+  const lacking = parts.find(part => part.verdict === 'sent-back' && part.comment.trim() === '')
+  draft.problem = parts.length === 0 ? 'Approve or Send back at least one part first.'
+    : lacking !== undefined ? `Say what to change in "${shown.find(row => row.key === lacking.key).title}": a part sent back needs a comment.` : ''
+  if (draft.problem !== '') return redrawDemoSide()
+  draft.sending = true
+  redrawDemoSide()
+  const answer = await fetch('/api/demo-feedback', {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Board-Token': TOKEN },
+    body: JSON.stringify({ path: draft.path, round: draft.round, parts }),
+  }).catch(() => null)
+  draft.sending = false
+  if (answer === null || !answer.ok) {
+    draft.problem = answer === null ? 'The board\'s server does not answer: try again.' : (await answer.text()).trim() || `Refused (${answer.status}).`
+    return redrawDemoSide()
+  }
+  const sent = await answer.json().catch(() => ({}))
+  const path = draft.path
+  demoDraft = null
+  openDemo(path, sent.done === true ? 'Sent. Every part is approved: the recap is done.' : `Sent: ${sent.approved ?? 0} approved, ${sent.sentBack ?? 0} sent back. Your partner makes the next tries; round ${(sent.round ?? 0) + 1} shows only what you sent back.`)
+}
+
 document.addEventListener('click', event => {
   const link = event.target.closest('[data-demo]')
   if (link !== null) return openDemo(link.dataset.demo)
+  const verdict = event.target.closest('[data-demo-verdict]')
+  if (verdict !== null && demoDraft !== null) {
+    const key = verdict.dataset.demoKey
+    const was = demoDraft.parts.get(key) ?? { comment: '' }
+    // A second click on the chosen button takes the choice back.
+    const next = was.verdict === verdict.dataset.demoVerdict ? undefined : verdict.dataset.demoVerdict
+    demoDraft.parts.set(key, { verdict: next, comment: was.comment })
+    demoDraft.problem = ''
+    demoDraft.notice = ''
+    for (const button of $('demo-page').querySelectorAll('[data-demo-verdict]')) {
+      if (button.dataset.demoKey === key) button.classList.toggle('is-on', button.dataset.demoVerdict === next)
+    }
+    if (next === 'sent-back') verdict.closest('.demo-feedback')?.querySelector('textarea')?.focus()
+    return redrawDemoSide()
+  }
+  const goto = event.target.closest('[data-demo-goto]')
+  if (goto !== null) {
+    return [...$('demo-page').querySelectorAll('[data-demo-row]')].find(row => row.dataset.demoRow === goto.dataset.demoGoto)?.scrollIntoView({ block: 'start' })
+  }
+  if (event.target.closest('[data-demo-send]') !== null) return sendDemoFeedback()
   if (event.target === $('demo-page') || event.target.closest('[data-close-demo]') !== null) $('demo-page').close()
+})
+document.addEventListener('input', event => {
+  const comment = event.target.closest?.('[data-demo-comment]')
+  if (comment === null || comment === undefined || demoDraft === null) return
+  const key = comment.dataset.demoComment
+  const was = demoDraft.parts.get(key) ?? {}
+  demoDraft.parts.set(key, { verdict: was.verdict, comment: comment.value })
+  demoDraft.problem = ''
+  redrawDemoSide()
 })
 
 // B208: a phone is a screen up to 600 px wide, as the style sheet has it.
@@ -12730,7 +12898,10 @@ function focusStepsView(part, partsOpen) {
     const checkText = check === null ? null
       : check.passed === check.total ? `Check passed: ${check.passed} of ${check.total}`
         : `Check failed: ${check.passed} of ${check.total}${fix === undefined ? '' : fix.isFixed ? `, then its fix ${fix.by} passed${fix.total === null ? '' : ` (${fix.passed} of ${fix.total})`}` : `, ${fix.note}`}`
-    const bits = [checkText, one.waitsFor.length === 0 ? null : `Waits for ${one.waitsFor.map(wait => `${wait.id} (${wait.title})`).join(', ')}`, one.owner].filter(bit => bit !== null)
+    // 2026-10-31 (B689): a worker is named as on it only where its card shows the step (the state's `onIt`); its builder is
+    // "built by", history; a step nobody's card shows names no one.
+    const who = typeof one.onIt === 'string' && one.onIt !== '' ? `${one.onIt} is on it` : typeof one.builtBy === 'string' && one.builtBy !== '' ? `built by ${one.builtBy}` : null
+    const bits = [checkText, one.waitsFor.length === 0 ? null : `Waits for ${one.waitsFor.map(wait => `${wait.id} (${wait.title})`).join(', ')}`, who].filter(bit => bit !== null)
     return {
       id: one.id, title: one.title, tone: one.tone, state: one.state, line: bits.join(' · '), isFailed,
       picture: check !== null && isPicture(check.evidence) ? { path: check.evidence, caption: `${one.id}: ${checkText}` } : null,
@@ -17095,6 +17266,8 @@ function checkStandWords(stand) {
   const task = typeof stand?.qa === 'string' && stand.qa !== '' ? stand.qa : null
   if (stand?.kind === 'queued') return `waits for its check: ${task ?? 'its QA task'}, queued${since}`
   if (stand?.kind === 'working') return `${task ?? 'its QA task'}: ${typeof stand.who === 'string' && stand.who !== '' ? stand.who : 'a worker'} is checking it${since}`
+  // 2026-10-31 (B689): a QA task in progress that no card shows: its worker took it and is on another task, nobody checks it now.
+  if (stand?.kind === 'held') return `waits for its check: ${task ?? 'its QA task'}, taken by ${typeof stand.who === 'string' && stand.who !== '' ? stand.who : 'a worker'}${since}, not on its card now`
   return null
 }
 

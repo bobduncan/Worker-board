@@ -80,11 +80,15 @@ test('a failed check whose last fix passed is quiet: "fixed by", with the fix\'s
 })
 
 test('a fix that is still open keeps the check red and says what goes on', () => {
-  for (const [state, note] of [['review', 'its fix B5 is being checked'], ['queued', 'its fix B5 is waiting to start'], ['in progress', 'its fix B5 is being worked on']]) {
+  // 2026-10-31 (B689): a fix in review is "being checked" only while a QA task of it is open, by that task's owner; this one
+  // has no board check of its report yet.
+  for (const [state, note] of [['review', 'its fix B5 waits for the board\'s check of its report'], ['queued', 'its fix B5 is waiting to start'], ['in progress', 'its fix B5 is being worked on']]) {
     const { line } = chain(step('B2', 'review', FAILED), fixOf('B5', 'B2', state))
     assert.equal(line.isFailed, true)
     assert.equal(line.line, `Check failed: 1 of 2, ${note}`)
   }
+  const qa = step('B6', 'in progress', null, 'Checks: B5\nOwner: Tester\n')
+  assert.equal(chain(step('B2', 'review', FAILED), fixOf('B5', 'B2', 'review'), qa).line.line, 'Check failed: 1 of 2, its fix B5 is being checked by Tester')
 })
 
 test('a chain of several rounds is followed to its last fix', () => {

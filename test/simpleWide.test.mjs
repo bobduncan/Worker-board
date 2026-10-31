@@ -43,13 +43,18 @@ test('the focus lists its steps: those of its parts in order, then its own; done
     step('B5', 'new'), step('B6', 'dropped'),
   ], [], 'Game - ')
   // B2, in two parts, once; the goal's own step B5 after the parts'; a step the store does not hold (B4) and a dropped
-  // one (B6) are not listed; a done step keeps its worker, as the drawing shows it
+  // one (B6) are not listed; a done step keeps its worker, as the drawing shows it. 2026-10-31 (B689): a step at work carries
+  // the worker whose card shows it (`onIt`): none here, without the cards.
   assert.deepEqual(focus.steps, [
-    { id: 'B1', title: 'Step B1', state: 'done', owner: 'Worker 1' },
-    { id: 'B2', title: 'Step B2', state: 'now', owner: 'Worker 2' },
-    { id: 'B3', title: 'Step B3', state: 'next', owner: 'Worker 3' },
-    { id: 'B5', title: 'Step B5', state: 'next', owner: null },
+    { id: 'B1', title: 'Step B1', state: 'done', owner: 'Worker 1', onIt: null },
+    { id: 'B2', title: 'Step B2', state: 'now', owner: 'Worker 2', onIt: null },
+    { id: 'B3', title: 'Step B3', state: 'next', owner: 'Worker 3', onIt: null },
+    { id: 'B5', title: 'Step B5', state: 'next', owner: null, onIt: null },
   ])
+  // With Worker 2's card on B2 it is on it; on another step, it is not.
+  const cards = stepId => [{ name: 'Worker 2', isLeftover: false, task: { stepId } }]
+  const withCards = stepId => focusState(parseGoals(GOALS), [step('B2', 'in progress', 'Game - Worker 2')], [], 'Game - ', null, null, cards(stepId)).steps[0].onIt
+  assert.deepEqual([withCards('B2'), withCards('B9')], ['Worker 2', null])
 })
 
 const AT = new Date(2026, 9, 18, 18, 0).getTime()
@@ -68,9 +73,10 @@ const CHATS = [
 ]
 
 test('the focus column: each step with Done, Working or Next, its worker, and the time left of the one at work', () => {
+  // 2026-10-31 (B689): a step at work names the worker its card shows (the state's `onIt`), not its Owner alone.
   const focus = { id: 'G2', title: 'Fights you can read', stage: 'run', steps: [
     { id: 'B1', title: 'Step B1', state: 'done', owner: null },
-    { id: 'B2', title: 'Step B2', state: 'now', owner: 'Worker 2' },
+    { id: 'B2', title: 'Step B2', state: 'now', owner: 'Worker 2', onIt: 'Worker 2' },
     { id: 'B3', title: 'Step B3', state: 'next', owner: 'Worker 3' },
   ] }
   assert.deepEqual(plain(page.simpleSteps(focus, CHATS, AT)), {
@@ -82,9 +88,11 @@ test('the focus column: each step with Done, Working or Next, its worker, and th
     ],
     empty: null,
   })
-  // its worker on another step, or one past its time: the time is that of the step it is on, or how far over
+  // its worker on another step, or one past its time: the time is that of the step it is on, or how far over.
+  // 2026-10-31 (B689): a worker whose card shows another step is not on it (the state's `onIt` is null): nobody is named.
   const elsewhere = [{ ...CHATS[2], task: { ...CHATS[2].task, stepId: 'B9' } }]
-  assert.equal(page.simpleSteps(focus, elsewhere, AT).rows[1].who, 'Worker 2')
+  const notOnIt = { ...focus, steps: focus.steps.map(one => (one.id === 'B2' ? { ...one, onIt: null } : one)) }
+  assert.equal(page.simpleSteps(notOnIt, elsewhere, AT).rows[1].who, null)
   const over = [{ ...CHATS[2], eta: { at: AT - 25 * MIN, leftMs: -25 * MIN, isOverdue: true, isOwn: true } }]
   assert.equal(page.simpleSteps(focus, over, AT).rows[1].who, 'Worker 2 · 25 min over')
   // before the run, or without steps on the board, the column says so; without a focus there is no column

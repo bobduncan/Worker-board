@@ -4,9 +4,9 @@
 // project's work: only the list's shape, the order of a row's pictures and the plain words the page shows.
 //
 // The list (JSON):
-//   { "goal": "G12", "title": "How we build good maps", "intro": "optional line under the title",
+//   { "goal": "G12", "title": "How we build good maps", "intro": "optional line under the title", "step": "B674" (B860: the step the person's feedback is written on),
 //     "sections": [ { "kind": "reached" | "not-reached" | "open", "intro": ["a line"], "items": ["one bullet each"],
-//                     "rows": [ { "title": "1. The row", "note": "one line", "pictures": [ { "kind": "target", "caption": "Concept B", "path": "a.png" } ] },
+//                     "rows": [ { "id": "optional: a part's key for feedback, else its title", "title": "1. The row", "note": "one line", "pictures": [ { "kind": "target", "caption": "Concept B", "path": "a.png" } ] },
 //                               { "title": "6. A grid", "note": "...", "grid": [ { "caption": "A", "path": "b.png" } ] } ] } ],
 //     "followUp": { "fixedForGood": ["..."], "fixedOnce": ["..."], "backlog": ["..."], "noStep": ["..."], "escalate": ["..."] } }
 
@@ -52,6 +52,7 @@ function bulletOf(item, where) {
 export function checkList(list) {
   if (list === null || typeof list !== 'object' || Array.isArray(list)) throw new Error('The demo list is an object.')
   if (typeof list.goal !== 'string' || !/^G\d+$/.test(list.goal)) throw new Error('The list names its goal by id: "goal": "G12".')
+  if (list.step !== undefined && !/^B\d+$/.test(String(list.step))) throw new Error('The list names its step by id: "step": "B674".')
   if (!Array.isArray(list.sections) || list.sections.length === 0) throw new Error('The list has no sections.')
   for (const [at, section] of list.sections.entries()) {
     if (SECTIONS[section?.kind] === undefined) throw new Error(`Section ${at + 1}: "kind" is reached, not-reached or open.`)
@@ -93,6 +94,15 @@ export function pathFrom(folder, path) {
 export function demoPage(input, folder = '') {
   const demo = checkList(input)
   const place = one => ({ path: pathFrom(folder, one.path), caption: String(one.caption ?? '') })
+  // B860: a row's key (feedback names a part by it): its id, else its title; a second row of the same key gets " (2)".
+  const taken = new Set()
+  const keyOf = row => {
+    const base = String(row.id ?? row.title).trim()
+    let key = base
+    for (let n = 2; taken.has(key); n += 1) key = `${base} (${n})`
+    taken.add(key)
+    return key
+  }
   const sections = demo.sections.map(section => ({
     kind: section.kind,
     band: SECTIONS[section.kind].band,
@@ -100,6 +110,7 @@ export function demoPage(input, folder = '') {
     intro: (section.intro ?? []).map(item => bulletOf(item, 'A bullet')),
     items: (section.items ?? []).map(item => bulletOf(item, 'A bullet')),
     rows: (section.rows ?? []).map(row => ({
+      key: keyOf(row),
       title: row.title.trim(),
       note: typeof row.note === 'string' ? row.note.trim() : '',
       pictures: Array.isArray(row.grid) && row.grid.length > 0
@@ -110,6 +121,7 @@ export function demoPage(input, folder = '') {
   const groups = GROUPS.map(([key, title]) => ({ key, title, items: (demo.followUp?.[key] ?? []).map(item => bulletOf(item, 'A bullet')) })).filter(group => group.items.length > 0)
   return {
     goal: demo.goal,
+    step: typeof demo.step === 'string' ? demo.step : null,
     title: typeof demo.title === 'string' && demo.title.trim() !== '' ? demo.title.trim() : 'the goal demo',
     intro: typeof demo.intro === 'string' && demo.intro.trim() !== '' ? demo.intro.trim() : DEFAULT_INTRO,
     sections,

@@ -2740,6 +2740,36 @@ body.is-resizing-rows { cursor: row-resize; user-select: none; }
 .demo-page::backdrop { background: rgba(4, 7, 12, 0.85); }
 .demo-page[open] { display: flex; flex-direction: column; }
 .demo-scroll { flex: 1; min-height: 0; max-height: calc(94vh - 58px); padding: 6px 22px 28px; overflow-y: auto; }
+/* B860: the popup's feedback: Approve, Send back and a comment under each part, the person's answers and the one Send in a panel on the side. */
+.demo-layout { display: flex; flex: 1; min-height: 0; }
+.demo-layout .demo-scroll { flex: 1; min-width: 0; }
+.demo-side { flex: none; width: 320px; max-height: calc(94vh - 58px); padding: 14px 16px 18px; overflow-y: auto; border-left: 1px solid var(--line); background: var(--inset); display: flex; flex-direction: column; gap: 8px; }
+.demo-side h3 { margin: 0; font-size: 17px; }
+.demo-answers { margin: 0; padding: 0; list-style: none; display: grid; gap: 6px; }
+.demo-answer { display: grid; gap: 1px; padding: 6px 8px; border: 1px solid var(--line); border-radius: 8px; font-size: 13.5px; }
+.demo-answer.is-approved { border-color: #3f8f6a; }
+.demo-answer.is-sent-back { border-color: #b26a63; }
+.demo-answer-jump { justify-self: start; padding: 0; border: 0; background: none; color: #8fb6ff; font: inherit; font-weight: 600; text-align: left; cursor: pointer; }
+.demo-answer-words { color: var(--muted); overflow-wrap: anywhere; }
+.demo-muted { margin: 0; color: var(--muted); font-size: 13px; }
+.demo-notice { margin: 0; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); font-size: 13.5px; }
+.demo-done { margin: 0; padding: 10px 12px; border: 1px solid #3f8f6a; border-radius: 8px; color: #5ad19a; font-weight: 700; }
+.demo-send { margin-top: auto; align-self: flex-start; padding: 9px 18px; border: 1px solid #78a7ff; border-radius: 9px; background: #16264a; color: #cfe0ff; font: inherit; font-weight: 700; cursor: pointer; }
+.demo-send:hover:not(:disabled) { background: #1d3366; }
+.demo-send:disabled { opacity: 0.55; cursor: default; }
+.demo-round { margin: 6px 0 0; font-weight: 700; color: #8fb6ff; }
+.demo-folded { margin: 4px 0 0; padding: 8px 12px; border: 1px solid #3f8f6a; border-radius: 8px; background: rgba(90, 209, 154, 0.08); color: var(--muted); }
+.demo-said { margin: 6px 0 0; padding: 6px 10px; border-left: 3px solid #78a7ff; background: var(--inset); border-radius: 0 6px 6px 0; }
+.demo-feedback { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 8px; margin-top: 10px; }
+.demo-feedback button { padding: 6px 16px; border: 1px solid var(--line); border-radius: 8px; background: transparent; color: var(--text); font: inherit; font-weight: 600; cursor: pointer; }
+.demo-feedback .demo-approve.is-on { border-color: #3f8f6a; background: #2c6e50; color: #eafff4; }
+.demo-feedback .demo-send-back.is-on { border-color: #b26a63; background: #7a3d38; color: #fff0ee; }
+.demo-comment { flex: 1 1 260px; min-width: 0; padding: 6px 9px; border: 1px solid var(--line); border-radius: 8px; background: var(--inset); color: var(--text); font: inherit; resize: vertical; }
+@media (max-width: 800px) {
+  .demo-layout.has-side { flex-direction: column; overflow-y: auto; }
+  .demo-layout.has-side .demo-scroll { flex: none; max-height: none; overflow: visible; }
+  .demo-side { width: auto; max-height: none; border-left: 0; border-top: 1px solid var(--line); }
+}
 .demo-title { margin: 14px 0 4px; font-size: 24px; }
 .demo-intro { margin: 0 0 8px; color: var(--muted); }
 .demo-section { --tone: #9aa7bb; margin-top: 18px; }

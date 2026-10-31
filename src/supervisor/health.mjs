@@ -355,7 +355,9 @@ function chainWords(id, wait, view) {
   const links = wait.chain.filter(link => stateIn(view.items, link) === 'review')
   const owner = link => valueOf(view.items.get(link), 'Owner') ?? 'no owner'
   if (links.length === 0 && wait.end === wait.fix) return ` (${stateIn(view.items, wait.fix)}, ${owner(wait.fix)})`
-  const newest = stateIn(view.items, wait.end) === 'review' ? reviewWaitOf(view.items.get(wait.end), view.items, view.held, view.now)?.text ?? null : null
+  // 2026-10-31 (B689): the wait's own words say what the newest link waits for (`wait.last`) once they can: not twice.
+  const newest = typeof wait.last?.text === 'string' ? null
+    : stateIn(view.items, wait.end) === 'review' ? reviewWaitOf(view.items.get(wait.end), view.items, view.held, view.now)?.text ?? null : null
   return `; one chain, ${links.length + 1} in review: ${[id, ...links].join(' → ')}; newest link ${wait.end} ${stateIn(view.items, wait.end)}, ${owner(wait.end)}${newest === null ? '' : `, ${newest}`}`
 }
 

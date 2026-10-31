@@ -195,7 +195,8 @@ export function pauseFacts({ pause, items, lanes = [], prefix = '', pending = []
     }
   }
   if (pause.state === 'resuming') {
-    const resumed = holdersOf(items, prefix, { given: true }).filter(holder => laneOf(holder.chat) !== undefined)
+    // T8.5: a task given to a worker on the sequence went back at the pause (its one task in flight): it waits for no start.
+    const resumed = holdersOf(items, prefix, { given: true }).filter(holder => laneOf(holder.chat) !== undefined && !(laneOf(holder.chat).onSequence === true && isGiven(items.get(holder.id))))
     const waiting = byChat(resumed.filter(holder => isResumed(items, holder) && !hasStarted(laneOf(holder.chat), pause.since)), prefix)
     return { state: 'resuming', since: pause.since, waiting, isResumed: waiting.length === 0, until: Number.isFinite(pause.since) ? pause.since + RESUME_WAIT_MS : null }
   }
@@ -244,7 +245,9 @@ export function pauseAnswer({ pause, items, lanes = [], prefix = '', chat, role 
     .map(holder => ({ id: holder.id, checkpoint: withMark(holder.checkpoint), branch: holder.branch, history: holder.history }))
   const laneOf = name => lanes.find(lane => plain(lane.name, prefix) === plain(name, prefix))
   const resumeList = state !== 'resuming' || role !== 'main' ? [] : holdersOf(items, prefix, { given: true })
-    .filter(holder => plain(holder.chat, prefix) !== plain(chat, prefix) && laneOf(holder.chat) !== undefined && isResumed(items, holder))
+    .filter(holder => plain(holder.chat, prefix) !== plain(chat, prefix) && laneOf(holder.chat) !== undefined && isResumed(items, holder)
+      // T8.5: a task given to a worker on the sequence is no step to resume: the resume decides its hand-over anew.
+      && !(laneOf(holder.chat).onSequence === true && isGiven(items.get(holder.id))))
     .map(holder => {
       const lane = laneOf(holder.chat)
       return { chat: lane.name, session: lane.appSession ?? null, cliSession: lane.session ?? null, step: holder.id, checkpoint: withMark(holder.checkpoint), branch: holder.branch, hasStarted: hasStarted(lane, since) }
