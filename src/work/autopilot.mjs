@@ -168,8 +168,9 @@ export const ABOUT_GOAL = /\bG\d+\b|\bgoals?\b|\bfocus\b|\bapproach\b|\bsettings
  * What only the person's own hands can do, one list (the review of 2026-10-31: Q104, Q559, Q345, Q113, Q539 went to the main
  * chat): quit, reopen or restart the Claude app; a click or a press (Allow, a chip, a button, a prompt); a button of the
  * board that only the person presses (add to the queue, pin); sign in or log in; an account; money; an install; a change of
- * a mod (the person's own word, roles/worker.md "Not yours"); a permission; a password or key; the week's limit.
- * `[name, pattern]`; never routed to a chat.
+ * a mod (the person's own word, roles/worker.md "Not yours"); a permission; a password or key; the week's limit; and (the
+ * coordinator's ruling, 2026-10-31) anything that deletes for good: a chat, a file or folder, a launch.json entry, a branch
+ * (archiving a chat stays the main chat's). `[name, pattern]`; never routed to a chat.
  */
 export const PERSONS_HANDS = [
   ['the Claude app', /\b(?:quit|re-?open|restart|relaunch|close)\b[^.?!]*\b(?:Claude(?: app| desktop)?|the app)\b|\b(?:Claude|the) app\b[^.?!]*\b(?:quit|re-?open|restart|relaunch)/i],
@@ -184,6 +185,7 @@ export const PERSONS_HANDS = [
   ['a permission', /\bpermissions?\b/i],
   ['a password', /\bpasswords?\b|\bAPI keys?\b/i],
   ['the week\'s limit', /\bweekly limit\b|\bweek's limit\b/i],
+  ['a permanent delete', /\bdelet(?:e|es|ed|ing|ion)\b|\berase[sd]?\b|\bwipe[sd]?\b|\brmdir\b|\brm -r/i],
 ]
 /**
  * A do that only the person's own eyes, ears or words can carry out (its title: "Look at the picture.", "Play the painted

@@ -139,7 +139,7 @@ test('what only the person\'s hands can do never goes to the main chat (twins of
   }
   // One list: a board button only the person presses, sign-in, an account, money, an install, a mod's change, a permission,
   // a password, the week's limit (the live store's closed asks of the week showed the board's buttons, a reinstall and a mod).
-  assert.deepEqual(PERSONS_HANDS.map(([name]) => name), ['the Claude app', 'a click', 'a click', 'a button of the board', 'a sign-in', 'an account', 'money', 'an install', 'a change of a mod', 'a permission', 'a password', 'the week\'s limit'])
+  assert.deepEqual(PERSONS_HANDS.map(([name]) => name), ['the Claude app', 'a click', 'a click', 'a button of the board', 'a sign-in', 'an account', 'money', 'an install', 'a change of a mod', 'a permission', 'a password', 'the week\'s limit', 'a permanent delete'])
   for (const [title, hands] of [['Log in to the seed shop', 'a sign-in'], ['Pay the hosting bill', 'money'], ['Install the image tool on this PC', 'an install'], ['Reinstall the packages in your game folder?', 'an install'],
     ['Grant the folder permission', 'a permission'], ['Raise the weekly limit', 'the week\'s limit'], ['In Painter\'s chat, press "Turn them on" for the test mod', 'a click'],
     ['B80 waits until you add it to the queue on the Backlog tab.', 'a button of the board'], ['Pin B59 to Painter on the worker board', 'a button of the board'], ['Update the Workers mod to 0.30 so this goes live?', 'a change of a mod']]) {
@@ -152,7 +152,19 @@ test('what only the person\'s hands can do never goes to the main chat (twins of
   }
   // A restart of a board, a merge, a folder deleted, a line run in a terminal: a chat can do them.
   assert.equal(handsOf(RESTART), null)
-  for (const title of ['Restart both boards to load the change.', 'Delete the empty folder of the old worktree.', 'Run this line in a terminal:', 'Archive the two old chats in the sidebar.']) assert.equal(routeOf(lead('Q96', title)), 'main', title)
+  // (A folder deleted was here: the coordinator's ruling of 2026-10-31 makes every permanent delete the person's, below.)
+  for (const title of ['Restart both boards to load the change.', 'Run this line in a terminal:', 'Archive the two old chats in the sidebar.']) assert.equal(routeOf(lead('Q96', title)), 'main', title)
+  // The ruling: anything that deletes for good is the person's, never the main chat's (twins of Q418, Q419, Q541, Q563, and a
+  // branch); archiving stays with the main chat.
+  const deletes = [
+    ask('Q418', { Title: 'Delete the empty folder `D:\\garden\\board-b677`.', Owner: 'Painter', Asks: 'do', Via: 'chat' }),
+    ask('Q419', { Title: 'Delete the stray empty folder `D:\\c`.', Owner: 'Painter', Asks: 'do', Via: 'chat' }),
+    lead('Q541', 'Archive or delete the Painter and Pruner chats in the sidebar.'),
+    ask('Q563', { Title: 'delete the entry named `b44-probe` from `D:\\garden\\.claude\\launch.json`.', Owner: 'Painter', Asks: 'do', Of: 'B21', Via: 'chat' }),
+    ask('Q412', { Title: 'Keep branch `b51-trace-lift` for later use, or delete it?', Owner: 'Painter', Asks: 'decide', Options: 'A keep | B delete', Advice: 'B', Via: 'chat' }),
+  ]
+  for (const one of deletes) assert.deepEqual(autopilotRoute(one, ctx), { to: 'person', why: 'only the person\'s hands: a permanent delete' }, one.head.get('Id'))
+  assert.equal(routeOf(lead('Q95', 'Archive the Painter and Pruner chats in the sidebar.')), 'main')
   assert.equal(handsOf(ask('Q98', { Title: 'Merge B21 into main', Owner: 'Painter', Asks: 'do' })), null)
 })
 

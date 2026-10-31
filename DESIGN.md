@@ -5649,7 +5649,8 @@ goal's recap). It extends Partner answers (2026-10-19), still with no blanket ap
    definition, its work blocks, a change of the goal; any title about a goal, the focus, an approach, a setting or a
    licence) → person; what only the person's hands can do (`PERSONS_HANDS`, one list: quit, reopen or restart the Claude
    app; a click on Allow, a chip or a prompt; sign in or log in; an account; money; an install; a permission; a password;
-   the week's limit) → person; the board's "Accept or send back" card, a look of the step's checker, a look of a step
+   the week's limit; and (the ruling of 2026-10-31) a permanent delete: a chat, a file or folder, a launch.json entry, a branch,
+   archiving staying the main chat's) → person; the board's "Accept or send back" card, a look of the step's checker, a look of a step
    below its target → recap when the step is of the focus goal and its demo is still to be asked or a recap names the
    step, else person; an ask that marks a step done, accepts it or sends it back → person; a look or decide under no
    step that names a score beside a target → person; a do (not the Product owner's) and a yes/no chore ("Restart ...? I

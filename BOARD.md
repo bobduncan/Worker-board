@@ -500,7 +500,8 @@ Undo."; Off, "Questions come to you as before."
   they stand in Needs your attention again.
 - **Always yours**: goal questions (a goal, the focus, an approach, a setting, a licence, a stuck goal's "Rebuild G<n>:"
   ask: Autopilot approves no rebuild), what only your hands can do (the Claude app, a click, a sign-in, an account, money,
-  an install, a permission), and marking a step done, accepting it or sending it back.
+  an install, a permission, anything deleted for good: a chat, a file or folder, a launch.json entry, a branch; archiving
+  stays the main chat's), and marking a step done, accepting it or sending it back.
 - **The task window** of an ask with the main chat or waiting for the recap names its route ("With the main chat
   (Autopilot)", "For your recap (Autopilot)") and where it stands.
 - The Focus page's switch "Your partner answers detail questions" reads "covered by Autopilot" while it is on.

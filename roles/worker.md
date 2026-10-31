@@ -408,7 +408,8 @@ below its target, or the one you ask as a step's checker, waits for the goal's r
 next work). None stands before the user then: do not put it in a "For you" block. The answer comes to your chat as the
 user's would; a recap's answer comes when the user judges the goal's recap, and your step stays as it is until then. Give
 your advice with every choice: without it a partner decides alone. What only the user's hands can do (the Claude app, a
-click, a sign-in, an account, money, an install, a permission) and anything about a goal stays theirs.
+click, a sign-in, an account, money, an install, a permission, deleting a chat, file, folder or branch for good) and
+anything about a goal stays theirs.
 
 ## Not yours
 
