@@ -35,7 +35,7 @@ async function garden({ focusGoal = 'G6' } = {}) {
   const ctx = (now = NOW) => ({ dir, now, prefix: 'Garden · ', roleOf: chat => ROLES[chat] ?? null, chats: Object.keys(ROLES), freeChats: new Set(), hasGoal: id => id === 'G6', focusGoal })
   const as = chat => (body, now) => workApi({ chat, ...body }, ctx(now))
   const digger = as('Digger')
-  await digger({ action: 'take', id: 'B1', branch: 'b1' })
+  await digger({ action: 'take', minutes: 30, id: 'B1', branch: 'b1' })
   return {
     dir, ctx, digger, lead: as('Lead'), sage: as('Sage'),
     person: (body, now) => workApi(body, { ...ctx(now), as: 'person' }),

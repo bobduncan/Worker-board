@@ -42,11 +42,11 @@ test('refined is refused while an ask under the step is open, also one its worke
     assert.equal((await oracle({ action: 'refine', id: 'B3', summary: 'One knot per kite.' })).ok, true)
     // The refine had no questions of its own; the worker's ask stays open (only the refine's own are replaced).
     assert.equal(await state(dir, 'Q1'), 'open')
-    const refused = await oracle({ action: 'refined', id: 'B3', what: ['the knot'] })
+    const refused = await oracle({ action: 'refined', size: '30 min', id: 'B3', what: ['the knot'] })
     assert.equal(refused.ok, false)
     assert.equal(refused.why, 'B3: Q1 ("Red string or blue?") is still open: the person answers first.')
     assert.equal((await person({ action: 'answer', id: 'Q1', text: 'Blue.' })).ok, true)
-    const refined = await oracle({ action: 'refined', id: 'B3', what: ['the knot', 'a blue string'] })
+    const refined = await oracle({ action: 'refined', size: '30 min', id: 'B3', what: ['the knot', 'a blue string'] })
     assert.equal(refined.ok, true, refined.why)
     assert.equal(await state(dir, 'B3'), 'refined')
   } finally {
@@ -58,7 +58,7 @@ test('a refined step with an ask filed after its refine is not given until the p
   const { dir, lead, kite, oracle, person, server } = await fresh()
   try {
     await oracle({ action: 'refine', id: 'B3', summary: 'One knot per kite.' })
-    assert.equal((await oracle({ action: 'refined', id: 'B3', what: ['the knot'] })).ok, true)
+    assert.equal((await oracle({ action: 'refined', size: '30 min', id: 'B3', what: ['the knot'] })).ok, true)
     assert.equal(await state(dir, 'B3'), 'refined')
     assert.equal((await kite({ action: 'ask', of: 'B3', kind: 'decide', text: 'Red string or blue?' })).ok, true)
     // Main's queue is gone; the board's give waits while the ask is open, and while its answer waits for the round.
@@ -70,7 +70,7 @@ test('a refined step with an ask filed after its refine is not given until the p
     const folded = await server({ action: 'advance', id: 'B3', to: 'queued', for: 'Sail' })
     assert.match(folded.why, /waits for the partner to fold in the answer to Q1$/)
     assert.equal(await state(dir, 'B3'), 'refined')
-    assert.equal((await oracle({ action: 'refined', id: 'B3', what: ['the knot', 'a blue string'] })).ok, true)
+    assert.equal((await oracle({ action: 'refined', size: '30 min', id: 'B3', what: ['the knot', 'a blue string'] })).ok, true)
     // Refined anew: on the list for a worker, given by the board, not by the refine.
     assert.equal(await state(dir, 'B3'), 'refined')
     assert.equal((await server({ action: 'advance', id: 'B3', to: 'queued', for: 'Sail' })).ok, true)
@@ -87,7 +87,7 @@ test('a refined step whose asks are all answered and folded in is given at once'
     assert.equal((await kite({ action: 'ask', of: 'B3', kind: 'decide', text: 'Red string or blue?' })).ok, true)
     await person({ action: 'answer', id: 'Q1', text: 'Blue.' })
     await oracle({ action: 'refine', id: 'B3', summary: 'One knot per kite, blue.' })
-    assert.equal((await oracle({ action: 'refined', id: 'B3', what: ['the knot'] })).ok, true)
+    assert.equal((await oracle({ action: 'refined', size: '30 min', id: 'B3', what: ['the knot'] })).ok, true)
     assert.equal((await server({ action: 'advance', id: 'B3', to: 'queued', for: 'Sail' })).ok, true)
     assert.equal(await state(dir, 'B3'), 'queued')
   } finally {

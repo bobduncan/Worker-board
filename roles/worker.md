@@ -160,7 +160,8 @@ step therefore says what it touches ("Touches: ...").
   with the task's text. Take it at once: `work next`, then `work take B<id>`. A task you do not take within two minutes
   goes back on the board's list, and your lane shows you stuck until you run a turn. Then and at the start of any task:
   `work next`, and work from the record it answers. `work take B<id>`
-  with your branch starts it and names your card; `work step` moves your plan on (and your card). Write your step's
+  with your branch and `minutes` (the time left for the whole step, e.g. 45) starts it and names your card; the board refuses
+  a take without `minutes` (B832, the user, 2026-10-31: "no ETA"), so your card shows a time from the start; `work step` moves your plan on (and your card). Write your step's
   checkpoint with every commit: `work step B<id>` with `commit` (the hash, or none) and `next` (your next action, in
   one line); after a restart you go on from it (below, "A pause of all chats"). When the work is
   merged and its worktree removed: `work report B<id>` with what the user gets and the commit; the board checks the
@@ -226,6 +227,13 @@ step therefore says what it touches ("Touches: ...").
   turn made a step (`work new`) the board closes itself at the turn's end, "became step B<n>" (2026-10-28).
 - Work you find: `work new` under the activity it belongs to. Its title is 5 to 10 words of your own, starting with a
   verb, saying what the user gets, never the user's request read back; their words go in its text.
+- Never report a step before its work is merged (2026-10-31, B799): a report whose work sits on a branch that is not merged
+  comes back with "Your work for B<id> is on branch <name> (<n> commits) but not on main: merge it into main, then report
+  again." (the step shows "not merged yet: back with <you>"; no Check again button for the person).
+- When the board does not answer (the work tool says so), wait a minute, and if it still does not, tell the Supervisor chat
+  with `mcp__ccd_session_mgmt__send_message` (its session id is in the list of chats, `mcp__workers__chat` action
+  `list`) and go on with your step; never ask the person to start the board (the person, 2026-10-31: "asking me when the
+  board is off is suppose to be reported to the supervisor"). The Supervisor starts it and tells you.
 - The backlog file is the board's view of the store: read it, never edit it.
 - The user sees a picture of every visible change before it counts as done: put it in the project's picture folder
   (the first of the board's `pictureRoots`), in the folder of its subject, and show it in your chat. A step that
@@ -277,7 +285,8 @@ on Opus (the task's Model and Effort lines); it switches your model and effort f
    board refuses `work checked` while one of them is left, and names it with how to remove it.
 5. File it: `work checked B701` (the checked step's id, not the task's) with `evidence` (the picture's path in the project, or
    `none (<why>)`), `points` (every agreed point, each `pass: <point>`, `fail: <point>` or `ask: <point>`) and `score` ("82 of 75")
-   where there is one. That ends your task: the board moves it to done, and you are free and cleared as after a report. Never
+   where there is one. When a point fails, give `size` too ("about 45 min"): the fix step the board makes carries it, and the
+   check is refused without it (B832). That ends your task: the board moves it to done, and you are free and cleared as after a report. Never
    `work report` it; the board refuses that. Only the worker that holds the task files the check: a builder, another worker, the
    partner and the main chat are refused, naming the task and its worker.
 6. **The plain lines for the person's task window** (B701; the user, 2026-10-26: "2 lines of context, then brief what happened,

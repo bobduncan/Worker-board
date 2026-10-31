@@ -44,7 +44,7 @@ export async function reported(store, { gitPassed = true, lamp = LAMP, builder =
   assert.equal(made.ok, true, made.why)
   const id = made.result.id
   assert.equal((await queueFor(store.dir, id, owner, { now: NOW + 60_000 })).ok, true)
-  assert.equal((await store[builder]({ action: 'take', id, branch: 'b-lamps' })).ok, true)
+  assert.equal((await store[builder]({ action: 'take', minutes: 30, id, branch: 'b-lamps' })).ok, true)
   assert.equal((await store[builder]({ action: 'report', id, result: 'Every path has a warm lamp.', merged: 'c0ffee1' })).ok, true)
   const git = await store.server({ action: 'check', id, passed: gitPassed, lines: gitPassed ? ['work in garden', 'branch gone', 'result named'] : ['the branch b-lamps is still there'], ...(warnings.length === 0 ? {} : { warnings }) })
   return { id, git }
@@ -63,7 +63,7 @@ export async function qaOf(store, id) {
 /** Gives the QA task to the worker the way the board's hand-out does, and the worker takes it (no branch). */
 export async function takeQa(store, qa, worker = 'Checker', chat = 'checker') {
   assert.equal((await queueFor(store.dir, qa, worker, { now: NOW + 60_000 })).ok, true)
-  const taken = await store[chat]({ action: 'take', id: qa })
+  const taken = await store[chat]({ action: 'take', minutes: 30, id: qa })
   assert.equal(taken.ok, true, taken.why)
   return taken
 }
@@ -72,7 +72,7 @@ export async function takeQa(store, qa, worker = 'Checker', chat = 'checker') {
 export async function fileCheck(store, id, body, { worker = 'Checker', chat = 'checker' } = {}) {
   const qa = await qaOf(store, id)
   if (valueOf(await item(store.dir, qa), 'State') === 'refined') await takeQa(store, qa, worker, chat)
-  return store[chat]({ action: 'checked', id, ...body })
+  return store[chat]({ action: 'checked', size: '30 min', id, ...body })
 }
 
 /**
@@ -88,8 +88,8 @@ export async function checkedBy(ports, id, body, worker = 'Checker') {
   const qa = made.result.id
   if (valueOf(await item(dir, qa), 'State') === 'refined') {
     await queueFor(dir, qa, worker, { now })
-    const taken = await as(worker)({ action: 'take', id: qa })
+    const taken = await as(worker)({ action: 'take', minutes: 30, id: qa })
     if (!taken.ok) return taken
   }
-  return as(worker)({ action: 'checked', id, ...body })
+  return as(worker)({ action: 'checked', size: '30 min', id, ...body })
 }

@@ -710,6 +710,27 @@ counts them; so does the part's button. The Advisor's job: roles/partner.md, "A 
 stands above the card, and the Advisor tab's buttons wrap. Pictures: `art-inbox/board-goals/b259-card.png` and
 `b259-proposal.png`.
 
+**Change this goal** (2026-10-31, the person: steps were missing from a goal, and they wanted to say what should
+change, brainstorm it first, then re-plan). "Change this goal" stands beside "Change focus" in the Focus page's head
+and beside "Brainstorm this" on a goal of the Goals part, only with a partner. Its box asks "What should change about
+this goal?"; "Start the brainstorm" starts a thread with `Kind: change` in its head (one change at a time on a goal,
+beside the goal's own talk, which it never becomes, and which keeps the goal's `Brainstorm:` line) and keeps the words
+under the goal as `Your words: <date time> · <words>`. The partner asks until it can say back what the person wants,
+`## Understood (HH:MM)`; the card shows it with "Yes, that's it" (the board writes `Answer (HH:MM): yes` and types
+`brainstorm understood`) and "Not quite…" (their words under it, typed as `brainstorm answer` with `Understood: not
+quite — <words>`). The proposal of a change adds `Objective:`, `Done when:` bullets (`- 1. <bullet> — Picture: <path>`),
+`Not in it:`, `Covered:` (`- 1: B<id>, B<id>`), steps with `— for <n>` and `Drop:` (`- [ ] B<id> — <why>`). The card
+shows the goal's draft first (Agree, Change…), then the re-plan per bullet: covered steps, new steps ticked, drops
+unticked ("Do what's ticked", Change…). Create is refused before the yes; it writes `Objective:`, `Done when <n>:
+<bullet> · steps B<id>` (the covered ones; a new step joins its bullets once the board made it) and `Not in it:` under
+the goal (its old `Done when:` stays), drops the ticked drops in the store as the person with their why (`; dropped:
+B<id>` ends the Created line) and makes the ticked steps as any created proposal does. The map's rules paragraph gets a
+sentence naming the new lines the first time one is written. The Focus page shows a goal's Objective under its title
+(in place of the vibe's line) and its Done when bullets above the rest, each met (all its steps done, green) or not
+(grey), with its step ids as links; a goal without an Objective shows nothing new. Code: `src/brainstorm.mjs`,
+`src/goals.mjs`, `src/goalsWrite.mjs` (`setGoalChange`, `addDoneWhenStep`, `addYourWords`, `withChangeRules`), tests:
+`test/changeGoal.test.mjs`.
+
 **The game plan, readable (B218).** The person, 2026-10-14: "advisor game plan has links that dont work i want to be
 able to click them in the UI", and "too much text ... adding collapsing headers so this page feel more manageable".
 In the Advisor tab's Game plan part every heading folds what stands under it, folded at first with its first line
@@ -1410,7 +1431,7 @@ in `art-inbox/worker-board/b262/`.
   time left), as for the card's. The card's own plan always wins when it has one. A step with no plan at all and no time of
   its own (its Estimate) shows the size its refine gave ("Size: about 1 h") as a first estimate, counted from when the step
   was taken (its Since) and marked "refine's estimate" (`eta.from: 'refine'`), until the worker records a plan; a step with no
-  size keeps "No time". Tests: `test/work/stepPlan.test.mjs` (the line is written and replaced), `test/stepPlanCard.test.mjs`
+  size keeps "No time". B832 (the person, 2026-10-31, "Why is there no ETA?"): no step is left without a time at its source. The work tool refuses `take` without `minutes` (the plan line is written at the take: `until` the time left), `refined` and a step made from an agreed how (`new` with `what`) without a `Size` that `sizeMinutes` (`src/backlog.mjs`, the one reader of a size, also for the card's fallback) reads as minutes (`refined` takes a `size` of its own that replaces the round's), and `checked` with failed points without a `size` for the fix step it makes (the board's own filing of the person's no uses the checked step's size, else 30 min). A step already in progress is taken again without minutes. Test: `test/work/taskTime.test.mjs`. Tests: `test/work/stepPlan.test.mjs` (the line is written and replaced), `test/stepPlanCard.test.mjs`
   (a new session shows the saved plan, the card wins, the size, no size, the page's words).
 - One turn can hold several tasks. When the board still showed another task the chat had named, a task starts when it
   was named (B94).
@@ -4358,7 +4379,8 @@ what code should do"). Now the board hands out every task itself (principle 1), 
   `heldGiveMinutes` (20, at least 1 and never under `takeWithinMinutes`), beside Part 1's `unknownAfterSeconds`.
 - **Done when** (principle 6): for 4 hours after it is live none of these opens or comes back: `ready-while-free` (a
   ready task kept for nobody waits over `idleMinutes` while a worker whose report says free, and that holds no given
-  task, stands idle), `not-taking`
+  task, stands idle; B834: free exactly as the hand-out's `idleWorkers` counts it, so a worker the board reads free but
+  whose mod reports busy is no free worker, X111/X112), `not-taking`
   (a worker the board took a task back from, flagged), `holder-not-running` (a chat that does not run has work).
 - Tests: `test/work/handOutList.test.mjs`, `test/work/handOutMatch.test.mjs`, `test/work/handOutApi.test.mjs`,
   `test/work/handOutSim.test.mjs` (simulated chats through `buildState` and `deliverWork`), `test/work/again.test.mjs`,

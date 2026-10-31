@@ -113,7 +113,7 @@ test('a partner\'s answer, a person\'s answer and an Undo reach the chat that as
   const idOf = reply => reply.body.result?.id ?? reply.body.id
 
   // Digger asks with options and advice: the board routes it to the partner.
-  const taken = await asChat('Digger', { action: 'take', id: 'B12', branch: 'b12' })
+  const taken = await asChat('Digger', { action: 'take', minutes: 30, id: 'B12', branch: 'b12' })
   assert.equal(taken.status, 200, JSON.stringify(taken.body))
   const asked = await asChat('Digger', { action: 'ask', of: 'B12', kind: 'decide', blocking: true, text: 'Box or yew?', options: ['A box', 'B yew'], advice: 'B' })
   assert.equal(asked.status, 200, JSON.stringify(asked.body))

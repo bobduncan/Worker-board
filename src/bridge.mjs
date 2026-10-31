@@ -101,7 +101,10 @@ export function answerWhoami(state, body, cardSession = null) {
   const session = whoamiSession(body)
   if (session === null) return refuse(400, body !== null && typeof body === 'object' && !Array.isArray(body) ? 'Name the session.' : 'Not a request.')
   const name = whoamiOf(state, session)
-  return { ok: true, result: { name, role: name === null ? null : laneRole(state, name), card: name === null ? null : cardSession } }
+  // 2026-10-31: where a chat finds the Supervisor when the board does not answer (the list of chats shows it).
+  const supervisor = state?.supervisorChat ?? null
+  const isNamed = name !== null && typeof supervisor?.name === 'string' && supervisor.name.trim() !== '' && typeof supervisor.appSession === 'string' && /^local_[\w-]{1,80}$/.test(supervisor.appSession)
+  return { ok: true, result: { name, role: name === null ? null : laneRole(state, name), card: name === null ? null : cardSession, ...(isNamed ? { supervisor: { name: supervisor.name.trim(), session: supervisor.appSession } } : {}) } }
 }
 
 /** The sessions the board shows under a name: a card filed under one of them is that chat's, never another chat's. */

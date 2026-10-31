@@ -70,7 +70,7 @@ const takeAsServer = (outbox, chat, state, record, now = NOW) => outbox.take(cha
 test('the deadlock of 2026-10-19: while resuming, the person\'s answer to a holder\'s blocking ask is handed out, not held until resume', async () => {
   const { dir, digger, person, build } = await garden()
   try {
-    await digger({ action: 'take', id: 'B1' }, PAUSED - 30 * MIN)
+    await digger({ action: 'take', minutes: 30, id: 'B1' }, PAUSED - 30 * MIN)
     const asked = await digger({ action: 'ask', of: 'B1', kind: 'decide', blocking: true, text: 'Hedge of beech or of yew?', options: ['A beech', 'B yew'] }, PAUSED - 20 * MIN)
     assert.equal(asked.ok, true)
     const q = asked.result.id
@@ -184,8 +184,8 @@ test('2: the board\'s running after 20 minutes keeps who did not start, and when
     { name: 'Raker', isMain: false, state: 'free', between: null, turnAt: RESUMED + 3 * MIN },
   ]
   try {
-    await digger({ action: 'take', id: 'B1' }, PAUSED - 30 * MIN)
-    await raker({ action: 'take', id: 'B2' }, PAUSED - 30 * MIN)
+    await digger({ action: 'take', minutes: 30, id: 'B1' }, PAUSED - 30 * MIN)
+    await raker({ action: 'take', minutes: 30, id: 'B2' }, PAUSED - 30 * MIN)
     await person({ action: 'pause-all' }, PAUSED)
     await person({ action: 'resume-all' }, RESUMED)
     const ran = await workApi({ action: 'resumed' }, { dir, now: RESUMED + 20 * MIN, as: 'server', prefix: 'Garden · ', lanes })

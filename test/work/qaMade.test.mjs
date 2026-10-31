@@ -31,7 +31,7 @@ test('a report whose board check passes and which needs a result check gets one 
 test('a step that needs no result check, or whose board check failed, gets no QA task', async () => {
   const store = await fresh()
   try {
-    await store.lamplighter({ action: 'take', id: 'B1', branch: 'b1-wicks' })
+    await store.lamplighter({ action: 'take', minutes: 30, id: 'B1', branch: 'b1-wicks' })
     await store.lamplighter({ action: 'report', id: 'B1', result: 'The wicks are trimmed.', merged: 'abc1234' })
     const plain = await store.server({ action: 'check', id: 'B1', passed: true, lines: ['branch gone'] })
     assert.equal(plain.result.qa, undefined)
@@ -82,7 +82,7 @@ test('a fix whose check passes and leaves the step it fixes in review (a point f
     assert.equal(await openQa(store.dir, id), null)
     const fixId = checked.result.fix
     assert.equal(await queueFor(store.dir, fixId, 'Lamplighter', { now: NOW + 60_000 }).then(() => true), true)
-    await store.lamplighter({ action: 'take', id: fixId, branch: 'b-fix-lamps' })
+    await store.lamplighter({ action: 'take', minutes: 30, id: fixId, branch: 'b-fix-lamps' })
     await store.lamplighter({ action: 'report', id: fixId, result: 'All lamps are warm yellow.', merged: 'beef123' })
     const fixChecked = await store.server({ action: 'check', id: fixId, passed: true, lines: ['branch gone'] })
     // The fix has points of its own, so it waits for its own check first.

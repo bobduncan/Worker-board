@@ -121,7 +121,7 @@ test('the action recheck-base: the board only, a step in review only; History sa
     const painter = body => workApi({ chat: 'Painter', ...body }, ctx)
     const server = body => workApi(body, { ...ctx, as: 'server' })
     assert.equal((await server({ action: 'recheck-base', id: 'B1', why: 'x' })).status, 409)
-    await painter({ action: 'take', id: 'B1', branch: 'b1-lamps' })
+    await painter({ action: 'take', minutes: 30, id: 'B1', branch: 'b1-lamps' })
     await painter({ action: 'report', id: 'B1', result: 'The lamps glow.', merged: 'c0ffee1' })
     await server({ action: 'check', id: 'B1', passed: false, lines: ['work in lantern', PLAIN] })
     assert.equal((await painter({ action: 'recheck-base', id: 'B1' })).status, 403)

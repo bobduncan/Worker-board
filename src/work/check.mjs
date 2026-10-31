@@ -31,6 +31,7 @@ import { join } from 'node:path'
 
 import { readBranches } from '../folders.mjs'
 import { RESULT_CHARS, partsWarnings } from './recapWords.mjs'
+import { NOT_MERGED } from './resultCheck.mjs'
 import { isHeldLine, stepLeftovers } from './worktrees.mjs'
 
 /** A folder's last part, for Windows and other paths alike. */
@@ -87,7 +88,68 @@ export async function repoOfStep({ branch, merged, repos, run }) {
  * worktree of the step is left (worktrees.mjs `stepLeftovers`): `fs` the file system the project folder is read with
  * (worktrees.mjs `FILES`); null leaves the project folder unread.
  */
-export async function reportCheck({ id, branch, result, merged, repos, run, project = '', touches = [], exists = null, fs = null, cut = null, inline = false, waits }) {
+export async function reportCheck(args) {
+  const outcome = await factsCheck(args)
+  // 2026-10-31 (B799): a check that fails because the work is not on main is, when the work sits on a branch that is
+  // not merged, a word back to its worker ("merge it, then report again"), never a failure for the person. A pass, a
+  // folder only held by a program and a report with a merged commit a repository holds are left as they are.
+  if (outcome.passed || outcome.isHeldOnly === true || await repoOfCommit(args.merged, args.repos, args.run) !== null) return outcome
+  const found = await findUnmerged(args)
+  return found === null ? outcome : { passed: false, notMerged: found, lines: [notMergedWords(args.id, found)] }
+}
+
+/** The words that send a step back to its worker when its work is on a branch that is not merged (also the History line's reason). */
+export const notMergedWords = (id, { branch, commits, base }) =>
+  `${NOT_MERGED}Your work for ${id} is on branch ${branch} (${commits} commit${commits === 1 ? '' : 's'}) but not on ${base}: merge it into ${base}, then report again.`
+
+/** Most unmerged branches of a repository looked through for the work (the rest are old leftovers). */
+const BRANCHES_LOOKED_AT = 60
+
+/**
+ * 2026-10-31 (B799: built on b775-mock-details, the step's Branch named b799-page-list-mockup that never existed, the
+ * check looked for the files on main and failed for the person): the work of step `id` on a local branch of a repository
+ * that is not merged into its base, read only. In order: the step's own Branch; a branch whose own commits name the id as
+ * a word; a branch that adds a file the result or Touches names (a path with a file's ending). `{ branch, commits, base,
+ * repo }` (`commits`: those the base lacks), else null. A step whose own branch exists and is merged is not searched on.
+ */
+export async function findUnmerged({ id, branch, result, touches = [], project = '', repos, run }) {
+  const own = typeof branch === 'string' ? branch.trim() : ''
+  const named = new RegExp(`(?<![\\w-])${escape(id)}(?![\\w-])`)
+  const files = [...pathsIn(result, project), ...pathsIn((Array.isArray(touches) ? touches : [touches]).join('\n'), project)].filter(one => one.isCertain && !one.path.endsWith('/')).map(one => one.path.toLowerCase())
+  const isFile = added => files.some(path => added === path || added.endsWith(`/${path}`) || path.endsWith(`/${added}`))
+  for (const { dir, base } of repos) {
+    const [unmerged, heads] = await Promise.all([
+      run(['-C', dir, 'for-each-ref', '--no-merged', base, '--format=%(refname:short)', 'refs/heads']),
+      own === '' ? null : run(['-C', dir, 'for-each-ref', '--format=%(refname:short)', 'refs/heads']),
+    ])
+    if (unmerged === null) continue
+    const open = linesOf(unmerged).filter(name => name !== base)
+    const counted = async name => {
+      const count = String(await run(['-C', dir, 'rev-list', '--count', `${base}..${name}`]) ?? '').trim()
+      return /^\d+$/.test(count) && Number(count) > 0 ? { branch: name, commits: Number(count), base, repo: nameOf(dir) } : null
+    }
+    if (own !== '' && own !== '-' && open.includes(own)) {
+      const one = await counted(own)
+      if (one !== null) return one
+    }
+    // The step's own branch is there and merged (only not gone): its work is on the base, no other branch holds it.
+    if (own !== '' && linesOf(heads).includes(own) && !open.includes(own)) continue
+    let byFile = null
+    for (const name of open.filter(one => one !== own).slice(0, BRANCHES_LOOKED_AT)) {
+      const log = await run(['-C', dir, 'log', '--no-merges', '--fixed-strings', `--grep=${id}`, '--format=%x1e%B', `${base}..${name}`])
+      if (String(log ?? '').split('\x1e').slice(1).some(message => named.test(message))) {
+        const one = await counted(name)
+        if (one !== null) return one
+      }
+      if (byFile === null && files.length > 0 && linesOf(await run(['-C', dir, 'diff', '--name-only', '--diff-filter=A', `${base}...${name}`])).some(path => isFile(plainPath(path).toLowerCase()))) byFile = await counted(name)
+    }
+    if (byFile !== null) return byFile
+  }
+  return null
+}
+
+/** The report check's facts (see `reportCheck`, which adds the branch that holds unmerged work). */
+async function factsCheck({ id, branch, result, merged, repos, run, project = '', touches = [], exists = null, fs = null, cut = null, inline = false, waits }) {
   // 2026-10-25: a result the board cut at its limit passes with a warning that says so.
   const warnings = cut === null ? [] : [`the result was ${cut} characters: the board kept the first ${RESULT_CHARS} and cut the rest; put what matters first`]
   // B363: work outside git (no branch of its own, no merged commit a repository holds): its files are checked instead.

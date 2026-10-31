@@ -27,7 +27,7 @@ const sends = (time, message, to = 'Studio · Lead') => line({ type: 'assistant'
 const handOver = (time, words) => fromChat(time, 'Studio · Lead', words)
 /** B301: the worker's own calls of the work tool, as the Workers mod registers it. */
 const works = (time, input) => line({ type: 'assistant', timestamp: iso(time), message: { role: 'assistant', stop_reason: 'tool_use', content: [{ type: 'tool_use', id: 'w', name: 'mcp__a-mod__work', input }] } })
-const takes = (time, id) => works(time, { action: 'take', id, branch: 'b' })
+const takes = (time, id) => works(time, { action: 'take', minutes: 30, id, branch: 'b' })
 const reports = (time, id) => works(time, { action: 'report', id, result: 'done' })
 /** The board's line that a step is the worker's: it opens the turn the take is made in. */
 const yours = (time, id) => typed(time, `work: ${id} is yours; run work next`)

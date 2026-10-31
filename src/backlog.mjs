@@ -29,6 +29,15 @@ export function minutesOf(part) {
   return Math.round(Number(found[1] ?? 0) * 60 + Number(found[2] ?? 0))
 }
 
+/** Focus 1: the minutes a part's size names ("about 1 h", "30 min", "1.5 h", "2 h 30 min"); null when it names none. */
+export function sizeMinutes(size) {
+  // "1 h" and "1 hour", "45 min" and "45 minutes" (2026-10-31: a refine in words gave its worker no time). B832: the size is
+  // what the text starts with, so "3 hours (test 1 h, build 2 h)" is 3 hours and "2 hours (test 30 min)" is 2.
+  const found = String(size ?? '').match(/^\s*(?:about\s+)?(?:(\d+(?:[.,]\d+)?)\s*h(?:ours?|rs?)?\b)?\s*(?:(\d+)\s*min(?:utes?|s)?\b)?/i)
+  if (found === null || (found[1] === undefined && found[2] === undefined)) return null
+  return Math.round((found[1] === undefined ? 0 : Number(found[1].replace(',', '.')) * 60) + (found[2] === undefined ? 0 : Number(found[2])))
+}
+
 /** The first "about <time>" in a text, as minutes, or null: "About 45 minutes, after B92" is 45. */
 export function aboutMinutes(text) {
   for (const found of text.matchAll(/\babout\s/gi)) {

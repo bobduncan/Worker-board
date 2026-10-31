@@ -139,7 +139,7 @@ test('an ask gets its filing time to the millisecond (Filed); an older one count
   try {
     await writeStore(dir, migrateBacklog('# Backlog\n\n## Work\n- [ ] B1 Plant the hedge (for Digger; about 1 h)\n', { now: at(7, 0) }), undefined, { now: at(7, 0) })
     const ctx = now => ({ dir, now, prefix: 'Game - ', roleOf: chat => ({ Main: 'main', Digger: 'worker' })[chat] ?? null, freeChats: new Set(['Digger']), boardUrl: 'http://127.0.0.1:4310' })
-    await workApi({ chat: 'Digger', action: 'take', id: 'B1' }, ctx(at(7, 1)))
+    await workApi({ chat: 'Digger', action: 'take', minutes: 30, id: 'B1' }, ctx(at(7, 1)))
     const filed = await workApi({ chat: 'Digger', action: 'ask', of: 'B1', kind: 'decide', text: 'Box or yew?' }, ctx(at(7, 2, 13) + 456))
     assert.equal(filed.ok, true, filed.why)
     const q1 = (await readStore(dir)).items.get('Q1')

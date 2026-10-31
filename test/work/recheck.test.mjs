@@ -31,7 +31,7 @@ const history = async (dir, id) => (await item(dir, id)).sections.get('History')
 /** B1 reported, and the board's check of it failed. */
 async function failedCheck(flow) {
   const store = await fresh(flow)
-  await store.lamplighter({ action: 'take', id: 'B1', branch: 'b1-lamps' })
+  await store.lamplighter({ action: 'take', minutes: 30, id: 'B1', branch: 'b1-lamps' })
   const reported = await store.lamplighter({ action: 'report', id: 'B1', result: 'The lamps glow.', merged: 'c0ffee1' })
   assert.deepEqual(reported.result.check, { id: 'B1', branch: 'b1-lamps', result: 'The lamps glow.', merged: 'c0ffee1', touches: [] })
   await store.server({ action: 'check', id: 'B1', passed: false, lines: ['main of lantern is not the same as origin/main'] })
@@ -83,7 +83,7 @@ test('a flow without the move review → review refuses a report from review, in
 test('B404: a report whose check never came (a restart right after it) is checked again after 2 minutes, by the board only', async () => {
   const { dir, lamplighter } = await fresh()
   try {
-    await lamplighter({ action: 'take', id: 'B1', branch: 'b1-lamps' })
+    await lamplighter({ action: 'take', minutes: 30, id: 'B1', branch: 'b1-lamps' })
     await lamplighter({ action: 'report', id: 'B1', result: 'The lamps glow.', merged: 'c0ffee1' })
     const at = ms => body => workApi(body, { dir, now: NOW + ms, prefix: '', roleOf: chat => ROLES[chat] ?? null, freeChats: new Set(), as: 'server' })
     assert.equal((await lamplighter({ action: 'recheck-stuck' })).status, 403)

@@ -91,7 +91,7 @@ test('a worker that is not running gets its line all the same, and the main chat
 test('a step held by a chat that is not running is flagged within the grace time, with the button that starts it', async () => {
   const { dir, digger, build } = await garden()
   try {
-    await digger({ action: 'take', id: 'B1' })
+    await digger({ action: 'take', minutes: 30, id: 'B1' })
     // Its last activity was five minutes ago: within the grace time nothing yet.
     assert.deepEqual((await build({ running: ['Lead'] })).chats.find(one => one.name === 'Digger').flags, [])
     const state = await build({ now: NOW + 6 * MIN, running: ['Lead'] })
@@ -111,7 +111,7 @@ test('a step held by a chat that is not running is flagged within the grace time
 test('the server\'s moves go through the API as the server: a passed check closes the step once its look is answered', async () => {
   const { dir, digger, server, build, deliver } = await garden()
   try {
-    await digger({ action: 'take', id: 'B1' })
+    await digger({ action: 'take', minutes: 30, id: 'B1' })
     await digger({ action: 'ask', of: 'B1', kind: 'look', blocking: false, text: 'Look at the hedge' })
     await digger({ action: 'report', id: 'B1', result: 'The hedge stands' })
     await server({ action: 'check', id: 'B1', passed: true, lines: ['base equals remote'] })
@@ -139,7 +139,7 @@ test('a free worker\'s pull answers its line while a step may be taken; nothing 
     const send = () => sendOnce({ dir: store.dir, key: 'B1 Digger 2026-10-17 10:05', words: { to: 'Digger', command: 'work', about: 'B1', text: pulled.result.text }, outbox, state: {}, now: NOW, maxChars: 2000, newId: () => 'p1' })
     assert.notEqual(await send(), null)
     assert.equal(await send(), null)
-    await store.digger({ action: 'take', id: 'B1' })
+    await store.digger({ action: 'take', minutes: 30, id: 'B1' })
     assert.deepEqual((await store.digger({ action: 'pull' })).result, { text: '', id: 'B1', since: null, wake: null, changed: false })
   } finally {
     await rm(store.dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })

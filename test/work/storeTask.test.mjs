@@ -31,7 +31,7 @@ const tail = isRunning => ({
 async function garden() {
   const dir = await mkdtemp(join(tmpdir(), 'work-task-'))
   await writeStore(dir, migrateBacklog(BACKLOG, { now: NOW - 60 * MIN }), undefined, { now: NOW - 60 * MIN })
-  await workApi({ chat: 'Digger', action: 'take', id: 'B1' }, { dir, now: NOW - 30 * MIN, prefix: 'Garden · ', roleOf: chat => ({ Lead: 'main', Digger: 'worker' })[chat] ?? null, freeChats: new Set(['Digger']) })
+  await workApi({ chat: 'Digger', action: 'take', minutes: 30, id: 'B1' }, { dir, now: NOW - 30 * MIN, prefix: 'Garden · ', roleOf: chat => ({ Lead: 'main', Digger: 'worker' })[chat] ?? null, freeChats: new Set(['Digger']) })
   const build = async isRunning => {
     const work = { ok: true, dir, ...(await readStore(dir)) }
     const raw = {

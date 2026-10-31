@@ -64,7 +64,7 @@ import { firstLook, refineQueue, refineWhenDue } from './src/refineGate.mjs'
 import { recheckText, roundText, roundsNow } from './src/rounds.mjs'
 import { editStep, settleByBoard } from './src/tick.mjs'
 import { editThread, fixesToTell, strandedToTell } from './src/brainstorm.mjs'
-import { changeGoalsFile, editGoals, setGoalSteps } from './src/goalsWrite.mjs'
+import { addDoneWhenStep, changeGoalsFile, editGoals, setGoalSteps } from './src/goalsWrite.mjs'
 import { parseGoals } from './src/goals.mjs'
 import { activityFor, missingToSteps } from './src/goalSteps.mjs'
 import { PLAN_MOVES, planMove } from './src/planMoves.mjs'
@@ -814,17 +814,24 @@ async function main(args) {
     if (activity === null) return { ok: false, status: 409, why: 'The work store has no activity to put the step under.' }
     const made = await workAction({ action: 'new', title: step.title, activity, ...(step.goal === null ? {} : { goal: step.goal }), text: [`Description: ${step.description}`, `Time: ${step.cost}`, 'From the goal map.'] }, 'person')
     if (!made.ok) return made
-    await linkUnderGoal(step.goal, made.result.id)
+    // "Change this goal" (2026-10-31): a step of a change is also named under the Done when bullets it is for.
+    await linkUnderGoal(step.goal, made.result.id, step.for ?? [])
     readState.reset()
     return { ok: true, result: { step: made.result.id } }
   }
-  /** B754: a step the board wrote, added to its goal's Steps line in the goal map (the one link between the two). */
-  const linkUnderGoal = async (goal, id) => {
+  /**
+   * B754: a step the board wrote, added to its goal's Steps line in the goal map (the one link between the two).
+   * "Change this goal": and to the goal's `Done when <n>:` bullets it is for (`bullets`).
+   */
+  const linkUnderGoal = async (goal, id, bullets = []) => {
     if (goal === null || !writesMap) return
     const goalsAt = { file: projectFile(config, 'goals'), historyDir: projectFile(config, 'goalsHistory'), now: clock() }
     await changeGoalsFile(text => {
       const node = parseGoals(text).byId.get(goal)
-      return node === undefined ? { ok: true, text } : setGoalSteps(text, goal, [...node.steps, id])
+      if (node === undefined) return { ok: true, text }
+      let out = setGoalSteps(text, goal, [...node.steps, id])
+      for (const n of bullets) if (out.ok) out = addDoneWhenStep(out.text, goal, n, id)
+      return out
     }, goalsAt)
   }
   /**
@@ -2145,6 +2152,8 @@ async function main(args) {
         goalsFile: projectFile(config, 'goals'),
         historyDir: projectFile(config, 'goalsHistory'),
         now: clock(),
+        // "Change this goal" (2026-10-31): a ticked drop of a change's proposal is the work store's drop, as the person.
+        drop: (id, why) => workAction({ action: 'drop', id, why }, 'person'),
       })
       readState.reset()
       return done

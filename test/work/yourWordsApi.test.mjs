@@ -73,7 +73,7 @@ test('the Q530 case: the checker reads the person\'s words, its question they an
     const quoting = await store.checker({ action: 'ask', of: id, kind: 'decide', title: 'How deep should the crater be?', text: `Asked before: "${QUESTION}" You answered: "Rejected. ${REJECTED}"` })
     assert.equal(quoting.ok, true, quoting.why)
     // The check's own ask point (a look only the person can judge) is filed as it was: never refused for their words.
-    const checked = await store.checker({ action: 'checked', id, evidence: 'none (a look)', points: ['pass: a lamp at every bench', `ask: ${QUESTION}`] })
+    const checked = await store.checker({ action: 'checked', size: '30 min', id, evidence: 'none (a look)', points: ['pass: a lamp at every bench', `ask: ${QUESTION}`] })
     assert.equal(checked.ok, true, checked.why)
   } finally {
     await remove(store.dir)
@@ -99,7 +99,7 @@ test('a failed check makes its fix with the person\'s words on it', async () => 
 test('the person\'s answers land on the step with their question; a partner\'s answer and the mod\'s own closes do not', async () => {
   const store = await fresh()
   try {
-    assert.equal((await store.lamplighter({ action: 'take', id: 'B1' })).ok, true)
+    assert.equal((await store.lamplighter({ action: 'take', minutes: 30, id: 'B1' })).ok, true)
     // A detail question goes to the partner first: its answer is the partner's, not the person's.
     const routed = await store.lamplighter({ action: 'ask', of: 'B1', kind: 'decide', title: 'Cotton or linen wicks?', options: ['A cotton', 'B linen'], advice: 'A' })
     assert.equal(routed.result.route, 'partner')
@@ -186,7 +186,7 @@ test('an ask with no step from a worker stands under its one held step, its one 
     assert.equal(one.ok, true, one.why)
     assert.equal(valueOf(await item(store.dir, one.result.id), 'Of'), id)
     // A step in progress beside it is the one.
-    assert.equal((await store.lamplighter({ action: 'take', id: 'B1' })).ok, true)
+    assert.equal((await store.lamplighter({ action: 'take', minutes: 30, id: 'B1' })).ok, true)
     const working = await store.lamplighter({ action: 'ask', kind: 'decide', title: 'Should the wicks be trimmed at night?' })
     assert.equal(valueOf(await item(store.dir, working.result.id), 'Of'), 'B1')
     // The checker that holds only its QA task: the step it checks.

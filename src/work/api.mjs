@@ -6,7 +6,7 @@
 // B301: the store is required. A store folder that is not there or cannot be read is refused with 503 and the one line
 // the board shows on top for it (read.mjs, `storeFault`); nothing is read from or written to the backlog file instead.
 
-import { minutesOf } from '../backlog.mjs'
+import { minutesOf, sizeMinutes } from '../backlog.mjs'
 import { workWords } from '../say.mjs'
 import { stepLine, stepNotes } from './adapter.mjs'
 import { GIVE_GUARD, flowHandsOut, mayMove } from './flow.mjs'
@@ -23,7 +23,7 @@ import { acceptRefine, answerRefine } from './refineText.mjs'
 import { gamePageIn, gamePageLabel, localAddressIn, placesIn } from '../places.mjs'
 import { DECIDED, GOAL_ID, NEEDS, UNDONE, decidedOf, isDailyNote, needsOf, undoneOf } from './dailyNote.mjs'
 import { HOW_MARK, openAsksOf as openAsksUnder, refineAsksOf as asksCounted } from './stepAsks.mjs'
-import { ANOTHER_WAY, NOTES, TRIES_BEFORE_ANOTHER_WAY, WARNINGS_MARK, agreedPoints, answerReading, boardWarningsOf, chainTries, checkedOf, checkWhy, fixesOf, fixesThrough, fixTitle, needsResultCheck, parentPointsOf, parsePoints, resultCheckAtMs, resultCheckOf, resultCheckSummary, reviewWaitOf, warningLines } from './resultCheck.mjs'
+import { ANOTHER_WAY, NOTES, TRIES_BEFORE_ANOTHER_WAY, WARNINGS_MARK, agreedPoints, answerReading, boardWarningsOf, chainTries, checkedOf, checkWhy, fixesOf, fixesThrough, fixTitle, needsResultCheck, parentPointsOf, parsePoints, resultCheckAtMs, resultCheckOf, resultCheckSummary, reportCheckFailedOf, reviewWaitOf, warningLines } from './resultCheck.mjs'
 import { barredFrom, buildersWithFixes, isQaTask, openQaTaskOf, qaModelEffort, qaTitle } from './qaTask.mjs'
 import { RECAP_ANSWERS, dueRecaps, isRecap, recapMadeSince } from './recap.mjs'
 import { RESULT_CHARS, checkLinesWarning, goalParts, recapParts } from './recapWords.mjs'
@@ -366,7 +366,11 @@ function reportWarningsWords(chat, w) {
  */
 function handedBackWords(chat, w) {
   const back = handedBackOf(w.store.items, chat, w.prefix)
-  return back === null ? '' : `The board's check of your report ${back.id} failed: fix what it names and report ${back.id} again first; the board gives you no new step before that report passes`
+  if (back === null) return ''
+  // 2026-10-31 (B799): the work is on a branch that is not merged: the words the check sent, as they are.
+  const notMerged = reportCheckFailedOf(w.store.items.get(back.id))?.notMerged ?? null
+  if (notMerged !== null) return `${notMerged} The board gives you no new step before that report passes`
+  return `The board's check of your report ${back.id} failed: fix what it names and report ${back.id} again first; the board gives you no new step before that report passes`
 }
 
 /** Partner answers (2026-10-19): the open asks routed to the partner, each in one line, and how to answer them; `{ text, ids }`. */
@@ -552,6 +556,9 @@ function move(item, to, role, w, ctx = flowCtx(w, [item]), why = '', writer = nu
 
 const changed = (item, text = serializeItem(item), more = {}) => ({ ok: true, result: { id: valueOf(item, 'Id'), text, changed: true, ...more } })
 
+/** B832: why a size cannot be used (null when it names minutes: "about 45 min", "2 hours", "1.5 h"). */
+const sizeProblem = (size, who = 'a size') => (sizeMinutes(size) === null ? `Give ${who} the board reads as minutes in "size" (about 45 min, about 2 hours), so every task shows a time.` : null)
+
 /** Takes a step: queued for this chat (the board moves it to taken), or taken; then in progress, and the branch. */
 async function take(body, w) {
   const found = await load(body.id, w, { kind: ['step'] })
@@ -565,6 +572,9 @@ async function take(body, w) {
   if (HELD.includes(state) && owner !== null && !isOwner(item, w.who, w.prefix)) return refuse(409, `${id}: ${owner} holds it (${state}).`)
   if (state === 'in progress' && isOwner(item, w.who, w.prefix)) return { ok: true, result: { id, text: serializeItem(item), title: valueOf(item, 'Title'), changed: false } }
   // Review 2: a step the backlog showed in progress without naming its worker is the first taker's.
+  // B832 (the person, 2026-10-31: no time on a card): a step is taken with the time left for the whole step, in minutes.
+  const minutes = planMinutes(body.minutes)
+  if (!(state === 'in progress' && owner === null) && minutes === null) return refuse(400, `${id}: say how long it takes: "minutes" is the time left for the whole step (1 to 1440), e.g. work take ${id} minutes 45.`)
   if (state === 'in progress' && owner === null) {
     const claimed = ordered(said(put(copy(item), 'Owner', w.who), w, 'claimed (in progress)'))
     const done = await save(claimed, found.text, w)
@@ -591,6 +601,8 @@ async function take(body, w) {
   if (!started.ok) return started
   // T13: a step taken from the queue starts on a plan of its own: one saved from an earlier run of it is no longer its plan.
   item = put(copy(clearedAtTake(started.item, w)), 'Plan', null)
+  const timed = nextPlan(null, { minutes }, w.now)
+  if (timed !== null) put(item, 'Plan', planText(timed))
   const branch = line(body.branch, 120)
   if (branch !== '') {
     if (!/^[\w./-]+$/.test(branch)) return refuse(400, 'A branch is a name such as b12-the-strip.')
@@ -1747,7 +1759,13 @@ async function checked(body, w) {
   item.sections.set('Checked', [`Evidence: ${evidence}`, ...(score === '' ? [] : [`Score: ${score}`]), ...noted, ...points.map(one => `- ${one.verdict}: ${one.text}`)])
   let fix = null
   if (failed.length > 0) {
-    const made = await fixStep(found.item, failed, w, points)
+    // B832: the fix step it makes carries the checker's size (B821 had none).
+    // The board's own filing of the person's no has no checker: the fix takes the size of the step it fixes.
+    const ownSize = (found.item.sections.get('Refined') ?? []).map(one => one.trim().match(/^Size:\s*(.*)$/)?.[1]).find(one => one !== undefined) ?? ''
+    const size = line(body.size ?? (w.boardFiles === true ? (sizeMinutes(ownSize) === null ? '30 min' : ownSize) : ''), 40)
+    const unsized = sizeProblem(size)
+    if (unsized !== null) return refuse(400, `The check failed points, so it makes a fix step: ${unsized}`)
+    const made = await fixStep(found.item, failed, w, points, size.replace(/^about\s+/i, ''))
     if (!made.ok) return made
     fix = made.id
     item = put(item, 'Attempts', String(Number(valueOf(found.item, 'Attempts') ?? 0) + 1))
@@ -1847,7 +1865,7 @@ async function undoFix(id, w) {
  * the result check of B<id>"), with the step's activity, goal and standard, queued for the same worker. Answers
  * `{ ok, id }`. B468: it runs at the effort of the step it fixes; model per step: and on its model.
  */
-async function fixStep(origin, failed, w, points = failed) {
+async function fixStep(origin, failed, w, points = failed, size = '') {
   const originId = valueOf(origin, 'Id')
   const activity = valueOf(origin, 'Activity')
   const goal = valueOf(origin, 'Goal')
@@ -1874,6 +1892,7 @@ async function fixStep(origin, failed, w, points = failed) {
     `Refined (${stamp(w.now)}; ${anotherWay ? 'open' : 'ready'}; from the result check of ${originId} by ${w.who}):`,
     `Summary: ${summary}`,
     ...(goal === null ? [] : [`Part of: ${goal}`]),
+    ...(size === '' ? [] : [`Size: about ${size}`]),
     ...(standard === null ? [] : [`Standard: ${standard}`]),
     ...(model === null ? [] : [`Model: ${model}`]),
     ...(effort === null ? [] : [`Effort: ${effort}`]),
@@ -2690,6 +2709,8 @@ function howBlock(body, goal, w, standard = null, effort = null, model = null) {
   if (what.length === 0) return refuse(400, 'Say what we build in "what", one line per part.')
   const picture = line(body.picture, 200)
   const size = line(body.size, 40).replace(/^about\s+/i, '')
+  const unsized = sizeProblem(size)
+  if (unsized !== null) return refuse(400, unsized)
   const block = [
     `Refined (${stamp(w.now)}; ready; ${HOW_MARK} ${goal} by ${w.who}):`,
     `Summary: ${summary}`,
@@ -2889,6 +2910,17 @@ async function refined(call, w) {
     if (named !== null) isDropped = ['Questions', 'Feedback', 'What we build', 'Problem', 'Goal', 'Standard', 'Model', 'Effort'].includes(named[1])
     if (!isDropped) kept.push(one)
   }
+  // B832: a step ready for a worker carries a size the board reads as minutes (its Size line, kept from the round).
+  // A "size" given now replaces the one of the round.
+  const givenSize = line(body.size, 40).replace(/^about\s+/i, '')
+  if (givenSize !== '') {
+    const at = kept.findIndex(one => /^\s*Size:/.test(one))
+    const written = `${indent}Size: about ${givenSize}`
+    if (at >= 0) kept[at] = written
+    else kept.push(written)
+  }
+  const sizeLine = kept.map(one => one.trim().match(/^Size:\s*(.*)$/)?.[1]).find(one => one !== undefined)
+  if (sizeProblem(sizeLine ?? '') !== null) return refuse(409, `${id}: its refine block has no Size line the board reads as minutes. Give "size" (about 45 min, about 2 hours) with it.`)
   const item = copy(found.item)
   const standardLine = standard === null ? [] : [`${indent}Standard: ${standard}`]
   if (standard !== null) item.sections.set('Standard', [standard])

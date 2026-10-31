@@ -388,6 +388,20 @@
 
   <dialog class="demo-page" id="demo-page" aria-label="The goal demo"></dialog>
 
+  <dialog class="change-goal" id="change-goal" aria-labelledby="change-goal-title">
+    <form class="change-goal-form" id="change-goal-form" method="dialog">
+      <h2 id="change-goal-title">Change this goal</h2>
+      <label for="change-goal-words">What should change about this goal?</label>
+      <textarea id="change-goal-words" rows="4" maxlength="2000" placeholder="In your words: what is missing, what should it aim for?"></textarea>
+      <p class="change-goal-hint">Your words are kept on the goal, with this question. Your partner asks until it can say back what you want; nothing about the goal changes before your yes.</p>
+      <p class="change-goal-status" id="change-goal-status" role="status"></p>
+      <div class="change-goal-buttons">
+        <button class="change-goal-cancel" type="button" id="change-goal-cancel">Cancel</button>
+        <button class="change-goal-start" type="submit" id="change-goal-start">Start the brainstorm</button>
+      </div>
+    </form>
+  </dialog>
+
   <dialog class="lightbox" id="lightbox" aria-label="Picture">
     <figure>
       <div class="lightbox-stage" id="lightbox-stage">

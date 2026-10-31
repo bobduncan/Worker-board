@@ -137,6 +137,10 @@ test('ready-while-free: a ready task kept for nobody waits 11 min while a worker
   // No worker free by its own report: free by the board's older reading, busy, or stuck (the rule not-taking's).
   assert.deepEqual(check('ready-while-free', board({ chats: [LEAD, lane('Painter', { state: 'free' })] }), seen(30)), [])
   assert.deepEqual(check('ready-while-free', board({ chats: [LEAD, lane('Mason', { state: 'working' })] }), seen(30)), [])
+  // B834 (X111): the board reads the worker free, but its own mod reports it busy (it is asking the person): no free worker, as for the hand-out.
+  const busyByReport = lane('Painter', { state: 'free', report: { state: 'busy', since: ago(40), background: false, at: ago(0) } })
+  assert.deepEqual(check('ready-while-free', board({ chats: [LEAD, busyByReport] }), seen(30)), [])
+  assert.equal(check('ready-while-free', board({ chats: [LEAD, free('Painter')] }), seen(30)).length, 1, 'idle by its report: the finding as before')
   const stuck = lane('Painter', { state: 'free', report: { state: 'idle', since: ago(40), at: ago(0) }, flags: [{ kind: 'not taking', id: 'B4', text: 'x', button: null }] })
   assert.deepEqual(check('ready-while-free', board({ chats: [LEAD, stuck] }), seen(30)), [])
   // The review: a worker that holds a task given to it (its line may wait for its model) is no free worker.
