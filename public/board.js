@@ -12992,7 +12992,8 @@ function focusView(focus, goals, can = null, ui = {}) {
   if (stage === 'run') {
     // Redesign Part 2: a part whose tasks are refined and none given yet is on the board's list for a worker.
     // B680: a part with only dropped steps is Stopped (calm, nothing reached); one the person dropped says why.
-    const chips = { done: 'Done', now: 'In progress', next: 'Next', ready: 'On the list for a worker', refining: 'Waiting for its refine, then it goes on the list', stopped: 'Stopped, nothing reached' }
+    // 2026-10-31 (B689): In progress only while a step of it is at work; else it waits for another task, or its fix stopped.
+    const chips = { done: 'Done', now: 'In progress', next: 'Next', ready: 'On the list for a worker', refining: 'Waiting for its refine, then it goes on the list', stopped: 'Stopped, nothing reached', waiting: 'Waiting, nobody on it now', stuck: 'Stuck: its fix stopped' }
     view.run = {
       title: 'The how',
       page: focus.page ?? null,

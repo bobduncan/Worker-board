@@ -1234,10 +1234,18 @@ export function focusState(goalMap, items, threads, prefix, partner = null, now 
     const known = part.steps.map(id => steps.get(id)).filter(one => one !== undefined)
     const done = known.filter(one => FINISHED.includes(one.head.get('State'))).length
     const busy = known.find(one => UNDER_WAY.includes(one.head.get('State')))
+    // B684: the part's steps in its order, each with its colour, its words, its check and what it waits for.
+    const list = known.map(one => partStepOf(one, steps, prefix, all, lanes, now))
+    // 2026-10-31 (B689, the badge: its part read In progress while nobody worked on it): a part is in progress only while
+    // a step under way is at work (built, checked or its fix at work) or a worker's card shows it; one whose steps under
+    // way only wait for another task is waiting, one whose fix stopped is stuck.
+    const open = list.filter((one, at) => UNDER_WAY.includes(known[at].head.get('State')))
+    const atWork = open.some(one => one.tone === 'now' || one.onIt !== null)
+    const isQueued = known.some(one => one.head.get('State') === 'queued')
     // Redesign Part 2: steps made but none given yet: a refined one is on the board's list for a worker (`ready`); one not
     // refined yet waits for its refine (`refining`).
     const held = known.filter(one => NOT_HANDED.includes(one.head.get('State')))
-    const isWaiting = busy === undefined && !known.some(one => one.head.get('State') === 'queued')
+    const isWaiting = !atWork && !isQueued
     const isReady = isWaiting && held.some(one => one.head.get('State') === 'refined')
     const isRefining = isWaiting && !isReady && held.length > 0
     // B680: a part whose steps are all dropped, none done, reached nothing: Stopped, never Done. The person's word ("Part
@@ -1245,12 +1253,11 @@ export function focusState(goalMap, items, threads, prefix, partner = null, now 
     const reached = known.some(one => ['done', 'closed'].includes(one.head.get('State')))
     const isStopped = known.length > 0 && done === known.length && !reached
     const gone = (node.partsDropped ?? []).findLast(one => one.title === part.title)
-    const state = gone !== undefined ? 'dropped' : isStopped ? 'stopped' : known.length > 0 && done === known.length ? 'done' : busy !== undefined ? 'now' : isReady ? 'ready' : isRefining ? 'refining' : 'next'
+    const state = gone !== undefined ? 'dropped' : isStopped ? 'stopped' : known.length > 0 && done === known.length ? 'done' : atWork ? 'now'
+      : isReady ? 'ready' : isRefining ? 'refining' : isQueued ? 'next' : open.some(one => one.tone === 'wait') ? 'waiting' : open.length > 0 ? 'stuck' : 'next'
     const fix = state === 'next' ? fixAhead(known, steps, prefix) : null
     // B354: what the part's results are checked against: its steps' standards, each once; a "none (why)" is left out.
     const standards = [...new Set(known.map(standardOf).filter(one => one !== null && !/^none\b/i.test(one)))]
-    // B684: the part's steps in its order, each with its colour, its words, its check and what it waits for.
-    const list = known.map(one => partStepOf(one, steps, prefix, all, lanes, now))
     // 2026-10-31 (B689): the worker on the part is one whose card shows a step of it (or a fix or check of one), never the
     // Owner of the step under way: that one may be its builder, its step in review, its card on another task.
     const owner = busy === undefined ? null : list.find(one => one.onIt !== null)?.onIt ?? null

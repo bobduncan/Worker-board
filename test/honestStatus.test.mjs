@@ -113,6 +113,30 @@ test('the real case: no worker is on it, and the part\'s head says waiting, not 
   assert.equal(simple.who, null)
 })
 
+test('the part\'s badge: In progress only while a step of it is at work; waiting for another task, or stuck on a stopped fix', () => {
+  // The real case: its only step under way waits for the recap: the badge says so, never In progress (the person's yes, 2026-10-31).
+  const waiting = partOf(realCase())
+  assert.deepEqual([waiting.state.state, waiting.view.chip, waiting.view.tone], ['waiting', 'Waiting, nobody on it now', 'waiting'])
+  // The recap done, the last fix's own fix still dropped: the chain stopped.
+  const stuck = partOf(realCase(byId => byId.get('B44').head.set('State', 'done')))
+  assert.deepEqual([stuck.state.state, stuck.view.chip], ['stuck', 'Stuck: its fix stopped'])
+  // The fix at work again: In progress, whoever's card shows it.
+  const atWork = realCase(byId => {
+    byId.delete('B42')
+    const fix = byId.get('B41')
+    fix.head.set('State', 'in progress')
+    fix.head.delete('Blocked by')
+    fix.sections.delete('Checked')
+  })
+  assert.deepEqual([partOf(atWork).state.state, partOf(atWork).view.chip], ['now', 'In progress'])
+  // A step of the part queued for a worker beside the waiting one: Next, as a queued part reads.
+  const queued = realCase(byId => byId.get('B39').head.set('State', 'queued'))
+  assert.equal(partOf(queued).view.chip, 'Next')
+  // A refined step beside it: on the list for a worker.
+  const refined = realCase(byId => byId.get('B39').head.set('State', 'refined'))
+  assert.equal(partOf(refined).view.chip, 'On the list for a worker')
+})
+
 test('once the recap is done nothing blocks the last fix and its own fix stays dropped: the chain stopped, as a dropped fix', () => {
   const items = realCase(byId => byId.get('B44').head.set('State', 'done'))
   assert.equal(reviewWaitOf(items.get('B40'), items, null, NOW).text, 'waits for its fix B41, which stopped: its fix B42 was dropped')

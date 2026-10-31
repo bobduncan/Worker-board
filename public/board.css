@@ -226,6 +226,8 @@ button, textarea, select { font: inherit; color: inherit; }
 .focus-chip.is-next { border-color: #3a4a63; color: var(--text); }
 .focus-chip.is-refining { border-color: #3a4a63; color: var(--muted); }
 .focus-chip.is-ready { border-color: #3a4a63; color: #8fb4ff; }
+/* 2026-10-31 (B689): a part that waits for another task, or whose fix stopped: calm grey, nobody on it. */
+.focus-chip.is-waiting, .focus-chip.is-stuck { border-color: #3a4a63; color: var(--muted); background: transparent; }
 /* B680: a Stopped or dropped part is calm grey: never green, no bar filled. */
 .focus-chip.is-stopped, .focus-chip.is-dropped { border-color: #3a4a63; color: var(--muted); background: transparent; }
 .focus-part.is-stopped .focus-bar span, .focus-part.is-dropped .focus-bar span { width: 0 !important; }
