@@ -49,6 +49,15 @@ export function whyClosed(message, ctx) {
   }
   // B812 (X109): a stop word waits for its worker's next idle moment however long its turn runs, while it holds a step.
   if (isStopWord(message.command)) return stopWordWhy(message, ctx)
+  // T8.5: an envelope with a task matters while that task is still given to its worker (the decision takes it back and
+  // closes the envelope itself; this catches a task the person moved meanwhile). One without a task waits until late.
+  if (message.command === 'handover') {
+    const item = typeof message.step === 'string' && items instanceof Map ? items.get(message.step) : undefined
+    if (item !== undefined && !(value(item, 'State') === 'queued' && plainName(value(item, 'Owner'), ctx.prefix ?? '') === plainName(message.to, ctx.prefix ?? ''))) {
+      return { state: 'dropped', why: `${message.step} is no longer given to ${message.to}` }
+    }
+    return isLate(message, now, keep) ? expired(message, keep) : null
+  }
   // B813 (X2): the word that sets a worker's model and effort no longer matters once a newer one for that worker stands,
   // or the worker runs at its setting already; waiting or failed.
   if (message.command === 'worker-effort') {

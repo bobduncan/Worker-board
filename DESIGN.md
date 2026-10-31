@@ -4680,6 +4680,147 @@ The three live cases, as the new design reads them:
   `w5-b821` a program held is a warning: the first report passes with "the empty folder ... a program still uses it".
   Before: refused three times for a folder the worker could not remove.
 
+## The hand-over as one sequence (T8.5, 2026-10-31)
+
+The person, 2026-10-31, said yes to "redesign the hand-over as one board-owned sequence" (the spec:
+`.claude/specs/2026-10-31-handover-design.md`). Between a worker's report and its next take, nine clocks used to decide
+what happened (the mod's own clear, the clear account and its grace, the give and its line in a later pass, the take
+within 2 minutes, the held give of 20 minutes, the resume's wait, the rollout's and the effort's holds, report again);
+almost every hand-over incident since 27 Oct was two of them disagreeing (X91, X94, X98, X100, X101, X102, X105, X111).
+Now, for a worker on the sequence, the board decides once and sends one message.
+
+**Behind a setting, per worker.** `handover` in config.json: `"timers"` (unless set: today's path, unchanged) or
+`"sequence"`. A worker is on the sequence when the setting is `"sequence"` and its Workers mod is 0.27.0 or newer
+(`HANDOVER_MOD`), read from the version its calls say (the board's `modOf`, else its kept report's `mod`). The one
+predicate is `onSequence(lane, config)` (`src/work/handover.mjs`); the state marks every lane with it (`lane.onSequence`)
+and every old mechanism skips such a worker through it: the reconciler's deliveries, gives (a free worker on the
+sequence still counts as free for the start of one more worker), take-backs and stuck marks, the words of a failed check
+and of report again (`src/work/reconcile.mjs`); `clearHolds`, the effort plan's words and the rollout's restarts
+(`src/state.mjs`); the take's `clear` and the take refusal of an uncleared chat, the pull at a turn's end (`server.mjs`);
+B764's given task on the resume list (`src/work/pause.mjs`); the rules not-cleared, not-taking and the clear part of
+skip-repeats (`src/supervisor/rules/watch.mjs`; the new rules are step 4's). A worker on the timers or an older mod keeps
+all of it.
+
+**The decision** (`decide`, `src/work/handover.mjs`, pure). The worker's turn end (the mod's `turn-ended`, which it
+already sends) is the one trigger. Facts: the store (steps, their History, the ready list), the worker's lane (its mod's
+report, its mod version, the clear it owes), the outbox (its envelopes and their outcomes), pause.json and the limits. In
+this order, the first that holds wins:
+
+1. The person pauses, or a limit is full: **suspended**, nothing sent; the task in flight goes back at once ("the person
+   pauses the chats"). The clear waits for the resume.
+2. It holds a step taken, in progress or waiting on you: **working**. Its envelope in flight: a turn that ended after its
+   line without a take gives the task back at once ("did not take it in its turn") and decides on in the same call, and
+   that task is not offered to it again until it takes another (the person's answer to question 2); a failed outcome
+   gives it back at once, **held** with its why; else **handing** (no outcome yet) or **offered** (the line typed).
+3. Its newest report's check failed and it did not report again: **working**, with the board's "back to you" words once
+   per failed check (in place of the 30-minute report again).
+4. Its newest report's check has not ended: **checking**; its end decides again.
+5. Its mod is older than the installed one: **restarting**, the envelope `restart` once; **unknown** "its restart did
+   not happen" 15 minutes after it. Here too: **held** (its last envelope failed; released by a turn end after it, or by
+   its report saying idle with nothing in the background when the background work or the set was what failed) and
+   **unknown** after the net (released by its next turn end or a report that changed).
+6. Otherwise the clear when one is owed (`clearOwed`, as before) and the ready list's first task this worker may take
+   (`match` for this one worker: pins, QA's `notBy`, Touches), given in the same call, with `set` when the chat runs
+   another model or effort and the line "work: B12 is yours; run work next": **handing**; no task: **free** (the
+   envelope may still hold the clear). A give the work API refuses moves to the next candidate in the same call.
+
+At a refresh nothing is handed to a worker whose report says its turn runs (X111: busy by its report is not free) or
+whose chat does not run (an asleep one counts: the waiting envelope has the board open it, T13).
+
+**The events.** Every other moment that can change what a worker gets runs the same decision (`handoverPass` at every
+refresh, one decision at a time per store with the turn end's, `inTurn`): its envelope settled (D, through `typed`: the
+decision runs before the answer, so a failed clear or set takes the task back at once), a ready task while it is free
+(R), the report check ending (C), a pause, a resume or a limit (P), its first call on a new mod (M), its report turning
+idle with nothing in the background (B), the take (K: working). The refresh only runs the decision: it never holds a line.
+
+**The one net.** An envelope with a task and no outcome that ended it, no take and no turn end for 10 minutes of the
+board's running time (`NET_MS`; the time the board was off left out): the task goes back once ("did not answer its
+hand-over"), the envelope is marked (`netAt`), the worker shows **unknown** "did not answer its hand-over (B12)" and gets
+nothing until its next event. The net never retries by the clock (the person's answer to question 4).
+
+**The envelope** is one outbox message, command `handover`, to the worker, with its fields beside the usual ones (kept
+like a work line, never retried by the outbox, closed when its task is no longer given to it). It is the turn-ended
+answer (the fast path) and it stands in the outbox (the record, and the carrier when the answer was late or the chat is
+asleep: its next take brings it). A turn-ended call asked again with its request id gets the same answer (B412). Its `set`
+is the hands' job (the app refuses a chat setting its own model or effort, `src/hands.mjs`): the board writes the usual
+`worker-effort` word beside it (`envelope`: its id), and the envelope waits for that word's done before it is handed out
+(`waitsFor`): one more event, no clock. A set word that failed or was dropped fails the envelope; with no main chat whose
+hands could set it, the set fails at once. A failed set bars that model's steps from the worker until it runs it. A
+restart envelope its mod carried out gets the hands' `mod-restart` word once.
+
+**The page.** The lane of a worker on the sequence says where its hand-over stands, quietly (information, never amber):
+"handing over B12", "handing over: its clear", "offered B12, not taken yet", "held: <why>", "did not answer its hand-over
+(B12)", "restarting for the new Workers mod", "B12: the board checks its report" (`laneWords`; the state's
+`lane.handover` is `{ state, why, step }`).
+
+### The envelope's contract for the Workers mod
+
+For step 3 (Workers mod 0.27.0). The board side is live behind `handover: "sequence"`; with `"timers"` the board answers
+none of this and a 0.27.0 mod behaves as 0.26.10.
+
+**The turn-ended answer.** `POST /api/bridge/work` with `{ action: "turn-ended", chat, session, since }` (the mod's
+header `X-Workers-Mod` names its version) answers, for a worker on the sequence, the usual fields without `pull`, plus:
+
+```
+handover: {
+  state:    "working" | "checking" | "handing" | "offered" | "free" | "held" | "suspended" | "restarting" | "unknown",
+  why:      string | null,          // the board's words for the lane (e.g. "did not take B12 in its turn")
+  step:     "B12" | null,
+  envelope: <envelope> | null,      // marked taken: carry it out now
+  waits:    "set" | null            // an envelope exists but waits for the hands' set: it comes with a take
+}
+```
+
+A `handover` field in the answer means: the mod does not decide its own clear at this turn end (whatever `envelope` is).
+No `handover` field (an older board, the setting `"timers"`, an older mod): the mod behaves as 0.26.10.
+
+**The take answer.** `POST /api/bridge/take` answers, for a worker on the sequence, `handover: <envelope>` when one waits
+for it and may go now (never while the person pauses), marked taken; `messages` never hold an envelope, and the answer
+has no `clear` field.
+
+**The envelope**, once per `id` (an id carried out before is never carried out again):
+
+```
+{
+  id:      "<16 hex>",
+  kind:    "task" | "clear" | "back" | "restart",
+  step:    "B12" | null,                          // the task this envelope gives (kind task)
+  clear:   { step: "B11", reportedAt: <ms> } | null,
+  restart: true | false,
+  set:     { model: "<the app's model id>" | null, effort: "low" | "medium" | "high" | "xhigh" | "max" } | null,
+  line:    "work: B12 is yours; run work next" | "<the board's back-to-you words>" | null,
+  version: "0.27.1"                               // restart only: the mod the restart brings
+}
+```
+
+The mod carries it out in this order and stops at the first that fails:
+
+1. `restart` true: save the log (`save-log`, as today), mark the card, end; nothing else.
+2. `clear` not null: save the log, mark the card cleared after `clear.step`, run /clear, with every guard of today's
+   `clearAfter` (the pause read anew; no new prompt in between).
+3. `set` not null: already set by the board's hands before the envelope was handed out (the app refuses a chat's own
+   model and effort): the mod does not set it, and says `set: null`.
+4. `line` not null: typed into the (fresh) conversation together with the words a cleared chat already gets (who it is,
+   its rules, its log), as one prompt.
+
+Then it settles it once: `POST /api/bridge/typed` with
+
+```
+{ chat, session, handover: "<the envelope's id>",
+  outcome: { cleared: true | false | null, set: true | false | null, typed: true | false | null,
+             restarted: true | false | null, background: true | false, why: "<one line>" | null } }
+```
+
+each flag true (done), false (it failed) or null (not asked); `background` true when background work it started was
+why the clear could not run; `why` the reason of the first that failed. The answer is `{ settled: true }`, or
+`{ settled: false }` for an id that is not its envelope or was settled before. The board then decides at once: an
+outcome where nothing failed leaves the worker offered (a line) or free; a failed clear, set, line or restart takes the
+task back at once and holds the worker with the why.
+
+The mod also sends `turn-ended` after every answered turn of a worker, also when it holds a step (the pull flag goes),
+and while idle reads its background count anew at each 5-second ping, so a report gone idle with nothing in the
+background reaches the board (the spec's mod changes 5 and 6).
+
 ## What it does not do
 
 - It does not start, stop or restart chats itself: it asks the main chat (a worker to start, a restart for a new mod,

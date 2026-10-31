@@ -55,6 +55,8 @@ import { guardOf } from './goalGuard.mjs'
 import { standardOf } from './work/standard.mjs'
 import { rolloutPlan } from './work/modRollout.mjs'
 import { chatsByRole } from './oldMods.mjs'
+import { decide, laneWords, onSequence } from './work/handover.mjs'
+import { factsOf } from './work/handoverBoard.mjs'
 import { stoppedOf } from './stopped.mjs'
 import { laneFromReport, laneWithoutReport, modReports } from './chatReport.mjs'
 import { backgroundRunning, conversation, doingNow, finishedBetween, saysUnfinished, parseTail, saysDone, taskOrigin, turnEnded, turnStart, turnState, unanswered, waitingFor } from './transcript.mjs'
@@ -684,7 +686,7 @@ function card(chat, raw, { now, aliveAt = null, config, last, lines, main, prefi
     resting: reported === null ? restingOf({ entries, turn, idle, isRunningOn: background > 0 && !isDone, isStopped: wasCutOff || paused !== null })
       : paused === null && ['free', 'interrupted', 'waiting'].includes(state) && reported.entry?.state === 'idle' && !reported.entry.background ? restedSince(entries, reported.entry.since) : null,
     // Redesign Part 1: the report the lane follows, or null where the board reads the chat's transcript instead.
-    report: reported?.entry == null ? null : { state: reported.entry.state, since: reported.entry.since, background: reported.entry.background, at: reported.entry.at },
+    report: reported?.entry == null ? null : { state: reported.entry.state, since: reported.entry.since, background: reported.entry.background, at: reported.entry.at, mod: reported.entry.mod ?? null },
     // The review of chat-reports: why a reporting chat is not running, in words; null for any other.
     offWhy: state !== 'off' || reported === null ? null : reported.why === 'unreported' ? reported.words : reported.why === 'ended' ? `its session ended at ${hourMinute(reported.entry.since)}`
       : reported.why === 'silent' ? `silent since ${hourMinute(reported.entry.at)}`
@@ -1851,8 +1853,13 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
     off: Number.isFinite(board?.offSince) && Number.isFinite(board?.startedAt) && now - board.startedAt < HOUR ? { from: board.offSince, to: board.startedAt } : null,
   }
 
-  const chats = lanes.map(lane => ({
+  // T8.5 (spec 2026-10-31, part 4): the one predicate per worker: on the sequence (the setting "sequence" and the Workers mod
+  // 0.27.0 or newer), every old mechanism of the hand-over skips it; else it keeps today's path.
+  const withSequence = lane => ({ ...lane, onSequence: onSequence(lane, config) })
+  const chats = lanes.map(lane => withSequence({
     ...lane,
+    // T8.5: the Workers mod its last call said (else its kept report's), for the one predicate of the hand-over (`onSequence`).
+    mod: mods?.[lane.name] ?? lane.report?.mod ?? null,
     isRunning: lane.isLeftover ? null : lane.state === 'off' ? false : runningOf(lane.name),
     // B143: the newest ask to remove this worker; the main chat and a leftover have none.
     removal: lane.isLeftover || lane.isMain ? null : removalAsk(sent.findLast(message => message.command === 'remove' && message.about === lane.name), now),
@@ -1913,13 +1920,16 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
   })
   // B547: the steps whose line waits for their worker's clear (a mod that can clear only: an older one would wait for ever).
   // B587: not for a worker whose process ended: its line and the start word go at once.
-  const clearHeld = clearHolds({ lanes: chats, deliveries: reconciled?.deliveries ?? [] })
+  // T8.5: a worker on the sequence is cleared by its envelope: no line of its waits here.
+  const clearHeld = clearHolds({ lanes: chats.filter(lane => lane.onSequence !== true), deliveries: reconciled?.deliveries ?? [] })
   // B468: what each worker runs at for its step, the words that have the main chat set it (none without the Workers mod),
   // and the steps whose line to their worker waits until it is set. Model per step: its model too, by the settings'
   // model ids, and the usual setting between steps from the settings.
   // The partner and its helper are skipped: their own setting (B352, set once) is never the board's to overwrite.
   const efforts = reconciled === null ? null : effortPlan({ items: raw.work.items, lanes: chats, deliveries: reconciled.deliveries, sent, now, main: isBridgeMissing === true ? null : main?.name ?? null, prefix, skip: [advisorChat?.name, helperChat?.name, ownerChat?.name], ...runSettings(config) })
   if (efforts) for (const id of routingHeld) efforts.held.add(id)
+  // T8.5: a worker on the sequence is set by its envelope's `set`, at its hand-over: no word of the old plan for it.
+  if (efforts) efforts.words = efforts.words.filter(word => chats.find(lane => lane.name === word.chat)?.onSequence !== true)
   // T7.5 (the person, 2026-10-28: "do B"): the Supervisor's chat is held at its own setting (`supervisorModel`, `supervisorEffort`:
   // Sonnet, low), by the same word and the same half-hour dedupe as a worker's: the plan above skips it, so its word is added.
   const supervisorWants = supervisorSetting(config)
@@ -1933,10 +1943,17 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
   const side = (lane, name) => (lane === null || lane === undefined ? null : { ...lane, name, isRunning: lane.state === 'off' ? false : runningOf(name) })
   const rollout = efforts === null ? null : rolloutPlan({
     mods: modsLately, items: raw.work.items, deliveries: reconciled.deliveries, sent, now, prefix,
-    chats: chatsByRole({ chats, advisor: side(advisorCard, advisorChat?.name), advisorHelper: side(helperLane, helperLane?.name), supervisorChat: side(supervisorLane, supervisorLane?.name), productOwner: side(ownerLane, ownerLane?.name) }),
+    // T8.5: a worker on the sequence restarts by its envelope (`restart`), not by the rollout's words.
+    chats: chatsByRole({ chats: chats.filter(lane => lane.onSequence !== true), advisor: side(advisorCard, advisorChat?.name), advisorHelper: side(helperLane, helperLane?.name), supervisorChat: side(supervisorLane, supervisorLane?.name), productOwner: side(ownerLane, ownerLane?.name) }),
     main: isBridgeMissing === true ? null : main?.name ?? null, partner: isBridgeMissing === true ? null : advisorChat?.name ?? null,
   })
   if (rollout !== null) for (const id of rollout.held) if (!efforts.held.has(id)) { efforts.held.add(id); efforts.holds.set(id, rollout.holds.get(id)) }
+  // T8.5: a worker on the sequence: its state now, as the one decision reads it. Nothing is decided here (no ready task and
+  // no clear are offered, so only what the facts say shows); the board's refresh and the worker's turn end carry it out.
+  const handoverOf = lane => (lane.onSequence !== true || !workOk ? null : (({ state, why, step }) => ({ state, why, step }))(decide({
+    ...factsOf({ lane, state: { chatPrefix: prefix, readyList: null, limits, gaps }, items: raw.work.items, pause: pauseRecord, sent, config, installed: modsLately?.installed ?? null, now, event: { kind: 'pass' } }),
+    ready: [], owed: null,
+  })))
   const oldAsks = new Set((reconciled?.flags ?? []).filter(flag => flag.kind === 'old ask').map(flag => `work:${flag.id}`))
   const flagsOf = name => (reconciled?.flags ?? []).filter(flag => flag.chat === name && LANE_FLAGS.includes(flag.kind)).map(({ kind, id, text, button }) => ({ kind, id, text, button }))
   const focus = focusState(goalMap, itemsOf(raw.work), brainstorms.threads, prefix, advisorChat?.name ?? null, now)
@@ -2020,7 +2037,11 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
     chats: chats.map(lane => {
       const run = efforts?.runs.get(lane.name) ?? null
       const waits = run?.waitsFor == null ? [] : [{ kind: 'model', id: run.step, text: run.waitsFor.text, button: null }]
-      return { ...lane, flags: [...flagsOf(lane.name), ...waits], effortRun: run, modRun: rollout?.runs.get(lane.name) ?? null }
+      // T8.5: where its hand-over stands (handing, offered, held with its why, "did not answer"), a quiet line on the lane.
+      const handover = handoverOf(lane)
+      const said = handover === null ? null : laneWords(handover)
+      const told = said === null ? [] : [{ kind: 'handover', id: handover.step, text: said, button: null }]
+      return { ...lane, flags: [...flagsOf(lane.name), ...waits, ...told], effortRun: run, modRun: lane.onSequence === true ? null : rollout?.runs.get(lane.name) ?? null, handover }
     }),
     // B300: the reconciler's lines on top (a broken file, an id twice, a state the flow does not know), and what the
     // server carries out; empty and null while the store cannot be read.

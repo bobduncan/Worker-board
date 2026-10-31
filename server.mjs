@@ -89,6 +89,8 @@ import { STOP_MOD, asleepOfJob, handJobs, handResults, isForHandsYet, isHandWord
 import { OPEN_CHECK_MS, OPEN_FIRST_MS, OPEN_TRIES, asleepPlan, asleepWithWork, chatToOpen, failuresOf, handWorkWaits, handsGone, openChat, openPlan, openerNote, openerRow } from './src/opener.mjs'
 import { basesNow, patientReportCheck } from './src/work/check.mjs'
 import { deliverWork, givesRefused, pullFor, sendOnce } from './src/work/deliver.mjs'
+import { HANDOVER_COMMAND, onSequence, outcomeOf } from './src/work/handover.mjs'
+import { handOut, handOver, handoverPass, inTurn as handoverTurn, settle as settleEnvelope } from './src/work/handoverBoard.mjs'
 import { coalesce } from './src/work/again.mjs'
 import { REFUSED_MS, SUPERVISOR_RULES, createSupervisor, incidentCards, loopGate, loopOwner, tokensOfTurn } from './src/supervisor/index.mjs'
 import { FILES as WORKTREE_FILES, cleanLeftover, findLeftovers, stepLeftovers } from './src/work/worktrees.mjs'
@@ -1712,6 +1714,33 @@ async function main(args) {
     return atTake
   }
   /**
+   * T8.5 (spec 2026-10-31, part 4): whether the chat that calls is a worker on the sequence: the one predicate
+   * (handover.mjs `onSequence`), with the version its mod says in this very call. Its lane, or null for none.
+   */
+  const sequenceLane = async (chat, mod) => {
+    const lane = ((readState.last() ?? await readState()).chats ?? []).find(one => one.name === chat && !one.isLeftover) ?? null
+    return lane !== null && onSequence({ ...lane, mod: typeof mod === 'string' ? mod : lane.mod ?? null }, config) ? lane : null
+  }
+  /**
+   * T8.5: one decision for a worker on the sequence, carried out (src/work/handoverBoard.mjs), one at a time per store
+   * with the refresh's. The state is read anew first, so what just changed counts. `{ decision, envelope }`.
+   */
+  const decideFor = async (chat, mod, event) => {
+    if (workDir === null || isShowOnly || workWriters === null) return null
+    return handoverTurn(workDir, async () => {
+      readState.reset()
+      const state = await readState()
+      const lane = (state.chats ?? []).find(one => one.name === chat && !one.isLeftover) ?? null
+      if (lane === null || !onSequence({ ...lane, mod: typeof mod === 'string' ? mod : lane.mod ?? null }, config)) return null
+      const done = await handOver({ lane: { ...lane, mod: typeof mod === 'string' ? mod : lane.mod }, state, dir: workDir, outbox: store, apply: body => workAction(body, 'server'), config, installed: (await modNow())?.installed ?? null, now: clock(), newId: () => randomBytes(8).toString('hex'), event })
+      if (done.envelope !== null || done.decision.takeBack !== null || done.decision.give !== null || done.decision.net !== null) {
+        work.reset?.()
+        readState.reset()
+      }
+      return done
+    })
+  }
+  /**
    * Clear after each step: a session the state shows under no name may be a chat that went on under a new id a moment
    * ago (its card moved): the state is read anew once before the bridge refuses it.
    */
@@ -1836,6 +1865,8 @@ async function main(args) {
   }
   /** B297: one call of a chat's work tool, made once (B412: `requests` gives a repeat of it the same answer). */
   const bridgeWorkOnce = async (body, checked) => {
+    // T8.5: the version its mod said with this very call (noteMod keeps it before the call is answered).
+    const mod = modOf.get(checked.chat)?.version ?? null
     const done = await workAction({ ...body, chat: checked.chat })
     // The supervisor's Part 2: its chat's health read, incidents and turn's end tell the sweep that runs how it went.
     // B760: by the state the board has, as the check of the call: work health's answer never waits for a whole read.
@@ -1844,6 +1875,19 @@ async function main(args) {
     }
     // Partner answers (2026-10-19): the partner's answer wakes the chat that asked, as the person's answer on the page does.
     if (body?.action === 'partner-answer') await sendWakes(done)
+    // T8.5: a worker on the sequence: its turn end is the trigger. The board decides once and answers the envelope (or, while
+    // its set is on its way, that it comes with a take); the mod clears only when an envelope says so. No pull line.
+    if (body?.action === 'turn-ended' && done.ok && await sequenceLane(checked.chat, mod) !== null) {
+      const since = Number(body.since)
+      const decided = await decideFor(checked.chat, mod, { kind: 'turn-ended', since })
+      if (decided !== null) {
+        const envelope = await handOut(store, checked.chat, clock(), keep)
+        if (envelope !== null) readState.reset()
+        const { pull: _pull, ...rest } = done.result
+        const waits = envelope === null && decided.envelope !== null && typeof decided.envelope.waitsFor === 'string' ? 'set' : null
+        return { ok: true, result: { ...rest, handover: { state: decided.decision.state, why: decided.decision.why, step: decided.decision.step, envelope, waits } } }
+      }
+    }
     // B300: a free worker's pull at the end of its turn (with its turn-ended, or alone): its line goes into the outbox
     // once per step, chat and queueing (as the reconciler's delivery), and the mod takes it at once. Nothing for a chat
     // that is held by the limit or busy, as the board reads it anew now, or when the line went before.
@@ -2287,8 +2331,9 @@ async function main(args) {
         if (!checked.ok) return checked
         if (asked.action === 'save-log') return await requests.answer(session, request, () => saveLog(asked, checked, state))
         // B547: never a new step on an uncleared chat: a worker that owes a clear takes nothing until it is cleared (a mod
-        // that can clear only; the state is read anew first, so a clear that just ran counts).
-        if (asked.action === 'take' && modAtLeast(body?.mod ?? null)) {
+        // that can clear only; the state is read anew first, so a clear that just ran counts). T8.5: not a worker on the
+        // sequence: its envelope clears it before its line, and the take is its own.
+        if (asked.action === 'take' && modAtLeast(body?.mod ?? null) && await sequenceLane(checked.chat, body?.mod) === null) {
           readState.reset()
           const owed = ((await readState()).chats ?? []).find(one => one.name === checked.chat && !one.isLeftover)?.clearOwed ?? null
           if (owed !== null) return { ok: false, status: 409, why: takeRefusal(owed) }
@@ -2312,12 +2357,16 @@ async function main(args) {
       // "resume" to the main chat goes. The rest waits in the outbox, held until the resume (2026-10-19: Resume all, no
       // longer running: while resuming every line goes, so an answer to a chat that has not started reaches it).
       // B547: a worker that owes a clear: the line of its next step waits for the clear, which its mod is named once it is idle.
-      const atTake = await clearAtTakeOf(body, checked.chat)
+      // T8.5: a worker on the sequence: no clear named here and no line held for one (its envelope clears it first).
+      const onIt = await sequenceLane(checked.chat, body?.mod) !== null
+      const atTake = onIt ? { hold: false, clear: null, why: null } : await clearAtTakeOf(body, checked.chat)
       // B755: a hand's word goes to the hands first, to the chat it is addressed to only once none claimed it in a minute.
       const now = clock()
       const workers = workerNames(await readState())
-      const only = isHolding((await readState()).pause) ? message => message.command === 'resume'
+      const base = isHolding((await readState()).pause) ? message => message.command === 'resume'
         : atTake.hold ? message => !isStepLine(message) && !isForHandsYet(message, now, workers) : message => !isForHandsYet(message, now, workers)
+      // T8.5: an envelope is no word to type: it goes as `handover` (below), once its set is done; never while the person pauses.
+      const only = message => message.command !== HANDOVER_COMMAND && base(message)
       // B532: what no longer matters is closed first, so a chat is never handed a word whose purpose is gone.
       const taken = await takeFor({ dir: workDir, outbox: store, state: await readState(), now: clock(), keep, chat: checked.chat, only })
       // What was taken shows as on its way at once.
@@ -2333,7 +2382,9 @@ async function main(args) {
       // B769: a stop or remove of this worker the board carries out by code: its mod tells it at its next tool call.
       const stopping = store.outbox().findLast(message => isStopWord(message) && message.about === checked.chat && message.state === 'waiting')
       const stop = stopping === undefined ? {} : { stop: { id: stopping.id, kind: stopping.command, task: stopTaskOf(stopping) } }
-      return { ok: true, result: { messages: fit.messages, ...(atTake.clear === null ? {} : { clear: atTake.clear }), ...(off.length === 0 ? {} : { off }), ...stop } }
+      const envelope = !onIt || isHolding((await readState()).pause) ? null : await handOut(store, checked.chat, clock(), keep)
+      if (envelope !== null) readState.reset()
+      return { ok: true, result: { messages: fit.messages, ...(atTake.clear === null ? {} : { clear: atTake.clear }), ...(off.length === 0 ? {} : { off }), ...stop, ...(envelope === null ? {} : { handover: envelope }) } }
     }),
     // B753: the board's hands in code. A running chat's Workers mod claims the start and wake words (whoever they are
     // addressed to) and, while resuming, a resume line for each chat that has not started; it sends each with the app's
@@ -2484,6 +2535,18 @@ async function main(args) {
       noteMod(body, checked)
       if (!checked.ok) return checked
       if (await store.settle(checked.chat, checked, clock()) > 0) readState.reset()
+      // T8.5: an envelope's outcome, once (D): settled, and the worker's decision runs at once (a failed clear or set takes
+      // its task back now, not after a clock).
+      const outcome = outcomeOf(body?.outcome)
+      if (typeof body?.handover === 'string' && outcome !== null) {
+        const settled = await handoverTurn(workDir ?? HERE, () => settleEnvelope(store, checked.chat, body.handover, outcome, clock()))
+        if (settled) {
+          readState.reset()
+          await decideFor(checked.chat, body?.mod ?? null, { kind: 'pass' })
+          return { ok: true, result: { settled: true } }
+        }
+        return { ok: true, result: { settled: false } }
+      }
       return { ok: true, result: {} }
     }),
     game: async body => {
@@ -2838,6 +2901,17 @@ async function main(args) {
           readState.reset()
         }
         gaveTask = done.given.length > 0
+        // T8.5: the sequence's events at the refresh (a ready task for a free worker, the check's end, a pause or a resume,
+        // a limit, a new mod, a report gone idle, the net), for every worker on it; on its own, so a failure stops no delivery.
+        if (config.handover === 'sequence') {
+          await loops.run('handover', async () => {
+            const passed = await handoverPass({ state: await readState(), dir: workDir, outbox: store, apply: body => workAction(body, 'server'), config, installed: (await modNow())?.installed ?? null, now: clock(), newId: () => randomBytes(8).toString('hex') })
+            if (passed.wrote > 0) {
+              work.reset?.()
+              readState.reset()
+            }
+          })
+        }
         loops.succeeded('reconcile')
         // B528: an evaluation that has not ended is asked of the partner again; on its own, so a failure stops no delivery.
         await loops.run('evaluate-again', () => evaluateAgainNow(state))

@@ -58,7 +58,7 @@ const isPlain = message => (message.command ?? null) === null || message.command
 // B812 (X109): a stop word waits for its worker however long its turn runs; the outbox sweep closes it once the worker
 // holds no step not yet reported, or the limit reset (src/work/outboxSweep.mjs).
 export const keepMs = (message, keep) => (isAnswer(message) || isStopWord(message.command) ? Infinity
-  : isPlain(message) || ['step', 'refined', 'work', 'incident'].includes(message.command) || waitsLong(message.command) ? keep.answerMs : keep.messageMs)
+  : isPlain(message) || ['step', 'refined', 'work', 'incident', 'handover'].includes(message.command) || waitsLong(message.command) ? keep.answerMs : keep.messageMs)
 export const isLate = (message, now, keep) => now - message.at - heldMs(message, now, keep.pause ?? null) > keepMs(message, keep)
 
 /**
@@ -199,7 +199,7 @@ function storeOver(lines, messages, alive, write) {
      */
     async retryFailed(now, keep, { afterMs = AGAIN_AFTER_MS, tries = TRIES, newId = () => randomBytes(8).toString('hex') } = {}) {
       const again = messages.filter(message => message.state === 'failed' && Number.isFinite(message.failedAt) && message.final !== true
-        && passesBySelf(message.why) && message.command !== 'work' && message.retriedAs === undefined && (message.tries ?? 1) < tries
+        && passesBySelf(message.why) && message.command !== 'work' && message.command !== 'handover' && message.retriedAs === undefined && (message.tries ?? 1) < tries
         && now - message.failedAt >= afterMs && !isLate(message, now, keep))
       const sent = []
       for (const message of again) {
@@ -261,7 +261,8 @@ function storeOver(lines, messages, alive, write) {
      * for it. What no longer matters among them the outbox sweep closes, as any waiting word. The ids sent.
      */
     async revive(sessions, now, keep, { dayMs = 24 * 60 * 60_000, newId = () => randomBytes(8).toString('hex') } = {}) {
-      const again = messages.filter(message => message.state === 'failed' && message.final !== true && message.retriedAs === undefined
+      // T8.5: an envelope never goes again by itself: a failed one is its worker's held state (src/work/handover.mjs).
+      const again = messages.filter(message => message.state === 'failed' && message.final !== true && message.retriedAs === undefined && message.command !== 'handover'
         && typeof message.failedSession === 'string' && typeof sessions.get(message.to) === 'string' && sessions.get(message.to) !== message.failedSession
         && Number.isFinite(message.failedAt) && now - message.failedAt < dayMs && !isLate(message, now, keep))
       const sent = []
