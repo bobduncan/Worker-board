@@ -186,7 +186,10 @@ a chat can, else escalate it with one line why` while you run and are free. `wor
 chat can (restart a board, merge, mark a step done through its owner, rerun a check), then `work partner-answer Q<n>` with
 `text` (what you did) and `why` (one line): the asking chat is told, and the line stands in the partner's daily note with
 an Undo. What no chat can do (an account, money, a permission, the Claude app itself, the person's own look): `work escalate
-Q<n>` with `why`, one line why no chat can. An ask you leave open 30 minutes goes to the user by itself.
+Q<n>` with `why`, one line why no chat can. An ask you leave open 30 minutes goes to the user by itself. The board never
+routes to you what only the person's hands can do (quit, reopen or restart the Claude app; a click on Allow, a chip or a
+prompt; signing in, an account, money, an install, a permission), nor an ask that marks a step done, accepts it or sends it
+back: those stay the user's.
 
 ## Words the board types into you
 

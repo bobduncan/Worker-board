@@ -145,7 +145,8 @@ export const DEFAULTS = {
    * Autopilot (the person, 2026-10-31: "i kind of want to have an option to autoapprove and only get bothered by real issues
    * and the product owner"): the work runs until a goal is ready; only goal-level questions and what no chat can do reach
    * the person, the rest is decided for them with Undo (src/work/autopilot.mjs). Off unless the person switches it on in the
-   * settings panel. While on, `approveRebuilds` reads as true and `botherMe` as "now" (src/boardSettings.mjs).
+   * settings panel. While on, `botherMe` reads as "now" and `approveRebuilds` as off: a stuck goal's rebuild is the
+   * person's (src/boardSettings.mjs).
    */
   autopilot: false,
   /** A game the board starts for a branch takes this port, plus the place of its folder in git's list. */

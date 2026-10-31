@@ -14180,14 +14180,18 @@ function focusView(focus, goals, can = null, ui = {}) {
     const hasLine = hasDoneWhenLine(focus)
     // B677: the goal demo comes first: its link stands above Yes and No; without it Yes waits and the partner is asked.
     const demo = focus.demo ?? null
-    view.vibeThere = total > 0 && done === total && (focus.progress.stopped ?? 0) === 0 ? {
+    // Autopilot (the coordinator's ruling, 2026-10-31): the recap moment comes once every part is done or waits only for the
+    // goal's recap (`forDemo`); Yes waits until the person's verdicts in the demo closed what waits.
+    const forDemo = focus.progress.forDemo ?? done
+    const waitsForRecap = done < total
+    view.vibeThere = total > 0 && (done === total || forDemo === total) && (focus.progress.stopped ?? 0) === 0 ? {
       question: 'Did we reach the goal?',
       vibe: focus.vibe,
       doneWhenLine: typeof focus.doneWhen === 'string' && focus.doneWhen.trim() !== '' ? `Done when: ${focus.doneWhen.trim()}` : null,
       // Work blocks (2026-10-31): a goal without its one line is checked against its blocks' done-when lines, all ticked.
       ...(hasLine && !(typeof focus.doneWhen === 'string' && focus.doneWhen.trim() !== '') ? { doneWhenLines: workBlocksOf(focus).map(part => blockLineOf(part)) } : {}),
       buttons: [
-        button('Yes', 'vibe-there-yes', hasLine && demo !== null, !hasLine ? 'Its Done when is missing: the goal gets its tick against it' : demo === null ? 'Your partner makes the goal demo first: you see it before you answer' : 'Your partner re-checks it against its Done when and its goal definition; it gets its tick once that passed'),
+        button('Yes', 'vibe-there-yes', hasLine && demo !== null && !waitsForRecap, !hasLine ? 'Its Done when is missing: the goal gets its tick against it' : demo === null ? 'Your partner makes the goal demo first: you see it before you answer' : waitsForRecap ? 'Judge the goal demo first: your verdicts there close what waits for its recap' : 'Your partner re-checks it against its Done when and its goal definition; it gets its tick once that passed'),
         button('No', 'vibe-there-no', true, 'Say what is missing: your partner changes the how'),
       ],
       demo: demo === null

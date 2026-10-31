@@ -4,8 +4,9 @@
 // once, whatever `botherMe` says. B-max (the person, 2026-10-28: "make the worker limit configurable in the settings
 // default is 5."): `maxWorkers`, how many workers the board starts at most, a whole number from 1 to 10.
 // Autopilot (the person, 2026-10-31, src/work/autopilot.mjs): `autopilot`, on or off. While it is on, "Bother me" and
-// "Approve rebuilds by itself" are covered: rebuilds go ahead and nothing waits for a daily round, so every reader of
-// `approveRebuilds` and `botherMe` reads them through `rebuildsApproved` and `botherMeOf` (true and "now").
+// "Approve rebuilds by itself" are hidden: nothing waits for a daily round ("now"), and a goal stuck after the guard's tries
+// is the person's (the coordinator's ruling, 2026-10-31): no rebuild approves itself, so "Approve rebuilds by itself" acts as
+// off. Every reader of `approveRebuilds` and `botherMe` reads them through `rebuildsApproved` and `botherMeOf`.
 
 import { DEFAULTS } from './config.mjs'
 
@@ -16,8 +17,11 @@ const isWorkerCount = value => Number.isInteger(value) && value >= MAX_WORKERS_R
 /** The settings the panel may change, each with the values it takes (`maxWorkers`: its range, a whole number between the ends). */
 export const PANEL_SETTINGS = { botherMe: ['now', 'daily'], approveRebuilds: [false, true], routingMode: ['off', 'observe'], maxWorkers: MAX_WORKERS_RANGE, autopilot: [false, true] }
 
-/** Autopilot: whether a rebuild the goal guard calls for goes ahead without the person's yes: on with Autopilot. */
-export const rebuildsApproved = config => config?.autopilot === true || config?.approveRebuilds === true
+/**
+ * Whether a rebuild the goal guard calls for goes ahead without the person's yes: the person's own "Approve rebuilds by
+ * itself", which acts as off while Autopilot is on (a stuck goal's "Rebuild G<n>:" ask is the person's).
+ */
+export const rebuildsApproved = config => config?.autopilot !== true && config?.approveRebuilds === true
 /** Autopilot: when the person is bothered: "now" with Autopilot (nothing waits for a daily round), else the setting. */
 export const botherMeOf = config => (config?.autopilot !== true && config?.botherMe === 'daily' ? 'daily' : 'now')
 

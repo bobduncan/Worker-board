@@ -94,7 +94,7 @@ test('Autopilot switched on routes the open asks at once, wakes the main chat fo
   // The goal demo of G6: its one part shows the hedge, B12.
   await put(join(project, 'pictures', 'g6', 'demo.json'), JSON.stringify({ goal: 'G6', title: 'The polish', step: 'B12', sections: [{ kind: 'reached', rows: [{ title: '1. Hedge', steps: ['B12'], pictures: [{ kind: 'target', caption: 't', path: 'a.png' }] }] }] }))
   const work = join(project, '.claude', 'work')
-  await writeStore(work, migrateBacklog('## Garden\n- [ ] B12 Plant the hedge (for Digger; about 1 h)\n- [ ] B13 Quality Assurance: B12 Plant the hedge\n', { now: NOW }), undefined, { now: NOW })
+  await writeStore(work, migrateBacklog('## Garden\n- [ ] B12 Plant the hedge (for Digger; about 1 h)\n- [ ] B13 Quality Assurance: B12 Plant the hedge\n- [ ] B14 Label the hedges\n', { now: NOW }), undefined, { now: NOW })
   // B12 is of the focus goal G6; B13 is its Quality Assurance task, done by Checker.
   const b12 = await readFile(join(work, 'B12.md'), 'utf8')
   await writeFile(join(work, 'B12.md'), b12.replace(/^(Kind: step\n)/m, '$1Goal: G6\n'))
@@ -127,7 +127,9 @@ test('Autopilot switched on routes the open asks at once, wakes the main chat fo
   ok(await asChat('Digger', { action: 'take', minutes: 30, id: 'B12', branch: 'b12' }), 'take')
   const merge = await asChat('Digger', { action: 'ask', of: 'B12', kind: 'do', title: 'Merge B12 into main', text: 'Merge B12 into main once its check passed.' })
   ok(merge, 'the do')
-  const names = await asChat('Advisor', { action: 'ask', kind: 'decide', title: 'Shorter names in the shop?', text: 'Shorter names fit the cards.', advice: 'yes' })
+  // The ruling of 2026-10-31: the partner's advice is taken only for an ask under a step (its own step: a second question under
+  // B12 would join the open one there, one question per task).
+  const names = await asChat('Advisor', { action: 'ask', of: 'B14', kind: 'decide', title: 'Shorter names on the hedge labels?', text: 'Shorter names fit the labels.', advice: 'yes' })
   ok(names, 'the partner\'s')
   const part = await asChat('Advisor', { action: 'ask', of: 'G6', kind: 'decide', title: 'Which part first?', text: 'Damage first or the bars first?', options: ['A damage', 'B bars'], advice: 'A' })
   ok(part, 'the goal\'s')

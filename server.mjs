@@ -775,6 +775,8 @@ async function main(args) {
       talkJob: join(HERE, 'roles', talkPartnerOf(state)?.role === OWNER_ROLE ? OWNER_JOB : 'partner.md'),
       // Focus 3: "Did we reach the goal?" is answered only once every part of the how is done, as the store says.
       allDone: focusAllDone(state.focus ?? null, body?.id),
+      // Autopilot (the coordinator's ruling, 2026-10-31): the goal demo is asked with the steps that wait for its recap, each its own row.
+      demoReady: focusAllDone(state.focus ?? null, body?.id, { forDemo: true }), recapRows: state.focus?.recapRows ?? [],
     })
     readState.reset()
     // 2026-10-24: a move that ended the goal guard's trip while the board still asked (Go, a tick) withdraws its ask. Not
@@ -1226,8 +1228,10 @@ async function main(args) {
       checkWorktrees: id => stepLeftovers({ id, which: 'check', repos: knownRepos(), project: config.project, run: gitRunner(), fs: WORKTREE_FILES }),
       // Partner answers (2026-10-19): the focus goal, whose daily note lists the partner's answers of the day.
       focusGoal: state.focus?.id ?? null,
-      // Autopilot (2026-10-31): whether it is on; an ask a chat files is routed at once (src/work/autopilot.mjs).
+      // Autopilot (2026-10-31): whether it is on; an ask a chat files is routed at once (src/work/autopilot.mjs). A recap wait
+      // needs the focus goal's demo still to come, or a recap that names the step (`recaps` above).
       autopilot: config.autopilot === true,
+      focusHasDemo: (state.focus?.demo ?? null) !== null,
       // B656: the ready list's held steps, so a step in review whose fix it holds says why in work next and list.
       readyHeld: state.readyList?.held ?? null,
       // B878: the steps the goals' recaps show, so a step whose part waits for the person's verdict says so in work next and list.

@@ -45,8 +45,10 @@ test('the setting: off unless switched on, in config.json and on the panel, and 
   assert.equal(panelSettings(parseConfig('{"autopilot":true}', {})).autopilot, true)
 })
 
-test('while Autopilot is on, every reader of "Approve rebuilds by itself" and "Bother me" reads them as on and "now"', () => {
-  assert.equal(rebuildsApproved({ approveRebuilds: false, autopilot: true }), true)
+test('while Autopilot is on, every reader of "Approve rebuilds by itself" reads it as off and of "Bother me" as "now"', () => {
+  // The coordinator's ruling (2026-10-31): a goal stuck after the guard's tries is the person's; Autopilot approves no rebuild.
+  assert.equal(rebuildsApproved({ approveRebuilds: false, autopilot: true }), false)
+  assert.equal(rebuildsApproved({ approveRebuilds: true, autopilot: true }), false)
   assert.equal(rebuildsApproved({ approveRebuilds: false, autopilot: false }), false)
   assert.equal(rebuildsApproved({ approveRebuilds: true }), true)
   assert.equal(botherMeOf({ botherMe: 'daily', autopilot: true }), 'now')
@@ -173,4 +175,26 @@ test('the Focus page: the switch reads "covered by Autopilot"; the asks that wai
     assert.equal(off.find('[data-partner-answers="switch"]').disabled, false)
     assert.equal(off.text('.focus-partner-switch small'), 'on: detail questions go to your partner first')
   } finally { await off.close() }
+})
+
+test('the recap moment (the coordinator\'s ruling, 2026-10-31): a step that waits only for the recap lets "Did we reach the goal?" show, its asks first; Yes waits for the verdicts', async () => {
+  const items = [
+    parseItem(`Id: B1\nKind: step\nTitle: Show damage\nState: review\nOwner: Digger\nGoal: G6\nSince: ${sinceOf(NOW - 90 * MIN)}\n\n## Context\n  Recap verdict: waits (Q3)\n`),
+    askOf('Q3', { Title: 'Approve the damage numbers at 64 of 75?', Asks: 'look', Of: 'B1', Route: 'recap', Pictures: 'pictures/B1/check.png' }),
+  ]
+  const state = { ...asSent(garden(items, { autopilot: true })), goalsEdit: { canWrite: true } }
+  assert.deepEqual([state.focus.progress.done, state.focus.progress.forDemo, state.focus.progress.total], [0, 1, 1])
+  assert.deepEqual(state.focus.recapRows, [{ step: 'B1', asks: ['Q3'] }])
+  const page = await openPage({ state })
+  try {
+    await page.click('[data-tab="advice"]')
+    const card = page.find('.focus-there')
+    assert.equal(card.querySelector('h3').textContent, 'Did we reach the goal?')
+    assert.equal(words(card.querySelector('.focus-recap-head')), 'For your recap (1)')
+    assert.match(words(card.querySelector('.focus-recap-asks')), /^Q3 · Approve the damage numbers at 64 of 75\?/)
+    assert.equal(card.querySelector('.focus-recap-head').previousElementSibling.tagName, 'H3', 'its asks come first')
+    const yes = card.querySelector('.focus-yes')
+    assert.equal(yes.disabled, true)
+    assert.equal(page.all('.focus-recap-wait').length, 0, 'listed once, in the recap moment')
+  } finally { await page.close() }
 })

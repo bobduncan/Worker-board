@@ -35,6 +35,7 @@ import { dailyNote, isDailyNote } from './work/dailyNote.mjs'
 import { SYNC_BOARD, syncChecks } from './sync.mjs'
 import { decidedTodayOf, informationOf, instructionsOf, nameFinder, notesToMain, partnerDecidedOf, routedAwayOf, storeNeeds, storeWaits, withPartnerOf } from './work/lists.mjs'
 import { botherMeOf } from './boardSettings.mjs'
+import { recapWaitIds, waitsForRecap } from './work/autopilot.mjs'
 import { NOTE_LINE, isDecidedForYou, isPartnerAskWord, stepWaitsForPartner } from './work/partnerAnswers.mjs'
 import { advisorNextOf, advisorWorkOf, leaveOut } from './work/advisorWork.mjs'
 import { openQaTaskOf, qaStandOf } from './work/qaTask.mjs'
@@ -1337,6 +1338,18 @@ export function focusState(goalMap, items, threads, prefix, partner = null, now 
   // B680: a Stopped part counts neither done nor open, a dropped one is out of the whole.
   const whole = parts.filter(part => part.state !== 'dropped')
   const stopped = whole.filter(part => part.state === 'stopped').length
+  // Autopilot (the coordinator's ruling, 2026-10-31): a step in review that waits only for the goal's recap (its `Recap verdict:
+  // waits (Q<n>)` line, the ask still open there) counts as done for asking the goal demo (`progress.forDemo`, src/focus.mjs
+  // `focusAllDone`), and the demo's words ask a row of its own for it (`recapRows`).
+  const recapRows = [...new Set(node.parts.flatMap(part => part.steps))].map(id => steps.get(id))
+    .filter(one => one !== undefined && waitsForRecap(one, all)).map(one => ({ step: one.head.get('Id'), asks: recapWaitIds(one, all) }))
+  const waiting = new Set(recapRows.map(one => one.step))
+  const forDemo = parts.filter((part, index) => {
+    if (part.state === 'done') return true
+    if (part.state === 'dropped' || part.state === 'stopped') return false
+    const known = node.parts[index].steps.map(id => steps.get(id)).filter(one => one !== undefined)
+    return known.length > 0 && known.every(one => FINISHED.includes(one.head.get('State')) || waiting.has(one.head.get('Id')))
+  }).length
   const left = whole.filter(part => part.state !== 'done' && part.state !== 'stopped').map(part => sizeMinutes(part.size)).filter(one => one !== null)
   // B343: the goal's steps one by one, for the simple Overview: its parts' in order, then its own ("Steps:"), each once;
   // a step the store does not hold, or one dropped, is not listed.
@@ -1386,7 +1399,9 @@ export function focusState(goalMap, items, threads, prefix, partner = null, now 
     partnerDecides: node.partnerDecides,
     youDecide: node.youDecide,
     howAgreed: node.howAgreed,
-    progress: { done: whole.filter(part => part.state === 'done').length, total: whole.length, ...(stopped > 0 ? { stopped } : {}), minutesLeft: left.length === 0 ? null : left.reduce((sum, one) => sum + one, 0) },
+    progress: { done: whole.filter(part => part.state === 'done').length, total: whole.length, ...(stopped > 0 ? { stopped } : {}), minutesLeft: left.length === 0 ? null : left.reduce((sum, one) => sum + one, 0), ...(recapRows.length > 0 ? { forDemo } : {}) },
+    // Autopilot: the steps that wait for the goal's recap, each with its asks, for the goal demo's words.
+    ...(recapRows.length > 0 ? { recapRows } : {}),
     // Work blocks (2026-10-31): the round of its work (null before Go), and the blocks open in it, by their place in `parts`.
     round: round === null ? null : { n: round.n, since: round.since, why: round.why },
     // Work blocks: Go waits for a block's done-when line (only a goal never past Go: src/goals.mjs `goWaitsForLines`).
@@ -2249,7 +2264,7 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
       // B299: the store's asks, answered through POST /api/work.
       // B300: a blocking ask that waited longer than the ask time stands first (`isOld`).
       // Autopilot (2026-10-31): only what is routed to the person, while it is on (src/work/autopilot.mjs).
-      ...storeNeeds(raw.work, { now, names: chatNames, prefix, answerOf: id => answerOf(sent, id), autopilot: config.autopilot === true, roleOf: roleOfChat, focusGoal: goalMap?.focus ?? null })
+      ...storeNeeds(raw.work, { now, names: chatNames, prefix, answerOf: id => answerOf(sent, id), autopilot: config.autopilot === true, roleOf: roleOfChat, focusGoal: goalMap?.focus ?? null, focusHasDemo: (focus?.demo ?? null) !== null, recapSteps: recapWaits })
         .map(need => (oldAsks.has(need.id) ? { ...need, isOld: true } : need)),
     ].sort((a, b) => Number(b.isOld === true) - Number(a.isOld === true) || (b.at ?? 0) - (a.at ?? 0)), [config.advisor ?? null, helperChat?.name ?? null, ownerChat?.name ?? null], prefix),
     // B299: notes and reports for the person.

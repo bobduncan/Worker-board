@@ -11,9 +11,15 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import test from 'node:test'
 
-import { REFINE_BACK_WORDS, SENT_BACK, recapGoneWords } from '../src/work/autopilot.mjs'
+import { REFINE_BACK_WORDS, SENT_BACK, recapGoneWords, recapWaitIds } from '../src/work/autopilot.mjs'
+import { rebuildsApproved } from '../src/boardSettings.mjs'
+import { focusAllDone } from '../src/focus.mjs'
+import { evaluateWords } from '../src/goalGuard.mjs'
+import { parseGoals } from '../src/goals.mjs'
+import { focusWords } from '../src/say.mjs'
+import { focusState } from '../src/state.mjs'
 import { workApi } from '../src/work/api.mjs'
-import { decidedTodayOf, partnerDecidedOf, routedAwayOf, storeNeeds } from '../src/work/lists.mjs'
+import { decidedTodayOf, partnerDecidedOf, routedAwayOf, storeNeeds, storeWaits } from '../src/work/lists.mjs'
 import { stamp } from '../src/work/migrate.mjs'
 import { readStore } from '../src/work/store.mjs'
 
@@ -93,7 +99,9 @@ test('the sweep routes each open ask once, with one History line; one handed on 
 
 test('advice: the board answers with the advice as the person\'s pick, lists it in the partner\'s daily note, and Undo gives it back', async t => {
   const dir = await storeWith({
-    Q10: ask('Q10', { Title: 'for B33, which do you want?', Owner: 'Partner', Asks: 'decide', Advice: 'A', Via: 'chat' },
+    B33: step('B33', { Title: 'Calm the lava', State: 'in progress', Owner: 'Painter', Goal: 'G29' }),
+    // The ruling of 2026-10-31: advice is taken only for an ask under a step.
+    Q10: ask('Q10', { Title: 'for B33, which do you want?', Owner: 'Partner', Asks: 'decide', Advice: 'A', Via: 'chat', Of: 'B33' },
       'for B33, which do you want? A: keep the lava as the rules say (about 1 h). B: try a darker lava (about 2 h). I advise A.'),
   })
   t.after(() => rm(dir, { recursive: true, force: true }))
@@ -111,7 +119,7 @@ test('advice: the board answers with the advice as the person\'s pick, lists it 
   const note = items.get(noteId)
   assert.equal(note.head.get('From'), 'Partner')
   assert.equal(note.head.get('Of'), 'G29')
-  assert.deepEqual(note.sections.get('Decided for you'), ['- Q10 (Partner): for B33, which do you want? → A: keep the lava as the rules say (about 1 h). (autopilot: took the advice)'])
+  assert.deepEqual(note.sections.get('Decided for you'), ['- Q10 (Partner, B33): for B33, which do you want? → A: keep the lava as the rules say (about 1 h). (autopilot: took the advice)'])
   assert.equal(decidedTodayOf({ ok: true, items }, NOW + MIN), 1)
   // Its card: decided for the person, with the Undo, for 7 days.
   const [card] = storeNeeds({ ok: true, items }, { now: NOW + MIN, autopilot: true }).filter(one => one.workId === 'Q10')
@@ -141,7 +149,10 @@ test('recap: an ask that waits for the goal\'s recap stands in no list, is liste
   assert.deepEqual(done.result.routed, [{ id: 'Q20', to: 'recap' }, { id: 'Q21', to: 'recap' }])
   let items = await read(dir)
   assert.deepEqual(needsIds({ ok: true, items }), [], 'in no list of Needs your attention')
-  assert.deepEqual(needsIds({ ok: true, items }, false), [], 'nor while Autopilot is off: it waits for the recap')
+  // The coordinator's ruling (2026-10-31): with Autopilot off they stand for the person again.
+  assert.deepEqual(needsIds({ ok: true, items }, false), ['Q20', 'Q21'])
+  // Its step reads that it waits for the goal's recap, once per ask.
+  assert.deepEqual(items.get('B21').sections.get('Context').filter(one => /Recap verdict/.test(one)).map(one => one.trim()), ['Recap verdict: waits (Q20)', 'Recap verdict: waits (Q21)'])
   const listed = routedAwayOf({ ok: true, items })
   assert.deepEqual(listed.map(one => [one.id, one.route, one.goal, one.of]), [['Q20', 'recap', 'G29', 'B21'], ['Q21', 'recap', 'G29', 'B21']])
   assert.deepEqual(listed[0].pictures, ['pictures/B21/check.png'])
@@ -157,6 +168,7 @@ test('recap: an ask that waits for the goal\'s recap stands in no list, is liste
   assert.equal(field(items, 'Q21', 'State'), 'answered')
   assert.ok(history(items, 'Q20').some(line => line.includes('closed by the goal\'s recap')))
   assert.deepEqual(routedAwayOf({ ok: true, items }), [])
+  assert.ok(items.get('B21').sections.get('Context').some(one => one.trim() === 'Recap verdict: sent back (Q20)'))
 })
 
 test('recap: without a focus goal for its step, a waiting ask goes to the person', async t => {
@@ -261,7 +273,7 @@ test('a chat\'s new ask is routed at once while Autopilot is on, and its chat is
   const asked = await chat(dir, 'Painter', { action: 'ask', of: 'B40', kind: 'do', title: 'Merge B40 into main', text: 'Merge B40 into main when the check passed.' }, NOW, on)
   assert.equal(asked.ok, true, asked.why)
   assert.match(asked.result.text, /goes to the main chat \(Autopilot\)/)
-  const partner = await chat(dir, 'Partner', { action: 'ask', kind: 'decide', title: 'Shorter names in the shop?', text: 'Shorter names fit the cards.', advice: 'yes' }, NOW, on)
+  const partner = await chat(dir, 'Partner', { action: 'ask', of: 'B40', kind: 'decide', title: 'Shorter names in the shop?', text: 'Shorter names fit the cards.', advice: 'yes' }, NOW, on)
   assert.equal(partner.ok, true, partner.why)
   assert.match(partner.result.text, /Autopilot is on, so the board takes your advice/)
   const checker = await chat(dir, 'Checker', { action: 'ask', of: 'B21', kind: 'look', title: 'Approve the pool at 64 of 75?', text: 'The outline stays boxy.', advice: 'yes' }, NOW, on)
@@ -274,4 +286,95 @@ test('a chat\'s new ask is routed at once while Autopilot is on, and its chat is
   const before = await chat(dir, 'Painter', { action: 'ask', of: 'B40', kind: 'do', title: 'Water the hedge', text: 'Water the hedge once planted.' }, NOW)
   assert.equal(before.ok, true, before.why)
   assert.equal((await read(dir)).get(before.result.id).head.get('Route'), undefined)
+})
+
+test('the review\'s deadlock (2026-10-31): a card routed to the recap makes its step count as done for the goal demo, the demo asks its own row, and that row\'s verdict closes it', async t => {
+  const goals = ['Last id: G29', 'Focus: G29', '', '- [~] G29 Pools', '    Done when: the pool reads round', '    Goal definition: round pools', '    Goal definition agreed: 2026-10-30 10:00',
+    '    Part: The pool · about 1 h · steps B21', '    Part: The ring · about 1 h · steps B25', '    How agreed: 2026-10-30 11:00', ''].join('\n')
+  // B21 as the live B821 was: its result check failed below its bar and its fix was dropped, so the board filed the person's card.
+  const reviewed = step('B21', { Title: 'Round the pool', State: 'review', Owner: 'Painter', Goal: 'G29' }, {
+    Context: ['  The pool reads as a stepped stadium.'], Standard: ['pool look · pictures/pool.png · target 75'], Checked: ['Score: 64 of 75', '- pass: the pool is an oval', '- fail: judged beside the painting'],
+    History: [`- ${at(49)} Painter: in progress → review`, `- ${at(49)} server: check passed: work in garden; result named`, `- ${at(44)} Checker: result check failed: 1 of 2 points pass, score 64 of 75; fix B75 for Painter`],
+  })
+  const dropped = step('B75', { Title: 'Fix: judged beside the painting', State: 'dropped', Owner: 'Painter', Goal: 'G29', 'Fix of': 'B21' }, { Context: ['  Fix of B21: the result check by Checker failed on one point.', '  Dropped by Lead on 2026-10-31 at 12:48: the partner accepts B21 at 64'] })
+  const dir = await storeWith({
+    B21: reviewed, B22, B75: dropped, B25: step('B25', { Title: 'Round the ring', State: 'done', Owner: 'Painter', Goal: 'G29' }),
+    Q1: ask('Q1', { Title: 'Accept B21 at 64 of 75, or send it back?', Asks: 'decide', Of: 'B21', Options: 'A Accept: done as it is | B Send back: the partner makes another try from your note', Via: 'accept' }),
+  })
+  t.after(() => rm(dir, { recursive: true, force: true }))
+  assert.deepEqual((await sweep(dir)).result.routed, [{ id: 'Q1', to: 'recap' }])
+  let items = await read(dir)
+  assert.deepEqual(recapWaitIds(items.get('B21'), items), ['Q1'])
+  // The focus: B21 stays in review, yet its part counts as done for asking the goal demo, and the demo's words ask its own row.
+  const focus = focusState(parseGoals(goals), [...items.values()], [], '', 'Partner', NOW)
+  assert.deepEqual([focus.progress.done, focus.progress.forDemo, focus.progress.total], [1, 2, 2])
+  assert.deepEqual(focus.recapRows, [{ step: 'B21', asks: ['Q1'] }])
+  assert.equal(focusAllDone(focus, 'G29'), false, '"Did we reach the goal?" still waits for the verdict')
+  assert.equal(focusAllDone(focus, 'G29', { forDemo: true }), true)
+  const words = focusWords('goal-demo', { to: 'Partner', goal: { id: 'G29', title: 'Pools', doneWhen: 'the pool reads round' }, job: 'roles/partner.md', rows: focus.recapRows })
+  assert.match(words.text, /\nOwn rows: give each of these steps a row of its own, its id in "steps", so the person's verdict on it closes what waits for the recap: B21 \(Q1\)\n/)
+  // The demo names B21 now: the board's accept pass keeps the card open for it (it withdrew it before).
+  const named = await workApi({ action: 'accept-cards' }, ctx(dir, NOW + 5 * MIN, 'server', { recaps: [{ step: 'B21', goal: 'G29', path: 'pictures/g29/demo.json', key: '1. The pool', title: '1. The pool', verdict: null, at: null }] }))
+  assert.equal(named.ok, true, named.why)
+  assert.equal(field(await read(dir), 'Q1', 'State'), 'open')
+  // The person approves that row: the card closes with their verdict (the Send then closes B21 as approved, as before).
+  const answered = await workApi({ action: 'recap-answered', goal: 'G29', round: 1, parts: [{ verdict: 'approved', steps: ['B21'], title: '1. The pool' }] }, ctx(dir, NOW + 10 * MIN, 'server'))
+  assert.deepEqual(answered.result.closed, ['Q1'])
+  items = await read(dir)
+  assert.deepEqual(items.get('Q1').sections.get('Answer'), ['Approved in the recap of G29, round 1: 1. The pool.'])
+  assert.deepEqual(recapWaitIds(items.get('B21'), items), [])
+})
+
+test('the recap\'s net: a goal demo made without the step\'s row hands the waiting ask to the person; Autopilot off shows it again', async t => {
+  const dir = await storeWith({ B21, B22, Q2: ask('Q2', { Title: 'Approve the pool at 64 of 75?', Owner: 'Checker', Asks: 'look', Of: 'B21', Advice: 'yes' }) })
+  t.after(() => rm(dir, { recursive: true, force: true }))
+  assert.deepEqual((await sweep(dir)).result.routed, [{ id: 'Q2', to: 'recap' }])
+  // The demo came (its Demo line), and no recap row names B21.
+  const net = await sweep(dir, false, NOW + 5 * MIN, { focusHasDemo: true, recaps: [{ step: 'B99', goal: 'G29' }] })
+  assert.deepEqual(net.result.escalated, ['Q2'])
+  const items = await read(dir)
+  assert.deepEqual(items.get('Q2').sections.get('Route'), ['The goal demo came without its step, so the recap will not answer it: it is yours'])
+  assert.deepEqual(needsIds({ ok: true, items }), ['Q2'])
+})
+
+test('a blocking ask routed to the recap is blocking no more: its worker goes on (as filed, and as the sweep routes it)', async t => {
+  const dir = await storeWith({ B21, B22, Q3: ask('Q3', { Title: 'Does the pool read round at 64?', Owner: 'Painter', Asks: 'look', Of: 'B21', Advice: 'yes', Blocking: 'yes' }) })
+  t.after(() => rm(dir, { recursive: true, force: true }))
+  assert.deepEqual((await sweep(dir)).result.routed, [{ id: 'Q3', to: 'recap' }])
+  let items = await read(dir)
+  assert.equal(field(items, 'Q3', 'Blocking'), 'no')
+  assert.ok(history(items, 'Q3').some(line => line.endsWith("server: autopilot: the step goes on; judged at the goal's recap")))
+  assert.equal(storeWaits({ ok: true, items }).blocking.has('painter'), false)
+  // As filed: the holder's blocking look of its step below target.
+  const filed = await chat(dir, 'Painter', { action: 'ask', of: 'B21', kind: 'look', blocking: true, title: 'Does the ring read round at 64?', text: 'The ring stays boxy.', advice: 'yes' }, NOW + MIN, { autopilot: true })
+  assert.equal(filed.ok, true, filed.why)
+  items = await read(dir)
+  const id = filed.result.id
+  assert.deepEqual([field(items, id, 'Route'), field(items, id, 'Blocking')], ['recap', 'no'])
+  assert.ok(history(items, id).some(line => line.endsWith("server: autopilot: the step goes on; judged at the goal's recap")))
+  assert.ok(items.get('B21').sections.get('Context').some(one => one.trim() === `Recap verdict: waits (${id})`))
+  assert.equal(storeWaits({ ok: true, items }).blocking.has('painter'), false)
+  assert.equal(field(items, 'B21', 'State'), 'review')
+})
+
+test('the advice route\'s net: an answer the board cannot write goes to the person at once', async t => {
+  // The partner's ask with advice under a step whose file is gone (the review's probe).
+  const dir = await storeWith({ Q5: ask('Q5', { Title: 'Keep the darker lava?', Owner: 'Partner', Asks: 'decide', Of: 'B77', Advice: 'yes' }) })
+  t.after(() => rm(dir, { recursive: true, force: true }))
+  const done = await sweep(dir)
+  assert.equal(done.ok, true, done.why)
+  assert.deepEqual([done.result.routed, done.result.answered, done.result.escalated], [[{ id: 'Q5', to: 'advice' }], [], ['Q5']])
+  const items = await read(dir)
+  assert.deepEqual([field(items, 'Q5', 'State'), field(items, 'Q5', 'Route')], ['open', 'person'])
+  assert.match(items.get('Q5').sections.get('Route')[0], /^Autopilot could not write its answer \(.+\): it is yours$/)
+  assert.deepEqual(needsIds({ ok: true, items }), ['Q5'])
+})
+
+test('a goal stuck after the guard\'s tries is the person\'s: Autopilot approves no rebuild, the partner files "Rebuild G<n>:"', () => {
+  assert.equal(rebuildsApproved({ autopilot: true, approveRebuilds: false }), false)
+  assert.equal(rebuildsApproved({ autopilot: true, approveRebuilds: true }), false, 'hidden while Autopilot is on, it acts as off')
+  assert.equal(rebuildsApproved({ autopilot: false, approveRebuilds: true }), true)
+  const words = evaluateWords({ to: 'Partner', goal: { id: 'G29', title: 'Pools', howAgreed: null }, attempts: { count: 3, since: null, failures: [], groups: [], tripped: null }, approveRebuilds: rebuildsApproved({ autopilot: true }), job: 'roles/partner.md' })
+  assert.match(words.text, /one work ask of G29 \(decide, its title beginning "Rebuild G29:"/)
+  assert.doesNotMatch(words.text, /Approve rebuilds by itself" is on/)
 })

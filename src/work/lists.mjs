@@ -124,7 +124,7 @@ const isAdvised = (option, advice) => advice !== null && (option === advice || o
  * one the partner answered stays among the closed cards for a day, its answer `by: 'partner'` with its `why`, and may
  * be taken back (`canTakeBack`); `route` and `routeNote` say whether it came to the person by the partner and why.
  */
-export function storeNeeds(work, { now, names = [], prefix = '', answerOf = () => ({ answer: null, earlier: null }), autopilot = false, roleOf = () => null, focusGoal = null }) {
+export function storeNeeds(work, { now, names = [], prefix = '', answerOf = () => ({ answer: null, earlier: null }), autopilot = false, roleOf = () => null, focusGoal = null, focusHasDemo = false, recapSteps = [] }) {
   const items = new Map(itemsOf(work).map(item => [valueOf(item, 'Id'), item]))
   const nameOf = owner => names.find(name => plainName(name, prefix) === plainName(owner, prefix)) ?? owner
   return asksOfStore(work).flatMap(item => {
@@ -134,7 +134,7 @@ export function storeNeeds(work, { now, names = [], prefix = '', answerOf = () =
     const byPartner = isDecidedForYou(item)
     // Autopilot: an open ask routed away from the person (partner, advice, recap, main) stands nowhere here; while Autopilot is
     // on, neither one the board routes away at its next refresh (autopilot.mjs `standsForPerson`).
-    if (state === 'open' && !standsForPerson(item, { autopilot, now, items, roleOf, focusGoal, prefix })) return []
+    if (state === 'open' && !standsForPerson(item, { autopilot, now, items, roleOf, focusGoal, focusHasDemo, recapSteps, prefix })) return []
     // The review's findings: a partner's answer keeps its card (and its Undo) for 7 days.
     if (state !== 'open' && !(state === 'answered' && Number.isFinite(since) && now - since < (byPartner ? TAKE_BACK_MS : KEEP_ANSWERED_MS))) return []
     const id = valueOf(item, 'Id')

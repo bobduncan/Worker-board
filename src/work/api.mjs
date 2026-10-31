@@ -35,7 +35,7 @@ import { openNaming, renamedItem } from './names.mjs'
 import { readNamesFile, readObsoleteFile, readPartnerAnswersFile, readPauseFile, writeNames, writeObsoleteFile, writePartnerAnswers, writePause } from './store.mjs'
 import { checkWords, isLate, obsoletePointsOf, openItemsOf } from './obsolete.mjs'
 import { NOTE_LINE, PARTNER_ANSWER_MS, isDecidedForYou, isRoutedToPartner, routesToPartner, takenBackWords } from './partnerAnswers.mjs'
-import { REFINE_BACK_WORDS, SENT_BACK, TOOK_ADVICE, adviceAnswerOf, autopilotRoute, dropsStep, isAutopilotRouted, isExplicitPerson, recapGoneWords, refineAdviceOf, routedAt, routedWords } from './autopilot.mjs'
+import { RECAP_GOES_ON, REFINE_BACK_WORDS, SENT_BACK, TOOK_ADVICE, adviceAnswerOf, autopilotRoute, dropsStep, isAutopilotRouted, isExplicitPerson, recapGoneWords, recapVerdictWords, refineAdviceOf, routedAt, routedWords } from './autopilot.mjs'
 import { HELD, checkpointLine, isHolding, pauseAnswer, pauseFacts } from './pause.mjs'
 import { nextPlan, planMinutes, planOf, planText } from './stepPlan.mjs'
 import { ACTIVE, parkWords, parkedAfter, workingOnOther } from './parked.mjs'
@@ -794,7 +794,7 @@ async function ask(body, w, { alone = false } = {}) {
   // Focus 3, the review: a blocking ask holds a step only when the chat that holds it asks; the partner's or the main
   // chat's ask under a worker's step is not blocking for it, so the step never waits on an ask its owner cannot close.
   const isHolder = holder !== null && isOwner(of.item, w.who, w.prefix)
-  const blocking = (body.blocking === true || body.blocking === 'yes') && (isAlone || holder === null || isHolder)
+  let blocking = (body.blocking === true || body.blocking === 'yes') && (isAlone || holder === null || isHolder)
   const via = ['form', 'chat'].includes(body.via) && w.role !== 'person' ? body.via : null
   // B452: an ask leads with its title, the question itself in at most 12 words, and carries its context apart: "title"
   // and "text" (or "context"); without "title", the first line of "text" is the title. The mod's own asks (`via`) keep
@@ -886,12 +886,15 @@ Note: ${unlinked} is no link the person can open (the game runs only while the b
     ? autopilotRoute(askShape({ owner: w.who, kind, of: isAlone ? goal : valueOf(of.item, 'Id'), options, advice, via, text }), routeCtx(w))
     : null
   const route = pilot?.to ?? (routesToPartner({ setting, role: w.role, kind, options, advice, via, byChecker }) ? 'partner' : null)
+  // The coordinator's ruling (2026-10-31): an ask that waits for the goal's recap holds no worker: Blocking no, the step goes on.
+  const isFreed = route === 'recap' && blocking
+  if (isFreed) blocking = false
   // One question per task: a second question on a step that has the person's open ask joins that ask as a line.
   if (!isAlone && via !== 'form' && !blocking && (route === null || (pilot !== null && route === 'person')) && !['person', 'server'].includes(w.role)) {
     const joined = await joinOpenAskOf(w, of.item, kind, text, { anyKind: qaHeld !== null, options, advice, pictures, play, qa: qaHeld !== null })
     if (joined.found) return joined.done
   }
-  const made = await makeAsk(w, { of: of.item, kind, blocking, text, options, advice, pictures, play, via, goal, route, pilot: pilot !== null })
+  const made = await makeAsk(w, { of: of.item, kind, blocking, text, options, advice, pictures, play, via, goal, route, pilot: pilot !== null, freed: isFreed })
   if (!made.ok) return made
   const { question, id, title } = made
   const stepId = isAlone ? null : valueOf(of.item, 'Id')
@@ -901,7 +904,8 @@ Note: ${unlinked} is no link the person can open (the game runs only while the b
       : forYouBlock({ id, of: stepId ?? goal, kind, blocking, title, options, advice, pictures, play, places: placesIn([title, ...options, advice].join(' '), placesKnown(w, id)) }, w.boardUrl ?? '')
   const routed = route === null ? {} : { route }
   if (isAlone) return changed(question, `${block}${unlinkedNote}`, routed)
-  let item = said(underStep(of.item, [`Asked ${id} (${kind}${blocking ? ', blocking' : ''}): ${title}`]), w, `asked ${id}`)
+  // The ruling: the step reads that it waits for the goal's recap, so the goal demo is asked with it and gives it its own row.
+  let item = said(underStep(of.item, [`Asked ${id} (${kind}${blocking ? ', blocking' : ''}): ${title}`, ...(route === 'recap' ? [recapVerdictWords('waits', id)] : [])]), w, `asked ${id}`)
   let moved = ''
   if (blocking && isHolder && stateOf(item) === 'in progress') {
     const waits = move(item, 'waiting on you', w.role, w, flowCtx(w, [item, question]))
@@ -1009,7 +1013,7 @@ function askShape({ owner, kind, of = null, options = [], advice = '', via = nul
 }
 
 /** Autopilot: what the routing reads of the board: each chat's role, the store's items, the focus goal, the chats' title start. */
-const routeCtx = w => ({ roleOf: name => w.roleOf?.(name) ?? null, items: w.store.items, focusGoal: w.focusGoal ?? null, prefix: w.prefix ?? '' })
+const routeCtx = w => ({ roleOf: name => w.roleOf?.(name) ?? null, items: w.store.items, focusGoal: w.focusGoal ?? null, focusHasDemo: w.focusHasDemo === true, recapSteps: w.recaps ?? [], prefix: w.prefix ?? '' })
 
 /** Autopilot: what the asking chat is told of an ask routed away from the person at once. */
 function autopilotFiledWords(id, route) {
@@ -1019,7 +1023,7 @@ function autopilotFiledWords(id, route) {
 }
 
 /** B299: writes a new ask `Q<n>` (under the step `of`, an item, or alone): `{ ok, question, id, title }`. */
-async function makeAsk(w, { of = null, kind, blocking = false, text, options = [], advice = '', pictures = [], play = '', via = null, goal = null, route = null, title: given = null, owner = undefined, pilot = false }) {
+async function makeAsk(w, { of = null, kind, blocking = false, text, options = [], advice = '', pictures = [], play = '', via = null, goal = null, route = null, title: given = null, owner = undefined, pilot = false, freed = false }) {
   const id = await nextId(w.dir, 'Q', w.fs)
   // B452: the question its words lead with (a title over 12 words came from the mod's form or a "For you" block).
   // B462: a refine question gives its own, found before its advice.
@@ -1035,6 +1039,7 @@ async function makeAsk(w, { of = null, kind, blocking = false, text, options = [
   question = said(question, w, `asked (${kind}${blocking ? ', blocking' : ''}${via === 'form' ? ', with the app\'s question form' : via === 'refine' ? ', refining' : via === 'chat' ? ', from its "For you" block' : ''})${route === 'partner' ? ': to the partner first' : ''}`)
   // Autopilot: the route's one line, as the board's sweep writes it.
   if (pilot && route !== null) question = appendHistory(question, 'server', routedWords(route), w.now)
+  if (freed) question = appendHistory(question, 'server', RECAP_GOES_ON, w.now)
   const wrote = await save(question, null, w)
   return wrote.ok ? { ok: true, question, id, title } : wrote
 }
@@ -1352,7 +1357,11 @@ const openAsksAll = w => [...w.store.items.values()].filter(one => kindOf(one) =
 /** Autopilot: `w` with the store read anew (within the call: the files it wrote, B867). */
 const freshOf = async w => ({ ...w, store: { ...w.store, ...(await readStore(w.dir, w.fs)) } })
 
-/** Autopilot: an open ask given its route (`to`), once: the Route field and one History line. Partner: its 30 minutes start now. */
+/**
+ * Autopilot: an open ask given its route (`to`), once: the Route field and one History line. Partner: its 30 minutes start now.
+ * Recap (the coordinator's ruling, 2026-10-31): its step reads `Recap verdict: waits (Q<n>)` first, and a blocking ask is
+ * blocking no more (its worker goes on).
+ */
 async function routeAsk(id, to, w, card = null) {
   const found = await load(id, w, { kind: ['ask'] })
   if (!found.ok || stateOf(found.item) !== 'open') return { ok: false }
@@ -1360,7 +1369,17 @@ async function routeAsk(id, to, w, card = null) {
   // The partner's 30-minute rule reads the ask's filing (reconcile.mjs): an older ask routed now gets its 30 minutes from now.
   if (to === 'partner') put(item, 'Filed', String(w.now))
   if (card !== null) item.sections.set('Route', [card])
-  item = ordered(appendHistory(item, 'server', routedWords(to), w.now))
+  item = appendHistory(item, 'server', routedWords(to), w.now)
+  if (to === 'recap' && valueOf(item, 'Blocking') === 'yes') item = appendHistory(put(item, 'Blocking', 'no'), 'server', RECAP_GOES_ON, w.now)
+  item = ordered(item)
+  const of = valueOf(found.item, 'Of')
+  if (to === 'recap' && of !== null && STEP_ID.test(of)) {
+    const step = await load(of, w, { kind: ['step'] })
+    if (!step.ok) return step
+    const marked = appendHistory(underStep(step.item, [recapVerdictWords('waits', id)]), 'server', `autopilot: ${id} waits for the goal's recap`, w.now)
+    const wrote = await save(marked, step.text, w)
+    if (!wrote.ok) return wrote
+  }
   const done = await save(item, found.text, w)
   return done.ok ? { ok: true, item } : done
 }
@@ -1398,9 +1417,16 @@ async function autopilot(body, w) {
     const found = await load(id, now, { kind: ['ask'] })
     if (!found.ok || stateOf(found.item) !== 'open' || valueOf(found.item, 'Route') !== 'advice') continue
     const answer = adviceAnswerOf(found.item)
-    const done = answer === null
+    let done = answer === null
       ? await routeAsk(id, 'person', now, 'Autopilot found no advice to take: it is yours')
       : await decideFor(found, { text: [answer], why: TOOK_ADVICE, by: 'autopilot' }, now)
+    // The review (2026-10-31): an answer the board cannot write (its step gone, a file it cannot write) goes to the person at once.
+    if (!done.ok && answer !== null) {
+      const handed = await routeAsk(id, 'person', now, `Autopilot could not write its answer (${line(done.why ?? 'not written', 160)}): it is yours`)
+      if (handed.ok) escalated.push(id)
+      now = await freshOf(w)
+      continue
+    }
     if (!done.ok) continue
     if (answer === null) escalated.push(id)
     else {
@@ -1421,11 +1447,13 @@ async function autopilot(body, w) {
       } else mainAsks.push(id)
       continue
     }
-    // A recap wait whose step is gone, or of no focus goal now: its recap will not come; it is the person's.
+    // A recap wait whose step is gone, or of no focus goal now: its recap will not come; it is the person's. So is one whose
+    // goal demo came without a row for its step (nothing would close it).
     const step = now.store.items.get(valueOf(item, 'Of') ?? '')
     const isFocus = step !== undefined && (now.focusGoal ?? null) !== null && valueOf(step, 'Goal') === now.focusGoal
-    if (isFocus) continue
-    const done = await routeAsk(id, 'person', now, recapGoneWords)
+    const isNamed = (now.recaps ?? []).some(one => one.step === valueOf(item, 'Of'))
+    if (isFocus && (now.focusHasDemo !== true || isNamed)) continue
+    const done = await routeAsk(id, 'person', now, isFocus ? 'The goal demo came without its step, so the recap will not answer it: it is yours' : recapGoneWords)
     if (done.ok) escalated.push(id)
   }
   if (on) {
@@ -1516,7 +1544,7 @@ async function recapAnswered(body, w) {
         item.sections.set('Answer', [answer])
         item = ordered(appendHistory(item, 'server', `closed by the goal's recap: ${line(answer, 200)}`, w.now))
         const done = await answerStep(w, item, found.text, stepId, step => {
-          const mine = appendHistory(underStep(step, [`${id} closed by the recap of ${goal} on ${at(w.now)}: ${line(answer, 200)}`]), 'server', `${id} closed by the goal's recap`, w.now)
+          const mine = appendHistory(underStep(step, [`${id} closed by the recap of ${goal} on ${at(w.now)}: ${line(answer, 200)}`, recapVerdictWords(isApproved ? 'approved' : 'sent back', id)]), 'server', `${id} closed by the goal's recap`, w.now)
           return stateOf(mine) === 'waiting on you' ? goOnOrPark(mine, w, flowCtx(w, [item, mine]), ` (${id} closed by the recap)`).item : mine
         })
         if (!done.ok) continue
@@ -1825,6 +1853,9 @@ async function acceptCards(_body, w) {
       if (found?.ok === true) await save(said(put(copy(found.item), 'Pictures', pictures.join(', ')), w, 'its evidence picture added'), found.text, w)
     }
     if (wait?.kind === 'accept') continue
+    // Autopilot (the coordinator's ruling, 2026-10-31): a card that waits for the goal's recap stays open while the recap names
+    // its step, so the person's verdict on that row closes it.
+    if (wait?.kind === 'recap' && valueOf(card, 'Route') === 'recap') continue
     const why = step === undefined ? 'its step is gone' : stateOf(step) !== 'review' ? `its step is ${stateOf(step)}` : `its step went on: ${wait?.text ?? 'nothing holds it'}`
     const done = await withdraw({ id: valueOf(card, 'Id'), why }, { ...w, role: 'person' })
     if (done.ok) gone.push(valueOf(card, 'Id'))
