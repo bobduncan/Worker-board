@@ -1597,7 +1597,14 @@ as a shadow of the backlog; B301 removed the shadow (below): the store is the on
   no repository lists is removed by the check itself (rmdir; a chat's shell standing in the worktree makes Windows
   refuse the last folder for a minute) and gives no line. B723: the check tries once; a held folder keeps one line ("a
   program still uses it") and the tries after 1, 2 and 4 seconds run in the background, outside the work store's queue
-  (Principle 5), so the next check finds it gone; it is never a chore for the person. When git does not answer, whether a
+  (Principle 5), so the next check finds it gone; it is never a chore for the person. B844 (X114): the held line names
+  each program whose working folder is that folder or inside it (`holders.mjs`, read from each process's own block, only
+  for a held folder, Windows only): its name, process id, what started it and its command, and "stop it (a chat's
+  background command or monitor: TaskStop)"; "no program stands in it as its working folder" when none does. Looked up
+  only for EBUSY, EPERM or EACCES, once per filed check (the patient check's last round); a reader that fails or times
+  out (20 s) names nothing, never "no program". B821's
+  folder was held 20 minutes by its chat's own background waits (a Monitor's `sleep 1500`), past a restart of the chat;
+  workers stop them before removing a worktree (`roles/worker.md`). When git does not answer, whether a
   repository lists the folder is not known (Principle 3): the folder is left and the line says so. A folder with files keeps today's line. A failed check runs again on the person's "Check again" (the
   lane's flag, `recheck`) or the owner's report from review. The board that delivers writes backlog.md; a copy with a store of its own
   writes the view into that folder; a copy without one only reads. The Backlog tab's line says "backlog.md is its
@@ -3523,7 +3530,8 @@ confirmed that a step's branch was gone, never its worktree or its folder. Three
   folder Windows may leave" (a link in it named first, to be taken away alone: `cmd /c rmdir "<link>"` on Windows).
   The worker removes it and reports again, as after a failed branch check. Work outside git gets the same lines.
   Exception (B717): an empty folder no repository lists is removed by the check itself (`removeEmptyFolder`, one rmdir, more tries in the background; left when git is silent), so the empty folder Windows leaves when the worker's chat still stood in the worktree no
-  longer fails the check; workers `cd` out of a worktree before removing it (`roles/worker.md`).
+  longer fails the check; workers stop their background commands and monitors in a worktree and `cd` out of it before
+  removing it (`roles/worker.md`); a folder still held is named with the programs that stand in it (B844, `holders.mjs`).
 - **The result check** (`checked`, the work API's `checkWorktrees`): the board refuses `work checked B<id>` while the
   check's own worktrees are left (folders named `check-b<id>...`, wherever git lists them, or in the project folder),
   each named with how to remove it; the helper removes them and files it again. Chosen over the board removing them:
