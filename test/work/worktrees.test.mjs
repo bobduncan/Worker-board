@@ -13,7 +13,7 @@ import test from 'node:test'
 
 import { gitRunner } from '../../src/folders.mjs'
 import { patientReportCheck } from '../../src/work/check.mjs'
-import { EMPTY_WAITS, FILES, cleanLeftover, findLeftovers, findLink, namesStep, stepLeftovers, worktreeBlocks } from '../../src/work/worktrees.mjs'
+import { EMPTY_WAITS, FILES, cleanLeftover, findLeftovers, findLink, isHeldLine, namesStep, stepLeftovers, worktreeBlocks } from '../../src/work/worktrees.mjs'
 
 const HOUR = 60 * 60_000
 const isWindows = process.platform === 'win32'
@@ -390,6 +390,17 @@ test('the report check tries an empty folder a program holds through all its wai
     // B844's review: the programs are looked up once, in the round that is filed, not in every round.
     assert.equal(looked, 1)
     assert.equal('isHeldOnly' in failed, false)
+    // B862: a held folder beside another fault (no result) is filed at once, and its line still names the program.
+    looked = 0
+    const mixedSleeps = []
+    const mixed = await patientReportCheck({ ...args, result: '', merged: git(one.repo, 'rev-parse', 'HEAD').trim(), fs: wedged, exists: async () => true, waits: [0] },
+      { rounds: 3, every: 5, sleep: async ms => { mixedSleeps.push(ms) } })
+    assert.equal(mixed.passed, false)
+    assert.deepEqual(mixedSleeps, [])
+    assert.match(mixed.lines.join(' '), /a program still uses it \(bash\.exe 4242 from claude\.exe: sleep 1500\): stop it/)
+    assert.equal(mixed.lines.some(line => !isHeldLine(line)), true, JSON.stringify(mixed.lines))
+    assert.equal(looked, 1)
+    assert.equal('isHeldOnly' in mixed, false)
     // A fault that is not a held folder is filed at once: no waiting for it.
     rmdirSync(folder)
     const noResult = []

@@ -383,11 +383,16 @@ export const HELD_EVERY_MS = 10_000
 export async function patientReportCheck(args, { rounds = HELD_ROUNDS, every = HELD_EVERY_MS, sleep = ms => new Promise(resolve => setTimeout(resolve, ms)) } = {}) {
   // B844: the programs that hold the folder are looked up only in the round that can be filed (the last), once.
   const quiet = { holders: async () => null }
-  let outcome = await reportCheck({ ...args, inline: true, ...(rounds > 0 ? quiet : {}) })
+  let named = rounds === 0
+  let outcome = await reportCheck({ ...args, inline: true, ...(named ? {} : quiet) })
   for (let round = 0; round < rounds && outcome.isHeldOnly === true; round += 1) {
     await sleep(every)
-    outcome = await reportCheck({ ...args, inline: true, ...(round < rounds - 1 ? quiet : {}) })
+    named = round === rounds - 1
+    outcome = await reportCheck({ ...args, inline: true, ...(named ? {} : quiet) })
   }
+  // B862: a quiet round that is filed with a held folder beside another fault is checked once more with the lookup, so
+  // the held line names its program whatever else failed.
+  if (!named && outcome.passed === false && outcome.lines.some(isHeldLine)) outcome = await reportCheck({ ...args, inline: true })
   const { isHeldOnly, ...filed } = outcome
   return filed
 }

@@ -1601,7 +1601,7 @@ as a shadow of the backlog; B301 removed the shadow (below): the store is the on
   each program whose working folder is that folder or inside it (`holders.mjs`, read from each process's own block, only
   for a held folder, Windows only): its name, process id, what started it and its command, and "stop it (a chat's
   background command or monitor: TaskStop)"; "no program stands in it as its working folder" when none does. Looked up
-  only for EBUSY, EPERM or EACCES, once per filed check (the patient check's last round); a reader that fails or times
+  only for EBUSY, EPERM or EACCES, once per filed check (the patient check's last round, or one more round when a quiet round is filed with a held folder beside another fault, B862); a reader that fails or times
   out (20 s) names nothing, never "no program". B821's
   folder was held 20 minutes by its chat's own background waits (a Monitor's `sleep 1500`), past a restart of the chat;
   workers stop them before removing a worktree (`roles/worker.md`). When git does not answer, whether a
