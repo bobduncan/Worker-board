@@ -155,6 +155,8 @@ export function itemOfStep(work, key) {
     effort: effortOf(item), model: modelOf(item), owner: valueOf(item, 'Owner'), state: valueOf(item, 'State'),
     // Your words (2026-10-30): the person's answers, rejections and notes on it, each with what it answered, oldest first.
     yourWords: yourWordsOf(item),
+    // The calm window's three lines (Context, Problem, Solution): the step's ## Context lines, and its ## Refined block as written.
+    context: section('Context').filter(one => !/^\(the refine block stands/i.test(one)), refinedLines: section('Refined'),
   }
 }
 
