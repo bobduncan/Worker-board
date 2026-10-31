@@ -1956,6 +1956,13 @@ step on "check pending" for good.
   the chats, answering the page and each step's check after a report (`check:<id>`) run through `loops.run(name, fn)`:
   last success, last error, failures in a row, since when. It never throws; the next run goes on. approve-recaps runs
   on its own, so an odd recap stops no delivery.
+- **One look at a time** (B826, X109): the look runs every minute through `loops.single('look', fn)`, so a tick while
+  the last look still runs (a slow CPU, as at 22:06 on 2026-10-30, when three looks side by side each said the week's
+  stop word) starts none, and no two looks say the same word: rounds, refine words, resumes, reported-background, stop,
+  start and wake words, stranded questions, the ask for workers. A look that runs over 10 minutes (`STALE_MS`) is hung:
+  the head says "The board's look failing since <its start> (still running after 10 min)" until it ends, the log names
+  it once, and the next tick runs a look again, so a hung look never makes the board deaf; the hung look ending late
+  frees no tick while a newer one runs. B812's one-go put of the stop words stays.
 - **The log**: each new error (another message than the loop's last; B446: its random part aside) is one line in
   `<project>/.claude/board-errors.log` (UTC time, the loop, the error's first line); at 1 MB the file moves to
   `board-errors.log.1`. Not for the demo.

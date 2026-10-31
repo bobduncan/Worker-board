@@ -139,10 +139,10 @@ test('a hung look that ends late does not free the tick of the look that runs af
   hung.open()
   await first
   clock.add(MIN)
-  await look()
+  const third = look()
   assert.equal(calls, 2, 'the second look still runs, so this tick starts none')
   slow.open()
-  await second
+  await Promise.all([second, third])
 })
 
 test('the board\'s look goes through the one-at-a-time run', async () => {
