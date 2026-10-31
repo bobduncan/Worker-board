@@ -836,7 +836,11 @@ export function refineAsk(step, sent, now, openMs = REFINE_OPEN_MS) {
   const ask = removalAsk(message, now, openMs)
   if (ask === null) return null
   const round = Number.isInteger(message.round) ? message.round : 1
-  return { ...ask, round, isOpen: ask.isOpen && !isBlockWritten(step.refined, message) }
+  // B868 (X115): the gate that sends the next refine is held by an ask only while its step is still open for a refine (not
+  // done or dropped, not in progress), and by a word that did not arrive (waiting, taken) for `openMs` at most, as one that did.
+  const isStale = (message.state === 'waiting' || message.state === 'taken') && now - (message.state === 'taken' ? message.takenAt ?? message.at : message.at) >= openMs
+  const isStepOpen = step.status !== 'done' && step.status !== 'progress'
+  return { ...ask, round, isOpen: ask.isOpen && isStepOpen && !isStale && !isBlockWritten(step.refined, message) }
 }
 
 /**

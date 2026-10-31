@@ -384,6 +384,7 @@ answers · refine again" writes the answers behind their questions (" Answer: ..
 the block's first line. The board writes only that block, as for Close (`src/tick.mjs`, `POST /api/backlog`, only on
 the board that delivers). While a round is asked and not written yet (on its way, or arrived less than half an hour
 ago), the window says so and the server refuses a second ask.
+B868 (X115): an ask holds the gate (`refineAsk`, `src/state.mjs`) only while its step is still open for a refine (not done or dropped, not in progress), and a word that did not arrive (waiting, taken) for half an hour at most, as one that did: a refine word stuck on its way (this login's guard skips the Workers mod's delivery hooks) or for a dropped step no longer stops the next refine (B854's round 2, taken at 10:58 and never typed, held it for an hour). The watch rule open-fix's evidence ends with the ask that holds the gate or "refine gate free" (`view.refineHeld`). Tests: `test/refinedCompact.test.mjs`, `test/supervisor/openFix.test.mjs`.
 
 **Refine questions in sight (B287).** The person, on goal G17 (2026-10-17): refine questions waiting for them stand
 under Needs your attention, one line per step, opening the step's window; the Advisor shows its refine state. Each
