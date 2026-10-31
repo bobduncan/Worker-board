@@ -1557,12 +1557,9 @@ $('overview-mode').addEventListener('click', event => {
 showOverviewMode()
 
 function drawTop(state) {
-  const updated = $('updated')
-  updated.textContent = `Last updated ${clock(state.readAt)}${state.isDemo ? ' · demo data' : ''}`
   // B327: a failure in the simple view must not stop the rest of the board from drawing
   try { drawSimpleOverview(state) } catch (error) { console.error('[board] the simple view:', error) }
   $('version').textContent = versionLine(state.version)
-  updated.classList.remove('is-stale')
   // B307: "0 waiting for you" goes; the yellow count shows when something waits.
   fill($('counts'), shownCounts(state.counts)
     .map(name => {
@@ -1863,7 +1860,6 @@ function drawRestart(state) {
     return node
   }
   const parts = []
-  if (restart.off !== null) parts.push(line('muted', `The board was off from ${clock(restart.off.from)} to ${clock(restart.off.to)} (${span(restart.off.to - restart.off.from)}).`))
   if (opened !== null) parts.push(opened)
   for (const text of stoppedLines(restart, state.chats ?? [])) parts.push(line('alert', text))
   // Who has to be started before it can carry on: said where a restart is at hand, not all day long.
@@ -19014,10 +19010,108 @@ function withAnswers(state) {
 }
 // withanswers:end
 
+// banner:start
+// Signals change 1 (2026-10-31): the line on top always says whether the board is alive, in four words from the board's
+// own clock: Running, Slow, Off since, Restarting. The page keeps the facts here; `bannerOf` (pure) turns them into words.
+
+/** How long one ask of the state may take before the page calls the board slow. */
+const BANNER_WAIT_MS = 5_000
+/** How long failing asks after a restart was announced still say "Restarting", before they say "Off since". */
+const RESTART_GIVE_UP_MS = 60_000
+/** How long the line says why the board was off after it came back. */
+const BACK_SHOWN_MS = 60_000
+/** The server's GAP_MS (src/history.mjs): its work loop silent for longer than this is a board that answers but does not work. */
+const GAP_MS = 3 * MIN
+/** Why the board was off, as `board.lastStop.why` says it, in plain words. */
+const WHY_OFF = { restart: 'a new version started', stopped: 'stopped', crash: 'it crashed', unknown: 'the PC slept or the board was ended' }
+
+/** What the banner knows: the last good answer, the failing asks since, a restart announced, and a return to explain. */
+const banner = {
+  openedAt: Date.now(),
+  /** { at: the page's clock, boardNow, loopAt, isDemo } of the last good answer. */
+  good: null,
+  /** { since: the page's clock of the first failing ask, kind: 'slow' | 'off', boardAt: the board's time then } while asks fail. */
+  failure: null,
+  /** { at: the board's clock } once the last good answer said the board is leaving, or this page asked for the restart. */
+  leaving: null,
+  /** { from, to, why, until: the page's clock } while the line says why the board was off. */
+  back: null,
+  /** The `to` of the last return explained, so a return is explained once. */
+  explained: null,
+}
+
+function clockSeconds(ms) {
+  return `${clock(ms)}:${pad(new Date(ms).getSeconds())}`
+}
+
+/**
+ * The banner's words and tone for the facts at page time `now`. Tone: `quiet` (plain information) or `attention`
+ * (Slow, Off: the page's stale colour). Times are the board's own, never the page's clock; only "for N s" is a length of
+ * time on the page's clock.
+ */
+function bannerOf({ good, failure, leaving, back, openedAt, now }) {
+  const demo = good?.isDemo === true ? ' · demo data' : ''
+  if (failure !== null) {
+    if (leaving !== null && now - failure.since < RESTART_GIVE_UP_MS) return { text: 'Restarting · a new version starts, usually back within 30 s', tone: 'quiet' }
+    if (leaving !== null) return { text: `Off since ${clock(leaving.at)}`, tone: 'attention' }
+    if (failure.kind === 'slow') {
+      const seconds = Math.round((now - (good?.at ?? openedAt)) / 1000)
+      const showing = good === null ? '' : ` · showing ${clock(good.boardNow)}'s data`
+      return { text: `Slow · the board has not answered for ${seconds} s${showing}`, tone: 'attention' }
+    }
+    return { text: `Off since ${clock(good?.boardNow ?? failure.boardAt)}`, tone: 'attention' }
+  }
+  if (good === null) return { text: 'Reading…', tone: 'quiet' }
+  if (good.loopAt !== null && good.boardNow - good.loopAt > GAP_MS) return { text: `Slow · the board answers, but it has not done its work since ${clock(good.loopAt)}`, tone: 'attention' }
+  if (back !== null && now < back.until) return { text: `Running · was off ${clock(back.from)} to ${clock(back.to)} (${WHY_OFF[back.why] ?? WHY_OFF.unknown})`, tone: 'quiet' }
+  return { text: `Running · updated ${clockSeconds(good.boardNow)}${demo}`, tone: 'quiet' }
+}
+
+function drawBanner() {
+  const shown = bannerOf({ ...banner, now: Date.now() })
+  const node = $('updated')
+  node.textContent = shown.text
+  // The line never wraps (board.css cuts a long text with an ellipsis): the title shows it whole on hover.
+  node.title = shown.text
+  node.classList.toggle('is-stale', shown.tone === 'attention')
+}
+
+/** An answer came: the time it carries is the board's, and from now on the page shows the board's clock. */
+function bannerAnswered(state) {
+  const now = Date.now()
+  const boardNow = Number.isFinite(state.board?.now) ? state.board.now : Number.isFinite(state.readAt) ? state.readAt : now
+  const tick = state.board?.loop?.lastTickAt
+  banner.good = { at: now, boardNow, loopAt: Number.isFinite(tick) ? tick : null, isDemo: state.isDemo === true }
+  banner.failure = null
+  banner.leaving = state.board?.restart?.state === 'leaving' ? { at: Number.isFinite(state.board.restart.at) ? state.board.restart.at : boardNow } : null
+  const stop = state.board?.lastStop
+  if (stop !== null && stop !== undefined && stop.to !== banner.explained) {
+    banner.explained = stop.to
+    banner.back = { from: stop.from, to: stop.to, why: stop.why, until: now + BACK_SHOWN_MS }
+    setTimeout(drawBanner, BACK_SHOWN_MS)
+  }
+  drawBanner()
+}
+
+/** An ask failed: a timeout is a slow board, any other failure (refused, not 2xx) an off one. */
+function bannerFailed(error) {
+  const now = Date.now()
+  const offset = banner.good === null ? 0 : banner.good.boardNow - banner.good.at
+  // The person asked for the restart on this page: the asks that fail now are the board leaving.
+  if (banner.leaving === null && sending.has('board-anew')) banner.leaving = { at: now + offset }
+  banner.failure = { since: banner.failure?.since ?? now, kind: error?.name === 'AbortError' ? 'slow' : 'off', boardAt: banner.failure?.boardAt ?? now + offset }
+  drawBanner()
+}
+// banner:end
+
 async function read() {
   clearTimeout(timer)
+  // Signals change 1: one ask may take BANNER_WAIT_MS; a slower board is a "Slow" board, not a silent one.
+  const limit = new AbortController()
+  const stopAt = setTimeout(() => limit.abort(), BANNER_WAIT_MS)
+  let isAnswered = false
   try {
-    const answer = await fetch('/api/state', { headers: { 'X-Board-Token': TOKEN }, cache: 'no-store' })
+    const answer = await fetch('/api/state', { headers: { 'X-Board-Token': TOKEN }, cache: 'no-store', signal: limit.signal })
     // The server was started again and has a new token: a fresh page has it, and every Send of this page fails until
     // then. B519: so the page loads itself at once, and keeps the answers being typed in sessionStorage across it
     // (B512 waited for idle, but Send failed on the old token meanwhile). At most once a minute, so a real refusal
@@ -19029,6 +19123,8 @@ async function read() {
     }
     if (!answer.ok) throw new Error(String(answer.status))
     const state = await answer.json()
+    isAnswered = true
+    bannerAnswered(state)
     // 2026-10-28: while the person pauses, a chat stopped at its checkpoint shows as suspended (`pausedLanes`).
     if (state?.pause?.state === 'pausing') state.chats = pausedLanes(state.chats, state.pause)
     withAnswers(state)
@@ -19037,14 +19133,14 @@ async function read() {
     draw(state)
     awaySince = null
     helpAtStart(state)
-  } catch {
-    // The board is away (Claude was closed, or the board is being started again): the page keeps asking, and
-    // says for how long. When the board is back it has a new token, and the page loads itself anew.
+  } catch (error) {
+    // The board is away (Claude was closed, or the board is being started again) or slow: the page keeps asking, and the
+    // banner says which (Signals change 1). When the board is back it has a new token, and the page loads itself anew.
     if (awaySince === null) awaySince = Date.now()
-    const updated = $('updated')
-    updated.classList.add('is-stale')
-    const away = `The board has not answered since ${clock(awaySince)} (${span(Date.now() - awaySince)}). Asking again every few seconds`
-    updated.textContent = board === null ? `${away}.` : `${away}; showing what was read at ${clock(board.readAt)}.`
+    // An answer that came but could not be drawn is no silent board.
+    if (!isAnswered) bannerFailed(error)
+  } finally {
+    clearTimeout(stopAt)
   }
   timer = setTimeout(read, awaySince === null ? (board?.refreshSeconds ?? 30) * 1000 : AWAY_MS)
 }

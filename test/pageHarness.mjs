@@ -73,9 +73,12 @@ export async function openPage({ state, answers = () => reply({}), hash = '', no
   window.fetch = async (url, init = {}) => {
     const request = { url: String(url), method: init.method ?? 'GET', headers: init.headers ?? {}, body: typeof init.body === 'string' ? JSON.parse(init.body) : (init.body ?? null) }
     requests.push(request)
-    if (request.url === '/api/state') return reply(typeof state === 'function' ? state(requests) : state)
+    // The state may be a function: it can throw (the board is off), return a promise that never settles (the board is slow)
+    // or return a `reply(...)` (a refusal); a plain value is the state.
+    const given = request.url === '/api/state'
+      ? Promise.resolve().then(() => (typeof state === 'function' ? state(requests) : state)).then(body => (typeof body?.json === 'function' ? body : reply(body)))
+      : Promise.resolve(answers(request))
     // A request the page gives up on (its AbortController) ends as a fetch does: it rejects with an AbortError.
-    const given = Promise.resolve(answers(request))
     if (!init.signal) return given
     return Promise.race([given, new Promise((_done, fail) => {
       const stop = () => fail(Object.assign(new Error('The operation was aborted'), { name: 'AbortError' }))
@@ -85,13 +88,13 @@ export async function openPage({ state, answers = () => reply({}), hash = '', no
   }
   // The page's own constants, so a test never copies them (MIN, STATES): read from inside the page after it ran.
   window.eval(`${script}
-;globalThis.__pageConstants = { MIN, HOUR, STATES, KINDS }`)
+;globalThis.__pageConstants = { MIN, HOUR, STATES, KINDS, AWAY_MS, GAP_MS, BANNER_WAIT_MS, RESTART_GIVE_UP_MS, BACK_SHOWN_MS }`)
   await settle()
   const page = {
     window,
     document,
     requests,
-    /** MIN, HOUR, STATES and KINDS as the page defines them. */
+    /** MIN, HOUR, STATES, KINDS and the banner's AWAY_MS, GAP_MS, BANNER_WAIT_MS, RESTART_GIVE_UP_MS, BACK_SHOWN_MS as the page defines them. */
     constants: window.__pageConstants,
     /** The requests to one address, optionally of one `action` in their body. */
     sent: (url, action = null) => requests.filter(one => one.url === url && one.method === 'POST' && (action === null || one.body?.action === action)),

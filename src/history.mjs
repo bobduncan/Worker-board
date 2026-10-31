@@ -62,12 +62,21 @@ export function changes(last, chats, now) {
 /** The board watches once a minute. Longer than this without a look means it was off or the PC slept. */
 export const GAP_MS = 3 * 60_000
 
-/** The gap line to add when the board starts after having been off, or null. */
-export function startGap(lines, aliveAt, now) {
+/**
+ * The gap line to add when the board starts after having been off, or null. Signals change 1 (2026-10-31): the line says
+ * `why` the board was off: the stop record's (`stop`: { at, why }, written when the board ended) when its `at` lies inside
+ * the gap, else `unknown` (the PC slept, the board was killed, or the power went). Readers of gap lines ignore `why`.
+ * No gap after a gap, unless the board ran again in between: a last line that is a gap line older than `aliveAt` means the
+ * board was alive after it (a board whose chats write no lines), so its next outage is a new gap, from `aliveAt`.
+ */
+export function startGap(lines, aliveAt, now, stop = null) {
   const last = lines.at(-1)
-  if (last === undefined || last.gap === true) return null
+  if (last === undefined) return null
+  if (last.gap === true && !(Number.isFinite(aliveAt) && aliveAt > last.at)) return null
   const at = Math.max(last.at, Number.isFinite(aliveAt) ? aliveAt : last.at)
-  return now - at > GAP_MS ? { at, gap: true } : null
+  if (now - at <= GAP_MS) return null
+  const isInside = stop !== null && Number.isFinite(stop.at) && stop.at >= at && stop.at <= now && typeof stop.why === 'string'
+  return { at, gap: true, why: isInside ? stop.why : 'unknown' }
 }
 
 /**
@@ -76,14 +85,15 @@ export function startGap(lines, aliveAt, now) {
  */
 export function gapsOf(lines, now, aliveAt = null) {
   const gaps = []
-  for (let i = 0; i < lines.length; i += 1) {
-    if (lines[i].gap !== true || !Number.isFinite(lines[i].at)) continue
-    const to = Math.min(lines[i + 1]?.at ?? now, now)
-    if (to > lines[i].at) gaps.push({ from: lines[i].at, to })
-  }
   // B714 (X80 again): a read right after a wake runs before the tick writes the gap line, so the gap still open is read
   // from alive.json's age by `startGap`'s own rule: the board was off from then until now.
   const open = Number.isFinite(aliveAt) ? startGap(lines, aliveAt, now) : null
+  for (let i = 0; i < lines.length; i += 1) {
+    if (lines[i].gap !== true || !Number.isFinite(lines[i].at)) continue
+    // A last gap line stands open until now, but not past a newer open gap (the board ran in between): never counted twice.
+    const to = Math.min(lines[i + 1]?.at ?? (open === null ? now : open.at), now)
+    if (to > lines[i].at) gaps.push({ from: lines[i].at, to })
+  }
   if (open !== null) gaps.push({ from: open.at, to: now })
   return gaps
 }

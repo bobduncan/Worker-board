@@ -6,6 +6,7 @@ import { randomBytes } from 'node:crypto'
 import { mkdir, readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 
+import { takeStop } from './boardSelf.mjs'
 import { changes, GAP_MS, lastByChat, parseHistory, startGap } from './history.mjs'
 import { isStopWord, waitsLong } from './say.mjs'
 import { isStoppedWhy } from './stopped.mjs'
@@ -352,7 +353,7 @@ async function read(file) {
 /** The store over the files in `dir`. It marks the time the board was off as a gap. */
 export async function fileStore(dir, now) {
   await mkdir(dir, { recursive: true })
-  const files = { history: join(dir, 'history.jsonl'), outbox: join(dir, 'outbox.jsonl'), alive: join(dir, 'alive.json') }
+  const files = { history: join(dir, 'history.jsonl'), outbox: join(dir, 'outbox.jsonl'), alive: join(dir, 'alive.json'), stop: join(dir, 'stop.json') }
   const lines = parseHistory(await read(files.history))
   let aliveAt = null
   try {
@@ -366,10 +367,13 @@ export async function fileStore(dir, now) {
     alive: at => writeAtomic(files.alive, JSON.stringify({ at })),
     outbox: changed => appendLines(files.outbox, jsonLines(changed)),
   })
-  const gap = startGap(lines, aliveAt, now)
+  // Signals change 1: why the board ended last (data/stop.json), taken once: the file is removed at this start.
+  const gap = startGap(lines, aliveAt, now, takeStop(files.stop))
   if (gap !== null) await store.record([gap])
   return {
     ...store,
+    /** The gap line this start wrote, or null for a start without a gap (the state's `board.lastStop` is made of it). */
+    startedGap: gap,
     /**
      * B488: reads the files again into the memory the store holds, in place. Of two board processes on one folder only
      * one writes (the one that runs the loops): the other reads what it wrote, and the one that takes over starts
@@ -393,7 +397,7 @@ export async function tick(store, state, now) {
   const aliveAt = store.aliveAt()
   const last = store.lines().at(-1)
   // After a start the gap is written already (`startGap`); a sleep in the middle of a run is written here.
-  if (aliveAt !== null && now - aliveAt > GAP_MS && last !== undefined && last.gap !== true) {
+  if (aliveAt !== null && now - aliveAt > GAP_MS && last !== undefined && (last.gap !== true || aliveAt > last.at)) {
     await store.record([{ at: Math.max(aliveAt, last.at), gap: true }])
   }
   const chats = state.chats.filter(chat => !chat.isLeftover)

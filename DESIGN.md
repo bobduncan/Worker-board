@@ -1106,9 +1106,10 @@ choices: the mod starts the board, the workers carry on on their click, no compa
   (`version.selfUpdate`); after 10 minutes without a safe moment it turns into the yellow "Click to start it" of
   before, the fallback, and a safe moment after that still starts the new version. Not in it: the chats (the Workers
   mod reaches a chat only when its process starts anew).
-- *The page keeps asking.* While the board is away the page asks every 5 seconds and says since when; a board
-  that is back has a new token, and the page loads itself anew. The board says for an hour that it was off, and
-  from when to when.
+- *The page keeps asking.* While the board is away the page asks every 5 seconds; a board that is back has a new token,
+  and the page loads itself anew. What the top line says meanwhile, and why the board was off, is the banner (signals
+  change 1, 2026-10-31: "The board's own banner" below); the old "The board has not answered since ..." text and the
+  restart box's "The board was off from X to Y" line are gone.
 - *Interrupted.* A chat whose transcript shows an open turn while its own file says otherwise was cut off
   (`isCutOff` in `src/state.mjs`): the file says waiting since after the turn began and the transcript has not
   moved on, or it says working and is no longer renewed. A chat whose process keeps no such file is never called
@@ -1346,7 +1347,7 @@ that needs `/reload-plugins` in the chat that is to receive.
 
 **On a phone, piece 1: the width (B206).** The person chose pieces 1 to 3 of `PHONE-PLAN.md` (B199: "1. yes"). Up to
 760 px the top bar wraps: the tabs, in a box of their own (`.tab-list`, which counts for nothing on a wide screen),
-scroll sideways on the first line, "Prepare restart", the version and "Last updated" go on the next; the limits box
+scroll sideways on the first line, "Prepare restart", the version and the board's banner (Running, Slow, Off since, Restarting; see "The board's own banner") go on the next; the limits box
 stacks its windows. In a narrow Workers panel a worker's time takes the two columns beside its task (it sat in the
 menu's narrow column and was cut). Up to 600 px a window fills the screen, its Send row at the bottom. The page is
 then as wide as the phone in every tab; the Design tab's strip of pictures scrolls inside itself. The wide view is
@@ -5423,3 +5424,64 @@ it holds (also in review; a Quality Assurance task stands for the step it checks
 QA task's `work next` carry the words; `work ask` refuses, with the answer quoted, a question the person answered on the step
 already (its question alike as `ASKED_AGAIN`, not its context; not the app's question form, the board's own asks, a check's `ask:` points or the refine
 repair words). Tests: `test/work/yourWords.test.mjs`, `test/work/yourWordsApi.test.mjs`, `test/yourWordsPage.test.mjs`.
+
+## The board's own banner (signals change 1, 2026-10-31)
+
+The person, 2026-10-31 ("agreed, let's build change 1"; the signals plan): code decides every mechanic and chats only
+judge, but they could not trust the board's own signals. The first one made true is the board's: one line at the top of the
+page (`#updated`) always says whether the board is alive. Before, the page asked with no time limit (a hung board left old
+numbers looking fresh), wrote "has not answered since" with its own clock only after the first failed ask, a restart
+(about one per merge) just reloaded the page, and the history's gap line gave no reason for off, PC asleep or slow.
+
+1. **Four words, from the board's clock** (`bannerOf` in `public/board.js`, pure; the tests read the drawn words):
+   - **Running · updated HH:MM:SS**: the `board.now` of the last answer, not the page's clock. Quiet tone. For
+     `BACK_SHOWN_MS` (60 s) after the first answer that carries `board.lastStop` it reads **Running · was off HH:MM to HH:MM
+     (<why>)** (restart: "a new version started", stopped: "stopped", crash: "it crashed", unknown: "the PC slept or the board
+     was ended"); a return is told once per `lastStop.to`, so the next reads do not tell it again.
+   - **Slow · the board has not answered for N s · showing HH:MM's data**: from the first ask that did not settle within
+     `BANNER_WAIT_MS` (5 s, an `AbortController` on every poll of /api/state) until an answer comes; N counts from the last
+     good answer (the page's clock: it is a length of time), HH:MM is that answer's `board.now`. Also **Slow · the board
+     answers, but it has not done its work since HH:MM** when `board.now - board.loop.lastTickAt` is over `GAP_MS` (3 min,
+     the history's; a `null` `lastTickAt` is no judgement). Attention tone (`is-stale`, the page's own).
+   - **Off since HH:MM**: any other failure (connection refused, a non-2xx other than the 403 reload); HH:MM is the last good
+     answer's `board.now`. Attention tone. The page keeps asking every `AWAY_MS` (5 s) as before; the 403 reload on the
+     board's return (B519) stays.
+   - **Restarting · a new version starts, usually back within 30 s**: the last good answer had `board.restart.state ===
+     'leaving'`, or this page asked for the restart (the update note's click, `sending` `board-anew`), and the asks fail.
+     Quiet tone. After `RESTART_GIVE_UP_MS` (60 s) of failures it is **Off since HH:MM** with the time the board left.
+   Every time shown is the board's (the last answer's `board.now`), so a page whose clock is hours off still shows the board's time; only a restart this page asked for takes its time as the page's clock plus `board.now - Date.now()` of the last answer. A state without `board` (a board of before this change) reads as Running with `readAt`.
+   The line never wraps: one line (at most 44ch, at least 9ch, it shrinks first in the header while the "N wait for you" pill and "Pause all" keep their one line), a long text is cut with an ellipsis and shown whole on hover (`drawBanner` sets the title to the text).
+2. **The server tells the truth about itself** (`src/boardSelf.mjs`, `getState` in `server.mjs`): `GET /api/state` carries
+   `board: { now, loop: { lastTickAt }, restart: { state: 'none' | 'waiting' | 'leaving', at, why }, lastStop }`, built at each
+   answer (the cached state's own time would be old). `now` is the server's clock; `lastTickAt` is alive.json's time (written
+   by the look loop's tick), never before this start, `null` where nothing ticks (the demo, a board that only shows);
+   `waiting` is the self-updater waiting for a safe moment (`version.selfUpdate.state === 'waiting'`, whose line stays where it
+   is), `leaving` is set in `restartNow` where the exit with `START_ANEW` is decided, before the wait of `RESTART_WAIT_MS`. A restart with nothing running would end the board within milliseconds, and the page (asking every
+   `refreshSeconds`) would almost never be answered with `leaving`, so `restartNow` keeps answering for the notice (`leavingNoticeMs`) =
+   `(refreshSeconds ?? 30) * 1000 + 1000` before it exits, in parallel with the wait for running work (it exits when both are done, never
+   later than `RESTART_WAIT_MS` plus the notice; `exitAt` in `src/boardSelf.mjs`). Both restart paths (`/api/restart` and the self-updater) go through `restartNow`.
+3. **The stop record**: when the board ends it writes `data/stop.json` `{ at, why }` synchronously (an exit handler), only
+   after it listened and only a board that records: `restart` (code `START_ANEW`), `stopped` (code 0: SIGINT, SIGTERM, SIGHUP,
+   the keeper's disconnect), `crash` (any other code, an uncaught error); `stopWhy` decides from the code. A board killed hard
+   (Windows `kill`, power, sleep) writes nothing.
+4. **The gap line says why** (the history's gap lines of B710/B714 gain a field): `startGap(lines, aliveAt, now, stop)` writes
+   `{ at, gap: true, why }`, where `why` is the stop record's when its `at` lies inside the gap (from `at` to now), else
+   `unknown` (PC asleep, killed, power). `gapsOf` and every reader of gap lines ignore `why`. The record is taken and removed
+   at every start (`takeStop` in `fileStore`), used or not, so a later start never blames an old stop. A gap line written in
+   the middle of a run (a sleep) has no `why`; readers treat it as unknown. No gap after a gap, unless the board ran again in between:
+   when the last line is a gap line and `aliveAt` is newer than its `at` (a board whose chats write no lines, the trial or a quiet night), a
+   new gap line is written at `aliveAt` (the tick too), so a second outage still gives `lastStop`; `gapsOf` stops an earlier last gap line at
+   that open gap, so no minute is counted twice.
+5. **`board.lastStop: { from, to, why }`** for 15 minutes (`LAST_STOP_SHOWN_MS`) after a start that found a gap over `GAP_MS`:
+   `from` is the gap's `at`, `to` is the start. It replaces the restart box's "The board was off from X to Y" line (principle 4:
+   one place per fact); `restart.off` stays in the state for the rest of that box.
+6. **Not in it**: lanes, hand-outs, the hand-over, the Supervisor's rules and incidents, the Workers mod, who starts the board,
+   the keeper, the self-updater's safe-moment rules, the restart note's wording, config keys. No new colour: the quiet tone is
+   the page's plain line, the attention tone its `is-stale`.
+7. **Tests**: `test/boardBanner.page.test.mjs` (the DOM harness: Running with the board's clock on a page two hours off, Slow
+   after 5 s and back, Off at once and asking again, Restarting for a minute then Off, the click's restart, the return line for a
+   minute, the work-loop wording), `test/boardSelf.test.mjs` (the `why` of each exit code, `startGap` with a record inside, outside
+   and none, `gapsOf` on lines with `why`, the record taken and removed by `fileStore`, `lastStop` for 15 minutes), `test/boardSelfBoard.test.mjs`
+   (a running board: the state's `board`, a restart ending with code 75 and its record, the keeper's disconnect ending with 0).
+   Mutants, each caught: the fetch without the abort limit, Off with the page's clock, Restarting that never gives up, the stop
+   record not removed after use.
