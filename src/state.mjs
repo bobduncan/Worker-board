@@ -50,7 +50,7 @@ import { refineStop } from './refineGate.mjs'
 import { contextOfStep, flowOfStep, itemOfStep, itemsOf, reviewWaitOfStep, storeBacklog } from './work/read.mjs'
 import { clearHolds, clearOwed, modAtLeast } from './clearOwed.mjs'
 import { nobodyRunsOf, wakeFailedOf } from './say.mjs'
-import { checkedOf, fixOutcomeOf } from './work/resultCheck.mjs'
+import { chainWaitOf, checkedOf, fixesOf, fixOutcomeOf } from './work/resultCheck.mjs'
 import { guardOf } from './goalGuard.mjs'
 import { standardOf } from './work/standard.mjs'
 import { rolloutPlan } from './work/modRollout.mjs'
@@ -1090,19 +1090,72 @@ function demoOf(value) {
 }
 
 /**
- * B684: one step of a focus part for its bar and its list: `{ id, title, tone, state (its name in words), owner,
- * check, waitsFor }`. `check` (B356, B504): the result check's ticks and evidence, a failed one with where its fixes
- * stand (`fix`, B504: followed to the last fix step); null without one. `waitsFor`: the steps it is blocked by that
- * are not finished, each with its title.
+ * 2026-10-31 (B689: its part said "Worker 1 is on it" while Worker 1's card showed another task): the step a lane's card
+ * shows, as the page reads it (board.js `laneTaskOf`): the step it was given and is on, else its task's step; null for none.
  */
-function partStepOf(item, steps, prefix) {
+const cardStepOf = lane => lane?.givenTask?.step?.id ?? lane?.task?.stepId ?? null
+
+/**
+ * 2026-10-31 (B689): the steps whose card counts for the step `id`: itself, every fix under it (a fix of a fix too, in any
+ * state) and every Quality Assurance task that checks one of them. `all` is the store's items by id.
+ */
+function stepFamily(id, all) {
+  const family = [id]
+  for (let at = 0; at < family.length && family.length < 60; at += 1) {
+    for (const fix of fixesOf(family[at], all)) if (!family.includes(valueOf(fix, 'Id'))) family.push(valueOf(fix, 'Id'))
+  }
+  const checks = [...all.values()].filter(one => family.includes(valueOf(one, 'Checks'))).map(one => valueOf(one, 'Id'))
+  return new Set([...family, ...checks])
+}
+
+/**
+ * 2026-10-31 (B689): the worker on a step: the first lane (no leftover) whose card shows the step, a fix in its chain or a
+ * Quality Assurance task that checks one of them (`stepFamily`), by its name without the chats' `prefix`; null when no card
+ * shows any of them. A step's Owner is never enough: its builder, or a worker whose card shows another task, is not on it.
+ */
+function workerOn(id, all, lanes, prefix) {
+  const shown = (lanes ?? []).filter(lane => lane?.isLeftover !== true && cardStepOf(lane) !== null)
+  if (shown.length === 0) return null
+  const family = stepFamily(id, all)
+  const lane = shown.find(one => family.has(cardStepOf(one)))
+  return lane === undefined ? null : String(lane.name ?? '').replace(prefix, '').trim() || null
+}
+
+/**
+ * 2026-10-31 (B689: its line read "its fix B821 is being checked" while B821 waited for the recap B674): a failed check's
+ * fix line from where its chain of open fixes stands (resultCheck.mjs `chainWaitOf`): "its fix B821 waits for B674 <its
+ * title>", "its fix B8 failed too, B9 is being checked by <the owner of its QA task>"; null where the old line stays true.
+ */
+function chainNote(wait, all) {
+  const phrase = typeof wait.last?.text === 'string' ? wait.last.text : valueOf(all.get(wait.end), 'State') === 'review' ? 'is in review' : null
+  if (phrase === null) return null
+  return wait.chain.length > 1 ? `its fix ${wait.chain.at(-2)} failed too, ${wait.end} ${phrase}` : `its fix ${wait.end} ${phrase}`
+}
+
+/**
+ * B684: one step of a focus part for its bar and its list: `{ id, title, tone, state (its name in words), owner,
+ * onIt, check, waitsFor }`. `check` (B356, B504): the result check's ticks and evidence, a failed one with where its fixes
+ * stand (`fix`, B504: followed to the last fix step); null without one. `waitsFor`: the steps it is blocked by that
+ * are not finished, each with its title. 2026-10-31 (B689): `owner` is the store's Owner (who built it or holds it), `onIt`
+ * the worker whose card shows it (`workerOn`, `lanes` the board's) or null; a step in review whose chain of fixes is not at
+ * work (`chainWaitOf`: no link with a worker, being checked or queued for its check) reads "Fix waiting" and counts as
+ * waiting, its fix line saying what the chain waits for. `all` is the store's items by id, `now` the clock.
+ */
+function partStepOf(item, steps, prefix, all = steps, lanes = null, now = null) {
   const id = item.head.get('Id')
   const state = item.head.get('State')
   const checked = checkedOf(item)
-  const fix = checked !== null && checked.total > 0 && checked.passed < checked.total ? fixOutcomeOf(id, steps) : null
+  const outcome = checked !== null && checked.total > 0 && checked.passed < checked.total ? fixOutcomeOf(id, steps) : null
+  // 2026-10-31 (B689): an open fix is followed to the last link of its chain, and what that one waits for is said.
+  const chainWait = state === 'review' && outcome?.isOpen === true ? chainWaitOf(id, all, null, now) : null
+  const note = chainWait === null ? null : chainNote(chainWait, all)
+  const fix = note === null ? outcome : { ...outcome, note }
+  // 2026-10-31: a chain whose last link stopped (its own fix dropped, nothing blocks it) is stopped as B695's is, not waiting.
+  const chainStopped = chainWait?.last?.kind === 'dropped'
+  const fixWaits = chainWait !== null && !chainWait.atWork && !chainStopped
   // B695: a step in review whose failed check has only a dropped fix is stopped, not being checked.
-  const fixStopped = state === 'review' && fix !== null && !fix.isOpen && !fix.isFixed && fix.passed === null && fix.total === null
-  const tone = fixStopped ? 'stop' : stepToneOf(state)
+  const fixStopped = chainStopped || (state === 'review' && fix !== null && !fix.isOpen && !fix.isFixed && fix.passed === null && fix.total === null)
+  const tone = fixStopped ? 'stop' : fixWaits ? 'wait' : stepToneOf(state)
   const waitsFor = (String(item.head.get('Blocked by') ?? '').match(/\bB\d+\b/g) ?? [])
     .filter(one => steps.has(one) && !FINISHED.includes(steps.get(one).head.get('State')))
     .map(one => ({ id: one, title: withoutNotes(steps.get(one).head.get('Title') ?? '') }))
@@ -1110,10 +1163,14 @@ function partStepOf(item, steps, prefix) {
     id,
     title: withoutNotes(item.head.get('Title') ?? ''),
     tone,
-    // B690: a step in review whose check failed and whose fix is open is being fixed, not checked.
-    state: tone === 'done' ? 'Finished' : fixStopped ? 'Fix stopped' : tone === 'stop' ? 'Stopped' : state === 'review' ? (fix?.isOpen === true ? 'Being fixed' : 'Being checked') : tone === 'now' ? 'Being built' : 'Waiting',
+    // B690: a step in review whose check failed and whose fix is open is being fixed, not checked; 2026-10-31 (B689): only
+    // while its chain is at work, else its fix waits.
+    state: tone === 'done' ? 'Finished' : fixStopped ? 'Fix stopped' : tone === 'stop' ? 'Stopped' : state === 'review' ? (fix?.isOpen === true ? (fixWaits ? 'Fix waiting' : 'Being fixed') : 'Being checked') : tone === 'now' ? 'Being built' : 'Waiting',
     isFailed: checked !== null && checked.total > 0 && checked.passed < checked.total && fix?.isFixed !== true,
     owner: String(item.head.get('Owner') ?? '').replace(prefix, '').trim() || null,
+    onIt: FINISHED.includes(state) ? null : workerOn(id, all, lanes, prefix),
+    // 2026-10-31 (B689): who built it, for a step built (in review or finished): history, never "on it".
+    builtBy: ['review', 'done', 'closed'].includes(state) ? String(item.head.get('Owner') ?? '').replace(prefix, '').trim() || null : null,
     check: checked === null || checked.total === 0 ? null : { passed: checked.passed, total: checked.total, evidence: checked.evidence, ...(fix === null ? {} : { fix }) },
     waitsFor,
   }
@@ -1161,12 +1218,16 @@ function goalsUnder(goalMap, id) {
  * goals.md; each part's progress from its steps in the store (`items`): all finished → done; one taken, in progress,
  * waiting on the person or in review → now, with that step's owner (without the chats' `prefix`); else next. The whole: the parts
  * done of all, and the minutes the sizes of the parts not done name. `thread`: the goal's brainstorm, the vibe and how
- * talk: a running thread about it first, else the one its Brainstorm line names.
+ * talk: a running thread about it first, else the one its Brainstorm line names. 2026-10-31 (B689): a part's `owner`, and
+ * each step's `onIt`, is the worker whose card (`lanes`, the board's) shows one of its steps, a fix in its chain or the QA
+ * task that checks one of them (`workerOn`), never a step's Owner alone; null when no card does.
  */
-export function focusState(goalMap, items, threads, prefix, partner = null, now = null) {
+export function focusState(goalMap, items, threads, prefix, partner = null, now = null, lanes = null) {
   const node = goalMap?.focus ? goalMap.byId.get(goalMap.focus) ?? null : null
   if (node === null) return null
   const steps = new Map((items ?? []).filter(one => one.head.get('Kind') === 'step').map(one => [one.head.get('Id'), one]))
+  // 2026-10-31 (B689): every item by id (asks too), for what a chain of fixes waits for.
+  const all = new Map((items ?? []).map(one => [one.head.get('Id'), one]))
   const parts = node.parts.map(part => {
     const known = part.steps.map(id => steps.get(id)).filter(one => one !== undefined)
     const done = known.filter(one => FINISHED.includes(one.head.get('State'))).length
@@ -1183,12 +1244,14 @@ export function focusState(goalMap, items, threads, prefix, partner = null, now 
     const isStopped = known.length > 0 && done === known.length && !reached
     const gone = (node.partsDropped ?? []).findLast(one => one.title === part.title)
     const state = gone !== undefined ? 'dropped' : isStopped ? 'stopped' : known.length > 0 && done === known.length ? 'done' : busy !== undefined ? 'now' : isReady ? 'ready' : isRefining ? 'refining' : 'next'
-    const owner = busy === undefined ? null : String(busy.head.get('Owner') ?? '').replace(prefix, '').trim() || null
     const fix = state === 'next' ? fixAhead(known, steps, prefix) : null
     // B354: what the part's results are checked against: its steps' standards, each once; a "none (why)" is left out.
     const standards = [...new Set(known.map(standardOf).filter(one => one !== null && !/^none\b/i.test(one)))]
     // B684: the part's steps in its order, each with its colour, its words, its check and what it waits for.
-    const list = known.map(one => partStepOf(one, steps, prefix))
+    const list = known.map(one => partStepOf(one, steps, prefix, all, lanes, now))
+    // 2026-10-31 (B689): the worker on the part is one whose card shows a step of it (or a fix or check of one), never the
+    // Owner of the step under way: that one may be its builder, its step in review, its card on another task.
+    const owner = busy === undefined ? null : list.find(one => one.onIt !== null)?.onIt ?? null
     return { title: part.title, size: part.size, state, owner, done, total: known.length, standards, steps: list, ...partStepCounts(list), ...(gone === undefined ? {} : { why: gone.why }), ...(fix === null ? {} : { fixFirst: fix }) }
   })
   // B680: a Stopped part counts neither done nor open, a dropped one is out of the whole.
@@ -1204,7 +1267,9 @@ export function focusState(goalMap, items, threads, prefix, partner = null, now 
       const owner = String(one.head.get('Owner') ?? '').replace(prefix, '').trim() || null
       // B392: a step at work whose open blocking asks all wait for the partner says so.
       const waitsForPartner = stepWaitsForPartner(one, items ?? [])
-      return { id: one.head.get('Id'), title: withoutNotes(one.head.get('Title') ?? ''), state, owner, ...(waitsForPartner === null ? {} : { waitsForPartner }) }
+      // 2026-10-31 (B689): the worker whose card shows it (or a fix or check of it), for the simple view's "Working"; null when none.
+      const onIt = state === 'now' ? workerOn(one.head.get('Id'), all, lanes, prefix) : null
+      return { id: one.head.get('Id'), title: withoutNotes(one.head.get('Title') ?? ''), state, owner, onIt, ...(waitsForPartner === null ? {} : { waitsForPartner }) }
     })
   // "Change this goal" (2026-10-31): a change of the goal runs beside its talk, on the Brainstorm part: never the talk.
   const own = (threads ?? []).filter(one => one.goal?.id === node.id && one.kind !== 'change')
@@ -1939,7 +2004,8 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
   if (rollout !== null) for (const id of rollout.held) if (!efforts.held.has(id)) { efforts.held.add(id); efforts.holds.set(id, rollout.holds.get(id)) }
   const oldAsks = new Set((reconciled?.flags ?? []).filter(flag => flag.kind === 'old ask').map(flag => `work:${flag.id}`))
   const flagsOf = name => (reconciled?.flags ?? []).filter(flag => flag.chat === name && LANE_FLAGS.includes(flag.kind)).map(({ kind, id, text, button }) => ({ kind, id, text, button }))
-  const focus = focusState(goalMap, itemsOf(raw.work), brainstorms.threads, prefix, advisorChat?.name ?? null, now)
+  // 2026-10-31 (B689): with the workers' cards, so the Focus page names a worker only where its card shows the step.
+  const focus = focusState(goalMap, itemsOf(raw.work), brainstorms.threads, prefix, advisorChat?.name ?? null, now, chats)
   // The chats on the board by name, for a store's owner (with or without the list's prefix).
   const chatNames = [...names, ...[advisorChat, helperChat, ownerChat].filter(one => one !== undefined).map(one => one.name)]
   // Partner answers, the review's findings: the asks with the partner now, and its answers of the last 7 days that the
@@ -1987,11 +2053,16 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
   const checkStands = new Map()
   if (workOk) {
     const workerName = nameFinder(chatNames, prefix)
+    // 2026-10-31 (B689): a QA task in progress is "being checked" by its worker only while a card shows it (or the step it
+    // checks); otherwise its worker holds it while on another task: kind 'held', its worker named as the one that took it.
+    const cardShows = id => chats.some(lane => lane.isLeftover !== true && cardStepOf(lane) === id)
     for (const step of raw.work.items.values()) {
       if (valueOf(step, 'Kind') !== 'step' || valueOf(step, 'State') !== 'review') continue
       const qa = openQaTaskOf(raw.work.items, valueOf(step, 'Id'))
       const stand = qa === null ? null : qaStandOf(qa)
-      if (stand !== null) checkStands.set(valueOf(step, 'Id'), { ...stand, who: stand.who === null ? null : workerName(stand.who) })
+      if (stand === null) continue
+      const kind = stand.kind === 'working' && !cardShows(stand.qa) && !cardShows(valueOf(step, 'Id')) ? 'held' : stand.kind
+      checkStands.set(valueOf(step, 'Id'), { ...stand, kind, who: stand.who === null ? null : workerName(stand.who) })
     }
   }
 

@@ -67,7 +67,9 @@ const map = (...parts) => `${head}${[...G2, ...parts.flat(), ...REST].join('\n')
 const THREAD = '# Brainstorm: Benches\nGoal: G2 Benches that feel like home\nStarted: 2026-10-18 09:00 · State: running\nOpening: I want benches people love\n\n## Q1 (09:01)\nWhen it is done, what should sitting feel like?\n\nAnswer (09:02): Other — like home, warm wood\n\n## Q2 (09:03)\nIs the lamp part of it?\n- A: yes (advised)\n- B: no\nAnswer (09:04): B — only the benches\n\n## Q3 (09:05)\nAnything else?\n'
 const threads = brainstormsState([{ path: 'talks/2026-10-18-benches.md', text: THREAD, at: 1 }], 'talks').threads
 const store = storeFromText(BACKLOG, { now: NOW })
-const stateOf = text => focusState(parseGoals(text), [...store.items.values()], threads, 'Game - ')
+// 2026-10-31 (B689): a worker is on a step only where its card shows it; Features's card shows B13, the step it builds.
+const CARDS = [{ name: 'Features', isLeftover: false, task: { stepId: 'B13' } }]
+const stateOf = (text, lanes = CARDS) => focusState(parseGoals(text), [...store.items.values()], threads, 'Game - ', null, null, lanes)
 
 test('the state\'s focus: the goal, its stage, its lines, its thread; null without one or with one that is gone', () => {
   const vibe = stateOf(map())
@@ -96,15 +98,19 @@ test('each part\'s progress follows its steps in the store: done, in progress wi
   const bare = stateOf(map(AGREED, ['    Part: Something · soon'], RUN))
   assert.deepEqual(bare.parts.map(withoutSteps), [{ title: 'Something', size: 'soon', state: 'next', owner: null, done: 0, total: 0, standards: [] }])
   assert.deepEqual(bare.progress, { done: 0, total: 1, minutesLeft: null })
+  // 2026-10-31 (B689): with no card showing B13 nobody is on the part, whatever B13's Owner says.
+  assert.equal(stateOf(map(AGREED, HOW, RUN), []).parts[1].owner, null)
 })
 
-test('Focus 2, the review\'s findings: a part whose step is in review is in progress, with its owner', () => {
+test('Focus 2, the review\'s findings: a part whose step is in review is in progress, with the worker its card shows', () => {
   const reviewed = storeFromText(BACKLOG, { now: NOW })
   const step = reviewed.items.get('B15')
   step.head.set('State', 'review')
   step.head.set('Owner', 'Game - Checks')
-  const run = focusState(parseGoals(map(AGREED, HOW, RUN)), [...reviewed.items.values()], threads, 'Game - ')
-  assert.deepEqual(withoutSteps(run.parts[3]), { title: 'One look at the whole garden', size: '1 h', state: 'now', owner: 'Checks', done: 0, total: 1, standards: [] })
+  const run = lanes => focusState(parseGoals(map(AGREED, HOW, RUN)), [...reviewed.items.values()], threads, 'Game - ', null, null, lanes)
+  // 2026-10-31 (B689): its builder is not on it: a step in review names a worker only while that one's card shows it.
+  assert.deepEqual(withoutSteps(run([]).parts[3]), { title: 'One look at the whole garden', size: '1 h', state: 'now', owner: null, done: 0, total: 1, standards: [] })
+  assert.equal(run([{ name: 'Game - Checks', isLeftover: false, task: { stepId: 'B15' } }]).parts[3].owner, 'Checks')
 })
 
 test('the buildState answer carries the focus and the setting advisorParts', () => {
@@ -335,9 +341,9 @@ const stepsStore = edit => {
   edit(made.items)
   return made
 }
-const stepsOf = (made, partLines, ui = {}) => {
+const stepsOf = (made, partLines, ui = {}, lanes = []) => {
   const text = map(AGREED, partLines, RUN)
-  const state = focusState(parseGoals(text), [...made.items.values()], threads, 'Game - ')
+  const state = focusState(parseGoals(text), [...made.items.values()], threads, 'Game - ', null, null, lanes)
   return { state, view: page.focusView(state, goalsOf(text), null, ui).run.parts }
 }
 const BENCH = ['    Part: Draw the bench · about 1 h · steps B10, B11, B13, B15']
@@ -372,7 +378,9 @@ test('B684: the bar has a block per step coloured by its state, and one line say
   })
   const [part] = stepsOf(made, BENCH).view
   assert.deepEqual(part.blocks, ['done', 'done', 'now', 'wait'])
-  assert.equal(part.count, '2 of 4 steps finished · 1 being checked · 1 waiting · Features is on it')
+  // 2026-10-31 (B689): B13's builder is not on it while no card shows B13; once Features's card does, the line names it.
+  assert.equal(part.count, '2 of 4 steps finished · 1 being checked · 1 waiting')
+  assert.equal(stepsOf(made, BENCH, {}, [{ name: 'Features', isLeftover: false, task: { stepId: 'B13' } }]).view[0].count, '2 of 4 steps finished · 1 being checked · 1 waiting · Features is on it')
   assert.equal(part.toggle, 'Show the 4 steps')
   assert.equal(part.isOpen, false)
   assert.deepEqual(part.steps.map(one => [one.id, one.title, one.state, one.tone]), [['B10', 'Draw the bench', 'Finished', 'done'], ['B11', 'Shade the bench', 'Finished', 'done'], ['B13', 'Light the path', 'Being checked', 'now'], ['B15', 'Look at the garden', 'Waiting', 'wait']])
@@ -398,9 +406,11 @@ test('B684: a step line holds its check, what it waits for and its worker; a fai
     items.get('B13').head.set('Blocked by', 'B15')
   })
   const [part] = stepsOf(made, BENCH).view
-  assert.equal(part.steps[0].line, 'Check passed: 4 of 4 · Units')
-  assert.equal(part.steps[1].line, 'Check failed: 2 of 5 · Units')
-  assert.equal(part.steps[2].line, 'Waits for B15 (Look at the garden) · Features')
+  // 2026-10-31 (B689): a finished step names its builder as history ("built by"); a step queued for a worker whose card does
+  // not show it names nobody, only what it waits for.
+  assert.equal(part.steps[0].line, 'Check passed: 4 of 4 · built by Units')
+  assert.equal(part.steps[1].line, 'Check failed: 2 of 5 · built by Units')
+  assert.equal(part.steps[2].line, 'Waits for B15 (Look at the garden)')
   assert.equal(part.steps[1].picture.path, 'art-inbox/B13/evidence.png')
   assert.equal(part.steps[3].line, '')
   // the old lines are gone from the page
@@ -454,8 +464,14 @@ test('B690: a failed check whose fix was dropped says the fix stopped', () => {
 })
 
 test('B690: a step in review whose check failed and whose fix is open is being fixed, and the state counts it', () => {
-  for (const open of ['queued', 'in progress', 'review']) {
-    const { state, view } = stepsOf(fixStore(open), BENCH_FIX)
+  // 2026-10-31 (B689): a fix in review counts as being fixed only while a QA task checks it (here B21, in progress).
+  const qa = items => items.set('B21', storeFromText('## Art\n- [ ] B21 Quality Assurance: B20\n', { now: NOW }).items.get('B21'))
+  const checking = items => {
+    qa(items)
+    for (const [key, value] of [['State', 'in progress'], ['Owner', 'Game - Tester'], ['Checks', 'B20']]) items.get('B21').head.set(key, value)
+  }
+  for (const [open, edit] of [['queued'], ['in progress'], ['review', checking]]) {
+    const { state, view } = stepsOf(fixStore(open, edit), BENCH_FIX)
     const step = state.parts[0].steps.find(one => one.id === 'B13')
     assert.equal(step.state, 'Being fixed', open)
     assert.equal(state.parts[0].counts.fixing, 1)

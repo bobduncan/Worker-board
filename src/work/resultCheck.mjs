@@ -262,6 +262,81 @@ export function unrefinedFixOf(item) {
   return Number.isFinite(since) ? { since } : null
 }
 
+/** 2026-10-31 (B689): how many characters of a step's title the wait words carry beside its id. */
+const WAIT_TITLE_CHARS = 60
+/** 2026-10-31 (B689): a step as the wait words name it: its id and its title, cut to WAIT_TITLE_CHARS at a word. */
+function namedStep(id, items) {
+  const found = items?.get(id)
+  const title = found === undefined ? '' : String(valueOf(found, 'Title') ?? '').replace(/\s+/g, ' ').trim()
+  if (title === '') return id
+  return `${id} ${title.length <= WAIT_TITLE_CHARS ? title : `${title.slice(0, WAIT_TITLE_CHARS).replace(/\s+\S*$/, '')}…`}`
+}
+/** 2026-10-31 (B689): the open steps a step is blocked by (its `Blocked by` and `Waits for`), each once, itself left out. */
+function openBlockersOf(item, items) {
+  const id = valueOf(item, 'Id')
+  return [...new Set(`${valueOf(item, 'Blocked by') ?? ''} ${valueOf(item, 'Waits for') ?? ''}`.match(/\bB\d+\b/g) ?? [])]
+    .filter(one => one !== id && items?.has(one) && isOpenStep(items.get(one)))
+}
+/** 2026-10-31 (B689): the open Quality Assurance task that checks the step `id` (its head `Checks`), the oldest of two, or null. */
+function openCheckOf(id, items) {
+  const open = [...(items?.values() ?? [])].filter(one => valueOf(one, 'Checks') === id && isOpenStep(one))
+  return open.sort((a, b) => numberOf(a) - numberOf(b))[0] ?? null
+}
+/** 2026-10-31 (B689): the states in which a link of a chain is with a worker that took it or was given it. */
+const WITH_A_WORKER = ['queued', 'taken', 'in progress']
+
+/**
+ * 2026-10-31 (B689: its part read "Worker 1 is on it" and "its fix B821 is being checked" while B821 waited for the recap B674
+ * and nobody worked on it): what the last link of a chain of open fixes waits for itself, `{ kind, text, ... }`, or null when
+ * the board cannot tell. `text` is a verb phrase for the wait words ("waits for B674 <its title>"), null where the old words
+ * stay true. Kinds: 'checking', a Quality Assurance task of it is in progress (`qa`, `who` its owner: "is being checked by
+ * <who>"); 'qa-queued', one is open and not taken up yet (`qa`, `who` the worker it was given to, or null); 'blocked', it is
+ * blocked by open steps (`blockers`); for a link in review its own wait (`reviewWaitOf`): 'dropped' (its own check failed and
+ * its fix was dropped, `fix`), 'check', 'answer' (the person), 'report' (back with its worker), 'board' (the board's check of
+ * its report); 'you', its worker waits on the person; 'worker', it is queued, taken or in progress (`who` its owner, `state`;
+ * no text: the store names no card, so the words name no worker).
+ */
+function lastLinkWaitOf(link, items, held, now) {
+  if (link === undefined) return null
+  const id = valueOf(link, 'Id')
+  const state = valueOf(link, 'State')
+  const qa = openCheckOf(id, items)
+  if (qa !== null) {
+    const qaId = valueOf(qa, 'Id')
+    const who = valueOf(qa, 'Owner')
+    if (valueOf(qa, 'State') === 'in progress' && who !== null) return { kind: 'checking', qa: qaId, who, text: `is being checked by ${who}` }
+    return { kind: 'qa-queued', qa: qaId, who, text: `waits for its check ${qaId}${who === null ? '' : `, given to ${who}`}` }
+  }
+  const blockers = openBlockersOf(link, items)
+  if (blockers.length > 0) return { kind: 'blocked', blockers, text: `waits for ${blockers.map(one => namedStep(one, items)).join(' and ')}` }
+  if (state === 'review') {
+    if (!gitCheckPassed(link) && reportCheckFailedOf(link) === null) return { kind: 'board', text: 'waits for the board\'s check of its report' }
+    const own = waitOf(link, items, held, now, 1)
+    if (own === null || own.kind === 'fix' || own.kind === 'blocked') return null
+    if (own.kind === 'dropped') return { kind: 'dropped', fix: own.fix, text: `stopped: ${own.text}` }
+    if (own.kind === 'report') return { kind: 'report', text: own.text.startsWith('waits for ') ? own.text : `is ${own.text}` }
+    return { kind: own.kind, text: own.text }
+  }
+  if (state === 'waiting on you') return { kind: 'you', text: 'waits for your answer' }
+  if (WITH_A_WORKER.includes(state)) return { kind: 'worker', who: valueOf(link, 'Owner'), state, text: null }
+  return null
+}
+
+/**
+ * 2026-10-31 (B689): where the chain of open fixes under the step `id` stands: `{ fix, chain, end, last }` (`fix` its newest
+ * open fix, `chain` the open fixes followed down, B656 `openFixChain`, `end` the last, `last` what that one waits for itself,
+ * `lastLinkWaitOf`), or null when it has no open fix. `atWork`: some link is with a worker (queued, taken, in progress) or its
+ * last is being checked or queued for its check: only then is the step being fixed; otherwise its chain waits.
+ */
+export function chainWaitOf(id, items, held = null, now = null) {
+  const chain = openFixChain(id, items)
+  if (chain.length === 0) return null
+  const end = chain.at(-1)
+  const last = lastLinkWaitOf(items?.get(end), items, held, now)
+  const atWork = chain.some(link => WITH_A_WORKER.includes(valueOf(items.get(link), 'State'))) || ['checking', 'qa-queued'].includes(last?.kind)
+  return { fix: chain[0], chain, end, last, atWork }
+}
+
 /** B656: the ready list's held steps (handOut.mjs `readyList`'s `held`, `[{ id, why }]`, or a Map of id to why) as a Map. */
 const heldMapOf = held => (held instanceof Map ? held : new Map((Array.isArray(held) ? held : []).map(one => [one.id, one.why])))
 /** B656: a held why in a few words: the person's choice outside the focus goal without its how ("waits until you add it ..."). */
@@ -332,8 +407,16 @@ export function reportCheckFailedOf(item) {
  * fix first; `end`, the last) and, when `held` (the ready list's held steps) holds that last one, why (`held`, else null):
  * "waits for its fix B614, held: outside the focus goal". T9.1.1: `now` (ms), for a caller with a clock: a result check that waits
  * for the person with no ask of the step filed since its line is not yet kind 'check' (UNCHECKED_MS): the checker is filing it.
+ * 2026-10-31 (B689): kind 'fix' also says what the chain's last link waits for itself (`last`, `chainWaitOf`), unless a hold or
+ * a missing refine says it already: "waits for its fix B821, which waits for B674 <its title>", "waits for its fix B821: being
+ * checked by <the owner of its QA task>", "waits for its fix B8, whose fix B9 waits for its first check".
  */
 export function reviewWaitOf(item, items, held = null, now = null) {
+  return waitOf(item, items, held, now, 0)
+}
+
+/** `reviewWaitOf`, with how deep it was asked: the last link's own wait (depth 1) says nothing of its last link again. */
+function waitOf(item, items, held, now, depth) {
   // B740: the board's check of the report failed and the worker has not reported again: the step waits for the worker.
   const refused = reportCheckFailedOf(item)
   if (refused !== null) {
@@ -375,7 +458,12 @@ export function reviewWaitOf(item, items, held = null, now = null) {
     const unrefined = unrefinedFixOf(items?.get(end))
     const hold = why !== null ? (end === fix ? `, held: ${heldWords(why)}` : `, whose fix ${end} is held: ${heldWords(why)}`)
       : unrefined !== null ? (end === fix ? ', not refined yet' : `, whose fix ${end} is not refined yet`) : ''
-    return { kind: 'fix', fix, chain, end, held: why, unrefined, since: resultCheckAtMs(item), text: `waits for its fix ${fix}${hold}` }
+    // 2026-10-31 (B689): what the last link waits for itself, where a hold or a missing refine does not say it already.
+    const last = depth > 0 || hold !== '' ? null : chainWaitOf(id, items, held, now)?.last ?? null
+    const tail = typeof last?.text !== 'string' ? ''
+      : end !== fix ? `, whose fix ${end} ${last.text}`
+        : last.kind === 'checking' ? `: being checked by ${last.who}` : `, which ${last.text}`
+    return { kind: 'fix', fix, chain, end, held: why, unrefined, last, since: resultCheckAtMs(item), text: `waits for its fix ${fix}${hold}${tail}` }
   }
   const done = fixes.filter(one => valueOf(one, 'State') === 'done').at(-1)
   if (done !== undefined) return { kind: 'check', fix: valueOf(done, 'Id'), since: sinceMs(valueOf(done, 'Since')), text: 'waits for its check again' }
