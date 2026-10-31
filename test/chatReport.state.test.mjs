@@ -6,6 +6,7 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 
 import { hitLimit, step, typed } from '../fixtures/lines.mjs'
+import { countsOf } from '../src/chatWord.mjs'
 import { parseConfig } from '../src/config.mjs'
 import { parseItem } from '../src/work/item.mjs'
 import { stamp } from '../src/work/migrate.mjs'
@@ -138,7 +139,7 @@ test('the helper\'s and the supervisor\'s lanes follow their reports the same wa
 test('the counts add up over the reported states', () => {
   const state = build({ reports: [report('Main', 'idle'), report('Board', 'busy'), report('Support', 'busy', { at: NOW - 40_000 })] })
   assert.deepEqual(state.chats.map(chat => [chat.name, chat.state]), [['Main', 'free'], ['Board', 'working'], ['Support', 'unknown']])
-  assert.deepEqual(state.counts, { working: 1, waiting: 0, free: 1, unknown: 1, interrupted: 0, suspended: 0, off: 0 })
+  assert.deepEqual(state.counts, { ...countsOf([]), working: 1, free: 1, unknown: 1 })
 })
 
 test('gap 1: a chat whose card says a reporting mod and that sent no report is unknown, then off: never free by the older reading', () => {

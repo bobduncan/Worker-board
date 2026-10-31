@@ -111,18 +111,24 @@ const html = await readFile(join(ROOT, 'public', 'index.html'), 'utf8')
 const style = await readFile(join(ROOT, 'public', 'board.css'), 'utf8')
 const cut = name => script.slice(script.indexOf(`// ${name}:start`), script.indexOf(`// ${name}:end`))
 const page = {}
-vm.runInNewContext(`${cut('askstand')}\n${cut('advisorlane')}\nObject.assign(this, { advisorStanding, advisorQueued, advisorAsks })`, page)
+vm.runInNewContext(`const MIN = 60000\n${cut('times')}\n${cut('chatword')}\n${cut('askstand')}\n${cut('advisorlane')}\nObject.assign(this, { advisorStanding, advisorQueued, advisorAsks })`, page)
 
-test('its card says how it stands: working, needs your answer, idle, or not running', () => {
-  const at = advisor => page.advisorStanding({ isRunning: true, state: 'free', asksYou: false, ...advisor }).label
-  assert.equal(at({ state: 'working' }), 'Working')
-  assert.equal(at({ asksYou: true }), 'Needs your answer')
-  assert.equal(at({}), 'Idle')
-  assert.equal(at({ isRunning: false, state: 'working' }), 'Not running')
-  assert.equal(at({ state: 'interrupted' }), 'Cut off')
-  // A server without the card's fields: an Advisor that waits (its question form) still needs your answer.
-  assert.equal(page.advisorStanding({ isRunning: true, state: 'waiting' }).label, 'Needs your answer')
-  assert.equal(page.advisorStanding({ isRunning: true, state: 'waiting', asksYou: false }).label, 'Idle')
+test('its card says how it stands: its one word, as a worker\'s lane says it', () => {
+  // Signals change 2: the board gives the word (src/chatWord.mjs); the card draws it, with its key for the colour.
+  const at = advisor => page.advisorStanding({ isRunning: true, state: 'free', ...advisor })
+  assert.deepEqual({ ...at({ state: 'working', word: 'Working' }) }, { key: 'working', label: 'Working' })
+  assert.deepEqual({ ...at({ state: 'waiting', word: 'Waiting for you' }) }, { key: 'waiting', label: 'Waiting for you' })
+  assert.deepEqual({ ...at({ word: 'Free' }) }, { key: 'free', label: 'Free' })
+  assert.deepEqual({ ...at({ isRunning: false, state: 'off', word: 'Not running' }) }, { key: 'off', label: 'Not running' })
+  assert.deepEqual({ ...at({ state: 'interrupted', word: 'Stopped', why: 'resumes by itself', age: 4000 }) }, { key: 'stopped', label: 'Stopped' })
+  assert.equal(at({ word: 'Working', age: 25_000 }).label, 'Working · 25 s ago', 'over 10 s the age shows')
+  assert.equal(at({ word: 'Working', age: 9_000 }).label, 'Working', 'at 9 s it does not')
+  // A board without words: the old state reads as the same list of words, never an old name.
+  assert.equal(at({ state: 'working' }).label, 'Working')
+  assert.equal(at({ state: 'interrupted' }).label, 'Stopped')
+  assert.equal(at({ state: 'suspended' }).label, 'Paused')
+  assert.equal(at({ isRunning: false, state: 'free' }).label, 'Not running')
+  assert.equal(at({}).label, 'Free')
 })
 
 test('B464: while it asks you, its row names the ask; else no line of it', () => {

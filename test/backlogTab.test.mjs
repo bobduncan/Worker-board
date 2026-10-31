@@ -19,7 +19,8 @@ const cut = name => {
   return script.slice(from, to)
 }
 const page = {}
-vm.runInNewContext(`const MIN = 60000\n${cut('times')}\n${cut('tasktimes')}\n${cut('finished')}\nObject.assign(this, { finishedRows })`, page)
+vm.runInNewContext(`const MIN = 60000\n${cut('times')}
+${cut('chatword')}\n${cut('tasktimes')}\n${cut('finished')}\nObject.assign(this, { finishedRows })`, page)
 const plain = value => JSON.parse(JSON.stringify(value))
 
 const at = (day, hour, minute = 0) => new Date(2026, 9, day, hour, minute).getTime()

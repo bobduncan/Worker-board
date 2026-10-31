@@ -1209,7 +1209,7 @@ choices: the mod starts the board, the workers carry on on their click, no compa
   tab says so, and `resume` names these chats for the main chat, which starts them through the app by their
   session's id. Nothing is said in the board's first half minute, or about a chat that asks from another session
   than the one the board shows.
-- *Not running, not Working (B315).* Seen live 2026-10-18 at 16:32: after the app was quit and opened again, the
+- *Not running, not Working (B315).* (Since 2026-10-31 its pill and time column say the chat's one word, "Not running"; see "One word per chat".) Seen live 2026-10-18 at 16:32: after the app was quit and opened again, the
   Overview showed all four workers "Working" (their cards still said so from before the quit, and "resume" had ended
   their stop for the restart), while Needs your attention said three of them held a step but were not working. A
   lane that counts as working only by what is left of it (its card, its step, or a turn its transcript shows open)
@@ -4246,6 +4246,8 @@ runs /clear (`$.command.run({ command: 'clear' })`, queued for when the chat is 
 
 ### The board keeps the account of clears (B547, 2026-10-24)
 
+**Since 2026-10-31 (signals change 2)** a conversation cleared less than two minutes ago that has not reported yet reads **Restarting** (timed from the moved card's `cleared.at`, which the card keeps), then Unknown with the age; it no longer reads Unknown for the first minute (see "One word per chat").
+
 **Since T8.5 step 6 (2026-10-31)** the account (`clearOwed`) is what the hand-over's envelope reads: the owed clear is its
 first field, before the next task's line, and a clear that cannot run fails the envelope and holds the worker with its why
 (the rule `handover-held`; see "The hand-over as one sequence"). What this part describes besides the account is gone: the
@@ -4351,6 +4353,8 @@ moved its step back to in progress whatever its worker was on; and nothing named
   take your next queued step; never leave a step in progress unnamed while on another.
 
 ## Chats report their own state (2026-10-24, redesign Part 1)
+
+**Since 2026-10-31 (signals change 2)** the words this part names for what the page shows (Interrupted, Cut off, Idle task open, Suspended, "asleep", the pill by `isRunning`) are one word per chat, the board's `word` (see "One word per chat"): busy is Working, asking Waiting for you, idle Free, idle with the task open Stopped, a process that ended Asleep, a report that stopped Unknown / Not running. The reading below (`state`) is unchanged: the decisions still read it.
 
 The supervisor's first day found a group of incidents from the board guessing a chat's state: "working" while its chat
 did not run, work for a chat that did not run. It read that state in nine steps of inference from side signals and
@@ -4602,6 +4606,58 @@ its turn back at once, one 10-minute net. The reconciler's own give, its later l
   `test/work/handOutSim.test.mjs` (simulated chats through `buildState` and `deliverWork`), `test/work/again.test.mjs`,
   `test/work/retireQueue.test.mjs`, `test/pinTask.test.mjs`, `test/focusHandout.test.mjs`, `test/config.test.mjs`,
   `test/supervisor/watch.test.mjs`, `test/supervisor/selfCheck.test.mjs`.
+
+## One word per chat (2026-10-31, signals change 2)
+
+The person's reading: one chat could show "Free", "asleep" and "restarting" at once; after a clear it read Unknown for about
+a minute; "Free" meant two things (the pill and the hand-out); every view renamed the words. Now every chat has ONE word,
+with how old the information behind it is, the same word in every view, and **Free means "the board would give it work
+now"**. Nothing changes in what the board does with the chats: the word is display only (principle 4: one place per fact).
+
+- **`state` stays, `word` is added.** `lane.state`, `isRunning`, `asleep`, `report` and `lane.handover` are the decision
+  inputs of the hand-out (`idleWorkers`, `decide`), the reconciler, the delivery, the pause, `say`, the hands, the mod rollout
+  and the Supervisor's rules (about 40 places) and stay exactly as they were, not deprecated. `src/chatWord.mjs` `wordOf`
+  reads them (and the hand-over, the mod rollout, the pause and the moved card's `cleared.at`) and returns `{ word, why,
+  since, reportAt, age }`; `state.mjs` puts those five on every chat of `/api/state.chats[]` and on the partner's, its
+  helper's, the supervisor's and the Product owner's cards, and `counts` is one number per word (`countsOf`: the keys
+  working, waiting, checking, handing, offered, held, noanswer, paused, restarting, stopped, free, asleep, off, unknown).
+  Nothing in `reportedOf`, `runningOf`, `decide`, `idleWorkers`, `reconcile`, the rules or `say.mjs` reads the word (a test
+  holds that), and `history.jsonl` keeps the old `state` (the day bars name it through the page's old-state map).
+- **The words, the first that holds wins.** 1 **Working**: a fresh report says busy (also background work after a reported
+  step, and a wait for the partner; the why says which). A fresh busy report beats a pause note read from a lagging
+  transcript; only the app's own stop line and the person's pause keep `Paused` over it. 2 **Waiting for you**: a fresh report
+  says asking, or a blocking ask is open (attention). For a worker on the hand-over: 3 **Checking** (its report's result
+  check runs), 4 **Handing** / **Offered** (the step), 5 **Held** (its why; attention), 6 **Did not answer** (the step;
+  attention). 7 **Paused**: the app's stop line, a standing pause note, a parked step (`until B..`), the hand-over's SUSPENDED
+  (the person's pause, a full limit), or the person's pause once the chat has stopped (one cut off with no checkpoint since
+  the pause is unexpected and stays Stopped). 8 **Restarting**: the hand-over's RESTARTING, a Workers-mod rollout asked of the
+  chat (the main chat, the partner, the supervisor, the Product owner), or a new conversation (a clear) that has not reported
+  yet, for two minutes from the moved card's `cleared.at`. 9 **Stopped**: idle or ended while holding a step ("task open
+  since", "cut off at", "resumes by itself"); never Working, never counted busy. 11 **Asleep** (since HH:MM): the process
+  ended while the chat is idle; it comes before Free because an asleep chat is not "free to run". 10 **Free**: the hand-over's
+  FREE for a worker on it; `state` free for a worker on the timers (the escape hatch), the main chat, the partner, the
+  supervisor and the Product owner; never for a worker the hand-out skips (HELD, HANDING...). 12 **Not running** (the kind:
+  a wake that did not take, ended with no app session, silent, unreported; attention). 13 **Unknown**: no report to go by,
+  always "no report for N" (quiet under two minutes, attention after). A leftover has no word. Only Working counts busy:
+  "N of M workers busy" does not grow.
+- **The age.** `age = now - report.at` on the board's clock (`board.now` at the read), never the page's: the mod refreshes `at`
+  with every 5-second ping, so a live chat's age is seconds. The pill shows it over 10 seconds ("Working · 25 s ago");
+  Unknown always shows it, Asleep shows "since HH:MM". `since` (when the state began) is kept apart from it. An Unknown chat
+  whose new session has not reported since its clear counts the age from the clear.
+- **The page** (`public/board.js`, the `chatword` block): `WORD_VIEW` maps a word to its css class and tone, and every view
+  draws `laneWord(lane)`: the pill, the Workers list, the Advisor / helper / Product owner cards, the Talk pill, the lane
+  window's chip and alert, the removal reasons, the head count. The per-view renames are gone ("Not running" by `isRunning`,
+  "Cut off", "Idle, task open", "Suspended" from `pausedLanes`, "Waiting for your partner", "Available", the small "asleep"
+  tag). A lane that comes without a word (an older board, a made-up one) reads its old `state` through the `STATES` map,
+  which is also what labels the day bars. The second line under a worker keeps step and log facts and never a second state
+  word (the hand-over's flag line is gone: the word and its why say it).
+- **The Workers pane in the Claude app: later, as 2c, with the next Workers mod release.** The take answer carries
+  `{messages, clear?, off?, stop?, handover?}` and no word (`server.mjs` take; the pane's `status()` in `chats.ts` uses its card,
+  120 s staleness and `off`). Giving the pane the board's word is a mod change; the pane stays as it is.
+- **Checked by** `test/chatWord.test.mjs` (one test per row and per rule, then the mutants: Unknown after a clear, two
+  words on one lane, Free for a HELD worker, Working for asleep-with-a-step, the age from another clock),
+  `test/chatWord.state.test.mjs` (through `buildState`; the word fed into `idleWorkers` changes nothing) and
+  `test/chatWord.page.test.mjs` (every lane draws one word from the list, the views agree, the age at 11 s and not at 9 s).
 
 ## Any running chat wakes a chat words wait for (T9.4, 2026-10-25)
 

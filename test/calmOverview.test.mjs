@@ -17,7 +17,8 @@ const style = await readFile(join(PUBLIC, 'board.css'), 'utf8')
 const cut = name => script.slice(script.indexOf(`// ${name}:start`), script.indexOf(`// ${name}:end`))
 
 const page = {}
-vm.runInNewContext(`const MIN = 60000\n${cut('times')}\n${cut('limits')}\n${cut('lanetime')}\n${cut('calmoverview')}
+vm.runInNewContext(`const MIN = 60000\n${cut('times')}
+${cut('chatword')}\n${cut('limits')}\n${cut('lanetime')}\n${cut('calmoverview')}
 Object.assign(this, { clock, span, leftView, freeShort, nextInQueue, infoLine, shownCounts, infoHeightFit })`, page)
 
 const MIN = 60_000
@@ -125,7 +126,7 @@ test('3: the time left once, in the column Left: "1 h 34", its end time and wher
   assert.deepEqual([overdue.main, overdue.tone, overdue.title], ['40 min over', 'bad', `Overdue: was ${page.clock(NOW - 40 * MIN)}`])
   // A free worker has nothing there; one held or cut off says so as before.
   assert.equal(page.leftView({ state: 'free', task: null, eta: null }, NOW), null)
-  assert.equal(page.leftView({ state: 'interrupted', task: null, eta: null, cutOffAt: null }, NOW).label, 'Cut off')
+  assert.equal(page.leftView({ state: 'interrupted', task: null, eta: null, cutOffAt: null }, NOW).label, 'Stopped')
 })
 
 test('3: the step line keeps its time for the list that opens on hover, not on the row', () => {
@@ -164,8 +165,8 @@ test('5: the commit line is in Run game\'s tooltip; a running game keeps its lin
 })
 
 test('5: "waiting for you" is counted only when something waits; working and free always', () => {
-  assert.deepEqual([...page.shownCounts({ working: 2, waiting: 0, free: 3, suspended: 0, interrupted: 0, unknown: 0 })], ['working', 'free'])
-  assert.deepEqual([...page.shownCounts({ working: 0, waiting: 1, free: 0, suspended: 1, interrupted: 0, unknown: 2 })], ['working', 'waiting', 'free', 'suspended', 'unknown'])
+  assert.deepEqual([...page.shownCounts({ working: 2, waiting: 0, free: 3, paused: 0, stopped: 0, unknown: 0 })], ['working', 'free'])
+  assert.deepEqual([...page.shownCounts({ working: 0, waiting: 1, free: 0, paused: 1, stopped: 0, unknown: 2, asleep: 1 })], ['working', 'waiting', 'paused', 'free', 'asleep', 'unknown'])
   assert.ok(cut('calmoverview').length > 0)
   assert.ok(script.includes('fill($(\'counts\'), shownCounts(state.counts)'))
 })

@@ -156,7 +156,8 @@ const PUBLIC = join(dirname(fileURLToPath(import.meta.url)), '..', 'public')
 const script = await readFile(join(PUBLIC, 'board.js'), 'utf8')
 const cut = name => script.slice(script.indexOf(`// ${name}:start`), script.indexOf(`// ${name}:end`))
 const page = {}
-vm.runInNewContext(`const MIN = 60000\n${cut('times')}\n${cut('lanetime')}\n${cut('stepline')}\n${cut('alerts')}\nObject.assign(this, { stepLine, timeOf, alertsOf })`, page)
+vm.runInNewContext(`const MIN = 60000\n${cut('times')}
+${cut('chatword')}\n${cut('lanetime')}\n${cut('stepline')}\n${cut('alerts')}\nObject.assign(this, { stepLine, timeOf, alertsOf })`, page)
 const NAMES = ['Sheet', 'Clips', 'Merge']
 const onPage = lane => ({ name: 'Units', state: 'working', isLeftover: false, isWithoutTime: false, ...lane })
 

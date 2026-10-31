@@ -80,8 +80,10 @@ test('B728: the lane of a chat that does not run says "Not running" everywhere: 
   const page = {}
   const script = await readFile(join(dirname(fileURLToPath(import.meta.url)), '..', 'public', 'board.js'), 'utf8')
   const cut = (from, to) => script.slice(script.indexOf(from), script.indexOf(to))
-  vm.runInNewContext(`const STATES = { free: 'Free', off: 'Not running' };\n${cut('function laneStateText', '// partner-answers:end')}\nthis.laneStateText = laneStateText`, page)
-  assert.equal(page.laneStateText(lane(built, 'Worker 5')), 'Not running')
+  const part = name => script.slice(script.indexOf(`// ${name}:start`), script.indexOf(`// ${name}:end`))
+  vm.runInNewContext(`const MIN = 60000\n${part('times')}\n${part('chatword')}\n${cut('function laneStateText', '// partner-answers:end')}\nthis.laneStateText = laneStateText`, page)
+  assert.equal(lane(built, 'Worker 5').word, 'Not running')
+  assert.match(page.laneStateText(lane(built, 'Worker 5')), /^Not running/)
   assert.equal(page.laneStateText({ state: 'free', isRunning: true }), 'Free')
   assert.ok(!script.includes("plain('Closed'"), 'one word: no "Closed"')
 })

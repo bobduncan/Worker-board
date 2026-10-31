@@ -62,7 +62,7 @@ test('a reading after the pause below the percent the note names frees the chat,
   const lifted = build({ items: PAUSED, usageText: usage([NOW - 30 * MIN, 92, 57], [NOW - 3 * MIN, 4, 2]) })
   assert.equal(board(lifted).suspended, null)
   assert.notEqual(board(lifted).state, 'suspended')
-  assert.equal(lifted.counts.suspended, 0)
+  assert.equal(lifted.counts.paused, 0)
   // It is what the same chat is without the note: its turn ended with B269 held, so the "may wait for you" hint.
   const free = build({ items: PAUSED.slice(0, 1), usageText: usage([NOW - 30 * MIN, 92, 57], [NOW - 3 * MIN, 4, 2]) })
   const parts = lane => [lane.state, lane.between, lane.resting?.since, lane.isWithoutTime]

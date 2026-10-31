@@ -67,5 +67,6 @@ test('the words of each state, and the page shows them quiet (no amber, no butto
   const part = {}
   vm.runInNewContext(`${script.slice(script.indexOf('// laneflags:start'), script.indexOf('// laneflags:end'))}\nObject.assign(this, { laneFlags })`, part)
   const shown = part.laneFlags({ name: 'Worker 1', flags: [{ kind: 'handover', id: 'B12', text: 'held: its clear did not run', button: null }] }, { main: 'Lead' })
-  assert.deepEqual(JSON.parse(JSON.stringify(shown)), [{ text: 'held: its clear did not run', tone: 'quiet', button: null }])
+  // Signals change 2: where the hand-over stands is the chat's word (Held) and its why, not a second line under it.
+  assert.deepEqual(JSON.parse(JSON.stringify(shown)), [])
 })

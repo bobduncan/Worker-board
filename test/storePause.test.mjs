@@ -56,7 +56,7 @@ test('a pause filed as a work note to the main chat suspends its chat until the 
   const board = lane(state, 'Board')
   assert.equal(board.state, 'suspended')
   assert.deepEqual(board.suspended, { by: 'note', limit: 'fiveHour', since: NOW - 11 * MIN, until: at(14, 40), isBack: false })
-  assert.deepEqual([board.between, board.isWithoutTime, state.counts.suspended], [null, false, 1])
+  assert.deepEqual([board.between, board.isWithoutTime, state.counts.paused], [null, false, 1])
   // From names the chat with or without the prefix; whether the main chat has read it does not matter.
   const named = build({ Board: pausedTurn() }, [...STEPS, note('N37', 'Game - Board', NOW - 11 * MIN, PAUSE, { state: 'read' })])
   assert.equal(lane(named, 'Board').state, 'suspended')

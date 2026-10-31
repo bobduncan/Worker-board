@@ -179,7 +179,8 @@ const cut = name => {
   return script.slice(from, to)
 }
 const page = {}
-vm.runInNewContext(`const MIN = 60000\n${cut('times')}\n${cut('update')}\nObject.assign(this, { clock, updateView, versionLine })`, page)
+vm.runInNewContext(`const MIN = 60000\n${cut('times')}
+${cut('chatword')}\n${cut('update')}\nObject.assign(this, { clock, updateView, versionLine })`, page)
 const plain = value => JSON.parse(JSON.stringify(value))
 const version = more => ({ commit: '5fb7da8', since: new Date(2026, 9, 14, 9, 31).getTime(), head: '5fb7da8', page: 'a1b2c3d', isServerNewer: false, canRestart: true, ...more })
 

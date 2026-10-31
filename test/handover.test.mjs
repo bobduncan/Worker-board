@@ -114,7 +114,8 @@ test('what the person typed to a chat that waits is never shown, also as its tas
 const script = await readFile(join(dirname(fileURLToPath(import.meta.url)), '..', 'public', 'board.js'), 'utf8')
 const cut = name => script.slice(script.indexOf(`// ${name}:start`), script.indexOf(`// ${name}:end`))
 const page = {}
-vm.runInNewContext(`const MIN = 60000\n${cut('times')}\n${cut('waiting')}\nObject.assign(this, { waitingOf, hasForm, closingRows })`, page)
+vm.runInNewContext(`const MIN = 60000\n${cut('times')}
+${cut('chatword')}\n${cut('waiting')}\nObject.assign(this, { waitingOf, hasForm, closingRows })`, page)
 
 test('B301: the window offers no answers to a "For you" block\'s items: no item part, no answer rows', () => {
   const parts = script.slice(script.indexOf('function handoverParts'), script.indexOf('function mainParts'))

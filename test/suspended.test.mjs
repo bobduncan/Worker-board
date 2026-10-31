@@ -87,7 +87,7 @@ test('a reading from further back than the tail counts too, and so does one in t
 test('without the app\'s file and without a reading the limits are not known, and nothing else changes', () => {
   const state = build({ tails: { Units: tail(busy) } })
   assert.deepEqual(state.limits, { fiveHour: null, week: null })
-  assert.deepEqual([lane(state, 'Units').state, lane(state, 'Units').suspended, state.counts.suspended], ['working', null, 0])
+  assert.deepEqual([lane(state, 'Units').state, lane(state, 'Units').suspended, state.counts.paused], ['working', null, 0])
 })
 
 test('the percentage the bar warns from can be set', () => {
@@ -108,7 +108,7 @@ test('a chat the app stopped at the limit is suspended, until the time the app n
   assert.equal(features.state, 'suspended')
   assert.deepEqual(features.suspended, { by: 'app', limit: 'fiveHour', since: NOW - 14 * MIN, until: at(23, 40), isBack: false })
   assert.deepEqual([features.task.text, features.task.step, features.eta, features.between, features.doingNow], ['B02 The camera', 2, null, null, null])
-  assert.deepEqual([state.counts.suspended, state.counts.working], [1, 0])
+  assert.deepEqual([state.counts.paused, state.counts.working], [1, 0])
   // Nobody is asked anything: it waits for the clock, not for the person.
   assert.deepEqual(state.forYou, [])
   // The limit itself is full while that reset is ahead, whatever the last sample said.

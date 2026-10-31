@@ -59,6 +59,7 @@ const focusUi = { words: { talk: '', notYet: '', new: '', bar: '' } }
 let detailsOf = null
 const $ = id => document.getElementById(id)
 ${cut('times')}
+${cut('chatword')}
 ${cut('update')}
 ${functions}
 try {

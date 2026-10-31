@@ -111,7 +111,8 @@ const cut = name => {
   return script.slice(from, to)
 }
 const page = {}
-vm.runInNewContext(`const MIN = 60000\n${cut('times')}\n${cut('update')}\nObject.assign(this, { updateView, reloadsNow, updatedView, reloadsOn403, keptState, keptBack })`, page)
+vm.runInNewContext(`const MIN = 60000\n${cut('times')}
+${cut('chatword')}\n${cut('update')}\nObject.assign(this, { updateView, reloadsNow, updatedView, reloadsOn403, keptState, keptBack })`, page)
 const plain = value => JSON.parse(JSON.stringify(value))
 const version = more => ({ commit: '5fb7da8', since: NOW, head: '5fb7da8', page: 'a1b2c3d', isServerNewer: false, canRestart: true, ...more })
 
