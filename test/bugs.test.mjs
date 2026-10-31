@@ -25,9 +25,9 @@ test('a report: the person\'s words, where, the pictures under the step\'s own i
   assert.equal(checked.ok, true)
   assert.equal(checked.title, 'Bug: The move squares are cut in half')
   assert.deepEqual(checked.lines, [
-    "The person's bug report, in their own words.",
     'What is wrong: The move squares are cut in half',
     'What was expected: Whole squares',
+    "The person's bug report, in their own words.",
     'Where: the game (Lava Tactics)',
     'Pictures: art-inbox/bugs/{step-id}/picture-1.png',
     'Reproduce it first, before any change: see it happen as the person did, then fix it.',

@@ -54,9 +54,10 @@ export function checkBug(body, ctx) {
   const targets = pictures.map((path, place) => `${bugsFolder(ctx.pictures)}/${STEP_ID_TOKEN}/picture-${place + 1}.${path.split('.').pop()}`)
   const where = body.where
   const lines = [
-    "The person's bug report, in their own words.",
+    // The step's window opens on its first Context sentence: the person's own words come first.
     `What is wrong: ${wrong}`,
     ...(expected === '' ? [] : [`What was expected: ${expected}`]),
+    "The person's bug report, in their own words.",
     `Where: ${where === 'board' ? 'the worker board' : `the game${ctx.game ? ` (${ctx.game})` : ''}`}`,
     ...(targets.length === 0 ? ['Pictures: none'] : [`Pictures: ${targets.join(', ')}`]),
     'Reproduce it first, before any change: see it happen as the person did, then fix it.',
