@@ -15,7 +15,7 @@
 import { SUPERVISOR_DEFAULTS } from '../../config.mjs'
 import { askFiledMs, sinceMs, valueOf } from '../../work/item.mjs'
 import { overlapIn } from '../../work/guards.mjs'
-import { stuckTakeBacks } from '../../work/handOut.mjs'
+import { idleWorkers, stuckTakeBacks } from '../../work/handOut.mjs'
 import { afterPause as afterPauseOf, checkpointOf, heldMs, holdEndOf, isHolding, pauseEndOf as pauseEnd } from '../../work/pause.mjs'
 import { isFailedForGood, stoppedChats, whyClosed } from '../../work/outboxSweep.mjs'
 import { FIRST_SAYING, chatsByRole, oldModFinding } from '../../oldMods.mjs'
@@ -201,7 +201,8 @@ const GIVEN_OR_UNDER_WAY = ['queued', 'taken', 'in progress', 'waiting on you']
 
 /**
  * 3. Redesign Part 2 (2026-10-25, its Done when: "a task waits while a worker is free"): a ready task (the view's
- * `ready`, the board's own list) waits while a worker whose own report says free stands idle, both for longer than
+ * `ready`, the board's own list) waits while a worker whose own report says free stands idle (B834: free as the hand-out's
+ * `idleWorkers` counts it, one test for both), both for longer than
  * `idleMinutes`: the board hands a ready task to such a worker at once, so it failed to. Gap 3: only what the board
  * hands out counts: the list's `ready` (a fix, the focus goal's, a pinned one), never its `held` (a task outside the
  * focus goal waits for the person by design); a kept task (its pin, its follow-up) only while its own worker is free.
@@ -210,10 +211,11 @@ const GIVEN_OR_UNDER_WAY = ['queued', 'taken', 'in progress', 'waiting on you']
  */
 function readyWhileFree(view, ctx) {
   if (isPaused(view) || isFull(view)) return []
-  // The review of 2026-10-25: a worker that holds a task given to it (its line may wait) is no free worker.
-  const holds = lane => stepsOf(view).some(item => ['queued', 'taken', 'in progress'].includes(stateOf(item)) && plain(valueOf(item, 'Owner'), view.prefix) === plain(lane.name, view.prefix))
-  const free = workersOf(view).filter(lane => lane.report != null && lane.state === 'free' && lane.isRunning === true
-    && !(lane.flags ?? []).some(flag => flag.kind === 'not taking') && !holds(lane))
+  // B834 (X111, X112): the hand-out's own test of free (handOut.mjs `idleWorkers`), so the watch and the hand-out never disagree: the
+  // mod's report says idle (or asleep after it said idle), running, the board reads it free, it holds no task given to it, and it is
+  // not stuck (not taking, or handed a failed check back). A worker the board reads free but whose mod reports busy is no free worker.
+  const stuck = new Set([...workersOf(view).filter(lane => (lane.flags ?? []).some(flag => flag.kind === 'not taking')).map(lane => lane.name), ...(view.handedBack ?? [])])
+  const free = idleWorkers(workersOf(view), { items: view.items, prefix: view.prefix, stuck })
   if (free.length === 0) return []
   const found = []
   for (const one of view.ready) {

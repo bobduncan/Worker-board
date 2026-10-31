@@ -70,7 +70,8 @@ sweep is meant to cost little (a few tens of thousands of tokens, mostly cached)
   design"), and so do those "held otherwise": workers idle while only such tasks wait is no incident. A task pinned to a
   worker waits for that worker by design (the board has the main chat start that worker when its chat is off), and a
   worker holding a given task whose line waits (its model, a clear, a restart) is no free worker: no incident; such a
-  give goes back by itself after 20 minutes. Main hands out nothing, so a step Main did not
+  give goes back by itself after 20 minutes. A worker the board reads free but whose own mod reports busy (asking the
+  person, say) is no free worker either (B834: the rule counts free as the hand-out does). Main hands out nothing, so a step Main did not
   queue is no incident either.
 - A step that waits for another step (its Blocked by, or the steps its Waits for names) waits as planned while that
   step moves: the summary says "waits as planned for B<n> (<state> <age>)" and marks no "!" for its age: no incident.

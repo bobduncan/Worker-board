@@ -4358,7 +4358,8 @@ what code should do"). Now the board hands out every task itself (principle 1), 
   `heldGiveMinutes` (20, at least 1 and never under `takeWithinMinutes`), beside Part 1's `unknownAfterSeconds`.
 - **Done when** (principle 6): for 4 hours after it is live none of these opens or comes back: `ready-while-free` (a
   ready task kept for nobody waits over `idleMinutes` while a worker whose report says free, and that holds no given
-  task, stands idle), `not-taking`
+  task, stands idle; B834: free exactly as the hand-out's `idleWorkers` counts it, so a worker the board reads free but
+  whose mod reports busy is no free worker, X111/X112), `not-taking`
   (a worker the board took a task back from, flagged), `holder-not-running` (a chat that does not run has work).
 - Tests: `test/work/handOutList.test.mjs`, `test/work/handOutMatch.test.mjs`, `test/work/handOutApi.test.mjs`,
   `test/work/handOutSim.test.mjs` (simulated chats through `buildState` and `deliverWork`), `test/work/again.test.mjs`,
