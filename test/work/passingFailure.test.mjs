@@ -92,7 +92,7 @@ test('X2 before the fix: within the half hour the failed word held every new one
   // A minute after it failed the outbox would have tried it again had the board been on; at 23:41 it no longer can.
   const outbox = outboxOf([low(), x2()])
   const view = undelivered(outbox, BACK)
-  assert.deepEqual(view.map(one => [one.key, one.evidence]), [['undelivered Main', `23:13 worker-effort Worker 4 (failed by Advisor's mod: ${WHY})`]])
+  assert.deepEqual(view.map(one => [one.key, one.evidence]), [['undelivered Main', `23:13 worker-effort Worker 4 (failed: ${WHY})`]])
 })
 
 test('a moot effort word is closed by the sweep: a newer one for the same chat stands, or the chat runs at its setting', async () => {

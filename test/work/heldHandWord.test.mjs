@@ -9,11 +9,11 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import { HAND_HOLD_MS, handResults, heldTooLong, isHandWord, isMootSpawn } from '../../src/hands.mjs'
+import { HAND_HOLD_MS, handResults, heldTooLong, isHandTaken, isHandWord, isMootSpawn } from '../../src/hands.mjs'
 import { memoryStore } from '../../src/store.mjs'
 import { WATCH_RULES } from '../../src/supervisor/rules/watch.mjs'
 import { buildView } from '../../src/supervisor/view.mjs'
-import { sweepOutbox } from '../../src/work/outboxSweep.mjs'
+import { giveBackHeld, sweepOutbox } from '../../src/work/outboxSweep.mjs'
 
 const MIN = 60_000
 const HOUR = 60 * MIN
@@ -30,7 +30,7 @@ const spawn = () => ({
   text: 'start the Product owner\nIts chat "Lava Tactics - Product owner" is not on the board, and the person\'s talks wait for it.',
   state: 'waiting',
 })
-const taken = () => ({ ...spawn(), state: 'taken', takenAt: TAKEN, takenBy: 'Worker 2' })
+const taken = () => ({ ...spawn(), state: 'taken', takenAt: TAKEN, takenBy: 'Worker 2', handTakenAt: TAKEN })
 const failed = () => ({ ...taken(), state: 'failed', failedAt: FAILED, tries: 1, why: NO_SESSION })
 
 const LANES = [
@@ -72,7 +72,7 @@ test('without the Product owner on the board the failed word still matters: rule
 })
 
 test('a word a hand holds longer than HAND_HOLD_MS goes back to waiting, for another hand or its addressee; a younger one stays', async () => {
-  const outbox = outboxOf([taken(), { ...spawn(), id: 'young', state: 'taken', takenAt: SENT + 30 * MIN, takenBy: 'Worker 1' }, { ...spawn(), id: 'chat', state: 'taken', takenAt: TAKEN }])
+  const outbox = outboxOf([taken(), { ...spawn(), id: 'young', state: 'taken', takenAt: SENT + 30 * MIN, takenBy: 'Worker 1', handTakenAt: SENT + 30 * MIN }, { ...spawn(), id: 'chat', state: 'taken', takenAt: TAKEN }])
   // 'chat' is a chat's own take (no hand): its mod reports its typing, the hands' rule is not its.
   assert.deepEqual(heldTooLong(outbox.outbox(), TAKEN + HAND_HOLD_MS - 1), [])
   assert.deepEqual(heldTooLong(outbox.outbox(), TAKEN + HAND_HOLD_MS), ['20e17b272740a56f'])
@@ -113,4 +113,38 @@ test('rule 8 names a word a hand still holds past the limit, and says whose mod 
   assert.deepEqual(held.map(one => [one.key, one.evidence]), [['undelivered Main', '12:22 spawn Product owner (taken, held by Worker 2\'s mod)']])
   // A moot one is not named, held or not.
   assert.deepEqual(undelivered(outboxOf([taken()]), TAKEN + 11 * MIN), [])
+})
+
+test("a chat's own take is no hand's: a copy made before B880 that kept an old hand's name is not given back, nor named as held", () => {
+  // The live board's 337891eadd98818d: a retry of a start word, taken by the main chat's own take at 09:38, its line kept the
+  // Advisor's name from the word it copied.
+  const legacy = { ...spawn(), id: '337891eadd98818d', command: 'start', about: 'Supervisor', state: 'taken', takenAt: TAKEN, takenBy: 'Advisor' }
+  assert.equal(isHandTaken(legacy), false)
+  assert.equal(isHandTaken(taken()), true)
+  assert.deepEqual(heldTooLong([legacy], TAKEN + HAND_HOLD_MS), [])
+  // Rule 8 judges it as a chat's own take: not named as held by a hand.
+  assert.deepEqual(undelivered(outboxOf([legacy]), TAKEN + 11 * MIN, null), [])
+})
+
+test("a word a hand takes anew while the board gives back others stays that hand's: never two hands at once", async () => {
+  // The live board, 13:44: two words were judged held; while the first went back, a hand took the second anew, and the old
+  // judgement gave it back from under that hand, so a second hand sent it too.
+  const outbox = outboxOf([{ ...taken(), id: 'first' }, { ...taken(), id: 'second' }])
+  const now = TAKEN + HAND_HOLD_MS
+  const back = outbox.back.bind(outbox)
+  outbox.back = async (ids, from) => {
+    const n = await back(ids, from)
+    // Meanwhile, in the same moment, a hand takes 'second' anew (given back by another sweep just before).
+    if (ids.includes('first')) {
+      await back(['second'], 'Worker 2')
+      await outbox.takeHands('Worker 1', now, keep, one => one.id === 'second')
+    }
+    return n
+  }
+  const lines = []
+  assert.equal(await giveBackHeld(outbox, now, line => lines.push(line)), 1)
+  const second = outbox.outbox().find(one => one.id === 'second')
+  assert.deepEqual([second.state, second.takenBy], ['taken', 'Worker 1'])
+  assert.equal(lines.length, 1)
+  assert.match(lines[0], /^B880: gave back the word first \(spawn Product owner\) that Worker 2's hand held since \d\d:\d\d without a word of it\.$/)
 })

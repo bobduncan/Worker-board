@@ -202,13 +202,19 @@ export async function sweepOutbox({ dir, outbox, state, now, keep, fs, dry = fal
  * late answer still counts: store.mjs `deliveredLate`), with a line in the board's log. How many went back.
  */
 export async function giveBackHeld(outbox, now, log = line => console.log(line)) {
-  const held = heldTooLong(outbox.outbox(), now)
-  for (const message of outbox.outbox().filter(one => held.includes(one.id))) {
-    const since = new Date(message.takenAt).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })
-    log(`B880: gave back the word ${message.id} (${message.command ?? 'answer'}${message.about ? ` ${message.about}` : ''}) that ${message.takenBy}'s hand held since ${since} without a word of it.`)
-    await outbox.back([message.id], message.takenBy)
+  let given = 0
+  for (const id of heldTooLong(outbox.outbox(), now)) {
+    // Judged again right before it goes back, with no wait between: a word another sweep gave back meanwhile, and a hand
+    // took anew, is that hand's now.
+    const message = outbox.outbox().find(one => one.id === id)
+    if (message === undefined || heldTooLong([message], now).length === 0) continue
+    const { takenBy, takenAt } = message
+    if ((await outbox.back([id], takenBy)) === 0) continue
+    given += 1
+    const since = new Date(takenAt).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })
+    log(`B880: gave back the word ${id} (${message.command ?? 'answer'}${message.about ? ` ${message.about}` : ''}) that ${takenBy}'s hand held since ${since} without a word of it.`)
   }
-  return held.length
+  return given
 }
 
 /** B577: the session the board shows under each chat's name. */

@@ -158,9 +158,10 @@ function storeOver(lines, messages, alive, write) {
      */
     async takeHands(by, now, keep, isHand) {
       const taken = messages.filter(message => message.state === 'waiting' && !isLate(message, now, keep) && isHand(message))
-      for (const message of taken) Object.assign(message, { state: 'taken', takenAt: now, takenBy: by })
+      // B880: `handTakenAt` marks the take as a hand's (src/hands.mjs `isHandTaken`).
+      for (const message of taken) Object.assign(message, { state: 'taken', takenAt: now, takenBy: by, handTakenAt: now })
       try {
-        if (taken.length > 0) await write.outbox(taken.map(message => ({ id: message.id, state: 'taken', takenAt: now, takenBy: by })))
+        if (taken.length > 0) await write.outbox(taken.map(message => ({ id: message.id, state: 'taken', takenAt: now, takenBy: by, handTakenAt: now })))
       } catch (error) {
         for (const message of taken) {
           message.state = 'waiting'
@@ -219,7 +220,7 @@ function storeOver(lines, messages, alive, write) {
         && now - message.failedAt >= afterMs && !isLate(message, now, keep))
       const sent = []
       for (const message of again) {
-        const { takenAt, takenBy, backFrom, failedAt, why, retriedAs, failedSession, stoppedAt, stoppedSession, ...rest } = message
+        const { takenAt, takenBy, handTakenAt, backFrom, failedAt, why, retriedAs, failedSession, stoppedAt, stoppedSession, ...rest } = message
         const copy = { ...rest, id: newId(), state: 'waiting', retryOf: message.id }
         message.retriedAs = copy.id
         messages.push(copy)
@@ -250,7 +251,7 @@ function storeOver(lines, messages, alive, write) {
         if (message.to !== to || message.state !== 'taken') continue
         if (typed.includes(message.id)) changed.push(Object.assign(message, { state: 'delivered', deliveredAt: now }))
         else if (failed.includes(message.id) && !refused.includes(message.id) && isStoppedWhy(why[message.id])) {
-          const { takenAt, takenBy, backFrom, failedAt, why: _why, retriedAs, failedSession, stoppedAt, stoppedSession, ...rest } = message
+          const { takenAt, takenBy, handTakenAt, backFrom, failedAt, why: _why, retriedAs, failedSession, stoppedAt, stoppedSession, ...rest } = message
           const copy = { ...rest, id: newId(), state: 'waiting', retryOf: message.id, stoppedAt: now, ...(session === null ? {} : { stoppedSession: session }) }
           // Not "failed": nothing failed for good, and the word that stands for it waits.
           changed.push(Object.assign(message, { state: 'stopped', failedAt: now, tries: message.tries ?? 0, why: why[message.id], retriedAs: copy.id }))
@@ -283,7 +284,7 @@ function storeOver(lines, messages, alive, write) {
         && Number.isFinite(message.failedAt) && now - message.failedAt < dayMs && !isLate(message, now, keep))
       const sent = []
       for (const message of again) {
-        const { takenAt, takenBy, backFrom, failedAt, why, retriedAs, failedSession, stoppedAt, stoppedSession, ...rest } = message
+        const { takenAt, takenBy, handTakenAt, backFrom, failedAt, why, retriedAs, failedSession, stoppedAt, stoppedSession, ...rest } = message
         const copy = { ...rest, id: newId(), state: 'waiting', retryOf: message.id, revivedFor: sessions.get(message.to) }
         message.retriedAs = copy.id
         messages.push(copy)

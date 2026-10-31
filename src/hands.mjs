@@ -53,9 +53,15 @@ export const HANDS_FIRST_MS = 60_000
  */
 export const HAND_HOLD_MS = 3 * 60_000
 
-/** B880: the ids of the words a hand took (`takenBy`; a chat's own take names none) and has held for HAND_HOLD_MS or longer. */
+/**
+ * B880: whether a hand took the word last (`takenBy`, and its take's own time `handTakenAt` the word's `takenAt`): a chat's own
+ * take sets a newer `takenAt`, and a retry's copy made before B880 kept an old hand's `takenBy`, so the name alone does not say.
+ */
+export const isHandTaken = message => typeof message?.takenBy === 'string' && Number.isFinite(message.takenAt) && message.handTakenAt === message.takenAt
+
+/** B880: the ids of the words a hand holds (`isHandTaken`) and has held for HAND_HOLD_MS or longer. */
 export const heldTooLong = (outbox, now) => outbox
-  .filter(message => message.state === 'taken' && typeof message.takenBy === 'string' && Number.isFinite(message.takenAt) && now - message.takenAt >= HAND_HOLD_MS)
+  .filter(message => message.state === 'taken' && isHandTaken(message) && now - message.takenAt >= HAND_HOLD_MS)
   .map(message => message.id)
 
 /**

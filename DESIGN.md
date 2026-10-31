@@ -2398,6 +2398,11 @@ slowest answered in 45 s; this the only one held longer, and the only "no sessio
    said nothing of goes back at every refresh and every claim (outboxSweep.mjs `giveBackHeld`, one line in the board's log),
    for a hand whose process ended or a mod without the patience. The words go back in their hand's name (`backFrom`); a
    chat's own take and a retry's copy name no hand (`takenBy` null, as the log keeps a field a later line leaves out).
+   A hand's take is marked by its own time (`handTakenAt` equal to `takenAt`, `isHandTaken`): on the live board the first
+   version took a retry's copy made before B880, which kept an old hand's name, for a hand's, and gave back words chats had
+   taken hours before. Each word is judged again right before it goes back, with no wait between: the first version gave
+   back a "start Supervisor" a hand had just taken anew (judged held a moment before), and a second hand sent it too
+   (13:44); `giveBackHeld` now leaves a word taken anew to its hand.
 4. **A start word for a chat on the board is moot** (`isMootSpawn`): a spawn that names its chat (`about`: the Product
    owner's routine; a worker's spawn names none) whose chat is on the board now is taken by no hand and closed, at a claim
    and by the sweep, waiting or failed ("Product owner is on the board now"); rule 8 judges it the same (the view's `owner`).

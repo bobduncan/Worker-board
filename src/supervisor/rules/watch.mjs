@@ -29,6 +29,7 @@ import { readingAgeMinutes } from '../../limits.mjs'
 import { BOUNDED_RULES, COUNTS_BY_KEY } from './repair.mjs'
 import { BOARD_TRIES } from '../../refineGate.mjs'
 import { DEAF_KEEP_MS } from '../../hearing.mjs'
+import { isHandTaken } from '../../hands.mjs'
 
 const MIN = 60_000
 const HOUR = 60 * MIN
@@ -464,7 +465,7 @@ function undelivered(view) {
 }
 
 /** B880: whose mod holds a word a hand took (", held by Worker 2's mod"), or failed it; '' for a chat's own take. */
-const handOf = word => (typeof word.takenBy !== 'string' ? '' : word.state === 'taken' ? `, held by ${word.takenBy}'s mod` : word.state === 'failed' ? ` by ${word.takenBy}'s mod` : '')
+const handOf = word => (!isHandTaken(word) ? '' : word.state === 'taken' ? `, held by ${word.takenBy}'s mod` : word.state === 'failed' ? ` by ${word.takenBy}'s mod` : '')
 
 /** B813: a failure's why on one line, cut to fit the evidence. */
 const shortWhy = why => {
@@ -510,7 +511,7 @@ export function undeliveredWords(view) {
     const since = afterPause(view, Number.isFinite(message.releasedAt) ? Math.max(held, message.releasedAt) : held)
     if (message.state === 'waiting') return view.now - since > limit && stillWaits(message)
     // B880: a word a hand took and still holds (its call gave no answer): named as one that waits, with the hand.
-    if (message.state === 'taken' && typeof message.takenBy === 'string') return view.now - since > limit && stillWaits(message)
+    if (message.state === 'taken' && isHandTaken(message)) return view.now - since > limit && stillWaits(message)
     return (message.state === 'expired' || isFailedForGood(message)) && view.now - message.at < UNDELIVERED_LOOK_MS && view.now - since > limit && stillWaits(message)
   })
 }
