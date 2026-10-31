@@ -71,7 +71,7 @@ const realLines = ago => [
   { id: ID, at: NOW - (ago + 1) * MIN, to: 'Main', ask: null, step: null, title: null, version: null, verdict: null, command: 'spawn', count: 1, why: 'owner', about: 'Product owner',
     routine: { role: 'owner', title: 'Game - Product owner', tasks: ['project-product-owner', 'project-product-owner-2'] },
     text: 'start the Product owner\nIts chat "Game - Product owner" is not on the board, and the person\'s talks wait for it.', state: 'waiting' },
-  { id: ID, state: 'taken', takenAt: NOW - ago * MIN, takenBy: 'Worker 2' },
+  { id: ID, state: 'taken', takenAt: NOW - ago * MIN, takenBy: 'Worker 2', handTakenAt: NOW - ago * MIN },
 ]
 
 /** A board over the made-up project; with `owner`, the Product owner's chat is on it. */
