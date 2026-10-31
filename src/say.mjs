@@ -177,15 +177,15 @@ const syncWords = (to, lane, state) => {
   }
 }
 /** Focus 2: the first line of each word of the Focus page to the partner (spec 2026-10-18, section 6). */
-const FOCUS_HEADS = { 'vibe-agreed': 'vibe: agreed', 'vibe-not-yet': 'vibe: not yet', 'how-go': 'how: go', 'how-not-yet': 'how: not yet', 'vibe-there-yes': 'vibe there: yes', 'vibe-there-no': 'vibe there: no', undo: 'undo:', talk: 'talk:', 'done-when': 'done when:', 'goal-recheck': 'goal re-check:', 'goal-demo': 'goal demo:' }
+const FOCUS_HEADS = { 'vibe-agreed': 'goal definition: agreed', 'vibe-not-yet': 'goal definition: not yet', 'how-go': 'how: go', 'how-not-yet': 'how: not yet', 'vibe-there-yes': 'goal definition there: yes', 'vibe-there-no': 'goal definition there: no', undo: 'undo:', talk: 'talk:', 'done-when': 'done when:', 'goal-recheck': 'goal re-check:', 'goal-demo': 'goal demo:' }
 export const FOCUS_COMMANDS = ['focus', ...Object.keys(FOCUS_HEADS)]
 
 /**
  * Focus 2 (spec 2026-10-18, sections 3 and 6): the person's word from the Focus page to the partner (the chat the
  * setting `advisor` names), typed as the person's own. `focus: G<n> <title>` with the talk's thread, the stage it stands
- * at and the partner's job; `vibe: agreed`, `vibe: not yet`, `how: go`, `how: not yet` with the goal and the thread,
+ * at and the partner's job; `goal definition: agreed`, `goal definition: not yet`, `how: go`, `how: not yet` with the goal and the thread,
  * the not-yets with the person's words. The board made the change in goals.md before (src/focus.mjs). Focus 3:
- * `vibe there: yes` and `vibe there: no` (with the words) likewise; `undo: <line>` with the goal and the daily note.
+ * `goal definition there: yes` and `goal definition there: no` (with the words) likewise; `undo: <line>` with the goal and the daily note.
  * Focus 4: `talk: <words>` with the goal and the thread, from the run's talk bar while the partner has the turn.
  * B354: `done when: G<n> <title>` with the partner's job (and the person's `Words:` for a goal they just wrote): write
  * the goal's Done when line, so it can become the focus and get its tick.
@@ -199,9 +199,9 @@ export function focusWords(command, { to, goal, thread, stage = null, words = nu
     // Focus 4: the person's words from the run's talk bar while the partner has the turn.
     : command === 'talk' ? [`talk: ${String(words).replace(/\s+/g, ' ').trim()}`, `Goal: ${about}`, `Thread: ${thread}`]
     : command === 'done-when' ? [`done when: ${about}`, ...(words === null ? [] : [`Words: ${String(words).replace(/\s+/g, ' ').trim()}`]), `Your job: ${job}, "Done when"`]
-    // B358: the goal's re-check before its tick, against its Done when and its vibe.
+    // B358: the goal's re-check before its tick, against its Done when and its goal definition.
     // Work blocks (2026-10-31): a goal without its one line is checked against its blocks' done-when lines.
-    : command === 'goal-recheck' ? [`goal re-check: ${about}`, `Done when: ${doneWhenText(goal).replace(/\s+/g, ' ').trim()}`, ...((goal.vibe ?? []).length === 0 ? [] : [`Vibe: ${goal.vibe.map(one => String(one).replace(/\s+/g, ' ').trim()).join(' · ')}`]), `Your job: ${job}, "The goal re-check"`]
+    : command === 'goal-recheck' ? [`goal re-check: ${about}`, `Done when: ${doneWhenText(goal).replace(/\s+/g, ' ').trim()}`, ...((goal.vibe ?? []).length === 0 ? [] : [`Goal definition: ${goal.vibe.map(one => String(one).replace(/\s+/g, ' ').trim()).join(' · ')}`]), `Your job: ${job}, "The goal re-check"`]
     // B677: the goal demo before "Did we reach the goal?": the list and the picture, then its Demo line (`again` the number of the word).
     : command === 'goal-demo' ? [`goal demo: ${about}${words === null ? '' : ` (again: ${words === 'by you' ? 'you asked' : `word ${words}`})`}`, `Done when: ${doneWhenText(goal).replace(/\s+/g, ' ').trim()}`, `Your job: ${job}, "The goal demo"`]
     : [FOCUS_HEADS[command], `Goal: ${about}`, `Thread: ${thread}`, ...(words === null ? [] : [`Words: ${String(words).replace(/\s+/g, ' ').trim()}`])]

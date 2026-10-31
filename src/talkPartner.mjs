@@ -25,9 +25,9 @@ export const TALK_PART = 'How a talk goes'
 /**
  * The board's words that belong to a talk with the person: every word of a brainstorm (also "Change this goal", whose start
  * is a `brainstorm` with `Kind: change`, and the board's own fix and stranded words about a talk's question), and of the Focus
- * page's talk: the goal picked as the focus (`focus:`), the talk bar (`talk:`), the person's "not yet" on the vibe, the vibe
+ * page's talk: the goal picked as the focus (`focus:`), the talk bar (`talk:`), the person's "not yet" on the goal definition, the goal definition
  * agreed and the "not yet" on the how (the how is talked through in the same thread), and the ask for a goal's Done when.
- * Go on the how (the steps made refined), "Is the vibe there?", the re-check, the demo and an Undo of the daily note are no
+ * Go on the how (the steps made refined), "Did we reach the goal?", the re-check, the demo and an Undo of the daily note are no
  * talk: they stay with the partner, with the refines, the result checks, the incidents and the recaps.
  */
 export const TALK_COMMANDS = Object.freeze([

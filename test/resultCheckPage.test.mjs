@@ -45,8 +45,9 @@ const GOALS = [
   '',
   '- [~] G6 A garden at dusk',
   '    Done when: every path is lit after dark',
-  '    Vibe: warm',
-  '    Vibe agreed: 2026-10-19 08:00',
+  // Goal definition (2026-10-31): the goal's lines are named `Goal definition…` now (they were `Vibe…`); the fixture is written as the board writes it.
+  '    Goal definition: warm',
+  '    Goal definition agreed: 2026-10-19 08:00',
   '    Part: The lamps · about 1 h · steps B2, B3',
   '    How agreed: 2026-10-19 08:30',
   '',

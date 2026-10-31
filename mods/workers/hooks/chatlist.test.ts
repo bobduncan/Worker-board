@@ -78,6 +78,8 @@ type World = {
   pauseReads: number
   /** The description each tool was registered with, by its name. */
   descriptions: Record<string, string>
+  /** Goal definition (2026-10-31): the input schema each tool was registered with, by its name. */
+  schemas: Record<string, unknown>
   /** B412: each work call's request id (its X-Work-Request header); the next calls whose answer is cut off, by why; an
    * answer the board holds until the test lets it go. */
   requests: string[]
@@ -133,7 +135,7 @@ async function settle(): Promise<void> {
 }
 
 function world(id: string, files: Record<string, string> = {}): World {
-  return { id, files, agents: [], tools: [], opened: [], sent: [], whileAsked: null, waiting: [], takeAnswers: [], fetched: [], typedIn: [], reported: [], refusesTyping: false, up: null, spawned: [], comesUp: true, tokens: 50_000, refusesCompact: false, isHeadless: false, commanded: [], compactions: [], toasts: [], worked: [], workAnswer: { status: 200, text: '{"text":"Yours, Units:"}' }, formAnswers: {}, workAnswers: [], formResponse: null, formCloses: false, hangs: false, takeHangs: false, contexts: [], workedAt: [], pauseAnswer: RUNNING, pauseReads: 0, descriptions: {}, stored: {}, requests: [], cuts: [], held: null, byAction: {}, holdAction: null, sequence: [], holdCompact: null, writes: [], modHeaders: [], reports: [], formHold: null, reportsAtClear: [], whoamis: [], whoami: { name: null, role: null, card: null }, whoamiAnswer: null, whoamiHeaders: [], whoamiHangs: false, order: [] }
+  return { id, files, agents: [], tools: [], opened: [], sent: [], whileAsked: null, waiting: [], takeAnswers: [], fetched: [], typedIn: [], reported: [], refusesTyping: false, up: null, spawned: [], comesUp: true, tokens: 50_000, refusesCompact: false, isHeadless: false, commanded: [], compactions: [], toasts: [], worked: [], workAnswer: { status: 200, text: '{"text":"Yours, Units:"}' }, formAnswers: {}, workAnswers: [], formResponse: null, formCloses: false, hangs: false, takeHangs: false, contexts: [], workedAt: [], pauseAnswer: RUNNING, pauseReads: 0, descriptions: {}, schemas: {}, stored: {}, requests: [], cuts: [], held: null, byAction: {}, holdAction: null, sequence: [], holdCompact: null, writes: [], modHeaders: [], reports: [], formHold: null, reportsAtClear: [], whoamis: [], whoami: { name: null, role: null, card: null }, whoamiAnswer: null, whoamiHeaders: [], whoamiHangs: false, order: [] }
 }
 
 /** The project's list of chats, with the titles that join by themselves. */
@@ -173,6 +175,7 @@ function stand(on: On, w: World): void {
   on('tool.register', (_$, e) => {
     w.tools.push(`${e.name}:${String(e.isDeferred)}`)
     w.descriptions[e.name] = e.description
+    w.schemas[e.name] = (e as { inputSchema?: unknown }).inputSchema
 
     return { value: { tool: `mcp__workers__${e.name}` } }
   })
@@ -1367,18 +1370,45 @@ describe('B297: the work tool asks the worker board', () => {
     expect(w.worked.length).toBe(1)
   })
 
-  test('Focus 2: the partner keeps its drafts with vibe-draft and how-draft, their fields sent to the board', async ($, on) => {
+  // Goal definition (2026-10-31): the draft of the goal definition is `definition-draft`, the board's answer says "goal definition";
+  // the old name `vibe-draft` is still an action of the tool and is sent to the board as it was given (the board maps it).
+  test('Focus 2: the partner keeps its drafts with definition-draft (once vibe-draft) and how-draft, their fields sent to the board', async ($, on) => {
     mock.clock(on)
     const w = world('units', { ...listed(), [BOARD]: board })
     stand(on, w)
     await startedAs($, w, 'Units')
     await $.turn.start({ text: 'go', turnId: 't1' })
-    w.workAnswer = { status: 200, text: JSON.stringify({ text: 'The board keeps the vibe of G6.' }) }
-    const vibe = await $.tool.call({ tool: WORK, action: 'vibe-draft', goal: 'G6', lines: ['hits feel heavy'], picture: 'pictures/hit.png' } as never)
-    expect((vibe as { result: string }).result).toBe('The board keeps the vibe of G6.')
-    expect(JSON.parse(w.worked[0] ?? '{}')).toEqual({ action: 'vibe-draft', goal: 'G6', lines: ['hits feel heavy'], picture: 'pictures/hit.png', chat: 'Units', session: 'units' })
-    await $.tool.call({ tool: WORK, action: 'how-draft', goal: 'G6', parts: ['Hit effects · about 2 h · steps B20'], partnerDecides: ['the colours'], youDecide: ['the sounds'] } as never)
-    expect(JSON.parse(w.worked[1] ?? '{}')).toEqual({ action: 'how-draft', goal: 'G6', parts: ['Hit effects · about 2 h · steps B20'], partnerDecides: ['the colours'], youDecide: ['the sounds'], chat: 'Units', session: 'units' })
+    w.workAnswer = { status: 200, text: JSON.stringify({ text: 'The board keeps the goal definition of G6.' }) }
+    const definition = await $.tool.call({ tool: WORK, action: 'definition-draft', goal: 'G6', lines: ['hits feel heavy'], picture: 'pictures/hit.png' } as never)
+    expect((definition as { result: string }).result).toBe('The board keeps the goal definition of G6.')
+    expect(JSON.parse(w.worked[0] ?? '{}')).toEqual({ action: 'definition-draft', goal: 'G6', lines: ['hits feel heavy'], picture: 'pictures/hit.png', chat: 'Units', session: 'units' })
+    await $.tool.call({ tool: WORK, action: 'how-draft', goal: 'G6', parts: ['Hit effects · about 2 h · done when: the hit shows · steps B20'], partnerDecides: ['the colours'], youDecide: ['the sounds'] } as never)
+    expect(JSON.parse(w.worked[1] ?? '{}')).toEqual({ action: 'how-draft', goal: 'G6', parts: ['Hit effects · about 2 h · done when: the hit shows · steps B20'], partnerDecides: ['the colours'], youDecide: ['the sounds'], chat: 'Units', session: 'units' })
+    // The old name still works: it reaches the board as it was given.
+    const old = await $.tool.call({ tool: WORK, action: 'vibe-draft', goal: 'G6', lines: ['hits feel heavy'] } as never)
+    expect((old as { result: string }).result).toBe('The board keeps the goal definition of G6.')
+    expect(JSON.parse(w.worked[2] ?? '{}')).toEqual({ action: 'vibe-draft', goal: 'G6', lines: ['hits feel heavy'], chat: 'Units', session: 'units' })
+  })
+
+  // Goal definition (2026-10-31): the tool's text and its fields say "goal definition" (the old action name apart), and the
+  // how-draft's parts are work blocks with a done-when line.
+  test('the work tool names the goal definition in its description and fields, and its parts are work blocks', async ($, on) => {
+    mock.clock(on)
+    const w = world('units', { ...listed(), [BOARD]: board })
+    stand(on, w)
+    await startedAs($, w, 'Units')
+    const description = w.descriptions.work ?? ''
+    expect(description).toContain('"definition-draft" ("goal", "lines", "picture"; its old name "vibe-draft" still works)')
+    expect(description).toContain("keeps its draft of the focus goal's goal definition and how on the board")
+    const fields = (w.schemas.work as { properties: Record<string, { description?: string; enum?: string[] }> }).properties
+    expect(fields.action?.enum).toContain('definition-draft')
+    expect(fields.action?.enum).toContain('vibe-draft')
+    expect(fields.goal?.description).toContain('definition-draft, how-draft: the focus goal.')
+    expect(fields.picture?.description).toContain("definition-draft: the goal definition's picture.")
+    expect(fields.lines?.description).toContain('definition-draft: three to five short lines of the goal definition')
+    expect(fields.parts?.description).toBe('how-draft: the work blocks, each `<title> · about <N> h · done when: <line>`, with ` · steps B1, B2` once made.')
+    // No other word "vibe" is left in what a chat reads, but the old action name.
+    expect(JSON.stringify([description, fields]).replaceAll('vibe-draft', '').toLowerCase()).not.toContain('vibe')
   })
 
   test('the supervisor: its chat reads the health summary and files an incident, with its fields sent to the board', async ($, on) => {
@@ -1435,8 +1465,8 @@ describe('B297: the work tool asks the worker board', () => {
     await startedAs($, w, 'Units')
     await $.turn.start({ text: 'go', turnId: 't1' })
     w.workAnswer = { status: 200, text: JSON.stringify({ text: 'Q12 answered for the person: B. It stands in your daily note N7 with an Undo.' }) }
-    expect((await $.tool.call({ tool: WORK, action: 'partner-answer', id: 'Q12', text: 'B', why: 'the advice fits the vibe' } as never)).result).toBe('Q12 answered for the person: B. It stands in your daily note N7 with an Undo.')
-    expect(JSON.parse(w.worked[0] ?? '{}')).toEqual({ action: 'partner-answer', id: 'Q12', text: 'B', why: 'the advice fits the vibe', chat: 'Units', session: 'units' })
+    expect((await $.tool.call({ tool: WORK, action: 'partner-answer', id: 'Q12', text: 'B', why: 'the advice fits the goal definition' } as never)).result).toBe('Q12 answered for the person: B. It stands in your daily note N7 with an Undo.')
+    expect(JSON.parse(w.worked[0] ?? '{}')).toEqual({ action: 'partner-answer', id: 'Q12', text: 'B', why: 'the advice fits the goal definition', chat: 'Units', session: 'units' })
     w.workAnswer = { status: 200, text: JSON.stringify({ text: 'Q13 goes to the person: a new screen.' }) }
     await $.tool.call({ tool: WORK, action: 'escalate', id: 'Q13', why: 'a new screen' } as never)
     expect(JSON.parse(w.worked[1] ?? '{}')).toEqual({ action: 'escalate', id: 'Q13', why: 'a new screen', chat: 'Units', session: 'units' })

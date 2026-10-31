@@ -31,8 +31,9 @@ const GOALS = [
   '- [~] G2 Round shapes',
   '    Done when: the cliffs read round',
   '    Demo: art/g2/demo.png · the cliffs',
-  '    Vibe: soft edges',
-  '    Vibe agreed: 2026-10-18 10:00',
+  // Goal definition (2026-10-31): the goal's lines are named `Goal definition…` now (they were `Vibe…`); the fixture is written as the board writes it.
+  '    Goal definition: soft edges',
+  '    Goal definition agreed: 2026-10-18 10:00',
   '    Part: Cliffs and edges · about 2 h · steps B1, B2',
   '    Part: Round shapes · 1 h · steps B3',
   '    Part: The loop · 30 min · steps B4',

@@ -48,19 +48,19 @@ quick); you never set your own.
 ## How a talk goes
 
 The board types every word of a talk with the person into your chat (`src/talkPartner.mjs` `TALK_COMMANDS`): the
-brainstorm's, "Change this goal"'s and the Focus page's talk (the goal picked, the talk bar, the vibe and the how talked
+brainstorm's, "Change this goal"'s and the Focus page's talk (the goal picked, the talk bar, the goal definition and the how talked
 through, a Done when asked). While the list of chats names no Product owner, the partner gets them and does the talks
 as this part says. "You" below is whoever has the talk; "the user" is the person. Go on the how (`how: go`, the steps
-made refined), "Is the vibe there?", the re-check, the demo and the daily note stay with the partner (roles/partner.md,
+made refined), "Did we reach the goal?", the re-check, the demo and the daily note stay with the partner (roles/partner.md,
 "The focus").
 
 ### The focus
 
 **Done when.** A goal becomes the focus, and gets its tick, only with a `Done when:` line under it that says how the
 user checks it is done: something that exists and can be looked at or played, a number reached, a check that passes;
-never a feeling alone (the vibe holds the feeling). The board types `done when: G<n> <title>` and `Your job: ...`
+never a feeling alone (the goal definition holds the feeling). The board types `done when: G<n> <title>` and `Your job: ...`
 (with `Words: <their words>` for a goal the user just wrote as "something new", which waits in the map without a
-focus) when the user asks you for one: their word. Read the goal, its vibe and steps if any, and the game plan once,
+focus) when the user asks you for one: their word. Read the goal, its goal definition and steps if any, and the game plan once,
 then write the one line under the goal in the map (at most 300 characters; read the file anew right before and change
 only that line). A goal of the game plan takes its line from its milestone in the plan. Say nothing in your chat: the
 user picks the goal on the Focus page once the line stands.
@@ -74,25 +74,25 @@ talk, not a form: short questions, one thing each, building on what they said. N
 **Your drafts** stand beside the talk on the page. Keep them with the work tool; each call takes the place of the
 draft the goal had, and answers one line: the board kept it, or why not.
 
-- `work vibe-draft` (`goal` G<n>, `lines`, `picture`): the vibe's short lines, and a picture's path in the project
+- `work definition-draft` (`goal` G<n>, `lines`, `picture`): the goal definition's short lines, and a picture's path in the project
   or none.
 - `work how-draft` (`goal` G<n>, `parts`, `partnerDecides`, `youDecide`): each part a work block, one line,
   "<title> · about <N> h · done when: <what is true once the block is done>" (with " · steps B<id>, B<id>" before the
   done-when part once its steps are made), then the details you settle and what you bring to the user, a line each.
 
-1. **The vibe.** `focus: G<n> <title>`, `Thread: <path>`, `Stage: the vibe`, `Your job: ...`: the user picked
+1. **The goal definition.** `focus: G<n> <title>`, `Thread: <path>`, `Stage: the goal definition`, `Your job: ...`: the user picked
    the goal (a new goal from their own words, when they wrote "something new": its title is theirs, make it 5 to 10
    words once you know more). Read the goal's lines, its steps and the game plan once, write the context head into the
    thread and the first question: when this goal is done, what should it feel like? When the goal or one of its
    sub-goals carries `Note: your choice: ...`, that choice is the first question instead (the user, 2026-10-23: the
-   direction they owe comes first), its options side by side in one picture, and the feel follows from it. Talk until the vibe is clear, and
-   keep the draft (`work vibe-draft`) after each answer that changes it: three to five short lines of what the user wants to feel when it
+   direction they owe comes first), its options side by side in one picture, and the feel follows from it. Talk until the goal definition is clear, and
+   keep the draft (`work definition-draft`) after each answer that changes it: three to five short lines of what the user wants to feel when it
    is done, one `Not in it: ...` line, and a picture where it helps (one in the project's picture folder, all options
    side by side when there are options). **Nothing is built in this move**: no steps, no suggestions, no queue. When
-   the draft holds, ask in the thread whether it is the vibe; the user confirms with "This is the goal definition" on the board.
-   `vibe: not yet` with `Words: ...`: what is missing, in their words: change the draft and ask on.
-2. **The how.** `vibe: agreed`, `Goal: G<n> <title>`, `Thread: <path>`: propose at once the work blocks that reach the
-   vibe: three to six, each one line with its size (about N h; over about 4 h cut it) and its done-when line (what is
+   the draft holds, ask in the thread whether it is the goal definition; the user confirms with "This is the goal definition" on the board.
+   `goal definition: not yet` with `Words: ...`: what is missing, in their words: change the draft and ask on.
+2. **The how.** `goal definition: agreed`, `Goal: G<n> <title>`, `Thread: <path>`: propose at once the work blocks that reach the
+   goal definition: three to six, each one line with its size (about N h; over about 4 h cut it) and its done-when line (what is
    true once the block is done, checkable alone: something that exists and can be looked at or played, a number, a
    check that passes), in the order they are best done, and what you decide yourself (`partnerDecides`) versus bring to
    the user (`youDecide`, at most three). The user's Go stays off while a block has no done-when line. As the
@@ -105,11 +105,11 @@ draft the goal had, and answers one line: the board kept it, or why not.
 open, the board writes their words under it as the answer and types `brainstorm answer`, as always; when no talk
 runs, it starts one with their words as the opening and types `brainstorm`. While you have the turn it types
 `talk: <words>`, `Goal: G<n> <title>`, `Thread: <path>`: their words, not yet in the thread: take them into your
-next question there, or act on them (a detail you settle, an ask, a change to the how through `vibe there` only when
-they say the vibe is not there).
+next question there, or act on them (a detail you settle, an ask, a change to the how through `goal definition there` only when
+they say the goal definition is not there).
 
 Say nothing in your chat about the focus: the user reads and answers on the board. Your card's line while you work:
-"Focus G<n>: the vibe" (or "the how", "steps").
+"Focus G<n>: the goal definition" (or "the how", "steps").
 
 ### A brainstorm
 
@@ -132,7 +132,7 @@ only the thread and your chat stays small. Then write the first question at the 
     - B: <option>
     Picture: <path>     (only when the question is visual: one picture of every option side by side, in the project's picture folder)
 
-The board shows the first line as the bold title and the `Context:` line (it may run on over plain lines until `Why:` or an option) as normal text under it, as an ask's window does (B452, B475), so the title is ONE line, and never put the goal's parents, siblings or numbers into it: a title over 12 words is flagged as a problem of the thread. A question without a `Context:` line (an older one) shows its first question or sentence as the title and the rest as context. Example: `Is this the vibe of G42?` then `Context: G42 sits under the maps goal; G41 beside it is the foundation. Your answer decides whether the how starts from this picture.`
+The board shows the first line as the bold title and the `Context:` line (it may run on over plain lines until `Why:` or an option) as normal text under it, as an ask's window does (B452, B475), so the title is ONE line, and never put the goal's parents, siblings or numbers into it: a title over 12 words is flagged as a problem of the thread. A question without a `Context:` line (an older one) shows its first question or sentence as the title and the rest as context. Example: `Is this the goal definition of G42?` then `Context: G42 sits under the maps goal; G41 beside it is the foundation. Your answer decides whether the how starts from this picture.`
 
 A title over 12 words, or none, is refused as an ask's is (B491): the board types `brainstorm fix`, `Thread:` and why at once; rewrite that open question in the thread (title, then `Context:`) and write nothing else.
 

@@ -23,8 +23,9 @@ const GOALS = [
   'Focus: G2',
   '',
   '- [~] G2 Fights you can read',
-  '    Vibe: you see the damage before you click',
-  '    Vibe agreed: 2026-10-18 10:00',
+  // Goal definition (2026-10-31): the goal's lines are named `Goal definition…` now (they were `Vibe…`); the fixture is written as the board writes it.
+  '    Goal definition: you see the damage before you click',
+  '    Goal definition agreed: 2026-10-18 10:00',
   '    Part: Show the damage · about 1 h · steps B1, B2',
   '    Part: Heavier hits · 2 h · steps B3',
   '    Part: The run map · 1 h · steps B4, B5',

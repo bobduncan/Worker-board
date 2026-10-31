@@ -1,4 +1,4 @@
-// Focus 2 (spec 2026-10-18, sections 3, 5 and 6): the vibe and how moves. Picking a focus, agreeing a vibe and a how
+// Focus 2 (spec 2026-10-18, sections 3, 5 and 6): the goal definition and how moves. Picking a focus, agreeing a goal definition and a how
 // (POST /api/goals), each written into goals.md by id with the words the board types to the partner, and the partner's
 // drafts. The handler runs on a fake file system; made-up names only.
 import assert from 'node:assert/strict'
@@ -59,7 +59,7 @@ const ctx = (fs, extra = {}) => ({
 })
 const mapOf = fs => parseGoals(utf8(fs.files[MAP]))
 const threadsOf = fs => Object.keys(fs.files).filter(path => path.startsWith(`${DIR}/`)).map(path => ({ path, thread: parseThread(utf8(fs.files[path])) }))
-/** A map whose focus G2 is in the vibe stage, with a draft written by the partner. */
+/** A map whose focus G2 is in the goal definition stage, with a draft written by the partner. */
 async function inVibe() {
   const fs = fakeFs({ [MAP]: latin(GOALS) })
   await focusMove({ command: 'focus', id: 'G2' }, ctx(fs))
@@ -95,7 +95,8 @@ test('picking a focus writes Focus:, starts the goal\'s thread and links it, and
   assert.deepEqual(mapOf(fs).byId.get('G2').brainstorm, { path: picked.result.thread, state: 'running' })
   assert.deepEqual(picked.words, {
     to: 'Partner', ask: null, step: null, title: null, version: null, verdict: null, command: 'focus', about: 'G2',
-    text: `focus: G2 Benches that feel like home\nThread: ${picked.result.thread}\nStage: the vibe\nYour job: C:/board/roles/partner.md, "The focus"`,
+    // Goal definition (2026-10-31): the words people and chats read say "goal definition" where they said "vibe".
+    text: `focus: G2 Benches that feel like home\nThread: ${picked.result.thread}\nStage: the goal definition\nYour job: C:/board/roles/partner.md, "The focus"`,
   })
   // The same pick again (a double click): nothing new, no second word.
   const again = await focusMove({ command: 'focus', id: 'G2' }, ctx(fs))
@@ -111,7 +112,8 @@ test('a goal with a running thread reuses it; another focus replaces the line; a
   assert.equal(threadsOf(fs).length, 2)
   assert.equal(mapOf(fs).focus, 'G4')
   assert.equal(utf8(fs.files[MAP]).match(/^Focus:/gm).length, 1)
-  assert.match(lanterns.words.text, /^focus: G4 Lanterns\nThread: talks\/2026-10-17-lanterns\.md\nStage: the vibe\n/)
+  // Goal definition (2026-10-31): the words people and chats read say "goal definition" where they said "vibe".
+  assert.match(lanterns.words.text, /^focus: G4 Lanterns\nThread: talks\/2026-10-17-lanterns\.md\nStage: the goal definition\n/)
   assert.equal((await focusMove({ command: 'focus', id: 'G3' }, ctx(fs))).status, 409)
   assert.equal((await focusMove({ command: 'focus', id: 'G9' }, ctx(fs))).status, 409)
   assert.equal((await focusMove({ command: 'focus' }, ctx(fs))).status, 400)
@@ -142,7 +144,8 @@ test('a move needs a partner on the board and a board that writes; a goal map no
   assert.equal(mapOf(fs).focus, null)
 })
 
-test('the partner\'s drafts: the vibe\'s lines and picture, the how\'s parts; an agreed vibe is not drafted again', async () => {
+// Goal definition (2026-10-31): the words people and chats read say "goal definition" where they said "vibe".
+test('the partner\'s drafts: the goal definition\'s lines and picture, the how\'s parts; an agreed goal definition is not drafted again', async () => {
   const fs = await inVibe()
   const node = mapOf(fs).byId.get('G2')
   assert.deepEqual([node.vibe, node.vibePicture], [['you sit down without thinking', 'warm wood, never metal'], 'pictures/bench.png'])
@@ -150,7 +153,7 @@ test('the partner\'s drafts: the vibe\'s lines and picture, the how\'s parts; an
   assert.equal((await focusMove({ command: 'vibe-draft', id: 'G9', lines: ['x'] }, ctx(fs))).status, 404)
   await focusMove({ command: 'vibe-agree', id: 'G2' }, ctx(fs))
   const late = await focusMove({ command: 'vibe-draft', id: 'G2', lines: ['something else'] }, ctx(fs))
-  assert.deepEqual([late.status, late.why], [409, 'The vibe is agreed: talk about the how now.'])
+  assert.deepEqual([late.status, late.why], [409, 'The goal definition is agreed: talk about the how now.'])
   const how = { parts: [{ title: 'Draw the bench', size: 'about 1 h' }, { title: 'Place them', size: '30 min' }], partnerDecides: ['the wood\'s colour'], youDecide: ['how many benches'] }
   const drafted = await focusMove({ command: 'how-draft', id: 'G2', ...how }, ctx(fs))
   assert.deepEqual([drafted.ok, drafted.words], [true, null])
@@ -159,25 +162,28 @@ test('the partner\'s drafts: the vibe\'s lines and picture, the how\'s parts; an
   assert.equal((await focusMove({ command: 'how-draft', id: 'G2', parts: 'x' }, ctx(fs))).status, 400)
 })
 
-test('"This is the vibe" writes Vibe agreed once and types vibe: agreed once, also for two clicks at the same time (Review Focus 3)', async () => {
+// Goal definition (2026-10-31): the words people and chats read say "goal definition" where they said "vibe".
+test('"This is the goal definition" writes Goal definition agreed once and types goal definition: agreed once, also for two clicks at the same time (Review Focus 3)', async () => {
   const fs = await inVibe()
   const both = await Promise.all([focusMove({ command: 'vibe-agree', id: 'G2' }, ctx(fs)), focusMove({ command: 'vibe-agree', id: 'G2' }, ctx(fs))])
   assert.ok(both.every(one => one.ok))
   const words = both.map(one => one.words).filter(one => one !== null)
   assert.equal(words.length, 1)
-  assert.equal(utf8(fs.files[MAP]).match(/Vibe agreed:/g).length, 1)
+  // Goal definition (2026-10-31): the goal's lines are named `Goal definition…` now (they were `Vibe…`); the fixture is written as the board writes it.
+  assert.equal(utf8(fs.files[MAP]).match(/Goal definition agreed:/g).length, 1)
   assert.equal(mapOf(fs).byId.get('G2').vibeAgreed, '2026-10-18 14:05')
   const thread = mapOf(fs).byId.get('G2').brainstorm.path
-  assert.deepEqual(words[0], { to: 'Partner', ask: null, step: null, title: null, version: null, verdict: null, command: 'vibe-agreed', about: 'G2', text: `vibe: agreed\nGoal: G2 Benches that feel like home\nThread: ${thread}` })
+  assert.deepEqual(words[0], { to: 'Partner', ask: null, step: null, title: null, version: null, verdict: null, command: 'vibe-agreed', about: 'G2', text: `goal definition: agreed\nGoal: G2 Benches that feel like home\nThread: ${thread}` })
   // A third click later: nothing more.
   assert.equal((await focusMove({ command: 'vibe-agree', id: 'G2' }, ctx(fs))).words, null)
 })
 
-test('a vibe is agreed only on the focus, with words drafted; "Not yet" types the person\'s words and writes nothing', async () => {
+// Goal definition (2026-10-31): the words people and chats read say "goal definition" where they said "vibe".
+test('a goal definition is agreed only on the focus, with words drafted; "Not yet" types the person\'s words and writes nothing', async () => {
   const fs = fakeFs({ [MAP]: latin(GOALS) })
   await focusMove({ command: 'focus', id: 'G2' }, ctx(fs))
   const bare = await focusMove({ command: 'vibe-agree', id: 'G2' }, ctx(fs))
-  assert.deepEqual([bare.status, bare.why], [409, 'Your partner has not written the vibe yet.'])
+  assert.deepEqual([bare.status, bare.why], [409, 'Your partner has not written the goal definition yet.'])
   await focusMove({ command: 'vibe-draft', id: 'G2', lines: ['warm wood'] }, ctx(fs))
   assert.equal((await focusMove({ command: 'vibe-agree', id: 'G4' }, ctx(fs))).status, 409)
   const before = fs.files[MAP]
@@ -185,7 +191,7 @@ test('a vibe is agreed only on the focus, with words drafted; "Not yet" types th
   assert.equal(notYet.ok, true)
   assert.equal(fs.files[MAP], before)
   assert.equal(notYet.words.command, 'vibe-not-yet')
-  assert.equal(notYet.words.text, `vibe: not yet\nGoal: G2 Benches that feel like home\nThread: ${mapOf(fs).byId.get('G2').brainstorm.path}\nWords: it should feel older`)
+  assert.equal(notYet.words.text, `goal definition: not yet\nGoal: G2 Benches that feel like home\nThread: ${mapOf(fs).byId.get('G2').brainstorm.path}\nWords: it should feel older`)
   assert.equal((await focusMove({ command: 'vibe-not-yet', id: 'G2', text: ' ' }, ctx(fs))).status, 400)
   assert.equal((await focusMove({ command: 'how-go', id: 'G2' }, ctx(fs))).status, 409)
 })
@@ -235,7 +241,8 @@ test('the words are the person\'s, marked so in the chat, and a partner not runn
   const fs = await inVibe()
   const agreed = await focusMove({ command: 'vibe-agree', id: 'G2' }, ctx(fs))
   const message = { id: 'm1', at: NOW, ...agreed.words, state: 'waiting' }
-  assert.match(messageText(message, () => '14:05'), /^vibe: agreed\nGoal: G2 .+\nThread: .+\n\(typed on the worker board, 14:05\)$/)
+  // Goal definition (2026-10-31): the words people and chats read say "goal definition" where they said "vibe".
+  assert.match(messageText(message, () => '14:05'), /^goal definition: agreed\nGoal: G2 .+\nThread: .+\n\(typed on the worker board, 14:05\)$/)
   const state = { restart: { main: 'Main' }, chats: [{ name: 'Main', isRunning: true }], advisor: { name: 'Partner', isRunning: false, appSession: 'local_abc' } }
   for (const command of ['focus', 'vibe-agreed', 'vibe-not-yet', 'how-go', 'how-not-yet']) {
     const wake = wakeFor({ ...message, command }, state, [], NOW, 4000)
@@ -252,17 +259,18 @@ test('the partner keeps its drafts through the work tool (vibe-draft, how-draft)
     roleOf: chat => ({ Advisor: 'advisor', Units: 'worker', Main: 'main' })[chat] ?? null,
     goalDraft: async body => {
       drafted.push(body)
-      return body.id === 'G9' ? { ok: false, status: 409, why: 'The vibe is agreed: talk about the how now.' } : { ok: true, result: {} }
+      // Goal definition (2026-10-31): the words people and chats read say "goal definition" where they said "vibe".
+      return body.id === 'G9' ? { ok: false, status: 409, why: 'The goal definition is agreed: talk about the how now.' } : { ok: true, result: {} }
     },
   }
   const vibe = await workApi({ action: 'vibe-draft', chat: 'Advisor', goal: 'G6', lines: ['warm wood'], picture: 'pictures/bench.png' }, ctx)
-  assert.deepEqual(vibe, { ok: true, result: { text: 'The board keeps the vibe of G6 in the goal map.', changed: false } })
+  assert.deepEqual(vibe, { ok: true, result: { text: 'The board keeps the goal definition of G6 in the goal map.', changed: false } })
   assert.deepEqual(drafted[0], { command: 'vibe-draft', id: 'G6', lines: ['warm wood'], picture: 'pictures/bench.png' })
   const how = await workApi({ action: 'how-draft', chat: 'Advisor', goal: 'G6', parts: ['Draw the bench · about 1 h · steps B20'], partnerDecides: ['the colour'], youDecide: ['how many'] }, ctx)
   assert.equal(how.result.text, 'The board keeps the how of G6 in the goal map.')
   assert.deepEqual(drafted[1], { command: 'how-draft', id: 'G6', parts: ['Draw the bench · about 1 h · steps B20'], partnerDecides: ['the colour'], youDecide: ['how many'] })
   const late = await workApi({ action: 'vibe-draft', chat: 'Advisor', goal: 'G9', lines: ['x'] }, ctx)
-  assert.deepEqual([late.status, late.why], [409, 'The vibe is agreed: talk about the how now.'])
+  assert.deepEqual([late.status, late.why], [409, 'The goal definition is agreed: talk about the how now.'])
   for (const chat of ['Units', 'Main']) assert.equal((await workApi({ action: 'vibe-draft', chat, goal: 'G6', lines: ['x'] }, ctx)).status, 403, chat)
   assert.equal((await workApi({ action: 'how-draft', goal: 'G6', parts: [] }, { ...ctx, as: 'person' })).status, 403)
   assert.equal((await workApi({ action: 'vibe-draft', chat: 'Advisor', lines: ['x'] }, ctx)).status, 400)
@@ -282,13 +290,14 @@ test('a how drafted in the tool\'s words: each part "<title> · <size> · steps 
   assert.deepEqual(mapOf(fs).byId.get('G2').parts, [{ title: 'Draw the bench', size: 'about 1 h', steps: ['B20'], doneWhen: 'a bench, a seat, and a back' }])
 })
 
-test('the review\'s findings: a draft is for the focus goal only, and a how only once the vibe is agreed', async () => {
+// Goal definition (2026-10-31): the words people and chats read say "goal definition" where they said "vibe".
+test('the review\'s findings: a draft is for the focus goal only, and a how only once the goal definition is agreed', async () => {
   const fs = await inVibe()
   const other = await focusMove({ command: 'vibe-draft', id: 'G4', lines: ['bright'] }, ctx(fs))
   assert.deepEqual([other.status, other.why], [409, 'That goal is not the focus: draft only the focus goal.'])
   assert.deepEqual(mapOf(fs).byId.get('G4').vibe, [])
   const early = await focusMove({ command: 'how-draft', id: 'G2', parts: [{ title: 'Draw the bench' }] }, ctx(fs))
-  assert.deepEqual([early.status, early.why], [409, 'The vibe is not agreed yet: draft the how once the person agreed it.'])
+  assert.deepEqual([early.status, early.why], [409, 'The goal definition is not agreed yet: draft the how once the person agreed it.'])
   assert.deepEqual(mapOf(fs).byId.get('G2').parts, [])
 })
 
@@ -327,7 +336,8 @@ test('B467: a goal map Windows holds right after the pick still lets the focus w
   const picked = await focusMove({ command: 'focus', id: 'G2' }, ctx(fs))
   assert.equal(picked.ok, true, picked.why)
   assert.equal(picked.words?.command, 'focus')
-  assert.match(picked.words.text, /\nStage: the vibe\n/)
+  // Goal definition (2026-10-31): the words people and chats read say "goal definition" where they said "vibe".
+  assert.match(picked.words.text, /\nStage: the goal definition\n/)
   // What could not be written or read is said, not dropped.
   assert.ok(said.mock.calls.length >= 1)
 })

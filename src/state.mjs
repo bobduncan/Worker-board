@@ -1271,7 +1271,7 @@ function goalsUnder(goalMap, id) {
  * without a focus, or with one that is no longer in the map (the page then asks to pick one). Its stage and lines from
  * goals.md; each part's progress from its steps in the store (`items`): all finished → done; one taken, in progress,
  * waiting on the person or in review → now, with that step's owner (without the chats' `prefix`); else next. The whole: the parts
- * done of all, and the minutes the sizes of the parts not done name. `thread`: the goal's brainstorm, the vibe and how
+ * done of all, and the minutes the sizes of the parts not done name. `thread`: the goal's brainstorm, the goal definition and how
  * talk: a running thread about it first, else the one its Brainstorm line names. 2026-10-31 (B689): a part's `owner`, and
  * each step's `onIt`, is the worker whose card (`lanes`, the board's) shows one of its steps, a fix in its chain or the QA
  * task that checks one of them (`workerOn`), never a step's Owner alone; null when no card does.

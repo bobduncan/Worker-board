@@ -177,8 +177,9 @@ const GOALS = [
   '',
   '- [~] G6 A forest to walk',
   '    Done when: a player crosses the forest in five minutes',
-  '    Vibe: quiet and green',
-  '    Vibe agreed: 2026-10-18 10:00',
+  // Goal definition (2026-10-31): the goal's lines are named `Goal definition…` now (they were `Vibe…`); the fixture is written as the board writes it.
+  '    Goal definition: quiet and green',
+  '    Goal definition agreed: 2026-10-18 10:00',
   '    Part: The levels · about 2 h · steps B1, B2',
   '    Part: The wolf · 3 h · steps B3',
   '    How agreed: 2026-10-18 11:00',

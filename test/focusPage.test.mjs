@@ -1,5 +1,5 @@
 // Focus 1 (spec 2026-10-18, section 4): the Focus part of the tab, drawn read-only from goals.md for each stage: pick,
-// the vibe, the how, the run, done. The state's `focus` and the page's view models run here without the page; made-up
+// the goal definition, the how, the run, done. The state's `focus` and the page's view models run here without the page; made-up
 // names only.
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
@@ -48,11 +48,13 @@ const G2 = [
   '  - [~] G2 Benches that feel like home',
   '    Steps: B16',
   '    Brainstorm: talks/2026-10-18-benches.md (running)',
-  '    Vibe: you sit down without thinking',
-  '    Vibe: warm wood, never metal',
-  '    Vibe picture: pictures/bench.png',
+  // Goal definition (2026-10-31): the goal's lines are named `Goal definition…` now (they were `Vibe…`); the fixture is written as the board writes it.
+  '    Goal definition: you sit down without thinking',
+  '    Goal definition: warm wood, never metal',
+  '    Goal definition picture: pictures/bench.png',
 ]
-const AGREED = ['    Vibe agreed: 2026-10-18 10:00']
+// Goal definition (2026-10-31): the goal's lines are named `Goal definition…` now (they were `Vibe…`); the fixture is written as the board writes it.
+const AGREED = ['    Goal definition agreed: 2026-10-18 10:00']
 const HOW = [
   '    Part: Draw the bench · about 1 h · steps B10, B11',
   '    Part: Light the path · 2 h · steps B13, B14',
@@ -134,7 +136,8 @@ test('the head and the stage strip for each stage, as the mockups draw them', ()
   // Work blocks (2026-10-31): the strip reads "The goal", "Work blocks", "The run".
   assert.deepEqual(vibe.strip, [{ n: 1, label: 'The goal', state: 'now' }, { n: 2, label: 'Work blocks', state: 'next' }, { n: 3, label: 'The run', state: 'next' }])
   assert.equal(vibe.progress, null)
-  assert.deepEqual(vibe.vibe, { title: 'The vibe so far', sub: 'draft, written by your partner', lines: ['you sit down without thinking', 'warm wood, never metal'], picture: 'pictures/bench.png', empty: null })
+  // Goal definition (2026-10-31): the words people and chats read say "goal definition" where they said "vibe".
+  assert.deepEqual(vibe.vibe, { title: 'The goal definition so far', sub: 'draft, written by your partner', lines: ['you sit down without thinking', 'warm wood, never metal'], picture: 'pictures/bench.png', empty: null })
   // Read-only (no partner, or a board that only shows): drawn, off, with why.
   assert.deepEqual(vibe.buttons.map(one => [one.label, one.isEnabled]), [['This is the goal definition', false], ['Not yet', false]])
   assert.ok(vibe.buttons.every(one => one.title === 'This board only shows.'))
@@ -146,7 +149,8 @@ test('the head and the stage strip for each stage, as the mockups draw them', ()
   assert.deepEqual([how.how.partnerDecides, how.how.youDecide], [['the wood\'s colour'], ['how many benches']])
   assert.deepEqual(how.buttons.map(one => [one.label, one.isEnabled]), [['Go', false], ['Not yet', false]])
   // Review Focus 2: agreed by hand without its words.
-  const bare = page.focusView(stateOf(map(AGREED).replace(/ {4}Vibe: .*\n/g, '')), goalsOf(map()))
+  // Goal definition (2026-10-31): the goal's lines are named `Goal definition…` now (they were `Vibe…`); the fixture is written as the board writes it.
+  const bare = page.focusView(stateOf(map(AGREED).replace(/ {4}Goal definition: .*\n/g, '')), goalsOf(map()))
   assert.equal(bare.stage, 'how')
   assert.equal(bare.head.vibeLine, '(no words kept)')
   // Work blocks (2026-10-31): the how's parts are its work blocks.
@@ -269,9 +273,9 @@ test('Focus 2: the moves work on a board that writes, with a partner; each butto
     { label: 'This is the goal definition', act: 'vibe-agree', isEnabled: true, title: 'Agreed: your partner proposes the how next' },
     { label: 'Not yet', act: 'vibe-not-yet', isEnabled: true, title: 'Say what is missing: your partner goes on talking' },
   ])
-  // No vibe written yet: nothing to agree to.
-  const bare = page.focusView(stateOf(map().replace(/ {4}Vibe.*\n/g, '')), goalsOf(map()), CAN)
-  assert.deepEqual(bare.buttons.map(one => [one.act, one.isEnabled, one.title]), [['vibe-agree', false, 'Your partner writes the vibe here first, while you talk'], ['vibe-not-yet', true, 'Say what is missing: your partner goes on talking']])
+  // No goal definition written yet: nothing to agree to.
+  const bare = page.focusView(stateOf(map().replace(/ {4}Goal definition.*\n/g, '')), goalsOf(map()), CAN)
+  assert.deepEqual(bare.buttons.map(one => [one.act, one.isEnabled, one.title]), [['vibe-agree', false, 'Your partner writes the goal definition here first, while you talk'], ['vibe-not-yet', true, 'Say what is missing: your partner goes on talking']])
   // A how whose blocks have tasks went past Go once: Go is never held for its done-when lines.
   const how = page.focusView(stateOf(map(AGREED, HOW)), goalsOf(map()), CAN)
   assert.deepEqual(how.buttons.map(one => [one.label, one.act, one.isEnabled]), [['Go', 'how-go', true], ['Not yet', 'how-not-yet', true]])
@@ -285,7 +289,8 @@ test('Focus 2: the moves work on a board that writes, with a partner; each butto
   assert.deepEqual(page.focusView(stateOf(map(AGREED)), goalsOf(map()), CAN).buttons.map(one => one.isEnabled), [false, true])
   assert.deepEqual(page.focusView(stateOf(map(AGREED, HOW, RUN)), goalsOf(map()), CAN).buttons, [])
   const pick = page.focusView(null, goalsOf(map()), CAN)
-  assert.deepEqual([pick.pick.isEnabled, pick.pick.title], [true, 'Make it your focus: you and your partner agree its vibe first'])
+  // Goal definition (2026-10-31): the words people and chats read say "goal definition" where they said "vibe".
+  assert.deepEqual([pick.pick.isEnabled, pick.pick.title], [true, 'Make it your focus: you and your partner agree its goal definition first'])
 })
 
 test('Focus 2: the talk answers the partner\'s open question here, as the Brainstorm part does; else it says who has the turn', () => {

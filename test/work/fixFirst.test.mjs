@@ -152,8 +152,9 @@ const GOALS = [
   'Focus: G2',
   '',
   '- [~] G2 Benches that feel like home',
-  '  Vibe: you sit down without thinking',
-  '  Vibe agreed: 2026-10-18 10:00',
+  // Goal definition (2026-10-31): the goal's lines are named `Goal definition…` now (they were `Vibe…`); the fixture is written as the board writes it.
+  '  Goal definition: you sit down without thinking',
+  '  Goal definition agreed: 2026-10-18 10:00',
   '  Part: Draw the bench · about 1 h · steps B10',
   '  Part: Place them · 30 min · steps B11',
   '  How agreed: 2026-10-18 11:00',

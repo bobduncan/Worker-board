@@ -38,8 +38,9 @@ const CAN = { canWrite: true, whyNot: null }
 
 const NOW = new Date(2026, 9, 26, 9, 0).getTime()
 const HOUR = DEMO_AGAIN_MS
-const goals = extra => ['Last id: G6', 'Focus: G6', '', '- [~] G6 The polish you need to judge fun', '    Done when: you judge a fight fun in one playthrough', '    Vibe: every fight reads at a glance',
-  '    Vibe agreed: 2026-10-18 10:00', '    Part: Show damage · about 1 h · steps B1', '    How agreed: 2026-10-18 11:00', ...extra, '- [ ] G7 Lanterns', ''].join('\n')
+// Goal definition (2026-10-31): the goal's lines are named `Goal definition…` now (they were `Vibe…`); the fixture is written as the board writes it.
+const goals = extra => ['Last id: G6', 'Focus: G6', '', '- [~] G6 The polish you need to judge fun', '    Done when: you judge a fight fun in one playthrough', '    Goal definition: every fight reads at a glance',
+  '    Goal definition agreed: 2026-10-18 10:00', '    Part: Show damage · about 1 h · steps B1', '    How agreed: 2026-10-18 11:00', ...extra, '- [ ] G7 Lanterns', ''].join('\n')
 const parse = text => parseItem(text.replace(/^ +/gm, ''))
 const stepItem = (id, state) => parse(`Id: ${id}\nKind: step\nTitle: Step ${id}\nState: ${state}\nSince: 2026-10-18 09:00\n`)
 const focusOf = (extra, steps = ['done']) => focusState(parseGoals(goals(extra)), steps.map((state, at) => stepItem(`B${at + 1}`, state)), [], 'Game - ', 'Partner')

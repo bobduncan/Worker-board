@@ -158,7 +158,8 @@ test('effortBack: Go on the how, and a new focus, switch the partner back to the
 
 test('effortView: the switch\'s line and its note, as in the picture', () => {
   const off = page.effortView({ mode: 'usual', isSet: true, asked: null, labels: { usual: 'Opus 5.5, extra high', high: 'Opus 5.5, max' } })
-  assert.deepEqual({ ...off }, { isOn: false, line: 'off: Opus 5.5, extra high', isSettling: false, note: 'Flip it for the vibe and the how of a hard goal: your partner switches at its next answer.' })
+  // Goal definition (2026-10-31): the words people and chats read say "goal definition" where they said "vibe".
+  assert.deepEqual({ ...off }, { isOn: false, line: 'off: Opus 5.5, extra high', isSettling: false, note: 'Flip it for the goal definition and the how of a hard goal: your partner switches at its next answer.' })
   const switching = page.effortView({ mode: 'high', isSet: false, asked: { at, state: 'delivered' }, labels: { usual: 'Opus 5.5, extra high', high: 'Opus 5.5, max' } })
   assert.equal(switching.isOn, true)
   assert.equal(switching.line, 'on: Opus 5.5, max')

@@ -1,5 +1,5 @@
-// B358: no goal is ticked on a feeling. Ticking a goal on the Goals part, and Yes to "Is the vibe there?", first ask the
-// partner for the goal's re-check against its Done when and its vibe; a passed re-check ticks the goal and gives the
+// B358: no goal is ticked on a feeling. Ticking a goal on the Goals part, and Yes to "Did we reach the goal?", first ask the
+// partner for the goal's re-check against its Done when and its goal definition; a passed re-check ticks the goal and gives the
 // person a recap, a failed one keeps it open with its gap named (an attempt), and the person may still tick it after a
 // failed one (an overturn, written under it). Made-up names only.
 import assert from 'node:assert/strict'
@@ -50,7 +50,8 @@ const GOALS = [
   '  Done when: ten visitors walk every path in a day',
   '  - [~] G2 Benches that feel like home',
   '    Done when: five visitors sit on a bench for a minute unasked',
-  '    Vibe: you sit down without thinking',
+  // Goal definition (2026-10-31): the goal's lines are named `Goal definition…` now (they were `Vibe…`); the fixture is written as the board writes it.
+  '    Goal definition: you sit down without thinking',
   '- [ ] G3 Lanterns',
   '',
 ].join('\n')
@@ -223,8 +224,9 @@ test('the pages: the Goals part names the re-check and every outcome under a goa
   assert.match(script, /if \(tool === 'recheck-back'\) return sendGoals\(\{ command: 'line', id: focus, name: 'Recheck asked', value: '' \}\)/)
 })
 
-test('the second review: No to the vibe takes an open re-check back, so a later pass cannot tick it', async () => {
-  const run = GOALS.replace('    Vibe: you sit down without thinking\n', '    Vibe: you sit down without thinking\n    Vibe agreed: 2026-10-19 08:00\n    Part: Build them · about 1 h · steps B5\n    How agreed: 2026-10-19 08:30\n    Demo: art/g2/demo.png · what G2 made\n')
+// Goal definition (2026-10-31): the words people and chats read say "goal definition" where they said "vibe".
+test('the second review: No to the goal definition takes an open re-check back, so a later pass cannot tick it', async () => {
+  const run = GOALS.replace('    Goal definition: you sit down without thinking\n', '    Goal definition: you sit down without thinking\n    Goal definition agreed: 2026-10-19 08:00\n    Part: Build them · about 1 h · steps B5\n    How agreed: 2026-10-19 08:30\n    Demo: art/g2/demo.png · what G2 made\n')
   const fs = fakeFs({ [MAP]: latin(run) })
   await focusMove({ command: 'vibe-there-yes', id: 'G2' }, ctx(fs, { allDone: true }))
   await goalChecked({ id: 'G2', verdict: 'waits for you', line: 'waits for you · 0 of 1 points pass · for you: comfy?', by: 'Partner' }, ctx(fs))

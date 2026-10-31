@@ -741,7 +741,7 @@ async function main(args) {
   const workWriters = viewFile === null ? null : { dir: workDir, viewFile }
   /**
    * Focus 2 (spec 2026-10-18, sections 3 and 6): a move of the Focus page, or a draft of the partner's (the page's route,
-   * or the work tool's vibe-draft and how-draft through the work API), written into the
+   * or the work tool's definition-draft and how-draft through the work API), written into the
    * goal map (src/focus.mjs); the person's word to the partner goes into the outbox as every other board word, the
    * partner woken through the main chat when its chat is not running (Review Focus 5). Without the Workers mod it is
    * kept as copied and the page puts it on the clipboard.
@@ -771,7 +771,7 @@ async function main(args) {
       // The Product owner (2026-10-31): the talk words go to the talk partner, with its job (src/talkPartner.mjs).
       talkPartner: talkPartnerOf(state),
       talkJob: join(HERE, 'roles', talkPartnerOf(state)?.role === OWNER_ROLE ? OWNER_JOB : 'partner.md'),
-      // Focus 3: "Is the vibe there?" is answered only once every part of the how is done, as the store says.
+      // Focus 3: "Did we reach the goal?" is answered only once every part of the how is done, as the store says.
       allDone: focusAllDone(state.focus ?? null, body?.id),
     })
     readState.reset()
@@ -1127,7 +1127,7 @@ async function main(args) {
     return {
       // The supervisor's Task 5: the board's health summary for the supervisor chat's sweep (src/supervisor/health.mjs).
       ...(supervisor === null ? {} : { health: () => supervisor.health() }),
-      // Focus 2: the partner's drafts of the focus (the work tool's vibe-draft and how-draft) go into the goal map.
+      // Focus 2: the partner's drafts of the focus (the work tool's definition-draft and how-draft) go into the goal map.
       goalDraft: body => focusNow(body),
       // B358: the partner's re-check of a goal (the work tool's checked of a G<n>), written into the goal map.
       goalChecked: async body => {

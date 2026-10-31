@@ -76,7 +76,7 @@ after 20 minutes. So, for every task:
   delegation only: a worker to start or stop, a restart of the app (the board loads its own new version by itself,
   B454: never ask the user to restart the board or click its note), and what the safety rules leave to the user (deleting,
   publishing, changing settings). The checks of a worker that reported only to you stay yours to put to the user.
-- The focus: the user and the partner agree a goal's vibe and how on the board's Focus page; then the partner makes the
+- The focus: the user and the partner agree a goal's definition and how on the board's Focus page; then the partner makes the
   steps, refined when made: they are on the board's list at once, the focus goal's before the rest. Nothing to do for
   you; the partner sends no queue note any more.
 - The check before work: before you write a step of over about an hour the user asks for, or the first or second thing

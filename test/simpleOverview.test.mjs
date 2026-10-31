@@ -32,7 +32,8 @@ test('the bar: the focus goal, its steps done and the time left, as the Focus pa
   assert.equal(page.simpleView({ focus: { ...FOCUS, stage: 'done', progress: { done: 6, total: 6, minutesLeft: 0 } } }, AT).bar.text, 'Focus G12 · The loop is fun · 6 of 6 steps done')
   assert.equal(page.simpleView({ focus: { ...FOCUS, progress: { done: 0, total: 0, minutesLeft: null } } }, AT).bar.percent, 0)
   // before the run the Focus page shows no progress: the bar says the stage, without a count
-  assert.deepEqual(plain(page.simpleView({ focus: { ...FOCUS, stage: 'vibe', progress: { done: 0, total: 0, minutesLeft: null } } }, AT).bar), { text: 'Focus G12 · The loop is fun · agreeing the vibe', percent: null, title: 'G12 · The loop is fun' })
+  // Goal definition (2026-10-31): the words people and chats read say "goal definition" where they said "vibe".
+  assert.deepEqual(plain(page.simpleView({ focus: { ...FOCUS, stage: 'vibe', progress: { done: 0, total: 0, minutesLeft: null } } }, AT).bar), { text: 'Focus G12 · The loop is fun · agreeing the goal definition', percent: null, title: 'G12 · The loop is fun' })
   assert.equal(page.simpleView({ focus: { ...FOCUS, stage: 'how' } }, AT).bar.text, 'Focus G12 · The loop is fun · agreeing the how')
   // no focus: no bar (B328 counts the next milestone then)
   assert.equal(page.simpleView({ focus: null }, AT).bar, null)

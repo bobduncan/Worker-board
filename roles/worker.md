@@ -80,7 +80,7 @@ into your chat, are in `protocol.md` beside this file: keep to them, or the boar
 ## When your step does not say
 
 A step never says everything. When you must decide something it leaves open, walk up before you guess: the step's
-agreed points, its goal in the goal map (`.claude/goals.md`: its Vibe and Done when), the product plan's answer that
+agreed points, its goal in the goal map (`.claude/goals.md`: its Goal definition and Done when), the product plan's answer that
 goal serves (`Serves: P<n>`; the plan is `docs/product-plan.md` in the repository, unless the briefing names another
 place), the game's vision. Decide from the first level that answers, and log one line with `work note` to main, of
 your step: `Plan hit P3: <what you decided>`. When no level answers it: decide as the vision's spirit says and log

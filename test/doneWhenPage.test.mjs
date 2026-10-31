@@ -1,5 +1,5 @@
 // B354, the page: a goal without a Done when is not picked as the focus, and gets its tick only once it has one; its row
-// and the "Is the vibe there?" card offer the button that asks the partner to write it. A part of the run shows its
+// and the "Did we reach the goal?" card offer the button that asks the partner to write it. A part of the run shows its
 // standard. Made-up names only.
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
@@ -46,8 +46,9 @@ const RUN = [
   'Focus: G6',
   '',
   '- [~] G6 A forest to walk',
-  '    Vibe: quiet and green',
-  '    Vibe agreed: 2026-10-18 10:00',
+  // Goal definition (2026-10-31): the goal's lines are named `Goal definition…` now (they were `Vibe…`); the fixture is written as the board writes it.
+  '    Goal definition: quiet and green',
+  '    Goal definition agreed: 2026-10-18 10:00',
   '    Part: The levels · about 2 h · steps B1',
   '    Part: The wolf · 3 h · steps B2',
   '    How agreed: 2026-10-18 11:00',
@@ -57,16 +58,19 @@ const step = (id, standard) => parseItem(`Id: ${id}\nKind: step\nTitle: Step ${i
 const ITEMS = [step('B1', 'level · art/levels/forest.png · target 8'), step('B2', null)]
 
 test('the run shows each part\'s standard under it, its reference picture to open', () => {
-  const view = focusView(focusState(parseGoals(RUN.replace('    Vibe: quiet', '    Done when: a player crosses it in five minutes\n    Vibe: quiet')), ITEMS, [], ''), parseGoals(RUN), CAN)
+  // Goal definition (2026-10-31): the goal's lines are named `Goal definition…` now (they were `Vibe…`); the fixture is written as the board writes it.
+  const view = focusView(focusState(parseGoals(RUN.replace('    Goal definition: quiet', '    Done when: a player crosses it in five minutes\n    Goal definition: quiet')), ITEMS, [], ''), parseGoals(RUN), CAN)
   assert.deepEqual(view.run.parts.map(part => part.standards), [[{ kind: 'level', picture: 'art/levels/forest.png', target: 'target 8', line: 'level · art/levels/forest.png · target 8' }], []])
 })
 
-test('"Is the vibe there?" without a Done when: Yes is off, and the button asks the partner to write it', () => {
+// Goal definition (2026-10-31): the words people and chats read say "goal definition" where they said "vibe".
+test('"Did we reach the goal?" without a Done when: Yes is off, and the button asks the partner to write it', () => {
   const without = focusView(focusState(parseGoals(RUN), ITEMS, [], ''), parseGoals(RUN), CAN)
   assert.equal(without.vibeThere.buttons[0].isEnabled, false)
   assert.equal(without.vibeThere.buttons[0].title, 'Its Done when is missing: the goal gets its tick against it')
   assert.deepEqual(without.vibeThere.doneWhen, { label: 'Ask your partner to write its Done when', act: 'done-when', isEnabled: true, title: 'Your partner writes how you check the goal is done' })
-  const withIt = focusView(focusState(parseGoals(RUN.replace('    Vibe: quiet', '    Done when: a player crosses it in five minutes\n    Demo: art/g3/demo.png · what it made\n    Vibe: quiet')), ITEMS, [], ''), parseGoals(RUN), CAN)
+  // Goal definition (2026-10-31): the goal's lines are named `Goal definition…` now (they were `Vibe…`); the fixture is written as the board writes it.
+  const withIt = focusView(focusState(parseGoals(RUN.replace('    Goal definition: quiet', '    Done when: a player crosses it in five minutes\n    Demo: art/g3/demo.png · what it made\n    Goal definition: quiet')), ITEMS, [], ''), parseGoals(RUN), CAN)
   assert.equal(withIt.vibeThere.buttons[0].isEnabled, true)
   assert.equal(withIt.vibeThere.doneWhen, null)
   assert.equal(withIt.vibeThere.doneWhenLine, 'Done when: a player crosses it in five minutes')
@@ -81,7 +85,8 @@ test('the page sends the button\'s word, says a new goal waits for its Done when
   assert.match(script, /focusUi\.asked = \[\.\.\.new Set\(\[\.\.\.focusUi\.asked, id\]\)\]/)
 })
 
-test('the review: a goal asked for already can be asked again, in the pick list and on the vibe card', () => {
+// Goal definition (2026-10-31): the words people and chats read say "goal definition" where they said "vibe".
+test('the review: a goal asked for already can be asked again, in the pick list and on the goal definition card', () => {
   const view = focusView(null, parseGoals(PICK), CAN, { asked: ['G3'] })
   assert.deepEqual(view.pick.askAgain, { label: 'Ask again', act: 'done-when', isEnabled: true, title: 'Ask your partner once more to write its Done when' })
   const asked = focusView(focusState(parseGoals(RUN), ITEMS, [], ''), parseGoals(RUN), CAN, { asked: ['G6'] })

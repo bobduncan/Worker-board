@@ -72,8 +72,9 @@ const CARDS = [card('Digger', 'B45'), card('Checker', 'B44')]
 const GOALS = [
   'Last id: G7', 'Focus: G7', '',
   '- [~] G7 Maps that read round',
-  '    Vibe: round, not boxy',
-  '    Vibe agreed: 2026-10-30 10:00',
+  // Goal definition (2026-10-31): the goal's lines are named `Goal definition…` now (they were `Vibe…`); the fixture is written as the board writes it.
+  '    Goal definition: round, not boxy',
+  '    Goal definition agreed: 2026-10-30 10:00',
   '    Part: Round shapes made of square cells · 2 h · steps B39, B40',
   '    How agreed: 2026-10-30 11:00', '',
 ].join('\n')

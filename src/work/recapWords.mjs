@@ -298,7 +298,7 @@ export const isBeforeAfter = path => /(?:^|[\\/])before-after\.png$/i.test(Strin
 export function goalParts({ why, doneWhen, checked }) {
   return {
     context: plainSentences(why, CONTEXT_CHARS),
-    change: plainSentences(doneWhen, CHANGE_CHARS) || 'A helper re-checked it against its Done when and its vibe.',
+    change: plainSentences(doneWhen, CHANGE_CHARS) || 'A helper re-checked it against its Done when and its goal definition.',
     checked,
   }
 }

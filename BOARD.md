@@ -103,7 +103,7 @@ person sent was copied, and into which chat to paste it. At the far right a roun
 ## The help tour (B348)
 
 Six cards over the page, one painting each (`public/help/`, B347) with its number, title and one or two lines: 1 set
-up a project, 2 pick a goal as your focus, 3 agree its vibe and how with your partner, 4 the work divides itself, 5
+up a project, 2 pick a goal as your focus, 3 agree its goal definition and how with your partner, 4 the work divides itself, 5
 answer what needs you, 6 check the result. **Back** (not on the first card), **Next** (**Done** on the last), a dot per
 card to jump to it, the arrow keys, and **×** or Escape to close at any time. It opens by itself the first time a
 browser opens the board, on a plain address only: never over a link from a chat (`#picture=`, `#play=`, a step, a
@@ -240,9 +240,9 @@ The tab was named Advisor until Focus 1 (spec 2026-10-18). Its bar shows three p
 setting `advisorParts` brings any back. The Advisor's chat still opens from its card and its links.
 
 **Focus** shows one goal of the map, the focus (`Focus: G<n>` in goals.md's head), read from the file: "Your focus",
-the goal's id and title, its vibe in one line once agreed, and the strip 1 The vibe → 2 The how → 3 The run (a step
-done is green with ✓, the one now blue). The vibe: the talk with your partner on the left (the goal's brainstorm
-thread as bubbles: your words, its questions) and "The vibe so far" on the right (its lines ticked, its picture),
+the goal's id and title, its goal definition in one line once agreed, and the strip 1 The goal definition → 2 The how → 3 The run (a step
+done is green with ✓, the one now blue). The goal definition: the talk with your partner on the left (the goal's brainstorm
+thread as bubbles: your words, its questions) and "The goal definition so far" on the right (its lines ticked, its picture),
 with "This is the goal definition" and "Not yet". The how: the talk on the left, "Work blocks so far" on the right (the work blocks
 with their sizes and each its done-when line, "Decided by your partner", "Brought to you"), with "Go" and "Not yet". The run:
 "All work blocks" on the left, each block with Done, In progress (and who is on it) or Next and a bar, its done-when line,
@@ -277,7 +277,7 @@ one) and **Go** (once it proposed parts) write their line once and tell your par
 is missing and sends your words. A line under the head says what each move did, or why not.
 
 B352: under the talk, **High effort mode** with a switch: off is the usual partner (Opus 5.5, extra high effort), on
-is Opus 5.5 at max effort (never Fable without your yes, since 2026-10-24), for the vibe and the how of a hard goal; it
+is Opus 5.5 at max effort (never Fable without your yes, since 2026-10-24), for the goal definition and the how of a hard goal; it
 reads "on: Fable 5.1, max" only while an evaluation you said yes to runs, and flipping it then goes back to the usual partner. Flipping it makes a `partner effort` word:
 a running chat's Workers mod sets your partner's chat by code (B755, where the app allows it; else the main chat does, a
 minute later); until your partner's next answer runs on that model and effort (its transcript
@@ -300,7 +300,7 @@ others still name. **Today's note from your partner** (its daily note, written i
 **decided for you**, each line with **Undo**: a click asks your partner to undo it (it is typed into its chat as your
 word, once) and the line then says "undo asked". **Needs you** shows your partner's open questions on the goal or its
 steps, three at most ("and n more"), each with its options as buttons (the advised one marked; a click answers it)
-and its pictures. Once every part is done, **Is the vibe there?** stands above the note with the vibe: **Yes** ticks
+and its pictures. Once every part is done, **Did we reach the goal?** stands above the note with the goal definition: **Yes** ticks
 the goal and clears the focus (the page then asks for the next one); **No** opens a box for what is missing, and the
 goal goes back to the how.
 
@@ -327,7 +327,7 @@ B354: a goal becomes your focus, and gets its tick, only with a **Done when** th
 list a goal without one says "No Done when yet" with **Ask your partner to write it** in place of Pick (then "Your
 partner writes its Done when", with **Ask again**); something new is put into the map at once and your partner is asked for its Done
 when: you pick it once the line stands. On the Goals part such a goal has **Ask your partner for a Done when** beside
-"Done when…", and its tick is refused with why. "Is the vibe there?" shows the Done when under the vibe; without one
+"Done when…", and its tick is refused with why. "Did we reach the goal?" shows the Done when under the goal definition; without one
 Yes is off and the button asks your partner for it. In the run each part shows what its results are checked against,
 "Checked against: <kind> · <reference picture> · target <score>", the picture opened with a click: the Standard line
 of its steps (below, "Kinds of work").
@@ -338,8 +338,8 @@ beside its reference, the points ticked). A step's window shows **Checked by a h
 ✓ (green), ✗ (red) or ? (amber, for you to judge), and the evidence picture; a fix step the board made from a failed
 point says which step it fixes.
 
-B358: a goal is ticked only after your partner re-checked it against its Done when and its vibe. Ticking it on the
-Goals part, or Yes to "Is the vibe there?", asks for that re-check ("Your partner re-checks it…"); a passed one ticks
+B358: a goal is ticked only after your partner re-checked it against its Done when and its goal definition. Ticking it on the
+Goals part, or Yes to "Did we reach the goal?", asks for that re-check ("Your partner re-checks it…"); a passed one ticks
 it and leaves you a recap, a failed one names the gap and the attempt under the goal while your partner adds the steps
 that close it. While the re-check runs, a click on the dot asks your partner again, and a second click ticks it
 without the re-check: that overturn is written under the goal. **Take the re-check back** leaves the goal open.
@@ -433,7 +433,7 @@ plan** on top (the partner lays every goal per milestone and proposes each missi
 without a goal, a standard's gap with its foundation first, an architecture check, a milestone's done when; its last
 check's line), then the preset per milestone, a row per goal with its picture, Done when, sub-goals, what it serves and whether it is a goal
 of the map, **Confirm** (waits in the bar) and **Change**; a box for words on the whole preset, and **Put the goals in
-my goal map**. Focus: your focus now with its done when (its steps are made on the Focus tab: vibe, how, Go), and the
+my goal map**. Focus: your focus now with its done when (its steps are made on the Focus tab: goal definition, how, Go), and the
 next focus the partner proposes on **Propose the next focus** (its why, when and up to two others), with **Make it
 my focus**: only the person's click sets it. The interview: one slide per question, in the page's order (deeper ones under their card, then the
 features', then the goals'), as the help tour's cards: the options as picture cards (the advised one marked), the

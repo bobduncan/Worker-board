@@ -558,14 +558,14 @@ function keepMain(name: string): string {
 /** What the partner's (the Advisor's) or its helper's compaction at rest keeps. */
 function keepPartner(name: string, main: string, role: 'advisor' | 'helper'): string {
   const who = role === 'advisor'
-    ? 'the person\'s partner on the worker board (the Advisor): it keeps the focus goal\'s vibe and how, refines steps, answers the asks routed to it and checks results; its job is in the board\'s roles/partner.md'
+    ? 'the person\'s partner on the worker board (the Advisor): it keeps the focus goal\'s goal definition and how, refines steps, answers the asks routed to it and checks results; its job is in the board\'s roles/partner.md'
     : 'the helper of the person\'s partner (the Advisor): it acts only on the tasks the Advisor sends it, one at a time, with their ids'
   return `This chat is "${name}", ${who}; "${main}" is the main chat that queues the steps. `
     + 'It is compacted while it rests, so keep what its next request needs and drop the step by step of finished work. Keep, in this order: '
     + `(1) who this chat is: its name ${name} and its role, and where its job is written; `
     + '(2) the rules it works by: the working agreement, how answers to the person are written, and the work tool\'s actions it uses; '
     + (role === 'advisor'
-      ? '(3) the focus goal: its id, its vibe and how as agreed or drafted, and what is decided on it; '
+      ? '(3) the focus goal: its id, its goal definition and how as agreed or drafted, and what is decided on it; '
         + '(4) every step it is refining or checking, every ask routed to it and every task it sent its helper, by id; '
       : '(3) the task the Advisor sent it now, with its ids, and what it sent back so far; '
         + '(4) the ids of the steps, asks and goals its tasks name; ')

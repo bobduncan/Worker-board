@@ -43,8 +43,9 @@ const MAP = [
   '',
   '- [~] G2 Benches that feel like home',
   '  Done when: five visitors sit on a bench for a minute unasked',
-  '  Vibe: you sit down without thinking',
-  '  Vibe agreed: 2026-10-19 07:00',
+  // Goal definition (2026-10-31): the goal's lines are named `Goal definition…` now (they were `Vibe…`); the fixture is written as the board writes it.
+  '  Goal definition: you sit down without thinking',
+  '  Goal definition agreed: 2026-10-19 07:00',
   '  Part: Wooden benches · 2 h · steps B1, B2',
   '  How agreed: 2026-10-19 08:00',
   '- [ ] G3 Lanterns',

@@ -34,8 +34,9 @@ const MAP = [
   '',
   '- [~] G2 Benches that feel like home',
   '  Done when: five visitors sit on a bench for a minute unasked',
-  '  Vibe: you sit down without thinking',
-  '  Vibe agreed: 2026-10-19 07:00',
+  // Goal definition (2026-10-31): the goal's lines are named `Goal definition…` now (they were `Vibe…`); the fixture is written as the board writes it.
+  '  Goal definition: you sit down without thinking',
+  '  Goal definition agreed: 2026-10-19 07:00',
   '  Part: Wooden benches · 2 h · steps B1, B2',
   '  How agreed: 2026-10-19 08:00',
   '  Rechecked (2026-10-19 07:30, Partner): failed · 1 of 2 points pass · gap: too hard to sit on · evidence none (no picture)',
@@ -352,7 +353,7 @@ test('B450: the guard fires for a goal that is not the focus and has no how, and
   const fired = await guardFired('G5', base)
   assert.equal(fired.result.fired, true)
   assert.equal(parseGoals(Buffer.from(fs.files[FILE], 'latin1').toString('utf8')).byId.get('G5').evaluationAsked, '2026-10-19 10:00')
-  // The partner's marked draft: no focus, no vibe, no how needed; it ends the evaluation and waits for Go.
+  // The partner's marked draft: no focus, no goal definition, no how needed; it ends the evaluation and waits for Go.
   const drafted = await focusMove({ command: 'how-draft', id: 'G5', parts: ['Sprites from a reference · 2 h'], partnerDecides: ['Evaluation: draw them from a Codex reference'], youDecide: [] }, ctx(fs))
   assert.equal(drafted.ok, true, drafted.why)
   const now = parseGoals(Buffer.from(fs.files[FILE], 'latin1').toString('utf8')).byId.get('G5')

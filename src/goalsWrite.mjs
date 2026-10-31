@@ -670,26 +670,31 @@ function replaceOwn(text, id, names, lines) {
   return { ok: true, text: join(file) }
 }
 
-/** Focus 1: an agreed line (`Vibe agreed: <at>`) once, after the goal's last line of `after`, else after its own lines at its top. */
-function agreeOnce(text, id, name, after, at) {
+/**
+ * Focus 1: an agreed line (`Goal definition agreed: <at>`) once, after the goal's last line of `after`, else after its own
+ * lines at its top. A line under `name` or under one of the old names `olds` (`Vibe agreed`) counts as the agreement.
+ */
+function agreeOnce(text, id, name, after, at, olds = []) {
   const file = split(text)
   const found = blockOf(file.lines, id)
   if (!found.ok) return found
   const own = ownLines(file.lines, found)
-  if (own.some(index => file.lines[index].trimStart().startsWith(`${name}:`))) return { ok: true, text }
+  if (own.some(index => [name, ...olds].some(one => file.lines[index].trimStart().startsWith(`${one}:`)))) return { ok: true, text }
   const last = own.filter(index => after.some(one => file.lines[index].trimStart().startsWith(`${one}:`))).at(-1)
   file.lines.splice(last === undefined ? ownLinesEnd(file.lines, found) : last + 1, 0, `${' '.repeat(found.depth + 2)}${name}: ${oneLine(at, 40)}`)
   return { ok: true, text: join(file) }
 }
 
-const VIBE = ['Vibe', 'Vibe picture']
+// Goal definition (2026-10-31): the lines are written as `Goal definition`, `Goal definition picture` and `Goal definition
+// agreed`; the old `Vibe`, `Vibe picture` and `Vibe agreed` of a file written before are replaced and counted all the same.
+const VIBE = ['Goal definition', 'Goal definition picture', 'Vibe', 'Vibe picture']
 const HOW = ['Part', 'Partner decides', 'You decide']
 const words = (list, max) => (Array.isArray(list) ? list.map(one => oneLine(one, max)).filter(one => one !== '') : [])
 
-/** Focus 1: the goal's vibe, `Vibe:` one line per point and `Vibe picture:` (null: none), in place of the ones it had. */
+/** Focus 1: the goal's definition, `Goal definition:` one line per point and `Goal definition picture:` (null: none), in place of the ones it had. */
 export function setVibe(text, id, lines, picture) {
   const shown = oneLine(picture, 300)
-  return replaceOwn(text, id, VIBE, [...words(lines, 300).map(one => `Vibe: ${one}`), ...(shown === '' ? [] : [`Vibe picture: ${shown}`])])
+  return replaceOwn(text, id, VIBE, [...words(lines, 300).map(one => `Goal definition: ${one}`), ...(shown === '' ? [] : [`Goal definition picture: ${shown}`])])
 }
 
 /**
@@ -710,13 +715,13 @@ export function setHow(text, id, how) {
   return replaceOwn(text, id, HOW, [...parts, ...words(how.partnerDecides, 300).map(one => `Partner decides: ${one}`), ...words(how.youDecide, 300).map(one => `You decide: ${one}`)])
 }
 
-/** Focus 1: `Vibe agreed: <at>`, once (a second agree keeps the first). */
-export const agreeVibe = (text, id, at) => agreeOnce(text, id, 'Vibe agreed', VIBE, at)
+/** Focus 1: `Goal definition agreed: <at>`, once (a second agree keeps the first, also one under the old name `Vibe agreed`). */
+export const agreeVibe = (text, id, at) => agreeOnce(text, id, 'Goal definition agreed', VIBE, at, ['Vibe agreed'])
 
 /** Focus 1: `How agreed: <at>`, once, after the how's lines. */
 export const agreeHow = (text, id, at) => agreeOnce(text, id, 'How agreed', HOW, at)
 
-/** Focus 3: the goal's `How agreed` line taken away (the vibe is not there yet: the how is talked about again). */
+/** Focus 3: the goal's `How agreed` line taken away (the goal definition is not there yet: the how is talked about again). */
 export const reopenHow = (text, id) => replaceOwn(text, id, ['How agreed'], [])
 
 const pad = value => String(value).padStart(2, '0')

@@ -138,15 +138,18 @@ function takeLine(target, text) {
     case 'Steps': target.steps.push(...stepIds(value)); return
     case 'Missing': target.missing.push(value); return
     case 'From the game plan': target.fromPlan = value; return
-    // Focus 1 (spec 2026-10-18, section 5): the goal's vibe and its how, as the person and the partner agree them.
-    case 'Vibe': target.vibe.push(value); return
-    case 'Vibe picture': target.vibePicture = value; return
+    // Focus 1 (spec 2026-10-18, section 5): the goal's definition and its how, as the person and the partner agree them.
+    // Goal definition (2026-10-31): the lines are named `Goal definition`, `Goal definition picture` and `Goal definition
+    // agreed`; the old `Vibe`, `Vibe picture` and `Vibe agreed` of a goals.md written before are read into the same fields
+    // (the fields keep their old names: `vibe`, `vibePicture`, `vibeAgreed`).
+    case 'Goal definition': case 'Vibe': target.vibe.push(value); return
+    case 'Goal definition picture': case 'Vibe picture': target.vibePicture = value; return
     // 2026-10-25: the page a goal makes (a review, a check, a doc): "<path> · <a few words>".
     case 'Page': target.page = value; return
     // B677: the goal demo (`Demo: <picture path> · <a few words>`), and the board's ask for it (`Demo asked: <date time> · <n>`).
     case 'Demo': target.demo = value; return
     case 'Demo asked': target.demoAsked = value; return
-    case 'Vibe agreed': target.vibeAgreed = value; return
+    case 'Goal definition agreed': case 'Vibe agreed': target.vibeAgreed = value; return
     case 'Part': target.parts.push(partOf(value)); return
     // B680: a part the person dropped (`Part dropped: <part title> · <date time> · <why>`).
     case 'Part dropped': target.partsDropped.push(droppedOf(value)); return
@@ -278,7 +281,8 @@ export function parseGoals(text) {
 
 /**
  * Focus 1 (spec 2026-10-18, section 5): where the focus goal stands, from its lines: no goal (none, or one that is
- * gone) → 'pick'; ticked → 'done'; no "Vibe agreed" → 'vibe'; no "How agreed" → 'how'; else 'run'.
+ * gone) → 'pick'; ticked → 'done'; no "Goal definition agreed" (or the old "Vibe agreed") → 'vibe' (the stage keeps its old
+ * name); no "How agreed" → 'how'; else 'run'.
  */
 export function focusStage(node) {
   if (node === null || node === undefined) return 'pick'

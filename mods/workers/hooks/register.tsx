@@ -2261,8 +2261,8 @@ const WORK_TOOL = {
     + 'fix: a fix for the worker board, first on the board\'s list); the board hands it out to a free worker once it is refined '
     + '(nobody queues; the person may pin it to a worker on the board). "close" ("id", "as"): an instruction is done, and what came of it. "drop" '
     + '("id", "why"). "refine" ("id", "summary", "picture", "goal", "size", "standard", "model", "effort", "questions") and "refined" ("id", "what", "standard", "model", "effort"): '
-    + 'the Advisor. "checked" ("id", "evidence", "points", "score"): the partner files the result check of a step in review, by a helper that did not build it. "vibe-draft" ("goal", "lines", "picture") and "how-draft" ("goal", "parts", "partnerDecides", "youDecide"): '
-    + 'the partner (the Advisor) keeps its draft of the focus goal\'s vibe and how on the board; each call takes the place '
+    + 'the Advisor. "checked" ("id", "evidence", "points", "score"): the partner files the result check of a step in review, by a helper that did not build it. "definition-draft" ("goal", "lines", "picture"; its old name "vibe-draft" still works) and "how-draft" ("goal", "parts", "partnerDecides", "youDecide"): '
+    + 'the partner (the Advisor) keeps its draft of the focus goal\'s goal definition and how on the board; each call takes the place '
     + 'of the draft the goal had. "list": every item. "rename" ("from", "to"): the main chat: every open item naming the old '
     + 'name of a chat moves to its new name, for a rename the board could not follow itself (a chat replaced by a new one). '
     + '"partner-answer" ("id", "text", "why"): the partner answers an ask the board routed to it for the person ("text" its '
@@ -2300,11 +2300,11 @@ const WORK_TOOL = {
       on: { type: 'string', description: 'block, unblock: the step it waits on; unblock without it clears Waits for.' },
       title: { type: 'string', description: "new: the step's title. incident: what looks wrong, in one plain line." },
       activity: { type: 'string', description: 'new: the activity it belongs under.' },
-      goal: { type: 'string', description: 'new, refine: the goal it serves (G17); vibe-draft, how-draft: the focus goal.' },
+      goal: { type: 'string', description: 'new, refine: the goal it serves (G17); definition-draft, how-draft: the focus goal.' },
       as: { type: 'string', description: 'close: what came of the instruction ("made step B300").' },
       why: { type: 'string', description: 'drop: why; partner-answer, escalate: why, in one line.' },
       summary: { type: 'string', description: 'refine, and new from an agreed how: the step in a few lines.' },
-      picture: { type: 'string', description: 'refine: the picture of what it makes; vibe-draft: the vibe\'s picture.' },
+      picture: { type: 'string', description: 'refine: the picture of what it makes; definition-draft: the goal definition\'s picture.' },
       size: { type: 'string', description: 'refine, and new from an agreed how: how long it takes, roughly.' },
       standard: { type: 'string', description: 'refine, refined and new: what the step\'s result is checked against, "<kind> · <reference picture> · target <score>" (a kind of the project\'s settings), or "none (<why>)".' },
       model: { type: 'string', description: 'refine, refined and new: the model the worker runs the step on, "<sonnet or opus>: <why, in one line of at most 200 characters>"; opus only for architecture or design decisions, the board\'s core, unclear or repeated bugs, art direction or judging; a step without one runs on sonnet.' },
@@ -2318,8 +2318,8 @@ const WORK_TOOL = {
       score: { type: 'string', description: 'checked: the score beside its target, "82 of 75", where the kind\'s definition of done has a rubric.' },
       questions: { type: 'array', items: { type: 'string' }, description: 'refine: the questions for the person.' },
       what: { type: 'array', items: { type: 'string' }, description: 'refined, and new from an agreed how (the partner: with goal and summary, the step is made refined): what we build, one part per line.' },
-      lines: { type: 'array', items: { type: 'string' }, description: 'vibe-draft: three to five short lines of the vibe, one "Not in it: ..." among them.' },
-      parts: { type: 'array', items: { type: 'string' }, description: 'how-draft: the parts, each "<title> · about <N> h", with " · steps B1, B2" once made.' },
+      lines: { type: 'array', items: { type: 'string' }, description: 'definition-draft: three to five short lines of the goal definition, one "Not in it: ..." among them.' },
+      parts: { type: 'array', items: { type: 'string' }, description: 'how-draft: the work blocks, each `<title> · about <N> h · done when: <line>`, with ` · steps B1, B2` once made.' },
       partnerDecides: { type: 'array', items: { type: 'string' }, description: 'how-draft: the details you settle yourself, one per line.' },
       youDecide: { type: 'array', items: { type: 'string' }, description: 'how-draft: what you bring to the person, one per line.' },
       decided: { type: 'array', items: { type: 'string' }, description: 'note of a goal (the daily note): what you decided for the person, one short line each.' },

@@ -60,8 +60,9 @@ const GOALS = [
   '',
   '- [~] G6 Paths through the garden',
   '  Done when: a visitor walks every path without getting lost',
-  '  Vibe: calm',
-  '  Vibe agreed: 2026-10-18 10:00',
+  // Goal definition (2026-10-31): the goal's lines are named `Goal definition…` now (they were `Vibe…`); the fixture is written as the board writes it.
+  '  Goal definition: calm',
+  '  Goal definition agreed: 2026-10-18 10:00',
   '  Part: Lay the paths · about 1 h · steps B12',
   '  How agreed: 2026-10-18 11:00',
   '  - [ ] G7 The pond',
@@ -275,7 +276,7 @@ test('nothing about the goal changes before the yes; create writes the draft, ke
   ])
   assert.equal(node.notInIt, 'new benches, lights')
   assert.ok(node.notes.includes('Note (brainstorm 2026-10-19): the visitor first.'))
-  // The goal's own lines stay: its vibe, its how; the child goal too.
+  // The goal's own lines stay: its goal definition, its how; the child goal too.
   assert.deepEqual([node.vibe, node.parts.map(one => one.title), node.children], [['calm'], ['Lay the paths'], ['G7']])
   const thread = parseThread(utf8(fs.files[fileOf(path)]))
   assert.equal(thread.state, 'done')
@@ -330,7 +331,8 @@ test('the focus\'s bullets are met when their steps are all done; a goal without
   const node = { doneBullets: [{ n: 1, text: 'a', steps: ['B12', 'B13'] }, { n: 2, text: 'b', steps: ['B12', 'B14'] }, { n: 3, text: 'c', steps: [] }, { n: 4, text: 'd', steps: ['B12', 'B16'] }, { n: 5, text: 'e', steps: ['B99'] }, { n: 6, text: 'f', steps: ['B16'] }] }
   assert.deepEqual(doneBulletsOf(node, steps).map(one => one.met), [true, false, false, true, false, false])
   const map = text => parseGoals(text)
-  const changed = GOALS.replace('  Vibe: calm', '  Objective: Crossed without a map.\n  Done when 1: Every bench on a path · steps B12\n  Done when 2: The gate found · steps B14\n  Not in it: lights\n  Vibe: calm')
+  // Goal definition (2026-10-31): the goal's lines are named `Goal definition…` now (they were `Vibe…`); the fixture is written as the board writes it.
+  const changed = GOALS.replace('  Goal definition: calm', '  Objective: Crossed without a map.\n  Done when 1: Every bench on a path · steps B12\n  Done when 2: The gate found · steps B14\n  Not in it: lights\n  Goal definition: calm')
   const threads = brainstormsState([{ path: PATH, text: `${HEAD}${Q1}`, at: 2 }, { path: `${FOLDER}/2026-10-18-talk.md`, text: HEAD.replace('Kind: change\n', ''), at: 1 }], FOLDER).threads
   const focus = focusState(map(changed), [...steps.values()], threads, '')
   assert.equal(focus.objective, 'Crossed without a map.')
@@ -345,7 +347,8 @@ test('the focus\'s bullets are met when their steps are all done; a goal without
 // The page, clicked
 
 const RUN_GOALS = GOALS
-const OBJECTIVE_GOALS = GOALS.replace('  Vibe: calm', '  Objective: A garden a visitor crosses without a map.\n  Done when 1: Every bench is on a path · steps B13\n  Done when 2: A visitor finds the gate · steps B12\n  Done when 3: No path ends nowhere\n  Not in it: lights\n  Vibe: calm')
+// Goal definition (2026-10-31): the goal's lines are named `Goal definition…` now (they were `Vibe…`); the fixture is written as the board writes it.
+const OBJECTIVE_GOALS = GOALS.replace('  Goal definition: calm', '  Objective: A garden a visitor crosses without a map.\n  Done when 1: Every bench is on a path · steps B13\n  Done when 2: A visitor finds the gate · steps B12\n  Done when 3: No path ends nowhere\n  Not in it: lights\n  Goal definition: calm')
 const done = id => parseItem(`Id: ${id}\nKind: step\nTitle: Rake the gravel\nState: done\nSince: ${sinceOf(NOW - 60 * MIN)}\n`)
 const pageState = (goals, threads = [], items = []) => asSent({ ...build(items, undefined, goals, { threadTexts: threads }), goalsEdit: { canWrite: true } })
 

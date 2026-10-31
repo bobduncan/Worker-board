@@ -223,7 +223,8 @@ test('a goal through its re-check gives a recap too; its Overturn asks the board
     assert.equal(checked.ok, true, checked.why)
     const [note] = await recapNotes(one.dir)
     // B569: a goal without a why or Done when at hand says what was re-checked; its count stands apart.
-    assert.deepEqual(note.sections.get('Text'), ['G3 A warm garden is done', 'A helper re-checked it against its Done when and its vibe.'])
+    // Goal definition (2026-10-31): the words people and chats read say "goal definition" where they said "vibe".
+    assert.deepEqual(note.sections.get('Text'), ['G3 A warm garden is done', 'A helper re-checked it against its Done when and its goal definition.'])
     assert.deepEqual(note.sections.get('Points pass'), ['1 of 1'])
     assert.equal(recapsOf(await store(one.dir), NOW + HOUR).at(0).isGoal, true)
     // The board opened the goal before (server.mjs); the partner's words say so.

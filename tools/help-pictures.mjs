@@ -98,7 +98,7 @@ function overviewBody() {
 
 /** The Focus page: its goal, the three stages, and the talk with your partner on the right. */
 function focusBody(stage) {
-  const stages = ['The vibe', 'The how', 'The run'].map((name, i) => {
+  const stages = ['The goal', 'The how', 'The run'].map((name, i) => {
     const x = 24 + i * 152
     const done = i < stage
     const on = i === stage
@@ -185,7 +185,7 @@ export const HELP_PICTURES = [
     svg: () => frame('Focus', [
       focusBody(0),
       rect(24, 186, 470, 300, { r: 12 }),
-      text(42, 216, 'The vibe', { size: 17, weight: 700 }), text(124, 216, 'how it should feel', { size: 13, fill: C.muted }),
+      text(42, 216, 'The goal definition', { size: 17, weight: 700 }), text(224, 216, 'what it should be', { size: 13, fill: C.muted }),
       ...[0, 1, 2].map(i => `<circle cx="48" cy="${250 + i * 34}" r="4" fill="${C.muted}"/>${bar(62, 246 + i * 34, [330, 280, 360][i])}`),
       rect(42, 360, 434, 100, { fill: C.inset, r: 8 }), text(58, 384, 'A picture of it', { size: 13, fill: C.muted }),
       `<polygon points="70,446 120,404 160,436 200,412 260,446" fill="#24364f"/><circle cx="230" cy="402" r="10" fill="#3a5375"/>`,

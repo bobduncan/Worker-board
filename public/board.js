@@ -2228,7 +2228,7 @@ function simpleView({ focus = null, counts = {}, limits = null, milestone = null
   if ((!hasFocus || focus.stage === 'done') && milestone !== null && milestone !== undefined) bar = milestoneBar(milestone)
   else if (hasFocus && focus.stage !== 'run' && focus.stage !== 'done') {
     // the Focus page shows no progress before the run either
-    const doing = focus.stage === 'how' ? 'agreeing the how' : 'agreeing the vibe'
+    const doing = focus.stage === 'how' ? 'agreeing the how' : 'agreeing the goal definition'
     bar = { text: `Focus ${focus.id} · ${focus.title} · ${doing}`, percent: null, title: `${focus.id} · ${focus.title}` }
   } else if (focus !== null && focus !== undefined) {
     const progress = focus.progress ?? { done: 0, total: 0, minutesLeft: null }
@@ -12903,7 +12903,7 @@ function focusCan(state) {
  */
 function focusRecheckView(focus) {
   const waits = focus.lastRecheck?.verdict === 'waits for you' && (focus.recheckAsked === null || focus.lastRecheck.at >= focus.recheckAsked)
-  if ((focus.recheckAsked ?? null) !== null && !waits) return { tone: 'asked', title: 'Your partner re-checks it', text: `Against its Done when and its vibe, with the steps' evidence: ${focus.id} gets its tick once that passed.` }
+  if ((focus.recheckAsked ?? null) !== null && !waits) return { tone: 'asked', title: 'Your partner re-checks it', text: `Against its Done when and its goal definition, with the steps' evidence: ${focus.id} gets its tick once that passed.` }
   const last = focus.lastRecheck ?? null
   if (last === null || last.verdict === 'passed') return null
   // B533: with the button to the partner's questions under Needs your attention.
@@ -13048,8 +13048,8 @@ function focusStepsView(part, partsOpen) {
 
 /**
  * Focus 1: what the Focus page shows (spec 2026-10-18, section 4), from the state's `focus` (null: none) and the goal
- * map (`goals`, the state's): its stage, the head with the goal and, once agreed, its vibe in one line; the strip
- * 1 The vibe → 2 The how → 3 The run; the run's progress; the right card of each stage and its buttons; the run's parts
+ * map (`goals`, the state's): its stage, the head with the goal and, once agreed, its goal definition in one line; the strip
+ * 1 The goal definition → 2 The how → 3 The run; the run's progress; the right card of each stage and its buttons; the run's parts
  * without step ids; and, with no focus or a goal done, the open goals to pick. Focus 2: the buttons work where `can`
  * (focusCan) allows; "This is the goal definition" once the partner wrote one, "Go" once it proposed parts; each says why not.
  */
@@ -13066,7 +13066,7 @@ function focusView(focus, goals, can = null, ui = {}) {
   const rows = (goals?.nodes ?? []).filter(node => node.state !== 'done' && !seen.has(node.id) && seen.add(node.id))
     .map(node => ({ id: node.id, title: node.title, depth: node.depth, isNow: node.state === 'now', hasDoneWhen: hasDoneWhenLine(node), isAsked: asked.includes(node.id) }))
   const pickOf = question => ({
-    question, rows, isEnabled: allowed, title: allowed ? 'Make it your focus: you and your partner agree its vibe first' : why,
+    question, rows, isEnabled: allowed, title: allowed ? 'Make it your focus: you and your partner agree its goal definition first' : why,
     ask: { label: 'Ask your partner to write it', act: 'done-when', isEnabled: allowed, title: allowed ? 'A goal becomes your focus once its Done when says how you check it: your partner writes one' : why },
     noDoneWhen: 'No Done when yet',
     asked: 'Your partner writes its Done when',
@@ -13080,7 +13080,7 @@ function focusView(focus, goals, can = null, ui = {}) {
     head: { label: 'Your focus', id: focus.id, title: focus.title, vibeLine },
     strip,
     progress: null,
-    vibe: { title: 'The vibe so far', sub: 'draft, written by your partner', lines: focus.vibe, picture: focus.vibePicture, empty: focus.vibe.length > 0 || focus.vibePicture !== null ? null : 'Your partner writes the vibe here while you talk.' },
+    vibe: { title: 'The goal definition so far', sub: 'draft, written by your partner', lines: focus.vibe, picture: focus.vibePicture, empty: focus.vibe.length > 0 || focus.vibePicture !== null ? null : 'Your partner writes the goal definition here while you talk.' },
     // Work blocks (2026-10-31): the how is the goal's work blocks, each with its done-when line once the partner wrote it.
     how: {
       title: 'Work blocks so far',
@@ -13103,7 +13103,7 @@ function focusView(focus, goals, can = null, ui = {}) {
   }
   const hasVibe = focus.vibe.length > 0 || focus.vibePicture !== null
   if (stage === 'vibe') view.buttons = [
-    button('This is the goal definition', 'vibe-agree', hasVibe, hasVibe ? 'Agreed: your partner proposes the how next' : 'Your partner writes the vibe here first, while you talk'),
+    button('This is the goal definition', 'vibe-agree', hasVibe, hasVibe ? 'Agreed: your partner proposes the how next' : 'Your partner writes the goal definition here first, while you talk'),
     button('Not yet', 'vibe-not-yet', true, 'Say what is missing: your partner goes on talking'),
   ]
   // Work blocks (2026-10-31): Go waits until every block has its done-when line (the state says: a goal past Go never waits).
@@ -13181,7 +13181,7 @@ function focusView(focus, goals, can = null, ui = {}) {
       // Work blocks (2026-10-31): a goal without its one line is checked against its blocks' done-when lines, all ticked.
       ...(hasLine && !(typeof focus.doneWhen === 'string' && focus.doneWhen.trim() !== '') ? { doneWhenLines: workBlocksOf(focus).map(part => blockLineOf(part)) } : {}),
       buttons: [
-        button('Yes', 'vibe-there-yes', hasLine && demo !== null, !hasLine ? 'Its Done when is missing: the goal gets its tick against it' : demo === null ? 'Your partner makes the goal demo first: you see it before you answer' : 'Your partner re-checks it against its Done when and its vibe; it gets its tick once that passed'),
+        button('Yes', 'vibe-there-yes', hasLine && demo !== null, !hasLine ? 'Its Done when is missing: the goal gets its tick against it' : demo === null ? 'Your partner makes the goal demo first: you see it before you answer' : 'Your partner re-checks it against its Done when and its goal definition; it gets its tick once that passed'),
         button('No', 'vibe-there-no', true, 'Say what is missing: your partner changes the how'),
       ],
       demo: demo === null
@@ -13292,7 +13292,7 @@ function focusAsk(thread, partner, main = null) {
 }
 
 /**
- * The talk with the partner on the left of the vibe and the how: the focus goal's brainstorm thread, as bubbles: the
+ * The talk with the partner on the left of the goal definition and the how: the focus goal's brainstorm thread, as bubbles: the
  * person's opening, then each question of the partner and the person's answer (the option and the words), in order.
  */
 function focusTalk(thread) {
@@ -13824,7 +13824,7 @@ function effortView(effort) {
     : isSettling ? 'Switching… the main chat sets it; the line turns solid once your partner runs on it.'
       : isFable ? `Your partner runs on ${label} for the goal guard's evaluation, with your yes. Its end switches it back.`
         : isOn ? `Your partner runs on ${label}. Go on the how switches it back.`
-          : 'Flip it for the vibe and the how of a hard goal: your partner switches at its next answer.'
+          : 'Flip it for the goal definition and the how of a hard goal: your partner switches at its next answer.'
   return { isOn, line: isOn ? `on: ${label}` : `off: ${effort.labels.usual}`, isSettling, note }
 }
 // effortswitch:end
@@ -13860,7 +13860,7 @@ async function switchEffort() {
 }
 
 /**
- * The talk on the left of the vibe and the how: the focus goal's brainstorm thread, as bubbles; the partner's open
+ * The talk on the left of the goal definition and the how: the focus goal's brainstorm thread, as bubbles; the partner's open
  * question is answered here as on the Brainstorm part: an option, your own words, or both.
  */
 function focusTalkCard(state, can) {
@@ -13913,11 +13913,11 @@ function focusTalkCard(state, can) {
 /** The box of "Not yet" under the buttons: what is missing, in the person's words, sent to the partner. */
 function focusNotYet(stage, can) {
   const box = el('div', 'focus-not-yet')
-  box.append(focusSay(stage === 'vibe' ? 'What is missing from the vibe?' : stage === 'there' ? 'What is missing? Your partner changes the how.' : 'What does not fit in the how?', 'focus-say', { box: 'focus-not-yet-words', act: 'send-not-yet', label: 'Send to your partner', isEnabled: can.canWrite, title: can.whyNot }))
+  box.append(focusSay(stage === 'vibe' ? 'What is missing from the goal definition?' : stage === 'there' ? 'What is missing? Your partner changes the how.' : 'What does not fit in the how?', 'focus-say', { box: 'focus-not-yet-words', act: 'send-not-yet', label: 'Send to your partner', isEnabled: can.canWrite, title: can.whyNot }))
   return box
 }
 
-/** The right card of the vibe: its lines with a tick, its picture, and the two buttons. */
+/** The right card of the goal definition: its lines with a tick, its picture, and the two buttons. */
 function focusVibeCard(view) {
   const card = el('section', 'focus-card focus-draft')
   card.append(el('h3', '', view.vibe.title), el('p', 'focus-sub', view.vibe.sub))
@@ -13925,7 +13925,7 @@ function focusVibeCard(view) {
   const lines = el('ul', 'focus-ticks')
   for (const line of view.vibe.lines) lines.append(el('li', '', line))
   card.append(lines)
-  if (view.vibe.picture !== null) card.append(picture(view.vibe.picture, 'The vibe in a picture'))
+  if (view.vibe.picture !== null) card.append(picture(view.vibe.picture, 'The goal definition in a picture'))
   return card
 }
 
@@ -14889,7 +14889,7 @@ function tradeoffSection(view, can, off) {
 /**
  * Step 5 (the user, 2026-10-21: "I want to let AI propose which goal to focus on. then A"): your focus now, and the next
  * one your partner proposes on your word, with its why and when; you make it your focus (the partner never does).
- * Steps are made for the focus goal only, on the Focus tab: its vibe, its how, then Go.
+ * Steps are made for the focus goal only, on the Focus tab: its goal definition, its how, then Go.
  */
 function focusStepPage(view, can, off) {
   const parts = []
@@ -14905,7 +14905,7 @@ function focusStepPage(view, can, off) {
       now.append(done)
     }
   }
-  now.append(el('p', 'vision-meta muted', 'Tasks are made for the focus only: on the Focus tab your partner drafts its vibe and its how, and Go makes the tasks, each refined before it goes on the list.'))
+  now.append(el('p', 'vision-meta muted', 'Tasks are made for the focus only: on the Focus tab your partner drafts its goal definition and its how, and Go makes the tasks, each refined before it goes on the list.'))
   parts.push(now)
   const next = el('section', 'vision-extra')
   next.append(el('h3', '', 'Next focus'))
@@ -15413,7 +15413,7 @@ async function visionAct(act, id) {
     if (await toPartner({ command: 'plan-focus', text: visionUi.extra.trim() }, 'Your partner proposes the next focus: it comes on step 5 with its why.')) visionUi.extra = ''
   } else if (act === 'focus-accept') {
     // Only your click makes a goal your focus; the partner then starts the talk about it on the Focus tab.
-    if (await toPartner({ command: 'focus', id }, `${id} is your focus now: on the Focus tab your partner drafts its vibe and its how.`)) visionUi.sent = [...visionUi.sent, `focus:${id}`]
+    if (await toPartner({ command: 'focus', id }, `${id} is your focus now: on the Focus tab your partner drafts its goal definition and its how.`)) visionUi.sent = [...visionUi.sent, `focus:${id}`]
   } else if (['mark-now', 'confirm-standard-now', 'confirm-goal-now'].includes(act)) {
     // A decision of the Interview, sent at once; the slide says so and the next one comes.
     const [part, mark] = String(id).split(':')
@@ -15514,7 +15514,7 @@ function focusAsksCard(state) {
 /** B360, B361: what the daily note gathers: the recaps of finished work and the asks that can wait. */
 const gatheredCards = state => [gatheredRecaps(state).length > 0 ? focusRecapCard(state) : null, gatheredAsks(state).length > 0 ? focusAsksCard(state) : null].filter(card => card !== null)
 
-/** Focus 3: every part done: "Is the vibe there?" with the agreed vibe, Yes, and No with a box for what is missing. */
+/** Focus 3: every part done: the question (once "Is the vibe there?", now "Did we reach the goal?") with the agreed goal definition, Yes, and No with a box for what is missing. */
 function focusVibeThereCard(view, can) {
   const card = el('section', 'focus-card focus-there')
   card.append(el('h3', '', view.vibeThere.question))
@@ -15536,7 +15536,7 @@ function focusVibeThereCard(view, can) {
   for (const line of view.vibeThere.vibe) lines.append(el('li', '', line))
   const buttons = el('div', 'focus-buttons')
   view.vibeThere.buttons.forEach((one, index) => buttons.append(focusButton(one, index === 0 ? 'focus-yes' : 'focus-no')))
-  // B354: the goal is ticked against its Done when: it stands under the vibe, or the button asks the partner for it.
+  // B354: the goal is ticked against its Done when: it stands under the goal definition, or the button asks the partner for it.
   if (view.vibeThere.doneWhenLine !== null) lines.append(el('li', 'focus-done-when-line', view.vibeThere.doneWhenLine))
   // Work blocks (2026-10-31): a goal without its one line shows its blocks' done-when lines, all ticked.
   for (const line of view.vibeThere.doneWhenLines ?? []) lines.append(el('li', 'focus-done-when-line is-block', line))
@@ -15586,7 +15586,7 @@ function drawFocus(state) {
     const head = el('header', 'focus-head')
     const title = el('div', 'focus-title')
     title.append(el('small', 'focus-label', view.head.label), el('h2', '', `${view.head.id} · ${view.head.title}`))
-    // "Change this goal": a goal's objective, once a change gave it one, stands under its title in place of the vibe's line.
+    // "Change this goal": a goal's objective, once a change gave it one, stands under its title in place of the goal definition's line.
     if ((view.definition ?? null) !== null) title.append(el('p', 'focus-objective', view.definition.objective))
     // Work blocks (2026-10-31): what is not in the goal, a quiet line under its objective.
     if ((view.definition?.notInIt ?? null) !== null) title.append(el('p', 'muted focus-not-in-it', `Not in it: ${view.definition.notInIt}`))
@@ -15738,12 +15738,12 @@ async function focusAct(act, goal = null, extra = null) {
   redrawFocus()
   try {
     if (act === 'pick') {
-      if (await sendFocus({ command: 'focus', id: goal }, 'Your partner is told: the talk about the vibe starts on the left.') !== null) focusUi.picking = false
+      if (await sendFocus({ command: 'focus', id: goal }, 'Your partner is told: the talk about the goal definition starts on the left.') !== null) focusUi.picking = false
     } else if (act === 'restart-talk' && focus !== null) await sendFocus({ command: 'focus', id: focus.id }, 'The talk starts again: your partner is told.')
     else if (act === 'new') {
       if (words('new') === '') focusUi.note = { isProblem: true, text: 'Write what you want to work on.' }
       else {
-        const result = await sendFocus({ command: 'focus', text: words('new') }, 'A new goal, your focus now: your partner starts the talk about its vibe.')
+        const result = await sendFocus({ command: 'focus', text: words('new') }, 'A new goal, your focus now: your partner starts the talk about its goal definition.')
         if (result !== null) focusUi.words.new = ''
         // B354: a new goal has no Done when yet: it waits in the map while the partner writes one, then the person picks it.
         if (result?.isFocus === false) {
@@ -15761,7 +15761,7 @@ async function focusAct(act, goal = null, extra = null) {
     else if (act === 'send-not-yet' && focus !== null && focusUi.notYet !== null) {
       if (words('notYet') === '') focusUi.note = { isProblem: true, text: 'Say what is missing, in your words.' }
       else if (focusUi.notYet === 'there') {
-        // Focus 3: the vibe is not there yet: the how opens again, with the person's words.
+        // Focus 3: the goal definition is not there yet: the how opens again, with the person's words.
         if (await sendFocus({ command: 'vibe-there-no', id: focus.id, text: words('notYet') }, 'Sent to your partner: it proposes a changed how.') !== null) {
           focusUi.words.notYet = ''
           focusUi.notYet = null
@@ -15784,8 +15784,8 @@ async function focusAct(act, goal = null, extra = null) {
       if (words('bar') === '') focusUi.note = { isProblem: true, text: 'Write what you want to tell your partner.' }
       else if (await sendFocus({ command: 'talk', id: focus.id, text: words('bar') }, 'Sent to your partner, in the talk about this goal.') !== null) focusUi.words.bar = ''
     }
-    // Focus 3: the run's moves: the vibe is there; Undo of a decided line; an answer to the partner's question.
-    else if (act === 'vibe-there-yes' && focus !== null) await sendFocus({ command: 'vibe-there-yes', id: focus.id }, 'Your partner re-checks it against its Done when and its vibe: it gets its tick once that passed.')
+    // Focus 3: the run's moves: the goal definition is there; Undo of a decided line; an answer to the partner's question.
+    else if (act === 'vibe-there-yes' && focus !== null) await sendFocus({ command: 'vibe-there-yes', id: focus.id }, 'Your partner re-checks it against its Done when and its goal definition: it gets its tick once that passed.')
     // Partner answers, the review's findings: a partner's answer is taken back, and the line says so (by the line's field).
     else if (act === 'undo' && focus !== null && extra !== null) await sendFocus({ command: 'note-undo', id: focus.id, note: extra.note, line: extra.line }, extra.ask ? 'Taken back: the question comes to you under Needs your attention, and its chat waits for your answer.' : 'Your partner is asked to undo it.')
     else if (act === 'answer' && extra !== null) await focusAnswerAsk(extra.id, extra.label)
@@ -19532,7 +19532,7 @@ const HELP_CARDS = [
     picture: '/help/3-talk.svg',
     title: 'Talk it through with your partner',
     lines: ['Pick a goal on the Focus tab.', 'Your partner, the Advisor, works out with you how it should feel and how to build it.'],
-    alt: 'The Focus tab at the vibe of a goal, with the talk with your partner on the right ringed as step 3',
+    alt: 'The Focus tab at the goal definition of a goal, with the talk with your partner on the right ringed as step 3',
   },
   {
     picture: '/help/4-go.svg',

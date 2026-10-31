@@ -50,10 +50,12 @@ export const isReadAction = action => READS.has(action)
 const READS = new Set(['next', 'list', 'pause-state', 'health', ...ROUTING_READS])
 const CHANGES = new Set(['incident', 'incident-fix', 'incident-told', 'incidents-fixed', 'take', 'step', 'ask', 'withdraw', 'answered-in-chat', 'read', 'note', 'report', 'block', 'unblock', 'new', 'queue', 'pin', 'add-to-queue', 'remove-from-queue', 'close', 'drop', 'refine', 'refined', 'answer', 'tick', 'delete', 'refine-answer', 'refine-accept', 'check', 'checked', 'instruction', 'turn-ended', 'pull', 'advance', 'requeue', 'unqueue', 'recheck', 'undo', 'rename', 'pause-all', 'resume-all', 'resumed', 'end-resume', 'overturn', 'seen', 'approve-recaps', 'partner-answer', 'escalate', 'partner-answers', 'obsolete-check', 'obsolete', 'obsolete-close', 'recheck-stuck', 'recheck-base', 'retire-queue', 'qa-task', 'qa-end', 'words', 'accept-cards'])
 /**
- * Focus 2: the partner's drafts of the focus goal's vibe and how. They change the goal map, not the store: the board's
- * `goalDraft` (src/focus.mjs) writes them; only the chat the list names the partner (role advisor) sends them.
+ * Focus 2: the partner's drafts of the focus goal's goal definition and how. They change the goal map, not the store: the
+ * board's `goalDraft` (src/focus.mjs) writes them; only the chat the list names the partner (role advisor) sends them.
+ * Goal definition (2026-10-31): the draft of the goal definition is `definition-draft`; `vibe-draft`, its old name, does
+ * the same (the board keeps the old word as the name of the internal command).
  */
-const GOAL_MAP = new Set(['vibe-draft', 'how-draft'])
+const GOAL_MAP = new Set(['definition-draft', 'vibe-draft', 'how-draft'])
 /** B298: what never shows on the backlog view: it is not written anew for these. */
 const OFF_VIEW = new Set(['incident', 'incident-fix', 'incident-told', 'incidents-fixed', 'instruction', 'turn-ended', 'close', 'read', 'pull', 'undo', 'pause-all', 'resume-all', 'resumed', 'end-resume', 'overturn', 'seen', 'approve-recaps', 'partner-answers', 'obsolete-check', 'obsolete', 'recheck-stuck', 'recheck-base'])
 /** What only the person does, on the board's page; and what only the server does. */
@@ -70,6 +72,7 @@ const ROLES = {
   // B356: the result check, by a helper the partner runs. T9.1.1: a step's by the worker that holds its Quality Assurance task
   // (the gate in `checked`); a goal's re-check is the partner's; the board files its own (the person's answers, `server`).
   checked: ['advisor', 'worker', 'server'],
+  'definition-draft': ['advisor'],
   'vibe-draft': ['advisor'],
   'how-draft': ['advisor'],
   // Redesign Part 2 (2026-10-25): the person pins a task to a worker; the board unpins one whose chat is gone.
@@ -98,13 +101,13 @@ const ROLES = {
 const SUPERVISOR_MAY = new Set(['incident', 'turn-ended', 'pull', ...READS])
 /**
  * The Product owner (2026-10-31, roles/product-owner.md): what its chat may do. It talks with the person: the focus's drafts
- * (vibe-draft, how-draft), a question of a talk the person can no longer reach asked of its goal (ask), its notes, its asks
+ * (definition-draft, how-draft), a question of a talk the person can no longer reach asked of its goal (ask), its notes, its asks
  * taken back or answered in its chat, its instructions closed; and reads, as every chat (`turn-ended`, `pull` from its Workers
  * mod). It never takes, refines, checks or files incidents: those stay with the partner and the workers.
  */
-const OWNER_MAY = new Set(['turn-ended', 'pull', 'ask', 'withdraw', 'answered-in-chat', 'note', 'close', 'vibe-draft', 'how-draft', ...READS])
+const OWNER_MAY = new Set(['turn-ended', 'pull', 'ask', 'withdraw', 'answered-in-chat', 'note', 'close', 'definition-draft', 'vibe-draft', 'how-draft', ...READS])
 /** What the Product owner does as the partner did before it: a goal's drafts and an ask of a goal. */
-const OWNER_AS_PARTNER = new Set(['vibe-draft', 'how-draft', 'ask'])
+const OWNER_AS_PARTNER = new Set(['definition-draft', 'vibe-draft', 'how-draft', 'ask'])
 /**
  * B424: what the partner's helper (the role 'helper' of the list) does as the partner's own: the refines of steps the
  * partner hands it, and the asks under a step they lead to. Its History lines name the helper. A goal is the partner's
@@ -268,20 +271,20 @@ async function act(body, ctx) {
 
 /**
  * Focus 2: a draft of the partner's, handed to the board's goal map (`ctx.goalDraft`, src/focus.mjs `focusMove`): the
- * goal (`goal`), the vibe's `lines` and `picture`, or the how's `parts` ("<title> · <size> · steps B<n>"),
+ * goal (`goal`), the goal definition's `lines` and `picture`, or the how's `parts` ("<title> · <size> · steps B<n>"),
  * `partnerDecides` and `youDecide`. Answers the board's refusal, or one line; the store is not changed.
  */
 async function goalDraft(body, ctx) {
   if (typeof ctx.goalDraft !== 'function') return refuse(409, 'This board keeps no goal map: nothing was kept.')
   const goal = line(body.goal, 20)
   if (!/^G\d+$/.test(goal)) return refuse(400, 'Name the goal: goal G<n>.')
-  const isVibe = body.action === 'vibe-draft'
+  const isVibe = body.action === 'definition-draft' || body.action === 'vibe-draft'
   const draft = isVibe
     ? { command: 'vibe-draft', id: goal, lines: body.lines, ...(body.picture === undefined ? {} : { picture: body.picture }) }
     : { command: 'how-draft', id: goal, parts: body.parts, ...(body.partnerDecides === undefined ? {} : { partnerDecides: body.partnerDecides }), ...(body.youDecide === undefined ? {} : { youDecide: body.youDecide }) }
   const done = await ctx.goalDraft(draft)
   if (!done.ok) return done
-  return { ok: true, result: { text: `The board keeps the ${isVibe ? 'vibe' : 'how'} of ${goal} in the goal map.`, changed: false } }
+  return { ok: true, result: { text: `The board keeps the ${isVibe ? 'goal definition' : 'how'} of ${goal} in the goal map.`, changed: false } }
 }
 
 /**
@@ -1995,7 +1998,7 @@ async function checked(body, w) {
 }
 
 /**
- * B358: the partner's re-check of a goal (`checked` with `id` G<n>): every point of its Done when and its vibe, each
+ * B358: the partner's re-check of a goal (`checked` with `id` G<n>): every point of its Done when and its goal definition, each
  * pass, fail or ask, against the steps' evidence, and the evidence picture. The board writes the outcome under the goal
  * in the goal map (`w.goalChecked`, src/focus.mjs `goalChecked`): passed, the goal is ticked and the person gets a
  * recap note; failed, it stays open, its gap named, and the partner makes the follow-up steps; ask, the person judges.

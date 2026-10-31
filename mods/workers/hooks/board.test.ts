@@ -74,7 +74,9 @@ describe('the worker board, as the mod reads it', () => {
 })
 
 describe('Focus 2: the partner keeps its drafts of the focus with the work tool', () => {
-  test('vibe-draft and how-draft are actions of the tool, with the fields they need', () => {
+  // Goal definition (2026-10-31): the draft of the goal definition is `definition-draft` now; its old name `vibe-draft` stays an action.
+  test('definition-draft (once vibe-draft) and how-draft are actions of the tool, with the fields they need', () => {
+    expect(WORK_ACTIONS.includes('definition-draft')).toBe(true)
     expect(WORK_ACTIONS.includes('vibe-draft')).toBe(true)
     expect(WORK_ACTIONS.includes('how-draft')).toBe(true)
     for (const field of ['goal', 'lines', 'picture', 'parts', 'partnerDecides', 'youDecide']) expect(WORK_FIELDS.includes(field)).toBe(true)
@@ -241,7 +243,8 @@ describe('Pause 2: the pause state as the mod reads it, and the contexts it give
 describe('2026-10-28: the board names this chat by its session id', () => {
   test('the route, and the version the plugin states', () => {
     expect(WHOAMI_PATH).toBe('/api/bridge/whoami')
-    expect(MOD_VERSION).toBe('0.27.1')
+    // 0.27.3: the work tool says "goal definition" and takes definition-draft (this branch carried 0.27.1, the main branch is at 0.27.2).
+    expect(MOD_VERSION).toBe('0.27.3')
   })
 
   test('the answer: a name, the role the board gives it and the session its card is filed under', () => {

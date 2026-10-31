@@ -89,7 +89,8 @@ const TEN = Array.from({ length: 10 }, (_, at) => at + 1)
 /** The person's example: a goal of 10 blocks; the evaluation of 17 Oct reworks blocks 3, 5 and 8 (a new task each). */
 function garden({ round = true, extra = [] } = {}) {
   const rework = { 3: 'B23', 5: 'B25', 8: 'B28' }
-  return ['Last id: G6', 'Focus: G6', '', '- [~] G6 Garden', '    Vibe: calm', '    Vibe agreed: 2026-10-15 08:00',
+  // Goal definition (2026-10-31): the goal's lines are named `Goal definition…` now (they were `Vibe…`); the fixture is written as the board writes it.
+  return ['Last id: G6', 'Focus: G6', '', '- [~] G6 Garden', '    Goal definition: calm', '    Goal definition agreed: 2026-10-15 08:00',
     ...TEN.map(n => `    Part: Block ${n} · about 1 h · steps B${n}${rework[n] && round ? `, ${rework[n]}` : ''} · done when: line ${n}`),
     ...extra, '    How agreed: 2026-10-15 09:00', ...(round ? ['    Round: 2026-10-17 10:00 · the evaluation of 2026-10-17'] : []), ''].join('\n')
 }
@@ -148,8 +149,9 @@ const CHANGE_GOALS = [
   '  Done when: a visitor walks every path without getting lost',
   '  Objective: An older aim.',
   '  Done when 1: An old bullet · steps B12',
-  '  Vibe: calm',
-  '  Vibe agreed: 2026-10-18 10:00',
+  // Goal definition (2026-10-31): the goal's lines are named `Goal definition…` now (they were `Vibe…`); the fixture is written as the board writes it.
+  '  Goal definition: calm',
+  '  Goal definition agreed: 2026-10-18 10:00',
   '  Part: Lay the paths · about 1 h · steps B12 · done when: every path is laid',
   '  Part: Light the paths · 30 min · steps B13',
   '  Part: The maze · 1 h · steps B14',
@@ -245,8 +247,9 @@ test('create writes the Part lines with their done-when lines, Part dropped, a R
     '  Done when: a visitor walks every path without getting lost',
     '  Objective: A garden a visitor crosses without a map.',
     '  Not in it: new benches, lights',
-    '  Vibe: calm',
-    '  Vibe agreed: 2026-10-18 10:00',
+    // Goal definition (2026-10-31): the goal's lines are named `Goal definition…` now (they were `Vibe…`); the fixture is written as the board writes it.
+    '  Goal definition: calm',
+    '  Goal definition agreed: 2026-10-18 10:00',
     '  Part: Lay the paths · about 1 h · steps B12 · done when: every bench is on a path',
     '  Part: Light the paths · 30 min · steps B13, B30 · done when: a visitor sees the next bench at night',
     '  Part: Signs at the gate · about 30 min · steps B15, B31 · done when: the gate is signed — from every bench',
@@ -329,7 +332,8 @@ test('the Focus page: a block made in the round is "New" with a "new" tag in All
   } finally {
     await page.close()
   }
-  const bare = await openPage({ state: pageState(['Focus: G6', '', '- [~] G6 Garden', '    Done when: x', '    Vibe: calm', '    Vibe agreed: 2026-10-15 08:00', '    How agreed: 2026-10-15 09:00', ''].join('\n')) })
+  // Goal definition (2026-10-31): the goal's lines are named `Goal definition…` now (they were `Vibe…`); the fixture is written as the board writes it.
+  const bare = await openPage({ state: pageState(['Focus: G6', '', '- [~] G6 Garden', '    Done when: x', '    Goal definition: calm', '    Goal definition agreed: 2026-10-15 08:00', '    How agreed: 2026-10-15 09:00', ''].join('\n')) })
   try {
     await bare.click('[data-tab="advice"]')
     assert.equal(bare.all('[data-focus-blocks]').length, 0)

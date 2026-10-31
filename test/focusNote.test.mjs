@@ -1,6 +1,6 @@
 // Focus 3 (spec 2026-10-18, sections 3 to 6, the run): the partner's daily note on the focus (a work-store note
 // `Of: G<n>` with "Decided for you" and "Needs you"), Undo of a decided line (typed once, Review Focus 4), the
-// partner's open asks of the focus as "Needs you", and "Is the vibe there?" once every part is done. Made-up names only.
+// partner's open asks of the focus as "Needs you", and "Did we reach the goal?" once every part is done. Made-up names only.
 import assert from 'node:assert/strict'
 import { mkdtemp, readFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
@@ -125,9 +125,10 @@ const GOALS = [
   '',
   '- [~] G6 The polish you need to judge fun',
   '    Done when: you judge a fight fun in one playthrough',
-  '    Vibe: every fight reads at a glance',
-  '    Vibe: hits feel heavy',
-  '    Vibe agreed: 2026-10-18 10:00',
+  // Goal definition (2026-10-31): the goal's lines are named `Goal definition…` now (they were `Vibe…`); the fixture is written as the board writes it.
+  '    Goal definition: every fight reads at a glance',
+  '    Goal definition: hits feel heavy',
+  '    Goal definition agreed: 2026-10-18 10:00',
   '    Part: Show damage before you click · about 1 h · steps B1',
   '    Part: Heavier hits · 2 h · steps B2',
   '    How agreed: 2026-10-18 11:00',
@@ -199,14 +200,15 @@ test('the run\'s note card: each decided line with Undo or "undo asked"; at most
   assert.equal(none.vibeThere, null)
 })
 
-test('every part done: the question "Did we reach the goal?" with the vibe, Yes and No', () => {
+// Goal definition (2026-10-31): the words people and chats read say "goal definition" where they said "vibe".
+test('every part done: the question "Did we reach the goal?" with the goal definition, Yes and No', () => {
   const view = focusView(stateOf([stepItem('B1', 'done'), stepItem('B2', 'done')]), null, CAN)
   assert.deepEqual(view.vibeThere, {
     question: 'Did we reach the goal?',
     vibe: ['every fight reads at a glance', 'hits feel heavy'],
     doneWhenLine: 'Done when: you judge a fight fun in one playthrough',
     buttons: [
-      { label: 'Yes', act: 'vibe-there-yes', isEnabled: true, title: 'Your partner re-checks it against its Done when and its vibe; it gets its tick once that passed' },
+      { label: 'Yes', act: 'vibe-there-yes', isEnabled: true, title: 'Your partner re-checks it against its Done when and its goal definition; it gets its tick once that passed' },
       { label: 'No', act: 'vibe-there-no', isEnabled: true, title: 'Say what is missing: your partner changes the how' },
     ],
     demo: { text: null, link: { label: 'See the goal demo', path: 'art/g6/demo.png', caption: 'what G6 made', isPage: false }, again: null },
@@ -225,7 +227,7 @@ test('the page sends Undo, the asks\' answers and the vibe-there moves; the serv
   assert.match(server, /roundText\(next\.round, \{ board: HERE, config, focus: state\.focus/)
 })
 
-// ---- the moves: "Is the vibe there?" Yes and No ----
+// ---- the moves: "Did we reach the goal?" Yes and No ----
 
 function fakeFs(files) {
   return {
@@ -270,17 +272,19 @@ test('Yes asks the partner for the goal\'s re-check, once; B358: the tick comes 
   const words = both.map(one => one.words).filter(one => one !== null)
   assert.equal(words.length, 1)
   assert.equal(words[0].command, 'goal-recheck')
-  assert.match(words[0].text, /^goal re-check: G6 The polish you need to judge fun\nDone when: you judge a fight fun in one playthrough\nVibe: every fight reads at a glance · hits feel heavy\nYour job: .+, "The goal re-check"$/)
+  // Goal definition (2026-10-31): the goal's lines are named `Goal definition…` now (they were `Vibe…`); the fixture is written as the board writes it.
+  assert.match(words[0].text, /^goal re-check: G6 The polish you need to judge fun\nDone when: you judge a fight fun in one playthrough\nGoal definition: every fight reads at a glance · hits feel heavy\nYour job: .+, "The goal re-check"$/)
   const map = mapOf(fs)
   assert.deepEqual([map.focus, map.byId.get('G6').state, map.byId.get('G6').recheckAsked], ['G6', 'now', '2026-10-18 09:00'])
 })
 
-test('No with the person\'s words takes "How agreed" away and types vibe there: no with the words', async () => {
+// Goal definition (2026-10-31): the words people and chats read say "goal definition" where they said "vibe".
+test('No with the person\'s words takes "How agreed" away and types goal definition there: no with the words', async () => {
   const fs = fakeFs({ [MAP]: latin(GOALS) })
   assert.equal((await focusMove({ command: 'vibe-there-no', id: 'G6', text: ' ' }, ctx(fs))).status, 400)
   const no = await focusMove({ command: 'vibe-there-no', id: 'G6', text: '  hits still   feel light ' }, ctx(fs))
   assert.equal(no.ok, true, no.why)
-  assert.equal(no.words.text, 'vibe there: no\nGoal: G6 The polish you need to judge fun\nThread: none\nWords: hits still feel light')
+  assert.equal(no.words.text, 'goal definition there: no\nGoal: G6 The polish you need to judge fun\nThread: none\nWords: hits still feel light')
   const node = mapOf(fs).byId.get('G6')
   assert.deepEqual([node.howAgreed, node.vibeAgreed, node.parts.length, mapOf(fs).focus], [null, '2026-10-18 10:00', 2, 'G6'])
   const again = await focusMove({ command: 'vibe-there-no', id: 'G6', text: 'again' }, ctx(fs))
@@ -289,7 +293,8 @@ test('No with the person\'s words takes "How agreed" away and types vibe there: 
 
 // ---- the words, the morning round, the partner's job ----
 
-test('the words to the partner: undo: <line>, vibe there: yes|no; each the person\'s word, waking a partner not running', () => {
+// Goal definition (2026-10-31): the words people and chats read say "goal definition" where they said "vibe".
+test('the words to the partner: undo: <line>, goal definition there: yes|no; each the person\'s word, waking a partner not running', () => {
   const undo = focusWords('undo', { to: 'Partner', goal: { id: 'G6', title: 'The polish' }, words: ' Kept the old   map icons ', note: 'N4' })
   assert.deepEqual(undo, { to: 'Partner', ask: null, step: null, title: null, version: null, verdict: null, command: 'undo', about: 'G6', text: 'undo: Kept the old map icons\nGoal: G6 The polish\nNote: N4' })
   assert.match(messageText({ ...undo, at: NOW }, () => '09:01'), /^undo: Kept the old map icons\nGoal: G6 The polish\nNote: N4\n\(typed on the worker board, 09:01\)$/)
@@ -317,6 +322,7 @@ test('the partner\'s job: the daily note, what it decides without the user, Undo
   for (const words of ['small visual details', 'numbers', 'wording', 'the order of the parts', 'a rule of the game', 'a new screen', 'more than about an hour']) assert.ok(partner.includes(words), words)
   assert.match(partner, /`undo: <line>`/)
   assert.match(partner, /`goal re-check:`/)
-  assert.match(partner, /`vibe there: no` with `Words: \.\.\.`/)
-  for (const words of ['`undo: <line>`', '`vibe there: yes`', '`vibe there: no`', '`## Decided for you`', '`## Needs you`', '`## Undo asked`']) assert.ok(protocol.includes(words), words)
+  // Goal definition (2026-10-31): the words people and chats read say "goal definition" where they said "vibe".
+  assert.match(partner, /`goal definition there: no` with `Words: \.\.\.`/)
+  for (const words of ['`undo: <line>`', '`goal definition there: yes`', '`goal definition there: no`', '`## Decided for you`', '`## Needs you`', '`## Undo asked`']) assert.ok(protocol.includes(words), words)
 })

@@ -299,7 +299,7 @@ button, textarea, select { font: inherit; color: inherit; }
 .focus-plan li .focus-plan-done-when.is-missing { font-style: italic; }
 .focus-pick .focus-change { margin: 0 0 12px; }
 .focus-goals .goals-action:disabled { opacity: 0.55; cursor: default; }
-/* Focus 3: the run's note from the partner (decided lines with Undo, its questions), and "Is the vibe there?". */
+/* Focus 3: the run's note from the partner (decided lines with Undo, its questions), and "Did we reach the goal?". */
 .focus-decided { display: flex; flex-direction: column; }
 .focus-decided li { display: flex; align-items: baseline; justify-content: space-between; gap: 14px; padding: 9px 2px; border-bottom: 1px solid var(--line); }
 .focus-decided li span { min-width: 0; overflow-wrap: anywhere; }

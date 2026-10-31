@@ -68,7 +68,8 @@ test('the last focus goal done: the milestone again; a focus at work: the focus,
   const run = { ...done, stage: 'run', progress: { done: 1, total: 3, minutesLeft: 60 } }
   assert.equal(page.simpleView({ focus: run, milestone: MILESTONE }, AT).bar.text, 'Focus G12 · Fights you can read · 1 of 3 steps done · about 1 h left')
   // a focus picked but before its run is still the focus
-  assert.equal(page.simpleView({ focus: { ...run, stage: 'vibe' }, milestone: MILESTONE }, AT).bar.text, 'Focus G12 · Fights you can read · agreeing the vibe')
+  // Goal definition (2026-10-31): the words people and chats read say "goal definition" where they said "vibe".
+  assert.equal(page.simpleView({ focus: { ...run, stage: 'vibe' }, milestone: MILESTONE }, AT).bar.text, 'Focus G12 · Fights you can read · agreeing the goal definition')
 })
 
 test('the page passes the milestone to the bar', () => {

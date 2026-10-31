@@ -131,16 +131,18 @@ test('the button asks the partner for a goal\'s Done when, as the person\'s word
   assert.equal(wakeFor({ id: 'm1', at: NOW, ...asked.words, state: 'waiting' }, state, [], NOW, 4000)?.command, 'start')
 })
 
-test('"Is the vibe there?" Yes ticks the goal only with a Done when: an older focus without one is asked for it first', async () => {
+// Goal definition (2026-10-31): the words people and chats read say "goal definition" where they said "vibe".
+test('"Did we reach the goal?" Yes ticks the goal only with a Done when: an older focus without one is asked for it first', async () => {
   const older = GOALS.replace('# Goals\n', '# Goals\nFocus: G4\n')
-    .replace('  Done when:   \n', '  Vibe: warm light\n  Vibe agreed: 2026-10-18 10:00\n  Part: Hang them · about 1 h · steps B20\n  How agreed: 2026-10-18 10:30\n')
+    // Goal definition (2026-10-31): the goal's lines are named `Goal definition…` now (they were `Vibe…`); the fixture is written as the board writes it.
+    .replace('  Done when:   \n', '  Goal definition: warm light\n  Goal definition agreed: 2026-10-18 10:00\n  Part: Hang them · about 1 h · steps B20\n  How agreed: 2026-10-18 10:30\n')
   const fs = fakeFs({ [MAP]: latin(older) })
   const refused = await focusMove({ command: 'vibe-there-yes', id: 'G4' }, ctx(fs, { allDone: true }))
   assert.equal(refused.status, 409)
   assert.match(refused.why, /Done when/)
   assert.equal(mapOf(fs).byId.get('G4').state, 'open')
   assert.equal(mapOf(fs).focus, 'G4')
-  const written = utf8(fs.files[MAP]).replace('  Vibe: warm light\n', '  Done when: every path is lit after dark\n  Demo: art/g4/demo.png · what G4 made\n  Vibe: warm light\n')
+  const written = utf8(fs.files[MAP]).replace('  Goal definition: warm light\n', '  Done when: every path is lit after dark\n  Demo: art/g4/demo.png · what G4 made\n  Goal definition: warm light\n')
   fs.files[MAP] = latin(written)
   // B358: with its Done when, Yes asks the partner for the goal's re-check; the tick comes once it passed.
   const asked = await focusMove({ command: 'vibe-there-yes', id: 'G4' }, ctx(fs, { allDone: true }))

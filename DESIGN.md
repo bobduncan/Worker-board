@@ -760,7 +760,7 @@ unticked ("Do what's ticked", Change…). Create is refused before the yes; it w
 the goal (its old `Done when:` stays), drops the ticked drops in the store as the person with their why (`; dropped:
 B<id>` ends the Created line) and makes the ticked steps as any created proposal does. The map's rules paragraph gets a
 sentence naming the new lines the first time one is written. The Focus page shows a goal's Objective under its title
-(in place of the vibe's line) and its Done when bullets above the rest, each met (all its steps done, green) or not
+(in place of the goal definition's line) and its Done when bullets above the rest, each met (all its steps done, green) or not
 (grey), with its step ids as links; a goal without an Objective shows nothing new. Code: `src/brainstorm.mjs`,
 `src/goals.mjs`, `src/goalsWrite.mjs` (`setGoalChange`, `addDoneWhenStep`, `addYourWords`, `withChangeRules`), tests:
 `test/changeGoal.test.mjs`.
@@ -2165,7 +2165,7 @@ Spec 2026-10-18, sections 2 and 4; plan Task 7; picture `art-inbox/focus-mockups
 - Tests: `test/needsPartner.test.mjs`, `test/focusTalkBar.test.mjs`, `test/work/noteWake.test.mjs`,
   `test/focusHandout.test.mjs`, `test/work/chatNames.test.mjs`, `test/partnerJob.test.mjs`.
 
-## The Focus tab, increment 3 (Focus 3): the run, the daily note, "Is the vibe there?"
+## The Focus tab, increment 3 (Focus 3): the run, the daily note, "Did we reach the goal?"
 
 Spec 2026-10-18, sections 3 to 6; plan Tasks 5 and 6; mockup `art-inbox/focus-mockups/focus-run.png`, pictures
 `inc3-run.png` and `inc3-vibe-there.png` beside it.
@@ -2186,10 +2186,10 @@ Spec 2026-10-18, sections 3 to 6; plan Tasks 5 and 6; mockup `art-inbox/focus-mo
   (`focusWords('undo')`), and only then the store adds the line under `## Undo asked` with its time. A second Undo,
   also from another tab, types nothing; a word that could not be kept leaves the line unmarked (the review). The page
   shows "undo asked" from the note's section.
-- **Is the vibe there?** (`src/focus.mjs` `vibe-there-yes`, `vibe-there-no`): asked when every part is done; the server
+- **Did we reach the goal?** (`src/focus.mjs` `vibe-there-yes`, `vibe-there-no`): asked when every part is done; the server
   passes `allDone` from the store. Yes ticks the goal and clears `Focus:` in one change of the map, once (a second Yes
   finds the goal done: no word); No (with words) takes `How agreed` away (`goalsWrite.mjs` `reopenHow`). Each types its
-  words, as the person's: `vibe there: yes`, `vibe there: no` with `Words:`.
+  words, as the person's: `goal definition there: yes`, `goal definition there: no` with `Words:`.
 - **The morning round** (`rounds.mjs` `roundText` with the state's `focus`): "Your focus: G<n> <title> (<stage>). Write
   today's note on it: ..." or "No focus: have the user pick one ...". The partner's job: `roles/partner.md`, "The daily
   note" (what it may decide without the person: small visual details, numbers, wording, the order of the parts; never a
@@ -2201,7 +2201,7 @@ Spec 2026-10-18, sections 3 to 6; plan Tasks 5 and 6; mockup `art-inbox/focus-mo
   the server as the asker's `wake`).
 - Tests: `test/focusRun.test.mjs`, `test/focusNote.test.mjs`.
 
-## The Focus tab, increment 2 (Focus 2): the vibe and how moves, and the partner
+## The Focus tab, increment 2 (Focus 2): the goal definition and how moves, and the partner
 
 The plan's Tasks 3 and 4 (spec `.claude/specs/2026-10-18-focus-partner-design.md`, sections 2, 3, 5 and 6). Pictures
 beside the mockup `focus-vibe.png`: `art-inbox/focus-mockups/inc2-vibe.png`, `inc2-how.png`.
@@ -2209,15 +2209,15 @@ beside the mockup `focus-vibe.png`: `art-inbox/focus-mockups/inc2-vibe.png`, `in
 - **The moves** (`src/focus.mjs`, `focusMove`, through `POST /api/goals`; one at a time): `focus` (`id`, or `text`
   for something new: a goal at the top, `Last id` raised) writes `Focus:` and starts the goal's brainstorm thread, or
   goes on with the one that runs about it (`editThread` start, linked under the goal); `vibe-agree` (the focus in the
-  vibe stage, with a draft) and `how-go` (the how stage, with parts) write `Vibe agreed` / `How agreed` once;
+  goal definition stage, with a draft) and `how-go` (the how stage, with parts) write `Goal definition agreed` / `How agreed` once;
   `vibe-not-yet` and `how-not-yet` carry the person's words and write nothing. A refusal names why (no partner, a
   board that only shows, not the focus, the wrong stage, no draft yet, no words).
 - **The words** (`src/say.mjs`, `focusWords`): `focus: G<n> <title>` / `Thread:` / `Stage:` / `Your job: <board>/roles/partner.md,
-  "The focus"`; `vibe: agreed`, `vibe: not yet`, `how: go`, `how: not yet` with `Goal:` and `Thread:` (the not-yets
+  "The focus"`; `goal definition: agreed`, `goal definition: not yet`, `how: go`, `how: not yet` with `Goal:` and `Thread:` (the not-yets
   with `Words:`). The move answers them, or null when it changed nothing: the server puts them into the outbox as the
   person's word (no Workers mod: copied, the page pastes), and `wakeFor` asks the main chat to start a partner that is
-  not running (Review Focus 5). Two clicks on "This is the vibe", also at once: one line, one word (Review Focus 3).
-- **The drafts**: `vibe-draft` (`lines`, `picture`; refused once the vibe is agreed) and `how-draft` (`parts`,
+  not running (Review Focus 5). Two clicks on "This is the goal definition", also at once: one line, one word (Review Focus 3).
+- **The drafts**: `definition-draft` (`lines`, `picture`; its old name `vibe-draft` works too; refused once the goal definition is agreed) and `how-draft` (`parts`,
   `partnerDecides`, `youDecide`; once the how is agreed only the parts' steps may change). The partner sends them with
   the Workers mod's work tool (version 0.13.4: the actions `vibe-draft` and `how-draft`, the fields `goal`, `lines`,
   `picture`, `parts`, `partnerDecides`, `youDecide`): the work API (`/api/bridge/work`) takes them from the chat
@@ -2233,7 +2233,7 @@ beside the mockup `focus-vibe.png`: `art-inbox/focus-mockups/inc2-vibe.png`, `in
   the option picked, kept while the page redraws); `focusAct` sends the moves, `focusAnswer` writes the answer into
   the thread (`/api/brainstorm`) and types `brainstorm answer` (`/api/say`), as the Brainstorm part does.
 - **The partner** (`roles/partner.md`, from the Advisor's job, which keeps refining, goal linking and rounds): "The
-  focus" in three moves (talk until the vibe is clear and keep the draft, never build; on `vibe: agreed` propose the
+  focus" in three moves (talk until the goal definition is clear and keep the draft, never build; on `goal definition: agreed` propose the
   how; on `how: go` make the steps with `work new` and the goal, refine them itself, write their ids into the parts,
   and `work note --to main` "Queue for G<n> ..."), and "Planning questions from the main chat". `roles/partner.md`
   only points there; the rounds and every place the board names the job say `partner.md`. `roles/main.md`: planning
@@ -2253,10 +2253,11 @@ The spec `.claude/specs/2026-10-18-focus-partner-design.md` and its plan (increm
 `inc1-run.png`.
 
 - **The lines** (`src/goals.mjs`): a head line `Focus: G<n>` before the first goal (`Focus:` alone is none; a Focus
-  line under a goal is a note); under a goal `Vibe:` (one per point), `Vibe picture:`, `Vibe agreed: <date time>`,
+  line under a goal is a note); under a goal `Goal definition:` (one per point), `Goal definition picture:`, `Goal definition agreed: <date time>`,
   `Part: <title> · <size> · steps B<n>, B<n>` (size and steps optional), `Partner decides:`, `You decide:`,
-  `How agreed: <date time>`. `focusStage(node)`: none or gone → pick; ticked → done; no Vibe agreed → vibe (an agreed
-  vibe without words is the how, its line "(no words kept)"); no How agreed → how; else run.
+  `How agreed: <date time>`. `focusStage(node)`: none or gone → pick; ticked → done; no Goal definition agreed → `vibe` (the stage
+  keeps its old name; an agreed goal definition without words is the how, its line "(no words kept)"); no How agreed → how; else run.
+  Names (2026-10-31): people and chats read "goal definition" everywhere, and the old `Vibe…` lines of a goals.md read alike (`tools/migrate-vibe-lines.mjs <goals.md>` renames them); identifiers (`vibe`, `vibeAgreed`, `setVibe`), the stage `vibe`, act names (`vibe-agree`, …) and CSS classes keep their names, so no open branch has a rename to merge.
 - **The writers** (`src/goalsWrite.mjs`, by id, every other line kept): `setFocus` (in place, else after the head's
   Last lines, else under the heading; null removes it; a goal that is gone is refused), `setVibe` and `setHow`
   (their lines replaced where the first stood, else after the goal's own top lines), `agreeVibe` and `agreeHow`
@@ -2273,7 +2274,7 @@ The spec `.claude/specs/2026-10-18-focus-partner-design.md` and its plan (increm
   bar no longer shows gives way to Focus; the chat opened from the Advisor's card still opens. The Backlog's
   `coordinateList` takes `goal`: only those steps; their finished ones only with "Show finished", as without a goal
   (B325).
-- **Drawn, off until increment 2**: "This is the vibe", "Not yet", "Go", the Pick buttons, the talk boxes and Send;
+- **Drawn, off until increment 2**: "This is the goal definition", "Not yet", "Go", the Pick buttons, the talk boxes and Send;
   the daily note is a line that says it comes next.
 - **A copy tries it apart**: `goals`, `brainstorms`, `goalAsks` and `goalsHistory` may be a whole path of their own,
   as `work` (`projectFile` in `src/config.mjs`).
@@ -2807,7 +2808,7 @@ picked the drawings over the paintings of B347 (Q173, A, with the new titles and
 The person, 2026-10-18 (I16): "while refining a goal, i want a button to change the claude chat working on it, to
 other model/effort, lets call it high effort mode. so like fable 5.1 max effort. otherwise it will use opus extra".
 
-1. A switch under the talk with the partner on the Focus page (the vibe and the how): "High effort mode · off: Opus
+1. A switch under the talk with the partner on the Focus page (the goal definition and the how): "High effort mode · off: Opus
    5.5, extra high" or "· on: Opus 5.5, max", amber when on (`src/partnerEffort.mjs`, `PARTNER_MODES`). Since 2026-10-24 high effort is Opus at
    max effort, not Fable (the person: "maximum run opus ... you cant run fable without my permission"); the switch only
    ever sends `usual` or `high` (`SWITCH_MODES`). A third mode, `fable` (Fable 5.1 at max), comes only from the goal
@@ -2886,12 +2887,12 @@ using fable. yes, or no use opus."
 
 ## Done when and the standard per kind of work (B354)
 
-Part 2 of G11's how (agreed 2026-10-18 21:21). The vibe: nothing is done unchecked; every kind of work has its standard
+Part 2 of G11's how (agreed 2026-10-18 21:21). The goal definition: nothing is done unchecked; every kind of work has its standard
 and reference written before it is built. The person, 21:18: "i want to ensure the way the new board works is work
 agnostic. it just needs to have clear ways on defining the goal, but also verifying its actually reached".
 
 1. A goal is picked as the focus and ticked only with a `Done when:` line with words in it (`hasDoneWhen`,
-   src/goals.mjs). The focus pick, "Is the vibe there?" Yes (src/focus.mjs) and the Goals part's tick (src/goalsWrite.mjs,
+   src/goals.mjs). The focus pick, "Did we reach the goal?" Yes (src/focus.mjs) and the Goals part's tick (src/goalsWrite.mjs,
    `doneWhen`) refuse it with why. The person's button asks the partner (`done-when`, a Focus move: the word
    `done when: G<n> <title>` with the partner's job, roles/partner.md "Done when"); it changes nothing in the map.
 2. Something new goes into the map without a focus, and the partner is asked for its Done when with the person's words;
@@ -2922,7 +2923,7 @@ the store ("Quality Assurance tasks: result checks handed out like steps" below)
 makes the task instead of typing `check step`, the worker files `work checked`, and the worker asks the person under the step.
 The rest stands.
 
-Part 3 of G11's how (agreed 2026-10-18 21:21). The vibe: a step is done only when a helper that did not build it
+Part 3 of G11's how (agreed 2026-10-18 21:21). The goal definition: a step is done only when a helper that did not build it
 ticked every agreed point against the standard and the reference. The person, 21:18: "verifying its actually reached
 and otherwise automatically create follow up steps to fix them"; Q128 (21:27): art below its target goes back to the
 worker for another try, until the attempts stall; only then the person's call, with the gap named.
@@ -2971,12 +2972,12 @@ Part 4 of G11's how (agreed 2026-10-18 21:21). The person, 20:56: "before we can
 the goal needs to be done if its actually complete"; 21:18: "verifying its actually reached and otherwise
 automatically create follow up steps".
 
-1. A tick on the Goals part (the server routes `state` done there while a partner is on the board) and Yes to "Is the
-   vibe there?" ask the partner for the goal's re-check (src/focus.mjs `goalDone`, `askRecheck`): `Recheck asked:
-   <date time>` under the goal, once, and the word `goal re-check:` (the goal, its Done when and vibe, the job). A goal
+1. A tick on the Goals part (the server routes `state` done there while a partner is on the board) and Yes to "Did we reach
+   the goal?" ask the partner for the goal's re-check (src/focus.mjs `goalDone`, `askRecheck`): `Recheck asked:
+   <date time>` under the goal, once, and the word `goal re-check:` (the goal, its Done when and goal definition, the job). A goal
    without a Done when is refused (B354). Without a partner on the board the Goals part ticks as before.
 2. The partner's helper re-checks it and the partner files `work checked G<n>` (src/work/api.mjs `goalCheck`): every
-   Done when point and vibe line pass, fail or ask, the evidence picture, the score. The board writes `Rechecked
+   Done when point and goal definition line pass, fail or ask, the evidence picture, the score. The board writes `Rechecked
    (<date time>, <who>): <passed|failed|waits for you> · <n> of <m> points pass · gap: ... · evidence <path>` under the
    goal (`goalChecked`) and takes `Recheck asked` away. Passed: ticked, the focus cleared, a recap note to the person in
    the partner's name. Failed: open, an attempt (its failed re-checks counted); the partner makes the follow-up steps
@@ -2984,7 +2985,7 @@ automatically create follow up steps".
 3. After a failed re-check the person's tick stands: ticked, with `Overturned (<date time>): ticked by you after the
    re-check failed` under it.
 4. The Goals part's folded line says where the re-check stands, and its lines show every re-check and overturn; the
-   Focus run shows "Your partner re-checks it" in place of "Is the vibe there?", or the gap it found with the attempt.
+   Focus run shows "Your partner re-checks it" in place of "Did we reach the goal?", or the gap it found with the attempt.
 5. Not in it: the two guards (the next step), the recap's own look; no change to the Workers mod (`checked` takes a
    goal's id).
 6. The review's findings: a tick after a failed re-check asks a new one; the person's tick without a passed re-check
@@ -2993,8 +2994,8 @@ automatically create follow up steps".
    Goals part can take a re-check back (its line removed), and `goalChecked` then refuses a late outcome; one that waits
    for the person stays asked; without the Workers mod the word is put on the clipboard; Undo does not count a re-check
    asked or an overturn; a point's " · " and a long gap no longer break the line.
-7. The second review: the page keeps the overturn's confirm for its second click (the dot and the menu); No to the
-   vibe takes an open re-check back too, so a later pass cannot tick it; a take-back is no change Undo takes back.
+7. The second review: the page keeps the overturn's confirm for its second click (the dot and the menu); No to "Did we reach
+   the goal?" takes an open re-check back too, so a later pass cannot tick it; a take-back is no change Undo takes back.
 
 ## The goal's steps beside the map (B383)
 
@@ -3068,7 +3069,7 @@ Picture: `art-inbox/worker-board/partner-answers/note.png`.
    on Q<n>; wait for their answer." (`takenBackWords`, `kind: 'taken-back'`). Nothing is typed to the partner. Once only:
    a second Undo changes nothing; an ask the person answered after is no partner's answer any more (409).
 7. **The jobs**: `roles/partner.md` "Detail questions" (take the worker's advice unless it goes against the agreed
-   vibe, a standard or something the person decided; escalate money, deleting, publishing, a new screen, a rule of the
+   goal definition, a standard or something the person decided; escalate money, deleting, publishing, a new screen, a rule of the
    game, anything that adds more than about an hour of work, approving finished art or a new look (sprites, maps,
    effects); one line why), one line each in `roles/worker.md` and `roles/main.md`,
    `roles/protocol.md`. The Workers mod 0.13.12: the work tool's actions `partner-answer` and `escalate` (`id`, `text`,

@@ -86,7 +86,7 @@ export function recheckText({ board, config }) {
   ].filter(line => line !== null).join('\n')
 }
 
-const STAGES = { vibe: 'the vibe', how: 'the how', run: 'the run' }
+const STAGES = { vibe: 'the goal definition', how: 'the how', run: 'the run' }
 
 /**
  * Focus 3 (spec 2026-10-18, section 3): the morning round's line about the focus (the state's `focus`): with one, the

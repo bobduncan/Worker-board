@@ -50,7 +50,8 @@ test('the card\'s title, a goal\'s parts, and the only old picture a card keeps'
   assert.equal(headingOf('B550 Fix of X15: a free worker gets the step is done', 'B550'), 'A free worker gets the step')
   assert.equal(headingOf('G3 Lanterns is done', 'G3'), 'Lanterns')
   assert.deepEqual(goalParts({ why: 'Paths are dark (I3).', doneWhen: 'every path is lit', checked: '3 of 3' }), { context: 'Paths are dark.', change: 'Every path is lit', checked: '3 of 3' })
-  assert.equal(goalParts({ why: null, doneWhen: null, checked: null }).change, 'A helper re-checked it against its Done when and its vibe.')
+  // Goal definition (2026-10-31): the words people and chats read say "goal definition" where they said "vibe".
+  assert.equal(goalParts({ why: null, doneWhen: null, checked: null }).change, 'A helper re-checked it against its Done when and its goal definition.')
   assert.equal(isBeforeAfter('art-inbox/B5/before-after.png'), true)
   assert.equal(isBeforeAfter('art-inbox/B5/evidence.png'), false)
 })

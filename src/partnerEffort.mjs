@@ -7,7 +7,7 @@
 // on. Go on the how and a new focus switch it back to the usual partner (the person's yes, 2026-10-18).
 
 /**
- * The modes: the usual partner, high effort for the vibe and the how of a hard goal (Opus at max since 2026-10-24), and
+ * The modes: the usual partner, high effort for the goal definition and the how of a hard goal (Opus at max since 2026-10-24), and
  * Fable, only for a goal guard's evaluation the person said yes to (the person, 2026-10-24: "you cant run fable without my
  * permission"; src/goalGuard.mjs `fableAskOf`).
  */

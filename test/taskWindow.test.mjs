@@ -210,7 +210,8 @@ test('the guard names the step whose failed check was the newest, for that card'
   const { guardOf } = await import('../src/goalGuard.mjs')
   const { parseGoals } = await import('../src/goals.mjs')
   const failed = (id, state, ...checks) => parseItem(`Id: ${id}\nKind: step\nTitle: Step ${id}\nState: ${state}\nGoal: G2\nSince: 2026-10-19 08:00\n\n## History\n${checks.map(one => `- ${one} Partner: result check failed: 1 of 3 points pass; fix B9 for W1`).join('\n')}\n`)
-  const goal = parseGoals('Last id: G2\nFocus: G2\n\n- [~] G2 Benches\n    Done when: every bench is built\n    Vibe: warm\n    Vibe agreed: 2026-10-19 08:00\n    Part: Benches · about 1 h · steps B1, B2\n    How agreed: 2026-10-19 08:00\n    Fable asked: Q7\n').nodes[0]
+  // Goal definition (2026-10-31): the goal's lines are named `Goal definition…` now (they were `Vibe…`); the fixture is written as the board writes it.
+  const goal = parseGoals('Last id: G2\nFocus: G2\n\n- [~] G2 Benches\n    Done when: every bench is built\n    Goal definition: warm\n    Goal definition agreed: 2026-10-19 08:00\n    Part: Benches · about 1 h · steps B1, B2\n    How agreed: 2026-10-19 08:00\n    Fable asked: Q7\n').nodes[0]
   const guard = guardOf(goal, [failed('B1', 'review', '2026-10-19 08:40', '2026-10-19 09:00'), failed('B2', 'review', '2026-10-19 09:20')], [])
   assert.equal(guard.state, 'asking')
   assert.equal(guard.step, 'B2')
@@ -329,7 +330,8 @@ test('the guard names the first step of the chain whose failed check was the new
   const { guardOf } = await import('../src/goalGuard.mjs')
   const { parseGoals } = await import('../src/goals.mjs')
   const failed = (id, state, fixOf, ...checks) => parseItem(`Id: ${id}\nKind: step\nTitle: Step ${id}\nState: ${state}\nGoal: G2\n${fixOf === null ? '' : `Fix of: ${fixOf}\n`}Since: 2026-10-19 08:00\n\n## History\n${checks.map(one => `- ${one} Partner: result check failed: 1 of 3 points pass; fix B9 for W1`).join('\n')}\n`)
-  const goal = parseGoals('Last id: G2\nFocus: G2\n\n- [~] G2 Benches\n    Done when: every bench is built\n    Vibe: warm\n    Vibe agreed: 2026-10-19 08:00\n    Part: Benches · about 1 h · steps B1, B2, B3\n    How agreed: 2026-10-19 08:00\n    Fable asked: Q7\n').nodes[0]
+  // Goal definition (2026-10-31): the goal's lines are named `Goal definition…` now (they were `Vibe…`); the fixture is written as the board writes it.
+  const goal = parseGoals('Last id: G2\nFocus: G2\n\n- [~] G2 Benches\n    Done when: every bench is built\n    Goal definition: warm\n    Goal definition agreed: 2026-10-19 08:00\n    Part: Benches · about 1 h · steps B1, B2, B3\n    How agreed: 2026-10-19 08:00\n    Fable asked: Q7\n').nodes[0]
   // B1 failed, its fix B2 failed, its fix B3 failed: the third failure is B3's, the question is about the chain B1 started.
   const guard = guardOf(goal, [failed('B1', 'review', null, '2026-10-19 08:40'), failed('B2', 'review', 'B1', '2026-10-19 09:00'), failed('B3', 'review', 'B2', '2026-10-19 09:20')], [])
   assert.deepEqual([guard.state, guard.step], ['asking', 'B1'])

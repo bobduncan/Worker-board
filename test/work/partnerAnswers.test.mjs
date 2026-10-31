@@ -136,23 +136,24 @@ test('partner-answer: the ask is answered by the partner, the asking chat woken 
     await digger(DECIDE)
     assert.equal((await digger({ action: 'partner-answer', id: 'Q1', text: 'A', why: 'x' })).status, 403)
     assert.equal((await sage({ action: 'partner-answer', id: 'Q1', text: 'A number' })).status, 400, 'a why is needed')
-    const answered = await sage({ action: 'partner-answer', id: 'Q1', text: 'A number', why: 'your advice; it fits the vibe' }, NOW + 2 * MIN)
+    // Goal definition (2026-10-31): the words people and chats read say "goal definition" where they said "vibe".
+    const answered = await sage({ action: 'partner-answer', id: 'Q1', text: 'A number', why: 'your advice; it fits the goal definition' }, NOW + 2 * MIN)
     assert.equal(answered.ok, true, answered.why)
     const q1 = await item(dir, 'Q1')
     assert.deepEqual(['State', 'Answered by', 'Route', 'Daily note'].map(key => valueOf(q1, key)), ['answered', 'partner', 'partner', 'N1'])
     assert.deepEqual(q1.sections.get('Answer'), ['A number'])
-    assert.match(q1.sections.get('History').at(-1), /Sage: answered by the partner: A number \(why: your advice; it fits the vibe\)$/)
+    assert.match(q1.sections.get('History').at(-1), /Sage: answered by the partner: A number \(why: your advice; it fits the goal definition\)$/)
     // The step goes on, as with the person's answer.
     assert.equal(valueOf(await item(dir, 'B1'), 'State'), 'in progress')
     assert.equal(answered.result.wake.to, 'Digger')
     assert.equal(answered.result.wake.id, 'Q1')
-    assert.match(answered.result.wake.text, /^Your partner answered this for the person: A number \(why: your advice; it fits the vibe\)\. The person may still take it back\.$/)
+    assert.match(answered.result.wake.text, /^Your partner answered this for the person: A number \(why: your advice; it fits the goal definition\)\. The person may still take it back\.$/)
     // The line in the daily note of the focus, with an Undo.
     const note = await item(dir, 'N1')
     assert.deepEqual(['Kind', 'From', 'To', 'Of'].map(key => valueOf(note, key)), ['note', 'Sage', 'you', 'G6'])
-    assert.deepEqual(dailyNote(note).decided, [{ text: 'Q1 (Digger, B1): A number or a bar for the damage? → A number (your advice; it fits the vibe)', undoAsked: false }])
+    assert.deepEqual(dailyNote(note).decided, [{ text: 'Q1 (Digger, B1): A number or a bar for the damage? → A number (your advice; it fits the goal definition)', undoAsked: false }])
     // The review's findings: the ask keeps its line as a field (`## Note line`), so nothing is read from the note's words.
-    assert.deepEqual(q1.sections.get('Note line'), ['Q1 (Digger, B1): A number or a bar for the damage? → A number (your advice; it fits the vibe)'])
+    assert.deepEqual(q1.sections.get('Note line'), ['Q1 (Digger, B1): A number or a bar for the damage? → A number (your advice; it fits the goal definition)'])
     assert.equal(answered.result.note, 'N1')
     // A second answer the same day joins the same note; the note's line counts it.
     await digger({ action: 'ask', of: 'B1', kind: 'decide', text: 'Yellow or white?', options: ['A yellow', 'B white'], advice: 'A' })

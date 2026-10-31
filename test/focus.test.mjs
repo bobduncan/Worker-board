@@ -1,4 +1,4 @@
-// Focus 1 (spec 2026-10-18, section 5): the focus in goals.md's head, and a goal's vibe and how as lines under it,
+// Focus 1 (spec 2026-10-18, section 5): the focus in goals.md's head, and a goal's goal definition and how as lines under it,
 // read by src/goals.mjs and written by id through src/goalsWrite.mjs. Made-up names only.
 import assert from 'node:assert/strict'
 import test from 'node:test'
@@ -17,10 +17,11 @@ const MAP = [
   '  Done when: ten visitors in a week',
   '  - [~] G2 Benches that feel like home',
   '    Brainstorm: talks/2026-10-18-benches.md (running)',
-  '    Vibe: you sit down without thinking',
-  '    Vibe: warm wood, never metal',
-  '    Vibe picture: pictures/bench.png',
-  '    Vibe agreed: 2026-10-18 10:00',
+  // Goal definition (2026-10-31): the goal's lines are named `Goal definition…` now (they were `Vibe…`); the fixture is written as the board writes it.
+  '    Goal definition: you sit down without thinking',
+  '    Goal definition: warm wood, never metal',
+  '    Goal definition picture: pictures/bench.png',
+  '    Goal definition agreed: 2026-10-18 10:00',
   '    Part: Draw the bench · about 1 h · steps B10, B11',
   '    Part: Place them by the path · 30 min',
   '    Part: One look at the whole garden',
@@ -69,16 +70,18 @@ test('Review Focus 1: no Focus line, an empty one, or one naming a goal that is 
   assert.equal(low.focus, null)
 })
 
-test('the stage follows from the lines: vibe, how, run, done; pick without a goal', () => {
+// Goal definition (2026-10-31): the words people and chats read say "goal definition" where they said "vibe".
+test('the stage follows from the lines: goal definition (the stage `vibe`), how, run, done; pick without a goal', () => {
   const node = lines => parseGoals(`- [~] G1 A\n${lines.map(one => `  ${one}\n`).join('')}`).byId.get('G1')
   assert.equal(focusStage(null), 'pick')
   assert.equal(focusStage(node([])), 'vibe')
-  assert.equal(focusStage(node(['Vibe: calm'])), 'vibe')
-  assert.equal(focusStage(node(['Vibe: calm', 'Vibe agreed: 2026-10-18 10:00'])), 'how')
+  // Goal definition (2026-10-31): the goal's lines are named `Goal definition…` now (they were `Vibe…`); the fixture is written as the board writes it.
+  assert.equal(focusStage(node(['Goal definition: calm'])), 'vibe')
+  assert.equal(focusStage(node(['Goal definition: calm', 'Goal definition agreed: 2026-10-18 10:00'])), 'how')
   // Review Focus 2: agreed by hand without its words is still the how.
-  assert.equal(focusStage(node(['Vibe agreed: 2026-10-18 10:00'])), 'how')
-  assert.equal(focusStage(node(['Vibe agreed: 2026-10-18 10:00', 'Part: X', 'How agreed: 2026-10-18 11:00'])), 'run')
-  assert.equal(focusStage(parseGoals('- [x] G1 A\n  Vibe agreed: 1\n  How agreed: 2\n').byId.get('G1')), 'done')
+  assert.equal(focusStage(node(['Goal definition agreed: 2026-10-18 10:00'])), 'how')
+  assert.equal(focusStage(node(['Goal definition agreed: 2026-10-18 10:00', 'Part: X', 'How agreed: 2026-10-18 11:00'])), 'run')
+  assert.equal(focusStage(parseGoals('- [x] G1 A\n  Goal definition agreed: 1\n  How agreed: 2\n').byId.get('G1')), 'done')
   assert.equal(focusStage(parseGoals('- [x] G1 A\n').byId.get('G1')), 'done')
 })
 
@@ -106,30 +109,33 @@ test('setFocus writes the head line by id, replaces it, and null takes it out; a
   assert.equal(setFocus('# Goals\r\n- [ ] G1 A\r\n', 'G1').text, '# Goals\r\nFocus: G1\r\n- [ ] G1 A\r\n')
 })
 
-test('setVibe replaces only its goal\'s vibe lines and picture, where they stood; other lines and goals stay', () => {
+// Goal definition (2026-10-31): the words people and chats read say "goal definition" where they said "vibe".
+test('setVibe replaces only its goal\'s goal definition lines and picture, where they stood; other lines and goals stay', () => {
   const done = setVibe(MAP, 'G2', ['calm and slow', '  ', 'no metal'], null)
   assert.equal(done.ok, true)
   assert.deepEqual(diff(MAP, done.text), {
-    added: ['    Vibe: calm and slow', '    Vibe: no metal'],
-    gone: ['    Vibe: you sit down without thinking', '    Vibe: warm wood, never metal', '    Vibe picture: pictures/bench.png'],
+    // Goal definition (2026-10-31): the goal's lines are named `Goal definition…` now (they were `Vibe…`); the fixture is written as the board writes it.
+    added: ['    Goal definition: calm and slow', '    Goal definition: no metal'],
+    gone: ['    Goal definition: you sit down without thinking', '    Goal definition: warm wood, never metal', '    Goal definition picture: pictures/bench.png'],
   })
   const lines = linesOf(done.text)
-  assert.equal(lines.indexOf('    Vibe: calm and slow'), linesOf(MAP).indexOf('    Vibe: you sit down without thinking'))
+  assert.equal(lines.indexOf('    Goal definition: calm and slow'), linesOf(MAP).indexOf('    Goal definition: you sit down without thinking'))
   // A goal without them: after its own lines at its top, before its goals inside.
   const first = setVibe(MAP, 'G1', ['busy and green'], 'pictures/g.png')
-  assert.deepEqual(linesOf(first.text).slice(7, 11), ['  Done when: ten visitors in a week', '  Vibe: busy and green', '  Vibe picture: pictures/g.png', '  - [~] G2 Benches that feel like home'])
+  assert.deepEqual(linesOf(first.text).slice(7, 11), ['  Done when: ten visitors in a week', '  Goal definition: busy and green', '  Goal definition picture: pictures/g.png', '  - [~] G2 Benches that feel like home'])
   // The G2 lines inside G1 are not G1's own: untouched.
-  assert.ok(first.text.includes('    Vibe: you sit down without thinking'))
+  assert.ok(first.text.includes('    Goal definition: you sit down without thinking'))
   assert.deepEqual(setVibe(MAP, 'G9', ['x'], null), { ok: false, why: 'gone' })
 })
 
 test('agreeVibe and agreeHow write their line once; a second agree keeps the first', () => {
-  const plain = '- [ ] G1 A\n  Done when: x\n  Vibe: calm\n  - [ ] G2 B\n'
+  // Goal definition (2026-10-31): the goal's lines are named `Goal definition…` now (they were `Vibe…`); the fixture is written as the board writes it.
+  const plain = '- [ ] G1 A\n  Done when: x\n  Goal definition: calm\n  - [ ] G2 B\n'
   const once = agreeVibe(plain, 'G1', '2026-10-18 12:00')
-  assert.equal(once.text, '- [ ] G1 A\n  Done when: x\n  Vibe: calm\n  Vibe agreed: 2026-10-18 12:00\n  - [ ] G2 B\n')
+  assert.equal(once.text, '- [ ] G1 A\n  Done when: x\n  Goal definition: calm\n  Goal definition agreed: 2026-10-18 12:00\n  - [ ] G2 B\n')
   assert.equal(agreeVibe(once.text, 'G1', '2026-10-18 12:05').text, once.text)
   const how = setHow(once.text, 'G1', { parts: [{ title: 'Paint', size: 'about 1 h', steps: ['B3', 'x'] }, { title: 'Look', size: '', steps: [] }], partnerDecides: ['the colour'], youDecide: ['the size'] })
-  assert.equal(how.text, '- [ ] G1 A\n  Done when: x\n  Vibe: calm\n  Vibe agreed: 2026-10-18 12:00\n  Part: Paint · about 1 h · steps B3\n  Part: Look\n  Partner decides: the colour\n  You decide: the size\n  - [ ] G2 B\n')
+  assert.equal(how.text, '- [ ] G1 A\n  Done when: x\n  Goal definition: calm\n  Goal definition agreed: 2026-10-18 12:00\n  Part: Paint · about 1 h · steps B3\n  Part: Look\n  Partner decides: the colour\n  You decide: the size\n  - [ ] G2 B\n')
   const agreed = agreeHow(how.text, 'G1', '2026-10-18 13:00')
   assert.equal(agreed.text, how.text.replace('  You decide: the size\n', '  You decide: the size\n  How agreed: 2026-10-18 13:00\n'))
   assert.equal(agreeHow(agreed.text, 'G1', '2026-10-18 14:00').text, agreed.text)

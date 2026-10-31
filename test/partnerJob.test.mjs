@@ -38,19 +38,20 @@ test('the board names partner.md as the chat\'s job in its rounds, and nowhere n
 test('the partner keeps the Advisor\'s refining, goal linking and rounds, and adds the focus\'s three moves', async () => {
   for (const kept of ['## Refine a step', '## Steps under no goal', '## Your rounds', '## A brainstorm', '## Asks from the goal map', 'Whoever asks the user asks once']) assert.ok(partner.includes(kept), kept)
   assert.match(partner, /## The focus/)
-  // The Product owner (2026-10-31): the talk (the vibe and the how talked through, a brainstorm) is in product-owner.md,
+  // The Product owner (2026-10-31): the talk (the goal definition and the how talked through, a brainstorm) is in product-owner.md,
   // "How a talk goes", which the partner keeps to while no Product owner is listed; Go stays the partner's.
   const talks = await plain('product-owner.md')
   assert.match(partner, /While no Product owner is listed, you do the talks as product-owner\.md "How a talk goes" says\./)
   assert.match(talks, /## How a talk goes/)
-  assert.match(talks, /`work vibe-draft` \(`goal` G<n>, `lines`, `picture`\)/)
+  // Goal definition (2026-10-31): the work tool's draft of the goal definition is `definition-draft` (once `vibe-draft`).
+  assert.match(talks, /`work definition-draft` \(`goal` G<n>, `lines`, `picture`\)/)
   assert.match(talks, /`work how-draft` \(`goal` G<n>, `parts`, `partnerDecides`, `youDecide`\)/)
   // The partner, as every chat, never reads or uses the board's own file.
   assert.doesNotMatch(partner, /board\.json|focus-draft/)
   assert.doesNotMatch(talks, /board\.json|focus-draft/)
   assert.match(talks, /\*\*Nothing is built in this move\*\*/)
-  assert.match(talks, /`vibe: agreed`/)
-  assert.match(talks, /`vibe: not yet` with `Words: \.\.\.`/)
+  assert.match(talks, /`goal definition: agreed`/)
+  assert.match(talks, /`goal definition: not yet` with `Words: \.\.\.`/)
   assert.match(partner, /`how: go`/)
   assert.match(partner, /`work new` with a title/)
   assert.match(partner, /`goal` G<n>/)
@@ -62,7 +63,8 @@ test('the partner keeps the Advisor\'s refining, goal linking and rounds, and ad
   // The Backlog tab's blocks (2026-10-25): another goal's step waits for the user's "Add to queue"; the partner adds none.
   assert.match(partner, /who waits for the user's pick: the board's hand-out rule, the comment above `readyList`/)
   assert.match(partner, /You hand out nothing, add nothing to the queue/)
-  assert.match(partner, /Never write `Focus:`, `Vibe agreed:` or `How agreed:` yourself/)
+  // Goal definition (2026-10-31): the goal's lines are named `Goal definition…` now (they were `Vibe…`); the fixture is written as the board writes it.
+  assert.match(partner, /Never write `Focus:`, `Goal definition agreed:` or `How agreed:` yourself/)
   // The review's findings: a focus thread is never wrapped up into a proposal, also in "A brainstorm".
   assert.match(talks, /never wrapped up into a proposal/)
   assert.match(talks, /write the proposal at once \(never in the focus's thread\)/)
@@ -78,10 +80,12 @@ test('the main chat sends planning questions to the partner; the steps it makes 
 
 test('the protocol lists the focus\'s lines in the goal map and the words the board types to the partner', () => {
   // Work blocks (2026-10-31): a Part line ends with its block's done-when line, and a change writes a Round line.
-  for (const words of ['`Focus: G<n>`', '`Vibe: <one line>`', '`Vibe picture: <path>`', '`Vibe agreed: <date time>`', '`Part: <title> · <size> · steps B<n>, B<n> · done when: <line>`', '`Partner decides: <one line>`', '`You decide: <one line>`', '`How agreed: <date time>`', '`Round: <date time> · <why>`']) assert.ok(protocol.includes(words), words)
-  for (const words of ['`focus: G<n> <title>`', '`vibe: agreed`', '`vibe: not yet`', '`how: go`', '`how: not yet`']) assert.ok(protocol.includes(words), words)
+  // Goal definition (2026-10-31): the words people and chats read say "goal definition" where they said "vibe".
+  for (const words of ['`Focus: G<n>`', '`Goal definition: <one line>`', '`Goal definition picture: <path>`', '`Goal definition agreed: <date time>`', '`Part: <title> · <size> · steps B<n>, B<n> · done when: <line>`', '`Partner decides: <one line>`', '`You decide: <one line>`', '`How agreed: <date time>`', '`Round: <date time> · <why>`']) assert.ok(protocol.includes(words), words)
+  for (const words of ['`focus: G<n> <title>`', '`goal definition: agreed`', '`goal definition: not yet`', '`how: go`', '`how: not yet`']) assert.ok(protocol.includes(words), words)
   assert.ok(!protocol.includes('`Queue for G<n>'), 'redesign Part 2: no queue note')
-  assert.match(protocol, /`work vibe-draft` \(`goal`, `lines`, `picture`\), `work how-draft` \(`goal`, `parts`, `partnerDecides`, `youDecide`\)/)
+  // Goal definition (2026-10-31): the draft of the goal definition is `work definition-draft`; the protocol names its old name `vibe-draft` once.
+  assert.match(protocol, /`work definition-draft` \(`goal`, `lines`, `picture`; once `vibe-draft`, which still works\), `work how-draft` \(`goal`, `parts`, `partnerDecides`, `youDecide`\)/)
   assert.doesNotMatch(protocol, /focus-draft/)
   assert.doesNotMatch(protocol, /advisor\.md/)
 })

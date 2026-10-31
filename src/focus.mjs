@@ -1,4 +1,4 @@
-// Focus 2 (spec 2026-10-18, sections 3, 5 and 6): the vibe and how moves on the Focus page, and the partner's drafts.
+// Focus 2 (spec 2026-10-18, sections 3, 5 and 6): the goal definition and how moves on the Focus page, and the partner's drafts.
 // Every move goes through POST /api/goals: the person's moves (`FOCUS_MOVES`) from the page, the partner's drafts
 // (`FOCUS_DRAFTS`) from the page or with the board's key. Each writes goals.md by id (read anew right before, as every
 // change of the map) and answers the words the board then types to the partner, marked as the person's: null when the
@@ -17,15 +17,15 @@ import { sinceMs } from './work/item.mjs'
 const files = { readFile, writeFile, rename, rm, mkdir, access, readdir, open }
 
 /**
- * The person's moves: pick a focus, agree the vibe or not yet, go with the how or not yet; Focus 4: the run's talk bar;
+ * The person's moves: pick a focus, agree the goal definition or not yet, go with the how or not yet; Focus 4: the run's talk bar;
  * B354: ask the partner for a goal's Done when; B358: tick a goal on the Goals part (its re-check first).
  */
 export const FOCUS_MOVES = ['focus', 'vibe-agree', 'vibe-not-yet', 'how-go', 'how-not-yet', 'vibe-there-yes', 'vibe-there-no', 'talk', 'done-when', 'goal-demo', 'goal-done']
-/** The partner's drafts beside the talk: the vibe's lines and picture, the how's parts. */
+/** The partner's drafts beside the talk: the goal definition's lines and picture, the how's parts. */
 export const FOCUS_DRAFTS = ['vibe-draft', 'how-draft']
 
 /**
- * Focus 3: whether every part of the focus goal's how is done, for "Is the vibe there?" on that goal (`id`). No focus,
+ * Focus 3: whether every part of the focus goal's how is done, for "Did we reach the goal?" on that goal (`id`). No focus,
  * or a word that names no goal, is not (2026-10-24: on a board with no focus yet a Vision word without an id read the
  * progress of no focus and failed: "Cannot read properties of null (reading 'progress')").
  */
@@ -57,7 +57,7 @@ const minuteOf = ms => {
   const at = new Date(ms)
   return `${at.getFullYear()}-${pad(at.getMonth() + 1)}-${pad(at.getDate())} ${pad(at.getHours())}:${pad(at.getMinutes())}`
 }
-const STAGE_WORDS = { vibe: 'the vibe', how: 'the how', run: 'the run', done: 'done' }
+const STAGE_WORDS = { vibe: 'the goal definition', how: 'the how', run: 'the run', done: 'done' }
 
 const WHY = {
   gone: [404, 'That goal is no longer in the map.'],
@@ -104,7 +104,7 @@ async function talkOf(node, ctx) {
 
 /**
  * The Product owner (2026-10-31, src/talkPartner.mjs): the chat a word of the Focus page goes to. A talk word (the focus
- * picked, the talk bar, the vibe's and the how's "not yet", the vibe agreed, a Done when asked) goes to the talk partner
+ * picked, the talk bar, the goal definition's and the how's "not yet", the goal definition agreed, a Done when asked) goes to the talk partner
  * (`ctx.talkPartner`, the owner when the list names one, with its job `ctx.talkJob`); every other word to the partner.
  */
 const toOf = (command, ctx) => (isTalkWord(command) && (ctx.talkPartner ?? null) !== null ? ctx.talkPartner.name : ctx.partner.name)
@@ -144,7 +144,7 @@ async function move(body, ctx) {
   const node = parseGoals(text).byId.get(body.id)
   if (FOCUS_DRAFTS.includes(command)) return draft(body, node, ctx, goalsAt, parseGoals(text).focus)
   if (node === undefined) return refuse(409, 'That goal is not in the map.')
-  // Focus 3: a second Yes to "Is the vibe there?" finds the goal ticked and the focus gone: nothing more.
+  // Focus 3: a second Yes to "Did we reach the goal?" finds the goal ticked and the focus gone: nothing more.
   if (command === 'vibe-there-yes' && node.state === 'done') return { ok: true, result: { unchanged: true }, words: null }
   if (parseGoals(text).focus !== body.id) return refuse(409, 'That goal is not your focus any more.')
   const say = async (kind, words = null) => focusWords(kind, { to: toOf(kind, ctx), goal: node, thread: await talkOf(node, ctx), words })
@@ -153,18 +153,18 @@ async function move(body, ctx) {
   if (command === 'talk') return talkBar(node, words, ctx, goalsAt)
   if (command === 'vibe-not-yet' || command === 'how-not-yet') {
     const wanted = command === 'vibe-not-yet' ? 'vibe' : 'how'
-    if (stage !== wanted) return refuse(409, wanted === 'vibe' ? 'The vibe is agreed already.' : 'The how is not on the table now.')
+    if (stage !== wanted) return refuse(409, wanted === 'vibe' ? 'The goal definition is agreed already.' : 'The how is not on the table now.')
     if (words === '') return refuse(400, 'Say what is missing, in your words.')
     return { ok: true, result: {}, words: await say(command, words) }
   }
   if (command === 'vibe-agree') {
     if (node.vibeAgreed !== null) return { ok: true, result: { unchanged: true }, words: null }
-    if (node.vibe.length === 0 && node.vibePicture === null) return refuse(409, 'Your partner has not written the vibe yet.')
+    if (node.vibe.length === 0 && node.vibePicture === null) return refuse(409, 'Your partner has not written the goal definition yet.')
     return agree(node, ctx, goalsAt, 'vibeAgreed', agreeVibe, () => say('vibe-agreed'))
   }
   if (command === 'vibe-there-yes' || command === 'vibe-there-no') return vibeThere(command, node, words, ctx, goalsAt, say)
   // how-go
-  if (node.vibeAgreed === null) return refuse(409, 'Agree the vibe first.')
+  if (node.vibeAgreed === null) return refuse(409, 'Agree the goal definition first.')
   if (node.howAgreed !== null) return { ok: true, result: { unchanged: true }, words: null }
   if (node.parts.length === 0) return refuse(409, 'Your partner has not proposed the how yet.')
   // Work blocks (2026-10-31): Go waits until every block says what is true once it is done (a goal past Go never waits).
@@ -404,10 +404,10 @@ async function askDemo(map, id, ctx, goalsAt) {
 }
 
 /**
- * Focus 3 (spec 2026-10-18, section 3): the person's answer to "Is the vibe there?", once every part is done
+ * Focus 3 (spec 2026-10-18, section 3): the person's answer to "Did we reach the goal?", once every part is done
  * (`ctx.allDone`, from the store). B358: Yes asks the partner for the goal's re-check (askRecheck); its pass ticks the
  * goal and clears `Focus:`. No (with the person's words) takes `How agreed` away, so the partner proposes the how anew,
- * and types `vibe there: no`.
+ * and types `goal definition there: no`.
  */
 async function vibeThere(command, node, words, ctx, goalsAt, say) {
   if (focusStage(node) !== 'run') return refuse(409, command === 'vibe-there-no' && node.vibeAgreed !== null ? 'The how is open again already.' : 'The how is not agreed: there is nothing to look at yet.')
@@ -482,7 +482,7 @@ async function overturnTick(node, ctx, goalsAt) {
 }
 
 /**
- * B358: the partner is asked to re-check the goal against its Done when and its vibe before its tick: `Recheck
+ * B358: the partner is asked to re-check the goal against its Done when and its goal definition before its tick: `Recheck
  * asked: <date time>` under it (once), and the word `goal re-check:` to the partner.
  */
 async function askRecheck(node, ctx, goalsAt, isAgain = false) {
@@ -725,20 +725,20 @@ const agreedOf = node => JSON.stringify([node.parts.map(part => [part.title, par
 const keepsAgreed = (before, after) => agreedOf({ ...after, parts: after.parts.slice(0, before.parts.length) }) === agreedOf(before)
 
 /**
- * The partner's drafts. `vibe-draft`: `lines` (three to five short lines) and `picture` (a path, or none), in place of
- * the goal's vibe, until the vibe is agreed. `how-draft`: `parts` ({ title, size, steps }), `partnerDecides`,
- * `youDecide`, in place of the goal's how, once its vibe is agreed; once the how is agreed only the parts' steps may
+ * The partner's drafts. `vibe-draft` (the work tool's `definition-draft` or `vibe-draft`): `lines` (three to five short lines) and `picture` (a path, or none), in place of
+ * the goal's vibe, until the goal definition is agreed. `how-draft`: `parts` ({ title, size, steps }), `partnerDecides`,
+ * `youDecide`, in place of the goal's how, once its goal definition is agreed; once the how is agreed only the parts' steps may
  * change. Only the focus goal is drafted; B382: a goal with an agreed how may be drafted when it is not the focus
  * (its parts' steps, and the end of the goal guard's evaluation), since its steps run on after the focus moved.
  */
 async function draft(body, node, ctx, goalsAt, focus) {
-  // The review of Focus 2: a draft is the focus goal's, and a how comes once its vibe is agreed.
+  // The review of Focus 2: a draft is the focus goal's, and a how comes once its goal definition is agreed.
   const notFocus = () => refuse(409, 'That goal is not the focus: draft only the focus goal.')
   if (body.command === 'vibe-draft') {
-    if (!isLines(body.lines) || (body.picture !== undefined && body.picture !== null && typeof body.picture !== 'string')) return refuse(400, 'A vibe is lines of words, and a picture\'s path or none.')
+    if (!isLines(body.lines) || (body.picture !== undefined && body.picture !== null && typeof body.picture !== 'string')) return refuse(400, 'A goal definition is lines of words, and a picture\'s path or none.')
     if (node === undefined) return failed('gone')
     if (node.id !== focus) return notFocus()
-    if (node.vibeAgreed !== null) return refuse(409, 'The vibe is agreed: talk about the how now.')
+    if (node.vibeAgreed !== null) return refuse(409, 'The goal definition is agreed: talk about the how now.')
     let late = false
     const done = await changeGoalsFile(text => {
       const now = parseGoals(text).byId.get(node.id)
@@ -746,7 +746,7 @@ async function draft(body, node, ctx, goalsAt, focus) {
       late = now.vibeAgreed !== null
       return late ? { ok: false, why: 'late' } : setVibe(text, node.id, body.lines, body.picture ?? null)
     }, goalsAt)
-    if (late) return refuse(409, 'The vibe is agreed: talk about the how now.')
+    if (late) return refuse(409, 'The goal definition is agreed: talk about the how now.')
     return done.ok ? { ok: true, result: {}, words: null } : failed(done.why)
   }
   // A part as an object, or in the work tool's words: "<title> · <size> · steps B1, B2", as goals.md reads a Part line
@@ -764,7 +764,7 @@ async function draft(body, node, ctx, goalsAt, focus) {
   // B450: a goal whose evaluation runs may be drafted by its outcome, the focus or not, with a how agreed or not.
   const isEvaluating = outcome !== null && (node.evaluationAsked ?? null) !== null
   if (node.id !== focus && node.howAgreed === null && !isEvaluating) return notFocus()
-  if (node.vibeAgreed === null && !isEvaluating) return refuse(409, 'The vibe is not agreed yet: draft the how once the person agreed it.')
+  if (node.vibeAgreed === null && !isEvaluating) return refuse(409, 'The goal definition is not agreed yet: draft the how once the person agreed it.')
   let changed = false
   let evaluated = false
   const done = await changeGoalsFile(text => {

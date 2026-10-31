@@ -45,8 +45,9 @@ export const GOALS = ['Last id: G6', 'Focus: G6', '', '- [~] G6 The polish', '  
 
 
 /** The goal map with the focus in its run (vibe and how agreed), where the Focus page draws today's note and the switch. */
-export const RUN_GOALS = ['Last id: G6', 'Focus: G6', '', '- [~] G6 The polish', '    Done when: you judge a fight fun', '    Vibe: every fight reads at a glance',
-  '    Vibe agreed: 2026-10-18 10:00', '    Part: Show damage · about 1 h · steps B1', '    How agreed: 2026-10-18 11:00', ''].join('\n')
+// Goal definition (2026-10-31): the goal's lines are named `Goal definition…` now (they were `Vibe…`); the fixture is written as the board writes it.
+export const RUN_GOALS = ['Last id: G6', 'Focus: G6', '', '- [~] G6 The polish', '    Done when: you judge a fight fun', '    Goal definition: every fight reads at a glance',
+  '    Goal definition agreed: 2026-10-18 10:00', '    Part: Show damage · about 1 h · steps B1', '    How agreed: 2026-10-18 11:00', ''].join('\n')
 
 /** The board's state as JSON, as the page reads it. */
 export const asSent = state => JSON.parse(JSON.stringify(state))
