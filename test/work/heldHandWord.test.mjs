@@ -26,7 +26,7 @@ const TAKEN = 1793445764459
 const FAILED = 1793447531952
 const spawn = () => ({
   id: '20e17b272740a56f', at: SENT, to: 'Main', ask: null, step: null, title: null, version: null, verdict: null, command: 'spawn', count: 1, why: 'owner', about: 'Product owner',
-  routine: { role: 'owner', title: 'Lava Tactics - Product owner', tasks: ['lava-tactics-project-product-owner', 'lava-tactics-project-product-owner-2'] },
+  routine: { role: 'owner', title: 'Lava Tactics - Product owner', tasks: ['my-project-product-owner', 'my-project-product-owner-2'] },
   text: 'start the Product owner\nIts chat "Lava Tactics - Product owner" is not on the board, and the person\'s talks wait for it.',
   state: 'waiting',
 })
