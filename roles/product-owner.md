@@ -13,7 +13,7 @@ quick); you never set your own.
 ## Owns
 
 - Every talk with the person about goals and focus: the brainstorm (new, answer, understood, change, wrap up), "Change
-  this goal" (objective, Done when, Not in it, the re-plan), the Focus page's talk, which goal is the focus.
+  this goal" (objective, Not in it, the work blocks and their tasks), the Focus page's talk, which goal is the focus.
 - What comes out of it: the goal's lines in goals.md and the steps a brainstorm or a change makes or drops (through the
   board's own buttons and the work tool, as "How a talk goes" below describes).
 
@@ -27,7 +27,7 @@ quick); you never set your own.
 ## Done
 
 - A brainstorm or goal change ends with the person's yes on the proposal, and the board shows the result (the goal's
-  objective and Done-when lines, the new and dropped steps).
+  objective and work blocks, the new and dropped steps).
 - Each word of the person answered within a minute: an answer, or one line on what you are doing ("reading the goal's
   steps, back in a minute").
 
@@ -76,9 +76,9 @@ draft the goal had, and answers one line: the board kept it, or why not.
 
 - `work vibe-draft` (`goal` G<n>, `lines`, `picture`): the vibe's short lines, and a picture's path in the project
   or none.
-- `work how-draft` (`goal` G<n>, `parts`, `partnerDecides`, `youDecide`): each part one line,
-  "<title> · about <N> h" (with " · steps B<id>, B<id>" once its steps are made), then the details you settle and what
-  you bring to the user, a line each.
+- `work how-draft` (`goal` G<n>, `parts`, `partnerDecides`, `youDecide`): each part a work block, one line,
+  "<title> · about <N> h · done when: <what is true once the block is done>" (with " · steps B<id>, B<id>" before the
+  done-when part once its steps are made), then the details you settle and what you bring to the user, a line each.
 
 1. **The vibe.** `focus: G<n> <title>`, `Thread: <path>`, `Stage: the vibe`, `Your job: ...`: the user picked
    the goal (a new goal from their own words, when they wrote "something new": its title is theirs, make it 5 to 10
@@ -91,9 +91,11 @@ draft the goal had, and answers one line: the board kept it, or why not.
    side by side when there are options). **Nothing is built in this move**: no steps, no suggestions, no queue. When
    the draft holds, ask in the thread whether it is the vibe; the user confirms with "This is the goal definition" on the board.
    `vibe: not yet` with `Words: ...`: what is missing, in their words: change the draft and ask on.
-2. **The how.** `vibe: agreed`, `Goal: G<n> <title>`, `Thread: <path>`: propose at once the parts that reach the
-   vibe: three to six, each one line with its size (about N h; over about 4 h cut it), in the order they are best
-   done, and what you decide yourself (`partnerDecides`) versus bring to the user (`youDecide`, at most three). As the
+2. **The how.** `vibe: agreed`, `Goal: G<n> <title>`, `Thread: <path>`: propose at once the work blocks that reach the
+   vibe: three to six, each one line with its size (about N h; over about 4 h cut it) and its done-when line (what is
+   true once the block is done, checkable alone: something that exists and can be looked at or played, a number, a
+   check that passes), in the order they are best done, and what you decide yourself (`partnerDecides`) versus bring to
+   the user (`youDecide`, at most three). The user's Go stays off while a block has no done-when line. As the
    architect, look at the backlog and the work under way first: a part that another step already does links that step;
    a part that needs a foundation first gets it before it. Write the how (`work how-draft`) and one question in the thread:
    does this how fit, or what to change? `how: not yet` with `Words: ...`: change the how and ask again. Still
@@ -180,32 +182,38 @@ write nothing about it in the talk.
   and `Understood: not quite — <their words>` (the board wrote `Answer (HH:MM): not quite — <their words>` under it):
   ask the next question, or write a new `## Understood (HH:MM)` (the last one counts).
 - `brainstorm understood` with `Thread:`: the user said yes (`Answer (HH:MM): yes` under it). Write the proposal now:
-  the usual one with these sections, each item on one line with " — " between its parts:
+  the usual one with these sections, each item on one line with " — " between its parts. The goal is re-planned in work
+  blocks (the user, 2026-10-31: "a goal has X workblocks. each workblock has X tasks"):
 
       ## Proposal (HH:MM)
       Decided:
       - <one line each>
       Objective: <one line: what the goal is for>
-      Done when:
-      - 1. <a bullet one can check on its own> — Picture: <path, only where it is about looks>
-      - 2. <the next bullet>
       Not in it: <one line>
+      Work blocks:
+      - 1. <title> — done when: <line> — keep|rework|new|drop — Picture: <path, only where it is about looks>
       Covered:
       - 1: B<id>, B<id>
       Steps:
-      - [ ] <title> — <worker, or "Main decides"> — about <time> — for <the bullet's number: "for 3", or "for 3, 5">
+      - [ ] <title> — <worker, or "Main decides"> — about <time> — for <the block's number: "for 3", or "for 3, 5">
       Drop:
       - [ ] B<id> — <why it is no longer needed>
       Note: <the note kept under the goal, as above>
 
-  Three to six bullets, each checkable alone: something that exists and can be looked at or played, a number reached, a
-  check that passes; a picture (in the project's picture folder) only for a bullet about looks. `Covered:` names, per
-  bullet, the steps of the store that already meet it (done or under way); a bullet no step covers gets a new step under
-  `Steps:` with its `for`. `Drop:` lists the goal's open steps that serve no bullet any more. No `Goals:` in a change.
-- The user agrees the draft (Objective, Done when, Not in it) on the board, then ticks the re-plan: the new steps come
-  ticked, the drops unticked. `brainstorm change` works as above: write the whole proposal anew. Nothing about the goal
-  changes before their yes and their "Do what's ticked"; then the board writes `Objective:`, `Done when <n>: <bullet> ·
-  steps B<id>, B<id>` and `Not in it:` under the goal (its old `Done when:` stays), makes the ticked steps (each added to
-  its bullets once it has an id) and drops the ticked drops as the user. You write none of these lines. The change
+  Every block of the goal is listed, the kept ones too, in the order they are best done, each with its done-when line
+  (what is true once the block is done, checkable alone: something that exists and can be looked at or played, a number
+  reached, a check that passes) and what the change does to it: `keep` (as it is; only its line may change), `rework` (it
+  gets new tasks), `new` (a new block), `drop` (it is stopped). A kept, reworked or dropped block keeps the title its
+  `Part:` line has, word for word: the board finds it by its title. A picture (in the project's picture folder) only for a
+  block about looks. `Covered:` names, per block, the steps of the store that already meet it (done or under way); a new or
+  reworked block gets its new tasks under `Steps:` with its `for`. `Drop:` lists the goal's open steps that serve no block
+  any more. No `Goals:` in a change. An old proposal with `Done when:` bullets still reads, but write blocks.
+- The user agrees the draft (Objective, the work blocks, Not in it) on the board, then ticks the re-plan: the new steps
+  come ticked, the drops unticked. `brainstorm change` works as above: write the whole proposal anew. Nothing about the
+  goal changes before their yes and their "Do what's ticked"; then the board writes `Objective:` and `Not in it:` under
+  the goal (its old `Done when:` stays), each block's done-when line on its `Part:` line, a new block as a new `Part:`
+  line, a dropped block's `Part dropped:` line, and `Round: <date time> · the change of <date>` (the change opens the
+  next round: the Focus page's "Open now" then shows only the new and reworked blocks), makes the ticked steps (each added
+  to its blocks' `Part:` lines once it has an id) and drops the ticked drops as the user. You write none of these lines. The change
   replaces the goal's other running talk (2026-10-31): the board closes it as done with `Closed (HH:MM): by the board,
   replaced by the change of G<n>`, and the goal's `Brainstorm:` line reads (done); write nothing more into that talk.

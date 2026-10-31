@@ -5592,7 +5592,7 @@ const needsUi = () => ({ obsoleteSet: [...obsoleteUi.set], showsClosed: showsClo
  * B408: what the person does on the Focus page, for its view: the moves of focusUi (not the words typed, which a redraw
  * keeps), and what is picked, sent, refused or open on its cards (the switches, the gathered recaps and asks).
  */
-const focusPageUi = () => ({ busy: focusUi.busy, note: focusUi.note, notYet: focusUi.notYet, picked: focusUi.picked, picking: focusUi.picking, dropping: focusUi.dropping, asked: [...focusUi.asked], partsOpen: { ...focusUi.partsOpen }, chosen: [...chosen], problems: [...problems], sending: [...sending], openForms: [...openForms], starting: [...starting] })
+const focusPageUi = () => ({ busy: focusUi.busy, note: focusUi.note, notYet: focusUi.notYet, picked: focusUi.picked, picking: focusUi.picking, dropping: focusUi.dropping, asked: [...focusUi.asked], partsOpen: { ...focusUi.partsOpen }, blocksView: focusUi.blocksView, chosen: [...chosen], problems: [...problems], sending: [...sending], openForms: [...openForms], starting: [...starting] })
 // redraw:end
 
 /** B408: Needs your attention, drawn from its view when that changed. */
@@ -11353,15 +11353,24 @@ function changeProposalView(thread, { unticked = [], dropsTicked = [], agreed = 
     index, key: `d${index}`, id: drop.id, why: drop.why, title: titles[drop.id] ?? null,
     ticked: created === null ? on.has(`d${index}`) : (created.dropped ?? []).includes(drop.id),
   }))
-  const numbers = new Set(proposal.doneWhen.map(bullet => bullet.n))
+  // Work blocks (2026-10-31): a proposal lists the goal's work blocks (each with its done-when line and what the change does
+  // to it); an old one its Done when bullets. The numbers of either are what a task is "for".
+  const blockList = proposal.blocks ?? []
+  const numbers = new Set([...proposal.doneWhen.map(bullet => bullet.n), ...blockList.map(block => block.n)])
+  const coveredOf = n => proposal.covered.filter(one => one.n === n).flatMap(one => one.steps).map(id => ({ id, title: titles[id] ?? null }))
   const bullets = proposal.doneWhen.map(bullet => ({
     n: bullet.n, text: bullet.text, picture: bullet.picture,
-    covered: proposal.covered.filter(one => one.n === bullet.n).flatMap(one => one.steps).map(id => ({ id, title: titles[id] ?? null })),
+    covered: coveredOf(bullet.n),
     steps: steps.filter(step => step.for.includes(bullet.n)),
+  }))
+  const blocks = blockList.map(block => ({
+    n: block.n, title: block.title, doneWhen: block.doneWhen, kind: block.kind, kindWords: BLOCK_KIND_WORDS[block.kind] ?? block.kind, picture: block.picture,
+    covered: coveredOf(block.n),
+    steps: steps.filter(step => step.for.includes(block.n)),
   }))
   const understood = thread.understood ?? null
   const hasYes = understood !== null && understood.answer !== null && understood.answer.yes === true
-  const hasDraft = typeof proposal.objective === 'string' && proposal.objective !== '' && proposal.doneWhen.length > 0
+  const hasDraft = typeof proposal.objective === 'string' && proposal.objective !== '' && (proposal.doneWhen.length > 0 || blockList.length > 0)
   const droppedWords = (created?.dropped ?? []).length > 0 ? `dropped ${created.dropped.join(', ')}` : null
   const stepWords = created === null ? '' : created.steps.length > 0 ? created.steps.join(', ') : created.asked > 0 ? `${created.asked} new task${created.asked === 1 ? '' : 's'}` : 'no new tasks'
   return {
@@ -11371,6 +11380,8 @@ function changeProposalView(thread, { unticked = [], dropsTicked = [], agreed = 
     objective: proposal.objective,
     notInIt: proposal.notInIt,
     bullets,
+    blocks,
+    isBlocks: blocks.length > 0,
     loose: steps.filter(step => !step.for.some(n => numbers.has(n))),
     drops,
     note: proposal.note,
@@ -11380,6 +11391,9 @@ function changeProposalView(thread, { unticked = [], dropsTicked = [], agreed = 
     canCreate: created === null && !isOver && hasYes && hasDraft,
   }
 }
+
+/** Work blocks (2026-10-31): what a change does to a block, as the draft and the re-plan say it. */
+const BLOCK_KIND_WORDS = { keep: 'kept', rework: 'to rework', new: 'new', drop: 'dropped' }
 
 /** A title as the Created line keeps it among what was left out (src/brainstorm.mjs, leftOutKey). */
 function brainstormLeftKey(title) { return String(title ?? '').replace(/\s+/g, ' ').trim().slice(0, 2000).replace(/ · /g, ' - ') }
@@ -11503,7 +11517,18 @@ function brainstormResultView(thread, { backlog = [], titles = {}, goalTitles = 
     const found = ticked.map(step => byTitle.get(step.title) ?? [])
     if (found.length > 0 && found.every(list => list.length === 1)) ids = found.map(list => list[0].id)
   }
-  const tasks = ids.map(id => ({ id, title: rows.get(id)?.title ?? titles[id] ?? null, ...brainstormTaskStand(rows.get(id), prefix) }))
+  // Work blocks (2026-10-31): each new task with the blocks it is for, found by its title among the ticked tasks (else by its place).
+  const blockList = proposal.blocks ?? []
+  const ticked = proposal.steps.filter(step => !created.leftOut.includes(brainstormLeftKey(step.title)))
+  const plainTitle = value => String(value ?? '').replace(/\s+/g, ' ').trim()
+  const blocksFor = (title, at) => {
+    const step = ticked.find(one => plainTitle(one.title) === plainTitle(title)) ?? ticked[at]
+    return (step?.for ?? []).map(n => blockList.find(block => block.n === n)?.title).filter(one => typeof one === 'string')
+  }
+  const tasks = ids.map((id, at) => {
+    const title = rows.get(id)?.title ?? titles[id] ?? null
+    return { id, title, ...(blockList.length > 0 ? { blocks: blocksFor(title, at) } : {}), ...brainstormTaskStand(rows.get(id), prefix) }
+  })
   const isChange = thread.kind === 'change'
   const goal = thread.goal ?? null
   const dropped = (created.dropped ?? []).map(id => ({ id, title: titles[id] ?? null, why: proposal.drops.find(one => one.id === id)?.why ?? '' }))
@@ -11514,7 +11539,10 @@ function brainstormResultView(thread, { backlog = [], titles = {}, goalTitles = 
     at: created.at,
     isChange,
     goal,
-    written: isChange
+    // Work blocks (2026-10-31): a change in work blocks says how many the goal has now, and how many are new or to rework.
+    written: isChange && blockList.length > 0
+      ? { kind: 'blocks', goal: goal === null ? null : goal.id, blocks: blockList.filter(block => block.kind !== 'drop').length, new: blockList.filter(block => block.kind === 'new').length, rework: blockList.filter(block => block.kind === 'rework').length, dropped: blockList.filter(block => block.kind === 'drop').length }
+      : isChange
       ? { kind: 'change', goal: goal === null ? null : goal.id, bullets: proposal.doneWhen.length, hasObjective: typeof proposal.objective === 'string' && proposal.objective !== '' }
       : { kind: 'goals', goals: created.goals.map(id => ({ id, title: goalTitles[id] ?? null })) },
     tasks,
@@ -11867,9 +11895,15 @@ function brainstormResultCard(thread, state, canWrite) {
   box.setAttribute('role', 'status')
   box.append(el('h4', 'brainstorm-result-title', 'Done'))
   const bullets = view.written.bullets
-  if (view.written.kind === 'change') {
+  if (view.written.kind === 'change' || view.written.kind === 'blocks') {
     const goal = view.written.goal ?? 'The goal'
-    const line = linkedEl('p', 'brainstorm-result-line', `${goal} now has its objective and ${bullets} Done-when bullet${bullets === 1 ? '' : 's'}.`)
+    // Work blocks (2026-10-31): "G6 now has 13 work blocks: 3 new, 1 to rework."
+    const { blocks, rework, dropped } = view.written
+    const made = view.written.new
+    const how = [made > 0 ? `${made} new` : null, rework > 0 ? `${rework} to rework` : null, dropped > 0 ? `${dropped} dropped` : null].filter(Boolean).join(', ')
+    const line = linkedEl('p', 'brainstorm-result-line', view.written.kind === 'blocks'
+      ? `${goal} now has ${blocks} work block${blocks === 1 ? '' : 's'}${how === '' ? '' : `: ${how}`}.`
+      : `${goal} now has its objective and ${bullets} Done-when bullet${bullets === 1 ? '' : 's'}.`)
     // The Focus page shows the goal when it is the focus; else the goal's own id above leads to it on the Goals part.
     if (view.written.goal !== null && state.focus?.id === view.written.goal) {
       const focus = el('button', 'ask-link brainstorm-result-focus', 'See it on the Focus page')
@@ -11886,6 +11920,8 @@ function brainstormResultCard(thread, state, canWrite) {
     box.append(el('h5', '', `New task${view.tasks.length === 1 ? '' : 's'}`), fill(el('ul', 'brainstorm-result-list'), view.tasks.map(task => {
       const row = el('li', `brainstorm-result-task tone-${task.tone}`)
       row.append(linkedEl('span', 'brainstorm-result-id', task.id), el('span', 'brainstorm-result-name', task.title ?? ''), el('small', `brainstorm-task-stand tone-${task.tone}`, task.words))
+      // Work blocks (2026-10-31): the work block a new task is for.
+      if ((task.blocks ?? []).length > 0) row.append(el('small', 'muted brainstorm-result-block', `for ${task.blocks.join(', ')}`))
       return row
     })))
   } else if (view.unnamed > 0) box.append(el('p', 'muted brainstorm-result-line', `${view.unnamed} new task${view.unnamed === 1 ? ' was' : 's were'} asked for; this thread did not write down which.`))
@@ -11931,8 +11967,18 @@ function changeProposalPart(thread, canWrite, state) {
   if (view.stage === 'draft') {
     part.append(el('small', 'brainstorm-draft-label', `The goal · new draft · ${view.at}`), el('h4', 'brainstorm-draft-title', goal))
     const card = el('div', 'brainstorm-draft')
-    card.append(el('h5', '', 'Objective'), el('p', 'brainstorm-objective', view.objective ?? 'Not written yet.'), el('h5', '', 'Done when'))
-    const list = el('ol', 'brainstorm-done-when')
+    card.append(el('h5', '', 'Objective'), el('p', 'brainstorm-objective', view.objective ?? 'Not written yet.'), el('h5', '', view.isBlocks ? 'Work blocks' : 'Done when'))
+    const list = el('ol', view.isBlocks ? 'brainstorm-done-when brainstorm-blocks' : 'brainstorm-done-when')
+    // Work blocks (2026-10-31): every block of the goal, with what the change does to it and its done-when line.
+    for (const block of view.blocks) {
+      const item = el('li', `brainstorm-block is-${block.kind}`)
+      item.value = block.n
+      const head = el('span', 'brainstorm-block-head')
+      head.append(el('b', 'brainstorm-block-title', block.title), el('small', `brainstorm-block-kind is-${block.kind}`, block.kindWords))
+      item.append(head, el('small', 'brainstorm-block-done-when', `Done when: ${block.doneWhen}`))
+      if (block.picture) item.append(' ', focusLook('the picture', { path: block.picture, caption: `${block.title}: ${block.doneWhen}` }))
+      list.append(item)
+    }
     for (const bullet of view.bullets) {
       const item = el('li', '', bullet.text)
       item.value = bullet.n
@@ -11946,14 +11992,14 @@ function changeProposalPart(thread, canWrite, state) {
       const buttons = el('div', 'brainstorm-buttons')
       const agree = brainstormButton('Agree', 'agree', 'goals-action is-send')
       agree.disabled = brainstormUi.busy || !view.hasDraft
-      agree.title = view.hasDraft ? 'The draft is right: see the tasks it needs next. Nothing is written yet.' : 'The draft has no Objective or Done when yet'
+      agree.title = view.hasDraft ? 'The draft is right: see the tasks it needs next. Nothing is written yet.' : view.isBlocks ? 'The draft has no Objective yet' : 'The draft has no Objective or Done when yet'
       buttons.append(brainstormButton(brainstormUi.changing === thread.path ? 'Change… ▾' : 'Change…', 'change'), agree)
       part.append(buttons)
       if (brainstormUi.changing === thread.path) part.append(brainstormChangeBox())
     }
     return part
   }
-  part.append(el('h4', 'brainstorm-replan-title', `Re-plan ${view.goal?.id ?? ''} · each bullet against the tasks`))
+  part.append(el('h4', 'brainstorm-replan-title', view.isBlocks ? `Re-plan ${view.goal?.id ?? ''} · each work block against its tasks` : `Re-plan ${view.goal?.id ?? ''} · each bullet against the tasks`))
   const tick = (item, words, data) => {
     const label = el('label', `brainstorm-tick${item.ticked ? '' : ' is-off'}`)
     const box = el('input')
@@ -11965,6 +12011,22 @@ function changeProposalPart(thread, canWrite, state) {
     return label
   }
   const stepWords = step => `New task: ${step.title} · ${step.worker} · ${step.cost}`
+  // Work blocks (2026-10-31): per block, what the change does to it, the tasks that cover it and its new tasks; a dropped
+  // block says so and needs none.
+  for (const block of view.blocks) {
+    const row = el('div', `brainstorm-bullet brainstorm-block-plan is-${block.kind}`)
+    const head = el('h5', 'brainstorm-bullet-title', `${block.n}. ${block.title}`)
+    head.append(el('small', `brainstorm-block-kind is-${block.kind}`, block.kindWords))
+    row.append(head, el('p', 'muted brainstorm-block-done-when', `Done when: ${block.doneWhen}`))
+    for (const one of block.covered) {
+      const covered = el('p', 'brainstorm-covered')
+      covered.append(el('span', 'brainstorm-covered-mark', '✓'), 'Covered: ', linkedEl('span', '', one.id), one.title === null ? '' : ` ${one.title}`)
+      row.append(covered)
+    }
+    for (const step of block.steps) row.append(tick(step, stepWords(step), 'tick'))
+    if (block.kind !== 'drop' && block.kind !== 'keep' && block.covered.length === 0 && block.steps.length === 0) row.append(el('p', 'muted brainstorm-uncovered', 'No task for it yet: ask your partner with Change….'))
+    part.append(row)
+  }
   for (const bullet of view.bullets) {
     const row = el('div', 'brainstorm-bullet')
     row.append(el('h5', 'brainstorm-bullet-title', `${bullet.n}. ${bullet.text}`))
@@ -12815,7 +12877,8 @@ function advisorFirstPart(setting) {
   return advisorPartsShown(setting)[0]
 }
 
-const FOCUS_STAGES = [['vibe', 'The goal'], ['how', 'The how'], ['run', 'The run']]
+// Work blocks (the person, 2026-10-31: "lets use better terminology, i like work block"): the how is the goal's work blocks.
+const FOCUS_STAGES = [['vibe', 'The goal'], ['how', 'Work blocks'], ['run', 'The run']]
 
 /** "3 h", "45 min": the time the parts not done still name. */
 function focusTimeLeft(minutes) {
@@ -12874,8 +12937,68 @@ function focusGuardView(focus) {
   return { tone: 'counting', title: `${guard.attempts} failed check${guard.attempts === 1 ? '' : 's'} not fixed yet`, text: `At 2 without real progress, or ${guard.of}, your partner looks again at the approach and brings you other ways. A check whose fix passed counts no more.` }
 }
 
-/** B354: whether a goal (or the focus) has a Done when line with words in it. */
-function hasDoneWhenLine(node) { return typeof node?.doneWhen === 'string' && node.doneWhen.trim() !== '' }
+/**
+ * Work blocks (2026-10-31): a goal's work blocks (a goal of the map, or the focus): its parts, without those dropped (the
+ * map's `Part dropped:` lines, or the focus's state 'dropped').
+ */
+function workBlocksOf(node) {
+  const dropped = new Set((node?.partsDropped ?? []).map(one => one.title))
+  return (node?.parts ?? []).filter(part => part.state !== 'dropped' && !dropped.has(part.title))
+}
+
+/** Work blocks: a block's done-when line, or '' without one. */
+const blockLineOf = part => (typeof part?.doneWhen === 'string' ? part.doneWhen.trim() : '')
+
+/**
+ * B354: whether a goal (or the focus) has a Done when line with words in it. Work blocks (2026-10-31): or every work block
+ * of it has its done-when line.
+ */
+function hasDoneWhenLine(node) {
+  if (typeof node?.doneWhen === 'string' && node.doneWhen.trim() !== '') return true
+  const blocks = workBlocksOf(node)
+  return blocks.length > 0 && blocks.every(part => blockLineOf(part) !== '')
+}
+
+/** Work blocks: "31 Oct" for a "2026-10-31 14:05" stamp; the stamp as it is when it is no date. */
+function focusDayWords(stamp) {
+  const found = String(stamp ?? '').match(/^(\d{4})-(\d\d)-(\d\d)/)
+  if (found === null) return String(stamp ?? '')
+  return `${Number(found[3])} ${['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'][Number(found[2]) - 1] ?? found[2]}`
+}
+
+/** Work blocks: the chips of a block on the Focus page, by its state (B680, B689, Redesign Part 2). */
+const FOCUS_CHIPS = { done: 'Done', now: 'In progress', next: 'Next', ready: 'On the list for a worker', refining: 'Waiting for its refine, then it goes on the list', stopped: 'Stopped, nothing reached', waiting: 'Waiting, nobody on it now', stuck: 'Stuck: its fix stopped' }
+
+/**
+ * Work blocks (the person, 2026-10-31: "the done when will only show the unfinished workblocks ... filtered once per
+ * evaluation"): the run's "Open now" card: the round's line and one line per block open in it (the state's `openNow`): a
+ * tick once done, its title, "Rework: <line>" for a block that was there before the round or "New: <line>" for one made in
+ * it, and its chip while not done (a block in progress names the worker on it). Null before the run.
+ */
+function focusOpenNowView(focus) {
+  const round = focus?.round ?? null
+  if (round === null) return null
+  const rows = (focus.openNow ?? []).map(one => {
+    const part = focus.parts[one.index] ?? null
+    if (part === null) return null
+    const isDone = part.state === 'done'
+    const line = blockLineOf(part)
+    const label = one.kind === 'rework' ? 'Rework' : 'New'
+    const chip = isDone ? null : part.state === 'now' && typeof part.owner === 'string' && part.owner !== '' ? `${part.owner} is on it` : FOCUS_CHIPS[part.state] ?? null
+    return { title: part.title, isDone, kind: one.kind, line: line === '' ? label : `${label}: ${line}`, chip, tone: part.state }
+  }).filter(one => one !== null)
+  const done = rows.filter(one => one.isDone).length
+  // "opened by the change of 31 Oct": a why that names its own day ("the change of 2026-10-31") says it once.
+  const why = String(round.why ?? '').replace(/\s+of\s+\d{4}-\d\d-\d\d$/, '')
+  return {
+    title: 'Open now',
+    line: `Round ${round.n} · opened by ${why} of ${focusDayWords(round.since)} · ${done} of ${rows.length} done · the next evaluation starts round ${round.n + 1}`,
+    rows,
+    done,
+    total: rows.length,
+    empty: rows.length === 0 ? 'No work block is open in this round.' : null,
+  }
+}
 
 /** B354: a step's standard as the page shows it: "<kind> · <reference picture> · target <score>", read into its parts. */
 function standardParts(line) {
@@ -12911,12 +13034,13 @@ function focusStepsView(part, partsOpen) {
   })
   // B690: the counts and the open-by-itself flag come from the state; this only words them.
   const { done, checking, fixing, building, stopped, waiting, total } = part.counts ?? { done: 0, checking: 0, fixing: 0, building: 0, stopped: 0, waiting: 0, total: 0 }
-  const words = [`${done} of ${total} step${total === 1 ? '' : 's'} finished`, checking > 0 ? `${checking} being checked` : null, fixing > 0 ? `${fixing} being fixed` : null, building > 0 ? `${building} being built` : null, stopped > 0 ? `${stopped} stopped` : null, waiting > 0 ? `${waiting} waiting` : null, part.state === 'now' && part.owner !== null ? `${part.owner} is on it` : null].filter(word => word !== null)
+  // Work blocks (2026-10-31): on the Focus page a block's steps are its tasks.
+  const words = [`${done} of ${total} task${total === 1 ? '' : 's'} finished`, checking > 0 ? `${checking} being checked` : null, fixing > 0 ? `${fixing} being fixed` : null, building > 0 ? `${building} being built` : null, stopped > 0 ? `${stopped} stopped` : null, waiting > 0 ? `${waiting} waiting` : null, part.state === 'now' && part.owner !== null ? `${part.owner} is on it` : null].filter(word => word !== null)
   const isOpen = typeof partsOpen?.[part.title] === 'boolean' ? partsOpen[part.title] : part.opensItself === true
   return {
     blocks: steps.map(one => one.tone),
     count: total === 0 ? null : words.join(' · '),
-    toggle: total === 0 ? null : `${isOpen ? 'Hide' : 'Show'} the ${total} step${total === 1 ? '' : 's'}`,
+    toggle: total === 0 ? null : `${isOpen ? 'Hide' : 'Show'} the ${total} task${total === 1 ? '' : 's'}`,
     isOpen: total > 0 && isOpen,
     steps,
   }
@@ -12957,29 +13081,35 @@ function focusView(focus, goals, can = null, ui = {}) {
     strip,
     progress: null,
     vibe: { title: 'The vibe so far', sub: 'draft, written by your partner', lines: focus.vibe, picture: focus.vibePicture, empty: focus.vibe.length > 0 || focus.vibePicture !== null ? null : 'Your partner writes the vibe here while you talk.' },
+    // Work blocks (2026-10-31): the how is the goal's work blocks, each with its done-when line once the partner wrote it.
     how: {
-      title: 'The how so far',
+      title: 'Work blocks so far',
       sub: 'proposed by your partner',
-      parts: focus.parts.map(part => ({ title: part.title, size: part.size })),
+      parts: focus.parts.map(part => ({ title: part.title, size: part.size, ...(blockLineOf(part) === '' ? {} : { doneWhen: blockLineOf(part) }) })),
       partnerDecides: focus.partnerDecides,
       youDecide: focus.youDecide,
-      empty: focus.parts.length > 0 ? null : 'Your partner proposes the parts here once you talk about the how.',
+      empty: focus.parts.length > 0 ? null : 'Your partner proposes the work blocks here once you talk about how to reach the goal.',
     },
     buttons: [],
     // The review of Focus 2: in every stage a way back to the pick list.
     change: { label: 'Change focus', isEnabled: allowed, title: allowed ? 'Pick another goal as your focus' : why },
     // "Change this goal" (2026-10-31): say what should change; the partner brainstorms it first, then re-plans.
     changeGoal: stage === 'done' ? null : { label: 'Change this goal', isEnabled: allowed, title: allowed ? 'Say what should change about this goal: your partner asks until it understands, then proposes the new goal and its tasks' : why },
-    // and, once a change gave it one, the goal's objective and its Done when bullets.
+    // and, once a change gave it one, the goal's objective and what is not in it.
     definition: focusDefinitionView(focus),
+    // Work blocks (2026-10-31): the switch between all of them and the ones open in this round (the run only).
+    blocks: null,
+    openNow: null,
   }
   const hasVibe = focus.vibe.length > 0 || focus.vibePicture !== null
   if (stage === 'vibe') view.buttons = [
     button('This is the goal definition', 'vibe-agree', hasVibe, hasVibe ? 'Agreed: your partner proposes the how next' : 'Your partner writes the vibe here first, while you talk'),
     button('Not yet', 'vibe-not-yet', true, 'Say what is missing: your partner goes on talking'),
   ]
+  // Work blocks (2026-10-31): Go waits until every block has its done-when line (the state says: a goal past Go never waits).
+  const lacksLine = focus.goWaitsForLines === true
   if (stage === 'how') view.buttons = [
-    button('Go', 'how-go', focus.parts.length > 0, focus.parts.length > 0 ? 'Agreed: your partner makes the steps, the main chat hands them out' : 'Your partner proposes the parts here first'),
+    button('Go', 'how-go', focus.parts.length > 0 && !lacksLine, focus.parts.length === 0 ? 'Your partner proposes the work blocks here first' : lacksLine ? 'Every work block needs its done-when line' : 'Agreed: your partner makes the tasks of each work block, the board hands them out'),
     button('Not yet', 'how-not-yet', true, 'Say what does not fit: your partner changes the how'),
   ]
   if (stage === 'run' || stage === 'done') {
@@ -12987,24 +13117,30 @@ function focusView(focus, goals, can = null, ui = {}) {
     const left = stage === 'done' ? null : focusTimeLeft(minutesLeft)
     // B680: a Stopped part is named beside the count, never counted as done.
     const stopped = focus.progress.stopped ?? 0
-    view.progress = { text: `${done} of ${total} done${stopped > 0 ? ` · ${stopped} stopped` : ''}${left === null ? '' : ` · about ${left} left`}`, percent: total === 0 ? 0 : Math.round((done / total) * 100) }
+    // Work blocks (2026-10-31): the goal's progress counts its work blocks.
+    view.progress = { text: `${done} of ${total} work block${total === 1 ? '' : 's'} done${stopped > 0 ? ` · ${stopped} stopped` : ''}${left === null ? '' : ` · about ${left} left`}`, percent: total === 0 ? 0 : Math.round((done / total) * 100) }
   }
   if (stage === 'run') {
     // Redesign Part 2: a part whose tasks are refined and none given yet is on the board's list for a worker.
     // B680: a part with only dropped steps is Stopped (calm, nothing reached); one the person dropped says why.
     // 2026-10-31 (B689): In progress only while a step of it is at work; else it waits for another task, or its fix stopped.
-    const chips = { done: 'Done', now: 'In progress', next: 'Next', ready: 'On the list for a worker', refining: 'Waiting for its refine, then it goes on the list', stopped: 'Stopped, nothing reached', waiting: 'Waiting, nobody on it now', stuck: 'Stuck: its fix stopped' }
+    const chips = FOCUS_CHIPS
+    // Work blocks (2026-10-31): a block made in this round (round 2 on) carries a small "new".
+    const isNewNow = index => (focus.round?.n ?? 1) > 1 && (focus.openNow ?? []).some(one => one.index === index && one.kind === 'new')
     view.run = {
-      title: 'The how',
+      title: 'All work blocks',
       page: focus.page ?? null,
-      parts: focus.parts.map(part => ({
+      parts: focus.parts.map((part, index) => ({
         title: part.title,
+        // Work blocks: its done-when line under its bar, and "new" when this round made it.
+        ...(blockLineOf(part) === '' ? {} : { doneWhen: `Done when: ${blockLineOf(part)}` }),
+        ...(isNewNow(index) ? { isNew: true } : {}),
         chip: part.state === 'dropped' ? `Dropped: ${part.why ?? ''}`.trim() : chips[part.state],
         tone: part.state,
         percent: part.state === 'done' ? 100 : part.state === 'stopped' || part.state === 'dropped' || part.total === 0 ? 0 : Math.round((part.done / part.total) * 100),
         // B680: under a Stopped part the person may drop it, with a reason; a dropped one has its Undo.
-        ...(part.state === 'stopped' ? { drop: { label: 'Drop this part', act: 'part-drop', isEnabled: allowed, title: allowed ? 'You stop this part: say why in one line. It then counts out of the whole. Your partner can instead try another way.' : why } } : {}),
-        ...(part.state === 'dropped' ? { undo: { label: 'Undo', act: 'part-undo', isEnabled: allowed, title: allowed ? 'Take the drop back: the part is Stopped again' : why } } : {}),
+        ...(part.state === 'stopped' ? { drop: { label: 'Drop this work block', act: 'part-drop', isEnabled: allowed, title: allowed ? 'You stop this work block: say why in one line. It then counts out of the whole. Your partner can instead try another way.' : why } } : {}),
+        ...(part.state === 'dropped' ? { undo: { label: 'Undo', act: 'part-undo', isEnabled: allowed, title: allowed ? 'Take the drop back: the work block is Stopped again' : why } } : {}),
         owner: part.state === 'now' && part.owner !== null ? `${part.owner} is on it` : null,
         // Fix first: its worker does a board fix first.
         ...(typeof part.fixFirst === 'string' ? { fixFirst: `A board fix goes first: ${part.fixFirst}` } : {}),
@@ -13015,6 +13151,20 @@ function focusView(focus, goals, can = null, ui = {}) {
         ...focusStepsView(part, ui.partsOpen),
       })),
       stepsOf: focus.id,
+    }
+    // Work blocks (2026-10-31): All work blocks (the whole plan) or Open now (what the last evaluation opened); none
+    // without a block.
+    view.openNow = focusOpenNowView(focus)
+    const whole = workBlocksOf(focus)
+    if (whole.length > 0 && view.openNow !== null) {
+      const chosen = ui.blocksView === 'open' ? 'open' : 'all'
+      view.blocks = {
+        chosen,
+        options: [
+          { key: 'all', label: 'All work blocks', count: `${focus.progress.done}/${focus.progress.total}`, title: 'The whole plan, always all of it', isOn: chosen === 'all' },
+          { key: 'open', label: 'Open now', count: `${view.openNow.done}/${view.openNow.total}`, title: 'Only what the last evaluation opened, ticked off as it gets done', isOn: chosen === 'open' },
+        ],
+      }
     }
     view.note = focusNoteView(focus, allowed, why)
     // Focus 4: the slim talk bar under the parts: the person's words to the partner, in the talk about the goal.
@@ -13027,7 +13177,9 @@ function focusView(focus, goals, can = null, ui = {}) {
     view.vibeThere = total > 0 && done === total && (focus.progress.stopped ?? 0) === 0 ? {
       question: 'Did we reach the goal?',
       vibe: focus.vibe,
-      doneWhenLine: hasLine ? `Done when: ${focus.doneWhen.trim()}` : null,
+      doneWhenLine: typeof focus.doneWhen === 'string' && focus.doneWhen.trim() !== '' ? `Done when: ${focus.doneWhen.trim()}` : null,
+      // Work blocks (2026-10-31): a goal without its one line is checked against its blocks' done-when lines, all ticked.
+      ...(hasLine && !(typeof focus.doneWhen === 'string' && focus.doneWhen.trim() !== '') ? { doneWhenLines: workBlocksOf(focus).map(part => blockLineOf(part)) } : {}),
       buttons: [
         button('Yes', 'vibe-there-yes', hasLine && demo !== null, !hasLine ? 'Its Done when is missing: the goal gets its tick against it' : demo === null ? 'Your partner makes the goal demo first: you see it before you answer' : 'Your partner re-checks it against its Done when and its vibe; it gets its tick once that passed'),
         button('No', 'vibe-there-no', true, 'Say what is missing: your partner changes the how'),
@@ -13055,7 +13207,9 @@ function focusView(focus, goals, can = null, ui = {}) {
 
 /**
  * "Change this goal" (2026-10-31): the focus goal's objective and its Done when bullets, each met (its steps all done) or
- * not, with its step ids; null for a goal without an objective, which shows nothing new.
+ * not, with its step ids; null for a goal without an objective, which shows nothing new. Work blocks (2026-10-31): the
+ * page draws the objective and "Not in it" in the head; the bullets of an old change are read, no longer drawn as a card
+ * (the work blocks and Open now took their place).
  */
 function focusDefinitionView(focus) {
   const objective = typeof focus?.objective === 'string' ? focus.objective.trim() : ''
@@ -13605,7 +13759,10 @@ function drawAdvisorParts(state) {
  */
 // B354: `asked`, the goals whose Done when the person asked the partner for on this page.
 // B680: `dropping`, the title of the Stopped part whose reason the person is writing.
-const focusUi = { busy: false, note: null, notYet: null, picked: null, picking: false, dropping: null, asked: [], partsOpen: {}, words: { talk: '', notYet: '', new: '', bar: '', drop: '' } }
+// Work blocks (2026-10-31): `blocksView`, the run's switch: 'all' (All work blocks) or 'open' (Open now), kept across a reload.
+const focusUi = { busy: false, note: null, notYet: null, picked: null, picking: false, dropping: null, asked: [], partsOpen: {}, blocksView: 'all', words: { talk: '', notYet: '', new: '', bar: '', drop: '' } }
+// Work blocks: the switch as the person left it (localStorage), else All work blocks.
+try { if (localStorage.getItem('focus-blocks-view') === 'open') focusUi.blocksView = 'open' } catch { /* a browser without storage: All work blocks */ }
 const FOCUS_BOXES = { 'focus-talk-words': 'talk', 'focus-not-yet-words': 'notYet', 'focus-new-words': 'new', 'focus-bar-words': 'bar', 'focus-drop-words': 'drop' }
 
 /** B408: the Focus page, drawn from its view when that changed. */
@@ -13780,7 +13937,12 @@ function focusHowCard(view) {
   const parts = el('ol', 'focus-plan')
   for (const part of view.how.parts) {
     const row = el('li', '')
-    row.append(el('span', '', part.title))
+    // Work blocks (2026-10-31): each block with its done-when line under its title, or that it still needs one.
+    const what = el('span', 'focus-plan-what')
+    what.append(el('span', '', part.title), typeof part.doneWhen === 'string'
+      ? el('small', 'focus-plan-done-when', `Done when: ${part.doneWhen}`)
+      : el('small', 'focus-plan-done-when is-missing', 'No done-when line yet'))
+    row.append(what)
     if (part.size !== null) row.append(el('small', '', part.size))
     parts.append(row)
   }
@@ -13854,7 +14016,10 @@ function focusStepList(part) {
   return box
 }
 
-/** The run: the parts with their progress and who is on each; the steps behind a click on its bar's toggle. */
+/**
+ * The run: the parts with their progress and who is on each; the steps behind a click on its bar's toggle. Work blocks
+ * (2026-10-31): "All work blocks", each block with its done-when line under its bar and "new" when this round made it.
+ */
 function focusRunCard(view) {
   const card = el('section', 'focus-card focus-run')
   card.append(el('h3', '', view.run.title))
@@ -13868,7 +14033,9 @@ function focusRunCard(view) {
   for (const part of view.run.parts) {
     const row = el('div', `focus-part is-${part.tone}`)
     const top = el('div', 'focus-part-top')
-    top.append(el('b', '', part.title), el('span', `focus-chip is-${part.tone}`, part.chip))
+    const title = el('b', '', part.title)
+    if (part.isNew === true) title.append(el('span', 'focus-new', 'new'))
+    top.append(title, el('span', `focus-chip is-${part.tone}`, part.chip))
     // B684: one block per step, coloured by its state; a part without steps keeps its plain fill.
     const bar = el('div', part.blocks.length > 0 ? 'focus-bar focus-blocks' : 'focus-bar')
     if (part.blocks.length > 0) for (const tone of part.blocks) bar.append(el('span', `focus-block is-${tone}`))
@@ -13878,6 +14045,7 @@ function focusRunCard(view) {
       bar.append(fillBar)
     }
     row.append(top, bar)
+    if (typeof part.doneWhen === 'string') row.append(el('small', 'focus-count focus-block-done-when', part.doneWhen))
     if (part.count !== null) row.append(el('small', 'focus-count', part.count))
     if (part.toggle !== null) {
       const toggle = el('button', 'focus-toggle', `${part.isOpen ? '▾' : '▸'} ${part.toggle}`)
@@ -13893,7 +14061,7 @@ function focusRunCard(view) {
       const drop = focusButton(part.drop, 'focus-drop')
       drop.dataset.focusGoal = part.title
       row.append(drop)
-      if (focusUi.dropping === part.title) row.append(focusSay('Why do you drop this part? One line.', 'focus-say focus-drop-say', { box: 'focus-drop-words', act: 'part-drop-send', label: 'Drop it', isEnabled: part.drop.isEnabled, title: part.drop.title }))
+      if (focusUi.dropping === part.title) row.append(focusSay('Why do you drop this work block? One line.', 'focus-say focus-drop-say', { box: 'focus-drop-words', act: 'part-drop-send', label: 'Drop it', isEnabled: part.drop.isEnabled, title: part.drop.title }))
     }
     if (part.undo !== undefined) {
       const undo = focusButton(part.undo, 'focus-drop')
@@ -13906,6 +14074,51 @@ function focusRunCard(view) {
   steps.type = 'button'
   steps.dataset.focusSteps = view.run.stepsOf
   card.append(steps)
+  return card
+}
+
+/**
+ * Work blocks (2026-10-31): the switch under the head, "All work blocks <done>/<all>" and "Open now <done>/<open>", the
+ * person's pick pressed.
+ */
+function focusBlocksSwitch(view) {
+  const row = el('div', 'focus-blocks-switch')
+  row.setAttribute('role', 'group')
+  row.setAttribute('aria-label', 'Which work blocks to show')
+  for (const option of view.blocks.options) {
+    const button = el('button', `focus-blocks-option${option.isOn ? ' is-on' : ''}`, option.label)
+    button.type = 'button'
+    button.dataset.focusBlocks = option.key
+    button.title = option.title
+    button.setAttribute('aria-pressed', String(option.isOn))
+    button.append(el('small', '', option.count))
+    row.append(button)
+  }
+  return row
+}
+
+/**
+ * Work blocks (2026-10-31): "Open now", in the style of the old Done-when card: the round's line, then a row per block open
+ * in it: a tick once done (an empty circle while not), its title, "Rework: <line>" or "New: <line>" under it, and its chip
+ * on the right while not done.
+ */
+function focusOpenNowCard(view) {
+  const card = el('section', 'focus-card focus-open-now')
+  card.append(el('h3', '', view.openNow.title), el('p', 'focus-round', view.openNow.line))
+  if (view.openNow.empty !== null) card.append(el('p', 'muted', view.openNow.empty))
+  const list = el('ol', 'focus-bullets')
+  for (const one of view.openNow.rows) {
+    const row = el('li', `focus-bullet focus-open-block is-${one.isDone ? 'met' : 'open'}`)
+    const mark = el('span', 'focus-bullet-mark', one.isDone ? '✓' : '')
+    mark.title = one.isDone ? 'done' : 'not done yet'
+    mark.setAttribute('aria-label', one.isDone ? 'done' : 'not done yet')
+    const what = el('span', 'focus-open-what')
+    what.append(el('b', 'focus-bullet-text', one.title), el('small', 'focus-open-line', one.line))
+    row.append(mark, what)
+    if (one.chip !== null) row.append(el('span', `focus-chip focus-open-chip is-${one.tone}`, one.chip))
+    list.append(row)
+  }
+  card.append(list)
   return card
 }
 
@@ -15325,6 +15538,8 @@ function focusVibeThereCard(view, can) {
   view.vibeThere.buttons.forEach((one, index) => buttons.append(focusButton(one, index === 0 ? 'focus-yes' : 'focus-no')))
   // B354: the goal is ticked against its Done when: it stands under the vibe, or the button asks the partner for it.
   if (view.vibeThere.doneWhenLine !== null) lines.append(el('li', 'focus-done-when-line', view.vibeThere.doneWhenLine))
+  // Work blocks (2026-10-31): a goal without its one line shows its blocks' done-when lines, all ticked.
+  for (const line of view.vibeThere.doneWhenLines ?? []) lines.append(el('li', 'focus-done-when-line is-block', line))
   if (view.vibeThere.doneWhen !== null) buttons.append(focusButton(view.vibeThere.doneWhen, 'focus-ask-done-when'))
   card.append(lines, buttons)
   if (focusUi.notYet === 'there') card.append(focusNotYet('there', can))
@@ -15359,7 +15574,7 @@ function focusNeedsButton(view) {
 /** Focus 1 (spec 2026-10-18, section 4): the Focus page, read-only from goals.md: the head, the strip, each stage's cards. */
 function drawFocus(state) {
   const can = focusCan(state)
-  const view = focusView(state.focus ?? null, state.goals ?? null, can, { picking: focusUi.picking, asked: focusUi.asked, partsOpen: focusUi.partsOpen })
+  const view = focusView(state.focus ?? null, state.goals ?? null, can, { picking: focusUi.picking, asked: focusUi.asked, partsOpen: focusUi.partsOpen, blocksView: focusUi.blocksView })
   const box = $('advisor-focus')
   box.dataset.stage = view.stage
   const parts = []
@@ -15373,6 +15588,8 @@ function drawFocus(state) {
     title.append(el('small', 'focus-label', view.head.label), el('h2', '', `${view.head.id} · ${view.head.title}`))
     // "Change this goal": a goal's objective, once a change gave it one, stands under its title in place of the vibe's line.
     if ((view.definition ?? null) !== null) title.append(el('p', 'focus-objective', view.definition.objective))
+    // Work blocks (2026-10-31): what is not in the goal, a quiet line under its objective.
+    if ((view.definition?.notInIt ?? null) !== null) title.append(el('p', 'muted focus-not-in-it', `Not in it: ${view.definition.notInIt}`))
     else if (view.head.vibeLine !== null) title.append(el('p', 'focus-vibe-line', view.head.vibeLine))
     if ((view.changeGoal ?? null) !== null && (state.advisor ?? null) !== null && view.back === undefined) title.append(focusButton({ ...view.changeGoal, act: 'change-goal' }, 'focus-change is-change-goal'))
     if (view.change !== null && view.back === undefined) title.append(focusButton({ ...view.change, act: 'change-focus' }, 'focus-change'))
@@ -15397,14 +15614,14 @@ function drawFocus(state) {
     head.append(title, side)
     parts.push(head)
   }
-  // "Change this goal": the goal's Done when bullets above the rest (the how), each met or not.
-  if ((view.definition ?? null) !== null && view.back === undefined) parts.push(focusDefinitionCard(view.definition))
+  // Work blocks (2026-10-31): the switch between All work blocks and Open now, under the head (no Done-when card any more).
+  if ((view.blocks ?? null) !== null && view.back === undefined && view.stage === 'run') parts.push(focusBlocksSwitch(view))
   if (view.stage === 'pick' || view.stage === 'done' || view.back !== undefined) parts.push(focusPickCard(view))
   else {
     const body = el('div', 'focus-body')
     if (view.stage === 'run') {
       const left = el('div', 'focus-column')
-      left.append(focusRunCard(view), focusSay(view.talkBar.placeholder, 'focus-say is-slim', { box: 'focus-bar-words', act: view.talkBar.act, isEnabled: view.talkBar.isEnabled, title: view.talkBar.title }))
+      left.append(view.blocks?.chosen === 'open' && view.openNow !== null ? focusOpenNowCard(view) : focusRunCard(view), focusSay(view.talkBar.placeholder, 'focus-say is-slim', { box: 'focus-bar-words', act: view.talkBar.act, isEnabled: view.talkBar.isEnabled, title: view.talkBar.title }))
       const right = el('div', 'focus-column')
       if (view.guard !== null && view.guard !== undefined) right.append(focusGuardCard(view.guard))
       if (view.recheck !== null && view.recheck !== undefined) right.append(focusRecheckCard(view.recheck))
@@ -15448,27 +15665,6 @@ function drawFocus(state) {
     again.focus()
     again.setSelectionRange(typing.at, typing.at)
   }
-}
-
-/** "Change this goal" (2026-10-31): the goal's Done when, a row per bullet: met (green) or not met (grey), its steps as links. */
-function focusDefinitionCard(definition) {
-  const card = el('section', 'focus-card focus-done-when')
-  card.append(el('h3', '', definition.title))
-  const list = el('ol', 'focus-bullets')
-  for (const bullet of definition.bullets) {
-    const row = el('li', `focus-bullet is-${bullet.met ? 'met' : 'open'}`)
-    const mark = el('span', 'focus-bullet-mark', bullet.met ? '✓' : '')
-    mark.title = bullet.state
-    mark.setAttribute('aria-label', bullet.state)
-    const steps = el('span', 'focus-bullet-steps')
-    if (bullet.steps.length === 0) steps.append(el('span', 'muted', 'no task yet'))
-    bullet.steps.forEach((id, at) => steps.append(...(at === 0 ? [] : [', ']), linkedEl('span', '', id)))
-    row.append(mark, el('b', 'focus-bullet-text', `${bullet.n}. ${bullet.text}`), steps)
-    list.append(row)
-  }
-  card.append(list)
-  if (definition.notInIt !== null) card.append(el('p', 'muted focus-not-in-it', `Not in it: ${definition.notInIt}`))
-  return card
 }
 
 /** Partner answers (2026-10-19): the switch drawn (partnerSwitchView), with the problem of its last change. */
@@ -15681,6 +15877,19 @@ $('advisor-focus').addEventListener('submit', event => {
   event.preventDefault()
   const form = event.target.closest('[data-focus-form]')
   if (form !== null) focusAct(form.dataset.focusForm)
+})
+
+// Work blocks (2026-10-31): the switch between All work blocks and Open now; the pick stays across a reload.
+$('advisor-focus').addEventListener('click', event => {
+  const option = event.target.closest('[data-focus-blocks]')
+  if (option === null) return
+  focusUi.blocksView = option.dataset.focusBlocks === 'open' ? 'open' : 'all'
+  try {
+    localStorage.setItem('focus-blocks-view', focusUi.blocksView)
+  } catch {
+    // Kept for this page only.
+  }
+  redrawFocus()
 })
 
 // B684: a part's toggle opens or closes its steps; the person's word stays while the page redraws.

@@ -69,7 +69,8 @@ test('some steps done and the rest dropped stays Done; an open step keeps the pa
 test('a Stopped part counts neither done nor open: not in the progress, not in the minutes left', () => {
   const state = run([step('B1', 'dropped'), step('B2', 'dropped'), step('B3', 'queued'), step('B4', 'done')])
   assert.deepEqual(state.progress, { done: 1, total: 3, stopped: 1, minutesLeft: 60 })
-  assert.equal(focusView(state, null).progress.text, '1 of 3 done · 1 stopped · about 1 h left')
+  // Work blocks (2026-10-31): the progress counts work blocks.
+  assert.equal(focusView(state, null).progress.text, '1 of 3 work blocks done · 1 stopped · about 1 h left')
   // No Stopped part: the progress is as it was.
   assert.deepEqual(run([step('B1', 'done'), step('B2', 'done'), step('B3', 'queued')]).progress, { done: 1, total: 3, minutesLeft: 90 })
 })
@@ -101,7 +102,8 @@ test('a part the person dropped shows "Dropped: <why>", is out of the whole, and
 test('under a Stopped part a small "Drop this part" asks the person; a part that is not Stopped has none', () => {
   const state = run([step('B1', 'dropped'), step('B2', 'dropped'), step('B3', 'queued'), step('B4', 'done')])
   const view = focusView(state, parseGoals(GOALS), CAN)
-  assert.deepEqual(view.run.parts[0].drop, { label: 'Drop this part', act: 'part-drop', isEnabled: true, title: 'You stop this part: say why in one line. It then counts out of the whole. Your partner can instead try another way.' })
+  // Work blocks (2026-10-31): on the Focus page a part is a work block.
+  assert.deepEqual(view.run.parts[0].drop, { label: 'Drop this work block', act: 'part-drop', isEnabled: true, title: 'You stop this work block: say why in one line. It then counts out of the whole. Your partner can instead try another way.' })
   assert.equal(view.run.parts[1].drop, undefined)
   assert.equal(view.run.parts[2].drop, undefined)
   const shows = focusView(state, parseGoals(GOALS), { canWrite: false, whyNot: 'This board only shows.' })

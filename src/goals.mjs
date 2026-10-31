@@ -16,17 +16,42 @@ export const LAST_LINE = /^Last (id|ask):\s*[GA](\d+)\s*$/
 /** Focus 1: the focus goal, a head line before the first goal: "Focus: G6"; "Focus:" alone is none. */
 export const FOCUS_LINE = /^Focus:\s*(G\d+)?\s*$/
 
-/** B354: whether a goal has a Done when line with words in it: only then may it be the focus, or be ticked. */
 /** B677: whether a goal has its Demo line (`Demo: <picture path> · <a few words>`): the picture the person sees before they answer "Did we reach the goal?". */
 export const hasDemo = node => typeof node?.demo === 'string' && node.demo.trim() !== ''
 
-export const hasDoneWhen = node => typeof node?.doneWhen === 'string' && node.doneWhen.trim() !== ''
+/**
+ * Work blocks (the person, 2026-10-31: "a goal has X workblocks. each workblock has X tasks"): a goal's blocks are its
+ * `Part:` lines that were not dropped (`Part dropped:`), in their order.
+ */
+export const blocksOf = node => (node?.parts ?? []).filter(part => !(node.partsDropped ?? []).some(one => one.title === part.title))
+
+/** Work blocks: whether every block of the goal has its done-when line (a goal with no block has none). */
+export const hasBlockLines = node => blocksOf(node).length > 0 && blocksOf(node).every(part => typeof part.doneWhen === 'string' && part.doneWhen.trim() !== '')
+
+/**
+ * B354; work blocks (2026-10-31): a goal has its Done when with its one line, or when every work block of it has its
+ * done-when line: only then may it be the focus, or be ticked.
+ */
+export const hasDoneWhen = node => (typeof node?.doneWhen === 'string' && node.doneWhen.trim() !== '') || hasBlockLines(node)
+
+/**
+ * Work blocks (2026-10-31): whether a goal went past Go once: its how is agreed, or was (a block has tasks, which are made
+ * after Go, or the goal was re-checked or evaluated). Such a goal is never held at Go for its blocks' done-when lines.
+ */
+export const wentPastGo = node => (node?.howAgreed ?? null) !== null || (node?.parts ?? []).some(part => part.steps.length > 0) || (node?.rechecks ?? []).length > 0 || (node?.evaluations ?? []).length > 0
+
+/** Work blocks (2026-10-31): whether Go waits for a block's done-when line: a goal never past Go with a block without one. */
+export const goWaitsForLines = node => !wentPastGo(node) && blocksOf(node).some(part => typeof part.doneWhen !== 'string' || part.doneWhen.trim() === '')
+
+/** Work blocks: the goal's Done when as one line for a word: its own line, else its blocks' done-when lines, " · " between. */
+export const doneWhenText = node => (typeof node?.doneWhen === 'string' && node.doneWhen.trim() !== '' ? node.doneWhen.trim()
+  : blocksOf(node).map(part => part.doneWhen).filter(line => typeof line === 'string' && line.trim() !== '').join(' · '))
 
 const ids = value => value.match(IDS) ?? []
 const stepIds = value => value.split(/[,\s]+/).filter(part => /^B\d+$/.test(part))
 
 function node(id, title, state, depth, line) {
-  return { id, title: title.trim(), state, depth, parent: null, children: [], line, doneWhen: null, demo: null, demoAsked: null, why: null, enables: [], alsoPartOf: [], steps: [], partsDropped: [], missing: [], notes: [], asks: [], brainstorm: null, fromPlan: null, recommendation: null, vibe: [], vibePicture: null, vibeAgreed: null, parts: [], partnerDecides: [], youDecide: [], howAgreed: null, recheckAsked: null, rechecks: [], overturned: [], evaluationAsked: null, evaluations: [], evaluatedAt: [], fableAsked: null, evaluationPart: null, objective: null, doneBullets: [], notInIt: null, yourWords: [] }
+  return { id, title: title.trim(), state, depth, parent: null, children: [], line, doneWhen: null, demo: null, demoAsked: null, why: null, enables: [], alsoPartOf: [], steps: [], partsDropped: [], missing: [], notes: [], asks: [], brainstorm: null, fromPlan: null, recommendation: null, vibe: [], vibePicture: null, vibeAgreed: null, parts: [], partnerDecides: [], youDecide: [], howAgreed: null, recheckAsked: null, rechecks: [], overturned: [], evaluationAsked: null, evaluations: [], evaluatedAt: [], fableAsked: null, evaluationPart: null, objective: null, doneBullets: [], notInIt: null, yourWords: [], rounds: [] }
 }
 
 /**
@@ -46,12 +71,31 @@ function yourWordsOf(value) {
   return at < 0 ? { at: '', text: value.trim() } : { at: value.slice(0, at).trim(), text: value.slice(at + 3).trim() }
 }
 
-/** Focus 1: "<title> · <size> · steps B1, B2", the size and the steps each left out at will. */
-function partOf(value) {
-  const [title = '', ...rest] = value.split(' · ').map(part => part.trim())
-  const steps = rest.find(part => /^steps\b/i.test(part))
-  const size = rest.find(part => !/^steps\b/i.test(part) && part !== '') ?? null
-  return { title, size, steps: steps === undefined ? [] : stepIds(steps.replace(/^steps\s*/i, '')) }
+/** Work blocks: a segment of a Part line that holds the block's tasks ("steps B1, B2"). */
+const STEPS_PART = /^steps\b/i
+/** Work blocks: the segment that holds the block's done-when line ("done when: <line>"). */
+const DONE_PART = /^done when:\s*/i
+
+/**
+ * Focus 1: "<title> · <size> · steps B1, B2", the size and the steps each left out at will. Work blocks (2026-10-31): and
+ * " · done when: <line>" at its end, the block's done-when line (`doneWhen`, null without it); the line may hold " · "
+ * itself, and a "steps B<n>" segment after it is still read as the steps.
+ */
+export function partOf(value) {
+  const [title = '', ...rest] = String(value ?? '').split(' · ').map(part => part.trim())
+  const at = rest.findIndex(part => DONE_PART.test(part))
+  const before = at < 0 ? rest : rest.slice(0, at)
+  const after = at < 0 ? [] : rest.slice(at)
+  const steps = [...before, ...after.slice(1)].filter(part => STEPS_PART.test(part) && stepIds(part.replace(STEPS_PART, '')).length > 0)
+  const size = before.find(part => !STEPS_PART.test(part) && part !== '') ?? null
+  const line = after.length === 0 ? '' : [after[0].replace(DONE_PART, ''), ...after.slice(1).filter(part => !steps.includes(part))].join(' · ').trim()
+  return { title, size, steps: steps.flatMap(part => stepIds(part.replace(STEPS_PART, ''))), doneWhen: line === '' ? null : line }
+}
+
+/** Work blocks: a round's line under a goal, "Round: <date time> · <why>", as `{ at, why }`; the why may hold " · ". */
+function roundLineOf(value) {
+  const [at = '', ...why] = value.split(' · ').map(part => part.trim())
+  return { at, why: why.join(' · ') }
 }
 
 /** B680: "<part title> · <date time> · <why>" of a part the person dropped; the why may hold " · " itself. */
@@ -109,6 +153,8 @@ function takeLine(target, text) {
     case 'Partner decides': target.partnerDecides.push(value); return
     case 'You decide': target.youDecide.push(value); return
     case 'How agreed': target.howAgreed = value; return
+    // Work blocks (2026-10-31): an evaluation that starts a new round of the goal's work ("Round: <date time> · <why>").
+    case 'Round': target.rounds.push(roundLineOf(value)); return
     // B358: the goal re-check before its tick: asked (the board's), its outcomes (the partner's), and the person's tick
     // after a failed one.
     case 'Recheck asked': target.recheckAsked = value; return

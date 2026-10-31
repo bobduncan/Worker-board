@@ -168,7 +168,13 @@ test('the map\'s rules name the change\'s lines once; a map without rules is lef
   const named = withChangeRules(GOALS)
   assert.equal(named.split('\n')[6], CHANGE_RULES)
   assert.equal(withChangeRules(named), named)
-  for (const name of ['"Objective:', '"Done when <n>:', '"Not in it:', '"Your words:']) assert.ok(CHANGE_RULES.includes(name), name)
+  // Work blocks (2026-10-31): the rules name a block's done-when line and the Round line, no longer "Done when <n>:".
+  for (const name of ['"Objective:', '"Not in it:', '"Your words:', 'done when:', '"Round:']) assert.ok(CHANGE_RULES.includes(name), name)
+  assert.ok(!CHANGE_RULES.includes('"Done when <n>:'))
+  // A map with the sentence from before work blocks gets the new one in its place, once.
+  const before = named.replace(CHANGE_RULES, 'A goal changed with "Change this goal" also has "Objective: <one line>", "Done when <n>: <a bullet one can check> · steps B<n>, B<n>" (one per bullet; its old "Done when:" stays), "Not in it: <one line>", and "Your words: <date time> · <the person\'s words>" for each thing the person said about it.')
+  assert.notEqual(before, named)
+  assert.equal(withChangeRules(before), named)
   const bare = '# Goals\n\n- [ ] G1 One\n'
   assert.equal(withChangeRules(bare), bare)
   // The rules line is no goal's line: the map reads the same goals.
@@ -445,23 +451,17 @@ test('the proposal of a change: the goal\'s draft first, then after Agree the re
   }
 })
 
-test('the Focus page shows the Objective under the title and the Done when bullets met or not met; a goal without one shows nothing new', async () => {
+test('the Focus page shows the Objective under the title and Not in it as a quiet line; an old change\'s bullets are no card; a goal without one shows nothing new', async () => {
   const page = await openPage({ state: pageState(OBJECTIVE_GOALS, [], [done('B13')]) })
   try {
     await page.click('[data-tab="advice"]')
     assert.equal(page.text('.focus-objective'), 'A garden a visitor crosses without a map.')
     assert.equal(page.all('.focus-vibe-line').length, 0)
-    const card = page.find('.focus-done-when')
-    // Above the how.
-    assert.ok(card.compareDocumentPosition(page.find('.focus-run')) & 4, 'the bullets stand above the how')
-    const rows = page.all('.focus-bullet').map(one => [one.className, one.querySelector('.focus-bullet-text').textContent, one.querySelector('.focus-bullet-mark').getAttribute('aria-label'), one.querySelector('.focus-bullet-steps').textContent])
-    assert.deepEqual(rows, [
-      ['focus-bullet is-met', '1. Every bench is on a path', 'met', 'B13'],
-      ['focus-bullet is-open', '2. A visitor finds the gate', 'not met', 'B12'],
-      ['focus-bullet is-open', '3. No path ends nowhere', 'not met', 'no task yet'],
-    ])
-    // A known step id is a link to its step.
-    assert.equal(page.all('.focus-bullet-steps [data-ask-link="B12"]').length, 1)
+    // Work blocks (2026-10-31): the Done when card is no longer drawn (the work blocks and Open now took its place); what
+    // is not in the goal stays, a quiet line under the objective.
+    assert.equal(page.text('.focus-title .focus-not-in-it'), 'Not in it: lights')
+    assert.deepEqual([page.all('.focus-done-when').length, page.all('.focus-bullet').length], [0, 0])
+    assert.equal(page.all('.focus-run').length, 1)
   } finally {
     await page.close()
   }

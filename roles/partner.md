@@ -118,6 +118,13 @@ user's yes (`Vibe agreed: <date time>`, `How agreed: <date time>`). Never write 
 `How agreed:` yourself. The words below are typed into your chat by the board, marked as the user's word. The first two
 moves, the vibe and the how, are the talk (roles/product-owner.md, "How a talk goes"; "A brainstorm", below); Go is yours.
 
+**Work blocks** (the user, 2026-10-31: "a goal has X workblocks. each workblock has X tasks"). Each part of a how is a work
+block with its done-when line: `<title> · about <N> h · done when: <what is true once the block is done, checkable
+alone>`. When you propose a how, every block has its line (the user's Go stays off without it). Rework never becomes a
+separate list: after a failed re-check or a recap part sent back, the new tasks go on the block they belong to, or into a
+new block after the agreed ones, with its done-when line (`work how-draft`; the agreed blocks stay as they are). Each such
+evaluation starts a new round, and the Focus page's "Open now" shows the blocks it opened.
+
 3. **Go.** `how: go`, `Goal: G<n> <title>`: the user agreed the how. Make its steps now, one or more per part:
    - `work new` with a title (5 to 10 words, a verb first), the activity it belongs to, `goal` G<n>, and its text:
      a line of description, "Requirements:", "Touches: ...", and "Context:" with the vibe and the user's words from the
@@ -126,8 +133,9 @@ moves, the vibe and the how, are the talk (roles/product-owner.md, "How a talk g
      and `size` and `picture` where they help, `standard` for a step that makes a thing of a kind of work ("Refine
      a step", Standard), its `model` and its `effort` ("Refine a step", Model and Effort); the board writes its ready block ("from the how of G<n>"), so no refine round follows. What the user still decides is an ask of yours under it (`work ask`, kind decide, a picture per
      option): it holds the step back from nothing;
-   - write the ids into the parts: the same `work how-draft` again, each part with ` · steps B<id>, B<id>` added
-     (once the how is agreed the board takes only that);
+   - write the ids into the parts: the same `work how-draft` again, each part with ` · steps B<id>, B<id>` added before
+     its ` · done when: ...` (once the how is agreed the board takes only that, and new blocks after the agreed ones; a
+     part you send without its line keeps the one its block had);
    - that is all: refined when made, the focus goal's are on the board's list at once, and the board gives them to the
      workers as they come free (who waits for the user's pick: the board's hand-out rule, the comment above `readyList` in `src/work/handOut.mjs`).
      You hand out nothing, add nothing to the queue, and write the main chat no queue note.
@@ -993,7 +1001,8 @@ types `recap feedback: G<n> <title>, round N: ...` into your chat, with the step
 the user's comment, the parts approved and how many are not decided yet. Act on it at once:
 
 - Each part sent back is a try of its own: file a step for it (or reopen its step) with the user's comment as the point to
-  fix, as for any feedback (`work new`, the comment word for word). Never answer the user in a chat: they read the board.
+  fix, as for any feedback (`work new`, the comment word for word), and add it to the work block it belongs to (`work
+  how-draft`, " · steps B<id>"), or a new block with its done-when line. Never answer the user in a chat: they read the board.
 - When the new tries are made, change the demo's list: replace the pictures of the rows that came back with the new try
   (same row title or `"id"`: the board keys a part by it), and write `demo.json` again with `node tools/demo.mjs`. Leave the
   other rows as they are: the board shows round 2 with only the parts sent back, each with the user's comment beside its new
@@ -1037,8 +1046,9 @@ there?", the board writes `Recheck asked: <date time>` under it and types `goal 
 All pass: the board ticks the goal, writes the re-check under it, clears the focus when it was the focus, and gives the
 user a recap note in your name. A failed point: the goal stays open, its gap written under it as an attempt; make the
 follow-up steps at once, as at Go (`work new` with `goal`, `summary`, `what` from the failed points, refined at once),
-and add their ids to the goal's how (`work how-draft`, the part they belong to, " · steps B<id>") or, for a goal that
-is not the focus, to its `Steps:` line; the run goes on, and "Is the vibe there?" comes again once they are done. A
+and add their ids to the goal's how (`work how-draft`, the work block they belong to, " · steps B<id>", or a new block
+after the agreed ones with its done-when line; never a separate list), or, for a goal that is not the focus, to its
+`Steps:` line; the run goes on, and "Is the vibe there?" comes again once they are done. A
 point only the user can judge: ask them under the goal (`work ask` with `of` G<n>, kind look, the picture), then file
 `checked` again (the re-check stays asked meanwhile). A tick while the re-check is open types the word to you once
 more; the user may also tick a goal without a passed re-check (their second click): the board ticks it and writes the

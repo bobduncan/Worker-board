@@ -4,10 +4,11 @@
 // the change does not touch stays as it was. Only `editThread` (the page's POST /api/brainstorm) touches files.
 import { access, mkdir, open, readdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
 
+import { sizeMinutes } from './backlog.mjs'
 import { nextGoalId, parseGoals } from './goals.mjs'
 import { askTitleOf, titleProblem } from './work/askWords.mjs'
 import { askFiledMs, valueOf } from './work/item.mjs'
-import { addBrainstormNote, addGoal, addYourWords, changeGoalsFile, raiseLastLine, rewrite, setGoalChange, setGoalLine, withChangeRules } from './goalsWrite.mjs'
+import { BLOCK_KINDS, addBrainstormNote, addGoal, addYourWords, changeGoalsFile, raiseLastLine, rewrite, setGoalBlocks, setGoalChange, setGoalLine, withChangeRules } from './goalsWrite.mjs'
 
 const files = { readFile, writeFile, rename, rm, mkdir, access, readdir, open }
 const refuse = why => ({ ok: false, why })
@@ -98,6 +99,34 @@ function bulletItem(n, value) {
 }
 
 /**
+ * Work blocks (2026-10-31): a new block's size from the tasks made for it (their "about <time>"), "about 1.5 h" or "about 45
+ * min"; '' when none names a time.
+ */
+export function blockSize(steps) {
+  const minutes = (steps ?? []).map(step => sizeMinutes(step.cost)).filter(one => one !== null)
+  if (minutes.length === 0) return ''
+  const sum = minutes.reduce((all, one) => all + one, 0)
+  return sum < 60 ? `about ${sum} min` : `about ${Math.round(sum / 30) / 2} h`
+}
+
+/** Work blocks (2026-10-31): the titles of the blocks of a change's proposal a task is for (its "for <n>"), in its order. */
+export const blockTitlesFor = (proposal, step) => (step?.for ?? []).map(n => (proposal?.blocks ?? []).find(block => block.n === n)?.title).filter(title => typeof title === 'string' && title !== '')
+
+/**
+ * Work blocks (2026-10-31): a block of a change's proposal, "<title> — done when: <line> — keep|rework|new|drop — Picture:
+ * <path>" (the picture only where it is about looks), as `{ n, title, doneWhen, kind, picture }`; read from its end, so its
+ * title and its line may hold the separator themselves. Null when it has no "done when:" part.
+ */
+function blockItem(n, value) {
+  const parts = value.split(PART)
+  const picture = parts.length >= 2 && /^Picture:/i.test(parts.at(-1).trim()) ? parts.pop().trim().replace(/^Picture:\s*/i, '') : null
+  const kind = parts.length >= 2 && BLOCK_KINDS.includes(parts.at(-1).trim().toLowerCase()) ? parts.pop().trim().toLowerCase() : 'keep'
+  const at = parts.findIndex((part, index) => index >= 1 && /^done when:/i.test(part.trim()))
+  if (at < 0) return null
+  return { n: Number(n), title: parts.slice(0, at).join(PART).trim(), doneWhen: parts.slice(at).join(PART).trim().replace(/^done when:\s*/i, ''), kind, picture: picture === '' ? null : picture }
+}
+
+/**
  * `Created (<at>): G10, G11; tasks B61, B62; left out: <titles, " · " between>`, and for a change "; dropped: B757, B758"
  * before "left out:" (the steps it dropped, kept as `dropped` only then). 2026-10-31: the board makes the tasks itself and
  * names them ("tasks B869, B870"); the old wording, "2 steps asked of the main chat" (or the ids alone), and "dropped" at
@@ -178,7 +207,7 @@ export function parseThread(text) {
       return
     }
     if (asProposal !== null) {
-      proposal = { at: asProposal[1], decided: [], goals: [], steps: [], note: null, created: null, objective: null, doneWhen: [], notInIt: null, covered: [], drops: [] }
+      proposal = { at: asProposal[1], decided: [], goals: [], steps: [], note: null, created: null, objective: null, doneWhen: [], blocks: [], notInIt: null, covered: [], drops: [] }
       thread.proposal = proposal
       section = 'proposal'
       list = null
@@ -235,6 +264,8 @@ export function parseThread(text) {
     else if (line === 'Steps:') list = 'steps'
     // "Change this goal": the goal's draft (Objective, Done when, Not in it) and the re-plan (Covered, Drop).
     else if (line === 'Done when:') list = 'doneWhen'
+    // Work blocks (2026-10-31): a change re-plans the goal's work blocks, each with its done-when line.
+    else if (line === 'Work blocks:') list = 'blocks'
     else if (line === 'Covered:') list = 'covered'
     else if (line === 'Drop:') list = 'drops'
     else if (line.startsWith('Objective:')) {
@@ -249,6 +280,7 @@ export function parseThread(text) {
     } else if (created !== null) proposal.created = createdOf(created[1], created[2])
     else if (list === 'decided' && line.startsWith('- ')) proposal.decided.push(line.slice(2).trim())
     else if (list === 'doneWhen' && BULLET_ITEM.test(line)) proposal.doneWhen.push(bulletItem(...line.match(BULLET_ITEM).slice(1)))
+    else if (list === 'blocks' && BULLET_ITEM.test(line) && blockItem(...line.match(BULLET_ITEM).slice(1)) !== null) proposal.blocks.push(blockItem(...line.match(BULLET_ITEM).slice(1)))
     else if (list === 'covered' && COVERED_ITEM.test(line)) {
       const [, n, ids] = line.match(COVERED_ITEM)
       proposal.covered.push({ n: Number(n), steps: ids.match(/\bB\d+\b/g) ?? [] })
@@ -484,7 +516,7 @@ const WHY = {
   // "Change this goal" (2026-10-31).
   changing: [409, 'A change of this goal runs already: answer it there.'],
   understood: [409, 'Say yes to what your partner understood first: nothing about the goal changes before that.'],
-  draft: [409, 'The proposal has no goal draft yet (an Objective and its Done when bullets): ask your partner with Change….'],
+  draft: [409, 'The proposal has no goal draft yet (an Objective and its work blocks): ask your partner with Change….'],
   goal: [409, 'That goal is not in the map.'],
   changed: [409, 'The brainstorm changed since you read it: look at it again.'],
   proposal: [409, 'That brainstorm has no proposal yet.'],
@@ -674,7 +706,8 @@ async function createFrom(body, { file, base = null, folder = null, goalsAt, now
   // change's proposal holds the goal's draft.
   const isChanging = isChange(thread)
   if (isChanging && thread.understood?.answer?.yes !== true) return failed('understood')
-  if (isChanging && (thread.goal === null || !proposal.objective || proposal.doneWhen.length === 0)) return failed('draft')
+  // Work blocks (2026-10-31): the draft is its work blocks; an old proposal's Done when bullets still count.
+  if (isChanging && (thread.goal === null || !proposal.objective || (proposal.blocks.length === 0 && proposal.doneWhen.length === 0))) return failed('draft')
   const pick = (list, indexes) => (Array.isArray(indexes) && indexes.every(at => Number.isInteger(at) && at >= 0 && at < list.length) ? list.filter((one, at) => indexes.includes(at)) : null)
   const goals = pick(proposal.goals, body.goals ?? [])
   const steps = pick(proposal.steps, body.steps ?? [])
@@ -709,7 +742,11 @@ async function createFrom(body, { file, base = null, folder = null, goalsAt, now
       if (isChanging) {
         if (about === null) return { ok: false, why: 'goal' }
         const covered = n => proposal.covered.filter(one => one.n === n).flatMap(one => one.steps)
-        const changed = setGoalChange(out, about, { objective: proposal.objective, bullets: proposal.doneWhen.map(one => ({ n: one.n, text: one.text, steps: covered(one.n) })), notInIt: proposal.notInIt })
+        // Work blocks (2026-10-31): a proposal in work blocks re-plans the goal's Part lines and starts its next round; an
+        // old one (Done when bullets) writes its bullets as before.
+        const changed = proposal.blocks.length > 0
+          ? setGoalBlocks(out, about, { objective: proposal.objective, notInIt: proposal.notInIt, at: `${dayOf(now)} ${timeOf(now)}`, date: dayOf(now), blocks: proposal.blocks.map(one => ({ title: one.title, doneWhen: one.doneWhen, kind: one.kind, steps: covered(one.n), size: blockSize(steps.filter(step => (step.for ?? []).includes(one.n))) })) })
+          : setGoalChange(out, about, { objective: proposal.objective, bullets: proposal.doneWhen.map(one => ({ n: one.n, text: one.text, steps: covered(one.n) })), notInIt: proposal.notInIt })
         if (!changed.ok) return changed
         out = withChangeRules(changed.text)
       }
@@ -751,7 +788,7 @@ async function createFrom(body, { file, base = null, folder = null, goalsAt, now
   const serves = made[0]?.id ?? home
   const result = {
     goals: made,
-    steps: steps.map(one => ({ title: one.title, worker: one.worker, cost: one.cost, goal: serves, ...(one.for === undefined ? {} : { for: one.for }), ...(taskIds.has(one) ? { id: taskIds.get(one), index: proposal.steps.indexOf(one) } : {}) })),
+    steps: steps.map(one => ({ title: one.title, worker: one.worker, cost: one.cost, goal: serves, ...(one.for === undefined ? {} : { for: one.for }), ...(isChanging && proposal.blocks.length > 0 ? { blocks: blockTitlesFor(proposal, one) } : {}), ...(taskIds.has(one) ? { id: taskIds.get(one), index: proposal.steps.indexOf(one) } : {}) })),
   }
   return { ok: true, result: isChanging ? { ...result, dropped, notDropped, replaced } : result }
 }

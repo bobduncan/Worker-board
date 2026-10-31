@@ -3,7 +3,8 @@
 // request: a verdict for work to verify, "done" for something only the person can do, words for a question.
 
 import { refinedKey } from './backlog.mjs'
-import { brainstormFixWords, brainstormStrandedWords, leftOutKey } from './brainstorm.mjs'
+import { doneWhenText } from './goals.mjs'
+import { blockTitlesFor, brainstormFixWords, brainstormStrandedWords, leftOutKey } from './brainstorm.mjs'
 export { brainstormFixWords, brainstormStrandedWords }
 import { SWITCH_MODES, partnerEffortWords } from './partnerEffort.mjs'
 import { RECHECK_HEAD } from './rounds.mjs'
@@ -199,9 +200,10 @@ export function focusWords(command, { to, goal, thread, stage = null, words = nu
     : command === 'talk' ? [`talk: ${String(words).replace(/\s+/g, ' ').trim()}`, `Goal: ${about}`, `Thread: ${thread}`]
     : command === 'done-when' ? [`done when: ${about}`, ...(words === null ? [] : [`Words: ${String(words).replace(/\s+/g, ' ').trim()}`]), `Your job: ${job}, "Done when"`]
     // B358: the goal's re-check before its tick, against its Done when and its vibe.
-    : command === 'goal-recheck' ? [`goal re-check: ${about}`, `Done when: ${String(goal.doneWhen ?? '').replace(/\s+/g, ' ').trim()}`, ...((goal.vibe ?? []).length === 0 ? [] : [`Vibe: ${goal.vibe.map(one => String(one).replace(/\s+/g, ' ').trim()).join(' · ')}`]), `Your job: ${job}, "The goal re-check"`]
+    // Work blocks (2026-10-31): a goal without its one line is checked against its blocks' done-when lines.
+    : command === 'goal-recheck' ? [`goal re-check: ${about}`, `Done when: ${doneWhenText(goal).replace(/\s+/g, ' ').trim()}`, ...((goal.vibe ?? []).length === 0 ? [] : [`Vibe: ${goal.vibe.map(one => String(one).replace(/\s+/g, ' ').trim()).join(' · ')}`]), `Your job: ${job}, "The goal re-check"`]
     // B677: the goal demo before "Did we reach the goal?": the list and the picture, then its Demo line (`again` the number of the word).
-    : command === 'goal-demo' ? [`goal demo: ${about}${words === null ? '' : ` (again: ${words === 'by you' ? 'you asked' : `word ${words}`})`}`, `Done when: ${String(goal.doneWhen ?? '').replace(/\s+/g, ' ').trim()}`, `Your job: ${job}, "The goal demo"`]
+    : command === 'goal-demo' ? [`goal demo: ${about}${words === null ? '' : ` (again: ${words === 'by you' ? 'you asked' : `word ${words}`})`}`, `Done when: ${doneWhenText(goal).replace(/\s+/g, ' ').trim()}`, `Your job: ${job}, "The goal demo"`]
     : [FOCUS_HEADS[command], `Goal: ${about}`, `Thread: ${thread}`, ...(words === null ? [] : [`Words: ${String(words).replace(/\s+/g, ' ').trim()}`])]
   return { to, ask: null, step: null, title: null, version: null, verdict: null, command, about: goal.id, text: lines.join('\n') }
 }
@@ -407,7 +409,9 @@ export function goalStepFor(thread, index, goal) {
   const note = thread.proposal.note ? `: ${sayLine(thread.proposal.note)}` : ''
   // "Change this goal": the bullets of the goal's Done when the step is for (its id is added to them once it has one).
   const bullets = thread.kind === 'change' && Array.isArray(step.for) ? step.for.filter(n => Number.isInteger(n) && n > 0) : []
-  return { ok: true, title: sayLine(step.title), goal: /^G\d+$/.test(String(goal)) ? goal : null, description: `from the brainstorm "${plainLine(thread.title)}" (${thread.path})${note}`, cost: sayLine(step.cost), worker: sayLine(step.worker), about: `${thread.path}#${index}`, ...(bullets.length === 0 ? {} : { for: bullets }) }
+  // Work blocks (2026-10-31): in a proposal of work blocks, the numbers name blocks: the task joins those blocks' Part lines.
+  const blocks = thread.kind === 'change' && (thread.proposal.blocks ?? []).length > 0 ? blockTitlesFor(thread.proposal, step) : []
+  return { ok: true, title: sayLine(step.title), goal: /^G\d+$/.test(String(goal)) ? goal : null, description: `from the brainstorm "${plainLine(thread.title)}" (${thread.path})${note}`, cost: sayLine(step.cost), worker: sayLine(step.worker), about: `${thread.path}#${index}`, ...(bullets.length === 0 ? {} : { for: bullets }), ...(blocks.length === 0 ? {} : { blocks }) }
 }
 
 /** B195: the recommendation an answer is about, `{ ok, rec }`: the one that stands, not answered yet, with nothing else. */

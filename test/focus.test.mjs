@@ -40,10 +40,11 @@ test('the focus is read from the head, and each new line kind under its goal', (
   assert.deepEqual(two.vibe, ['you sit down without thinking', 'warm wood, never metal'])
   assert.equal(two.vibePicture, 'pictures/bench.png')
   assert.equal(two.vibeAgreed, '2026-10-18 10:00')
+  // Work blocks (2026-10-31): each part (a work block) has its done-when line, null without one.
   assert.deepEqual(two.parts, [
-    { title: 'Draw the bench', size: 'about 1 h', steps: ['B10', 'B11'] },
-    { title: 'Place them by the path', size: '30 min', steps: [] },
-    { title: 'One look at the whole garden', size: null, steps: [] },
+    { title: 'Draw the bench', size: 'about 1 h', steps: ['B10', 'B11'], doneWhen: null },
+    { title: 'Place them by the path', size: '30 min', steps: [], doneWhen: null },
+    { title: 'One look at the whole garden', size: null, steps: [], doneWhen: null },
   ])
   assert.deepEqual(two.partnerDecides, ['the wood\'s colour'])
   assert.deepEqual(two.youDecide, ['how many benches'])
@@ -53,7 +54,7 @@ test('the focus is read from the head, and each new line kind under its goal', (
   const four = goals.byId.get('G4')
   assert.deepEqual([four.vibe, four.vibePicture, four.vibeAgreed, four.parts, four.partnerDecides, four.youDecide, four.howAgreed], [[], null, null, [], [], [], null])
   // A part line with the steps but no size.
-  assert.deepEqual(parseGoals('- [ ] G1 A\n  Part: Paint · steps B3\n').byId.get('G1').parts, [{ title: 'Paint', size: null, steps: ['B3'] }])
+  assert.deepEqual(parseGoals('- [ ] G1 A\n  Part: Paint · steps B3\n').byId.get('G1').parts, [{ title: 'Paint', size: null, steps: ['B3'], doneWhen: null }])
 })
 
 test('Review Focus 1: no Focus line, an empty one, or one naming a goal that is gone is no focus: the page picks', () => {
@@ -144,6 +145,6 @@ test('setHow replaces its goal\'s parts and decide lines where they stood, keepi
   })
   assert.ok(linesOf(done.text).indexOf('    Part: Only part') < linesOf(done.text).indexOf('    How agreed: 2026-10-18 11:00'))
   const back = parseGoals(done.text).byId.get('G2')
-  assert.deepEqual([back.parts, back.partnerDecides, back.youDecide, back.howAgreed], [[{ title: 'Only part', size: null, steps: [] }], [], ['the count'], '2026-10-18 11:00'])
+  assert.deepEqual([back.parts, back.partnerDecides, back.youDecide, back.howAgreed], [[{ title: 'Only part', size: null, steps: [], doneWhen: null }], [], ['the count'], '2026-10-18 11:00'])
   assert.deepEqual(setHow(MAP, 'G2', null), { ok: false, why: 'form' })
 })

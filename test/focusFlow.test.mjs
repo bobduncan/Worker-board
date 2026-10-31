@@ -154,7 +154,8 @@ test('the partner\'s drafts: the vibe\'s lines and picture, the how\'s parts; an
   const how = { parts: [{ title: 'Draw the bench', size: 'about 1 h' }, { title: 'Place them', size: '30 min' }], partnerDecides: ['the wood\'s colour'], youDecide: ['how many benches'] }
   const drafted = await focusMove({ command: 'how-draft', id: 'G2', ...how }, ctx(fs))
   assert.deepEqual([drafted.ok, drafted.words], [true, null])
-  assert.deepEqual(mapOf(fs).byId.get('G2').parts, [{ title: 'Draw the bench', size: 'about 1 h', steps: [] }, { title: 'Place them', size: '30 min', steps: [] }])
+  // Work blocks (2026-10-31): a part read from the map has its done-when line, null without one.
+  assert.deepEqual(mapOf(fs).byId.get('G2').parts, [{ title: 'Draw the bench', size: 'about 1 h', steps: [], doneWhen: null }, { title: 'Place them', size: '30 min', steps: [], doneWhen: null }])
   assert.equal((await focusMove({ command: 'how-draft', id: 'G2', parts: 'x' }, ctx(fs))).status, 400)
 })
 
@@ -197,6 +198,10 @@ test('"Go" writes How agreed and types how: go; "Not yet" on the how types the p
   await focusMove({ command: 'how-draft', id: 'G2', parts: [{ title: 'Draw the bench', size: 'about 1 h' }] }, ctx(fs))
   const notYet = await focusMove({ command: 'how-not-yet', id: 'G2', text: 'smaller parts' }, ctx(fs))
   assert.match(notYet.words.text, /^how: not yet\nGoal: G2 Benches that feel like home\nThread: .+\nWords: smaller parts$/)
+  // Work blocks (2026-10-31): Go waits until every block has its done-when line; nothing is written before.
+  const early = await focusMove({ command: 'how-go', id: 'G2' }, ctx(fs))
+  assert.deepEqual([early.status, early.why, mapOf(fs).byId.get('G2').howAgreed], [409, 'Every work block needs its done-when line: ask your partner with Not yet.', null])
+  await focusMove({ command: 'how-draft', id: 'G2', parts: [{ title: 'Draw the bench', size: 'about 1 h', doneWhen: 'a bench stands in the garden' }] }, ctx(fs))
   const go = await focusMove({ command: 'how-go', id: 'G2' }, ctx(fs))
   assert.deepEqual([go.words.command, go.words.text], ['how-go', `how: go\nGoal: G2 Benches that feel like home\nThread: ${mapOf(fs).byId.get('G2').brainstorm.path}`])
   assert.equal(mapOf(fs).byId.get('G2').howAgreed, '2026-10-18 14:05')
@@ -207,14 +212,23 @@ test('"Go" writes How agreed and types how: go; "Not yet" on the how types the p
 test('after Go the partner adds its steps to the parts; the agreed parts themselves stay as agreed', async () => {
   const fs = await inVibe()
   await focusMove({ command: 'vibe-agree', id: 'G2' }, ctx(fs))
-  await focusMove({ command: 'how-draft', id: 'G2', parts: [{ title: 'Draw the bench', size: 'about 1 h' }], youDecide: ['how many'] }, ctx(fs))
+  // Work blocks (2026-10-31): each block with its done-when line, so Go goes.
+  await focusMove({ command: 'how-draft', id: 'G2', parts: ['Draw the bench · about 1 h · done when: a bench stands in the garden'], youDecide: ['how many'] }, ctx(fs))
   await focusMove({ command: 'how-go', id: 'G2' }, ctx(fs))
+  // Steps added to a block by a draft that leaves its done-when line out: the block keeps its line.
   const linked = await focusMove({ command: 'how-draft', id: 'G2', parts: [{ title: 'Draw the bench', size: 'about 1 h', steps: ['B20', 'B21'] }], youDecide: ['how many'] }, ctx(fs))
   assert.equal(linked.ok, true)
-  assert.deepEqual(mapOf(fs).byId.get('G2').parts, [{ title: 'Draw the bench', size: 'about 1 h', steps: ['B20', 'B21'] }])
-  assert.match(utf8(fs.files[MAP]), /Part: Draw the bench · about 1 h · steps B20, B21\n {4}You decide: how many\n {4}How agreed: 2026-10-18 14:05/)
-  const changed = await focusMove({ command: 'how-draft', id: 'G2', parts: [{ title: 'Draw two benches', size: 'about 1 h' }] }, ctx(fs))
-  assert.deepEqual([changed.status, changed.why], [409, 'The how is agreed: add the steps to its parts, change nothing else.'])
+  assert.deepEqual(mapOf(fs).byId.get('G2').parts, [{ title: 'Draw the bench', size: 'about 1 h', steps: ['B20', 'B21'], doneWhen: 'a bench stands in the garden' }])
+  assert.match(utf8(fs.files[MAP]), /Part: Draw the bench · about 1 h · steps B20, B21 · done when: a bench stands in the garden\n {4}You decide: how many\n {4}How agreed: 2026-10-18 14:05/)
+  // Work blocks (2026-10-31): a renamed block is refused, in the words of work blocks.
+  const changed = await focusMove({ command: 'how-draft', id: 'G2', parts: [{ title: 'Draw two benches', size: 'about 1 h' }], youDecide: ['how many'] }, ctx(fs))
+  assert.deepEqual([changed.status, changed.why], [409, 'The how is agreed: add tasks to its work blocks, or new blocks after them; change nothing else.'])
+  // Rework after Go (a failed re-check, a recap sent back): a new block after the agreed ones, with its line and tasks.
+  const rework = await focusMove({ command: 'how-draft', id: 'G2', parts: ['Draw the bench · about 1 h · steps B20, B21', 'Oil the wood · 30 min · steps B30 · done when: the wood shines'], youDecide: ['how many'] }, ctx(fs))
+  assert.equal(rework.ok, true, rework.why)
+  assert.deepEqual(mapOf(fs).byId.get('G2').parts.map(one => [one.title, one.steps, one.doneWhen]), [['Draw the bench', ['B20', 'B21'], 'a bench stands in the garden'], ['Oil the wood', ['B30'], 'the wood shines']])
+  // Dropping an agreed block that way is refused.
+  assert.equal((await focusMove({ command: 'how-draft', id: 'G2', parts: ['Oil the wood · 30 min'], youDecide: ['how many'] }, ctx(fs))).status, 409)
 })
 
 test('the words are the person\'s, marked so in the chat, and a partner not running is woken through the main chat (Review Focus 5)', async () => {
@@ -260,7 +274,12 @@ test('a how drafted in the tool\'s words: each part "<title> · <size> · steps 
   const fs = await inVibe()
   await focusMove({ command: 'vibe-agree', id: 'G2' }, ctx(fs))
   await focusMove({ command: 'how-draft', id: 'G2', parts: ['Draw the bench · about 1 h · steps B20, B21', 'Place them'] }, ctx(fs))
-  assert.deepEqual(mapOf(fs).byId.get('G2').parts, [{ title: 'Draw the bench', size: 'about 1 h', steps: ['B20', 'B21'] }, { title: 'Place them', size: null, steps: [] }])
+  // Work blocks (2026-10-31): a part's done-when line, null without one.
+  assert.deepEqual(mapOf(fs).byId.get('G2').parts, [{ title: 'Draw the bench', size: 'about 1 h', steps: ['B20', 'B21'], doneWhen: null }, { title: 'Place them', size: null, steps: [], doneWhen: null }])
+  // Work blocks: " · done when: <line>" at the end of a part in the tool's words is the block's done-when line (its own
+  // " · " written as ", ").
+  await focusMove({ command: 'how-draft', id: 'G2', parts: ['Draw the bench · about 1 h · steps B20 · done when: a bench, a seat · and a back'] }, ctx(fs))
+  assert.deepEqual(mapOf(fs).byId.get('G2').parts, [{ title: 'Draw the bench', size: 'about 1 h', steps: ['B20'], doneWhen: 'a bench, a seat, and a back' }])
 })
 
 test('the review\'s findings: a draft is for the focus goal only, and a how only once the vibe is agreed', async () => {

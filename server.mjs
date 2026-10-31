@@ -65,7 +65,7 @@ import { firstLook, refineQueue, refineWhenDue } from './src/refineGate.mjs'
 import { recheckText, roundText, roundsNow } from './src/rounds.mjs'
 import { editStep, settleByBoard } from './src/tick.mjs'
 import { editThread, fixesToTell, strandedToTell } from './src/brainstorm.mjs'
-import { addDoneWhenStep, changeGoalsFile, editGoals, setGoalSteps } from './src/goalsWrite.mjs'
+import { addDoneWhenStep, addPartStep, changeGoalsFile, editGoals, setGoalSteps } from './src/goalsWrite.mjs'
 import { parseGoals } from './src/goals.mjs'
 import { activityFor, missingToSteps } from './src/goalSteps.mjs'
 import { PLAN_MOVES, planMove } from './src/planMoves.mjs'
@@ -848,16 +848,18 @@ async function main(args) {
     if (activity === null) return { ok: false, status: 409, why: 'The work store has no activity to put the step under.' }
     const made = await workAction({ action: 'new', title: step.title, activity, ...(step.goal === null ? {} : { goal: step.goal }), text: [`Description: ${step.description}`, `Time: ${step.cost}`, 'From the goal map.'] }, 'person')
     if (!made.ok) return made
-    // "Change this goal" (2026-10-31): a step of a change is also named under the Done when bullets it is for.
-    await linkUnderGoal(step.goal, made.result.id, step.for ?? [])
+    // "Change this goal" (2026-10-31): a step of a change is also named under the Done when bullets it is for; work blocks
+    // (2026-10-31): in a proposal of work blocks, on the Part lines of the blocks it is for.
+    await linkUnderGoal(step.goal, made.result.id, step.blocks === undefined ? step.for ?? [] : [], step.blocks ?? [])
     readState.reset()
     return { ok: true, result: { step: made.result.id } }
   }
   /**
    * B754: a step the board wrote, added to its goal's Steps line in the goal map (the one link between the two).
-   * "Change this goal": and to the goal's `Done when <n>:` bullets it is for (`bullets`).
+   * "Change this goal": and to the goal's `Done when <n>:` bullets it is for (`bullets`); work blocks (2026-10-31): and to the
+   * Part lines of the blocks it is for (`blocks`, their titles).
    */
-  const linkUnderGoal = async (goal, id, bullets = []) => {
+  const linkUnderGoal = async (goal, id, bullets = [], blocks = []) => {
     if (goal === null || !writesMap) return
     const goalsAt = { file: projectFile(config, 'goals'), historyDir: projectFile(config, 'goalsHistory'), now: clock() }
     await changeGoalsFile(text => {
@@ -865,6 +867,7 @@ async function main(args) {
       if (node === undefined) return { ok: true, text }
       let out = setGoalSteps(text, goal, [...node.steps, id])
       for (const n of bullets) if (out.ok) out = addDoneWhenStep(out.text, goal, n, id)
+      for (const title of blocks) if (out.ok) out = addPartStep(out.text, goal, title, id)
       return out
     }, goalsAt)
   }

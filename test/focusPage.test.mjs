@@ -131,7 +131,8 @@ test('the head and the stage strip for each stage, as the mockups draw them', ()
   const vibe = page.focusView(stateOf(map()), goalsOf(map()))
   assert.equal(vibe.stage, 'vibe')
   assert.deepEqual(vibe.head, { label: 'Your focus', id: 'G2', title: 'Benches that feel like home', vibeLine: null })
-  assert.deepEqual(vibe.strip, [{ n: 1, label: 'The goal', state: 'now' }, { n: 2, label: 'The how', state: 'next' }, { n: 3, label: 'The run', state: 'next' }])
+  // Work blocks (2026-10-31): the strip reads "The goal", "Work blocks", "The run".
+  assert.deepEqual(vibe.strip, [{ n: 1, label: 'The goal', state: 'now' }, { n: 2, label: 'Work blocks', state: 'next' }, { n: 3, label: 'The run', state: 'next' }])
   assert.equal(vibe.progress, null)
   assert.deepEqual(vibe.vibe, { title: 'The vibe so far', sub: 'draft, written by your partner', lines: ['you sit down without thinking', 'warm wood, never metal'], picture: 'pictures/bench.png', empty: null })
   // Read-only (no partner, or a board that only shows): drawn, off, with why.
@@ -148,10 +149,12 @@ test('the head and the stage strip for each stage, as the mockups draw them', ()
   const bare = page.focusView(stateOf(map(AGREED).replace(/ {4}Vibe: .*\n/g, '')), goalsOf(map()))
   assert.equal(bare.stage, 'how')
   assert.equal(bare.head.vibeLine, '(no words kept)')
-  assert.equal(bare.how.empty, 'Your partner proposes the parts here once you talk about the how.')
+  // Work blocks (2026-10-31): the how's parts are its work blocks.
+  assert.equal(bare.how.empty, 'Your partner proposes the work blocks here once you talk about how to reach the goal.')
   const run = page.focusView(stateOf(map(AGREED, HOW, RUN)), goalsOf(map()))
   assert.deepEqual(run.strip.map(one => one.state), ['done', 'done', 'now'])
-  assert.deepEqual(run.progress, { text: '2 of 4 done · about 3 h left', percent: 50 })
+  // Work blocks (2026-10-31): the progress counts work blocks.
+  assert.deepEqual(run.progress, { text: '2 of 4 work blocks done · about 3 h left', percent: 50 })
 })
 
 test('the run shows the parts with progress and who is on each, step ids only inside the steps; the note card waits for the partner\'s note', () => {
@@ -269,8 +272,16 @@ test('Focus 2: the moves work on a board that writes, with a partner; each butto
   // No vibe written yet: nothing to agree to.
   const bare = page.focusView(stateOf(map().replace(/ {4}Vibe.*\n/g, '')), goalsOf(map()), CAN)
   assert.deepEqual(bare.buttons.map(one => [one.act, one.isEnabled, one.title]), [['vibe-agree', false, 'Your partner writes the vibe here first, while you talk'], ['vibe-not-yet', true, 'Say what is missing: your partner goes on talking']])
+  // A how whose blocks have tasks went past Go once: Go is never held for its done-when lines.
   const how = page.focusView(stateOf(map(AGREED, HOW)), goalsOf(map()), CAN)
   assert.deepEqual(how.buttons.map(one => [one.label, one.act, one.isEnabled]), [['Go', 'how-go', true], ['Not yet', 'how-not-yet', true]])
+  // Work blocks (2026-10-31): a new how waits until every block has its done-when line, and says so.
+  const fresh = ['    Part: Draw the bench · about 1 h', '    Part: Place them · 30 min · done when: they stand by the path']
+  const waits = page.focusView(stateOf(map(AGREED, fresh)), goalsOf(map()), CAN)
+  assert.deepEqual(waits.buttons.map(one => [one.label, one.act, one.isEnabled, one.title]), [['Go', 'how-go', false, 'Every work block needs its done-when line'], ['Not yet', 'how-not-yet', true, 'Say what does not fit: your partner changes the how']])
+  assert.deepEqual(waits.how.parts, [{ title: 'Draw the bench', size: 'about 1 h' }, { title: 'Place them', size: '30 min', doneWhen: 'they stand by the path' }])
+  const ready = page.focusView(stateOf(map(AGREED, [`${fresh[0]} · done when: it stands`, fresh[1]])), goalsOf(map()), CAN)
+  assert.deepEqual(ready.buttons.map(one => [one.label, one.act, one.isEnabled]), [['Go', 'how-go', true], ['Not yet', 'how-not-yet', true]])
   assert.deepEqual(page.focusView(stateOf(map(AGREED)), goalsOf(map()), CAN).buttons.map(one => one.isEnabled), [false, true])
   assert.deepEqual(page.focusView(stateOf(map(AGREED, HOW, RUN)), goalsOf(map()), CAN).buttons, [])
   const pick = page.focusView(null, goalsOf(map()), CAN)
@@ -379,16 +390,17 @@ test('B684: the bar has a block per step coloured by its state, and one line say
   const [part] = stepsOf(made, BENCH).view
   assert.deepEqual(part.blocks, ['done', 'done', 'now', 'wait'])
   // 2026-10-31 (B689): B13's builder is not on it while no card shows B13; once Features's card does, the line names it.
-  assert.equal(part.count, '2 of 4 steps finished · 1 being checked · 1 waiting')
-  assert.equal(stepsOf(made, BENCH, {}, [{ name: 'Features', isLeftover: false, task: { stepId: 'B13' } }]).view[0].count, '2 of 4 steps finished · 1 being checked · 1 waiting · Features is on it')
-  assert.equal(part.toggle, 'Show the 4 steps')
+  // Work blocks (2026-10-31): on the Focus page a block's steps are its tasks.
+  assert.equal(part.count, '2 of 4 tasks finished · 1 being checked · 1 waiting')
+  assert.equal(stepsOf(made, BENCH, {}, [{ name: 'Features', isLeftover: false, task: { stepId: 'B13' } }]).view[0].count, '2 of 4 tasks finished · 1 being checked · 1 waiting · Features is on it')
+  assert.equal(part.toggle, 'Show the 4 tasks')
   assert.equal(part.isOpen, false)
   assert.deepEqual(part.steps.map(one => [one.id, one.title, one.state, one.tone]), [['B10', 'Draw the bench', 'Finished', 'done'], ['B11', 'Shade the bench', 'Finished', 'done'], ['B13', 'Light the path', 'Being checked', 'now'], ['B15', 'Look at the garden', 'Waiting', 'wait']])
   // a stopped step is counted and drawn as an outline block
   const stopped = stepsStore(items => items.get('B10').head.set('State', 'dropped'))
   const [out] = stepsOf(stopped, BENCH).view
   assert.equal(out.blocks[0], 'stop')
-  assert.match(out.count, /^1 of 4 steps finished · 1 stopped · 2 waiting$/)
+  assert.match(out.count, /^1 of 4 tasks finished · 1 stopped · 2 waiting$/)
   // a part without steps has no toggle and no line
   const none = page.focusView(stateOf(map(AGREED, ['    Part: Something · soon'], RUN)), goalsOf(map())).run.parts[0]
   assert.deepEqual([none.blocks, none.count, none.toggle, none.isOpen, none.steps], [[], null, null, false, []])
@@ -431,7 +443,8 @@ test('B684: a part with a stopped step or a failed check not yet fixed opens by 
   assert.equal(stepsOf(fine, BENCH).view[0].isOpen, false)
   // the person opens a calm part, and closes one that opened by itself; the word stays
   const opened = stepsOf(fine, BENCH, { partsOpen: { 'Draw the bench': true } }).view[0]
-  assert.deepEqual([opened.isOpen, opened.toggle], [true, 'Hide the 4 steps'])
+  // Work blocks (2026-10-31): tasks, on the Focus page.
+  assert.deepEqual([opened.isOpen, opened.toggle], [true, 'Hide the 4 tasks'])
   assert.equal(stepsOf(failed, BENCH, { partsOpen: { 'Draw the bench': false } }).view[0].isOpen, false)
   const stopped = stepsStore(items => items.get('B11').head.set('State', 'dropped'))
   assert.equal(stepsOf(stopped, BENCH).view[0].isOpen, true)

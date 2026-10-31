@@ -765,6 +765,49 @@ sentence naming the new lines the first time one is written. The Focus page show
 `src/goals.mjs`, `src/goalsWrite.mjs` (`setGoalChange`, `addDoneWhenStep`, `addYourWords`, `withChangeRules`), tests:
 `test/changeGoal.test.mjs`.
 
+**Work blocks** (2026-10-31, the person: "lets use better terminology, i like work block. so a goal has X workblocks.
+each workblock has X tasks. Rework during goal evaluation can produce more workblocks or tasks", and "the done when should
+only showing the delta since last evaluation"; names chosen: "All work blocks" and "Open now"; the agreed picture
+`art-inbox/focus-mocks/work-blocks/mock.png`). A goal's `Part:` lines are its work blocks; a block's steps are its tasks
+(the Focus page's words; the store, the Backlog and the other tabs keep "step"). Each block has one done-when line, the
+last segment of its Part line: `Part: <title> · about 1 h · steps B618, B689 · done when: <line>` (`partOf` in
+`src/goals.mjs` reads it into `doneWhen`, null without it; `setHow`, `addPartStep` and `setGoalBlocks` keep it, and a
+how-draft part without a line keeps the one its block had; the partner's how-draft parts may carry it in the tool's words).
+A goal whose every block has its line counts as having its Done when (`hasDoneWhen`): it may be picked and ticked, and
+"Did we reach the goal?" shows the blocks' lines, all ticked. Go (the person's) is refused, and its button off with "Every
+work block needs its done-when line", while a block lacks one; a goal that went past Go once (a How agreed line, a block
+with tasks, a re-check or an evaluation: `wentPastGo`) is never held. After Go the partner may add tasks to the blocks and
+new blocks after the agreed ones (the rework of a failed re-check or a recap); renaming or removing an agreed block is
+refused.
+**Rounds** (`roundOf` in `src/state.mjs`, the focus's `round: { n, since, why }`): round 1 starts at the goal's `How
+agreed:` time; each evaluation after it starts the next: a `Round: <date time> · <why>` line under the goal (a change
+writes one), a re-check whose outcome failed or waits for the person, a round the person sent in the goal's recap (the
+recap's `feedback.json` rounds, read only); evaluations in the same minute are one. **Open now** is computed, never
+stored (`focus.openNow`, by the block's place in `parts`): a block not dropped is open in the round when at its start it had
+a task not finished, or it got a task made after its start (a task's first History stamp, else its Since), or it has no
+task; a block finished in the round keeps its tick until the next evaluation; in round 1 every block is open. A block with
+a task made before the round is "Rework", one without is "New" (in round 1 every block is new; the "new" tag in All work
+blocks shows from round 2).
+**The page**: under the head of the run a switch, "All work blocks <done>/<all>" and "Open now <done>/<open>" (the
+person's pick kept in localStorage `focus-blocks-view`); All work blocks is the run's card renamed, each block with
+`Done when: <line>` under its bar and its tasks counted; Open now is one card in the old Done-when card's style: "Round n ·
+opened by <why> of <day> · k of m done · the next evaluation starts round n+1", one line per open block (a tick or an empty
+circle, its title, "Rework: <line>" or "New: <line>", its chip while not done; a block in progress names its worker). The
+Done-when card of a change is no longer drawn; the head keeps the objective and "Not in it" as a quiet line. A goal with
+no blocks has no switch.
+**Change this goal re-plans in work blocks**: the Product owner's proposal lists every block of the goal in order,
+`Work blocks:` with `- 1. <title> — done when: <line> — keep|rework|new|drop — Picture: <path>`, then `Covered:`,
+`Steps:` (`— for <the block's number>`) and `Drop:` as before. Create (`setGoalBlocks`) writes `Objective:` and `Not in
+it:` (in place of the old ones and of any old `Done when <n>:` lines), each kept block's done-when line, each reworked
+block's line and its covered tasks, each new block as a new Part line (its size from its ticked tasks, its covered tasks,
+its line), a dropped block's `Part dropped: <title> · <date time> · dropped in the change of <date>`, the Part lines in
+the proposal's order (any it does not name after them), and `Round: <date time> · the change of <date>`; a kept or
+reworked block the goal does not have is written as new. Each new task is made by the board and added to its blocks'
+Part lines (`addPartStep`). An old proposal (`Done when:` bullets) and old `Done when <n>:` lines still read and write as
+before. The Brainstorm part's draft lists the blocks with what the change does to each; the re-plan goes per block; the
+Result card says "G60 now has 13 work blocks: 3 new, 1 to rework" and each new task's block. Tests:
+`test/workBlocks.test.mjs`.
+
 **The game plan, readable (B218).** The person, 2026-10-14: "advisor game plan has links that dont work i want to be
 able to click them in the UI", and "too much text ... adding collapsing headers so this page feel more manageable".
 In the Advisor tab's Game plan part every heading folds what stands under it, folded at first with its first line

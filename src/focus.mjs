@@ -6,7 +6,7 @@
 import { access, mkdir, open, readdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
 
 import { editThread, parseThread, setThreadState } from './brainstorm.mjs'
-import { focusStage, hasDemo, hasDoneWhen, nextGoalId, parseGoals } from './goals.mjs'
+import { doneWhenText, focusStage, goWaitsForLines, hasDemo, hasDoneWhen, nextGoalId, parseGoals, partOf } from './goals.mjs'
 import { askingOf, evaluateWords, evaluationPartOf, evaluationsDue, goalAttempts, guardStep, partnerModeFor } from './goalGuard.mjs'
 import { addGoal, addGoalLine, addGoalNote, agreeHow, agreeVibe, changeGoalsFile, raiseLastLine, reopenHow, rewrite, setFocus, setGoalLine, setGoalState, setHow, setVibe } from './goalsWrite.mjs'
 import { focusWords } from './say.mjs'
@@ -167,6 +167,8 @@ async function move(body, ctx) {
   if (node.vibeAgreed === null) return refuse(409, 'Agree the vibe first.')
   if (node.howAgreed !== null) return { ok: true, result: { unchanged: true }, words: null }
   if (node.parts.length === 0) return refuse(409, 'Your partner has not proposed the how yet.')
+  // Work blocks (2026-10-31): Go waits until every block says what is true once it is done (a goal past Go never waits).
+  if (goWaitsForLines(node)) return refuse(409, NO_BLOCK_LINES)
   return agree(node, ctx, goalsAt, 'howAgreed', agreeHow, () => say('how-go'))
 }
 
@@ -317,6 +319,9 @@ async function pick(body, before, ctx, goalsAt) {
   const stage = focusStage((after === null ? undefined : parseGoals(after).byId.get(id)) ?? node)
   return { ok: true, result, words: focusWords('focus', { to: toOf('focus', ctx), goal: node, thread, stage: STAGE_WORDS[stage], job: jobOf('focus', ctx) }) }
 }
+
+/** Work blocks (2026-10-31): why Go waits, as the server says it (the page says "Every work block needs its done-when line"). */
+export const NO_BLOCK_LINES = 'Every work block needs its done-when line: ask your partner with Not yet.'
 
 /** B354: why a goal without a Done when is not picked. */
 const NO_DONE_WHEN = id => `${id} has no Done when yet: a goal becomes your focus once it says how you check it is done. Ask your partner to write it, or write it on the Goals part.`
@@ -688,7 +693,8 @@ async function recheckDone(body, ctx) {
     // The review: only a re-check that is asked (the person may have taken it back) is filed.
     if (!isRecheckOpen(now)) return { ok: false, why: 'notAsked' }
     title = now.title
-    words = { why: now.why, doneWhen: now.doneWhen }
+    // Work blocks (2026-10-31): a goal without its one line has its blocks' done-when lines.
+    words = { why: now.why, doneWhen: doneWhenText(now) || now.doneWhen }
     attempts = now.rechecks.filter(one => one.verdict === 'failed').length + (body.verdict === 'failed' ? 1 : 0)
     const lined = addGoalLine(text, body.id, `Rechecked (${minuteOf(ctx.now)}, ${oneLine(body.by, 60).replace(/[(),]/g, ' ').trim()}): ${oneLine(body.line, 1100)}`)
     if (!lined.ok) return lined
@@ -708,16 +714,15 @@ async function recheckDone(body, ctx) {
   return { ok: true, result: withdrawn(withdraw, { id: body.id, title, ...words, ticked: body.verdict === 'passed', attempts }) }
 }
 
-/** "<title> · <size> · steps B1, B2", the size and the steps each left out at will. */
-function partOf(value) {
-  const [title = '', ...rest] = value.split(' · ').map(part => part.trim())
-  const steps = rest.find(part => /^steps\b/i.test(part))
-  const size = rest.find(part => !/^steps\b/i.test(part) && part !== '') ?? ''
-  return { title, size, steps: steps === undefined ? [] : steps.replace(/^steps\s*/i, '').split(/[,\s]+/).filter(one => /^B\d+$/.test(one)) }
-}
-
 /** What the person agreed of a how: its parts (title, size) and what is decided by whom; the steps come after. */
 const agreedOf = node => JSON.stringify([node.parts.map(part => [part.title, part.size]), node.partnerDecides, node.youDecide])
+
+/**
+ * Work blocks (2026-10-31: "Rework during goal evaluation can produce more workblocks or tasks"): whether a draft after Go
+ * keeps what the person agreed: every agreed block as it was, in its order, and who decides what. New blocks may follow
+ * them (a failed re-check's or a recap's rework), and every block may get tasks and its done-when line.
+ */
+const keepsAgreed = (before, after) => agreedOf({ ...after, parts: after.parts.slice(0, before.parts.length) }) === agreedOf(before)
 
 /**
  * The partner's drafts. `vibe-draft`: `lines` (three to five short lines) and `picture` (a path, or none), in place of
@@ -744,7 +749,8 @@ async function draft(body, node, ctx, goalsAt, focus) {
     if (late) return refuse(409, 'The vibe is agreed: talk about the how now.')
     return done.ok ? { ok: true, result: {}, words: null } : failed(done.why)
   }
-  // A part as an object, or in the work tool's words: "<title> · <size> · steps B1, B2", as goals.md reads a Part line.
+  // A part as an object, or in the work tool's words: "<title> · <size> · steps B1, B2", as goals.md reads a Part line
+  // (src/goals.mjs `partOf`); work blocks (2026-10-31): with " · done when: <line>" at its end.
   const parts = Array.isArray(body.parts) ? body.parts.map(part => (typeof part === 'string' ? partOf(part) : part)) : body.parts
   // B359: a line "Evaluation: <its outcome>" marks the draft as the goal guard's evaluation ending; it is not kept as a line.
   const decides = Array.isArray(body.partnerDecides) ? body.partnerDecides : body.partnerDecides ?? []
@@ -790,10 +796,10 @@ async function draft(body, node, ctx, goalsAt, focus) {
       const cleared = agreed.ok ? endTrip(agreed.text, node.id) : agreed
       return cleared.ok ? addGoalLine(cleared.text, node.id, `Evaluated (${at}): ${isSame ? 'the how stays' : `a new how (${how.parts.length} ${how.parts.length === 1 ? 'part' : 'parts'})`} · ${outcome}`) : cleared
     }
-    changed = agreedOf(parseGoals(next.text).byId.get(node.id)) !== agreedOf(now)
+    changed = !keepsAgreed(now, parseGoals(next.text).byId.get(node.id))
     return changed ? { ok: false, why: 'agreed' } : next
   }, goalsAt)
-  if (changed) return refuse(409, 'The how is agreed: add the steps to its parts, change nothing else.')
+  if (changed) return refuse(409, 'The how is agreed: add tasks to its work blocks, or new blocks after them; change nothing else.')
   if (!done.ok && done.why === 'notFocus') return notFocus()
   return done.ok ? { ok: true, result: evaluated ? { evaluated: true } : {}, words: null } : failed(done.why)
 }

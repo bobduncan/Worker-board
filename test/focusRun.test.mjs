@@ -65,7 +65,8 @@ test('the progress counts the parts done of all, and the time the parts not done
   const state = run([step('B1', 'done'), step('B2', 'done'), step('B3', 'done'), step('B4', 'in progress', 'Game - Map'), step('B6', 'queued')], [{ name: 'Map', isLeftover: false, task: { stepId: 'B4' } }])
   assert.deepEqual(state.progress, { done: 2, total: 4, minutesLeft: 90 })
   const view = focusView(state, null)
-  assert.deepEqual(view.progress, { text: '2 of 4 done · about 1.5 h left', percent: 50 })
+  // Work blocks (2026-10-31): the progress counts work blocks.
+  assert.deepEqual(view.progress, { text: '2 of 4 work blocks done · about 1.5 h left', percent: 50 })
   assert.deepEqual(view.run.parts.map(part => [part.chip, part.owner]), [['Done', null], ['Done', null], ['In progress', 'Map is on it'], ['Next', null]])
   assert.doesNotMatch(JSON.stringify(view.run.parts.map(({ blocks, count, toggle, isOpen, steps, ...part }) => part)), /\bB\d+\b/)
 })
@@ -73,5 +74,6 @@ test('the progress counts the parts done of all, and the time the parts not done
 test('every part done: all four, and nothing left to name', () => {
   const state = run(['B1', 'B2', 'B3', 'B4', 'B5', 'B6'].map(id => step(id, 'done')))
   assert.deepEqual(state.progress, { done: 4, total: 4, minutesLeft: null })
-  assert.equal(focusView(state, null).progress.text, '4 of 4 done')
+  // Work blocks (2026-10-31): the progress counts work blocks.
+  assert.equal(focusView(state, null).progress.text, '4 of 4 work blocks done')
 })

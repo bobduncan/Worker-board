@@ -101,7 +101,8 @@ test('the real case: the wait words follow the chain to the recap the last fix w
 
 test('the real case: no worker is on it, and the part\'s head says waiting, not being fixed', () => {
   const part = partOf(realCase())
-  assert.equal(part.view.count, '0 of 2 steps finished · 1 stopped · 1 waiting')
+  // Work blocks (2026-10-31): on the Focus page a block's steps are its tasks ("0 of 2 tasks finished", here and below).
+  assert.equal(part.view.count, '0 of 2 tasks finished · 1 stopped · 1 waiting')
   assert.deepEqual([part.state.owner, part.view.owner, part.state.counts.fixing, part.state.counts.waiting], [null, null, 0, 1])
   assert.doesNotMatch(JSON.stringify(part.view), /is on it/)
   const row = rowOf(part, 'B40')
@@ -141,7 +142,7 @@ test('once the recap is done nothing blocks the last fix and its own fix stays d
   const items = realCase(byId => byId.get('B44').head.set('State', 'done'))
   assert.equal(reviewWaitOf(items.get('B40'), items, null, NOW).text, 'waits for its fix B41, which stopped: its fix B42 was dropped')
   const part = partOf(items)
-  assert.equal(part.view.count, '0 of 2 steps finished · 2 stopped')
+  assert.equal(part.view.count, '0 of 2 tasks finished · 2 stopped')
   const row = rowOf(part, 'B40')
   assert.deepEqual([row.state, row.tone], ['Fix stopped', 'stop'])
   assert.equal(row.line, 'Check failed: 3 of 6, its fix B41 stopped: its fix B42 was dropped · built by Digger')
@@ -168,13 +169,13 @@ test('a worker whose card shows the fix is named as on it; without that card nob
     fix.sections.set('History', [line(200, 'Painter', 'taken → in progress')])
   })
   const shown = partOf(atWork(), [...CARDS, card('Painter', 'B41')])
-  assert.equal(shown.view.count, '0 of 2 steps finished · 1 being fixed · 1 stopped · Painter is on it')
+  assert.equal(shown.view.count, '0 of 2 tasks finished · 1 being fixed · 1 stopped · Painter is on it')
   assert.equal(shown.view.owner, 'Painter is on it')
   assert.equal(rowOf(shown, 'B40').line, 'Check failed: 3 of 6, its fix B41 is being worked on · Painter is on it')
   assert.equal(rowOf(shown, 'B40').state, 'Being fixed')
   // Painter's card on another task: the fix is still being fixed by the store, but nobody is named.
   const elsewhere = partOf(atWork(), [...CARDS, card('Painter', 'B99')])
-  assert.equal(elsewhere.view.count, '0 of 2 steps finished · 1 being fixed · 1 stopped')
+  assert.equal(elsewhere.view.count, '0 of 2 tasks finished · 1 being fixed · 1 stopped')
   assert.equal(rowOf(elsewhere, 'B40').line, 'Check failed: 3 of 6, its fix B41 is being worked on · built by Digger')
   // A card that shows a check of a link counts too: the worker checking the fix is on the step.
   const checking = realCase(byId => byId.set('B46', item({ Id: 'B46', Title: 'Quality Assurance: B41', State: 'in progress', Owner: 'Checker', Checks: 'B41' })))

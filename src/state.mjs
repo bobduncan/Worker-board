@@ -15,7 +15,7 @@ import { DEAF_KEEP_MS, deafSpans } from './hearing.mjs'
 import { finishedList } from './finished.mjs'
 import { askFacts, brainstormNeeds, brainstormsState } from './brainstorm.mjs'
 import { DEMO_WORDS, demoGaveUp } from './focus.mjs'
-import { focusStage, goalAskList, goalAskNeeds, goalCounts, parseGoals, unlinkedSteps } from './goals.mjs'
+import { focusStage, goWaitsForLines, goalAskList, goalAskNeeds, goalCounts, parseGoals, unlinkedSteps } from './goals.mjs'
 import { limitStop, limitsOf, newestPerWindow, parseUsageHistory, pauseLifted, pauseNote, storePause, usageReadings } from './limits.mjs'
 import { mentionedPaths } from './pictures.mjs'
 import { milestoneFromGoals } from './milestone.mjs'
@@ -1211,6 +1211,53 @@ function fixAhead(known, steps, prefix) {
   return fixes[0]?.head.get('Id') ?? null
 }
 
+const STAMP = /^-\s+(\d{4}-\d{2}-\d{2} \d{2}:\d{2}(?::\d{2})?)\s/
+
+/** Work blocks (2026-10-31): when a task was made: its first History stamp, else its Since (ms; NaN when neither says). */
+function madeAtMs(item) {
+  return sinceMs((item.sections?.get('History') ?? [])[0]?.match(STAMP)?.[1] ?? item.head.get('Since'))
+}
+
+/** Work blocks: when a finished task finished: its last move to done, closed or dropped in its History, else its Since. */
+function finishedAtMs(item) {
+  return sinceMs((item.sections?.get('History') ?? []).findLast(line => / → (?:done|closed|dropped)\b/.test(line))?.match(STAMP)?.[1] ?? item.head.get('Since'))
+}
+
+/**
+ * Work blocks (the person, 2026-10-31: "the done when should only show the delta since last evaluation"): the round of the
+ * goal's work, `{ n, since, why }`, or null before its Go. Round 1 starts at its `How agreed:` time; each evaluation after it
+ * starts the next: a `Round: <date time> · <why>` line under the goal (a change writes one), a re-check that failed or waits
+ * for the person, and a round the person sent in the goal's recap (`recaps`: the board's recaps, src/recaps.mjs
+ * `readRecaps`; read only). Evaluations in the same minute are one. `since` is when the round started, `why` what opened it.
+ */
+export function roundOf(node, recaps = null) {
+  const start = sinceMs(node?.howAgreed)
+  if (!Number.isFinite(start)) return null
+  const events = [
+    ...(node.rounds ?? []).map(one => ({ at: one.at, why: one.why || 'an evaluation' })),
+    ...(node.rechecks ?? []).filter(one => one.verdict === 'failed' || one.verdict === 'waits for you').map(one => ({ at: one.at, why: 'the re-check' })),
+    ...(Array.isArray(recaps) ? recaps : []).filter(recap => recap?.goal === node.id).flatMap(recap => (recap.rounds ?? []).map(round => ({ at: round.at, why: 'your recap' }))),
+  ].map(one => ({ ...one, ms: sinceMs(one.at) })).filter(one => Number.isFinite(one.ms) && one.ms > start).sort((a, b) => a.ms - b.ms)
+  const minutes = events.filter((one, at) => at === 0 || one.ms !== events[at - 1].ms)
+  const last = minutes.at(-1)
+  return { n: 1 + minutes.length, since: last === undefined ? node.howAgreed : last.at, why: last === undefined ? 'your Go' : last.why, ms: last === undefined ? start : last.ms }
+}
+
+/**
+ * Work blocks: whether a block (its tasks the store holds, `known`) is open in the round that started at `start` (ms), and
+ * how: null when it is not; 'rework' for a block that had work before the round, 'new' for one made in it. Open: at the
+ * round's start it had a task not finished, or it got a task made after that, or it has no task at all. In round 1
+ * (`isFirst`) every block is open, and new. A task with no time to read counts as made before the round, and a finished
+ * one as finished before it.
+ */
+function openKindOf(known, start, isFirst) {
+  if (isFirst) return 'new'
+  const before = known.filter(one => !(madeAtMs(one) >= start))
+  const isOpenAtStart = before.some(one => !FINISHED.includes(one.head.get('State')) || finishedAtMs(one) >= start)
+  const isOpen = known.length === 0 || isOpenAtStart || before.length < known.length
+  return !isOpen ? null : before.length > 0 ? 'rework' : 'new'
+}
+
 /** B691: the goals under a goal in the goal map (its children, theirs in turn), not the goal itself. */
 function goalsUnder(goalMap, id) {
   const found = []
@@ -1229,13 +1276,16 @@ function goalsUnder(goalMap, id) {
  * each step's `onIt`, is the worker whose card (`lanes`, the board's) shows one of its steps, a fix in its chain or the QA
  * task that checks one of them (`workerOn`), never a step's Owner alone; null when no card does.
  */
-export function focusState(goalMap, items, threads, prefix, partner = null, now = null, lanes = null, recaps = null) {
+export function focusState(goalMap, items, threads, prefix, partner = null, now = null, lanes = null, recaps = null, goalRecaps = null) {
   const node = goalMap?.focus ? goalMap.byId.get(goalMap.focus) ?? null : null
   if (node === null) return null
   const steps = new Map((items ?? []).filter(one => one.head.get('Kind') === 'step').map(one => [one.head.get('Id'), one]))
   // 2026-10-31 (B689): every item by id (asks too), for what a chain of fixes waits for.
   const all = new Map((items ?? []).map(one => [one.head.get('Id'), one]))
-  const parts = node.parts.map(part => {
+  // Work blocks (2026-10-31): the round of the goal's work, and for each block whether it is open in it (Open now).
+  const round = roundOf(node, goalRecaps)
+  const openNow = []
+  const parts = node.parts.map((part, index) => {
     const known = part.steps.map(id => steps.get(id)).filter(one => one !== undefined)
     const done = known.filter(one => FINISHED.includes(one.head.get('State'))).length
     const busy = known.find(one => UNDER_WAY.includes(one.head.get('State')))
@@ -1266,7 +1316,12 @@ export function focusState(goalMap, items, threads, prefix, partner = null, now 
     // 2026-10-31 (B689): the worker on the part is one whose card shows a step of it (or a fix or check of one), never the
     // Owner of the step under way: that one may be its builder, its step in review, its card on another task.
     const owner = busy === undefined ? null : list.find(one => one.onIt !== null)?.onIt ?? null
-    return { title: part.title, size: part.size, state, owner, done, total: known.length, standards, steps: list, ...partStepCounts(list), ...(gone === undefined ? {} : { why: gone.why }), ...(fix === null ? {} : { fixFirst: fix }) }
+    // Work blocks: a block that is not dropped and open in this round is in Open now, made in it ('new') or not ('rework').
+    const kind = round === null || state === 'dropped' ? null : openKindOf(known, round.ms, round.n === 1)
+    if (kind !== null) openNow.push({ index, title: part.title, kind })
+    // Work blocks: the block's done-when line, only where it has one.
+    const line = typeof part.doneWhen === 'string' && part.doneWhen.trim() !== '' ? { doneWhen: part.doneWhen.trim() } : {}
+    return { title: part.title, size: part.size, state, owner, done, total: known.length, standards, steps: list, ...partStepCounts(list), ...line, ...(gone === undefined ? {} : { why: gone.why }), ...(fix === null ? {} : { fixFirst: fix }) }
   })
   // B680: a Stopped part counts neither done nor open, a dropped one is out of the whole.
   const whole = parts.filter(part => part.state !== 'dropped')
@@ -1321,6 +1376,11 @@ export function focusState(goalMap, items, threads, prefix, partner = null, now 
     youDecide: node.youDecide,
     howAgreed: node.howAgreed,
     progress: { done: whole.filter(part => part.state === 'done').length, total: whole.length, ...(stopped > 0 ? { stopped } : {}), minutesLeft: left.length === 0 ? null : left.reduce((sum, one) => sum + one, 0) },
+    // Work blocks (2026-10-31): the round of its work (null before Go), and the blocks open in it, by their place in `parts`.
+    round: round === null ? null : { n: round.n, since: round.since, why: round.why },
+    // Work blocks: Go waits for a block's done-when line (only a goal never past Go: src/goals.mjs `goWaitsForLines`).
+    goWaitsForLines: goWaitsForLines(node),
+    openNow: round === null ? [] : openNow,
     thread: thread?.path ?? null,
     ...focusRun(node, items ?? [], prefix, partner),
   }
@@ -2036,7 +2096,8 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
   const oldAsks = new Set((reconciled?.flags ?? []).filter(flag => flag.kind === 'old ask').map(flag => `work:${flag.id}`))
   const flagsOf = name => (reconciled?.flags ?? []).filter(flag => flag.chat === name && LANE_FLAGS.includes(flag.kind)).map(({ kind, id, text, button }) => ({ kind, id, text, button }))
   // 2026-10-31 (B689): with the workers' cards, so the Focus page names a worker only where its card shows the step.
-  const focus = focusState(goalMap, itemsOf(raw.work), brainstorms.threads, prefix, advisorChat?.name ?? null, now, chats, recapWaits)
+  // Work blocks (2026-10-31): with the goal recaps, whose rounds the person sent start a new round of the goal's work.
+  const focus = focusState(goalMap, itemsOf(raw.work), brainstorms.threads, prefix, advisorChat?.name ?? null, now, chats, recapWaits, raw.recaps ?? null)
   // The chats on the board by name, for a store's owner (with or without the list's prefix).
   const chatNames = [...names, ...[advisorChat, helperChat, ownerChat].filter(one => one !== undefined).map(one => one.name)]
   // Partner answers, the review's findings: the asks with the partner now, and its answers of the last 7 days that the

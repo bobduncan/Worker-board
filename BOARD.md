@@ -243,12 +243,28 @@ setting `advisorParts` brings any back. The Advisor's chat still opens from its 
 the goal's id and title, its vibe in one line once agreed, and the strip 1 The vibe → 2 The how → 3 The run (a step
 done is green with ✓, the one now blue). The vibe: the talk with your partner on the left (the goal's brainstorm
 thread as bubbles: your words, its questions) and "The vibe so far" on the right (its lines ticked, its picture),
-with "This is the goal definition" and "Not yet". The how: the talk on the left, "The how so far" on the right (the parts with
-their sizes, "Decided by your partner", "Brought to you"), with "Go" and "Not yet". The run: "The how" on the left,
-each part with Done, In progress (and who is on it) or Next and a bar, no step ids, and "See the steps behind this →",
-which opens the Backlog on the goal's steps ("Steps behind G6 ✕" clears it); "Today's note from your partner" on the
-right; a slim talk bar under it. No focus (or one that is gone): "What do you want to work on?" with the open goals of
-the map and a free line; a focus that is done asks for the next one.
+with "This is the goal definition" and "Not yet". The how: the talk on the left, "Work blocks so far" on the right (the work blocks
+with their sizes and each its done-when line, "Decided by your partner", "Brought to you"), with "Go" and "Not yet". The run:
+"All work blocks" on the left, each block with Done, In progress (and who is on it) or Next and a bar, its done-when line,
+its tasks counted ("3 of 3 tasks finished"), no step ids, and "See the tasks behind this →", which opens the Backlog on the
+goal's steps ("Steps behind G6 ✕" clears it); "Today's note from your partner" on the right; a slim talk bar under it. No
+focus (or one that is gone): "What do you want to work on?" with the open goals of the map and a free line; a focus that
+is done asks for the next one.
+
+**Work blocks** (2026-10-31, the person: "a goal has X workblocks. each workblock has X tasks"; the agreed picture
+`art-inbox/focus-mocks/work-blocks/mock.png`). On the Focus page a goal's parts are work blocks and their steps tasks;
+the strip reads 1 The goal → 2 Work blocks → 3 The run, and the progress counts work blocks ("10 of 13 work blocks done").
+Each block has one done-when line: what is true once the block is done, checkable alone; Go stays off ("Every work block
+needs its done-when line") while a block of a goal that never went past Go lacks one. Under the head of the run a switch:
+**All work blocks** `<done>/<all>` (the whole plan, always all of it) and **Open now** `<done>/<open>` (only what the last
+evaluation opened), remembered across a reload. Open now is one card: "Round n · opened by <what> of <day> · k of m done ·
+the next evaluation starts round n+1", then one line per open block, ticked once done, "Rework: <its line>" for a block
+that was there before the round or "New: <its line>" for one made in it, and its chip while not done. Round 1 starts at
+Go and lists every block; each evaluation starts the next round: a change of the goal, a re-check that failed or waits for
+you, a round you sent in the goal's recap. A block is open in a round when it had a task not finished at its start, got
+a new task in it, or has no task; it keeps its tick until the next evaluation. A block made in this round carries a small
+"new" in All work blocks. The objective stays in the head, "Not in it" a quiet line under it; the old Done-when card is
+gone.
 
 Since Focus 2 the moves work, on the board that delivers (and on a copy with a goal map of its own), with a partner on
 it (the chat the setting `advisor` names; without one, or on a board that only shows, the buttons are off and say

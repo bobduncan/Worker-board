@@ -77,7 +77,8 @@ test('the main chat sends planning questions to the partner; the steps it makes 
 })
 
 test('the protocol lists the focus\'s lines in the goal map and the words the board types to the partner', () => {
-  for (const words of ['`Focus: G<n>`', '`Vibe: <one line>`', '`Vibe picture: <path>`', '`Vibe agreed: <date time>`', '`Part: <title> · <size> · steps B<n>, B<n>`', '`Partner decides: <one line>`', '`You decide: <one line>`', '`How agreed: <date time>`']) assert.ok(protocol.includes(words), words)
+  // Work blocks (2026-10-31): a Part line ends with its block's done-when line, and a change writes a Round line.
+  for (const words of ['`Focus: G<n>`', '`Vibe: <one line>`', '`Vibe picture: <path>`', '`Vibe agreed: <date time>`', '`Part: <title> · <size> · steps B<n>, B<n> · done when: <line>`', '`Partner decides: <one line>`', '`You decide: <one line>`', '`How agreed: <date time>`', '`Round: <date time> · <why>`']) assert.ok(protocol.includes(words), words)
   for (const words of ['`focus: G<n> <title>`', '`vibe: agreed`', '`vibe: not yet`', '`how: go`', '`how: not yet`']) assert.ok(protocol.includes(words), words)
   assert.ok(!protocol.includes('`Queue for G<n>'), 'redesign Part 2: no queue note')
   assert.match(protocol, /`work vibe-draft` \(`goal`, `lines`, `picture`\), `work how-draft` \(`goal`, `parts`, `partnerDecides`, `youDecide`\)/)

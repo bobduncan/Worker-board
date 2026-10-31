@@ -277,6 +277,26 @@ button, textarea, select { font: inherit; color: inherit; }
 .focus-bullet-text { min-width: 0; font-size: 15px; overflow-wrap: anywhere; }
 .focus-bullet-steps { color: var(--muted); font-size: 13px; text-align: right; }
 .focus-not-in-it { margin: 10px 0 0; font-size: 13.5px; }
+.focus-title .focus-not-in-it { margin: 4px 0 0; }
+/* Work blocks (2026-10-31, the agreed mock focus-mocks/work-blocks): the switch under the head, "All work blocks" or "Open
+   now"; a block's done-when line under its bar and a quiet "new" on a block this round made; the Open now card in the style
+   of the old Done-when card; each proposed block's done-when line before Go. Calm colours only. */
+.focus-blocks-switch { display: inline-flex; margin: 0 4px 14px; border: 1px solid #3a4a63; border-radius: 9px; overflow: hidden; }
+.focus-blocks-option { padding: 7px 16px; border: 0; background: none; color: #c5d0e0; font: inherit; font-size: 15px; cursor: pointer; }
+.focus-blocks-option.is-on { background: #13254a; color: #8fb4ff; font-weight: 600; }
+.focus-blocks-option small { margin-left: 6px; color: var(--muted); font-size: 13px; font-weight: 400; }
+.focus-blocks-option:hover:not(.is-on) { color: var(--text); }
+.focus-blocks-option:focus-visible { outline: 2px solid var(--free); outline-offset: -2px; }
+.focus-new { display: inline-block; margin-left: 8px; padding: 0 6px; border: 1px solid #3a4a63; border-radius: 6px; color: #8fb4ff; font-size: 12px; font-weight: 600; line-height: 1.5; vertical-align: middle; }
+.focus-round { margin: 0 0 10px; color: var(--muted); font-size: 14px; overflow-wrap: anywhere; }
+.focus-open-now .focus-bullet { align-items: start; }
+.focus-open-what { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.focus-open-line { color: var(--muted); font-size: 13.5px; overflow-wrap: anywhere; }
+.focus-open-chip { font-size: 12.5px; padding: 2px 10px; }
+.focus-plan li .focus-plan-what { display: flex; flex-direction: column; gap: 2px; }
+.focus-plan li .focus-plan-what > span { flex: none; }
+.focus-plan li .focus-plan-done-when { color: var(--muted); white-space: normal; overflow-wrap: anywhere; }
+.focus-plan li .focus-plan-done-when.is-missing { font-style: italic; }
 .focus-pick .focus-change { margin: 0 0 12px; }
 .focus-goals .goals-action:disabled { opacity: 0.55; cursor: default; }
 /* Focus 3: the run's note from the partner (decided lines with Undo, its questions), and "Is the vibe there?". */
@@ -921,6 +941,17 @@ button.goal-dot:hover, button.goal-dot:focus-visible { box-shadow: 0 0 0 3px #2a
 .brainstorm-covered { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 4px 0; font-size: 13.5px; }
 .brainstorm-covered-mark { display: inline-grid; place-items: center; width: 18px; height: 18px; border-radius: 50%; background: var(--working); color: var(--ink); font-size: 11px; font-weight: 700; }
 .brainstorm-uncovered { margin: 4px 0; font-size: 13px; }
+/* Work blocks (2026-10-31): a change lists the goal's work blocks, each with what the change does to it (a quiet tag) and
+   its done-when line under its title; each new task in the Result card says the block it is for. */
+.brainstorm-block-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px; }
+.brainstorm-block-title { font-weight: 600; }
+.brainstorm-block-kind { padding: 0 7px; border: 1px solid #3a4a63; border-radius: 6px; color: var(--muted); font-size: 11.5px; font-weight: 600; text-transform: none; letter-spacing: 0; }
+.brainstorm-block-kind.is-new, .brainstorm-block-kind.is-rework { color: #8fb4ff; }
+.brainstorm-block-done-when { display: block; color: var(--muted); font-size: 13px; overflow-wrap: anywhere; }
+.brainstorm-bullet .brainstorm-block-done-when { margin: 0 0 4px; }
+.brainstorm-bullet-title .brainstorm-block-kind { margin-left: 8px; }
+.brainstorm-block-plan.is-drop .brainstorm-bullet-title { color: var(--muted); text-decoration: line-through; }
+.brainstorm-result-block { flex-basis: 100%; font-size: 12.5px; }
 .change-goal { width: min(520px, calc(100vw - 32px)); padding: 0; border: 1px solid var(--line); border-radius: 12px; background: var(--panel); color: var(--text); }
 .change-goal::backdrop { background: rgba(4, 8, 14, 0.7); }
 .change-goal-form { display: flex; flex-direction: column; gap: 8px; padding: 18px 20px; }
