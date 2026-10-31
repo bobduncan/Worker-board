@@ -140,9 +140,10 @@ test('the health summary counts chains, not steps: one line per chain with its n
   const askedText = healthSummary(view(asked, [{ id: 'B614', why: 'waits for the answer to Q408' }]), NOW)
   assert.match(askedText, /- B603 review for 5 h, Painter \(waits for its fix B614, held: waits for the answer to Q408/)
   assert.doesNotMatch(askedText, /- ! B603/)
-  // A chain whose newest link is in review itself says what that one waits for.
+  // A chain whose newest link is in review itself says what that one waits for. 2026-10-31 (B689): the wait's own words say it
+  // now ("which waits for its first check"), so the newest link's part of the line no longer says it a second time.
   const checking = items(reviewed('B622', 120, 'B638'), reviewed('B638', 60, null, { 'Fix of': 'B622' }))
-  assert.match(healthSummary(view(checking, []), NOW), /- B622 review for 2 h, Painter \(waits for its fix B638; one chain, 2 in review: B622 → B638; newest link B638 review, Painter, waits for its first check\)/)
+  assert.match(healthSummary(view(checking, []), NOW), /- B622 review for 2 h, Painter \(waits for its fix B638, which waits for its first check; one chain, 2 in review: B622 → B638; newest link B638 review, Painter\)/)
 })
 
 test('the Backlog line and the work tool name the held fix', async t => {

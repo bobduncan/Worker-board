@@ -279,6 +279,12 @@ has these). Every step runs on the model its refine names (`Model: sonnet` unles
 main chat sets the worker's chat to both before the step goes to it, and an opus step waits until the app says its
 worker runs on Opus. Without both ids, each starting with `claude-`, the board sets the effort alone and says so on
 top. `usualModel` and `usualEffort` (`"sonnet"` and `"medium"` unless set): what a worker runs at between steps.
+`handover` (`"timers"` unless set; `"sequence"`, T8.5): how a worker goes from one task to the next. `"timers"` is the
+path of the clocks below (the Workers mod's own clear, the give and its line, the take within two minutes, the held give);
+`"sequence"` has the board decide once at the worker's turn end and send it one envelope (its clear, its model, its next
+task's line) that its Workers mod carries out in order and settles once, with one 10-minute safety net (`DESIGN.md`, "The
+hand-over as one sequence"). Only a worker whose Workers mod is 0.27.0 or newer is on the sequence; every other keeps the
+timers.
 `supervisorModel` (`"sonnet"` or `"opus"`, `"sonnet"` unless set) and `supervisorEffort` (a level of the app's, `"low"` unless
 set): what the Supervisor's chat runs at; the board holds it there by code, the way it sets a worker's chat (T7.5).
 `providers` (T9.3, the defaults below unless set): who provides each kind of asset, an object from asset kind (`visual`, `music`,

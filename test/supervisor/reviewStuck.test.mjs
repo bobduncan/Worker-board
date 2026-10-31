@@ -61,9 +61,10 @@ const CHAIN = items(
 test('reviewWaitOf: what a step in review waits for, in words', () => {
   assert.deepEqual(reviewWaitOf(reviewed('B7', 20), items()), { kind: 'check', fix: null, since: ago(20), text: 'waits for its first check' })
   // Its check failed and made a fix: it waits for that fix while it is open, whatever the fix's own state.
-  for (const state of ['queued', 'in progress', 'review']) {
+  // 2026-10-31 (B689): a fix in review says what it waits for itself; this one has no board check of its report yet.
+  for (const [state, text] of [['queued', 'waits for its fix B8'], ['in progress', 'waits for its fix B8'], ['review', 'waits for its fix B8, which waits for the board\'s check of its report']]) {
     const store = items(reviewed('B7', 90, [failed(80, 'B8')]), fixStep('B8', 'B7', state))
-    assert.equal(reviewWaitOf(store.get('B7'), store).text, 'waits for its fix B8')
+    assert.equal(reviewWaitOf(store.get('B7'), store).text, text)
     assert.equal(reviewWaitOf(store.get('B7'), store).kind, 'fix')
   }
   // The fix was dropped: nothing will close it.

@@ -147,6 +147,10 @@ test('the state: a step in review carries where its QA task stands; the Advisor 
   // In progress: the worker is on it since it took it.
   const working = build({ items: [b701, task('in progress', ago(9), 'Garden · Digger')] })
   assert.deepEqual(plain(working.backlog.flatMap(activity => activity.steps).find(one => one.id === 'B701').reviewStand), { kind: 'working', since: ago(9), qa: 'B730', who: 'Digger' })
+  // 2026-10-31 (B689): in progress, but its worker's card shows a newer step it holds: it took the check and nobody checks it now.
+  const newer = parseItem(['Id: B731', 'Kind: step', 'Title: Dig the pond', 'State: in progress', 'Owner: Garden · Digger', `Since: ${stamp(ago(4))}`, ''].join('\n'))
+  const held = build({ items: [b701, task('in progress', ago(9), 'Garden · Digger'), newer] })
+  assert.deepEqual(plain(held.backlog.flatMap(activity => activity.steps).find(one => one.id === 'B701').reviewStand), { kind: 'held', since: ago(9), qa: 'B730', who: 'Digger' })
   // A done or dropped task stands for nothing; a step with no task has no stand; the Advisor with an old word is on nothing.
   for (const state of ['done', 'dropped']) assert.equal(build({ items: [b701, task(state, ago(3), 'Garden · Lead')] }).backlog.flatMap(activity => activity.steps).find(one => one.id === 'B701').reviewStand, null)
   const none = build({ items: [b701], outbox: [sent('w1', { state: 'delivered', takenAt: ago(14) })] })

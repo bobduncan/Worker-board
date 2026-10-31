@@ -2294,10 +2294,12 @@ function simpleSteps(focus, chats = [], now = Date.now()) {
   if (focus === null || focus === undefined) return null
   const chips = { done: 'Done', now: 'Working', next: 'Next' }
   const rows = (focus.steps ?? []).map(step => {
-    const lane = step.state !== 'now' || step.owner === null ? null : (chats ?? []).find(one => one.name === step.owner
-      && one.state === 'working' && [null, step.id].includes(laneTaskOf(one).code)) ?? null
+    // 2026-10-31 (B689): a step at work names the worker whose card shows it (the state's `onIt`), never its Owner alone (its
+    // builder, its card on another task); its time left is that worker's while it works.
+    const name = step.state === 'now' ? step.onIt ?? null : step.owner
+    const lane = step.state !== 'now' || name === null ? null : (chats ?? []).find(one => one.name === name && one.state === 'working') ?? null
     const left = lane === null ? null : simpleLeft(lane, now)
-    const who = step.owner === null ? null : left === null ? step.owner : `${step.owner} · ${left}`
+    const who = name === null ? null : left === null ? name : `${name} · ${left}`
     // B392: a step at work whose open blocking asks all wait for the partner says so.
     if ((step.waitsForPartner ?? []).length > 0) return { id: step.id, title: step.title, chip: 'Waits for your partner', tone: 'partner', who: step.owner }
     return { id: step.id, title: step.title, chip: chips[step.state] ?? 'Next', tone: chips[step.state] === undefined ? 'next' : step.state, who }
@@ -2579,7 +2581,8 @@ function laneFlags(lane, restart = null) {
     // Model per step: a step that waits for its worker to run on Opus is a wait, no fault.
     // 2026-10-31 (B799): a step whose work is on a branch not merged is back with its worker: a quiet line, no button for the person.
     // T8: so is any other mismatch its worker can fix (flag 'back').
-    tone: flag.kind === 'card' || flag.kind === 'model' ? 'warn' : flag.kind === 'not merged' || flag.kind === 'back' ? 'quiet' : 'problem',
+    // T8.5: where a worker's hand-over stands (handing, offered, held with why, "did not answer") is information: quiet.
+    tone: flag.kind === 'card' || flag.kind === 'model' ? 'warn' : flag.kind === 'handover' || flag.kind === 'not merged' || flag.kind === 'back' ? 'quiet' : 'problem',
     // B304: a failed check is the person's to run again ("Check again", `data-recheck`: the work API's `recheck`).
     button: flag.kind === 'check failed' ? { label: 'Check again', recheck: flag.id }
       : flag.button === null || main === null || main === lane.name ? null : { label: flag.button, start: lane.name, isAsked },
@@ -12747,7 +12750,10 @@ function focusStepsView(part, partsOpen) {
     const checkText = check === null ? null
       : check.passed === check.total ? `Check passed: ${check.passed} of ${check.total}`
         : `Check failed: ${check.passed} of ${check.total}${fix === undefined ? '' : fix.isFixed ? `, then its fix ${fix.by} passed${fix.total === null ? '' : ` (${fix.passed} of ${fix.total})`}` : `, ${fix.note}`}`
-    const bits = [checkText, one.waitsFor.length === 0 ? null : `Waits for ${one.waitsFor.map(wait => `${wait.id} (${wait.title})`).join(', ')}`, one.owner].filter(bit => bit !== null)
+    // 2026-10-31 (B689): a worker is named as on it only where its card shows the step (the state's `onIt`); its builder is
+    // "built by", history; a step nobody's card shows names no one.
+    const who = typeof one.onIt === 'string' && one.onIt !== '' ? `${one.onIt} is on it` : typeof one.builtBy === 'string' && one.builtBy !== '' ? `built by ${one.builtBy}` : null
+    const bits = [checkText, one.waitsFor.length === 0 ? null : `Waits for ${one.waitsFor.map(wait => `${wait.id} (${wait.title})`).join(', ')}`, who].filter(bit => bit !== null)
     return {
       id: one.id, title: one.title, tone: one.tone, state: one.state, line: bits.join(' · '), isFailed,
       picture: check !== null && isPicture(check.evidence) ? { path: check.evidence, caption: `${one.id}: ${checkText}` } : null,
@@ -17112,6 +17118,8 @@ function checkStandWords(stand) {
   const task = typeof stand?.qa === 'string' && stand.qa !== '' ? stand.qa : null
   if (stand?.kind === 'queued') return `waits for its check: ${task ?? 'its QA task'}, queued${since}`
   if (stand?.kind === 'working') return `${task ?? 'its QA task'}: ${typeof stand.who === 'string' && stand.who !== '' ? stand.who : 'a worker'} is checking it${since}`
+  // 2026-10-31 (B689): a QA task in progress that no card shows: its worker took it and is on another task, nobody checks it now.
+  if (stand?.kind === 'held') return `waits for its check: ${task ?? 'its QA task'}, taken by ${typeof stand.who === 'string' && stand.who !== '' ? stand.who : 'a worker'}${since}, not on its card now`
   return null
 }
 

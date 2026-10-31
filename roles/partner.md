@@ -376,6 +376,13 @@ plan to make the vision real, in the strategy the user chooses first.
     - a making guideline for whoever makes the thing, Codex included (maps: a cell is all stone or all lava, never
       half; at most three floors, while the code has no maximum), written into the kind's definition of done (`Done:`);
     - its bar line in the kind's standard.
+  - **A first sample, one look** (the user, 2026-10-31, in a personal chat, on one look per method instead of a check
+    that fails at the end: "yes sounds good"). The first step of an aspect, method or kind of look-work the user has not
+    accepted a sample of yet makes ONE sample first (one wall, one tile, one map section: in the game at play size,
+    beside its target), and asks the user one look ask with a play link before the rest is built. Write it as the
+    step's first part: `Sample first: <the one thing> · one look ask with a play link · the rest only on the user's
+    yes`. Their yes stands for every later step of that kind: those get no look ask (the judges and the result check
+    stay as they are). One look per kind, never per step, and never only at the end.
   - A fair target (the user, 2026-10-26: "yes"): a part is judged against a target of that part alone, made the way
     the part is made, not against a whole finished concept. For maps that is the Codex painting drawn on a layout laid
     out as the game lays out its cells and floors (the chain: concept, layout in the game's geometry, Codex paints the
