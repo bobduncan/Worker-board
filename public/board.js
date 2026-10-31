@@ -10791,11 +10791,141 @@ function brainstormAnswerText(question) {
   return answer.words ? `${said}: "${answer.words}"` : said
 }
 
+/** The Brainstorm screen (2026-10-31): an answer in a few words, for its chip: the option's text, the person's own words, skipped, back. */
+function brainstormAnswerShort(question) {
+  const answer = question.answer
+  if (answer === null || answer === undefined) return 'not answered'
+  if (answer.skipped === true) return 'skipped'
+  if (Number.isInteger(answer.back)) return `back to Q${answer.back}`
+  if (answer.key === 'Other') return String(answer.words ?? '')
+  const option = (question.options ?? []).find(one => one.key === answer.key)
+  return option === undefined ? String(answer.key) : option.text
+}
+
+/** HH:MM of a time in milliseconds (the page's `clock`, kept here so this part runs without the page). */
+function brainstormClock(ms) {
+  const date = new Date(ms)
+  return `${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`
+}
+
+/** A text on one line, cut at a word after `max` characters with "…" when it was longer. */
+function brainstormClip(text, max) {
+  const flat = String(text ?? '').replace(/\s+/g, ' ').trim()
+  if (flat.length <= max) return flat
+  const cut = flat.slice(0, max)
+  const space = cut.lastIndexOf(' ')
+  return `${(space > max / 2 ? cut.slice(0, space) : cut).replace(/[\s,;:]+$/, '')}…`
+}
+
 /**
- * The card of a brainstorm: the open question (when the Advisor asked one and no proposal stands), its options, whether
- * it takes an answer and a Back, the earlier questions with their answers, and, while the Advisor has the turn, what it
- * does: thinking, on something else (its card's line), or not running, with the way to wake it (Review Focus 4).
- * `advisor` is state.advisor.
+ * The Brainstorm screen (2026-10-31): whose turn a thread is. 'over': done, discarded, or its proposal created. 'person': an
+ * open question, what the partner understood waiting for the person's yes, or a proposal to tick. 'partner': anything else
+ * that runs (it has the word, or the word waits for it).
+ */
+function brainstormTurnOf(thread) {
+  if (thread.state === 'done' || thread.state === 'discarded') return 'over'
+  if (thread.proposal !== null) return thread.proposal.created === null ? 'person' : 'over'
+  if (thread.state === 'running' && thread.latest !== null && thread.latest.answer === null) return 'person'
+  if (thread.state === 'running' && thread.understood?.isOpen === true && thread.understood.answer === null) return 'person'
+  return 'partner'
+}
+
+/** What the partner does while it has the turn, in the words after "Your partner": from where the thread stands. */
+function brainstormPartnerDoing(thread) {
+  const said = thread.understood?.isOpen === true ? thread.understood : null
+  if (thread.state === 'wrapping up') return 'is writing the proposal'
+  if (said?.answer?.yes === true) return 'is drafting the new goal'
+  if (said?.answer !== null && said?.answer !== undefined) return 'is writing the next question'
+  if (thread.latest !== null && thread.latest.answer !== null) return 'is writing the next question'
+  return 'is reading your words'
+}
+
+/** When the person made the move the partner works on, as HH:MM, from the thread alone; null when the thread does not say (a wrap up). */
+function brainstormMoveAt(thread) {
+  const said = thread.understood?.isOpen === true ? thread.understood : null
+  if (said?.answer?.at) return said.answer.at
+  if (thread.state === 'wrapping up') return null
+  if (thread.latest !== null && thread.latest.answer?.at) return thread.latest.answer.at
+  return thread.questions === 0 && /^\d{4}-\d\d-\d\d \d\d:\d\d/.test(String(thread.started ?? '')) ? thread.started.slice(11, 16) : null
+}
+
+/**
+ * What the partner is busy with besides this thread, from what the board knows: the item it took (the state's
+ * `advisor.on`, named as "refine B774 (Its title)"), else its own card's line while it works on something that is not a
+ * brainstorm. `{ what, since }` (since: a time, or null), or null when it is not busy with something else.
+ */
+function brainstormBusyWith(advisor, isQueued) {
+  const on = advisor.on
+  if (on !== null && on !== undefined && typeof on === 'object' && typeof on.id === 'string') {
+    const title = brainstormClip(on.title, 28)
+    return { what: `${[on.kind, on.id].filter(Boolean).join(' ')}${title === '' ? '' : ` (${title})`}`, since: Number.isFinite(on.since) ? on.since : null }
+  }
+  if (advisor.state !== 'working') return null
+  const doing = String(advisor.doingNow ?? '').trim()
+  if (doing !== '' && !/^brainstorm\b/i.test(doing)) return { what: brainstormClip(doing, 40), since: Number.isFinite(advisor.turnAt) ? advisor.turnAt : null }
+  // Working with no line of its own: only a word that waits in its queue says it is on something else.
+  return isQueued ? { what: 'something else', since: Number.isFinite(advisor.turnAt) ? advisor.turnAt : null } : null
+}
+
+/**
+ * The Brainstorm screen (2026-10-31): what shows while the partner has the turn. `kind`: 'thinking' (it holds the thread's word,
+ * or nothing says it is elsewhere), 'waiting' (the word waits in its queue, or it is busy with something else; `busy` names
+ * what, `position` where the thread stands in its queue: 1 is next, null when the board cannot tell) or 'off' (no partner, or
+ * its chat does not run). `headline` and `line` are the two lines of the card. `advisor` is state.advisor.
+ */
+function brainstormPartnerView(thread, advisor) {
+  if (advisor === null || advisor === undefined) return { kind: 'off', headline: 'No partner is on this board', line: 'A brainstorm waits for one.', busy: null, position: null, since: null }
+  if (advisor.isRunning === false) return { kind: 'off', headline: 'Your partner\'s chat is not running', line: 'Start it from the Workers lane (the main chat starts it).', busy: null, position: null, since: null }
+  const queue = Array.isArray(advisor.next) ? advisor.next : []
+  const mine = queue.flatMap((row, index) => (row?.thread === thread.path ? [{ row, index }] : []))
+  const held = mine.find(({ row }) => row.stand?.kind === 'working' || row.stand?.kind === 'taken')
+  const queued = mine.find(({ row }) => row.stand?.kind === 'queued')
+  const busy = held === undefined ? brainstormBusyWith(advisor, queued !== undefined) : null
+  if (busy === null && (held !== undefined || queued === undefined)) {
+    const started = Number.isFinite(held?.row.stand.since) ? brainstormClock(held.row.stand.since) : brainstormMoveAt(thread)
+    return { kind: 'thinking', headline: `Your partner ${brainstormPartnerDoing(thread)}`, line: `${started === null ? 'Usually' : `Started ${started} · usually`} under a minute`, busy: null, position: null, since: started }
+  }
+  // Its queue holds the thread's word at a place; with no word of the thread in it, the thread is next only when nothing else waits.
+  const position = queued !== undefined ? queued.index + 1 : queue.length === 0 ? 1 : null
+  return {
+    kind: 'waiting',
+    headline: busy === null ? 'Your partner has not picked it up yet.' : `Your partner is busy with ${busy.what}${busy.since === null ? '' : ` since ${brainstormClock(busy.since)}`}.`,
+    line: position === 1 ? 'Your brainstorm is next.' : position === null ? 'Your brainstorm waits for it.' : `Your brainstorm is number ${position} in its queue.`,
+    busy, position, since: null,
+  }
+}
+
+/** The one small word a thread carries in the list and in its head, and its tone: your turn, the partner's states, or how it ended. */
+function brainstormStatusOf(thread, advisor) {
+  const turn = brainstormTurnOf(thread)
+  if (turn === 'person') return { word: 'your turn', tone: 'person' }
+  if (turn === 'over') {
+    if (thread.state === 'discarded') return { word: 'discarded', tone: 'discarded' }
+    return thread.proposal?.created ? { word: 'created', tone: 'created' } : { word: 'done', tone: 'done' }
+  }
+  return brainstormPartnerView(thread, advisor).kind === 'thinking' ? { word: 'your partner is thinking', tone: 'thinking' } : { word: 'waiting for your partner', tone: 'waiting' }
+}
+
+/** What a thread says about itself in a tooltip: its kind, who it is with, how it stands, when it started, and the goal it is about. */
+function brainstormTip(thread) {
+  const goal = thread.goal === null ? 'about no goal yet (free)' : `about ${thread.goal.id} ${thread.goal.title}`
+  const kind = thread.kind === 'change' ? `Change of ${thread.goal?.id ?? 'a goal'}` : 'Brainstorm'
+  return [`${kind} · with your partner · ${thread.state} · started ${thread.started ?? ''}`, goal, thread.kind === 'change' ? 'Your partner asks until it can say back what you want. Nothing about the goal changes before your yes.' : null].filter(Boolean).join('\n')
+}
+
+/** The person's opening words as one collapsed line: `{ short, full, isCut }`, or null without words. */
+function brainstormOpeningView(opening) {
+  const full = String(opening ?? '').replace(/\s+/g, ' ').trim()
+  if (full === '') return null
+  const short = brainstormClip(full, 90)
+  return { short, full, isCut: short !== full }
+}
+
+/**
+ * The card of a brainstorm: whose turn it is (`turn`) and the word it carries (`status`); on the person's turn the open question
+ * (when the partner asked one and no proposal stands), its options, whether it takes an answer and a Back; on the partner's turn
+ * what it does (`partner`, brainstormPartnerView); the earlier questions with their answers (`earlier`, one chip each) and the
+ * person's opening words. `advisor` is state.advisor.
  */
 function brainstormCardView(thread, advisor) {
   const latest = thread.latest
@@ -10803,26 +10933,24 @@ function brainstormCardView(thread, advisor) {
   const isOpen = !isOver && thread.state === 'running' && thread.proposal === null && latest !== null && latest.answer === null
   const asked = [...thread.earlier, ...(latest === null || isOpen ? [] : [latest])]
   // "Change this goal" (2026-10-31): the partner's "what I understand you want", while it is the open one, with the
-  // person's answer once given; unanswered, it waits for the person, not for the Advisor.
+  // person's answer once given; unanswered, it waits for the person, not for the partner.
   const said = !isOver && thread.understood?.isOpen === true ? thread.understood : null
   const understood = said === null ? null : { text: said.text, at: said.at, answer: said.answer === null ? null : said.answer.yes === true ? 'yes' : `not quite: "${said.answer.words}"`, canAnswer: said.answer === null }
-  let waiting = null
-  if (!isOver && !isOpen && thread.proposal === null && understood?.canAnswer !== true) {
-    const doing = advisor?.state === 'working' ? String(advisor.doingNow ?? '').trim() : ''
-    waiting = advisor === null || advisor === undefined ? 'No Advisor is on the board: a brainstorm waits for one.'
-      : advisor.isRunning === false ? 'The Advisor\'s chat is not running: start it from the Workers lane (the main chat starts it)'
-        : doing !== '' && !/^brainstorm\b/i.test(doing) ? `The Advisor is on: ${doing}` : 'The Advisor is thinking…'
-  }
+  const turn = brainstormTurnOf(thread)
   return {
     // B475: the question as its short title and its context, as an ask's window shows them (B452).
     question: isOpen ? { n: latest.n, title: latest.title ?? latest.text, context: latest.context ?? '', why: latest.why, picture: latest.picture } : null,
     options: isOpen ? latest.options : [],
     canAnswer: isOpen,
     canBack: isOpen && thread.earlier.length > 0,
-    waiting,
+    turn,
+    status: brainstormStatusOf(thread, advisor),
+    partner: turn === 'partner' ? brainstormPartnerView(thread, advisor) : null,
     understood,
     isChange: thread.kind === 'change',
-    earlier: asked.map(question => ({ n: question.n, title: question.title ?? question.text, context: question.context ?? '', answerText: brainstormAnswerText(question) })),
+    tip: brainstormTip(thread),
+    opening: brainstormOpeningView(thread.opening),
+    earlier: asked.map(question => ({ n: question.n, title: question.title ?? question.text, context: question.context ?? '', answerText: brainstormAnswerText(question), chip: `${question.n} · ${brainstormAnswerShort(question)}` })),
   }
 }
 
@@ -10902,26 +11030,26 @@ function changeProposalView(thread, { unticked = [], dropsTicked = [], agreed = 
 /** A title as the Created line keeps it among what was left out (src/brainstorm.mjs, leftOutKey). */
 function brainstormLeftKey(title) { return String(title ?? '').replace(/\s+/g, ' ').trim().slice(0, 2000).replace(/ · /g, ' - ') }
 
-/** The list at the left: the running brainstorms first, then the ones done or discarded, each with one line. */
-function brainstormListView(threads) {
+/**
+ * The list at the left: the running brainstorms first, then the ones done or discarded, a slim row each: the title and one
+ * small status word (`word`, `tone`: brainstormStatusOf). The day, the questions and what came of it are in the row's `tip`.
+ * `advisor` is state.advisor.
+ */
+function brainstormListView(threads, advisor = null) {
   const running = []
   const done = []
   for (const thread of threads ?? []) {
     const day = String(thread.started ?? '').slice(0, 10)
     const count = thread.questions === 0 ? null : `${thread.questions} question${thread.questions === 1 ? '' : 's'}`
-    const isOpen = thread.state === 'running' && thread.proposal === null && thread.latest !== null && thread.latest.answer === null
-    const hasProposal = thread.proposal !== null && thread.proposal.created === null
-    // "Change this goal": the partner's "what I understand you want" waits for the person's yes or "not quite".
-    const isSaid = thread.state === 'running' && thread.understood?.isOpen === true && thread.understood.answer === null
+    const status = brainstormStatusOf(thread, advisor)
+    const row = { path: thread.path, title: thread.title, word: status.word, tone: status.tone, waits: status.tone === 'person' }
     if (thread.state === 'running' || thread.state === 'wrapping up') {
-      const what = isOpen ? `question ${thread.latest.n} waits for you` : isSaid ? 'what it understood waits for you' : hasProposal ? 'proposal to tick' : thread.state === 'wrapping up' ? 'wrapping up with the Advisor' : 'with the Advisor'
-      running.push({ path: thread.path, title: thread.title, line: [day, isOpen ? null : count, what].filter(Boolean).join(' · '), waits: isOpen || isSaid || hasProposal })
+      running.push({ ...row, tip: [day, count, thread.state === 'wrapping up' ? 'wrapping up with your partner' : 'with your partner'].filter(Boolean).join(' · ') })
       continue
     }
     const created = thread.proposal?.created ?? null
     const came = created === null ? null : [created.goals.join(', '), created.steps.length > 0 ? created.steps.join(', ') : created.asked > 0 ? `${created.asked} step${created.asked === 1 ? '' : 's'}` : ''].filter(Boolean).join(', ')
-    const line = thread.state === 'discarded' ? [day, count, 'discarded'].filter(Boolean).join(' · ') : `${[day, count].filter(Boolean).join(' · ')} → ${came || 'nothing created'}`
-    done.push({ path: thread.path, title: thread.title, line, waits: false })
+    done.push({ ...row, tip: thread.state === 'discarded' ? [day, count, 'discarded'].filter(Boolean).join(' · ') : `${[day, count].filter(Boolean).join(' · ')} → ${came || 'nothing created'}` })
   }
   return { running, done }
 }
@@ -10936,20 +11064,26 @@ function brainstormChosen(threads, open) {
 
 /**
  * B259: what the person is doing on the Brainstorm part, which a redraw keeps: the brainstorm the card shows, the box
- * for a new one (`newAbout`: undefined while closed, null for a free one, else the goal), the option chosen and the own
- * words typed per brainstorm, the ticks taken away per proposal, the box to change a proposal, a "click again" to
- * discard, whether a change is on its way, and the line after it.
+ * for a new one (`newAbout`: undefined while closed, null for a free one, else the goal), the own words typed per
+ * brainstorm, the ticks taken away per proposal, the box to change a proposal, a "click again" to discard, whether a
+ * change is on its way, and the line after it.
  */
 // "Change this goal" (2026-10-31): the box of a "Not quite…" (`notQuite`, by path) and its words, the proposals whose
 // goal draft the person agreed (`agreed`, "<path>@<the proposal's time>"), and the drops ticked per proposal.
-const brainstormUi = { open: null, newAbout: undefined, chosen: new Map(), other: new Map(), unticked: new Map(), changing: null, changeWords: '', confirm: null, busy: false, note: null, failedSteps: new Map(), notQuite: null, notQuiteWords: '', agreed: new Set(), dropsTicked: new Map() }
+// The Brainstorm screen (2026-10-31): the "…" menu that is open (`menu`, by path), the openings shown in full (`opening`,
+// paths), the "Why I ask" folds that are open (`why`, "<path>#<n>") and the chip whose question and answer show (`chip`).
+const brainstormUi = { open: null, newAbout: undefined, other: new Map(), unticked: new Map(), changing: null, changeWords: '', confirm: null, busy: false, note: null, failedSteps: new Map(), notQuite: null, notQuiteWords: '', agreed: new Set(), dropsTicked: new Map(), menu: null, opening: new Set(), why: new Set(), chip: null }
 
 function brainstormData(state) {
-  return [state.brainstorms ?? null, state.advisor?.name ?? null, state.advisor?.isRunning ?? null, state.advisor?.state ?? null, state.advisor?.doingNow ?? null,
+  const advisor = state.advisor ?? null
+  return [state.brainstorms ?? null, advisor?.name ?? null, advisor?.isRunning ?? null, advisor?.state ?? null, advisor?.doingNow ?? null,
+    // What the partner's card says it is busy with, and where the thread stands in its queue (the Advisor lane's "Next for it").
+    advisor?.on ?? null, advisor?.turnAt ?? null, (advisor?.next ?? []).map(row => [row?.kind ?? null, row?.id ?? null, row?.thread ?? null, row?.stand?.kind ?? null, row?.stand?.since ?? null]),
     state.goalsEdit?.canWrite ?? null, state.restart?.main ?? null, (state.goals?.nodes ?? []).map(node => [node.id, node.title]),
-    brainstormUi.open, brainstormUi.newAbout === undefined ? 'closed' : brainstormUi.newAbout, [...brainstormUi.chosen],
+    brainstormUi.open, brainstormUi.newAbout === undefined ? 'closed' : brainstormUi.newAbout,
     [...brainstormUi.unticked].map(([path, keys]) => [path, [...keys]]), [...brainstormUi.failedSteps], brainstormUi.changing, brainstormUi.confirm, brainstormUi.busy, brainstormUi.note,
-    brainstormUi.notQuite, [...brainstormUi.agreed], [...brainstormUi.dropsTicked].map(([path, keys]) => [path, [...keys]]), Object.entries(brainstormTitles(state))]
+    brainstormUi.notQuite, [...brainstormUi.agreed], [...brainstormUi.dropsTicked].map(([path, keys]) => [path, [...keys]]), Object.entries(brainstormTitles(state)),
+    brainstormUi.menu, [...brainstormUi.opening], [...brainstormUi.why], brainstormUi.chip]
 }
 
 /** "Change this goal": the titles of the backlog's steps by their ids, for the re-plan's covered steps and drops. */
@@ -10971,25 +11105,26 @@ function drawBrainstorm(state) {
   const threads = state.brainstorms?.threads ?? []
   const waits = (state.brainstormNeeds ?? []).length
   $('advisor-brainstorm-count').textContent = waits === 0 ? '' : String(waits)
-  const list = brainstormListView(threads)
+  const list = brainstormListView(threads, state.advisor ?? null)
   const chosen = brainstormChosen(threads, brainstormUi.open)
-  const start = el('button', 'brainstorm-start', '+ New brainstorm… (about a goal, or free)')
+  const start = el('button', 'brainstorm-start', '+ New brainstorm…')
   start.type = 'button'
   start.dataset.brainstormNew = ''
   start.disabled = !canBrainstorm(state)
-  if (start.disabled) start.title = (state.advisor ?? null) === null ? 'No Advisor is on the board.' : state.goalsEdit?.whyNot ?? 'This board only shows.'
+  start.title = start.disabled ? ((state.advisor ?? null) === null ? 'No Advisor is on the board.' : state.goalsEdit?.whyNot ?? 'This board only shows.') : 'Think something through with your partner: about a goal, or free'
+  // The Brainstorm screen (2026-10-31): a slim row, the title and one small status word; the rest is in its tooltip.
   const row = one => {
-    const line = el('button', `brainstorm-row${one.path === chosen ? ' is-chosen' : ''}${one.waits ? ' is-waiting' : ''}`)
+    const line = el('button', `brainstorm-row is-${one.tone}${one.path === chosen ? ' is-chosen' : ''}`)
     line.type = 'button'
     line.dataset.brainstormOpen = one.path
-    line.append(el('b', '', one.title), el('small', '', one.line))
+    line.title = one.tip
+    line.append(el('b', '', one.title), el('small', `brainstorm-status is-${one.tone}`, one.word))
     return line
   }
   fill($('brainstorm-list'), [
     start,
-    list.running.length > 0 ? el('h4', 'brainstorm-group', 'Running') : null, ...list.running.map(row),
-    list.done.length > 0 ? el('h4', 'brainstorm-group', 'Done') : null, ...list.done.map(row),
-    threads.length === 0 ? el('p', 'muted brainstorm-empty', 'No brainstorm yet. Start one here, or with "Brainstorm this" on a goal of the map. The Advisor asks you one question at a time and ends with a proposal you tick.') : null,
+    ...list.running.map(row), ...list.done.map(row),
+    threads.length === 0 ? el('p', 'muted brainstorm-empty', 'No brainstorm yet. Start one here, or with "Brainstorm this" on a goal of the map. Your partner asks you one question at a time and ends with a proposal you tick.') : null,
   ])
   showBrainstormNew(state)
   const thread = threads.find(one => one.path === chosen) ?? null
@@ -11012,121 +11147,197 @@ function brainstormButton(text, act, className = 'goals-tool') {
   return button
 }
 
-/** The card of the brainstorm chosen: what it is about, the open question or what it waits for, the proposal, the earlier answers. */
+/** A context longer than this folds out under "Why I ask"; a shorter one is the one muted line under the question. */
+const BRAINSTORM_CONTEXT_CHARS = 140
+
+/**
+ * The Brainstorm screen (2026-10-31), the thread chosen: its head (title, status word, "…" menu), the chips of the earlier
+ * answers, then one calm card for what the thread is at: the partner's turn (what it does), the person's question with big
+ * options, what the partner understood, or the proposal; under it the line after an action, and the person's opening words.
+ */
 function brainstormCard(thread, state) {
   const view = brainstormCardView(thread, state.advisor ?? null)
   const canWrite = canBrainstorm(state)
-  const about = el('p', 'brainstorm-about')
-  about.append('about: ')
-  if (thread.goal === null) about.append(el('span', '', 'no goal yet (free)'))
-  else {
-    const goal = el('button', 'goals-link', `${thread.goal.id} ${thread.goal.title}`)
-    goal.type = 'button'
-    goal.dataset.brainstormGoal = thread.goal.id
-    goal.title = 'Open it in the goal map'
-    about.append(goal)
+  const isLive = thread.state === 'running' || thread.state === 'wrapping up'
+  const parts = [brainstormHead(thread, view, canWrite, isLive), ...(brainstormChips(thread, view) ?? [])]
+  if (view.question !== null) parts.push(brainstormAsk(thread, view, canWrite))
+  // "Change this goal": the partner's "what I understand you want", with "Yes, that's it" and "Not quite…".
+  else if (view.understood !== null && view.understood.canAnswer) {
+    parts.push(understoodPart(thread, view.understood, canWrite))
+    if (canWrite) parts.push(el('p', 'brainstorm-next muted', 'Next: your partner drafts the new goal'))
+  } else if (view.partner !== null) parts.push(brainstormPartnerCard(view.partner))
+  else if (thread.proposal !== null) {
+    const box = el('section', 'brainstorm-box is-proposal')
+    box.append(thread.kind === 'change' ? changeProposalPart(thread, canWrite, state) : proposalPart(thread, canWrite))
+    parts.push(box)
   }
-  const box = el('section', `brainstorm-box is-${thread.state.replace(' ', '-')}${view.isChange ? ' is-change' : ''}`)
-  const step = view.question !== null ? `question ${view.question.n}` : view.understood !== null ? 'what it understood' : thread.proposal !== null ? 'proposal' : thread.state
-  box.append(el('small', 'brainstorm-meta', `${view.isChange ? `Change of ${thread.goal?.id ?? 'a goal'}` : 'Brainstorm'} · with the Advisor · ${step} · started ${thread.started ?? ''}`), el('h3', 'brainstorm-title', thread.title))
-  // "Change this goal": the Advisor asks until it can say back what the person wants.
-  if (view.isChange) box.append(el('p', 'muted brainstorm-change-sub', 'Your partner asks until it can say back what you want. Nothing about the goal changes before your yes.'))
-  if (thread.opening) box.append(el('p', 'brainstorm-opening', `You opened with: ${thread.opening}`))
-  if (view.question !== null) {
-    box.append(el('h4', 'brainstorm-question', view.question.title))
-    if (view.question.context) box.append(el('p', 'brainstorm-context', view.question.context))
-    if (view.question.why) box.append(el('p', 'muted brainstorm-why', `The Advisor asks because ${view.question.why}`))
-    const picked = brainstormUi.chosen.get(thread.path) ?? null
-    const options = el('div', 'brainstorm-options')
-    for (const option of view.options) {
-      const button = el('button', `brainstorm-option${picked === option.key ? ' is-chosen' : ''}`)
-      button.type = 'button'
-      button.dataset.option = option.key
-      button.disabled = !canWrite || brainstormUi.busy
-      button.setAttribute('aria-pressed', String(picked === option.key))
-      button.append(el('span', 'brainstorm-key', option.key), el('span', 'brainstorm-option-text', option.text))
-      if (option.isAdvised) button.append(el('span', 'brainstorm-advised', 'advised'))
-      options.append(button)
-    }
-    const other = el('input', `brainstorm-other${picked === 'Other' ? ' is-chosen' : ''}`)
-    other.type = 'text'
-    other.id = 'brainstorm-other'
-    other.maxLength = 1000
-    other.placeholder = picked !== null && picked !== 'Other' ? `Words to go with ${picked} (if any)…` : 'Other: your own words…'
-    other.value = brainstormUi.other.get(thread.path) ?? ''
-    other.disabled = !canWrite || brainstormUi.busy
-    other.setAttribute('aria-label', 'Your own words')
-    options.append(other)
-    box.append(options)
-    if (view.question.picture) {
-      const shown = picture(view.question.picture, `Q${view.question.n}: every option side by side`)
-      shown.classList.add('brainstorm-picture')
-      box.append(shown)
-    }
-    if (canWrite) {
-      const words = (brainstormUi.other.get(thread.path) ?? '').trim()
-      const answer = brainstormButton(picked !== null && picked !== 'Other' ? `Answer ${picked}` : words !== '' ? 'Answer with your words' : 'Answer', 'answer', 'goals-action is-send')
-      answer.id = 'brainstorm-answer'
-      answer.disabled = brainstormUi.busy || (picked === null && words === '')
-      const foot = el('div', 'brainstorm-buttons')
-      foot.append(answer, brainstormButton('Skip', 'skip'))
-      if (view.canBack) foot.append(brainstormButton('Back', 'back'))
-      foot.append(el('span', 'brainstorm-gap'), brainstormButton('Enough, wrap up', 'wrap'))
-      box.append(foot)
-    }
-  }
-  if (view.understood !== null) box.append(understoodPart(thread, view.understood, canWrite))
-  if (view.waiting !== null) {
-    const waiting = el('p', `brainstorm-waiting${/not running|No Advisor/.test(view.waiting) ? ' is-off' : ''}`, view.waiting)
-    // Nothing comes back for long: the last word is typed into the Advisor's chat once more.
-    if (canWrite && thread.state !== 'done' && thread.state !== 'discarded') {
-      const again = brainstormButton('Type it to the Advisor again', 'again', 'goals-lines')
-      again.title = 'When nothing came back: the board types its last word about this brainstorm into the Advisor\'s chat again'
-      waiting.append(' ', again)
-    }
-    box.append(waiting)
-  }
+  if (brainstormUi.note !== null && brainstormUi.note.path === thread.path) parts.push(el('p', `brainstorm-note${brainstormUi.note.isProblem ? ' is-error' : ''}`, brainstormUi.note.text))
   // Lines of the thread the board cannot read: the Advisor is asked to write them in the form.
-  if (thread.problems.length > 0) box.append(el('p', 'brainstorm-problems', `The thread has ${thread.problems.length === 1 ? 'a line' : 'lines'} the board cannot read (${thread.problems.slice(0, 3).join(' · ')}${thread.problems.length > 3 ? ' …' : ''}): ask the Advisor to write ${thread.problems.length === 1 ? 'it' : 'them'} as roles/partner.md shows.`))
-  if (thread.proposal !== null) box.append(thread.kind === 'change' ? changeProposalPart(thread, canWrite, state) : proposalPart(thread, canWrite))
-  if (thread.state === 'discarded') box.append(el('p', 'muted', 'Discarded: nothing of it was created.'))
-  if (view.earlier.length > 0) {
-    const earlier = el('details', 'brainstorm-earlier')
-    earlier.append(el('summary', '', `Earlier in this brainstorm (${view.earlier.length})`))
-    for (const one of view.earlier) {
-      const line = el('p', '')
-      line.append(el('b', '', `Q${one.n} ${one.title}`), el('span', 'muted', ` → ${one.answerText}`))
-      earlier.append(line)
-      if (one.context) earlier.append(el('p', 'muted brainstorm-earlier-context', one.context))
-    }
-    box.append(earlier)
+  if (thread.problems.length > 0) parts.push(el('p', 'brainstorm-problems', `The thread has ${thread.problems.length === 1 ? 'a line' : 'lines'} the board cannot read (${thread.problems.slice(0, 3).join(' · ')}${thread.problems.length > 3 ? ' …' : ''}): ask your partner to write ${thread.problems.length === 1 ? 'it' : 'them'} as roles/partner.md shows.`))
+  if (thread.state === 'discarded') parts.push(el('p', 'muted brainstorm-over', 'Discarded: nothing of it was created.'))
+  const opening = brainstormOpening(thread, view)
+  if (opening !== null) parts.push(opening)
+  return parts
+}
+
+/** The head of the open thread: its title (its facts in the tooltip), its status word and the "…" menu. */
+function brainstormHead(thread, view, canWrite, isLive) {
+  const head = el('header', 'brainstorm-head')
+  const title = el('h3', 'brainstorm-title', thread.title)
+  title.title = view.tip
+  head.append(title, el('small', `brainstorm-status is-${view.status.tone}`, view.status.word), el('span', 'brainstorm-gap'), brainstormMenu(thread, view, canWrite, isLive))
+  return head
+}
+
+/**
+ * The "…" menu of the head: the thread file, "Type it to your partner again" (while the partner has the turn) and Discard;
+ * on the person's question also Skip, Back to the question before and "Enough, wrap up".
+ */
+function brainstormMenu(thread, view, canWrite, isLive) {
+  const wrap = el('div', 'brainstorm-menu')
+  const isOpen = brainstormUi.menu === thread.path
+  const toggle = brainstormButton('…', 'menu', 'brainstorm-menu-button')
+  toggle.title = 'More'
+  toggle.setAttribute('aria-label', 'More about this brainstorm')
+  toggle.setAttribute('aria-haspopup', 'menu')
+  toggle.setAttribute('aria-expanded', String(isOpen))
+  wrap.append(toggle)
+  if (!isOpen) return wrap
+  const list = el('div', 'brainstorm-menu-list')
+  list.setAttribute('role', 'menu')
+  const item = (text, act) => {
+    const button = brainstormButton(text, act, 'brainstorm-menu-item')
+    button.setAttribute('role', 'menuitem')
+    return button
   }
-  const foot = el('div', 'brainstorm-file')
-  const file = el('button', 'goals-link', `The thread file: ${thread.path} ↗`)
+  if (canWrite && view.canAnswer) {
+    list.append(item('Skip', 'skip'))
+    if (view.canBack) list.append(item(`Back to Q${view.question.n - 1}`, 'back'))
+    list.append(item('Enough, wrap up', 'wrap'))
+  }
+  const file = el('button', 'brainstorm-menu-item', 'The thread file')
   file.type = 'button'
   file.dataset.gameFile = thread.path
-  foot.append(file)
-  if (canWrite && (thread.state === 'running' || thread.state === 'wrapping up')) {
-    const discard = brainstormButton(brainstormUi.confirm === thread.path ? 'Click again to discard it' : 'Discard', 'discard', 'goals-tool is-delete')
-    discard.title = 'End it without creating anything'
-    foot.append(discard)
+  file.title = thread.path
+  file.setAttribute('role', 'menuitem')
+  list.append(file)
+  // Nothing came back for long: the board types its last word about this brainstorm into the partner's chat once more.
+  if (canWrite && isLive && view.turn === 'partner') {
+    const again = item('Type it to your partner again', 'again')
+    again.title = 'When nothing came back: the board types its last word about this brainstorm into your partner\'s chat again'
+    list.append(again)
   }
-  const parts = [about, box, foot]
-  if (brainstormUi.note !== null && brainstormUi.note.path === thread.path) parts.splice(2, 0, el('p', `brainstorm-note${brainstormUi.note.isProblem ? ' is-error' : ''}`, brainstormUi.note.text))
-  return parts
+  if (canWrite && isLive) {
+    const discard = item(brainstormUi.confirm === thread.path ? 'Click again to discard it' : 'Discard', 'discard')
+    discard.classList.add('is-delete')
+    discard.title = 'End it without creating anything'
+    list.append(discard)
+  }
+  wrap.append(list)
+  return wrap
+}
+
+/** The earlier answers as a thin row of small chips ("1 · A fight of 3 heroes"); a click shows the question and the whole answer under the row. */
+function brainstormChips(thread, view) {
+  if (view.earlier.length === 0) return null
+  const open = brainstormUi.chip !== null && brainstormUi.chip.path === thread.path ? brainstormUi.chip.n : null
+  const row = el('div', 'brainstorm-chips')
+  row.setAttribute('role', 'group')
+  row.setAttribute('aria-label', 'Your earlier answers')
+  for (const one of view.earlier) {
+    const chip = el('button', `brainstorm-chip${open === one.n ? ' is-open' : ''}`, one.chip)
+    chip.type = 'button'
+    chip.dataset.brainstormChip = String(one.n)
+    chip.title = `Q${one.n} ${one.title}\n${one.answerText}`
+    chip.setAttribute('aria-expanded', String(open === one.n))
+    row.append(chip)
+  }
+  const shown = view.earlier.find(one => one.n === open)
+  if (shown === undefined) return [row]
+  const detail = el('div', 'brainstorm-chip-detail')
+  detail.append(el('b', '', `Q${shown.n} ${shown.title}`), el('span', '', shown.answerText))
+  if (shown.context) detail.append(el('span', 'muted', shown.context))
+  return [row, detail]
+}
+
+/** The partner's turn: one large calm card, a softly pulsing dot beside the line that says what it does, and a muted line under it. */
+function brainstormPartnerCard(partner) {
+  const box = el('section', `brainstorm-box brainstorm-waiting is-${partner.kind}`)
+  box.setAttribute('role', 'status')
+  const line = el('p', 'brainstorm-wait-line')
+  const dot = el('span', 'brainstorm-dot')
+  dot.setAttribute('aria-hidden', 'true')
+  line.append(dot, el('b', '', partner.headline))
+  box.append(line, el('p', 'brainstorm-wait-sub', partner.line))
+  return box
+}
+
+/** The person's turn: "Question n", the question large, its context as one short muted line, the options as big stacked buttons, and a line for their own words. */
+function brainstormAsk(thread, view, canWrite) {
+  const question = view.question
+  const box = el('section', 'brainstorm-box is-ask')
+  box.append(el('small', 'brainstorm-qn', `Question ${question.n}`), el('h4', 'brainstorm-question', question.title))
+  // A short context is the one line under the question; a longer one, and the partner's reason, fold out under "Why I ask".
+  const isLong = question.context.length > BRAINSTORM_CONTEXT_CHARS
+  if (question.context !== '' && !isLong) box.append(el('p', 'brainstorm-context', question.context))
+  const folded = [isLong ? question.context : null, question.why ? `I ask because ${question.why}` : null].filter(Boolean)
+  if (folded.length > 0) {
+    const isOpen = brainstormUi.why.has(`${thread.path}#${question.n}`)
+    const toggle = brainstormButton('Why I ask', 'why', 'goals-link brainstorm-why-toggle')
+    toggle.setAttribute('aria-expanded', String(isOpen))
+    box.append(toggle)
+    if (isOpen) box.append(...folded.map(text => el('p', 'brainstorm-context brainstorm-why', text)))
+  }
+  const options = el('div', 'brainstorm-options')
+  for (const option of view.options) {
+    const button = el('button', 'brainstorm-option')
+    button.type = 'button'
+    button.dataset.option = option.key
+    button.disabled = !canWrite || brainstormUi.busy
+    button.append(el('span', 'brainstorm-key', option.key), el('span', 'brainstorm-option-text', option.text))
+    if (option.isAdvised) button.append(el('span', 'brainstorm-advised', 'advised'))
+    options.append(button)
+  }
+  box.append(options)
+  if (question.picture) {
+    const shown = picture(question.picture, `Q${question.n}: every option side by side`)
+    shown.classList.add('brainstorm-picture')
+    box.append(shown)
+  }
+  const say = el('div', 'brainstorm-say')
+  const other = el('input', 'brainstorm-other')
+  other.type = 'text'
+  other.id = 'brainstorm-other'
+  other.maxLength = 1000
+  other.placeholder = 'Or say it in your own words…'
+  other.value = brainstormUi.other.get(thread.path) ?? ''
+  other.disabled = !canWrite || brainstormUi.busy
+  other.setAttribute('aria-label', 'Your own words')
+  const send = brainstormButton('Send', 'answer', 'goals-action is-send')
+  send.id = 'brainstorm-send'
+  send.disabled = !canWrite || brainstormUi.busy || other.value.trim() === ''
+  say.append(other, send)
+  box.append(say)
+  return box
+}
+
+/** The person's opening words as one collapsed line, "Your words: <the first of it>…", with "show all". */
+function brainstormOpening(thread, view) {
+  if (view.opening === null) return null
+  const isFull = brainstormUi.opening.has(thread.path)
+  const line = el('p', 'brainstorm-opening')
+  line.append(`Your words: ${isFull || !view.opening.isCut ? view.opening.full : view.opening.short}`)
+  if (view.opening.isCut) line.append(' ', brainstormButton(isFull ? 'show less' : 'show all', 'opening', 'goals-link'))
+  return line
 }
 
 /**
  * "Change this goal" (2026-10-31): the partner's "what I understand you want", with "Yes, that's it" and "Not quite…"
- * (a box for the person's words, which go to the partner as their next answer); once answered, the answer.
+ * (a box for the person's words, which go to the partner as their next answer). Drawn while it waits for the person's answer.
  */
 function understoodPart(thread, understood, canWrite) {
-  const part = el('section', 'brainstorm-understood')
+  const part = el('section', 'brainstorm-box brainstorm-understood')
   part.append(el('h4', '', 'What I understand you want'), el('p', 'brainstorm-understood-text', understood.text))
-  if (understood.answer !== null) {
-    part.append(el('p', 'muted', understood.answer === 'yes' ? 'You said yes: your partner writes the new goal and the tasks.' : `You said ${understood.answer}. Your partner asks on.`))
-    return part
-  }
   if (!canWrite) return part
   const buttons = el('div', 'brainstorm-buttons')
   buttons.append(brainstormButton('Yes, that\'s it', 'understood-yes', 'goals-action is-send'), brainstormButton(brainstormUi.notQuite === thread.path ? 'Not quite… ▾' : 'Not quite…', 'not-quite'))
@@ -11354,11 +11565,29 @@ async function sayBrainstorm(message, path) {
   return false
 }
 
-async function brainstormAct(act, path) {
+async function brainstormAct(act, path, key = null) {
   const thread = threadAt(path)
   const advisor = board?.advisor?.name ?? null
   const main = board?.restart?.main ?? null
   if (thread === null || brainstormUi.busy) return
+  // The Brainstorm screen (2026-10-31): the page's own moves, nothing sent: the "…" menu, the opening in full, "Why I ask".
+  const toggled = (set, value) => (set.has(value) ? set.delete(value) : set.add(value))
+  if (act === 'menu') {
+    brainstormUi.menu = brainstormUi.menu === path ? null : path
+    return redrawBrainstorm()
+  }
+  if (act === 'opening') {
+    toggled(brainstormUi.opening, path)
+    return redrawBrainstorm()
+  }
+  if (act === 'why') {
+    toggled(brainstormUi.why, `${path}#${thread.latest?.n}`)
+    return redrawBrainstorm()
+  }
+  // Any other choice in the menu closes it; the first click on Discard keeps it open to show "Click again to discard it".
+  if (!(act === 'discard' && brainstormUi.confirm !== path)) brainstormUi.menu = null
+  // Their own words go as the answer "Other"; with none there is nothing to send.
+  if (act === 'answer' && key === null && (brainstormUi.other.get(path) ?? '').trim() === '') return redrawBrainstorm()
   if (act === 'again' && brainstormUi.busy === false) {
     // The word the brainstorm waits on: the start, the answer to the last question, or the wrap-up.
     const said = thread.proposal === null && thread.understood?.isOpen === true ? thread.understood.answer : null
@@ -11410,12 +11639,11 @@ async function brainstormAct(act, path) {
   try {
     const n = thread.latest?.n ?? null
     if (act === 'answer' || act === 'skip' || act === 'back') {
-      const picked = brainstormUi.chosen.get(path) ?? null
+      // An option of the card answers at once (`key`, with the words typed beside it, if any); the line for their own words answers "Other".
       const words = (brainstormUi.other.get(path) ?? '').trim()
       const answer = act === 'skip' ? { command: 'skip' } : act === 'back' ? { command: 'back', to: n - 1 }
-        : picked !== null && picked !== 'Other' ? { command: 'answer', key: picked, words } : { command: 'answer', key: 'Other', words }
+        : key !== null ? { command: 'answer', key, words } : { command: 'answer', key: 'Other', words }
       if (await sendBrainstorm({ path, n, ...answer }) !== null) {
-        brainstormUi.chosen.delete(path)
         brainstormUi.other.delete(path)
         await sayBrainstorm({ to: advisor, command: 'brainstorm-answer', thread: path, n }, path)
       }
@@ -11495,17 +11723,18 @@ $('brainstorm-list').addEventListener('click', event => {
 $('brainstorm-card').addEventListener('click', event => {
   const path = brainstormChosen(board?.brainstorms?.threads ?? [], brainstormUi.open)
   if (path === null) return
+  // The Brainstorm screen (2026-10-31): an option is the answer (nothing to pick first, then press Answer).
   const option = event.target.closest('[data-option]')
   if (option !== null && !option.disabled) {
     brainstormUi.open = path
-    brainstormUi.chosen.set(path, brainstormUi.chosen.get(path) === option.dataset.option ? null : option.dataset.option)
-    if (brainstormUi.chosen.get(path) === null) brainstormUi.chosen.delete(path)
-    return redrawBrainstorm()
+    return brainstormAct('answer', path, option.dataset.option)
   }
-  const goal = event.target.closest('[data-brainstorm-goal]')
-  if (goal !== null) {
-    showAdvisorPane('goals')
-    return zoomGoal(goal.dataset.brainstormGoal)
+  // A chip of an earlier answer shows its question and the whole answer under the row, and a second click hides them.
+  const chip = event.target.closest('[data-brainstorm-chip]')
+  if (chip !== null) {
+    const n = Number(chip.dataset.brainstormChip)
+    brainstormUi.chip = brainstormUi.chip !== null && brainstormUi.chip.path === path && brainstormUi.chip.n === n ? null : { path, n }
+    return redrawBrainstorm()
   }
   const act = event.target.closest('[data-brainstorm-act]')
   if (act !== null && !act.disabled) {
@@ -11540,19 +11769,27 @@ $('brainstorm-card').addEventListener('input', event => {
   if (event.target.id !== 'brainstorm-other') return
   const path = brainstormChosen(board?.brainstorms?.threads ?? [], brainstormUi.open)
   brainstormUi.other.set(path, event.target.value)
-  const picked = brainstormUi.chosen.get(path) ?? null
-  const words = event.target.value.trim()
-  const answer = $('brainstorm-answer')
-  if (answer !== null) {
-    answer.disabled = brainstormUi.busy || (picked === null && words === '')
-    answer.textContent = picked !== null && picked !== 'Other' ? `Answer ${picked}` : words !== '' ? 'Answer with your words' : 'Answer'
-  }
+  // Send follows the words without drawing the card anew.
+  const send = $('brainstorm-send')
+  if (send !== null) send.disabled = brainstormUi.busy || event.target.value.trim() === ''
 })
 $('brainstorm-card').addEventListener('keydown', event => {
-  if (event.target.id === 'brainstorm-other' && event.key === 'Enter' && !$('brainstorm-answer')?.disabled) {
+  if (event.target.id === 'brainstorm-other' && event.key === 'Enter' && !$('brainstorm-send')?.disabled) {
     event.preventDefault()
     brainstormAct('answer', brainstormChosen(board?.brainstorms?.threads ?? [], brainstormUi.open))
   }
+})
+// The "…" menu closes on a click outside it, on a click on the thread file inside it, and on Escape.
+document.addEventListener('click', event => {
+  if (brainstormUi.menu === null) return
+  if (event.target.closest('.brainstorm-menu') !== null && event.target.closest('.brainstorm-menu-list [data-game-file]') === null) return
+  brainstormUi.menu = null
+  redrawBrainstorm()
+})
+document.addEventListener('keydown', event => {
+  if (event.key !== 'Escape' || brainstormUi.menu === null) return
+  brainstormUi.menu = null
+  redrawBrainstorm()
 })
 $('brainstorm-new').addEventListener('click', event => {
   if (event.target.closest('[data-brainstorm-free]') !== null) {

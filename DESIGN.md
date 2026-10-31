@@ -674,15 +674,30 @@ section 5). The **thread** is `<brainstorms>/<yyyy-mm-dd>-<title's words>.md` (s
 (`Decided:`, `Goals:` "- [ ] <title> — under G<id> or top — Done when: …", `Steps:` "- [ ] <title> — <worker> —
 about <time>", `Note:`; a changed one under a new heading, the last counts) and the board's
 `Created (HH:MM): <goals>; <n> steps asked of the main chat; left out: <titles>` (`src/brainstorm.mjs`, read and
-written line by line, as the map is). The **Brainstorm part** is the Advisor tab's third: at the left
-"+ New brainstorm… (about a goal, or free)" and the brainstorms, running ("question 3 waits for you", "with the
-Advisor", "proposal to tick") and done ("→ G10, 2 steps", "discarded"); at the right the chosen one's card: what it
-is about (a link into the map), the open question with its why, its options as buttons with the advised one marked,
-"Other" for the person's own words (also as words with a chosen option), the picture of every option, Answer, Skip,
-Back (asks the question before again) and "Enough, wrap up", the earlier questions and answers folded, and the
-thread file in the board's file window. While the Advisor has the turn the card says what it does: "The Advisor is
-thinking…", "The Advisor is on: <its card's line>" when it works on something else, or that its chat is not running
-and the main chat starts it (Review Focus 4); no fixed time limit. The proposal shows what was decided, the goals
+written line by line, as the map is). The **Brainstorm part** is the Advisor tab's third. The screen (2026-10-31, the person:
+"it looks terrible. cluttered too much text to little focus on the interaction, no feedback if its working on it"; mocks in
+the project's art inbox, `brainstorm-mocks`): at the left "+ New brainstorm…" and a slim row per brainstorm, its title and
+one small status word (`brainstormStatusOf`: "your turn" for an open question, what the partner understood or a proposal
+to tick; "your partner is thinking" when it holds the thread's word or nothing says it is elsewhere; "waiting for your
+partner" when the word waits in its queue, it is busy with something else, its chat does not run or there is none;
+"done", "created", "discarded"); the day, the question count and what came of it are in the row's tooltip. At the right the
+chosen one: a head (title, the same word, a "…" menu: the thread file, "Type it to your partner again", Discard; on a question
+also Skip, "Back to Q<n>" and "Enough, wrap up"; the thread's kind, goal and start are in the title's tooltip), the earlier
+answers as chips ("1 · <the option's text>"; a tooltip and a click show the question and the whole answer), then one card.
+**The partner's turn** (`brainstormPartnerView`): a softly pulsing dot (only where the visitor does not ask for less
+motion) and "Your partner is reading your words" before the first question, "…writing the next question" after an answer,
+"…drafting the new goal" after the yes to what it understood, "…writing the proposal" on wrap up; under it "Started HH:MM
+· usually under a minute" (the time the partner took the word, from the state's `advisor.next`, else the person's last
+move in the thread). When it is busy with something else the card says "Your partner is busy with <the item it took, from
+`advisor.on`, else its card's line> since HH:MM." and "Your brainstorm is next." or its place in the queue ("number 3 in
+its queue"); the queue's rows of a brainstorm word name their thread (`thread`, from the word's `about`). A chat that does
+not run, or no partner, says so with the way to start it (Review Focus 4). **The person's turn**: "Question n", the question
+large, its context as one muted line ("Why I ask" folds out a context over 140 characters and the partner's reason), the
+options as big stacked buttons that answer at once through the same answer path (the advised one with a small pill; words
+typed beside them go with the option), "Or say it in your own words…" with Send (the answer "Other"), the picture of every
+option. **What the partner understood** (a change): the card with a thin green border, "Yes, that's it", "Not quite…", and
+"Next: your partner drafts the new goal" under it. The person's opening words are one collapsed line, "Your words: …" with
+"show all". The proposal shows what was decided, the goals
 and the steps with a tick each (all ticked at first), the note, and "Create what's ticked", "Change…" (the person's
 words to the Advisor) and, under the card, "Discard" (a second click). **Create** (`POST /api/brainstorm` `create`,
 the thread's length as read: a thread that changed since is refused; a second Create, also at the same moment, is
@@ -697,7 +712,7 @@ runs on a goal at a time ("Brainstorm this" on a goal with one running opens it)
 (`brainstorm`, `brainstorm answer`, `brainstorm wrap up`, `brainstorm change`) are each made from the thread after the
 board's own write, so one is typed only when the thread is where it says (no second `brainstorm` for a thread the
 Advisor has; an answer only once written); a chat that is not running is started through the main chat. When
-nothing comes back, "Type it to the Advisor again" beside the waiting line types the word the brainstorm waits on once
+nothing comes back, "Type it to your partner again" in the head's "…" menu types the word the brainstorm waits on once
 more; a step the main chat could not be asked for after Create is asked again with "Ask the main chat again for N
 steps". The review of B259 also made the head's lines count once (a "Goal:" in the Advisor's context is context), a
 question asked again under its number take its answer, a question like "Lanterns: where?" stay a question, a Done when

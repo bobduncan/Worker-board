@@ -94,7 +94,10 @@ export function advisorNextOf({ waiting = [], on = null, words = [], items = new
     const first = group.reduce((one, other) => (other.at < one.at ? other : one))
     const item = id === null ? undefined : items.get(id)
     const title = (item === undefined ? null : valueOf(item, 'Title')) ?? titleOfWord(first, id)
-    rows.push({ kind, id, title, who: null, stand: workStand({ id: id ?? '', words: group, task, queuedSince: first.at, isWorking }) })
+    // The Brainstorm part (2026-10-31): a word of a brainstorm names its thread (its `about`), so the page can tell which
+    // thread waits in the queue and which one the partner holds.
+    const thread = String(kind).startsWith('brainstorm') && typeof first.about === 'string' && first.about !== '' ? { thread: first.about } : {}
+    rows.push({ kind, id, title, who: null, stand: workStand({ id: id ?? '', words: group, task, queuedSince: first.at, isWorking }), ...thread })
   }
   const since = one => (Number.isFinite(one.stand?.since) ? one.stand.since : Infinity)
   return leaveOut(rows, on).filter(one => !isEnded(items.get(one.id)))

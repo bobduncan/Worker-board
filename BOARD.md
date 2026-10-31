@@ -355,13 +355,20 @@ the outline alone and a "…" menu on every row; "Ask the Advisor…" in the fra
 question about that goal, with pictures pasted or picked: the ask stands under the goal, violet, until the Advisor's
 answer comes there, with its pictures and "More ↗" for its whole page; "Make a step from this", "Ask again" and
 "Done" (read) under it; an answer not read is also a line under Needs your attention), **Brainstorm** (think something
-through with the Advisor, one question at a time: "+ New brainstorm…" or "Brainstorm this" on a goal starts one with
-your opening words; the Advisor's question comes as a card with its options, the advised one marked, your own words
-under "Other" and a picture when it is visual; Answer, Skip, Back, "Enough, wrap up"; while the Advisor thinks the
-card says so, or what keeps it; at the end a proposal: what was decided, new goals for the map and steps for the
-backlog, each with a tick, and a note; "Create what's ticked" puts the goals into the map and asks the main chat for
-each step; "Change…" asks the Advisor for another proposal; the list at the left holds every brainstorm, running and
-done, with what became of it; a question or a proposal waiting is also a line under Needs your attention),
+through with your partner, one question at a time: "+ New brainstorm…" or "Brainstorm this" on a goal starts one with
+your opening words; the list at the left is a slim row per brainstorm, its title and one small word: "your turn", "your
+partner is thinking", "waiting for your partner", "done", "created" or "discarded" (the dates and counts are in the row's
+tooltip); at the right the open one has a head (its title, the same word, a small "…" menu: the thread file, "Type it to
+your partner again", Discard, and on a question also Skip, Back and "Enough, wrap up") and one calm card: while your partner
+has the turn a softly pulsing dot and what it does ("is reading your words", "is writing the next question", "is drafting
+the new goal", "is writing the proposal"), or, when it is busy with something else, what and since when and where your
+brainstorm stands in its queue; on your turn one question large, its context as one muted line ("Why I ask" folds out a
+longer one), the options as big buttons that answer at once with the advised one marked, a line for your own words, and
+your earlier answers as small chips above (a click shows the question and the whole answer); what your partner understood
+comes as a card with a thin green border, "Yes, that's it" and "Not quite…"; your opening words are one collapsed line
+with "show all"; at the end a proposal: what was decided, new goals for the map and steps for the backlog, each with a
+tick, and a note; "Create what's ticked" puts the goals into the map and asks the main chat for each step; "Change…" asks
+your partner for another proposal; a question or a proposal waiting is also a line under Needs your attention),
 **Game plan** (the game plan from the game's repository, with when it was written; being reworked in B218 at the time
 of this page), **Suggestions** (the Advisor's open suggestions with their Why, Cost and Unblocks, and when its rounds
 come), **Refine** (the steps by where their refine stands) and **Chat** (a chat with the Advisor, as "Talk to Main").

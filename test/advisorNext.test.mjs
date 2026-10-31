@@ -121,6 +121,19 @@ test('the steps the board asks it to refine next come after, each "next to refin
   assert.deepEqual(withRefineQueue(rows, []), rows)
 })
 
+test('the Brainstorm part: a word of a brainstorm names its thread in its row, so the page knows which thread waits; no other row does', () => {
+  const rows = next({ words: [
+    word({ at: ago(12), command: 'brainstorm-answer', about: 'talks/2026-10-28-benches.md', text: 'brainstorm answer\nThread: talks/2026-10-28-benches.md\nQ1: A' }),
+    word({ at: ago(8), command: 'brainstorm', about: 'talks/2026-10-28-lamps.md', state: 'taken', takenAt: ago(6), text: 'brainstorm\nThread: talks/2026-10-28-lamps.md' }),
+    word({ at: ago(5), command: 'evaluate', about: 'G61', text: 'evaluate G61 Make the arena feel alive' }),
+  ] })
+  assert.deepEqual(rows.map(one => [one.kind, one.thread ?? null, one.stand.kind]), [
+    ['brainstorm-answer', 'talks/2026-10-28-benches.md', 'queued'],
+    ['brainstorm', 'talks/2026-10-28-lamps.md', 'working'],
+    ['evaluate', null, 'queued'],
+  ])
+})
+
 // ---- the state ----
 
 const PROJECT = 'C:\\garden'
