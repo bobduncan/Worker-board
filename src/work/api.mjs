@@ -3382,13 +3382,17 @@ async function refineText(body, w) {
   // The board's own request to the chat that refines (the page's "Ask for pictures"): one Feedback line marked "Asked by the
   // board", written once for the round (a retry does not repeat it), and never a point of the person's Your words.
   const request = w.action === 'refine-accept' || !written.ok ? '' : line(body.request, 1000)
+  let isAsked = false
   if (request !== '') {
     const marked = `Asked by the board: ${request}`
     const block = found.item.sections.get('Refined') ?? []
     const round = Number(/\bround\s+(\d+)/i.exec(block[0] ?? '')?.[1] ?? 1)
     if (!block.some(one => one.includes(`Round ${round}: ${marked}`))) {
       const more = answerRefine(written.text, id, [], marked)
-      if (more.ok) written = more
+      if (more.ok) {
+        written = more
+        isAsked = true
+      }
     }
   }
   if (!written.ok) return refuse(409, { none: `${id} has not been refined yet.`, question: 'The questions changed in the meantime: open the step again.' }[written.why] ?? `${id}: ${written.why}.`)
@@ -3403,7 +3407,10 @@ async function refineText(body, w) {
   const questions = blockQuestions(found.item)
   const answers = Array.isArray(body.answers) ? body.answers : []
   const noted = w.action === 'refine-accept' ? item : refineWords(item, found.item, questions, answers, line(body.feedback, 1000), w)
-  const next = said(noted, w, w.action === 'refine-accept' ? 'accepted the refine' : 'answered the refine questions')
+  // The person's history line only for what the person gave; the board's request has its own, once.
+  const isPersons = w.action === 'refine-accept' || answers.length > 0 || line(body.feedback, 1000) !== '' || request === ''
+  const spoken = isPersons ? said(noted, w, w.action === 'refine-accept' ? 'accepted the refine' : 'answered the refine questions') : noted
+  const next = isAsked ? appendHistory(spoken, 'board', 'asked for pictures, one per option', w.now) : spoken
   const done = await save(next, found.text, w)
   if (!done.ok) return done
   // B299: the refine's asks follow: each question answered here is answered; accepting answers the rest.

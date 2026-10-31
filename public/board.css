@@ -3218,3 +3218,9 @@ ul.task-history { list-style: none; display: flex; flex-direction: column; gap: 
 .q-choose[aria-pressed="true"]::before { content: "✓ "; }
 .q-cards:has(.q-card.is-chosen) .q-choose.is-primary:not([aria-pressed="true"]) { background: transparent; border-color: #3a4a63; }
 .q-details[open] > summary { margin-bottom: 10px; }
+/* An answered question waits for the next round as one quiet line with Change, which opens it as a question block again. */
+.q-answered { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; padding: 8px 12px; border: 1px solid #22304a; border-radius: 10px; background: #0f1726; }
+.q-answered-words { margin: 0; font-size: 14.5px; overflow-wrap: anywhere; }
+.q-change { flex: none; padding: 4px 12px; border: 1px solid var(--line); border-radius: 8px; background: none; color: var(--muted); font-size: 13.5px; cursor: pointer; }
+.q-change:hover:not(:disabled) { color: var(--text); border-color: #3a4a63; }
+.q-change:disabled { opacity: .6; cursor: default; }

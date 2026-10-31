@@ -436,12 +436,17 @@ is the questions the window shows, never the refine's open questions plus their 
 full original words>` (`yes` or `no` for a Yes/No question) through the window's own send: a refine's "Send answers"
 (`refine-answer`, which keeps the question with the answer in "Your words"), an ask's answer (its pick kept as the option's label,
 as the calm window and a taken task's Options keep it, so it shows pressed in each). Nothing is ever cut out of an option's words:
-a time shows apart only when it ENDS them, and a letter marks an option only at the text's start or after "?", ".", ";", "·",
-")" or a line break, in order ("plan B:" splits nothing). An ask's options may stand in its text (title and context); only
-without lettered options anywhere is it Yes/No; its context's first sentence is the why and the rest stands under Details. A
+a time shows apart only when it ENDS them, and a letter marks an option after the text's start, a sentence mark, a comma,
+"or"/"and", a bracket or plain space, in order from A, but never right after a naming word (plan, option, step, part, type,
+variant, version, case, side, team, round, level, tier, grade): "plan B:" splits nothing, and "A: x, or B: y" splits. An ask's
+options may stand in its text (title and context), and then they are its cards in every window that draws them (`askTextOptions`
+in `cardsOf`); only without lettered options anywhere is it Yes/No; its context's first sentence is the why and the rest stands under Details. A
 question advised by a letter (`Advised: A — why`) is read by the store (`advice: 'A'`): its card is "advised" and "Take the advice"
 takes that option; an advice that names no option shows as the words it was written in. A pick belongs to its question's words
-(`settleDrafts`): another round, or other words at its place, drops it. An option without a picture (or whose picture the board
+(`settleDrafts`), never to the round: a new round keeps it with the same question wherever it stands, and drops that of a
+question that is gone or whose options are worded anew; typed words stay with the question's sentence. In a task's window
+every input is in a question block: the old refine part under Details reads each question and its answer and nothing more,
+and an answered question waits as one quiet line with Change, which opens it as a block again, its answer in it. An option without a picture (or whose picture the board
 cannot find: a file name alone is looked up in the shown folders, `findPicture`) says "No picture yet", and "Ask for pictures"
 asks the chat that asked: the Advisor through the board's own request, one Feedback line marked "Asked by the board:" (written
 once, never a point of Your words) and a new round; an ask's chat through words that say to withdraw it and ask again with one

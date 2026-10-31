@@ -6321,6 +6321,9 @@ function cardsOf(need) {
     return { verdict: one.label, key, title: parts === null ? words : parts[1], text: parts === null ? '' : parts[2], isAdvised: one.isRecommended === true || (key !== null && key === advisedKey) }
   }
   if (options.length > 0) return options.map(option)
+  // An ask whose options stand in its words (title and context) has them as its cards, as the task window reads them: never Yes and No.
+  const inText = typeof askTextOptions === 'function' ? askTextOptions(need) : []
+  if (inText.length > 0) return inText
   if (need.kind === 'do') return [{ verdict: 'done', key: null, title: 'Done', text: '', isAdvised: false }]
   if (need.asks === 'provide') return []
   const [yes, no] = need.kind === 'verify' ? ['approve', 'reject'] : ['yes', 'no']
@@ -6429,12 +6432,14 @@ const questionTidy = words => words.replace(/\s+/g, ' ').replace(/\s+([,.;:!?])/
 
 /**
  * The letters (A, B, ...) that mark the options of a text: "A: ..." or "A) ...", in order from A, at least two, each at the
- * text's start or after "?", ".", ";", "·", ")" or a line break ("plan B: ..." in the middle of a sentence is no marker).
+ * text's start or after a sentence mark, a comma, "or" or "and", a bracket or plain space; but never right after a naming word
+ * (plan, option, step, part, type, variant, version, case, side, team, round, level, tier, grade): "plan B: ..." stays in A.
  */
 function questionMarkers(text) {
   const found = []
-  for (const match of String(text).matchAll(/(?<=^|[?.;·)]\s+|\n\s*)([A-E])[:)](?=\s)/g)) {
+  for (const match of String(text).matchAll(/(?<=^|[\s(])([A-E])[:)](?=\s)/g)) {
     if (match[1] !== Q_LETTERS[found.length]) continue
+    if (/\b(?:plan|option|step|part|type|variant|version|case|side|team|round|level|tier|grade)\s*$/i.test(text.slice(0, match.index))) continue
     found.push({ letter: match[1], at: match.index, end: match.index + match[0].length })
   }
   return found.length >= 2 ? found : []
@@ -6450,7 +6455,8 @@ function questionOption(letter, written, isLast = false) {
   const take = path => {
     if (!pictures.some(one => one.path === path)) pictures.push({ path, caption: pictureWords(path) })
   }
-  let raw = String(written ?? '').replace(/\s+/g, ' ').trim()
+  // A comma or a semicolon that only closes an option's words is no part of its answer.
+  let raw = String(written ?? '').replace(/\s+/g, ' ').trim().replace(/[\s,;]+$/, '')
   const outside = { pictures: [], text: '' }
   if (isLast) {
     const sentences = raw.split(/(?<=[.!?])\s+(?=[A-Z0-9"“(])/)
@@ -6591,7 +6597,12 @@ function parseQuestionText(text) {
   const body = advice.text
   const markers = questionMarkers(body)
   const split = splitAsk(markers.length > 0 ? body.slice(0, markers[0].at).trim() : body)
-  const made = markers.map((one, place) => questionOption(one.letter, body.slice(one.end, place + 1 < markers.length ? markers[place + 1].at : body.length), place === markers.length - 1))
+  // An option that another follows ends before the comma and the "or" or "and" that join them ("A: keep it, or B: drop it").
+  const made = markers.map((one, place) => {
+    const isLast = place === markers.length - 1
+    const span = body.slice(one.end, isLast ? body.length : markers[place + 1].at)
+    return questionOption(one.letter, isLast ? span : span.replace(/[\s,;]*(?:\b(?:or|and)\b)?[\s,;]*$/i, ''), isLast)
+  })
   const outside = made.at(-1)?.outside ?? { pictures: [], text: '' }
   const options = made.map(one => {
     const answer = questionAnswer(one.letter, one.raw)
@@ -6711,6 +6722,21 @@ function askQuestionOf(need) {
     noPictureWhy: parsed?.noPictureWhy || noTitle.why || noContext.why || '',
     isYesNo,
   }
+}
+
+/**
+ * The options an ask has in its words ("A: ... B: ..." in its title or its context) as the cards of `cardsOf` have them
+ * (`verdict` is the pick as the task window keeps it, "A: <words>"); none when it has options of its own or none in its words.
+ */
+function askTextOptions(need) {
+  if (Array.isArray(need.options) && need.options.length > 0) return []
+  const title = questionNoPicture(questionNormal(need.question ?? need.title ?? '')).text.trim()
+  const context = questionNoPicture(questionNormal(need.text ?? '')).text.trim()
+  const given = questionAdvice(`Advised: ${String(need.advice ?? '').trim()}`)
+  return parseQuestionText([title, context].filter(Boolean).join('\n')).options.map(option => {
+    const head = option.words.match(/^(.{1,60}?)(?::\s+|\s+[—–]\s+)(.+)$/)
+    return { verdict: option.pick, key: option.letter, title: head === null ? option.words : head[1], text: head === null ? '' : head[2], isAdvised: given.advice === option.letter || (given.advice === null && option.isAdvised) }
+  })
 }
 
 /**
@@ -8203,11 +8229,18 @@ const windowQuestions = new Map()
 const pictureAsked = new Map()
 /** The pictures the board could not show, by path: an option whose pictures are all among them counts as having none. */
 const pictureMissing = new Set()
-/** What a refine pick or typed answer was written for, by its draft's key ("refine:B12:0"): the question's words and the round. */
+/**
+ * What a refine pick or typed answer was written for, by its draft's key ("refine:B12:0"): the question's words, the question
+ * sentence, and whether it is a pick of one of the question's options. The drafts are by place (the store writes an answer by
+ * place) but belong to the words: `settleDrafts` moves them with their question.
+ */
 const draftMeta = new Map()
+/** The answered refine questions the person reopened (Change) to answer anew, by step and the question's sentence. */
+const reopened = new Set()
 
 /** A question by its words (not by its place, which another round may give to another question). */
 const questionKey = question => `${question.kind === 'refine' ? question.stepId : question.id}|${question.question}`
+const reopenKey = (stepId, sentence) => `${stepId}|${sentence}`
 
 /** Draws the window again at once (a picture the board could not show changes what its card says). */
 function redrawQuestions() {
@@ -8221,47 +8254,58 @@ function rememberDraft(key) {
   if (found === null || board === null) return
   const step = (board.backlog ?? []).flatMap(activity => activity.steps).find(one => one.id === found[1])
   const asked = step?.refined?.questions?.[Number(found[2])]
-  if (asked !== undefined) draftMeta.set(key, { text: asked.text, round: step.refined.round ?? null })
+  if (asked === undefined) return
+  const shape = refineQuestionOf(step.id, Number(found[2]), asked)
+  draftMeta.set(key, { text: asked.text, question: shape.question, isPick: questionPicked(shape, drafts.get(key)) >= 0 })
 }
 
 /**
- * Keeps a step's drafts to the questions they were written for: a pick or typed answer whose question is no longer at its place
- * (another round, another words), or was written in an earlier round, is dropped, never sent as the answer to another question.
- * A draft with no note of its question is given the one now at its place.
+ * Keeps a step's drafts to the questions they were written for, by the question's words and never by the round: a pick goes
+ * with the question whose words (options too) are unchanged, typed words with the question of the same sentence, wherever the
+ * next round puts it; the draft of a question that is gone is dropped, and so is one for an answered question the person has
+ * not reopened. Nothing is ever sent as the answer to another question. A draft with no note of its question is given the one
+ * now at its place.
  */
 function settleDrafts(step) {
-  const refined = step?.refined ?? null
+  const questions = step?.refined?.questions ?? []
+  const shapes = questions.map((one, index) => refineQuestionOf(step.id, index, one))
   const prefix = `refine:${step?.id}:`
+  const entries = []
   for (const key of [...drafts.keys()]) {
     const place = key.startsWith(prefix) ? key.slice(prefix.length) : ''
     if (!/^\d+$/.test(place)) continue
-    const asked = refined?.questions?.[Number(place)]
-    const meta = draftMeta.get(key)
-    const round = refined?.round ?? null
-    if (asked === undefined || (meta !== undefined && (meta.text !== asked.text || meta.round !== round))) {
-      drafts.delete(key)
-      draftMeta.delete(key)
-    } else if (meta === undefined) draftMeta.set(key, { text: asked.text, round })
+    const index = Number(place)
+    let meta = draftMeta.get(key)
+    if (meta === undefined && questions[index] !== undefined) meta = { text: questions[index].text, question: shapes[index].question, isPick: questionPicked(shapes[index], drafts.get(key)) >= 0 }
+    entries.push({ index, meta, value: drafts.get(key) })
+    drafts.delete(key)
+    draftMeta.delete(key)
+  }
+  const claimed = new Set()
+  for (const entry of entries) {
+    if (entry.meta === undefined) continue
+    const same = at => (entry.meta.isPick ? questions[at].text === entry.meta.text : shapes[at].question === entry.meta.question)
+    const usable = at => !claimed.has(at) && same(at) && (questions[at].answer === null || reopened.has(reopenKey(step.id, shapes[at].question)))
+    const target = questions[entry.index] !== undefined && usable(entry.index) ? entry.index : questions.findIndex((_one, at) => usable(at))
+    if (target < 0) continue
+    claimed.add(target)
+    drafts.set(`${prefix}${target}`, entry.value)
+    draftMeta.set(`${prefix}${target}`, entry.meta)
+  }
+  // A question that is gone is no longer reopened.
+  for (const mark of [...reopened]) {
+    if (mark.startsWith(`${step?.id}|`) && !shapes.some(shape => reopenKey(step.id, shape.question) === mark)) reopened.delete(mark)
   }
 }
 
-/** Takes a step's picks and typed answers away (a new refine round starts), the feedback being the person's own words, stays. */
-function clearPicks(stepId) {
-  for (const key of [...drafts.keys()]) {
-    if (new RegExp(`^refine:${stepId}:\\d+$`).test(key)) {
-      drafts.delete(key)
-      draftMeta.delete(key)
-    }
-  }
-}
-
-/** A step's open questions, in the order they stand in the window: the open ones of its refine, then the open asks of the store under it. */
+/** A step's open questions, in the order they stand in the window: the open ones of its refine (and the answered ones the person reopened), then the open asks of the store under it. */
 function stepQuestions(step, item, state) {
   const out = []
   const view = refineView(step, state.advisor?.name ?? null)
   if (view !== null && view.refined !== null && !view.isReady) {
     view.refined.questions.forEach((one, index) => {
-      if (one.answer === null) out.push({ ...refineQuestionOf(step.id, index, one), kind: 'refine', stepId: step.id, index })
+      const shape = refineQuestionOf(step.id, index, one)
+      if (one.answer === null || reopened.has(reopenKey(step.id, shape.question))) out.push({ ...shape, kind: 'refine', stepId: step.id, index })
     })
   }
   const guard = taskGuardAsk(item, state.focus)
@@ -8271,6 +8315,42 @@ function stepQuestions(step, item, state) {
     out.push({ ...shape, kind: 'ask', needId: need.id, from: need.from ?? null })
   }
   return out
+}
+
+/** The refine questions the person answered that wait for the next round and are not reopened: `[{ index, question, answer }]`. */
+function answeredQuestions(step, state) {
+  const view = refineView(step, state.advisor?.name ?? null)
+  if (view === null || view.refined === null || view.isReady) return []
+  return view.refined.questions.flatMap((one, index) => {
+    const shape = refineQuestionOf(step.id, index, one)
+    return one.answer === null || reopened.has(reopenKey(step.id, shape.question)) ? [] : [{ index, question: shape.question, answer: one.answer }]
+  })
+}
+
+/** An answered question as one quiet line: its sentence, the person's answer, and Change, which reopens it as a question block. */
+function answeredLine(step, one, isBusy) {
+  const line = el('section', 'q-answered')
+  const words = el('p', 'q-answered-words')
+  words.append(el('b', '', capitalized(one.question)), ' ', el('span', 'muted', `Your answer: ${one.answer}`))
+  const change = el('button', 'q-change', 'Change')
+  change.type = 'button'
+  change.dataset.qStep = step.id
+  change.dataset.qChange = String(one.index)
+  change.disabled = isBusy
+  line.append(words, change)
+  return line
+}
+
+/** Change: the answered question is open again as a question block, its answer in it as the pick or the words it was. */
+function reopenQuestion(stepId, index) {
+  const step = (board?.backlog ?? []).flatMap(activity => activity.steps).find(one => one.id === stepId)
+  const asked = step?.refined?.questions?.[index]
+  if (asked === undefined || asked.answer === null) return
+  const key = `refine:${stepId}:${index}`
+  reopened.add(reopenKey(stepId, refineQuestionOf(stepId, index, asked).question))
+  drafts.set(key, asked.answer)
+  rememberDraft(key)
+  redrawQuestions()
 }
 
 /** What the person has written for a question as its answer: a refine question's draft, an ask's pick (as the other windows keep it). */
@@ -8516,7 +8596,7 @@ function askWritten(question, text) {
 /**
  * The click on "Ask for pictures": the chat that asked is asked for one picture per option without one. A refine question goes
  * to the Advisor as the board's own request under the step's Feedback (marked, written once, never the person's words) and a
- * new round; an ask goes to its chat as words (an ask is not edited: the words say to withdraw it and ask again).
+ * new round (nothing unsent is sent with it, and the person's picks and words stay with their questions); an ask goes to its chat as words (an ask is not edited: the words say to withdraw it and ask again).
  */
 async function askQuestionPictures(question) {
   const key = `pics:${question.id}`
@@ -8532,11 +8612,7 @@ async function askQuestionPictures(question) {
     const problem = advisor === null ? 'the board has no Advisor' : await sendBacklog({ action: 'refine-answer', step: question.stepId, answers: [], feedback: '', request: words })
     sending.delete(key)
     if (problem !== null) problems.set(key, `Not done: ${problem}`)
-    else {
-      await send({ to: advisor, command: 'refine', step: question.stepId }, key)
-      // A new round starts: the picks made for this one are not carried into it.
-      if (!problems.has(key)) clearPicks(question.stepId)
-    }
+    else await send({ to: advisor, command: 'refine', step: question.stepId }, key)
   } else {
     sending.delete(key)
     await send({ to: question.from, text: words }, key)
@@ -8546,6 +8622,8 @@ async function askQuestionPictures(question) {
 }
 
 $('details').addEventListener('click', event => {
+  const change = event.target.closest('[data-q-change]')
+  if (change !== null && !change.disabled) return reopenQuestion(change.dataset.qStep, Number(change.dataset.qChange))
   const block = event.target.closest('.q-block')
   if (block === null) return
   const question = windowQuestions.get(block.dataset.q)
@@ -8604,12 +8682,16 @@ function drawStepWindow(box, { state, subject, lane, step, item, head, notes, sc
   // While a question waits for the person it stands first, with its options as cards and their pictures; everything else is
   // folded under one "Details" (see `questionBlock`). With none, the window is as it was.
   const questions = subject.step !== undefined ? stepQuestions(subject.step, item, state) : []
+  // The answered questions that wait for the next round: each a quiet line with Change, which opens it as a question block.
+  const answered = subject.step !== undefined ? answeredQuestions(subject.step, state) : []
+  const isBusy = subject.step !== undefined && refineView(subject.step, state.advisor?.name ?? null)?.working != null
+  const answeredLines = answered.map(one => answeredLine(subject.step, one, isBusy))
   const main = el('div', `details-main task-calm${questions.length > 0 ? ' task-ask' : ''}`)
-  const refineHere = questions.length > 0 && refine !== null ? refinePart(subject.step, state, true, { skipOpen: true }) : refine
+  const refineHere = refine === null ? null : questions.length > 0 ? refinePart(subject.step, state, true, { skipOpen: true }) : answered.length > 0 ? refinePart(subject.step, state, true, { skipAnswered: true }) : refine
   const story = storyNode(item, state)
   const yours = words.length > 0 ? [taskPart('Your words', yourWordsNodes(item.id, words))] : yourWordsNodes(item.id, [])
   if (questions.length === 0) {
-    main.append(story, ...yours)
+    main.append(...answeredLines, story, ...yours)
     main.append(statusNode(item, state, refined?.size ?? ''))
     if (refineHere !== null) main.append(refineHere)
   }
@@ -8646,7 +8728,7 @@ function drawStepWindow(box, { state, subject, lane, step, item, head, notes, sc
     const rest = questionMore(questions)
     const inside = [...rest, story, ...yours, ...(refineHere === null ? [] : [refineHere]), ...folds]
     const names = [rest.length === 0 ? null : 'the rest of the question', 'why it came up', words.length > 0 ? 'your words and notes' : 'add a note', what === undefined ? null : 'what we build', effort === undefined ? null : 'model and effort', strip === null ? null : 'flow', item.history.length > 0 ? 'history' : null, refineHere === null ? null : 'feedback to the Advisor', other.length > 0 ? 'other details' : null]
-    main.append(questionDetails(inside, questionDetailsLine(names), keep.has('details')), questionStatus(item, view))
+    main.append(...answeredLines, questionDetails(inside, questionDetailsLine(names), keep.has('details')), questionStatus(item, view))
     setQuestionCount(head, questions.length)
   }
   const body = el('div', 'details-body is-single task-window')
@@ -18594,7 +18676,7 @@ function holding(tag, className, ...children) {
  * the summary, the picture, and one line per question with the advice and Yes / No; once ready, the step's
  * description itself (`is-ready`): the summary, the picture and what we build, with no box, no rounds and no questions.
  */
-function refinePart(step, state, isItemShown = false, { skipOpen = false } = {}) {
+function refinePart(step, state, isItemShown = false, { skipOpen = false, skipAnswered = false } = {}) {
   const advisor = state.advisor?.name ?? null
   const view = refineView(step, advisor)
   const working = view?.working == null ? null
@@ -18627,7 +18709,7 @@ function refinePart(step, state, isItemShown = false, { skipOpen = false } = {})
     // With the store's item shown, its Summary and picture stand above: not twice.
     box.append(...refinedParts(isItemShown ? { ...refined, summary: '', picture: null, pictureNote: '', build: [], effort: '' } : refined))
     // A window that asks its open questions apart (see `drawStepWindow`) leaves them out here; the answered ones stay.
-    const asked = refined.questions.length > 0 ? refineQuestions(step, refined, view, skipOpen) : null
+    const asked = refined.questions.length > 0 ? refineQuestions(step, refined, view, { skipOpen, skipAnswered, readOnly: isItemShown }) : null
     if (asked !== null) box.append(asked)
     if (refined.feedback.length > 0) {
       box.append(el('span', 'refine-tag', 'Feedback so far'), listOf(refined.feedback))
@@ -18681,15 +18763,26 @@ function refinedParts(refined) {
  * B293: the questions, one line each: its number, the question, the advice (its reason on hover) and Yes / No, the
  * person's pick or answer pressed. A question without advice (the older form) keeps a field for the person's words.
  */
-function refineQuestions(step, refined, view, skipOpen = false) {
+function refineQuestions(step, refined, view, { skipOpen = false, skipAnswered = false, readOnly = false } = {}) {
   const box = el('div', 'refine-questions')
-  const shown = skipOpen ? refined.questions.filter(one => one.answer !== null).length : refined.questions.length
+  const isSkipped = one => (skipOpen && one.answer === null) || (skipAnswered && one.answer !== null)
+  const shown = refined.questions.filter(one => !isSkipped(one)).length
   if (shown === 0) return null
   box.append(el('span', 'refine-tag', `Questions · ${shown}`))
   refined.questions.forEach((one, index) => {
-    if (skipOpen && one.answer === null) return
+    if (isSkipped(one)) return
     const key = `refine:${step.id}:${index}`
-    if (one.advice === null) {
+    // In a task's window every input is in its question block: here each question is read, with its answer, and nothing more.
+    if (readOnly) {
+      const part = el('div', 'refine-question is-read')
+      part.append(el('span', 'refine-tag', `Question ${index + 1}`), el('p', '', one.text))
+      if (one.advice !== null) part.append(el('p', 'muted', `Advised: ${one.advice}${one.why === '' ? '' : `, ${one.why}`}`))
+      part.append(el('p', 'refine-answer', one.answer === null ? 'Not answered yet.' : `Your answer: ${one.answer}`))
+      box.append(part)
+      return
+    }
+    // Yes and No are for a question advised yes or no; any other (a letter among them) is answered in words.
+    if (one.advice !== 'yes' && one.advice !== 'no') {
       const part = el('div', 'refine-question')
       part.append(el('span', 'refine-tag', `Question ${index + 1}`), el('p', '', one.text))
       if (one.answer !== null) part.append(el('p', 'refine-answer', `Your answer: ${one.answer}`))
@@ -18799,6 +18892,8 @@ async function refineClick(button) {
       drafts.delete(name)
       draftMeta.delete(name)
     }
+    // What was reopened is answered anew: it is closed again.
+    for (const mark of [...reopened]) if (mark.startsWith(`${step.id}|`)) reopened.delete(mark)
     sending.delete(key)
     return send({ to: advisor, command: 'refine', step: step.id }, key)
   }

@@ -56,7 +56,7 @@ test('the real shape of B893 (options in one sentence, a picture wish, Advised: 
 })
 
 test('the new form: each option with its (picture: <path>), the advice with its reason, the question\'s own why before the options', () => {
-  const shape = plain(page.parseQuestionText('Which door for the barn? It is seen from the road. A: red door (picture: pics/barn/red.png) about 30 min. B: blue door (picture: pics/barn/blue.png, pics/barn/blue-night.png) about 1 h. C) no door Advised: B — blue hides the dirt'))
+  const shape = plain(page.parseQuestionText('Which door for the barn? It is seen from the road. A: red door (picture: pics/barn/red.png) about 30 min B: blue door (picture: pics/barn/blue.png, pics/barn/blue-night.png) about 1 h C) no door Advised: B — blue hides the dirt'))
   assert.equal(shape.question, 'Which door for the barn?')
   assert.equal(shape.why, 'It is seen from the road.')
   assert.deepEqual(shape.options.map(one => [one.letter, one.words, one.time, one.pictures.map(picture => picture.path)]), [
@@ -70,17 +70,17 @@ test('the new form: each option with its (picture: <path>), the advice with its 
 })
 
 test('a path in an option\'s words belongs to that option: bare, in brackets or ending the words; a "Picture: <path>" sentence of the question belongs to the question, with its caption', () => {
-  const shape = plain(page.parseQuestionText('Which look? Picture: pics/hedge/now.png (the hedge now) A: tall, see pics/hedge/tall.png. B: low and wide pics/hedge/low.webp. C: none (pics/hedge/none.jpg) Advised: A'))
+  const shape = plain(page.parseQuestionText('Which look? Picture: pics/hedge/now.png (the hedge now) A: tall, see pics/hedge/tall.png B: low and wide pics/hedge/low.webp. C: none (pics/hedge/none.jpg) Advised: A'))
   assert.deepEqual(shape.pictures, [{ path: 'pics/hedge/now.png', caption: 'the hedge now' }])
   assert.deepEqual(shape.options.map(one => [one.letter, one.words, one.pictures.map(picture => picture.path)]), [
     ['A', 'tall', ['pics/hedge/tall.png']], ['B', 'low and wide', ['pics/hedge/low.webp']], ['C', 'none', ['pics/hedge/none.jpg']],
   ])
   // Not a picture: an extension in the middle of a word.
-  assert.deepEqual(plain(page.parseQuestionText('Use the .png format? A: yes. B: no')).options.map(one => one.pictures.length), [0, 0])
+  assert.deepEqual(plain(page.parseQuestionText('Use the .png format? A: yes B: no')).options.map(one => one.pictures.length), [0, 0])
 })
 
 test('"no picture: <why>" says the options do not differ in look: in brackets or as a sentence, and "Picture: none (why)" says it too', () => {
-  for (const text of ['Which name? A: Ivy. B: Fern (no picture: names have no look) Advised: A', 'Which name? A: Ivy. B: Fern. no picture: names have no look. Advised: A', 'Which name? Picture: none (names have no look) A: Ivy. B: Fern Advised: A']) {
+  for (const text of ['Which name? A: Ivy B: Fern (no picture: names have no look) Advised: A', 'Which name? A: Ivy B: Fern. no picture: names have no look. Advised: A', 'Which name? Picture: none (names have no look) A: Ivy B: Fern Advised: A']) {
     const shape = plain(page.parseQuestionText(text))
     assert.deepEqual([shape.noPicture, shape.noPictureWhy, shape.options.map(one => one.words), shape.advice], [true, 'names have no look', ['Ivy', 'Fern'], 'A'], text)
     assert.deepEqual(plain(page.questionLacking(page.parseQuestionText(text))), [], 'its cards show no placeholder')
@@ -176,15 +176,33 @@ test('never cut words out of an option: a time shows apart only when it ENDS the
   assert.deepEqual(plain(page.parseQuestionText('Which? A: plant it, about 40 min. B: dig it (about 2 hours).')).options.map(one => [one.words, one.time]), [['plant it', 'about 40 min'], ['dig it', 'about 2 hours']])
 })
 
-test('a letter starts an option only at the text\'s start or after "?", ".", ";", "·", ")" or a line break, in order: "plan B:" never splits', () => {
+test('a letter starts an option after the text\'s start, a sentence mark, a comma, "or"/"and", a bracket or plain space, in order from A; never right after a naming word: "plan B:" stays in A', () => {
   const road = plain(page.parseQuestionText('Which road? A: keep plan B: the old road. B: a new road. Advised: A'))
   assert.deepEqual(road.options.map(one => [one.letter, one.words]), [['A', 'keep plan B: the old road'], ['B', 'a new road']])
-  // "B:" after a comma or after words is no marker; in order only (a "C:" before a "B:" starts nothing).
-  assert.deepEqual(plain(page.parseQuestionText('Which? A: red, B: blue')).options, [])
+  for (const naming of ['plan', 'Option', 'step', 'PART', 'type', 'variant', 'version', 'case', 'side', 'team', 'round', 'level', 'tier', 'grade']) {
+    assert.deepEqual(plain(page.parseQuestionText(`Which? A: keep ${naming} B: the old one. B: a new one`)).options.map(one => [one.letter, one.words]), [['A', `keep ${naming} B: the old one`], ['B', 'a new one']], naming)
+  }
+  // The shapes of Q365 and Q384: commas and "or" join the options; the join belongs to no option.
+  const same = plain(page.parseQuestionText('is G33\'s approach right? A: keep going with the same plan, or B: change the approach (say what); I advise A.'))
+  assert.deepEqual(same.options.map(one => [one.letter, one.words, one.answer]), [['A', 'keep going with the same plan', 'A: keep going with the same plan'], ['B', 'change the approach (say what)', 'B: change the approach (say what)']])
+  assert.equal(same.advice, 'A')
+  const fall = plain(page.parseQuestionText('How much damage should a fall from two floors up do? A: 1 per floor (your earlier yes, but every fall halves from 2 to 1), B: 2, +1 for each extra floor (today\'s maps unchanged), or C: 2 per floor (two floors kill most enemies). I advise B.'))
+  assert.deepEqual(fall.options.map(one => [one.letter, one.words]), [
+    ['A', '1 per floor (your earlier yes, but every fall halves from 2 to 1)'],
+    ['B', '2, +1 for each extra floor (today\'s maps unchanged)'],
+    ['C', '2 per floor (two floors kill most enemies)'],
+  ])
+  assert.deepEqual([fall.advice, fall.question], ['B', 'How much damage should a fall from two floors up do?'])
+  // Plain space, commas, brackets, line breaks and the forms of the roles all start options; letters only in order from A.
+  assert.deepEqual(plain(page.parseQuestionText('Which? A: red, B: blue')).options.map(one => [one.letter, one.words]), [['A', 'red'], ['B', 'blue']])
+  assert.deepEqual(plain(page.parseQuestionText('Which? A: Ivy B: Fern')).options.map(one => one.words), ['Ivy', 'Fern'])
   assert.deepEqual(plain(page.parseQuestionText('Which? A: red; B: blue; C: green')).options.map(one => one.letter), ['A', 'B', 'C'])
   assert.deepEqual(plain(page.parseQuestionText('Which? C: green. A: red. B: blue')).options.map(one => one.letter), ['A', 'B'], 'a C before the A starts nothing')
   assert.deepEqual(plain(page.parseQuestionText('Which?\nA: red\nB: blue (the sea)\nC) green')).options.map(one => one.words), ['red', 'blue (the sea)', 'green'])
   assert.deepEqual(plain(page.parseQuestionText('Which? Option one (see below) A: red (picture: pics/r.png) B: blue')).options.map(one => one.letter), ['A', 'B'])
+  assert.deepEqual(plain(page.parseQuestionText('Which? (A: red) (B: blue)')).options.map(one => one.letter), ['A', 'B'])
+  // One letter alone is no list of options.
+  assert.deepEqual(plain(page.parseQuestionText('Use e.g. A: here? Plan B: later')).options, [])
 })
 
 test('a picture path in a sentence after the last option\'s words (outside its sentence) belongs to the question; "picture: <path>" without brackets inside an option is the option\'s', () => {
@@ -198,7 +216,7 @@ test('a picture path in a sentence after the last option\'s words (outside its s
   assert.deepEqual(door.options.map(one => one.pictures.map(picture => picture.path)), [['pics/d/red.png'], ['pics/d/blue.png']])
   assert.deepEqual(door.pictures, [])
   // "picture: <path>" with no brackets inside an option is the option's, not the question's (a capital "Picture:" is the question's).
-  const plainDoor = plain(page.parseQuestionText('Which door? A: red, picture: pics/d/red.png. B: blue, picture: pics/d/blue.png, pics/d/blue-night.png. Advised: A'))
+  const plainDoor = plain(page.parseQuestionText('Which door? A: red, picture: pics/d/red.png B: blue, picture: pics/d/blue.png, pics/d/blue-night.png Advised: A'))
   assert.deepEqual(plainDoor.options.map(one => [one.words, one.pictures.map(picture => picture.path)]), [['red', ['pics/d/red.png']], ['blue', ['pics/d/blue.png', 'pics/d/blue-night.png']]])
   assert.deepEqual(plainDoor.pictures, [])
   assert.deepEqual(plain(page.questionLacking(plainDoor)), [])
@@ -344,7 +362,7 @@ test('the header counts exactly the questions the window shows: one, two (number
 })
 
 test('a question that says "no picture: <why>" shows no placeholder and no "Ask for pictures"; a question with a picture for every option shows none either', async () => {
-  const none = await open([waiting(['Which name for the lamp? A: Ivy. B: Fern (no picture: names have no look) Advised: A'])])
+  const none = await open([waiting(['Which name for the lamp? A: Ivy B: Fern (no picture: names have no look) Advised: A'])])
   try {
     assert.equal(none.all('#details .q-card').length, 2)
     assert.equal(none.all('#details .q-nopic').length, 0)
@@ -490,37 +508,69 @@ test('a pick belongs to its question\'s words: after a new round that puts anoth
   }
 })
 
-test('a pick made in an earlier round is dropped when a new round is written, though the question is the same words; the answer to "Take the advice" is for the new one', async () => {
-  const round1 = stateWith(waiting([LANTERN, BASE]))
-  const round2 = stateWith(waiting([LANTERN, BASE], 2))
+test('a pick or typed words belong to their question\'s words, never to the round: a new round keeps them with the same question wherever it stands, drops those of a question that is gone and sends nothing else', async () => {
+  const DOOR = 'Which door? A: red B: blue Advised: A'
+  const round1 = stateWith(waiting([LANTERN, BASE, DOOR]))
+  const round2 = stateWith(waiting([BASE, LANTERN, 'Which wall? A: low B: high Advised: A'], 2))
   let now = round1
   const shown = await openPage({ state: () => now, hash: 'details=B12', answers: answering(() => reply({})) })
   try {
     await shown.click('.q-block:nth-of-type(1) [data-q-choose="1"]')
+    await shown.type('.q-block:nth-of-type(2) .q-field', 'Two fingers long, as on the old lamps in the hall')
+    await shown.click('.q-block:nth-of-type(3) [data-q-choose="0"]')
+    // The Advisor's next round: the Yes/No question first, the lantern question second, the door question gone.
     now = round2
     await shown.reread()
-    assert.deepEqual([...shown.all('#details .q-block:nth-of-type(1) .q-choose')].map(one => one.getAttribute('aria-pressed')), ['false', 'false'])
-    await shown.click('[data-refine-action="advice"]')
-    assert.deepEqual(shown.sent('/api/backlog').map(one => one.body.answers), [[{ index: 0, answer: `A: ${A_WORDS}` }, { index: 1, answer: 'yes' }]], 'the advice, not the old pick')
+    const blocks = shown.all('#details .q-block')
+    assert.deepEqual(blocks.map(block => words(block.querySelector('.q-question'))), ['Is the lamp\'s base heavy enough?', 'Should the lantern\'s glow be judged against the sketch?', 'Which wall?'])
+    assert.equal(blocks[0].querySelector('.q-field').value, 'Two fingers long, as on the old lamps in the hall', 'the typed words went with their question')
+    assert.deepEqual([...blocks[1].querySelectorAll('.q-choose')].map(one => one.getAttribute('aria-pressed')), ['false', 'true'], 'so did the pick')
+    assert.deepEqual([...blocks[2].querySelectorAll('.q-choose')].map(one => one.getAttribute('aria-pressed')), ['false', 'false'], 'the pick of the question that is gone is no answer to the new one at its place')
+    await shown.click('.q-block:nth-of-type(1) .q-send')
+    assert.deepEqual(shown.sent('/api/backlog').map(one => one.body.answers), [[{ index: 0, answer: 'Two fingers long, as on the old lamps in the hall' }, { index: 1, answer: `B: ${B_WORDS}` }]])
   } finally {
     await shown.close()
   }
 })
 
-test('"Ask for pictures" on a refine question goes to the Advisor as the board\'s own request (never the person\'s words) and a new round, and clears the step\'s picks', async () => {
-  const shown = await open([waiting([LANTERN, BASE])])
+test('a pick whose question\'s options are worded anew is dropped (it could mean another option), the words typed under the same question stay; "Take the advice" is for the new round', async () => {
+  const round1 = stateWith(waiting([LANTERN, BASE]))
+  const round2 = stateWith(waiting([LANTERN.replace('about 2 h.', 'about 3 h.'), BASE], 2))
+  let now = round1
+  const shown = await openPage({ state: () => now, hash: 'details=B12', answers: answering(() => reply({})) })
   try {
-    await shown.click('.q-block:nth-of-type(2) [data-q-choose="0"]')
+    await shown.click('.q-block:nth-of-type(1) [data-q-choose="1"]')
+    await shown.type('.q-block:nth-of-type(2) .q-field', 'A hook at the top')
+    now = round2
+    await shown.reread()
+    assert.deepEqual([...shown.all('#details .q-block:nth-of-type(1) .q-choose')].map(one => one.getAttribute('aria-pressed')), ['false', 'false'])
+    assert.equal(shown.find('.q-block:nth-of-type(2) .q-field').value, 'A hook at the top')
+    await shown.click('[data-refine-action="advice"]')
+    assert.deepEqual(shown.sent('/api/backlog').map(one => one.body.answers), [[{ index: 0, answer: `A: ${A_WORDS}` }, { index: 1, answer: 'A hook at the top' }]], 'the advice for the question left open, the words for the one answered')
+  } finally {
+    await shown.close()
+  }
+})
+
+test('"Ask for pictures" on a refine question goes to the Advisor as the board\'s own request (never the person\'s words) and a new round, and throws away nothing the person did: their picks and typed words stay and none is sent', async () => {
+  const round1 = stateWith(waiting([LANTERN, BASE]))
+  const round2 = stateWith(waiting([LANTERN.replace('(sketch-glow.png)', '(picture: pics/glow/sketch.png)').replace('about 2 h.', 'about 2 h (picture: pics/glow/b.png).'), BASE], 2))
+  let now = round1
+  const shown = await openPage({ state: requests => (requests.some(one => one.url === '/api/say' && one.body?.command === 'refine') ? round2 : now), hash: 'details=B12', answers: answering(() => reply({})) })
+  try {
+    await shown.type('.q-block:nth-of-type(2) .q-field', 'Two fingers long, as on the old lamps in the hall')
     await shown.click('.q-ask-pictures')
     const [sent] = shown.sent('/api/backlog').map(one => one.body)
-    assert.deepEqual([sent.action, sent.step, sent.answers, sent.feedback], ['refine-answer', 'B12', [], ''])
+    assert.deepEqual([sent.action, sent.step, sent.answers, sent.feedback], ['refine-answer', 'B12', [], ''], 'nothing unsent goes with it')
     assert.match(sent.request, /^Question 1, "Should the lantern's glow be judged against the sketch\?": give every option its picture/)
     assert.match(sent.request, /No picture yet for B \(try a calmer, dimmer glow/)
     assert.doesNotMatch(sent.request, /\bA \(/)
     assert.deepEqual(shown.sent('/api/say').map(one => one.body), [{ to: 'Advisor', command: 'refine', step: 'B12' }])
-    assert.match(words(shown.find('.q-ask-pictures')), /^Asked at \d\d:\d\d$/)
-    assert.equal(shown.find('.q-ask-pictures').disabled, true)
-    assert.deepEqual([...shown.all('#details .q-block:nth-of-type(2) .q-choose')].map(one => one.getAttribute('aria-pressed')), ['false', 'false'], 'the pick of this round is not carried into the next')
+    // The new round has the pictures; the words typed under the other question are where they were.
+    await shown.reread()
+    assert.equal(shown.find('.q-block:nth-of-type(2) .q-field').value, 'Two fingers long, as on the old lamps in the hall')
+    assert.equal(shown.all('#details .q-ask-pictures').length, 0, 'every option has its picture now')
+    assert.equal(shown.sent('/api/backlog').length, 1, 'and nothing was sent but the request')
   } finally {
     await shown.close()
   }
@@ -689,17 +739,118 @@ test('the ask\'s "Something else?" field keeps its text and its cursor when the 
   }
 })
 
-test('with no question open the window is as it was: the three lines first, the folds closed, no question block and no count of questions', async () => {
+test('options joined by plain space, commas or "or" are cards in the window; "picture: <path>" with or without brackets is the option\'s', async () => {
+  const space = await open([waiting(['Which door? A: red, picture: pics/d/red.png B: blue, picture: pics/d/blue.png Advised: A'])])
+  try {
+    assert.deepEqual(space.all('#details .q-card .q-letter').map(words), ['A', 'B'])
+    assert.deepEqual(space.all('#details .q-card .picture').map(one => one.dataset.zoom), ['pics/d/red.png', 'pics/d/blue.png'])
+    assert.equal(space.all('#details .q-nopic, #details .q-ask-pictures').length, 0)
+    assert.equal(space.all('#details .q-block > .q-pics').length, 0, 'no picture of an option stands above the cards as the question\'s')
+  } finally {
+    await space.close()
+  }
+  const comma = await open([waiting(['Is the approach right? A: keep going with the same plan, or B: change the approach (say what) Advised: A'])])
+  try {
+    assert.deepEqual(comma.all('#details .q-card .q-title').map(words), ['Keep going with the same plan', 'Change the approach (say what)'])
+    await comma.click('[data-q-choose="0"]')
+    await comma.click('.q-send')
+    assert.deepEqual(comma.sent('/api/backlog').map(one => one.body.answers), [[{ index: 0, answer: 'A: keep going with the same plan' }]], 'the join is no part of the answer')
+  } finally {
+    await comma.close()
+  }
+})
+
+test('with no question open the window is as it was, the answered questions as quiet lines with Change: the three lines first, the folds closed, no question block, no count, no input', async () => {
   const answered = await open([waiting([`${LANTERN} Answer: A: keep the lamp's glow`])])
   try {
     assert.equal(answered.all('#details .q-block').length, 0)
     assert.equal(answered.all('#details .details-chips .chip.is-ask').length, 0)
     assert.deepEqual(answered.all('#details .task-calm > .task-story').length, 1, 'the three lines stand first, not under Details')
     assert.equal(answered.all('#details details[data-fold="details"]').length, 0)
-    // The answered question stays in the refine part, with the person's answer.
-    assert.match(words(answered.find('#details .refine-questions')), /Your answer: A: keep the lamp's glow/)
+    // The answered question is one line with the person's answer and Change; it has no Yes and No, no field.
+    assert.match(words(answered.find('#details .q-answered')), /^Should the lantern's glow be judged against the sketch\? Your answer: A: keep the lamp's glow/)
+    assert.equal(words(answered.find('#details .q-answered .q-change')), 'Change')
+    assert.equal(answered.all('#details [data-refine-pick], #details [data-refine-field="B12:0"], #details .q-field').length, 0, 'the one field left is the feedback to the Advisor')
   } finally {
     await answered.close()
+  }
+})
+
+test('an answered lettered question never gets Yes and No: Details reads it, answer and all, with no button and no field; Change opens it as a question block with its answer in it', async () => {
+  const shown = await open([waiting([`${LANTERN} Answer: A: ${A_WORDS}`, BASE])])
+  try {
+    // Under Details the old refine part reads each question and nothing more.
+    const read = shown.all('#details details[data-fold="details"] .refine-question.is-read')
+    assert.equal(read.length, 1)
+    assert.ok(words(read[0]).includes('Should the lantern'))
+    assert.ok(words(read[0]).includes(`Your answer: A: ${A_WORDS}`))
+    assert.equal(shown.all('#details details[data-fold="details"] button.refine-pick, #details details[data-fold="details"] [data-refine-field="B12:0"], #details details[data-fold="details"] [data-refine-field="B12:1"]').length, 0)
+    assert.equal(shown.all('#details [data-refine-pick]').length, 0, 'no Yes or No anywhere for it')
+    // The open question is a block; the answered one is a quiet line with Change.
+    assert.equal(shown.all('#details .q-block').length, 1)
+    assert.equal(words(shown.find('#details .details-chips .chip.is-ask')), '1 question for you')
+    assert.match(words(shown.find('#details .q-answered')), /^Should the lantern's glow be judged against the sketch\? Your answer: A: keep the lamp's glow/)
+    // The answer of the open question goes alone: the answered one is not overwritten.
+    await shown.click('.q-block [data-q-choose="0"]')
+    await shown.click('.q-block .q-send')
+    assert.deepEqual(shown.sent('/api/backlog').map(one => one.body.answers), [[{ index: 1, answer: 'yes' }]])
+    // Change opens it again, in a block, as the option it was.
+    await shown.click('.q-change')
+    assert.equal(shown.all('#details .q-block').length, 2)
+    assert.equal(words(shown.find('#details .details-chips .chip.is-ask')), '2 questions for you')
+    assert.deepEqual([...shown.all('#details .q-block:nth-of-type(1) .q-choose')].map(one => one.getAttribute('aria-pressed')), ['true', 'false'], 'its answer is the pick')
+    assert.equal(shown.all('#details .q-answered').length, 0)
+    await shown.click('.q-block:nth-of-type(1) [data-q-choose="1"]')
+    await shown.click('.q-block:nth-of-type(1) .q-send')
+    assert.deepEqual(shown.sent('/api/backlog').at(-1).body.answers.filter(one => one.index === 0), [{ index: 0, answer: `B: ${B_WORDS}` }])
+  } finally {
+    await shown.close()
+  }
+  // An answer in the person's own words comes back as words in the field.
+  const words2 = await open([waiting([`${LANTERN} Answer: Neither: match the sketch exactly`, BASE])])
+  try {
+    await words2.click('.q-change')
+    assert.equal(words2.find('.q-block:nth-of-type(1) .q-field').value, 'Neither: match the sketch exactly')
+  } finally {
+    await words2.close()
+  }
+})
+
+// An ask under the task whose options stand in its words (the live Q581 shape), in each window that draws its options.
+const TAKEN = parseItem([
+  'Id: B12', 'Kind: step', 'Title: Painted maps: lava layer matches the painting\'s calm glow', 'State: in progress', 'Owner: Digger', `Since: ${sinceOf(NOW - 30 * MIN)}`, '',
+  '## Summary', 'The glow is judged against the sketch.', '', '## History', `- ${sinceOf(NOW - 30 * MIN)} Digger: taken → in progress`, '',
+].join('\n'))
+
+test('an ask whose options stand in its words has them as cards (never Yes and No) in the ask\'s own window and in a taken task\'s Options too, and a pick shows pressed in every window', async () => {
+  const calm = await open([waiting([]), Q81], { hash: 'details=Q81' })
+  try {
+    assert.deepEqual(calm.all('#details .calm-card').map(one => words(one.querySelector('.calm-key'))), ['A', 'B'])
+    assert.doesNotMatch(words(calm.find('#details .calm-cards')), /\bYes\b|\bNo\b/)
+    await calm.click('#details .calm-card:nth-of-type(2)')
+    assert.match(words(calm.find('#details .calm-card[aria-pressed="true"]')), /try a calmer, darker lamp/i)
+  } finally {
+    await calm.close()
+  }
+  const taken = await openPage({ state: stateWith(TAKEN, Q81), hash: 'details=B12', answers: answering(() => reply({})) })
+  try {
+    assert.deepEqual(taken.all('#details .task-card .task-letter').map(words), ['A', 'B'])
+    assert.equal(taken.all('#details .task-card.is-advised .task-letter').map(words).join(), 'A')
+    await taken.click('#details .task-card:nth-of-type(2)')
+    assert.equal(taken.all('#details .task-card.is-chosen .task-letter').map(words).join(), 'B')
+    await taken.click('#details [data-task-send]')
+    assert.deepEqual(taken.sent('/api/work', 'answer').map(one => one.body.text), ['B: try a calmer, darker lamp, kept only if the scores rise by 10 and you approve it (about 2 h).'])
+  } finally {
+    await taken.close()
+  }
+  // The task window of a step not taken: a pick made there is pressed in the ask's own window.
+  const pick = await open([waiting([]), Q81])
+  try {
+    await pick.click('[data-q-choose="1"]')
+    await pick.click('#needs [data-details="work:Q81"]')
+    assert.match(words(pick.find('#details .calm-card[aria-pressed="true"]')), /try a calmer, darker lamp/i)
+  } finally {
+    await pick.close()
   }
 })
 
@@ -741,10 +892,15 @@ test('the board\'s request for pictures is one marked line under the step\'s Fee
     const block = (await storeItem(store.dir, 'B1')).sections.get('Refined')
     assert.equal(block.filter(one => one.includes(`Round 1: Asked by the board: ${request}`)).length, 1, 'a retry does not repeat it')
     assert.deepEqual(yourWordsOf(await storeItem(store.dir, 'B1')), [], 'nobody said it')
+    // Its History line is the board's own, once: not the person's "answered the refine questions".
+    const history = (await storeItem(store.dir, 'B1')).sections.get('History')
+    assert.equal(history.filter(one => one.endsWith('board: asked for pictures, one per option')).length, 1)
+    assert.equal(history.filter(one => one.includes('answered the refine questions')).length, 0)
     // The person's own feedback, with the request beside it, lands in Your words as theirs.
     const own = await editStep({ action: 'refine-answer', step: 'B1', answers: [], feedback: 'Make them round.', request }, options)
     assert.equal(own.ok, true, own.why)
     assert.deepEqual(yourWordsOf(await storeItem(store.dir, 'B1')).map(one => one.answer), ['Make them round.'])
+    assert.equal((await storeItem(store.dir, 'B1')).sections.get('History').filter(one => one.includes('person: answered the refine questions')).length, 1)
     // Nothing asked and nothing said is still refused.
     assert.equal((await editStep({ action: 'refine-answer', step: 'B1', answers: [], feedback: '', request: '' }, options)).status, 400)
   } finally {
