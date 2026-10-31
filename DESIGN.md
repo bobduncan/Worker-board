@@ -1583,7 +1583,8 @@ as a shadow of the backlog; B301 removed the shadow (below): the store is the on
   refuse the last folder for a minute) and gives no line. B723: the check tries once; a held folder keeps one line ("a
   program still uses it") and the tries after 1, 2 and 4 seconds run in the background, outside the work store's queue
   (Principle 5), so the next check finds it gone; it is never a chore for the person. When git does not answer, whether a
-  repository lists the folder is not known (Principle 3): the folder is left and the line says so. A folder with files keeps today's line. A failed check runs again on the person's "Check again" (the
+  repository lists the folder is not known (Principle 3): the folder is left and the line says so. T8 (2026-10-31, X114): both
+  empty-folder lines are warnings, never a refusal (see "What counts as finished, per kind of work"). A folder with files keeps today's line. A failed check runs again on the person's "Check again" (the
   lane's flag, `recheck`) or the owner's report from review. The board that delivers writes backlog.md; a copy with a store of its own
   writes the view into that folder; a copy without one only reads. The Backlog tab's line says "backlog.md is its
   view".
@@ -3508,7 +3509,7 @@ confirmed that a step's branch was gone, never its worktree or its folder. Three
   folder Windows may leave" (a link in it named first, to be taken away alone: `cmd /c rmdir "<link>"` on Windows).
   The worker removes it and reports again, as after a failed branch check. Work outside git gets the same lines.
   Exception (B717): an empty folder no repository lists is removed by the check itself (`removeEmptyFolder`, one rmdir, more tries in the background; left when git is silent), so the empty folder Windows leaves when the worker's chat still stood in the worktree no
-  longer fails the check; workers `cd` out of a worktree before removing it (`roles/worker.md`).
+  longer fails the check (T8: one a program still holds is a warning); workers `cd` out of a worktree before removing it (`roles/worker.md`).
 - **The result check** (`checked`, the work API's `checkWorktrees`): the board refuses `work checked B<id>` while the
   check's own worktrees are left (folders named `check-b<id>...`, wherever git lists them, or in the project folder),
   each named with how to remove it; the helper removes them and files it again. Chosen over the board removing them:
@@ -4543,8 +4544,9 @@ work, and passes wording with a warning (principles 1 and 8: the board tidies, t
   base against its remote is still checked), and a report whose Touches and result together name no file that is there
   ("not there: ..." or "no file named"). The independent review of the same day kept these two as refusals. B818 (X106, a step
   whose work other steps had already built was reported three times, each refused): "no file named" adds a second line,
-  "nothing built because it already exists? Do not report again: ask to close it", and the worker's rule says the same
-  before any report (`roles/worker.md`): ask "Close B<id> as already done?" at once, naming those steps and their merges.
+  "nothing built because it already exists? ...", and the worker's rule said to ask "Close B<id> as already done?"
+  instead of reporting. T8 (2026-10-31, below, "What counts as finished"): such a step is reported as no change, with the
+  steps that built it, and its result check judges it; the line now says so.
 - *Warns for outside git.* Touches is a plan written before the work, often relative to a repository, and the worker
   cannot edit it: a Touches path that is not there warns ("Touches names files not there: ...") once the result names
   a file that is; so does a path in the result's prose that is not there (it misread words such as "done/level.md",
@@ -4576,6 +4578,59 @@ work, and passes wording with a warning (principles 1 and 8: the board tidies, t
 - *The supervisor.* The rule `report-check-twice` counts only failed checks that refused for a fact: the refusals for
   wording that older History lines hold are known (`isWordingOnly`, recapWords.mjs) and left out; a pass with warnings
   is a pass, and the repair `base-equal` reads it as one.
+
+## What counts as finished, per kind of work (T8, 2026-10-31)
+
+The person, 2026-10-31, said yes to "rework the final check as one design (what counts as finished per kind of work)
+instead of patching each case". The supervisor kept finding one group: a worker's report refused again and again, each
+time patched for that case. X106 (B436, 8x: "work outside git; in a repository: ..."), X113 (B799, 6x: "work outside git;
+not there: ..."), X114 (B821, 7x: "the empty folder ... could not be removed (EBUSY)"), and T14's "not merged" rule of the
+same day. Each was the board judging one kind of finished work by the evidence of another: a step with nothing to build
+judged by its files, an empty folder a program held judged as left work.
+
+The report check (`src/work/check.mjs`) is now one table. `finishedKind` tells the kind of a report from its evidence
+(the rows of `KINDS`, in order: the first that fits), gathers that kind's evidence as facts, and `finishedVerdict` (pure)
+makes the outcome: each fact is `pass`, `warn`, `back` or `fail` (`ACTIONS`), and the worst one decides.
+
+| Kind | Told by | Evidence that proves it finished | What the report names | Short evidence: the board's action |
+|---|---|---|---|---|
+| `merged` | a `merged` commit a repository the board knows holds (several commits: each in its repository) | in every repository of the commits: its base equals its remote, the step's branch is gone (local and remote), no worktree of the step left; a result | the commit(s) in `merged` (one per repository, space between), what the person gets | base differs from its remote: **fail** (the repair `base-equal` checks again by itself once equal); branch or worktree left, a named commit no repository holds: **back**; git silent: **fail** |
+| `branch` | no commit named; the step's branch is, or was (reflog, remote), in one repository, and merged | as `merged`, in that repository | what the person gets (the commit is better) | as `merged` |
+| `unmerged` | the step's own branch, or a branch whose commits name the step, or one that adds the files the report names, is not merged into its base | none: it is not finished | - | **back**: "not merged: Your work for B<id> is on branch <name> (<n> commits) but not on <base>: merge it into <base>, then report again." |
+| `outside` | no branch of its own (none, the base, or one no repository ever had: B580), no commit a repository holds, and a file it names is there outside every repository | a file the result or Touches names is there, outside every repository | `merged` none; the files by their paths in the project | none there, a file in a repository, no file named: **back**; a Touches path or a path in the prose not there beside one that is: **warn** |
+| `moot` | no commit held, no branch of its own in a repository, and the result says nothing was changed: "No change: <why>" opening it or its Change ("Nothing new built:", "No change made:", "No new work:", "No file made:", "Moot:" read the same) | the reason; the result check judges it, never git or files | `merged` none; "No change: <the steps that built it, or the decision that made it moot>" | reason named: **warn** (it passes; the warning tells the result check "no change made: judge whether nothing was needed"); no reason: **back** |
+| `unknown` | none of the above: no repository holds the commit, the branch is in none, git did not answer | - | - | **fail**: "could not tell which repository B<id>'s work is in" (Principle 3: never a silent pass) |
+
+Facts every kind shares: a worktree of the step on its branch, or one named for it, or a folder of one with files in it:
+**back** (with how to remove it). An EMPTY folder a worktree left that a program still holds (EBUSY), or that git was
+silent about: **warn**, never a refusal: the board keeps trying in the background and the leftover sweep removes it later
+(the patient check still looks again for a minute first, so a folder that frees itself leaves no warning). No result:
+**back**. Wording (Context and Change, a cut result, no mutant for a change touching tests): **warn**, as before.
+
+The four actions, and who sees them:
+
+- **pass**, **warn**: the step passes ("check passed" or "check passed with warnings: <lines> | warnings: <warnings>"); the
+  warnings go to the worker's `work next` and, as `Board warnings:`, to the Quality Assurance task.
+- **back**: a mismatch the worker can fix. The History line stays "check failed: ..." (the word callers key on); its first
+  fault starts `back: ` (`BACK`, resultCheck.mjs), or `not merged: ` (`NOT_MERGED`) for unmerged work. The lane shows a
+  quiet "back with <worker>" (no Check again button), the step's wait line says "back with <worker>: <why>", the worker is
+  told the exact words and `work next` gives no new step until it reports again.
+- **fail**: a real failure the person sees: the lane flag "check failed" with Check again (git silent, no repository to
+  tell, a base branch that differs from its remote). When a report has faults of both, it is a fail and names them all.
+
+The three live cases, as the new design reads them:
+
+- **B436** (Worker 5, X106): kind `moot`. Its step's branch `b436-third-height` was never made and nothing was merged; the
+  third height had been built by B625, B628 and B629. Its first report "Nothing new built: the third height already
+  exists ..." passes with the warning "no change made", and the result check judges it (it did: the promised picture was
+  missing, fix B819). Before: refused three times as work outside git, then an ask to the person (Q538).
+- **B799** (Worker 1, X113): kind `moot`. Its branch never existed, the report said "No change made: the three missing
+  details belong to a tick-and-Close-button design the person dropped". It passes with the warning; the result check (or
+  Main's drop, as happened) settles it. Before: refused twice as work outside git ("not there: src/work/obsolete.mjs, ...":
+  files of the board's repository, read in the project folder).
+- **B821** (Worker 5, X114): kind `merged` (21f499c in the game's repository, branch gone, base equal). The empty folder
+  `w5-b821` a program held is a warning: the first report passes with "the empty folder ... a program still uses it".
+  Before: refused three times for a folder the worker could not remove.
 
 ## What it does not do
 

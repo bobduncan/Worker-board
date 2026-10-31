@@ -362,16 +362,18 @@ test('the report check tries an empty folder a program holds through all its wai
     assert.deepEqual(sleeps, [5])
     assert.equal('isHeldOnly' in outcome, false)
     assert.equal(existsSync(folder), false)
-    // Held for good: it looks again `rounds` times, then files the failed check with the line, once.
+    // Held for good: it looks again `rounds` times, then files the check with the line, once. T8 (X114): an empty folder a
+    // program holds is a warning, never a refusal: the check passes with it (it failed before).
     mkdirSync(folder)
     held = true
     const slept = []
     const failed = await patientReportCheck({ ...args, result: 'The lamps glow.', merged: git(one.repo, 'rev-parse', 'HEAD').trim(), fs: wedged, exists: async () => true, waits: [0, 1] },
       { rounds: 2, every: 5, sleep: async ms => { slept.push(ms) } })
-    assert.equal(failed.passed, false)
+    assert.equal(failed.passed, true)
     assert.equal(slept.length, 2)
-    assert.match(failed.lines.join(' '), /a program still uses it/)
+    assert.match(failed.warnings.join(' '), /a program still uses it/)
     assert.equal('isHeldOnly' in failed, false)
+    assert.equal('isHeld' in failed, false)
     // A fault that is not a held folder is filed at once: no waiting for it.
     rmdirSync(folder)
     const noResult = []
