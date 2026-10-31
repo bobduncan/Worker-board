@@ -168,7 +168,7 @@ test('once asked for, part 3 says where the asking is and which step it became',
 })
 
 test('the page writes only through the board\'s Design calls, and nothing into the backlog', () => {
-  const tab = script.slice(script.indexOf('// Design (B99)'), script.indexOf('// Tabs\n'))
+  const tab = script.slice(script.indexOf('// Design (B99)'), script.indexOf('// bugs:start'))
   assert.deepEqual([...new Set([...tab.matchAll(/fetch\('([^']+)'/g)].map(found => found[1]))].sort(), ['/api/design', '/api/design/reference'])
   assert.deepEqual([...new Set([...tab.matchAll(/action: '([a-z]+)'/g)].map(found => found[1]))].sort(), ['again', 'agree', 'drop', 'make', 'send'])
   for (const word of ['/api/say', 'backlog.md', 'localStorage']) assert.ok(!tab.includes(word), `the tab's code has "${word}"`)

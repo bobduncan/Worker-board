@@ -18565,7 +18565,7 @@ function bugBadge(report) {
   }
 }
 
-/** The name of the place a report is about ("Lava Tactics", "Worker board"), as the tab's choices name it. */
+/** The name of the place a report is about ("My game", "Worker board"), as the tab's choices name it. */
 const bugPlaceName = (report, bugs) => (bugs?.places ?? []).find(place => place.id === report.where)?.name ?? (report.where === 'board' ? 'The board' : 'The game')
 // bugs:end
 
