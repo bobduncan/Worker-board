@@ -151,8 +151,6 @@ export async function pullFor({ dir, result, state, outbox, now, maxChars, newId
   const wake = result?.wake ?? null
   const none = { ...result, text: '', wake: null }
   if (wake === null || dir === null || !mayWake(state, wake.to)) return wake === null ? result : none
-  // B468: a step whose effort the worker's chat is not set to yet waits, as the reconciler's line does (effort.mjs).
-  if ((state?.reconciled?.held ?? []).includes(wake.id)) return none
   const sent = await sendOnce({ dir, key: deliveryKey(wake.id, wake.to, result.since), words: workWords(wake.to, wake.id), outbox, state, now, maxChars, newId, fs, keep })
   return sent === null ? none : result
 }
@@ -213,36 +211,6 @@ async function noteLine({ dir, plan, outbox, now, fs }) {
   return [{ key, words: { ...workWords(chat, ids[0], noteWords(ids)), kind: 'note', notes: ids } }]
 }
 
-/** Redesign Part 2, the review: a give the work API refused is not tried again for that worker for this long. */
-export const REFUSED_GIVE_MS = 15 * 60_000
-/** Per store folder, the gives refused lately: `${id} ${chat}` to `{ id, chat, why, at }`, in this process only. */
-const refusedGives = new Map()
-function refusalsOf(dir) {
-  const at = resolve(dir)
-  if (!refusedGives.has(at)) refusedGives.set(at, new Map())
-  return refusedGives.get(at)
-}
-/**
- * The recheck: a give refused by a race or a conflict, not by what the task or the worker is: no answer, the board's own
- * fault (5xx), a file changed in the meantime, the worker holds a task by now, or the step is no longer ready to give
- * (its flow move or guard, its state).
- */
-const TRANSIENT = /changed in the meantime|try again|could not be written|: no second task|no move from|does not hold|is (?:queued|taken|in progress|done|dropped|review|new)\b/i
-export const isTransient = answer => answer === null || answer === undefined || typeof answer.why !== 'string' || answer.why.trim() === ''
-  || !(answer.status < 500) || TRANSIENT.test(answer.why)
-
-/**
- * The gives the work API refused in the last REFUSED_GIVE_MS (`[{ id, chat, why, at }]`): the reconciler gives that
- * task to another worker meanwhile, and the ready list names why (the review of 2026-10-25: a refused give was tried
- * again at every refresh, silently, and a lone idle worker got nothing).
- */
-export function givesRefused(dir, now) {
-  if (dir === null || dir === undefined) return []
-  const kept = refusalsOf(dir)
-  for (const [key, one] of kept) if (now - one.at >= REFUSED_GIVE_MS) kept.delete(key)
-  return [...kept.values()]
-}
-
 /**
  * Redesign Part 2: the key under which the board asks the main chat once for one more worker: whom (a worker of the list
  * whose chat is off, or `spawn`) and how many workers were not off then, so a new ask goes once that number changed.
@@ -271,11 +239,11 @@ function startWords(start, state, maxChars) {
 
 /**
  * One refresh: `state.reconciled` (state.mjs; null while the store cannot be read) carried out. `apply(body)` is the work
- * API as the server. `{ moved, sent, withdrawn, closed, given }`: the ids moved, the messages sent, withdrawn and
- * closed, and (redesign Part 2) the ids the board gave to a worker.
+ * API as the server. `{ moved, sent, withdrawn, closed }`: the ids moved, the messages sent, withdrawn and closed. (T8.5
+ * step 6: the board gives a worker its task in the hand-over's one decision, handoverBoard.mjs, not here.)
  */
 export async function deliverWork({ state, dir, outbox, apply, now, maxChars, newId, fs, keep }) {
-  const done = { moved: [], sent: [], withdrawn: [], closed: [], given: [] }
+  const done = { moved: [], sent: [], withdrawn: [], closed: [] }
   const plan = state?.reconciled ?? null
   if (plan === null || dir === null) return done
   // Redesign Part 2, at rollout: the tasks queued before the redesign go back on the ready list first, once.
@@ -283,29 +251,14 @@ export async function deliverWork({ state, dir, outbox, apply, now, maxChars, ne
     const back = await apply({ action: 'retire-queue', id: one.id }).catch(() => null)
     if (back?.ok === true && back.result?.changed !== false) done.moved.push(one.id)
   }
+  // T8.5 step 6: a given task no hand-over carries on goes back on the list (reconcile.mjs `stranded`).
+  for (const one of plan.stranded ?? []) {
+    const back = await apply({ action: 'advance', id: one.id, to: 'refined', takeBack: { chat: one.chat, stuck: false, why: one.why } }).catch(() => null)
+    if (back?.ok === true) done.moved.push(one.id)
+  }
   for (const move of plan.moves ?? []) {
     const moved = await apply({ action: 'advance', id: move.id, to: move.to, ...(typeof move.ask === 'string' ? { ask: move.ask } : {}) }).catch(() => null)
     if (moved?.ok === true) done.moved.push(move.id)
-  }
-  // Redesign Part 2 (2026-10-25): the hand-out. First what goes back on the list (not taken in time), then a ready task
-  // to each idle worker; the API checks each anew, so a second give of a task, or a give to a worker that holds one, is
-  // refused (Review Focus 4). Its line goes at the next pass, with its holds (a model, a clear, a mod restart).
-  for (const one of plan.takeBacks ?? []) {
-    const back = await apply({ action: 'advance', id: one.id, to: 'refined', takeBack: { chat: one.chat, stuck: one.stuck === true, why: one.why } }).catch(() => null)
-    if (back?.ok === true) done.moved.push(one.id)
-  }
-  for (const one of plan.gives ?? []) {
-    const given = await apply({ action: 'advance', id: one.id, to: 'queued', for: one.chat }).catch(error => ({ ok: false, why: error instanceof Error ? error.message : String(error) }))
-    const key = `${one.id} ${one.chat}`
-    if (given?.ok !== true) {
-      // The recheck: a refusal of a race or a conflict (the step or the worker changed meanwhile, a file written at the
-      // same moment, no answer) is no reason to bar the pair: the next pass decides anew.
-      if (!isTransient(given)) refusalsOf(dir).set(key, { id: one.id, chat: one.chat, why: String(given.why).replace(/\s+/g, ' ').slice(0, 300), at: now })
-      continue
-    }
-    refusalsOf(dir).delete(key)
-    done.moved.push(one.id)
-    done.given.push(one.id)
   }
   // Partner answers (2026-10-19): what the partner did not answer in time (or cannot) goes to the person, also while
   // the person pauses: it only shows them the ask.
@@ -321,11 +274,7 @@ export async function deliverWork({ state, dir, outbox, apply, now, maxChars, ne
   if (isHolding(state?.pause)) return done
   const lines = [
     ...(plan.deliveries ?? []).map(one => ({ key: deliveryKey(one.id, one.chat, one.since), words: workWords(one.chat, one.id) })),
-    ...(plan.says ?? []).map(one => ({ key: one.key, words: { ...workWords(one.chat, one.id, one.say), kind: 'check' } })),
     ...(await noteLine({ dir, plan, outbox, now, fs })),
-    // The recheck: a task taken back twice because its line was held, said once to the main chat.
-    ...(plan.heldTwice ?? []).filter(() => typeof state.restart?.main === 'string')
-      .map(one => ({ key: `held-twice ${one.id}`, words: { ...workWords(state.restart.main, one.id, one.text), kind: 'held-twice' } })),
     // Partner answers: the partner is woken once per ask routed to it, while it is free (the reconciler). B392: once
     // more when it is still open ten minutes on, but never beside a line about it that still waits to be taken, nor
     // within ten minutes of the last one (a partner busy until then was just woken).

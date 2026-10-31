@@ -10,7 +10,6 @@ import { join } from 'node:path'
 import test from 'node:test'
 
 import { answer, fromChat, hitLimit, step, toolResult, typed } from '../fixtures/lines.mjs'
-import { messageText } from '../src/bridge.mjs'
 import { parseConfig } from '../src/config.mjs'
 import { memoryStore } from '../src/store.mjs'
 import { workApi } from '../src/work/api.mjs'
@@ -53,18 +52,17 @@ async function garden(t) {
 }
 const digger = state => state.chats.find(lane => lane.name === 'Digger')
 
-test('a worker cleared into a conversation that holds no turn yet is free, and its next queued step goes out', async t => {
+test('a worker cleared into a conversation that holds no turn yet is free (T8.5 step 6: its next step comes by its hand-over, not by this pass)', async t => {
   const { build, deliver } = await garden(t)
   // Its card says it was cleared, and its new transcript holds nothing (or is not there yet).
   for (const transcript of [tail([]), null]) {
     const state = await build({ digger: transcript })
     assert.equal(digger(state).state, 'free')
-    assert.deepEqual(state.reconciled.deliveries.map(one => [one.id, one.chat]), [['B1', 'Digger']])
+    assert.deepEqual(state.reconciled.deliveries, [])
   }
-  const state = await build()
   const outbox = memoryStore()
-  await deliver(state, outbox)
-  assert.deepEqual(outbox.outbox().map(one => [one.to, messageText(one, () => '10:05')]), [['Digger', 'work: B1 is yours; run work next']])
+  await deliver(await build(), outbox)
+  assert.deepEqual(outbox.outbox().filter(one => one.to === 'Digger'), [])
 })
 
 test('a chat the board followed to its new session (movedTo), with no turn there yet, is free too; its first turn decides from then on', async t => {
@@ -83,7 +81,7 @@ test('a transcript with no turn, of a chat no clear brought here, stays unknown'
   assert.equal(digger(await build({ plan: null, digger: null })).state, 'unknown')
 })
 
-test('an app\'s limit stop whose named reset has passed is over: the lane is what its turn says, and its step goes out', async t => {
+test('an app\'s limit stop whose named reset has passed is over: the lane is what its turn says', async t => {
   const { build, deliver } = await garden(t)
   // Stopped two days before at the weekly limit, "resets 8pm" of that day.
   const stopAt = new Date(2026, 9, 21, 15, 0).getTime()
@@ -91,9 +89,6 @@ test('an app\'s limit stop whose named reset has passed is over: the lane is wha
   const state = await build({ digger: stopped, plan: card({}) })
   assert.equal(digger(state).suspended, null)
   assert.equal(digger(state).state, 'free')
-  const outbox = memoryStore()
-  await deliver(state, outbox)
-  assert.deepEqual(outbox.outbox().map(one => one.to), ['Digger'])
 })
 
 test('an app\'s limit stop is over once a reading after it shows that limit back under full; before, it is suspended', async t => {

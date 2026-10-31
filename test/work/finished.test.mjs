@@ -19,6 +19,7 @@ import { storeFromText } from '../../src/work/read.mjs'
 import { BACK, backWordsOf, reportCheckFailedOf, reviewWaitOf } from '../../src/work/resultCheck.mjs'
 import { writeStore } from '../../src/work/store.mjs'
 import { buildState } from '../withStore.mjs'
+import { decide } from '../../src/work/handover.mjs'
 
 const git = table => async args => table[`${args[1]} ${args.slice(2).join(' ')}`] ?? null
 const heads = 'for-each-ref --format=%(refname:short) refs/heads'
@@ -259,13 +260,15 @@ function build(item) {
   })
 }
 
-test('back: the lane shows a quiet "back with Digger" with no Check again, and the worker is told the words', async () => {
+test('back: the lane shows a quiet "back with Digger" with no Check again, and the hand-over tells the worker the words (T8.5 step 6: not the pass)', async () => {
   const state = build(backItem())
   const digger = state.chats.find(chat => chat.name === 'Digger')
   assert.deepEqual(digger.flags.map(({ kind, button }) => [kind, button]), [['back', null]])
   assert.match(digger.flags[0].text, /^B5: back with Digger: the branch b5-lamps is still there/)
-  const says = state.reconciled.says.filter(flag => flag.id === 'B5').map(flag => flag.say)
-  assert.match(says[0], /^work: the board's check sent B5 back to you: the branch b5-lamps is still there; the worktree/)
+  assert.equal(state.reconciled.says, undefined)
+  const item = backItem()
+  const told = decide({ worker: { name: 'Digger', report: { state: 'idle', since: NOW - 60_000, at: NOW }, isRunning: true }, items: new Map([['B5', item]]), prefix: 'Team - ', now: NOW, event: { kind: 'turn-ended', since: NOW - 60_000 } })
+  assert.match(told.envelope.line, /^work: the board's check sent B5 back to you at \d\d:\d\d: the branch b5-lamps is still there; the worktree/)
   const page = await readFile(new URL('../../public/board.js', import.meta.url), 'utf8')
   assert.match(page, /flag\.kind === 'not merged' \|\| flag\.kind === 'back' \? 'quiet'/)
 })

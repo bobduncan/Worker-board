@@ -113,7 +113,7 @@ test('a chat still silent after the board heard the others again opens it 5 min 
   assert.deepEqual(subjects(check('working-not-running', build({ now: late, reports: reports(late), hearing }), late)), ['Weeder'])
 })
 
-test('holder-not-running and not-cleared leave the time the board heard nobody out too; a dropped step\'s worker is no holder', () => {
+test('holder-not-running and handover-held leave the time the board heard nobody out too; a dropped step of a worker is no holder', () => {
   const now = at(22, 10)
   const reports = [report('Lead', 'idle', { since: at(21, 9), heard: now - 3_000 }), report('Digger', 'busy', { since: at(21, 9), heard: at(21, 30) })]
   const items = [stepItem('B12', 'Digger', 'in progress', now)]
@@ -128,10 +128,12 @@ test('holder-not-running and not-cleared leave the time the board heard nobody o
   assert.deepEqual(subjects(check('holder-not-running', build({ now, reports, items, hearing: hearing([]), asleepWakes }), now, [], items)), ['B12'])
   const gone = [stepItem('B12', 'Digger', 'dropped', now)]
   assert.deepEqual(check('holder-not-running', build({ now, reports, items: gone, hearing: hearing([]) }), now, [], gone), [])
-  // Not cleared 14 min after its report: over 10; 6 of them the board heard nobody: 8 remain.
-  const owed = deaf => ({ chats: [{ name: 'Lead', isMain: true }, { name: 'Digger', state: 'free', clearOwed: { step: 'B11', reportedAt: now - 14 * MIN, canClear: true } }], deaf })
-  assert.deepEqual(subjects(check('not-cleared', owed([]), now)), ['Digger'])
-  assert.deepEqual(check('not-cleared', owed([{ from: now - 12 * MIN, to: now - 6 * MIN }]), now), [])
+  // T8.5 step 6 (in place of not-cleared): held 14 min after its clear failed: over 10; 6 of them the board heard nobody: 8 remain.
+  const failed = { id: 'e1', at: now - 15 * MIN, to: 'Digger', command: 'handover', kind: 'clear', step: null, clear: { step: 'B11', reportedAt: now - 16 * MIN }, state: 'failed', failedAt: now - 14 * MIN, settledAt: now - 14 * MIN, outcome: { cleared: false, set: null, typed: null, restarted: null, background: true, why: 'background work runs' } }
+  const digger = { name: 'Digger', state: 'free', onSequence: true, handover: { state: 'held', why: 'its clear did not run: background work runs', step: null }, clearOwed: { step: 'B11', reportedAt: now - 16 * MIN, canClear: true } }
+  const heldFor = deaf => rule('handover-held').check(buildView({ state: { chats: [{ name: 'Lead', isMain: true }, digger], deaf }, items: new Map(), outbox: [failed], now }), { seen: new Map(), observed: [] })
+  assert.deepEqual(subjects(heldFor([])), ['Digger'])
+  assert.deepEqual(heldFor([{ from: now - 12 * MIN, to: now - 6 * MIN }]), [])
 })
 
 test('a pause counts as today: the time is counted from the pause\'s end, and the board\'s deaf time after it is left out', () => {

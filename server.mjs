@@ -76,7 +76,7 @@ import { PARTNER_MODES, effortBack, fableBack, partnerEffortWords } from './src/
 import { evaluationFor } from './src/goalGuard.mjs'
 import { readSources } from './src/sources.mjs'
 import { backgroundRunning, parseTail, readTail } from './src/transcript.mjs'
-import { clearAtTake, isStepLine, modAtLeast, takeRefusal } from './src/clearOwed.mjs'
+import { modAtLeast } from './src/clearOwed.mjs'
 import { ARCHIVE_MOD, archiveJobId, archivedBy, hasNothingUncommitted, replacedChats } from './src/replacedChats.mjs'
 import { keptReadingsOf, newestPerWindow, readingOfAnswer } from './src/limits.mjs'
 import { checkProviders } from './src/providers/index.mjs'
@@ -90,7 +90,7 @@ import { OWNER_JOB, OWNER_ROLE, ownerStartWords, talkPartnerOf } from './src/tal
 import { STOP_MOD, asleepOfJob, handJobs, handResults, isForHandsYet, isHandWord, isMootSpawn, isStopWord, mootWhy, maySend, nextSpawn, stopStep, stopTaskOf, usageDue, workerNames } from './src/hands.mjs'
 import { OPEN_CHECK_MS, OPEN_FIRST_MS, OPEN_TRIES, asleepPlan, asleepWithWork, chatToOpen, failuresOf, handWorkWaits, handsGone, openChat, openPlan, openerNote, openerRow } from './src/opener.mjs'
 import { basesNow, patientReportCheck } from './src/work/check.mjs'
-import { deliverWork, givesRefused, pullFor, sendOnce } from './src/work/deliver.mjs'
+import { deliverWork, pullFor, sendOnce } from './src/work/deliver.mjs'
 import { HANDOVER_COMMAND, onSequence, outcomeOf } from './src/work/handover.mjs'
 import { handOut, handOver, handoverPass, inTurn as handoverTurn, settle as settleEnvelope } from './src/work/handoverBoard.mjs'
 import { coalesce } from './src/work/again.mjs'
@@ -1164,8 +1164,6 @@ async function main(args) {
       shownFolders: shownFolders(config),
       // Q311: a picture a chat's For you block names outside them is copied into the picture folder instead.
       adoptPicture: (path, subject) => adoptPicture(config.project, shownFolders(config)[0], subject, path),
-      // Model per step: why a step's line waits for its worker's model or effort (effort.mjs `holds`), or null.
-      stepHold: id => state.reconciled?.holds?.[id] ?? null,
       // B814: the port of a worker's own test server, named in its take answer.
       testPort: who => workerPort(config.gamePort, who),
       // The guard (2026-10-21): a step of a kind waits for its standard's confirm and its foundation (the product plan).
@@ -1554,11 +1552,6 @@ async function main(args) {
   // B579: the recaps of Completed by day, kept in the data folder.
   const recaps = dayRecaps({ file: join(HERE, 'data', 'recaps.json'), findCommand: async () => { const found = await findClaude(); return found === null ? null : [found] }, clock })
 
-  /**
-   * Redesign Part 2, the review of 2026-10-25: when the board last held the hand-out (a full limit, a pause), so a give's
-   * take-back clock starts again after it. In memory: after a restart it counts from the lines.
-   */
-  let handOutHeldAt = null
   // B640: the newest limit reading of each window, kept with the project: the supervisor chat looks the limits up and is
   // cleared after its turn, and the board reads only a chat's new transcript, so the lookup would be lost at once.
   const READINGS_FILE = isDemo || config.project === '' ? null : join(config.project, '.claude', 'limit-readings.json')
@@ -1594,15 +1587,11 @@ async function main(args) {
       mods: Object.fromEntries([...modOf].map(([name, one]) => [name, one.version])),
       // B570: the Workers mod installed and the version each chat's mod said lately, for the restarts between steps.
       modsLately: isDemo ? demoMods() : await modsNow(),
-      // Redesign Part 2, the review: the hand-out's held time and the gives the work API refused lately.
-      handOutHeldAt,
-      refusedGives: workWriters === null ? [] : givesRefused(workDir, clock()),
       keptReadings,
       providers,
       now: clock(),
       config: { ...config, project },
     })
-    if (state.reconciled?.handOutHeld === true) handOutHeldAt = state.readAt
     // Only the board that runs the loops writes; a copy beside it reads what that one kept.
     if (READINGS_FILE !== null && !isShowOnly && JSON.stringify(state.limitReadings) !== JSON.stringify(keptReadings)) {
       await writeAtomic(READINGS_FILE, JSON.stringify(state.limitReadings)).catch(error => loops.failed('limit-readings', error))
@@ -1742,23 +1731,6 @@ async function main(args) {
   const backgroundOf = async session => {
     const tail = /^[A-Za-z0-9_-]{1,120}$/.test(session) ? await readTail(join(config.transcripts, `${session}.jsonl`)) : null
     return tail === null ? 0 : backgroundRunning(parseTail(tail.text, tail.isCut))
-  }
-  /**
-   * B547: what a take does for a worker that owes a clear (src/clearOwed.mjs): its step's line waits, and once it is idle
-   * its Workers mod is named the clear. Read anew before a clear is named, so a clear that just ran is never named again.
-   */
-  const clearAtTakeOf = async (body, chat) => {
-    const laneIn = state => (state.chats ?? []).find(one => one.name === chat && !one.isLeftover) ?? null
-    let lane = laneIn(await readState())
-    if ((lane?.clearOwed ?? null) === null || !modAtLeast(body?.mod ?? null)) return { hold: false, clear: null, why: null }
-    const facts = async () => ({ owed: lane.clearOwed, mod: body.mod, now: clock(), isIdle: lane.state === 'free', background: await backgroundOf(String(body?.session ?? '')), isPaused: isHolding((await readState()).pause) })
-    let atTake = clearAtTake(await facts())
-    if (atTake.clear === null) return atTake
-    readState.reset()
-    lane = laneIn(await readState())
-    if ((lane?.clearOwed ?? null) === null) return { hold: false, clear: null, why: null }
-    atTake = clearAtTake(await facts())
-    return atTake
   }
   /**
    * T8.5 (spec 2026-10-31, part 4): whether the chat that calls is a worker on the sequence: the one predicate
@@ -1935,11 +1907,16 @@ async function main(args) {
         return { ok: true, result: { ...rest, handover: { state: decided.decision.state, why: decided.decision.why, step: decided.decision.step, envelope, waits } } }
       }
     }
-    // B300: a free worker's pull at the end of its turn (with its turn-ended, or alone): its line goes into the outbox
+    // B300: the main chat's pull at the end of its turn (with its turn-ended, or alone): its line goes into the outbox
     // once per step, chat and queueing (as the reconciler's delivery), and the mod takes it at once. Nothing for a chat
-    // that is held by the limit or busy, as the board reads it anew now, or when the line went before.
+    // that is held by the limit or busy, as the board reads it anew now, or when the line went before. T8.5 step 6: never
+    // for a worker: its line comes only in its hand-over's envelope (a worker not on the sequence is handed nothing).
     const pulled = !done.ok ? null : body?.action === 'pull' ? done.result : done.result.pull ?? null
     if (pulled === null || (pulled.wake ?? null) === null) return done
+    if (workerNames(readState.last() ?? await readState()).has(checked.chat)) {
+      const none = { ...pulled, text: '', wake: null }
+      return { ok: true, result: body?.action === 'pull' ? none : { ...done.result, pull: none } }
+    }
     readState.reset()
     const answered = await pullFor({
       dir: workDir, result: pulled, state: await readState(), outbox: store, now: clock(), maxChars: config.maxMessageChars,
@@ -2416,14 +2393,6 @@ async function main(args) {
         noteMod(body, checked)
         if (!checked.ok) return checked
         if (asked.action === 'save-log') return await requests.answer(session, request, () => saveLog(asked, checked, state))
-        // B547: never a new step on an uncleared chat: a worker that owes a clear takes nothing until it is cleared (a mod
-        // that can clear only; the state is read anew first, so a clear that just ran counts). T8.5: not a worker on the
-        // sequence: its envelope clears it before its line, and the take is its own.
-        if (asked.action === 'take' && modAtLeast(body?.mod ?? null) && await sequenceLane(checked.chat, body?.mod) === null) {
-          readState.reset()
-          const owed = ((await readState()).chats ?? []).find(one => one.name === checked.chat && !one.isLeftover)?.clearOwed ?? null
-          if (owed !== null) return { ok: false, status: 409, why: takeRefusal(owed) }
-        }
         if (isReadAction(asked.action)) return await bridgeWorkOnce(asked, checked)
         return await requests.answer(session, request, () => bridgeWorkOnce(asked, checked))
       } finally {
@@ -2442,15 +2411,13 @@ async function main(args) {
       // The review of Pause 2: while the person pauses no chat takes what would start a turn; only the board's own
       // "resume" to the main chat goes. The rest waits in the outbox, held until the resume (2026-10-19: Resume all, no
       // longer running: while resuming every line goes, so an answer to a chat that has not started reaches it).
-      // B547: a worker that owes a clear: the line of its next step waits for the clear, which its mod is named once it is idle.
-      // T8.5: a worker on the sequence: no clear named here and no line held for one (its envelope clears it first).
+      // T8.5: a worker on the sequence gets its envelope (below); step 6: no clear is named at a take any more and no line
+      // is held for one (the envelope clears it first).
       const onIt = await sequenceLane(checked.chat, body?.mod) !== null
-      const atTake = onIt ? { hold: false, clear: null, why: null } : await clearAtTakeOf(body, checked.chat)
       // B755: a hand's word goes to the hands first, to the chat it is addressed to only once none claimed it in a minute.
       const now = clock()
       const workers = workerNames(await readState())
-      const base = isHolding((await readState()).pause) ? message => message.command === 'resume'
-        : atTake.hold ? message => !isStepLine(message) && !isForHandsYet(message, now, workers) : message => !isForHandsYet(message, now, workers)
+      const base = isHolding((await readState()).pause) ? message => message.command === 'resume' : message => !isForHandsYet(message, now, workers)
       // T8.5: an envelope is no word to type: it goes as `handover` (below), once its set is done; never while the person pauses.
       const only = message => message.command !== HANDOVER_COMMAND && base(message)
       // B532: what no longer matters is closed first, so a chat is never handed a word whose purpose is gone.
@@ -2470,7 +2437,7 @@ async function main(args) {
       const stop = stopping === undefined ? {} : { stop: { id: stopping.id, kind: stopping.command, task: stopTaskOf(stopping) } }
       const envelope = !onIt || isHolding((await readState()).pause) ? null : await handOut(store, checked.chat, clock(), keep)
       if (envelope !== null) readState.reset()
-      return { ok: true, result: { messages: fit.messages, ...(atTake.clear === null ? {} : { clear: atTake.clear }), ...(off.length === 0 ? {} : { off }), ...stop, ...(envelope === null ? {} : { handover: envelope }) } }
+      return { ok: true, result: { messages: fit.messages, ...(off.length === 0 ? {} : { off }), ...stop, ...(envelope === null ? {} : { handover: envelope }) } }
     }),
     // B753: the board's hands in code. A running chat's Workers mod claims the start and wake words (whoever they are
     // addressed to) and, while resuming, a resume line for each chat that has not started; it sends each with the app's
@@ -2952,8 +2919,6 @@ async function main(args) {
     const retyped = new Set()
     // Redesign Part 2 (2026-10-25): one pass at a time; a call while one runs (the refresh, a chat's idle report) makes
     // one more after it (work/again.mjs), so no idle report is lost and two passes never run side by side (principle 5).
-    // A pass that gave a task runs once more, so the task's line goes at once, with its holds.
-    let gaveTask = false
     const reconcilePass = async () => {
       if (isClosing) return
       let finish = () => {}
@@ -3014,7 +2979,6 @@ async function main(args) {
           work.reset?.()
           readState.reset()
         }
-        gaveTask = done.given.length > 0
         // T8.5: the sequence's events at the refresh (a ready task for a free worker, the check's end, a pause or a resume,
         // a limit, a new mod, a report gone idle, the net), for every worker on it; on its own, so a failure stops no delivery.
         if (config.handover === 'sequence') {
@@ -3047,9 +3011,7 @@ async function main(args) {
       }
     }
     const reconcileNow = coalesce(async () => {
-      gaveTask = false
       await reconcilePass()
-      if (gaveTask) void reconcileNow()
     })
     reconcileSoon = reconcileNow
     setInterval(reconcileNow, Math.max(5, config.refreshSeconds) * 1000)

@@ -165,8 +165,8 @@ function blocked(view) {
 
 /**
  * A step a chat no longer in the list holds (taken, in progress, waiting on you) is the main chat's to hand on; its work
- * may stand on a branch. Redesign Part 2: a step given to such a chat (queued) the board takes back itself at once
- * (work/handOut.mjs `takeBacks`), and a task pinned to such a chat is unpinned (`{ do: 'unpin', id }`), so it waits
+ * may stand on a branch. Redesign Part 2: a step given to such a chat (queued) the board takes back itself (T8.5 step 6:
+ * work/handOut.mjs `strandedGives`), and a task pinned to such a chat is unpinned (`{ do: 'unpin', id }`), so it waits
  * for no chat that is gone. The review: only once the chat has been missing for OWNER_GONE_MS by the runner's own watch
  * (a chat file the app rewrites is skipped for one read, an account switch drops chats for a while), and never while
  * the person pauses.

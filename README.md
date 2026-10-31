@@ -280,15 +280,16 @@ was built. The board knows no kind of its own; it shows the pictures of each kin
 `models` (none unless set): the app's model id of both model families a step may name, as the app's model picker
 lists them: `{ "sonnet": "claude-sonnet-5-5", "opus": "claude-opus-5-5" }` (the ids of your app; `examples\config.json`
 has these). Every step runs on the model its refine names (`Model: sonnet` unless it says opus) at its effort: the
-main chat sets the worker's chat to both before the step goes to it, and an opus step waits until the app says its
-worker runs on Opus. Without both ids, each starting with `claude-`, the board sets the effort alone and says so on
+main chat sets the worker's chat to both before the step goes to it (the hand-over's envelope waits for that set). Without both ids, each starting with `claude-`, the board sets the effort alone and says so on
 top. `usualModel` and `usualEffort` (`"sonnet"` and `"medium"` unless set): what a worker runs at between steps.
-`handover` (`"timers"` unless set; `"sequence"`, T8.5): how a worker goes from one task to the next. `"timers"` is the
-path of the clocks below (the Workers mod's own clear, the give and its line, the take within two minutes, the held give);
-`"sequence"` has the board decide once at the worker's turn end and send it one envelope (its clear, its model, its next
-task's line) that its Workers mod carries out in order and settles once, with one 10-minute safety net (`DESIGN.md`, "The
-hand-over as one sequence"). Only a worker whose Workers mod is 0.27.0 or newer is on the sequence; every other keeps the
-timers.
+`handover` (`"sequence"` unless set, T8.5): how a worker goes from one task to the next. `"sequence"` has the board
+decide once at the worker's turn end and send it one envelope (its clear, its model, its next task's line) that its
+Workers mod carries out in order and settles once, with one 10-minute safety net (`DESIGN.md`, "The hand-over as one
+sequence"). Only a worker whose Workers mod is 0.27.0 or newer is on the sequence; a worker on an older mod gets no task
+until its chat is restarted on the installed one (its lane says so). `"timers"` is kept as an escape hatch only: the old
+clocks it named are gone, so a board set to `"timers"` hands out nothing new and says so in one line on top ("the
+hand-over is off: set handover to sequence"). The old settings `takeWithinMinutes` and `heldGiveMinutes` are gone: a
+config.json that still has them is read without complaint and they are ignored.
 `supervisorModel` (`"sonnet"` or `"opus"`, `"sonnet"` unless set) and `supervisorEffort` (a level of the app's, `"low"` unless
 set): what the Supervisor's chat runs at; the board holds it there by code, the way it sets a worker's chat (T7.5).
 `providers` (T9.3, the defaults below unless set): who provides each kind of asset, an object from asset kind (`visual`, `music`,
@@ -345,11 +346,11 @@ know): one line on top names it; the item is shown as it is and not moved.
 
 **The board hands out the work** (B300; redesign Part 2, 2026-10-25): the main chat only writes a step (`work new`);
 once it is refined the board keeps it on one ready list (fixes first, then the focus goal's, then by id) and gives the
-first suitable one to a worker the moment its chat reports idle (the person may pin a task to a worker). It types one
-line into the worker's chat, "work: B286 is yours; run work next", once per step and worker; a worker that does not
-take it within two minutes (`takeWithinMinutes`) gets it taken back and shows stuck, and with ready tasks waiting and
-no worker free the board asks the main chat for one more, up to `maxWorkers` (5 unless set, B-max; the ⚙ panel's "Workers at most", 1 to 10) (kept in `<work>\delivered.json`, so a restart sends nothing
-twice); a worker that ends a turn with nothing in progress asks for it itself (the Workers mod 0.12.0 or newer). A worker that holds a step but does not
+first suitable one to a worker the moment its turn ends (the person may pin a task to a worker): its hand-over's one
+envelope clears the chat and types one line into it, "work: B286 is yours; run work next". A worker that does not take
+it in that turn gets it taken back at once, and one that does not answer its hand-over in 10 minutes loses the task
+once (`DESIGN.md`, "The hand-over as one sequence"). With ready tasks waiting and no worker free the board asks the main
+chat for one more, up to `maxWorkers` (5 unless set, B-max; the ⚙ panel's "Workers at most", 1 to 10). A worker that holds a step but does not
 run is flagged on its lane after ten minutes with a button "Start <worker>" (the main chat starts it); so are a failed
 check and a card that names another step, and a file of the store the board cannot read stands on the top line.
 

@@ -46,11 +46,11 @@ titles, both from the list of chats.
 
 The board hands out all work (2026-10-25, the user: "AI chats do what code should do" was the biggest root cause of
 stuck work). It keeps one list of the tasks that are ready (refined, nothing holding them) in one order: fixes first
-(`Priority: fix`), then the focus goal's, then the rest by id. The moment a worker reports idle, the board gives it the
-first suitable task: the user's pin first; a follow-up of what it built goes to it when it is free at that moment,
-else to anyone. A worker that does not take its task within two minutes of its line gets it taken back, and its lane
-shows it stuck when it sat idle; a task whose line could not go (a model switch, a clear, a restart pending) goes back
-after 20 minutes. So, for every task:
+(`Priority: fix`), then the focus goal's, then the rest by id. The moment a worker's turn ends, the board gives it
+the first suitable task in one hand-over (T8.5: its clear, its model and effort, then the task's line): the user's pin
+first; a follow-up of what it built goes to it when it is free at that moment, else to anyone. A worker that does not
+take its task in the turn its line started gets it taken back at once; a hand-over whose clear or set failed gives it
+back at once and its lane says "held: <why>"; one not answered in 10 minutes gives it back once. So, for every task:
 
 1. Write it as a step with the work tool: `work new` (title, activity, goal, text with "Touches: ..."). That is all.
    The partner refines it (the board asks it by itself, B285); once its refine block says `; ready`, it is on the list,
@@ -93,11 +93,10 @@ after 20 minutes. So, for every task:
 
 - The board gives a ready task to a worker that reports idle: it moves the step to queued for that worker (History
   "refined → queued (given by the board to <worker>)") and types one line into its chat, "work: B<id> is yours; run work
-  next"; the worker takes it with `work take`. You send no task text. A line for a step whose worker must first run on
-  another model, or be cleared, or restart for a new mod, waits until that is done (your `set model and effort`, the
-  clear, your `restart for mod`). A worker that does not take its task within two minutes gets it taken back (History
-  "queued → refined (taken back from <worker>: ...)"), and when it sat idle through it its lane says "Stuck"; the
-  next free worker gets the task. The user's "Move to" re-pins a pinned task to another worker, and "Unpin" puts it
+  next"; the worker takes it with `work take`. You send no task text. A step whose worker must first run on another
+  model waits in its hand-over until your `set model and effort` is done. A worker that does not take its task in its
+  turn gets it taken back (History "queued → refined (taken back from <worker>: ...)"); the next free worker gets the
+  task. The user's "Move to" re-pins a pinned task to another worker, and "Unpin" puts it
   back for any worker.
 - A board fix goes first (the user, 2026-10-18: "when something is classified as a fix for the worker board, it should
   take priority over the current goal/focus of the advisor"). A step you make from a bug the user reports in the worker
@@ -312,7 +311,7 @@ list does not know. Do it now, in this turn:
 - Fix at once what you can: a step held by a step that is finished or dropped: `work unblock B<id>` (with `on`, or
   without it for an `after` of words); a worker paused for the limit while the limit is back, or one that holds a step
   and is not working on it: wake it ("resume your step B<id> from your checkpoint"); a task given to a worker that is
-  gone or stuck the board takes back itself within two minutes, and a pin to a chat gone for half an hour it takes
+  gone or not on the hand-over the board takes back itself, and a pin to a chat gone for half an hour it takes
   off; an ask nobody needs any more: its chat takes it back with
   `work withdraw Q<id>` (ask it to; one with no asking chat you withdraw yourself, with a why); an ask the board routed
   to the partner that the partner leaves: wake the partner, or start its chat.

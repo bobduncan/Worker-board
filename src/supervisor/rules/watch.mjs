@@ -15,7 +15,6 @@
 import { SUPERVISOR_DEFAULTS } from '../../config.mjs'
 import { askFiledMs, sinceMs, valueOf } from '../../work/item.mjs'
 import { overlapIn } from '../../work/guards.mjs'
-import { idleWorkers, stuckTakeBacks } from '../../work/handOut.mjs'
 import { afterPause as afterPauseOf, checkpointOf, heldMs, holdEndOf, isHolding, pauseEndOf as pauseEnd } from '../../work/pause.mjs'
 import { isFailedForGood, stoppedChats, whyClosed } from '../../work/outboxSweep.mjs'
 import { FIRST_SAYING, chatsByRole, oldModFinding } from '../../oldMods.mjs'
@@ -23,7 +22,6 @@ import { EFFORTS, chatEffort, effortOf, effortSaid, familyOf, modelOf } from '..
 import { chainTries, hasTriedBefore, reviewWaitOf } from '../../work/resultCheck.mjs'
 import { madeAtMs, openQaTaskOf, qaStandOf } from '../../work/qaTask.mjs'
 import { isWordingOnly } from '../../work/recapWords.mjs'
-import { CLEAR_MOD, takenSince } from '../../clearOwed.mjs'
 import { NET_MS, STATES, UNANSWERED_WHY, envelopesOf } from '../../work/handover.mjs'
 import { readingAgeMinutes } from '../../limits.mjs'
 import { BOUNDED_RULES, COUNTS_BY_KEY } from './repair.mjs'
@@ -110,7 +108,7 @@ export function boardOffMs(view, from) {
  * B736 (X73, X87: from 21:12 to 21:21 the board heard no chat while every chat worked, and three chats were "not running"
  * for 8 minutes): how long between `from` and now the board heard no chat though chats ran (view.mjs `deaf`, the one that
  * lasts now up to now). A stall or a restart of the board is no chat's fault: the rules about a chat that does not run
- * (holder-not-running, working-not-running, not-cleared) leave it out, as they leave out `boardOffMs`.
+ * (holder-not-running, working-not-running, handover-held) leave it out, as they leave out `boardOffMs`.
  */
 export function deafMs(view, from) {
   if (!Number.isFinite(from)) return 0
@@ -203,24 +201,19 @@ const GIVEN_OR_UNDER_WAY = ['queued', 'taken', 'in progress', 'waiting on you']
 
 /**
  * 3. Redesign Part 2 (2026-10-25, its Done when: "a task waits while a worker is free"): a ready task (the view's
- * `ready`, the board's own list) waits while a worker whose own report says free stands idle (B834: free as the hand-out's
- * `idleWorkers` counts it, one test for both), both for longer than
- * `idleMinutes`: the board hands a ready task to such a worker at once, so it failed to. Gap 3: only what the board
- * hands out counts: the list's `ready` (a fix, the focus goal's, a pinned one), never its `held` (a task outside the
- * focus goal waits for the person by design); a kept task (its pin, its follow-up) only while its own worker is free.
- * A task whose Touches overlap one given or under way waits by design; a worker the board found stuck (not taking) is
- * that rule's; a QA task waits by design while only the chats in its `notBy` (the builders) are free. One finding per task. Not while the person pauses or a limit is full.
+ * `ready`, the board's own list) waits while a worker is free in its hand-over (T8.5: its lane's `handover` state FREE,
+ * the one decision's own reading), both for longer than `idleMinutes`: the board hands a ready task to such a worker at
+ * once, so it failed to. Gap 3: only what the board hands out counts: the list's `ready` (a fix, the focus goal's, a
+ * pinned one), never its `held` (a task outside the focus goal waits for the person by design); a kept task (its pin, its
+ * follow-up) only while its own worker is free. A task whose Touches overlap one given or under way waits by design; a QA
+ * task waits by design while only the chats in its `notBy` (the builders) are free. One finding per task. Not while the
+ * person pauses or a limit is full.
  */
 function readyWhileFree(view, ctx) {
   if (isPaused(view) || isFull(view)) return []
-  // B834 (X111, X112): the hand-out's own test of free (handOut.mjs `idleWorkers`), so the watch and the hand-out never disagree: the
-  // mod's report says idle (or asleep after it said idle), running, the board reads it free, it holds no task given to it, and it is
-  // not stuck (not taking, or handed a failed check back). A worker the board reads free but whose mod reports busy is no free worker.
-  const stuck = new Set([...workersOf(view).filter(lane => (lane.flags ?? []).some(flag => flag.kind === 'not taking')).map(lane => lane.name), ...(view.handedBack ?? [])])
-  // T8.5 step 4 (R7 for good): a worker on the sequence is free only in the hand-over's own FREE (its lane's `handover`, the
-  // one decision's state): nothing in flight, not held, not checking, idle and running. Every other worker: as before.
-  const old = workersOf(view).filter(lane => lane.onSequence !== true)
-  const free = [...idleWorkers(old, { items: view.items, prefix: view.prefix, stuck }), ...workersOf(view).filter(lane => lane.onSequence === true && lane.handover?.state === STATES.FREE)]
+  // T8.5 step 6 (R7 for good, X111, X112): free is the hand-over's own FREE, the one place: nothing in flight, not held, not
+  // checking, idle by its mod's report and running. A worker not on the sequence is handed nothing, so it is never free here.
+  const free = workersOf(view).filter(lane => lane.onSequence === true && lane.handover?.state === STATES.FREE)
   if (free.length === 0) return []
   const found = []
   for (const one of view.ready) {
@@ -240,27 +233,6 @@ function readyWhileFree(view, ctx) {
       rule: 'ready-while-free', key, subject: one.id,
       text: `${one.id} ready for ${minutes(ms)} min while ${names.length === 1 ? `${names[0]} is` : `${names.join(', ')} are`} free`,
       evidence: `ready list: ${view.ready.map(task => task.id).slice(0, 8).join(', ')}; free by their reports: ${waiting.map(lane => `${lane.name} since ${Number.isFinite(lane.report?.since) ? clockOf(lane.report.since) : 'a time not known'}${lane.onSequence === true ? ' (its hand-over: free)' : ''}`).join(', ')}`,
-    })
-  }
-  return found
-}
-
-/**
- * Redesign Part 2 (its Done when: "a worker holds a task it does not take"): a worker the board took a given task back
- * from while it sat idle (its lane's `not taking` flag, state.mjs): one finding per take-back, about the worker.
- */
-function notTaking(view) {
-  const stuck = stuckTakeBacks({ items: view.items, lanes: workersOf(view), prefix: view.prefix })
-  const found = []
-  // T8.5: a worker on the sequence has no take clock: its hand-over's net is the new rule's (step 4).
-  for (const lane of workersOf(view).filter(one => one.onSequence !== true)) {
-    const flag = (lane.flags ?? []).find(one => one.kind === 'not taking')
-    if (flag === undefined) continue
-    const back = stuck.get(lane.name) ?? null
-    found.push({
-      rule: 'not-taking', key: `not-taking ${lane.name} ${back?.stamp ?? flag.id}`, subject: lane.name,
-      text: `${lane.name} did not take ${flag.id}; it went back on the list`,
-      evidence: `${flag.text}; taken back at ${back?.stamp ?? 'a time not known'}; its report: ${lane.report?.state ?? 'none'}${Number.isFinite(lane.report?.since) ? ` since ${clockOf(lane.report.since)}` : ''}`,
     })
   }
   return found
@@ -332,8 +304,9 @@ function opusWait(view, ctx) {
 }
 
 /**
- * 6. A clear or a compaction skipped for the same reason twice in a row (the chat's card keeps only the last one: the
- * supervisor keeps the one before in its watch). A compaction skipped by design (a small chat) is no case.
+ * 6. A compaction skipped for the same reason twice in a row (the chat's card keeps only the last one: the supervisor
+ * keeps the one before in its watch). A compaction skipped by design (a small chat) is no case. T8.5 step 6: a clear is
+ * the hand-over's envelope's: a clear that did not run holds its worker, the rule handover-held's.
  */
 function skipRepeats(view, ctx) {
   const found = []
@@ -341,8 +314,6 @@ function skipRepeats(view, ctx) {
     const compaction = lane.compaction ?? null
     const skips = [
       ...(compaction?.kind === 'skipped' && !BY_DESIGN.includes(compaction.why) ? [{ kind: 'compact', at: compaction.at, why: compaction.why }] : []),
-      // T8.5: a worker on the sequence clears only by its envelope: a skipped clear of its is the held state's, not this.
-      ...(compaction?.notCleared && lane.onSequence !== true ? [{ kind: 'clear', at: compaction.notCleared.at, why: compaction.notCleared.why }] : []),
     ].filter(one => Number.isFinite(one.at) && typeof one.why === 'string' && one.why !== '')
     for (const skip of skips) {
       const head = `skip|${lane.name}|${skip.kind}|`
@@ -355,7 +326,7 @@ function skipRepeats(view, ctx) {
       if (before === undefined || before.why !== skip.why) continue
       // Both stay watched while it stands, so the next run finds it again.
       ctx.observed.push(before.key)
-      const what = skip.kind === 'clear' ? 'clear' : 'compaction'
+      const what = 'compaction'
       found.push({
         rule: 'skip-repeats', key: `skip-repeats ${lane.name} ${skip.kind} ${skip.why}`, subject: lane.name,
         text: `${lane.name}: its ${what} was skipped twice in a row: ${skip.why}`,
@@ -597,8 +568,9 @@ function oddEffort(view) {
  * person's answer, is no case. Stuck: no result check filed for longer than `reviewMinutes` (its first, or again after
  * its fix was done or its ask point answered). T9.1.1: counted from its Quality Assurance task (made at once by the check or
  * the repair `unchecked`), which a worker at work on (in progress) clears: that is no case for the Advisor; nor is a task that
- * is ready or given and not taken (go-live gives them one by one; the rules ready-while-free and not-taking watch them). A
- * task taken and not begun, or none, is a case. A dropped fix is
+ * is ready or given and not taken (go-live gives them one by one; the rules ready-while-free and handover-unanswered watch
+ * them). A task taken and not begun, or none, is a case. T8.5 step 6: a report whose check failed and was not reported
+ * again is no case here: the hand-over's decision tells its worker at its first turn's end (its rule 3). A dropped fix is
  * the rule `dropped-fix` (B630; its id apart from the repair `fix-dropped`, the supervisor keys rules by id). Counted from the end of the person's last pause.
  */
 function reviewStuck(view, ctx) {
@@ -606,23 +578,8 @@ function reviewStuck(view, ctx) {
   if (isPaused(view)) return found
   for (const item of stepsOf(view).filter(one => stateOf(one) === 'review').sort((a, b) => byId(idOf(a), idOf(b)))) {
     const wait = reviewWaitOf(item, view.items, null, view.now, view.recaps)
-    if (wait?.kind !== 'check' && wait?.kind !== 'report') continue
+    if (wait?.kind !== 'check') continue
     const id = idOf(item)
-    // B740 (X92): a report whose check failed and was not reported again, an hour on: the worker's word, not the partner's.
-    if (wait.kind === 'report') {
-      // T8.5 step 4: a worker on the sequence is told at its first turn's end after the failed check (the decision's rule 3),
-      // never by this clock: no case here. Its result-check part (below) stays.
-      const owner = valueOf(item, 'Owner')
-      if (workersOf(view).some(lane => lane.onSequence === true && plain(lane.name, view.prefix) === plain(owner, view.prefix))) continue
-      const { late, key, ms, words } = reviewLateOf(view, item, wait, watchOf(ctx))
-      if (!late) continue
-      found.push({
-        rule: 'review-stuck', key, subject: id,
-        text: `${id} in review ${minutes(ms)} min: ${wait.text}`,
-        evidence: `since ${clockOf(view.now - ms)}; ${words.length === 0 ? `no word to ${valueOf(item, 'Owner') ?? 'its worker'}` : `${words.length} ${words.length === 1 ? 'word' : 'words'} to ${words[0].to ?? valueOf(item, 'Owner')}, the last at ${clockOf(words.at(-1).at)} (${words.at(-1).state ?? 'not known'})`}`,
-      })
-      continue
-    }
     // B664: judged by reviewLateOf, as the health summary judges it. T9.1.1: counted from the step's QA task.
     const { late, key, ms } = reviewLateOf(view, item, wait, watchOf(ctx))
     if (!late) continue
@@ -706,8 +663,8 @@ function reviewHeld(view, ctx) {
  * review-stuck, dropped-fix and review-held and the health summary (health.mjs). `seenOf(key)`: since when the watch
  * first saw the key (the rules' own watch; the health summary reads the supervisor's memory), undefined for not yet. Not
  * late: the person's answer, a hold that is their open ask, a check whose QA task a worker is at work on or that is ready or
- * given and not taken yet (the hand-out's to move, and the rules ready-while-free and not-taking watch it), anything while
- * the person pauses. Any other hold counts from when the watch first saw it, a check from when its QA task was made (T9.1.1;
+ * given and not taken yet (the hand-over's to move, and the rules ready-while-free and handover-unanswered watch it), a
+ * report whose check failed (the hand-over tells its worker), anything while the person pauses. Any other hold counts from when the watch first saw it, a check from when its QA task was made (T9.1.1;
  * from when it was asked, with none), a dropped fix from the drop, each from the end of the last pause at the earliest.
  * `{ late, key, ms, words }` (`words` the refine words, for an open fix), or null for a wait the rules judge another way
  * (an open fix at work, a block).
@@ -728,18 +685,13 @@ export function reviewLateOf(view, item, wait, seenOf = () => undefined) {
     const ms = qa === null ? spanOf(view, seenOf, key, afterPause(view, wait.since)) : spanOf(view, () => undefined, key, afterPause(view, madeAtMs(qa)))
     if (qa !== null && valueOf(qa, 'State') === 'in progress') return { ...not, key, ms }
     // At go-live every waiting step gets its task at once and the hand-out gives them one by one: a task that is ready or given
-    // (not taken) is the hand-out's to move, and a task nobody takes is the rules `ready-while-free` and `not-taking`'s.
+    // (not taken) is the hand-over's to move, and a task nobody takes is the rules `ready-while-free` and `handover-unanswered`'s.
     if (qa !== null && ['refined', 'queued'].includes(valueOf(qa, 'State'))) return { ...not, key, ms }
     return { ...not, late: ms > view.settings.reviewMinutes * MIN, key, ms }
   }
-  if (wait.kind === 'report') {
-    // B740 (X92): the board's check of the report failed and the worker has not reported again. Counted in running time
-    // from the failed check; late past `reviewMinutes`, the word to the worker (reconcile.mjs) having had its chance.
-    if (isPaused(view)) return not
-    const key = `review-stuck ${id} report`
-    const ms = spanOf(view, seenOf, key, afterPause(view, wait.since))
-    return { ...not, late: ms > view.settings.reviewMinutes * MIN, key, ms, words: reportWordsOf(view, id, wait.since) }
-  }
+  // T8.5 step 6: the board's check of the report failed and the worker has not reported again: the hand-over's decision
+  // tells it at its first turn's end (its rule 3), so the step waits for its worker by design, never late here.
+  if (wait.kind === 'report') return not
   if (wait.kind === 'dropped') {
     if (isPaused(view)) return not
     const key = `fix-dropped ${id}`
@@ -832,12 +784,6 @@ const gateOf = view => (view.refineHeld.length === 0 ? 'refine gate free'
 /** B667: the refine words about the step `id` from `since` on (the board's and the person's), oldest first. */
 function refineWordsOf(view, id, since) {
   return (view.outbox ?? []).filter(message => message?.command === 'refine' && message.about === id && Number.isFinite(message.at) && message.at >= since)
-    .sort((a, b) => a.at - b.at)
-}
-
-/** B740: the words typed to a step's worker about its failed report check from `since` on (the board's, the check line's or the later one), oldest first. */
-export function reportWordsOf(view, id, since) {
-  return (view.outbox ?? []).filter(message => message?.about === id && message.command === 'work' && message.kind === 'check' && Number.isFinite(message.at) && message.at >= since)
     .sort((a, b) => a.at - b.at)
 }
 
@@ -961,39 +907,6 @@ function effortMismatch(view) {
       rule: 'effort-mismatch', key: `effort-mismatch ${lane.name} ${id}`, subject: lane.name,
       text: `${lane.name} runs ${at.runs} ${minutes(at.since)} min after it took ${id}, which wants ${at.wants}`,
       evidence: `took ${id} at ${clockOf(at.takenAt)}; ${at.state === 'asked' ? `switch asked ${clockOf(at.askedAt)} (${at.askState ?? 'not known'}), not read back` : 'no switch asked'}; the app's file says ${at.runs}`,
-    })
-  }
-  return found
-}
-
-/**
- * 15. B547 (the rules X13 and X14 wanted): a worker whose last report is newer than its last clear (state.mjs `clearOwed`,
- * src/clearOwed.mjs) and that took a new step since, on the old conversation; or that stays so for longer than
- * `notClearedMinutes` (a log refused while its background work runs, a mod that left no word). One finding per worker
- * per report, with the Workers mod's why when it logged one, and the repair: the board holds its next step and names the
- * clear to its mod once it is idle; an older mod cannot run it, and the chat needs the restart that brings the new one.
- */
-function notCleared(view, ctx) {
-  const found = []
-  if (isPaused(view)) return found
-  // T8.5: a worker on the sequence is cleared by its envelope; a clear that did not run holds it (the rule handover-held, step 4).
-  for (const lane of workersOf(view).filter(one => one.onSequence !== true)) {
-    const owed = lane.clearOwed ?? null
-    if (owed === null || !Number.isFinite(owed.reportedAt)) continue
-    const key = `not-cleared ${lane.name} ${owed.step}`
-    const ms = lasted(view, ctx, key, afterPause(view, owed.reportedAt), { heard: true })
-    const took = takenSince(view.items, lane.name, owed.reportedAt, view.prefix, owed.step)[0] ?? null
-    if (took === null && ms <= view.settings.notClearedMinutes * MIN) continue
-    const why = owed.why ?? 'no reason logged'
-    const repair = owed.canClear === true
-      ? 'the board holds its next step and names the clear to its Workers mod once the chat is idle'
-      : `its Workers mod is older than ${CLEAR_MOD} and cannot run a clear the board names: its chat needs a restart (Pause all, restart the app, Resume all)`
-    found.push({
-      rule: 'not-cleared', key, subject: lane.name, since: took === null ? owed.reportedAt : took.at,
-      text: took === null
-        ? `${lane.name} not cleared ${minutes(ms)} min after it reported ${owed.step}: ${why}`
-        : `${lane.name} took ${took.id} on the conversation of ${owed.step}: not cleared after that report (${why})`,
-      evidence: `last report ${owed.step} at ${clockOf(owed.reportedAt)}; last clear ${Number.isFinite(owed.clearedAt) ? `at ${clockOf(owed.clearedAt)}` : 'none known'}${took === null ? '' : `; took ${took.id} at ${clockOf(took.at)}`}; repair: ${repair}`,
     })
   }
   return found
@@ -1287,7 +1200,7 @@ export const WATCH_RULES = [
   { id: 'holder-not-running', kind: 'watch', says: 'a step in progress whose worker does not run', check: holderNotRunning },
   { id: 'working-not-running', kind: 'watch', says: 'a worker whose card says it works while its chat makes no call and writes nothing', check: workingNotRunning },
   { id: 'opus-wait', kind: 'watch', says: 'an Opus step waiting for Opus too long', check: opusWait },
-  { id: 'skip-repeats', kind: 'watch', says: 'a clear or a compaction skipped for the same reason twice in a row', check: skipRepeats },
+  { id: 'skip-repeats', kind: 'watch', says: 'a compaction skipped for the same reason twice in a row', check: skipRepeats },
   { id: 'repair-repeats', kind: 'watch', says: 'the same repair three times or more in a day', check: repairRepeats },
   { id: 'undelivered', kind: 'watch', says: 'a word to a chat not delivered', check: undelivered },
   { id: 'report-check-twice', kind: 'watch', says: 'a step whose board check failed twice', check: reportCheckTwice },
@@ -1300,8 +1213,6 @@ export const WATCH_RULES = [
   { id: 'open-fix', kind: 'watch', says: 'a step in review behind a fix the partner has not refined for over 60 min, its last refine word unanswered for 30', check: openFix },
   { id: 'stale-checkpoint', kind: 'watch', says: 'a step in progress with no checkpoint for hours, or whose checkpoint said to report long ago', check: staleCheckpoint },
   { id: 'effort-mismatch', kind: 'watch', says: 'a worker that still runs another model or effort than its step wants 10 min after the take', check: effortMismatch },
-  { id: 'not-cleared', kind: 'watch', says: 'a worker not cleared after its reported step', check: notCleared },
-  { id: 'not-taking', kind: 'watch', says: 'a worker that did not take the task it was given', check: notTaking },
   { id: 'handover-held', kind: 'watch', says: 'a worker on the hand-over sequence held (its clear, set or restart did not run) for over 10 min of running time', check: handoverHeld },
   { id: 'handover-unanswered', kind: 'watch', says: 'a worker on the hand-over sequence that did not answer its hand-over within 10 min (the net fired)', check: handoverUnanswered },
   { id: 'old-limit-reading', kind: 'watch', says: 'a limit near a stop (5-hour 80%, weekly 90%) still last read over 60 min ago, not counting a pause, while a worker works and the supervisor has looked it up', check: oldLimitReading },

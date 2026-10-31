@@ -109,10 +109,11 @@ test('work next lists the fix first among the queued steps, marked; the pull wak
 
 const file = head => parseItem(`${Object.entries(head).map(([key, value]) => `${key}: ${value}`).join('\n')}\n`)
 const step = (id, state, more = {}) => file({ Id: id, Kind: 'step', Title: `Step ${id}`, State: state, Since: '2026-10-18 10:00', ...more })
-const lane = (name, state = 'free') => ({ name, state, isMain: false, isLeftover: false, isRunning: true, lastActivityAt: NOW - 30 * MIN, task: null })
+// T8.5 step 6: a queued step's line goes from this pass to the main chat only (a worker's comes in its hand-over).
+const lane = (name, state = 'free') => ({ name, state, isMain: true, isLeftover: false, isRunning: true, lastActivityAt: NOW - 30 * MIN, task: null })
 const deliver = (items, lanes) => reconcile({ store: { items: new Map(items.map(one => [one.head.get('Id'), one])), flow: DEFAULT_FLOW, problems: [] }, lanes, now: NOW, times: { graceMs: GRACE_MS, askMs: ASK_MS, idleMs: IDLE_HOLD_MS }, prefix: 'Team - ' }).deliveries
 
-test('the delivery to a free worker takes its fix first; a fix that may not go yet lets the next one go', () => {
+test('the delivery to a free chat takes its fix first; a fix that may not go yet lets the next one go', () => {
   const queued = [step('B286', 'queued', { Owner: 'Units' }), step('B330', 'queued', { Owner: 'Team - Units', Priority: 'fix' })]
   assert.deepEqual(deliver(queued, [lane('Units')]).map(one => one.id), ['B330'])
   // It stays with its owner: another free chat is not given it.

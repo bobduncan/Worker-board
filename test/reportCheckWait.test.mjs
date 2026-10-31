@@ -1,19 +1,18 @@
 // B740 (X92, 2026-10-27): B727's report check failed at 21:03 (a folder it could not remove, gone since) and its worker
 // never reported it again, so it sat in review an hour while health's line said nothing of what it waits for. A step in
-// review whose board check failed, with no report after it, waits for its worker to report again; once that wait passes
-// 30 minutes of running time the worker is told once per failed check, and past an hour the rule review-stuck opens.
-// These tests run B727's History lines through buildState (the server's own pass), the health summary, the rule and the
-// delivery. Made-up names.
+// review whose board check failed, with no report after it, waits for its worker to report again. T8.5 step 6: the
+// worker is told by its hand-over at its first turn's end without that report (handover.mjs `decide`, rule 3, tested in
+// test/work/handover.test.mjs); the 30-minute word of the old pass and the report part of review-stuck are gone. These
+// tests run B727's History lines through buildState (the server's own pass), the health summary and the rule. Made-up
+// names.
 
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
 import { parseConfig } from '../src/config.mjs'
-import { memoryStore } from '../src/store.mjs'
 import { healthSummary } from '../src/supervisor/health.mjs'
 import { WATCH_RULES } from '../src/supervisor/rules/watch.mjs'
 import { buildView } from '../src/supervisor/view.mjs'
-import { deliverWork } from '../src/work/deliver.mjs'
 import { parseItem } from '../src/work/item.mjs'
 import { stamp } from '../src/work/migrate.mjs'
 import { storeFromText } from '../src/work/read.mjs'
@@ -53,7 +52,6 @@ function build(all, { lines = [], pause = null, outbox = [] } = {}) {
 }
 const viewOf = (state, all, more = {}) => buildView({ state, items: all, outbox: more.outbox ?? [], settings: {}, seen: null, now: NOW })
 const healthLine = (state, all, id = 'B1') => healthSummary(viewOf(state, all), NOW).split('\n').find(one => one.includes(`${id} review`)) ?? ''
-const reportAgain = state => state.reconciled.says.filter(one => /report check failed/.test(one.say))
 const stuck = (state, all, outbox = []) => WATCH_RULES.find(one => one.id === 'review-stuck').check(viewOf(state, all, { outbox }), { seen: new Map(), observed: [] })
 
 test('B727\'s lines (report, check failed, nothing after): the step waits for its worker to report again, with when and why', () => {
@@ -88,62 +86,13 @@ test('the server\'s own pass: health names the wait on the step\'s line and the 
   assert.match(state.backlog.flatMap(activity => activity.steps).find(step => step.id === 'B1')?.reviewWait ?? '', new RegExp(`^waits for Digger to report again: its report check failed at ${clockOf(29)}`))
 })
 
-test('the word: 30 min of running time after the failed check, once per failed check, B727\'s 21:33', async () => {
-  // Failed at 21:03, now 21:33: the word is due.
-  const due = await build([failedAt(31)])
-  const [word] = reportAgain(due)
-  assert.equal(word.id, 'B1')
-  assert.equal(word.chat, 'Digger')
-  assert.equal(word.say, `work: B1's report check failed at ${clockOf(30)}: fix what it names and report it again`)
-  assert.equal(word.key, `B1 Digger report-again ${stamp(ago(30))}`)
-  // 29 min after the check: not yet.
-  assert.deepEqual(reportAgain(await build([failedAt(29)])), [])
-  // The board was off for 20 of the 30 minutes: 10 min of running time, not yet.
-  assert.deepEqual(reportAgain(await build([failedAt(31)], { lines: [{ at: ago(26), gap: true }, { at: ago(6) }] })), [])
-  // The person pauses: no word goes out (the delivery holds every line then).
-  const outbox = memoryStore()
-  await deliverWork({ state: { ...due, pause: { state: 'pausing', since: ago(5) } }, dir: 'C:\\nowhere', outbox, apply: async () => ({ ok: false }), now: NOW, maxChars: 2000, newId: () => 'm1' })
-  assert.deepEqual(outbox.outbox(), [])
-  // A new report ends it.
-  assert.deepEqual(reportAgain(await build([failedAt(31, line(2, 'Digger', 'reported again'), line(2, 'server', 'check pending'))])), [])
-})
-
-test('the word goes once: the same failed check on the next refresh is not typed again; a second failed check is another word', async t => {
-  const { mkdtemp, rm } = await import('node:fs/promises')
-  const { tmpdir } = await import('node:os')
-  const { join } = await import('node:path')
-  const dir = await mkdtemp(join(tmpdir(), 'report-again-'))
-  t.after(() => rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }))
-  const outbox = memoryStore()
-  let id = 0
-  const deliver = state => deliverWork({ state, dir, outbox, apply: async () => ({ ok: false }), now: NOW, maxChars: 2000, newId: () => `m${id += 1}` })
-  const state = await build([failedAt(31)])
-  await deliver(state)
-  await deliver(await build([failedAt(31)]))
-  const words = outbox.outbox().filter(one => /report check failed/.test(one.text ?? one.pasteText ?? JSON.stringify(one)))
-  assert.equal(words.length, 1)
-  assert.equal(words[0].to, 'Digger')
-  assert.match(JSON.stringify(words[0]), /B1's report check failed at \d\d:\d\d: fix what it names and report it again/)
-  // The worker reports again, the check fails again: that is another failed check, so another word.
-  const second = await build([failedAt(60, line(40, 'Digger', 'reported again'), line(40, 'server', 'check pending'), line(39, 'server', 'check failed: a branch of the step is left'))])
-  assert.equal(reportAgain(second)[0].key, `B1 Digger report-again ${stamp(ago(39))}`)
-})
-
-test('review-stuck counts the wait: an hour of running time on, it opens; not before', async () => {
-  const wordAt = minutes => ({ id: `w${minutes}`, to: 'Digger', command: 'work', about: 'B1', kind: 'check', at: ago(minutes), state: 'delivered', text: 'work: B1\'s report check failed' })
-  for (const [report, outbox, opens] of [
-    [40, [], false], // 40 min: under the hour
-    [75, [wordAt(45)], true], // over the hour, the word typed 45 min ago and no report since
-    [75, [wordAt(10)], true], // an hour of running time is late, whatever the word
-    [75, [], true], // over the hour and no word at all (the worker's chat gone): worth naming
-  ]) {
+test('step 6: no word of the old pass, however long the wait, and review-stuck opens nothing for it: the hand-over tells the worker', async () => {
+  for (const report of [31, 75, 240]) {
     const all = items(failedAt(report))
     const state = await build([...all.values()])
-    const found = stuck(state, all, outbox)
-    assert.equal(found.length, opens ? 1 : 0, `${report} min, ${outbox.length} words`)
-    if (opens) {
-      assert.equal(found[0].subject, 'B1')
-      assert.match(found[0].text, /^B1 in review \d+ min: waits for Digger to report again: its report check failed at /)
-    }
+    assert.deepEqual(state.reconciled.says, undefined)
+    // Its lane still says the check failed (a quiet line), with no word behind it.
+    assert.deepEqual(state.chats.find(lane => lane.name === 'Digger').flags.map(flag => [flag.kind, flag.id]), [['check failed', 'B1']])
+    assert.deepEqual(stuck(state, all), [], `${report} min`)
   }
 })

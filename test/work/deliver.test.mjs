@@ -26,15 +26,17 @@ const NOW = new Date(2026, 9, 17, 11, 5).getTime()
 const PROJECT = 'C:\\garden'
 const config = { ...parseConfig('{}', {}), project: PROJECT }
 const BACKLOG = ['# Backlog', '', '## Garden', '- [ ] B1 Plant the hedge (for Digger; about 1 h)', '- [ ] B2 Mow the lawn (for Digger; after B1)', ''].join('\n')
+/** T8.5 step 6: a line from the pass goes to the main chat only; B1 queued for the main chat. */
+const MAIN_BACKLOG = ['# Backlog', '', '## Garden', '- [ ] B1 Plant the hedge (for Lead; about 1 h)', ''].join('\n')
 
 const app = (name, at) => JSON.stringify({
   title: `Garden · ${name}`, sessionId: `local_${name}`, cliSessionId: `cli-${name}`, cwd: PROJECT, isArchived: false, createdAt: name.length, lastActivityAt: at, lastAssistantUuid: 'u-1',
 })
 const tail = at => ({ text: [typed(at - 10 * MIN, 'Plant it'), answer(at, 'Done for now.')].join('\n'), isCut: false, modifiedAt: at })
 
-async function garden() {
+async function garden(backlog = BACKLOG) {
   const dir = await mkdtemp(join(tmpdir(), 'work-deliver-'))
-  await writeStore(dir, migrateBacklog(BACKLOG, { now: NOW - 60 * MIN }), undefined, { now: NOW - 60 * MIN })
+  await writeStore(dir, migrateBacklog(backlog, { now: NOW - 60 * MIN }), undefined, { now: NOW - 60 * MIN })
   const ctx = at => ({ dir, now: at, prefix: 'Garden · ', roleOf: chat => ({ Lead: 'main', Digger: 'worker' })[chat] ?? null, freeChats: new Set(['Digger']) })
   const digger = (body, at = NOW - 40 * MIN) => workApi({ chat: 'Digger', ...body }, ctx(at))
   const server = (body, at = NOW) => workApi(body, { ...ctx(at), as: 'server' })
@@ -43,7 +45,7 @@ async function garden() {
     const work = unread ? { ok: false, dir, code: 'EACCES' } : { ok: true, dir, ...(await readStore(dir)) }
     const raw = {
       listText: '{"prefix":"Garden · ","main":"Lead"}', appChatTexts: [app('Lead', NOW - 5 * MIN), app('Digger', NOW - 5 * MIN)],
-      tails: { 'cli-Digger': tail(NOW - 5 * MIN) }, planLineTexts: {}, backlogText: BACKLOG, adviceText: null, folders: null, askTexts: [], pictureLists: {}, work,
+      tails: { 'cli-Digger': tail(NOW - 5 * MIN), 'cli-Lead': tail(NOW - 5 * MIN) }, planLineTexts: {}, backlogText: BACKLOG, adviceText: null, folders: null, askTexts: [], pictureLists: {}, work,
     }
     const seen = { shown: Object.fromEntries(running.map(name => [name, now])), other: {} }
     return buildState(raw, { lines: [], outbox, runs: [], board: { startedAt: NOW - 60 * MIN, offSince: null }, seen, now, config })
@@ -53,14 +55,21 @@ async function garden() {
   return { dir, digger, server, build, deliver }
 }
 
-test('a queued step reaches a free worker\'s outbox as one line, once; also not again after the board starts anew', async () => {
-  const { dir, build, deliver } = await garden()
+test('a queued step of the main chat reaches its outbox as one line, once; also not again after the board starts anew; a worker gets none from the pass', async () => {
+  // A worker's queued step: no line from the pass (T8.5 step 6: its hand-over carries it).
+  const worker = await garden()
+  try {
+    assert.deepEqual((await worker.build()).reconciled.deliveries, [])
+  } finally {
+    await rm(worker.dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
+  }
+  const { dir, build, deliver } = await garden(MAIN_BACKLOG)
   try {
     const state = await build()
-    assert.deepEqual(state.reconciled.deliveries, [{ id: 'B1', chat: 'Digger', since: '2026-10-17 10:05', why: 'deliver B1 to Digger' }])
+    assert.deepEqual(state.reconciled.deliveries, [{ id: 'B1', chat: 'Lead', since: '2026-10-17 10:05', why: 'deliver B1 to Lead' }])
     const outbox = memoryStore()
     const done = await deliver(state, outbox)
-    assert.deepEqual(outbox.outbox().map(one => [one.to, one.command, one.about, one.state, messageText(one, () => '11:05')]), [['Digger', 'work', 'B1', 'waiting', 'work: B1 is yours; run work next']])
+    assert.deepEqual(outbox.outbox().map(one => [one.to, one.command, one.about, one.state, messageText(one, () => '11:05')]), [['Lead', 'work', 'B1', 'waiting', 'work: B1 is yours; run work next']])
     assert.equal(done.sent.length, 1)
     // The next refresh, and a board started anew with an empty outbox: nothing again.
     await deliver(await build(), outbox)
@@ -68,21 +77,10 @@ test('a queued step reaches a free worker\'s outbox as one line, once; also not 
     await deliver(await build(), anew)
     assert.equal(outbox.outbox().length, 1)
     assert.equal(anew.outbox().length, 0)
-    assert.deepEqual((await readDelivered(dir)).keys, ['B1 Digger 2026-10-17 10:05'])
-    assert.match(await readFile(join(dir, 'delivered.json'), 'utf8'), /"B1 Digger 2026-10-17 10:05"/)
+    assert.deepEqual((await readDelivered(dir)).keys, ['B1 Lead 2026-10-17 10:05'])
+    assert.match(await readFile(join(dir, 'delivered.json'), 'utf8'), /"B1 Lead 2026-10-17 10:05"/)
     // Delivered is not moved: the chat's own take moves it.
     assert.equal(valueOf((await readStore(dir)).items.get('B1'), 'State'), 'queued')
-  } finally {
-    await rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
-  }
-})
-
-test('a worker that is not running gets its line all the same, and the main chat is asked to start it', async () => {
-  const { dir, build, deliver } = await garden()
-  try {
-    const outbox = memoryStore()
-    await deliver(await build({ running: ['Lead'] }), outbox)
-    assert.deepEqual(outbox.outbox().map(one => [one.to, one.command, one.about]), [['Digger', 'work', 'B1'], ['Lead', 'start', 'Digger']])
   } finally {
     await rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
@@ -157,7 +155,7 @@ test('B301: while the store cannot be read the board reconciles nothing and says
     assert.deepEqual(state.workFlags, [])
     assert.ok(state.chats.every(lane => lane.flags.length === 0))
     const outbox = memoryStore()
-    assert.deepEqual(await deliver(state, outbox), { moved: [], sent: [], withdrawn: [], closed: [], given: [] })
+    assert.deepEqual(await deliver(state, outbox), { moved: [], sent: [], withdrawn: [], closed: [] })
     assert.equal(outbox.outbox().length, 0)
   } finally {
     await rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
