@@ -1980,7 +1980,9 @@ const WORK_TOOL = {
     + 'the supervisor chat files what looks wrong; the same "key" again only counts it. "incident-fix" ("id" X<n>, "fix" B<n>): '
     + 'the partner names the step that fixes an incident; the board marks it fixed once that step is done. "obsolete" ("points"): the partner judges the open items of '
     + 'Needs your attention once the board asks it: without "points" it reads them with their evidence, with "points" it answers, '
-    + 'one line per item, "obsolete|unsure|open: <id> · <why> · <evidence>"; nothing is closed by it.',
+    + 'one line per item, "obsolete|unsure|open: <id> · <why> · <evidence>"; nothing is closed by it. '
+    + '"words" ("id" B<n>, "text", "where"): the main chat puts the person\'s words, said in its chat, on a step as a point of '
+    + 'its "Your words" ("text" their words as said, "where" what they answered and when), so every later try is checked against them.',
   inputSchema: {
     type: 'object',
     properties: {
@@ -2034,6 +2036,7 @@ const WORK_TOOL = {
       commit: { type: 'string', description: 'step: the checkpoint\'s commit, its hash, or none.' },
       next: { type: 'string', description: 'step: the checkpoint\'s next action, in one line.' },
       priority: { type: 'string', enum: ['fix'], description: 'new: "fix" marks the step a fix for the worker board (the main chat, the partner): it goes first on the board\'s list.' },
+      where: { type: 'string', description: 'words: what the person answered and when, or where they said it ("answer to your question on the crater, 2026-10-31 10:12"), so their words keep their meaning.' },
     },
     required: ['action'],
   },

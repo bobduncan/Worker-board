@@ -34,7 +34,7 @@ export const REQUEST_HEADER = 'X-Work-Request'
  * chat that runs an older Workers mod than the one installed. The same as `version` in .claude-plugin/plugin.json.
  */
 export const MOD_HEADER = 'X-Workers-Mod'
-export const MOD_VERSION = '0.26.7'
+export const MOD_VERSION = '0.26.8'
 /** The longest text typed for the board: its own limit for an answer, with room for the request's name around it. */
 export const MOST_CHARS = 3000
 
@@ -172,7 +172,7 @@ export function typedWhy(reason: unknown, fallback: string): string {
  * partner names the step that fixes an incident (`incident-fix`: "id" X<n>, "fix" B<n>). B775: the partner's verdicts of the
  * obsolete check (`obsolete`: "points", one line per item; without points it reads the check). No new field.
  */
-export const WORK_ACTIONS = ['next', 'take', 'step', 'ask', 'withdraw', 'answered-in-chat', 'note', 'report', 'block', 'unblock', 'new', 'close', 'drop', 'refine', 'refined', 'checked', 'vibe-draft', 'how-draft', 'list', 'rename', 'partner-answer', 'escalate', 'health', 'incident', 'incident-fix', 'obsolete']
+export const WORK_ACTIONS = ['next', 'take', 'step', 'ask', 'withdraw', 'answered-in-chat', 'note', 'report', 'block', 'unblock', 'new', 'close', 'drop', 'refine', 'refined', 'checked', 'vibe-draft', 'how-draft', 'list', 'rename', 'partner-answer', 'escalate', 'health', 'incident', 'incident-fix', 'obsolete', 'words']
 
 /** B297: the fields a call of the work tool may carry to the board; anything else stays here. */
 export const WORK_FIELDS = ['action', 'id', 'branch', 'step', 'steps', 'names', 'name', 'minutes', 'stepMinutes', 'of', 'kind', 'blocking', 'text', 'options',
@@ -184,6 +184,8 @@ export const WORK_FIELDS = ['action', 'id', 'branch', 'step', 'steps', 'names', 
   'from',
   // Fix first: a step marked as a fix for the worker board ("fix"), on new and queue.
   'priority',
+  // Your words (the person, 2026-10-31): where the person said the words a `words` call puts on a step.
+  'where',
   // Pause 2: a step's checkpoint, written with work step: the commit (a hash, or none) and the next action.
   'commit', 'next',
   // B354: a step's standard on refine, refined and new: "<kind> · <reference picture> · target <score>", or "none (<why>)".
