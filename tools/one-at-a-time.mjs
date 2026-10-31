@@ -19,8 +19,14 @@
 // - One argument after the dashes is taken as a whole command line for the shell ("tsc && vite build"); more than one
 //   are quoted one by one (an argument with a double quote in it only works that way on Linux and the Mac; on Windows
 //   give the whole command line as one argument).
+// - Two at a time, first come first served (the person, 2026-10-31: "my pc hasnt crashed so far since the BIOS upgrade.
+//   so maybe we allow more?" and "yes do 2 at a time"; a test run waited 40 minutes because whoever looked first went
+//   next). HEAVY_RUN_SLOTS (default 2) runs may go at once: slot 1 is the lock file, slot n its `.n.lock` beside it.
+//   A waiting run leaves a ticket in the queue folder beside the lock (`<lock>.queue`, named by when it came); it takes
+//   a free slot only when fewer runs came before it than there are free slots, so the one that waited longest goes
+//   first. A ticket whose process is gone is removed. Set HEAVY_RUN_SLOTS=1 to go back to one at a time.
 import { spawn, spawnSync } from 'node:child_process'
-import { mkdirSync, openSync, closeSync, readFileSync, unlinkSync, writeSync } from 'node:fs'
+import { mkdirSync, openSync, closeSync, readFileSync, readdirSync, unlinkSync, writeSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { setTimeout as sleep } from 'node:timers/promises'
@@ -40,6 +46,19 @@ const STOP_WAIT_MS = 5000
 /** The lock file of this PC. */
 export function lockPath(env = process.env) {
   return env.HEAVY_RUN_LOCK || path.join(os.tmpdir(), LOCK_NAME)
+}
+
+/** How many heavy runs may go at once (HEAVY_RUN_SLOTS, default 2). */
+export const DEFAULT_SLOTS = 2
+export function slotsOf(env = process.env) {
+  const number = Math.floor(Number(env.HEAVY_RUN_SLOTS))
+  return Number.isFinite(number) && number >= 1 ? number : DEFAULT_SLOTS
+}
+
+/** The file of slot `n` (from 1): slot 1 is the lock file itself, slot n is `<name>.n.lock` beside it. */
+export function slotPath(file, n) {
+  if (n === 1) return file
+  return /\.lock$/i.test(file) ? file.replace(/\.lock$/i, `.${n}.lock`) : `${file}.${n}`
 }
 
 const positive = (value, fallback) => {
@@ -124,11 +143,56 @@ const clock = (iso) => {
 }
 
 /**
- * Waits for the lock and takes it. Resolves to the function that gives it back, or to null when `stop` aborted the wait.
- * The poll and say intervals are in `timing`.
+ * The holder of a slot as it stands now: `{ info }` for a run at work, null for a free slot. A stale lock (its process
+ * gone, too old, unreadable) is removed on the way, so its slot counts as free.
  */
-async function takeTurn({ file, label, cwd, timing, say, stop }) {
+async function holderOf(file, nap) {
+  let seen = readLock(file)
+  if (seen && !seen.info) {
+    await nap(UNREADABLE_LOOK_MS)
+    seen = readLock(file)
+  }
+  if (!seen) return null
+  if (whyStale(seen.info)) {
+    // Take it away only if it is still the lock we judged: another run may have taken it over a moment ago.
+    if (readLock(file)?.raw === seen.raw) removeFile(file)
+    return null
+  }
+  return seen
+}
+
+/** The live tickets of the queue folder, oldest first; a ticket whose process is gone is removed. */
+function queueOf(folder) {
+  let names = []
+  try {
+    names = readdirSync(folder).filter((name) => name.endsWith('.json')).sort()
+  } catch {
+    return []
+  }
+  const live = []
+  for (const name of names) {
+    const ticket = readLock(path.join(folder, name))
+    if (ticket?.info && pidRuns(ticket.info.pid)) live.push(name)
+    else if (ticket) removeFile(path.join(folder, name))
+  }
+  return live
+}
+
+/**
+ * Waits for a slot and takes it, first come first served. Resolves to the function that gives it back, or to null when
+ * `stop` aborted the wait. The poll and say intervals are in `timing`; `slots` how many may run at once.
+ */
+async function takeTurn({ file, label, cwd, timing, say, stop, slots = 1 }) {
   mkdirSync(path.dirname(file), { recursive: true })
+  const queue = `${file}.queue`
+  mkdirSync(queue, { recursive: true })
+  const came = Date.now()
+  const ticketName = `${String(came).padStart(15, '0')}-${String(process.pid).padStart(8, '0')}.json`
+  const ticket = path.join(queue, ticketName)
+  const ticketText = JSON.stringify({ pid: process.pid, label, cwd, startedAt: new Date(came).toISOString() })
+  createLock(ticket, ticketText)
+  const leave = () => giveBack(ticket, ticketText)
+  process.on('exit', leave)
   let saidAt = 0
   const nap = async (ms) => {
     try {
@@ -137,30 +201,40 @@ async function takeTurn({ file, label, cwd, timing, say, stop }) {
       // stopped
     }
   }
-  while (!stop.signal.aborted) {
-    const text = JSON.stringify({ pid: process.pid, label, cwd, startedAt: new Date().toISOString() })
-    if (createLock(file, text)) return () => giveBack(file, text)
-    let seen = readLock(file)
-    if (seen && !seen.info) {
-      await nap(UNREADABLE_LOOK_MS)
-      seen = readLock(file)
+  try {
+    while (!stop.signal.aborted) {
+      const holders = []
+      const free = []
+      for (let n = 1; n <= slots; n++) {
+        const slot = slotPath(file, n)
+        const seen = await holderOf(slot, nap)
+        if (seen) holders.push(seen.info)
+        else free.push(slot)
+      }
+      const order = queueOf(queue)
+      const ahead = order.indexOf(ticketName)
+      // Our turn when fewer runs came before us than there are free slots (a ticket we cannot read: go by the slots).
+      if (free.length > 0 && (ahead === -1 ? 0 : ahead) < free.length) {
+        for (const slot of free) {
+          const text = JSON.stringify({ pid: process.pid, label, cwd, startedAt: new Date().toISOString() })
+          if (createLock(slot, text)) return () => giveBack(slot, text)
+        }
+        await nap(50)
+        continue
+      }
+      if (Date.now() - saidAt >= timing.say) {
+        const running = holders.map((one) => `${one.label} in ${one.cwd} (since ${clock(one.startedAt)})`).join('; ')
+        const before = ahead > 0 ? `, ${ahead} ahead of this run` : ''
+        say(`waiting for ${running || 'a free slot'}${before}`)
+        saidAt = Date.now()
+      }
+      await nap(timing.poll)
     }
-    if (!seen) {
-      await nap(50)
-      continue
-    }
-    if (whyStale(seen.info)) {
-      // Take it away only if it is still the lock we judged: another run may have taken it over a moment ago.
-      if (readLock(file)?.raw === seen.raw && !removeFile(file)) await nap(timing.poll)
-      continue
-    }
-    if (Date.now() - saidAt >= timing.say) {
-      say(`waiting for ${seen.info.label} in ${seen.info.cwd} (since ${clock(seen.info.startedAt)})`)
-      saidAt = Date.now()
-    }
-    await nap(timing.poll)
+    return null
+  } finally {
+    leave()
+    process.off('exit', leave)
   }
-  return null
 }
 
 function quote(arg) {
@@ -220,7 +294,7 @@ export async function runOneAtATime({
   try {
     if (env.HEAVY_RUN_HELD !== '1') {
       const timing = { poll: positive(env.HEAVY_RUN_POLL_MS, POLL_MS), say: positive(env.HEAVY_RUN_SAY_MS, SAY_MS) }
-      giveLockBack = await takeTurn({ file: lockPath(env), label, cwd, timing, say, stop })
+      giveLockBack = await takeTurn({ file: lockPath(env), label, cwd, timing, say, stop, slots: slotsOf(env) })
       if (!giveLockBack || signalled) return signalExit(signalled)
     }
     const exited = new Promise((resolve) => {

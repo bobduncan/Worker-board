@@ -84,7 +84,7 @@ and the briefings for the main chat and the workers.
    npm test
    ```
    → the tests end with `fail 0`. They run on at most half the PC's cores (`tools/test.mjs`), so the PC stays
-   usable meanwhile. Only one heavy run at a time happens on the PC: `npm test` waits its turn when another run holds
+   usable meanwhile. At most two heavy runs at a time happen on the PC (2026-10-31, `HEAVY_RUN_SLOTS`), first come first served: `npm test` waits its turn when two other runs hold
    it (`tools/one-at-a-time.mjs`). `npm run demo -- --port 4311` shows the page with made-up data, if you
    want to look first (Ctrl+C ends it).
 3. **The Workers mod (optional).** The board carries it, in `mods\workers` (B251). In the board's folder:
