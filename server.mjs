@@ -997,12 +997,29 @@ async function main(args) {
         const noted = await workAction({ action: 'words', id: found.base.step, text: said.lines.join('\n'), where: 'in the goal demo' }, 'person')
         if (noted.ok) notedOn = found.base.step
       }
+      // B878 (X116): the person's Approve closes the steps the part shows that wait in review (done, their verdict in the
+      // History); a step sent back gets their words, and the partner's word names it, so the partner makes its fix.
+      const closed = []
+      if (workDir !== null) {
+        const stored = await readStore(workDir)
+        const inReview = id => stored.items.get(id)?.head.get('State') === 'review'
+        const verdict = `approved in the recap of ${found.base.goal}, round ${checked.round}`
+        for (const id of said.closes.filter(inReview)) {
+          const ticked = await workAction({ action: 'tick', id, verdict }, 'person')
+          if (ticked.ok) closed.push(id)
+        }
+        for (const part of said.back) {
+          for (const id of part.steps.filter(inReview)) {
+            await workAction({ action: 'words', id, text: `Sent back in the recap of ${found.base.goal}, round ${checked.round}: ${part.title}: "${part.comment}"`, where: 'in the goal demo' }, 'person')
+          }
+        }
+      }
       const left = after.sections.flatMap(section => section.rows).filter(row => row.said === undefined).length
       await toPartner(recapFeedbackWords(state.advisor.name, {
         goal: found.base.goal, title: found.base.title, step: notedOn ?? found.base.step, round: checked.round, approved: said.approved, back: said.back,
         done: after.feedback.done, left, path: body.path, job: join(HERE, 'roles', 'partner.md'),
       }), {}, state)
-      return { ok: true, result: { round: checked.round, approved: said.approved.length, sentBack: said.back.length, done: after.feedback.done, notedOn } }
+      return { ok: true, result: { round: checked.round, approved: said.approved.length, sentBack: said.back.length, done: after.feedback.done, notedOn, closed } }
     }
     const turn = demoTurn.then(run, run)
     // The caller has the turn itself, with its error; the next Send only waits for this one to end.
@@ -1160,6 +1177,8 @@ async function main(args) {
       focusGoal: state.focus?.id ?? null,
       // B656: the ready list's held steps, so a step in review whose fix it holds says why in work next and list.
       readyHeld: state.readyList?.held ?? null,
+      // B878: the steps the goals' recaps show, so a step whose part waits for the person's verdict says so in work next and list.
+      recaps: state.recapWaits ?? null,
       // B775: the facts the obsolete check hands the Advisor for each open item: its step, the commits naming it since, its chat.
       obsoleteEvidence: async (open, items) => obsoleteEvidence(open, {
         items, lanes: lanes.map(lane => ({ name: lane.name, state: lane.state ?? null, task: lane.task ?? null, isRunning: lane.isRunning ?? null })),

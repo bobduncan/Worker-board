@@ -1168,7 +1168,8 @@ export function recapFeedbackWords(to, { goal, title, step, round, approved, bac
       `recap feedback: ${goal} ${one(title)}, round ${round}: ${done ? 'every part approved' : `${back.length} part${back.length === 1 ? '' : 's'} sent back`}`,
       ...(step === null || step === undefined ? [] : [`Step: ${step}`]),
       `Demo: ${path}`,
-      ...(back.length === 0 ? [] : ['Sent back:', ...back.map(part => `- ${one(part.title)}: "${one(part.comment)}"`)]),
+      // B878: with the steps the part shows: the partner makes the fix of each (roles/partner.md, "Recap feedback").
+      ...(back.length === 0 ? [] : ['Sent back:', ...back.map(part => `- ${one(part.title)}${(part.steps ?? []).length > 0 ? ` (steps ${part.steps.join(', ')}: block each on its next try)` : ''}: "${one(part.comment)}"`)]),
       ...(approved.length === 0 ? [] : [`Approved: ${approved.map(one).join('; ')}`]),
       ...(left > 0 ? [`Not decided yet: ${left}`] : []),
       `Your job: ${job}, "Recap feedback"`,

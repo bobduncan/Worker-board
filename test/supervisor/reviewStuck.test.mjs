@@ -245,7 +245,7 @@ test('the Backlog line says what a step in review waits for: on the Backlog tab 
   const row = page.slice(page.indexOf('function blockLine('), page.indexOf('function blockLine(') + 1600)
   assert.match(row, /step\.reviewWait/)
   const state = await readFile(join(HERE, '..', '..', 'src', 'state.mjs'), 'utf8')
-  assert.match(state, /reviewWait: reviewWaitOfStep\(raw\.work, step\.key, reconciled\?\.ready\?\.held \?\? null, now\)/)
+  assert.match(state, /reviewWait: reviewWaitOfStep\(raw\.work, step\.key, reconciled\?\.ready\?\.held \?\? null, now, recapWaits\)/)
   // The work tool's one line per step.
   const dir = await mkdtemp(join(tmpdir(), 'b543-'))
   t.after(() => rm(dir, { recursive: true, force: true }))

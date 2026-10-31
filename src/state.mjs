@@ -51,6 +51,7 @@ import { contextOfStep, flowOfStep, itemOfStep, itemsOf, reviewWaitOfStep, store
 import { clearHolds, clearOwed, modAtLeast } from './clearOwed.mjs'
 import { nobodyRunsOf, wakeFailedOf } from './say.mjs'
 import { chainWaitOf, checkedOf, fixesOf, fixOutcomeOf } from './work/resultCheck.mjs'
+import { recapWaitsOf } from './recaps.mjs'
 import { guardOf } from './goalGuard.mjs'
 import { standardOf } from './work/standard.mjs'
 import { rolloutPlan } from './work/modRollout.mjs'
@@ -1143,13 +1144,14 @@ function chainNote(wait, all) {
  * work (`chainWaitOf`: no link with a worker, being checked or queued for its check) reads "Fix waiting" and counts as
  * waiting, its fix line saying what the chain waits for. `all` is the store's items by id, `now` the clock.
  */
-function partStepOf(item, steps, prefix, all = steps, lanes = null, now = null) {
+function partStepOf(item, steps, prefix, all = steps, lanes = null, now = null, recaps = null) {
   const id = item.head.get('Id')
   const state = item.head.get('State')
   const checked = checkedOf(item)
   const outcome = checked !== null && checked.total > 0 && checked.passed < checked.total ? fixOutcomeOf(id, steps) : null
   // 2026-10-31 (B689): an open fix is followed to the last link of its chain, and what that one waits for is said.
-  const chainWait = state === 'review' && outcome?.isOpen === true ? chainWaitOf(id, all, null, now) : null
+  // B878: a last link whose part waits for the person's verdict in a recap waits ("its fix B821 waits for your verdict ...").
+  const chainWait = state === 'review' && outcome?.isOpen === true ? chainWaitOf(id, all, null, now, recaps) : null
   const note = chainWait === null ? null : chainNote(chainWait, all)
   const fix = note === null ? outcome : { ...outcome, note }
   // 2026-10-31: a chain whose last link stopped (its own fix dropped, nothing blocks it) is stopped as B695's is, not waiting.
@@ -1224,7 +1226,7 @@ function goalsUnder(goalMap, id) {
  * each step's `onIt`, is the worker whose card (`lanes`, the board's) shows one of its steps, a fix in its chain or the QA
  * task that checks one of them (`workerOn`), never a step's Owner alone; null when no card does.
  */
-export function focusState(goalMap, items, threads, prefix, partner = null, now = null, lanes = null) {
+export function focusState(goalMap, items, threads, prefix, partner = null, now = null, lanes = null, recaps = null) {
   const node = goalMap?.focus ? goalMap.byId.get(goalMap.focus) ?? null : null
   if (node === null) return null
   const steps = new Map((items ?? []).filter(one => one.head.get('Kind') === 'step').map(one => [one.head.get('Id'), one]))
@@ -1235,7 +1237,7 @@ export function focusState(goalMap, items, threads, prefix, partner = null, now 
     const done = known.filter(one => FINISHED.includes(one.head.get('State'))).length
     const busy = known.find(one => UNDER_WAY.includes(one.head.get('State')))
     // B684: the part's steps in its order, each with its colour, its words, its check and what it waits for.
-    const list = known.map(one => partStepOf(one, steps, prefix, all, lanes, now))
+    const list = known.map(one => partStepOf(one, steps, prefix, all, lanes, now, recaps))
     // 2026-10-31 (B689, the badge: its part read In progress while nobody worked on it): a part is in progress only while
     // a step under way is at work (built, checked or its fix at work) or a worker's card shows it; one whose steps under
     // way only wait for another task is waiting, one whose fix stopped is stuck.
@@ -1383,6 +1385,8 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
   // The review of Pause 2: while the person pauses (2026-10-19: pausing only, no longer until running) what waits in
   // the outbox is held until the resume, but the board's own "resume" to the main chat; the page says so (`isHeld`).
   const isPaused = isHolding(raw.work?.pause)
+  // B878 (X116): where each step a goal's recap shows stands with the person (src/recaps.mjs), for what a step in review waits for.
+  const recapWaits = recapWaitsOf(raw.recaps)
   const sent = (Array.isArray(outbox) ? outbox : [])
     .map(message => (isPaused && message.state === 'waiting' && message.command !== 'resume' ? { ...message, isHeld: true } : message))
   const started = Array.isArray(runs) ? runs : []
@@ -2029,7 +2033,7 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
   const oldAsks = new Set((reconciled?.flags ?? []).filter(flag => flag.kind === 'old ask').map(flag => `work:${flag.id}`))
   const flagsOf = name => (reconciled?.flags ?? []).filter(flag => flag.chat === name && LANE_FLAGS.includes(flag.kind)).map(({ kind, id, text, button }) => ({ kind, id, text, button }))
   // 2026-10-31 (B689): with the workers' cards, so the Focus page names a worker only where its card shows the step.
-  const focus = focusState(goalMap, itemsOf(raw.work), brainstorms.threads, prefix, advisorChat?.name ?? null, now, chats)
+  const focus = focusState(goalMap, itemsOf(raw.work), brainstorms.threads, prefix, advisorChat?.name ?? null, now, chats, recapWaits)
   // The chats on the board by name, for a store's owner (with or without the list's prefix).
   const chatNames = [...names, ...[advisorChat, helperChat, ownerChat].filter(one => one !== undefined).map(one => one.name)]
   // Partner answers, the review's findings: the asks with the partner now, and its answers of the last 7 days that the
@@ -2092,6 +2096,7 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
 
   const built = {
     readAt: now,
+    recapWaits,
     // Clear after each step: the sessions the chats went on from, while the app still names them (read on to their ends).
     movedFrom: found.filter(chat => !chat.isLeftover && movedBack.has(chat.cliSessionId)).map(chat => ({ session: movedBack.get(chat.cliSessionId), name: chat.name })),
     spendingSubjects: found.filter(chat => !chat.isLeftover).map(chat => ({ session: chat.cliSessionId, appSession: chat.appSessionId, name: chat.name, model: chat.model, effort: chat.effort, role: chat.isMain ? 'main' : isAdvisor(chat) ? 'advisor' : isHelper(chat) ? 'helper' : isSupervisor(chat) ? 'supervisor' : isOwner(chat) ? 'owner' : 'worker' })),
@@ -2192,7 +2197,7 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
           // B296: where it stands in the flow (flow.json), for the strip in its window.
           flow: flowOfStep(raw.work, step.key),
           // B543: what it waits for while in review ("waits for its fix B<n>"), or null; B656: a fix the ready list holds, with why.
-          reviewWait: reviewWaitOfStep(raw.work, step.key, reconciled?.ready?.held ?? null, now),
+          reviewWait: reviewWaitOfStep(raw.work, step.key, reconciled?.ready?.held ?? null, now, recapWaits),
           // 2026-10-26, T9.1.1: a step in review that waits for its result check says where its QA task stands (queued since,
           // or the worker on it since: `{ kind, since, qa, who }`), or null.
           reviewStand: step.id === null ? null : checkStands.get(step.id) ?? null,

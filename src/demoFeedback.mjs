@@ -37,8 +37,8 @@ export function standOf(rounds) {
   return stand
 }
 
-/** Every row of a page, in order: `{ key, title, section }`. */
-export const rowsOf = page => page.sections.flatMap((section, at) => section.rows.map(row => ({ key: row.key, title: row.title, section: at })))
+/** Every row of a page, in order: `{ key, title, section, steps }` (B878: the steps the part shows, [] for none). */
+export const rowsOf = page => page.sections.flatMap((section, at) => section.rows.map(row => ({ key: row.key, title: row.title, section: at, steps: row.steps ?? [] })))
 
 /**
  * The page the popup draws for the round the person answers now: round 1 is the whole demo; after that only the rows sent back or not
@@ -89,19 +89,25 @@ export function checkSend(page, body) {
 /** The feedback file's content with one more round (`at`: "YYYY-MM-DD HH:MM"). */
 export const withRound = (input, round, parts, at) => ({ rounds: [...roundsOf(input), { n: round, at, parts }] })
 
-/** The parts of a round as lines of the person's words (one line per part) and the titles sent back, for the step and the partner. */
+/**
+ * The parts of a round as lines of the person's words (one line per part) and the titles sent back, for the step and the partner.
+ * B878: each part sent back with the steps it shows (`steps`), and the steps of every part approved (`closes`).
+ */
 export function wordsOfRound(page, round, parts) {
   const title = new Map(rowsOf(page).map(row => [row.key, row.title]))
+  const steps = new Map(rowsOf(page).map(row => [row.key, row.steps]))
+  const named = key => (steps.get(key)?.length > 0 ? ` (${steps.get(key).join(', ')})` : '')
   const approved = parts.filter(part => part.verdict === 'approved')
   const back = parts.filter(part => part.verdict === 'sent-back')
   const left = rowsOf(page).filter(row => !parts.some(part => part.key === row.key)).length
   return {
     approved: approved.map(part => title.get(part.key)),
-    back: back.map(part => ({ title: title.get(part.key), comment: part.comment })),
+    back: back.map(part => ({ title: title.get(part.key), comment: part.comment, steps: steps.get(part.key) ?? [] })),
+    closes: [...new Set(approved.flatMap(part => steps.get(part.key) ?? []))],
     lines: [
       `Recap feedback, round ${round}: ${approved.length} approved, ${back.length} sent back${left > 0 ? `, ${left} not decided yet` : ''}.`,
       ...(approved.length === 0 ? [] : [`Approved: ${approved.map(part => title.get(part.key)).join('; ')}.`]),
-      ...back.map(part => `Sent back: ${title.get(part.key)}: "${part.comment}"`),
+      ...back.map(part => `Sent back: ${title.get(part.key)}${named(part.key)}: "${part.comment}"`),
     ],
   }
 }

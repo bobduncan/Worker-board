@@ -982,6 +982,12 @@ the user's comment, the parts approved and how many are not decided yet. Act on 
   try, and folds the approved ones.
 - Never write or change `feedback.json`: it is the user's. A word saying every part is approved needs no new try: the
   recap is done; go on with the goal's Demo line as before.
+- B878: give every row the steps it shows, `"steps": ["B689", "B821"]` (the part's step and its fixes), whenever a step
+  waits for the user's verdict there. Such a step waits as planned ("waits for your verdict in the recap of G<n>"): never
+  block it on the recap step or drop it. The user's Approve closes the steps of the part that are in review; a part sent
+  back names its steps in the word ("steps B689, B821: block each on its next try"): file the next try (`work new`, the user's
+  comment word for word) and block each named step in review on it (`work block <step> on B<new>`), within 30 minutes of
+  the Send back, or the board raises it; when the new try is done, put it in that row and write `demo.json` again.
 
 ## The goal re-check
 

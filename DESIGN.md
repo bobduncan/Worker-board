@@ -3654,7 +3654,10 @@ the AI sweep by a cheap supervisor chat and the hand-over to the Advisor, comes 
   failed and was not reported again, `reviewWaitOf` kind 'report', over 60 min of running time), `dropped-fix` (B630, the fix of X54: a step in
   review whose fix was dropped, with no new fix, no new check and no open step blocking it, for over 30 min; with a
   block, `reviewWaitOf` says kind 'blocked' and the step waits as planned, odd in the health summary only when a
-  blocker is stalled itself), `review-held` (B656, X8 again: a step in review whose chain of open fixes ends in a refined
+  blocker is stalled itself; B665 and B878, X70, X71, X116: counted from when the block ended, the blocker's own move to done
+  or dropped or the step's "no longer blocked by B<n>" line, as a done blocker leaves Blocked by at once (B574); a step whose
+  part waits for the person's verdict in a goal's recap is kind 'recap', "waits for your verdict in the recap of G<n>", no
+  case and not odd; a part sent back counts from the Send back), `review-held` (B656, X8 again: a step in review whose chain of open fixes ends in a refined
   fix the ready list holds, for over 60 min from when the board first saw that hold (B660, X59: not from the fix's Since; a changed why
   starts again; a hold that is the person's open ask, "waits for the answer to Q<n>", is no case and not odd); one case per chain, named by its first step, with the
   held why; a chain whose last fix is at work is no case, however deep; its line reads "waits for its fix B<n>, held:
@@ -4969,6 +4972,35 @@ link to this demo so i can see before i approve the goal". A fixed stage of ever
    own size, with zoom. A `Demo:` line naming a .json opens this page (focusState gives `demo.isPage`), one naming a picture
    the picture window as before; `#demo=<path>` in the address opens the page. focusState also gives `demoWords`
    (DEMO_WORDS): the card writes the number, there is no copy of it in the page.
+
+## The recap's verdict reaches the steps it shows (B878)
+
+X116: B821 waited in review for the person's verdict in G60's recap, its fix dropped on purpose; when the recap step B674 went
+done the board took it out of B821's Blocked by (B574), B665 found no blocker left and counted from the drop 96 min before, so
+the rule dropped-fix raised it a minute later; and the recap's Approve and Send back (B860) never reached B821.
+
+1. A row of a demo list may name the steps it shows: `"steps": ["B689", "B821"]` (the part's step and its fixes; src/demo.mjs
+   checks the ids, `demoPage` keeps them on the row). A part without ids works as before.
+2. Each tick the board reads the recaps of the open goals (src/recaps.mjs `readRecaps`: `<picture folder>/<goal id>/demo.json`,
+   `<picture folder>/<goal id>/<any>/demo.json`, and a `Demo:` line naming a .json) with the person's rounds beside them, and
+   `recapWaitsOf` says per named step where its part stands: not judged yet, or sent back (when). The state keeps it as
+   `recapWaits`; the supervisor's view as `recaps`; the work tool's context as `recaps`.
+3. resultCheck.mjs `reviewWaitOf(item, items, held, now, recaps)`: a step whose fix was dropped, while its part is not judged,
+   is kind 'recap', "waits for your verdict in the recap of G<n>", on the Backlog tab, in work next and list and in the health
+   summary; `reviewLateOf` never calls it late (no dropped-fix incident, no fix-dropped word to the main chat). A step above
+   it reads "waits for its fix B821, which waits for your verdict in the recap of G60". A part sent back is kind 'dropped'
+   again, counted from the Send back (`sentBack`), "...; sent back in the recap of G<n>: the partner makes its next try",
+   until the partner blocks it on the next try (kind 'blocked') or writes demo.json again with it (a later minute than the
+   Send, `changedAt`): then the part waits for the person's verdict again.
+   A dropped wait also counts from the step's newest "no longer blocked by B<n>" line (`unblockedOf`), when that is later.
+4. The person's Send (server.mjs `demoFeedbackNow`): Approve on a part closes each step it names that is in review (the
+   person's `tick`, done, then "person: approved in the recap of G<n>, round N" in its History; a step not in review stays
+   as it is); Send back writes their comment on each such step ("Sent back in the recap of ..."), and the partner's word names
+   the part's steps ("(steps B689, B821: block each on its next try)"). The answer of the Send lists the steps it closed (`closed`).
+
+Tests: test/supervisor/recapVerdict.test.mjs (B821's case: a block ended by done a minute ago is no case, 31 min later it is;
+waiting for the verdict is none, also after 10 h; a Send back counts from the Send), test/recapVerdictBoard.test.mjs (on a
+running board: the Backlog line, a Send back's words, an Approve that closes the steps in review only).
 
 ## A part with only dropped steps is Stopped (B680)
 

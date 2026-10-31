@@ -531,7 +531,7 @@ function fixDropped(view) {
   const { steps, isHeld } = factsOf(view)
   if (isHeld) return []
   return steps.filter(one => stateOf(one) === 'review').flatMap(item => {
-    const wait = reviewWaitOf(item, items)
+    const wait = reviewWaitOf(item, items, null, now, view.recaps)
     if (wait?.kind !== 'dropped' || !(now - wait.since >= UNCHECKED_MS)) return []
     const id = idOf(item)
     const text = `${id} waits in review, but ${wait.text}`
@@ -676,7 +676,7 @@ export const CHECKS = REPAIR_RULES.map(rule => ({ key: rule.id, words: rule.says
  * runner has seen what only counts once it has lasted (an owner missing from the list, the helper not running); what
  * is seen now is added to `observed` (an array), so the runner keeps it and forgets the rest.
  */
-export function findStuck({ items = new Map(), lanes = [], partner = null, helper = null, prefix = '', now, outbox = [], limits = {}, pause = null, refused = [], appStartedAt = null, focus = null, bases = [], ready = [], seen = new Map(), observed = [] }) {
-  const view = { items, lanes, partner, helper, prefix, now, outbox, limits, pause, refused, appStartedAt, focus, bases, ready }
+export function findStuck({ items = new Map(), lanes = [], partner = null, helper = null, prefix = '', now, outbox = [], limits = {}, pause = null, refused = [], appStartedAt = null, focus = null, bases = [], ready = [], recaps = [], seen = new Map(), observed = [] }) {
+  const view = { items, lanes, partner, helper, prefix, now, outbox, limits, pause, refused, appStartedAt, focus, bases, ready, recaps }
   return REPAIR_RULES.filter(rule => rule.id !== 'worktrees').flatMap(rule => rule.check(view, { seen, observed }))
 }

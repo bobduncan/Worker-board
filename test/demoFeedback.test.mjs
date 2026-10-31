@@ -87,7 +87,7 @@ test('the words of a round name each part: approved ones, sent back ones with th
   const parts = [{ key: '1. Lava', verdict: 'approved', comment: '' }, { key: '3. Round shapes', verdict: 'sent-back', comment: 'still stepped' }]
   const said = wordsOfRound(page(), 1, parts)
   assert.deepEqual(said.lines, ['Recap feedback, round 1: 1 approved, 1 sent back, 2 not decided yet.', 'Approved: 1. Lava.', 'Sent back: 3. Round shapes: "still stepped"'])
-  assert.deepEqual(said.back, [{ title: '3. Round shapes', comment: 'still stepped' }])
+  assert.deepEqual(said.back, [{ title: '3. Round shapes', comment: 'still stepped', steps: [] }])
   const word = recapFeedbackWords('Advisor', { goal: 'G6', title: 'The polish', step: 'B7', round: 1, approved: said.approved, back: said.back, done: false, left: 2, path: 'art/g6/demo.json', job: 'roles/partner.md' })
   assert.equal(word.command, 'recap-feedback')
   assert.equal(word.text, ['recap feedback: G6 The polish, round 1: 1 part sent back', 'Step: B7', 'Demo: art/g6/demo.json', 'Sent back:', '- 3. Round shapes: "still stepped"', 'Approved: 1. Lava', 'Not decided yet: 2', 'Your job: roles/partner.md, "Recap feedback"'].join('\n'))

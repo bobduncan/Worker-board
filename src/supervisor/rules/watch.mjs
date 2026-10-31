@@ -592,7 +592,7 @@ function reviewStuck(view, ctx) {
   const found = []
   if (isPaused(view)) return found
   for (const item of stepsOf(view).filter(one => stateOf(one) === 'review').sort((a, b) => byId(idOf(a), idOf(b)))) {
-    const wait = reviewWaitOf(item, view.items, null, view.now)
+    const wait = reviewWaitOf(item, view.items, null, view.now, view.recaps)
     if (wait?.kind !== 'check' && wait?.kind !== 'report') continue
     const id = idOf(item)
     // B740 (X92): a report whose check failed and was not reported again, an hour on: the worker's word, not the partner's.
@@ -633,7 +633,7 @@ function fixDropped(view, ctx) {
   const found = []
   if (isPaused(view)) return found
   for (const item of stepsOf(view).filter(one => stateOf(one) === 'review').sort((a, b) => byId(idOf(a), idOf(b)))) {
-    const wait = reviewWaitOf(item, view.items, null, view.now)
+    const wait = reviewWaitOf(item, view.items, null, view.now, view.recaps)
     if (wait?.kind !== 'dropped') continue
     const id = idOf(item)
     const { late, key, ms } = reviewLateOf(view, item, wait, watchOf(ctx))
@@ -666,7 +666,7 @@ function reviewHeld(view, ctx) {
   const seen = new Set()
   // By id: a chain's first step comes before its fixes, so it names the case.
   for (const item of stepsOf(view).filter(one => stateOf(one) === 'review').sort((a, b) => byId(idOf(a), idOf(b)))) {
-    const wait = reviewWaitOf(item, view.items, view.held, view.now)
+    const wait = reviewWaitOf(item, view.items, view.held, view.now, view.recaps)
     if (wait?.kind !== 'fix' || wait.held === null || seen.has(wait.end)) continue
     seen.add(wait.end)
     const id = idOf(item)
@@ -699,7 +699,8 @@ export function reviewLateOf(view, item, wait, seenOf = () => undefined) {
   const id = idOf(item)
   const not = { late: false, key: null, ms: 0, words: [] }
   if (wait === null || wait === undefined) return null
-  if (wait.kind === 'answer') return not
+  // B878: a step whose part waits for the person's verdict in a recap waits for them, as for their answer.
+  if (wait.kind === 'answer' || wait.kind === 'recap') return not
   if (wait.kind === 'check') {
     if (isPaused(view)) return not
     const key = `review-stuck ${id} check`
@@ -789,7 +790,7 @@ function openFix(view, ctx) {
   if (isPaused(view)) return found
   const seen = new Set()
   for (const item of stepsOf(view).filter(one => stateOf(one) === 'review').sort((a, b) => byId(idOf(a), idOf(b)))) {
-    const wait = reviewWaitOf(item, view.items, view.held, view.now)
+    const wait = reviewWaitOf(item, view.items, view.held, view.now, view.recaps)
     if (wait?.kind !== 'fix' || (wait.unrefined ?? null) === null || seen.has(wait.end)) continue
     seen.add(wait.end)
     const { late, key, ms, words } = reviewLateOf(view, item, wait, watchOf(ctx))

@@ -196,6 +196,26 @@ function leftAtMs(item) {
 }
 
 /**
+ * B878 (X116: B821's block by B674 ended at 12:54, B574 took B674 out of its Blocked by at once, so B665 found no blocker
+ * and counted from the drop 96 min before): the newest "no longer blocked by B<n>" line in a step's History, `{ id, at }`
+ * (ms), or undefined.
+ */
+const UNBLOCKED = /^-\s+(\d{4}-\d{2}-\d{2} \d{2}:\d{2}) [^:]+: no longer blocked by (B\d+)\b/
+export function unblockedOf(item) {
+  const found = historyOf(item).map(one => one.match(UNBLOCKED)).filter(Boolean).at(-1)
+  return found === undefined ? undefined : { id: found[2], at: sinceMs(found[1]) }
+}
+
+/**
+ * B878: the recap part a step waits in (src/recaps.mjs `recapWaitsOf`: `[{ step, goal, path, key, title, verdict, at }]`,
+ * verdict null while the person has not judged the part, 'sent-back' after their Send back at `at`), or null.
+ */
+export function recapPartOf(recaps, id) {
+  const parts = (Array.isArray(recaps) ? recaps : []).filter(one => one?.step === id)
+  return parts.find(one => one.verdict === null) ?? parts.find(one => one.verdict === 'sent-back') ?? null
+}
+
+/**
  * B656 (X8 again: B603 sat in review behind its fix B614, which the ready list held, while its line said only "waits for
  * its fix B614"): the open fixes under the step `id`, followed down: its newest open fix, that one's newest open fix, and
  * so on (a loop ends it). [] when it has none.
@@ -296,7 +316,7 @@ const WITH_A_WORKER = ['queued', 'taken', 'in progress']
  * its report); 'you', its worker waits on the person; 'worker', it is queued, taken or in progress (`who` its owner, `state`;
  * no text: the store names no card, so the words name no worker).
  */
-function lastLinkWaitOf(link, items, held, now) {
+function lastLinkWaitOf(link, items, held, now, recaps = null) {
   if (link === undefined) return null
   const id = valueOf(link, 'Id')
   const state = valueOf(link, 'State')
@@ -311,7 +331,7 @@ function lastLinkWaitOf(link, items, held, now) {
   if (blockers.length > 0) return { kind: 'blocked', blockers, text: `waits for ${blockers.map(one => namedStep(one, items)).join(' and ')}` }
   if (state === 'review') {
     if (!gitCheckPassed(link) && reportCheckFailedOf(link) === null) return { kind: 'board', text: 'waits for the board\'s check of its report' }
-    const own = waitOf(link, items, held, now, 1)
+    const own = waitOf(link, items, held, now, 1, recaps)
     if (own === null || own.kind === 'fix' || own.kind === 'blocked') return null
     if (own.kind === 'dropped') return { kind: 'dropped', fix: own.fix, text: `stopped: ${own.text}` }
     if (own.kind === 'report') return { kind: 'report', text: own.text.startsWith('waits for ') ? own.text : `is ${own.text}` }
@@ -328,11 +348,11 @@ function lastLinkWaitOf(link, items, held, now) {
  * `lastLinkWaitOf`), or null when it has no open fix. `atWork`: some link is with a worker (queued, taken, in progress) or its
  * last is being checked or queued for its check: only then is the step being fixed; otherwise its chain waits.
  */
-export function chainWaitOf(id, items, held = null, now = null) {
+export function chainWaitOf(id, items, held = null, now = null, recaps = null) {
   const chain = openFixChain(id, items)
   if (chain.length === 0) return null
   const end = chain.at(-1)
-  const last = lastLinkWaitOf(items?.get(end), items, held, now)
+  const last = lastLinkWaitOf(items?.get(end), items, held, now, recaps)
   const atWork = chain.some(link => WITH_A_WORKER.includes(valueOf(items.get(link), 'State'))) || ['checking', 'qa-queued'].includes(last?.kind)
   return { fix: chain[0], chain, end, last, atWork }
 }
@@ -410,13 +430,16 @@ export function reportCheckFailedOf(item) {
  * 2026-10-31 (B689): kind 'fix' also says what the chain's last link waits for itself (`last`, `chainWaitOf`), unless a hold or
  * a missing refine says it already: "waits for its fix B821, which waits for B674 <its title>", "waits for its fix B821: being
  * checked by <the owner of its QA task>", "waits for its fix B8, whose fix B9 waits for its first check".
+ * B878: `recaps` (src/recaps.mjs `recapWaitsOf`): a step whose fix was dropped while its part waits for the person's verdict
+ * in a goal's recap is kind 'recap' (`goal`, `path`, `part`), "waits for your verdict in the recap of G<n>"; a part sent back
+ * counts the dropped wait from the Send back (`sentBack`); a "no longer blocked by" line ends a block as B665's blocker does.
  */
-export function reviewWaitOf(item, items, held = null, now = null) {
-  return waitOf(item, items, held, now, 0)
+export function reviewWaitOf(item, items, held = null, now = null, recaps = null) {
+  return waitOf(item, items, held, now, 0, recaps)
 }
 
 /** `reviewWaitOf`, with how deep it was asked: the last link's own wait (depth 1) says nothing of its last link again. */
-function waitOf(item, items, held, now, depth) {
+function waitOf(item, items, held, now, depth, recaps = null) {
   // B740: the board's check of the report failed and the worker has not reported again: the step waits for the worker.
   const refused = reportCheckFailedOf(item)
   if (refused !== null) {
@@ -459,7 +482,7 @@ function waitOf(item, items, held, now, depth) {
     const hold = why !== null ? (end === fix ? `, held: ${heldWords(why)}` : `, whose fix ${end} is held: ${heldWords(why)}`)
       : unrefined !== null ? (end === fix ? ', not refined yet' : `, whose fix ${end} is not refined yet`) : ''
     // 2026-10-31 (B689): what the last link waits for itself, where a hold or a missing refine does not say it already.
-    const last = depth > 0 || hold !== '' ? null : chainWaitOf(id, items, held, now)?.last ?? null
+    const last = depth > 0 || hold !== '' ? null : chainWaitOf(id, items, held, now, recaps)?.last ?? null
     const tail = typeof last?.text !== 'string' ? ''
       : end !== fix ? `, whose fix ${end} ${last.text}`
         : last.kind === 'checking' ? `: being checked by ${last.who}` : `, which ${last.text}`
@@ -478,10 +501,19 @@ function waitOf(item, items, held, now, depth) {
     return { kind: 'blocked', fix: named, blockers, since, text: `${named === null ? 'its check failed and made no fix' : `its fix ${named} was dropped`}, waits for ${blockers.join(' and ')}` }
   }
   const text = named === null ? 'its check failed and made no fix' : `its fix ${named} was dropped`
+  // B878: the step's part waits for the person's verdict in a goal's recap: a plan, which their Approve or Send back ends.
+  const part = recapPartOf(recaps, id)
+  if (part?.verdict === null) return { kind: 'recap', fix: named, goal: part.goal, path: part.path, part: part.key, since, text: `waits for your verdict in the recap of ${part.goal}` }
   // B665 (X70, X71: B608 and B609 raised one minute after the steps that blocked them were dropped, counted from their
   // fix's drop hours before): the wait counts from when the last blocker left (dropped or done), when that is later.
-  const ended = blocking.map(one => ({ id: one, at: leftAtMs(items.get(one)) })).filter(one => Number.isFinite(one.at)).sort((a, b) => a.at - b.at).at(-1)
-  return ended !== undefined && !(ended.at <= since) ? { kind: 'dropped', fix: named, since: ended.at, blockEnded: ended, text } : { kind: 'dropped', fix: named, since, text }
+  // B878 (X116): also from the step's own "no longer blocked by B<n>" line, as the blocker leaves its Blocked by when done
+  // (B574); and from the person's Send back in a recap (the partner makes the next try from then).
+  const ended = [...blocking.map(one => ({ id: one, at: leftAtMs(items.get(one)) })), unblockedOf(item)]
+    .filter(one => one !== undefined && Number.isFinite(one.at)).sort((a, b) => a.at - b.at).at(-1)
+  const back = part?.verdict === 'sent-back' && Number.isFinite(part.at) ? part : null
+  const words = back === null ? text : `${text}; sent back in the recap of ${back.goal}: the partner makes its next try`
+  if (back !== null && !(back.at <= since) && !(back.at <= (ended?.at ?? Number.NaN))) return { kind: 'dropped', fix: named, since: back.at, sentBack: { goal: back.goal, at: back.at }, text: words }
+  return ended !== undefined && !(ended.at <= since) ? { kind: 'dropped', fix: named, since: ended.at, blockEnded: ended, text: words } : { kind: 'dropped', fix: named, since, text: words }
 }
 
 /**
