@@ -17,7 +17,7 @@ export const CODE_JOBS = [
   // T14: a chat in Auto mode may send by code only once an allow rule names the send-message tool (`maySend`).
   { key: 'wake', title: 'Wake, start and resume chats', tools: ['mcp__ccd_session_mgmt__send_message'] },
   { key: 'set', title: 'Model and effort per step', tools: ['mcp__ccd_session_mgmt__set_session_model', 'mcp__ccd_session_mgmt__set_session_effort'] },
-  { key: 'restart', title: 'Restart a worker for a new mod', tools: ['mcp__ccd_session_mgmt__archive_session', 'mcp__ccd_session_mgmt__unarchive_session', 'mcp__ccd_session_mgmt__list_sessions'] },
+  { key: 'restart', title: 'Restart a worker for a new mod, archive replaced chats', tools: ['mcp__ccd_session_mgmt__archive_session', 'mcp__ccd_session_mgmt__unarchive_session', 'mcp__ccd_session_mgmt__list_sessions'] },
   { key: 'spawn', title: 'Start a new worker', tools: ['mcp__scheduled-tasks__update_scheduled_task', 'mcp__scheduled-tasks__run_scheduled_task'] },
   // B768: the plan's limits, looked up when the board's newest reading is ten minutes old. The app allows its own usage
   // tool with no rule of the person's (seen 2026-10-28: no settings file names it), so nothing is missing for it.

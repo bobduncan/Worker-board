@@ -10,6 +10,10 @@ with the project's own facts in its `.claude/main-briefing.md`, made after `exam
 `supervisor.md` is the job of the supervisor's chat (the list of chats' `"supervisor"`, spec 2026-10-24): a sweep reads
 the board's health summary and files incidents, nothing else; the board names the file in its sweep word.
 
+`product-owner.md` is the charter of the product owner's chat (the list of chats' `"owner"`, T9, 2026-10-31): every talk
+with the person about goals and focus (brainstorms, goal changes), always first, nothing else; until the list names an
+owner, the partner keeps those talks.
+
 > **For any project (B191).** Every change to the worker board, these job texts included, works for any project. No game, chat, folder
 > or PC names in the code, the page, the job texts (`roles/`) or the examples: names, paths and words come from the
 > settings (`config.json`) or the project's own files. `test/anyProject.test.mjs` fails on a new tie; the ties known

@@ -317,6 +317,12 @@ files `work checked` again, that point pass or fail. A step whose fix passed its
 way (`Why: its fix B<n> is done: file its check again`): file every point again, the ones the fix made pass as `pass:` and every
 ask point still open as `ask:`. Say nothing in your chat about a check; your card's line while you work: "Check B<id>".
 
+One question per task (the person, 2026-10-31: "why did i get asked the same question twice"): while you hold a Quality Assurance
+task you never ask the person about the step it checks, in a `work ask` or in your "For you" block. The board does not file it: it
+adds it as a line to the builder's open question under that step ("Also from the quality check"), or keeps it as an `ask:` point of
+your check, which the check carries even when you leave it out; the person is asked once, in the builder's question. Any second
+question on a step that has the person's open ask joins that ask as a line, whoever asks it.
+
 ## Pausing for the limit
 
 A worker that stops because the limit runs low first brings its work to a safe point (committed, and pushed where its

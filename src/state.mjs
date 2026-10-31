@@ -496,7 +496,8 @@ function card(chat, raw, { now, aliveAt = null, config, last, lines, main, prefi
   // B468: `effort` is what the app's file of the chat says it runs at, or null.
   const base = { name: chat.name, isMain: chat.isMain, isLeftover: chat.isLeftover, session: chat.cliSessionId ?? null, appSession: chat.appSessionId ?? null, effort: chat.effort ?? null, model: chat.model ?? null, removedAt: chat.removedAt ?? null }
   const none = { lastAnswer: null, quietMs: null, isQuiet: false, isAsking: false, doingNow: null, between: null, needsYou: null, statusDetail: null, waitingSince: null, waitsFor: null, task: null, cutOffAt: null, eta: null, isWithoutTime: false, suspended: null, usage: [], lastTask: null, givenTask: null, feedback: null, compaction: null, unanswered: null, idle: null, unfiled: null, resting: null, waitsForPartner: null }
-  if (chat.isLeftover) return { ...base, state: 'unknown', ...none, lastActivityAt: chat.lastActivityAt }
+  // B847: what the board needs to tell a replaced chat of a routine (an older chat of the same name) from the live one.
+  if (chat.isLeftover) return { ...base, state: 'unknown', ...none, lastActivityAt: chat.lastActivityAt, createdAt: chat.createdAt ?? null, cwd: chat.cwd ?? null, needsAction: chat.summary?.needsAction ?? null }
 
   const tail = raw.tails?.[chat.cliSessionId] ?? null
   const entries = tail === null || typeof tail.text !== 'string' ? null : parseTail(tail.text, tail.isCut === true)
@@ -653,6 +654,9 @@ function card(chat, raw, { now, aliveAt = null, config, last, lines, main, prefi
     // out work and answers the person; it has no task to time.
     isWithoutTime: state === 'working' && !chat.isMain && eta === null,
     lastActivityAt: Math.max(chat.lastActivityAt ?? 0, tail?.modifiedAt ?? 0) || null,
+    // B847: when the app made this chat and where it works: an older chat of a routine is told from it.
+    createdAt: chat.createdAt ?? null,
+    cwd: chat.cwd ?? null,
     // The task a free chat's card still named: finished, not current work.
     lastTask: isLeftBehind && state === 'free' ? { text: plan.task.text } : null,
     // B235: whether the Workers mod compacted the chat after its last report, or why not.

@@ -1661,6 +1661,7 @@ async function handRound($: EngineInterface): Promise<void> {
         else if ('restart' in job) results.push(await restartChat($, job.id, job.to, job.restart.keep))
         else if ('usage' in job) results.push(usageResult(job.id, await $.tool.call({ tool: USAGE_TOOL } as never)))
         else if ('remove' in job) results.push(await removeChat($, job.id, job.to ?? null, job.chat))
+        else if ('archive' in job) results.push(plainResult(job.id, await $.tool.call({ tool: ARCHIVE_TOOL, session_id: job.to, reason: 'A newer run of this worker\'s routine replaced this chat: the worker board archives it' } as never)))
         else results.push(await startWorker($, job.id, job.spawn.title, job.spawn.tasks))
       } catch (error) {
         results.push({ id: job.id, ok: false, why: error instanceof Error ? error.message.slice(0, 300) : 'the tool failed' })

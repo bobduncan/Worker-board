@@ -114,6 +114,7 @@ export function boardChats(appChats, { project, prefix, main }) {
     title: chat.title,
     cliSessionId: chat.cliSessionId,
     appSessionId: chat.sessionId,
+    cwd: chat.cwd,
     createdAt: chat.createdAt,
     lastActivityAt: chat.lastActivityAt,
     completedTurns: chat.completedTurns,
