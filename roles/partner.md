@@ -865,7 +865,7 @@ not Codex. Using Codex needs no ask (CLAUDE.md, part 5).
 **While refining:**
 
     Refined (<YYYY-MM-DD HH:MM>):
-    Summary: <one or two plain lines for the user: what they get; no file names>
+    Summary: <starts with three labelled lines, one each, in plain words, each under 160 characters: `Context: <why this task exists>`, `Problem: <what is wrong now>`, `Solution: <what we build>`; the task window shows them first>
     Picture: <a picture's path under the pictures folder> (<what it shows, in a few words>)
     Part of: <its goal and milestone on the goal map, "G9 M2 · <title>">
     Size: <about N hours; over about 4, cut it into steps>     (required, B832: about N min, N minutes, N h or N hours; the work tool refuses a ready refine and a step made from an agreed how without it)

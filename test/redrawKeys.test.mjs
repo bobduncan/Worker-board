@@ -41,6 +41,8 @@ function loadPage() {
   page.redrawNeeds = () => page.redrawn.push('needs')
   page.$ = id => (id === 'needs-order' ? { value: 'newest' } : null)
   page.showsClosed = () => false
+  // Calm task window: the cards read the three lines of their task (state.stories); the lines themselves are tested apart.
+  page.storiesOf = () => ({})
   vm.runInNewContext(`const MIN = ${MIN}\nconst HOUR = 60 * MIN\n${cut('recaps')}\n${cut('clicks')}\n${cut('redraw')}
 Object.assign(this, { view: { needs: state => needsView(state, needsUi()), focus: state => focusPageView(state, focusPageUi()) } })`, page)
   page.click = target => page.listeners.filter(one => one.type === 'click').forEach(one => one.handler({ target }))
