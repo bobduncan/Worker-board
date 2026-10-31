@@ -54,6 +54,9 @@ export const LOOP_WORDS = {
 /** The page's words for a loop; `check:<id>` is the check after the report of that step. */
 export const wordsOf = name => LOOP_WORDS[name] ?? (String(name).startsWith('check:') ? `the check of ${String(name).slice(6)}` : name)
 
+/** B826: a loop run through `single` that runs longer than this is shown as failing, and the next tick runs again. */
+export const STALE_MS = 10 * 60_000
+
 /** At most this many bytes in the log file; a larger one is moved to `<file>.1` (one older file is kept). */
 export const LOG_MAX_BYTES = 1_000_000
 
@@ -105,11 +108,10 @@ export function loopRecord({ now = Date.now, write = () => {} } = {}) {
     return loops.get(name)
   }
 
-  /** Notes a failure of `name` (also for a loop that does not run through run()). */
-  function failed(name, error) {
+  /** Notes a failure of `name` (also for a loop that does not run through run()); `at` is when it began failing. */
+  function failed(name, error, at = now()) {
     const one = of(name)
     const message = firstLine(error).slice(0, 300) || 'unknown error'
-    const at = now()
     if (one.failures === 0) one.failingSince = at
     one.failures += 1
     if (logged.get(name) !== errorKey(message)) write(logLine(at, name, message))
@@ -141,15 +143,56 @@ export function loopRecord({ now = Date.now, write = () => {} } = {}) {
     }
   }
 
+  // B826: the run of each `single` loop that runs now, and the runs it gave up waiting for (hung), each with when it began.
+  const running = new Map()
+  const hung = new Map()
+
+  /**
+   * B826 (X109): runs `fn` as loop `name` as run() does, but one at a time: a call while the last run still runs starts
+   * none (so two looks never say the same word). A run older than `staleMs` is hung: the loop shows as failing since it
+   * began until it ends, also when a later run succeeds, and the call runs `fn` again, so a hung run never stops the
+   * loop; the hung run ending late frees no call while a newer one runs.
+   */
+  async function single(name, fn, { staleMs = STALE_MS } = {}) {
+    const last = running.get(name)
+    if (last !== undefined) {
+      if (now() - last.since < staleMs) return undefined
+      last.error = `still running after ${Math.round(staleMs / 60_000)} min`
+      if (!hung.has(name)) hung.set(name, new Set())
+      hung.get(name).add(last)
+      failed(name, last.error, last.since)
+    }
+    const mine = { since: now() }
+    running.set(name, mine)
+    try {
+      return await run(name, fn)
+    } finally {
+      if (running.get(name) === mine) running.delete(name)
+      hung.get(name)?.delete(mine)
+      if (hung.get(name)?.size === 0) hung.delete(name)
+    }
+  }
+
+  /** B826: the oldest hung run of `name`, or null. */
+  const oldestHung = name => [...(hung.get(name) ?? [])].sort((a, b) => a.since - b.since)[0] ?? null
+
   /** Every loop, as kept. */
   const all = () => [...loops.values()].map(one => ({ ...one }))
 
-  /** The loops whose last run failed, for the page: `{ name, words, since, error, failures }` each, oldest first. */
-  const failing = () => all().filter(one => one.failures > 0)
-    .map(one => ({ name: one.name, words: wordsOf(one.name), since: one.failingSince, error: one.lastError, failures: one.failures }))
+  /**
+   * The loops whose last run failed, for the page: `{ name, words, since, error, failures }` each, oldest first. B826: a
+   * loop with a hung run is failing since that run began, with its words, until it ends.
+   */
+  const failing = () => all().filter(one => one.failures > 0 || oldestHung(one.name) !== null)
+    .map(one => {
+      const stuck = oldestHung(one.name)
+      return stuck === null
+        ? { name: one.name, words: wordsOf(one.name), since: one.failingSince, error: one.lastError, failures: one.failures }
+        : { name: one.name, words: wordsOf(one.name), since: stuck.since, error: stuck.error, failures: Math.max(1, one.failures) }
+    })
     .sort((a, b) => a.since - b.since)
 
-  return { run, failed, succeeded, all, failing }
+  return { run, single, failed, succeeded, all, failing }
 }
 
 /** The head's one line for the failing loops, or null when none fails: "Delivery failing since 23:10 (…)". */
