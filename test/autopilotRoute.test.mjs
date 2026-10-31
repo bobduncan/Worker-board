@@ -305,3 +305,58 @@ test('Needs your attention: refine questions under Autopilot, with advice, sent 
   // A question that drops the step is the person's.
   assert.equal(sp(question('Q65', 'Drop B30? Advised: yes', 1), step(null)), true)
 })
+
+test('the last re-check\'s probe4 (2026-10-31): a check still to run on a step or its chain keeps it from waiting for the recap only', () => {
+  const step = (id, state, more = {}, lines = []) => item({ Id: id, Kind: 'step', Title: `Step ${id}`, State: state, Owner: 'Painter', Goal: 'G29', ...more }, { Context: lines })
+  const waits = id => [`  ${recapVerdictWords('waits', id)}`]
+  const recapAsk = (id, of) => item({ Id: id, Kind: 'ask', Title: `Ask ${id}?`, State: 'open', Owner: 'Painter', Asks: 'look', Of: of, Route: 'recap' })
+  const waitOf = (list, root) => recapWaitOf(list.find(one => one.head.get('Id') === root), new Map(list.map(one => [one.head.get('Id'), one])))
+  // B: the chain's last link is still being built.
+  assert.equal(waitOf([step('B20', 'review'), step('B21', 'review', { 'Fix of': 'B20' }, waits('Q1')), step('B22', 'in progress', { 'Fix of': 'B21' }), recapAsk('Q1', 'B21')], 'B20'), null)
+  // C: the chain waits only for the recap.
+  assert.deepEqual(waitOf([step('B20', 'review'), step('B21', 'review', { 'Fix of': 'B20' }, waits('Q1')), step('B22', 'dropped', { 'Fix of': 'B21' }), recapAsk('Q1', 'B21')], 'B20'), [{ step: 'B21', asks: ['Q1'] }])
+  // D and E: its re-check (a Quality Assurance task) still in progress, or only queued: a check is still to run.
+  for (const state of ['in progress', 'queued', 'taken', 'new']) {
+    const list = [step('B21', 'review', {}, waits('Q1')), step('B30', 'done', { 'Fix of': 'B21' }), step('B31', state, { Checks: 'B21', Owner: 'Checker' }), recapAsk('Q1', 'B21')]
+    assert.equal(waitOf(list, 'B21'), null, `its check is ${state}`)
+  }
+  // A check that ran (done, dropped) holds nothing; nor does one of a link's own check of a chain's link once it is done.
+  for (const state of ['done', 'dropped']) assert.deepEqual(waitOf([step('B21', 'review', {}, waits('Q1')), step('B31', state, { Checks: 'B21', Owner: 'Checker' }), recapAsk('Q1', 'B21')], 'B21'), [{ step: 'B21', asks: ['Q1'] }], state)
+  const chainCheck = [step('B20', 'review'), step('B21', 'review', { 'Fix of': 'B20' }, waits('Q1')), step('B32', 'in progress', { Checks: 'B21', Owner: 'Checker' }), recapAsk('Q1', 'B21')]
+  assert.equal(waitOf(chainCheck, 'B20'), null, 'a check of a link of the chain still runs')
+  // F: the first step asks while its fix in review is being checked: not for the recap only.
+  assert.equal(waitOf([step('B20', 'review', {}, waits('Q1')), step('B21', 'review', { 'Fix of': 'B20' }), recapAsk('Q1', 'B20')], 'B20'), null)
+  // G: both links ask: both get a row.
+  assert.deepEqual(waitOf([step('B20', 'review', {}, waits('Q2')), step('B21', 'review', { 'Fix of': 'B20' }, waits('Q1')), recapAsk('Q1', 'B21'), recapAsk('Q2', 'B20')], 'B20'),
+    [{ step: 'B20', asks: ['Q2'] }, { step: 'B21', asks: ['Q1'] }])
+})
+
+test('the last re-check\'s probe5 (2026-10-31): every action, a yes/no chore under a step too, meets the whole list of the person\'s hands', () => {
+  const chore = (title, more = {}) => ask('Q9', { Title: title, Owner: 'Painter', Asks: 'decide', Advice: 'yes', Of: 'B24', ...more })
+  for (const [title, name] of [['Update the Workers mod to 0.26.10 so this goes live?', 'a change of a mod'], ['Start the Advisor anyway, despite the weekly limit?', 'the week\'s limit'],
+    ['Run the payment of the asset service so the pictures come back?', 'money']]) {
+    assert.equal(isChore(chore(title)), true, title)
+    for (const one of [chore(title), chore(title, { Of: undefined })]) {
+      const route = autopilotRoute(one, ctx)
+      assert.equal(route.to, 'person', title)
+      assert.ok(route.why.startsWith(`only the person's hands: ${name} ("`), route.why)
+    }
+  }
+  // A chore no hands are needed for still goes to the main chat; a detail decide under a step keeps the short list.
+  assert.equal(routeOf(chore('Restart the board so it shows the popup?')), 'main')
+  assert.equal(routeOf(ask('Q8', { Title: 'Keep the chip art on the cards?', Owner: 'Painter', Asks: 'decide', Options: 'A keep | B drop', Advice: 'A', Of: 'B24' })), 'partner')
+})
+
+test('the last re-check (2026-10-31): a look or decide that accepts a result, leaves its gap, approves it below its bar or sends it back is the person\'s, never the partner\'s', () => {
+  // The live Q520, a look under no step from a "For you" block.
+  const q520 = ask('Q520', { Title: 'Do you accept this look for now and leave the rest of the gap as a later step?', Owner: 'Painter', Asks: 'look', Advice: 'yes', Via: 'chat' })
+  assert.deepEqual(autopilotRoute(q520, ctx), { to: 'person', why: 'the person\'s verdict on a result ("accept")' })
+  // Under a step of the focus goal: at its recap, by the recap's rule (of another goal: the person's).
+  const under = more => ask('Q521', { Title: 'Leave the rest of the gap as a later step?', Owner: 'Painter', Asks: 'decide', Advice: 'yes', Of: 'B24', ...more })
+  assert.deepEqual(autopilotRoute(under(), ctx), { to: 'recap', why: 'the person\'s verdict on a result ("Leave the rest of the gap")' })
+  assert.equal(autopilotRoute(under({ Of: 'B23' }), ctx).to, 'person')
+  assert.equal(routeOf(ask('Q522', { Title: 'Send the moat back for a rounder edge?', Owner: 'Painter', Asks: 'decide', Options: 'A yes | B no', Advice: 'A', Of: 'B24' })), 'recap')
+  // "Approve" only below its bar: at or above it, or with no score, it stays a detail for the partner.
+  assert.equal(routeOf(ask('Q523', { Title: 'Approve the moat at 70 of 75?', Owner: 'Painter', Asks: 'look', Advice: 'yes' })), 'person')
+  assert.equal(routeOf(ask('Q524', { Title: 'Approve the new icons on the bar?', Owner: 'Painter', Asks: 'look', Advice: 'yes', Of: 'B24' })), 'partner')
+})

@@ -230,7 +230,20 @@ export function handsMatchOf(item, list = PERSONS_HANDS) {
 export const handsOf = (item, list = PERSONS_HANDS) => handsMatchOf(item, list)?.name ?? null
 
 /** An ask that marks a step done, accepts it, approves it or sends it back (its title): never the main chat's to do. */
-export const STEP_VERDICT = /\b(?:mark|tick|set)\b[^.?!]*\bdone\b|\baccept(?:s|ed|ing)?\b|\bapprove(?:s|d)?\b|\bsen[dt]\b[^.?!]*\bback\b|\bclose\b[^.?!]*\bB\d+\b/i
+export const STEP_VERDICT = /\b(?:mark|tick|set)\b[^.?!]*\bdone\b|\baccept(?:s|ed|ing)?\b|\bapprove(?:s|d)?\b|\bsen[dt]\b[^.?!]*\bback\b|\bclose\b[^.?!]*\bB\d+\b|\bleave the (?:rest of the )?gap\b/i
+/**
+ * The last re-check (2026-10-31, the live Q520 "Do you accept this look for now and leave the rest of the gap as a later
+ * step?"): a look or a decide that is the person's verdict on a result: it accepts it, leaves its gap, sends it back, or
+ * approves it below its bar (its step below its target, or its title's score below its target). The phrase, or null.
+ */
+export function stepVerdictOf(item, step) {
+  const words = title(item)
+  const said = words.match(/\baccept(?:s|ed|ing)?\b|\bleave the (?:rest of the )?gap\b|\bsen[dt]\b[^.?!]*\bback\b/i)?.[0] ?? null
+  if (said !== null) return said
+  const approve = words.match(/\bapprove(?:s|d)?\b/i)?.[0] ?? null
+  const score = words.match(/\b(\d+) of (\d+)\b/)
+  return approve !== null && (belowTarget(step) || (score !== null && Number(score[1]) < Number(score[2]))) ? approve : null
+}
 /** A score beside a target in a question's title ("68 of 75", "the 75 target"). */
 // A score, not a target picture (the re-review: "beside the target" of Q393 is a look, Q578's "the 75 target" a score).
 const TARGET_WORDS = /\b\d+ of \d+\b|\b\d+\b[^.?!]*\btarget\b|\btarget\b[^.?!]*\b\d+\b/i
@@ -292,8 +305,11 @@ export function autopilotRoute(item, { roleOf = () => null, items = new Map(), f
   }
   if (isExplicitPerson(item)) return { to: 'person', why: 'handed to the person' }
   if (via === 'form') return { to: 'person', why: 'the app\'s question form is answered in its chat' }
-  // The person's hands: the whole list for a do and an ask under no step; for a decide or a look under a step only its phrases.
-  const hands = handsMatchOf(item, kind === 'do' || !isUnderStep ? PERSONS_HANDS : UNDER_STEP_HANDS)
+  // An action: a do, or a yes/no chore the main chat would carry out.
+  const isAction = kind === 'do' || (isChore(item) && role !== 'owner')
+  // The person's hands: the whole list for an action (the last re-check: a chore under a step too, Q556) and an ask under no
+  // step; for a detail decide or look under a step only its phrases.
+  const hands = handsMatchOf(item, isAction || !isUnderStep ? PERSONS_HANDS : UNDER_STEP_HANDS)
   if (hands !== null) return { to: 'person', why: `only the person's hands: ${hands.name} ("${hands.phrase}")` }
   const goal = goalLevelOf(item, role)
   if (goal !== null) return { to: 'person', why: `goal level ("${goal}")` }
@@ -302,9 +318,15 @@ export function autopilotRoute(item, { roleOf = () => null, items = new Map(), f
   if (kind === 'look' && belowTarget(step)) return recapOr('a look below its target')
   if (role === 'board') return { to: 'person', why: 'the board\'s own card' }
   if (!isUnderStep && ['look', 'decide'].includes(kind) && TARGET_WORDS.test(title(item))) return { to: 'person', why: 'a score below its target, under no step' }
-  const isAction = kind === 'do' || (isChore(item) && role !== 'owner')
   // Never the main chat's: an action that marks a step done, accepts it or sends it back.
   if (isAction && STEP_VERDICT.test(title(item))) return { to: 'person', why: 'it marks a step done, accepts it or sends it back' }
+  // Never the partner's: a look or decide that accepts a result, leaves its gap, approves it below its bar or sends it back
+  // (the last re-check, Q520): the person's, under a step of the focus goal at its recap.
+  const verdict = isAction || !['look', 'decide'].includes(kind) ? null : stepVerdictOf(item, step)
+  if (verdict !== null) {
+    const why = `the person's verdict on a result ("${verdict}")`
+    return isUnderStep ? recapOr(why) : { to: 'person', why }
+  }
   if (kind === 'do' && OWN_SENSES.test(title(item))) return { to: 'person', why: 'the person\'s own eyes, ears or words' }
   if (kind === 'do') return role === 'owner' ? { to: 'person', why: 'the Product owner\'s' } : { to: 'main', why: 'an action' }
   if (isAction) return { to: 'main', why: 'an action asked as a question' }
@@ -372,8 +394,9 @@ const FIX_UNDER_WAY = ['new', 'refined', 'queued', 'taken', 'in progress', 'wait
  * asks wait (`Recap verdict: waits (Q<n>)` with the ask still open on the recap: itself, or the last link of its chain of open
  * fixes, resultCheck.mjs `chainWaitOf`, read only, which must hold such an ask), or null. Only when nothing else of it is open (the re-review of 2026-10-31,
  * the coordinator's rulings): no fix of it, nor of its chain, still to be built (new, refined, queued, taken, in progress,
- * waiting on you), and no other open ask of it or of its chain. B689 waiting for its fix B821, which waits for the recap,
- * waits for the recap too.
+ * waiting on you), no check of it or of its chain still to run (the last re-check: an open Quality Assurance task, `Checks:`
+ * naming a link, in any state but done, closed or dropped), and no other open ask of it or of its chain. B689 waiting for its
+ * fix B821, which waits for the recap, waits for the recap too.
  */
 export function recapWaitOf(step, items) {
   if (valueOf(step, 'State') !== 'review') return null
@@ -382,6 +405,8 @@ export function recapWaitOf(step, items) {
   const links = [id, ...chain]
   const fixes = links.flatMap(one => fixesOf(one, items))
   if (fixes.some(one => FIX_UNDER_WAY.includes(valueOf(one, 'State')))) return null
+  const checks = [...(items?.values?.() ?? [])].filter(one => valueOf(one, 'Kind') === 'step' && links.includes(valueOf(one, 'Checks')))
+  if (checks.some(one => !['done', 'closed', 'dropped'].includes(valueOf(one, 'State')))) return null
   if (chain.some(one => valueOf(items.get(one), 'State') !== 'review')) return null
   const linkOf = one => (one === id ? step : items.get(one))
   if (recapWaitIds(linkOf(links.at(-1)), items).length === 0) return null
