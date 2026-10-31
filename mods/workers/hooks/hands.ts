@@ -61,7 +61,7 @@ export type HandJob = { id: string; to: string; chat: string; text: string } | {
   | { id: string; to: string; chat: string; restart: { keep: string[] } } | { id: string; chat: string; spawn: { title: string; tasks: string[] } }
   | { id: string; chat: string; usage: true } | { id: string; to?: string; chat: string; remove: true }
   | { id: string; to: string; chat: string; archive: true }
-export type HandResult = { id: string; ok: boolean; why?: string; text?: string; back?: boolean }
+export type HandResult = { id: string; ok: boolean; why?: string; text?: string; back?: boolean; doubt?: boolean }
 
 /**
  * B880 (X2 a third time: Worker 2's hand held the Product owner's start word for half an hour; its call ran the routine but
@@ -72,7 +72,9 @@ export type HandResult = { id: string; ok: boolean; why?: string; text?: string;
 export const HAND_CALL_MS = 120_000
 /** B880: after the app said this process cannot call tools (no session bound), it claims no job for this long. */
 export const NO_SESSION_MS = 10 * 60_000
-export const NO_ANSWER_WHY = 'the app gave no answer within 2 minutes: given back for another hand'
+export const NO_ANSWER_WHY = 'the app gave no answer within 2 minutes: given back in doubt (it may have gone)'
+/** B891: a job of a round not tried, as an earlier call of the round hangs: given back with no doubt (nothing was called). */
+export const NOT_TRIED_WHY = 'not tried, as another call of this chat still hangs: given back for another hand'
 export const NO_SESSION_WHY = 'the process of this chat cannot call tools now (no session bound): given back for another hand'
 
 /** B880: whether a call failed because this process has no session to call tools in (it would fail every call). */
@@ -82,7 +84,8 @@ export const isNoSession = (error: unknown): boolean =>
 /**
  * B880: one job's call against the hand's patience: its result; or, when `wait` ends first, the word given back (`hung`: the
  * call may still answer, and a late send then counts); or, when the process has no session, the word given back unsent
- * (`noSession`). Any other failure is the job's own, with its why.
+ * (`noSession`). Any other failure is the job's own, with its why. B891: a word given back after a call with no answer says
+ * `doubt`: the call may have acted, so the board lets no other hand send it while this one's late answer may come.
  */
 export async function raceJob(id: string, call: Promise<HandResult>, wait: Promise<unknown>): Promise<{ result: HandResult; hung: boolean; noSession: boolean }> {
   const late = Symbol('late')
@@ -93,7 +96,7 @@ export async function raceJob(id: string, call: Promise<HandResult>, wait: Promi
       : { result: { id, ok: false, why: error instanceof Error ? error.message.slice(0, 300) : 'the tool failed' }, noSession: false }),
   )
   const first = await Promise.race([outcome, wait.then(() => late, () => late)])
-  if (typeof first === 'symbol') return { result: { id, ok: false, back: true, why: NO_ANSWER_WHY }, hung: true, noSession: false }
+  if (typeof first === 'symbol') return { result: { id, ok: false, back: true, doubt: true, why: NO_ANSWER_WHY }, hung: true, noSession: false }
   return { ...first, hung: false }
 }
 

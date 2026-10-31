@@ -209,7 +209,8 @@ export async function giveBackHeld(outbox, now, log = line => console.log(line))
     const message = outbox.outbox().find(one => one.id === id)
     if (message === undefined || heldTooLong([message], now).length === 0) continue
     const { takenBy, takenAt } = message
-    if ((await outbox.back([id], takenBy)) === 0) continue
+    // B891: in doubt: its call may have acted.
+    if ((await outbox.back([id], takenBy, now, [id])) === 0) continue
     given += 1
     const since = new Date(takenAt).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })
     log(`B880: gave back the word ${id} (${message.command ?? 'answer'}${message.about ? ` ${message.about}` : ''}) that ${takenBy}'s hand held since ${since} without a word of it.`)

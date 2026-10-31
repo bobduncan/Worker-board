@@ -464,8 +464,11 @@ function undelivered(view) {
   })
 }
 
-/** B880: whose mod holds a word a hand took (", held by Worker 2's mod"), or failed it; '' for a chat's own take. */
-const handOf = word => (!isHandTaken(word) ? '' : word.state === 'taken' ? `, held by ${word.takenBy}'s mod` : word.state === 'failed' ? ` by ${word.takenBy}'s mod` : '')
+/**
+ * B880: whose mod holds a word a hand took (", held by Worker 2's mod"), or failed it; '' for a chat's own take. B891: a word
+ * waiting in doubt names the hand whose call gave no answer.
+ */
+const handOf = word => (word.state === 'waiting' && Number.isFinite(word.doubtAt) ? `, in doubt: ${word.backFrom}'s mod gave no answer` : !isHandTaken(word) ? '' : word.state === 'taken' ? `, held by ${word.takenBy}'s mod` : word.state === 'failed' ? ` by ${word.takenBy}'s mod` : '')
 
 /** B813: a failure's why on one line, cut to fit the evidence. */
 const shortWhy = why => {

@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'claude-code/testing'
 
-import { ARCHIVE_TOOL, CAN_TOOLS, EFFORT_TOOL, HAND_CALL_MS, HANDS_DONE_PATH, HANDS_PATH, LIST_TOOL, MODEL_TOOL, SEND_TOOL, TASK_RUN_TOOL, TASK_UPDATE_TOOL, UNARCHIVE_TOOL, USAGE_TOOL, NO_ANSWER_WHY, NO_SESSION_WHY, archivedOf, canFrom, isNoSession, mayClaim, parseJobs, plainResult, raceJob, sendResult, setResult, usageResult } from './hands'
+import { ARCHIVE_TOOL, CAN_TOOLS, EFFORT_TOOL, HAND_CALL_MS, HANDS_DONE_PATH, HANDS_PATH, LIST_TOOL, MODEL_TOOL, SEND_TOOL, TASK_RUN_TOOL, TASK_UPDATE_TOOL, UNARCHIVE_TOOL, USAGE_TOOL, NO_ANSWER_WHY, NO_SESSION_WHY, NOT_TRIED_WHY, archivedOf, canFrom, isNoSession, mayClaim, parseJobs, plainResult, raceJob, sendResult, setResult, usageResult } from './hands'
 
 // B753: the board's hands in code: the jobs the board hands this chat, and what the app's tool answered for each.
 describe('the board\'s hands', () => {
@@ -139,7 +139,7 @@ describe('the board\'s hands', () => {
   test('a call that answers in time is its result; one that does not gives the word back, and may still answer late', async () => {
     expect(HAND_CALL_MS).toBe(120_000)
     expect(await raceJob('a', Promise.resolve({ id: 'a', ok: true }), never)).toEqual({ result: { id: 'a', ok: true }, hung: false, noSession: false })
-    expect(await raceJob('b', never, Promise.resolve())).toEqual({ result: { id: 'b', ok: false, back: true, why: NO_ANSWER_WHY }, hung: true, noSession: false })
+    expect(await raceJob('b', never, Promise.resolve())).toEqual({ result: { id: 'b', ok: false, back: true, doubt: true, why: NO_ANSWER_WHY }, hung: true, noSession: false })
   })
 
   test('a call that finds no session gives the word back unsent; any other failure is the job\'s own, with its why', async () => {
@@ -147,6 +147,14 @@ describe('the board\'s hands', () => {
     expect(isNoSession(new Error('Scheduled task "x" not found'))).toBe(false)
     expect(await raceJob('c', Promise.reject(new Error(NO_SESSION)), never)).toEqual({ result: { id: 'c', ok: false, back: true, why: NO_SESSION_WHY }, hung: false, noSession: true })
     expect(await raceJob('d', Promise.reject(new Error('Scheduled task "x" not found')), never)).toEqual({ result: { id: 'd', ok: false, why: 'Scheduled task "x" not found' }, hung: false, noSession: false })
+  })
+
+  // B891: the board reads a word given back with "gave no answer" in its why as in doubt (a B880 mod sends no doubt flag); one
+  // never called, or with no session, must not read so, or it would wait 5 minutes for nothing.
+  test('only a call with no answer gives its word back in doubt: by its flag and by its why', () => {
+    expect(/gave no answer/.test(NO_ANSWER_WHY)).toBe(true)
+    expect(/gave no answer/.test(NOT_TRIED_WHY)).toBe(false)
+    expect(/gave no answer/.test(NO_SESSION_WHY)).toBe(false)
   })
 
   test('a process claims no job while one of its calls hangs, nor for a while after it found no session', () => {

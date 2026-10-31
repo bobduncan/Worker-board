@@ -2410,6 +2410,18 @@ slowest answered in 45 s; this the only one held longer, and the only "no sessio
    and a failed one names the hand that failed it. A hand reports only the words it holds (`takenBy`), so a late result of
    a word another hand took meanwhile changes nothing. `test/work/heldHandWord.test.mjs` and
    `test/heldHandWordBoard.test.mjs` (a running board) replay the real case.
+6. **A word given back after a call with no answer waits in doubt** (B891, the result check of B880: Worker 5's probe had a
+   worker's spawn given back at 2 minutes taken by a second hand, the first hand's late "sent" then ignored: two spawns). A
+   call that gave no answer may have acted (the real case's ran the routine), so such a word is in doubt (`doubtAt`,
+   store.mjs `isInDoubt`, `DOUBT_MS` 5 minutes): no hand and no chat takes it meanwhile. The hand says so (`doubt: true`,
+   Workers mod 0.27.2; a 0.27.1 mod's "gave no answer" why reads the same), and the board's own give-back (point 3) is in
+   doubt too. It ends one of three ways: the first hand's late send keeps it delivered (`deliveredLate`); the sweep closes
+   it once what it asked is on the board (a spawn's chat: `about`, or for a worker's spawn the chat its job made,
+   `handChat`, written at the hand-out without the prefix: "Worker 3 is on the board now"); or, with no sign of it after
+   5 minutes, it is tried again (a spawn or set word is kept 10 minutes, so one with no sign expires instead and the board
+   says it anew if still needed). A word given back that was never called (no session; `NOT_TRIED_WHY`, the rest of a
+   round behind a hanging call) is in no doubt and free at once. Rule 8 names a word in doubt ("in doubt: Worker 2's mod
+   gave no answer"). `test/work/doubtHandWord.test.mjs`; the running-board test covers both give-backs.
 
 ## A step's title without its note (B292)
 

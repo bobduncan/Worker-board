@@ -2529,6 +2529,10 @@ async function main(args) {
         }
       }
       if (back.length > 0) await store.back(back)
+      // B891: the worker a spawn's job makes (its name on the board: the title without the prefix), so the sweep knows the
+      // spawn went should its call give no answer.
+      const making = jobs.filter(job => job.spawn !== undefined).map(job => [job.id, prefix !== '' && job.chat.startsWith(prefix) ? job.chat.slice(prefix.length) : job.chat])
+      if (making.length > 0) await store.handChats(making)
       for (const job of jobs) if (job.id.startsWith('resume:')) resumesSent.set(job.id.slice('resume:'.length), clock())
       const asleep = jobs.map(job => asleepOfJob(job.id)).filter(one => one !== null)
       for (const one of asleep) asleepWoken.set(one.chat, { since: one.since, at: clock() })
@@ -2538,10 +2542,11 @@ async function main(args) {
     handsDone: counted(async body => {
       const { checked } = await checkFresh(body)
       if (!checked.ok) return checked
-      const { sent, failed, back, why, texts } = handResults(body)
+      const { sent, failed, back, doubt, why, texts } = handResults(body)
       // B880: the words this hand gives back unsent (the app gave no answer in time, or its process cannot call tools) wait again,
       // for another hand or their addressee; a word it gave back that the app sent after all is kept as delivered.
-      const givenBack = back.length === 0 ? 0 : await store.back(store.outbox().filter(one => back.includes(one.id) && one.state === 'taken' && one.takenBy === checked.chat).map(one => one.id), checked.chat)
+      // B891: one whose call gave no answer (`doubt`) waits in doubt first: no one else takes it while that answer may come.
+      const givenBack = back.length === 0 ? 0 : await store.back(store.outbox().filter(one => back.includes(one.id) && one.state === 'taken' && one.takenBy === checked.chat).map(one => one.id), checked.chat, clock(), doubt)
       const late = sent.length === 0 ? 0 : await store.deliveredLate(sent, checked.chat, clock())
       if (givenBack + late > 0) readState.reset()
       // B768: a lookup of the limits by code is kept as the supervisor's lookups are (B640): the newest reading of each
