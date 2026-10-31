@@ -1547,8 +1547,15 @@ as a shadow of the backlog; B301 removed the shadow (below): the store is the on
   files (activities.json, flow.json, last-ids.json, view.json, names.json, pause.json, partner-answers.json) are read
   on every read as before. The first read after a start parses all; an fs without `stat` (a test's) parses all every
   time. On today's store (2966 items): a read 520 ms → 35 to 60 ms; a `next` 1.5 s → about 45 ms; a `note` with its view
-  3 s → about 140 ms. A change call still reads twice (before the change and for the view), but the second read parses
-  only the files the call wrote. `parsedCount(dir)` counts the files parsed (tests: test/work/storeCache.test.mjs).
+  3 s → about 140 ms. `parsedCount(dir)` counts the files parsed (tests: test/work/storeCache.test.mjs).
+- **One read per call (B867)**: `workApi` runs each call inside `oneRead(dir, fs, work)` (store.mjs, an
+  AsyncLocalStorage). The call's first read lists the folder with stats; every later read of that call (its view, the
+  recap, the close of fixes, the unblocking of dependants, a new id's claim) takes that listing and the kept copies
+  without stats, and reads anew only the item files the call itself wrote or removed. A claim another process holds
+  (its `.claim` is there) lists the folder anew. A call within a call is part of it; once the call settled, a read is
+  whole again, also one the call left running. A hand edit made during a call is seen by the next call. On today's
+  store (2987 items) a `note` lists the folder once instead of three times, with half the stats (tests:
+  test/work/oneRead.test.mjs).
 - **What you see**: under the Backlog tab's head one line, "Store · 370 items · backlog.md is its view" (the problems
   on hover); in a step's window a part "Flow": the strip of states with the step's own marked, and the moves out of it
   with who makes each.

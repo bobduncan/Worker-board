@@ -30,7 +30,7 @@ import { RECAP_ANSWERS, dueRecaps, isRecap, recapMadeSince } from './recap.mjs'
 import { RESULT_CHARS, checkLinesWarning, goalParts, recapParts } from './recapWords.mjs'
 import { kindsNamed, noneForLook, parseStandard, standardNoneRefused, standardOf, standardWanted } from './standard.mjs'
 import { EFFORTS, effortOf, modelOf, parseEffort, parseModel, withEffort, withModel } from './effort.mjs'
-import { appendHistory, nextId, putBack, readActivitiesText, readItemFile, readStore, removeItem, writeActivities, writeItem } from './store.mjs'
+import { appendHistory, nextId, oneRead, putBack, readActivitiesText, readItemFile, readStore, removeItem, writeActivities, writeItem } from './store.mjs'
 import { openNaming, renamedItem } from './names.mjs'
 import { readNamesFile, readObsoleteFile, readPartnerAnswersFile, readPauseFile, writeNames, writeObsoleteFile, writePartnerAnswers, writePause } from './store.mjs'
 import { checkWords, isLate, obsoletePointsOf, openItemsOf } from './obsolete.mjs'
@@ -193,7 +193,8 @@ export function workApi(body, ctx) {
   // B736 (X89: work health timed out twice behind a slow change): the health summary reads no store file, so it never
   // waits in the store's queue.
   if (body?.action === 'health') return act(body, ctx)
-  return serial(ctx.dir, () => act(body, ctx))
+  // B867: and reads the store once: its view, recap and the close of fixes take that read with the call's own writes.
+  return serial(ctx.dir, () => oneRead(ctx.dir, ctx.fs, () => act(body, ctx)))
 }
 
 async function act(body, ctx) {

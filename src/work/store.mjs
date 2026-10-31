@@ -6,7 +6,11 @@
 // B741: the item files are kept parsed in memory per folder; a read lists the folder with stats and reads anew only the
 // files that are new, changed (time, change time, size or file id differs, older too) or gone. The small files
 // (activities.json, flow.json, last-ids.json, pause.json, names.json, partner-answers.json, view.json) are read every time.
+// B867: one folder read per call: within `oneRead` (a work call) the first read lists the folder with stats; every later
+// read of that call (its view, recap, the close of fixes, a new id) takes that listing and reads anew only the item files
+// the call itself wrote or removed.
 
+import { AsyncLocalStorage } from 'node:async_hooks'
 import { mkdir, open, readdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
 
@@ -76,7 +80,40 @@ const keptOf = (fs, dir) => {
 /** B741: the board's own write of an item file: its parsed copy goes, so the next read reads the file anew. */
 function forget(fs, file) {
   const name = file.split(/[\\/]/).at(-1)
-  if (ITEM_FILE.test(name)) kept.get(fs)?.get(resolve(file, '..'))?.delete(name)
+  if (!ITEM_FILE.test(name)) return
+  kept.get(fs)?.get(resolve(file, '..'))?.delete(name)
+  // B867: and the call that wrote it reads it anew on its next read.
+  callOf(fs, resolve(file, '..'))?.touched.add(name)
+}
+
+/**
+ * B867: the work call running now: `{ key, fs, names, touched, closed }`, `names` the folder's listing of its first read
+ * (null before it), `touched` the item files it wrote or removed since.
+ */
+const calls = new AsyncLocalStorage()
+const callOf = (fs, dir) => {
+  const call = calls.getStore()
+  return call !== undefined && !call.closed && call.fs === fs && call.key === resolve(dir) ? call : null
+}
+/** B867: the call's listing with the files it wrote since; null before its first read. */
+const namesOf = call => (call === null || call.names === null ? null : [...new Set([...call.names, ...call.touched])])
+
+/**
+ * B867: `work()` as one call on the store in `dir`: its first read lists the folder with stats, every later read takes
+ * that listing and reads anew only the item files the call wrote or removed. A call within a call is part of it; once
+ * `work` settled, a read is a whole read again.
+ */
+export function oneRead(dir, fs, work) {
+  const use = fs ?? files
+  if (callOf(use, dir) !== null) return work()
+  const call = { key: resolve(dir), fs: use, names: null, touched: new Set(), closed: false }
+  return calls.run(call, async () => {
+    try {
+      return await work()
+    } finally {
+      call.closed = true
+    }
+  })
 }
 
 // Changed is any difference, an older time too (a file put back by a restore or a copy).
@@ -94,7 +131,7 @@ function parsedFile(name, text) {
  * B741: the item files of `dir` in id order, each `{ name, item, id, problem }`: a file kept from an earlier read while
  * its stats are the same, else read and parsed anew; a file that is gone leaves the kept ones.
  */
-async function itemFiles(dir, names, fs) {
+async function itemFiles(dir, names, fs, { fromCall = false } = {}) {
   const listed = names.filter(one => ITEM_FILE.test(one)).sort(byId.compare)
   const key = resolve(dir)
   const readOne = async name => {
@@ -105,6 +142,9 @@ async function itemFiles(dir, names, fs) {
   }
   if (typeof fs.stat !== 'function') return (await inBatches(listed, readOne)).filter(Boolean)
   const known = keptOf(fs, dir)
+  // B867: a later read of one call: the kept copies stand without stats; a file the call wrote or removed was forgotten,
+  // so it is read anew (or is gone).
+  if (fromCall) return (await inBatches(listed, name => known.get(name) ?? readOne(name))).filter(Boolean)
   const there = new Set(listed)
   for (const name of [...known.keys()]) if (!there.has(name)) known.delete(name)
   const marks = await inBatches(listed, name => fs.stat(join(dir, name)).then(markOf, error => (error?.code === 'ENOENT' ? null : '')))
@@ -143,15 +183,20 @@ async function inBatches(values, work) {
  */
 export async function readStore(dir, fs = files) {
   const problems = []
-  let names
-  try {
-    names = await fs.readdir(dir)
-  } catch (error) {
-    if (error?.code !== 'ENOENT') throw error
-    return { exists: false, items: new Map(), activities: [], preamble: [], lastIds: {}, flow: DEFAULT_FLOW, problems }
+  const call = callOf(fs, dir)
+  let names = namesOf(call)
+  const fromCall = names !== null
+  if (!fromCall) {
+    try {
+      names = await fs.readdir(dir)
+    } catch (error) {
+      if (error?.code !== 'ENOENT') throw error
+      return { exists: false, items: new Map(), activities: [], preamble: [], lastIds: {}, flow: DEFAULT_FLOW, problems }
+    }
+    if (call !== null) call.names = names
   }
   const items = new Map()
-  for (const { name, item, id, problem } of await itemFiles(dir, names, fs)) {
+  for (const { name, item, id, problem } of await itemFiles(dir, names, fs, { fromCall })) {
     if (problem !== null) problems.push({ file: name, line: `${name}: ${problem}` })
     if (items.has(id)) problems.push({ file: name, line: `${name}: the id ${id} stands twice` })
     else items.set(id, copyItem(item))
@@ -237,7 +282,8 @@ async function claimId(dir, letter, fs) {
   await fs.mkdir(dir, { recursive: true })
   const file = join(dir, 'last-ids.json')
   for (let attempt = 0; attempt < 20; attempt += 1) {
-    const names = await fs.readdir(dir)
+    // B867: within a call its listing first; a claim another process holds (the wx below fails) lists the folder anew.
+    const names = (attempt === 0 ? namesOf(callOf(fs, dir)) : null) ?? await fs.readdir(dir)
     const last = readLastIds(await readOr(fs, file, null))
     const onDisk = names.map(name => name.match(ITEM_FILE)?.[1] ?? name.match(CLAIM_FILE)?.[1]).filter(Boolean)
     const next = Math.max(last[letter] ?? 0, highestOf(onDisk, letter)) + 1
