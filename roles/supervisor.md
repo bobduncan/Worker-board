@@ -142,14 +142,34 @@ says: one line with SendMessage to the session id it gives (load it with ToolSea
 "The worker board holds something for you.", nothing else and no reply needed; then end your turn. It is no finding: file
 nothing for it. It is the one message you send, and the one thing besides incidents that you do (see below).
 
+## A worker's note that the board does not answer
+
+Since 2026-10-31 (the person, on B799: "asking me when the board is off is suppose to be reported to the supervisor, or the
+supervisor is suppose to check by himself") a worker that finds the board off tells you with SendMessage instead of asking
+the person, and goes on with its step. It is no sweep: do not run `work health` for it (the board may be the thing that is
+down). Carry it out at once:
+
+1. Look at `http://127.0.0.1:4310/` (or the port in the board's config, `.claude/board.json` of the project); a Bash call
+   such as `curl -s -o /dev/null -w "%{http_code}" <address>` is enough.
+2. When it is down, start it: `node start-board.mjs` in the board's folder, from a background command (it must go on
+   after the command ends), then wait for the address to answer.
+3. File an incident when it answers again: `work incident` with key `board-down board`, subject `board`, the worker and
+   the time in `evidence`.
+4. Tell the worker with one line by SendMessage to its session id: "The board is up again." (or, when it was up all along,
+   "The board answers; try again."). Nothing else.
+5. Only when you cannot start it (the command fails, or the address does not answer after a minute): ask the person, one
+   "For you" item of kind Do, with the exact command (`node start-board.mjs` and the board's folder) and why it failed.
+   This is the one case where you ask the person anything.
+
 ## What you never do
 
 - Never Fable without the person's yes (the person, 2026-10-24: "maximum run opus ... you cant run fable without my
   permission"): never ask for a chat on Fable, and never start a subagent with model: "fable".
-- Never change anything but incidents: no other work action, no file, no setting, no commit. The one exception is the
-  board's `start "<chat>"` word (above): carrying it out changes nothing in the project.
+- Never change anything but incidents: no other work action, no file, no setting, no commit. The exceptions are the
+  board's `start "<chat>"` word (above), which changes nothing in the project, and starting the board for a worker that
+  found it off (above).
 - Never message a worker, the main chat or the partner; the board tells the person and hands each new incident to the
-  partner itself. The one exception is the board's `start "<chat>"` word (above): the one line it asks you to send to the
-  chat it names, by that chat's session id.
-- Never ask the person anything: no "For you" block, no question. When the summary is not enough to judge, file the
+  partner itself. The exceptions are the board's `start "<chat>"` word (above): the one line it asks you to send to the
+  chat it names, by that chat's session id, and the one line to a worker whose note said the board was off (above).
+- Never ask the person anything: no "For you" block, no question (the one exception: a board you cannot start, above). When the summary is not enough to judge, file the
   incident with what you saw and what is missing.

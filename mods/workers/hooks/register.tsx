@@ -120,6 +120,8 @@ let compactQueued = false
 let isDecidingClear = false
 /** Clear after each step: the role the board last named for this chat, in its answer to a turn's end. */
 let lastRole: BoardRole | null = null
+/** 2026-10-31: the Supervisor chat as the board last named it in a whoami answer: its name and app session id (local_...). */
+let supervisorChat: { name: string; session: string } | null = null
 /** Clear after each step: the move of the card after a clear, on its way: the tick and a prompt never move it twice. */
 let movingAfterClear: Promise<void> | null = null
 /** Clear after each step: a turn the engine runs for a /clear or /compact of the mod's, should it run one: no turn of the chat's. */
@@ -514,13 +516,19 @@ async function workOnBoard($: EngineInterface, fields: Record<string, unknown>, 
   return workOnce($, fields, request, limitMs)
 }
 
+/**
+ * 2026-10-31 (the person, on B799: "asking me when the board is off is suppose to be reported to the supervisor"): what the
+ * work tool adds when the board does not answer. The Supervisor starts the board and files an incident; the chat goes on.
+ */
+const BOARD_DOWN = ' If it still does not answer in a minute, tell the Supervisor with mcp__ccd_session_mgmt__send_message (its session id is in the list of chats, mcp__workers__chat action list) and go on with your step; never ask the person to start the board.'
+
 /** B297: one call of the work tool as `workOnBoard`, asked once. */
 async function workOnce($: EngineInterface, fields: Record<string, unknown>, request: string | null, limitMs: number | null): Promise<WorkAnswer> {
   if (myself === null || chatsDir === null) return { ok: false, text: 'This chat is not in the list of chats: the work tool is for the chats of the list.' }
   try {
     const project = chatsDir.slice(0, chatsDir.length - CHATS_DIR.length - 1)
     const board = parseBoard(await $.fs.read(inFolder(project, BOARD_FILE)).catch(() => ''))
-    if (board === null) return { ok: false, text: 'The worker board is not running: nothing was recorded. Try again once it runs.' }
+    if (board === null) return { ok: false, text: 'The worker board is not running: nothing was recorded. Try again once it runs.' + BOARD_DOWN }
     // B412: the call's request id: the board gives a repeat of it the first answer, so a call is recorded once.
     const asked = $.http.fetch(`${board.url}${WORK_PATH}`, {
       method: 'POST',
@@ -537,7 +545,7 @@ async function workOnce($: EngineInterface, fields: Record<string, unknown>, req
     if (answer === null) {
       asked.catch(() => {})
       const why = `timed out after ${String((limitMs ?? WORK_CALL_MS) / 1000)} s`
-      return { ok: false, text: `The worker board did not answer (${why}): nothing was recorded. Try again in a moment.`, isCut: true, isRefused: false, why }
+      return { ok: false, text: `The worker board did not answer (${why}): nothing was recorded. Try again in a moment.${BOARD_DOWN}`, isCut: true, isRefused: false, why }
     }
     // B445: the board's own words with the HTTP status beside them.
     if (!answer.ok) return { ok: false, text: answer.text.trim() === '' ? `The worker board refused it (HTTP ${String(answer.status)}).` : `${answer.text.trim()} (HTTP ${String(answer.status)})`, status: answer.status }
@@ -556,7 +564,7 @@ async function workOnce($: EngineInterface, fields: Record<string, unknown>, req
       // A thrown value that cannot be turned into text: the line without a reason.
     }
     const reason = why === '' ? '' : ' (' + why + ')'
-    return { ok: false, text: 'The worker board did not answer' + reason + ': nothing was recorded. Try again in a moment.', isCut: true, isRefused, why }
+    return { ok: false, text: 'The worker board did not answer' + reason + ': nothing was recorded. Try again in a moment.' + BOARD_DOWN, isCut: true, isRefused, why }
   }
 }
 
@@ -595,7 +603,7 @@ async function workTool($: EngineInterface, fields: Record<string, unknown>): Pr
   // A refusal of the repeat does not say the first was not recorded: the board may have taken it before it was cut.
   if (answer.isCut !== true) return { ...answer, text: `${NOT_KNOWN} The board then said: ${answer.text} Run work next (or work list) to see whether it is there before you try again.` }
   const reason = answer.why === undefined || answer.why === '' ? '' : ` (${answer.why})`
-  return { ...answer, text: `${NOT_KNOWN}${reason} Run work next (or work list) to see whether it is there before you try again.` }
+  return { ...answer, text: `${NOT_KNOWN}${reason} Run work next (or work list) to see whether it is there before you try again.${BOARD_DOWN}` }
 }
 
 /** B412: what the work tool says when the board's answer was cut off and asking again brought none. */
@@ -1740,6 +1748,17 @@ async function setChat($: EngineInterface, id: string, to: string, set: HandSet)
   return setResult(id, await $.tool.call({ tool: EFFORT_TOOL, session_id: to, effort: set.effort } as never))
 }
 
+/**
+ * 2026-10-31 (the person, on B799: a worker that finds the board off tells the Supervisor, not the person): the line of the list
+ * that names the Supervisor chat's session id, the one mcp__ccd_session_mgmt__send_message takes. The board names it in its
+ * whoami answer (its state's supervisorChat.appSession), which this process asks at its start and at most once a minute after
+ * (joinBySession); '' while it has not been told one.
+ */
+function supervisorLine(): string {
+  return supervisorChat === null ? '' : `
+The Supervisor: ${supervisorChat.name}, session id ${supervisorChat.session} (the id for mcp__ccd_session_mgmt__send_message)`
+}
+
 /** One question to the board, as no chat yet (`myself` may be null): its answer, or null. It never throws. */
 async function askWhoami($: EngineInterface, board: Board): Promise<Whoami | null> {
   try {
@@ -1789,6 +1808,7 @@ async function joinBySession($: EngineInterface): Promise<void> {
     // The role the board gives holds from now on (a turn's end says it again): a clear before any turn ended here still
     // knows a worker is a worker, and tells it its start's words.
     if (who.role !== null) lastRole = who.role
+    if (who.supervisor !== undefined) supervisorChat = who.supervisor
     if (who.card !== null && who.card !== id) await moveCardFromBoard($, dir, list, who)
     await joinByTitle($, `${list.prefix}${who.name}`)
     await describeWork($)
@@ -2482,7 +2502,7 @@ export const register: Register = on => {
     }
     const chats = await loadChats($)
 
-    return { result: chatsSummary(chats.rows, chats.now, chats.off) }
+    return { result: chatsSummary(chats.rows, chats.now, chats.off) + supervisorLine() }
   })
 
   // B297: the work tool: each call goes to the worker board as this chat; take and step keep the card as the chat tool does.

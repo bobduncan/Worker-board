@@ -32,6 +32,15 @@ const STATE = {
   supervisorChat: { name: 'Supervisor', session: 'sup-id' },
 }
 
+test('2026-10-31: the answer names the Supervisor and its app session id (where a chat tells it the board is down), only with a plain app id', () => {
+  const withApp = { ...STATE, supervisorChat: { name: 'Supervisor', session: 'sup-id', appSession: 'local_9f2c-11' } }
+  assert.deepEqual(answerWhoami(withApp, { session: 'main-id' }).result.supervisor, { name: 'Supervisor', session: 'local_9f2c-11' })
+  // No app id, a CLI session id in its place, or a session of no chat: nothing is said of it.
+  assert.equal('supervisor' in answerWhoami(STATE, { session: 'main-id' }).result, false)
+  assert.equal('supervisor' in answerWhoami({ ...STATE, supervisorChat: { name: 'Supervisor', appSession: 'cli-1234' } }, { session: 'main-id' }).result, false)
+  assert.equal('supervisor' in answerWhoami(withApp, { session: 'nobody' }).result, false)
+})
+
 const card = (name, more = {}) => JSON.stringify({ name, role: 'worker', state: 'waiting', task: null, at: NOW - 5 * MIN, ...more })
 
 test('the name is the one the board shows the session under: a lane, the partner, its helper, the supervisor; none for any other', () => {
