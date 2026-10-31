@@ -31,6 +31,8 @@ const FOR_PART = /^for (\d+(?:\s*,\s*\d+)*)$/
 const OPTION = /^- ([A-Z]): (.*?)( \(advised\))?$/
 const ANSWER = /^Answer \(([^)]+)\):\s*(.*)$/
 const CREATED = /^Created \(([^)]+)\):\s*(.*)$/
+/** 2026-10-31: the person's "Close it" on an old talk: done with no proposal, the board's line at its end. */
+const CLOSED = /^Closed \(([^)]+)\):\s*(.*)$/
 const GOAL_ITEM = /^- \[[ xX]\] (.+)$/
 // The parts of a goal's or a step's line in a proposal, from its end: its title may hold the separator itself.
 const PART = ' — '
@@ -126,7 +128,7 @@ export const leftOutKey = title => oneLine(title, 2000).replace(/ · /g, ' - ')
  * a new heading) or null, and the lines the form does not know, each named once with its line ("line 9: ...").
  */
 export function parseThread(text) {
-  const thread = { title: null, goal: null, kind: null, started: null, state: 'running', opening: '', context: [], questions: [], understood: null, proposal: null, problems: [] }
+  const thread = { title: null, goal: null, kind: null, started: null, state: 'running', opening: '', context: [], questions: [], understood: null, proposal: null, closed: null, problems: [] }
   let section = 'head'
   let question = null
   let proposal = null
@@ -140,6 +142,12 @@ export function parseThread(text) {
     const asQuestion = line.match(QUESTION)
     const asProposal = line.match(PROPOSAL)
     const asUnderstood = line.match(UNDERSTOOD)
+    // 2026-10-31: the board's line under a talk the person closed ("Close it"), wherever it stands.
+    const asClosed = line.match(CLOSED)
+    if (asClosed !== null) {
+      thread.closed = { at: asClosed[1], by: asClosed[2].trim() }
+      return
+    }
     // "Change this goal": the partner says back what it understood; the last one counts, and `after` is how many
     // questions stand before it (a question after it is the one asked now).
     if (asUnderstood !== null) {
@@ -401,10 +409,29 @@ export function brainstormsState(texts, folder) {
         latestMs: questionTimes(thread.started, thread.questions).at(-1) ?? Number.NaN,
         earlier: thread.questions.slice(0, -1),
         proposal: thread.proposal,
+        // 2026-10-31: the person closed it ("Close it": `{ at, by }`), or null.
+        closed: thread.closed,
         problems: thread.problems,
       }
     }),
   }
+}
+
+/**
+ * 2026-10-31 (the person: "per topic also reevaluate when the last interaction was because i feel a lot of older topics might
+ * still be open otherwise"): the person's "Close it" on a talk that still runs: done with no proposal, and the board's line
+ * `Closed (<at>): by the person` at its end. Refused `ended` for one that is over.
+ */
+export function closeThread(text, at) {
+  const thread = parseThread(text)
+  if (thread.state === 'done' || thread.state === 'discarded') return refuse('ended')
+  const state = setThreadState(text, 'done')
+  if (!state.ok) return state
+  const file = split(state.text)
+  let end = file.lines.length
+  while (end > 0 && file.lines[end - 1].trim() === '') end -= 1
+  file.lines.splice(end, 0, '', `Closed (${oneLine(at, 40)}): by the person`)
+  return { ok: true, text: join(file) }
 }
 
 /**
@@ -500,7 +527,7 @@ export async function editThread(body, { canWrite, dir, folder, goalsFile, histo
   const base = String(dir).replace(/[\\/]+$/, '')
   const goalsAt = { file: goalsFile, historyDir, now, fs }
   if (body.command === 'start') return startThread(body, { base, folder, goalsAt, now, fs })
-  if (!['answer', 'skip', 'back', 'wrap', 'discard', 'create', 'understood'].includes(body.command)) return failed('form')
+  if (!['answer', 'skip', 'back', 'wrap', 'discard', 'close', 'create', 'understood'].includes(body.command)) return failed('form')
   const name = nameOf(body.path, folder)
   if (name === null) return failed('path')
   const file = `${base}/${name}`
@@ -522,6 +549,10 @@ export async function editThread(body, { canWrite, dir, folder, goalsFile, histo
   else if (body.command === 'discard') {
     done = await rewriteThread(file, text => setThreadState(text, 'discarded'), fs)
     if (done.ok && thread.goal !== null && !isChange(thread)) await linkUnder(thread.goal.id, body.path, 'discarded', goalsAt)
+  } else if (body.command === 'close') {
+    // 2026-10-31: the person's "Close it" on an old talk: done, no proposal, the board's Closed line.
+    done = await rewriteThread(file, text => closeThread(text, timeOf(now)), fs)
+    if (done.ok && thread.goal !== null && !isChange(thread)) await linkUnder(thread.goal.id, body.path, 'done', goalsAt)
   } else if (body.command === 'understood') {
     if (body.yes !== true && typeof body.words !== 'string') return failed('form')
     const answer = body.yes === true ? { at: timeOf(now), yes: true } : { at: timeOf(now), words: body.words }
@@ -703,26 +734,29 @@ export function titleFixes(threads) {
  * or none; B452 refuses the same of an ask): rewrite it in the thread at once, as the form says. Typed on the board's own
  * clock, not as the person's word.
  */
-export function brainstormFixWords({ to, path, n, title, problem }) {
+export function brainstormFixWords({ to, path, n, title, problem, role = null }) {
   const plain = value => String(value ?? '').replace(/\s+/g, ' ').trim()
   const shown = plain(title).slice(0, 200)
   // The problem begins with the thread's own words ("'s title is too long. ..." or "has no title: ..."): keep the reason only.
   const reason = plain(problem).replace(/^'s title is /, '').replace(/^has no title/, 'it has no title')
+  // The Product owner (2026-10-31) keeps the form in its own job text.
+  const form = role === 'owner' ? 'roles/product-owner.md, "How a talk goes"' : 'roles/partner.md, "A brainstorm"'
   return {
     to, ask: null, step: null, title: null, version: null, verdict: null, command: 'brainstorm-fix', about: path,
     text: [`brainstorm fix`, `Thread: ${path}`, `Q${n}'s title is refused: ${reason}`, `Now: ${shown === '' ? '(none)' : shown}`,
-      `Your job: rewrite Q${n} in the thread now: its first line the question itself in at most 12 words ending in "?", then a "Context:" line of two to four plain sentences (roles/partner.md, "A brainstorm").`].join('\n'),
+      `Your job: rewrite Q${n} in the thread now: its first line the question itself in at most 12 words ending in "?", then a "Context:" line of two to four plain sentences (${form}).`].join('\n'),
   }
 }
 
 /**
  * B491, B496: the words still to type to the partner: one for each open question the board refuses (`titleFixes`) whose
  * exact wording was not sent before (`outbox` is everything sent), so a question left as it was is told once, and one
- * rewritten and still too long is told again. Nothing without a partner (`advisor` null).
+ * rewritten and still too long is told again. Nothing without a partner (`advisor` null). The Product owner (2026-10-31):
+ * `advisor` is the talk partner (src/talkPartner.mjs), the owner when the list names one (`role` 'owner').
  */
 export function fixesToTell(threads, outbox, advisor) {
   if ((advisor ?? null) === null) return []
-  return titleFixes(threads).map(fix => brainstormFixWords({ to: advisor.name, ...fix }))
+  return titleFixes(threads).map(fix => brainstormFixWords({ to: advisor.name, role: advisor.role ?? null, ...fix }))
     .filter(words => !(outbox ?? []).some(one => one.command === 'brainstorm-fix' && one.about === words.about && one.text === words.text))
 }
 
@@ -770,6 +804,8 @@ export function strandedQuestions(threads, goals = null, asks = []) {
   return (threads ?? []).flatMap(thread => {
     const cannotReach = thread.state === 'done' || thread.state === 'discarded' || (thread.proposal?.created ?? null) !== null
     if (!cannotReach || thread.latest === null || thread.latest.answer !== null) return []
+    // 2026-10-31: a talk the person closed asks nothing more of them.
+    if ((thread.closed ?? null) !== null) return []
     if (thread.goal !== null && asks.some(one => one.goal === thread.goal.id && one.at >= (thread.latestMs ?? Number.NaN))) return []
     if (byId !== null && thread.goal !== null) {
       const goal = byId.get(thread.goal.id)

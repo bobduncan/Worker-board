@@ -78,6 +78,9 @@ export function handsGone({ claims = new Map(), now, startedAt = -Infinity, call
 export function handWorkWaits(state, outbox = [], { asleepSent = new Map() } = {}) {
   if ((outbox ?? []).some(message => message?.state === 'waiting' && HAND_WAITS.includes(message.command))) return true
   if (state?.pause?.state === 'resuming' && (state.pause.waiting ?? []).length > 0) return true
+  // The Product owner (2026-10-31): a talk word waits for its chat while it does not run (no chat runs to wake it by message).
+  const owner = state?.productOwner ?? null
+  if (typeof owner?.name === 'string' && owner.isRunning !== true && (outbox ?? []).some(message => message?.state === 'waiting' && message.to === owner.name)) return true
   return shownChats(state ?? {}).some(lane => lane.asleep === true && lane.state === 'interrupted' && isAppId(lane.appSession)
     && Number.isFinite(lane.asleepSince) && asleepSent.get(lane.name)?.since !== lane.asleepSince)
 }
@@ -87,9 +90,13 @@ export function handWorkWaits(state, outbox = [], { asleepSent = new Map() } = {
  * supervisor's chat, else a worker; never a chat left behind or removed. The first of them whose CLI session id (the
  * board's own state, `session`) is a UUID; null when none is.
  */
-export function chatToOpen(state) {
+export function chatToOpen(state, outbox = []) {
   const lanes = (state?.chats ?? []).filter(lane => lane?.isLeftover !== true && (lane?.removedAt ?? null) === null)
-  const order = [lanes.find(lane => lane.isMain === true), state?.advisor, state?.supervisorChat, ...lanes.filter(lane => lane.isMain !== true)]
+  // The Product owner (2026-10-31): a talk word that waits for it opens its own chat first, so the person never waits for
+  // another chat to come up and wake it; it has the Workers mod too, so it carries the other words as any hand.
+  const owner = state?.productOwner ?? null
+  const ownerWaits = typeof owner?.name === 'string' && (outbox ?? []).some(message => message?.state === 'waiting' && message.to === owner.name)
+  const order = [ownerWaits ? owner : undefined, lanes.find(lane => lane.isMain === true), state?.advisor, state?.supervisorChat, ...lanes.filter(lane => lane.isMain !== true)]
   const found = order.find(lane => typeof lane?.name === 'string' && isSessionId(lane.session))
   return found === undefined ? null : { chat: found.name, session: found.session }
 }
@@ -127,12 +134,17 @@ export function openPlan({ now, handsGone: gone, waits, paused, last = -Infinity
 /** Work has waited this long for an asleep worker before the board opens it: a wake by message gets that minute first. */
 export const ASLEEP_WAIT_MS = 60_000
 
-/** The asleep workers with work waiting, `[{ chat, session, since }]`: `since` the start of its asleep spell. */
+/**
+ * The asleep workers with work waiting, `[{ chat, session, since }]`: `since` the start of its asleep spell. The Product owner
+ * (2026-10-31) first: asleep with a talk word waiting for it, it is opened the same way, before any worker.
+ */
 export function asleepWithWork(state, outbox = []) {
   const words = new Set((outbox ?? []).filter(message => message?.state === 'waiting' && typeof message.to === 'string').map(message => message.to))
-  return (state?.chats ?? [])
+  const owner = state?.productOwner ?? null
+  const ownerFirst = owner !== null && typeof owner?.name === 'string' && owner.asleep === true && isSessionId(owner.session) && words.has(owner.name) ? [owner] : []
+  return [...ownerFirst, ...(state?.chats ?? [])
     .filter(lane => lane?.isLeftover !== true && (lane?.removedAt ?? null) === null && lane?.isMain !== true && lane?.asleep === true && isSessionId(lane.session))
-    .filter(lane => (lane.queue ?? []).length > 0 || words.has(lane.name))
+    .filter(lane => (lane.queue ?? []).length > 0 || words.has(lane.name))]
     .map(lane => ({ chat: lane.name, session: lane.session, since: Number.isFinite(lane.asleepSince) ? lane.asleepSince : -Infinity }))
 }
 

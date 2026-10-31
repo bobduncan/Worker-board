@@ -224,7 +224,7 @@ function pageWith() {
   vm.runInNewContext([
     'const MIN = 60000', cut('times'), cut('askstand'), cut('advisorlane'), source('el'), source('advisorProgress'), source('drawAdvisorLane'),
     'const $ = () => host', 'host.querySelector = selector => { assert.equal(selector, "[data-advisor-next]"); return all(host, node => node.dataset.advisorNext !== undefined)[0] ?? null }',
-    "const drawHelperCard = () => null, icon = () => document.createElement('svg'), runChipOf = () => null, drawRunChip = () => null, advisorRefine = () => null",
+    "const drawHelperCard = () => null, drawOwnerCard = () => null, icon = () => document.createElement('svg'), runChipOf = () => null, drawRunChip = () => null, advisorRefine = () => null",
     "const drawEta = () => document.createElement('div'), taskTitle = () => document.createElement('p')",
     'function drawLanes(state) { host.replaceChildren(drawAdvisorLane(state)); drawn += 1 }',
     'Object.assign(this, { advisorQueued, advisorNextHref, advisorNextWords, drawWaitingAsks, drawAdvisorLane, drawLanes, advisorNextUi })',

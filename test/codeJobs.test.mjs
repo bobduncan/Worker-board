@@ -203,11 +203,12 @@ test('the server keeps each chat\'s claim, shows the check in the state and allo
   const server = await readFile(new URL('../server.mjs', import.meta.url), 'utf8')
   // T14: with the mod's version, for whether the claim may send.
   assert.match(server, /const claim = \{ can: \[\.\.\.can\]\.slice\(0, 10\), at: clock\(\), mod: typeof body\?\.mod === 'string' \? body\.mod : null \}\n\s+codeClaims\.set\(checked\.chat, claim\)/)
-  assert.match(server, /codeJobs: await codeJobsNow\(state\.chatPrefix \?\? ''\)/)
+  // The Product owner (2026-10-31): with the list's name for it, so its routine is checked once the list names one.
+  assert.match(server, /codeJobs: await codeJobsNow\(state\.chatPrefix \?\? '', state\.ownerName \?\? null\)/)
   // T12: one routine per worker slot up to the limit: read for it, shown by it, and the pasted line makes the missing ones.
   assert.match(server, /readCodeJobs\(\{ project: resolve\(HERE, config\.project\), folder, maxWorkers: config\.maxWorkers \}\)/)
-  assert.match(server, /codeJobsView\(\{ claims: codeClaims, \.\.\.codeRead\.read, folder, maxWorkers: config\.maxWorkers, spawnFail, now: clock\(\) \}\)/)
-  assert.match(server, /taskWords\(\{ folder, prefix, board: HERE, slots: view\.missingRoutines \}\)/)
+  assert.match(server, /codeJobsView\(\{ claims: codeClaims, \.\.\.codeRead\.read, folder, maxWorkers: config\.maxWorkers, spawnFail, now: clock\(\), owner: typeof owner === 'string' && owner !== '' \}\)/)
+  assert.match(server, /taskWords\(\{ folder, prefix, board: HERE, slots: view\.missingRoutines, owner \}\)/)
   assert.match(server, /'\/api\/code-jobs': \{ kind: 'json', guard: 'lock' \}/)
   assert.match(server, /allowCodeJobs\(\{ project: resolve\(HERE, config\.project\), tools: view\?\.missing \?\? \[\] \}\)/)
   const page = await readFile(new URL('../public/board.js', import.meta.url), 'utf8')

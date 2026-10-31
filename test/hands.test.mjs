@@ -282,5 +282,6 @@ test('T14: the server keeps the claim\'s mod and gives the send jobs by it', asy
   const server = await readFile(new URL('../server.mjs', import.meta.url), 'utf8')
   assert.match(server, /const claim = \{ can: \[\.\.\.can\]\.slice\(0, 10\), at: clock\(\), mod: typeof body\?\.mod === 'string' \? body\.mod : null \}/)
   assert.match(server, /const canSend = maySend\(claim\)/)
-  assert.match(server, /isPaused: isHolding\(state\.pause\), canSend \}\)/)
+  // The Product owner (2026-10-31): and its jobs first.
+  assert.match(server, /isPaused: isHolding\(state\.pause\), canSend, first: state\.productOwner\?\.name \?\? null \}\)/)
 })

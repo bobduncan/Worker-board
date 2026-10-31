@@ -11,8 +11,11 @@ with the project's own facts in its `.claude/main-briefing.md`, made after `exam
 the board's health summary and files incidents, nothing else; the board names the file in its sweep word.
 
 `product-owner.md` is the charter of the product owner's chat (the list of chats' `"owner"`, T9, 2026-10-31): every talk
-with the person about goals and focus (brainstorms, goal changes), always first, nothing else; until the list names an
-owner, the partner keeps those talks.
+with the person about goals and focus (brainstorms, goal changes, the Focus page's talk), always first, nothing else. Its
+part "How a talk goes" holds how a talk is kept (the thread's form, the questions, the proposal, a change of a goal, the
+focus's talk); the board types every talk word to the talk partner (`src/talkPartner.mjs`): the owner when the list names
+one and its chat is on the board, else the partner, which then keeps those talks by the same part (`partner.md` says so in
+one line). Its stored routine's text is `mods/workers/start-product-owner-task.md`.
 
 > **For any project (B191).** Every change to the worker board, these job texts included, works for any project. No game, chat, folder
 > or PC names in the code, the page, the job texts (`roles/`) or the examples: names, paths and words come from the

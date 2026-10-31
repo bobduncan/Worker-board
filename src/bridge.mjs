@@ -16,6 +16,8 @@ const refuse = (status, why) => ({ ok: false, status, why })
 export const shownChats = state => [
   ...(state.chats ?? []).filter(one => !one.isLeftover), ...(state.advisor ? [state.advisor] : []), ...(state.advisorHelper ? [state.advisorHelper] : []),
   ...(state.supervisorChat ? [state.supervisorChat] : []),
+  // The Product owner (2026-10-31): it takes its talk words as any chat of the board.
+  ...(state.productOwner ? [state.productOwner] : []),
 ]
 
 /**
@@ -183,16 +185,21 @@ export function isUnknownSession(body, state) {
   return session !== '' && !shown.some(one => (one.session ?? null) === session)
 }
 
-/** The role the board gives a chat of its list, as the work store does: main, worker, advisor, helper or supervisor; null for none. */
+/**
+ * The role the board gives a chat of its list, as the work store does: main, worker, advisor, helper, supervisor or owner
+ * (the Product owner, 2026-10-31; a Workers mod that does not know the role reads it as none: it neither clears nor compacts
+ * the chat after a step, which the owner never reports); null for none.
+ */
 export function laneRole(state, name) {
   const roles = new Map((state.chats ?? []).filter(lane => !lane.isLeftover).map(lane => [lane.name, lane.isMain ? 'main' : 'worker']))
   if (state.advisor) roles.set(state.advisor.name, 'advisor')
   if (state.advisorHelper) roles.set(state.advisorHelper.name, 'helper')
   if (state.supervisorChat) roles.set(state.supervisorChat.name, 'supervisor')
+  if (state.productOwner) roles.set(state.productOwner.name, 'owner')
   return roles.get(name) ?? null
 }
 
-const ROLE_WORDS = { main: 'the main chat', advisor: 'the partner', helper: "the partner's helper", supervisor: "the supervisor's chat" }
+const ROLE_WORDS = { main: 'the main chat', advisor: 'the partner', helper: "the partner's helper", supervisor: "the supervisor's chat", owner: 'the Product owner' }
 
 /**
  * Clear after each step: why the board does not keep the log of a chat the Workers mod wants to clear (and the mod

@@ -792,6 +792,10 @@ button.goal-dot:hover, button.goal-dot:focus-visible { box-shadow: 0 0 0 3px #2a
 .brainstorm-status.is-person { color: #8fb4ff; }
 .brainstorm-status.is-done, .brainstorm-status.is-created { color: #5fae85; }
 .brainstorm-status.is-thinking::before { content: ''; display: inline-block; width: 6px; height: 6px; margin-right: 6px; border-radius: 50%; background: var(--free); vertical-align: 1px; }
+/* 2026-10-31: a talk that stopped (nothing sent for 30 minutes) in a quiet grey, never amber: plain information. */
+.brainstorm-status.is-stopped { color: #7d8797; }
+/* The list's three groups (2026-10-31): Active, Older still open, Closed, each under a quiet name. */
+.brainstorm-group { margin: 10px 2px 2px; color: var(--muted); font-size: 11.5px; letter-spacing: 0.04em; text-transform: uppercase; }
 @keyframes brainstorm-pulse { 0%, 100% { opacity: 0.5; transform: scale(0.9); } 50% { opacity: 1; transform: scale(1); } }
 @media (prefers-reduced-motion: no-preference) {
   .brainstorm-status.is-thinking::before, .brainstorm-waiting.is-thinking .brainstorm-dot { animation: brainstorm-pulse 2s ease-in-out infinite; }
@@ -857,6 +861,10 @@ button.goal-dot:hover, button.goal-dot:focus-visible { box-shadow: 0 0 0 3px #2a
 .brainstorm-waiting.is-waiting .brainstorm-dot { background: #5b6f8f; }
 .brainstorm-waiting.is-off { border-color: var(--line); background: var(--panel); }
 .brainstorm-waiting.is-off .brainstorm-dot { background: none; border: 2px solid var(--unknown); }
+.brainstorm-waiting.is-stopped { border-color: var(--line); background: var(--panel); }
+.brainstorm-waiting.is-stopped .brainstorm-dot { background: #5a6372; }
+.brainstorm-again { margin-top: 10px; padding: 9px 20px; border: 1px solid var(--free); border-radius: 6px; background: var(--inset); color: #8fb4ff; font: inherit; font-size: 14px; cursor: pointer; }
+.brainstorm-again:disabled { opacity: 0.6; cursor: default; }
 .brainstorm-wait-sub { margin: 0; color: var(--muted); font-size: 13.5px; }
 .brainstorm-next { margin: 0; font-size: 12.5px; }
 .brainstorm-opening { margin: 0; color: var(--muted); font-size: 12.5px; overflow-wrap: anywhere; }
@@ -2304,6 +2312,12 @@ button.needs-you:hover small, button.needs-you:focus-visible small { color: var(
 .workers-panel .lane.is-advisor.is-helper { box-shadow: inset 2px 0 0 #1f8f84; background: #0c181c; cursor: default; }
 .workers-panel .lane.is-advisor.is-helper:hover { background: #0c181c; }
 .lane.is-helper .who { padding-left: 14px; }
+/* The Product owner (2026-10-31): its card under the Advisor's, its role and the setting the board holds it at, quiet. */
+.workers-panel .lane.is-advisor.is-owner { box-shadow: inset 2px 0 0 #3f6fb5; background: #0c1422; cursor: default; }
+.workers-panel .lane.is-advisor.is-owner:hover { background: #0c1422; }
+.lane.is-owner .who { padding-left: 14px; }
+.owner-role, .owner-setting { color: var(--muted); font-size: 11.5px; }
+.owner-setting.is-unset { font-style: italic; }
 
 /* The model chip beside a chat's state (Details' pill, under Simple's time): the model and effort it runs at now. It is
    information, so every chip is the same quiet grey outline in the same weight; only a small dot says the model: Opus

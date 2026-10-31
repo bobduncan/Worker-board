@@ -69,6 +69,8 @@ export function chatsByRole(state) {
     ...one(state?.advisor, 'partner'),
     ...one(state?.advisorHelper, 'helper'),
     ...one(state?.supervisorChat, 'supervisor'),
+    // The Product owner (2026-10-31): restarted for a new mod by the main chat, as the partner and the supervisor.
+    ...one(state?.productOwner, 'owner'),
   ]
 }
 

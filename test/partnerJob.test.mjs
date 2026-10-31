@@ -35,16 +35,22 @@ test('the board names partner.md as the chat\'s job in its rounds, and nowhere n
   assert.deepEqual(named, [])
 })
 
-test('the partner keeps the Advisor\'s refining, goal linking and rounds, and adds the focus\'s three moves', () => {
+test('the partner keeps the Advisor\'s refining, goal linking and rounds, and adds the focus\'s three moves', async () => {
   for (const kept of ['## Refine a step', '## Steps under no goal', '## Your rounds', '## A brainstorm', '## Asks from the goal map', 'Whoever asks the user asks once']) assert.ok(partner.includes(kept), kept)
   assert.match(partner, /## The focus/)
-  assert.match(partner, /`work vibe-draft` \(`goal` G<n>, `lines`, `picture`\)/)
-  assert.match(partner, /`work how-draft` \(`goal` G<n>, `parts`, `partnerDecides`, `youDecide`\)/)
+  // The Product owner (2026-10-31): the talk (the vibe and the how talked through, a brainstorm) is in product-owner.md,
+  // "How a talk goes", which the partner keeps to while no Product owner is listed; Go stays the partner's.
+  const talks = await plain('product-owner.md')
+  assert.match(partner, /While no Product owner is listed, you do the talks as product-owner\.md "How a talk goes" says\./)
+  assert.match(talks, /## How a talk goes/)
+  assert.match(talks, /`work vibe-draft` \(`goal` G<n>, `lines`, `picture`\)/)
+  assert.match(talks, /`work how-draft` \(`goal` G<n>, `parts`, `partnerDecides`, `youDecide`\)/)
   // The partner, as every chat, never reads or uses the board's own file.
   assert.doesNotMatch(partner, /board\.json|focus-draft/)
-  assert.match(partner, /\*\*Nothing is built in this move\*\*/)
-  assert.match(partner, /`vibe: agreed`/)
-  assert.match(partner, /`vibe: not yet` with `Words: \.\.\.`/)
+  assert.doesNotMatch(talks, /board\.json|focus-draft/)
+  assert.match(talks, /\*\*Nothing is built in this move\*\*/)
+  assert.match(talks, /`vibe: agreed`/)
+  assert.match(talks, /`vibe: not yet` with `Words: \.\.\.`/)
   assert.match(partner, /`how: go`/)
   assert.match(partner, /`work new` with a title/)
   assert.match(partner, /`goal` G<n>/)
@@ -58,8 +64,8 @@ test('the partner keeps the Advisor\'s refining, goal linking and rounds, and ad
   assert.match(partner, /You hand out nothing, add nothing to the queue/)
   assert.match(partner, /Never write `Focus:`, `Vibe agreed:` or `How agreed:` yourself/)
   // The review's findings: a focus thread is never wrapped up into a proposal, also in "A brainstorm".
-  assert.match(partner, /never wrapped up into a proposal/)
-  assert.match(partner, /write the proposal at once \(never in the focus's thread\)/)
+  assert.match(talks, /never wrapped up into a proposal/)
+  assert.match(talks, /write the proposal at once \(never in the focus's thread\)/)
 })
 
 test('the main chat sends planning questions to the partner; the steps it makes go on the board\'s list by themselves', () => {

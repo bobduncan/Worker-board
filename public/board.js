@@ -1481,7 +1481,8 @@ function simpleTrack(percent, isSmall = false) {
 function drawSimpleColumns(state) {
   const steps = simpleSteps(state.focus ?? null, state.chats ?? [], state.readAt)
   // B424: the partner and its helper under the workers, apart from them.
-  const workers = simpleWorkers(state.chats ?? [], state.counts ?? {}, state.readAt, [state.advisor, state.advisorHelper])
+  // The Product owner (2026-10-31): with the partner and its helper, apart from the workers.
+  const workers = simpleWorkers(state.chats ?? [], state.counts ?? {}, state.readAt, [state.advisor, state.advisorHelper, state.productOwner])
   once('simple-columns', [steps, workers], () => fillSimpleColumns(steps, workers))
 }
 
@@ -2871,7 +2872,7 @@ function firstWords({ title, name, projectName, project, board, advisor = null, 
     // B324: the trial's main chat had no spawn_task, only start cards: the words name both and take the one there is.
     ...(advisor === null ? [] : [`4. Start the Advisor as you start a worker: a new chat titled "${advisor.title}" (a start card, mcp__ccd_session__start_session, or a chip, mcp__ccd_session__spawn_task, whichever the app gives you), whose prompt tells it that it is the Advisor (the partner) of this project, to join the list as "${advisor.name}" with role "worker", and to read ${at(board, 'roles', 'partner.md')}, ${at(board, 'roles', 'protocol.md')} and ${at(project, 'CLAUDE.md')}. Tell the user in one line to click it.`]),
     // B767: the stored start-worker task, made in this first turn the person typed (only then is its Auto mode saved).
-    ...(task === null ? [] : [`${advisor === null ? 4 : 5}. ${task.replace(/ Then say in one line that they are made\.$/, '')}`]),
+    ...(task === null ? [] : [`${advisor === null ? 4 : 5}. ${task.replace(/ Then say in one line that (?:they are|it is) made\.$/, '')}`]),
     'Then say in one line that you are ready: the board then asks you for workers.',
   ].join('\n')
 }
@@ -3216,12 +3217,14 @@ function drawAdvisorLane(state) {
   const advisor = state.advisor ?? null
   // B424: the partner's helper, on its own card right under the Advisor's.
   const helper = drawHelperCard(state)
-  if (advisor === null && helper === null) return null
+  // The Product owner (2026-10-31): the chat that takes the person's talks, on its own card under the Advisor's.
+  const owner = drawOwnerCard(state)
+  if (advisor === null && helper === null && owner === null) return null
   const part = el('div', 'advisor-part')
   const label = el('p', 'advisor-label')
   label.append(el('b', '', 'Advisor'), el('span', '', 'advises on what to do next; takes no tasks'))
   if (advisor === null) {
-    part.append(label, helper)
+    part.append(label, ...[helper, owner].filter(one => one !== null))
     return part
   }
   const standing = advisorStanding(advisor)
@@ -3327,7 +3330,7 @@ function drawAdvisorLane(state) {
   open.append(el('span', 'advisor-open', '›'))
   row.append(who, what, progress, time, waits, open)
   card.append(row)
-  part.append(label, card, ...(helper === null ? [] : [helper]))
+  part.append(label, card, ...[helper, owner].filter(one => one !== null))
   return part
 }
 
@@ -3387,6 +3390,63 @@ function drawHelperCard(state) {
   const time = helper.state === 'working' ? drawEta(lane, state.readAt) : el('div', 'eta is-muted')
   // The columns of the Advisor's card, so the two line up; nothing waits for it and nothing opens.
   row.append(who, what, advisorProgress(lane.task), time, el('div', 'queue advisor-waits'), el('div', 'lane-menu-cell'))
+  card.append(row)
+  return card
+}
+
+/**
+ * The Product owner (2026-10-31, roles/product-owner.md): what its card says, worked out without the page. `name`, `label`
+ * ("Product owner"), what it is on now (`on`: the talk word it took, "Talk: <its title>"; else its own card's line while it
+ * works; else what it is for), how many talk words wait for it (`waiting`), and the setting the board holds it at
+ * ("Opus · medium", with whether its chat shows it). Null without one.
+ */
+function ownerCardView(owner) {
+  if (owner === null || owner === undefined) return null
+  const on = owner.on ?? null
+  const doing = owner.state === 'working' && typeof owner.doingNow === 'string' && owner.doingNow.trim() !== '' ? owner.doingNow.trim() : null
+  const now = on !== null && typeof on === 'object' ? `Talk: ${String(on.title ?? on.kind ?? '').trim() || 'a talk'}` : doing
+  const waiting = (Array.isArray(owner.next) ? owner.next : []).filter(row => row?.stand?.kind === 'queued').length
+  const setting = owner.setting ?? null
+  const model = { sonnet: 'Sonnet', opus: 'Opus' }[setting?.model] ?? null
+  return {
+    name: owner.name,
+    label: 'Product owner',
+    now: now ?? (owner.state === 'working' ? 'Task not recorded yet' : null),
+    note: 'takes your talks first: brainstorms, goal changes, the Focus page\'s talk',
+    waiting,
+    setting: model === null ? null : { text: `${model} · ${setting.effort}`, isSet: setting.isSet === true },
+  }
+}
+
+/** The Product owner's card under the Advisor's: how it stands, what it is on, what waits for it and its held setting. Null without one. */
+function drawOwnerCard(state) {
+  const owner = state.productOwner ?? null
+  const view = ownerCardView(owner)
+  if (view === null) return null
+  const standing = advisorStanding(owner)
+  const card = el('article', 'lane is-advisor is-owner')
+  card.dataset.standing = standing.key
+  card.dataset.owner = owner.name
+  card.setAttribute('aria-label', `${view.label} ${owner.name}, ${standing.label}: ${view.note}`)
+  const row = el('div', 'lane-row')
+  const who = el('div', 'who')
+  const sign = el('span', `worker-icon is-${standing.key}`)
+  sign.setAttribute('aria-hidden', 'true')
+  sign.append(icon('advisor'))
+  const names = el('div', 'who-names')
+  names.append(el('h3', '', owner.name), el('span', `pill is-${standing.key}`, standing.label), el('small', 'owner-role', view.label))
+  if (view.setting !== null) {
+    const chip = el('small', `owner-setting${view.setting.isSet ? '' : ' is-unset'}`, view.setting.text)
+    chip.title = view.setting.isSet ? 'The board holds it at this model and effort' : 'The board is setting it to this model and effort'
+    names.append(chip)
+  }
+  who.append(sign, names)
+  const what = el('div', 'what')
+  what.append(view.now === null ? el('p', 'note', view.note) : el('p', 'task', view.now))
+  if (standing.key === 'free' && Number.isFinite(owner.idle?.since)) card.title = `Idle since ${clock(owner.idle.since)}`
+  const waits = el('div', 'queue advisor-waits')
+  if (view.waiting > 0) waits.append(el('span', 'note', `${view.waiting} talk${view.waiting === 1 ? '' : 's'} waiting`))
+  row.append(who, what, el('div', 'progress'), el('div', 'eta is-muted'), waits, el('div', 'lane-menu-cell'))
   card.append(row)
   return card
 }
@@ -10778,6 +10838,106 @@ $('goals-ask-text').addEventListener('input', () => {
 // brainstorm:start
 // B259: the Brainstorm part (spec 2026-10-15, section 5), worked out without the page, so the tests can run it. A thread
 // is one of state.brainstorms.threads (src/brainstorm.mjs, brainstormsState).
+// The Product owner (2026-10-31): who has the talk is the state's `talkPartner` (src/talkPartner.mjs: the Product owner when
+// the list names one, else the Advisor); the words say "your Product owner" or "your partner" after its role.
+
+/** The talk partner of a state as the page reads it: `state.talkPartner`, or for an older server the Advisor; null without one. */
+function talkPartnerIn(state) {
+  if ((state?.talkPartner ?? null) !== null) return state.talkPartner
+  return (state?.advisor ?? null) === null ? null : { ...state.advisor, role: 'advisor' }
+}
+
+/** "Product owner" or "partner": what follows "your" for the talk partner `partner`. */
+function talkWho(partner) { return partner?.role === 'owner' ? 'Product owner' : 'partner' }
+
+/** The Brainstorm screen (2026-10-31): a thread whose last move is this old, with no word queued or taken for it, has stopped. */
+const BRAINSTORM_STOPPED_MS = 30 * 60_000
+
+/** A thread older than this since its last move, still running and not waiting on the person, is "Older, still open" (2026-10-31). */
+const BRAINSTORM_OLDER_MS = 3 * 24 * 60 * 60_000
+const BRAINSTORM_DAY_MS = 24 * 60 * 60_000
+
+/** The thread's start in milliseconds (its `Started:` day and time), or null. */
+function brainstormStartMs(thread) {
+  const day = String(thread.started ?? '').match(/^(\d{4})-(\d\d)-(\d\d) (\d\d):(\d\d)/)
+  return day === null ? null : new Date(Number(day[1]), Number(day[2]) - 1, Number(day[3]), Number(day[4]), Number(day[5])).getTime()
+}
+
+/**
+ * The clock times (HH:MM) of a thread's moves after its start, in the order they stand: each question and its answer, what the
+ * partner understood and the answer to it, the proposal, Created, Closed.
+ */
+function brainstormMoveTimes(thread) {
+  const questions = [...(thread.earlier ?? []), ...(thread.latest === null || thread.latest === undefined ? [] : [thread.latest])]
+  const times = questions.flatMap(question => [question.at, question.answer?.at])
+  times.push(thread.understood?.at, thread.understood?.answer?.at, thread.proposal?.at, thread.proposal?.created?.at, thread.closed?.at)
+  return times.map(one => String(one ?? '').match(/(\d{1,2}):(\d\d)/)).filter(one => one !== null).map(one => Number(one[1]) * 60 + Number(one[2]))
+}
+
+/**
+ * When the last move of a thread was (2026-10-31: the person, "reevaluate when the last interaction was"), in milliseconds: the
+ * latest of its start, a question, an answer, Understood, the proposal, Created and Closed. The thread holds clock times only,
+ * so the day comes from the start (a day on whenever a time stands earlier than the one before it), and, where the board read
+ * the file's own last write (`at`), the last move's clock time is set on the day of that write (the latest such time at or
+ * before it); with no move after the start, the start, else the file's time; null when nothing is known.
+ */
+function brainstormLastMoveMs(thread) {
+  // A Closed line with its day ("Closed (2026-10-31 11:45): by the person, ...") says its own time whole.
+  const closedDay = brainstormStartMs({ started: thread.closed?.at ?? null })
+  const moved = brainstormMovedMs(thread)
+  return closedDay === null ? moved : Math.max(closedDay, moved ?? -Infinity)
+}
+
+/** brainstormLastMoveMs from the thread's clock times alone. */
+function brainstormMovedMs(thread) {
+  const start = brainstormStartMs(thread)
+  const at = Number.isFinite(thread.at) ? thread.at : null
+  const times = brainstormMoveTimes(thread)
+  if (times.length === 0) return start ?? at
+  let last = times[0]
+  let walked = start
+  if (start !== null) {
+    const day = new Date(start)
+    day.setHours(0, 0, 0, 0)
+    let before = new Date(start).getHours() * 60 + new Date(start).getMinutes()
+    let offset = 0
+    for (const minutes of times) {
+      if (minutes < before) offset += 1
+      before = minutes
+      const ms = day.getTime() + offset * BRAINSTORM_DAY_MS + minutes * 60_000
+      if (ms >= walked) [walked, last] = [ms, minutes]
+    }
+  } else last = times.at(-1)
+  if (at === null) return walked
+  const anchored = new Date(at)
+  anchored.setHours(Math.floor(last / 60), last % 60, 0, 0)
+  const ms = anchored.getTime() > at + 60_000 ? anchored.getTime() - BRAINSTORM_DAY_MS : anchored.getTime()
+  return Math.max(ms, start ?? -Infinity)
+}
+
+/** The partner's turn's stop rule reads the person's last move. */
+const brainstormMoveMs = brainstormLastMoveMs
+
+/** How long ago a time was, in a few words: "just now", "12 min ago", "2 h ago", "6 days ago". */
+function brainstormAge(ms, now) {
+  const minutes = Math.max(0, Math.floor((now - ms) / 60_000))
+  if (minutes < 1) return 'just now'
+  if (minutes < 60) return `${minutes} min ago`
+  const hours = Math.floor(minutes / 60)
+  if (hours < 24) return `${hours} h ago`
+  const days = Math.floor(hours / 24)
+  return `${days} day${days === 1 ? '' : 's'} ago`
+}
+
+/**
+ * 2026-10-31: whether a thread is "Older, still open": it runs (no proposal created), it does not wait on the person, and its
+ * last move is over BRAINSTORM_OLDER_MS old. Only with `now`.
+ */
+function brainstormIsOlder(thread, partner, now) {
+  if (!Number.isFinite(now) || brainstormTurnOf(thread) !== 'partner') return false
+  const moved = brainstormLastMoveMs(thread)
+  return moved !== null && now - moved > BRAINSTORM_OLDER_MS
+}
 
 /** An answer as the card and the list read it back: the option and the person's words, skipped, or back. */
 function brainstormAnswerText(question) {
@@ -10854,8 +11014,13 @@ function brainstormMoveAt(thread) {
  * `advisor.on`, named as "refine B774 (Its title)"), else its own card's line while it works on something that is not a
  * brainstorm. `{ what, since }` (since: a time, or null), or null when it is not busy with something else.
  */
-function brainstormBusyWith(advisor, isQueued) {
+function brainstormBusyWith(advisor, isQueued, path = null) {
   const on = advisor.on
+  // The Product owner's word it is on names its thread: this thread is no "something else", another talk is.
+  if (on !== null && on !== undefined && typeof on === 'object' && typeof on.thread === 'string') {
+    if (on.thread === path) return null
+    return { what: `the talk "${brainstormClip(on.title, 28)}"`, since: Number.isFinite(on.since) ? on.since : null }
+  }
   if (on !== null && on !== undefined && typeof on === 'object' && typeof on.id === 'string') {
     const title = brainstormClip(on.title, 28)
     return { what: `${[on.kind, on.id].filter(Boolean).join(' ')}${title === '' ? '' : ` (${title})`}`, since: Number.isFinite(on.since) ? on.since : null }
@@ -10869,48 +11034,63 @@ function brainstormBusyWith(advisor, isQueued) {
 
 /**
  * The Brainstorm screen (2026-10-31): what shows while the partner has the turn. `kind`: 'thinking' (it holds the thread's word,
- * or nothing says it is elsewhere), 'waiting' (the word waits in its queue, or it is busy with something else; `busy` names
- * what, `position` where the thread stands in its queue: 1 is next, null when the board cannot tell) or 'off' (no partner, or
- * its chat does not run). `headline` and `line` are the two lines of the card. `advisor` is state.advisor.
+ * or nothing says it is elsewhere and the last move is under BRAINSTORM_STOPPED_MS old), 'waiting' (the word waits in its
+ * queue, or it is busy with something else; `busy` names what, `position` where the thread stands in its queue: 1 is next,
+ * null when the board cannot tell), 'stopped' (no word of the thread queued or taken, and the person's last move is
+ * BRAINSTORM_STOPPED_MS old or more: nothing was sent, and "Type it to your partner again" is the card's main button; only
+ * with `now`) or 'off' (no partner, or its chat does not run). `headline` and `line` are the two lines of the card. `partner`
+ * is the state's talkPartner (talkPartnerIn: the Product owner, or the Advisor), `now` the state's time.
  */
-function brainstormPartnerView(thread, advisor) {
-  if (advisor === null || advisor === undefined) return { kind: 'off', headline: 'No partner is on this board', line: 'A brainstorm waits for one.', busy: null, position: null, since: null }
-  if (advisor.isRunning === false) return { kind: 'off', headline: 'Your partner\'s chat is not running', line: 'Start it from the Workers lane (the main chat starts it).', busy: null, position: null, since: null }
-  const queue = Array.isArray(advisor.next) ? advisor.next : []
+function brainstormPartnerView(thread, partner, now = null) {
+  const who = talkWho(partner)
+  if (partner === null || partner === undefined) return { kind: 'off', headline: 'No partner is on this board', line: 'A brainstorm waits for one.', busy: null, position: null, since: null, who }
+  if (partner.isRunning === false) return { kind: 'off', headline: `Your ${who}'s chat is not running`, line: 'Start it from the Workers lane (the main chat starts it).', busy: null, position: null, since: null, who }
+  const queue = Array.isArray(partner.next) ? partner.next : []
   const mine = queue.flatMap((row, index) => (row?.thread === thread.path ? [{ row, index }] : []))
   const held = mine.find(({ row }) => row.stand?.kind === 'working' || row.stand?.kind === 'taken')
   const queued = mine.find(({ row }) => row.stand?.kind === 'queued')
-  const busy = held === undefined ? brainstormBusyWith(advisor, queued !== undefined) : null
+  // The person, 2026-10-31 (old threads read "thinking" for days): with no word of it queued or taken, a last move this old is a stop.
+  const moved = brainstormMoveMs(thread)
+  if (held === undefined && queued === undefined && Number.isFinite(now) && moved !== null && now - moved >= BRAINSTORM_STOPPED_MS) {
+    return { kind: 'stopped', headline: 'Stopped · nothing sent', line: `Your ${who} has no word about it in its queue. Type it to your ${who} again to go on.`, busy: null, position: null, since: null, who }
+  }
+  const busy = held === undefined ? brainstormBusyWith(partner, queued !== undefined, thread.path) : null
   if (busy === null && (held !== undefined || queued === undefined)) {
     const started = Number.isFinite(held?.row.stand.since) ? brainstormClock(held.row.stand.since) : brainstormMoveAt(thread)
-    return { kind: 'thinking', headline: `Your partner ${brainstormPartnerDoing(thread)}`, line: `${started === null ? 'Usually' : `Started ${started} · usually`} under a minute`, busy: null, position: null, since: started }
+    return { kind: 'thinking', headline: `Your ${who} ${brainstormPartnerDoing(thread)}`, line: `${started === null ? 'Usually' : `Started ${started} · usually`} under a minute`, busy: null, position: null, since: started, who }
   }
   // Its queue holds the thread's word at a place; with no word of the thread in it, the thread is next only when nothing else waits.
   const position = queued !== undefined ? queued.index + 1 : queue.length === 0 ? 1 : null
   return {
     kind: 'waiting',
-    headline: busy === null ? 'Your partner has not picked it up yet.' : `Your partner is busy with ${busy.what}${busy.since === null ? '' : ` since ${brainstormClock(busy.since)}`}.`,
+    headline: busy === null ? `Your ${who} has not picked it up yet.` : `Your ${who} is busy with ${busy.what}${busy.since === null ? '' : ` since ${brainstormClock(busy.since)}`}.`,
     line: position === 1 ? 'Your brainstorm is next.' : position === null ? 'Your brainstorm waits for it.' : `Your brainstorm is number ${position} in its queue.`,
-    busy, position, since: null,
+    busy, position, since: null, who,
   }
 }
 
 /** The one small word a thread carries in the list and in its head, and its tone: your turn, the partner's states, or how it ended. */
-function brainstormStatusOf(thread, advisor) {
+function brainstormStatusOf(thread, partner, now = null) {
   const turn = brainstormTurnOf(thread)
   if (turn === 'person') return { word: 'your turn', tone: 'person' }
   if (turn === 'over') {
     if (thread.state === 'discarded') return { word: 'discarded', tone: 'discarded' }
-    return thread.proposal?.created ? { word: 'created', tone: 'created' } : { word: 'done', tone: 'done' }
+    if (thread.proposal?.created) return { word: 'created', tone: 'created' }
+    // 2026-10-31: the person closed it ("Close it", or by hand with the board's Closed line).
+    return (thread.closed ?? null) !== null ? { word: 'closed', tone: 'done' } : { word: 'done', tone: 'done' }
   }
-  return brainstormPartnerView(thread, advisor).kind === 'thinking' ? { word: 'your partner is thinking', tone: 'thinking' } : { word: 'waiting for your partner', tone: 'waiting' }
+  const who = talkWho(partner)
+  const kind = brainstormPartnerView(thread, partner, now).kind
+  if (kind === 'stopped') return { word: 'stopped · nothing sent', tone: 'stopped' }
+  return kind === 'thinking' ? { word: `your ${who} is thinking`, tone: 'thinking' } : { word: `waiting for your ${who}`, tone: 'waiting' }
 }
 
 /** What a thread says about itself in a tooltip: its kind, who it is with, how it stands, when it started, and the goal it is about. */
-function brainstormTip(thread) {
+function brainstormTip(thread, partner = null) {
+  const who = talkWho(partner)
   const goal = thread.goal === null ? 'about no goal yet (free)' : `about ${thread.goal.id} ${thread.goal.title}`
   const kind = thread.kind === 'change' ? `Change of ${thread.goal?.id ?? 'a goal'}` : 'Brainstorm'
-  return [`${kind} · with your partner · ${thread.state} · started ${thread.started ?? ''}`, goal, thread.kind === 'change' ? 'Your partner asks until it can say back what you want. Nothing about the goal changes before your yes.' : null].filter(Boolean).join('\n')
+  return [`${kind} · with your ${who} · ${thread.state} · started ${thread.started ?? ''}`, goal, thread.kind === 'change' ? `Your ${who} asks until it can say back what you want. Nothing about the goal changes before your yes.` : null].filter(Boolean).join('\n')
 }
 
 /** The person's opening words as one collapsed line: `{ short, full, isCut }`, or null without words. */
@@ -10925,9 +11105,9 @@ function brainstormOpeningView(opening) {
  * The card of a brainstorm: whose turn it is (`turn`) and the word it carries (`status`); on the person's turn the open question
  * (when the partner asked one and no proposal stands), its options, whether it takes an answer and a Back; on the partner's turn
  * what it does (`partner`, brainstormPartnerView); the earlier questions with their answers (`earlier`, one chip each) and the
- * person's opening words. `advisor` is state.advisor.
+ * person's opening words. `partner` is the state's talkPartner (talkPartnerIn), `now` the state's time.
  */
-function brainstormCardView(thread, advisor) {
+function brainstormCardView(thread, partner, now = null) {
   const latest = thread.latest
   const isOver = thread.state === 'done' || thread.state === 'discarded'
   const isOpen = !isOver && thread.state === 'running' && thread.proposal === null && latest !== null && latest.answer === null
@@ -10944,11 +11124,15 @@ function brainstormCardView(thread, advisor) {
     canAnswer: isOpen,
     canBack: isOpen && thread.earlier.length > 0,
     turn,
-    status: brainstormStatusOf(thread, advisor),
-    partner: turn === 'partner' ? brainstormPartnerView(thread, advisor) : null,
+    status: brainstormStatusOf(thread, partner, now),
+    partner: turn === 'partner' ? brainstormPartnerView(thread, partner, now) : null,
     understood,
     isChange: thread.kind === 'change',
-    tip: brainstormTip(thread),
+    tip: brainstormTip(thread, partner),
+    who: talkWho(partner),
+    // 2026-10-31: "Older, still open" (its "…" menu offers "Close it"), and the person's close of it (`{ at, by }`) or null.
+    isOlder: brainstormIsOlder(thread, partner, now),
+    closed: thread.closed ?? null,
     opening: brainstormOpeningView(thread.opening),
     earlier: asked.map(question => ({ n: question.n, title: question.title ?? question.text, context: question.context ?? '', answerText: brainstormAnswerText(question), chip: `${question.n} · ${brainstormAnswerShort(question)}` })),
   }
@@ -11031,27 +11215,42 @@ function changeProposalView(thread, { unticked = [], dropsTicked = [], agreed = 
 function brainstormLeftKey(title) { return String(title ?? '').replace(/\s+/g, ' ').trim().slice(0, 2000).replace(/ · /g, ' - ') }
 
 /**
- * The list at the left: the running brainstorms first, then the ones done or discarded, a slim row each: the title and one
- * small status word (`word`, `tone`: brainstormStatusOf). The day, the questions and what came of it are in the row's `tip`.
- * `advisor` is state.advisor.
+ * The list at the left, a slim row each: the title and one small status word (`word`, `tone`: brainstormStatusOf), with its age
+ * after it where the state's time is known ("your turn · 2 h ago", "stopped · 6 days ago"). The day, the questions and what
+ * came of it are in the row's `tip`. 2026-10-31 (the person: "split these brainstorms whats currently open/active and whats
+ * already closed"), three groups, the newest first in each: `active` (running, its last move within 3 days, or waiting on the
+ * person), `older` ("Older, still open": running, its last move over 3 days ago; only with `now`) and `closed` (done, discarded,
+ * or its proposal created, also while its state still says running). `running` (active, then older) and `done` (closed) as
+ * before. `partner` is the state's talkPartner (talkPartnerIn), `now` the state's time.
  */
-function brainstormListView(threads, advisor = null) {
-  const running = []
-  const done = []
+function brainstormListView(threads, partner = null, now = null) {
+  const active = []
+  const older = []
+  const closed = []
+  const who = talkWho(partner)
   for (const thread of threads ?? []) {
     const day = String(thread.started ?? '').slice(0, 10)
     const count = thread.questions === 0 ? null : `${thread.questions} question${thread.questions === 1 ? '' : 's'}`
-    const status = brainstormStatusOf(thread, advisor)
-    const row = { path: thread.path, title: thread.title, word: status.word, tone: status.tone, waits: status.tone === 'person' }
-    if (thread.state === 'running' || thread.state === 'wrapping up') {
-      running.push({ ...row, tip: [day, count, thread.state === 'wrapping up' ? 'wrapping up with your partner' : 'with your partner'].filter(Boolean).join(' · ') })
+    const status = brainstormStatusOf(thread, partner, now)
+    const movedAt = brainstormLastMoveMs(thread)
+    const age = Number.isFinite(now) && movedAt !== null ? brainstormAge(movedAt, now) : null
+    const word = age === null ? status.word : `${status.word.replace(/ · nothing sent$/, '')} · ${age}`
+    const row = { path: thread.path, title: thread.title, word, tone: status.tone, waits: status.tone === 'person', movedAt }
+    const isOver = brainstormTurnOf(thread) === 'over'
+    if (!isOver && (thread.state === 'running' || thread.state === 'wrapping up')) {
+      const isOlder = brainstormIsOlder(thread, partner, now)
+      ;(isOlder ? older : active).push({ ...row, isOlder, tip: [day, count, thread.state === 'wrapping up' ? `wrapping up with your ${who}` : `with your ${who}`].filter(Boolean).join(' · ') })
       continue
     }
     const created = thread.proposal?.created ?? null
     const came = created === null ? null : [created.goals.join(', '), created.steps.length > 0 ? created.steps.join(', ') : created.asked > 0 ? `${created.asked} step${created.asked === 1 ? '' : 's'}` : ''].filter(Boolean).join(', ')
-    done.push({ ...row, tip: thread.state === 'discarded' ? [day, count, 'discarded'].filter(Boolean).join(' · ') : `${[day, count].filter(Boolean).join(' · ')} → ${came || 'nothing created'}` })
+    const closedBy = (thread.closed ?? null) === null ? null : `closed ${thread.closed.at}${thread.closed.by ? `: ${thread.closed.by}` : ''}`
+    closed.push({ ...row, isOlder: false, tip: thread.state === 'discarded' ? [day, count, 'discarded'].filter(Boolean).join(' · ') : closedBy !== null && created === null ? [day, count, closedBy].filter(Boolean).join(' · ') : `${[day, count].filter(Boolean).join(' · ')} → ${came || 'nothing created'}` })
   }
-  return { running, done }
+  // The newest first in each group, by the last move (the order read, newest file first, where the time is not known).
+  const newest = list => (Number.isFinite(now) ? [...list].sort((a, b) => (b.movedAt ?? -Infinity) - (a.movedAt ?? -Infinity)) : list)
+  const [a, o, c] = [newest(active), newest(older), newest(closed)]
+  return { active: a, older: o, closed: c, running: [...a, ...o], done: c }
 }
 
 /** The brainstorm the card shows: the one chosen while it is there, else the first running one, else the newest. */
@@ -11075,8 +11274,9 @@ function brainstormChosen(threads, open) {
 const brainstormUi = { open: null, newAbout: undefined, other: new Map(), unticked: new Map(), changing: null, changeWords: '', confirm: null, busy: false, note: null, failedSteps: new Map(), notQuite: null, notQuiteWords: '', agreed: new Set(), dropsTicked: new Map(), menu: null, opening: new Set(), why: new Set(), chip: null }
 
 function brainstormData(state) {
-  const advisor = state.advisor ?? null
-  return [state.brainstorms ?? null, advisor?.name ?? null, advisor?.isRunning ?? null, advisor?.state ?? null, advisor?.doingNow ?? null,
+  // The Product owner (2026-10-31): the talk partner (the owner, or the Advisor), and the minute, for the 30 minutes of a stop.
+  const advisor = talkPartnerIn(state)
+  return [state.brainstorms ?? null, advisor?.name ?? null, advisor?.role ?? null, advisor?.isRunning ?? null, advisor?.state ?? null, advisor?.doingNow ?? null, Math.floor((state.readAt ?? 0) / 60_000),
     // What the partner's card says it is busy with, and where the thread stands in its queue (the Advisor lane's "Next for it").
     advisor?.on ?? null, advisor?.turnAt ?? null, (advisor?.next ?? []).map(row => [row?.kind ?? null, row?.id ?? null, row?.thread ?? null, row?.stand?.kind ?? null, row?.stand?.since ?? null]),
     state.goalsEdit?.canWrite ?? null, state.restart?.main ?? null, (state.goals?.nodes ?? []).map(node => [node.id, node.title]),
@@ -11098,20 +11298,23 @@ const agreedKey = thread => `${thread.path}@${thread.proposal?.at ?? ''}`
 function redrawBrainstorm() {
   if (board !== null && board !== undefined) once('brainstorm', brainstormData(board), () => drawBrainstorm(board))
 }
-const canBrainstorm = state => state?.goalsEdit?.canWrite === true && (state?.advisor ?? null) !== null
+const canBrainstorm = state => state?.goalsEdit?.canWrite === true && talkPartnerIn(state) !== null
+/** The Product owner (2026-10-31): the chat a brainstorm's words go to, the talk partner; null without one. */
+const talkName = state => talkPartnerIn(state)?.name ?? null
 const threadAt = path => (board?.brainstorms?.threads ?? []).find(thread => thread.path === path) ?? null
 
 function drawBrainstorm(state) {
   const threads = state.brainstorms?.threads ?? []
   const waits = (state.brainstormNeeds ?? []).length
   $('advisor-brainstorm-count').textContent = waits === 0 ? '' : String(waits)
-  const list = brainstormListView(threads, state.advisor ?? null)
+  const partner = talkPartnerIn(state)
+  const list = brainstormListView(threads, partner, state.readAt ?? null)
   const chosen = brainstormChosen(threads, brainstormUi.open)
   const start = el('button', 'brainstorm-start', '+ New brainstorm…')
   start.type = 'button'
   start.dataset.brainstormNew = ''
   start.disabled = !canBrainstorm(state)
-  start.title = start.disabled ? ((state.advisor ?? null) === null ? 'No Advisor is on the board.' : state.goalsEdit?.whyNot ?? 'This board only shows.') : 'Think something through with your partner: about a goal, or free'
+  start.title = start.disabled ? (partner === null ? 'No Advisor is on the board.' : state.goalsEdit?.whyNot ?? 'This board only shows.') : `Think something through with your ${talkWho(partner)}: about a goal, or free`
   // The Brainstorm screen (2026-10-31): a slim row, the title and one small status word; the rest is in its tooltip.
   const row = one => {
     const line = el('button', `brainstorm-row is-${one.tone}${one.path === chosen ? ' is-chosen' : ''}`)
@@ -11121,9 +11324,11 @@ function drawBrainstorm(state) {
     line.append(el('b', '', one.title), el('small', `brainstorm-status is-${one.tone}`, one.word))
     return line
   }
+  // 2026-10-31: three groups, each under its quiet name when it holds a thread.
+  const group = (name, rows) => (rows.length === 0 ? [] : [el('p', 'brainstorm-group', name), ...rows.map(row)])
   fill($('brainstorm-list'), [
     start,
-    ...list.running.map(row), ...list.done.map(row),
+    ...group('Active', list.active), ...group('Older, still open', list.older), ...group('Closed', list.closed),
     threads.length === 0 ? el('p', 'muted brainstorm-empty', 'No brainstorm yet. Start one here, or with "Brainstorm this" on a goal of the map. Your partner asks you one question at a time and ends with a proposal you tick.') : null,
   ])
   showBrainstormNew(state)
@@ -11156,7 +11361,7 @@ const BRAINSTORM_CONTEXT_CHARS = 140
  * options, what the partner understood, or the proposal; under it the line after an action, and the person's opening words.
  */
 function brainstormCard(thread, state) {
-  const view = brainstormCardView(thread, state.advisor ?? null)
+  const view = brainstormCardView(thread, talkPartnerIn(state), state.readAt ?? null)
   const canWrite = canBrainstorm(state)
   const isLive = thread.state === 'running' || thread.state === 'wrapping up'
   const parts = [brainstormHead(thread, view, canWrite, isLive), ...(brainstormChips(thread, view) ?? [])]
@@ -11164,8 +11369,8 @@ function brainstormCard(thread, state) {
   // "Change this goal": the partner's "what I understand you want", with "Yes, that's it" and "Not quite…".
   else if (view.understood !== null && view.understood.canAnswer) {
     parts.push(understoodPart(thread, view.understood, canWrite))
-    if (canWrite) parts.push(el('p', 'brainstorm-next muted', 'Next: your partner drafts the new goal'))
-  } else if (view.partner !== null) parts.push(brainstormPartnerCard(view.partner))
+    if (canWrite) parts.push(el('p', 'brainstorm-next muted', `Next: your ${view.who} drafts the new goal`))
+  } else if (view.partner !== null) parts.push(brainstormPartnerCard(view.partner, canWrite && isLive))
   else if (thread.proposal !== null) {
     const box = el('section', 'brainstorm-box is-proposal')
     box.append(thread.kind === 'change' ? changeProposalPart(thread, canWrite, state) : proposalPart(thread, canWrite))
@@ -11175,6 +11380,8 @@ function brainstormCard(thread, state) {
   // Lines of the thread the board cannot read: the Advisor is asked to write them in the form.
   if (thread.problems.length > 0) parts.push(el('p', 'brainstorm-problems', `The thread has ${thread.problems.length === 1 ? 'a line' : 'lines'} the board cannot read (${thread.problems.slice(0, 3).join(' · ')}${thread.problems.length > 3 ? ' …' : ''}): ask your partner to write ${thread.problems.length === 1 ? 'it' : 'them'} as roles/partner.md shows.`))
   if (thread.state === 'discarded') parts.push(el('p', 'muted brainstorm-over', 'Discarded: nothing of it was created.'))
+  // 2026-10-31: a talk the person closed says when and by whom.
+  if (view.closed !== null) parts.push(el('p', 'muted brainstorm-over brainstorm-closed', `Closed ${view.closed.at}${view.closed.by ? `: ${view.closed.by}` : ''}. Nothing more of it is asked.`))
   const opening = brainstormOpening(thread, view)
   if (opening !== null) parts.push(opening)
   return parts
@@ -11223,9 +11430,15 @@ function brainstormMenu(thread, view, canWrite, isLive) {
   list.append(file)
   // Nothing came back for long: the board types its last word about this brainstorm into the partner's chat once more.
   if (canWrite && isLive && view.turn === 'partner') {
-    const again = item('Type it to your partner again', 'again')
-    again.title = 'When nothing came back: the board types its last word about this brainstorm into your partner\'s chat again'
+    const again = item(`Type it to your ${view.who} again`, 'again')
+    again.title = `When nothing came back: the board types its last word about this brainstorm into your ${view.who}'s chat again`
     list.append(again)
+  }
+  // 2026-10-31: an old talk that still runs is closed quietly: done, with no proposal.
+  if (canWrite && isLive && view.isOlder) {
+    const close = item('Close it', 'close')
+    close.title = 'End it as done, with nothing created: it stays in the list under Closed'
+    list.append(close)
   }
   if (canWrite && isLive) {
     const discard = item(brainstormUi.confirm === thread.path ? 'Click again to discard it' : 'Discard', 'discard')
@@ -11261,7 +11474,7 @@ function brainstormChips(thread, view) {
 }
 
 /** The partner's turn: one large calm card, a softly pulsing dot beside the line that says what it does, and a muted line under it. */
-function brainstormPartnerCard(partner) {
+function brainstormPartnerCard(partner, canAgain = false) {
   const box = el('section', `brainstorm-box brainstorm-waiting is-${partner.kind}`)
   box.setAttribute('role', 'status')
   const line = el('p', 'brainstorm-wait-line')
@@ -11269,6 +11482,12 @@ function brainstormPartnerCard(partner) {
   dot.setAttribute('aria-hidden', 'true')
   line.append(dot, el('b', '', partner.headline))
   box.append(line, el('p', 'brainstorm-wait-sub', partner.line))
+  // The person, 2026-10-31: a stopped talk (nothing sent for 30 minutes) offers the board's word again as its main button.
+  if (partner.kind === 'stopped' && canAgain) {
+    const again = brainstormButton(`Type it to your ${partner.who ?? 'partner'} again`, 'again', 'brainstorm-again')
+    again.title = `The board types its last word about this brainstorm into your ${partner.who ?? 'partner'}'s chat again`
+    box.append(again)
+  }
   return box
 }
 
@@ -11567,7 +11786,9 @@ async function sayBrainstorm(message, path) {
 
 async function brainstormAct(act, path, key = null) {
   const thread = threadAt(path)
-  const advisor = board?.advisor?.name ?? null
+  // The Product owner (2026-10-31): a brainstorm's words go to the talk partner (the owner, or the Advisor).
+  const advisor = talkName(board)
+  const who = talkWho(talkPartnerIn(board))
   const main = board?.restart?.main ?? null
   if (thread === null || brainstormUi.busy) return
   // The Brainstorm screen (2026-10-31): the page's own moves, nothing sent: the "…" menu, the opening in full, "Why I ask".
@@ -11600,7 +11821,7 @@ async function brainstormAct(act, path, key = null) {
     brainstormUi.busy = true
     brainstormUi.note = null
     redrawBrainstorm()
-    if (await sayBrainstorm({ to: advisor, thread: path, ...word }, path)) brainstormUi.note = { path, isProblem: false, text: 'Typed into the Advisor\'s chat again.' }
+    if (await sayBrainstorm({ to: advisor, thread: path, ...word }, path)) brainstormUi.note = { path, isProblem: false, text: who === 'partner' ? 'Typed into the Advisor\'s chat again.' : `Typed into your ${who}'s chat again.` }
     brainstormUi.busy = false
     return redrawBrainstorm()
   }
@@ -11658,12 +11879,15 @@ async function brainstormAct(act, path, key = null) {
       else if (await sendBrainstorm({ command: 'understood', path, words }) !== null) {
         brainstormUi.notQuite = null
         brainstormUi.notQuiteWords = ''
-        if (await sayBrainstorm({ to: advisor, command: 'brainstorm-not-quite', thread: path }, path)) brainstormUi.note = { path, isProblem: false, text: 'Sent to your partner: it asks on.' }
+        if (await sayBrainstorm({ to: advisor, command: 'brainstorm-not-quite', thread: path }, path)) brainstormUi.note = { path, isProblem: false, text: `Sent to your ${who}: it asks on.` }
       }
     } else if (act === 'wrap') {
       if (await sendBrainstorm({ command: 'wrap', path }) !== null) await sayBrainstorm({ to: advisor, command: 'brainstorm-wrap', thread: path }, path)
     } else if (act === 'discard') {
       await sendBrainstorm({ command: 'discard', path })
+    } else if (act === 'close') {
+      // 2026-10-31: "Close it" on an old talk: the board sets it done and writes its Closed line.
+      if (await sendBrainstorm({ command: 'close', path }) !== null) brainstormUi.note = { path, isProblem: false, text: 'Closed: it stands under Closed now.' }
     } else if (act === 'send-change') {
       const words = brainstormUi.changeWords.trim()
       if (words === '') brainstormUi.note = { path, isProblem: true, text: 'Say what the Advisor should change.' }
@@ -11803,7 +12027,7 @@ $('brainstorm-new').addEventListener('click', event => {
 })
 $('brainstorm-new').addEventListener('submit', async event => {
   event.preventDefault()
-  const advisor = board?.advisor?.name ?? null
+  const advisor = talkName(board)
   const title = $('brainstorm-new-title').value.trim()
   const opening = $('brainstorm-new-opening').value.trim()
   if (brainstormUi.busy || advisor === null) return
@@ -11871,7 +12095,8 @@ $('change-goal-cancel').addEventListener('click', () => {
 $('change-goal-form').addEventListener('submit', async event => {
   event.preventDefault()
   const goal = changeGoalUi.goal
-  const advisor = board?.advisor?.name ?? null
+  // The Product owner (2026-10-31): "Change this goal" starts a talk with the talk partner (the owner, or the Advisor).
+  const advisor = talkName(board)
   const words = $('change-goal-words').value.trim()
   if (changeGoalUi.busy || goal === null) return
   if (words === '') return changeGoalSay('Say what should change, in your words.', true)
@@ -15092,7 +15317,7 @@ async function focusAnswer(focus) {
   focusUi.words.talk = ''
   focusUi.picked = null
   const key = `focus:${path}:${n}`
-  await send({ to: board?.advisor?.name ?? null, command: 'brainstorm-answer', thread: path, n }, key)
+  await send({ to: talkName(board), command: 'brainstorm-answer', thread: path, n }, key)
   if (problems.has(key)) {
     focusUi.note = { isProblem: true, text: `${problems.get(key).replace(/\.?$/, '.')} Your answer stands in the thread: answer again on the Brainstorm part to type it once more.` }
     problems.delete(key)
