@@ -5,7 +5,7 @@
 // While the card is open the step waits as planned. Made-up items in a temporary folder; no word names a project.
 
 import assert from 'node:assert/strict'
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import test from 'node:test'
@@ -51,7 +51,7 @@ async function storeWith(files) {
   return dir
 }
 const ROLES = { Lead: 'main', Painter: 'worker', Partner: 'advisor' }
-const ctx = (dir, now, as) => ({ dir, now, prefix: '', roleOf: chat => ROLES[chat] ?? null, chats: Object.keys(ROLES), as, pictureProblem: () => null, recaps: [] })
+const ctx = (dir, now, as) => ({ dir, now, prefix: '', roleOf: chat => ROLES[chat] ?? null, chats: Object.keys(ROLES), as, pictureProblem: async path => (path.startsWith('pictures/') ? null : 'outside'), recaps: [] })
 const server = (dir, now = NOW) => workApi({ action: 'accept-cards' }, ctx(dir, now, 'server'))
 const person = (dir, body, now = NOW + MIN) => workApi(body, ctx(dir, now, 'person'))
 
@@ -96,6 +96,11 @@ test('X117: a step in review whose fix was dropped gets the person\'s card, with
     }
     const line = healthSummary(view(after.items, NOW + 600 * MIN)).split('\n').find(one => /^- (?:! )?B851 /.test(one))
     assert.match(line, /^- B851 review .*\(waits for your Accept in Q\d+\)/)
+    // A card filed without its picture (by the first version of this pass) gets it on the next pass.
+    const file = join(dir, `${card.head.get('Id')}.md`)
+    await writeFile(file, (await readFile(file, 'utf8')).replace(/^Pictures: .*\r?\n/m, ''))
+    await server(dir, NOW + MIN)
+    assert.equal((await readStore(dir)).items.get(card.head.get('Id')).head.get('Pictures'), 'pictures/B851/evidence.png')
     // One card: the pass files none again.
     assert.deepEqual((await server(dir, NOW + 5 * MIN)).result.filed, [])
     // The step's History says it was asked.

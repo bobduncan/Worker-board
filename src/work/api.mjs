@@ -1501,13 +1501,20 @@ function dropWhyOf(fixId, w) {
   return found === undefined ? null : { who: found[1].trim(), why: line(found[2], 200) }
 }
 
+/** B883: a check's evidence picture as the card shows it, `[path]`, or [] for none or one the board cannot show (`pictureProblem` is async). */
+async function evidenceOf(check, w) {
+  const evidence = check?.evidence ?? null
+  if (evidence === null || /^none\b/i.test(evidence)) return []
+  return ((await w.pictureProblem?.(evidence)) ?? null) === null ? [evidence] : []
+}
+
 /**
  * B883 (X117): the board's pass over the steps in review that nothing closes (resultCheck.mjs `acceptCardDue`): each gets the
  * person's card, an ask under it (`Via` accept, no asking chat) with what it gives, its score beside its bar, its evidence and
  * the drop's why, and Accept or Send back. An open card whose step went on (a new fix, a check, a block, done or dropped) is
  * withdrawn. The person's answer is read in `answer` (`acceptAnswer`).
  */
-async function acceptCards(body, w) {
+async function acceptCards(_body, w) {
   const filed = []
   const gone = []
   const steps = [...w.store.items.values()].filter(one => kindOf(one) === 'step')
@@ -1527,8 +1534,7 @@ async function acceptCards(body, w) {
       `Its check: ${scored ?? 'no score'}${check === null || check.total === 0 ? '' : `, ${check.passed} of ${check.total} points pass`}.`,
       'Accept marks it done as it is. Send back gives your note to the partner, who makes another try.',
     ]
-    const evidence = check?.evidence ?? null
-    const pictures = evidence !== null && !/^none\b/i.test(evidence) && (w.pictureProblem?.(evidence) ?? null) === null ? [evidence] : []
+    const pictures = await evidenceOf(check, w)
     const title = `Accept ${id}${score === null ? '' : ` at ${score}`}, or send it back?`
     const made = await makeAsk(w, { of: item, kind: 'decide', text, options: ACCEPT_OPTIONS, pictures, via: ACCEPT_VIA, title, owner: null })
     if (!made.ok) continue
@@ -1540,6 +1546,12 @@ async function acceptCards(body, w) {
   for (const card of [...w.store.items.values()].filter(one => kindOf(one) === 'ask' && valueOf(one, 'Via') === ACCEPT_VIA && stateOf(one) === 'open')) {
     const step = w.store.items.get(valueOf(card, 'Of') ?? '')
     const wait = step === undefined || stateOf(step) !== 'review' ? null : reviewWaitOf(step, w.store.items, null, w.now, w.recaps ?? null)
+    // A card filed without its evidence picture (before the picture check was awaited) gets it.
+    if (wait?.kind === 'accept' && valueOf(card, 'Pictures') === null) {
+      const pictures = await evidenceOf(checkedOf(step), w)
+      const found = pictures.length === 0 ? null : await load(valueOf(card, 'Id'), w, { kind: ['ask'] })
+      if (found?.ok === true) await save(said(put(copy(found.item), 'Pictures', pictures.join(', ')), w, 'its evidence picture added'), found.text, w)
+    }
     if (wait?.kind === 'accept') continue
     const why = step === undefined ? 'its step is gone' : stateOf(step) !== 'review' ? `its step is ${stateOf(step)}` : `its step went on: ${wait?.text ?? 'nothing holds it'}`
     const done = await withdraw({ id: valueOf(card, 'Id'), why }, { ...w, role: 'person' })
