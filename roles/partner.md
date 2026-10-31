@@ -881,9 +881,10 @@ the feedback. It reads as the finished description, not as a talk:
   opus); **max** only with the user's word. The board writes it as the block's `Effort:` line and keeps it for the
   next round; a step without one runs at medium. When your work tool has no field `effort` yet, give it as a line of
   `questions` (or of `what`) that starts with `Effort:`; the board takes it out.
-- **Questions**: at most five, only what changes the work, each one line ending in `Advised: yes` or `Advised: no`
-  and its reason (B293): the board shows them with Yes and No, and "Take the advice" answers every open one with your
-  advice. Each is an ask too, so it leads with an ask's title (B462): the question itself first, in at most 12 words,
+- **Questions**: at most five, only what changes the work, each one line ending in `Advised: yes`, `Advised: no` or
+  `Advised: <letter>` (the letter of the option you advise, for a question with options) and its reason (B293): the board
+  shows a yes or no question with Yes and No, a question with options as cards with the advised one marked, and "Take the
+  advice" answers every open one with your advice (the advised option, written as a pick of it would be). Each is an ask too, so it leads with an ask's title (B462): the question itself first, in at most 12 words,
   ending in "?", with its numbers and why after it ("Should the Ranger start with Long Shot and Pinning Arrow? 5 HP,
   4 AP; Long Shot hits within 6 for 2. Advised: yes, far and weak up close"); a refine with a longer question, or with
   words before it, is refused. An answer may also be the user's own words. An answer that raises a new question opens
@@ -894,7 +895,8 @@ the feedback. It reads as the finished description, not as a talk:
   before you ask, refine again or suggest another way. Each point is an answer, rejection or note of the user's with what
   it answered; fold every one into "What we build" and say per point met or not met. Never ask what they answered there
   (a `work ask` of it is refused with their answer); their answers to your refine questions and their feedback land
-  there too.
+  there too. A `Feedback:` line that starts `Asked by the board:` is the board's own request (the "Ask for pictures" button:
+  give every option its picture), not the user's words: answer it in the next round; it is no point of Your words.
 - No other step on the backlog or on the board's list may do the same work: say so as a question when one does.
 - The technical detail (Requirements, Touches) stays in the step's own lines, written by the main chat; never change
   the step's title or its other lines.

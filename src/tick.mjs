@@ -110,8 +110,11 @@ async function refineStep(body, step, { now, work }) {
   }
   if (typeof (body.feedback ?? '') !== 'string' || (body.feedback ?? '').length > REFINE_CHARS) return { ok: false, status: 413, why: `At most ${REFINE_CHARS} characters of feedback.` }
   const feedback = oneLine(body.feedback, REFINE_CHARS)
-  if (answers.length === 0 && feedback === '') return { ok: false, status: 400, why: 'Answer a question or give feedback first.' }
-  const done = await asPerson(work, now, { action: 'refine-answer', id: step, answers, feedback })
+  // The board's own request to the chat that refines ("Ask for pictures"): marked as the board's, never the person's words.
+  if (typeof (body.request ?? '') !== 'string' || (body.request ?? '').length > REFINE_CHARS) return { ok: false, status: 413, why: `At most ${REFINE_CHARS} characters of request.` }
+  const request = oneLine(body.request, REFINE_CHARS)
+  if (answers.length === 0 && feedback === '' && request === '') return { ok: false, status: 400, why: 'Answer a question or give feedback first.' }
+  const done = await asPerson(work, now, { action: 'refine-answer', id: step, answers, feedback, ...(request === '' ? {} : { request }) })
   return done.ok ? { ok: true, result: { step, action: body.action } } : done
 }
 

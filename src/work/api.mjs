@@ -3376,9 +3376,21 @@ async function refineText(body, w) {
   if (!found.ok) return found
   const id = valueOf(found.item, 'Id')
   const text = `## -\n${stepLine(found.item)}\n${stepNotes(found.item).join('\n')}\n`
-  const written = w.action === 'refine-accept'
+  let written = w.action === 'refine-accept'
     ? acceptRefine(text, id, stamp(w.now))
     : answerRefine(text, id, Array.isArray(body.answers) ? body.answers : [], line(body.feedback, 1000))
+  // The board's own request to the chat that refines (the page's "Ask for pictures"): one Feedback line marked "Asked by the
+  // board", written once for the round (a retry does not repeat it), and never a point of the person's Your words.
+  const request = w.action === 'refine-accept' || !written.ok ? '' : line(body.request, 1000)
+  if (request !== '') {
+    const marked = `Asked by the board: ${request}`
+    const block = found.item.sections.get('Refined') ?? []
+    const round = Number(/\bround\s+(\d+)/i.exec(block[0] ?? '')?.[1] ?? 1)
+    if (!block.some(one => one.includes(`Round ${round}: ${marked}`))) {
+      const more = answerRefine(written.text, id, [], marked)
+      if (more.ok) written = more
+    }
+  }
   if (!written.ok) return refuse(409, { none: `${id} has not been refined yet.`, question: 'The questions changed in the meantime: open the step again.' }[written.why] ?? `${id}: ${written.why}.`)
   const back = migrateBacklog(written.text, { now: w.now }).items.get(id)
   if (back === undefined) return refuse(409, `${id}: its refine block could not be read back.`)

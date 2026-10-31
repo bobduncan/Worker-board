@@ -432,10 +432,20 @@ pictures }`. A refine question reads as `<question>? A: <words> (picture: <path>
 "Picture: <path>" is the question's own, "Picture: <words>" with no path is kept as a wish; "no picture: <why>" says the options
 look alike); a question with "Advised: yes|no" is a Yes/No question, the older form with neither has only the person's words. An
 ask's `pictures` belong to its options in order when there are as many, else they stand above the options. The count in the head
-is the questions the window shows, never the refine's open questions plus their twin asks. Choose writes `<letter>: <words>`
-(`yes` or `no` for a Yes/No question) through the window's own send: a refine's "Send answers" (`refine-answer`, which keeps the
-question with the answer in "Your words"), an ask's answer. An option without a picture says "No picture yet", and "Ask for
-pictures" asks the chat that asked: the Advisor through the refine's feedback and a new round, an ask's chat through its words.
+is the questions the window shows, never the refine's open questions plus their twin asks. Choose writes `<letter>: <the option's
+full original words>` (`yes` or `no` for a Yes/No question) through the window's own send: a refine's "Send answers"
+(`refine-answer`, which keeps the question with the answer in "Your words"), an ask's answer (its pick kept as the option's label,
+as the calm window and a taken task's Options keep it, so it shows pressed in each). Nothing is ever cut out of an option's words:
+a time shows apart only when it ENDS them, and a letter marks an option only at the text's start or after "?", ".", ";", "·",
+")" or a line break, in order ("plan B:" splits nothing). An ask's options may stand in its text (title and context); only
+without lettered options anywhere is it Yes/No; its context's first sentence is the why and the rest stands under Details. A
+question advised by a letter (`Advised: A — why`) is read by the store (`advice: 'A'`): its card is "advised" and "Take the advice"
+takes that option; an advice that names no option shows as the words it was written in. A pick belongs to its question's words
+(`settleDrafts`): another round, or other words at its place, drops it. An option without a picture (or whose picture the board
+cannot find: a file name alone is looked up in the shown folders, `findPicture`) says "No picture yet", and "Ask for pictures"
+asks the chat that asked: the Advisor through the board's own request, one Feedback line marked "Asked by the board:" (written
+once, never a point of Your words) and a new round; an ask's chat through words that say to withdraw it and ask again with one
+picture per option. A Send under an ask leaves the window open while another question in it is open.
 The chats' rule is in roles/partner.md, roles/product-owner.md, roles/worker.md and roles/protocol.md.
 
 **Refined before a queue (B285).** The person, on goal G17 (2026-10-17): "every item on the backlog automatically Before

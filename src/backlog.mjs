@@ -336,9 +336,13 @@ function addRefined(refined, part, line, isMore) {
   const asked = at < 0 ? words : words.slice(0, at).trim()
   const answer = at < 0 ? null : words.slice(at).replace(/^\s*Answer:\s*/, '').trim()
   const advised = asked.match(/^(.*?)\s+Advised:\s*(yes|no)\b[\s,;:.\-–—]*(.*)$/i)
-  refined.questions.push(advised === null
+  // Task window (2026-10-31): a question with options advises one by its letter ("Advised: A — why"); the letter stands upper case.
+  const lettered = advised === null ? asked.match(/^(.*?)\s+[Aa]dvised:\s*([A-E])(?![\w'’])[\s,;:.\-–—]*(.*)$/) : null
+  refined.questions.push(advised === null && lettered === null
     ? { text: asked, answer, advice: null, why: '' }
-    : { text: advised[1].trim(), answer, advice: advised[2].toLowerCase(), why: advised[3].trim() })
+    : advised === null
+      ? { text: lettered[1].trim(), answer, advice: lettered[2], why: lettered[3].trim() }
+      : { text: advised[1].trim(), answer, advice: advised[2].toLowerCase(), why: advised[3].trim() })
 }
 
 /**

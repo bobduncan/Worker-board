@@ -44,10 +44,42 @@ async function inside(project, roots, path) {
   }
 }
 
-/** The file to send for a picture's path, with its type and size, or null when the board may not show it. */
+/** A picture's file name with no folder ("maps-lava.png"), as a chat writes it in a question's words. */
+const BARE_NAME = /^[\w][\w .-]*\.(?:png|jpe?g|webp|gif)$/i
+
+/**
+ * The one picture of that file name in the shown folders (looked for a few levels deep), as a path from the project; null
+ * when there is none, or more than one (a name that does not say which).
+ */
+async function pathOfName(project, roots, name) {
+  const found = new Set()
+  const walk = async (folder, depth) => {
+    if (found.size > 1 || depth > 4) return
+    let entries
+    try {
+      entries = await readdir(join(project, ...folder.split('/')), { withFileTypes: true })
+    } catch {
+      return
+    }
+    for (const entry of entries.slice(0, 2000)) {
+      if (entry.isDirectory() && !entry.name.startsWith('.')) await walk(`${folder}/${entry.name}`, depth + 1)
+      else if (entry.isFile() && entry.name.toLowerCase() === name.toLowerCase()) found.add(`${folder}/${entry.name}`)
+    }
+  }
+  for (const root of roots) await walk(root, 0)
+  return found.size === 1 ? [...found][0] : null
+}
+
+/**
+ * The file to send for a picture's path, with its type and size, or null when the board may not show it. A file name alone
+ * ("maps-lava.png", as a chat writes it in a question) is the one picture of that name in the shown folders.
+ */
 export async function findPicture(project, roots, value) {
   const path = picturePath(value)
-  if (path === null) return null
+  if (path === null) {
+    const named = typeof value === 'string' && BARE_NAME.test(value) ? await pathOfName(project, roots, value) : null
+    return named === null ? null : findPicture(project, roots, named)
+  }
   const file = await inside(project, roots, path)
   if (file === null) return null
   try {
