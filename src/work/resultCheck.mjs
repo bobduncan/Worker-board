@@ -268,9 +268,28 @@ const heldMapOf = held => (held instanceof Map ? held : new Map((Array.isArray(h
 const heldWords = why => String(why).replace(/^(outside the focus goal):.*$/, '$1')
 
 /** The clauses of a board check line that name what the report passed: a failed check's reason is the first clause that is none. */
-const PASS_CLAUSE = /^work (?:in|outside git)\b/
+const PASS_CLAUSE = /^(?:work (?:in|outside git)\b|no change made\b)/
 /** 2026-10-31 (B799): a failed check's reason begins so when the work is on a branch that is not merged: the step is back with its worker. */
 export const NOT_MERGED = 'not merged: '
+/**
+ * T8, 2026-10-31 (what counts as finished, check.mjs `finishedVerdict`): a failed check's reason begins so when what is short
+ * is a mismatch its worker can fix (a branch or worktree left, a file not there, no reason for a step with no change): the
+ * step is back with its worker, as for NOT_MERGED, never a failure for the person.
+ */
+export const BACK = 'back: '
+
+/**
+ * T8: whether the words of a failed check line (after "check failed:") hand the step back to its worker: `{ notMerged, words }`
+ * (`words` the words for the worker, from the first clause that is no pass line on, its mark left off), or null.
+ */
+export function backWordsOf(detail) {
+  const clauses = String(detail ?? '').split(';').map(one => one.trim())
+  const from = clauses.findIndex(one => one !== '' && !PASS_CLAUSE.test(one))
+  if (from < 0) return null
+  if (clauses[from].startsWith(NOT_MERGED)) return { notMerged: true, words: clauses[from].slice(NOT_MERGED.length).trim() }
+  if (clauses[from].startsWith(BACK)) return { notMerged: false, words: [clauses[from].slice(BACK.length), ...clauses.slice(from + 1)].join('; ').trim() }
+  return null
+}
 /** B740: how long a failed check's reason may be on the wait line. */
 const WHY_CHARS = 80
 
@@ -280,7 +299,8 @@ const WHY_CHARS = 80
  * no report after it. `{ at, stamp, clock, why, notMerged }`: when the check line was written (ms, to the minute), its "YYYY-MM-DD HH:MM" and "HH:MM", and the
  * refusal in a few words (the first clause that is no pass line, cut before its detail; "no reason given" for none). null
  * for any other step. `notMerged` (2026-10-31, B799): the words that went back to the worker when the work sits on a branch not
- * merged (NOT_MERGED, check.mjs `notMergedWords`), else null.
+ * merged (NOT_MERGED, check.mjs `notMergedWords`), else null. `back` (T8): the words that went back to the worker for any
+ * reason it can fix (NOT_MERGED or BACK, `backWordsOf`), else null.
  */
 export function reportCheckFailedOf(item) {
   if (valueOf(item, 'State') !== 'review') return null
@@ -289,10 +309,13 @@ export function reportCheckFailedOf(item) {
   const at = words.findLastIndex(one => BOARD_CHECK_LINE.test(one))
   if (at < 0 || !words[at].startsWith('check failed') || words.slice(at + 1).some(one => REPORTED.test(one))) return null
   const when = lines[at].match(/^-\s+(\d{4}-\d{2}-\d{2} (\d{2}:\d{2}))/)
-  const reason = words[at].replace(/^check failed:?\s*/, '').split(';').map(one => one.trim()).find(one => one !== '' && !PASS_CLAUSE.test(one)) ?? ''
-  const short = reason.split(/ \(|: /)[0].trim()
-  const notMerged = reason.startsWith(NOT_MERGED) ? reason.slice(NOT_MERGED.length).trim() : null
-  return { at: sinceMs(when?.[1]), stamp: when?.[1] ?? '', clock: when?.[2] ?? '', notMerged, why: short === '' ? 'no reason given' : short.length > WHY_CHARS ? `${short.slice(0, WHY_CHARS).trim()}…` : short }
+  const detail = words[at].replace(/^check failed:?\s*/, '')
+  const reason = detail.split(';').map(one => one.trim()).find(one => one !== '' && !PASS_CLAUSE.test(one)) ?? ''
+  const handed = backWordsOf(detail)
+  const short = (reason.startsWith(BACK) ? reason.slice(BACK.length) : reason).split(/ \(|: /)[0].trim()
+  const notMerged = handed?.notMerged === true ? handed.words : null
+  const back = handed === null ? null : handed.words
+  return { at: sinceMs(when?.[1]), stamp: when?.[1] ?? '', clock: when?.[2] ?? '', notMerged, back, why: short === '' ? 'no reason given' : short.length > WHY_CHARS ? `${short.slice(0, WHY_CHARS).trim()}…` : short }
 }
 
 /**
@@ -315,6 +338,8 @@ export function reviewWaitOf(item, items, held = null, now = null) {
   const refused = reportCheckFailedOf(item)
   if (refused !== null) {
     if (refused.notMerged !== null) return { kind: 'report', fix: null, since: refused.at, clock: refused.clock, why: refused.why, text: `not merged yet: back with ${valueOf(item, 'Owner') ?? 'its worker'}` }
+    // T8: a mismatch the worker can fix: back with it, never a failure for the person.
+    if (refused.back !== null) return { kind: 'report', fix: null, since: refused.at, clock: refused.clock, why: refused.why, text: `back with ${valueOf(item, 'Owner') ?? 'its worker'}: ${refused.why}` }
     return { kind: 'report', fix: null, since: refused.at, clock: refused.clock, why: refused.why, text: `waits for ${valueOf(item, 'Owner') ?? 'its worker'} to report again: its report check failed at ${refused.clock} (${refused.why})` }
   }
   if (valueOf(item, 'State') !== 'review' || !gitCheckPassed(item) || !needsResultCheck(item)) return null

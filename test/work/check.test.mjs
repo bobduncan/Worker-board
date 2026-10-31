@@ -1,6 +1,9 @@
 // B297: the board's own check after a step is reported (spec 2026-10-17, section 4: "check: base equals remote,
 // branch gone, result named"). B304: it checks the repository the step's work is in, found by the merged commit, else
 // by the branch; one it cannot tell fails. Made-up repositories: git is a stand-in.
+// T8 (2026-10-31, what counts as finished): a fault the worker can fix (a branch or worktree left, a file not there, no
+// result) sends the step back to its worker, its first fault starting "back: "; a real failure (git silent, no repository
+// to tell, a base that differs from its remote) is as before. The old expectations here gained that mark, nothing else.
 
 import assert from 'node:assert/strict'
 import test from 'node:test'
@@ -45,7 +48,7 @@ test('without a merged commit the branch tells: by its reflog, its remote, or th
   assert.equal((await reportCheck({ id: 'B5', branch: 'b5-lamps', result: SAID + 'x', merged: '', repos, run: git(world) })).passed, true)
   // Still on the board's remote: found there, and the check says the branch is still there.
   const onRemote = { ...world, [`/projects/tools/board ${reflog}`]: '', [`/projects/tools/board ${remotes}`]: 'origin/main\norigin/b5-lamps\n' }
-  assert.deepEqual((await reportCheck({ id: 'B5', branch: 'b5-lamps', result: SAID + 'x', repos, run: git(onRemote) })).lines, ['work in board', 'the branch b5-lamps is still on origin of board'])
+  assert.deepEqual((await reportCheck({ id: 'B5', branch: 'b5-lamps', result: SAID + 'x', repos, run: git(onRemote) })).lines, ['work in board', 'back: the branch b5-lamps is still on origin of board'])
   // A branch of the game that is still there: the game is checked, and both of its faults are named.
   const game = await reportCheck({ id: 'B7', branch: 'b7-paths', result: SAID + 'x', repos, run: git(world) })
   assert.deepEqual(game, { passed: false, lines: ['work in garden', 'main of garden is not the same as origin/main', 'the branch b7-paths is still there'] })
@@ -108,14 +111,14 @@ test('B363: a report whose Touches and result name no file that is there fails; 
   assert.deepEqual(prose, { passed: true, lines: ['work outside git', 'there: art-inbox/gap-9', 'result named', 'context and change named'], warnings: ['the result names art-inbox/gap-9/gap.html, which is not there'] })
   // Nothing named is there: a fact, and it refuses, with every path that is not there.
   const none = await reportCheck(outside({ branch: 'none', exists: files([]) }))
-  assert.deepEqual(none, { passed: false, lines: ['work outside git', 'not there: art-inbox/gap-9/gap.html, art-inbox/gap-9'] })
+  assert.deepEqual(none, { passed: false, lines: ['work outside git', 'back: not there: art-inbox/gap-9/gap.html, art-inbox/gap-9'] })
   const missing = await reportCheck(outside({ branch: 'none', touches: ['art-inbox/gap-9/gap.html'], exists: files([]) }))
-  assert.deepEqual(missing, { passed: false, lines: ['work outside git', 'not there: art-inbox/gap-9/gap.html, art-inbox/gap-9'] })
+  assert.deepEqual(missing, { passed: false, lines: ['work outside git', 'back: not there: art-inbox/gap-9/gap.html, art-inbox/gap-9'] })
   // No path named anywhere (the prose names none, Touches none): "no file named" refuses, as before.
   const nothing = await reportCheck(outside({ branch: 'none', result: SAID + 'The five pictures and the page.' }))
-  assert.deepEqual(nothing, { passed: false, lines: ['work outside git', 'no file named: name the files it made in the result', NOTHING_BUILT_LINE] })
-  // B818: the line says what to do instead of reporting again.
-  assert.match(nothing.lines[2], /already exists\? Do not report again: ask to close it/)
+  assert.deepEqual(nothing, { passed: false, lines: ['work outside git', 'back: no file named: name the files it made in the result', NOTHING_BUILT_LINE] })
+  // B818, T8: the line says how to report a step whose work other steps built: as no change, with the steps that built it.
+  assert.match(nothing.lines[2], /already exists\? Report it again opening the Change with "No change: /)
   // Touches is a plan: a Touches path that is not there warns when the result names a file that is.
   const plan = await reportCheck(outside({ branch: 'none', touches: ['art-inbox/gap-9/gap.html', 'src/other.mjs'], exists: files(['/projects/art-inbox/gap-9']) }))
   assert.deepEqual(plan, { passed: true, lines: ['work outside git', 'there: art-inbox/gap-9', 'result named', 'context and change named'], warnings: ['Touches names files not there: art-inbox/gap-9/gap.html, src/other.mjs'] })
@@ -135,7 +138,7 @@ test('B363: a report whose Touches and result name no file that is there fails; 
 
 test('B363, the review: a file in a repository is work in git, no proof of work outside it', async () => {
   const exists = files(['/projects/tools/board/src/check.mjs', '/projects/art-inbox/gap-9'])
-  const refused = { passed: false, lines: ['work outside git', 'in a repository: tools/board/src/check.mjs; report that work with its merged commit'] }
+  const refused = { passed: false, lines: ['work outside git', 'back: in a repository: tools/board/src/check.mjs; report that work with its merged commit'] }
   // Named by the result (branch main, no merged commit: an unpushed commit would pass as "outside git" otherwise).
   const inRepo = await reportCheck(outside({ branch: 'main', merged: '', result: SAID + 'Changed tools/board/src/check.mjs (not committed).', exists }))
   assert.deepEqual(inRepo, refused)
@@ -170,7 +173,7 @@ test('B580: a branch never made and nothing merged: work outside git, checked by
   assert.deepEqual(await reportCheck(outside({ branch: 'b9-never-made', merged: '' })), never)
   // 2026-10-25: nothing named is there: a fact, and it refuses; a path that is not there beside one that is only warns (above).
   const missing = await reportCheck(outside({ branch: 'b9-never-made', exists: files([]) }))
-  assert.deepEqual(missing, { passed: false, lines: ['work outside git', 'not there: art-inbox/gap-9/gap.html, art-inbox/gap-9'] })
+  assert.deepEqual(missing, { passed: false, lines: ['work outside git', 'back: not there: art-inbox/gap-9/gap.html, art-inbox/gap-9'] })
 })
 
 test('B580: a branch deleted after its merge stays a git step; a git that does not answer never makes one outside git', async () => {
@@ -216,7 +219,7 @@ test('worktree clean-up: a worktree still on the step\'s branch fails the check,
     [`/projects/tools/board ${worktrees}`]: `${world[`/projects/tools/board ${worktrees}`]}\nworktree /projects/board-b5\nHEAD ccc\nbranch refs/heads/b5-lamps\n`,
   }
   const done = await reportCheck({ id: 'B5', branch: 'b5-lamps', result: SAID + 'x', merged: 'c0ffee1', repos, run: git(left) })
-  assert.deepEqual(done, { passed: false, lines: ['work in board', 'the branch b5-lamps is still there', 'the worktree /projects/board-b5 is still on b5-lamps: first leave it (cd to the main checkout, in a command of its own), then git worktree remove /projects/board-b5, then delete the empty folder Windows may leave'] })
+  assert.deepEqual(done, { passed: false, lines: ['work in board', 'back: the branch b5-lamps is still there', 'the worktree /projects/board-b5 is still on b5-lamps: first leave it (cd to the main checkout, in a command of its own), then git worktree remove /projects/board-b5, then delete the empty folder Windows may leave'] })
   // git that does not answer for the worktrees is a fault, never a pass.
   const silent = await reportCheck({ id: 'B5', branch: 'b5-lamps', result: SAID + 'x', merged: 'c0ffee1', repos, run: git({ ...world, [`/projects/tools/board ${worktrees}`]: undefined }) })
   assert.deepEqual(silent.lines, ['work in board', 'git did not answer: the worktrees of board are not known'])
@@ -267,7 +270,7 @@ test('tests bite: a change with a test file and no mutant line passes with a war
   }
   // A fact still refuses, and says only the fact: the missing mutant is not told then (the report is made again anyway).
   const stuck = await reportCheck({ id: 'B5', branch: 'b5-lamps', result: SAID + 'The lamps glow.', merged: 'c0ffee1', repos, run: git({ ...tested, [`/projects/tools/board ${heads}`]: 'main\nb5-lamps\n' }) })
-  assert.deepEqual(stuck, { passed: false, lines: ['work in board', 'the branch b5-lamps is still there'] })
+  assert.deepEqual(stuck, { passed: false, lines: ['work in board', 'back: the branch b5-lamps is still there'] })
 })
 
 test('tests bite: a change without a test file reports as before; another step\'s commit (B51) does not count', async () => {
@@ -350,7 +353,7 @@ test('2026-10-25: a fact refuses whatever the wording; the refusal names no word
   const done = await reportCheck({ id: 'B5', branch: 'b5-lamps', result: unwritten, merged: 'c0ffee1', repos, run: git(stuck) })
   assert.deepEqual(done, { passed: false, lines: ['work in board', 'main of board is not the same as origin/main', 'the branch b5-lamps is still there'] })
   // No result at all is a fact; the same report with a result passes (with the warnings above).
-  assert.deepEqual((await reportCheck({ id: 'B5', branch: 'b5-lamps', result: '  ', merged: 'c0ffee1', repos, run: git(world) })).lines, ['work in board', 'no result named'])
+  assert.deepEqual((await reportCheck({ id: 'B5', branch: 'b5-lamps', result: '  ', merged: 'c0ffee1', repos, run: git(world) })).lines, ['work in board', 'back: no result named'])
   assert.equal((await reportCheck({ id: 'B5', branch: 'b5-lamps', result: unwritten, merged: 'c0ffee1', repos, run: git(world) })).passed, true)
 })
 
@@ -379,11 +382,12 @@ test('tests bite: the worker\'s role and the protocol say how, in a scratch copy
   assert.match(protocol, /Tests bite: <what was undone in a copy> → <the assertion that failed>/)
 })
 
-test('B818: the worker\'s role, the protocol and DESIGN tell a step already built elsewhere to be asked about, not reported', async () => {
+test('B818, T8: the worker\'s role, the protocol and DESIGN tell a step already built elsewhere to be reported as no change, with the steps that built it', async () => {
   const { readFile } = await import('node:fs/promises')
   const read = name => readFile(new URL(`../../${name}`, import.meta.url), 'utf8')
-  assert.match(await read('roles/worker.md'), /Close B<id> as already done\?/)
-  assert.match(await read('roles/protocol.md'), /Close B<id> as already done\?/)
-  assert.match(await read('DESIGN.md'), /nothing built because it already exists\? Do not report again: ask to close it/)
-  assert.match(NOTHING_BUILT_LINE, /Close B<id> as already done\?/)
+  // T8 replaced B818's ask ("Close B<id> as already done?"): the moot kind is checked by its result check, the person is not asked.
+  assert.match(await read('roles/worker.md'), /No change: <the steps that built it/)
+  assert.match(await read('roles/protocol.md'), /No change: <the steps that built it/)
+  assert.match(await read('DESIGN.md'), /What counts as finished, per kind of work/)
+  assert.match(NOTHING_BUILT_LINE, /No change: <the steps that built it/)
 })

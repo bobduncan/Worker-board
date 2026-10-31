@@ -3,8 +3,11 @@
 // backlog file), `last-ids.json` (the highest id given per letter: it only grows) and, when the person wants another
 // order, `flow.json`. B301: the store is the one source of the work; nothing falls back to the backlog file.
 // Every write is read anew right before, written beside and put in place, as goalsWrite.mjs does: never blind.
+// B741: the item files are kept parsed in memory per folder; a read lists the folder with stats and reads anew only the
+// files that are new, changed (time, change time, size or file id differs, older too) or gone. The small files
+// (activities.json, flow.json, last-ids.json, pause.json, names.json, partner-answers.json, view.json) are read every time.
 
-import { mkdir, open, readdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
+import { mkdir, open, readdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
 
 import { absentAs, again, besideOf, moveInPlace, removeFile, writeNew } from '../write.mjs'
@@ -18,7 +21,7 @@ import { PAUSE_FILE, parsePause } from './pause.mjs'
 import { PARTNER_FILE, parsePartnerAnswers } from './partnerAnswers.mjs'
 import { OBSOLETE_FILE, parseObsolete } from './obsolete.mjs'
 
-const files = { readFile, writeFile, rename, rm, mkdir, readdir, open }
+const files = { readFile, writeFile, rename, rm, mkdir, readdir, open, stat }
 const ITEM_FILE = /^([A-Z]\d+|L-[0-9a-f]{8})\.md$/
 const CLAIM_FILE = /^([A-Z]\d+)\.claim$/
 const NUMBERED = /^[A-Z]\d+$/
@@ -45,11 +48,91 @@ async function putInPlace(file, text, fs, expected) {
       return { ok: false, why: `${file.split(/[\\/]/).at(-1)} changed in the meantime` }
     }
     await moveInPlace(beside, file, fs)
+    forget(fs, file)
     return { ok: true, changed: true }
   } catch (error) {
     await fs.rm(beside, { force: true }).catch(() => {})
     return { ok: false, why: `${file.split(/[\\/]/).at(-1)} could not be written: ${error.code ?? error.message}` }
   }
+}
+
+/**
+ * B741: per fs and folder, the item files parsed last: `name → { mark, name, item, id, problem }`, where `mark` is the
+ * file's stats at the read. A store read by an fs without `stat` (a test's) parses every file, as before.
+ */
+const kept = new WeakMap()
+/** B741: how many item files each folder's reads parsed, for the tests and the timing (`parsedCount(dir)`). */
+const parsed = new Map()
+export const parsedCount = dir => parsed.get(resolve(dir)) ?? 0
+
+const keptOf = (fs, dir) => {
+  if (!kept.has(fs)) kept.set(fs, new Map())
+  const byDir = kept.get(fs)
+  const key = resolve(dir)
+  if (!byDir.has(key)) byDir.set(key, new Map())
+  return byDir.get(key)
+}
+
+/** B741: the board's own write of an item file: its parsed copy goes, so the next read reads the file anew. */
+function forget(fs, file) {
+  const name = file.split(/[\\/]/).at(-1)
+  if (ITEM_FILE.test(name)) kept.get(fs)?.get(resolve(file, '..'))?.delete(name)
+}
+
+// Changed is any difference, an older time too (a file put back by a restore or a copy).
+const markOf = stats => `${stats.mtimeMs}|${stats.ctimeMs}|${stats.size}|${stats.ino}`
+const copyItem = item => ({ ...item, head: new Map(item.head), sections: new Map([...item.sections].map(([name, lines]) => [name, [...lines]])) })
+
+function parsedFile(name, text) {
+  const item = parseItem(text)
+  const id = valueOf(item, 'Id') ?? name.match(ITEM_FILE)[1]
+  const problem = item.problem ?? validateHead(item.head) ?? (id !== name.match(ITEM_FILE)[1] ? `its Id is ${id}, its file ${name}` : null)
+  return { name, item, id, problem }
+}
+
+/**
+ * B741: the item files of `dir` in id order, each `{ name, item, id, problem }`: a file kept from an earlier read while
+ * its stats are the same, else read and parsed anew; a file that is gone leaves the kept ones.
+ */
+async function itemFiles(dir, names, fs) {
+  const listed = names.filter(one => ITEM_FILE.test(one)).sort(byId.compare)
+  const key = resolve(dir)
+  const readOne = async name => {
+    const text = await readOr(fs, join(dir, name), null)
+    if (text === null) return null
+    parsed.set(key, (parsed.get(key) ?? 0) + 1)
+    return parsedFile(name, text)
+  }
+  if (typeof fs.stat !== 'function') return (await inBatches(listed, readOne)).filter(Boolean)
+  const known = keptOf(fs, dir)
+  const there = new Set(listed)
+  for (const name of [...known.keys()]) if (!there.has(name)) known.delete(name)
+  const marks = await inBatches(listed, name => fs.stat(join(dir, name)).then(markOf, error => (error?.code === 'ENOENT' ? null : '')))
+  const found = await inBatches(listed, async (name, at) => {
+    const mark = marks[at]
+    if (mark === null) {
+      known.delete(name)
+      return null
+    }
+    const was = known.get(name)
+    if (mark !== '' && was?.mark === mark) return was
+    const read = await readOne(name)
+    if (read === null) known.delete(name)
+    // A file whose stats could not be read is read every time.
+    else if (mark !== '') known.set(name, { ...read, mark })
+    return read
+  })
+  return found.filter(Boolean)
+}
+
+// The order readStore always listed them in (localeCompare 'en', numeric), made once.
+const byId = new Intl.Collator('en', { numeric: true })
+
+/** `work(value, at)` for each of `values`, 64 at a time; the answers in their order. */
+async function inBatches(values, work) {
+  const out = []
+  for (let at = 0; at < values.length; at += 64) out.push(...await Promise.all(values.slice(at, at + 64).map((value, i) => work(value, at + i))))
+  return out
 }
 
 /**
@@ -68,15 +151,10 @@ export async function readStore(dir, fs = files) {
     return { exists: false, items: new Map(), activities: [], preamble: [], lastIds: {}, flow: DEFAULT_FLOW, problems }
   }
   const items = new Map()
-  for (const name of names.filter(one => ITEM_FILE.test(one)).sort((a, b) => a.localeCompare(b, 'en', { numeric: true }))) {
-    const text = await readOr(fs, join(dir, name), null)
-    if (text === null) continue
-    const item = parseItem(text)
-    const id = valueOf(item, 'Id') ?? name.match(ITEM_FILE)[1]
-    const problem = item.problem ?? validateHead(item.head) ?? (id !== name.match(ITEM_FILE)[1] ? `its Id is ${id}, its file ${name}` : null)
+  for (const { name, item, id, problem } of await itemFiles(dir, names, fs)) {
     if (problem !== null) problems.push({ file: name, line: `${name}: ${problem}` })
     if (items.has(id)) problems.push({ file: name, line: `${name}: the id ${id} stands twice` })
-    else items.set(id, item)
+    else items.set(id, copyItem(item))
   }
   let listed = { preamble: [], activities: [] }
   const activitiesText = await readOr(fs, join(dir, 'activities.json'), null)
@@ -310,6 +388,7 @@ export async function removeItem(dir, id, fs = files, { expected } = {}) {
   if (expected !== undefined && await readOr(fs, file, null) !== expected) return { ok: false, why: `${id}.md changed in the meantime` }
   try {
     await removeFile(file, fs)
+    forget(fs, file)
     return { ok: true, changed: true }
   } catch (error) {
     return { ok: false, why: `${id}.md could not be removed: ${error.code ?? error.message}` }

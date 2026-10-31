@@ -382,8 +382,11 @@ function handedBackWords(chat, w) {
   const back = handedBackOf(w.store.items, chat, w.prefix)
   if (back === null) return ''
   // 2026-10-31 (B799): the work is on a branch that is not merged: the words the check sent, as they are.
-  const notMerged = reportCheckFailedOf(w.store.items.get(back.id))?.notMerged ?? null
+  const refused = reportCheckFailedOf(w.store.items.get(back.id))
+  const notMerged = refused?.notMerged ?? null
   if (notMerged !== null) return `${notMerged} The board gives you no new step before that report passes`
+  // T8 (what counts as finished): a mismatch the worker can fix, in the check's own words.
+  if ((refused?.back ?? null) !== null) return `The board's check sent your report ${back.id} back to you: ${refused.back}. Do that and report ${back.id} again first; the board gives you no new step before that report passes`
   return `The board's check of your report ${back.id} failed: fix what it names and report ${back.id} again first; the board gives you no new step before that report passes`
 }
 

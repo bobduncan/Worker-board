@@ -56,11 +56,11 @@ into your chat, are in `protocol.md` beside this file: keep to them, or the boar
   started with a temporary profile folder of yours, and close it: none of yours is left running when you report. Left
   behind, they add up and take the computer's memory. Never close the user's own browser: it runs with the user's own
   profile, not a temporary one.
-- Work already built (B818, X106): when you find the work of your taken step already stands on the base branch from
-  other steps, do not report (a report names no work of its own and is refused, again and again). At once file `work ask`
-  under your step, kind decide, blocking: "Close B<id> as already done?", naming those steps and their merged commits.
-  The board's refusal "no file named" says the same: nothing built because it already exists? Do not report again, ask
-  to close it.
+- Work already built, or a step made moot (B818, X106, T8): when you find the work of your taken step already stands on
+  the base branch from other steps, or a decision of the user's left nothing to build, change nothing and report it as
+  no change: `merged` none, and the result's Change opens with `No change: <the steps that built it, with their merged
+  commits, or the decision that made it moot>`. The board's check passes it with a warning and the step's result check
+  judges it; no ask is needed. Without a reason after "No change:" it comes back to you.
 - A step ends with `work report` and nothing else: no message to the main chat ends it (B301). Information for the
   main chat goes with `work note`; a message to it, when you need one, starts "Note from <your title>: ..." or
   "Question from <your title>: ...", and your card then says you wait for its answer.
@@ -123,9 +123,10 @@ step therefore says what it touches ("Touches: ...").
   report again: its report check failed at HH:MM", B740); 30 min on, the board types you one line, once per failed check
   ("B<n>'s report check failed at HH:MM: fix what it names and report it again"): do what it says, and an hour on the
   supervisor looks at it. An EMPTY folder no repository lists the board removes itself
-  (rmdir, a few tries over some seconds; B717), so it never fails the check; only one a program still holds keeps a line,
-  and that line names each program that stands in it (name, process id, what started it, its command; B844): stop it
-  (TaskStop for your own background command or monitor) and report again.
+  (rmdir, a few tries over some seconds; B717), so it never fails the check; one a program still holds is a warning
+  (T8): the check passes, and its line names each program that stands in it (name, process id, what started it, its
+  command; B844): stop it (TaskStop for your own background command or monitor); the board keeps trying and its leftover
+  sweep removes the folder later. Do not report again for it.
 - Your game test server (B814, the person, 2026-10-30) is a plain background command, never a `preview_start` and never a new
   entry in `.claude/launch.json` (the app asks the person to allow each new entry). Start the vite of your worktree
   on your own port, which `work take` names ("Test server port for Worker N": the project's game port + 90 + N, e.g.
@@ -177,6 +178,14 @@ step therefore says what it touches ("Touches: ...").
   Words it passes with a warning, which `work next` shows as "Your last report (B<n>) passed the board's check with
   warnings: ... - nothing to redo; do not report again" for as long as that is your newest report (a report again restarts
   the result check).
+- What a report names, per kind of finished work (T8; the board tells the kind itself):
+  - code merged: `merged` the commit on the base branch; work merged in two repositories, both commits with a space
+    between (`merged` "21f499c 92abe36"); branch and worktree gone in each.
+  - work outside git (pictures, pages in no repository): `merged` none, the files by their paths in the project.
+  - no change (already built, or moot): `merged` none, the Change opening `No change: <why>` (above).
+  - work on a branch not merged is not finished: merge it first (below).
+  A fact you can fix comes back to you with the exact words ("back with <you>"; `work next` repeats them); only a real
+  failure (git not answering, no repository to tell, a base branch that differs from its remote) goes to the user.
 - The report's result opens with the user's card (B569): `Context: <1-3 short lines: what was wrong or missing, for
   someone who forgot> Change: <a few lines: what the user gets now> Details: <the rest, for the check>`, the first two
   in plain words for someone who forgot (no files, functions, commits, tests, ids or placeholders; at most 300 and 500

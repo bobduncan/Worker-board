@@ -11,7 +11,7 @@ import { askFiledMs, fixFirst, sinceMs, valueOf } from './item.mjs'
 import { PARTNER_AGAIN_MS, PARTNER_ANSWER_MS, isRoutedToPartner } from './partnerAnswers.mjs'
 import { isHolding } from './pause.mjs'
 import { REST_GUARD, REST_MS, flowRests, openAskIds, restsFree } from './parked.mjs'
-import { NOT_MERGED, reportCheckFailedOf } from './resultCheck.mjs'
+import { NOT_MERGED, backWordsOf, reportCheckFailedOf } from './resultCheck.mjs'
 
 /** The states in which a step is its Owner's work now. */
 const HOLDS = ['taken', 'in progress', 'waiting on you']
@@ -223,6 +223,15 @@ export function reconcile({ store, flow = store.flow, lanes = [], now, times, pr
       })
       continue
     }
+    // T8 (what counts as finished): any other mismatch the worker can fix is back with it too: a quiet line, no Check again.
+    const handed = backWordsOf(detail)
+    if (handed !== null) {
+      flags.push({
+        kind: 'back', id, chat, text: `${id}: back with ${chat}: ${handed.words.length > 120 ? `${handed.words.slice(0, 120).trim()}…` : handed.words}`, button: null,
+        ...(lane === undefined || lane.state !== 'free' ? {} : { say: `work: the board's check sent ${id} back to you: ${handed.words}; then report ${id} again`, key: `${id} ${chat} check ${failed[1]}` }),
+      })
+      continue
+    }
     // The review of B300: its Owner is told by the delivery's rules: a chat on the board that is free.
     flags.push({
       kind: 'check failed', id, chat, text: `${id}: the board's check failed: ${detail}`, button: null,
@@ -329,8 +338,8 @@ export function reconcile({ store, flow = store.flow, lanes = [], now, times, pr
     if (now - from - offMs(from) < againMs) continue
     const id = valueOf(item, 'Id')
     flags.push({
-      kind: 'report again', id, chat: lane.name, text: refused.notMerged === null ? `${id}: its report check failed at ${refused.clock}; ${lane.name} has not reported it again` : `${id}: not merged yet: back with ${lane.name}`, button: null,
-      say: refused.notMerged === null ? `work: ${id}'s report check failed at ${refused.clock}: fix what it names and report it again` : `work: ${refused.notMerged}`, key: `${id} ${lane.name} report-again ${refused.stamp}`,
+      kind: 'report again', id, chat: lane.name, text: refused.notMerged !== null ? `${id}: not merged yet: back with ${lane.name}` : refused.back !== null ? `${id}: back with ${lane.name} since ${refused.clock}` : `${id}: its report check failed at ${refused.clock}; ${lane.name} has not reported it again`, button: null,
+      say: refused.notMerged !== null ? `work: ${refused.notMerged}` : refused.back !== null ? `work: the board's check sent ${id} back to you at ${refused.clock}: ${refused.back}; then report ${id} again` : `work: ${id}'s report check failed at ${refused.clock}: fix what it names and report it again`, key: `${id} ${lane.name} report-again ${refused.stamp}`,
     })
   }
   // At rollout (plan Question 2): the tasks queued before the redesign go back on the list first (`retired`), once.

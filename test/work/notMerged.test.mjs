@@ -68,7 +68,8 @@ test('no branch anywhere holds the work: the check fails as before, work outside
   const done = await reportCheck(outside({ run: git(none) }))
   assert.equal(done.passed, false)
   assert.equal(done.notMerged, undefined)
-  assert.deepEqual(done.lines.slice(0, 2), ['work outside git', 'not there: src/pages/list.mjs, pages/list-mock.html'])
+  // T8: a file not there goes back to the worker ("back: "), as any mismatch it can fix.
+  assert.deepEqual(done.lines.slice(0, 2), ['work outside git', 'back: not there: src/pages/list.mjs, pages/list-mock.html'])
   assert.equal(await findUnmerged(outside({ run: git(none) })), null)
   // Git that answers none: today's failure.
   assert.equal((await reportCheck(outside({ run: async () => null }))).notMerged, undefined)

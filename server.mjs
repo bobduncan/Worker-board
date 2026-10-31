@@ -2586,7 +2586,9 @@ async function main(args) {
   }
 
   if (!isDemo && historyFrom === undefined) {
-    const look = () => isClosing ? Promise.resolve() : loops.run('look', () => ownsLoops().then(async owns => {
+    // B826 (X109): one look at a time: a tick while the last look still runs (a slow CPU) starts none, so no two looks
+    // say the same word; one that runs over 10 min shows as failing and the next tick runs again (loops.mjs `single`).
+    const look = () => isClosing ? Promise.resolve() : loops.single('look', () => ownsLoops().then(async owns => {
       // B488: a board process that does not run the loops reads what the one that does has written, and shows it.
       if (!owns) {
         await store.reload?.()

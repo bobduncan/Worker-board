@@ -1539,6 +1539,16 @@ as a shadow of the backlog; B301 removed the shadow (below): the store is the on
   the files whose text changed; Since and History carried only within one step; a step with an id that left the
   backlog keeps its file and is named as a problem, never deleted; an id-less step's file, only ever a copy of its
   line, goes with it; `last-ids.json` never lowered).
+- **The store in memory (B741)**: `readStore` keeps every item file parsed, per fs and folder, with its stats (time,
+  change time, size, file id). A read lists the folder, takes the stats of every item file (about 20 ms for 3000) and
+  reads and parses anew only a file that is new or whose stats differ in any way (an older time too: a restore or a
+  copy); a file that is gone leaves memory. The board's own writes and removes drop their file's copy, so the next read
+  reads it anew. Each read hands out copies, so a change made to a read item never reaches the next read. The small
+  files (activities.json, flow.json, last-ids.json, view.json, names.json, pause.json, partner-answers.json) are read
+  on every read as before. The first read after a start parses all; an fs without `stat` (a test's) parses all every
+  time. On today's store (2966 items): a read 520 ms → 35 to 60 ms; a `next` 1.5 s → about 45 ms; a `note` with its view
+  3 s → about 140 ms. A change call still reads twice (before the change and for the view), but the second read parses
+  only the files the call wrote. `parsedCount(dir)` counts the files parsed (tests: test/work/storeCache.test.mjs).
 - **What you see**: under the Backlog tab's head one line, "Store · 370 items · backlog.md is its view" (the problems
   on hover); in a step's window a part "Flow": the strip of states with the step's own marked, and the moves out of it
   with who makes each.
@@ -1601,11 +1611,12 @@ as a shadow of the backlog; B301 removed the shadow (below): the store is the on
   each program whose working folder is that folder or inside it (`holders.mjs`, read from each process's own block, only
   for a held folder, Windows only): its name, process id, what started it and its command, and "stop it (a chat's
   background command or monitor: TaskStop)"; "no program stands in it as its working folder" when none does. Looked up
-  only for EBUSY, EPERM or EACCES, once per filed check (the patient check's last round); a reader that fails or times
+  only for EBUSY, EPERM or EACCES, once per filed check (the patient check's last round, or one more round when a quiet round is filed with a held folder beside another fault, B862); a reader that fails or times
   out (20 s) names nothing, never "no program". B821's
   folder was held 20 minutes by its chat's own background waits (a Monitor's `sleep 1500`), past a restart of the chat;
   workers stop them before removing a worktree (`roles/worker.md`). When git does not answer, whether a
-  repository lists the folder is not known (Principle 3): the folder is left and the line says so. A folder with files keeps today's line. A failed check runs again on the person's "Check again" (the
+  repository lists the folder is not known (Principle 3): the folder is left and the line says so. T8 (2026-10-31, X114): both
+  empty-folder lines are warnings, never a refusal (see "What counts as finished, per kind of work"). A folder with files keeps today's line. A failed check runs again on the person's "Check again" (the
   lane's flag, `recheck`) or the owner's report from review. The board that delivers writes backlog.md; a copy with a store of its own
   writes the view into that folder; a copy without one only reads. The Backlog tab's line says "backlog.md is its
   view".
@@ -1955,6 +1966,13 @@ step on "check pending" for good.
   the chats, answering the page and each step's check after a report (`check:<id>`) run through `loops.run(name, fn)`:
   last success, last error, failures in a row, since when. It never throws; the next run goes on. approve-recaps runs
   on its own, so an odd recap stops no delivery.
+- **One look at a time** (B826, X109): the look runs every minute through `loops.single('look', fn)`, so a tick while
+  the last look still runs (a slow CPU, as at 22:06 on 2026-10-30, when three looks side by side each said the week's
+  stop word) starts none, and no two looks say the same word: rounds, refine words, resumes, reported-background, stop,
+  start and wake words, stranded questions, the ask for workers. A look that runs over 10 minutes (`STALE_MS`) is hung:
+  the head says "The board's look failing since <its start> (still running after 10 min)" until it ends, the log names
+  it once, and the next tick runs a look again, so a hung look never makes the board deaf; the hung look ending late
+  frees no tick while a newer one runs. B812's one-go put of the stop words stays.
 - **The log**: each new error (another message than the loop's last; B446: its random part aside) is one line in
   `<project>/.claude/board-errors.log` (UTC time, the loop, the error's first line); at 1 MB the file moves to
   `board-errors.log.1`. Not for the demo.
@@ -3530,7 +3548,7 @@ confirmed that a step's branch was gone, never its worktree or its folder. Three
   folder Windows may leave" (a link in it named first, to be taken away alone: `cmd /c rmdir "<link>"` on Windows).
   The worker removes it and reports again, as after a failed branch check. Work outside git gets the same lines.
   Exception (B717): an empty folder no repository lists is removed by the check itself (`removeEmptyFolder`, one rmdir, more tries in the background; left when git is silent), so the empty folder Windows leaves when the worker's chat still stood in the worktree no
-  longer fails the check; workers stop their background commands and monitors in a worktree and `cd` out of it before
+  longer fails the check (T8: one a program still holds is a warning); workers stop their background commands and monitors in a worktree and `cd` out of it before
   removing it (`roles/worker.md`); a folder still held is named with the programs that stand in it (B844, `holders.mjs`).
 - **The result check** (`checked`, the work API's `checkWorktrees`): the board refuses `work checked B<id>` while the
   check's own worktrees are left (folders named `check-b<id>...`, wherever git lists them, or in the project folder),
@@ -4566,8 +4584,9 @@ work, and passes wording with a warning (principles 1 and 8: the board tidies, t
   base against its remote is still checked), and a report whose Touches and result together name no file that is there
   ("not there: ..." or "no file named"). The independent review of the same day kept these two as refusals. B818 (X106, a step
   whose work other steps had already built was reported three times, each refused): "no file named" adds a second line,
-  "nothing built because it already exists? Do not report again: ask to close it", and the worker's rule says the same
-  before any report (`roles/worker.md`): ask "Close B<id> as already done?" at once, naming those steps and their merges.
+  "nothing built because it already exists? ...", and the worker's rule said to ask "Close B<id> as already done?"
+  instead of reporting. T8 (2026-10-31, below, "What counts as finished"): such a step is reported as no change, with the
+  steps that built it, and its result check judges it; the line now says so.
 - *Warns for outside git.* Touches is a plan written before the work, often relative to a repository, and the worker
   cannot edit it: a Touches path that is not there warns ("Touches names files not there: ...") once the result names
   a file that is; so does a path in the result's prose that is not there (it misread words such as "done/level.md",
@@ -4599,6 +4618,59 @@ work, and passes wording with a warning (principles 1 and 8: the board tidies, t
 - *The supervisor.* The rule `report-check-twice` counts only failed checks that refused for a fact: the refusals for
   wording that older History lines hold are known (`isWordingOnly`, recapWords.mjs) and left out; a pass with warnings
   is a pass, and the repair `base-equal` reads it as one.
+
+## What counts as finished, per kind of work (T8, 2026-10-31)
+
+The person, 2026-10-31, said yes to "rework the final check as one design (what counts as finished per kind of work)
+instead of patching each case". The supervisor kept finding one group: a worker's report refused again and again, each
+time patched for that case. X106 (B436, 8x: "work outside git; in a repository: ..."), X113 (B799, 6x: "work outside git;
+not there: ..."), X114 (B821, 7x: "the empty folder ... could not be removed (EBUSY)"), and T14's "not merged" rule of the
+same day. Each was the board judging one kind of finished work by the evidence of another: a step with nothing to build
+judged by its files, an empty folder a program held judged as left work.
+
+The report check (`src/work/check.mjs`) is now one table. `finishedKind` tells the kind of a report from its evidence
+(the rows of `KINDS`, in order: the first that fits), gathers that kind's evidence as facts, and `finishedVerdict` (pure)
+makes the outcome: each fact is `pass`, `warn`, `back` or `fail` (`ACTIONS`), and the worst one decides.
+
+| Kind | Told by | Evidence that proves it finished | What the report names | Short evidence: the board's action |
+|---|---|---|---|---|
+| `merged` | a `merged` commit a repository the board knows holds (several commits: each in its repository) | in every repository of the commits: its base equals its remote, the step's branch is gone (local and remote), no worktree of the step left; a result | the commit(s) in `merged` (one per repository, space between), what the person gets | base differs from its remote: **fail** (the repair `base-equal` checks again by itself once equal); branch or worktree left, a named commit no repository holds: **back**; git silent: **fail** |
+| `branch` | no commit named; the step's branch is, or was (reflog, remote), in one repository, and merged | as `merged`, in that repository | what the person gets (the commit is better) | as `merged` |
+| `unmerged` | the step's own branch, or a branch whose commits name the step, or one that adds the files the report names, is not merged into its base | none: it is not finished | - | **back**: "not merged: Your work for B<id> is on branch <name> (<n> commits) but not on <base>: merge it into <base>, then report again." |
+| `outside` | no branch of its own (none, the base, or one no repository ever had: B580), no commit a repository holds, and a file it names is there outside every repository | a file the result or Touches names is there, outside every repository | `merged` none; the files by their paths in the project | none there, a file in a repository, no file named: **back**; a Touches path or a path in the prose not there beside one that is: **warn** |
+| `moot` | no commit held, no branch of its own in a repository, and the result says nothing was changed: "No change: <why>" opening it or its Change ("Nothing new built:", "No change made:", "No new work:", "No file made:", "Moot:" read the same) | the reason; the result check judges it, never git or files | `merged` none; "No change: <the steps that built it, or the decision that made it moot>" | reason named: **warn** (it passes; the warning tells the result check "no change made: judge whether nothing was needed"); no reason: **back** |
+| `unknown` | none of the above: no repository holds the commit, the branch is in none, git did not answer | - | - | **fail**: "could not tell which repository B<id>'s work is in" (Principle 3: never a silent pass) |
+
+Facts every kind shares: a worktree of the step on its branch, or one named for it, or a folder of one with files in it:
+**back** (with how to remove it). An EMPTY folder a worktree left that a program still holds (EBUSY), or that git was
+silent about: **warn**, never a refusal: the board keeps trying in the background and the leftover sweep removes it later
+(the patient check still looks again for a minute first, so a folder that frees itself leaves no warning). No result:
+**back**. Wording (Context and Change, a cut result, no mutant for a change touching tests): **warn**, as before.
+
+The four actions, and who sees them:
+
+- **pass**, **warn**: the step passes ("check passed" or "check passed with warnings: <lines> | warnings: <warnings>"); the
+  warnings go to the worker's `work next` and, as `Board warnings:`, to the Quality Assurance task.
+- **back**: a mismatch the worker can fix. The History line stays "check failed: ..." (the word callers key on); its first
+  fault starts `back: ` (`BACK`, resultCheck.mjs), or `not merged: ` (`NOT_MERGED`) for unmerged work. The lane shows a
+  quiet "back with <worker>" (no Check again button), the step's wait line says "back with <worker>: <why>", the worker is
+  told the exact words and `work next` gives no new step until it reports again.
+- **fail**: a real failure the person sees: the lane flag "check failed" with Check again (git silent, no repository to
+  tell, a base branch that differs from its remote). When a report has faults of both, it is a fail and names them all.
+
+The three live cases, as the new design reads them:
+
+- **B436** (Worker 5, X106): kind `moot`. Its step's branch `b436-third-height` was never made and nothing was merged; the
+  third height had been built by B625, B628 and B629. Its first report "Nothing new built: the third height already
+  exists ..." passes with the warning "no change made", and the result check judges it (it did: the promised picture was
+  missing, fix B819). Before: refused three times as work outside git, then an ask to the person (Q538).
+- **B799** (Worker 1, X113): kind `moot`. Its branch never existed, the report said "No change made: the three missing
+  details belong to a tick-and-Close-button design the person dropped". It passes with the warning; the result check (or
+  Main's drop, as happened) settles it. Before: refused twice as work outside git ("not there: src/work/obsolete.mjs, ...":
+  files of the board's repository, read in the project folder).
+- **B821** (Worker 5, X114): kind `merged` (21f499c in the game's repository, branch gone, base equal). The empty folder
+  `w5-b821` a program held is a warning: the first report passes with "the empty folder ... a program still uses it".
+  Before: refused three times for a folder the worker could not remove.
 
 ## What it does not do
 

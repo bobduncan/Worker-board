@@ -26,18 +26,30 @@
 // lines> | warnings: ...") and `work next` shows it while it is the owner's newest report (api.mjs). A report that names no mutant for a change that touches tests, and a Context or Change that is missing,
 // too long or not plain, are such warnings: the partner's result check asks for the mutant (roles/partner.md), and the
 // board builds the card's words itself (recapWords.mjs `recapParts`). The worker is never sent back for them.
+//
+// T8, 2026-10-31 (the person: "rework the final check as one design (what counts as finished per kind of work) instead
+// of patching each case"; X106, X113, X114: reports refused again and again, each patched for its case): one table.
+// `finishedKind` tells the kind of finished work a report is (`KINDS`, the first row that fits: merged, unmerged, on a
+// branch, outside git, no change, unknown) and gathers that kind's evidence as facts; `finishedVerdict` makes the
+// outcome from them: each fact passes, warns, goes back to the worker or fails to the person (`ACTIONS`), and the worst
+// decides. DESIGN.md, "What counts as finished, per kind of work", holds the table.
 
 import { join } from 'node:path'
 
 import { readBranches } from '../folders.mjs'
 import { RESULT_CHARS, partsWarnings } from './recapWords.mjs'
-import { NOT_MERGED } from './resultCheck.mjs'
+import { BACK, NOT_MERGED } from './resultCheck.mjs'
 import { isHeldLine, stepLeftovers } from './worktrees.mjs'
 
 /** A folder's last part, for Windows and other paths alike. */
 const nameOf = dir => String(dir).replace(/[\\/]+$/, '').split(/[\\/]/).pop()
 const escape = text => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 const linesOf = answer => (typeof answer === 'string' ? answer.split('\n').map(one => one.trim()).filter(one => one !== '') : [])
+/** One look at a piece of evidence, made the first time it is asked for and kept (the kinds' rows ask in order). */
+const once = make => {
+  let kept = null
+  return () => (kept ??= make())
+}
 
 /**
  * Whether the repository has, or had, the branch: as a branch, on a remote, or in a reflog line that names it. Null
@@ -54,48 +66,176 @@ async function hadBranch(dir, branch, run) {
   return local === null || remote === null || log === null ? null : false
 }
 
-/** B580: the branch is in no repository and never was (every repository answered, none has a trace of it). */
-async function isNowhere(branch, repos, run) {
-  for (const repo of repos) if (await hadBranch(repo.dir, branch, run) !== false) return false
-  return true
+/**
+ * T8: the commits a report's `merged` names: the whole field as one hash (4 to 40 hex characters), else each hash in it
+ * (7 to 40 hex characters with a digit among them, so a word such as "added" is none): "21f499c 92abe36" for work merged
+ * in two repositories. [] for none.
+ */
+export function commitsOf(merged) {
+  const text = String(merged ?? '').trim()
+  if (/^[0-9a-f]{4,40}$/i.test(text)) return [text]
+  return [...new Set((text.match(/\b[0-9a-f]{7,40}\b/gi) ?? []).filter(one => /\d/.test(one)))]
 }
 
-/** The repository of `repos` that holds the reported merged commit, or null. */
-async function repoOfCommit(merged, repos, run) {
-  const commit = String(merged ?? '').trim()
-  if (!/^[0-9a-f]{4,40}$/i.test(commit)) return null
+/** The repository of `repos` that holds the commit, or null. */
+async function repoHolding(commit, repos, run) {
   for (const repo of repos) if (await run(['-C', repo.dir, 'rev-parse', '--verify', '--quiet', `${commit}^{commit}`]) !== null) return repo
   return null
 }
 
-/** The repository of `repos` the step's work is in, or null when it cannot be told. */
-export async function repoOfStep({ branch, merged, repos, run }) {
-  const byCommit = await repoOfCommit(merged, repos, run)
-  if (byCommit !== null) return byCommit
-  if (typeof branch === 'string' && branch.trim() !== '') {
-    for (const repo of repos) if (await hadBranch(repo.dir, branch.trim(), run)) return repo
-  }
-  return null
+/** The step's own branch: its Branch, unless it is none ('', '-', none) or a repository's base branch; else null. */
+const ownBranchOf = (branch, repos) => {
+  const own = typeof branch === 'string' ? branch.trim() : ''
+  return own === '' || own === '-' || own.toLowerCase() === 'none' || repos.some(repo => repo.base === own) ? null : own
 }
 
 /**
- * `{ passed, lines, warnings }` for a reported step `id`: the repository its work is in (`repoOfStep`) has its base
- * branch where its remote has it (one without a remote is let be), the step's branch is gone from it and from its
- * remote, and the report names a result. A passed check names each part; a failed one the repository and its faults
- * (facts only: never the report's wording). `warnings` (only when there are some) are what the step passes with: the
+ * T8 (B436, B799: a step whose work other steps had built, or a decision had made moot, reported "Nothing new built: ...",
+ * "No change made: ..." and was refused as work outside git): the words a report says the step needed no change with, at
+ * its start, after its "Change:" or at the start of a line: "No change: <why>" (also "No change made", "Nothing new
+ * built", "Nothing was needed", "No new work", "No file made", "Moot").
+ */
+const NO_CHANGE = /(?:^|Change:\s*|\n\s*)(?:No change|Nothing (?:new )?(?:built|changed|made|to build|to do|was needed|needed)|No (?:new )?work|No files? (?:made|changed)|Moot)\b[^:\n.]*(?::\s*(\S[^\n]*))?/i
+/** The fewest characters a reason for no change has. */
+const REASON_CHARS = 10
+
+/**
+ * T8: whether a report says its step needed no change: `{ reason }`, the words after the claim's colon (null when it
+ * names no reason), or null when it says nothing of the kind.
+ */
+export function noChangeOf(result) {
+  const found = NO_CHANGE.exec(String(result ?? ''))
+  if (found === null) return null
+  const reason = (found[1] ?? '').trim()
+  return { reason: reason.length >= REASON_CHARS ? reason : null }
+}
+
+/**
+ * `{ passed, lines, warnings }` for a reported step `id` (T8: `finishedKind`, then `finishedVerdict`; DESIGN.md "What counts
+ * as finished, per kind of work"). A passed check names each part; a failed one its faults (facts only: never the report's
+ * wording), its first fault starting with BACK when the worker can fix them all, or `notMerged` and the NOT_MERGED words
+ * for work on a branch that is not merged. `warnings` (only when there are some) are what the step passes with: the
  * report's words for the card, a missing mutant, a cut result (`cut`: the characters it had before the board kept its
- * first 2000). `run` runs git with the given arguments and answers its output or null (folders.mjs, `gitRunner`). No
- * worktree of the step is left (worktrees.mjs `stepLeftovers`): `fs` the file system the project folder is read with
- * (worktrees.mjs `FILES`); null leaves the project folder unread.
+ * first 2000), an empty folder a program still holds, no change made. `run` runs git with the given arguments and answers
+ * its output or null (folders.mjs, `gitRunner`). `exists(path)` answers whether a path is there (null: work outside git is
+ * not looked for). No worktree of the step is left (worktrees.mjs `stepLeftovers`): `fs` the file system the project
+ * folder is read with (worktrees.mjs `FILES`); null leaves the project folder unread.
  */
 export async function reportCheck(args) {
-  const outcome = await factsCheck(args)
-  // 2026-10-31 (B799): a check that fails because the work is not on main is, when the work sits on a branch that is
-  // not merged, a word back to its worker ("merge it, then report again"), never a failure for the person. A pass, a
-  // folder only held by a program and a report with a merged commit a repository holds are left as they are.
-  if (outcome.passed || outcome.isHeldOnly === true || await repoOfCommit(args.merged, args.repos, args.run) !== null) return outcome
-  const found = await findUnmerged(args)
-  return found === null ? outcome : { passed: false, notMerged: found, lines: [notMergedWords(args.id, found)] }
+  return finishedVerdict(await finishedKind(args))
+}
+
+/** T8: what the board does with one fact of a report's evidence, mildest first; the worst fact of a report decides. */
+export const ACTIONS = ['pass', 'warn', 'back', 'fail']
+const fact = (is, say) => ({ is, say })
+
+/**
+ * T8: the kinds of finished work a report can be, in the order the board tells them apart: the first row whose `fits`
+ * holds for the report's evidence (`finishedKind`) is its kind, and its `facts` gather what proves it finished. `says`
+ * is the row in plain words (DESIGN.md holds the table with the actions).
+ */
+export const KINDS = [
+  {
+    kind: 'merged', says: 'code merged into one or more repositories: each commit `merged` names that a repository holds',
+    fits: async e => (await e.commits()).held.length > 0,
+    facts: async (e, args) => gitFacts((await e.commits()).held, (await e.commits()).unheld, args),
+  },
+  {
+    kind: 'unmerged', says: "the step's own branch is in a repository, not merged into its base",
+    fits: async e => (await e.traced()) !== null && (await e.ownUnmerged()) !== null,
+    facts: async e => ({ notMerged: await e.ownUnmerged() }),
+  },
+  {
+    kind: 'branch', says: "no commit named: the step's branch is, or was, in a repository, and merged",
+    fits: async e => (await e.traced()) !== null,
+    facts: async (e, args) => gitFacts([{ repo: await e.traced(), commit: null }], [], args),
+  },
+  {
+    kind: 'unknown', says: "the step's branch may be in a repository whose git did not answer",
+    fits: async e => !(await e.nowhere()),
+    facts: unknownFacts,
+  },
+  {
+    kind: 'outside', says: 'work outside git: a file the report names is there, outside every repository',
+    fits: async e => ((await e.files())?.found.length ?? 0) > 0,
+    facts: outsideFacts,
+  },
+  {
+    kind: 'moot', says: 'no change: the report says nothing was needed, and why; its result check judges it, not git',
+    fits: async e => e.noChange !== null,
+    facts: mootFacts,
+  },
+  {
+    kind: 'unmerged', says: 'work on another branch, not merged: its commits name the step, or it adds a file the report names',
+    fits: async e => (await e.unmerged()) !== null,
+    facts: async e => ({ notMerged: await e.unmerged() }),
+  },
+  {
+    kind: 'outside', says: 'work outside git, and no file it names is there',
+    fits: async e => (await e.files()) !== null,
+    facts: outsideFacts,
+  },
+  { kind: 'unknown', says: 'none of the above: no repository can be told', fits: async () => true, facts: unknownFacts },
+]
+
+/**
+ * T8: the kind of finished work a report is, with its evidence: `{ kind, id, head, facts }` (`head` the line that names the
+ * kind, null for none; `facts` each `{ is, say }`, `is` one of ACTIONS), or `{ kind: 'unmerged', id, notMerged }`. The
+ * evidence is looked at only as far as the rows ask (`once`). `args` as `reportCheck`.
+ */
+export async function finishedKind(args) {
+  const { id, branch, result, merged, repos, run, project = '', touches = [], exists = null } = args
+  const own = ownBranchOf(branch, repos)
+  // Per repository, whether it has or had the step's own branch: true, false, or null where git did not answer.
+  const branchIn = once(async () => {
+    const found = []
+    for (const repo of own === null ? [] : repos) found.push({ repo, had: await hadBranch(repo.dir, own, run) })
+    return found
+  })
+  const e = {
+    commits: once(async () => {
+      const held = []
+      const unheld = []
+      for (const commit of commitsOf(merged)) {
+        const repo = await repoHolding(commit, repos, run)
+        if (repo === null) unheld.push(commit)
+        else held.push({ repo, commit })
+      }
+      return { held, unheld }
+    }),
+    traced: once(async () => (await branchIn()).find(one => one.had === true)?.repo ?? null),
+    // B580: the branch is in no repository and never was (every repository answered, none has a trace of it), or there is none.
+    nowhere: once(async () => (await branchIn()).every(one => one.had === false)),
+    ownUnmerged: once(async () => ownUnmerged(own, await e.traced(), run)),
+    // B363: work outside git is checked by its files, when the board can look (`exists` and the project's folder).
+    files: once(async () => (exists === null || project === '' ? null : filesNamed({ result, touches, project, repoDirs: repos.map(repo => repo.dir), exists }))),
+    noChange: noChangeOf(result),
+    unmerged: once(() => findUnmerged(args)),
+  }
+  for (const row of KINDS) if (await row.fits(e)) return { kind: row.kind, id, head: null, facts: [], ...(await row.facts(e, args)) }
+  return { kind: 'unknown', id, head: null, facts: [fact('fail', `could not tell which repository ${id}'s work is in`)] }
+}
+
+/**
+ * T8: the outcome of a report from its kind and facts (`finishedKind`), the one decision: the worst fact decides. pass or
+ * warn: `{ passed: true, lines, warnings }` (the head and the pass lines; the warnings when there are some; `isHeld` when a
+ * folder a program holds is among them, so the patient check looks again); back: `{ passed: false, lines }`, the first
+ * fault starting with BACK (the step is back with its worker, resultCheck.mjs); fail: the faults as they are (the person
+ * sees them); unmerged work: `{ passed: false, notMerged, lines: [the NOT_MERGED words] }`.
+ */
+export function finishedVerdict({ id = '', head = null, facts = [], notMerged = null }) {
+  if (notMerged !== null) return { passed: false, notMerged, lines: [notMergedWords(id, notMerged)] }
+  const at = Math.max(0, ...facts.map(one => ACTIONS.indexOf(one.is)))
+  const says = kinds => facts.filter(one => kinds.includes(one.is)).map(one => one.say)
+  const named = list => (head === null ? list : [head, ...list])
+  if (at <= ACTIONS.indexOf('warn')) {
+    const warnings = says(['warn'])
+    return { passed: true, lines: named(says(['pass'])), ...(warnings.length === 0 ? {} : { warnings }), ...(facts.some(one => one.isHeld === true) ? { isHeld: true } : {}) }
+  }
+  const faults = says(['back', 'fail'])
+  // B862: a folder a program holds beside a fault is still named (with its programs, B844), after the faults: a warning, never the reason.
+  const held = facts.filter(one => one.isHeld === true).map(one => one.say)
+  return { passed: false, lines: named([...(at === ACTIONS.indexOf('back') ? [`${BACK}${faults[0]}`, ...faults.slice(1)] : faults), ...held]), ...(held.length === 0 ? {} : { isHeld: true }) }
 }
 
 /** The words that send a step back to its worker when its work is on a branch that is not merged (also the History line's reason). */
@@ -104,6 +244,19 @@ export const notMergedWords = (id, { branch, commits, base }) =>
 
 /** Most unmerged branches of a repository looked through for the work (the rest are old leftovers). */
 const BRANCHES_LOOKED_AT = 60
+
+/** The branch `name` of the repository at `dir` with the commits its base lacks: `{ branch, commits, base, repo }`, or null for none. */
+async function aheadOf(dir, base, name, run) {
+  const count = String(await run(['-C', dir, 'rev-list', '--count', `${base}..${name}`]) ?? '').trim()
+  return /^\d+$/.test(count) && Number(count) > 0 ? { branch: name, commits: Number(count), base, repo: nameOf(dir) } : null
+}
+
+/** T8: the step's own branch `own` in `repo`, not merged into its base and ahead of it (`aheadOf`), else null. */
+async function ownUnmerged(own, repo, run) {
+  if (own === null || repo === null) return null
+  const unmerged = await run(['-C', repo.dir, 'for-each-ref', '--no-merged', repo.base, '--format=%(refname:short)', 'refs/heads'])
+  return linesOf(unmerged).includes(own) ? aheadOf(repo.dir, repo.base, own, run) : null
+}
 
 /**
  * 2026-10-31 (B799: built on b775-mock-details, the step's Branch named b799-page-list-mockup that never existed, the
@@ -124,12 +277,8 @@ export async function findUnmerged({ id, branch, result, touches = [], project =
     ])
     if (unmerged === null) continue
     const open = linesOf(unmerged).filter(name => name !== base)
-    const counted = async name => {
-      const count = String(await run(['-C', dir, 'rev-list', '--count', `${base}..${name}`]) ?? '').trim()
-      return /^\d+$/.test(count) && Number(count) > 0 ? { branch: name, commits: Number(count), base, repo: nameOf(dir) } : null
-    }
     if (own !== '' && own !== '-' && open.includes(own)) {
-      const one = await counted(own)
+      const one = await aheadOf(dir, base, own, run)
       if (one !== null) return one
     }
     // The step's own branch is there and merged (only not gone): its work is on the base, no other branch holds it.
@@ -138,74 +287,112 @@ export async function findUnmerged({ id, branch, result, touches = [], project =
     for (const name of open.filter(one => one !== own).slice(0, BRANCHES_LOOKED_AT)) {
       const log = await run(['-C', dir, 'log', '--no-merges', '--fixed-strings', `--grep=${id}`, '--format=%x1e%B', `${base}..${name}`])
       if (String(log ?? '').split('\x1e').slice(1).some(message => named.test(message))) {
-        const one = await counted(name)
+        const one = await aheadOf(dir, base, name, run)
         if (one !== null) return one
       }
-      if (byFile === null && files.length > 0 && linesOf(await run(['-C', dir, 'diff', '--name-only', '--diff-filter=A', `${base}...${name}`])).some(path => isFile(plainPath(path).toLowerCase()))) byFile = await counted(name)
+      if (byFile === null && files.length > 0 && linesOf(await run(['-C', dir, 'diff', '--name-only', '--diff-filter=A', `${base}...${name}`])).some(path => isFile(plainPath(path).toLowerCase()))) byFile = await aheadOf(dir, base, name, run)
     }
     if (byFile !== null) return byFile
   }
   return null
 }
 
-/** The report check's facts (see `reportCheck`, which adds the branch that holds unmerged work). */
-async function factsCheck({ id, branch, result, merged, repos, run, project = '', touches = [], exists = null, fs = null, cut = null, inline = false, waits, holders }) {
-  // 2026-10-25: a result the board cut at its limit passes with a warning that says so.
-  const warnings = cut === null ? [] : [`the result was ${cut} characters: the board kept the first ${RESULT_CHARS} and cut the rest; put what matters first`]
-  // B363: work outside git (no branch of its own, no merged commit a repository holds): its files are checked instead.
-  // B580: so is a step whose branch, named at its take, no repository has or ever had (B568, a picture only).
+/** 2026-10-25: a result the board cut at its limit passes with a warning that says so, first among the warnings. */
+const cutFacts = cut => (cut === null || cut === undefined ? [] : [fact('warn', `the result was ${cut} characters: the board kept the first ${RESULT_CHARS} and cut the rest; put what matters first`)])
+
+/**
+ * A result is named (none: back to the worker); B569, 2026-10-25: the recap card's Context and Change are the board's to
+ * build, so what is off in them is a warning.
+ */
+function resultFacts(result) {
+  const isNamed = String(result ?? '').trim() !== ''
+  const words = isNamed ? partsWarnings(result) : []
+  return [isNamed ? fact('pass', 'result named') : fact('back', 'no result named'), ...words.map(one => fact('warn', one)), ...(isNamed && words.length === 0 ? [fact('pass', 'context and change named')] : [])]
+}
+
+/**
+ * Worktree clean-up: each leftover line of the step's worktrees (worktrees.mjs `stepLeftovers`) as a fact. T8 (X114: B821
+ * refused three times for an empty folder a program held): an EMPTY folder a worktree left (a program still holds it, or
+ * git did not say whether a repository lists it) only warns: the board keeps trying in the background and its leftover
+ * sweep removes it later; git or a folder that did not answer fails; any other leftover (a worktree, a folder with files)
+ * goes back to the worker with how to remove it. `gone` adds "worktree gone" when nothing is left.
+ */
+function leftoverFacts(lines, gone = true) {
+  if (lines.length === 0) return gone ? [fact('pass', 'worktree gone')] : []
+  return lines.map(line => ({
+    ...fact(/^the empty folder /.test(line) ? 'warn' : /^git did not answer\b|\bcould not be read$/.test(line) ? 'fail' : 'back', line),
+    ...(isHeldLine(line) ? { isHeld: true } : {}),
+  }))
+}
+
+/** The fact of a repository's base branch against its remote (one without a remote is let be; B404: git silent never passes). */
+async function baseFact({ dir, base }, run) {
+  const name = nameOf(dir)
+  const [local, remote] = await Promise.all([run(['-C', dir, 'rev-parse', base]), run(['-C', dir, 'rev-parse', `origin/${base}`])])
+  // B404: origin/<base> unread is "no remote" only when git names no origin; a failed or timed-out call never passes.
+  const origins = local === null || remote !== null ? null : await run(['-C', dir, 'remote'])
+  if (local === null) return fact('fail', `git did not answer for ${name}`)
+  if (remote === null && origins === null) return fact('fail', `git did not answer for origin/${base} of ${name}`)
+  if (remote === null && linesOf(origins).includes('origin')) return fact('fail', `origin/${base} of ${name} could not be read`)
+  if (remote === null) return fact('pass', `${base} of ${name} has no remote`)
+  // B598: which side is off, and the way out; the repair base-equal checks again by itself once they are equal.
+  if (local.trim() !== remote.trim()) return fact('fail', await baseFault({ dir, base, name, run }))
+  return fact('pass', `${base} of ${name} equals origin/${base}`)
+}
+
+/** The facts of the step's branch `own` in the repository at `dir`: gone from it and from its remote (left: back to the worker). */
+async function branchFacts(dir, own, run) {
+  const name = nameOf(dir)
+  const [branches, remotes] = await Promise.all([readBranches([dir], run), run(['-C', dir, 'for-each-ref', '--format=%(refname:short)', 'refs/remotes'])])
+  if (branches === null) return [fact('fail', `git did not answer: the branches of ${name} are not known`)]
+  if (branches.includes(own)) return [fact('back', `the branch ${own} is still there`)]
+  const left = linesOf(remotes).find(ref => ref.endsWith(`/${own}`))
+  return left === undefined ? [] : [fact('back', `the branch ${own} is still on ${left.split('/')[0]} of ${name}`)]
+}
+
+/**
+ * The facts of work in git (kinds merged and branch): `held` the repositories with the commits of the step in them
+ * (`commit` null for a branch with no commit named), `unheld` the named commits no repository holds. In every repository
+ * of the work (T8: several for work merged in several, each checked): its base equals its remote, the step's branch is
+ * gone (the review of B363: work merged on a repository's base branch itself has no branch of its own to be gone), no
+ * worktree of the step is left; a result is named; B527: a change that touches a test file names the mutant its tests
+ * caught (without it the step passes with a warning, and the partner's result check asks for one).
+ */
+async function gitFacts(held, unheld, { id, branch, result, merged, repos, run, project = '', fs = null, cut = null, inline = false, waits, holders }) {
+  const found = []
+  for (const { repo, commit } of held) {
+    const at = found.find(one => one.repo.dir === repo.dir)
+    if (at === undefined) found.push({ repo, commits: commit === null ? [] : [commit] })
+    else if (commit !== null) at.commits.push(commit)
+  }
+  const facts = cutFacts(cut)
+  for (const { repo } of found) facts.push(await baseFact(repo, run))
+  for (const commit of unheld) facts.push(fact('back', `the commit ${commit} is in no repository the board knows: name in merged only the commits on a base branch`))
   const own = typeof branch === 'string' ? branch.trim() : ''
-  const isOwnBranch = own !== '' && own !== '-' && own.toLowerCase() !== 'none' && !repos.some(repo => repo.base === own)
-  if (exists !== null && project !== '' && await repoOfCommit(merged, repos, run) === null && (!isOwnBranch || await isNowhere(own, repos, run))) {
-    const left = await stepLeftovers({ id, repos, project, run, fs, inline, ...(waits === undefined ? {} : { waits }), ...(typeof holders === 'function' ? { holders } : {}) })
-    return outsideCheck({ result, touches, project, repoDirs: repos.map(repo => repo.dir), exists, left, warnings })
+  const isOnBase = own !== '' && found.some(({ repo }) => repo.base === own)
+  if (own !== '' && !isOnBase) for (const { repo } of found) facts.push(...await branchFacts(repo.dir, own, run))
+  facts.push(fact('pass', isOnBase ? `worked on ${own} itself` : 'branch gone'))
+  // Worktree clean-up: no worktree on the step's branch in any repository of the work, and none (or its folder) named for the step.
+  const left = []
+  for (const [at, { repo }] of found.entries()) {
+    const lines = await stepLeftovers({ id, branch: isOnBase ? null : branch, repo, repos, project, run, fs: at === 0 ? fs : null, inline, ...(waits === undefined ? {} : { waits }), ...(typeof holders === 'function' ? { holders } : {}) })
+    for (const line of lines) if (!left.includes(line)) left.push(line)
   }
-  const faults = []
-  const passed = []
-  const repo = await repoOfStep({ branch, merged, repos, run })
-  // The review of B363: work merged on the repository's base branch itself has no branch of its own to be gone.
-  let isOnBase = false
-  if (repo === null) faults.push(`could not tell which repository ${id}'s work is in`)
-  else {
-    const name = nameOf(repo.dir)
-    const { dir, base } = repo
-    const [local, remote] = await Promise.all([run(['-C', dir, 'rev-parse', base]), run(['-C', dir, 'rev-parse', `origin/${base}`])])
-    // B404: origin/<base> unread is "no remote" only when git names no origin; a failed or timed-out call never passes.
-    const origins = local === null || remote !== null ? null : await run(['-C', dir, 'remote'])
-    if (local === null) faults.push(`git did not answer for ${name}`)
-    else if (remote === null && origins === null) faults.push(`git did not answer for origin/${base} of ${name}`)
-    else if (remote === null && linesOf(origins).includes('origin')) faults.push(`origin/${base} of ${name} could not be read`)
-    else if (remote === null) passed.push(`${base} of ${name} has no remote`)
-    else if (local.trim() !== remote.trim()) faults.push(await baseFault({ dir, base, name, run }))
-    else passed.push(`${base} of ${name} equals origin/${base}`)
-    isOnBase = typeof branch === 'string' && branch.trim() === base
-    if (typeof branch === 'string' && branch.trim() !== '' && !isOnBase) {
-      const [branches, remotes] = await Promise.all([readBranches([dir], run), run(['-C', dir, 'for-each-ref', '--format=%(refname:short)', 'refs/remotes'])])
-      if (branches === null) faults.push(`git did not answer: the branches of ${name} are not known`)
-      else if (branches.includes(branch.trim())) faults.push(`the branch ${branch.trim()} is still there`)
-      else {
-        const left = linesOf(remotes).find(ref => ref.endsWith(`/${branch.trim()}`))
-        if (left !== undefined) faults.push(`the branch ${branch.trim()} is still on ${left.split('/')[0]} of ${name}`)
-      }
+  facts.push(...leftoverFacts(left), ...resultFacts(result))
+  const tests = []
+  for (const { repo, commits } of found) {
+    for (const commit of commits.length === 0 ? [merged] : commits) {
+      for (const path of (await stepFiles({ id, branch, merged: commit, dir: repo.dir, run })).filter(isTestFile)) if (!tests.includes(path)) tests.push(path)
     }
-    passed.unshift(`work in ${name}`)
-    faults.unshift(`work in ${name}`)
   }
-  // Worktree clean-up: no worktree on the step's branch, and none (or its folder) named for the step, is left.
-  faults.push(...await stepLeftovers({ id, branch: repo === null || isOnBase ? null : branch, repo, repos, project, run, fs, inline, ...(waits === undefined ? {} : { waits }), ...(typeof holders === 'function' ? { holders } : {}) }))
-  if (String(result ?? '').trim() === '') faults.push('no result named')
-  // B569, 2026-10-25: the recap card's Context and Change are the board's to build; what is off is a warning.
-  const words = partsWarnings(result)
-  warnings.push(...words)
-  // B527, 2026-10-25: a change that touches a test file names the mutant its tests caught; without it the step passes,
-  // and the partner's result check asks for one.
-  const tests = repo === null ? [] : (await stepFiles({ id, branch, merged, dir: repo.dir, run })).filter(isTestFile)
-  const bites = tests.length > 0 && hasBite(result)
-  if (tests.length > 0 && !bites) warnings.push(noMutantWords(tests))
-  const failed = faults.filter(line => !line.startsWith('work in '))
-  return failed.length === 0
-    ? { passed: true, lines: [...passed, isOnBase ? `worked on ${branch.trim()} itself` : 'branch gone', 'worktree gone', 'result named', ...(words.length === 0 ? ['context and change named'] : []), ...(bites ? ['tests bite named'] : [])], ...(warnings.length === 0 ? {} : { warnings }) }
-    : { passed: false, lines: faults, ...(failed.every(isHeldLine) ? { isHeldOnly: true } : {}) }
+  if (tests.length > 0) facts.push(hasBite(result) ? fact('pass', 'tests bite named') : fact('warn', noMutantWords(tests)))
+  return { head: `work in ${found.map(({ repo }) => nameOf(repo.dir)).join(' and ')}`, facts }
+}
+
+/** The facts when no repository can be told (Principle 3: never a silent pass): a failure the person sees. */
+async function unknownFacts(e, { id, result, repos, project = '', run, fs = null, inline = false, waits, holders }) {
+  const left = await stepLeftovers({ id, branch: null, repo: null, repos, project, run, fs, inline, ...(waits === undefined ? {} : { waits }), ...(typeof holders === 'function' ? { holders } : {}) })
+  return { head: null, facts: [fact('fail', `could not tell which repository ${id}'s work is in`), ...leftoverFacts(left, false), ...resultFacts(result)] }
 }
 
 /** The warning for a change that touches tests and a result that names no mutant (the result check asks for one). */
@@ -315,20 +502,22 @@ function pathsIn(words, project) {
   return found
 }
 
-/** B818: the second line of the "no file named" refusal: do not report again, ask to close the step. */
-export const NOTHING_BUILT_LINE = 'nothing built because it already exists? Do not report again: ask to close it (work ask, kind decide: "Close B<id> as already done?", naming the steps that built it)'
+/**
+ * B818, T8: the second line of the "no file named" refusal: a step whose work other steps already built is reported as
+ * no change, with the steps that built it (kind moot), never asked about.
+ */
+export const NOTHING_BUILT_LINE = 'nothing built because it already exists? Report it again opening the Change with "No change: <the steps that built it, with their merged commits>"'
 
 /**
- * B363: the check of a step whose work is outside git: a file the report names is there in the project's folder,
- * outside every repository (`repoDirs`): a file in a repository is work in git, reported with its merged commit, and
- * refuses; so does a report whose Touches and result together name no file that is there ("not there", or "no file
- * named" when they name none). 2026-10-25 ("check the work, not the wording", and the review of the same day): the
- * result's prose misread words such as "done/level.md" as a file (X57), and Touches is a plan written before the work
- * that the worker cannot edit, so a path of either that is not there only warns once a file is there; one in a
- * repository in Touches alone (a wide plan) warns too. `exists(path)` answers whether a path is there. `left`: the lines
- * of the step's worktrees still left (worktree clean-up), each a fault. `warnings`: those the report check already holds.
+ * B363: the files a report of work outside git names, weighed in the project's folder outside every repository
+ * (`repoDirs`): `{ planned, said, found, missing, inGit }`, `planned` and `said` each `{ found, missing, inGit }` for the
+ * step's Touches and the result. A file in a repository is work in git, reported with its merged commit. 2026-10-25
+ * ("check the work, not the wording", and the review of the same day): the result's prose misread words such as
+ * "done/level.md" as a file (X57), and Touches is a plan written before the work that the worker cannot edit, so a path
+ * of either that is not there only warns once a file is there; one in a repository in Touches alone (a wide plan) warns
+ * too. `exists(path)` answers whether a path is there.
  */
-async function outsideCheck({ result, touches, project, repoDirs, exists, left = [], warnings = [] }) {
+async function filesNamed({ result, touches, project, repoDirs, exists }) {
   const repos = repoDirs.map(dir => plainPath(dir).toLowerCase())
   const isInRepo = where => repos.some(dir => where.toLowerCase() === dir || where.toLowerCase().startsWith(`${dir}/`))
   const weigh = async named => {
@@ -348,25 +537,50 @@ async function outsideCheck({ result, touches, project, repoDirs, exists, left =
   const said = await weigh(pathsIn(result, project))
   const once = all => [...new Set(all)]
   const found = once([...planned.found, ...said.found])
-  const missing = once([...planned.missing, ...said.missing])
-  const lines = ['work outside git']
   // A repository file the result names is work in git; one only Touches names is a plan, a fact only when nothing else is there.
-  const inGit = once([...said.inGit, ...(found.length === 0 ? planned.inGit : [])])
-  if (found.length === 0 && missing.length > 0) lines.push(`not there: ${missing.join(', ')}`)
-  if (inGit.length > 0) lines.push(`in a repository: ${inGit.join(', ')}; report that work with its merged commit`)
-  if (found.length === 0 && missing.length === 0 && inGit.length === 0) lines.push('no file named: name the files it made in the result')
+  return { planned, said, found, missing: once([...planned.missing, ...said.missing]), inGit: once([...said.inGit, ...(found.length === 0 ? planned.inGit : [])]) }
+}
+
+/**
+ * B363: the facts of work outside git: a file the report names is there (`filesNamed`); none there, a file in a repository
+ * named by the result, or no file named at all goes back to the worker; a Touches path or a path in the prose that is not
+ * there beside one that is warns. The step's worktrees left, as for any kind.
+ */
+async function outsideFacts(e, { id, result, repos, project = '', run, fs = null, cut = null, inline = false, waits, holders }) {
+  const { planned, said, found, missing, inGit } = await e.files()
+  const facts = cutFacts(cut)
+  if (found.length === 0 && missing.length > 0) facts.push(fact('back', `not there: ${missing.join(', ')}`))
+  if (inGit.length > 0) facts.push(fact('back', `in a repository: ${inGit.join(', ')}; report that work with its merged commit`))
   // B818 (X106): a report that names no file of its own is often a step whose work other steps already built.
-  if (found.length === 0 && missing.length === 0 && inGit.length === 0) lines.push(NOTHING_BUILT_LINE)
-  lines.push(...left)
-  if (String(result ?? '').trim() === '') lines.push('no result named')
-  if (lines.length > 1) return { passed: false, lines, ...(lines.slice(1).every(isHeldLine) ? { isHeldOnly: true } : {}) }
-  const words = partsWarnings(result)
-  const warned = [...warnings, ...words]
-  if (planned.missing.length > 0) warned.push(`Touches names files not there: ${planned.missing.join(', ')}`)
-  if (found.length > 0 && planned.inGit.length > 0) warned.push(`Touches names files in a repository: ${planned.inGit.join(', ')}`)
+  if (found.length === 0 && missing.length === 0 && inGit.length === 0) facts.push(fact('back', 'no file named: name the files it made in the result'), fact('back', NOTHING_BUILT_LINE))
+  facts.push(fact('pass', `there: ${found.join(', ')}`))
+  facts.push(...leftoverFacts(await stepLeftovers({ id, repos, project, run, fs, inline, ...(waits === undefined ? {} : { waits }), ...(typeof holders === 'function' ? { holders } : {}) }), false))
+  facts.push(...resultFacts(result))
+  if (planned.missing.length > 0) facts.push(fact('warn', `Touches names files not there: ${planned.missing.join(', ')}`))
+  if (found.length > 0 && planned.inGit.length > 0) facts.push(fact('warn', `Touches names files in a repository: ${planned.inGit.join(', ')}`))
   const saidMissing = said.missing.filter(path => !planned.missing.includes(path))
-  if (saidMissing.length > 0) warned.push(`the result names ${saidMissing.join(', ')}, which ${saidMissing.length === 1 ? 'is' : 'are'} not there`)
-  return { passed: true, lines: [...lines, `there: ${found.join(', ')}`, 'result named', ...(words.length === 0 ? ['context and change named'] : [])], ...(warned.length === 0 ? {} : { warnings: warned }) }
+  if (saidMissing.length > 0) facts.push(fact('warn', `the result names ${saidMissing.join(', ')}, which ${saidMissing.length === 1 ? 'is' : 'are'} not there`))
+  return { head: 'work outside git', facts }
+}
+
+/** T8: the line a report of no change goes back with when it names no reason. */
+export const NO_REASON_LINE = 'no change made, and no reason named: open the Change with "No change: <the steps that built it, or the decision that made it moot>", then report again'
+/** T8: the warning a report of no change passes with: the result check judges it (its Quality Assurance task carries it). */
+export const noChangeWords = reason => `no change made: the result check judges whether nothing was needed (${reason.length > 200 ? `${reason.slice(0, 200).trim()}…` : reason})`
+
+/**
+ * T8 (B436, B799, X106, X113): the facts of a step with no change (kind moot): its reason, which its result check judges,
+ * never git or the files it names (a step whose work other steps built names their files, in a repository). No reason
+ * goes back to the worker; the step's worktrees left, as for any kind.
+ */
+async function mootFacts(e, { id, result, repos, project = '', run, fs = null, cut = null, inline = false, waits, holders }) {
+  const { reason } = e.noChange
+  const facts = cutFacts(cut)
+  facts.push(reason === null ? fact('back', NO_REASON_LINE) : fact('pass', 'reason named'))
+  if (reason !== null) facts.push(fact('warn', noChangeWords(reason)))
+  facts.push(...leftoverFacts(await stepLeftovers({ id, repos, project, run, fs, inline, ...(waits === undefined ? {} : { waits }), ...(typeof holders === 'function' ? { holders } : {}) })))
+  facts.push(...resultFacts(result))
+  return { head: 'no change made (moot)', facts }
 }
 
 /** How many times, and how far apart (ms), the report check looks again at a folder a program still holds. */
@@ -375,19 +589,23 @@ export const HELD_EVERY_MS = 10_000
 
 /**
  * The report check as the board's background loop runs it (nobody waits on it): the empty folder a worktree left is tried
- * for a few seconds inside the check (`inline`); when a program still holds it, and that is all that fails, the check looks
- * again after `every` ms, up to `rounds` times, and passes by itself once the folder is gone. Only then is it filed, so the
- * worker is not messaged for a folder that frees itself. `sleep` is the clock's wait (a test's own). The outcome has no
- * `isHeldOnly`: it is the board's own word between the rounds.
+ * for a few seconds inside the check (`inline`); when a program still holds it (`isHeld`: on a pass it is a warning, T8),
+ * the check looks again after `every` ms, up to `rounds` times, so a folder that frees itself leaves no warning; a failed
+ * check is filed at once. Only then is it filed. `sleep` is the clock's wait (a test's own). B844: the programs that hold
+ * the folder are looked up only in the round that can be filed (the last), once; B862: a quiet round filed with a held
+ * folder (a failed check beside it) is checked once more with the lookup, so its line names its program. The outcome has no
+ * `isHeld`: it is the board's own word between the rounds.
  */
 export async function patientReportCheck(args, { rounds = HELD_ROUNDS, every = HELD_EVERY_MS, sleep = ms => new Promise(resolve => setTimeout(resolve, ms)) } = {}) {
-  // B844: the programs that hold the folder are looked up only in the round that can be filed (the last), once.
   const quiet = { holders: async () => null }
-  let outcome = await reportCheck({ ...args, inline: true, ...(rounds > 0 ? quiet : {}) })
-  for (let round = 0; round < rounds && outcome.isHeldOnly === true; round += 1) {
+  let named = rounds === 0
+  let outcome = await reportCheck({ ...args, inline: true, ...(named ? {} : quiet) })
+  for (let round = 0; round < rounds && outcome.isHeld === true && outcome.passed === true; round += 1) {
     await sleep(every)
-    outcome = await reportCheck({ ...args, inline: true, ...(round < rounds - 1 ? quiet : {}) })
+    named = round === rounds - 1
+    outcome = await reportCheck({ ...args, inline: true, ...(named ? {} : quiet) })
   }
-  const { isHeldOnly, ...filed } = outcome
+  if (!named && outcome.isHeld === true) outcome = await reportCheck({ ...args, inline: true })
+  const { isHeld, ...filed } = outcome
   return filed
 }
