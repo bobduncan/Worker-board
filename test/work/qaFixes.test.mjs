@@ -31,7 +31,7 @@ test('1: an ask the checker files under the step it checked goes to the person, 
     assert.equal(during.result.route, undefined)
     assert.equal(valueOf(await item(store.dir, during.result.id), 'Route'), null)
     // After the check is filed (the task done, the worker its former holder) its ask is the person's too.
-    const filed = await store.checker({ action: 'checked', id, ...ASK_POINT })
+    const filed = await store.checker({ action: 'checked', size: '30 min', id, ...ASK_POINT })
     assert.equal(filed.ok, true, filed.why)
     const after = await store.checker({ ...LOOK, of: id, title: 'Should the paths be gravel or stone?', text: 'Two surfaces were tried by the builder.' })
     assert.equal(after.ok, true, after.why)

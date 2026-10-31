@@ -1410,7 +1410,7 @@ in `art-inbox/worker-board/b262/`.
   time left), as for the card's. The card's own plan always wins when it has one. A step with no plan at all and no time of
   its own (its Estimate) shows the size its refine gave ("Size: about 1 h") as a first estimate, counted from when the step
   was taken (its Since) and marked "refine's estimate" (`eta.from: 'refine'`), until the worker records a plan; a step with no
-  size keeps "No time". Tests: `test/work/stepPlan.test.mjs` (the line is written and replaced), `test/stepPlanCard.test.mjs`
+  size keeps "No time". B832 (the person, 2026-10-31, "Why is there no ETA?"): no step is left without a time at its source. The work tool refuses `take` without `minutes` (the plan line is written at the take: `until` the time left), `refined` and a step made from an agreed how (`new` with `what`) without a `Size` that `sizeMinutes` (`src/backlog.mjs`, the one reader of a size, also for the card's fallback) reads as minutes (`refined` takes a `size` of its own that replaces the round's), and `checked` with failed points without a `size` for the fix step it makes (the board's own filing of the person's no uses the checked step's size, else 30 min). A step already in progress is taken again without minutes. Test: `test/work/taskTime.test.mjs`. Tests: `test/work/stepPlan.test.mjs` (the line is written and replaced), `test/stepPlanCard.test.mjs`
   (a new session shows the saved plan, the card wins, the size, no size, the page's words).
 - One turn can hold several tasks. When the board still showed another task the chat had named, a task starts when it
   was named (B94).

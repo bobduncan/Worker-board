@@ -47,14 +47,14 @@ test('the model given at the refine stands under the step and in its block, befo
     assert.equal((await advisor({ action: 'refine', id: 'B7', summary: 'A yew hedge, closer.', size: '1 h' })).ok, true)
     assert.ok((await item('B7')).sections.get('Refined').some(one => one.trim() === 'Model: opus · a guard of the work store'))
     // The ready block keeps it once, before the effort and What we build.
-    assert.equal((await advisor({ action: 'refined', id: 'B7', what: ['A yew hedge in two rows'] })).ok, true)
+    assert.equal((await advisor({ action: 'refined', size: '30 min', id: 'B7', what: ['A yew hedge in two rows'] })).ok, true)
     step = await item('B7')
     block = step.sections.get('Refined').map(one => one.trim())
     assert.deepEqual(block.filter(one => one.startsWith('Model:')), ['Model: opus · a guard of the work store'])
     assert.ok(block.indexOf('Model: opus · a guard of the work store') < block.indexOf('Effort: medium · one rule'))
     assert.ok(block.indexOf('Effort: medium · one rule') < block.indexOf('What we build:'))
     // Given anew at the ready block, it takes the earlier one's place.
-    assert.equal((await advisor({ action: 'refined', id: 'B7', what: ['A yew hedge in two rows'], model: 'sonnet · a plain feature after all' })).ok, true)
+    assert.equal((await advisor({ action: 'refined', size: '30 min', id: 'B7', what: ['A yew hedge in two rows'], model: 'sonnet · a plain feature after all' })).ok, true)
     step = await item('B7')
     assert.deepEqual(step.sections.get('Model'), ['sonnet · a plain feature after all'])
     assert.deepEqual(step.sections.get('Refined').map(one => one.trim()).filter(one => one.startsWith('Model:')), ['Model: sonnet · a plain feature after all'])
@@ -87,7 +87,7 @@ test('a step refined without one counts as sonnet in its window; a step made fro
     assert.equal((await advisor({ action: 'refine', id: 'B8', summary: 'A gate.' })).ok, true)
     const store = { ok: true, ...(await readStore(dir)) }
     assert.deepEqual(itemOfStep(store, 'B8').model, { family: 'sonnet', why: null, isSet: false })
-    const made = await advisor({ action: 'new', title: 'Plant the yew hedge', activity: 'Garden', goal: 'G3', summary: 'The hedge, planted.', what: ['Two rows of yew'], model: 'opus · art direction for the hedge', effort: 'high · new art' })
+    const made = await advisor({ action: 'new', title: 'Plant the yew hedge', activity: 'Garden', goal: 'G3', summary: 'The hedge, planted.', size: '1 h', what: ['Two rows of yew'], model: 'opus · art direction for the hedge', effort: 'high · new art' })
     assert.equal(made.ok, true, made.why)
     const step = (await readStore(dir)).items.get(made.result.id)
     assert.deepEqual(step.sections.get('Model'), ['opus · art direction for the hedge'])
@@ -101,11 +101,11 @@ test('a step refined without one counts as sonnet in its window; a step made fro
 test('a fix step from a failed result check runs on the model of the step it fixes', async () => {
   const store = await fresh()
   try {
-    const made = await store.advisor({ action: 'new', title: 'Guard the gate', activity: 'Garden', goal: 'G3', summary: 'A guard.', what: ['a lock on the gate', 'Not in it: a fence'], model: 'opus · a guard of the store', effort: 'high · many parts' })
+    const made = await store.advisor({ action: 'new', title: 'Guard the gate', activity: 'Garden', goal: 'G3', summary: 'A guard.', size: '1 h', what: ['a lock on the gate', 'Not in it: a fence'], model: 'opus · a guard of the store', effort: 'high · many parts' })
     assert.equal(made.ok, true, made.why)
     const id = made.result.id
     assert.equal((await queueFor(store.dir, id, 'Digger', { now: NOW + 60_000 })).ok, true)
-    assert.equal((await store.digger({ action: 'take', id, branch: 'gate' })).ok, true)
+    assert.equal((await store.digger({ action: 'take', minutes: 30, id, branch: 'gate' })).ok, true)
     assert.equal((await store.digger({ action: 'report', id, result: 'A lock on the gate.', merged: 'c0ffee1' })).ok, true)
     assert.equal((await store.server({ action: 'check', id, passed: true, lines: ['work in garden'] })).ok, true)
     const checked = await store.checks(id, { evidence: 'none (nothing to see)', points: ['fail: a lock on the gate (it opens without a key)'] })

@@ -45,8 +45,8 @@ const clean = async (dir, work) => {
 test('a step call with names and minutes writes the plan on the step; a second call replaces it', async () => {
   const { dir, at, board } = await fresh()
   await clean(dir, async () => {
-    assert.equal((await board({ action: 'take', id: 'B1' })).ok, true)
-    assert.equal(await planLine(dir, 'B1'), null)
+    assert.equal((await board({ action: 'take', minutes: 30, id: 'B1' })).ok, true)
+    assert.equal(await planLine(dir, 'B1'), `until ${stampSecond(NOW + 30 * MIN)} | at ${stampSecond(NOW)}`)
     const first = await board({ action: 'step', id: 'B1', names: ['Read', 'Draw', 'Test'], step: 1, minutes: 40, stepMinutes: 10 })
     assert.equal(first.ok, true)
     const stamp = minutes => stampSecond(NOW + minutes * MIN)
@@ -95,7 +95,7 @@ test('a step taken from the queue starts on a plan of its own: one saved from an
     const written = await writeItem(dir, { ...item, head }, undefined, { expected: file })
     assert.equal(written.ok, true, written.why)
     assert.notEqual(await planLine(dir, 'B2'), null)
-    assert.equal((await board({ action: 'take', id: 'B2' })).ok, true)
-    assert.equal(await planLine(dir, 'B2'), null)
+    assert.equal((await board({ action: 'take', minutes: 30, id: 'B2' })).ok, true)
+    assert.equal(await planLine(dir, 'B2'), `until ${stampSecond(NOW + 30 * MIN)} | at ${stampSecond(NOW)}`)
   })
 })

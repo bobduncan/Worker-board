@@ -36,7 +36,7 @@ const SHEET = { n: 1, kind: 'decide', options: [], advice: '', pictures: [], pla
 for (const [by, said] of [['partner', 'the partner answered it'], [null, 'the person answered it']]) {
   test(`a repeated ask within 2 minutes names who answered: ${by ?? 'the person'}`, async t => {
     const { dir, call } = await project(t)
-    const taken = await call({ action: 'take', chat: 'Units', id: 'B13', branch: 'b13-knight' })
+    const taken = await call({ action: 'take', minutes: 30, chat: 'Units', id: 'B13', branch: 'b13-knight' })
     assert.equal(taken.ok, true, taken.why)
     const first = await call({ action: 'ask', chat: 'Units', of: 'B13', kind: 'decide', title: 'Sheet A or sheet B?', text: 'Which sheet do we keep for the knight?' })
     assert.equal(first.ok, true, first.why)

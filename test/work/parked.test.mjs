@@ -87,7 +87,7 @@ async function garden() {
   const digger = (body, now) => workApi({ chat: 'Digger', ...body }, ctx(now))
   const server = (body, now) => workApi(body, { ...ctx(now), as: 'server' })
   const person = (body, now) => workApi(body, { ...ctx(now), as: 'person' })
-  await digger({ action: 'take', id: 'B1', branch: 'b1' }, ago(100))
+  await digger({ action: 'take', minutes: 30, id: 'B1', branch: 'b1' }, ago(100))
   await digger({ action: 'ask', of: 'B1', kind: 'decide', text: 'Box or yew for the hedge?', options: ['A box', 'B yew'], advice: 'A', blocking: false }, ago(90))
   const read = async () => (await readStore(dir)).items
   return { dir, digger, server, person, read }
@@ -107,7 +107,7 @@ test('X23: answered while its worker is on another step, the step stays parked a
     const before = (await digger({ action: 'next' })).result
     assert.deepEqual(before.items, ['B2', 'B1'])
     assert.match(before.text, /- B1 waiting on you \(waits for Q1; take your next queued step meanwhile\)/)
-    assert.equal((await digger({ action: 'take', id: 'B2', branch: 'b2' })).ok, true)
+    assert.equal((await digger({ action: 'take', minutes: 30, id: 'B2', branch: 'b2' })).ok, true)
     // The person answers Q1 while Digger is on B2: B1 does not jump back to in progress.
     const answered = await person({ action: 'answer', id: 'Q1', text: 'A box' })
     assert.equal(answered.ok, true)

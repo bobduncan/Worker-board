@@ -25,7 +25,7 @@ const STEPS = { B301: { area: 'board', estimateMin: 60, effort: 'low' }, B302: {
 test('a task keeps its step\'s effort, the effort its answers ran at, and their tokens, each message once', () => {
   const lines = [
     typed(at(0), 'work: B301 is yours; run work next'),
-    works(at(0), 'm1', { action: 'take', id: 'B301', branch: 'b' }, usage(50)),
+    works(at(0), 'm1', { action: 'take', minutes: 30, id: 'B301', branch: 'b' }, usage(50)),
     // One message written as two lines: its tokens count once.
     answers(at(2), 'm2', usage(300), 'low', [{ type: 'text', text: 'Reading.' }]),
     answers(at(2), 'm2', usage(300), 'low', [{ type: 'tool_use', id: 't', name: 'Bash', input: { command: 'ls' } }]),
@@ -43,7 +43,7 @@ test('a task keeps its step\'s effort, the effort its answers ran at, and their 
 
 test('the review: a message whose lines say more tokens later counts its largest figures once', () => {
   const lines = [
-    works(at(0), 'm1', { action: 'take', id: 'B302', branch: 'b' }, usage(10), 'high'),
+    works(at(0), 'm1', { action: 'take', minutes: 30, id: 'B302', branch: 'b' }, usage(10), 'high'),
     answers(at(1), 'm2', usage(100), 'high', [{ type: 'text', text: 'Part.' }]),
     answers(at(1), 'm2', usage(300), 'high', [{ type: 'tool_use', id: 't', name: 'Bash', input: { command: 'ls' } }]),
     answers(at(1), 'm2', usage(300), 'high', [{ type: 'text', text: 'Again.' }]),

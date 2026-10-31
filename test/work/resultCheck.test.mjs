@@ -39,7 +39,7 @@ async function reported(store, gitPassed = true) {
   assert.equal(made.ok, true, made.why)
   const id = made.result.id
   assert.equal((await queueFor(store.dir, id, 'Lamplighter', { now: NOW + 60_000 })).ok, true)
-  assert.equal((await store.lamplighter({ action: 'take', id, branch: 'b2-lamps' })).ok, true)
+  assert.equal((await store.lamplighter({ action: 'take', minutes: 30, id, branch: 'b2-lamps' })).ok, true)
   assert.equal((await store.lamplighter({ action: 'report', id, result: 'Every path has a warm lamp.', merged: 'c0ffee1' })).ok, true)
   const git = await store.server({ action: 'check', id, passed: gitPassed, lines: gitPassed ? ['work in garden', 'branch gone', 'result named'] : ['the branch b2-lamps is still there'] })
   return { id, git }
@@ -56,7 +56,7 @@ test('a step with agreed points or a Standard line needs the result check; one w
     assert.equal(git.result.resultCheck, undefined)
     assert.equal(valueOf(await item(store.dir, git.result.qa), 'Checks'), id)
     // A step without agreed points is done by the board's check, as before.
-    await store.lamplighter({ action: 'take', id: 'B1', branch: 'b1-wicks' })
+    await store.lamplighter({ action: 'take', minutes: 30, id: 'B1', branch: 'b1-wicks' })
     await store.lamplighter({ action: 'report', id: 'B1', result: 'The wicks are trimmed.', merged: 'abc1234' })
     const plain = await store.server({ action: 'check', id: 'B1', passed: true, lines: ['branch gone'] })
     assert.equal(plain.result.resultCheck, undefined)
@@ -88,9 +88,9 @@ test('a result check that passed before the board\'s own check of a new report w
     // The Checker holds the QA task when the builder reports again: the board's check is pending, then the check is filed.
     const qa = (await store.server({ action: 'qa-task', id })).result.id
     await queueFor(store.dir, qa, 'Checker', { now: NOW + 60_000 })
-    assert.equal((await store.checker({ action: 'take', id: qa })).ok, true)
+    assert.equal((await store.checker({ action: 'take', minutes: 30, id: qa })).ok, true)
     assert.equal((await store.lamplighter({ action: 'report', id, result: 'Every path has a warm lamp, warmer.', merged: 'c0ffee2' })).ok, true)
-    const filed = await store.checker({ action: 'checked', id, evidence: 'none (nothing to see)', points: ['pass: a lamp at every bench'] })
+    const filed = await store.checker({ action: 'checked', size: '30 min', id, evidence: 'none (nothing to see)', points: ['pass: a lamp at every bench'] })
     assert.equal(filed.ok, true, filed.why)
     assert.equal(valueOf(await item(store.dir, id), 'State'), 'review')
     const again = await store.server({ action: 'check', id, passed: true, lines: ['branch gone'] })
@@ -119,7 +119,7 @@ test('a failed point makes a fix step, refined from the failed points, on the li
     assert.ok(origin.sections.get('History').some(one => one.includes(`Checker: result check failed: 1 of 2 points pass, score 61 of 75; fix ${fixId} for Lamplighter`)))
     // The fix is done and checked: the step it fixes is done too.
     await queueFor(store.dir, fixId, 'Lamplighter', { now: NOW + 60_000 })
-    await store.lamplighter({ action: 'take', id: fixId, branch: 'b-fix-lamps' })
+    await store.lamplighter({ action: 'take', minutes: 30, id: fixId, branch: 'b-fix-lamps' })
     await store.lamplighter({ action: 'report', id: fixId, result: 'All lamps are warm yellow.', merged: 'beef123' })
     await store.server({ action: 'check', id: fixId, passed: true, lines: ['branch gone'] })
     assert.equal(valueOf(await item(store.dir, id), 'State'), 'review')
@@ -157,17 +157,17 @@ test('only the worker that holds the QA task files a check, of a step in review,
     const point = ['pass: a lamp at every bench']
     // Its QA task is given to the Checker and taken; nobody else may file.
     assert.equal((await store.server({ action: 'qa-task', id })).ok, true)
-    assert.equal((await store.lamplighter({ action: 'checked', id, evidence: 'x.png', points: point })).status, 403)
-    assert.equal((await store.partner({ action: 'checked', id, evidence: 'x.png', points: point })).status, 403)
+    assert.equal((await store.lamplighter({ action: 'checked', size: '30 min', id, evidence: 'x.png', points: point })).status, 403)
+    assert.equal((await store.partner({ action: 'checked', size: '30 min', id, evidence: 'x.png', points: point })).status, 403)
     const qa = (await store.server({ action: 'qa-task', id })).result.id
     await queueFor(store.dir, qa, 'Checker', { now: NOW + 60_000 })
-    assert.equal((await store.checker({ action: 'take', id: qa })).ok, true)
-    assert.equal((await store.checker({ action: 'checked', id, evidence: 'x.png', points: [] })).status, 400)
-    assert.equal((await store.checker({ action: 'checked', id, evidence: 'x.png', points: ['maybe: a lamp'] })).status, 400)
-    assert.equal((await store.checker({ action: 'checked', id, points: point })).status, 400)
+    assert.equal((await store.checker({ action: 'take', minutes: 30, id: qa })).ok, true)
+    assert.equal((await store.checker({ action: 'checked', size: '30 min', id, evidence: 'x.png', points: [] })).status, 400)
+    assert.equal((await store.checker({ action: 'checked', size: '30 min', id, evidence: 'x.png', points: ['maybe: a lamp'] })).status, 400)
+    assert.equal((await store.checker({ action: 'checked', size: '30 min', id, points: point })).status, 400)
     // A step that is not in review has no QA task for the Checker to hold.
-    assert.equal((await store.checker({ action: 'checked', id: 'B1', evidence: 'x.png', points: point })).status, 403)
-    assert.equal((await store.server({ action: 'checked', id: 'B1', evidence: 'x.png', points: point })).status, 409)
+    assert.equal((await store.checker({ action: 'checked', size: '30 min', id: 'B1', evidence: 'x.png', points: point })).status, 403)
+    assert.equal((await store.server({ action: 'checked', size: '30 min', id: 'B1', evidence: 'x.png', points: point })).status, 409)
   } finally {
     await rm(store.dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
@@ -187,7 +187,7 @@ test('a board without a partner chat makes no result check: its own check closes
     const made = await store.partner(LAMP)
     const id = made.result.id
     await queueFor(store.dir, id, 'Lamplighter', { now: NOW + 60_000 })
-    await store.lamplighter({ action: 'take', id, branch: 'b2-lamps' })
+    await store.lamplighter({ action: 'take', minutes: 30, id, branch: 'b2-lamps' })
     await store.lamplighter({ action: 'report', id, result: 'Warm lamps.', merged: 'c0ffee1' })
     const ctx = { dir: store.dir, now: NOW + 60_000, prefix: '', roleOf: chat => ROLES[chat] ?? null, freeChats: new Set(['Lamplighter']), hasPartner: false, as: 'server' }
     const git = await workApi({ action: 'check', id, passed: true, lines: ['branch gone'] }, ctx)
@@ -210,7 +210,7 @@ test('the review: a fix closed by any way (the person\'s tick, then the board\'s
   try {
     const { id, fixId } = await failed(store)
     // A second check while the fix is open is refused: one fix at a time.
-    const twice = await store.server({ action: 'checked', id, evidence: 'x.png', points: ['fail: warm yellow light'] })
+    const twice = await store.server({ action: 'checked', size: '30 min', id, evidence: 'x.png', points: ['fail: warm yellow light'] })
     assert.deepEqual([twice.status, twice.why], [409, `${id} has an open fix, ${fixId}: check that one once it is reported; the board asks for ${id} again after it, when ${id} is not done with it.`])
     const person = body => workApi(body, { dir: store.dir, now: NOW + 120_000, prefix: '', roleOf: () => null, as: 'person' })
     assert.equal((await person({ action: 'tick', id: fixId, line: 'Done by you.' })).ok, true)
@@ -232,7 +232,7 @@ test('the review: a fix that was only dropped does not pass the step, and makes 
     assert.equal((await store.server({ action: 'advance', id, to: 'done' })).ok, false)
     const none = await store.server({ action: 'qa-task', id })
     assert.deepEqual([none.ok, none.status], [false, 409])
-    const again = await store.partner({ action: 'checked', id, evidence: 'pictures/b2/evidence.png', points: ['pass: a lamp at every bench', 'pass: warm yellow light, never white'] })
+    const again = await store.partner({ action: 'checked', size: '30 min', id, evidence: 'pictures/b2/evidence.png', points: ['pass: a lamp at every bench', 'pass: warm yellow light, never white'] })
     assert.deepEqual([again.ok, again.status], [false, 403])
     assert.equal(valueOf(await item(store.dir, id), 'State'), 'review')
   } finally {
@@ -293,7 +293,7 @@ test('the second review: a fix done while a point still waits for the person ask
     const checked = await store.checks(id, { evidence: 'x.png', points: ['fail: a lamp at every bench', 'ask: warm enough?'] })
     const fixId = checked.result.fix
     await queueFor(store.dir, fixId, 'Lamplighter', { now: NOW + 60_000 })
-    await store.lamplighter({ action: 'take', id: fixId, branch: 'b-fix' })
+    await store.lamplighter({ action: 'take', minutes: 30, id: fixId, branch: 'b-fix' })
     await store.lamplighter({ action: 'report', id: fixId, result: 'Lamps at every bench.', merged: 'beef123' })
     await store.server({ action: 'check', id: fixId, passed: true, lines: ['branch gone'] })
     const fixed = await store.checks(fixId, { evidence: 'y.png', points: ['pass: a lamp at every bench', 'pass: makes pass a lamp at every bench'] })
@@ -340,7 +340,7 @@ test('worktree clean-up: a result check is filed only once its own check-<id> wo
     const { id } = await reported(store)
     const qa = (await store.server({ action: 'qa-task', id })).result.id
     await queueFor(store.dir, qa, 'Checker', { now: NOW + 60_000 })
-    assert.equal((await store.checker({ action: 'take', id: qa })).ok, true)
+    assert.equal((await store.checker({ action: 'take', minutes: 30, id: qa })).ok, true)
     const ctx = { ...store.ctx, checkWorktrees: async one => { asked.push(one); return left } }
     const body = { chat: 'Checker', action: 'checked', id, evidence: 'none (nothing to see)', points: ['pass: a lamp at every bench', 'pass: warm yellow light, never white'] }
     const refused = await workApi(body, ctx)

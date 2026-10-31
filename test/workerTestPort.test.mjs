@@ -44,7 +44,7 @@ test('work take names the worker\'s test-server port and refuses launch.json and
   t.after(() => rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }))
   await writeStore(dir, migrateBacklog(['# Backlog', '', '## Art', '- [ ] B13 Draw the knight (for Worker 4; about 1 h)', ''].join('\n'), { now: NOW }), undefined, { now: NOW })
   const call = body => workApi(body, { dir, now: NOW, prefix: 'Game - ', roleOf: name => (name === 'Worker 4' ? 'worker' : null), testPort: who => workerPort(5300, who) })
-  const taken = await call({ action: 'take', chat: 'Worker 4', id: 'B13', branch: 'b13-knight' })
+  const taken = await call({ action: 'take', minutes: 30, chat: 'Worker 4', id: 'B13', branch: 'b13-knight' })
   assert.equal(taken.ok, true, taken.why)
   assert.equal(taken.result.testPort, 5394)
   assert.match(taken.result.text, /Test server port for Worker 4: 5394/)

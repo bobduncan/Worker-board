@@ -90,7 +90,7 @@ test('a refine question with a short title: the ask leads with it, its context u
     assert.equal(answered.ok, true, answered.why)
     assert.equal(valueOf(await item(dir, 'Q1'), 'State'), 'answered')
     assert.equal(valueOf(await item(dir, 'Q2'), 'State'), 'answered')
-    const folded = await advisor({ action: 'refined', id: 'B7', what: ['A yew hedge in two rows.'] })
+    const folded = await advisor({ action: 'refined', size: '30 min', id: 'B7', what: ['A yew hedge in two rows.'] })
     assert.equal(folded.ok, true, folded.why)
   } finally {
     await gone(dir)

@@ -117,7 +117,7 @@ test('a worker that owes a clear: its next step waits, the take names the clear 
   assert.deepEqual(owed.body.messages, [])
   assert.equal(owed.body.clear?.step, 'B12')
   // Its work tool's take of B13 is refused with why.
-  const refused = await call('work', { action: 'take', id: 'B13', branch: 'b13', chat: 'Units', session: 'units-old' }, '0.17.0')
+  const refused = await call('work', { action: 'take', minutes: 30, id: 'B13', branch: 'b13', chat: 'Units', session: 'units-old' }, '0.17.0')
   assert.equal(refused.status, 409)
   assert.match(refused.body, /Not yet: this chat is cleared after B12 first/)
 
@@ -132,7 +132,7 @@ test('a worker that owes a clear: its next step waits, the take names the clear 
   }, 'the line of B13 handed out after the clear')
   assert.match(handed.body.messages[0].text, /^work: B13 is yours; run work next/)
   assert.equal(handed.body.clear, undefined)
-  const taken = await call('work', { action: 'take', id: 'B13', branch: 'b13', chat: 'Units', session: 'units-new' }, '0.17.0')
+  const taken = await call('work', { action: 'take', minutes: 30, id: 'B13', branch: 'b13', chat: 'Units', session: 'units-new' }, '0.17.0')
   assert.equal(taken.status, 200, JSON.stringify(taken.body))
 })
 
@@ -174,5 +174,5 @@ test('a mod older than 0.17.0 is held to nothing: it could not run the clear the
     return handed.status === 200 && handed.body.messages.length > 0
   }, 'the line of B13 handed to the older mod')
   assert.equal(handed.body.clear, undefined)
-  assert.equal((await call('work', { action: 'take', id: 'B13', branch: 'b13', chat: 'Units', session: 'units-old' })).status, 200)
+  assert.equal((await call('work', { action: 'take', minutes: 30, id: 'B13', branch: 'b13', chat: 'Units', session: 'units-old' })).status, 200)
 })

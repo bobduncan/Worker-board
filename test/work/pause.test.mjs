@@ -48,7 +48,7 @@ const item = async (dir, id) => (await readStore(dir)).items.get(id)
 test('work step takes commit and next: the step record holds its checkpoint, and History one line per checkpoint', async () => {
   const { dir, board, at } = await fresh()
   try {
-    await board({ action: 'take', id: 'B1' })
+    await board({ action: 'take', minutes: 30, id: 'B1' })
     at(NOW + 5 * MIN + 7_000)
     const saved = await board({ action: 'step', id: 'B1', commit: 'a1b2c3d', next: 'wire the strip into the page' })
     assert.equal(saved.ok, true)
@@ -74,7 +74,7 @@ test('work step takes commit and next: the step record holds its checkpoint, and
 test('a checkpoint needs its next action and a commit that is a hash or none; a taken step takes one too', async () => {
   const { dir, board, support, server } = await fresh()
   try {
-    await board({ action: 'take', id: 'B1' })
+    await board({ action: 'take', minutes: 30, id: 'B1' })
     assert.deepEqual(await board({ action: 'step', id: 'B1', commit: 'a1b2c3d' }), { ok: false, status: 400, why: '"next" is the next action, in one line.' })
     assert.deepEqual(await board({ action: 'step', id: 'B1', commit: 'not a hash', next: 'x' }), { ok: false, status: 400, why: '"commit" is the commit hash, or none.' })
     // Another chat's step: refused as before.
@@ -127,7 +127,7 @@ test('pause-all and resume-all are the person\'s: they write pause.json in the s
 test('pause-state: running without pause.json; while pausing every chat must stop, with the steps it holds and their checkpoints', async () => {
   const { dir, board, support, person, at } = await fresh()
   try {
-    await board({ action: 'take', id: 'B1' })
+    await board({ action: 'take', minutes: 30, id: 'B1' })
     await board({ action: 'step', id: 'B1', commit: 'a1b2c3d', next: 'wire it' })
     const none = await board({ action: 'pause-state' })
     // The review of Pause 2: each hold carries its branch and last History lines too.
@@ -161,7 +161,7 @@ test('pause-state while resuming: the main chat gets the list of who to wake, by
   // After the app's restart: Board's chat does not run yet.
   const { dir, board, main, person, at } = await fresh(LANES.map(lane => (lane.name === 'Board' ? { ...lane, state: 'off', isRunning: false } : lane)))
   try {
-    await board({ action: 'take', id: 'B1' })
+    await board({ action: 'take', minutes: 30, id: 'B1' })
     await board({ action: 'step', id: 'B1', commit: 'a1b2c3d', next: 'wire it' })
     at(NOW + 30 * MIN)
     await person({ action: 'resume-all' })
@@ -254,7 +254,7 @@ test('after Resume all the board types "resume" only into a main chat that runs;
 test('after a pause, the resume list of the main chat marks a checkpoint written during the pause as one since the pause', async () => {
   const { dir, board, main, person, at } = await fresh(LANES.map(lane => (lane.name === 'Board' ? { ...lane, state: 'off', isRunning: false } : lane)))
   try {
-    await board({ action: 'take', id: 'B1' })
+    await board({ action: 'take', minutes: 30, id: 'B1' })
     at(NOW + MIN)
     await person({ action: 'pause-all' })
     at(NOW + 2 * MIN)
@@ -291,7 +291,7 @@ test('review 1: a step waiting on you or in review is held as the work API holds
 test('review 1: a checkpoint stands on a step waiting on you or in review too', async () => {
   const { dir, board, server } = await fresh()
   try {
-    await board({ action: 'take', id: 'B1' })
+    await board({ action: 'take', minutes: 30, id: 'B1' })
     await board({ action: 'report', id: 'B1', result: 'it is in' })
     assert.equal(valueOf(await item(dir, 'B1'), 'State'), 'review')
     assert.equal((await board({ action: 'step', id: 'B1', next: 'wait for the check' })).ok, true)
