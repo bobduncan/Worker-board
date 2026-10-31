@@ -958,6 +958,22 @@ most, and again when the user presses "Ask your partner again". Make it at once,
   change of the goal's state (a No that opens the how again) removes the Demo line; when its parts are done again the
   board asks for a new demo, and you write the `Demo:` line again.
 
+### Recap feedback
+
+B860: the user judges a demo inside its popup: each part (a row) gets Approve or Send back with a comment, and one Send. The
+board keeps it beside the demo (`feedback.json`), writes it as the user's words on the demo's step (the list's `"step"`) and
+types `recap feedback: G<n> <title>, round N: ...` into your chat, with the step, the demo's path, each part sent back with
+the user's comment, the parts approved and how many are not decided yet. Act on it at once:
+
+- Each part sent back is a try of its own: file a step for it (or reopen its step) with the user's comment as the point to
+  fix, as for any feedback (`work new`, the comment word for word). Never answer the user in a chat: they read the board.
+- When the new tries are made, change the demo's list: replace the pictures of the rows that came back with the new try
+  (same row title or `"id"`: the board keys a part by it), and write `demo.json` again with `node tools/demo.mjs`. Leave the
+  other rows as they are: the board shows round 2 with only the parts sent back, each with the user's comment beside its new
+  try, and folds the approved ones.
+- Never write or change `feedback.json`: it is the user's. A word saying every part is approved needs no new try: the
+  recap is done; go on with the goal's Demo line as before.
+
 ## The goal re-check
 
 A goal that makes a page (a review, a check, a short page in plain words) gets the line `Page: <its path in the game's

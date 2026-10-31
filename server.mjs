@@ -57,8 +57,8 @@ import { areaOf, freshScan, keptTasks, listText, readOn } from './src/taskTimes.
 import { createSpendingCollector } from './src/work/routing/collector.mjs'
 import { readRoutingRecord } from './src/work/routing/records.mjs'
 import { parseRoutingPolicy } from './src/work/routing/policy.mjs'
-import { adoptPicture, findDemo, findPicture, PICTURE_BYTES as SHOWN_PICTURE_BYTES, pictureProblem, pictureTooBig, shownFolders, shownRoots } from './src/pictures.mjs'
-import { answerWords, checkSay, focusWords, goalStepOf, recommendYesAnswer, obsoleteWords, recommendYesOf, reportedBackgroundDue, resumesDue, sayStopWords, spawnWhenAlone, wakeFor, wakesDue, wakesStopped, withInstruction, workWords } from './src/say.mjs'
+import { adoptPicture, findDemo, findPicture, readDemo, writeFeedback, PICTURE_BYTES as SHOWN_PICTURE_BYTES, pictureProblem, pictureTooBig, shownFolders, shownRoots } from './src/pictures.mjs'
+import { recapFeedbackWords, answerWords, checkSay, focusWords, goalStepOf, recommendYesAnswer, obsoleteWords, recommendYesOf, reportedBackgroundDue, resumesDue, sayStopWords, spawnWhenAlone, wakeFor, wakesDue, wakesStopped, withInstruction, workWords } from './src/say.mjs'
 import { keepTalkPicture } from './src/talkPicture.mjs'
 import { firstLook, refineQueue, refineWhenDue } from './src/refineGate.mjs'
 import { recheckText, roundText, roundsNow } from './src/rounds.mjs'
@@ -68,6 +68,7 @@ import { addDoneWhenStep, changeGoalsFile, editGoals, setGoalSteps } from './src
 import { parseGoals } from './src/goals.mjs'
 import { activityFor, missingToSteps } from './src/goalSteps.mjs'
 import { PLAN_MOVES, planMove } from './src/planMoves.mjs'
+import { checkSend, roundPage, stampOf, withRound, wordsOfRound } from './src/demoFeedback.mjs'
 import { FOCUS_DRAFTS, FOCUS_MOVES, demoAgain, evaluationsAgain, evaluationsMode, evaluationsRunning, focusAllDone, focusMove, goalChecked, goalReopened, guardGoal, guardsAsking, partDropRefusal, undoLine } from './src/focus.mjs'
 import { PARTNER_MODES, effortBack, fableBack, partnerEffortWords } from './src/partnerEffort.mjs'
 import { evaluationFor } from './src/goalGuard.mjs'
@@ -231,6 +232,8 @@ export const POST_ROUTES = Object.freeze({
   '/api/plan': { kind: 'json', guard: 'lock' },
   '/api/brainstorm': { kind: 'json', guard: 'lock' },
   '/api/work': { kind: 'json', guard: 'lock' },
+  // B860: the person's feedback on a goal demo's parts: feedback.json beside the demo, words on its step, one word to the partner.
+  '/api/demo-feedback': { kind: 'json', guard: 'lock' },
   '/api/settings': { kind: 'json', guard: 'lock' },
   '/api/game': { kind: 'json', guard: 'free', why: 'starts or stops a game process of this board\'s own; writes nothing of the project' },
   '/api/cpu': { kind: 'json', guard: 'free', why: 'the CPU level kept in this board folder\'s own data, not the project\'s' },
@@ -278,6 +281,7 @@ export function createBoard({
   goals = async () => ({ ok: false, status: 404, why: 'Not here.' }),
   brainstorm = async () => ({ ok: false, status: 404, why: 'Not here.' }),
   work = async () => ({ ok: false, status: 404, why: 'Not here.' }),
+  demoFeedback = async () => ({ ok: false, status: 404, why: 'Not here.' }),
   bridgeWork = async () => ({ ok: false, status: 404, why: 'Not here.' }),
   cpu = async () => ({ ok: false, status: 404, why: 'Not here.' }),
   codeJobs = async () => ({ ok: false, status: 404, why: 'Not here.' }),
@@ -407,6 +411,10 @@ export function createBoard({
       }
       if (pathname === '/api/backlog') {
         const done = await backlog(parsed)
+        return done.ok ? json(res, done.result) : refuse(res, done.status, done.why)
+      }
+      if (pathname === '/api/demo-feedback') {
+        const done = await demoFeedback(parsed)
         return done.ok ? json(res, done.result) : refuse(res, done.status, done.why)
       }
       if (pathname === '/api/work') {
@@ -934,6 +942,51 @@ async function main(args) {
       partner: state.advisor, job: join(HERE, 'roles', 'partner.md'), focus: state.focus ?? null,
     })
     for (const one of words) await toPartner(one, {}, state)
+  }
+  /** B860: why the person's feedback on a goal demo cannot be taken here, or null. */
+  const demoFeedbackWhyNot = async () => {
+    if (isDemo) return 'This is the demo: it keeps no feedback.'
+    if (!writesMap) return `This board only shows. Send your feedback on the board that delivers: http://${HOST}:${recordingPort}/`
+    if (((await readState()).advisor ?? null) === null) return 'No partner chat is on the board to take your feedback: start it first.'
+    return null
+  }
+  /**
+   * B860: the person's Send on a goal demo: each part Approved or Sent back with a comment. Checked against the round the demo
+   * shows (a round sent already, a part the demo lacks, a part sent back without words: refused, nothing written); then
+   * feedback.json beside the demo, the person's words on the demo's step (once), and one word to the partner. One Send at a time.
+   */
+  let demoTurn = Promise.resolve()
+  const demoFeedbackNow = body => {
+    const run = async () => {
+      const why = await demoFeedbackWhyNot()
+      if (why !== null) return { ok: false, status: 409, why }
+      const state = await readState()
+      const found = await readDemo(state.project, shownRoots(config), body?.path)
+      if (found === null) return { ok: false, status: 404, why: 'No such goal demo.' }
+      if (found.why !== undefined) return { ok: false, status: 422, why: found.why }
+      const checked = checkSend(roundPage(found.base, found.feedback), body)
+      if (!checked.ok) return checked
+      await writeFeedback(found.file, withRound(found.feedback, checked.round, checked.parts, stampOf(clock())))
+      readState.reset()
+      const said = wordsOfRound(found.base, checked.round, checked.parts)
+      const after = roundPage(found.base, withRound(found.feedback, checked.round, checked.parts, ''))
+      // The person's words stand on the demo's step; a step that is gone does not stop the feedback (it is kept and the partner has it).
+      let notedOn = null
+      if (found.base.step !== null && workDir !== null) {
+        const noted = await workAction({ action: 'words', id: found.base.step, text: said.lines.join('\n'), where: 'in the goal demo' }, 'person')
+        if (noted.ok) notedOn = found.base.step
+      }
+      const left = after.sections.flatMap(section => section.rows).filter(row => row.said === undefined).length
+      await toPartner(recapFeedbackWords(state.advisor.name, {
+        goal: found.base.goal, title: found.base.title, step: notedOn ?? found.base.step, round: checked.round, approved: said.approved, back: said.back,
+        done: after.feedback.done, left, path: body.path, job: join(HERE, 'roles', 'partner.md'),
+      }), {}, state)
+      return { ok: true, result: { round: checked.round, approved: said.approved.length, sentBack: said.back.length, done: after.feedback.done, notedOn } }
+    }
+    const turn = demoTurn.then(run, run)
+    // The caller has the turn itself, with its error; the next Send only waits for this one to end.
+    demoTurn = turn.then(() => undefined, error => { console.error(`The goal demo's feedback failed: ${error?.message ?? error}`) })
+    return turn
   }
   /** Focus 2: the person's word to the partner into the outbox (copied without the Workers mod); a partner not running is woken. */
   const toPartner = async (words, result, state) => {
@@ -2103,7 +2156,14 @@ async function main(args) {
       return { ok: true, message }
     },
     gameFile: (path, alt) => findGameFile(config, path, alt),
-    demo: async path => findDemo((await readState()).project, shownRoots(config), path),
+    // B860: the page of the round the person answers, with whether they may send feedback (and why not).
+    demo: async path => {
+      const found = await findDemo((await readState()).project, shownRoots(config), path)
+      if (found?.page === undefined) return found
+      const whyNot = await demoFeedbackWhyNot()
+      return { page: { ...found.page, feedback: { ...found.page.feedback, canSend: whyNot === null && found.page.feedback.parts > 0 && !found.page.feedback.done, whyNot } } }
+    },
+    demoFeedback: async body => demoFeedbackNow(body),
     picture: async path => {
       const { project } = await readState()
       const found = await findPicture(project, shownRoots(config), path)

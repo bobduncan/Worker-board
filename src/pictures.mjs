@@ -2,11 +2,12 @@
 // project's picture folder). A chat or the backlog only gives a path; whether it may be shown is decided here, on the
 // real file, so nothing outside those folders can be asked for through the board.
 
-import { copyFile, mkdir, readdir, readFile, realpath, stat } from 'node:fs/promises'
-import { join, sep } from 'node:path'
+import { copyFile, mkdir, readdir, readFile, realpath, rename, stat, writeFile } from 'node:fs/promises'
+import { dirname, join, sep } from 'node:path'
 
 import { picturePath } from './asks.mjs'
 import { DEMO_BYTES, demoPage } from './demo.mjs'
+import { FEEDBACK_BYTES, FEEDBACK_FILE, roundPage } from './demoFeedback.mjs'
 
 /** An idea's reference picture in its folder (B156). */
 const IDEA_REFERENCE = /^reference-[1-9]\.(png|jpg|webp)$/
@@ -59,10 +60,11 @@ export async function findPicture(project, roots, value) {
 }
 
 /**
- * B699: the goal demo a `demo.json` in a shown folder holds, as the page the board draws (src/demo.mjs demoPage). Null when
- * no such file is there; `{ why }` in plain words when it is there but cannot be drawn; else `{ page }`.
+ * B699: the goal demo a `demo.json` in a shown folder holds, with the person's rounds of feedback beside it (B860): null when no
+ * such file is there; `{ why }` in plain words when it is there but cannot be drawn; else `{ file, base, feedback }`: the demo's
+ * real file, its whole page (src/demo.mjs demoPage) and the content of its feedback.json (null before the first round).
  */
-export async function findDemo(project, roots, value) {
+export async function readDemo(project, roots, value) {
   if (typeof value !== 'string') return null
   const path = value.replace(/\\/g, '/')
   const parts = path.split('/')
@@ -75,10 +77,37 @@ export async function findDemo(project, roots, value) {
     if (info.size > DEMO_BYTES) return { why: `The demo list is over ${DEMO_BYTES / 1048576} MB.` }
     let list
     try { list = JSON.parse((await readFile(file, 'utf8')).replace(/^﻿/, '')) } catch { return { why: 'The demo list is not valid JSON.' } }
-    try { return { page: demoPage(list, parts.slice(0, -1).join('/')) } } catch (error) { return { why: error.message } }
+    let base
+    try { base = demoPage(list, parts.slice(0, -1).join('/')) } catch (error) { return { why: error.message } }
+    return { file, base, feedback: await readFeedback(file) }
   } catch {
     return null
   }
+}
+
+/** The feedback.json beside a demo file: its content, or null for none (or one that is not JSON: the rounds start over only on the next Send). */
+async function readFeedback(demoFile) {
+  const file = join(dirname(demoFile), FEEDBACK_FILE)
+  try {
+    if ((await stat(file)).size > FEEDBACK_BYTES) return null
+    return JSON.parse((await readFile(file, 'utf8')).replace(/^﻿/, ''))
+  } catch {
+    return null
+  }
+}
+
+/** Writes the feedback.json beside a demo file, whole or not at all. */
+export async function writeFeedback(demoFile, content) {
+  const file = join(dirname(demoFile), FEEDBACK_FILE)
+  const temporary = `${file}.${process.pid}.tmp`
+  await writeFile(temporary, `${JSON.stringify(content, null, 2)}\n`)
+  await rename(temporary, file)
+}
+
+/** B699: the page of a demo for the person: the round they answer now (src/demoFeedback.mjs roundPage). Same answers as `readDemo`, else `{ page }`. */
+export async function findDemo(project, roots, value) {
+  const found = await readDemo(project, roots, value)
+  return found === null || found.why !== undefined ? found : { page: roundPage(found.base, found.feedback) }
 }
 
 /** The size of a picture in a shown folder that is too big to show, or null (B676: the popup says so, never an empty window). */
