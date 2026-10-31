@@ -35,7 +35,7 @@ import { dailyNote, isDailyNote } from './work/dailyNote.mjs'
 import { SYNC_BOARD, syncChecks } from './sync.mjs'
 import { decidedTodayOf, informationOf, instructionsOf, nameFinder, notesToMain, partnerDecidedOf, routedAwayOf, storeNeeds, storeWaits, withPartnerOf } from './work/lists.mjs'
 import { botherMeOf } from './boardSettings.mjs'
-import { recapWaitIds, waitsForRecap } from './work/autopilot.mjs'
+import { recapWaitOf } from './work/autopilot.mjs'
 import { NOTE_LINE, isDecidedForYou, isPartnerAskWord, stepWaitsForPartner } from './work/partnerAnswers.mjs'
 import { advisorNextOf, advisorWorkOf, leaveOut } from './work/advisorWork.mjs'
 import { openQaTaskOf, qaStandOf } from './work/qaTask.mjs'
@@ -1341,9 +1341,12 @@ export function focusState(goalMap, items, threads, prefix, partner = null, now 
   // Autopilot (the coordinator's ruling, 2026-10-31): a step in review that waits only for the goal's recap (its `Recap verdict:
   // waits (Q<n>)` line, the ask still open there) counts as done for asking the goal demo (`progress.forDemo`, src/focus.mjs
   // `focusAllDone`), and the demo's words ask a row of its own for it (`recapRows`).
-  const recapRows = [...new Set(node.parts.flatMap(part => part.steps))].map(id => steps.get(id))
-    .filter(one => one !== undefined && waitsForRecap(one, all)).map(one => ({ step: one.head.get('Id'), asks: recapWaitIds(one, all) }))
-  const waiting = new Set(recapRows.map(one => one.step))
+  // The re-review (2026-10-31): a step waits for the recap through its chain of fixes too (B689 behind its fix B821), and only
+  // while nothing else of it is open (autopilot.mjs `recapWaitOf`).
+  const waits = [...new Set(node.parts.flatMap(part => part.steps))].map(id => steps.get(id)).filter(one => one !== undefined)
+    .map(one => [one.head.get('Id'), recapWaitOf(one, all)]).filter(([, rows]) => rows !== null)
+  const waiting = new Set(waits.map(([id]) => id))
+  const recapRows = [...new Map(waits.flatMap(([, rows]) => rows).map(row => [row.step, row])).values()]
   const forDemo = parts.filter((part, index) => {
     if (part.state === 'done') return true
     if (part.state === 'dropped' || part.state === 'stopped') return false

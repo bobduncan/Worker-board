@@ -5644,15 +5644,19 @@ goal's recap). It extends Partner answers (2026-10-19), still with no blanket ap
    goal stuck after the guard's tries is the person's, so its "Rebuild G<n>:" ask is filed and routed to them), the
    reconciler reads the partner's answers as on, and the panel hides Bother me and Approve rebuilds by itself.
 2. **The routing**, one pure module (src/work/autopilot.mjs `autopilotRoute(ask, ctx)`), in this order: an explicit
-   `Route: person` (a line on its card, or the board's own route) and the app's question form → person; goal level (of a
-   goal, the goal guard's words, the goal's recap or demo link; the partner's or Product owner's words about the goal
-   definition, its work blocks, a change of the goal; any title about a goal, the focus, an approach, a setting or a
-   licence) → person; what only the person's hands can do (`PERSONS_HANDS`, one list: quit, reopen or restart the Claude
+   `Route: person` (a line on its card, or the board's own route) and the app's question form → person; what only the
+   person's hands can do (below) → person; goal level (of a goal, the goal guard's words, the goal's recap or demo link; and,
+   for an ask under no step only, the partner's or Product owner's words about the goal definition, its work blocks, a
+   change of the goal, and a title about a goal, the focus, an approach, a setting, a standard or a licence, as whole phrases)
+   → person. The re-review's ruling (2026-10-31): Autopilot On never asks the person more than Off for asks under a step, so
+   a decide or look under a step is the person's only by a few whole phrases (`UNDER_STEP_HANDS`: quit, reopen or restart the
+   Claude app; sign in or log in; an account; a password; pay or money; a permanent delete; install or reinstall a mod or an
+   app); a do and an ask under no step by the whole list (`PERSONS_HANDS`: quit, reopen or restart the Claude
    app; a click on Allow, a chip or a prompt; sign in or log in; an account; money; an install; a permission; a password;
    the week's limit; and (the ruling of 2026-10-31) a permanent delete: a chat, a file or folder, a launch.json entry, a branch,
    archiving staying the main chat's) → person; the board's "Accept or send back" card, a look of the step's checker, a look of a step
    below its target → recap when the step is of the focus goal and its demo is still to be asked or a recap names the
-   step, else person; an ask that marks a step done, accepts it or sends it back → person; a look or decide under no
+   step, else person; an action (a do or a chore) that marks a step done, accepts it or sends it back → person; a look or decide under no
    step that names a score beside a target → person; a do (not the Product owner's) and a yes/no chore ("Restart ...? I
    advise yes") → main; the partner's and the Product owner's asks with advice under a step → advice (a refine question
    without advice → back to the Advisor; one under no step → person); a worker's or the main chat's decide, or look with
@@ -5674,7 +5678,9 @@ goal's recap). It extends Partner answers (2026-10-19), still with no blanket ap
 5. **Waits for the recap** (the coordinator's ruling of 2026-10-31, after a review found the first version deadlocked: a card
    kept its step in review, so its part was never done, the goal demo never asked, nothing closed it): a recap route writes
    `Recap verdict: waits (Q<n>)` on its step (Context) and makes a blocking ask blocking no more ("autopilot: the step goes
-   on; judged at the goal's recap"). A step in review whose line names an ask still open there counts as done for asking
+   on; judged at the goal's recap"). A step in review whose line names an ask still open there (or whose chain of open
+   fixes, resultCheck.mjs `chainWaitOf`, ends at such a step: B689 behind its fix B821), with nothing else of it open (no fix
+   of it or of its chain new, refined, queued, taken, in progress or waiting on you; no other open ask), counts as done for asking
    the goal demo (state.mjs `progress.forDemo`, focus.mjs `focusAllDone(…, { forDemo })`), and the demo's words ask a row of
    its own for it ("Own rows: …", say.mjs `focusWords`). "Did we reach the goal?" shows at that moment with them listed first;
    its Yes waits until every part is done. The board's accept pass keeps such a card open while the recap names its step.

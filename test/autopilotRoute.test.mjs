@@ -6,7 +6,8 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import { PERSONS_HANDS, REFINE_BACK_WORDS, SENT_BACK, adviceAnswerOf, adviceOf, autopilotRoute, belowTarget, handsOf, isChore, isExplicitPerson, isGoalLevel, letteredOptions, recapVerdictWords, recapWaitIds, refineAdviceOf, routedWords, standsForPerson, waitsForRecap } from '../src/work/autopilot.mjs'
+import { PERSONS_HANDS, UNDER_STEP_HANDS, REFINE_BACK_WORDS, SENT_BACK, adviceAnswerOf, adviceOf, autopilotRoute, belowTarget, handsOf, isChore, isExplicitPerson, isGoalLevel, letteredOptions, recapVerdictWords, recapWaitIds, optionsOf, recapWaitOf, refineAdviceOf, routedWords, standsForPerson, waitsForRecap } from '../src/work/autopilot.mjs'
+import { routesToPartner } from '../src/work/partnerAnswers.mjs'
 import { parseItem } from '../src/work/item.mjs'
 import { stamp } from '../src/work/migrate.mjs'
 
@@ -112,16 +113,43 @@ test('every row of the plan: partner, advice, recap, main and person', () => {
   assert.equal(routeOf(ask('Q39', { Title: 'A card of the board', Asks: 'decide' })), 'person')
 })
 
-test('the review\'s cases (2026-10-31): a goal, the focus, an approach, a setting or a licence is the person\'s, also from the partner with advice', () => {
-  const partner = (id, title, more = {}) => ask(id, { Title: title, Owner: 'Partner', Asks: 'decide', Advice: 'A', Of: 'B21', ...more })
-  assert.equal(routeOf(partner('Q70', 'Make G42 the next focus?', { Advice: 'yes', Of: undefined })), 'person')
+test('the review\'s cases (2026-10-31): a goal, the focus, an approach, a setting, a standard or a licence under no step is the person\'s', () => {
+  const partner = (id, title, more = {}) => ask(id, { Title: title, Owner: 'Partner', Asks: 'decide', Advice: 'A', ...more })
+  // The live asks were under no step (Q366, Q411, Q361, Q133, Q112, Q436's words).
+  assert.deepEqual(autopilotRoute(partner('Q70', 'Make G42 the next focus?', { Advice: 'yes' }), ctx), { to: 'person', why: 'goal level ("G42")' })
   assert.equal(routeOf(partner('Q71', 'Is the maps goal\'s approach right after 18 failed checks?')), 'person')
   assert.equal(routeOf(partner('Q72', 'Apply the new goal map?', { Advice: 'yes' })), 'person')
   assert.equal(routeOf(partner('Q73', 'Which board setting for the first rebuilds?', { Options: 'A off | B on' })), 'person')
   assert.equal(routeOf(partner('Q74', 'Publish the repository under the MIT license?', { Advice: 'yes' })), 'person')
   assert.equal(routeOf(partner('Q76', 'Add "ground that changes" to your map bar?', { Advice: 'yes' })), 'person', 'the person\'s standard')
-  // The same partner with advice on a plain detail of a step: decided for the person.
-  assert.equal(routeOf(partner('Q75', 'Two rows or three on the shop card?', { Options: 'A two | B three' })), 'advice')
+  // The re-review's ruling: those words count only under no step; under a step the partner's advice is taken.
+  assert.equal(routeOf(partner('Q77', 'Which settings page preview for the shop card?', { Of: 'B21', Options: 'A small | B large' })), 'advice')
+  assert.equal(routeOf(partner('Q75', 'Two rows or three on the shop card?', { Of: 'B21', Options: 'A two | B three' })), 'advice')
+})
+
+test('the re-review\'s ruling: under a step, Autopilot On asks the person no more than the partner\'s answers do (Off)', () => {
+  // A worker's decide or look under a step with options or advice, that the partner answers with Autopilot off.
+  const detail = (id, title, more = {}) => ask(id, { Title: title, Owner: 'Painter', Asks: 'decide', Of: 'B24', Options: 'A yes | B no', Advice: 'A', ...more })
+  const off = one => routesToPartner({ setting: { on: true }, role: 'worker', kind: one.head.get('Asks'), options: optionsOf(one).map(o => o.words), advice: adviceOf(one) ?? '', via: null })
+  // Twins of the live Q125, Q234, Q401 and words like them: the partner's with Autopilot off, the partner's with it on.
+  for (const title of ['Do the settings page\'s previews work the way you meant?', 'New approach for the crumbling tiles and vents?', 'Allow the painted outline to cut a cell by up to half?',
+    'Should the focus ring be gold?', 'Press the edge in by one pixel?', 'Click through the shop: does it read?', 'Take the old lava into account?', 'Pay attention to the moat\'s edge?',
+    'Keep the chip art for the cards?', 'Update the map to the G28 levels?']) {
+    const one = detail('Q90', title)
+    assert.equal(off(one), true, title)
+    assert.equal(routeOf(one), 'partner', title)
+    assert.equal(routeOf(detail('Q91', title, { Asks: 'look' })), 'partner', `look: ${title}`)
+  }
+  // Only these whole phrases make a decide or look under a step the person's.
+  for (const [title, name, phrase] of [['Quit and reopen the Claude app to load it?', 'the Claude app', 'Quit and reopen the Claude app'], ['Sign in to the art shop for the pack?', 'a sign-in', 'Sign in'],
+    ['Log in to the font site?', 'a sign-in', 'Log in'], ['Use your account for the pack?', 'an account', 'your account'], ['Store the password in the settings?', 'a password', 'password'],
+    ['Pay for the bigger pack?', 'money', 'Pay'], ['Spend money on a sound pack?', 'money', 'money'], ['Delete the old branch?', 'a permanent delete', 'Delete'],
+    ['Reinstall the Workers mod?', 'an install', 'Reinstall the Workers mod'], ['Install the paint app?', 'an install', 'Install the paint app']]) {
+    assert.deepEqual(autopilotRoute(detail('Q92', title), ctx), { to: 'person', why: `only the person's hands: ${name} ("${phrase}")` }, title)
+  }
+  assert.deepEqual(UNDER_STEP_HANDS.map(([name]) => name), ['the Claude app', 'a sign-in', 'an account', 'a password', 'money', 'a permanent delete', 'an install'])
+  // A do under a step keeps the whole list: a click is the person's.
+  assert.equal(routeOf(detail('Q93', 'Click Allow on the prompt', { Asks: 'do', Options: undefined, Advice: undefined })), 'person')
 })
 
 test('what only the person\'s hands can do never goes to the main chat (twins of Q104, Q559, Q345, Q113, Q539)', () => {
@@ -135,7 +163,9 @@ test('what only the person\'s hands can do never goes to the main chat (twins of
   ]
   for (const [one, hands] of cases) {
     assert.equal(handsOf(one), hands, one.head.get('Id'))
-    assert.deepEqual(autopilotRoute(one, ctx), { to: 'person', why: `only the person's hands: ${hands}` }, one.head.get('Id'))
+    const route = autopilotRoute(one, ctx)
+    assert.equal(route.to, 'person', one.head.get('Id'))
+    assert.ok(route.why.startsWith(`only the person's hands: ${hands} ("`), route.why)
   }
   // One list: a board button only the person presses, sign-in, an account, money, an install, a mod's change, a permission,
   // a password, the week's limit (the live store's closed asks of the week showed the board's buttons, a reinstall and a mod).
@@ -163,7 +193,8 @@ test('what only the person\'s hands can do never goes to the main chat (twins of
     ask('Q563', { Title: 'delete the entry named `b44-probe` from `D:\\garden\\.claude\\launch.json`.', Owner: 'Painter', Asks: 'do', Of: 'B21', Via: 'chat' }),
     ask('Q412', { Title: 'Keep branch `b51-trace-lift` for later use, or delete it?', Owner: 'Painter', Asks: 'decide', Options: 'A keep | B delete', Advice: 'B', Via: 'chat' }),
   ]
-  for (const one of deletes) assert.deepEqual(autopilotRoute(one, ctx), { to: 'person', why: 'only the person\'s hands: a permanent delete' }, one.head.get('Id'))
+  for (const one of deletes) assert.match(autopilotRoute(one, ctx).why, /^only the person's hands: a permanent delete \("[Dd]elete"\)$/, one.head.get('Id'))
+  for (const one of deletes) assert.equal(autopilotRoute(one, ctx).to, 'person', one.head.get('Id'))
   assert.equal(routeOf(lead('Q95', 'Archive the Painter and Pruner chats in the sidebar.')), 'main')
   assert.equal(handsOf(ask('Q98', { Title: 'Merge B21 into main', Owner: 'Painter', Asks: 'do' })), null)
 })
@@ -171,12 +202,34 @@ test('what only the person\'s hands can do never goes to the main chat (twins of
 test('the step\'s recap line: an open ask routed to the recap that it names makes the step wait for the recap only', () => {
   const asked = (id, state = 'open', route = 'recap') => item({ Id: id, Kind: 'ask', Title: 'x', State: state, Route: route, Of: 'B21' })
   const marked = (state, ids) => item({ Id: 'B21', Kind: 'step', Title: 'Round the pool', State: state, Goal: 'G29' }, { Context: ids.map(id => `  ${recapVerdictWords('waits', id)}`) })
-  const items = new Map([['Q80', asked('Q80')], ['Q81', asked('Q81', 'answered')], ['Q82', asked('Q82', 'open', 'person')]])
+  const items = new Map([['Q80', asked('Q80')], ['Q81', asked('Q81', 'answered')]])
   assert.equal(recapVerdictWords('waits', 'Q80'), 'Recap verdict: waits (Q80)')
-  assert.deepEqual(recapWaitIds(marked('review', ['Q80', 'Q81', 'Q82']), items), ['Q80'])
-  assert.equal(waitsForRecap(marked('review', ['Q80']), items), true)
+  assert.deepEqual(recapWaitIds(marked('review', ['Q80', 'Q81']), items), ['Q80'])
+  assert.deepEqual(recapWaitOf(marked('review', ['Q80']), items), [{ step: 'B21', asks: ['Q80'] }])
   assert.equal(waitsForRecap(marked('review', ['Q81']), items), false, 'its ask was answered')
   assert.equal(waitsForRecap(marked('in progress', ['Q80']), items), false, 'only a step in review')
+  // The re-review (2026-10-31): only when nothing else of it is open: another open ask of it, or a fix of it still to be built.
+  assert.equal(waitsForRecap(marked('review', ['Q80']), new Map([...items, ['Q82', asked('Q82', 'open', 'person')]])), false, 'another open ask')
+  for (const state of ['new', 'refined', 'queued', 'taken', 'in progress', 'waiting on you']) {
+    const fix = item({ Id: 'B30', Kind: 'step', Title: 'Fix: judged beside the painting', State: state, 'Fix of': 'B21' })
+    assert.equal(waitsForRecap(marked('review', ['Q80']), new Map([...items, ['B30', fix]])), false, `its fix is ${state}`)
+  }
+})
+
+test('the re-review (2026-10-31): a step waits for the recap through its chain of open fixes, as B689 behind its fix B821', () => {
+  const parent = item({ Id: 'B689', Kind: 'step', Title: 'Round the ring', State: 'review', Goal: 'G29' })
+  const fix = (state, lines = ['  Recap verdict: waits (Q86)']) => item({ Id: 'B821', Kind: 'step', Title: 'Fix: the pool reads round', State: state, Goal: 'G29', 'Fix of': 'B689' }, { Context: lines })
+  const card = (state = 'open') => item({ Id: 'Q86', Kind: 'ask', Title: 'Accept B821 at 64 of 75, or send it back?', State: state, Route: 'recap', Of: 'B821', Via: 'accept' })
+  const store = (...more) => new Map([['B689', parent], ...more.map(one => [one.head.get('Id'), one])])
+  assert.deepEqual(recapWaitOf(parent, store(fix('review'), card())), [{ step: 'B821', asks: ['Q86'] }])
+  assert.equal(waitsForRecap(parent, store(fix('review', []), card())), false, 'its fix waits for nothing of the recap')
+  assert.equal(waitsForRecap(parent, store(fix('review'), card('answered'))), false, 'the verdict came')
+  assert.equal(waitsForRecap(parent, store(fix('in progress'), card())), false, 'its fix is being built')
+  // A fix of the fix still to be built, or another open ask of either: not for the recap only.
+  const deeper = item({ Id: 'B900', Kind: 'step', Title: 'Fix: the rim', State: 'queued', 'Fix of': 'B821' })
+  assert.equal(waitsForRecap(parent, store(fix('review'), card(), deeper)), false)
+  const other = item({ Id: 'Q87', Kind: 'ask', Title: 'Which rim?', State: 'open', Of: 'B689' })
+  assert.equal(waitsForRecap(parent, store(fix('review'), card(), other)), false)
 })
 test('an explicit Route: person stays the person\'s; a bare default one does not count as somebody\'s word', () => {
   const handed = ask('Q40', { Title: 'Icons or words?', Owner: 'Painter', Asks: 'decide', Options: 'A icons | B words', Advice: 'A', Route: 'person' }, null, { Route: ['Your partner hands this to you: it is a new look'] })

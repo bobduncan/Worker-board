@@ -25,7 +25,7 @@
 //   an ask the partner or the main chat handed on.
 
 import { askFiledMs, sinceMs, valueOf } from './item.mjs'
-import { checkedOf } from './resultCheck.mjs'
+import { chainWaitOf, checkedOf, fixesOf } from './resultCheck.mjs'
 import { standardOf } from './standard.mjs'
 
 export const ROUTES = ['partner', 'advice', 'recap', 'main', 'person']
@@ -144,38 +144,49 @@ export const dropsStep = (question, stepId) => new RegExp(`\\bdrop (?:it|this st
 
 /**
  * Goal level (the person's to answer): an ask of a goal (`Of: G<n>`: the partner's focus asks, the goal guard's, "Rebuild
- * G<n>"), the goal guard's own words, the goal's recap or demo (its `#demo=` link or demo.json; the words "the goal's recap"
- * only for an ask under no step), a question about a goal, the focus, a setting or a licence (its title), and the partner's
- * and the Product owner's asks about a goal's definition, its work blocks or a change of the goal.
+ * G<n>"), the goal guard's own words, and the goal's recap or demo (its `#demo=` link or demo.json). The coordinator's ruling
+ * (2026-10-31, "Autopilot On must never ask the person more than Off for asks under a step"): the goal-level words apply only
+ * to an ask under no step: "the goal's recap", a title about a goal, the focus, an approach, a setting, a standard or a
+ * licence (ABOUT_GOAL), and the partner's and the Product owner's words about a goal's definition, its work blocks or a change
+ * of the goal. The phrase that made it goal level, or null.
  */
-export function isGoalLevel(item, role = null) {
-  if (GOAL.test(valueOf(item, 'Of') ?? '')) return true
+export function goalLevelOf(item, role = null) {
+  if (GOAL.test(valueOf(item, 'Of') ?? '')) return `of ${valueOf(item, 'Of')}`
   const words = `${title(item)} ${text(item)}`
-  if (/^Rebuild G\d+\b/.test(title(item)) || /\bG\d+\b[^.?!]*\bfailed \d+ times\b/.test(title(item))) return true
-  if (/#demo=|\bdemo\.json\b/i.test(words)) return true
-  if (!STEP.test(valueOf(item, 'Of') ?? '') && /\bgoal(?:'s)? (?:recap|demo)\b/i.test(words)) return true
-  if (ABOUT_GOAL.test(title(item))) return true
-  return ['advisor', 'owner'].includes(role) && /\bgoal definition\b|\bwork blocks?\b|\bChange this goal\b|\bDid we reach the goal\b/i.test(words)
+  const guard = title(item).match(/^Rebuild G\d+\b|\bG\d+\b[^.?!]*\bfailed \d+ times\b/)?.[0] ?? words.match(/#demo=|\bdemo\.json\b/i)?.[0] ?? null
+  if (guard !== null) return guard
+  if (STEP.test(valueOf(item, 'Of') ?? '')) return null
+  const said = words.match(/\bgoal(?:'s)? (?:recap|demo)\b/i)?.[0] ?? title(item).match(ABOUT_GOAL)?.[0] ?? null
+  if (said !== null) return said
+  return ['advisor', 'owner'].includes(role) ? words.match(/\bgoal definition\b|\bwork blocks?\b|\bChange this goal\b|\bDid we reach the goal\b/i)?.[0] ?? null : null
 }
+/** Whether an ask is goal level (`goalLevelOf`). */
+export const isGoalLevel = (item, role = null) => goalLevelOf(item, role) !== null
 
 /**
  * A question about a goal, the focus, the goal map, an approach, a setting, a standard (the person's map bar) or a licence
- * (its title): the person's.
+ * (its title), for an ask under no step: the person's. Whole phrases (the re-review of 2026-10-31: "the settings page's
+ * previews" of the game, "the new goal steps panel" of the board and "levels-g28" are no goal questions): a goal by its id,
+ * "the goal", "the focus", "goal map", an approach, "a setting" of the board, a standard, the map bar, a licence.
  */
-export const ABOUT_GOAL = /\bG\d+\b|\bgoals?\b|\bfocus\b|\bapproach\b|\bsettings?\b|\bstandards?\b|\bmap bar\b|\blicen[cs]es?\b/i
+export const ABOUT_GOAL = /(?<![-\w])G\d+\b|\b(?:the|this|that|a|your|next|new|maps?|focus) goal\b(?!\s+steps)|\bgoal map\b|\b(?:the|next) focus\b|\bapproach\b|\b(?:a|the|this|that|your|board's|board) setting\b|\bstandards?\b|\bmap bar\b|\blicen[cs]es?\b/i
+
+/** The pattern of a permanent delete: a chat, a file or folder, a launch.json entry, a branch. */
+const DELETES = /\bdelet(?:e|es|ed|ing|ion)\b|\berase[sd]?\b|\bwipe[sd]?\b|\brmdir\b|\brm -r/i
 
 /**
  * What only the person's own hands can do, one list (the review of 2026-10-31: Q104, Q559, Q345, Q113, Q539 went to the main
- * chat): quit, reopen or restart the Claude app; a click or a press (Allow, a chip, a button, a prompt); a button of the
- * board that only the person presses (add to the queue, pin); sign in or log in; an account; money; an install; a change of
- * a mod (the person's own word, roles/worker.md "Not yours"); a permission; a password or key; the week's limit; and (the
- * coordinator's ruling, 2026-10-31) anything that deletes for good: a chat, a file or folder, a launch.json entry, a branch
- * (archiving a chat stays the main chat's). `[name, pattern]`; never routed to a chat.
+ * chat), for a do ask and an ask under no step: quit, reopen or restart the Claude app; a click or a press (Allow, a chip, a
+ * button, a prompt); a button of the board that only the person presses (add to the queue, pin); sign in or log in; an
+ * account; money; an install; a change of a mod (the person's own word, roles/worker.md "Not yours"); a permission; a
+ * password or key; the week's limit; and (the coordinator's ruling, 2026-10-31) anything that deletes for good: a chat, a file
+ * or folder, a launch.json entry, a branch (archiving a chat stays the main chat's). `[name, pattern]`; never routed to a chat.
  */
 export const PERSONS_HANDS = [
   ['the Claude app', /\b(?:quit|re-?open|restart|relaunch|close)\b[^.?!]*\b(?:Claude(?: app| desktop)?|the app)\b|\b(?:Claude|the) app\b[^.?!]*\b(?:quit|re-?open|restart|relaunch)/i],
   ['a click', /\bclick(?:s|ed|ing)?\b|\bchips?\b|\b(?:press|tap)(?:es|ed|ing|s)?\b/i],
-  ['a click', /\bAllow\b/],
+  // "Allow" as the app's button (quoted, or on a prompt), never the verb ("Allow the outline to cut a cell?", the live Q401).
+  ['a click', /["“']Allow["”']|\bAllow\b[^.?!]*\b(?:prompt|popup|dialog)\b/],
   ['a button of the board', /\badd (?:it |them )?to the queue\b|\bpin(?:s|ned)?\b[^.?!]*\bto\b|\bthe Backlog tab\b/i],
   ['a sign-in', /\bsign(?:ed|ing)?[- ]?(?:in|up)\b|\blog(?:ged|ging)?[- ]?in\b/i],
   ['an account', /\baccounts?\b/i],
@@ -185,20 +196,44 @@ export const PERSONS_HANDS = [
   ['a permission', /\bpermissions?\b/i],
   ['a password', /\bpasswords?\b|\bAPI keys?\b/i],
   ['the week\'s limit', /\bweekly limit\b|\bweek's limit\b/i],
-  ['a permanent delete', /\bdelet(?:e|es|ed|ing|ion)\b|\berase[sd]?\b|\bwipe[sd]?\b|\brmdir\b|\brm -r/i],
+  ['a permanent delete', DELETES],
+]
+/**
+ * The coordinator's ruling (2026-10-31): for a decide or a look under a step, only these whole phrases make it the person's
+ * (Autopilot never asks the person more than the partner's answers do): quit, reopen or restart the Claude app; sign in or
+ * log in; an account; a password; pay or money; a permanent delete; install or reinstall a mod or an app.
+ */
+export const UNDER_STEP_HANDS = [
+  ['the Claude app', /\b(?:quit|re-?open|restart)\b[^.?!]*\bClaude(?: app)?\b|\bClaude app\b[^.?!]*\b(?:quit|re-?open|restart)\b/i],
+  ['a sign-in', /\bsign(?:ed|ing)? in\b|\blog(?:ged|ging)? in\b/i],
+  ['an account', /\b(?:an?|your|the|my|our|their|this|that)\s+accounts?\b/i],
+  ['a password', /\bpasswords?\b/i],
+  ['money', /\bpay(?:s|ing|ment|ments)?\b(?!\s+attention)|\bmoney\b/i],
+  ['a permanent delete', DELETES],
+  ['an install', /\b(?:re-?)?install(?:s|ed|ing)?\b[^.?!]*\b(?:mod|app)\b/i],
 ]
 /**
  * A do that only the person's own eyes, ears or words can carry out (its title: "Look at the picture.", "Play the painted
  * map.", "Pick the sound by ear", "Check the result", "If you want it the other way, tell me ..."): never the main chat's.
  */
 export const OWN_SENSES = /^(?:if [^,]*,\s*)?(?:look|play|listen|watch|try|pick|check|tell me|type|say)\b|\bby ear\b/i
+/** What of a list of the person's hands an ask's words need: `{ name, phrase }` (the words that matched), or null. */
+export function handsMatchOf(item, list = PERSONS_HANDS) {
+  const words = `${title(item)} ${text(item)}`
+  for (const [name, pattern] of list) {
+    const found = words.match(pattern)
+    if (found !== null) return { name, phrase: found[0] }
+  }
+  return null
+}
 /** What of PERSONS_HANDS an ask's words need (its name), or null. */
-export const handsOf = item => PERSONS_HANDS.find(([, pattern]) => pattern.test(`${title(item)} ${text(item)}`))?.[0] ?? null
+export const handsOf = (item, list = PERSONS_HANDS) => handsMatchOf(item, list)?.name ?? null
 
-/** An ask that marks a step done, accepts it, approves it or sends it back (its title): never a chat's to do. */
+/** An ask that marks a step done, accepts it, approves it or sends it back (its title): never the main chat's to do. */
 export const STEP_VERDICT = /\b(?:mark|tick|set)\b[^.?!]*\bdone\b|\baccept(?:s|ed|ing)?\b|\bapprove(?:s|d)?\b|\bsen[dt]\b[^.?!]*\bback\b|\bclose\b[^.?!]*\bB\d+\b/i
 /** A score beside a target in a question's title ("68 of 75", "the 75 target"). */
-const TARGET_WORDS = /\btarget\b|\b\d+ of \d+\b/i
+// A score, not a target picture (the re-review: "beside the target" of Q393 is a look, Q578's "the 75 target" a score).
+const TARGET_WORDS = /\b\d+ of \d+\b|\b\d+\b[^.?!]*\btarget\b|\btarget\b[^.?!]*\b\d+\b/i
 
 /**
  * A chore asked as a yes/no question ("Restart the board on port 4310 so it shows the new popup? I advise yes"): no options,
@@ -232,11 +267,11 @@ export function isByChecker(item, items, prefix = '') {
 }
 
 /**
- * Where an open ask goes while Autopilot is on: `{ to, why }`, `to` one of ROUTES. `ctx`: `roleOf(owner)` the asking chat's
- * role ('main', 'worker', 'advisor', 'helper', 'owner', 'supervisor', or null for none or one no longer on the list), `items`
- * the store's items by id, `focusGoal` the focus goal's id (or null), `focusHasDemo` whether it has its Demo line already,
- * `recapSteps` the steps an undecided part of a recap names (src/recaps.mjs `recapWaitsOf`: `[{ step, goal }]`), `prefix`
- * the chats' title start.
+ * Where an open ask goes while Autopilot is on: `{ to, why }`, `to` one of ROUTES, `why` with the phrase that decided it where
+ * one did. `ctx`: `roleOf(owner)` the asking chat's role ('main', 'worker', 'advisor', 'helper', 'owner', 'supervisor', or null
+ * for none or one no longer on the list), `items` the store's items by id, `focusGoal` the focus goal's id (or null),
+ * `focusHasDemo` whether it has its Demo line already, `recapSteps` the steps an undecided part of a recap names
+ * (src/recaps.mjs `recapWaitsOf`: `[{ step, goal }]`), `prefix` the chats' title start.
  * A recap wait (the person's "A", 2026-10-31) only for a step of the focus goal whose recap will name it: the goal demo is
  * still to be asked (its words then ask for the step's own row), or a recap of the goal names the step already.
  */
@@ -257,18 +292,22 @@ export function autopilotRoute(item, { roleOf = () => null, items = new Map(), f
   }
   if (isExplicitPerson(item)) return { to: 'person', why: 'handed to the person' }
   if (via === 'form') return { to: 'person', why: 'the app\'s question form is answered in its chat' }
-  if (isGoalLevel(item, role)) return { to: 'person', why: 'goal level' }
-  const hands = handsOf(item)
-  if (hands !== null) return { to: 'person', why: `only the person's hands: ${hands}` }
+  // The person's hands: the whole list for a do and an ask under no step; for a decide or a look under a step only its phrases.
+  const hands = handsMatchOf(item, kind === 'do' || !isUnderStep ? PERSONS_HANDS : UNDER_STEP_HANDS)
+  if (hands !== null) return { to: 'person', why: `only the person's hands: ${hands.name} ("${hands.phrase}")` }
+  const goal = goalLevelOf(item, role)
+  if (goal !== null) return { to: 'person', why: `goal level ("${goal}")` }
   if (via === 'accept') return recapOr('an accept or send back below its target')
   if (kind === 'look' && isByChecker(item, items, prefix)) return recapOr('a look of the step\'s checker')
   if (kind === 'look' && belowTarget(step)) return recapOr('a look below its target')
   if (role === 'board') return { to: 'person', why: 'the board\'s own card' }
-  if (STEP_VERDICT.test(title(item))) return { to: 'person', why: 'it marks a step done, accepts it or sends it back' }
   if (!isUnderStep && ['look', 'decide'].includes(kind) && TARGET_WORDS.test(title(item))) return { to: 'person', why: 'a score below its target, under no step' }
+  const isAction = kind === 'do' || (isChore(item) && role !== 'owner')
+  // Never the main chat's: an action that marks a step done, accepts it or sends it back.
+  if (isAction && STEP_VERDICT.test(title(item))) return { to: 'person', why: 'it marks a step done, accepts it or sends it back' }
   if (kind === 'do' && OWN_SENSES.test(title(item))) return { to: 'person', why: 'the person\'s own eyes, ears or words' }
   if (kind === 'do') return role === 'owner' ? { to: 'person', why: 'the Product owner\'s' } : { to: 'main', why: 'an action' }
-  if (isChore(item) && role !== 'owner') return { to: 'main', why: 'an action asked as a question' }
+  if (isAction) return { to: 'main', why: 'an action asked as a question' }
   if (kind === 'provide') return { to: 'person', why: 'only the person provides it' }
   if (['advisor', 'helper', 'owner'].includes(role)) {
     // A refine question without advice goes back to the Advisor (`partner`); one with advice under a step is answered with it.
@@ -325,8 +364,34 @@ export function recapWaitIds(step, items) {
     return ask !== undefined && valueOf(ask, 'State') === 'open' && valueOf(ask, 'Route') === 'recap'
   })
 }
-/** Whether a step in review waits for the goal's recap only: it counts as done for asking the goal demo. */
-export const waitsForRecap = (step, items) => valueOf(step, 'State') === 'review' && recapWaitIds(step, items).length > 0
+/** The states of a fix still to be built (the re-review of 2026-10-31): while one is, the step does not wait for the recap only. */
+const FIX_UNDER_WAY = ['new', 'refined', 'queued', 'taken', 'in progress', 'waiting on you']
+
+/**
+ * What a step in review waits for the goal's recap for, when that is all it waits for: `[{ step, asks }]`, the steps whose own
+ * asks wait (`Recap verdict: waits (Q<n>)` with the ask still open on the recap: itself, or the last link of its chain of open
+ * fixes, resultCheck.mjs `chainWaitOf`, read only, which must hold such an ask), or null. Only when nothing else of it is open (the re-review of 2026-10-31,
+ * the coordinator's rulings): no fix of it, nor of its chain, still to be built (new, refined, queued, taken, in progress,
+ * waiting on you), and no other open ask of it or of its chain. B689 waiting for its fix B821, which waits for the recap,
+ * waits for the recap too.
+ */
+export function recapWaitOf(step, items) {
+  if (valueOf(step, 'State') !== 'review') return null
+  const id = valueOf(step, 'Id')
+  const chain = chainWaitOf(id, items)?.chain ?? []
+  const links = [id, ...chain]
+  const fixes = links.flatMap(one => fixesOf(one, items))
+  if (fixes.some(one => FIX_UNDER_WAY.includes(valueOf(one, 'State')))) return null
+  if (chain.some(one => valueOf(items.get(one), 'State') !== 'review')) return null
+  const linkOf = one => (one === id ? step : items.get(one))
+  if (recapWaitIds(linkOf(links.at(-1)), items).length === 0) return null
+  const rows = links.map(one => ({ step: one, asks: recapWaitIds(linkOf(one), items) })).filter(one => one.asks.length > 0)
+  const waiting = new Set(rows.flatMap(one => one.asks))
+  const others = [...(items?.values?.() ?? [])].filter(one => valueOf(one, 'Kind') === 'ask' && valueOf(one, 'State') === 'open' && links.includes(valueOf(one, 'Of')) && !waiting.has(valueOf(one, 'Id')))
+  return others.length > 0 ? null : rows
+}
+/** Whether a step in review waits for the goal's recap only (`recapWaitOf`): it counts as done for asking the goal demo. */
+export const waitsForRecap = (step, items) => recapWaitOf(step, items) !== null
 /** The History line of a blocking ask routed to the recap: its worker goes on. */
 export const RECAP_GOES_ON = 'autopilot: the step goes on; judged at the goal\'s recap'
 /** When the board sent the step's refine back to the Advisor (ms), or NaN. */

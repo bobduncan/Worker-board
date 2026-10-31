@@ -20,6 +20,7 @@ import { focusWords } from '../src/say.mjs'
 import { focusState } from '../src/state.mjs'
 import { workApi } from '../src/work/api.mjs'
 import { decidedTodayOf, partnerDecidedOf, routedAwayOf, storeNeeds, storeWaits } from '../src/work/lists.mjs'
+import { parseItem } from '../src/work/item.mjs'
 import { stamp } from '../src/work/migrate.mjs'
 import { readStore } from '../src/work/store.mjs'
 
@@ -377,4 +378,49 @@ test('a goal stuck after the guard\'s tries is the person\'s: Autopilot approves
   const words = evaluateWords({ to: 'Partner', goal: { id: 'G29', title: 'Pools', howAgreed: null }, attempts: { count: 3, since: null, failures: [], groups: [], tripped: null }, approveRebuilds: rebuildsApproved({ autopilot: true }), job: 'roles/partner.md' })
   assert.match(words.text, /one work ask of G29 \(decide, its title beginning "Rebuild G29:"/)
   assert.doesNotMatch(words.text, /Approve rebuilds by itself" is on/)
+})
+
+test('the re-review\'s B21/B30 case (2026-10-31): the goal demo is not asked while a fix of the step is being built; once it is done, it is', async t => {
+  const goals = ['Last id: G29', 'Focus: G29', '', '- [~] G29 Pools', '    Done when: the pool reads round', '    Goal definition: round pools', '    Goal definition agreed: 2026-10-30 10:00',
+    '    Part: The pool · about 1 h · steps B21', '    Part: The ring · about 1 h · steps B25', '    How agreed: 2026-10-30 11:00', ''].join('\n')
+  const reviewed = step('B21', { Title: 'Round the pool', State: 'review', Owner: 'Painter', Goal: 'G29' }, { Standard: ['pool look · pictures/pool.png · target 75'], Checked: ['Score: 64 of 75', '- fail: judged beside the painting'],
+    History: [`- ${at(49)} server: check passed: work in garden; result named`, `- ${at(44)} Checker: result check failed: 1 of 2 points pass, score 64 of 75; fix B30 for Painter`] })
+  const fix = state => step('B30', { Title: 'Fix: judged beside the painting', State: state, Owner: 'Painter', Goal: 'G29', 'Fix of': 'B21' }, { Context: ['  Fix of B21: the result check by Checker failed on one point.'] })
+  const dir = await storeWith({ B21: reviewed, B30: fix('in progress'), B25: step('B25', { Title: 'Round the ring', State: 'done', Owner: 'Painter', Goal: 'G29' }) })
+  t.after(() => rm(dir, { recursive: true, force: true }))
+  // The builder's look on B21 below its target goes to the recap (the review's probe3).
+  const filed = await chat(dir, 'Painter', { action: 'ask', of: 'B21', kind: 'look', title: 'Does the pool read round enough at 64?', text: 'The rim stays boxy.', advice: 'yes' }, NOW, { autopilot: true })
+  assert.equal(filed.ok, true, filed.why)
+  assert.equal(filed.result.route, 'recap')
+  const focusOf = async () => focusState(parseGoals(goals), [...(await read(dir)).values()], [], '', 'Partner', NOW)
+  let focus = await focusOf()
+  assert.deepEqual([focus.progress.done, focus.progress.forDemo ?? focus.progress.done, focus.progress.total], [1, 1, 2], 'B30 is still being built')
+  assert.equal(focusAllDone(focus, 'G29', { forDemo: true }), false)
+  // B30 done: B21 now waits only for the recap, and the goal demo may be asked with its own row.
+  await writeFile(join(dir, 'B30.md'), fix('done'))
+  focus = await focusOf()
+  assert.deepEqual([focus.progress.done, focus.progress.forDemo, focus.progress.total], [1, 2, 2])
+  assert.deepEqual(focus.recapRows, [{ step: 'B21', asks: [filed.result.id] }])
+  assert.equal(focusAllDone(focus, 'G29', { forDemo: true }), true)
+})
+
+test('the re-review\'s live G60, made up (2026-10-31): a part whose step waits for its fix, which waits for the recap, counts for the goal demo', () => {
+  const goals = ['Last id: G60', 'Focus: G60', '', '- [~] G60 Good maps', '    Done when: a map reads well', '    Goal definition: good maps', '    Goal definition agreed: 2026-10-30 10:00',
+    '    Part: Round shapes · about 1 h · steps B18, B89, B21', '    Part: The test map · about 1 h · steps B71, B88', '    How agreed: 2026-10-30 11:00', ''].join('\n')
+  const items = [
+    step('B18', { Title: 'Round cells', State: 'dropped', Goal: 'G60' }),
+    step('B89', { Title: 'Round the ring', State: 'review', Owner: 'Painter', Goal: 'G60' }),
+    step('B21', { Title: 'Fix: the pool reads round', State: 'review', Owner: 'Painter', Goal: 'G60', 'Fix of': 'B89' }, { Context: ['  Recap verdict: waits (Q71)', '  Recap verdict: waits (Q86)'] }),
+    step('B71', { Title: 'The guide\'s test map', State: 'review', Owner: 'Pruner', Goal: 'G60' }),
+    step('B88', { Title: 'Fix: the moat keep', State: 'review', Owner: 'Pruner', Goal: 'G60', 'Fix of': 'B71' }, { Context: ['  Recap verdict: waits (Q87)'] }),
+    ask('Q71', { Title: 'B37 asks for the edge shape said no to', Owner: 'Painter', Asks: 'look', Of: 'B21', Route: 'recap' }),
+    ask('Q86', { Title: 'Accept B21 at 64 of 75, or send it back?', Asks: 'decide', Of: 'B21', Via: 'accept', Route: 'recap' }),
+    ask('Q87', { Title: 'Approve the moat keep at 68 of 75?', Owner: 'Checker', Asks: 'look', Of: 'B88', Route: 'recap' }),
+  ].map(parseItem)
+  const focus = focusState(parseGoals(goals), items, [], '', 'Partner', NOW)
+  // Before the re-review only B21 and B88 counted: the parts held B89 and B71 back, and the demo never came.
+  assert.deepEqual([focus.progress.done, focus.progress.forDemo, focus.progress.total], [0, 2, 2])
+  assert.deepEqual(focus.recapRows, [{ step: 'B21', asks: ['Q71', 'Q86'] }, { step: 'B88', asks: ['Q87'] }])
+  assert.equal(focusAllDone(focus, 'G60', { forDemo: true }), true)
+  assert.equal(focusAllDone(focus, 'G60'), false, '"Did we reach the goal?" Yes still waits for the verdicts')
 })
