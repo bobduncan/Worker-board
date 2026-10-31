@@ -107,9 +107,13 @@ step therefore says what it touches ("Touches: ...").
   project folder's `logs/` (`logs/b<id>-check.log`), never loose in the project folder itself; a picture for the user
   goes to the project's picture folder (the user, 2026-10-28: "there is a lot of mess here like the .logs ... can they not be in a
   subfolder logs?").
-- The step's end, before `work report`: remove its worktree. First leave it: `cd` to the main checkout in a command of
-  its own, so your chat's working folder is no longer the worktree (a shell standing in it makes Windows refuse the
-  last folder: "Permission denied", an empty folder stays). A link in it (a junction such as `node_modules`) first,
+- The step's end, before `work report`: remove its worktree. First stop everything you started in it: your test server,
+  and every background command and monitor of yours still running (a Monitor's `sleep` or `until` loop, a background
+  gate or test run, a command moved to the background after its timeout: stop each with TaskStop). Each one keeps the
+  worktree as its working folder, and Windows refuses that folder for as long as it runs: past your report and past a
+  restart of your chat (B844: B821's folder stayed busy 20 minutes, held by its chat's own `sleep 1500` monitor). Then
+  leave it: `cd` to the main checkout in a command of its own, so your chat's working folder is no longer the worktree
+  (a shell standing in it makes Windows refuse the last folder: "Permission denied", an empty folder stays). A link in it (a junction such as `node_modules`) first,
   alone (`cmd /c rmdir "<folder>\node_modules"` on Windows: the link only, never what it points to), then `git worktree
   remove <folder>`, then the empty folder Windows may leave (`rmdir "<folder>"`, which fails when it is not empty). The
   board's check of your report fails while a worktree of the step, or a folder with files of it, is left, and names it
@@ -120,7 +124,9 @@ step therefore says what it touches ("Touches: ...").
   ("B<n>'s report check failed at HH:MM: fix what it names and report it again"): do what it says, and an hour on the
   supervisor looks at it. An EMPTY folder no repository lists the board removes itself
   (rmdir, a few tries over some seconds; B717), so it never fails the check; one a program still holds is a warning
-  (T8): the check passes, the board keeps trying and its leftover sweep removes it later. Do not report again for it.
+  (T8): the check passes, and its line names each program that stands in it (name, process id, what started it, its
+  command; B844): stop it (TaskStop for your own background command or monitor); the board keeps trying and its leftover
+  sweep removes the folder later. Do not report again for it.
 - Your game test server (B814, the person, 2026-10-30) is a plain background command, never a `preview_start` and never a new
   entry in `.claude/launch.json` (the app asks the person to allow each new entry). Start the vite of your worktree
   on your own port, which `work take` names ("Test server port for Worker N": the project's game port + 90 + N, e.g.
@@ -290,7 +296,8 @@ on Opus (the task's Model and Effort lines); it switches your model and effort f
 4. Remove the worktrees you made for the check (detached, named `check-b<id>`, and `check-b<id>-before` for the state before): a
    link in one (a junction such as `node_modules`) first, alone (`cmd /c rmdir "<folder>\node_modules"` on Windows: the link only),
    then `git worktree remove <folder>` (never `--force`: it follows links and deletes what they point to), then the empty folder
-   Windows may leave (leave the folder first: `cd` out of it in a command of its own; an empty one the board removes itself). The
+   Windows may leave (stop your background commands and monitors that run in it first, B844, and leave the folder: `cd` out of
+   it in a command of its own; an empty one the board removes itself). The
    board refuses `work checked` while one of them is left, and names it with how to remove it.
 5. File it: `work checked B701` (the checked step's id, not the task's) with `evidence` (the picture's path in the project, or
    `none (<why>)`), `points` (every agreed point, each `pass: <point>`, `fail: <point>` or `ask: <point>`) and `score` ("82 of 75")
@@ -325,6 +332,12 @@ fewer answers than ask points, make a new Quality Assurance task for the step, w
 files `work checked` again, that point pass or fail. A step whose fix passed its check is checked again by a new task the same
 way (`Why: its fix B<n> is done: file its check again`): file every point again, the ones the fix made pass as `pass:` and every
 ask point still open as `ask:`. Say nothing in your chat about a check; your card's line while you work: "Check B<id>".
+
+One question per task (the person, 2026-10-31: "why did i get asked the same question twice"): while you hold a Quality Assurance
+task you never ask the person about the step it checks, in a `work ask` or in your "For you" block. The board does not file it: it
+adds it as a line to the builder's open question under that step ("Also from the quality check"), or keeps it as an `ask:` point of
+your check, which the check carries even when you leave it out; the person is asked once, in the builder's question. Any second
+question on a step that has the person's open ask joins that ask as a line, whoever asks it.
 
 ## Pausing for the limit
 

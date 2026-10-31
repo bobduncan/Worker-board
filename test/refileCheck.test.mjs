@@ -103,7 +103,7 @@ test('words the board cannot read make a Quality Assurance task for the step, wi
 test('a step with another ask still open waits for it', async () => {
   const store = await waiting()
   try {
-    const second = await store.partner({ action: 'ask', of: store.id, kind: 'look', blocking: false, title: 'And the shade?', text: 'Look again.' })
+    const second = await store.partner({ action: 'ask', of: store.id, kind: 'do', blocking: false, title: 'Repaint the lamp post', text: 'Then tick it.' })
     assert.equal(second.ok, true, second.why)
     const first = await store.person({ action: 'answer', id: store.ask, verdict: 'approve' })
     assert.equal(first.ok, true, first.why)

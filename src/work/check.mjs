@@ -233,7 +233,9 @@ export function finishedVerdict({ id = '', head = null, facts = [], notMerged = 
     return { passed: true, lines: named(says(['pass'])), ...(warnings.length === 0 ? {} : { warnings }), ...(facts.some(one => one.isHeld === true) ? { isHeld: true } : {}) }
   }
   const faults = says(['back', 'fail'])
-  return { passed: false, lines: named(at === ACTIONS.indexOf('back') ? [`${BACK}${faults[0]}`, ...faults.slice(1)] : faults) }
+  // B862: a folder a program holds beside a fault is still named (with its programs, B844), after the faults: a warning, never the reason.
+  const held = facts.filter(one => one.isHeld === true).map(one => one.say)
+  return { passed: false, lines: named([...(at === ACTIONS.indexOf('back') ? [`${BACK}${faults[0]}`, ...faults.slice(1)] : faults), ...held]), ...(held.length === 0 ? {} : { isHeld: true }) }
 }
 
 /** The words that send a step back to its worker when its work is on a branch that is not merged (also the History line's reason). */
@@ -356,7 +358,7 @@ async function branchFacts(dir, own, run) {
  * worktree of the step is left; a result is named; B527: a change that touches a test file names the mutant its tests
  * caught (without it the step passes with a warning, and the partner's result check asks for one).
  */
-async function gitFacts(held, unheld, { id, branch, result, merged, repos, run, project = '', fs = null, cut = null, inline = false, waits }) {
+async function gitFacts(held, unheld, { id, branch, result, merged, repos, run, project = '', fs = null, cut = null, inline = false, waits, holders }) {
   const found = []
   for (const { repo, commit } of held) {
     const at = found.find(one => one.repo.dir === repo.dir)
@@ -373,7 +375,7 @@ async function gitFacts(held, unheld, { id, branch, result, merged, repos, run, 
   // Worktree clean-up: no worktree on the step's branch in any repository of the work, and none (or its folder) named for the step.
   const left = []
   for (const [at, { repo }] of found.entries()) {
-    const lines = await stepLeftovers({ id, branch: isOnBase ? null : branch, repo, repos, project, run, fs: at === 0 ? fs : null, inline, ...(waits === undefined ? {} : { waits }) })
+    const lines = await stepLeftovers({ id, branch: isOnBase ? null : branch, repo, repos, project, run, fs: at === 0 ? fs : null, inline, ...(waits === undefined ? {} : { waits }), ...(typeof holders === 'function' ? { holders } : {}) })
     for (const line of lines) if (!left.includes(line)) left.push(line)
   }
   facts.push(...leftoverFacts(left), ...resultFacts(result))
@@ -388,8 +390,8 @@ async function gitFacts(held, unheld, { id, branch, result, merged, repos, run, 
 }
 
 /** The facts when no repository can be told (Principle 3: never a silent pass): a failure the person sees. */
-async function unknownFacts(e, { id, result, repos, project = '', run, fs = null, inline = false, waits }) {
-  const left = await stepLeftovers({ id, branch: null, repo: null, repos, project, run, fs, inline, ...(waits === undefined ? {} : { waits }) })
+async function unknownFacts(e, { id, result, repos, project = '', run, fs = null, inline = false, waits, holders }) {
+  const left = await stepLeftovers({ id, branch: null, repo: null, repos, project, run, fs, inline, ...(waits === undefined ? {} : { waits }), ...(typeof holders === 'function' ? { holders } : {}) })
   return { head: null, facts: [fact('fail', `could not tell which repository ${id}'s work is in`), ...leftoverFacts(left, false), ...resultFacts(result)] }
 }
 
@@ -544,7 +546,7 @@ async function filesNamed({ result, touches, project, repoDirs, exists }) {
  * named by the result, or no file named at all goes back to the worker; a Touches path or a path in the prose that is not
  * there beside one that is warns. The step's worktrees left, as for any kind.
  */
-async function outsideFacts(e, { id, result, repos, project = '', run, fs = null, cut = null, inline = false, waits }) {
+async function outsideFacts(e, { id, result, repos, project = '', run, fs = null, cut = null, inline = false, waits, holders }) {
   const { planned, said, found, missing, inGit } = await e.files()
   const facts = cutFacts(cut)
   if (found.length === 0 && missing.length > 0) facts.push(fact('back', `not there: ${missing.join(', ')}`))
@@ -552,7 +554,7 @@ async function outsideFacts(e, { id, result, repos, project = '', run, fs = null
   // B818 (X106): a report that names no file of its own is often a step whose work other steps already built.
   if (found.length === 0 && missing.length === 0 && inGit.length === 0) facts.push(fact('back', 'no file named: name the files it made in the result'), fact('back', NOTHING_BUILT_LINE))
   facts.push(fact('pass', `there: ${found.join(', ')}`))
-  facts.push(...leftoverFacts(await stepLeftovers({ id, repos, project, run, fs, inline, ...(waits === undefined ? {} : { waits }) }), false))
+  facts.push(...leftoverFacts(await stepLeftovers({ id, repos, project, run, fs, inline, ...(waits === undefined ? {} : { waits }), ...(typeof holders === 'function' ? { holders } : {}) }), false))
   facts.push(...resultFacts(result))
   if (planned.missing.length > 0) facts.push(fact('warn', `Touches names files not there: ${planned.missing.join(', ')}`))
   if (found.length > 0 && planned.inGit.length > 0) facts.push(fact('warn', `Touches names files in a repository: ${planned.inGit.join(', ')}`))
@@ -571,12 +573,12 @@ export const noChangeWords = reason => `no change made: the result check judges 
  * never git or the files it names (a step whose work other steps built names their files, in a repository). No reason
  * goes back to the worker; the step's worktrees left, as for any kind.
  */
-async function mootFacts(e, { id, result, repos, project = '', run, fs = null, cut = null, inline = false, waits }) {
+async function mootFacts(e, { id, result, repos, project = '', run, fs = null, cut = null, inline = false, waits, holders }) {
   const { reason } = e.noChange
   const facts = cutFacts(cut)
   facts.push(reason === null ? fact('back', NO_REASON_LINE) : fact('pass', 'reason named'))
   if (reason !== null) facts.push(fact('warn', noChangeWords(reason)))
-  facts.push(...leftoverFacts(await stepLeftovers({ id, repos, project, run, fs, inline, ...(waits === undefined ? {} : { waits }) })))
+  facts.push(...leftoverFacts(await stepLeftovers({ id, repos, project, run, fs, inline, ...(waits === undefined ? {} : { waits }), ...(typeof holders === 'function' ? { holders } : {}) })))
   facts.push(...resultFacts(result))
   return { head: 'no change made (moot)', facts }
 }
@@ -587,17 +589,23 @@ export const HELD_EVERY_MS = 10_000
 
 /**
  * The report check as the board's background loop runs it (nobody waits on it): the empty folder a worktree left is tried
- * for a few seconds inside the check (`inline`); when a program still holds it (`isHeld`: the check passes with it as a
- * warning, T8), the check looks again after `every` ms, up to `rounds` times, so a folder that frees itself leaves no
- * warning. Only then is it filed. `sleep` is the clock's wait (a test's own). The outcome has no `isHeld`: it is the
- * board's own word between the rounds.
+ * for a few seconds inside the check (`inline`); when a program still holds it (`isHeld`: on a pass it is a warning, T8),
+ * the check looks again after `every` ms, up to `rounds` times, so a folder that frees itself leaves no warning; a failed
+ * check is filed at once. Only then is it filed. `sleep` is the clock's wait (a test's own). B844: the programs that hold
+ * the folder are looked up only in the round that can be filed (the last), once; B862: a quiet round filed with a held
+ * folder (a failed check beside it) is checked once more with the lookup, so its line names its program. The outcome has no
+ * `isHeld`: it is the board's own word between the rounds.
  */
 export async function patientReportCheck(args, { rounds = HELD_ROUNDS, every = HELD_EVERY_MS, sleep = ms => new Promise(resolve => setTimeout(resolve, ms)) } = {}) {
-  let outcome = await reportCheck({ ...args, inline: true })
-  for (let round = 0; round < rounds && outcome.isHeld === true; round += 1) {
+  const quiet = { holders: async () => null }
+  let named = rounds === 0
+  let outcome = await reportCheck({ ...args, inline: true, ...(named ? {} : quiet) })
+  for (let round = 0; round < rounds && outcome.isHeld === true && outcome.passed === true; round += 1) {
     await sleep(every)
-    outcome = await reportCheck({ ...args, inline: true })
+    named = round === rounds - 1
+    outcome = await reportCheck({ ...args, inline: true, ...(named ? {} : quiet) })
   }
+  if (!named && outcome.isHeld === true) outcome = await reportCheck({ ...args, inline: true })
   const { isHeld, ...filed } = outcome
   return filed
 }

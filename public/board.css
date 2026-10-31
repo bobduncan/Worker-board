@@ -773,20 +773,32 @@ button.goal-dot:hover, button.goal-dot:focus-visible { box-shadow: 0 0 0 3px #2a
 .goals-ask-note.is-error { color: var(--warn); }
 .goals-action.is-send { border-color: var(--ask); background: #2a2148; }
 .goals-note.is-ok { border-color: #5a4a86; color: var(--ask); }
-/* B259: the Brainstorm part: the list at the left, the box for a new one and the card at the right (where-brainstorm.png, B). */
+/* The Brainstorm screen (2026-10-31; the person: "it looks terrible. cluttered too much text to little focus on the interaction, no
+   feedback if its working on it"; the mocks the person approved): slim rows at the left; at the right one calm card for what the
+   thread is at (the partner's turn, one question with big options, what the partner understood, the proposal), the earlier
+   answers as chips above it. Quiet colours: blue for the partner and your turn, green for what ended well; never amber or red for plain information. */
 .advisor-brainstorm { margin: 14px 18px 16px; max-width: 1240px; }
-.brainstorm-split { display: flex; gap: 18px; align-items: flex-start; }
-.brainstorm-list { flex: 0 0 290px; display: flex; flex-direction: column; gap: 6px; }
-.brainstorm-start { padding: 8px 12px; border: 1px solid var(--free); border-radius: 8px; background: var(--inset); color: #8fb4ff; font: inherit; font-size: 13.5px; cursor: pointer; }
+.brainstorm-split { display: flex; gap: 22px; align-items: flex-start; }
+.brainstorm-list { flex: 0 0 260px; display: flex; flex-direction: column; gap: 6px; }
+.brainstorm-start { padding: 7px 12px; border: 1px dashed #2a3a58; border-radius: 8px; background: none; color: #8fb4ff; font: inherit; font-size: 13px; text-align: left; cursor: pointer; }
+.brainstorm-start:hover:not(:disabled), .brainstorm-start:focus-visible { border-color: var(--free); }
 .brainstorm-start:disabled { color: var(--unknown); border-color: var(--line); cursor: default; }
-.brainstorm-group { margin: 10px 0 2px; color: var(--muted); font-size: 11.5px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; }
-.brainstorm-row { display: flex; flex-direction: column; gap: 2px; padding: 8px 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); color: var(--text); font: inherit; font-size: 13.5px; text-align: left; cursor: pointer; }
-.brainstorm-row small { color: var(--muted); font-size: 12px; }
+.brainstorm-row { display: flex; flex-direction: column; gap: 1px; padding: 7px 12px 8px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); color: var(--text); font: inherit; text-align: left; cursor: pointer; }
+.brainstorm-row b { font-size: 13.5px; font-weight: 600; overflow-wrap: anywhere; }
 .brainstorm-row:hover, .brainstorm-row:focus-visible { border-color: var(--free); }
 .brainstorm-row.is-chosen { border-color: var(--free); background: #13213a; }
-.brainstorm-row.is-waiting small { color: var(--ask); }
+/* The one small word of a thread: your turn (soft blue), the partner's states (muted, a softly pulsing dot while it works), how it ended (soft green). */
+.brainstorm-status { color: var(--muted); font-size: 12px; font-weight: 400; }
+.brainstorm-status.is-person { color: #8fb4ff; }
+.brainstorm-status.is-done, .brainstorm-status.is-created { color: #5fae85; }
+.brainstorm-status.is-thinking::before { content: ''; display: inline-block; width: 6px; height: 6px; margin-right: 6px; border-radius: 50%; background: var(--free); vertical-align: 1px; }
+@keyframes brainstorm-pulse { 0%, 100% { opacity: 0.5; transform: scale(0.9); } 50% { opacity: 1; transform: scale(1); } }
+@media (prefers-reduced-motion: no-preference) {
+  .brainstorm-status.is-thinking::before, .brainstorm-waiting.is-thinking .brainstorm-dot { animation: brainstorm-pulse 2s ease-in-out infinite; }
+}
 .brainstorm-empty { font-size: 13px; }
-.brainstorm-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 10px; }
+.brainstorm-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 12px; }
+.brainstorm-card { display: flex; flex-direction: column; gap: 12px; }
 .brainstorm-new { display: flex; flex-direction: column; gap: 6px; padding: 10px 14px; border: 1px dashed var(--free); border-radius: 8px; background: var(--inset); }
 .brainstorm-new[hidden] { display: none; }
 .brainstorm-new-head { color: #8fb4ff; font-weight: 600; font-size: 13.5px; }
@@ -796,64 +808,87 @@ button.goal-dot:hover, button.goal-dot:focus-visible { box-shadow: 0 0 0 3px #2a
 .brainstorm-foot { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .brainstorm-note { flex: 1; min-width: 12em; margin: 0; color: var(--muted); font-size: 12.5px; }
 .brainstorm-note.is-error, .brainstorm-foot .is-error { color: var(--warn); }
-.brainstorm-about { margin: 0; color: var(--muted); font-size: 13px; }
-.brainstorm-box { padding: 12px 16px; border: 1px solid var(--free); border-radius: 10px; background: var(--inset); }
-.brainstorm-box.is-done, .brainstorm-box.is-discarded { border-color: var(--line); }
-.brainstorm-meta { color: var(--muted); font-size: 12px; }
-.brainstorm-title { margin: 2px 0 4px; font-size: 15px; }
-.brainstorm-opening { margin: 0; color: var(--muted); font-size: 13px; overflow-wrap: anywhere; }
-.brainstorm-question { margin: 12px 0 2px; font-size: 17px; overflow-wrap: anywhere; }
-.brainstorm-why { margin: 0; font-size: 13px; }
-/* B475: the question's context under its short title, as in an ask's window. */
-.brainstorm-context { margin: 2px 0 6px; font-size: 14px; line-height: 1.45; overflow-wrap: anywhere; }
-.brainstorm-earlier-context { margin: -4px 0 6px 2em; font-size: 12.5px; }
-.brainstorm-options { display: flex; flex-direction: column; gap: 6px; margin-top: 10px; }
-.brainstorm-option { display: flex; align-items: center; gap: 10px; padding: 8px 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); color: var(--text); font: inherit; font-size: 14px; text-align: left; cursor: pointer; }
-.brainstorm-option:hover:not(:disabled), .brainstorm-option:focus-visible { border-color: var(--free); }
-.brainstorm-option:disabled { cursor: default; }
-.brainstorm-option.is-chosen { border-color: var(--free); background: #13213a; }
-.brainstorm-key { flex: none; display: grid; place-items: center; width: 24px; height: 24px; border-radius: 6px; background: #1d2a3f; font-weight: 700; }
-.brainstorm-option.is-chosen .brainstorm-key { background: var(--free); color: #fff; }
-.brainstorm-option-text { flex: 1; min-width: 0; overflow-wrap: anywhere; }
-.brainstorm-advised { flex: none; padding: 0 7px; border: 1px solid var(--free); border-radius: 9px; color: #8fb4ff; font-size: 11px; }
-.brainstorm-other { border-style: dashed; }
-.brainstorm-other.is-chosen { border-color: var(--free); border-style: solid; }
-.brainstorm-picture { margin-top: 10px; }
-.brainstorm-picture img { max-width: min(440px, 100%); max-height: 240px; }
-.brainstorm-buttons { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 12px; }
+/* The head of the open thread: its title, its status word, the "…" menu. */
+.brainstorm-head { display: flex; align-items: center; gap: 10px; }
+.brainstorm-title { margin: 0; font-size: 16px; font-weight: 600; overflow-wrap: anywhere; }
 .brainstorm-gap { flex: 1; }
-.brainstorm-waiting { margin: 12px 0 0; color: var(--ask); font-size: 13.5px; }
-.brainstorm-waiting.is-off { color: var(--warn); }
-.brainstorm-waiting .goals-lines { font-size: 12.5px; }
-.brainstorm-problems { margin: 10px 0 0; color: var(--waiting); font-size: 12.5px; overflow-wrap: anywhere; }
-.brainstorm-proposal h4 { margin: 12px 0 0; font-size: 15px; }
-.brainstorm-proposal h5 { margin: 12px 0 4px; color: var(--muted); font-size: 11.5px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; }
-.brainstorm-decided { margin: 0; padding: 6px 10px 6px 26px; border-left: 3px solid var(--waiting); background: var(--panel); font-size: 13.5px; }
-.brainstorm-tick { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px; margin: 4px 0; padding: 6px 10px; border: 1px solid var(--line); border-radius: 6px; background: var(--panel); font-size: 13.5px; }
+.brainstorm-menu { position: relative; flex: none; }
+.brainstorm-menu-button { width: 34px; height: 28px; padding: 0; border: 1px solid var(--line); border-radius: 6px; background: var(--inset); color: #8fb4ff; font: inherit; font-size: 16px; line-height: 1; cursor: pointer; }
+.brainstorm-menu-button:hover:not(:disabled), .brainstorm-menu-button[aria-expanded="true"] { border-color: var(--free); }
+.brainstorm-menu-list { position: absolute; right: 0; top: calc(100% + 4px); z-index: 5; min-width: 240px; display: flex; flex-direction: column; padding: 4px; border: 1px solid #2a3850; border-radius: 8px; background: var(--panel); box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45); }
+.brainstorm-menu-item { padding: 8px 12px; border: 0; border-radius: 6px; background: none; color: var(--text); font: inherit; font-size: 13.5px; text-align: left; cursor: pointer; }
+.brainstorm-menu-item:hover:not(:disabled), .brainstorm-menu-item:focus-visible { background: var(--inset); }
+.brainstorm-menu-item.is-delete { color: var(--warn); }
+.brainstorm-menu-item:disabled { color: var(--unknown); cursor: default; }
+/* The earlier answers: a thin row of small chips; a click shows the question and the whole answer. */
+.brainstorm-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.brainstorm-chip { max-width: 300px; padding: 3px 11px; border: 1px solid var(--line); border-radius: 999px; background: var(--panel); color: var(--muted); font: inherit; font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer; }
+.brainstorm-chip:hover, .brainstorm-chip:focus-visible, .brainstorm-chip.is-open { border-color: var(--free); color: var(--text); }
+.brainstorm-chip-detail { display: flex; flex-direction: column; gap: 2px; padding: 8px 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); font-size: 13px; overflow-wrap: anywhere; }
+/* The card. */
+.brainstorm-box { padding: 22px 26px; border: 1px solid var(--line); border-radius: 12px; background: var(--panel); }
+.brainstorm-qn { display: block; color: var(--muted); font-size: 12.5px; }
+.brainstorm-question { margin: 6px 0 4px; font-size: 24px; line-height: 1.25; font-weight: 600; overflow-wrap: anywhere; }
+.brainstorm-context { margin: 4px 0 0; color: var(--muted); font-size: 13.5px; line-height: 1.45; overflow-wrap: anywhere; }
+.brainstorm-why-toggle { display: block; margin-top: 6px; font-size: 12.5px; }
+.brainstorm-options { display: flex; flex-direction: column; gap: 8px; margin-top: 18px; }
+.brainstorm-option { display: flex; align-items: center; gap: 12px; padding: 13px 16px; border: 1px solid var(--line); border-radius: 8px; background: rgba(10, 15, 24, 0.55); color: var(--text); font: inherit; font-size: 15px; text-align: left; cursor: pointer; }
+.brainstorm-option:hover:not(:disabled), .brainstorm-option:focus-visible { border-color: var(--free); background: #13213a; }
+.brainstorm-option:disabled { cursor: default; opacity: 0.7; }
+.brainstorm-key { flex: none; font-weight: 700; }
+.brainstorm-key::after { content: ' ·'; color: var(--muted); font-weight: 400; }
+.brainstorm-option-text { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.brainstorm-advised { flex: none; padding: 1px 9px; border: 1px solid #2a3a58; border-radius: 9px; background: #182438; color: #8fb4ff; font-size: 11.5px; }
+.brainstorm-say { display: flex; gap: 8px; margin-top: 14px; }
+.brainstorm-say .brainstorm-other { flex: 1; min-width: 0; width: auto; padding: 11px 14px; font-size: 14px; }
+.brainstorm-picture { margin-top: 14px; }
+.brainstorm-picture img { max-width: min(440px, 100%); max-height: 240px; }
+.brainstorm-buttons { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 16px; }
+.advisor-brainstorm .goals-action, .advisor-brainstorm .goals-tool { padding: 8px 18px; border-radius: 6px; font-size: 14px; }
+.advisor-brainstorm .goals-action.is-send { border-color: transparent; background: var(--free); color: #fff; font-weight: 600; }
+.advisor-brainstorm .goals-action.is-send:hover:not(:disabled) { filter: brightness(1.1); }
+.advisor-brainstorm .goals-action.is-send:disabled { border-color: var(--line); background: var(--inset); color: var(--unknown); font-weight: 400; }
+/* The partner's turn: one large calm card, a softly pulsing dot, and what it does. */
+.brainstorm-waiting { display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 38px 26px; border-color: #1f3b66; background: #0f1a2d; text-align: center; }
+.brainstorm-wait-line { display: flex; align-items: center; justify-content: center; gap: 12px; margin: 0; font-size: 18px; }
+.brainstorm-wait-line b { font-weight: 600; }
+.brainstorm-dot { flex: none; width: 11px; height: 11px; border-radius: 50%; background: var(--free); }
+.brainstorm-waiting.is-waiting { border-color: var(--line); background: var(--panel); }
+.brainstorm-waiting.is-waiting .brainstorm-dot { background: #5b6f8f; }
+.brainstorm-waiting.is-off { border-color: var(--line); background: var(--panel); }
+.brainstorm-waiting.is-off .brainstorm-dot { background: none; border: 2px solid var(--unknown); }
+.brainstorm-wait-sub { margin: 0; color: var(--muted); font-size: 13.5px; }
+.brainstorm-next { margin: 0; font-size: 12.5px; }
+.brainstorm-opening { margin: 0; color: var(--muted); font-size: 12.5px; overflow-wrap: anywhere; }
+.brainstorm-opening .goals-link { font-size: 12.5px; }
+.brainstorm-over { margin: 0; font-size: 13px; }
+.brainstorm-problems { margin: 0; color: var(--waiting); font-size: 12.5px; overflow-wrap: anywhere; }
+/* The proposal views keep their function; they stand in the same calm card. */
+.brainstorm-box.is-proposal { padding: 20px 24px 22px; }
+.brainstorm-proposal > :first-child { margin-top: 0; }
+.brainstorm-proposal h4 { margin: 14px 0 0; font-size: 16px; }
+.brainstorm-proposal h5 { margin: 16px 0 6px; color: var(--muted); font-size: 11.5px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; }
+.brainstorm-decided { margin: 0; padding: 8px 12px 8px 28px; border-left: 3px solid #2a3a58; border-radius: 0 6px 6px 0; background: rgba(10, 15, 24, 0.55); font-size: 14px; }
+.brainstorm-tick { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px; margin: 6px 0; padding: 9px 12px; border: 1px solid var(--line); border-radius: 8px; background: rgba(10, 15, 24, 0.55); font-size: 14px; }
 .brainstorm-tick small { margin-left: auto; text-align: right; font-size: 12px; }
 .brainstorm-tick.is-off > span { color: var(--muted); text-decoration: line-through; }
-.brainstorm-note-kept { margin: 0; padding: 4px 10px; border-left: 3px solid var(--waiting); font-size: 13.5px; }
-.brainstorm-created { margin: 12px 0 0; color: var(--working); font-size: 13.5px; }
-.brainstorm-change { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; }
+.brainstorm-note-kept { margin: 0; padding: 6px 12px; border-left: 3px solid #2a3a58; font-size: 14px; }
+.brainstorm-created { margin: 14px 0 0; color: var(--working); font-size: 13.5px; }
+.brainstorm-change { display: flex; flex-direction: column; gap: 6px; margin-top: 10px; }
 .brainstorm-change .goals-action { align-self: flex-start; }
-.brainstorm-earlier { margin-top: 12px; font-size: 13px; }
-.brainstorm-earlier summary { cursor: pointer; color: var(--muted); }
-.brainstorm-earlier p { margin: 4px 0 0; overflow-wrap: anywhere; }
-.brainstorm-file { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; font-size: 12.5px; }
-.brainstorm-file .goals-tool { margin-left: auto; }
 /* "Change this goal" (2026-10-31): the change's talk, what the partner understood, the goal's draft and its re-plan.
    Quiet colours: green is what is met or agreed, never amber or red for plain information. */
-.brainstorm-change-sub { margin: 0 0 4px; font-size: 13px; }
-.brainstorm-understood { margin-top: 14px; padding: 12px 16px; border: 1px solid #2d6b47; border-radius: 10px; background: var(--panel); }
-.brainstorm-understood h4 { margin: 0 0 6px; font-size: 16px; }
-.brainstorm-understood-text { margin: 0; font-size: 14px; line-height: 1.5; overflow-wrap: anywhere; }
-.brainstorm-understood p.muted { margin: 8px 0 0; font-size: 13px; }
+/* What the partner understood: the card with a thin quiet-green border, then "Yes, that's it" and "Not quite…". */
+.brainstorm-box.brainstorm-understood { padding: 22px 26px 24px; border-color: #2f7d57; }
+.brainstorm-understood h4 { margin: 0 0 8px; font-size: 18px; }
+.brainstorm-understood .goals-tool { border-color: var(--free); color: #8fb4ff; }
+.brainstorm-understood-text { margin: 0; color: var(--muted); font-size: 14.5px; line-height: 1.55; overflow-wrap: anywhere; }
 .brainstorm-draft-label { display: block; margin-top: 12px; color: var(--muted); font-size: 12.5px; font-weight: 600; }
 .brainstorm-proposal .brainstorm-draft-title, .brainstorm-proposal .brainstorm-replan-title { margin: 2px 0 8px; font-size: 17px; }
-.brainstorm-draft { padding: 4px 16px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel); }
+.brainstorm-draft { padding: 4px 16px 12px; border: 1px solid var(--line); border-radius: 10px; background: rgba(10, 15, 24, 0.55); }
 .brainstorm-objective, .brainstorm-not-in-it { margin: 0; font-size: 14px; line-height: 1.5; overflow-wrap: anywhere; }
 .brainstorm-done-when { margin: 0; padding-left: 22px; font-size: 14px; line-height: 1.6; }
-.brainstorm-bullet { margin-top: 10px; padding: 8px 14px 10px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel); }
+.brainstorm-bullet { margin-top: 10px; padding: 8px 14px 10px; border: 1px solid var(--line); border-radius: 10px; background: rgba(10, 15, 24, 0.55); }
 .brainstorm-proposal .brainstorm-bullet-title { margin: 2px 0 6px; color: var(--text); font-size: 14.5px; text-transform: none; letter-spacing: 0; }
 .brainstorm-covered { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 4px 0; font-size: 13.5px; }
 .brainstorm-covered-mark { display: inline-grid; place-items: center; width: 18px; height: 18px; border-radius: 50%; background: var(--working); color: var(--ink); font-size: 11px; font-weight: 700; }

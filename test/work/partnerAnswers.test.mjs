@@ -66,7 +66,6 @@ test('routing: a worker\'s or the main chat\'s decide or look with advice or opt
       await digger({ action: 'ask', of: 'B1', kind: 'provide', text: 'The font file', advice: 'the one you bought' }),
       await digger({ action: 'ask', of: 'B1', kind: 'do', text: 'Restart the app', options: ['A now', 'B tonight'], advice: 'A' }),
       await digger({ action: 'ask', of: 'B1', kind: 'decide', text: 'Anything else you want here?' }),
-      await sage({ action: 'ask', of: 'B1', kind: 'decide', text: 'Icons or words?', options: ['A icons', 'B words'], advice: 'A' }),
       await digger({ action: 'ask', kind: 'decide', text: 'Which map first?', options: ['A north', 'B south'], via: 'form' }),
     ]
     for (const one of kept) {
@@ -74,6 +73,10 @@ test('routing: a worker\'s or the main chat\'s decide or look with advice or opt
       assert.equal(valueOf(await item(dir, one.result.id), 'Route'), null, one.result.id)
       assert.match(one.result.text, /For you/)
     }
+    // The partner's own question is not routed to itself; with the person's ask open on the step, it joins that one (one question per task).
+    const own = await sage({ action: 'ask', of: 'B1', kind: 'decide', text: 'Icons or words?', options: ['A icons', 'B words'], advice: 'A' })
+    assert.equal(own.ok, true, own.why)
+    assert.equal(valueOf(await item(dir, own.result.merged), 'Route'), null)
   } finally {
     await rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }

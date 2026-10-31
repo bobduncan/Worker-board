@@ -23,6 +23,7 @@ import { execFile } from 'node:child_process'
 import { lstat, mkdir, readdir, readlink, rename, rmdir, unlink } from 'node:fs/promises'
 import { dirname, isAbsolute, join, resolve } from 'node:path'
 
+import { folderHolders, holderWords } from './holders.mjs'
 import { valueOf } from './item.mjs'
 
 const MIN = 60_000
@@ -44,6 +45,8 @@ export const EMPTY_WAITS = [0, 1000, 2000, 4000]
 /** The words of a line for an empty folder a program still holds: the report check reads them to try again by itself. */
 export const HELD_WORDS = 'a program still uses it'
 export const isHeldLine = line => String(line).includes(HELD_WORDS)
+/** B844: the codes of a folder a program holds (Windows answers EBUSY for one that stands in it): only then are holders looked up. */
+const HELD_CODES = ['EBUSY', 'EPERM', 'EACCES']
 
 /** The file system as this module uses it; tests may give another. */
 export const FILES = {
@@ -222,9 +225,10 @@ async function worktreeLine(path, state, fs, platform) {
  * worktrees, naming its path and how to remove it; none when nothing is left. `which` 'report' (the worker's: a
  * worktree of the step's repository `repo` on its `branch`, and a worktree or a folder of one named for the step, not a
  * result check's) or 'check' (a result check's own, check-<id>). `repos` the repositories the board knows; `fs` null
- * leaves the project folder unread. `run` runs git (folders.mjs `gitRunner`).
+ * leaves the project folder unread. `run` runs git (folders.mjs `gitRunner`). `holders` (B844) answers the programs that
+ * stand in an empty folder that could not be removed (holders.mjs `folderHolders`); its line names them.
  */
-export async function stepLeftovers({ id, branch = null, repo = null, repos = [], project = '', run, fs = FILES, which = 'report', platform = process.platform, waits = EMPTY_WAITS, later = inBackground, inline = false }) {
+export async function stepLeftovers({ id, branch = null, repo = null, repos = [], project = '', run, fs = FILES, which = 'report', platform = process.platform, waits = EMPTY_WAITS, later = inBackground, inline = false, holders = folderHolders }) {
   const lines = []
   const told = new Set()
   const known = repo === null || repos.some(one => keyOf(one.dir, platform) === keyOf(repo.dir, platform)) ? repos : [...repos, repo]
@@ -263,7 +267,9 @@ export async function stepLeftovers({ id, branch = null, repo = null, repos = []
         }
         // The board removes it itself (a minute after a worker's `git worktree remove` the rmdir works); no chore for the person.
         const why = typeof fs.rmdir === 'function' ? await removeEmptyFolder(folder.path, fs, waits, later, inline) : 'no way to remove it here'
-        if (why !== null) lines.push(`the empty folder ${slashed(folder.path)} of a worktree is still there and could not be removed (${why}): ${HELD_WORDS}, the board keeps trying in the background and again at the next check`)
+        // B844: the programs that stand in it are named, so the worker knows what to stop (a chat's background command).
+        const who = HELD_CODES.includes(why) && typeof holders === 'function' ? holderWords(await holders(folder.path)) : ''
+        if (why !== null) lines.push(`the empty folder ${slashed(folder.path)} of a worktree is still there and could not be removed (${why}): ${HELD_WORDS}${who}, the board keeps trying in the background and again at the next check`)
       }
       else if (looksLikeWorktree(folder.name, prefixes) || await hasGitFile(folder.path, fs)) {
         lines.push(`the folder ${slashed(folder.path)} of a worktree is still there, and no repository lists it: look what is in it, then delete it`)

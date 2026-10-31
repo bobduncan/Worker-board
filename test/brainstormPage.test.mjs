@@ -16,7 +16,7 @@ const html = await readFile(join(PUBLIC, 'index.html'), 'utf8')
 const css = await readFile(join(PUBLIC, 'board.css'), 'utf8')
 const made = {}
 vm.runInNewContext(`${script.slice(script.indexOf('// brainstorm:start'), script.indexOf('// brainstorm:end'))}
-Object.assign(this, { brainstormAnswerText, brainstormCardView, brainstormChosen, brainstormListView, proposalView })`, made)
+Object.assign(this, { brainstormAnswerText, brainstormCardView, brainstormChosen, brainstormListView, brainstormStatusOf, proposalView })`, made)
 const plain = value => value === undefined ? undefined : JSON.parse(JSON.stringify(value))
 const page = Object.fromEntries(Object.entries(made).map(([name, made]) => [name, (...args) => plain(made(...args))]))
 
@@ -33,27 +33,38 @@ test('the card shows the open question with its options, the advised one marked,
   assert.deepEqual(card.options, [{ key: 'A', text: 'dim', isAdvised: true }, { key: 'B', text: 'bright', isAdvised: false }])
   assert.equal(card.canAnswer, true)
   assert.equal(card.canBack, true)
-  assert.equal(card.waiting, null)
-  assert.deepEqual(card.earlier, [{ n: 1, title: 'Where first?', context: '', answerText: 'A, by the gate: "and the bench"' }])
+  // The Brainstorm screen (2026-10-31): the card no longer carries `waiting` (one string for the partner's turn); it says whose
+  // turn it is, and the partner's card exists only on the partner's turn. Each earlier answer is also a chip: "n · the answer in a few words".
+  assert.equal(card.turn, 'person')
+  assert.equal(card.partner, null)
+  assert.deepEqual(card.earlier, [{ n: 1, title: 'Where first?', context: '', answerText: 'A, by the gate: "and the bench"', chip: '1 · by the gate' }])
   // The first question has nothing to go back to.
   assert.equal(page.brainstormCardView(one(`${HEAD}${Q1}`), idle).canBack, false)
 })
 
-test('while the Advisor has the turn the card says what it does: thinking, on something else, or not running (Review Focus 4)', () => {
+test('while the partner has the turn the card says what it does: thinking, on something else, or not running (Review Focus 4)', () => {
+  // The Brainstorm screen (2026-10-31): the words changed. The Advisor's lines ("The Advisor is thinking…", "The Advisor is on: <its
+  // card's line>", "...not running...") are now the partner's card (`partner`: kind, headline and the muted line under it), written
+  // with "your partner" so they fit whichever chat it is; the cases are the same, and the new screen's own tests are in
+  // brainstormScreen.test.mjs.
   const answered = one(`${HEAD}${Q1}Answer (21:02): B\n`)
-  assert.equal(page.brainstormCardView(answered, idle).waiting, 'The Advisor is thinking…')
+  assert.deepEqual([page.brainstormCardView(answered, idle).partner.kind, page.brainstormCardView(answered, idle).partner.headline], ['thinking', 'Your partner is writing the next question'])
   assert.equal(page.brainstormCardView(answered, idle).canAnswer, false)
-  assert.equal(page.brainstormCardView(one(HEAD), idle).waiting, 'The Advisor is thinking…')
-  assert.equal(page.brainstormCardView(answered, { ...idle, state: 'working', doingNow: 'Morning round' }).waiting, 'The Advisor is on: Morning round')
+  assert.equal(page.brainstormCardView(one(HEAD), idle).partner.headline, 'Your partner is reading your words')
+  const elsewhere = page.brainstormCardView(answered, { ...idle, state: 'working', doingNow: 'Morning round' }).partner
+  assert.deepEqual([elsewhere.kind, elsewhere.headline, elsewhere.line], ['waiting', 'Your partner is busy with Morning round.', 'Your brainstorm is next.'])
   // Its own work on the brainstorm is the thinking.
-  assert.equal(page.brainstormCardView(answered, { ...idle, state: 'working', doingNow: 'Brainstorm: Q2' }).waiting, 'The Advisor is thinking…')
-  assert.equal(page.brainstormCardView(answered, { ...idle, isRunning: false }).waiting, 'The Advisor\'s chat is not running: start it from the Workers lane (the main chat starts it)')
-  assert.equal(page.brainstormCardView(answered, null).waiting, 'No Advisor is on the board: a brainstorm waits for one.')
-  // Wrapping up: the Advisor writes the proposal.
-  assert.equal(page.brainstormCardView(one(`${HEAD}${Q1}`.replace('State: running', 'State: wrapping up')), idle).canAnswer, false)
-  // A proposal or the end: no question, nothing to wait for.
+  assert.equal(page.brainstormCardView(answered, { ...idle, state: 'working', doingNow: 'Brainstorm: Q2' }).partner.kind, 'thinking')
+  const off = page.brainstormCardView(answered, { ...idle, isRunning: false }).partner
+  assert.deepEqual([off.kind, off.headline, off.line], ['off', 'Your partner\'s chat is not running', 'Start it from the Workers lane (the main chat starts it).'])
+  const none = page.brainstormCardView(answered, null).partner
+  assert.deepEqual([none.kind, none.headline, none.line], ['off', 'No partner is on this board', 'A brainstorm waits for one.'])
+  // Wrapping up: the partner writes the proposal.
+  const wrapping = page.brainstormCardView(one(`${HEAD}${Q1}`.replace('State: running', 'State: wrapping up')), idle)
+  assert.deepEqual([wrapping.canAnswer, wrapping.partner.headline], [false, 'Your partner is writing the proposal'])
+  // A proposal or the end: no question; the proposal waits for the person, the end for nobody: no partner's card either way.
   const proposed = page.brainstormCardView(one(`${HEAD}${Q1}Answer (21:02): B\n${PROPOSAL}`), idle)
-  assert.deepEqual([proposed.canAnswer, proposed.waiting, proposed.question], [false, null, null])
+  assert.deepEqual([proposed.canAnswer, proposed.turn, proposed.partner, proposed.question], [false, 'person', null, null])
 })
 
 test('the answers read back in words: the option, the person\'s own words, skipped, back', () => {
@@ -87,19 +98,21 @@ test('the proposal shows every goal and step ticked unless the person took the t
   assert.deepEqual(page.proposalView(dotted, []).steps.map(step => step.ticked), [true, false])
 })
 
-test('the list holds the running brainstorms, then the ones done, each with what it stands at or what came of it', () => {
+test('the list holds the running brainstorms, then the ones done: a status word each, and what it stands at or what came of it in its tooltip', () => {
   const threads = brainstormsState([
     { path: 'b/2026-10-15-lanterns.md', text: `${HEAD}${Q1}`, at: 3 },
     { path: 'b/2026-10-15-night.md', text: `${HEAD.replace('Lanterns', 'Night')}${Q1}Answer (21:02): B\n`, at: 2 },
     { path: 'b/2026-10-14-gate.md', text: `${HEAD.replace('Lanterns', 'Gate').replace('2026-10-15 21:00', '2026-10-14 10:00')}${Q1}Answer (21:02): B\n${PROPOSAL}Created (21:25): G10; 2 steps asked of the main chat; left out: nothing\n`.replace('State: running', 'State: done'), at: 1 },
     { path: 'b/2026-10-13-old.md', text: HEAD.replace('Lanterns', 'Old').replace('State: running', 'State: discarded'), at: 0 },
   ], 'b').threads
-  const list = page.brainstormListView(threads)
-  assert.deepEqual(list.running.map(row => [row.path, row.title, row.line, row.waits]), [
-    ['b/2026-10-15-lanterns.md', 'Lanterns', '2026-10-15 · question 1 waits for you', true],
-    ['b/2026-10-15-night.md', 'Night', '2026-10-15 · 1 question · with the Advisor', false],
+  const list = page.brainstormListView(threads, idle)
+  // The Brainstorm screen (2026-10-31): a row is the title and one small status word (`word`); the day, the question count and what
+  // came of it moved to the row's tooltip (`tip`), and "with the Advisor" reads "with your partner".
+  assert.deepEqual(list.running.map(row => [row.path, row.title, row.word, row.tip, row.waits]), [
+    ['b/2026-10-15-lanterns.md', 'Lanterns', 'your turn', '2026-10-15 · 1 question · with your partner', true],
+    ['b/2026-10-15-night.md', 'Night', 'your partner is thinking', '2026-10-15 · 1 question · with your partner', false],
   ])
-  assert.deepEqual(list.done.map(row => [row.title, row.line]), [['Gate', '2026-10-14 · 1 question → G10, 2 steps'], ['Old', '2026-10-15 · discarded']])
+  assert.deepEqual(list.done.map(row => [row.title, row.word, row.tip]), [['Gate', 'created', '2026-10-14 · 1 question → G10, 2 steps'], ['Old', 'discarded', '2026-10-15 · discarded']])
   // The card shows the one chosen, else the first running, else the newest.
   assert.equal(page.brainstormChosen(threads, 'b/2026-10-14-gate.md'), 'b/2026-10-14-gate.md')
   assert.equal(page.brainstormChosen(threads, 'b/gone.md'), 'b/2026-10-15-lanterns.md')
@@ -150,8 +163,10 @@ Context: Short.
 })
 
 test('B475: the card draws the title as its header and the context as normal text under it', () => {
-  assert.match(script, /el\('h4', 'brainstorm-question', view\.question\.title\)/)
-  assert.match(script, /el\('p', 'brainstorm-context', view\.question\.context\)/)
+  // The Brainstorm screen (2026-10-31): the question card is drawn by brainstormAsk, which holds the question in a local
+  // `question` (it was `view.question`); the context stays one short line under the title (a longer one folds under "Why I ask").
+  assert.match(script, /el\('h4', 'brainstorm-question', question\.title\)/)
+  assert.match(script, /el\('p', 'brainstorm-context', question\.context\)/)
   assert.match(css, /\.brainstorm-context \{/)
 })
 

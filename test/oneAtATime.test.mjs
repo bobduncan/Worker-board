@@ -9,7 +9,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import test, { after } from 'node:test'
 import { fileURLToPath } from 'node:url'
-import { pidRuns, runOneAtATime, whyStale } from '../tools/one-at-a-time.mjs'
+import { DEFAULT_SLOTS, pidRuns, runOneAtATime, slotPath, slotsOf, whyStale } from '../tools/one-at-a-time.mjs'
 
 const HELPER = fileURLToPath(new URL('../tools/one-at-a-time.mjs', import.meta.url))
 const scratch = mkdtempSync(join(tmpdir(), 'heavy-run-test-'))
@@ -31,7 +31,8 @@ function newLock() {
 /** The environment of a run: this test's lock, a short poll and say, and no HEAVY_RUN_HELD (npm test itself sets it). */
 function envFor(lock, extra = {}) {
   const { HEAVY_RUN_HELD: _held, ...plain } = process.env
-  return { ...plain, HEAVY_RUN_LOCK: lock, HEAVY_RUN_POLL_MS: '50', HEAVY_RUN_SAY_MS: '200', ...extra }
+  // One slot unless a test asks for more: the older cases are about one run at a time.
+  return { ...plain, HEAVY_RUN_LOCK: lock, HEAVY_RUN_POLL_MS: '50', HEAVY_RUN_SAY_MS: '200', HEAVY_RUN_SLOTS: '1', ...extra }
 }
 
 /** Starts the helper as the package scripts do; `done` resolves to its exit code and what it wrote. */
@@ -221,5 +222,52 @@ test('whyStale: a lock is stale when it cannot be read, its process is gone, or 
 test('npm test runs through the helper, and the README says that the tests wait their turn', () => {
   const pkg = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'))
   assert.equal(pkg.scripts.test, 'node tools/one-at-a-time.mjs test -- node tools/test.mjs')
-  assert.match(readFileSync(new URL('../README.md', import.meta.url), 'utf8'), /one heavy run at a time/)
+  assert.match(readFileSync(new URL('../README.md', import.meta.url), 'utf8'), /two heavy runs at a time/)
+})
+
+// The person, 2026-10-31: "yes do 2 at a time", and a run that waited longest goes first.
+test('two runs go at once by default; a third waits for one of them', async () => {
+  assert.equal(DEFAULT_SLOTS, 2)
+  assert.equal(slotsOf({}), 2)
+  assert.equal(slotsOf({ HEAVY_RUN_SLOTS: '1' }), 1)
+  assert.equal(slotsOf({ HEAVY_RUN_SLOTS: 'x' }), 2)
+  assert.equal(slotPath('C:/t/heavy.lock', 1), 'C:/t/heavy.lock')
+  assert.equal(slotPath('C:/t/heavy.lock', 2), 'C:/t/heavy.2.lock')
+  const lock = newLock()
+  const two = { HEAVY_RUN_SLOTS: '2' }
+  const slow = node('setTimeout(() => console.log(Date.now()), 900)')
+  const first = start(lock, 'first', slow, two)
+  const second = start(lock, 'second', node('console.log(Date.now())'), two)
+  await until(() => existsSync(lock), 'a slot taken')
+  const two1 = await second.done
+  assert.equal(two1.code, 0)
+  assert.doesNotMatch(two1.err, /waiting for/, 'the second ran beside the first')
+  const one = await first.done
+  assert.ok(Number(two1.out) < Number(one.out), 'the second finished while the first still ran')
+  assert.equal(existsSync(lock), false)
+  assert.equal(existsSync(slotPath(lock, 2)), false)
+})
+
+test('first come, first served: the run that waited longest takes the next free slot', async () => {
+  const lock = newLock()
+  writeFileSync(lock, lockText())
+  const early = start(lock, 'early', node('console.log(Date.now())'))
+  await until(() => /waiting for/.test(early.err), 'the early run waiting')
+  const late = start(lock, 'late', node('console.log(Date.now())'))
+  await until(() => /waiting for .*1 ahead of this run/.test(late.err), 'the late run knowing one is ahead')
+  rmSync(lock)
+  const [one, two] = await Promise.all([early.done, late.done])
+  assert.equal(one.code, 0)
+  assert.equal(two.code, 0)
+  assert.ok(Number(one.out) <= Number(two.out), 'the early run went first')
+  assert.equal(existsSync(lock), false)
+})
+
+test('a ticket whose process is gone does not hold up the queue', async () => {
+  const lock = newLock()
+  mkdirSync(lock + '.queue')
+  writeFileSync(join(lock + '.queue', '000000000000001-00000001.json'), lockText({ pid: 999999 }))
+  const result = await start(lock, 'after a crash', quick).done
+  assert.equal(result.code, 0)
+  assert.match(result.out, /ran/)
 })

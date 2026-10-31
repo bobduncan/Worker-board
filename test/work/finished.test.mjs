@@ -153,7 +153,7 @@ test('kind unknown: no repository can be told: a failure for the person, not "ba
 
 test('an empty folder a program holds warns and never fails the step; a folder with a worktree in it goes back', async () => {
   const held = folders({ '/projects': ['garden', 'tools', 'garden-b5'], '/projects/garden-b5': [] }, 'EBUSY')
-  const done = await reportCheck(report({ merged: 'c0ffee1', fs: held, waits: [0] }))
+  const done = await reportCheck(report({ merged: 'c0ffee1', fs: held, waits: [0], holders: async () => null }))
   assert.equal(done.passed, true)
   assert.equal(done.isHeld, true)
   assert.match(done.warnings.join(' '), /the empty folder \/projects\/garden-b5 of a worktree is still there and could not be removed \(EBUSY\): a program still uses it/)
@@ -213,12 +213,14 @@ test('B821 (X114): work merged in the game, an empty worktree folder a program h
   // Before: "the empty folder .../w5-b821 of a worktree is still there and could not be removed (EBUSY): a program still uses it ..." three times.
   for (const [result, hash] of reports) {
     const held = folders({ '/projects': ['lava-tactics', 'worker-board', 'w5-b821'], '/projects/w5-b821': [] }, 'EBUSY')
-    const args = { id: 'B821', branch: 'b821-lava-pool-round', result, merged: hash, repos: liveRepos, run: git(merged), project: PROJECT, exists: files([]), fs: held, waits: [0] }
+    const args = { id: 'B821', branch: 'b821-lava-pool-round', result, merged: hash, repos: liveRepos, run: git(merged), project: PROJECT, exists: files([]), fs: held, waits: [0], holders: async () => [{ pid: 4242, name: 'bash.exe', parent: 'claude.exe', command: 'sleep 1500' }] }
     assert.equal((await finishedKind(args)).kind, hash === 'none' ? 'branch' : 'merged')
     const done = await reportCheck(args)
     assert.equal(done.passed, true, JSON.stringify(done))
     assert.equal(done.lines[0], 'work in lava-tactics')
     assert.ok(done.warnings.some(one => /w5-b821 of a worktree is still there and could not be removed \(EBUSY\): a program still uses it/.test(one)))
+    // B844: the warning names the program that holds it (here a chat's background wait), so the worker can stop it.
+    assert.ok(done.warnings.some(one => /a program still uses it \(bash\.exe 4242 from claude\.exe: sleep 1500\): stop it/.test(one)), JSON.stringify(done.warnings))
   }
 })
 
