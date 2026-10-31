@@ -112,13 +112,21 @@ and the briefings for the main chat and the workers.
    mode send, and the ⚙ row says "needs your OK"); `mcp__ccd_session_mgmt__set_session_model` and
    `mcp__ccd_session_mgmt__set_session_effort` set a worker's model and effort per step;
    `mcp__ccd_session_mgmt__archive_session`, `mcp__ccd_session_mgmt__unarchive_session` and
-   `mcp__ccd_session_mgmt__list_sessions` restart an idle worker for a new mod; `mcp__scheduled-tasks__update_scheduled_task`
+   `mcp__ccd_session_mgmt__list_sessions` restart an idle worker for a new mod and (B847) archive the older chats of a worker
+   that a newer run of its routine replaced; `mcp__scheduled-tasks__update_scheduled_task`
    and `mcp__scheduled-tasks__run_scheduled_task` start a new worker from its stored routine. Reading your usage limits
    needs no rule. A job without its rules stays the main chat's. One row is the workers' own:
    `mcp__Claude_Browser__preview_start`, `mcp__Claude_Browser__preview_stop`, `mcp__Claude_Browser__preview_list` and
    `mcp__Claude_Browser__preview_logs` let a worker start, check and stop the game's preview (the app's built-in browser,
    from the project's own `.claude\launch.json`) with no popup; without them every worker asks you each time it starts
    the game. Other browser actions (opening outside sites) keep asking.
+   **Leftovers (B847).** A worker's routine opens a new chat with the worker's title on each run; it does not reopen the
+   chat of the run before. The older chat stays in the app's list and the board shows it greyed, as a leftover. Once the
+   newer chat has checked in, the board archives the older chats of that worker by itself (a chat's mod, with the three
+   archive rules above; the ⚙ row "Restart a worker for a new mod, archive replaced chats" says when none may): only ones quiet for five
+   minutes, that the app does not say wait for you, that were last active before the newer chat began, that work in the
+   same folder and whose folder has nothing uncommitted. The live chat is never archived. Each archive is one line in
+   `board.log` ("B847: archived the replaced chat ...").
 4. **The project's files.** Make `<project>\.claude\` and copy into it from `examples\`: `list.json` into
    `.claude\chats\` with your prefix, `main-briefing.md` and `worker-briefing.md`; in the two briefings
    replace `<project>`, `<prefix>` and `<repository>`. For the Design tab, also `design.json` into `.claude\`, with

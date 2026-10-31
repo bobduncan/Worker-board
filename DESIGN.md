@@ -58,6 +58,24 @@ older chat of the same name. Now only the folder holding the most recently activ
 folders as recent as each other are both read). A fork or an older chat of the same name in the account in use is
 still a grey leftover.
 
+**A replaced chat is archived (B847, 2026-10-31).** The person: "why do we still have worker 1 leftovers?" Why: a worker's
+stored routine does not reopen its chat on a run; it starts a NEW chat with the same title, so each run left the run before
+as a grey leftover in the app's list (Worker 1: three chats, 46ef397a, cd69da0e, 2609836b). The board now closes them
+(`src/replacedChats.mjs`, `replacedChats`, pure). A leftover lane is named when a live lane of its name runs, has reported
+(checked in) and was made after the leftover's last activity (the older chat had stopped before the newer began); no open
+step of the name is missing from the live lane's task (a step belongs to the name, so one the live chat does not show may sit
+with the older chat); the older chat works in the same folder, has been quiet for 5 minutes and is not marked by the app
+as needing the person (`needsAction`); and no word for it went in the last 5 minutes. The server then checks the chat's
+folder with git (`hasNothingUncommitted`: a work tree with a change, or one git cannot read, keeps the chat; a folder that is
+no work tree holds nothing to lose). The word is a job derived at the claim of the hands, not an outbox word: `{ id:
+'archive:<app id>', to, chat, archive: true }`, given only to a chat whose mod says `can: ['restart']` and is at least
+`ARCHIVE_MOD` (0.26.10; an older mod drops the job unread), which calls the app's `archive_session` on `to` and changes
+nothing in the list of chats (unlike a removal, which would take the live chat of that name out). Each result is one line
+in `board.log`: `B847: archived the replaced chat <id> at HH:MM: <why>` or `could not archive (<why>)`; a refused chat (the app
+refuses one that works or is open on the screen) is tried again after 5 minutes. With no chat that may archive the setup row
+"Restart a worker for a new mod, archive replaced chats" says so. A fork ("Name (copy)") is not a replaced chat and stays a leftover.
+Tests: `test/replacedChats.test.mjs`, `mods/workers/hooks/hands.test.ts`.
+
 **The fixed form for what a chat needs from the person** (an "ask"): one JSON file per ask in
 `<project>\.claude\asks\`, written and closed by the chat that asks, read by the board. The fields are in
 `src/asks.mjs`. Three kinds:

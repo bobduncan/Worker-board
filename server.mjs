@@ -74,6 +74,7 @@ import { evaluationFor } from './src/goalGuard.mjs'
 import { readSources } from './src/sources.mjs'
 import { backgroundRunning, parseTail, readTail } from './src/transcript.mjs'
 import { clearAtTake, isStepLine, modAtLeast, takeRefusal } from './src/clearOwed.mjs'
+import { ARCHIVE_MOD, archiveJobId, archivedBy, hasNothingUncommitted, replacedChats } from './src/replacedChats.mjs'
 import { keptReadingsOf, newestPerWindow, readingOfAnswer } from './src/limits.mjs'
 import { checkProviders } from './src/providers/index.mjs'
 import { buildState, fullStepOf, lightState } from './src/state.mjs'
@@ -1658,6 +1659,9 @@ async function main(args) {
   const freshWho = new Map()
   /** B753: when a hand last sent a resume line, by `<pause since>:<chat>`, so one goes again only after a while. */
   const resumesSent = new Map()
+  /** B847: when a word to archive a replaced chat last went, by the chat's app id, and why it went (for board.log). */
+  const archiveGiven = new Map()
+  const archiveWhy = new Map()
   // B767: what each chat's mod said its code may do at its last claim of the hands (`{ can, at, mod }` by name; T14: with
   // its mod's version, null for none said), and the last new worker that failed (`{ at, why }`), for the setup check.
   const codeClaims = new Map()
@@ -2309,6 +2313,15 @@ async function main(args) {
         const lane = lanes.find(one => one.name === message.about)
         jobs.push({ id: message.id, ...(typeof lane?.appSession === 'string' && /^local_[\w-]{1,80}$/.test(lane.appSession) ? { to: lane.appSession } : {}), chat: message.about, remove: true })
       }
+      // B847: the older chats of a worker that a newer run of its routine replaced, archived by a chat whose mod can.
+      if (can.has('restart') && modAtLeast(claim.mod, ARCHIVE_MOD) && !isHolding(state.pause)) {
+        for (const one of replacedChats({ lanes: state.chats ?? [], now: clock(), given: archiveGiven })) {
+          archiveGiven.set(one.session, clock())
+          if (!(await hasNothingUncommitted(one.cwd, gitRunner()))) continue
+          archiveWhy.set(one.session, one.why)
+          jobs.push({ id: archiveJobId(one.session), to: one.session, chat: one.chat, archive: true })
+        }
+      }
       if (back.length > 0) await store.back(back)
       for (const job of jobs) if (job.id.startsWith('resume:')) resumesSent.set(job.id.slice('resume:'.length), clock())
       const asleep = jobs.map(job => asleepOfJob(job.id)).filter(one => one !== null)
@@ -2326,6 +2339,14 @@ async function main(args) {
         const reading = READINGS_FILE === null || isShowOnly ? null : readingOfAnswer(text, Number(id.slice('usage:'.length)) || clock())
         if (reading === null) continue
         await writeAtomic(READINGS_FILE, JSON.stringify(newestPerWindow([...(await readingsOnDisk()), reading])))
+        readState.reset()
+      }
+      // B847: one line in board.log for each replaced chat archived (or refused, with why); the lane leaves the leftovers.
+      for (const id of [...sent, ...failed]) {
+        const session = archivedBy(id)
+        if (session === null) continue
+        console.log(`B847: ${sent.includes(id) ? 'archived' : `could not archive (${why[id] ?? 'not done'})`} the replaced chat ${session} at ${timeOf(clock())}: ${archiveWhy.get(session) ?? 'a newer chat of its name has checked in'}.`)
+        archiveWhy.delete(session)
         readState.reset()
       }
       // A resume line that could not go may go again at the next claim.

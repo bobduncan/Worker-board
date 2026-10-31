@@ -60,6 +60,7 @@ export type HandSet = { model: string | null; effort: string }
 export type HandJob = { id: string; to: string; chat: string; text: string } | { id: string; to: string; chat: string; set: HandSet }
   | { id: string; to: string; chat: string; restart: { keep: string[] } } | { id: string; chat: string; spawn: { title: string; tasks: string[] } }
   | { id: string; chat: string; usage: true } | { id: string; to?: string; chat: string; remove: true }
+  | { id: string; to: string; chat: string; archive: true }
 export type HandResult = { id: string; ok: boolean; why?: string; text?: string }
 
 const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null && !Array.isArray(value)
@@ -114,6 +115,11 @@ export function parseJobs(text: string | null): HandJob[] {
     }
     if (!isText(one.to) || !APP_ID.test(one.to)) continue
     const head = { id: one.id, to: one.to, chat: isText(one.chat) ? one.chat : '' }
+    // B847: an older chat of a worker that a newer run of its routine replaced: archived, never reopened, no list change.
+    if (one.archive === true) {
+      parsed.push({ ...head, archive: true })
+      continue
+    }
     if (isText(one.text)) parsed.push({ ...head, text: one.text.slice(0, 2000) })
     else if (one.set !== undefined) {
       const set = setOf(one.set)

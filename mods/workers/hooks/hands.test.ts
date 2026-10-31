@@ -124,4 +124,10 @@ describe('the board\'s hands', () => {
       { id: 'm3', chat: 'Worker 7', remove: true },
     ])
   })
+
+  // B847: an older chat of a worker that a newer run of its routine replaced.
+  test('an archive job needs the app id of the chat to close and carries no list change', () => {
+    const text = JSON.stringify({ jobs: [{ id: 'archive:local_old', to: 'local_old', chat: 'Worker 1', archive: true }, { id: 'archive:x', to: 'cli-x', chat: 'Worker 1', archive: true }, { id: 'archive:y', chat: 'Worker 1', archive: true }] })
+    expect(parseJobs(text)).toEqual([{ id: 'archive:local_old', to: 'local_old', chat: 'Worker 1', archive: true }])
+  })
 })
