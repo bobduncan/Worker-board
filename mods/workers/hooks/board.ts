@@ -34,7 +34,7 @@ export const REQUEST_HEADER = 'X-Work-Request'
  * chat that runs an older Workers mod than the one installed. The same as `version` in .claude-plugin/plugin.json.
  */
 export const MOD_HEADER = 'X-Workers-Mod'
-export const MOD_VERSION = '0.26.10'
+export const MOD_VERSION = '0.27.0'
 /** The longest text typed for the board: its own limit for an answer, with room for the request's name around it. */
 export const MOST_CHARS = 3000
 
@@ -121,10 +121,12 @@ export function parseWhoami(text: string): Whoami | null {
  * not typed; its id is in `refused`, so the board is told it did not arrive, and `why` says why (B532: "too long: 9459 >
  * 3000 characters"), so the board does not try it again and the page names the reason.
  */
-export function parseTaken(text: string): { messages: Taken[]; refused: string[]; why: Record<string, string>; clear: OwedClear | null; off: string[]; stop: StopAsk | null } {
+export function parseTaken(text: string): { messages: Taken[]; refused: string[]; why: Record<string, string>; clear: OwedClear | null; off: string[]; stop: StopAsk | null; handover: Envelope | null } {
   const raw = parsed(text)
-  const taken: { messages: Taken[]; refused: string[]; why: Record<string, string>; clear: OwedClear | null; off: string[]; stop: StopAsk | null } = { messages: [], refused: [], why: {}, clear: null, off: [], stop: null }
+  const taken: { messages: Taken[]; refused: string[]; why: Record<string, string>; clear: OwedClear | null; off: string[]; stop: StopAsk | null; handover: Envelope | null } = { messages: [], refused: [], why: {}, clear: null, off: [], stop: null, handover: null }
   if (!isRecord(raw)) return taken
+  // T8.5: a worker on the sequence: the envelope that waited for it (marked taken by the board): carried out now.
+  taken.handover = parseEnvelope(raw.handover)
   // B769: the person stops this worker's task or removes it: told at its next tool call and its next prompt.
   const stop = raw.stop
   if (isRecord(stop) && typeof stop.id === 'string' && /^[\w-]{1,40}$/.test(stop.id) && (stop.kind === 'stop' || stop.kind === 'remove')) {
@@ -153,6 +155,70 @@ export function parseTaken(text: string): { messages: Taken[]; refused: string[]
 
 /** B769: the person's Stop task or Remove worker for this chat, as the board's take names it. */
 export type StopAsk = { id: string; kind: 'stop' | 'remove'; task: string }
+
+/**
+ * T8.5 (Workers mod 0.27.0; the spec .claude/specs/2026-10-31-handover-design.md, DESIGN.md "The envelope's contract for
+ * the Workers mod"): the board's one message between two tasks of a worker on the sequence. Carried out once per `id`, in
+ * the order restart, clear, set, line, stopping at the first that fails. `set` is the board's hands' job, done before the
+ * envelope was handed out: the mod never sets it.
+ */
+export type Envelope = {
+  id: string
+  kind: 'task' | 'clear' | 'back' | 'restart'
+  step: string | null
+  clear: OwedClear | null
+  restart: boolean
+  set: { model: string | null; effort: string | null } | null
+  line: string | null
+  version: string | null
+}
+/** T8.5: the board's `handover` in its answer to a turn's end: where the worker's hand-over stands, and its envelope. */
+export type Handover = { state: string; why: string | null; step: string | null; envelope: Envelope | null; waits: 'set' | null }
+/** T8.5: what the mod tells the board became of an envelope: each part done (true), failed (false) or not asked (null). */
+export type Outcome = { cleared: boolean | null; set: boolean | null; typed: boolean | null; restarted: boolean | null; background: boolean; why: string | null }
+
+const STEP_ID = /^[A-Z]\d{1,6}$/
+const ENVELOPE_ID = /^[A-Za-z0-9_-]{1,64}$/
+const KINDS: Envelope['kind'][] = ['task', 'clear', 'back', 'restart']
+
+/** T8.5: an envelope as the board hands it out, read safely; null for anything that is none (no id, no object). */
+export function parseEnvelope(raw: unknown): Envelope | null {
+  if (!isRecord(raw) || typeof raw.id !== 'string' || !ENVELOPE_ID.test(raw.id)) return null
+  const clear = raw.clear
+  const set = raw.set
+  const line = typeof raw.line === 'string' ? raw.line.trim() : ''
+  return {
+    id: raw.id,
+    kind: KINDS.includes(raw.kind as Envelope['kind']) ? raw.kind as Envelope['kind'] : 'task',
+    step: typeof raw.step === 'string' && STEP_ID.test(raw.step) ? raw.step : null,
+    clear: isRecord(clear) && typeof clear.reportedAt === 'number' && Number.isFinite(clear.reportedAt)
+      ? { step: typeof clear.step === 'string' && STEP_ID.test(clear.step) ? clear.step : null, reportedAt: clear.reportedAt } : null,
+    restart: raw.restart === true,
+    set: isRecord(set) ? { model: typeof set.model === 'string' ? set.model : null, effort: typeof set.effort === 'string' ? set.effort : null } : null,
+    line: line === '' ? null : line,
+    version: typeof raw.version === 'string' && /^\d{1,4}\.\d{1,5}\.\d{1,6}$/.test(raw.version) ? raw.version : null,
+  }
+}
+
+/**
+ * T8.5: the board's `handover` in an answer to a turn's end, or null when the answer has none (an older board, the setting
+ * "timers", a worker on an older mod): then the mod behaves as 0.26.10. Any `handover` object means the mod does not decide
+ * its own clear at this turn's end, whatever its envelope.
+ */
+export function parseHandover(answer: unknown): Handover | null {
+  const raw = isRecord(answer) ? answer.handover : undefined
+  if (!isRecord(raw)) return null
+  return {
+    state: typeof raw.state === 'string' ? raw.state : 'unknown',
+    why: typeof raw.why === 'string' && raw.why !== '' ? raw.why : null,
+    step: typeof raw.step === 'string' && STEP_ID.test(raw.step) ? raw.step : null,
+    envelope: parseEnvelope(raw.envelope),
+    waits: raw.waits === 'set' ? 'set' : null,
+  }
+}
+
+/** T8.5: an envelope's outcome before anything of it was done: nothing asked, nothing failed. */
+export const NO_OUTCOME: Readonly<Outcome> = Object.freeze({ cleared: null, set: null, typed: null, restarted: null, background: false, why: null })
 
 /** B769: what a worker is told at its next tool call or prompt when the person stops its task or removes it. */
 export function stopLine(stop: StopAsk): string {

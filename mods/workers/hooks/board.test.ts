@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'claude-code/testing'
 
-import { MOD_VERSION, MOST_CHARS, WHOAMI_PATH, WORK_ACTIONS, WORK_FIELDS, boardStarts, isPaused, parseBoard, parsePause, parseTaken, parseWhoami, pauseContexts, stopLine, typedWhy } from './board'
+import { MOD_VERSION, MOST_CHARS, NO_OUTCOME, WHOAMI_PATH, WORK_ACTIONS, WORK_FIELDS, boardStarts, isPaused, parseBoard, parseEnvelope, parseHandover, parsePause, parseTaken, parseWhoami, pauseContexts, stopLine, typedWhy } from './board'
 
 const KEY = 'ab'.repeat(32)
 
@@ -48,9 +48,9 @@ describe('the worker board, as the mod reads it', () => {
     // What cannot be typed is named, so the board can say it did not arrive.
     // B532: with why, so the board does not try it again and names the reason.
     expect(parseTaken(answer)).toEqual({ messages: [{ id: 'm1', text: 'Sheet B' }], refused: ['m2', 'm3', 'm4'],
-      why: { m2: `too long: ${MOST_CHARS + 1} > ${MOST_CHARS} characters`, m3: 'no text', m4: 'no text' }, clear: null, off: [], stop: null })
-    expect(parseTaken('{"messages":"x"}')).toEqual({ messages: [], refused: [], why: {}, clear: null, off: [], stop: null })
-    expect(parseTaken('')).toEqual({ messages: [], refused: [], why: {}, clear: null, off: [], stop: null })
+      why: { m2: `too long: ${MOST_CHARS + 1} > ${MOST_CHARS} characters`, m3: 'no text', m4: 'no text' }, clear: null, off: [], stop: null, handover: null })
+    expect(parseTaken('{"messages":"x"}')).toEqual({ messages: [], refused: [], why: {}, clear: null, off: [], stop: null, handover: null })
+    expect(parseTaken('')).toEqual({ messages: [], refused: [], why: {}, clear: null, off: [], stop: null, handover: null })
     // B738: the chats the board shows as not running; anything that is no name is left out.
     expect(parseTaken('{"messages":[],"off":["Worker 5",3,""]}').off).toEqual(['Worker 5'])
     expect(parseTaken('{"messages":[],"off":"x"}').off).toEqual([])
@@ -241,7 +241,7 @@ describe('Pause 2: the pause state as the mod reads it, and the contexts it give
 describe('2026-10-28: the board names this chat by its session id', () => {
   test('the route, and the version the plugin states', () => {
     expect(WHOAMI_PATH).toBe('/api/bridge/whoami')
-    expect(MOD_VERSION).toBe('0.26.10')
+    expect(MOD_VERSION).toBe('0.27.0')
   })
 
   test('the answer: a name, the role the board gives it and the session its card is filed under', () => {
@@ -265,6 +265,36 @@ describe('2026-10-28: the board names this chat by its session id', () => {
     expect(parseWhoami(JSON.stringify({ name: 'N'.repeat(81) }))).toBeNull()
     expect(parseWhoami(JSON.stringify({ name: 'N'.repeat(80) }))?.name).toBe('N'.repeat(80))
     for (const text of ['', 'Not here.', '[]', 'null', '"Units"', '<html>']) expect(parseWhoami(text)).toBeNull()
+  })
+})
+
+describe('T8.5: the board\'s hand-over envelope, as the mod reads it (DESIGN.md, "The envelope\'s contract for the Workers mod")', () => {
+  const ENVELOPE = { id: '0123456789abcdef', kind: 'task', step: 'B12', clear: { step: 'B11', reportedAt: 5 }, restart: false, set: { model: 'claude-opus-4-1', effort: 'high' }, line: 'work: B12 is yours; run work next' }
+
+  test('an envelope: its id, kind, step, clear, restart, set, line and version, read safely', () => {
+    expect(parseEnvelope(ENVELOPE)).toEqual({ ...ENVELOPE, version: null })
+    expect(parseEnvelope({ id: 'ab12', kind: 'restart', step: null, clear: null, restart: true, set: null, line: null, version: '0.27.1' })).toEqual({ id: 'ab12', kind: 'restart', step: null, clear: null, restart: true, set: null, line: null, version: '0.27.1' })
+    // What is no id, no object or no step id is left out; an unknown kind is a task; a clear without its time is none.
+    for (const raw of [null, 'x', [], {}, { id: '' }, { id: '../x' }, { id: 7 }]) expect(parseEnvelope(raw)).toBeNull()
+    expect(parseEnvelope({ ...ENVELOPE, kind: 'boss', step: '../x', clear: { step: 'B11' }, line: '  ', version: 'next' })).toEqual({ ...ENVELOPE, kind: 'task', step: null, clear: null, line: null, version: null })
+    expect(parseEnvelope({ ...ENVELOPE, clear: { step: 'x', reportedAt: 5 }, restart: 'yes' })?.clear).toEqual({ step: null, reportedAt: 5 })
+    expect(parseEnvelope({ ...ENVELOPE, restart: 'yes' })?.restart).toBe(false)
+  })
+
+  test('the turn-ended answer: a `handover` object means the sequence (whatever its envelope); none, or no object, the old path', () => {
+    expect(parseHandover({ handover: { state: 'handing', why: null, step: 'B12', envelope: ENVELOPE, waits: null } })).toEqual({ state: 'handing', why: null, step: 'B12', envelope: { ...ENVELOPE, version: null }, waits: null })
+    expect(parseHandover({ handover: { state: 'held', why: 'its clear did not run: x', step: null, envelope: null, waits: 'set' } })).toEqual({ state: 'held', why: 'its clear did not run: x', step: null, envelope: null, waits: 'set' })
+    expect(parseHandover({ handover: {} })).toEqual({ state: 'unknown', why: null, step: null, envelope: null, waits: null })
+    for (const answer of [null, {}, { handover: null }, { handover: 'x' }, { pull: { text: 'work: B1 is yours; run work next' } }]) expect(parseHandover(answer)).toBeNull()
+  })
+
+  test('the take: the envelope that waited for the worker', () => {
+    expect(parseTaken(JSON.stringify({ messages: [], handover: ENVELOPE })).handover).toEqual({ ...ENVELOPE, version: null })
+    expect(parseTaken(JSON.stringify({ messages: [], handover: { id: '' } })).handover).toBeNull()
+  })
+
+  test('an outcome before anything was done: nothing asked, nothing failed', () => {
+    expect(NO_OUTCOME).toEqual({ cleared: null, set: null, typed: null, restarted: null, background: false, why: null })
   })
 })
 
