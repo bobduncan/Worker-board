@@ -2156,6 +2156,15 @@ button.needs-you:hover small, button.needs-you:focus-visible small { color: var(
 .design-card:hover, .design-card:focus-visible { border-color: #5b7fb8; outline: 0; }
 .design-card.is-chosen { border-color: var(--free); box-shadow: inset 0 0 0 1px var(--free); }
 .design-card img { flex: none; width: 70px; height: 48px; object-fit: cover; border-radius: 6px; background: var(--inset); }
+/* B856: the Bugs tab: one column for the form, the person's reports below it. */
+.bugs-form { max-width: 760px; display: flex; flex-direction: column; gap: 8px; }
+.bugs-form input[type="text"] { width: 100%; }
+.bugs-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.bugs-report { display: flex; align-items: center; gap: 12px; padding: 7px 12px 7px 7px; border: 1px solid var(--line); border-radius: 9px; background: var(--bg); }
+.bugs-report img, .bugs-nopicture { flex: none; width: 70px; height: 48px; object-fit: cover; border-radius: 6px; background: var(--inset); }
+.bugs-words { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.bugs-words b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 14.5px; }
+.bugs-id { flex: none; font-weight: 700; }
 .design-card.is-new { min-width: 0; padding: 7px 16px 7px 10px; }
 .design-plus { flex: none; width: 36px; height: 48px; border-radius: 6px; background: var(--inset); font-size: 22px; line-height: 46px; text-align: center; color: var(--muted); }
 .design-card-words { display: flex; flex-direction: column; gap: 4px; min-width: 0; }

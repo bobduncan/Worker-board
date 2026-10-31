@@ -42,7 +42,7 @@ automatic model changes remain disabled until the bridge proves the execution sa
 The Overview shows a lane per chat (working, waiting for you, free; its task, step and time left; its queue), what
 waits for you with a form to answer it, and the day's timeline; your answer is typed into the chat it is for. Further
 tabs: Focus (the goal you work towards, its vibe and how, with a partner chat, the Advisor), Backlog (the whole work,
-with the steps finished last at its top) and Design (an idea becomes a picture made by Codex, optional). What the
+with the steps finished last at its top) Design (an idea becomes a picture made by Codex, optional) and Bugs (paste a screenshot, say what is wrong and where, and the report becomes a fix task; B856: the half move squares of B855 are the kind of thing it is for, `art-inbox/highlight-cut/cut-squares-2026-10-31.png`). What the
 board does and how it looks, part by part with screenshots: `BOARD.md`; the agreed design: `DESIGN.md`. How the chats
 answer you and the words the board reads from them: `examples/CLAUDE.md` and `roles/protocol.md`.
 

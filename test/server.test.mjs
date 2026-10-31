@@ -59,6 +59,15 @@ async function board(t) {
       designed.push({ bytes: bytes.length })
       return { ok: true, result: { path: 'art-inbox/ideas/_references/0123456789abcdef.png' } }
     },
+    // B856: the real checks are tested in bugs.test.mjs.
+    bugs: async body => {
+      designed.push({ bug: body })
+      return body?.action === 'report' ? { ok: true, result: { step: 'B900' } } : { ok: false, status: 400, why: 'Not a report of a bug.' }
+    },
+    bugPicture: async bytes => {
+      designed.push({ shot: bytes.length })
+      return { ok: true, result: { path: 'art-inbox/bugs/_new/0123456789abcdef.png' } }
+    },
     // B167: the real keeping is the server's own, by the bytes; this one stands in for it.
     talkPicture: async bytes => {
       designed.push({ talk: bytes.length })
@@ -404,4 +413,27 @@ test('Redesign Part 1: the mod reports its turn state with the bridge key and JS
   assert.deepEqual(taken, [{ report: { chat: 'Units', session: 's-units', report: { state: 'busy', since: 1 }, mod: '0.19.0' } }])
   const wrong = await report({ ...json, 'X-Board-Key': KEY }, JSON.stringify({ chat: 'Units', session: 's-units', report: { state: 'nap' } }))
   assert.equal(wrong.status, 400)
+})
+
+test("B856: a report of a bug and its screenshots are taken from the board's own page only, the screenshot as a picture, not a large one", async t => {
+  const { ask, good, designed } = await board(t)
+  const picture = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3])
+  const asPicture = { ...good, 'Content-Type': 'image/png' }
+  const shot = (headers, body = picture) => ask({ method: 'POST', path: '/api/bugs/picture', headers, body })
+  assert.equal((await shot({ 'Content-Type': 'image/png' })).status, 403)
+  assert.equal((await shot({ ...asPicture, Origin: 'http://evil.example' })).status, 403)
+  assert.equal((await shot({ ...asPicture, 'Content-Type': 'image/svg+xml' })).status, 415)
+  assert.equal((await ask({ path: '/api/bugs/picture', headers: asPicture })).status, 405)
+  assert.equal((await shot(asPicture, Buffer.alloc(8 * 1024 * 1024 + 1))).status, 413)
+  const report = (headers, body) => ask({ method: 'POST', path: '/api/bugs', headers, body })
+  assert.equal((await report({ 'Content-Type': 'application/json' }, '{}')).status, 403)
+  assert.equal((await report({ ...good, Origin: 'http://evil.example' }, '{}')).status, 403)
+  assert.equal((await ask({ path: '/api/bugs', headers: good })).status, 405)
+  assert.equal(designed.length, 0)
+  const kept = await shot(asPicture)
+  assert.deepEqual([kept.status, JSON.parse(kept.text)], [200, { path: 'art-inbox/bugs/_new/0123456789abcdef.png' }])
+  const filed = await report(good, JSON.stringify({ action: 'report', wrong: 'x', where: 'game' }))
+  assert.deepEqual([filed.status, JSON.parse(filed.text)], [200, { step: 'B900' }])
+  assert.equal((await report(good, JSON.stringify({ action: 'nope' }))).status, 400)
+  assert.deepEqual(designed.map(one => Object.keys(one)[0]), ['shot', 'bug', 'bug'])
 })

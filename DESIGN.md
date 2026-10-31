@@ -809,6 +809,24 @@ thing the board itself writes there is the tick of an approved step, B110, below
 typed stays in the page while it is open and is never drawn over by a new reading of the state. A board whose
 server has no `design` says so on the tab.
 
+**The Bugs tab (B856).** The person, 2026-10-31: the Design tab "is not suitable for bugreports ... make a new tab for bugs" (the
+Design tab stays, for new features; its picture today: `art-inbox/bugs-tab/design-tab-today.webp`). A tab **Bugs** after Design
+(`#bugs`), one form and the list below it: *Screenshot* (optional; Ctrl+V anywhere on the tab, a drop, or a pick from disk; one or
+more, at most 5 of 8 MB), *What is wrong* (one line, required), *What you expected* (one line, optional), *Where* (the project's
+name from `config.json`, or the worker board), **Report bug**. The page reads `state.bugs` (the limits, the two places, the
+reports so far) and writes only through `POST /api/bugs/picture` (a picture of the person's own, kept in `bugs/_new` of the
+project's picture folder under a name the board chooses) and `POST /api/bugs` (`{ action: 'report', wrong, expected, where,
+pictures }`; `src/bugs.mjs`). A report becomes a step through the work API as the person, in their own words: the title "Bug: ...",
+Context lines *What is wrong*, *What was expected*, *Where*, *Pictures*, "Reproduce it first, before any change", and the last line
+`From the Bugs tab.` (how the list finds the person's reports again); the first picture is the step's own `Picture`. Once the
+step has its id the pictures move from `bugs/_new` to `bugs/<step id>/picture-<n>` (`new` fills `{step-id}` in the text and
+picture with the id, `src/work/api.mjs`). A board bug is marked a fix (first in line) and goes where the board's latest fixes
+went (their activity and goal); a game bug is a normal step with no goal, in the activity most of the other latest steps went to.
+Both are refined as any step (`roles/partner.md`) and the worker reproduces the bug first (`roles/worker.md`). "Your reports so
+far" lists them newest first with the picture, the step's link and its state: *Waiting* (new, refined, queued), *Being fixed*
+(taken, in progress, waiting on you, review), *Fixed* (done), *Dropped*. A board that only shows, or the demo, says why on the tab
+and takes no report. Not in it: reporting from inside the game, screenshots the board takes itself.
+
 **Your approval ticks a step (B110).** The one thing the board writes outside its own data folder. When you
 approve a Verify step of the backlog whose work is merged, the board ticks the step itself ("- [ ]" becomes
 "- [x]") and writes one line under it: "Approved by you on the worker board on 2026-10-12 at 22:40", with your

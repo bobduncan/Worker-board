@@ -6234,7 +6234,7 @@ const ASK_PAGE = /(?<=^|[\s(["'`])((?:[\w@+-][\w@+.-]*\/)+[\w@+-][\w@+.-]*\.(?:m
 const ASK_ID = /(?<![\w/.:#=-])([GQB]\d+)(?![\w/-]|\.\w)/g
 /** B507: a tab by the words the board shows on it, and the part of the Focus tab named after it ("the Focus tab, then Goals"). */
 const ASK_TAB = /(?<![\w-])(Vision|Focus|Backlog|Design|Spending) tab(?![\w-])(?:(?<=Focus tab),? then (Focus|Goals|Brainstorm)(?![\w-]))?/g
-const ASK_TAB_ADDRESS = { Vision: '#vision', Focus: '#advice/focus', Backlog: '#backlog', Design: '#design', Spending: '#spending' }
+const ASK_TAB_ADDRESS = { Vision: '#vision', Focus: '#advice/focus', Backlog: '#backlog', Design: '#design', Bugs: '#bugs', Spending: '#spending' }
 
 /**
  * An ask's words in pieces: words, `{ ask }` (a Q id `known.isAsk` knows), `{ step }` (a B id `known.isStep` knows),
@@ -9272,6 +9272,7 @@ function tabOfAddress(hash) {
   if (hash === '#advice' || /^#advice\/[a-z]+$/.test(hash) || goalFocusOf(hash) !== undefined) return 'advice'
   if (hash === '#backlog' || hash === '#coordinate' || hash === '#backlog/days') return 'coordinate'
   if (hash === '#design') return 'design'
+  if (hash === '#bugs') return 'bugs'
   if (hash === '#vision') return 'vision'
   if (hash === '#spending') return 'spending'
   return null
@@ -18673,6 +18674,228 @@ for (const [id, where] of [['design-backlog', 'backlog'], ['design-queue', 'queu
   })
 }
 
+// bugs:start
+// B856 (the person, 2026-10-31: "the current design is not suitable for bugreports ... make a new tab for bugs"): the Bugs
+// tab. Pictures pasted or dropped, what is wrong, what was expected, where; "Report bug" files a step. The reports so far
+// stand below with their state.
+
+/** The limits the board sends (state.bugs.limits), else the board's own. */
+const bugLimits = bugs => ({ wrong: 300, expected: 300, pictures: 5, ...(bugs?.limits ?? {}) })
+
+/**
+ * The pictures on the clipboard, all of them: `take` (the entries to add), `ignore` (a paste into a field that is text), or a
+ * `problem`. `items` are the clipboard's entries (`kind`, `type`); `isTextField` says whether it was pasted into a field.
+ */
+function pastedShots(items, isTextField) {
+  const all = Array.from(items ?? [])
+  if (isTextField && all.some(item => item?.type === 'text/plain')) return { ignore: true }
+  const files = all.filter(item => item?.kind === 'file')
+  const shots = files.filter(item => typeof item.type === 'string' && item.type.startsWith('image/'))
+  const fine = shots.filter(item => ['image/png', 'image/jpeg', 'image/webp'].includes(item.type))
+  if (fine.length > 0) return { take: fine }
+  if (shots.length > 0) return { problem: 'A screenshot is a PNG, JPEG or WebP picture.' }
+  if (isTextField) return { ignore: true }
+  return { problem: files.length > 0 ? 'Only a picture can be pasted here.' : 'The clipboard holds no picture: copy one, or add one from disk.' }
+}
+
+/** What "Report bug" sends (`body`), or why it cannot be sent (`problem`). */
+function bugBody(draft, bugs) {
+  const limits = bugLimits(bugs)
+  const wrong = draft.wrong.replace(/\s+/g, ' ').trim()
+  const expected = draft.expected.replace(/\s+/g, ' ').trim()
+  if (wrong === '') return { problem: 'Say what is wrong, in one line.' }
+  if (wrong.length > limits.wrong) return { problem: `What is wrong is one line of ${limits.wrong} characters at most, it has ${wrong.length}.` }
+  if (expected.length > limits.expected) return { problem: `What you expected is one line of ${limits.expected} characters at most, it has ${expected.length}.` }
+  const places = bugs?.places ?? []
+  if (!places.some(place => place.id === draft.where)) return { problem: `Say where it is wrong: ${places.map(place => place.name).join(' or ')}.` }
+  if (draft.pictures.length > limits.pictures) return { problem: `At most ${limits.pictures} pictures.` }
+  return { body: { action: 'report', wrong, expected, where: draft.where, pictures: [...draft.pictures] } }
+}
+
+/** What "Your reports so far" says of a report, and in which tone. */
+function bugBadge(report) {
+  switch (report.state) {
+    case 'fixing': return { text: 'Being fixed', tone: 'busy' }
+    case 'fixed': return { text: 'Fixed', tone: 'good' }
+    case 'dropped': return { text: 'Dropped', tone: 'plain' }
+    default: return { text: 'Waiting', tone: 'plain' }
+  }
+}
+
+/** The name of the place a report is about ("My game", "Worker board"), as the tab's choices name it. */
+const bugPlaceName = (report, bugs) => (bugs?.places ?? []).find(place => place.id === report.where)?.name ?? (report.where === 'board' ? 'The board' : 'The game')
+// bugs:end
+
+const bugsDraft = { wrong: '', expected: '', where: null, pictures: [] }
+let bugsProblem = null
+let bugsSentStep = null
+let isBugsSending = false
+let bugsOnTheWay = 0
+
+const bugsNow = () => (board === null ? null : board.bugs ?? null)
+
+function drawBugs() {
+  const bugs = bugsNow()
+  const limits = bugLimits(bugs)
+  const note = $('bugs-note')
+  note.hidden = bugs !== null && bugs.canSend === true
+  note.textContent = bugs === null ? 'This board\'s server has no Bugs part yet. Once that part is in, start the board anew and this tab works.' : bugs.canSend === true ? '' : bugs.why ?? 'This board cannot file a report.'
+  once('bugs-where', [bugs?.places ?? [], bugsDraft.where], () => {
+    fill($('bugs-where'), (bugs?.places ?? []).map(place => {
+      const button = el('button', `choice${bugsDraft.where === place.id ? ' is-chosen' : ''}`, place.name)
+      button.type = 'button'
+      button.dataset.where = place.id
+      button.setAttribute('aria-pressed', String(bugsDraft.where === place.id))
+      return button
+    }))
+  })
+  once('bugs-pictures', [[...bugsDraft.pictures], limits.pictures], () => {
+    const add = el('button', 'design-add-reference', 'Paste a screenshot with Ctrl+V, drop one here, or click to add one')
+    add.type = 'button'
+    add.dataset.addShot = ''
+    fill($('bugs-pictures'), [...(bugsDraft.pictures.length < limits.pictures ? [add] : []), ...bugsDraft.pictures.map((path, place) => {
+      const frame = el('div', 'design-reference')
+      const remove = el('button', 'icon-button', '✕')
+      remove.type = 'button'
+      remove.dataset.removeShot = String(place)
+      remove.title = 'Leave this picture out'
+      remove.setAttribute('aria-label', 'Leave this picture out')
+      frame.append(picture(path, 'Screenshot'), remove)
+      return frame
+    })])
+  })
+  $('bugs-wrong').maxLength = limits.wrong
+  $('bugs-expected').maxLength = limits.expected
+  for (const id of ['bugs-wrong', 'bugs-expected']) $(id).disabled = bugs === null
+  $('bugs-report').disabled = bugs === null || bugs.canSend !== true || isBugsSending
+  $('bugs-problem').hidden = bugsProblem === null
+  $('bugs-problem').textContent = bugsProblem ?? ''
+  $('bugs-sent').hidden = bugsSentStep === null
+  if (bugsSentStep === null) $('bugs-sent').replaceChildren()
+  else {
+    const link = el('a', '', bugsSentStep)
+    link.href = `#details=${bugsSentStep}`
+    $('bugs-sent').replaceChildren('Reported as ', link, '. It waits for a worker; you see it below.')
+  }
+  once('bugs-list', [bugs?.reports ?? null, bugs?.places ?? null], () => {
+    const reports = bugs?.reports ?? []
+    $('bugs-empty').hidden = reports.length > 0
+    fill($('bugs-list'), reports.map(report => {
+      const badge = bugBadge(report)
+      const row = el('li', 'bugs-report')
+      const words = el('span', 'bugs-words')
+      words.append(el('b', '', report.wrong === '' ? 'A bug' : report.wrong), el('span', 'muted', [bugPlaceName(report, bugs), report.expected === '' ? null : `expected: ${report.expected}`].filter(Boolean).join(' · ')))
+      const link = el('a', 'bugs-id', report.id)
+      link.href = `#details=${report.id}`
+      row.append(report.picture === null ? el('span', 'bugs-nopicture') : designThumb(report.picture), words, link, el('span', `design-badge is-${badge.tone}`, badge.text))
+      return row
+    }))
+  })
+}
+
+/** A screenshot of the person's own, pasted, dropped or picked from disk, goes to the board, which answers where it waits. */
+async function addShot(file) {
+  const limits = bugLimits(bugsNow())
+  const most = limitsOf(designNow()).referenceBytes
+  if (!REFERENCE_TYPES.includes(file.type)) bugsProblem = 'A screenshot is a PNG, JPEG or WebP picture.'
+  else if (file.size > most) bugsProblem = `That picture is too large: ${Math.floor(most / (1024 * 1024))} MB at most.`
+  else if (bugsDraft.pictures.length + bugsOnTheWay >= limits.pictures) bugsProblem = `At most ${limits.pictures} pictures.`
+  else {
+    bugsProblem = null
+    bugsOnTheWay += 1
+    try {
+      const got = await fetch('/api/bugs/picture', { method: 'POST', headers: { 'Content-Type': file.type, 'X-Board-Token': TOKEN }, body: file })
+      if (got.ok) bugsDraft.pictures.push((await got.json()).path)
+      else bugsProblem = `The picture was not taken: ${(await got.text()).trim() || `refused (${got.status})`}`
+    } catch {
+      bugsProblem = 'The picture was not taken: the board\'s server does not answer'
+    } finally {
+      bugsOnTheWay -= 1
+    }
+  }
+  drawBugs()
+}
+
+$('bugs-wrong').addEventListener('input', () => { bugsDraft.wrong = $('bugs-wrong').value })
+$('bugs-expected').addEventListener('input', () => { bugsDraft.expected = $('bugs-expected').value })
+$('bugs-where').addEventListener('click', event => {
+  const button = event.target.closest('[data-where]')
+  if (button === null) return
+  bugsDraft.where = button.dataset.where
+  bugsProblem = null
+  drawBugs()
+})
+$('bugs-pictures').addEventListener('click', event => {
+  if (event.target.closest('[data-add-shot]') !== null) return $('bugs-file').click()
+  const remove = event.target.closest('[data-remove-shot]')
+  if (remove === null) return
+  bugsDraft.pictures.splice(Number(remove.dataset.removeShot), 1)
+  drawBugs()
+})
+$('bugs-file').addEventListener('change', () => {
+  const files = Array.from($('bugs-file').files)
+  $('bugs-file').value = ''
+  for (const file of files) addShot(file)
+})
+
+// Ctrl+V on the Bugs tab takes the pictures on the clipboard, the same as ones picked from disk. Text pasted into a field stays text.
+document.addEventListener('paste', event => {
+  if ($('view-bugs').hidden || document.querySelector('dialog[open]') !== null) return
+  const isTextField = event.target instanceof Element && event.target.closest('textarea, input, [contenteditable]') !== null
+  const pasted = pastedShots(event.clipboardData?.items, isTextField)
+  if (pasted.ignore === true) return
+  event.preventDefault()
+  if (pasted.take !== undefined) {
+    for (const item of pasted.take) {
+      const file = item.getAsFile()
+      if (file !== null) addShot(file)
+    }
+    return
+  }
+  bugsProblem = pasted.problem
+  drawBugs()
+})
+
+// Pictures dropped on the tab: one or more.
+$('view-bugs').addEventListener('dragover', event => {
+  if (Array.from(event.dataTransfer?.types ?? []).includes('Files')) event.preventDefault()
+})
+$('view-bugs').addEventListener('drop', event => {
+  const files = Array.from(event.dataTransfer?.files ?? [])
+  if (files.length === 0) return
+  event.preventDefault()
+  for (const file of files) addShot(file)
+})
+
+$('bugs-report').addEventListener('click', async () => {
+  const made = bugBody(bugsDraft, bugsNow())
+  if (made.problem !== undefined) {
+    bugsProblem = made.problem
+    return drawBugs()
+  }
+  if (bugsOnTheWay > 0) {
+    bugsProblem = 'A picture is still on its way: a moment.'
+    return drawBugs()
+  }
+  isBugsSending = true
+  bugsProblem = null
+  drawBugs()
+  try {
+    const got = await fetch('/api/bugs', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Board-Token': TOKEN }, body: JSON.stringify(made.body) })
+    if (got.ok) {
+      bugsSentStep = (await got.json().catch(() => ({}))).step ?? null
+      Object.assign(bugsDraft, { wrong: '', expected: '', pictures: [] })
+      $('bugs-wrong').value = ''
+      $('bugs-expected').value = ''
+    } else bugsProblem = `Not done: ${(await got.text()).trim() || `refused (${got.status})`}`
+  } catch {
+    bugsProblem = 'Not done: the board\'s server does not answer'
+  }
+  isBugsSending = false
+  await read()
+  drawBugs()
+})
+
 // Tabs
 
 /** The Advisor tab's address: the map's with its focus when the Goals part is open. */
@@ -18684,6 +18907,7 @@ function show(tab) {
   $('view-advice').hidden = tab !== 'advice'
   $('view-coordinate').hidden = tab !== 'coordinate'
   $('view-design').hidden = tab !== 'design'
+  $('view-bugs').hidden = tab !== 'bugs'
   $('view-vision').hidden = tab !== 'vision'
   if ($('view-spending')) $('view-spending').hidden = tab !== 'spending'
   // The address says which tab is open, so a reload stays on it. A link to a step's details is left as it is.
@@ -18773,6 +18997,7 @@ function draw(state) {
   })
   once('talk', [state.advisor, advisorRefine(state.backlog), runningData(state), [...problems], [...sending]], () => drawTalk(state))
   once('main-talk', [state.mainTalk ?? null, state.maxMessageChars, problems.get('main-talk') ?? null, sending.has('main-talk')], () => drawMainTalk(state))
+  drawBugs()
   drawDesign()
   finishRestore()
 }

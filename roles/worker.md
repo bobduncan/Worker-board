@@ -159,6 +159,17 @@ step therefore says what it touches ("Touches: ...").
   `test/anyProject.test.mjs` fails on a new tie.
 - Nothing that holds words from a chat goes into the board's repository.
 
+## A bug the person reported
+
+A step whose title starts "Bug:" and whose Context ends with "From the Bugs tab." is a report from the person's Bugs tab (B856):
+their words (*What is wrong*, *What was expected*, *Where*) and their screenshots (*Pictures*, also the step's Picture), exactly as they saw it.
+
+- **Reproduce it first, before any change.** Look at the screenshots, then make the bug happen yourself (the game at play size, or the
+  board's page on your copy), and keep a picture of it (`logs/b<id>-before.png` is fine). Only then change the code. When you cannot
+  make it happen, do not guess a fix: ask the person (`work ask`, kind look, with what you tried) and wait.
+- Keep the person's words in your report and show the same thing fixed, beside the screenshot they gave: their picture and yours.
+- Their pictures stay where they are (`bugs/<your step>/` in the picture folder); never move or delete them.
+
 ## The work, pictures, usage
 
 - Your work stands in the board's work store, one record per step (`protocol.md`, "The work store"), and you work it
