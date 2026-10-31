@@ -713,8 +713,9 @@ export function reviewLateOf(view, item, wait, seenOf = () => undefined) {
   const id = idOf(item)
   const not = { late: false, key: null, ms: 0, words: [] }
   if (wait === null || wait === undefined) return null
-  // B878: a step whose part waits for the person's verdict in a recap waits for them, as for their answer.
-  if (wait.kind === 'answer' || wait.kind === 'recap') return not
+  // B878: a step whose part waits for the person's verdict in a recap waits for them, as for their answer. B883: and one whose
+  // card (Accept or Send back) is open under Needs your attention.
+  if (wait.kind === 'answer' || wait.kind === 'recap' || wait.kind === 'accept') return not
   if (wait.kind === 'check') {
     if (isPaused(view)) return not
     const key = `review-stuck ${id} check`

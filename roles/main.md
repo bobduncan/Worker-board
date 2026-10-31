@@ -158,6 +158,9 @@ profile.
   made a step (`work new`) the board closes itself at the turn's end, "became step B<n>" (2026-10-28).
 - The board gives the ids; an id is never used twice. A new step goes under the activity it belongs to. Never drop
   or reword a step, and never change the focus, unless the user asks.
+- Dropping a fix sends its step to the user (B883): a step in review whose fix you drop, with no new fix, check or block
+  after it, gets the user's card ten minutes later, "Accept B<n> at <score>, or send it back?". Their Accept closes it,
+  their Send back makes its next try. Never tick such a step yourself, and never drop it to make it go away.
 - A step's title: 5 to 10 words of your own, starting with a verb, saying what the user gets; never the user's
   request read back. Their words go under it (description, "Context:").
 - What only the user can do is an ask under its step: `work ask` with `kind` decide, look, provide or do; it names

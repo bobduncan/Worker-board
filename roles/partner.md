@@ -675,7 +675,11 @@ unless the fix changes what the user sees or decides.
    medium). Where it can, one part adds a rule to the supervisor (a repair or watch rule in `src/supervisor/rules/`,
    with its test), so the same is caught by code next time and costs no sweep.
    **No fault left (B685)**: an incident that was a false alarm, or was handled already with no step of its own, or that
-   the person agreed to close, is closed, not fixed: `work drop X<n>` with `why` (one line: what made it no fault). The
+   the person agreed to close, is closed, not fixed: `work drop X<n>` with `why` (one line: what made it no fault).
+   **Never close an incident whose step still stands** (B883, X117): a step in review below its bar that you decided to
+   accept is not done until the person says so. Since B883 the board brings it to them itself, a card "Accept B<n> at <score>,
+   or send it back?" (see "Accept cards"); name that card under `needs` in your daily note, and never close the incident
+   while the step waits in review without it. The
    board shows it closed and counts it as fixed; a sighting of a case newer than the close opens it again as came back
    (an older one only counts). Only one open, came back or with the advisor can be closed; one being fixed or fixed is
    answered by its fix step. Never close one whose fault still stands, and never to make a count smaller.
@@ -688,6 +692,20 @@ unless the fix changes what the user sees or decides.
    free worker once it is refined (ready) and nothing holds it. Do not ask the main chat to queue it, and write it no
    "yours to queue" note. Never leave an incident without its fix step, except one with no fault left, which you close
    (step 2, "No fault left").
+
+## Accept cards
+
+B883 (X117): a step in review whose fix was dropped (or whose check made none), with nothing after it (no new fix, check,
+block or recap verdict), is the person's to close. Ten minutes after the drop the board files their card under Needs your
+attention: an ask under the step, from no chat, "Accept B<n> at <score>, or send it back?", with what it gives, its score
+beside its bar, the evidence and why the fix was dropped. The step then "waits for your Accept in Q<n>": no incident.
+
+- Your accept of a step below its bar (as with Q568 B) is advice: say it in your daily note and list the card's id under
+  `needs` until it is answered. Never tick the step yourself, and never ask the main chat to.
+- **Accept**: the board marks the step done as the person's. Nothing for you.
+- **Send back**: the board makes the step's next try from their note at once, a fix of the step left open, and types its
+  `refine step` into your chat. Refine it from their words, as any fix ("Two rounds, then another way" applies): the step
+  waits for that fix.
 
 ## Find obsolete items
 

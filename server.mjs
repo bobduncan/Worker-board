@@ -2972,6 +2972,12 @@ async function main(args) {
           const approved = await workAction({ action: 'approve-recaps' }, 'server')
           if (!approved.ok) throw new Error(approved.why ?? 'approve-recaps was refused')
         })
+        // B883 (X117): a step in review that nothing else closes gets the person's card (Accept or Send back); a card whose step
+        // went on is withdrawn. On its own, so a failure stops no delivery.
+        await loops.run('accept-cards', async () => {
+          const carded = await workAction({ action: 'accept-cards' }, 'server')
+          if (!carded.ok) throw new Error(carded.why ?? 'accept-cards was refused')
+        })
         // The supervisor (spec 2026-10-24): an incident whose fix step is done is fixed; one whose fix was dropped, open again.
         // Only while the supervisor's view holds one being fixed: each work call reads the whole store.
         if (supervisor !== null && supervisor.view(clock()).incidents.some(one => one.state === 'fix')) {

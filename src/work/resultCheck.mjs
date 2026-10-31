@@ -511,9 +511,65 @@ function waitOf(item, items, held, now, depth, recaps = null) {
   const ended = [...blocking.map(one => ({ id: one, at: leftAtMs(items.get(one)) })), unblockedOf(item)]
     .filter(one => one !== undefined && Number.isFinite(one.at)).sort((a, b) => a.at - b.at).at(-1)
   const back = part?.verdict === 'sent-back' && Number.isFinite(part.at) ? part : null
+  // B883 (X117): the person's card for a step nothing else closes: open, it is a plan; sent back, the partner's next try counts from then.
+  const card = acceptStandOf(id, items)
+  if (card?.state === 'open') return { kind: 'accept', fix: named, ask: card.id, since: card.at, text: `waits for your Accept in ${card.id}` }
+  const sent = card?.state === 'back' && Number.isFinite(card.at) && !(card.at <= since) && !(card.at <= (ended?.at ?? Number.NaN)) && !(card.at <= (back?.at ?? Number.NaN)) ? card : null
+  if (sent !== null) return { kind: 'dropped', fix: named, since: sent.at, acceptBack: { ask: sent.id, at: sent.at }, text: `${text}; sent back by you in ${sent.id}: the partner makes its next try` }
   const words = back === null ? text : `${text}; sent back in the recap of ${back.goal}: the partner makes its next try`
   if (back !== null && !(back.at <= since) && !(back.at <= (ended?.at ?? Number.NaN))) return { kind: 'dropped', fix: named, since: back.at, sentBack: { goal: back.goal, at: back.at }, text: words }
   return ended !== undefined && !(ended.at <= since) ? { kind: 'dropped', fix: named, since: ended.at, blockEnded: ended, text: words } : { kind: 'dropped', fix: named, since, text: words }
+}
+
+/**
+ * B883 (X117: B851 sat in review after its fix B875 was dropped on the partner's accept at 74 of 75; only the person's done
+ * closes a step below its bar, nobody told them, and the rule dropped-fix raised it again and again): the board's card for
+ * the person on a step in review that nothing else closes, an ask with `Via` ACCEPT_VIA under it. Accept marks the step done,
+ * Send back gives the person's words to the partner, who makes its next try.
+ */
+export const ACCEPT_VIA = 'accept'
+/** B883: how long after the drop (or the end of what held it) the card waits for a new fix, check or block first. */
+export const ACCEPT_GRACE_MS = 10 * 60_000
+/** B883: the options of the card, as the store keeps them; the first is the Accept. */
+export const ACCEPT_OPTIONS = ['A Accept: done as it is', 'B Send back: the partner makes another try from your note']
+
+/** B883: how the person's answer to a card reads: 'accept' (A, Accept, yes ...) or 'back' (B, Send back, or any other words). */
+export function acceptReading(text) {
+  const words = String(Array.isArray(text) ? text.join('\n') : text ?? '').trim()
+  if (/^(?:A\b|Accept)/i.test(words)) return 'accept'
+  if (/^(?:B\b|Send back)/i.test(words)) return 'back'
+  return answerReading(words) === 'yes' ? 'accept' : 'back'
+}
+
+/**
+ * B883: the newest card of the step `id` (an ask with `Via` ACCEPT_VIA), `{ id, state, at }`: state 'open', 'accept' or 'back'
+ * (answered, as `acceptReading` reads it), or 'withdrawn'; `at` when it was filed (open) or answered (ms). undefined for none.
+ */
+export function acceptStandOf(id, items) {
+  const cards = [...(items?.values() ?? [])].filter(one => valueOf(one, 'Kind') === 'ask' && valueOf(one, 'Of') === id && valueOf(one, 'Via') === ACCEPT_VIA)
+  const card = cards.sort((a, b) => numberOf(a) - numberOf(b)).at(-1)
+  if (card === undefined) return undefined
+  const state = valueOf(card, 'State')
+  if (state === 'open') return { id: valueOf(card, 'Id'), state, at: askFiledMs(card) }
+  const at = sinceMs(valueOf(card, 'Since'))
+  if (state !== 'answered') return { id: valueOf(card, 'Id'), state: 'withdrawn', at }
+  return { id: valueOf(card, 'Id'), state: acceptReading(card.sections?.get('Answer') ?? []), at }
+}
+
+/**
+ * B883: whether the board files the person's card for a step now: it waits in review with its fix dropped (or its check made
+ * none) and nothing planned (`reviewWaitOf` kind 'dropped': no open fix, check, block or recap verdict), for ACCEPT_GRACE_MS
+ * since then, not sent back by the person or in a recap since, and no card of it was filed since the drop (one answered Accept
+ * that did not close it, or withdrawn, is not filed again: the rule dropped-fix raises that).
+ */
+export function acceptCardDue(item, items, now, recaps = null) {
+  const wait = reviewWaitOf(item, items, null, now, recaps)
+  if (wait?.kind !== 'dropped' || wait.acceptBack !== undefined || wait.sentBack !== undefined) return false
+  if (!(now - wait.since >= ACCEPT_GRACE_MS)) return false
+  const card = acceptStandOf(valueOf(item, 'Id'), items)
+  if (card === undefined) return true
+  const filed = askFiledMs(items.get(card.id))
+  return !(filed >= wait.since - 60_000)
 }
 
 /**
