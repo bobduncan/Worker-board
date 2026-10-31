@@ -6,7 +6,7 @@
 import { access, mkdir, open, readdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
 
 import { editThread, parseThread, setThreadState } from './brainstorm.mjs'
-import { doneWhenText, focusStage, goWaitsForLines, hasDemo, hasDoneWhen, nextGoalId, parseGoals, partOf } from './goals.mjs'
+import { NO_ROUND, doneWhenText, focusStage, goWaitsForLines, hasDemo, hasDoneWhen, nextGoalId, parseGoals, partOf } from './goals.mjs'
 import { askingOf, evaluateWords, evaluationPartOf, evaluationsDue, goalAttempts, guardStep, partnerModeFor } from './goalGuard.mjs'
 import { addGoal, addGoalLine, addGoalNote, agreeHow, agreeVibe, changeGoalsFile, raiseLastLine, reopenHow, rewrite, setFocus, setGoalLine, setGoalState, setHow, setVibe } from './goalsWrite.mjs'
 import { focusWords } from './say.mjs'
@@ -431,7 +431,10 @@ async function vibeThere(command, node, words, ctx, goalsAt, say) {
     if (!reopened.ok) return reopened
     // B686: a No makes the demo old: its lines go, so the parts done again get a new demo asked for.
     const unasked = setGoalLine(setGoalLine(reopened.text, node.id, 'Recheck asked', '').text, node.id, 'Demo asked', '')
-    return unasked.ok ? setGoalLine(unasked.text, node.id, 'Demo', '') : unasked
+    const demoGone = unasked.ok ? setGoalLine(unasked.text, node.id, 'Demo', '') : unasked
+    // Work blocks (the review, 2026-10-31: "never go back to round 1"): the No is an evaluation: it starts the next round of
+    // the goal's work, which the Go after it does not start again (src/state.mjs `roundOf`).
+    return demoGone.ok ? addGoalLine(demoGone.text, node.id, `Round: ${minuteOf(ctx.now)} · ${NO_ROUND}`) : demoGone
   }, goalsAt)
   if (!wrote) return { ok: true, result: { unchanged: true }, words: null }
   if (!done.ok) return failed(done.why)

@@ -260,8 +260,9 @@ needs its done-when line") while a block of a goal that never went past Go lacks
 evaluation opened), remembered across a reload. Open now is one card: "Round n · opened by <what> of <day> · k of m done ·
 the next evaluation starts round n+1", then one line per open block, ticked once done, "Rework: <its line>" for a block
 that was there before the round or "New: <its line>" for one made in it, and its chip while not done. Round 1 starts at
-Go and lists every block; each evaluation starts the next round: a change of the goal, a re-check that failed or waits for
-you, a round you sent in the goal's recap. A block is open in a round when it had a task not finished at its start, got
+Go and lists every block; each evaluation starts the next round, and the count never goes back: a change of the goal, a
+re-check that failed or waits for you, a round you sent in the goal's recap, your No to "Did we reach the goal?", the end of
+your partner's evaluation of the approach, a Go that agrees a new plan. A block is open in a round when it had a task not finished at its start, got
 a new task in it, or has no task; it keeps its tick until the next evaluation. A block made in this round carries a small
 "new" in All work blocks. The objective stays in the head, "Not in it" a quiet line under it; the old Done-when card is
 gone.

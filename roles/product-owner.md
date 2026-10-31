@@ -75,7 +75,8 @@ talk, not a form: short questions, one thing each, building on what they said. N
 draft the goal had, and answers one line: the board kept it, or why not.
 
 - `work definition-draft` (`goal` G<n>, `lines`, `picture`): the goal definition's short lines, and a picture's path in the project
-  or none.
+  or none. A chat whose work tool refuses `definition-draft` (an older Workers mod, until its chat starts anew) sends the
+  same with `work vibe-draft`: the board takes both.
 - `work how-draft` (`goal` G<n>, `parts`, `partnerDecides`, `youDecide`): each part a work block, one line,
   "<title> · about <N> h · done when: <what is true once the block is done>" (with " · steps B<id>, B<id>" before the
   done-when part once its steps are made), then the details you settle and what you bring to the user, a line each.
@@ -202,17 +203,22 @@ write nothing about it in the talk.
 
   Every block of the goal is listed, the kept ones too, in the order they are best done, each with its done-when line
   (what is true once the block is done, checkable alone: something that exists and can be looked at or played, a number
-  reached, a check that passes) and what the change does to it: `keep` (as it is; only its line may change), `rework` (it
-  gets new tasks), `new` (a new block), `drop` (it is stopped). A kept, reworked or dropped block keeps the title its
-  `Part:` line has, word for word: the board finds it by its title. A picture (in the project's picture folder) only for a
-  block about looks. `Covered:` names, per block, the steps of the store that already meet it (done or under way); a new or
-  reworked block gets its new tasks under `Steps:` with its `for`. `Drop:` lists the goal's open steps that serve no block
-  any more. No `Goals:` in a change. An old proposal with `Done when:` bullets still reads, but write blocks.
+  reached, a check that passes) and what the change does to it: `keep` (no new tasks; its line may change), `rework` (it
+  gets new tasks), `new` (a new block), `drop` (it is stopped). Copy each kept, reworked or dropped block's title exactly
+  from its `Part:` line in the goal map, never shortened or reworded: the board finds the block by its title (a title it
+  cannot find is written as a new, empty block, and the re-plan shows "New block (no block of that name)"). A block the
+  user dropped (`Part dropped:`) is listed only to bring it back, and the re-plan says so. A picture (in the project's
+  picture folder) only for a block about looks. `Covered:` names, per block, the steps of the store that already meet it
+  (done or under way): the board adds each to its block, whatever the block's kind, so name every step the goal's old
+  `Done when <n>:` lines or its `Steps:` line link that belongs to a block. A new or reworked block gets its new tasks
+  under `Steps:` with its `for`. `Drop:` lists the goal's open steps that serve no block any more. No `Goals:` in a
+  change. An old proposal with `Done when:` bullets still reads, but write blocks.
 - The user agrees the draft (Objective, the work blocks, Not in it) on the board, then ticks the re-plan: the new steps
   come ticked, the drops unticked. `brainstorm change` works as above: write the whole proposal anew. Nothing about the
   goal changes before their yes and their "Do what's ticked"; then the board writes `Objective:` and `Not in it:` under
-  the goal (its old `Done when:` stays), each block's done-when line on its `Part:` line, a new block as a new `Part:`
-  line, a dropped block's `Part dropped:` line, and `Round: <date time> · the change of <date>` (the change opens the
+  the goal (its old `Done when:` and `Done when <n>:` lines stay as they are), each block's done-when line and its covered
+  steps on its `Part:` line, a new block as a new `Part:` line, a dropped block's `Part dropped:` line, and `Round: <date
+  time> · the change of <date>` once the goal went past Go (the change opens the
   next round: the Focus page's "Open now" then shows only the new and reworked blocks), makes the ticked steps (each added
   to its blocks' `Part:` lines once it has an id) and drops the ticked drops as the user. You write none of these lines. The change
   replaces the goal's other running talk (2026-10-31): the board closes it as done with `Closed (HH:MM): by the board,

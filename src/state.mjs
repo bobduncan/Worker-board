@@ -15,7 +15,7 @@ import { DEAF_KEEP_MS, deafSpans } from './hearing.mjs'
 import { finishedList } from './finished.mjs'
 import { askFacts, brainstormNeeds, brainstormsState } from './brainstorm.mjs'
 import { DEMO_WORDS, demoGaveUp } from './focus.mjs'
-import { focusStage, goWaitsForLines, goalAskList, goalAskNeeds, goalCounts, parseGoals, unlinkedSteps } from './goals.mjs'
+import { DRAFTED_FOR_GO, NO_ROUND, focusStage, goWaitsForLines, goalAskList, goalAskNeeds, goalCounts, parseGoals, unlinkedSteps } from './goals.mjs'
 import { limitStop, limitsOf, newestPerWindow, parseUsageHistory, pauseLifted, pauseNote, storePause, usageReadings } from './limits.mjs'
 import { mentionedPaths } from './pictures.mjs'
 import { milestoneFromGoals } from './milestone.mjs'
@@ -1225,23 +1225,33 @@ function finishedAtMs(item) {
 
 /**
  * Work blocks (the person, 2026-10-31: "the done when should only show the delta since last evaluation"): the round of the
- * goal's work, `{ n, since, why }`, or null before its Go. Round 1 starts at its `How agreed:` time; each evaluation after it
- * starts the next: a `Round: <date time> · <why>` line under the goal (a change writes one), a re-check that failed or waits
- * for the person, and a round the person sent in the goal's recap (`recaps`: the board's recaps, src/recaps.mjs
- * `readRecaps`; read only). Evaluations in the same minute are one. `since` is when the round started, `why` what opened it.
+ * goal's work, `{ n, since, why }`, or null while its how is not agreed. n is 1 + the evaluations, and the round started at
+ * the latest (`since`, `why` what opened it); round 1 at the goal's `How agreed:` time. The evaluations: the `Round: <date
+ * time> · <why>` lines under the goal (a change writes one, and the person's No to "Did we reach the goal?"), the re-checks
+ * that failed or wait for the person, the rounds the person sent in the goal's recap (`recaps`: the board's recaps,
+ * src/recaps.mjs `readRecaps`; read only) and the goal guard's `Evaluated` lines (not one that only drafted a how for Go).
+ * The review (2026-10-31: "never go back to round 1"): a `How agreed:` later than the first evaluation (the guard's
+ * evaluation rewrites it, and Go after a No writes it anew) is one more evaluation, a re-plan, never a restart; after the
+ * person's No the Go that follows only agrees its re-plan, so it is none. Evaluations in the same minute are one.
  */
 export function roundOf(node, recaps = null) {
-  const start = sinceMs(node?.howAgreed)
-  if (!Number.isFinite(start)) return null
-  const events = [
-    ...(node.rounds ?? []).map(one => ({ at: one.at, why: one.why || 'an evaluation' })),
+  const go = sinceMs(node?.howAgreed)
+  if (!Number.isFinite(go)) return null
+  const timed = list => list.map(one => ({ ...one, ms: sinceMs(one.at) })).filter(one => Number.isFinite(one.ms))
+  const events = timed([
+    ...(node.rounds ?? []).map(one => ({ at: one.at, why: one.why || 'an evaluation', isNo: one.why === NO_ROUND })),
     ...(node.rechecks ?? []).filter(one => one.verdict === 'failed' || one.verdict === 'waits for you').map(one => ({ at: one.at, why: 'the re-check' })),
     ...(Array.isArray(recaps) ? recaps : []).filter(recap => recap?.goal === node.id).flatMap(recap => (recap.rounds ?? []).map(round => ({ at: round.at, why: 'your recap' }))),
-  ].map(one => ({ ...one, ms: sinceMs(one.at) })).filter(one => Number.isFinite(one.ms) && one.ms > start).sort((a, b) => a.ms - b.ms)
-  const minutes = events.filter((one, at) => at === 0 || one.ms !== events[at - 1].ms)
+    ...(node.evaluatedAt ?? []).map((at, index) => ({ at, why: 'the evaluation', text: String(node.evaluations?.[index] ?? '').trim() })).filter(one => !DRAFTED_FOR_GO.test(one.text)),
+  ]).sort((a, b) => a.ms - b.ms)
+  const before = events.filter(one => one.ms < go)
+  // A How agreed after the first evaluation is a re-plan; it comes last, so an evaluation of the same minute names the round.
+  if (before.length > 0 && before.at(-1).isNo !== true) events.push({ at: node.howAgreed, why: 'your Go', ms: go })
+  const minutes = events.sort((a, b) => a.ms - b.ms).filter((one, at, all) => at === 0 || one.ms !== all[at - 1].ms)
   const last = minutes.at(-1)
-  return { n: 1 + minutes.length, since: last === undefined ? node.howAgreed : last.at, why: last === undefined ? 'your Go' : last.why, ms: last === undefined ? start : last.ms }
+  return { n: 1 + minutes.length, since: last === undefined ? node.howAgreed : last.at, why: last === undefined ? 'your Go' : last.why, ms: last === undefined ? go : last.ms }
 }
+
 
 /**
  * Work blocks: whether a block (its tasks the store holds, `known`) is open in the round that started at `start` (ms), and

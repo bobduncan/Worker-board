@@ -780,9 +780,14 @@ with tasks, a re-check or an evaluation: `wentPastGo`) is never held. After Go t
 new blocks after the agreed ones (the rework of a failed re-check or a recap); renaming or removing an agreed block is
 refused.
 **Rounds** (`roundOf` in `src/state.mjs`, the focus's `round: { n, since, why }`): round 1 starts at the goal's `How
-agreed:` time; each evaluation after it starts the next: a `Round: <date time> · <why>` line under the goal (a change
-writes one), a re-check whose outcome failed or waits for the person, a round the person sent in the goal's recap (the
-recap's `feedback.json` rounds, read only); evaluations in the same minute are one. **Open now** is computed, never
+agreed:` time; n is 1 + the evaluations, and the round started at the latest: a `Round: <date time> · <why>` line under the
+goal (a change writes one once the goal went past Go, and the person's No to "Did we reach the goal?" writes `Round: <date
+time> · your No`), a re-check whose outcome failed or waits for the person, a round the person sent in the goal's recap
+(the recap's `feedback.json` rounds, read only) and the goal guard's `Evaluated (<date time>)` lines (not one that only
+drafted a how for Go). The review of 2026-10-31 ("never go back to round 1"): a `How agreed:` later than the first
+evaluation (the guard's evaluation rewrites it, Go after a No writes it anew) is one more evaluation, a re-plan, never a
+restart; the Go right after a No only agrees that No's re-plan and counts none. Evaluations in the same minute are one.
+**Open now** is computed, never
 stored (`focus.openNow`, by the block's place in `parts`): a block not dropped is open in the round when at its start it had
 a task not finished, or it got a task made after its start (a task's first History stamp, else its Since), or it has no
 task; a block finished in the round keeps its tick until the next evaluation; in round 1 every block is open. A block with
@@ -798,15 +803,18 @@ no blocks has no switch.
 **Change this goal re-plans in work blocks**: the Product owner's proposal lists every block of the goal in order,
 `Work blocks:` with `- 1. <title> — done when: <line> — keep|rework|new|drop — Picture: <path>`, then `Covered:`,
 `Steps:` (`— for <the block's number>`) and `Drop:` as before. Create (`setGoalBlocks`) writes `Objective:` and `Not in
-it:` (in place of the old ones and of any old `Done when <n>:` lines), each kept block's done-when line, each reworked
-block's line and its covered tasks, each new block as a new Part line (its size from its ticked tasks, its covered tasks,
-its line), a dropped block's `Part dropped: <title> · <date time> · dropped in the change of <date>`, the Part lines in
-the proposal's order (any it does not name after them), and `Round: <date time> · the change of <date>`; a kept or
-reworked block the goal does not have is written as new. Each new task is made by the board and added to its blocks'
-Part lines (`addPartStep`). An old proposal (`Done when:` bullets) and old `Done when <n>:` lines still read and write as
-before. The Brainstorm part's draft lists the blocks with what the change does to each; the re-plan goes per block; the
-Result card says "G60 now has 13 work blocks: 3 new, 1 to rework" and each new task's block. Tests:
-`test/workBlocks.test.mjs`.
+it:` in place of the old ones (old `Done when <n>:` lines stay as they are: they may be a task's only link to the goal),
+each block's done-when line and every step `Covered:` names for it, whatever its kind, each once, each new block as a new
+Part line (its size from its ticked tasks, its covered tasks, its line), a dropped block's `Part dropped: <title> · <date
+time> · dropped in the change of <date>`, the Part lines in the proposal's order (any it does not name after them), and,
+once the goal went past Go, `Round: <date time> · the change of <date>`. A block is found by its title (`findBlock`:
+capitals and spaces aside, else, for a kept, reworked or dropped block, the only block whose title starts with it or that
+it starts with); a kept or reworked block it cannot find is written as new, and the re-plan says "New block (no block of
+that name)"; a dropped block named again comes back, and the re-plan says "brings back the dropped block <title>". Each
+new task is made by the board and added to its blocks' Part lines (`addPartStep`, the same finding). An old proposal
+(`Done when:` bullets) and old `Done when <n>:` lines still read and write as before. The Brainstorm part's draft lists
+the blocks with what the change does to each; the re-plan goes per block; the Result card says "G60 now has 13 work
+blocks: 3 new, 1 to rework" and each new task's block. Tests: `test/workBlocks.test.mjs`.
 
 **The game plan, readable (B218).** The person, 2026-10-14: "advisor game plan has links that dont work i want to be
 able to click them in the UI", and "too much text ... adding collapsing headers so this page feel more manageable".

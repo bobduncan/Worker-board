@@ -5,7 +5,7 @@
 // not inside a child's block.
 import { access, mkdir, open, readFile, rename, rm, writeFile } from 'node:fs/promises'
 
-import { FOCUS_LINE, GOAL_LINE, LAST_LINE, doneBulletOf, hasDoneWhen, nextAskId, nextGoalId, parseGoals, partOf } from './goals.mjs'
+import { FOCUS_LINE, GOAL_LINE, LAST_LINE, doneBulletOf, hasDoneWhen, hasRun, nextAskId, nextGoalId, parseGoals, partOf } from './goals.mjs'
 import { besideOf, moveInPlace, writeAtomic, writeNew } from './write.mjs'
 
 const files = { readFile, writeFile, rename, rm, mkdir, access, open }
@@ -336,6 +336,24 @@ export function addYourWords(text, id, at, words) {
 export const partTitle = value => oneLine(value, 160).replaceAll(' · ', ', ')
 /** Work blocks: whether two titles name the same block (spaces and capitals aside). */
 const sameTitle = (a, b) => partTitle(a).toLowerCase() === partTitle(b).toLowerCase()
+/** Work blocks: a title as two are compared: capitals and spaces left out. */
+const titleKey = value => partTitle(value).toLowerCase().replace(/\s+/g, '')
+
+/**
+ * Work blocks (2026-10-31, the review: a block the Product owner names shorter, "Cliffs" for "Cliffs and edges as a natural
+ * ledge", must still be found): the block of `parts` (`{ title, ... }`, those in `used` left out) that `title` names: the
+ * one of the same title (capitals and spaces aside), else, with `near`, the only one whose title starts with it or that it
+ * starts with; undefined when none, or more than one, fits.
+ */
+export function findBlock(parts, title, { near = true, used = new Set() } = {}) {
+  const key = titleKey(title)
+  if (key === '') return undefined
+  const free = (parts ?? []).filter(part => !used.has(part) && titleKey(part.title) !== '')
+  const same = free.find(part => titleKey(part.title) === key)
+  if (same !== undefined || !near) return same
+  const fits = free.filter(part => titleKey(part.title).startsWith(key) || key.startsWith(titleKey(part.title)))
+  return fits.length === 1 ? fits[0] : undefined
+}
 
 /**
  * Work blocks (2026-10-31): a block's Part line, "Part: <title> · <size> · steps B<n>, B<n> · done when: <line>", the size,
@@ -351,17 +369,19 @@ export function partLine({ title, size = '', steps = [], doneWhen = '' }) {
 }
 
 /**
- * Work blocks (2026-10-31): a task added to the work block of the goal titled `title` (its Part line), once; the block keeps
- * its size and its done-when line. A goal without that block stays as it is.
+ * Work blocks (2026-10-31): a task added to the work block of the goal titled `title` (its Part line, found as a change finds
+ * it: `findBlock`), once; the block keeps its size and its done-when line. A goal without that block stays as it is.
  */
 export function addPartStep(text, id, title, step) {
   if (!/^B\d+$/.test(String(step))) return refuse('form')
   const file = split(text)
   const found = blockOf(file.lines, id)
   if (!found.ok) return found
-  const at = ownLines(file.lines, found).find(index => /^Part:/.test(file.lines[index].trimStart()) && sameTitle(partOf(file.lines[index].trimStart().slice('Part:'.length).trim()).title, title))
-  if (at === undefined) return { ok: true, text }
-  const part = partOf(file.lines[at].trimStart().slice('Part:'.length).trim())
+  const parts = ownLines(file.lines, found).filter(index => /^Part:/.test(file.lines[index].trimStart()))
+    .map(index => ({ index, ...partOf(file.lines[index].trimStart().slice('Part:'.length).trim()) }))
+  const part = findBlock(parts, title)
+  if (part === undefined) return { ok: true, text }
+  const at = part.index
   if (part.steps.includes(step)) return { ok: true, text }
   file.lines[at] = `${' '.repeat(found.depth + 2)}${partLine({ ...part, size: part.size ?? '', doneWhen: part.doneWhen ?? '', steps: [...part.steps, step] })}`
   return { ok: true, text: join(file) }
@@ -372,13 +392,15 @@ export const BLOCK_KINDS = ['keep', 'rework', 'new', 'drop']
 
 /**
  * Work blocks (2026-10-31): the goal re-planned in work blocks by a change ("Change this goal", src/brainstorm.mjs). Its
- * `Objective:` and `Not in it:` in place of the ones it had (and of the old `Done when <n>:` lines, which the blocks take
- * over), where the first of them stood, else after its own lines at its top. `blocks`: `{ title, doneWhen, kind, steps,
- * size }` in their order: a `keep` block gets only its done-when line, a `rework` one its done-when line and the tasks
- * that cover it (`steps`), a `new` one a new Part line with its size, its tasks and its done-when line, a `drop` one its
- * `Part dropped: <title> · <at> · dropped in the change of <date>` (B680's form). A kept or reworked block the goal does
- * not have is written as a new one. The goal's Part lines then stand in the order of `blocks`, those the change does not
- * name after them; and `Round: <at> · the change of <date>` starts the next round of its work.
+ * `Objective:` and `Not in it:` in place of the ones it had, where the first of them stood, else after its own lines at its
+ * top; old `Done when <n>:` lines stay as they are (the review: they may hold a task's only link to the goal). `blocks`:
+ * `{ title, doneWhen, kind, steps, size }` in their order, found among the goal's Part lines by `findBlock` (a shorter title
+ * of a kept, reworked or dropped block too, when only one block fits): every block but a dropped one gets its done-when
+ * line and the tasks that cover it (`steps`, each once, whatever its kind), a `new` one a new Part line with its size, a
+ * `drop` one its `Part dropped: <title> · <at> · dropped in the change of <date>` (B680's form). A kept or reworked block
+ * the goal does not have is written as a new one; a dropped block named again is brought back. The goal's Part lines then
+ * stand in the order of `blocks`, those the change does not name after them; and, once the goal went past Go (its how
+ * agreed, or evaluated before), `Round: <at> · the change of <date>` starts the next round of its work.
  */
 export function setGoalBlocks(text, id, { objective, notInIt = '', blocks, at, date }) {
   const aim = oneLine(objective, 300)
@@ -399,10 +421,10 @@ export function setGoalBlocks(text, id, { objective, notInIt = '', blocks, at, d
   const drops = []
   const undrops = []
   for (const block of list) {
-    const old = parts.find(part => !used.has(part.index) && sameTitle(part.title, block.title))
+    const old = findBlock(parts, block.title, { near: block.kind !== 'new', used })
     const line = oneLine(block.doneWhen, 300)
     const covered = (Array.isArray(block.steps) ? block.steps : []).filter(one => /^B\d+$/.test(one))
-    if (old !== undefined) used.add(old.index)
+    if (old !== undefined) used.add(old)
     if (block.kind === 'drop') {
       if (old === undefined) continue
       ordered.push(file.lines[old.index].trimStart())
@@ -415,12 +437,13 @@ export function setGoalBlocks(text, id, { objective, notInIt = '', blocks, at, d
       ordered.push(partLine({ title: block.title, size: block.size ?? '', steps: covered, doneWhen: line }))
       continue
     }
-    const steps = block.kind === 'keep' ? old.steps : [...old.steps, ...covered]
-    ordered.push(partLine({ title: old.title, size: old.size ?? '', steps, doneWhen: line === '' ? old.doneWhen ?? '' : line }))
+    // The review (2026-10-31): every step `Covered:` names joins its block, whatever its kind, each once.
+    ordered.push(partLine({ title: old.title, size: old.size ?? '', steps: [...old.steps, ...covered], doneWhen: line === '' ? old.doneWhen ?? '' : line }))
   }
   // The goal's Part lines the change does not name stay, after the ones it names.
-  for (const part of parts) if (!used.has(part.index)) ordered.push(file.lines[part.index].trimStart())
-  const changeLines = own.filter(index => CHANGE_LINE.test(file.lines[index].trimStart()))
+  for (const part of parts) if (!used.has(part)) ordered.push(file.lines[part.index].trimStart())
+  // The review (2026-10-31): only Objective and Not in it are replaced; old `Done when <n>:` lines stay where they stand.
+  const changeLines = own.filter(index => /^(?:Objective|Not in it):/.test(file.lines[index].trimStart()))
   const out = oneLine(notInIt, 300)
   // Every line that moves is taken out, from the last up; the new ones go in where the first of each kind stood.
   const partAt = parts.length > 0 ? parts[0].index : null
@@ -445,11 +468,13 @@ export function setGoalBlocks(text, id, { objective, notInIt = '', blocks, at, d
   let done = { ok: true, text: join(file) }
   for (const title of undrops) if (done.ok) done = undropPart(done.text, id, title)
   for (const line of drops) if (done.ok) done = appendOwnLine(done.text, id, line)
-  return done.ok ? appendOwnLine(done.text, id, `Round: ${oneLine(at, 40)} · the change of ${oneLine(date, 20)}`) : done
+  // A change before the goal's first Go opens no round: its work has not started (src/goals.mjs `hasRun`).
+  if (!done.ok || !hasRun(node)) return done
+  return appendOwnLine(done.text, id, `Round: ${oneLine(at, 40)} · the change of ${oneLine(date, 20)}`)
 }
 
 /** The sentence the rules at the top of the map get for the lines of a goal's change (`withChangeRules`). */
-export const CHANGE_RULES = 'A goal changed with "Change this goal" also has "Objective: <one line>", "Not in it: <one line>", "Your words: <date time> · <the person\'s words>" for each thing the person said about it, its work blocks as "Part: <title> · <size> · steps B<n>, B<n> · done when: <what is true once the block is done>", and "Round: <date time> · <why>" for each evaluation that starts a new round of its work.'
+export const CHANGE_RULES = 'A goal changed with "Change this goal" also has "Objective: <one line>", "Not in it: <one line>", "Your words: <date time> · <the person\'s words>" for each thing the person said about it, its work blocks as "Part: <title> · <size> · steps B<n>, B<n> · done when: <what is true once the block is done>", and "Round: <date time> · <why>" for each evaluation that starts a new round of its work; a "Done when <n>: <bullet> · steps B<n>" line of an earlier change stays as it was.'
 /** The sentence before work blocks (2026-10-31), which `withChangeRules` puts the new one in place of. */
 const OLD_CHANGE_RULES = 'A goal changed with "Change this goal" also has "Objective: <one line>", "Done when <n>: <a bullet one can check> · steps B<n>, B<n>" (one per bullet; its old "Done when:" stays), "Not in it: <one line>", and "Your words: <date time> · <the person\'s words>" for each thing the person said about it.'
 

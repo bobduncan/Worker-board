@@ -171,7 +171,8 @@ test('the map\'s rules name the change\'s lines once; a map without rules is lef
   assert.equal(withChangeRules(named), named)
   // Work blocks (2026-10-31): the rules name a block's done-when line and the Round line, no longer "Done when <n>:".
   for (const name of ['"Objective:', '"Not in it:', '"Your words:', 'done when:', '"Round:']) assert.ok(CHANGE_RULES.includes(name), name)
-  assert.ok(!CHANGE_RULES.includes('"Done when <n>:'))
+  // The review (2026-10-31): old Done when <n> lines stay, and the rules say so.
+  assert.ok(CHANGE_RULES.includes('a "Done when <n>: <bullet> · steps B<n>" line of an earlier change stays as it was'))
   // A map with the sentence from before work blocks gets the new one in its place, once.
   const before = named.replace(CHANGE_RULES, 'A goal changed with "Change this goal" also has "Objective: <one line>", "Done when <n>: <a bullet one can check> · steps B<n>, B<n>" (one per bullet; its old "Done when:" stays), "Not in it: <one line>", and "Your words: <date time> · <the person\'s words>" for each thing the person said about it.')
   assert.notEqual(before, named)

@@ -8,7 +8,7 @@ import test from 'node:test'
 
 import { brainstormsState, editThread, parseThread } from '../src/brainstorm.mjs'
 import { doneWhenText, hasDoneWhen, parseGoals, partOf, wentPastGo } from '../src/goals.mjs'
-import { addPartStep, setGoalBlocks, setHow } from '../src/goalsWrite.mjs'
+import { addPartStep, findBlock, setGoalBlocks, setHow } from '../src/goalsWrite.mjs'
 import { goalStepFor } from '../src/say.mjs'
 import { focusState, roundOf } from '../src/state.mjs'
 import { parseItem } from '../src/work/item.mjs'
@@ -73,9 +73,44 @@ test('rounds: round 1 from How agreed; a Round line, a failed re-check and a rec
   const recaps = [{ goal: 'G6', rounds: [{ n: 1, at: '2026-10-18 09:30', parts: [] }] }, { goal: 'G7', rounds: [{ n: 1, at: '2026-10-18 09:40', parts: [] }] }]
   const sent = roundOf(failed, recaps)
   assert.deepEqual([sent.n, sent.since, sent.why], [4, '2026-10-18 09:30', 'your recap'])
-  // Before Go counts nothing, and two in the same minute are one evaluation.
-  assert.equal(roundOf(node(['Round: 2026-10-14 10:00 · early', 'How agreed: 2026-10-15 09:00'])).n, 1)
+  // Two in the same minute are one evaluation.
   assert.equal(roundOf(node(['How agreed: 2026-10-15 09:00', 'Round: 2026-10-16 10:00 · the change of 2026-10-16']), [{ goal: 'G6', rounds: [{ n: 1, at: '2026-10-16 10:00', parts: [] }] }]).n, 2)
+})
+
+test('rounds never go back to 1: the guard\'s evaluation and a Go that agrees a new plan count on (the review, 2026-10-31)', () => {
+  const node = lines => parseGoals(['- [~] G6 Garden', ...lines.map(one => `  ${one}`), ''].join('\n')).byId.get('G6')
+  const before = ['Round: 2026-10-31 16:00 · the change of 2026-10-31', 'Rechecked (2026-10-31 17:00, Helper): failed · 1 of 3 points pass · gap: x']
+  const running = roundOf(node(['How agreed: 2026-10-25 22:31', ...before]))
+  assert.deepEqual([running.n, running.why], [3, 'the re-check'])
+  // The reviewer's example: the goal guard's evaluation ends at 18:00; its draft rewrote How agreed in the same minute.
+  const evaluated = roundOf(node(['How agreed: 2026-10-31 18:00', 'Evaluated (2026-10-31 18:00): the how stays · keep going', ...before]))
+  assert.deepEqual([evaluated.n, evaluated.since, evaluated.why], [4, '2026-10-31 18:00', 'the evaluation'])
+  // An Evaluated line counts alone too; one that only drafted a how for Go does not (the Go after it does).
+  assert.equal(roundOf(node(['How agreed: 2026-10-25 22:31', 'Evaluated (2026-10-26 10:00): a new how (3 parts) · rebuilt'])).n, 2)
+  assert.equal(roundOf(node(['Evaluated (2026-10-24 10:00): a how drafted for your Go (3 parts) · first try', 'How agreed: 2026-10-25 22:31'])).n, 1)
+  // The person's No, then Go: the No starts the round, the Go only agrees its re-plan; never round 1 again.
+  const no = roundOf(node(['How agreed: 2026-11-01 09:00', ...before, 'Round: 2026-10-31 19:00 · your No']))
+  assert.deepEqual([no.n, no.since, no.why], [4, '2026-10-31 19:00', 'your No'])
+  // A Go later than an evaluation, with no No before it, is one more round: a re-plan.
+  const replan = roundOf(node(['How agreed: 2026-11-01 09:00', ...before]))
+  assert.deepEqual([replan.n, replan.since, replan.why], [4, '2026-11-01 09:00', 'your Go'])
+})
+
+test('the person\'s No to "Did we reach the goal?" writes its Round line, so the Go after it does not start round 1 again', async () => {
+  const { focusMove } = await import('../src/focus.mjs')
+  const MAP_FILE = 'D:/work/garden/.claude/goals.md'
+  const text = ['Focus: G6', '', '- [~] G6 Garden', '  Done when: a visitor crosses it', '  Goal definition: calm', '  Goal definition agreed: 2026-10-15 08:00',
+    '  Part: Paths · about 1 h · steps B1 · done when: every bench is on a path', '  How agreed: 2026-10-15 09:00', '  Round: 2026-10-16 10:00 · the change of 2026-10-16', ''].join('\n')
+  const fs = fakeFs({ [MAP_FILE]: latin(text) })
+  const ctx = { canWrite: true, goalsFile: MAP_FILE, historyDir: 'D:/work/garden/.claude/goals-history', brainstormDir: DIR, brainstormFolder: FOLDER, now: new Date(2026, 9, 17, 11, 0).getTime(), fs, partner: { name: 'Partner' }, job: 'j', allDone: true }
+  const no = await focusMove({ command: 'vibe-there-no', id: 'G6', text: 'the gate is still hard to find' }, ctx)
+  assert.equal(no.ok, true, no.why)
+  const after = parseGoals(utf8(fs.files[MAP_FILE])).byId.get('G6')
+  assert.deepEqual([after.howAgreed, after.rounds.at(-1)], [null, { at: '2026-10-17 11:00', why: 'your No' }])
+  const go = await focusMove({ command: 'how-go', id: 'G6' }, { ...ctx, now: new Date(2026, 9, 17, 12, 0).getTime() })
+  assert.equal(go.ok, true, go.why)
+  const round = roundOf(parseGoals(utf8(fs.files[MAP_FILE])).byId.get('G6'))
+  assert.deepEqual([round.n, round.since, round.why], [3, '2026-10-17 11:00', 'your No'])
 })
 
 // ---------------------------------------------------------------------------------------------------------------------
@@ -171,7 +206,7 @@ const PROPOSAL = [
   '- 3. Signs at the gate — done when: the gate is signed — from every bench — new',
   '- 4. The maze — done when: the maze is walked — drop',
   'Covered:',
-  '- 1: B12',
+  '- 1: B12, B16',
   '- 3: B15',
   'Steps:',
   '- [ ] Brighter lamps — Digger — about 1 h — for 2',
@@ -223,7 +258,7 @@ test('a change\'s proposal lists the work blocks; an old one with Done when bull
   assert.deepEqual([old.blocks, old.doneWhen.map(one => one.text), old.steps[0].for], [[], ['Every bench is on a path'], [1]])
 })
 
-test('create writes the Part lines with their done-when lines, Part dropped, a Round line and no Done when <n> lines; each new task joins its block', async () => {
+test('create writes the Part lines with their done-when lines and covered steps, Part dropped, a Round line; old Done when <n> lines stay; each new task joins its block', async () => {
   const path = `${FOLDER}/2026-10-19-change-paths.md`
   const fs = fakeFs({ [MAP]: latin(CHANGE_GOALS), [`${DIR}/2026-10-19-change-paths.md`]: latin(`${HEAD}${UNDERSTOOD}${PROPOSAL}`) })
   let next = 30
@@ -247,10 +282,13 @@ test('create writes the Part lines with their done-when lines, Part dropped, a R
     '  Done when: a visitor walks every path without getting lost',
     '  Objective: A garden a visitor crosses without a map.',
     '  Not in it: new benches, lights',
+    // The review (2026-10-31): an old Done when <n> line stays as it was (it may be a task's only link to the goal).
+    '  Done when 1: An old bullet · steps B12',
     // Goal definition (2026-10-31): the goal's lines are named `Goal definition…` now (they were `Vibe…`); the fixture is written as the board writes it.
     '  Goal definition: calm',
     '  Goal definition agreed: 2026-10-18 10:00',
-    '  Part: Lay the paths · about 1 h · steps B12 · done when: every bench is on a path',
+    // The review (2026-10-31): a kept block gets every step Covered names for it (B16), each once.
+    '  Part: Lay the paths · about 1 h · steps B12, B16 · done when: every bench is on a path',
     '  Part: Light the paths · 30 min · steps B13, B30 · done when: a visitor sees the next bench at night',
     '  Part: Signs at the gate · about 30 min · steps B15, B31 · done when: the gate is signed — from every bench',
     '  Part: The maze · 1 h · steps B14',
@@ -258,10 +296,9 @@ test('create writes the Part lines with their done-when lines, Part dropped, a R
     '  Part dropped: The maze · 2026-10-19 09:30 · dropped in the change of 2026-10-19',
     '  Round: 2026-10-19 09:30 · the change of 2026-10-19',
   ])
-  assert.ok(!utf8(fs.files[MAP]).includes('Done when 1:'), 'no Done when <n> lines any more')
   const node = parseGoals(utf8(fs.files[MAP])).byId.get('G6')
   assert.deepEqual(node.rounds, [{ at: '2026-10-19 09:30', why: 'the change of 2026-10-19' }])
-  assert.deepEqual(node.doneBullets, [])
+  assert.deepEqual(node.doneBullets, [{ n: 1, text: 'An old bullet', steps: ['B12'] }])
   // The thread says what was made, and the step it closed.
   assert.match(utf8(fs.files[`${DIR}/2026-10-19-change-paths.md`]), /\nCreated \(09:30\): no goals; tasks B30, B31, B32; dropped: B14; left out: nothing\n$/)
 })
@@ -275,6 +312,34 @@ test('setGoalBlocks: a kept block the goal does not have is written as new; a bl
   assert.deepEqual(node.partsDropped, [])
   assert.equal(setGoalBlocks(text, 'G6', { objective: '', blocks: [{ title: 'x', kind: 'keep' }] }).why, 'form')
   assert.equal(setGoalBlocks(text, 'G9', { objective: 'x', blocks: [{ title: 'x', kind: 'keep' }] }).why, 'gone')
+  // A change before the goal's first Go writes no Round line: its work has not started.
+  const early = setGoalBlocks('- [ ] G6 Garden\n  Part: Paths\n', 'G6', { objective: 'x', blocks: [{ title: 'Paths', doneWhen: 'a path', kind: 'keep' }], at: '2026-10-19 09:30', date: '2026-10-19' })
+  assert.deepEqual(parseGoals(early.text).byId.get('G6').rounds, [])
+})
+
+test('a block named shorter is found when only one block fits; else it is new; a task for it joins the same block (the review, 2026-10-31)', () => {
+  const text = ['- [~] G6 Garden', '  Part: Cliffs and edges as a natural ledge · 1 h · steps B1', '  Part: Lamps along the paths · 30 min · steps B2',
+    '  Part: Lamps at the gate · 30 min · steps B3', '  How agreed: 2026-10-15 09:00', ''].join('\n')
+  const parts = parseGoals(text).byId.get('G6').parts
+  assert.equal(findBlock(parts, 'cliffs').title, 'Cliffs and edges as a natural ledge')
+  assert.equal(findBlock(parts, 'Cliffs and edges as a natural ledge, by the sea').title, 'Cliffs and edges as a natural ledge', 'the block\'s title starts the longer one')
+  assert.equal(findBlock(parts, 'Cliffs by the sea'), undefined, 'two titles that only share a word are not one block')
+  assert.equal(findBlock(parts, 'Lamps'), undefined, 'two blocks fit: none is taken')
+  assert.equal(findBlock(parts, 'cliffs', { near: false }), undefined)
+  const done = setGoalBlocks(text, 'G6', { objective: 'A walkable garden', at: '2026-10-19 09:30', date: '2026-10-19', blocks: [
+    { title: 'Cliffs', doneWhen: 'cliffs read as a ledge', kind: 'rework', steps: ['B9'] },
+    { title: 'Lamps', doneWhen: 'every path is lit', kind: 'keep' },
+  ] })
+  const node = parseGoals(done.text).byId.get('G6')
+  assert.deepEqual(node.parts.map(one => [one.title, one.steps, one.doneWhen]), [
+    ['Cliffs and edges as a natural ledge', ['B1', 'B9'], 'cliffs read as a ledge'],
+    ['Lamps', [], 'every path is lit'],
+    ['Lamps along the paths', ['B2'], null],
+    ['Lamps at the gate', ['B3'], null],
+  ])
+  // The task made for the shorter title joins the block the change found.
+  const added = addPartStep(done.text, 'G6', 'Cliffs', 'B10').text
+  assert.deepEqual(parseGoals(added).byId.get('G6').parts[0].steps, ['B1', 'B9', 'B10'])
 })
 
 // ---------------------------------------------------------------------------------------------------------------------
@@ -352,6 +417,53 @@ test('"Did we reach the goal?" shows the blocks\' lines, all ticked, for a goal 
     assert.equal(page.find('.focus-there [data-focus-act="vibe-there-yes"]').title, 'Your partner makes the goal demo first: you see it before you answer')
   } finally {
     await page.close()
+  }
+})
+
+test('the re-plan says what the board will do with a block it cannot find, and with one the person dropped (the review, 2026-10-31)', async () => {
+  const path = `${FOLDER}/2026-10-19-change-paths.md`
+  const goals = CHANGE_GOALS.replace('  How agreed: 2026-10-18 11:00', '  How agreed: 2026-10-18 11:00\n  Part dropped: The maze · 2026-10-18 12:00 · not needed')
+  const proposal = PROPOSAL.replace('- 1. Lay the paths — done when: every bench is on a path — keep', '- 1. Lay — done when: every bench is on a path — keep')
+    .replace('- 2. Light the paths — done when: a visitor sees the next bench at night — rework — Picture: pictures/garden/night.png', '- 2. Light the ponds — done when: a visitor sees the next bench at night — rework')
+    .replace('- 4. The maze — done when: the maze is walked — drop', '- 4. The maze — done when: the maze is walked — keep')
+  const page = await openPage({ state: pageState(goals, [], [{ path, text: `${HEAD}${UNDERSTOOD}${proposal}`, at: 1 }]) })
+  try {
+    await page.click('[data-tab="advice"]')
+    await page.click('[data-advisor-pane="brainstorm"]')
+    const rows = page.all('.brainstorm-block').map(one => [one.querySelector('.brainstorm-block-title').textContent, one.querySelector('.brainstorm-block-kind').textContent, one.querySelector('.brainstorm-block-back')?.textContent ?? null])
+    assert.deepEqual(rows, [
+      ['Lay', 'kept', null],
+      ['Light the ponds', 'New block (no block of that name)', null],
+      ['Signs at the gate', 'new', null],
+      ['The maze', 'kept', 'brings back the dropped block The maze'],
+    ])
+    await page.click('[data-brainstorm-act="agree"]')
+    assert.equal(page.all('.brainstorm-block-plan')[1].querySelector('.brainstorm-block-kind').textContent, 'New block (no block of that name)')
+    assert.equal(page.all('.brainstorm-block-plan')[3].querySelector('.brainstorm-block-back').textContent, 'brings back the dropped block The maze')
+  } finally {
+    await page.close()
+  }
+})
+
+test('the Focus head: the objective stands in place of the goal definition\'s line, with or without Not in it (the review, 2026-10-31)', async () => {
+  const lines = notInIt => ['Focus: G6', '', '- [~] G6 Garden', '    Done when: x', '    Objective: A garden crossed without a map.', ...(notInIt ? ['    Not in it: lights'] : []),
+    '    Goal definition: calm', '    Goal definition agreed: 2026-10-15 08:00', '    Part: Paths · steps B1 · done when: a path', '    How agreed: 2026-10-15 09:00', ''].join('\n')
+  for (const notInIt of [false, true]) {
+    const page = await openPage({ state: pageState(lines(notInIt)) })
+    try {
+      await page.click('[data-tab="advice"]')
+      assert.deepEqual([page.all('.focus-objective').length, page.all('.focus-vibe-line').length, page.all('.focus-title .focus-not-in-it').length], [1, 0, notInIt ? 1 : 0], `Not in it: ${notInIt}`)
+    } finally {
+      await page.close()
+    }
+  }
+  // Without an objective, the goal definition's line, as before.
+  const plain = await openPage({ state: pageState(lines(false).replace('    Objective: A garden crossed without a map.\n', '')) })
+  try {
+    await plain.click('[data-tab="advice"]')
+    assert.deepEqual([plain.all('.focus-objective').length, plain.text('.focus-vibe-line')], [0, 'calm'])
+  } finally {
+    await plain.close()
   }
 })
 

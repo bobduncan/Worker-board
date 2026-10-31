@@ -40,6 +40,22 @@ export const hasDoneWhen = node => (typeof node?.doneWhen === 'string' && node.d
  */
 export const wentPastGo = node => (node?.howAgreed ?? null) !== null || (node?.parts ?? []).some(part => part.steps.length > 0) || (node?.rechecks ?? []).length > 0 || (node?.evaluations ?? []).length > 0
 
+/**
+ * Work blocks (the review, 2026-10-31): an `Evaluated` line of the goal guard that only drafted a how for the person's Go
+ * (B450): the Go after it is what starts the work again, so it is no round of its own.
+ */
+export const DRAFTED_FOR_GO = /^a how drafted for your Go\b/
+
+/**
+ * Work blocks (the review, 2026-10-31): whether the goal's work ran: its how is agreed, or an evaluation of it stands under it
+ * (a Round line, a re-check, an `Evaluated` line that is not only a how drafted for Go). A change before that opens no round.
+ */
+export const hasRun = node => (node?.howAgreed ?? null) !== null || (node?.rounds ?? []).length > 0 || (node?.rechecks ?? []).length > 0
+  || (node?.evaluations ?? []).some(text => !DRAFTED_FOR_GO.test(String(text ?? '').trim()))
+
+/** Work blocks (the review, 2026-10-31): the why of the Round line the person's No to "Did we reach the goal?" writes. */
+export const NO_ROUND = 'your No'
+
 /** Work blocks (2026-10-31): whether Go waits for a block's done-when line: a goal never past Go with a block without one. */
 export const goWaitsForLines = node => !wentPastGo(node) && blocksOf(node).some(part => typeof part.doneWhen !== 'string' || part.doneWhen.trim() === '')
 

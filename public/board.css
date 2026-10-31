@@ -952,6 +952,9 @@ button.goal-dot:hover, button.goal-dot:focus-visible { box-shadow: 0 0 0 3px #2a
 .brainstorm-bullet-title .brainstorm-block-kind { margin-left: 8px; }
 .brainstorm-block-plan.is-drop .brainstorm-bullet-title { color: var(--muted); text-decoration: line-through; }
 .brainstorm-result-block { flex-basis: 100%; font-size: 12.5px; }
+/* The review (2026-10-31): a block the change brings back after the person dropped it says so, quietly. */
+.brainstorm-block-back { color: #8fb4ff; font-size: 12px; font-style: italic; }
+.brainstorm-bullet-title .brainstorm-block-back { margin-left: 8px; }
 .change-goal { width: min(520px, calc(100vw - 32px)); padding: 0; border: 1px solid var(--line); border-radius: 12px; background: var(--panel); color: var(--text); }
 .change-goal::backdrop { background: rgba(4, 8, 14, 0.7); }
 .change-goal-form { display: flex; flex-direction: column; gap: 8px; padding: 18px 20px; }

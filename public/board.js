@@ -11339,7 +11339,7 @@ function proposalView(thread, unticked) {
  * `dropsTicked` ("d0"); once created ('created') the ticks as they went. Create needs the person's yes to what the
  * partner understood and a draft; nothing ticked still writes the draft.
  */
-function changeProposalView(thread, { unticked = [], dropsTicked = [], agreed = false, titles = {} } = {}) {
+function changeProposalView(thread, { unticked = [], dropsTicked = [], agreed = false, titles = {}, goal = null } = {}) {
   const proposal = thread.proposal
   const off = new Set(unticked)
   const on = new Set(dropsTicked)
@@ -11363,11 +11363,24 @@ function changeProposalView(thread, { unticked = [], dropsTicked = [], agreed = 
     covered: coveredOf(bullet.n),
     steps: steps.filter(step => step.for.includes(bullet.n)),
   }))
-  const blocks = blockList.map(block => ({
-    n: block.n, title: block.title, doneWhen: block.doneWhen, kind: block.kind, kindWords: BLOCK_KIND_WORDS[block.kind] ?? block.kind, picture: block.picture,
-    covered: coveredOf(block.n),
-    steps: steps.filter(step => step.for.includes(block.n)),
-  }))
+  // The review (2026-10-31): each block found among the goal's blocks as the board will find it (src/goalsWrite.mjs
+  // `findBlock`): a kept or reworked one the goal does not have is said to be new, one that was dropped to come back.
+  const goalParts = (goal?.parts ?? []).map(part => ({ title: part.title }))
+  const droppedTitles = new Set((goal?.partsDropped ?? []).map(one => one.title))
+  const used = new Set()
+  const blocks = blockList.map(block => {
+    const found = goal === null ? null : changeBlockOf(goalParts, block.title, block.kind !== 'new', used) ?? null
+    if (found !== null) used.add(found)
+    const isUnknown = goal !== null && found === null && (block.kind === 'keep' || block.kind === 'rework')
+    const bringsBack = found !== null && block.kind !== 'drop' && droppedTitles.has(found.title) ? found.title : null
+    return {
+      n: block.n, title: block.title, doneWhen: block.doneWhen, kind: isUnknown ? 'new' : block.kind,
+      kindWords: isUnknown ? 'New block (no block of that name)' : BLOCK_KIND_WORDS[block.kind] ?? block.kind, picture: block.picture,
+      ...(bringsBack === null ? {} : { bringsBack: `brings back the dropped block ${bringsBack}` }),
+      covered: coveredOf(block.n),
+      steps: steps.filter(step => step.for.includes(block.n)),
+    }
+  })
   const understood = thread.understood ?? null
   const hasYes = understood !== null && understood.answer !== null && understood.answer.yes === true
   const hasDraft = typeof proposal.objective === 'string' && proposal.objective !== '' && (proposal.doneWhen.length > 0 || blockList.length > 0)
@@ -11394,6 +11407,22 @@ function changeProposalView(thread, { unticked = [], dropsTicked = [], agreed = 
 
 /** Work blocks (2026-10-31): what a change does to a block, as the draft and the re-plan say it. */
 const BLOCK_KIND_WORDS = { keep: 'kept', rework: 'to rework', new: 'new', drop: 'dropped' }
+
+/**
+ * Work blocks (the review, 2026-10-31): the block of the goal (`parts`, `{ title }`, those in `used` left out) a change's
+ * block names, as the board finds it (src/goalsWrite.mjs `findBlock`): the same title (capitals and spaces aside), else, with
+ * `near`, the only one whose title starts with it or that it starts with; undefined when none, or more than one, fits.
+ */
+function changeBlockOf(parts, title, near, used) {
+  const key = value => String(value ?? '').replace(/\s+/g, ' ').trim().slice(0, 160).replaceAll(' · ', ', ').toLowerCase().replace(/\s+/g, '')
+  const wanted = key(title)
+  if (wanted === '') return undefined
+  const free = parts.filter(part => !used.has(part) && key(part.title) !== '')
+  const same = free.find(part => key(part.title) === wanted)
+  if (same !== undefined || !near) return same
+  const fits = free.filter(part => key(part.title).startsWith(wanted) || wanted.startsWith(key(part.title)))
+  return fits.length === 1 ? fits[0] : undefined
+}
 
 /** A title as the Created line keeps it among what was left out (src/brainstorm.mjs, leftOutKey). */
 function brainstormLeftKey(title) { return String(title ?? '').replace(/\s+/g, ' ').trim().slice(0, 2000).replace(/ · /g, ' - ') }
@@ -11572,7 +11601,7 @@ function brainstormData(state) {
   return [state.brainstorms ?? null, advisor?.name ?? null, advisor?.role ?? null, advisor?.isRunning ?? null, advisor?.state ?? null, advisor?.doingNow ?? null, Math.floor((state.readAt ?? 0) / 60_000),
     // What the partner's card says it is busy with, and where the thread stands in its queue (the Advisor lane's "Next for it").
     advisor?.on ?? null, advisor?.turnAt ?? null, (advisor?.next ?? []).map(row => [row?.kind ?? null, row?.id ?? null, row?.thread ?? null, row?.stand?.kind ?? null, row?.stand?.since ?? null]),
-    state.goalsEdit?.canWrite ?? null, state.restart?.main ?? null, (state.goals?.nodes ?? []).map(node => [node.id, node.title]),
+    state.goalsEdit?.canWrite ?? null, state.restart?.main ?? null, (state.goals?.nodes ?? []).map(node => [node.id, node.title, (node.parts ?? []).map(part => part.title), (node.partsDropped ?? []).map(part => part.title)]),
     brainstormUi.open, brainstormUi.newAbout === undefined ? 'closed' : brainstormUi.newAbout,
     [...brainstormUi.unticked].map(([path, keys]) => [path, [...keys]]), [...brainstormUi.failedSteps], brainstormUi.changing, brainstormUi.confirm, brainstormUi.busy, brainstormUi.note,
     brainstormUi.notQuite, [...brainstormUi.agreed], [...brainstormUi.dropsTicked].map(([path, keys]) => [path, [...keys]]), Object.entries(brainstormTitles(state)),
@@ -11960,7 +11989,9 @@ function brainstormChangeBox() {
  * the steps no longer needed (unticked), with "Change…" and "Do what's ticked"; once done, what came of it.
  */
 function changeProposalPart(thread, canWrite, state) {
-  const view = changeProposalView(thread, { unticked: [...(brainstormUi.unticked.get(thread.path) ?? [])], dropsTicked: [...(brainstormUi.dropsTicked.get(thread.path) ?? [])], agreed: brainstormUi.agreed.has(agreedKey(thread)), titles: brainstormTitles(state) })
+  // The review (2026-10-31): with the goal's blocks, so a block the board will not find, or one it brings back, is said.
+  const goalNode = thread.goal === null ? null : goalById(state.goals ?? { nodes: [] }, thread.goal.id)
+  const view = changeProposalView(thread, { unticked: [...(brainstormUi.unticked.get(thread.path) ?? [])], dropsTicked: [...(brainstormUi.dropsTicked.get(thread.path) ?? [])], agreed: brainstormUi.agreed.has(agreedKey(thread)), titles: brainstormTitles(state), goal: goalNode })
   const goal = view.goal === null ? '' : `${view.goal.id} · ${view.goal.title}`
   const part = el('section', `brainstorm-proposal brainstorm-change-proposal is-${view.stage}`)
   const isLocked = !canWrite || view.created !== null || brainstormUi.busy
@@ -11975,6 +12006,7 @@ function changeProposalPart(thread, canWrite, state) {
       item.value = block.n
       const head = el('span', 'brainstorm-block-head')
       head.append(el('b', 'brainstorm-block-title', block.title), el('small', `brainstorm-block-kind is-${block.kind}`, block.kindWords))
+      if (typeof block.bringsBack === 'string') head.append(el('small', 'brainstorm-block-back', block.bringsBack))
       item.append(head, el('small', 'brainstorm-block-done-when', `Done when: ${block.doneWhen}`))
       if (block.picture) item.append(' ', focusLook('the picture', { path: block.picture, caption: `${block.title}: ${block.doneWhen}` }))
       list.append(item)
@@ -12017,6 +12049,7 @@ function changeProposalPart(thread, canWrite, state) {
     const row = el('div', `brainstorm-bullet brainstorm-block-plan is-${block.kind}`)
     const head = el('h5', 'brainstorm-bullet-title', `${block.n}. ${block.title}`)
     head.append(el('small', `brainstorm-block-kind is-${block.kind}`, block.kindWords))
+    if (typeof block.bringsBack === 'string') head.append(el('small', 'brainstorm-block-back', block.bringsBack))
     row.append(head, el('p', 'muted brainstorm-block-done-when', `Done when: ${block.doneWhen}`))
     for (const one of block.covered) {
       const covered = el('p', 'brainstorm-covered')
@@ -15587,10 +15620,11 @@ function drawFocus(state) {
     const title = el('div', 'focus-title')
     title.append(el('small', 'focus-label', view.head.label), el('h2', '', `${view.head.id} · ${view.head.title}`))
     // "Change this goal": a goal's objective, once a change gave it one, stands under its title in place of the goal definition's line.
-    if ((view.definition ?? null) !== null) title.append(el('p', 'focus-objective', view.definition.objective))
-    // Work blocks (2026-10-31): what is not in the goal, a quiet line under its objective.
-    if ((view.definition?.notInIt ?? null) !== null) title.append(el('p', 'muted focus-not-in-it', `Not in it: ${view.definition.notInIt}`))
-    else if (view.head.vibeLine !== null) title.append(el('p', 'focus-vibe-line', view.head.vibeLine))
+    if ((view.definition ?? null) !== null) {
+      title.append(el('p', 'focus-objective', view.definition.objective))
+      // Work blocks (2026-10-31): what is not in the goal, a quiet line under its objective.
+      if ((view.definition.notInIt ?? null) !== null) title.append(el('p', 'muted focus-not-in-it', `Not in it: ${view.definition.notInIt}`))
+    } else if (view.head.vibeLine !== null) title.append(el('p', 'focus-vibe-line', view.head.vibeLine))
     if ((view.changeGoal ?? null) !== null && (state.advisor ?? null) !== null && view.back === undefined) title.append(focusButton({ ...view.changeGoal, act: 'change-goal' }, 'focus-change is-change-goal'))
     if (view.change !== null && view.back === undefined) title.append(focusButton({ ...view.change, act: 'change-focus' }, 'focus-change'))
     const side = el('div', 'focus-side')
