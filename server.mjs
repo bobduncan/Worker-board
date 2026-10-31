@@ -23,7 +23,7 @@
 import { spawn } from 'node:child_process'
 import { randomBytes, timingSafeEqual } from 'node:crypto'
 import { existsSync, readFileSync, rmSync } from 'node:fs'
-import { mkdir, readdir, readFile, stat } from 'node:fs/promises'
+import { copyFile, mkdir, readdir, readFile, rename, rm, stat } from 'node:fs/promises'
 import { createServer } from 'node:http'
 import { basename, dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -38,6 +38,7 @@ import { checkSetting, panelSettings, settingChanged } from './src/boardSettings
 import { cpuLimiter, logicalCores, sessionsOfCards } from './src/cpu.mjs'
 import { BrokenConfig, configProblem, firstStart, followApp, isOwnWork, loadConfig, ownMapNow, projectFile, workFolder } from './src/config.mjs'
 import { REFERENCE_BYTES, ideasFolder, referencesFolder, checkDesign, designActivity, designState, picturesActivity, inTurn, parseDesignSettings, promptFor } from './src/design.mjs'
+import { bugsState, fileBug, waitingFolder } from './src/bugs.mjs'
 import { ideasFile, ideasOver, placeReferences } from './src/ideas.mjs'
 import { START_ANEW, keep } from './src/keeper.mjs'
 import { boardAddress, gamePortFor, workerPort, boardsFile, recordingBoardPort, launchEntry, registerHome, resolvePort, withEntry } from './src/ports.mjs'
@@ -58,7 +59,7 @@ import { createSpendingCollector } from './src/work/routing/collector.mjs'
 import { readRoutingRecord } from './src/work/routing/records.mjs'
 import { parseRoutingPolicy } from './src/work/routing/policy.mjs'
 import { adoptPicture, findDemo, findPicture, readDemo, writeFeedback, PICTURE_BYTES as SHOWN_PICTURE_BYTES, pictureProblem, pictureTooBig, shownFolders, shownRoots } from './src/pictures.mjs'
-import { recapFeedbackWords, answerWords, checkSay, focusWords, goalStepOf, recommendYesAnswer, obsoleteWords, recommendYesOf, reportedBackgroundDue, resumesDue, sayStopWords, spawnWhenAlone, wakeFor, wakesDue, wakesStopped, withInstruction, workWords } from './src/say.mjs'
+import { recapFeedbackWords, answerWords, checkSay, focusWords, goalStepFor, goalStepOf, recommendYesAnswer, obsoleteWords, recommendYesOf, reportedBackgroundDue, resumesDue, sayStopWords, spawnWhenAlone, wakeFor, wakesDue, wakesStopped, withInstruction, workWords } from './src/say.mjs'
 import { keepTalkPicture } from './src/talkPicture.mjs'
 import { firstLook, refineQueue, refineWhenDue } from './src/refineGate.mjs'
 import { recheckText, roundText, roundsNow } from './src/rounds.mjs'
@@ -226,9 +227,12 @@ export const POST_ROUTES = Object.freeze({
   '/api/bridge/report': { kind: 'bridge', guard: 'free', why: 'the chat\'s turn state, kept in memory only; the hand-out it wakes runs on the holder only' },
   '/api/bridge/whoami': { kind: 'bridge', guard: 'free', why: 'only reads: the name the board shows a session under and where its card is filed; it writes nothing' },
   '/api/design/reference': { kind: 'picture', guard: 'lock' },
+  // B856: the Bugs tab: a screenshot waits in the picture folder's bugs/_new, and a report files a step with it.
+  '/api/bugs/picture': { kind: 'picture', guard: 'lock' },
   '/api/talk/picture': { kind: 'picture', guard: 'lock' },
   '/api/say': { kind: 'json', guard: 'lock' },
   '/api/design': { kind: 'json', guard: 'lock' },
+  '/api/bugs': { kind: 'json', guard: 'lock' },
   '/api/backlog': { kind: 'json', guard: 'lock' },
   '/api/goals': { kind: 'json', guard: 'lock' },
   '/api/plan': { kind: 'json', guard: 'lock' },
@@ -258,6 +262,8 @@ export const POST_ROUTES = Object.freeze({
  *   `whoami(body)`     2026-10-28: names a session ({ name, role, card }), the same shape; only with `bridgeKey`
  *   `design(body)`     the Design tab's calls (make a picture, change it, agree, ask for the step), the same shape
  *   `reference(bytes)` keeps a reference picture the person added to an idea, the same shape
+ *   `bugs(body)`       B856: the Bugs tab's report of a bug (files a step with its pictures), the same shape
+ *   `bugPicture(bytes)` B856: keeps a screenshot the person added to a report of a bug, the same shape
  *   `talkPicture(bytes)` keeps a picture the person pasted into Talk to Main (B167), the same shape
  *   `goals(body)`      one change to the goal map (B256), the same shape; Focus 2: also a move of the Focus page
  *   `plan(body)`       2026-10-24: a move of the Vision tab, a word to the partner on the plan's own way, the same shape
@@ -275,6 +281,7 @@ export function createBoard({
   whoami = async () => ({ ok: false, status: 404, why: 'Not here.' }),
   hands = async () => ({ ok: false, status: 404, why: 'Not here.' }), handsDone = async () => ({ ok: false, status: 404, why: 'Not here.' }),
   design = async () => ({ ok: false, status: 404, why: 'Not here.' }), reference = async () => ({ ok: false, status: 404, why: 'Not here.' }),
+  bugs = async () => ({ ok: false, status: 404, why: 'Not here.' }), bugPicture = async () => ({ ok: false, status: 404, why: 'Not here.' }),
   talkPicture = async () => ({ ok: false, status: 404, why: 'Not here.' }),
   plan = async () => ({ ok: false, status: 404, why: 'Not here.' }),
   restart = async () => ({ ok: false, status: 404, why: 'Not here.' }), pageVersion = async () => '',
@@ -375,7 +382,7 @@ export function createBoard({
       }
       const bytes = await readBytes(req, PICTURE_BYTES)
       if (bytes === null) return refuse(res, 413, 'A picture of at most 8 MB.')
-      const kept = await (pathname === '/api/talk/picture' ? talkPicture : reference)(bytes)
+      const kept = await (pathname === '/api/talk/picture' ? talkPicture : pathname === '/api/bugs/picture' ? bugPicture : reference)(bytes)
       return kept.ok ? json(res, kept.result) : refuse(res, kept.status, kept.why)
     }
 
@@ -454,6 +461,10 @@ export function createBoard({
       }
       if (pathname === '/api/design') {
         const done = await design(parsed)
+        return done.ok ? json(res, done.result) : refuse(res, done.status, done.why)
+      }
+      if (pathname === '/api/bugs') {
+        const done = await bugs(parsed)
         return done.ok ? json(res, done.result) : refuse(res, done.status, done.why)
       }
       if (pathname === '/api/restart') {
@@ -824,6 +835,14 @@ async function main(args) {
     if (isShowOnly || workDir === null) return { ok: false, status: 409, why: 'This board cannot write a step.' }
     const step = goalStepOf(body, state)
     if (!step.ok) return step
+    return writeGoalStep(step)
+  }
+  /**
+   * The step `goalStepOf` / `goalStepFor` worked out, written as the person and linked under its goal (and the Done when
+   * bullets it is for). 2026-10-31: also what Create of a proposal does for each ticked step (`step` of the brainstorm route),
+   * so the thread's Created line names the ids.
+   */
+  const writeGoalStep = async step => {
     const stored = await readStore(workDir)
     const activity = step.goal === null ? stored?.activities?.[0]?.name ?? null : activityFor(step.goal, stored?.items, stored?.activities)
     if (activity === null) return { ok: false, status: 409, why: 'The work store has no activity to put the step under.' }
@@ -978,12 +997,29 @@ async function main(args) {
         const noted = await workAction({ action: 'words', id: found.base.step, text: said.lines.join('\n'), where: 'in the goal demo' }, 'person')
         if (noted.ok) notedOn = found.base.step
       }
+      // B878 (X116): the person's Approve closes the steps the part shows that wait in review (done, their verdict in the
+      // History); a step sent back gets their words, and the partner's word names it, so the partner makes its fix.
+      const closed = []
+      if (workDir !== null) {
+        const stored = await readStore(workDir)
+        const inReview = id => stored.items.get(id)?.head.get('State') === 'review'
+        const verdict = `approved in the recap of ${found.base.goal}, round ${checked.round}`
+        for (const id of said.closes.filter(inReview)) {
+          const ticked = await workAction({ action: 'tick', id, verdict }, 'person')
+          if (ticked.ok) closed.push(id)
+        }
+        for (const part of said.back) {
+          for (const id of part.steps.filter(inReview)) {
+            await workAction({ action: 'words', id, text: `Sent back in the recap of ${found.base.goal}, round ${checked.round}: ${part.title}: "${part.comment}"`, where: 'in the goal demo' }, 'person')
+          }
+        }
+      }
       const left = after.sections.flatMap(section => section.rows).filter(row => row.said === undefined).length
       await toPartner(recapFeedbackWords(state.advisor.name, {
         goal: found.base.goal, title: found.base.title, step: notedOn ?? found.base.step, round: checked.round, approved: said.approved, back: said.back,
         done: after.feedback.done, left, path: body.path, job: join(HERE, 'roles', 'partner.md'),
       }), {}, state)
-      return { ok: true, result: { round: checked.round, approved: said.approved.length, sentBack: said.back.length, done: after.feedback.done, notedOn } }
+      return { ok: true, result: { round: checked.round, approved: said.approved.length, sentBack: said.back.length, done: after.feedback.done, notedOn, closed } }
     }
     const turn = demoTurn.then(run, run)
     // The caller has the turn itself, with its error; the next Send only waits for this one to end.
@@ -1141,6 +1177,8 @@ async function main(args) {
       focusGoal: state.focus?.id ?? null,
       // B656: the ready list's held steps, so a step in review whose fix it holds says why in work next and list.
       readyHeld: state.readyList?.held ?? null,
+      // B878: the steps the goals' recaps show, so a step whose part waits for the person's verdict says so in work next and list.
+      recaps: state.recapWaits ?? null,
       // B775: the facts the obsolete check hands the Advisor for each open item: its step, the commits naming it since, its chat.
       obsoleteEvidence: async (open, items) => obsoleteEvidence(open, {
         items, lanes: lanes.map(lane => ({ name: lane.name, state: lane.state ?? null, task: lane.task ?? null, isRunning: lane.isRunning ?? null })),
@@ -1446,6 +1484,10 @@ async function main(args) {
   }
   /** The Design tab's calls, one after the other. */
   const designTurn = inTurn()
+  /** B856: the Bugs tab's reports, one after the other. */
+  const bugsTurn = inTurn()
+  /** B856: whether the Bugs tab can file a step here, and why not. */
+  const bugsCan = { canSend: !isDemo && !isShowOnly && workDir !== null, whyNot: isDemo ? 'This is the demo: it files nothing.' : isShowOnly ? `This board only shows. Report the bug on the board that delivers: http://${HOST}:${recordingPort}/` : 'This board has no work store to write the step into.' }
   /** What the checks of the Design tab's calls go by. */
   const designNow = state => ({
     // An idea that was handed to the main chat carries how that word fared: one that did not arrive can be sent again.
@@ -1941,6 +1983,9 @@ async function main(args) {
         missing: isDemo ? [] : await missingReferences(),
         typical: typicalSeconds(),
       })
+      // B856: the Bugs tab: its limits, the two places and the person's reports so far (the steps it filed).
+      const bugsStore = isDemo || config.project === '' ? undefined : await work()
+      const bugs = bugsState({ items: bugsStore?.ok === true ? bugsStore.items : undefined, ...bugsCan, game: config.name })
       // B256: whether the Goals part may change the map: only the board that delivers writes it.
       const goalsEdit = { canWrite: writesMap, whyNot: isDemo ? 'This is the demo: it changes no file.' : !writesMap ? `This board only shows. Change the map on the board that delivers: http://${HOST}:${recordingPort}/` : null }
       // B541: chats on an older Workers mod than the one installed: one card first under Needs your attention, with the
@@ -1962,7 +2007,7 @@ async function main(args) {
       // The Product owner (2026-10-31): the talk partner as the page draws it, the Advisor with its whole queue when it is the one.
       const talkPartner = talkPartnerOf({ ...state, advisor })
       // Light state (2026-10-31): the finished steps go light to the page (src/state.mjs lightState); `step` gives one whole.
-      return lightState({ ...state, advisor, talkPartner, forYou: oldMods === null ? state.forYou : [oldMods, ...(state.forYou ?? [])], design, goalsEdit, cpu: cpu?.view() ?? null, loops: { failing: loops.failing(), line: failingLine(loops.failing(), timeOf) }, supervisor: supervised ?? (isDemo ? demoSupervisor(clock(), SUPERVISOR_RULES, incidentCards) : null), boardSettings: boardSettingsNow(), obsolete: await obsoleteNow(state), version: { commit: running, since: startedAt, ...(await versionNow()), canRestart, selfUpdate: updateShown }, mod: await modNow(),
+      return lightState({ ...state, advisor, talkPartner, forYou: oldMods === null ? state.forYou : [oldMods, ...(state.forYou ?? [])], design, bugs, goalsEdit, cpu: cpu?.view() ?? null, loops: { failing: loops.failing(), line: failingLine(loops.failing(), timeOf) }, supervisor: supervised ?? (isDemo ? demoSupervisor(clock(), SUPERVISOR_RULES, incidentCards) : null), boardSettings: boardSettingsNow(), obsolete: await obsoleteNow(state), version: { commit: running, since: startedAt, ...(await versionNow()), canRestart, selfUpdate: updateShown }, mod: await modNow(),
         // B320: where the New project button suggests a new project's folder, and whether this board makes one.
         newProject: { parent: home === null ? null : dirname(home), canMake: !isDemo && !isShowOnly, isMaking: makingProject },
         // B767: which of the main chat's routine jobs run by code on this PC, and what is missing.
@@ -2101,6 +2146,29 @@ async function main(args) {
       }
       return { ok: true, result: {} }
     }),
+    // B856 (the person, 2026-10-31: "make a new tab for bugs"): a report of a bug becomes a step in the person's own words, with
+    // the pictures they pasted, filed through the work API as the person: a board bug as a fix (first in line), a game bug as a
+    // normal step with no goal. The pictures wait in bugs/_new and move into bugs/<the step's id> once it has one.
+    bugs: body => bugsTurn(async () => {
+      const done = await fileBug(body, {
+        ctx: { ...bugsCan, pictures: config.pictureRoots[0], game: config.name },
+        read: () => readStore(workDir), make: call => workAction(call, 'person'), abs: path => inProject(config.project, path),
+        files: { stat, mkdir, rename, copyFile, rm },
+      })
+      if (done.ok || done.status === 500) readState.reset()
+      return done
+    }),
+    bugPicture: async bytes => {
+      if (!bugsCan.canSend) return { ok: false, status: 409, why: bugsCan.whyNot }
+      const kind = pictureKind(bytes)
+      if (kind === null) return { ok: false, status: 415, why: 'That is no PNG, JPEG or WebP picture.' }
+      // A name of the board's own choosing: nothing of the sender's reaches the path.
+      const path = `${waitingFolder(config.pictureRoots[0])}/${randomBytes(8).toString('hex')}.${kind}`
+      const file = inProject(config.project, path)
+      await mkdir(dirname(file), { recursive: true })
+      await writeAtomic(file, bytes)
+      return { ok: true, result: { path } }
+    },
     reference: async bytes => {
       if (!canMake) return { ok: false, status: 409, why: whyNoPicture }
       const kind = pictureKind(bytes)
@@ -2274,6 +2342,12 @@ async function main(args) {
         now: clock(),
         // "Change this goal" (2026-10-31): a ticked drop of a change's proposal is the work store's drop, as the person.
         drop: (id, why) => workAction({ action: 'drop', id, why }, 'person'),
+        // 2026-10-31: a ticked step of the proposal is written by the board while it creates, so the Created line names its id.
+        step: async ({ thread, index, goal }) => {
+          if (isShowOnly || workDir === null) return { ok: false, why: 'This board cannot write a step.' }
+          const made = await writeGoalStep(goalStepFor(thread, index, goal))
+          return made.ok ? { ok: true, result: { id: made.result.step } } : { ok: false, why: made.why }
+        },
       })
       readState.reset()
       return done

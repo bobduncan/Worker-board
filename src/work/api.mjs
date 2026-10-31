@@ -124,6 +124,8 @@ const ANY_ID = /^(?:[A-Z]\d+|L-[0-9a-f]{8})$/
 const ONLY_IDS = /^B\d+(?:(?:\s*,\s*|\s+and\s+)B\d+)*$/
 const TEXT_CHARS = 4000
 const LINE_CHARS = 300
+/** B856: in the text or picture of a new step, this becomes the step's own id (the Bugs tab names its pictures by it). */
+export const STEP_ID_TOKEN = '{step-id}'
 /** 2026-10-25: a warning of the board's check may name a few test files and the words to add: room for them. */
 const WARNING_CHARS = 450
 
@@ -305,7 +307,7 @@ const isOwner = (item, chat, prefix) => valueOf(item, 'Owner') !== null && plain
 const byId = (a, b) => a.localeCompare(b, 'en', { numeric: true })
 
 /** One item in one line: id, state, what it waits for, title. */
-function oneLine(item, items, held = null, now = null) {
+function oneLine(item, items, held = null, now = null, recaps = null) {
   const isOpen = id => !CLEARED.includes(stateOf(items.get(id) ?? { head: new Map() }))
   const open = idsIn(valueOf(item, 'Blocked by')).filter(isOpen)
   // B306: what `Waits for` says holds the step: words until the main chat clears them, ids until each is resolved.
@@ -319,7 +321,7 @@ function oneLine(item, items, held = null, now = null) {
   const checks = open.filter(inReview)
   const waits = [before.length > 0 ? `after ${before.join(', ')}` : null, checks.length > 0 ? `waits for the check of ${checks.join(', ')}` : null, waiting,
     // B543: a step in review says what it waits for itself (its check, its fix B<n>); B656: a fix the ready list holds, with why.
-    reviewWaitOf(item, items, held, now)?.text ?? null,
+    reviewWaitOf(item, items, held, now, recaps)?.text ?? null,
     // B567: a step waiting on the person, or parked, says what it waits for and what the chat does meanwhile.
     ...waitingWords(item, items)].filter(Boolean)
   const missed = Number(valueOf(item, 'Missed') ?? 0)
@@ -444,7 +446,7 @@ function steady(body, w, chat) {
   const all = [...told, ...mine]
   const open = openOf(chat, w)
   if (all.length === 0) return { ok: true, result: { text: `Nothing is yours, ${chat}: no instruction is open and no step is taken, in progress or queued for you.`, items: [], open, changed: false } }
-  const text = `Yours, ${chat}:\n${all.map(item => oneLine(item, w.store.items, w.readyHeld ?? null, w.now)).join('\n')}\n\n${serializeItem(all[0])}${qaWords(all[0], w.store.items)}`
+  const text = `Yours, ${chat}:\n${all.map(item => oneLine(item, w.store.items, w.readyHeld ?? null, w.now, w.recaps ?? null)).join('\n')}\n\n${serializeItem(all[0])}${qaWords(all[0], w.store.items)}`
   return { ok: true, result: { text, items: all.map(item => valueOf(item, 'Id')), id: valueOf(all[0], 'Id'), open, changed: false } }
 }
 
@@ -480,7 +482,7 @@ function list(w) {
     id: valueOf(item, 'Id'), kind: kindOf(item), state: stateOf(item), owner: valueOf(item, 'Owner'),
     title: valueOf(item, 'Title') ?? valueOf(item, 'Text'), since: valueOf(item, 'Since'),
     // B543: what a step in review waits for, or null.
-    waits: kindOf(item) === 'step' ? reviewWaitOf(item, w.store.items, w.readyHeld ?? null, w.now)?.text ?? null : null,
+    waits: kindOf(item) === 'step' ? reviewWaitOf(item, w.store.items, w.readyHeld ?? null, w.now, w.recaps ?? null)?.text ?? null : null,
   }))
   const text = rows.map(row => [row.id, row.kind, row.waits === null ? row.state : `${row.state} (${row.waits})`, row.owner ?? '-', row.title ?? ''].join(' · ')).join('\n')
   return { ok: true, result: { text, items: rows, changed: false } }
@@ -2260,11 +2262,17 @@ async function make(call, w) {
   if (!priority.ok) return priority
   const activitiesText = await readActivitiesText(w.dir, w.fs)
   const id = await nextId(w.dir, 'B', w.fs)
+  // B856: the Bugs tab names its pictures by the step's own id, which is only known here: STEP_ID_TOKEN becomes the id.
+  const withId = text => text.replaceAll(STEP_ID_TOKEN, id)
+  const context = lines(body.text).map(one => `  ${withId(one).trim()}`)
   let item = said(ordered({
     head: new Map([['Id', id], ['Kind', 'step'], ['Title', title], ['State', 'new'], ['Activity', names[index]], ...(goal === '' ? [] : [['Goal', goal]]), ['Since', stamp(w.now)]]),
-    sections: new Map(lines(body.text).length === 0 ? [] : [['Context', lines(body.text).map(one => `  ${one.trim()}`)]]),
+    sections: new Map(context.length === 0 ? [] : [['Context', context]]),
     problem: null,
   }), w, 'made')
+  // B856: a step made with a picture (not from a how, whose block holds its own) keeps it as its Picture, shown in its window.
+  const picture = body.what === undefined ? line(body.picture, 200) : ''
+  if (picture !== '') item.sections.set('Picture', [withId(picture)])
   if (priority.fix) item = ordered(markedFix(item, w))
   if (standard !== null) item.sections.set('Standard', [standard.line])
   if (model !== null) item.sections.set('Model', [model.line])
@@ -3187,7 +3195,8 @@ async function read(body, w) {
 /**
  * The person closes a step on the Backlog tab, or approves or marks done what only they could do: it stands ticked,
  * with their line under it (`line`). A step is done (review 5: dropped only through `drop`), as the flow lets the
- * person; an ask is answered.
+ * person; an ask is answered. B878: `verdict`, the person's verdict that closed the step elsewhere ("approved in the recap of
+ * G60, round 1"), stands in its History after the move.
  */
 async function tick(body, w) {
   const found = await load(body.id, w, { kind: ['step', 'ask'] })
@@ -3203,6 +3212,8 @@ async function tick(body, w) {
     const moved = move(found.item, 'done', 'person', w)
     if (!moved.ok) return moved
     item = moved.item
+    const verdict = line(body.verdict, 300)
+    if (verdict !== '') item = appendHistory(item, 'person', verdict, w.now)
   }
   if (under !== '') item = underStep(item, [under])
   // Your words: the person's line on a ticked ask lands on its step with the question it answered, written with the ask

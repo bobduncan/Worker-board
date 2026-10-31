@@ -7,8 +7,8 @@ import { atom, read, update } from 'claude-code'
 import type { EngineInterface, FsEntry, Register, Timer } from 'claude-code'
 
 import type { BoardRole, ChatFile, ChatList, ChatRole, ChatRow, ChatsView, FolderRow, FoldersView } from '../types'
-import { BOARD_FILE, BOARD_NOTE, LAUNCH_FILE, MOD_HEADER, MOD_VERSION, REPORT_PATH, REQUEST_HEADER, TAKE_PATH, TYPED_PATH, WHOAMI_PATH, WORK_ACTIONS, WORK_FIELDS, WORK_PATH, boardStarts, isPaused, parseBoard, parsePause, parseTaken, parseWhoami, pauseContexts, shownName, stopLine, typedWhy } from './board'
-import type { Board, BoardStart, OwedClear, PauseState, PauseWhere, StopAsk, TurnReport, Whoami } from './board'
+import { BOARD_FILE, BOARD_NOTE, LAUNCH_FILE, MOD_HEADER, MOD_VERSION, MOST_CHARS, NO_OUTCOME, REPORT_PATH, REQUEST_HEADER, TAKE_PATH, TYPED_PATH, WHOAMI_PATH, WORK_ACTIONS, WORK_FIELDS, WORK_PATH, boardStarts, isPaused, parseBoard, parseHandover, parsePause, parseTaken, parseWhoami, pauseContexts, shownName, stopLine, typedWhy } from './board'
+import type { Board, BoardStart, Envelope, Handover, Outcome, OwedClear, PauseState, PauseWhere, StopAsk, TurnReport, Whoami } from './board'
 import {
   BEAT_MS, CHATS_DIR, NOT_RUNNING, LEFT_MAX_SIZE, LEFT_TEXT, LIST_FILE, afterTurn, atTurnStart, chatNote, clearWhy, clearedStart, compactKeep, compactWhy, chatText, chatsSummary, fileName,
   cardStep, foldersAbove, formAnswer, formQuestions, hasLeft, instructionsLine, isAgentId, isFiled, modNote, movedText, nameFromTitle, openFrom, orderChats, parseChat, personsWords, parseList, recordedLine, roleFrom, sessionOf, status, uniqueByName,
@@ -120,6 +120,34 @@ const queuedClears: number[] = []
 let clearTickets = 0
 /** Clear after each step: a /compact this process queued is on its way: no other is queued meanwhile. */
 let compactQueued = false
+/**
+ * T8.5 (Workers mod 0.27.0, the hand-over as one sequence): the board's envelopes this mod has carried out, by id, also kept
+ * in the mod's store across its processes (`CARRIED_KEY`, the newest `CARRIED_KEEP`): an id carried out before never again.
+ */
+const carriedEnvelopes = new Set<string>()
+const CARRIED_KEY = 'handover-carried'
+const CARRIED_KEEP = 50
+/** T8.5: the envelopes this process settled (told the board their outcome), by id: each once. */
+const settledEnvelopes = new Set<string>()
+/** T8.5: how often, and how far apart, an outcome the board did not answer is posted again (the board settles an id once). */
+const SETTLE_TRIES = 3
+const SETTLE_AGAIN_MS = 2000
+/**
+ * T8.5: the envelope whose /clear is on its way (the ticket of that clear): once the clear has run, its line is typed into
+ * the fresh conversation and it is settled; a clear that is dropped or does not run settles it as failed.
+ */
+type Handing = { envelope: Envelope; outcome: Outcome; ticket: number }
+let handing: Handing | null = null
+/**
+ * T8.5: an envelope whose /clear has run: its line waits for the next ping (`tick`), as a line after a clear always has: the
+ * app takes no prompt from inside the clear's own hook, nor from a prompt's.
+ */
+let lineWaiting: Handing | null = null
+/**
+ * T8.5: the board answered this chat's last turn's end with `handover`: a worker on the sequence, whose turn's end pulls
+ * nothing (the board decides what it gets). Any answer without it (an older board, the setting "timers") sets it back.
+ */
+let isOnSequence = false
 /** Clear after each step: the clear's decision waits for the board's late answer: nothing is typed in meanwhile. */
 let isDecidingClear = false
 /** Clear after each step: the role the board last named for this chat, in its answer to a turn's end. */
@@ -678,6 +706,8 @@ async function tookEnded($: EngineInterface, ended: Record<string, unknown>): Pr
   const left = ended.left
   blockLeft = Array.isArray(left) ? left.filter((one): one is string => typeof one === 'string') : []
   lastRole = roleFrom(ended) ?? lastRole
+  // T8.5: an answer with `handover` is the sequence's; one without, today's path (an older board, "timers").
+  isOnSequence = parseHandover(ended) !== null
   const line = (ended.pull as { text?: unknown } | undefined)?.text
   return typeof line === 'string' && line !== ''
 }
@@ -929,6 +959,8 @@ async function takeFromBoard($: EngineInterface): Promise<void> {
     if (taken.clear !== null) void clearOwed($, taken.clear).catch(() => null)
     // B769: the person's stop or remove for this worker, told at its next tool call and prompt (once each).
     stopAsked = taken.stop
+    // T8.5: the board's envelope that waited for this worker (late answer, an asleep chat, its set done): carried out now.
+    if (taken.handover !== null) void carryEnvelope($, taken.handover, { answer: '', asked: false, ended: null, step: null }).catch(() => null)
     for (const message of taken.messages) {
       if (typedIds.has(message.id)) continue
       typedIds.add(message.id)
@@ -1118,7 +1150,10 @@ async function settleClear($: EngineInterface): Promise<void> {
 /** Clear after each step: the clear decided on this session is dropped; its /clear, if it still comes, is refused. */
 async function dropClear($: EngineInterface, why: string): Promise<void> {
   if (clearing === null) return
+  const dropped = clearing
   clearing = null
+  // T8.5: the clear of an envelope that was dropped: the envelope is settled as failed, its line never typed.
+  if (handing !== null && handing.ticket === dropped.ticket) void failEnvelope($, handing.envelope, handing.outcome, 'cleared', why).catch(() => null)
   try {
     const now = await $.clock.now()
     await changeMine($, mine => ({ ...mine, clearing: undefined, clearNote: { at: now, why } }))
@@ -1171,6 +1206,11 @@ async function whenTurnEnds($: EngineInterface, f: { isReported: boolean; moreFo
   const chat = await readChat($, dir, await $.session.id())
   if (role === 'supervisor' || (role === null && isSupervisorOf(list, chat))) return clearSupervisor($, chat)
   if ((role ?? chat?.role ?? 'worker') === 'worker') {
+    // T8.5: a board slow to answer may still bring its envelope in that answer: carried out when it comes (the decision on
+    // a reported step's clear below waits for it and reads it itself).
+    const isClearLate = f.isReported && list !== null && chat !== null && list.afterStep === 'clear' && f.ended === null && f.retry !== null
+    const late = f.retry?.late ?? null
+    if (!isClearLate && f.ended === null && late !== null) void envelopeWhenAnswered($, late, { answer: f.answer, asked: f.asked, ended: null, step: f.step, since: { prompts: promptCount, turn: turnNumber } }).catch(() => null)
     if (!f.isReported) return
     if (list !== null && chat !== null && list.afterStep === 'clear') {
       // The board was slow to answer the report's turn's end (it checks the report then): the decision waits for its
@@ -1218,6 +1258,12 @@ async function clearWhenAnswered($: EngineInterface, c: { list: ChatList; chat: 
   }
   try {
     const role = roleFrom(ended)
+    // T8.5: the late answer carries the board's hand-over: no clear of the mod's own; its envelope, if any, is carried out.
+    const handover = parseHandover(ended)
+    if (handover !== null) {
+      if (handover.envelope !== null) await carryEnvelope($, handover.envelope, { answer: c.answer, asked: c.asked, ended, step: c.step, since })
+      return
+    }
     if (role !== null && role !== 'worker') await restCompact($, c.list, role)
     else if (isInTurn || promptCount !== since.prompts || turnNumber !== since.turn) {
       const now = await $.clock.now()
@@ -1260,15 +1306,21 @@ async function clearOwed($: EngineInterface, owed: OwedClear): Promise<void> {
  * first (`save-log`; no log, no clear), the card is marked, and /clear runs once the chat is idle. When it may not be
  * cleared (`clearWhy`: no worker as the board says, the person pauses, a question the board did not file, something
  * still running, or a prompt that came in meanwhile) it is compacted as before, and its card says why.
+ *
+ * T8.5: the clear of a board's envelope (`handover`) has every guard of this one; one that may not run is not compacted
+ * instead: its card says why and the envelope is settled as failed (cleared false, with whether background work it started
+ * was why). Once queued, the envelope waits for its /clear (`handing`): its line follows in the fresh conversation.
  */
-async function clearAfter($: EngineInterface, c: { list: ChatList; chat: ChatFile; role: BoardRole | null; isReported: boolean; moreFollows: boolean; step: string | null; answer: string; ended: Record<string, unknown> | null; asked: boolean; since?: { prompts: number; turn: number }; isOwed?: boolean }): Promise<void> {
-  const instead = async (why: string): Promise<void> => {
+async function clearAfter($: EngineInterface, c: { list: ChatList; chat: ChatFile; role: BoardRole | null; isReported: boolean; moreFollows: boolean; step: string | null; answer: string; ended: Record<string, unknown> | null; asked: boolean; since?: { prompts: number; turn: number }; isOwed?: boolean; handover?: { envelope: Envelope; outcome: Outcome } }): Promise<void> {
+  const instead = async (why: string, isBackground = false): Promise<void> => {
     try {
       const now = await $.clock.now()
       await changeMine($, mine => ({ ...mine, clearNote: { at: now, why }, clearing: undefined }))
     } catch {
       // only the card does not learn of it
     }
+    // T8.5: the envelope's clear did not run: settled as failed; the board decides at once (nothing compacted here).
+    if (c.handover !== undefined) return failEnvelope($, c.handover.envelope, c.handover.outcome, 'cleared', why, isBackground)
     // B547: a clear the board named is tried again while it names it: nothing is compacted meanwhile.
     if (c.isOwed !== true) await compactAfter($, { moreFollows: c.moreFollows }, 'worker')
   }
@@ -1276,13 +1328,15 @@ async function clearAfter($: EngineInterface, c: { list: ChatList; chat: ChatFil
   const handed = forYouItems(c.answer)
   const isUnfiled = unfiledAsk(c.answer, c.ended, handed.filter(item => item.kind !== 'do').length) || forYouCount(c.answer) > handed.length
   // A message to another chat in this turn (a question to the main chat): its answer would come into a cleared conversation.
-  const busy = isInTurn ? 'a turn is running' : c.asked ? 'it sent another chat a message in this turn and waits for its answer' : await busyWhy($)
+  const running = isInTurn || c.asked ? null : await busyWhy($)
+  const busy = isInTurn ? 'a turn is running' : c.asked ? 'it sent another chat a message in this turn and waits for its answer' : running
   // B763: the pause as it stands now, read anew: the kept reading may be the last turn's end's, inside a pause that has
   // ended since, or a late turn's end's, from before a pause that began while the decision waited. A board that does not
   // answer leaves the last reading (`pauseNow`, B786).
   const pause = await pauseNow($, true)
   const why = clearWhy({ role: c.role, isReported: c.isReported, isPaused: pause?.state === 'pausing', isUnfiled, busy })
-  if (why !== null) return instead(why)
+  // T8.5: a subagent it started that still runs is background work it started (the outcome's `background`).
+  if (why !== null) return instead(why, running !== null && why === running)
   const from = await $.session.id()
   // What the chat had seen when the decision began: at the turn's end, also when it waited for the board.
   const prompts = c.since?.prompts ?? promptCount
@@ -1293,25 +1347,28 @@ async function clearAfter($: EngineInterface, c: { list: ChatList; chat: ChatFil
   const saved = fieldsOf(answer)
   const log = typeof saved?.log === 'string' && saved.log !== '' ? saved.log : null
   const file = typeof saved?.file === 'string' && saved.file !== '' ? saved.file : null
-  if (log === null || file === null) return instead(`its conversation could not be saved as a log (${answer.ok ? 'the board named no log' : answer.text.slice(0, 160)})`)
+  // T8.5: the board refuses the log (409) while background work the chat started still runs.
+  if (log === null || file === null) return instead(`its conversation could not be saved as a log (${answer.ok ? 'the board named no log' : answer.text.slice(0, 160)})`, answer.status === 409 || await backgroundNow($))
   if (isInTurn || promptCount !== prompts || turnNumber !== turn) return instead('a new prompt came in before the clear')
   const now = await $.clock.now()
   // The mark on the card, written just before /clear: the conversation after it finds its card by it (a reload between).
   const marked = await changeMine($, mine => ({ ...mine, clearing: { at: now, step: c.step, log }, clearNote: undefined }))
   if (marked === null) return instead('this chat\'s card could not be written')
-  queueClear($, { from, chat: marked, step: c.step, log, file, at: now, prompts, turn }, instead)
+  queueClear($, { from, chat: marked, step: c.step, log, file, at: now, prompts, turn }, instead, c.handover)
   await tell($, `Clearing this chat after ${c.step ?? 'its step'}: its conversation is kept in ${file}.`)
 }
 
 /**
  * Clear after each step: the /clear of a clear decided now (`c`, its mark on the card written), queued for when this chat
  * is idle, as /compact is; the command's own hook looks once more before it runs, and runs only the /clear of the clear
- * still on its way (its ticket). One that does not run is said through `instead`.
+ * still on its way (its ticket). One that does not run is said through `instead`. T8.5: the clear of an envelope
+ * (`handover`) is kept with its ticket (`handing`) before the command goes, so the line follows that very /clear.
  */
-function queueClear($: EngineInterface, c: Omit<Clearing, 'ticket'>, instead: (why: string) => Promise<void>): void {
+function queueClear($: EngineInterface, c: Omit<Clearing, 'ticket'>, instead: (why: string) => Promise<void>, handover?: { envelope: Envelope; outcome: Outcome }): void {
   clearTickets += 1
   const ticket = clearTickets
   clearing = { ...c, ticket }
+  if (handover !== undefined) handing = { ...handover, ticket }
   queuedClears.push(ticket)
   void $.command.run({ command: 'clear' }).then(() => undefined, async (err: unknown) => {
     const at = queuedClears.indexOf(ticket)
@@ -1320,6 +1377,162 @@ function queueClear($: EngineInterface, c: Omit<Clearing, 'ticket'>, instead: (w
     clearing = null
     await instead(`/clear did not run: ${reason(err)}`)
   }).catch(() => null)
+}
+
+/**
+ * T8.5: where an envelope is carried out from: the turn's end the board answered (its answer, the "For you" items and the
+ * message to another chat of that turn, the step it reported, what the chat had seen then), or a take (none of these).
+ */
+type EnvelopeAt = { answer: string; asked: boolean; ended: Record<string, unknown> | null; step: string | null; since?: { prompts: number; turn: number } }
+
+/**
+ * T8.5 (Workers mod 0.27.0; DESIGN.md "The envelope's contract for the Workers mod"): carries out the board's envelope,
+ * once per id, in this order, stopping at the first that fails:
+ * 1. `restart`: the log kept, the card marked, and nothing else (the board's hands restart the chat);
+ * 2. `clear`: the log kept, the card marked, /clear, with every guard of the clear after a step (`clearAfter`); the rest
+ *    follows once the /clear has run (`lineAfterClear`);
+ * 3. `set`: already done by the board's hands before the envelope was handed out (the app refuses a chat's own model and
+ *    effort): nothing is set here, and the outcome says null;
+ * 4. `line`: typed in as one prompt, with the words a cleared chat gets beside it in a fresh conversation.
+ * Then the outcome is told to the board once (`settleEnvelope`). It never types or settles before the clear has run.
+ */
+async function carryEnvelope($: EngineInterface, envelope: Envelope, at: EnvelopeAt): Promise<void> {
+  if (!(await claimEnvelope($, envelope.id))) return
+  const outcome: Outcome = { ...NO_OUTCOME }
+  if (envelope.restart) return restartEnvelope($, envelope, outcome, at.step ?? envelope.clear?.step ?? null)
+  if (envelope.clear !== null) return clearEnvelope($, envelope, outcome, at)
+  // The line is typed once the chat is idle: never waited for here (a turn's end would wait on itself).
+  void typeLine($, envelope, outcome).catch(() => null)
+}
+
+/** T8.5: true when this envelope was not carried out before (by this process, or one before it: the mod's store); it is noted now. */
+async function claimEnvelope($: EngineInterface, id: string): Promise<boolean> {
+  if (carriedEnvelopes.has(id)) return false
+  carriedEnvelopes.add(id)
+  try {
+    const kept: unknown = await $.store.get(CARRIED_KEY)
+    const ids = Array.isArray(kept) ? kept.filter((one): one is string => typeof one === 'string') : []
+    if (ids.includes(id)) return false
+    await $.store.set(CARRIED_KEY, [...ids, id].slice(-CARRIED_KEEP))
+  } catch {
+    // this process keeps it all the same
+  }
+  return true
+}
+
+/**
+ * T8.5: the envelope's restart, the mod's part of it: the board keeps the conversation as a log, the card is marked as
+ * before a clear (the step, the log), and the outcome says restarted; the board's hands then restart the chat. Nothing else
+ * of the envelope is done. Without the log it fails, with whether background work it started was why.
+ */
+async function restartEnvelope($: EngineInterface, envelope: Envelope, outcome: Outcome, step: string | null): Promise<void> {
+  const answer = await workOnBoard($, { action: 'save-log', stepId: step ?? '' }, await newRequest($), SAVE_LOG_MS)
+  const saved = fieldsOf(answer)
+  const log = typeof saved?.log === 'string' && saved.log !== '' ? saved.log : null
+  const file = typeof saved?.file === 'string' && saved.file !== '' ? saved.file : null
+  if (log === null || file === null) return failEnvelope($, envelope, outcome, 'restarted', `its conversation could not be saved as a log (${answer.ok ? 'the board named no log' : answer.text.slice(0, 160)})`, answer.status === 409 || await backgroundNow($))
+  const now = await $.clock.now()
+  const marked = await changeMine($, mine => ({ ...mine, clearing: { at: now, step, log }, clearNote: undefined })).catch(() => null)
+  if (marked === null) return failEnvelope($, envelope, outcome, 'restarted', 'this chat\'s card could not be written')
+  outcome.restarted = true
+  await tell($, `Restarting for the Workers mod ${envelope.version ?? 'installed'}: its conversation is kept in ${file}.`)
+  void settleEnvelope($, envelope.id, outcome).catch(() => null)
+}
+
+/**
+ * T8.5: the envelope's clear, as the clear after a step (`clearAfter`, every guard of it: the pause read anew, no new
+ * prompt in between, no question unfiled, nothing of it running), for the step the clear names. One that may not run
+ * settles the envelope as failed; one queued waits for its /clear (`handing`).
+ */
+async function clearEnvelope($: EngineInterface, envelope: Envelope, outcome: Outcome, at: EnvelopeAt): Promise<void> {
+  const step = envelope.clear?.step ?? null
+  if (clearing !== null || isDecidingClear) return failEnvelope($, envelope, outcome, 'cleared', 'a clear is already on its way')
+  const dir = await findChatsDir($)
+  const list = dir === null ? null : parseList(await $.fs.read(inFolder(dir, LIST_FILE)).catch(() => ''))
+  const chat = dir === null ? null : await readChat($, dir, await $.session.id())
+  if (list === null || chat === null) return failEnvelope($, envelope, outcome, 'cleared', 'the list of chats or this chat\'s card could not be read')
+  await clearAfter($, { list, chat, role: 'worker', isReported: true, moreFollows: false, step, answer: at.answer, ended: at.ended, asked: at.asked, since: at.since, handover: { envelope, outcome } })
+}
+
+/**
+ * T8.5: at a ping, the line of an envelope whose /clear has run (`lineWaiting`), once the card has moved: typed in now, the
+ * start's words beside it, then the outcome. It never waits for the prompt (the engine runs it once the chat is idle).
+ */
+function lineAfterClear($: EngineInterface): void {
+  const waiting = lineWaiting
+  if (waiting === null || clearing !== null || movingAfterClear !== null) return
+  lineWaiting = null
+  // The app hands a mod's own prompt to none of its own hooks: the start's words go into the prompt's text, before the line.
+  const words = waiting.envelope.line === null ? [] : pendingStart.splice(0)
+  void typeLine($, waiting.envelope, waiting.outcome, words).catch(() => null)
+}
+
+/**
+ * T8.5: the envelope's line typed in as the board's word (as a take types it), then the outcome told: typed, or why not.
+ * In a conversation a clear just started, the start's words (`words`, who it is, its rules, its log) go in with this very
+ * prompt, before the line.
+ */
+async function typeLine($: EngineInterface, envelope: Envelope, outcome: Outcome, words: string[] = []): Promise<void> {
+  if (envelope.line !== null) {
+    if (envelope.line.length > MOST_CHARS) {
+      outcome.typed = false
+      outcome.why = `its line is too long: ${envelope.line.length} > ${MOST_CHARS} characters`
+    } else {
+      try {
+        const entered = await $.prompt.submit({ text: [...words, envelope.line].join('\n\n'), asUser: true })
+        outcome.typed = entered.drop === undefined
+        if (entered.drop !== undefined) outcome.why = typedWhy(entered.drop, 'a hook dropped it')
+      } catch (err) {
+        outcome.typed = false
+        outcome.why = typedWhy(err, 'the chat did not take it')
+      }
+    }
+  }
+  await settleEnvelope($, envelope.id, outcome)
+}
+
+/**
+ * T8.5: a part of the envelope failed (`field`, with its why and whether background work the chat started was why): the
+ * rest is not done, and the board is told at once (it takes the task back and holds the worker with the why).
+ */
+async function failEnvelope($: EngineInterface, envelope: Envelope, outcome: Outcome, field: 'cleared' | 'restarted' | 'typed', why: string, isBackground = false): Promise<void> {
+  if (handing?.envelope.id === envelope.id) handing = null
+  outcome[field] = false
+  outcome.why = why.replace(/\s+/g, ' ').trim().slice(0, 200)
+  outcome.background = isBackground
+  // Never held for the board's answer: a turn's end or a take is not kept waiting on it.
+  void settleEnvelope($, envelope.id, outcome).catch(() => null)
+}
+
+/**
+ * T8.5: the envelope's outcome told to the board, once per id: `typed` with `handover` (its id) and `outcome`. A board that
+ * does not answer is asked again a few times (it settles an id once, so a repeat changes nothing); then its net decides.
+ */
+async function settleEnvelope($: EngineInterface, id: string, outcome: Outcome): Promise<void> {
+  if (settledEnvelopes.has(id)) return
+  settledEnvelopes.add(id)
+  for (let tries = 1; tries <= SETTLE_TRIES; tries += 1) {
+    try {
+      const dir = chatsDir ?? await findChatsDir($)
+      const project = dir === null ? null : dir.slice(0, dir.length - CHATS_DIR.length - 1)
+      const board = project === null ? null : parseBoard(await $.fs.read(inFolder(project, BOARD_FILE)).catch(() => ''))
+      if (board === null) return
+      if (myself === null) await withinTime($, changeMine($, () => null))
+      if (await askBoard($, board, TYPED_PATH, { handover: id, outcome: { ...outcome } }) !== null) return
+    } catch {
+      // asked again below
+    }
+    if (tries < SETTLE_TRIES) await $.clock.sleep(SETTLE_AGAIN_MS)
+  }
+}
+
+/** T8.5: a turn's end the board answered late (not a reported step's clear, which reads it itself): its envelope, when it brings one. */
+async function envelopeWhenAnswered($: EngineInterface, late: Promise<Record<string, unknown> | null>, at: EnvelopeAt): Promise<void> {
+  const read = await late
+  const handover = parseHandover(read)
+  if (handover === null) return
+  isOnSequence = true
+  if (handover.envelope !== null) await carryEnvelope($, handover.envelope, { ...at, ended: read })
 }
 
 /** The supervisor (spec 2026-10-24): true when the list of chats names this chat its supervisor ("supervisor"). */
@@ -1403,23 +1616,37 @@ async function moveCard($: EngineInterface, moving: Carried, to: string): Promis
  * start after it is a turn: no turn's end is told for them, so no instruction counts as missed for them.
  */
 function moveAfterClear($: EngineInterface): Promise<void> {
-  movingAfterClear ??= afterClear($).finally(() => {
+  movingAfterClear ??= afterClear($).then(handed => {
+    movingAfterClear = null
+    // T8.5: the /clear of an envelope has run: its line goes into the fresh conversation at the next ping, the start's
+    // words beside it.
+    if (handed !== null) lineWaiting = { ...handed, outcome: { ...handed.outcome, cleared: true } }
+  }, () => {
     movingAfterClear = null
   })
   return movingAfterClear
 }
 
-/** Clear after each step: moves the card after a clear and keeps the start's words in `pendingStart`. */
-async function afterClear($: EngineInterface): Promise<void> {
+/**
+ * Clear after each step: moves the card after a clear and keeps the start's words in `pendingStart`. T8.5: the envelope
+ * whose /clear this was (`handing`, by the clear's ticket), once the card has moved and the words stand ready; else null.
+ */
+async function afterClear($: EngineInterface): Promise<Handing | null> {
+  let handed: Handing | null = null
   try {
     // The chat the /clear ended; when the start comes before that end, the clear this process decided.
     const decided = clearing
     const moving = carried ?? (decided !== null ? { from: decided.from, chat: decided.chat, clearing: decided } : null)
     carried = null
-    if (moving === null) return
+    if (moving === null) return handed
     const to = await $.session.id()
-    if (to === moving.from) return
+    if (to === moving.from) return handed
     const done = moving.clearing ?? markOf(moving.chat, moving.from, await $.clock.now())
+    // T8.5: the session is a new one: the /clear of the envelope on its way has run.
+    if (done !== null && handing !== null && done.ticket !== 0 && handing.ticket === done.ticket) {
+      handed = handing
+      handing = null
+    }
     const moved = await moveCard($, { ...moving, clearing: done }, to)
     clearing = null
     // A turn that started meanwhile keeps its own marks: its end is told as any turn's.
@@ -1430,7 +1657,7 @@ async function afterClear($: EngineInterface): Promise<void> {
     // The start's words only after the mod's own clear of a worker, or a clear of a chat the board names a worker: a
     // partner or the main chat the person cleared themselves is told nothing of a worker's. Nor is the supervisor's
     // chat, which the mod clears without a log after each sweep: the next sweep word says what to do.
-    if (moved === null || (done === null && lastRole !== 'worker') || lastRole === 'supervisor' || (done !== null && done.log === null)) return
+    if (moved === null || (done === null && lastRole !== 'worker') || lastRole === 'supervisor' || (done !== null && done.log === null)) return handed
     const list = parseList(await $.fs.read(inFolder(chatsDir ?? '', LIST_FILE)).catch(() => ''))
     // B298: the board names the open instructions, kept under the chat's name; the ones it named before the clear stand
     // in when it does not answer in time.
@@ -1450,6 +1677,7 @@ async function afterClear($: EngineInterface): Promise<void> {
   } catch {
     // the card moves at the next prompt or turn
   }
+  return handed
 }
 
 /** Every few seconds: read the list for the pane and, while a turn of this session runs, write its file again. */
@@ -1465,7 +1693,23 @@ async function tick($: EngineInterface): Promise<void> {
   await describeWork($)
   await refreshChats($)
   await keepBoards($)
+  await backgroundAgain($)
+  lineAfterClear($)
   await takeFromBoard($)
+}
+
+/**
+ * T8.5 (the spec's mod change 6): while the chat is idle its background work is read anew at every 5-second ping, so a
+ * report gone idle with nothing left in the background reaches the board (its event B) without waiting for a turn. Only a
+ * change is told (`setReport`). It never throws.
+ */
+async function backgroundAgain($: EngineInterface): Promise<void> {
+  if (isInTurn || openForms > 0 || turnReport.state !== 'idle') return
+  try {
+    await setReport($, 'idle', await backgroundNow($))
+  } catch {
+    // read again at the next ping
+  }
 }
 
 /** Keeps the pane in step with the chat list, once the project has one. */
@@ -2324,7 +2568,7 @@ export const register: Register = on => {
         hasReported = false
         moreFollows = false
         reportedStep = null
-        const told: { ended: Record<string, unknown> | null; pulled: boolean; retry: EndedRetry | null } = { ended: null, pulled: false, retry: null }
+        const told: { ended: Record<string, unknown> | null; pulled: boolean; retry: EndedRetry | null; handover: Handover | null } = { ended: null, pulled: false, retry: null, handover: null }
         // B298: a turn that answered has ended: the board marks the instructions filed before it and still open as missed.
         // Clear after each step: a clear on its way is no turn, nor is the start after it.
         if (e.reason === 'answer' && !isTurnEndTold && turnStartedAt !== null) {
@@ -2339,12 +2583,17 @@ export const register: Register = on => {
           // hands its items over in the same call; the board files those the chat filed no ask for (Via: chat).
           // The review of Pause 2: while the person pauses (until running) a free worker takes nothing new.
           // B763: read through pauseNow: the turn's last batch may be long past.
-          const pulls = await withinTime($, holdsNothing($)) === true && !isPaused(await pauseNow($))
+          // T8.5 (the spec's mod change 5): a worker on the sequence tells every answered turn's end, also while it holds a
+          // step, and pulls nothing: the board decides what it gets (its answer's `handover`).
+          const pulls = !isOnSequence && await withinTime($, holdsNothing($)) === true && !isPaused(await pauseNow($))
           const fields = { action: 'turn-ended', since, ...(pulls ? { pull: true } : {}), ...(forYou.length > 0 ? { forYou } : {}) }
           const call = await workLate($, fields, forYou.length > 0 ? ASKED_WAIT_MS : BOARD_WAIT_MS)
           if (call.read === null && call.late !== null && forYou.length > 0) void takeLateEnded($, call.late, await $.session.id())
           told.ended = call.read
-          if (call.read !== null) told.pulled = await tookEnded($, call.read)
+          if (call.read !== null) {
+            told.pulled = await tookEnded($, call.read)
+            told.handover = parseHandover(call.read)
+          }
           // Clear after each step: a board slow to answer (it checks a report then) is asked again later, with the same
           // request id, for the clear's decision; a board that refused is not.
           else if (!call.isRefused && call.request !== null) told.retry = { fields, request: call.request, late: call.late }
@@ -2353,7 +2602,14 @@ export const register: Register = on => {
         // Clear after each step: a worker that reported is cleared or compacted now, the main chat and the partners
         // compacted at rest; the line the board put out for a free worker is typed in after that, unless a clear is
         // on its way (then the conversation after it takes it).
-        if (e.reason === 'answer' && clearing === null) {
+        // T8.5 (the spec's mod change 1): the board's answer carries `handover`: the mod decides no clear of its own; it
+        // carries out the envelope, if any (change 2). Without it (an older board, "timers"): as 0.26.10.
+        if (e.reason === 'answer' && told.handover !== null) {
+          if (told.handover.envelope !== null) {
+            const envelope = told.handover.envelope
+            await carryEnvelope($, envelope, { answer: e.answer, asked: hasAsked, ended: told.ended, step: at.step, since: { prompts: promptCount, turn: turnNumber } }).catch(err => tell($, `The board's hand-over was not carried out: ${reason(err)}`))
+          }
+        } else if (e.reason === 'answer' && clearing === null) {
           await whenTurnEnds($, { ...at, isReported, answer: e.answer, ended: told.ended, asked: hasAsked, retry: told.retry }).catch(err => tell($, `Not compacted after this task: ${reason(err)}`))
         }
         if (told.pulled) await takeFromBoard($)

@@ -34,7 +34,7 @@ function post(port, path, { type = 'application/json', body = '{}' } = {}) {
 async function board(why) {
   const did = []
   const answer = name => async () => { did.push(name); return { ok: true, result: {} } }
-  const names = ['take', 'typed', 'report', 'whoami', 'bridgeWork', 'reference', 'talkPicture', 'design', 'backlog', 'goals', 'plan', 'brainstorm', 'work', 'settings', 'game', 'cpu', 'newProject']
+  const names = ['take', 'typed', 'report', 'whoami', 'bridgeWork', 'reference', 'talkPicture', 'design', 'bugs', 'bugPicture', 'backlog', 'goals', 'plan', 'brainstorm', 'work', 'settings', 'game', 'cpu', 'newProject']
   const server = createBoard({
     token: TOKEN, bridgeKey: KEY, getState: async () => ({}),
     say: async () => { did.push('say'); return { ok: true, message: {} } },

@@ -168,7 +168,7 @@ test('once asked for, part 3 says where the asking is and which step it became',
 })
 
 test('the page writes only through the board\'s Design calls, and nothing into the backlog', () => {
-  const tab = script.slice(script.indexOf('// Design (B99)'), script.indexOf('// Tabs\n'))
+  const tab = script.slice(script.indexOf('// Design (B99)'), script.indexOf('// bugs:start'))
   assert.deepEqual([...new Set([...tab.matchAll(/fetch\('([^']+)'/g)].map(found => found[1]))].sort(), ['/api/design', '/api/design/reference'])
   assert.deepEqual([...new Set([...tab.matchAll(/action: '([a-z]+)'/g)].map(found => found[1]))].sort(), ['again', 'agree', 'drop', 'make', 'send'])
   for (const word of ['/api/say', 'backlog.md', 'localStorage']) assert.ok(!tab.includes(word), `the tab's code has "${word}"`)
@@ -199,7 +199,8 @@ test('B156: a picture pasted on the Design tab is taken as a reference; text pas
 })
 
 test('B156: the page listens for a paste on the Design tab, and the box to add a picture says so', () => {
-  assert.equal(script.split("document.addEventListener('paste', event => {").length, 2)
+  // Two listeners: this tab's and, since B856, the Bugs tab's (each returns when its own tab is not open).
+  assert.equal(script.split("document.addEventListener('paste', event => {").length, 3)
   // A picked file and a pasted picture take the same way to the board.
   assert.equal(script.split('async function addReference(file)').length, 2)
   assert.match(script, /if \(file !== undefined\) addReference\(file\)/)

@@ -692,8 +692,8 @@ section 5). The **thread** is `<brainstorms>/<yyyy-mm-dd>-<title's words>.md` (s
 (or `Other — <words>`, `skipped`, `back to Q<m>`) under each, and at the end the Advisor's `## Proposal (HH:MM)`
 (`Decided:`, `Goals:` "- [ ] <title> — under G<id> or top — Done when: …", `Steps:` "- [ ] <title> — <worker> —
 about <time>", `Note:`; a changed one under a new heading, the last counts) and the board's
-`Created (HH:MM): <goals>; <n> steps asked of the main chat; left out: <titles>` (`src/brainstorm.mjs`, read and
-written line by line, as the map is). The **Brainstorm part** is the Advisor tab's third. The screen (2026-10-31, the person:
+`Created (HH:MM): <goals>; tasks B<n>, B<n>; left out: <titles>` (2026-10-31: the board makes the tasks itself and names them;
+before, `<n> steps asked of the main chat`, still read; `src/brainstorm.mjs`, read and written line by line, as the map is). The **Brainstorm part** is the Advisor tab's third. The screen (2026-10-31, the person:
 "it looks terrible. cluttered too much text to little focus on the interaction, no feedback if its working on it"; mocks in
 the project's art inbox, `brainstorm-mocks`): at the left "+ New brainstorm…" and a slim row per brainstorm, its title and
 one small status word (`brainstormStatusOf`: "your turn" for an open question, what the partner understood or a proposal
@@ -808,6 +808,24 @@ backlog" or "Put in a queue". The page reads `state.design` and writes only thro
 thing the board itself writes there is the tick of an approved step, B110, below). What is
 typed stays in the page while it is open and is never drawn over by a new reading of the state. A board whose
 server has no `design` says so on the tab.
+
+**The Bugs tab (B856).** The person, 2026-10-31: the Design tab "is not suitable for bugreports ... make a new tab for bugs" (the
+Design tab stays, for new features; its picture today: `art-inbox/bugs-tab/design-tab-today.webp`). A tab **Bugs** after Design
+(`#bugs`), one form and the list below it: *Screenshot* (optional; Ctrl+V anywhere on the tab, a drop, or a pick from disk; one or
+more, at most 5 of 8 MB), *What is wrong* (one line, required), *What you expected* (one line, optional), *Where* (the project's
+name from `config.json`, or the worker board), **Report bug**. The page reads `state.bugs` (the limits, the two places, the
+reports so far) and writes only through `POST /api/bugs/picture` (a picture of the person's own, kept in `bugs/_new` of the
+project's picture folder under a name the board chooses) and `POST /api/bugs` (`{ action: 'report', wrong, expected, where,
+pictures }`; `src/bugs.mjs`). A report becomes a step through the work API as the person, in their own words: the title "Bug: ...",
+Context lines *What is wrong*, *What was expected*, *Where*, *Pictures*, "Reproduce it first, before any change", and the last line
+`From the Bugs tab.` (how the list finds the person's reports again); the first picture is the step's own `Picture`. Once the
+step has its id the pictures move from `bugs/_new` to `bugs/<step id>/picture-<n>` (`new` fills `{step-id}` in the text and
+picture with the id, `src/work/api.mjs`). A board bug is marked a fix (first in line) and goes where the board's latest fixes
+went (their activity and goal); a game bug is a normal step with no goal, in the activity most of the other latest steps went to.
+Both are refined as any step (`roles/partner.md`) and the worker reproduces the bug first (`roles/worker.md`). "Your reports so
+far" lists them newest first with the picture, the step's link and its state: *Waiting* (new, refined, queued), *Being fixed*
+(taken, in progress, waiting on you, review), *Fixed* (done), *Dropped*. A board that only shows, or the demo, says why on the tab
+and takes no report. Not in it: reporting from inside the game, screenshots the board takes itself.
 
 **Your approval ticks a step (B110).** The one thing the board writes outside its own data folder. When you
 approve a Verify step of the backlog whose work is merged, the board ticks the step itself ("- [ ]" becomes
@@ -3663,7 +3681,10 @@ the AI sweep by a cheap supervisor chat and the hand-over to the Advisor, comes 
   failed and was not reported again, `reviewWaitOf` kind 'report', over 60 min of running time), `dropped-fix` (B630, the fix of X54: a step in
   review whose fix was dropped, with no new fix, no new check and no open step blocking it, for over 30 min; with a
   block, `reviewWaitOf` says kind 'blocked' and the step waits as planned, odd in the health summary only when a
-  blocker is stalled itself), `review-held` (B656, X8 again: a step in review whose chain of open fixes ends in a refined
+  blocker is stalled itself; B665 and B878, X70, X71, X116: counted from when the block ended, the blocker's own move to done
+  or dropped or the step's "no longer blocked by B<n>" line, as a done blocker leaves Blocked by at once (B574); a step whose
+  part waits for the person's verdict in a goal's recap is kind 'recap', "waits for your verdict in the recap of G<n>", no
+  case and not odd; a part sent back counts from the Send back), `review-held` (B656, X8 again: a step in review whose chain of open fixes ends in a refined
   fix the ready list holds, for over 60 min from when the board first saw that hold (B660, X59: not from the fix's Since; a changed why
   starts again; a hold that is the person's open ask, "waits for the answer to Q<n>", is no case and not odd); one case per chain, named by its first step, with the
   held why; a chain whose last fix is at work is no case, however deep; its line reads "waits for its fix B<n>, held:
@@ -4780,6 +4801,23 @@ restart envelope its mod carried out gets the hands' `mod-restart` word once.
 (B12)", "restarting for the new Workers mod", "B12: the board checks its report" (`laneWords`; the state's
 `lane.handover` is `{ state, why, step }`).
 
+**The Supervisor's rules for it (step 4).** Only for a worker on the sequence (`lane.onSequence`); a worker on the timers
+keeps every old rule unchanged, and the new rules never fire for it:
+
+- `handover-held`: its lane's hand-over is **held** (its last envelope failed: its clear, set or restart did not run, and
+  its task went back at once) for over `notClearedMinutes` (10) of the board's running time from the failure (the pause,
+  the board off and the stretches it heard no chat left out). One finding per worker and report (key `handover-held
+  <worker> <the step its clear is owed for>`), with the Workers mod's why. In place of not-cleared and the clear part of
+  skip-repeats.
+- `handover-unanswered`: the net fired (`netAt` on an envelope of its): one finding per envelope, for a day after the net.
+  In place of not-taking.
+- `ready-while-free`: such a worker is free only in the hand-over's own **free** (its lane's `handover.state`), never by
+  the hand-out's older reading (R7, X111).
+- `review-stuck`: its report part (a failed check not reported again) skips a step whose worker is on the sequence (the
+  decision tells it at its first turn's end); the result-check part stays.
+
+Tests: `test/supervisor/handoverRules.test.mjs`.
+
 ### The envelope's contract for the Workers mod
 
 For step 3 (Workers mod 0.27.0). The board side is live behind `handover: "sequence"`; with `"timers"` the board answers
@@ -4847,6 +4885,28 @@ task back at once and holds the worker with the why.
 The mod also sends `turn-ended` after every answered turn of a worker, also when it holds a step (the pull flag goes),
 and while idle reads its background count anew at each 5-second ping, so a report gone idle with nothing in the
 background reaches the board (the spec's mod changes 5 and 6).
+
+**The mod side (Workers mod 0.27.0, `mods/workers/hooks/register.tsx` `carryEnvelope`).** Built to the contract above,
+with these readings of it:
+
+- Once per id: the ids carried out are kept in the process and in the mod's store (`handover-carried`, the newest 50),
+  so a take or a later turn's end that brings the same envelope does nothing; the outcome is posted once per id (asked
+  again at most twice, 2 s apart, only when the board did not answer).
+- The clear is today's `clearAfter` with the envelope beside it: every guard (no turn running, no message to another
+  chat in that turn, no subagent running, the pause read anew, no question unfiled, no prompt since, the log kept, the
+  card marked), but a clear that may not run is not compacted instead: the card's `clearNote` says why and the outcome
+  is `cleared: false` with `background` true when a subagent of its own ran or the board refused the log with 409. A
+  clear dropped later (a turn that started first, the /clear let go after 2 minutes, the command refused) settles the
+  same way. The line is never typed and nothing is settled before the /clear has run.
+- The line after a clear goes at the next 5-second ping (the app takes no prompt from inside the /clear's own hook),
+  and the start's words stand in its text, before the line: the app hands a mod's own prompt to none of its own hooks,
+  so they cannot go as context. Without a clear the line is typed at once (as a take's word, `asUser`).
+- A restart keeps the log (`save-log` with the step the turn reported, if any) and writes the card's mark as before a
+  clear (`clearing`: the step, the log), and nothing else: no /clear, no line, `restarted: true`. It does not mark the
+  card cleared: the board's hands reopen the same conversation, so the clear it owes comes in the envelope on the new mod.
+- A turn's end the board answered late: the reported step's decision (`clearWhenAnswered`) reads the late answer's
+  `handover` itself; any other worker's turn's end carries an envelope the late answer brings.
+- A worker whose last turn's end was answered with `handover` sends no `pull`; one answered without it pulls as before.
 
 ## What it does not do
 
@@ -4925,6 +4985,29 @@ the evaluation's Q428). The question's words decide nothing (B721 read "asked as
 that does not exist, or one of another goal, a withdrawn ask or a free talk, is told as before, so nothing is dropped silently. The server's own pass is tested end to end (test/brainstormStrandedBoard.test.mjs: told once, also after the
 board starts anew).
 
+2026-10-31, four fixes found on the first real "Change this goal" (the person: "once i clicked to create new tasks it was closed
+immediatedly. i do not see if it created the new tasks or not. who is picking that up?", and on an old talk: "this isnt clear to
+me"), all in `src/brainstorm.mjs` and the brainstorm part of `public/board.js` (test/brainstormFixes.test.mjs, and
+test/brainstormCreateBoard.test.mjs on a running board):
+1. A thread whose proposal was created shows a Result card whenever it is opened (`brainstormResultView`, `brainstormResultCard`):
+   "Done", what was written (a change: the goal now has its objective and k Done-when bullets, with a link to the Focus page when
+   the goal is the focus; a plain proposal: the goals made), the new tasks by id and title, each a link, with where each stands now
+   (read from the backlog rows: "being refined by the Advisor", "on the list for a worker", "Worker 3 is on it", "done"), what was
+   dropped, one line on what happens next, and the earlier talk the change closed. Quiet colours only. A Created line in the old
+   wording names no id: its tasks are found by the ticked steps' titles where each is one task.
+2. Creating a change closes the goal's other running talk that is not a change (`closeReplacedTalks`): State done, under it
+   `Closed (HH:MM): by the board, replaced by the change of G<n>`, and the goal's `Brainstorm:` line reads (done) when it named that talk.
+3. A line of the thread the board cannot read is never shown to the person. The parser keeps each whole (`oddLines`); `fixesToTell`
+   types them to the talk partner as `brainstorm fix` ("A line of the thread is not in the form: ...", `Where: line <n>`), once for
+   each line (its words, not its number), beside the title fixes, and only for a talk that runs with no created proposal and no
+   Closed line. The page counts them in the "..." menu ("1 line for your partner to fix", `brainstormFixCount`). The old
+   hand-written `Answer (HH:MM): C, through Main: "<words>"` is read as the answer C with those words.
+4. The board makes the ticked tasks itself while it creates (`step` of `editThread`, the server's `writeGoalStep`, the same task
+   the Design tab's form makes), before it writes the Created line, so the line names the ids: `Created (HH:MM): no goals; tasks
+   B869, B870, B871; dropped: B757; left out: ...` ("dropped" before "left out"; the old order and the old wording, "3 steps asked
+   of the main chat", are still read). A task the board could not make has no id in the answer and is asked for again by the page
+   ("Make the tasks again" when that fails too); a task made by that retry is not added to the Created line.
+
 ## The goal demo before "Did we reach the goal?" (B677)
 
 The person, 2026-10-26: "before we click yes, i want visuals of everything we accomplished in this goal", and "i need a
@@ -4955,6 +5038,35 @@ link to this demo so i can see before i approve the goal". A fixed stage of ever
    own size, with zoom. A `Demo:` line naming a .json opens this page (focusState gives `demo.isPage`), one naming a picture
    the picture window as before; `#demo=<path>` in the address opens the page. focusState also gives `demoWords`
    (DEMO_WORDS): the card writes the number, there is no copy of it in the page.
+
+## The recap's verdict reaches the steps it shows (B878)
+
+X116: B821 waited in review for the person's verdict in G60's recap, its fix dropped on purpose; when the recap step B674 went
+done the board took it out of B821's Blocked by (B574), B665 found no blocker left and counted from the drop 96 min before, so
+the rule dropped-fix raised it a minute later; and the recap's Approve and Send back (B860) never reached B821.
+
+1. A row of a demo list may name the steps it shows: `"steps": ["B689", "B821"]` (the part's step and its fixes; src/demo.mjs
+   checks the ids, `demoPage` keeps them on the row). A part without ids works as before.
+2. Each tick the board reads the recaps of the open goals (src/recaps.mjs `readRecaps`: `<picture folder>/<goal id>/demo.json`,
+   `<picture folder>/<goal id>/<any>/demo.json`, and a `Demo:` line naming a .json) with the person's rounds beside them, and
+   `recapWaitsOf` says per named step where its part stands: not judged yet, or sent back (when). The state keeps it as
+   `recapWaits`; the supervisor's view as `recaps`; the work tool's context as `recaps`.
+3. resultCheck.mjs `reviewWaitOf(item, items, held, now, recaps)`: a step whose fix was dropped, while its part is not judged,
+   is kind 'recap', "waits for your verdict in the recap of G<n>", on the Backlog tab, in work next and list and in the health
+   summary; `reviewLateOf` never calls it late (no dropped-fix incident, no fix-dropped word to the main chat). A step above
+   it reads "waits for its fix B821, which waits for your verdict in the recap of G60". A part sent back is kind 'dropped'
+   again, counted from the Send back (`sentBack`), "...; sent back in the recap of G<n>: the partner makes its next try",
+   until the partner blocks it on the next try (kind 'blocked') or writes demo.json again with it (a later minute than the
+   Send, `changedAt`): then the part waits for the person's verdict again.
+   A dropped wait also counts from the step's newest "no longer blocked by B<n>" line (`unblockedOf`), when that is later.
+4. The person's Send (server.mjs `demoFeedbackNow`): Approve on a part closes each step it names that is in review (the
+   person's `tick`, done, then "person: approved in the recap of G<n>, round N" in its History; a step not in review stays
+   as it is); Send back writes their comment on each such step ("Sent back in the recap of ..."), and the partner's word names
+   the part's steps ("(steps B689, B821: block each on its next try)"). The answer of the Send lists the steps it closed (`closed`).
+
+Tests: test/supervisor/recapVerdict.test.mjs (B821's case: a block ended by done a minute ago is no case, 31 min later it is;
+waiting for the verdict is none, also after 10 h; a Send back counts from the Send), test/recapVerdictBoard.test.mjs (on a
+running board: the Backlog line, a Send back's words, an Approve that closes the steps in review only).
 
 ## A part with only dropped steps is Stopped (B680)
 

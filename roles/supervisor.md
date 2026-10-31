@@ -73,6 +73,11 @@ sweep is meant to cost little (a few tens of thousands of tokens, mostly cached)
   give goes back by itself after 20 minutes. A worker the board reads free but whose own mod reports busy (asking the
   person, say) is no free worker either (B834: the rule counts free as the hand-out does). Main hands out nothing, so a step Main did not
   queue is no incident either.
+- A worker on the hand-over sequence (T8.5: the board's setting "sequence" and its Workers mod 0.27.0 or newer; its lane
+  says where its hand-over stands) has no take clock and no clear account: its lane is "free" only when its hand-over says
+  so (ready-while-free), "held: <why>" when its clear, set or restart did not run (the rule handover-held names one held
+  over 10 minutes of running time), and "did not answer its hand-over" when the net fired (the rule handover-unanswered,
+  once per hand-over). not-cleared, not-taking and the report part of review-stuck say nothing of such a worker.
 - A step that waits for another step (its Blocked by, or the steps its Waits for names) waits as planned while that
   step moves: the summary says "waits as planned for B<n> (<state> <age>)" and marks no "!" for its age: no incident.
   Only a stalled blocker (past its state's limit: "stalled") or a step still blocked after its blocker ended ("still

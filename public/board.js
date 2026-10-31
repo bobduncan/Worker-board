@@ -6234,7 +6234,7 @@ const ASK_PAGE = /(?<=^|[\s(["'`])((?:[\w@+-][\w@+.-]*\/)+[\w@+-][\w@+.-]*\.(?:m
 const ASK_ID = /(?<![\w/.:#=-])([GQB]\d+)(?![\w/-]|\.\w)/g
 /** B507: a tab by the words the board shows on it, and the part of the Focus tab named after it ("the Focus tab, then Goals"). */
 const ASK_TAB = /(?<![\w-])(Vision|Focus|Backlog|Design|Spending) tab(?![\w-])(?:(?<=Focus tab),? then (Focus|Goals|Brainstorm)(?![\w-]))?/g
-const ASK_TAB_ADDRESS = { Vision: '#vision', Focus: '#advice/focus', Backlog: '#backlog', Design: '#design', Spending: '#spending' }
+const ASK_TAB_ADDRESS = { Vision: '#vision', Focus: '#advice/focus', Backlog: '#backlog', Design: '#design', Bugs: '#bugs', Spending: '#spending' }
 
 /**
  * An ask's words in pieces: words, `{ ask }` (a Q id `known.isAsk` knows), `{ step }` (a B id `known.isStep` knows),
@@ -9272,6 +9272,7 @@ function tabOfAddress(hash) {
   if (hash === '#advice' || /^#advice\/[a-z]+$/.test(hash) || goalFocusOf(hash) !== undefined) return 'advice'
   if (hash === '#backlog' || hash === '#coordinate' || hash === '#backlog/days') return 'coordinate'
   if (hash === '#design') return 'design'
+  if (hash === '#bugs') return 'bugs'
   if (hash === '#vision') return 'vision'
   if (hash === '#spending') return 'spending'
   return null
@@ -11428,6 +11429,101 @@ function brainstormChosen(threads, open) {
   if (list.some(thread => thread.path === open)) return open
   return (list.find(thread => thread.state === 'running' || thread.state === 'wrapping up') ?? list[0])?.path ?? null
 }
+
+/**
+ * 2026-10-31 (the person, on the first "Change this goal": "once i clicked to create new tasks it was closed immediatedly. i do
+ * not see if it created the new tasks or not. who is picking that up?"): where one new task stands now, from its row of the
+ * backlog (`row`: the state's step, with its store item and flow; undefined when the backlog does not hold it): `{ state, words,
+ * tone }`. A quiet tone each, never amber or red: 'refining' (the Advisor has it), 'queued' (on the list for a worker, or given
+ * to one), 'working', 'done', 'quiet'. `prefix` is the chats' prefix, taken off a worker's name.
+ */
+function brainstormTaskStand(row, prefix = '') {
+  if (row === undefined || row === null) return { state: null, words: 'not on the task list now', tone: 'quiet' }
+  const state = row.item?.state ?? row.flow?.state ?? (row.status === 'done' ? 'done' : null)
+  const raw = String(row.item?.owner ?? '').trim()
+  const owner = prefix !== '' && raw.startsWith(prefix) ? raw.slice(prefix.length).trim() : raw
+  if (state === 'done') return { state, words: 'done', tone: 'done' }
+  if (state === 'dropped') return { state, words: 'dropped', tone: 'quiet' }
+  if (state === 'new') return { state, words: 'being refined by the Advisor', tone: 'refining' }
+  if (state === 'refined') return { state, words: 'on the list for a worker', tone: 'queued' }
+  if (state === 'queued') return { state, words: owner === '' ? 'on the list for a worker' : `given to ${owner}`, tone: 'queued' }
+  if (state === 'taken' || state === 'in progress') return { state, words: owner === '' ? 'a worker is on it' : `${owner} is on it`, tone: 'working' }
+  if (state === 'waiting on you') return { state, words: owner === '' ? 'waits for an answer' : `${owner} waits for an answer`, tone: 'working' }
+  if (state === 'review') return { state, words: 'in review', tone: 'working' }
+  // A board with no store reads the backlog's own status.
+  if (row.status === 'progress') return { state: 'in progress', words: 'a worker is on it', tone: 'working' }
+  if (row.status === 'queued') return { state: 'queued', words: 'on the list for a worker', tone: 'queued' }
+  return { state: null, words: 'on the task list', tone: 'quiet' }
+}
+
+/**
+ * 2026-10-31 (the person, on "The thread has a line the board cannot read": "this isnt clear to me"): how many lines of a talk
+ * the board told its partner to write anew, for the "…" menu's quiet "1 line for your partner to fix": the lines the form does
+ * not know (each once) and the open question's title when the board refuses it. Only while the board tells them (a talk that
+ * runs, its proposal not created, not closed: src/brainstorm.mjs `isTold`); never the lines themselves.
+ */
+function brainstormFixCount(thread) {
+  if (thread.state !== 'running' && thread.state !== 'wrapping up') return 0
+  if ((thread.proposal?.created ?? null) !== null || (thread.closed ?? null) !== null) return 0
+  const lines = new Set((thread.oddLines ?? []).map(one => one.text)).size
+  const latest = thread.latest ?? null
+  return lines + (latest !== null && latest.answer === null && (latest.problem ?? null) !== null ? 1 : 0)
+}
+
+/** The Result card's one line on what happens next. */
+const BRAINSTORM_NEXT_WORDS = 'The Advisor refines each new task; then the board gives it to a free worker.'
+
+/**
+ * The Result card of a thread whose proposal was created (2026-10-31), or null for one that was not: "Done" and what was
+ * written (`written`: a change says its goal now has its objective and so many Done-when bullets; a plain proposal names the
+ * goals it made), the new tasks by id and title with where each stands now (`tasks`, from `backlog`, the state's activities),
+ * what was dropped (`dropped`), one line on what happens next (`next`) and the earlier talk this change replaced (`replaced`,
+ * the paths of the other threads of the goal the board closed at that minute). A Created line from before the tasks were named
+ * (`2 steps asked of the main chat`) names none: its tasks are the backlog's steps with the ticked steps' titles, when each
+ * title is one task only; else `unnamed` says how many. `titles` is the backlog's titles by id (brainstormTitles), `goalTitles`
+ * the goals' by id, `threads` all the state's threads, `prefix` the chats' prefix.
+ */
+function brainstormResultView(thread, { backlog = [], titles = {}, goalTitles = {}, threads = [], prefix = '' } = {}) {
+  const proposal = thread.proposal
+  const created = proposal?.created ?? null
+  if (created === null) return null
+  const rows = new Map()
+  const byTitle = new Map()
+  for (const activity of backlog ?? []) {
+    for (const step of activity.steps ?? []) {
+      if (typeof step.id !== 'string') continue
+      rows.set(step.id, step)
+      byTitle.set(step.title, [...(byTitle.get(step.title) ?? []), step])
+    }
+  }
+  let ids = created.steps
+  // The old wording names no id: the ticked steps' titles find them where each is one step of the backlog.
+  if (ids.length === 0 && created.asked > 0) {
+    const ticked = proposal.steps.filter(step => !created.leftOut.includes(brainstormLeftKey(step.title)))
+    const found = ticked.map(step => byTitle.get(step.title) ?? [])
+    if (found.length > 0 && found.every(list => list.length === 1)) ids = found.map(list => list[0].id)
+  }
+  const tasks = ids.map(id => ({ id, title: rows.get(id)?.title ?? titles[id] ?? null, ...brainstormTaskStand(rows.get(id), prefix) }))
+  const isChange = thread.kind === 'change'
+  const goal = thread.goal ?? null
+  const dropped = (created.dropped ?? []).map(id => ({ id, title: titles[id] ?? null, why: proposal.drops.find(one => one.id === id)?.why ?? '' }))
+  const open = tasks.some(task => task.state !== 'done' && task.state !== 'dropped')
+  const replaced = !isChange || goal === null ? [] : (threads ?? []).filter(other => other.path !== thread.path && other.goal?.id === goal.id && other.kind !== 'change'
+    && (other.closed?.by ?? '').startsWith('by the board, replaced by the change of') && other.closed?.at === created.at).map(other => other.path)
+  return {
+    at: created.at,
+    isChange,
+    goal,
+    written: isChange
+      ? { kind: 'change', goal: goal === null ? null : goal.id, bullets: proposal.doneWhen.length, hasObjective: typeof proposal.objective === 'string' && proposal.objective !== '' }
+      : { kind: 'goals', goals: created.goals.map(id => ({ id, title: goalTitles[id] ?? null })) },
+    tasks,
+    unnamed: tasks.length === 0 ? created.asked : 0,
+    dropped,
+    next: tasks.length > 0 && open ? BRAINSTORM_NEXT_WORDS : null,
+    replaced,
+  }
+}
 // brainstorm:end
 
 /**
@@ -11452,7 +11548,9 @@ function brainstormData(state) {
     brainstormUi.open, brainstormUi.newAbout === undefined ? 'closed' : brainstormUi.newAbout,
     [...brainstormUi.unticked].map(([path, keys]) => [path, [...keys]]), [...brainstormUi.failedSteps], brainstormUi.changing, brainstormUi.confirm, brainstormUi.busy, brainstormUi.note,
     brainstormUi.notQuite, [...brainstormUi.agreed], [...brainstormUi.dropsTicked].map(([path, keys]) => [path, [...keys]]), Object.entries(brainstormTitles(state)),
-    brainstormUi.menu, [...brainstormUi.opening], [...brainstormUi.why], brainstormUi.chip]
+    brainstormUi.menu, [...brainstormUi.opening], [...brainstormUi.why], brainstormUi.chip,
+    // 2026-10-31: where the new tasks of a created proposal stand now (the Result card).
+    (state.brainstorms?.threads ?? []).filter(thread => thread.path === brainstormChosen(state.brainstorms?.threads ?? [], brainstormUi.open) && (thread.proposal?.created ?? null) !== null).map(thread => brainstormResultOf(thread, state))]
 }
 
 /** "Change this goal": the titles of the backlog's steps by their ids, for the re-plan's covered steps and drops. */
@@ -11460,6 +11558,12 @@ function brainstormTitles(state) {
   const titles = {}
   for (const activity of state?.backlog ?? []) for (const step of activity.steps ?? []) if (typeof step.id === 'string') titles[step.id] = step.title
   return titles
+}
+
+/** The Result card's view of a created thread (brainstormResultView) over the state: its backlog, titles, goals, threads and chat prefix. */
+function brainstormResultOf(thread, state) {
+  const goalTitles = Object.fromEntries((state.goals?.nodes ?? []).map(node => [node.id, node.title]))
+  return brainstormResultView(thread, { backlog: state.backlog ?? [], titles: brainstormTitles(state), goalTitles, threads: state.brainstorms?.threads ?? [], prefix: typeof state.chatPrefix === 'string' ? state.chatPrefix : '' })
 }
 
 /** "Change this goal": the key of a change's proposal the person agreed the goal draft of. */
@@ -11540,14 +11644,16 @@ function brainstormCard(thread, state) {
     parts.push(understoodPart(thread, view.understood, canWrite))
     if (canWrite) parts.push(el('p', 'brainstorm-next muted', `Next: your ${view.who} drafts the new goal`))
   } else if (view.partner !== null) parts.push(brainstormPartnerCard(view.partner, canWrite && isLive))
+  // 2026-10-31: a proposal that was created shows what came of it, whenever the thread is opened.
+  else if (thread.proposal !== null && thread.proposal.created !== null) parts.push(brainstormResultCard(thread, state, canWrite))
   else if (thread.proposal !== null) {
     const box = el('section', 'brainstorm-box is-proposal')
     box.append(thread.kind === 'change' ? changeProposalPart(thread, canWrite, state) : proposalPart(thread, canWrite))
     parts.push(box)
   }
   if (brainstormUi.note !== null && brainstormUi.note.path === thread.path) parts.push(el('p', `brainstorm-note${brainstormUi.note.isProblem ? ' is-error' : ''}`, brainstormUi.note.text))
-  // Lines of the thread the board cannot read: the Advisor is asked to write them in the form.
-  if (thread.problems.length > 0) parts.push(el('p', 'brainstorm-problems', `The thread has ${thread.problems.length === 1 ? 'a line' : 'lines'} the board cannot read (${thread.problems.slice(0, 3).join(' · ')}${thread.problems.length > 3 ? ' …' : ''}): ask your partner to write ${thread.problems.length === 1 ? 'it' : 'them'} as roles/partner.md shows.`))
+  // 2026-10-31: a line the board cannot read is the partner's to write anew (the board tells it); the person is never shown one.
+  // Only the "…" menu counts them, quietly.
   if (thread.state === 'discarded') parts.push(el('p', 'muted brainstorm-over', 'Discarded: nothing of it was created.'))
   // 2026-10-31: a talk the person closed says when and by whom.
   if (view.closed !== null) parts.push(el('p', 'muted brainstorm-over brainstorm-closed', `Closed ${view.closed.at}${view.closed.by ? `: ${view.closed.by}` : ''}. Nothing more of it is asked.`))
@@ -11615,6 +11721,9 @@ function brainstormMenu(thread, view, canWrite, isLive) {
     discard.title = 'End it without creating anything'
     list.append(discard)
   }
+  // 2026-10-31: lines the board told the partner to write anew, counted quietly; never the lines themselves.
+  const fixes = brainstormFixCount(thread)
+  if (fixes > 0) list.append(el('p', 'brainstorm-menu-note', `${fixes} line${fixes === 1 ? '' : 's'} for your ${view.who} to fix`))
   wrap.append(list)
   return wrap
 }
@@ -11745,6 +11854,56 @@ function understoodPart(thread, understood, canWrite) {
   return part
 }
 
+/**
+ * 2026-10-31: what came of a proposal that was created (the person: "once i clicked to create new tasks it was closed
+ * immediatedly. i do not see if it created the new tasks or not. who is picking that up?"): one calm card, whenever the thread
+ * is opened. "Done" and what was written (a change: the goal now has its objective and its Done-when bullets, with a link to
+ * the Focus page; a plain proposal: the goals made), the new tasks by id and title, each a link, with where each stands now,
+ * what was dropped, one line on what happens next, and the earlier talk this change closed. Quiet colours only.
+ */
+function brainstormResultCard(thread, state, canWrite) {
+  const view = brainstormResultOf(thread, state)
+  const box = el('section', 'brainstorm-box brainstorm-result')
+  box.setAttribute('role', 'status')
+  box.append(el('h4', 'brainstorm-result-title', 'Done'))
+  const bullets = view.written.bullets
+  if (view.written.kind === 'change') {
+    const goal = view.written.goal ?? 'The goal'
+    const line = linkedEl('p', 'brainstorm-result-line', `${goal} now has its objective and ${bullets} Done-when bullet${bullets === 1 ? '' : 's'}.`)
+    // The Focus page shows the goal when it is the focus; else the goal's own id above leads to it on the Goals part.
+    if (view.written.goal !== null && state.focus?.id === view.written.goal) {
+      const focus = el('button', 'ask-link brainstorm-result-focus', 'See it on the Focus page')
+      focus.type = 'button'
+      focus.dataset.place = '#advice/focus'
+      focus.title = 'Open the Focus page'
+      line.append(' ', focus)
+    }
+    box.append(line)
+  } else if (view.written.goals.length > 0) {
+    box.append(el('h5', '', 'Goals made'), fill(el('ul', 'brainstorm-result-list'), view.written.goals.map(goal => linkedEl('li', 'brainstorm-result-goal', goal.title === null ? goal.id : `${goal.id} ${goal.title}`))))
+  } else box.append(el('p', 'brainstorm-result-line', 'No new goals were made.'))
+  if (view.tasks.length > 0) {
+    box.append(el('h5', '', `New task${view.tasks.length === 1 ? '' : 's'}`), fill(el('ul', 'brainstorm-result-list'), view.tasks.map(task => {
+      const row = el('li', `brainstorm-result-task tone-${task.tone}`)
+      row.append(linkedEl('span', 'brainstorm-result-id', task.id), el('span', 'brainstorm-result-name', task.title ?? ''), el('small', `brainstorm-task-stand tone-${task.tone}`, task.words))
+      return row
+    })))
+  } else if (view.unnamed > 0) box.append(el('p', 'muted brainstorm-result-line', `${view.unnamed} new task${view.unnamed === 1 ? ' was' : 's were'} asked for; this thread did not write down which.`))
+  if (view.dropped.length > 0) {
+    box.append(el('h5', '', 'Dropped'), fill(el('ul', 'brainstorm-result-list'), view.dropped.map(drop => {
+      const row = el('li', 'brainstorm-result-drop')
+      row.append(linkedEl('span', 'brainstorm-result-id', drop.id), el('span', 'brainstorm-result-name', drop.title ?? ''))
+      if (drop.why !== '') row.append(el('small', 'muted', drop.why))
+      return row
+    })))
+  }
+  if (view.next !== null) box.append(el('p', 'muted brainstorm-result-next', view.next))
+  if (view.replaced.length > 0) box.append(el('p', 'muted brainstorm-result-replaced', `${view.goal.id}'s earlier talk${view.replaced.length === 1 ? ' is' : 's are'} closed: this change replaced ${view.replaced.length === 1 ? 'it' : 'them'}.`))
+  const failed = brainstormUi.failedSteps.get(thread.path) ?? []
+  if (canWrite && failed.length > 0) box.append(brainstormButton(`Make the ${failed.length} task${failed.length === 1 ? '' : 's'} again`, 'steps-again', 'goals-action is-send'))
+  return box
+}
+
 /** The box to change a proposal, under its buttons, while open: the person's words go to the Advisor (`brainstorm change`). */
 function brainstormChangeBox() {
   const change = el('div', 'brainstorm-change')
@@ -11829,12 +11988,6 @@ function changeProposalPart(thread, canWrite, state) {
     part.append(row)
   }
   if (view.note) part.append(el('h5', '', 'The note kept under the goal'), el('p', 'brainstorm-note-kept', view.note))
-  if (view.created !== null) {
-    part.append(el('p', 'brainstorm-created', view.created))
-    const failed = brainstormUi.failedSteps.get(thread.path) ?? []
-    if (canWrite && failed.length > 0) part.append(brainstormButton(`Make the ${failed.length} task${failed.length === 1 ? '' : 's'} again`, 'steps-again', 'goals-action is-send'))
-    return part
-  }
   if (canWrite && thread.state !== 'discarded') {
     const buttons = el('div', 'brainstorm-buttons')
     const back = brainstormButton('‹ The goal draft', 'unagree', 'goals-lines')
@@ -11868,12 +12021,6 @@ function proposalPart(thread, canWrite) {
   if (view.goals.length > 0) part.append(el('h5', '', 'New goals for the map'), ...view.goals.map(goal => tick(goal, goal.title, `${goal.where} · Done when: ${goal.doneWhen}`)))
   if (view.steps.length > 0) part.append(el('h5', '', 'New tasks for the backlog'), ...view.steps.map(step => tick(step, step.title, `${step.worker} · ${step.cost}`)))
   if (view.note) part.append(el('h5', '', 'The note kept under the goal'), el('p', 'brainstorm-note-kept', view.note))
-  if (view.created !== null) {
-    part.append(el('p', 'brainstorm-created', view.created))
-    const failed = brainstormUi.failedSteps.get(thread.path) ?? []
-    if (canWrite && failed.length > 0) part.append(brainstormButton(`Ask the main chat again for ${failed.length} step${failed.length === 1 ? '' : 's'}`, 'steps-again', 'goals-action is-send'))
-    return part
-  }
   if (canWrite && thread.state !== 'discarded') {
     const buttons = el('div', 'brainstorm-buttons')
     const create = brainstormButton('Create what\'s ticked', 'create', 'goals-action is-send')
@@ -12084,10 +12231,13 @@ async function brainstormAct(act, path, key = null) {
         : { command: 'create', path, goals: view.goals.filter(goal => goal.ticked).map(goal => goal.index), steps, seen: thread.length }
       const made = await sendBrainstorm(body)
       if (made !== null) {
-        // One message per step to the main chat, which writes it on the backlog and links it to its goal.
-        let asked = 0
+        // 2026-10-31: the board makes the ticked tasks itself while it creates (their ids stand in the Created line); one it
+        // could not make comes back without an id and is asked for once more, here, one message per task.
+        const madeAlready = new Set((made.steps ?? []).filter(one => typeof one.id === 'string' && Number.isInteger(one.index)).map(one => one.index))
+        let asked = madeAlready.size
         const failed = []
         for (const index of steps) {
+          if (madeAlready.has(index)) continue
           if (await sayBrainstorm({ to: main, command: 'goal-step', thread: path, step: index }, path)) asked += 1
           else failed.push(index)
         }
@@ -12842,7 +12992,8 @@ function focusView(focus, goals, can = null, ui = {}) {
   if (stage === 'run') {
     // Redesign Part 2: a part whose tasks are refined and none given yet is on the board's list for a worker.
     // B680: a part with only dropped steps is Stopped (calm, nothing reached); one the person dropped says why.
-    const chips = { done: 'Done', now: 'In progress', next: 'Next', ready: 'On the list for a worker', refining: 'Waiting for its refine, then it goes on the list', stopped: 'Stopped, nothing reached' }
+    // 2026-10-31 (B689): In progress only while a step of it is at work; else it waits for another task, or its fix stopped.
+    const chips = { done: 'Done', now: 'In progress', next: 'Next', ready: 'On the list for a worker', refining: 'Waiting for its refine, then it goes on the list', stopped: 'Stopped, nothing reached', waiting: 'Waiting, nobody on it now', stuck: 'Stuck: its fix stopped' }
     view.run = {
       title: 'The how',
       page: focus.page ?? null,
@@ -18524,6 +18675,228 @@ for (const [id, where] of [['design-backlog', 'backlog'], ['design-queue', 'queu
   })
 }
 
+// bugs:start
+// B856 (the person, 2026-10-31: "the current design is not suitable for bugreports ... make a new tab for bugs"): the Bugs
+// tab. Pictures pasted or dropped, what is wrong, what was expected, where; "Report bug" files a step. The reports so far
+// stand below with their state.
+
+/** The limits the board sends (state.bugs.limits), else the board's own. */
+const bugLimits = bugs => ({ wrong: 300, expected: 300, pictures: 5, ...(bugs?.limits ?? {}) })
+
+/**
+ * The pictures on the clipboard, all of them: `take` (the entries to add), `ignore` (a paste into a field that is text), or a
+ * `problem`. `items` are the clipboard's entries (`kind`, `type`); `isTextField` says whether it was pasted into a field.
+ */
+function pastedShots(items, isTextField) {
+  const all = Array.from(items ?? [])
+  if (isTextField && all.some(item => item?.type === 'text/plain')) return { ignore: true }
+  const files = all.filter(item => item?.kind === 'file')
+  const shots = files.filter(item => typeof item.type === 'string' && item.type.startsWith('image/'))
+  const fine = shots.filter(item => ['image/png', 'image/jpeg', 'image/webp'].includes(item.type))
+  if (fine.length > 0) return { take: fine }
+  if (shots.length > 0) return { problem: 'A screenshot is a PNG, JPEG or WebP picture.' }
+  if (isTextField) return { ignore: true }
+  return { problem: files.length > 0 ? 'Only a picture can be pasted here.' : 'The clipboard holds no picture: copy one, or add one from disk.' }
+}
+
+/** What "Report bug" sends (`body`), or why it cannot be sent (`problem`). */
+function bugBody(draft, bugs) {
+  const limits = bugLimits(bugs)
+  const wrong = draft.wrong.replace(/\s+/g, ' ').trim()
+  const expected = draft.expected.replace(/\s+/g, ' ').trim()
+  if (wrong === '') return { problem: 'Say what is wrong, in one line.' }
+  if (wrong.length > limits.wrong) return { problem: `What is wrong is one line of ${limits.wrong} characters at most, it has ${wrong.length}.` }
+  if (expected.length > limits.expected) return { problem: `What you expected is one line of ${limits.expected} characters at most, it has ${expected.length}.` }
+  const places = bugs?.places ?? []
+  if (!places.some(place => place.id === draft.where)) return { problem: `Say where it is wrong: ${places.map(place => place.name).join(' or ')}.` }
+  if (draft.pictures.length > limits.pictures) return { problem: `At most ${limits.pictures} pictures.` }
+  return { body: { action: 'report', wrong, expected, where: draft.where, pictures: [...draft.pictures] } }
+}
+
+/** What "Your reports so far" says of a report, and in which tone. */
+function bugBadge(report) {
+  switch (report.state) {
+    case 'fixing': return { text: 'Being fixed', tone: 'busy' }
+    case 'fixed': return { text: 'Fixed', tone: 'good' }
+    case 'dropped': return { text: 'Dropped', tone: 'plain' }
+    default: return { text: 'Waiting', tone: 'plain' }
+  }
+}
+
+/** The name of the place a report is about ("My game", "Worker board"), as the tab's choices name it. */
+const bugPlaceName = (report, bugs) => (bugs?.places ?? []).find(place => place.id === report.where)?.name ?? (report.where === 'board' ? 'The board' : 'The game')
+// bugs:end
+
+const bugsDraft = { wrong: '', expected: '', where: null, pictures: [] }
+let bugsProblem = null
+let bugsSentStep = null
+let isBugsSending = false
+let bugsOnTheWay = 0
+
+const bugsNow = () => (board === null ? null : board.bugs ?? null)
+
+function drawBugs() {
+  const bugs = bugsNow()
+  const limits = bugLimits(bugs)
+  const note = $('bugs-note')
+  note.hidden = bugs !== null && bugs.canSend === true
+  note.textContent = bugs === null ? 'This board\'s server has no Bugs part yet. Once that part is in, start the board anew and this tab works.' : bugs.canSend === true ? '' : bugs.why ?? 'This board cannot file a report.'
+  once('bugs-where', [bugs?.places ?? [], bugsDraft.where], () => {
+    fill($('bugs-where'), (bugs?.places ?? []).map(place => {
+      const button = el('button', `choice${bugsDraft.where === place.id ? ' is-chosen' : ''}`, place.name)
+      button.type = 'button'
+      button.dataset.where = place.id
+      button.setAttribute('aria-pressed', String(bugsDraft.where === place.id))
+      return button
+    }))
+  })
+  once('bugs-pictures', [[...bugsDraft.pictures], limits.pictures], () => {
+    const add = el('button', 'design-add-reference', 'Paste a screenshot with Ctrl+V, drop one here, or click to add one')
+    add.type = 'button'
+    add.dataset.addShot = ''
+    fill($('bugs-pictures'), [...(bugsDraft.pictures.length < limits.pictures ? [add] : []), ...bugsDraft.pictures.map((path, place) => {
+      const frame = el('div', 'design-reference')
+      const remove = el('button', 'icon-button', '✕')
+      remove.type = 'button'
+      remove.dataset.removeShot = String(place)
+      remove.title = 'Leave this picture out'
+      remove.setAttribute('aria-label', 'Leave this picture out')
+      frame.append(picture(path, 'Screenshot'), remove)
+      return frame
+    })])
+  })
+  $('bugs-wrong').maxLength = limits.wrong
+  $('bugs-expected').maxLength = limits.expected
+  for (const id of ['bugs-wrong', 'bugs-expected']) $(id).disabled = bugs === null
+  $('bugs-report').disabled = bugs === null || bugs.canSend !== true || isBugsSending
+  $('bugs-problem').hidden = bugsProblem === null
+  $('bugs-problem').textContent = bugsProblem ?? ''
+  $('bugs-sent').hidden = bugsSentStep === null
+  if (bugsSentStep === null) $('bugs-sent').replaceChildren()
+  else {
+    const link = el('a', '', bugsSentStep)
+    link.href = `#details=${bugsSentStep}`
+    $('bugs-sent').replaceChildren('Reported as ', link, '. It waits for a worker; you see it below.')
+  }
+  once('bugs-list', [bugs?.reports ?? null, bugs?.places ?? null], () => {
+    const reports = bugs?.reports ?? []
+    $('bugs-empty').hidden = reports.length > 0
+    fill($('bugs-list'), reports.map(report => {
+      const badge = bugBadge(report)
+      const row = el('li', 'bugs-report')
+      const words = el('span', 'bugs-words')
+      words.append(el('b', '', report.wrong === '' ? 'A bug' : report.wrong), el('span', 'muted', [bugPlaceName(report, bugs), report.expected === '' ? null : `expected: ${report.expected}`].filter(Boolean).join(' · ')))
+      const link = el('a', 'bugs-id', report.id)
+      link.href = `#details=${report.id}`
+      row.append(report.picture === null ? el('span', 'bugs-nopicture') : designThumb(report.picture), words, link, el('span', `design-badge is-${badge.tone}`, badge.text))
+      return row
+    }))
+  })
+}
+
+/** A screenshot of the person's own, pasted, dropped or picked from disk, goes to the board, which answers where it waits. */
+async function addShot(file) {
+  const limits = bugLimits(bugsNow())
+  const most = limitsOf(designNow()).referenceBytes
+  if (!REFERENCE_TYPES.includes(file.type)) bugsProblem = 'A screenshot is a PNG, JPEG or WebP picture.'
+  else if (file.size > most) bugsProblem = `That picture is too large: ${Math.floor(most / (1024 * 1024))} MB at most.`
+  else if (bugsDraft.pictures.length + bugsOnTheWay >= limits.pictures) bugsProblem = `At most ${limits.pictures} pictures.`
+  else {
+    bugsProblem = null
+    bugsOnTheWay += 1
+    try {
+      const got = await fetch('/api/bugs/picture', { method: 'POST', headers: { 'Content-Type': file.type, 'X-Board-Token': TOKEN }, body: file })
+      if (got.ok) bugsDraft.pictures.push((await got.json()).path)
+      else bugsProblem = `The picture was not taken: ${(await got.text()).trim() || `refused (${got.status})`}`
+    } catch {
+      bugsProblem = 'The picture was not taken: the board\'s server does not answer'
+    } finally {
+      bugsOnTheWay -= 1
+    }
+  }
+  drawBugs()
+}
+
+$('bugs-wrong').addEventListener('input', () => { bugsDraft.wrong = $('bugs-wrong').value })
+$('bugs-expected').addEventListener('input', () => { bugsDraft.expected = $('bugs-expected').value })
+$('bugs-where').addEventListener('click', event => {
+  const button = event.target.closest('[data-where]')
+  if (button === null) return
+  bugsDraft.where = button.dataset.where
+  bugsProblem = null
+  drawBugs()
+})
+$('bugs-pictures').addEventListener('click', event => {
+  if (event.target.closest('[data-add-shot]') !== null) return $('bugs-file').click()
+  const remove = event.target.closest('[data-remove-shot]')
+  if (remove === null) return
+  bugsDraft.pictures.splice(Number(remove.dataset.removeShot), 1)
+  drawBugs()
+})
+$('bugs-file').addEventListener('change', () => {
+  const files = Array.from($('bugs-file').files)
+  $('bugs-file').value = ''
+  for (const file of files) addShot(file)
+})
+
+// Ctrl+V on the Bugs tab takes the pictures on the clipboard, the same as ones picked from disk. Text pasted into a field stays text.
+document.addEventListener('paste', event => {
+  if ($('view-bugs').hidden || document.querySelector('dialog[open]') !== null) return
+  const isTextField = event.target instanceof Element && event.target.closest('textarea, input, [contenteditable]') !== null
+  const pasted = pastedShots(event.clipboardData?.items, isTextField)
+  if (pasted.ignore === true) return
+  event.preventDefault()
+  if (pasted.take !== undefined) {
+    for (const item of pasted.take) {
+      const file = item.getAsFile()
+      if (file !== null) addShot(file)
+    }
+    return
+  }
+  bugsProblem = pasted.problem
+  drawBugs()
+})
+
+// Pictures dropped on the tab: one or more.
+$('view-bugs').addEventListener('dragover', event => {
+  if (Array.from(event.dataTransfer?.types ?? []).includes('Files')) event.preventDefault()
+})
+$('view-bugs').addEventListener('drop', event => {
+  const files = Array.from(event.dataTransfer?.files ?? [])
+  if (files.length === 0) return
+  event.preventDefault()
+  for (const file of files) addShot(file)
+})
+
+$('bugs-report').addEventListener('click', async () => {
+  const made = bugBody(bugsDraft, bugsNow())
+  if (made.problem !== undefined) {
+    bugsProblem = made.problem
+    return drawBugs()
+  }
+  if (bugsOnTheWay > 0) {
+    bugsProblem = 'A picture is still on its way: a moment.'
+    return drawBugs()
+  }
+  isBugsSending = true
+  bugsProblem = null
+  drawBugs()
+  try {
+    const got = await fetch('/api/bugs', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Board-Token': TOKEN }, body: JSON.stringify(made.body) })
+    if (got.ok) {
+      bugsSentStep = (await got.json().catch(() => ({}))).step ?? null
+      Object.assign(bugsDraft, { wrong: '', expected: '', pictures: [] })
+      $('bugs-wrong').value = ''
+      $('bugs-expected').value = ''
+    } else bugsProblem = `Not done: ${(await got.text()).trim() || `refused (${got.status})`}`
+  } catch {
+    bugsProblem = 'Not done: the board\'s server does not answer'
+  }
+  isBugsSending = false
+  await read()
+  drawBugs()
+})
+
 // Tabs
 
 /** The Advisor tab's address: the map's with its focus when the Goals part is open. */
@@ -18535,6 +18908,7 @@ function show(tab) {
   $('view-advice').hidden = tab !== 'advice'
   $('view-coordinate').hidden = tab !== 'coordinate'
   $('view-design').hidden = tab !== 'design'
+  $('view-bugs').hidden = tab !== 'bugs'
   $('view-vision').hidden = tab !== 'vision'
   if ($('view-spending')) $('view-spending').hidden = tab !== 'spending'
   // The address says which tab is open, so a reload stays on it. A link to a step's details is left as it is.
@@ -18624,6 +18998,7 @@ function draw(state) {
   })
   once('talk', [state.advisor, advisorRefine(state.backlog), runningData(state), [...problems], [...sending]], () => drawTalk(state))
   once('main-talk', [state.mainTalk ?? null, state.maxMessageChars, problems.get('main-talk') ?? null, sending.has('main-talk')], () => drawMainTalk(state))
+  drawBugs()
   drawDesign()
   finishRestore()
 }

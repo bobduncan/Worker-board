@@ -394,11 +394,20 @@ export function goalStepOf(body, state) {
   if (created === null) return refuse(409, 'Only a created proposal asks for its steps.')
   const step = Number.isInteger(body.step) ? thread.proposal.steps[body.step] : undefined
   if (step === undefined || created.leftOut.includes(leftOutKey(step.title))) return refuse(409, 'That step is not one the proposal created.')
+  return goalStepFor(thread, body.step, created.goals[0] ?? thread.goal?.id ?? null)
+}
+
+/**
+ * 2026-10-31: the step that step `index` of `thread`'s proposal (the thread's path, title, kind and proposal) becomes for
+ * `goal` (G<n> or null): the part of goalStepOf that needs no Created line, so the board can make a ticked step while it
+ * creates the proposal and name the ids it made in that line.
+ */
+export function goalStepFor(thread, index, goal) {
+  const step = thread.proposal.steps[index]
   const note = thread.proposal.note ? `: ${sayLine(thread.proposal.note)}` : ''
-  const goal = created.goals[0] ?? thread.goal?.id ?? null
   // "Change this goal": the bullets of the goal's Done when the step is for (its id is added to them once it has one).
   const bullets = thread.kind === 'change' && Array.isArray(step.for) ? step.for.filter(n => Number.isInteger(n) && n > 0) : []
-  return { ok: true, title: sayLine(step.title), goal: /^G\d+$/.test(String(goal)) ? goal : null, description: `from the brainstorm "${plainLine(thread.title)}" (${thread.path})${note}`, cost: sayLine(step.cost), worker: sayLine(step.worker), about: `${thread.path}#${body.step}`, ...(bullets.length === 0 ? {} : { for: bullets }) }
+  return { ok: true, title: sayLine(step.title), goal: /^G\d+$/.test(String(goal)) ? goal : null, description: `from the brainstorm "${plainLine(thread.title)}" (${thread.path})${note}`, cost: sayLine(step.cost), worker: sayLine(step.worker), about: `${thread.path}#${index}`, ...(bullets.length === 0 ? {} : { for: bullets }) }
 }
 
 /** B195: the recommendation an answer is about, `{ ok, rec }`: the one that stands, not answered yet, with nothing else. */
@@ -1159,7 +1168,8 @@ export function recapFeedbackWords(to, { goal, title, step, round, approved, bac
       `recap feedback: ${goal} ${one(title)}, round ${round}: ${done ? 'every part approved' : `${back.length} part${back.length === 1 ? '' : 's'} sent back`}`,
       ...(step === null || step === undefined ? [] : [`Step: ${step}`]),
       `Demo: ${path}`,
-      ...(back.length === 0 ? [] : ['Sent back:', ...back.map(part => `- ${one(part.title)}: "${one(part.comment)}"`)]),
+      // B878: with the steps the part shows: the partner makes the fix of each (roles/partner.md, "Recap feedback").
+      ...(back.length === 0 ? [] : ['Sent back:', ...back.map(part => `- ${one(part.title)}${(part.steps ?? []).length > 0 ? ` (steps ${part.steps.join(', ')}: block each on its next try)` : ''}: "${one(part.comment)}"`)]),
       ...(approved.length === 0 ? [] : [`Approved: ${approved.map(one).join('; ')}`]),
       ...(left > 0 ? [`Not decided yet: ${left}`] : []),
       `Your job: ${job}, "Recap feedback"`,

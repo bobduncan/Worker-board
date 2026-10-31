@@ -6,7 +6,7 @@
 // The list (JSON):
 //   { "goal": "G12", "title": "How we build good maps", "intro": "optional line under the title", "step": "B674" (B860: the step the person's feedback is written on),
 //     "sections": [ { "kind": "reached" | "not-reached" | "open", "intro": ["a line"], "items": ["one bullet each"],
-//                     "rows": [ { "id": "optional: a part's key for feedback, else its title", "title": "1. The row", "note": "one line", "pictures": [ { "kind": "target", "caption": "Concept B", "path": "a.png" } ] },
+//                     "rows": [ { "id": "optional: a part's key for feedback, else its title", "steps": ["B689", "B821"] (B878, optional: the steps the part shows, its fixes too), "title": "1. The row", "note": "one line", "pictures": [ { "kind": "target", "caption": "Concept B", "path": "a.png" } ] },
 //                               { "title": "6. A grid", "note": "...", "grid": [ { "caption": "A", "path": "b.png" } ] } ] } ],
 //     "followUp": { "fixedForGood": ["..."], "fixedOnce": ["..."], "backlog": ["..."], "noStep": ["..."], "escalate": ["..."] } }
 
@@ -60,6 +60,7 @@ export function checkList(list) {
     for (const [r, row] of (section.rows ?? []).entries()) {
       const name = `Section ${at + 1}, row ${r + 1}`
       if (typeof row?.title !== 'string' || row.title.trim() === '') throw new Error(`${name} has no title.`)
+      if (row.steps !== undefined && !(Array.isArray(row.steps) && row.steps.every(one => /^B\d+$/.test(String(one))))) throw new Error(`${name}: "steps" lists step ids: ["B689", "B821"].`)
       const hasPictures = Array.isArray(row.pictures) && row.pictures.length > 0
       const hasGrid = Array.isArray(row.grid) && row.grid.length > 0
       if (hasPictures === hasGrid) throw new Error(`${name} has pictures or a grid, one of the two.`)
@@ -111,6 +112,8 @@ export function demoPage(input, folder = '') {
     items: (section.items ?? []).map(item => bulletOf(item, 'A bullet')),
     rows: (section.rows ?? []).map(row => ({
       key: keyOf(row),
+      // B878: the steps the part shows: the person's Approve closes those in review, a Send back names them to the partner.
+      steps: [...new Set(row.steps ?? [])],
       title: row.title.trim(),
       note: typeof row.note === 'string' ? row.note.trim() : '',
       pictures: Array.isArray(row.grid) && row.grid.length > 0

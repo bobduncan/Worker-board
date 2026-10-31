@@ -21,7 +21,7 @@ person, and lets the person answer, talk to the main chat, and plan. Every answe
 - **Its routes:** `GET /` (the page), `GET /api/state` (everything the page shows, read anew every `refreshSeconds`;
   a finished step comes as a light row), `GET /api/step?id=B12` (one step's full row, for the window of a finished
   step), `GET /api/picture` (a picture of the project's picture folders), `POST /api/say` (an answer or a line for a chat),
-  `POST /api/game` (start or stop a game), `POST /api/design` and `/api/design/reference` (the Design tab),
+  `POST /api/game` (start or stop a game), `POST /api/design` and `/api/design/reference` (the Design tab), `POST /api/bugs` and `/api/bugs/picture` (the Bugs tab, B856),
   `POST /api/talk/picture` (a pasted picture), `POST /api/restart` (a new version), `POST /api/work` (the store;
   also `pause-all` and `resume-all`, which write `pause.json`), and for the Workers mod `POST /api/bridge/take`,
   `/api/bridge/typed`, `/api/bridge/report`, `/api/bridge/whoami` (a chat's name, role and card by its session id) and
@@ -62,7 +62,7 @@ A dark dashboard: dark blue panels with thin borders on an almost black page, wh
 
 ## The top bar
 
-The tabs **Overview**, **Advisor**, **Backlog**, **Design**; on the right **Pause all** (2026-10-18, in place of
+The tabs **Overview**, **Advisor**, **Backlog**, **Design**, **Bugs**; on the right **Pause all** (2026-10-18, in place of
 Prepare restart, which is gone with restart.md and the "Safe point:" lines: after a Yes it writes the work store's
 `pause.json`, and each chat's Workers mod (0.13.9) tells its chat at the first tool batch of each turn to write its
 checkpoint, stop or wait for its background agents and end its turn; until Resume all (2026-10-19: no longer until
@@ -373,7 +373,8 @@ longer one), the options as big buttons that answer at once with the advised one
 your earlier answers as small chips above (a click shows the question and the whole answer); what your partner understood
 comes as a card with a thin green border, "Yes, that's it" and "Not quite…"; your opening words are one collapsed line
 with "show all"; at the end a proposal: what was decided, new goals for the map and steps for the backlog, each with a
-tick, and a note; "Create what's ticked" puts the goals into the map and asks the main chat for each step; "Change…" asks
+tick, and a note; "Create what's ticked" puts the goals into the map and makes each ticked step itself as a new task (a created proposal then shows
+a Result card: what was written, the new tasks with where each stands now, what was dropped, what happens next); "Change…" asks
 your partner for another proposal; a question or a proposal waiting is also a line under Needs your attention),
 **Game plan** (the game plan from the game's repository, with when it was written; being reworked in B218 at the time
 of this page), **Suggestions** (the Advisor's open suggestions with their Why, Cost and Unblocks, and when its rounds

@@ -103,13 +103,13 @@ async function boardWith(t, { owner, ago }) {
   const { out } = await run(started, board, { WORKER_BOARD_HOME: join(dir, 'pc') })
   const base = `http://127.0.0.1:${port}`
   const { key } = JSON.parse(await readFile(join(project, '.claude', 'board.json'), 'utf8'))
-  const call = (path, body) => fetch(`${base}${path}`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Board-Key': key, 'X-Workers-Mod': '0.26.11' }, body: JSON.stringify(body) })
+  const call = (path, body) => fetch(`${base}${path}`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Board-Key': key, 'X-Workers-Mod': '0.27.1' }, body: JSON.stringify(body) })
   for (const [chat, session] of [['Worker 1', 'w1-id'], ['Worker 2', 'w2-id'], ...(owner ? [['Product owner', 'owner-id']] : [])]) {
     const sent = await call('/api/bridge/report', { chat, session, report: { state: 'idle', since: NOW - 2 * MIN, seq: 1, run: 1 } })
     assert.equal(sent.status, 200, await sent.text())
   }
   const claim = async () => {
-    const reply = await call('/api/bridge/hands', { chat: 'Worker 1', session: 'w1-id', mod: '0.26.11', can: ['send', 'spawn'] })
+    const reply = await call('/api/bridge/hands', { chat: 'Worker 1', session: 'w1-id', mod: '0.27.1', can: ['send', 'spawn'] })
     const body = JSON.parse(await reply.text())
     assert.equal(reply.status, 200, JSON.stringify(body))
     return body.jobs ?? body.result?.jobs ?? []

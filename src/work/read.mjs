@@ -165,9 +165,9 @@ export function itemOfStep(work, key) {
  * its first check", ...), or null (not in review, or nothing to say). `key` as for `flowOfStep`; `held` (B656) the ready
  * list's held steps, so a fix it holds says why.
  */
-export function reviewWaitOfStep(work, key, held = null, now = null) {
+export function reviewWaitOfStep(work, key, held = null, now = null, recaps = null) {
   const found = itemAt(work, key)
-  return found === null ? null : reviewWaitOf(found.item, work.items, held, now)?.text ?? null
+  return found === null ? null : reviewWaitOf(found.item, work.items, held, now, recaps)?.text ?? null
 }
 
 /**
