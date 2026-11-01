@@ -10,6 +10,7 @@
 // owes no clear and is given no new step (handedBackOf) until it reports again and that check passes. PURE.
 
 import { sinceMs, valueOf } from './work/item.mjs'
+import { givenBackOf } from './work/holderTimers.mjs'
 
 /** The Workers mod that can run a clear the board names (`canClear` of the state's `clearOwed`). */
 export const CLEAR_MOD = '0.17.0'
@@ -72,6 +73,18 @@ export function lastReportOf(items, chat, prefix = '') {
 
 const lastPassedReport = (items, chat, prefix) => reportsOf(items, chat, prefix).filter(one => !one.failed).at(-1) ?? null
 
+/** Signals change 3: the newest give-back of a step from the chat, `{ id, at }` (at to the minute), or null. */
+function lastGivenBack(items, chat, prefix) {
+  let newest = null
+  for (const item of items instanceof Map ? items.values() : items ?? []) {
+    if ((valueOf(item, 'Kind') ?? 'step') !== 'step') continue
+    for (const one of givenBackOf(item)) {
+      if (plain(one.chat, prefix) === plain(chat, prefix) && Number.isFinite(one.at) && (newest === null || one.at >= newest.at)) newest = { id: valueOf(item, 'Id'), at: one.at }
+    }
+  }
+  return newest
+}
+
 /**
  * B737 (X86): the report the board's check handed back: the chat's newest report, when its check failed and the chat has
  * not reported again (a later report, or a later check that passed, ends it). `{ id, at }`, else null; a dropped step
@@ -93,7 +106,11 @@ export function handedBackOf(items, chat, prefix = '') {
  */
 export function clearOwed({ lane, items, prefix = '', afterStep = null, conversationAt = null }) {
   if (afterStep !== 'clear' || lane === null || lane === undefined || lane.isMain === true || lane.isLeftover === true) return null
-  const report = lastPassedReport(items, lane.name, prefix)
+  // Signals change 3: a step the board gave back from it ends its work on that step as a report does: it owes a clear too,
+  // as of the give-back's time (its History line, holderTimers.mjs `GIVEN_BACK`).
+  const reported = lastPassedReport(items, lane.name, prefix)
+  const back = lastGivenBack(items, lane.name, prefix)
+  const report = back !== null && (reported === null || back.at > reported.at) ? back : reported
   if (report === null) return null
   const compaction = lane.compaction ?? null
   const cleared = compaction?.lastCleared ?? (compaction?.kind === 'cleared' ? { at: compaction.at, step: compaction.step ?? null } : null)

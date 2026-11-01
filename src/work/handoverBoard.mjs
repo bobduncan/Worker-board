@@ -147,8 +147,8 @@ export async function handOver({ lane, state, dir, outbox, apply, config, instal
   const localOnly = await localOnlyOf(state.readyList?.ready, read.items, isPushed)
   const facts = factsOf({ lane, state, items: read.items, pause: read.pause ?? null, sent, config, installed, now, event, localOnly })
   let decision = decide(facts)
-  // Signals change 3: the give-back of a holder that did not go on (the seam, giveBack.mjs). Its waiting "go on" line is
-  // closed only once the step went back: until the store's move exists nothing changes.
+  // Signals change 3: the give-back of a holder that did not go on (giveBack.mjs, the work API's give-back path). Its
+  // waiting "go on" line is closed only once the step went back: a refused give-back changes nothing.
   if (decision.giveBack !== null) {
     const back = await giveBackStep({ ...decision.giveBack, apply, ...(typeof log === 'function' ? { log } : {}) })
     if (back?.ok === true && decision.close !== null) await outbox.close(decision.close, 'dropped', `${decision.giveBack.step} was given back by the board`, now)

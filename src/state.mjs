@@ -2242,7 +2242,7 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
     const said = handover === null ? null : laneWords(handover)
     const told = said === null ? [] : [{ kind: 'handover', id: handover.step, text: said, button: null }]
     // Signals change 3: a step the board gave back from it, until its next task ("did not resume B12, given back HH:MM"):
-    // attention for an hour, quiet after. Only once the give-back's History line exists (the store's move, the second half).
+    // attention for an hour, quiet after (the give-back's History line, the store's move).
     const back = lane.isLeftover === true || !workOk ? [] : givenBackFrom(raw.work.items, lane.name, prefix)
       .map(one => ({ kind: now - one.at < HOUR ? 'given back' : 'given back old', id: one.id, text: `did not resume ${one.id}, given back ${hourMinute(one.at)}`, button: null }))
     const modRun = lane.onSequence === true ? null : rollout?.runs.get(lane.name) ?? null
