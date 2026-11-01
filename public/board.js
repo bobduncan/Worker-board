@@ -1501,6 +1501,9 @@ function restoreKept() {
 function finishRestore() {
   for (const box of restoredBoxes.splice(0)) box.dispatchEvent(new Event('input', { bubbles: true }))
   if (detailsOf !== null && !$('details').open && $('details').childNodes.length > 0) $('details').showModal()
+  // 2026-11-01: the recap that was open before the reload opens again, with the person's unsent answers (keepDemoDraft).
+  const demo = keptDemoDraft()
+  if (demo !== null && demo.open === true && typeof demo.path === 'string' && !$('demo-page').open) openDemo(demo.path)
 }
 
 /** The note on top (see `updateView`). B454: a newer page loads itself when the page is idle; a short note says so after. */
@@ -9670,6 +9673,25 @@ function demoBody(page, draft = null) {
 /** B860: the person's unsent answers on the goal demo that is open: kept while the popup is closed and opened again, dropped once sent or when the round moves on. */
 let demoDraft = null
 
+/**
+ * 2026-11-01 (the person: "everytime i try to approve, the fucking board reloads. losing all my progress"): a board
+ * restart gives the page a new key, so the page loads itself anew and the draft in memory was gone. Every answer and word
+ * is now written to the browser as it is made (`demo-draft`), put back when the same recap's round opens again, and the
+ * recap opens again by itself after a reload when it was open; dropped once sent.
+ */
+const DEMO_KEPT = 'demo-draft'
+function keepDemoDraft() {
+  try {
+    if (demoDraft !== null) localStorage.setItem(DEMO_KEPT, JSON.stringify({ path: demoDraft.path, round: demoDraft.round, parts: [...demoDraft.parts], open: $('demo-page').open === true }))
+  } catch { /* blocked or full: the draft stays in this page only */ }
+}
+function keptDemoDraft() {
+  try { return JSON.parse(localStorage.getItem(DEMO_KEPT) ?? 'null') } catch { return null }
+}
+function dropDemoDraft() {
+  try { localStorage.removeItem(DEMO_KEPT) } catch { /* nothing kept */ }
+}
+
 /** B860: the popup's body and its side panel from the demo's page and the draft, drawn into the open window (the scroll place stays). */
 function drawDemo(page) {
   const box = $('demo-page')
@@ -9707,7 +9729,9 @@ async function openDemo(path, notice = '', part = '') {
     const page = await answer.json()
     // B860: the unsent answers of the same round stay; a new round starts clean.
     if (page.feedback !== undefined && (demoDraft === null || demoDraft.path !== path || demoDraft.round !== page.feedback.round)) {
-      demoDraft = { path, round: page.feedback.round, parts: new Map(), problem: '', notice: '', sending: false, page: null }
+      const kept = keptDemoDraft()
+      const parts = kept !== null && kept.path === path && kept.round === page.feedback.round && Array.isArray(kept.parts) ? new Map(kept.parts) : new Map()
+      demoDraft = { path, round: page.feedback.round, parts, problem: '', notice: '', sending: false, page: null }
     }
     if (demoDraft !== null) {
       demoDraft.page = page
@@ -9716,6 +9740,7 @@ async function openDemo(path, notice = '', part = '') {
     drawDemo(page)
   }
   if (!box.open) box.showModal()
+  keepDemoDraft()
   // 2026-11-01: a link that names a part (the recap card's tiles, a block's chip) shows that part first; drawn open, so after showModal.
   if (part !== '') [...box.querySelectorAll('[data-demo-row]')].find(row => row.dataset.demoRow === part)?.scrollIntoView?.({ block: 'start' })
 }
@@ -9749,6 +9774,7 @@ async function sendDemoFeedback() {
   }
   const sent = await answer.json().catch(() => ({}))
   const path = draft.path
+  dropDemoDraft()
   demoDraft = null
   openDemo(path, sent.done === true ? 'Sent. Every part is approved: the recap is done.' : `Sent: ${sent.approved ?? 0} approved, ${sent.sentBack ?? 0} sent back. Your partner makes the next tries; round ${(sent.round ?? 0) + 1} shows only what you sent back.`)
 }
@@ -9767,6 +9793,7 @@ document.addEventListener('click', event => {
     // A second click on the chosen button takes the choice back.
     const next = was.verdict === verdict.dataset.demoVerdict ? undefined : verdict.dataset.demoVerdict
     demoDraft.parts.set(key, { verdict: next, comment: was.comment })
+    keepDemoDraft()
     demoDraft.problem = ''
     demoDraft.notice = ''
     for (const button of $('demo-page').querySelectorAll('[data-demo-verdict]')) {
@@ -9788,9 +9815,12 @@ document.addEventListener('input', event => {
   const key = comment.dataset.demoComment
   const was = demoDraft.parts.get(key) ?? {}
   demoDraft.parts.set(key, { verdict: was.verdict, comment: comment.value })
+  keepDemoDraft()
   demoDraft.problem = ''
   redrawDemoSide()
 })
+// 2026-11-01: closing the recap keeps the draft, and that it is closed (a reload then does not open it again).
+$('demo-page').addEventListener('close', keepDemoDraft)
 
 // B208: a phone is a screen up to 600 px wide, as the style sheet has it.
 const PHONE = matchMedia('(max-width: 600px)')

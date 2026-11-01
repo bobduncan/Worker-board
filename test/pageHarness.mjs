@@ -64,7 +64,7 @@ function fakeClock(window, start) {
  * clock on, so a test of a wait, a pause or an age never waits for real.
  * Returns the page's `window` and `document`, the `requests` made, `click`, `change`, `type`, `advance`, `text` and `close`.
  */
-export async function openPage({ state, answers = () => reply({}), hash = '', now = null } = {}) {
+export async function openPage({ state, answers = () => reply({}), hash = '', now = null, storage = {} } = {}) {
   const window = new Window({ url: `http://127.0.0.1:4310/${hash === '' ? '' : `#${hash}`}`, settings: { disableJavaScriptFileLoading: true, disableCSSFileLoading: true, errorCapture: 'processLevel' } })
   const { document } = window
   document.write(html.replace(/<script[^>]*><\/script>/g, '').replace('{{token}}', TOKEN).replace('{{page}}', 'test'))
@@ -86,6 +86,8 @@ export async function openPage({ state, answers = () => reply({}), hash = '', no
       else init.signal.addEventListener('abort', stop, { once: true })
     })])
   }
+  // 2026-11-01: what the browser kept from before (localStorage), as a reload finds it.
+  for (const [key, value] of Object.entries(storage)) window.localStorage.setItem(key, value)
   // The page's own constants, so a test never copies them (MIN, STATES): read from inside the page after it ran.
   window.eval(`${script}
 ;globalThis.__pageConstants = { MIN, HOUR, STATES, STATUS_VIEW, KINDS, AWAY_MS, GAP_MS, BANNER_WAIT_MS, RESTART_GIVE_UP_MS, BACK_SHOWN_MS }`)

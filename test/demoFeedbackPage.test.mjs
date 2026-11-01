@@ -24,13 +24,13 @@ const shown = (feedback = null, may = {}) => {
 const state = () => asSent(build([], undefined))
 
 /** The page with the demo open; `give` is the page the board answers to GET /api/demo (a function of the requests, to change it). */
-async function opened(give, post = () => reply({ round: 1, approved: 1, sentBack: 1, done: false, notedOn: 'B7' })) {
+async function opened(give, post = () => reply({ round: 1, approved: 1, sentBack: 1, done: false, notedOn: 'B7' }), storage = {}, hash = `demo=${PATH}`) {
   const answers = request => {
     if (request.url.startsWith('/api/demo?')) return reply(typeof give === 'function' ? give() : give)
     if (request.url === '/api/demo-feedback') return post(request)
     return reply({})
   }
-  const page = await openPage({ state: state(), answers, hash: `demo=${PATH}` })
+  const page = await openPage({ state: state(), answers, hash, storage })
   await settle(10)
   return page
 }
@@ -117,4 +117,28 @@ test('2026-11-01: Send feedback stands under the list, outside its scroll, alway
     assert.equal(page.all('.demo-side-foot [data-demo-send]').length, 1)
     assert.equal(page.all('.demo-answers [data-demo-send]').length, 0)
   } finally { await page.close() }
+})
+
+test('2026-11-01 (the person: "everytime i try to approve, the board reloads. losing all my progress"): the answers and words survive a reload, and the open recap opens again', async () => {
+  const page = await opened(shown())
+  let kept
+  try {
+    await page.click('[data-demo-verdict="approved"][data-demo-key="1. Lava"]')
+    await page.click('[data-demo-verdict="sent-back"][data-demo-key="3. Round shapes"]')
+    await page.type('[data-demo-comment="3. Round shapes"]', 'still stepped')
+    kept = page.window.localStorage.getItem('demo-draft')
+    assert.ok(kept !== null, 'written as it is made')
+  } finally { await page.close() }
+  // The reload: a new page with what the browser kept, the recap opened by the link again.
+  const again = await opened(shown(), undefined, { 'demo-draft': kept })
+  try {
+    assert.deepEqual(side(again), ['approved', 'not decided yet', 'sent back: "still stepped"'])
+  } finally { await again.close() }
+  // A reload with no link: the recap that was open opens by itself, with the answers.
+  const back = await opened(shown(), undefined, { 'demo-draft': kept }, '')
+  try {
+    await settle(10)
+    assert.equal(back.find('#demo-page').open, true)
+    assert.deepEqual(side(back), ['approved', 'not decided yet', 'sent back: "still stepped"'])
+  } finally { await back.close() }
 })
