@@ -46,10 +46,12 @@ export function parseReport(value, now) {
 export function laneFromReport(entry, { now, unknownAfterMs, offAfterMs = Infinity, holdsTask, hasBlockingAsk, waitsForPartner = false, isTaskReported = false, appRuns, appStartedAt = null, wokenAt = null, hasAppSession = true }) {
   if (entry === null || entry === undefined) return null
   // T13 part 3 (the coordinator, seen live 2026-10-28: Worker 3, a routine chat, ended its session after its idle turn and
-  // read Not running): a chat on the board whose session ended is asleep since then (since the app's start when the app
-  // started after it), as any asleep chat: a message wakes it. Off only without an app session to wake it by.
+  // read Not running): a chat on the board whose session ended is asleep since then, as any asleep chat: a message wakes
+  // it. Off only without an app session to wake it by. The since is the chat's own, the time its session ended: an app or
+  // board start that came later does not move it (the board-dev chat, 2026-11-01: after the restart of 12:53 every chat
+  // read "Asleep · since 12:53", while Worker 2 had slept since 16:05 the day before).
   if (entry.state === 'ended') {
-    const since = appRuns === false && Number.isFinite(appStartedAt) ? appStartedAt : Number.isFinite(entry.since) ? entry.since : entry.at
+    const since = Number.isFinite(entry.since) ? entry.since : entry.at
     if (!hasAppSession || !Number.isFinite(since)) return { state: 'off', isRunning: false, why: 'ended' }
     return asleepLane(entry, { since, now, offAfterMs, holdsTask, hasBlockingAsk, waitsForPartner, isTaskReported, wokenAt })
   }
