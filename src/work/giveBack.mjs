@@ -1,37 +1,34 @@
-// Signals change 3, the seam (the build brief of 2026-11-01, "What is NOT built now"): the give-back of a stopped
-// holder's step. The decision (handover.mjs `decide`, holderTimers.mjs) says when it is due, `giveBack: { step, chat,
-// askedAt }`; the board (handoverBoard.mjs `handOver`) calls this one function. The store has no move for it yet: the
-// person's flow.json (.claude/work/flow.json, DEFAULT_FLOW in flow.mjs, examples/work/flow.json) has no move from taken or
-// in progress back to refined, and that file is the person's: the move waits for their yes. Until then this answers
-// not-yet, says so once per step in board.log, and nothing changes: the worker keeps its step, its "go on" line stays
-// where it is, and the page shows nothing of a give-back (every reader of the give-back reads its History line, which
-// only the move writes).
-//
-// The second half (one file and the flow): this function becomes `apply({ action: 'advance', id: step, to: 'refined',
-// giveBack: { chat, why: giveBackWords(chat, askedAt) } })` and answers what the API answered; the API path, the flow's
-// named server move (a guard reconcile never applies) and the History line are listed in DESIGN.md ("A held task is never
-// stuck", "The second half").
+// Signals change 3: the give-back of a stopped holder's step. The decision (handover.mjs `decide`, holderTimers.mjs) says
+// when it is due, `giveBack: { step, chat, askedAt }`; the board (handoverBoard.mjs `handOver`) calls this one function,
+// and on its ok closes the worker's still-waiting "go on" line. The second half (the person's yes on the flow.json
+// give-back rule, 2026-11-01): it goes through the work API's give-back path, `advance` to refined with `giveBack`
+// (api.mjs `giveBackHeld`), by the flow's server move "the board gives it back" (DEFAULT_FLOW, examples/work/flow.json,
+// the project's .claude/work/flow.json), whose guard holds only on that path.
 
-/** The answer until the store's move exists. */
-export const NOT_YET = Object.freeze({ ok: false, why: 'the store has no give-back move yet' })
-
-/** The steps already named in board.log, so each is said once (per board process). */
-const told = new Set()
+import { giveBackWords } from './holderTimers.mjs'
 
 /**
- * The give-back of step `step` from worker `chat`, whose "go on" line was written at `askedAt`: `{ ok, why }`. `apply`
- * the work API as the server (unused until the move exists), `log` one line to board.log.
+ * The give-back of step `step` from worker `chat`, whose "go on" line was written at `askedAt`: what the work API answered,
+ * `{ ok, result | why }`. `apply` the work API as the server; `log` one line to board.log for a refusal, once per step and
+ * refusal (per board process).
  */
-export async function giveBackStep({ step, chat, askedAt, apply = null, log = line => console.log(line) }) {
-  void apply
-  void askedAt
-  const key = `${step} ${chat}`
-  if (!told.has(key)) {
-    told.add(key)
-    log(`Signals change 3: ${step} is due to go back from ${chat} (it did not go on), but ${NOT_YET.why}: it stays with ${chat}.`)
+export async function giveBackStep({ step, chat, askedAt, apply, log = line => console.log(line) }) {
+  if (typeof apply !== 'function') return { ok: false, why: 'no work API to give it back through' }
+  const done = await Promise.resolve()
+    .then(() => apply({ action: 'advance', id: step, to: 'refined', giveBack: { chat, why: giveBackWords(chat, askedAt) } }))
+    .catch(error => ({ ok: false, why: error instanceof Error ? error.message : String(error) }))
+  if (done?.ok !== true) {
+    const key = `${step} ${chat} ${done?.why ?? ''}`
+    if (!told.has(key)) {
+      told.add(key)
+      log(`Signals change 3: ${step} could not go back from ${chat}: ${done?.why ?? 'no answer'}.`)
+    }
   }
-  return NOT_YET
+  return done ?? { ok: false, why: 'no answer' }
 }
 
-/** For the tests: forget which steps were named. */
+/** The refusals already named in board.log, so each is said once (per board process). */
+const told = new Set()
+
+/** For the tests: forget which refusals were named. */
 export const forgetTold = () => told.clear()

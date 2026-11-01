@@ -138,7 +138,8 @@ You look for what is really wrong, nothing else.
   minutes after a clear, **Asleep** (a process that ended while idle) and **Stopped** with "resumes by itself" are no incident;
   a word with an age ("no report for 40 s") is an incident only by the rules' own limits, never by the word.
 - The board's own record of a stopped holder (signals change 3): the History lines "the board asked Worker N to go on
-  (stopped since HH:MM)" and "given back by the board: Worker N did not resume it (asked HH:MM)", the lane's "Stopped ·
+  (stopped since HH:MM)", "given back by the board: Worker N did not resume it (asked HH:MM)" and "given back by the
+  board: Worker N left the list of chats" (owner-gone gives such a step back itself), the lane's "Stopped ·
   asked to go on at HH:MM" and "did not resume B<n>, given back HH:MM", the step's "given back, continues with Worker M
   from its checkpoint", and the summary's "(the board asked ... to go on ...: its own timers, no incident)" and "given
   back by the board ... no incident". The board acts on these by itself; the dropped worker's later calls on that step are

@@ -3795,6 +3795,8 @@ async function advance(body, w) {
   // Redesign Part 2 (2026-10-25): the board gives a ready task to a worker (`for`), or takes a given one back.
   if (to === 'queued') return give(found, body, w)
   if (to === 'refined' && body.takeBack !== undefined) return takeBackGiven(found, body.takeBack, w)
+  // Signals change 3: the board gives a held step back (its holder did not go on, or left the list).
+  if (to === 'refined' && body.giveBack !== undefined) return giveBackHeld(found, body.giveBack, w)
   // Signals change 3: the board's "go on" line to a stopped holder, one History line (no move).
   if (body.goOn !== undefined) return goOnNoted(found, body.goOn, w)
   // B567: a step whose worker rests on an open ask says which (the reconciler names it).
@@ -3805,6 +3807,34 @@ async function advance(body, w) {
   // B360, the review: a step the reconciler moves to done (say once the person answered its look) gets its recap too.
   if (done.ok) await afterDone(ordered(moved.item), w)
   return done.ok ? changed(ordered(moved.item)) : done
+}
+
+/** Signals change 3: the states a give-back takes a step from: the holder's work; for a holder gone from the list, waiting on you too. */
+const GIVE_BACK_FROM = ['taken', 'in progress']
+const GIVE_BACK_GONE = [...GIVE_BACK_FROM, 'waiting on you']
+
+/**
+ * Signals change 3, the second half (the person's yes on the flow.json give-back rule): the board gives a held step back
+ * to refined by the flow's server move "the board gives it back" (its guard holds only here: the context names the step).
+ * Only a step taken or in progress for `chat` (with `gone`, its holder left the list of chats: waiting on you too). The
+ * move's why is `why` (holderTimers.mjs `giveBackWords` or `goneWords`); Owner cleared; Checkpoint, Branch and Plan
+ * kept; a Pinned naming that chat cleared, with its own History line. The answer's `givenBack` is `{ id, chat, at }`.
+ */
+async function giveBackHeld(found, back, w) {
+  const id = valueOf(found.item, 'Id')
+  const chat = line(back?.chat, 80)
+  const why = line(back?.why, 200)
+  if (chat === '' || why === '') return refuse(400, `${id}: a give-back names the chat ("chat") and why ("why").`)
+  const states = back?.gone === true ? GIVE_BACK_GONE : GIVE_BACK_FROM
+  if (!isOwner(found.item, chat, w.prefix) || !states.includes(stateOf(found.item))) return refuse(409, `${id} is ${stateOf(found.item)} for ${valueOf(found.item, 'Owner') ?? 'nobody'}: only a step ${states.join(' or ')} for ${chat} is given back.`)
+  const moved = move(found.item, 'refined', 'server', w, { ...flowCtx(w, [found.item]), giveBack: id }, ` (${why})`)
+  if (!moved.ok) return moved
+  let next = put(moved.item, 'Owner', null)
+  const pinned = valueOf(found.item, 'Pinned')
+  if (pinned !== null && plain(pinned, w.prefix) === plain(chat, w.prefix)) next = said(put(next, 'Pinned', null), w, `unpinned from ${pinned}: given back by the board`)
+  next = ordered(next)
+  const done = await save(next, found.text, w)
+  return done.ok ? changed(next, `${id}: given back by the board from ${chat}.`, { givenBack: { id, chat, at: w.now } }) : done
 }
 
 /**

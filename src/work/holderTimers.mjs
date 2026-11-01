@@ -6,8 +6,8 @@
 // - after `resumeAfterMinutes` (5) of the board's running time: ONE "go on" line per stopped spell, built from the step's
 //   checkpoint and branch, as a back-like envelope (step null, a `resume` marker that makes it once per spell); at most
 //   GO_ON_MOST (2) per holder and step, after which only a checkpoint or a busy spell over 2 minutes resets the count;
-// - `giveBackAfterMinutes` (15) after that line was written with no progress: the give-back (giveBack.mjs, the seam: the
-//   store's move waits for the person's yes on flow.json).
+// - `giveBackAfterMinutes` (15) after that line was written with no progress: the give-back (giveBack.mjs: the work API's
+//   give-back path, the flow's server move "the board gives it back").
 //
 // PURE. Every fact comes from the store (the step's state, Since, Checkpoint, Branch, History, the asks), the lane (its
 // state and report), the outbox (its resume envelopes, the person's stop words) and pause.json; nothing is stored anew.
@@ -70,12 +70,14 @@ export const goOnWords = (chat, since) => `the board asked ${chat} to go on (sto
 export const GO_ON_LINE = /^-\s+(\d{4}-\d\d-\d\d \d\d:\d\d(?::\d\d)?)\s+server: the board asked (.+?) to go on \(stopped since (\d\d:\d\d)\)/
 
 /**
- * The give-back's History words (the move's why; written by the second half, giveBack.mjs): `given back by the board:
- * Worker N did not resume it (asked HH:MM)`. Everything below reads them already; until the move exists none is written.
+ * The give-back's History words, the move's why (api.mjs `giveBackHeld`, through giveBack.mjs): `given back by the board:
+ * Worker N did not resume it (asked HH:MM)`.
  */
 export const giveBackWords = (chat, askedAt) => `given back by the board: ${chat} did not resume it (asked ${hourMinute(askedAt)})`
-/** That History line, read back: `[, stamp, chat]`. */
-export const GIVEN_BACK = /^-\s+(\d{4}-\d\d-\d\d \d\d:\d\d(?::\d\d)?)\s+server: .*?\bgiven back by the board: (.+?) did not resume it\b/
+/** The same for a holder gone from the list of chats (repair.mjs owner-gone): `given back by the board: Worker N left the list of chats`. */
+export const goneWords = chat => `given back by the board: ${chat} left the list of chats`
+/** That History line (either), read back: `[, stamp, chat]`. */
+export const GIVEN_BACK = /^-\s+(\d{4}-\d\d-\d\d \d\d:\d\d(?::\d\d)?)\s+server: .*?\bgiven back by the board: (.+?) (?:did not resume it|left the list of chats)\b/
 /** A History line that took a step: "queued → taken", "queued → in progress" (`[, stamp, who]`). */
 const TAKE_LINE = /^-\s+(\d{4}-\d\d-\d\d \d\d:\d\d(?::\d\d)?)\s+([^:]{1,80}): queued → (?:taken|in progress)\b/
 

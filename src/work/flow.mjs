@@ -2,10 +2,10 @@
 // who makes each move (`by`: a role from the list of chats, `person` or `server`) and what must hold first (`when`, a
 // guard of guards.mjs). Changing the file changes the order; no code.
 
-import { ACTIONS, GIVE_GUARD, GUARD_WHY, GUARDS } from './guards.mjs'
+import { ACTIONS, GIVE_BACK_GUARD, GIVE_GUARD, GUARD_WHY, GUARDS } from './guards.mjs'
 import { valueOf } from './item.mjs'
 
-export { GIVE_GUARD }
+export { GIVE_BACK_GUARD, GIVE_GUARD }
 
 /** Today's agreement, the default when the store has no flow.json; examples/work/flow.json is its text. */
 export const DEFAULT_FLOW = {
@@ -24,6 +24,12 @@ export const DEFAULT_FLOW = {
       { from: 'in progress', to: 'waiting on you', by: ['worker', 'advisor', 'main'], when: 'an ask with Blocking yes is open' },
       { from: 'in progress', to: 'waiting on you', by: 'server', when: 'its worker rests on an open ask' },
       { from: 'waiting on you', to: 'in progress', by: 'server', when: 'its asks are answered', then: 'wake Owner' },
+      // Signals change 3 (the person's yes, 2026-11-01): the board gives a held step back to refined, its checkpoint kept:
+      // its holder did not go on (taken, in progress), or left the list (waiting on you too). Its guard holds only on the
+      // give-back path of the work API (api.mjs `giveBackHeld`); the reconciler never applies it.
+      { from: 'taken', to: 'refined', by: 'server', when: GIVE_BACK_GUARD },
+      { from: 'in progress', to: 'refined', by: 'server', when: GIVE_BACK_GUARD },
+      { from: 'waiting on you', to: 'refined', by: 'server', when: GIVE_BACK_GUARD },
       { from: 'in progress', to: 'review', by: ['worker', 'advisor', 'main'], then: 'check: base equals remote, branch gone, result named' },
       { from: 'review', to: 'review', by: ['worker', 'advisor', 'main'], then: 'check: base equals remote, branch gone, result named' },
       { from: '*', to: 'done', by: 'person' },

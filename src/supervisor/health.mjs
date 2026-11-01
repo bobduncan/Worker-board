@@ -294,7 +294,7 @@ function stepLines(view, now) {
     const state = valueOf(item, 'State')
     // Signals change 3: a step the board gave back waits for its next worker by design (the give-back's History line).
     const back = continuationOf(item)
-    if (state === 'refined' && back !== null) lines.push(lineOf(`${valueOf(item, 'Id')} refined: given back by the board from ${back.chat} at ${dayClockOf(back.at, now)} (it did not go on); the next free worker continues it from its checkpoint, no incident: ${oneLine(valueOf(item, 'Title'), 80)}`, { tier: 1, odd: false, at: back.at }))
+    if (state === 'refined' && back !== null) lines.push(lineOf(`${valueOf(item, 'Id')} refined: given back by the board from ${back.chat} at ${dayClockOf(back.at, now)}; the next free worker continues it from its checkpoint, no incident: ${oneLine(valueOf(item, 'Title'), 80)}`, { tier: 1, odd: false, at: back.at }))
     if (state === 'new' || state === 'refined') {
       backlog[state] += 1
       continue

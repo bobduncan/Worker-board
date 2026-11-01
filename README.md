@@ -309,8 +309,9 @@ sequence that holds a task and has stopped (its lane Stopped, Not running or Unk
 B12 from your checkpoint" line after `resumeAfterMinutes` of the board's running time (the person's pause and the time
 the board was off left out); its task goes back on the list with its checkpoint `giveBackAfterMinutes` after that line
 when the worker made no progress (no checkpoint, no take, no turn). Never for a task with an open ask, one the person
-stopped, a worker being removed, a step in review, a paused board or a chat paused for a limit. (The give-back itself
-waits for the store's new move; until then the board only says the line.)
+stopped, a worker being removed, a step in review, a paused board or a chat paused for a limit. At most two "go on" lines
+per worker and task. The give-back is the flow's server move "the board gives it back" (examples/work/flow.json): a
+project's older flow.json without it gives nothing back, and the board says so once in board.log.
 `supervisorModel` (`"sonnet"` or `"opus"`, `"sonnet"` unless set) and `supervisorEffort` (a level of the app's, `"low"` unless
 set): what the Supervisor's chat runs at; the board holds it there by code, the way it sets a worker's chat (T7.5).
 `providers` (T9.3, the defaults below unless set): who provides each kind of asset, an object from asset kind (`visual`, `music`,
