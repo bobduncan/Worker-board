@@ -20,13 +20,13 @@ const cut = name => {
 }
 const page = {}
 vm.runInNewContext(`const MIN = 60000\n${cut('times')}
-${cut('chatword')}\n${cut('lanetime')}\n${cut('simpleidle')}\n${cut('restartwords')}\nObject.assign(this, { clock, timeOf, simpleIdle, stoppedLines })`, page)
+${cut('chatstatus')}\n${cut('lanetime')}\n${cut('simpleidle')}\n${cut('restartwords')}\nObject.assign(this, { clock, timeOf, simpleIdle, stoppedLines })`, page)
 const plain = value => JSON.parse(JSON.stringify(value))
 const pad = n => String(n).padStart(2, '0')
 const hhmm = ms => `${pad(new Date(ms).getHours())}:${pad(new Date(ms).getMinutes())}`
 
-const reportedIdle = { name: 'Board', state: 'interrupted', isLeftover: false, cutOffAt: null, report: { state: 'idle', since: NOW - 7 * MIN, background: false, at: NOW - 5_000 }, word: 'Stopped', why: `task open since ${hhmm(NOW - 7 * MIN)}`, since: NOW - 7 * MIN, age: 5_000 }
-const cutOff = { name: 'Support', state: 'interrupted', isLeftover: false, cutOffAt: NOW - 20 * MIN, report: null, word: 'Stopped', why: `cut off at ${hhmm(NOW - 20 * MIN)}`, since: NOW - 20 * MIN, age: null }
+const reportedIdle = { name: 'Board', state: 'interrupted', isLeftover: false, cutOffAt: null, report: { state: 'idle', since: NOW - 7 * MIN, background: false, at: NOW - 5_000 }, status: 'Stopped', why: `task open since ${hhmm(NOW - 7 * MIN)}`, since: NOW - 7 * MIN, age: 5_000 }
+const cutOff = { name: 'Support', state: 'interrupted', isLeftover: false, cutOffAt: NOW - 20 * MIN, report: null, status: 'Stopped', why: `cut off at ${hhmm(NOW - 20 * MIN)}`, since: NOW - 20 * MIN, age: null }
 
 test('a reporting chat idle with its task open and a cut-off one are both Stopped, each with its why (Signals change 2)', () => {
   const idle = plain(page.timeOf(reportedIdle, NOW))
@@ -43,7 +43,7 @@ test('a reporting chat that does not run says why on its lane; one without a rea
   const ended = plain(page.timeOf({ name: 'Board', state: 'off', offWhy: 'its session ended at 09:20' }, NOW))
   assert.deepEqual(ended.small, ['its session ended at 09:20'])
   assert.deepEqual(plain(page.timeOf({ name: 'Board', state: 'off', offWhy: null }, NOW)).small, [])
-  assert.equal(page.simpleIdle({ state: 'off', word: 'Not running', why: 'its session ended at 09:20', offWhy: 'its session ended at 09:20' }), 'Not running · its session ended at 09:20')
+  assert.equal(page.simpleIdle({ state: 'off', status: 'Not running', why: 'its session ended at 09:20', offWhy: 'its session ended at 09:20' }), 'Not running · its session ended at 09:20')
   assert.equal(page.simpleIdle({ state: 'off' }), 'Not running')
 })
 

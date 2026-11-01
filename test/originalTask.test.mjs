@@ -115,7 +115,7 @@ const cut = name => {
 }
 const page = {}
 vm.runInNewContext(`const MIN = 60000\n${cut('times')}
-${cut('chatword')}\n${cut('lanetime')}\n${cut('stepline')}\n${cut('lanewindow')}\nObject.assign(this, { clock, laneWindowOf })`, page)
+${cut('chatstatus')}\n${cut('lanetime')}\n${cut('stepline')}\n${cut('lanewindow')}\nObject.assign(this, { clock, laneWindowOf })`, page)
 const plain = value => JSON.parse(JSON.stringify(value))
 
 test('the window shows the card\'s task in its head, the task as it was given, its step, and where it stands now', () => {

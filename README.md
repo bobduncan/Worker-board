@@ -204,9 +204,9 @@ and the briefings for the main chat and the workers.
 - A lane shows what a worker does now and the time it expects to need; a step that waits says why ("Not started:
   ...").
 - The head shows the plan's limits; a worker that paused for the limit shows as "Paused" until it goes on.
-- Every chat in the Workers list has ONE word, the same in every view (Working, Waiting for you, Checking, Handing, Offered,
+- Every chat in the Workers list has ONE status, the same in every view (Working, Waiting for you, Checking, Handing, Offered,
   Held, Did not answer, Paused, Restarting, Stopped, Free, Asleep, Not running, Unknown), with how old its information is
-  when over 10 seconds ("Working · 25 s ago"); Free means the board would give it work now (DESIGN.md, "One word per chat").
+  when over 10 seconds ("Working · 25 s ago"); Free means the board would give it work now (DESIGN.md, "One status per chat").
 - Before you quit the app: "Pause all" on the board (each chat writes its checkpoint and stops; the board says when
   it is safe), and "Resume all" after it is open again (open the main chat when the board says so).
 - When no chat runs (after an app or PC restart, or once every chat went idle) and work waits for one, the board opens

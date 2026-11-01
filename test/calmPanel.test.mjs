@@ -18,7 +18,7 @@ const style = await readFile(join(PUBLIC, 'board.css'), 'utf8')
 const cut = name => script.slice(script.indexOf(`// ${name}:start`), script.indexOf(`// ${name}:end`))
 const page = {}
 vm.runInNewContext(`const MIN = 60000\n${cut('times')}
-${cut('chatword')}\n${cut('closed')}\n${cut('calmpanel')}
+${cut('chatstatus')}\n${cut('closed')}\n${cut('calmpanel')}
 Object.assign(this, { clock, shownNeeds, logCounts, logLineText, missedLines, panelNeeds })`, page)
 const plain = value => JSON.parse(JSON.stringify(value))
 

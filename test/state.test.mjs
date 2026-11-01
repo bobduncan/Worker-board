@@ -3,7 +3,7 @@ import test from 'node:test'
 
 import { demoSources } from '../fixtures/demo.mjs'
 import { answer, assistant, fromChat, modCompaction, step, tool, toolResult, typed } from '../fixtures/lines.mjs'
-import { countsOf } from '../src/chatWord.mjs'
+import { countsOf } from '../src/chatStatus.mjs'
 import { parseConfig } from '../src/config.mjs'
 import { hourEnd, hourStart } from '../src/history.mjs'
 import { chatState } from '../src/state.mjs'

@@ -88,7 +88,7 @@ export async function openPage({ state, answers = () => reply({}), hash = '', no
   }
   // The page's own constants, so a test never copies them (MIN, STATES): read from inside the page after it ran.
   window.eval(`${script}
-;globalThis.__pageConstants = { MIN, HOUR, STATES, WORD_VIEW, KINDS, AWAY_MS, GAP_MS, BANNER_WAIT_MS, RESTART_GIVE_UP_MS, BACK_SHOWN_MS }`)
+;globalThis.__pageConstants = { MIN, HOUR, STATES, STATUS_VIEW, KINDS, AWAY_MS, GAP_MS, BANNER_WAIT_MS, RESTART_GIVE_UP_MS, BACK_SHOWN_MS }`)
   await settle()
   const page = {
     window,

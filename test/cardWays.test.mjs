@@ -79,7 +79,7 @@ test('a hint\'s window shows the card\'s own words and buttons, not the main cha
   assert.match(script, /form\.append\(\.\.\.optionChoices\(need\), \.\.\.answerPart\(need, state, false, true\)\)/)
   assert.match(script, /if \(way\.way === 'talk' && !\(inWindow && way\.to === need\.id\)\)/)
   vm.runInNewContext(`const MIN = 60000\n${cut('times')}
-${cut('chatword')}\n${cut('waiting')}\nObject.assign(this, { waitingOf })`, page)
+${cut('chatstatus')}\n${cut('waiting')}\nObject.assign(this, { waitingOf })`, page)
   const hint = page.waitingOf({ ...CARDS.unfiled, text: 'Its last answer ends with a "For you" block.', answer: null, task: null, waits: { at: 1, words: '', questions: [], plan: null, handover: null }, isMain: true }, 2)
   assert.deepEqual([hint.isHint, hint.where, hint.summary], [true, 'hint', ''])
 })

@@ -46,7 +46,7 @@ const at = (hour, minute) => new Date(2026, 9, 26, hour, minute).getTime()
 
 const page = { document: { createElement: tag => new Node(tag) }, problems: new Map(), sending: new Set() }
 vm.runInNewContext([
-  'const MIN = 60000', cut('times'), cut('chatword'), cut('askstand'), cut('advisorlane'), cut('coordinate'), source('el'), source('fixChip'), constant('BLOCK_EMPTY'), source('drawBlock'), source('blockChip'), source('blockLine'), source('queueButton'), source('editPart'),
+  'const MIN = 60000', cut('times'), cut('chatstatus'), cut('askstand'), cut('advisorlane'), cut('coordinate'), source('el'), source('fixChip'), constant('BLOCK_EMPTY'), source('drawBlock'), source('blockChip'), source('blockLine'), source('queueButton'), source('editPart'),
   'Object.assign(this, { advisorQueued, drawWaitingAsks, advisorOnLine, checkStandWords, coordinateList, backlogBlocks, blockLine })',
 ].join('\n'), page)
 

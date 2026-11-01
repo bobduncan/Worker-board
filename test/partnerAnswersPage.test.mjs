@@ -226,7 +226,7 @@ test('the page: the lane of a chat that waits for the partner says so, in the co
     assert.ok(pill, 'the lane of the chat that waits for the partner')
     assert.match(pill.textContent, /^Working/)
     assert.ok(!/partner/i.test(pill.textContent), 'the pill carries no second word')
-    assert.equal(pill.closest('[data-lane]').querySelector('.word-why')?.textContent, 'waits for the partner')
+    assert.equal(pill.closest('[data-lane]').querySelector('.status-why')?.textContent, 'waits for the partner')
   } finally { await page.close() }
 })
 

@@ -224,7 +224,7 @@ test('the page: "Check now" (was "Out of sync?") in each worker\'s menu and in t
 const cut = (name) => script.slice(script.indexOf(`// ${name}:start`), script.indexOf(`// ${name}:end`))
 const page = {}
 vm.runInNewContext(`${cut('times')}
-${cut('chatword')}\n${cut('syncline')}\nthis.syncLineOf = syncLineOf`, page)
+${cut('chatstatus')}\n${cut('syncline')}\nthis.syncLineOf = syncLineOf`, page)
 
 test('the line in the row: on its way, with the main chat, its answer, did not arrive, no answer in time', () => {
   const sentAt = at(22, 40)
