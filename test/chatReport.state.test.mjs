@@ -6,7 +6,7 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 
 import { hitLimit, step, typed } from '../fixtures/lines.mjs'
-import { countsOf } from '../src/chatWord.mjs'
+import { countsOf } from '../src/chatStatus.mjs'
 import { parseConfig } from '../src/config.mjs'
 import { parseItem } from '../src/work/item.mjs'
 import { stamp } from '../src/work/migrate.mjs'

@@ -15,7 +15,7 @@ const style = await readFile(join(PUBLIC, 'board.css'), 'utf8')
 const cut = name => script.slice(script.indexOf(`// ${name}:start`), script.indexOf(`// ${name}:end`))
 const page = {}
 vm.runInNewContext(`const MIN = 60000\n${cut('times')}
-${cut('chatword')}\n${cut('stepline')}\n${cut('lanetime')}\n${cut('lanewindow')}\nObject.assign(this, { laneTaskOf })`, page)
+${cut('chatstatus')}\n${cut('stepline')}\n${cut('lanetime')}\n${cut('lanewindow')}\nObject.assign(this, { laneTaskOf })`, page)
 
 const lane = (task, givenTask = null) => ({ name: 'Zebracorns', state: 'working', task, givenTask })
 

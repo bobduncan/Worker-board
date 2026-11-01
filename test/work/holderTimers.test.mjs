@@ -12,7 +12,7 @@ import { join } from 'node:path'
 import test from 'node:test'
 import vm from 'node:vm'
 
-import { wordOf } from '../../src/chatWord.mjs'
+import { statusOf } from '../../src/chatStatus.mjs'
 import { parseConfig } from '../../src/config.mjs'
 import { handJobs } from '../../src/hands.mjs'
 import { asleepWithWork } from '../../src/opener.mjs'
@@ -328,10 +328,10 @@ test('the dropped worker\'s later step, report and take are refused with the boa
 
 test('the page: the lane says "Stopped · asked to go on at HH:MM"; the give-back\'s lines show only once its History line exists', async () => {
   const lane = stopped(at(8))
-  assert.deepEqual([wordOf({ lane, handover: { state: 'working', why: null, step: 'B12', asked: at(5) }, now: at(8) }).word, wordOf({ lane, handover: { state: 'working', why: null, step: 'B12', asked: at(5) }, now: at(8) }).why], ['Stopped', 'asked to go on at 10:05'])
-  assert.equal(wordOf({ lane, handover: { state: 'working', why: null, step: 'B12', asked: null }, now: at(8) }).why, 'task open since 10:00')
+  assert.deepEqual([statusOf({ lane, handover: { state: 'working', why: null, step: 'B12', asked: at(5) }, now: at(8) }).status, statusOf({ lane, handover: { state: 'working', why: null, step: 'B12', asked: at(5) }, now: at(8) }).why], ['Stopped', 'asked to go on at 10:05'])
+  assert.equal(statusOf({ lane, handover: { state: 'working', why: null, step: 'B12', asked: null }, now: at(8) }).why, 'task open since 10:00')
   const asleep = { ...lane, isRunning: false, asleep: true, asleepSince: T0 }
-  assert.equal(wordOf({ lane: asleep, handover: { state: 'working', step: 'B12', asked: at(5) }, now: at(8) }).why, 'asked to go on at 10:05')
+  assert.equal(statusOf({ lane: asleep, handover: { state: 'working', step: 'B12', asked: at(5) }, now: at(8) }).why, 'asked to go on at 10:05')
   // The dropped worker's lane: "did not resume B12, given back 10:20" from the History line, until its next task.
   assert.deepEqual(givenBackFrom(mapOf(givenBack()), 'Worker 1'), [{ id: 'B12', at: BACK_AT }])
   assert.deepEqual(givenBackFrom(mapOf(held()), 'Worker 1'), [])

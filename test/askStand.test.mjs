@@ -219,7 +219,7 @@ const page = {
   withPartnerUi: { isOpen: true },
 }
 vm.runInNewContext([
-  'const MIN = 60000', cut('times'), cut('chatword'), cut('askstand'), cut('partner-answers'), cut('advisorlane'),
+  'const MIN = 60000', cut('times'), cut('chatstatus'), cut('askstand'), cut('partner-answers'), cut('advisorlane'),
   source('el'), source('fill'), source('detailsHead'), source('section'), source('keepUnfolded'), source('drawWithPartner'),
   'const KINDS = { input: { sign: "?", tag: "Input needed" } }',
   'let detailsOf = null\nlet detailsShown = null',

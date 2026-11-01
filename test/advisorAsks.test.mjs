@@ -124,7 +124,7 @@ const script = await readFile(join(ROOT, 'public', 'board.js'), 'utf8')
 const cut = name => script.slice(script.indexOf(`// ${name}:start`), script.indexOf(`// ${name}:end`))
 const page = {}
 vm.runInNewContext(`const MIN = 60000\n${cut('times')}
-${cut('chatword')}\n${cut('waiting')}\nObject.assign(this, { waitingOf })`, page)
+${cut('chatstatus')}\n${cut('waiting')}\nObject.assign(this, { waitingOf })`, page)
 
 test('the window knows the Advisor, shows its answer as the main chat\'s, and opens the talk with it; so does a warning\'s button', () => {
   const need = { id: 'unfiled:Advisor:1', isAdvisor: true, canAnswer: false, answer: null, text: '', task: null, waits: { at: NOW, words: FOR_YOU, questions: [], plan: null, handover: null } }

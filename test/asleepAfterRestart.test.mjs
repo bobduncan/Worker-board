@@ -55,7 +55,7 @@ const cut = name => {
 function pagePart(name, ...names) {
   const page = {}
   vm.runInNewContext(`const MIN = 60000\n${cut('times')}
-${cut('chatword')}\n${cut(name)}\nObject.assign(this, { ${names.join(', ')} })`, page)
+${cut('chatstatus')}\n${cut(name)}\nObject.assign(this, { ${names.join(', ')} })`, page)
   return page
 }
 
@@ -306,9 +306,9 @@ test('the page: asleep and free reads Free, "asleep since 18:07, wakes when it g
   const cutOff = plain(page.timeOf(lane(state, 'Digger'), NOW))
   assert.deepEqual([cutOff.label, cutOff.main, cutOff.tone], ['Stopped', 'resumes by itself', 'muted'])
   // A chat known not to run that is not asleep keeps "Not running" (a lane without the board's word reads its state).
-  assert.equal(plain(page.timeOf({ ...lane(state, 'Weeder'), word: undefined, asleep: false }, NOW)).main, 'Not running')
+  assert.equal(plain(page.timeOf({ ...lane(state, 'Weeder'), status: undefined, asleep: false }, NOW)).main, 'Not running')
   const idle = await pagePart('simpleidle', 'simpleIdle')
   assert.deepEqual([idle.simpleIdle(lane(state, 'Weeder')), idle.simpleIdle(lane(state, 'Digger')).replace(/ · \d+ (?:s|min) ago/, '')], [`Asleep · since ${hhmm(APP)}`, 'Stopped · resumes by itself'])
   const words = pagePart('partner-answers', 'laneStateText')
-  assert.deepEqual([words.laneStateText(lane(state, 'Weeder')), words.laneStateText({ ...lane(state, 'Weeder'), word: undefined, asleep: false })], [`Asleep · since ${hhmm(APP)}`, 'Not running'])
+  assert.deepEqual([words.laneStateText(lane(state, 'Weeder')), words.laneStateText({ ...lane(state, 'Weeder'), status: undefined, asleep: false })], [`Asleep · since ${hhmm(APP)}`, 'Not running'])
 })

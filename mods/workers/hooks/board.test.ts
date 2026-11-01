@@ -48,9 +48,9 @@ describe('the worker board, as the mod reads it', () => {
     // What cannot be typed is named, so the board can say it did not arrive.
     // B532: with why, so the board does not try it again and names the reason.
     expect(parseTaken(answer)).toEqual({ messages: [{ id: 'm1', text: 'Sheet B' }], refused: ['m2', 'm3', 'm4'],
-      why: { m2: `too long: ${MOST_CHARS + 1} > ${MOST_CHARS} characters`, m3: 'no text', m4: 'no text' }, clear: null, off: [], stop: null, handover: null })
-    expect(parseTaken('{"messages":"x"}')).toEqual({ messages: [], refused: [], why: {}, clear: null, off: [], stop: null, handover: null })
-    expect(parseTaken('')).toEqual({ messages: [], refused: [], why: {}, clear: null, off: [], stop: null, handover: null })
+      why: { m2: `too long: ${MOST_CHARS + 1} > ${MOST_CHARS} characters`, m3: 'no text', m4: 'no text' }, clear: null, off: [], stop: null, handover: null, statuses: null, isAnswer: true })
+    expect(parseTaken('{"messages":"x"}')).toEqual({ messages: [], refused: [], why: {}, clear: null, off: [], stop: null, handover: null, statuses: null, isAnswer: true })
+    expect(parseTaken('')).toEqual({ messages: [], refused: [], why: {}, clear: null, off: [], stop: null, handover: null, statuses: null, isAnswer: false })
     // B738: the chats the board shows as not running; anything that is no name is left out.
     expect(parseTaken('{"messages":[],"off":["Worker 5",3,""]}').off).toEqual(['Worker 5'])
     expect(parseTaken('{"messages":[],"off":"x"}').off).toEqual([])
@@ -65,6 +65,30 @@ describe('the worker board, as the mod reads it', () => {
     expect(stopLine({ id: 'm9', kind: 'remove', task: '' })).toContain('The board then takes you off the list and closes this chat.')
     expect(parseTaken('{"messages":[],"stop":{"id":"m9","kind":"delete"}}').stop).toBeNull()
     expect(parseTaken('{"messages":[],"stop":{"id":"../x","kind":"stop"}}').stop).toBeNull()
+    // 2c (0.28.0): the board's statuses, kept with their caps; an older board's answer (none) is told apart from no answer.
+    const entry = { name: 'Worker 1', status: 'Working', why: 'waits for the partner', tone: 'quiet', since: 5, reportAt: 9 }
+    expect(parseTaken(JSON.stringify({ messages: [], statuses: [entry] })).statuses).toEqual([entry])
+    expect(parseTaken(JSON.stringify({ messages: [] })).statuses).toBeNull()
+    expect(parseTaken('{"messages":[],"statuses":"x"}').statuses).toBeNull()
+    expect(parseTaken('{"messages":[]}').isAnswer).toBe(true)
+    expect(parseTaken('<html>not the board</html>').isAnswer).toBe(false)
+  })
+
+  test('2c: statuses keep the caps (50 entries, name 80, status 40, why 120), a tone that is quiet or attention, finite times or null', () => {
+    const many = Array.from({ length: 60 }, (_, n) => ({ name: `Worker ${n}`, status: 'Free' }))
+    expect(parseTaken(JSON.stringify({ messages: [], statuses: many })).statuses).toHaveLength(50)
+    const odd = [
+      { name: 'x'.repeat(81), status: 'Free' }, { name: 'A', status: 'y'.repeat(41) }, { name: '', status: 'Free' }, { name: 'B' }, 'stray', null,
+      { name: 'C', status: 'Held', why: 'w'.repeat(300), tone: 'loud', since: 'soon', reportAt: Infinity, extra: 'ignored' },
+      { name: 'D', status: 'Not running', tone: 'attention', since: 1, reportAt: 2 },
+    ]
+    expect(parseTaken(JSON.stringify({ messages: [], statuses: odd })).statuses).toEqual([
+      { name: 'C', status: 'Held', why: 'w'.repeat(120), tone: 'quiet', since: null, reportAt: null },
+      { name: 'D', status: 'Not running', why: null, tone: 'attention', since: 1, reportAt: 2 },
+    ])
+  })
+
+  test('why a word was not typed is one short line', () => {
     // B532: why a word the chat did not take failed, in one short line.
     expect(typedWhy(new Error('engine  busy\nnow'), 'the chat did not take it')).toBe('the chat did not take it: engine busy now')
     expect(typedWhy('no prompt is taken now', 'a hook dropped it')).toBe('a hook dropped it: no prompt is taken now')
@@ -244,13 +268,13 @@ describe('2026-10-28: the board names this chat by its session id', () => {
   test('the route, and the version the plugin states', () => {
     expect(WHOAMI_PATH).toBe('/api/bridge/whoami')
     // 0.27.3: the work tool says "goal definition" and takes definition-draft (this branch carried 0.27.1, the main branch is at 0.27.2).
-    expect(MOD_VERSION).toBe('0.27.3')
+    expect(MOD_VERSION).toBe('0.28.0')
   })
 
   test('the answer: a name, the role the board gives it and the session its card is filed under', () => {
     expect(parseWhoami('{"name":"Worker 5","role":"worker","card":"53d8e277-aaaa-4bbb-8ccc-0123456789ab"}')).toEqual({ name: 'Worker 5', role: 'worker', card: '53d8e277-aaaa-4bbb-8ccc-0123456789ab' })
     expect(parseWhoami('{"name":" Main ","role":"main","card":null}')).toEqual({ name: 'Main', role: 'main', card: null })
-    for (const role of ['main', 'worker', 'advisor', 'helper', 'supervisor']) expect(parseWhoami(JSON.stringify({ name: 'A', role, card: null }))?.role).toBe(role)
+    for (const role of ['main', 'worker', 'advisor', 'owner', 'helper', 'supervisor']) expect(parseWhoami(JSON.stringify({ name: 'A', role, card: null }))?.role).toBe(role)
     // An older board says no role and no card: the name still counts.
     expect(parseWhoami('{"name":"Units"}')).toEqual({ name: 'Units', role: null, card: null })
     // 2026-10-31: the Supervisor chat as the board names it: a name and a plain app session id, else nothing.

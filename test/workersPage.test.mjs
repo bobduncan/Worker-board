@@ -19,7 +19,7 @@ const cut = name => {
 }
 const page = {}
 vm.runInNewContext(`const MIN = 60000\n${cut('times')}
-${cut('chatword')}\n${cut('workers')}\nObject.assign(this, { clock, workersView })`, page)
+${cut('chatstatus')}\n${cut('workers')}\nObject.assign(this, { clock, workersView })`, page)
 const plain = value => JSON.parse(JSON.stringify(value))
 
 const MIN = 60_000
@@ -159,7 +159,7 @@ test('B247: a quiet lane whose step has no answer says how long, and that it may
   const cut = name => script.slice(script.indexOf(`// ${name}:start`), script.indexOf(`// ${name}:end`))
   const part = { MIN: 60_000 }
   vm.runInNewContext(`${cut('times')}
-${cut('chatword')}\n${cut('alerts')}\nObject.assign(this, { alertsOf })`, part)
+${cut('chatstatus')}\n${cut('alerts')}\nObject.assign(this, { alertsOf })`, part)
   const now = 100 * 60_000
   const lane = { isQuiet: true, quietMs: 34 * 60_000, isWithoutTime: false, task: null, state: 'working', unanswered: null }
   const state = { readAt: now, estimateOldMs: 30 * 60_000 }
@@ -178,7 +178,7 @@ test('B508: one signal per problem: no time and over are said by the column Left
   const cut = name => script.slice(script.indexOf(`// ${name}:start`), script.indexOf(`// ${name}:end`))
   const part = { MIN: 60_000 }
   vm.runInNewContext(`${cut('times')}
-${cut('chatword')}\n${cut('alerts')}\nObject.assign(this, { alertsOf })`, part)
+${cut('chatstatus')}\n${cut('alerts')}\nObject.assign(this, { alertsOf })`, part)
   const state = { readAt: 100 * 60_000, estimateOldMs: 30 * 60_000 }
   const lane = { isQuiet: false, isWithoutTime: false, task: null, state: 'working', unanswered: null, eta: null }
   // No time: the column says "No time"; the line under the task is gone.

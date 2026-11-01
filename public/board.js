@@ -31,19 +31,19 @@ const UNDELIVERED = 'What you send is typed into the advisor\'s chat as your own
 
 const $ = id => document.getElementById(id)
 
-// chatword:start
+// chatstatus:start
 /**
- * Signals change 2: the history's old state words (the day bars) and the state of a lane that came without a word, as the new
- * words (see `WORD_VIEW`). A lane's own word is the board's (`lane.word`, src/chatWord.mjs); this map is only for those two.
+ * Signals change 2: the history's old state names (the day bars) and the state of a lane that came without a status, as the new
+ * words (see `STATUS_VIEW`). A lane's own status is the board's (`lane.status`, src/chatStatus.mjs); this map is only for those two.
  */
 const STATES = { working: 'Working', waiting: 'Waiting for you', free: 'Free', unknown: 'Unknown', interrupted: 'Stopped', suspended: 'Paused', off: 'Not running' }
 /**
- * Signals change 2 (the brief of 2026-10-31): ONE word per chat, the board's (`lane.word`, `why`, `since`, `reportAt`, `age`),
- * drawn the same in every view. This map is the one thing the views read: a word's css class and head-count key (`key`), and
+ * Signals change 2 (the brief of 2026-10-31): ONE status per chat, the board's (`lane.status`, `why`, `since`, `reportAt`, `age`),
+ * drawn the same in every view. This map is the one thing the views read: a status's css class and head-count key (`key`), and
  * its tone: `quiet` (information), `attention` (needs a look: the person's colour rule), `late` (quiet at first, attention
- * once its age is over two minutes). Same words as src/chatWord.mjs (a test holds the two together).
+ * once its age is over two minutes). Same words as src/chatStatus.mjs (a test holds the two together).
  */
-const WORD_VIEW = {
+const STATUS_VIEW = {
   'Working': { key: 'working', tone: 'quiet' },
   'Waiting for you': { key: 'waiting', tone: 'attention' },
   'Checking': { key: 'checking', tone: 'quiet' },
@@ -59,9 +59,9 @@ const WORD_VIEW = {
   'Not running': { key: 'off', tone: 'attention' },
   'Unknown': { key: 'unknown', tone: 'late' },
 }
-/** The head's count keys in the words' order, and the word of a key. */
-const WORD_KEYS = Object.fromEntries(Object.entries(WORD_VIEW).map(([word, view]) => [view.key, word]))
-/** An age is drawn on the word only over this; an Unknown word turns to attention over `UNKNOWN_LATE_MS`. */
+/** The head's count keys in the statuses' order, and the status of a key. */
+const STATUS_KEYS = Object.fromEntries(Object.entries(STATUS_VIEW).map(([status, view]) => [view.key, status]))
+/** An age is drawn on the status only over this; an Unknown status turns to attention over `UNKNOWN_LATE_MS`. */
 const AGE_SHOWN_MS = 10_000
 const UNKNOWN_LATE_MS = 2 * 60_000
 
@@ -71,35 +71,35 @@ function ageSpan(ms) {
 }
 
 /**
- * A lane's word as the views draw it: `{ word, key, tone, why, since, age, isReported }`, or null for a leftover (it has none).
- * The board's own word when the lane carries one; a lane that came without (an older board, a made-up one) reads its old
+ * A lane's status as the views draw it: `{ status, key, tone, why, since, age, isReported }`, or null for a leftover (it has none).
+ * The board's own status when the lane carries one; a lane that came without (an older board, a made-up one) reads its old
  * `state` through the `STATES` map: the same list of words, never an old name.
  */
-function laneWord(lane) {
+function laneStatus(lane) {
   if (lane === null || lane === undefined || lane.isLeftover === true) return null
-  const isBoards = typeof lane.word === 'string' && Object.hasOwn(WORD_VIEW, lane.word)
-  const word = isBoards ? lane.word
+  const isBoards = typeof lane.status === 'string' && Object.hasOwn(STATUS_VIEW, lane.status)
+  const status = isBoards ? lane.status
     : lane.asleep === true && lane.state === 'free' ? 'Asleep'
       : lane.isRunning === false && lane.asleep !== true && (lane.state === 'free' || lane.state === 'unknown') ? 'Not running'
         : (lane.waitsForPartner ?? []).length > 0 ? 'Working' : STATES[lane.state] ?? 'Unknown'
   const age = isBoards && Number.isFinite(lane.age) ? lane.age : null
-  const tone = WORD_VIEW[word].tone === 'late' ? (age !== null && age > UNKNOWN_LATE_MS ? 'attention' : 'quiet') : WORD_VIEW[word].tone
-  return { word, key: WORD_VIEW[word].key, tone, why: isBoards && typeof lane.why === 'string' ? lane.why : null, since: isBoards && Number.isFinite(lane.since) ? lane.since : null, age, isReported: isBoards }
+  const tone = STATUS_VIEW[status].tone === 'late' ? (age !== null && age > UNKNOWN_LATE_MS ? 'attention' : 'quiet') : STATUS_VIEW[status].tone
+  return { status, key: STATUS_VIEW[status].key, tone, why: isBoards && typeof lane.why === 'string' ? lane.why : null, since: isBoards && Number.isFinite(lane.since) ? lane.since : null, age, isReported: isBoards }
 }
 
 /**
- * The word as a pill says it: the word, and how old the information behind it is when over 10 s ("Working · 25 s ago");
+ * The status as a pill says it: the status, and how old the information behind it is when over 10 s ("Working · 25 s ago");
  * Unknown always says "no report for N", Asleep since when. The age is the board's, set when it read the state (never the
  * page's clock).
  */
-function wordLabel(found) {
+function statusLabel(found) {
   if (found === null) return ''
-  if (found.word === 'Unknown') return found.age !== null ? `Unknown · no report for ${ageSpan(found.age)}` : found.isReported ? 'Unknown · no report yet' : 'Unknown'
-  if (found.word === 'Asleep' && found.since !== null) return `Asleep · since ${clock(found.since)}`
-  if (found.age !== null && found.age > AGE_SHOWN_MS) return `${found.word} · ${ageSpan(found.age)} ago`
-  return found.word
+  if (found.status === 'Unknown') return found.age !== null ? `Unknown · no report for ${ageSpan(found.age)}` : found.isReported ? 'Unknown · no report yet' : 'Unknown'
+  if (found.status === 'Asleep' && found.since !== null) return `Asleep · since ${clock(found.since)}`
+  if (found.age !== null && found.age > AGE_SHOWN_MS) return `${found.status} · ${ageSpan(found.age)} ago`
+  return found.status
 }
-// chatword:end
+// chatstatus:end
 
 // What the person did on the page and a redraw must not undo.
 const openLanes = new Set()
@@ -1641,7 +1641,7 @@ function drawTop(state) {
   fill($('counts'), shownCounts(state.counts)
     .map(name => {
       const pill = el('div', `count-pill is-${name}`)
-      pill.append(el('span', 'dot'), el('b', '', String(state.counts[name])), WORD_KEYS[name].toLowerCase())
+      pill.append(el('span', 'dot'), el('b', '', String(state.counts[name])), STATUS_KEYS[name].toLowerCase())
       return pill
     }).concat(estimatesPill(state.taskTimes ?? null)))
   for (const node of document.querySelectorAll('time[data-at]')) node.textContent = ago(Number(node.dataset.at), state.readAt)
@@ -2069,12 +2069,12 @@ const about = minutes => (minutes === null ? null : `~ ${span(minutes * MIN)}`)
 function timeOf(lane, now) {
   const plain = (main, tone = 'muted', label = '') => ({ label, main, tone, small: [], from: null })
   if (lane.isLeftover) return plain('Leftover')
-  // Signals change 2: the column says the chat's one word (laneWord) and its why; no word of its own.
-  const found = laneWord(lane)
+  // Signals change 2: the column says the chat's one status (laneStatus) and its why; no status of its own.
+  const found = laneStatus(lane)
   // T13 part 3: a chat whose process ended while its turn ran (or it held a task) resumes by itself: the board sends it
   // its resume word. No alarm: nothing is wrong yet. Idle with its task open, or cut off: Stopped, quiet.
-  if (found.word === 'Stopped') return { ...plain(found.why ?? 'Stopped', 'muted', 'Stopped'), small: lane.asleep === true ? [asleepWords(lane)] : [] }
-  if (found.word === 'Paused') {
+  if (found.status === 'Stopped') return { ...plain(found.why ?? 'Stopped', 'muted', 'Stopped'), small: lane.asleep === true ? [asleepWords(lane)] : [] }
+  if (found.status === 'Paused') {
     // B113: held by the limit. The figure is when it goes on; once that has passed it needs a hand.
     const held = lane.suspended ?? null
     if (held === null) return { ...plain('Paused'), small: found.why === null ? [] : [found.why] }
@@ -2083,15 +2083,15 @@ function timeOf(lane, now) {
   }
   // B315: its card was left "working" by a quit app, or its process does not run (B722, B728: the hand-out gives only to a
   // running chat). The review of chat-reports: a reporting chat says why ("silent since HH:MM", its session ended).
-  if (found.word === 'Not running') {
+  if (found.status === 'Not running') {
     return { ...plain('Not running', 'bad', 'Process'), small: found.why !== null ? [found.why] : typeof lane.offWhy === 'string' ? [lane.offWhy] : [], ...(lane.state === 'off' ? {} : { title: 'This chat does not run. The board asks for it to be started when a task waits and no running worker is free.' }) }
   }
-  if (found.word === 'Waiting for you') return plain('Blocked', 'bad', 'ETA')
+  if (found.status === 'Waiting for you') return plain('Blocked', 'bad', 'ETA')
   // T13 part 3: an asleep one is not "free to run": the line of the task it gets wakes it.
-  if (found.word === 'Asleep') return { ...plain('Asleep'), small: [asleepWords(lane)] }
-  if (found.word === 'Free') return plain('Free')
-  if (found.word === 'Unknown') return plain('Unknown')
-  if (found.word !== 'Working') return { ...plain(found.word), small: found.why === null ? [] : [found.why] }
+  if (found.status === 'Asleep') return { ...plain('Asleep'), small: [asleepWords(lane)] }
+  if (found.status === 'Free') return plain('Free')
+  if (found.status === 'Unknown') return plain('Unknown')
+  if (found.status !== 'Working') return { ...plain(found.status), small: found.why === null ? [] : [found.why] }
   if (lane.state !== 'working' && (lane.eta ?? null) === null) return plain('Working')
   const eta = lane.eta ?? null
   // B793: the time worked, not the time since: a pause, a stop or a restart is no time spent.
@@ -2180,7 +2180,7 @@ function infoTarget(about) {
 
 /** The counts in the head: working and free always, the others only when there is one ("0 waiting for you" goes). */
 function shownCounts(counts) {
-  return Object.keys(WORD_KEYS).filter(name => name === 'working' || name === 'free' || (counts[name] ?? 0) > 0)
+  return Object.keys(STATUS_KEYS).filter(name => name === 'working' || name === 'free' || (counts[name] ?? 0) > 0)
 }
 
 /** The Information part's height: at least 90 pixels, and the asks above it keep 120 of the `room` both share. */
@@ -2385,12 +2385,12 @@ function simpleSteps(focus, chats = [], now = Date.now()) {
 // simpleidle:start
 /** B343: what a chat's row says in place of its time when it does not work: a few plain words. */
 function simpleIdle(lane) {
-  // Signals change 2: the chat's one word, with its why where it has one; the same word as the pill and the head count.
-  const found = laneWord(lane)
+  // Signals change 2: the chat's one status, with its why where it has one; the same status as the pill and the head count.
+  const found = laneStatus(lane)
   if (found === null) return ''
-  const label = wordLabel(found)
-  if (found.word === 'Paused' && Number.isFinite(lane.suspended?.until)) return `${label} until ${clock(lane.suspended.until)}`
-  const hasWhy = found.why !== null && !['Unknown', 'Asleep'].includes(found.word)
+  const label = statusLabel(found)
+  if (found.status === 'Paused' && Number.isFinite(lane.suspended?.until)) return `${label} until ${clock(lane.suspended.until)}`
+  const hasWhy = found.why !== null && !['Unknown', 'Asleep'].includes(found.status)
   return hasWhy ? `${label} · ${found.why}` : label
 }
 // simpleidle:end
@@ -2417,7 +2417,7 @@ function simpleWorkers(chats = [], counts = {}, now = Date.now(), partners = [])
       task: text,
       percent: hasSteps ? Math.round(Math.max(0, Math.min(1, task.step / task.steps)) * 100) : null,
       left: waitsForPartner ? simpleIdle(lane) : simpleLeft(lane, now) ?? simpleIdle(lane),
-      tone: laneWord(lane)?.key ?? lane.state,
+      tone: laneStatus(lane)?.key ?? lane.state,
       ...(run === null ? {} : { run }),
     }
   }
@@ -2647,7 +2647,7 @@ function freeLine(lane, clock = null) {
 function laneFlags(lane, restart = null) {
   const main = restart?.main ?? null
   const isAsked = (restart?.starting ?? []).some(one => one.chat === lane.name && one.state !== 'expired' && one.state !== 'failed')
-  // Signals change 2: where its hand-over stands is the chat's word and its why (Handing, Held...): no second line for it.
+  // Signals change 2: where its hand-over stands is the chat's status and its why (Handing, Held...): no second line for it.
   return (lane.flags ?? []).filter(flag => flag.kind !== 'handover').map(flag => ({
     text: flag.text,
     // Model per step: a step that waits for its worker to run on Opus is a wait, no fault.
@@ -2706,23 +2706,23 @@ function drawRunChip(view) {
 
 function drawLane(lane, state) {
   const isOpen = openLanes.has(lane.name)
-  // Signals change 2: the chat's one word (laneWord) names its class, its pill and its icon; no second state word is drawn.
-  const found = laneWord(lane)
+  // Signals change 2: the chat's one status (laneStatus) names its class, its pill and its icon; no second status is drawn.
+  const found = laneStatus(lane)
   const card = el('article', `lane is-${found?.key ?? lane.state}${lane.isLeftover ? ' is-leftover' : ''}${isOpen ? ' is-open' : ''}`)
   card.dataset.lane = lane.name
   const row = el('div', 'lane-row')
 
   const who = el('div', 'who')
   const names = el('div', 'who-names')
-  const pill = el('span', `pill is-${found?.key ?? lane.state}${found?.word === 'Unknown' && found.tone === 'attention' ? ' is-late' : ''}`, lane.isLeftover ? 'Leftover' : laneStateText(lane))
-  if (found !== null) pill.dataset.word = found.word
-  // Where the word needs words of its own: an asleep chat's process ended and a message wakes it; one that does not run waits
-  // until its chat is opened (B315). They are the pill's tooltip, not a second word.
-  if (found?.word === 'Asleep') pill.title = `${asleepWords(lane)}. Its process ended; a message through the app wakes it.`
-  else if (found?.word === 'Not running' && lane.state !== 'off') pill.title = `This chat's process is not running: nothing reaches it until its chat is opened, or ${board?.workers?.mainTitle ?? 'the main chat'} starts it.`
+  const pill = el('span', `pill is-${found?.key ?? lane.state}${found?.status === 'Unknown' && found.tone === 'attention' ? ' is-late' : ''}`, lane.isLeftover ? 'Leftover' : laneStateText(lane))
+  if (found !== null) pill.dataset.status = found.status
+  // Where the status needs words of its own: an asleep chat's process ended and a message wakes it; one that does not run waits
+  // until its chat is opened (B315). They are the pill's tooltip, not a second status.
+  if (found?.status === 'Asleep') pill.title = `${asleepWords(lane)}. Its process ended; a message through the app wakes it.`
+  else if (found?.status === 'Not running' && lane.state !== 'off') pill.title = `This chat's process is not running: nothing reaches it until its chat is opened, or ${board?.workers?.mainTitle ?? 'the main chat'} starts it.`
   names.append(el('h3', '', lane.name), pill)
-  // The word's why beside it, in a few plain words (a step, a reason, a time); Unknown and Asleep carry theirs in the label.
-  if (found !== null && found.why !== null && !['Unknown', 'Asleep'].includes(found.word)) names.append(el('small', 'word-why', found.why))
+  // The status's why beside it, in a few plain words (a step, a reason, a time); Unknown and Asleep carry theirs in the label.
+  if (found !== null && found.why !== null && !['Unknown', 'Asleep'].includes(found.status)) names.append(el('small', 'status-why', found.why))
   // The model chip (runchip) beside the pill: what the chat runs at now, and a switch it waits for. None for a leftover.
   const runChip = lane.isLeftover ? null : drawRunChip(runChipOf(lane))
   if (runChip !== null) names.append(runChip)
@@ -2818,11 +2818,11 @@ function drawLane(lane, state) {
   else if (hasSteps) progress.append(el('small', 'progress-count', `${task.step} of ${task.steps}`))
   else if (task !== null) progress.append(el('small', 'progress-count', 'no steps given'))
   // T13 part 3: an asleep one is no alarm: the board sends it its resume word.
-  if (found?.word === 'Stopped') what.append(el('p', 'off-idle', lane.asleep === true ? `Stopped when its chat stopped: it resumes by itself (${asleepWords(lane)}).`
+  if (found?.status === 'Stopped') what.append(el('p', 'off-idle', lane.asleep === true ? `Stopped when its chat stopped: it resumes by itself (${asleepWords(lane)}).`
     : lane.report?.state === 'idle' ? 'Stopped with its task open: its turn ended before its task was reported; it does nothing until it is woken.' : 'Stopped in the middle of its turn: it does nothing until it is resumed.'))
   // B315: its process does not run. With work it waits for, that is the alarm; without, a muted line.
   if (offWork !== null) what.append(el('p', isQuietOff ? 'off-idle' : 'alert', offWork.text))
-  if (found?.word === 'Paused' && (lane.suspended ?? null) !== null) what.append(el('p', `held${lane.suspended.isBack ? ' is-back' : ''}`, heldText(lane.suspended)))
+  if (found?.status === 'Paused' && (lane.suspended ?? null) !== null) what.append(el('p', `held${lane.suspended.isBack ? ' is-back' : ''}`, heldText(lane.suspended)))
   if (lane.state === 'waiting') {
     // B100: the lane opens what it waits for; the line is a button, so the keyboard reaches it too.
     const open = el('button', 'needs-you', 'Needs your decision')
@@ -3129,9 +3129,9 @@ function drawWorkers(state) {
  * current task ... show the advisor in the workers tab on the overview but distinct from the workers".
  */
 function advisorStanding(advisor) {
-  // Signals change 2: its one word, as a worker's lane says it (laneWord); a board without words reads its old state.
-  const found = laneWord(advisor)
-  return { key: found.key, label: wordLabel(found) }
+  // Signals change 2: its one status, as a worker's lane says it (laneStatus); a board without statuses reads its old state.
+  const found = laneStatus(advisor)
+  return { key: found.key, label: statusLabel(found) }
 }
 
 /**
@@ -3575,22 +3575,22 @@ function removalView(lane, main, now) {
   const what = task === null ? null
     : `"${task.text}"${Number.isInteger(task.step) && Number.isInteger(task.steps) ? `, step ${task.step} of ${task.steps}` : ''}`
   const reasons = []
-  const word = laneWord(lane)?.word ?? null
-  if (word === 'Working') {
+  const status = laneStatus(lane)?.status ?? null
+  if (status === 'Working') {
     reasons.push(what === null
       ? 'It is working. What it does stops at a safe point.'
       : `It is working on ${what}${lane.eta ? `, about ${span(lane.eta.leftMs)} left` : ''}. That task stops at a safe point: its work is committed and its branch stays for another worker.`)
   }
-  if (word === 'Waiting for you') reasons.push(`It waits for you${what === null ? '' : ` on ${what}`}: your answer would no longer be taken.`)
-  if (word === 'Paused') {
+  if (status === 'Waiting for you') reasons.push(`It waits for you${what === null ? '' : ` on ${what}`}: your answer would no longer be taken.`)
+  if (status === 'Paused') {
     const until = Number.isFinite(lane.suspended?.until) ? ` until ${clock(lane.suspended.until)}` : ''
     reasons.push(lane.suspended?.by === 'parked' ? `It is paused on purpose${what === null ? '' : ` with ${what}`}: that task would not go on.`
       : `It paused for the limit${until}${what === null ? '' : ` with ${what}`}: that task would not go on.`)
   }
-  if (word === 'Stopped') reasons.push(`It is stopped in the middle of ${what ?? 'its turn'}: that work would not be resumed.`)
-  if (word === 'Unknown') reasons.push('The board cannot tell what it is doing.')
+  if (status === 'Stopped') reasons.push(`It is stopped in the middle of ${what ?? 'its turn'}: that work would not be resumed.`)
+  if (status === 'Unknown') reasons.push('The board cannot tell what it is doing.')
   // B315: its chat is not running; the task its card names would not go on.
-  if (word === 'Not running' && what !== null) reasons.push(`It is not running, and its card still names ${what}: that task would not go on.`)
+  if (status === 'Not running' && what !== null) reasons.push(`It is not running, and its card still names ${what}: that task would not go on.`)
   const queue = lane.queue ?? []
   if (queue.length > 0) {
     const titles = queue.slice(0, 3).map(step => `"${step.title}"`).join(', ')
@@ -4171,9 +4171,9 @@ function decidedToggleText(view, isOpen) {
   return `${view.title} · ${view.count} ${isOpen ? '▾' : '›'}`
 }
 
-/** A lane's one word, with how old it is (chatword): the same text in every view. */
+/** A lane's one status, with how old it is (chatstatus): the same text in every view. */
 function laneStateText(lane) {
-  return wordLabel(laneWord(lane))
+  return statusLabel(laneStatus(lane))
 }
 // partner-answers:end
 
@@ -7174,15 +7174,15 @@ function clearedNote(line) {
 }
 
 /**
- * The words whose lane opens a window, and the chip it carries (the word itself): Working and Stopped; Paused for a lane the
- * limit or a note holds (or one that keeps a task); Not running for a lane whose card was left working. Any other word has none.
+ * The statuses whose lane opens a window, and the chip it carries (the status itself): Working and Stopped; Paused for a lane the
+ * limit or a note holds (or one that keeps a task); Not running for a lane whose card was left working. Any other status has none.
  */
 function laneWindowChip(lane) {
-  const found = laneWord(lane)
+  const found = laneStatus(lane)
   if (found === null) return undefined
-  if (found.word === 'Working' || found.word === 'Stopped') return found.word
-  if (found.word === 'Paused' && (lane.state === 'suspended' || (lane.task ?? null) !== null)) return found.word
-  if (found.word === 'Not running' && lane.state === 'off') return found.word
+  if (found.status === 'Working' || found.status === 'Stopped') return found.status
+  if (found.status === 'Paused' && (lane.state === 'suspended' || (lane.task ?? null) !== null)) return found.status
+  if (found.status === 'Not running' && lane.state === 'off') return found.status
   return undefined
 }
 
@@ -17557,7 +17557,7 @@ function drawTalk(state) {
   // B287: what it refines, beside its state.
   const refine = advisorRefine(state.backlog)
   fill($('talk-state'), [
-    advisor === null ? null : el('span', `pill is-${laneWord(advisor).key}`, laneStateText(advisor)),
+    advisor === null ? null : el('span', `pill is-${laneStatus(advisor).key}`, laneStateText(advisor)),
     advisor === null || refine === null ? null : el('span', `advisor-refine-state is-${refine.tone}`, refine.text),
     // A chat that does not run takes nothing: what is typed here waits until its chat is opened.
     // A chat that does not run takes nothing: the main chat is asked to start it when something is typed here.

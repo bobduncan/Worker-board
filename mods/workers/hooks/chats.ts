@@ -1,6 +1,6 @@
 // The parts of the chat list that need no engine: a chat's file, what a chat writes into it as it works, and what a
 // chat is shown as.
-import type { AfterStep, BoardRole, ChatFile, ChatList, ChatRole, ChatRow, ChatTask } from '../types'
+import type { AfterStep, BoardReading, BoardRole, BoardStatus, ChatFile, ChatList, ChatRole, ChatRow, ChatTask } from '../types'
 
 /** Where the chats of a project keep their files: one `<session id>.json` each. */
 export const CHATS_DIR = '.claude/chats'
@@ -172,7 +172,24 @@ export function parseList(text: string): ChatList | null {
     compactAtRest: l.compactAtRest !== false,
     // The supervisor (spec 2026-10-24): the chat cleared after every turn, also when the board does not answer in time.
     ...(typeof l.supervisor === 'string' && l.supervisor.trim() !== '' ? { supervisor: l.supervisor.trim() } : {}),
+    // 0.28.0: the Product owner's chat, so it is never taken for a worker when the board's answer names no role.
+    ...(typeof l.owner === 'string' && l.owner.trim() !== '' ? { owner: l.owner.trim() } : {}),
   }
+}
+
+/**
+ * 0.28.0: the Product owner as far as this chat knows it without the board's word: the list names it ("owner"), or the board
+ * named it earlier (`lastRole`). Never the main chat. The Product owner is compacted at rest and never cleared; without this
+ * a turn's end that carried no role (an older board) let it fall through to a worker's clear.
+ */
+export function isOwnerChat(list: ChatList | null, chat: { name: string; role: ChatRole } | null, lastRole: BoardRole | null = null): boolean {
+  if (lastRole === 'owner') return true
+  return list?.owner !== undefined && chat !== null && chat.role !== 'main' && chat.name.toLowerCase() === list.owner.toLowerCase()
+}
+
+/** 0.28.0: the role the board's answer names, else 'owner' where this chat is known to be the Product owner, else null. */
+export function roleOrOwner(answer: unknown, list: ChatList | null, chat: { name: string; role: ChatRole } | null, lastRole: BoardRole | null = null): BoardRole | null {
+  return roleFrom(answer) ?? (isOwnerChat(list, chat, lastRole) ? 'owner' : null)
 }
 
 /** The name and role a chat's title gives it in the list; null for a chat that is none of the project's. */
@@ -366,6 +383,117 @@ export function status(chat: ChatFile, all: readonly ChatFile[], now: number, of
   return { mark: '○', text: isOff ? NOT_RUNNING : 'free', isYours: false }
 }
 
+/** 2c: the board's statuses count as fresh this long after they arrived (the pane falls back to its own reading after). */
+export const STATUS_FRESH_MS = 120000
+/** 2c: an age is shown on a status only over this, as the board's page does (public/board.js AGE_SHOWN_MS). */
+export const AGE_SHOWN_MS = 10000
+
+/** 2c: what decides whether the pane draws the board's statuses, its own reading, or its own reading marked. */
+export type ReadingFacts = {
+  now: number
+  /** When this process began to look (its first read of the list): a fresh chat is not marked before 120 s. */
+  bootAt: number
+  /** When statuses last arrived; null before. */
+  statusesAt: number | null
+  /** When the board last answered a take WITHOUT statuses (an older board); null before. */
+  answeredAt: number | null
+  /** Whether this chat is in the list, and whether its project has a board (the board's file was read). */
+  isMember: boolean
+  isBoardKnown: boolean
+}
+
+/**
+ * 2c: which line the pane draws. "board": statuses arrived within 120 s. "plain": today's line with no mark: a chat that takes
+ * from no board (outside the list, or no board file), a process younger than 120 s, a board that answers without statuses (an
+ * older board). "unreached": none arrived for over 120 s (counted from the process's start when none ever did) and no board
+ * answered either: today's line, marked "(board not reached)". While a clear runs no take is made: nothing new arrives, which
+ * is fine within 120 s.
+ */
+export function boardReading(f: ReadingFacts): BoardReading {
+  if (f.statusesAt !== null && f.now - f.statusesAt <= STATUS_FRESH_MS) return 'board'
+  if (!f.isMember || !f.isBoardKnown) return 'plain'
+  if (f.now - Math.max(f.bootAt, f.statusesAt ?? -Infinity) <= STATUS_FRESH_MS) return 'plain'
+  if (f.answeredAt !== null && f.now - f.answeredAt <= STATUS_FRESH_MS) return 'plain'
+  return 'unreached'
+}
+
+/**
+ * 2c: the mark of a chat by the board's status: ● at work (◆ for the main chat), ◐ the person's turn, ◌ moving on without the
+ * person (the board is checking, handing or restarting it, or it is held, paused or stopped), ○ at rest or not running (◆ for a
+ * main chat at rest).
+ */
+export function statusMark(status: string, role: ChatRole): { mark: string; isYours: boolean } {
+  if (status === 'Waiting for you') return { mark: '◐', isYours: true }
+  if (status === 'Working') return { mark: role === 'main' ? '◆' : '●', isYours: false }
+  if (['Checking', 'Handing', 'Offered', 'Held', 'Did not answer', 'Paused', 'Restarting', 'Stopped'].includes(status)) return { mark: '◌', isYours: false }
+  if (role === 'main' && (status === 'Free' || status === 'Asleep')) return { mark: '◆', isYours: false }
+  return { mark: '○', isYours: false }
+}
+
+const pad = (n: number): string => String(n).padStart(2, '0')
+/** 2c: a length of time as the board's page words it: "25 s" under a minute, then "3 min", "1 h 05". */
+function ageSpan(ms: number): string {
+  if (ms < 60000) return `${Math.max(0, Math.round(ms / 1000))} s`
+  const minutes = Math.round(ms / 60000)
+  if (minutes < 60) return `${minutes} min`
+  const hours = Math.floor(minutes / 60)
+  if (hours >= 48) return `${Math.round(hours / 24)} days`
+  return minutes % 60 === 0 ? `${hours} h` : `${hours} h ${pad(minutes % 60)}`
+}
+
+/**
+ * 2c: the board's status as its page words it (public/board.js statusLabel): the status, its why (not for Unknown and
+ * Asleep, which carry theirs in the label), and how old the information is when over 10 s ("Working · 25 s ago"); Unknown
+ * always says "no report for N" (or "no report yet"), Asleep since when. The age is counted from `reportAt` on this clock.
+ */
+export function statusLabel(entry: BoardStatus, now: number): string {
+  const age = entry.reportAt === null ? null : Math.max(0, now - entry.reportAt)
+  if (entry.status === 'Unknown') return age !== null ? `Unknown · no report for ${ageSpan(age)}` : 'Unknown · no report yet'
+  if (entry.status === 'Asleep') return entry.since !== null ? `Asleep · since ${pad(new Date(entry.since).getHours())}:${pad(new Date(entry.since).getMinutes())}` : 'Asleep'
+  const parts = [entry.status]
+  if (entry.why !== null) parts.push(entry.why)
+  if (age !== null && age > AGE_SHOWN_MS) parts.push(`${ageSpan(age)} ago`)
+  return parts.join(' · ')
+}
+
+/** 2c: today's task text for a chat where its own line gives one: the task with its step and time, or the main chat's wait for workers. */
+export function taskPart(chat: ChatFile, all: readonly ChatFile[], now: number): string | null {
+  if (isRunning(chat, now)) {
+    if (chat.task === null) return null
+    const left = chat.state === 'asking' || chat.task.left === null ? null : Math.max(0, chat.task.left - (now - chat.at))
+    return taskText(chat.task, left)
+  }
+  if (chat.role === 'main') {
+    const busy = all.filter(other => other.role === 'worker' && isBusy(other, now)).length
+    return busy === 0 ? null : `waiting for ${busy} ${busy === 1 ? 'worker' : 'workers'}`
+  }
+  return chat.task === null ? null : taskText(chat.task, null)
+}
+
+/** 2c: the board facts the pane's lines need; `ChatsView` has them. */
+export type BoardFacts = { statuses?: readonly BoardStatus[]; reading?: BoardReading }
+
+/** 2c: one line of the pane: its mark, the words, whether the person is the one it waits for, whether to draw it bold, whether it is marked. */
+export type PaneLine = { mark: string; text: string; isYours: boolean; isBold: boolean; notReached: boolean }
+
+/**
+ * 2c (0.28.0): the pane's line for a chat. With fresh board statuses (`reading` "board") and one for this chat: its mark and
+ * isYours follow the board's status, the words are the status (· why · age) and then today's task text where there is one,
+ * bold for a status that needs attention (the board's tone), plain for the rest. Otherwise today's own reading (`status`), marked
+ * "(board not reached)" only when `reading` is "unreached".
+ */
+export function lineOf(chat: ChatFile, all: readonly ChatFile[], now: number, off: readonly string[] = [], board: BoardFacts = {}): PaneLine {
+  const reading = board.reading ?? 'plain'
+  const entry = reading === 'board' ? board.statuses?.find(one => one.name.toLowerCase() === chat.name.toLowerCase()) : undefined
+  if (entry === undefined) {
+    const own = status(chat, all, now, off)
+    return { ...own, isBold: own.isYours, notReached: reading === 'unreached' }
+  }
+  const { mark, isYours } = statusMark(entry.status, chat.role)
+  const task = taskPart(chat, all, now)
+  return { mark, text: task === null ? statusLabel(entry, now) : `${statusLabel(entry, now)}  ${task}`, isYours, isBold: entry.tone === 'attention', notReached: false }
+}
+
 /** B570: a version as the mod writes it, "0.17.0". */
 const VERSION = /^\d{1,4}(?:\.\d{1,4}){0,3}$/
 const numbers = (version: string): number[] => version.split('.').map(Number)
@@ -391,10 +519,10 @@ export function modNote(chat: ChatFile, all: readonly ChatFile[], now: number): 
 }
 
 /** A chat as one line of text. */
-export function chatLine(chat: ChatFile, all: readonly ChatFile[], now: number, off: readonly string[] = []): string {
-  const { mark, text } = status(chat, all, now, off)
+export function chatLine(chat: ChatFile, all: readonly ChatFile[], now: number, off: readonly string[] = [], board: BoardFacts = {}): string {
+  const { mark, text, notReached } = lineOf(chat, all, now, off, board)
   const mod = modNote(chat, all, now)
-  return `${mark} ${chat.name}  ${text}${mod === null || !mod.includes('restarts') ? '' : `  (${mod})`}`
+  return `${mark} ${chat.name}  ${text}${notReached ? '  (board not reached)' : ''}${mod === null || !mod.includes('restarts') ? '' : `  (${mod})`}`
 }
 
 /** The chats in the list's order: the main chat first, then the workers by name. */
@@ -420,9 +548,9 @@ export function uniqueByName<T extends ChatFile>(rows: readonly T[]): T[] {
 }
 
 /** The whole list as text, for the tool's answer. */
-export function chatsSummary(rows: readonly ChatRow[], now: number, off: readonly string[] = []): string {
+export function chatsSummary(rows: readonly ChatRow[], now: number, off: readonly string[] = [], board: BoardFacts = {}): string {
   if (rows.length === 0) return 'No chat is in the list yet.'
-  return orderChats(rows).map(row => chatLine(row, rows, now, off)).join('\n')
+  return orderChats(rows).map(row => chatLine(row, rows, now, off, board)).join('\n')
 }
 
 /**
@@ -483,7 +611,7 @@ export function compactWhy(chat: ChatFile, at: { tokens: number | null; above: n
 /** Clear after each step: the role the board's answer to a turn's end names; null when it names none. */
 export function roleFrom(answer: unknown): BoardRole | null {
   const role = typeof answer === 'object' && answer !== null ? (answer as { role?: unknown }).role : undefined
-  return role === 'main' || role === 'worker' || role === 'advisor' || role === 'helper' || role === 'supervisor' ? role : null
+  return role === 'main' || role === 'worker' || role === 'advisor' || role === 'owner' || role === 'helper' || role === 'supervisor' ? role : null
 }
 
 /**
@@ -508,7 +636,7 @@ export type ClearFacts = { role: BoardRole | null; isReported: boolean; isPaused
 export function clearWhy(f: ClearFacts): string | null {
   if (f.role === null) return 'the board did not say this chat is a worker'
   if (f.role === 'supervisor') return 'the supervisor\'s chat is cleared after every turn of its own, without a log'
-  if (f.role !== 'worker') return `the ${f.role === 'main' ? 'main chat' : f.role === 'advisor' ? 'partner' : 'partner\'s helper'} is never cleared`
+  if (f.role !== 'worker') return `the ${f.role === 'main' ? 'main chat' : f.role === 'advisor' ? 'partner' : f.role === 'owner' ? 'Product owner' : 'partner\'s helper'} is never cleared`
   if (!f.isReported) return 'its step is not reported'
   if (f.isPaused) return 'the person pauses the chats'
   if (f.isUnfiled) return 'its last answer asks the person something the board did not file as an ask'
@@ -530,6 +658,7 @@ export function asksPerson(answer: string): boolean {
 export function compactKeep(name: string, main: string, role: BoardRole = 'worker'): string {
   if (role === 'main') return keepMain(name)
   if (role === 'advisor' || role === 'helper') return keepPartner(name, main, role)
+  if (role === 'owner') return keepOwner(name, main)
   return `This chat is "${name}", a worker in a project where the main chat "${main}" queues the steps in the worker board's store and the board delivers them. `
     + 'Its step is reported (work report) and the next one comes later, so keep what the next step needs and drop the step by step of finished ones. Keep, in this order: '
     + `(1) who this chat is: its name ${name}, its role, and that it reports to ${main}; `
@@ -552,6 +681,19 @@ function keepMain(name: string): string {
     + '(4) what the person decided or asked for that is not done yet, in their own words, with the date, and the instructions still open (I<n>); '
     + '(5) every question or action it put to the person that is still open, word for word and with its number, so that an answer like "1 yes, 2 no" can still be read; '
     + '(6) what it promised the person or a worker to do next; '
+    + '(7) what it learned the hard way about this machine, the tools and the other chats.'
+}
+
+/** What the Product owner's compaction at rest keeps: its talks, the focus goal and what the person asked for. */
+function keepOwner(name: string, main: string): string {
+  return `This chat is "${name}", the person's Product owner on the worker board: it takes the person's talks first (brainstorms, "Change this goal", the Focus page's talk) and brings the person a goal when it starts and when it is ready; its job is in the board's roles/product-owner.md; "${main}" is the main chat. `
+    + 'It is compacted while it rests, so keep what its next request needs and drop the step by step of finished work. Keep, in this order: '
+    + `(1) who this chat is: its name ${name} and its role, and where its job is written; `
+    + '(2) the rules it works by: the working agreement, how answers to the person are written, and the work tool\'s actions it uses; '
+    + '(3) every talk still running, by its thread file and goal id: what was asked, the last Understood, and the proposal as it stands; '
+    + '(4) the focus goal: its id, its goal definition and its work blocks as agreed; '
+    + '(5) what the person decided or asked for that is not built yet, in their own words, with the date; '
+    + '(6) every question it put to the person that is still open, word for word and with its number; '
     + '(7) what it learned the hard way about this machine, the tools and the other chats.'
 }
 

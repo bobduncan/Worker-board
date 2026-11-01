@@ -2,7 +2,7 @@
 // The board is a page on this machine where the person answers the chats' requests; what they answer there is typed
 // into the chat it is for, as their own words. A chat only takes: nothing can be sent through the bridge.
 
-import type { BoardRole } from '../types'
+import type { BoardRole, BoardStatus } from '../types'
 
 /** The file the board writes in the project's folder while it runs: where it is, and the key for taking. */
 export const BOARD_FILE = '.claude/board.json'
@@ -34,7 +34,7 @@ export const REQUEST_HEADER = 'X-Work-Request'
  * chat that runs an older Workers mod than the one installed. The same as `version` in .claude-plugin/plugin.json.
  */
 export const MOD_HEADER = 'X-Workers-Mod'
-export const MOD_VERSION = '0.27.3'
+export const MOD_VERSION = '0.28.0'
 /** The longest text typed for the board: its own limit for an answer, with room for the request's name around it. */
 export const MOST_CHARS = 3000
 
@@ -110,7 +110,7 @@ export function parseWhoami(text: string): Whoami | null {
 
   return {
     name,
-    role: role === 'main' || role === 'worker' || role === 'advisor' || role === 'helper' || role === 'supervisor' ? role : null,
+    role: role === 'main' || role === 'worker' || role === 'advisor' || role === 'owner' || role === 'helper' || role === 'supervisor' ? role : null,
     card: typeof card === 'string' && /^[A-Za-z0-9_-]{1,120}$/.test(card) ? card : null,
     ...(supervisor === null ? {} : { supervisor }),
   }
@@ -121,10 +121,14 @@ export function parseWhoami(text: string): Whoami | null {
  * not typed; its id is in `refused`, so the board is told it did not arrive, and `why` says why (B532: "too long: 9459 >
  * 3000 characters"), so the board does not try it again and the page names the reason.
  */
-export function parseTaken(text: string): { messages: Taken[]; refused: string[]; why: Record<string, string>; clear: OwedClear | null; off: string[]; stop: StopAsk | null; handover: Envelope | null } {
+export function parseTaken(text: string): TakenAnswer {
   const raw = parsed(text)
-  const taken: { messages: Taken[]; refused: string[]; why: Record<string, string>; clear: OwedClear | null; off: string[]; stop: StopAsk | null; handover: Envelope | null } = { messages: [], refused: [], why: {}, clear: null, off: [], stop: null, handover: null }
+  const taken: TakenAnswer = { messages: [], refused: [], why: {}, clear: null, off: [], stop: null, handover: null, statuses: null, isAnswer: false }
   if (!isRecord(raw)) return taken
+  taken.isAnswer = true
+  // 2c (0.28.0): the board's status of every chat of its list (what its page draws), for the Workers pane. Null when the answer
+  // has none (an older board); fields not named here are ignored.
+  taken.statuses = parseStatuses(raw.statuses)
   // T8.5: a worker on the sequence: the envelope that waited for it (marked taken by the board): carried out now.
   taken.handover = parseEnvelope(raw.handover)
   // B769: the person stops this worker's task or removes it: told at its next tool call and its next prompt.
@@ -151,6 +155,51 @@ export function parseTaken(text: string): { messages: Taken[]; refused: string[]
   }
 
   return taken
+}
+
+/** What the board's answer to a take holds, as the mod reads it. */
+export type TakenAnswer = {
+  messages: Taken[]
+  refused: string[]
+  why: Record<string, string>
+  clear: OwedClear | null
+  off: string[]
+  stop: StopAsk | null
+  handover: Envelope | null
+  /** 2c: the board's statuses, or null when the answer carries none. */
+  statuses: BoardStatus[] | null
+  /** 2c: whether the answer was a board's (a JSON object) at all. */
+  isAnswer: boolean
+}
+
+/** 2c: the most statuses kept, and the longest name, status and why. */
+export const STATUSES_MOST = 50
+const finiteOrNull = (value: unknown): number | null => (typeof value === 'number' && Number.isFinite(value) ? value : null)
+
+/**
+ * 2c (0.28.0): the `statuses` of the board's answer to a take: `{ name, status, why, tone, since, reportAt }` per chat, at
+ * most 50, a name up to 80 characters, a status up to 40, a why up to 120, the tone quiet or attention, the times finite
+ * numbers or null. An entry without a name or a status is left out; anything else in an entry is ignored. Null for no list.
+ */
+export function parseStatuses(raw: unknown): BoardStatus[] | null {
+  if (!Array.isArray(raw)) return null
+  const out: BoardStatus[] = []
+  for (const one of raw) {
+    if (!isRecord(one) || typeof one.name !== 'string' || typeof one.status !== 'string') continue
+    const name = one.name.trim()
+    const status = one.status.trim()
+    if (name === '' || name.length > 80 || status === '' || status.length > 40) continue
+    out.push({
+      name,
+      status,
+      why: typeof one.why === 'string' && one.why.trim() !== '' ? one.why.trim().slice(0, 120) : null,
+      tone: one.tone === 'attention' ? 'attention' : 'quiet',
+      since: finiteOrNull(one.since),
+      reportAt: finiteOrNull(one.reportAt),
+    })
+    if (out.length >= STATUSES_MOST) break
+  }
+  return out
 }
 
 /** B769: the person's Stop task or Remove worker for this chat, as the board's take names it. */

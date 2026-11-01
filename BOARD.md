@@ -51,7 +51,7 @@ A dark dashboard: dark blue panels with thin borders on an almost black page, wh
 
 - **Type:** 15 px "Segoe UI", system-ui, sans-serif, line height 1.4; headings 17 to 30 px bold; small notes 12.5 to
   13.5 px muted; code and branches in a monospace font.
-- **Shapes:** panels with a 1 px `--line` border and 10 px corners; pills (a state word on its colour, 999 px
+- **Shapes:** panels with a 1 px `--line` border and 10 px corners; pills (a status on its colour, 999 px
   round); count pills (a coloured dot and a number in an outlined box); buttons 7 px round, the main one filled
   `--free`, the others outlined; windows as centred dialogs over a dimmed page, with a × at the top right.
 - **Spacing:** 14 to 18 px inside panels, 8 to 12 px between items; lanes as table rows with a 1 px rule.

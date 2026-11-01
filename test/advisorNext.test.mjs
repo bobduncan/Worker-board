@@ -222,7 +222,7 @@ function pageWith() {
   const host = new Node('div')
   const page = { document: { createElement: tag => new Node(tag) }, problems: new Map(), sending: new Set(), board: null, host, drawn: 0 }
   vm.runInNewContext([
-    'const MIN = 60000', cut('times'), cut('chatword'), cut('askstand'), cut('advisorlane'), source('el'), source('advisorProgress'), source('drawAdvisorLane'),
+    'const MIN = 60000', cut('times'), cut('chatstatus'), cut('askstand'), cut('advisorlane'), source('el'), source('advisorProgress'), source('drawAdvisorLane'),
     'const $ = () => host', 'host.querySelector = selector => { assert.equal(selector, "[data-advisor-next]"); return all(host, node => node.dataset.advisorNext !== undefined)[0] ?? null }',
     "const drawHelperCard = () => null, drawOwnerCard = () => null, icon = () => document.createElement('svg'), runChipOf = () => null, drawRunChip = () => null, advisorRefine = () => null",
     "const drawEta = () => document.createElement('div'), taskTitle = () => document.createElement('p')",

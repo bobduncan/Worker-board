@@ -810,6 +810,99 @@ describe('what the person answers on the worker board reaches the chat it is for
     expect(await cleanup()).toBe('○ Cleanup  free')
   })
 
+  /** 2c (0.28.0): the pane with `listed()` chats Units (this chat) and Cleanup, the board's take answers by hand. */
+  async function paneWorld($: Engine, on: On, now = 1000): Promise<{ w: World; clock: ReturnType<typeof mock.clock>; ui: Awaited<ReturnType<Engine['ui']['mount']>>; text: (name: string) => Promise<string | undefined> }> {
+    const clock = mock.clock(on, { now })
+    const w = world('units', { ...listed({
+      units: { name: 'Units', role: 'worker', state: 'waiting', task: null, at: 0 },
+      cleanup: { name: 'Cleanup', role: 'worker', state: 'waiting', task: null, at: 0 },
+    }), [BOARD]: board })
+    stand(on, w)
+    await startedAs($, w, 'Units')
+    const ui = await $.ui.mount({ plugin: 'workers', surface: 'desktop', ...PANE })
+    const text = async (name: string): Promise<string | undefined> => {
+      for (let i = 0; i < 10; i++) await settle()
+      return (await ui.find(lineOf(name)))?.text
+    }
+    return { w, clock, ui, text }
+  }
+  const answer = (statuses: unknown[] | null): { status: number; text: string } => ({ status: 200, text: JSON.stringify(statuses === null ? { messages: [] } : { messages: [], statuses }) })
+  const status = (name: string, statusName: string, more: Record<string, unknown> = {}): Record<string, unknown> => ({ name, status: statusName, why: null, tone: 'quiet', since: null, reportAt: 0, ...more })
+
+  test('2c: the pane shows the board\'s status per chat, the tone bold, and the chat tool\'s list says the same', async ($, on) => {
+    const { w, clock, ui, text } = await paneWorld($, on, 100_000)
+    expect(await text('Cleanup')).toBe('○ Cleanup  free')
+    w.takeAnswers.push(answer([status('Units', 'Working', { reportAt: 80_000 }), status('Cleanup', 'Not running', { tone: 'attention', why: 'its chat is closed', reportAt: 80_000 })]))
+    await clock.advance(5000)
+    expect(await text('Cleanup')).toBe('○ Cleanup  Not running · its chat is closed · 25 s ago')
+    expect(await text('Units')).toBe('● Units  Working · 25 s ago')
+    // The attention line is bold; the quiet one is plain.
+    const boldOf = async (name: string): Promise<unknown> => {
+      const line = await ui.find(lineOf(name)) as { children?: Array<{ props?: { bold?: boolean } } | string> } | undefined
+      return line?.children?.filter((child): child is { props?: { bold?: boolean } } => typeof child !== 'string').at(-1)?.props?.bold
+    }
+    expect(await boldOf('Cleanup')).toBe(true)
+    expect(await boldOf('Units')).toBe(false)
+    // The models read the same words.
+    const listed = (await $.tool.call({ tool: 'mcp__workers__chat', action: 'list' } as never)).result as string
+    expect(listed).toContain('○ Cleanup  Not running · its chat is closed')
+    expect(listed).toContain('● Units  Working')
+  })
+
+  test('2c: after 120 s with no statuses the pane reads its own files again and marks the line; a fresh process is not marked', async ($, on) => {
+    const { w, clock, ui, text } = await paneWorld($, on)
+    // The board answers nothing for a while (down): a fresh process (under 120 s) shows today's line, no mark.
+    for (let i = 0; i < 10; i++) w.takeAnswers.push({ status: 503, text: 'down' })
+    await clock.advance(30000)
+    expect(await text('Cleanup')).toBe('○ Cleanup  free')
+    // A board that comes back with statuses is shown; then it goes down: the statuses stand 120 s, then the pane's own reading, marked.
+    w.takeAnswers.length = 0
+    w.takeAnswers.push(answer([status('Cleanup', 'Asleep', { since: new Date(2026, 10, 1, 9, 5).getTime() })]))
+    await clock.advance(5000)
+    expect(await text('Cleanup')).toBe('○ Cleanup  Asleep · since 09:05')
+    for (let i = 0; i < 40; i++) w.takeAnswers.push({ status: 503, text: 'down' })
+    await clock.advance(100000)
+    expect(await text('Cleanup')).toBe('○ Cleanup  Asleep · since 09:05')
+    await clock.advance(30000)
+    expect(await text('Cleanup')).toBe('○ Cleanup  free  (board not reached)')
+    expect(await ui.find({ type: 'Text', text: /\(board not reached\)/ })).toBeDefined()
+    // The board answers again: the mark goes.
+    w.takeAnswers.length = 0
+    w.takeAnswers.push(answer([status('Cleanup', 'Free', { reportAt: 1_000_000 })]))
+    await clock.advance(10000)
+    expect((await text('Cleanup'))?.includes('board not reached')).toBe(false)
+  })
+
+  test('2c: a board that answers without statuses (an older board) gives today\'s line with no mark, however long', async ($, on) => {
+    const { clock, text } = await paneWorld($, on)
+    await clock.advance(200000)
+    expect(await text('Cleanup')).toBe('○ Cleanup  free')
+    expect(await text('Units')).not.toContain('board not reached')
+  })
+
+  test('2c: a chat outside the list takes nothing and its pane has no mark', async ($, on) => {
+    const clock = mock.clock(on, { now: 1000 })
+    const w = world('other', { ...listed({ units: { name: 'Units', role: 'worker', state: 'waiting', task: null, at: 0 } }), [BOARD]: board })
+    stand(on, w)
+    await startedAs($, w, null)
+    const ui = await $.ui.mount({ plugin: 'workers', surface: 'desktop', ...PANE })
+    await clock.advance(300000)
+    for (let i = 0; i < 10; i++) await settle()
+    expect(w.fetched).toEqual([])
+    expect((await ui.find(lineOf('Units')))?.text).toBe('○ Units  free')
+  })
+
+  test('2c: while a clear runs no take goes out and the statuses stand for 120 s', async ($, on) => {
+    const { w, clock, text } = await paneWorld($, on)
+    w.takeAnswers.push(answer([status('Cleanup', 'Held', { tone: 'attention', why: 'its clear did not run', reportAt: 80_000 })]))
+    await clock.advance(5000)
+    expect(await text('Cleanup')).toContain('Held · its clear did not run')
+    // The board is not asked for 100 s (a clear on its way takes only reports): the statuses are still the board's.
+    for (let i = 0; i < 40; i++) w.takeAnswers.push({ status: 503, text: 'down' })
+    await clock.advance(100000)
+    expect(await text('Cleanup')).toContain('Held · its clear did not run')
+  })
+
   test('B566 (X21): a take the board never answers gives up after 15 s; the next take hands the chat its word', async ($, on) => {
     const clock = mock.clock(on)
     const w = world('units', { ...listed(), [BOARD]: board })
@@ -3008,6 +3101,84 @@ describe('clear after each step', () => {
     expect(w.reports.slice(1).map(saidBody)).toEqual(Array(3).fill({ chat: 'Units', session: 'units', report: { state: 'idle', since: 0, background: false } }))
   })
 
+  test('2c: while a clear runs no take goes out; the pane keeps the board\'s status it had (up to 120 s), unmarked', async ($, on) => {
+    const clock = mock.clock(on, { now: 100_000 })
+    const w = await worker($, on)
+    const ui = await $.ui.mount({ plugin: 'workers', surface: 'desktop', ...PANE })
+    w.takeAnswers.push({ status: 200, text: JSON.stringify({ messages: [], statuses: [{ name: 'Units', status: 'Handing', why: null, tone: 'quiet', since: null, reportAt: 100_000 }] }) })
+    await clock.advance(5000)
+    for (let i = 0; i < 10; i++) await settle()
+    expect((await ui.find(lineOf('Units')))?.text).toContain('Handing')
+    await $.turn.complete({ ...ENDED, turnId: 't1' })
+    await wait(50)
+    expect(w.commanded).toEqual(['/clear by plugin workers'])
+    const takes = w.fetched.filter(one => one.url.endsWith('/api/bridge/take')).length
+    for (let i = 0; i < 12; i++) {
+      await clock.advance(5000)
+      await settle()
+    }
+    expect(w.fetched.filter(one => one.url.endsWith('/api/bridge/take')).length).toBe(takes)
+    // A minute on, with no take: still the board's status of a moment ago, no mark.
+    const text = (await ui.find(lineOf('Units')))?.text ?? ''
+    expect(text).toContain('Handing')
+    expect(text).not.toContain('board not reached')
+  })
+
+  describe('0.28.0: the Product owner is never treated as a worker at a turn\'s end', () => {
+    const OWNER_LIST = '{ "prefix": "Game - ", "main": "Main", "afterStep": "clear", "compactAbove": 150000, "owner": "Product owner" }'
+    /** The Product owner's chat at the end of a turn in which it reported a step; the board's answer names no role (an older board). */
+    async function owner($: Engine, on: On, list: string, ended: Record<string, unknown>): Promise<World> {
+      mock.clock(on)
+      const w = world('owner', { [`${CHATS}/list.json`]: `${list}\n`, [BOARD]: board })
+      stand(on, w)
+      w.tokens = 400_000
+      w.byAction = { 'turn-ended': ok(ended), report: ok({ id: 'B12', text: 'in', more: null }), 'save-log': ok({ text: `Saving the conversation to ${FILE}.`, log: LOG, file: FILE }) }
+      await startedAs($, w, 'Product owner')
+      await $.turn.start({ text: 'the talk', turnId: 't1' })
+      await $.tool.call({ tool: WORK, action: 'report', id: 'B12', result: 'it is in' } as never)
+      await $.turn.complete({ ...ENDED, turnId: 't1' })
+      await wait(50)
+      return w
+    }
+
+    test('the list names it: with no role in the board\'s answer it is compacted at rest with its own keep text, never cleared, no log', async ($, on) => {
+      const w = await owner($, on, OWNER_LIST, { missed: [], open: [], pause: RUNNING })
+      expect(w.commanded).toEqual([])
+      expect(w.sequence).not.toContain('save-log')
+      expect(w.compactions.length).toBe(1)
+      expect(w.compactions[0]).toContain('the person\'s Product owner on the worker board')
+    })
+
+    test('the board named it before: a later answer with no role still does not make it a worker', async ($, on) => {
+      mock.clock(on)
+      const w = world('owner', { [`${CHATS}/list.json`]: '{ "prefix": "Game - ", "main": "Main", "afterStep": "clear", "compactAbove": 150000 }\n', [BOARD]: board })
+      stand(on, w)
+      w.tokens = 400_000
+      w.byAction = { 'turn-ended': ok({ missed: [], open: [], role: 'owner', pause: RUNNING }), report: ok({ id: 'B12', text: 'in', more: null }) }
+      await startedAs($, w, 'Product owner')
+      await $.turn.start({ text: 'the talk', turnId: 't1' })
+      await $.turn.complete({ ...ENDED, turnId: 't1' })
+      await wait(50)
+      expect(w.commanded).toEqual([])
+      w.byAction['turn-ended'] = ok({ missed: [], open: [], pause: RUNNING })
+      w.tokens = 400_000
+      await $.turn.start({ text: 'the next talk', turnId: 't2' })
+      await $.tool.call({ tool: WORK, action: 'report', id: 'B12', result: 'it is in' } as never)
+      await $.turn.complete({ ...ENDED, turnId: 't2' })
+      await wait(50)
+      expect(w.commanded).toEqual([])
+      expect(w.sequence).not.toContain('save-log')
+    })
+
+    test('a worker stays a worker: no role from the board and no "owner" in the list clears it after its step, as before', async ($, on) => {
+      const w = await owner($, on, '{ "prefix": "Game - ", "main": "Main", "afterStep": "clear" }', { missed: [], open: [], pause: RUNNING })
+      // The board did not say this chat is a worker: not cleared (compacted instead), exactly as 0.27.x did.
+      expect(w.commanded).toEqual([])
+      expect(w.compactions.length).toBe(1)
+      expect(w.compactions[0]).not.toContain('Product owner on the worker board')
+    })
+  })
+
   test('the model cannot ask for the log itself', async ($, on) => {
     mock.clock(on)
     const w = await worker($, on)
@@ -3613,7 +3784,7 @@ describe('2026-10-28: a chat learns which chat it is from the board, by its sess
       expect(startsWith(w, 0, 'This chat is "Game - Units", a worker')).toBe(true)
     })
 
-    for (const [role, name, kind] of [['main', 'Main', 'main'], ['advisor', 'Advisor', 'worker'], ['helper', 'Advisor 2', 'worker'], ['supervisor', 'Supervisor', 'worker']] as const) {
+    for (const [role, name, kind] of [['main', 'Main', 'main'], ['advisor', 'Advisor', 'worker'], ['owner', 'Product owner', 'worker'], ['helper', 'Advisor 2', 'worker'], ['supervisor', 'Supervisor', 'worker']] as const) {
       test(`the ${role} chat: the card moves, and no start's words are given`, async ($, on) => {
         const clock = mock.clock(on)
         const w = fresh(cardOf(name, kind), { name, role, card: 'old-id' }, 'new-id', 'old-id')
