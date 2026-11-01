@@ -661,7 +661,9 @@ function drawCodeJobs(state) {
   const note = codeJobsNote(jobs)
   $('code-jobs-note').hidden = note === null
   if (note !== null) $('code-jobs-note-text').textContent = note
-  $('code-jobs').hidden = jobs === null
+  // 2026-11-01 (the person: "remove this from the settings, just the visual"): the list shows only while a job still
+  // waits for the person's allow (the note's "Set it up" leads here); when the board does them all by itself, nothing.
+  $('code-jobs').hidden = jobs === null || note === null
   if (jobs === null) return
   once('code-jobs', [jobs.rows, jobs.missing, jobs.taskLine, jobs.checked], () => {
     fill($('code-job-list'), codeJobLines(jobs).map(line => {

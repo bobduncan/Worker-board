@@ -243,3 +243,19 @@ test('T12: the page names the workers that have no routine yet, and the button k
     } finally { await none.close() }
   } finally { await page.close() }
 })
+
+test('2026-11-01 (the person: "remove this from the settings, just the visual"): the jobs list shows only while a job waits for an allow', async () => {
+  const { openPage } = await import('./pageHarness.mjs')
+  const { asSent, build } = await import('./partnerState.mjs')
+  const done = { rows: [{ key: 'wake', title: 'Wake, start and resume chats', byCode: true, why: null }], missing: [], needsTask: false, missingRoutines: [], checked: null, canAllow: true, taskLine: null }
+  const all = await openPage({ state: { ...asSent(build([])), codeJobs: done } })
+  try {
+    assert.equal(all.find('#code-jobs').hidden, true)
+  } finally { await all.close() }
+  const lacking = { ...done, rows: [{ ...done.rows[0], byCode: false, why: SEND_WHY }], missing: ['mcp__ccd_session_mgmt__send_message'] }
+  const open = await openPage({ state: { ...asSent(build([])), codeJobs: lacking } })
+  try {
+    assert.equal(open.find('#code-jobs').hidden, false)
+    assert.equal(open.find('#code-jobs-allow').hidden, false)
+  } finally { await open.close() }
+})
