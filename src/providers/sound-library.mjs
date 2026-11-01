@@ -8,15 +8,27 @@ import { isAbsolute, join, relative } from 'node:path'
 export const SOUND_FILES = /\.(wav|mp3|ogg|flac)$/i
 /** How deep into the library's folders a sound is looked for. */
 const DEPTH = 4
+/** The count stops here: a library this big is "10,000+ sounds" and counting on would only make the check slow. */
+export const COUNT_STOP = 10_000
 
-/** Whether `folder` holds a sound file, in itself or in a folder inside it (at most DEPTH deep). */
-async function hasSound(folder, depth = 0) {
+/**
+ * How many sound files `folder` holds, in itself and in the folders inside it (at most DEPTH deep), counted up to `stop`.
+ * `seen.count` is the running count, so the folders below add to it.
+ */
+async function countSounds(folder, seen, depth = 0) {
   const entries = await readdir(folder, { withFileTypes: true })
-  if (entries.some(entry => entry.isFile() && SOUND_FILES.test(entry.name))) return true
-  if (depth >= DEPTH) return false
-  for (const entry of entries) if (entry.isDirectory() && await hasSound(join(folder, entry.name), depth + 1)) return true
-  return false
+  for (const entry of entries) {
+    if (entry.isFile() && SOUND_FILES.test(entry.name) && ++seen.count >= COUNT_STOP) return
+  }
+  if (depth >= DEPTH) return
+  for (const entry of entries) {
+    if (seen.count >= COUNT_STOP) return
+    if (entry.isDirectory()) await countSounds(join(folder, entry.name), seen, depth + 1)
+  }
 }
+
+/** The count as the card's words: "347 sounds found", "10,000+ sounds found". */
+const found = count => (count >= COUNT_STOP ? `${COUNT_STOP.toLocaleString('en-US')}+ sounds found` : `${count.toLocaleString('en-US')} ${count === 1 ? 'sound' : 'sounds'} found`)
 
 export const soundLibrary = {
   name: 'sound-library',
@@ -24,21 +36,26 @@ export const soundLibrary = {
   kinds: ['sound effect'],
   /** The library's folder inside the project, written with /, when the settings name none. Only this provider has one. */
   folder: 'sound-library',
+  card: { title: 'Free library', line: 'Sonniss game-audio bundles on this PC', facts: ['Free · commercial use', 'You pick on the sound board'], icon: 'library' },
   /**
-   * Whether the library's folder (`tools.folder`, inside `tools.project`) is there and holds a sound file. It makes
-   * nothing and never throws.
+   * Whether the library's folder (`tools.folder`, inside `tools.project`) is there and holds a sound file; `detail` counts
+   * the sound files (up to COUNT_STOP). It makes nothing and never throws.
    */
   async check({ project = '', folder = soundLibrary.folder } = {}) {
-    if (typeof project !== 'string' || project === '') return { ok: false, why: 'config.json names no project' }
+    if (typeof project !== 'string' || project === '') return { ok: false, state: 'needs', why: 'config.json names no project', detail: 'No project set' }
     const path = join(project, ...String(folder).split('/'))
     const out = relative(project, path)
-    if (out === '' || out.startsWith('..') || isAbsolute(out)) return { ok: false, why: `The sound library folder "${folder}" is not inside the project` }
+    if (out === '' || out.startsWith('..') || isAbsolute(out)) return { ok: false, state: 'needs', why: `The sound library folder "${folder}" is not inside the project`, detail: 'Folder is outside the project' }
     try {
-      return (await hasSound(path))
-        ? { ok: true, why: `The sound library folder "${folder}" holds sounds` }
-        : { ok: false, why: `The sound library folder "${folder}" holds no sound file (.wav, .mp3, .ogg, .flac)` }
+      const seen = { count: 0 }
+      await countSounds(path, seen)
+      return seen.count > 0
+        ? { ok: true, state: 'works', why: `The sound library folder "${folder}" holds sounds`, detail: found(seen.count) }
+        : { ok: false, state: 'needs', why: `The sound library folder "${folder}" holds no sound file (.wav, .mp3, .ogg, .flac)`, detail: 'No sounds found' }
     } catch (error) {
-      return { ok: false, why: error?.code === 'ENOENT' || error?.code === 'ENOTDIR' ? `The sound library folder "${folder}" is not there` : `The sound library folder "${folder}" could not be read` }
+      return error?.code === 'ENOENT' || error?.code === 'ENOTDIR'
+        ? { ok: false, state: 'needs', why: `The sound library folder "${folder}" is not there`, detail: 'Folder not found' }
+        : { ok: false, state: 'needs', why: `The sound library folder "${folder}" could not be read`, detail: 'Folder not readable' }
     }
   },
 }

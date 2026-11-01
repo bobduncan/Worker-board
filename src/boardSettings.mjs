@@ -7,6 +7,7 @@
 // `rebuildsApproved`. The recaps of finished work (B360) go where Autopilot says (`recapsShowOf`).
 
 import { DEFAULTS } from './config.mjs'
+import { ASSET_KINDS, PROVIDERS } from './providers/index.mjs'
 
 /** B-max: the panel's range for `maxWorkers` (the page's stepper in public/board.js stops at the same ends). */
 export const MAX_WORKERS_RANGE = Object.freeze([1, 10])
@@ -39,10 +40,24 @@ export function panelSettings(config, { canSet = true, whyNot = null } = {}) {
 
 const refused = (status, why) => ({ ok: false, status, why })
 
+/**
+ * Asset providers (spec 2026-11-01, part A): the value of the setting "providers" is `{ kind, provider }`, one kind switched
+ * to a provider that serves it. { ok, key: 'providers', value } or { ok: false, status, why }.
+ */
+function checkProvider(value) {
+  const kind = value?.kind
+  const name = value?.provider
+  if (typeof kind !== 'string' || !ASSET_KINDS.includes(kind)) return refused(400, `providers takes a kind: ${ASSET_KINDS.join(', ')}.`)
+  if (typeof name !== 'string' || PROVIDERS[name] === undefined) return refused(400, 'providers takes a provider the board knows.')
+  if (!PROVIDERS[name].kinds.includes(kind)) return refused(400, `${name} does not serve ${kind}.`)
+  return { ok: true, key: 'providers', value: { kind, provider: name } }
+}
+
 /** A setting the panel sends checked: { ok, key, value } or { ok: false, status, why }. */
 export function checkSetting(body) {
   const key = body?.key
   if (key === 'botherMe') return refused(400, BOTHER_ME_REMOVED)
+  if (key === 'providers') return checkProvider(body?.value)
   if (typeof key !== 'string' || !Object.hasOwn(PANEL_SETTINGS, key)) return refused(400, 'Send key "approveRebuilds", "routingMode", "maxWorkers" or "autopilot".')
   const value = body?.value
   if (key === 'maxWorkers') return isWorkerCount(value) ? { ok: true, key, value } : refused(400, `maxWorkers takes a whole number from ${MAX_WORKERS_RANGE[0]} to ${MAX_WORKERS_RANGE[1]}.`)
@@ -65,7 +80,14 @@ export function settingChanged(text, key, value) {
     return refused(409, 'The settings file config.json is broken: fix it first.')
   }
   if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) return refused(409, 'The settings file config.json holds no settings object: fix it first.')
-  if (key === 'routingMode') {
+  if (key === 'providers') {
+    if (raw.providers !== undefined && (raw.providers === null || typeof raw.providers !== 'object' || Array.isArray(raw.providers))) return refused(409, 'The "providers" setting is unreadable; correct it before switching a provider.')
+    const before = raw.providers?.[value.kind]
+    const was = typeof before === 'string' ? { provider: before } : before
+    // The folder of the kind stays when the provider stays and has one (the sound library's); a new provider starts at its own default.
+    const folder = was?.provider === value.provider && typeof was.folder === 'string' && PROVIDERS[value.provider].folder !== undefined ? was.folder : undefined
+    raw.providers = { ...raw.providers, [value.kind]: folder === undefined ? value.provider : { provider: value.provider, folder } }
+  } else if (key === 'routingMode') {
     if (raw.routing !== undefined && (raw.routing === null || typeof raw.routing !== 'object' || Array.isArray(raw.routing))) return refused(409, 'Routing policy is unreadable; correct it before changing mode.')
     raw.routing = { ...raw.routing, mode: value }
   } else raw[key] = value

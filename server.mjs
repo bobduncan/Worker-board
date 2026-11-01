@@ -37,7 +37,7 @@ import { findCodex, makePicture } from './src/codex.mjs'
 import { checkSetting, panelSettings, rebuildsApproved, settingChanged } from './src/boardSettings.mjs'
 import { mainAskWords } from './src/work/autopilot.mjs'
 import { cpuLimiter, logicalCores, sessionsOfCards } from './src/cpu.mjs'
-import { BrokenConfig, configProblem, firstStart, followApp, isOwnWork, loadConfig, ownMapNow, projectFile, workFolder } from './src/config.mjs'
+import { BrokenConfig, configProblem, readProviders, firstStart, followApp, isOwnWork, loadConfig, ownMapNow, projectFile, workFolder } from './src/config.mjs'
 import { REFERENCE_BYTES, ideasFolder, referencesFolder, checkDesign, designActivity, designState, picturesActivity, inTurn, parseDesignSettings, promptFor } from './src/design.mjs'
 import { bugsState, fileBug, waitingFolder } from './src/bugs.mjs'
 import { ideasFile, ideasOver, placeReferences } from './src/ideas.mjs'
@@ -80,7 +80,9 @@ import { backgroundRunning, parseTail, readTail } from './src/transcript.mjs'
 import { modAtLeast } from './src/clearOwed.mjs'
 import { ARCHIVE_MOD, archiveJobId, archivedBy, hasNothingUncommitted, replacedChats } from './src/replacedChats.mjs'
 import { keptReadingsOf, newestPerWindow, readingOfAnswer } from './src/limits.mjs'
-import { checkProviders } from './src/providers/index.mjs'
+import { providerCards, mayUse as mayUseProvider, verifyOne, checkKey } from './src/providers/choose.mjs'
+import { KEY_VARIABLE, keyChecked, saveKey } from './src/providers/elevenlabs-key.mjs'
+import { ASSET_KINDS, PROVIDERS, checkProvidersFull } from './src/providers/index.mjs'
 import { buildState, fullStepOf, lightState } from './src/state.mjs'
 import { handedWithStatuses } from './src/chatStatus.mjs'
 import { withRefineQueue } from './src/work/advisorWork.mjs'
@@ -244,6 +246,8 @@ export const POST_ROUTES = Object.freeze({
   // B860: the person's feedback on a goal demo's parts: feedback.json beside the demo, words on its step, one word to the partner.
   '/api/demo-feedback': { kind: 'json', guard: 'lock' },
   '/api/settings': { kind: 'json', guard: 'lock' },
+  // Asset providers (spec 2026-11-01, part A): Verify, use and the key of a provider, on the Settings tab.
+  '/api/providers': { kind: 'json', guard: 'lock' },
   '/api/game': { kind: 'json', guard: 'free', why: 'starts or stops a game process of this board\'s own; writes nothing of the project' },
   '/api/cpu': { kind: 'json', guard: 'free', why: 'the CPU level kept in this board folder\'s own data, not the project\'s' },
   // B767: the setup check's Allow: the missing tool rules into the project's own settings, on the person's click.
@@ -298,6 +302,8 @@ export function createBoard({
   cpu = async () => ({ ok: false, status: 404, why: 'Not here.' }),
   codeJobs = async () => ({ ok: false, status: 404, why: 'Not here.' }),
   settings = async () => ({ ok: false, status: 404, why: 'Not here.' }),
+  providers = async () => ({ ok: false, status: 404, why: 'Not here.' }),
+  providerList = async () => [],
   newProject = async () => ({ ok: false, status: 404, why: 'Not here.' }),
   recap = async () => ({ ok: false, status: 404, why: 'Not here.' }),
   step = async () => null,
@@ -389,7 +395,8 @@ export function createBoard({
       return kept.ok ? json(res, kept.result) : refuse(res, kept.status, kept.why)
     }
 
-    if (routeKind(pathname) === 'json') {
+    // /api/providers is both: GET reads the Settings tab's cards, POST changes a provider.
+    if (routeKind(pathname) === 'json' && !(pathname === '/api/providers' && req.method === 'GET')) {
       // Three things another website's page cannot do: know the token, carry this origin, and send JSON unasked.
       const maySend = mayUse && req.headers.origin === `http://${self}`
       const isJson = /^application\/json\s*(;|$)/i.test(req.headers['content-type'] ?? '')
@@ -443,6 +450,10 @@ export function createBoard({
       }
       if (pathname === '/api/settings') {
         const done = await settings(parsed)
+        return done.ok ? json(res, done.result) : refuse(res, done.status, done.why)
+      }
+      if (pathname === '/api/providers') {
+        const done = await providers(parsed)
         return done.ok ? json(res, done.result) : refuse(res, done.status, done.why)
       }
       if (pathname === '/api/new-project') {
@@ -503,6 +514,11 @@ export function createBoard({
       if (!STEP_KEY.test(key)) return refuse(res, 400, 'A step\'s id, as B12.')
       const row = await step(key)
       return row === null ? refuse(res, 404, `No step ${key} on the board.`) : json(res, row)
+    }
+    // Asset providers (spec 2026-11-01, part A): the cards of the Settings tab, each kind with its providers and last checks.
+    if (pathname === '/api/providers') {
+      if (!mayUse) return refuse(res, 403, 'Only the board\'s own page may read.')
+      return json(res, await providerList())
     }
     // B579: a day of the Backlog tab's Completed by day, with its recap (src/dayRecap.mjs).
     if (pathname === '/api/recap') {
@@ -1531,8 +1547,15 @@ async function main(args) {
   // T9.3 part 1 (spec 2026-10-25): whether the provider of each kind of asset can work now (src/providers), checked at
   // the start and every 10 minutes, not at every refresh; the state carries the last answer. The demo has none.
   let providers = []
+  // Spec 2026-11-01, part A: the last check of each provider the Settings tab asked about, in memory, keyed `${kind}|${name}`
+  // (src/providers/choose.mjs). The loop's checks of the providers in use land here too.
+  const providerChecks = new Map()
+  const providerTools = () => ({ project: config.project, codexPath: settings.codex })
   const lookAtProviders = () => loops.run('providers', async () => {
-    providers = await checkProviders(config, { project: config.project, codexPath: settings.codex })
+    const rows = await checkProvidersFull(config, providerTools())
+    providers = rows.map(({ state, detail, ...line }) => line)
+    const at = clock()
+    for (const { kind, provider, ok, state, why, detail } of rows) if (provider !== null) providerChecks.set(checkKey(kind, provider), { state, ok, why, detail, at })
   })
   if (!isDemo) {
     await lookAtProviders()
@@ -2170,6 +2193,52 @@ async function main(args) {
       if (checked.key === 'autopilot' && checked.value === true && workDir !== null && !isShowOnly) await loops.run('autopilot', async () => autopilotNow(await readState()))
       return { ok: true, result: boardSettingsNow() }
     }),
+    // Spec 2026-11-01, part A: the Settings tab's providers. `verify` runs a provider's check and keeps it; `use` switches a kind
+    // to a provider whose kept check is fresh and works (writing config.json like a setting); `key` saves an ElevenLabs key
+    // in the user variables of Windows and in this process, then verifies. The key is in no answer, log or error.
+    providers: body => settingsTurn(async () => {
+      const kind = typeof body?.kind === 'string' ? body.kind : ''
+      const name = typeof body?.provider === 'string' ? body.provider : ''
+      if (!ASSET_KINDS.includes(kind)) return { ok: false, status: 400, why: `Send a kind: ${ASSET_KINDS.join(', ')}.` }
+      if (PROVIDERS[name] === undefined) return { ok: false, status: 400, why: 'Send a provider the board knows.' }
+      const verify = async () => {
+        const record = await verifyOne(config, kind, name, { ...providerTools(), now: clock() })
+        providerChecks.set(checkKey(kind, name), record)
+        return { ok: true, result: record }
+      }
+      if (body.action === 'verify') return verify()
+      if (body.action !== 'use' && body.action !== 'key') return { ok: false, status: 400, why: 'Send action "verify", "use" or "key".' }
+      if (historyFrom !== undefined) return { ok: false, status: 409, why: SETTINGS_WHY_NOT }
+      if (isDemo) return { ok: false, status: 409, why: 'This is the demo: it changes no provider.' }
+      if (body.action === 'key') {
+        if (PROVIDERS[name].keyVariable !== KEY_VARIABLE) return { ok: false, status: 400, why: `${PROVIDERS[name].card.title} takes no key.` }
+        const key = keyChecked(body.key)
+        if (!key.ok) return { ok: false, status: 400, why: key.why }
+        const saved = await saveKey(key.key)
+        if (!saved.ok) return { ok: false, status: 500, why: saved.why }
+        return verify()
+      }
+      const may = mayUseProvider(providerChecks, kind, name, clock())
+      if (!may.ok) return { ok: false, status: 409, why: may.why }
+      const checked = checkSetting({ key: 'providers', value: { kind, provider: name } })
+      if (!checked.ok) return checked
+      const file = join(HERE, 'config.json')
+      // B467: only a file that is not there is "not there"; one it cannot read fails the call.
+      const text = await readFile(file, 'utf8').catch(absentAs(null))
+      if (text === null) return { ok: false, status: 409, why: 'The settings file config.json is not there.' }
+      const changed = settingChanged(text, checked.key, checked.value)
+      if (!changed.ok) return changed
+      try {
+        await writeAtomic(file, changed.text)
+      } catch (error) {
+        return { ok: false, status: 500, why: `config.json not written: ${error instanceof Error ? error.message : 'unknown'}` }
+      }
+      config.providers = readProviders(JSON.parse(changed.text).providers).providers
+      await lookAtProviders()
+      readState.reset()
+      return { ok: true, result: providerCards(config, providerChecks) }
+    }),
+    providerList: async () => providerCards(config, providerChecks),
     cpu: async body => (cpu === null ? { ok: false, status: 409, why: 'This board sets no CPU: it is the demo, or it shows the history of another board.' } : cpu.set(body?.level)),
     // B767: the setup check's Allow: only the tool rules the check finds missing, into the project's own settings.
     codeJobs: async body => {

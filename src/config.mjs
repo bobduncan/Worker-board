@@ -272,7 +272,7 @@ const shown = value => (JSON.stringify(value) ?? String(value)).slice(0, 60)
  * when not given). `providers`: `{ provider, folder? }` for every kind, a kind the setting does not name, or names
  * wrongly, at its default; `problem`: the first thing wrong as one line, or null.
  */
-function readProviders(value) {
+export function readProviders(value) {
   const providers = { ...DEFAULT_PROVIDERS }
   if (value === undefined) return { providers, problem: null }
   if (value === null || typeof value !== 'object' || Array.isArray(value)) {
@@ -291,10 +291,14 @@ function readProviders(value) {
     const name = isEntry && typeof entry.provider === 'string' ? entry.provider.trim() : undefined
     const provider = name === undefined ? undefined : PROVIDERS[name]
     if (provider === undefined) {
-      refuse(`${at} must name a provider the board knows (${Object.keys(PROVIDERS).join(', ')}), not ${shown(isEntry ? entry.provider : given)}`)
+      refuse(`${at} must name a provider the board knows (${Object.values(PROVIDERS).filter(one => one.kinds.length > 0).map(one => one.name).join(', ')}), not ${shown(isEntry ? entry.provider : given)}`)
       continue
     }
     if (!provider.kinds.includes(kind)) {
+      if (provider.kinds.length === 0) {
+        refuse(`${at} is set to "${name}", which serves no kind (it is only shown on the Settings tab)`)
+        continue
+      }
       refuse(`${at} is set to "${name}", which serves ${provider.kinds.join(', ')}, not ${kind}`)
       continue
     }
