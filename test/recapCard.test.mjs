@@ -207,7 +207,7 @@ test('the page: the card sits under the head and above the work-block switch; it
     assert.deepEqual(page.all('.focus-recap-tile').map(one => [one.querySelector('b').textContent, one.querySelector('small').textContent, one.dataset.demoPart]), [1, 2, 3].map(n => [`Block ${n}`, 'approve or send back', `Block ${n}`]))
     assert.equal(page.all('.focus-recap-pic.is-none').length, 3, 'no picture: a calm placeholder')
     // The head's line: every block still open waits for the person.
-    assert.equal(page.text('.focus-progress small'), '0 of 3 work blocks done · the rest waits for your verdict')
+    assert.equal(page.text('.focus-progress small'), '0 of 3 work blocks done · 3 verdicts wait for you' /* 2026-11-01 ("B"): the line counts the verdicts while the card shows */)
   } finally { await page.close() }
 })
 
@@ -295,7 +295,7 @@ test('the page, the live shape: three tiles, the step\'s window for an Accept ca
     assert.deepEqual(page.all('.focus-recap-tile').map(one => [one.tagName, one.querySelector('b').textContent, one.dataset.askLink ?? one.dataset.demo]), [['BUTTON', 'Block 1', 'B11'], ['BUTTON', 'Block 2', 'B2'], ['A', 'The whole goal: play it', PATH]])
     assert.equal(page.all('.focus-recap-tiles').length, 1, 'still one row')
     assert.deepEqual([page.find('.focus-recap-open').tagName, page.find('.focus-recap-open').dataset.demo], ['A', PATH])
-    assert.equal(page.text('.focus-progress small'), '0 of 2 work blocks done · the rest waits for your verdict')
+    assert.equal(page.text('.focus-progress small'), '0 of 2 work blocks done · 3 verdicts wait for you' /* 2026-11-01 ("B"): the line counts the verdicts while the card shows */)
     // The chips: "Waits for your verdict →", a button to the step where the card or the ask stands.
     assert.deepEqual(page.all('.focus-part .focus-chip').map(one => [one.textContent, one.tagName, one.dataset.askLink]), [['Waits for your verdict →', 'BUTTON', 'B11'], ['Waits for your verdict →', 'BUTTON', 'B2']])
     await page.click('[data-focus-blocks="open"]')
@@ -370,7 +370,7 @@ test('the head\'s line: when every open block waits for the verdict it says so, 
   const done = parseItem(`Id: B1\nKind: step\nTitle: Task B1\nState: done\nOwner: Digger\nGoal: G6\nSince: ${sinceOf(NOW - 90 * MIN)}\n`)
   const page = await focusOf(asSent(build([done, task(2), askFor(2)], undefined, goals(2), { recaps: [recap(2)], goalRecap: { goal: 'G6', path: PATH, pictures: {} }, config: ON })))
   try {
-    assert.equal(page.text('.focus-progress small'), '1 of 2 work blocks done · the rest waits for your verdict')
+    assert.equal(page.text('.focus-progress small'), '1 of 2 work blocks done · 2 verdicts wait for you' /* 2026-11-01 ("B"): the line counts the verdicts while the card shows */)
   } finally { await page.close() }
 })
 
@@ -382,4 +382,15 @@ test('the recap\'s waits as the board reads them: only a part the person has not
   // Only ONE recap file counts: a part of another file of the goal is left out when the goal's file is named.
   const two = [...waits, { ...waits[0], path: 'pictures/g6/demo/demo.json', key: 'Old', title: 'Old' }]
   assert.deepEqual(recapCardOf({ goal: 'G6', recapPath: PATH, waits: two, blocks: [] }).tiles.map(one => one.title), ['Block 2'])
+})
+
+test('2026-11-01 (the person, "B"): while verdicts wait the run\'s stage reads "Your recap" in the attention colour; the progress line counts them', async () => {
+  const page = await focusOf(waiting(3))
+  try {
+    const stages = page.all('.focus-stage').map(one => [one.className, words(one)])
+    assert.deepEqual(stages.map(([, text]) => text), ['1The goal✓', '2Work blocks✓', '3Your recap'])
+    assert.match(stages[2][0], /\bis-recap\b/)
+    assert.match(words(page.find('.focus-progress small')), / · 3 verdicts wait for you$/)
+    assert.ok(page.find('.focus-bar').className.includes('is-recap'))
+  } finally { await page.close() }
 })

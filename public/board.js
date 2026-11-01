@@ -14231,6 +14231,13 @@ function focusView(focus, goals, can = null, ui = {}) {
     view.openNow = focusOpenNowView(focus, ui.recapCard)
     // 2026-11-01: the recap card above the work blocks, while a part of the goal's recap waits for the person's verdict.
     view.recapCard = recapReadyView(ui.recapCard)
+    // 2026-11-01 (the person, "B"): while verdicts wait the run's stage reads "Your recap" in the attention colour, and the
+    // progress line says how many wait for them; back to "The run" once none waits. One row, as before.
+    if (view.recapCard !== null) {
+      const count = ui.recapCard.count
+      view.strip = view.strip.map(one => (one.label === 'The run' ? { ...one, label: 'Your recap', state: 'recap' } : one))
+      if (view.progress !== null) view.progress = { ...view.progress, text: `${view.progress.text.split(' · ')[0]} · ${count} ${count === 1 ? 'verdict waits' : 'verdicts wait'} for you`, isRecap: true }
+    }
     const whole = workBlocksOf(focus)
     if (whole.length > 0 && view.openNow !== null) {
       const chosen = ui.blocksView === 'open' ? 'open' : 'all'
@@ -16822,11 +16829,11 @@ function drawFocus(state) {
     side.append(strip)
     if (view.progress !== null) {
       const progress = el('div', 'focus-progress')
-      const bar = el('div', 'focus-bar is-wide')
+      const bar = el('div', `focus-bar is-wide${view.progress.isRecap === true ? ' is-recap' : ''}`)
       const fillBar = el('span', '')
       fillBar.style.width = `${view.progress.percent}%`
       bar.append(fillBar)
-      progress.append(el('small', '', view.progress.text), bar)
+      progress.append(el('small', view.progress.isRecap === true ? 'is-recap' : '', view.progress.text), bar)
       side.append(progress)
     }
     head.append(title, side)

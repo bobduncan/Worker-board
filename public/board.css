@@ -177,6 +177,11 @@ button, textarea, select { font: inherit; color: inherit; }
 .focus-n { display: inline-grid; place-items: center; width: 24px; height: 24px; border-radius: 50%; background: var(--inset); color: var(--text); font-size: 13px; }
 .focus-stage.is-now { border-color: var(--free); background: #16294a; color: var(--text); }
 .focus-stage.is-now .focus-n { background: var(--free); }
+/* 2026-11-01 (the person, "B"): while verdicts wait, the run's stage is "Your recap" in the attention colour. */
+.focus-stage.is-recap { border-color: #c99a2e; background: #2a2210; color: #f4c35a; }
+.focus-stage.is-recap .focus-n { background: #e3a52b; color: #1a1305; }
+.focus-progress small.is-recap { color: #f4c35a; }
+.focus-bar.is-recap span { background: #e3a52b; }
 .focus-stage.is-done { border-color: #2d6b47; color: var(--working); }
 .focus-stage.is-done .focus-n { background: var(--working); color: var(--ink); }
 .focus-check { color: var(--working); }
