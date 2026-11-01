@@ -133,8 +133,20 @@ test('a chat whose session ended while the app has it is asleep since then: Free
   const ended = build({ reports: [...REPORTS, report('Weeder', 'ended', NOW - 2 * MIN), report('Digger', 'ended', NOW - 3 * MIN)], appStartedAt: at(17, 0) })
   assert.deepEqual(shown(ended, 'Weeder'), ['free', false, true, NOW - 2 * MIN])
   assert.deepEqual(shown(ended, 'Digger'), ['interrupted', false, true, NOW - 3 * MIN])
-  // After an app start that came later, asleep since that start, as any asleep chat.
-  assert.deepEqual(shown(build({ reports: [...REPORTS, report('Weeder', 'ended')] }), 'Weeder'), ['free', false, true, APP])
+  // An app start that came later does not move it: the since stays the chat's own (the board-dev chat, 2026-11-01).
+  assert.deepEqual(shown(build({ reports: [...REPORTS, report('Weeder', 'ended')] }), 'Weeder'), ['free', false, true, BEFORE])
+})
+
+// The board-dev chat, 2026-11-01: after the restart of 12:53 (PC asleep 11:39–12:53, app and board started anew) every chat
+// read "Asleep · since 12:53", while Worker 2 had ended at 16:05 the day before: a kept report (data/reports.json) counted
+// from the board's start. The since is the chat's own.
+test('a board start with kept reports older than the start keeps each chat\'s own since', () => {
+  const yesterday = at(16, 5) - 24 * 60 * MIN
+  const earlier = at(15, 30) - 24 * 60 * MIN
+  const kept = [...REPORTS, report('Weeder', 'ended', yesterday), report('Digger', 'ended', earlier)]
+  const state = build({ reports: kept, appStartedAt: at(18, 7), startedAt: at(18, 8), now: at(18, 10) })
+  assert.deepEqual(shown(state, 'Weeder'), ['free', false, true, yesterday])
+  assert.deepEqual(shown(state, 'Digger'), ['interrupted', false, true, earlier])
 })
 
 test('a chat whose session ended holding a step gets exactly one resume word, by a running chat\'s hands', () => {
@@ -273,8 +285,8 @@ test('the rule on its own: asleep keeps the report\'s state; woken past offAfter
   assert.deepEqual(laneFromReport(entry('idle', { at: NOW - 6 * MIN }), facts()).asleepSince, NOW - 6 * MIN)
   assert.deepEqual(laneFromReport(entry('idle'), facts({ ...app, wokenAt: NOW - 6 * MIN })), { state: 'off', isRunning: false, why: 'woken', wokenAt: NOW - 6 * MIN })
   assert.equal(laneFromReport(entry('idle'), facts({ ...app, wokenAt: NOW - 4 * MIN })).state, 'free')
-  // An ended session is asleep since it ended (since the app's start when that came later); off without an app session.
-  assert.deepEqual(laneFromReport(entry('ended'), facts(app)), { state: 'free', isRunning: false, asleep: true, asleepSince: APP })
+  // An ended session is asleep since it ended, also when the app started later; off without an app session.
+  assert.deepEqual(laneFromReport(entry('ended'), facts(app)), { state: 'free', isRunning: false, asleep: true, asleepSince: BEFORE })
   assert.deepEqual(laneFromReport(entry('ended', { since: NOW - MIN, at: NOW - MIN }), facts()), { state: 'free', isRunning: false, asleep: true, asleepSince: NOW - MIN })
   assert.deepEqual(laneFromReport(entry('ended', { since: NOW - MIN, at: NOW - MIN }), facts({ holdsTask: true })).state, 'interrupted')
   assert.deepEqual(laneFromReport(entry('ended'), facts({ ...app, hasAppSession: false })), { state: 'off', isRunning: false, why: 'ended' })
