@@ -23,7 +23,7 @@ const css = await readFile(join(PUBLIC, 'board.css'), 'utf8')
 const cut = name => script.slice(script.indexOf(`// ${name}:start`), script.indexOf(`// ${name}:end`))
 const page = {}
 vm.runInNewContext(`const MIN = 60000\n${cut('times')}
-${cut('chatword')}\n${cut('runchip')}\nObject.assign(this, { runChipOf, modelFacts, effortWord, EFFORT_WORDS })`, page)
+${cut('chatstatus')}\n${cut('runchip')}\nObject.assign(this, { runChipOf, modelFacts, effortWord, EFFORT_WORDS })`, page)
 const plain = value => JSON.parse(JSON.stringify(value))
 
 const AT = new Date(2026, 9, 24, 9, 12).getTime()
@@ -139,7 +139,7 @@ test('the page draws the chip beside the pill of every row, in Details and in Si
 test('Simple\'s rows carry the chip\'s view only for a chat that has one', () => {
   const simple = {}
   vm.runInNewContext(`const MIN = 60000\n${cut('times')}
-${cut('chatword')}\n${cut('stepline')}\n${cut('lanetime')}\n${cut('lanewindow')}\n${cut('calmoverview')}\n${cut('focus')}\n${cut('runchip')}\n${cut('simpleoverview')}\nObject.assign(this, { simpleWorkers })`, simple)
+${cut('chatstatus')}\n${cut('stepline')}\n${cut('lanetime')}\n${cut('lanewindow')}\n${cut('calmoverview')}\n${cut('focus')}\n${cut('runchip')}\n${cut('simpleoverview')}\nObject.assign(this, { simpleWorkers })`, simple)
   const base = { isMain: false, isLeftover: false, task: null, eta: null, state: 'free' }
   const view = plain(simple.simpleWorkers([
     { ...base, name: 'Main', model: 'claude-opus-5-5', effort: 'xhigh' },

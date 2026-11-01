@@ -55,7 +55,7 @@ const cut = name => {
 function pagePart(name, ...names) {
   const page = {}
   vm.runInNewContext(`const MIN = 60000\n${cut('times')}
-${cut('chatword')}\n${cut(name)}\nObject.assign(this, { ${names.join(', ')} })`, page)
+${cut('chatstatus')}\n${cut(name)}\nObject.assign(this, { ${names.join(', ')} })`, page)
   return page
 }
 
@@ -200,12 +200,14 @@ for (const [why, reports] of [
     // It counts as a worker there is: no start or spawn is asked beside its give.
     assert.equal(first.reconciled.start, null)
     assert.deepEqual(await owner('B20'), ['queued', 'Weeder'])
-    const envelopes = () => outbox.outbox().filter(one => one.command === HANDOVER_COMMAND).map(one => [one.to, one.step, one.state])
-    assert.deepEqual(envelopes(), [['Weeder', 'B20', 'waiting']])
+    const envelopes = () => outbox.outbox().filter(one => one.command === HANDOVER_COMMAND).map(one => [one.to, one.step, one.kind, one.state])
+    // Signals change 3: Digger holds B12 and stopped long ago: its one "go on" line (a resume envelope, step null) waits too.
+    const both = [['Digger', null, 'resume', 'waiting'], ['Weeder', 'B20', 'task', 'waiting']]
+    assert.deepEqual(envelopes(), both)
     // Later passes send no second one, and no line beside it.
     await pass(NOW + 20_000)
     await pass(NOW + 60_000)
-    assert.deepEqual(envelopes(), [['Weeder', 'B20', 'waiting']])
+    assert.deepEqual(envelopes(), both)
     assert.deepEqual(outbox.outbox().filter(one => one.command === 'work'), [])
   })
 }
@@ -304,9 +306,9 @@ test('the page: asleep and free reads Free, "asleep since 18:07, wakes when it g
   const cutOff = plain(page.timeOf(lane(state, 'Digger'), NOW))
   assert.deepEqual([cutOff.label, cutOff.main, cutOff.tone], ['Stopped', 'resumes by itself', 'muted'])
   // A chat known not to run that is not asleep keeps "Not running" (a lane without the board's word reads its state).
-  assert.equal(plain(page.timeOf({ ...lane(state, 'Weeder'), word: undefined, asleep: false }, NOW)).main, 'Not running')
+  assert.equal(plain(page.timeOf({ ...lane(state, 'Weeder'), status: undefined, asleep: false }, NOW)).main, 'Not running')
   const idle = await pagePart('simpleidle', 'simpleIdle')
   assert.deepEqual([idle.simpleIdle(lane(state, 'Weeder')), idle.simpleIdle(lane(state, 'Digger')).replace(/ · \d+ (?:s|min) ago/, '')], [`Asleep · since ${hhmm(APP)}`, 'Stopped · resumes by itself'])
   const words = pagePart('partner-answers', 'laneStateText')
-  assert.deepEqual([words.laneStateText(lane(state, 'Weeder')), words.laneStateText({ ...lane(state, 'Weeder'), word: undefined, asleep: false })], [`Asleep · since ${hhmm(APP)}`, 'Not running'])
+  assert.deepEqual([words.laneStateText(lane(state, 'Weeder')), words.laneStateText({ ...lane(state, 'Weeder'), status: undefined, asleep: false })], [`Asleep · since ${hhmm(APP)}`, 'Not running'])
 })

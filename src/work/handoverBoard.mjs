@@ -15,6 +15,8 @@
 import { RESTART_COMMAND, restartWords } from './modRollout.mjs'
 import { EFFORTS, chatEffort, effortOf, effortWords, modelOf, runSettings, sameModel } from './effort.mjs'
 import { HANDOVER_COMMAND, contractOf, decide, envelopesOf, failedWhy, onSequence } from './handover.mjs'
+import { giveBackStep } from './giveBack.mjs'
+import { GIVE_BACK_MINUTES, RESUME_MINUTES, continuationOf, standOf } from './holderTimers.mjs'
 import { isHolding } from './pause.mjs'
 import { readStore } from './store.mjs'
 import { isLate } from '../store.mjs'
@@ -38,6 +40,8 @@ const textOf = envelope => [
   ...(envelope.line === null ? [] : [`Line: ${envelope.line}`]),
 ].join('\n')
 
+const MIN = 60_000
+
 /** The off time of the board since `from`, out of the state's gaps (history.mjs `gapsOf`). */
 const offMsOf = (gaps, now) => from => (Number.isFinite(from) ? (gaps ?? []).reduce((sum, gap) => sum + Math.max(0, Math.min(gap.to, now) - Math.max(gap.from, from)), 0) : 0)
 
@@ -60,8 +64,11 @@ export function setterFor(lane, items, config) {
   }
 }
 
+/** Signals change 3: the person's stop and remove words about a worker (B769, carried out by code), from the outbox. */
+const stopsOf = (sent, name) => (sent ?? []).filter(one => (one?.command === 'stop' || one?.command === 'remove') && one.byCode === true && one.about === name)
+
 /** The facts of one worker's decision, out of the state, a fresh read of the store and the outbox. */
-export function factsOf({ lane, state, items, pause, sent, config, installed = null, now, event }) {
+export function factsOf({ lane, state, items, pause, sent, config, installed = null, now, event, localOnly = new Set() }) {
   const prefix = state.chatPrefix ?? ''
   return {
     worker: lane, items, prefix,
@@ -75,7 +82,30 @@ export function factsOf({ lane, state, items, pause, sent, config, installed = n
     now,
     runningMs: from => now - from - offMsOf(state.gaps, now)(from),
     event,
+    // Signals change 3: the holder's two timers.
+    pause: pause ?? null,
+    stops: stopsOf(sent, lane.name),
+    timers: { resumeMs: (config?.resumeAfterMinutes ?? RESUME_MINUTES) * MIN, giveBackMs: (config?.giveBackAfterMinutes ?? GIVE_BACK_MINUTES) * MIN },
+    localOnly,
   }
+}
+
+/**
+ * Signals change 3: the given-back steps of the ready list whose checkpoint commit is on no remote branch (the
+ * continuation line names it "local only"). `isPushed({ branch, commit })` answers true, false or null (not known: not
+ * named); without it none is named.
+ */
+async function localOnlyOf(ready, items, isPushed) {
+  const found = new Set()
+  if (typeof isPushed !== 'function') return found
+  for (const one of ready ?? []) {
+    const item = items.get(one.id)
+    if (item === undefined || continuationOf(item) === null) continue
+    const { branch, commit } = standOf(item)
+    if (commit === 'none') continue
+    if (await isPushed({ branch, commit }).catch(() => null) === false) found.add(one.id)
+  }
+  return found
 }
 
 /** The envelope waiting for `chat` that may be handed out now: its set word (when it has one) is done. */
@@ -111,11 +141,19 @@ export async function settle(outbox, chat, id, outcome, now) {
  * One worker's decision carried out: `{ decision, envelope }` (the message written, or null). `apply(body)` is the work
  * API as the server. A give the API refuses moves to the next candidate in the same call (at most three).
  */
-export async function handOver({ lane, state, dir, outbox, apply, config, installed = null, now, newId, event, fs }) {
+export async function handOver({ lane, state, dir, outbox, apply, config, installed = null, now, newId, event, fs, isPushed = null, log }) {
   const read = await readStore(dir, fs)
   const sent = outbox.outbox()
-  const facts = factsOf({ lane, state, items: read.items, pause: read.pause ?? null, sent, config, installed, now, event })
+  const localOnly = await localOnlyOf(state.readyList?.ready, read.items, isPushed)
+  const facts = factsOf({ lane, state, items: read.items, pause: read.pause ?? null, sent, config, installed, now, event, localOnly })
   let decision = decide(facts)
+  // Signals change 3: the give-back of a holder that did not go on (the seam, giveBack.mjs). Its waiting "go on" line is
+  // closed only once the step went back: until the store's move exists nothing changes.
+  if (decision.giveBack !== null) {
+    const back = await giveBackStep({ ...decision.giveBack, apply, ...(typeof log === 'function' ? { log } : {}) })
+    if (back?.ok === true && decision.close !== null) await outbox.close(decision.close, 'dropped', `${decision.giveBack.step} was given back by the board`, now)
+    return { decision: { ...decision, givenBack: back?.ok === true }, envelope: null }
+  }
   if (decision.close !== null) await outbox.close(decision.close, 'dropped', decision.takeBack?.why ?? decision.why ?? 'its hand-over ended', now)
   if (decision.net !== null) await outbox.update(decision.net, { netAt: now })
   if (decision.takeBack !== null) {
@@ -128,14 +166,14 @@ export async function handOver({ lane, state, dir, outbox, apply, config, instal
     refused.add(decision.give)
     // Decided again without it: the take-back above is done, so it is not taken back twice.
     const again = await readStore(dir, fs)
-    decision = { ...decide({ ...factsOf({ lane, state, items: again.items, pause: again.pause ?? null, sent: outbox.outbox(), config, installed, now, event }), ready: facts.ready.filter(one => !refused.has(one.id)) }), takeBack: decision.takeBack }
+    decision = { ...decide({ ...factsOf({ lane, state, items: again.items, pause: again.pause ?? null, sent: outbox.outbox(), config, installed, now, event, localOnly }), ready: facts.ready.filter(one => !refused.has(one.id)) }), takeBack: decision.takeBack }
     if (decision.give === null) break
   }
   if (decision.give !== null && refused.has(decision.give)) decision = { ...decision, give: null, envelope: null }
   const envelope = decision.envelope
   if (envelope === null) return { decision, envelope: null }
   const id = newId()
-  const message = { id, at: now, to: lane.name, ask: null, step: envelope.step, title: null, version: envelope.version ?? null, verdict: null, command: HANDOVER_COMMAND, about: lane.name, text: textOf(envelope), state: 'waiting', kind: envelope.kind, clear: envelope.clear, restart: envelope.restart, set: envelope.set, line: envelope.line, back: envelope.back ?? null }
+  const message = { id, at: now, to: lane.name, ask: null, step: envelope.step, title: null, version: envelope.version ?? null, verdict: null, command: HANDOVER_COMMAND, about: lane.name, text: textOf(envelope), state: 'waiting', kind: envelope.kind, clear: envelope.clear, restart: envelope.restart, set: envelope.set, line: envelope.line, back: envelope.back ?? null, ...(typeof envelope.resume === 'string' ? { resume: envelope.resume } : {}) }
   const main = state.restart?.main ?? null
   if (envelope.set !== null && main === null) {
     // No chat whose hands could set it: the set failed at once (the task back, held, and no step of that model for it).
@@ -150,6 +188,8 @@ export async function handOver({ lane, state, dir, outbox, apply, config, instal
     message.waitsFor = word.id
   }
   await outbox.say(message)
+  // Signals change 3: the "go on" line stands in the step's History too ("the board asked Worker N to go on (stopped since HH:MM)").
+  if (decision.goOn !== null) await apply({ action: 'advance', id: decision.goOn.step, goOn: { chat: decision.goOn.chat, since: decision.goOn.since } }).catch(() => null)
   return { decision, envelope: message }
 }
 
@@ -158,7 +198,7 @@ export async function handOver({ lane, state, dir, outbox, apply, config, instal
  * failed fails its envelope; a restart envelope its mod carried out gets the hands' restart word once; then its decision.
  * `lanes` the state's chats. `{ decided: [{ chat, state }], wrote: n }`.
  */
-export async function handoverPass({ state, dir, outbox, apply, config, installed = null, now, newId, fs }) {
+export async function handoverPass({ state, dir, outbox, apply, config, installed = null, now, newId, fs, isPushed = null, log }) {
   const lanes = (state.chats ?? []).filter(lane => onSequence(lane, config))
   const decided = []
   let wrote = 0
@@ -177,7 +217,7 @@ export async function handoverPass({ state, dir, outbox, apply, config, installe
         await outbox.say({ id: newId(), at: now, ...restartWords({ to: main, chat: lane.name, session: lane.appSession ?? null, runs: lane.mod ?? 'unknown', installed: restart.version, why: 'its hand-over: the log is kept and its turn ended' }), state: 'waiting' })
         wrote += 1
       }
-      const done = await handOver({ lane, state, dir, outbox, apply, config, installed, now, newId, event: { kind: 'pass' }, fs })
+      const done = await handOver({ lane, state, dir, outbox, apply, config, installed, now, newId, event: { kind: 'pass' }, fs, isPushed, log })
       decided.push({ chat: lane.name, state: done.decision.state })
       if (done.envelope !== null || done.decision.takeBack !== null) wrote += 1
     })

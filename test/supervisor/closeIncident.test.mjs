@@ -35,7 +35,7 @@ async function store(t) {
   }
 }
 const head = (item, key) => item.head.get(key)
-const finding = (more = {}) => ({ rule: 'unknown-lane', key: 'unknown-lane Painter', subject: 'Painter', text: 'Painter unknown for 11 min', evidence: 'state unknown since 08:49', ...more })
+const finding = (more = {}) => ({ rule: 'stale-suspended', key: 'stale-suspended Painter', subject: 'Painter', text: 'Painter unknown for 11 min', evidence: 'state unknown since 08:49', ...more })
 
 test('the partner closes an open incident with a why: State closed, Since now, the why and who in its History', async t => {
   const s = await store(t)

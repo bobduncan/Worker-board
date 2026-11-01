@@ -113,21 +113,8 @@ test('a chat still silent after the board heard the others again opens it 5 min 
   assert.deepEqual(subjects(check('working-not-running', build({ now: late, reports: reports(late), hearing }), late)), ['Weeder'])
 })
 
-test('holder-not-running and handover-held leave the time the board heard nobody out too; a dropped step of a worker is no holder', () => {
+test('handover-held leaves the time the board heard nobody out too (signals change 3: holder-not-running, which did too, is retired)', () => {
   const now = at(22, 10)
-  const reports = [report('Lead', 'idle', { since: at(21, 9), heard: now - 3_000 }), report('Digger', 'busy', { since: at(21, 9), heard: at(21, 30) })]
-  const items = [stepItem('B12', 'Digger', 'in progress', now)]
-  const hearing = deaf => ({ deaf, open: null, lateCalls: [] })
-  // T13 part 3: a holder silent past offAfterMinutes is asleep first (its resume word goes); off once that wake did not
-  // take: woken at 21:31, silent since.
-  const asleepWakes = new Map([['Digger', { since: at(21, 30), at: at(21, 31) }]])
-  assert.deepEqual(check('holder-not-running', build({ now, reports, items, hearing: hearing([]) }), now, [], items), [])
-  // Off since 21:30 (40 min); 30 is the threshold: with 15 of them the board's own, 25 remain.
-  const held = build({ now, reports, items, hearing: hearing([{ from: at(21, 30), to: at(21, 45) }]), asleepWakes })
-  assert.deepEqual(check('holder-not-running', held, now, [], items), [])
-  assert.deepEqual(subjects(check('holder-not-running', build({ now, reports, items, hearing: hearing([]), asleepWakes }), now, [], items)), ['B12'])
-  const gone = [stepItem('B12', 'Digger', 'dropped', now)]
-  assert.deepEqual(check('holder-not-running', build({ now, reports, items: gone, hearing: hearing([]) }), now, [], gone), [])
   // T8.5 step 6 (in place of not-cleared): held 14 min after its clear failed: over 10; 6 of them the board heard nobody: 8 remain.
   const failed = { id: 'e1', at: now - 15 * MIN, to: 'Digger', command: 'handover', kind: 'clear', step: null, clear: { step: 'B11', reportedAt: now - 16 * MIN }, state: 'failed', failedAt: now - 14 * MIN, settledAt: now - 14 * MIN, outcome: { cleared: false, set: null, typed: null, restarted: null, background: true, why: 'background work runs' } }
   const digger = { name: 'Digger', state: 'free', onSequence: true, handover: { state: 'held', why: 'its clear did not run: background work runs', step: null }, clearOwed: { step: 'B11', reportedAt: now - 16 * MIN, canClear: true } }

@@ -115,7 +115,7 @@ const cut = name => {
 }
 const page = {}
 vm.runInNewContext(`const MIN = 60000\n${cut('times')}
-${cut('chatword')}\n${cut('lanetime')}\n${cut('stepline')}\n${cut('lanewindow')}\nObject.assign(this, { clock, laneWindowOf })`, page)
+${cut('chatstatus')}\n${cut('lanetime')}\n${cut('stepline')}\n${cut('lanewindow')}\nObject.assign(this, { clock, laneWindowOf })`, page)
 const plain = value => JSON.parse(JSON.stringify(value))
 
 test('the window shows the card\'s task in its head, the task as it was given, its step, and where it stands now', () => {
@@ -135,5 +135,5 @@ test('typed by the person, unknown, or a lane whose window this is not', () => {
   assert.equal(page.laneWindowOf(units, NOW, 'Game - Main').given.from, `Typed by you, ${page.clock(NOW - 40 * MIN)}`)
   const lost = plain(page.laneWindowOf({ ...lane(working), givenTask: null }, NOW, 'Game - Main'))
   assert.deepEqual([lost.given, lost.code, lost.step], [null, 'B12', null])
-  for (const [state, word] of [['free', 'Free'], ['waiting', 'Waiting for you'], ['unknown', 'Unknown']]) assert.equal(page.laneWindowOf({ ...lane(working), state, word }, NOW, 'Game - Main'), null, state)
+  for (const [state, word] of [['free', 'Free'], ['waiting', 'Waiting for you'], ['unknown', 'Unknown']]) assert.equal(page.laneWindowOf({ ...lane(working), state, status: word }, NOW, 'Game - Main'), null, state)
 })

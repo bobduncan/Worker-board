@@ -752,7 +752,7 @@ function demoFixSteps(now) {
  * tokens and the day's.
  */
 export function demoSupervisor(now, rules = [], makeCards = () => []) {
-  const tripped = { blocked: 2, 'limit-back': 1, 'unknown-lane': 5 }
+  const tripped = { blocked: 2, 'limit-back': 1, 'stale-suspended': 5 }
   const incidents = DEMO_INCIDENTS.map(({ seen: [first, last], since, ...one }) => ({ ...one, firstSeen: now - first * MIN, lastSeen: now - last * MIN, since: now - since * MIN, ruleWanted: one.ruleWanted ?? null, evidence: one.evidence ?? null, foundAt: now - first * MIN }))
     .sort((a, b) => b.lastSeen - a.lastSeen || b.id.localeCompare(a.id, 'en', { numeric: true }))
   return {

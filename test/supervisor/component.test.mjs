@@ -24,16 +24,12 @@ const lane = (name, more = {}) => ({ name, isMain: false, isLeftover: false, sta
 const LEAD = lane('Lead', { isMain: true, state: 'working' })
 const checkedPass = { History: [`- ${stamp(ago(30))} server: check passed: merged`] }
 /**
- * X65: since 2026-10-25 the rule unknown-lane names a worker that holds a step and that the board could not wake (the
- * state's `wakeFailed`), no longer every unknown lane. Mason, the made-up unknown worker of these tests, holds B6 and the
- * board asked in vain for an hour.
+ * Signals change 3 retired the rule unknown-lane these tests tripped (a holder that stopped is the hand-over's timers'):
+ * they trip working-not-running instead. Mason, the made-up worker of these tests, holds no step and its card says it
+ * works while its chat makes no call (`minutes` ago, or since the rule first saw it when null).
  */
-const wakeFailed = (...names) => names.map(chat => ({ chat, tries: 3, since: ago(60) }))
-const withMasonStep = ports => async () => {
-  const all = await ports.items()
-  all.set('B6', step('B6', 'in progress', { Owner: 'Mason' }))
-  return all
-}
+const silentWorker = (name, minutes = 30) => lane(name, { state: 'working', isRunning: false, ...(minutes === null ? {} : { offSince: ago(minutes) }) })
+const SILENT = minutes => `Mason's card says it works, but its chat made no call, took nothing and wrote nothing for ${minutes} min`
 
 /** A board of made-up chats and steps: a step blocked by one in review (fixed by the board), one by a step not there. */
 function board({ lock = null, fail = null } = {}) {
@@ -163,21 +159,16 @@ test('the watch rules run after the repairs: what they find is the run\'s findin
   const { ports } = board()
   const supervisor = createSupervisor({
     ...ports,
-    items: withMasonStep(ports),
     state: async () => ({
-      chats: [LEAD, lane('Painter', { state: 'working' }), lane('Mason', { state: 'unknown' })], chatPrefix: '', limits: {}, pause: null,
-      today: [{ chat: 'Mason', spans: [{ from: ago(30), to: NOW, state: 'unknown', task: null }] }],
-      wakeFailed: wakeFailed('Mason'),
+      chats: [LEAD, lane('Painter', { state: 'working' }), silentWorker('Mason')], chatPrefix: '', limits: {}, pause: null,
     }),
-    settings: { supervisor: { unknownMinutes: 10 } },
   })
   const answer = await supervisor.run()
-  // X65: the rule names the step Mason holds and the failed wake-up (an unknown lane the board still wakes, or one with no step, is none).
-  assert.deepEqual(answer.findings.map(one => [one.rule, one.key, one.text]), [['unknown-lane', 'unknown-lane Mason', 'Mason unknown for 30 min, holds B6; nobody could wake it (3 tries since 08:00)']])
+  assert.deepEqual(answer.findings.map(one => [one.rule, one.key, one.text]), [['working-not-running', 'working-not-running Mason', SILENT(30)]])
   assert.equal(answer.findings[0].fix, undefined, 'report only: nothing repairs it')
   const rules = new Map(supervisor.view(NOW).rules.map(rule => [rule.id, rule]))
   assert.deepEqual([rules.get('blocked').state, rules.get('blocked').trips], ['tripped', 1])
-  assert.deepEqual([rules.get('unknown-lane').state, rules.get('unknown-lane').kind, rules.get('unknown-lane').trips], ['tripped', 'watch', 1])
+  assert.deepEqual([rules.get('working-not-running').state, rules.get('working-not-running').kind, rules.get('working-not-running').trips], ['tripped', 'watch', 1])
   assert.deepEqual([rules.get('old-mod').state, rules.get('old-mod').trips], ['fine', 0])
   assert.equal(rules.size, REPAIR_RULES.length + WATCH_RULES.length)
 })
@@ -192,28 +183,27 @@ test('the supervisor\'s memory: its repairs of the day, its own watch and the ru
     return createSupervisor({
       ...ports,
       now: () => clock,
-      // X65: Mason holds a step and the board could not wake it, which the rule unknown-lane now needs to watch it.
-      items: withMasonStep(ports),
-      state: async () => ({ chats: [LEAD, lane('Painter', { state: 'working' }), lane('Mason', { state: 'unknown' })], chatPrefix: '', limits: {}, pause: null, wakeFailed: wakeFailed('Mason') }),
+      // Mason's card says it works and its chat makes no call, since the rule first saw it.
+      state: async () => ({ chats: [LEAD, lane('Painter', { state: 'working' }), silentWorker('Mason', null)], chatPrefix: '', limits: {}, pause: null }),
       noted: { load: async () => noted, save: async value => { noted = value; saved.push(['sync', value]) } },
       memory: { load: async () => file, save: async value => { file = value; saved.push(['memory', value]) } },
     })
   }
-  // First seen unknown now (no timeline): watched, nothing yet; the unblock of B2 is a repair of the day.
+  // First seen now (no time of its own): watched, nothing yet; the unblock of B2 is a repair of the day.
   assert.deepEqual((await make().run()).findings, [])
-  assert.deepEqual(Object.keys(file.seen), ['unknown-lane Mason'])
+  assert.deepEqual(Object.keys(file.seen), ['working-not-running Mason'])
   assert.deepEqual(file.repairs.map(one => [one.rule, one.subject, one.key]), [['blocked', 'B2', 'blocked B2 B1']])
   assert.ok(saved.filter(([what]) => what === 'sync').every(([, value]) => Object.keys(value).sort().join() === 'noted,seen'), 'sync.json keeps its own form')
   // A restart 11 minutes later: the watch goes on from the file, and the same repair is counted again.
   clock += 11 * MIN
   const later = await make().run()
-  assert.deepEqual(later.findings.map(one => one.key), ['unknown-lane Mason'])
+  assert.deepEqual(later.findings.map(one => one.key), ['working-not-running Mason'])
   assert.equal(file.repairs.length, 2)
-  assert.equal(file.trips['unknown-lane'].length, 1)
+  assert.equal(file.trips['working-not-running'].length, 1)
   // A third time: the repair that repeats is reported.
   clock += MIN
   const third = await make().run()
-  assert.deepEqual(third.findings.map(one => one.rule), ['unknown-lane', 'repair-repeats'])
+  assert.deepEqual(third.findings.map(one => one.rule), ['working-not-running', 'repair-repeats'])
   assert.equal(third.findings[1].text, 'The board repaired the same 3 times in a day: blocked for B2')
 })
 
@@ -245,8 +235,8 @@ test('each run files its findings as incidents: opened once, then counted; the v
   const { readStore, writeStore } = await import('../../src/work/store.mjs')
   const dir = await mkdtemp(join(tmpdir(), 'supervisor-incidents-'))
   t.after(() => rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }))
-  // X65: B5 is in progress with Mason and the board could not wake him: the rule unknown-lane now needs both (the old board only had B5 queued).
-  await writeStore(dir, migrateBacklog('# Backlog\n\n## Work\n- [ ] B5 Paint the strip (for Mason; about 1 h)\n  [store] State: in progress\n', { now: NOW }), undefined, { now: NOW })
+  // B5 is queued for Mason, who holds no step while its card says it works and its chat makes no call.
+  await writeStore(dir, migrateBacklog('# Backlog\n\n## Work\n- [ ] B5 Paint the strip (for Mason; about 1 h)\n', { now: NOW }), undefined, { now: NOW })
   let clock = NOW
   const { ports, done } = board()
   const supervisor = createSupervisor({
@@ -254,26 +244,22 @@ test('each run files its findings as incidents: opened once, then counted; the v
     now: () => clock,
     items: async () => (await readStore(dir)).items,
     apply: body => workApi(body, { dir, now: clock, prefix: '', as: 'server' }),
-    state: async () => ({
-      chats: [LEAD, lane('Mason', { state: 'unknown' })], chatPrefix: '', limits: {}, pause: null,
-      today: [{ chat: 'Mason', spans: [{ from: ago(30), to: NOW, state: 'unknown', task: null }] }],
-      wakeFailed: wakeFailed('Mason'),
-    }),
+    state: async () => ({ chats: [LEAD, silentWorker('Mason')], chatPrefix: '', limits: {}, pause: null }),
   })
   await supervisor.run()
   clock += 3 * MIN
   await supervisor.run()
   const incidents = supervisor.view(clock).incidents
-  assert.deepEqual(incidents.map(one => [one.id, one.state, one.source, one.subject, one.count]), [['X1', 'open', 'unknown-lane', 'Mason', 2]])
-  assert.match(incidents[0].title, /^Mason unknown for 33 min/)
+  assert.deepEqual(incidents.map(one => [one.id, one.state, one.source, one.subject, one.count]), [['X1', 'open', 'working-not-running', 'Mason', 2]])
+  assert.equal(incidents[0].title, SILENT(33))
   assert.deepEqual(done.failed, [])
   // Task 4: one line to the person for the incident that opened, none for the run that only counted it.
   const notes = [...(await readStore(dir)).items.values()].filter(one => one.head.get('Kind') === 'note' && one.head.get('Via') === 'supervisor')
-  assert.deepEqual(notes.map(one => [one.head.get('To'), one.head.get('From'), one.head.get('Text'), one.sections.get('About')?.[0]]), [['you', 'server', 'Supervisor: Mason unknown for 30 min, holds B5; nobody could wake it (3 tries since 08:00)', 'X1']])
+  assert.deepEqual(notes.map(one => [one.head.get('To'), one.head.get('From'), one.head.get('Text'), one.sections.get('About')?.[0]]), [['you', 'server', `Supervisor: ${SILENT(30)}`, 'X1']])
   // The store refuses (a file changed meanwhile): nothing is lost, the loop says so, and the next run files it.
-  const refusing = createSupervisor({ ...ports, items: async () => (await readStore(dir)).items, apply: async () => ({ ok: false, status: 409, why: 'X1.md changed in the meantime' }), state: async () => ({ chats: [LEAD, lane('Mason', { state: 'unknown' })], chatPrefix: '', limits: {}, pause: null, today: [{ chat: 'Mason', spans: [{ from: ago(30), to: NOW, state: 'unknown', task: null }] }], wakeFailed: wakeFailed('Mason') }) })
+  const refusing = createSupervisor({ ...ports, items: async () => (await readStore(dir)).items, apply: async () => ({ ok: false, status: 409, why: 'X1.md changed in the meantime' }), state: async () => ({ chats: [LEAD, silentWorker('Mason')], chatPrefix: '', limits: {}, pause: null }) })
   await refusing.run()
-  assert.deepEqual(done.failed.map(([name, why]) => [name, why]), [['incidents', '1 not filed (unknown-lane Mason: X1.md changed in the meantime)']])
+  assert.deepEqual(done.failed.map(([name, why]) => [name, why]), [['incidents', '1 not filed (working-not-running Mason: X1.md changed in the meantime)']])
 })
 
 test('Task 4: "Check now" from a worker\'s menu runs the list about that worker; the answer names it', async () => {
@@ -358,8 +344,8 @@ test('the review: a line to the person that could not be filed goes at the next 
   const { readStore, writeStore } = await import('../../src/work/store.mjs')
   const dir = await mkdtemp(join(tmpdir(), 'supervisor-lines-'))
   t.after(() => rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }))
-  // X65: B5 in progress with Mason, whom the board could not wake (what the rule unknown-lane needs now).
-  await writeStore(dir, migrateBacklog('# Backlog\n\n## Work\n- [ ] B5 Paint the strip (for Mason; about 1 h)\n  [store] State: in progress\n', { now: NOW }), undefined, { now: NOW })
+  // B5 queued for Mason, whose card says it works while its chat makes no call (the rule working-not-running).
+  await writeStore(dir, migrateBacklog('# Backlog\n\n## Work\n- [ ] B5 Paint the strip (for Mason; about 1 h)\n', { now: NOW }), undefined, { now: NOW })
   let clock = NOW
   let refuseNotes = true
   const { ports, done } = board()
@@ -368,7 +354,7 @@ test('the review: a line to the person that could not be filed goes at the next 
     now: () => clock,
     items: async () => (await readStore(dir)).items,
     apply: body => (body.action === 'note' && refuseNotes ? { ok: false, status: 409, why: 'N1.md changed in the meantime' } : workApi(body, { dir, now: clock, prefix: '', as: 'server' })),
-    state: async () => ({ chats: [LEAD, lane('Mason', { state: 'unknown' })], chatPrefix: '', limits: {}, pause: null, today: [{ chat: 'Mason', spans: [{ from: ago(30), to: NOW, state: 'unknown', task: null }] }], wakeFailed: wakeFailed('Mason') }),
+    state: async () => ({ chats: [LEAD, silentWorker('Mason')], chatPrefix: '', limits: {}, pause: null }),
   })
   const lines = async () => [...(await readStore(dir)).items.values()].filter(one => one.head.get('Kind') === 'note' && one.head.get('Via') === 'supervisor')
   await supervisor.run()
@@ -392,17 +378,17 @@ test('B581: the x on the person\'s line reads its notes only: the incident stays
   const { readStore, writeStore } = await import('../../src/work/store.mjs')
   const dir = await mkdtemp(join(tmpdir(), 'supervisor-close-'))
   t.after(() => rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }))
-  await writeStore(dir, migrateBacklog('# Backlog\n\n## Work\n- [ ] B5 Paint the strip (for Mason; about 1 h)\n  [store] State: in progress\n- [ ] B6 Weed the rows (for Rook; about 1 h)\n  [store] State: in progress\n', { now: NOW }), undefined, { now: NOW })
+  await writeStore(dir, migrateBacklog('# Backlog\n\n## Work\n- [ ] B5 Paint the strip (for Mason; about 1 h)\n- [ ] B6 Weed the rows (for Rook; about 1 h)\n', { now: NOW }), undefined, { now: NOW })
   let clock = NOW
-  let chats = [LEAD, lane('Mason', { state: 'unknown' })]
-  // X65: the rule names a worker that holds a step and that the board could not wake: Mason holds B5, Rook (below) B6.
+  let chats = [LEAD, silentWorker('Mason')]
+  // Mason, and Rook (below), each a card that says it works while its chat makes no call (the rule working-not-running).
   const { ports } = board()
   const supervisor = createSupervisor({
     ...ports,
     now: () => clock,
     items: async () => (await readStore(dir)).items,
     apply: body => workApi(body, { dir, now: clock, prefix: '', as: 'server' }),
-    state: async () => ({ chats, chatPrefix: '', limits: {}, pause: null, today: chats.filter(one => !one.isMain).map(one => ({ chat: one.name, spans: [{ from: ago(30), to: clock, state: 'unknown', task: null }] })), wakeFailed: wakeFailed(...chats.filter(one => !one.isMain).map(one => one.name)) }),
+    state: async () => ({ chats, chatPrefix: '', limits: {}, pause: null }),
   })
   const store = async () => ({ ok: true, items: (await readStore(dir)).items })
   const unread = async () => informationOf(await store(), clock).filter(one => one.via === 'supervisor' && !one.isRead).map(one => one.about)
@@ -420,7 +406,7 @@ test('B581: the x on the person\'s line reads its notes only: the incident stays
   assert.ok(Number((await incident('X1')).head.get('Count')) > counted, 'and keeps counting')
   assert.deepEqual(await unread(), [], 'the same incident brings no line back')
   // A new finding shows a line again.
-  chats = [...chats, lane('Rook', { state: 'unknown' })]
+  chats = [...chats, silentWorker('Rook')]
   clock += 3 * MIN
   await supervisor.run()
   assert.equal((await unread()).length, 1, 'a new finding: a line again')

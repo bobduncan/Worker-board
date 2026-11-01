@@ -38,6 +38,7 @@ import { NOTE_LINE, PARTNER_ANSWER_MS, isDecidedForYou, isRoutedToPartner, route
 import { RECAP_GOES_ON, REFINE_BACK_WORDS, SENT_BACK, TOOK_ADVICE, adviceAnswerOf, autopilotRoute, dropsStep, isAutopilotRouted, isExplicitPerson, recapGoneWords, recapVerdictWords, refineAdviceOf, routedAt, routedWords } from './autopilot.mjs'
 import { HELD, checkpointLine, isHolding, pauseAnswer, pauseFacts } from './pause.mjs'
 import { nextPlan, planMinutes, planOf, planText } from './stepPlan.mjs'
+import { RETIRED_WATCH_RULES, TIMED_STATES, continuationOf, givenBackRefusal, goOnWords, retiredWords } from './holderTimers.mjs'
 import { ACTIVE, parkWords, parkedAfter, workingOnOther } from './parked.mjs'
 import { routingAction, ROUTING_ACTIONS, ROUTING_READS } from './routing/api.mjs'
 import { writeView } from './view.mjs'
@@ -594,6 +595,9 @@ async function take(body, w) {
   const id = valueOf(item, 'Id')
   const state = stateOf(item)
   const owner = valueOf(item, 'Owner')
+  // Signals change 3: a step the board gave back from this worker is not its to take, until it is given to it again.
+  const givenBack = givenBackRefusal(item, w.who, w.prefix)
+  if (givenBack !== null) return refuse(409, givenBack)
   if (HELD.includes(state) && owner !== null && !isOwner(item, w.who, w.prefix)) return refuse(409, `${id}: ${owner} holds it (${state}).`)
   if (state === 'in progress' && isOwner(item, w.who, w.prefix)) return { ok: true, result: { id, text: serializeItem(item), title: valueOf(item, 'Title'), changed: false } }
   // Review 2: a step the backlog showed in progress without naming its worker is the first taker's.
@@ -622,8 +626,10 @@ async function take(body, w) {
   const started = move(item, 'in progress', w.role, w)
   if (!started.ok) return started
   // T13: a step taken from the queue starts on a plan of its own: one saved from an earlier run of it is no longer its plan.
+  // Signals change 3: a continuation (a step the board gave back, taken anew) keeps its plan, on the part it stood on.
+  const kept = continuationOf(found.item) === null ? null : planOf(started.item)
   item = put(copy(clearedAtTake(started.item, w)), 'Plan', null)
-  const timed = nextPlan(null, { minutes }, w.now)
+  const timed = nextPlan(kept, { minutes, step: kept?.on ?? null }, w.now)
   if (timed !== null) put(item, 'Plan', planText(timed))
   const branch = line(body.branch, 120)
   if (branch !== '') {
@@ -652,7 +658,7 @@ async function step(body, w) {
   const isPlan = ['step', 'steps', 'names', 'name', 'minutes', 'stepMinutes'].some(key => body[key] !== undefined) || !isCheckpoint
   // A checkpoint stands on every step a chat holds (pause.mjs `HELD`), as the pause counts them.
   const states = isPlan ? ['in progress', 'waiting on you'] : HELD
-  if (!isOwner(found.item, w.who, w.prefix) || !states.includes(stateOf(found.item))) return refuse(409, `${id} is not in progress for ${w.who}: take it first.`)
+  if (!isOwner(found.item, w.who, w.prefix) || !states.includes(stateOf(found.item))) return refuse(409, givenBackRefusal(found.item, w.who, w.prefix) ?? `${id} is not in progress for ${w.who}: take it first.`)
   const checkpoint = isCheckpoint ? checkpointOfBody(body) : null
   if (checkpoint !== null && !checkpoint.ok) return checkpoint
   if (!isPlan) {
@@ -1883,7 +1889,8 @@ async function report(body, w) {
   const found = await load(body.id, w, { kind: ['step'] })
   if (!found.ok) return found
   const id = valueOf(found.item, 'Id')
-  if (!isOwner(found.item, w.who, w.prefix)) return refuse(409, `${id} is ${valueOf(found.item, 'Owner') ?? 'nobody'}'s, not ${w.who}'s.`)
+  // Signals change 3: a step the board gave back from this worker says so, and what to do instead.
+  if (!isOwner(found.item, w.who, w.prefix)) return refuse(409, givenBackRefusal(found.item, w.who, w.prefix) ?? `${id} is ${valueOf(found.item, 'Owner') ?? 'nobody'}'s, not ${w.who}'s.`)
   // T9.1.1: a Quality Assurance task has no branch and no board check: its worker's work checked on the step it checks ends it.
   if (isQaTask(found.item)) return refuse(409, `${id} is a Quality Assurance task: file work checked ${valueOf(found.item, 'Checks')}, never a report.`)
   // B569: room for the Context and the Change before the rest.
@@ -3788,6 +3795,8 @@ async function advance(body, w) {
   // Redesign Part 2 (2026-10-25): the board gives a ready task to a worker (`for`), or takes a given one back.
   if (to === 'queued') return give(found, body, w)
   if (to === 'refined' && body.takeBack !== undefined) return takeBackGiven(found, body.takeBack, w)
+  // Signals change 3: the board's "go on" line to a stopped holder, one History line (no move).
+  if (body.goOn !== undefined) return goOnNoted(found, body.goOn, w)
   // B567: a step whose worker rests on an open ask says which (the reconciler names it).
   const ask = /^Q\d+$/.test(line(body.ask, 20)) ? line(body.ask, 20) : null
   const moved = move(found.item, to, 'server', w, undefined, to === 'waiting on you' && ask !== null ? ` (rests for ${ask})` : '')
@@ -3796,6 +3805,22 @@ async function advance(body, w) {
   // B360, the review: a step the reconciler moves to done (say once the person answered its look) gets its recap too.
   if (done.ok) await afterDone(ordered(moved.item), w)
   return done.ok ? changed(ordered(moved.item)) : done
+}
+
+/**
+ * Signals change 3: the board wrote its "go on" line to the stopped holder of a step (handover.mjs, holderTimers.mjs):
+ * one History line, "the board asked Worker N to go on (stopped since HH:MM)". Only for a step that chat holds (taken or
+ * in progress).
+ */
+async function goOnNoted(found, goOn, w) {
+  const id = valueOf(found.item, 'Id')
+  const chat = line(goOn?.chat, 80)
+  const since = Number(goOn?.since)
+  if (chat === '' || !Number.isFinite(since)) return refuse(400, `${id}: name the chat and since when it stopped.`)
+  if (!isOwner(found.item, chat, w.prefix) || !TIMED_STATES.includes(stateOf(found.item))) return refuse(409, `${id} is not taken or in progress for ${chat}.`)
+  const next = ordered(said(copy(found.item), w, goOnWords(chat, since)))
+  const done = await save(next, found.text, w)
+  return done.ok ? changed(next) : done
 }
 
 /** Redesign Part 2, at rollout: the History words of a task queued before the redesign, put back on the ready list. */
@@ -4074,8 +4099,20 @@ async function incidentsFixed(body, w) {
     const done = await save(next, loaded.text, w)
     if (done.ok) (isDone ? fixed : reopened).push(valueOf(item, 'Id'))
   }
-  const all = [...fixed, ...reopened]
-  return { ok: true, result: { text: all.length === 0 ? 'No incident changed.' : `Fixed: ${fixed.join(', ') || 'none'}; open again: ${reopened.join(', ') || 'none'}.`, fixed, reopened, changed: all.length > 0 } }
+  // Signals change 3: an incident of a watch rule that is retired (unknown-lane, holder-not-running) and still open is
+  // closed, with one line: the hand-over's own timers act on what it named.
+  const closed = []
+  const retired = [...w.store.items.values()].filter(item => kindOf(item) === 'incident' && RETIRED_WATCH_RULES.includes(valueOf(item, 'Source')) && !['fixed', 'closed'].includes(stateOf(item)))
+    .sort((a, b) => byId(valueOf(a, 'Id'), valueOf(b, 'Id')))
+  for (const item of retired) {
+    const loaded = await load(valueOf(item, 'Id'), w, { kind: ['incident'] })
+    if (!loaded.ok) continue
+    const next = ordered(said(put(put(copy(loaded.item), 'State', 'closed'), 'Since', stamp(w.now)), w, retiredWords(valueOf(item, 'Source'))))
+    const done = await save(next, loaded.text, w)
+    if (done.ok) closed.push(valueOf(item, 'Id'))
+  }
+  const all = [...fixed, ...reopened, ...closed]
+  return { ok: true, result: { text: all.length === 0 ? 'No incident changed.' : `Fixed: ${fixed.join(', ') || 'none'}; open again: ${reopened.join(', ') || 'none'}${closed.length === 0 ? '' : `; closed (rule retired): ${closed.join(', ')}`}.`, fixed, reopened, closed, changed: all.length > 0 } }
 }
 
 const CHANGE = {

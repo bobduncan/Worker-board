@@ -153,7 +153,8 @@ export function reconcile({ store, flow = store.flow, lanes = [], now, times, pr
   // T13 part 3: not an asleep Owner: it resumes by itself (its resume word); once that did not take, its lane is off.
   for (const item of ok.filter(one => ['taken', 'in progress'].includes(stateOf(one)))) {
     const lane = laneOf(valueOf(item, 'Owner'))
-    if (lane === undefined || lane.isRunning !== false || lane.state === 'suspended' || lane.asleep === true) continue
+    // Signals change 3: retired for a worker on the hand-over's sequence: its holder timers give it a "go on" line.
+    if (lane === undefined || lane.onSequence === true || lane.isRunning !== false || lane.state === 'suspended' || lane.asleep === true) continue
     const since = Math.max(Number.isFinite(sinceMs(valueOf(item, 'Since'))) ? sinceMs(valueOf(item, 'Since')) : 0, Number.isFinite(lane.lastActivityAt) ? lane.lastActivityAt : 0)
     if (now - since < times.graceMs) continue
     const id = valueOf(item, 'Id')
@@ -172,7 +173,8 @@ export function reconcile({ store, flow = store.flow, lanes = [], now, times, pr
   const allAsks = [...items.values()].filter(item => kindOf(item) === 'ask')
   const asking = new Set(allAsks.filter(item => stateOf(item) === 'open' && valueOf(item, 'Owner') !== null).map(item => plain(valueOf(item, 'Owner'), prefix)))
   for (const lane of live) {
-    if (lane.isMain === true || lane.state === 'suspended' || lane.isRunning === false || !Number.isFinite(lane.resting?.since) || asking.has(plain(lane.name, prefix))) continue
+    // Signals change 3: replaced for a worker on the hand-over's sequence by its "asked to go on" line (holderTimers.mjs).
+    if (lane.isMain === true || lane.onSequence === true || lane.state === 'suspended' || lane.isRunning === false || !Number.isFinite(lane.resting?.since) || asking.has(plain(lane.name, prefix))) continue
     const mine = ok.filter(item => ['taken', 'in progress'].includes(stateOf(item)) && laneOf(valueOf(item, 'Owner')) === lane)
     if (mine.length === 0) continue
     const ids = mine.map(item => valueOf(item, 'Id'))

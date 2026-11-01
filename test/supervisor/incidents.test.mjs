@@ -38,7 +38,7 @@ async function store(t) {
   }
 }
 const head = (item, key) => item.head.get(key)
-const finding = (more = {}) => ({ rule: 'unknown-lane', key: 'unknown-lane Painter', subject: 'Painter', text: 'Painter unknown for 11 min, B12 waits', evidence: 'state unknown since 08:49', ...more })
+const finding = (more = {}) => ({ rule: 'stale-suspended', key: 'stale-suspended Painter', subject: 'Painter', text: 'Painter unknown for 11 min, B12 waits', evidence: 'state unknown since 08:49', ...more })
 
 test('a new key opens X1 (open, count 1); the same key again only counts: count 2, last seen moves, no new record', async t => {
   const s = await store(t)
@@ -46,8 +46,8 @@ test('a new key opens X1 (open, count 1); the same key again only counts: count 
   assert.deepEqual(first, { opened: ['X1'], returned: [], counted: [], failed: [] })
   const x1 = await s.item('X1')
   assert.deepEqual(['Kind', 'Title', 'State', 'Source', 'Subject', 'Key', 'First seen', 'Last seen', 'Count', 'Evidence'].map(key => head(x1, key)),
-    ['incident', 'Painter unknown for 11 min, B12 waits', 'open', 'unknown-lane', 'Painter', 'unknown-lane Painter', '2026-10-24 09:00', '2026-10-24 09:00', '1', 'state unknown since 08:49'])
-  assert.match(x1.sections.get('History').at(-1), /server: opened by the rule unknown-lane$/)
+    ['incident', 'Painter unknown for 11 min, B12 waits', 'open', 'stale-suspended', 'Painter', 'stale-suspended Painter', '2026-10-24 09:00', '2026-10-24 09:00', '1', 'state unknown since 08:49'])
+  assert.match(x1.sections.get('History').at(-1), /server: opened by the rule stale-suspended$/)
   s.tick(3)
   const again = await recordFindings([finding({ text: 'Painter unknown for 14 min, B12 waits', evidence: 'state unknown since 08:49, still' })], { work: s.board, now: NOW + 3 * MIN })
   assert.deepEqual(again, { opened: [], returned: [], counted: ['X1'], failed: [] })
@@ -139,9 +139,9 @@ test('recordFindings: one record per key in a run, and what could not be filed i
   const twice = await recordFindings([finding(), finding({ evidence: 'again' }), finding({ key: 'old-mod Painter 0.14.2', rule: 'old-mod', text: 'Painter runs 0.14.2' })], { work: s.board, now: NOW })
   assert.deepEqual([twice.opened, twice.counted], [['X1', 'X2'], []])
   const refused = await recordFindings([finding()], { work: async () => ({ ok: false, status: 409, why: 'X1.md changed in the meantime' }), now: NOW })
-  assert.deepEqual(refused, { opened: [], returned: [], counted: [], failed: [{ key: 'unknown-lane Painter', why: 'X1.md changed in the meantime' }] })
+  assert.deepEqual(refused, { opened: [], returned: [], counted: [], failed: [{ key: 'stale-suspended Painter', why: 'X1.md changed in the meantime' }] })
   const thrown = await recordFindings([finding()], { work: async () => { throw new Error('EBUSY') }, now: NOW })
-  assert.deepEqual(thrown.failed, [{ key: 'unknown-lane Painter', why: 'EBUSY' }])
+  assert.deepEqual(thrown.failed, [{ key: 'stale-suspended Painter', why: 'EBUSY' }])
 })
 
 test('the store keeps incidents as items: read without a problem, never flagged by the reconciler, never on the backlog view', async t => {
@@ -154,7 +154,7 @@ test('the store keeps incidents as items: read without a problem, never flagged 
   const viewFile = join(s.dir, '..', `view-${Date.now()}.md`)
   t.after(() => rm(viewFile, { force: true }))
   await writeView({ dir: s.dir, ...read }, viewFile, undefined, { now: NOW })
-  assert.doesNotMatch(await readFile(viewFile, 'utf8'), /X1|unknown-lane/)
+  assert.doesNotMatch(await readFile(viewFile, 'utf8'), /X1|stale-suspended/)
   assert.match((await s.board({ action: 'list' })).result.text, /^X1 · incident · open · - · Painter unknown for 11 min, B12 waits$/m)
 })
 

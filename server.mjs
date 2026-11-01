@@ -82,6 +82,7 @@ import { ARCHIVE_MOD, archiveJobId, archivedBy, hasNothingUncommitted, replacedC
 import { keptReadingsOf, newestPerWindow, readingOfAnswer } from './src/limits.mjs'
 import { checkProviders } from './src/providers/index.mjs'
 import { buildState, fullStepOf, lightState } from './src/state.mjs'
+import { handedWithStatuses } from './src/chatStatus.mjs'
 import { withRefineQueue } from './src/work/advisorWork.mjs'
 import { isReadAction, workApi } from './src/work/api.mjs'
 import { effortOf } from './src/work/effort.mjs'
@@ -721,6 +722,24 @@ async function main(args) {
   const branchesNow = () => readBranches(hasGame ? [config.gameRepo, HERE] : [HERE], gitRunner())
   // B304: the repositories the board knows, each with the branch work is merged into: the game's, and the board's own.
   const knownRepos = () => [...(hasGame ? [{ dir: config.gameRepo, base: config.baseBranch }] : []), { dir: HERE, base: 'main' }]
+  /**
+   * Signals change 3: whether a commit is on a remote branch of a repository the board knows (true, false), or null when
+   * no repository knows it: the continuation line to a given-back step's next worker names a local-only commit.
+   */
+  const isPushed = async ({ commit }) => {
+    for (const repo of knownRepos()) {
+      const out = await gitRunner()(['-C', repo.dir, 'branch', '-r', '--contains', commit])
+      if (out !== null) return out.trim() !== ''
+    }
+    return null
+  }
+  /** Signals change 3: whether a chat's process runs, by the board's last state (true, false, or null: not a lane, not known). */
+  const runsNow = name => {
+    const state = readState.last()
+    const plainOf = one => String(one ?? '').trim().replace(state?.chatPrefix ?? '', '').trim().toLowerCase()
+    const lane = (state?.chats ?? []).find(one => !one.isLeftover && plainOf(one.name) === plainOf(name))
+    return lane === undefined ? null : lane.isRunning === false ? false : lane.isRunning === true ? true : null
+  }
 
   // B110: an approval of merged work, and "Done" on what only the person could do, the board settles itself.
   const settle = (message, state) => settleByBoard(message, state, {
@@ -1809,7 +1828,7 @@ async function main(args) {
       const state = await readState()
       const lane = (state.chats ?? []).find(one => one.name === chat && !one.isLeftover) ?? null
       if (lane === null || !onSequence({ ...lane, mod: typeof mod === 'string' ? mod : lane.mod ?? null }, config)) return null
-      const done = await handOver({ lane: { ...lane, mod: typeof mod === 'string' ? mod : lane.mod }, state, dir: workDir, outbox: store, apply: body => workAction(body, 'server'), config, installed: (await modNow())?.installed ?? null, now: clock(), newId: () => randomBytes(8).toString('hex'), event })
+      const done = await handOver({ lane: { ...lane, mod: typeof mod === 'string' ? mod : lane.mod }, state, dir: workDir, outbox: store, apply: body => workAction(body, 'server'), config, installed: (await modNow())?.installed ?? null, now: clock(), newId: () => randomBytes(8).toString('hex'), event, isPushed })
       if (done.envelope !== null || done.decision.takeBack !== null || done.decision.give !== null || done.decision.net !== null) {
         work.reset?.()
         readState.reset()
@@ -2505,9 +2524,14 @@ async function main(args) {
       // B769: a stop or remove of this worker the board carries out by code: its mod tells it at its next tool call.
       const stopping = store.outbox().findLast(message => isStopWord(message) && message.about === checked.chat && message.state === 'waiting')
       const stop = stopping === undefined ? {} : { stop: { id: stopping.id, kind: stopping.command, task: stopTaskOf(stopping) } }
-      const envelope = !onIt || isHolding((await readState()).pause) ? null : await handOut(store, checked.chat, clock(), keep)
-      if (envelope !== null) readState.reset()
-      return { ok: true, result: { messages: fit.messages, ...(off.length === 0 ? {} : { off }), ...stop, ...(envelope === null ? {} : { handover: envelope }) } }
+      // Signals change 2c: and the board's status of every chat of the roles map's set, read AFTER the hand-out and the state's reset
+      // (src/chatStatus.mjs handedWithStatuses), so a worker just handed an envelope sees its new status. `off` stays one more
+      // release for a mod older than 0.28.0.
+      const { envelope, statuses } = await handedWithStatuses({
+        hand: async () => (!onIt || isHolding((await readState()).pause) ? null : await handOut(store, checked.chat, clock(), keep)),
+        readState,
+      })
+      return { ok: true, result: { messages: fit.messages, ...(off.length === 0 ? {} : { off }), ...stop, ...(envelope === null ? {} : { handover: envelope }), ...(statuses.length === 0 ? {} : { statuses }) } }
     }),
     // B753: the board's hands in code. A running chat's Workers mod claims the start and wake words (whoever they are
     // addressed to) and, while resuming, a resume line for each chat that has not started; it sends each with the app's
@@ -3056,7 +3080,7 @@ async function main(args) {
         // a limit, a new mod, a report gone idle, the net), for every worker on it; on its own, so a failure stops no delivery.
         if (config.handover === 'sequence') {
           await loops.run('handover', async () => {
-            const passed = await handoverPass({ state: await readState(), dir: workDir, outbox: store, apply: body => workAction(body, 'server'), config, installed: (await modNow())?.installed ?? null, now: clock(), newId: () => randomBytes(8).toString('hex') })
+            const passed = await handoverPass({ state: await readState(), dir: workDir, outbox: store, apply: body => workAction(body, 'server'), config, installed: (await modNow())?.installed ?? null, now: clock(), newId: () => randomBytes(8).toString('hex'), isPushed })
             if (passed.wrote > 0) {
               work.reset?.()
               readState.reset()
@@ -3127,6 +3151,8 @@ async function main(args) {
         leftovers: ({ items, now }) => findLeftovers({
           repos: knownRepos(), project: config.project, items, run: gitRunner(), now,
           keep: [HERE, config.project, ...(hasGame ? [config.gameRepo] : [])],
+          // Signals change 3: a given-back step's old worktree is finished once its old worker's process is gone.
+          runs: runsNow,
         }),
         clean: one => cleanLeftover(one),
         // B598: the base branches against their remotes', and a step's check run again once they are equal (the rule

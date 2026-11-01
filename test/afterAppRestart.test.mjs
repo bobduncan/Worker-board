@@ -155,7 +155,7 @@ test('the banner says plainly that the main chat is not running, where to paste,
 test('the lane says "Not running", never "Working", and its time column says so too', () => {
   assert.match(script, /off: 'Not running'/)
   // The review of chat-reports: with the reason a reporting chat gives under it (test/reportedWords.test.mjs).
-  assert.match(script, /if \(found\.word === 'Not running'\) \{\n    return \{ \.\.\.plain\('Not running', 'bad', 'Process'\), small: /)
+  assert.match(script, /if \(found.status === 'Not running'\) \{\n    return \{ \.\.\.plain\('Not running', 'bad', 'Process'\), small: /)
 })
 
 test('the app\'s last start is read from the lock it holds in its own folder, above its chat list', async t => {

@@ -10,7 +10,7 @@ import test from 'node:test'
 import { SUPERVISOR_DEFAULTS, configProblem, parseConfig } from '../../src/config.mjs'
 import { runRules } from '../../src/supervisor/loop.mjs'
 import { buildView } from '../../src/supervisor/view.mjs'
-import { WATCH_RULES } from '../../src/supervisor/rules/watch.mjs'
+import { RETIRED_WATCH_RULES, WATCH_RULES } from '../../src/supervisor/rules/watch.mjs'
 import { COUNTS_BY_KEY, REPAIR_RULES } from '../../src/supervisor/rules/repair.mjs'
 import { stamp } from '../../src/work/migrate.mjs'
 
@@ -40,11 +40,14 @@ const check = (id, board, seen = new Map()) => {
   return Object.defineProperty(found, 'observed', { value: observed, enumerable: false })
 }
 
-test('the watch rules: twenty-eight, report only, each with what it says', () => {
-  assert.deepEqual(WATCH_RULES.map(one => one.id), ['unknown-lane', 'stale-suspended', 'ready-while-free', 'holder-not-running', 'working-not-running', 'opus-wait', 'skip-repeats', 'repair-repeats', 'undelivered', 'report-check-twice', 'old-mod', 'odd-effort', 'review-stuck', 'dropped-fix', 'review-held', 'chain-long', 'open-fix', 'stale-checkpoint', 'effort-mismatch', 'handover-held', 'handover-unanswered', 'old-limit-reading', 'board-deaf', 'board-slow', 'week-stop-ignored', 'five-hour-stop-ignored', 'pause-stale', 'obsolete-wrong'])
+test('the watch rules: twenty-six, report only, each with what it says', () => {
+  assert.deepEqual(WATCH_RULES.map(one => one.id), ['stale-suspended', 'ready-while-free', 'working-not-running', 'opus-wait', 'skip-repeats', 'repair-repeats', 'undelivered', 'report-check-twice', 'old-mod', 'odd-effort', 'review-stuck', 'dropped-fix', 'review-held', 'chain-long', 'open-fix', 'stale-checkpoint', 'effort-mismatch', 'handover-held', 'handover-unanswered', 'old-limit-reading', 'board-deaf', 'board-slow', 'week-stop-ignored', 'five-hour-stop-ignored', 'pause-stale', 'obsolete-wrong'])
   // Redesign Part 2: the rules of Main's queues are gone.
   // T8.5 step 6: the old hand-over rules are gone (their findings are handover-held and handover-unanswered now).
   for (const gone of ['idle-while-waiting', 'queued-not-running', 'not-cleared', 'not-taking']) assert.equal(WATCH_RULES.some(one => one.id === gone), false, gone)
+  // Signals change 3: a stopped holder is the hand-over's two timers', so these two are gone too.
+  for (const gone of RETIRED_WATCH_RULES) assert.equal(WATCH_RULES.some(one => one.id === gone), false, gone)
+  assert.deepEqual(RETIRED_WATCH_RULES, ['unknown-lane', 'holder-not-running'])
   assert.ok(WATCH_RULES.every(one => one.kind === 'watch' && typeof one.says === 'string' && one.says.length > 0 && typeof one.check === 'function'))
 })
 
@@ -58,46 +61,19 @@ test('the settings: the thresholds of the spec by default; config.json\'s superv
   assert.equal(configProblem('{ "supervisor": { "repairsPerDay": 5 } }'), null)
 })
 
-test('unknown-lane (X46, X65): only a worker unknown or off for 11 min that holds a step the board could not wake; 9 min, no step, a wake still under way, the main chat and a leftover do not', () => {
+test('signals change 3: the retired rules file nothing for a stopped holder: unknown, off for 31 min, Stopped or asleep with a step in progress, a wake that failed or none', () => {
   const failed = { chat: 'Painter', tries: 3, since: ago(40) }
-  const board = (minutes, more = {}) => view({
-    chats: [LEAD, lane('Painter', { state: 'unknown', isRunning: false })], today: [span('Painter', 'unknown', minutes)],
-    items: items(step('B482', 'in progress', { Owner: 'Painter' })), wakeFailed: [failed], ...more,
-  })
-  const found = check('unknown-lane', board(11))
-  assert.deepEqual(found.map(one => [one.rule, one.key, one.subject]), [['unknown-lane', 'unknown-lane Painter', 'Painter']])
-  // Its text names the step and the failed wake-up.
-  assert.equal(found[0].text, 'Painter unknown for 11 min, holds B482; nobody could wake it (3 tries since 08:20)')
-  assert.match(found[0].evidence, /unknown since 08:49; running: no; holds: B482; the board sent the start word 3 times since 08:20 and the chat still does not run/)
-  assert.equal(found[0].fix, undefined, 'report only')
-  assert.deepEqual(check('unknown-lane', board(9)), [])
-  // The old false case: unknown for long, and the board still wakes it (nothing failed yet): the board's own work, no case.
-  assert.deepEqual(check('unknown-lane', board(30, { wakeFailed: [] })), [])
-  assert.deepEqual(check('unknown-lane', board(30, { wakeFailed: [{ chat: 'Mason', tries: 3, since: ago(40) }] })), [], "another chat's failed wake-up is no case of this one")
-  // X46: a chat that is off with no step is closed, which is normal, whatever failed for it.
-  const closed = view({ chats: [LEAD, lane('Painter', { state: 'off', isRunning: false })], today: [span('Painter', 'off', 120)], wakeFailed: [failed], items: items(step('B3', 'done', { Owner: 'Painter' }), step('B9', 'queued', { Owner: 'Painter' })) })
-  assert.deepEqual(check('unknown-lane', closed), [])
-  assert.deepEqual(check('unknown-lane', view({ chats: [LEAD, lane('Painter', { state: 'unknown', isRunning: false })], today: [span('Painter', 'unknown', 60)] })), [])
-  // Never the main chat or a leftover.
-  assert.deepEqual(check('unknown-lane', view({ chats: [lane('Lead', { isMain: true, state: 'unknown' }), lane('Old', { isLeftover: true, state: 'unknown' })], today: [span('Lead', 'unknown', 60), span('Old', 'unknown', 60)], wakeFailed: [{ chat: 'Lead', tries: 3, since: ago(60) }, { chat: 'Old', tries: 3, since: ago(60) }], items: items(step('B1', 'in progress', { Owner: 'Lead' }), step('B2', 'in progress', { Owner: 'Old' })) })), [])
-  // A step taken counts too; a step only queued for it does not (the board hands it over when the chat runs).
-  const taken = check('unknown-lane', board(12, { items: items(step('B9', 'taken', { Owner: 'Painter' }), step('B8', 'queued', { Owner: 'Painter' })) }))
-  assert.equal(taken[0].text, 'Painter unknown for 12 min, holds B9; nobody could wake it (3 tries since 08:20)')
-  assert.deepEqual(check('unknown-lane', board(12, { items: items(step('B8', 'queued', { Owner: 'Painter' }), step('B3', 'done', { Owner: 'Painter' })) })), [])
-  // A chat that is off and holds a step the board could not wake is the case too (an unknown chat turns off after five quiet minutes).
-  const off = check('unknown-lane', view({ chats: [LEAD, lane('Painter', { state: 'off', isRunning: false })], today: [span('Painter', 'off', 15)], items: items(step('B482', 'in progress', { Owner: 'Painter' })), wakeFailed: [failed] }))
-  assert.equal(off[0].text, 'Painter off for 15 min, holds B482; nobody could wake it (3 tries since 08:20)')
-  // No wake word could be sent at all (state.nobodyRuns): no chat runs to carry the start word.
-  const nobody = check('unknown-lane', board(14, { wakeFailed: [], nobodyRuns: { since: ago(20), chats: ['Painter'] } }))
-  assert.equal(nobody[0].text, 'Painter unknown for 14 min, holds B482; no chat runs to ask it to start')
-  assert.match(nobody[0].evidence, /no wake word could be sent: no chat that could carry it runs \(words wait since 08:40\)/)
-  assert.deepEqual(check('unknown-lane', board(14, { wakeFailed: [], nobodyRuns: { since: ago(20), chats: ['Mason'] } })), [])
-  // Without a timeline, the runner's own watch: seen unknown since 11 min ago.
-  const watched = check('unknown-lane', view({ chats: [LEAD, lane('Painter', { state: 'unknown', isRunning: false })], items: items(step('B482', 'in progress', { Owner: 'Painter' })), wakeFailed: [failed] }), new Map([['unknown-lane Painter', ago(11)]]))
-  assert.equal(watched.length, 1)
-  assert.deepEqual(watched.observed, ['unknown-lane Painter'])
-  // A threshold of its own in the settings.
-  assert.deepEqual(check('unknown-lane', board(11, { settings: { unknownMinutes: 20 } })), [])
+  const boards = [
+    view({ chats: [LEAD, lane('Painter', { state: 'unknown', isRunning: false })], today: [span('Painter', 'unknown', 30)], items: items(step('B482', 'in progress', { Owner: 'Painter' })), wakeFailed: [failed] }),
+    view({ chats: [LEAD, lane('Painter', { state: 'off', isRunning: false, offSince: ago(31) })], today: [span('Painter', 'off', 31)], items: items(step('B7', 'in progress', { Owner: 'Painter' })), wakeFailed: [failed] }),
+    view({ chats: [LEAD, lane('Painter', { state: 'interrupted', isRunning: true, report: { state: 'idle', since: ago(40), at: ago(0) } })], items: items(step('B7', 'in progress', { Owner: 'Painter' }, { History: [`- ${stamp(ago(60))} server: queued → taken`] })) }),
+    view({ chats: [LEAD, lane('Painter', { state: 'interrupted', isRunning: false, asleep: true, asleepSince: ago(50) })], items: items(step('B9', 'taken', { Owner: 'Painter' })), nobodyRuns: { since: ago(20), chats: ['Painter'] } }),
+  ]
+  for (const [n, board] of boards.entries()) {
+    const done = runRules(WATCH_RULES, board, { seen: new Map([['unknown-lane Painter', ago(60)], ['holder-not-running B7', ago(60)]]), observed: [] })
+    assert.deepEqual(done.findings.map(one => one.rule), [], `board ${n}`)
+    assert.deepEqual(done.failed, [])
+  }
 })
 
 test('stale-suspended: suspended with its reset passed, or with usage under full after the stop, or past its limit\'s window', () => {
@@ -153,18 +129,6 @@ test('ready-while-free: a ready task kept for nobody waits 11 min while a worker
   // Not while the person pauses or a limit is full.
   assert.deepEqual(check('ready-while-free', board({ pause: { state: 'pausing', since: ago(5) } }), seen(30)), [])
   assert.deepEqual(check('ready-while-free', board({ limits: { week: { level: 'full' } } }), seen(30)), [])
-})
-
-test('holder-not-running: a step in progress whose worker has not run for 31 min trips; 29 min, or a running one, does not', () => {
-  const board = (minutes, more = {}) => view({
-    chats: [LEAD, lane('Painter', { state: 'off', isRunning: false, offSince: ago(minutes), ...more })],
-    items: items(step('B7', 'in progress', { Owner: 'Painter' })),
-  })
-  const found = check('holder-not-running', board(31))
-  assert.deepEqual(found.map(one => [one.key, one.subject]), [['holder-not-running B7', 'B7']])
-  assert.equal(found[0].text, 'B7 is in progress for Painter, whose chat has not run for 31 min')
-  assert.deepEqual(check('holder-not-running', board(29)), [])
-  assert.deepEqual(check('holder-not-running', board(60, { state: 'working', isRunning: true, offSince: null })), [])
 })
 
 test('opus-wait: an opus step held for Opus for 16 min trips; 14 min does not', () => {
@@ -444,10 +408,11 @@ test('B544: odd-effort names a chat whose effort is not a level, once; the partn
 
 test('Review Focus 1: a rule that throws is one finding "rule <id> failed" and the other rules still run', () => {
   const boom = { id: 'boom', kind: 'watch', says: 'a rule with bad data', check: () => { throw new Error('cannot read the file') } }
-  const board = view({ chats: [LEAD, lane('Painter', { state: 'unknown', isRunning: false })], today: [span('Painter', 'unknown', 30)], items: items(step('B482', 'in progress', { Owner: 'Painter' })), wakeFailed: [{ chat: 'Painter', tries: 3, since: ago(40) }] })
+  // Signals change 3: a card left working while its chat makes no call (working-not-running), as unknown-lane is retired.
+  const board = view({ chats: [LEAD, lane('Painter', { state: 'working', isRunning: false, offSince: ago(30) })] })
   const done = runRules([boom, ...WATCH_RULES], board, { seen: new Map(), observed: [] })
   assert.deepEqual(done.failed.map(one => [one.rule, one.key, one.text]), [['boom', 'rule-failed boom', 'rule boom failed: cannot read the file']])
-  assert.deepEqual(done.findings.map(one => one.rule), ['unknown-lane'])
+  assert.deepEqual(done.findings.map(one => one.rule), ['working-not-running'])
 })
 
 test('the view is read only: a rule cannot change it', () => {
@@ -466,32 +431,32 @@ test('the review: during Pause all, and the resume after it, no rule speaks of c
       lane('Mason', { state: 'free', effortRun: { step: 'B8', waitsFor: { model: 'opus', since: ago(60), text: 'B8 waits for Opus' } } }),
       lane('Sleeper', { state: 'suspended', suspended: { by: 'note', limit: 'fiveHour', since: ago(300), until: ago(40), isBack: true } }),
     ],
-    items: items(step('B7', 'in progress', { Owner: 'Painter' })),
     outbox: [{ id: 'm1', to: 'Lead', command: 'note', at: ago(50), state: 'waiting' }],
     pause,
   })
-  const seen = new Map([['holder-not-running B7', ago(60)], ['opus-wait B8', ago(60)], ['stale-suspended Sleeper', ago(60)]])
+  const seen = new Map([['working-not-running Painter', ago(60)], ['opus-wait B8', ago(60)], ['stale-suspended Sleeper', ago(60)]])
   for (const pause of [{ state: 'pausing', since: ago(60) }, { state: 'resuming', since: ago(5) }]) {
     for (const rule of WATCH_RULES) assert.deepEqual(rule.check(board(pause), { seen, observed: [] }), [], `${rule.id} while ${pause.state}`)
   }
   // Running again since 5 minutes: the pause's time does not count; the same board says nothing yet.
   const after = board({ state: 'running', since: ago(5) })
-  for (const id of ['holder-not-running', 'opus-wait', 'stale-suspended', 'undelivered']) assert.deepEqual(check(id, after, seen), [], id)
+  for (const id of ['working-not-running', 'opus-wait', 'stale-suspended', 'undelivered']) assert.deepEqual(check(id, after, seen), [], id)
   // ... and once the thresholds have passed since the resume, it speaks again.
   const later = board({ state: 'running', since: ago(45) })
-  assert.deepEqual(['holder-not-running', 'opus-wait', 'stale-suspended', 'undelivered'].map(id => check(id, later, seen).length), [1, 1, 1, 1])
+  assert.deepEqual(['working-not-running', 'opus-wait', 'stale-suspended', 'undelivered'].map(id => check(id, later, seen).length), [1, 1, 1, 1])
 })
 
-test('the review: at a full limit, a step held by a worker that does not run, or an opus step waiting, is no case; nor a holder suspended for the limit', () => {
+test('the review: at a full limit, a card left working by a chat that does not run, or an opus step waiting, is no case; nor a worker suspended for the limit', () => {
+  // Signals change 3: working-not-running in place of the retired holder-not-running.
   const board = (limits, holder = { state: 'off', isRunning: false, offSince: ago(70) }) => view({
     chats: [LEAD, lane('Painter', holder), lane('Mason', { state: 'free', effortRun: { step: 'B8', waitsFor: { model: 'opus', since: ago(60), text: '' } } })],
-    items: items(step('B7', 'in progress', { Owner: 'Painter' })), limits,
+    limits,
   })
   const full = { fiveHour: { used: 100, level: 'full', at: ago(1) } }
-  assert.deepEqual([check('holder-not-running', board(full)), check('opus-wait', board(full))], [[], []])
-  assert.deepEqual([check('holder-not-running', board({})).length, check('opus-wait', board({})).length], [1, 1])
+  assert.deepEqual([check('working-not-running', board(full)), check('opus-wait', board(full))], [[], []])
+  assert.deepEqual([check('working-not-running', board({})).length, check('opus-wait', board({})).length], [1, 1])
   const suspended = board({}, { state: 'suspended', isRunning: false, offSince: ago(70), suspended: { by: 'app', limit: 'fiveHour', since: ago(70), until: null, isBack: false } })
-  assert.deepEqual(check('holder-not-running', suspended), [])
+  assert.deepEqual(check('working-not-running', suspended), [])
 })
 
 test('the review: a compaction skipped because more of the same work follows is by design, as the Workers mod means it', () => {

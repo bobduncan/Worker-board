@@ -25,8 +25,8 @@ const ROLES = { Lead: 'main', Digger: 'worker', Partner: 'advisor', Watcher: 'su
 const lane = (name, more = {}) => ({ name, isMain: false, isLeftover: false, state: 'free', isRunning: true, session: `s-${name}`, ...more })
 
 /**
- * A board whose one worker, Digger, has been "unknown" for 20 minutes while it holds B13 and the board could not wake it
- * (the rule unknown-lane trips at once; X65: since 2026-10-25 it needs a step held and a failed wake-up), with a
+ * A board whose one worker, Digger, has a card that says it works while its chat has made no call for 20 minutes and it
+ * holds no step (the rule working-not-running trips at once; signals change 3 retired unknown-lane, which this used), with a
  * partner (unless `partner` is null), a real work store, and the outbox the supervisor's words go into (`refuse.value`
  * true: the outbox refuses them). `keep` how long a word waits, as the outbox keeps it.
  */
@@ -34,13 +34,13 @@ async function board(t, { partner = lane('Partner'), keep = undefined } = {}) {
   const refuse = { value: false }
   const dir = await mkdtemp(join(tmpdir(), 'handover-'))
   t.after(() => rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }))
-  await writeStore(dir, migrateBacklog('# Backlog\n\n## Work\n- [ ] B12 Wake an unknown worker (for Digger; about 1 h)\n- [ ] B13 Hold the beds (for Digger; about 1 h)\n  [store] State: in progress\n', { now: START }), undefined, { now: START })
+  await writeStore(dir, migrateBacklog('# Backlog\n\n## Work\n- [ ] B12 Wake an unknown worker (for Digger; about 1 h)\n- [ ] B13 Hold the beds (for Digger; about 1 h)\n', { now: START }), undefined, { now: START })
   let now = START
   const outbox = []
   const failures = []
   const ctx = () => ({ dir, now, prefix: '', roleOf: chat => ROLES[chat] ?? null })
   const state = () => ({
-    chats: [lane('Lead', { isMain: true }), lane('Digger', { state: 'unknown' })], advisor: partner, chatPrefix: '',
+    chats: [lane('Lead', { isMain: true }), lane('Digger', { state: 'working', isRunning: false, offSince: START - 20 * MIN })], advisor: partner, chatPrefix: '',
     today: [{ chat: 'Digger', spans: [{ from: START - 20 * MIN, to: now, state: 'unknown' }] }],
     wakeFailed: [{ chat: 'Digger', tries: 3, since: START - 40 * MIN }],
   })
@@ -83,13 +83,13 @@ test('an opened incident gives the partner one word and the person one line; onc
   const b = await board(t)
   await b.run()
   const x1 = await b.incident('X1')
-  assert.equal(x1.head.get('Source'), 'unknown-lane')
+  assert.equal(x1.head.get('Source'), 'working-not-running')
   assert.equal((await b.lines()).length, 1, 'one line to the person')
   assert.equal(b.words().length, 1, 'one word to the partner')
   const [word] = b.words()
   assert.deepEqual([word.to, word.about, word.state], ['Partner', 'X1', 'waiting'])
   assert.deepEqual(word.text.split('\n'), [
-    `incident: X1 ${x1.head.get('Title')}`, 'State: new', 'Count: 1 (seen once)', 'Source: the rule unknown-lane', 'Subject: Digger',
+    `incident: X1 ${x1.head.get('Title')}`, 'State: new', 'Count: 1 (seen once)', 'Source: the rule working-not-running', 'Subject: Digger',
     `Evidence: ${x1.head.get('Evidence')}`, 'Your job: C:/board/roles/partner.md, "Incidents"',
   ])
   // The review: on its way, it is not with the advisor yet; once typed into the partner's chat, it is.

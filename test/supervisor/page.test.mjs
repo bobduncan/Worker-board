@@ -581,7 +581,7 @@ test('the head\'s status word is quiet blue and grey; only "N new" takes the att
 test('the demo shows the section: every rule of the supervisor, three tripped today, the incidents of the day the cards were drawn on and their cards', () => {
   const view = demoSupervisor(NOW, SUPERVISOR_RULES, incidentCards)
   assert.equal(view.rules.length, SUPERVISOR_RULES.length)
-  assert.deepEqual(view.rules.filter(one => one.state === 'tripped').map(one => one.id).sort(), ['blocked', 'limit-back', 'unknown-lane'])
+  assert.deepEqual(view.rules.filter(one => one.state === 'tripped').map(one => one.id).sort(), ['blocked', 'limit-back', 'stale-suspended'])
   assert.deepEqual(view.incidents.map(one => [one.id, one.state, one.fix]).sort((a, b) => a[0].localeCompare(b[0], 'en', { numeric: true })), [
     ['X1', 'fix', 'B532'], ['X2', 'fix', 'B532'], ['X3', 'fix', 'B532'], ['X4', 'fix', 'B541'], ['X5', 'fix', 'B541'], ['X6', 'fix', 'B541'],
     ['X7', 'fix', 'B542'], ['X8', 'fix', 'B543'], ['X9', 'fix', 'B544'], ['X10', 'open', null],

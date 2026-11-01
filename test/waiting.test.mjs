@@ -107,7 +107,7 @@ const style = await readFile(join(PUBLIC, 'board.css'), 'utf8')
 const cut = name => script.slice(script.indexOf(`// ${name}:start`), script.indexOf(`// ${name}:end`))
 const page = {}
 vm.runInNewContext(`const MIN = 60000\n${cut('times')}
-${cut('chatword')}\n${cut('waiting')}\nObject.assign(this, { clock, span, needOfLane, waitingOf })`, page)
+${cut('chatstatus')}\n${cut('waiting')}\nObject.assign(this, { clock, span, needOfLane, waitingOf })`, page)
 const plain = value => JSON.parse(JSON.stringify(value))
 
 test('a click on a waiting lane opens what its chat waits for, else a request it filed', () => {

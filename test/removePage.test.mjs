@@ -18,7 +18,7 @@ const cut = name => {
 }
 const page = {}
 vm.runInNewContext(`const MIN = 60000\n${cut('times')}
-${cut('chatword')}\n${cut('remove')}\nObject.assign(this, { clock, removalView })`, page)
+${cut('chatstatus')}\n${cut('remove')}\nObject.assign(this, { clock, removalView })`, page)
 const plain = value => JSON.parse(JSON.stringify(value))
 
 const MIN = 60_000

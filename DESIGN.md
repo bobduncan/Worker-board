@@ -1209,7 +1209,7 @@ choices: the mod starts the board, the workers carry on on their click, no compa
   tab says so, and `resume` names these chats for the main chat, which starts them through the app by their
   session's id. Nothing is said in the board's first half minute, or about a chat that asks from another session
   than the one the board shows.
-- *Not running, not Working (B315).* (Since 2026-10-31 its pill and time column say the chat's one word, "Not running"; see "One word per chat".) Seen live 2026-10-18 at 16:32: after the app was quit and opened again, the
+- *Not running, not Working (B315).* (Since 2026-10-31 its pill and time column say the chat's one status, "Not running"; see "One status per chat".) Seen live 2026-10-18 at 16:32: after the app was quit and opened again, the
   Overview showed all four workers "Working" (their cards still said so from before the quit, and "resume" had ended
   their stop for the restart), while Needs your attention said three of them held a step but were not working. A
   lane that counts as working only by what is left of it (its card, its step, or a turn its transcript shows open)
@@ -4243,7 +4243,7 @@ runs /clear (`$.command.run({ command: 'clear' })`, queued for when the chat is 
 
 ### The board keeps the account of clears (B547, 2026-10-24)
 
-**Since 2026-10-31 (signals change 2)** a conversation cleared less than two minutes ago that has not reported yet reads **Restarting** (timed from the moved card's `cleared.at`, which the card keeps), then Unknown with the age; it no longer reads Unknown for the first minute (see "One word per chat").
+**Since 2026-10-31 (signals change 2)** a conversation cleared less than two minutes ago that has not reported yet reads **Restarting** (timed from the moved card's `cleared.at`, which the card keeps), then Unknown with the age; it no longer reads Unknown for the first minute (see "One status per chat").
 
 **Since T8.5 step 6 (2026-10-31)** the account (`clearOwed`) is what the hand-over's envelope reads: the owed clear is its
 first field, before the next task's line, and a clear that cannot run fails the envelope and holds the worker with its why
@@ -4351,7 +4351,7 @@ moved its step back to in progress whatever its worker was on; and nothing named
 
 ## Chats report their own state (2026-10-24, redesign Part 1)
 
-**Since 2026-10-31 (signals change 2)** the words this part names for what the page shows (Interrupted, Cut off, Idle task open, Suspended, "asleep", the pill by `isRunning`) are one word per chat, the board's `word` (see "One word per chat"): busy is Working, asking Waiting for you, idle Free, idle with the task open Stopped, a process that ended Asleep, a report that stopped Unknown / Not running. The reading below (`state`) is unchanged: the decisions still read it.
+**Since 2026-10-31 (signals change 2)** the words this part names for what the page shows (Interrupted, Cut off, Idle task open, Suspended, "asleep", the pill by `isRunning`) are one status per chat, the board's `status` (see "One status per chat"): busy is Working, asking Waiting for you, idle Free, idle with the task open Stopped, a process that ended Asleep, a report that stopped Unknown / Not running. The reading below (`state`) is unchanged: the decisions still read it.
 
 The supervisor's first day found a group of incidents from the board guessing a chat's state: "working" while its chat
 did not run, work for a chat that did not run. It read that state in nine steps of inference from side signals and
@@ -4408,7 +4408,7 @@ timers. Now each chat says it (principle 3, know don't guess).
   copy whose every whole read takes 5 s (`WORKER_BOARD_READ_DELAY_MS`, for tests only) keeps a report and answers work
   health within 2 s while one runs, and counts late work calls (`test/boardSlowRead.test.mjs`).
   (B728) A chat the board knows does not run whose card says free keeps the state `free` (the hand-out asks the main chat to start it,
-  `workerStart`), but is shown "Not running" in its pill, its time column and the head count: one word for one fact.
+  `workerStart`), but is shown "Not running" in its pill, its time column and the head count: one status for one fact.
   (B738) The Workers list (the mod's chat list, Workers mod 0.21.0) says it too: the answer to a take carries `off`, the names of
   the chats the board shows as not running (`isRunning` false: ended, app restarted, silent), and the list words such a
   chat "Not running" instead of "free" (the main chat too); a worker that holds a task still reads "your turn". A board that
@@ -4604,23 +4604,25 @@ its turn back at once, one 10-minute net. The reconciler's own give, its later l
   `test/work/retireQueue.test.mjs`, `test/pinTask.test.mjs`, `test/focusHandout.test.mjs`, `test/config.test.mjs`,
   `test/supervisor/watch.test.mjs`, `test/supervisor/selfCheck.test.mjs`.
 
-## One word per chat (2026-10-31, signals change 2)
+## One status per chat (2026-10-31, signals change 2; renamed from "word" 2026-11-01)
 
 The person's reading: one chat could show "Free", "asleep" and "restarting" at once; after a clear it read Unknown for about
-a minute; "Free" meant two things (the pill and the hand-out); every view renamed the words. Now every chat has ONE word,
-with how old the information behind it is, the same word in every view, and **Free means "the board would give it work
-now"**. Nothing changes in what the board does with the chats: the word is display only (principle 4: one place per fact).
+a minute; "Free" meant two things (the pill and the hand-out); every view renamed the statuses. Now every chat has ONE status,
+with how old the information behind it is, the same status in every view, and **Free means "the board would give it work
+now"**. Nothing changes in what the board does with the chats: the status is display only (principle 4: one place per fact).
+The person, 2026-11-01 ("it's confusing"): the display field is called **status** (it was `word`); **state** is what the board
+decides on, **status** is what the pill shows.
 
-- **`state` stays, `word` is added.** `lane.state`, `isRunning`, `asleep`, `report` and `lane.handover` are the decision
+- **`state` stays, `status` is added.** `lane.state`, `isRunning`, `asleep`, `report` and `lane.handover` are the decision
   inputs of the hand-out (`idleWorkers`, `decide`), the reconciler, the delivery, the pause, `say`, the hands, the mod rollout
-  and the Supervisor's rules (about 40 places) and stay exactly as they were, not deprecated. `src/chatWord.mjs` `wordOf`
-  reads them (and the hand-over, the mod rollout, the pause and the moved card's `cleared.at`) and returns `{ word, why,
+  and the Supervisor's rules (about 40 places) and stay exactly as they were, not deprecated. `src/chatStatus.mjs` `statusOf`
+  reads them (and the hand-over, the mod rollout, the pause and the moved card's `cleared.at`) and returns `{ status, why,
   since, reportAt, age }`; `state.mjs` puts those five on every chat of `/api/state.chats[]` and on the partner's, its
-  helper's, the supervisor's and the Product owner's cards, and `counts` is one number per word (`countsOf`: the keys
+  helper's, the supervisor's and the Product owner's cards, and `counts` is one number per status (`countsOf`: the keys
   working, waiting, checking, handing, offered, held, noanswer, paused, restarting, stopped, free, asleep, off, unknown).
-  Nothing in `reportedOf`, `runningOf`, `decide`, `idleWorkers`, `reconcile`, the rules or `say.mjs` reads the word (a test
+  Nothing in `reportedOf`, `runningOf`, `decide`, `idleWorkers`, `reconcile`, the rules or `say.mjs` reads the status (a test
   holds that), and `history.jsonl` keeps the old `state` (the day bars name it through the page's old-state map).
-- **The words, the first that holds wins.** 1 **Working**: a fresh report says busy (also background work after a reported
+- **The statuses, the first that holds wins.** 1 **Working**: a fresh report says busy (also background work after a reported
   step, and a wait for the partner; the why says which). A fresh busy report beats a pause note read from a lagging
   transcript; only the app's own stop line and the person's pause keep `Paused` over it. 2 **Waiting for you**: a fresh report
   says asking, or a blocking ask is open (attention). For a worker on the hand-over: 3 **Checking** (its report's result
@@ -4635,26 +4637,36 @@ now"**. Nothing changes in what the board does with the chats: the word is displ
   FREE for a worker on it; `state` free for a worker on the timers (the escape hatch), the main chat, the partner, the
   supervisor and the Product owner; never for a worker the hand-out skips (HELD, HANDING...). 12 **Not running** (the kind:
   a wake that did not take, ended with no app session, silent, unreported; attention). 13 **Unknown**: no report to go by,
-  always "no report for N" (quiet under two minutes, attention after). A leftover has no word. Only Working counts busy:
+  always "no report for N" (quiet under two minutes, attention after). A leftover has no status. Only Working counts busy:
   "N of M workers busy" does not grow.
 - **The age.** `age = now - report.at` on the board's clock (`board.now` at the read), never the page's: the mod refreshes `at`
   with every 5-second ping, so a live chat's age is seconds. The pill shows it over 10 seconds ("Working · 25 s ago");
   Unknown always shows it, Asleep shows "since HH:MM". `since` (when the state began) is kept apart from it. An Unknown chat
   whose new session has not reported since its clear counts the age from the clear.
-- **The page** (`public/board.js`, the `chatword` block): `WORD_VIEW` maps a word to its css class and tone, and every view
-  draws `laneWord(lane)`: the pill, the Workers list, the Advisor / helper / Product owner cards, the Talk pill, the lane
+- **The page** (`public/board.js`, the `chatstatus` block): `STATUS_VIEW` maps a status to its css class and tone, and every view
+  draws `laneStatus(lane)`: the pill, the Workers list, the Advisor / helper / Product owner cards, the Talk pill, the lane
   window's chip and alert, the removal reasons, the head count. The per-view renames are gone ("Not running" by `isRunning`,
   "Cut off", "Idle, task open", "Suspended" from `pausedLanes`, "Waiting for your partner", "Available", the small "asleep"
-  tag). A lane that comes without a word (an older board, a made-up one) reads its old `state` through the `STATES` map,
+  tag). A lane that comes without a status (an older board, a made-up one) reads its old `state` through the `STATES` map,
   which is also what labels the day bars. The second line under a worker keeps step and log facts and never a second state
-  word (the hand-over's flag line is gone: the word and its why say it).
-- **The Workers pane in the Claude app: later, as 2c, with the next Workers mod release.** The take answer carries
-  `{messages, clear?, off?, stop?, handover?}` and no word (`server.mjs` take; the pane's `status()` in `chats.ts` uses its card,
-  120 s staleness and `off`). Giving the pane the board's word is a mod change; the pane stays as it is.
-- **Checked by** `test/chatWord.test.mjs` (one test per row and per rule, then the mutants: Unknown after a clear, two
-  words on one lane, Free for a HELD worker, Working for asleep-with-a-step, the age from another clock),
-  `test/chatWord.state.test.mjs` (through `buildState`; the word fed into `idleWorkers` changes nothing) and
-  `test/chatWord.page.test.mjs` (every lane draws one word from the list, the views agree, the age at 11 s and not at 9 s).
+  status (the hand-over's flag line is gone: the status and its why say it).
+- **The Workers pane in the Claude app (2c, Workers mod 0.28.0).** The take answer carries `{messages, off?, stop?, handover?,
+  statuses}`: one `{ name, status, why, tone, since, reportAt }` per chat of the set the roles map uses (the non-leftover
+  chats, the Advisor, its helper, the Supervisor, the Product owner), computed after the hand-out so a worker just handed an
+  envelope sees its new status; `off` stays one more release. The pane draws the board's status, its why and the age (the
+  page's 10 s rule from `reportAt`), bold for attention; its own reading (card, 120 s staleness, `off`) is the fallback only
+  when no `statuses` arrived for 120 s, and then the line says "(board not reached)". A board that answers without `statuses`
+  (an older board) gives today's line with no mark; a chat outside the list (goal management, overview, board development,
+  the token chat) has no mark.
+  The chat tool's list (`chatsSummary`), the "Recorded. The list shows" line and the pane's redraw check show the same words.
+  The mark follows the status (● at work, ◆ the main chat, ◐ the person's turn, ◌ moving on without the person, ○ at rest or not
+  running), bold for the board's attention tone only (no theme colour: the mod knows no token that is not amber or red). On a null
+  take (board down, a 409 after a rename) `off` empties at once as before, while the statuses stand 120 s. `off` stays in the
+  take answer for one more release.
+- **Checked by** `test/chatStatus.test.mjs` (one test per row and per rule, then the mutants: Unknown after a clear, two
+  statuses on one lane, Free for a HELD worker, Working for asleep-with-a-step, the age from another clock),
+  `test/chatStatus.state.test.mjs` (through `buildState`; the status fed into `idleWorkers` changes nothing) and
+  `test/chatStatus.page.test.mjs` (every lane draws one status from the list, the views agree, the age at 11 s and not at 9 s).
 
 ## Any running chat wakes a chat words wait for (T9.4, 2026-10-25)
 
@@ -5007,7 +5019,7 @@ has no `clear` field.
 ```
 {
   id:      "<16 hex>",
-  kind:    "task" | "clear" | "back" | "restart",
+  kind:    "task" | "clear" | "back" | "restart" | "resume",  // resume: signals change 3, the "go on" line (0.27.x reads it as task)
   step:    "B12" | null,                          // the task this envelope gives (kind task)
   clear:   { step: "B11", reportedAt: <ms> } | null,
   restart: true | false,
@@ -5066,6 +5078,114 @@ with these readings of it:
 - A turn's end the board answered late: the reported step's decision (`clearWhenAnswered`) reads the late answer's
   `handover` itself; any other worker's turn's end carries an envelope the late answer brings.
 - A worker whose last turn's end was answered with `handover` sends no `pull`; one answered without it pulls as before.
+
+**Rollout of Workers mod 0.28.0** (signals change 2c and the Product owner fix; the release note is plugin.json's description).
+Workers on the hand-over sequence restart onto it through the hand-over's RESTARTING envelope, one after another between their
+tasks. The main chat, the Advisor, its helper, the Supervisor and the Product owner are no workers on the sequence: they come onto
+it through the old rollout words (src/oldMods.mjs: the main chat restarts them), so until then they keep their 0.27.3 panes, and
+the Product owner's compaction at rest (list.json `owner`, or a role the board named before) takes effect only after that
+restart. Nothing changes for the board's decisions: the take answer's `statuses` is display only.
+
+## A held task is never stuck (signals change 3, 2026-11-01)
+
+The person's yes of 2026-11-01: "5 minutes, then one 'go on', 15 minutes later the task goes back with its checkpoint".
+Before it, a worker that held a task and stopped (its process ended, or it sat idle with the task open) kept it: only
+alarms went to the Advisor after 10, 30 or 120 minutes. Now the board acts by itself, inside the hand-over's one
+decision (`decide`, rule 2; the timers in `src/work/holderTimers.mjs`, pure). The briefs: `.claude/plans/
+2026-11-01-held-step-never-stuck-brief.md`, its code check `2026-11-01-briefs-2c-3-code-check.md` (the Addendum wins) and
+`2026-11-01-change-3-build-brief.md`.
+
+**Who.** A worker on the sequence that holds a step taken or in progress whose lane is interrupted (the status Stopped:
+idle or ended with the step, asleep or not), off or unknown. A lane Working (a fresh busy report, background work, a wait
+for the partner) has no timer. Never for: a step with an open ask of that worker or under the step (as B308; the person's
+answer to an ask of it starts the clock anew), a step with the person's Stop or Remove of the worker since its take
+(B769), a worker being removed, a step waiting on you, in review or being checked, while the person pauses or resumes, a
+chat paused for a limit or a full limit (rule 1), the main chat, the partner, the supervisor and the Product owner (they
+are not on the sequence). A Quality Assurance task held by a stopped worker counts like any step.
+
+**The spell and running time.** The stopped spell begins at the latest of the step's Since (its take or last state
+change), its checkpoint, an answer to an ask of the worker, its last turn's start and the time its report stopped (idle
+or ended since, else the last report heard); counted from the end of the person's last pause at the earliest
+(`afterPause`) with the board's running time (`runningMs`: the time the board was off left out).
+
+**After `resumeAfterMinutes` (5): one "go on" line per spell.** `go on with B12 from your checkpoint: branch X, commit
+Y, next: Z` (each "none" when the step lacks it), as a back-like envelope (below), and one History line on the step,
+"the board asked Worker N to go on (stopped since HH:MM)" (the work API's `advance` with `goOn`, the server only). A
+resume envelope belongs to its spell while nothing showed work after it: no checkpoint, take or answer, no turn begun
+(`turnAt`), no report idle since or busy after it. The lane reads "Stopped · asked to go on at HH:MM" (the state's
+`lane.handover.asked`). It replaces the two old resume senders for a holder on the sequence: `resumesDue` (say.mjs) and
+the hands' asleep job (hands.mjs) skip it; the repair limit-back says the same words ("the limit is back: go on with
+B12 from your checkpoint: ...; run work next").
+
+**At most two lines** (the lead's review, `GO_ON_MOST`, a constant): per holder and step since its take, counted from the
+step's History lines "the board asked Worker N to go on" for that holder (or its resume envelopes). After the second line
+no further line goes, and the give-back's 15 minutes count from it whatever short turns, idle or busy reports or answered
+asks come; only a checkpoint after it, or a busy spell of over 2 minutes after it (`LONG_BUSY_MS`: a turn begun after it
+that ended, or a busy report heard for that long), starts the 15 minutes anew.
+
+**The envelope** (outbox command `handover`): `{ kind: "resume", step: null, clear: null, restart: false, set: null,
+line: "go on with ...", back: null, resume: "resume B12 <spell start ms>" }`. Its `step` is null, so the decision's
+in-flight task and the hand-over's own envelope logic never read it (the decision reads only the resume envelopes for
+the timers); its `resume` marker makes it once per spell, as `back` does. The Workers mod 0.27.x reads the unknown kind
+as `task` (board.ts `parseEnvelope`) and, with no clear, set or restart, types the line as the board's word and settles
+it once: no mod change. The outbox sweep keeps it while its worker holds that step taken or in progress and drops it
+once not ("Worker N no longer holds B12"); its next take brings it to a running chat; for an asleep chat the waiting
+envelope is what has the board open it (opener.mjs `asleepWithWork` counts every waiting word by `to`); for a chat that
+is off it is a wake word (say.mjs `isWakeWord`), as RESUME_STEP was.
+
+**After `giveBackAfterMinutes` (15) from the line being written, not delivered** (a chat the app will not open must not
+hold its step for ever), with no progress: the decision says `giveBack: { step, chat, askedAt }` and `close` (the line
+still waiting). The board calls `giveBackStep` (`src/work/giveBack.mjs`), the seam: until the store's move exists it
+answers `{ ok: false, why: 'the store has no give-back move yet' }`, says so once per step in board.log, and nothing
+changes (the step stays with the worker, its line stays waiting: the close waits for a give-back that happened).
+
+**Built behind the seam** (each reads the give-back's History line, "given back by the board: Worker N did not resume it
+(asked HH:MM)", holderTimers.mjs `giveBackWords` and `GIVEN_BACK`; none shows until the move writes it):
+- `notOfferedAgain` keeps the step from the worker that dropped it until it takes another task;
+- the dropped worker's later `step`, `report` and `take` on it are refused: "B12 was given back by the board at HH:MM: stop
+  that work and run work next" (`givenBackRefusal`; a board text, no mod change);
+- the next worker's line: "work: B12 is yours; run work next, then continue B12 from its checkpoint: branch X, commit Y,
+  next: Z; fetch the branch, the old worktree is removed by the sync", with "(local only)" after a commit on no remote
+  branch (the server's `isPushed`, git `branch -r --contains`); its take keeps the step's Plan, on the part it stood on;
+- worktrees.mjs: the old worker's worktree of a given-back step (named for it or on its branch), unused since the
+  give-back, is finished once that worker's process is gone (`runs(name)` false: not held, removed after 20 min unused,
+  merged or not; its branch keeps the commits);
+- the page: the dropped worker's lane "did not resume B12, given back HH:MM" (attention for an hour, then quiet, until its
+  next task) and the step's status line "given back, continues with Worker M from its checkpoint"; the health summary
+  names both History lines as the board's own work, no incident.
+
+**The second half** (waits for the person's yes on flow.json, the person's file):
+1. `flow.json` (`.claude/work/flow.json`, `DEFAULT_FLOW` in `src/work/flow.mjs`, `examples/work/flow.json`): a server move
+   from taken and from in progress to refined, "given back", with a named guard that reconcile never applies (skipped as
+   the queued moves are, reconcile.mjs ~252-268), so no refresh can give back every step in progress.
+2. `src/work/api.mjs`: `advance` with `to: 'refined'` and `giveBack: { chat, why }` (server only): only a step taken or in
+   progress for that chat; the move with the History words `giveBackWords(chat, askedAt)` as its why; Owner cleared;
+   Checkpoint, Branch and Plan kept; a Pinned that names the chat cleared with its own History line; the dropped
+   worker's card task cleared (the reconcile 'card' flag otherwise).
+3. `src/work/giveBack.mjs`: `giveBackStep` calls that path and answers what it answered (the board then closes the
+   waiting line, handoverBoard.mjs already does on ok).
+4. `src/clearOwed.mjs`: a give-back owes the dropped worker a clear: it reads the give-back's History line, and the
+   envelope's clear is `{ step, reportedAt: the give-back time }`.
+5. owner-gone (repair.mjs): the step of a chat gone from the list goes back at once by the same path, beside
+   `strandedGives` (handOut.mjs), its waiting-on-you steps too (their asks stay open for the person); until then it stays
+   a note to the main chat.
+
+**The rules.** `unknown-lane` and `holder-not-running` are retired (`RETIRED_WATCH_RULES`: out of WATCH_RULES; the board's
+pass over the incidents, api.mjs `incidentsFixed`, closes their open incidents with one line). `stale-checkpoint` keeps
+only its 120-minute 'old' kind, for a holder whose lane is Working (a chat that may loop, which only a reader can judge);
+its 'report' kind is gone, for every worker (health.mjs reads the same `checkpointLate`). `working-not-running` is
+unchanged. The reconciler's 'stuck' hint and 'idle hold' hint skip a worker on the sequence (its lane's "asked to go on"
+line stands for them). `roles/supervisor.md` ("What is no incident") names the new lines.
+
+**A gap, on purpose.** A worker not on the sequence (a Workers mod older than 0.27.0, or the setting `"timers"`) gets none
+of this, and with the two rules retired nothing watches its stuck steps (only the reconciler's old hints). None exists
+live: every worker runs 0.27.3, and `"timers"` hands out nothing.
+
+Tests: `test/work/holderTimers.test.mjs` (the real cases on `decide`, the board, the sweep, the old senders, the refusals,
+the continuation, the page, the settings, the retired incidents; mutants: the line every minute, the pause counted, the
+sweep dropping the line), `test/supervisor/staleCheckpoint.test.mjs` (mutant: the 'report' kind still filing),
+`test/supervisor/watch.test.mjs` (the retired rules file nothing for a stopped holder), `test/work/worktreeSweep.test.mjs`.
+
 
 ## What it does not do
 

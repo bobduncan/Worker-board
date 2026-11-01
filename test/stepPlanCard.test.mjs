@@ -130,7 +130,7 @@ const cut = name => {
 }
 const page = {}
 vm.runInNewContext(`const MIN = 60000\n${cut('times')}
-${cut('chatword')}\n${cut('lanetime')}\nObject.assign(this, { clock, span, timeOf })`, page)
+${cut('chatstatus')}\n${cut('lanetime')}\nObject.assign(this, { clock, span, timeOf })`, page)
 const timeOf = one => JSON.parse(JSON.stringify(page.timeOf(JSON.parse(JSON.stringify(one)), NOW)))
 
 test('the page marks the refine\'s size as the refine\'s estimate, and a step\'s own time as before', () => {

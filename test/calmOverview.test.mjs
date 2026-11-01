@@ -18,7 +18,7 @@ const cut = name => script.slice(script.indexOf(`// ${name}:start`), script.inde
 
 const page = {}
 vm.runInNewContext(`const MIN = 60000\n${cut('times')}
-${cut('chatword')}\n${cut('limits')}\n${cut('lanetime')}\n${cut('calmoverview')}
+${cut('chatstatus')}\n${cut('limits')}\n${cut('lanetime')}\n${cut('calmoverview')}
 Object.assign(this, { clock, span, leftView, freeShort, nextInQueue, infoLine, shownCounts, infoHeightFit })`, page)
 
 const MIN = 60_000

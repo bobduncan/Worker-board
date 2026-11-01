@@ -12,6 +12,7 @@
 
 import { modAtLeast, handedBackOf } from '../clearOwed.mjs'
 import { match } from './handOut.mjs'
+import { GIVEN_BACK, GIVE_BACK_MINUTES, RESUME_KIND, RESUME_MINUTES, continuationLine, continuationOf, holderTimers } from './holderTimers.mjs'
 import { sinceMs, valueOf } from './item.mjs'
 import { reportCheckFailedOf } from './resultCheck.mjs'
 
@@ -128,6 +129,8 @@ function lastTakeAt(items, name, prefix) {
 /**
  * The person's answer to the spec's open question 2 (2026-10-31: yes): a task the worker did not take in the turn its line
  * started is not offered to it again until it takes another task. The ids taken back from it so since its last take.
+ * Signals change 3: so is a step the board gave back from it because it did not go on (holderTimers.mjs `GIVEN_BACK`, the
+ * words the give-back's move writes), until it takes another task.
  */
 export function notOfferedAgain(items, name, prefix = '') {
   const since = lastTakeAt(items, name, prefix)
@@ -136,7 +139,7 @@ export function notOfferedAgain(items, name, prefix = '') {
   for (const item of items.values()) {
     if (kindOf(item) !== 'step') continue
     for (const line of historyOf(item)) {
-      const hit = back.exec(line)
+      const hit = back.exec(line) ?? GIVEN_BACK.exec(line)
       if (hit !== null && plain(hit[2], prefix) === plain(name, prefix) && sinceMs(hit[1]) >= since) ids.add(valueOf(item, 'Id'))
     }
   }
@@ -185,7 +188,7 @@ function failedModels(envelopes) {
   return barred
 }
 
-const result = (state, why = null, more = {}) => ({ state, why, step: null, takeBack: null, give: null, envelope: null, net: null, close: null, ...more })
+const result = (state, why = null, more = {}) => ({ state, why, step: null, takeBack: null, give: null, envelope: null, net: null, close: null, asked: null, goOn: null, giveBack: null, ...more })
 
 /**
  * The one decision for one worker (spec part 2, "The decision"), at an event: `{ kind: 'turn-ended', since }` (T: the
@@ -200,11 +203,17 @@ const result = (state, why = null, more = {}) => ({ state, why, step: null, take
  * - `owed`: the clear it owes (clearOwed.mjs `clearOwed`), or null;
  * - `envelopes`: its envelopes in the outbox, oldest first (`envelopesOf`);
  * - `setFor(id)`: the model and effort its chat must be set to for that step (`{ model, effort }`), or null when it runs it;
- * - `now`, `runningMs(from)`: the board's running time since `from` (its off time left out).
+ * - `now`, `runningMs(from)`: the board's running time since `from` (its off time left out);
+ * - signals change 3: `pause` (the store's pause record), `stops` (the person's stop and remove words about it), `timers`
+ *   `{ resumeMs, giveBackMs }` (the settings `resumeAfterMinutes` and `giveBackAfterMinutes`), `localOnly` (the ids of the
+ *   given-back ready steps whose checkpoint commit is on no remote branch: their continuation line says so).
  *
  * In this order, the first that holds wins:
  * 1. the person pauses, or a limit is full: SUSPENDED, nothing sent; the task in flight goes back at once;
- * 2. it holds a step taken, in progress or waiting on you: WORKING;
+ * 2. it holds a step taken, in progress or waiting on you: WORKING; signals change 3: a holder that stopped runs its two
+ *    timers (holderTimers.mjs): the "go on" line once per stopped spell after `resumeMs` (the envelope `resume`, with
+ *    `goOn` `{ step, chat, since }` for the step's History), `asked` when that line was written (the lane's words), and
+ *    `giveBackMs` after the line with no progress `giveBack` `{ step, chat, askedAt }` with `close` the line still waiting;
  *    its envelope in flight: a turn that ended after its line without a take gives the task back at once and decides
  *    on, that task not offered to it again; a failed outcome gives it back at once, HELD; the net gives it back once,
  *    UNKNOWN; else HANDING (no outcome yet) or OFFERED (the line typed);
@@ -221,10 +230,13 @@ const result = (state, why = null, more = {}) => ({ state, why, step: null, take
  * give in the same call, the envelope to write, the envelope the net fired for (marked once), one that waits in the outbox
  * and is to be closed (its task went back).
  */
-export function decide({ worker, items = new Map(), ready = [], prefix = '', paused = false, limitFull = false, installed = null, owed = null, envelopes = [], setFor = () => null, now, runningMs = from => now - from, event = { kind: 'pass' } }) {
+export function decide({ worker, items = new Map(), ready = [], prefix = '', paused = false, limitFull = false, installed = null, owed = null, envelopes: all = [], setFor = () => null, now, runningMs = from => now - from, event = { kind: 'pass' }, pause = null, stops = [], timers = {}, localOnly = new Set() }) {
   const name = worker.name
   const isTurnEnd = event?.kind === 'turn-ended'
   const turnSince = isTurnEnd && Number.isFinite(event.since) ? event.since : -Infinity
+  // Signals change 3: the "go on" lines are the holder's timers', not the hand-over's: they never stand in for its last envelope.
+  const envelopes = all.filter(one => one?.kind !== RESUME_KIND)
+  const resumes = all.filter(one => one?.kind === RESUME_KIND)
   const last = envelopes.at(-1) ?? null
   const inFlight = last !== null && typeof last.step === 'string' && last.netAt === undefined && isQueuedFor(items, last.step, name, prefix) ? last : null
   const closeOf = envelope => (envelope?.state === 'waiting' ? envelope.id : null)
@@ -236,7 +248,21 @@ export function decide({ worker, items = new Map(), ready = [], prefix = '', pau
   }
   // 2. Its own step: the take ended the hand-over.
   const holding = holdingOf(items, name, prefix)
-  if (holding !== undefined) return result(STATES.WORKING, null, { step: valueOf(holding, 'Id') })
+  if (holding !== undefined) {
+    const id = valueOf(holding, 'Id')
+    // Signals change 3: a holder that stopped gets one "go on" line, and its step goes back when it does not go on.
+    const timed = holderTimers({
+      worker, holding, items, prefix, envelopes: resumes, stops, pause, runningMs,
+      resumeMs: timers.resumeMs ?? RESUME_MINUTES * MIN, giveBackMs: timers.giveBackMs ?? GIVE_BACK_MINUTES * MIN,
+    })
+    if (timed === null) return result(STATES.WORKING, null, { step: id })
+    const resume = timed.resume === null ? null
+      : { kind: RESUME_KIND, step: null, clear: null, restart: false, set: null, line: timed.resume.line, back: null, resume: timed.resume.marker }
+    return result(STATES.WORKING, null, {
+      step: id, asked: timed.asked, giveBack: timed.giveBack, close: timed.close, envelope: resume,
+      goOn: resume === null ? null : { step: id, chat: name, since: timed.since },
+    })
+  }
 
   // The one task in flight (the spec's events table: T, D and the net).
   const report = worker.report ?? null
@@ -324,9 +350,12 @@ export function decide({ worker, items = new Map(), ready = [], prefix = '', pau
     return result(STATES.FREE, said, { takeBack: takenBack, envelope: clear === null ? null : { kind: 'clear', step: null, clear, restart: false, set: null, line: null, back: null } })
   }
   const set = setFor(given.id) ?? null
+  // Signals change 3: a step the board gave back goes to its next worker as a continuation from its checkpoint.
+  const item = items.get(given.id)
+  const line = item !== undefined && continuationOf(item) !== null ? continuationLine(item, { localOnly: localOnly.has(given.id) }) : lineFor(given.id)
   return result(STATES.HANDING, said, {
     step: given.id, takeBack: takenBack, give: given.id,
-    envelope: { kind: 'task', step: given.id, clear, restart: false, set, line: lineFor(given.id), back: null },
+    envelope: { kind: 'task', step: given.id, clear, restart: false, set, line, back: null },
   })
 }
 

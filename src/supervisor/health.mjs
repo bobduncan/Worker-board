@@ -8,6 +8,7 @@
 import { chatEffort, effortOf, modelOf } from '../work/effort.mjs'
 import { sinceMs, valueOf } from '../work/item.mjs'
 import { checkpointOf, isHolding } from '../work/pause.mjs'
+import { GO_ON_LINE, continuationOf } from '../work/holderTimers.mjs'
 import { isFailedForGood } from '../work/outboxSweep.mjs'
 import { openQaTaskOf, qaStandOf } from '../work/qaTask.mjs'
 import { reviewWaitOf } from '../work/resultCheck.mjs'
@@ -64,6 +65,16 @@ const kindOf = item => valueOf(item, 'Kind') ?? 'step'
 const stepsOf = view => [...view.items.values()].filter(item => kindOf(item) === 'step' && typeof valueOf(item, 'Id') === 'string')
 /** When a History line was written: "- 2026-10-24 09:00 who: what". */
 const historyAt = line => sinceMs(String(line).replace(/^-\s+/, '').slice(0, 16))
+
+/**
+ * Signals change 3: the board's "go on" line to a stopped holder of this step since `since` (its History line), in the
+ * summary's words, or ''. It is the board's own timers at work, no incident (roles/supervisor.md, "What is no incident").
+ */
+function goOnSince(item, since, now) {
+  const hit = (item.sections?.get('History') ?? []).map(line => GO_ON_LINE.exec(line)).filter(Boolean).at(-1) ?? null
+  if (hit === null || !(sinceMs(hit[1]) >= since)) return ''
+  return ` (the board asked ${hit[2]} to go on at ${dayClockOf(sinceMs(hit[1]), now)}, stopped since ${hit[3]}: its own timers, no incident)`
+}
 
 /** A line of the summary: its words, how much it must stay (0 always, 1 before the rest, 2 the rest), odd or not, and when. */
 const lineOf = (text, { tier = 2, odd = false, at = -Infinity, max = LINE_CHARS } = {}) => ({ text: `- ${oneLine(text, max)}`, tier, odd, at: Number.isFinite(at) ? at : -Infinity })
@@ -281,6 +292,9 @@ function stepLines(view, now) {
   const review = { steps: 0, chains: 0, held: 0, late: 0 }
   for (const item of stepsOf(view)) {
     const state = valueOf(item, 'State')
+    // Signals change 3: a step the board gave back waits for its next worker by design (the give-back's History line).
+    const back = continuationOf(item)
+    if (state === 'refined' && back !== null) lines.push(lineOf(`${valueOf(item, 'Id')} refined: given back by the board from ${back.chat} at ${dayClockOf(back.at, now)} (it did not go on); the next free worker continues it from its checkpoint, no incident: ${oneLine(valueOf(item, 'Title'), 80)}`, { tier: 1, odd: false, at: back.at }))
     if (state === 'new' || state === 'refined') {
       backlog[state] += 1
       continue
@@ -333,7 +347,9 @@ function stepLines(view, now) {
     const parked = parkedOf(item, view)
     const odd = isLate(item, view, now) || (owner !== null && !isChats) || checkpointLate(item, { ...view, now }) !== null || (parked !== null && parked.why === null)
     const parkedWords = parked === null ? '' : ` (parked: ${owner} is on ${parked.on}; ${parked.why ?? 'nothing names why it waits'})`
-    lines.push(lineOf(`${id} ${state} for ${lasting(age)}${off > 0 ? ` (PC off ${lasting(off)})` : ''}${stays}, ${owner === null ? 'no owner' : owner}${fix}${waits}${parkedWords}${checkpointWords}: ${oneLine(valueOf(item, 'Title'), 80)}`, { tier, odd, at: since }))
+    // Signals change 3: the board's own record of a stopped holder (its "go on" line, a continuation after a give-back): no incident.
+    const timerWords = goOnSince(item, since, now) + (back === null ? '' : ` (continues ${back.chat}'s checkpoint: given back at ${dayClockOf(back.at, now)})`)
+    lines.push(lineOf(`${id} ${state} for ${lasting(age)}${off > 0 ? ` (PC off ${lasting(off)})` : ''}${stays}, ${owner === null ? 'no owner' : owner}${fix}${waits}${parkedWords}${timerWords}${checkpointWords}: ${oneLine(valueOf(item, 'Title'), 80)}`, { tier, odd, at: since }))
   }
   if (review.steps > 0) lines.push(lineOf(`in review: ${review.steps} ${review.steps === 1 ? 'step' : 'steps'} in ${review.chains} ${review.chains === 1 ? 'chain' : 'chains'} of fixes${review.held > 0 ? `, ${review.held} behind a fix the ready list holds` : ''}`, { tier: 1, odd: review.late > 0 }))
   if (backlog.new + backlog.refined > 0) lines.push(lineOf(`backlog, not queued: ${backlog.new} new, ${backlog.refined} refined${refinedWords(view)}`, { tier: 1 }))

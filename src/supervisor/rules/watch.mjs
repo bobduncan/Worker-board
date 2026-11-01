@@ -12,6 +12,7 @@
 // holds the supervisor's own watch: `seen` (since when it first saw what only counts once it lasts) and `observed`
 // (what it sees now; the loop keeps those and forgets the rest). PURE.
 
+import { RETIRED_WATCH_RULES } from '../../work/holderTimers.mjs'
 import { SUPERVISOR_DEFAULTS } from '../../config.mjs'
 import { askFiledMs, sinceMs, valueOf } from '../../work/item.mjs'
 import { overlapIn } from '../../work/guards.mjs'
@@ -108,7 +109,7 @@ export function boardOffMs(view, from) {
  * B736 (X73, X87: from 21:12 to 21:21 the board heard no chat while every chat worked, and three chats were "not running"
  * for 8 minutes): how long between `from` and now the board heard no chat though chats ran (view.mjs `deaf`, the one that
  * lasts now up to now). A stall or a restart of the board is no chat's fault: the rules about a chat that does not run
- * (holder-not-running, working-not-running, handover-held) leave it out, as they leave out `boardOffMs`.
+ * (working-not-running, handover-held) leave it out, as they leave out `boardOffMs`.
  */
 export function deafMs(view, from) {
   if (!Number.isFinite(from)) return 0
@@ -117,48 +118,12 @@ export function deafMs(view, from) {
 }
 
 /**
- * X65 (the person: "this should have been 0"): how the board's own wake-up of a chat failed, or null while it is not
- * known to have. Since 2026-10-25 (T9.4) the board wakes a chat that words wait for, at most three tries, and says so when
- * that fails: `wakeFailed` names the chats it asked in vain, `nobodyRuns` those it could ask nobody for. `{ words, evidence }`.
+ * Signals change 3 (the build brief of 2026-11-01, B): the rules unknown-lane (1) and holder-not-running (4) are retired:
+ * the hand-over's two timers act on a stopped holder themselves (one "go on" line, then the give-back, src/work/
+ * holderTimers.mjs) and leave History lines instead of incidents. Their open incidents are closed by the board's pass
+ * over the incidents (src/work/api.mjs `incidentsFixed`), each with one line.
  */
-function wakeFailureOf(view, name) {
-  const same = chat => plain(chat, view.prefix) === plain(name, view.prefix)
-  const failed = (view.wakeFailed ?? []).find(one => same(one.chat))
-  if (failed !== undefined) {
-    const tries = Number.isFinite(failed.tries) ? failed.tries : 0
-    const since = Number.isFinite(failed.since) ? ` since ${clockOf(failed.since)}` : ''
-    return { words: `nobody could wake it (${tries} ${tries === 1 ? 'try' : 'tries'}${since})`, evidence: `the board sent the start word ${tries} ${tries === 1 ? 'time' : 'times'}${since} and the chat still does not run` }
-  }
-  if ((view.nobodyRuns?.chats ?? []).some(same)) {
-    return { words: 'no chat runs to ask it to start', evidence: `no wake word could be sent: no chat that could carry it runs${Number.isFinite(view.nobodyRuns.since) ? ` (words wait since ${clockOf(view.nobodyRuns.since)})` : ''}` }
-  }
-  return null
-}
-
-/**
- * 1. A worker unknown or off for longer than `unknownMinutes` that holds a step (taken or in progress) and that the board
- * could not wake (`wakeFailureOf`). X46, X65 and the rest were false alarms: a chat that is off with no step is closed,
- * which is normal, and a chat the board is still waking (it has its tries) is the board's work, not a case. The text
- * names the step and the failed wake-up. A chat with a step that is off for good is also the rule holder-not-running's.
- */
-function unknownLane(view, ctx) {
-  const found = []
-  for (const lane of workersOf(view).filter(one => one.state === 'unknown' || one.state === 'off')) {
-    const held = stepsOf(view).filter(item => HOLDS.includes(stateOf(item)) && plain(valueOf(item, 'Owner'), view.prefix) === plain(lane.name, view.prefix)).map(idOf).sort(byId)
-    if (held.length === 0) continue
-    const failure = wakeFailureOf(view, lane.name)
-    if (failure === null) continue
-    const key = `unknown-lane ${lane.name}`
-    const ms = lasted(view, ctx, key, view.since.get(lane.name))
-    if (ms <= view.settings.unknownMinutes * MIN) continue
-    found.push({
-      rule: 'unknown-lane', key, subject: lane.name,
-      text: `${lane.name} ${lane.state} for ${minutes(ms)} min, holds ${held.join(', ')}; ${failure.words}`,
-      evidence: `state ${lane.state} since ${clockOf(view.now - ms)}; running: ${lane.isRunning === true ? 'yes' : lane.isRunning === false ? 'no' : 'not known'}; holds: ${held.join(', ')}; ${failure.evidence}`,
-    })
-  }
-  return found
-}
+export { RETIRED_WATCH_RULES }
 
 /**
  * 2. A worker "suspended" after its limit came back: its reset time passed (`isBack`), the app stopped it at the limit
@@ -238,34 +203,11 @@ function readyWhileFree(view, ctx) {
   return found
 }
 
-/** 4. A step in progress whose worker has not run for longer than `notRunningMinutes`. */
-function holderNotRunning(view, ctx) {
-  const found = []
-  // The person pauses, or a limit is full: the chats are meant to stand still.
-  if (isPaused(view) || isFull(view)) return found
-  for (const item of stepsOf(view).filter(one => HOLDS.includes(stateOf(one)))) {
-    const owner = valueOf(item, 'Owner')
-    const lane = workersOf(view).find(one => plain(one.name, view.prefix) === plain(owner, view.prefix))
-    // A worker paused for the limit stands still on purpose (stale-suspended says when that is wrong).
-    if (lane === undefined || lane.state === 'suspended' || !(lane.isRunning === false || lane.state === 'off')) continue
-    const id = idOf(item)
-    const key = `holder-not-running ${id}`
-    const ms = lasted(view, ctx, key, afterPause(view, Number.isFinite(lane.offSince) ? lane.offSince : lane.state === 'off' ? view.since.get(lane.name) : null), { heard: true })
-    if (ms <= view.settings.notRunningMinutes * MIN) continue
-    found.push({
-      rule: 'holder-not-running', key, subject: id,
-      text: `${id} is ${stateOf(item)} for ${lane.name}, whose chat has not run for ${minutes(ms)} min`,
-      evidence: `${lane.name}: state ${lane.state}, running ${lane.isRunning === false ? 'no' : 'not known'}, since ${clockOf(view.now - ms)}`,
-    })
-  }
-  return found
-}
-
 /**
  * B566 (X22, X21: chats shown not running while they ran, the board's only sign their takes): a worker whose card says
  * it works (or that the board shows off for a card left working) while its chat made no call to the board, took
  * nothing and wrote nothing to its conversation (the board's `isRunning` false) for longer than 5 minutes: one
- * incident per worker. A worker on a step in progress is holder-not-running's.
+ * incident per worker. A worker on a step in progress is the hand-over's timers' (signals change 3), never this rule's.
  */
 const WORKING_NOT_RUNNING_MS = 5 * MIN
 function workingNotRunning(view, ctx) {
@@ -789,25 +731,24 @@ function refineWordsOf(view, id, since) {
 
 /** A span in words: "45 min", "2 h 10 min". */
 const lasting = ms => (ms < HOUR ? `${minutes(ms)} min` : `${Math.floor(ms / HOUR)} h${minutes(ms % HOUR) > 0 ? ` ${minutes(ms % HOUR)} min` : ''}`)
-/** A checkpoint's next action that is the report itself ("report B522", "work report B7 ..."). */
-const REPORT_NEXT = /^\s*(?:work\s+)?report\b/i
-
 /**
  * B572 (the fix of X24: B522 sat in progress 2 h 36 min, its last checkpoint "report B522" of 19:07 never followed by a
  * report): whether a step in progress has a stale checkpoint, as the rule stale-checkpoint and the health summary read it.
- * 'report': its last checkpoint's next action is to report, written over `reportMinutes` ago; 'old': in progress over
- * `checkpointMinutes` with no checkpoint within them (`checkpoint` null: none at all). Times count from the end of the
+ * 'old': in progress over `checkpointMinutes` with no checkpoint within them (`checkpoint` null: none at all), while its
+ * worker's lane says it works (state working: busy, background work, a wait for the partner): a chat that may loop, which
+ * only a reader can judge. Signals change 3: the 'report' kind (a checkpoint that said to report, `reportMinutes` ago) is
+ * gone, and a holder that stopped is the hand-over's timers' (one "go on" line, then the give-back). Times count from the
  * person's last pause at the earliest, less the time its worker stood suspended for the limit (the review: it cannot
  * write a checkpoint meanwhile). A checkpoint from before the step's current stretch in progress (it waited on you
  * since) counts as none: the stretch counts from its start. Null when it is not late, not in progress, the person
- * pauses, a limit is full, or its worker is paused for the limit now (it stands still on purpose). `{ kind, step,
+ * pauses, a limit is full, or its worker does not work now (paused for the limit, stopped, asleep). `{ kind, step,
  * checkpoint, quiet }`: `step` how long it has been in progress, `quiet` how long since its last checkpoint (or since
  * the stretch began, without one).
  */
 export function checkpointLate(item, view) {
   if (stateOf(item) !== 'in progress' || isPaused(view) || isFull(view)) return null
   const owner = workersOf(view).find(lane => plain(lane.name, view.prefix) === plain(valueOf(item, 'Owner'), view.prefix))
-  if (owner?.state === 'suspended') return null
+  if (owner?.state !== 'working') return null
   const began = sinceMs(valueOf(item, 'Since'))
   if (!Number.isFinite(began)) return null
   const checkpoint = checkpointOf(item)
@@ -815,7 +756,6 @@ export function checkpointLate(item, view) {
   const counted = from => view.now - afterPause(view, from) - boardOffMs(view, afterPause(view, from)) - (owner === undefined ? 0 : standingStillMs(view, owner.name, afterPause(view, from)))
   const quiet = counted(written ?? began)
   const late = { step: view.now - began, checkpoint, quiet }
-  if (written !== null && REPORT_NEXT.test(checkpoint.next) && quiet > view.settings.reportMinutes * MIN) return { kind: 'report', ...late }
   return counted(began) > view.settings.checkpointMinutes * MIN && quiet > view.settings.checkpointMinutes * MIN ? { kind: 'old', ...late } : null
 }
 
@@ -841,8 +781,7 @@ function staleCheckpoint(view) {
     const id = idOf(item)
     const { checkpoint } = late
     const who = `${id} in progress for ${lasting(late.step)} (${valueOf(item, 'Owner') ?? 'nobody'})`
-    const text = late.kind === 'report' ? `${who}; its last checkpoint, "${checkpoint.next}" at ${clockOf(checkpoint.at)}, was never followed by a report`
-      : checkpoint === null ? `${who} with no checkpoint` : `${who} with no checkpoint for ${lasting(late.quiet)}`
+    const text = checkpoint === null ? `${who} with no checkpoint` : `${who} with no checkpoint for ${lasting(late.quiet)}`
     found.push({
       rule: 'stale-checkpoint', key: `stale-checkpoint ${id} ${checkpoint?.line ?? 'none'}`, subject: id, text,
       evidence: `in progress since ${clockOf(sinceMs(valueOf(item, 'Since')))}; ${checkpoint === null ? 'no checkpoint in its record'
@@ -1194,10 +1133,8 @@ function obsoleteWrong(view) {
 
 /** Every watch rule, in the order the section shows them. */
 export const WATCH_RULES = [
-  { id: 'unknown-lane', kind: 'watch', says: 'a worker unknown or off for too long that holds a step and that the board could not wake', check: unknownLane },
   { id: 'stale-suspended', kind: 'watch', says: 'a worker "suspended" after its limit came back', check: staleSuspended },
   { id: 'ready-while-free', kind: 'watch', says: 'a ready task waits while a worker is free', check: readyWhileFree },
-  { id: 'holder-not-running', kind: 'watch', says: 'a step in progress whose worker does not run', check: holderNotRunning },
   { id: 'working-not-running', kind: 'watch', says: 'a worker whose card says it works while its chat makes no call and writes nothing', check: workingNotRunning },
   { id: 'opus-wait', kind: 'watch', says: 'an Opus step waiting for Opus too long', check: opusWait },
   { id: 'skip-repeats', kind: 'watch', says: 'a compaction skipped for the same reason twice in a row', check: skipRepeats },
@@ -1211,7 +1148,7 @@ export const WATCH_RULES = [
   { id: 'review-held', kind: 'watch', says: 'a step in review whose chain of fixes ends in a fix the ready list holds, for too long', check: reviewHeld },
   { id: 'chain-long', kind: 'watch', says: 'a chain of three tries or more whose newest fix names no "Tried before:" (a patch of the same way again)', check: chainLong },
   { id: 'open-fix', kind: 'watch', says: 'a step in review behind a fix the partner has not refined for over 60 min, its last refine word unanswered for 30', check: openFix },
-  { id: 'stale-checkpoint', kind: 'watch', says: 'a step in progress with no checkpoint for hours, or whose checkpoint said to report long ago', check: staleCheckpoint },
+  { id: 'stale-checkpoint', kind: 'watch', says: 'a step in progress whose worker works on it for hours with no checkpoint', check: staleCheckpoint },
   { id: 'effort-mismatch', kind: 'watch', says: 'a worker that still runs another model or effort than its step wants 10 min after the take', check: effortMismatch },
   { id: 'handover-held', kind: 'watch', says: 'a worker on the hand-over sequence held (its clear, set or restart did not run) for over 10 min of running time', check: handoverHeld },
   { id: 'handover-unanswered', kind: 'watch', says: 'a worker on the hand-over sequence that did not answer its hand-over within 10 min (the net fired)', check: handoverUnanswered },

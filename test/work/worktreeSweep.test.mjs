@@ -186,3 +186,24 @@ test('B751: a folder named as a worktree\'s with files and no git is moved into 
     done(one)
   }
 })
+
+test('signals change 3: the old worktree of a step the board gave back is finished once its old worker\'s process is gone, merged or not; while it may run, it stays', async () => {
+  const one = world()
+  try {
+    // B6 on b6-paths (a commit main lacks) was given back from Worker 1 after the worktree was last used, and Worker 2 holds it now.
+    const backAt = Date.now() + 2 * 60_000
+    const stampOf = ms => { const d = new Date(ms); const two = n => String(n).padStart(2, '0'); return `${d.getFullYear()}-${two(d.getMonth() + 1)}-${two(d.getDate())} ${two(d.getHours())}:${two(d.getMinutes())}` }
+    const b6 = { head: new Map([['Id', 'B6'], ['Kind', 'step'], ['State', 'in progress'], ['Owner', 'Worker 2'], ['Branch', 'b6-paths']]), sections: new Map([['History', [`- ${stampOf(backAt)} server: in progress → refined (given back by the board: Worker 1 did not resume it (asked 09:45))`]]]) }
+    const find = runs => findLeftovers({ repos: one.repos, project: one.project, items: [b6], run, now: Date.now() + HOUR, keep: [one.repo, one.project], runs })
+    const gone = byName(await find(name => (name === 'Worker 1' ? false : null)))
+    assert.deepEqual([gone['garden-b6'].clean, gone['garden-b6'].what], [true, 'a worktree of garden on b6-paths, not merged: its branch stays'])
+    // Its process may still run, or the board does not know: the step's again, held.
+    assert.equal(byName(await find(() => null))['garden-b6'].why, 'held by B6')
+    assert.equal(byName(await find(name => name === 'Worker 1'))['garden-b6'].why, 'held by B6')
+    // Without the give-back line nothing changes.
+    const plain = { ...b6, sections: new Map() }
+    assert.equal(byName(await findLeftovers({ repos: one.repos, project: one.project, items: [plain], run, now: Date.now() + HOUR, keep: [one.repo, one.project], runs: () => false }))['garden-b6'].why, 'held by B6')
+  } finally {
+    done(one)
+  }
+})
