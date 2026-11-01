@@ -9579,13 +9579,17 @@ function demoSide(page, draft) {
     }
   }
   side.append(list)
-  if (draft.problem !== '') side.append(el('p', 'problem demo-problem', draft.problem))
-  side.append(el('p', 'demo-muted', 'Nothing is sent until you press Send feedback.'))
+  // 2026-11-01 (the person: "keep send feedback always visible at the bottom ... outside the right scroll area"): only the
+  // list scrolls; the note and Send stand under it, always in view.
+  const foot = el('div', 'demo-side-foot')
+  if (draft.problem !== '') foot.append(el('p', 'problem demo-problem', draft.problem))
+  foot.append(el('p', 'demo-muted', 'Nothing is sent until you press Send feedback.'))
   const send = el('button', 'demo-send', draft.sending ? 'Sending...' : 'Send feedback')
   send.type = 'button'
   send.dataset.demoSend = ''
   send.disabled = draft.sending === true
-  side.append(send)
+  foot.append(send)
+  side.append(foot)
   return side
 }
 
