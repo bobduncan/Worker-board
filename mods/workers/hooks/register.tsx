@@ -1194,7 +1194,7 @@ async function busyWhy($: EngineInterface): Promise<string | null> {
 /**
  * Clear after each step: what becomes of the chat when a turn of it has ended. A worker that reported its step in it is
  * cleared ("afterStep": "clear" in the list of chats) or compacted (the default); the main chat and the partners are
- * never cleared, and are compacted at rest above the list's threshold, once per turn. The supervisor's chat (the
+ * never cleared (nor the Product owner), and are compacted at rest above the list's threshold, once per turn. The supervisor's chat (the
  * board's role supervisor, or the list's "supervisor" when the board did not answer) is cleared after every turn,
  * without a log, so each sweep starts empty.
  */

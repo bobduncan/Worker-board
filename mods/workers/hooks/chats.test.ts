@@ -364,6 +364,11 @@ describe('a large chat is compacted after it reported its task', () => {
     expect(compactWhy(chat('Main', 'waiting', null, 'main'), { ...at, above: 0 })).toContain('off')
     expect(compactWhy(chat('Advisor', 'waiting', task('B480 passed', 1, 2, 10)), { ...at, role: 'advisor' })).toBeNull()
     expect(compactWhy(chat('Advisor 2', 'waiting', task('Refine B9', 1, 2, 10)), { ...at, role: 'helper' })).toBeNull()
+    // The Product owner is compacted at rest as the advisor is: above the threshold, never held back by a task or more work.
+    expect(compactWhy(chat('PO', 'waiting', task('Brainstorm G7', 1, 2, 10)), { ...at, role: 'owner' })).toBeNull()
+    expect(compactWhy(chat('PO', 'waiting'), { ...at, role: 'owner', moreFollows: true })).toBeNull()
+    expect(compactWhy(chat('PO', 'waiting'), { ...at, role: 'owner', tokens: 200_000 })).toBe('it is small enough')
+    expect(compactWhy(chat('PO', 'waiting'), { ...at, role: 'owner', above: 0 })).toBe('switched off in the list of chats')
     // A worker the list says to leave alone after its step.
     expect(compactWhy(chat('Units', 'waiting'), { ...at, afterStep: 'off' })).toContain('off')
   })
@@ -391,6 +396,13 @@ describe('a large chat is compacted after it reported its task', () => {
     expect(helper).toContain('only on the tasks the Advisor sends it')
     for (const text of [main, partner, helper]) expect(text).not.toContain('Its step is reported')
   })
+
+  test('the Product owner is told to keep its talks, the focus goal and the open questions', () => {
+    const owner = compactKeep('PO', 'Main', 'owner')
+    for (const part of ['"PO"', 'Product owner', 'roles/product-owner.md', 'every talk still running', 'word for word', '"Main" is the main chat', 'the focus goal']) expect(owner).toContain(part)
+    for (const part of ['Its step is reported', 'every step the store holds', 'one line for each task it finished', 'every worker by name', 'roles/partner.md']) expect(owner).not.toContain(part)
+    expect(owner).not.toBe(compactKeep('PO', 'Main', 'advisor'))
+  })
 })
 
 describe('clear after each step', () => {
@@ -401,6 +413,7 @@ describe('clear after each step', () => {
     expect(clearWhy({ ...facts, role: null })).toContain('did not say this chat is a worker')
     expect(clearWhy({ ...facts, role: 'main' })).toBe('the main chat is never cleared')
     expect(clearWhy({ ...facts, role: 'advisor' })).toBe('the partner is never cleared')
+    expect(clearWhy({ ...facts, role: 'owner' })).toBe('the Product owner is never cleared')
     expect(clearWhy({ ...facts, role: 'helper' })).toBe('the partner\'s helper is never cleared')
     expect(clearWhy({ ...facts, isReported: false })).toContain('not reported')
     expect(clearWhy({ ...facts, isPaused: true })).toContain('pauses')
@@ -419,10 +432,11 @@ describe('clear after each step', () => {
     expect(unfiledAsk(`${asks}\n\nAnd more words after it.`, { asked: [] }, 0)).toBe(true)
   })
 
-  test('the board\'s word on the role: only the five roles count', () => {
+  test('the board\'s word on the role: only the six roles count', () => {
     expect(roleFrom({ role: 'worker' })).toBe('worker')
     expect(roleFrom({ role: 'helper' })).toBe('helper')
     expect(roleFrom({ role: 'supervisor' })).toBe('supervisor')
+    expect(roleFrom({ role: 'owner' })).toBe('owner')
     for (const value of [null, {}, { role: 'person' }, 'worker']) expect(roleFrom(value)).toBeNull()
   })
 

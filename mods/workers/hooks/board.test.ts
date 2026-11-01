@@ -244,13 +244,13 @@ describe('2026-10-28: the board names this chat by its session id', () => {
   test('the route, and the version the plugin states', () => {
     expect(WHOAMI_PATH).toBe('/api/bridge/whoami')
     // 0.27.3: the work tool says "goal definition" and takes definition-draft (this branch carried 0.27.1, the main branch is at 0.27.2).
-    expect(MOD_VERSION).toBe('0.27.3')
+    expect(MOD_VERSION).toBe('0.28.0')
   })
 
   test('the answer: a name, the role the board gives it and the session its card is filed under', () => {
     expect(parseWhoami('{"name":"Worker 5","role":"worker","card":"53d8e277-aaaa-4bbb-8ccc-0123456789ab"}')).toEqual({ name: 'Worker 5', role: 'worker', card: '53d8e277-aaaa-4bbb-8ccc-0123456789ab' })
     expect(parseWhoami('{"name":" Main ","role":"main","card":null}')).toEqual({ name: 'Main', role: 'main', card: null })
-    for (const role of ['main', 'worker', 'advisor', 'helper', 'supervisor']) expect(parseWhoami(JSON.stringify({ name: 'A', role, card: null }))?.role).toBe(role)
+    for (const role of ['main', 'worker', 'advisor', 'owner', 'helper', 'supervisor']) expect(parseWhoami(JSON.stringify({ name: 'A', role, card: null }))?.role).toBe(role)
     // An older board says no role and no card: the name still counts.
     expect(parseWhoami('{"name":"Units"}')).toEqual({ name: 'Units', role: null, card: null })
     // 2026-10-31: the Supervisor chat as the board names it: a name and a plain app session id, else nothing.

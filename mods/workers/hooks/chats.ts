@@ -483,7 +483,7 @@ export function compactWhy(chat: ChatFile, at: { tokens: number | null; above: n
 /** Clear after each step: the role the board's answer to a turn's end names; null when it names none. */
 export function roleFrom(answer: unknown): BoardRole | null {
   const role = typeof answer === 'object' && answer !== null ? (answer as { role?: unknown }).role : undefined
-  return role === 'main' || role === 'worker' || role === 'advisor' || role === 'helper' || role === 'supervisor' ? role : null
+  return role === 'main' || role === 'worker' || role === 'advisor' || role === 'owner' || role === 'helper' || role === 'supervisor' ? role : null
 }
 
 /**
@@ -508,7 +508,7 @@ export type ClearFacts = { role: BoardRole | null; isReported: boolean; isPaused
 export function clearWhy(f: ClearFacts): string | null {
   if (f.role === null) return 'the board did not say this chat is a worker'
   if (f.role === 'supervisor') return 'the supervisor\'s chat is cleared after every turn of its own, without a log'
-  if (f.role !== 'worker') return `the ${f.role === 'main' ? 'main chat' : f.role === 'advisor' ? 'partner' : 'partner\'s helper'} is never cleared`
+  if (f.role !== 'worker') return `the ${f.role === 'main' ? 'main chat' : f.role === 'advisor' ? 'partner' : f.role === 'owner' ? 'Product owner' : 'partner\'s helper'} is never cleared`
   if (!f.isReported) return 'its step is not reported'
   if (f.isPaused) return 'the person pauses the chats'
   if (f.isUnfiled) return 'its last answer asks the person something the board did not file as an ask'
@@ -530,6 +530,7 @@ export function asksPerson(answer: string): boolean {
 export function compactKeep(name: string, main: string, role: BoardRole = 'worker'): string {
   if (role === 'main') return keepMain(name)
   if (role === 'advisor' || role === 'helper') return keepPartner(name, main, role)
+  if (role === 'owner') return keepOwner(name, main)
   return `This chat is "${name}", a worker in a project where the main chat "${main}" queues the steps in the worker board's store and the board delivers them. `
     + 'Its step is reported (work report) and the next one comes later, so keep what the next step needs and drop the step by step of finished ones. Keep, in this order: '
     + `(1) who this chat is: its name ${name}, its role, and that it reports to ${main}; `
@@ -552,6 +553,19 @@ function keepMain(name: string): string {
     + '(4) what the person decided or asked for that is not done yet, in their own words, with the date, and the instructions still open (I<n>); '
     + '(5) every question or action it put to the person that is still open, word for word and with its number, so that an answer like "1 yes, 2 no" can still be read; '
     + '(6) what it promised the person or a worker to do next; '
+    + '(7) what it learned the hard way about this machine, the tools and the other chats.'
+}
+
+/** What the Product owner's compaction at rest keeps: its talks, the focus goal and what the person asked for. */
+function keepOwner(name: string, main: string): string {
+  return `This chat is "${name}", the person's Product owner on the worker board: it takes the person's talks first (brainstorms, "Change this goal", the Focus page's talk) and brings the person a goal when it starts and when it is ready; its job is in the board's roles/product-owner.md; "${main}" is the main chat. `
+    + 'It is compacted while it rests, so keep what its next request needs and drop the step by step of finished work. Keep, in this order: '
+    + `(1) who this chat is: its name ${name} and its role, and where its job is written; `
+    + '(2) the rules it works by: the working agreement, how answers to the person are written, and the work tool\'s actions it uses; '
+    + '(3) every talk still running, by its thread file and goal id: what was asked, the last Understood, and the proposal as it stands; '
+    + '(4) the focus goal: its id, its goal definition and its work blocks as agreed; '
+    + '(5) what the person decided or asked for that is not built yet, in their own words, with the date; '
+    + '(6) every question it put to the person that is still open, word for word and with its number; '
     + '(7) what it learned the hard way about this machine, the tools and the other chats.'
 }
 

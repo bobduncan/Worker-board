@@ -34,7 +34,7 @@ export const REQUEST_HEADER = 'X-Work-Request'
  * chat that runs an older Workers mod than the one installed. The same as `version` in .claude-plugin/plugin.json.
  */
 export const MOD_HEADER = 'X-Workers-Mod'
-export const MOD_VERSION = '0.27.3'
+export const MOD_VERSION = '0.28.0'
 /** The longest text typed for the board: its own limit for an answer, with room for the request's name around it. */
 export const MOST_CHARS = 3000
 
@@ -110,7 +110,7 @@ export function parseWhoami(text: string): Whoami | null {
 
   return {
     name,
-    role: role === 'main' || role === 'worker' || role === 'advisor' || role === 'helper' || role === 'supervisor' ? role : null,
+    role: role === 'main' || role === 'worker' || role === 'advisor' || role === 'owner' || role === 'helper' || role === 'supervisor' ? role : null,
     card: typeof card === 'string' && /^[A-Za-z0-9_-]{1,120}$/.test(card) ? card : null,
     ...(supervisor === null ? {} : { supervisor }),
   }

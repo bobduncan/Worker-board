@@ -3613,7 +3613,7 @@ describe('2026-10-28: a chat learns which chat it is from the board, by its sess
       expect(startsWith(w, 0, 'This chat is "Game - Units", a worker')).toBe(true)
     })
 
-    for (const [role, name, kind] of [['main', 'Main', 'main'], ['advisor', 'Advisor', 'worker'], ['helper', 'Advisor 2', 'worker'], ['supervisor', 'Supervisor', 'worker']] as const) {
+    for (const [role, name, kind] of [['main', 'Main', 'main'], ['advisor', 'Advisor', 'worker'], ['owner', 'Product owner', 'worker'], ['helper', 'Advisor 2', 'worker'], ['supervisor', 'Supervisor', 'worker']] as const) {
       test(`the ${role} chat: the card moves, and no start's words are given`, async ($, on) => {
         const clock = mock.clock(on)
         const w = fresh(cardOf(name, kind), { name, role, card: 'old-id' }, 'new-id', 'old-id')
