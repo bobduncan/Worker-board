@@ -1,5 +1,5 @@
 // T9.3 part 1 (spec 2026-10-25-asset-providers-design.md): the asset providers. Each is a small module with the same face
-// { name, mode, kinds, check }; `providerFor` and `checkProviders` (src/providers/index.mjs) answer who provides each
+// { name, mode, kinds, card, check }; `providerFor` and `checkProviders` (src/providers/index.mjs) answer who provides each
 // kind and whether that works now; the state carries the answer. Made-up folders and a stand-in for `findCodex`.
 
 import assert from 'node:assert/strict'
@@ -9,32 +9,58 @@ import test from 'node:test'
 
 import { configProblem, parseConfig } from '../src/config.mjs'
 import { ASSET_KINDS, DEFAULT_PROVIDERS, PROVIDERS, checkProviders, providerFor } from '../src/providers/index.mjs'
-import { codex } from '../src/providers/codex.mjs'
-import { ANSWER_MS, elevenlabs } from '../src/providers/elevenlabs.mjs'
-import { personSuno } from '../src/providers/person-suno.mjs'
-import { soundLibrary } from '../src/providers/sound-library.mjs'
+import { claude } from '../src/providers/claude.mjs'
+import { codex as codexModule } from '../src/providers/codex.mjs'
+import { ANSWER_MS, elevenlabs as elevenlabsModule } from '../src/providers/elevenlabs.mjs'
+import { elevenlabsImages } from '../src/providers/elevenlabs-images.mjs'
+import { elevenlabsMusic } from '../src/providers/elevenlabs-music.mjs'
+import { manual } from '../src/providers/manual.mjs'
+import { personSuno as personSunoModule } from '../src/providers/person-suno.mjs'
+import { COUNT_STOP, soundLibrary as soundLibraryModule } from '../src/providers/sound-library.mjs'
 import { tempDir } from './tempDir.mjs'
 import { buildState } from './withStore.mjs'
 
 const settings = text => parseConfig(text, {})
 
+// Part A: a check answers `{ ok, state, why, detail }`. The older tests below look at `{ ok, why }` through these wrappers;
+// the state and the detail have tests of their own at the end of this file.
+const brief = ({ ok, why }) => ({ ok, why })
+const briefly = module => ({ ...module, check: async tools => brief(await module.check(tools)) })
+const codex = briefly(codexModule)
+const personSuno = briefly(personSunoModule)
+const soundLibrary = briefly(soundLibraryModule)
+const elevenlabs = briefly(elevenlabsModule)
+
 test('every provider has the same face: its name, how it provides, the kinds it serves and a check', () => {
   assert.deepEqual(ASSET_KINDS, ['visual', 'music', 'sound effect'])
-  assert.deepEqual(Object.keys(PROVIDERS), ['codex', 'person-suno', 'sound-library', 'elevenlabs'])
-  assert.deepEqual([codex, personSuno, soundLibrary, elevenlabs].map(one => [one.name, one.mode, one.kinds]), [
+  assert.deepEqual(Object.keys(PROVIDERS), ['codex', 'person-suno', 'sound-library', 'elevenlabs', 'manual', 'elevenlabs-music', 'elevenlabs-images', 'claude'])
+  assert.deepEqual([codexModule, personSunoModule, soundLibraryModule, elevenlabsModule, manual, elevenlabsMusic, elevenlabsImages, claude].map(one => [one.name, one.mode, one.kinds]), [
     ['codex', 'auto', ['visual']],
     ['person-suno', 'person', ['music']],
     ['sound-library', 'pick', ['sound effect']],
     ['elevenlabs', 'auto', ['sound effect']],
+    ['manual', 'person', ['visual', 'music', 'sound effect']],
+    ['elevenlabs-music', 'auto', ['music']],
+    ['elevenlabs-images', 'auto', ['visual']],
+    ['claude', 'auto', []],
   ])
+  const icons = ['openai', 'claude', 'suno', 'elevenlabs', 'library', 'manual']
   for (const one of Object.values(PROVIDERS)) {
-    assert.equal(PROVIDERS[one.name], one)
     assert.equal(typeof one.check, 'function')
+    // Every provider has a card: a title, a line, facts and one of the known icons.
+    assert.deepEqual(Object.keys(one.card), ['title', 'line', 'facts', 'icon'], one.name)
+    assert.ok(one.card.title !== '' && one.card.line !== '' && Array.isArray(one.card.facts) && one.card.facts.length > 0, one.name)
+    assert.ok(icons.includes(one.card.icon), one.name)
   }
+  assert.deepEqual(PROVIDERS.codex.card, { title: 'Codex', line: 'Pictures on your ChatGPT plan', facts: ['Signed in as you', 'One at a time, in a queue'], icon: 'openai' })
+  assert.deepEqual(PROVIDERS.manual.card, { title: 'Manual', line: 'You drop your own file, any tool', facts: ['Free', 'The board asks you each time'], icon: 'manual' })
+  assert.deepEqual(PROVIDERS.claude.card, { title: 'Claude', line: 'Draws in code: simple shapes only', facts: ['Not for units or maps'], icon: 'claude' })
+  // Only Claude is shown without serving a kind.
+  assert.deepEqual(Object.values(PROVIDERS).filter(one => 'shownFor' in one).map(one => [one.name, one.shownFor]), [['claude', ['visual']]])
   // What each kind is set to by default serves it.
   for (const kind of ASSET_KINDS) assert.ok(PROVIDERS[DEFAULT_PROVIDERS[kind].provider].kinds.includes(kind), kind)
   // Only the sound library has a folder, and it names its own default.
-  assert.deepEqual(Object.values(PROVIDERS).map(one => one.folder ?? null), [null, null, 'sound-library', null])
+  assert.deepEqual(Object.values(PROVIDERS).map(one => one.folder ?? null), [null, null, 'sound-library', null, null, null, null, null])
   // Nothing asks a provider for an asset yet: part 2 adds `provide`.
   assert.deepEqual(Object.values(PROVIDERS).filter(one => 'provide' in one), [])
 })
@@ -189,7 +215,7 @@ test('elevenlabs: the setting names it for sound effect; visual and music refuse
   assert.equal(configProblem('{"providers": {"sound effect": {"provider": "elevenlabs", "folder": "sfx"}}}'), '"providers.sound effect" sets a folder, but "elevenlabs" has none')
   assert.equal(DEFAULT_PROVIDERS['sound effect'].provider, 'sound-library')
   const set = settings('{"providers": {"sound effect": "elevenlabs"}}')
-  assert.equal(providerFor(set, 'sound effect').provider, elevenlabs)
+  assert.equal(providerFor(set, 'sound effect').provider, elevenlabsModule)
   const lines = await checkProviders(set, { project: '', findCodex: async () => null, key: KEY, fetch: answering(200, { tier: 'free', character_count: 50, character_limit: 10000 }) })
   assert.deepEqual(lines[2], { kind: 'sound effect', provider: 'elevenlabs', mode: 'auto', ok: true, why: 'works (free plan: for testing only, 9,950 credits left)' })
   // With no key the line says so and the other kinds go on.
@@ -200,9 +226,9 @@ test('elevenlabs: the setting names it for sound effect; visual and music refuse
 
 test('providerFor: the module set for a kind and its folder; the default where the settings name none; null for what the board does not know', () => {
   const set = settings('{"providers": {"sound effect": {"provider": "sound-library", "folder": "sfx"}}}')
-  assert.deepEqual([providerFor(set, 'visual').provider, providerFor(set, 'visual').folder], [codex, null])
-  assert.deepEqual([providerFor(set, 'music').provider, providerFor(set, 'music').folder], [personSuno, null])
-  assert.deepEqual([providerFor(set, 'sound effect').provider, providerFor(set, 'sound effect').folder], [soundLibrary, 'sfx'])
+  assert.deepEqual([providerFor(set, 'visual').provider, providerFor(set, 'visual').folder], [codexModule, null])
+  assert.deepEqual([providerFor(set, 'music').provider, providerFor(set, 'music').folder], [personSunoModule, null])
+  assert.deepEqual([providerFor(set, 'sound effect').provider, providerFor(set, 'sound effect').folder], [soundLibraryModule, 'sfx'])
   // No settings, or none for the kind: the defaults.
   for (const nothing of [{}, undefined, null, { providers: {} }]) {
     assert.deepEqual([providerFor(nothing, 'visual').provider.name, providerFor(nothing, 'sound effect').folder], ['codex', 'sound-library'])
@@ -257,4 +283,70 @@ test('the state carries providers: what the board last checked, in the page\'s s
   // Only the page's fields go through; anything but a list is none.
   assert.deepEqual(build([{ ...checked[0], secret: 1 }]), [checked[0]])
   assert.deepEqual(build('nonsense'), [])
+})
+
+// Part A (spec 2026-11-01): the state and the detail of every check, the new providers, and the shared key code.
+
+test('every check answers a state (works, needs or off) and a short detail for the card', async t => {
+  const project = await tempDir(t)
+  await mkdir(join(project, 'sound-library'))
+  await writeFile(join(project, 'sound-library', 'hit.wav'), 'x')
+  assert.deepEqual(await codexModule.check({ findCodex: async () => 'C:\\codex.exe' }), { ok: true, state: 'works', why: 'Codex found', detail: 'Codex found' })
+  assert.equal((await codexModule.check({ findCodex: async () => null })).state, 'needs')
+  assert.deepEqual(await personSunoModule.check(), { ok: true, state: 'works', why: 'you make it in Suno', detail: 'asks you for a file' })
+  assert.deepEqual(await soundLibraryModule.check({ project }), { ok: true, state: 'works', why: 'The sound library folder "sound-library" holds sounds', detail: '1 sound found' })
+  assert.deepEqual(await manual.check(), { ok: true, state: 'works', why: 'nothing to check', detail: 'Always works' })
+  assert.deepEqual(await claude.check(), { ok: false, state: 'off', why: 'Not for this kind', detail: '' })
+  const ok = await elevenlabsModule.check({ key: KEY, fetch: answering(200, { tier: 'free', character_count: 50, character_limit: 10000 }) })
+  assert.deepEqual(ok, { ok: true, state: 'works', why: 'works (free plan: for testing only, 9,950 credits left)', detail: '9,950 credits left' })
+  assert.deepEqual(await elevenlabsModule.check({ key: KEY, fetch: answering(200, {}) }), { ok: true, state: 'works', why: 'works', detail: 'Key works' })
+  assert.deepEqual(await elevenlabsModule.check({ key: '' }), { ok: false, state: 'needs', why: 'No ElevenLabs key (ELEVENLABS_API_KEY)', detail: 'Paste your key first' })
+  assert.equal((await elevenlabsModule.check({ key: KEY, fetch: answering(401, {}) })).state, 'needs')
+})
+
+test('sound-library: the detail counts the sound files, and stops counting at 10,000', async t => {
+  const project = await tempDir(t)
+  await mkdir(join(project, 'lib', 'a', 'b'), { recursive: true })
+  for (const file of ['one.wav', 'two.mp3', 'a/three.ogg', 'a/b/four.flac', 'a/notes.txt']) await writeFile(join(project, 'lib', ...file.split('/')), 'x')
+  assert.equal((await soundLibraryModule.check({ project, folder: 'lib' })).detail, '4 sounds found')
+  await mkdir(join(project, 'big'))
+  // In batches: a few thousand files opened at once run Windows out of file handles.
+  for (let from = 0; from < COUNT_STOP + 5; from += 200) await Promise.all(Array.from({ length: 200 }, (_, at) => writeFile(join(project, 'big', `s${from + at}.wav`), '')))
+  assert.equal((await soundLibraryModule.check({ project, folder: 'big' })).detail, '10,000+ sounds found')
+  assert.equal((await soundLibraryModule.check({ project, folder: 'missing' })).state, 'needs')
+})
+
+test('the three ElevenLabs providers share one key check: the same answers, the same key variable', async () => {
+  for (const one of [elevenlabsModule, elevenlabsMusic, elevenlabsImages]) {
+    assert.equal(one.keyVariable, 'ELEVENLABS_API_KEY', one.name)
+    assert.deepEqual(await one.check({ key: '' }), { ok: false, state: 'needs', why: 'No ElevenLabs key (ELEVENLABS_API_KEY)', detail: 'Paste your key first' }, one.name)
+    assert.deepEqual(await one.check({ key: KEY, fetch: answering(401, { detail: { status: 'invalid_api_key' } }) }), { ok: false, state: 'needs', why: 'ElevenLabs refused the key', detail: 'Key refused' }, one.name)
+    assert.deepEqual(await one.check({ key: KEY, fetch: answering(500, {}) }), { ok: false, state: 'needs', why: 'ElevenLabs did not answer', detail: 'No answer' }, one.name)
+  }
+  const pro = { tier: 'pro', character_count: 100, character_limit: 500000 }
+  assert.deepEqual(await elevenlabsMusic.check({ key: KEY, fetch: answering(200, pro) }), { ok: true, state: 'works', why: 'works (499,900 credits left)', detail: '499,900 credits left' })
+  assert.equal(elevenlabsMusic.kinds.join(), 'music')
+})
+
+test('elevenlabs-images: a plan below Pro (free, starter, creator) needs the Pro plan; pro and above, or an unnamed plan, work', async () => {
+  const needs = { ok: false, state: 'needs', why: 'Needs the Pro plan', detail: 'Needs the Pro plan' }
+  for (const tier of ['free', 'starter', 'creator', 'Creator']) assert.deepEqual(await elevenlabsImages.check({ key: KEY, fetch: answering(200, { tier }) }), needs, tier)
+  for (const tier of ['pro', 'scale', 'business']) assert.equal((await elevenlabsImages.check({ key: KEY, fetch: answering(200, { tier }) })).ok, true, tier)
+  assert.equal((await elevenlabsImages.check({ key: KEY, fetch: answering(200, {}) })).ok, true)
+})
+
+test('claude serves no kind: the settings refuse it for every kind, and it is only shown on visual', () => {
+  assert.deepEqual(claude.kinds, [])
+  assert.deepEqual(claude.shownFor, ['visual'])
+  for (const kind of ASSET_KINDS) assert.notEqual(configProblem(`{"providers": {"${kind}": "claude"}}`), null, kind)
+  // The default stays: a refused setting reads as the default.
+  assert.deepEqual(settings('{"providers": {"visual": "claude"}}').providers.visual, { provider: 'codex' })
+})
+
+test('the new providers are settable where they serve: manual for every kind, elevenlabs-music for music, elevenlabs-images for visual', () => {
+  for (const kind of ASSET_KINDS) assert.equal(configProblem(`{"providers": {"${kind}": "manual"}}`), null, kind)
+  assert.equal(configProblem('{"providers": {"music": "elevenlabs-music"}}'), null)
+  assert.equal(configProblem('{"providers": {"visual": "elevenlabs-images"}}'), null)
+  assert.notEqual(configProblem('{"providers": {"visual": "elevenlabs-music"}}'), null)
+  assert.notEqual(configProblem('{"providers": {"sound effect": "elevenlabs-images"}}'), null)
 })

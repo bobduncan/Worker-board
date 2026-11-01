@@ -5,8 +5,9 @@ export const personSuno = {
   name: 'person-suno',
   mode: 'person',
   kinds: ['music'],
+  card: { title: 'Suno, by hand', line: 'You make it in Suno; the board asks you', facts: ['No automatic link exists', 'Your Suno plan'], icon: 'suno' },
   /** Always ok: the person is the provider. */
   check() {
-    return { ok: true, why: 'you make it in Suno' }
+    return { ok: true, state: 'works', why: 'you make it in Suno', detail: 'asks you for a file' }
   },
 }
