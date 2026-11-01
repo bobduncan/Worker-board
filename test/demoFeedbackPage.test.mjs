@@ -110,3 +110,11 @@ test('a board that takes no feedback shows the reason and no buttons; a demo wit
     assert.equal(done.all('.demo-row').length, 0)
   } finally { await done.close() }
 })
+
+test('2026-11-01: Send feedback stands under the list, outside its scroll, always in view', async () => {
+  const page = await opened(shown())
+  try {
+    assert.equal(page.all('.demo-side-foot [data-demo-send]').length, 1)
+    assert.equal(page.all('.demo-answers [data-demo-send]').length, 0)
+  } finally { await page.close() }
+})

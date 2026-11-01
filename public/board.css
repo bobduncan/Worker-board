@@ -2865,6 +2865,11 @@ body.is-resizing-rows { cursor: row-resize; user-select: none; }
 .demo-side { flex: none; width: 320px; max-height: calc(94vh - 58px); padding: 14px 16px 18px; overflow-y: auto; border-left: 1px solid var(--line); background: var(--inset); display: flex; flex-direction: column; gap: 8px; }
 .demo-side h3 { margin: 0; font-size: 17px; }
 .demo-answers { margin: 0; padding: 0; list-style: none; display: grid; gap: 6px; }
+/* 2026-11-01: only the list of answers scrolls; the note and Send feedback stay in view under it. */
+.demo-side:has(> .demo-side-foot) { overflow-y: hidden; }
+.demo-side > .demo-answers { flex: 1 1 auto; min-height: 0; overflow-y: auto; align-content: start; padding-right: 4px; }
+.demo-side-foot { flex: none; display: flex; flex-direction: column; gap: 8px; padding-top: 10px; border-top: 1px solid var(--line); }
+.demo-side-foot p { margin: 0; }
 .demo-answer { display: grid; gap: 1px; padding: 6px 8px; border: 1px solid var(--line); border-radius: 8px; font-size: 13.5px; }
 .demo-answer.is-approved { border-color: #3f8f6a; }
 .demo-answer.is-sent-back { border-color: #b26a63; }
