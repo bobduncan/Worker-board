@@ -1,12 +1,10 @@
-// B361: the settings the board's ⚙ panel changes in its own settings file (config.json): when the person is
-// bothered (`botherMe`: "now", or "daily", gathered under the partner's daily note) and whether a rebuild the goal
-// guard calls for goes ahead without their yes (`approveRebuilds`). Asks that block a chat always reach the person at
-// once, whatever `botherMe` says. B-max (the person, 2026-10-28: "make the worker limit configurable in the settings
-// default is 5."): `maxWorkers`, how many workers the board starts at most, a whole number from 1 to 10.
-// Autopilot (the person, 2026-10-31, src/work/autopilot.mjs): `autopilot`, on or off. While it is on, "Bother me" and
-// "Approve rebuilds by itself" are hidden: nothing waits for a daily round ("now"), and a goal stuck after the guard's tries
-// is the person's (the coordinator's ruling, 2026-10-31): no rebuild approves itself, so "Approve rebuilds by itself" acts as
-// off. Every reader of `approveRebuilds` and `botherMe` reads them through `rebuildsApproved` and `botherMeOf`.
+// B361: the settings the board's ⚙ panel changes in its own settings file (config.json): whether a rebuild the goal
+// guard calls for goes ahead without the person's yes (`approveRebuilds`). B-max (the person, 2026-10-28: "make the worker
+// limit configurable in the settings default is 5."): `maxWorkers`, how many workers the board starts at most, a whole
+// number from 1 to 10. Autopilot (the person, 2026-10-31, src/work/autopilot.mjs): `autopilot`, on or off. While it is on,
+// "Approve rebuilds by itself" is hidden: a goal stuck after the guard's tries is the person's (the coordinator's ruling,
+// 2026-10-31): no rebuild approves itself, so it acts as off. Every reader of `approveRebuilds` reads it through
+// `rebuildsApproved`. The recaps of finished work (B360) go where Autopilot says (`recapsShowOf`).
 
 import { DEFAULTS } from './config.mjs'
 
@@ -15,23 +13,28 @@ export const MAX_WORKERS_RANGE = Object.freeze([1, 10])
 const isWorkerCount = value => Number.isInteger(value) && value >= MAX_WORKERS_RANGE[0] && value <= MAX_WORKERS_RANGE[1]
 
 /** The settings the panel may change, each with the values it takes (`maxWorkers`: its range, a whole number between the ends). */
-export const PANEL_SETTINGS = { botherMe: ['now', 'daily'], approveRebuilds: [false, true], routingMode: ['off', 'observe'], maxWorkers: MAX_WORKERS_RANGE, autopilot: [false, true] }
+export const PANEL_SETTINGS = { approveRebuilds: [false, true], routingMode: ['off', 'observe'], maxWorkers: MAX_WORKERS_RANGE, autopilot: [false, true] }
 
 /**
  * Whether a rebuild the goal guard calls for goes ahead without the person's yes: the person's own "Approve rebuilds by
  * itself", which acts as off while Autopilot is on (a stuck goal's "Rebuild G<n>:" ask is the person's).
  */
 export const rebuildsApproved = config => config?.autopilot !== true && config?.approveRebuilds === true
-/** Autopilot: when the person is bothered: "now" with Autopilot (nothing waits for a daily round), else the setting. */
-export const botherMeOf = config => (config?.autopilot !== true && config?.botherMe === 'daily' ? 'daily' : 'now')
+/**
+ * 2026-11-01 (the person: "so bother me is obsolete, i think"): where the recaps of finished work (B360) reach the person: with
+ * Autopilot on, gathered under the partner's daily note ("daily"); with it off, each in Needs your attention as it comes ("now").
+ */
+export const recapsShowOf = config => (config?.autopilot === true ? 'daily' : 'now')
+/** What a POST naming the removed setting "Bother me" is refused with. */
+export const BOTHER_ME_REMOVED = 'Bother me was removed: questions come at once; Autopilot keeps them few'
 
 /**
- * The panel's settings as the page shows them, and whether this board may change them (`canSet`, `whyNot`). `botherMe` and
- * `approveRebuilds` as the person set them (the panel hides them while `autopilot` is on).
+ * The panel's settings as the page shows them, and whether this board may change them (`canSet`, `whyNot`). `approveRebuilds`
+ * as the person set it (the panel hides it while `autopilot` is on).
  */
 export function panelSettings(config, { canSet = true, whyNot = null } = {}) {
   const maxWorkers = Number.isInteger(config.maxWorkers) && config.maxWorkers >= 1 ? config.maxWorkers : DEFAULTS.maxWorkers
-  return { botherMe: config.botherMe === 'daily' ? 'daily' : 'now', approveRebuilds: config.approveRebuilds === true, maxWorkers, autopilot: config.autopilot === true, canSet, whyNot: canSet ? null : whyNot }
+  return { approveRebuilds: config.approveRebuilds === true, maxWorkers, autopilot: config.autopilot === true, canSet, whyNot: canSet ? null : whyNot }
 }
 
 const refused = (status, why) => ({ ok: false, status, why })
@@ -39,7 +42,8 @@ const refused = (status, why) => ({ ok: false, status, why })
 /** A setting the panel sends checked: { ok, key, value } or { ok: false, status, why }. */
 export function checkSetting(body) {
   const key = body?.key
-  if (typeof key !== 'string' || !Object.hasOwn(PANEL_SETTINGS, key)) return refused(400, 'Send key "botherMe", "approveRebuilds", "routingMode", "maxWorkers" or "autopilot".')
+  if (key === 'botherMe') return refused(400, BOTHER_ME_REMOVED)
+  if (typeof key !== 'string' || !Object.hasOwn(PANEL_SETTINGS, key)) return refused(400, 'Send key "approveRebuilds", "routingMode", "maxWorkers" or "autopilot".')
   const value = body?.value
   if (key === 'maxWorkers') return isWorkerCount(value) ? { ok: true, key, value } : refused(400, `maxWorkers takes a whole number from ${MAX_WORKERS_RANGE[0]} to ${MAX_WORKERS_RANGE[1]}.`)
   if (!PANEL_SETTINGS[key].includes(value)) return refused(400, `${key} takes ${PANEL_SETTINGS[key].map(one => JSON.stringify(one)).join(' or ')}.`)

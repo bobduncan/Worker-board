@@ -58,7 +58,9 @@ function drawn(steps, part = {}) {
     focusUi: { dropping: null },
   }
   vm.runInNewContext([
-    source('el'), asklinks, source('linkedWords'), source('linkedEl'), source('everyNeed'), source('focusLook'), source('focusStepTitle'), source('focusStepList'), source('focusRunCard'),
+    source('el'), asklinks, source('linkedWords'), source('linkedEl'), source('everyNeed'), source('focusLook'), source('focusStepTitle'), source('focusStepList'),
+    // 2026-11-01: a block's chip is drawn by focusChipEl (a link to the recap while it waits for the person's verdict), made with demoLink.
+    source('demoLink'), source('focusChipEl'), source('focusRunCard'),
     'Object.assign(this, { focusRunCard })',
   ].join('\n'), context)
   const card = context.focusRunCard({

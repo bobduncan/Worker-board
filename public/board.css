@@ -324,10 +324,61 @@ button, textarea, select { font: inherit; color: inherit; }
 .autopilot-line a { color: var(--muted); text-decoration: none; }
 .autopilot-line a:hover { text-decoration: underline; }
 .autopilot-setting .cpu-count { max-width: 30em; }
+/* 2026-11-01 (the person: "a little tooltip next to the autopilot setting with making it clear what is and isnt being signalled"):
+   the small "ⓘ" right of the Autopilot label. Hover, keyboard focus or a click shows a calm box under it (no attention colour:
+   it is information); Escape or a click elsewhere closes it. */
+.autopilot-setting { position: relative; }
+.settings-pop .autopilot-title { flex: 1 0 100%; display: flex; align-items: center; gap: 6px; }
+.settings-pop .autopilot-title .cpu-label { flex: none; }
+.info-wrap { display: inline-flex; }
+.info-button { display: grid; place-items: center; width: 20px; height: 20px; padding: 0; border: 0; border-radius: 50%; background: none; color: var(--muted); font: inherit; font-size: 15px; line-height: 1; cursor: pointer; }
+.info-button:hover, .info-button[aria-expanded="true"] { color: var(--text); }
+.info-button:focus-visible { outline: 2px solid var(--free); outline-offset: 1px; }
+.info-tip { display: none; position: absolute; z-index: 5; left: 0; right: 0; top: 26px; padding: 10px 12px; border: 1px solid #3a4a63; border-radius: 9px; background: var(--inset); color: var(--text); font-size: 13px; line-height: 1.4; white-space: normal; box-shadow: 0 8px 22px rgba(0, 0, 0, 0.5); }
+.info-tip::before { content: ""; position: absolute; left: 0; right: 0; top: -8px; height: 8px; }
+.info-tip p + ul, .info-tip ul + p { margin-top: 6px; }
+.info-tip p:not(:first-child) { margin-top: 8px; }
+.info-tip ul { margin: 4px 0 0; padding-left: 18px; list-style: disc; }
+.info-tip li { margin: 2px 0; }
+.info-wrap:hover .info-tip, .info-wrap.is-open .info-tip, .info-button:focus-visible ~ .info-tip { display: block; }
 .focus-recap-head { margin: 4px 0 6px; font-size: 14px; }
 .focus-recap-asks { margin: 0 0 12px 18px; padding: 0; font-size: 13.5px; }
 .focus-recap-asks li { margin: 3px 0; }
 .focus-recap-picture { padding: 0 6px; font-size: 12px; }
+/* 2026-11-01 (the person: "I expected a button where is clearly visually i need to give a recap?", the agreed mock
+   focus-mocks/recap-card): the recap card above the work blocks. Amber (the attention colour) only here and on the chip
+   "Waits for your verdict →": it is the person's action; everything else on the page stays calm. ONE row of tiles at every
+   width ("never more then 1 row"): three columns, fewer on a narrow card (a tile that does not fit is not shown, never wrapped). */
+:root { --attn: #e3a52b; --attn-line: #c99a2e; --attn-text: #f4c35a; --attn-bg: #1d1a10; }
+.focus-recap-ready { container-type: inline-size; display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 14px 20px; align-items: center; margin: 0 4px 18px; padding: 18px 20px; border: 1px solid var(--attn-line); border-radius: 12px; background: var(--attn-bg); }
+.focus-recap-ready h3 { margin: 0; font-size: 21px; color: var(--attn-text); }
+.focus-recap-ready p { margin: 4px 0 0; color: #d9cfb4; font-size: 14.5px; }
+.focus-recap-open { padding: 12px 26px; border-radius: 9px; background: var(--attn); color: #1a1305; font-size: 17px; font-weight: 700; text-decoration: none; white-space: nowrap; }
+.focus-recap-open:hover { background: #f0b53a; }
+.focus-recap-open:focus-visible, .focus-recap-tile:focus-visible, .focus-chip.is-verdict:focus-visible { outline: 2px solid var(--attn-text); outline-offset: 2px; }
+.focus-recap-tiles { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+.focus-recap-tile { display: flex; flex-direction: column; min-width: 0; height: 176px; overflow: hidden; border: 1px solid #4a3f22; border-radius: 9px; background: #15130c; color: #e6dcc0; text-decoration: none; }
+.focus-recap-tile:hover { border-color: var(--attn-line); }
+.focus-recap-pic { flex: none; height: 120px; overflow: hidden; background: #1c1a12; }
+.focus-recap-pic img { display: block; width: 100%; height: 100%; object-fit: cover; }
+.focus-recap-pic.is-none { display: grid; place-items: center; color: #7d7459; font-size: 13px; }
+.focus-recap-tile-words { min-width: 0; padding: 8px 10px; font-size: 13.5px; }
+.focus-recap-tile-words b { display: block; overflow: hidden; font-weight: 400; text-overflow: ellipsis; white-space: nowrap; }
+.focus-recap-tile-words small { display: block; margin-top: 2px; overflow: hidden; color: #a99a74; font-size: 12.5px; text-overflow: ellipsis; white-space: nowrap; }
+@container (max-width: 620px) {
+  .focus-recap-tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .focus-recap-tile:nth-child(n+3) { display: none; }
+}
+@container (max-width: 400px) {
+  .focus-recap-tiles { grid-template-columns: minmax(0, 1fr); }
+  .focus-recap-tile:nth-child(n+2) { display: none; }
+}
+@media (max-width: 600px) { .focus-recap-ready { grid-template-columns: minmax(0, 1fr); } .focus-recap-open { justify-self: start; } }
+.focus-recap-outside { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 12px; margin: -8px 4px 14px; font-size: 13.5px; }
+.focus-recap-outside .focus-recap-asks { display: flex; flex-wrap: wrap; gap: 2px 14px; margin: 0; }
+/* The chip of a block that waits for the person's verdict: a link to the recap, in the attention colour. */
+.focus-chip.is-verdict { border-color: var(--attn-line); background: var(--attn-bg); color: var(--attn-text); text-decoration: none; cursor: pointer; }
+a.focus-chip.is-verdict:hover { background: #2a2414; }
 .with-partner { padding: 2px 0; }
 .with-partner-toggle { border: 0; background: none; padding: 4px 0; color: var(--muted); font-size: 13px; cursor: pointer; }
 .with-partner-list { margin: 2px 0 6px 18px; padding: 0; font-size: 13px; }

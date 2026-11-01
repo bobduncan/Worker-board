@@ -34,7 +34,7 @@ import { forYouRepeat } from './work/askRepeat.mjs'
 import { dailyNote, isDailyNote } from './work/dailyNote.mjs'
 import { SYNC_BOARD, syncChecks } from './sync.mjs'
 import { decidedTodayOf, informationOf, instructionsOf, nameFinder, notesToMain, partnerDecidedOf, routedAwayOf, storeNeeds, storeWaits, withPartnerOf } from './work/lists.mjs'
-import { botherMeOf } from './boardSettings.mjs'
+import { recapsShowOf } from './boardSettings.mjs'
 import { recapWaitOf } from './work/autopilot.mjs'
 import { NOTE_LINE, isDecidedForYou, isPartnerAskWord, stepWaitsForPartner } from './work/partnerAnswers.mjs'
 import { advisorNextOf, advisorWorkOf, leaveOut } from './work/advisorWork.mjs'
@@ -52,8 +52,9 @@ import { refineStop } from './refineGate.mjs'
 import { contextOfStep, flowOfStep, itemOfStep, itemsOf, reviewWaitOfStep, storeBacklog } from './work/read.mjs'
 import { clearOwed, modAtLeast } from './clearOwed.mjs'
 import { nobodyRunsOf, wakeFailedOf } from './say.mjs'
-import { chainWaitOf, checkedOf, fixesOf, fixOutcomeOf, reviewWaitOf } from './work/resultCheck.mjs'
+import { chainWaitOf, checkedOf, fixesOf, fixOutcomeOf, recapPartOf, reviewWaitOf } from './work/resultCheck.mjs'
 import { recapWaitsOf } from './recaps.mjs'
+import { recapCardOf } from './recapCard.mjs'
 import { guardOf } from './goalGuard.mjs'
 import { standardOf } from './work/standard.mjs'
 import { rolloutPlan } from './work/modRollout.mjs'
@@ -1162,9 +1163,18 @@ function partStepOf(item, steps, prefix, all = steps, lanes = null, now = null, 
   // B883: a step whose own card waits for the person's Accept or Send back waits for them, it is not stopped.
   const ownWait = state === 'review' && outcome !== null && outcome.isOpen !== true ? reviewWaitOf(item, all, null, now, recaps) : null
   const forAccept = ownWait?.kind === 'accept'
+  // 2026-11-01 (the person, on a block that read "Waiting, nobody on it now": "says waiting for verdict or something"): a step
+  // that waits for the person's verdict in the goal's recap: its own part waits (its fix dropped, resultCheck.mjs `reviewWaitOf`
+  // kind 'recap'), the last link of its chain of open fixes does (`chainWaitOf`), or its asks are routed to the recap
+  // (`Recap verdict: waits`, autopilot.mjs `recapWaitOf`). It waits as planned: never stopped, never "being checked".
+  const verdictChain = state === 'review' ? chainWait ?? chainWaitOf(id, all, null, now, recaps) : null
+  const ownRecap = ownWait ?? (state === 'review' && verdictChain === null ? reviewWaitOf(item, all, null, now, recaps) : null)
+  const chainEnd = verdictChain?.last?.kind === 'recap' && !verdictChain.atWork ? verdictChain.end : null
+  const forVerdict = chainEnd !== null || ownRecap?.kind === 'recap' || (state === 'review' && recapWaitOf(item, all) !== null)
+  const verdictPart = !forVerdict ? null : chainEnd !== null ? recapPartOf(recaps, chainEnd) : ownRecap?.kind === 'recap' ? { path: ownRecap.path, key: ownRecap.part } : recapPartOf(recaps, id)
   // B695: a step in review whose failed check has only a dropped fix is stopped, not being checked.
-  const fixStopped = !forAccept && (chainStopped || (state === 'review' && fix !== null && !fix.isOpen && !fix.isFixed && fix.passed === null && fix.total === null))
-  const tone = fixStopped ? 'stop' : fixWaits || forAccept ? 'wait' : stepToneOf(state)
+  const fixStopped = !forAccept && !forVerdict && (chainStopped || (state === 'review' && fix !== null && !fix.isOpen && !fix.isFixed && fix.passed === null && fix.total === null))
+  const tone = fixStopped ? 'stop' : fixWaits || forAccept || forVerdict ? 'wait' : stepToneOf(state)
   const waitsFor = (String(item.head.get('Blocked by') ?? '').match(/\bB\d+\b/g) ?? [])
     .filter(one => steps.has(one) && !FINISHED.includes(steps.get(one).head.get('State')))
     .map(one => ({ id: one, title: withoutNotes(steps.get(one).head.get('Title') ?? '') }))
@@ -1174,14 +1184,17 @@ function partStepOf(item, steps, prefix, all = steps, lanes = null, now = null, 
     tone,
     // B690: a step in review whose check failed and whose fix is open is being fixed, not checked; 2026-10-31 (B689): only
     // while its chain is at work, else its fix waits.
-    state: tone === 'done' ? 'Finished' : forAccept ? 'Waits for your Accept' : fixStopped ? 'Fix stopped' : tone === 'stop' ? 'Stopped' : state === 'review' ? (fix?.isOpen === true ? (fixWaits ? 'Fix waiting' : 'Being fixed') : 'Being checked') : tone === 'now' ? 'Being built' : 'Waiting',
+    state: tone === 'done' ? 'Finished' : forAccept ? 'Waits for your Accept' : forVerdict ? 'Waits for your verdict' : fixStopped ? 'Fix stopped' : tone === 'stop' ? 'Stopped' : state === 'review' ? (fix?.isOpen === true ? (fixWaits ? 'Fix waiting' : 'Being fixed') : 'Being checked') : tone === 'now' ? 'Being built' : 'Waiting',
     isFailed: checked !== null && checked.total > 0 && checked.passed < checked.total && fix?.isFixed !== true,
     owner: String(item.head.get('Owner') ?? '').replace(prefix, '').trim() || null,
     onIt: FINISHED.includes(state) ? null : workerOn(id, all, lanes, prefix),
     // 2026-10-31 (B689): who built it, for a step built (in review or finished): history, never "on it".
     builtBy: ['review', 'done', 'closed'].includes(state) ? String(item.head.get('Owner') ?? '').replace(prefix, '').trim() || null : null,
-    check: checked === null || checked.total === 0 ? null : { passed: checked.passed, total: checked.total, evidence: checked.evidence, ...(fix === null ? {} : { fix: forAccept ? { ...fix, note: `${fix.note}: ${ownWait.text}` } : fix }) },
+    check: checked === null || checked.total === 0 ? null : { passed: checked.passed, total: checked.total, evidence: checked.evidence, ...(fix === null ? {} : { fix: forAccept ? { ...fix, note: `${fix.note}: ${ownWait.text}` } : ownRecap?.kind === 'recap' && chainEnd === null && verdictChain === null ? { ...fix, note: `${fix.note}: ${ownRecap.text}` } : fix }) },
     waitsFor,
+    // 2026-11-01: whether it waits for the person's verdict in the recap, and the recap part it waits in (`{ path, key }`, null where unknown).
+    waitsForVerdict: forVerdict,
+    verdictAt: verdictPart?.path ? { path: verdictPart.path, key: verdictPart.key ?? null } : null,
   }
 }
 
@@ -1315,13 +1328,16 @@ export function focusState(goalMap, items, threads, prefix, partner = null, now 
     const isWaiting = !atWork && !isQueued
     const isReady = isWaiting && held.some(one => one.head.get('State') === 'refined')
     const isRefining = isWaiting && !isReady && held.length > 0
+    // 2026-11-01: a block whose open step waits for the person's verdict in the goal's recap (and nothing else of it is at work, queued or
+    // waiting to be given) is `verdict`, which the page words "Waits for your verdict"; "waiting" stays for work that waits for another task.
+    const verdictStep = open.find(one => one.waitsForVerdict)
     // B680: a part whose steps are all dropped, none done, reached nothing: Stopped, never Done. The person's word ("Part
     // dropped:" under the goal) takes it out of the whole.
     const reached = known.some(one => ['done', 'closed'].includes(one.head.get('State')))
     const isStopped = known.length > 0 && done === known.length && !reached
     const gone = (node.partsDropped ?? []).findLast(one => one.title === part.title)
     const state = gone !== undefined ? 'dropped' : isStopped ? 'stopped' : known.length > 0 && done === known.length ? 'done' : atWork ? 'now'
-      : isReady ? 'ready' : isRefining ? 'refining' : isQueued ? 'next' : open.some(one => one.tone === 'wait') ? 'waiting' : open.length > 0 ? 'stuck' : 'next'
+      : isReady ? 'ready' : isRefining ? 'refining' : isQueued ? 'next' : verdictStep !== undefined ? 'verdict' : open.some(one => one.tone === 'wait') ? 'waiting' : open.length > 0 ? 'stuck' : 'next'
     const fix = state === 'next' ? fixAhead(known, steps, prefix) : null
     // B354: what the part's results are checked against: its steps' standards, each once; a "none (why)" is left out.
     const standards = [...new Set(known.map(standardOf).filter(one => one !== null && !/^none\b/i.test(one)))]
@@ -1333,7 +1349,7 @@ export function focusState(goalMap, items, threads, prefix, partner = null, now 
     if (kind !== null) openNow.push({ index, title: part.title, kind })
     // Work blocks: the block's done-when line, only where it has one.
     const line = typeof part.doneWhen === 'string' && part.doneWhen.trim() !== '' ? { doneWhen: part.doneWhen.trim() } : {}
-    return { title: part.title, size: part.size, state, owner, done, total: known.length, standards, steps: list, ...partStepCounts(list), ...line, ...(gone === undefined ? {} : { why: gone.why }), ...(fix === null ? {} : { fixFirst: fix }) }
+    return { title: part.title, size: part.size, state, owner, done, total: known.length, standards, steps: list, ...partStepCounts(list), ...line, ...(gone === undefined ? {} : { why: gone.why }), ...(fix === null ? {} : { fixFirst: fix }), ...(state === 'verdict' ? { verdictAt: verdictStep.verdictAt } : {}) }
   })
   // B680: a Stopped part counts neither done nor open, a dropped one is out of the whole.
   const whole = parts.filter(part => part.state !== 'dropped')
@@ -2211,6 +2227,8 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
     const modRun = lane.onSequence === true ? null : rollout?.runs.get(lane.name) ?? null
     return { ...lane, flags: [...flagsOf(lane.name), ...waits, ...told], effortRun: run, modRun, handover, ...wordFor(lane, { handover, modRun }) }
   })
+  // Autopilot (2026-10-31): the open asks routed to the main chat or to a goal's recap (the recap card counts the second).
+  const routedAway = !workOk ? [] : routedAwayOf(raw.work, { names: chatNames, prefix })
   const built = {
     readAt: now,
     recapWaits,
@@ -2275,13 +2293,15 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
     withPartner,
     partnerDecided: !workOk ? [] : partnerDecidedOf(raw.work, { now, shownNote: focus?.note?.id ?? null, names, prefix }),
     // B360: the recaps of finished work, and where they show: "now" in Needs your attention, "daily" in the daily note.
-    // Autopilot (2026-10-31): always "now" while it is on.
+    // 2026-11-01: "daily" while Autopilot is on, else "now" (src/boardSettings.mjs `recapsShowOf`; "Bother me" is gone).
     recaps: recapsOf(raw.work, now),
-    recapsShow: botherMeOf(config),
+    recapsShow: recapsShowOf(config),
     // Autopilot (2026-10-31): whether it is on, and how many asks were decided for the person today (the quiet line on top
     // of Needs your attention); the asks it routed to the main chat or to a goal's recap (their window, "For your recap").
     autopilot: { on: config.autopilot === true, decidedToday: !workOk ? 0 : decidedTodayOf(raw.work, now) },
-    routedAway: !workOk ? [] : routedAwayOf(raw.work, { names: chatNames, prefix }),
+    routedAway,
+    // 2026-11-01 (the person: "where do i see this recap"): the focus goal's recap card, or null while no part of its recap waits for their verdict.
+    recapCard: focus === null ? null : recapCardOf({ goal: focus.id, waits: recapWaits, pictures: raw.recapPictures, steps: new Map(itemsOf(raw.work).filter(one => one.head.get('Kind') === 'step').map(one => [one.head.get('Id'), one])), asks: routedAway, blocks: focus.parts }),
     // B296, B301: the work store: its folder, how many items, its problems, and why it cannot be read (`why`).
     store: shown.store,
     // B298: the person's words per chat, filed as instructions (work/lists.mjs).

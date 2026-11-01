@@ -154,8 +154,9 @@ test('the review of B408: the Focus page is drawn anew each minute and for every
   assert.equal(key(page.view.focus(answered)), quiet, 'nor an answer to an ask')
   assert.notEqual(key(page.view.focus(state({ forYou: [...state().forYou, { id: 'work:Q9', workId: 'Q9' }] }))), quiet, 'a new ask: the note may link it')
   assert.notEqual(key(page.view.focus(state({ advisor: { name: 'Guide', isRunning: true, effort: { mode: 'low', isSet: true } } }))), quiet, 'the partner\'s effort switch')
-  // "Bother me: once a day": the ask is gathered under the note, drawn as a card: its minute and who runs count.
-  const daily = state({ recapsShow: 'daily' })
+  // 2026-11-01 ("Bother me" is gone): with Autopilot on, a recap of finished work is gathered under the note, drawn as a card: its
+  // minute and who runs count (it was an ask gathered by "Bother me: once a day"; asks gather no more).
+  const daily = state({ recapsShow: 'daily', recaps: [{ id: 'recap:N4', workId: 'N4', about: 'B2', state: 'open', isClosed: false }] })
   const gathered = key(page.view.focus(daily))
   assert.notEqual(key(page.view.focus({ ...daily, readAt: daily.readAt + MIN })), gathered)
   assert.notEqual(key(page.view.focus({ ...daily, chats: [{ name: 'Digger', isRunning: false }] })), gathered)
@@ -211,6 +212,6 @@ test('each field Needs your attention and the Focus page read is in their views'
   const page = loadPage()
   assertHeld('Needs your attention', page.view.needs(state()), readsOf('drawNeeds'))
   // The Focus page with the daily note's cards, and without them (then its view holds no cards' fields).
-  assertHeld('The Focus page', page.view.focus(state({ recapsShow: 'daily' })), readsOf('drawFocus'))
-  assertHeld('The Focus page without gathered cards', page.view.focus(state()), readsOf('drawFocus', ['gatheredCards', 'focusRecapCard', 'focusAsksCard']))
+  assertHeld('The Focus page', page.view.focus(state({ recapsShow: 'daily', recaps: [{ id: 'recap:N4', workId: 'N4', about: 'B2', state: 'open', isClosed: false }] })), readsOf('drawFocus'))
+  assertHeld('The Focus page without gathered cards', page.view.focus(state()), readsOf('drawFocus', ['gatheredCards', 'focusRecapCard']))
 })

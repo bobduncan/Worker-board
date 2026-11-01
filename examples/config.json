@@ -43,7 +43,6 @@
   "morningRound": "09:00",
   "weeklyRound": true,
   "morningSkipPercent": 80,
-  "botherMe": "now",
   "approveRebuilds": false,
   "models": {
     "sonnet": "claude-sonnet-5-5",

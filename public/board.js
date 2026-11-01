@@ -532,10 +532,32 @@ function drawSettings(state, cpu) {
   settings.hidden = cpu === null && version === '' && $('new-project-button').hidden && (state.boardSettings ?? null) === null && (state.codeJobs ?? null) === null
   const level = cpu === null || cpu.level === null ? null : `CPU for Claude: ${cpu.level[0].toUpperCase()}${cpu.level.slice(1)}${cpu.count === '' ? '' : ` (${cpu.count})`}`
   const shown = state.boardSettings ?? null
-  // Autopilot (2026-10-31): while it is on, it covers "Bother me".
-  const bother = shown === null ? null : shown.autopilot === true ? 'Autopilot: on' : `Bother me: ${shown.botherMe === 'daily' ? 'once a day' : 'at once'}`
-  $('settings-button').title = [level, bother, version].filter(part => part !== null && part !== '').join('\n') || 'CPU for Claude and the board\'s version'
+  // Autopilot (2026-10-31): said in the tip while it is on.
+  const autopilotTip = shown !== null && shown.autopilot === true ? 'Autopilot: on' : null
+  $('settings-button').title = [level, autopilotTip, version].filter(part => part !== null && part !== '').join('\n') || 'CPU for Claude and the board\'s version'
 }
+
+// autopilotinfo:start
+/**
+ * 2026-11-01: the "ⓘ" right of the Autopilot label in the settings panel. Hover and keyboard focus show its box by the style
+ * sheet; a click (or Enter, Space) keeps it open, a second one, Escape, or a click elsewhere closes it. `aria-expanded` follows
+ * the click; the box is the button's `aria-describedby`, so a screen reader reads it with the button.
+ */
+function setAutopilotInfo(isOpen) {
+  const button = $('autopilot-info')
+  button.closest('.info-wrap').classList.toggle('is-open', isOpen)
+  button.setAttribute('aria-expanded', String(isOpen))
+}
+$('autopilot-info').addEventListener('click', () => setAutopilotInfo($('autopilot-info').getAttribute('aria-expanded') !== 'true'))
+document.addEventListener('keydown', event => {
+  if (event.key !== 'Escape' || $('autopilot-info').getAttribute('aria-expanded') !== 'true') return
+  setAutopilotInfo(false)
+  $('autopilot-info').focus()
+})
+$('settings').addEventListener('click', event => {
+  if ($('autopilot-info').getAttribute('aria-expanded') === 'true' && event.target.closest('.info-wrap') === null) setAutopilotInfo(false)
+})
+// autopilotinfo:end
 
 /** B361: the setting being sent ({ key, value }), lit at once. */
 let settingPending = null
@@ -544,9 +566,9 @@ let settingPending = null
 const WORKERS_AT_MOST = [1, 10]
 
 /**
- * B361: "Bother me", "Approve rebuilds by itself" and (B-max) "Workers at most" in the settings panel, lit as the board runs them.
- * Autopilot (2026-10-31): its Off and On on top, with its one line; while it is on, "Bother me" and "Approve rebuilds by itself"
- * are hidden (it covers them: rebuilds go ahead, nothing waits for a daily round). A board that sends no `autopilot` shows none.
+ * B361: "Approve rebuilds by itself" and (B-max) "Workers at most" in the settings panel, lit as the board runs them.
+ * Autopilot (2026-10-31): its Off and On on top, with its one line; while it is on, "Approve rebuilds by itself" is hidden (it
+ * covers it: a stuck goal's rebuild is the person's). A board that sends no `autopilot` shows none.
  */
 function drawBoardSettings(state) {
   const shown = state.boardSettings ?? null
@@ -554,10 +576,10 @@ function drawBoardSettings(state) {
   $('settings-note').hidden = problem === null
   if (problem !== null) $('settings-note').textContent = problem
   const autopilot = shown === null || typeof shown.autopilot !== 'boolean' ? null : settingPending !== null && settingPending.key === 'autopilot' ? settingPending.value : shown.autopilot
-  for (const id of ['autopilot', 'bother-me', 'approve-rebuilds', 'max-workers']) {
+  for (const id of ['autopilot', 'approve-rebuilds', 'max-workers']) {
     const group = $(id)
     group.hidden = shown === null || (id === 'max-workers' && !Number.isInteger(shown.maxWorkers)) || (id === 'autopilot' && autopilot === null)
-      || (['bother-me', 'approve-rebuilds'].includes(id) && autopilot === true)
+      || (id === 'approve-rebuilds' && autopilot === true)
     group.title = shown === null || shown.canSet ? '' : shown.whyNot ?? ''
   }
   if (autopilot !== null) $('autopilot-words').textContent = autopilotWords(autopilot)
@@ -704,8 +726,8 @@ $('settings').addEventListener('click', async event => {
     const answer = await fetch('/api/settings', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Board-Token': TOKEN }, body: JSON.stringify({ key, value }) })
     if (!answer.ok) throw new Error((await answer.text()).trim() || `refused (${answer.status})`)
     board.boardSettings = await answer.json()
-    // The recaps and the asks that can wait move between Needs your attention and the daily note at once (Autopilot: "now").
-    board.recapsShow = board.boardSettings.autopilot === true ? 'now' : board.boardSettings.botherMe
+    // 2026-11-01: the recaps of finished work move between Needs your attention (Autopilot off) and the daily note (on) at once.
+    board.recapsShow = board.boardSettings.autopilot === true ? 'daily' : 'now'
     await read()
   } catch (error) {
     problems.set('setting', `Setting not changed: ${error instanceof Error ? error.message : 'the board did not answer'}`)
@@ -4984,19 +5006,11 @@ function drawNeed(need, state) {
 // recaps:start
 /**
  * B360: the recaps Needs your attention shows, each as a card of its own: none while they gather in the daily note
- * (`recapsShow` "daily"); else the open ones, and with "Show closed" those closed within the last day too.
+ * (`recapsShow` "daily": Autopilot is on); else the open ones, and with "Show closed" those closed within the last day too.
  */
 const shownRecaps = (state, withClosed) => (state.recapsShow === 'daily' ? [] : (state.recaps ?? []).filter(recap => withClosed || !recap.isClosed))
 /** B360: the open recaps the daily note gathers, while they gather there. */
 const gatheredRecaps = state => (state.recapsShow === 'daily' ? (state.recaps ?? []).filter(recap => !recap.isClosed) : [])
-/**
- * B361: the asks the daily note gathers while "Bother me" is once a day: the store's asks that hold up no chat (a
- * blocking one always reaches the person at once), not a refine question (its step's line says it), not one of the
- * app's form, not closed. An answered one stays there until it leaves the list.
- */
-const gatheredAsks = state => (state.recapsShow === 'daily'
-  ? (state.forYou ?? []).filter(need => typeof need.workId === 'string' && need.blocking !== true && need.isRefine !== true && need.isForm !== true && need.isClosed !== true)
-  : [])
 /** B360: a time left, as a card says it: hours from an hour on, else minutes. */
 const timeLeft = ms => (ms >= HOUR ? `${Math.round(ms / HOUR)} h` : `${Math.max(1, Math.round(ms / MIN))} min`)
 /** B360: the person's words in quotes, without a full stop of their own before the sentence goes on. */
@@ -5524,9 +5538,7 @@ function drawNeeds(state) {
   const box = $('needs')
   const focused = focusedNeed(box)
   const top = box.scrollTop
-  // B361: with "Bother me" once a day the asks that hold up no chat gather under the daily note instead.
-  const gathered = new Set(gatheredAsks(state).map(need => need.id))
-  const forYou = state.forYou.filter(need => !gathered.has(need.id))
+  const forYou = state.forYou
   // Calm panel: the open asks the backlog held are cards as every other ask (`panelNeeds`), its ticked ones closed.
   const needs = panelNeeds({ ...state, forYou })
   const open = needs.filter(need => !isClosed(need))
@@ -5636,8 +5648,8 @@ function needsView(state, ui) {
  * person reads it (the review of B408).
  */
 function focusPageView(state, ui) {
-  const gathers = gatheredRecaps(state).length > 0 || gatheredAsks(state).length > 0
-  // An ask's id for the linked words, and what gatheredAsks and gatheredRecaps decide by.
+  const gathers = gatheredRecaps(state).length > 0
+  // An ask's id for the linked words, and what gatheredRecaps decides by.
   const linkable = list => (list ?? []).map(one => ({ id: one.id, workId: one.workId, blocking: one.blocking, isRefine: one.isRefine, isForm: one.isForm, isClosed: one.isClosed }))
   const cards = gathers ? cardsView(state) : {
     forYou: linkable(state.forYou),
@@ -5664,6 +5676,8 @@ function focusPageView(state, ui) {
     // Autopilot (2026-10-31): the switch it covers, and the asks that wait for the goal's recap.
     autopilot: state.autopilot ?? null,
     routedAway: (state.routedAway ?? []).filter(one => one.route === 'recap'),
+    // 2026-11-01: the recap card (src/recapCard.mjs): the parts of the goal's recap that wait for the person's verdict.
+    recapCard: state.recapCard ?? null,
     ui,
   }
 }
@@ -9366,11 +9380,12 @@ $('lanes').addEventListener('click', event => {
 function openFromAddress(state) {
   // B149: the links in a worker's answer: `#picture=<path>` shows that picture here, `#play=<branch>&<settings>`
   // makes this tab that branch's game, where the settings put it. Followed once.
-  // B699: `#demo=<path of a demo.json>` opens that goal demo as a page.
+  // B699: `#demo=<path of a demo.json>` opens that goal demo as a page. 2026-11-01: `#demo=<path>&part=<part key>` also scrolls to
+  // that part (both words are encoded, so a `&` inside them is never this one).
   if (location.hash.startsWith('#demo=')) {
-    const path = decodeURIComponent(location.hash.slice('#demo='.length))
+    const [pathWords, partWords = ''] = location.hash.slice('#demo='.length).split('&part=')
     history.replaceState(null, '', location.pathname)
-    openDemo(path)
+    openDemo(decodeURIComponent(pathWords), '', partWords === '' ? '' : decodeURIComponent(partWords))
     return
   }
   if (location.hash.startsWith('#picture=') || location.hash.startsWith('#play=')) {
@@ -9659,7 +9674,7 @@ function drawDemo(page) {
 }
 
 /** B699: the goal demo of a demo.json as a page of its own: each picture stays its own file, opened at its own size with a click. */
-async function openDemo(path, notice = '') {
+async function openDemo(path, notice = '', part = '') {
   const box = $('demo-page')
   const head = el('header', 'file-view-head')
   const close = el('button', 'icon-button', '✕')
@@ -9688,6 +9703,8 @@ async function openDemo(path, notice = '') {
     drawDemo(page)
   }
   if (!box.open) box.showModal()
+  // 2026-11-01: a link that names a part (the recap card's tiles, a block's chip) shows that part first; drawn open, so after showModal.
+  if (part !== '') [...box.querySelectorAll('[data-demo-row]')].find(row => row.dataset.demoRow === part)?.scrollIntoView?.({ block: 'start' })
 }
 
 /** B860: the side panel again after an answer or a word typed (the rows' buttons are set by the caller). */
@@ -9725,7 +9742,11 @@ async function sendDemoFeedback() {
 
 document.addEventListener('click', event => {
   const link = event.target.closest('[data-demo]')
-  if (link !== null) return openDemo(link.dataset.demo)
+  if (link !== null) {
+    // 2026-11-01: the recap card's links are anchors (`#demo=...`): the click opens the popup in place, the address stays.
+    event.preventDefault()
+    return openDemo(link.dataset.demo, '', link.dataset.demoPart ?? '')
+  }
   const verdict = event.target.closest('[data-demo-verdict]')
   if (verdict !== null && demoDraft !== null) {
     const key = verdict.dataset.demoKey
@@ -13973,7 +13994,37 @@ function focusDayWords(stamp) {
 }
 
 /** Work blocks: the chips of a block on the Focus page, by its state (B680, B689, Redesign Part 2). */
-const FOCUS_CHIPS = { done: 'Done', now: 'In progress', next: 'Next', ready: 'On the list for a worker', refining: 'Waiting for its refine, then it goes on the list', stopped: 'Stopped, nothing reached', waiting: 'Waiting, nobody on it now', stuck: 'Stuck: its fix stopped' }
+// 2026-11-01 (the person: "says waiting for verdict or something"): `verdict`, a block that waits for their verdict in the goal's
+// recap; "Waiting, nobody on it now" stays for work that waits for another task.
+const FOCUS_CHIPS = { done: 'Done', now: 'In progress', next: 'Next', ready: 'On the list for a worker', refining: 'Waiting for its refine, then it goes on the list', stopped: 'Stopped, nothing reached', waiting: 'Waiting, nobody on it now', stuck: 'Stuck: its fix stopped', verdict: 'Waits for your verdict →' }
+
+/** The recap card shows this many tiles at most, in one row: the person's "never more then 1 row" (src/recapCard.mjs MOST_TILES). */
+const RECAP_TILES = 3
+
+/**
+ * 2026-11-01: where a click on "Waits for your verdict →" goes: the recap part the block waits in (`at`, the state's `verdictAt`:
+ * `{ path, key }`), else the recap the card opens (`card`, the state's `recapCard`), else nowhere (null: the chip is plain words).
+ */
+function verdictLinkOf(at, card) {
+  if (typeof at?.path === 'string' && at.path !== '') return { path: at.path, key: typeof at.key === 'string' && at.key !== '' ? at.key : null }
+  return typeof card?.path === 'string' && card.path !== '' ? { path: card.path, key: null } : null
+}
+
+/**
+ * 2026-11-01 (the person, on the mock: "never want more then 1 row of information. if e.g. 6 verdicts await then i want it visually
+ * to look the same, except the 3 into 6"): the recap card from the state's `recapCard`: its title with the count, its line, the
+ * recap it opens and at most RECAP_TILES tiles. Null while no part waits.
+ */
+function recapReadyView(card) {
+  if (card === null || card === undefined || !(card.count > 0)) return null
+  return {
+    title: `Your recap is ready · ${card.count} ${card.count === 1 ? 'verdict waits' : 'verdicts wait'}`,
+    line: card.isBuilt === true ? 'Everything is built. Judge each part: approve it, or send it back with a note.' : 'Judge what is ready: approve it, or send it back with a note.',
+    open: { label: 'Open the recap', path: card.path },
+    tiles: (card.tiles ?? []).slice(0, RECAP_TILES).map(tile => ({ title: tile.title, line: tile.line, picture: tile.picture ?? null, path: tile.path ?? card.path, key: tile.key ?? null })),
+    outside: card.outside ?? [],
+  }
+}
 
 /**
  * Work blocks (the person, 2026-10-31: "the done when will only show the unfinished workblocks ... filtered once per
@@ -13981,7 +14032,7 @@ const FOCUS_CHIPS = { done: 'Done', now: 'In progress', next: 'Next', ready: 'On
  * tick once done, its title, "Rework: <line>" for a block that was there before the round or "New: <line>" for one made in
  * it, and its chip while not done (a block in progress names the worker on it). Null before the run.
  */
-function focusOpenNowView(focus) {
+function focusOpenNowView(focus, card = null) {
   const round = focus?.round ?? null
   if (round === null) return null
   const rows = (focus.openNow ?? []).map(one => {
@@ -13991,7 +14042,8 @@ function focusOpenNowView(focus) {
     const line = blockLineOf(part)
     const label = one.kind === 'rework' ? 'Rework' : 'New'
     const chip = isDone ? null : part.state === 'now' && typeof part.owner === 'string' && part.owner !== '' ? `${part.owner} is on it` : FOCUS_CHIPS[part.state] ?? null
-    return { title: part.title, isDone, kind: one.kind, line: line === '' ? label : `${label}: ${line}`, chip, tone: part.state }
+    // 2026-11-01: a block that waits for the person's verdict has its chip open the recap (at its part where the state knows it).
+    return { title: part.title, isDone, kind: one.kind, line: line === '' ? label : `${label}: ${line}`, chip, tone: part.state, ...(part.state === 'verdict' ? { verdict: verdictLinkOf(part.verdictAt, card) } : {}) }
   }).filter(one => one !== null)
   const done = rows.filter(one => one.isDone).length
   // "opened by the change of 31 Oct": a why that names its own day ("the change of 2026-10-31") says it once.
@@ -14124,7 +14176,10 @@ function focusView(focus, goals, can = null, ui = {}) {
     // B680: a Stopped part is named beside the count, never counted as done.
     const stopped = focus.progress.stopped ?? 0
     // Work blocks (2026-10-31): the goal's progress counts its work blocks.
-    view.progress = { text: `${done} of ${total} work block${total === 1 ? '' : 's'} done${stopped > 0 ? ` · ${stopped} stopped` : ''}${left === null ? '' : ` · about ${left} left`}`, percent: total === 0 ? 0 : Math.round((done / total) * 100) }
+    // 2026-11-01: every block still open waits for the person's verdict in the recap: nothing is left to build, so no time left, the rest is theirs.
+    const open = focus.parts.filter(part => !['done', 'dropped', 'stopped'].includes(part.state))
+    const isVerdictOnly = stage === 'run' && open.length > 0 && open.every(part => part.state === 'verdict')
+    view.progress = { text: `${done} of ${total} work block${total === 1 ? '' : 's'} done${stopped > 0 ? ` · ${stopped} stopped` : ''}${isVerdictOnly ? ' · the rest waits for your verdict' : left === null ? '' : ` · about ${left} left`}`, percent: total === 0 ? 0 : Math.round((done / total) * 100) }
   }
   if (stage === 'run') {
     // Redesign Part 2: a part whose tasks are refined and none given yet is on the board's list for a worker.
@@ -14148,6 +14203,8 @@ function focusView(focus, goals, can = null, ui = {}) {
         ...(part.state === 'stopped' ? { drop: { label: 'Drop this work block', act: 'part-drop', isEnabled: allowed, title: allowed ? 'You stop this work block: say why in one line. It then counts out of the whole. Your partner can instead try another way.' : why } } : {}),
         ...(part.state === 'dropped' ? { undo: { label: 'Undo', act: 'part-undo', isEnabled: allowed, title: allowed ? 'Take the drop back: the work block is Stopped again' : why } } : {}),
         owner: part.state === 'now' && part.owner !== null ? `${part.owner} is on it` : null,
+        // 2026-11-01: a block that waits for the person's verdict: its chip opens the recap (verdictLinkOf).
+        ...(part.state === 'verdict' ? { verdict: verdictLinkOf(part.verdictAt, ui.recapCard) } : {}),
         // Fix first: its worker does a board fix first.
         ...(typeof part.fixFirst === 'string' ? { fixFirst: `A board fix goes first: ${part.fixFirst}` } : {}),
         // B354: what its results are checked against: the kind, the reference picture, the target.
@@ -14160,7 +14217,9 @@ function focusView(focus, goals, can = null, ui = {}) {
     }
     // Work blocks (2026-10-31): All work blocks (the whole plan) or Open now (what the last evaluation opened); none
     // without a block.
-    view.openNow = focusOpenNowView(focus)
+    view.openNow = focusOpenNowView(focus, ui.recapCard)
+    // 2026-11-01: the recap card above the work blocks, while a part of the goal's recap waits for the person's verdict.
+    view.recapCard = recapReadyView(ui.recapCard)
     const whole = workBlocksOf(focus)
     if (whole.length > 0 && view.openNow !== null) {
       const chosen = ui.blocksView === 'open' ? 'open' : 'all'
@@ -15030,6 +15089,73 @@ function focusStepList(part) {
 }
 
 /**
+ * 2026-11-01: a link that opens a goal's recap (the board's demo page) in its popup: `href` is the address form
+ * `#demo=<path>[&part=<key>]`, the click opens it in place. `part` names the part to scroll to, null for the top.
+ */
+function demoLink(path, part, className, text = '') {
+  const link = el('a', className, text)
+  link.href = `#demo=${encodeURIComponent(path)}${part === null || part === undefined ? '' : `&part=${encodeURIComponent(part)}`}`
+  link.dataset.demo = path
+  if (part !== null && part !== undefined) link.dataset.demoPart = part
+  return link
+}
+
+/**
+ * 2026-11-01: a block's chip on the Focus page. "Waits for your verdict →" is a link to the recap (`verdict`, from
+ * verdictLinkOf) in the attention colour; every other chip is plain words.
+ */
+function focusChipEl(text, tone, verdict = null, extra = '') {
+  const classes = `focus-chip${extra === '' ? '' : ` ${extra}`} is-${tone}`
+  if (tone !== 'verdict' || verdict === null) return el('span', classes, text)
+  const link = demoLink(verdict.path, verdict.key, classes, text)
+  link.title = 'Open the recap: approve this part, or send it back with a note'
+  return link
+}
+
+/**
+ * 2026-11-01 (the person: "I expected a button where is clearly visually i need to give a recap?", the agreed mock
+ * focus-mocks/recap-card): the card above the work blocks while parts of the goal's recap wait for their verdict: its title with
+ * the count, its line, one big button, and ONE row of at most RECAP_TILES tiles (the first parts waiting): each its part's picture,
+ * title and one small line; a click opens the recap at that part. Six waiting look the same as three, only the title says 6.
+ */
+function focusRecapReady(view) {
+  const card = el('section', 'focus-recap-ready')
+  card.setAttribute('aria-label', view.title)
+  const words = el('div', 'focus-recap-words')
+  words.append(el('h3', '', view.title), el('p', '', view.line))
+  const open = demoLink(view.open.path, null, 'focus-recap-open', view.open.label)
+  const tiles = el('div', 'focus-recap-tiles')
+  for (const tile of view.tiles) {
+    const link = demoLink(tile.path, tile.key, 'focus-recap-tile')
+    link.title = `Open the recap at: ${tile.title}`
+    const frame = el('div', tile.picture === null ? 'focus-recap-pic is-none' : 'focus-recap-pic')
+    if (tile.picture === null) frame.append(el('span', '', 'no picture yet'))
+    else {
+      const image = el('img')
+      image.alt = ''
+      frame.append(image)
+      pictureUrl(tile.picture).then(url => {
+        if (url !== null) image.src = url
+        else frame.replaceChildren(el('span', '', 'no picture yet'))
+      })
+    }
+    const text = el('div', 'focus-recap-tile-words')
+    text.append(el('b', '', tile.title), el('small', '', tile.line))
+    link.append(frame, text)
+    tiles.append(link)
+  }
+  card.append(words, open, tiles)
+  return card
+}
+
+/** 2026-11-01: the asks routed to the recap whose step no recap part names yet, as Autopilot lists them, in a quiet line under the card. */
+function focusRecapOutside(asks) {
+  const box = el('div', 'focus-recap-outside')
+  box.append(el('small', 'muted', `For your recap, not in it yet (${asks.length}):`), recapAsksList(asks))
+  return box
+}
+
+/**
  * The run: the parts with their progress and who is on each; the steps behind a click on its bar's toggle. Work blocks
  * (2026-10-31): "All work blocks", each block with its done-when line under its bar and "new" when this round made it.
  */
@@ -15048,7 +15174,7 @@ function focusRunCard(view) {
     const top = el('div', 'focus-part-top')
     const title = el('b', '', part.title)
     if (part.isNew === true) title.append(el('span', 'focus-new', 'new'))
-    top.append(title, el('span', `focus-chip is-${part.tone}`, part.chip))
+    top.append(title, focusChipEl(part.chip, part.tone, part.verdict ?? null))
     // B684: one block per step, coloured by its state; a part without steps keeps its plain fill.
     const bar = el('div', part.blocks.length > 0 ? 'focus-bar focus-blocks' : 'focus-bar')
     if (part.blocks.length > 0) for (const tone of part.blocks) bar.append(el('span', `focus-block is-${tone}`))
@@ -15128,7 +15254,7 @@ function focusOpenNowCard(view) {
     const what = el('span', 'focus-open-what')
     what.append(el('b', 'focus-bullet-text', one.title), el('small', 'focus-open-line', one.line))
     row.append(mark, what)
-    if (one.chip !== null) row.append(el('span', `focus-chip focus-open-chip is-${one.tone}`, one.chip))
+    if (one.chip !== null) row.append(focusChipEl(one.chip, one.tone, one.verdict ?? null, 'focus-open-chip'))
     list.append(row)
   }
   card.append(list)
@@ -15194,9 +15320,7 @@ function focusNoteCard(view) {
     }
     card.append(list)
   }
-  // B361: while asks gather under the note ("Bother me: once a day"), their whole card stands below: not twice.
-  const gathered = new Set(gatheredAsks(board ?? {}).map(need => need.workId))
-  const needs = view.note.needs.filter(ask => !gathered.has(ask.id))
+  const needs = view.note.needs
   if (needs.length > 0) {
     card.append(el('h4', '', 'Needs you'))
     for (const ask of needs) {
@@ -16501,7 +16625,7 @@ $('view-vision').addEventListener('keydown', event => {
 })
 
 /**
- * B360: the recaps of finished work gathered under the daily note (the setting botherMe "daily"), each with its
+ * B360: the recaps of finished work gathered under the daily note (2026-11-01: while Autopilot is on), each with its
  * picture, Overturn and OK, seen (B390), as in Needs your attention.
  */
 function focusRecapCard(state) {
@@ -16512,20 +16636,8 @@ function focusRecapCard(state) {
   return card
 }
 
-/**
- * B361: the asks gathered under the daily note ("Bother me: once a day"), each as its card in Needs your attention:
- * its pictures, its options and its answer, answered here.
- */
-function focusAsksCard(state) {
-  const card = el('section', 'focus-card focus-asks')
-  const asks = gatheredAsks(state)
-  card.append(el('h3', '', `Questions that can wait: ${asks.filter(need => !isAnswered(need)).length}`), el('p', 'muted', `Gathered here under your partner's note, not one by one in Needs your attention ("Bother me: once a day" in ⚙). A question that holds up a chat still reaches you there at once.`))
-  card.append(...asks.map(need => drawNeed(need, state)))
-  return card
-}
-
-/** B360, B361: what the daily note gathers: the recaps of finished work and the asks that can wait. */
-const gatheredCards = state => [gatheredRecaps(state).length > 0 ? focusRecapCard(state) : null, gatheredAsks(state).length > 0 ? focusAsksCard(state) : null].filter(card => card !== null)
+/** B360: what the daily note gathers: the recaps of finished work (2026-11-01: with Autopilot on; the asks that can wait gather no more). */
+const gatheredCards = state => [gatheredRecaps(state).length > 0 ? focusRecapCard(state) : null].filter(card => card !== null)
 
 /** Focus 3: every part done: the question (once "Is the vibe there?", now "Did we reach the goal?") with the agreed goal definition, Yes, and No with a box for what is missing. */
 function focusVibeThereCard(view, can, forRecap = []) {
@@ -16654,7 +16766,7 @@ function focusNeedsButton(view) {
 /** Focus 1 (spec 2026-10-18, section 4): the Focus page, read-only from goals.md: the head, the strip, each stage's cards. */
 function drawFocus(state) {
   const can = focusCan(state)
-  const view = focusView(state.focus ?? null, state.goals ?? null, can, { picking: focusUi.picking, asked: focusUi.asked, partsOpen: focusUi.partsOpen, blocksView: focusUi.blocksView })
+  const view = focusView(state.focus ?? null, state.goals ?? null, can, { picking: focusUi.picking, asked: focusUi.asked, partsOpen: focusUi.partsOpen, blocksView: focusUi.blocksView, recapCard: state.recapCard ?? null })
   const box = $('advisor-focus')
   box.dataset.stage = view.stage
   const parts = []
@@ -16695,6 +16807,15 @@ function drawFocus(state) {
     head.append(title, side)
     parts.push(head)
   }
+  // 2026-11-01: the recap card, under the head and above the work blocks; the asks for the recap whose step no part names yet stand
+  // under it as before, and with no card (nothing waits) every one of them stays where Autopilot put it.
+  const allRecapAsks = recapAsksFor(state, view.head?.id ?? null)
+  const recapReady = view.stage === 'run' && view.back === undefined ? view.recapCard ?? null : null
+  if (recapReady !== null) {
+    parts.push(focusRecapReady(recapReady))
+    const outside = allRecapAsks.filter(one => recapReady.outside.includes(one.id))
+    if (outside.length > 0) parts.push(focusRecapOutside(outside))
+  }
   // Work blocks (2026-10-31): the switch between All work blocks and Open now, under the head (no Done-when card any more).
   if ((view.blocks ?? null) !== null && view.back === undefined && view.stage === 'run') parts.push(focusBlocksSwitch(view))
   if (view.stage === 'pick' || view.stage === 'done' || view.back !== undefined) parts.push(focusPickCard(view))
@@ -16707,11 +16828,11 @@ function drawFocus(state) {
       if (view.guard !== null && view.guard !== undefined) right.append(focusGuardCard(view.guard))
       if (view.recheck !== null && view.recheck !== undefined) right.append(focusRecheckCard(view.recheck))
       // Autopilot (2026-10-31): the asks that wait for the goal's recap, under the goal; "Did we reach the goal?" lists them first.
-      const forRecap = recapAsksFor(state, view.head?.id ?? null)
+      const forRecap = recapReady === null ? allRecapAsks : []
       if (view.vibeThere !== null) right.append(focusVibeThereCard(view, can, forRecap))
       else if (forRecap.length > 0) right.append(focusRecapAsksCard(forRecap))
       right.append(focusNoteCard(view))
-      // B360, B361: with botherMe "daily" the recaps of finished work and the asks that can wait gather under the note.
+      // B360: with Autopilot on the recaps of finished work gather under the note.
       const gathered = gatheredCards(state)
       right.append(...gathered)
       recapsDrawn = gathered.length > 0

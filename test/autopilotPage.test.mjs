@@ -9,7 +9,7 @@ import test from 'node:test'
 
 import { answer, typed } from '../fixtures/lines.mjs'
 import { AUTOPILOT_OFF_WORDS, AUTOPILOT_ON_WORDS } from '../src/work/autopilot.mjs'
-import { botherMeOf, checkSetting, panelSettings, rebuildsApproved, settingChanged } from '../src/boardSettings.mjs'
+import { checkSetting, panelSettings, rebuildsApproved, recapsShowOf, settingChanged } from '../src/boardSettings.mjs'
 import { parseConfig } from '../src/config.mjs'
 import { parseItem } from '../src/work/item.mjs'
 import { storeFromText } from '../src/work/read.mjs'
@@ -17,8 +17,9 @@ import { openPage, reply } from './pageHarness.mjs'
 import { MIN, NOW, RUN_GOALS, app, asSent, sinceOf, tail } from './partnerState.mjs'
 import { buildState } from './withStore.mjs'
 
-const ON = { botherMe: 'daily', approveRebuilds: false, maxWorkers: 5, autopilot: true, canSet: true, whyNot: null }
-const OFF = { ...ON, botherMe: 'now', autopilot: false }
+// 2026-11-01: "Bother me" is gone from the panel's answer (it was `botherMe` here).
+const ON = { approveRebuilds: false, maxWorkers: 5, autopilot: true, canSet: true, whyNot: null }
+const OFF = { ...ON, autopilot: false }
 
 /** The garden's state as the board builds it, with the settings `settings` (config.json) and the store's `items`. */
 function garden(items = [], settings = {}, goalsText = RUN_GOALS) {
@@ -45,21 +46,22 @@ test('the setting: off unless switched on, in config.json and on the panel, and 
   assert.equal(panelSettings(parseConfig('{"autopilot":true}', {})).autopilot, true)
 })
 
-test('while Autopilot is on, every reader of "Approve rebuilds by itself" reads it as off and of "Bother me" as "now"', () => {
+test('while Autopilot is on, every reader of "Approve rebuilds by itself" reads it as off, and the recaps of finished work go to the daily note', () => {
   // The coordinator's ruling (2026-10-31): a goal stuck after the guard's tries is the person's; Autopilot approves no rebuild.
   assert.equal(rebuildsApproved({ approveRebuilds: false, autopilot: true }), false)
   assert.equal(rebuildsApproved({ approveRebuilds: true, autopilot: true }), false)
   assert.equal(rebuildsApproved({ approveRebuilds: false, autopilot: false }), false)
   assert.equal(rebuildsApproved({ approveRebuilds: true }), true)
-  assert.equal(botherMeOf({ botherMe: 'daily', autopilot: true }), 'now')
-  assert.equal(botherMeOf({ botherMe: 'daily', autopilot: false }), 'daily')
-  assert.equal(botherMeOf({}), 'now')
-  // The state the page draws: the recaps show at once, not gathered under the daily note.
-  assert.equal(garden([], { botherMe: 'daily', autopilot: true }).recapsShow, 'now')
-  assert.equal(garden([], { botherMe: 'daily' }).recapsShow, 'daily')
+  // 2026-11-01 (the person: "so bother me is obsolete"): the setting is gone; the recaps of finished work (B360) are gathered under
+  // the partner's daily note while Autopilot is on (it was "now" then), and reach Needs your attention while it is off.
+  assert.equal(recapsShowOf({ autopilot: true }), 'daily')
+  assert.equal(recapsShowOf({ autopilot: false }), 'now')
+  assert.equal(recapsShowOf({}), 'now')
+  assert.equal(garden([], { autopilot: true }).recapsShow, 'daily')
+  assert.equal(garden([], { botherMe: 'daily' }).recapsShow, 'now', 'an old botherMe in the file changes nothing')
 })
 
-test('the panel: Autopilot with Off and On and its line; On hides "Bother me" and "Approve rebuilds by itself", Off shows all three', async () => {
+test('the panel: Autopilot with Off and On and its line; On hides "Approve rebuilds by itself", Off shows both', async () => {
   const on = await openPage({ state: { ...asSent(garden()), boardSettings: ON } })
   try {
     assert.equal(on.find('#autopilot').hidden, false)
@@ -67,33 +69,75 @@ test('the panel: Autopilot with Off and On and its line; On hides "Bother me" an
     assert.deepEqual(on.all('#autopilot [data-setting="autopilot"]').map(one => [one.textContent, one.classList.contains('is-on')]), [['Off', false], ['On', true]])
     assert.equal(on.text('#autopilot-words'), AUTOPILOT_ON_WORDS)
     assert.equal(on.text('#autopilot-words'), 'The work runs until a goal is ready. You are asked when a goal starts, when it is ready, and for what no chat can do. Everything else is decided for you, with Undo.')
-    assert.deepEqual([on.find('#bother-me').hidden, on.find('#approve-rebuilds').hidden, on.find('#max-workers').hidden], [true, true, false])
+    assert.deepEqual([on.find('#approve-rebuilds').hidden, on.find('#max-workers').hidden], [true, false])
+    assert.equal(on.all('#bother-me').length, 0, '"Bother me" is gone from the panel (2026-11-01)')
     assert.match(on.find('#settings-button').title, /Autopilot: on/)
   } finally { await on.close() }
   const off = await openPage({ state: { ...asSent(garden()), boardSettings: OFF } })
   try {
     assert.equal(off.text('#autopilot-words'), AUTOPILOT_OFF_WORDS)
     assert.equal(off.text('#autopilot-words'), 'Questions come to you as before.')
-    assert.deepEqual([off.find('#autopilot').hidden, off.find('#bother-me').hidden, off.find('#approve-rebuilds').hidden], [false, false, false])
+    assert.deepEqual([off.find('#autopilot').hidden, off.find('#approve-rebuilds').hidden], [false, false])
   } finally { await off.close() }
   // A board that sends no Autopilot (an older one) shows the panel as before.
   const { autopilot, ...older } = OFF
   const old = await openPage({ state: { ...asSent(garden()), boardSettings: older } })
   try {
-    assert.deepEqual([old.find('#autopilot').hidden, old.find('#bother-me').hidden], [true, false])
+    assert.deepEqual([old.find('#autopilot').hidden, old.find('#approve-rebuilds').hidden], [true, false])
   } finally { await old.close() }
 })
 
-test('the panel: a click on On sends the flag; the board\'s answer hides the two settings it covers', async () => {
+test('the panel: a click on On sends the flag; the board\'s answer hides the setting it covers', async () => {
   let shown = OFF
   const page = await openPage({ state: () => ({ ...asSent(garden()), boardSettings: shown }), answers: request => { shown = { ...shown, autopilot: request.body.value }; return reply(shown) } })
   try {
     await page.click('[data-setting="autopilot"][data-value="true"]')
     assert.deepEqual(page.sent('/api/settings').map(one => one.body), [{ key: 'autopilot', value: true }])
-    assert.deepEqual([page.find('#bother-me').hidden, page.find('#approve-rebuilds').hidden], [true, true])
+    assert.equal(page.find('#approve-rebuilds').hidden, true)
     await page.click('[data-setting="autopilot"][data-value="false"]')
     assert.deepEqual(page.sent('/api/settings').map(one => one.body.value), [true, false])
-    assert.equal(page.find('#bother-me').hidden, false)
+    assert.equal(page.find('#approve-rebuilds').hidden, false)
+  } finally { await page.close() }
+})
+
+// 2026-11-01 (the person: "a little tooltip next to the autopilot setting with making it clear what is and isnt being signalled"):
+// the "ⓘ" right of the Autopilot label; its box holds what Autopilot asks and what it decides for you.
+const TIP = [
+  'With Autopilot on, you are asked for:',
+  "a new goal's start: its goal definition and work blocks",
+  "a goal's recap, once it is ready",
+  'what only you can do: sign-ins, accounts, money, installs, deleting things, restarting the Claude app',
+  'a goal stuck after its retries',
+  "Decided for you instead (with Undo, listed in your partner's note):",
+  'choices inside a task that come with advice',
+  "looks below their target: they wait for the goal's recap",
+  'chores a chat can do: Main does them',
+  'While Autopilot is on, "Approve rebuilds by itself" is covered and hidden; it works again when Autopilot is off.',
+]
+test('the "ⓘ" beside Autopilot: a focusable button described by a calm box that holds what is asked and what is decided for you; click, Escape and a click elsewhere', async () => {
+  const page = await openPage({ state: { ...asSent(garden()), boardSettings: ON } })
+  try {
+    const button = page.find('#autopilot-info')
+    assert.deepEqual([button.tagName, button.type, button.textContent, button.getAttribute('aria-describedby'), button.getAttribute('aria-expanded')], ['BUTTON', 'button', 'ⓘ', 'autopilot-tip', 'false'])
+    assert.ok(button.getAttribute('aria-label').length > 0, 'a name for a screen reader')
+    assert.equal(page.find('#autopilot-tip').getAttribute('role'), 'tooltip')
+    assert.deepEqual(page.all('#autopilot-tip p, #autopilot-tip li').map(one => one.textContent.trim()), TIP)
+    assert.deepEqual(page.all('#autopilot-tip ul').map(one => one.children.length), [4, 3], 'asked for: 4 lines; decided for you: 3')
+    // Right of the label, in the same row; the label's own words stay "Autopilot".
+    assert.equal(page.find('#autopilot-info').closest('.autopilot-title').querySelector('.cpu-label').textContent, 'Autopilot')
+    // A click keeps the box open (hover and focus show it by the style sheet), a second one closes it.
+    const wrap = page.find('.info-wrap')
+    await page.click('#autopilot-info')
+    assert.deepEqual([button.getAttribute('aria-expanded'), wrap.classList.contains('is-open')], ['true', true])
+    await page.click('#autopilot-info')
+    assert.deepEqual([button.getAttribute('aria-expanded'), wrap.classList.contains('is-open')], ['false', false])
+    // Escape closes it, and a click elsewhere in the panel does too.
+    await page.click('#autopilot-info')
+    page.document.dispatchEvent(new page.window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+    assert.equal(button.getAttribute('aria-expanded'), 'false')
+    await page.click('#autopilot-info')
+    await page.click('#autopilot-words')
+    assert.equal(button.getAttribute('aria-expanded'), 'false')
   } finally { await page.close() }
 })
 

@@ -3158,15 +3158,12 @@ Part 6 of G11's how (agreed 2026-10-18 21:21). The person, 20:56: "I want a sett
 right away or when i need to be notified, in the boards settings"; 21:18 on rebuilds: "this will normally require an
 approval from the user, but can be automatically approved."
 
-1. The ⚙ panel holds two switches beside CPU for Claude: **Bother me** (At once, Once a day; it says that a question
-   that holds up a chat always comes at once) and **Approve rebuilds by itself** (Off, On). They are the settings
-   `botherMe` (B360) and `approveRebuilds` (B359): a click sends `POST /api/settings` with one key and value
+1. The ⚙ panel holds a switch beside CPU for Claude: **Approve rebuilds by itself** (Off, On). It is the setting
+   `approveRebuilds` (B359): a click sends `POST /api/settings` with one key and value
    (src/boardSettings.mjs `checkSetting`), the board writes it into its config.json (`settingChanged`: every other
    setting, the indent and the line ends kept; a broken file is left alone) and runs on it at once. The demo changes
    them in memory only; a board that shows another board's history does not change them.
-2. Once a day: Needs your attention leaves out the store's asks that hold up no chat (not blocking, not a refine
-   question, not of the app's form; `gatheredAsks`), and the Focus page shows them under the partner's daily note,
-   beside the recaps of B360, as their own cards: their pictures, options and answer, answered there.
+2. Removed 2026-11-01 on the person's word: the "Bother me" setting and the daily gathering of questions (recaps of finished work, B360, now gather under the daily note while Autopilot is on).
 3. B-max (the person, 2026-10-28: "make the worker limit configurable in the settings default is 5."): a third group,
    **Workers at most** (`maxWorkers`: a "−", the number and a "+", 1 to 10; the button at an end of the range is off),
    with one line under it: the board starts a new worker when tasks wait and none is free, up to this, and workers
@@ -5639,10 +5636,10 @@ it is ready, and for real issues): "yes to the plan go build". Mid-goal looks be
 goal's recap). It extends Partner answers (2026-10-19), still with no blanket approve: every decision keeps its Undo.
 
 1. **The setting** `autopilot` (config.json, false unless set; `PANEL_SETTINGS`, `/api/settings`; the ⚙ panel's Off / On
-   with its line). While on, `botherMeOf(config)` is "now" and `rebuildsApproved(config)` off (src/boardSettings.mjs: the
+   with its line). While on, `rebuildsApproved(config)` is off and `recapsShowOf(config)` "daily" (src/boardSettings.mjs: the
    goal guard's two readers in server.mjs, the state's `recapsShow`, the page's; the coordinator's ruling of 2026-10-31: a
    goal stuck after the guard's tries is the person's, so its "Rebuild G<n>:" ask is filed and routed to them), the
-   reconciler reads the partner's answers as on, and the panel hides Bother me and Approve rebuilds by itself.
+   reconciler reads the partner's answers as on, and the panel hides Approve rebuilds by itself.
 2. **The routing**, one pure module (src/work/autopilot.mjs `autopilotRoute(ask, ctx)`), in this order: an explicit
    `Route: person` (a line on its card, or the board's own route) and the app's question form → person; what only the
    person's hands can do (below) → person; goal level (of a goal, the goal guard's words, the goal's recap or demo link; and,

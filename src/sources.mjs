@@ -14,6 +14,7 @@ import { movedTo, ownCard, ownCardKey } from './planLines.mjs'
 import { conversationStart, readDeep, readTail } from './transcript.mjs'
 import { storeBacklog } from './work/read.mjs'
 import { readRecaps } from './recaps.mjs'
+import { readRecapPictures } from './recapCard.mjs'
 
 /** A transcript's name comes from a file another program wrote; only a plain id may become part of a path. */
 const SAFE_ID = /^[A-Za-z0-9_-]+$/
@@ -203,11 +204,15 @@ export async function readSources(config, readFolders, now = Date.now(), readBra
     }
   }))
 
+  // B878: the goals' recaps whose parts name the steps they show (src/recaps.mjs), with the person's rounds of feedback.
+  const recaps = await readRecaps(config, goalsText).catch(() => [])
+
   return {
     listText, appChatTexts, moved, planLineTexts, planLineAt, tails, conversationAt: conversationAts, adviceText, folders, askTexts, goalsText, threadTexts, productPlanText,
     pictureLists: await pictureLists(config, work, now),
-    // B878: the goals' recaps whose parts name the steps they show (src/recaps.mjs), with the person's rounds of feedback.
-    recaps: await readRecaps(config, goalsText).catch(() => []),
+    recaps,
+    // 2026-11-01: the picture of each recap part, for the tiles of the recap card on the Focus page (src/recapCard.mjs).
+    recapPictures: await readRecapPictures(config, recaps).catch(() => []),
     // B296, B301: the work store as it was read: the one source of the work.
     work,
     // B113: the file the app keeps for its own usage card. The board only reads it.

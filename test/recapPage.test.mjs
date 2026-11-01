@@ -50,9 +50,9 @@ test('the state carries the recaps and where they show; a recap is no line of In
     assert.equal(state.recapsShow, 'now')
     assert.deepEqual(state.recaps.map(recap => [recap.about, recap.state, recap.evidence, recap.isGoal]), [['G3', 'open', 'none', true]])
     assert.deepEqual(state.information.filter(info => info.about === 'G3'), [])
-    // "Bother me: once a day" (the settings of B361): the recaps gather in the daily note.
-    assert.equal((await build('{"botherMe":"daily"}')).recapsShow, 'daily')
-    assert.equal((await build('{"botherMe":"hourly"}')).recapsShow, 'now')
+    // 2026-11-01: "Bother me" is gone (an old botherMe in the file changes nothing); with Autopilot on the recaps gather in the daily note.
+    assert.equal((await build('{"botherMe":"daily"}')).recapsShow, 'now')
+    assert.equal((await build('{"autopilot":true}')).recapsShow, 'daily')
   } finally {
     await rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
@@ -173,8 +173,8 @@ test('the wiring: the cards after the questions, the clicks through the answer f
   assert.match(script, /const focusPageUi = \(\) => \(\{[^\n]*problems: \[\.\.\.problems\], sending: \[\.\.\.sending\], openForms: \[\.\.\.openForms\]/)
   assert.match(css, /\.button\.is-seen \{ background: var\(--free\); \}/)
   assert.match(script, /takeAnswers\(\$\('advisor-focus'\)\)/)
-  // B361: the recaps and the asks that can wait, gathered under the note.
-  assert.match(script, /const gatheredCards = state => \[gatheredRecaps\(state\)\.length > 0 \? focusRecapCard\(state\) : null, gatheredAsks\(state\)\.length > 0 \? focusAsksCard\(state\) : null\]/)
+  // B360: the recaps gathered under the note (2026-11-01: only the recaps; the asks that can wait gather no more, "Bother me" is gone).
+  assert.match(script, /const gatheredCards = state => \[gatheredRecaps\(state\)\.length > 0 \? focusRecapCard\(state\) : null\]\.filter\(card => card !== null\)/)
   assert.match(script, /const gathered = gatheredCards\(state\)\s+right\.append\(\.\.\.gathered\)\s+recapsDrawn = gathered\.length > 0/)
   // The review: drawn under the page too while the focus is being changed (no run drawn).
   assert.match(script, /if \(!recapsDrawn\) parts\.push\(\.\.\.gatheredCards\(state\)\)/)

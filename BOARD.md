@@ -84,11 +84,9 @@ running yet: open Game - Main in the app (or click it in the sidebar) and paste 
 and **Dismiss**, until the main chat has it or it no longer matters: "resume" once the main chat got "resume" another
 way, and any word after two hours), **CPU for
 Claude** (B311, B735: Full or Low, one click each; the line beside it says "full power", or under Low how many
-processes it applies to, "15 processes on 2 cores, lowest priority: tests and builds run slower"; "not available here" off Windows; a listing that failed is one red line on top), **Bother me** (B361: At once, or Once a day: the recaps
-and the questions that hold up no chat then gather under your partner's daily note on the Focus page; a question that
-holds up a chat always comes at once), **Approve rebuilds by itself** (B361: Off, On; saved in the board's settings
-file), **Autopilot** (2026-10-31: Off, On, with one line under it; while On, Bother me and Approve rebuilds by itself are
-hidden: it covers them; see "Autopilot" below) and **What the board does by itself on this PC** (B767: each routine job of the main chat's, waking chats, model and effort,
+processes it applies to, "15 processes on 2 cores, lowest priority: tests and builds run slower"; "not available here" off Windows; a listing that failed is one red line on top), **Approve rebuilds by itself** (B361: Off, On; saved in the board's settings
+file), **Autopilot** (2026-10-31: Off, On, with one line under it; while On, Approve rebuilds by itself is
+hidden: it covers it, and the recaps of finished work gather under your partner's daily note; see "Autopilot" below) and **What the board does by itself on this PC** (B767: each routine job of the main chat's, waking chats, model and effort,
 restarts and new workers, "by code" or still the main chat's and why, as the running chats' Workers mod reports it; T14:
 waking chats "needs your OK" while only chats in Auto mode run, until the project allows the send-message tool;
 **Allow them for this project** adds the missing tool rules to the project's own `.claude\settings.local.json`, named
@@ -195,9 +193,8 @@ tab) and never on the demo; once closed, the browser keeps that it was seen (`he
   blocks nothing) with the step or goal, what the person gets, its evidence picture and when it approves itself, and
   two buttons (B390): **Overturn** in red opens a box for the person's words (the partner makes a fix step from them; a
   goal opens again; Cancel closes the box) and **OK, seen** in blue approves it at once, with no words ("Seen by you");
-  left alone it approves itself 24 hours after it came and moves to the closed items (setting
-  `botherMe` "daily": gathered under the daily note on the Focus page instead, as the questions that hold up no chat
-  are, B361). B301: no card comes from a chat's words; a chat that wrote questions in
+  left alone it approves itself 24 hours after it came and moves to the closed items (with Autopilot on, a recap is
+  gathered under the daily note on the Focus page instead, 2026-11-01). B301: no card comes from a chat's words; a chat that wrote questions in
   its chat without filing an ask is a warning card, "<chat> wrote questions in its chat but filed no ask", with a
   button to its chat (Talk to Main, the Advisor's chat, or a worker's answer in the card's window). B308: a worker
   that holds a step, has ended its turn with nothing running and filed no ask, for more than 5 minutes, is a hint
@@ -493,7 +490,18 @@ Undo."; Off, "Questions come to you as before."
   The Refine questions part shows none while the board answers them.
 - **Decided for you**: the board's taken advice and the main chat's actions stand in the partner's daily note beside the
   partner's answers, each with its Undo; a card says "Decided for you: A ..." or "The main chat did it: ...".
-- **For your recap (n)** on the Focus page, under the goal: the looks below their target and the "Accept or send back"
+- **Your recap is ready** (2026-11-01) at the top of the Focus page, under the head: while parts of the goal's recap wait for
+  your verdict, a card with its title ("Your recap is ready · 3 verdicts wait"; "1 verdict waits"), its line ("Everything is built.
+  Judge each part: approve it, or send it back with a note.", or "Judge what is ready: ..." while parts are still being built),
+  one big button **Open the recap** (the attention colour: it is your action) and ONE row of at most 3 tiles, the first parts
+  waiting: each its part's picture, title and "64 of 75 · approve or send back" ("approve or send back" without a score). Six
+  waiting look the same as three, only the title says 6; a narrow page shows fewer tiles, never a second row. A tile opens the
+  recap at its part. The card counts the asks Autopilot routed to the recap whose step a part names; the card is gone once nothing
+  waits. A block that waits for your verdict reads **Waits for your verdict →** (a link to the recap, both views), and the
+  head's line says "the rest waits for your verdict" when every open block does; "Waiting, nobody on it now" stays for work that
+  waits for another task.
+- **For your recap (n)**, the asks routed to the recap whose step no recap part names yet, stand in one line under the card
+  (without a card, where they stood: under the goal, or in "Did we reach the goal?"): the looks below their target and the "Accept or send back"
   cards, one line each (its question, its picture, its step). Their steps read "Recap verdict: waits (Q<n>)" and count as
   done for asking the goal demo, whose words ask a row of their own for them; "Did we reach the goal?" then shows, lists
   them first, and its Yes waits until the recap's approve or send back of those rows answered them. With Autopilot off

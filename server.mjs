@@ -1755,7 +1755,7 @@ async function main(args) {
 
   /** The person's words to a chat (POST /api/say), also for the board's own "resume" after Resume all. */
   let sayNow = null
-  // B361: the settings panel's "Bother me" and "Approve rebuilds by itself", one change at a time.
+  // B361: the settings panel's "Approve rebuilds by itself" and the other settings, one change at a time.
   const SETTINGS_WHY_NOT = 'This board shows the history of another board: change its settings on that board.'
   const boardSettingsNow = () => panelSettings(config, { canSet: historyFrom === undefined, whyNot: SETTINGS_WHY_NOT })
   let settingsQueue = Promise.resolve()
@@ -2123,7 +2123,7 @@ async function main(args) {
         makingProject = false
       }
     },
-    // B361: "Bother me" and "Approve rebuilds by itself" from the settings panel: into config.json, and at once into
+    // B361: "Approve rebuilds by itself" and the other settings from the settings panel: into config.json, and at once into
     // the settings the board runs on. The demo changes them in memory only. B-max: "Workers at most" goes the same way
     // (`config.maxWorkers`), the next pass of the hand-out reads it.
     settings: body => settingsTurn(async () => {
