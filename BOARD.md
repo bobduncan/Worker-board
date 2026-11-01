@@ -490,18 +490,24 @@ Undo."; Off, "Questions come to you as before."
   The Refine questions part shows none while the board answers them.
 - **Decided for you**: the board's taken advice and the main chat's actions stand in the partner's daily note beside the
   partner's answers, each with its Undo; a card says "Decided for you: A ..." or "The main chat did it: ...".
-- **Your recap is ready** (2026-11-01) at the top of the Focus page, under the head: while parts of the goal's recap wait for
-  your verdict, a card with its title ("Your recap is ready · 3 verdicts wait"; "1 verdict waits"), its line ("Everything is built.
-  Judge each part: approve it, or send it back with a note.", or "Judge what is ready: ..." while parts are still being built),
-  one big button **Open the recap** (the attention colour: it is your action) and ONE row of at most 3 tiles, the first parts
-  waiting: each its part's picture, title and "64 of 75 · approve or send back" ("approve or send back" without a score). Six
-  waiting look the same as three, only the title says 6; a narrow page shows fewer tiles, never a second row. A tile opens the
-  recap at its part. The card counts the asks Autopilot routed to the recap whose step a part names; the card is gone once nothing
-  waits. A block that waits for your verdict reads **Waits for your verdict →** (a link to the recap, both views), and the
-  head's line says "the rest waits for your verdict" when every open block does; "Waiting, nobody on it now" stays for work that
-  waits for another task. While the card shows, "Did we reach the goal?" is not drawn: the recap comes first, and the question
-  comes back once no verdict waits.
-- **For your recap (n)**, the asks routed to the recap whose step no recap part names yet, stand in one line under the card
+- **Your recap is ready** (2026-11-01) at the top of the Focus page, under the head: while verdicts wait for you, a card with its
+  title ("Your recap is ready · 3 verdicts wait"; "1 verdict waits"), its line ("Everything is built. Judge each part: approve it,
+  or send it back with a note.", or "Judge what is ready: ..." while parts are still being built), one big button **Open the
+  recap** (the attention colour: it is your action) and ONE row of at most 3 tiles: each its picture (the part's, else the ask's,
+  else the step's evidence, else a calm placeholder), title and "64 of 75 · approve or send back" ("approve or send back" without
+  a score). Six waiting look the same as three, only the title says 6; a narrow page shows fewer tiles, never a second row. What
+  counts, in this order: the parts of the goal's recap that wait (its recap file: the goal's Demo line, else the newest demo.json
+  of the goal; ONE file; only rows that name steps are parts), then each work block whose step waits for you in another form
+  that no part covers (an Accept card, a look or decision of the step that stands with you, an ask routed to the recap while
+  Autopilot is on), then the goal's own "open the recap / play it" ask ("The whole goal: play it"). A part or step still being
+  checked (a Quality Assurance task open) is no verdict yet. A tile opens the recap at its part, or the step's window where the
+  card or ask stands; the button opens the recap file, else the first tile's window. The card is gone once nothing waits. A block
+  that waits for your verdict, in any of those forms, reads **Waits for your verdict →** (both views; the arrow opens the
+  recap at its part when the recap names the step, else the step's window, never nowhere), and the head's line says "the rest
+  waits for your verdict" when every open block does; "Waiting, nobody on it now" stays for work that waits for another task.
+  While the card shows, "Did we reach the goal?" is not drawn: the recap comes first, and the question comes back once no
+  verdict waits.
+- **For your recap (n)**, the asks routed to the recap whose step no part and no block of the card covers, stand in one line under the card
   (without a card, where they stood: under the goal, or in "Did we reach the goal?"): the looks below their target and the "Accept or send back"
   cards, one line each (its question, its picture, its step). Their steps read "Recap verdict: waits (Q<n>)" and count as
   done for asking the goal demo, whose words ask a row of their own for them; "Did we reach the goal?" then shows, lists

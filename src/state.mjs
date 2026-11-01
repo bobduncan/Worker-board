@@ -54,7 +54,7 @@ import { clearOwed, modAtLeast } from './clearOwed.mjs'
 import { nobodyRunsOf, wakeFailedOf } from './say.mjs'
 import { chainWaitOf, checkedOf, fixesOf, fixOutcomeOf, recapPartOf, reviewWaitOf } from './work/resultCheck.mjs'
 import { recapWaitsOf } from './recaps.mjs'
-import { recapCardOf } from './recapCard.mjs'
+import { askedStepsOf, openChecksOf, recapCardOf, standingAsksOf } from './recapCard.mjs'
 import { guardOf } from './goalGuard.mjs'
 import { standardOf } from './work/standard.mjs'
 import { rolloutPlan } from './work/modRollout.mjs'
@@ -1147,7 +1147,7 @@ function chainNote(wait, all) {
  * work (`chainWaitOf`: no link with a worker, being checked or queued for its check) reads "Fix waiting" and counts as
  * waiting, its fix line saying what the chain waits for. `all` is the store's items by id, `now` the clock.
  */
-function partStepOf(item, steps, prefix, all = steps, lanes = null, now = null, recaps = null) {
+function partStepOf(item, steps, prefix, all = steps, lanes = null, now = null, recaps = null, verdictAsks = { asked: new Map(), openChecks: new Set() }) {
   const id = item.head.get('Id')
   const state = item.head.get('State')
   const checked = checkedOf(item)
@@ -1164,14 +1164,25 @@ function partStepOf(item, steps, prefix, all = steps, lanes = null, now = null, 
   const ownWait = state === 'review' && outcome !== null && outcome.isOpen !== true ? reviewWaitOf(item, all, null, now, recaps) : null
   const forAccept = ownWait?.kind === 'accept'
   // 2026-11-01 (the person, on a block that read "Waiting, nobody on it now": "says waiting for verdict or something"): a step
-  // that waits for the person's verdict in the goal's recap: its own part waits (its fix dropped, resultCheck.mjs `reviewWaitOf`
-  // kind 'recap'), the last link of its chain of open fixes does (`chainWaitOf`), or its asks are routed to the recap
-  // (`Recap verdict: waits`, autopilot.mjs `recapWaitOf`). It waits as planned: never stopped, never "being checked".
+  // that waits for the person's verdict, in any form (the coordinator's rule 1). The step that carries what waits is the last link
+  // of its chain of open fixes (`chainWaitOf`), else itself. Forms: its part waits in the goal's recap (resultCheck.mjs `reviewWaitOf`
+  // kind 'recap'), its own Accept card (kind 'accept'), its asks are routed to the recap (`Recap verdict: waits`, autopilot.mjs
+  // `recapWaitOf`), or an open look or decide ask of the carrier stands with the person (`verdictAsks.asked`, src/recapCard.mjs
+  // `standingAsksOf`). Not a verdict yet while a Quality Assurance task of the carrier is still open (rule 3). It waits as planned:
+  // never stopped, never "being checked".
   const verdictChain = state === 'review' ? chainWait ?? chainWaitOf(id, all, null, now, recaps) : null
   const ownRecap = ownWait ?? (state === 'review' && verdictChain === null ? reviewWaitOf(item, all, null, now, recaps) : null)
-  const chainEnd = verdictChain?.last?.kind === 'recap' && !verdictChain.atWork ? verdictChain.end : null
-  const forVerdict = chainEnd !== null || ownRecap?.kind === 'recap' || (state === 'review' && recapWaitOf(item, all) !== null)
-  const verdictPart = !forVerdict ? null : chainEnd !== null ? recapPartOf(recaps, chainEnd) : ownRecap?.kind === 'recap' ? { path: ownRecap.path, key: ownRecap.part } : recapPartOf(recaps, id)
+  const carrier = verdictChain !== null ? verdictChain.end : id
+  const isCarried = verdictChain === null || !verdictChain.atWork
+  const formKind = verdictChain !== null ? verdictChain.last?.kind : ownRecap?.kind
+  // An ask routed to the recap counts only while Autopilot is on (off, it stands in Needs your attention: rule 4).
+  const isAskedRecap = verdictAsks.autopilot === true && state === 'review' && recapWaitOf(item, all) !== null
+  const carrierState = valueOf(all.get(carrier), 'State')
+  const isAskedOf = ['review', 'waiting on you'].includes(carrierState) && (verdictAsks.asked.get(carrier)?.length ?? 0) > 0 && !verdictAsks.openChecks.has(carrier)
+  const forVerdict = isCarried && ((state === 'review' && (['recap', 'accept'].includes(formKind) || isAskedRecap)) || (['review', 'waiting on you'].includes(state) && isAskedOf))
+  // Where its arrow goes: the recap when it names the carrier's part and that part waits, else the carrier's own window.
+  const recapPart = !forVerdict ? null : ownRecap?.kind === 'recap' && verdictChain === null && ownRecap.path ? { path: ownRecap.path, key: ownRecap.part } : recapPartOf(recaps, carrier)?.verdict === null ? recapPartOf(recaps, carrier) : null
+  const verdictAt = !forVerdict ? null : recapPart?.path ? { path: recapPart.path, key: recapPart.key ?? null } : { step: carrier }
   // B695: a step in review whose failed check has only a dropped fix is stopped, not being checked.
   const fixStopped = !forAccept && !forVerdict && (chainStopped || (state === 'review' && fix !== null && !fix.isOpen && !fix.isFixed && fix.passed === null && fix.total === null))
   const tone = fixStopped ? 'stop' : fixWaits || forAccept || forVerdict ? 'wait' : stepToneOf(state)
@@ -1190,11 +1201,11 @@ function partStepOf(item, steps, prefix, all = steps, lanes = null, now = null, 
     onIt: FINISHED.includes(state) ? null : workerOn(id, all, lanes, prefix),
     // 2026-10-31 (B689): who built it, for a step built (in review or finished): history, never "on it".
     builtBy: ['review', 'done', 'closed'].includes(state) ? String(item.head.get('Owner') ?? '').replace(prefix, '').trim() || null : null,
-    check: checked === null || checked.total === 0 ? null : { passed: checked.passed, total: checked.total, evidence: checked.evidence, ...(fix === null ? {} : { fix: forAccept ? { ...fix, note: `${fix.note}: ${ownWait.text}` } : ownRecap?.kind === 'recap' && chainEnd === null && verdictChain === null ? { ...fix, note: `${fix.note}: ${ownRecap.text}` } : fix }) },
+    check: checked === null || checked.total === 0 ? null : { passed: checked.passed, total: checked.total, evidence: checked.evidence, ...(fix === null ? {} : { fix: forAccept ? { ...fix, note: `${fix.note}: ${ownWait.text}` } : ownRecap?.kind === 'recap' && verdictChain === null ? { ...fix, note: `${fix.note}: ${ownRecap.text}` } : fix }) },
     waitsFor,
     // 2026-11-01: whether it waits for the person's verdict in the recap, and the recap part it waits in (`{ path, key }`, null where unknown).
     waitsForVerdict: forVerdict,
-    verdictAt: verdictPart?.path ? { path: verdictPart.path, key: verdictPart.key ?? null } : null,
+    verdictAt,
   }
 }
 
@@ -1299,14 +1310,17 @@ function goalsUnder(goalMap, id) {
  * done of all, and the minutes the sizes of the parts not done name. `thread`: the goal's brainstorm, the goal definition and how
  * talk: a running thread about it first, else the one its Brainstorm line names. 2026-10-31 (B689): a part's `owner`, and
  * each step's `onIt`, is the worker whose card (`lanes`, the board's) shows one of its steps, a fix in its chain or the QA
- * task that checks one of them (`workerOn`), never a step's Owner alone; null when no card does.
+ * task that checks one of them (`workerOn`), never a step's Owner alone; null when no card does. 2026-11-01: `options.autopilot`,
+ * whether Autopilot is on (an ask routed to the recap stands with the person only then, src/recapCard.mjs `standingAsksOf`).
  */
-export function focusState(goalMap, items, threads, prefix, partner = null, now = null, lanes = null, recaps = null, goalRecaps = null) {
+export function focusState(goalMap, items, threads, prefix, partner = null, now = null, lanes = null, recaps = null, goalRecaps = null, options = {}) {
   const node = goalMap?.focus ? goalMap.byId.get(goalMap.focus) ?? null : null
   if (node === null) return null
   const steps = new Map((items ?? []).filter(one => one.head.get('Kind') === 'step').map(one => [one.head.get('Id'), one]))
   // 2026-10-31 (B689): every item by id (asks too), for what a chain of fixes waits for.
   const all = new Map((items ?? []).map(one => [one.head.get('Id'), one]))
+  // 2026-11-01: the asks of steps that stand with the person, and the steps a check is still open on (for a step that waits for their verdict).
+  const verdictAsks = { autopilot: options.autopilot === true, asked: askedStepsOf(standingAsksOf(all, { autopilot: options.autopilot === true, now })), openChecks: openChecksOf(all) }
   // Work blocks (2026-10-31): the round of the goal's work, and for each block whether it is open in it (Open now).
   const round = roundOf(node, goalRecaps)
   const openNow = []
@@ -1315,7 +1329,7 @@ export function focusState(goalMap, items, threads, prefix, partner = null, now 
     const done = known.filter(one => FINISHED.includes(one.head.get('State'))).length
     const busy = known.find(one => UNDER_WAY.includes(one.head.get('State')))
     // B684: the part's steps in its order, each with its colour, its words, its check and what it waits for.
-    const list = known.map(one => partStepOf(one, steps, prefix, all, lanes, now, recaps))
+    const list = known.map(one => partStepOf(one, steps, prefix, all, lanes, now, recaps, verdictAsks))
     // 2026-10-31 (B689, the badge: its part read In progress while nobody worked on it): a part is in progress only while
     // a step under way is at work (built, checked or its fix at work) or a worker's card shows it; one whose steps under
     // way only wait for another task is waiting, one whose fix stopped is stuck.
@@ -2142,7 +2156,7 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
   const flagsOf = name => (reconciled?.flags ?? []).filter(flag => flag.chat === name && LANE_FLAGS.includes(flag.kind)).map(({ kind, id, text, button }) => ({ kind, id, text, button }))
   // 2026-10-31 (B689): with the workers' cards, so the Focus page names a worker only where its card shows the step.
   // Work blocks (2026-10-31): with the goal recaps, whose rounds the person sent start a new round of the goal's work.
-  const focus = focusState(goalMap, itemsOf(raw.work), brainstorms.threads, prefix, advisorChat?.name ?? null, now, chats, recapWaits, raw.recaps ?? null)
+  const focus = focusState(goalMap, itemsOf(raw.work), brainstorms.threads, prefix, advisorChat?.name ?? null, now, chats, recapWaits, raw.recaps ?? null, { autopilot: config.autopilot === true })
   // The chats on the board by name, for a store's owner (with or without the list's prefix).
   const chatNames = [...names, ...[advisorChat, helperChat, ownerChat].filter(one => one !== undefined).map(one => one.name)]
   // Autopilot (2026-10-31): each asking chat's role, as the work API names them, for where an ask goes (src/work/autopilot.mjs).
@@ -2229,6 +2243,8 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
   })
   // Autopilot (2026-10-31): the open asks routed to the main chat or to a goal's recap (the recap card counts the second).
   const routedAway = !workOk ? [] : routedAwayOf(raw.work, { names: chatNames, prefix })
+  // 2026-11-01: the open asks that stand with the person, for the recap card (src/recapCard.mjs).
+  const standingNow = standingAsksOf(new Map(itemsOf(raw.work).map(one => [one.head.get('Id'), one])), { autopilot: config.autopilot === true, now })
   const built = {
     readAt: now,
     recapWaits,
@@ -2301,7 +2317,11 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
     autopilot: { on: config.autopilot === true, decidedToday: !workOk ? 0 : decidedTodayOf(raw.work, now) },
     routedAway,
     // 2026-11-01 (the person: "where do i see this recap"): the focus goal's recap card, or null while no part of its recap waits for their verdict.
-    recapCard: focus === null ? null : recapCardOf({ goal: focus.id, waits: recapWaits, pictures: raw.recapPictures, steps: new Map(itemsOf(raw.work).filter(one => one.head.get('Kind') === 'step').map(one => [one.head.get('Id'), one])), asks: routedAway, blocks: focus.parts }),
+    recapCard: focus === null ? null : recapCardOf({
+      goal: focus.id, recapPath: raw.goalRecap?.goal === focus.id ? raw.goalRecap.path : null, waits: recapWaits, pictures: raw.goalRecap?.goal === focus.id ? raw.goalRecap.pictures : {},
+      steps: new Map(itemsOf(raw.work).filter(one => one.head.get('Kind') === 'step').map(one => [one.head.get('Id'), one])), blocks: focus.parts,
+      standing: standingNow, openChecks: openChecksOf(new Map(itemsOf(raw.work).map(one => [one.head.get('Id'), one]))), asked: config.autopilot === true ? routedAway.filter(one => one.route === 'recap' && one.goal === focus.id) : [],
+    }),
     // B296, B301: the work store: its folder, how many items, its problems, and why it cannot be read (`why`).
     store: shown.store,
     // B298: the person's words per chat, filed as instructions (work/lists.mjs).

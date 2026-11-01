@@ -5,6 +5,7 @@
 // ("covered by Autopilot") and "For your recap". Made-up garden project; no word names a project.
 
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
 import test from 'node:test'
 
 import { answer, typed } from '../fixtures/lines.mjs'
@@ -114,7 +115,7 @@ const TIP = [
   'chores a chat can do: Main does them',
   'While Autopilot is on, "Approve rebuilds by itself" is covered and hidden; it works again when Autopilot is off.',
 ]
-test('the "ⓘ" beside Autopilot: a focusable button described by a calm box that holds what is asked and what is decided for you; click, Escape and a click elsewhere', async () => {
+test('the "ⓘ" beside Autopilot: a focusable button described by a calm box that holds what is asked and what is decided for you; it opens inline, by click only; Escape closes only the box', async () => {
   const page = await openPage({ state: { ...asSent(garden()), boardSettings: ON } })
   try {
     const button = page.find('#autopilot-info')
@@ -125,19 +126,28 @@ test('the "ⓘ" beside Autopilot: a focusable button described by a calm box tha
     assert.deepEqual(page.all('#autopilot-tip ul').map(one => one.children.length), [4, 3], 'asked for: 4 lines; decided for you: 3')
     // Right of the label, in the same row; the label's own words stay "Autopilot".
     assert.equal(page.find('#autopilot-info').closest('.autopilot-title').querySelector('.cpu-label').textContent, 'Autopilot')
-    // A click keeps the box open (hover and focus show it by the style sheet), a second one closes it.
-    const wrap = page.find('.info-wrap')
+    // The box is in the panel's flow, right under the Autopilot line, before the Off and On buttons (it pushes them down, covers nothing).
+    const group = page.find('#autopilot')
+    assert.deepEqual([...group.children].slice(0, 3).map(one => one.id || one.className.split(' ')[0]), ['autopilot-title', 'autopilot-tip', 'cpu-level'])
+    const css = readFileSync(new URL('../public/board.css', import.meta.url), 'utf8')
+    assert.doesNotMatch(css, /\.info-tip[^{]*\{[^}]*position:\s*(?:absolute|fixed)/, 'no overlay')
+    assert.doesNotMatch(css, /:hover[^{]*\.info-tip|:focus[^{]*\.info-tip/, 'nothing opens on hover or focus')
+    // A click (Enter and Space click a button) opens it, a second one closes it.
     await page.click('#autopilot-info')
-    assert.deepEqual([button.getAttribute('aria-expanded'), wrap.classList.contains('is-open')], ['true', true])
+    assert.deepEqual([button.getAttribute('aria-expanded'), group.classList.contains('is-tip-open')], ['true', true])
     await page.click('#autopilot-info')
-    assert.deepEqual([button.getAttribute('aria-expanded'), wrap.classList.contains('is-open')], ['false', false])
-    // Escape closes it, and a click elsewhere in the panel does too.
+    assert.deepEqual([button.getAttribute('aria-expanded'), group.classList.contains('is-tip-open')], ['false', false])
+    // Escape on the focused ⓘ, where the panel's own Escape handler sees it first: it closes only the box; the panel stays open, the focus returns to the ⓘ.
+    const settings = page.find('#settings')
+    settings.open = true
     await page.click('#autopilot-info')
-    page.document.dispatchEvent(new page.window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
-    assert.equal(button.getAttribute('aria-expanded'), 'false')
-    await page.click('#autopilot-info')
-    await page.click('#autopilot-words')
-    assert.equal(button.getAttribute('aria-expanded'), 'false')
+    button.focus()
+    const escape = () => button.dispatchEvent(new page.window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }))
+    escape()
+    assert.deepEqual([settings.open, button.getAttribute('aria-expanded'), group.classList.contains('is-tip-open'), page.document.activeElement === button], [true, 'false', false, true])
+    // With the box closed, the next Escape closes the panel as before.
+    escape()
+    assert.equal(settings.open, false)
   } finally { await page.close() }
 })
 
@@ -197,7 +207,7 @@ test('a card the board decided for the person: "Decided for you" with its answer
   } finally { await page.close() }
 })
 
-test('the Focus page: the switch reads "covered by Autopilot"; the asks that wait for the recap stand under the goal', async () => {
+test('the Focus page: the switch reads "covered by Autopilot"; the asks that wait for the recap are counted in the recap card', async () => {
   const items = [
     parseItem(`Id: B1\nKind: step\nTitle: Show damage\nState: review\nOwner: Digger\nGoal: G6\nSince: ${sinceOf(NOW - 90 * MIN)}\n`),
     askOf('Q3', { Title: 'Approve the damage numbers at 64 of 75?', Asks: 'look', Of: 'B1', Route: 'recap', Pictures: 'pictures/B1/check.png' }),
@@ -208,10 +218,12 @@ test('the Focus page: the switch reads "covered by Autopilot"; the asks that wai
     assert.equal(page.find('[data-partner-answers="switch"]').disabled, true)
     assert.equal(page.find('[data-partner-answers="switch"]').checked, true)
     assert.equal(page.text('.focus-partner-switch small'), 'covered by Autopilot')
-    const card = page.find('.focus-recap-wait')
-    assert.equal(card.querySelector('h3').textContent, 'For your recap (1)')
-    assert.match(words(card), /Q3 · Approve the damage numbers at 64 of 75\? picture B1 Show damage/)
-    assert.equal(card.querySelector('.focus-recap-picture').dataset.zoom, 'pictures/B1/check.png')
+    // 2026-11-01: the list "For your recap (n)" is folded into the recap card: the block whose step waits for the person is one
+    // verdict there (its tile opens the step), and no second list stands on the page.
+    assert.equal(page.all('.focus-recap-wait').length, 0)
+    assert.equal(page.text('.focus-recap-ready h3'), 'Your recap is ready · 1 verdict waits')
+    const tile = page.find('.focus-recap-tile')
+    assert.deepEqual([tile.querySelector('b').textContent, tile.dataset.askLink], ['Show damage', 'B1'])
   } finally { await page.close() }
   const off = await openPage({ state: { ...asSent(garden(items)), goalsEdit: { canWrite: true } } })
   try {
@@ -221,7 +233,7 @@ test('the Focus page: the switch reads "covered by Autopilot"; the asks that wai
   } finally { await off.close() }
 })
 
-test('the recap moment (the coordinator\'s ruling, 2026-10-31): a step that waits only for the recap lets "Did we reach the goal?" show, its asks first; Yes waits for the verdicts', async () => {
+test('the recap moment (the coordinator\'s ruling, 2026-10-31): a step that waits only for the recap counts as done for asking the goal demo; 2026-11-01: the recap card comes first, the question after it', async () => {
   const items = [
     parseItem(`Id: B1\nKind: step\nTitle: Show damage\nState: review\nOwner: Digger\nGoal: G6\nSince: ${sinceOf(NOW - 90 * MIN)}\n\n## Context\n  Recap verdict: waits (Q3)\n`),
     askOf('Q3', { Title: 'Approve the damage numbers at 64 of 75?', Asks: 'look', Of: 'B1', Route: 'recap', Pictures: 'pictures/B1/check.png' }),
@@ -232,13 +244,10 @@ test('the recap moment (the coordinator\'s ruling, 2026-10-31): a step that wait
   const page = await openPage({ state })
   try {
     await page.click('[data-tab="advice"]')
-    const card = page.find('.focus-there')
-    assert.equal(card.querySelector('h3').textContent, 'Did we reach the goal?')
-    assert.equal(words(card.querySelector('.focus-recap-head')), 'For your recap (1)')
-    assert.match(words(card.querySelector('.focus-recap-asks')), /^Q3 · Approve the damage numbers at 64 of 75\?/)
-    assert.equal(card.querySelector('.focus-recap-head').previousElementSibling.tagName, 'H3', 'its asks come first')
-    const yes = card.querySelector('.focus-yes')
-    assert.equal(yes.disabled, true)
-    assert.equal(page.all('.focus-recap-wait').length, 0, 'listed once, in the recap moment')
+    // 2026-11-01: while a verdict waits the recap card shows and "Did we reach the goal?" is not drawn (it was drawn with the asks
+    // first, "For your recap (1)", and a Yes that waited); the asks are counted in the card.
+    assert.equal(page.text('.focus-recap-ready h3'), 'Your recap is ready · 1 verdict waits')
+    assert.equal(page.all('.focus-there').length, 0)
+    assert.equal(page.all('.focus-recap-wait, .focus-recap-head').length, 0, 'listed once, in the card')
   } finally { await page.close() }
 })

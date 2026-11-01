@@ -60,7 +60,7 @@ function focusPage() {
     source('el'), source('once'), source('focusUi'), source('FOCUS_BOXES'), source('focusPageUi'), source('focusOnce'), source('redrawFocus'),
     source('focusButton'), source('focusSay'),
     // 2026-11-01: a block's chip is drawn by focusChipEl (a link to the recap while it waits for the person's verdict), made with demoLink.
-    source('demoLink'), source('focusChipEl'), source('focusRunCard'), source('focusAct'),
+    source('demoLink'), source('targetLink'), source('focusChipEl'), source('focusRunCard'), source('focusAct'),
     'Object.assign(this, { focusUi, focusAct, redrawFocus, focusPageUi, focusRunCard })',
   ].join('\n'), context)
   return context

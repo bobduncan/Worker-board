@@ -539,24 +539,25 @@ function drawSettings(state, cpu) {
 
 // autopilotinfo:start
 /**
- * 2026-11-01: the "ⓘ" right of the Autopilot label in the settings panel. Hover and keyboard focus show its box by the style
- * sheet; a click (or Enter, Space) keeps it open, a second one, Escape, or a click elsewhere closes it. `aria-expanded` follows
- * the click; the box is the button's `aria-describedby`, so a screen reader reads it with the button.
+ * 2026-11-01: the "ⓘ" right of the Autopilot label in the settings panel. A click (Enter, Space) opens its box inline under the
+ * Autopilot line, in the panel's flow, and a second one closes it; nothing opens on hover. Escape while it is open closes only the
+ * box (the panel stays open, the focus goes back to the ⓘ): this handler stands before the panel's own Escape and stops it.
+ * `aria-expanded` follows the click; the box is the button's `aria-describedby`, so a screen reader reads it with the button.
  */
 function setAutopilotInfo(isOpen) {
-  const button = $('autopilot-info')
-  button.closest('.info-wrap').classList.toggle('is-open', isOpen)
-  button.setAttribute('aria-expanded', String(isOpen))
+  $('autopilot').classList.toggle('is-tip-open', isOpen)
+  $('autopilot-info').setAttribute('aria-expanded', String(isOpen))
 }
 $('autopilot-info').addEventListener('click', () => setAutopilotInfo($('autopilot-info').getAttribute('aria-expanded') !== 'true'))
-document.addEventListener('keydown', event => {
+$('settings').addEventListener('keydown', event => {
   if (event.key !== 'Escape' || $('autopilot-info').getAttribute('aria-expanded') !== 'true') return
+  event.stopImmediatePropagation()
+  event.preventDefault()
   setAutopilotInfo(false)
   $('autopilot-info').focus()
-})
-$('settings').addEventListener('click', event => {
-  if ($('autopilot-info').getAttribute('aria-expanded') === 'true' && event.target.closest('.info-wrap') === null) setAutopilotInfo(false)
-})
+}, true)
+// The box does not stay open for the next time the panel opens.
+$('settings').addEventListener('toggle', () => { if (!$('settings').open) setAutopilotInfo(false) })
 // autopilotinfo:end
 
 /** B361: the setting being sent ({ key, value }), lit at once. */
@@ -14002,12 +14003,14 @@ const FOCUS_CHIPS = { done: 'Done', now: 'In progress', next: 'Next', ready: 'On
 const RECAP_TILES = 3
 
 /**
- * 2026-11-01: where a click on "Waits for your verdict →" goes: the recap part the block waits in (`at`, the state's `verdictAt`:
- * `{ path, key }`), else the recap the card opens (`card`, the state's `recapCard`), else nowhere (null: the chip is plain words).
+ * 2026-11-01: where a click on "Waits for your verdict →" goes (a target: `{ path, key }` the recap at its part, `{ step }` or
+ * `{ ask }` that window): the recap part the block waits in (`at`, the state's `verdictAt`), else the step where its card or ask
+ * stands (`at.step`), else what the recap card opens (`card.open`), else nowhere (null: the chip is plain words, never a dead arrow).
  */
 function verdictLinkOf(at, card) {
   if (typeof at?.path === 'string' && at.path !== '') return { path: at.path, key: typeof at.key === 'string' && at.key !== '' ? at.key : null }
-  return typeof card?.path === 'string' && card.path !== '' ? { path: card.path, key: null } : null
+  if (typeof at?.step === 'string' && at.step !== '') return { step: at.step }
+  return card?.open ?? null
 }
 
 /**
@@ -14020,8 +14023,8 @@ function recapReadyView(card) {
   return {
     title: `Your recap is ready · ${card.count} ${card.count === 1 ? 'verdict waits' : 'verdicts wait'}`,
     line: card.isBuilt === true ? 'Everything is built. Judge each part: approve it, or send it back with a note.' : 'Judge what is ready: approve it, or send it back with a note.',
-    open: { label: 'Open the recap', path: card.path },
-    tiles: (card.tiles ?? []).slice(0, RECAP_TILES).map(tile => ({ title: tile.title, line: tile.line, picture: tile.picture ?? null, path: tile.path ?? card.path, key: tile.key ?? null })),
+    open: { label: 'Open the recap', target: card.open ?? null },
+    tiles: (card.tiles ?? []).slice(0, RECAP_TILES).map(tile => ({ title: tile.title, line: tile.line, picture: tile.picture ?? null, target: tile.target ?? card.open ?? null })),
     outside: card.outside ?? [],
   }
 }
@@ -15106,9 +15109,23 @@ function demoLink(path, part, className, text = '') {
  */
 function focusChipEl(text, tone, verdict = null, extra = '') {
   const classes = `focus-chip${extra === '' ? '' : ` ${extra}`} is-${tone}`
-  if (tone !== 'verdict' || verdict === null) return el('span', classes, text)
-  const link = demoLink(verdict.path, verdict.key, classes, text)
-  link.title = 'Open the recap: approve this part, or send it back with a note'
+  // Never a dead arrow: a verdict chip with nowhere to go says the words without it.
+  if (tone !== 'verdict') return el('span', classes, text)
+  if (verdict === null) return el('span', classes, text.replace(/s*→$/, ''))
+  const link = targetLink(verdict, classes, text)
+  link.title = verdict.path !== undefined ? 'Open the recap: approve this part, or send it back with a note' : `Open ${verdict.step ?? verdict.ask}: the card or question that waits for you stands there`
+  return link
+}
+
+/**
+ * 2026-11-01: a link to a target of the recap card or a chip: `{ path, key }` opens the recap (at its part), `{ step }` or `{ ask }`
+ * opens that window (the board's ask-link, where an Accept card or a question stands).
+ */
+function targetLink(target, className, text = '') {
+  if (typeof target?.path === 'string') return demoLink(target.path, target.key ?? null, className, text)
+  const link = el('button', className, text)
+  link.type = 'button'
+  link.dataset.askLink = target?.step ?? target?.ask ?? ''
   return link
 }
 
@@ -15123,11 +15140,11 @@ function focusRecapReady(view) {
   card.setAttribute('aria-label', view.title)
   const words = el('div', 'focus-recap-words')
   words.append(el('h3', '', view.title), el('p', '', view.line))
-  const open = demoLink(view.open.path, null, 'focus-recap-open', view.open.label)
+  const open = targetLink(view.open.target, 'focus-recap-open', view.open.label)
   const tiles = el('div', 'focus-recap-tiles')
   for (const tile of view.tiles) {
-    const link = demoLink(tile.path, tile.key, 'focus-recap-tile')
-    link.title = `Open the recap at: ${tile.title}`
+    const link = targetLink(tile.target, 'focus-recap-tile')
+    link.title = tile.target?.path !== undefined ? `Open the recap at: ${tile.title}` : `Open ${tile.target?.step ?? tile.target?.ask}: ${tile.title}`
     const frame = el('div', tile.picture === null ? 'focus-recap-pic is-none' : 'focus-recap-pic')
     if (tile.picture === null) frame.append(el('span', '', 'no picture yet'))
     else {

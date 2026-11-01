@@ -45,25 +45,23 @@
         <div class="cpu board-setting autopilot-setting" id="autopilot" role="group" aria-label="Autopilot" hidden>
           <div class="autopilot-title">
             <span class="cpu-label">Autopilot</span>
-            <div class="info-wrap">
-              <button class="info-button" id="autopilot-info" type="button" aria-label="What Autopilot asks you and what it decides for you" aria-describedby="autopilot-tip" aria-expanded="false">ⓘ</button>
-              <div class="info-tip" id="autopilot-tip" role="tooltip">
-                <p>With Autopilot on, you are asked for:</p>
-                <ul>
-                  <li>a new goal's start: its goal definition and work blocks</li>
-                  <li>a goal's recap, once it is ready</li>
-                  <li>what only you can do: sign-ins, accounts, money, installs, deleting things, restarting the Claude app</li>
-                  <li>a goal stuck after its retries</li>
-                </ul>
-                <p>Decided for you instead (with Undo, listed in your partner's note):</p>
-                <ul>
-                  <li>choices inside a task that come with advice</li>
-                  <li>looks below their target: they wait for the goal's recap</li>
-                  <li>chores a chat can do: Main does them</li>
-                </ul>
-                <p>While Autopilot is on, "Approve rebuilds by itself" is covered and hidden; it works again when Autopilot is off.</p>
-              </div>
-            </div>
+            <button class="info-button" id="autopilot-info" type="button" aria-label="What Autopilot asks you and what it decides for you" aria-describedby="autopilot-tip" aria-expanded="false">ⓘ</button>
+          </div>
+          <div class="info-tip" id="autopilot-tip" role="tooltip">
+            <p>With Autopilot on, you are asked for:</p>
+            <ul>
+              <li>a new goal's start: its goal definition and work blocks</li>
+              <li>a goal's recap, once it is ready</li>
+              <li>what only you can do: sign-ins, accounts, money, installs, deleting things, restarting the Claude app</li>
+              <li>a goal stuck after its retries</li>
+            </ul>
+            <p>Decided for you instead (with Undo, listed in your partner's note):</p>
+            <ul>
+              <li>choices inside a task that come with advice</li>
+              <li>looks below their target: they wait for the goal's recap</li>
+              <li>chores a chat can do: Main does them</li>
+            </ul>
+            <p>While Autopilot is on, "Approve rebuilds by itself" is covered and hidden; it works again when Autopilot is off.</p>
           </div>
           <button class="cpu-level" type="button" data-setting="autopilot" data-value="false" title="Questions come to you as before">Off</button>
           <button class="cpu-level" type="button" data-setting="autopilot" data-value="true" title="The work runs until a goal is ready; you are asked when a goal starts, when it is ready, and for what no chat can do">On</button>

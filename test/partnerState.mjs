@@ -20,7 +20,8 @@ export const sinceOf = at => {
 }
 export const ask = (id, route, at) => parseItem(`Id: ${id}\nKind: ask\nTitle: Number or bar?\nState: open\nOwner: Digger\nSince: ${sinceOf(at)}\nFiled: ${at}\nAsks: decide\nBlocking: no\nOf: B12\nOptions: A number | B bar\nAdvice: A\n${route === null ? '' : `Route: ${route}\n`}`)
 
-export function build(items, partnerAnswers, goalsText = undefined, more = {}) {
+// 2026-11-01: `more.config` (settings of the board, e.g. Autopilot on) replaces the made-up garden's settings; the rest of `more` joins the raw sources.
+export function build(items, partnerAnswers, goalsText = undefined, { config: settings = config, ...more } = {}) {
   const work = storeFromText('## Garden\n- [ ] B12 Plant the hedge\n', { now: NOW - 60 * MIN })
   for (const one of items) work.items.set(one.head.get('Id'), one)
   if (partnerAnswers !== undefined) work.partnerAnswers = partnerAnswers
@@ -29,7 +30,7 @@ export function build(items, partnerAnswers, goalsText = undefined, more = {}) {
     tails: { 'cli-Lead': tail([answer(NOW - 30 * MIN, 'ok')]), 'cli-Digger': tail([answer(NOW - 30 * MIN, 'ok')]), 'cli-Advisor': tail([typed(NOW - 20 * MIN, 'hi'), answer(NOW - 12 * MIN, 'ok')]) },
     planLineTexts: {}, adviceText: null, folders: null, askTexts: [], pictureLists: {}, work, ...(goalsText === undefined ? {} : { goalsText }), ...more,
   }
-  return buildState(raw, { lines: [], outbox: [], runs: [], board: null, seen: null, now: NOW, config })
+  return buildState(raw, { lines: [], outbox: [], runs: [], board: null, seen: null, now: NOW, config: settings })
 }
 
 export const DAY = 24 * 60 * MIN
