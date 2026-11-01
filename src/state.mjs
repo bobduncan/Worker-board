@@ -59,6 +59,7 @@ import { standardOf } from './work/standard.mjs'
 import { rolloutPlan } from './work/modRollout.mjs'
 import { chatsByRole } from './oldMods.mjs'
 import { decide, laneWords, onSequence } from './work/handover.mjs'
+import { givenBackFrom } from './work/holderTimers.mjs'
 import { countsOf, wordOf } from './chatWord.mjs'
 import { factsOf } from './work/handoverBoard.mjs'
 import { stoppedOf } from './stopped.mjs'
@@ -2108,7 +2109,8 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
   })
   // T8.5: a worker on the sequence: its state now, as the one decision reads it. Nothing is decided here (no ready task and
   // no clear are offered, so only what the facts say shows); the board's refresh and the worker's turn end carry it out.
-  const handoverOf = lane => (lane.onSequence !== true || !workOk ? null : (({ state, why, step }) => ({ state, why, step }))(decide({
+  // Signals change 3: with `asked`, when its "go on" line of this stopped spell was written (the lane's "asked to go on at HH:MM").
+  const handoverOf = lane => (lane.onSequence !== true || !workOk ? null : (({ state, why, step, asked }) => ({ state, why, step, asked }))(decide({
     ...factsOf({ lane, state: { chatPrefix: prefix, readyList: null, limits, gaps }, items: raw.work.items, pause: pauseRecord, sent, config, installed: modsLately?.installed ?? null, now, event: { kind: 'pass' } }),
     ready: [], owed: null,
   })))
@@ -2208,8 +2210,12 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
     const handover = handoverOf(lane)
     const said = handover === null ? null : laneWords(handover)
     const told = said === null ? [] : [{ kind: 'handover', id: handover.step, text: said, button: null }]
+    // Signals change 3: a step the board gave back from it, until its next task ("did not resume B12, given back HH:MM"):
+    // attention for an hour, quiet after. Only once the give-back's History line exists (the store's move, the second half).
+    const back = lane.isLeftover === true || !workOk ? [] : givenBackFrom(raw.work.items, lane.name, prefix)
+      .map(one => ({ kind: now - one.at < HOUR ? 'given back' : 'given back old', id: one.id, text: `did not resume ${one.id}, given back ${hourMinute(one.at)}`, button: null }))
     const modRun = lane.onSequence === true ? null : rollout?.runs.get(lane.name) ?? null
-    return { ...lane, flags: [...flagsOf(lane.name), ...waits, ...told], effortRun: run, modRun, handover, ...wordFor(lane, { handover, modRun }) }
+    return { ...lane, flags: [...flagsOf(lane.name), ...waits, ...told, ...back], effortRun: run, modRun, handover, ...wordFor(lane, { handover, modRun }) }
   })
   const built = {
     readAt: now,

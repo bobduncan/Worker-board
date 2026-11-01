@@ -2654,7 +2654,8 @@ function laneFlags(lane, restart = null) {
     // 2026-10-31 (B799): a step whose work is on a branch not merged is back with its worker: a quiet line, no button for the person.
     // T8: so is any other mismatch its worker can fix (flag 'back').
     // T8.5: where a worker's hand-over stands (handing, offered, held with why, "did not answer") is information: quiet.
-    tone: flag.kind === 'card' || flag.kind === 'model' ? 'warn' : flag.kind === 'handover' || flag.kind === 'not merged' || flag.kind === 'back' ? 'quiet' : 'problem',
+    // Signals change 3: a step the board gave back from it needs a look for an hour ('given back'), then is information.
+    tone: flag.kind === 'card' || flag.kind === 'model' || flag.kind === 'given back' ? 'warn' : flag.kind === 'given back old' || flag.kind === 'handover' || flag.kind === 'not merged' || flag.kind === 'back' ? 'quiet' : 'problem',
     // B304: a failed check is the person's to run again ("Check again", `data-recheck`: the work API's `recheck`).
     button: flag.kind === 'check failed' ? { label: 'Check again', recheck: flag.id }
       : flag.button === null || main === null || main === lane.name ? null : { label: flag.button, start: lane.name, isAsked },
@@ -6102,7 +6103,12 @@ function stepStatus(item, { size = '', efforts = [] } = {}) {
   const time = String(size ?? '').trim() !== '' ? String(size).trim() : kept === undefined ? null : `about ${effortMinutes(kept.typicalMin)}`
   const stamp = (item.history ?? []).at(-1)?.match(/^(\d{4}-\d\d-\d\d \d\d:\d\d)/)?.[1] ?? null
   const holder = item.owner === null || item.owner === undefined ? `Nobody has it yet (${item.state})` : `${item.owner} holds it (${item.state})`
-  return [run, time, `${holder}${stamp === null ? '' : ` since ${stamp}`}`].filter(part => part !== null && part !== '').join(' · ')
+  // Signals change 3: a step the board gave back (its History line, the store's give-back move) says who goes on with it.
+  const back = (item.history ?? []).findLast(line => /\bgiven back by the board: .+? did not resume it\b/.test(line)) ?? null
+  const isHeld = item.owner !== null && item.owner !== undefined && ['taken', 'in progress', 'waiting on you'].includes(item.state)
+  const given = back === null || !['refined', 'queued', 'taken', 'in progress', 'waiting on you'].includes(item.state) ? null
+    : isHeld ? `given back, continues with ${item.owner} from its checkpoint` : 'given back, continues with the next free worker from its checkpoint'
+  return [run, time, `${holder}${stamp === null ? '' : ` since ${stamp}`}`, given].filter(part => part !== null && part !== '').join(' · ')
 }
 // story:end
 

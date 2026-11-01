@@ -24,13 +24,13 @@ export const IDLE_HOLD_MS = 5 * 60_000
  * may come in a day before it is reported (src/supervisor/rules/watch.mjs). config.json's `supervisor` sets any of them.
  */
 export const SUPERVISOR_DEFAULTS = Object.freeze({
-  /** A worker "unknown" for longer than this. */
+  /** A worker "unknown" for longer than this (signals change 3: its rule unknown-lane is retired; still read, unused). */
   unknownMinutes: 10,
   /** A worker "suspended" for this long after its limit is back (its reset passed, or the usage shows room). */
   suspendedMinutes: 10,
   /** Redesign Part 2: a ready task waits while a worker is free, for longer than this (the rule ready-while-free). */
   idleMinutes: 10,
-  /** A step in progress whose worker has not run for longer than this. */
+  /** A step in progress whose worker has not run for longer than this (signals change 3: its rule holder-not-running is retired; still read, unused). */
   notRunningMinutes: 30,
   /** An opus step that waits for its worker to run on Opus for longer than this. */
   opusWaitMinutes: 15,
@@ -48,7 +48,7 @@ export const SUPERVISOR_DEFAULTS = Object.freeze({
   reportCheckMinutes: 10,
   /** B572: a step in progress longer than this with no checkpoint within it. */
   checkpointMinutes: 120,
-  /** B572: a step in progress whose last checkpoint's next action is to report, written longer ago than this. */
+  /** B572: a step in progress whose last checkpoint's next action is to report, written longer ago than this (signals change 3: that kind of stale-checkpoint is gone; still read, unused). */
   reportMinutes: 30,
   /** B576: a worker that runs another model or effort than its step wants this long after the take, not switched. */
   switchMinutes: 10,
@@ -101,6 +101,14 @@ export const DEFAULTS = {
    * heldGiveMinutes are read without complaint and ignored.)
    */
   handover: 'sequence',
+  /**
+   * Signals change 3 (the person's yes of 2026-11-01: "5 minutes, then one 'go on', 15 minutes later the task goes back
+   * with its checkpoint"): a worker on the sequence that holds a step and stopped (its lane interrupted, off or unknown)
+   * gets one "go on" line after `resumeAfterMinutes` of the board's running time, and its step is given back
+   * `giveBackAfterMinutes` after that line with no progress (src/work/holderTimers.mjs). Whole minutes of at least 1.
+   */
+  resumeAfterMinutes: 5,
+  giveBackAfterMinutes: 15,
   /**
    * Redesign Part 2: `maxWorkers`, how many workers the board has the main chat run at most. B-max (the person,
    * 2026-10-28: "make the worker limit configurable in the settings default is 5."): 5 unless the file or the ⚙ panel
@@ -452,6 +460,8 @@ export function parseConfig(text, env) {
   if (Number.isFinite(raw.followUpMinutes) && raw.followUpMinutes >= 0) config.followUpMinutes = raw.followUpMinutes
   // T8.5: any other value keeps the default. Step 6: an old config.json's takeWithinMinutes and heldGiveMinutes are ignored.
   if (raw.handover === 'sequence' || raw.handover === 'timers') config.handover = raw.handover
+  // Signals change 3: the holder's two timers; one that is not a whole number of at least 1 keeps its default.
+  for (const key of ['resumeAfterMinutes', 'giveBackAfterMinutes']) if (Number.isInteger(raw[key]) && raw[key] >= 1) config[key] = raw[key]
   // 2026-10-25: true hands out tasks beyond the fixes, the focus goal's and the pinned ones too (oldest first).
   if (typeof raw.handOutBeyondFocus === 'boolean') config.handOutBeyondFocus = raw.handOutBeyondFocus
   // The Workers mod types at most 3000 characters, and an answer also carries the name of its request.

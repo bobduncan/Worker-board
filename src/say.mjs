@@ -700,7 +700,9 @@ export const waitsLong = command => command === 'start' || command === 'wake' ||
 const isWakeWord = (message, state) => {
   const main = state.restart?.main ?? null
   const command = message.command ?? null
+  // Signals change 3: the hand-over's "go on" line to a stopped holder stands in for RESUME_STEP: it wakes its chat too.
   return (main !== null && message.to === main) || command === null || isPartnerWord(command) || command === 'sweep' || command === RESUME_STEP
+    || (command === 'handover' && message.kind === 'resume')
 }
 
 /**
@@ -923,6 +925,9 @@ export function resumesDue(state, outbox) {
     if (!(lane.isRunning === false || lane.state === 'off')) continue
     // T13 part 3: an asleep chat gets its one resume word as a hand's job (hands.mjs `handJobs`), not this one.
     if (lane.asleep === true) continue
+    // Signals change 3: a worker on the hand-over's sequence gets its "go on" line from the hand-over's decision (its
+    // holder timers, src/work/holderTimers.mjs), not this word.
+    if (lane.onSequence === true) continue
     if (lane.state === 'suspended' || (lane.suspended ?? null) !== null || Number.isFinite(lane.removedAt) || lane.removal?.isOpen === true) continue
     if (stoppedOf(outbox, lane) !== null) continue
     const held = (lane.storeSteps ?? []).filter(one => RESUMED_STEPS.includes(one.state))

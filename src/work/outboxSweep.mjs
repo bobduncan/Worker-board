@@ -16,6 +16,7 @@ import { familyOf, sameModel } from './effort.mjs'
 import { stamp } from './migrate.mjs'
 import { OLD_CHECK_WHY } from './qaTask.mjs'
 import { readStore } from './store.mjs'
+import { RESUME_KIND, TIMED_STATES, markerStep } from './holderTimers.mjs'
 import { workLineWhy } from './workLines.mjs'
 
 const firstLine = text => String(text ?? '').split('\n')[0]
@@ -54,6 +55,16 @@ export function whyClosed(message, ctx) {
   // T8.5: an envelope with a task matters while that task is still given to its worker (the decision takes it back and
   // closes the envelope itself; this catches a task the person moved meanwhile). One without a task waits until late.
   if (message.command === 'handover') {
+    // Signals change 3: the "go on" line to a stopped holder (step null, its step in its `resume` marker) matters while its
+    // worker still holds that step, taken or in progress; the decision closes it with the give-back.
+    if (message.kind === RESUME_KIND) {
+      const id = markerStep(message.resume)
+      const held = id === null || !(items instanceof Map) ? undefined : items.get(id)
+      if (id !== null && items instanceof Map && !(held !== undefined && TIMED_STATES.includes(value(held, 'State')) && plainName(value(held, 'Owner'), ctx.prefix ?? '') === plainName(message.to, ctx.prefix ?? ''))) {
+        return { state: 'dropped', why: `${message.to} no longer holds ${id}` }
+      }
+      return isLate(message, now, keep) ? expired(message, keep) : null
+    }
     const item = typeof message.step === 'string' && items instanceof Map ? items.get(message.step) : undefined
     if (item !== undefined && !(value(item, 'State') === 'queued' && plainName(value(item, 'Owner'), ctx.prefix ?? '') === plainName(message.to, ctx.prefix ?? ''))) {
       return { state: 'dropped', why: `${message.step} is no longer given to ${message.to}` }

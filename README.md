@@ -307,6 +307,13 @@ until its chat is restarted on the installed one (its lane says so). `"timers"` 
 clocks it named are gone, so a board set to `"timers"` hands out nothing new and says so in one line on top ("the
 hand-over is off: set handover to sequence"). The old settings `takeWithinMinutes` and `heldGiveMinutes` are gone: a
 config.json that still has them is read without complaint and they are ignored.
+`resumeAfterMinutes` (5 unless set) and `giveBackAfterMinutes` (15 unless set), signals change 3: a worker on the
+sequence that holds a task and has stopped (its lane Stopped, Not running or Unknown, not working) gets one "go on with
+B12 from your checkpoint" line after `resumeAfterMinutes` of the board's running time (the person's pause and the time
+the board was off left out); its task goes back on the list with its checkpoint `giveBackAfterMinutes` after that line
+when the worker made no progress (no checkpoint, no take, no turn). Never for a task with an open ask, one the person
+stopped, a worker being removed, a step in review, a paused board or a chat paused for a limit. (The give-back itself
+waits for the store's new move; until then the board only says the line.)
 `supervisorModel` (`"sonnet"` or `"opus"`, `"sonnet"` unless set) and `supervisorEffort` (a level of the app's, `"low"` unless
 set): what the Supervisor's chat runs at; the board holds it there by code, the way it sets a worker's chat (T7.5).
 `providers` (T9.3, the defaults below unless set): who provides each kind of asset, an object from asset kind (`visual`, `music`,
@@ -320,7 +327,8 @@ Design tab's "Asset providers" shows, for each kind, its provider and whether it
 `supervisor` (the defaults unless set): the thresholds of the board's watch rules, which report what does not look right
 (the supervisor, `DESIGN.md`): `{ "unknownMinutes": 10, "suspendedMinutes": 10, "idleMinutes": 10, "notRunningMinutes":
 30, "opusWaitMinutes": 15, "undeliveredMinutes": 10, "repairsPerDay": 3, "notClearedMinutes": 10, "oldReadingMinutes": 30, "oldReadingIncidentMinutes": 60, "oldReadingFiveHourPercent": 80, "oldReadingWeekPercent": 90 }`; any of them, each a
-number above 0.
+number above 0. (`unknownMinutes`, `notRunningMinutes` and `reportMinutes` are still read but unused since signals change
+3: their rules are retired, the board's own timers act on a holder that stopped; see `resumeAfterMinutes`.)
 `supervisorSweepMinutes` (10 unless set): the soonest the board wakes the supervisor's chat again for a sweep while work
 runs (a chat works or a step is taken or in progress; never while you pause all, at a full limit, or while the last sweep
 runs); 0 for no sweep by the clock (Check now still sweeps). A sweep by the clock runs only when something odd is new since

@@ -1,8 +1,9 @@
 // B572 (the fix of X24: B522 sat in progress 2 h 36 min, its last checkpoint "report B522" at 19:07 never followed by a
 // report, and neither the health summary nor a rule showed it). The health summary's Steps under way shows each step in
 // progress with its last checkpoint (age, commit, next action), and marks it "!" when it is stale; the watch rule
-// stale-checkpoint names a step in progress over `checkpointMinutes` with no checkpoint within them, or whose last
-// checkpoint's next action is to report over `reportMinutes` ago. Made-up samples only; no word names a project.
+// stale-checkpoint names a step in progress over `checkpointMinutes` with no checkpoint within them while its worker works
+// on it (signals change 3: its 'report' kind is gone, and a holder that stopped is the hand-over's timers'). Made-up
+// samples only; no word names a project.
 
 import assert from 'node:assert/strict'
 import test from 'node:test'
@@ -48,21 +49,29 @@ test('X24: the summary shows B522\'s last checkpoint, its age, commit and next a
 test('X24: the rule names B522 to the main chat, once for that checkpoint', () => {
   const found = check(view(X24()))
   assert.deepEqual(found.map(one => [one.rule, one.subject]), [['stale-checkpoint', 'B522']])
-  assert.equal(found[0].text, 'B522 in progress for 2 h 36 min (Picker); its last checkpoint, "report B522" at 19:07, was never followed by a report')
+  // Signals change 3: no 'report' kind any more; its worker works on it, and the checkpoint is over 2 h old ('old').
+  assert.equal(found[0].text, 'B522 in progress for 2 h 36 min (Picker) with no checkpoint for 2 h 19 min')
   assert.match(found[0].evidence, /checkpoint 36a6b6e · report B522 at 19:07/)
   // the same checkpoint keeps its key (one incident that counts up); a newer stale one is a new case
   const later = check(view(items(step('B522', 'in progress', { Checkpoint: checkpoint('36a6b6e', 'report B522', at(19, 7)) }))))
   assert.equal(later[0].key, found[0].key)
-  const other = check(view(items(step('B522', 'in progress', { Checkpoint: checkpoint('77aa001', 'report B522', at(20, 30)) }))))
+  const other = check(view(items(step('B522', 'in progress', { Checkpoint: checkpoint('77aa001', 'report B522', at(19, 20)) }))))
   assert.notEqual(other[0].key, found[0].key)
 })
 
-test('a checkpoint whose next action is to report is late after 30 min; one of 20 min, or one with work before the report, is quiet', () => {
-  const report = (minutes, next = 'report B7') => check(view(items(step('B7', 'in progress', { Since: stamp(ago(60)), Checkpoint: checkpoint('abc1234', next, ago(minutes)) }))))
-  assert.equal(report(31).length, 1)
-  assert.equal(report(31, 'Work report B7 with the merge').length, 1)
-  assert.deepEqual(report(20), [])
-  assert.deepEqual(report(31, 'Merge, push, report B7'), [])
+test('signals change 3: the \'report\' kind never files: a checkpoint that said to report 31 or 90 min ago is quiet while its worker works', () => {
+  const report = (minutes, next = 'report B7') => check(view(items(step('B7', 'in progress', { Since: stamp(ago(100)), Checkpoint: checkpoint('abc1234', next, ago(minutes)) }))))
+  assert.deepEqual(report(31), [])
+  assert.deepEqual(report(90, 'Work report B7 with the merge'), [])
+})
+
+test('signals change 3: the \'old\' kind files only for a worker that works on it; a stopped, asleep, off or unknown holder is the hand-over\'s timers\'', () => {
+  const store = () => items(step('B8', 'in progress', { Since: stamp(ago(150)) }))
+  assert.equal(check(view(store())).length, 1, 'working (busy): the busy-no-checkpoint alarm')
+  assert.equal(check(view(store(), { lane: { state: 'working', heldBy: 'background' } })).length, 1, 'working (background work)')
+  for (const lane of [{ state: 'interrupted' }, { state: 'interrupted', isRunning: false, asleep: true }, { state: 'off', isRunning: false }, { state: 'unknown', isRunning: null }]) {
+    assert.deepEqual(check(view(store(), { lane })), [], JSON.stringify(lane))
+  }
 })
 
 test('hours with no checkpoint: over 2 h in progress with none within 2 h trips, with none at all too', () => {

@@ -200,12 +200,14 @@ for (const [why, reports] of [
     // It counts as a worker there is: no start or spawn is asked beside its give.
     assert.equal(first.reconciled.start, null)
     assert.deepEqual(await owner('B20'), ['queued', 'Weeder'])
-    const envelopes = () => outbox.outbox().filter(one => one.command === HANDOVER_COMMAND).map(one => [one.to, one.step, one.state])
-    assert.deepEqual(envelopes(), [['Weeder', 'B20', 'waiting']])
+    const envelopes = () => outbox.outbox().filter(one => one.command === HANDOVER_COMMAND).map(one => [one.to, one.step, one.kind, one.state])
+    // Signals change 3: Digger holds B12 and stopped long ago: its one "go on" line (a resume envelope, step null) waits too.
+    const both = [['Digger', null, 'resume', 'waiting'], ['Weeder', 'B20', 'task', 'waiting']]
+    assert.deepEqual(envelopes(), both)
     // Later passes send no second one, and no line beside it.
     await pass(NOW + 20_000)
     await pass(NOW + 60_000)
-    assert.deepEqual(envelopes(), [['Weeder', 'B20', 'waiting']])
+    assert.deepEqual(envelopes(), both)
     assert.deepEqual(outbox.outbox().filter(one => one.command === 'work'), [])
   })
 }

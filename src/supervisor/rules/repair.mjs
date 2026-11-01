@@ -29,6 +29,7 @@ import { isQaTask, notDueWhy, openQaTaskOf } from '../../work/qaTask.mjs'
 import { UNCHECKED_MS, gitCheckPassed, needsResultCheck, resultCheckAtMs, resultCheckOf, reviewWaitOf } from '../../work/resultCheck.mjs'
 import { asksOfStep } from '../../work/stepAsks.mjs'
 import { heldReason } from '../../work/parked.mjs'
+import { goOnLine } from '../../work/holderTimers.mjs'
 
 const MIN = 60_000
 const HOUR = 60 * MIN
@@ -188,6 +189,9 @@ function ownerGone(view, { seen = new Map(), observed = [] } = {}) {
     const owner = valueOf(item, 'Owner')
     if (!isGone(owner)) continue
     const text = `${id} is ${stateOf(item)} for ${owner}, no longer in the list`
+    // Signals change 3: kept as it is for now. A gone owner has no lane, so the hand-over's timers never run for it; its
+    // give-back at once (beside handOut.mjs `strandedGives`, its waiting-on-you steps too) needs the store's give-back
+    // move, which waits for the person's yes on flow.json (src/work/giveBack.mjs, the second half).
     found.push(finding('owner-gone', `owner-gone ${id} ${owner}`, id, text, { do: 'main', text: `${text}: hand it on (its work may stand on a branch)` }))
   }
   for (const item of steps.filter(one => ['new', 'refined'].includes(stateOf(one)) && valueOf(one, 'Pinned') !== null)) {
@@ -231,7 +235,8 @@ function limitBack(view) {
     const id = idOf(held)
     const until = Number.isFinite(lane.suspended.until) ? ` until ${clockOf(lane.suspended.until)}` : ''
     const key = `limit-back ${lane.name} ${lane.suspended.since ?? ''}`.trim()
-    const fix = wakeOr(key, { do: 'wake', chat: lane.name, id, text: `work: the limit is back: go on with ${id} from its checkpoint; run work next` },
+    // Signals change 3: the same "go on" words as the hand-over's line to a stopped holder (its branch, commit and next).
+    const fix = wakeOr(key, { do: 'wake', chat: lane.name, id, text: `work: the limit is back: ${goOnLine(held)}; run work next` },
       { do: 'main', text: `${lane.name} did not go on with ${id} after the limit came back: start it` })
     found.push(finding('limit-back', key, lane.name, `${lane.name}: paused for the limit${until}, the limit is back`, fix))
   }

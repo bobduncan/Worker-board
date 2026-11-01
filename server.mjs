@@ -721,6 +721,24 @@ async function main(args) {
   const branchesNow = () => readBranches(hasGame ? [config.gameRepo, HERE] : [HERE], gitRunner())
   // B304: the repositories the board knows, each with the branch work is merged into: the game's, and the board's own.
   const knownRepos = () => [...(hasGame ? [{ dir: config.gameRepo, base: config.baseBranch }] : []), { dir: HERE, base: 'main' }]
+  /**
+   * Signals change 3: whether a commit is on a remote branch of a repository the board knows (true, false), or null when
+   * no repository knows it: the continuation line to a given-back step's next worker names a local-only commit.
+   */
+  const isPushed = async ({ commit }) => {
+    for (const repo of knownRepos()) {
+      const out = await gitRunner()(['-C', repo.dir, 'branch', '-r', '--contains', commit])
+      if (out !== null) return out.trim() !== ''
+    }
+    return null
+  }
+  /** Signals change 3: whether a chat's process runs, by the board's last state (true, false, or null: not a lane, not known). */
+  const runsNow = name => {
+    const state = readState.last()
+    const plainOf = one => String(one ?? '').trim().replace(state?.chatPrefix ?? '', '').trim().toLowerCase()
+    const lane = (state?.chats ?? []).find(one => !one.isLeftover && plainOf(one.name) === plainOf(name))
+    return lane === undefined ? null : lane.isRunning === false ? false : lane.isRunning === true ? true : null
+  }
 
   // B110: an approval of merged work, and "Done" on what only the person could do, the board settles itself.
   const settle = (message, state) => settleByBoard(message, state, {
@@ -1809,7 +1827,7 @@ async function main(args) {
       const state = await readState()
       const lane = (state.chats ?? []).find(one => one.name === chat && !one.isLeftover) ?? null
       if (lane === null || !onSequence({ ...lane, mod: typeof mod === 'string' ? mod : lane.mod ?? null }, config)) return null
-      const done = await handOver({ lane: { ...lane, mod: typeof mod === 'string' ? mod : lane.mod }, state, dir: workDir, outbox: store, apply: body => workAction(body, 'server'), config, installed: (await modNow())?.installed ?? null, now: clock(), newId: () => randomBytes(8).toString('hex'), event })
+      const done = await handOver({ lane: { ...lane, mod: typeof mod === 'string' ? mod : lane.mod }, state, dir: workDir, outbox: store, apply: body => workAction(body, 'server'), config, installed: (await modNow())?.installed ?? null, now: clock(), newId: () => randomBytes(8).toString('hex'), event, isPushed })
       if (done.envelope !== null || done.decision.takeBack !== null || done.decision.give !== null || done.decision.net !== null) {
         work.reset?.()
         readState.reset()
@@ -3056,7 +3074,7 @@ async function main(args) {
         // a limit, a new mod, a report gone idle, the net), for every worker on it; on its own, so a failure stops no delivery.
         if (config.handover === 'sequence') {
           await loops.run('handover', async () => {
-            const passed = await handoverPass({ state: await readState(), dir: workDir, outbox: store, apply: body => workAction(body, 'server'), config, installed: (await modNow())?.installed ?? null, now: clock(), newId: () => randomBytes(8).toString('hex') })
+            const passed = await handoverPass({ state: await readState(), dir: workDir, outbox: store, apply: body => workAction(body, 'server'), config, installed: (await modNow())?.installed ?? null, now: clock(), newId: () => randomBytes(8).toString('hex'), isPushed })
             if (passed.wrote > 0) {
               work.reset?.()
               readState.reset()
@@ -3127,6 +3145,8 @@ async function main(args) {
         leftovers: ({ items, now }) => findLeftovers({
           repos: knownRepos(), project: config.project, items, run: gitRunner(), now,
           keep: [HERE, config.project, ...(hasGame ? [config.gameRepo] : [])],
+          // Signals change 3: a given-back step's old worktree is finished once its old worker's process is gone.
+          runs: runsNow,
         }),
         clean: one => cleanLeftover(one),
         // B598: the base branches against their remotes', and a step's check run again once they are equal (the rule

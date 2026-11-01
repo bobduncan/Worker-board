@@ -54,12 +54,14 @@ sweep is meant to cost little (a few tens of thousands of tokens, mostly cached)
 ## How the board should behave
 
 - A worker with a step taken or in progress works on it, or waits for the person on an ask, or is suspended for the
-  limit until its reset, or is parked on purpose (below); it is not "unknown", "off" or idle for long while it holds the
-  step and the board has not managed to wake it (the rule unknown-lane names that).
+  limit until its reset, or is parked on purpose (below). Since signals change 3 (2026-11-01) one that stopped on it is
+  the board's own work: after 5 minutes it gets one "go on" line, and 15 minutes after that line its step goes back on the
+  list with its checkpoint (both stand in the step's History, below). The rules unknown-lane and holder-not-running are
+  retired for that.
 - A worker that works has a step (its card names one); one that works for long with none is odd.
 - A step in progress gets a checkpoint or a commit now and then; hours with neither is odd. The health summary shows
-  each one's last checkpoint, and the rule stale-checkpoint names one quiet for 2 h, or one whose checkpoint said to
-  report over 30 min ago.
+  each one's last checkpoint, and the rule stale-checkpoint names one its worker works on (busy) for 2 h with no
+  checkpoint: a chat that may loop. A stopped one is the board's timers' (above), never that rule's.
 - A step moves forward: queued, taken, in progress, review, done. One that goes back and forth (queued again, taken
   again, its check failing again) is odd.
 - The board hands out all work (redesign Part 2, 2026-10-25; since T8.5 by one hand-over at the worker's turn end): a
@@ -135,8 +137,14 @@ You look for what is really wrong, nothing else.
   not answer, Paused, Restarting, Stopped, Free, Asleep, Not running, Unknown) is display only: **Restarting** for the two
   minutes after a clear, **Asleep** (a process that ended while idle) and **Stopped** with "resumes by itself" are no incident;
   a word with an age ("no report for 40 s") is an incident only by the rules' own limits, never by the word.
-- What a code rule already covers: unknown lanes (X65: the board wakes a chat by itself, and the rule unknown-lane
-  names the one it could not wake), limit readings (X47, X55, X56), clears and checks. File what the rules do not name,
+- The board's own record of a stopped holder (signals change 3): the History lines "the board asked Worker N to go on
+  (stopped since HH:MM)" and "given back by the board: Worker N did not resume it (asked HH:MM)", the lane's "Stopped ·
+  asked to go on at HH:MM" and "did not resume B<n>, given back HH:MM", the step's "given back, continues with Worker M
+  from its checkpoint", and the summary's "(the board asked ... to go on ...: its own timers, no incident)" and "given
+  back by the board ... no incident". The board acts on these by itself; the dropped worker's later calls on that step are
+  refused with "was given back by the board".
+- What a code rule already covers: unknown lanes (X65: the board wakes a chat by itself; since signals change 3 a holder
+  that stopped is the board's two timers'), limit readings (X47, X55, X56), clears and checks. File what the rules do not name,
   not a second copy of what they do.
 
 An incident that turns out to be one of these is not yours to remove: you never change one. The partner closes it

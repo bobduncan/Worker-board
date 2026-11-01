@@ -123,6 +123,8 @@ export function wordOf({ lane, handover = null, modRun = null, clearedAt = null,
   if (isNewConversation) return out(WORDS.RESTARTING, 'a new conversation', clearedAt)
   // 9. Stopped: idle or ended while holding a step.
   if (state === 'interrupted') {
+    // Signals change 3: the hand-over asked it to go on (its "go on" line of this stopped spell).
+    if (finite(handover?.asked)) return out(WORDS.STOPPED, `asked to go on at ${hourMinute(handover.asked)}`, asleep ? lane.asleepSince : report?.since)
     if (asleep) return out(WORDS.STOPPED, 'resumes by itself', lane.asleepSince)
     if (report?.state === 'idle') return out(WORDS.STOPPED, `task open since ${hourMinute(report.since)}`, report.since)
     return out(WORDS.STOPPED, finite(lane.cutOffAt) ? `cut off at ${hourMinute(lane.cutOffAt)}` : 'cut off by a restart', lane.cutOffAt)

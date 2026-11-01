@@ -5010,7 +5010,7 @@ has no `clear` field.
 ```
 {
   id:      "<16 hex>",
-  kind:    "task" | "clear" | "back" | "restart",
+  kind:    "task" | "clear" | "back" | "restart" | "resume",  // resume: signals change 3, the "go on" line (0.27.x reads it as task)
   step:    "B12" | null,                          // the task this envelope gives (kind task)
   clear:   { step: "B11", reportedAt: <ms> } | null,
   restart: true | false,
@@ -5069,6 +5069,100 @@ with these readings of it:
 - A turn's end the board answered late: the reported step's decision (`clearWhenAnswered`) reads the late answer's
   `handover` itself; any other worker's turn's end carries an envelope the late answer brings.
 - A worker whose last turn's end was answered with `handover` sends no `pull`; one answered without it pulls as before.
+
+## A held task is never stuck (signals change 3, 2026-11-01)
+
+The person's yes of 2026-11-01: "5 minutes, then one 'go on', 15 minutes later the task goes back with its checkpoint".
+Before it, a worker that held a task and stopped (its process ended, or it sat idle with the task open) kept it: only
+alarms went to the Advisor after 10, 30 or 120 minutes. Now the board acts by itself, inside the hand-over's one
+decision (`decide`, rule 2; the timers in `src/work/holderTimers.mjs`, pure). The briefs: `.claude/plans/
+2026-11-01-held-step-never-stuck-brief.md`, its code check `2026-11-01-briefs-2c-3-code-check.md` (the Addendum wins) and
+`2026-11-01-change-3-build-brief.md`.
+
+**Who.** A worker on the sequence that holds a step taken or in progress whose lane is interrupted (the word Stopped:
+idle or ended with the step, asleep or not), off or unknown. A lane Working (a fresh busy report, background work, a wait
+for the partner) has no timer. Never for: a step with an open ask of that worker or under the step (as B308; the person's
+answer to an ask of it starts the clock anew), a step with the person's Stop or Remove of the worker since its take
+(B769), a worker being removed, a step waiting on you, in review or being checked, while the person pauses or resumes, a
+chat paused for a limit or a full limit (rule 1), the main chat, the partner, the supervisor and the Product owner (they
+are not on the sequence). A Quality Assurance task held by a stopped worker counts like any step.
+
+**The spell and running time.** The stopped spell begins at the latest of the step's Since (its take or last state
+change), its checkpoint, an answer to an ask of the worker, its last turn's start and the time its report stopped (idle
+or ended since, else the last report heard); counted from the end of the person's last pause at the earliest
+(`afterPause`) with the board's running time (`runningMs`: the time the board was off left out).
+
+**After `resumeAfterMinutes` (5): one "go on" line per spell.** `go on with B12 from your checkpoint: branch X, commit
+Y, next: Z` (each "none" when the step lacks it), as a back-like envelope (below), and one History line on the step,
+"the board asked Worker N to go on (stopped since HH:MM)" (the work API's `advance` with `goOn`, the server only). A
+resume envelope belongs to its spell while nothing showed work after it: no checkpoint, take or answer, no turn begun
+(`turnAt`), no report idle since or busy after it. The lane reads "Stopped · asked to go on at HH:MM" (the state's
+`lane.handover.asked`). It replaces the two old resume senders for a holder on the sequence: `resumesDue` (say.mjs) and
+the hands' asleep job (hands.mjs) skip it; the repair limit-back says the same words ("the limit is back: go on with
+B12 from your checkpoint: ...; run work next").
+
+**The envelope** (outbox command `handover`): `{ kind: "resume", step: null, clear: null, restart: false, set: null,
+line: "go on with ...", back: null, resume: "resume B12 <spell start ms>" }`. Its `step` is null, so the decision's
+in-flight task and the hand-over's own envelope logic never read it (the decision reads only the resume envelopes for
+the timers); its `resume` marker makes it once per spell, as `back` does. The Workers mod 0.27.x reads the unknown kind
+as `task` (board.ts `parseEnvelope`) and, with no clear, set or restart, types the line as the board's word and settles
+it once: no mod change. The outbox sweep keeps it while its worker holds that step taken or in progress and drops it
+once not ("Worker N no longer holds B12"); its next take brings it to a running chat; for an asleep chat the waiting
+envelope is what has the board open it (opener.mjs `asleepWithWork` counts every waiting word by `to`); for a chat that
+is off it is a wake word (say.mjs `isWakeWord`), as RESUME_STEP was.
+
+**After `giveBackAfterMinutes` (15) from the line being written, not delivered** (a chat the app will not open must not
+hold its step for ever), with no progress: the decision says `giveBack: { step, chat, askedAt }` and `close` (the line
+still waiting). The board calls `giveBackStep` (`src/work/giveBack.mjs`), the seam: until the store's move exists it
+answers `{ ok: false, why: 'the store has no give-back move yet' }`, says so once per step in board.log, and nothing
+changes (the step stays with the worker, its line stays waiting: the close waits for a give-back that happened).
+
+**Built behind the seam** (each reads the give-back's History line, "given back by the board: Worker N did not resume it
+(asked HH:MM)", holderTimers.mjs `giveBackWords` and `GIVEN_BACK`; none shows until the move writes it):
+- `notOfferedAgain` keeps the step from the worker that dropped it until it takes another task;
+- the dropped worker's later `step`, `report` and `take` on it are refused: "B12 was given back by the board at HH:MM: stop
+  that work and run work next" (`givenBackRefusal`; a board text, no mod change);
+- the next worker's line: "work: B12 is yours; run work next, then continue B12 from its checkpoint: branch X, commit Y,
+  next: Z; fetch the branch, the old worktree is removed by the sync", with "(local only)" after a commit on no remote
+  branch (the server's `isPushed`, git `branch -r --contains`); its take keeps the step's Plan, on the part it stood on;
+- worktrees.mjs: the old worker's worktree of a given-back step (named for it or on its branch), unused since the
+  give-back, is finished once that worker's process is gone (`runs(name)` false: not held, removed after 20 min unused,
+  merged or not; its branch keeps the commits);
+- the page: the dropped worker's lane "did not resume B12, given back HH:MM" (attention for an hour, then quiet, until its
+  next task) and the step's status line "given back, continues with Worker M from its checkpoint"; the health summary
+  names both History lines as the board's own work, no incident.
+
+**The second half** (waits for the person's yes on flow.json, the person's file):
+1. `flow.json` (`.claude/work/flow.json`, `DEFAULT_FLOW` in `src/work/flow.mjs`, `examples/work/flow.json`): a server move
+   from taken and from in progress to refined, "given back", with a named guard that reconcile never applies (skipped as
+   the queued moves are, reconcile.mjs ~252-268), so no refresh can give back every step in progress.
+2. `src/work/api.mjs`: `advance` with `to: 'refined'` and `giveBack: { chat, why }` (server only): only a step taken or in
+   progress for that chat; the move with the History words `giveBackWords(chat, askedAt)` as its why; Owner cleared;
+   Checkpoint, Branch and Plan kept; a Pinned that names the chat cleared with its own History line; the dropped
+   worker's card task cleared (the reconcile 'card' flag otherwise).
+3. `src/work/giveBack.mjs`: `giveBackStep` calls that path and answers what it answered (the board then closes the
+   waiting line, handoverBoard.mjs already does on ok).
+4. `src/clearOwed.mjs`: a give-back owes the dropped worker a clear: it reads the give-back's History line, and the
+   envelope's clear is `{ step, reportedAt: the give-back time }`.
+5. owner-gone (repair.mjs): the step of a chat gone from the list goes back at once by the same path, beside
+   `strandedGives` (handOut.mjs), its waiting-on-you steps too (their asks stay open for the person); until then it stays
+   a note to the main chat.
+
+**The rules.** `unknown-lane` and `holder-not-running` are retired (`RETIRED_WATCH_RULES`: out of WATCH_RULES; the board's
+pass over the incidents, api.mjs `incidentsFixed`, closes their open incidents with one line). `stale-checkpoint` keeps
+only its 120-minute 'old' kind, for a holder whose lane is Working (a chat that may loop, which only a reader can judge);
+its 'report' kind is gone, for every worker (health.mjs reads the same `checkpointLate`). `working-not-running` is
+unchanged. The reconciler's 'stuck' hint and 'idle hold' hint skip a worker on the sequence (its lane's "asked to go on"
+line stands for them). `roles/supervisor.md` ("What is no incident") names the new lines.
+
+**A gap, on purpose.** A worker not on the sequence (a Workers mod older than 0.27.0, or the setting `"timers"`) gets none
+of this, and with the two rules retired nothing watches its stuck steps (only the reconciler's old hints). None exists
+live: every worker runs 0.27.3, and `"timers"` hands out nothing.
+
+Tests: `test/work/holderTimers.test.mjs` (the real cases on `decide`, the board, the sweep, the old senders, the refusals,
+the continuation, the page, the settings, the retired incidents; mutants: the line every minute, the pause counted, the
+sweep dropping the line), `test/supervisor/staleCheckpoint.test.mjs` (mutant: the 'report' kind still filing),
+`test/supervisor/watch.test.mjs` (the retired rules file nothing for a stopped holder), `test/work/worktreeSweep.test.mjs`.
 
 ## What it does not do
 

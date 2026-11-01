@@ -29,6 +29,8 @@
   "offAfterMinutes": 5,
   "followUpMinutes": 0,
   "handover": "sequence",
+  "resumeAfterMinutes": 5,
+  "giveBackAfterMinutes": 15,
   "unfiledAskHours": 2,
   "advisor": "Advisor",
   "backlog": ".claude/backlog.md",

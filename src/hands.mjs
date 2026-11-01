@@ -315,6 +315,9 @@ export function handJobs({ caller, taken = [], lanes = [], resumeList = [], sinc
     if (lane.asleep !== true || lane.state !== 'interrupted' || lane.name === caller || !isAppId(lane.appSession) || !Number.isFinite(lane.asleepSince)) continue
     if (asleepSent.get(lane.name)?.since === lane.asleepSince || resumeList.some(one => one.chat === lane.name)) continue
     const held = (lane.storeSteps ?? []).filter(one => one.state === 'taken' || one.state === 'in progress')
+    // Signals change 3: a holder on the hand-over's sequence gets its "go on" line from the hand-over (its envelope, which
+    // has the board open it), never this one too.
+    if (lane.onSequence === true && held.length > 0) continue
     const step = held.find(one => one.id === lane.task?.stepId) ?? held[0] ?? null
     jobs.push({ id: `asleep:${lane.asleepSince}:${lane.name}`, to: lane.appSession, chat: lane.name, text: step === null ? ASLEEP_LINE : `resume your step ${step.id} from your checkpoint` })
   }

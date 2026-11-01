@@ -25,6 +25,7 @@ import { dirname, isAbsolute, join, resolve } from 'node:path'
 
 import { folderHolders, holderWords } from './holders.mjs'
 import { valueOf } from './item.mjs'
+import { givenBackOf } from './holderTimers.mjs'
 
 const MIN = 60_000
 /** The states in which a step still holds its worktree. */
@@ -357,11 +358,20 @@ const hours = ms => `${Math.round(ms / (60 * MIN))} h`
  * commits ("its branch stays"); one that names no step waits NO_STEP_IDLE_MS unused; and a folder named as a worktree's
  * with files and no git, untouched for STALE_MS and with no link, is moved into the project's logs/scratch (`moveTo`).
  * `items` the store's items, `run` git (folders.mjs `gitRunner`), `now` the time.
+ * Signals change 3: a step the board gave back (its newest give-back line, holderTimers.mjs) leaves the worktree its old
+ * worker had for it (named for it, or on its branch) finished once that worker's process is gone (`runs(name)` false)
+ * and the worktree was not used since the give-back: no step holds it, and it goes after RECENT_MS unused, merged or not
+ * (its branch keeps the commits), so the next worker can check the branch out. `runs` unknown (null): nothing changes.
  */
-export async function findLeftovers({ repos, project = '', items = [], run, fs = FILES, now = Date.now(), keep = [], platform = process.platform }) {
+export async function findLeftovers({ repos, project = '', items = [], run, fs = FILES, now = Date.now(), keep = [], platform = process.platform, runs = () => null }) {
   const steps = [...(items instanceof Map ? items.values() : items)]
     .filter(item => (valueOf(item, 'Kind') ?? 'step') === 'step' && OPEN_STATES.includes(valueOf(item, 'State')) && typeof valueOf(item, 'Id') === 'string')
   const holder = (path, branch) => steps.find(item => namesStep(nameOf(path), valueOf(item, 'Id')) || (branch !== null && ownBranch(valueOf(item, 'Branch')) === branch))
+  const givenBack = [...(items instanceof Map ? items.values() : items)]
+    .filter(item => (valueOf(item, 'Kind') ?? 'step') === 'step' && typeof valueOf(item, 'Id') === 'string')
+    .map(item => ({ item, back: givenBackOf(item).at(-1) ?? null }))
+    .filter(one => one.back !== null && Number.isFinite(one.back.at) && runs(one.back.chat) === false)
+  const leftBy = (path, branch) => givenBack.find(({ item }) => namesStep(nameOf(path), valueOf(item, 'Id')) || (branch !== null && ownBranch(valueOf(item, 'Branch')) === branch))?.back ?? null
   // B751: a worktree named for a step that is done or dropped is that step's, wherever it lies.
   const closed = [...(items instanceof Map ? items.values() : items)]
     .filter(item => (valueOf(item, 'Kind') ?? 'step') === 'step' && ['done', 'dropped'].includes(valueOf(item, 'State')) && typeof valueOf(item, 'Id') === 'string')
@@ -394,7 +404,10 @@ export async function findLeftovers({ repos, project = '', items = [], run, fs =
         leave('locked')
         continue
       }
-      const held = holder(one.path, one.branch)
+      // Signals change 3: the old worker's worktree of a step given back, its process gone and the worktree unused since.
+      const left = leftBy(one.path, one.branch)
+      const isLeft = left !== null && await lastUsed(one.path, run, fs) <= left.at
+      const held = isLeft ? undefined : holder(one.path, one.branch)
       if (held !== undefined) {
         leave(`held by ${valueOf(held, 'Id')}`)
         continue
@@ -402,7 +415,7 @@ export async function findLeftovers({ repos, project = '', items = [], run, fs =
       // Only a worktree named as the steps and checks name theirs, or (B751) for a finished step; another (a chat's own,
       // say) may be in use.
       const name = nameOf(one.path)
-      if (!looksLikeWorktree(name, prefixes) && !finished(one.path)) {
+      if (!looksLikeWorktree(name, prefixes) && !finished(one.path) && !isLeft) {
         leave('not named as a step\'s or a check\'s worktree')
         continue
       }
@@ -439,9 +452,9 @@ export async function findLeftovers({ repos, project = '', items = [], run, fs =
       }
       const namesAStep = STEP_IN_NAME.test(name)
       const idle = now - await lastUsed(one.path, run, fs)
-      const needs = merged === false ? STALE_MS : namesAStep ? RECENT_MS : NO_STEP_IDLE_MS
+      const needs = isLeft ? RECENT_MS : merged === false ? STALE_MS : namesAStep ? RECENT_MS : NO_STEP_IDLE_MS
       if (idle < needs) {
-        leave(merged === false ? `not merged into ${repo.base}` : namesAStep ? 'made or used in the last 20 min' : `names no step: left until unused for ${hours(NO_STEP_IDLE_MS)}`)
+        leave(isLeft ? 'given back: left until unused for 20 min' : merged === false ? `not merged into ${repo.base}` : namesAStep ? 'made or used in the last 20 min' : `names no step: left until unused for ${hours(NO_STEP_IDLE_MS)}`)
         continue
       }
       // B751: a worker's link to the main checkout's packages is taken away alone first; any other link keeps it.
