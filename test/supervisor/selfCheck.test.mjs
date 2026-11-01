@@ -58,7 +58,7 @@ test('blocked: a step blocked by one in review or done is unblocked; one the sto
   assert.match(blocked[3].text, /B5 waits for B1 \(in review\)/)
 })
 
-test('owner gone: a step held by a chat that left the list is for Main; a pin to it is taken off; a given one is the take-back\'s', () => {
+test('owner gone: a step held by a chat that left the list goes back (signals change 3: a give-back, no note to Main); a pin to it is taken off; a given one is the take-back\'s', () => {
   const world = (more = {}) => base({
     items: items(step('B3', 'in progress', { Owner: 'Ghost', Since: stamp(ago(90)) }), step('B4', 'refined', { Pinned: 'Ghost', Refined: 'ready' }), step('B5', 'queued', { Owner: 'Ghost' })),
     lanes: [LEAD, lane('Painter'), lane('Mason', { state: 'working' })],
@@ -67,8 +67,9 @@ test('owner gone: a step held by a chat that left the list is for Main; a pin to
     ...more,
   })
   const found = of(findStuck(world()), 'owner-gone')
-  // In progress for a chat that left: its work may stand on a branch, so Main decides. The pin is taken off.
-  assert.deepEqual(found.map(one => [one.subject, one.fix.do]), [['B3', 'main'], ['B4', 'unpin']])
+  // In progress for a chat that left: given back at once, its checkpoint kept (signals change 3). The pin is taken off.
+  assert.deepEqual(found.map(one => [one.subject, one.fix.do]), [['B3', 'give-back'], ['B4', 'unpin']])
+  assert.deepEqual(found[0].fix, { do: 'give-back', id: 'B3', chat: 'Ghost', why: 'given back by the board: Ghost left the list of chats' })
   assert.deepEqual(found[1].fix, { do: 'unpin', id: 'B4' })
   assert.equal(found[1].text, 'B4 is pinned to Ghost, no longer in the list')
   // Missed only 10 minutes (a chat about to join, or one read without its file): nothing yet.
@@ -295,7 +296,7 @@ test('the review: an owner counts as gone only once the runner has missed it for
   assert.equal(of(findStuck(world({ observed })), 'owner-gone').length, 0)
   assert.deepEqual(observed, ['missing ghost'])
   assert.equal(of(findStuck(world({ seen: new Map([['missing ghost', NOW - OWNER_GONE_MS + MIN]]) })), 'owner-gone').length, 0)
-  assert.equal(of(findStuck(world({ seen: new Map([['missing ghost', NOW - OWNER_GONE_MS]]) })), 'owner-gone')[0].fix.do, 'main')
+  assert.equal(of(findStuck(world({ seen: new Map([['missing ghost', NOW - OWNER_GONE_MS]]) })), 'owner-gone')[0].fix.do, 'give-back')
   assert.equal(of(findStuck(world({ seen: new Map([['missing ghost', ago(600)]]), pause: { state: 'pausing' } })), 'owner-gone').length, 0)
 })
 

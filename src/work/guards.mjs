@@ -52,11 +52,20 @@ export const isReady = (item, ctx) => readyHold(item, ctx) === null
 
 /** Redesign Part 2: the guard of the board's give (flow.mjs DEFAULT_FLOW). */
 export const GIVE_GUARD = 'the board hands it out'
+/**
+ * Signals change 3, the second half (the person's yes on the flow.json give-back rule, 2026-11-01): the guard of the
+ * board's give-back of a held step (taken, in progress, or waiting on you for a holder gone from the list) back to refined.
+ * It holds only for the one step the work API's give-back path names in its context (`ctx.giveBack`, api.mjs
+ * `giveBackHeld`), and the reconciler skips its moves by name as well: no refresh ever gives a step back.
+ */
+export const GIVE_BACK_GUARD = 'the board gives it back'
 /** The states whose Touches a task to give may not overlap: given (queued) or under way. */
 const GIVEN_OR_UNDER_WAY = ['queued', 'taken', 'in progress', 'waiting on you']
 
 export const GUARDS = {
   'refined is ready': item => valueOf(item, 'Refined') === 'ready',
+  // Signals change 3: only the give-back path's own step (never at a refresh, which passes no `giveBack`).
+  [GIVE_BACK_GUARD]: (item, ctx) => typeof ctx.giveBack === 'string' && ctx.giveBack === valueOf(item, 'Id'),
   // Redesign Part 2 (2026-10-25): the board gives a ready task (nothing holds it: `readyHold`) whose Touches overlap no
   // step given or under way (principle 5: two refreshes cannot give two overlapping tasks).
   [GIVE_GUARD]: (item, ctx) => isReady(item, ctx) && overlapIn(ctx.store?.items ?? new Map(), item, GIVEN_OR_UNDER_WAY) === null,

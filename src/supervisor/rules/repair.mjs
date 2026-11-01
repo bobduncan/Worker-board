@@ -29,7 +29,7 @@ import { isQaTask, notDueWhy, openQaTaskOf } from '../../work/qaTask.mjs'
 import { UNCHECKED_MS, gitCheckPassed, needsResultCheck, resultCheckAtMs, resultCheckOf, reviewWaitOf } from '../../work/resultCheck.mjs'
 import { asksOfStep } from '../../work/stepAsks.mjs'
 import { heldReason } from '../../work/parked.mjs'
-import { goOnLine } from '../../work/holderTimers.mjs'
+import { goOnLine, goneWords } from '../../work/holderTimers.mjs'
 
 const MIN = 60_000
 const HOUR = 60 * MIN
@@ -165,8 +165,9 @@ function blocked(view) {
 }
 
 /**
- * A step a chat no longer in the list holds (taken, in progress, waiting on you) is the main chat's to hand on; its work
- * may stand on a branch. Redesign Part 2: a step given to such a chat (queued) the board takes back itself (T8.5 step 6:
+ * A step a chat no longer in the list holds (taken, in progress, waiting on you) goes back on the list, its checkpoint,
+ * branch and plan kept (signals change 3: `{ do: 'give-back', id, chat, why }`, the work API's give-back path; before it,
+ * the main chat's to hand on). Redesign Part 2: a step given to such a chat (queued) the board takes back itself (T8.5 step 6:
  * work/handOut.mjs `strandedGives`), and a task pinned to such a chat is unpinned (`{ do: 'unpin', id }`), so it waits
  * for no chat that is gone. The review: only once the chat has been missing for OWNER_GONE_MS by the runner's own watch
  * (a chat file the app rewrites is skipped for one read, an account switch drops chats for a while), and never while
@@ -189,10 +190,10 @@ function ownerGone(view, { seen = new Map(), observed = [] } = {}) {
     const owner = valueOf(item, 'Owner')
     if (!isGone(owner)) continue
     const text = `${id} is ${stateOf(item)} for ${owner}, no longer in the list`
-    // Signals change 3: kept as it is for now. A gone owner has no lane, so the hand-over's timers never run for it; its
-    // give-back at once (beside handOut.mjs `strandedGives`, its waiting-on-you steps too) needs the store's give-back
-    // move, which waits for the person's yes on flow.json (src/work/giveBack.mjs, the second half).
-    found.push(finding('owner-gone', `owner-gone ${id} ${owner}`, id, text, { do: 'main', text: `${text}: hand it on (its work may stand on a branch)` }))
+    // Signals change 3, the second half: a gone owner has no lane, so the hand-over's timers never run for it: the board
+    // gives its step back at once by the same path (api.mjs `giveBackHeld`, beside handOut.mjs `strandedGives`, which
+    // takes back the queued ones), waiting on you too; its asks stay open for the person. No note to the main chat.
+    found.push(finding('owner-gone', `owner-gone ${id} ${owner}`, id, text, { do: 'give-back', id, chat: owner, why: goneWords(owner) }))
   }
   for (const item of steps.filter(one => ['new', 'refined'].includes(stateOf(one)) && valueOf(one, 'Pinned') !== null)) {
     const id = idOf(item)
@@ -669,7 +670,7 @@ export const CHECKS = REPAIR_RULES.map(rule => ({ key: rule.id, words: rule.says
  * What is stuck now: `[{ check, key, text, fix, ... }]`, in the order of `CHECKS`, from every repair rule but the
  * worktrees' (the loop looks at those). `key` names the finding (one note to the main chat per key, ever; the board's
  * wake for it carries it as `syncKey`); `text` says what stands; `fix` what to do: `{ do: 'unblock', id, on }`,
- * `{ do: 'unpin', id }`, `{ do: 'recheck', id, why }` (B598: the board's check run again), `{ do: 'qa', id }`, `{ do: 'qa-drop', id, why }` and `{ do: 'qa-end', id }` (T9.1.1: the board makes a step's Quality Assurance task, drops one whose step left review or is not due, or ends one whose check was filed), `{ do: 'person', id, text }` (T9.4: a note to the
+ * `{ do: 'unpin', id }`, `{ do: 'give-back', id, chat, why }` (signals change 3: a gone owner's step back on the list), `{ do: 'recheck', id, why }` (B598: the board's check run again), `{ do: 'qa', id }`, `{ do: 'qa-drop', id, why }` and `{ do: 'qa-end', id }` (T9.1.1: the board makes a step's Quality Assurance task, drops one whose step left review or is not due, or ends one whose check was filed), `{ do: 'person', id, text }` (T9.4: a note to the
  * person about `id`, its lines in `text`), `{ do: 'wake', chat, id, text }` (a line typed to the chat), `{ do: 'woken', at }` (woken
  * a moment ago: it waits for that), `{ do: 'send', text }` (a note to the main chat is the fix), `{ do: 'hand', chat, id,
  * text }` (the helper's work to the partner, and the main chat told), or `{ do: 'main', text }` (the board cannot fix

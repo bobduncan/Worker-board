@@ -5138,12 +5138,33 @@ is off it is a wake word (say.mjs `isWakeWord`), as RESUME_STEP was.
 
 **After `giveBackAfterMinutes` (15) from the line being written, not delivered** (a chat the app will not open must not
 hold its step for ever), with no progress: the decision says `giveBack: { step, chat, askedAt }` and `close` (the line
-still waiting). The board calls `giveBackStep` (`src/work/giveBack.mjs`), the seam: until the store's move exists it
-answers `{ ok: false, why: 'the store has no give-back move yet' }`, says so once per step in board.log, and nothing
-changes (the step stays with the worker, its line stays waiting: the close waits for a give-back that happened).
+still waiting). The board calls `giveBackStep` (`src/work/giveBack.mjs`), which gives the step back through the work
+API, and on its ok closes the line; a refusal is said once in board.log and nothing changes.
 
-**Built behind the seam** (each reads the give-back's History line, "given back by the board: Worker N did not resume it
-(asked HH:MM)", holderTimers.mjs `giveBackWords` and `GIVEN_BACK`; none shows until the move writes it):
+**The give-back** (the second half, the person's yes on the flow.json rule, 2026-11-01). The flow's server moves from
+taken, in progress and waiting on you to refined, guard "the board gives it back" (`GIVE_BACK_GUARD`, guards.mjs), in
+`DEFAULT_FLOW`, `examples/work/flow.json` and the project's `.claude/work/flow.json`:
+
+```
+{ "from": "taken", "to": "refined", "by": "server", "when": "the board gives it back" },
+{ "from": "in progress", "to": "refined", "by": "server", "when": "the board gives it back" },
+{ "from": "waiting on you", "to": "refined", "by": "server", "when": "the board gives it back" },
+```
+
+The guard holds only for the step the work API's give-back path names in its context (`ctx.giveBack`), and the
+reconciler skips its moves by name too (as the queued moves and the rest's): no refresh ever gives a step back. The path:
+`advance` with `to: 'refined'` and `giveBack: { chat, why, gone }` (server only, api.mjs `giveBackHeld`): only a step
+taken or in progress for that chat (with `gone`, a holder that left the list of chats: waiting on you too); the move's
+why the History words "given back by the board: Worker N did not resume it (asked HH:MM)" (`giveBackWords`) or "...
+Worker N left the list of chats" (`goneWords`); Owner cleared; Checkpoint, Branch and Plan kept; a Pinned naming that chat
+cleared with its own line ("unpinned from Worker N: given back by the board"). The dropped worker owes a clear as of the
+give-back (clearOwed.mjs reads its line: the envelope's clear is `{ step, reportedAt: the give-back time }`); its card,
+which the board never writes, is cleared by that clear, and the reconciler's 'card' flag is quiet meanwhile. owner-gone
+(repair.mjs) gives the step of a holder gone from the list back at once by the same path (`{ do: 'give-back', id, chat,
+why }`, beside handOut.mjs `strandedGives`, which takes back the queued ones), waiting on you too: no note to the main
+chat; its asks stay open for the person.
+
+**What reads the give-back's History line** (holderTimers.mjs `GIVEN_BACK`):
 - `notOfferedAgain` keeps the step from the worker that dropped it until it takes another task;
 - the dropped worker's later `step`, `report` and `take` on it are refused: "B12 was given back by the board at HH:MM: stop
   that work and run work next" (`givenBackRefusal`; a board text, no mod change);
@@ -5156,22 +5177,6 @@ changes (the step stays with the worker, its line stays waiting: the close waits
 - the page: the dropped worker's lane "did not resume B12, given back HH:MM" (attention for an hour, then quiet, until its
   next task) and the step's status line "given back, continues with Worker M from its checkpoint"; the health summary
   names both History lines as the board's own work, no incident.
-
-**The second half** (waits for the person's yes on flow.json, the person's file):
-1. `flow.json` (`.claude/work/flow.json`, `DEFAULT_FLOW` in `src/work/flow.mjs`, `examples/work/flow.json`): a server move
-   from taken and from in progress to refined, "given back", with a named guard that reconcile never applies (skipped as
-   the queued moves are, reconcile.mjs ~252-268), so no refresh can give back every step in progress.
-2. `src/work/api.mjs`: `advance` with `to: 'refined'` and `giveBack: { chat, why }` (server only): only a step taken or in
-   progress for that chat; the move with the History words `giveBackWords(chat, askedAt)` as its why; Owner cleared;
-   Checkpoint, Branch and Plan kept; a Pinned that names the chat cleared with its own History line; the dropped
-   worker's card task cleared (the reconcile 'card' flag otherwise).
-3. `src/work/giveBack.mjs`: `giveBackStep` calls that path and answers what it answered (the board then closes the
-   waiting line, handoverBoard.mjs already does on ok).
-4. `src/clearOwed.mjs`: a give-back owes the dropped worker a clear: it reads the give-back's History line, and the
-   envelope's clear is `{ step, reportedAt: the give-back time }`.
-5. owner-gone (repair.mjs): the step of a chat gone from the list goes back at once by the same path, beside
-   `strandedGives` (handOut.mjs), its waiting-on-you steps too (their asks stay open for the person); until then it stays
-   a note to the main chat.
 
 **The rules.** `unknown-lane` and `holder-not-running` are retired (`RETIRED_WATCH_RULES`: out of WATCH_RULES; the board's
 pass over the incidents, api.mjs `incidentsFixed`, closes their open incidents with one line). `stale-checkpoint` keeps

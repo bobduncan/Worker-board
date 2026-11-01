@@ -6104,8 +6104,8 @@ function stepStatus(item, { size = '', efforts = [] } = {}) {
   const stamp = (item.history ?? []).at(-1)?.match(/^(\d{4}-\d\d-\d\d \d\d:\d\d)/)?.[1] ?? null
   const holder = item.owner === null || item.owner === undefined ? `Nobody has it yet (${item.state})` : `${item.owner} holds it (${item.state})`
   // Signals change 3: a step the board gave back (its History line, the store's give-back move) says who goes on with it.
-  const back = (item.history ?? []).findLast(line => /\bgiven back by the board: .+? did not resume it\b/.test(line)) ?? null
-  const isHeld = item.owner !== null && item.owner !== undefined && ['taken', 'in progress', 'waiting on you'].includes(item.state)
+  const back = (item.history ?? []).findLast(line => /\bgiven back by the board: .+? (?:did not resume it|left the list of chats)\b/.test(line)) ?? null
+  const isHeld = item.owner !== null && item.owner !== undefined && ['queued', 'taken', 'in progress', 'waiting on you'].includes(item.state)
   const given = back === null || !['refined', 'queued', 'taken', 'in progress', 'waiting on you'].includes(item.state) ? null
     : isHeld ? `given back, continues with ${item.owner} from its checkpoint` : 'given back, continues with the next free worker from its checkpoint'
   return [run, time, `${holder}${stamp === null ? '' : ` since ${stamp}`}`, given].filter(part => part !== null && part !== '').join(' · ')

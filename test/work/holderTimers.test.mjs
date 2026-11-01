@@ -20,11 +20,18 @@ import { resumesDue } from '../../src/say.mjs'
 import { memoryStore } from '../../src/store.mjs'
 import { findStuck } from '../../src/supervisor/rules/repair.mjs'
 import { workApi } from '../../src/work/api.mjs'
-import { NOT_YET, forgetTold } from '../../src/work/giveBack.mjs'
+import { forgetTold } from '../../src/work/giveBack.mjs'
+import { clearOwed } from '../../src/clearOwed.mjs'
+import { healthSummary } from '../../src/supervisor/health.mjs'
+import { applySync } from '../../src/supervisor/loop.mjs'
+import { buildView } from '../../src/supervisor/view.mjs'
+import { DEFAULT_FLOW, GIVE_BACK_GUARD } from '../../src/work/flow.mjs'
+import { readyList } from '../../src/work/handOut.mjs'
+import { reconcile } from '../../src/work/reconcile.mjs'
 import { HANDOVER_COMMAND, HANDOVER_MOD, STATES, contractOf, decide, lineFor, notOfferedAgain } from '../../src/work/handover.mjs'
 import { carryable, handOver } from '../../src/work/handoverBoard.mjs'
 import {
-  GIVEN_BACK, RESUME_KIND, continuationLine, continuationOf, giveBackWords, givenBackFrom, givenBackRefusal, goOnLine, goOnWords, hourMinute, resumeMarker,
+  GIVEN_BACK, RESUME_KIND, continuationLine, goneWords, continuationOf, giveBackWords, givenBackFrom, givenBackRefusal, goOnLine, goOnWords, hourMinute, resumeMarker,
 } from '../../src/work/holderTimers.mjs'
 import { valueOf } from '../../src/work/item.mjs'
 import { stamp } from '../../src/work/migrate.mjs'
@@ -183,7 +190,7 @@ test('the line names "none" for what the step lacks: no branch, no commit, no ch
   assert.equal(goOnLine(held({ Checkpoint: '' })), 'go on with B12 from your checkpoint: branch b12-gate, commit none, next: none')
 })
 
-// ---- The board: the envelope, the History line, the seam.
+// ---- The board: the envelope, the History line, the give-back (the second half: the store's move).
 
 async function garden(t, items) {
   const dir = await mkdtemp(join(tmpdir(), 'holder-timers-'))
@@ -194,45 +201,122 @@ async function garden(t, items) {
   const outbox = memoryStore()
   let n = 0
   const logged = []
-  const pass = (lane, now) => handOver({
-    lane, state: { chats: [lane], chatPrefix: '', readyList: { ready: [] }, limits: {}, gaps: [], restart: { main: 'Lead' } }, dir, outbox,
-    apply: body => workApi(body, { ...ctx(now), as: 'server' }), config: { handover: 'sequence' }, now, newId: () => `e${(n += 1)}`, event: { kind: 'pass' }, log: line => logged.push(line),
+  const pass = (lane, now, { ready = [], isPushed = null } = {}) => handOver({
+    lane, state: { chats: [lane], chatPrefix: '', readyList: { ready }, limits: {}, gaps: [], restart: { main: 'Lead' } }, dir, outbox,
+    apply: body => workApi(body, { ...ctx(now), as: 'server' }), config: { handover: 'sequence' }, now, newId: () => `e${(n += 1)}`, event: { kind: 'pass' }, log: line => logged.push(line), isPushed,
   })
   return { dir, outbox, pass, logged, as: (chat, body, now) => workApi({ chat, ...body }, ctx(now)), read: async id => (await readStore(dir)).items.get(id) }
 }
 
-test('the board writes the line once, as the mod reads it, with the step\'s History line; the take hands it out; the give-back is the seam: not yet, nothing changes, said once', async t => {
+test('the live shape, end to end: the line at 5, at 20 the step goes back on the list with its checkpoint, the next free worker continues it, the dropped worker is refused and owes a clear', async t => {
   forgetTold()
-  const one = await garden(t, mapOf(held()))
+  const plan = planText({ names: ['frame', 'hinges', 'paint'], on: 2, steps: 3, until: null, stepUntil: null, writtenAt: at(-10) })
+  const one = await garden(t, mapOf(held({ Plan: plan, Pinned: 'Worker 1', Refined: 'ready' })))
   const first = await one.pass(stopped(at(5)), at(5))
   assert.equal(first.envelope.kind, RESUME_KIND)
   assert.deepEqual([first.envelope.to, first.envelope.step, first.envelope.state, first.envelope.resume, first.envelope.line], ['Worker 1', null, 'waiting', resumeMarker('B12', T0), LINE])
   assert.deepEqual(contractOf(first.envelope), { id: 'e1', kind: RESUME_KIND, step: null, clear: null, restart: false, set: null, line: LINE })
   assert.equal(carryable(one.outbox.outbox(), 'Worker 1', at(6), { messageMs: 10 * MIN, answerMs: 48 * 60 * MIN, pause: null })?.id, 'e1', 'its next take brings it')
-  assert.match((await one.read('B12')).sections.get('History').at(-1), new RegExp(`server: ${goOnWords('Worker 1', T0).replace(/[()]/g, '\\$&')}$`))
+  assert.equal((await one.read('B12')).sections.get('History').at(-1).endsWith(`server: ${goOnWords('Worker 1', T0)}`), true)
   assert.equal(goOnWords('Worker 1', T0), 'the board asked Worker 1 to go on (stopped since 10:00)')
   // Later passes write no second line.
   assert.equal((await one.pass(stopped(at(6)), at(6))).envelope, null)
   assert.equal((await one.pass(stopped(at(12)), at(12))).envelope, null)
   assert.equal(one.outbox.outbox().length, 1)
-  // At 20: the decision says give-back; the store has no move for it yet: the step stays, the line still waits, the
-  // board says so once in board.log.
+  // At 20 the decision says give-back, and the work API moves it: refined, Owner cleared, Checkpoint, Branch and Plan
+  // kept, the pin to Worker 1 taken off with its own line, the History line; the waiting line closed.
+  const before = await one.read('B12')
   const due = await one.pass(stopped(at(20)), at(20))
   assert.deepEqual(due.decision.giveBack, { step: 'B12', chat: 'Worker 1', askedAt: at(5) })
-  assert.equal(due.decision.givenBack, false)
-  assert.equal(NOT_YET.why, 'the store has no give-back move yet')
-  await one.pass(stopped(at(21)), at(21))
-  assert.deepEqual([valueOf(await one.read('B12'), 'State'), valueOf(await one.read('B12'), 'Owner')], ['in progress', 'Worker 1'])
-  assert.equal(one.outbox.outbox()[0].state, 'waiting')
-  assert.equal(one.logged.length, 1)
-  assert.match(one.logged[0], /B12 is due to go back from Worker 1 .*the store has no give-back move yet/)
-  // Behind the seam: no give-back line, so nothing of it anywhere.
-  assert.equal(continuationOf(await one.read('B12')), null)
-  assert.deepEqual(givenBackFrom((await readStore(one.dir)).items, 'Worker 1'), [])
-  // The History line is the board's alone, and only for a step the chat holds.
-  assert.equal((await one.as('Worker 1', { action: 'advance', id: 'B12', goOn: { chat: 'Worker 1', since: T0 } }, at(22))).ok, false)
-  const refused = await workApi({ action: 'advance', id: 'B12', goOn: { chat: 'Worker 2', since: T0 } }, { dir: one.dir, now: at(22), prefix: '', as: 'server' })
-  assert.match(refused.why, /B12 is not taken or in progress for Worker 2/)
+  assert.equal(due.decision.givenBack, true)
+  const back = await one.read('B12')
+  assert.deepEqual(['State', 'Owner', 'Pinned', 'Checkpoint', 'Branch', 'Plan'].map(key => valueOf(back, key)), ['refined', null, null, valueOf(before, 'Checkpoint'), 'b12-gate', plan])
+  const lines = back.sections.get('History')
+  assert.match(lines.at(-2), /server: in progress → refined \(given back by the board: Worker 1 did not resume it \(asked 10:05\)\)$/)
+  assert.match(lines.at(-1), /server: unpinned from Worker 1: given back by the board$/)
+  assert.deepEqual([one.outbox.outbox()[0].state, one.logged], ['dropped', []])
+  assert.deepEqual(continuationOf(back), { at: at(20), chat: 'Worker 1' })
+  const items = (await readStore(one.dir)).items
+  assert.deepEqual(givenBackFrom(items, 'Worker 1'), [{ id: 'B12', at: at(20) }])
+  // The dropped worker: its later step, report and take are refused with the board's words, and it owes a clear as of the give-back.
+  const words = 'B12 was given back by the board at 10:20: stop that work and run work next'
+  for (const body of [{ action: 'step', id: 'B12', commit: 'abc1234', next: 'paint' }, { action: 'report', id: 'B12', result: 'The gate hangs.' }, { action: 'take', id: 'B12', minutes: 30 }]) {
+    assert.deepEqual([(await one.as('Worker 1', body, at(21))).why], [words], body.action)
+  }
+  const dropped = { ...stopped(at(22)), state: 'free', report: { state: 'idle', since: at(21), background: false, at: at(22) } }
+  const owed = clearOwed({ lane: dropped, items, afterStep: 'clear' })
+  assert.deepEqual([owed?.step, owed?.reportedAt], ['B12', at(20)])
+  // The dropped worker, free, is not given B12 again (it gets its clear alone); the next free worker gets the continuation.
+  const ready = readyList(items, { now: at(22), beyondFocus: true }).ready
+  assert.deepEqual(ready.map(entry => entry.id), ['B12'])
+  const again = await one.pass({ ...dropped, clearOwed: owed }, at(22), { ready })
+  assert.deepEqual([again.decision.give, again.envelope?.kind, again.envelope?.clear], [null, 'clear', { step: 'B12', reportedAt: at(20) }])
+  const next = { ...dropped, name: 'Worker 2', report: { state: 'idle', since: at(19), background: false, at: at(22) } }
+  const given = await one.pass(next, at(23), { ready, isPushed: async () => false })
+  assert.equal(given.decision.give, 'B12')
+  assert.equal(given.envelope.line, 'work: B12 is yours; run work next, then continue B12 from its checkpoint: branch b12-gate, commit abc1234 (local only), next: write the tests; fetch the branch, the old worktree is removed by the sync')
+  assert.deepEqual([valueOf(await one.read('B12'), 'State'), valueOf(await one.read('B12'), 'Owner')], ['queued', 'Worker 2'])
+  // The step's status line on the page, from its real History.
+  const script = await readFile(new URL('../../public/board.js', import.meta.url), 'utf8')
+  const cut = name => script.slice(script.indexOf(`// ${name}:start`), script.indexOf(`// ${name}:end`))
+  const page = {}
+  vm.runInNewContext(`${cut('item')}\n${cut('story')}\nObject.assign(this, { stepStatus })`, page)
+  const history = (await one.read('B12')).sections.get('History').map(line => line.replace(/^-\s+/, ''))
+  assert.match(page.stepStatus({ owner: 'Worker 2', state: 'queued', history }), /given back, continues with Worker 2 from its checkpoint$/)
+  // Its take keeps the plan; the dropped worker is still refused.
+  assert.equal((await one.as('Worker 2', { action: 'take', id: 'B12', minutes: 40 }, at(24))).ok, true)
+  assert.deepEqual([planOf(await one.read('B12'))?.names, planOf(await one.read('B12'))?.on], [['frame', 'hinges', 'paint'], 2])
+  assert.equal((await one.as('Worker 1', { action: 'step', id: 'B12', commit: 'abc1234', next: 'paint' }, at(25))).why, words)
+  // The give-back path is the board's alone, and only for a step that chat holds.
+  assert.equal((await one.as('Worker 1', { action: 'advance', id: 'B12', to: 'refined', giveBack: { chat: 'Worker 2', why: 'x' } }, at(26))).ok, false)
+  const refused = await workApi({ action: 'advance', id: 'B12', to: 'refined', giveBack: { chat: 'Worker 1', why: giveBackWords('Worker 1', at(5)) } }, { dir: one.dir, now: at(26), prefix: '', as: 'server' })
+  assert.match(refused.why, /B12 is in progress for Worker 2: only a step taken or in progress for Worker 1 is given back/)
+})
+
+test('the give-back path: waiting on you only for a holder gone from the list; the reconciler never gives a step back at a refresh (mutant: the guard dropped)', async t => {
+  const one = await garden(t, mapOf(held({ State: 'waiting on you' }), item({ Id: 'B20', Kind: 'step', Title: 'Rake', State: 'in progress', Owner: 'Worker 2', Since: stamp(at(-300)) }, { History: [`- ${stamp(at(-300))} Worker 2: queued → taken`] })))
+  const server = (body, now) => workApi(body, { dir: one.dir, now, prefix: '', as: 'server' })
+  assert.match((await server({ action: 'advance', id: 'B12', to: 'refined', giveBack: { chat: 'Worker 1', why: giveBackWords('Worker 1', at(5)) } }, at(30))).why, /only a step taken or in progress for Worker 1/)
+  const gone = await server({ action: 'advance', id: 'B12', to: 'refined', giveBack: { chat: 'Worker 1', why: goneWords('Worker 1'), gone: true } }, at(30))
+  assert.equal(gone.ok, true, gone.why)
+  assert.match((await one.read('B12')).sections.get('History').at(-1), /server: waiting on you → refined \(given back by the board: Worker 1 left the list of chats\)$/)
+  assert.deepEqual(continuationOf(await one.read('B12')), { at: at(30), chat: 'Worker 1' })
+  // Without the give-back's own context the guard never holds: no other path moves a held step to refined.
+  assert.equal((await server({ action: 'advance', id: 'B20', to: 'refined' }, at(31))).ok, false)
+  // A refresh: the reconciler applies the server's moves whose guard holds; never the give-back, for any step in progress.
+  const store = await readStore(one.dir)
+  const done = reconcile({ store, flow: store.flow, lanes: [{ name: 'Worker 2', state: 'interrupted', isMain: false, isLeftover: false, isRunning: false, lastActivityAt: at(-300) }], now: at(31), times: { graceMs: 10 * MIN, askMs: 60 * MIN, idleMs: 5 * MIN }, prefix: '' })
+  assert.deepEqual(done.moves.filter(move => move.to === 'refined'), [])
+  assert.deepEqual(DEFAULT_FLOW.step.moves.filter(move => move.to === 'refined' && move.by === 'server' && move.when === GIVE_BACK_GUARD).map(move => move.from), ['taken', 'in progress', 'waiting on you'])
+})
+
+test('owner-gone: the step of a holder gone from the list goes back at once through the same path, with no note to Main (mutant: still a note)', async t => {
+  const one = await garden(t, mapOf(held({ Owner: 'Ghost' }), held({ Id: 'B13', Owner: 'Ghost', State: 'waiting on you' })))
+  const items = (await readStore(one.dir)).items
+  const lanes = [{ name: 'Lead', isMain: true, isLeftover: false, state: 'working', isRunning: true }, { name: 'Worker 1', isMain: false, isLeftover: false, state: 'free', isRunning: true }]
+  const found = findStuck({ items, lanes, now: at(60), seen: new Map([['missing ghost', at(0)]]) }).filter(one => one.check === 'owner-gone')
+  assert.deepEqual(found.map(one => one.fix), [{ do: 'give-back', id: 'B12', chat: 'Ghost', why: goneWords('Ghost') }, { do: 'give-back', id: 'B13', chat: 'Ghost', why: goneWords('Ghost') }])
+  const applied = []
+  const done = await applySync(found, {
+    apply: async body => { applied.push(body); return workApi(body, { dir: one.dir, now: at(60), prefix: '', as: 'server' }) },
+    unblock: async () => ({ ok: true }), unpin: async () => ({ ok: true }), recheck: async () => ({ ok: true }), person: async () => ({ ok: true }),
+    wake: async () => null, noted: { load: async () => ({ noted: [], seen: {} }), save: async () => {} }, now: () => at(60),
+  })
+  assert.deepEqual(applied.map(body => [body.action, body.id, body.to, body.giveBack.gone]), [['advance', 'B12', 'refined', true], ['advance', 'B13', 'refined', true]])
+  assert.deepEqual(await Promise.all(['B12', 'B13'].map(async id => [valueOf(await one.read(id), 'State'), valueOf(await one.read(id), 'Owner'), valueOf(await one.read(id), 'Checkpoint') !== null])), [['refined', null, true], ['refined', null, true]])
+  assert.deepEqual(done.rows.map(row => row.status), ['Fixed', 'Fixed'])
+  assert.deepEqual(done.note, [])
+})
+
+test('after a give-back, the health summary names it as the board\'s own work, and the card that still names the step is no fault until its clear', async t => {
+  const one = await garden(t, mapOf(held()))
+  await workApi({ action: 'advance', id: 'B12', to: 'refined', giveBack: { chat: 'Worker 1', why: giveBackWords('Worker 1', at(5)) } }, { dir: one.dir, now: at(20), prefix: '', as: 'server' })
+  const store = await readStore(one.dir)
+  const text = healthSummary(buildView({ state: { chats: [{ name: 'Lead', isMain: true, isLeftover: false, state: 'working', isRunning: true }], chatPrefix: '', today: [], limits: {} }, items: store.items, now: at(21) }), at(21))
+  assert.match(text, /- B12 refined: given back by the board from Worker 1 at 10:20; the next free worker continues it from its checkpoint, no incident: Hang the gate/)
+  const card = { name: 'Worker 1', state: 'free', isMain: false, isLeftover: false, isRunning: true, lastActivityAt: at(20), task: { source: 'plan', stepId: 'B12', text: 'B12' } }
+  const flags = reconcile({ store, flow: store.flow, lanes: [card], now: at(21), times: { graceMs: 10 * MIN, askMs: 60 * MIN, idleMs: 5 * MIN }, prefix: '' }).flags
+  assert.deepEqual(flags.filter(flag => flag.kind === 'card'), [])
 })
 
 test('the outbox sweep keeps the waiting line while its worker holds the step, and drops it once the step left it (mutant: the sweep dropping it)', () => {

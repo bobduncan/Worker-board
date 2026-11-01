@@ -3,7 +3,7 @@
 // steps to deliver (a wake: the chat's own `take` moves queued → taken), and the flags the board shows. It moves
 // nothing itself and never invents a move the flow does not allow; a file it cannot read is named, not moved.
 
-import { GIVE_GUARD, flowHandsOut, mayMove, statesOf } from './flow.mjs'
+import { GIVE_BACK_GUARD, GIVE_GUARD, flowHandsOut, mayMove, statesOf } from './flow.mjs'
 import { blockersOpen, overlapsIn, waitWords } from './guards.mjs'
 import { HAND_OUT_DEFAULTS, idleWorkers, oldQueued, readyList, strandedGives, workerStart } from './handOut.mjs'
 import { NET_MS } from './handover.mjs'
@@ -12,6 +12,7 @@ import { askFiledMs, fixFirst, sinceMs, valueOf } from './item.mjs'
 import { PARTNER_AGAIN_MS, PARTNER_ANSWER_MS, isRoutedToPartner } from './partnerAnswers.mjs'
 import { isHolding } from './pause.mjs'
 import { REST_GUARD, REST_MS, flowRests, openAskIds, restsFree } from './parked.mjs'
+import { givenBackOf } from './holderTimers.mjs'
 import { NOT_MERGED, backWordsOf } from './resultCheck.mjs'
 
 /** The states in which a step is its Owner's work now. */
@@ -247,6 +248,9 @@ export function reconcile({ store, flow = store.flow, lanes = [], now, times, pr
     const owner = item === undefined ? null : valueOf(item, 'Owner')
     const isMine = owner !== null && plain(owner, prefix) === plain(lane.name, prefix)
     if (item !== undefined && kindOf(item) === 'step' && HOLDS.includes(stateOf(item)) && isMine) continue
+    // Signals change 3: a card that still names the step the board gave back from this chat: its owed clear clears the card
+    // (clearOwed.mjs reads the give-back), so it is no fault meanwhile.
+    if (item !== undefined && plain(givenBackOf(item).at(-1)?.chat ?? '', prefix) === plain(lane.name, prefix)) continue
     const what = item === undefined ? `the store has no ${id}` : `${id} is ${stateOf(item)}${owner !== null && !isMine ? ` for ${laneOf(owner)?.name ?? owner}` : ''}`
     flags.push({ kind: 'card', id, chat: lane.name, text: `${whose(lane.name)} card says ${id} but ${what}`, button: null })
   }
@@ -260,7 +264,8 @@ export function reconcile({ store, flow = store.flow, lanes = [], now, times, pr
       if (!by.includes('server') || move.to === 'taken' || move.to === from || (move.from !== from && move.from !== '*')) continue
       // Redesign Part 2: a move to or from queued is the hand-out's (it names its worker; work/handOut.mjs). B567: the
       // move of a step whose worker rests reads the lanes, above.
-      if (move.to === 'queued' || move.from === 'queued' || move.when === REST_GUARD) continue
+      // Signals change 3: the give-back is the hand-over's and the owner-gone repair's (the work API's give-back path), never a refresh's.
+      if (move.to === 'queued' || move.from === 'queued' || move.when === REST_GUARD || move.when === GIVE_BACK_GUARD) continue
       // This move's own guard (mayMove holds when any of the server's moves to that state does: the review of the
       // incident fixes, where the queue of a fix was named under B303's move, without a worker).
       if (!mayMove({ ...flow, [kind]: { ...flow[kind], moves: [move] } }, item, move.to, 'server', { store: { items }, freeChats: new Set(), now, overlaps, hasPartner, prefix }).ok) continue
