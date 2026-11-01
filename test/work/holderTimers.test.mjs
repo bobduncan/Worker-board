@@ -366,3 +366,63 @@ test('the retired rules\' open incidents are closed by the board\'s pass, with o
   assert.match((await one.read('X1')).sections.get('History').at(-1), /server: closed: the rule unknown-lane is retired \(signals change 3\)/)
   assert.deepEqual((await workApi({ action: 'incidents-fixed' }, { dir: one.dir, now: at(1), prefix: '', as: 'server' })).result.closed, [], 'once')
 })
+
+// ---- The lead's review: at most two "go on" lines per holder and step.
+
+/** Lines 1 (at 5, spell from 10:00) and 2 (at 11:30, after a short turn at 10:06), as the board wrote them. */
+function twoLines() {
+  const first = written(decideAt(5), 'e1', at(5))
+  const afterShort = stopped(at(11.5), { turnAt: at(6), report: { state: 'idle', since: at(6.5), background: false, at: at(11.5) } })
+  assert.equal(decideAt(11.4, { envelopes: [first], worker: afterShort }).envelope, null)
+  const due = decideAt(11.5, { envelopes: [first], worker: afterShort })
+  assert.equal(due.envelope?.resume, resumeMarker('B12', at(6.5)), 'a short turn after the first line: a second line')
+  return [first, written(due, 'e2', at(11.5))]
+}
+/** Worker 1 after a turn from `from` to `to` (minutes), heard at `now`. */
+const turned = (from, to, now) => stopped(at(now), { turnAt: at(from), report: { state: 'idle', since: at(to), background: false, at: at(now) } })
+
+test('the cap: a third short turn gets no third line, and the give-back comes 15 min after the second line (mutant: no cap)', () => {
+  const lines = twoLines()
+  for (const minutes of [17.5, 20, 26.4]) {
+    const later = decideAt(minutes, { envelopes: lines, worker: turned(12, 12.5, minutes) })
+    assert.equal(later.envelope, null, `minute ${minutes}`)
+    assert.equal(later.asked, at(11.5))
+    assert.equal(later.giveBack, null)
+  }
+  const due = decideAt(26.5, { envelopes: lines, worker: turned(12, 12.5, 26.5) })
+  assert.deepEqual(due.giveBack, { step: 'B12', chat: 'Worker 1', askedAt: at(11.5) })
+  assert.equal(due.close, 'e2')
+  // An answered ask after the second line starts nothing anew either.
+  const answer = item({ Id: 'Q1', Kind: 'ask', Title: 'Which hinge?', State: 'answered', Owner: 'Worker 1', Since: stamp(at(14)) })
+  assert.equal(decideAt(26.5, { items: mapOf(held(), answer), envelopes: lines, worker: turned(12, 12.5, 26.5) }).giveBack?.step, 'B12')
+  // The count is the History too: an outbox that let the lines go keeps no third from coming.
+  const noted = held({}, [`- ${stamp(at(-30))} Worker 1: queued → taken`, `- ${stamp(at(5))} server: ${goOnWords('Worker 1', T0)}`, `- ${stamp(at(11))} server: ${goOnWords('Worker 1', at(6.5))}`])
+  const fromHistory = decideAt(30, { items: mapOf(noted), worker: turned(12, 12.5, 30) })
+  assert.deepEqual([fromHistory.envelope, fromHistory.giveBack?.askedAt], [null, at(11)])
+  // Another holder of the same step later (taken anew) starts its own count.
+  const retaken = held({ Owner: 'Worker 2', Since: stamp(at(40)) }, [...noted.sections.get('History'), `- ${stamp(at(40))} Worker 2: queued → taken`])
+  assert.equal(decideAt(46, { items: mapOf(retaken), worker: { ...stopped(at(46)), name: 'Worker 2', report: { state: 'idle', since: at(40.5), background: false, at: at(46) } } }).envelope?.kind, RESUME_KIND)
+})
+
+test('the cap: a checkpoint after the second line starts the 15 minutes anew, and still no third line', () => {
+  const lines = twoLines()
+  const items = mapOf(held({ Checkpoint: checkpointLine({ commit: 'def5678', next: 'paint it', now: at(15) }) }))
+  assert.deepEqual([decideAt(26.5, { items, envelopes: lines }).giveBack, decideAt(26.5, { items, envelopes: lines }).envelope], [null, null])
+  assert.equal(decideAt(29.9, { items, envelopes: lines }).giveBack, null)
+  assert.equal(decideAt(30, { items, envelopes: lines }).giveBack?.step, 'B12')
+})
+
+test('the cap: a busy spell of 3 min after the second line starts the 15 minutes anew; one of 1 min does not', () => {
+  const lines = twoLines()
+  // Busy from 10:12 to 10:15: the give-back counts from 10:15.
+  assert.equal(decideAt(26.5, { envelopes: lines, worker: turned(12, 15, 26.5) }).giveBack, null)
+  assert.equal(decideAt(30, { envelopes: lines, worker: turned(12, 15, 30) }).giveBack?.step, 'B12')
+  // Busy from 10:12 to 10:13: no reset, 15 minutes after the second line.
+  assert.equal(decideAt(26.5, { envelopes: lines, worker: turned(12, 13, 26.5) }).giveBack?.step, 'B12')
+  // While it is busy (lane Working) nothing happens at all.
+  assert.equal(decideAt(27, { envelopes: lines, worker: stopped(at(27), { state: 'working', report: { state: 'busy', since: at(25), background: false, at: at(27) } }) }).giveBack, null)
+  // A busy report heard for 3 min after the second line, then silence (its process ended): from its last report.
+  const cut = stopped(at(30), { state: 'unknown', isRunning: null, report: { state: 'busy', since: at(12), background: false, at: at(15) } })
+  assert.equal(decideAt(29.9, { envelopes: lines, worker: cut }).giveBack, null)
+  assert.equal(decideAt(30, { envelopes: lines, worker: cut }).giveBack?.step, 'B12')
+})

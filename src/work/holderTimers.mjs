@@ -4,7 +4,8 @@
 // `decide`, rule 2) runs two timers for a holder on the sequence that stopped:
 //
 // - after `resumeAfterMinutes` (5) of the board's running time: ONE "go on" line per stopped spell, built from the step's
-//   checkpoint and branch, as a back-like envelope (step null, a `resume` marker that makes it once per spell);
+//   checkpoint and branch, as a back-like envelope (step null, a `resume` marker that makes it once per spell); at most
+//   GO_ON_MOST (2) per holder and step, after which only a checkpoint or a busy spell over 2 minutes resets the count;
 // - `giveBackAfterMinutes` (15) after that line was written with no progress: the give-back (giveBack.mjs, the seam: the
 //   store's move waits for the person's yes on flow.json).
 //
@@ -145,6 +146,30 @@ export function givenBackFrom(items, name, prefix = '') {
   return found.sort((a, b) => a.at - b.at)
 }
 
+/** The lead's review (2026-11-01): the most "go on" lines one holder gets for one step (a constant, no setting). */
+export const GO_ON_MOST = 2
+/** After the last line, a busy spell longer than this starts the give-back's 15 minutes anew (a shorter one does not). */
+export const LONG_BUSY_MS = 2 * MIN
+
+/** When the step's History says the board asked holder `name` to go on since `from` (its take), oldest first. */
+function goOnsOf(item, name, prefix, from) {
+  return historyOf(item).map(line => GO_ON_LINE.exec(line)).filter(hit => hit !== null && plain(hit[2], prefix) === plain(name, prefix))
+    .map(hit => sinceMs(hit[1])).filter(at => finite(at) && !(at < from))
+}
+
+/**
+ * The worker's last busy spell that began after `at`, from its lane: `{ ms, end }`, or null. A turn begun after it
+ * (`turnAt`) that ended (its report idle, or its session ended, since then), or a busy report begun after it (heard last
+ * at `report.at`).
+ */
+function busySpellAfter(worker, at) {
+  const report = worker.report ?? null
+  const turnAt = worker.turnAt
+  if (finite(turnAt) && turnAt > at && ['idle', 'ended'].includes(report?.state) && finite(report.since) && report.since >= turnAt) return { ms: report.since - turnAt, end: report.since }
+  if (report?.state === 'busy' && finite(report.since) && report.since > at && finite(report.at)) return { ms: report.at - report.since, end: report.at }
+  return null
+}
+
 /**
  * The two timers of one holder (rule 2 of the decision), or null when none runs: its lane works (fresh busy, background
  * work, a wait for the partner: lane state working) or waits for the person, the step is not taken or in progress, an ask
@@ -187,6 +212,20 @@ export function holderTimers({ worker, holding, items = new Map(), prefix = '', 
 
   const mine = envelopes.filter(one => one?.kind === RESUME_KIND && markerStep(one.resume) === id && finite(one.at))
   const asked = mine.at(-1) ?? null
+  // The lead's review (2026-11-01): at most GO_ON_MOST lines per holder and step (since its take). After the last one the
+  // give-back's 15 minutes count whatever short turns come: only a checkpoint after it, or a busy spell of over
+  // LONG_BUSY_MS after it, starts them anew, and no further line goes.
+  const noted = goOnsOf(holding, name, prefix, takenAt)
+  const sent = mine.filter(one => !finite(takenAt) || one.at >= takenAt)
+  if (Math.max(noted.length, sent.length) >= GO_ON_MOST) {
+    // The last line's time: its envelope, else (an outbox that let it go) the History's line.
+    const lastAt = Math.max(-Infinity, ...[asked?.at, noted.at(-1)].filter(finite))
+    const checkpointAt = checkpointOf(holding)?.at
+    const busy = busySpellAfter(worker, lastAt)
+    const from = Math.max(lastAt, ...[checkpointAt, busy !== null && busy.ms > LONG_BUSY_MS ? busy.end : null].filter(at => finite(at) && at > lastAt))
+    const isOver = runningMs(afterPause(pause, from)) >= giveBackMs
+    return { since, asked: lastAt, resume: null, giveBack: isOver ? { step: id, chat: name, askedAt: lastAt } : null, close: isOver && asked?.state === 'waiting' ? asked.id : null }
+  }
   const workedAfter = at => progressAt > at || (finite(worker.turnAt) && worker.turnAt > at)
     || (report?.state === 'idle' && finite(report.since) && report.since > at) || (report?.state === 'busy' && finite(report.at) && report.at > at)
   if (asked !== null && !workedAfter(asked.at)) {
