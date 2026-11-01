@@ -4661,6 +4661,11 @@ decides on, **status** is what the pill shows.
   when no `statuses` arrived for 120 s, and then the line says "(board not reached)". A board that answers without `statuses`
   (an older board) gives today's line with no mark; a chat outside the list (goal management, overview, board development,
   the token chat) has no mark.
+  The chat tool's list (`chatsSummary`), the "Recorded. The list shows" line and the pane's redraw check show the same words.
+  The mark follows the status (● at work, ◆ the main chat, ◐ the person's turn, ◌ moving on without the person, ○ at rest or not
+  running), bold for the board's attention tone only (no theme colour: the mod knows no token that is not amber or red). On a null
+  take (board down, a 409 after a rename) `off` empties at once as before, while the statuses stand 120 s. `off` stays in the
+  take answer for one more release.
 - **Checked by** `test/chatStatus.test.mjs` (one test per row and per rule, then the mutants: Unknown after a clear, two
   statuses on one lane, Free for a HELD worker, Working for asleep-with-a-step, the age from another clock),
   `test/chatStatus.state.test.mjs` (through `buildState`; the status fed into `idleWorkers` changes nothing) and
@@ -5076,6 +5081,13 @@ with these readings of it:
 - A turn's end the board answered late: the reported step's decision (`clearWhenAnswered`) reads the late answer's
   `handover` itself; any other worker's turn's end carries an envelope the late answer brings.
 - A worker whose last turn's end was answered with `handover` sends no `pull`; one answered without it pulls as before.
+
+**Rollout of Workers mod 0.28.0** (signals change 2c and the Product owner fix; the release note is plugin.json's description).
+Workers on the hand-over sequence restart onto it through the hand-over's RESTARTING envelope, one after another between their
+tasks. The main chat, the Advisor, its helper, the Supervisor and the Product owner are no workers on the sequence: they come onto
+it through the old rollout words (src/oldMods.mjs: the main chat restarts them), so until then they keep their 0.27.3 panes, and
+the Product owner's compaction at rest (list.json `owner`, or a role the board named before) takes effect only after that
+restart. Nothing changes for the board's decisions: the take answer's `statuses` is display only.
 
 ## What it does not do
 

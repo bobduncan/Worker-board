@@ -6,12 +6,12 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, FsEntry, Register, Timer } from 'claude-code'
 
-import type { BoardRole, ChatFile, ChatList, ChatRole, ChatRow, ChatsView, FolderRow, FoldersView } from '../types'
+import type { BoardRole, BoardStatus, ChatFile, ChatList, ChatRole, ChatRow, ChatsView, FolderRow, FoldersView } from '../types'
 import { BOARD_FILE, BOARD_NOTE, LAUNCH_FILE, MOD_HEADER, MOD_VERSION, MOST_CHARS, NO_OUTCOME, REPORT_PATH, REQUEST_HEADER, TAKE_PATH, TYPED_PATH, WHOAMI_PATH, WORK_ACTIONS, WORK_FIELDS, WORK_PATH, boardStarts, isPaused, parseBoard, parseHandover, parsePause, parseTaken, parseWhoami, pauseContexts, shownName, stopLine, typedWhy } from './board'
 import type { Board, BoardStart, Envelope, Handover, Outcome, OwedClear, PauseState, PauseWhere, StopAsk, TurnReport, Whoami } from './board'
 import {
-  BEAT_MS, CHATS_DIR, NOT_RUNNING, LEFT_MAX_SIZE, LEFT_TEXT, LIST_FILE, afterTurn, atTurnStart, chatNote, clearWhy, clearedStart, compactKeep, compactWhy, chatText, chatsSummary, fileName,
-  cardStep, foldersAbove, formAnswer, formQuestions, hasLeft, instructionsLine, isAgentId, isFiled, modNote, movedText, nameFromTitle, openFrom, orderChats, parseChat, personsWords, parseList, recordedLine, roleFrom, sessionOf, status, uniqueByName,
+  BEAT_MS, CHATS_DIR, LEFT_MAX_SIZE, LEFT_TEXT, LIST_FILE, afterTurn, atTurnStart, chatNote, clearWhy, clearedStart, compactKeep, compactWhy, chatText, chatsSummary, fileName,
+  boardReading, cardStep, foldersAbove, formAnswer, formQuestions, hasLeft, instructionsLine, isAgentId, isFiled, isOwnerChat, lineOf, modNote, movedText, nameFromTitle, openFrom, orderChats, parseChat, personsWords, parseList, recordedLine, roleFrom, roleOrOwner, sessionOf, uniqueByName,
   unfiledAsk, withDone, withPlan, withSend, withState, withStep, workCard,
 } from './chats'
 import type { OpenInstruction, TaskChange } from './chats'
@@ -87,6 +87,18 @@ let reportRun = 0
 let reportSeq = 0
 /** B738: the chats the board's last answer to a take named as not running; empty when it did not answer. */
 let boardOff: string[] = []
+/**
+ * 2c (0.28.0): the board's status of every chat of its list, as its last answer to a take gave them, and when that was. A take
+ * the board does not answer (down, or a 409 after a rename) empties `boardOff` at once, as before, but the statuses are kept
+ * for 120 s (chats.ts `boardReading`): a board that blinks must not turn every line to the pane's own reading and back.
+ */
+let boardStatuses: BoardStatus[] = []
+let statusesAt: number | null = null
+/** 2c: when the board last answered a take without statuses (an older board): its lines are today's, with no mark. */
+let answeredAt: number | null = null
+/** 2c: when this process first looked at the list (the 120 s of a fresh chat count from here), and whether it has read a board file. */
+let bootAt: number | null = null
+let isBoardKnown = false
 let openForms = 0
 /** The popup asks this chat filed (popup.ts), by the call's tool_use_id, the ask's id once the board gave it, until closed. */
 const openPopups = new Map<string, Promise<string | null>>()
@@ -392,7 +404,7 @@ async function readChats($: EngineInterface): Promise<ChatRow[]> {
 
 /** What the pane shows of a reading: who is listed and each line's words, not the times the files were written. */
 function shown(view: ChatsView): string {
-  return JSON.stringify([view.me, view.rows.map(row => [row.id, row.name, status(row, view.rows, view.now, view.off)])])
+  return JSON.stringify([view.me, view.reading ?? 'plain', view.rows.map(row => [row.id, row.name, lineOf(row, view.rows, view.now, view.off, view)])])
 }
 
 /**
@@ -401,7 +413,10 @@ function shown(view: ChatsView): string {
  */
 async function loadChats($: EngineInterface): Promise<ChatsView> {
   const rows = await readChats($)
-  const next: ChatsView = { me: await $.session.id(), now: await $.clock.now(), rows, off: boardOff }
+  const now = await $.clock.now()
+  bootAt ??= now
+  const reading = boardReading({ now, bootAt, statusesAt, answeredAt, isMember: myself !== null, isBoardKnown })
+  const next: ChatsView = { me: await $.session.id(), now, rows, off: boardOff, statuses: boardStatuses, statusesAt, reading }
   const before = await read($, chatsAtom)
   if (shown(before) !== shown(next)) await update($, chatsAtom, () => next)
   return next
@@ -944,12 +959,22 @@ async function takeFromBoard($: EngineInterface): Promise<void> {
     const project = chatsDir.slice(0, chatsDir.length - CHATS_DIR.length - 1)
     const board = parseBoard(await $.fs.read(inFolder(project, BOARD_FILE)))
     if (board === null) return
+    isBoardKnown = true
     const answer = await askBoard($, board, TAKE_PATH)
     // B738: a board that does not answer leaves the list as the files say; the list reads this, never waits for the board.
     const taken = answer === null ? null : parseTaken(answer)
     const off = taken === null ? [] : taken.off
+    // 2c: the board's statuses of its chats, kept with the time they came. A null take (board down, a 409 after a rename) empties
+    // `boardOff` at once, as before, but leaves the statuses to stand for 120 s (`boardReading`). An answer without statuses is an
+    // older board's: today's line, no mark.
+    let isFirstStatuses = false
+    if (taken !== null && taken.statuses !== null) {
+      isFirstStatuses = statusesAt === null
+      boardStatuses = taken.statuses
+      statusesAt = now
+    } else if (taken !== null && taken.isAnswer) answeredAt = now
     // The pane is drawn again when the board's verdict changed, not at every take.
-    if (JSON.stringify(off) !== JSON.stringify(boardOff)) {
+    if (JSON.stringify(off) !== JSON.stringify(boardOff) || isFirstStatuses) {
       boardOff = off
       void refreshChats($)
     }
@@ -1044,9 +1069,11 @@ async function tell($: EngineInterface, text: string): Promise<void> {
  * `compactWhy`). It says in one line what it did, and keeps the sizes in the chat's file for the board. A
  * compaction that is refused, or that cannot run, leaves the conversation as it is.
  */
-async function compactAfter($: EngineInterface, at: { moreFollows: boolean }, role: BoardRole | null = null): Promise<void> {
+async function compactAfter($: EngineInterface, at: { moreFollows: boolean }, given: BoardRole | null = null): Promise<void> {
   // Clear after each step: a worker after its reported task; the main chat and the partners while they rest.
-  const isWorker = role === null || role === 'worker'
+  // 0.28.0: a role-less call is a worker's only when this chat is not known to be the Product owner (read below with the list).
+  let role = given
+  let isWorker = role === null || role === 'worker'
   // B227: every way out says why on the chat's card, so the board and the main chat can see it; the unexpected ones
   // also in one line on the screen.
   const note = async (why: string, isExpected = false): Promise<void> => {
@@ -1063,6 +1090,10 @@ async function compactAfter($: EngineInterface, at: { moreFollows: boolean }, ro
   const list = parseList(await $.fs.read(inFolder(dir, LIST_FILE)).catch(() => ''))
   const chat = await readChat($, dir, await $.session.id())
   if (list === null || chat === null) return note('the list of chats or this chat\'s card could not be read')
+  if (role === null && isOwnerChat(list, chat, lastRole)) {
+    role = 'owner'
+    isWorker = false
+  }
   const before = await sizeNow($).catch(() => null)
   const why = compactWhy(chat, { ...at, tokens: before, above: list.compactAbove ?? 0, role, afterStep: list.afterStep })
   if (why !== null || before === null) return note(why ?? 'its size is not known', /small enough|main chat|switched off/.test(why ?? ''))
@@ -1201,9 +1232,11 @@ async function busyWhy($: EngineInterface): Promise<string | null> {
 async function whenTurnEnds($: EngineInterface, f: { isReported: boolean; moreFollows: boolean; step: string | null; answer: string; ended: Record<string, unknown> | null; asked: boolean; retry: EndedRetry | null }): Promise<void> {
   const dir = await findChatsDir($)
   if (dir === null) return
-  const role = roleFrom(f.ended)
   const list = parseList(await $.fs.read(inFolder(dir, LIST_FILE)).catch(() => ''))
   const chat = await readChat($, dir, await $.session.id())
+  // 0.28.0: the Product owner is never a worker, also when the board's answer names no role (an older board): the list names it,
+  // or the board named it before.
+  const role = roleOrOwner(f.ended, list, chat, lastRole)
   if (role === 'supervisor' || (role === null && isSupervisorOf(list, chat))) return clearSupervisor($, chat)
   if ((role ?? chat?.role ?? 'worker') === 'worker') {
     // T8.5: a board slow to answer may still bring its envelope in that answer: carried out when it comes (the decision on
@@ -1257,7 +1290,7 @@ async function clearWhenAnswered($: EngineInterface, c: { list: ChatList; chat: 
     isDecidingClear = false
   }
   try {
-    const role = roleFrom(ended)
+    const role = roleOrOwner(ended, c.list, c.chat, lastRole)
     // T8.5: the late answer carries the board's hand-over: no clear of the mod's own; its envelope, if any, is carried out.
     const handover = parseHandover(ended)
     if (handover !== null) {
@@ -1289,7 +1322,7 @@ let lastOwedTry = -Infinity
  * after the resume.
  */
 async function clearOwed($: EngineInterface, owed: OwedClear): Promise<void> {
-  if (isInTurn || isCommandTurn || clearing !== null || isDecidingClear || myself?.role !== 'worker') return
+  if (isInTurn || isCommandTurn || clearing !== null || isDecidingClear || myself?.role !== 'worker' || lastRole === 'owner') return
   const now = await $.clock.now()
   if (now - lastOwedTry < OWED_AGAIN_MS) return
   lastOwedTry = now
@@ -2102,7 +2135,7 @@ async function moveCardFromBoard($: EngineInterface, dir: string, list: ChatList
   if (own !== null) return
   const old = await readChat($, dir, who.card)
   if (old === null || old.name.toLowerCase() !== who.name.toLowerCase()) return
-  lastRole = who.role ?? (isSupervisorOf(list, old) ? 'supervisor' : old.role === 'main' ? 'main' : 'worker')
+  lastRole = who.role ?? (isSupervisorOf(list, old) ? 'supervisor' : isOwnerChat(list, old) ? 'owner' : old.role === 'main' ? 'main' : 'worker')
   carried = { from: who.card, chat: old, clearing: markOf(old, who.card, await $.clock.now()) }
   // The words stand ready once the card has moved; the board's answer after it does not hold a prompt (as in prompt.submit).
   await withinTime($, moveAfterClear($), MOVE_WAIT_MS)
@@ -2154,7 +2187,7 @@ async function setTask($: EngineInterface, change: (chat: ChatFile) => TaskChang
   const chats = await loadChats($)
   const me = chats.rows.find(row => row.id === chats.me)
 
-  return me === undefined ? 'Recorded.' : `Recorded. The list shows: ${status(me, chats.rows, chats.now, chats.off).text}`
+  return me === undefined ? 'Recorded.' : `Recorded. The list shows: ${lineOf(me, chats.rows, chats.now, chats.off, chats).text}`
 }
 
 /** A number the model gave, which may arrive as text; undefined when it gave none. */
@@ -2366,7 +2399,7 @@ async function chatLines($: EngineInterface): Promise<string> {
     const chats = await loadChats($)
     ensureChatWatch($)
 
-    return chatsSummary(chats.rows, chats.now, chats.off)
+    return chatsSummary(chats.rows, chats.now, chats.off, chats)
   } catch (err) {
     return `The list of chats could not be read (${reason(err)}).`
   }
@@ -2786,7 +2819,7 @@ export const register: Register = on => {
     }
     const chats = await loadChats($)
 
-    return { result: chatsSummary(chats.rows, chats.now, chats.off) + supervisorLine() }
+    return { result: chatsSummary(chats.rows, chats.now, chats.off, chats) + supervisorLine() }
   })
 
   // B297: the work tool: each call goes to the worker board as this chat; take and step keep the card as the chat tool does.
@@ -2899,7 +2932,7 @@ export const register: Register = on => {
     return (
       <Box flexDirection="column">
         {chats.rows.map(chat => {
-          const { mark, text, isYours } = status(chat, chats.rows, chats.now, chats.off)
+          const { mark, text, isBold, notReached } = lineOf(chat, chats.rows, chats.now, chats.off, chats)
           // B570: the chat's Workers mod, and when the board has it restarted onto a newer one.
           const mod = modNote(chat, chats.rows, chats.now)
 
@@ -2908,7 +2941,8 @@ export const register: Register = on => {
               {`${mark} `}
               <Text bold={chat.id === chats.me}>{chat.name}</Text>
               {'  '}
-              <Text bold={isYours} dimColor={text === 'free' || text === NOT_RUNNING}>{text}</Text>
+              <Text bold={isBold}>{text}</Text>
+              {notReached ? <Text dimColor>{'  (board not reached)'}</Text> : null}
               {mod === null ? null : <Text dimColor>{`  ${mod}`}</Text>}
             </Text>
           )

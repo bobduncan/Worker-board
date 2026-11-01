@@ -1,11 +1,12 @@
 import { describe, expect, test } from 'claude-code/testing'
 
-import type { ChatFile, ChatTask } from '../types'
+import type { BoardReading, BoardStatus, ChatFile, ChatTask } from '../types'
 import {
   LEFT_MAX_SIZE, LEFT_TEXT, STALE_MS, afterTurn, asksPerson, atTurnStart, chatLine, chatNote, compactKeep, compactWhy, chatText, chatsSummary, fileName, foldersAbove, hasLeft,
   isAgentId, nameFromTitle, orderChats, parseChat, parseList, sessionOf, status, timeText, uniqueByName, withDone, withPlan,
   withSend, withState, withStep, workCard, instructionsLine, isFiled, openFrom, personsWords, recordedLine,
   clearWhy, clearedStart, movedText, roleFrom, unfiledAsk, isOlderMod, modNote,
+  STATUS_FRESH_MS, boardReading, isOwnerChat, lineOf, roleOrOwner, statusLabel, statusMark,
 } from './chats'
 
 const MIN = 60000
@@ -551,5 +552,129 @@ describe('B298: the instructions of the person, as the chat is told of them', ()
     expect(recordedLine([], [{ id: 'I1', turns: 1 }, { id: 'I2', turns: 0 }])).toBe('Still open from earlier turns: I1 (missed 1 turn).')
     expect(openFrom({ open: [{ id: 'I1', turns: 2 }, { id: 3 }, 'x', { id: 'I2' }] })).toEqual([{ id: 'I1', turns: 2 }, { id: 'I2', turns: 0 }])
     expect(openFrom({ text: 'no list' })).toBeNull()
+  })
+})
+
+describe('2c (0.28.0): the pane shows the board\'s status', () => {
+  const entry = (name: string, statusName: string, more: Partial<BoardStatus> = {}): BoardStatus => (
+    { name, status: statusName, why: null, tone: 'quiet', since: null, reportAt: NOW - 2000, ...more }
+  )
+  const all = [chat('Main', 'waiting', null, 'main'), chat('Units', 'working', task('Skeleton Archer', 3, 5, 40)), chat('Props', 'waiting', task('Props', 1, 2, 10)), chat('Cleanup', 'waiting')]
+  const rows = all.map((c, i) => ({ ...c, id: String(i) }))
+  const board = (statuses: BoardStatus[], reading: BoardReading = 'board'): { statuses: BoardStatus[]; reading: BoardReading } => ({ statuses, reading })
+  const line = (name: string, facts: { statuses: BoardStatus[]; reading: BoardReading }) => lineOf(all.find(c => c.name === name) as ChatFile, all, NOW, [], facts)
+
+  test('the line follows the board\'s status: its mark, the status, then today\'s task text', () => {
+    const facts = board([entry('Units', 'Working'), entry('Props', 'Waiting for you', { tone: 'attention' }), entry('Cleanup', 'Free'), entry('Main', 'Free')])
+    expect(line('Units', facts)).toEqual({ mark: '●', text: 'Working  Skeleton Archer · 3 of 5 · ~40 min', isYours: false, isBold: false, notReached: false })
+    expect(line('Props', facts)).toEqual({ mark: '◐', text: 'Waiting for you  Props · 1 of 2', isYours: true, isBold: true, notReached: false })
+    expect(line('Cleanup', facts)).toEqual({ mark: '○', text: 'Free', isYours: false, isBold: false, notReached: false })
+    expect(line('Main', facts)).toEqual({ mark: '◆', text: 'Free  waiting for 2 workers', isYours: false, isBold: false, notReached: false })
+  })
+
+  test('the board\'s status wins over the pane\'s own reading: a chat the card calls free reads the board\'s Not running, bold', () => {
+    // Its own reading says "free"; the board says Not running (attention): bold, never dim, the board's words.
+    const facts = board([entry('Cleanup', 'Not running', { tone: 'attention', why: 'its chat is closed' })])
+    expect(line('Cleanup', facts)).toEqual({ mark: '○', text: 'Not running · its chat is closed', isYours: false, isBold: true, notReached: false })
+    // A chat the card says is running reads what the board says of it (Stopped), not "working".
+    expect(line('Units', board([entry('Units', 'Stopped', { why: 'cut off by a restart' })])).text).toStartWith('Stopped · cut off by a restart')
+  })
+
+  test('the tone maps to bold: attention bold, quiet plain, whatever the status', () => {
+    for (const [tone, bold] of [['attention', true], ['quiet', false]] as const) expect(line('Units', board([entry('Units', 'Held', { tone })])).isBold).toBe(bold)
+  })
+
+  test('the mark by status', () => {
+    const marks: Array<[string, ChatFile['role'], string, boolean]> = [
+      ['Working', 'worker', '●', false], ['Working', 'main', '◆', false], ['Waiting for you', 'worker', '◐', true],
+      ['Checking', 'worker', '◌', false], ['Handing', 'worker', '◌', false], ['Offered', 'worker', '◌', false], ['Held', 'worker', '◌', false],
+      ['Did not answer', 'worker', '◌', false], ['Paused', 'worker', '◌', false], ['Restarting', 'worker', '◌', false], ['Stopped', 'worker', '◌', false],
+      ['Free', 'worker', '○', false], ['Free', 'main', '◆', false], ['Asleep', 'worker', '○', false], ['Asleep', 'main', '◆', false],
+      ['Not running', 'worker', '○', false], ['Not running', 'main', '○', false], ['Unknown', 'worker', '○', false], ['Unknown', 'main', '○', false],
+    ]
+    for (const [name, role, mark, isYours] of marks) expect([name, role, statusMark(name, role)]).toEqual([name, role, { mark, isYours }])
+  })
+
+  test('the status words as the board\'s page says them: why, an age over 10 s, Unknown and Asleep', () => {
+    expect(statusLabel(entry('A', 'Working', { reportAt: NOW - 9000 }), NOW)).toBe('Working')
+    expect(statusLabel(entry('A', 'Working', { reportAt: NOW - 25_000 }), NOW)).toBe('Working · 25 s ago')
+    expect(statusLabel(entry('A', 'Working', { reportAt: NOW - 25_000, why: 'waits for the partner' }), NOW)).toBe('Working · waits for the partner · 25 s ago')
+    expect(statusLabel(entry('A', 'Free', { reportAt: NOW - 3 * MIN }), NOW)).toBe('Free · 3 min ago')
+    expect(statusLabel(entry('A', 'Free', { reportAt: null }), NOW)).toBe('Free')
+    expect(statusLabel(entry('A', 'Unknown', { reportAt: NOW - 40_000 }), NOW)).toBe('Unknown · no report for 40 s')
+    expect(statusLabel(entry('A', 'Unknown', { reportAt: null }), NOW)).toBe('Unknown · no report yet')
+    expect(statusLabel(entry('A', 'Asleep', { since: new Date(2026, 10, 1, 9, 5).getTime() }), NOW)).toBe('Asleep · since 09:05')
+    expect(statusLabel(entry('A', 'Asleep', { why: 'ignored', reportAt: NOW - 90_000 }), NOW)).toBe('Asleep')
+  })
+
+  test('a chat the board names no status for keeps today\'s line; the board\'s names match in any case', () => {
+    expect(line('Units', board([entry('Props', 'Free')])).text).toBe('Skeleton Archer · 3 of 5 · ~40 min')
+    expect(line('Units', board([entry('units', 'Working')])).text).toStartWith('Working')
+  })
+
+  test('falls back to the pane\'s own reading when the reading is not "board"; only "unreached" marks the line', () => {
+    const stale = [entry('Units', 'Not running', { tone: 'attention' })]
+    expect(line('Units', board(stale, 'plain'))).toEqual({ mark: '●', text: 'Skeleton Archer · 3 of 5 · ~40 min', isYours: false, isBold: false, notReached: false })
+    expect(line('Units', board(stale, 'unreached')).notReached).toBe(true)
+    expect(line('Units', board(stale, 'unreached')).text).toBe('Skeleton Archer · 3 of 5 · ~40 min')
+    expect(lineOf(all[1] as ChatFile, all, NOW, [], {})).toEqual({ mark: '●', text: 'Skeleton Archer · 3 of 5 · ~40 min', isYours: false, isBold: false, notReached: false })
+    expect(chatLine(all[1] as ChatFile, all, NOW, [], board(stale, 'unreached'))).toBe('● Units  Skeleton Archer · 3 of 5 · ~40 min  (board not reached)')
+    expect(chatLine(all[1] as ChatFile, all, NOW, [], board(stale, 'plain'))).toBe('● Units  Skeleton Archer · 3 of 5 · ~40 min')
+    // Today's dim test is gone: the old reading of a free chat is unchanged.
+    expect(chatLine(all[3] as ChatFile, all, NOW)).toBe('○ Cleanup  free')
+  })
+
+  test('the chat tool\'s list shows the board\'s status, so the models and the pane agree', () => {
+    const statuses = [entry('Units', 'Working'), entry('Props', 'Held', { tone: 'attention', why: 'its clear did not run' }), entry('Cleanup', 'Free'), entry('Main', 'Free')]
+    expect(chatsSummary(rows, NOW, [], board(statuses)).split('\n')).toEqual([
+      '◆ Main  Free  waiting for 2 workers',
+      '○ Cleanup  Free',
+      '◌ Props  Held · its clear did not run  Props · 1 of 2',
+      '● Units  Working  Skeleton Archer · 3 of 5 · ~40 min',
+    ])
+  })
+
+  test('when the pane reads the board: fresh statuses, a fresh process, an older board, a chat outside the list, a clear that runs', () => {
+    const base = { now: 1_000_000, bootAt: 1_000_000 - 10 * MIN, statusesAt: null as number | null, answeredAt: null as number | null, isMember: true, isBoardKnown: true }
+    // Fresh statuses are the board's.
+    expect(boardReading({ ...base, statusesAt: base.now - 5000 })).toBe('board')
+    expect(boardReading({ ...base, statusesAt: base.now - STATUS_FRESH_MS })).toBe('board')
+    // No statuses for over 120 s, and no board answer either: the pane's own reading, marked.
+    expect(boardReading({ ...base, statusesAt: base.now - STATUS_FRESH_MS - 1 })).toBe('unreached')
+    expect(boardReading({ ...base })).toBe('unreached')
+    // A fresh process is not marked: the 120 s count from its start when none ever arrived.
+    expect(boardReading({ ...base, bootAt: base.now - 60_000 })).toBe('plain')
+    expect(boardReading({ ...base, bootAt: base.now - STATUS_FRESH_MS - 1 })).toBe('unreached')
+    // An older board answers without statuses: today's line, no mark.
+    expect(boardReading({ ...base, answeredAt: base.now - 5000 })).toBe('plain')
+    expect(boardReading({ ...base, answeredAt: base.now - STATUS_FRESH_MS - 1 })).toBe('unreached')
+    // A chat outside the list never takes, and a project with no board has none: no mark.
+    expect(boardReading({ ...base, isMember: false })).toBe('plain')
+    expect(boardReading({ ...base, isBoardKnown: false })).toBe('plain')
+    // While a clear runs no take is made: the statuses stand 120 s, so a clear of a minute or two shows no mark.
+    expect(boardReading({ ...base, statusesAt: base.now - 100_000 })).toBe('board')
+  })
+})
+
+describe('0.28.0: the Product owner is never a worker', () => {
+  test('parseList reads the list\'s "owner"; a blank one is none', () => {
+    expect(parseList('{ "prefix": "Game - ", "main": "Main", "owner": " Product owner " }')?.owner).toBe('Product owner')
+    expect(parseList('{ "prefix": "Game - ", "main": "Main", "owner": "" }')?.owner).toBeUndefined()
+    expect(parseList('{ "prefix": "Game - ", "main": "Main", "owner": 3 }')?.owner).toBeUndefined()
+  })
+
+  test('the owner is the chat the list names or the board named before; never the main chat; the board\'s own word wins', () => {
+    const list = parseList('{ "prefix": "Game - ", "main": "Main", "owner": "Product owner" }')
+    const owner = { name: 'product OWNER', role: 'worker' as const }
+    expect(isOwnerChat(list, owner)).toBe(true)
+    expect(isOwnerChat(list, { name: 'Units', role: 'worker' })).toBe(false)
+    expect(isOwnerChat(list, { name: 'Product owner', role: 'main' })).toBe(false)
+    expect(isOwnerChat(null, { name: 'Units', role: 'worker' }, 'owner')).toBe(true)
+    expect(isOwnerChat(null, { name: 'Units', role: 'worker' }, 'worker')).toBe(false)
+    // No role in the board's answer (an older board): the owner stays the owner; any other chat stays role-less as before.
+    expect(roleOrOwner({}, list, owner)).toBe('owner')
+    expect(roleOrOwner({ pause: null }, list, { name: 'Units', role: 'worker' })).toBeNull()
+    expect(roleOrOwner({ role: 'worker' }, list, owner)).toBe('worker')
+    expect(roleOrOwner({ role: 'supervisor' }, list, owner)).toBe('supervisor')
   })
 })

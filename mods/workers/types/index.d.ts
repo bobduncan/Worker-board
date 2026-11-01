@@ -99,6 +99,11 @@ export type ChatList = {
   compactAtRest?: boolean
   /** The supervisor (spec 2026-10-24): the name of the chat whose sweeps look the board over; cleared after every turn. */
   supervisor?: string
+  /**
+   * 0.28.0: the name of the Product owner's chat. It is compacted at rest, never cleared and never a worker, also when the
+   * board's answer to a turn's end names no role (an older board).
+   */
+  owner?: string
 }
 
 /** Clear after each step: what the mod does with a worker's conversation after its reported step. */
@@ -116,7 +121,27 @@ export type ChatsView = {
   rows: ChatRow[]
   /** B738: the chats the board shows as not running, as its last answer named them; empty without a board. */
   off?: string[]
+  /** 2c (0.28.0): the board's status of each chat as its last answer to a take gave them; none until one did. */
+  statuses?: BoardStatus[]
+  /** 2c: when `statuses` last arrived, in milliseconds; null before. */
+  statusesAt?: number | null
+  /** 2c: which line the pane draws: the board's status, today's own reading, or today's reading marked "(board not reached)". */
+  reading?: BoardReading
 }
+
+/** 2c (0.28.0): one chat's status as the worker board's page draws it, as its answer to a take gives it. */
+export type BoardStatus = {
+  name: string
+  status: string
+  why: string | null
+  /** Attention needs a look (drawn bold); quiet is information. */
+  tone: 'quiet' | 'attention'
+  since: number | null
+  reportAt: number | null
+}
+
+/** 2c: `board`: the board's statuses are fresh; `plain`: today's line with no mark; `unreached`: today's line, marked. */
+export type BoardReading = 'board' | 'plain' | 'unreached'
 
 declare module 'claude-code' {
   interface PluginState {
