@@ -8,7 +8,7 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 
 import { parseConfig } from '../src/config.mjs'
-import { askedStepsOf, recapCardOf, scoreOf, standingAsksOf, tilePictureOf } from '../src/recapCard.mjs'
+import { askedStepsOf, isVerdictAsk, recapCardOf, scoreOf, standingAsksOf, tilePictureOf } from '../src/recapCard.mjs'
 import { recapWaitsOf } from '../src/recaps.mjs'
 import { stamp } from '../src/work/migrate.mjs'
 import { parseItem } from '../src/work/item.mjs'
@@ -157,6 +157,27 @@ test('"Waits for your verdict" before any recap exists links to the step, never 
   const off = asSent(build([task(1), askFor(1)], undefined, goals(1)))
   assert.notEqual(off.focus.parts[0].state, 'verdict')
   assert.equal(off.recapCard, null)
+})
+
+test('a worker\'s own question mid-build is no verdict: a step waiting on you with a blocking decide gives no card; a step in review whose decide approves or sends back does', () => {
+  const step = state => parseItem(`Id: B1\nKind: step\nTitle: Plant the hedge\nState: ${state}\nOwner: Digger\nGoal: G6\nSince: ${sinceOf(NOW - 90 * MIN)}\n`)
+  const hedge = open('Q30', { Title: 'Which hedge do you want?', Asks: 'decide', Of: 'B1', Blocking: 'yes', Options: 'A box | B yew' })
+  // The exact case: the worker waits on the person's choice mid-build.
+  const mid = asSent(build([step('waiting on you'), hedge], undefined, goals(1)))
+  assert.notEqual(mid.focus.parts[0].state, 'verdict')
+  assert.equal(mid.focus.parts[0].steps[0].waitsForVerdict, false)
+  assert.equal(mid.recapCard, null)
+  // The same question on a step in review (its result built) is still a choice, not a verdict on a result.
+  const built = asSent(build([step('review'), hedge], undefined, goals(1)))
+  assert.notEqual(built.focus.parts[0].state, 'verdict')
+  assert.equal(built.recapCard, null)
+  // A step waiting on you with a look is a worker's question too: only a step in review has a result to judge.
+  assert.equal(asSent(build([step('waiting on you'), open('Q31', { Title: 'Does this read right?', Asks: 'look', Of: 'B1' })], undefined, goals(1))).recapCard, null)
+  // A decide between approving and sending back is a verdict; so is a look or an Accept card (the live shape above).
+  const verdict = open('Q32', { Title: 'The hedge as it stands?', Asks: 'decide', Of: 'B1', Options: 'A Approve: keep it as it is | B Send back: the partner makes another try' })
+  const judged = asSent(build([step('review'), verdict], undefined, goals(1)))
+  assert.deepEqual([judged.focus.parts[0].state, judged.recapCard?.count], ['verdict', 1])
+  assert.deepEqual([isVerdictAsk({ asks: 'look' }), isVerdictAsk({ asks: 'decide', via: 'accept', options: [] }), isVerdictAsk({ asks: 'decide', options: ['A box', 'B yew'] }), isVerdictAsk({ asks: 'decide', options: [] }), isVerdictAsk({ asks: 'do' })], [true, true, false, false, false])
 })
 
 test('the standing asks: a refine question, a partner\'s or the main chat\'s, and a route-recap ask with Autopilot off are not the person\'s', () => {

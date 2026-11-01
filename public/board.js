@@ -15111,7 +15111,7 @@ function focusChipEl(text, tone, verdict = null, extra = '') {
   const classes = `focus-chip${extra === '' ? '' : ` ${extra}`} is-${tone}`
   // Never a dead arrow: a verdict chip with nowhere to go says the words without it.
   if (tone !== 'verdict') return el('span', classes, text)
-  if (verdict === null) return el('span', classes, text.replace(/s*→$/, ''))
+  if (verdict === null) return el('span', classes, text.replace(/\s*→$/, ''))
   const link = targetLink(verdict, classes, text)
   link.title = verdict.path !== undefined ? 'Open the recap: approve this part, or send it back with a note' : `Open ${verdict.step ?? verdict.ask}: the card or question that waits for you stands there`
   return link

@@ -99,6 +99,7 @@ export function standingAsksOf(items, ctx = {}) {
     if (!(route === 'recap' ? ctx.autopilot === true : standsForPerson(item, { ...ctx, items }))) continue
     found.push({
       id: valueOf(item, 'Id'), of: valueOf(item, 'Of'), asks: valueOf(item, 'Asks') ?? 'decide', route, via: valueOf(item, 'Via'),
+      options: String(valueOf(item, 'Options') ?? '').split(' | ').map(one => one.trim()).filter(Boolean),
       title: String(valueOf(item, 'Title') ?? ''), text: (item.sections?.get('Text') ?? []).join(' '),
       pictures: String(valueOf(item, 'Pictures') ?? '').split(',').map(one => one.trim()).filter(Boolean),
     })
@@ -106,11 +107,22 @@ export function standingAsksOf(items, ctx = {}) {
   return found
 }
 
-/** The look and decide asks of steps that stand with the person, by the step: `Map(step id → asks)`. */
+/** Whether an ask is the person's verdict on a result: a look, an Accept card, or a decide whose options approve, accept or keep it against sending it back. */
+export function isVerdictAsk(ask) {
+  if (ask.asks === 'look' || ask.via === 'accept') return true
+  if (ask.asks !== 'decide') return false
+  const options = ask.options ?? []
+  return options.some(one => /\b(?:approve|accept|keep)\b/i.test(one)) && options.some(one => /\bsen[dt]\b[^|]*\bback\b|\breject\b/i.test(one))
+}
+
+/**
+ * The asks of steps that stand with the person and are a verdict on a result (`isVerdictAsk`: a look, an Accept card, a decide
+ * between approving and sending back), by the step: `Map(step id → asks)`. A worker's own question mid-build is none.
+ */
 export function askedStepsOf(standing) {
   const by = new Map()
   for (const ask of standing) {
-    if (!/^B\d+$/.test(ask.of ?? '') || !['look', 'decide'].includes(ask.asks)) continue
+    if (!/^B\d+$/.test(ask.of ?? '') || !isVerdictAsk(ask)) continue
     by.set(ask.of, [...(by.get(ask.of) ?? []), ask])
   }
   return by

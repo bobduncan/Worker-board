@@ -1178,8 +1178,9 @@ function partStepOf(item, steps, prefix, all = steps, lanes = null, now = null, 
   // An ask routed to the recap counts only while Autopilot is on (off, it stands in Needs your attention: rule 4).
   const isAskedRecap = verdictAsks.autopilot === true && state === 'review' && recapWaitOf(item, all) !== null
   const carrierState = valueOf(all.get(carrier), 'State')
-  const isAskedOf = ['review', 'waiting on you'].includes(carrierState) && (verdictAsks.asked.get(carrier)?.length ?? 0) > 0 && !verdictAsks.openChecks.has(carrier)
-  const forVerdict = isCarried && ((state === 'review' && (['recap', 'accept'].includes(formKind) || isAskedRecap)) || (['review', 'waiting on you'].includes(state) && isAskedOf))
+  // Only a step whose result is built (in review) waits for a verdict: a worker's question mid-build ('waiting on you') is none.
+  const isAskedOf = carrierState === 'review' && (verdictAsks.asked.get(carrier)?.length ?? 0) > 0 && !verdictAsks.openChecks.has(carrier)
+  const forVerdict = isCarried && state === 'review' && (['recap', 'accept'].includes(formKind) || isAskedRecap || isAskedOf)
   // Where its arrow goes: the recap when it names the carrier's part and that part waits, else the carrier's own window.
   const recapPart = !forVerdict ? null : ownRecap?.kind === 'recap' && verdictChain === null && ownRecap.path ? { path: ownRecap.path, key: ownRecap.part } : recapPartOf(recaps, carrier)?.verdict === null ? recapPartOf(recaps, carrier) : null
   const verdictAt = !forVerdict ? null : recapPart?.path ? { path: recapPart.path, key: recapPart.key ?? null } : { step: carrier }
