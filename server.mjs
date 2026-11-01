@@ -82,6 +82,7 @@ import { ARCHIVE_MOD, archiveJobId, archivedBy, hasNothingUncommitted, replacedC
 import { keptReadingsOf, newestPerWindow, readingOfAnswer } from './src/limits.mjs'
 import { checkProviders } from './src/providers/index.mjs'
 import { buildState, fullStepOf, lightState } from './src/state.mjs'
+import { handedWithStatuses } from './src/chatStatus.mjs'
 import { withRefineQueue } from './src/work/advisorWork.mjs'
 import { isReadAction, workApi } from './src/work/api.mjs'
 import { effortOf } from './src/work/effort.mjs'
@@ -2505,9 +2506,14 @@ async function main(args) {
       // B769: a stop or remove of this worker the board carries out by code: its mod tells it at its next tool call.
       const stopping = store.outbox().findLast(message => isStopWord(message) && message.about === checked.chat && message.state === 'waiting')
       const stop = stopping === undefined ? {} : { stop: { id: stopping.id, kind: stopping.command, task: stopTaskOf(stopping) } }
-      const envelope = !onIt || isHolding((await readState()).pause) ? null : await handOut(store, checked.chat, clock(), keep)
-      if (envelope !== null) readState.reset()
-      return { ok: true, result: { messages: fit.messages, ...(off.length === 0 ? {} : { off }), ...stop, ...(envelope === null ? {} : { handover: envelope }) } }
+      // Signals change 2c: and the board's status of every chat of the roles map's set, read AFTER the hand-out and the state's reset
+      // (src/chatStatus.mjs handedWithStatuses), so a worker just handed an envelope sees its new status. `off` stays one more
+      // release for a mod older than 0.28.0.
+      const { envelope, statuses } = await handedWithStatuses({
+        hand: async () => (!onIt || isHolding((await readState()).pause) ? null : await handOut(store, checked.chat, clock(), keep)),
+        readState,
+      })
+      return { ok: true, result: { messages: fit.messages, ...(off.length === 0 ? {} : { off }), ...stop, ...(envelope === null ? {} : { handover: envelope }), ...(statuses.length === 0 ? {} : { statuses }) } }
     }),
     // B753: the board's hands in code. A running chat's Workers mod claims the start and wake words (whoever they are
     // addressed to) and, while resuming, a resume line for each chat that has not started; it sends each with the app's

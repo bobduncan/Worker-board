@@ -139,13 +139,19 @@ test('the sequence on a running board: T answers the envelope, D takes back at o
 
   // B: its report says idle with nothing in the background: the refresh decides again; the next take brings the envelope.
   let again = null
+  let statuses = null
   const named = []
   await until(async () => {
     const reply = await ping('Units', 'units-id', NEW, { state: 'idle', since: Date.now() - 1000, background: false })
     if (reply.body.clear !== undefined) named.push(reply.body.clear)
     again = reply.body.handover ?? null
+    statuses = reply.body.statuses ?? null
     return again !== null
   }, 'the next envelope after the report went idle')
+  // 2c: the same answer carries the statuses, read AFTER the hand-out: the worker just handed an envelope reads Handing, never the
+  // Free it had a moment before (mutant: statuses computed before the hand-out).
+  assert.equal(statuses.find(one => one.name === 'Units')?.status, 'Handing', JSON.stringify(statuses))
+  assert.deepEqual(statuses.map(one => one.name).sort(), ['Lead', 'Props', 'Units'])
   // Never the old path's clear at a take (mutant: both paths for one worker): the envelope alone clears it.
   assert.deepEqual(named, [])
   const after = await ping('Units', 'units-id', NEW, { state: 'idle', since: Date.now() - 1000, background: false })

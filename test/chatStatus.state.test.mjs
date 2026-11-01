@@ -6,7 +6,7 @@ import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 import test from 'node:test'
 
-import { STATUSES, STATUS_LIST, countsOf } from '../src/chatStatus.mjs'
+import { STATUSES, STATUS_LIST, countsOf, handedWithStatuses, statusesOf, toneOf } from '../src/chatStatus.mjs'
 import { parseConfig } from '../src/config.mjs'
 import { buildState } from '../src/state.mjs'
 import { HANDOVER_COMMAND } from '../src/work/handover.mjs'
@@ -137,4 +137,45 @@ test('display only: the status feeds no decision (idleWorkers returns the same c
     const source = await readFile(new URL(`../src/${file}`, import.meta.url), 'utf8')
     assert.ok(!/chatStatus|\b(?:lane|worker|chat)\.status\b/.test(source), `${file} reads no status`)
   }
+})
+
+test('2c: statusesOf names every chat of the roles map (the lanes and the partner) with the status, why, tone, since and reportAt the state carries, and no age', () => {
+  const state = build({ reports: [report('Lead', 'idle'), report('Worker 1', 'busy', 25 * SEC), report('Worker 3', 'asking'), report('Advisor', 'busy', 3 * SEC)] })
+  const sent = statusesOf(state)
+  const wanted = [...state.chats.filter(chat => !chat.isLeftover).map(chat => chat.name), state.advisor.name]
+  assert.deepEqual(sent.map(one => one.name), wanted)
+  for (const one of sent) {
+    const chat = one.name === state.advisor.name ? state.advisor : lane(state, one.name)
+    assert.deepEqual(one, { name: chat.name, status: chat.status, why: chat.why, tone: toneOf(chat.status, chat.age), since: chat.since, reportAt: chat.reportAt })
+  }
+  assert.equal(sent.find(one => one.name === 'Worker 3').tone, 'attention', 'Waiting for you needs a look')
+  assert.equal(sent.find(one => one.name === 'Worker 1').tone, 'quiet')
+  assert.ok(sent.every(one => !Object.hasOwn(one, 'age')))
+})
+
+test('2c: statusesOf keeps at most 50 chats, cuts a why at 120 characters, and leaves out a leftover and a chat without a status', () => {
+  const many = Array.from({ length: 60 }, (_, n) => ({ name: `Worker ${n}`, status: STATUSES.FREE, why: 'x'.repeat(300), since: null, reportAt: NOW, age: 0 }))
+  const sent = statusesOf({ chats: [{ name: 'Gone', isLeftover: true, status: null }, { name: 'Blank', status: null }, ...many], advisor: { name: 'Advisor', status: STATUSES.WORKING, why: null } })
+  assert.equal(sent.length, 50)
+  assert.ok(sent.every(one => one.why.length === 120))
+  assert.ok(!sent.some(one => one.name === 'Gone' || one.name === 'Blank'))
+  assert.deepEqual(statusesOf({ chats: [{ name: 'Worker 1', status: STATUSES.FREE }], advisorHelper: { name: 'Helper', status: STATUSES.ASLEEP }, supervisorChat: { name: 'Super', status: STATUSES.FREE }, productOwner: { name: 'Owner', status: STATUSES.WORKING } }).map(one => one.name), ['Worker 1', 'Helper', 'Super', 'Owner'])
+})
+
+test('2c: the take reads the statuses AFTER the hand-out and the state reset (a cached state from before it would still say Free)', async () => {
+  let version = 0
+  let cache = null
+  let builds = 0
+  const readState = async () => {
+    cache ??= (builds += 1, { chats: [{ name: 'Worker 1', status: version === 0 ? STATUSES.FREE : STATUSES.HANDING, why: null, since: null, reportAt: null, age: null }] })
+    return cache
+  }
+  readState.reset = () => { cache = null }
+  await readState() // the route read the state before (the pause check): it is cached, and says Free
+  const handed = await handedWithStatuses({ hand: async () => { version = 1; return { id: 'e1' } }, readState })
+  assert.deepEqual([handed.envelope.id, handed.statuses.map(one => one.status)], ['e1', [STATUSES.HANDING]])
+  assert.equal(builds, 2, 'one extra build after the reset, none otherwise')
+  // Nothing handed out: no reset, the cached state is read (no extra build).
+  const none = await handedWithStatuses({ hand: async () => null, readState })
+  assert.deepEqual([none.envelope, builds], [null, 2])
 })

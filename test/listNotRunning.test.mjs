@@ -107,4 +107,9 @@ test('the answer to a take names the chats that do not run, and not the one that
   const answered = await take('Worker 6', 'w6-id')
   assert.ok(answered.off.includes('Worker 5'), 'the chat that does not run is named')
   assert.ok(!answered.off.includes('Worker 6'), 'the chat that asks runs: it is not named')
+  // 2c: and the same answer carries the board's status of every chat of the roles map's set, the one the page draws.
+  assert.deepEqual(answered.statuses.map(one => one.name).sort(), ['Main', 'Worker 5', 'Worker 6'])
+  const notRunning = answered.statuses.find(one => one.name === 'Worker 5')
+  assert.deepEqual([notRunning.status, notRunning.tone], ['Not running', 'attention'])
+  assert.ok(answered.statuses.every(one => !Object.hasOwn(one, 'age') && typeof one.status === 'string'))
 })

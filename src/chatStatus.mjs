@@ -155,3 +155,48 @@ export function countsOf(chats) {
   for (const chat of chats) if (typeof chat?.status === 'string' && STATUS_FACTS[chat.status] !== undefined) counts[STATUS_FACTS[chat.status].key] += 1
   return counts
 }
+
+/** The most chats the take answer's `statuses` names, and the longest why it carries (the mod keeps the same caps). */
+export const STATUSES_MOST = 50
+export const STATUS_WHY_CHARS = 120
+const NAME_CHARS = 80
+
+/**
+ * Signals change 2c: the take answer's `statuses`, for the Workers pane in the Claude app. One entry per chat of the set the
+ * work API's roles map uses (server.mjs `workCtx`): the non-leftover chats of `state.chats`, then the Advisor, its helper, the
+ * Supervisor and the Product owner, each `{ name, status, why, tone, since, reportAt }` straight from what the page draws
+ * (`status`, `why`, `since`, `reportAt` as the state carries them, `tone` from `toneOf`). `age` is NOT sent: the pane works it
+ * out from `reportAt` with the page's `AGE_SHOWN_MS` rule, so pane and pill agree. Capped at `STATUSES_MOST` entries. Display
+ * only: nothing reads it back.
+ */
+export function statusesOf(state) {
+  const chats = (state?.chats ?? []).filter(chat => chat?.isLeftover !== true)
+  const sides = [state?.advisor, state?.advisorHelper, state?.supervisorChat, state?.productOwner].filter(chat => chat !== null && chat !== undefined)
+  const seen = new Set()
+  const out = []
+  for (const chat of [...chats, ...sides]) {
+    if (typeof chat.name !== 'string' || chat.name === '' || seen.has(chat.name) || typeof chat.status !== 'string') continue
+    seen.add(chat.name)
+    out.push({
+      name: chat.name.slice(0, NAME_CHARS),
+      status: chat.status,
+      why: typeof chat.why === 'string' ? chat.why.slice(0, STATUS_WHY_CHARS) : null,
+      tone: toneOf(chat.status, chat.age ?? null),
+      since: finite(chat.since) ? chat.since : null,
+      reportAt: finite(chat.reportAt) ? chat.reportAt : null,
+    })
+    if (out.length >= STATUSES_MOST) break
+  }
+  return out
+}
+
+/**
+ * The tail of a take: the hand-out first (`hand()` gives the envelope or null), then `readState.reset()` when one went out, and
+ * only then the statuses, so a worker just handed an envelope sees its new status (the state is cached for 2 s, so the reset
+ * is what makes this read fresh; no extra build otherwise). `{ envelope, statuses }`.
+ */
+export async function handedWithStatuses({ hand, readState }) {
+  const envelope = await hand()
+  if (envelope !== null) readState.reset()
+  return { envelope, statuses: statusesOf(await readState()) }
+}
