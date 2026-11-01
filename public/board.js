@@ -16829,7 +16829,9 @@ function drawFocus(state) {
       if (view.recheck !== null && view.recheck !== undefined) right.append(focusRecheckCard(view.recheck))
       // Autopilot (2026-10-31): the asks that wait for the goal's recap, under the goal; "Did we reach the goal?" lists them first.
       const forRecap = recapReady === null ? allRecapAsks : []
-      if (view.vibeThere !== null) right.append(focusVibeThereCard(view, can, forRecap))
+      // 2026-11-01 (the coordinator): while the recap card shows (verdicts wait) "Did we reach the goal?" is not drawn at all: the recap
+      // comes first, and the question comes back once no verdict waits.
+      if (recapReady === null && view.vibeThere !== null) right.append(focusVibeThereCard(view, can, forRecap))
       else if (forRecap.length > 0) right.append(focusRecapAsksCard(forRecap))
       right.append(focusNoteCard(view))
       // B360: with Autopilot on the recaps of finished work gather under the note.

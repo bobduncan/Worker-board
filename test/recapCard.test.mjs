@@ -113,6 +113,23 @@ test('the page: with 6 waiting the card looks the same as with 3, only its title
   } finally { await Promise.all([six.close(), three.close(), one.close()]) }
 })
 
+test('"Did we reach the goal?" is not drawn while verdicts wait: the recap comes first; with none waiting it shows as before', async () => {
+  // Every part waits for the recap: the goal is at its recap moment (src/state.mjs `forDemo`), so the question would show without the card.
+  const card = await focusOf(waiting(2))
+  try {
+    assert.equal(card.all('.focus-recap-ready').length, 1)
+    assert.equal(card.all('.focus-there').length, 0, 'no question while the card shows')
+    assert.equal(card.all('.focus-yes').length, 0, 'and no Yes')
+  } finally { await card.close() }
+  // The person judged every part (their rounds approve both); the asks still stand open, so the goal is still at its recap moment, but nothing waits for a verdict.
+  const approved = [{ n: 1, at: '2026-10-31 12:40', parts: [1, 2].map(n => ({ key: `Block ${n}`, verdict: 'approved', comment: '' })) }]
+  const none = await focusOf(waiting(2, { rounds: approved }))
+  try {
+    assert.equal(none.all('.focus-recap-ready').length, 0)
+    assert.equal(none.text('.focus-there h3'), 'Did we reach the goal?')
+  } finally { await none.close() }
+})
+
 test('the page: parts still being built say so; a block still at work is not "waiting for the verdict"', async () => {
   const items = [task(1), askFor(1), parseItem(`Id: B2\nKind: step\nTitle: Task B2\nState: in progress\nOwner: Digger\nGoal: G6\nSince: ${sinceOf(NOW - 90 * MIN)}\n`)]
   const page = await focusOf(asSent(build(items, undefined, goals(2), { recaps: [recap(1)] })))

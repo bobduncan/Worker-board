@@ -499,7 +499,8 @@ Undo."; Off, "Questions come to you as before."
   recap at its part. The card counts the asks Autopilot routed to the recap whose step a part names; the card is gone once nothing
   waits. A block that waits for your verdict reads **Waits for your verdict →** (a link to the recap, both views), and the
   head's line says "the rest waits for your verdict" when every open block does; "Waiting, nobody on it now" stays for work that
-  waits for another task.
+  waits for another task. While the card shows, "Did we reach the goal?" is not drawn: the recap comes first, and the question
+  comes back once no verdict waits.
 - **For your recap (n)**, the asks routed to the recap whose step no recap part names yet, stand in one line under the card
   (without a card, where they stood: under the goal, or in "Did we reach the goal?"): the looks below their target and the "Accept or send back"
   cards, one line each (its question, its picture, its step). Their steps read "Recap verdict: waits (Q<n>)" and count as
