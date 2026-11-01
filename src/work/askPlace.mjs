@@ -7,6 +7,7 @@ import { askTokens, overlapOf } from './askRepeat.mjs'
 import { isQaTask } from './qaTask.mjs'
 import { valueOf } from './item.mjs'
 import { isRoutedToPartner } from './partnerAnswers.mjs'
+import { ROUTED_AWAY } from './autopilot.mjs'
 
 const STEP_ID = /(?<![\w-])B\d{1,6}(?![\w-])/g
 const GOAL_ID = /(?<![\w-])G\d{1,6}(?![\w-])/g
@@ -68,8 +69,9 @@ export function stepOfAsk({ items, mine, words, cardStep = null }) {
  * `kind` of the new ask: a do (an action to tick) joins only a do; `anyKind` lifts that (the quality check's line).
  */
 export function joinTarget(items, stepId, { who, kind, anyKind = false, isMine }) {
+  // Autopilot (2026-10-31): nor an ask the board routed away from the person (to the main chat, a recap, the advice).
   const open = [...items.values()].filter(one => valueOf(one, 'Kind') === 'ask' && valueOf(one, 'State') === 'open' && valueOf(one, 'Of') === stepId
-    && !isRoutedToPartner(one) && valueOf(one, 'Via') !== 'form' && !isMine(one, who))
+    && !isRoutedToPartner(one) && !ROUTED_AWAY.includes(valueOf(one, 'Route')) && valueOf(one, 'Via') !== 'form' && !isMine(one, who))
   const fits = open.filter(one => anyKind || (valueOf(one, 'Asks') === 'do') === (kind === 'do'))
   return fits.sort((a, b) => String(valueOf(a, 'Id')).localeCompare(String(valueOf(b, 'Id')), 'en', { numeric: true }))[0]
 }

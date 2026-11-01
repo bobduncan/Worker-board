@@ -2,6 +2,12 @@
 // taking the worker's advice, and lists each answer in its daily note with an Undo; questions only you can answer
 // still come to you; work keeps moving and you keep the last word". The person chose this over a blanket
 // auto-approve, which this project will not build.
+// Autopilot (the person, 2026-10-31: "i kind of want to have an option to autoapprove and only get bothered by real issues
+// and the product owner"; on the plan: "yes to the plan go build") extends that word: with the setting `autopilot` on,
+// the work runs until a goal is ready, every choice the partner's answers would not reach is routed (src/work/autopilot.mjs):
+// the advised option is taken and shows as "decided for you" with Undo, actions go to the main chat, looks below their
+// target wait for the goal's recap; the person is asked when a goal starts, when it is ready, and for what no chat can do.
+// Still no blanket approve: every decision keeps its Undo, and what only the person can judge stays theirs.
 //
 // The setting lives in the store's folder (`partner-answers.json`, `{ on, since }`), switched on the Focus page; it is
 // on unless the person switched it off (they gave it priority). While it is on, an ask filed with the work tool by a
@@ -60,6 +66,14 @@ export const stepWaitsForPartner = (step, items) => (AT_WORK.includes(valueOf(st
 
 /** Whether the partner answered the ask (and the person has not taken it back). */
 export const isPartnerAnswered = item => valueOf(item, 'Kind') === 'ask' && valueOf(item, 'State') === 'answered' && valueOf(item, 'Answered by') === 'partner'
+/**
+ * Autopilot (2026-10-31): who may answer an ask for the person (its `Answered by`): the partner, the board taking the advice
+ * (`autopilot`), the main chat doing an action (`main`). Each answer is "decided for you": listed in the partner's daily
+ * note with an Undo that gives the ask back to the person.
+ */
+export const DECIDERS = ['partner', 'autopilot', 'main']
+/** Whether the ask was decided for the person (by the partner, the board's Autopilot or the main chat) and not taken back. */
+export const isDecidedForYou = item => valueOf(item, 'Kind') === 'ask' && valueOf(item, 'State') === 'answered' && DECIDERS.includes(valueOf(item, 'Answered by'))
 
 /** The words the board wakes the partner with, once per routed ask. */
 export const partnerAskWords = id => `work: ${id} is yours to answer for the person; run work next`

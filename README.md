@@ -268,6 +268,20 @@ the Focus page, answered there. A question that holds up a chat always comes at 
 Both are also the board's ⚙ panel (B361): "Bother me" (At once, Once a day) and "Approve rebuilds by itself" (Off,
 On); B-max adds "Workers at most" (`maxWorkers`, 5 unless set: a "−", the number and a "+", 1 to 10). A click there writes the
 setting into config.json, every other setting kept, and the board runs on it at once.
+`autopilot` (false unless set; the ⚙ panel's "Autopilot", Off and On, 2026-10-31): the work runs until a goal is ready.
+You are asked when a goal starts, when it is ready, and for what no chat can do; everything else is decided for you, with
+Undo. While it is on the board routes every open ask once (src/work/autopilot.mjs): a detail question to the partner, the
+partner's or Product owner's own advice on a step taken by the board (listed in the partner's daily note with an Undo), an
+action a chat can do to the main chat (it does it or hands it to you with one line why; after 30 minutes it is yours), a
+look below its target to the goal's recap (its step reads "Recap verdict: waits (Q<n>)", the goal demo is asked with it
+and gives it its own row; the Focus page lists them under the goal, "For your recap"; your approve or send back of that
+row answers them); refine questions are answered with their advice, or sent back to the Advisor once. Yours stay: a goal,
+the focus, a setting, a licence, a stuck goal's rebuild, what only your hands can do (the Claude app, a click, a sign-in,
+an account, money, an install, a permission, anything deleted for good) and marking a step done, accepting it or sending it back. Needs your attention
+then shows only what is routed to you and the board's own lines, with one quiet line on top, "Autopilot is on · decided
+for you today: <n>". While on, "Bother me" and "Approve rebuilds by itself" are hidden and read as "now" and off (a stuck
+goal's rebuild is yours), and the Focus page's partner switch reads "covered by Autopilot". Switching it off routes nothing
+back (what waits for a recap stands in Needs your attention again); Undo on any decided one does.
 `advisorParts` (`["focus", "goals", "brainstorm"]` unless set): the parts the Focus tab's bar shows, by name; add
 `"way"` (Next milestone), `"plan"` (Game plan), `"suggestions"`, `"refine"` or `"chat"` to bring one back.
 `work` (`.claude/work` unless set): the work store's folder, a path inside the project or a whole path of its own

@@ -259,11 +259,12 @@ const YES_WORDS = wordsOf(FABLE_OPTIONS[0].replace(/^A\s+/, ''))
  * 2026-10-24: the partner's mode for the evaluation the person answered: 'fable' only for the person's yes: an answer
  * that is A alone (any case, its punctuation), A followed by its option's words ("A Yes: Fable 5.1 (max), ...", "A: yes"),
  * or whose first word is yes. Everything else (B, a no, "a bit pricey, use opus", other words, no answer, withdrawn, an
- * answer by the partner) is Opus at max, 'high'.
+ * answer by the partner, the board's Autopilot or the main chat) is Opus at max, 'high'.
  */
 export function modeOfAnswer(item) {
   if (item === undefined || item === null || String(item.head.get('State') ?? '').toLowerCase() !== 'answered') return 'high'
-  if (item.head.get('Answered by') === 'partner') return 'high'
+  // Autopilot (2026-10-31): nor an answer the board or the main chat gave for the person: Fable only on the person's own yes.
+  if (['partner', 'autopilot', 'main'].includes(item.head.get('Answered by'))) return 'high'
   const first = (item.sections.get('Answer') ?? []).map(lineOf).find(one => one !== '') ?? ''
   if (/^a[.!:)]*$/i.test(first) || /^yes\b/i.test(first)) return 'fable'
   const lettered = first.match(/^a(?:\s+|\s*[:.)]\s*)(.+)$/i)

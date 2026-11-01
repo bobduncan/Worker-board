@@ -68,6 +68,12 @@ export function workLineWhy(message, items, { prefix = '', now = Date.now() } = 
     if (state !== 'open') return `${id} is ${state}`
     return value(item, 'Route') === 'partner' ? null : `${id} is no longer the partner's`
   }
+  if (message.kind === 'main-ask') {
+    // Autopilot (2026-10-31): the main chat's word for an ask routed to it holds while the ask still waits for it.
+    if (item === undefined) return gone
+    if (state !== 'open') return `${id} is ${state}`
+    return value(item, 'Route') === 'main' ? null : `${id} is no longer the main chat's`
+  }
   // A step's line to its owner, or (kind check) the word that its board check failed: the step still that chat's, and
   // open (a check's word: still in review).
   if (item === undefined) return gone

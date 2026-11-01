@@ -87,7 +87,8 @@ Claude** (B311, B735: Full or Low, one click each; the line beside it says "full
 processes it applies to, "15 processes on 2 cores, lowest priority: tests and builds run slower"; "not available here" off Windows; a listing that failed is one red line on top), **Bother me** (B361: At once, or Once a day: the recaps
 and the questions that hold up no chat then gather under your partner's daily note on the Focus page; a question that
 holds up a chat always comes at once), **Approve rebuilds by itself** (B361: Off, On; saved in the board's settings
-file) and **What the board does by itself on this PC** (B767: each routine job of the main chat's, waking chats, model and effort,
+file), **Autopilot** (2026-10-31: Off, On, with one line under it; while On, Bother me and Approve rebuilds by itself are
+hidden: it covers them; see "Autopilot" below) and **What the board does by itself on this PC** (B767: each routine job of the main chat's, waking chats, model and effort,
 restarts and new workers, "by code" or still the main chat's and why, as the running chats' Workers mod reports it; T14:
 waking chats "needs your OK" while only chats in Auto mode run, until the project allows the send-message tool;
 **Allow them for this project** adds the missing tool rules to the project's own `.claude\settings.local.json`, named
@@ -478,3 +479,29 @@ far" along the bottom.
 A project without a list of chats, without chats or without a backlog says under the lanes what the board looks
 for and where (`09-empty-project.png`); without a game there is no Run game; without the Workers mod the board says
 what it cannot tell; the demo has made-up data of every state.
+
+## Autopilot
+
+The person, 2026-10-31: "i kind of want to have an option to autoapprove and only get bothered by real issues and the
+product owner". The ⚙ panel's **Autopilot** (Off, On; config `autopilot`): On, "The work runs until a goal is ready. You
+are asked when a goal starts, when it is ready, and for what no chat can do. Everything else is decided for you, with
+Undo."; Off, "Questions come to you as before."
+
+- **Needs your attention** shows only the asks routed to you and the board's own lines (limits, setup, the wake lines "No
+  chat is running ...", "Nobody could wake ...", the opener's "Opened ..."), with one quiet line on top: "Autopilot is on ·
+  decided for you today: <n>", which opens the partner's daily note. The header's "<n> wait for you" counts only those.
+  The Refine questions part shows none while the board answers them.
+- **Decided for you**: the board's taken advice and the main chat's actions stand in the partner's daily note beside the
+  partner's answers, each with its Undo; a card says "Decided for you: A ..." or "The main chat did it: ...".
+- **For your recap (n)** on the Focus page, under the goal: the looks below their target and the "Accept or send back"
+  cards, one line each (its question, its picture, its step). Their steps read "Recap verdict: waits (Q<n>)" and count as
+  done for asking the goal demo, whose words ask a row of their own for them; "Did we reach the goal?" then shows, lists
+  them first, and its Yes waits until the recap's approve or send back of those rows answered them. With Autopilot off
+  they stand in Needs your attention again.
+- **Always yours**: goal questions (a goal, the focus, an approach, a setting, a licence, a stuck goal's "Rebuild G<n>:"
+  ask: Autopilot approves no rebuild), what only your hands can do (the Claude app, a click, a sign-in, an account, money,
+  an install, a permission, anything deleted for good: a chat, a file or folder, a launch.json entry, a branch; archiving
+  stays the main chat's), and marking a step done, accepting it or sending it back.
+- **The task window** of an ask with the main chat or waiting for the recap names its route ("With the main chat
+  (Autopilot)", "For your recap (Autopilot)") and where it stands.
+- The Focus page's switch "Your partner answers detail questions" reads "covered by Autopilot" while it is on.

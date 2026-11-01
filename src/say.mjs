@@ -190,7 +190,7 @@ export const FOCUS_COMMANDS = ['focus', ...Object.keys(FOCUS_HEADS)]
  * B354: `done when: G<n> <title>` with the partner's job (and the person's `Words:` for a goal they just wrote): write
  * the goal's Done when line, so it can become the focus and get its tick.
  */
-export function focusWords(command, { to, goal, thread, stage = null, words = null, job = null, note = null }) {
+export function focusWords(command, { to, goal, thread, stage = null, words = null, job = null, note = null, rows = [] }) {
   const about = `${goal.id} ${plainLine(goal.title)}`
   const lines = command === 'focus'
     ? [`focus: ${about}`, `Thread: ${thread}`, `Stage: ${stage}`, `Your job: ${job}, "The focus"`]
@@ -203,7 +203,10 @@ export function focusWords(command, { to, goal, thread, stage = null, words = nu
     // Work blocks (2026-10-31): a goal without its one line is checked against its blocks' done-when lines.
     : command === 'goal-recheck' ? [`goal re-check: ${about}`, `Done when: ${doneWhenText(goal).replace(/\s+/g, ' ').trim()}`, ...((goal.vibe ?? []).length === 0 ? [] : [`Goal definition: ${goal.vibe.map(one => String(one).replace(/\s+/g, ' ').trim()).join(' · ')}`]), `Your job: ${job}, "The goal re-check"`]
     // B677: the goal demo before "Did we reach the goal?": the list and the picture, then its Demo line (`again` the number of the word).
-    : command === 'goal-demo' ? [`goal demo: ${about}${words === null ? '' : ` (again: ${words === 'by you' ? 'you asked' : `word ${words}`})`}`, `Done when: ${doneWhenText(goal).replace(/\s+/g, ' ').trim()}`, `Your job: ${job}, "The goal demo"`]
+    : command === 'goal-demo' ? [`goal demo: ${about}${words === null ? '' : ` (again: ${words === 'by you' ? 'you asked' : `word ${words}`})`}`, `Done when: ${doneWhenText(goal).replace(/\s+/g, ' ').trim()}`,
+      // Autopilot (the coordinator's ruling, 2026-10-31): a step in review that waits for the person's verdict at the recap gets a row of its own.
+      ...((rows ?? []).length === 0 ? [] : [`Own rows: give each of these steps a row of its own, its id in "steps", so the person's verdict on it closes what waits for the recap: ${rows.map(one => `${one.step}${(one.asks ?? []).length === 0 ? '' : ` (${one.asks.join(', ')})`}`).join(', ')}`]),
+      `Your job: ${job}, "The goal demo"`]
     : [FOCUS_HEADS[command], `Goal: ${about}`, `Thread: ${thread}`, ...(words === null ? [] : [`Words: ${String(words).replace(/\s+/g, ' ').trim()}`])]
   return { to, ask: null, step: null, title: null, version: null, verdict: null, command, about: goal.id, text: lines.join('\n') }
 }

@@ -29,10 +29,12 @@ export const FOCUS_DRAFTS = ['vibe-draft', 'how-draft']
  * or a word that names no goal, is not (2026-10-24: on a board with no focus yet a Vision word without an id read the
  * progress of no focus and failed: "Cannot read properties of null (reading 'progress')").
  */
-export function focusAllDone(focus, id) {
+export function focusAllDone(focus, id, { forDemo = false } = {}) {
   if ((focus ?? null) === null || typeof id !== 'string' || focus.id !== id) return false
   const total = focus.progress?.total ?? 0
-  return total > 0 && focus.progress.done === total
+  // Autopilot (the coordinator's ruling, 2026-10-31): for asking the goal demo, a step in review that waits only for the
+  // goal's recap counts as done (state.mjs `progress.forDemo`).
+  return total > 0 && (forDemo ? focus.progress.forDemo ?? focus.progress.done : focus.progress.done) === total
 }
 
 /**
@@ -370,7 +372,7 @@ export function demoGaveUp(node, now) {
  * the goal keeps the time and the count). `ctx.focus` is the state's focus. Answers { ok, words: [] or [the word] }.
  */
 export async function demoAgain(ctx) {
-  if (ctx.canWrite !== true || (ctx.partner ?? null) === null || !focusAllDone(ctx.focus ?? null, ctx.focus?.id)) return []
+  if (ctx.canWrite !== true || (ctx.partner ?? null) === null || !focusAllDone(ctx.focus ?? null, ctx.focus?.id, { forDemo: true })) return []
   return underMapTurn(async () => {
     const at = ctx.fs ?? files
     const goalsAt = { file: ctx.goalsFile, historyDir: ctx.historyDir, now: ctx.now, fs: at }
@@ -383,7 +385,7 @@ export async function demoAgain(ctx) {
     if (n === 0) return []
     const done = await changeGoalsFile(now => setGoalLine(now, node.id, 'Demo asked', `${minuteOf(ctx.now)} · ${n}`), goalsAt)
     if (!done.ok) return []
-    return [focusWords('goal-demo', { to: ctx.partner.name, goal: node, words: n === 1 ? null : n, job: ctx.job })]
+    return [focusWords('goal-demo', { to: ctx.partner.name, goal: node, words: n === 1 ? null : n, job: ctx.job, rows: ctx.focus.recapRows ?? [] })]
   })
 }
 
@@ -396,11 +398,11 @@ async function askDemo(map, id, ctx, goalsAt) {
   if (node === undefined) return refuse(409, 'That goal is not in the map.')
   if (node.state === 'done') return refuse(409, `${id} is done already.`)
   if (hasDemo(node)) return refuse(409, `${id} has its goal demo already.`)
-  if (map.focus !== id || ctx.allDone !== true) return refuse(409, 'The goal demo is made once every part of the focus is done.')
+  if (map.focus !== id || (ctx.demoReady ?? ctx.allDone) !== true) return refuse(409, 'The goal demo is made once every part of the focus is done.')
   const was = demoAskOf(node.demoAsked)
   const done = await changeGoalsFile(now => setGoalLine(now, id, 'Demo asked', `${minuteOf(ctx.now)} · 1`), goalsAt)
   if (!done.ok) return failed(done.why)
-  return { ok: true, result: { id, demo: 'asked' }, words: focusWords('goal-demo', { to: ctx.partner.name, goal: node, words: was === null ? null : 'by you', job: ctx.job }) }
+  return { ok: true, result: { id, demo: 'asked' }, words: focusWords('goal-demo', { to: ctx.partner.name, goal: node, words: was === null ? null : 'by you', job: ctx.job, rows: ctx.recapRows ?? [] }) }
 }
 
 /**

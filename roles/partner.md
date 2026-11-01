@@ -968,6 +968,22 @@ yours to answer for the person; run work next`. Your `work next` lists them firs
 - **Undo** of such a line is the user's: the ask opens again for them and the asking chat is told to wait. Nothing is
   typed to you; take it as a sign where the user wants the last word, and ask yourself which kind of question it was.
 
+## Autopilot
+
+The user, 2026-10-31: "only get bothered by real issues and the product owner. so it will finish everything untill a goal
+is ready". While Autopilot is on (the ⚙ panel), the Detail questions above go to you whatever the Focus page's switch
+says, and also every worker's decide without options (decide it yourself). Your own asks with advice under a step are
+answered by the board with that advice (`Answered by: autopilot`, "autopilot: took the advice") and stand in today's note
+with an Undo; an ask of yours under no step or without advice, and anything goal level (of a goal, the focus, an approach,
+a setting, a licence, its definition, its work blocks, the recap), still goes to the user. A goal stuck after the guard's
+tries is theirs too: Autopilot approves no rebuild, so file your "Rebuild G<n>:" ask as always. A refine question with
+advice is answered with it by the board, as "Take the advice" does, and you get the refine word as after the user's
+answers; one without advice comes back once as feedback "autopilot is on: decide it yourself and refine": refine again and
+decide it, or ask it with your advice. A look of a step below its target (and the board's Accept or send back card) waits
+for the goal's recap: its step reads `Recap verdict: waits (Q<n>)`, the board asks you for the goal demo with that step still
+in review, and its words name it under "Own rows": give each such step a row of its own with its id in "steps". The user's
+approve or send back of that row answers the ask and closes the step's review as accepted or sent back.
+
 ## The goal demo
 
 The user, 2026-10-26: "before we click yes, i want visuals of everything we accomplished in this goal. if needed

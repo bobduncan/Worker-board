@@ -532,7 +532,8 @@ function drawSettings(state, cpu) {
   settings.hidden = cpu === null && version === '' && $('new-project-button').hidden && (state.boardSettings ?? null) === null && (state.codeJobs ?? null) === null
   const level = cpu === null || cpu.level === null ? null : `CPU for Claude: ${cpu.level[0].toUpperCase()}${cpu.level.slice(1)}${cpu.count === '' ? '' : ` (${cpu.count})`}`
   const shown = state.boardSettings ?? null
-  const bother = shown === null ? null : `Bother me: ${shown.botherMe === 'daily' ? 'once a day' : 'at once'}`
+  // Autopilot (2026-10-31): while it is on, it covers "Bother me".
+  const bother = shown === null ? null : shown.autopilot === true ? 'Autopilot: on' : `Bother me: ${shown.botherMe === 'daily' ? 'once a day' : 'at once'}`
   $('settings-button').title = [level, bother, version].filter(part => part !== null && part !== '').join('\n') || 'CPU for Claude and the board\'s version'
 }
 
@@ -542,17 +543,24 @@ let settingPending = null
 /** B-max: the ends of "Workers at most" (the board's own range is MAX_WORKERS_RANGE in src/boardSettings.mjs). */
 const WORKERS_AT_MOST = [1, 10]
 
-/** B361: "Bother me", "Approve rebuilds by itself" and (B-max) "Workers at most" in the settings panel, lit as the board runs them. */
+/**
+ * B361: "Bother me", "Approve rebuilds by itself" and (B-max) "Workers at most" in the settings panel, lit as the board runs them.
+ * Autopilot (2026-10-31): its Off and On on top, with its one line; while it is on, "Bother me" and "Approve rebuilds by itself"
+ * are hidden (it covers them: rebuilds go ahead, nothing waits for a daily round). A board that sends no `autopilot` shows none.
+ */
 function drawBoardSettings(state) {
   const shown = state.boardSettings ?? null
   const problem = problems.get('setting') ?? null
   $('settings-note').hidden = problem === null
   if (problem !== null) $('settings-note').textContent = problem
-  for (const id of ['bother-me', 'approve-rebuilds', 'max-workers']) {
+  const autopilot = shown === null || typeof shown.autopilot !== 'boolean' ? null : settingPending !== null && settingPending.key === 'autopilot' ? settingPending.value : shown.autopilot
+  for (const id of ['autopilot', 'bother-me', 'approve-rebuilds', 'max-workers']) {
     const group = $(id)
-    group.hidden = shown === null || (id === 'max-workers' && !Number.isInteger(shown.maxWorkers))
+    group.hidden = shown === null || (id === 'max-workers' && !Number.isInteger(shown.maxWorkers)) || (id === 'autopilot' && autopilot === null)
+      || (['bother-me', 'approve-rebuilds'].includes(id) && autopilot === true)
     group.title = shown === null || shown.canSet ? '' : shown.whyNot ?? ''
   }
+  if (autopilot !== null) $('autopilot-words').textContent = autopilotWords(autopilot)
   if (shown === null) return
   // B-max: the number, and the two buttons that send it one lower or one higher (the answer's number, kept in range);
   // the button at an end of the range is off, as is each of them while a change is on its way.
@@ -686,7 +694,7 @@ $('settings').addEventListener('click', async event => {
   if (button === null || button.disabled || board === null || sending.has('setting') || board.boardSettings?.canSet !== true) return
   const key = button.dataset.setting
   // B-max: "Workers at most" sends a number (the stepper's `data-value`), the others a word or a flag.
-  const value = key === 'approveRebuilds' ? button.dataset.value === 'true' : key === 'maxWorkers' ? Number(button.dataset.value) : button.dataset.value
+  const value = key === 'approveRebuilds' || key === 'autopilot' ? button.dataset.value === 'true' : key === 'maxWorkers' ? Number(button.dataset.value) : button.dataset.value
   if (board.boardSettings[key] === value) return
   settingPending = { key, value }
   sending.add('setting')
@@ -696,8 +704,8 @@ $('settings').addEventListener('click', async event => {
     const answer = await fetch('/api/settings', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Board-Token': TOKEN }, body: JSON.stringify({ key, value }) })
     if (!answer.ok) throw new Error((await answer.text()).trim() || `refused (${answer.status})`)
     board.boardSettings = await answer.json()
-    // The recaps and the asks that can wait move between Needs your attention and the daily note at once.
-    board.recapsShow = board.boardSettings.botherMe
+    // The recaps and the asks that can wait move between Needs your attention and the daily note at once (Autopilot: "now").
+    board.recapsShow = board.boardSettings.autopilot === true ? 'now' : board.boardSettings.botherMe
     await read()
   } catch (error) {
     problems.set('setting', `Setting not changed: ${error instanceof Error ? error.message : 'the board did not answer'}`)
@@ -4063,14 +4071,25 @@ function standWords(stand) {
  * `withPartner` entry. Plain data.
  */
 function partnerAskWindowOf(ask) {
+  // Autopilot (2026-10-31): an ask the board routed to the main chat or to the goal's recap opens here too, its route named.
+  const route = ask.route ?? 'partner'
   return {
-    code: ask.id, title: ask.title ?? '', fullTitle: ask.title ?? '',
-    chips: [{ text: 'With your partner', tone: 'kind' }, ...(ask.from == null ? [] : [{ text: `From: ${ask.from}`, tone: 'to' }])],
+    code: ask.id, title: ask.title ?? '', fullTitle: ask.title ?? '', route,
+    chips: [{ text: ROUTE_CHIPS[route] ?? ROUTE_CHIPS.partner, tone: 'kind' }, ...(ask.from == null ? [] : [{ text: `From: ${ask.from}`, tone: 'to' }])],
     at: ask.at ?? null,
-    stand: standWords(ask.stand),
+    stand: route === 'main' ? `the main chat does it if a chat can${Number.isFinite(ask.toYouAt) ? ` · comes to you at ${clock(ask.toYouAt)}` : ''}`
+      : route === 'recap' ? "waits for the goal's recap: you judge it there" : standWords(ask.stand),
     text: String(ask.text ?? ''), options: ask.options ?? [], advice: ask.advice ?? null,
     step: ask.of == null ? null : [ask.of, ask.ofTitle].filter(Boolean).join(' '),
   }
+}
+
+/** Autopilot (2026-10-31): the chip of an ask's route in its window, and the line under where it stands. */
+const ROUTE_CHIPS = { partner: 'With your partner', main: 'With the main chat (Autopilot)', recap: 'For your recap (Autopilot)' }
+const ROUTE_STANDS = {
+  partner: 'Your partner answers it first; one it has not answered in 30 minutes comes to you.',
+  main: 'Autopilot: the main chat does it if a chat can, else hands it to you with one line why; one it has not done in 30 minutes comes to you.',
+  recap: 'Autopilot: it waits for the goal\'s recap, where you approve or send back the work; the step stays as it is until then.',
 }
 
 /** The window of a question with the partner (the details dialog): quiet, with where it stands first. */
@@ -4084,7 +4103,7 @@ function drawPartnerAskWindow(box, ask, state) {
   if (view.stand !== null) {
     parts.push(section('Where it stands', [
       el('p', 'partner-ask-stand', view.stand),
-      el('p', 'muted', 'Your partner answers it first; one it has not answered in 30 minutes comes to you.'),
+      el('p', 'muted', ROUTE_STANDS[view.route] ?? ROUTE_STANDS.partner),
     ]))
   }
   if (view.text.trim() !== '') parts.push(section('The question', view.text.split('\n').filter(line => line.trim() !== '').map(line => el('p', '', line))))
@@ -4112,9 +4131,10 @@ function drawPartnerAskWindow(box, ask, state) {
  * answer taken back). Null for an ask the partner had nothing to do with.
  */
 function partnerAnswerView(need) {
-  if (need.answer?.by === 'partner') {
+  if (isDecidedAnswer(need.answer)) {
     return {
-      text: `Your partner answered: ${need.answer.text}`,
+      // Autopilot (2026-10-31): the board took the advice ("Decided for you"), or the main chat did it.
+      text: `${need.answer.by === 'autopilot' ? 'Decided for you' : need.answer.by === 'main' ? 'The main chat did it' : 'Your partner answered'}: ${need.answer.text}`,
       why: typeof need.answer.why === 'string' && need.answer.why !== '' ? `Why: ${need.answer.why}` : null,
       undo: need.canTakeBack === true ? { id: need.workId, label: 'Undo', title: TAKE_BACK_TITLE } : null,
     }
@@ -4133,10 +4153,16 @@ function withPartnerView(list) {
   return { text: `With your partner: ${list.length} question${list.length === 1 ? '' : 's'}`, rows: list.map(one => ({ id: one.id, href: `#details=${one.id}`, text: `${one.id} · ${one.from ?? 'nobody'}: ${one.title}`, stand: standWords(one.stand) })) }
 }
 
+/**
+ * Autopilot (2026-10-31): whether a card's answer was decided for the person (its `by`: the partner, the board's Autopilot
+ * taking the advice, the main chat doing it); such an answer has its Undo.
+ */
+const isDecidedAnswer = answer => ['partner', 'autopilot', 'main'].includes(answer?.by)
+
 /** Partner answers, the review's findings: "Decided for you" (the state's `partnerDecided`): each answer with its Undo. */
 function decidedView(list) {
   if (!Array.isArray(list) || list.length === 0) return null
-  return { title: 'Decided for you by your partner', count: list.length, rows: list.map(one => ({ ask: one.ask, text: one.line, undo: { id: one.ask, label: 'Undo', title: TAKE_BACK_TITLE } })) }
+  return { title: list.every(one => (one.by ?? 'partner') === 'partner') ? 'Decided for you by your partner' : 'Decided for you', count: list.length, rows: list.map(one => ({ ask: one.ask, text: one.line, undo: { id: one.ask, label: 'Undo', title: TAKE_BACK_TITLE } })) }
 }
 
 /** B466: the one line it folds to, with its count and a chevron that says whether it is open. */
@@ -4207,7 +4233,7 @@ function drawDecidedForYou(state) {
 function partnerAnswerParts(need) {
   const view = partnerAnswerView(need)
   if (view === null) return []
-  const part = el('div', `partner-answer${need.answer?.by === 'partner' ? '' : ' is-routed'}`)
+  const part = el('div', `partner-answer${isDecidedAnswer(need.answer) ? '' : ' is-routed'}`)
   part.append(el('b', '', view.text))
   if (view.why !== null) part.append(el('div', 'muted', view.why))
   if (view.undo !== null) {
@@ -4228,7 +4254,7 @@ function partnerAnswerParts(need) {
 function answerPart(need, state, isFolded, inWindow = false) {
   const answer = need.answer
   // Partner answers (2026-10-19): the partner's answer with its Undo; an ask it handed on, or taken back, says so.
-  if (answer?.by === 'partner') return [...partnerAnswerParts(need), ...(problems.has(need.id) ? [el('p', 'problem', problems.get(need.id))] : [])]
+  if (isDecidedAnswer(answer)) return [...partnerAnswerParts(need), ...(problems.has(need.id) ? [el('p', 'problem', problems.get(need.id))] : [])]
   const parts = [...partnerAnswerParts(need)]
   if (answer !== null && !isLost(answer)) return [...parts, sentLine(answer, need.from)]
   if (need.isClosed === true) return [el('p', 'muted', 'Closed: ticked in the backlog.')]
@@ -5532,6 +5558,9 @@ function drawNeeds(state) {
   fill(box, [none, drawObsolete(state), drawPartnerNeeds(partnerCards, partner.filter(need => !isClosed(need) && !isAnswered(need)).length), drawMissed(missed), drawSupervisorLine(supervised), drawGoalAskNeeds(state), drawBrainstormNeeds(state), ...oldCards, drawRefineNeeds(state), ...cards, drawWithPartner(state), drawDecidedForYou(state), ...recaps])
   // T9.4: no chat runs, so nobody can wake the chats words wait for (and the chats the board asked in vain): one line each on top of the panel, in the attention colour.
   const nobodyLines = [drawNobodyRuns(state.nobodyRuns), ...(drawWakeFailed(state.wakeFailed) ?? [])].filter(line => line !== null)
+  // Autopilot (2026-10-31): its one quiet line on top, under the wake lines, which always stay (the board's own cards).
+  const autopilotLine = drawAutopilotLine(state.autopilot ?? null)
+  if (autopilotLine !== null) box.prepend(autopilotLine)
   if (nobodyLines.length > 0) box.prepend(...nobodyLines)
   box.scrollTop = top
   refocus(box, focused)
@@ -5582,6 +5611,8 @@ function needsView(state, ui) {
     // T9.4: no chat runs, so nobody can wake the chats words wait for.
     nobodyRuns: state.nobodyRuns ?? null,
     wakeFailed: state.wakeFailed ?? [],
+    // Autopilot (2026-10-31): whether it is on, and what it decided for you today (the quiet line on top).
+    autopilot: state.autopilot ?? null,
     // B520: the goal map's ids, so a G id in a card's words links (linkedWords).
     goalIds: (state.goals?.nodes ?? []).map(node => node.id),
     goalAskNeeds: state.goalAskNeeds ?? [],
@@ -5630,6 +5661,9 @@ function focusPageView(state, ui) {
     goalsEdit: { canWrite: state.goalsEdit?.canWrite ?? null, whyNot: state.goalsEdit?.whyNot ?? null },
     workers: { main: state.workers?.main ?? null },
     partnerAnswers: state.partnerAnswers ?? null,
+    // Autopilot (2026-10-31): the switch it covers, and the asks that wait for the goal's recap.
+    autopilot: state.autopilot ?? null,
+    routedAway: (state.routedAway ?? []).filter(one => one.route === 'recap'),
     ui,
   }
 }
@@ -7794,12 +7828,16 @@ function subjectOf(state) {
   }
   if (detailsOf.partnerAsk !== undefined) {
     // A question that is with the partner: it has no card among the ones for you. It closes once the partner answered it.
-    const ask = (state.withPartner ?? []).find(one => one.id === detailsOf.partnerAsk)
+    // Autopilot (2026-10-31): or with the main chat, or waiting for the goal's recap.
+    const ask = (state.withPartner ?? []).find(one => one.id === detailsOf.partnerAsk) ?? (state.routedAway ?? []).find(one => one.id === detailsOf.partnerAsk)
     return ask === undefined ? null : { partnerAsk: ask }
   }
   if (detailsOf.step !== undefined) {
     // A step of the backlog by its key (the Coordinate tab): whatever its state, with the worker it names.
     const step = (state.backlog ?? []).flatMap(activity => activity.steps).find(one => one.key === detailsOf.step)
+    // Autopilot (2026-10-31): an ask's link of one the board routed to the main chat or to the goal's recap opens its window.
+    const routed = step === undefined ? (state.routedAway ?? []).find(one => one.id === detailsOf.step) : undefined
+    if (routed !== undefined) return { partnerAsk: routed }
     return step === undefined ? null : { need: null, lane: state.chats.find(one => one.name === step.worker) ?? null, place: -1, step }
   }
   if (detailsOf.task === true) {
@@ -9364,6 +9402,8 @@ function openStepWindow(state, code) {
   if (need !== undefined) return openDetails({ need: need.id })
   // A question that is with the partner has no card among the ones for you: its own window.
   if ((state.withPartner ?? []).some(one => one.id === code)) return openDetails({ partnerAsk: code })
+  // Autopilot (2026-10-31): or with the main chat, or waiting for the goal's recap.
+  if ((state.routedAway ?? []).some(one => one.id === code)) return openDetails({ partnerAsk: code })
   for (const lane of state.chats) {
     const place = lane.queue.findIndex(step => step.id === code)
     if (place >= 0) return openDetails({ lane: lane.name, place, id: code })
@@ -14140,14 +14180,18 @@ function focusView(focus, goals, can = null, ui = {}) {
     const hasLine = hasDoneWhenLine(focus)
     // B677: the goal demo comes first: its link stands above Yes and No; without it Yes waits and the partner is asked.
     const demo = focus.demo ?? null
-    view.vibeThere = total > 0 && done === total && (focus.progress.stopped ?? 0) === 0 ? {
+    // Autopilot (the coordinator's ruling, 2026-10-31): the recap moment comes once every part is done or waits only for the
+    // goal's recap (`forDemo`); Yes waits until the person's verdicts in the demo closed what waits.
+    const forDemo = focus.progress.forDemo ?? done
+    const waitsForRecap = done < total
+    view.vibeThere = total > 0 && (done === total || forDemo === total) && (focus.progress.stopped ?? 0) === 0 ? {
       question: 'Did we reach the goal?',
       vibe: focus.vibe,
       doneWhenLine: typeof focus.doneWhen === 'string' && focus.doneWhen.trim() !== '' ? `Done when: ${focus.doneWhen.trim()}` : null,
       // Work blocks (2026-10-31): a goal without its one line is checked against its blocks' done-when lines, all ticked.
       ...(hasLine && !(typeof focus.doneWhen === 'string' && focus.doneWhen.trim() !== '') ? { doneWhenLines: workBlocksOf(focus).map(part => blockLineOf(part)) } : {}),
       buttons: [
-        button('Yes', 'vibe-there-yes', hasLine && demo !== null, !hasLine ? 'Its Done when is missing: the goal gets its tick against it' : demo === null ? 'Your partner makes the goal demo first: you see it before you answer' : 'Your partner re-checks it against its Done when and its goal definition; it gets its tick once that passed'),
+        button('Yes', 'vibe-there-yes', hasLine && demo !== null && !waitsForRecap, !hasLine ? 'Its Done when is missing: the goal gets its tick against it' : demo === null ? 'Your partner makes the goal demo first: you see it before you answer' : waitsForRecap ? 'Judge the goal demo first: your verdicts there close what waits for its recap' : 'Your partner re-checks it against its Done when and its goal definition; it gets its tick once that passed'),
         button('No', 'vibe-there-no', true, 'Say what is missing: your partner changes the how'),
       ],
       demo: demo === null
@@ -14195,13 +14239,16 @@ const TAKE_BACK_TITLE = 'Take back your partner\'s answer: the question comes to
  * Partner answers (2026-10-19): the Focus page's switch, "Your partner answers detail questions", as the store keeps it
  * (the state's `partnerAnswers`, on unless the person switched it off); null without a store.
  */
-function partnerSwitchView(partnerAnswers) {
+function partnerSwitchView(partnerAnswers, isAutopilot = false) {
   if (partnerAnswers === null || partnerAnswers === undefined) return null
+  // Autopilot (2026-10-31): while it is on, it covers the switch: on, and not to be changed here.
+  if (isAutopilot) return { label: 'Your partner answers detail questions', on: true, isEnabled: false, note: 'covered by Autopilot', title: 'Autopilot is on (⚙): detail questions go to your partner, and everything but the goal\'s own questions is decided for you, with Undo.' }
   const on = partnerAnswers.on !== false
   return {
     label: 'Your partner answers detail questions',
     on,
     isEnabled: true,
+    note: on ? 'on: detail questions go to your partner first' : 'off: every question comes to you',
     title: on
       ? 'On: a worker\'s question that comes with its options or advice goes to your partner first; it answers it and lists the answer in its daily note with an Undo; questions only you can answer still come to you.'
       : 'Off: every question comes to you, as before.',
@@ -16481,9 +16528,11 @@ function focusAsksCard(state) {
 const gatheredCards = state => [gatheredRecaps(state).length > 0 ? focusRecapCard(state) : null, gatheredAsks(state).length > 0 ? focusAsksCard(state) : null].filter(card => card !== null)
 
 /** Focus 3: every part done: the question (once "Is the vibe there?", now "Did we reach the goal?") with the agreed goal definition, Yes, and No with a box for what is missing. */
-function focusVibeThereCard(view, can) {
+function focusVibeThereCard(view, can, forRecap = []) {
   const card = el('section', 'focus-card focus-there')
   card.append(el('h3', '', view.vibeThere.question))
+  // Autopilot (2026-10-31): what waited for this moment comes first.
+  if (forRecap.length > 0) card.append(el('h4', 'focus-recap-head', `For your recap (${forRecap.length})`), recapAsksList(forRecap))
   // B677: the goal demo before Yes and No: a big link (the picture window), or the line that the partner makes it first.
   const demo = view.vibeThere.demo
   if (demo.link !== null) {
@@ -16510,6 +16559,71 @@ function focusVibeThereCard(view, can) {
   card.append(lines, buttons)
   if (focusUi.notYet === 'there') card.append(focusNotYet('there', can))
   return card
+}
+
+// autopilot:start
+/**
+ * Autopilot (2026-10-31): the asks that wait for the recap of the goal `goal` (the state's `routedAway` with route "recap" whose
+ * step is of that goal), oldest first.
+ */
+function recapAsksFor(state, goal) {
+  if (goal === null) return []
+  return (state.routedAway ?? []).filter(one => one.route === 'recap' && one.goal === goal)
+}
+
+/** Autopilot: the settings panel's line under Autopilot, as the person agreed it (src/work/autopilot.mjs). */
+function autopilotWords(isOn) {
+  return isOn
+    ? 'The work runs until a goal is ready. You are asked when a goal starts, when it is ready, and for what no chat can do. Everything else is decided for you, with Undo.'
+    : 'Questions come to you as before.'
+}
+
+/** Autopilot: the quiet line on top of Needs your attention while it is on, or null: "Autopilot is on · decided for you today: 3". */
+function autopilotLineText(autopilot) {
+  if (autopilot === null || autopilot === undefined || autopilot.on !== true) return null
+  return `Autopilot is on · decided for you today: ${Number.isInteger(autopilot.decidedToday) ? autopilot.decidedToday : 0}`
+}
+
+/** Autopilot: one line per ask that waits for the recap: its question, its picture, its step; each opens the ask's window. */
+function recapAsksList(asks) {
+  const list = el('ul', 'focus-recap-asks')
+  for (const ask of asks) {
+    const item = el('li', '')
+    const link = el('a', 'focus-recap-ask', `${ask.id} · ${ask.title}`)
+    link.href = `#details=${ask.id}`
+    link.title = `Open ${ask.id}: the whole question, who asked it and its step`
+    item.append(link)
+    for (const path of (ask.pictures ?? []).slice(0, 1)) {
+      const see = el('button', 'quiet-button focus-recap-picture', 'picture')
+      see.type = 'button'
+      see.dataset.zoom = path
+      see.dataset.caption = ask.title
+      item.append(' ', see)
+    }
+    if (ask.of !== null && ask.of !== undefined) item.append(el('small', 'muted', ` ${[ask.of, ask.ofTitle].filter(Boolean).join(' ')}`))
+    list.append(item)
+  }
+  return list
+}
+// autopilot:end
+
+/** Autopilot: the run's card "For your recap (n)": what waits for the goal's recap, one line each. */
+function focusRecapAsksCard(asks) {
+  const card = el('section', 'focus-card focus-recap-wait')
+  card.append(el('h3', '', `For your recap (${asks.length})`), el('p', 'muted', 'Autopilot keeps these for the goal\'s recap: you judge them there, with the rest of the work.'), recapAsksList(asks))
+  return card
+}
+
+/** Autopilot: the quiet line on top of Needs your attention (autopilotLineText); it opens the partner's daily note. */
+function drawAutopilotLine(autopilot) {
+  const text = autopilotLineText(autopilot)
+  if (text === null) return null
+  const line = el('p', 'muted autopilot-line')
+  const link = el('a', '', text)
+  link.href = '#advice/focus'
+  link.title = 'Open your partner\'s daily note on the Focus page: what was decided for you, each with its Undo'
+  line.append(link)
+  return line
 }
 
 /** B358: the run's card of the goal's re-check: it runs, it found a gap, or it waits for the person. */
@@ -16592,7 +16706,10 @@ function drawFocus(state) {
       const right = el('div', 'focus-column')
       if (view.guard !== null && view.guard !== undefined) right.append(focusGuardCard(view.guard))
       if (view.recheck !== null && view.recheck !== undefined) right.append(focusRecheckCard(view.recheck))
-      if (view.vibeThere !== null) right.append(focusVibeThereCard(view, can))
+      // Autopilot (2026-10-31): the asks that wait for the goal's recap, under the goal; "Did we reach the goal?" lists them first.
+      const forRecap = recapAsksFor(state, view.head?.id ?? null)
+      if (view.vibeThere !== null) right.append(focusVibeThereCard(view, can, forRecap))
+      else if (forRecap.length > 0) right.append(focusRecapAsksCard(forRecap))
       right.append(focusNoteCard(view))
       // B360, B361: with botherMe "daily" the recaps of finished work and the asks that can wait gather under the note.
       const gathered = gatheredCards(state)
@@ -16636,7 +16753,7 @@ function drawFocus(state) {
 
 /** Partner answers (2026-10-19): the switch drawn (partnerSwitchView), with the problem of its last change. */
 function partnerSwitch(state) {
-  const view = partnerSwitchView(state.partnerAnswers ?? null)
+  const view = partnerSwitchView(state.partnerAnswers ?? null, state.autopilot?.on === true)
   if (view === null) return null
   const row = el('div', 'focus-partner-switch')
   row.title = view.title
@@ -16646,7 +16763,7 @@ function partnerSwitch(state) {
   box.checked = view.on
   box.disabled = !view.isEnabled || sending.has('partner-answers')
   box.dataset.partnerAnswers = 'switch'
-  label.append(box, el('span', '', view.label), el('small', 'muted', view.on ? 'on: detail questions go to your partner first' : 'off: every question comes to you'))
+  label.append(box, el('span', '', view.label), el('small', 'muted', view.note))
   row.append(label)
   if (problems.has('partner-answers')) row.append(el('p', 'problem', problems.get('partner-answers')))
   return row
