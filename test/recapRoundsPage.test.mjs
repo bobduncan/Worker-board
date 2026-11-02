@@ -121,16 +121,16 @@ const rounds = [{ n: 1, at: sinceOf(NOW - 60 * MIN), parts: [{ key: 'Block 1', v
 /** The garden: Block 1 sent back an hour ago; `changedAt` is when the recap was last written. */
 const garden = changedAt => asSent(build(
   [step('B1', 'review', 300), step('B2', 'review', 300), step('B5', 'done', 30), step('B6', 'queued', 20), step('B7', 'dropped', 10)], undefined, goals,
-  { recaps: [{ path: PATH, goal: 'G6', changedAt, rounds, parts: ['Block 1', 'Block 2'].map((key, at) => ({ key, title: key, steps: [`B${at + 1}`], pending: false })) }], goalRecap: { goal: 'G6', path: PATH, pictures: {}, changedAt, rounds }, config: ON },
+  { recaps: [{ path: PATH, goal: 'G6', changedAt, rounds, parts: ['Block 1', 'Block 2'].map((key, at) => ({ key, title: key, steps: [`B${at + 1}`], pending: false, changed: true })) }], goalRecap: { goal: 'G6', path: PATH, pictures: {}, changedAt, rounds }, config: ON },
 ))
 
-test('Needs your attention while round 2 is being made: the Product owner\'s card says so in quiet colours, with "2 of 3 new steps done" and a link; no verdict, not counted', async () => {
+test('Needs your attention while round 2 is being made: the Product owner\'s card says so in quiet colours, with "2 of 3 next tries done" and a link; no verdict, not counted', async () => {
   const page = await openPage({ state: garden(NOW - 200 * MIN), answers: request => reply(request.url.startsWith('/api/demo?') ? shown({}, SENT_MS - 4 * 60 * MIN) : {}) })
   await settle(10)
   try {
     const card = page.find('#needs .need.is-recap-making')
     assert.equal(words(card.querySelector('h4')), 'G6 · Garden: round 2 of your recap is being made')
-    assert.equal(words(card.querySelector('.recap-making-line')), '2 of 3 new steps done')
+    assert.equal(words(card.querySelector('.recap-making-line')), '2 of 3 next tries done')
     assert.doesNotMatch(words(card), /verdict/i)
     assert.deepEqual([page.all('#needs .is-recap-ready').length, page.find('#needs-count').textContent], [0, ''], 'no attention card, and the count stays empty')
     assert.equal(page.all('#needs .need.is-recap-making').length, 1)
@@ -150,7 +150,7 @@ test('the Focus page while round 2 is being made: a quiet card with the same wor
     await page.click('[data-tab="advice"]')
     const card = page.find('#advisor-focus .focus-recap-making')
     assert.equal(words(card.querySelector('h3')), 'G6 · Garden: round 2 of your recap is being made')
-    assert.equal(words(card.querySelector('p')), '2 of 3 new steps done')
+    assert.equal(words(card.querySelector('p')), '2 of 3 next tries done')
     assert.equal(card.querySelector('a').dataset.demo, PATH)
     assert.equal(page.all('#advisor-focus .focus-recap-ready').length, 0)
     assert.doesNotMatch(words(page.find('#advisor-focus')), /verdicts? waits?/i)
@@ -187,6 +187,19 @@ test('an open popup that says "being made" is drawn anew once the state says the
   } finally { await page.close() }
 })
 
+test('the ruling on the page: a state that carries both the verdict card and the round being made draws the quiet card only, in Needs your attention and on the Focus page', async () => {
+  const both = { ...garden(NOW - 20 * MIN), recapMaking: garden(NOW - 200 * MIN).recapMaking }
+  assert.ok(both.recapCard.count > 0, 'the fixture has verdicts waiting too')
+  const page = await openPage({ state: both })
+  await settle(10)
+  try {
+    assert.deepEqual([page.all('#needs .is-recap-making').length, page.all('#needs .is-recap-ready').length, page.find('#needs-count').textContent], [1, 0, ''])
+    await page.click('[data-tab="advice"]')
+    assert.deepEqual([page.all('#advisor-focus .focus-recap-making').length, page.all('#advisor-focus .focus-recap-ready').length], [1, 0])
+    assert.doesNotMatch(words(page.find('#advisor-focus')), /verdicts? waits? for you/i, 'the strip and the progress line say nothing of verdicts either')
+  } finally { await page.close() }
+})
+
 // ---------------------------------------------------------------------------------------------------------------------
 // The view, as the page runs it (the marked region of board.js, with the page's own cutWords)
 
@@ -194,14 +207,14 @@ const cutLine = script.split('\n').find(line => line.startsWith('const cutWords 
 const { recapMakingView } = vm.runInNewContext(`const HOUR = ${60 * MIN}\n${cutLine}\n${script.slice(script.indexOf('// recapready:start'), script.indexOf('// recapready:end'))}\n;({ recapMakingView })`, {})
 const plain = value => JSON.parse(JSON.stringify(value))
 
-test('the view: the goal\'s words, "k of m new steps done" (singular for one, calm for none), the link that opens the recap; none for no round to make', () => {
+test('the view: the goal\'s words, "k of m next tries done" (singular for one, calm for none), the link that opens the recap; none for no round to make', () => {
   const making = (more = {}) => ({ goal: 'G60', path: PATH, round: 2, done: 3, total: 5, ...more })
   assert.deepEqual(plain(recapMakingView(making(), { id: 'G60', title: 'How we build good maps' })), {
-    goal: 'G60', round: 2, heading: 'G60 · How we build good maps: round 2 of your recap is being made', line: '3 of 5 new steps done', open: { label: 'Open the recap →', target: { path: PATH } },
+    goal: 'G60', round: 2, heading: 'G60 · How we build good maps: round 2 of your recap is being made', line: '3 of 5 next tries done', open: { label: 'Open the recap →', target: { path: PATH } },
   })
-  assert.equal(recapMakingView(making({ round: 3, done: 0, total: 1 }), { id: 'G60', title: 'Maps' }).line, '0 of 1 new step done')
-  assert.equal(recapMakingView(making({ done: 0, total: 0 }), null).line, 'No new steps yet')
-  assert.equal(recapMakingView(making({ done: 9, total: 4 }), null).line, '4 of 4 new steps done', 'never more done than made')
+  assert.equal(recapMakingView(making({ round: 3, done: 0, total: 1 }), { id: 'G60', title: 'Maps' }).line, '0 of 1 next try done')
+  assert.equal(recapMakingView(making({ done: 0, total: 0 }), null).line, 'No next tries yet')
+  assert.equal(recapMakingView(making({ done: 9, total: 4 }), null).line, '4 of 4 next tries done', 'never more done than made')
   assert.equal(recapMakingView(making(), { id: 'G7', title: 'Not this goal' }).heading, 'G60: round 2 of your recap is being made')
   assert.equal(recapMakingView(making({ goal: null }), null).heading, 'Round 2 of your recap is being made')
   assert.equal(recapMakingView(making({ path: null }), null).open, null, 'never a dead arrow')

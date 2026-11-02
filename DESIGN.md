@@ -5705,8 +5705,25 @@ same pictures sat beside their words and the popup asked for a verdict again; th
 5. The cards (src/recapCard.mjs `recapMakingOf`, state `recapMaking`: `{ goal, path, round, done, total }`): while a round is being made
    no part of that recap is a verdict that waits (`recapWaitsOf` flags `making`, a `pending` part stays sent back), so the recap card is
    null, and the Product owner's card (Needs your attention) and the Focus page say "G60 · <title>: round 2 of your recap is being made"
-   with the quiet line "<k> of <m> new steps done" (the goal's steps whose first History line is not before the Send, done, closed or
-   dropped of all) and a link to the recap. No attention colour; it is not counted.
+   with the quiet line "<k> of <m> next tries done" and a link to the recap. No attention colour; it is not counted.
+
+The coordinator's review of the first build (same day) added:
+
+6. The board itself, not only the tool, treats a row sent back with no `changed` line as being reworked (`roundPage`, and `recapWaitsOf`'s
+   `tried`: a part counts as tried only with `changed`), whatever the file's time: a demo.json written by hand shows no old pictures as a new try.
+7. tools/demo.mjs also refuses a list in which a row the person sent back no longer matches any row (a renamed title: keep it, or give the
+   row `"id": "<its old title>"`), and checks a row's `play` against the game's arenas (`arenaCheckOf`: `<gameRepo>/src/content/arenas` and its
+   `dev` folder, from the board's config.json; no `gameRepo`, no lookup). An arena name may hold `_`. The board's read never refuses a recap
+   for a bad `changed`, `pending` or `play`: `demoPage` leaves that field out.
+8. While the focus goal's round is being made the state has no `recapCard` (the quiet card is always drawn, in Needs your attention and on the
+   Focus page, whatever else waits), and a step a part of that recap names does not read "Waits for your verdict" (its block is not
+   `verdict`, its step says "Waits for the next round").
+9. The next tries (`nextTriesOf`): the goal's steps filed or reopened (a History line out of done, closed or dropped) at or after the Send's
+   minute, without Quality Assurance tasks (`Checks`). When one of them is done while the round is being made, the loop `recap-round`
+   (server.mjs `recapRoundNow`) sends the partner one word, once for each step (`recapRoundDue`, from the kept outbox): "recap: G<n> round
+   <N+1>: B<id> is done; write the round with its row, `pending` for the rest".
+10. An answer in words passes the tool without a new picture when its note differs from the note the demo.json it replaces had for the row
+    (or the same list is taken a second time); roles/partner.md says to write the round as soon as one row's try is in.
 
 Tests: test/recapRounds.test.mjs (data, the list, tools/demo.mjs, the state), test/recapRoundsPage.test.mjs (the popup, both cards),
 test/demoFeedbackBoard.test.mjs and test/recapVerdictBoard.test.mjs (on a running board: being made, then the rewrite).

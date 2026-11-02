@@ -6113,9 +6113,10 @@ function drawNeeds(state) {
   // B287: the refine questions count once per step, as their lines stand.
   // Calm panel: the missed lines count too; the log's notes and open instructions never do.
   // T20: the Product owner's recap card counts as one while verdicts wait.
-  const recapAttention = recapAttentionView(state.recapCard ?? null, state.focusGoal ?? null)
-  // T17.1: while round N+1 is being made the card stays, quiet; it asks nothing, so it is not counted (and no verdict card stands beside it).
-  const recapMaking = recapAttention === null ? recapMakingView(state.recapMaking ?? null, state.focusGoal ?? null) : null
+  // T17.1 (the coordinator's ruling): while round N+1 is being made the card is always the quiet one, whatever else waits; it asks nothing,
+  // so it is not counted, and no verdict card stands beside it.
+  const recapMaking = recapMakingView(state.recapMaking ?? null, state.focusGoal ?? null)
+  const recapAttention = recapMaking !== null ? null : recapAttentionView(state.recapCard ?? null, state.focusGoal ?? null)
   const cleared = clearedLineView(state.autopilotCleared ?? null, state.readAt)
   const unanswered = cardsOpen.filter(need => !isAnswered(need)).length + lines.length + (state.goalAskNeeds ?? []).length + (state.brainstormNeeds ?? []).length + missed.length + (recapAttention === null ? 0 : 1)
   $('needs-count').textContent = unanswered === 0 ? '' : String(unanswered)
@@ -14844,7 +14845,7 @@ function recapAttentionView(card, goal = null) {
 /**
  * T17.1 (the person, 2026-11-02, after sending round 1 of G60's recap: "the new recap, after round 1 is not finetuned to my feedback ...
  * i see no evidence of what i asked it to fix/change"): the card while round N+1 of the focus goal's recap is being made (the state's
- * `recapMaking`, src/recapCard.mjs): "G60 · <title>: round 2 of your recap is being made", one quiet line with how many of the new steps
+ * `recapMaking`, src/recapCard.mjs): "G60 · <title>: round 2 of your recap is being made", one quiet line with how many of the next tries
  * are done, and the link that opens the recap (its popup shows the same state). It asks no verdict: no attention colour, and it is
  * never counted. `goal` is the focus goal `{ id, title }` (the state does not carry its title). Null for none.
  */
@@ -14859,7 +14860,7 @@ function recapMakingView(making, goal = null) {
     goal: id,
     round: making.round,
     heading: name === '' ? `Round ${making.round} of your recap is being made` : `${name}: round ${making.round} of your recap is being made`,
-    line: total === 0 ? 'No new steps yet' : `${done} of ${total} new ${total === 1 ? 'step' : 'steps'} done`,
+    line: total === 0 ? 'No next tries yet' : `${done} of ${total} next ${total === 1 ? 'try' : 'tries'} done`,
     open: typeof making.path === 'string' && making.path !== '' ? { label: 'Open the recap →', target: { path: making.path } } : null,
   }
 }
@@ -15103,9 +15104,9 @@ function focusView(focus, goals, can = null, ui = {}) {
     // without a block.
     view.openNow = focusOpenNowView(focus, ui.recapCard)
     // 2026-11-01: the recap card above the work blocks, while a part of the goal's recap waits for the person's verdict.
-    view.recapCard = recapReadyView(ui.recapCard)
-    // T17.1: while round N+1 is being made (no verdict waits) the card says so, quietly; the strip and the progress line stay as they are.
-    view.recapMaking = view.recapCard === null ? recapMakingView(ui.recapMaking ?? null, { id: focus.id ?? null, title: focus.title ?? null }) : null
+    // T17.1: while round N+1 is being made the card says so, quietly, whatever else waits; the strip and the progress line stay as they are.
+    view.recapMaking = recapMakingView(ui.recapMaking ?? null, { id: focus.id ?? null, title: focus.title ?? null })
+    view.recapCard = view.recapMaking !== null ? null : recapReadyView(ui.recapCard)
     // 2026-11-01 (the person, "B"): while verdicts wait the run's stage reads "Your recap" in the attention colour, and the
     // progress line says how many wait for them; back to "The run" once none waits. One row, as before.
     if (view.recapCard !== null) {
@@ -16056,7 +16057,7 @@ function focusRecapReady(view) {
 }
 
 /**
- * T17.1: the card where the recap card stands while round N+1 is being made (recapMakingView): its words, the quiet count of new steps
+ * T17.1: the card where the recap card stands while round N+1 is being made (recapMakingView): its words, the quiet count of next tries
  * done, and a link that opens the recap. No attention colour: it asks nothing.
  */
 function focusRecapMaking(view) {

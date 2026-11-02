@@ -22,6 +22,8 @@ export const LOOP_WORDS = {
   // B528: an evaluation that has not ended, asked of the partner again.
   'evaluate-again': 'asking an evaluation again',
   'goal-demo': 'asking the partner for the goal demo',
+  // T17.1: a next try of the recap's round that turned done, told to the partner.
+  'recap-round': 'telling the partner a next try of the recap is done',
   picture: 'making a picture',
   // B467: reads that were taken for "nothing there" when they failed. `evaluations` runs on a move on the Focus page
   // and shows until the next move reads them; the last three are read once, at the start, and show until the board

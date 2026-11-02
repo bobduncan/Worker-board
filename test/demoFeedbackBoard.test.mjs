@@ -12,7 +12,7 @@ import test from 'node:test'
 import { fileURLToPath } from 'node:url'
 
 import { answer, typed } from '../fixtures/lines.mjs'
-import { migrateBacklog } from '../src/work/migrate.mjs'
+import { migrateBacklog, stamp } from '../src/work/migrate.mjs'
 import { writeStore } from '../src/work/store.mjs'
 import { MIN, RUN_GOALS } from './partnerState.mjs'
 
@@ -99,7 +99,7 @@ test('the Send on a goal demo: feedback.json, the words on the step once, one wo
   const work = join(project, '.claude', 'work')
   await writeStore(work, migrateBacklog('## Garden\n- [ ] B12 Plant the hedge (for Digger; about 1 h)\n', { now: NOW }), undefined, { now: NOW })
   const port = await freePort()
-  await writeFile(join(board, 'config.json'), JSON.stringify({ name: 'recap', project, port, gamePort: 7340, gameRepo: '', appSessions: app, transcripts, usageHistory: join(app, 'none.json') }))
+  await writeFile(join(board, 'config.json'), JSON.stringify({ name: 'recap', project, port, gamePort: 7340, gameRepo: '', appSessions: app, transcripts, usageHistory: join(app, 'none.json'), refreshSeconds: 5 }))
   await run(started, board, { WORKER_BOARD_HOME: join(dir, 'pc') })
 
   const base = `http://127.0.0.1:${port}`
@@ -160,6 +160,16 @@ test('the Send on a goal demo: feedback.json, the words on the step once, one wo
   const making = await demoPage()
   assert.deepEqual([making.feedback.round, making.feedback.making, making.feedback.canSend, rowsOf(making), making.sections[0].rows[0].pictures, making.sections[0].rows[0].reworking], [2, { round: 2 }, false, ['3. Round shapes'], [], true])
   assert.equal((await send({ round: 2, parts: [{ key: '3. Round shapes', verdict: 'approved' }] })).status, 409)
+  // T17.1 (the coordinator's review of 6f197a4): a next try (a step of the goal filed after the Send) that turns done while the round is being
+  // made is told to the partner, once for each step: "recap: G6 round 2: B20 is done; write the round with its row, `pending` for the rest".
+  const nextTry = id => [`Id: ${id}`, 'Kind: step', 'Title: Round the shapes again', 'State: done', 'Owner: Digger', 'Activity: Garden', 'Goal: G6', `Since: ${stamp(Date.now())}`, '',
+    '## History', `- ${stamp(Date.now())} Digger: new → done`, ''].join('\n')
+  const nudges = async () => (await outbox()).filter(message => message.command === 'recap-round')
+  await writeFile(join(work, 'B20.md'), nextTry('B20'))
+  const nudged = await until(async () => { const found = await nudges(); return found.length > 0 ? found : null }, 'the word for the next try that is done')
+  assert.equal(nudged.length, 1)
+  assert.equal(nudged[0].text.split('\n')[0], 'recap: G6 round 2: B20 is done; write the round with its row, `pending` for the rest')
+  assert.deepEqual([nudged[0].to, nudged[0].step, nudged[0].about], ['Advisor', 'B20', 'G6'])
   // The partner writes the demo again (a later minute than the Send), the part sent back with what changed: round 2 is ready.
   const file = join(project, 'pictures', 'g6', 'demo.json')
   const written = JSON.parse(await readFile(file, 'utf8'))

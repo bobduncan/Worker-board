@@ -9,16 +9,17 @@ import { roundPage, withRound } from '../src/demoFeedback.mjs'
 import { openPage, reply, settle } from './pageHarness.mjs'
 import { asSent, build } from './partnerState.mjs'
 
-const list = () => ({
+/** `tried`: the partner wrote the demo again with the new try of the row sent back (T17.1: its `changed` line). */
+const list = (tried = false) => ({
   goal: 'G6', title: 'The polish', step: 'B7',
   sections: [
     { kind: 'reached', rows: [{ title: '1. Lava', pictures: [{ kind: 'target', caption: 'target', path: 'a.png' }] }, { title: '2. Cliffs', pictures: [{ kind: 'target', caption: 'target', path: 'b.png' }] }] },
-    { kind: 'not-reached', rows: [{ title: '3. Round shapes', pictures: [{ kind: 'final-not', caption: 'last try', path: 'c.png' }] }] },
+    { kind: 'not-reached', rows: [{ title: '3. Round shapes', ...(tried ? { changed: 'still stepped -> rounded off' } : {}), pictures: [{ kind: 'final-not', caption: 'last try', path: 'c.png' }] }] },
   ],
 })
 const PATH = 'pictures/g6/demo.json'
-const shown = (feedback = null, may = {}) => {
-  const page = roundPage(demoPage(list(), 'pictures/g6'), feedback)
+const shown = (feedback = null, may = {}, tried = false) => {
+  const page = roundPage(demoPage(list(tried), 'pictures/g6'), feedback)
   return { ...page, feedback: { ...page.feedback, canSend: true, whyNot: null, ...may } }
 }
 const state = () => asSent(build([], undefined))
@@ -61,7 +62,7 @@ test('Send goes out once with the round, the decided parts and their comments; t
     await page.click('[data-demo-verdict="approved"][data-demo-key="1. Lava"]')
     await page.click('[data-demo-verdict="sent-back"][data-demo-key="3. Round shapes"]')
     await page.type('[data-demo-comment="3. Round shapes"]', 'still stepped')
-    now = shown(withRound(null, 1, [{ key: '1. Lava', verdict: 'approved', comment: '' }, { key: '3. Round shapes', verdict: 'sent-back', comment: 'still stepped' }], 'x'))
+    now = shown(withRound(null, 1, [{ key: '1. Lava', verdict: 'approved', comment: '' }, { key: '3. Round shapes', verdict: 'sent-back', comment: 'still stepped' }], 'x'), {}, true)
     await page.click('[data-demo-send]')
     await settle(10)
     assert.deepEqual(page.sent('/api/demo-feedback').map(one => one.body), [{

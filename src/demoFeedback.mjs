@@ -61,6 +61,11 @@ export function makingOf(rounds, changedAt) {
   return Number.isFinite(at) && !isAfterSend(changedAt, at) ? { round: last.n + 1, at } : null
 }
 
+/** Whether a row (of the page model) says what changed for the person's words. */
+export const hasChanged = row => typeof row?.changed === 'string' && row.changed.trim() !== ''
+/** Whether a row (of the page model) says its new try is not in yet. */
+export const isPending = row => typeof row?.pending === 'string' && row.pending.trim() !== ''
+
 /** Every row of a page, in order: `{ key, title, section, steps, reworking }` (B878: the steps the part shows, [] for none; T17.1: whether its new try is not in yet). */
 export const rowsOf = page => page.sections.flatMap((section, at) => section.rows.map(row => ({ key: row.key, title: row.title, section: at, steps: row.steps ?? [], reworking: row.reworking === true })))
 
@@ -72,8 +77,9 @@ export const rowsOf = page => page.sections.flatMap((section, at) => section.row
  * written (ms); without it the page does not know (a test, a caller with no file) and never says "being made".
  *
  * T17.1: while the round is being made the page holds only the rows the last Send sent back, each as `reworking` with no picture, no
- * note and no controls to answer; after the partner wrote the demo again a sent-back row that carries `pending` is `reworking` too
- * (its new try is not in), one that does not is the new try (its `changed` line and pictures). Pure.
+ * note and no controls to answer; after the partner wrote the demo again a sent-back row that carries `pending`, or that has no `changed`
+ * line, is `reworking` too (its new try is not in, whatever the file's time says), one that has is the new try (its `changed` line and
+ * pictures). Pure.
  */
 export function roundPage(page, input, options = {}) {
   const rounds = roundsOf(input)
@@ -96,7 +102,9 @@ export function roundPage(page, input, options = {}) {
         // Being made: only what the last Send sent back, without the old try.
         if (making !== null) return said.round === last.n ? [{ ...reworked(row), pending: null, said: { comment: said.comment, round: said.round } }] : []
         const kept = { ...row, said: { comment: said.comment, round: said.round } }
-        return [typeof row.pending === 'string' && row.pending !== '' ? reworked(kept) : kept]
+        // A row sent back is the new try only when its row says what changed (and is not pending): a demo.json written by hand, with the old
+        // pictures and no `changed` line, never passes for one, whatever the file's time (the coordinator's review of 6f197a4).
+        return [hasChanged(row) && !isPending(row) ? kept : reworked(kept)]
       }),
     }))
     .filter(section => section.rows.length > 0)
