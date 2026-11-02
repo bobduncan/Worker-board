@@ -142,6 +142,10 @@ test('the Send on a goal demo: feedback.json, the words on the step once, one wo
   // T22: the state carries the Send's wait line by that id, until the partner's next tries are filed.
   const state = await fetch(`${base}/api/state`, { headers: { 'X-Board-Token': token } }).then(reply => reply.json())
   assert.deepEqual([state.waits?.[firstSaid]?.command, state.waits?.[firstSaid]?.about, state.waits?.[firstSaid]?.state], ['recap-feedback', 'G6', 'sent'])
+  // T22: this board offers Send again; one for a chat it does not show is refused at once, nothing tried.
+  assert.equal(state.waitAgain, true)
+  const refused = await asPerson('/api/say', { command: 'wake-again', chat: 'Nobody', word: firstSaid })
+  assert.deepEqual([refused.status, refused.body.trim()], [404, 'That chat is not on the board.'])
   assert.match(toldPartner[0].text, /recap feedback: G6 The polish, round 1: 1 part sent back\nStep: B12\n/)
   assert.match(toldPartner[0].text, /- 3\. Round shapes: "still stepped"/)
 

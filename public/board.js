@@ -185,16 +185,26 @@ function drawWaitLine(view) {
     again.type = 'button'
     again.dataset.waitAgain = view.id
     again.disabled = sending.has(`wait-again:${view.id}`)
+    again.dataset.waitChat = view.chat ?? ''
     again.title = `Tries to wake ${view.chat} once more, through the board's wake record`
     line.append(again)
   }
   if (view.pill !== null) line.append(el('span', `pill is-${view.pill.key}`, view.pill.label))
+  // A refused Send again says why, under the line's words.
+  if (problems.has(`wait-again:${view.id}`)) words.append(el('span', 'wait-problem', ` · ${problems.get(`wait-again:${view.id}`)}`))
   return line
 }
 // waitline:end
 
 // T22: a Done line's link opens the step it names at once (the recap's popup closes first, or the step's window stands behind it).
+// Send again asks the board for one more wake of the chat, through its wake record (server.mjs `wakeAgainNow`); the line then
+// reads the record, and a refusal stands under the line.
 document.addEventListener('click', event => {
+  const again = event.target.closest?.('[data-wait-again]')
+  if (again !== null && again !== undefined) {
+    if (again.disabled) return
+    return send({ command: 'wake-again', chat: again.dataset.waitChat, word: again.dataset.waitAgain }, `wait-again:${again.dataset.waitAgain}`)
+  }
   const link = event.target.closest?.('[data-wait-step]')
   if (link === null || link === undefined || board === null) return
   event.preventDefault()

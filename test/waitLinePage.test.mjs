@@ -183,3 +183,23 @@ test('the recap\'s Send feedback: the popup draws the line of the word its answe
     assert.equal(page.find('.demo-side .demo-wait .wait-line').className, 'wait-line is-picked-up', 'the open popup follows the state')
   } finally { await page.close() }
 })
+
+test('Send again: on a Late line whose chat could not be woken, where the board offers it; the click asks the board, a refusal stands under the line', async () => {
+  const late = line('late', 'Not picked up after 12 min', 'Digger did not wake: the app did not start it (launched 09:50)', { canSendAgain: true })
+  const answers = request => (request.url === '/api/say' ? reply('A wake of Digger is on its way already.', 409) : reply({}))
+  const page = await openPage({ state: { ...answeredState({ w5: late }), waitAgain: true }, answers })
+  try {
+    const again = page.find('#needs .wait-line.is-late [data-wait-again="w5"]')
+    assert.equal(words(again), 'Send again')
+    await page.click('#needs [data-wait-again="w5"]')
+    assert.deepEqual(page.sent('/api/say').map(one => one.body), [{ command: 'wake-again', chat: 'Digger', word: 'w5' }])
+    assert.match(words(page.find('#needs .wait-line .wait-problem')), /A wake of Digger is on its way already\./)
+  } finally { await page.close() }
+  // A board that does not offer it (a copy that only shows, an older server), or a line the server says no to: no button.
+  for (const state of [answeredState({ w5: late }), { ...answeredState({ w5: { ...late, canSendAgain: false } }), waitAgain: true }]) {
+    const none = await openPage({ state })
+    try {
+      assert.equal(none.all('#needs [data-wait-again]').length, 0)
+    } finally { await none.close() }
+  }
+})

@@ -39,6 +39,11 @@ export const WAIT_COMMANDS = ['recap-feedback', 'obsolete-check', 'sweep']
 const TURN_RUNS = ['busy', 'asking']
 /** A report state in which that turn has ended. */
 const TURN_ENDED = ['idle', 'ended']
+/**
+ * Who holds the person's Send again on the message way until a hand that may send takes it (server.mjs `wakeAgainNow`, the
+ * attempt's `by`): the line then reads "waking X (message on its way, held by the board)".
+ */
+export const AGAIN_BY = 'the board'
 /** How far a retried word is followed to the copy that stands for it (store.mjs `retriedAs`). */
 const RETRY_HOPS = 6
 

@@ -5310,21 +5310,28 @@ copied words have none. The chat's status pill stands beside the line as every v
 the attention colour.
 
 **The state's `waits`** (server.mjs `waitsNow`): every person's word of the last 24 h (an answer, `recap-feedback`,
-`obsolete-check`, the asked sweep's word `lastSweep.word`) by its id, judged with a supervisor view of the same moment; a
-retried word by the copy that stands for it. An answer carries its word's id (`need.answer.id`), the recap's Send answers
+`obsolete-check`, the asked sweep's word `lastSweep.word`) by its id, judged by `wordJudge` (src/supervisor/index.mjs: a view
+built as the rules build theirs, `isUndelivered` and `wordMatters` made once; the boundary holds, nothing outside the
+supervisor imports its parts); a retried word by the copy that stands for it. An answer carries its word's id (`need.answer.id`), the recap's Send answers
 `said` and names its `backSteps`, Check now answers `said`.
 
 **On the page**: an answered ask stays as a slim card with its line until Done (it used to vanish at once); Find obsolete
 items says "Asked" and draws the line (it said "checking" from the moment its record was written); a Check now sweep's line
 stands under the supervisor's head; the recap's Send draws its line in the popup (following the state) and as the Focus
 page's card "G6 · Your recap · feedback sent" while no verdict waits. A Done line's link opens its step; a Done line goes
-after 10 minutes. **Not in it yet**: Send again (it waits for change 7's `personAgain` in wake.mjs; the button shows only
-where the state says `waitAgain`), the incident judgment's line (change 6), wave 2 (a refine, Go, Change this goal, a goal
-ask, Overturn, Stop or Remove a worker, the Focus talk).
+after 10 minutes.
+
+**Send again** (a Late line whose chat does not run, while no wake is pending; only where the state says `waitAgain`): the
+page posts `wake-again` to /api/say; `wakeAgainNow` makes ONE attempt through the record (wake.mjs `personAgain`, change 7,
+outside the cap of one try per path): the message way when a chat that may send claims (the record holds it `by` "the board"
+until the next hand takes it, with the job id `wakeJobId` the hands route gives a claim), else a launch at once (`launchFor`
+with `again`). A refusal stands under the line. **Not in it yet**: the incident judgment's line (change 6), wave 2 (a refine,
+Go, Change this goal, a goal ask, Overturn, Stop or Remove a worker, the Focus talk).
 
 Tests: `test/waitLine.test.mjs` (the four states, rule 8's one judgement, the wake record, the actions' own results,
-`waitsOf`), `test/waitLinePage.test.mjs` (the DOM harness: the slim card, the signs, the obsolete check, the sweep, the
-recap's popup and Focus card, the link), `test/demoFeedbackBoard.test.mjs` (the Send's line in a running board's state).
+`waitsOf`), `test/waitAgain.test.mjs` (Send again through the record, held for the next hand), `test/waitLinePage.test.mjs`
+(the DOM harness: the slim card, the signs, the obsolete check, the sweep, the recap's popup and Focus card, the link, Send
+again), `test/demoFeedbackBoard.test.mjs` (the Send's line in a running board's state, a refused Send again).
 
 ## What it does not do
 

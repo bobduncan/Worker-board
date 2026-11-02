@@ -3366,6 +3366,7 @@ ul.task-history { list-style: none; display: flex; flex-direction: column; gap: 
 .wait-link:hover { text-decoration: underline; }
 .wait-again { flex: none; padding: 3px 12px; border: 0; border-radius: 6px; background: var(--waiting); color: #1c1403; font-weight: 700; cursor: pointer; }
 .wait-again:disabled { opacity: 0.6; cursor: default; }
+.wait-line .wait-problem { color: var(--warn); }
 /* An answered card that still waits for its chat: folded to its head and its line, in a quiet border (it asks nothing of the person). */
 .need.is-slim { gap: 4px; padding: 9px 12px 10px; border-left-color: #5b7fae; }
 .need.is-slim .wait-line { margin-top: 4px; }
