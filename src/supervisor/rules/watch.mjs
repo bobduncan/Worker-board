@@ -20,7 +20,7 @@ import { afterPause as afterPauseOf, checkpointOf, heldMs, holdEndOf, isHolding,
 import { isFailedForGood, stoppedChats, whyClosed } from '../../work/outboxSweep.mjs'
 import { FIRST_SAYING, chatsByRole, oldModFinding } from '../../oldMods.mjs'
 import { EFFORTS, chatEffort, effortOf, effortSaid, familyOf, modelOf } from '../../work/effort.mjs'
-import { chainTries, hasTriedBefore, reviewWaitOf } from '../../work/resultCheck.mjs'
+import { chainTries, hasTriedBefore, reviewWaitOf, waitsForPerson } from '../../work/resultCheck.mjs'
 import { madeAtMs, openQaTaskOf, qaStandOf } from '../../work/qaTask.mjs'
 import { isWordingOnly } from '../../work/recapWords.mjs'
 import { NET_MS, STATES, UNANSWERED_WHY, envelopesOf } from '../../work/handover.mjs'
@@ -594,6 +594,20 @@ function fixDropped(view, ctx) {
 
 /** B660: a held why that is the person's open ask (guards.mjs `readyHold`). */
 export const PERSON_ASK_HOLD = /^waits for the answer to Q\d/
+/** B916: a held why that names the steps it is blocked by (guards.mjs `readyHold`: "blocked by B871 (review), B5 (in progress)"). */
+const BLOCKED_HOLD = /^blocked by B\d/
+
+/**
+ * B916 (X123): whether a held why is the person's wait: their open ask (B660), or a block by steps that ALL wait for them
+ * (resultCheck.mjs `waitsForPerson`: their answer, verdict in a recap or Accept, also at the end of the blocker's chain of
+ * fixes). One blocker that waits for a check, a worker or anything else leaves the hold the board's own.
+ */
+function personHold(view, held) {
+  if (PERSON_ASK_HOLD.test(held)) return true
+  if (!BLOCKED_HOLD.test(held)) return false
+  const ids = [...new Set(held.match(/B[0-9]+/g) ?? [])]
+  return ids.length > 0 && ids.every(id => waitsForPerson(view.items.get(id), view.items, view.held, view.now, view.recaps))
+}
 
 /**
  * 12c. B656 (X8 again: B603 sat in review behind its fix B614, which the ready list held for the answer to an ask, while
@@ -601,7 +615,8 @@ export const PERSON_ASK_HOLD = /^waits for the answer to Q\d/
  * holds (handOut.mjs `readyList`'s held why: outside the focus goal, a blocker, an ask, a standard) for over
  * `reviewMinutes` is one case per chain, named by its first step, with the fix and why. A chain whose last fix is at work
  * (queued, in progress, in review) is no case, however deep. B660 (X59: B603 behind B614, held for the person's answer to
- * Q408): a hold that is the person's open ask ("waits for the answer to Q<n>") is no case, as in B543; the time counts from
+ * Q408): a hold that is the person's open ask ("waits for the answer to Q<n>") is no case, as in B543; B916 (X123): nor is a
+ * block by steps that all wait for the person alone (`personHold`); the time counts from
  * when the board first saw this hold (its key holds the why, so a changed why starts again), not from the fix's Since, and
  * from the end of the person's last pause. No ready list in the view: nothing.
  */
@@ -633,7 +648,7 @@ function reviewHeld(view, ctx) {
  * late a step in review is by what it waits for (`wait`, resultCheck.mjs `reviewWaitOf`), one judgement for the rules
  * review-stuck, dropped-fix and review-held and the health summary (health.mjs). `seenOf(key)`: since when the watch
  * first saw the key (the rules' own watch; the health summary reads the supervisor's memory), undefined for not yet. Not
- * late: the person's answer, a hold that is their open ask, a check whose QA task a worker is at work on or that is ready or
+ * late: the person's answer, a hold that is their open ask or a block by steps that all wait for them alone (B916), a check whose QA task a worker is at work on or that is ready or
  * given and not taken yet (the hand-over's to move, and the rules ready-while-free and handover-unanswered watch it), a
  * report whose check failed (the hand-over tells its worker), anything while the person pauses. Any other hold counts from when the watch first saw it, a check from when its QA task was made (T9.1.1;
  * from when it was asked, with none), a dropped fix from the drop, each from the end of the last pause at the earliest.
@@ -683,7 +698,7 @@ export function reviewLateOf(view, item, wait, seenOf = () => undefined) {
     return { late, key, ms, words }
   }
   if (wait.kind === 'fix' && wait.held !== null) {
-    if (isPaused(view) || PERSON_ASK_HOLD.test(wait.held)) return not
+    if (isPaused(view) || personHold(view, wait.held)) return not
     // Counted per why, from when the board first saw this hold (the fix's Since is its move to refined, long before a
     // blocker or an ask may have cleared: B614 refined at 16:39, blocked by B623 until 19:56).
     const key = `review-held ${wait.end} ${wait.held.slice(0, 80)}`
@@ -1062,6 +1077,23 @@ function handoverHeld(view, ctx) {
 /** T8.5 step 4: how far back a fired net still counts as a finding (one per envelope, so its incident counts it once). */
 const UNANSWERED_LOOK_MS = DAY
 
+/** A History line's stamp and who wrote it: "- 2026-11-02 11:10 server: queued → taken (for Worker 1)". */
+const HISTORY_WHO = /^-\s+(\d{4}-\d\d-\d\d \d\d:\d\d(?::\d\d)?) ([^:]{1,80}):\s*(.*)$/
+/**
+ * Change 4's follow-up: whether a step was handled after `since`: a History line after it that moves the step (" → "),
+ * gives it to a worker ("given by the board to", "given to"), or is the person's. Null item: not handled.
+ */
+function handledSince(item, since) {
+  if (item === null || item === undefined || !Number.isFinite(since)) return false
+  return (item.sections?.get('History') ?? []).some(entry => {
+    const found = HISTORY_WHO.exec(entry)
+    if (found === null) return false
+    const at = sinceMs(found[1])
+    if (!Number.isFinite(at) || at <= since) return false
+    return found[2].trim().toLowerCase() === 'person' || / → /.test(found[3]) || /\bgiven (?:by the board )?to\b/.test(found[3])
+  })
+}
+
 /**
  * 30. T8.5 step 4 (in place of not-taking for a worker on the sequence): the hand-over's one net fired: an envelope that
  * had no outcome, no take and no turn's end for `NET_MS` (10 min) of the board's running time (`netAt` on the envelope,
@@ -1069,32 +1101,26 @@ const UNANSWERED_LOOK_MS = DAY
  * envelope, for a day after the net. Only workers on the sequence.
  */
 function handoverUnanswered(view) {
-  const found = new Map()
+  const found = []
   for (const lane of workersOf(view).filter(one => one.onSequence === true)) {
-    // Signals change 4 (decision 7, X119-X121: one incident per envelope as B855 bounced): one finding per worker and
-    // spell: the newest spell of the wake record that began before the envelope (the chat slept when it went), else the
-    // envelope's minute. The finding names every envelope of the spell.
-    const spells = (view.wakes?.[lane.name]?.spells ?? []).filter(Number.isFinite)
     for (const envelope of envelopesOf(view.outbox, lane.name, view.prefix)) {
       if (!Number.isFinite(envelope.netAt) || view.now - envelope.netAt > UNANSWERED_LOOK_MS) continue
-      const slept = spells.filter(spell => spell <= envelope.at).at(-1)
-      const spell = slept ?? Math.floor(envelope.at / MIN) * MIN
-      const key = `handover-unanswered ${lane.name} ${spell}`
+      // Change 4's follow-up (2026-11-02, X119 counted 71 times hours after its net): a miss whose task was handled since
+      // (taken, given to another worker, moved or touched by the person) is not found again: its look ends at that move.
+      if (typeof envelope.step === 'string' && handledSince(view.items?.get(envelope.step), envelope.netAt)) continue
+      // The key (2026-11-02, the lead's defect note after change 4: a key with the wake record's spell took a lane or report
+      // time, so the same misses opened again at every lane change, X124-X130 in 17 minutes): the rule, the chat and the
+      // envelope's id, which never changes. One finding per envelope; a bounce through four workers is four misses.
+      const key = `handover-unanswered ${lane.name} ${envelope.id}`
       const step = typeof envelope.step === 'string' ? envelope.step : null
-      const one = `envelope ${envelope.id} (${envelope.kind ?? 'task'}${step === null ? '' : ` ${step}`}) out at ${clockOf(envelope.at)}, ${envelope.state}${envelope.clear ? `, with the clear after ${envelope.clear.step ?? 'its report'}` : ''}; the net fired at ${clockOf(envelope.netAt)}`
-      const before = found.get(key)
-      if (before !== undefined) {
-        before.envelopes.push(one)
-        continue
-      }
-      found.set(key, {
-        rule: 'handover-unanswered', key, subject: lane.name, since: envelope.at, envelopes: [one],
+      found.push({
+        rule: 'handover-unanswered', key, subject: lane.name, since: envelope.at,
         text: `${lane.name} ${UNANSWERED_WHY}${step === null ? '' : ` (${step})`} within ${minutes(NET_MS)} min${step === null ? '' : `; ${step} went back on the list`}`,
-        tail: `its lane now: ${lane.handover?.state ?? 'not known'}; its report: ${lane.report?.state ?? 'none'}${Number.isFinite(lane.report?.since) ? ` since ${clockOf(lane.report.since)}` : ''}${slept === undefined ? '' : `; asleep since ${clockOf(slept)}`}`,
+        evidence: `envelope ${envelope.id} (${envelope.kind ?? 'task'}${step === null ? '' : ` ${step}`}) out at ${clockOf(envelope.at)}, ${envelope.state}${envelope.clear ? `, with the clear after ${envelope.clear.step ?? 'its report'}` : ''}; the net fired at ${clockOf(envelope.netAt)}; its lane now: ${lane.handover?.state ?? 'not known'}; its report: ${lane.report?.state ?? 'none'}${Number.isFinite(lane.report?.since) ? ` since ${clockOf(lane.report.since)}` : ''}`,
       })
     }
   }
-  return [...found.values()].map(({ envelopes, tail, ...finding }) => ({ ...finding, evidence: `${envelopes.join('; ')}; ${tail}` }))
+  return found
 }
 
 /** The board's local date of a time, YYYY-MM-DD. */

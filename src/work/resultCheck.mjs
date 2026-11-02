@@ -357,6 +357,27 @@ export function chainWaitOf(id, items, held = null, now = null, recaps = null) {
   return { fix: chain[0], chain, end, last, atWork }
 }
 
+/**
+ * B916 (X123: B851 behind B890, blocked by B871, whose fix B889 waited for the person's verdict in a recap; the rule review-held
+ * raised it every 3 min): whether a step (a blocker of a held fix) waits for the person and for nobody else: it waits for their
+ * answer, their verdict in a goal's recap or their Accept (`reviewWaitOf` kinds 'answer', 'recap', 'accept'), or in review
+ * behind a chain of open fixes whose last link waits so (`chainWaitOf`, `lastLinkWaitOf`: answer, recap, accept or 'you') with no
+ * link of the chain at work. A step waiting on you waits for them too. A step that waits for a check, a worker, the board or a
+ * hold does not.
+ */
+export function waitsForPerson(item, items, held = null, now = null, recaps = null) {
+  if (item === undefined) return false
+  const state = valueOf(item, 'State')
+  if (state === 'waiting on you') return true
+  if (state !== 'review') return false
+  const own = reviewWaitOf(item, items, held, now, recaps)
+  if (own === null) return false
+  if (['answer', 'recap', 'accept'].includes(own.kind)) return true
+  if (own.kind !== 'fix') return false
+  const chain = chainWaitOf(valueOf(item, 'Id'), items, held, now, recaps)
+  return chain !== null && !chain.atWork && ['answer', 'recap', 'accept', 'you'].includes(chain.last?.kind)
+}
+
 /** B656: the ready list's held steps (handOut.mjs `readyList`'s `held`, `[{ id, why }]`, or a Map of id to why) as a Map. */
 const heldMapOf = held => (held instanceof Map ? held : new Map((Array.isArray(held) ? held : []).map(one => [one.id, one.why])))
 /** B656: a held why in a few words: the person's choice outside the focus goal without its how ("waits until you add it ..."). */

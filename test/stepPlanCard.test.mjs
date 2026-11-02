@@ -46,6 +46,11 @@ const card = task => JSON.stringify({ name: 'x', role: 'worker', state: 'working
 function lane({ taken = NOW - 45 * MIN, plan = null, own = null, text = backlog() } = {}) {
   const work = storeFromText(text, { now: taken })
   if (plan !== null) work.items.get('B08').head.set('Plan', planText(plan))
+  // Signals change 7: its take as the store's History records it (the row's since).
+  const b08 = work.items.get('B08')
+  const two = n => String(n).padStart(2, '0')
+  const at = new Date(taken)
+  b08.sections.set('History', [...(b08.sections.get('History') ?? []), `- ${at.getFullYear()}-${two(at.getMonth() + 1)}-${two(at.getDate())} ${two(at.getHours())}:${two(at.getMinutes())} Units: taken → in progress`])
   const raw = {
     listText: '{"prefix":"Game - ","main":"Main"}',
     appChatTexts: [app('Main'), app('Units')],
@@ -69,7 +74,9 @@ test('a lane in a new session (empty card) shows the plan saved with its step: t
   assert.deepEqual([one.task.names, one.task.step, one.task.steps, one.task.isSavedPlan, one.task.stepId], [['Sheet', 'Clips', 'Merge'], 2, 3, true, 'B08'])
   // The task's time: 45 min from 20 minutes ago, its own estimate (not the step's words), 25 minutes left.
   assert.deepEqual(one.eta, { at: NOW + 25 * MIN, leftMs: 25 * MIN, isOverdue: false, isOver: false, isOwn: true, from: 'own' })
-  assert.equal(one.isWithoutTime, false)
+  // Signals change 7 (B914): "No time" is the store's word: B08 has no refine Size and no Taken for (a step from before
+  // B832), so its row has no time whatever its card or saved plan say; the card's time stays on `eta` for its readers.
+  assert.deepEqual([one.isWithoutTime, one.held.id, one.held.size], [true, 'B08', null])
   // The part's time: 30 min from 20 minutes ago, 10 left; the page counts it down from when it was said.
   assert.equal(one.task.stepEstimateAt + one.task.stepLeftMs, NOW + 10 * MIN)
 })
@@ -133,13 +140,12 @@ vm.runInNewContext(`const MIN = 60000\n${cut('times')}
 ${cut('chatstatus')}\n${cut('lanetime')}\nObject.assign(this, { clock, span, timeOf })`, page)
 const timeOf = one => JSON.parse(JSON.stringify(page.timeOf(JSON.parse(JSON.stringify(one)), NOW)))
 
-test('the page marks the refine\'s size as the refine\'s estimate, and a step\'s own time as before', () => {
+test('the page: a worker\'s time is its held step\'s size from its take (signals change 7), never its card\'s or plan\'s', () => {
   const time = timeOf(lane({ text: backlog({ extra: REFINED }) }))
-  assert.deepEqual([time.label, time.main, time.from.text], ['ETA', '15 min left', 'refine\'s estimate'])
-  assert.match(time.from.title, /no plan yet.*size the refine of B08 gave.*taken/)
-  assert.equal(timeOf(lane({ text: backlog({ estimate: '; about 20 min' }), taken: NOW - 15 * MIN })).from.text, 'from B08')
-  // A saved plan is the worker's own: no "from".
-  assert.equal(timeOf(lane({ plan: SAVED })).from, null)
+  assert.deepEqual([time.main, time.of, time.tone, time.from], ['15 min', 'of its 1 h', 'time', null])
+  // A step's Estimate alone, or a saved plan, is no size of the store's (B832: a refine Size, else the take's Taken for).
+  assert.equal(timeOf(lane({ text: backlog({ estimate: '; about 20 min' }), taken: NOW - 15 * MIN })).main, 'No time')
+  assert.equal(timeOf(lane({ plan: SAVED })).main, 'No time')
   const none = timeOf(lane())
   assert.deepEqual([none.main, none.tone], ['No time', 'fault'])
 })

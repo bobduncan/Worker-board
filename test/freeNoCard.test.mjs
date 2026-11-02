@@ -44,12 +44,13 @@ function units({ more = {}, words = 'The verdict is recorded.', work } = {}) {
 test('free by the app\'s own summary: no task, no step, no time from the card it left behind, only that it finished it', () => {
   const lane = units({ more: summary('completed') })
   assert.deepEqual([lane.state, lane.task, lane.eta, lane.between], ['free', null, null, null])
-  assert.deepEqual(lane.lastTask, { text: 'Record the warrior verdict' })
+  // Signals change 7 (B914): "Last task" is the step the store says it reported last, never the card's words: none here.
+  assert.equal(lane.lastTask, null)
 })
 
 test('free by "Done: yes" (B148) the same', () => {
   const lane = units({ words: closing('+ Done:   yes') })
-  assert.deepEqual([lane.state, lane.task, lane.lastTask], ['free', null, { text: 'Record the warrior verdict' }])
+  assert.deepEqual([lane.state, lane.task, lane.lastTask], ['free', null, null])
 })
 
 test('waiting for you keeps the card\'s task: that is the work it waits on', () => {
