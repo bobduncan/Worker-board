@@ -61,6 +61,8 @@ export function projectFiles({ name, prefix, project, board, port = null, exampl
   // The example names what a new project sets; the board's own defaults stand for the ports it leaves out.
   const example = JSON.parse(examples.config)
   const config = { ...example, name, project, gameRepo: '', port: example.port ?? DEFAULTS.port, gamePort: example.gamePort ?? DEFAULTS.gamePort }
+  // Asset providers, part D: a new project's settings name no providers, so its board is new and starts the first-run setup.
+  delete config.providers
   const words = { name, prefix, project, board, ...(port === null ? {} : { port: String(port) }) }
   // A briefing made from the board's example: its first words say it is filled in, not to be copied.
   const briefing = text => fill(text.replace(/^Copy this file to `<project>\\\.claude\\[\w-]+\.md` and fill it in\. /m, 'Made by the worker board for this project: fill in what still stands in angle brackets. '), words)

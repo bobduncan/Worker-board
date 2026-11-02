@@ -3362,3 +3362,27 @@ ul.task-history { list-style: none; display: flex; flex-direction: column; gap: 
 .q-change { flex: none; padding: 4px 12px; border: 1px solid var(--line); border-radius: 8px; background: none; color: var(--muted); font-size: 13.5px; cursor: pointer; }
 .q-change:hover:not(:disabled) { color: var(--text); border-color: #3a4a63; }
 .q-change:disabled { opacity: .6; cursor: default; }
+
+/* Asset providers, part D: the first-run setup of a new board. The cards are the Settings tab's, bigger. */
+.provider-setup { position: fixed; inset: 0; z-index: 50; overflow-y: auto; background: var(--bg); }
+.provider-setup[hidden] { display: none; }
+.provider-setup-body { max-width: 1180px; margin: 0 auto; padding: 28px 22px 40px; display: flex; flex-direction: column; gap: 10px; }
+.setup-count { color: var(--muted); font-size: 13px; }
+.setup-progress { display: flex; gap: 10px; margin: 0; padding: 0; list-style: none; }
+.setup-step { flex: 1; display: flex; flex-direction: column; gap: 6px; color: var(--muted); font-size: 13px; }
+.setup-step-bar { height: 6px; border-radius: 999px; background: var(--line); }
+.setup-step.is-done .setup-step-bar { background: var(--working); }
+.setup-step.is-now .setup-step-bar { background: var(--free); }
+.setup-step.is-now { color: var(--text); font-weight: 600; }
+.setup-title { margin: 14px 0 0; font-size: 26px; }
+.setup-about { margin: 0 0 8px; }
+.provider-setup .provider-card { min-height: 260px; padding: 24px; gap: 14px; }
+.provider-setup .provider-logo { width: 72px; height: 72px; }
+.provider-setup .provider-title { font-size: 20px; }
+.provider-setup .provider-line-text { font-size: 14px; }
+.setup-sample { margin: 6px 0 0; padding: 8px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--inset); color: var(--muted); font-size: 13px; }
+.setup-bottom { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-top: 18px; padding-top: 16px; border-top: 1px solid var(--line); }
+.setup-hint { color: var(--muted); font-size: 14px; }
+.setup-next { min-width: 120px; padding: 10px 22px; }
+.setup-next:disabled { background: var(--inset); border-color: var(--line); color: var(--muted); }
+body.is-in-setup { overflow: hidden; }

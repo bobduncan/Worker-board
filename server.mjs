@@ -80,6 +80,7 @@ import { backgroundRunning, parseTail, readTail } from './src/transcript.mjs'
 import { modAtLeast } from './src/clearOwed.mjs'
 import { ARCHIVE_MOD, archiveJobId, archivedBy, hasNothingUncommitted, replacedChats } from './src/replacedChats.mjs'
 import { keptReadingsOf, newestPerWindow, readingOfAnswer } from './src/limits.mjs'
+import { readSetup, setupAction, startSetup, FINISHED as SETUP_FINISHED } from './src/providers/setup.mjs'
 import { providerCards, mayUse as mayUseProvider, verifyOne, checkKey } from './src/providers/choose.mjs'
 import { KEY_VARIABLE, keyChecked, saveKey } from './src/providers/elevenlabs-key.mjs'
 import { ASSET_KINDS, PROVIDERS, checkProvidersFull, providerFor } from './src/providers/index.mjs'
@@ -96,7 +97,7 @@ import { allowCodeJobs, codeJobsView, readCodeJobs, taskWords } from './src/code
 import { OWNER_JOB, OWNER_ROLE, ownerFirst, ownerStartWords, talkPartnerOf } from './src/talkPartner.mjs'
 import { STOP_MOD, handJobs, handResults, isForHandsYet, isHandWord, isMootSpawn, isStopWord, mootWhy, maySend, nextSpawn, stopStep, stopTaskOf, usageDue, workerNames } from './src/hands.mjs'
 import { HANDS_GONE_MS, OPEN_CHECK_MS, OPEN_FIRST_MS, chatToOpen, handsGone, isFolder, isProgram, newestSender, openChat } from './src/opener.mjs'
-import { BOARD_KEY, WAKE_JOB, claim as claimWake, emptyWakes, inFirstTurn, isWakeOnItsWay, launchPlan, failedToSend as wakeFailedToSend, givenBack as wakeGivenBack, heard as wakeHeard, heardClaim as wakeHeardClaim, newSpell, nextPath as wakeNextPath, nobodyRunsSpell, pass as wakeVerdicts, readWakes, rowOf as wakeRow, sent as wakeSent, spellOf, triedWords, turnEnded as wakeTurnEnded, wakeJobId, wakeNeeds, wakesSaver } from './src/wake.mjs'
+import { BOARD_KEY, WAKE_JOB, claim as claimWake, emptyWakes, inFirstTurn, isWakeOnItsWay, launchPlan, takeLine, wakeCarriedTake, failedToSend as wakeFailedToSend, givenBack as wakeGivenBack, heard as wakeHeard, heardClaim as wakeHeardClaim, newSpell, nextPath as wakeNextPath, nobodyRunsSpell, pass as wakeVerdicts, readWakes, rowOf as wakeRow, sent as wakeSent, spellOf, triedWords, turnEnded as wakeTurnEnded, wakeJobId, wakeNeeds, wakesSaver } from './src/wake.mjs'
 import { basesNow, patientReportCheck } from './src/work/check.mjs'
 import { deliverWork, mayWake, pullFor, sendOnce } from './src/work/deliver.mjs'
 import { HANDOVER_COMMAND, onSequence, outcomeOf } from './src/work/handover.mjs'
@@ -125,7 +126,9 @@ const HOST = '127.0.0.1'
 const BODY_BYTES = 16 * 1024
 const PICTURE_BYTES = REFERENCE_BYTES
 const FOLDERS_MS = 60_000
-const STATE_MS = 2_000
+// B917 (X93): 2 s rarely covered the chats' 5-second pings and the page's 10-second polls (207 rebuilds in 10 min on
+// 2026-11-02); every change through the board still resets it, so a change shows at once.
+const STATE_MS = 5_000
 /** Light state: what `GET /api/step?id=` takes, a step's key: its id (B12), or "<activity>:<place>" for an old line without one. */
 const STEP_KEY = /^(?:[A-Za-z][A-Za-z0-9-]{0,40}|\d{1,4}:\d{1,5})$/
 /** Clear after each step: a session the board shows under no name is read anew at most this often (src/bridge.mjs). */
@@ -259,6 +262,8 @@ export const POST_ROUTES = Object.freeze({
   '/api/settings': { kind: 'json', guard: 'lock' },
   // Asset providers (spec 2026-11-01, part A): Verify, use and the key of a provider, on the Settings tab.
   '/api/providers': { kind: 'json', guard: 'lock' },
+  // Asset providers, part D: the new board's first-run setup (src/providers/setup.mjs).
+  '/api/setup': { kind: 'json', guard: 'lock' },
   '/api/game': { kind: 'json', guard: 'free', why: 'starts or stops a game process of this board\'s own; writes nothing of the project' },
   '/api/cpu': { kind: 'json', guard: 'free', why: 'the CPU level kept in this board folder\'s own data, not the project\'s' },
   // B767: the setup check's Allow: the missing tool rules into the project's own settings, on the person's click.
@@ -316,6 +321,8 @@ export function createBoard({
   settings = async () => ({ ok: false, status: 404, why: 'Not here.' }),
   providers = async () => ({ ok: false, status: 404, why: 'Not here.' }),
   providerList = async () => [],
+  setup = async () => ({ ok: false, status: 404, why: 'Not here.' }),
+  setupRead = async () => ({ done: [], finished: true }),
   newProject = async () => ({ ok: false, status: 404, why: 'Not here.' }),
   recap = async () => ({ ok: false, status: 404, why: 'Not here.' }),
   step = async () => null,
@@ -409,7 +416,7 @@ export function createBoard({
     }
 
     // /api/providers is both: GET reads the Settings tab's cards, POST changes a provider.
-    if (routeKind(pathname) === 'json' && !(pathname === '/api/providers' && req.method === 'GET')) {
+    if (routeKind(pathname) === 'json' && !((pathname === '/api/providers' || pathname === '/api/setup') && req.method === 'GET')) {
       // Three things another website's page cannot do: know the token, carry this origin, and send JSON unasked.
       const maySend = mayUse && req.headers.origin === `http://${self}`
       const isJson = /^application\/json\s*(;|$)/i.test(req.headers['content-type'] ?? '')
@@ -467,6 +474,10 @@ export function createBoard({
       }
       if (pathname === '/api/providers') {
         const done = await providers(parsed)
+        return done.ok ? json(res, done.result) : refuse(res, done.status, done.why)
+      }
+      if (pathname === '/api/setup') {
+        const done = await setup(parsed)
         return done.ok ? json(res, done.result) : refuse(res, done.status, done.why)
       }
       if (pathname === '/api/new-project') {
@@ -534,6 +545,11 @@ export function createBoard({
     if (pathname === '/api/providers') {
       if (!mayUse) return refuse(res, 403, 'Only the board\'s own page may read.')
       return json(res, await providerList())
+    }
+    // Asset providers, part D: where the new board's first-run setup stands (finished on every board that is not new).
+    if (pathname === '/api/setup') {
+      if (!mayUse) return refuse(res, 403, "Only the board's own page may read.")
+      return json(res, await setupRead())
     }
     // B579: a day of the Backlog tab's Completed by day, with its recap (src/dayRecap.mjs).
     if (pathname === '/api/recap') {
@@ -1677,6 +1693,13 @@ async function main(args) {
   // Spec 2026-11-01, part A: the last check of each provider the Settings tab asked about, in memory, keyed `${kind}|${name}`
   // (src/providers/choose.mjs). The loop's checks of the providers in use land here too.
   const providerChecks = new Map()
+  // Part D: a board with no `providers` in its settings and no setup.json is new: its setup starts now.
+  const setupFile = join(HERE, 'data', 'setup.json')
+  if (!isDemo && !isShowOnly) {
+    // The settings were read already (loadConfig); a file it cannot read now simply names no providers, and the setup starts.
+    const rawConfig = JSON.parse((await readFile(join(HERE, 'config.json'), 'utf8').catch(absentAs('{}'))) || '{}')
+    await startSetup(setupFile, { hasProvidersKey: Object.hasOwn(rawConfig ?? {}, 'providers') }).catch(error => loops.failed('setup', error))
+  }
   const providerTools = () => ({ project: config.project, codexPath: settings.codex })
   const lookAtProviders = () => loops.run('providers', async () => {
     const rows = await checkProvidersFull(config, providerTools())
@@ -2186,7 +2209,7 @@ async function main(args) {
       // Change 4 (B.2): the woken chat's first turn end was seen, right after the decision that read it.
       if (wakeTurnEnded(wakes, checked.chat, clock())) wakesChanged()
       if (decided !== null) {
-        const envelope = await handOut(store, checked.chat, clock(), keep, { holdClear: inFirstTurn(wakes, checked.chat, reports?.get(checked.chat) ?? null) })
+        const envelope = await handOut(store, checked.chat, clock(), keep, { holdClear: inFirstTurn(wakes, checked.chat, reports?.get(checked.chat) ?? null), waiveLine: step => wakeCarriedTake(wakes, checked.chat, step) })
         if (envelope !== null) readState.reset()
         const { pull: _pull, ...rest } = done.result
         const waits = envelope === null && decided.envelope !== null && typeof decided.envelope.waitsFor === 'string' ? 'set' : null
@@ -2422,6 +2445,13 @@ async function main(args) {
       return { ok: true, result: providerCards(config, providerChecks) }
     }),
     providerList: async () => providerCards(config, providerChecks),
+    // Part D: the first-run setup. Only a board that records, not the demo, keeps one.
+    setupRead: async () => (isDemo || isShowOnly ? { ...SETUP_FINISHED, done: [...SETUP_FINISHED.done] } : readSetup(setupFile)),
+    setup: body => settingsTurn(async () => {
+      if (historyFrom !== undefined) return { ok: false, status: 409, why: SETTINGS_WHY_NOT }
+      if (isDemo || isShowOnly) return { ok: false, status: 409, why: 'This board keeps no setup.' }
+      return setupAction(setupFile, body, { config, checks: providerChecks, now: clock() })
+    }),
     cpu: async body => (cpu === null ? { ok: false, status: 409, why: 'This board sets no CPU: it is the demo, or it shows the history of another board.' } : cpu.set(body?.level)),
     // B767: the setup check's Allow: only the tool rules the check finds missing, into the project's own settings.
     codeJobs: async body => {
@@ -2780,7 +2810,7 @@ async function main(args) {
       // release for a mod older than 0.28.0.
       const { envelope, statuses } = await handedWithStatuses({
         // Signals change 4, D.4: an envelope with a clear waits while the chat's first turn after a wake runs.
-        hand: async () => (!onIt || isHolding((await readState()).pause) ? null : await handOut(store, checked.chat, clock(), keep, { holdClear: inFirstTurn(wakes, checked.chat, reports?.get(checked.chat) ?? null) })),
+        hand: async () => (!onIt || isHolding((await readState()).pause) ? null : await handOut(store, checked.chat, clock(), keep, { holdClear: inFirstTurn(wakes, checked.chat, reports?.get(checked.chat) ?? null), waiveLine: step => wakeCarriedTake(wakes, checked.chat, step) })),
         readState,
       })
       return { ok: true, result: { messages: fit.messages, ...(off.length === 0 ? {} : { off }), ...stop, ...(envelope === null ? {} : { handover: envelope }), ...(statuses.length === 0 ? {} : { statuses }) } }
@@ -2877,7 +2907,9 @@ async function main(args) {
           if (need.chat === checked.chat || !need.paths.includes('message') || !Number.isFinite(need.spell)) continue
           if (wakeNextPath(wakes, { chat: need.chat, spell: need.spell, senderClaims: true, senderSince: claim.since, paths: need.paths }) !== 'message') continue
           const id = wakeJobId(need.spell, need.chat)
-          if (!claimWake(wakes, { chat: need.chat, spell: need.spell, path: 'message', by: checked.chat, jobId: id, now: clock(), runBefore: reports?.get(need.chat)?.run ?? null, senderSince: claim.since, paths: need.paths })) continue
+          // X107/X3 (2026-11-02): the step whose take line the message carries, so the envelope's own line is not typed a second time.
+          const carries = typeof need.step === 'string' && need.text === takeLine(need.step) ? need.step : null
+          if (!claimWake(wakes, { chat: need.chat, spell: need.spell, path: 'message', by: checked.chat, jobId: id, now: clock(), runBefore: reports?.get(need.chat)?.run ?? null, senderSince: claim.since, paths: need.paths, step: carries })) continue
           jobs.push({ id, to: need.appSession, chat: need.chat, text: need.text })
           wakeClaimed = true
           console.log(`Wake: a message to ${need.chat} given to ${checked.chat}'s hands at ${timeOf(clock())} (${need.why}): "${need.text}".`)

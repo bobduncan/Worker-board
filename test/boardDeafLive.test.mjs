@@ -137,15 +137,18 @@ test('the evening of 2026-10-27 through the server\'s own pass: while the board 
   const deafFrom = Date.now()
   const seen = []
   let deafNow = null
-  while (Date.now() - deafFrom < OFF_MIN * MIN + 15_000) {
+  // 2026-11-02 (a gate flake under load: 11 or 19 reads fitted in the stretch when each took seconds): the stretch lasts the
+  // off time and at least READS reads, whichever is longer; well within the board's DEAF_KEEP_MS of 10 minutes.
+  const READS = 20
+  while (Date.now() - deafFrom < OFF_MIN * MIN + 15_000 || seen.length < READS) {
     await Promise.all([write('Digger'), write('Weeder')])
     const state = await stateNow()
     seen.push(lanesOf(state))
     deafNow = state.deafNow ?? deafNow
-    await pause(3_000)
+    await pause(2_000)
   }
   const last = await stateNow()
-  assert.ok(seen.length >= 20, `the board was asked through the stretch (${seen.length})`)
+  assert.ok(seen.length >= READS, `the board was asked through the stretch (${seen.length})`)
   assert.deepEqual(seen.filter(lanes => JSON.stringify(lanes) !== JSON.stringify(before)), [], 'no lane changes while the board hears no chat')
   assert.ok(Number.isFinite(deafNow?.from) && deafNow.from <= deafFrom, 'the state names the stretch the board hears no chat')
   // No history line of the stretch reads a chat unknown or off (that evening: all unknown at 21:13:14, all off at 21:18:39).
