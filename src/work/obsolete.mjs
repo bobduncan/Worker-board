@@ -23,7 +23,9 @@ const oneLine = (value, max) => String(value ?? '').replace(/\s+/g, ' ').trim().
 /**
  * `obsolete-check.json` read: null for none; else `{ state: 'checking' | 'done', at, answeredAt, items, verdicts, last }`.
  * `items` the open items of the check with their evidence (`[{ id, kind, title, of, owner, at, evidence: [line] }]`),
- * `verdicts` per id (`{ verdict, why, evidence }`), `last` what the person's last close did (`{ at, closed }`).
+ * `verdicts` per id (`{ verdict, why, evidence }`), `last` what the person's last close did (`{ at, closed }`), `by` 'autopilot'
+ * for the check the switch-on of Autopilot started (it judges only what stands for the person; what it closes is kept for
+ * the Undo, autopilotCleared.mjs), else null.
  */
 export function parseObsolete(text) {
   if (typeof text !== 'string') return null
@@ -40,7 +42,7 @@ export function parseObsolete(text) {
       if (VERDICTS.includes(one?.verdict)) verdicts[id] = { verdict: one.verdict, why: oneLine(one.why, WHY_CHARS), evidence: oneLine(one.evidence, EVIDENCE_CHARS) }
     }
     return {
-      state: raw.state, at: raw.at, answeredAt: Number.isFinite(raw.answeredAt) ? raw.answeredAt : null, items, verdicts,
+      state: raw.state, at: raw.at, answeredAt: Number.isFinite(raw.answeredAt) ? raw.answeredAt : null, items, verdicts, by: raw.by === 'autopilot' ? 'autopilot' : null,
       last: Number.isFinite(raw.last?.at) && Number.isFinite(raw.last?.closed) ? { at: raw.last.at, closed: raw.last.closed } : null,
     }
   } catch {

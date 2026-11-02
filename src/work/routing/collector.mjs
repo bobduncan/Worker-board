@@ -12,6 +12,7 @@ function validLedger(raw){
 }
 export function createSpendingCollector({dir,transcripts,clock=Date.now}){
   let ledger={version:1,events:[],scans:{},startedAt:clock(),lastScanAt:null,unknown:0,retentionLimited:false},busy=false,problem=null,outcomes=[],unavailable=false
+  let keptFor={events:null,outcomes:null};const kept=new Map()
   const file=join(dir,'spending.json')
   const coverage=()=>({startedAt:ledger.startedAt,lastScanAt:ledger.lastScanAt,unknownMessages:ledger.unknown??0,skippedLongLines:ledger.skippedLongLines??0,pendingBytes:Object.values(ledger.scans).reduce((sum,scan)=>sum+Math.max(0,(scan.size??scan.offset)-scan.offset),0),pendingFiles:ledger.pendingFiles??0,childTranscripts:ledger.childTranscripts??0,unavailableTranscripts:ledger.unavailableTranscripts??0,discoveryLimited:ledger.discoveryLimited??false,retentionLimited:ledger.retentionLimited,collecting:busy,problem,unavailable,scope:'Recorded project chats and discovered native children, including Main and Advisors; missing or still-pending transcripts leave totals incomplete.'})
   return {
@@ -19,8 +20,18 @@ export function createSpendingCollector({dir,transcripts,clock=Date.now}){
       try{const raw=JSON.parse(await readFile(file,'utf8'));if(!validLedger(raw))throw Error('Unsupported or corrupt spending ledger');ledger={...ledger,...raw}}
       catch(error){if(error.code!=='ENOENT'){unavailable=true;problem='Spending history is unavailable. The previous file is preserved; repair or move it aside before restarting collection.'}}
     },
+    // B917 (X93): the board's every rebuild asked 5 summaries over all events, 374 ms each time; one is kept per period
+    // while the events and outcomes are the same and its window starts in the same minute (the time and coverage fresh).
     summary(days=7){
-      try{return routingSummary({events:ledger.events,outcomes,now:clock(),days,coverage:coverage()})}
+      try{
+        const now=clock(),period=days===null?'all':Number.isInteger(days)?`d${days}`:'part',minute=days===null?null:Math.floor((now-days*86400000)/60000)
+        if(keptFor.events!==ledger.events||keptFor.outcomes!==outcomes){kept.clear();keptFor={events:ledger.events,outcomes}}
+        const was=kept.get(period)
+        if(was?.minute===minute)return {...was.value,days,until:now,coverage:{...was.value.coverage,...coverage()}}
+        const value=routingSummary({events:ledger.events,outcomes,now,days,coverage:coverage()})
+        kept.set(period,{minute,value})
+        return value
+      }
       catch{unavailable=true;problem='Spending is unavailable. Its local history is preserved; other board functions remain available.';return routingSummary({events:[],outcomes:[],now:clock(),days,coverage:{problem,unavailable:true}})}
     },
     /** Clear after each step: how far a session's transcript is read (a left session is read on to its end). */

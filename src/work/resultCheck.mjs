@@ -4,6 +4,7 @@
 // standard; nothing of the project's work is named here.
 
 import { askFiledMs, sinceMs, valueOf } from './item.mjs'
+import { linksOf } from './links.mjs'
 import { standardOf } from './standard.mjs'
 
 const VERDICTS = ['pass', 'fail', 'ask']
@@ -169,8 +170,12 @@ export function gitCheckAtMs(item) {
   return line === undefined ? Number.NaN : sinceMs(line.match(/^-\s+(\d{4}-\d{2}-\d{2} \d{2}:\d{2})/)?.[1])
 }
 
-/** The steps of the store (`items`) made as fixes of the step `id`. */
-export const fixesOf = (id, items) => [...(items?.values() ?? [])].filter(one => valueOf(one, 'Kind') === 'step' && valueOf(one, 'Fix of') === id)
+/** The steps of the store (`items`) made as fixes of the step `id`. B917: from the rebuild's index while one runs (links.mjs). */
+export function fixesOf(id, items) {
+  const links = typeof id === 'string' ? linksOf(items) : null
+  if (links !== null) return [...(links.fixes.get(id) ?? [])]
+  return [...(items?.values() ?? [])].filter(one => valueOf(one, 'Kind') === 'step' && valueOf(one, 'Fix of') === id)
+}
 
 /**
  * The review of B356: a step whose result check failed counts as checked once the fix that check made is done, and no
@@ -355,6 +360,27 @@ export function chainWaitOf(id, items, held = null, now = null, recaps = null) {
   const last = lastLinkWaitOf(items?.get(end), items, held, now, recaps)
   const atWork = chain.some(link => WITH_A_WORKER.includes(valueOf(items.get(link), 'State'))) || ['checking', 'qa-queued'].includes(last?.kind)
   return { fix: chain[0], chain, end, last, atWork }
+}
+
+/**
+ * B916 (X123: B851 behind B890, blocked by B871, whose fix B889 waited for the person's verdict in a recap; the rule review-held
+ * raised it every 3 min): whether a step (a blocker of a held fix) waits for the person and for nobody else: it waits for their
+ * answer, their verdict in a goal's recap or their Accept (`reviewWaitOf` kinds 'answer', 'recap', 'accept'), or in review
+ * behind a chain of open fixes whose last link waits so (`chainWaitOf`, `lastLinkWaitOf`: answer, recap, accept or 'you') with no
+ * link of the chain at work. A step waiting on you waits for them too. A step that waits for a check, a worker, the board or a
+ * hold does not.
+ */
+export function waitsForPerson(item, items, held = null, now = null, recaps = null) {
+  if (item === undefined) return false
+  const state = valueOf(item, 'State')
+  if (state === 'waiting on you') return true
+  if (state !== 'review') return false
+  const own = reviewWaitOf(item, items, held, now, recaps)
+  if (own === null) return false
+  if (['answer', 'recap', 'accept'].includes(own.kind)) return true
+  if (own.kind !== 'fix') return false
+  const chain = chainWaitOf(valueOf(item, 'Id'), items, held, now, recaps)
+  return chain !== null && !chain.atWork && ['answer', 'recap', 'accept', 'you'].includes(chain.last?.kind)
 }
 
 /** B656: the ready list's held steps (handOut.mjs `readyList`'s `held`, `[{ id, why }]`, or a Map of id to why) as a Map. */

@@ -80,6 +80,7 @@ import { backgroundRunning, parseTail, readTail } from './src/transcript.mjs'
 import { modAtLeast } from './src/clearOwed.mjs'
 import { ARCHIVE_MOD, archiveJobId, archivedBy, hasNothingUncommitted, replacedChats } from './src/replacedChats.mjs'
 import { keptReadingsOf, newestPerWindow, readingOfAnswer } from './src/limits.mjs'
+import { readSetup, setupAction, startSetup, FINISHED as SETUP_FINISHED } from './src/providers/setup.mjs'
 import { providerCards, mayUse as mayUseProvider, verifyOne, checkKey } from './src/providers/choose.mjs'
 import { KEY_VARIABLE, keyChecked, saveKey } from './src/providers/elevenlabs-key.mjs'
 import { ASSET_KINDS, PROVIDERS, checkProvidersFull, providerFor } from './src/providers/index.mjs'
@@ -96,7 +97,7 @@ import { allowCodeJobs, codeJobsView, readCodeJobs, taskWords } from './src/code
 import { OWNER_JOB, OWNER_ROLE, ownerFirst, ownerStartWords, talkPartnerOf } from './src/talkPartner.mjs'
 import { STOP_MOD, handJobs, handResults, isForHandsYet, isHandWord, isMootSpawn, isStopWord, mootWhy, maySend, nextSpawn, stopStep, stopTaskOf, usageDue, workerNames } from './src/hands.mjs'
 import { HANDS_GONE_MS, OPEN_CHECK_MS, OPEN_FIRST_MS, chatToOpen, handsGone, isFolder, isProgram, newestSender, openChat } from './src/opener.mjs'
-import { BOARD_KEY, WAKE_JOB, claim as claimWake, emptyWakes, inFirstTurn, isWakeOnItsWay, launchPlan, failedToSend as wakeFailedToSend, givenBack as wakeGivenBack, heard as wakeHeard, heardClaim as wakeHeardClaim, newSpell, nextPath as wakeNextPath, nobodyRunsSpell, pass as wakeVerdicts, readWakes, rowOf as wakeRow, sent as wakeSent, spellOf, triedWords, turnEnded as wakeTurnEnded, wakeJobId, wakeNeeds, wakesSaver } from './src/wake.mjs'
+import { BOARD_KEY, WAKE_JOB, claim as claimWake, emptyWakes, inFirstTurn, isWakeOnItsWay, launchPlan, takeLine, wakeCarriedTake, failedToSend as wakeFailedToSend, givenBack as wakeGivenBack, heard as wakeHeard, heardClaim as wakeHeardClaim, newSpell, nextPath as wakeNextPath, nobodyRunsSpell, pass as wakeVerdicts, readWakes, rowOf as wakeRow, sent as wakeSent, spellOf, triedWords, turnEnded as wakeTurnEnded, wakeJobId, wakeNeeds, wakesSaver } from './src/wake.mjs'
 import { basesNow, patientReportCheck } from './src/work/check.mjs'
 import { deliverWork, mayWake, pullFor, sendOnce } from './src/work/deliver.mjs'
 import { HANDOVER_COMMAND, onSequence, outcomeOf } from './src/work/handover.mjs'
@@ -108,9 +109,9 @@ import { followRenames } from './src/work/rename.mjs'
 import { standardHold } from './src/work/standardHold.mjs'
 import { itemsOf, storeKeeper } from './src/work/read.mjs'
 import { requestKeeper } from './src/work/requests.mjs'
-import { readObsoleteFile, readStore } from './src/work/store.mjs'
+import { readAutopilotClearedFile, readObsoleteFile, readStore } from './src/work/store.mjs'
 import { obsoleteView, openItemsOf } from './src/work/obsolete.mjs'
-import { obsoleteEvidence } from './src/work/obsoleteEvidence.mjs'
+import { evidenceLanes, obsoleteEvidence } from './src/work/obsoleteEvidence.mjs'
 import { giveBackHeld, stoppedChats, takeFor } from './src/work/outboxSweep.mjs'
 import { dismissCopied, fileStore, isLate, memoryStore, outboxNow, tick } from './src/store.mjs'
 import { loads, readVersion } from './src/version.mjs'
@@ -125,7 +126,9 @@ const HOST = '127.0.0.1'
 const BODY_BYTES = 16 * 1024
 const PICTURE_BYTES = REFERENCE_BYTES
 const FOLDERS_MS = 60_000
-const STATE_MS = 2_000
+// B917 (X93): 2 s rarely covered the chats' 5-second pings and the page's 10-second polls (207 rebuilds in 10 min on
+// 2026-11-02); every change through the board still resets it, so a change shows at once.
+const STATE_MS = 5_000
 /** Light state: what `GET /api/step?id=` takes, a step's key: its id (B12), or "<activity>:<place>" for an old line without one. */
 const STEP_KEY = /^(?:[A-Za-z][A-Za-z0-9-]{0,40}|\d{1,4}:\d{1,5})$/
 /** Clear after each step: a session the board shows under no name is read anew at most this often (src/bridge.mjs). */
@@ -158,7 +161,7 @@ for (const name of ['1-install', '2-initialise', '3-talk', '4-go', '5-workers', 
 }
 
 // T2.1 part B: the logos of the asset providers' cards, by name only.
-for (const name of ['openai.svg', 'claude.svg', 'elevenlabs.svg', 'library.svg', 'manual.svg', 'suno.png']) {
+for (const name of ['openai.svg', 'elevenlabs.svg', 'library.svg', 'manual.svg', 'suno.png']) {
   FILES[`/providers/${name}`] = [join('providers', name), name.endsWith('.svg') ? 'image/svg+xml' : 'image/png']
 }
 
@@ -259,6 +262,8 @@ export const POST_ROUTES = Object.freeze({
   '/api/settings': { kind: 'json', guard: 'lock' },
   // Asset providers (spec 2026-11-01, part A): Verify, use and the key of a provider, on the Settings tab.
   '/api/providers': { kind: 'json', guard: 'lock' },
+  // Asset providers, part D: the new board's first-run setup (src/providers/setup.mjs).
+  '/api/setup': { kind: 'json', guard: 'lock' },
   '/api/game': { kind: 'json', guard: 'free', why: 'starts or stops a game process of this board\'s own; writes nothing of the project' },
   '/api/cpu': { kind: 'json', guard: 'free', why: 'the CPU level kept in this board folder\'s own data, not the project\'s' },
   // B767: the setup check's Allow: the missing tool rules into the project's own settings, on the person's click.
@@ -316,6 +321,8 @@ export function createBoard({
   settings = async () => ({ ok: false, status: 404, why: 'Not here.' }),
   providers = async () => ({ ok: false, status: 404, why: 'Not here.' }),
   providerList = async () => [],
+  setup = async () => ({ ok: false, status: 404, why: 'Not here.' }),
+  setupRead = async () => ({ done: [], finished: true }),
   newProject = async () => ({ ok: false, status: 404, why: 'Not here.' }),
   recap = async () => ({ ok: false, status: 404, why: 'Not here.' }),
   step = async () => null,
@@ -409,7 +416,7 @@ export function createBoard({
     }
 
     // /api/providers is both: GET reads the Settings tab's cards, POST changes a provider.
-    if (routeKind(pathname) === 'json' && !(pathname === '/api/providers' && req.method === 'GET')) {
+    if (routeKind(pathname) === 'json' && !((pathname === '/api/providers' || pathname === '/api/setup') && req.method === 'GET')) {
       // Three things another website's page cannot do: know the token, carry this origin, and send JSON unasked.
       const maySend = mayUse && req.headers.origin === `http://${self}`
       const isJson = /^application\/json\s*(;|$)/i.test(req.headers['content-type'] ?? '')
@@ -467,6 +474,10 @@ export function createBoard({
       }
       if (pathname === '/api/providers') {
         const done = await providers(parsed)
+        return done.ok ? json(res, done.result) : refuse(res, done.status, done.why)
+      }
+      if (pathname === '/api/setup') {
+        const done = await setup(parsed)
         return done.ok ? json(res, done.result) : refuse(res, done.status, done.why)
       }
       if (pathname === '/api/new-project') {
@@ -534,6 +545,11 @@ export function createBoard({
     if (pathname === '/api/providers') {
       if (!mayUse) return refuse(res, 403, 'Only the board\'s own page may read.')
       return json(res, await providerList())
+    }
+    // Asset providers, part D: where the new board's first-run setup stands (finished on every board that is not new).
+    if (pathname === '/api/setup') {
+      if (!mayUse) return refuse(res, 403, "Only the board's own page may read.")
+      return json(res, await setupRead())
     }
     // B579: a day of the Backlog tab's Completed by day, with its recap (src/dayRecap.mjs).
     if (pathname === '/api/recap') {
@@ -1092,11 +1108,13 @@ async function main(args) {
   /**
    * Autopilot (2026-10-31, src/work/autopilot.mjs): the board's pass over the asks (the work API's `autopilot`), then what it
    * names: the chats an answer wakes, the Advisor's refine word for a step whose questions it answered or sent back (as the
-   * page's "Take the advice" does), and the main chat's word for each ask routed to it.
+   * page's "Take the advice" does), and the main chat's word for each ask routed to it. `sweep` (the switch-on only, 2026-11-02):
+   * the pass also judges the asks it routed to the person anew and keeps what it moved into the recap for the Undo (work API
+   * `autopilot`); answers the pass's result.
    */
-  const autopilotNow = async state => {
-    if (workDir === null || isShowOnly) return
-    const done = await workAction({ action: 'autopilot', on: config.autopilot === true }, 'server')
+  const autopilotNow = async (state, { sweep = false } = {}) => {
+    if (workDir === null || isShowOnly) return undefined
+    const done = await workAction({ action: 'autopilot', on: config.autopilot === true, ...(sweep ? { sweep: true } : {}) }, 'server')
     if (!done.ok) throw new Error(done.why ?? 'autopilot was refused')
     for (const wake of done.result.wakes ?? []) await sendWakes({ ok: true, result: { wake } })
     const advisor = state.advisor?.name ?? null
@@ -1104,6 +1122,7 @@ async function main(args) {
       if (advisor !== null && sayNow !== null) await sayNow({ to: advisor, command: 'refine', step: one.step })
     }
     await mainAsksNow(await readState(), done.result.mainAsks ?? [])
+    return done
   }
   /**
    * Autopilot: the main chat is woken for an ask routed to it as the partner is for one routed to it: the work line through
@@ -1170,7 +1189,7 @@ async function main(args) {
       // their verdict first, and its chat is told.
       if (workDir !== null) {
         const parts = checked.parts.map(part => ({ ...part, steps: rowsOfDemo(found.base).find(row => row.key === part.key)?.steps ?? [], title: rowsOfDemo(found.base).find(row => row.key === part.key)?.title ?? '' }))
-        const answered = await workAction({ action: 'recap-answered', goal: found.base.goal, round: checked.round, parts }, 'server')
+        const answered = await workAction({ action: 'recap-answered', goal: found.base.goal, round: checked.round, path: body.path, parts }, 'server')
         for (const wake of answered.ok ? answered.result.wakes ?? [] : []) await sendWakes({ ok: true, result: { wake } })
       }
       if (workDir !== null) {
@@ -1214,11 +1233,11 @@ async function main(args) {
    * types one word to the partner (`obsolete-check`: the ids; the partner reads the evidence with `work obsolete`). A partner
    * not running is woken as for any word to it; a board with no partner chat refuses before the check is written.
    */
-  const obsoleteStart = async () => {
+  const obsoleteStart = async ({ by = null } = {}) => {
     const state = await readState()
     const partner = state.advisor ?? null
     if (partner === null) return { ok: false, status: 409, why: 'No partner chat is on the board: the setting advisor names none.' }
-    const done = await workAction({ action: 'obsolete-check' }, 'person')
+    const done = await workAction({ action: 'obsolete-check', ...(by === null ? {} : { by }) }, 'person')
     if (!done.ok || done.result.obsoleteCheck === undefined) return done
     return toPartner(obsoleteWords(partner.name, { ids: done.result.obsoleteCheck.ids, job: join(HERE, 'roles', 'partner.md') }), done.result, state)
   }
@@ -1230,6 +1249,14 @@ async function main(args) {
     const view = obsoleteView((await readObsoleteFile(workDir)).record, { now: clock(), openCount: open.length, openIds: open })
     const why = isShowOnly ? `This board only shows. Do this on the board that delivers: http://${HOST}:${recordingPort}/` : (state.advisor ?? null) === null ? 'No partner chat is on the board to judge the items.' : null
     return { ...view, canCheck: why === null, whyNot: why }
+  }
+  /**
+   * What Autopilot cleared when the person switched it on (src/work/autopilotCleared.mjs): the record as the page draws it
+   * ("Autopilot cleared N", with an Undo), null where there is none, and on a board that only shows (it clears nothing there).
+   */
+  const autopilotClearedNow = async () => {
+    if (workDir === null || isDemo || isShowOnly) return null
+    return (await readAutopilotClearedFile(workDir)).record
   }
   /**
    * Focus 3 (spec 2026-10-18, sections 5 and 6): the person's Undo of a line the partner decided for them, from the Focus
@@ -1357,7 +1384,8 @@ async function main(args) {
       ruleKeys: SUPERVISOR_RULE_KEYS,
       // B775: the facts the obsolete check hands the Advisor for each open item: its step, the commits naming it since, its chat.
       obsoleteEvidence: async (open, items) => obsoleteEvidence(open, {
-        items, lanes: lanes.map(lane => ({ name: lane.name, state: lane.state ?? null, task: lane.task ?? null, isRunning: lane.isRunning ?? null })),
+        // 2026-11-02: every chat of the roles map (the Advisor, Supervisor and Product owner too), with what it holds by the store.
+        items, lanes: evidenceLanes(state),
         prefix: state.chatPrefix ?? '', repos: knownRepos(), run: gitRunner(), board: { startedAt }, mod: (await modNow())?.installed ?? null,
       }),
     }
@@ -1668,6 +1696,13 @@ async function main(args) {
   // Spec 2026-11-01, part A: the last check of each provider the Settings tab asked about, in memory, keyed `${kind}|${name}`
   // (src/providers/choose.mjs). The loop's checks of the providers in use land here too.
   const providerChecks = new Map()
+  // Part D: a board with no `providers` in its settings and no setup.json is new: its setup starts now.
+  const setupFile = join(HERE, 'data', 'setup.json')
+  if (!isDemo && !isShowOnly) {
+    // The settings were read already (loadConfig); a file it cannot read now simply names no providers, and the setup starts.
+    const rawConfig = JSON.parse((await readFile(join(HERE, 'config.json'), 'utf8').catch(absentAs('{}'))) || '{}')
+    await startSetup(setupFile, { hasProvidersKey: Object.hasOwn(rawConfig ?? {}, 'providers') }).catch(error => loops.failed('setup', error))
+  }
   const providerTools = () => ({ project: config.project, codexPath: settings.codex })
   const lookAtProviders = () => loops.run('providers', async () => {
     const rows = await checkProvidersFull(config, providerTools())
@@ -2177,7 +2212,7 @@ async function main(args) {
       // Change 4 (B.2): the woken chat's first turn end was seen, right after the decision that read it.
       if (wakeTurnEnded(wakes, checked.chat, clock())) wakesChanged()
       if (decided !== null) {
-        const envelope = await handOut(store, checked.chat, clock(), keep, { holdClear: inFirstTurn(wakes, checked.chat, reports?.get(checked.chat) ?? null) })
+        const envelope = await handOut(store, checked.chat, clock(), keep, { holdClear: inFirstTurn(wakes, checked.chat, reports?.get(checked.chat) ?? null), waiveLine: step => wakeCarriedTake(wakes, checked.chat, step) })
         if (envelope !== null) readState.reset()
         const { pull: _pull, ...rest } = done.result
         const waits = envelope === null && decided.envelope !== null && typeof decided.envelope.waitsFor === 'string' ? 'set' : null
@@ -2274,7 +2309,7 @@ async function main(args) {
       // The Product owner (2026-10-31): the talk partner as the page draws it, the Advisor with its whole queue when it is the one.
       const talkPartner = talkPartnerOf({ ...state, advisor })
       // Light state (2026-10-31): the finished steps go light to the page (src/state.mjs lightState); `step` gives one whole.
-      return lightState({ ...state, advisor, talkPartner, forYou: oldMods === null ? state.forYou : [oldMods, ...(state.forYou ?? [])], design, bugs, goalsEdit, cpu: cpu?.view() ?? null, loops: { failing: loops.failing(), line: failingLine(loops.failing(), timeOf) }, supervisor: supervised ?? (isDemo ? demoSupervisor(clock(), SUPERVISOR_RULES, incidentCards) : null), boardSettings: boardSettingsNow(), obsolete: await obsoleteNow(state), version: { commit: running, since: startedAt, ...(await versionNow()), canRestart, selfUpdate: updateShown },
+      return lightState({ ...state, advisor, talkPartner, forYou: oldMods === null ? state.forYou : [oldMods, ...(state.forYou ?? [])], design, bugs, goalsEdit, cpu: cpu?.view() ?? null, loops: { failing: loops.failing(), line: failingLine(loops.failing(), timeOf) }, supervisor: supervised ?? (isDemo ? demoSupervisor(clock(), SUPERVISOR_RULES, incidentCards) : null), boardSettings: boardSettingsNow(), obsolete: await obsoleteNow(state), autopilotCleared: await autopilotClearedNow(), version: { commit: running, since: startedAt, ...(await versionNow()), canRestart, selfUpdate: updateShown },
         // Signals change 1: the board's own clock, its work loop's last run, a restart on its way, and why it was off.
         board: boardView({ now: clock(), startedAt, aliveAt: store.aliveAt?.() ?? null, leaving, waiting: updateShown?.state === 'waiting' ? updateShown : null, lastStop: lastStopOf(store.startedGap ?? null, startedAt) }), mod: await modNow(),
         // B320: where the New project button suggests a new project's folder, and whether this board makes one.
@@ -2358,7 +2393,14 @@ async function main(args) {
       else config[checked.key] = checked.value
       readState.reset()
       // Autopilot (2026-10-31): switched on, the open asks are routed at once; switched off, nothing is routed back by itself.
-      if (checked.key === 'autopilot' && checked.value === true && workDir !== null && !isShowOnly) await loops.run('autopilot', async () => autopilotNow(await readState()))
+      // 2026-11-02 (the person: "if autopilot is turned on, the outstanding, needing for attentions get reevaluated and possible
+      // resolved if autopilot would answer them"): the pass also judges anew what it routed to the person before (`sweep`), then
+      // the Advisor is asked for what is obsolete among what still stands for the person (the check `by: 'autopilot'`, in the
+      // background: the switch answers at once; a check running already, no partner chat or nothing open is skipped quietly).
+      if (checked.key === 'autopilot' && checked.value === true && workDir !== null && !isShowOnly) {
+        await loops.run('autopilot', async () => autopilotNow(await readState(), { sweep: true }))
+        void loops.run('autopilot', async () => { await obsoleteStart({ by: 'autopilot' }) })
+      }
       return { ok: true, result: boardSettingsNow() }
     }),
     // Spec 2026-11-01, part A: the Settings tab's providers. `verify` runs a provider's check and keeps it; `use` switches a kind
@@ -2407,6 +2449,13 @@ async function main(args) {
       return { ok: true, result: providerCards(config, providerChecks) }
     }),
     providerList: async () => providerCards(config, providerChecks),
+    // Part D: the first-run setup. Only a board that records, not the demo, keeps one.
+    setupRead: async () => (isDemo || isShowOnly ? { ...SETUP_FINISHED, done: [...SETUP_FINISHED.done] } : readSetup(setupFile)),
+    setup: body => settingsTurn(async () => {
+      if (historyFrom !== undefined) return { ok: false, status: 409, why: SETTINGS_WHY_NOT }
+      if (isDemo || isShowOnly) return { ok: false, status: 409, why: 'This board keeps no setup.' }
+      return setupAction(setupFile, body, { config, checks: providerChecks, now: clock() })
+    }),
     cpu: async body => (cpu === null ? { ok: false, status: 409, why: 'This board sets no CPU: it is the demo, or it shows the history of another board.' } : cpu.set(body?.level)),
     // B767: the setup check's Allow: only the tool rules the check finds missing, into the project's own settings.
     codeJobs: async body => {
@@ -2765,7 +2814,7 @@ async function main(args) {
       // release for a mod older than 0.28.0.
       const { envelope, statuses } = await handedWithStatuses({
         // Signals change 4, D.4: an envelope with a clear waits while the chat's first turn after a wake runs.
-        hand: async () => (!onIt || isHolding((await readState()).pause) ? null : await handOut(store, checked.chat, clock(), keep, { holdClear: inFirstTurn(wakes, checked.chat, reports?.get(checked.chat) ?? null) })),
+        hand: async () => (!onIt || isHolding((await readState()).pause) ? null : await handOut(store, checked.chat, clock(), keep, { holdClear: inFirstTurn(wakes, checked.chat, reports?.get(checked.chat) ?? null), waiveLine: step => wakeCarriedTake(wakes, checked.chat, step) })),
         readState,
       })
       return { ok: true, result: { messages: fit.messages, ...(off.length === 0 ? {} : { off }), ...stop, ...(envelope === null ? {} : { handover: envelope }), ...(statuses.length === 0 ? {} : { statuses }) } }
@@ -2862,7 +2911,9 @@ async function main(args) {
           if (need.chat === checked.chat || !need.paths.includes('message') || !Number.isFinite(need.spell)) continue
           if (wakeNextPath(wakes, { chat: need.chat, spell: need.spell, senderClaims: true, senderSince: claim.since, paths: need.paths }) !== 'message') continue
           const id = wakeJobId(need.spell, need.chat)
-          if (!claimWake(wakes, { chat: need.chat, spell: need.spell, path: 'message', by: checked.chat, jobId: id, now: clock(), runBefore: reports?.get(need.chat)?.run ?? null, senderSince: claim.since, paths: need.paths })) continue
+          // X107/X3 (2026-11-02): the step whose take line the message carries, so the envelope's own line is not typed a second time.
+          const carries = typeof need.step === 'string' && need.text === takeLine(need.step) ? need.step : null
+          if (!claimWake(wakes, { chat: need.chat, spell: need.spell, path: 'message', by: checked.chat, jobId: id, now: clock(), runBefore: reports?.get(need.chat)?.run ?? null, senderSince: claim.since, paths: need.paths, step: carries })) continue
           jobs.push({ id, to: need.appSession, chat: need.chat, text: need.text })
           wakeClaimed = true
           console.log(`Wake: a message to ${need.chat} given to ${checked.chat}'s hands at ${timeOf(clock())} (${need.why}): "${need.text}".`)

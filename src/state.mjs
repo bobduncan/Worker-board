@@ -52,6 +52,7 @@ import { enforcementReadiness } from './work/routing/capabilities.mjs'
 import { routingHolds } from './work/routing/assignments.mjs'
 import { refineStop } from './refineGate.mjs'
 import { contextOfStep, flowOfStep, itemOfStep, itemsOf, reviewWaitOfStep, storeBacklog } from './work/read.mjs'
+import { withLinks } from './work/links.mjs'
 import { clearOwed, modAtLeast } from './clearOwed.mjs'
 import { newestSpells, noticeOf, nobodyRunsSpell, pathsOf, spellOf, statusOf as wakeStatusOf, wakeNeeds, wakeOf, wakeWords } from './wake.mjs'
 import { chainWaitOf, checkedOf, fixesOf, fixOutcomeOf, recapPartOf, reviewWaitOf } from './work/resultCheck.mjs'
@@ -1571,7 +1572,12 @@ function focusRun(node, items, prefix, partner) {
   return { note, needs }
 }
 
-export function buildState(raw, { lines = [], outbox = [], runs = [], board = null, seen = null, aliveAt = null, reports = null, wakes = null, hearing = null, finishedSeen = {}, taskTimes = [], mods = {}, modsLately = null, keptReadings = [], providers = [], planSeen = null, now, config }) {
+export function buildState(raw, options) {
+  // B917 (X93): the fixes and asks of every step from one index of the store per rebuild (work/links.mjs).
+  return withLinks(raw?.work?.items, () => builtState(raw, options))
+}
+
+function builtState(raw, { lines = [], outbox = [], runs = [], board = null, seen = null, aliveAt = null, reports = null, wakes = null, hearing = null, finishedSeen = {}, taskTimes = [], mods = {}, modsLately = null, keptReadings = [], providers = [], planSeen = null, now, config }) {
   // The review of Pause 2: while the person pauses (2026-10-19: pausing only, no longer until running) what waits in
   // the outbox is held until the resume, but the board's own "resume" to the main chat; the page says so (`isHeld`).
   const isPaused = isHolding(raw.work?.pause)
@@ -2410,7 +2416,7 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
     recapCard: focus === null ? null : recapCardOf({
       goal: focus.id, recapPath: raw.goalRecap?.goal === focus.id ? raw.goalRecap.path : null, waits: recapWaits, pictures: raw.goalRecap?.goal === focus.id ? raw.goalRecap.pictures : {},
       steps: new Map(itemsOf(raw.work).filter(one => one.head.get('Kind') === 'step').map(one => [one.head.get('Id'), one])), blocks: focus.parts,
-      standing: standingNow, openChecks: openChecksOf(new Map(itemsOf(raw.work).map(one => [one.head.get('Id'), one]))), asked: config.autopilot === true ? routedAway.filter(one => one.route === 'recap' && one.goal === focus.id) : [],
+      standing: standingNow, openChecks: openChecksOf(new Map(itemsOf(raw.work).map(one => [one.head.get('Id'), one]))), asked: config.autopilot === true ? routedAway.filter(one => one.route === 'recap' && (one.goal === focus.id || one.of === null)) : [],
     }),
     // B296, B301: the work store: its folder, how many items, its problems, and why it cannot be read (`why`).
     store: shown.store,

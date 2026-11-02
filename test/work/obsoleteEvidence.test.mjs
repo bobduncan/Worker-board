@@ -4,7 +4,7 @@ import test from 'node:test'
 
 import { obsoleteWords } from '../../src/say.mjs'
 import { parseItem } from '../../src/work/item.mjs'
-import { obsoleteEvidence, commitsNaming } from '../../src/work/obsoleteEvidence.mjs'
+import { commitsNaming, evidenceLanes, obsoleteEvidence, taskWordsOf } from '../../src/work/obsoleteEvidence.mjs'
 import { openItemsOf } from '../../src/work/obsolete.mjs'
 
 const NOW = new Date(2026, 9, 28, 16, 0).getTime()
@@ -65,6 +65,28 @@ test('each open item gets its facts: asked when and by whom, its step and last H
   assert.deepEqual(evidence.get('X1').slice(0, 2), ['incident open: sweep saw it 3 times, first 2026-10-28 09:20, last 2026-10-28 09:40', 'what was seen last: unknown for 11 min'])
   assert.equal(evidence.get('X1').some(line => line === 'Painter is in the list, working: Gate'), true)
   for (const lines of evidence.values()) assert.ok(lines.length <= 8 && lines.every(line => line.length <= 220))
+})
+
+// 2026-11-02 (the Advisor's obsolete check of 15:46): a lane's task is an object since change 7 ("[object Object]"), and the
+// Advisor, Supervisor and Product owner were not among the chats the evidence knew ("Advisor is not in the list of chats").
+test('a chat\'s line says the step it holds by the store, else its card\'s text, never "[object Object]"; the roles map\'s chats are all known', async () => {
+  assert.equal(taskWordsOf({ held: { id: 'B917', title: 'Fix of X93: find what slows the board' }, task: { text: 'old card words' } }), 'B917 Fix of X93: find what slows the board')
+  assert.equal(taskWordsOf({ held: null, task: { text: 'card words', stepId: 'B1' } }), 'card words')
+  assert.equal(taskWordsOf({ task: 'Gate' }), 'Gate')
+  assert.equal(taskWordsOf({ task: null }), null)
+  assert.equal(taskWordsOf({ task: { stepId: 'B1' } }), null)
+  const state = {
+    chats: [{ name: 'Garden · Painter', state: 'working', task: { text: 'old' }, held: { id: 'B3', title: 'Gate' }, isRunning: true }, { name: 'Garden · Gone', isLeftover: true }],
+    advisor: { name: 'Garden · Partner', state: 'free', task: null, isRunning: true },
+    supervisorChat: { name: 'Garden · Watcher', state: 'free', isRunning: false },
+    productOwner: { name: 'Garden · Owner', state: 'free', isRunning: true },
+  }
+  assert.deepEqual(evidenceLanes(state).map(lane => lane.name), ['Garden · Painter', 'Garden · Partner', 'Garden · Watcher', 'Garden · Owner'])
+  const open = openItemsOf(items)
+  const evidence = await obsoleteEvidence(open, { items, lanes: evidenceLanes(state), prefix: 'Garden · ', repos: [], run: async () => '', board: { startedAt: NOW }, mod: '0.26.6' })
+  assert.equal(evidence.get('Q1').some(line => line === 'Partner is in the list, free'), true, 'the Advisor is known')
+  assert.equal(evidence.get('Q3').some(line => line === 'Painter is in the list, working: B3 Gate'), true, 'the held step, not the card')
+  assert.equal(evidence.get('Q3').some(line => /object Object/.test(line)), false)
 })
 
 test('without a restart after it was made, no line says so; a step that is not in the store says so', async () => {

@@ -1660,6 +1660,21 @@ a.recap-checked:hover { text-decoration: underline; }
 .old-mod-chats { list-style: disc; }
 .old-mod-steps { list-style: decimal; }
 .need p.old-mod-do { margin: 0; font-weight: 700; }
+/* T20 (the mock autopilot-attention/mock.png): the Product owner's recap card, the first card of Needs your attention while verdicts wait.
+   The attention colour (amber is for this and for questions only); no button that closes it, one link that opens the recap. */
+.need.is-recap-ready { border-color: var(--attn-line); border-left: 4px solid var(--attn); background: var(--attn-bg); gap: 10px; }
+.is-recap-ready .kind { background: var(--attn); color: #1a1305; }
+.is-recap-ready .tag { background: var(--attn); color: #1a1305; }
+.need.is-recap-ready p { margin: 0; color: #d9cfb4; }
+.recap-attention-open { align-self: flex-start; margin-top: 4px; padding: 11px 24px; border: 0; border-radius: 9px; background: var(--attn); color: #1a1305; font-size: 16px; font-weight: 700; text-decoration: none; white-space: nowrap; cursor: pointer; }
+.recap-attention-open:hover { background: #f0b53a; }
+.recap-attention-open:focus-visible { outline: 2px solid var(--attn-text); outline-offset: 2px; }
+/* T20: "Autopilot cleared n: ..." under the recap card: information, so quiet cool tones, dashed, never amber; its Undo is a link. */
+.autopilot-cleared { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 6px 16px; padding: 10px 14px; border: 1px dashed var(--line); border-radius: 9px; color: var(--muted); font-size: 13.5px; }
+.autopilot-cleared-words { flex: 1 1 18em; min-width: 0; overflow-wrap: anywhere; }
+.autopilot-cleared .link-button { flex: none; align-self: baseline; }
+.autopilot-cleared .link-button:disabled { color: var(--muted); text-decoration: none; cursor: default; }
+.autopilot-cleared .problem { flex-basis: 100%; margin: 0; }
 
 .pictures { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
 .picture { background: var(--inset); border: 1px solid var(--line); border-radius: 7px; overflow: hidden; cursor: zoom-in; padding: 0; text-align: left; }
@@ -2315,8 +2330,6 @@ button.needs-you:hover small, button.needs-you:focus-visible small { color: var(
 .provider-logo { flex: none; display: grid; place-items: center; width: 58px; height: 58px; border: 1px solid var(--line); border-radius: 14px; background: var(--panel); }
 .provider-mark { width: 34px; height: 34px; background-color: var(--text); -webkit-mask: var(--logo) center / contain no-repeat; mask: var(--logo) center / contain no-repeat; }
 .provider-logo.is-openai { --logo: url(/providers/openai.svg); }
-.provider-logo.is-claude { --logo: url(/providers/claude.svg); }
-.provider-logo.is-claude .provider-mark { background-color: #D97757; }
 .provider-logo.is-elevenlabs { --logo: url(/providers/elevenlabs.svg); }
 .provider-logo.is-library { --logo: url(/providers/library.svg); }
 .provider-logo.is-manual { --logo: url(/providers/manual.svg); }
@@ -3349,3 +3362,27 @@ ul.task-history { list-style: none; display: flex; flex-direction: column; gap: 
 .q-change { flex: none; padding: 4px 12px; border: 1px solid var(--line); border-radius: 8px; background: none; color: var(--muted); font-size: 13.5px; cursor: pointer; }
 .q-change:hover:not(:disabled) { color: var(--text); border-color: #3a4a63; }
 .q-change:disabled { opacity: .6; cursor: default; }
+
+/* Asset providers, part D: the first-run setup of a new board. The cards are the Settings tab's, bigger. */
+.provider-setup { position: fixed; inset: 0; z-index: 50; overflow-y: auto; background: var(--bg); }
+.provider-setup[hidden] { display: none; }
+.provider-setup-body { max-width: 1180px; margin: 0 auto; padding: 28px 22px 40px; display: flex; flex-direction: column; gap: 10px; }
+.setup-count { color: var(--muted); font-size: 13px; }
+.setup-progress { display: flex; gap: 10px; margin: 0; padding: 0; list-style: none; }
+.setup-step { flex: 1; display: flex; flex-direction: column; gap: 6px; color: var(--muted); font-size: 13px; }
+.setup-step-bar { height: 6px; border-radius: 999px; background: var(--line); }
+.setup-step.is-done .setup-step-bar { background: var(--working); }
+.setup-step.is-now .setup-step-bar { background: var(--free); }
+.setup-step.is-now { color: var(--text); font-weight: 600; }
+.setup-title { margin: 14px 0 0; font-size: 26px; }
+.setup-about { margin: 0 0 8px; }
+.provider-setup .provider-card { min-height: 260px; padding: 24px; gap: 14px; }
+.provider-setup .provider-logo { width: 72px; height: 72px; }
+.provider-setup .provider-title { font-size: 20px; }
+.provider-setup .provider-line-text { font-size: 14px; }
+.setup-sample { margin: 6px 0 0; padding: 8px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--inset); color: var(--muted); font-size: 13px; }
+.setup-bottom { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-top: 18px; padding-top: 16px; border-top: 1px solid var(--line); }
+.setup-hint { color: var(--muted); font-size: 14px; }
+.setup-next { min-width: 120px; padding: 10px 22px; }
+.setup-next:disabled { background: var(--inset); border-color: var(--line); color: var(--muted); }
+body.is-in-setup { overflow: hidden; }

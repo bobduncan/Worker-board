@@ -14,6 +14,30 @@ import {
   BOARD_KEY, WAKE_VERDICT_MS, claim, emptyWakes, failedToSend, givenBack, heard, heardClaim, inFirstTurn, newSpell, nextPath, noticeOf, pass,
   personAgain, readWakes, rowOf, sent, spellOf, statusOf, textOfWakes, turnEnded, wakeJobId, wakeOf, wakesOfFile, wakesSaver,
 } from '../src/wake.mjs'
+import * as wakeModule from '../src/wake.mjs'
+
+test('X107/X3 (2026-11-02 14:45): a message that carried a step\'s take line is remembered with the step; wakeCarriedTake holds only after "woke", for that step, by message', () => {
+  const { wakeCarriedTake } = wakeModule
+  const record = emptyWakes()
+  const job = wakeJobId(W5_SPELL, 'Worker 5')
+  const attempt = claim(record, { chat: 'Worker 5', spell: W5_SPELL, path: 'message', by: 'Main', jobId: job, now: at(14, 45, 45), runBefore: RUN_OLD, step: 'B916' })
+  assert.equal(attempt.step, 'B916')
+  assert.equal(wakeCarriedTake(record, 'Worker 5', 'B916'), false, 'not before the chat woke')
+  sent(record, 'Worker 5', job, at(14, 45, 50))
+  heard(record, 'Worker 5', { state: 'busy', run: RUN_NEW, at: at(14, 46, 14) }, at(14, 46, 14))
+  assert.equal(wakeCarriedTake(record, 'Worker 5', 'B916'), true)
+  assert.equal(wakeCarriedTake(record, 'Worker 5', 'B917'), false, 'another step: its line still goes')
+  assert.equal(wakeCarriedTake(record, 'Worker 2', 'B916'), false)
+  // A plain-line wake (a clear owed) carries no step; a launch neither.
+  const plain = emptyWakes()
+  claim(plain, { chat: 'Worker 2', spell: W2_SPELL, path: 'message', by: 'Main', jobId: 'j', now: at(14, 45, 45) })
+  heard(plain, 'Worker 2', { state: 'busy', run: RUN_NEW, at: at(14, 46) }, at(14, 46))
+  assert.equal(wakeCarriedTake(plain, 'Worker 2', 'B918'), false)
+  // The step survives the file; a step that is no step id is not kept.
+  const read = wakesOfFile(JSON.parse(textOfWakes(record)))
+  assert.equal(read.wakes.get('Worker 5').at(-1).attempts.at(-1).step, 'B916')
+  assert.equal(claim(emptyWakes(), { chat: 'X', spell: 1, path: 'launch', by: 'board', jobId: 'l', now: 2, step: 'drop table' }).step, null)
+})
 
 test('T22 personAgain: the person\'s "Send again" makes one attempt outside the cap, never while one is pending; it gets the usual verdict and is saved with its mark', () => {
   const record = emptyWakes()
@@ -38,6 +62,14 @@ test('T22 personAgain: the person\'s "Send again" makes one attempt outside the 
   // The mark survives the file.
   const read = wakesOfFile(JSON.parse(textOfWakes(record)))
   assert.equal(read.wakes.get('Worker 2').at(-1).attempts.at(-1).again, 'person')
+  // Only the newest spell (the goal chat's wait-line test: spells A, B, then A again): an older kept entry takes no attempt,
+  // since the hands route reads the newest entry alone and the message would never go.
+  const spells = emptyWakes()
+  newSpell(spells, 'Worker 2', 100)
+  newSpell(spells, 'Worker 2', 200)
+  assert.equal(personAgain(spells, { chat: 'Worker 2', spell: 100, path: 'message', by: 'Main', jobId: 'old', now: 300 }), false)
+  assert.equal(spells.wakes.get('Worker 2')[0].attempts.length, 0)
+  assert.ok(personAgain(spells, { chat: 'Worker 2', spell: 200, path: 'message', by: 'Main', jobId: 'new', now: 300 }))
 })
 
 const at = (h, m, s = 0) => new Date(2026, 10, 2, h, m, s).getTime()

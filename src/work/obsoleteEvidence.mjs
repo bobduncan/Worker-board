@@ -7,6 +7,27 @@ import { basename } from 'node:path'
 
 import { valueOf } from './item.mjs'
 import { stamp } from './migrate.mjs'
+import { boardLanes } from '../say.mjs'
+
+/**
+ * 2026-11-02 (the Advisor's obsolete check of 15:46): what a lane does, in words: the step it holds by the store (change 7's
+ * `held`: "B917 Fix of X93 …"), else its card's text (`task.text`, or the plain string older lanes and tests carry); null
+ * for none. Before this, a lane's `task` object printed as "[object Object]".
+ */
+export function taskWordsOf(lane) {
+  if (lane === null || lane === undefined) return null
+  if (typeof lane.held?.id === 'string') return [lane.held.id, lane.held.title].filter(Boolean).join(' ')
+  if (typeof lane.task === 'string') return lane.task === '' ? null : lane.task
+  const text = lane.task?.text
+  return typeof text === 'string' && text !== '' ? text : null
+}
+
+/**
+ * 2026-11-02 (the same check: "Advisor is not in the list of chats" for Q588 while it was): the chats the evidence knows,
+ * from the state, as the roles map has them: the main chat and the workers (no leftover), the Advisor, its helper, the
+ * Supervisor's chat and the Product owner (say.mjs `boardLanes`), each as `{ name, state, task, held, isRunning }`.
+ */
+export const evidenceLanes = state => boardLanes(state ?? {}).map(lane => ({ name: lane.name, state: lane.state ?? null, task: lane.task ?? null, held: lane.held ?? null, isRunning: lane.isRunning ?? null }))
 
 const STEP = /^B\d+$/
 const LINE_CHARS = 220
@@ -88,7 +109,8 @@ export async function obsoleteEvidence(open, { items, lanes = [], prefix = '', r
     if (chat !== null && !STEP.test(chat)) {
       const lane = lanes.find(known => plain(known.name, prefix) === plain(chat, prefix))
       if (lane !== undefined || one.owner !== null) {
-        lines.push(lane === undefined ? `${chat} is not in the list of chats` : `${chat} is in the list${lane.state ? `, ${lane.state}` : ''}${lane.task ? `: ${cut(lane.task, 80)}` : ''}${lane.isRunning === false ? ' (not running)' : ''}`)
+        const doing = taskWordsOf(lane)
+        lines.push(lane === undefined ? `${chat} is not in the list of chats` : `${chat} is in the list${lane.state ? `, ${lane.state}` : ''}${doing === null ? '' : `: ${cut(doing, 80)}`}${lane.isRunning === false ? ' (not running)' : ''}`)
       }
     }
     if (board !== null && Number.isFinite(board.startedAt) && Number.isFinite(one.at) && board.startedAt > one.at) lines.push(`the board restarted ${day(board.startedAt)}, after it was made${mod === null ? '' : `; Workers mod ${mod} is installed`}`)

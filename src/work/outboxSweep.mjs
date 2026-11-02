@@ -65,6 +65,12 @@ export function whyClosed(message, ctx) {
       }
       return isLate(message, now, keep) ? expired(message, keep) : null
     }
+    // X107/X3 (2026-11-02 15:12-15:14, Worker 2): a clear that failed ("a new prompt came in before the clear") and that a
+    // later envelope's clear to the same chat finished is no undelivered word: its purpose is done.
+    if (message.state === 'failed' && message.clear !== null && message.clear !== undefined) {
+      const later = (all ?? []).find(one => one?.command === 'handover' && one.to === message.to && one.at > message.at && one.state === 'delivered' && one.outcome?.cleared === true)
+      if (later !== undefined) return { state: 'dropped', why: `its clear ran with a later envelope (${stamp(later.settledAt ?? later.at)})` }
+    }
     const item = typeof message.step === 'string' && items instanceof Map ? items.get(message.step) : undefined
     if (item !== undefined && !(value(item, 'State') === 'queued' && plainName(value(item, 'Owner'), ctx.prefix ?? '') === plainName(message.to, ctx.prefix ?? ''))) {
       return { state: 'dropped', why: `${message.step} is no longer given to ${message.to}` }

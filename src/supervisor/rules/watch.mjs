@@ -20,7 +20,7 @@ import { afterPause as afterPauseOf, checkpointOf, heldMs, holdEndOf, isHolding,
 import { isFailedForGood, stoppedChats, whyClosed } from '../../work/outboxSweep.mjs'
 import { FIRST_SAYING, chatsByRole, oldModFinding } from '../../oldMods.mjs'
 import { EFFORTS, chatEffort, effortOf, effortSaid, familyOf, modelOf } from '../../work/effort.mjs'
-import { chainTries, hasTriedBefore, reviewWaitOf } from '../../work/resultCheck.mjs'
+import { chainTries, hasTriedBefore, reviewWaitOf, waitsForPerson } from '../../work/resultCheck.mjs'
 import { madeAtMs, openQaTaskOf, qaStandOf } from '../../work/qaTask.mjs'
 import { isWordingOnly } from '../../work/recapWords.mjs'
 import { NET_MS, STATES, UNANSWERED_WHY, envelopesOf } from '../../work/handover.mjs'
@@ -574,6 +574,20 @@ function fixDropped(view, ctx) {
 
 /** B660: a held why that is the person's open ask (guards.mjs `readyHold`). */
 export const PERSON_ASK_HOLD = /^waits for the answer to Q\d/
+/** B916: a held why that names the steps it is blocked by (guards.mjs `readyHold`: "blocked by B871 (review), B5 (in progress)"). */
+const BLOCKED_HOLD = /^blocked by B\d/
+
+/**
+ * B916 (X123): whether a held why is the person's wait: their open ask (B660), or a block by steps that ALL wait for them
+ * (resultCheck.mjs `waitsForPerson`: their answer, verdict in a recap or Accept, also at the end of the blocker's chain of
+ * fixes). One blocker that waits for a check, a worker or anything else leaves the hold the board's own.
+ */
+function personHold(view, held) {
+  if (PERSON_ASK_HOLD.test(held)) return true
+  if (!BLOCKED_HOLD.test(held)) return false
+  const ids = [...new Set(held.match(/B[0-9]+/g) ?? [])]
+  return ids.length > 0 && ids.every(id => waitsForPerson(view.items.get(id), view.items, view.held, view.now, view.recaps))
+}
 
 /**
  * 12c. B656 (X8 again: B603 sat in review behind its fix B614, which the ready list held for the answer to an ask, while
@@ -581,7 +595,8 @@ export const PERSON_ASK_HOLD = /^waits for the answer to Q\d/
  * holds (handOut.mjs `readyList`'s held why: outside the focus goal, a blocker, an ask, a standard) for over
  * `reviewMinutes` is one case per chain, named by its first step, with the fix and why. A chain whose last fix is at work
  * (queued, in progress, in review) is no case, however deep. B660 (X59: B603 behind B614, held for the person's answer to
- * Q408): a hold that is the person's open ask ("waits for the answer to Q<n>") is no case, as in B543; the time counts from
+ * Q408): a hold that is the person's open ask ("waits for the answer to Q<n>") is no case, as in B543; B916 (X123): nor is a
+ * block by steps that all wait for the person alone (`personHold`); the time counts from
  * when the board first saw this hold (its key holds the why, so a changed why starts again), not from the fix's Since, and
  * from the end of the person's last pause. No ready list in the view: nothing.
  */
@@ -615,7 +630,7 @@ function reviewHeld(view, ctx) {
  * late a step in review is by what it waits for (`wait`, resultCheck.mjs `reviewWaitOf`), one judgement for the rules
  * review-stuck, dropped-fix and review-held and the health summary (health.mjs). `seenOf(key)`: since when the watch
  * first saw the key (the rules' own watch; the health summary reads the supervisor's memory), undefined for not yet. Not
- * late: the person's answer, a hold that is their open ask, a check whose QA task a worker is at work on or that is ready or
+ * late: the person's answer, a hold that is their open ask or a block by steps that all wait for them alone (B916), a check whose QA task a worker is at work on or that is ready or
  * given and not taken yet (the hand-over's to move, and the rules ready-while-free and handover-unanswered watch it), a
  * report whose check failed (the hand-over tells its worker), anything while the person pauses. Any other hold counts from when the watch first saw it, a check from when its QA task was made (T9.1.1;
  * from when it was asked, with none), a dropped fix from the drop, each from the end of the last pause at the earliest.
@@ -665,7 +680,7 @@ export function reviewLateOf(view, item, wait, seenOf = () => undefined) {
     return { late, key, ms, words }
   }
   if (wait.kind === 'fix' && wait.held !== null) {
-    if (isPaused(view) || PERSON_ASK_HOLD.test(wait.held)) return not
+    if (isPaused(view) || personHold(view, wait.held)) return not
     // Counted per why, from when the board first saw this hold (the fix's Since is its move to refined, long before a
     // blocker or an ask may have cleared: B614 refined at 16:39, blocked by B623 until 19:56).
     const key = `review-held ${wait.end} ${wait.held.slice(0, 80)}`

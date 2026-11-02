@@ -282,6 +282,31 @@ test('the predicate at the refresh: a worker on the timers or on an older mod is
 // ---- Signals change 4, B908, D.4 (decision 12, 2026-11-02 11:07: Worker 5's envelope with a clear was carried while the
 // turn its wake message started still ran; a clear then fails "a turn is running"). Made-up times.
 
+test('X107/X3 (2026-11-02 14:45, Worker 5): the envelope\'s line is waived at the hand-out when the wake message carried that step\'s take line; another step\'s, or no wake, keeps it', async () => {
+  const { claim, emptyWakes, heard, sent, wakeCarriedTake } = await import('../../src/wake.mjs')
+  const record = emptyWakes()
+  const T = new Date(2026, 10, 2, 14, 45, 45).getTime()
+  claim(record, { chat: 'Worker 5', spell: T - 900_000, path: 'message', by: 'Main', jobId: 'wake:1:Worker 5', now: T, runBefore: 1, step: 'B916' })
+  sent(record, 'Worker 5', 'wake:1:Worker 5', T + 5_000)
+  heard(record, 'Worker 5', { state: 'busy', run: 2, at: T + 29_000 }, T + 29_000)
+  const keep = { messageMs: 60 * 60_000, answerMs: 24 * 60 * 60_000 }
+  const envelope = step => ({ id: `e-${step}`, at: T - 22_000, to: 'Worker 5', ask: null, title: null, version: null, verdict: null, command: HANDOVER_COMMAND, about: 'Worker 5', text: 'hand-over', kind: 'task', step, clear: null, restart: false, set: null, line: `work: ${step} is yours; run work next`, state: 'waiting' })
+  const waive = step => wakeCarriedTake(record, 'Worker 5', step)
+  // The step the wake message named: the contract carries no line; the outbox says why; the clear and set would still go.
+  const one = memoryStore()
+  await one.say(envelope('B916'))
+  const contract = await handOut(one, 'Worker 5', T + 38_000, keep, { waiveLine: waive })
+  assert.deepEqual([contract.id, contract.step, contract.line], ['e-B916', 'B916', null])
+  assert.equal(one.outbox().find(message => message.id === 'e-B916').lineWaived, 'the wake message carried its take line')
+  // Another step: its line goes as before; and without the waiver, B916's too.
+  const two = memoryStore()
+  await two.say(envelope('B917'))
+  assert.equal((await handOut(two, 'Worker 5', T + 38_000, keep, { waiveLine: waive })).line, 'work: B917 is yours; run work next')
+  const three = memoryStore()
+  await three.say(envelope('B916'))
+  assert.equal((await handOut(three, 'Worker 5', T + 38_000, keep)).line, 'work: B916 is yours; run work next')
+})
+
 test('change 4, D.4: carryable holds back an envelope with a clear while the woken chat\'s first turn runs; after its end it goes', async () => {
   const { claim, emptyWakes, heard, inFirstTurn, sent, turnEnded } = await import('../../src/wake.mjs')
   const record = emptyWakes()

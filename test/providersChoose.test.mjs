@@ -29,21 +29,20 @@ const keep = (...rows) => new Map(rows.map(([kind, name, record]) => [checkKey(k
 test('providerCards: every kind in order, with the providers that serve or are shown on it, the one in use first', () => {
   const cards = providerCards(settings('{}'), new Map())
   assert.deepEqual(cards.map(one => [one.kind, one.inUse]), [['visual', 'codex'], ['music', 'person-suno'], ['sound effect', 'sound-library']])
-  assert.deepEqual(cards[0].cards.map(one => one.name), ['codex', 'manual', 'elevenlabs-images', 'claude'])
+  assert.deepEqual(cards[0].cards.map(one => one.name), ['codex', 'manual', 'elevenlabs-images'])
   assert.deepEqual(cards[1].cards.map(one => one.name), ['person-suno', 'manual', 'elevenlabs-music'])
   assert.deepEqual(cards[2].cards.map(one => one.name), ['sound-library', 'elevenlabs', 'manual'])
   // A card carries the provider's mode and card text; nothing was checked yet.
   assert.deepEqual(cards[1].cards[0], { name: 'person-suno', mode: 'person', card: { title: 'Suno, by hand', line: 'You make it in Suno; the board asks you', facts: ['No automatic link exists', 'Your Suno plan'], icon: 'suno' }, selectable: true, last: null })
 })
 
-test('providerCards: the provider in use moves to the front; Claude is shown on visual only, not selectable', () => {
+test('providerCards: the provider in use moves to the front; every card is selectable', () => {
   const cards = providerCards(settings('{"providers": {"sound effect": "elevenlabs", "visual": "elevenlabs-images"}}'), new Map())
   assert.deepEqual(cards[2].cards.map(one => one.name), ['elevenlabs', 'sound-library', 'manual'])
-  assert.deepEqual(cards[0].cards.map(one => one.name), ['elevenlabs-images', 'codex', 'manual', 'claude'])
-  const claude = cards[0].cards.at(-1)
-  assert.equal(claude.selectable, false)
-  assert.equal(cards[1].cards.some(one => one.name === 'claude') || cards[2].cards.some(one => one.name === 'claude'), false)
-  assert.deepEqual(cards.flatMap(one => one.cards).filter(one => one.name !== 'claude').map(one => one.selectable), Array(9).fill(true))
+  assert.deepEqual(cards[0].cards.map(one => one.name), ['elevenlabs-images', 'codex', 'manual'])
+  // Claude is no provider since 2026-11-02 (it draws no pictures): no kind shows it.
+  assert.equal(cards.some(one => one.cards.some(card => card.name === 'claude')), false)
+  assert.deepEqual(cards.flatMap(one => one.cards).map(one => one.selectable), Array(9).fill(true))
   // Without settings the defaults are in use.
   assert.deepEqual(providerCards(undefined, undefined).map(one => one.inUse), ['codex', 'person-suno', 'sound-library'])
 })
@@ -63,9 +62,8 @@ test('verifyOne: runs that provider\'s check with the tools and answers the reco
   assert.deepEqual(record, { ok: true, state: 'works', why: 'Codex found', detail: 'Codex found', at: NOW })
   assert.deepEqual(seen, [{ given: 'D:\\codex.exe' }])
   assert.deepEqual(await verifyOne(settings('{}'), 'music', 'manual', { now: NOW }), { ok: true, state: 'works', why: 'nothing to check', detail: 'Always works', at: NOW })
-  // Claude can be verified where it is shown: it says it is off. A name or kind the board does not show is off too.
+  // A name or kind the board does not show is off (Claude too, since 2026-11-02).
   assert.equal((await verifyOne(settings('{}'), 'visual', 'claude', { now: NOW })).state, 'off')
-  assert.equal((await verifyOne(settings('{}'), 'music', 'claude', { now: NOW })).state, 'off')
   assert.equal((await verifyOne(settings('{}'), 'visual', 'midjourney', { now: NOW })).state, 'off')
   assert.equal((await verifyOne(settings('{}'), 'image', 'codex', { now: NOW })).state, 'off')
   assert.equal((await verifyOne(settings('{}'), 'visual', 'constructor', { now: NOW })).ok, false)
@@ -111,7 +109,7 @@ test('mayUse: only a provider that serves the kind, whose kept check is "works" 
   // Not verified yet; a check kept for another kind does not count.
   assert.match(mayUse(checks, 'sound effect', 'elevenlabs', NOW).why, /Verify ElevenLabs first/)
   assert.match(mayUse(checks, 'music', 'codex', NOW).why, /does not serve music/)
-  // Claude serves no kind, even with a "works" kept for it.
+  // Claude is no provider, even with a "works" kept for it.
   assert.equal(mayUse(keep(['visual', 'claude', kept('works')]), 'visual', 'claude', NOW).ok, false)
   assert.equal(mayUse(checks, 'visual', 'claude', NOW).ok, false)
   // Names and kinds the board does not know.
