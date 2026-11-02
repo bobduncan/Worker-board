@@ -83,6 +83,7 @@ test('the review of 2026-11-02 (3, 6): Send again is refused while the board end
   personAgain(record, { chat: 'Worker 2', spell: B, path: 'launch', by: 'board', jobId: 'l2', now: at(20) })
   failedToSend(record, 'Worker 2', 'l2', 'the app did not start it', at(19))
   const older = personAgain(record, { chat: 'Worker 2', spell: A, path: 'message', by: AGAIN_BY, jobId: wakeJobId(A, 'Worker 2'), now: NOW })
-  assert.ok(older !== false, 'personAgain itself takes the older spell')
-  assert.equal(record.wakes.get('Worker 2').at(-1).attempts.some(one => one === older), false, 'and the newest entry, which the hands route reads, does not hold it')
+  // The building chat's guard on main (after this review's finding 6): personAgain itself refuses a spell that is not the newest.
+  assert.equal(older, false, 'personAgain itself refuses the older spell')
+  assert.equal(record.wakes.get('Worker 2').at(-1).attempts.some(one => one.jobId === wakeJobId(A, 'Worker 2')), false, 'and the newest entry holds no attempt for it')
 })
