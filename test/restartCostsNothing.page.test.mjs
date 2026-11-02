@@ -188,3 +188,59 @@ test('a picture comes back open in the picture popup', async () => {
     assert.equal(page.text('#lightbox-caption'), 'The bench')
   } finally { await page.close() }
 })
+
+// C: the poll tells the board when the person is busy on the page, and nothing else
+
+const polls = page => page.requests.filter(one => one.url === '/api/state')
+/** Moves the page's clock on in steps, so each poll's answer settles and the next poll is set (as the banner's tests do). */
+async function advanceBy(page, total, step = 5_000) {
+  for (let left = total; left > 0; left -= step) await page.advance(Math.min(step, left))
+}
+const activeOf = request => request.headers['X-Board-Active'] ?? null
+
+test('the poll says the person is busy for a minute after a key or click, and while a field has the focus; no words go with it', async () => {
+  const page = await openPage({ now: BOARD_NOW, state: () => stateOf(BOARD_NOW - 1_000), storage: SEEN })
+  const { MIN } = page.constants
+  try {
+    assert.equal(activeOf(polls(page).at(-1)), null, 'nothing done yet: no header')
+    await page.type('#main-text', 'a secret plan for the pond')
+    page.find('#main-text').blur()
+    await page.advance(30_000)
+    const first = activeOf(polls(page).at(-1))
+    assert.match(first, /^[A-Za-z0-9-]{1,40} \d+$/)
+    assert.doesNotMatch(first, /secret|pond/)
+    const [id, forMs] = first.split(' ')
+    assert.equal(Number(forMs), 30_000, 'for how long: since the key, by the page\'s own measure')
+    await advanceBy(page, 30_000)
+    assert.equal(activeOf(polls(page).at(-1)), null, 'a minute after the last key, no field with the focus: not busy')
+    await page.click('#refresh-title')
+    await advanceBy(page, 30_000)
+    assert.equal(activeOf(polls(page).at(-1)), `${id} 30000`, 'a click: busy again, the same page id')
+    page.find('#main-text').focus()
+    await advanceBy(page, 10 * MIN)
+    assert.match(activeOf(polls(page).at(-1)) ?? '', new RegExp(`^${id} \\d+$`), 'a field with the focus: busy, however long')
+  } finally { await page.close() }
+})
+
+test('a tab that is not shown never says the person is busy', async () => {
+  const page = await openPage({ now: BOARD_NOW, state: () => stateOf(BOARD_NOW - 1_000), storage: SEEN })
+  try {
+    Object.defineProperty(page.document, 'visibilityState', { value: 'hidden', configurable: true })
+    page.find('#main-text').focus()
+    await page.type('#main-text', 'typed, then the tab was hidden')
+    await page.advance(30_000)
+    assert.equal(activeOf(polls(page).at(-1)), null)
+  } finally { await page.close() }
+})
+
+test('a page left with a popup open and words in a field, but no key, click or focus for a minute, does not hold the board', async () => {
+  const page = await openPage({ now: BOARD_NOW, state: () => stateOf(BOARD_NOW - 1_000), storage: SEEN })
+  try {
+    await page.click('#help-button')
+    await page.type('#main-text', 'left here since the morning')
+    page.document.activeElement?.blur?.()
+    await advanceBy(page, 2 * 60_000)
+    assert.equal(page.find('#help').open, true)
+    assert.equal(activeOf(polls(page).at(-1)), null)
+  } finally { await page.close() }
+})

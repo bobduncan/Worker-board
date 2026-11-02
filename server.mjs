@@ -110,7 +110,7 @@ import { obsoleteEvidence } from './src/work/obsoleteEvidence.mjs'
 import { giveBackHeld, stoppedChats, takeFor } from './src/work/outboxSweep.mjs'
 import { dismissCopied, fileStore, isLate, memoryStore, outboxNow, tick } from './src/store.mjs'
 import { loads, readVersion } from './src/version.mjs'
-import { blockersOf, reportedNotLogged, selfUpdater } from './src/selfUpdate.mjs'
+import { activePages, blockersOf, reportedNotLogged, selfUpdater } from './src/selfUpdate.mjs'
 import { findGameFile } from './src/gameFile.mjs'
 import { absentAs, readKept, writeAtomic } from './src/write.mjs'
 import { afterError, failingLine, fileLog, loopRecord, settleWithin } from './src/loops.mjs'
@@ -279,6 +279,7 @@ export const POST_ROUTES = Object.freeze({
  *   `cpu(body)`        B311: the level of "CPU for Claude" ({ level }), the same shape
  *   `codeJobs(body)`   B767: the setup check's Allow ({ action: 'allow' }), the same shape
  *   `mayWrite()`       B529: null while this process may take the page's writes, else why not (refused with 409)
+ *   `heardActive(h)`   signals change 5: the X-Board-Active header of the page's poll of /api/state (null when none)
  */
 export function createBoard({
   token, getState, say, picture = async () => null, demo = async () => null, gameFile = async () => null, publicDir = join(HERE, 'public'),
@@ -309,6 +310,7 @@ export function createBoard({
   step = async () => null,
   project = '',
   mayWrite = async () => null,
+  heardActive = () => {},
 }) {
   // B529: what the page or a chat's mod writes into the project or sends to the chats is taken only by the board process
   // that runs the loops; another one on the project names where that one is. B539: the routes say it in POST_ROUTES.
@@ -505,6 +507,8 @@ export function createBoard({
 
     if (pathname === '/api/state') {
       if (!mayUse) return refuse(res, 403, 'Only the board\'s own page may read.')
+      // Signals change 5: the poll says whether the person is busy on the page; the self-updater waits for that.
+      heardActive(req.headers['x-board-active'] ?? null)
       return json(res, await getState())
     }
     // Light state (2026-10-31): a finished step comes light in the state; its window reads its full row here.
@@ -1491,6 +1495,8 @@ async function main(args) {
   // B454: a new server version is started by the board itself at a safe moment (src/selfUpdate.mjs): what it waits for
   // is shown on the page's note; the calls of the chats being answered now and the last chat log asked for are counted here.
   const selfUpdate = selfUpdater({ now: clock })
+  // Signals change 5: what the pages' polls said about the person (X-Board-Active), by page.
+  const pagesActive = activePages()
   let updateShown = null
   // Signals change 1: set where the exit for a new version is decided (restartNow), before the wait; the state says it.
   let leaving = null
@@ -2545,6 +2551,7 @@ async function main(args) {
     onError: error => loops.failed('request', error),
     onAnswered: () => loops.succeeded('request'),
     isClosing: () => isClosing,
+    heardActive: header => pagesActive.heard(header, clock()),
     restart: restartNow,
     // The page's own version goes into the page, so it can tell when the folder holds a newer one.
     pageVersion: async () => {
@@ -2963,6 +2970,7 @@ async function main(args) {
         now: clock(), outbox: store.outbox(), checks: runningChecks.size, isReconciling: reconciling !== null,
         logs: chatLogs === null ? 0 : (await chatLogs.pending()).length, calls: callsNow, lastLogAt, isPaused: isHolding(state.pause),
         reported: reportedNotLogged({ items: itemsOf(await work()), now: clock(), loggedAt }),
+        personActive: pagesActive.personActive(clock()),
       })
       const seen = selfUpdate.look({ isNewer: version.isServerNewer === true, canRestart, blockers })
       updateShown = seen.shown

@@ -132,6 +132,16 @@ const drawn = {}
 let board = null
 /** Signals change 5 (G1): the board process the last answer came from (`processOf`). */
 let answeredBy = null
+/** Signals change 5 (C): this page load's own id for X-Board-Active, and the person's last key or click on it. */
+const PAGE_ID = Math.random().toString(36).slice(2, 12) || 'page'
+const activity = { lastAt: null, since: null }
+for (const kind of ['keydown', 'input', 'click']) {
+  document.addEventListener(kind, () => {
+    const now = Date.now()
+    if (!(Number.isFinite(activity.lastAt) && now - activity.lastAt < ACTIVE_MS)) activity.since = now
+    activity.lastAt = now
+  }, true)
+}
 let timer = null
 /** When the board stopped answering; null while it answers. */
 let awaySince = null
@@ -389,6 +399,21 @@ function keptBack(text) {
  */
 function processOf(version) {
   return typeof version?.commit === 'string' && Number.isFinite(version?.since) ? `${version.commit} ${version.since}` : null
+}
+
+/** Signals change 5: how long after a key or a click the person counts as busy on the page. */
+const ACTIVE_MS = MIN
+
+/**
+ * Signals change 5: whether the person is busy on the page at `now`: a key or click within ACTIVE_MS (`lastAt`) or a field
+ * with the focus (`isFocused`), in a tab that is shown (`isShown`). `{ since, forMs }` (since when, as `since` kept it or from
+ * now), or null. Not a popup left open, not words left in a field: those may stand for hours.
+ */
+function personBusy({ now, lastAt = null, since = null, isFocused = false, isShown = true }) {
+  const isBusy = isShown && (isFocused || (Number.isFinite(lastAt) && now - lastAt < ACTIVE_MS))
+  if (!isBusy) return null
+  const from = Number.isFinite(since) ? since : Number.isFinite(lastAt) && now - lastAt < ACTIVE_MS ? lastAt : now
+  return { since: from, forMs: Math.max(0, Math.round(now - from)) }
 }
 
 /** B454: the short note after the page loaded itself, for a few seconds (`at`: when it did). */
@@ -1483,8 +1508,24 @@ function drawLoopsNote(state) {
 function isPageIdle() {
   if (document.querySelector('dialog[open]') !== null || sending.size > 0) return false
   const isText = field => field.matches('textarea, input:not([type]), input[type="text"], input[type="search"], input[type="url"], input[type="number"]')
-  if (document.activeElement !== null && document.activeElement !== document.body && document.activeElement.matches('input, textarea, select, [contenteditable]')) return false
+  if (hasFocusedField()) return false
   return ![...document.querySelectorAll('textarea, input')].some(field => isText(field) && field.value.trim() !== '')
+}
+
+/** B454, signals change 5: a field of the page has the focus (the person is in it). */
+function hasFocusedField() {
+  return document.activeElement !== null && document.activeElement !== document.body && document.activeElement.matches('input, textarea, select, [contenteditable]')
+}
+
+/**
+ * Signals change 5 (2026-11-02, C of B913): the X-Board-Active header of the page's poll while the person is busy on it, so
+ * the board waits with a restart of its own (at most 3 minutes, src/selfUpdate.mjs): `{ 'X-Board-Active': '<page id> <ms>' }`,
+ * else nothing. Busy: a key or click within ACTIVE_MS, or a field with the focus, in a tab that is shown (`personBusy`).
+ */
+function activeHeader(now) {
+  const busy = personBusy({ now, lastAt: activity.lastAt, since: activity.since, isFocused: hasFocusedField(), isShown: document.visibilityState !== 'hidden' })
+  activity.since = busy === null ? null : busy.since
+  return busy === null ? {} : { 'X-Board-Active': `${PAGE_ID} ${busy.forMs}` }
 }
 
 /** B524: the words in the page's own boxes, by element id (the Talk to Main and Advisor boxes, the Goals and Design boxes, ...). */
@@ -20755,7 +20796,8 @@ async function read() {
   const stopAt = setTimeout(() => limit.abort(), BANNER_WAIT_MS)
   let isAnswered = false
   try {
-    const answer = await fetch('/api/state', { headers: { 'X-Board-Token': TOKEN }, cache: 'no-store', signal: limit.signal })
+    // Signals change 5: the poll says whether the person is busy on the page (no words, only that and for how long).
+    const answer = await fetch('/api/state', { headers: { 'X-Board-Token': TOKEN, ...activeHeader(Date.now()) }, cache: 'no-store', signal: limit.signal })
     // The server was started cold (the Run pane, start-board.mjs, a chat's Workers mod) and has a new token: a fresh page
     // has it, and every Send of this page fails until then. B519: so the page loads itself at once, and keeps what the
     // person did in sessionStorage across it (B524's `keepForReload`). At most once a minute, so a real refusal cannot
