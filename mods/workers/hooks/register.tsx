@@ -7,14 +7,15 @@ import { atom, read, update } from 'claude-code'
 import type { EngineInterface, FsEntry, Register, Timer } from 'claude-code'
 
 import type { BoardRole, BoardStatus, ChatFile, ChatList, ChatRole, ChatRow, ChatsView, FolderRow, FoldersView } from '../types'
-import { BOARD_FILE, BOARD_NOTE, LAUNCH_FILE, MOD_HEADER, MOD_VERSION, MOST_CHARS, NO_OUTCOME, REPORT_PATH, REQUEST_HEADER, TAKE_PATH, TYPED_PATH, WHOAMI_PATH, WORK_ACTIONS, WORK_FIELDS, WORK_PATH, boardStarts, isPaused, parseBoard, parseHandover, parsePause, parseTaken, parseWhoami, pauseContexts, shownName, stopLine, typedWhy } from './board'
-import type { Board, BoardStart, Envelope, Handover, Outcome, OwedClear, PauseState, PauseWhere, StopAsk, TurnReport, Whoami } from './board'
+import { BOARD_FILE, BOARD_NOTE, LAUNCH_FILE, MOD_HEADER, MOD_VERSION, MOST_CHARS, NO_OUTCOME, NO_TURN_WORDS, REPORT_PATH, REQUEST_HEADER, TAKE_PATH, TASK_ID, TYPED_PATH, WHOAMI_PATH, WORK_ACTIONS, WORK_FIELDS, WORK_PATH, backgroundStartOf, boardLook, clearTicket, launchArgv, monitorEndsAt, parsePendingClear, pendingClearKey, boardStarts, isPaused, parseBoard, parseHandover, parsePause, parseTaken, parseWhoami, pauseContexts, reportBody, shownName, stopLine, turnBegan, typedWhy, wordSettled, wordTyping, wordsCleared } from './board'
+import type { Board, BoardStart, Envelope, Handover, Outcome, OwedClear, PauseState, PauseWhere, PendingClear, StopAsk, TurnReport, TurnWords, Whoami } from './board'
 import {
   BEAT_MS, CHATS_DIR, LEFT_MAX_SIZE, LEFT_TEXT, LIST_FILE, afterTurn, atTurnStart, chatNote, clearWhy, clearedStart, compactKeep, compactWhy, chatText, chatsSummary, fileName,
   boardReading, cardStep, foldersAbove, formAnswer, formQuestions, hasLeft, instructionsLine, isAgentId, isFiled, isOwnerChat, lineOf, modNote, movedText, nameFromTitle, openFrom, orderChats, parseChat, personsWords, parseList, recordedLine, roleFrom, roleOrOwner, sessionOf, uniqueByName,
   unfiledAsk, withDone, withPlan, withSend, withState, withStep, workCard,
 } from './chats'
 import type { OpenInstruction, TaskChange } from './chats'
+import { clearRun } from './clearrun'
 import { blockAsksLine, forYouCount, forYouItems, leftOutLine } from './foryou'
 import { STUCK_SHOWN_MS, isShownForTime, popupText } from './popup'
 import { ARCHIVE_TOOL, CAN_SET_MS, CAN_TOOLS, EFFORT_TOOL, HAND_CALL_MS, HANDS_DONE_PATH, HANDS_MS, HANDS_PATH, LIST_TOOL, MODEL_TOOL, NO_SESSION_MS, NO_SESSION_WHY, NOT_TRIED_WHY, SEND_TOOL, TASK_RUN_TOOL, TASK_UPDATE_TOOL, UNARCHIVE_TOOL, USAGE_TOOL, archivedOf, canFrom, mayClaim, parseJobs, plainResult, raceJob, sendResult, setResult, usageResult } from './hands'
@@ -37,6 +38,8 @@ const BOARDS_MS = 15000
 const BOARD_RETRY_MS = 60000
 /** How long one git question may take. */
 const GIT_MS = 5000
+/** 5c: how long the board's launcher may take: it starts the board and exits at once. */
+const LAUNCH_MS = 15000
 
 const EMPTY: FoldersView = { root: null, rows: [], error: null }
 const NO_CHATS: ChatsView = { me: null, now: 0, rows: [] }
@@ -85,14 +88,17 @@ let turnReport: TurnReport = { state: 'idle', since: 0, background: false }
  */
 let reportRun = 0
 let reportSeq = 0
-/** B738: the chats the board's last answer to a take named as not running; empty when it did not answer. */
-let boardOff: string[] = []
+/** 8c (0.30.0): the words of ours on their way, the word the current or last turn ran on, and that turn's start (board.ts `TurnWords`). */
+let turnWords: TurnWords = NO_TURN_WORDS
 /**
  * 2c (0.28.0): the board's status of every chat of its list, as its last answer to a take gave them, and when that was. A take
- * the board does not answer (down, or a 409 after a rename) empties `boardOff` at once, as before, but the statuses are kept
- * for 120 s (chats.ts `boardReading`): a board that blinks must not turn every line to the pane's own reading and back.
+ * the board does not answer (down, or a 409 after a rename) leaves the statuses to stand for 120 s (chats.ts `boardReading`):
+ * a board that blinks must not turn every line to the pane's own reading and back. 2c (0.30.0): the take's `off` (B738) is no
+ * longer read: the board's status says "Not running" itself, and the pane's own reading no longer mixes in the board's word.
  */
 let boardStatuses: BoardStatus[] = []
+/** 2c (0.30.0): the board's statuses as the pane was last drawn for them, so a take redraws it only when they changed. */
+let shownVerdict = '[]'
 let statusesAt: number | null = null
 /** 2c: when the board last answered a take without statuses (an older board): its lines are today's, with no mark. */
 let answeredAt: number | null = null
@@ -111,7 +117,7 @@ let myself: { name: string; role: ChatRole } | null = null
  * and its full path), and what the chat had seen then (its prompts and turns), so a prompt that comes in before the
  * clear runs stops it.
  */
-type Clearing = { from: string; chat: ChatFile; step: string | null; log: string | null; file: string | null; at: number; prompts: number; turn: number; ticket: number }
+type Clearing = { from: string; chat: ChatFile; step: string | null; log: string | null; file: string | null; at: number; prompts: number; turn: number; ticket: number; kept?: string }
 /** The chat a /clear ended, with its card: the conversation that follows it is the same chat, under a new session id. */
 type Carried = { from: string; chat: ChatFile; clearing: Clearing | null }
 let carried: Carried | null = null
@@ -126,10 +132,16 @@ let restTurn = -1
 let pendingStart: string[] = []
 /**
  * Clear after each step: the /clear commands this process queued and its hook has not seen yet, oldest first, by
- * their ticket. A /clear of this mod runs only when it is the one of the clear still on its way.
+ * their ticket. B944: a /clear of this mod runs the clear still on its way whatever the order (the engine's queue and
+ * this one fell out of step); its ticket and every older one are used up then.
  */
 const queuedClears: number[] = []
 let clearTickets = 0
+/** B944 (0.30.0): the ticket of a clear an earlier process kept in the store and this one runs (its envelope comes with it). */
+const KEPT_TICKET = -1
+/** B944: the stored clear a new process found at its first look (`settleStoredClear`), until it is settled. */
+let storedClear: PendingClear | null = null
+let isStoreLooked = false
 /** Clear after each step: a /compact this process queued is on its way: no other is queued meanwhile. */
 let compactQueued = false
 /**
@@ -178,6 +190,8 @@ const COMMAND_TURN = /^\s*(?:\/(?:clear|compact)\b|<command-(?:name|message)>\/?
 let lastBoardsLook = -Infinity
 let isLookingAtBoards = false
 const startTried = new Map<string, number>()
+/** 5c (0.30.0): the looks in a row that found each board down (board.ts `boardLook`): it is started at the second. */
+const boardMisses = new Map<string, number>()
 /** How long the line about a compaction stays up: the person may be looking at another chat when it happens. */
 const TELL_MS = 20000
 /** True once the chat sent another chat a note or a question in this turn: it then waits for that chat. */
@@ -416,7 +430,7 @@ async function loadChats($: EngineInterface): Promise<ChatsView> {
   const now = await $.clock.now()
   bootAt ??= now
   const reading = boardReading({ now, bootAt, statusesAt, answeredAt, isMember: myself !== null, isBoardKnown })
-  const next: ChatsView = { me: await $.session.id(), now, rows, off: boardOff, statuses: boardStatuses, statusesAt, reading }
+  const next: ChatsView = { me: await $.session.id(), now, rows, off: [], statuses: boardStatuses, statusesAt, reading }
   const before = await read($, chatsAtom)
   if (shown(before) !== shown(next)) await update($, chatsAtom, () => next)
   return next
@@ -522,8 +536,9 @@ async function askBoard($: EngineInterface, board: Board, path: string, more: Re
   const answer = await $.http.fetch(`${board.url}${path}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'X-Board-Key': board.key, [MOD_HEADER]: MOD_VERSION },
-    // Redesign Part 1: a take (the ping) and a report carry the chat's turn state as it stands when they go out.
-    body: JSON.stringify({ chat: myself.name, session: await $.session.id(), ...more, ...(path === TAKE_PATH || path === REPORT_PATH ? { report: { ...turnReport, run: reportRun, seq: (reportSeq += 1) } } : {}) }),
+    // Redesign Part 1: a take (the ping) and a report carry the chat's turn state as it stands when they go out. 8c (0.30.0):
+    // with the word its turn runs on and the turn's own start (`reportBody`), for the board's wait line.
+    body: JSON.stringify({ chat: myself.name, session: await $.session.id(), ...more, ...(path === TAKE_PATH || path === REPORT_PATH ? { report: reportBody(turnReport, turnWords, reportRun, (reportSeq += 1)) } : {}) }),
   })
   // B463: a chat renamed in the app learns its new name here, at the next take, whatever wakes it.
   if (answer.status === 409) await followShown($, answer.text)
@@ -963,19 +978,18 @@ async function takeFromBoard($: EngineInterface): Promise<void> {
     const answer = await askBoard($, board, TAKE_PATH)
     // B738: a board that does not answer leaves the list as the files say; the list reads this, never waits for the board.
     const taken = answer === null ? null : parseTaken(answer)
-    const off = taken === null ? [] : taken.off
-    // 2c: the board's statuses of its chats, kept with the time they came. A null take (board down, a 409 after a rename) empties
-    // `boardOff` at once, as before, but leaves the statuses to stand for 120 s (`boardReading`). An answer without statuses is an
-    // older board's: today's line, no mark.
+    // 2c: the board's statuses of its chats, kept with the time they came. A null take (board down, a 409 after a rename) leaves
+    // the statuses to stand for 120 s (`boardReading`). An answer without statuses is an older board's: today's line, no mark.
     let isFirstStatuses = false
     if (taken !== null && taken.statuses !== null) {
       isFirstStatuses = statusesAt === null
       boardStatuses = taken.statuses
       statusesAt = now
     } else if (taken !== null && taken.isAnswer) answeredAt = now
-    // The pane is drawn again when the board's verdict changed, not at every take.
-    if (JSON.stringify(off) !== JSON.stringify(boardOff) || isFirstStatuses) {
-      boardOff = off
+    // The pane is drawn again when the board's verdict changed (a status, its why or tone, the held step), not at every take.
+    const verdict = JSON.stringify(boardStatuses.map(one => [one.name, one.status, one.why, one.tone, one.held ?? null]))
+    if (verdict !== shownVerdict || isFirstStatuses) {
+      shownVerdict = verdict
       void refreshChats($)
     }
     if (taken === null) return
@@ -989,12 +1003,20 @@ async function takeFromBoard($: EngineInterface): Promise<void> {
     for (const message of taken.messages) {
       if (typedIds.has(message.id)) continue
       typedIds.add(message.id)
+      // 8c: noted before the submit, in the order the board handed them out (its outbox order), so the turn it starts names it.
+      turnWords = wordTyping(turnWords, message.id, message.text)
       void $.prompt.submit({ text: message.text, asUser: true }).then(
         // A prompt a hook dropped did not enter the chat, though the call itself went well.
-        entered => (entered.drop === undefined
-          ? reportTyped($, board, [message.id], [])
-          : reportTyped($, board, [], [message.id], { [message.id]: typedWhy(entered.drop, 'a hook dropped it') })),
-        reason => reportTyped($, board, [], [message.id], { [message.id]: typedWhy(reason, 'the chat did not take it') }),
+        entered => {
+          turnWords = wordSettled(turnWords, message.id, entered.drop === undefined)
+          return entered.drop === undefined
+            ? reportTyped($, board, [message.id], [])
+            : reportTyped($, board, [], [message.id], { [message.id]: typedWhy(entered.drop, 'a hook dropped it') })
+        },
+        reason => {
+          turnWords = wordSettled(turnWords, message.id, false)
+          return reportTyped($, board, [], [message.id], { [message.id]: typedWhy(reason, 'the chat did not take it') })
+        },
       )
     }
   } catch {
@@ -1005,12 +1027,13 @@ async function takeFromBoard($: EngineInterface): Promise<void> {
 }
 
 /**
- * Runs a board as a child of this chat's process, for as long as both live: the loop is the child's life. What it
- * prints is not kept.
+ * Starts a board through the launcher (board.ts `launchArgv`, 5c of 0.30.0): detached, its output appended to its log, no
+ * pipe left open; the board outlives this chat. Before, it ran as this chat's child through a pipe that stopped being read
+ * at a reload and then blocked the board (21:40 and 22:16 on 2026-11-02: its port held, no answer for 8 s and more).
  */
 async function runBoard($: EngineInterface, board: BoardStart, cwd: string): Promise<void> {
   try {
-    for await (const piece of $.process.spawn({ argv: board.argv, cwd })) void piece
+    await $.process.run(launchArgv(board, cwd), { cwd, timeoutMs: LAUNCH_MS })
   } catch {
     // it could not start, or another chat's copy has the port: it is looked at again
   }
@@ -1037,7 +1060,9 @@ async function keepBoards($: EngineInterface): Promise<void> {
       } catch {
         isUp = false
       }
-      if (isUp || now - (startTried.get(board.name) ?? -Infinity) < BOARD_RETRY_MS) continue
+      const look = boardLook({ missed: boardMisses.get(board.name) ?? 0, isUp, triedAt: startTried.get(board.name) ?? -Infinity, now, retryMs: BOARD_RETRY_MS })
+      boardMisses.set(board.name, look.missed)
+      if (!look.isStart) continue
       startTried.set(board.name, now)
       void runBoard($, board, project)
     }
@@ -1160,11 +1185,12 @@ const CLEAR_WAIT_MS = 2 * 60_000
 /**
  * Clear after each step, at every tick: a clear whose new conversation started without a start this process heard (a
  * new session id, no hook) moves the card now, its start's words kept for the first prompt; a clear that neither ran nor
- * was stopped within two minutes is let go, and the card says so.
+ * was stopped within two minutes is let go, and the card says so. B944: a /clear of the mod's that came while the clear
+ * was on its way ran it or dropped it at once, so this let-go means no /clear came at all.
  */
 async function settleClear($: EngineInterface): Promise<void> {
   const decided = clearing
-  if (decided === null) return
+  if (decided === null) return settleStoredClear($)
   try {
     if ((await $.session.id()) !== decided.from) {
       if (!isInTurn) await moveAfterClear($)
@@ -1183,6 +1209,7 @@ async function dropClear($: EngineInterface, why: string): Promise<void> {
   if (clearing === null) return
   const dropped = clearing
   clearing = null
+  if (dropped.kept !== undefined) void forgetClear($, dropped.kept, dropped.from)
   // T8.5: the clear of an envelope that was dropped: the envelope is settled as failed, its line never typed.
   if (handing !== null && handing.ticket === dropped.ticket) void failEnvelope($, handing.envelope, handing.outcome, 'cleared', why).catch(() => null)
   try {
@@ -1393,23 +1420,87 @@ async function clearAfter($: EngineInterface, c: { list: ChatList; chat: ChatFil
 
 /**
  * Clear after each step: the /clear of a clear decided now (`c`, its mark on the card written), queued for when this chat
- * is idle, as /compact is; the command's own hook looks once more before it runs, and runs only the /clear of the clear
- * still on its way (its ticket). One that does not run is said through `instead`. T8.5: the clear of an envelope
+ * is idle, as /compact is; the command's own hook looks once more before it runs, and runs the clear still on its way
+ * (B944: whichever /clear of the mod's comes first, its guards holding). One that does not run is said through `instead`. T8.5: the clear of an envelope
  * (`handover`) is kept with its ticket (`handing`) before the command goes, so the line follows that very /clear.
  */
 function queueClear($: EngineInterface, c: Omit<Clearing, 'ticket'>, instead: (why: string) => Promise<void>, handover?: { envelope: Envelope; outcome: Outcome }): void {
   clearTickets += 1
   const ticket = clearTickets
-  clearing = { ...c, ticket }
+  // B944 (0.30.0): the clear on its way is kept in the mod's store under a key of its own (this process's run and its
+  // ticket), with its envelope, so a reload or a new process still runs it and settles the envelope.
+  const key = clearTicket(reportRun, ticket)
+  clearing = { ...c, ticket, kept: key }
   if (handover !== undefined) handing = { ...handover, ticket }
   queuedClears.push(ticket)
-  void $.command.run({ command: 'clear' }).then(() => undefined, async (err: unknown) => {
+  const kept: PendingClear = { ticket: key, from: c.from, step: c.step, at: c.at, envelope: handover?.envelope ?? null, outcome: handover === undefined ? null : { ...handover.outcome } }
+  void (async () => {
+    await $.store.set(pendingClearKey(c.from), kept).catch(() => undefined)
+    return $.command.run({ command: 'clear' })
+  })().then(() => {
+    // The app answered the /clear: it ran or the hook refused it; either way the store no longer keeps it on its way.
+    void forgetClear($, key, c.from)
+  }, async (err: unknown) => {
     const at = queuedClears.indexOf(ticket)
     if (at >= 0) queuedClears.splice(at, 1)
+    void forgetClear($, key, c.from)
     if (clearing?.ticket !== ticket) return
     clearing = null
     await instead(`/clear did not run: ${reason(err)}`)
   }).catch(() => null)
+}
+
+/**
+ * B944: the clear the mod's store keeps as on its way for this session (the round-2 review: one key per session, since the
+ * store is one file for every chat of the plugin and a shared key let chats overwrite and delete each other's); null for none.
+ */
+async function pendingClearKept($: EngineInterface): Promise<PendingClear | null> {
+  try {
+    const kept = parsePendingClear(await $.store.get(pendingClearKey(await $.session.id())))
+    return kept !== null && kept.from === (await $.session.id()) ? kept : null
+  } catch {
+    return null
+  }
+}
+
+/** B944: the store no longer keeps the clear of `ticket` on its way (it ran, was dropped or settled). */
+async function forgetClear($: EngineInterface, ticket: string, from: string): Promise<void> {
+  try {
+    const key = pendingClearKey(from)
+    if (parsePendingClear(await $.store.get(key))?.ticket === ticket) await $.store.delete(key)
+    if (storedClear?.ticket === ticket) storedClear = null
+  } catch {
+    // the next process finds it and settles it by the net
+  }
+}
+
+/**
+ * B944: at a tick with no clear of its own on its way, a process looks once at the clear the store keeps (one an earlier
+ * process of this chat queued before a reload), under this session's key. Its /clear may still come (the hook runs it by the
+ * card's mark); one that has not come within two minutes is settled: its envelope failed with the why, the record deleted.
+ * Another session's record is never read here, nor deleted.
+ */
+async function settleStoredClear($: EngineInterface): Promise<void> {
+  if (!isStoreLooked) {
+    isStoreLooked = true
+    storedClear = await pendingClearKept($)
+  }
+  const kept = storedClear
+  if (kept === null) return
+  if ((await $.clock.now()) - kept.at < CLEAR_WAIT_MS) return
+  await failKeptClear($, kept, '/clear did not run within two minutes')
+}
+
+/** B944: a kept clear that will not run: its envelope settled as failed with the why, the card told, the store emptied. */
+async function failKeptClear($: EngineInterface, kept: PendingClear, why: string): Promise<void> {
+  await forgetClear($, kept.ticket, kept.from)
+  if (kept.envelope !== null) void failEnvelope($, kept.envelope, { ...NO_OUTCOME, ...(kept.outcome ?? {}) }, 'cleared', why).catch(() => null)
+  try {
+    const now = await $.clock.now()
+    await changeMine($, mine => ({ ...mine, clearing: undefined, clearNote: { at: now, why } }))
+  } catch {
+    // only the card does not learn of it
+  }
 }
 
 /**
@@ -1511,11 +1602,29 @@ async function typeLine($: EngineInterface, envelope: Envelope, outcome: Outcome
       outcome.typed = false
       outcome.why = `its line is too long: ${envelope.line.length} > ${MOST_CHARS} characters`
     } else {
+      const text = [...words, envelope.line].join('\n\n')
+      // 8c: the envelope is an outbox message: its id is the word its turn runs on. 4c (0.30.0): the exact times in the outcome,
+      // `typedAt` just before the submit and `enteredAt` when it resolved (the line entered the chat), so the board's take-back
+      // rule compares a turn with the line's own entry, not the envelope's hand-out (the 11:07 case: handed out 11:01:57, entered
+      // 11:07:22 after the wake's first turn of 11:06:56-11:07:21 had ended).
+      turnWords = wordTyping(turnWords, envelope.id, text)
+      // The review of 0.30.0: each clock read is one that cannot throw, so neither the settle is skipped nor `typed` flipped.
+      const typedAt = await Promise.resolve($.clock.now()).catch(() => null)
+      if (typedAt !== null) outcome.typedAt = typedAt
       try {
-        const entered = await $.prompt.submit({ text: [...words, envelope.line].join('\n\n'), asUser: true })
+        const entered = await $.prompt.submit({ text, asUser: true })
         outcome.typed = entered.drop === undefined
-        if (entered.drop !== undefined) outcome.why = typedWhy(entered.drop, 'a hook dropped it')
+        turnWords = wordSettled(turnWords, envelope.id, outcome.typed)
+        if (entered.drop === undefined) {
+          // The review of 0.30.0: the submit resolves once the line entered and its turn started, so the clock now may be a few
+          // ms past that turn's start, and the board's take-back (`turnSince >= enteredAt`) would never count the line's own
+          // turn. When that turn has begun on this very line, its start (read before the busy) is the entry, at the latest.
+          // The round-2 review: a clock read that fails leaves enteredAt out (0 would let any turn's end take the task back).
+          const now = await Promise.resolve($.clock.now()).catch(() => null)
+          if (now !== null) outcome.enteredAt = turnWords.word === envelope.id && turnWords.turn !== null ? Math.min(turnWords.turn, now) : now
+        } else outcome.why = typedWhy(entered.drop, 'a hook dropped it')
       } catch (err) {
+        turnWords = wordSettled(turnWords, envelope.id, false)
         outcome.typed = false
         outcome.why = typedWhy(err, 'the chat did not take it')
       }
@@ -1833,23 +1942,28 @@ const WHOAMI_EAGER_MS = 2 * 60_000
  * hook (the app's guard skips them on a work login), so it never relies on a Stop hook's list.
  */
 const backgroundIds = new Set<string>()
-/** A task id as the app writes it: letters, digits, "-" and "_". */
-const TASK_ID = /^[\w-]{3,80}$/
-/** A background start in a tool's answer: "Command running in background with ID: b4zduzypn", or a monitor's id. */
-const STARTED_ID = /(?:running in background with ID|[Tt]ask ID|task_id)["':\s]+([\w-]{3,80})/
+/** The review of 0.30.0: when each Monitor of `backgroundIds` ends by its deadline (board.ts `monitorEndsAt`); a persistent one is not here. */
+const backgroundEnds = new Map<string, number>()
 
 /** Notes a tool call of this chat (never a subagent's) that starts or stops background work. */
-function noteBackground(e: { tool?: unknown; run_in_background?: unknown; task_id?: unknown; shell_id?: unknown }, out: unknown): void {
+function noteBackground(e: { tool?: unknown; run_in_background?: unknown; task_id?: unknown; shell_id?: unknown }, out: unknown, now: number | null): void {
   const tool = String(e.tool ?? '')
   if (tool === 'TaskStop') {
     const id = String(e.task_id ?? e.shell_id ?? '')
-    if (TASK_ID.test(id)) backgroundIds.delete(id)
+    if (TASK_ID.test(id)) {
+      backgroundIds.delete(id)
+      backgroundEnds.delete(id)
+    }
     return
   }
-  const isStart = (tool === 'Bash' || tool === 'PowerShell') ? e.run_in_background === true : tool === 'Monitor'
-  if (!isStart) return
-  const found = STARTED_ID.exec(JSON.stringify(out ?? ''))?.[1]
-  if (found !== undefined) backgroundIds.add(found)
+  // F (0.30.0): by the result's own id (board.ts `backgroundStartOf`): a background command or a Monitor, also one the app
+  // moved to the background itself.
+  const found = backgroundStartOf(tool, e, out)
+  if (found === null) return
+  backgroundIds.add(found)
+  // The review of 0.30.0: a Monitor's id leaves the list at its deadline too (its end's note may carry no status).
+  const ends = tool === 'Monitor' && now !== null ? monitorEndsAt(out, now) : null
+  if (ends !== null) backgroundEnds.set(found, ends)
 }
 
 /** The app's note that a background task ended (a prompt of origin task-notification): its id leaves the list. */
@@ -1861,6 +1975,14 @@ function noteTaskEnded(text: string): void {
 
 /** Whether background work of this chat still runs: the ids kept and the subagents. */
 async function backgroundNow($: EngineInterface): Promise<boolean> {
+  if (backgroundEnds.size > 0) {
+    const now = await $.clock.now()
+    for (const [id, ends] of backgroundEnds) {
+      if (ends > now) continue
+      backgroundEnds.delete(id)
+      backgroundIds.delete(id)
+    }
+  }
   if (backgroundIds.size > 0) return true
   return (await busyWhy($)) !== null
 }
@@ -2453,6 +2575,15 @@ const MOVE_WAIT_MS = 1_000
  * the chat and its card by the session id (`joinBySession`). At most PREPARE_MS; anything left is done at the first prompt,
  * as before.
  */
+/** B944 (0.30.0): the mod's /clear ran (or the app refused it): the store no longer keeps that clear (its key) on its way. */
+async function ranClear<T>($: EngineInterface, cleared: Clearing | null, ran: Promise<T>): Promise<T> {
+  try {
+    return await ran
+  } finally {
+    if (cleared?.kept !== undefined) void forgetClear($, cleared.kept, cleared.from)
+  }
+}
+
 async function clearThenPrepare<T>($: EngineInterface, ran: Promise<T>): Promise<T> {
   const answer = await ran
   // The clock is read so that a session ending meanwhile throws nothing out of the clear.
@@ -2487,6 +2618,8 @@ export const register: Register = on => {
     turnReport = { state: 'idle', since: await $.clock.now(), background: false }
     reportRun = turnReport.since
     reportSeq = 0
+    // 8c: a new process has typed no word and run no turn yet.
+    turnWords = NO_TURN_WORDS
     const view = await load($)
     ensureWatch($)
     const hasChats = await startChats($)
@@ -2561,8 +2694,15 @@ export const register: Register = on => {
       isCommandTurn = true
       return next(e)
     }
+    // 8c (0.30.0): a turn of the chat's own begins (not a subagent's inside it, not the mod's /clear or /compact): the word it
+    // runs on, by its text, and its start, before the busy goes out. An ask that closes within the turn is no start (asking ->
+    // busy keeps both). A start whose state report does not change (a question still open) is told at once all the same.
+    const isOwnStart = e.agentId === undefined && !isInTurn
+    if (isOwnStart) turnWords = turnBegan(turnWords, e.text, await $.clock.now())
+    const wasBusy = turnReport.state === 'busy'
     // Redesign Part 1: a turn of the chat's own reports busy (a question still open to the person keeps it asking).
     if (e.agentId === undefined && openForms === 0) await setReport($, 'busy')
+    if (isOwnStart && (openForms > 0 || wasBusy)) void reportToBoard($)
     // A turn that starts while one runs is a subagent's inside the chat's own: it starts nothing again.
     if (!isInTurn) {
       // Clear after each step: a real turn on the session a clear was decided for: the clear is dropped, its /clear refused.
@@ -2687,7 +2827,7 @@ export const register: Register = on => {
     const popup = isInTurn ? watchPopup($, { tool: e.tool, tool_use_id: e.tool_use_id, input: e }) : null
     try {
       const out = await next(e)
-      noteBackground(e as never, out)
+      noteBackground(e as never, out, await $.clock.now().catch(() => null))
       return out
     } finally {
       if (popup !== null) await popup.stop()
@@ -2750,7 +2890,13 @@ export const register: Register = on => {
 
   on('session.end', async ($, e, next) => {
     isInTurn = false
-    if (e.reason === 'clear') await sessionCleared($, e.sessionId)
+    if (e.reason === 'clear') {
+      // 8c: the conversation after a /clear runs none of the words still queued, and its first turn is no word's.
+      turnWords = wordsCleared(turnWords)
+      // F (0.30.0): the conversation after a /clear has started no background work: the count starts at 0 again.
+      backgroundIds.clear()
+      await sessionCleared($, e.sessionId)
+    }
     else {
       // The review of chat-reports: the chat ends here; the board shows it not running at once (held 1.5 s at most).
       turnReport = { state: 'ended', since: await $.clock.now(), background: false }
@@ -2770,19 +2916,33 @@ export const register: Register = on => {
   on('command.run', { command: 'clear' }, async ($, e, next) => {
     // The person's own /clear, or another plugin's, runs as it is.
     if (e.origin.kind !== 'plugin' || e.origin.name !== PLUGIN) return clearThenPrepare($, next(e))
-    // This mod's: the oldest it queued. It runs only as the /clear of the clear still on its way, while nothing came in.
-    const ticket = queuedClears.shift() ?? null
+    // This mod's: B944, it runs the clear still on its way, whatever the order of its queue (`clearRun`), while that
+    // clear's session is this one and nothing came in since it was decided.
+    const wasEmpty = queuedClears.length === 0
     const decided = clearing
-    if (decided !== null && decided.ticket === ticket) {
-      if (!isInTurn && promptCount === decided.prompts && turnNumber === decided.turn) return clearThenPrepare($, next(e))
+    const run = clearRun(queuedClears, decided, { session: await $.session.id(), isInTurn, prompts: promptCount, turn: turnNumber })
+    queuedClears.splice(0, queuedClears.length, ...run.left)
+    if (run.verdict === 'run') return ranClear($, decided, clearThenPrepare($, next(e)))
+    if (run.verdict === 'late') {
       await dropClear($, 'a new prompt came in before the clear ran')
       return { text: 'Not cleared: a new prompt came in before the clear ran.' }
     }
+    // Its session was cleared already: the move after that clear is the tick's (`settleClear`).
+    if (run.verdict === 'moved') return { text: 'Not cleared: this chat was cleared already; this /clear of the Workers mod was let go.' }
     // Queued before the mod was loaded anew: its card's fresh mark, and nothing came in since.
-    const marked = ticket === null && decided === null ? await pendingMark($) : null
+    const marked = wasEmpty && decided === null ? await pendingMark($) : null
     if (marked !== null) {
       clearing = marked
-      return clearThenPrepare($, next(e))
+      // B944 (0.30.0): the clear an earlier process of this chat queued (a reload, a new process) and kept in the mod's store:
+      // its envelope comes back with it, so its line follows in the fresh conversation and the envelope is settled.
+      // The round-2 review: only the very clear the card's mark stands for (its session, its time, its step), never an older
+      // record of the same session, whose envelope's line would go into the fresh conversation.
+      const kept = await pendingClearKept($)
+      if (kept !== null && kept.from === marked.from && kept.at === marked.at && kept.step === marked.step) {
+        clearing = { ...marked, ticket: KEPT_TICKET, kept: kept.ticket }
+        if (kept.envelope !== null) handing = { envelope: kept.envelope, outcome: { ...NO_OUTCOME, ...(kept.outcome ?? {}) }, ticket: KEPT_TICKET }
+      }
+      return ranClear($, clearing, clearThenPrepare($, next(e)))
     }
     return { text: 'Not cleared: this /clear of the Workers mod was let go before it ran.' }
   })

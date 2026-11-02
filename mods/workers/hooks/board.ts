@@ -2,7 +2,7 @@
 // The board is a page on this machine where the person answers the chats' requests; what they answer there is typed
 // into the chat it is for, as their own words. A chat only takes: nothing can be sent through the bridge.
 
-import type { BoardRole, BoardStatus } from '../types'
+import type { BoardHeld, BoardRole, BoardStatus } from '../types'
 
 /** The file the board writes in the project's folder while it runs: where it is, and the key for taking. */
 export const BOARD_FILE = '.claude/board.json'
@@ -20,6 +20,61 @@ export const REPORT_PATH = '/api/bridge/report'
  * of chat-reports: `ended` once, when its session ends (not a /clear): the board shows it not running at once.
  */
 export type TurnReport = { state: 'busy' | 'idle' | 'asking' | 'ended'; since: number; background: boolean }
+
+/**
+ * 8c (0.30.0; .claude/plans/2026-11-02-wait-line-turn-code-check.md, the lead's decision): the board's wait line guessed a
+ * word's turn from busy and idle reports and got it wrong: Q587's answer (word 75bc2b9b to Worker 5) read "is on it · since
+ * 16:26" for a word answered in an earlier turn (16:18-16:2x), since a busy report's `since` is no turn start (an ask that
+ * opens and closes moves it) and one word runs per turn, in order. The mod KNOWS which word it typed and which turn ran on it,
+ * so every report says it: `word`, the outbox id of the word the current turn runs on (busy, asking) or the last turn ran on
+ * (idle), null for a turn that was no word's (a line the person typed, a hand's message, the first after /clear); `turn`, that
+ * turn's own start, which an ask leaves as it is. `typed` are the words of ours on their way, in outbox order: added before
+ * the submit (`wordTyping`), marked entered when it resolved with no drop and taken out when it did not (`wordSettled`).
+ */
+export type TurnWords = { typed: TypedWord[]; word: string | null; turn: number | null }
+/** 8c: a word of ours typed into the chat: the outbox id, the text exactly as submitted, and whether the submit said it entered. */
+export type TypedWord = { id: string; text: string; isEntered: boolean }
+export const NO_TURN_WORDS: Readonly<TurnWords> = Object.freeze({ typed: [], word: null, turn: null })
+/** 8c: the most words kept on their way; the oldest goes first (a word whose turn never came, its prompt held by the app). */
+export const TYPED_MOST = 20
+
+const sameWords = (a: unknown, b: unknown): boolean => String(a ?? '').replace(/\s+/g, ' ').trim() === String(b ?? '').replace(/\s+/g, ' ').trim()
+
+/** 8c: a word of ours about to be submitted (a take's message or an envelope's line), after those before it: outbox order. */
+export function wordTyping(words: TurnWords, id: string, text: string): TurnWords {
+  if (words.typed.some(one => one.id === id)) return words
+  return { ...words, typed: [...words.typed, { id, text, isEntered: false }].slice(-TYPED_MOST) }
+}
+
+/** 8c: the submit of a word resolved: entered (no drop) it stays until its turn starts; dropped or refused it never runs. */
+export function wordSettled(words: TurnWords, id: string, isEntered: boolean): TurnWords {
+  if (!words.typed.some(one => one.id === id)) return words
+  return { ...words, typed: isEntered ? words.typed.map(one => (one.id === id ? { ...one, isEntered: true } : one)) : words.typed.filter(one => one.id !== id) }
+}
+
+/**
+ * 8c: a turn of the chat's own began at `now` with the prompt `text` (turn.start, the main loop, not the mod's /clear or
+ * /compact, never an ask closing: asking → busy within a turn is no start). Its word is the one of ours whose text it runs
+ * (the app may resolve our submit before or after the turn's start: the text decides, not the order); none: a turn that was
+ * no word's, `word` null, also when a word of ours entered but the text differs (the review of 0.30.0: guessing the queue's
+ * head would give a word to a turn the person's line or a task notification started; the board's bound rule handles null).
+ * `turn` is `now` either way. The word taken, and any that entered before it (their turns are past), leave the queue.
+ */
+export function turnBegan(words: TurnWords, text: string, now: number): TurnWords {
+  const at = words.typed.findIndex(one => sameWords(one.text, text))
+  if (at < 0) return { typed: words.typed, word: null, turn: now }
+  return { typed: words.typed.filter((one, i) => i > at || (i < at && !one.isEntered)), word: words.typed[at].id, turn: now }
+}
+
+/** 8c: a /clear: the new conversation runs no word of the old one's queue, and no turn has run on a word in it yet. */
+export function wordsCleared(words: TurnWords): TurnWords {
+  return { typed: [], word: null, turn: words.turn }
+}
+
+/** 8c: the report the board is told (take and report route alike): the state as it stands, its order, the word and the turn. */
+export function reportBody(report: TurnReport, words: TurnWords, run: number, seq: number): TurnReport & { run: number; seq: number; word: string | null; turn: number | null } {
+  return { ...report, run, seq, word: words.word, turn: words.turn }
+}
 /**
  * 2026-10-28 (the person: "'which chat you' are by session id even seems more robust"): where the mod asks the board, with
  * this session's id, which chat it is: the name the board shows it under, its role and the session its card is filed under.
@@ -34,7 +89,7 @@ export const REQUEST_HEADER = 'X-Work-Request'
  * chat that runs an older Workers mod than the one installed. The same as `version` in .claude-plugin/plugin.json.
  */
 export const MOD_HEADER = 'X-Workers-Mod'
-export const MOD_VERSION = '0.29.0'
+export const MOD_VERSION = '0.30.0'
 /** The longest text typed for the board: its own limit for an answer, with room for the request's name around it. */
 export const MOST_CHARS = 3000
 
@@ -58,6 +113,42 @@ function parsed(text: string): unknown {
 }
 
 const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null && !Array.isArray(value)
+
+/** A background task's id as the app writes it: letters, digits, "-" and "_". */
+export const TASK_ID = /^[\w-]{3,80}$/
+/** A background start in the words of a tool's answer: "Command running in background with ID: b4zduzypn", or a task id. */
+const STARTED_ID = /(?:running in background with ID|[Tt]ask ID|task_id|backgroundTaskId|taskId)["':\s]+([\w-]{3,80})/
+
+/**
+ * The lead's live check F (0.30.0, 2026-11-02: Worker 5 read "Stopped" on the board while its gate ran in a background
+ * command): the id of the background work a tool call of the chat's own started, or null. The app answers a Bash or
+ * PowerShell call that runs on in the background with `backgroundTaskId` in its result (also one it moved there itself: a
+ * timeout, Ctrl+B, a message queued for the model), and a Monitor with `taskId`; the mod read only the words "running in
+ * background with ID", which the structured result does not carry, so the report said no background while the gate ran.
+ * The words still count for a call run in the background (a build that answers in words only).
+ */
+/** The longest a Monitor runs: the app caps its deadline at 30 minutes. */
+export const MONITOR_MOST_MS = 1_800_000
+
+/**
+ * The review of 0.30.0: when a Monitor the chat started ends by its deadline, by the result's `timeoutMs` from `startedAt`
+ * (capped at 30 min); null for a persistent one (0, or `persistent`) and for anything that is no Monitor's result. The app's
+ * note of its end may carry no status, so its id must not stay counted past its deadline.
+ */
+export function monitorEndsAt(out: unknown, startedAt: number): number | null {
+  const result = isRecord(out) && isRecord(out.result) ? out.result : null
+  if (result === null || result.persistent === true || typeof result.timeoutMs !== 'number' || !(result.timeoutMs > 0)) return null
+  return startedAt + Math.min(result.timeoutMs, MONITOR_MOST_MS)
+}
+
+export function backgroundStartOf(tool: string, input: { run_in_background?: unknown }, out: unknown): string | null {
+  if (tool !== 'Bash' && tool !== 'PowerShell' && tool !== 'Monitor') return null
+  const result = isRecord(out) && isRecord(out.result) ? out.result : null
+  const id = tool === 'Monitor' ? result?.taskId : result?.backgroundTaskId
+  if (typeof id === 'string' && TASK_ID.test(id)) return id
+  if (tool !== 'Monitor' && input.run_in_background !== true) return null
+  return STARTED_ID.exec(JSON.stringify(out ?? ''))?.[1] ?? null
+}
 
 /**
  * The board as its file names it; null when the file names none. Only a board on this machine is asked: the address
@@ -196,10 +287,29 @@ export function parseStatuses(raw: unknown): BoardStatus[] | null {
       tone: one.tone === 'attention' ? 'attention' : 'quiet',
       since: finiteOrNull(one.since),
       reportAt: finiteOrNull(one.reportAt),
+      held: parseHeld(one.held),
     })
     if (out.length >= STATUSES_MOST) break
   }
   return out
+}
+
+/** 7c: the longest title and time words of a held step. */
+export const HELD_TITLE_MOST = 60
+export const HELD_TIME_MOST = 40
+
+/**
+ * 7c (0.30.0): a status entry's `held`, the step the board knows the chat holds (src/chatStatus.mjs `statusesOf`): a step id,
+ * a title up to 60 characters and the row's time words up to 40 (or null); null for anything else. The pane draws it in
+ * place of the card's task, whose words may be a stale topic (B914: B855's card said "about 40 min left" four minutes in).
+ */
+export function parseHeld(raw: unknown): BoardHeld | null {
+  if (!isRecord(raw) || typeof raw.id !== 'string' || !STEP_ID.test(raw.id) || typeof raw.title !== 'string') return null
+  const title = raw.title.replace(/\s+/g, ' ').trim()
+  if (title.length > HELD_TITLE_MOST) return null
+  const words = typeof raw.time === 'string' ? raw.time.replace(/\s+/g, ' ').trim() : ''
+  const time = words !== '' && words.length <= HELD_TIME_MOST ? words : null
+  return { id: raw.id, title, time }
 }
 
 /** B769: the person's Stop task or Remove worker for this chat, as the board's take names it. */
@@ -224,7 +334,11 @@ export type Envelope = {
 /** T8.5: the board's `handover` in its answer to a turn's end: where the worker's hand-over stands, and its envelope. */
 export type Handover = { state: string; why: string | null; step: string | null; envelope: Envelope | null; waits: 'set' | null }
 /** T8.5: what the mod tells the board became of an envelope: each part done (true), failed (false) or not asked (null). */
-export type Outcome = { cleared: boolean | null; set: boolean | null; typed: boolean | null; restarted: boolean | null; background: boolean; why: string | null }
+export type Outcome = {
+  cleared: boolean | null; set: boolean | null; typed: boolean | null; restarted: boolean | null; background: boolean; why: string | null
+  /** 4c (0.30.0): the mod's clock just before the line's submit, and when the submit resolved (the line entered the chat); absent with no line typed. */
+  typedAt?: number; enteredAt?: number
+}
 
 const STEP_ID = /^[A-Z]\d{1,6}$/
 const ENVELOPE_ID = /^[A-Za-z0-9_-]{1,64}$/
@@ -337,6 +451,18 @@ export const BOARD_NOTE = ' The person also answers on their worker board, a pag
 const isText = (value: unknown): value is string => typeof value === 'string' && value !== ''
 
 /**
+ * 5c (0.30.0): one look at a kept board (every 15 s): `missed` the looks in a row that found no answer, now counted with this
+ * one, and whether to start it. A board counts as down only at the second miss in a row: the board's keeper (change 5) holds
+ * the port again within milliseconds of a landing's restart, and one missed ping then started a second board beside it (the
+ * double board start at a landing's restart). An answer resets the count; a start waits `retryMs` after the last try, as before.
+ */
+export function boardLook(at: { missed: number; isUp: boolean; triedAt: number; now: number; retryMs: number }): { missed: number; isStart: boolean } {
+  if (at.isUp) return { missed: 0, isStart: false }
+  const missed = at.missed + 1
+  return { missed, isStart: missed >= 2 && at.now - at.triedAt >= at.retryMs }
+}
+
+/**
  * The boards the project wants kept running: the launch entries its list of chats names under "boards", each with
  * its command and the address on this machine where it answers. An entry without a command or a port is left out.
  */
@@ -353,6 +479,61 @@ export function boardStarts(listText: string, launchText: string): BoardStart[] 
   }
 
   return starts
+}
+
+/**
+ * 5c (0.30.0), the lead's check of 2026-11-02 (21:40 and 22:16: a board a chat's mod had started held its port and did not
+ * answer for 8 s and more per call): the mod ran the board through `$.process.spawn`, whose output is a pipe the mod's loop
+ * reads and whose child dies with the module (a reload, the chat's end). A loop that stops reading leaves the pipe full and
+ * the board's next write blocks it. So the board is started by a launcher that exits at once: node, detached and unref'd,
+ * stdin ignored, stdout and stderr appended to the board's own log (`data/board.log` beside its script, as start-board.mjs
+ * keeps it), or ignored when there is none. No pipe stays open, and the board outlives the chat that started it.
+ */
+export const BOARD_LAUNCHER = [
+  "const { spawn } = require('node:child_process'); const fs = require('node:fs'); const path = require('node:path');",
+  'const [log, cwd, cmd, ...args] = process.argv.slice(1);',
+  "let out = 'ignore'; try { if (log !== '-') { fs.mkdirSync(path.dirname(log), { recursive: true }); out = fs.openSync(log, 'a') } } catch { out = 'ignore' }",
+  "const child = spawn(cmd, args, { cwd, detached: true, stdio: ['ignore', out, out], windowsHide: true });",
+  "child.once('error', () => process.exit(1)); child.once('spawn', () => { child.unref(); process.exit(0) });",
+].join(' ')
+
+/** 5c: the log a board's output is appended to: `data/board.log` beside the script it runs (a .mjs or .js), or null. */
+export function boardLogOf(argv: readonly string[]): string | null {
+  const script = argv.slice(1).find(one => /\.(?:mjs|cjs|js)$/i.test(one))
+  if (script === undefined || !/[\\/]/.test(script)) return null
+  return `${script.replace(/[\\/][^\\/]*$/, '')}/data/board.log`
+}
+
+/**
+ * 5c: the command that starts a kept board through the launcher: the board's own node when it runs on node, else node. `--`
+ * ends node's own options, so no argument after the script (one starting with "-") is read as one; `-` stands for no log.
+ */
+export function launchArgv(board: BoardStart, cwd: string): string[] {
+  const [cmd = 'node', ...args] = board.argv
+  const node = /(?:^|[\\/])node(?:\.exe)?$/i.test(cmd) ? cmd : 'node'
+  return [node, '-e', BOARD_LAUNCHER, '--', boardLogOf(board.argv) ?? '-', cwd, cmd, ...args]
+}
+
+/**
+ * B944 (0.30.0, on top of 0.29.1's hooks/clearrun.ts, which runs the clear on its way at whichever /clear of the mod's comes
+ * first): the clear on its way is kept in the mod's store with its envelope, under a key of its own (`clearTicket`: the
+ * process's run and its ticket), so a reload or a new process that runs its /clear by the card's mark still types the
+ * envelope's line and settles it, and one whose /clear never comes settles it failed at the two-minute net.
+ */
+export type PendingClear = { ticket: string; from: string; step: string | null; at: number; envelope: Envelope | null; outcome: Outcome | null }
+/**
+ * B944: the store's key of a clear, unique across this chat's processes: the process's run (its start) and its ticket. The
+ * record itself is kept under its session (`pendingClearKey`): `$.store` is one file for every chat of the plugin.
+ */
+export const pendingClearKey = (session: string): string => `clear-pending:${session}`
+export const clearTicket = (run: number, count: number): string => `clear-${Math.round(run)}-${count}`
+const TICKET = /^clear-\d{1,16}-\d{1,9}$/
+
+/** B944: the pending clear as the mod's store keeps it; null for nothing or anything that is none. */
+export function parsePendingClear(raw: unknown): PendingClear | null {
+  if (!isRecord(raw) || typeof raw.ticket !== 'string' || !TICKET.test(raw.ticket) || typeof raw.from !== 'string' || typeof raw.at !== 'number' || !Number.isFinite(raw.at)) return null
+  const outcome = isRecord(raw.outcome) ? { ...NO_OUTCOME, ...raw.outcome } as Outcome : null
+  return { ticket: raw.ticket, from: raw.from, step: typeof raw.step === 'string' && STEP_ID.test(raw.step) ? raw.step : null, at: raw.at, envelope: parseEnvelope(raw.envelope), outcome }
 }
 
 /** Pause 2: a step's checkpoint as the board names it (`work step` with `commit` and `next`); null when it has none. */

@@ -6,7 +6,7 @@ import {
   isAgentId, nameFromTitle, orderChats, parseChat, parseList, sessionOf, status, timeText, uniqueByName, withDone, withPlan,
   withSend, withState, withStep, workCard, instructionsLine, isFiled, openFrom, personsWords, recordedLine,
   clearWhy, clearedStart, movedText, roleFrom, unfiledAsk, isOlderMod, modNote,
-  STATUS_FRESH_MS, boardReading, isOwnerChat, lineOf, roleOrOwner, statusLabel, statusMark,
+  STATUS_FRESH_MS, boardReading, heldText, isOwnerChat, lineOf, roleOrOwner, statusLabel, statusMark,
 } from './chats'
 
 const MIN = 60000
@@ -632,6 +632,21 @@ describe('2c (0.28.0): the pane shows the board\'s status', () => {
       '◌ Props  Held · its clear did not run  Props · 1 of 2',
       '● Units  Working  Skeleton Archer · 3 of 5 · ~40 min',
     ])
+  })
+
+  test('7c (0.30.0): fresh statuses that carry the held step draw it, with the row\'s time, in place of the card\'s task', () => {
+    const held = { id: 'B855', title: 'The walk', time: '1 h 56 of its 2 h' }
+    const facts = board([entry('Units', 'Working', { held }), entry('Props', 'Held', { held: { ...held, id: 'B12', title: 'Props', time: null } }), entry('Cleanup', 'Free', { held: null }), entry('Main', 'Free', { held: null })])
+    // Mutant "the card's task while fresh statuses carry held": Units would read "Skeleton Archer · 3 of 5 · ~40 min".
+    expect(line('Units', facts).text).toBe('Working  B855 The walk · 1 h 56 of its 2 h')
+    expect(line('Props', facts).text).toBe('Held  B12 Props')
+    // A chat that holds none by the board's records keeps the card's words (the main chat's wait for its workers).
+    expect(line('Main', facts).text).toBe('Free  waiting for 2 workers')
+    expect(line('Cleanup', facts).text).toBe('Free')
+    // Statuses that are not fresh: the card's task, as before, whatever the old entry held.
+    expect(line('Units', board([entry('Units', 'Working', { held })], 'unreached')).text).toBe('Skeleton Archer · 3 of 5 · ~40 min')
+    expect(chatsSummary(rows, NOW, [], facts).split('\n')).toContain('● Units  Working  B855 The walk · 1 h 56 of its 2 h')
+    expect(heldText({ id: 'B9', title: '', time: 'No time' })).toBe('B9 · No time')
   })
 
   test('when the pane reads the board: fresh statuses, a fresh process, an older board, a chat outside the list, a clear that runs', () => {

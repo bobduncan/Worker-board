@@ -4383,10 +4383,20 @@ runs /clear (`$.command.run({ command: 'clear' })`, queued for when the chat is 
   finished when the board stops is finished at its next start, and once copied nothing needs the app to keep the old
   transcript. Logs go to `<project>/.claude/chat-logs/<chat>/<YYYY-MM-DD HHmm> <step>.txt`.
 - **The clear.** The mod marks the card (`clearing: { at, step, log }`), then queues /clear with a ticket; its own
-  `command.run` hook runs a /clear of the mod only as the one of the clear still on its way (its ticket), while no
-  prompt or turn came in since it was decided; any other is refused (a stale one after the clear was dropped, also
-  much later). A real turn on the same session drops the clear at its start, and its end is told to the board as any
-  turn's; a clear that has not run within two minutes is let go. A /clear queued before the mod was loaded anew runs
+  `command.run` hook runs the clear still on its way at a /clear of the mod, while that clear's session is this one, no
+  turn runs and no prompt or turn came in since it was decided; one after a prompt or turn drops it at once (its why to
+  the card, an envelope's to the board); one with no clear on its way is refused (a stale one after the clear was
+  dropped, also much later), and one whose clear was decided on a session cleared since never clears the fresh
+  conversation. B944 (mod 0.29.1, `hooks/clearrun.ts`): until 0.29.0 the /clear ran only when its ticket was the
+  oldest in the mod's queue; that queue lives in the hooks module and the /clear in the engine's queue, so once the
+  two fell out of step (a /clear the module never saw, or a hooks worker the engine replaced mid-session, its state
+  started over) every later clear of that process was refused as "let go" while still on its way, until the
+  two-minute let-go and the chat's restart (X108, X109, X134, X135: Worker 3 21:25, Worker 4 21:31 on 2026-11-02,
+  each /clear run and refused within 20 ms). Now whichever /clear of the mod's comes first runs it, and its ticket
+  and every older one are used up. Limits: what put the queues out of step is not seen in the logs (the engine's
+  rules allow both reasons above); a /clear that never comes at all is still let go after two minutes, its why on the
+  card and to the board. A real turn on the same session drops the clear at its start, and its end is told to the
+  board as any turn's; a clear that has not run within two minutes is let go. A /clear queued before the mod was loaded anew runs
   only on the card's fresh mark, with nothing come in since. Should the engine run the /clear or /compact as a turn,
   that turn is none of the chat's (no turn's end told, nothing decided). Nothing is typed into the chat while the clear
   is on its way (a line the board put out waits for the conversation after it). /clear ends the conversation

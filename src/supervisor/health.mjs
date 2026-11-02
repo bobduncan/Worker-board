@@ -146,7 +146,11 @@ function chatLines(view, now) {
       ...(stopped ? [lane.state === 'suspended' ? (isFullNow ? 'info' : 'stale-suspended') : onId !== null ? stoppedOwner(lane) : null] : []),
       // 2026-11-02 (the lead's yes; the 21:13 sweep on "Worker 2 working on no step; cleared at # after B931"): a worker
       // working on no step within the first minutes after its clear runs its first turn (`work next`): no fault, 'info'.
-      ...(idle ? [lane.isRunning === false ? 'working-not-running' : lane.compaction?.kind === 'cleared' && Number.isFinite(lane.compaction.at) && now - lane.compaction.at <= AFTER_CLEAR_MS ? 'info' : null] : []), ...(late ? ['effort-mismatch'] : []),
+      // The lead's live check (23:2x): and within 5 min after its own last report (the 23:22 sweep on "Worker 4 … working;
+      // on no step; last report B944 at #"): the turn that reported runs on, the next task not yet given.
+      ...(idle ? [lane.isRunning === false ? 'working-not-running'
+        : (lane.compaction?.kind === 'cleared' && Number.isFinite(lane.compaction.at) && now - lane.compaction.at <= AFTER_CLEAR_MS)
+          || (reports.length > 0 && now - reports[0].at <= AFTER_CLEAR_MS) ? 'info' : null] : []), ...(late ? ['effort-mismatch'] : []),
     ])
     return lineOf(`${lane.name} (${role}): ${state}${suspended}${running}; ${runs}${wants}${onWords}${report}; ${clearWords(lane.compaction, now)}`, { tier: 0, odd, at: since, max: CHAT_CHARS, owner })
   })

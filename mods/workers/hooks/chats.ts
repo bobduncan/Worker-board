@@ -1,6 +1,6 @@
 // The parts of the chat list that need no engine: a chat's file, what a chat writes into it as it works, and what a
 // chat is shown as.
-import type { AfterStep, BoardReading, BoardRole, BoardStatus, ChatFile, ChatList, ChatRole, ChatRow, ChatTask } from '../types'
+import type { AfterStep, BoardHeld, BoardReading, BoardRole, BoardStatus, ChatFile, ChatList, ChatRole, ChatRow, ChatTask } from '../types'
 
 /** Where the chats of a project keep their files: one `<session id>.json` each. */
 export const CHATS_DIR = '.claude/chats'
@@ -470,6 +470,12 @@ export function taskPart(chat: ChatFile, all: readonly ChatFile[], now: number):
   return chat.task === null ? null : taskText(chat.task, null)
 }
 
+/** 7c (0.30.0): a held step as the pane's task part: "B855 The walk · 1 h 56 of its 2 h", the time left out when the board gives none. */
+export function heldText(held: BoardHeld): string {
+  const named = held.title === '' ? held.id : `${held.id} ${held.title}`
+  return held.time === null ? named : `${named} · ${held.time}`
+}
+
 /** 2c: the board facts the pane's lines need; `ChatsView` has them. */
 export type BoardFacts = { statuses?: readonly BoardStatus[]; reading?: BoardReading }
 
@@ -490,7 +496,9 @@ export function lineOf(chat: ChatFile, all: readonly ChatFile[], now: number, of
     return { ...own, isBold: own.isYours, notReached: reading === 'unreached' }
   }
   const { mark, isYours } = statusMark(entry.status, chat.role)
-  const task = taskPart(chat, all, now)
+  // 7c (0.30.0): the step the board knows the chat holds, with the row's time, in place of the card's task text; a chat that
+  // holds none by the board's records (or an older board's entry) keeps the card's words.
+  const task = entry.held === undefined || entry.held === null ? taskPart(chat, all, now) : heldText(entry.held)
   return { mark, text: task === null ? statusLabel(entry, now) : `${statusLabel(entry, now)}  ${task}`, isYours, isBold: entry.tone === 'attention', notReached: false }
 }
 
