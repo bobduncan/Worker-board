@@ -481,6 +481,67 @@ export function boardStarts(listText: string, launchText: string): BoardStart[] 
   return starts
 }
 
+/**
+ * 5c (0.30.0), the lead's check of 2026-11-02 (21:40 and 22:16: a board a chat's mod had started held its port and did not
+ * answer for 8 s and more per call): the mod ran the board through `$.process.spawn`, whose output is a pipe the mod's loop
+ * reads and whose child dies with the module (a reload, the chat's end). A loop that stops reading leaves the pipe full and
+ * the board's next write blocks it. So the board is started by a launcher that exits at once: node, detached and unref'd,
+ * stdin ignored, stdout and stderr appended to the board's own log (`data/board.log` beside its script, as start-board.mjs
+ * keeps it), or ignored when there is none. No pipe stays open, and the board outlives the chat that started it.
+ */
+export const BOARD_LAUNCHER = [
+  "const { spawn } = require('node:child_process'); const fs = require('node:fs'); const path = require('node:path');",
+  'const [log, cwd, cmd, ...args] = process.argv.slice(1);',
+  "let out = 'ignore'; try { if (log !== '') { fs.mkdirSync(path.dirname(log), { recursive: true }); out = fs.openSync(log, 'a') } } catch { out = 'ignore' }",
+  "const child = spawn(cmd, args, { cwd, detached: true, stdio: ['ignore', out, out], windowsHide: true });",
+  "child.once('error', () => process.exit(1)); child.once('spawn', () => { child.unref(); process.exit(0) });",
+].join(' ')
+
+/** 5c: the log a board's output is appended to: `data/board.log` beside the script it runs (a .mjs or .js), or null. */
+export function boardLogOf(argv: readonly string[]): string | null {
+  const script = argv.slice(1).find(one => /\.(?:mjs|cjs|js)$/i.test(one))
+  if (script === undefined || !/[\\/]/.test(script)) return null
+  return `${script.replace(/[\\/][^\\/]*$/, '')}/data/board.log`
+}
+
+/** 5c: the command that starts a kept board through the launcher: the board's own node when it runs on node, else node. */
+export function launchArgv(board: BoardStart, cwd: string): string[] {
+  const [cmd = 'node', ...args] = board.argv
+  const node = /(?:^|[\\/])node(?:\.exe)?$/i.test(cmd) ? cmd : 'node'
+  return [node, '-e', BOARD_LAUNCHER, boardLogOf(board.argv) ?? '', cwd, cmd, ...args]
+}
+
+/**
+ * B944 (X58, X108 x10, X109 x79: "this /clear of the Workers mod was let go before it ran"): every refusal came 9-25 ms after
+ * the mod queued its own fresh /clear: the hook took the oldest ticket of a first-in-first-out list, whose head was stale (a
+ * dropped clear never took its ticket out, nor did a /clear the app dropped), and refused the fresh one. Now each /clear of
+ * the mod carries its own ticket in the command's args and is matched by it; the clear on its way is kept in the mod's
+ * store (`PendingClear`), so a reload or a new process still settles its envelope.
+ */
+export type PendingClear = { ticket: string; from: string; step: string | null; at: number; envelope: Envelope | null; outcome: Outcome | null }
+/** B944: a clear's ticket, unique across this chat's processes: the process's run (its start) and its count. */
+export const clearTicket = (run: number, count: number): string => `clear-${Math.round(run)}-${count}`
+const TICKET = /^clear-\d{1,16}-\d{1,9}$/
+
+/** B944: the pending clear as the mod's store keeps it; null for nothing or anything that is none. */
+export function parsePendingClear(raw: unknown): PendingClear | null {
+  if (!isRecord(raw) || typeof raw.ticket !== 'string' || !TICKET.test(raw.ticket) || typeof raw.from !== 'string' || typeof raw.at !== 'number' || !Number.isFinite(raw.at)) return null
+  const outcome = isRecord(raw.outcome) ? { ...NO_OUTCOME, ...raw.outcome } as Outcome : null
+  return { ticket: raw.ticket, from: raw.from, step: typeof raw.step === 'string' && STEP_ID.test(raw.step) ? raw.step : null, at: raw.at, envelope: parseEnvelope(raw.envelope), outcome }
+}
+
+/**
+ * B944: which /clear of the mod's this is, by the ticket in its args and the ticket of the clear on its way (null for none):
+ * `pending` runs (when nothing came in since); `unnamed` is a /clear of an older process without a ticket (the card's mark
+ * decides, as before); `another` and `none` are refused at once, with the true why.
+ */
+export function clearFor(args: string, pending: string | null): { verdict: 'pending' | 'unnamed' | 'another' | 'none'; why: string | null } {
+  const ticket = String(args ?? '').trim()
+  if (ticket === '') return { verdict: 'unnamed', why: null }
+  if (pending !== null && ticket === pending) return { verdict: 'pending', why: null }
+  return pending !== null ? { verdict: 'another', why: "the mod's /clear ran for another ticket" } : { verdict: 'none', why: 'no clear was pending' }
+}
+
 /** Pause 2: a step's checkpoint as the board names it (`work step` with `commit` and `next`); null when it has none. */
 export type PauseCheckpoint = { commit: string | null; next: string; at: number | null; line: string; isSincePause: boolean } | null
 /**

@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'claude-code/testing'
 
-import { MOD_VERSION, MOST_CHARS, NO_OUTCOME, NO_TURN_WORDS, WHOAMI_PATH, WORK_ACTIONS, WORK_FIELDS, backgroundStartOf, boardLook, monitorEndsAt, boardStarts, isPaused, parseBoard, parseEnvelope, parseHandover, parseHeld, parsePause, parseTaken, parseWhoami, pauseContexts, reportBody, stopLine, turnBegan, typedWhy, wordSettled, wordTyping, wordsCleared } from './board'
+import { MOD_VERSION, MOST_CHARS, NO_OUTCOME, NO_TURN_WORDS, WHOAMI_PATH, WORK_ACTIONS, WORK_FIELDS, BOARD_LAUNCHER, backgroundStartOf, boardLogOf, boardLook, clearFor, clearTicket, launchArgv, monitorEndsAt, parsePendingClear, boardStarts, isPaused, parseBoard, parseEnvelope, parseHandover, parseHeld, parsePause, parseTaken, parseWhoami, pauseContexts, reportBody, stopLine, turnBegan, typedWhy, wordSettled, wordTyping, wordsCleared } from './board'
 import type { TurnReport, TurnWords } from './board'
 
 const KEY = 'ab'.repeat(32)
@@ -101,6 +101,39 @@ describe('F (0.30.0): the background work a call of the chat\'s own started, by 
     expect(monitorEndsAt({ result: { taskId: 'm1', timeoutMs: 0 } }, 0)).toBeNull()
     expect(monitorEndsAt({ result: { taskId: 'm1', timeoutMs: 300000, persistent: true } }, 0)).toBeNull()
     expect(monitorEndsAt({ result: { stdout: '' } }, 0)).toBeNull()
+  })
+})
+
+describe('B944: each /clear of the mod carries its ticket and is matched by it', () => {
+  test('the pending ticket runs; another is refused at once with its why; none pending says so; no ticket is an older process of the mod', () => {
+    expect(clearFor('clear-7-2', 'clear-7-2')).toEqual({ verdict: 'pending', why: null })
+    expect(clearFor(' clear-7-2 ', 'clear-7-2').verdict).toBe('pending')
+    expect(clearFor('clear-7-1', 'clear-7-2')).toEqual({ verdict: 'another', why: "the mod's /clear ran for another ticket" })
+    expect(clearFor('clear-7-1', null)).toEqual({ verdict: 'none', why: 'no clear was pending' })
+    expect(clearFor('', 'clear-7-2').verdict).toBe('unnamed')
+    expect(clearTicket(1730000000000.4, 3)).toBe('clear-1730000000000-3')
+  })
+
+  test('the pending clear the store keeps, read safely', () => {
+    const env = { id: 'e1', kind: 'task', step: 'B13', clear: null, restart: false, set: null, line: 'go', version: null }
+    expect(parsePendingClear({ ticket: 'clear-7-2', from: 'units', step: 'B12', at: 5, envelope: env, outcome: { typed: null } })).toEqual({ ticket: 'clear-7-2', from: 'units', step: 'B12', at: 5, envelope: parseEnvelope(env), outcome: { ...NO_OUTCOME } })
+    expect(parsePendingClear({ ticket: 'clear-7-2', from: 'units', step: '../x', at: 5, envelope: null, outcome: null })).toEqual({ ticket: 'clear-7-2', from: 'units', step: null, at: 5, envelope: null, outcome: null })
+    expect(parsePendingClear({ ticket: '7', from: 'units', at: 5 })).toBeNull()
+    expect(parsePendingClear(null)).toBeNull()
+  })
+})
+
+describe('5c (0.30.0): a kept board starts through a launcher, detached, its output to its log', () => {
+  test('the launcher runs on the node of the board, names the log beside its script, then the command of the board', () => {
+    const board = { name: 'worker-board', argv: ['C:/Program Files/nodejs/node.exe', 'C:/Web/p/worker-board/server.mjs'], url: 'http://127.0.0.1:4310/' }
+    const argv = launchArgv(board, 'C:/Web/p')
+    expect(argv.slice(0, 2)).toEqual(['C:/Program Files/nodejs/node.exe', '-e'])
+    expect(argv.slice(3)).toEqual(['C:/Web/p/worker-board/data/board.log', 'C:/Web/p', 'C:/Program Files/nodejs/node.exe', 'C:/Web/p/worker-board/server.mjs'])
+    expect(argv[2]).toContain("detached: true, stdio: ['ignore', out, out]")
+    expect(argv[2]).toContain('unref()')
+    expect(launchArgv({ ...board, argv: ['deno', 'run', 'x.ts'] }, 'C:/Web/p').slice(0, 5)).toEqual(['node', '-e', BOARD_LAUNCHER, '', 'C:/Web/p'])
+    expect(boardLogOf(['node', 'server.mjs'])).toBeNull()
+    expect(boardLogOf(['node', 'D:\\b\\server.mjs'])).toBe('D:\\b/data/board.log')
   })
 })
 
