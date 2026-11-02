@@ -6057,6 +6057,25 @@ function drawRecapAttention(view) {
 }
 
 /**
+ * T17.1: the Product owner's card while round N+1 of the recap is being made (recapMakingView): the same card, quiet: no attention colour,
+ * the step count as a muted line, one link to the recap. It never counts in Needs your attention.
+ */
+function drawRecapMaking(view) {
+  const card = el('article', 'need is-recap-making')
+  card.dataset.recapMaking = view.goal ?? ''
+  card.setAttribute('aria-label', view.heading)
+  const top = el('header', 'need-top')
+  top.append(el('span', 'kind', '★'), el('b', '', 'Product owner'), el('span', 'tag', 'Your recap'))
+  card.append(top, el('h4', '', view.heading), el('p', 'muted recap-making-line', view.line))
+  if (view.open !== null) {
+    const open = targetLink(view.open.target, 'recap-making-open', view.open.label)
+    open.title = 'Open the recap: it shows what you sent back, being reworked'
+    card.append(open)
+  }
+  return card
+}
+
+/**
  * T20: the dashed "Autopilot cleared" line (clearedLineView) with its Undo, which asks the board to take every item back
  * (`autopilot-undo`). A press shows at once ("Undoing…", greyed); a refusal says why under the line.
  */
@@ -6094,7 +6113,10 @@ function drawNeeds(state) {
   // B287: the refine questions count once per step, as their lines stand.
   // Calm panel: the missed lines count too; the log's notes and open instructions never do.
   // T20: the Product owner's recap card counts as one while verdicts wait.
-  const recapAttention = recapAttentionView(state.recapCard ?? null, state.focusGoal ?? null)
+  // T17.1 (the coordinator's ruling): while round N+1 is being made the card is always the quiet one, whatever else waits; it asks nothing,
+  // so it is not counted, and no verdict card stands beside it.
+  const recapMaking = recapMakingView(state.recapMaking ?? null, state.focusGoal ?? null)
+  const recapAttention = recapMaking !== null ? null : recapAttentionView(state.recapCard ?? null, state.focusGoal ?? null)
   const cleared = clearedLineView(state.autopilotCleared ?? null, state.readAt)
   const unanswered = cardsOpen.filter(need => !isAnswered(need)).length + lines.length + (state.goalAskNeeds ?? []).length + (state.brainstormNeeds ?? []).length + missed.length + (recapAttention === null ? 0 : 1)
   $('needs-count').textContent = unanswered === 0 ? '' : String(unanswered)
@@ -6115,7 +6137,7 @@ function drawNeeds(state) {
   const recaps = shownRecaps(state, showsClosed()).map(recap => drawRecap(recap, state))
   fill(box, [none, drawObsolete(state), drawPartnerNeeds(partnerCards, partner.filter(need => !isClosed(need) && !isAnswered(need)).length), drawMissed(missed), drawSupervisorLine(supervised), drawGoalAskNeeds(state), drawBrainstormNeeds(state), ...oldCards, drawRefineNeeds(state), ...cards, drawWithPartner(state), drawDecidedForYou(state), ...recaps])
   // T20: the Product owner's recap card is the first card, the dashed "Autopilot cleared" line right under it.
-  const firstCards = [recapAttention === null ? null : drawRecapAttention(recapAttention), cleared === null ? null : drawClearedLine(cleared)].filter(one => one !== null)
+  const firstCards = [recapAttention === null ? null : drawRecapAttention(recapAttention), recapMaking === null ? null : drawRecapMaking(recapMaking), cleared === null ? null : drawClearedLine(cleared)].filter(one => one !== null)
   if (firstCards.length > 0) box.prepend(...firstCards)
   // Signals change 4: the one wake notice on top of the panel, in the attention colour.
   const nobodyLines = [drawWakeNotice(state.wakeNotice)].filter(line => line !== null)
@@ -6208,6 +6230,8 @@ function needsView(state, ui) {
     obsolete: state.obsolete ?? null,
     // T20: the Product owner's recap card (the focus goal's recap while verdicts wait, src/recapCard.mjs) and what Autopilot cleared at switch-on.
     recapCard: state.recapCard == null ? null : { goal: state.recapCard.goal ?? null, open: state.recapCard.open ?? null, count: state.recapCard.count ?? 0, isBuilt: state.recapCard.isBuilt === true, looks: (state.recapCard.looks ?? []).map(one => ({ title: one.title, target: one.target })) },
+    // T17.1: the card while round N+1 of the recap is being made.
+    recapMaking: state.recapMaking ?? null,
     focusGoal: state.focus == null ? null : { id: state.focus.id ?? null, title: state.focus.title ?? null },
     autopilotCleared: state.autopilotCleared ?? null,
     // B541: the card of chats on an older Workers mod says how the pause stands.
@@ -6254,6 +6278,8 @@ function focusPageView(state, ui) {
     routedAway: (state.routedAway ?? []).filter(one => one.route === 'recap'),
     // 2026-11-01: the recap card (src/recapCard.mjs): the parts of the goal's recap that wait for the person's verdict.
     recapCard: state.recapCard ?? null,
+    // T17.1: the same while round N+1 of the recap is being made.
+    recapMaking: state.recapMaking ?? null,
     // T22: the wait line of the focus goal's last recap Send, for the card "feedback sent" while no verdict waits.
     waitPart: waitsPart(state, typeof state.focus?.id === 'string' ? [newestWaitId(state, 'recap-feedback', state.focus.id)] : []),
     ui,
@@ -10188,6 +10214,11 @@ function demoSide(page, draft) {
     side.append(el('p', 'demo-done', 'Every part is approved: the recap is done.'))
     return side
   }
+  // T17.1: nothing to answer while round N+1 is being made, nor when every part left is still being reworked.
+  if (feedback.making != null || feedback.answerable === 0) {
+    side.append(el('p', 'demo-muted', feedback.making != null ? 'Nothing to send until your partner has built the next tries.' : 'Nothing to answer yet: every part left is still being reworked.'))
+    return side
+  }
   if (!feedback.canSend) {
     side.append(el('p', 'demo-muted', feedback.whyNot ?? 'Feedback cannot be sent here.'))
     return side
@@ -10195,6 +10226,8 @@ function demoSide(page, draft) {
   const list = el('ul', 'demo-answers')
   for (const section of page.sections) {
     for (const row of section.rows) {
+      // T17.1: a part whose new try is not in yet is no part of the Send.
+      if (row.reworking === true) continue
       const answer = draft.parts.get(row.key)
       const item = el('li', `demo-answer is-${answer?.verdict ?? 'open'}`)
       const jump = el('button', 'demo-answer-jump', row.title)
@@ -10229,8 +10262,13 @@ function demoBody(page, draft = null) {
     return list
   }
   body.append(el('h2', 'demo-title', `${page.goal} · ${page.title}: the goal demo`), el('p', 'demo-intro', page.intro))
-  if (feedback !== null && feedback.round > 1) {
+  if (feedback !== null && feedback.making != null) {
+    // T17.1 (the person: "i see no evidence of what i asked it to fix/change"): no old pictures beside the words they sent back.
+    body.append(el('p', 'demo-round demo-making', `Round ${feedback.making.round} is being made: your partner is building the next tries`))
+  } else if (feedback !== null && feedback.round > 1) {
     body.append(el('p', 'demo-round', `Round ${feedback.round}: only what you sent back or did not decide yet.`))
+  }
+  if (feedback !== null && feedback.round > 1) {
     if (feedback.folded.length > 0) body.append(el('p', 'demo-folded', `Approved, folded away: ${feedback.folded.map(one => one.title).join(' · ')}`))
   }
   for (const section of page.sections) {
@@ -10245,7 +10283,14 @@ function demoBody(page, draft = null) {
       head.append(el('span', 'demo-verdict', section.verdict), el('span', '', row.title))
       card.append(head)
       if (row.note !== '') card.append(el('p', 'demo-row-note', row.note))
-      if (row.said !== undefined) card.append(el('p', 'demo-said', `You said (round ${row.said.round}): "${row.said.comment}"`))
+      // T17.1: in order: the person's words, what changed for them, the new pictures, the game on that map, then Approve / Send back.
+      if (row.said !== undefined) card.append(el('p', 'demo-said', `Your words: "${row.said.comment}"`))
+      if (row.reworking === true) {
+        card.append(el('p', 'demo-reworking', row.pending ? `Being reworked: ${row.pending}` : 'Being reworked'))
+        part.append(card)
+        continue
+      }
+      if (row.said !== undefined && typeof row.changed === 'string' && row.changed !== '') card.append(el('p', 'demo-changed', `What changed: ${row.changed}`))
       const shots = el('div', 'demo-pictures')
       for (const one of row.pictures) {
         const figure = el('figure', one.kind === null ? 'demo-figure' : `demo-figure is-${one.kind}`)
@@ -10257,6 +10302,15 @@ function demoBody(page, draft = null) {
         shots.append(figure)
       }
       card.append(shots)
+      if (typeof row.play === 'string' && row.play !== '' && (typeof board === 'undefined' || board?.hasGame !== false)) {
+        // T17.1: opens the game on that map in a new tab, as the board's `#play=` links do.
+        const play = el('a', 'demo-play', 'Play it ↗')
+        play.href = `/#play=main&arena=${encodeURIComponent(row.play)}`
+        play.target = '_blank'
+        play.rel = 'noreferrer noopener'
+        play.title = `Starts the game on the map ${row.play} in a new tab`
+        card.append(play)
+      }
       if (feedback !== null && feedback.canSend && draft !== null) {
         const answer = draft.parts.get(row.key)
         const bar = el('div', 'demo-feedback')
@@ -10340,6 +10394,21 @@ function drawDemoWait(state) {
   if (box.dataset.drawn === drawn) return
   box.dataset.drawn = drawn
   fill(box, [drawWaitLine(line)])
+}
+
+/** T17.1: when the open popup was last drawn anew because the board's state said its round is no longer being made (ms; at most once in 30 s). */
+let makingRefetchAt = 0
+
+/**
+ * T17.1: a popup that says "round N+1 is being made" must not go on saying so once the partner wrote the demo again: when the state no
+ * longer has the focus goal's recap in the making (`recapMaking`), the open popup of that goal is drawn anew, with the new tries.
+ */
+function refreshMakingDemo(state) {
+  const draft = demoDraft
+  if (draft === null || draft.page === null || !$('demo-page')?.open || draft.page.feedback?.making == null) return
+  if (draft.page.goal !== state.focus?.id || state.recapMaking != null || state.readAt - makingRefetchAt < 30_000) return
+  makingRefetchAt = state.readAt
+  openDemo(draft.path)
 }
 
 /**
@@ -10429,7 +10498,7 @@ function redrawDemoSide() {
 async function sendDemoFeedback() {
   const draft = demoDraft
   if (draft === null || draft.sending) return
-  const shown = draft.page.sections.flatMap(section => section.rows)
+  const shown = draft.page.sections.flatMap(section => section.rows).filter(row => row.reworking !== true)
   const parts = shown.filter(row => draft.parts.get(row.key)?.verdict !== undefined).map(row => ({ key: row.key, ...draft.parts.get(row.key) }))
   const lacking = parts.find(part => part.verdict === 'sent-back' && part.comment.trim() === '')
   draft.problem = parts.length === 0 ? 'Approve or Send back at least one part first.'
@@ -10452,7 +10521,7 @@ async function sendDemoFeedback() {
   demoSaid = typeof sent.said === 'string' ? { path, id: sent.said } : null
   dropDemoDraft()
   demoDraft = null
-  openDemo(path, sent.done === true ? 'Sent. Every part is approved: the recap is done.' : `Sent: ${sent.approved ?? 0} approved, ${sent.sentBack ?? 0} sent back. Your partner makes the next tries; round ${(sent.round ?? 0) + 1} shows only what you sent back.`)
+  openDemo(path, sent.done === true ? 'Sent. Every part is approved: the recap is done.' : `Sent: ${sent.approved ?? 0} approved, ${sent.sentBack ?? 0} sent back. ${(sent.sentBack ?? 0) > 0 ? `Your partner makes the next tries; round ${(sent.round ?? 0) + 1} opens when they are in, with what changed.` : `Round ${(sent.round ?? 0) + 1} shows what you did not decide yet.`}`)
 }
 
 document.addEventListener('click', event => {
@@ -14774,6 +14843,29 @@ function recapAttentionView(card, goal = null) {
 }
 
 /**
+ * T17.1 (the person, 2026-11-02, after sending round 1 of G60's recap: "the new recap, after round 1 is not finetuned to my feedback ...
+ * i see no evidence of what i asked it to fix/change"): the card while round N+1 of the focus goal's recap is being made (the state's
+ * `recapMaking`, src/recapCard.mjs): "G60 · <title>: round 2 of your recap is being made", one quiet line with how many of the next tries
+ * are done, and the link that opens the recap (its popup shows the same state). It asks no verdict: no attention colour, and it is
+ * never counted. `goal` is the focus goal `{ id, title }` (the state does not carry its title). Null for none.
+ */
+function recapMakingView(making, goal = null) {
+  if (making === null || making === undefined || !(making.round > 1)) return null
+  const id = typeof making.goal === 'string' && making.goal !== '' ? making.goal : goal?.id ?? null
+  const title = id !== null && goal?.id === id && typeof goal.title === 'string' ? goal.title.trim() : ''
+  const name = [id, title].filter(part => part !== null && part !== '').join(' · ')
+  const total = making.total > 0 ? making.total : 0
+  const done = Math.min(making.done > 0 ? making.done : 0, total)
+  return {
+    goal: id,
+    round: making.round,
+    heading: name === '' ? `Round ${making.round} of your recap is being made` : `${name}: round ${making.round} of your recap is being made`,
+    line: total === 0 ? 'No next tries yet' : `${done} of ${total} next ${total === 1 ? 'try' : 'tries'} done`,
+    open: typeof making.path === 'string' && making.path !== '' ? { label: 'Open the recap →', target: { path: making.path } } : null,
+  }
+}
+
+/**
  * The person's "A" (2026-11-02): under the Product owner's line, one quiet line per look the recap card lists as a tile of its own
  * (the card's `looks`: src/recapCard.mjs), "Also a look: <its title, cut at 60> →", which opens the ask's window (the same target
  * the Focus card's tiles use). Every one is named, no cap (the coordinator's ruling the same day: a fourth would be unreachable; the
@@ -15012,7 +15104,9 @@ function focusView(focus, goals, can = null, ui = {}) {
     // without a block.
     view.openNow = focusOpenNowView(focus, ui.recapCard)
     // 2026-11-01: the recap card above the work blocks, while a part of the goal's recap waits for the person's verdict.
-    view.recapCard = recapReadyView(ui.recapCard)
+    // T17.1: while round N+1 is being made the card says so, quietly, whatever else waits; the strip and the progress line stay as they are.
+    view.recapMaking = recapMakingView(ui.recapMaking ?? null, { id: focus.id ?? null, title: focus.title ?? null })
+    view.recapCard = view.recapMaking !== null ? null : recapReadyView(ui.recapCard)
     // 2026-11-01 (the person, "B"): while verdicts wait the run's stage reads "Your recap" in the attention colour, and the
     // progress line says how many wait for them; back to "The run" once none waits. One row, as before.
     if (view.recapCard !== null) {
@@ -15959,6 +16053,18 @@ function focusRecapReady(view) {
     tiles.append(link)
   }
   card.append(words, open, tiles)
+  return card
+}
+
+/**
+ * T17.1: the card where the recap card stands while round N+1 is being made (recapMakingView): its words, the quiet count of next tries
+ * done, and a link that opens the recap. No attention colour: it asks nothing.
+ */
+function focusRecapMaking(view) {
+  const card = el('section', 'focus-recap-making')
+  card.setAttribute('aria-label', view.heading)
+  card.append(el('h3', '', view.heading), el('p', 'muted', view.line))
+  if (view.open !== null) card.append(targetLink(view.open.target, 'focus-recap-making-open', view.open.label))
   return card
 }
 
@@ -17600,7 +17706,7 @@ function focusNeedsButton(view) {
 /** Focus 1 (spec 2026-10-18, section 4): the Focus page, read-only from goals.md: the head, the strip, each stage's cards. */
 function drawFocus(state) {
   const can = focusCan(state)
-  const view = focusView(state.focus ?? null, state.goals ?? null, can, { picking: focusUi.picking, asked: focusUi.asked, partsOpen: focusUi.partsOpen, blocksView: focusUi.blocksView, recapCard: state.recapCard ?? null })
+  const view = focusView(state.focus ?? null, state.goals ?? null, can, { picking: focusUi.picking, asked: focusUi.asked, partsOpen: focusUi.partsOpen, blocksView: focusUi.blocksView, recapCard: state.recapCard ?? null, recapMaking: state.recapMaking ?? null })
   const box = $('advisor-focus')
   box.dataset.stage = view.stage
   const parts = []
@@ -17649,7 +17755,8 @@ function drawFocus(state) {
     parts.push(focusRecapReady(recapReady))
     const outside = allRecapAsks.filter(one => recapReady.outside.includes(one.id))
     if (outside.length > 0) parts.push(focusRecapOutside(outside))
-  } else if (view.stage === 'run' && view.back === undefined && focusRecapSentOf(state) !== null) parts.push(focusRecapSent(focusRecapSentOf(state)))
+  } else if (view.stage === 'run' && view.back === undefined && (view.recapMaking ?? null) !== null) parts.push(focusRecapMaking(view.recapMaking))
+  else if (view.stage === 'run' && view.back === undefined && focusRecapSentOf(state) !== null) parts.push(focusRecapSent(focusRecapSentOf(state)))
   // Work blocks (2026-10-31): the switch between All work blocks and Open now, under the head (no Done-when card any more).
   if ((view.blocks ?? null) !== null && view.back === undefined && view.stage === 'run') parts.push(focusBlocksSwitch(view))
   if (view.stage === 'pick' || view.stage === 'done' || view.back !== undefined) parts.push(focusPickCard(view))
@@ -21449,7 +21556,9 @@ function show(tab) {
   const group = groupOfTab(tab)
   if (group !== null) try { localStorage.setItem(`tab-${group}`, tab) } catch {}
   for (const button of document.querySelectorAll('.tab')) button.classList.toggle('is-active', button.dataset.tab === tab || (group !== null && button.dataset.group === group))
-  for (const button of document.querySelectorAll('.subtab')) button.classList.toggle('is-active', button.dataset.tab === tab)
+  // The Focus tab's parts stand in the Plan row too: the one open is marked by its own aria-pressed, and only while Focus shows.
+  for (const button of document.querySelectorAll('.subtab')) button.classList.toggle('is-active', button.dataset.tab === tab && button.dataset.advisorPane === undefined)
+  $('subtabs-plan').dataset.on = tab
   for (const name of Object.keys(TAB_GROUPS)) $(`subtabs-${name}`).hidden = name !== group
   $('view-overview').hidden = tab !== 'overview'
   $('view-advice').hidden = tab !== 'advice'
@@ -21515,6 +21624,7 @@ function draw(state) {
   refreshDoneDay()
   drawDetails(state)
   drawDemoWait(state)
+  refreshMakingDemo(state)
   openFromAddress(state)
   // B129: the project's own name from the settings, on the page and in the tab.
   once('name', state.name ?? '', () => {

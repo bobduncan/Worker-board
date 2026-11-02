@@ -669,7 +669,7 @@ export function spawnWhenAlone(state, outbox, lines) {
 
 /** The commands the board puts to a chat other than the main one: a word the chat's work stands on (`isWakeWord`). */
 // B570: and the board's word that asks the partner to restart the main chat on a new Workers mod.
-const PARTNER_WORDS = ['recommend', 'refine', 'result-check', 'evaluate', 'work', 'recheck', 'goal-ask', 'brainstorm', 'brainstorm-answer', 'brainstorm-wrap', 'brainstorm-change', 'brainstorm-understood', 'brainstorm-not-quite', 'brainstorm-fix', 'brainstorm-stranded', 'incident', 'mod-restart', 'obsolete-check', 'recap-feedback', ...FOCUS_COMMANDS]
+const PARTNER_WORDS = ['recommend', 'refine', 'result-check', 'evaluate', 'work', 'recheck', 'goal-ask', 'brainstorm', 'brainstorm-answer', 'brainstorm-wrap', 'brainstorm-change', 'brainstorm-understood', 'brainstorm-not-quite', 'brainstorm-fix', 'brainstorm-stranded', 'incident', 'mod-restart', 'obsolete-check', 'recap-feedback', 'recap-round', ...FOCUS_COMMANDS]
 export const isPartnerWord = command => typeof command === 'string' && (command.startsWith('plan-') || PARTNER_WORDS.includes(command))
 
 /** 2026-10-26: the command of the board's word that has a worker holding a step go on from its checkpoint (`resumesDue`). */
@@ -1051,6 +1051,22 @@ export function recapFeedbackWords(to, { goal, title, step, round, approved, bac
       ...(back.length === 0 ? [] : ['Sent back:', ...back.map(part => `- ${one(part.title)}${(part.steps ?? []).length > 0 ? ` (steps ${part.steps.join(', ')}: block each on its next try)` : ''}: "${one(part.comment)}"`)]),
       ...(approved.length === 0 ? [] : [`Approved: ${approved.map(one).join('; ')}`]),
       ...(left > 0 ? [`Not decided yet: ${left}`] : []),
+      `Your job: ${job}, "Recap feedback"`,
+    ].join('\n'),
+  }
+}
+
+/**
+ * T17.1 (the coordinator's review of 6f197a4): the board's word to the partner when a next try of a recap whose round is being made turned
+ * done (`step`: a step of the goal filed or reopened after the person's Send): once per step, so the partner writes the round as soon as
+ * one sent-back row's try is in, `pending` for the rest, and the person can judge what is ready (roles/partner.md, "Recap feedback").
+ */
+export function recapRoundWords(to, { goal, round, step, path, job }) {
+  return {
+    to, ask: null, step, title: null, version: null, verdict: null, command: 'recap-round', about: goal,
+    text: [
+      `recap: ${goal} round ${round}: ${step} is done; write the round with its row, \`pending\` for the rest`,
+      `Demo: ${path}`,
       `Your job: ${job}, "Recap feedback"`,
     ].join('\n'),
   }

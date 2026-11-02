@@ -47,7 +47,7 @@ export function whyClosed(message, ctx) {
   // closes it, with the start it asked. B589: this answer is the health summary's and rule 8's, which until then named
   // a failed one whose step was done (X3). Without a store the board cannot judge it: it matters.
   if (message.command === 'work') {
-    const why = items instanceof Map ? workLineWhy(message, items, { prefix: ctx.prefix ?? '', now }) : null
+    const why = items instanceof Map ? workLineWhy(message, items, { prefix: ctx.prefix ?? '', now, assets: ctx.assets }) : null
     return why === null ? null : { state: 'dropped', why }
   }
   // B812 (X109): a stop word waits for its worker's next idle moment however long its turn runs, while it holds a step.

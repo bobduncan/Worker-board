@@ -10,15 +10,37 @@
 // and names a picture that is not there, one that is not a .png, .jpg, .webp or .gif, and one over the board's picture limit
 // (the board would answer "too big"). In demo.json the pictures of a row stand in the demo's order and their paths are relative
 // to demo.json's own folder. Without --out the file lands beside the list as demo.json (never over the list itself).
+//
+// T17.1 (the person, 2026-11-02: "the same pictures are provided and i see no evidence of what i asked it to fix/change"): the tool
+// also reads the `feedback.json` beside the demo.json it writes. Every row the person sent back must show a new try or say it is not
+// in yet: a "changed" line and at least one picture file written after that Send (or, for an answer in words, a note that differs
+// from the one in the demo.json it replaces), else a "pending" line saying why. The tool stops and names each row that does not
+// (one line per row), so old pictures cannot pass for a new try; it also stops on a row the person sent back that the list no longer
+// has (a renamed title: keep it, or give the row an "id"). A row's "play" is the name of an arena the game has (its arenas folder and
+// the dev folder in it, from the board's config.json "gameRepo"): a name it has not is refused.
 
 import { existsSync, realpathSync, statSync } from 'node:fs'
 import { mkdir, readFile, writeFile } from 'node:fs/promises'
-import { basename, dirname, extname, isAbsolute, relative, resolve } from 'node:path'
+import { basename, dirname, extname, isAbsolute, join, relative, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { PICTURE_BYTES } from '../src/pictures.mjs'
 import { checkList, orderedPictures } from '../src/demo.mjs'
+import { FEEDBACK_BYTES, FEEDBACK_FILE } from '../src/demoFeedback.mjs'
 
+const BOARD = join(dirname(fileURLToPath(import.meta.url)), '..')
 const TYPES = new Set(['.png', '.jpg', '.jpeg', '.webp', '.gif'])
+/** The game's arenas, from its repository's top: the folder of the arenas and the dev folder in it (`arena=<name>` is a file there). */
+export const ARENA_FOLDERS = ['src/content/arenas', 'src/content/arenas/dev']
+
+/**
+ * Whether the game has an arena of that name, as a function, from the board's `gameRepo`; undefined when it cannot be told (no
+ * game repository set, or none of the arenas folders there): then no name is checked. `exists` is `existsSync`.
+ */
+export function arenaCheckOf(gameRepo, exists = existsSync) {
+  if (typeof gameRepo !== 'string' || gameRepo.trim() === '') return undefined
+  const folders = ARENA_FOLDERS.map(folder => join(gameRepo, ...folder.split('/'))).filter(folder => exists(folder))
+  return folders.length === 0 ? undefined : name => folders.some(folder => exists(join(folder, `${name}.json`)))
+}
 
 /** Every picture file the list names, as a path (absolute, or from `base`). */
 export function pictureFiles(list, base) {
@@ -34,6 +56,31 @@ export function missingPictures(list, base, exists = existsSync) {
 /** Pictures over the board's limit, by their paths and sizes in bytes: `[{ file, bytes }]`. */
 export function tooBigPictures(list, base, sizeOf = file => statSync(file).size, most = PICTURE_BYTES) {
   return [...new Set(pictureFiles(list, base))].map(file => ({ file, bytes: sizeOf(file) })).filter(one => one.bytes > most)
+}
+
+/** The feedback.json beside the demo that is written (the person's rounds), or null for none; one that is not JSON is none too. */
+export async function feedbackBeside(target) {
+  try {
+    const file = join(dirname(target), FEEDBACK_FILE)
+    if (statSync(file).size > FEEDBACK_BYTES) return null
+    return JSON.parse((await readFile(file, 'utf8')).replace(/^﻿/, ''))
+  } catch {
+    return null
+  }
+}
+
+/** The demo.json about to be replaced, as `{ list, writtenAt }` (what the person saw last), or null when there is none or it is no JSON. */
+export async function previousBeside(target) {
+  try {
+    return { list: JSON.parse((await readFile(target, 'utf8')).replace(/^﻿/, '')), writtenAt: statSync(target).mtimeMs }
+  } catch {
+    return null
+  }
+}
+
+/** When a picture file was written (ms), or null when it is not there. */
+export function writtenAt(path, base, stat = file => statSync(file).mtimeMs) {
+  try { return stat(isAbsolute(path) ? path : resolve(base, path)) } catch { return null }
 }
 
 /** The list as demo.json holds it: each row's pictures in the demo's order, every path relative to `outDir` (from `base`). Pure. */
@@ -53,8 +100,11 @@ export function demoFile(list, base, outDir) {
   }
 }
 
-/** Checks the list file and writes demo.json (beside the list as demo.json without `out`); answers where and how many pictures. */
-export async function writeDemo({ listFile, out }) {
+/**
+ * Checks the list file and writes demo.json (beside the list as demo.json without `out`); answers where and how many pictures.
+ * `hasArena(name)` (`arenaCheckOf`) says whether the game has an arena; without it no `play` name is looked up.
+ */
+export async function writeDemo({ listFile, out, hasArena = undefined }) {
   const file = resolve(listFile)
   const input = checkList(JSON.parse((await readFile(file, 'utf8')).replace(/^﻿/, '')))
   const base = dirname(file)
@@ -65,6 +115,7 @@ export async function writeDemo({ listFile, out }) {
   for (const picture of pictureFiles(input, base)) if (!TYPES.has(extname(picture).toLowerCase())) throw new Error(`${basename(picture)}: a picture is a .png, .jpg, .webp or .gif.`)
   const big = tooBigPictures(input, base)
   if (big.length > 0) throw new Error(`These pictures are over the board's limit of ${PICTURE_BYTES / 1048576} MB, so it would not open them:\n${big.map(one => `  ${one.file} (${(one.bytes / 1048576).toFixed(1)} MB)`).join('\n')}`)
+  checkList(input, { feedback: await feedbackBeside(target), mtimeOf: path => writtenAt(path, base), previous: await previousBeside(target), hasArena })
   await mkdir(dirname(target), { recursive: true })
   await writeFile(target, `${JSON.stringify(demoFile(input, base, dirname(target)), null, 2)}\n`)
   return { out: target, pictures: new Set(pictureFiles(input, base)).size }
@@ -90,7 +141,8 @@ function isCommand() {
 
 if (isCommand()) {
   const args = argsOf(process.argv.slice(2))
-  writeDemo({ listFile: args.list, out: args.out })
+  const gameRepo = await import('../src/config.mjs').then(({ loadConfig }) => loadConfig(join(BOARD, 'config.json'))).then(config => config.gameRepo, () => '')
+  writeDemo({ listFile: args.list, out: args.out, hasArena: arenaCheckOf(gameRepo) })
     .then(done => console.log(`saved ${done.out} (${done.pictures} pictures, each at its own size)`))
     .catch(error => { console.error(error.message); process.exit(1) })
 }

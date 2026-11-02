@@ -289,8 +289,9 @@ export function syncRunner(ports, rules = REPAIR_RULES, watch = []) {
     const memoryBefore = memoryText(memory)
     const observed = []
     const items = await ports.items()
+    const assets = typeof ports.assets === 'function' ? await ports.assets() : null
     const view = buildView({
-      state, items, outbox: ports.outbox(), keep: ports.keep, refused: ports.refused(), leftovers: await lookLeftovers(ports, items, now), bases: await lookBases(ports),
+      state, items, assets, outbox: ports.outbox(), keep: ports.keep, refused: ports.refused(), leftovers: await lookLeftovers(ports, items, now), bases: await lookBases(ports),
       repairs: memory.repairs, mods: typeof ports.mods === 'function' ? await ports.mods() : null, settings: ports.settings ?? {}, now,
     })
     const repairs = runRules(rules, view, { seen, observed })
