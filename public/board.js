@@ -1105,6 +1105,9 @@ function incidentCardOf(card, byId, now = Date.now()) {
       const title = gistOf(one.title, 110, true)
       return [title === '' ? one.id : `${one.id} · ${title}`, mixed ? one.word : null, times === '' ? null : times].filter(Boolean).join(' · ')
     })
+  } else if (card.key === 'gone') {
+    // Signals change 6 (B915): each that went by itself says since when it was not seen ("not seen since 19:35").
+    lines = covered.map(one => [`${one.id} · ${gistOf(one.title)}`, one.word].filter(Boolean).join(' · '))
   } else {
     const seen = Math.max(0, ...covered.map(one => one.count || 0))
     lines = [`${covered.map(one => one.id).join(' ')} · ${gistOf(covered[0]?.title)}${seen > 1 ? ` (seen ${seen}×)` : ''}`]
@@ -1136,12 +1139,15 @@ const SUPERVISOR_DAY = 24 * 60 * 60_000
 /** B573: the states of a fix step the section counts as in work (cards.mjs `phase`). */
 const IN_WORK = ['queued', 'taken', 'in progress', 'waiting on you', 'review']
 
+/** Signals change 6 (B915): the states in which an incident ended: fixed, closed (no fault), gone by itself (not seen for an hour). */
+const ENDED_INCIDENT = ['fixed', 'closed', 'gone']
+
 /**
  * B573: whether an incident is new to the person: found (opened, or came back) in the last day and since `seenAt`, when
- * the person last opened the section (null: never), and not fixed since.
+ * the person last opened the section (null: never), and not ended since.
  */
 function isNewIncident(one, seenAt, now) {
-  return Number.isFinite(one?.foundAt) && one.state !== 'fixed' && one.state !== 'closed' && one.foundAt > Math.max(Number.isFinite(seenAt) ? seenAt : -Infinity, now - SUPERVISOR_DAY)
+  return Number.isFinite(one?.foundAt) && !ENDED_INCIDENT.includes(one.state) && one.foundAt > Math.max(Number.isFinite(seenAt) ? seenAt : -Infinity, now - SUPERVISOR_DAY)
 }
 
 /** Whether an incident was found (opened, or came back: its `foundAt`) in [from, until): the lower edge in, the upper out. */
@@ -1149,9 +1155,17 @@ function isFoundBetween(one, from, until) {
   return Number.isFinite(one?.foundAt) && one.foundAt >= from && one.foundAt < until
 }
 
-/** Whether an incident is fixed: its own state, or its fix step done (the card's `phase`). */
+/** Whether an incident is fixed: its own state (signals change 6: gone by itself too, which folds as a fixed one), or its fix step done (the card's `phase`). */
 function isFixedIncident(one, phase) {
-  return one?.state === 'fixed' || one?.state === 'closed' || phase === 'done'
+  return ENDED_INCIDENT.includes(one?.state) || phase === 'done'
+}
+
+/**
+ * Signals change 6 (B915 4b.2): an incident that went by itself in the last day and never had a fix step (its `fix`): the
+ * head's "gone by themselves" counts only alarms that needed no fix.
+ */
+function isGoneByItself(one, now) {
+  return one?.state === 'gone' && (one.fix ?? null) === null && Number.isFinite(one.since) && one.since >= now - SUPERVISOR_DAY
 }
 
 /**
@@ -1171,15 +1185,17 @@ function isCountedIncident(one, phase, now) {
  * the view's incidents and their cards, over a rolling day (2026-10-26): `found` opened or came back in [now - 24 h,
  * now), `foundBefore` in [now - 48 h, now - 24 h) (both by `isFoundBetween`, over every incident the view holds, the fixed
  * ones too); and, over the incidents counted (`isCountedIncident`: every open one whatever its age, the fixed ones of
- * the last 24 h): `inWork` its fix step queued, taken, in progress, waiting on the person or in review; `withAdvisor`
- * no fix under way yet (none, or one still being refined); `fixed` (in the last 24 h); `fresh` new to the person
- * (`isNewIncident`).
+ * the last 24 h): `inWork` its fix step queued, taken, in progress, waiting on the person or in review; `withSupervisor`
+ * no fix under way yet (none, or one still being refined; signals change 6: the Supervisor judges it); `fixed` (in the
+ * last 24 h, gone ones among them); `fresh` new to the person (`isNewIncident`); and `gone`, over every incident the view
+ * holds, those gone by themselves in the last 24 h with no fix step (`isGoneByItself`).
  */
 function supervisorCounts(view, seenAt, now) {
   const phases = new Map()
   for (const card of view?.cards ?? []) for (const one of card.incidents ?? []) phases.set(one.id, card.phase ?? null)
-  const counts = { found: 0, foundBefore: 0, inWork: 0, withAdvisor: 0, fixed: 0, fresh: 0 }
+  const counts = { found: 0, foundBefore: 0, inWork: 0, withSupervisor: 0, fixed: 0, fresh: 0, gone: 0 }
   for (const one of view?.incidents ?? []) {
+    if (isGoneByItself(one, now)) counts.gone += 1
     if (isFoundBetween(one, now - SUPERVISOR_DAY, now)) counts.found += 1
     else if (isFoundBetween(one, now - 2 * SUPERVISOR_DAY, now - SUPERVISOR_DAY)) counts.foundBefore += 1
     const phase = phases.get(one.id) ?? null
@@ -1187,18 +1203,19 @@ function supervisorCounts(view, seenAt, now) {
     if (isNewIncident(one, seenAt, now)) counts.fresh += 1
     if (isFixedIncident(one, phase)) counts.fixed += 1
     else if (IN_WORK.includes(phase)) counts.inWork += 1
-    else counts.withAdvisor += 1
+    else counts.withSupervisor += 1
   }
   return counts
 }
 
 /**
  * B573, the person's B (2026-10-26, "make it more simple": the head was too crowded): the section's head line, the same
- * folded or open: how many incidents are open (every one not fixed, whatever its age: in work and with the Advisor
- * together; "new" is the card's badge, no count here) and how many were found in the last 24 hours. Nothing else.
+ * folded or open: how many incidents are open (every one not fixed, whatever its age: in work and with the Supervisor
+ * together; "new" is the card's badge, no count here), how many were found in the last 24 hours and (signals change 6,
+ * B915) how many went by themselves in them, with no fix. Nothing else.
  */
 function supervisorHead(counts) {
-  return `Supervisor · ${counts.inWork + counts.withAdvisor} open · ${counts.found} found in 24 h`
+  return `Supervisor · ${counts.inWork + counts.withSupervisor} open · ${counts.found} found in 24 h · ${counts.gone ?? 0} gone by themselves`
 }
 
 /**
@@ -1206,7 +1223,7 @@ function supervisorHead(counts) {
  * last 24 hours (and the 24 hours before), what was fixed in the last 24 hours, and the open ones by where they stand.
  */
 function supervisorLast24(counts) {
-  return `Last 24 h: ${counts.found} found (${counts.foundBefore} the 24 h before), ${counts.fixed} fixed. Open: ${counts.inWork} in work, ${counts.withAdvisor} with the Advisor.`
+  return `Last 24 h: ${counts.found} found (${counts.foundBefore} the 24 h before), ${counts.fixed} fixed (${counts.gone ?? 0} gone by themselves). Open: ${counts.inWork} in work, ${counts.withSupervisor} with the Supervisor.`
 }
 
 /** "Check now", the person (2026-10-26): how long the head keeps what an asked check came to, from the moment it ended. */
@@ -1280,6 +1297,8 @@ function supervisorOf(view, { seenAt = null, isOpen = true, now = Date.now(), is
     id: rule.id, says: rule.says, tone: rule.state === 'failed' ? 'failed' : rule.state === 'tripped' ? 'tripped' : rule.state === 'fine' ? 'fine' : 'unchecked',
     often: Number(rule.trips) > 0 ? `${rule.trips}× today` : rule.state === null || rule.state === undefined ? 'not checked yet' : 'fine today',
     why: rule.state === 'failed' ? rule.why ?? 'it failed' : null,
+    // Signals change 6 (B915): the rule owns the health summary's odd lines of its kind: no sweep for them.
+    owns: rule.ownsHealth === true ? 'owns its health lines' : null,
   }))
   // Those that tripped now or earlier today, or failed, first; the rest only when the person asks for them.
   const isShown = rule => rule.tone === 'tripped' || rule.tone === 'failed' || /× today$/.test(rule.often)
@@ -1303,8 +1322,9 @@ function supervisorOf(view, { seenAt = null, isOpen = true, now = Date.now(), is
   const older = cards.filter(card => card.tone === 'done' && !card.isNew && (fixed += 1) > FIXED_CARDS_SHOWN)
   const checked = Number.isFinite(view.checkedAt) ? `Checked itself at ${clock(view.checkedAt)}.` : 'Not checked yet.'
   const counts = supervisorCounts(view, seenAt, now)
+  // Signals change 6 (B915, Addendum 5): never by the clock: a sweep only on a trigger.
   const schedule = every > 0
-    ? `${checked} It checks every 3 min and sweeps every ${every} min while work runs; Check now does both.`
+    ? `${checked} It checks every 3 min and sweeps only on a trigger (a new odd line no rule owns, the daily read, an old limit reading) while work runs; Check now does both.`
     : `${checked} It checks every 3 min; Check now checks and sweeps at once.`
   return {
     head: supervisorHead(counts),
@@ -1345,6 +1365,9 @@ function sweepLineOf(view) {
   }
   const today = view.sweepsToday ?? null
   if (today !== null && today.count > 1) parts.push(`Today ${today.count} sweeps, ${tokenWords(today.tokens)}.`)
+  // Signals change 6 (the lead's decision 10): the Supervisor's judgment turns of the last day beside its sweeps.
+  const judged = view.judgmentsToday ?? null
+  if (judged !== null && judged.count > 0) parts.push(`Judgments in 24 h: ${judged.count}, ${tokenWords(judged.tokens)}.`)
   return parts.join(' ')
 }
 
@@ -1550,6 +1573,7 @@ function drawSupervisor(state) {
         const row = el('div', `rule is-${rule.tone}`)
         row.title = rule.id
         row.append(el('span', 'rule-dot'), el('span', 'rule-says', rule.says), el('span', 'rule-often', rule.often))
+        if ((rule.owns ?? null) !== null) row.append(el('span', 'rule-owns', rule.owns))
         if (rule.why !== null) row.append(el('span', 'rule-why', rule.why))
         rules.append(row)
       }

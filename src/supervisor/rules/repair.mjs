@@ -501,48 +501,30 @@ function refineAgain(view) {
 }
 
 /**
- * T9.4: an incident with the Advisor (its word arrived, `incident-told`) that gets no fix step and is not closed: asked
- * again every 30 minutes from when it got that state, three times, then the person is told. The words are the incident
- * word's, as the board typed them the first time.
+ * T9.4, signals change 6 (B915, the lead's Addendum 4): an incident with the Supervisor (its judge word arrived,
+ * `incident-told`) that gets no close and no fix step for INCIDENT_NOTE_MS (2 h, the person's pause not counted) is told to
+ * the person once. The board no longer asks again at 30, 60 and 90 minutes: a judgment turn costs about a sweep (~170k
+ * tokens), and an incident that went by itself closes itself (gone.mjs) anyway. The store is the memory (the note, Via
+ * supervisor, about the incident since it got that state), so a restart does not tell it twice.
  */
+export const INCIDENT_NOTE_MS = 2 * HOUR
 function incidentAgain(view) {
-  const { partner = null, outbox = [] } = view
+  const { now, items = new Map() } = view
   const { all, isHeld } = factsOf(view)
-  if (!(partner !== null && !isHeld)) return []
-  return all.filter(one => kindOf(one) === 'incident' && stateOf(one) === 'with the advisor' && valueOf(one, 'Fix') === null).sort(byId).flatMap(item => {
+  if (isHeld) return []
+  return all.filter(one => kindOf(one) === 'incident' && stateOf(one) === 'with the supervisor' && valueOf(one, 'Fix') === null).sort(byId).flatMap(item => {
     const id = idOf(item)
     const since = sinceMs(valueOf(item, 'Since'))
-    if (!Number.isFinite(since)) return []
+    if (!Number.isFinite(since) || now - afterPause(view.pause, since) < INCIDENT_NOTE_MS) return []
+    const starts = `Incident ${id} "`
+    const first = Math.floor(since / MIN) * MIN
+    const isTold = [...items.values()].some(one => valueOf(one, 'Kind') === 'note' && valueOf(one, 'Via') === 'supervisor'
+      && (one.sections?.get('About') ?? [])[0]?.trim() === id && String(valueOf(one, 'Text') ?? '').startsWith(starts) && sinceMs(valueOf(one, 'Since')) >= first)
+    if (isTold) return []
     const title = titleLine(valueOf(item, 'Title') ?? id)
-    const first = outbox.findLast(message => message.command === 'incident' && message.about === id)
-    return askedAgain(view, {
-      rule: 'incident-again', id, since,
-      wake: n => [first?.text ?? `incident: ${id} ${title}\nYour job: roles/partner.md, "Incidents"`,
-        `Asked again (${n} of ${ASKS_AGAIN}): it still has no fix step; name its fix (work incident-fix ${id}) or, if no fault is left, close it (work drop ${id}).`].join('\n'),
-      person: {
-        starts: `Incident ${id} "`,
-        lines: [`Incident ${id} "${title}" has been with the Advisor for over 2 hours without a fix, after ${ASKS_AGAIN} asks: look at it under Supervisor.`],
-      },
-    })
-  })
-}
-
-/**
- * B543 (the fix of X8: a step sat in review for 3 days after its fix was dropped, as nothing closes it then): a step in
- * review whose check failed and whose fix was dropped, none other open or done, for 30 minutes: the main chat gets one
- * word, close it or have it checked again; once per step and fix (the loop tells the main chat of a key once).
- */
-function fixDropped(view) {
-  const { items = new Map(), now } = view
-  const { steps, isHeld } = factsOf(view)
-  if (isHeld) return []
-  return steps.filter(one => stateOf(one) === 'review').flatMap(item => {
-    const wait = reviewWaitOf(item, items, null, now, view.recaps)
-    if (wait?.kind !== 'dropped' || !(now - wait.since >= UNCHECKED_MS)) return []
-    const id = idOf(item)
-    const text = `${id} waits in review, but ${wait.text}`
-    return [finding('fix-dropped', `fix-dropped ${id} ${wait.fix ?? 'none'}`, id, text,
-      { do: 'send', text: `${text}: close it (work drop ${id}, or the person marks it done) or have it checked again (work report ${id})` })]
+    const text = `${id} with the Supervisor for over 2 hours without a close or a fix: told to you`
+    return [finding('incident-again', `incident-again ${id} person ${stamp(since)}`, id, text,
+      { do: 'person', id, text: [`${starts}${title}" has been with the Supervisor for over 2 hours without a close or a fix: look at it under Supervisor.`] })]
   })
 }
 
@@ -644,10 +626,9 @@ export const REPAIR_RULES = [
   { id: 'partner-ask', kind: 'repair', says: 'an ask routed to the partner left unanswered', check: partnerAsk },
   { id: 'unchecked', kind: 'repair', says: 'a step that waits for its result check with no QA task: the board makes one; a QA task nobody took whose step left review or waits for something else: dropped; one whose check was filed: ended', check: unchecked },
   { id: 'refine-again', kind: 'repair', says: 'a refine the Advisor took and did not write, asked again every 30 minutes, three times, then told to the person', check: refineAgain },
-  { id: 'incident-again', kind: 'repair', says: 'an incident with the Advisor that gets no fix step, asked again every 30 minutes, three times, then told to the person', check: incidentAgain },
+  { id: 'incident-again', kind: 'repair', says: 'an incident with the Supervisor that gets no close and no fix step for over 2 hours, told to the person once', check: incidentAgain },
   { id: 'held-elsewhere', kind: 'repair', says: 'a step in progress over an hour while its worker is on another step, with nothing naming why', check: heldElsewhere },
   { id: 'base-equal', kind: 'repair', says: 'a step in review whose check failed only on its base branch against the remote\'s, now equal', check: baseEqual },
-  { id: 'fix-dropped', kind: 'repair', says: 'a step in review whose fix was dropped, which nothing closes', check: fixDropped },
   { id: 'worktrees', kind: 'repair', says: 'a leftover worktree, or an empty folder one left in the project folder', check: worktrees },
 ]
 
@@ -658,6 +639,10 @@ export const REPAIR_RULES = [
 export const RETIRED_RULES = [
   { id: 'review-wait', countsBy: 'key' },
   { id: 'focus-ready' },
+  // Signals change 6 (B915, Addendum 4): one watcher per condition. The repair fix-dropped (a note to the main chat) watched the
+  // same dropped fix as the watch rule dropped-fix (an incident): 31 Oct 12:54 B821's dropped fix B854 gave X116 and the note
+  // N1259 to Main. The watch rule stays and files it once; the repair is retired (its repairs of the day still count by rule).
+  { id: 'fix-dropped' },
 ]
 
 /** The rules repair-repeats counts by their key, from both tables. */

@@ -51,7 +51,7 @@ test('X26 after 11 min with no switch read back: "!" and one finding for the mai
   const board = view(items(step('B568', 11)))
   assert.match(chatLine(board), /^- ! Picker \(worker\): .*runs sonnet · medium; its step B568 wants sonnet · low \(no switch asked, 11 min after the take\)/)
   const found = check(board)
-  assert.deepEqual(found.map(one => [one.rule, one.subject, one.key]), [['effort-mismatch', 'Picker', 'effort-mismatch Picker B568']])
+  assert.deepEqual(found.map(one => [one.rule, one.subject, one.key]), [['effort-mismatch', 'Picker', 'effort-mismatch Picker']])
   assert.equal(found[0].text, 'Picker runs sonnet · medium 11 min after it took B568, which wants sonnet · low')
   assert.match(found[0].evidence, /took B568 at 21:36; no switch asked/)
 })

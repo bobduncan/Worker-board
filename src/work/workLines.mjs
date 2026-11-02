@@ -41,7 +41,7 @@ export function workLineWhy(message, items, { prefix = '', now = Date.now() } = 
     if (item === undefined) return gone
     // T9.4: the words that ask the Advisor again hold while its refine is still to write (the step new), or its incident still with it.
     const again = /^(refine|incident)-again /.exec(String(message.syncKey ?? ''))?.[1] ?? null
-    if (again === 'refine' ? state !== 'new' : again === 'incident' ? state !== 'with the advisor' : isStep ? ['done', 'dropped'].includes(state) : state !== 'open') return `${id} is ${state}`
+    if (again === 'refine' ? state !== 'new' : again === 'incident' ? state !== 'with the supervisor' : isStep ? ['done', 'dropped'].includes(state) : state !== 'open') return `${id} is ${state}`
     const isOwnersLine = /^(?:not-taken|limit-back) /.test(String(message.syncKey ?? ''))
     if (isOwnersLine && (value(item, 'Owner') === null || plain(value(item, 'Owner'), prefix) !== plain(message.to, prefix))) return `${id} is no longer ${message.to}'s`
     return now - (message.at ?? 0) < SYNC_LINE_MS ? null : `the sync check decides anew after ${SYNC_LINE_MS / 60_000} min`

@@ -173,19 +173,22 @@ test('(3) the sweep drops a waiting start whose holder is not the main chat and 
   assert.deepEqual(await run(board({ running: ['Advisor'] }), [toMain, waits]), [])
 })
 
-test('(4a) the supervisor\'s never-list names the board\'s start word as the one message it carries', async () => {
+// Signals change 6 (B915, the build brief 4): changes 4 and 5 took the supervisor's mechanical jobs (carrying the start word,
+// restarting a down board): its never-list names no exception for them any more, and its role has no start-word part.
+test('(4a) the supervisor\'s never-list carries no start word any more (signals changes 4 and 5 took it)', async () => {
   const text = await readFile(join(dirname(fileURLToPath(import.meta.url)), '..', 'roles', 'supervisor.md'), 'utf8')
   const never = text.slice(text.indexOf('## What you never do')).split(/\n- /)
   for (const rule of ['Never change anything but incidents', 'Never message a worker, the main chat or the partner']) {
     const found = never.find(one => one.startsWith(rule))
     assert.ok(found !== undefined, rule)
-    assert.match(found, /start "<chat>"/, `${rule}: the exception for the board's start word`)
+    assert.doesNotMatch(found, /start "<chat>"/, rule)
   }
+  assert.ok(!text.includes('## The board asks you to start a chat'))
 })
 
 test('(4b, 4c) the roles say SendMessage to the session id, as the start word does', async () => {
   const roles = join(dirname(fileURLToPath(import.meta.url)), '..', 'roles')
-  for (const file of ['worker.md', 'partner.md', 'supervisor.md']) {
+  for (const file of ['worker.md', 'partner.md']) {
     const text = await readFile(join(roles, file), 'utf8')
     const part = text.slice(text.indexOf('## The board asks you to start a chat'))
     assert.match(part.slice(0, 900), /SendMessage to (?:the|its|that) session id/, file)

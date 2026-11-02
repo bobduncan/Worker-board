@@ -58,25 +58,29 @@ test('a new key opens X1 (open, count 1); the same key again only counts: count 
   assert.equal((await s.incidents()).length, 1)
 })
 
-test('incident-fix X1 B12 (the partner) sets its Fix and its state; B12 done makes X1 fixed; the same key then comes back, count + 1', async t => {
+test('incident-fix X1 B12 (signals change 6: the Supervisor) sets its Fix and its state; B12 done makes X1 fixed; the same key then comes back, count + 1', async t => {
   const s = await store(t)
   await recordFindings([finding()], { work: s.board, now: NOW })
-  const fix = await s.chat('Partner', { action: 'incident-fix', id: 'X1', fix: 'B12' })
+  const fix = await s.chat('Watcher', { action: 'incident-fix', id: 'X1', fix: 'B12' })
   assert.equal(fix.ok, true, fix.why)
   const fixing = await s.item('X1')
   assert.deepEqual([head(fixing, 'State'), head(fixing, 'Fix')], ['fix', 'B12'])
   assert.match(fix.result.text, /X1: fix B12/)
-  assert.match(fixing.sections.get('History').at(-1), /Partner: fix B12$/)
+  assert.match(fixing.sections.get('History').at(-1), /Watcher: fix B12$/)
   // Not done yet: nothing changes.
   assert.equal((await s.board({ action: 'incidents-fixed' })).result.changed, false)
-  // B12 done: the board's reconcile marks X1 fixed.
+  // B12 done: signals change 6 (Addendum 3): the reconcile does not mark an incident of a rule fixed on its done step alone;
+  // the supervisor's loop does, once its key went unseen for the gone time (`incident-gone`, gone.mjs).
   assert.equal((await s.person({ action: 'tick', id: 'B12' })).ok, true)
   s.tick(5)
   const fixed = await s.board({ action: 'incidents-fixed' })
-  assert.deepEqual([fixed.ok, fixed.result.fixed], [true, ['X1']])
+  assert.deepEqual([fixed.ok, fixed.result.fixed], [true, []])
+  assert.equal(head(await s.item('X1'), 'State'), 'fix')
+  const gone = await s.board({ action: 'incident-gone', fixed: [{ id: 'X1', notSeenSince: NOW }], minutes: 60 })
+  assert.deepEqual([gone.ok, gone.result.fixed], [true, ['X1']])
   const x1 = await s.item('X1')
   assert.equal(head(x1, 'State'), 'fixed')
-  assert.match(x1.sections.get('History').at(-1), /server: fixed: B12 is done$/)
+  assert.match(x1.sections.get('History').at(-1), /server: fixed: B12 is done and not seen since 09:00 \(60 min of running time\)$/)
   // Seen again: it came back.
   s.tick(30)
   const back = await recordFindings([finding()], { work: s.board, now: NOW + 35 * MIN })
@@ -91,31 +95,31 @@ test('incident-fix X1 B12 (the partner) sets its Fix and its state; B12 done mak
 test('a fix that is dropped puts the incident back to open', async t => {
   const s = await store(t)
   await recordFindings([finding()], { work: s.board, now: NOW })
-  await s.chat('Partner', { action: 'incident-fix', id: 'X1', fix: 'B13' })
+  await s.chat('Watcher', { action: 'incident-fix', id: 'X1', fix: 'B13' })
   assert.equal((await s.chat('Lead', { action: 'drop', id: 'B13', why: 'not needed' })).ok, true)
   const done = await s.board({ action: 'incidents-fixed' })
   assert.deepEqual(done.result.reopened, ['X1'])
   assert.equal(head(await s.item('X1'), 'State'), 'open')
 })
 
-test('who may: incident by the board or the supervisor chat; incident-fix by the partner; anyone else is refused', async t => {
+test('who may: incident by the board or the supervisor chat; incident-fix by the Supervisor (signals change 6); anyone else is refused', async t => {
   const s = await store(t)
   for (const chat of ['Lead', 'Painter', 'Partner', 'Second']) {
     assert.equal((await s.chat(chat, { action: 'incident', key: 'k', title: 'x' })).status, 403, chat)
   }
   assert.equal((await s.person({ action: 'incident', key: 'k', title: 'x' })).status, 403)
-  // The supervisor chat's own finding: from the sweep, with the rule that could catch it.
-  const swept = await s.chat('Watcher', { action: 'incident', title: 'Painter worked three hours without a checkpoint', subject: 'Painter', evidence: 'no checkpoint since 06:00', rule: 'a step in progress with no checkpoint for 2 h' })
+  // The supervisor chat's own finding: from the sweep, under a key of its own, with the rule that could catch it.
+  const swept = await s.chat('Watcher', { action: 'incident', key: 'checkpoint-quiet Painter', title: 'Painter worked three hours without a checkpoint', subject: 'Painter', evidence: 'no checkpoint since 06:00', rule: 'a step in progress with no checkpoint for 2 h' })
   assert.equal(swept.ok, true, swept.why)
   const x1 = await s.item('X1')
   assert.deepEqual(['Source', 'Rule wanted', 'Subject'].map(key => head(x1, key)), ['sweep', 'a step in progress with no checkpoint for 2 h', 'Painter'])
   await recordFindings([finding()], { work: s.board, now: NOW })
-  for (const chat of ['Lead', 'Painter', 'Watcher', 'Second']) {
+  for (const chat of ['Lead', 'Painter', 'Partner', 'Second']) {
     assert.equal((await s.chat(chat, { action: 'incident-fix', id: 'X2', fix: 'B12' })).status, 403, chat)
   }
   assert.equal((await s.board({ action: 'incident-fix', id: 'X2', fix: 'B12' })).status, 403)
-  assert.equal((await s.chat('Partner', { action: 'incident-fix', id: 'X2', fix: 'B99' })).status, 404, 'a fix step the store does not hold')
-  assert.equal((await s.chat('Partner', { action: 'incident-fix', id: 'B12', fix: 'B13' })).status, 409, 'not an incident')
+  assert.equal((await s.chat('Watcher', { action: 'incident-fix', id: 'X2', fix: 'B99' })).status, 404, 'a fix step the store does not hold')
+  assert.equal((await s.chat('Watcher', { action: 'incident-fix', id: 'B12', fix: 'B13' })).status, 409, 'not an incident')
   assert.equal((await s.chat('Painter', { action: 'incidents-fixed' })).status, 403, 'only the board')
   // A finding needs its key and its words.
   assert.equal((await s.board({ action: 'incident', title: 'x' })).status, 400)
@@ -207,7 +211,7 @@ test('the review: the line owed to the person is read from the store: open or ca
   await s.board({ action: 'note', to: 'you', text: ['Supervisor: Painter unknown for 11 min, B12 waits'], of: 'X1', via: 'supervisor' })
   assert.deepEqual(await owed(), [])
   // Being fixed, or fixed: nothing owed; seen again later, it came back and a line is owed again.
-  await s.chat('Partner', { action: 'incident-fix', id: 'X1', fix: 'B12' })
+  await s.chat('Watcher', { action: 'incident-fix', id: 'X1', fix: 'B12' })
   assert.deepEqual(await owed(), [])
   await s.person({ action: 'tick', id: 'B12' })
   await s.board({ action: 'incidents-fixed' })
@@ -217,23 +221,46 @@ test('the review: the line owed to the person is read from the store: open or ca
   assert.deepEqual(await owed(), [['X1', 'came back']])
 })
 
-test('the review: a chat of role supervisor may end its turns (turn-ended), read its next and pull, and file incidents; nothing else', async t => {
+test('the review: a chat of role supervisor may end its turns, read its next and pull, file incidents and judge them; nothing else', async t => {
   const s = await store(t)
   const ended = await s.chat('Watcher', { action: 'turn-ended', since: NOW - MIN })
   assert.equal(ended.ok, true, ended.why)
   for (const action of ['next', 'pull', 'list']) assert.equal((await s.chat('Watcher', { action })).ok, true, action)
-  for (const body of [{ action: 'note', to: 'main', text: ['x'] }, { action: 'new', title: 'x' }, { action: 'take', minutes: 30, id: 'B12' }, { action: 'block', id: 'B12', on: 'B13' }, { action: 'incident-fix', id: 'X1', fix: 'B12' }]) {
+  // Signals change 6 (B915, Addendum 7): a step that is no incident's fix, a step's drop, and anything else: refused.
+  for (const body of [{ action: 'note', to: 'main', text: ['x'] }, { action: 'new', title: 'x', activity: 'Work' }, { action: 'take', minutes: 30, id: 'B12' }, { action: 'block', id: 'B12', on: 'B13' }, { action: 'drop', id: 'B12', why: 'x' }, { action: 'refine', id: 'B12' }]) {
     assert.equal((await s.chat('Watcher', body)).status, 403, body.action)
   }
+  // Its judgment's gates are open: incident-fix (no X1 here: 404, not 403).
+  assert.equal((await s.chat('Watcher', { action: 'incident-fix', id: 'X1', fix: 'B12' })).status, 404)
+})
+
+// Signals change 6 (B915, Addendum 6 and 4b.4): the sweep's fallback key is gone; a finding names its own key and its rule
+// line; a key whose first word is a live rule's is refused with one line that says to file the rule's miss instead (X84
+// 'stale-checkpoint B726 none', 27 Oct: the rule had missed B726 for 20 h 52 min); a key the sweep filed before counts.
+test('the sweep\'s findings: a key and a rule line of their own; a live rule\'s key refused, with how to file its miss; a sweep key counts', async t => {
+  const s = await store(t)
+  const { SUPERVISOR_RULE_KEYS } = await import('../../src/supervisor/index.mjs')
+  const sweep = body => workApi({ chat: 'Watcher', action: 'incident', subject: 'B726', title: 'B726 in progress 20 h 52 min with no checkpoint', evidence: 'last checkpoint 20 h ago', rule: 'stale-checkpoint must count a sleep as running time', ...body }, { dir: s.dir, now: NOW, prefix: '', roleOf: chat => ROLES[chat] ?? null, ruleKeys: SUPERVISOR_RULE_KEYS })
+  assert.equal((await sweep({ key: '' })).status, 400, 'no fallback key')
+  assert.equal((await sweep({ key: 'checkpoint-quiet B726', rule: '' })).status, 400, 'no rule line')
+  const refused = await sweep({ key: 'stale-checkpoint B726 none' })
+  assert.equal(refused.status, 409)
+  assert.equal(refused.why, '"stale-checkpoint B726 none" is the rule stale-checkpoint\'s key: a code rule files it. If the rule missed it, file its miss under a key of your own, "rule-miss stale-checkpoint B726", with how the rule must change in "rule".')
+  for (const key of ['fix-dropped B472', 'rule-failed odd-effort', 'dropped-fix B9', 'handover-unanswered Digger 83c1a7be1feab83b']) assert.equal((await sweep({ key })).status, 409, key)
+  assert.equal((await s.incidents()).length, 0, 'nothing filed')
+  const miss = await sweep({ key: 'rule-miss stale-checkpoint B726' })
+  assert.equal(miss.ok, true, miss.why)
+  assert.deepEqual([miss.result.opened, (await sweep({ key: 'rule-miss stale-checkpoint B726' })).result.counted], [true, true], 'an existing sweep key counts as today (B571)')
 })
 
 // B584 (X29): the old case still standing after its fix only counts; a case newer than the fix, one with no since, or
 // the old case 2 h after the fix comes back.
-test('B584: a fixed incident seen again for its old case (since before the fix was done) stays fixed and counts, once said', async t => {
+// Signals change 6 (Addendum 3): a done fix step does not make the incident fixed while its key is still found: it stays in fix.
+test('B584: an incident whose fix step is done, seen again for its old case (since before the fix was done), stays in fix and counts, once said', async t => {
   const s = await store(t)
   const began = NOW - 30 * MIN
   await recordFindings([finding({ since: began })], { work: s.board })
-  await s.chat('Partner', { action: 'incident-fix', id: 'X1', fix: 'B12' })
+  await s.chat('Watcher', { action: 'incident-fix', id: 'X1', fix: 'B12' })
   s.tick(10)
   await s.person({ action: 'tick', id: 'B12' })
   await s.board({ action: 'incidents-fixed' })
@@ -241,12 +268,12 @@ test('B584: a fixed incident seen again for its old case (since before the fix w
   const seen = await recordFindings([finding({ since: began })], { work: s.board })
   assert.deepEqual(seen, { opened: [], returned: [], counted: ['X1'], failed: [] })
   let x1 = await s.item('X1')
-  assert.deepEqual([head(x1, 'State'), head(x1, 'Count')], ['fixed', '2'])
+  assert.deepEqual([head(x1, 'State'), head(x1, 'Count')], ['fix', '2'])
   assert.match(x1.sections.get('History').at(-1), /server: old case still standing \(began 08:30, before B12 was done at 09:10\)$/)
   s.tick(3)
   await recordFindings([finding({ since: began })], { work: s.board })
   x1 = await s.item('X1')
-  assert.deepEqual([head(x1, 'State'), head(x1, 'Count')], ['fixed', '3'])
+  assert.deepEqual([head(x1, 'State'), head(x1, 'Count')], ['fix', '3'])
   assert.equal(x1.sections.get('History').filter(entry => /old case still standing/.test(entry)).length, 1, 'said once')
 })
 
@@ -254,7 +281,7 @@ test('B584: it comes back for a case that began after the fix, for a finding wit
   const fixedOne = async t => {
     const s = await store(t)
     await recordFindings([finding({ since: NOW - 30 * MIN })], { work: s.board })
-    await s.chat('Partner', { action: 'incident-fix', id: 'X1', fix: 'B12' })
+    await s.chat('Watcher', { action: 'incident-fix', id: 'X1', fix: 'B12' })
     s.tick(10)
     await s.person({ action: 'tick', id: 'B12' })
     await s.board({ action: 'incidents-fixed' })

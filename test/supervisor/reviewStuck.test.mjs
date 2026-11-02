@@ -14,7 +14,7 @@ import { fileURLToPath } from 'node:url'
 import { SUPERVISOR_DEFAULTS } from '../../src/config.mjs'
 import { buildView } from '../../src/supervisor/view.mjs'
 import { WATCH_RULES } from '../../src/supervisor/rules/watch.mjs'
-import { findStuck } from '../../src/supervisor/rules/repair.mjs'
+import { REPAIR_RULES, findStuck } from '../../src/supervisor/rules/repair.mjs'
 import { reviewWaitOf } from '../../src/work/resultCheck.mjs'
 import { stamp } from '../../src/work/migrate.mjs'
 import { workApi } from '../../src/work/api.mjs'
@@ -211,9 +211,8 @@ test('B665 (X70, X71): a dropped fix is counted from when the block on the step 
   const found = dropWatch(later(store(1), 31))
   assert.deepEqual(found.map(one => [one.rule, one.subject]), [['dropped-fix', 'B608']])
   assert.match(found[0].evidence, /the block by B651 ended at \d\d:\d\d/)
-  // The repair that tells the main chat counts the same way.
-  assert.deepEqual(findStuck({ items: store(1), lanes: [LEAD], partner: PARTNER, now: NOW }).filter(one => one.check === 'fix-dropped'), [])
-  assert.equal(findStuck({ items: store(1), lanes: [LEAD], partner: PARTNER, now: NOW + 31 * MIN }).filter(one => one.check === 'fix-dropped').length, 1)
+  // Signals change 6 (Addendum 4): the repair that told the main chat is retired: one watcher per condition, no note to Main.
+  assert.deepEqual(findStuck({ items: store(1), lanes: [LEAD], partner: PARTNER, now: NOW + 31 * MIN }).filter(one => one.check === 'fix-dropped'), [])
   // A step done counts as a block that ended too; two blockers: the last to leave counts.
   assert.deepEqual(dropWatch(view(store(1, 284, 'done'))), [])
   const two = items(reviewed('B608', 4000, [failed(1200, 'B612')], { 'Blocked by': 'B651', 'Waits for': 'after B652' }), fixStep('B612', 'B608', 'dropped', 284), left('B651', 'dropped', 100), left('B652', 'dropped', 5))
@@ -227,13 +226,15 @@ test('B665 (X70, X71): a dropped fix is counted from when the block on the step 
   assert.equal(dropWatch(view(items(reviewed('B608', 4000, [failed(1200, 'B612')]), fixStep('B612', 'B608', 'dropped', 45)))).length, 1)
 })
 
-test('fix-dropped: the main chat gets one word, close it or check it again, half an hour after the drop', () => {
+// Signals change 6 (B915, Addendum 4; X116: 31 Oct 12:54 B821's dropped fix B854 gave X116 and the note N1259 to Main): one
+// watcher per condition. The repair fix-dropped is retired: no word to the main chat; the watch rule dropped-fix files it once.
+test('X116: a dropped fix gives one finding (the watch rule dropped-fix) and no word to the main chat', () => {
   const store = minutes => items(reviewed('B472', 4000, [failed(1200, 'B485')]), fixStep('B485', 'B472', 'dropped', minutes))
-  const found = repairs(store(45))
-  assert.deepEqual(found.map(one => [one.key, one.subject, one.fix.do]), [['fix-dropped B472 B485', 'B472', 'send']])
-  assert.match(found[0].fix.text, /^B472 waits in review, but its fix B485 was dropped: close it .*or have it checked again/)
-  assert.deepEqual(repairs(store(10)), [])
-  assert.deepEqual(repairs(store(45), { pause: { state: 'pausing', since: stamp(ago(5)) } }), [])
+  assert.deepEqual(repairs(store(45)), [])
+  assert.deepEqual(REPAIR_RULES.filter(one => one.id === 'fix-dropped'), [])
+  const found = dropWatch(view(store(45)))
+  assert.deepEqual(found.map(one => [one.rule, one.key, one.subject]), [['dropped-fix', 'fix-dropped B472', 'B472']])
+  assert.deepEqual(dropWatch(view(store(10))), [])
 })
 
 test('the Backlog line says what a step in review waits for: on the Backlog tab and in the work tool list', async t => {
@@ -257,4 +258,24 @@ test('the Backlog line says what a step in review waits for: on the Backlog tab 
   const listed = await workApi({ action: 'list', chat: 'Lead' }, { dir, now: NOW, roleOf: () => 'main' })
   assert.match(listed.result.text, /^B7 · step · review \(waits for its fix B8\) · Painter/m)
   assert.match(listed.result.text, /^B8 · step · queued · Painter/m)
+})
+
+// The review of change 6 (2026-11-02, 2a): a step in review late only because the fix it waits for is late (no rule judges
+// that wait) takes the fix's owner on its health line: a fix past its age is info, a fix whose owner left the list
+// owner-gone's; only a loop of waits stays unowned (the sweep's to read).
+test('change 6: the owner of a review line late by its fix: the fix past its age is info, its owner gone is owner-gone, a loop is unowned', async () => {
+  const { oddLines } = await import('../../src/supervisor/health.mjs')
+  const lanes = [LEAD, { name: 'Painter', isMain: false, isLeftover: false, state: 'working', isRunning: true }]
+  const ownerOf = (store, id) => {
+    const board = buildView({ state: { chats: lanes, today: [], limits: {}, pause: null, chatPrefix: '' }, items: store, outbox: [], settings: {}, now: NOW })
+    return oddLines(board, NOW).find(one => one.text.startsWith(`${id} review`))?.owner
+  }
+  const late = items(reviewed('B7', 300, [failed(290, 'B8')]), fixStep('B8', 'B7', 'queued', 150))
+  assert.equal(reviewWaitOf(late.get('B7'), late).kind, 'fix')
+  assert.equal(ownerOf(late, 'B7'), 'info')
+  const gone = items(reviewed('B7', 300, [failed(290, 'B8')]), item({ ...Object.fromEntries(fixStep('B8', 'B7', 'queued', 20).head), Owner: 'Ghost' }))
+  assert.equal(ownerOf(gone, 'B7'), 'owner-gone')
+  const loop = items(reviewed('B7', 300, [failed(290, 'B8')], { 'Fix of': 'B8' }), reviewed('B8', 280, [failed(270, 'B7')], { 'Fix of': 'B7' }))
+  assert.deepEqual([reviewWaitOf(loop.get('B7'), loop)?.kind, reviewWaitOf(loop.get('B8'), loop)?.kind], ['fix', 'fix'])
+  assert.equal(ownerOf(loop, 'B7') ?? null, null)
 })
