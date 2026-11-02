@@ -5538,6 +5538,8 @@ const CLICK_ACTS = {
     obsoleteUi.set.set(box.dataset.obsoleteTick, box.checked)
     redrawNeeds()
   },
+  // T20: Undo on the "Autopilot cleared" line takes back what the switch-on cleared or moved into the recap.
+  'autopilot-undo': () => sendWork({ action: 'autopilot-undo' }, 'autopilot:undo'),
   // B466: "Decided for you by your partner" opens and closes; the page remembers it.
   'decided': () => {
     decidedUi.isOpen = !decidedUi.isOpen
@@ -5798,6 +5800,42 @@ function drawObsolete(state) {
 }
 // obsolete:end
 
+/**
+ * T20: the Product owner's recap card, the first card of Needs your attention while verdicts wait (recapAttentionView): its tag
+ * and the goal's words in the attention colour, the card's line, and one link that opens the recap. No button that closes it.
+ */
+function drawRecapAttention(view) {
+  const card = el('article', 'need is-recap-ready')
+  card.dataset.recapReady = view.goal ?? ''
+  card.setAttribute('aria-label', view.heading)
+  const top = el('header', 'need-top')
+  top.append(el('span', 'kind', '★'), el('b', '', 'Product owner'), el('span', 'tag', 'Your recap'))
+  card.append(top, el('h4', '', view.heading), el('p', '', view.line))
+  if (view.open !== null) {
+    const open = targetLink(view.open.target, 'recap-attention-open', view.open.label)
+    open.title = view.open.target?.path !== undefined ? 'Open the recap: approve each part, or send it back with a note' : `Open ${view.open.target?.step ?? view.open.target?.ask}: the card or question that waits for you stands there`
+    card.append(open)
+  }
+  return card
+}
+
+/**
+ * T20: the dashed "Autopilot cleared" line (clearedLineView) with its Undo, which asks the board to take every item back
+ * (`autopilot-undo`). A press shows at once ("Undoing…", greyed); a refusal says why under the line.
+ */
+function drawClearedLine(view) {
+  const line = el('div', 'autopilot-cleared')
+  line.title = view.title
+  const undo = el('button', 'link-button autopilot-undo', sending.has('autopilot:undo') ? 'Undoing…' : 'Undo')
+  undo.type = 'button'
+  undo.dataset.autopilotUndo = ''
+  undo.disabled = sending.has('autopilot:undo')
+  undo.title = 'Takes back what Autopilot cleared: the closed items open again, the ones moved into your recap come back here'
+  line.append(el('span', 'autopilot-cleared-words', view.words), undo)
+  if (problems.has('autopilot:undo')) line.append(el('p', 'problem', problems.get('autopilot:undo')))
+  return line
+}
+
 function drawNeeds(state) {
   const box = $('needs')
   const focused = focusedNeed(box)
@@ -5818,7 +5856,10 @@ function drawNeeds(state) {
   // B258: an answer to an ask on the goal map waits to be read, and counts.
   // B287: the refine questions count once per step, as their lines stand.
   // Calm panel: the missed lines count too; the log's notes and open instructions never do.
-  const unanswered = cardsOpen.filter(need => !isAnswered(need)).length + lines.length + (state.goalAskNeeds ?? []).length + (state.brainstormNeeds ?? []).length + missed.length
+  // T20: the Product owner's recap card counts as one while verdicts wait.
+  const recapAttention = recapAttentionView(state.recapCard ?? null, state.focusGoal ?? null)
+  const cleared = clearedLineView(state.autopilotCleared ?? null, state.readAt)
+  const unanswered = cardsOpen.filter(need => !isAnswered(need)).length + lines.length + (state.goalAskNeeds ?? []).length + (state.brainstormNeeds ?? []).length + missed.length + (recapAttention === null ? 0 : 1)
   $('needs-count').textContent = unanswered === 0 ? '' : String(unanswered)
   drawWaits(unanswered, cardsOpen.filter(need => !isAnswered(need)).map(need => ({ id: need.id, from: need.from ?? null, title: need.title })))
   // Focus 4: the partner's questions first, under "From your partner"; the rest as before.
@@ -5828,10 +5869,13 @@ function drawNeeds(state) {
   // B300: a blocking ask that waited too long stands first, above the refine lines too.
   const oldCards = rest.filter(need => need.isOld === true).map(need => drawNeed(need, state))
   const cards = rest.filter(need => need.isOld !== true).map(need => drawNeed(need, state))
-  const none = cardsOpen.length > 0 || lines.length > 0 || missed.length > 0 || wakeNoticeText(state.wakeNotice) !== null || (state.goalAskNeeds ?? []).length > 0 || (state.brainstormNeeds ?? []).length > 0 ? null : el('p', 'empty', answered > 0 && !showsClosed() ? `Nothing waits for you. ${answered} answered, hidden.` : 'Nothing waits for you.')
+  const none = cardsOpen.length > 0 || lines.length > 0 || missed.length > 0 || recapAttention !== null || wakeNoticeText(state.wakeNotice) !== null || (state.goalAskNeeds ?? []).length > 0 || (state.brainstormNeeds ?? []).length > 0 ? null : el('p', 'empty', answered > 0 && !showsClosed() ? `Nothing waits for you. ${answered} answered, hidden.` : 'Nothing waits for you.')
   // B360: the recaps of finished work, as information after what asks for an answer.
   const recaps = shownRecaps(state, showsClosed()).map(recap => drawRecap(recap, state))
   fill(box, [none, drawObsolete(state), drawPartnerNeeds(partnerCards, partner.filter(need => !isClosed(need) && !isAnswered(need)).length), drawMissed(missed), drawSupervisorLine(supervised), drawGoalAskNeeds(state), drawBrainstormNeeds(state), ...oldCards, drawRefineNeeds(state), ...cards, drawWithPartner(state), drawDecidedForYou(state), ...recaps])
+  // T20: the Product owner's recap card is the first card, the dashed "Autopilot cleared" line right under it.
+  const firstCards = [recapAttention === null ? null : drawRecapAttention(recapAttention), cleared === null ? null : drawClearedLine(cleared)].filter(one => one !== null)
+  if (firstCards.length > 0) box.prepend(...firstCards)
   // Signals change 4: the one wake notice on top of the panel, in the attention colour.
   const nobodyLines = [drawWakeNotice(state.wakeNotice)].filter(line => line !== null)
   // Autopilot (2026-10-31): its one quiet line on top, under the wake lines, which always stay (the board's own cards).
@@ -5897,6 +5941,10 @@ function needsView(state, ui) {
     partnerDecided: state.partnerDecided ?? [],
     // B775: the obsolete check (its rows come with the ticks in `ui`).
     obsolete: state.obsolete ?? null,
+    // T20: the Product owner's recap card (the focus goal's recap while verdicts wait, src/recapCard.mjs) and what Autopilot cleared at switch-on.
+    recapCard: state.recapCard == null ? null : { goal: state.recapCard.goal ?? null, open: state.recapCard.open ?? null, count: state.recapCard.count ?? 0, isBuilt: state.recapCard.isBuilt === true },
+    focusGoal: state.focus == null ? null : { id: state.focus.id ?? null, title: state.focus.title ?? null },
+    autopilotCleared: state.autopilotCleared ?? null,
     // B541: the card of chats on an older Workers mod says how the pause stands.
     pause: { state: state.pause?.state ?? null },
     ui,
@@ -14355,6 +14403,7 @@ function focusDayWords(stamp) {
 // recap; "Waiting, nobody on it now" stays for work that waits for another task.
 const FOCUS_CHIPS = { done: 'Done', now: 'In progress', next: 'Next', ready: 'On the list for a worker', refining: 'Waiting for its refine, then it goes on the list', stopped: 'Stopped, nothing reached', waiting: 'Waiting, nobody on it now', stuck: 'Stuck: its fix stopped', verdict: 'Waits for your verdict →' }
 
+// recapready:start
 /** The recap card shows this many tiles at most, in one row: the person's "never more then 1 row" (src/recapCard.mjs MOST_TILES). */
 const RECAP_TILES = 3
 
@@ -14384,6 +14433,62 @@ function recapReadyView(card) {
     outside: card.outside ?? [],
   }
 }
+
+/**
+ * T20 (the person, 2026-11-02: "I also miss that the product owner should give me a ping that the current goal needs to be
+ * evaluated. there should be no close/done button for that just a link"; the mock `autopilot-attention/mock.png`, "Yes, both"):
+ * the Product owner's card in Needs your attention while verdicts wait: the goal's id and title with the recap card's own words
+ * (recapReadyView), and ONE link that opens the recap. No Done, no close: it goes by itself once no verdict waits. `goal` is the
+ * focus goal `{ id, title }` of the state (the card knows only its id). Null while no verdict waits; `open` null while the card
+ * has nowhere to open (never a dead arrow).
+ */
+function recapAttentionView(card, goal = null) {
+  const ready = recapReadyView(card)
+  if (ready === null) return null
+  const id = typeof card.goal === 'string' && card.goal !== '' ? card.goal : goal?.id ?? null
+  const title = id !== null && goal?.id === id && typeof goal.title === 'string' ? goal.title.trim() : ''
+  const name = [id, title].filter(part => part !== null && part !== '').join(' · ')
+  return {
+    goal: id,
+    count: card.count,
+    heading: name === '' ? ready.title : `${name}: ${ready.title.charAt(0).toLowerCase()}${ready.title.slice(1)}`,
+    line: ready.line,
+    open: ready.open.target === null ? null : { label: `${ready.open.label} →`, target: ready.open.target },
+  }
+}
+
+/** T20: how long the "Autopilot cleared" line stays (the plan: 24 hours), and how many of the cleared items it names before "and N more". */
+const CLEARED_SHOWN_MS = 24 * 60 * 60_000
+const CLEARED_NAMED = 3
+
+/**
+ * T20 (the person, 2026-11-02: "if autopilot is turned on, the outstanding, needing for attentions get reevaluated and possible
+ * resolved if autopilot would answer them"): the one quiet line under the recap card that says what Autopilot cleared or moved
+ * into the recap at switch-on, from the state's `autopilotCleared` (`{ at, items: [{ id, title, how, why }], undoneAt }`): each
+ * item's title and why cut short, the first CLEARED_NAMED named. Null when there is nothing to say: no items, undone already, or
+ * older than 24 hours (`now` is the board's reading time). `title` holds every item in full for the line's tooltip.
+ */
+function clearedLineView(cleared, now) {
+  if (cleared === null || cleared === undefined || (cleared.undoneAt ?? null) !== null || !Number.isFinite(cleared.at)) return null
+  const items = (Array.isArray(cleared.items) ? cleared.items : []).filter(one => one !== null && typeof one === 'object')
+  if (items.length === 0) return null
+  if ((Number.isFinite(now) ? now : Date.now()) - cleared.at >= CLEARED_SHOWN_MS) return null
+  const oneLine = text => String(text ?? '').replace(/\s+/g, ' ').trim()
+  // Quiet words for a close the Advisor judged obsolete, and for a move into the recap; "obsolete: " is said once.
+  const whyOf = (one, most) => {
+    const why = oneLine(one.why)
+    if (one.how === 'closed') return why === '' ? 'obsolete' : /^obsolete\b/i.test(why) ? cutWords(why, most) : `obsolete: ${cutWords(why, most)}`
+    return why === '' ? 'moved into your recap' : cutWords(why, most)
+  }
+  const named = items.slice(0, CLEARED_NAMED).map(one => `"${cutWords(oneLine(one.title) || oneLine(one.id), 40)}" (${whyOf(one, 40)})`)
+  const more = items.length - named.length
+  return {
+    count: items.length,
+    words: `✓ Autopilot cleared ${items.length}: ${named.join(' · ')}${more > 0 ? ` · and ${more} more` : ''}`,
+    title: items.map(one => `${oneLine(one.id)} ${oneLine(one.title)} (${whyOf(one, 160)})`.trim()).join('\n'),
+  }
+}
+// recapready:end
 
 /**
  * Work blocks (the person, 2026-10-31: "the done when will only show the unfinished workblocks ... filtered once per

@@ -109,7 +109,7 @@ import { followRenames } from './src/work/rename.mjs'
 import { standardHold } from './src/work/standardHold.mjs'
 import { itemsOf, storeKeeper } from './src/work/read.mjs'
 import { requestKeeper } from './src/work/requests.mjs'
-import { readObsoleteFile, readStore } from './src/work/store.mjs'
+import { readAutopilotClearedFile, readObsoleteFile, readStore } from './src/work/store.mjs'
 import { obsoleteView, openItemsOf } from './src/work/obsolete.mjs'
 import { obsoleteEvidence } from './src/work/obsoleteEvidence.mjs'
 import { giveBackHeld, stoppedChats, takeFor } from './src/work/outboxSweep.mjs'
@@ -1108,11 +1108,13 @@ async function main(args) {
   /**
    * Autopilot (2026-10-31, src/work/autopilot.mjs): the board's pass over the asks (the work API's `autopilot`), then what it
    * names: the chats an answer wakes, the Advisor's refine word for a step whose questions it answered or sent back (as the
-   * page's "Take the advice" does), and the main chat's word for each ask routed to it.
+   * page's "Take the advice" does), and the main chat's word for each ask routed to it. `sweep` (the switch-on only, 2026-11-02):
+   * the pass also judges the asks it routed to the person anew and keeps what it moved into the recap for the Undo (work API
+   * `autopilot`); answers the pass's result.
    */
-  const autopilotNow = async state => {
-    if (workDir === null || isShowOnly) return
-    const done = await workAction({ action: 'autopilot', on: config.autopilot === true }, 'server')
+  const autopilotNow = async (state, { sweep = false } = {}) => {
+    if (workDir === null || isShowOnly) return undefined
+    const done = await workAction({ action: 'autopilot', on: config.autopilot === true, ...(sweep ? { sweep: true } : {}) }, 'server')
     if (!done.ok) throw new Error(done.why ?? 'autopilot was refused')
     for (const wake of done.result.wakes ?? []) await sendWakes({ ok: true, result: { wake } })
     const advisor = state.advisor?.name ?? null
@@ -1120,6 +1122,7 @@ async function main(args) {
       if (advisor !== null && sayNow !== null) await sayNow({ to: advisor, command: 'refine', step: one.step })
     }
     await mainAsksNow(await readState(), done.result.mainAsks ?? [])
+    return done
   }
   /**
    * Autopilot: the main chat is woken for an ask routed to it as the partner is for one routed to it: the work line through
@@ -1186,7 +1189,7 @@ async function main(args) {
       // their verdict first, and its chat is told.
       if (workDir !== null) {
         const parts = checked.parts.map(part => ({ ...part, steps: rowsOfDemo(found.base).find(row => row.key === part.key)?.steps ?? [], title: rowsOfDemo(found.base).find(row => row.key === part.key)?.title ?? '' }))
-        const answered = await workAction({ action: 'recap-answered', goal: found.base.goal, round: checked.round, parts }, 'server')
+        const answered = await workAction({ action: 'recap-answered', goal: found.base.goal, round: checked.round, path: body.path, parts }, 'server')
         for (const wake of answered.ok ? answered.result.wakes ?? [] : []) await sendWakes({ ok: true, result: { wake } })
       }
       if (workDir !== null) {
@@ -1230,11 +1233,11 @@ async function main(args) {
    * types one word to the partner (`obsolete-check`: the ids; the partner reads the evidence with `work obsolete`). A partner
    * not running is woken as for any word to it; a board with no partner chat refuses before the check is written.
    */
-  const obsoleteStart = async () => {
+  const obsoleteStart = async ({ by = null } = {}) => {
     const state = await readState()
     const partner = state.advisor ?? null
     if (partner === null) return { ok: false, status: 409, why: 'No partner chat is on the board: the setting advisor names none.' }
-    const done = await workAction({ action: 'obsolete-check' }, 'person')
+    const done = await workAction({ action: 'obsolete-check', ...(by === null ? {} : { by }) }, 'person')
     if (!done.ok || done.result.obsoleteCheck === undefined) return done
     return toPartner(obsoleteWords(partner.name, { ids: done.result.obsoleteCheck.ids, job: join(HERE, 'roles', 'partner.md') }), done.result, state)
   }
@@ -1246,6 +1249,14 @@ async function main(args) {
     const view = obsoleteView((await readObsoleteFile(workDir)).record, { now: clock(), openCount: open.length, openIds: open })
     const why = isShowOnly ? `This board only shows. Do this on the board that delivers: http://${HOST}:${recordingPort}/` : (state.advisor ?? null) === null ? 'No partner chat is on the board to judge the items.' : null
     return { ...view, canCheck: why === null, whyNot: why }
+  }
+  /**
+   * What Autopilot cleared when the person switched it on (src/work/autopilotCleared.mjs): the record as the page draws it
+   * ("Autopilot cleared N", with an Undo), null where there is none, and on a board that only shows (it clears nothing there).
+   */
+  const autopilotClearedNow = async () => {
+    if (workDir === null || isDemo || isShowOnly) return null
+    return (await readAutopilotClearedFile(workDir)).record
   }
   /**
    * Focus 3 (spec 2026-10-18, sections 5 and 6): the person's Undo of a line the partner decided for them, from the Focus
@@ -2294,7 +2305,7 @@ async function main(args) {
       // The Product owner (2026-10-31): the talk partner as the page draws it, the Advisor with its whole queue when it is the one.
       const talkPartner = talkPartnerOf({ ...state, advisor })
       // Light state (2026-10-31): the finished steps go light to the page (src/state.mjs lightState); `step` gives one whole.
-      return lightState({ ...state, advisor, talkPartner, forYou: oldMods === null ? state.forYou : [oldMods, ...(state.forYou ?? [])], design, bugs, goalsEdit, cpu: cpu?.view() ?? null, loops: { failing: loops.failing(), line: failingLine(loops.failing(), timeOf) }, supervisor: supervised ?? (isDemo ? demoSupervisor(clock(), SUPERVISOR_RULES, incidentCards) : null), boardSettings: boardSettingsNow(), obsolete: await obsoleteNow(state), version: { commit: running, since: startedAt, ...(await versionNow()), canRestart, selfUpdate: updateShown },
+      return lightState({ ...state, advisor, talkPartner, forYou: oldMods === null ? state.forYou : [oldMods, ...(state.forYou ?? [])], design, bugs, goalsEdit, cpu: cpu?.view() ?? null, loops: { failing: loops.failing(), line: failingLine(loops.failing(), timeOf) }, supervisor: supervised ?? (isDemo ? demoSupervisor(clock(), SUPERVISOR_RULES, incidentCards) : null), boardSettings: boardSettingsNow(), obsolete: await obsoleteNow(state), autopilotCleared: await autopilotClearedNow(), version: { commit: running, since: startedAt, ...(await versionNow()), canRestart, selfUpdate: updateShown },
         // Signals change 1: the board's own clock, its work loop's last run, a restart on its way, and why it was off.
         board: boardView({ now: clock(), startedAt, aliveAt: store.aliveAt?.() ?? null, leaving, waiting: updateShown?.state === 'waiting' ? updateShown : null, lastStop: lastStopOf(store.startedGap ?? null, startedAt) }), mod: await modNow(),
         // B320: where the New project button suggests a new project's folder, and whether this board makes one.
@@ -2378,7 +2389,14 @@ async function main(args) {
       else config[checked.key] = checked.value
       readState.reset()
       // Autopilot (2026-10-31): switched on, the open asks are routed at once; switched off, nothing is routed back by itself.
-      if (checked.key === 'autopilot' && checked.value === true && workDir !== null && !isShowOnly) await loops.run('autopilot', async () => autopilotNow(await readState()))
+      // 2026-11-02 (the person: "if autopilot is turned on, the outstanding, needing for attentions get reevaluated and possible
+      // resolved if autopilot would answer them"): the pass also judges anew what it routed to the person before (`sweep`), then
+      // the Advisor is asked for what is obsolete among what still stands for the person (the check `by: 'autopilot'`, in the
+      // background: the switch answers at once; a check running already, no partner chat or nothing open is skipped quietly).
+      if (checked.key === 'autopilot' && checked.value === true && workDir !== null && !isShowOnly) {
+        await loops.run('autopilot', async () => autopilotNow(await readState(), { sweep: true }))
+        void loops.run('autopilot', async () => { await obsoleteStart({ by: 'autopilot' }) })
+      }
       return { ok: true, result: boardSettingsNow() }
     }),
     // Spec 2026-11-01, part A: the Settings tab's providers. `verify` runs a provider's check and keeps it; `use` switches a kind

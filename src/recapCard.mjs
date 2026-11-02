@@ -11,7 +11,7 @@ import { join } from 'node:path'
 
 import { parseGoals } from './goals.mjs'
 import { readDemo, shownFolders, shownRoots } from './pictures.mjs'
-import { standsForPerson } from './work/autopilot.mjs'
+import { linksRecap, standsForPerson } from './work/autopilot.mjs'
 import { valueOf } from './work/item.mjs'
 import { checkedOf } from './work/resultCheck.mjs'
 import { standardOf } from './work/standard.mjs'
@@ -147,7 +147,7 @@ export function wholeGoalAskOf(standing, goal, recapPath) {
     if (ask.of !== null && ask.of !== goal) return false
     if (!['do', 'look', 'decide'].includes(ask.asks)) return false
     const words = `${ask.title} ${ask.text}`
-    return (recapPath !== null && words.includes(`demo=${recapPath}`)) || (ask.of === goal && /\bopen the recap\b|\bplay it\b/i.test(ask.title))
+    return linksRecap(words, recapPath) || (ask.of === goal && /\bopen the recap\b|\bplay it\b/i.test(ask.title))
   }) ?? null
 }
 
@@ -156,7 +156,9 @@ export function wholeGoalAskOf(standing, goal, recapPath) {
  * none), `waits` where each step a recap part names stands with the person (src/recaps.mjs `recapWaitsOf`), `pictures` the file's
  * tile pictures by part key, `steps` the store's steps by id, `blocks` the goal's work blocks (the state's `parts`: each with its
  * `state` and its steps' `waitsForVerdict`/`verdictAt`), `standing` `standingAsksOf`, `openChecks` `openChecksOf`, `asked` the asks
- * routed to the recap that count (Autopilot on only: `routedAwayOf`'s recap asks).
+ * routed to the recap that count (Autopilot on only: `routedAwayOf`'s recap asks). One of them with no step whose words link the
+ * recap file is the goal's own ask (2026-11-02, Autopilot moved "Open the recap and try it" into the recap): the first of them
+ * makes the "play it" tile like a standing one; every further one is an ask outside the card, listed under it.
  *
  * `{ goal, open, count, isBuilt, tiles, outside }`. Count: the recap parts waiting (rows that name steps; a part with a step still
  * being checked is no verdict yet; a part with a step of an open recap ask counts too; each part once) plus the work blocks whose
@@ -176,7 +178,10 @@ export function recapCardOf({ goal, recapPath = null, waits = [], pictures = {},
   }
   const covered = new Set()
   const outside = []
+  // The goal's own ask: the first standing one, else the first routed to the recap (it has no step); only that one is a tile.
+  const whole = wholeGoalAskOf([...standing, ...(Array.isArray(asked) ? asked : []).filter(ask => ask.of === null).map(ask => ({ ...ask, asks: ask.asks ?? 'do' }))], goal, recapPath)
   for (const ask of Array.isArray(asked) ? asked : []) {
+    if (whole !== null && ask.id === whole.id) continue
     const part = [...parts.values()].find(one => one.steps.includes(ask.of))
     if (part === undefined) outside.push(ask.id)
     else part.isAsked = true
@@ -199,7 +204,6 @@ export function recapCardOf({ goal, recapPath = null, waits = [], pictures = {},
     tiles.push({ title: block.title, line: lineOf(ids), picture: ask?.pictures[0] ?? evidence, target: { step: ids[0] } })
   }
   // The goal's own ask: open the recap and play it.
-  const whole = wholeGoalAskOf(standing, goal, recapPath)
   if (whole !== null) tiles.push({ title: 'The whole goal: play it', line: `is ${goal} reached?`, picture: whole.pictures[0] ?? null, target: recapPath !== null ? { path: recapPath } : { ask: whole.id } })
   if (tiles.length === 0) return null
   for (const ask of Array.isArray(asked) ? asked : []) if (outside.includes(ask.id) && covered.has(ask.of)) outside.splice(outside.indexOf(ask.id), 1)

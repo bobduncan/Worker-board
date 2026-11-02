@@ -2412,7 +2412,7 @@ function builtState(raw, { lines = [], outbox = [], runs = [], board = null, see
     recapCard: focus === null ? null : recapCardOf({
       goal: focus.id, recapPath: raw.goalRecap?.goal === focus.id ? raw.goalRecap.path : null, waits: recapWaits, pictures: raw.goalRecap?.goal === focus.id ? raw.goalRecap.pictures : {},
       steps: new Map(itemsOf(raw.work).filter(one => one.head.get('Kind') === 'step').map(one => [one.head.get('Id'), one])), blocks: focus.parts,
-      standing: standingNow, openChecks: openChecksOf(new Map(itemsOf(raw.work).map(one => [one.head.get('Id'), one]))), asked: config.autopilot === true ? routedAway.filter(one => one.route === 'recap' && one.goal === focus.id) : [],
+      standing: standingNow, openChecks: openChecksOf(new Map(itemsOf(raw.work).map(one => [one.head.get('Id'), one]))), asked: config.autopilot === true ? routedAway.filter(one => one.route === 'recap' && (one.goal === focus.id || one.of === null)) : [],
     }),
     // B296, B301: the work store: its folder, how many items, its problems, and why it cannot be read (`why`).
     store: shown.store,
