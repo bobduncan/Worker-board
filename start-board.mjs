@@ -11,7 +11,7 @@
 // that makes config.json) has its words printed here, and this ends with 1.
 
 import { spawn } from 'node:child_process'
-import { mkdirSync, openSync, readFileSync, statSync } from 'node:fs'
+import { closeSync, mkdirSync, openSync, readFileSync, statSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -87,6 +87,8 @@ async function main(args) {
   }
   const log = openSync(logFile, 'a')
   const child = spawn(process.execPath, [join(HERE, 'server.mjs'), ...passed], { cwd: HERE, env: startEnv(process.env), detached: true, stdio: ['ignore', log, log], windowsHide: true })
+  // The child has its own copy of the log's descriptor: this one is closed, so nothing of it is left open at the end.
+  closeSync(log)
   let ended = null
   child.on('exit', code => { ended = code ?? 1 })
   const until = Date.now() + WAIT_MS
@@ -108,4 +110,12 @@ async function main(args) {
   return 1
 }
 
-if (process.argv[1] !== undefined && fileURLToPath(import.meta.url) === resolve(process.argv[1])) process.exit(await main(process.argv.slice(2)))
+if (process.argv[1] !== undefined && fileURLToPath(import.meta.url) === resolve(process.argv[1])) {
+  // 2026-11-02 (the gate's flake since change 5: "Assertion failed: !(handle->flags & UV_HANDLE_CLOSING), file src\win\async.c",
+  // exit 0xC0000409, once in a few runs of start-board's tests): `process.exit` right after `child.unref()` ended the
+  // process while libuv still closed the detached child's handle on Windows. The code is set and the loop drains by itself
+  // (the child is unref'd, the log fd closed); a hard exit comes only when something keeps the loop alive a second longer.
+  const code = await main(process.argv.slice(2))
+  process.exitCode = code
+  setTimeout(() => process.exit(code), 1000).unref()
+}
