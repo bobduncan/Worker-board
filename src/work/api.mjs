@@ -44,6 +44,7 @@ import { NOTE_LINE, PARTNER_ANSWER_MS, isDecidedForYou, isRoutedToPartner, route
 import { RECAP_GOES_ON, REFINE_BACK_WORDS, SENT_BACK, TOOK_ADVICE, adviceAnswerOf, autopilotRoute, dropsStep, isAutopilotRouted, isExplicitPerson, recapGoneWords, recapVerdictWords, refineAdviceOf, routedAt, routedWords } from './autopilot.mjs'
 import { HELD, checkpointLine, isHolding, pauseAnswer, pauseFacts } from './pause.mjs'
 import { nextPlan, planMinutes, planOf, planText } from './stepPlan.mjs'
+import { takenForLine } from './held.mjs'
 import { RETIRED_WATCH_RULES, TIMED_STATES, continuationOf, givenBackRefusal, goOnWords, retiredWords } from './holderTimers.mjs'
 import { ACTIVE, parkWords, parkedAfter, workingOnOther } from './parked.mjs'
 import { routingAction, ROUTING_ACTIONS, ROUTING_READS } from './routing/api.mjs'
@@ -613,7 +614,8 @@ async function take(body, w) {
   const minutes = planMinutes(body.minutes)
   if (!(state === 'in progress' && owner === null) && minutes === null) return refuse(400, `${id}: say how long it takes: "minutes" is the time left for the whole step (1 to 1440), e.g. work take ${id} minutes 45.`)
   if (state === 'in progress' && owner === null) {
-    const claimed = ordered(said(put(copy(item), 'Owner', w.who), w, 'claimed (in progress)'))
+    // Signals change 7 (B914): a claim that names its minutes keeps them as the take's fixed record too.
+    const claimed = ordered(said(put(put(copy(item), 'Owner', w.who), 'Taken for', minutes === null ? null : takenForLine(minutes)), w, 'claimed (in progress)'))
     const done = await save(claimed, found.text, w)
     return done.ok ? changed(claimed, undefined, { title: valueOf(claimed, 'Title') }) : done
   }
@@ -637,6 +639,9 @@ async function take(body, w) {
   // Signals change 3: a continuation (a step the board gave back, taken anew) keeps its plan, on the part it stood on.
   const kept = continuationOf(found.item) === null ? null : planOf(started.item)
   item = put(copy(clearedAtTake(started.item, w)), 'Plan', null)
+  // Signals change 7 (B914, 2026-11-02): the take's minutes as a fixed record (`Taken for`), the size of a step without a
+  // refine Size; nothing later overwrites it (`work step minutes` moves the Plan's `until` only). A continuation writes it anew.
+  put(item, 'Taken for', takenForLine(minutes))
   const timed = nextPlan(kept, { minutes, step: kept?.on ?? null }, w.now)
   if (timed !== null) put(item, 'Plan', planText(timed))
   const branch = line(body.branch, 120)
