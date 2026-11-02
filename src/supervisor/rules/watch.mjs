@@ -1066,7 +1066,10 @@ function handoverHeld(view, ctx) {
     const failed = envelopesOf(view.outbox, lane.name, view.prefix).filter(one => one.state === 'failed').at(-1) ?? null
     const since = [failed?.settledAt, failed?.failedAt, failed?.at].find(Number.isFinite) ?? null
     const report = lane.clearOwed?.step ?? failed?.clear?.step ?? failed?.step ?? failed?.id ?? 'its last report'
-    const key = `handover-held ${lane.name} ${report}`
+    // The lead's live check (2026-11-02, order C): the key is the rule and the chat, not the step: the same fault (a worker
+    // that cannot clear) reopens its one alarm; keyed per step, X132 and X133 read fixed while Workers 3 and 4 were held
+    // anew. The report stays in the evidence.
+    const key = `handover-held ${lane.name}`
     const ms = lasted(view, ctx, key, since === null ? null : afterPause(view, since), { heard: true })
     if (ms <= view.settings.notClearedMinutes * MIN) continue
     const why = lane.handover.why ?? 'no reason given'

@@ -78,7 +78,13 @@ test('rekeyPlan: only standing incidents; a fixed or closed one under the old fo
   assert.deepEqual(rekeyPlan({ items: await s.items(), outbox: [envelope('83c1a7be1feab83b', 'Painter', 0)] }), { moves: [], closes: [] })
   assert.deepEqual(STANDING, ['open', 'came back', 'with the advisor', 'with the supervisor', 'fix'])
   // Signals change 6 (B915): the four keys made stable carry their entries too.
-  assert.deepEqual(KEY_MIGRATIONS.map(one => one.rule), ['handover-unanswered', 'handover-unanswered', 'stale-checkpoint', 'review-held', 'undelivered', 'effort-mismatch'])
+  assert.deepEqual(KEY_MIGRATIONS.map(one => one.rule), ['handover-unanswered', 'handover-unanswered', 'stale-checkpoint', 'review-held', 'undelivered', 'effort-mismatch', 'handover-held'])
+  // Order C (2026-11-02): handover-held per chat; the old step, envelope-id and "its last report" tails all re-key to the chat.
+  const held = KEY_MIGRATIONS.find(one => one.rule === 'handover-held')
+  for (const old of ['handover-held Worker 3 B930', 'handover-held Worker 3 83c1a7be1feab83b', 'handover-held Worker 3 its last report']) {
+    assert.equal(held.newKey(held.old.exec(old), {}), 'handover-held Worker 3', old)
+  }
+  assert.equal(held.old.test('handover-held Worker 3'), false, 'the new form matches no migration')
   assert.equal((await s.chat('Partner', { action: 'incidents-rekey', moves: [{ id: 'X1', key: 'x' }] })).ok, false)
   assert.equal((await s.chat('Lead', { action: 'incidents-rekey', closes: [{ id: 'X1', why: 'x' }] })).ok, false)
 })
