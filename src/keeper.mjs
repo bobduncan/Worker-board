@@ -15,6 +15,17 @@ export const START_ANEW = 75
 export const CRASHES = 3
 export const CRASH_WITHIN_MS = 10 * 60_000
 
+/**
+ * Signals change 5 (2026-11-02, D3): the env a cold start hands on: `env` without what a keeper hands its own board
+ * (WORKER_BOARD_CHILD, WORKER_BOARD_KEY, WORKER_BOARD_TOKEN). A command run from inside a board's process would otherwise
+ * start a board with no keeper (nothing starts it again), or a keeper whose first board goes on with that board's token.
+ */
+export function startEnv(env) {
+  const clean = { ...env }
+  for (const name of ['WORKER_BOARD_CHILD', 'WORKER_BOARD_KEY', 'WORKER_BOARD_TOKEN']) delete clean[name]
+  return clean
+}
+
 /** Keeps the times of the last starts within `withinMs` of `at`; true when there are more than `most` of them. */
 const tooMany = (times, at, most, withinMs) => {
   times.push(at)

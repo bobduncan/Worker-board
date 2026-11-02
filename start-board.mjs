@@ -16,6 +16,7 @@ import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 import { loadConfig } from './src/config.mjs'
+import { startEnv } from './src/keeper.mjs'
 import { gitRunner } from './src/folders.mjs'
 import { boardsFile, resolvePort } from './src/ports.mjs'
 
@@ -85,7 +86,7 @@ async function main(args) {
     // A first log.
   }
   const log = openSync(logFile, 'a')
-  const child = spawn(process.execPath, [join(HERE, 'server.mjs'), ...passed], { cwd: HERE, detached: true, stdio: ['ignore', log, log], windowsHide: true })
+  const child = spawn(process.execPath, [join(HERE, 'server.mjs'), ...passed], { cwd: HERE, env: startEnv(process.env), detached: true, stdio: ['ignore', log, log], windowsHide: true })
   let ended = null
   child.on('exit', code => { ended = code ?? 1 })
   const until = Date.now() + WAIT_MS

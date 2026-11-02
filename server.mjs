@@ -42,7 +42,7 @@ import { REFERENCE_BYTES, ideasFolder, referencesFolder, checkDesign, designActi
 import { bugsState, fileBug, waitingFolder } from './src/bugs.mjs'
 import { ideasFile, ideasOver, placeReferences } from './src/ideas.mjs'
 import { boardView, exitAt, keptStart, lastStopOf, stopWhy, writeStop } from './src/boardSelf.mjs'
-import { START_ANEW, keep } from './src/keeper.mjs'
+import { START_ANEW, keep, startEnv } from './src/keeper.mjs'
 import { boardAddress, gamePortFor, workerPort, boardsFile, recordingBoardPort, launchEntry, registerHome, resolvePort, withEntry } from './src/ports.mjs'
 import { findClaude, marketsFile, modVersions, pluginsFile } from './src/setup.mjs'
 import { dayRecaps } from './src/dayRecap.mjs'
@@ -3349,7 +3349,7 @@ function keepBoard(args) {
     // answered 200 after a restart and does not reload (eight restarts on 2026-11-01, the recap popup's text lost each time).
     start: ({ key, token }) => spawn(process.execPath, [...process.execArgv, fileURLToPath(import.meta.url), ...args], {
       stdio: ['inherit', 'inherit', 'inherit', 'ipc'],
-      env: { ...process.env, WORKER_BOARD_CHILD: '1', ...(key === null ? {} : { WORKER_BOARD_KEY: key }), ...(token === null ? {} : { WORKER_BOARD_TOKEN: token }) },
+      env: { ...startEnv(process.env), WORKER_BOARD_CHILD: '1', ...(key === null ? {} : { WORKER_BOARD_KEY: key }), ...(token === null ? {} : { WORKER_BOARD_TOKEN: token }) },
       windowsHide: true,
     }),
     done: code => process.exit(code),
