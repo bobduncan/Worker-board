@@ -16,8 +16,9 @@ const HERE = dirname(fileURLToPath(import.meta.url))
 const NOW = Date.UTC(2026, 10, 2, 10, 0, 0)
 
 test('readActive: the header is a page id and how long the person has been busy; anything else is nothing', () => {
-  assert.deepEqual(readActive('k3j9x0a1 42000'), { page: 'k3j9x0a1', forMs: 42000 })
-  assert.deepEqual(readActive(' p-1 0 '), { page: 'p-1', forMs: 0 })
+  assert.deepEqual(readActive('k3j9x0a1 42000'), { page: 'k3j9x0a1', forMs: 42000, off: false })
+  assert.deepEqual(readActive(' p-1 0 '), { page: 'p-1', forMs: 0, off: false })
+  assert.deepEqual(readActive('p-1 off'), { page: 'p-1', forMs: null, off: true })
   for (const odd of [null, undefined, '', 'k3j9x0a1', 'k3j9x0a1 -5', 'k3j9x0a1 1.5', 'two words 5', 'k3j9x0a1 5 6', `${'a'.repeat(41)} 5`, 42]) {
     assert.equal(readActive(odd), null, String(odd))
   }
@@ -34,6 +35,20 @@ test('activePages: any page that said so within 90 s makes the person busy, sinc
   assert.deepEqual(pages.personActive(NOW + ACTIVE_KEPT_MS), { since: NOW - 30_000 })
   assert.deepEqual(pages.personActive(NOW + ACTIVE_KEPT_MS + 1), { since: NOW + 5_000 }, 'the tab went quiet: the pane still says so')
   assert.equal(pages.personActive(NOW + 10_000 + ACTIVE_KEPT_MS + 1), null)
+})
+
+test('activePages: a page\'s "off" drops its word at once; a tab that fell silent keeps its 90 s', () => {
+  const pages = activePages()
+  pages.heard('tab 30000', NOW)
+  pages.heard('pane 5000', NOW)
+  assert.deepEqual(pages.personActive(NOW + 1_000), { since: NOW - 30_000 })
+  // The person left the field: the tab's next poll says off; the pane (silent) still counts for its 90 s.
+  pages.heard('tab off', NOW + 2_000)
+  assert.deepEqual(pages.personActive(NOW + 2_000), { since: NOW - 5_000 })
+  assert.equal(pages.personActive(NOW + ACTIVE_KEPT_MS + 1), null, 'the silent pane is forgotten after 90 s, not before')
+  // Off alone, or off for a page never heard, is nothing.
+  pages.heard('other off', NOW + 3_000)
+  assert.equal(pages.personActive(NOW + 3_000), null)
 })
 
 test('blockersOf: the person busy on the page is a blocker in its own words, and only then', () => {

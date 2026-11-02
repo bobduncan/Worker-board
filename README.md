@@ -45,7 +45,8 @@ version starts, usually back within 30 s); when the board is back it says for a 
 board by itself costs nothing: the page keeps running without a reload, the board waits (3 minutes at most) while you
 type, and a reload that cannot be avoided brings back every open popup and typed field.
 
-The Overview shows a lane per chat (working, waiting for you, free; its task, step and time left; its queue), what
+The Overview shows a lane per chat (working, waiting for you, free; for a worker the step the work store says it holds
+and the time left of its size, with since, its last checkpoint and its own plan words on hover; its queue), what
 waits for you with a form to answer it, and the day's timeline; your answer is typed into the chat it is for. Further
 tabs: Focus (the goal you work towards, its goal definition and how, with a partner chat, the Advisor), Backlog (the whole work,
 with the steps finished last at its top) Design (an idea becomes a picture made by Codex, optional) and Bugs (paste a screenshot, say what is wrong and where, and the report becomes a fix task; B856: the half move squares of B855 are the kind of thing it is for, `art-inbox/highlight-cut/cut-squares-2026-10-31.png`). What the

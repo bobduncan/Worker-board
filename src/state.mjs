@@ -27,6 +27,7 @@ import { isClockLine } from './rounds.mjs'
 import { taskTimesOf } from './taskTimes.mjs'
 import { isFix, sinceMs, valueOf } from './work/item.mjs'
 import { planOf } from './work/stepPlan.mjs'
+import { heldOf, lastReportedOf, pickHeld } from './work/held.mjs'
 import { planStarting, planState, withPlanWork } from './plan.mjs'
 import { standardHold } from './work/standardHold.mjs'
 import { askIdsIn, askKey, askPartsOf, sameAsk } from './work/askWords.mjs'
@@ -385,6 +386,8 @@ function savedWith(item) {
  * recorded its task is on a step too (`stepId`): the store's, else the open one of its own (or of nobody) that its
  * record names by id. T13: a card that holds no plan for that step shows the plan saved with the step instead
  * (`isSavedPlan`, work/stepPlan.mjs), and a step with no plan at all and no time of its own has its refine's size.
+ * Signals change 7 (B914, 2026-11-02): this is the card (`lane.task`), kept for the card flag (reconcile.mjs), the sync check,
+ * Stop task, the Supervisor rules and an ask's step; a worker's row reads the store's `held` (`withHeld`), never this.
  */
 function taskOf({ chat, plan, scan, state, before, lines, prefix, now, aliveAt = null, step = null, stepById = () => null }) {
   // `scan` holds the entries that can start a task: the tail, after a longer look back when there is one.
@@ -465,7 +468,8 @@ function taskOf({ chat, plan, scan, state, before, lines, prefix, now, aliveAt =
  * When a working chat expects to be done: when it gave its estimate, plus what it said was left (`isOwn`, `from:
  * 'own'`). A chat that gave none gets the time of its step (its Estimate, `from: 'step'`), counted from the task's
  * start: an estimate that is not its own. T13: a step with no Estimate has its refine's size (`from: 'refine'`), counted from
- * when the step was taken. Null when none is there.
+ * when the step was taken. Null when none is there. Signals change 7: a worker's row times its held step by the refine
+ * branch alone (`withHeld`: size, take, time not worked since), never by the card's own `left`.
  */
 function etaOf(task, state, now) {
   if (state !== 'working' || task === null) return null
@@ -486,6 +490,64 @@ function etaOf(task, state, now) {
   const spanMs = Number.isFinite(start) ? at - start - idleMs : 0
   const isOverdue = now - at >= 10 * MIN && (spanMs <= 0 || now - start - idleMs > 2 * spanMs)
   return { at, leftMs: Math.max(0, at - now), isOverdue, isOver: at < now, isOwn, from: isOwn ? 'own' : isRefine ? 'refine' : 'step' }
+}
+
+/** Signals change 7: the chat's own plan words fade after this long without a change (B914: "stale after 30 min"). */
+export const PLAN_STALE_MS = 30 * MIN
+
+/**
+ * Signals change 7 (B914, 2026-11-02): the chat's own plan words for the step it holds, `{ text, step, steps, names, at,
+ * isStale, from }`, shown as "its plan" on hover and in its window only, never as the row's task, time or bar. From its card
+ * when the card's plan is on that step (`task.stepId`), else the plan saved with the step (work/stepPlan.mjs). `at`: the
+ * store Plan's time when it says the same step, else when the board first saw these words (`memory`, by chat, kept by the
+ * server in memory: a restart makes the line young again, never wrong). Null without a plan, and once the step is reported
+ * (B855 reported 11:20: its "4 of 4" is gone).
+ */
+function planLineOf(name, task, held, { memory, kept, now }) {
+  if (held === null || held.state === 'review') return null
+  const fromCard = task !== null && task.stepId === held.id && task.isSavedPlan !== true && (Array.isArray(task.names) || Number.isFinite(task.steps) || Number.isFinite(task.step))
+  const plan = fromCard ? { step: task.step ?? null, steps: task.steps ?? (Array.isArray(task.names) ? task.names.length : null), names: task.names ?? [] } : held.plan
+  if (plan === null || (plan.step === null && (plan.names ?? []).length === 0)) return null
+  const names = plan.names ?? []
+  const name_ = Number.isInteger(plan.step) ? names[plan.step - 1] ?? null : null
+  const count = plan.step === null ? null : Number.isFinite(plan.steps) ? `${plan.step} of ${plan.steps}` : `step ${plan.step}`
+  const text = [count, name_].filter(Boolean).join(' · ') || names.join(', ')
+  const isStore = !fromCard || (held.plan !== null && held.plan.step === plan.step && held.plan.steps === plan.steps)
+  let at = isStore && Number.isFinite(held.plan?.at) ? held.plan.at : null
+  if (at === null) {
+    const key = JSON.stringify([held.id, text, plan.step, plan.steps, names])
+    const seen = memory.get(name)
+    at = seen?.key === key && Number.isFinite(seen.at) ? seen.at : now
+    kept.set(name, { key, at })
+  }
+  return { text, step: plan.step, steps: plan.steps, names, at, isStale: now - at > PLAN_STALE_MS, from: fromCard ? 'card' : 'store' }
+}
+
+/**
+ * Signals change 7 (B914, 2026-11-02): a worker's lane with `held`, the step it holds by the store (work/held.mjs `heldOf`,
+ * `found`) and what the row draws of it: `eta` (etaOf's refine branch, generalised: the size from the take, plus the time
+ * not worked since as B793 counts it per chat, `notWorked`; `from: 'size'`), `planLine` (`planLineOf`) and, when the step
+ * its turn was given differs, the step's `brief` for its window. Null for a worker that holds none, for the main chat and a
+ * leftover. The card (`lane.task`) stays as it was for the card flag, the sync check, Stop task, the Supervisor rules and an
+ * ask's step; the row reads `held` only. Also: `isWithoutTime` only for a working worker whose held step has no size (B832
+ * should prevent it), never one that holds none; `lastTask` (B148) the step it reported last (`lastReported`), not its card.
+ */
+function withHeld(lane, { found, notWorked, lastReported, briefOf, planMemory, planKept, now }) {
+  if (lane.isMain === true || lane.isLeftover === true) return lane
+  if (found === null) {
+    const last = lane.state === 'free' && lastReported !== null ? { text: `${lastReported.id} ${lastReported.title}`, id: lastReported.id, title: lastReported.title, at: lastReported.at } : null
+    return { ...lane, held: null, isWithoutTime: false, lastTask: last }
+  }
+  const eta = found.size === null || found.since === null ? null
+    : etaOf({ leftMs: null, estimateAt: null, stepMinutes: null, refineMinutes: found.size, takenAt: found.since, offTakenMs: notWorked(found.since) }, 'working', now)
+  const brief = lane.givenTask?.step?.id === found.id ? null : briefOf(found.id)
+  const held = {
+    ...found,
+    eta: eta === null ? null : { at: eta.at, leftMs: eta.leftMs, isOver: eta.isOver, isOverdue: eta.isOverdue, from: 'size' },
+    planLine: planLineOf(lane.name, lane.task ?? null, found, { memory: planMemory, kept: planKept, now }),
+    ...(brief === null ? {} : { brief }),
+  }
+  return { ...lane, held, isWithoutTime: lane.state === 'working' && found.size === null, lastTask: null }
 }
 
 /**
@@ -521,7 +583,8 @@ function card(chat, raw, { now, aliveAt = null, config, last, lines, main, prefi
   })
   // The longer look back is a few minutes old, so the tail follows it.
   const scan = typeof tail?.earlier === 'string' && entries !== null ? [...parseTail(tail.earlier, false), ...entries] : entries
-  const step = stepOf(chat.name, plan?.task?.isReported === false ? String(plan.task.text ?? '').match(/\bB\d+\b/g) ?? [] : [])
+  // Signals change 7: the store's step, whatever ids the card's words name.
+  const step = stepOf(chat.name)
   // Redesign Part 1: the chat's own report of its turn state (chatReport.mjs, `laneFromReport`), for a chat whose Workers
   // mod reports: it takes the place of the reading below (the turn in its transcript, cut off, held by its card, its
   // branch or its background work). Null: the chat sends none, and that reading stands.
@@ -1102,7 +1165,7 @@ function demoOf(value) {
  * 2026-10-31 (B689: its part said "Worker 1 is on it" while Worker 1's card showed another task): the step a lane's card
  * shows, as the page reads it (board.js `laneTaskOf`): the step it was given and is on, else its task's step; null for none.
  */
-const cardStepOf = lane => lane?.givenTask?.step?.id ?? lane?.task?.stepId ?? null
+const cardStepOf = lane => lane?.held?.id ?? lane?.givenTask?.step?.id ?? lane?.task?.stepId ?? null
 
 /**
  * 2026-10-31 (B689): the steps whose card counts for the step `id`: itself, every fix under it (a fix of a fix too, in any
@@ -1507,7 +1570,7 @@ function focusRun(node, items, prefix, partner) {
   return { note, needs }
 }
 
-export function buildState(raw, { lines = [], outbox = [], runs = [], board = null, seen = null, aliveAt = null, reports = null, wakes = null, hearing = null, finishedSeen = {}, taskTimes = [], mods = {}, modsLately = null, keptReadings = [], providers = [], now, config }) {
+export function buildState(raw, { lines = [], outbox = [], runs = [], board = null, seen = null, aliveAt = null, reports = null, wakes = null, hearing = null, finishedSeen = {}, taskTimes = [], mods = {}, modsLately = null, keptReadings = [], providers = [], planSeen = null, now, config }) {
   // The review of Pause 2: while the person pauses (2026-10-19: pausing only, no longer until running) what waits in
   // the outbox is held until the resume, but the board's own "resume" to the main chat; the page says so (`isHeld`).
   const isPaused = isHolding(raw.work?.pause)
@@ -1583,14 +1646,14 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
   }
   // B300: the step a chat is on is the one the store holds taken, in progress or waiting on the person for it, with or
   // without a branch.
-  // B292: of the steps the store holds for it, the one its card names (`named`: the ids in the card's words), else the
-  // one it took last: never one it was taken off while another stays open for it.
-  const stepOfChat = (name, named = []) => {
+  // B292: never one it was taken off while another stays open for it. Signals change 7 (B914, 2026-11-02): of the steps the
+  // store holds for it, the one work/held.mjs picks (in progress over waiting on you over taken, then its newest activity),
+  // no longer the one its card's words name nor the newest head Since (every move rewrites it: X23, Worker 3 held B547 and
+  // B534; a parked step going on flipped "newest"). The lane's `held` adds the hand-over's step on top (buildState).
+  const stepOfChat = name => {
     const mine = itemsOf(raw.work).filter(one => one.head.get('Kind') === 'step' && ['in progress', 'waiting on you', 'taken'].includes(one.head.get('State'))
       && String(one.head.get('Owner') ?? '').replace(prefix, '').trim().toLowerCase() === name.toLowerCase())
-    const newest = mine.reduce((best, one) => (best === undefined || String(one.head.get('Since') ?? '') > String(best.head.get('Since') ?? '') ? one : best), undefined)
-    // The first id the card names that is one of them: "B292 ... after B290" is on B292.
-    const item = named.map(id => mine.find(one => one.head.get('Id') === id)).find(one => one !== undefined) ?? newest
+    const item = pickHeld(mine, name, prefix)
     if (item === undefined) return null
     const id = item.head.get('Id')
     const branch = item.head.get('Branch')
@@ -2056,7 +2119,7 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
   // T8.5 (spec 2026-10-31, part 4): the one predicate per worker: on the sequence (the setting "sequence" and the Workers mod
   // 0.27.0 or newer). Since step 6 the old path is gone: a worker not on it is handed nothing.
   const withSequence = lane => ({ ...lane, onSequence: onSequence(lane, config) })
-  const chats = lanes.map(lane => withSequence({
+  const sequenced = lanes.map(lane => withSequence({
     ...lane,
     // T8.5: the Workers mod its last call said (else its kept report's), for the one predicate of the hand-over (`onSequence`).
     mod: mods?.[lane.name] ?? lane.report?.mod ?? null,
@@ -2069,6 +2132,26 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
     clearOwed: lane.isLeftover || lane.isMain || !workOk ? null : withMod(clearOwed({ lane, items: raw.work.items, prefix, afterStep: list.afterStep ?? null, conversationAt: raw.conversationAt?.[lane.session] ?? null }), mods?.[lane.name]),
     // B577: its session was stopped and words wait for it (`{ since, words }`): the app drops them until it gets input.
     stopped: stoppedOf(sent, lane),
+  }))
+  const gaps = gapsOf(lines, now, aliveAt)
+  // T8.5: a worker on the sequence: its state now, as the one decision reads it. Nothing is decided here (no ready task and
+  // no clear are offered, so only what the facts say shows); the board's refresh and the worker's turn end carry it out.
+  // Signals change 3: with `asked`, when its "go on" line of this stopped spell was written (the lane's "asked to go on at HH:MM").
+  const handoverOf = lane => (lane.onSequence !== true || !workOk ? null : (({ state, why, step, asked }) => ({ state, why, step, asked }))(decide({
+    ...factsOf({ lane, state: { chatPrefix: prefix, readyList: null, limits, gaps }, items: raw.work.items, pause: pauseRecord, sent, config, installed: modsLately?.installed ?? null, now, event: { kind: 'pass' }, wakes }),
+    ready: [], owed: null,
+  })))
+  // Signals change 7: each worker's hand-over, decided once, for the step it holds (`held`) and its lane's line below.
+  const handovers = new Map(sequenced.map(lane => [lane.name, handoverOf(lane)]))
+  // Signals change 7 (B914, 2026-11-02): when the board saw each chat's own plan words change (by chat: `{ key, at }`), for
+  // their age where the store's Plan does not date them; kept by the server in memory (a restart only makes them un-aged).
+  const planMemory = new Map(planSeen instanceof Map ? planSeen : Object.entries(planSeen ?? {}))
+  const planKept = new Map()
+  const chats = sequenced.map(lane => withHeld(lane, {
+    found: lane.isLeftover === true || lane.isMain === true || !workOk ? null : heldOf(raw.work.items, lane.name, prefix, { handoverStep: handovers.get(lane.name)?.step ?? null }),
+    notWorked: notWorkedCounter(lines, lane.name, now, aliveAt),
+    lastReported: lane.isLeftover === true || lane.isMain === true || !workOk ? null : lastReportedOf(raw.work.items, lane.name, prefix),
+    briefOf, planMemory, planKept, now,
   }))
   // Pause and resume (spec 2026-10-18): what the pause banner says, from pause.json and the lanes' facts alone; with the
   // main chat (its title from the list, the app's id for it, whether it runs) for the link that opens it, and when the
@@ -2107,7 +2190,6 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
   // what went into the outbox (for the starts on their way), the steps the routing holds and whether a limit is full.
   // T8.5 step 6: the give itself is the hand-over's (work/handover.mjs); `handover` other than "sequence" hands out nothing.
   const routingHeld = workOk ? routingHolds(itemsOf(raw.work), config.routing) : new Set()
-  const gaps = gapsOf(lines, now, aliveAt)
   // Autopilot (2026-10-31): the partner's answers count as on while it is (the Focus page's switch reads "covered by Autopilot").
   const reconciled = !workOk ? null : reconcile({
     store: config.autopilot === true ? { ...raw.work, partnerAnswers: { on: true } } : raw.work, flow: raw.work.flow, lanes: chats, now, times: { graceMs: GRACE_MS, askMs: ASK_MS, idleMs: IDLE_HOLD_MS }, prefix, hasPartner: advisorChat !== undefined, partner,
@@ -2140,13 +2222,6 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
     chats: chatsByRole({ chats: chats.filter(lane => lane.onSequence !== true), advisor: side(advisorCard, advisorChat?.name), advisorHelper: side(helperLane, helperLane?.name), supervisorChat: side(supervisorLane, supervisorLane?.name), productOwner: side(ownerLane, ownerLane?.name) }),
     main: isBridgeMissing === true ? null : main?.name ?? null, partner: isBridgeMissing === true ? null : advisorChat?.name ?? null,
   })
-  // T8.5: a worker on the sequence: its state now, as the one decision reads it. Nothing is decided here (no ready task and
-  // no clear are offered, so only what the facts say shows); the board's refresh and the worker's turn end carry it out.
-  // Signals change 3: with `asked`, when its "go on" line of this stopped spell was written (the lane's "asked to go on at HH:MM").
-  const handoverOf = lane => (lane.onSequence !== true || !workOk ? null : (({ state, why, step, asked }) => ({ state, why, step, asked }))(decide({
-    ...factsOf({ lane, state: { chatPrefix: prefix, readyList: null, limits, gaps }, items: raw.work.items, pause: pauseRecord, sent, config, installed: modsLately?.installed ?? null, now, event: { kind: 'pass' }, wakes }),
-    ready: [], owed: null,
-  })))
   // Signals change 2 (the brief of 2026-10-31): every chat's ONE status, from one pure function (chatStatus.mjs), display only: `state`,
   // `isRunning`, `asleep`, `report` and `handover` stay as the decisions read them; nothing here is read back by one.
   const isPersonPause = pause?.state === 'pausing'
@@ -2240,7 +2315,7 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
     const run = efforts?.runs.get(lane.name) ?? null
     const waits = run?.waitsFor == null ? [] : [{ kind: 'model', id: run.step, text: run.waitsFor.text, button: null }]
     // T8.5: where its hand-over stands (handing, offered, held with its why, "did not answer"), a quiet line on the lane.
-    const handover = handoverOf(lane)
+    const handover = handovers.get(lane.name) ?? null
     const said = handover === null ? null : laneWords(handover)
     const told = said === null ? [] : [{ kind: 'handover', id: handover.step, text: said, button: null }]
     // Signals change 3: a step the board gave back from it, until its next task ("did not resume B12, given back HH:MM"):
@@ -2256,6 +2331,8 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
   const standingNow = standingAsksOf(new Map(itemsOf(raw.work).map(one => [one.head.get('Id'), one])), { autopilot: config.autopilot === true, now })
   const built = {
     readAt: now,
+    // Signals change 7: when the board saw each worker's own plan words change, for the server to hand back at the next read.
+    planSeen: Object.fromEntries(planKept),
     recapWaits,
     // Clear after each step: the sessions the chats went on from, while the app still names them (read on to their ends).
     movedFrom: found.filter(chat => !chat.isLeftover && movedBack.has(chat.cliSessionId)).map(chat => ({ session: movedBack.get(chat.cliSessionId), name: chat.name })),

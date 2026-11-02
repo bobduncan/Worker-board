@@ -182,7 +182,7 @@ their words (*What is wrong*, *What was expected*, *Where*) and their screenshot
   another (the hand-over as one sequence, T8.5). Then and at the start of any task:
   `work next`, and work from the record it answers. `work take B<id>`
   with your branch and `minutes` (the time left for the whole step, e.g. 45) starts it and names your card; the board refuses
-  a take without `minutes` (B832, the user, 2026-10-31: "no ETA"), so your card shows a time from the start; `work step` moves your plan on (and your card). Write your step's
+  a take without `minutes` (B832, the user, 2026-10-31: "no ETA"), so your task has a time from the start (the board keeps the take's minutes as `Taken for`; your row's time is the step's refine size, else those minutes, counted from your take: signals change 7); `work step` moves your plan on (and your card), which your row shows on hover as your own words. Write your step's
   checkpoint with every commit: `work step B<id>` with `commit` (the hash, or none) and `next` (your next action, in
   one line); after a restart you go on from it (below, "A pause of all chats"). When the work is
   merged and its worktree removed: `work report B<id>` with what the user gets and the commit; the board checks the

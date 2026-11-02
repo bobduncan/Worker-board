@@ -127,8 +127,10 @@ tab) and never on the demo; once closed, the browser keeps that it was seen (`he
   running, with its step kept and no "may wait for you" hint; and, beside the pill, the **model chip**: "Opus · extra
   high", "Sonnet · medium", "Fable · max" in one quiet grey outline with a small dot (blue, grey, violet), what the app's file of the chat says it runs at, with
   the change while the main chat is asked to switch it for its step, "Sonnet · medium → Opus · high", and in its tooltip
-  "Runs on Claude Opus 5.5 at extra high effort (the app's setting for this chat)"; the Simple view's rows have it too), **Current task** (its topic, "Now:" what it does, or "Last task: ..., finished", a red line when it is over
-  its first estimate), **Progress** (a bar with "step n of m" and the time left of the step), **Est. time** (ETA and
+  "Runs on Claude Opus 5.5 at extra high effort (the app's setting for this chat)"; the Simple view's rows have it too), **Current task** (signals change 7: for a worker, the step the work store says it holds, its id and title, with since,
+  its last checkpoint and its own plan words on hover; "Last task: ..., finished" is the step it reported last; the main chat's
+  and the partner's rows keep their card's topic), **Progress** (for a worker, a thin bar of its step's size worked, no
+  words), **Est. time** (for a worker "1 h 56 of its 2 h", or "12 min over its 2 h"; ETA and
   the clock time, "Goes on at ..." when suspended, "Blocked" when it waits), **Queue** (redesign Part 2: the task the
   board gave it and the tasks the person pinned to it, and why the next has not started: "given to <worker>; it takes
   it now", "pinned to <worker>; the board gives it once nothing holds it"). A worker the board gave a task that it did
