@@ -125,13 +125,13 @@ describe('B944: each /clear of the mod carries its ticket and is matched by it',
 
 describe('5c (0.30.0): a kept board starts through a launcher, detached, its output to its log', () => {
   test('the launcher runs on the node of the board, names the log beside its script, then the command of the board', () => {
-    const board = { name: 'worker-board', argv: ['C:/Program Files/nodejs/node.exe', 'C:/Web/p/worker-board/server.mjs'], url: 'http://127.0.0.1:4310/' }
-    const argv = launchArgv(board, 'C:/Web/p')
-    expect(argv.slice(0, 2)).toEqual(['C:/Program Files/nodejs/node.exe', '-e'])
-    expect(argv.slice(3)).toEqual(['C:/Web/p/worker-board/data/board.log', 'C:/Web/p', 'C:/Program Files/nodejs/node.exe', 'C:/Web/p/worker-board/server.mjs'])
+    const board = { name: 'worker-board', argv: ['D:/Tools/node/node.exe', 'D:/Work/project/worker-board/server.mjs'], url: 'http://127.0.0.1:4310/' }
+    const argv = launchArgv(board, 'D:/Work/project')
+    expect(argv.slice(0, 2)).toEqual(['D:/Tools/node/node.exe', '-e'])
+    expect(argv.slice(3)).toEqual(['D:/Work/project/worker-board/data/board.log', 'D:/Work/project', 'D:/Tools/node/node.exe', 'D:/Work/project/worker-board/server.mjs'])
     expect(argv[2]).toContain("detached: true, stdio: ['ignore', out, out]")
     expect(argv[2]).toContain('unref()')
-    expect(launchArgv({ ...board, argv: ['deno', 'run', 'x.ts'] }, 'C:/Web/p').slice(0, 5)).toEqual(['node', '-e', BOARD_LAUNCHER, '', 'C:/Web/p'])
+    expect(launchArgv({ ...board, argv: ['deno', 'run', 'x.ts'] }, 'D:/Work/project').slice(0, 5)).toEqual(['node', '-e', BOARD_LAUNCHER, '', 'D:/Work/project'])
     expect(boardLogOf(['node', 'server.mjs'])).toBeNull()
     expect(boardLogOf(['node', 'D:\\b\\server.mjs'])).toBe('D:\\b/data/board.log')
   })
