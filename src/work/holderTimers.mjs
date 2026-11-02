@@ -14,6 +14,7 @@
 
 import { afterPause, checkpointOf } from './pause.mjs'
 import { sinceMs, valueOf } from './item.mjs'
+import { isKeptLook } from './keptLook.mjs'
 
 const MIN = 60_000
 /** The envelope kind of the "go on" line (the Workers mod 0.27.x reads an unknown kind as 'task': it types the line, no clear). */
@@ -198,7 +199,8 @@ export function holderTimers({ worker, holding, items = new Map(), prefix = '', 
   if (finite(worker.removedAt) || worker.removal?.isOpen === true || (worker.suspended ?? null) !== null) return null
   if (PAUSE_STATES.includes(pause?.state)) return null
   const asks = [...items.values()].filter(item => valueOf(item, 'Kind') === 'ask')
-  if (asks.some(ask => valueOf(ask, 'State') === 'open' && (isMine(ask, name, prefix) || valueOf(ask, 'Of') === id))) return null
+  // A look the partner handed over that Autopilot keeps for the recap holds no worker (2026-11-02): it silences nothing.
+  if (asks.some(ask => valueOf(ask, 'State') === 'open' && !isKeptLook(ask) && (isMine(ask, name, prefix) || valueOf(ask, 'Of') === id))) return null
   const changedAt = sinceMs(valueOf(holding, 'Since'))
   const took = lastTakenAt(holding)
   const takenAt = finite(took) ? took : changedAt
