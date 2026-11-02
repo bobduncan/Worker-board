@@ -5211,7 +5211,7 @@ although the line was typed only at 11:07:22.
 
 **One record.** `src/wake.mjs` (pure) and `data/wakes.json` (kept as `data/reports.json` is: written a second after a change,
 a torn file set aside). Per chat, its spells (newest last, six kept): a spell is the chat's sleep (`asleepSince`; an off chat
-without one: its ended report's since, its report's time, when it was last active, else 0; a chat read Not running after a
+without one: its ended report's since, its report's time, else 0 (a spell value already kept is never a new entry); a chat read Not running after a
 wake keeps its sleep's since, `sleepSince`). The key `*` holds the board-wide "nobody runs" spells. Each spell holds its
 attempts `{ path: message | launch, at, by, jobId, sentAt, runBefore, verdict, verdictAt, why }`, `turnEndedAt` and `told`.
 Every old counter went into it: MAX_WAKE_TRIES, OPEN_TRIES, WAKE_AGAIN_MS, WAKE_PENDING_MS, WAKER_AGAIN_MS,
@@ -5249,8 +5249,8 @@ the worker gets nothing at a pass until it shows life. The net counts from the "
 back only once its line is settled typed, and never the woken chat's first turn end (decision 5, board-only). **4c:** the
 next Workers mod sends `typedAt` in the outcome; the rule then becomes `turnSince >= typedAt`. An envelope with a clear
 waits while the woken chat's first turn runs (`carryable`'s `holdClear`): its clear would fail "a turn is running".
-Decision 13: an asleep worker gets a task at a pass only when no running free worker of the sequence would take it; the
-pass and `match` put running lanes first.
+Decision 13: the pass decides running lanes first and `match` puts running lanes first, so a ready task goes to a
+running free worker before a sleeper (the review of 2026-11-02 dropped a rule in `decide` that stranded a task).
 
 **The page.** One attention line under Needs your attention (`state.wakeNotice`, decision 6): per chat that could not be
 woken "could not wake Worker 2: the app did not start it (launched 10:32); no report after the message (sent 10:35 by
