@@ -235,15 +235,18 @@ test('two runs go at once by default; a third waits for one of them', async () =
   assert.equal(slotPath('C:/t/heavy.lock', 2), 'C:/t/heavy.2.lock')
   const lock = newLock()
   const two = { HEAVY_RUN_SLOTS: '2' }
-  const slow = node('setTimeout(() => console.log(Date.now()), 900)')
+  // 2026-11-02 (a gate flake under load: the second's node took longer to start than the first's 900 ms wait): the first
+  // ends only once the second has run, by a flag file the second writes; no clock is raced.
+  const flag = join(scratch, `flag-${counter}`)
+  const slow = [...node(`const f = process.argv[1]; (function look() { if (require('fs').existsSync(f)) return console.log(Date.now()); setTimeout(look, 20) })()`), flag]
   const first = start(lock, 'first', slow, two)
-  const second = start(lock, 'second', node('console.log(Date.now())'), two)
+  const second = start(lock, 'second', [...node(`console.log(Date.now()); require('fs').writeFileSync(process.argv[1], '')`), flag], two)
   await until(() => existsSync(lock), 'a slot taken')
   const two1 = await second.done
   assert.equal(two1.code, 0)
   assert.doesNotMatch(two1.err, /waiting for/, 'the second ran beside the first')
   const one = await first.done
-  assert.ok(Number(two1.out) < Number(one.out), 'the second finished while the first still ran')
+  assert.ok(Number(two1.out) <= Number(one.out), 'the second finished while the first still ran')
   assert.equal(existsSync(lock), false)
   assert.equal(existsSync(slotPath(lock, 2)), false)
 })
