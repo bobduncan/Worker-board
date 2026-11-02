@@ -161,7 +161,7 @@ for (const name of ['1-install', '2-initialise', '3-talk', '4-go', '5-workers', 
 }
 
 // T2.1 part B: the logos of the asset providers' cards, by name only.
-for (const name of ['openai.svg', 'claude.svg', 'elevenlabs.svg', 'library.svg', 'manual.svg', 'suno.png']) {
+for (const name of ['openai.svg', 'elevenlabs.svg', 'library.svg', 'manual.svg', 'suno.png']) {
   FILES[`/providers/${name}`] = [join('providers', name), name.endsWith('.svg') ? 'image/svg+xml' : 'image/png']
 }
 

@@ -9,7 +9,6 @@ import test from 'node:test'
 
 import { configProblem, parseConfig } from '../src/config.mjs'
 import { ASSET_KINDS, DEFAULT_PROVIDERS, PROVIDERS, checkProviders, providerFor } from '../src/providers/index.mjs'
-import { claude } from '../src/providers/claude.mjs'
 import { codex as codexModule } from '../src/providers/codex.mjs'
 import { ANSWER_MS, elevenlabs as elevenlabsModule } from '../src/providers/elevenlabs.mjs'
 import { elevenlabsImages } from '../src/providers/elevenlabs-images.mjs'
@@ -33,8 +32,8 @@ const elevenlabs = briefly(elevenlabsModule)
 
 test('every provider has the same face: its name, how it provides, the kinds it serves and a check', () => {
   assert.deepEqual(ASSET_KINDS, ['visual', 'music', 'sound effect'])
-  assert.deepEqual(Object.keys(PROVIDERS), ['codex', 'person-suno', 'sound-library', 'elevenlabs', 'manual', 'elevenlabs-music', 'elevenlabs-images', 'claude'])
-  assert.deepEqual([codexModule, personSunoModule, soundLibraryModule, elevenlabsModule, manual, elevenlabsMusic, elevenlabsImages, claude].map(one => [one.name, one.mode, one.kinds]), [
+  assert.deepEqual(Object.keys(PROVIDERS), ['codex', 'person-suno', 'sound-library', 'elevenlabs', 'manual', 'elevenlabs-music', 'elevenlabs-images'])
+  assert.deepEqual([codexModule, personSunoModule, soundLibraryModule, elevenlabsModule, manual, elevenlabsMusic, elevenlabsImages].map(one => [one.name, one.mode, one.kinds]), [
     ['codex', 'auto', ['visual']],
     ['person-suno', 'person', ['music']],
     ['sound-library', 'pick', ['sound effect']],
@@ -42,9 +41,8 @@ test('every provider has the same face: its name, how it provides, the kinds it 
     ['manual', 'person', ['visual', 'music', 'sound effect']],
     ['elevenlabs-music', 'auto', ['music']],
     ['elevenlabs-images', 'auto', ['visual']],
-    ['claude', 'auto', []],
   ])
-  const icons = ['openai', 'claude', 'suno', 'elevenlabs', 'library', 'manual']
+  const icons = ['openai', 'suno', 'elevenlabs', 'library', 'manual']
   for (const one of Object.values(PROVIDERS)) {
     assert.equal(typeof one.check, 'function')
     // Every provider has a card: a title, a line, facts and one of the known icons.
@@ -54,15 +52,14 @@ test('every provider has the same face: its name, how it provides, the kinds it 
   }
   assert.deepEqual(PROVIDERS.codex.card, { title: 'Codex', line: 'Pictures on your ChatGPT plan', facts: ['Signed in as you', 'One at a time, in a queue'], icon: 'openai' })
   assert.deepEqual(PROVIDERS.manual.card, { title: 'Manual', line: 'You drop your own file, any tool', facts: ['Free', 'The board asks you each time'], icon: 'manual' })
-  assert.deepEqual(PROVIDERS.claude.card, { title: 'Claude', line: 'Draws in code: simple shapes only', facts: ['Not for units or maps'], icon: 'claude' })
-  // Only Claude is shown without serving a kind.
-  assert.deepEqual(Object.values(PROVIDERS).filter(one => 'shownFor' in one).map(one => [one.name, one.shownFor]), [['claude', ['visual']]])
+  // None is shown without serving a kind (Claude was, on visual, until 2026-11-02: it draws no pictures).
+  assert.deepEqual(Object.values(PROVIDERS).filter(one => 'shownFor' in one).map(one => one.name), [])
   // What each kind is set to by default serves it.
   for (const kind of ASSET_KINDS) assert.ok(PROVIDERS[DEFAULT_PROVIDERS[kind].provider].kinds.includes(kind), kind)
   // Only the sound library has a folder, and it names its own default.
-  assert.deepEqual(Object.values(PROVIDERS).map(one => one.folder ?? null), [null, null, 'sound-library', null, null, null, null, null])
-  // Part C: every provider that serves a kind provides (test/assets.test.mjs); Claude serves none and has no `provide`.
-  assert.deepEqual(Object.values(PROVIDERS).filter(one => typeof one.provide !== 'function').map(one => one.name), ['claude'])
+  assert.deepEqual(Object.values(PROVIDERS).map(one => one.folder ?? null), [null, null, 'sound-library', null, null, null, null])
+  // Part C: every provider provides (test/assets.test.mjs).
+  assert.deepEqual(Object.values(PROVIDERS).filter(one => typeof one.provide !== 'function').map(one => one.name), [])
 })
 
 test('codex: ok when Codex is found, where the Design tab\'s settings say or where the board looks; "Codex not found" otherwise', async t => {
@@ -296,7 +293,6 @@ test('every check answers a state (works, needs or off) and a short detail for t
   assert.deepEqual(await personSunoModule.check(), { ok: true, state: 'works', why: 'you make it in Suno', detail: 'asks you for a file' })
   assert.deepEqual(await soundLibraryModule.check({ project }), { ok: true, state: 'works', why: 'The sound library folder "sound-library" holds sounds', detail: '1 sound found' })
   assert.deepEqual(await manual.check(), { ok: true, state: 'works', why: 'nothing to check', detail: 'Always works' })
-  assert.deepEqual(await claude.check(), { ok: false, state: 'off', why: 'Not for this kind', detail: '' })
   const ok = await elevenlabsModule.check({ key: KEY, fetch: answering(200, { tier: 'free', character_count: 50, character_limit: 10000 }) })
   assert.deepEqual(ok, { ok: true, state: 'works', why: 'works (free plan: for testing only, 9,950 credits left)', detail: '9,950 credits left' })
   assert.deepEqual(await elevenlabsModule.check({ key: KEY, fetch: answering(200, {}) }), { ok: true, state: 'works', why: 'works', detail: 'Key works' })
@@ -338,9 +334,8 @@ test('elevenlabs-images: a plan below Pro (free, starter, creator) needs the Pro
   assert.deepEqual(await elevenlabsImages.check({ key: KEY, fetch: answering(401, { detail: { status: 'missing_permissions' } }) }), unknown)
 })
 
-test('claude serves no kind: the settings refuse it for every kind, and it is only shown on visual', () => {
-  assert.deepEqual(claude.kinds, [])
-  assert.deepEqual(claude.shownFor, ['visual'])
+test('claude is no provider (removed 2026-11-02): the settings refuse it for every kind', () => {
+  assert.equal(PROVIDERS.claude, undefined)
   for (const kind of ASSET_KINDS) assert.notEqual(configProblem(`{"providers": {"${kind}": "claude"}}`), null, kind)
   // The default stays: a refused setting reads as the default.
   assert.deepEqual(settings('{"providers": {"visual": "claude"}}').providers.visual, { provider: 'codex' })

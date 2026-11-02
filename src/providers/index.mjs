@@ -12,10 +12,9 @@
 
 // Part A (spec 2026-11-01-asset-providers-screens-design.md) gives each module a `card` for the Settings tab (`{ title,
 // line, facts, icon }`), makes `check` answer `{ ok, state, why, detail }` (`state`: works, needs or off; `detail`: a short
-// text for the card) and adds the providers manual, elevenlabs-music, elevenlabs-images and claude. A module may name
-// `shownFor`: kinds it is only shown on, greyed, without serving them (claude on visual).
+// text for the card) and adds the providers manual, elevenlabs-music, elevenlabs-images. A module may name
+// `shownFor`: kinds it is only shown on, greyed, without serving them (claude on visual, removed 2026-11-02: it draws no pictures).
 
-import { claude } from './claude.mjs'
 import { codex } from './codex.mjs'
 import { elevenlabs } from './elevenlabs.mjs'
 import { elevenlabsImages } from './elevenlabs-images.mjs'
@@ -28,7 +27,7 @@ import { soundLibrary } from './sound-library.mjs'
 export { ASSET_KINDS }
 
 /** The providers the board knows, by name (no prototype: a setting's "constructor" is no provider). */
-export const PROVIDERS = Object.freeze(Object.assign(Object.create(null), Object.fromEntries([codex, personSuno, soundLibrary, elevenlabs, manual, elevenlabsMusic, elevenlabsImages, claude].map(one => [one.name, one]))))
+export const PROVIDERS = Object.freeze(Object.assign(Object.create(null), Object.fromEntries([codex, personSuno, soundLibrary, elevenlabs, manual, elevenlabsMusic, elevenlabsImages].map(one => [one.name, one]))))
 
 /** The setting of each kind when `providers` does not name it: `{ provider, folder? }`. */
 export const DEFAULT_PROVIDERS = Object.freeze({
