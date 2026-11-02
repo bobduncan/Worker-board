@@ -2928,6 +2928,8 @@ async function main(args) {
         // Signals change 4, D.4: an envelope with a clear waits while the chat's first turn after a wake runs.
         hand: async () => (!onIt || isHolding((await readState()).pause) ? null : await handOut(store, checked.chat, clock(), keep, { holdClear: inFirstTurn(wakes, checked.chat, reports?.get(checked.chat) ?? null), waiveLine: step => wakeCarriedTake(wakes, checked.chat, step) })),
         readState,
+        // Signals 7c: the held step's time in the row's words, at this moment.
+        now: clock(),
       })
       return { ok: true, result: { messages: fit.messages, ...(off.length === 0 ? {} : { off }), ...stop, ...(envelope === null ? {} : { handover: envelope }), ...(statuses.length === 0 ? {} : { statuses }) } }
     }),

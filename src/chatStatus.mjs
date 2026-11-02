@@ -169,9 +169,10 @@ const NAME_CHARS = 80
  * Supervisor and the Product owner, each `{ name, status, why, tone, since, reportAt }` straight from what the page draws
  * (`status`, `why`, `since`, `reportAt` as the state carries them, `tone` from `toneOf`). `age` is NOT sent: the pane works it
  * out from `reportAt` with the page's `AGE_SHOWN_MS` rule, so pane and pill agree. Capped at `STATUSES_MOST` entries. Display
- * only: nothing reads it back.
+ * only: nothing reads it back. Signals 7c (Workers mod 0.30.0): and `held`, the step the lane holds by the store with the row's
+ * time words at `now` (`heldEntry`), or null; the pane draws it in place of the card's task words.
  */
-export function statusesOf(state) {
+export function statusesOf(state, now = null) {
   const chats = (state?.chats ?? []).filter(chat => chat?.isLeftover !== true)
   const sides = [state?.advisor, state?.advisorHelper, state?.supervisorChat, state?.productOwner].filter(chat => chat !== null && chat !== undefined)
   const seen = new Set()
@@ -186,10 +187,51 @@ export function statusesOf(state) {
       tone: toneOf(chat.status, chat.age ?? null),
       since: finite(chat.since) ? chat.since : null,
       reportAt: finite(chat.reportAt) ? chat.reportAt : null,
+      held: heldEntry(chat.held, now),
     })
     if (out.length >= STATUSES_MOST) break
   }
   return out
+}
+
+/** 7c: the longest title of a held step the take sends (the Workers mod refuses a longer one). */
+export const HELD_TITLE_CHARS = 60
+
+/**
+ * Signals 7c (Workers mod 0.30.0): the held step of a status entry, for the pane's line: `{ id, title (cut to 60), time }`, the
+ * time in the row's words (`heldTimeText`), or null for a chat that holds none (the main chat, a free worker, a side chat).
+ */
+export function heldEntry(held, now) {
+  if (held === null || held === undefined || typeof held.id !== 'string' || held.id === '') return null
+  const title = typeof held.title === 'string' ? held.title.replace(/\s+/g, ' ').trim() : ''
+  return { id: held.id, title: title.length > HELD_TITLE_CHARS ? `${title.slice(0, HELD_TITLE_CHARS - 1)}…` : title, time: heldTimeText(held, now) }
+}
+
+const pad2 = value => String(value).padStart(2, '0')
+/** A length of time as the page's `span` (public/board.js, times part) words it: "40 min", "1 h 50". */
+function spanText(ms) {
+  const minutes = Math.round(ms / MIN)
+  if (minutes < 1) return 'under a minute'
+  if (minutes < 60) return `${minutes} min`
+  const hours = Math.floor(minutes / 60)
+  if (hours >= 48) return `${Math.round(hours / 24)} days`
+  return minutes % 60 === 0 ? `${hours} h` : `${hours} h ${pad2(minutes % 60)}`
+}
+
+/**
+ * Signals 7c: a held step's time as the worker's row says it (public/board.js `heldTime`, its main and its "of" words): "1 h 56
+ * of its 2 h" (left of its size), "12 min over its 2 h", "– of its 2 h" (no take recorded), "No time" (no size). Null without
+ * a held step or a clock. Mirrors the page (test/chatStatus.state.test.mjs runs the page's own heldTime beside it).
+ */
+export function heldTimeText(held, now) {
+  if (held === null || held === undefined || !finite(now)) return null
+  if (!finite(held.size)) return 'No time'
+  const size = held.size * MIN
+  const its = `its ${spanText(size)}`
+  const eta = held.eta ?? null
+  if (eta === null || !finite(eta.at)) return `– of ${its}`
+  const left = eta.at - now
+  return left > 0 ? `${spanText(left)} of ${its}` : `${spanText(-left)} over ${its}`
 }
 
 /**
@@ -197,8 +239,8 @@ export function statusesOf(state) {
  * only then the statuses, so a worker just handed an envelope sees its new status (the state is cached for 2 s, so the reset
  * is what makes this read fresh; no extra build otherwise). `{ envelope, statuses }`.
  */
-export async function handedWithStatuses({ hand, readState }) {
+export async function handedWithStatuses({ hand, readState, now = null }) {
   const envelope = await hand()
   if (envelope !== null) readState.reset()
-  return { envelope, statuses: statusesOf(await readState()) }
+  return { envelope, statuses: statusesOf(await readState(), now) }
 }
