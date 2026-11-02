@@ -99,6 +99,17 @@ function statusLabel(found) {
   if (found.age !== null && found.age > AGE_SHOWN_MS) return `${found.status} · ${ageSpan(found.age)} ago`
   return found.status
 }
+
+/**
+ * Signals change 7 (B914, 2026-11-02, the person's choice of "the simplest row"): a worker's row is drawn from the step the
+ * store records it holds (`lane.held`, state.mjs `withHeld`), never from the line the chat typed on its card (B855 at 11:16:
+ * its card said "step 4/4, 40 min left" while it had worked 4 of its 2 hours). Whether a lane is such a row: a worker's lane
+ * the state gave `held` (null when it holds none); the main chat, the Advisor, its helper and the Product owner keep their
+ * card's task as before.
+ */
+function isHeldRow(lane) {
+  return lane !== null && typeof lane === 'object' && Object.hasOwn(lane, 'held') && lane.isMain !== true && lane.isLeftover !== true
+}
 // chatstatus:end
 
 // What the person did on the page and a redraw must not undo.
@@ -2237,17 +2248,6 @@ const about = minutes => (minutes === null ? null : `~ ${span(minutes * MIN)}`)
 
 // lanetime:start
 // heldrow:start
-/**
- * Signals change 7 (B914, 2026-11-02, the person's choice of "the simplest row"): a worker's row is drawn from the step the
- * store records it holds (`lane.held`, state.mjs `withHeld`), never from the line the chat typed on its card (B855 at 11:16:
- * its card said "step 4/4, 40 min left" while it had worked 4 of its 2 hours). Whether a lane is such a row: a worker's lane
- * the state gave `held` (null when it holds none); the main chat, the Advisor, its helper and the Product owner keep their
- * card's task as before.
- */
-function isHeldRow(lane) {
-  return lane !== null && typeof lane === 'object' && Object.hasOwn(lane, 'held') && lane.isMain !== true && lane.isLeftover !== true
-}
-
 /**
  * Signals change 7: the time of a held step, one fact for the text and the bar: left of its size ("1 h 56" "of its 2 h"),
  * over it ("12 min over" "its 2 h", in the overdue tone only when B185's rule holds: over twice its size and by 10 minutes,
