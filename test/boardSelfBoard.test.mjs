@@ -104,11 +104,18 @@ test('a running board tells its own clock and loop, says why it was off after a 
   assert.match(await readFile(join(board, 'data', 'history.jsonl'), 'utf8'), /"gap":true,"why":"restart"/)
 
   // The board starts itself anew on the page's click: it ends with the restart code and writes why.
-  const gone = exited(first)
+  let exitedAt = null
+  const gone = exited(first).then(code => {
+    exitedAt = Date.now()
+    return code
+  })
   const answer = await fetch(`${base}/api/restart`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Board-Token': token, Origin: base }, body: '{}' })
+  const restartAt = Date.now()
   assert.equal(answer.status, 200)
   // Gap 2 of the live proof: nothing runs, yet the board keeps answering "leaving" for a whole refresh (2 s here) and a
   // second, so a page that asks every refresh sees it before the board is gone.
+  // 2026-11-02 (a gate flake under load: "leaving was seen for 1575 ms"): the window is measured as the board keeps it, from
+  // the restart's answer to the board's exit, not between the first and last of the polls, which thin out under load.
   const leavingSeen = []
   for (let tries = 0; tries < 200 && first.exitCode === null; tries += 1) {
     try {
@@ -119,9 +126,9 @@ test('a running board tells its own clock and loop, says why it was off after a 
     }
     await new Promise(wait => setTimeout(wait, 100))
   }
-  assert.ok(leavingSeen.length > 0, 'the state said leaving')
-  assert.ok(leavingSeen.at(-1) - leavingSeen[0] >= 2000, `leaving was seen for ${leavingSeen.at(-1) - leavingSeen[0]} ms, less than the 2 s refresh`)
   assert.equal(await gone, START_ANEW)
+  assert.ok(leavingSeen.length > 0, 'the state said leaving')
+  assert.ok(exitedAt - restartAt >= 2000, `the board left ${exitedAt - restartAt} ms after the restart's answer, less than the 2 s refresh`)
   const stopped = JSON.parse(await readFile(join(board, 'data', 'stop.json'), 'utf8'))
   assert.equal(stopped.why, 'restart')
   assert.ok(Math.abs(stopped.at - Date.now()) < 60_000)

@@ -5892,9 +5892,6 @@ function drawPartnerNeeds(cards, open) {
 }
 
 // obsolete:start
-/** B775: the verdicts' words on the page. */
-const OBSOLETE_WORDS = { obsolete: 'Obsolete', unsure: 'Unsure', open: 'Still open' }
-
 /** B775: the check's rows with the person's ticks: a row they changed keeps their tick, any other is ticked when obsolete. */
 function obsoleteRows(view, set = obsoleteUi.set) {
   return (view?.rows ?? []).map(row => ({ ...row, ticked: set.has(row.id) ? set.get(row.id) === true : row.ticked }))
@@ -5929,25 +5926,16 @@ function drawObsolete(state) {
   button.title = view.canCheck === false ? view.whyNot : 'Your partner judges every open item here against what happened since it was made; the obsolete ones close by themselves'
   head.append(button)
   if (view.state === 'late' && line === null) head.append(el('small', 'muted', 'The Advisor did not answer in 15 minutes.'))
-  else if (view.state === 'none' || view.state === 'done') head.append(el('small', 'muted', `${view.openCount} open item${view.openCount === 1 ? '' : 's'} here`))
+  else if (view.state === 'none') head.append(el('small', 'muted', `${view.openCount} open item${view.openCount === 1 ? '' : 's'} here`))
   part.append(head)
   if (line !== null) part.append(drawWaitLine(line))
   if (problems.has('obsolete:check')) part.append(el('p', 'problem', problems.get('obsolete:check')))
+  // The person, 2026-11-02 ("why am i seeing these stay? ... i can just assume what stays by seeing what stays ... 'closed 6
+  // obsolete' should be sufficient"): after the check only how many it closed; what stays is the cards themselves.
   if (view.state === 'done') {
-    const closed = view.last === null ? '' : `Closed ${view.last.closed} obsolete. `
-    part.append(el('p', 'muted obsolete-none', rows.length === 0 ? `${closed}Nothing is left to look at.` : `${closed}These stay:`))
-  }
-  if (rows.length > 0) {
-    part.append(fill(el('ul', 'obsolete-rows'), rows.map(row => {
-      const item = el('li', `obsolete-row is-${row.verdict}`)
-      const words = el('div', 'obsolete-words')
-      const line = el('div', 'obsolete-line')
-      line.append(el('b', 'task-code', row.id), ' ', row.title, ' ', el('span', 'obsolete-verdict', OBSOLETE_WORDS[row.verdict] ?? row.verdict))
-      words.append(line, el('small', 'muted obsolete-why', row.why))
-      if (row.evidence !== '') words.append(el('small', 'muted obsolete-evidence', row.evidence))
-      item.append(words)
-      return item
-    })))
+    const left = rows.filter(row => row.verdict === 'obsolete').length
+    const closed = view.last === null ? 'Nothing was obsolete.' : `Closed ${view.last.closed} obsolete.`
+    part.append(el('p', 'muted obsolete-none', left === 0 ? closed : `${closed} ${left} could not be closed; they stay below.`))
   }
   return part
 }

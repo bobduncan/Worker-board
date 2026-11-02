@@ -9,7 +9,7 @@ import test from 'node:test'
 
 import { workApi } from '../../src/work/api.mjs'
 import { parseItem, valueOf } from '../../src/work/item.mjs'
-import { nextId, oneRead, parsedCount, readStore, removeItem, writeItem } from '../../src/work/store.mjs'
+import { nextId, oneRead, parsedCount, readStore, removeItem, share, writeItem } from '../../src/work/store.mjs'
 
 const step = (id, title, state = 'queued') => `Id: ${id}\nKind: step\nTitle: ${title}\nState: ${state}\nSince: -\nActivity: Garden\n`
 const activities = '{ "preamble": [], "activities": [{ "name": "Garden", "steps": ["B1", "B2", "B3", "B4", "B5"] }] }\n'
@@ -74,11 +74,19 @@ test('within one call a later read takes the first read\'s listing and sees the 
 
 test('after the call a read is whole again: a hand edit is seen, also by a read the call left running', async t => {
   const { dir, fs, count } = await garden(t)
+  // B917: a whole read shares the listing of one within `share.ms`; a hand edit shows once that is past.
+  let at = Date.now()
+  const was = share.now
+  share.now = () => at
+  t.after(() => {
+    share.now = was
+  })
   let late
   await oneRead(dir, fs, async () => {
     await readStore(dir, fs)
     late = new Promise(resolve => setTimeout(resolve, 20)).then(async () => {
       await writeFile(join(dir, 'B3.md'), step('B3', 'Step 3 by hand', 'done'))
+      at += share.ms
       return readStore(dir, fs)
     })
   })
@@ -86,6 +94,7 @@ test('after the call a read is whole again: a hand edit is seen, also by a read 
   assert.equal(count.readdir, 2)
   assert.equal(valueOf(seen.items.get('B3'), 'Title'), 'Step 3 by hand')
   await writeFile(join(dir, 'B4.md'), step('B4', 'Step 4 by hand', 'done'))
+  at += share.ms
   assert.equal(valueOf((await readStore(dir, fs)).items.get('B4'), 'State'), 'done')
   assert.equal(count.readdir, 3)
 })

@@ -155,8 +155,10 @@ export function wakeCarriedTake(record, chat, step) {
 export function personAgain(record, { chat, spell, path, by, jobId, now, runBefore = null }) {
   if (!['message', 'launch'].includes(path) || !isTime(spell) || !isTime(now) || typeof chat !== 'string' || chat === '') return false
   newSpell(record, chat, spell)
-  const entry = entryOf(record, chat, spell)
-  if (entry === null || entry.attempts.some(isPending)) return false
+  // Only the chat's newest spell (the goal chat's wait-line test, 2026-11-02: spells A, B, then A again put the attempt in
+  // the older entry A, which the hands route never reads, so the message was never handed out and failed after 3 min).
+  const entry = newestOf(record, chat)
+  if (entry === null || entry.spell !== spell || entry.attempts.some(isPending)) return false
   const attempt = { path, at: now, by: String(by ?? (path === 'launch' ? 'board' : '')), jobId: String(jobId ?? ''), sentAt: null, runBefore: runBefore ?? null, verdict: null, verdictAt: null, why: null, again: 'person' }
   entry.attempts.push(attempt)
   return attempt

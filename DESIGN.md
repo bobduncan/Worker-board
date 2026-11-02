@@ -1688,6 +1688,15 @@ as a shadow of the backlog; B301 removed the shadow (below): the store is the on
   the backlog view again at every rebuild for the folders the steps mention (6% of a core): those folders are worked
   out once per read of the store (the keeper's answer, the same until a change through the board or its 30 s; tests:
   test/sources.test.mjs, B917).
+- **One listing shared for 1.5 s (B917 part 2b, X93)**: after the index the main thread was half free and the store
+  reads showed on the pool threads: 2.4 whole reads a second, each stating all 3138 item files (about a quarter of a
+  core). A whole read now shares the listing and stats of one taken within `share.ms` (1.5 s, src/work/store.mjs) and
+  states nothing; every write and remove the board makes drops the shared listing at once with the file's copy
+  (`forget`, also for writeStore's take-away of a step without an id), and a read that a write of the board overtook
+  between its listing and its stats keeps nothing to share. So whatever is written through the board shows at the very
+  next read, as before; a hand edit outside the board shows within 1.5 s. No folder watcher (Windows watchers are the
+  flakier path). Tests that edit store files by hand and read at once set `share.ms = 0` (tests:
+  test/work/storeCache.test.mjs, B917).
 - **The state kept 5 s (B917 part 4, X93)**: `readState` (server.mjs, `STATE_MS`) keeps the built state 5 s instead
   of 2 s; every change through the board still resets it, so a change shows at once. Logged on the live board
   (2026-11-02, 152 s): 913 asks of the state (6 a second: the chats' pings, the page's polls, the loops) and 32 resets
