@@ -7,7 +7,8 @@ import { messageText } from '../src/bridge.mjs'
 import { FOCUS_MOVES, focusMove } from '../src/focus.mjs'
 import { hasDoneWhen, parseGoals } from '../src/goals.mjs'
 import { editGoals } from '../src/goalsWrite.mjs'
-import { FOCUS_COMMANDS, wakeFor } from '../src/say.mjs'
+import { FOCUS_COMMANDS } from '../src/say.mjs'
+import { wakeNeeds } from '../src/wake.mjs'
 
 function fakeFs(files) {
   return {
@@ -128,7 +129,7 @@ test('the button asks the partner for a goal\'s Done when, as the person\'s word
   assert.equal((await focusMove({ command: 'done-when', id: 'G4' }, ctx(fs, { partner: null }))).status, 409)
   // A partner that does not run is woken through the main chat, as for every word of the Focus page.
   const state = { restart: { main: 'Main' }, chats: [{ name: 'Main', isRunning: true }], advisor: { name: 'Partner', isRunning: false, appSession: 'local_abc' } }
-  assert.equal(wakeFor({ id: 'm1', at: NOW, ...asked.words, state: 'waiting' }, state, [], NOW, 4000)?.command, 'start')
+  assert.equal(wakeNeeds(state, [{ state: 'waiting', ...{ id: 'm1', at: NOW, ...asked.words, state: 'waiting' } }])[0]?.why, 'words')
 })
 
 // Goal definition (2026-10-31): the words people and chats read say "goal definition" where they said "vibe".

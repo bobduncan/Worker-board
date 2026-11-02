@@ -19,9 +19,9 @@ const DEFAULT_KEEP = Object.freeze({ messageMs: 10 * 60_000, answerMs: 48 * 60 *
  * known), `settings` (the thresholds, config.mjs SUPERVISOR_DEFAULTS), `keep` (how long the outbox keeps a word) and
  * `goals` (the goal map's nodes) and `focus` (the focus goal's id, or null), `ready` (redesign Part 2: the board's ready
  * list, state.mjs `readyList.ready`: `{ id, rank, keptFor, keptUntil, pinned }` in its order) and `held` (its `held`, or
- * null without a list). X65 (the rule unknown-lane): `wakeFailed` (state.mjs: `[{ chat, tries, since }]`, the chats the
- * board asked to start in vain) and `nobodyRuns` (`{ since, chats }` or null: words wait for chats that are off and no chat
- * runs to carry the start word), the two ways the board's own wake-up of a chat fails.
+ * null without a list). Signals change 4, B908: `wakes` (state.mjs: the wake record's newest spell per chat, `{ state, spell,
+ * attempts, spells }`, the board-wide spell under "*"); each lane, the partner, its helper, the supervisor and the owner carry
+ * their own `wake` (how its wake stands: `{ state, final, need, spell, attempts }`).
  */
 export function buildView({ state = {}, items = new Map(), outbox = [], keep = null, limits, pause, refused = [], leftovers, bases = [], repairs = [], mods = null, settings = {}, seen = null, now }) {
   const lanes = state.chats ?? []
@@ -59,10 +59,8 @@ export function buildView({ state = {}, items = new Map(), outbox = [], keep = n
     // so a rule that finds a refine word unanswered can name the ask that keeps the next one from going out.
     refineHeld: Object.freeze((state.backlog ?? []).flatMap(activity => activity.steps ?? []).filter(step => step.refineAsk?.isOpen === true)
       .map(step => Object.freeze({ id: step.id, round: step.refineAsk.round ?? 1, state: step.refineAsk.state, at: step.refineAsk.at }))),
-    // X65: the board wakes a chat that words wait for by itself; these two say it could not (state.mjs wakeFailed, nobodyRuns).
-    wakeFailed: Object.freeze((Array.isArray(state.wakeFailed) ? state.wakeFailed : []).map(one => Object.freeze({ ...one }))),
-    nobodyRuns: state.nobodyRuns !== null && typeof state.nobodyRuns === 'object'
-      ? Object.freeze({ since: Number.isFinite(state.nobodyRuns.since) ? state.nobodyRuns.since : null, chats: Object.freeze([...(state.nobodyRuns.chats ?? [])]) }) : null,
+    // Signals change 4: the wake record's newest spell per chat (the rules wake-failed, nobody-answers-wakes, handover-unanswered).
+    wakes: Object.freeze({ ...(state.wakes !== null && typeof state.wakes === 'object' ? state.wakes : {}) }),
     limits: limits ?? state.limits ?? {},
     pause: pause ?? state.pause ?? null,
     refused,

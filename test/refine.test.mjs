@@ -11,7 +11,8 @@ import { fileURLToPath } from 'node:url'
 import vm from 'node:vm'
 
 import { overview, parseBacklog, refinedOf, withoutRefined } from '../src/backlog.mjs'
-import { checkSay, wakeFor } from '../src/say.mjs'
+import { checkSay } from '../src/say.mjs'
+import { wakeNeeds } from '../src/wake.mjs'
 import { editStep } from '../src/tick.mjs'
 import { migrateBacklog } from '../src/work/migrate.mjs'
 import { acceptRefine, answerRefine } from '../src/work/refineText.mjs'
@@ -121,7 +122,7 @@ test('"refine step" goes to the Advisor only, for a step that is not finished, o
   assert.equal(checkSay({ to: 'Oracle', command: 'refine', step: 'B13', text: 'more' }, STATE, 4000).status, 400)
   // An Advisor whose chat is not running is started by the main chat, as for the person's other words to it.
   const state = { ...STATE, chats: [...STATE.chats, { name: 'Oracle', isRunning: false }] }
-  assert.equal(wakeFor({ ...first.message }, state, [], 0, 4000)?.command, 'start')
+  assert.equal(wakeNeeds(state, [{ state: 'waiting', ...{ ...first.message } }])[0]?.why, 'words')
 })
 
 test('the window offers Refine for an open step and says while the Advisor works on it', async () => {

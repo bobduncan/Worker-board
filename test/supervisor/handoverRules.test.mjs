@@ -38,7 +38,7 @@ const failedEnvelope = (to, minutes, more = {}) => ({
 const HELD_WHY = 'its clear did not run: its conversation could not be saved as a log (Background work it started is still running)'
 
 const view = (more = {}) => buildView({
-  state: { chats: more.chats ?? [LEAD], today: [], limits: more.limits ?? {}, pause: more.pause ?? null, chatPrefix: '', readyList: more.readyList ?? null, gaps: more.gaps ?? [] },
+  state: { chats: more.chats ?? [LEAD], today: [], limits: more.limits ?? {}, pause: more.pause ?? null, chatPrefix: '', readyList: more.readyList ?? null, gaps: more.gaps ?? [], wakes: more.wakes ?? {} },
   items: more.items ?? new Map(), outbox: more.outbox ?? [], settings: {}, now: NOW,
 })
 const check = (id, board, seen = new Map()) => WATCH_RULES.find(one => one.id === id).check(board, { seen, observed: [] })
@@ -78,13 +78,13 @@ test('handover-held, mutant "the rule firing for a timers worker": a worker on t
   assert.deepEqual(check('handover-held', view({ chats: [main], outbox: [failedEnvelope('Digger', 30)] })), [])
 })
 
-test('handover-unanswered: the net fired: one finding per envelope, for a day; a timers worker, or an envelope the net did not fire for, none', () => {
+test('handover-unanswered: the net fired: one finding per worker and spell (no wake record: the envelope\'s minute), for a day; a timers worker, or an envelope the net did not fire for, none', () => {
   const sent = (id, minutes, netMinutes, more = {}) => ({ id, at: ago(minutes), to: 'Digger', command: 'handover', about: 'Digger', kind: 'task', step: 'B13', clear: null, restart: false, set: null, line: 'work: B13 is yours; run work next', state: 'dropped', ...(netMinutes === null ? {} : { netAt: ago(netMinutes) }), ...more })
   const digger = onIt('Digger', 'unknown', { handover: { state: 'unknown', why: 'did not answer its hand-over (B13)', step: 'B13' } })
   const found = check('handover-unanswered', view({ chats: [LEAD, digger], outbox: [sent('e1', 12, 2), sent('e2', 40, 30, { step: 'B14' }), sent('e3', 5, null)] }))
-  assert.deepEqual(found.map(one => [one.rule, one.key, one.subject]), [['handover-unanswered', 'handover-unanswered e2', 'Digger'], ['handover-unanswered', 'handover-unanswered e1', 'Digger']])
+  assert.deepEqual(found.map(one => [one.rule, one.key, one.subject]), [['handover-unanswered', `handover-unanswered Digger ${ago(40)}`, 'Digger'], ['handover-unanswered', `handover-unanswered Digger ${ago(12)}`, 'Digger']])
   assert.equal(found[1].text, 'Digger did not answer its hand-over (B13) within 10 min; B13 went back on the list')
-  assert.match(found[1].evidence, new RegExp(`envelope e1 \\(task\\) out at ${clockOf(12)}, dropped; the net fired at ${clockOf(2)}; its lane now: unknown; its report: idle since ${clockOf(40)}`))
+  assert.match(found[1].evidence, new RegExp(`envelope e1 \\(task B13\\) out at ${clockOf(12)}, dropped; the net fired at ${clockOf(2)}; its lane now: unknown; its report: idle since ${clockOf(40)}`))
   assert.equal(found[1].since, ago(12))
   // A clear alone (no step): named all the same, without a step.
   assert.equal(check('handover-unanswered', view({ chats: [LEAD, digger], outbox: [sent('e4', 15, 3, { step: null, kind: 'clear', clear: { step: 'B12', reportedAt: ago(20) } })] }))[0].text, 'Digger did not answer its hand-over within 10 min')
@@ -92,6 +92,57 @@ test('handover-unanswered: the net fired: one finding per envelope, for a day; a
   assert.deepEqual(check('handover-unanswered', view({ chats: [LEAD, digger], outbox: [sent('e5', 25 * 60 + 12, 25 * 60)] })), [])
   // Mutant "the rule firing for a timers worker".
   assert.deepEqual(check('handover-unanswered', view({ chats: [LEAD, onTimers('Digger', 'unknown')], outbox: [sent('e1', 12, 2)] })), [])
+})
+
+// Signals change 4, B908 (decision 7): X119-X121 were one incident per envelope as B855 bounced between sleepers. Now the key
+// is the worker and its spell (the wake record's newest spell that began before the envelope), a failed wake is one
+// incident per chat and spell, "nobody answers" one per day, and a word that waits for a wake is not undelivered.
+const asleep = (name, spell, wake, more = {}) => onIt(name, 'unknown', { isRunning: false, asleep: true, asleepSince: spell, wake, ...more })
+const failedLaunch = spell => ({ state: 'failed', final: true, need: true, spell, why: 'the app did not start it', attempts: [{ path: 'launch', at: ago(28), by: 'board', jobId: 'l', sentAt: ago(28), runBefore: null, verdict: 'failed', verdictAt: ago(26), why: 'the app did not start it' }] })
+
+test('change 4: handover-unanswered keys per worker and spell: two envelopes of one spell are one finding naming both (mutant: per envelope)', () => {
+  const sent = (id, minutes, netMinutes, step) => ({ id, at: ago(minutes), to: 'Digger', command: 'handover', about: 'Digger', kind: 'task', step, clear: null, restart: false, set: null, line: `work: ${step} is yours; run work next`, state: 'dropped', netAt: ago(netMinutes) })
+  const digger = asleep('Digger', ago(120), null)
+  const wakes = { Digger: { state: 'none', spells: [ago(300), ago(120)] } }
+  const found = check('handover-unanswered', view({ chats: [LEAD, digger], wakes, outbox: [sent('e1', 50, 40, 'B855'), sent('e2', 30, 20, 'B856')] }))
+  assert.deepEqual(found.map(one => one.key), [`handover-unanswered Digger ${ago(120)}`])
+  assert.match(found[0].evidence, /envelope e1 \(task B855\).*; envelope e2 \(task B856\)/)
+  assert.match(found[0].evidence, /asleep since /)
+})
+
+test('change 4: wake-failed once per chat and spell, with what was tried; nothing while a path is left or pending (mutant: two incidents for one spell)', () => {
+  const spell = ago(600)
+  const w2 = asleep('Worker 2', spell, failedLaunch(spell))
+  const once = check('wake-failed', view({ chats: [LEAD, w2] }))
+  assert.deepEqual(once.map(one => [one.rule, one.key, one.subject]), [['wake-failed', `wake-failed Worker 2 ${spell}`, 'Worker 2']])
+  assert.equal(once[0].text, `could not wake Worker 2: the app did not start it (launched ${clockOf(28)})`)
+  // The same spell later, a second failed attempt in it: the same key, one incident (the board counts a key once).
+  const twice = asleep('Worker 2', spell, { ...failedLaunch(spell), attempts: [...failedLaunch(spell).attempts, { path: 'message', at: ago(20), by: 'Advisor', jobId: 'm', sentAt: ago(20), runBefore: null, verdict: 'failed', verdictAt: ago(18), why: 'no report within 2 minutes of the message' }] })
+  assert.deepEqual(check('wake-failed', view({ chats: [LEAD, twice] })).map(one => one.key), [`wake-failed Worker 2 ${spell}`])
+  // A path left, or a wake on its way: nothing.
+  assert.deepEqual(check('wake-failed', view({ chats: [LEAD, asleep('Worker 2', spell, { ...failedLaunch(spell), final: false })] })), [])
+  assert.deepEqual(check('wake-failed', view({ chats: [LEAD, asleep('Worker 2', spell, { state: 'sent', final: false, need: true, spell, attempts: [] })] })), [])
+})
+
+test('change 4: nobody-answers-wakes once per day when every chat with a need failed and the board-wide launch failed too', () => {
+  const spell = ago(600)
+  const chats = [LEAD, asleep('Worker 2', spell, failedLaunch(spell)), asleep('Worker 3', spell, failedLaunch(spell))]
+  const board = { '*': { state: 'failed', why: 'the app did not start it', attempts: failedLaunch(spell).attempts, spells: [ago(30)] } }
+  const found = check('nobody-answers-wakes', view({ chats, wakes: board }))
+  assert.deepEqual(found.map(one => [one.key, one.subject]), [[`nobody-answers-wakes ${stamp(NOW).slice(0, 10)}`, 'board']])
+  // The board-wide launch not failed, or one chat still waking: none.
+  assert.deepEqual(check('nobody-answers-wakes', view({ chats })), [])
+  assert.deepEqual(check('nobody-answers-wakes', view({ chats: [...chats.slice(0, 2), asleep('Worker 3', spell, { state: 'sent', final: false, need: true, spell, attempts: [] })], wakes: board })), [])
+})
+
+test('change 4: undelivered leaves out the words of a chat whose wake is pending or failed (decision 7: they wait for the wake)', () => {
+  const spell = ago(600)
+  const words = [{ id: 'w1', at: ago(40), to: 'Worker 2', ask: null, text: 'Take this.', state: 'waiting' }]
+  const off = asleep('Worker 2', spell, null)
+  assert.equal(check('undelivered', view({ chats: [LEAD, off], outbox: words })).length, 1)
+  for (const wake of [failedLaunch(spell), { state: 'sent', final: false, need: true, spell, attempts: [] }, { state: 'launched', final: false, need: true, spell, attempts: [] }]) {
+    assert.deepEqual(check('undelivered', view({ chats: [LEAD, asleep('Worker 2', spell, wake)], outbox: words })), [], wake.state)
+  }
 })
 
 test('ready-while-free reads the hand-over FREE only (R7, X111): held, handing or checking is not free; a worker not on the sequence never is', () => {

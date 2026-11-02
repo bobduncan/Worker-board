@@ -61,7 +61,7 @@ import { createSpendingCollector } from './src/work/routing/collector.mjs'
 import { readRoutingRecord } from './src/work/routing/records.mjs'
 import { parseRoutingPolicy } from './src/work/routing/policy.mjs'
 import { adoptPicture, findDemo, findPicture, readDemo, writeFeedback, PICTURE_BYTES as SHOWN_PICTURE_BYTES, pictureProblem, pictureTooBig, shownFolders, shownRoots } from './src/pictures.mjs'
-import { recapFeedbackWords, answerWords, boardLanes, checkSay, focusWords, goalStepFor, goalStepOf, recommendYesAnswer, obsoleteWords, recommendYesOf, reportedBackgroundDue, resumesDue, sayStopWords, spawnWhenAlone, wakeFor, wakesDue, wakesStopped, withInstruction, workWords } from './src/say.mjs'
+import { recapFeedbackWords, answerWords, boardLanes, checkSay, focusWords, goalStepFor, goalStepOf, recommendYesAnswer, obsoleteWords, recommendYesOf, reportedBackgroundDue, resumesDue, sayStopWords, spawnWhenAlone, wakesStopped, withInstruction, workWords } from './src/say.mjs'
 import { keepTalkPicture } from './src/talkPicture.mjs'
 import { firstLook, refineQueue, refineWhenDue } from './src/refineGate.mjs'
 import { recheckText, roundText, roundsNow } from './src/rounds.mjs'
@@ -1027,7 +1027,7 @@ async function main(args) {
    * Autopilot: the main chat is woken for an ask routed to it as the partner is for one routed to it: the work line through
    * the delivery's `sendOnce` (command `work`, kind `main-ask`), once per ask (once more when its word was closed). Only while
    * the main chat runs and is free: a word for it never waits for a main chat that does not run (it is closed here), so it is
-   * never a reason to open a chat by itself (say.mjs `nobodyRunsOf`). Its answer comes by `work partner-answer` or `work escalate`;
+   * never a reason to open a chat by itself (src/wake.mjs `nobodyRunsSpell`). Its answer comes by `work partner-answer` or `work escalate`;
    * after the partner's 30 minutes the board hands the ask to the person (work API `autopilot`).
    */
   const MAIN_ASK = 'main-ask'
@@ -1124,8 +1124,7 @@ async function main(args) {
     await store.say(message)
     readState.reset()
     if (isCopied) return { ok: true, result: { ...result, said: message.id, paste: { text: messageText(message, timeOf), chat: `${state.chatPrefix ?? ''}${message.to}` } } }
-    const wake = wakeFor(message, state, store.outbox(), clock(), config.maxMessageChars)
-    if (wake !== null) await store.say({ id: randomBytes(8).toString('hex'), at: clock(), ...wake, state: 'waiting' })
+    // Signals change 4: a partner that does not run is woken by the wake procedure (src/wake.mjs), no start word.
     return { ok: true, result: { ...result, said: message.id } }
   }
   /**
@@ -1192,8 +1191,6 @@ async function main(args) {
       const words = typeof wake.line === 'string' ? { ...workWords(wake.to, wake.id, wake.line), kind: 'taken-back' } : answerWords(wake)
       const message = { id: randomBytes(8).toString('hex'), at: clock(), ...words, state: isCopied ? 'copied' : 'waiting' }
       await store.say(message)
-      const start = isCopied ? null : wakeFor(message, state, store.outbox(), clock(), config.maxMessageChars)
-      if (start !== null) await store.say({ id: randomBytes(8).toString('hex'), at: clock(), ...start, state: 'waiting' })
       readState.reset()
       if (isCopied) paste ??= { text: messageText(message, timeOf, path => inProject(config.project, path)), chat: `${state.chatPrefix ?? ''}${message.to}` }
     }
@@ -2433,9 +2430,7 @@ async function main(args) {
         const paste = { text: message.pasteText, chat: `${state.chatPrefix ?? ''}${message.to}` }
         return { ok: true, message: { ...message, paste } }
       }
-      // Sent to a chat that is not running: the main chat is asked to start it, so nothing waits without a word.
-      const wake = message.state === 'held' ? null : wakeFor(message, state, store.outbox(), clock(), config.maxMessageChars)
-      if (wake !== null) await store.say({ id: randomBytes(8).toString('hex'), at: clock(), ...wake, state: 'waiting' })
+      // Sent to a chat that is not running: signals change 4, the wake procedure wakes it (src/wake.mjs), no start word.
       // What was sent shows at once.
       readState.reset()
       return { ok: true, message }
@@ -3050,8 +3045,6 @@ async function main(args) {
         if (next.round !== null) {
           const message = { id: randomBytes(8).toString('hex'), at: now, to: state.advisor.name, ask: null, step: null, title: null, version: null, verdict: null, command: 'round', round: next.round, text: roundText(next.round, { board: HERE, config, focus: state.focus ?? null }), state: 'waiting' }
           await store.say(message)
-          const wake = wakeFor({ ...message, command: null }, state, store.outbox(), now, config.maxMessageChars)
-          if (wake !== null) await store.say({ id: randomBytes(8).toString('hex'), at: now, ...wake, state: 'waiting' })
           readState.reset()
         }
         if (JSON.stringify(next.kept) !== JSON.stringify(roundsKept)) {
@@ -3076,8 +3069,6 @@ async function main(args) {
           if (words === null) continue
           const message = { id: randomBytes(8).toString('hex'), at: now, ...words, state: 'waiting' }
           await store.say(message)
-          const wake = wakeFor(message, state, store.outbox(), now, config.maxMessageChars)
-          if (wake !== null) await store.say({ id: randomBytes(8).toString('hex'), at: now, ...wake, state: 'waiting' })
         }
         if (due.release.length + due.drop.length > 0 || due.refine !== null || due.notice !== null) readState.reset()
       }
@@ -3099,13 +3090,10 @@ async function main(args) {
         const stops = await sayStopWords(state, store, sentNow, now, () => randomBytes(8).toString('hex'))
         if (stops.length > 0) readState.reset()
       }
-      // Words that wait for a chat that is not running, sent while the main chat did not run either, are followed by
-      // the word to start it once the main chat runs (say.mjs wakesDue). Only the board that delivers.
+      // Signals change 4: words that wait for a chat that is not running are the wake procedure's need (src/wake.mjs), no
+      // start word by the clock any more. Only the board that delivers.
       if (bridgeKey !== null && state.bridge?.isMissing !== true) {
         const now = clock()
-        const starts = wakesDue(state, sentNow(), now, config.maxMessageChars)
-        for (const start of starts) await store.say({ id: randomBytes(8).toString('hex'), at: now, ...start, state: 'waiting' })
-        if (starts.length > 0) readState.reset()
         // B577: a chat whose session was stopped takes nothing until it gets input: the main chat is asked once per stop
         // to wake it by its session id.
         const wakes = wakesStopped(state, stoppedChats(store.outbox(), state), store.outbox(), timeOf)
@@ -3122,8 +3110,6 @@ async function main(args) {
         for (const words of [...fixesToTell(state.brainstorms?.threads, store.outbox(), talker), ...strandedToTell(state.brainstorms?.threads, store.outbox(), talker, state.goals?.nodes ?? null, state.brainstorms?.asks ?? [])]) {
           const message = { id: randomBytes(8).toString('hex'), at: now, ...words, state: 'waiting' }
           await store.say(message)
-          const wake = wakeFor(message, state, store.outbox(), now, config.maxMessageChars)
-          if (wake !== null) await store.say({ id: randomBytes(8).toString('hex'), at: now, ...wake, state: 'waiting' })
           readState.reset()
         }
       }
@@ -3323,10 +3309,9 @@ async function main(args) {
           const isCopied = state.bridge?.isMissing === true
           const message = { id: randomBytes(8).toString('hex'), at: clock(), ...words, state: isCopied ? 'copied' : 'waiting' }
           await store.say(isCopied ? { ...message, pasteText: messageText(message, timeOf) } : message)
-          const start = isCopied ? null : wakeFor(message, state, store.outbox(), clock(), config.maxMessageChars)
-          if (start !== null) await store.say({ id: randomBytes(8).toString('hex'), at: clock(), ...start, state: 'waiting' })
           readState.reset()
-          return { ok: true, id: message.id, started: start !== null, copied: isCopied }
+          // Signals change 4: a chat that does not run is woken by the wake procedure (src/wake.mjs), no start word.
+          return { ok: true, id: message.id, started: false, copied: isCopied }
         },
         partnerJob: join(HERE, 'roles', 'partner.md'),
         // The review: how long a word waits in the outbox before it is lost, as the outbox keeps it.

@@ -5,7 +5,8 @@ import test from 'node:test'
 
 import { brainstormNeeds, brainstormsState, editThread, parseThread } from '../src/brainstorm.mjs'
 import { parseGoals } from '../src/goals.mjs'
-import { checkSay, wakeFor } from '../src/say.mjs'
+import { checkSay } from '../src/say.mjs'
+import { wakeNeeds } from '../src/wake.mjs'
 import { GOALS } from './fixtures-goals.mjs'
 
 /** A fake file system over one map of path → text (bytes as latin1), with folders listed by their files. */
@@ -229,7 +230,7 @@ test('a created step goes to the main chat in the Design tab\'s form, with the g
   // Not created yet: no step is asked for.
   assert.equal(checkSay({ to: 'Main', command: 'goal-step', thread: P, step: 0 }, sayState([thread(P, PROPOSAL)]), 2000).status, 409)
   const asleep = { ...created, chats: [{ name: 'Main', isMain: true, isRunning: true }], advisor: { name: 'Oracle', isRunning: false } }
-  assert.equal(wakeFor({ to: 'Oracle', command: 'brainstorm-answer' }, asleep, [], 1_000_000, 2000).about, 'Oracle')
+  assert.equal(wakeNeeds(asleep, [{ state: 'waiting', ...{ to: 'Oracle', command: 'brainstorm-answer' } }])[0]?.chat, 'Oracle')
 })
 
 test('review B259: two starts on one goal at the same moment make one thread; a question left open while it wraps up waits for nobody', async () => {

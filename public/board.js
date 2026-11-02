@@ -619,13 +619,14 @@ function codeJobLines(jobs) {
     'allowed: the running chats see it within ten minutes': 'within 10 min',
   }
   return (jobs?.rows ?? []).map(row => {
-    // T13 part 4: the board's own job, no chat's: opening a chat when none runs; it stopped after tries that brought none back.
-    if (row.key === 'open') {
-      const failed = String(row.why ?? '').startsWith('the last try failed')
+    // Signals change 4 (src/wake.mjs `rowOf`): the board's own job, no chat's: waking a chat that has work, a running chat's
+    // message first, a launch of the app's chat when none can send; its newest launch failed, or it cannot launch here.
+    if (row.key === 'launch') {
+      const failed = String(row.why ?? '').startsWith('the last launch failed')
       return {
         key: row.key, title: row.title, byCode: row.byCode === true,
-        text: row.byCode === true ? 'by itself' : failed ? 'last try failed' : 'not on this board',
-        why: row.byCode === true ? 'When no chat runs and work waits for one, the board opens a chat of the project in the Claude app.' : `The board does not open a chat by itself now: ${row.why}${failed ? '; open any chat of the project yourself' : ''}.`,
+        text: row.byCode === true ? 'by itself' : failed ? 'last launch failed' : 'message only',
+        why: row.byCode === true ? 'A chat that has work and does not run gets a message from a running chat; when none can send, the board launches it in the Claude app.' : `The board wakes a chat by a running chat's message only now: ${row.why}${failed ? '; the page names the chat to open' : ''}.`,
       }
     }
     // The person, 2026-10-30: the workers' own preview tools, allowed or not (src/codeJobs.mjs, settingsOnly): no main chat's job.
@@ -1947,11 +1948,9 @@ function drawRestart(state) {
   pauseAll.hidden = restart === null || restart.main === null || pause?.state === 'pausing'
   pauseAll.disabled = sending.has('restart')
   const line = (className, text) => el('p', className, text)
-  // T13 part 4: the chat the board opened when none ran, in one quiet line; amber once its tries brought no chat back.
-  const opened = typeof state.opener?.text === 'string' ? line(`opener-note ${state.opener.tone === 'attention' ? 'alert' : 'muted'}`, state.opener.text) : null
+  // Signals change 4 (2026-11-02): the opener's line went into the one wake notice under Needs your attention (`state.wakeNotice`).
   if (restart === null || restart.main === null) {
-    box.hidden = opened === null
-    if (opened !== null) fill(box, [opened])
+    box.hidden = true
     return
   }
   const button = (label, className, command) => {
@@ -1962,7 +1961,6 @@ function drawRestart(state) {
     return node
   }
   const parts = []
-  if (opened !== null) parts.push(opened)
   for (const text of stoppedLines(restart, state.chats ?? [])) parts.push(line('alert', text))
   // Who has to be started before it can carry on: said where a restart is at hand, not all day long.
   const down = restart.notRunning ?? []
@@ -2680,7 +2678,7 @@ function laneFlags(lane, restart = null) {
     // T8: so is any other mismatch its worker can fix (flag 'back').
     // T8.5: where a worker's hand-over stands (handing, offered, held with why, "did not answer") is information: quiet.
     // Signals change 3: a step the board gave back from it needs a look for an hour ('given back'), then is information.
-    tone: flag.kind === 'card' || flag.kind === 'model' || flag.kind === 'given back' ? 'warn' : flag.kind === 'given back old' || flag.kind === 'handover' || flag.kind === 'not merged' || flag.kind === 'back' ? 'quiet' : 'problem',
+    tone: flag.kind === 'card' || flag.kind === 'model' || flag.kind === 'given back' || flag.kind === 'wake failed' ? 'warn' : flag.kind === 'given back old' || flag.kind === 'handover' || flag.kind === 'wake' || flag.kind === 'not merged' || flag.kind === 'back' ? 'quiet' : 'problem',
     // B304: a failed check is the person's to run again ("Check again", `data-recheck`: the work API's `recheck`).
     button: flag.kind === 'check failed' ? { label: 'Check again', recheck: flag.id }
       : flag.button === null || main === null || main === lane.name ? null : { label: flag.button, start: lane.name, isAsked },
@@ -5200,35 +5198,21 @@ function drawInstructions(state) {
 
 // nobodyruns:start
 /**
- * T9.4: the one line under Needs your attention while words wait for chats that are off and no chat of the project runs, so
- * nobody can carry the board's word that starts them (`state.nobodyRuns`: `{ since, chats }`). Null while a chat runs.
+ * Signals change 4, B908 (decision 6, 2026-11-02): the ONE line of the board's wake-ups under Needs your attention, from the
+ * wake record (`state.wakeNotice`, `{ tone, text }`, src/wake.mjs `noticeOf`): "could not wake Worker 2: the app did not start
+ * it (launched 10:32); ...; open its chat", or "nobody answers the board's wake-ups: open any chat" first. It replaces the
+ * three older lines (nobody runs, a chat asked in vain, the opener's). Null for none.
  */
-function nobodyRunsText(nobody) {
-  const names = nobody?.chats ?? []
-  if (names.length === 0) return null
-  const list = names.length === 1 ? names[0] : `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`
-  return `No chat is running, so nobody can wake ${list}: open any chat of the project, and the board wakes the rest.`
-}
-
-/**
- * T9.4 (review of 2026-10-25): the line for a chat the board asked in vain (`state.wakeFailed`: `{ chat, tries, since }`): three
- * asks, or every chat that runs was asked, and it still does not run. The person opens it themselves.
- */
-function wakeFailedText(failed) {
-  return `Nobody could wake ${failed.chat} after ${failed.tries === 1 ? '1 try' : `${failed.tries} tries`} since ${clock(failed.since)}: open it yourself.`
+function wakeNoticeText(notice) {
+  const text = typeof notice?.text === 'string' ? notice.text.trim() : ''
+  return text === '' ? null : `${text.charAt(0).toUpperCase()}${text.slice(1)}.`
 }
 // nobodyruns:end
 
-/** T9.4: that line, in the attention colour (see `nobodyRunsText`); null for none. */
-function drawNobodyRuns(nobody) {
-  const text = nobodyRunsText(nobody)
+/** Signals change 4: that line, in the attention colour (the class the older lines had, so the CSS holds); null for none. */
+function drawWakeNotice(notice) {
+  const text = wakeNoticeText(notice)
   return text === null ? null : el('p', 'nobody-runs', text)
-}
-
-/** T9.4: one such line for each chat nobody could wake (see `wakeFailedText`), in the same style; null for none. */
-function drawWakeFailed(failed) {
-  const lines = (failed ?? []).map(one => el('p', 'nobody-runs', wakeFailedText(one)))
-  return lines.length === 0 ? null : lines
 }
 
 /** Calm panel: the instructions a chat missed, one red line each under Needs your attention; a click opens the log. */
@@ -5568,12 +5552,12 @@ function drawNeeds(state) {
   // B300: a blocking ask that waited too long stands first, above the refine lines too.
   const oldCards = rest.filter(need => need.isOld === true).map(need => drawNeed(need, state))
   const cards = rest.filter(need => need.isOld !== true).map(need => drawNeed(need, state))
-  const none = cardsOpen.length > 0 || lines.length > 0 || missed.length > 0 || nobodyRunsText(state.nobodyRuns) !== null || (state.wakeFailed ?? []).length > 0 || (state.goalAskNeeds ?? []).length > 0 || (state.brainstormNeeds ?? []).length > 0 ? null : el('p', 'empty', answered > 0 && !showsClosed() ? `Nothing waits for you. ${answered} answered, hidden.` : 'Nothing waits for you.')
+  const none = cardsOpen.length > 0 || lines.length > 0 || missed.length > 0 || wakeNoticeText(state.wakeNotice) !== null || (state.goalAskNeeds ?? []).length > 0 || (state.brainstormNeeds ?? []).length > 0 ? null : el('p', 'empty', answered > 0 && !showsClosed() ? `Nothing waits for you. ${answered} answered, hidden.` : 'Nothing waits for you.')
   // B360: the recaps of finished work, as information after what asks for an answer.
   const recaps = shownRecaps(state, showsClosed()).map(recap => drawRecap(recap, state))
   fill(box, [none, drawObsolete(state), drawPartnerNeeds(partnerCards, partner.filter(need => !isClosed(need) && !isAnswered(need)).length), drawMissed(missed), drawSupervisorLine(supervised), drawGoalAskNeeds(state), drawBrainstormNeeds(state), ...oldCards, drawRefineNeeds(state), ...cards, drawWithPartner(state), drawDecidedForYou(state), ...recaps])
-  // T9.4: no chat runs, so nobody can wake the chats words wait for (and the chats the board asked in vain): one line each on top of the panel, in the attention colour.
-  const nobodyLines = [drawNobodyRuns(state.nobodyRuns), ...(drawWakeFailed(state.wakeFailed) ?? [])].filter(line => line !== null)
+  // Signals change 4: the one wake notice on top of the panel, in the attention colour.
+  const nobodyLines = [drawWakeNotice(state.wakeNotice)].filter(line => line !== null)
   // Autopilot (2026-10-31): its one quiet line on top, under the wake lines, which always stay (the board's own cards).
   const autopilotLine = drawAutopilotLine(state.autopilot ?? null)
   if (autopilotLine !== null) box.prepend(autopilotLine)
@@ -5624,9 +5608,8 @@ function needsView(state, ui) {
     focus: { needs: (state.focus?.needs ?? []).map(need => ({ id: need.id })) },
     instructions: state.instructions ?? [],
     information: state.information ?? [],
-    // T9.4: no chat runs, so nobody can wake the chats words wait for.
-    nobodyRuns: state.nobodyRuns ?? null,
-    wakeFailed: state.wakeFailed ?? [],
+    // Signals change 4: the one wake notice.
+    wakeNotice: state.wakeNotice ?? null,
     // Autopilot (2026-10-31): whether it is on, and what it decided for you today (the quiet line on top).
     autopilot: state.autopilot ?? null,
     // B520: the goal map's ids, so a G id in a card's words links (linkedWords).

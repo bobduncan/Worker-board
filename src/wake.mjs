@@ -60,15 +60,19 @@ export const emptyWakes = () => ({ wakes: new Map() })
 
 /**
  * The spell of a lane that does not run: its `asleepSince`; an off chat without one, its report's since when its
- * session ended, else its report's time; one that never reported, 0 (one spell for "never heard"). Null when the lane
- * runs, or the board does not know (principle 3: `isRunning` null is not guessed).
+ * session ended, else its report's time; one that never reported, when it was last active (its conversation's write,
+ * `lastActivityAt`: a chat that ran again and quit has a new spell), else 0. Null when the lane runs, or the board does not
+ * know (principle 3: `isRunning` null is not guessed).
  */
 export function spellOf(lane) {
   if (lane === null || lane === undefined || lane.isRunning !== false) return null
   if (isTime(lane.asleepSince)) return lane.asleepSince
+  // A chat the board read Not running once a wake did not take (chatReport.mjs "woken") keeps its sleep's since.
+  if (isTime(lane.sleepSince)) return lane.sleepSince
   const report = lane.report ?? null
   if (report?.state === 'ended' && isTime(report.since)) return report.since
   if (isTime(report?.at)) return report.at
+  if (isTime(lane.lastActivityAt)) return lane.lastActivityAt
   return 0
 }
 
@@ -370,9 +374,12 @@ export function wakeWords(wake, timeOf) {
   }
 }
 
-/** The page's view of the record: the newest spell per chat (the whole record is the file's). */
+/**
+ * The page's view of the record: the newest spell per chat (the whole record is the file's), with the spells kept
+ * (`spells`, oldest first) for the supervisor's key of an envelope's spell.
+ */
 export function newestSpells(record) {
-  return Object.fromEntries([...(record?.wakes ?? new Map())].map(([chat, entries]) => [chat, statusOf(record, chat, null)]))
+  return Object.fromEntries([...(record?.wakes ?? new Map())].map(([chat, entries]) => [chat, { ...statusOf(record, chat, null), spells: entries.map(one => one.spell) }]))
 }
 
 /** The roles' order of the needs: the Product owner first, then the main chat, the partner, its helper, the supervisor's chat, the workers. */

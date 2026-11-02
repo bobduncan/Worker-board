@@ -7,7 +7,7 @@
 
 import { resolve } from 'node:path'
 
-import { checkSay, spawnWords, wakeFor, workWords } from '../say.mjs'
+import { checkSay, spawnWords, workWords } from '../say.mjs'
 import { isLate } from '../store.mjs'
 import { stamp } from './migrate.mjs'
 import { sinceMs } from './item.mjs'
@@ -70,8 +70,8 @@ const isUntaken = (message, now, keep) => message !== undefined && ((message.sta
 
 /**
  * Sends `words` (a message's parts, say.mjs) once per `key`; once more when the first expired untaken (`keep`, the
- * outbox's times). Checked and recorded in one turn per store: the line is put into the outbox first (a chat that is not
- * running makes the board ask the main chat to start it, say.mjs `wakeFor`), the key is written after. The message, or
+ * outbox's times). Checked and recorded in one turn per store: the line is put into the outbox first (signals change 4: a
+ * chat that is not running is woken by the wake procedure, src/wake.mjs), the key is written after. The message, or
  * null when it is not sent (sent before, or the outbox could not take it).
  */
 export function sendOnce({ dir, key, words, outbox, state, now, maxChars, newId, fs, keep }) {
@@ -84,18 +84,15 @@ export function sendOnce({ dir, key, words, outbox, state, now, maxChars, newId,
       if ((before.again ?? 0) >= 1 || keep === undefined || !isUntaken(sent, now, keep)) return null
     }
     const message = { id: newId(), at: now, ...words, state: 'waiting' }
-    const start = wakeFor(message, state, outbox.outbox(), now, maxChars)
-    const wake = start === null ? null : { id: newId(), at: now, ...start, state: 'waiting' }
     try {
-      await outbox.say(wake === null ? message : { ...message, wake: wake.id })
-      if (wake !== null) await outbox.say(wake)
+      await outbox.say(message)
     } catch {
       return null
     }
     // B406: the key must be written, or the next refresh sends the line again: read anew and written again when the
     // file changed in between. One that still could not be written is held here, so the line is not sent again, and
     // written with the next record that can be.
-    pending.set(key, { message: message.id, wake: wake?.id ?? null, again: before === null ? 0 : (before.again ?? 0) + 1 })
+    pending.set(key, { message: message.id, wake: null, again: before === null ? 0 : (before.again ?? 0) + 1 })
     const done = await changeDelivered(dir, fs, held => {
       const keys = [...held.keys]
       for (const one of pending.keys()) if (!keys.includes(one)) keys.push(one)
@@ -316,16 +313,13 @@ export async function deliverWork({ state, dir, outbox, apply, now, maxChars, ne
   }
   // B570: the words that have a chat on an older Workers mod restarted (modRollout.mjs): not when a word for the same chat
   // and version went in the last half hour, also when two refreshes plan it before the state shows it. A word to a
-  // partner that does not run makes the board ask the main chat to start it (say.mjs wakeFor).
+  // partner that does not run is woken by the wake procedure (src/wake.mjs, signals change 4).
   for (const one of plan.restarts ?? []) {
     const twin = outbox.outbox().findLast(message => message.command === RESTART_COMMAND && message.about === one.chat && message.version === one.installed)
     if (twin !== undefined && now - twin.at < RESTART_AGAIN_MS) continue
     const message = { id: newId(), at: now, ...restartWords(one), state: 'waiting' }
-    const start = wakeFor(message, state, outbox.outbox(), now, maxChars)
-    const wake = start === null ? null : { id: newId(), at: now, ...start, state: 'waiting' }
     try {
-      await outbox.say(wake === null ? message : { ...message, wake: wake.id })
-      if (wake !== null) await outbox.say(wake)
+      await outbox.say(message)
       done.sent.push(message)
     } catch {
       // Planned again at the next refresh.

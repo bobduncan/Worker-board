@@ -29,6 +29,7 @@ import { BOUNDED_RULES, COUNTS_BY_KEY } from './repair.mjs'
 import { BOARD_TRIES } from '../../refineGate.mjs'
 import { DEAF_KEEP_MS } from '../../hearing.mjs'
 import { isHandTaken } from '../../hands.mjs'
+import { triedWords } from '../../wake.mjs'
 
 const MIN = 60_000
 const HOUR = 60 * MIN
@@ -57,6 +58,9 @@ const plain = (name, prefix = '') => {
   return (prefix !== '' && words.toLowerCase().startsWith(prefix.toLowerCase()) ? words.slice(prefix.length) : words).trim().toLowerCase()
 }
 const workersOf = view => view.lanes.filter(lane => !lane.isLeftover && lane.isMain !== true)
+/** Signals change 4: every board chat with its `wake` (state.mjs `withWakes`): the lanes, the partner, its helper, the supervisor, the owner. */
+const wakeLanesOf = view => [...(view.lanes ?? []).filter(lane => !lane.isLeftover), view.partner, view.helper, view.supervisor, view.owner]
+  .filter(lane => typeof lane?.name === 'string')
 const stepsOf = view => [...view.items.values()].filter(item => (valueOf(item, 'Kind') ?? 'step') === 'step' && typeof idOf(item) === 'string')
 const isFull = view => ['fiveHour', 'week'].some(limit => view.limits?.[limit]?.level === 'full')
 /**
@@ -420,7 +424,10 @@ export function undeliveredWords(view) {
     && !((message.ask ?? null) !== null && view.now - message.at - heldMs(message, view.now, view.pause) > view.keep.answerMs)
   // X43: not the supervisor's own sweep word: it goes stale in ten minutes by design (the next sweep replaces it), so one that
   // expired while the supervisor's chat was off is no lost word (the health summary leaves it out too).
-  return view.outbox.filter(message => typeof message?.to === 'string' && Number.isFinite(message.at) && message.command !== 'sweep').filter(message => {
+  // Signals change 4 (decision 7): a word whose chat is in a pending or failed wake is not undelivered: it waits for the wake
+  // (the rules wake-failed and nobody-answers-wakes name a wake that failed).
+  const waking = new Set(wakeLanesOf(view).filter(lane => ['waiting-sender', 'on-its-way', 'sent', 'launched', 'failed'].includes(lane.wake?.state)).map(lane => lane.name))
+  return view.outbox.filter(message => typeof message?.to === 'string' && Number.isFinite(message.at) && message.command !== 'sweep' && !waking.has(message.to)).filter(message => {
     // The time the person's pause held it does not count (as for the outbox's own expiry, store.mjs isLate), nor a
     // hold before its release (B285).
     const held = message.at + heldMs(message, view.now, view.pause)
@@ -1040,19 +1047,68 @@ const UNANSWERED_LOOK_MS = DAY
  * envelope, for a day after the net. Only workers on the sequence.
  */
 function handoverUnanswered(view) {
-  const found = []
+  const found = new Map()
   for (const lane of workersOf(view).filter(one => one.onSequence === true)) {
+    // Signals change 4 (decision 7, X119-X121: one incident per envelope as B855 bounced): one finding per worker and
+    // spell: the newest spell of the wake record that began before the envelope (the chat slept when it went), else the
+    // envelope's minute. The finding names every envelope of the spell.
+    const spells = (view.wakes?.[lane.name]?.spells ?? []).filter(Number.isFinite)
     for (const envelope of envelopesOf(view.outbox, lane.name, view.prefix)) {
       if (!Number.isFinite(envelope.netAt) || view.now - envelope.netAt > UNANSWERED_LOOK_MS) continue
+      const slept = spells.filter(spell => spell <= envelope.at).at(-1)
+      const spell = slept ?? Math.floor(envelope.at / MIN) * MIN
+      const key = `handover-unanswered ${lane.name} ${spell}`
       const step = typeof envelope.step === 'string' ? envelope.step : null
-      found.push({
-        rule: 'handover-unanswered', key: `handover-unanswered ${envelope.id}`, subject: lane.name, since: envelope.at,
+      const one = `envelope ${envelope.id} (${envelope.kind ?? 'task'}${step === null ? '' : ` ${step}`}) out at ${clockOf(envelope.at)}, ${envelope.state}${envelope.clear ? `, with the clear after ${envelope.clear.step ?? 'its report'}` : ''}; the net fired at ${clockOf(envelope.netAt)}`
+      const before = found.get(key)
+      if (before !== undefined) {
+        before.envelopes.push(one)
+        continue
+      }
+      found.set(key, {
+        rule: 'handover-unanswered', key, subject: lane.name, since: envelope.at, envelopes: [one],
         text: `${lane.name} ${UNANSWERED_WHY}${step === null ? '' : ` (${step})`} within ${minutes(NET_MS)} min${step === null ? '' : `; ${step} went back on the list`}`,
-        evidence: `envelope ${envelope.id} (${envelope.kind ?? 'task'}) out at ${clockOf(envelope.at)}, ${envelope.state}${envelope.clear ? `, with the clear after ${envelope.clear.step ?? 'its report'}` : ''}; the net fired at ${clockOf(envelope.netAt)}; its lane now: ${lane.handover?.state ?? 'not known'}; its report: ${lane.report?.state ?? 'none'}${Number.isFinite(lane.report?.since) ? ` since ${clockOf(lane.report.since)}` : ''}`,
+        tail: `its lane now: ${lane.handover?.state ?? 'not known'}; its report: ${lane.report?.state ?? 'none'}${Number.isFinite(lane.report?.since) ? ` since ${clockOf(lane.report.since)}` : ''}${slept === undefined ? '' : `; asleep since ${clockOf(slept)}`}`,
       })
     }
   }
-  return found
+  return [...found.values()].map(({ envelopes, tail, ...finding }) => ({ ...finding, evidence: `${envelopes.join('; ')}; ${tail}` }))
+}
+
+/** The board's local date of a time, YYYY-MM-DD. */
+const dayOfMs = ms => `${new Date(ms).getFullYear()}-${pad(new Date(ms).getMonth() + 1)}-${pad(new Date(ms).getDate())}`
+
+/**
+ * Signals change 4, B908 (decision 7; X119-X121: the launches of 10:32-11:08 that started nothing): a chat the board could
+ * not wake: its wake failed on every path it could take (state.mjs lane `wake.final`: the app did not start it on a launch,
+ * and no message reached it, or it has no id). One finding per chat and spell, with what was tried and when.
+ */
+function wakeFailed(view) {
+  return wakeLanesOf(view).filter(lane => lane.wake?.state === 'failed' && lane.wake.final === true).map(lane => {
+    const attempts = Array.isArray(lane.wake.attempts) ? lane.wake.attempts : []
+    const tried = attempts.length === 0 ? [lane.wake.why === 'no id' ? 'the board has no id to reach it' : lane.wake.why ?? 'no reason given'] : triedWords(attempts, clockOf)
+    return {
+      rule: 'wake-failed', key: `wake-failed ${lane.name} ${lane.wake.spell ?? 'none'}`, subject: lane.name,
+      ...(Number.isFinite(attempts[0]?.at) ? { since: attempts[0].at } : {}),
+      text: `could not wake ${lane.name}: ${tried.join('; ')}`,
+      evidence: attempts.length === 0 ? `no attempt: ${lane.wake.why ?? 'none'}` : attempts.map(one => `${one.path} at ${clockOf(one.at)} by ${one.by}${Number.isFinite(one.sentAt) ? `, sent ${clockOf(one.sentAt)}` : ''}: ${one.verdict ?? 'pending'}${one.why ? ` (${one.why})` : ''}`).join('; '),
+    }
+  })
+}
+
+/**
+ * Signals change 4, B908 (decision 7): nobody answers the board's wake-ups: every chat that needs a wake failed on every
+ * path, and the board-wide spell's launch failed too. One finding per day (the board's local date).
+ */
+function nobodyAnswersWakes(view) {
+  const needs = wakeLanesOf(view).filter(lane => lane.wake?.need === true)
+  const board = view.wakes?.['*'] ?? null
+  if (needs.length === 0 || !needs.every(lane => lane.wake.state === 'failed' && lane.wake.final === true) || board?.state !== 'failed') return []
+  return [{
+    rule: 'nobody-answers-wakes', key: `nobody-answers-wakes ${dayOfMs(view.now)}`, subject: 'board',
+    text: `nobody answers the board's wake-ups: ${needs.map(lane => lane.name).join(', ')} could not be woken, and the launch when nobody ran failed`,
+    evidence: [`the board-wide launch: ${triedWords(board.attempts ?? [], clockOf).join('; ') || board.why || 'failed'}`, ...needs.map(lane => `${lane.name}: ${triedWords(lane.wake.attempts ?? [], clockOf).join('; ') || lane.wake.why}`)].join(' · '),
+  }]
 }
 
 /** B763: the Workers mod's words for a clear it skipped because the person pauses (its chats.ts `clearWhy`). */
@@ -1152,6 +1208,8 @@ export const WATCH_RULES = [
   { id: 'effort-mismatch', kind: 'watch', says: 'a worker that still runs another model or effort than its step wants 10 min after the take', check: effortMismatch },
   { id: 'handover-held', kind: 'watch', says: 'a worker on the hand-over sequence held (its clear, set or restart did not run) for over 10 min of running time', check: handoverHeld },
   { id: 'handover-unanswered', kind: 'watch', says: 'a worker on the hand-over sequence that did not answer its hand-over within 10 min (the net fired)', check: handoverUnanswered },
+  { id: 'wake-failed', kind: 'watch', says: 'a chat the board could not wake: the app did not start it on a launch, and no message reached it', check: wakeFailed },
+  { id: 'nobody-answers-wakes', kind: 'watch', says: 'nobody answers the board\'s wake-ups: every chat with work could not be woken, and the launch when nobody ran failed', check: nobodyAnswersWakes },
   { id: 'old-limit-reading', kind: 'watch', says: 'a limit near a stop (5-hour 80%, weekly 90%) still last read over 60 min ago, not counting a pause, while a worker works and the supervisor has looked it up', check: oldLimitReading },
   { id: 'board-deaf', kind: 'watch', says: 'the board heard no chat for over 10 min while chats wrote their conversations', check: boardDeaf },
   { id: 'board-slow', kind: 'watch', says: 'two work calls within 2 min answered after the chat gave up on them', check: boardSlow },

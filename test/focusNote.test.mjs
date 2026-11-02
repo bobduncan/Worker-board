@@ -14,7 +14,8 @@ import { parseConfig } from '../src/config.mjs'
 import { FOCUS_MOVES, focusMove } from '../src/focus.mjs'
 import { parseGoals } from '../src/goals.mjs'
 import { roundText } from '../src/rounds.mjs'
-import { focusWords, wakeFor } from '../src/say.mjs'
+import { focusWords } from '../src/say.mjs'
+import { wakeNeeds } from '../src/wake.mjs'
 import { focusState } from '../src/state.mjs'
 import { workApi } from '../src/work/api.mjs'
 import { parseItem, valueOf } from '../src/work/item.mjs'
@@ -299,7 +300,7 @@ test('the words to the partner: undo: <line>, goal definition there: yes|no; eac
   assert.deepEqual(undo, { to: 'Partner', ask: null, step: null, title: null, version: null, verdict: null, command: 'undo', about: 'G6', text: 'undo: Kept the old map icons\nGoal: G6 The polish\nNote: N4' })
   assert.match(messageText({ ...undo, at: NOW }, () => '09:01'), /^undo: Kept the old map icons\nGoal: G6 The polish\nNote: N4\n\(typed on the worker board, 09:01\)$/)
   const state = { restart: { main: 'Main' }, chats: [{ name: 'Main', isRunning: true }], advisor: { name: 'Partner', isRunning: false, appSession: 'local_abc' } }
-  for (const command of ['undo', 'vibe-there-yes', 'vibe-there-no']) assert.equal(wakeFor({ id: 'm', at: NOW, ...undo, command }, state, [], NOW, 4000)?.command, 'start', command)
+  for (const command of ['undo', 'vibe-there-yes', 'vibe-there-no']) assert.equal(wakeNeeds(state, [{ state: 'waiting', ...{ id: 'm', at: NOW, ...undo, command } }])[0]?.why, 'words', command)
 })
 
 test('the morning round asks the partner for the note of the focus; without a focus, to have the person pick one', () => {

@@ -11,7 +11,8 @@ import { parseBacklog } from '../src/backlog.mjs'
 
 import { goalAskNeeds, goalAskList, goalCounts, parseGoals } from '../src/goals.mjs'
 import { addGoalAsk, editGoals, markAskRead } from '../src/goalsWrite.mjs'
-import { checkSay, wakeFor } from '../src/say.mjs'
+import { checkSay } from '../src/say.mjs'
+import { wakeNeeds } from '../src/wake.mjs'
 import { BACKLOG, GOALS } from './fixtures-goals.mjs'
 
 const ANSWERED = GOALS.replace('      Ask (A1, 2026-10-15 18:40): what differs most from the picture?\n', [
@@ -89,9 +90,10 @@ test('the words for an ask go to the Advisor only, with the goal, the ask as the
 
 test('an ask to an Advisor whose chat is not running asks the main chat to start it', () => {
   const state = { chats: [{ name: 'Main', isMain: true, isRunning: true }], advisor: { name: 'Oracle', isRunning: false }, restart: { main: 'Main' } }
-  const wake = wakeFor({ to: 'Oracle', command: 'goal-ask' }, state, [], 1_000_000, 2000)
-  assert.equal(wake.command, 'start')
-  assert.equal(wake.about, 'Oracle')
+  // Signals change 4: the ask is the wake procedure's need for the Advisor (src/wake.mjs), no start word.
+  const wake = wakeNeeds(state, [{ to: 'Oracle', command: 'goal-ask', state: 'waiting' }])[0]
+  assert.equal(wake.why, 'words')
+  assert.equal(wake.chat, 'Oracle')
 })
 
 /** A fake file system over one map of path → text. */

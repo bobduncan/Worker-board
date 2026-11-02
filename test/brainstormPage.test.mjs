@@ -8,7 +8,8 @@ import { fileURLToPath } from 'node:url'
 import vm from 'node:vm'
 
 import { askFacts, brainstormsState, fixesToTell, strandedQuestions, strandedToTell, titleFixes } from '../src/brainstorm.mjs'
-import { brainstormFixWords, brainstormStrandedWords, isPartnerWord, wakeFor } from '../src/say.mjs'
+import { brainstormFixWords, brainstormStrandedWords, isPartnerWord } from '../src/say.mjs'
+import { wakeNeeds } from '../src/wake.mjs'
 
 const PUBLIC = join(dirname(fileURLToPath(import.meta.url)), '..', 'public')
 const script = await readFile(join(PUBLIC, 'board.js'), 'utf8')
@@ -212,7 +213,7 @@ test('B491: the word to the Advisor names the thread, the question and the job, 
   assert.match(words.text, /Now: Where should all of the lanterns/)
   assert.match(words.text, /at most 12 words/)
   const asleep = { advisor: { name: 'Advisor', isRunning: false }, restart: { main: 'Main' }, chats: [{ name: 'Main', isMain: true, isRunning: true }] }
-  assert.equal(wakeFor({ to: 'Advisor', command: 'brainstorm-fix' }, asleep, [], 1_000_000, 2000)?.command, 'start')
+  assert.equal(wakeNeeds(asleep, [{ state: 'waiting', ...{ to: 'Advisor', command: 'brainstorm-fix' } }])[0]?.why, 'words')
 })
 
 test('B496: the exact words for a title that is too long and for none', () => {
@@ -369,6 +370,6 @@ test('B716: the stranded word is a partner word that wakes a stopped partner', (
   assert.equal(isPartnerWord('brainstorm-stranded'), true)
   const asleep = { advisor: { name: 'Advisor', isRunning: false }, restart: { main: 'Main' }, chats: [{ name: 'Main', isMain: true, isRunning: true }] }
   const words = brainstormStrandedWords({ to: 'Advisor', path: 'b/x.md', n: 3, goal: null })
-  assert.equal(wakeFor({ to: 'Advisor', command: words.command }, asleep, [], 1_000_000, 2000)?.command, 'start')
+  assert.equal(wakeNeeds(asleep, [{ state: 'waiting', ...{ to: 'Advisor', command: words.command } }])[0]?.why, 'words')
   assert.doesNotMatch(words.text, /of G/)
 })

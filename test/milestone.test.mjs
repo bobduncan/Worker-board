@@ -179,14 +179,13 @@ test('an answer stays known long after it arrived, so the recommendation is neve
   assert.equal(checkSay({ to: 'Advisor', command: 'recommend', about: 'R1', answer: 'no', reason: 'x' }, build({ outbox: [old] }), 2000).status, 409)
 })
 
-test('a "no" for an Advisor whose chat is not running wakes it through the main chat', async () => {
-  const { wakeFor } = await import('../src/say.mjs')
+test('a "no" for an Advisor whose chat is not running wakes it (signals change 4: the wake procedure\'s need)', async () => {
+  const { wakeNeeds } = await import('../src/wake.mjs')
   const state = build()
   const asleep = { ...state, chats: state.chats.map(chat => (chat.name === 'Advisor' ? { ...chat, isRunning: false } : chat)), advisor: state.advisor === null ? null : { ...state.advisor, isRunning: false, appSession: 'local_Advisor' } }
   const { message } = checkSay({ to: 'Advisor', command: 'recommend', about: 'R1', answer: 'no', reason: 'x' }, state, 2000)
-  const wake = wakeFor(message, asleep, [], NOW, 2000)
-  assert.equal(wake?.command, 'start')
-  assert.equal(wake?.about, 'Advisor')
+  const wake = wakeNeeds(asleep, [{ ...message, id: 'm', at: NOW, state: 'waiting' }]).find(one => one.chat === 'Advisor')
+  assert.equal(wake?.why, 'words')
 })
 
 // The page

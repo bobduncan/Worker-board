@@ -12,7 +12,7 @@ import { readFile } from 'node:fs/promises'
 
 import { noteCall } from '../src/bridge.mjs'
 import { parseConfig } from '../src/config.mjs'
-import { wakeFor } from '../src/say.mjs'
+import { wakeNeeds } from '../src/wake.mjs'
 import { buildView } from '../src/supervisor/view.mjs'
 import { WATCH_RULES } from '../src/supervisor/rules/watch.mjs'
 import { parseItem } from '../src/work/item.mjs'
@@ -62,12 +62,13 @@ test('X22: a working chat whose takes are quiet but whose conversation was writt
   assert.deepEqual(state.restart.notRunning, [])
   // A word for it asks the main chat to start nothing: the chat runs.
   const word = { id: 'w1', at: NOW, to: 'Board', ask: 'work:Q3', step: 'Q3', text: 'Yes', state: 'waiting' }
-  assert.equal(wakeFor(word, state, [], NOW, 2000), null)
+  assert.deepEqual(wakeNeeds(state, [word]), [])
   // Written two minutes ago and no take: it is not known to run, as before.
   const still = build({ seen: MAIN_TAKES, tails: { Board: working(120) } })
   assert.equal(lane(still, 'Board').isRunning, false)
   assert.ok(still.restart.notRunning.includes('Board'))
-  assert.equal(wakeFor(word, still, [], NOW, 2000)?.command, 'start', 'a chat that does not run is started')
+  // Signals change 4: the wake procedure's need for it (src/wake.mjs), no start word.
+  assert.equal(wakeNeeds(still, [word]).find(one => one.chat === 'Board')?.why, 'words', 'a chat that does not run is woken')
   // A write from before the app started is its old process's: it does not say the chat runs now.
   assert.equal(lane(build({ seen: MAIN_TAKES, appStartedAt: NOW - 10_000 }), 'Board').isRunning, false)
 })

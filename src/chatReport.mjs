@@ -96,7 +96,8 @@ function asleepSince(entry, { now, offAfterMs, appRuns, appStartedAt, holdsTask 
  * reached it (`wokenAt`, since it fell asleep) and it stayed silent for longer than `offAfterMs` after it.
  */
 function asleepLane(entry, { since, now, offAfterMs, holdsTask, hasBlockingAsk, waitsForPartner, isTaskReported, wokenAt }) {
-  if (Number.isFinite(wokenAt) && wokenAt >= since && now - wokenAt > offAfterMs) return { state: 'off', isRunning: false, why: 'woken', wokenAt }
+  // Signals change 4: with `sleptSince`, so the wake record's spell of it stays the same (src/wake.mjs `spellOf`): one try per path.
+  if (Number.isFinite(wokenAt) && wokenAt >= since && now - wokenAt > offAfterMs) return { state: 'off', isRunning: false, why: 'woken', wokenAt, sleptSince: since }
   const asleep = { isRunning: false, asleep: true, asleepSince: since }
   if (entry.state === 'busy') return { state: 'interrupted', ...asleep }
   if (entry.state === 'asking' || hasBlockingAsk) return { state: 'waiting', ...asleep }

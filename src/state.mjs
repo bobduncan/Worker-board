@@ -41,7 +41,7 @@ import { advisorNextOf, advisorWorkOf, leaveOut } from './work/advisorWork.mjs'
 import { openQaTaskOf, qaStandOf } from './work/qaTask.mjs'
 import { holdsRefine, isBlockWritten } from './work/refineWait.mjs'
 import { recapsOf } from './work/recap.mjs'
-import { isHolding, pauseFacts } from './work/pause.mjs'
+import { isHolding, pauseAnswer, pauseFacts } from './work/pause.mjs'
 import { reconcile } from './work/reconcile.mjs'
 import { effortPlan, runSettings } from './work/effort.mjs'
 import { supervisorEffortWord, supervisorRun, supervisorSetting } from './work/supervisorEffort.mjs'
@@ -51,7 +51,7 @@ import { routingHolds } from './work/routing/assignments.mjs'
 import { refineStop } from './refineGate.mjs'
 import { contextOfStep, flowOfStep, itemOfStep, itemsOf, reviewWaitOfStep, storeBacklog } from './work/read.mjs'
 import { clearOwed, modAtLeast } from './clearOwed.mjs'
-import { nobodyRunsOf, wakeFailedOf } from './say.mjs'
+import { newestSpells, noticeOf, nobodyRunsSpell, spellOf, statusOf as wakeStatusOf, wakeNeeds, wakeOf, wakeWords } from './wake.mjs'
 import { chainWaitOf, checkedOf, fixesOf, fixOutcomeOf, recapPartOf, reviewWaitOf } from './work/resultCheck.mjs'
 import { recapWaitsOf } from './recaps.mjs'
 import { askedStepsOf, openChecksOf, recapCardOf, standingAsksOf } from './recapCard.mjs'
@@ -700,6 +700,8 @@ function card(chat, raw, { now, aliveAt = null, config, last, lines, main, prefi
     // T13 part 3: its process ended while its last report stands (chatReport.mjs `asleepLane`): asleep since when, or null.
     asleep: reported?.asleep === true,
     asleepSince: reported?.asleep === true ? reported.asleepSince : null,
+    // Signals change 4: since when it sleeps, kept once a wake did not take (Not running "woken"): the wake record's spell.
+    sleepSince: reported?.asleep === true ? reported.asleepSince : reported?.why === 'woken' && Number.isFinite(reported.sleptSince) ? reported.sleptSince : null,
   }
 }
 
@@ -1505,7 +1507,7 @@ function focusRun(node, items, prefix, partner) {
   return { note, needs }
 }
 
-export function buildState(raw, { lines = [], outbox = [], runs = [], board = null, seen = null, aliveAt = null, reports = null, asleepWakes = null, hearing = null, finishedSeen = {}, taskTimes = [], mods = {}, modsLately = null, keptReadings = [], providers = [], now, config }) {
+export function buildState(raw, { lines = [], outbox = [], runs = [], board = null, seen = null, aliveAt = null, reports = null, wakes = null, hearing = null, finishedSeen = {}, taskTimes = [], mods = {}, modsLately = null, keptReadings = [], providers = [], now, config }) {
   // The review of Pause 2: while the person pauses (2026-10-19: pausing only, no longer until running) what waits in
   // the outbox is held until the resume, but the board's own "resume" to the main chat; the page says so (`isHeld`).
   const isPaused = isHolding(raw.work?.pause)
@@ -1624,12 +1626,11 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
   const deaf = !(reports instanceof Map) ? [] : deafSpans(hearing, { now, appStartedAt: raw.appStartedAt ?? null, ranSince })
   const deafNow = deaf.find(span => span.to === now && Number.isFinite(hearing?.open?.from) && span.from === hearing.open.from) ?? null
   const laneAt = deafNow !== null && now - deafNow.from <= DEAF_KEEP_MS ? deafNow.from : now
-  // T13 part 3: when the board last had a chat woken: a start or wake word about it that a chat took or sent (its hands, or
-  // the main chat), or its asleep resume word (`asleepWakes`, by name: `{ since, at }`, the server's, hands.mjs). Null: never.
+  // T13 part 3: when the board last had a chat woken. Signals change 4 (C.6): the wake record's newest send to it (a message a
+  // hand sent, or a launch whose PowerShell ended well: `sentAt`), in place of the start words and the server's asleep map.
   const wokenAtOf = name => {
-    const times = sent.filter(message => (message.command === 'start' || message.command === 'wake') && message.about === name && ['taken', 'delivered'].includes(message.state))
-      .map(message => message.deliveredAt ?? message.takenAt ?? message.at)
-    const newest = Math.max(...[...times, asleepWakes instanceof Map ? asleepWakes.get(name)?.at : null].filter(Number.isFinite))
+    const times = (wakes?.record?.wakes?.get(name) ?? []).flatMap(entry => entry.attempts.map(one => one.sentAt))
+    const newest = Math.max(...times.filter(Number.isFinite))
     return Number.isFinite(newest) ? newest : null
   }
   const reportedOf = new Map(found.filter(chat => !chat.isLeftover).map(chat => {
@@ -1890,6 +1891,7 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
       // T13 part 3: asleep (its process ended while its last report stands), since when.
       asleep: advisorCard.asleep === true,
       asleepSince: advisorCard.asleepSince ?? null,
+      sleepSince: advisorCard.sleepSince ?? null,
       doingNow: doing,
       messages: advisorEntries === null
         ? []
@@ -2435,6 +2437,7 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
       // T13 part 3: asleep, since when.
       asleep: helperLane.asleep === true,
       asleepSince: helperLane.asleepSince ?? null,
+      sleepSince: helperLane.sleepSince ?? null,
       // B546: when its transcript was last written, so the supervisor tells a helper the app's restart stopped.
       writtenAt: raw.tails?.[helperLane.session]?.modifiedAt ?? null,
     },
@@ -2456,6 +2459,7 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
       // T13 part 3: asleep, since when.
       asleep: supervisorLane.asleep === true,
       asleepSince: supervisorLane.asleepSince ?? null,
+      sleepSince: supervisorLane.sleepSince ?? null,
     },
     // The supervisor: the name the list gives the chat that sweeps, also while no chat of that name is open.
     supervisorName: typeof list.supervisor === 'string' ? list.supervisor : null,
@@ -2481,6 +2485,7 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
       ...statusFor({ ...ownerLane, isRunning: ownerLane.state === 'off' ? false : runningOf(ownerLane.name) }, { modRun: rollout?.runs.get(ownerLane.name) ?? null }),
       asleep: ownerLane.asleep === true,
       asleepSince: ownerLane.asleepSince ?? null,
+      sleepSince: ownerLane.sleepSince ?? null,
       writtenAt: raw.tails?.[ownerLane.session]?.modifiedAt ?? null,
       on: ownerOn,
       next: ownerNext,
@@ -2552,12 +2557,49 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
     // Design tab's part "Asset providers" draws it.
     providers: (Array.isArray(providers) ? providers : []).map(({ kind, provider, mode, ok, why }) => ({ kind, provider, mode, ok, why })),
   }
-  // T9.4: words wait for a chat that is off and no chat runs to carry the board's start word (say.mjs nobodyRunsOf): the page says so.
-  // And the chats the board asked in vain (wakeFailedOf: three asks, or every chat that runs was asked): the person opens them.
-  // A chat that line already names is not said twice.
-  const nobodyRuns = nobodyRunsOf(built, sent)
   // The Product owner (2026-10-31): who the person talks with now, the owner or else the partner (src/talkPartner.mjs).
-  return { ...built, talkPartner: talkPartnerOf(built), nobodyRuns, wakeFailed: wakeFailedOf(built, sent, now).filter(one => !(nobodyRuns?.chats ?? []).includes(one.chat)) }
+  return { ...withWakes(built, { wakes, sent, pauseRecord, items: workOk ? raw.work.items : null, prefix, now }), talkPartner: talkPartnerOf(built) }
+}
+
+/**
+ * Signals change 4, B908 (E): the wake record on the page. `wakes` the server's facts (`{ record, senderClaims, canLaunch }`,
+ * src/wake.mjs), or null (the demo, a board that only shows): then nothing of it. Each board chat gets `wake` (how its wake
+ * stands, `wakeOf` for a chat that needs one), and a lane's flags its words first ("waking · message sent 11:06 by Advisor",
+ * quiet; "could not wake: ...", attention). `wakeNotice` the ONE attention line (decision 6, `noticeOf`), in place of
+ * nobodyRuns, wakeFailed and the opener's note; `wakes` the record's newest spell per chat (the whole record is the file's).
+ */
+function withWakes(built, { wakes, sent, pauseRecord, items, prefix, now }) {
+  const record = wakes?.record ?? null
+  if (record === null) return { ...built, wakeNotice: null, wakes: {} }
+  const senderClaims = wakes.senderClaims === true
+  const main = (built.chats ?? []).find(lane => lane.isMain && !lane.isLeftover)?.name ?? ''
+  const lanes = [...(built.chats ?? []).filter(lane => !lane.isLeftover), ...[built.advisor, built.advisorHelper, built.supervisorChat, built.productOwner].filter(Boolean)]
+  const resumeList = pauseRecord?.state === 'resuming' && items !== null ? pauseAnswer({ pause: pauseRecord, items, lanes, prefix, chat: main, role: 'main' }).resumeList : []
+  const needs = wakeNeeds(built, sent, { resumeList, canLaunch: wakes.canLaunch === true })
+  const byChat = new Map(needs.map(need => [need.chat, need]))
+  const PENDING = ['on-its-way', 'sent', 'launched']
+  const wakeOfLane = lane => {
+    const need = byChat.get(lane.name)
+    if (need !== undefined) return wakeOf(record, need, { senderClaims })
+    const status = wakeStatusOf(record, lane.name, spellOf(lane))
+    return { ...status, final: false, shown: PENDING.includes(status.state) }
+  }
+  const withWake = lane => {
+    if (lane === null || lane === undefined || lane.isLeftover === true) return lane
+    const wake = wakeOfLane(lane)
+    const words = wake.shown === false ? null : wakeWords(wake, hourMinute)
+    const flag = words === null ? [] : [{ kind: words.tone === 'attention' ? 'wake failed' : 'wake', id: null, text: words.text, button: null }]
+    const need = byChat.get(lane.name)
+    const spell = need?.spell ?? wake.spell ?? spellOf(lane)
+    return { ...lane, wake: { state: wake.state, final: wake.final === true, need: need !== undefined, spell, path: wake.path, at: wake.at, by: wake.by, why: wake.why, wokeAt: wake.wokeAt ?? null, attempts: wake.attempts ?? [], words }, ...(Array.isArray(lane.flags) ? { flags: [...flag, ...lane.flags] } : {}) }
+  }
+  return {
+    ...built,
+    chats: (built.chats ?? []).map(withWake),
+    ...Object.fromEntries(['advisor', 'advisorHelper', 'supervisorChat', 'productOwner'].map(key => [key, built[key] == null ? built[key] : withWake(built[key])])),
+    wakeNotice: noticeOf(record, needs, now, hourMinute, { senderClaims, nobody: nobodyRunsSpell(built, sent) }),
+    wakes: newestSpells(record),
+  }
 }
 
 // lightstate:start
