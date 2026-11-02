@@ -620,7 +620,7 @@ export function checkSay(body, state, maxChars) {
  * Every chat the board knows by name: the main chat and the workers (not a leftover), the partner, its helper and the
  * supervisor's chat, each as the state gives it (`name`, `isRunning`, `state`, `appSession`).
  */
-const boardLanes = state => [
+export const boardLanes = state => [
   ...(state.chats ?? []).filter(chat => !chat.isLeftover),
   ...(state.advisor ? [state.advisor] : []), ...(state.advisorHelper ? [state.advisorHelper] : []), ...(state.supervisorChat ? [state.supervisorChat] : []),
   // The Product owner (2026-10-31): started and woken as any chat, but it never carries a start word (`wakerOrder`).
@@ -697,12 +697,14 @@ export const waitsLong = command => command === 'start' || command === 'wake' ||
  * is no partner word. 2026-10-26: and the word that resumes a worker holding a step after a crash (`resumesDue`), whose
  * whole purpose is to have its chat started.
  */
-const isWakeWord = (message, state) => {
+export const isWakeWord = (message, state) => {
   const main = state.restart?.main ?? null
   const command = message.command ?? null
   // Signals change 3: the hand-over's "go on" line to a stopped holder stands in for RESUME_STEP: it wakes its chat too.
+  // Signals change 4 (decision 2, 2026-11-02: B855's envelope to an asleep Worker 2 woke nobody): every hand-over
+  // envelope (a task, a resume, a restart, a clear) is a wake word, not only the resume.
   return (main !== null && message.to === main) || command === null || isPartnerWord(command) || command === 'sweep' || command === RESUME_STEP
-    || (command === 'handover' && message.kind === 'resume')
+    || command === 'handover'
 }
 
 /**
@@ -714,7 +716,7 @@ const isWakeWord = (message, state) => {
  * it was removed in the last minutes (`removedAt`: its lane stays two; only the lanes carry it, not the partner, its helper
  * or the supervisor's chat). `outbox` is what was sent.
  */
-function wakerOrder(state, target, outbox) {
+export function wakerOrder(state, target, outbox) {
   const main = state.restart?.main ?? null
   const canCarry = chat => chat !== null && chat !== undefined && chat.name !== target && chat.isLeftover !== true
     && chat.state !== 'suspended' && !Number.isFinite(chat.removedAt) && stoppedOf(outbox, chat) === null
@@ -750,7 +752,7 @@ export function wakerFor(state, target, outbox, now, since = null) {
 }
 
 /** A round is the board's own word to the Advisor (B173); it wakes its chat as a message does. */
-const wakeWordOf = message => (message.command === 'round' ? { ...message, command: null } : message)
+export const wakeWordOf = message => (message.command === 'round' ? { ...message, command: null } : message)
 
 /**
  * T9.4: the words that say nobody can wake the chats that wait for it, or null: some word that the board wakes a chat for
