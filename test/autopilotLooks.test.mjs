@@ -1,6 +1,8 @@
 // A new look waits for the goal's recap (the person, 2026-11-02, seeing Worker 1's look "Does the wizard's move range on the Terraces look
 // right?" under Needs your attention with Autopilot on: "Why is he asking me for it. this is autopilot is turned on correct?"; their
-// choice "A": with Autopilot on, a new look on a step of the focus goal waits for that goal's recap instead of reaching them mid-goal).
+// choice "A": with Autopilot on, a new look on a step of the focus goal waits for that goal's recap instead of reaching them mid-goal;
+// the coordinator's ruling the same day: only a look the partner hands to the person, never a worker's look at filing, since the
+// partner answers those with the worker's advice and Autopilot never asks the person more than Off does).
 // The live Q590 was a worker's look under no step, its picture of a done step of the focus goal that no recap row names; the partner
 // handed it to the person because its Detail questions always hand over "a new look". The rule (src/work/autopilot.mjs `focusLookOf`),
 // the partner's hand-over kept for the recap (work API `escalate`), the pass that moves such a hand-over (`autopilot`), the safety net
@@ -80,36 +82,40 @@ const pure = { roleOf: name => ROLES[name] ?? null, items: new Map([['B24', B24]
 /** Q590's shape: a worker's look under no step, its picture of a step of the focus goal that no row of any recap names. */
 const Q590 = (fields = {}, words = null) => ask('Q590', { Title: 'Does the moat\'s move range look right?', Owner: 'Painter', Asks: 'look', Advice: 'yes', Via: 'chat', Pictures: 'pictures/B24/after.jpg', ...fields }, words ?? 'Does the moat\'s move range look right? I advise yes.')
 
-test('a new look of the focus goal (Q590\'s shape) waits for the recap: no Of, a picture of a focus-goal step no row names, any role but the Product owner\'s', () => {
-  assert.deepEqual(autopilotRoute(Q590(), pure), { to: 'recap', why: FOCUS_LOOK_WHY, step: 'B24' }, 'put under the step its picture names')
+test('a worker\'s look is routed as before (the partner answers it); only the partner\'s hand-over of a new look of the focus goal (Q590\'s shape) waits for the recap, in a role other than the Product owner\'s', () => {
+  const handedOver = { ...pure, handedWhy: WHY }
+  // The coordinator's ruling (2026-11-02): Autopilot never asks the person more than Off does, and a look the partner answers with the
+  // worker's advice is not the person's: a worker's look goes to the partner at filing, whatever step its picture is of.
+  assert.equal(autopilotRoute(Q590(), pure).to, 'partner', 'Q590\'s shape, filed: a detail question for the partner')
+  assert.equal(autopilotRoute(Q590({ Of: 'B24' }), pure).to, 'partner')
+  assert.equal(autopilotRoute(Q590({ Pictures: undefined }), pure).to, 'partner')
+  // Handed to the person by the partner: it waits for the recap, put under the step its picture names.
+  assert.deepEqual(autopilotRoute(Q590(), handedOver), { to: 'recap', why: FOCUS_LOOK_WHY, step: 'B24' }, 'put under the step its picture names')
   assert.equal(FOCUS_LOOK_WHY, 'a new look of the focus goal waits for its recap')
   assert.deepEqual(focusLookOf(Q590(), pure, 'worker'), { step: 'B24', isInferred: true })
   // Under its step already: the step is its own, nothing is inferred.
-  assert.deepEqual(autopilotRoute(Q590({ Of: 'B24' }), pure), { to: 'recap', why: FOCUS_LOOK_WHY })
+  assert.deepEqual(autopilotRoute(Q590({ Of: 'B24' }), handedOver), { to: 'recap', why: FOCUS_LOOK_WHY })
   assert.deepEqual(focusLookOf(Q590({ Of: 'B24' }), pure, 'worker'), { step: 'B24', isInferred: false })
   // The first picture step that is a step of the focus goal; a step of another goal, a longer id and a step the store lacks are none.
-  assert.equal(autopilotRoute(Q590({ Pictures: 'pictures/B25/a.png, pictures/B99/b.png, pictures/B24/c.png' }), pure).step, 'B24', 'B25 is G7\'s, B99 is not in the store')
-  assert.equal(autopilotRoute(Q590({ Pictures: 'pictures/B25/a.png' }), pure).to, 'partner', 'a look of another goal\'s step keeps its route')
-  assert.equal(autopilotRoute(Q590({ Pictures: 'pictures/B240/a.png' }), pure).to, 'partner')
-  assert.equal(autopilotRoute(Q590({ Pictures: undefined }), pure).to, 'partner', 'no picture of a step: a detail question for the partner')
-  assert.equal(autopilotRoute(Q590({ Of: 'B25' }), pure).to, 'partner', 'under a step of another goal')
+  assert.equal(autopilotRoute(Q590({ Pictures: 'pictures/B25/a.png, pictures/B99/b.png, pictures/B24/c.png' }), handedOver).step, 'B24', 'B25 is G7\'s, B99 is not in the store')
+  for (const pictures of ['pictures/B25/a.png', 'pictures/B240/a.png', undefined]) assert.notEqual(autopilotRoute(Q590({ Pictures: pictures }), handedOver).to, 'recap', `${pictures}`)
+  assert.notEqual(autopilotRoute(Q590({ Of: 'B25' }), handedOver).to, 'recap', 'under a step of another goal')
   // Its words name the step: not enough (only its Pictures do).
-  assert.equal(autopilotRoute(Q590({ Pictures: undefined, Title: 'Does B24 look right?' }, 'Does B24 look right?'), pure).to, 'partner')
+  assert.notEqual(autopilotRoute(Q590({ Pictures: undefined, Title: 'Does B24 look right?' }, 'Does B24 look right?'), handedOver).to, 'recap')
   // Any role but the Product owner's: the main chat, the checker, the partner; the board's own card never.
-  for (const owner of ['Lead', 'Checker', 'Partner']) assert.equal(autopilotRoute(Q590({ Owner: owner }), pure).to, 'recap', owner)
-  assert.equal(autopilotRoute(Q590({ Owner: 'Keeper' }), pure).to, 'person', 'the Product owner answers for the goal')
-  assert.equal(autopilotRoute(Q590({ Owner: 'server' }), pure).to, 'person', 'the board\'s own card')
+  for (const owner of ['Lead', 'Checker', 'Partner']) assert.equal(autopilotRoute(Q590({ Owner: owner }), handedOver).to, 'recap', owner)
+  assert.equal(autopilotRoute(Q590({ Owner: 'Keeper' }), handedOver).to, 'person', 'the Product owner answers for the goal')
+  assert.equal(autopilotRoute(Q590({ Owner: 'server' }), handedOver).to, 'person', 'the board\'s own card')
   // Only a look, and only with a focus goal.
-  assert.notEqual(autopilotRoute(Q590({ Asks: 'decide' }), pure).why, FOCUS_LOOK_WHY)
-  assert.equal(autopilotRoute(Q590(), { ...pure, focusGoal: null }).to, 'partner')
+  assert.notEqual(autopilotRoute(Q590({ Asks: 'decide' }), handedOver).why, FOCUS_LOOK_WHY)
+  assert.notEqual(autopilotRoute(Q590(), { ...handedOver, focusGoal: null }).to, 'recap')
   // The person's hands and goal level come first.
-  assert.equal(autopilotRoute(Q590({ Title: 'Click the wizard: does the move range look right?' }), pure).to, 'person', 'a click is the person\'s hands')
-  assert.equal(autopilotRoute(Q590({ Title: 'Is the goal\'s recap what you wanted?' }), pure).to, 'person', 'goal level')
-  assert.equal(autopilotRoute(Q590({ Of: 'G29' }), pure).to, 'person', 'a look of a goal')
-  // A bare default Route: person is the board's to route; it stands for the person only until the pass has moved it.
-  assert.equal(autopilotRoute(Q590({ Route: 'person' }), pure).to, 'recap')
+  assert.equal(autopilotRoute(Q590({ Title: 'Click the wizard: does the move range look right?' }), handedOver).to, 'person', 'a click is the person\'s hands')
+  assert.equal(autopilotRoute(Q590({ Title: 'Is the goal\'s recap what you wanted?' }), handedOver).to, 'person', 'goal level')
+  assert.equal(autopilotRoute(Q590({ Of: 'G29' }), handedOver).to, 'person', 'a look of a goal')
+  // Stands in Needs your attention: not while the board holds it for the recap or the partner; a young one is the board's to route.
   assert.equal(standsForPerson(Q590({ Route: 'recap' }), { ...pure, autopilot: true, now: NOW }), false)
-  assert.equal(standsForPerson(Q590({ Filed: String(NOW - MIN) }), { ...pure, autopilot: true, now: NOW }), false, 'not routed yet (young), but the board will route it to the recap')
+  assert.equal(standsForPerson(Q590({ Filed: String(NOW - MIN) }), { ...pure, autopilot: true, now: NOW }), false, 'not routed yet (young): the partner\'s')
   assert.equal(standsForPerson(Q590(), { ...pure, autopilot: true, now: NOW }), true, 'older than the grace: nothing is lost if the board could not route it')
 })
 
@@ -157,19 +163,24 @@ test('a look of the focus goal stays on the recap when no row names its step (th
 // ---------------------------------------------------------------------------------------------------------------------
 // The board
 
-test('the pass puts Q590\'s shape under its step on the recap, though no row names the step and the goal\'s demo exists; a look of another goal goes its old way', async t => {
+test('Q590 end to end: the worker\'s look goes to the partner as before; the partner hands it over; it waits for the recap, though no row names its step and the goal\'s demo exists; a look of another goal goes to the person', async t => {
   const dir = await storeWith({ ...steps(), Q1: look('Q1'), Q2: look('Q2', { Pictures: 'pictures/B70/after.jpg' }) })
   t.after(() => rm(dir, { recursive: true, force: true }))
+  // The coordinator's ruling: Autopilot never asks the person more than Off does, so the pass routes both looks to the partner.
   const done = await pass(dir)
-  assert.deepEqual(done.result.routed, [{ id: 'Q1', to: 'recap' }, { id: 'Q2', to: 'partner' }])
+  const before = await read(dir)
+  assert.deepEqual(done.result.routed, [{ id: 'Q1', to: 'partner' }, { id: 'Q2', to: 'partner' }])
+  assert.deepEqual(['Q1', 'Q2'].map(id => field(before, id, 'Route')), ['partner', 'partner'])
+  // The partner hands both to the person, as roles/partner.md says it does for a new look: the one of the focus goal waits for the recap.
+  for (const id of ['Q1', 'Q2']) assert.equal((await chat(dir, 'Partner', { action: 'escalate', id, why: WHY }, NOW + MIN, { autopilot: true })).ok, true, id)
   const items = await read(dir)
   assert.deepEqual([field(items, 'Q1', 'Route'), field(items, 'Q1', 'Of')], ['recap', 'B55'])
-  assert.deepEqual(history(items, 'Q1').slice(-2), ['server: autopilot: routed to recap', 'server: autopilot: put under B55, the step its picture names'])
+  assert.deepEqual(history(items, 'Q1').slice(-3), [`Partner: to the person: ${WHY}`, 'server: autopilot: routed to recap', 'server: autopilot: put under B55, the step its picture names'])
   assert.ok(items.get('B55').sections.get('Context').some(line => line.trim() === 'Recap verdict: waits (Q1)'))
   assert.equal(field(items, 'B55', 'State'), 'done', 'the step stays as it is')
-  assert.equal(field(items, 'Q2', 'Route'), 'partner')
+  assert.deepEqual([field(items, 'Q2', 'Route'), field(items, 'Q2', 'Of')], ['person', undefined], 'a look of another goal is the person\'s, as before')
   // Out of Needs your attention; in the recap's list, and the net keeps it there at the next pass.
-  assert.deepEqual(needsOf(items), [])
+  assert.deepEqual(needsOf(items), ['Q2'])
   assert.deepEqual(routedAwayOf({ ok: true, items }).map(one => [one.id, one.route, one.of, one.goal, one.asks]), [['Q1', 'recap', 'B55', 'G29', 'look']])
   const again = await pass(dir, {}, NOW + 5 * MIN)
   assert.deepEqual([again.result.routed, again.result.escalated], [[], []])
@@ -255,23 +266,23 @@ test('the pass moves a look that stands for the person because the partner hande
   assert.ok(needsOf(await read(dir), NOW + 7 * MIN, { autopilot: false }).includes('Q1'))
 })
 
-test('the switch-on\'s sweep keeps what it moved for the Undo, the partner\'s hand-overs too; after the Undo no pass takes a look back into the recap', async t => {
+test('the switch-on\'s sweep keeps the partner\'s hand-overs it moved for the Undo; after the Undo no pass takes a look back into the recap; a look the board routed to the person goes to the partner, as before', async t => {
   const dir = await storeWith({ ...steps(), Q1: handed('Q1'), Q2: look('Q2', { Route: 'person' }, { history: [`- ${at(70)} server: autopilot: routed to person`] }) })
   t.after(() => rm(dir, { recursive: true, force: true }))
   const swept = await pass(dir, { sweep: true })
-  assert.deepEqual(swept.result.routed, [{ id: 'Q2', to: 'recap' }, { id: 'Q1', to: 'recap' }])
+  assert.deepEqual(swept.result.routed, [{ id: 'Q2', to: 'partner' }, { id: 'Q1', to: 'recap' }])
   const record = (await readAutopilotClearedFile(dir)).record
-  assert.deepEqual(record.items.map(one => [one.id, one.how]).sort(), [['Q1', 'recap'], ['Q2', 'recap']])
+  assert.deepEqual(record.items.map(one => [one.id, one.how]), [['Q1', 'recap']], 'only what moved into the recap is kept for the Undo')
   const undone = await person(dir, { action: 'autopilot-undo' }, NOW + 5 * MIN)
   assert.equal(undone.ok, true, undone.why)
-  assert.deepEqual(undone.result.undone.sort(), ['Q1', 'Q2'])
+  assert.deepEqual(undone.result.undone, ['Q1'])
   let items = await read(dir)
-  for (const id of ['Q1', 'Q2']) assert.deepEqual([field(items, id, 'Route'), items.get(id).sections.get('Route')], ['person', ['The person took it back from Autopilot (Undo)']], id)
-  // Neither the plain pass nor a new switch-on moves them again.
+  assert.deepEqual([field(items, 'Q1', 'Route'), items.get('Q1').sections.get('Route')], ['person', ['The person took it back from Autopilot (Undo)']])
+  // Neither the plain pass nor a new switch-on moves it again.
   assert.deepEqual((await pass(dir, {}, NOW + 6 * MIN)).result.routed, [])
   assert.deepEqual((await pass(dir, { sweep: true }, NOW + 7 * MIN)).result.routed, [])
   items = await read(dir)
-  assert.deepEqual(needsOf(items, NOW + 8 * MIN), ['Q1', 'Q2'])
+  assert.deepEqual(needsOf(items, NOW + 8 * MIN), ['Q1'])
 })
 
 test('the safety net: a look of the focus goal stays on the recap when no row names its step; every other recap wait is handed back; the person has it once the focus moves', async t => {
@@ -298,9 +309,8 @@ test('the safety net: a look of the focus goal stays on the recap when no row na
 })
 
 test('the person answers the look in its window as any ask: it closes with their words, its step is not moved, and the asking chat is woken', async t => {
-  const dir = await storeWith({ ...steps(), Q1: look('Q1') })
+  const dir = await storeWith({ ...steps(), Q1: look('Q1', { Route: 'recap', Of: 'B55' }) })
   t.after(() => rm(dir, { recursive: true, force: true }))
-  await pass(dir)
   const answered = await person(dir, { action: 'answer', id: 'Q1', verdict: 'approve', text: 'The squares look whole now.' }, NOW + 10 * MIN)
   assert.equal(answered.ok, true, answered.why)
   assert.deepEqual(answered.result.wake && [answered.result.wake.to, answered.result.wake.id], ['Painter', 'Q1'])
@@ -309,9 +319,8 @@ test('the person answers the look in its window as any ask: it closes with their
   assert.equal(field(items, 'B55', 'State'), 'done', 'a done step stays done')
   assert.deepEqual(routedAwayOf({ ok: true, items }), [])
   // Rejecting it needs the person's words, as for any look.
-  const second = await storeWith({ ...steps(), Q1: look('Q1') })
+  const second = await storeWith({ ...steps(), Q1: look('Q1', { Route: 'recap', Of: 'B55' }) })
   t.after(() => rm(second, { recursive: true, force: true }))
-  await pass(second)
   assert.equal((await person(second, { action: 'answer', id: 'Q1', verdict: 'reject', text: '' }, NOW + MIN)).ok, false)
   const sent = await person(second, { action: 'answer', id: 'Q1', verdict: 'reject', text: 'The top row is still cut.' }, NOW + 2 * MIN)
   assert.equal(sent.ok, true, sent.why)

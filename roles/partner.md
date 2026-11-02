@@ -983,10 +983,10 @@ decide it, or ask it with your advice. A look of a step below its target (and th
 for the goal's recap: its step reads `Recap verdict: waits (Q<n>)`, the board asks you for the goal demo with that step still
 in review, and its words name it under "Own rows": give each such step a row of its own with its id in "steps". The user's
 approve or send back of that row answers the ask and closes the step's review as accepted or sent back. A new look of a step
-of the focus goal waits for the goal's recap too, whatever the recap names (the user, 2026-11-02, on a look you had handed
-over: "Why is he asking me for it. this is autopilot is turned on correct?"): hand a new look over with `work escalate` as
-above, and while Autopilot is on the board keeps it for the recap instead of putting it under Needs your attention (the
-recap card lists it; the user answers it in its window) - unless its words or your why name what only their hands can do.
+of the focus goal that you hand over with `work escalate` (the user, 2026-11-02, on one you had handed over: "Why is he asking
+me for it. this is autopilot is turned on correct?") is kept by the board for the goal's recap while Autopilot is on, instead
+of standing under Needs your attention: the recap card lists it and the user answers it in its window, unless its words or your
+why name what only their hands can do. Hand such a look over as before.
 
 ## The goal demo
 

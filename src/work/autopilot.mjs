@@ -21,8 +21,9 @@
 //   verdict on that row closes it. With Autopilot off it stands in Needs your attention again. So does an ask the focus goal's
 //   recap asks already (2026-11-02): the goal's "open the recap and try it" (a Do, or a look with no options or advice, with a
 //   `#demo=` link to that recap; closed by the person's Send), and a look of a worker's about a step that the recap names (its
-//   pictures name the step: it is put under that step first, `recapAskOf`). And (2026-11-02, the person's "A") every new look of
-//   a step of the focus goal, whatever the recap names (`focusLookOf`): the partner's hand-over of one is kept there too.
+//   pictures name the step: it is put under that step first, `recapAskOf`). And (2026-11-02, the person's "A") a new look of
+//   a step of the focus goal that the partner hands to the person (`focusLookOf`, with the work API's `escalate` and the pass): it
+//   waits there instead, whatever the recap names. A worker's look still goes to the partner first (it answers it with the advice).
 // - `main`: an action (a do ask) a chat can do: the main chat does it, else hands it to the person (`escalate`).
 // - `person`: everything goal level (a stuck goal's rebuild too: Autopilot approves no rebuild), what only the person's hands
 //   can do (PERSONS_HANDS), what marks a step done, accepts it or sends it back, an ask under no step from the partner, and
@@ -115,7 +116,7 @@ export function recapAskOf(item, { focusGoal = null, recapSteps = [], items = ne
   return step === null ? null : { to: 'recap', why: 'its step\'s part of the goal\'s recap asks it already', step }
 }
 
-/** The why of an ask a new look of the focus goal puts on the recap (`focusLookOf`). */
+/** The why of a partner's hand-over of a new look of the focus goal that goes to the recap instead (`focusLookOf`). */
 export const FOCUS_LOOK_WHY = 'a new look of the focus goal waits for its recap'
 /** The Route line of a partner's hand-over of a look that Autopilot keeps for the goal's recap instead (the person's "A", 2026-11-02). */
 export const HANDED_KEPT_WORDS = 'Your partner hands this to you; Autopilot keeps it for the goal\'s recap'
@@ -124,10 +125,11 @@ const NOT_LOOKERS = ['owner', 'board']
 const PARTNER_HANDS_LINE = /^Your partner hands this to you: (.*)$/
 
 /**
- * A new look of the focus goal (the person, 2026-11-02, seeing Worker 1's look "Does the wizard's move range on the Terraces look
- * right?" under Needs your attention with Autopilot on: "Why is he asking me for it. this is autopilot is turned on correct?"; their
- * choice "A": a new look on a step of the focus goal waits for that goal's recap instead of reaching them mid-goal): `{ step,
- * isInferred }`, or null. A look (any role but the Product owner's, which answers for the goal) of a step of the focus goal in the
+ * A new look of the focus goal that the partner hands to the person (the person, 2026-11-02, seeing Worker 1's look "Does the
+ * wizard's move range on the Terraces look right?" under Needs your attention with Autopilot on: "Why is he asking me for it. this
+ * is autopilot is turned on correct?"; their choice "A": a new look on a step of the focus goal waits for that goal's recap instead
+ * of reaching them mid-goal; the coordinator's ruling the same day: only after the partner handed it on, since Autopilot never asks
+ * the person more than Off does and the partner answers a worker's look itself): `{ step, isInferred }`, or null. A look (any role but the Product owner's, which answers for the goal) of a step of the focus goal in the
  * store: its `Of`, else (an ask under no step) the first step its `Pictures` name (never its title or words) that is one, the
  * ask put under it (`isInferred`, as `recapAskOf` does). No recap row has to name the step, and the goal's demo may exist
  * already: the person judges the look in its window, and the recap card lists it as a tile of its own. A look of another goal
@@ -377,7 +379,8 @@ export function isByChecker(item, items, prefix = '') {
  * (src/recaps.mjs `recapWaitsOf`: `[{ step, goal, path }]`), `prefix` the chats' title start, `again` that the switch-on's
  * sweep judges an ask the board itself routed to the person anew, `handedWhy` the why of the partner's hand-over of a look (the
  * work API's `escalate`, `partnerHandOverOf`), which is judged as if nobody had handed it on: a new look of the focus goal
- * waits for its recap all the same, as long as the ask's words and that why name nothing only the person's hands can do.
+ * waits for its recap (and only then; a worker's look goes its old way), as long as the ask's words and that why name nothing only
+ * the person's hands can do.
  * `step` in the answer: the step a recap ask is put under.
  * A recap wait (the person's "A", 2026-10-31) only for a step of the focus goal whose recap will name it: the goal demo is
  * still to be asked (its words then ask for the step's own row), or a recap of the goal names the step already.
@@ -412,8 +415,9 @@ export function autopilotRoute(item, { roleOf = () => null, items = new Map(), f
   if (recapAsk !== null) return recapAsk
   const goal = goalLevelOf(item, role)
   if (goal !== null) return { to: 'person', why: `goal level ("${goal}")` }
-  // A new look of the focus goal waits for its recap, whatever the recap names (the person's "A", 2026-11-02): before the rules of a look.
-  const look = focusLookOf(item, { focusGoal, items }, role)
+  // The partner's hand-over of a new look of the focus goal waits for its recap, whatever the recap names (the person's "A",
+  // 2026-11-02): before the rules of a look. A worker's look is no hand-over: the partner answers it, as before.
+  const look = handedWhy === null ? null : focusLookOf(item, { focusGoal, items }, role)
   if (look !== null) return { to: 'recap', why: FOCUS_LOOK_WHY, ...(look.isInferred ? { step: look.step } : {}) }
   if (via === 'accept') return recapOr('an accept or send back below its target')
   if (kind === 'look' && isByChecker(item, items, prefix)) return recapOr('a look of the step\'s checker')

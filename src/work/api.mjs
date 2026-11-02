@@ -42,7 +42,7 @@ import { readAutopilotClearedFile, readNamesFile, readObsoleteFile, readPartnerA
 import { INCIDENT_WAS, MOVED_WORDS, NON_BLOCKING_WORDS, REOPENED_WORDS, SHOWN_MS, UNDONE_WORDS, UNDO_ROUTE_LINE, addedCleared, clearedItem, parseAutopilotCleared, startedCleared, undoWords } from './autopilotCleared.mjs'
 import { checkWords, isLate, obsoletePointsOf, openItemsOf } from './obsolete.mjs'
 import { NOTE_LINE, PARTNER_ANSWER_MS, isDecidedForYou, isRoutedToPartner, routesToPartner, takenBackWords } from './partnerAnswers.mjs'
-import { FOCUS_LOOK_WHY, HANDED_KEPT_WORDS, RECAP_GOES_ON, REFINE_BACK_WORDS, SENT_BACK, TOOK_ADVICE, adviceAnswerOf, autopilotRoute, dropsStep, focusRecapPathOf, isAutopilotRouted, isBoardRoutedPerson, isExplicitPerson, isKeptLook, linksRecap, partnerHandOverOf, recapGoneWords, recapVerdictWords, refineAdviceOf, routedAt, routedWords } from './autopilot.mjs'
+import { HANDED_KEPT_WORDS, RECAP_GOES_ON, REFINE_BACK_WORDS, SENT_BACK, TOOK_ADVICE, adviceAnswerOf, autopilotRoute, dropsStep, focusRecapPathOf, isAutopilotRouted, isBoardRoutedPerson, isExplicitPerson, isKeptLook, linksRecap, partnerHandOverOf, recapGoneWords, recapVerdictWords, refineAdviceOf, routedAt, routedWords } from './autopilot.mjs'
 import { HELD, checkpointLine, isHolding, pauseAnswer, pauseFacts } from './pause.mjs'
 import { nextPlan, planMinutes, planOf, planText } from './stepPlan.mjs'
 import { takenForLine } from './held.mjs'
@@ -1479,7 +1479,8 @@ async function escalate(body, w) {
   const why = line(body.why, 300)
   if (why === '') return refuse(400, 'Say in one line in "why" why the person answers it: it stands on its card.')
   // The person's "A" (2026-11-02, the live Q590: "Why is he asking me for it. this is autopilot is turned on correct?"): while Autopilot
-  // is on, the partner's hand-over of a new look of the focus goal waits for that goal's recap instead of standing for the person; the
+  // is on, the partner's hand-over of a new look of the focus goal waits for that goal's recap instead of standing for the person (a
+  // worker's look goes to the partner first, as before, and reaches this only when the partner hands it on); the
   // partner's why stays in the ask's History. Anything else the partner hands over (and a look that names a click, a sign-in, ...) is the person's.
   if (w.autopilot === true && w.role !== 'server' && w.role !== 'main' && valueOf(found.item, 'Asks') === 'look') {
     const decided = autopilotRoute(found.item, { ...routeCtx(w), handedWhy: why })
@@ -1572,7 +1573,7 @@ async function autopilot(body, w) {
       if (!isAgain && (isAutopilotRouted(item) || (route !== null && !(route === 'person' && !isExplicitPerson(item))))) continue
       const decided = autopilotRoute(item, isAgain ? { ...ctx, again: true } : ctx)
       if (isAgain && decided.to === 'person') continue
-      let done = await routeAsk(valueOf(item, 'Id'), decided.to, w, null, decided.step ?? null, { placed: decided.why === FOCUS_LOOK_WHY ? PLACED_BY_PICTURE : null })
+      let done = await routeAsk(valueOf(item, 'Id'), decided.to, w, null, decided.step ?? null)
       // A step the recap names that the store cannot give: the ask is the person's, as before.
       if (!done.ok && decided.step !== undefined) {
         decided.to = 'person'
