@@ -5,6 +5,7 @@
 // Advisor's next round, as an answered question in the block does. PURE.
 
 import { valueOf } from './item.mjs'
+import { isKeptLook } from './keptLook.mjs'
 import { linksOf } from './links.mjs'
 
 /** A History line of the Advisor's write of the block: a round (`refine`) or the ready form (`refined`). */
@@ -74,6 +75,8 @@ export function refineAsksOf(items, step) {
 
 /**
  * The open asks under a step: `refined` is refused while one is, and a queue asked before the refine waits for them.
- * With the step itself (`step`), the decisions an agreed how brings to the person are left out (`isHowDecision`).
+ * With the step itself (`step`), the decisions an agreed how brings to the person are left out (`isHowDecision`). And a look the partner
+ * handed over that Autopilot keeps for the recap (2026-11-02): it holds no worker and no refine, so only the step's done guard ("no open
+ * look", guards.mjs) still counts it.
  */
-export const openAsksOf = (items, stepId, step = null) => asksOfStep(items, stepId).filter(ask => valueOf(ask, 'State') === 'open' && !isHowDecision(ask, step))
+export const openAsksOf = (items, stepId, step = null) => asksOfStep(items, stepId).filter(ask => valueOf(ask, 'State') === 'open' && !isHowDecision(ask, step) && !isKeptLook(ask))

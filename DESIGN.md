@@ -6291,6 +6291,21 @@ goal's recap). It extends Partner answers (2026-10-19), still with no blanket ap
    `routedAway` lists them with the main chat's. The goal demo's Send closes each one under a step of a judged part first
    (`recap-answered`: "Approved in the recap of G<n>, round <r>: ..." or "Sent back ...: "<comment>"", and `Recap verdict:
    approved|sent back (Q<n>)` beside the wait), then the Approve closes the step as accepted, a Send back as sent back (B878).
+   A new look of a step of the focus goal (any asker but the Product owner; its `Of`, else the first step its `Pictures` name)
+   that the partner hands to the person waits for the recap whatever the recap names (the person's "A", 2026-11-02, narrowed by
+   the coordinator the same day: a worker's look still goes to the partner, which answers it; autopilot.mjs `focusLookOf`,
+   used only for a hand-over): the partner's `escalate` of one is kept there (Route line "Your partner hands this to you;
+   Autopilot keeps it for the goal's recap", its why in History), the pass moves one already handed over (`partnerHandOverOf`) and
+   keeps it for the Undo at every pass ("kept for your recap"). Such a kept look (`keptLook.mjs`, by that Route line) holds no
+   worker: the step its blocking ask held goes on (parked with its worker on another step) and its worker is woken ("Q<n> waits
+   for the goal's recap: go on"); it is no open ask for the rest rule and the "asks are answered" guard (the step's done still
+   waits for the look through the "no open look" guard). The net keeps only such a look when no row names its step; every other
+   recap wait has the net as before. The recap card lists it as a tile of its own wherever no recap part names its step
+   (`recapCard.looks`, target `{ ask }`; a block's card does not cover it), but shows it only while the card has another reason
+   (a part, a block or the goal's own ask waits) or every block is built (a step in review held only by its kept look counts as
+   built); mid-goal it waits quietly. The Product owner's card names
+   it ("Also a look: ... →") and the person answers it in its window (the work action `answer`, which also writes the step's
+   `Recap verdict: approved|sent back (Q<n>)`).
 6. **Refine questions**: while on, a step's open refine questions with advice get it as their answer in the refine block
    (`answerRefine`, as "Take the advice"; History "autopilot: took the advice") and the board types the refine word; one
    without advice sends the refine back with the feedback "autopilot is on: decide it yourself and refine", once per step
