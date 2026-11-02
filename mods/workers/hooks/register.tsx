@@ -2307,7 +2307,12 @@ const WORK_TOOL = {
     + 'Needs your attention once the board asks it: without "points" it reads them with their evidence, with "points" it answers, '
     + 'one line per item, "obsolete|unsure|open: <id> · <why> · <evidence>"; nothing is closed by it. '
     + '"words" ("id" B<n>, "text", "where"): the main chat puts the person\'s words, said in its chat, on a step as a point of '
-    + 'its "Your words" ("text" their words as said, "where" what they answered and when), so every later try is checked against them.',
+    + 'its "Your words" ("text" their words as said, "where" what they answered and when), so every later try is checked against them. '
+    + '"asset" ("kind" visual, music or sound effect, "text" what it should show or sound like, "pictures", "of" your step, '
+    + '"follows" the earlier A<n> for its next iteration): the board makes the asset with the provider the person chose and '
+    + 'answers at once with its id and place in line; you get "asset A<n> ready: <folder>" (or failed, with why). Never run '
+    + 'Codex, Suno, ElevenLabs or another image, music or sound tool yourself. A library request answers its folder: pick a '
+    + 'sound there and name it with "asset", "id" A<n> and "picked" (its path in that folder).',
   inputSchema: {
     type: 'object',
     properties: {
@@ -2320,12 +2325,12 @@ const WORK_TOOL = {
       minutes: { type: 'number', description: 'step: the working time still expected for the whole step, roughly.' },
       stepMinutes: { type: 'number', description: 'step: the working time the step of your plan you are on still takes.' },
       of: { type: 'string', description: 'ask, note: the step it belongs to; the partner: also the focus goal (G6).' },
-      kind: { type: 'string', enum: ['decide', 'look', 'provide', 'do'], description: 'ask: what you ask of the person.' },
+      kind: { type: 'string', enum: ['decide', 'look', 'provide', 'do', 'visual', 'music', 'sound effect'], description: 'ask: what you ask of the person (decide, look, provide or do). asset: the kind of asset (visual, music or sound effect).' },
       blocking: { type: 'boolean', description: 'ask: true when your work waits for the answer.' },
       text: { type: 'string', description: 'ask, note, new: the words; partner-answer: your answer, normally the advice.' },
       options: { type: 'array', items: { type: 'string' }, description: 'ask: the options, each with its letter ("A thin").' },
       advice: { type: 'string', description: 'ask: the option you advise, in a few words ("B").' },
-      pictures: { type: 'array', items: { type: 'string' }, description: 'ask: pictures to look at, as paths in the project.' },
+      pictures: { type: 'array', items: { type: 'string' }, description: 'ask: pictures to look at, as paths in the project. asset: reference pictures, whole paths or paths in the project.' },
       play: { type: 'string', description: "ask: where to play it, as the board's play link names it." },
       to: { type: 'string', description: "note: you (the person) or main (the main chat). rename: the chat's new name." },
       result: { type: 'string', description: 'report: what the person gets now, in a line.' },
@@ -2361,6 +2366,8 @@ const WORK_TOOL = {
       commit: { type: 'string', description: 'step: the checkpoint\'s commit, its hash, or none.' },
       next: { type: 'string', description: 'step: the checkpoint\'s next action, in one line.' },
       priority: { type: 'string', enum: ['fix'], description: 'new: "fix" marks the step a fix for the worker board (the main chat, the partner): it goes first on the board\'s list.' },
+      follows: { type: 'string', description: 'asset: the earlier request (A12) this is the next iteration of, of the same kind.' },
+      picked: { type: 'string', description: 'asset, with "id" A<n>: the sound you picked in the library folder the request answered, as a path in it.' },
       where: { type: 'string', description: 'words: what the person answered and when, or where they said it ("answer to your question on the crater, 2026-10-31 10:12"), so their words keep their meaning.' },
     },
     required: ['action'],

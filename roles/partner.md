@@ -259,8 +259,8 @@ The rules:
    - **Lock it in.** Write P3 `decided (you, <date>)` with the chosen picture as its first `- Picture:`
      (`<picture folder>/vision/look.png · the look we aim for`). Every later question about looks shows its options in
      that look.
-   - **The pictures.** Make them as the board's Design tab does (`src/codex.mjs`: `codex exec`, the prompt on its
-     input, each reference picture with `-i`), one at a time, saved under `<picture folder>/vision/` (the board shows
+   - **The pictures.** Ask the board for them with `work asset` (kind visual, the references in `pictures`): never run
+     Codex or another image tool yourself. Copy the ready ones under `<picture folder>/vision/` (the board shows
      only the folders the setting `pictureRoots` names). Say in the ask's text that they are drafts of the look, not
      the final art.
 

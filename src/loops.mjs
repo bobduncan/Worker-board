@@ -45,6 +45,8 @@ export const LOOP_WORDS = {
   'reports-file': 'keeping the chats\' last reports',
   // T9.3 part 1: whether each kind of asset's provider can work.
   providers: 'checking the asset providers',
+  // Part C: the board's queue of the chats' asset requests (src/assetQueue.mjs).
+  assets: 'making the asked assets',
   // B454: the board's look at its own new version.
   'self-update': 'starting the new version by itself',
   // T13 part 4: the board opens a chat when none runs and work waits for one.

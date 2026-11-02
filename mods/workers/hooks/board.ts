@@ -34,7 +34,7 @@ export const REQUEST_HEADER = 'X-Work-Request'
  * chat that runs an older Workers mod than the one installed. The same as `version` in .claude-plugin/plugin.json.
  */
 export const MOD_HEADER = 'X-Workers-Mod'
-export const MOD_VERSION = '0.28.0'
+export const MOD_VERSION = '0.29.0'
 /** The longest text typed for the board: its own limit for an answer, with room for the request's name around it. */
 export const MOST_CHARS = 3000
 
@@ -293,8 +293,10 @@ export function typedWhy(reason: unknown, fallback: string): string {
  * health summary (`health`) and files what looks wrong (`incident`: "title", "subject", "evidence", "rule", "key"); the
  * partner names the step that fixes an incident (`incident-fix`: "id" X<n>, "fix" B<n>). B775: the partner's verdicts of the
  * obsolete check (`obsolete`: "points", one line per item; without points it reads the check). No new field.
+ * 0.29.0, part C of the asset providers: every chat asks the board for an asset (`asset`: "kind" visual, music or sound
+ * effect, "text", "pictures", "of", "follows" an earlier A<n>; a library pick with "id" and "picked").
  */
-export const WORK_ACTIONS = ['next', 'take', 'step', 'ask', 'withdraw', 'answered-in-chat', 'note', 'report', 'block', 'unblock', 'new', 'close', 'drop', 'refine', 'refined', 'checked', 'definition-draft', 'vibe-draft', 'how-draft', 'list', 'rename', 'partner-answer', 'escalate', 'health', 'incident', 'incident-fix', 'obsolete', 'words']
+export const WORK_ACTIONS = ['next', 'take', 'step', 'ask', 'withdraw', 'answered-in-chat', 'note', 'report', 'block', 'unblock', 'new', 'close', 'drop', 'refine', 'refined', 'checked', 'definition-draft', 'vibe-draft', 'how-draft', 'list', 'rename', 'partner-answer', 'escalate', 'health', 'incident', 'incident-fix', 'obsolete', 'words', 'asset']
 
 /** B297: the fields a call of the work tool may carry to the board; anything else stays here. */
 export const WORK_FIELDS = ['action', 'id', 'branch', 'step', 'steps', 'names', 'name', 'minutes', 'stepMinutes', 'of', 'kind', 'blocking', 'text', 'options',
@@ -321,7 +323,9 @@ export const WORK_FIELDS = ['action', 'id', 'branch', 'step', 'steps', 'names', 
   // The supervisor: an incident's subject (a chat or a step), the rule that could catch it, and its key ("evidence" above).
   'subject', 'rule', 'key',
   // The supervisor: the step that fixes an incident, on incident-fix.
-  'fix']
+  'fix',
+  // 0.29.0: an asset request's earlier iteration (A<n>) and a library pick (a path in the library folder).
+  'follows', 'picked']
 
 /** What every chat in the list is told about the board, in the same words at every request. */
 export const BOARD_NOTE = ' The person also answers on their worker board, a page on this machine. What they answer or '

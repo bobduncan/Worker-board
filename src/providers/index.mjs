@@ -5,8 +5,10 @@
 //   mode   how it provides: "auto" (the board runs it), "person" (the person makes it), "pick" (a chat picks a file)
 //   kinds  the asset kinds it can serve
 //   check  `check(tools)` answers `{ ok, why }`: whether it can work now. It makes nothing and never throws.
-// Part 2 adds `provide(request, tools)` to each module (and a call here that routes a request to the kind's provider);
-// nothing asks a provider for an asset yet.
+// Part C (spec 2026-11-01, part 4) adds `provide(request, tools)` to each module that serves a kind: `{ files }` (it made
+// them in the request's folder), `{ ask }` (the person's ask of kind provide), `{ pick }` (the library folder) or
+// `{ failed }`. The work tool's `asset` (src/work/api.mjs) routes a request with `providerFor`; the board's queue
+// (src/assetQueue.mjs) runs the auto ones.
 
 // Part A (spec 2026-11-01-asset-providers-screens-design.md) gives each module a `card` for the Settings tab (`{ title,
 // line, facts, icon }`), makes `check` answer `{ ok, state, why, detail }` (`state`: works, needs or off; `detail`: a short

@@ -10,4 +10,11 @@ export const personSuno = {
   check() {
     return { ok: true, state: 'works', why: 'you make it in Suno', detail: 'asks you for a file' }
   },
+  /**
+   * Part C: the request becomes an ask of kind provide for the person: make it in Suno and drop the file in the request's
+   * folder (`{ ask: { kind, text } }`; the work API files it). The request is ready once a file lands there.
+   */
+  provide(request) {
+    return { ask: { kind: 'provide', text: [`Make it in Suno and drop the file in ${request.folder}`, `What it should sound like: ${String(request.text ?? '').trim()}`] } }
+  },
 }

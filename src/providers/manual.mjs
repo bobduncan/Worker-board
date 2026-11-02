@@ -12,4 +12,9 @@ export const manual = {
   check() {
     return { ok: true, state: 'works', why: 'nothing to check', detail: 'Always works' }
   },
+  /** Part C: an ask of kind provide for the person, as person-suno's, with any tool. */
+  provide(request) {
+    const what = request.kind === 'visual' ? 'What it should show' : 'What it should sound like'
+    return { ask: { kind: 'provide', text: [`Make it with any tool and drop the file in ${request.folder}`, `${what}: ${String(request.text ?? '').trim()}`] } }
+  },
 }

@@ -6,7 +6,13 @@
 // B301: the store is required. A store folder that is not there or cannot be read is refused with 503 and the one line
 // the board shows on top for it (read.mjs, `storeFault`); nothing is read from or written to the backlog file instead.
 
+import { copyFile, stat } from 'node:fs/promises'
+import { basename, isAbsolute, join, relative } from 'node:path'
+
+import { ASSET_ID, assetFolder, changeAsset, listAssets, newAsset, readAsset } from '../assets.mjs'
 import { minutesOf, sizeMinutes } from '../backlog.mjs'
+import { ASSET_KINDS } from '../providers/kinds.mjs'
+import { SOUND_FILES } from '../providers/sound-library.mjs'
 import { workWords } from '../say.mjs'
 import { stepLine, stepNotes } from './adapter.mjs'
 import { GIVE_GUARD, flowHandsOut, mayMove } from './flow.mjs'
@@ -50,7 +56,7 @@ export { overlapsIn, sinceMs }
 export const isReadAction = action => READS.has(action)
 
 const READS = new Set(['next', 'list', 'pause-state', 'health', ...ROUTING_READS])
-const CHANGES = new Set(['incident', 'incident-fix', 'incident-told', 'incidents-fixed', 'take', 'step', 'ask', 'withdraw', 'answered-in-chat', 'read', 'note', 'report', 'block', 'unblock', 'new', 'queue', 'pin', 'add-to-queue', 'remove-from-queue', 'close', 'drop', 'refine', 'refined', 'answer', 'tick', 'delete', 'refine-answer', 'refine-accept', 'check', 'checked', 'instruction', 'turn-ended', 'pull', 'advance', 'requeue', 'unqueue', 'recheck', 'undo', 'rename', 'pause-all', 'resume-all', 'resumed', 'end-resume', 'overturn', 'seen', 'approve-recaps', 'partner-answer', 'escalate', 'partner-answers', 'obsolete-check', 'obsolete', 'obsolete-close', 'recheck-stuck', 'recheck-base', 'retire-queue', 'qa-task', 'qa-end', 'words', 'accept-cards', 'autopilot', 'recap-answered'])
+const CHANGES = new Set(['incident', 'incident-fix', 'incident-told', 'incidents-fixed', 'take', 'step', 'ask', 'withdraw', 'answered-in-chat', 'read', 'note', 'report', 'block', 'unblock', 'new', 'queue', 'pin', 'add-to-queue', 'remove-from-queue', 'close', 'drop', 'refine', 'refined', 'answer', 'tick', 'delete', 'refine-answer', 'refine-accept', 'check', 'checked', 'instruction', 'turn-ended', 'pull', 'advance', 'requeue', 'unqueue', 'recheck', 'undo', 'rename', 'pause-all', 'resume-all', 'resumed', 'end-resume', 'overturn', 'seen', 'approve-recaps', 'partner-answer', 'escalate', 'partner-answers', 'obsolete-check', 'obsolete', 'obsolete-close', 'recheck-stuck', 'recheck-base', 'retire-queue', 'qa-task', 'qa-end', 'words', 'accept-cards', 'autopilot', 'recap-answered', 'asset'])
 /**
  * Focus 2: the partner's drafts of the focus goal's goal definition and how. They change the goal map, not the store: the
  * board's `goalDraft` (src/focus.mjs) writes them; only the chat the list names the partner (role advisor) sends them.
@@ -94,20 +100,22 @@ const ROLES = {
   obsolete: ['advisor'],
   // Your words (2026-10-30): the person's note on a step, from its window; the main chat's, for words the person said in its chat.
   words: ['person', 'main'],
+  // Part C of the asset providers (spec 2026-11-01, part 4): every role asks the board for an asset; nobody makes one itself.
+  asset: ['main', 'worker', 'advisor', 'owner', 'supervisor', 'server'],
 }
 /**
  * The supervisor: what its chat may do. It reads, and files incidents; it never changes anything else (spec, section 5).
  * Its Workers mod also tells the board when a turn of it ended (`turn-ended`) and asks for its next step (`pull`, which
  * only reads), as for every chat: the clear after each sweep goes by them.
  */
-const SUPERVISOR_MAY = new Set(['incident', 'turn-ended', 'pull', ...READS])
+const SUPERVISOR_MAY = new Set(['incident', 'turn-ended', 'pull', 'asset', ...READS])
 /**
  * The Product owner (2026-10-31, roles/product-owner.md): what its chat may do. It talks with the person: the focus's drafts
  * (definition-draft, how-draft), a question of a talk the person can no longer reach asked of its goal (ask), its notes, its asks
  * taken back or answered in its chat, its instructions closed; and reads, as every chat (`turn-ended`, `pull` from its Workers
  * mod). It never takes, refines, checks or files incidents: those stay with the partner and the workers.
  */
-const OWNER_MAY = new Set(['turn-ended', 'pull', 'ask', 'withdraw', 'answered-in-chat', 'note', 'close', 'definition-draft', 'vibe-draft', 'how-draft', ...READS])
+const OWNER_MAY = new Set(['turn-ended', 'pull', 'ask', 'withdraw', 'answered-in-chat', 'note', 'close', 'definition-draft', 'vibe-draft', 'how-draft', 'asset', ...READS])
 /** What the Product owner does as the partner did before it: a goal's drafts and an ask of a goal. */
 const OWNER_AS_PARTNER = new Set(['definition-draft', 'vibe-draft', 'how-draft', 'ask'])
 /**
@@ -1048,6 +1056,120 @@ async function makeAsk(w, { of = null, kind, blocking = false, text, options = [
   if (freed) question = appendHistory(question, 'server', RECAP_GOES_ON, w.now)
   const wrote = await save(question, null, w)
   return wrote.ok ? { ok: true, question, id, title } : wrote
+}
+
+/** Part C: at most this many reference pictures go with an asset request. */
+const ASSET_PICTURES = 8
+
+/**
+ * Part C of the asset providers (spec 2026-11-01, part 4; spec 2026-10-25, part 2): a chat asks the board for an asset,
+ * `asset` with `kind` (visual, music, sound effect), `text` (what it should show or sound like), `pictures` (reference
+ * pictures: whole paths, or paths in the project), `of` (its step) and `follows` (the earlier request A<n> of the same
+ * kind, for its next iteration). The board keeps the request (src/assets.mjs) and routes it to the provider the person
+ * chose for the kind on the Settings tab (`w.assets.providerOf(kind)`, src/providers/index.mjs `providerFor`). It answers at
+ * once with `{ id, place, provider, mode, folder }`:
+ *   auto    the request waits in the board's queue (src/assetQueue.mjs) at `place`; the chat is told when it is ready
+ *   person  the provider's ask of kind provide is filed for the person, in the board's name (`ask`); ready once a file lands
+ *   pick    the library's folder (`pick`); the chat names its pick with `asset`, `id` and `picked`
+ * `w.assets` (the server's): `{ dir, project, providerOf(kind) → { provider, folder } | null, tools() }`.
+ */
+async function asset(body, w) {
+  const assets = w.assets ?? null
+  if (assets === null || typeof assets.dir !== 'string') return refuse(409, 'This board keeps no asset requests.')
+  if (body.picked !== undefined && body.picked !== null && body.picked !== '') return assetPicked(body, w, assets)
+  const kind = typeof body.kind === 'string' ? body.kind.trim() : ''
+  if (!ASSET_KINDS.includes(kind)) return refuse(400, `"kind" is ${ASSET_KINDS.join(', ')}.`)
+  const text = lines(body.text).join('\n').trim().slice(0, TEXT_CHARS)
+  if (text === '') return refuse(400, `Say in "text" what it should ${kind === 'visual' ? 'show' : 'sound like'}.`)
+  const of = line(body.of, 20)
+  if (of !== '' && !STEP_ID.test(of)) return refuse(400, `"of" is your step (B12): ${of} is none.`)
+  const follows = line(body.follows, 20)
+  if (follows !== '') {
+    const before = ASSET_ID.test(follows) ? await readAsset(assets.dir, follows) : null
+    if (before === null) return refuse(404, `There is no asset request ${follows} to follow.`)
+    if (before.kind !== kind) return refuse(400, `${follows} is ${before.kind}, not ${kind}: a follow-up is the same kind.`)
+  }
+  const given = (Array.isArray(body.pictures) ? body.pictures : typeof body.pictures === 'string' ? body.pictures.split(',') : []).map(one => line(one, 400)).filter(Boolean)
+  if (given.length > ASSET_PICTURES) return refuse(400, `At most ${ASSET_PICTURES} reference pictures.`)
+  const pictures = []
+  for (const path of given) {
+    const whole = isAbsolute(path) ? path : typeof assets.project === 'string' && assets.project !== '' ? join(assets.project, ...path.split(/[\\/]/)) : null
+    const isFile = whole === null ? false : await stat(whole).then(found => found.isFile(), () => false)
+    if (!isFile) return refuse(400, `There is no picture at ${path}: give a whole path, or a path in the project.`)
+    pictures.push(whole)
+  }
+  const set = assets.providerOf?.(kind) ?? null
+  if (set === null || typeof set.provider?.provide !== 'function') return refuse(409, `No provider the board can ask is set for ${kind}: the person sets one on the Settings tab.`)
+  const { provider } = set
+  const title = provider.card?.title ?? provider.name
+  let record
+  try {
+    record = await newAsset(assets.dir, { who: w.who, of: of === '' ? null : of, kind, provider: provider.name, mode: provider.mode, text, pictures, follows: follows === '' ? null : follows }, w.now)
+  } catch (error) {
+    return refuse(500, `The request could not be kept: ${error instanceof Error ? error.message.slice(0, 200) : 'unknown'}`)
+  }
+  const { id } = record
+  const folder = assetFolder(assets.dir, id)
+  const answer = (text, more = {}) => ({ ok: true, result: { id, place: null, provider: provider.name, mode: provider.mode, folder, text, changed: false, ...more } })
+  if (provider.mode === 'auto') {
+    // Its place: the requests of its provider that wait or run, oldest first, up to it.
+    const inLine = (await listAssets(assets.dir)).filter(one => one.provider === provider.name && ['waiting', 'running'].includes(one.state))
+    const place = Math.max(1, inLine.findIndex(one => one.id === id) + 1)
+    return answer(`${id}: ${title} makes it, place ${place} in line. You get "asset ${id} ready: <folder>" (or "asset ${id} failed: <why>"); go on with other work or end your turn, and never make it yourself.`, { place })
+  }
+  let made
+  try {
+    made = await provider.provide({ id, kind, text, pictures, folder }, { ...(assets.tools?.() ?? {}), ...(set.folder === null || set.folder === undefined ? {} : { folder: set.folder }) })
+  } catch {
+    made = { failed: `${title} could not be asked` }
+  }
+  if (provider.mode === 'pick' && typeof made?.pick === 'string') {
+    await changeAsset(assets.dir, id, { pick: made.pick }, w.now)
+    return answer(`${id}: pick a sound in ${made.pick} yourself and name it with work asset (id ${id}, picked: its path in that folder); the board copies it into ${folder}.`, { pick: made.pick })
+  }
+  if (provider.mode === 'person' && made?.ask !== undefined) {
+    const words = [...lines(made.ask.text), `Asked by ${w.who}${of === '' ? '' : ` for ${of}`} as asset ${id}: the board hands the file on once it is in the folder.`, ...pictures.map(path => `Reference: ${path}`)]
+    // In the board's name: its answer wakes no chat, and the board's queue takes it back once the file is there.
+    const asked = await makeAsk({ ...w, who: 'server', role: 'server' }, { kind: ASK_KINDS.includes(made.ask.kind) ? made.ask.kind : 'provide', text: words })
+    if (!asked.ok) {
+      await changeAsset(assets.dir, id, { state: 'failed', why: 'The person could not be asked' }, w.now)
+      return asked
+    }
+    await changeAsset(assets.dir, id, { ask: asked.id }, w.now)
+    return answer(`${id}: the person makes it (${title}); ${asked.id} asks them. You get "asset ${id} ready: <folder>" once the file is there. Do not ask the person for it yourself: put nothing about it in a For you block.`, { ask: asked.id, changed: true })
+  }
+  const why = typeof made?.failed === 'string' && made.failed !== '' ? made.failed : `${title} gave nothing`
+  await changeAsset(assets.dir, id, { state: 'failed', why }, w.now)
+  return refuse(409, `${id} failed: ${why}`)
+}
+
+/**
+ * Part C: the chat names its pick of a library request (`asset` with `id` A<n> and `picked`, a sound in the folder the
+ * request answered, as a path in it or a whole path): the board copies it into the request's folder, and the request is
+ * ready. Only the chat that asked picks, and only once. The answer says it is ready; no word follows, the chat has it.
+ */
+async function assetPicked(body, w, assets) {
+  const id = line(body.id, 20)
+  const record = ASSET_ID.test(id) ? await readAsset(assets.dir, id) : null
+  if (record === null) return refuse(404, `Name your library request in "id" (A12): ${id === '' ? 'none was named' : `${id} is none`}.`)
+  if (plain(record.who, w.prefix) !== plain(w.who, w.prefix)) return refuse(409, `${id} is ${record.who}'s: only the chat that asked picks.`)
+  if (record.mode !== 'pick' || typeof record.pick !== 'string') return refuse(409, `${id} is no library request: its provider makes it.`)
+  if (record.state !== 'waiting') return refuse(409, `${id} is ${record.state} already.`)
+  const picked = line(body.picked, 400)
+  const whole = isAbsolute(picked) ? picked : join(record.pick, ...picked.split(/[\\/]/))
+  const inside = relative(record.pick, whole)
+  if (inside === '' || inside.startsWith('..') || isAbsolute(inside)) return refuse(400, `${picked} is not in the library (${record.pick}).`)
+  if (!SOUND_FILES.test(whole)) return refuse(400, `${picked} is no sound file (.wav, .mp3, .ogg, .flac).`)
+  if (!(await stat(whole).then(found => found.isFile(), () => false))) return refuse(404, `There is no sound at ${picked}.`)
+  const folder = assetFolder(assets.dir, id)
+  const name = basename(whole)
+  try {
+    await copyFile(whole, join(folder, name))
+  } catch {
+    return refuse(500, `${name} could not be copied into ${folder}.`)
+  }
+  await changeAsset(assets.dir, id, { state: 'ready', why: '', files: [name] }, w.now)
+  return { ok: true, result: { id, provider: record.provider, mode: 'pick', folder, files: [name], changed: false, text: `asset ${id} ready: ${folder}` } }
 }
 
 /**
@@ -4146,6 +4268,7 @@ async function incidentsFixed(body, w) {
 }
 
 const CHANGE = {
+  asset,
   incident,
   'incident-fix': incidentFix,
   'incident-told': incidentTold,
