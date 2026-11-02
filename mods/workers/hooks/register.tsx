@@ -15,6 +15,7 @@ import {
   unfiledAsk, withDone, withPlan, withSend, withState, withStep, workCard,
 } from './chats'
 import type { OpenInstruction, TaskChange } from './chats'
+import { clearRun } from './clearrun'
 import { blockAsksLine, forYouCount, forYouItems, leftOutLine } from './foryou'
 import { STUCK_SHOWN_MS, isShownForTime, popupText } from './popup'
 import { ARCHIVE_TOOL, CAN_SET_MS, CAN_TOOLS, EFFORT_TOOL, HAND_CALL_MS, HANDS_DONE_PATH, HANDS_MS, HANDS_PATH, LIST_TOOL, MODEL_TOOL, NO_SESSION_MS, NO_SESSION_WHY, NOT_TRIED_WHY, SEND_TOOL, TASK_RUN_TOOL, TASK_UPDATE_TOOL, UNARCHIVE_TOOL, USAGE_TOOL, archivedOf, canFrom, mayClaim, parseJobs, plainResult, raceJob, sendResult, setResult, usageResult } from './hands'
@@ -126,7 +127,8 @@ let restTurn = -1
 let pendingStart: string[] = []
 /**
  * Clear after each step: the /clear commands this process queued and its hook has not seen yet, oldest first, by
- * their ticket. A /clear of this mod runs only when it is the one of the clear still on its way.
+ * their ticket. B944: a /clear of this mod runs the clear still on its way whatever the order (the engine's queue and
+ * this one fell out of step); its ticket and every older one are used up then.
  */
 const queuedClears: number[] = []
 let clearTickets = 0
@@ -1160,7 +1162,8 @@ const CLEAR_WAIT_MS = 2 * 60_000
 /**
  * Clear after each step, at every tick: a clear whose new conversation started without a start this process heard (a
  * new session id, no hook) moves the card now, its start's words kept for the first prompt; a clear that neither ran nor
- * was stopped within two minutes is let go, and the card says so.
+ * was stopped within two minutes is let go, and the card says so. B944: a /clear of the mod's that came while the clear
+ * was on its way ran it or dropped it at once, so this let-go means no /clear came at all.
  */
 async function settleClear($: EngineInterface): Promise<void> {
   const decided = clearing
@@ -1393,8 +1396,8 @@ async function clearAfter($: EngineInterface, c: { list: ChatList; chat: ChatFil
 
 /**
  * Clear after each step: the /clear of a clear decided now (`c`, its mark on the card written), queued for when this chat
- * is idle, as /compact is; the command's own hook looks once more before it runs, and runs only the /clear of the clear
- * still on its way (its ticket). One that does not run is said through `instead`. T8.5: the clear of an envelope
+ * is idle, as /compact is; the command's own hook looks once more before it runs, and runs the clear still on its way
+ * (B944: whichever /clear of the mod's comes first, its guards holding). One that does not run is said through `instead`. T8.5: the clear of an envelope
  * (`handover`) is kept with its ticket (`handing`) before the command goes, so the line follows that very /clear.
  */
 function queueClear($: EngineInterface, c: Omit<Clearing, 'ticket'>, instead: (why: string) => Promise<void>, handover?: { envelope: Envelope; outcome: Outcome }): void {
@@ -2770,16 +2773,21 @@ export const register: Register = on => {
   on('command.run', { command: 'clear' }, async ($, e, next) => {
     // The person's own /clear, or another plugin's, runs as it is.
     if (e.origin.kind !== 'plugin' || e.origin.name !== PLUGIN) return clearThenPrepare($, next(e))
-    // This mod's: the oldest it queued. It runs only as the /clear of the clear still on its way, while nothing came in.
-    const ticket = queuedClears.shift() ?? null
+    // This mod's: B944, it runs the clear still on its way, whatever the order of its queue (`clearRun`), while that
+    // clear's session is this one and nothing came in since it was decided.
+    const wasEmpty = queuedClears.length === 0
     const decided = clearing
-    if (decided !== null && decided.ticket === ticket) {
-      if (!isInTurn && promptCount === decided.prompts && turnNumber === decided.turn) return clearThenPrepare($, next(e))
+    const run = clearRun(queuedClears, decided, { session: await $.session.id(), isInTurn, prompts: promptCount, turn: turnNumber })
+    queuedClears.splice(0, queuedClears.length, ...run.left)
+    if (run.verdict === 'run') return clearThenPrepare($, next(e))
+    if (run.verdict === 'late') {
       await dropClear($, 'a new prompt came in before the clear ran')
       return { text: 'Not cleared: a new prompt came in before the clear ran.' }
     }
+    // Its session was cleared already: the move after that clear is the tick's (`settleClear`).
+    if (run.verdict === 'moved') return { text: 'Not cleared: this chat was cleared already; this /clear of the Workers mod was let go.' }
     // Queued before the mod was loaded anew: its card's fresh mark, and nothing came in since.
-    const marked = ticket === null && decided === null ? await pendingMark($) : null
+    const marked = wasEmpty && decided === null ? await pendingMark($) : null
     if (marked !== null) {
       clearing = marked
       return clearThenPrepare($, next(e))

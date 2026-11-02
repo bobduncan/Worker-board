@@ -4071,6 +4071,53 @@ describe('T8.5: the board\'s hand-over as one envelope (Workers mod 0.27.0)', ()
     expect(w.typedIn).toEqual([])
   })
 
+  // B944 (X134, X135): the clear-only envelope of an idle worker ("free"), as Worker 3 and Worker 4 got it on 2026-11-02.
+  const CLEAR_ONLY = { kind: 'clear', step: null, line: null }
+
+  test('B944, the real case: an idle worker\'s clear whose /clear comes with the mod\'s queue out of step runs, never the two-minute let-go', async ($, on) => {
+    const { w, clock } = await worker($, on, handover(envelope(CLEAR_ONLY), 'free'))
+    await $.turn.complete({ ...ENDED, turnId: 't1' })
+    await wait(50)
+    // The kit ran the queued /clear at once on the same session: the clear is still on its way, and the mod's queue holds no
+    // ticket for the /clear the engine runs now, as in the real chats (each refused it as "let go" within 8 to 19 ms).
+    expect(fileOf(w)?.clearing?.step).toBe('B12')
+    expect((await $.command.run(CLEAR_BY_MOD)).text).toBe('')
+    expect(w.commanded).toEqual(['/clear by plugin workers', '/clear by plugin workers'])
+    await $.session.end({ reason: 'clear', sessionId: w.id, resume: { id: w.id } } as never)
+    w.id = 'units-2'
+    await clock.advance(5000)
+    for (let i = 0; i < 50 && outcomes(w).length === 0; i++) await settle()
+    expect(outcomes(w)).toEqual([{ chat: 'Units', session: 'units-2', handover: ID, outcome: { ...DONE, cleared: true } }])
+    expect(fileOf(w, 'units-2')?.cleared?.step).toBe('B12')
+    await clock.advance(3 * MIN)
+    for (let i = 0; i < 20; i++) await settle()
+    expect(fileOf(w, 'units-2')?.clearNote).toBeUndefined()
+  })
+
+  test('B944: a /clear of the mod after a prompt came in still drops the clear at once, its why told, never a wait', async ($, on) => {
+    const { w, clock } = await worker($, on, handover(envelope(CLEAR_ONLY), 'free'))
+    await $.turn.complete({ ...ENDED, turnId: 't1' })
+    await wait(50)
+    await $.prompt.submit({ text: 'one more thing', origin: { kind: 'composer' } } as never)
+    expect((await $.command.run(CLEAR_BY_MOD)).text).toBe('Not cleared: a new prompt came in before the clear ran.')
+    for (let i = 0; i < 20; i++) await settle()
+    expect(outcomes(w)).toEqual([{ chat: 'Units', session: 'units', handover: ID, outcome: { ...DONE, cleared: false, why: 'a new prompt came in before the clear ran' } }])
+    expect(fileOf(w)?.clearing).toBeUndefined()
+    await clock.advance(3 * MIN)
+    for (let i = 0; i < 20; i++) await settle()
+    expect(fileOf(w)?.clearNote?.why).toBe('a new prompt came in before the clear ran')
+  })
+
+  test('B944: a /clear of the mod after the chat was cleared already never clears the fresh conversation', async ($, on) => {
+    const { w } = await worker($, on, handover(envelope(CLEAR_ONLY), 'free'))
+    await $.turn.complete({ ...ENDED, turnId: 't1' })
+    await wait(50)
+    await $.session.end({ reason: 'clear', sessionId: w.id, resume: { id: w.id } } as never)
+    w.id = 'units-2'
+    expect((await $.command.run(CLEAR_BY_MOD)).text).toBe('Not cleared: this chat was cleared already; this /clear of the Workers mod was let go.')
+    expect(w.commanded).toEqual(['/clear by plugin workers'])
+  })
+
   test('change 1: a `handover` with no envelope (the board checks the report): no clear of its own, no compaction, nothing told', async ($, on) => {
     const { w } = await worker($, on, handover(null, 'checking'))
     await $.turn.complete({ ...ENDED, turnId: 't1' })
