@@ -26,7 +26,7 @@ const design = (ideas = [idea()], more = {}) => ({ canMake: true, why: null, bus
 const view = (board, chosen = { idea: 'i1', version: null }) => page.designView(board, chosen, NOW)
 
 test('the page has the Design tab after the person\'s layout: three parts side by side, the ideas along the bottom', () => {
-  assert.match(markup, /<button class="tab" type="button" data-tab="design">Design<\/button>/)
+  assert.match(markup, /<button class="subtab" type="button" data-tab="design">Idea<\/button>/)
   const tab = markup.slice(markup.indexOf('id="view-design"'), markup.indexOf('<dialog class="details"'))
   const at = words => tab.indexOf(words)
   const order = ['New idea', 'id="design-text"', 'What is it about?', 'id="design-kinds"', 'id="design-make"', 'The picture', 'id="design-stage"', 'id="design-versions"', 'id="design-change"', 'id="design-agree"',

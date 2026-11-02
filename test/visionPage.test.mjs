@@ -315,7 +315,7 @@ test('no plan: no view; no question: no slides; no features or goals: empty step
 })
 
 test('the Vision tab sits beside Overview, with its view, its address and its styles', () => {
-  assert.match(html, /data-tab="overview">[\s\S]*?<\/button>\s*<button class="tab" type="button" data-tab="vision">Vision<\/button>/)
+  assert.match(html, /data-tab="advice">Focus<\/button>\s*<button class="subtab" type="button" data-tab="vision">Vision<\/button>/)
   assert.match(html, /<div class="view is-single" id="view-vision" hidden><\/div>/)
   assert.match(script, /if \(hash === '#vision'\) return 'vision'/)
   assert.match(script, /\$\('view-vision'\)\.hidden = tab !== 'vision'/)
