@@ -83,7 +83,7 @@ export const focusRecapPathOf = (recapSteps, focusGoal) => (focusGoal === null |
 const slashed = path => String(path ?? '').replace(/\\/g, '/').toLowerCase()
 /** Whether words link a recap file: they hold `demo=<its path>` (the link the board's page opens the recap with). */
 export const linksRecap = (words, path) => typeof path === 'string' && path !== '' && slashed(words).includes(`demo=${slashed(path)}`)
-/** The step ids words name: `B<n>`, not inside a longer word ("art-inbox/B889/evidence.png", "B889's"). */
+/** The step ids words name: `B<n>`, not inside a longer word ("pictures/B889/evidence.png", "B889's"). */
 const stepIdsIn = words => String(words ?? '').match(/(?<!\w)B\d+(?!\w)/g) ?? []
 
 /**
@@ -91,7 +91,7 @@ const stepIdsIn = words => String(words ?? '').match(/(?<!\w)B\d+(?!\w)/g) ?? []
  * autopilot is turned on, the outstanding, needing for attentions get reevaluated and possible resolved if autopilot would
  * answer them"), for an ask under no step: `{ to: 'recap', why }`, or null. The whole goal (the live Q569): its words link the
  * recap (`demo=<the recap's path>`); the person's Send in the recap closes it. Its step (the live Q578, a look with the picture
- * `art-inbox/B889/evidence.png`): a worker's look or decide whose picture, title or words name a step that a part of the recap
+ * `pictures/B889/evidence.png`): a worker's look or decide whose picture, title or words name a step that a part of the recap
  * names; the ask is put under that step (`step`, the first such id) and waits for the recap as any ask of a step does. The
  * partner's and the Product owner's asks under no step stay the person's (they answer for the goal), as does any ask of a
  * recap of a goal that is not the focus. `recapSteps`: src/recaps.mjs `recapWaitsOf`.
