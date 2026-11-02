@@ -12,8 +12,33 @@ import test from 'node:test'
 
 import {
   BOARD_KEY, WAKE_VERDICT_MS, claim, emptyWakes, failedToSend, givenBack, heard, heardClaim, inFirstTurn, newSpell, nextPath, noticeOf, pass,
-  readWakes, rowOf, sent, spellOf, statusOf, textOfWakes, turnEnded, wakeJobId, wakeOf, wakesSaver,
+  personAgain, readWakes, rowOf, sent, spellOf, statusOf, textOfWakes, turnEnded, wakeJobId, wakeOf, wakesOfFile, wakesSaver,
 } from '../src/wake.mjs'
+
+test('T22 personAgain: the person\'s "Send again" makes one attempt outside the cap, never while one is pending; it gets the usual verdict and is saved with its mark', () => {
+  const record = emptyWakes()
+  const job = wakeJobId(W2_SPELL, 'Worker 2')
+  assert.ok(claim(record, { chat: 'Worker 2', spell: W2_SPELL, path: 'message', by: 'Advisor', jobId: job, now: at(10, 31), runBefore: RUN_OLD }))
+  // A click while the message is pending changes nothing.
+  assert.equal(personAgain(record, { chat: 'Worker 2', spell: W2_SPELL, path: 'message', by: 'Advisor', jobId: 'again-1', now: at(10, 31, 30) }), false)
+  sent(record, 'Worker 2', job, at(10, 31, 5))
+  pass(record, at(10, 34))
+  assert.equal(statusOf(record, 'Worker 2', W2_SPELL).state, 'failed')
+  // The cap of decision 8 gives the message path no second try; the person's word does, once.
+  assert.equal(nextPath(record, { chat: 'Worker 2', spell: W2_SPELL, senderClaims: true, paths: ['message'] }), null)
+  const again = personAgain(record, { chat: 'Worker 2', spell: W2_SPELL, path: 'message', by: 'Advisor', jobId: 'again-1', now: at(10, 40), runBefore: RUN_OLD })
+  assert.equal(again.again, 'person')
+  assert.equal(statusOf(record, 'Worker 2', W2_SPELL).state, 'on-its-way')
+  // A second click while that one is pending changes nothing either.
+  assert.equal(personAgain(record, { chat: 'Worker 2', spell: W2_SPELL, path: 'message', by: 'Advisor', jobId: 'again-2', now: at(10, 40, 10) }), false)
+  sent(record, 'Worker 2', 'again-1', at(10, 40, 5))
+  // The same verdict rules: the chat's own report from a new process is "woke".
+  assert.equal(heard(record, 'Worker 2', { state: 'busy', run: RUN_NEW, at: at(10, 40, 20) }, at(10, 40, 20))?.verdict, 'woke')
+  assert.equal(statusOf(record, 'Worker 2', W2_SPELL).state, 'woke')
+  // The mark survives the file.
+  const read = wakesOfFile(JSON.parse(textOfWakes(record)))
+  assert.equal(read.wakes.get('Worker 2').at(-1).attempts.at(-1).again, 'person')
+})
 
 const at = (h, m, s = 0) => new Date(2026, 10, 2, h, m, s).getTime()
 const timeOf = ms => `${String(new Date(ms).getHours()).padStart(2, '0')}:${String(new Date(ms).getMinutes()).padStart(2, '0')}`
