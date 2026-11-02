@@ -126,6 +126,9 @@ export function isBoardTimeout(envelope) {
 /** The step a clear envelope clears after (or the task it carries), or null. */
 const clearStepOf = envelope => envelope?.clear?.step ?? envelope?.step ?? null
 
+/** B930: the held line of a worker whose clear failed on the board's own time-out a second time for the same step. */
+export const timedOutTwiceWhy = step => `its clear${step === null ? '' : ` after ${step}`} failed twice on the board's own time-out: held until its turn ends (the board does not try a third time)`
+
 /** When an envelope was settled (its outcome), or failed. */
 const settledAt = envelope => [envelope?.settledAt, envelope?.deliveredAt, envelope?.failedAt].find(Number.isFinite) ?? envelope?.at ?? -Infinity
 
@@ -372,10 +375,12 @@ export function decide({ worker, items = new Map(), ready = [], prefix = '', pau
   if (takenBack === null && last !== null && failedOf(last)) {
     const at = settledAt(last)
     const isReported = report?.state === 'idle' && Number.isFinite(report?.at) && report.at > at
+    // X133: also an envelope the sweep closed since (its task taken back, state dropped): its outcome is the hold's cause.
+    const isTimedOutAgain = isBoardTimeout(last) && envelopes.some(one => one !== last && isBoardTimeout(one) && clearStepOf(one) === clearStepOf(last))
     const isReleased = turnSince >= at || (Number.isFinite(report?.since) && report.since > at)
       || (isReported && backgroundCount(worker) === 0 && (last.outcome?.background === true || last.outcome?.set === false))
-      || (isReported && isBoardTimeout(last) && !envelopes.some(one => one !== last && isBoardTimeout(one) && clearStepOf(one) === clearStepOf(last)))
-    if (!isReleased) return result(STATES.HELD, failedWhy(last), { step: typeof last.step === 'string' ? last.step : null })
+      || (isReported && isBoardTimeout(last) && !isTimedOutAgain)
+    if (!isReleased) return result(STATES.HELD, isTimedOutAgain ? timedOutTwiceWhy(clearStepOf(last)) : failedWhy(last), { step: typeof last.step === 'string' ? last.step : null })
   }
   // UNKNOWN after the net: it gets nothing until its next event (a turn end or a report that changed).
   if (takenBack === null && last !== null && Number.isFinite(last.netAt)) {

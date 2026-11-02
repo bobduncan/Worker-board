@@ -11,7 +11,7 @@ import { CLEARS_AT, REFUSED_WHY, REPORTED_AT, TIMED_OUT_WHY, cet, launched, stop
 import { clearRefusal } from '../../src/bridge.mjs'
 import { backgroundOf } from '../../src/chatReport.mjs'
 import { clearOwed } from '../../src/clearOwed.mjs'
-import { HANDOVER_COMMAND, HANDOVER_MOD, STATES, decide, isBoardTimeout } from '../../src/work/handover.mjs'
+import { HANDOVER_COMMAND, HANDOVER_MOD, STATES, decide, isBoardTimeout, laneWords, timedOutTwiceWhy } from '../../src/work/handover.mjs'
 import { parseItem } from '../../src/work/item.mjs'
 import { stamp } from '../../src/work/migrate.mjs'
 import { backgroundRunning, parseTail } from '../../src/transcript.mjs'
@@ -137,6 +137,9 @@ test('Part 3: a clear that failed on the board\'s own time-out is released by th
     const lane = laneAt(now, entries)
     const still = decide({ worker: lane, items: items(), ready: [], owed: clearOwed({ lane, items: items(), afterStep: 'clear' }), envelopes: [first, second], now })
     assert.equal(still.state, STATES.HELD, `still HELD at ${new Date(now).toISOString()}`)
+    // Its lane says why it stays held (until part 4's back-off exists).
+    assert.equal(laneWords(still), `held: ${timedOutTwiceWhy('B917')}`)
+    assert.match(laneWords(still), /failed twice on the board's own time-out/)
   }
   // A time-out of another step's clear does not count against this one.
   const other = timedOut('e20', cet(15, 0), 'B900')
@@ -170,4 +173,37 @@ test('Part 2, the lane: its background count reads the mod\'s fresh idle report,
   assert.equal(laneOf(running, reportOf('idle', { background: true })).background, 1)
   assert.equal(laneOf(running, reportOf('busy')).background, 1, 'a busy report says nothing of the background')
   assert.equal(laneOf(running, reportOf('idle', { at: cet(16, 16) })).background, 1, 'a stale report: the transcript')
+})
+
+test('X133, Worker 5 at 16:40: a time-out hold whose envelope the sweep closed when its task was taken back ends on the next report, once', () => {
+  const name = 'Worker 5'
+  const entries = parseTail(answer(cet(16, 39), 'B928 is reported.'), false)
+  // B928 reported 16:40:00; the envelope gave B923 with the clear; the save-log timed out (16:40:44); B923 was taken back and
+  // the sweep closed the envelope "dropped" 16:40:53: the outbox's last word on it is no "failed", its outcome is the cause.
+  const failedAt = cet(16, 40, 44)
+  const dropped = {
+    id: 'c6e9', at: cet(16, 40, 16), to: name, command: HANDOVER_COMMAND, kind: 'task', step: 'B923', clear: { step: 'B928', reportedAt: cet(16, 40) }, restart: false,
+    set: { model: null, effort: 'high' }, line: 'work: B923 is yours; run work next', back: null, takenAt: cet(16, 40, 32), failedAt, settledAt: failedAt,
+    outcome: { cleared: false, set: null, typed: null, restarted: null, background: false, why: TIMED_OUT_WHY },
+    state: 'dropped', why: 'B923 is no longer given to Worker 5', closedAt: cet(16, 40, 53),
+  }
+  const reviewed = new Map([['B928', file({ Id: 'B928', Kind: 'step', Title: 'Task B928', State: 'review', Owner: name, Since: stamp(cet(16, 40)) }, [
+    `- ${stamp(cet(16, 10))} ${name}: queued → taken`, `- ${stamp(cet(16, 40))} ${name}: in progress → review`, `- ${stamp(cet(16, 40))} server: check passed`,
+  ])], ['B923', file({ Id: 'B923', Kind: 'step', Title: 'Task B923', State: 'refined', Refined: 'ready', Since: stamp(cet(16, 27)) }, [`- ${stamp(cet(16, 40, 44))} server: queued → refined (taken back from Worker 5)`])]])
+  const laneOf5 = reportAt => ({ ...laneAt(reportAt, entries), name, report: { state: 'idle', since: cet(16, 39), background: false, at: reportAt, session: 'w5' } })
+  const at = (reportAt, envelopes, now = reportAt) => {
+    const lane = laneOf5(reportAt)
+    return decide({ worker: lane, items: reviewed, ready: [{ id: 'B923', rank: 2, keptFor: null, keptUntil: null, pinned: null }], owed: clearOwed({ lane, items: reviewed, afterStep: 'clear' }), envelopes, now })
+  }
+  assert.equal(isBoardTimeout(dropped), true, 'its outcome tells the cause, whatever the sweep did with it')
+  // Its report was idle before the hold: still HELD until a report after the failure.
+  assert.equal(at(cet(16, 40, 30), [dropped], cet(16, 40, 50)).state, STATES.HELD)
+  const freed = at(cet(16, 40, 55), [dropped])
+  assert.notEqual(freed.state, STATES.HELD)
+  assert.equal(freed.envelope?.clear?.step, 'B928')
+  // Once: a second time-out for B928 holds it, its lane saying why.
+  const again = { ...dropped, id: 'd2', at: cet(16, 40, 55), failedAt: cet(16, 41, 10), settledAt: cet(16, 41, 10), state: 'failed', why: undefined, closedAt: undefined }
+  const held = at(cet(16, 45), [dropped, again])
+  assert.equal(held.state, STATES.HELD)
+  assert.equal(laneWords(held), `held: ${timedOutTwiceWhy('B928')}`)
 })

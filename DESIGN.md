@@ -4335,7 +4335,10 @@ ends nothing. (2) One source: the save-log refusal, the hold's release and the l
 `chatReport.mjs` `backgroundOf`: the mod's report while it is idle, of that session and no older than `unknownAfterSeconds`
 (its flag, 1 or 0), else the transcript. A busy or asking report says nothing of the background. (3) A clear that failed on
 the board's own time-out (the mod's why "The worker board did not answer", not a refusal) is released by the worker's next
-idle report, once per step: a second time-out for the same step keeps it Held (the back-off is part 4, not built). Test:
+idle report, once per step, also when the sweep closed that envelope since (X133, Worker 5 at 16:40: its task was taken back
+and the envelope dropped; its outcome still names the cause): a second time-out for the same step keeps it Held until part
+4's back-off exists, its lane saying so ("held: its clear after B<n> failed twice on the board's own time-out: held until
+its turn ends (the board does not try a third time)", `timedOutTwiceWhy`). Test:
 `test/work/stoppedBackground.test.mjs` (the real case's shapes, `fixtures/stoppedBackground.mjs`) and
 `test/stoppedBackgroundBoard.test.mjs` through a running board.
 B737 (X86, 2026-10-27: Worker 3 reported B727 at 21:02, the board's check failed at 21:03, Worker 3 rightly stayed in its
