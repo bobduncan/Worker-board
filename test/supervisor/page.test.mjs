@@ -264,7 +264,8 @@ test('the page wires the status: the press counts from the key sync:<chat>, the 
   // The redraw knows it: the status stands in the section's signature (so the word goes by itself 10 minutes after), and the draw hears of the press.
   assert.match(draw, /const isPressed = isCheckPressed\(\)/)
   assert.match(draw, /const status = shown \? checkStatusOf\(view, \{ isPressed, now: Date\.now\(\) \}\) : null/)
-  assert.match(draw, /sending\.has\('sync:board'\), status\], \(\) => \{/)
+  // T22: and the asked sweep's wait line (sweepWaitOf), so the section draws again when its line moves.
+  assert.match(draw, /sending\.has\('sync:board'\), status, sweepLine\], \(\) => \{/)
   assert.match(draw, /supervisorOf\(view, \{[^}]*now: Date\.now\(\), isPressed \}\)/)
   // The word stands after the counts, in the head's own line (folded or open).
   assert.match(draw, /fill\(toggle, \[el\('span', 'supervisor-caret', isOpen \? '▾' : '▸'\), wrench, el\('span', 'supervisor-title', part\.head\), checkStatusPart\(part\.status\)\]\)/)
@@ -456,7 +457,8 @@ test('B573: folded by default; the fold and the last opening are kept across a r
   assert.equal(page.isSupervisorShown(null), false, 'no supervisor on this board')
   assert.match(script, /const supervisorUi = \{ \.\.\.supervisorKept\(supervisorStorage\), /)
   assert.match(script, /'supervisor-fold': \(\) => setSupervisorOpen\(!supervisorUi\.isOpen\)/)
-  assert.match(script, /if \(!isOpen\) return fill\(box, \[head\]\)/)
+  // T22: folded, the head and the asked sweep's wait line under it (none without one).
+  assert.match(script, /if \(!isOpen\) return fill\(box, \[head, wait\]\)/)
 })
 
 test('B573: the supervisor\'s notes under Needs your attention are one line, "Supervisor: 3 new findings"; opening the section reads them', () => {

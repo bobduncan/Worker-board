@@ -5280,6 +5280,41 @@ wake job and its claim), `test/work/handover.test.mjs` and `test/work/handoverBo
 the real envelopes eb4fe8aada155b05 and 93ee0a904d02d2dc), `test/supervisor/handoverRules.test.mjs` (the alarms),
 `test/asleepAfterRestart.test.mjs` (the lane's words, the notice, the ⚙ row).
 
+## The wait line (T22, wave 1, 2026-11-02)
+
+The person, 2026-11-02: "either the board responds immediately, e.g. via code. or we expect an ai chat todo something in
+which case i always need clear visual indications, maybe a loader. and the status if its being picked up or not. I want to
+know whats going on." Spec, mock and the board-dev chat's conditions: `art-inbox/focus-mocks/wait-rule/` (spec.md,
+conditions.md, mock.png, audit.md).
+
+**One line per word an action of the person typed** (`src/waitLine.mjs`, pure), the first state that holds: **Done** (the
+action's own result: the recap's next tries filed after the Send, the obsolete check's record answered, the asked sweep
+ended by its chat's turn; else the fallback "<Chat> answered HH:MM" once the turn that began on the word ended, never
+"Done"), **Late** (rule 8's own judgement of this word, `watch.mjs isUndelivered`, the one function `undeliveredWords` uses,
+so the card and the alarm never disagree; or every way to wake the chat failed, `wakeOf(...).final`, with `triedWords`),
+**Picked up** (the word arrived, delivered or taken by its own chat, and the turn whose report's since is at or after its
+take runs: the take, not `deliveredAt`, because the mod's "typed" comes a moment after the turn it began reported), **Sent**
+(the queue place while the chat runs; the wake record while it does not). Closed, dropped, superseded (`wordMatters`) or
+copied words have none. The chat's status pill stands beside the line as every view draws it; Late is the only state in
+the attention colour.
+
+**The state's `waits`** (server.mjs `waitsNow`): every person's word of the last 24 h (an answer, `recap-feedback`,
+`obsolete-check`, the asked sweep's word `lastSweep.word`) by its id, judged with a supervisor view of the same moment; a
+retried word by the copy that stands for it. An answer carries its word's id (`need.answer.id`), the recap's Send answers
+`said` and names its `backSteps`, Check now answers `said`.
+
+**On the page**: an answered ask stays as a slim card with its line until Done (it used to vanish at once); Find obsolete
+items says "Asked" and draws the line (it said "checking" from the moment its record was written); a Check now sweep's line
+stands under the supervisor's head; the recap's Send draws its line in the popup (following the state) and as the Focus
+page's card "G6 · Your recap · feedback sent" while no verdict waits. A Done line's link opens its step; a Done line goes
+after 10 minutes. **Not in it yet**: Send again (it waits for change 7's `personAgain` in wake.mjs; the button shows only
+where the state says `waitAgain`), the incident judgment's line (change 6), wave 2 (a refine, Go, Change this goal, a goal
+ask, Overturn, Stop or Remove a worker, the Focus talk).
+
+Tests: `test/waitLine.test.mjs` (the four states, rule 8's one judgement, the wake record, the actions' own results,
+`waitsOf`), `test/waitLinePage.test.mjs` (the DOM harness: the slim card, the signs, the obsolete check, the sweep, the
+recap's popup and Focus card, the link), `test/demoFeedbackBoard.test.mjs` (the Send's line in a running board's state).
+
 ## What it does not do
 
 - It does not start, stop or restart chats itself: it asks the main chat (a worker to start, a restart for a new mod,
