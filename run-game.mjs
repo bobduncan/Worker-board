@@ -5,7 +5,8 @@
 //
 // It uses the folder's own vite with the folder's own configuration, so the game runs as the worker's own start
 // of it does. Two things differ: it listens on this machine only, and vite's cache is kept with the board, so
-// nothing is written into the folder's `node_modules` while a worker may be running the game from it too.
+// nothing is written into the folder's `node_modules` while a worker may be running the game from it too. A cache
+// older than the folder's `node_modules/.package-lock.json` is rebuilt (B943).
 //
 // It ends when no tab has shown the game for `--idle` seconds (a tab keeps a connection open as long as it shows
 // the game), or when nobody opened it within `--grace` seconds of its start. It prints `ready <port>` once.
@@ -14,7 +15,7 @@ import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 
-import { idleWatch } from './src/games.mjs'
+import { cacheIsStale, idleWatch } from './src/games.mjs'
 
 const HOST = '127.0.0.1'
 
@@ -40,9 +41,13 @@ async function main() {
   if (folder === undefined || !Number.isInteger(port) || port < 0 || port > 65535) throw new Error('Needs --folder and --port.')
 
   const vite = await viteOf(folder)
+  const cacheDir = argAfter('--cache')
+  // B943: a cache older than the folder's packages is rebuilt, or it keeps a bundle made while they were missing.
+  const force = cacheDir !== undefined && await cacheIsStale(folder, cacheDir)
   const server = await vite.createServer({
     root: folder,
-    cacheDir: argAfter('--cache'),
+    cacheDir,
+    optimizeDeps: force ? { force: true } : undefined,
     clearScreen: false,
     // A port in use is not a failure: the next free one is taken, and the board is told which.
     server: { host: HOST, port, strictPort: false, open: false },

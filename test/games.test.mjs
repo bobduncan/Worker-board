@@ -1,14 +1,14 @@
 import assert from 'node:assert/strict'
 import { spawn } from 'node:child_process'
 import { readFileSync } from 'node:fs'
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, rm, utimes, writeFile } from 'node:fs/promises'
 import { connect } from 'node:net'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import test from 'node:test'
 import { fileURLToPath } from 'node:url'
 
-import { checkGame, createGames, gameLauncher, idleWatch } from '../src/games.mjs'
+import { cacheIsStale, checkGame, createGames, gameLauncher, idleWatch } from '../src/games.mjs'
 
 const RUNNER = join(dirname(fileURLToPath(import.meta.url)), '..', 'run-game.mjs')
 // B197: the board's folder, and the start command examples/config.json gives for a Vite game: the tests run it.
@@ -229,4 +229,27 @@ test('B197: the start command\'s words get the folder, the port and the rest fil
   assert.deepEqual(commandFor(['{node}', '{board}/run.mjs', '--at', '{folder}', '--port={port}', '{other}'], { node: 'node', board: '/b', folder: '/g', port: 5300 }),
     ['node', '/b/run.mjs', '--at', '/g', '--port=5300', '{other}'])
   assert.equal(COMMAND[1], '{board}/run-game.mjs')
+})
+
+test('B943: a cache older than the packages is rebuilt; a newer one is kept; none or no lock file starts as before', async t => {
+  const folder = await mkdtemp(join(tmpdir(), 'board-cache-'))
+  t.after(() => rm(folder, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }))
+  const cache = join(folder, 'cache')
+  const lock = join(folder, 'node_modules', '.package-lock.json')
+  const meta = join(cache, 'deps', '_metadata.json')
+  const at = (path, seconds) => utimes(path, seconds, seconds)
+  assert.equal(await cacheIsStale(folder, cache), false, 'no lock file, no cache')
+  await mkdir(join(folder, 'node_modules'), { recursive: true })
+  await writeFile(lock, '{}')
+  assert.equal(await cacheIsStale(folder, cache), false, 'no cache yet')
+  await mkdir(join(cache, 'deps'), { recursive: true })
+  assert.equal(await cacheIsStale(folder, cache), true, 'a cache that cannot be read')
+  await writeFile(meta, '{}')
+  await at(lock, 2000)
+  await at(meta, 1000)
+  assert.equal(await cacheIsStale(folder, cache), true, 'packages restored after the cache was made (Q600)')
+  await at(meta, 3000)
+  assert.equal(await cacheIsStale(folder, cache), false, 'a newer cache is kept')
+  await rm(lock)
+  assert.equal(await cacheIsStale(folder, cache), false, 'no lock file')
 })

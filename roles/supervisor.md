@@ -64,7 +64,8 @@ decision, and the app writes its usage file only while it is in use.
 When `work health` itself does not answer (it timed out), file nothing for that: the rule board-slow names a board that
 answers work calls after the chats gave up, and board-deaf one that hears no chat (B736). `work health` answers from what
 the board has and never waits for a change in the store's queue, so a time-out is the board being stuck, which those
-rules say.
+rules say. Board-slow's evidence cites the board's stall log (B934, `data/stalls.json`): each stall over 2 s with the
+requests and the board's own jobs that ran during it, so its finding already says what held the board.
 
 Read only the health summary. Do not read files, logs or transcripts, do not run commands, and do not start agents: a
 sweep is meant to cost little (a few tens of thousands of tokens, mostly cached).

@@ -193,6 +193,29 @@ test('board-slow: two work calls within 2 min answered after the chat gave up ar
   assert.deepEqual(slow([{ at: at(21, 22), ms: 15_000 }, { at: at(21, 25), ms: 15_000 }]), [])
 })
 
+test('board-slow cites the board\'s newest stalls in its 10 minutes, or says the stall log names none', () => {
+  // B934 (X93): the stalls of 2 Nov 16:48 to 16:50, Worker 2's hand-over to B930.
+  const day = (h, m, s = 0) => new Date(2026, 10, 2, h, m, s).getTime()
+  const now = day(16, 51)
+  const state = { ...build({ now }), lateCalls: [{ at: day(16, 49, 51), ms: 10_700 }, { at: day(16, 50, 21), ms: 16_000 }] }
+  const slow = stalls => check('board-slow', { ...state, stalls }, now)
+  assert.match(slow([])[0].evidence, /^answered 16:49 after 11 s; answered 16:50 after 16 s\. the stall log names no stall in 10 min$/)
+  const old = { at: day(16, 30), ms: 9000, kind: 'loop', requests: [], jobs: ['state rebuild'] }
+  const newest = [
+    { at: day(16, 48, 47), ms: 5200, kind: 'call', call: 'work next by Worker 4', requests: [], jobs: ['chat log of Worker 2 (text)'] },
+    { at: day(16, 49, 2), ms: 7700, kind: 'loop', requests: ['work save-log by Worker 4'], jobs: ['chat log of Worker 2 (text)', 'state rebuild'] },
+    { at: day(16, 49, 51), ms: 10_700, kind: 'call', call: 'work take by Worker 2', requests: [], jobs: ['hand-over Worker 2 (turn-ended)'] },
+    { at: day(16, 50, 21), ms: 6000, kind: 'loop', requests: [], jobs: [] },
+  ]
+  const evidence = slow([old, ...newest])[0].evidence
+  assert.ok(!evidence.includes('16:30'), 'a stall older than 10 min is not cited')
+  assert.ok(!evidence.includes('16:48:47'), 'only the newest three are cited')
+  assert.equal(evidence, 'answered 16:49 after 11 s; answered 16:50 after 16 s. stalls: '
+    + '16:49:02 7.7 s the loop blocked (requests: work save-log by Worker 4; jobs: chat log of Worker 2 (text), state rebuild); '
+    + '16:49:51 10.7 s a call waited (call work take by Worker 2; jobs: hand-over Worker 2 (turn-ended)); '
+    + '16:50:21 6.0 s the loop blocked, nothing named')
+})
+
 test('work health answers while a change waits in the store\'s queue', async t => {
   const dir = await mkdtemp(join(tmpdir(), 'deaf-'))
   t.after(() => rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }))
