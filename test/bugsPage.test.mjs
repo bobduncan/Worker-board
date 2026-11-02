@@ -38,7 +38,7 @@ async function paste(page, items, target = page.document) {
 test('the Bugs tab sits beside Design; the Design tab stays; the address #bugs opens it', async () => {
   const page = await openPage({ state: stateWith({ bugs: bugs() }), hash: 'bugs' })
   try {
-    const tabs = page.all('.tab').map(one => one.dataset.tab)
+    const tabs = page.all('.subtab').map(one => one.dataset.tab)
     assert.ok(tabs.indexOf('bugs') === tabs.indexOf('design') + 1, tabs.join())
     assert.equal(page.find('#view-bugs').hidden, false)
     assert.equal(page.find('#view-design').hidden, true)

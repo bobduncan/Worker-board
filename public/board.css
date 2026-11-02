@@ -71,6 +71,12 @@ button, textarea, select { font: inherit; color: inherit; }
 .tab:hover { color: var(--text); }
 .tab.is-active { background: var(--inset); color: var(--text); border-bottom-color: var(--free); }
 .tab .count { margin-left: 8px; }
+/* The two parts of the Plan and New tabs: a quiet switch right under the tabs. */
+.subtabs { flex: none; display: flex; gap: 4px; padding: 10px 16px 0; }
+.subtabs[hidden] { display: none; }
+.subtab { padding: 5px 14px; border: 1px solid var(--line); border-radius: 999px; background: transparent; color: var(--muted); font: inherit; font-size: 13.5px; font-weight: 600; cursor: pointer; }
+.subtab:hover { color: var(--text); }
+.subtab.is-active { border-color: var(--free); background: var(--inset); color: var(--text); }
 /* Signals change 1: the banner never wraps: a long text is cut with an ellipsis (the whole text is its title), so the header's pills stay on one line.
    The pills do not shrink with it (a shrunk pill wrapped its words), and the banner keeps a few characters so it never vanishes. */
 .updated { flex: 0 1 auto; min-width: 9ch; max-width: 44ch; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; color: var(--muted); font-size: 14px; }
@@ -1662,6 +1668,12 @@ a.recap-checked:hover { text-decoration: underline; }
 .recap-attention-open { align-self: flex-start; margin-top: 4px; padding: 11px 24px; border: 0; border-radius: 9px; background: var(--attn); color: #1a1305; font-size: 16px; font-weight: 700; text-decoration: none; white-space: nowrap; cursor: pointer; }
 .recap-attention-open:hover { background: #f0b53a; }
 .recap-attention-open:focus-visible { outline: 2px solid var(--attn-text); outline-offset: 2px; }
+/* The person's "A" (2026-11-02): the looks that wait for their answer, one quiet line each under the card's line: link-styled, cool tones, never amber. */
+.recap-attention-looks { display: flex; flex-direction: column; align-items: flex-start; gap: 3px; font-size: 13.5px; }
+.recap-attention-look { max-width: 100%; padding: 0; border: 0; background: none; color: #8ab4ff; font: inherit; text-align: left; text-decoration: underline; text-decoration-color: #3b5a85; text-underline-offset: 2px; cursor: pointer; overflow-wrap: anywhere; }
+.recap-attention-look:hover, .recap-attention-look:focus-visible { color: #c3d6ff; }
+/* The answer form of a look in its window (the Product owner's card and the recap card name it): a note and two buttons. */
+.look-answer-note { width: 100%; box-sizing: border-box; }
 /* T20: "Autopilot cleared n: ..." under the recap card: information, so quiet cool tones, dashed, never amber; its Undo is a link. */
 .autopilot-cleared { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 6px 16px; padding: 10px 14px; border: 1px dashed var(--line); border-radius: 9px; color: var(--muted); font-size: 13.5px; }
 .autopilot-cleared-words { flex: 1 1 18em; min-width: 0; overflow-wrap: anywhere; }

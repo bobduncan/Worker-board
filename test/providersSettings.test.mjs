@@ -75,7 +75,7 @@ test('while a check runs the button says "Checking…" and is disabled; a refusa
 })
 
 test('the Settings tab has the part "Who makes your assets?"; the Design tab no longer has "Asset providers"', () => {
-  assert.match(markup, /data-tab="settings">Settings</)
+  assert.match(markup, /id="providers-open">Asset providers →</)
   const settings = markup.slice(markup.indexOf('id="view-settings"'), markup.indexOf('<dialog class="details"'))
   assert.match(settings, /<h2 id="settings-providers-title">Who makes your assets\?<\/h2>/)
   assert.match(settings, /One provider per kind\. Workers, the Advisor and the board ask the chosen one\. A choice saves once Verify passes\./)

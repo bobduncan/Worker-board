@@ -12,6 +12,7 @@ import { join } from 'node:path'
 import { parseGoals } from './goals.mjs'
 import { readDemo, shownFolders, shownRoots } from './pictures.mjs'
 import { linksRecap, standsForPerson } from './work/autopilot.mjs'
+import { isKeptLook } from './work/keptLook.mjs'
 import { valueOf } from './work/item.mjs'
 import { checkedOf } from './work/resultCheck.mjs'
 import { standardOf } from './work/standard.mjs'
@@ -24,6 +25,15 @@ export const TILE_LINE = 'approve or send back'
 const BUILT_STATES = ['done', 'dropped', 'stopped', 'verdict']
 const FINISHED = ['done', 'closed', 'dropped']
 const IMAGE = /\.(?:png|jpe?g|gif|webp)$/i
+/** The advice on a look's tile is cut at this many characters (it is one small line). */
+const LOOK_ADVICE_MOST = 60
+
+/** The small line of a look's tile: "a look · advised: yes", or "a look" without advice. */
+export function lookLineOf(advice) {
+  const words = String(advice ?? '').replace(/\s+/g, ' ').trim()
+  if (words === '') return 'a look'
+  return `a look · advised: ${words.length <= LOOK_ADVICE_MOST ? words : `${words.slice(0, LOOK_ADVICE_MOST).replace(/\s+\S*$/, '')}…`}`
+}
 
 /** The picture a recap row shows on its tile: its last final picture (the result), else its last picture; null for none. */
 export function tilePictureOf(pictures) {
@@ -95,6 +105,9 @@ export function standingAsksOf(items, ctx = {}) {
   for (const item of items?.values?.() ?? []) {
     if (valueOf(item, 'Kind') !== 'ask' || valueOf(item, 'State') !== 'open') continue
     if (['refine', 'form'].includes(valueOf(item, 'Via'))) continue
+    // A look the partner handed over that Autopilot keeps for the recap stands for no verdict (2026-11-02): it makes no block wait, it
+    // is no reason for the card; the card lists it only beside another reason (`recapCardOf`, `asked`).
+    if (isKeptLook(item)) continue
     const route = valueOf(item, 'Route')
     if (!(route === 'recap' ? ctx.autopilot === true : standsForPerson(item, { ...ctx, items }))) continue
     found.push({
@@ -160,12 +173,23 @@ export function wholeGoalAskOf(standing, goal, recapPath) {
  * recap file is the goal's own ask (2026-11-02, Autopilot moved "Open the recap and try it" into the recap): the first of them
  * makes the "play it" tile like a standing one; every further one is an ask outside the card, listed under it.
  *
- * `{ goal, open, count, isBuilt, tiles, outside }`. Count: the recap parts waiting (rows that name steps; a part with a step still
+ * `{ goal, open, count, isBuilt, tiles, looks, outside }`. Count: the recap parts waiting (rows that name steps; a part with a step still
  * being checked is no verdict yet; a part with a step of an open recap ask counts too; each part once) plus the work blocks whose
  * step waits for the person in another form (an Accept card, a look standing with them) that no counted part covers, plus the
  * goal's own "play it" ask. `tiles`: the first MOST_TILES of them in that order, each `{ title, line, picture, target }`; a target is
  * `{ path, key }` (the recap at its part), `{ step }` or `{ ask }` (that window). `open`: the recap file, else the first tile's.
  * `outside`: the ids of the recap asks whose step no counted part or block covers: the page lists those under the card.
+ *
+ * A kept look (the person's "A", 2026-11-02, the live Q590: a look the partner handed to the person that Autopilot keeps for the
+ * recap; `isKept` on its `asked` entry, src/work/keptLook.mjs): every kept look of a step that no recap PART names is a tile of its
+ * own, after the others, whether or not a block covers the step (a block's tile is the step's card, not this look): its title, the
+ * line "a look · advised: <advice>" (or "a look"), its first picture, and the target `{ ask }`, the window where the person answers
+ * it. It counts, and it is no ask `outside`. `looks` holds all of them (the page's Product owner card names every one; `tiles` only
+ * the first MOST_TILES of everything). The coordinator's ruling the same day: a kept look raises no "your recap is ready" mid-goal;
+ * it makes no block wait for a verdict (`standingAsksOf` leaves it out) and is no reason of its own: its tile counts and shows only
+ * while the card has another reason to show (a part, a block or the goal's own ask waits) or every block of the goal is built (a step
+ * in review held only by its kept look counts as built: the goal's last kept look would otherwise never show).
+ * Every other look routed to the recap (a checker's, one below its target) stays an ask `outside` when no part covers it.
  */
 export function recapCardOf({ goal, recapPath = null, waits = [], pictures = {}, steps = new Map(), blocks = [], standing = [], openChecks = new Set(), asked = [] }) {
   const isOpenCheck = id => openChecks.has(id)
@@ -205,9 +229,25 @@ export function recapCardOf({ goal, recapPath = null, waits = [], pictures = {},
   }
   // The goal's own ask: open the recap and play it.
   if (whole !== null) tiles.push({ title: 'The whole goal: play it', line: `is ${goal} reached?`, picture: whole.pictures[0] ?? null, target: recapPath !== null ? { path: recapPath } : { ask: whole.id } })
-  if (tiles.length === 0) return null
+  // A kept look no recap part covers is a tile of its own, also when a block covers its step; it is no ask outside.
+  const keptLooks = (Array.isArray(asked) ? asked : []).filter(ask => ask.isKept === true && ask.asks === 'look' && /^B\d+$/.test(ask.of ?? '') && outside.includes(ask.id))
+  for (const ask of keptLooks) outside.splice(outside.indexOf(ask.id), 1)
   for (const ask of Array.isArray(asked) ? asked : []) if (outside.includes(ask.id) && covered.has(ask.of)) outside.splice(outside.indexOf(ask.id), 1)
-  const isBuilt = (blocks ?? []).every(block => BUILT_STATES.includes(block.state)) && [...parts.values()].every(one => one.verdict === null)
+  // A block is built when its state says so, or when what is left of it is a step in review held only by its kept look (nothing else of it
+  // is open: no check, no failed check, no other ask): that step is built, and only the person's answer to the look is missing. Else the
+  // goal's last kept look could never show on the card.
+  const keptSteps = new Set((Array.isArray(asked) ? asked : []).filter(ask => ask.isKept === true && ask.asks === 'look' && /^B\d+$/.test(ask.of ?? '')).map(ask => ask.of))
+  const hasOtherAsk = id => [...(Array.isArray(standing) ? standing : []), ...(Array.isArray(asked) ? asked : [])].some(ask => ask.of === id && ask.isKept !== true)
+  const isHeldByKept = step => keptSteps.has(step.id) && steps.get(step.id) !== undefined && valueOf(steps.get(step.id), 'State') === 'review' && !isOpenCheck(step.id) && step.isFailed !== true && !hasOtherAsk(step.id)
+  const isBlockBuilt = block => BUILT_STATES.includes(block.state)
+    || ((block.steps ?? []).some(isHeldByKept) && (block.steps ?? []).every(step => ['done', 'stop'].includes(step.tone) || isHeldByKept(step)))
+  const isAllBuilt = (blocks ?? []).every(isBlockBuilt)
+  const looks = tiles.length > 0 || isAllBuilt
+    ? keptLooks.map(ask => ({ title: ask.title, line: lookLineOf(ask.advice), picture: ask.pictures?.[0] ?? null, target: { ask: ask.id } }))
+    : []
+  tiles.push(...looks)
+  if (tiles.length === 0) return null
+  const isBuilt = isAllBuilt && [...parts.values()].every(one => one.verdict === null)
   const first = tiles[0].target
   return {
     goal,
@@ -215,6 +255,7 @@ export function recapCardOf({ goal, recapPath = null, waits = [], pictures = {},
     count: tiles.length,
     isBuilt,
     tiles: tiles.slice(0, MOST_TILES),
+    looks,
     outside,
   }
 }

@@ -2332,7 +2332,8 @@ async function main(args) {
       await supervisor.heard({ action: body.action, ok: true, session: typeof body.session === 'string' ? body.session : null, since: body.since ?? null })
     }
     // Partner answers (2026-10-19): the partner's answer wakes the chat that asked, as the person's answer on the page does.
-    if (body?.action === 'partner-answer') await sendWakes(done)
+    // And the partner's hand-over of a look that Autopilot keeps for the recap: the worker its blocking ask held goes on (`wake`).
+    if (body?.action === 'partner-answer' || body?.action === 'escalate') await sendWakes(done)
     // T8.5: a worker on the sequence: its turn end is the trigger. The board decides once and answers the envelope (or, while
     // its set is on its way, that it comes with a take); the mod clears only when an envelope says so. No pull line.
     if (body?.action === 'turn-ended' && done.ok && await sequenceLane(checked.chat, mod) !== null) {

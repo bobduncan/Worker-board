@@ -71,6 +71,20 @@ test('nothing moves in a turn, under 15 min, while suspended, not running, pause
   assert.deepEqual(quiet(X21(), [lane('Digger')], { flow }), none)
 })
 
+test('2026-11-02 (the person\'s "A"): a worker does not rest on a look the partner handed over that Autopilot keeps for the recap; its step stays in progress', () => {
+  const KEPT = 'Your partner hands this to you; Autopilot keeps it for the goal\'s recap'
+  const keptAsk = file({ Id: 'Q38', Kind: 'ask', Title: 'Ask Q38', State: 'open', Owner: 'Digger', Since: stamp(ago(80)), Asks: 'look', Blocking: 'no', Of: 'B47', Route: 'recap' }, { Route: [KEPT] })
+  // Only the kept look is open: nothing moves, nobody counts free.
+  const only = run([step('B47', 'in progress'), keptAsk, step('B34', 'queued', { Since: stamp(ago(60)) })], [lane('Digger')])
+  assert.deepEqual([only.moves, only.restFree], [[], []])
+  // Beside a plain open ask the step rests for that one alone.
+  const both = run([step('B47', 'in progress'), keptAsk, ask('Q39', 'B47'), step('B34', 'queued', { Since: stamp(ago(60)) })], [lane('Digger')])
+  assert.deepEqual(both.moves, [{ id: 'B47', to: 'waiting on you', ask: 'Q39', why: 'in progress → waiting on you (rests for Q39)' }])
+  // A recap wait of the old routes (no kept line) is an open ask as before.
+  const old = file({ Id: 'Q38', Kind: 'ask', Title: 'Ask Q38', State: 'open', Owner: 'Digger', Since: stamp(ago(80)), Asks: 'look', Blocking: 'no', Of: 'B47', Route: 'recap' })
+  assert.equal(run([step('B47', 'in progress'), old, step('B34', 'queued', { Since: stamp(ago(60)) })], [lane('Digger')]).moves.length, 1)
+})
+
 test('a worker whose steps already wait on you, resting, counts free; one with a step in progress does not', () => {
   const waiting = [step('B47', 'waiting on you'), ask('Q38', 'B47', { Blocking: 'yes' }), step('B34', 'queued')]
   assert.deepEqual(run(waiting, [lane('Digger', { state: 'waiting' })]).restFree, ['Digger'])

@@ -103,8 +103,9 @@ step therefore says what it touches ("Touches: ...").
 
 - The project's repository is the user's folder: never work in it. Work in a folder and a branch per task beside it
   (git worktree), named `<repository's folder>-b<id>`, removed with the merge; after your merge bring the user's
-  folder forward, fast-forward only. Never `git worktree remove --force`: it follows links and can delete what they
-  point to.
+  folder forward, fast-forward only. The one exception: `npm ci` in the user's folder when its node_modules is missing or
+  broken (it restores what the lock file says and changes nothing else; the person's word, 2026-11-02): run it, never ask
+  the person. Never `git worktree remove --force`: it follows links and can delete what they point to.
 - A log or a scratch file of a step (test, check or server output, a helper script, a trial picture) goes into the
   project folder's `logs/` (`logs/b<id>-check.log`), never loose in the project folder itself; a picture for the user
   goes to the project's picture folder (the user, 2026-10-28: "there is a lot of mess here like the .logs ... can they not be in a
