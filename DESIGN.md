@@ -6302,7 +6302,8 @@ goal's recap). It extends Partner answers (2026-10-19), still with no blanket ap
    waits for the look through the "no open look" guard). The net keeps only such a look when no row names its step; every other
    recap wait has the net as before. The recap card lists it as a tile of its own wherever no recap part names its step
    (`recapCard.looks`, target `{ ask }`; a block's card does not cover it), but shows it only while the card has another reason
-   (a part, a block or the goal's own ask waits) or every block is built; mid-goal it waits quietly. The Product owner's card names
+   (a part, a block or the goal's own ask waits) or every block is built (a step in review held only by its kept look counts as
+   built); mid-goal it waits quietly. The Product owner's card names
    it ("Also a look: ... →") and the person answers it in its window (the work action `answer`, which also writes the step's
    `Recap verdict: approved|sent back (Q<n>)`).
 6. **Refine questions**: while on, a step's open refine questions with advice get it as their answer in the refine block

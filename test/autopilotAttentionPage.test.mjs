@@ -300,6 +300,18 @@ test('mid-goal a kept look waits quietly: no Product owner card, nothing counted
   } finally { await page.close() }
 })
 
+test('the goal\'s last step in review held only by its kept look: the Product owner\'s card names the look', async () => {
+  const finished = parseItem(`Id: B1\nKind: step\nTitle: Task B1\nState: done\nOwner: Digger\nGoal: G6\nSince: ${sinceOf(NOW - 9 * HOUR)}\n`)
+  const last = parseItem(`Id: B9\nKind: step\nTitle: Whole move squares\nState: review\nOwner: Digger\nGoal: G6\nSince: ${sinceOf(NOW - 3 * HOUR)}\n\n## Context\n  Recap verdict: waits (Q590)\n`)
+  const state = asSent(build([finished, last, lookOf(590, 'Does the wizard\'s move range on the terraces look right?')], undefined, goals(1).replace('steps B1', 'steps B1, B9'), { recaps: [], goalRecap: { goal: 'G6', path: PATH, pictures: {} }, config: ON }))
+  assert.equal(state.recapCard.count, 1)
+  const page = await openPage({ state })
+  try {
+    assert.equal(page.text('#needs .is-recap-ready h4'), 'G6 · Garden: your recap is ready · 1 verdict waits')
+    assert.deepEqual(page.all('#needs .recap-attention-look').map(link => link.dataset.askLink), ['Q590'])
+  } finally { await page.close() }
+})
+
 test('the look lines: every kept look is listed, the fourth and fifth too; a card without a look has none', async () => {
   const extra = [2, 3, 4, 5].map(n => lookOf(590 + n, `Look number ${n}?`))
   const many = await openPage({ state: withLook(extra) })

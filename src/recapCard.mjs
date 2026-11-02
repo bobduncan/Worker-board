@@ -187,7 +187,8 @@ export function wholeGoalAskOf(standing, goal, recapPath) {
  * it. It counts, and it is no ask `outside`. `looks` holds all of them (the page's Product owner card names every one; `tiles` only
  * the first MOST_TILES of everything). The coordinator's ruling the same day: a kept look raises no "your recap is ready" mid-goal;
  * it makes no block wait for a verdict (`standingAsksOf` leaves it out) and is no reason of its own: its tile counts and shows only
- * while the card has another reason to show (a part, a block or the goal's own ask waits) or every block of the goal is built.
+ * while the card has another reason to show (a part, a block or the goal's own ask waits) or every block of the goal is built (a step
+ * in review held only by its kept look counts as built: the goal's last kept look would otherwise never show).
  * Every other look routed to the recap (a checker's, one below its target) stays an ask `outside` when no part covers it.
  */
 export function recapCardOf({ goal, recapPath = null, waits = [], pictures = {}, steps = new Map(), blocks = [], standing = [], openChecks = new Set(), asked = [] }) {
@@ -232,13 +233,21 @@ export function recapCardOf({ goal, recapPath = null, waits = [], pictures = {},
   const keptLooks = (Array.isArray(asked) ? asked : []).filter(ask => ask.isKept === true && ask.asks === 'look' && /^B\d+$/.test(ask.of ?? '') && outside.includes(ask.id))
   for (const ask of keptLooks) outside.splice(outside.indexOf(ask.id), 1)
   for (const ask of Array.isArray(asked) ? asked : []) if (outside.includes(ask.id) && covered.has(ask.of)) outside.splice(outside.indexOf(ask.id), 1)
-  const isAllBuilt = (blocks ?? []).every(block => BUILT_STATES.includes(block.state))
+  // A block is built when its state says so, or when what is left of it is a step in review held only by its kept look (nothing else of it
+  // is open: no check, no failed check, no other ask): that step is built, and only the person's answer to the look is missing. Else the
+  // goal's last kept look could never show on the card.
+  const keptSteps = new Set((Array.isArray(asked) ? asked : []).filter(ask => ask.isKept === true && ask.asks === 'look' && /^B\d+$/.test(ask.of ?? '')).map(ask => ask.of))
+  const hasOtherAsk = id => [...(Array.isArray(standing) ? standing : []), ...(Array.isArray(asked) ? asked : [])].some(ask => ask.of === id && ask.isKept !== true)
+  const isHeldByKept = step => keptSteps.has(step.id) && steps.get(step.id) !== undefined && valueOf(steps.get(step.id), 'State') === 'review' && !isOpenCheck(step.id) && step.isFailed !== true && !hasOtherAsk(step.id)
+  const isBlockBuilt = block => BUILT_STATES.includes(block.state)
+    || ((block.steps ?? []).some(isHeldByKept) && (block.steps ?? []).every(step => ['done', 'stop'].includes(step.tone) || isHeldByKept(step)))
+  const isAllBuilt = (blocks ?? []).every(isBlockBuilt)
   const looks = tiles.length > 0 || isAllBuilt
     ? keptLooks.map(ask => ({ title: ask.title, line: lookLineOf(ask.advice), picture: ask.pictures?.[0] ?? null, target: { ask: ask.id } }))
     : []
   tiles.push(...looks)
   if (tiles.length === 0) return null
-  const isBuilt = (blocks ?? []).every(block => BUILT_STATES.includes(block.state)) && [...parts.values()].every(one => one.verdict === null)
+  const isBuilt = isAllBuilt && [...parts.values()].every(one => one.verdict === null)
   const first = tiles[0].target
   return {
     goal,

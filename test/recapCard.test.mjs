@@ -518,6 +518,29 @@ test('a kept look under a step in review makes no block wait for a verdict and i
   assert.equal(old.recapCard.count, 1)
 })
 
+test('the goal\'s last step in review held only by its kept look counts as built: with every other block done the card shows the look tile; any other open thing keeps it quiet', () => {
+  const review = parseItem(`Id: B2\nKind: step\nTitle: Task B2\nState: review\nOwner: Digger\nGoal: G6\nSince: ${sinceOf(NOW - 90 * MIN)}\n\n## Context\n  Recap verdict: waits (Q590)\n`)
+  const items = [doneStep(1), review, keptLook(590, 'B2')]
+  const card = stateOf(items, 2, { recaps: [] }).recapCard
+  assert.deepEqual([card.count, card.looks.length, card.isBuilt, card.tiles[0].target], [1, 1, true, { ask: 'Q590' }])
+  // The block of that step is still "in progress" for the page (no verdict waits), yet the look shows.
+  assert.equal(stateOf(items, 2, { recaps: [] }).focus.parts[1].steps[0].waitsForVerdict, false)
+  // Another block still being built: nothing shows (mid-goal).
+  assert.equal(stateOf([doneStep(1, 'in progress'), review, keptLook(590, 'B2')], 2, { recaps: [] }).recapCard, null)
+  // Direct: the step in review held by the look only (the store's state, no check, no failed check, no other ask) is built; each of these is not.
+  const asked = [{ id: 'Q590', of: 'B2', asks: 'look', isKept: true, title: 'Look', advice: null, pictures: [], text: '' }]
+  const block = (step = {}) => [{ title: 'Block 1', state: 'done', steps: [] }, { title: 'Block 2', state: 'now', steps: [{ id: 'B1', tone: 'done' }, { id: 'B2', tone: 'now', ...step }] }]
+  const steps = new Map([['B2', review]])
+  const shown = more => recapCardOf({ goal: 'G6', recapPath: PATH, waits: [], blocks: block(), steps, asked, ...more })
+  assert.equal(shown({}).count, 1)
+  assert.equal(shown({ steps: new Map([['B2', parseItem('Id: B2\nKind: step\nTitle: t\nState: in progress\n')]]) }), null, 'the step is not in review')
+  assert.equal(shown({ steps: new Map() }), null, 'a step the store does not know')
+  assert.equal(shown({ openChecks: new Set(['B2']) }), null, 'a check of it is still open')
+  assert.equal(recapCardOf({ goal: 'G6', recapPath: PATH, waits: [], blocks: block({ isFailed: true }), steps, asked }), null, 'its check failed')
+  assert.equal(shown({ asked: [...asked, { id: 'Q591', of: 'B2', asks: 'decide', title: 'x', pictures: [], text: '' }] })?.looks.length ?? 0, 0, 'another ask of it is open')
+  assert.equal(recapCardOf({ goal: 'G6', recapPath: PATH, waits: [], blocks: [{ title: 'Block 2', state: 'now', steps: [{ id: 'B2', tone: 'now' }, { id: 'B3', tone: 'now' }] }], steps, asked }), null, 'another step of the block is at work')
+})
+
 test('which kept looks are tiles: only a look of a step; the line cuts a long advice, the first picture is the tile\'s; all are in `looks`, the row shows three', () => {
   const asked = (id, more = {}) => ({ id, of: 'B9', asks: 'look', isKept: true, title: `Look ${id}`, advice: null, pictures: [], text: '', ...more })
   const part = { goal: 'G6', path: PATH, key: 'Block 1', title: 'Block 1', step: 'B1', verdict: null }
