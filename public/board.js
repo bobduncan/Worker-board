@@ -10314,6 +10314,7 @@ function tabOfAddress(hash) {
   if (hash === '#bugs') return 'bugs'
   if (hash === '#vision') return 'vision'
   if (hash === '#spending') return 'spending'
+  if (hash === '#settings') return 'settings'
   return null
 }
 
@@ -19715,22 +19716,6 @@ function sentWords(sent, main = null) {
 }
 // design:end
 
-// providers:start
-/**
- * T9.3 part 1: the Design tab's part "Asset providers", one line per kind of asset in the order the board sends
- * them (`state.providers`): the kind, its provider, and "works" or why it does not. Only a provider that does not
- * work is in the attention tone; the rest is quiet. A board that sends none (an older server, the demo) shows none.
- */
-function providerLines(providers) {
-  return (Array.isArray(providers) ? providers : []).map(one => ({
-    kind: one.kind,
-    provider: one.provider ?? 'none',
-    text: one.ok === true ? 'works' : one.why || 'does not work',
-    tone: one.ok === true ? 'quiet' : 'attention',
-  }))
-}
-// providers:end
-
 /** What the person chose and typed on the Design tab; a redraw must not undo it. */
 const designChosen = { idea: null, version: null }
 const designDraft = { text: '', kind: null, references: [] }
@@ -19950,19 +19935,6 @@ function drawDesignStrip(design, view, main) {
   })
 }
 
-/** T9.3 part 1: "Asset providers" under the ideas: hidden while the board sends no providers. */
-function drawProviders() {
-  const lines = providerLines(board?.providers)
-  $('design-providers').hidden = lines.length === 0
-  once('design-providers', lines, () => {
-    fill($('design-provider-list'), lines.map(line => {
-      const row = el('li', 'provider-line')
-      row.append(el('span', 'provider-kind', line.kind), el('span', 'provider-name', line.provider), el('span', `provider-state is-${line.tone}`, line.text))
-      return row
-    }))
-  })
-}
-
 /** The Design tab, from the board's state and what the person chose. Typed text is never drawn over. */
 function drawDesign() {
   const design = designNow()
@@ -19977,7 +19949,6 @@ function drawDesign() {
   drawDesignPicture(design, view, main)
   drawDesignForm(design, view, main)
   drawDesignStrip(design, view, main)
-  drawProviders()
 }
 
 // While a picture is being made its time counts on, also between two readings of the state.
@@ -20414,6 +20385,177 @@ $('bugs-report').addEventListener('click', async () => {
   drawBugs()
 })
 
+// providerCards:start
+/**
+ * T2.1 part B: the Settings tab's part "Asset providers". `kinds` is what GET /api/providers answers: one row per kind,
+ * each with its cards, the one in use first. `ui` is `{ busy: Set of "kind|name", problems: Map of "kind|name" to words }`.
+ * Each card becomes what the page draws: the badge, the button and its words, the check's result and its tone
+ * (works = ok, needs = attention, off and unchecked = quiet), whether it is greyed and whether it asks for a key.
+ */
+const PROVIDER_KINDS = {
+  visual: { title: 'Art and visuals', about: 'units, maps, props, effects' },
+  music: { title: 'Music', about: 'battle and menu tracks' },
+  'sound effect': { title: 'Sound effects', about: 'clicks, hits, spells' },
+}
+function providerCardModels(kinds, ui = {}) {
+  const busy = ui.busy ?? new Set()
+  const problems = ui.problems ?? new Map()
+  return (Array.isArray(kinds) ? kinds : []).map(row => {
+    const shown = PROVIDER_KINDS[row.kind] ?? { title: row.kind, about: '' }
+    const cards = (row.cards ?? []).map(one => {
+      const id = `${row.kind}|${one.name}`
+      const inUse = row.inUse === one.name
+      const greyed = one.selectable === false
+      const isBusy = busy.has(id)
+      const last = one.last ?? null
+      let resultText = ''
+      let tone = 'quiet'
+      if (!greyed) {
+        if (last === null) resultText = 'Not checked yet'
+        else if (last.state === 'works') { resultText = `✓ ${last.detail || 'Works'}`; tone = 'ok' }
+        else if (last.state === 'needs') { resultText = `⚠ ${last.detail || last.why || 'Needs something'}`; tone = 'attention' }
+        else resultText = last.detail || last.why || 'Off'
+      }
+      const label = greyed ? 'Not for this kind' : inUse ? 'Verify' : 'Verify & use'
+      const keyText = `${last?.detail ?? ''} ${last?.why ?? ''}`
+      const takesKey = !greyed && last !== null && last.state !== 'works' && (/paste your key/i.test(keyText) || /\bkey\b/i.test(last.why ?? ''))
+      return {
+        id, kind: row.kind, name: one.name, title: one.card?.title ?? one.name, line: one.card?.line ?? '', facts: one.card?.facts ?? [],
+        icon: one.card?.icon ?? 'manual', inUse, badge: inUse ? 'In use' : null, greyed,
+        buttonLabel: isBusy ? 'Checking…' : label, buttonDisabled: greyed || isBusy, busy: isBusy,
+        resultText, tone, takesKey, problem: problems.get(id) ?? null,
+      }
+    })
+    return { kind: row.kind, title: shown.title, about: shown.about, cards, hasRoom: cards.length < 3 }
+  })
+}
+// providerCards:end
+
+const providersUi = { kinds: null, busy: new Set(), problems: new Map(), note: null }
+
+async function providersCall(method, body) {
+  const answer = await fetch('/api/providers', method === 'GET' ? { headers: { 'X-Board-Token': TOKEN } } : { method, headers: { 'Content-Type': 'application/json', 'X-Board-Token': TOKEN }, body: JSON.stringify(body) })
+  if (!answer.ok) throw new Error((await answer.text()).trim() || `refused (${answer.status})`)
+  return answer.json()
+}
+
+/** Reads the cards again and draws them. */
+async function providersLoad() {
+  try {
+    providersUi.kinds = await providersCall('GET')
+    providersUi.note = null
+  } catch (error) {
+    providersUi.note = `Providers not read: ${error instanceof Error ? error.message : 'the board did not answer'}`
+  }
+  drawProviderRows()
+}
+
+/** The button of a card: verify; on a card not in use, then use when the check passes. */
+async function providersVerify(card) {
+  if (providersUi.busy.has(card.id)) return
+  providersUi.busy.add(card.id)
+  providersUi.problems.delete(card.id)
+  drawProviderRows()
+  try {
+    const check = await providersCall('POST', { action: 'verify', kind: card.kind, provider: card.name })
+    if (!card.inUse && check.state === 'works') {
+      try { await providersCall('POST', { action: 'use', kind: card.kind, provider: card.name }) } catch (error) {
+        providersUi.problems.set(card.id, error instanceof Error ? error.message : 'Not used.')
+      }
+    }
+  } catch (error) {
+    providersUi.problems.set(card.id, error instanceof Error ? error.message : 'the board did not answer')
+  }
+  providersUi.busy.delete(card.id)
+  await providersLoad()
+}
+
+/** Sends the key a person pasted; the page keeps none of it. */
+async function providersSaveKey(card, input) {
+  const key = input.value
+  input.value = ''
+  if (key.trim() === '' || providersUi.busy.has(card.id)) return
+  providersUi.busy.add(card.id)
+  providersUi.problems.delete(card.id)
+  drawProviderRows()
+  try { await providersCall('POST', { action: 'key', kind: card.kind, provider: card.name, key }) } catch (error) {
+    providersUi.problems.set(card.id, error instanceof Error ? error.message : 'the board did not answer')
+  }
+  providersUi.busy.delete(card.id)
+  await providersLoad()
+}
+
+function providerLogo(icon) {
+  const tile = el('span', `provider-logo is-${icon}`)
+  if (icon === 'suno') {
+    const image = el('img', 'provider-badge-img')
+    image.src = '/providers/suno.png'
+    image.alt = 'Suno'
+    tile.append(image)
+  } else tile.append(el('span', 'provider-mark'))
+  return tile
+}
+
+function providerCardNode(card) {
+  const node = el('article', `provider-card${card.inUse ? ' is-in-use' : ''}${card.greyed ? ' is-greyed' : ''}`)
+  if (card.badge !== null) node.append(el('span', 'provider-use-badge', card.badge))
+  const words = el('div', 'provider-words')
+  words.append(el('div', 'provider-title', card.title), el('div', 'provider-line-text', card.line))
+  const head = el('div', 'provider-head')
+  head.append(providerLogo(card.icon), words)
+  const facts = el('div', 'provider-facts')
+  for (const fact of card.facts) facts.append(el('span', 'provider-fact', fact))
+  const foot = el('div', 'provider-foot')
+  const button = el('button', `provider-button${card.inUse || card.greyed ? '' : ' is-pick'}`)
+  button.type = 'button'
+  button.disabled = card.buttonDisabled
+  if (card.busy) button.append(el('span', 'provider-spin'), document.createTextNode(` ${card.buttonLabel}`))
+  else button.textContent = card.buttonLabel
+  if (!card.greyed) button.addEventListener('click', () => providersVerify(card))
+  foot.append(button)
+  if (card.resultText !== '') foot.append(el('span', `provider-result is-${card.tone}`, card.resultText))
+  node.append(head, facts)
+  if (card.takesKey) {
+    const keyRow = el('div', 'provider-key')
+    const input = el('input', 'provider-key-input')
+    input.type = 'password'
+    input.autocomplete = 'off'
+    input.placeholder = 'Paste your key'
+    input.setAttribute('aria-label', `${card.title} key`)
+    const save = el('button', 'provider-button', 'Save key')
+    save.type = 'button'
+    save.disabled = card.busy
+    save.addEventListener('click', () => providersSaveKey(card, input))
+    keyRow.append(input, save)
+    node.append(keyRow)
+  }
+  if (card.problem !== null) node.append(el('p', 'provider-problem', card.problem))
+  node.append(foot)
+  return node
+}
+
+function drawProviderRows() {
+  const note = $('providers-note')
+  note.hidden = providersUi.note === null
+  note.textContent = providersUi.note ?? ''
+  // A key being typed is kept: a redraw while a key box holds text would lose it.
+  if ([...$('providers-rows').querySelectorAll('.provider-key-input')].some(input => input.value !== '')) return
+  fill($('providers-rows'), providerCardModels(providersUi.kinds, providersUi).map(row => {
+    const section = el('section', 'provider-row')
+    const heading = el('div', 'provider-kind-head')
+    heading.append(el('h3', '', row.title), el('small', 'muted', row.about))
+    const grid = el('div', 'provider-cards')
+    grid.append(...row.cards.map(providerCardNode))
+    if (row.hasRoom) {
+      const more = el('div', 'provider-card is-more')
+      more.append(el('div', 'provider-plus', '+'), el('div', '', 'More providers come as one module each'))
+      grid.append(more)
+    }
+    section.append(heading, grid)
+    return section
+  }))
+}
+
 // Tabs
 
 /** The Advisor tab's address: the map's with its focus when the Goals part is open. */
@@ -20428,6 +20570,7 @@ function show(tab) {
   $('view-bugs').hidden = tab !== 'bugs'
   $('view-vision').hidden = tab !== 'vision'
   if ($('view-spending')) $('view-spending').hidden = tab !== 'spending'
+  $('view-settings').hidden = tab !== 'settings'
   // The address says which tab is open, so a reload stays on it. A link to a step's details is left as it is.
   // B149: so is a worker's link to a picture or to the game, until it is followed.
   if (!['#details=', '#task=', '#picture=', '#play=', '#demo='].some(start => location.hash.startsWith(start))) {
@@ -20438,6 +20581,7 @@ function show(tab) {
   }
   if (tab === 'advice') $('messages').scrollTop = $('messages').scrollHeight
   if (tab === 'coordinate') refreshDoneDay(true)
+  if (tab === 'settings') providersLoad()
 }
 
 for (const button of document.querySelectorAll('.tab')) button.addEventListener('click', () => show(button.dataset.tab))

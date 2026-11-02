@@ -151,6 +151,11 @@ for (const name of ['1-install', '2-initialise', '3-talk', '4-go', '5-workers', 
   FILES[`/help/${name}.svg`] = [join('help', `${name}.svg`), 'image/svg+xml']
 }
 
+// T2.1 part B: the logos of the asset providers' cards, by name only.
+for (const name of ['openai.svg', 'claude.svg', 'elevenlabs.svg', 'library.svg', 'manual.svg', 'suno.png']) {
+  FILES[`/providers/${name}`] = [join('providers', name), name.endsWith('.svg') ? 'image/svg+xml' : 'image/png']
+}
+
 // The page may load its own script and style sheet, talk to its own server, and show pictures it fetched from
 // that server. Nothing else, so words from a chat that end up on the page can never run as code or call out.
 const PAGE_RULES = [
