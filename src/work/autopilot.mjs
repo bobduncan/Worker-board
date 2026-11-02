@@ -341,14 +341,20 @@ export const isGoalLevel = (item, role = null, focusGoal = null) => goalLevelOf(
  * `rm -r`, whose own sentence names a cache after it is a chat's to do.
  */
 const DELETES = /\bdelet(?:e|es|ed|ing|ion)\b(?![^.?!]*\bcaches?\b)|\berase[sd]?\b|\bwipe[sd]?\b|\brmdir\b|\brm -r(?![^.?!]*cache)/i
+/**
+ * The pattern of what publishes or makes public (the coordinator's ruling on Autopilot v2, 2026-11-02: "Publishing stays the
+ * person's"): publish, make public or open-source, a public repository, a release, a post on a site, a licence, sharing outside the PC.
+ */
+const PUBLISHES = /\bpublish(?:es|ed|ing)?\b|\bmake\b[^.?!]{0,40}?\bpublic\b|\bopen[- ]source\b|\bpublic(?:ly)? (?:repo(?:sitory)?|release|post)\b|\b(?:a|the|new|public|github) release\b|\bpost(?:s|ed|ing)?\b[^.?!]{0,40}?\b(?:on|to) (?:twitter|x|reddit|discord|github|itch(?:\.io)?|steam|the (?:web|internet)|social media|a forum)\b|\blicen[cs]e[sd]?\b|\bshar(?:e|es|ed|ing)\b[^.?!]*\b(?:outside (?:the|this) PC|publicly|online|with the (?:public|world))\b/i
 
 /**
  * What only the person's own hands can do, one list (the review of 2026-10-31: Q104, Q559, Q345, Q113, Q539 went to the main
  * chat), for a do ask and an ask under no step: quit, reopen or restart the Claude app; a click or a press (Allow, a chip, a
  * button, a prompt); a button of the board that only the person presses (add to the queue, pin); sign in or log in; an
  * account; money; an install; a change of a mod (the person's own word, roles/worker.md "Not yours"); a permission; a
- * password or key; the week's limit; and (the coordinator's ruling, 2026-10-31) anything that deletes for good: a chat, a file
- * or folder, a launch.json entry, a branch (archiving a chat stays the main chat's). `[name, pattern]`; never routed to a chat.
+ * password or key; the week's limit; (the coordinator's ruling, 2026-10-31) anything that deletes for good: a chat, a file
+ * or folder, a launch.json entry, a branch (archiving a chat stays the main chat's); and (the ruling on Autopilot v2,
+ * 2026-11-02) anything that publishes or makes public (PUBLISHES). `[name, pattern]`; never routed to a chat.
  */
 export const PERSONS_HANDS = [
   ['the Claude app', /\b(?:quit|re-?open|restart|relaunch|close)\b[^.?!]*\b(?:Claude(?: app| desktop)?|the app)\b|\b(?:Claude|the) app\b[^.?!]*\b(?:quit|re-?open|restart|relaunch)/i],
@@ -365,11 +371,13 @@ export const PERSONS_HANDS = [
   ['a password', /\bpasswords?\b|\bAPI keys?\b/i],
   ['the week\'s limit', /\bweekly limit\b|\bweek's limit\b/i],
   ['a permanent delete', DELETES],
+  ['a publish', PUBLISHES],
 ]
 /**
  * The coordinator's ruling (2026-10-31): for a decide or a look under a step, only these whole phrases make it the person's
  * (Autopilot never asks the person more than the partner's answers do): quit, reopen or restart the Claude app; sign in or
- * log in; an account; a password; pay or money; a permanent delete; install or reinstall a mod or an app.
+ * log in; an account; a password; pay or money; a permanent delete; install or reinstall a mod or an app; and (2026-11-02)
+ * anything that publishes or makes public.
  */
 export const UNDER_STEP_HANDS = [
   ['the Claude app', /\b(?:quit|re-?open|restart)\b[^.?!]*\bClaude(?: app)?\b|\bClaude app\b[^.?!]*\b(?:quit|re-?open|restart)\b/i],
@@ -379,6 +387,7 @@ export const UNDER_STEP_HANDS = [
   ['money', /\bpay(?:s|ing|ment|ments)?\b(?!\s+attention)|\bmoney\b/i],
   ['a permanent delete', DELETES],
   ['an install', /\b(?:re-?)?install(?:s|ed|ing)?\b[^.?!]*\b(?:mod|app)\b/i],
+  ['a publish', PUBLISHES],
 ]
 /**
  * A do that only the person's own eyes, ears or words can carry out (its title: "Look at the picture.", "Play the painted

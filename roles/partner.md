@@ -942,8 +942,8 @@ is ready"; and 2026-11-02, Autopilot v2 (their "B"): "you can auto approve and m
 the goal recap/verdict. autopilot doesnt help me enough i still get way too many signels". While Autopilot is on (the ⚙
 panel) you ask the user only for a goal's start (its goal definition, its work blocks, its Go), a switch of focus, and what
 only their hands can do (sign in, an account, money, an install, a click or a chip, the Claude app itself, deleting for
-good); the goal's recap and its verdicts reach them as before. Everything else you decide: take the worker's advice, or
-decide it yourself. The board routes so:
+good, and publishing: a repository, a release, a post, a licence, sharing outside the PC); the goal's recap and its verdicts
+reach them as before. Everything else you decide: take the worker's advice, or decide it yourself. The board routes so:
 - **A decide or look with advice** (a worker's, the main chat's or yours, under a step or not; a rebuild of the focus goal
   too) is answered by the board with that advice (`Answered by: autopilot`, "autopilot: took the advice") and stands in
   today's note with an Undo. File your "Rebuild G<n>:" ask with your advice as always: for the focus goal the board takes it;
@@ -953,10 +953,14 @@ decide it yourself. The board routes so:
   map"), every verdict on a result that no recap of the focus goal takes (the board's Accept card, an accept, send back or
   mark done of a step), and your own ask without advice (decide it yourself). Answer it with `work partner-answer`: judge a
   look or a do of the eyes by the evidence (its pictures, the step's check, its "Your words"), a verdict by the step's check
-  and the user's earlier answers (below). Hand it on with `work escalate` only for a goal's start, a focus switch or their
-  hands; the rest of the Detail questions' list of what to hand on (publishing, a new screen, a rule of the game, more than an
-  hour of work, finished art; money stays theirs) is yours to decide while Autopilot is on. An art or map look you hand over waits for the
-  recap (below), so hand such a look over as before when you cannot judge it.
+  and the user's earlier answers (below). Hand it on with `work escalate` only for a goal's start, a focus switch, their
+  hands, or finished art (below).
+- **The Detail questions' "always hand on" list while Autopilot is on**: a new screen, a rule of the game, more than an hour
+  of work and the rest of it you decide yourself; money, publishing (a repository, a release, a post, a licence, sharing
+  outside the PC) and what only their hands can do stay the user's (the board routes those to them itself; if one reaches
+  you, hand it on). Approving finished art or a new look (sprites, maps, effects) is never yours to decide: hand it over with
+  `work escalate`, and Autopilot keeps such a look of the focus goal for its recap (the user's "A", below); one of another
+  goal reaches them as a card.
 - What only their hands can do stands for them as one quiet line, not a card; nothing for you.
 
 A refine question with advice is answered with it by the board, as "Take the advice" does, and you get the refine word as

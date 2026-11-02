@@ -123,7 +123,7 @@ test('every row of the plan: partner, advice, recap, main and person (Autopilot 
   assert.deepEqual(autopilotRoute(ask('Q40', { Title: 'Make the shop music', Asks: 'provide' }), ctx), { to: 'person', why: 'only the person provides it (the board\'s asset ask)', hands: 'a file only you provide' })
 })
 
-test('the review\'s cases (2026-10-31) under Autopilot v2: a goal\'s start and a focus switch are the person\'s; an approach, a setting, a standard or a licence takes its advice', () => {
+test('the review\'s cases (2026-10-31) under Autopilot v2: a goal\'s start, a focus switch and a publish are the person\'s; an approach, a setting or a standard takes its advice', () => {
   const partner = (id, title, more = {}) => ask(id, { Title: title, Owner: 'Partner', Asks: 'decide', Advice: 'A', ...more })
   // The live asks were under no step (Q366, Q411, Q361, Q133, Q112, Q436's words).
   assert.deepEqual(autopilotRoute(partner('Q70', 'Make G42 the next focus?', { Advice: 'yes' }), ctx), { to: 'person', why: 'a goal\'s start or a focus switch ("G42")' })
@@ -132,7 +132,9 @@ test('the review\'s cases (2026-10-31) under Autopilot v2: a goal\'s start and a
   // v2, on purpose (they were the person's): the person's "B" decides everything else for them, with Undo.
   assert.equal(routeOf(partner('Q71', 'Is the maps goal\'s approach right after 18 failed checks?')), 'advice')
   assert.equal(routeOf(partner('Q73', 'Which board setting for the first rebuilds?', { Options: 'A off | B on' })), 'advice')
-  assert.equal(routeOf(partner('Q74', 'Publish the repository under the MIT license?', { Advice: 'yes' })), 'advice')
+  // The coordinator's ruling on v2 (2026-11-02): publishing stays the person's, as their hands, under a step or not.
+  assert.deepEqual(autopilotRoute(partner('Q74', 'Publish the repository under the MIT license?', { Advice: 'yes' }), ctx), { to: 'person', why: 'only the person\'s hands: a publish ("Publish")', hands: 'a publish' })
+  assert.deepEqual(autopilotRoute(partner('Q74', 'Publish the repository under the MIT license?', { Advice: 'yes', Of: 'B21' }), ctx).hands, 'a publish')
   assert.equal(routeOf(partner('Q76', 'Add "ground that changes" to your map bar?', { Advice: 'yes' })), 'advice', 'the person\'s standard')
   // The re-review's ruling: those words count only under no step; under a step the partner's advice is taken.
   assert.equal(routeOf(partner('Q77', 'Which settings page preview for the shop card?', { Of: 'B21', Options: 'A small | B large' })), 'advice')
@@ -161,7 +163,7 @@ test('the re-review\'s ruling: under a step, Autopilot On asks the person no mor
     ['Reinstall the Workers mod?', 'an install', 'Reinstall the Workers mod'], ['Install the paint app?', 'an install', 'Install the paint app']]) {
     assert.deepEqual(autopilotRoute(detail('Q92', title), ctx), { to: 'person', why: `only the person's hands: ${name} ("${phrase}")`, hands: name }, title)
   }
-  assert.deepEqual(UNDER_STEP_HANDS.map(([name]) => name), ['the Claude app', 'a sign-in', 'an account', 'a password', 'money', 'a permanent delete', 'an install'])
+  assert.deepEqual(UNDER_STEP_HANDS.map(([name]) => name), ['the Claude app', 'a sign-in', 'an account', 'a password', 'money', 'a permanent delete', 'an install', 'a publish'])
   // A do under a step keeps the whole list: a click is the person's.
   assert.equal(routeOf(detail('Q93', 'Click Allow on the prompt', { Asks: 'do', Options: undefined, Advice: undefined })), 'person')
 })
@@ -183,7 +185,7 @@ test('what only the person\'s hands can do never goes to the main chat (twins of
   }
   // One list: a board button only the person presses, sign-in, an account, money, an install, a mod's change, a permission,
   // a password, the week's limit (the live store's closed asks of the week showed the board's buttons, a reinstall and a mod).
-  assert.deepEqual(PERSONS_HANDS.map(([name]) => name), ['the Claude app', 'a click', 'a click', 'a button of the board', 'a sign-in', 'an account', 'money', 'an install', 'a change of a mod', 'a permission', 'a password', 'the week\'s limit', 'a permanent delete'])
+  assert.deepEqual(PERSONS_HANDS.map(([name]) => name), ['the Claude app', 'a click', 'a click', 'a button of the board', 'a sign-in', 'an account', 'money', 'an install', 'a change of a mod', 'a permission', 'a password', 'the week\'s limit', 'a permanent delete', 'a publish'])
   for (const [title, hands] of [['Log in to the seed shop', 'a sign-in'], ['Pay the hosting bill', 'money'], ['Install the image tool on this PC', 'an install'], ['Reinstall the packages in your game folder?', 'an install'],
     ['Grant the folder permission', 'a permission'], ['Raise the weekly limit', 'the week\'s limit'], ['In Painter\'s chat, press "Turn them on" for the test mod', 'a click'],
     ['B80 waits until you add it to the queue on the Backlog tab.', 'a button of the board'], ['Pin B59 to Painter on the worker board', 'a button of the board'], ['Update the Workers mod to 0.30 so this goes live?', 'a change of a mod']]) {

@@ -110,7 +110,7 @@ const TIP = [
   "a new goal's start: its goal definition, work blocks and Go",
   'a switch of focus',
   "a goal's recap, once it is ready",
-  'what only you can do, in one line: sign-ins, accounts, money, installs, deleting things, restarting the Claude app',
+  'what only you can do, in one line: sign-ins, accounts, money, installs, deleting things, publishing, restarting the Claude app',
   "Decided for you instead (with Undo, listed in your partner's note):",
   "every question with advice: the advice is taken, a rebuild's too",
   'the rest: your partner decides it, or hands it to you',

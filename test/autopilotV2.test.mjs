@@ -106,7 +106,18 @@ test('the route of each live example of 2026-11-02 under v2: a look to the partn
   assert.deepEqual(autopilotRoute(ask('Q623', { Title: 'Did we reach the goal?', Owner: 'Advisor', Asks: 'decide', Advice: 'yes' }, { history: [] }), ctx()), { to: 'person', why: 'the goal\'s recap ("Did we reach the goal")' })
 })
 
-test('what Autopilot v2 never decides for the person: an ask somebody handed on or the person took back, the app\'s form, Fable', () => {
+test('what Autopilot v2 never decides for the person: an ask somebody handed on or the person took back, the app\'s form, Fable, a publish', () => {
+  // The coordinator's ruling (2026-11-02): publishing stays the person's, as their hands, under a step or not, whatever the advice.
+  const publish = more => ask('Q635', { Title: 'Publish the repository under the MIT license?', Owner: 'Advisor', Asks: 'decide', Advice: 'yes', ...more }, { history: [] })
+  assert.deepEqual(autopilotRoute(publish(), ctx()), { to: 'person', why: 'only the person\'s hands: a publish ("Publish")', hands: 'a publish' })
+  assert.equal(autopilotRoute(publish({ Owner: 'Worker 5', Of: 'B821' }), ctx()).hands, 'a publish', 'under a step too')
+  for (const title of ['Make the game repository public?', 'Cut a new release of the game for itch.io?', 'Post the trailer on Reddit?', 'Which licence for the sound pack?', 'Share the build with the world?', 'Share the build publicly?']) {
+    assert.equal(autopilotRoute(ask('Q636', { Title: title, Owner: 'Worker 5', Asks: 'decide', Of: 'B821', Advice: 'yes', Via: 'chat' }, { history: [] }), ctx()).hands, 'a publish', title)
+  }
+  // Not a publish: a lock released, a post of the board's, sharing inside the board.
+  for (const title of ['Release the lock on the store and go on?', 'Share the picture with the partner?', 'Keep the public board settings as they are?']) {
+    assert.equal(autopilotRoute(ask('Q637', { Title: title, Owner: 'Worker 5', Asks: 'decide', Of: 'B821', Advice: 'yes', Via: 'chat' }, { history: [] }), ctx()).to, 'advice', title)
+  }
   const handed = ask('Q630', { Title: 'Icons or words on the bar?', Owner: 'Worker 5', Asks: 'decide', Options: 'A icons | B words', Advice: 'A', Route: 'person' }, { card: 'The main chat hands this to you: only you can open it' })
   assert.deepEqual(autopilotRoute(handed, ctx({ again: true })), { to: 'person', why: 'handed to the person' })
   const taken = ask('Q631', { Title: 'Icons or words on the bar?', Owner: 'Worker 5', Asks: 'decide', Options: 'A icons | B words', Advice: 'A', Route: 'person' }, { card: 'Decided for you (Autopilot): A; you took it back' })

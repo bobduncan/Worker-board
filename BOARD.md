@@ -525,7 +525,8 @@ Undo."; Off, "Questions come to you as before."
   and its verdicts, a goal's start (its goal definition, work blocks and Go; anything of a goal that is not the focus) and a
   switch of focus, what only your hands can do (the Claude app, a click, a sign-in, an account, money, an install, a
   permission, anything deleted for good: a chat, a file or folder, a launch.json entry, a branch; archiving and clearing a
-  cache stay the main chat's), a question about Fable, and what the partner or the main chat hands to you. Everything else
+  cache stay the main chat's; anything published or made public: a repository, a release, a post, a licence, sharing
+  outside the PC), a question about Fable, and what the partner or the main chat hands to you. Everything else
   is decided for you, with Undo: a question with advice takes it (a rebuild of the focus goal too), the rest your partner
   decides (a look without advice, a "look at it" do, an Accept card or a mark done that no recap of the focus goal takes); the board
   judges anew at every pass what it had routed to you itself.
