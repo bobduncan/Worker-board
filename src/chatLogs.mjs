@@ -219,9 +219,9 @@ const isJob = job => job !== null && typeof job === 'object' && ['copy', 'text']
  * folder of the app's transcripts. `save({ chat, session, step })` puts a log in the journal and starts it (the copy
  * runs on after the answer); `resume()` starts every log the journal names (at the board's start, B529: only in the
  * board process that runs the loops); `reload()` forgets what was read, so the next call reads the journal again; `idle()` waits
- * until the logs started are written; `failed` hears a log given up.
+ * until the logs started are written; `failed` hears a log given up; `track(words, fn)` runs each log's writing (B934).
  */
-export function chatLogKeeper({ file, project, transcripts, clock = Date.now, failed = () => {} }) {
+export function chatLogKeeper({ file, project, transcripts, clock = Date.now, failed = () => {}, track = (words, fn) => fn() }) {
   let jobs = null
   /** The sessions cleared chats left, still to be read to their ends (`leftSubjects`). */
   let left = []
@@ -283,8 +283,10 @@ export function chatLogKeeper({ file, project, transcripts, clock = Date.now, fa
       await rm(`${job.txt}.part`, { force: true }).catch(() => {})
     }
   }
+  // B934: each log's writing is a job of the board, for its stall log (stalls.mjs).
+  const tracked = job => track(`chat log of ${job.chat} (${job.state})`, () => work(job))
   const run = job => {
-    queue = queue.then(() => work(job), () => work(job))
+    queue = queue.then(() => tracked(job), () => tracked(job))
     return queue
   }
 
