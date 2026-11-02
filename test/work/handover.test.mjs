@@ -302,7 +302,10 @@ test('a free worker with no task: the clear alone; nothing at all when none is o
 test('the envelope as the mod reads it, the outcome as the board takes it, and the worker\'s envelopes', () => {
   const message = { id: 'e9', at: 5, to: 'Game - Worker 1', command: HANDOVER_COMMAND, state: 'waiting', kind: 'task', step: 'B9', clear: { step: 'B8', reportedAt: 4 }, restart: false, set: { model: 'claude-opus-5-5', effort: 'high' }, line: lineFor('B9'), back: null }
   assert.deepEqual(contractOf(message), { id: 'e9', kind: 'task', step: 'B9', clear: { step: 'B8', reportedAt: 4 }, restart: false, set: { model: 'claude-opus-5-5', effort: 'high' }, line: 'work: B9 is yours; run work next' })
-  assert.deepEqual(outcomeOf({ cleared: true, set: 'yes', typed: true, why: '  ok\n then ' }), { cleared: true, set: null, typed: true, restarted: null, background: false, why: 'ok then' })
+  assert.deepEqual(outcomeOf({ cleared: true, set: 'yes', typed: true, why: '  ok\n then ' }), { cleared: true, set: null, typed: true, restarted: null, background: false, why: 'ok then', typedAt: null, enteredAt: null })
+  // 4c (Workers mod 0.30.0): the line's exact times, finite or null.
+  assert.deepEqual([outcomeOf({ typed: true, typedAt: 5, enteredAt: 7 })].map(one => [one.typedAt, one.enteredAt]), [[5, 7]])
+  assert.deepEqual([outcomeOf({ typed: true, typedAt: 'soon', enteredAt: Infinity })].map(one => [one.typedAt, one.enteredAt]), [[null, null]])
   assert.equal(outcomeOf('done'), null)
   assert.deepEqual(envelopesOf([{ ...message, at: 9, id: 'b' }, message, { ...message, command: 'work' }], 'Worker 1', 'Game - ').map(one => one.id), ['e9', 'b'])
 })
@@ -367,6 +370,24 @@ test('change 4, the 11:07 case (decision 5): the woken chat\'s first turn end ta
   const later = decide({ worker: woken, items: queuedB855(), ready: ready('B855', 'B856'), envelopes: [typed], now: day2(11, 8, 30), event: { kind: 'turn-ended', since: day2(11, 7, 22) }, wake: { ...first, firstTurnEnd: false } })
   assert.deepEqual(later.takeBack, { id: 'B855', why: NOT_TAKEN_WHY })
   assert.equal(later.give, 'B856')
+})
+
+test('4c (Workers mod 0.30.0), the 11:07 case: a turn that ended before the line entered takes nothing back; the line\'s own turn does (mutant: the hand-out time)', () => {
+  const woken = worker(W5, { since: day2(11, 7, 21) })
+  const times = { typedAt: day2(11, 7, 21), enteredAt: day2(11, 7, 22) }
+  const typed = env855({ state: 'delivered', takenAt: day2(11, 7, 3), outcome: { cleared: null, set: null, typed: true, restarted: null, background: false, why: null, ...times } })
+  // No wake guard here: the times alone decide. The turn 11:06:56-11:07:21 began after the envelope (11:01:57) but before the
+  // line entered (11:07:22): not the line's turn.
+  const before = decide({ worker: woken, items: queuedB855(), ready: ready('B856'), envelopes: [typed], now: day2(11, 7, 23), event: { kind: 'turn-ended', since: day2(11, 6, 56) } })
+  assert.deepEqual([before.takeBack, before.state], [null, STATES.OFFERED])
+  // The turn that began 11:07:22, when the line entered, ended with no take: back, not offered again.
+  const own = decide({ worker: woken, items: queuedB855(), ready: ready('B855', 'B856'), envelopes: [typed], now: day2(11, 8, 30), event: { kind: 'turn-ended', since: day2(11, 7, 22) } })
+  assert.deepEqual(own.takeBack, { id: 'B855', why: NOT_TAKEN_WHY })
+  // An outcome with typedAt only (no enteredAt) counts from typedAt; an older mod's outcome (no times) from the hand-out.
+  const typedOnly = env855({ ...typed, outcome: { ...typed.outcome, enteredAt: null } })
+  assert.equal(decide({ worker: woken, items: queuedB855(), envelopes: [typedOnly], now: day2(11, 7, 23), event: { kind: 'turn-ended', since: day2(11, 7, 20) } }).takeBack, null)
+  const older = env855({ ...typed, outcome: { cleared: null, set: null, typed: true, restarted: null, background: false, why: null } })
+  assert.deepEqual(decide({ worker: woken, items: queuedB855(), envelopes: [older], now: day2(11, 7, 23), event: { kind: 'turn-ended', since: day2(11, 6, 56) } }).takeBack?.id, 'B855')
 })
 
 test('change 4, decision 5: a turn end while the envelope is only taken (not settled typed) never takes it back, woken or not', () => {
