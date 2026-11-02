@@ -15,7 +15,7 @@ const phone = style.slice(style.indexOf('/* B206:'))
 test('the tabs have a box of their own that only counts on a narrow screen, where they scroll sideways', () => {
   const nav = html.slice(html.indexOf('<nav class="tabs"'), html.indexOf('</nav>'))
   const list = nav.slice(nav.indexOf('<div class="tab-list">'), nav.indexOf('</div>'))
-  for (const tab of ['overview', 'advice', 'coordinate', 'design']) assert.ok(list.includes(`data-tab="${tab}"`), tab)
+  for (const tab of ['overview', 'group="plan', 'coordinate', 'group="new']) assert.ok(list.includes(tab.startsWith('group') ? `data-${tab}"` : `data-tab="${tab}"`), tab)
   assert.match(phone, /^\.tab-list \{ display: contents; \}/m)
   assert.match(phone, /@media \(max-width: 760px\) \{\n\s+\.tabs \{ flex-wrap: wrap;/)
   assert.match(phone, /\.tab-list \{ display: flex; flex: 1 0 100%;[^}]*overflow-x: auto;/)

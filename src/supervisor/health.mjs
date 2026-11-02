@@ -26,6 +26,8 @@ const LINE_CHARS = 240
 const CHAT_CHARS = 400
 /** A step that stands this long in a state of work counts as odd. */
 const LONG_MS = { taken: 30 * MIN, 'in progress': 3 * HOUR, 'waiting on you': 6 * HOUR, review: HOUR, queued: 2 * HOUR }
+/** 2026-11-02: a worker working on no step this soon after its clear runs its first turn: no fault. */
+const AFTER_CLEAR_MS = 5 * MIN
 /** The states of a step that are under way: queued for a chat, held by it, or waiting for its check. */
 const UNDER_WAY = ['queued', 'taken', 'in progress', 'waiting on you', 'review']
 const HELD = ['taken', 'in progress', 'waiting on you', 'review']
@@ -142,7 +144,9 @@ function chatLines(view, now) {
     const isFullNow = ['fiveHour', 'week'].some(key => view.limits?.[key]?.level === 'full')
     const owner = ownerOf([
       ...(stopped ? [lane.state === 'suspended' ? (isFullNow ? 'info' : 'stale-suspended') : onId !== null ? stoppedOwner(lane) : null] : []),
-      ...(idle ? [lane.isRunning === false ? 'working-not-running' : null] : []), ...(late ? ['effort-mismatch'] : []),
+      // 2026-11-02 (the lead's yes; the 21:13 sweep on "Worker 2 working on no step; cleared at # after B931"): a worker
+      // working on no step within the first minutes after its clear runs its first turn (`work next`): no fault, 'info'.
+      ...(idle ? [lane.isRunning === false ? 'working-not-running' : lane.compaction?.kind === 'cleared' && Number.isFinite(lane.compaction.at) && now - lane.compaction.at <= AFTER_CLEAR_MS ? 'info' : null] : []), ...(late ? ['effort-mismatch'] : []),
     ])
     return lineOf(`${lane.name} (${role}): ${state}${suspended}${running}; ${runs}${wants}${onWords}${report}; ${clearWords(lane.compaction, now)}`, { tier: 0, odd, at: since, max: CHAT_CHARS, owner })
   })

@@ -6913,8 +6913,8 @@ const ASK_PAGE = /(?<=^|[\s(["'`])((?:[\w@+-][\w@+.-]*\/)+[\w@+-][\w@+.-]*\.(?:m
 /** A G, Q or B id standing on its own: not part of a word, a path, a file name or an address. */
 const ASK_ID = /(?<![\w/.:#=-])([GQB]\d+)(?![\w/-]|\.\w)/g
 /** B507: a tab by the words the board shows on it, and the part of the Focus tab named after it ("the Focus tab, then Goals"). */
-const ASK_TAB = /(?<![\w-])(Vision|Focus|Backlog|Design|Spending) tab(?![\w-])(?:(?<=Focus tab),? then (Focus|Goals|Brainstorm)(?![\w-]))?/g
-const ASK_TAB_ADDRESS = { Vision: '#vision', Focus: '#advice/focus', Backlog: '#backlog', Design: '#design', Bugs: '#bugs', Spending: '#spending' }
+const ASK_TAB = /(?<![\w-])(Vision|Focus|Plan|Backlog|Design|Spending) tab(?![\w-])(?:(?<=Focus tab),? then (Focus|Goals|Brainstorm)(?![\w-]))?/g
+const ASK_TAB_ADDRESS = { Vision: '#vision', Focus: '#advice/focus', Plan: '#advice/focus', Backlog: '#backlog', Design: '#design', Bugs: '#bugs', Spending: '#spending' }
 
 /**
  * An ask's words in pieces: words, `{ ask }` (a Q id `known.isAsk` knows), `{ step }` (a B id `known.isStep` knows),
@@ -21435,8 +21435,22 @@ function drawProviderSetup() {
 /** The Advisor tab's address: the map's with its focus when the Goals part is open. */
 function adviceAddress() { return $('view-advice').dataset.pane === 'goals' ? goalAddress(goalsFocus) : '#advice' }
 
+// The menu (the person, 2026-11-02): Vision and Focus share the Plan tab, Design and Bugs the New tab, each part a
+// switch under the tabs; Settings has no tab: the gear menu opens it. A tab of two opens the part looked at last.
+const TAB_GROUPS = { plan: ['advice', 'vision'], new: ['design', 'bugs'] }
+const groupOfTab = tab => Object.keys(TAB_GROUPS).find(group => TAB_GROUPS[group].includes(tab)) ?? null
+function lastOfGroup(group) {
+  let kept = null
+  try { kept = localStorage.getItem(`tab-${group}`) } catch {}
+  return TAB_GROUPS[group].includes(kept) ? kept : TAB_GROUPS[group][0]
+}
+
 function show(tab) {
-  for (const button of document.querySelectorAll('.tab')) button.classList.toggle('is-active', button.dataset.tab === tab)
+  const group = groupOfTab(tab)
+  if (group !== null) try { localStorage.setItem(`tab-${group}`, tab) } catch {}
+  for (const button of document.querySelectorAll('.tab')) button.classList.toggle('is-active', button.dataset.tab === tab || (group !== null && button.dataset.group === group))
+  for (const button of document.querySelectorAll('.subtab')) button.classList.toggle('is-active', button.dataset.tab === tab)
+  for (const name of Object.keys(TAB_GROUPS)) $(`subtabs-${name}`).hidden = name !== group
   $('view-overview').hidden = tab !== 'overview'
   $('view-advice').hidden = tab !== 'advice'
   $('view-coordinate').hidden = tab !== 'coordinate'
@@ -21458,7 +21472,8 @@ function show(tab) {
   if (tab === 'settings') providersLoad()
 }
 
-for (const button of document.querySelectorAll('.tab')) button.addEventListener('click', () => show(button.dataset.tab))
+for (const button of document.querySelectorAll('.tab, .subtab')) button.addEventListener('click', () => show(button.dataset.tab ?? lastOfGroup(button.dataset.group)))
+$('providers-open').addEventListener('click', () => { $('settings').open = false; show('settings') })
 
 // B207: on a phone the timeline and the folders are folded away under the workers; this button shows them.
 $('phone-more').addEventListener('click', () => {
