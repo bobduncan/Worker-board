@@ -212,7 +212,8 @@ function lanesOf(state) {
  * id; a retried word by the copy that stands for it. `outbox` the board's raw outbox (as rule 8 reads it), `view` the
  * supervisor's view of the same moment (`buildView`), `reports` the board's kept turn reports by chat (a Map), `items` the
  * work store's items, `obsolete` the obsolete check's record, `sweep` the supervisor's last sweep (`{ word, asked, ended, how,
- * found }`). Each line also carries what the page finds it by: `command` ('answer' for an answer), `about`, `ask`, `goal`.
+ * found }`). Each line also carries what the page finds it by: `command` ('answer' for an answer), `about`, `ask`, `sentAt`, and
+ * `title`, the word's first line.
  */
 export function waitsOf({ state, outbox = [], view, reports = null, items = null, obsolete = null, sweep = null }) {
   const now = view.now
@@ -231,7 +232,8 @@ export function waitsOf({ state, outbox = [], view, reports = null, items = null
     const done = word.command === 'recap-feedback' ? recapDone(word, items) : word.command === 'obsolete-check' ? obsoleteDone(word, obsolete) : word.command === 'sweep' ? sweepDone(word, sweep) : null
     const line = waitLineOf({ word, lane, report, wake: lane?.wake ?? null, done, view, queue }, facts)
     if (line === null) continue
-    waits[asked.id] = { ...line, word: word.id, command: (asked.ask ?? null) !== null ? 'answer' : asked.command, about: asked.about ?? null, ask: asked.ask ?? null, sentAt: asked.at }
+    const title = String(asked.text ?? '').split('\n')[0].replace(/\s+/g, ' ').trim().slice(0, 160)
+    waits[asked.id] = { ...line, word: word.id, command: (asked.ask ?? null) !== null ? 'answer' : asked.command, about: asked.about ?? null, ask: asked.ask ?? null, sentAt: asked.at, title }
   }
   return waits
 }
