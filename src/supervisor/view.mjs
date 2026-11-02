@@ -23,11 +23,13 @@ const DEFAULT_KEEP = Object.freeze({ messageMs: 10 * 60_000, answerMs: 48 * 60 *
  * attempts, spells }`, the board-wide spell under "*"); each lane, the partner, its helper, the supervisor and the owner carry
  * their own `wake` (how its wake stands: `{ state, final, need, spell, attempts }`).
  */
-export function buildView({ state = {}, items = new Map(), outbox = [], keep = null, limits, pause, refused = [], leftovers, bases = [], repairs = [], mods = null, settings = {}, seen = null, now }) {
+export function buildView({ state = {}, items = new Map(), outbox = [], keep = null, limits, pause, refused = [], leftovers, bases = [], repairs = [], mods = null, settings = {}, seen = null, assets = null, now }) {
   const lanes = state.chats ?? []
   const timeline = Array.isArray(state.today) ? state.today : []
   return Object.freeze({
     items,
+    // B949: the asset requests by id (src/assets.mjs), so an asset word is judged by its request, or null: such a word then holds.
+    assets,
     lanes,
     partner: state.advisor ?? null,
     helper: state.advisorHelper ?? null,

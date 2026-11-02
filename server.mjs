@@ -86,7 +86,7 @@ import { readSetup, setupAction, startSetup, FINISHED as SETUP_FINISHED } from '
 import { providerCards, mayUse as mayUseProvider, verifyOne, checkKey } from './src/providers/choose.mjs'
 import { KEY_VARIABLE, keyChecked, saveKey } from './src/providers/elevenlabs-key.mjs'
 import { ASSET_KINDS, PROVIDERS, checkProvidersFull, providerFor } from './src/providers/index.mjs'
-import { assetsFolderOf } from './src/assets.mjs'
+import { assetsFolderOf, listAssets } from './src/assets.mjs'
 import { assetQueue, providerAskTitle } from './src/assetQueue.mjs'
 import { titleProblem } from './src/work/askWords.mjs'
 import { buildState, fullStepOf, lightState } from './src/state.mjs'
@@ -876,6 +876,15 @@ async function main(args) {
   // Part C of the asset providers: where the chats' asset requests are kept (`.claude/assets`, beside the work store); none on a
   // board that only shows.
   const assetsDir = workDir === null || isShowOnly ? null : resolve(HERE, assetsFolderOf(workDir))
+  /** B949: the asset requests by id, for the judges of the asset words (workLines.mjs); null when there is no folder or it cannot be read: such a word then holds. */
+  const assetRequests = async () => {
+    if (assetsDir === null) return null
+    try {
+      return new Map((await listAssets(assetsDir)).map(record => [record.id, record]))
+    } catch {
+      return null
+    }
+  }
   const viewFile = workDir === null ? null : !isShowOnly ? join(config.project, ...config.backlog.split('/')) : isOwnWork(config) ? join(workDir, 'backlog.md') : null
   const workWriters = viewFile === null ? null : { dir: workDir, viewFile }
   /**
@@ -1305,7 +1314,7 @@ async function main(args) {
       const now = clock()
       const items = stored?.ok === true ? stored.items : new Map()
       const outbox = store.outbox()
-      const judge = wordJudge({ state, items, outbox, keep, settings: config.supervisor ?? {}, now })
+      const judge = wordJudge({ state, items, outbox, keep, settings: config.supervisor ?? {}, assets: await assetRequests(), now })
       const obsolete = workDir === null ? null : (await readObsoleteFile(workDir)).record
       const { waits, seen } = splitSeen(waitsOf({ state, outbox, now, keep, judge, reports, items, obsolete, sweep: supervised?.lastSweep ?? null }))
       // The review of 2026-11-02 (2a): a turn seen ended, an action's own result seen, is kept on its word once and read first
@@ -3588,6 +3597,7 @@ async function main(args) {
           return (await readStore(workDir)).items
         },
         // B736 (X89: work health timed out twice while the board was busy): the health summary reads what the board has.
+        assets: () => assetRequests(),
         keptState: () => readState.last() ?? null,
         keptItems: () => work.last?.()?.items ?? null,
         outbox: () => store.outbox(),

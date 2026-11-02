@@ -2488,6 +2488,21 @@ or failed, whose purpose is gone closes at a refresh; every other command (scann
 past its keep is closed by the sweep, and failed is judged. A failed word of minutes (not `waitsLong`) is judged by
 its time: rule 8 names it for its two hours, the summary for a day.
 
+### An asset word is the asset's, not the work store's (B949)
+
+On 2026-11-02 five of eighteen "asset A<n> ready" words (A7, A9, A15, A17, A18) were dropped 0.6 s after the board wrote
+them, as "A17 is gone": `withdrawStale` judged every waiting work line by the work store, which holds no A-ids, so the
+step branch of `workLineWhy` read each asset word as gone, and Worker 1 sat waiting for A17 on B923. Now a line of kind
+`asset` is judged by its request (`.claude/assets/A<n>/request.json`, `assetLineWhy` in `src/work/workLines.mjs`), never by the
+store: a ready word is dropped when its request is gone or failed, a failed word when its request is gone, either when the
+step the request was made for (`of`) is done, dropped or another chat's; a request still being made holds its word. The
+callers pass the requests as `assets` (`withdrawStale` reads them; the supervisor's view and `wordJudge` carry them through
+the `assets` port, so the health summary and rule 8 judge the same way); without them (`undefined`/null) an asset word
+holds, for the board cannot tell. A ready word the sweep dropped as "gone" (the fault above) is written once more
+(`assetResends`, key `asset-again <A-id> <chat>`, sent once ever) while its request is ready, its step is in progress and
+still that chat's, and no later word to that chat names the asset (one typed by hand counts). `test/assetWordJudge.test.mjs`
+replays the real case; the mutant that sends an asset word to the work store's branch fails seven of its nine tests.
+
 ### A failure that passes by itself (B813)
 
 X2 came back after B532 (count 25): the word of 2026-10-30 23:13 that set Worker 4 back to its usual setting failed
