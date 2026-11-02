@@ -38,7 +38,7 @@ export const NO_TURN_WORDS: Readonly<TurnWords> = Object.freeze({ typed: [], wor
 /** 8c: the most words kept on their way; the oldest goes first (a word whose turn never came, its prompt held by the app). */
 export const TYPED_MOST = 20
 
-const sameWords = (a: string, b: string): boolean => a.replace(/\s+/g, ' ').trim() === b.replace(/\s+/g, ' ').trim()
+const sameWords = (a: unknown, b: unknown): boolean => String(a ?? '').replace(/\s+/g, ' ').trim() === String(b ?? '').replace(/\s+/g, ' ').trim()
 
 /** 8c: a word of ours about to be submitted (a take's message or an envelope's line), after those before it: outbox order. */
 export function wordTyping(words: TurnWords, id: string, text: string): TurnWords {
@@ -55,13 +55,13 @@ export function wordSettled(words: TurnWords, id: string, isEntered: boolean): T
 /**
  * 8c: a turn of the chat's own began at `now` with the prompt `text` (turn.start, the main loop, not the mod's /clear or
  * /compact, never an ask closing: asking → busy within a turn is no start). Its word is the one of ours whose text it runs
- * (the app may resolve our submit before or after the turn's start: the text decides, not the order), else the first that
- * entered (a hook beneath may have rewritten the text); none: a turn that was no word's, `word` null. `turn` is `now` either
- * way. The word taken, and any that entered before it (their turns are past), leave the queue; the rest wait their turn.
+ * (the app may resolve our submit before or after the turn's start: the text decides, not the order); none: a turn that was
+ * no word's, `word` null, also when a word of ours entered but the text differs (the review of 0.30.0: guessing the queue's
+ * head would give a word to a turn the person's line or a task notification started; the board's bound rule handles null).
+ * `turn` is `now` either way. The word taken, and any that entered before it (their turns are past), leave the queue.
  */
 export function turnBegan(words: TurnWords, text: string, now: number): TurnWords {
-  let at = words.typed.findIndex(one => sameWords(one.text, text))
-  if (at < 0 && words.typed[0]?.isEntered === true) at = 0
+  const at = words.typed.findIndex(one => sameWords(one.text, text))
   if (at < 0) return { typed: words.typed, word: null, turn: now }
   return { typed: words.typed.filter((one, i) => i > at || (i < at && !one.isEntered)), word: words.typed[at].id, turn: now }
 }
@@ -127,6 +127,20 @@ const STARTED_ID = /(?:running in background with ID|[Tt]ask ID|task_id|backgrou
  * background with ID", which the structured result does not carry, so the report said no background while the gate ran.
  * The words still count for a call run in the background (a build that answers in words only).
  */
+/** The longest a Monitor runs: the app caps its deadline at 30 minutes. */
+export const MONITOR_MOST_MS = 1_800_000
+
+/**
+ * The review of 0.30.0: when a Monitor the chat started ends by its deadline, by the result's `timeoutMs` from `startedAt`
+ * (capped at 30 min); null for a persistent one (0, or `persistent`) and for anything that is no Monitor's result. The app's
+ * note of its end may carry no status, so its id must not stay counted past its deadline.
+ */
+export function monitorEndsAt(out: unknown, startedAt: number): number | null {
+  const result = isRecord(out) && isRecord(out.result) ? out.result : null
+  if (result === null || result.persistent === true || typeof result.timeoutMs !== 'number' || !(result.timeoutMs > 0)) return null
+  return startedAt + Math.min(result.timeoutMs, MONITOR_MOST_MS)
+}
+
 export function backgroundStartOf(tool: string, input: { run_in_background?: unknown }, out: unknown): string | null {
   if (tool !== 'Bash' && tool !== 'PowerShell' && tool !== 'Monitor') return null
   const result = isRecord(out) && isRecord(out.result) ? out.result : null
@@ -293,7 +307,8 @@ export function parseHeld(raw: unknown): BoardHeld | null {
   if (!isRecord(raw) || typeof raw.id !== 'string' || !STEP_ID.test(raw.id) || typeof raw.title !== 'string') return null
   const title = raw.title.replace(/\s+/g, ' ').trim()
   if (title.length > HELD_TITLE_MOST) return null
-  const time = typeof raw.time === 'string' && raw.time.trim() !== '' && raw.time.trim().length <= HELD_TIME_MOST ? raw.time.trim() : null
+  const words = typeof raw.time === 'string' ? raw.time.replace(/\s+/g, ' ').trim() : ''
+  const time = words !== '' && words.length <= HELD_TIME_MOST ? words : null
   return { id: raw.id, title, time }
 }
 

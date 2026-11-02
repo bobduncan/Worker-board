@@ -7,7 +7,7 @@ import { atom, read, update } from 'claude-code'
 import type { EngineInterface, FsEntry, Register, Timer } from 'claude-code'
 
 import type { BoardRole, BoardStatus, ChatFile, ChatList, ChatRole, ChatRow, ChatsView, FolderRow, FoldersView } from '../types'
-import { BOARD_FILE, BOARD_NOTE, LAUNCH_FILE, MOD_HEADER, MOD_VERSION, MOST_CHARS, NO_OUTCOME, NO_TURN_WORDS, REPORT_PATH, REQUEST_HEADER, TAKE_PATH, TASK_ID, TYPED_PATH, WHOAMI_PATH, WORK_ACTIONS, WORK_FIELDS, WORK_PATH, backgroundStartOf, boardLook, boardStarts, isPaused, parseBoard, parseHandover, parsePause, parseTaken, parseWhoami, pauseContexts, reportBody, shownName, stopLine, turnBegan, typedWhy, wordSettled, wordTyping, wordsCleared } from './board'
+import { BOARD_FILE, BOARD_NOTE, LAUNCH_FILE, MOD_HEADER, MOD_VERSION, MOST_CHARS, NO_OUTCOME, NO_TURN_WORDS, REPORT_PATH, REQUEST_HEADER, TAKE_PATH, TASK_ID, TYPED_PATH, WHOAMI_PATH, WORK_ACTIONS, WORK_FIELDS, WORK_PATH, backgroundStartOf, boardLook, monitorEndsAt, boardStarts, isPaused, parseBoard, parseHandover, parsePause, parseTaken, parseWhoami, pauseContexts, reportBody, shownName, stopLine, turnBegan, typedWhy, wordSettled, wordTyping, wordsCleared } from './board'
 import type { Board, BoardStart, Envelope, Handover, Outcome, OwedClear, PauseState, PauseWhere, StopAsk, TurnReport, TurnWords, Whoami } from './board'
 import {
   BEAT_MS, CHATS_DIR, LEFT_MAX_SIZE, LEFT_TEXT, LIST_FILE, afterTurn, atTurnStart, chatNote, clearWhy, clearedStart, compactKeep, compactWhy, chatText, chatsSummary, fileName,
@@ -1532,13 +1532,20 @@ async function typeLine($: EngineInterface, envelope: Envelope, outcome: Outcome
       // rule compares a turn with the line's own entry, not the envelope's hand-out (the 11:07 case: handed out 11:01:57, entered
       // 11:07:22 after the wake's first turn of 11:06:56-11:07:21 had ended).
       turnWords = wordTyping(turnWords, envelope.id, text)
-      outcome.typedAt = await $.clock.now()
+      // The review of 0.30.0: each clock read is one that cannot throw, so neither the settle is skipped nor `typed` flipped.
+      const typedAt = await Promise.resolve($.clock.now()).catch(() => null)
+      if (typedAt !== null) outcome.typedAt = typedAt
       try {
         const entered = await $.prompt.submit({ text, asUser: true })
         outcome.typed = entered.drop === undefined
         turnWords = wordSettled(turnWords, envelope.id, outcome.typed)
-        if (entered.drop === undefined) outcome.enteredAt = await $.clock.now()
-        else outcome.why = typedWhy(entered.drop, 'a hook dropped it')
+        if (entered.drop === undefined) {
+          // The review of 0.30.0: the submit resolves once the line entered and its turn started, so the clock now may be a few
+          // ms past that turn's start, and the board's take-back (`turnSince >= enteredAt`) would never count the line's own
+          // turn. When that turn has begun on this very line, its start (read before the busy) is the entry, at the latest.
+          const now = await Promise.resolve($.clock.now()).catch(() => typedAt ?? 0)
+          outcome.enteredAt = turnWords.word === envelope.id && turnWords.turn !== null ? Math.min(turnWords.turn, now) : now
+        } else outcome.why = typedWhy(entered.drop, 'a hook dropped it')
       } catch (err) {
         turnWords = wordSettled(turnWords, envelope.id, false)
         outcome.typed = false
@@ -1858,19 +1865,28 @@ const WHOAMI_EAGER_MS = 2 * 60_000
  * hook (the app's guard skips them on a work login), so it never relies on a Stop hook's list.
  */
 const backgroundIds = new Set<string>()
+/** The review of 0.30.0: when each Monitor of `backgroundIds` ends by its deadline (board.ts `monitorEndsAt`); a persistent one is not here. */
+const backgroundEnds = new Map<string, number>()
 
 /** Notes a tool call of this chat (never a subagent's) that starts or stops background work. */
-function noteBackground(e: { tool?: unknown; run_in_background?: unknown; task_id?: unknown; shell_id?: unknown }, out: unknown): void {
+function noteBackground(e: { tool?: unknown; run_in_background?: unknown; task_id?: unknown; shell_id?: unknown }, out: unknown, now: number | null): void {
   const tool = String(e.tool ?? '')
   if (tool === 'TaskStop') {
     const id = String(e.task_id ?? e.shell_id ?? '')
-    if (TASK_ID.test(id)) backgroundIds.delete(id)
+    if (TASK_ID.test(id)) {
+      backgroundIds.delete(id)
+      backgroundEnds.delete(id)
+    }
     return
   }
   // F (0.30.0): by the result's own id (board.ts `backgroundStartOf`): a background command or a Monitor, also one the app
   // moved to the background itself.
   const found = backgroundStartOf(tool, e, out)
-  if (found !== null) backgroundIds.add(found)
+  if (found === null) return
+  backgroundIds.add(found)
+  // The review of 0.30.0: a Monitor's id leaves the list at its deadline too (its end's note may carry no status).
+  const ends = tool === 'Monitor' && now !== null ? monitorEndsAt(out, now) : null
+  if (ends !== null) backgroundEnds.set(found, ends)
 }
 
 /** The app's note that a background task ended (a prompt of origin task-notification): its id leaves the list. */
@@ -1882,6 +1898,14 @@ function noteTaskEnded(text: string): void {
 
 /** Whether background work of this chat still runs: the ids kept and the subagents. */
 async function backgroundNow($: EngineInterface): Promise<boolean> {
+  if (backgroundEnds.size > 0) {
+    const now = await $.clock.now()
+    for (const [id, ends] of backgroundEnds) {
+      if (ends > now) continue
+      backgroundEnds.delete(id)
+      backgroundIds.delete(id)
+    }
+  }
   if (backgroundIds.size > 0) return true
   return (await busyWhy($)) !== null
 }
@@ -2717,7 +2741,7 @@ export const register: Register = on => {
     const popup = isInTurn ? watchPopup($, { tool: e.tool, tool_use_id: e.tool_use_id, input: e }) : null
     try {
       const out = await next(e)
-      noteBackground(e as never, out)
+      noteBackground(e as never, out, await $.clock.now().catch(() => null))
       return out
     } finally {
       if (popup !== null) await popup.stop()

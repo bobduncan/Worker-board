@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'claude-code/testing'
 
-import { MOD_VERSION, MOST_CHARS, NO_OUTCOME, NO_TURN_WORDS, WHOAMI_PATH, WORK_ACTIONS, WORK_FIELDS, backgroundStartOf, boardLook, boardStarts, isPaused, parseBoard, parseEnvelope, parseHandover, parseHeld, parsePause, parseTaken, parseWhoami, pauseContexts, reportBody, stopLine, turnBegan, typedWhy, wordSettled, wordTyping, wordsCleared } from './board'
+import { MOD_VERSION, MOST_CHARS, NO_OUTCOME, NO_TURN_WORDS, WHOAMI_PATH, WORK_ACTIONS, WORK_FIELDS, backgroundStartOf, boardLook, monitorEndsAt, boardStarts, isPaused, parseBoard, parseEnvelope, parseHandover, parseHeld, parsePause, parseTaken, parseWhoami, pauseContexts, reportBody, stopLine, turnBegan, typedWhy, wordSettled, wordTyping, wordsCleared } from './board'
 import type { TurnReport, TurnWords } from './board'
 
 const KEY = 'ab'.repeat(32)
@@ -62,10 +62,14 @@ describe('8c (0.30.0): every report says the word its turn runs on and the turn\
     expect(said(words)).toEqual({ word: 'w3', turn: 4000 })
   })
 
-  test('a word whose text a hook beneath rewrote: the first that entered; a dropped word never runs', () => {
+  test('a turn whose text is none of ours is no word\'s, also with one of ours entered (no guess); a dropped word never runs', () => {
     let words = wordSettled(wordTyping(NO_TURN_WORDS, 'w1', 'go'), 'w1', true)
-    words = turnBegan(words, '[note] go', 1000)
+    // Mutant "the queue's head": a task notification's turn would be given w1.
+    words = turnBegan(words, '<task-notification>done</task-notification>', 1000)
+    expect(said(words)).toEqual({ word: null, turn: 1000 })
+    words = turnBegan(words, 'go', 1500)
     expect(words.word).toBe('w1')
+    expect(turnBegan(words, undefined as never, 1600).word).toBeNull()
     words = wordSettled(wordTyping(words, 'w2', 'more'), 'w2', false)
     words = turnBegan(words, 'more', 2000)
     expect(said(words)).toEqual({ word: null, turn: 2000 })
@@ -89,6 +93,14 @@ describe('F (0.30.0): the background work a call of the chat\'s own started, by 
     expect(backgroundStartOf('Bash', {}, { result: { stdout: 'ok', stderr: '', interrupted: false } })).toBeNull()
     expect(backgroundStartOf('Bash', {}, { result: { stdout: 'Command running in background with ID: b4zduzypn' } })).toBeNull()
     expect(backgroundStartOf('Read', { run_in_background: true }, { result: { backgroundTaskId: 'r1' } })).toBeNull()
+  })
+
+  test('the review: a Monitor ends by its deadline (capped at 30 min); a persistent one has none', () => {
+    expect(monitorEndsAt({ result: { taskId: 'm1', timeoutMs: 300000 } }, 1000)).toBe(301000)
+    expect(monitorEndsAt({ result: { taskId: 'm1', timeoutMs: 9_000_000 } }, 0)).toBe(1_800_000)
+    expect(monitorEndsAt({ result: { taskId: 'm1', timeoutMs: 0 } }, 0)).toBeNull()
+    expect(monitorEndsAt({ result: { taskId: 'm1', timeoutMs: 300000, persistent: true } }, 0)).toBeNull()
+    expect(monitorEndsAt({ result: { stdout: '' } }, 0)).toBeNull()
   })
 })
 
@@ -176,6 +188,7 @@ describe('the worker board, as the mod reads it', () => {
     expect(parseTaken(JSON.stringify({ messages: [], statuses: [{ name: 'Worker 5', status: 'Working', held }] })).statuses?.[0]?.held).toEqual(held)
     expect(parseHeld({ ...held, time: null })).toEqual({ ...held, time: null })
     expect(parseHeld({ ...held, time: 't'.repeat(41) })).toEqual({ ...held, time: null })
+    expect(parseHeld({ ...held, time: ' 1 h 56\n of its   2 h ' })).toEqual(held)
     expect(parseHeld({ ...held, title: '  The   walk ' })).toEqual(held)
     expect(parseHeld({ ...held, title: 'x'.repeat(61) })).toBeNull()
     expect(parseHeld({ ...held, id: '../B1' })).toBeNull()

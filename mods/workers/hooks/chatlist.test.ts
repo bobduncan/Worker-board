@@ -111,6 +111,8 @@ type World = {
   whoamiHeaders: Record<string, string>[]
   /** True when the board holds a whoami call and never answers it. */
   whoamiHangs: boolean
+  /** The review of 0.30.0: what the app does before a typed prompt's submit resolves (its turn starting, the clock moving). */
+  beforeTyped?: ($: Engine, text: string) => Promise<void>
   /** T8.5: everything that went out, in one order: each work call's action, each /clear, each prompt typed in ("prompt"), each typed report ("typed"). */
   order: string[]
 }
@@ -331,8 +333,9 @@ function stand(on: On, w: World): void {
 
     return { value: { status: 200, ok: true, headers: {}, text: JSON.stringify({ messages: w.waiting.splice(0) }) } }
   })
-  on('prompt.submit', (_$, e) => {
+  on('prompt.submit', async ($$, e) => {
     if (w.refusesTyping) return { drop: 'no prompt is taken now' }
+    if (w.beforeTyped !== undefined) await w.beforeTyped($$ as never, e.text)
     w.order.push('prompt')
     w.typedIn.push(`${e.origin.kind}:${e.origin.kind === 'plugin' && e.origin.asUser === true ? 'as the person' : 'framed'}:${e.text}`)
     w.contexts.push([...(e.context ?? [])])
@@ -3415,6 +3418,27 @@ describe('Redesign Part 1: the chat reports its turn state to the board', () => 
     })
   }
 
+  test('the review of 0.30.0, F: a Monitor whose end note carries no status leaves the list at its deadline; a persistent one stays', async ($, on) => {
+    const { w, clock } = await joined($, on, () => {
+      on('tool.call', { tool: 'Monitor' }, (_$, e) => ({ result: (e as { description?: string }).description === 'forever' ? { taskId: 'mkeep', timeoutMs: 0, persistent: true } : { taskId: 'mgate', timeoutMs: 60000 } }) as never)
+    })
+    await $.turn.start({ text: 'go', turnId: 't1' })
+    await $.tool.call({ tool: 'Monitor', description: 'the gate', timeout_ms: 60000, command: 'tail -f x' } as never)
+    await $.turn.complete({ ...ENDED, turnId: 't1' })
+    await settle()
+    expect(states(w)).toEqual(['busy', 'idle+background'])
+    // Its deadline passes: the next ping reads plain idle (mutant "keep a Monitor's id until its note": idle+background stays).
+    await clock.advance(70000)
+    await settle()
+    expect(states(w)).toEqual(['busy', 'idle+background', 'idle'])
+    await $.turn.start({ text: 'watch', turnId: 't2' })
+    await $.tool.call({ tool: 'Monitor', description: 'forever', timeout_ms: 0, command: 'tail -f y' } as never)
+    await $.turn.complete({ ...ENDED, turnId: 't2' })
+    await clock.advance(40 * MIN)
+    await settle()
+    expect(states(w).at(-1)).toBe('idle+background')
+  })
+
   test('8c: a word typed from a take runs its own turn: busy and idle carry its id and the turn\'s start, an ask keeps both, a line the person types after is no word\'s', async ($, on) => {
     const { w, clock } = await joined($, on)
     const wordOf = (body: string): string => {
@@ -4088,6 +4112,27 @@ describe('T8.5: the board\'s hand-over as one envelope (Workers mod 0.27.0)', ()
     expect(outcomes(w).length).toBe(1)
     // Kept for the next process of the mod too.
     expect(w.stored['handover-carried']).toEqual([ID])
+  })
+
+  test('the review of 0.30.0, 4c: the line\'s submit resolving after its own turn began (a clock that moves) gives enteredAt at that turn\'s start, not after it', async ($, on) => {
+    const clock = mock.clock(on)
+    const w = world('units', { ...listed(), [BOARD]: board })
+    let turnAt = -1
+    // The app starts the line's turn, and the clock moves on, before the submit resolves.
+    w.beforeTyped = async (_$$, text) => {
+      if (text !== LINE) return
+      turnAt = clock.now()
+      await $.turn.start({ text: LINE, turnId: 't1' })
+      await clock.set(clock.now() + 7)
+    }
+    stand(on, w)
+    await startedAs($, w, 'Units')
+    await take(clock, w, { handover: envelope({ clear: null }) })
+    for (let i = 0; i < 50 && outcomes(w).length === 0; i++) await settle()
+    const outcome = outcomes(w)[0]?.outcome as { typedAt: number; enteredAt: number }
+    expect(turnAt).toBe(5000)
+    // Mutant "enteredAt is the clock after the submit": 5007, after the turn began, so the board never counts that turn.
+    expect([outcome.typedAt, outcome.enteredAt]).toEqual([5000, 5000])
   })
 
   test('change 2 at a take: an envelope with no clear: the line typed at once, then the outcome; no log, no /clear', async ($, on) => {
