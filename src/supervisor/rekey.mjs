@@ -63,6 +63,13 @@ export const KEY_MIGRATIONS = Object.freeze([
     old: /^effort-mismatch (.+) (B\d+)$/,
     newKey: match => `effort-mismatch ${match[1]}`,
   },
+  // The lead's order C (2026-11-02, the live check): per chat, not per step (X132/X133 read fixed while the workers were held anew).
+  {
+    rule: 'handover-held',
+    change: 'the fix of 2026-11-02: the key is the rule and the chat, not the step',
+    old: /^handover-held (.+) (B\d+|[0-9a-f]{16}|its last report)$/,
+    newKey: match => `handover-held ${match[1]}`,
+  },
 ])
 
 const value = (item, key) => {
