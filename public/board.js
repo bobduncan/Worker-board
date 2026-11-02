@@ -20943,8 +20943,16 @@ async function providerSetupNext(step) {
 function drawProviderSetup() {
   const page = $('provider-setup')
   const step = providerSetupSteps(providersUi.kinds, providerSetupUi.setup, providerSetupUi.at, Date.now(), providersUi)
+  const wasInSetup = document.body.classList.contains('is-in-setup')
   page.hidden = !step.visible
   document.body.classList.toggle('is-in-setup', step.visible)
+  // The help tour waits for the setup: one that opened first is closed unseen, and it opens once the setup is finished.
+  if (step.visible && $('help').open) {
+    $('help').close()
+    try { localStorage.removeItem('help-seen') } catch { /* it simply does not open again */ }
+    helpLooked = false
+  }
+  if (!step.visible && wasInSetup) helpAtStart(board)
   if (!step.visible) return
   // A key being typed is kept: a redraw while a key box holds text would lose it.
   if ([...page.querySelectorAll('.provider-key-input')].some(input => input.value !== '')) return
@@ -21627,7 +21635,7 @@ $('help').addEventListener('close', () => {
 
 /** At the first read: the tour opens by itself, once. A browser that keeps nothing is not shown it every time. */
 function helpAtStart(state) {
-  if (helpLooked) return
+  if (helpLooked || document.body.classList.contains('is-in-setup')) return
   helpLooked = true
   let seen = true
   try { seen = localStorage.getItem('help-seen') === 'yes' } catch { /* seen stays true */ }
