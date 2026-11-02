@@ -116,9 +116,10 @@ back at once and its lane says "held: <why>"; one not answered in 10 minutes giv
   is no worker either: the board gives it no task; never message it; the board wakes it for its sweeps, and when its
   chat does not run the board types `start "<name>"` into you: start it by its session id, as any chat. Set it once,
   when it joins the list of chats, to Sonnet (`set_session_model`, the Sonnet id of the board's settings) and
-  `set_session_effort` low. What its sweeps and the board's rules find goes to the user as one line and to the partner,
-  who files the fix as a step "Fix of X<n>: ..." marked `priority` fix and names it the incident's fix: a fix, so the
-  board gives it first, as any.
+  `set_session_effort` low. What its sweeps and the board's rules find goes to the user as one line and, since signals
+  change 6 (B915), to the supervisor's chat itself, which judges it: it closes a false alarm, or files the fix as a step
+  "Fix of X<n>: ..." marked `priority` fix (the partner refines it) and names it the incident's fix: a fix, so the board
+  gives it first, as any. An incident whose condition went for an hour closes itself.
 - A chat renamed keeps its work: the board moves its open items to the new name by itself (B313); for a rename it could not see (a chat replaced by a new one, or a name two chats had, said on top), run `work rename` (`from`, `to`).
 - Everything the worker needs stands in the step, written with `work new`: the user's own words, quoted; what is asked
   and what is not; "Touches: ..."; who else works nearby and on what; where pictures are (copy a picture into the
@@ -304,7 +305,8 @@ yourself gets its checkpoint first, as a worker's does (`roles/worker.md`, "A pa
 
 Since the supervisor's part 2 (2026-10-24) "Check now" no longer types `check sync` into your chat: the board runs its
 rules at once and wakes the supervisor's chat (the list of chats' `"supervisor"`) for a sweep; what they find becomes
-incidents, shown to the user and handed to the partner. The word below comes only from a board without a supervisor.
+incidents, shown to the user and judged by the supervisor's chat (signals change 6). The word below comes only from a board
+without a supervisor.
 The note `The board's sync check at HH:MM: what it could not fix itself` still comes to you (act on it as below), and
 so does the board's `start "<supervisor>"` when its chat does not run: start it by its session id, as any chat.
 

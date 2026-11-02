@@ -317,6 +317,11 @@ per worker and task. The give-back is the flow's server move "the board gives it
 project's older flow.json without it gives nothing back, and the board says so once in board.log.
 `supervisorModel` (`"sonnet"` or `"opus"`, `"sonnet"` unless set) and `supervisorEffort` (a level of the app's, `"low"` unless
 set): what the Supervisor's chat runs at; the board holds it there by code, the way it sets a worker's chat (T7.5).
+`supervisorJudgeEffort` (a level of the app's, `"medium"` unless set): what the Supervisor's chat runs at while it judges
+incidents (signals change 6: every incident goes to it, one judge word at a time, never to the Advisor).
+`incidentGoneMinutes` (60 unless set, a number above 0): an incident of a code rule closes itself (gone) once its rule has
+not found it for this many minutes of the board's running time while the rule looked; one with a fix step is fixed once
+that step is done and it is not seen as long.
 `providers` (T9.3, the defaults below unless set): who provides each kind of asset, an object from asset kind (`visual`, `music`,
 `sound effect`) to a provider's name: `{ "visual": "codex", "music": "person-suno", "sound effect": "sound-library" }`.
 `codex` makes pictures by itself, `person-suno` is you making music in Suno, `sound-library` is a folder of sounds in
@@ -331,18 +336,20 @@ Design tab's "Asset providers" shows, for each kind, its provider and whether it
 number above 0. (`unknownMinutes`, `notRunningMinutes` and `reportMinutes` are still read but unused since signals change
 3: their rules are retired, the board's own timers act on a holder that stopped; see `resumeAfterMinutes`.)
 `supervisorSweepMinutes` (10 unless set): the soonest the board wakes the supervisor's chat again for a sweep while work
-runs (a chat works or a step is taken or in progress; never while you pause all, at a full limit, or while the last sweep
-runs); 0 for no sweep by the clock (Check now still sweeps). A sweep by the clock runs only when something odd is new since
-the last one: a line the health summary marks "!" that the last sweep did not have (compared without times and minute
-counts), or a rule that is tripped and was not then; otherwise the section says "nothing odd since the last sweep".
-`supervisorSweepAtLeastHours` (4 unless set; a number above 0): the safety net, a sweep at least this often while work
-runs, whatever the board looks like. Check now always sweeps. A sweep costs a few tens of thousands of tokens, mostly
+runs (a chat works or a step is taken or in progress; never while you pause all, at a full limit, while the last sweep
+runs or while it judges incidents); 0 for none by itself (Check now still sweeps). Since signals change 6 never by the
+clock: a sweep starts only on a trigger: a line the health summary marks "!" that no rule owns and the last sweep did not
+have (compared without times and minute counts), the daily read (the first look after 09:00 when none ran in 24 hours), or
+a limit reading near a stop that is old; otherwise the section says "nothing odd since the last sweep".
+`supervisorSweepAtLeastHours` (0 unless set: none): a safety net, a sweep at least this often while work runs, whatever
+the board looks like. Check now always sweeps. A sweep costs a few tens of thousands of tokens, mostly
 cached (in practice 160,000 to 250,000 with the chat's own context); the supervisor's section shows each sweep's tokens and
 the day's sum, so raise the minutes to save tokens.
 The supervisor's section counts a rolling 24 hours, nothing to set: its head, folded or open, reads "Supervisor · 22 open ·
-1 found in 24 h", and the open section starts its note with "Last 24 h: 1 found (21 the 24 h before), 12 fixed. Open: 0 in
-work, 22 with the Advisor." Found is what opened or came back in the last 24 hours, with the same count for the 24 hours
-before in brackets. Open is every incident not fixed (in work and with the Advisor together) whatever its age (an open one
+1 found in 24 h · 3 gone by themselves", and the open section starts its note with "Last 24 h: 1 found (21 the 24 h before),
+12 fixed (3 gone by themselves). Open: 0 in work, 22 with the Supervisor." Found is what opened or came back in the last 24
+hours, with the same count for the 24 hours before in brackets; gone by themselves is what closed itself (not seen for an
+hour) with no fix step. Open is every incident not fixed (in work and with the Supervisor together) whatever its age (an open one
 never drops out of sight), and the section lists them; only fixed counts the last 24 hours. The older setting `supervisorCountFrom` (a start time) is gone; a config.json that still
 has it starts as before and the board ignores it.
 

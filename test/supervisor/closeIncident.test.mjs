@@ -37,34 +37,35 @@ async function store(t) {
 const head = (item, key) => item.head.get(key)
 const finding = (more = {}) => ({ rule: 'stale-suspended', key: 'stale-suspended Painter', subject: 'Painter', text: 'Painter unknown for 11 min', evidence: 'state unknown since 08:49', ...more })
 
-test('the partner closes an open incident with a why: State closed, Since now, the why and who in its History', async t => {
+// Signals change 6 (B915, Addendum 7): the Supervisor closes an incident (one owner per alarm), not the partner.
+test('the Supervisor closes an open incident with a why: State closed, Since now, the why and who in its History', async t => {
   const s = await store(t)
   await recordFindings([finding()], { work: s.board })
   s.tick(5)
-  const closed = await s.chat('Partner', { action: 'drop', id: 'X1', why: 'a false alarm: the chat was only slow' })
+  const closed = await s.chat('Watcher', { action: 'drop', id: 'X1', why: 'a false alarm: the chat was only slow' })
   assert.equal(closed.ok, true)
   const x1 = await s.item('X1')
   assert.deepEqual([head(x1, 'State'), head(x1, 'Since')], ['closed', '2026-10-24 09:05'])
-  assert.match(x1.sections.get('History').at(-1), /Partner: closed: a false alarm: the chat was only slow$/)
+  assert.match(x1.sections.get('History').at(-1), /Watcher: closed: a false alarm: the chat was only slow$/)
   // With no why it is refused; the incident stays as it was.
   const s2 = await store(t)
   await recordFindings([finding()], { work: s2.board })
-  assert.equal((await s2.chat('Partner', { action: 'drop', id: 'X1', why: '' })).ok, false)
+  assert.equal((await s2.chat('Watcher', { action: 'drop', id: 'X1', why: '' })).ok, false)
   assert.equal(head(await s2.item('X1'), 'State'), 'open')
 })
 
-test('an incident with the advisor or one that came back can be closed too; one being fixed, fixed or closed already is refused with a line', async t => {
+test('an incident with the supervisor or one that came back can be closed too; one being fixed, fixed or closed already is refused with a line', async t => {
   const s = await store(t)
   await recordFindings([finding()], { work: s.board })
-  await s.board({ action: 'incident-told', id: 'X1', to: 'Partner' })
-  assert.equal(head(await s.item('X1'), 'State'), 'with the advisor')
-  assert.equal((await s.chat('Partner', { action: 'drop', id: 'X1', why: 'handled already' })).ok, true)
-  assert.equal((await s.chat('Partner', { action: 'drop', id: 'X1', why: 'again' })).status, 409, 'closed already')
+  await s.board({ action: 'incident-told', id: 'X1', to: 'Watcher' })
+  assert.equal(head(await s.item('X1'), 'State'), 'with the supervisor')
+  assert.equal((await s.chat('Watcher', { action: 'drop', id: 'X1', why: 'handled already' })).ok, true)
+  assert.equal((await s.chat('Watcher', { action: 'drop', id: 'X1', why: 'again' })).status, 409, 'closed already')
 
   // Being fixed: refused, and it stays being fixed.
   await recordFindings([finding({ key: 'k2', text: 'Two' })], { work: s.board })
-  await s.chat('Partner', { action: 'incident-fix', id: 'X2', fix: 'B12' })
-  const fixing = await s.chat('Partner', { action: 'drop', id: 'X2', why: 'no fault left' })
+  await s.chat('Watcher', { action: 'incident-fix', id: 'X2', fix: 'B12' })
+  const fixing = await s.chat('Watcher', { action: 'drop', id: 'X2', why: 'no fault left' })
   assert.equal(fixing.ok, false)
   assert.equal(fixing.status, 409)
   assert.match(fixing.why, /X2.*fix/)
@@ -73,22 +74,23 @@ test('an incident with the advisor or one that came back can be closed too; one 
   // Fixed: refused.
   s.tick(10)
   await s.person({ action: 'tick', id: 'B12' })
-  await s.board({ action: 'incidents-fixed' })
+  // Signals change 6: fixed once its step is done and its key went unseen (the supervisor's loop, `incident-gone`).
+  await s.board({ action: 'incident-gone', fixed: [{ id: 'X2', notSeenSince: NOW }] })
   assert.equal(head(await s.item('X2'), 'State'), 'fixed')
-  assert.equal((await s.chat('Partner', { action: 'drop', id: 'X2', why: 'no fault left' })).status, 409)
+  assert.equal((await s.chat('Watcher', { action: 'drop', id: 'X2', why: 'no fault left' })).status, 409)
 
   // Came back: can be closed.
   s.tick(10)
   await recordFindings([finding({ key: 'k2', text: 'Two' })], { work: s.board })
   assert.equal(head(await s.item('X2'), 'State'), 'came back')
-  assert.equal((await s.chat('Partner', { action: 'drop', id: 'X2', why: 'a false alarm' })).ok, true)
+  assert.equal((await s.chat('Watcher', { action: 'drop', id: 'X2', why: 'a false alarm' })).ok, true)
   assert.equal(head(await s.item('X2'), 'State'), 'closed')
 })
 
-test('only the partner closes an incident; a step is still dropped as before', async t => {
+test('only the Supervisor closes an incident (the Advisor is refused now); a step is still dropped as before', async t => {
   const s = await store(t)
   await recordFindings([finding()], { work: s.board })
-  for (const chat of ['Painter', 'Watcher']) assert.equal((await s.chat(chat, { action: 'drop', id: 'X1', why: 'a false alarm' })).ok, false, chat)
+  for (const chat of ['Painter', 'Partner', 'Lead']) assert.equal((await s.chat(chat, { action: 'drop', id: 'X1', why: 'a false alarm' })).ok, false, chat)
   assert.equal(head(await s.item('X1'), 'State'), 'open')
   assert.equal((await s.person({ action: 'drop', id: 'B12', why: 'not needed' })).ok, true)
   assert.equal(head(await s.item('B12'), 'State'), 'dropped')
@@ -99,7 +101,7 @@ test('a closed incident seen again for a case that began before the close only c
     const s = await store(t)
     await recordFindings([finding({ since: NOW - 30 * MIN })], { work: s.board })
     s.tick(10)
-    await s.chat('Partner', { action: 'drop', id: 'X1', why: 'a false alarm' })
+    await s.chat('Watcher', { action: 'drop', id: 'X1', why: 'a false alarm' })
     s.tick(3)
     return s
   }
@@ -128,17 +130,17 @@ test('a closed incident seen again for a case that began before the close only c
 test('no fix step can be named for a closed incident, and the board leaves it closed', async t => {
   const s = await store(t)
   await recordFindings([finding()], { work: s.board })
-  await s.chat('Partner', { action: 'drop', id: 'X1', why: 'a false alarm' })
-  assert.equal((await s.chat('Partner', { action: 'incident-fix', id: 'X1', fix: 'B12' })).status, 409)
+  await s.chat('Watcher', { action: 'drop', id: 'X1', why: 'a false alarm' })
+  assert.equal((await s.chat('Watcher', { action: 'incident-fix', id: 'X1', fix: 'B12' })).status, 409)
   assert.deepEqual((await s.board({ action: 'incidents-fixed' })).result.fixed, [])
   assert.equal(head(await s.item('X1'), 'State'), 'closed')
 })
 
-test('a closed incident is kept like a fixed one in the lists, and its card says closed, not "sending to the Advisor"', async t => {
+test('a closed incident is kept like a fixed one in the lists, and its card says closed, not "sending to the Supervisor"', async t => {
   const s = await store(t)
   await recordFindings([finding()], { work: s.board })
   await recordFindings([finding({ key: 'k2', text: 'Two' })], { work: s.board })
-  await s.chat('Partner', { action: 'drop', id: 'X1', why: 'a false alarm' })
+  await s.chat('Watcher', { action: 'drop', id: 'X1', why: 'a false alarm' })
   const items = await s.items()
   assert.deepEqual(incidentsOf(items, NOW).map(one => [one.id, one.state]).sort(), [['X1', 'closed'], ['X2', 'open']])
   // Three days after it was last seen it leaves the list, as a fixed one does.
@@ -155,7 +157,7 @@ test('a reopened closed incident says its old case outlived the close, not a fix
   const s = await store(t)
   await recordFindings([finding({ since: NOW - 30 * MIN })], { work: s.board })
   s.tick(10)
-  await s.chat('Partner', { action: 'drop', id: 'X1', why: 'a false alarm' })
+  await s.chat('Watcher', { action: 'drop', id: 'X1', why: 'a false alarm' })
   s.tick(120)
   await recordFindings([finding({ since: NOW - 30 * MIN })], { work: s.board })
   const x1 = await s.item('X1')

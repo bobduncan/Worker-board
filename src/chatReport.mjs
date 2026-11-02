@@ -147,6 +147,19 @@ export function laneWithoutReport({ cardMod, cardAt = null, boardStartedAt, now,
   return now - from >= offAfterMs ? { state: 'off', isRunning: false, why: 'unreported' } : { state: 'unknown', isRunning: null }
 }
 
+/**
+ * B930 (X131, X109): how many pieces of background work a chat started still run, from one source for the clear's refusal
+ * (server.mjs save-log), the hold's release (work/handover.mjs) and the lane (state.mjs, read by say.mjs's B739 line): its
+ * mod's report (`report`, `{ state, background, at, session }`) while it is idle, of this session and no older than
+ * `freshMs` (the mod keeps the ids of what it started and stopped: 1 or 0), else what `transcript()` counts (called only
+ * then; it may answer a promise). A busy or asking report says nothing of the background (the mod sends it for idle only).
+ */
+export function backgroundOf(report, { session = null, now, freshMs, transcript }) {
+  const isFresh = report !== null && report !== undefined && report.state === 'idle' && Number.isFinite(report.at) && now - report.at <= freshMs
+    && (session === null || report.session === undefined || report.session === session)
+  return isFresh ? (report.background === true ? 1 : 0) : transcript()
+}
+
 /** Whether a Workers mod of this version reports its turn state: at least REPORT_MOD. */
 export function modReports(version) {
   const mine = versionOf(version)

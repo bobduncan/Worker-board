@@ -44,8 +44,9 @@ import { holdsRefine, isBlockWritten } from './work/refineWait.mjs'
 import { recapsOf } from './work/recap.mjs'
 import { isHolding, pauseAnswer, pauseFacts } from './work/pause.mjs'
 import { reconcile } from './work/reconcile.mjs'
-import { effortPlan, runSettings } from './work/effort.mjs'
+import { EFFORTS, effortPlan, runSettings } from './work/effort.mjs'
 import { supervisorEffortWord, supervisorRun, supervisorSetting } from './work/supervisorEffort.mjs'
+import { isJudging } from './work/judgeWord.mjs'
 import { OWNER_LABEL, OWNER_SETTING, talkPartnerOf } from './talkPartner.mjs'
 import { enforcementReadiness } from './work/routing/capabilities.mjs'
 import { routingHolds } from './work/routing/assignments.mjs'
@@ -66,7 +67,7 @@ import { givenBackFrom } from './work/holderTimers.mjs'
 import { countsOf, statusOf } from './chatStatus.mjs'
 import { factsOf } from './work/handoverBoard.mjs'
 import { stoppedOf } from './stopped.mjs'
-import { laneFromReport, laneWithoutReport, modReports } from './chatReport.mjs'
+import { backgroundOf, laneFromReport, laneWithoutReport, modReports } from './chatReport.mjs'
 import { backgroundRunning, conversation, doingNow, finishedBetween, saysUnfinished, parseTail, saysDone, taskOrigin, turnEnded, turnStart, turnState, unanswered, waitingFor } from './transcript.mjs'
 
 const MIN = 60_000
@@ -608,7 +609,11 @@ function card(chat, raw, { now, aliveAt = null, config, last, lines, main, prefi
   // B290: the app counts the main chat as waiting after every answer; that ended turn is free, and its own card does not
   // hold it either, as the main chat reports to nobody.
   const isMainIdle = chat.isMain && appState === 'waiting' && turn === 'ended'
-  const background = entries === null ? 0 : backgroundRunning(entries)
+  // B930: one source with the clear's refusal and the hold's release: its mod's fresh idle report, else the transcript.
+  const background = backgroundOf(reported?.entry ?? null, {
+    session: chat.cliSessionId ?? null, now, freshMs: (Number.isFinite(config.unknownAfterSeconds) ? config.unknownAfterSeconds : 30) * 1000,
+    transcript: () => (entries === null ? 0 : backgroundRunning(entries)),
+  })
   // Partner answers, the review's findings: a chat whose blocking ask waits for the partner's answer waits for the
   // partner, not for the person: held between two turns, its lane says so (`waitsForPartner`).
   const forPartner = waits.partner?.get(chat.name.toLowerCase()) ?? []
@@ -2223,7 +2228,10 @@ function builtState(raw, { lines = [], outbox = [], runs = [], board = null, see
   if (efforts) efforts.words = efforts.words.filter(word => chats.find(lane => lane.name === word.chat)?.onSequence !== true)
   // T7.5 (the person, 2026-10-28: "do B"): the Supervisor's chat is held at its own setting (`supervisorModel`, `supervisorEffort`:
   // Sonnet, low), by the same word and the same half-hour dedupe as a worker's: the plan above skips it, so its word is added.
-  const supervisorWants = supervisorSetting(config)
+  // Signals change 6 (B915, Addendum 7): while it judges incidents (a judge word in flight, or an incident waiting for one:
+  // work/judgeWord.mjs), at its judging effort (`supervisorJudgeEffort`, medium); its sweeps stay at its own (low).
+  const judging = workOk && supervisorLane !== null && supervisorLane !== undefined && isJudging({ items: raw.work.items, outbox: sent, to: supervisorLane.name, now })
+  const supervisorWants = judging ? { ...supervisorSetting(config), effort: EFFORTS.includes(config.supervisorJudgeEffort) ? config.supervisorJudgeEffort : 'medium' } : supervisorSetting(config)
   const supervisorWord = efforts === null ? null : supervisorEffortWord({ lane: supervisorLane, setting: supervisorWants, models: runSettings(config).models, sent, now, main: isBridgeMissing === true ? null : main?.name ?? null, prefix })
   if (supervisorWord !== null) efforts.words.push(supervisorWord)
   // The Product owner (2026-10-31): held at Opus, medium by code, by the same word and dedupe as the Supervisor's (src/talkPartner.mjs).

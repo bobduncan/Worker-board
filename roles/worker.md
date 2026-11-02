@@ -73,7 +73,7 @@ into your chat, are in `protocol.md` beside this file: keep to them, or the boar
   in the store: your checkpoint (`work step` with `commit` and `next`), the report itself (what the user gets now,
   where the work is), and every question for the user as an ask (`work ask`). A question left only in your answer's
   words keeps you from being cleared, and so does a subagent or background command still running when your turn ends
-  (B739: after your report the board types you one line about it, once: `B<n> is reported; your background work still runs:
+  (one you stopped with TaskStop no longer counts, B930; B739: after your report the board types you one line about it, once: `B<n> is reported; your background work still runs:
   stop it or wait for it, then end your turn`; do that, and you are cleared).
 - Write to the user as the project's `CLAUDE.md` says, when it has one, else as the board's `examples/CLAUDE.md` says (a
   new project gets it as its own, B320). The board reads your answer's closing block
@@ -111,7 +111,8 @@ step therefore says what it touches ("Touches: ...").
   subfolder logs?").
 - The step's end, before `work report`: remove its worktree. First stop everything you started in it: your test server,
   and every background command and monitor of yours still running (a Monitor's `sleep` or `until` loop, a background
-  gate or test run, a command moved to the background after its timeout: stop each with TaskStop). Each one keeps the
+  gate or test run, a command moved to the background after its timeout: stop each with TaskStop; the board counts a stopped
+  one ended, B930). Each one keeps the
   worktree as its working folder, and Windows refuses that folder for as long as it runs: past your report and past a
   restart of your chat (B844: B821's folder stayed busy 20 minutes, held by its chat's own `sleep 1500` monitor). Then
   leave it: `cd` to the main checkout in a command of its own, so your chat's working folder is no longer the worktree
@@ -260,10 +261,10 @@ their words (*What is wrong*, *What was expected*, *Where*) and their screenshot
 - Never report a step before its work is merged (2026-10-31, B799): a report whose work sits on a branch that is not merged
   comes back with "Your work for B<id> is on branch <name> (<n> commits) but not on main: merge it into main, then report
   again." (the step shows "not merged yet: back with <you>"; no Check again button for the person).
-- When the board does not answer (the work tool says so), wait a minute, and if it still does not, tell the Supervisor chat
-  with `mcp__ccd_session_mgmt__send_message` (its session id is in the list of chats, `mcp__workers__chat` action
-  `list`) and go on with your step; never ask the person to start the board (the person, 2026-10-31: "asking me when the
-  board is off is suppose to be reported to the supervisor"). The Supervisor starts it and tells you.
+- When the board does not answer (the work tool says so), wait a minute and try again: its keeper starts the board again
+  by itself, and your Workers mod starts one when none answers (signals change 5). Go on with your step meanwhile; never
+  ask the person to start the board, and never message the Supervisor about it (since signals change 6 it no longer starts
+  the board: it sweeps and judges incidents).
 - The backlog file is the board's view of the store: read it, never edit it.
 - The user sees a picture of every visible change before it counts as done: put it in the project's picture folder
   (the first of the board's `pictureRoots`), in the folder of its subject, and show it in your chat. A step that

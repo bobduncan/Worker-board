@@ -80,7 +80,7 @@ test('new with priority fix marks the step a board fix: the main chat, the partn
     assert.deepEqual([...(await item(dir, id)).head.keys()].slice(0, 4), ['Id', 'Kind', 'Title', 'Priority'])
     assert.equal((await advisor({ action: 'new', title: 'The board shows twice', activity: 'Board work', priority: 'fix' })).ok, true)
     assert.equal((await person({ action: 'new', title: 'The page is blank', activity: 'Board work', priority: 'fix' })).ok, true)
-    assert.deepEqual(await board({ action: 'new', title: 'Mine', activity: 'Board work', priority: 'fix' }), { ok: false, status: 403, why: 'Only the main chat, the partner or the person marks a step as a board fix.' })
+    assert.deepEqual(await board({ action: 'new', title: 'Mine', activity: 'Board work', priority: 'fix' }), { ok: false, status: 403, why: 'Only the main chat, the partner, the Supervisor or the person marks a step as a board fix.' })
     assert.deepEqual(await main({ action: 'new', title: 'Other', activity: 'Board work', priority: 'high' }), { ok: false, status: 400, why: '"priority" is fix, or left out.' })
     // Redesign Part 2: Main's queue is gone (a fix is marked when it is made); the board gives a fix first.
     assert.equal((await main({ action: 'queue', id: 'B5', for: 'Board', priority: 'fix' })).status, 410)

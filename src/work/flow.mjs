@@ -49,8 +49,10 @@ export const flowHandsOut = flow => (flow?.step?.moves ?? []).some(move => move.
 /** The states of the kinds the flow does not hold: an ask, an instruction, a note (spec section 3), an incident. */
 const FIXED_STATES = {
   ask: ['open', 'answered', 'withdrawn'], instruction: ['open', 'closed'], note: ['unread', 'read'],
-  // The supervisor (spec 2026-10-24): an incident's states ("fix" while its Fix step is under way, shown "fix B<n>").
-  incident: ['open', 'with the advisor', 'fix', 'fixed', 'came back', 'closed'],
+  // The supervisor (spec 2026-10-24): an incident's states ("fix" while its Fix step is under way, shown "fix B<n>"). Signals
+  // change 6 (B915): "with the supervisor" (its judge word arrived; "with the advisor" stays readable for the records before
+  // the change) and "gone" (not seen for an hour of running time: it closed itself).
+  incident: ['open', 'with the supervisor', 'with the advisor', 'fix', 'fixed', 'came back', 'closed', 'gone'],
 }
 
 const byList = by => (Array.isArray(by) ? by : [by])

@@ -34,6 +34,7 @@ import { answerReport, answerWhoami, bridgeNote, checkTake, checkTyped, clearRef
 import { cardFiledUnder } from './src/chatCards.mjs'
 import { hasMoved } from './src/chatReport.mjs'
 import { chatLogKeeper, isReadOut, leftSubjects } from './src/chatLogs.mjs'
+import { backgroundOf } from './src/chatReport.mjs'
 import { findCodex, makePicture } from './src/codex.mjs'
 import { checkSetting, panelSettings, rebuildsApproved, settingChanged } from './src/boardSettings.mjs'
 import { mainAskWords } from './src/work/autopilot.mjs'
@@ -105,7 +106,7 @@ import { deliverWork, mayWake, pullFor, sendOnce } from './src/work/deliver.mjs'
 import { HANDOVER_COMMAND, onSequence, outcomeOf } from './src/work/handover.mjs'
 import { handOut, handOver, handoverPass, inTurn as handoverTurn, settle as settleEnvelope } from './src/work/handoverBoard.mjs'
 import { coalesce } from './src/work/again.mjs'
-import { REFUSED_MS, SUPERVISOR_RULES, createSupervisor, incidentCards, loopGate, loopOwner, tokensOfTurn, wordJudge } from './src/supervisor/index.mjs'
+import { REFUSED_MS, SUPERVISOR_RULES, SUPERVISOR_RULE_KEYS, createSupervisor, incidentCards, loopGate, loopOwner, tokensOfTurn, wordJudge } from './src/supervisor/index.mjs'
 import { FILES as WORKTREE_FILES, cleanLeftover, findLeftovers, stepLeftovers } from './src/work/worktrees.mjs'
 import { followRenames } from './src/work/rename.mjs'
 import { standardHold } from './src/work/standardHold.mjs'
@@ -1469,6 +1470,8 @@ async function main(args) {
       readyHeld: state.readyList?.held ?? null,
       // B878: the steps the goals' recaps show, so a step whose part waits for the person's verdict says so in work next and list.
       recaps: state.recapWaits ?? null,
+      // Signals change 6 (B915 4b.4): the first words of the keys the code rules file: a sweep's finding under one is refused.
+      ruleKeys: SUPERVISOR_RULE_KEYS,
       // B775: the facts the obsolete check hands the Advisor for each open item: its step, the commits naming it since, its chat.
       obsoleteEvidence: async (open, items) => obsoleteEvidence(open, {
         // 2026-11-02: every chat of the roles map (the Advisor, Supervisor and Product owner too), with what it holds by the store.
@@ -2114,15 +2117,22 @@ async function main(args) {
     lastLogAt = clock()
     loggedAt.set(String(checked.chat), lastLogAt)
     const session = String(body.session ?? '').trim()
-    const refused = clearRefusal(state, checked.chat, await backgroundOf(session))
+    const refused = clearRefusal(state, checked.chat, await backgroundNow(checked.chat, session))
     if (refused !== null) return refused
     return chatLogs.save({ chat: checked.chat, session, step: body.stepId })
   }
-  /** How many things a chat's session started in the background still run, by its transcript's tail; 0 when unread. */
-  const backgroundOf = async session => {
-    const tail = /^[A-Za-z0-9_-]{1,120}$/.test(session) ? await readTail(join(config.transcripts, `${session}.jsonl`)) : null
-    return tail === null ? 0 : backgroundRunning(parseTail(tail.text, tail.isCut))
-  }
+  /**
+   * How many things a chat's session started in the background still run. B930 (X131): from the one source the hold's
+   * release and the lane read too (chatReport.mjs `backgroundOf`): its mod's fresh idle report, else its transcript's tail
+   * (0 when unread).
+   */
+  const backgroundNow = (chat, session) => backgroundOf(reports?.get(chat) ?? null, {
+    session, now: clock(), freshMs: (Number.isFinite(config.unknownAfterSeconds) ? config.unknownAfterSeconds : 30) * 1000,
+    transcript: async () => {
+      const tail = /^[A-Za-z0-9_-]{1,120}$/.test(session) ? await readTail(join(config.transcripts, `${session}.jsonl`)) : null
+      return tail === null ? 0 : backgroundRunning(parseTail(tail.text, tail.isCut))
+    },
+  })
   /**
    * T8.5 (spec 2026-10-31, part 4): whether the chat that calls is a worker on the sequence: the one predicate
    * (handover.mjs `onSequence`), with the version its mod says in this very call. Its lane, or null for none.
@@ -2395,7 +2405,8 @@ async function main(args) {
       const supervised = supervisor === null ? null : supervisor.view(clock(), {
         items: stored?.ok === true ? stored.items : null,
         lanes: [...(state.chats ?? []), ...(state.advisor ? [state.advisor] : []), ...(state.advisorHelper ? [state.advisorHelper] : [])],
-        partner: state.advisor?.name ?? null,
+        // Signals change 6: the Supervisor judges the incidents; its chat's name for the cards' words.
+        supervisor: state.supervisorChat?.name ?? null,
         flow: stored?.ok === true ? stored.flow : null,
       })
       // 2026-10-28: the Advisor's "Next for it" ends with the steps the board will ask it to refine next (only the board holds the refine gate).
@@ -3635,7 +3646,8 @@ async function main(args) {
           // Signals change 4: a chat that does not run is woken by the wake procedure (src/wake.mjs), no start word.
           return { ok: true, id: message.id, started: false, copied: isCopied }
         },
-        partnerJob: join(HERE, 'roles', 'partner.md'),
+        // Signals change 6 (B915 4b.1): the judge word's record says when the Supervisor's turn after it ended (`endedAt`).
+        markWord: (id, fields) => store.update(id, fields),
         // The review: how long a word waits in the outbox before it is lost, as the outbox keeps it.
         keep,
         // The supervisor's Part 2: the sweep of the supervisor's chat (the list of chats' "supervisor").

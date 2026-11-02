@@ -3643,7 +3643,7 @@ stuck that day was found by the person. They are now one list in the board, each
 | `closed-worker` | (B722, B728) a ready task waits, no running worker is free, and a worker's chat is closed (by its card "off", or "free" and known not to run: shown "Not running" everywhere, never "Free" or "Available"), and the hand-out's start word for it (`workerStart`, below) went 10 min ago | starts nothing: the one wake is that start word. Files for the main chat, once: "B<n> waits; Worker <n> is closed and does not wake" (For Main); the worker closed longest first (lanes with an off time, then by name); not while the person pauses or a limit is full, a worker paused for the limit is `limit-back`'s, one holding a step `holder-not-running`'s |
 | `partner-ask` | an ask routed to the partner open 10 min with no line about it in that time (the partner was busy) | the partner woken, busy or not (Woke) |
 | `refine-again` | (T9.4) a step still new whose refine word the Advisor took (arrived) 30 min ago or more, with no block written since, none waiting for the person's answers, the board not stopped on it (`refineStop`), not a fix | the Advisor woken with the same word, every 30 min, three times (Woke); then one note to the person (Sent) |
-| `incident-again` | (T9.4) an incident "with the advisor" for 30 min or more, with no fix named and not closed | the Advisor woken with the incident's word, every 30 min, three times (Woke); then one note to the person (Sent) |
+| `incident-again` | (T9.4; signals change 6, B915) an incident "with the supervisor" for 2 h or more (the pause not counted), with no fix named and not closed | one note to the person (Sent), once; no asks again since change 6 |
 | `worktrees` | a worktree of a repository the board knows, or an empty folder one left in the project folder (2026-10-24) | removed by the board when safe (Cleaned); else listed with why (Left), no chat told: "Worktree clean-up" below |
 
 - **At its take** (B542, X10): a step's `Blocked by` loses the steps done, dropped or in review, and a `Waits for` whose
@@ -3917,12 +3917,13 @@ the AI sweep by a cheap supervisor chat and the hand-over to the Advisor, comes 
   (`seen`), the repairs of the last day (`repairs`, for `repair-repeats`) and when each rule tripped (`trips`). Read at
   every run, as `sync.json` is, so a restart or another board taking the loop over goes on from it. `sync.json` and
   `sync-loop.json` keep their form.
-- **Incidents** are items of the work store, `X<n>` (`src/work/item.mjs`): Title, State (open, with the advisor, fix,
-  fixed, closed, came back; "fix" is shown "fix B<n>"; B685: "closed" is the partner's `work drop X<n>` with a why for a
+- **Incidents** are items of the work store, `X<n>` (`src/work/item.mjs`): Title, State (open, with the supervisor (with the
+  advisor before signals change 6), fix, fixed, closed, gone (change 6: not seen for an hour of running time), came back;
+  "fix" is shown "fix B<n>"; B685: "closed" is the Supervisor's (the partner's before change 6) `work drop X<n>` with a why for a
   false alarm or one handled already, counted as fixed, left out of the health summary, and a sighting of a case newer
   than the close makes it "came back"), Source (the rule's id, or "sweep"), Subject, Key, Since, First seen,
   Last seen, Count, Fix, Rule wanted, Evidence. The work API: `incident` (the board, or a chat of role supervisor: Source
-  "sweep" and the rule that could catch it), `incident-fix` (the partner: the step that fixes it), `incidents-fixed`
+  "sweep" and the rule that could catch it), `incident-fix` (the Supervisor since change 6: the step that fixes it), `incidents-fixed`
   (the board's reconcile: fixed once that step is done, open again when it was dropped). A chat of role supervisor
   only reads and files incidents. After each run the loop files its findings (`recordFindings`): a new key opens one,
   the same key only counts it (Count and Last seen, no History line: an hour of a lasting problem is one record with
@@ -3999,6 +4000,9 @@ the AI sweep by a cheap supervisor chat and the hand-over to the Advisor, comes 
 - Tests: `test/supervisor/` (boundary, component, selfCheck, watch, incidents, page), `test/outOfSync.test.mjs`.
 
 ## The supervisor, part 2 (2026-10-24): the sweep and the hand-over
+
+> Since signals change 6 (B915, 2026-11-02) the sweep runs only on a trigger, the hand-over goes to the Supervisor (a judge
+> word), not the partner, and an incident closes itself when it went: see "Alarms from code first (change 6)".
 
 Part 2 (T7.3) of the supervisor (spec and plan as part 1's): the AI for the gaps the code rules leave, at as few tokens as
 it can. The person: "It just needs to observe, periodically, not consume a lot of tokens."
@@ -4145,6 +4149,97 @@ it can. The person: "It just needs to observe, periodically, not consume a lot o
   board word starts the main chat (the review). The merging worker of a mod change runs the CLI's marketplace update and
   plugin update once (roles/worker.md); the person restarts nothing. Tests: `test/modRollout.test.mjs`,
   `test/oldMods.test.mjs`, `test/supervisor/watch.test.mjs`.
+
+## Alarms from code first (change 6, B915, 2026-11-02)
+
+The person's yes of 2026-11-02 (after "think twice about removing the supervisor"): code first, the Supervisor kept for what
+no rule names and as the one judge of alarms. Before it, an incident counted as fixed once its fix step was done, each cost
+the Advisor a turn (and three asks again), and clock sweeps (~216k tokens each) found nothing new since X99 (28 Oct). The
+lead's brief (`.claude/plans/2026-11-02-alarms-code-first-brief.md`), its code check with the lead's ten decisions, and the
+build brief bind; the parts below replace what the older parts of this file say about the same things.
+
+- **Gone by code** (`src/supervisor/gone.mjs`, pure `goneOf`, `gonePlan`): an incident of a rule closes itself (state
+  `gone`, History "gone by itself: not seen since HH:MM (60 min of running time)") once its key was absent for
+  `incidentGoneMinutes` (60) of the board's running time, counting only runs in which its rule looked: a rule that throws
+  (`failed`) or that does not look for a pause or a full limit (`skips(view)` on the rule, the run's state `skipped`,
+  `loop.mjs runRules`) adds nothing, and the board's off time (the history's gap lines) is subtracted. The loop keeps each
+  rule's runs as run-length spans (`withRun`, the supervisor's memory `runs`, three days, 200 spans), and the incident's
+  Last seen is when it was last found; what the supervisor did not watch (before its first kept span) counts for nothing.
+  After each run (`index.mjs goneNow`) the board's own action `incident-gone` closes what went. A sweep's incident (no
+  rule) never goes gone. The event rules with a look window (board-slow, undelivered, repair-repeats,
+  handover-unanswered, skip-repeats, obsolete-wrong) need no case: their finding leaves the list at the window's end, so
+  they are gone at window + 60 min. The same key found again comes back ("came back", Count, Last seen).
+- **Fixed** (the lead's decision 3): an incident in `fix` is never gone while its fix step stands; it is fixed (by
+  `incident-gone` too) once that step is done AND its key went unseen for the same 60 min (X117: B883 done 14:00, last
+  seen 13:47: fixed at 14:47). A done step whose key is still found keeps it in `fix`; found again after the step was done
+  it came back, unless its case began before (B584's old case, two hours). `incidents-fixed` (the reconcile) still opens
+  one whose step was dropped, and fixes a sweep's incident on its done step alone.
+- **Stable keys** (rule + subject only): stale-checkpoint (`stale-checkpoint B670`, X75), review-held (the chain's first
+  step; the hold's why stays in the watch's own timing key), undelivered (also for a stopped chat), effort-mismatch
+  (`effort-mismatch Worker 4`, X110). Their open incidents under the old forms are re-keyed by `rekey.mjs KEY_MIGRATIONS`
+  (one entry per changed form). Other keys with a time or free text stay: skip-repeats' reason and odd-effort's words
+  are part of their case; chain-long's newest fix is a new patch; wake-failed's spell and handover-held's report are
+  change 4's.
+- **No fix step by the board**: incident-again's asks again at 30, 60 and 90 min retire; its one note to the person stays,
+  re-aimed: "has been with the Supervisor for over 2 hours without a close or a fix". The repair `fix-dropped` (a note to
+  Main) retires (`RETIRED_RULES`); the watch rule `dropped-fix` files the same dropped fix once (X116, X117 gave an
+  incident and a note each).
+- **Sweeps only on a trigger** (the lead's decision 5): every odd line of the health summary carries an owner
+  (`health.mjs lineOf`: the rule that watches it, `info` for no fault: a pause holding, a suspension at a full limit, a
+  queue, a step past its LONG_MS age; null when no rule names it), and `oddLines` reads the whole summary uncut. A sweep
+  starts on (a) an unowned odd line new since the last sweep, (b) Check now, (c) the daily read: the first look after
+  09:00 local while work runs when no sweep ran in 24 h, (d) an old limit reading near a stop (a lookup). The tripped-rule
+  trigger and the 4 h net go (`supervisorSweepAtLeastHours` 0 by default; a number still sets a net). The word names its
+  trigger and lists the unowned lines; the sweep log keeps `trigger` and `lines`. `supervisorSweepMinutes` stays the
+  fewest minutes between two such sweeps.
+- **The sweep's findings**: a key of its own and a rule line, or refused (400): the fallback key "sweep <subject>: <title>"
+  is gone. A key whose first word is a live rule's (`SUPERVISOR_RULE_KEYS`: the rule ids, `fix-dropped`, `rule-failed`,
+  given to the work API as `ruleKeys`) is refused (409) with one line that says to file the rule's miss as `rule-miss
+  <rule> <subject>` with how the rule must change (X74, X84, X85, X92, X94 were such misses); a key the sweep filed before
+  still counts (B571).
+- **The Supervisor judges** (the lead's decision 7, B915 4b.1): the judge word (`say.mjs judgeWords`, command and kind
+  `judge`, `src/work/judgeWord.mjs`) goes to the Supervisor's chat, never the Advisor: one at a time, listing EVERY
+  incident that waits (open or came back with the person's line filed; one with the supervisor that no judge word ever
+  listed), the next only after the Supervisor's turn after it ended. Its outbox record is the one fact: `to`, `kind`,
+  `at`, `state`, `incidents` and `endedAt` (written at that turn's end through the port `markWord`, `store.update`); one
+  arrived with no end counts 30 min at most (`JUDGE_LONGEST_MS`). The goal chat's wait line reads that record once it
+  lands; the page has no sign of its own. The incident is "with the supervisor" once the word arrived (`incident-told`).
+  No judge word while a sweep runs, and no sweep while the Supervisor judges (one thing at a time with its chat: the
+  sweep's bookkeeping never sees a judgment turn, `heard`). While it judges, state.mjs holds the chat at
+  `supervisorJudgeEffort` (medium) by the same set word as its own setting (`supervisorEffortWord`); the word waits up to
+  5 min for that setting to be read back, then goes saying it was not set (6c: an order of set before type for this chat
+  is the Workers mod's to give).
+- **Five gates** (`api.mjs`): `SUPERVISOR_MAY` holds `new`, `incident-fix` and `drop`; `new` by the Supervisor only with a
+  title "Fix of X<n>: ..." and never a `what` (the Advisor refines it as any new step); `incident-fix` is the Supervisor's
+  alone; `FIX_ROLES` holds it (priority fix); `drop` of an X id closes the incident (the Supervisor or, from the obsolete
+  check of before, the person), a step's drop is refused to it. `work list X<n>` reads one incident's whole record. The
+  Advisor is refused on all of them. Find obsolete items keeps asks and steps; incidents are the Supervisor's.
+- **The page**: the head reads "Supervisor · N open · N found in 24 h · N gone by themselves" (gone ones with no fix step,
+  of the last day); a gone card ("Gone by itself, no fix needed", each line "not seen since HH:MM") folds into the older
+  cards as a fixed one; the rules list marks the rules that own health lines ("owns its health lines").
+- **The morning-after count** (the lead's decision 10): a judgment turn's end writes its session and start on its judge word
+  (`endedAt`, `session`, `from`); 20 s later the minute look reads its tokens from the transcript (`tokens`), and the view's
+  `judgmentsToday` (`{ count, tokens }`, the page's sweep line "Judgments in 24 h: N, T tokens") stands beside `sweepsToday`.
+- **The migration** (the lead's decision 9): at every run, an incident still "with the advisor" moves to "with the
+  supervisor" with one History line (`incident-told` with `migrate`); no judge word listed it, so the next judge word lists
+  them all, once. A second run finds none.
+- **An on-and-off condition** (a design note of the review, 2026-11-02): an incident that went (gone) and is found again
+  more than 60 min of running time later comes back: the person gets a line and the Supervisor a judgment each time it
+  returns. That is meant (each return is a new case to judge), and its cost shows in the morning-after count (judgments
+  beside sweeps); a condition that flaps this way is a rule to look at, not to silence.
+- **The review's fixes** (2026-11-02): the board holds the Supervisor at the judging effort only for a judge word in flight
+  or an incident open or came back (the state's outbox keeps a delivered word 2 h, so "with the supervisor, never listed"
+  is the sweep's own check on the raw outbox, never the effort's); the judge word counts the effort set only when the
+  board's setting is the judging effort and read back; only a judge word still in flight takes a turn's end; a review line
+  late by its fix takes the fix's owner (info, owner-gone; a loop of waits stays unowned) and a stopped holder's line is
+  wake-failed's, handover-held's or the holder timers' (info); the gone pass reads the store once, with tellOwed.
+- **6c, not in it**: the Workers mod's order of a set before a typed word for the Supervisor's chat (see above); the rules'
+  thresholds and content (changes 3 to 5); the wait line itself (the goal chat builds it).
+- Tests: `test/supervisor/gone.test.mjs` (X104, X117, X93, skipped and failed runs, board-off time, the loop, the
+  action), `test/supervisor/handover.test.mjs` (the judge word, one at a time, the migration, the effort),
+  `test/supervisor/sweep.test.mjs` (8 h with no unowned line, each trigger, owners), `test/supervisor/incidents.test.mjs`
+  (the sweep's keys, the gates), `test/supervisor/askAgain.test.mjs`, `test/supervisor/reviewStuck.test.mjs` (X116),
+  `test/supervisor/page.test.mjs` (the head's three numbers, the gone card).
 
 ## The supervisor's incident cards (2026-10-24)
 
@@ -4320,11 +4415,27 @@ B739 (X91, 2026-10-27: Worker 1 reported B720 at 21:39 and ended its turn with b
 refused and its next step held, and nothing told it): the board types such a worker one line, once for each report (`reportedBackgroundDue`
 in `src/say.mjs`, the server's pass beside the resume words; command `report-background`, typed as the board's own word): `B720 is
 reported; your background work still runs: stop it or wait for it, then end your turn`. It is given while the worker's turn has ended,
-the lane's `background` count (the transcript's, what the clear is refused for) is above 0, its clear is owed with a mod that can clear,
+the lane's `background` count (what the clear is refused for: B930, one source, below) is above 0, its clear is owed with a mod that can clear,
 its step is not dropped and the person does not pause; never again for the same report (chat, step and report time), a report again is
 another. The held step and the clear after it stay as they were; a worker that ignores the line stays held, and `not-cleared` opens its
 incident after `notClearedMinutes`. Test: `test/reportedBackground.test.mjs`, and `test/reportedBackgroundBoard.test.mjs` through a
 running board.
+B930 (X131, X109, 2026-11-02: Worker 4 stopped its two background commands with TaskStop, 15:52 and 16:16; the app writes no
+notification for a stopped task, so the transcript counted both running for ever; the clear's refusal read that count and the
+hold's release the mod's report, idle with nothing in the background: 33 clears refused 16:17-16:23, each released by the next
+report, then one that failed on the board's 5-second time-out, Held with nothing to end it): (1) the transcript's count
+(`backgroundRunning`) ends a launched call when a later TaskStop (or KillShell) answer says it stopped the task id that call's
+answer named ("Command running in background with ID: <id>", "agentId: <id>"); a failed stop, or one of a task not seen here,
+ends nothing. (2) One source: the save-log refusal, the hold's release and the lane's `background` (this B739 line) read
+`chatReport.mjs` `backgroundOf`: the mod's report while it is idle, of that session and no older than `unknownAfterSeconds`
+(its flag, 1 or 0), else the transcript. A busy or asking report says nothing of the background. (3) A clear that failed on
+the board's own time-out (the mod's why "The worker board did not answer", not a refusal) is released by the worker's next
+idle report, once per step, also when the sweep closed that envelope since (X133, Worker 5 at 16:40: its task was taken back
+and the envelope dropped; its outcome still names the cause): a second time-out for the same step keeps it Held until part
+4's back-off exists, its lane saying so ("held: its clear after B<n> failed twice on the board's own time-out: held until
+its turn ends (the board does not try a third time)", `timedOutTwiceWhy`). Test:
+`test/work/stoppedBackground.test.mjs` (the real case's shapes, `fixtures/stoppedBackground.mjs`) and
+`test/stoppedBackgroundBoard.test.mjs` through a running board.
 B737 (X86, 2026-10-27: Worker 3 reported B727 at 21:02, the board's check failed at 21:03, Worker 3 rightly stayed in its
 turn to fix it; `not-cleared` counted from 21:02, and the board gave it B729 at 21:28 over the failed check): a report
 whose board check failed (the newest `server: check failed` after it, no `check passed` since) is handed back to its
@@ -4433,7 +4544,7 @@ timers. Now each chat says it (principle 3, know don't guess).
   Interrupted, never Free, so it is handed no new work ("idle with its task open" in the main chat's words); with a
   blocking ask on the person open (or the step waiting on the person) it waits. A blocking ask routed to the partner
   keeps it Working between two turns, waiting for the partner (B392: `waitsForPartner`; health counts that as no odd
-  state). Idle with background work is Working, "background work it started is still running", unless it moved a step to
+  state). Idle with background work (its report's flag; B930: the same count the clear's refusal reads) is Working, "background work it started is still running", unless it moved a step to
   review or done during its last turn (the step's Since at or after `busyAt`) and holds no other (B148). A chat that reports runs. The report takes the place of the reading of its transcript, card and timers (the turn, cut off,
   quiet, held by its card or branch). Suspended (the plan's limit) stays the board's own fact, whatever it reports.
 - **Unknown and off:** no report for `unknownAfterSeconds` (30 unless set, at least 5: the mod pings every 5 s) is
@@ -4990,7 +5101,9 @@ this order, the first that holds wins:
 4. Its newest report's check has not ended: **checking**; its end decides again.
 5. Its mod is older than the installed one: **restarting**, the envelope `restart` once; **unknown** "its restart did
    not happen" 15 minutes after it. Here too: **held** (its last envelope failed; released by a turn end after it, or by
-   its report saying idle with nothing in the background when the background work or the set was what failed) and
+   its report saying idle with nothing in the background when the background work or the set was what failed: B930, the
+   lane's count, the one the clear's refusal reads; or, once per step, by its next idle report when its clear failed on the
+   board's own time-out) and
    **unknown** after the net (released by its next turn end or a report that changed).
 6. Otherwise the clear when one is owed (`clearOwed`, as before) and the ready list's first task this worker may take
    (`match` for this one worker: pins, QA's `notBy`, Touches), given in the same call, with `set` when the chat runs
@@ -5102,7 +5215,8 @@ Then it settles it once: `POST /api/bridge/typed` with
 ```
 
 each flag true (done), false (it failed) or null (not asked); `background` true when background work it started was
-why the clear could not run; `why` the reason of the first that failed. The answer is `{ settled: true }`, or
+why the clear could not run (the board's 409, which reads the one source of B930: the mod's fresh idle report, else the
+transcript); `why` the reason of the first that failed. The answer is `{ settled: true }`, or
 `{ settled: false }` for an id that is not its envelope or was settled before. The board then decides at once: an
 outcome where nothing failed leaves the worker offered (a line) or free; a failed clear, set, line or restart takes the
 task back at once and holds the worker with the why.
@@ -5640,6 +5754,9 @@ whose failed check has only a dropped fix reads "Fix stopped" and counts as stop
 
 ## Cheaper sweeps (2026-10-26)
 
+> Since signals change 6 (B915) the tripped-rule trigger and the safety net (0 by default) are gone: a sweep starts only on
+> a new unowned odd line, Check now, the daily read or an old limit reading near a stop. See "Alarms from code first (change 6)".
+
 The person, 2026-10-26: "yes make the runs cheaper". The supervisor's AI sweep ran by the clock every 30 minutes while work ran:
 20 sweeps in a day cost 4,125,521 tokens (about 166,000 each) and found no incident. The skip that should have prevented it
 (the health summary's hash unchanged) almost never held, because the summary changes every few minutes (minutes, states).
@@ -5847,6 +5964,8 @@ each where it is safe:
 6. Tests: `test/work/worktreeSweep.test.mjs`, on real temporary repositories with real links.
 
 ## Find obsolete items (B775, 2026-10-30)
+
+> Since signals change 6 (B915, the lead's decision 8) the check holds no incident: the Supervisor judges those.
 
 The person, 2026-10-28, after seven obsolete items (six refine questions on steps the goal chat had built, one Do left from
 the outage of 2026-10-27): "I might want a button for this to evaluate in the future in the needs your attention to evaluate
