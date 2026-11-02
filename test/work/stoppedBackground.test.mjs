@@ -138,7 +138,7 @@ test('Part 3: a clear that failed on the board\'s own time-out is released by th
     const still = decide({ worker: lane, items: items(), ready: [], owed: clearOwed({ lane, items: items(), afterStep: 'clear' }), envelopes: [first, second], now })
     assert.equal(still.state, STATES.HELD, `still HELD at ${new Date(now).toISOString()}`)
     // Its lane says why it stays held (until part 4's back-off exists).
-    assert.equal(laneWords(still), `held: ${timedOutTwiceWhy('B917')}`)
+    assert.ok(laneWords(still).startsWith(`held: ${timedOutTwiceWhy('B917')}; next try `), laneWords(still)) // 2026-11-02: the hold names its next try
     assert.match(laneWords(still), /failed twice on the board's own time-out/)
   }
   // A time-out of another step's clear does not count against this one.
@@ -205,5 +205,5 @@ test('X133, Worker 5 at 16:40: a time-out hold whose envelope the sweep closed w
   const again = { ...dropped, id: 'd2', at: cet(16, 40, 55), failedAt: cet(16, 41, 10), settledAt: cet(16, 41, 10), state: 'failed', why: undefined, closedAt: undefined }
   const held = at(cet(16, 45), [dropped, again])
   assert.equal(held.state, STATES.HELD)
-  assert.equal(laneWords(held), `held: ${timedOutTwiceWhy('B928')}`)
+  assert.ok(laneWords(held).startsWith(`held: ${timedOutTwiceWhy('B928')}; next try `), laneWords(held))
 })

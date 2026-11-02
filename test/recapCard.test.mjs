@@ -76,17 +76,20 @@ test('a tile: its part\'s picture (the last final one), its score beside its tar
 
 test('Autopilot\'s recap asks count only while Autopilot is on: a part sent back that still has an open ask waits; a block no part names is one more; an ask of no block stays listed', () => {
   const sentBack = [{ n: 1, at: sinceOf(NOW - 3 * 60 * MIN), parts: [{ key: 'Block 1', verdict: 'sent-back', comment: 'still stepped' }] }]
+  // T17.1: the partner wrote the demo again an hour ago; Block 1's row says its new try is not in yet (`pending`), so it stays sent back.
+  const written = { ...recap(2, sentBack), changedAt: NOW - 60 * MIN }
+  written.parts[0] = { ...written.parts[0], pending: true }
   const outsider = parseItem(`Id: B9\nKind: step\nTitle: A task outside\nState: review\nOwner: Digger\nGoal: G6\nSince: ${sinceOf(NOW - 90 * MIN)}\n`)
   const items = [task(1), task(2), task(3), outsider, askFor(1), askFor(2), askFor(3), askFor(9)]
   // On: B1's part was sent back and its ask Q1 is still open: it waits; Block 2 is not judged; Block 3 names no part (one more); Q9's step is of no block.
-  const on = asSent(build(items, undefined, goals(3), { recaps: [recap(2, sentBack)], goalRecap: { goal: 'G6', path: PATH, pictures: {} }, config: ON }))
+  const on = asSent(build(items, undefined, goals(3), { recaps: [written], goalRecap: { goal: 'G6', path: PATH, pictures: {} }, config: ON }))
   assert.equal(on.recapCard.count, 3, 'Block 1 (its ask), Block 2 (not judged yet), Block 3 (no part names it)')
   assert.deepEqual(on.recapCard.tiles.map(one => one.title), ['Block 1', 'Block 2', 'Block 3'])
   assert.deepEqual(on.recapCard.tiles[2].target, { step: 'B3' })
   assert.deepEqual(on.recapCard.outside, ['Q9'])
   assert.equal(on.recapCard.isBuilt, false, 'a part is out with the partner: the card says what is ready')
   // Off: those asks stand in Needs your attention, not in the card: only the part nobody judged counts.
-  const off = asSent(build(items, undefined, goals(3), { recaps: [recap(2, sentBack)], goalRecap: { goal: 'G6', path: PATH, pictures: {} } }))
+  const off = asSent(build(items, undefined, goals(3), { recaps: [written], goalRecap: { goal: 'G6', path: PATH, pictures: {} } }))
   assert.deepEqual([off.recapCard.count, off.recapCard.tiles.map(one => one.title), off.recapCard.outside], [1, ['Block 2'], []])
 })
 

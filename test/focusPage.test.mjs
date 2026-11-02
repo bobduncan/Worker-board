@@ -257,7 +257,7 @@ test('B325: with a goal in the filter, "Show finished" hides and shows the finis
 
 test('the part has its place in the page: a section, its styles, and the tab named Focus', () => {
   assert.ok(html.includes('id="advisor-focus"'))
-  assert.match(html, /data-tab="advice"><span class="tab-long">Focus<\/span><span class="tab-short">Focus<\/span><\/button>/)
+  assert.match(html, /<button class="subtab" type="button" data-tab="advice" data-advisor-pane="focus" aria-pressed="true">Focus<\/button>/)
   assert.match(css, /#view-advice\[data-pane="focus"\] > \.advisor-focus/)
   assert.match(script, /once\('focus', /)
 })

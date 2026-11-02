@@ -18,11 +18,59 @@ const value = (item, key) => {
 }
 
 /**
- * Why a work line no longer matters ("B567 is done", "B522 left review"), or null while it does. `items`: the work store's
- * items by id; `prefix`: the chats' titles' start; `now`.
+ * B949: the judge of an asset word ("asset A17 ready: <folder>", "asset A17 failed: <why>"), by the asset's own request, never
+ * by the work store (which holds no A-ids: B589's step branch read every one as gone, and five of 18 words were dropped
+ * 0.6 s after they were written). `assets`: the requests by id (src/assets.mjs `listAssets`), or undefined when the caller
+ * has not read them: the word then holds, for the board cannot tell. A ready word is dropped when its request is gone or
+ * failed; a failed word when its request is gone; either when the step it was asked for (the request's `of`) is done,
+ * dropped or another chat's. A request still being made holds its word.
  */
-export function workLineWhy(message, items, { prefix = '', now = Date.now() } = {}) {
+function assetLineWhy(message, items, assets, prefix) {
   const id = message.about
+  if (!(assets instanceof Map)) return null
+  const request = assets.get(id)
+  if (request === undefined) return `${id} is gone`
+  const isFailedWord = /^asset \S+ failed:/.test(String(message.text ?? ''))
+  if (request.state === 'failed' && !isFailedWord) return `${id} failed`
+  const item = typeof request.of === 'string' ? items.get(request.of) : undefined
+  if (item === undefined) return null
+  const state = value(item, 'State')
+  if (['done', 'dropped'].includes(state)) return `${request.of} is ${state}`
+  const owner = value(item, 'Owner')
+  return owner !== null && plain(owner, prefix) !== plain(message.to, prefix) ? `${request.of} is ${owner}'s now` : null
+}
+
+/**
+ * B949: the asset words to send again, `[{ chat, id, key }]`. A ready word the sweep dropped as "<A-id> is gone" (the fault
+ * of B949: it read the word by the work store) is written once more when its request is ready, its step is still that
+ * chat's and in progress, and no later word to that chat names the asset (one by hand, or an earlier send again). The key
+ * (`asset-again <A-id> <chat>`) is sent once, ever (deliver.mjs `sendOnce`).
+ */
+export function assetResends(all, items, assets, { prefix = '' } = {}) {
+  if (!(assets instanceof Map)) return []
+  const found = []
+  for (const message of all) {
+    if (message.command !== 'work' || message.kind !== 'asset' || message.state !== 'dropped' || message.why !== `${message.about} is gone`) continue
+    if (!/^asset \S+ ready:/.test(String(message.text ?? ''))) continue
+    const request = assets.get(message.about)
+    const item = typeof request?.of === 'string' ? items.get(request.of) : undefined
+    if (request?.state !== 'ready' || item === undefined || value(item, 'State') !== 'in progress') continue
+    if (plain(value(item, 'Owner'), prefix) !== plain(message.to, prefix)) continue
+    if (all.some(one => one.id !== message.id && one.to === message.to && (one.at ?? 0) >= (message.at ?? 0) && one.about === message.about && !(one.state === 'dropped' && one.kind === 'asset'))) continue
+    if (found.some(one => one.id === message.about && one.chat === message.to)) continue
+    found.push({ chat: message.to, id: message.about, key: `asset-again ${message.about} ${message.to}` })
+  }
+  return found
+}
+
+/**
+ * Why a work line no longer matters ("B567 is done", "B522 left review"), or null while it does. `items`: the work store's
+ * items by id; `prefix`: the chats' titles' start; `now`; `assets` (B949): the asset requests by id, for the asset words.
+ */
+export function workLineWhy(message, items, { prefix = '', now = Date.now(), assets } = {}) {
+  const id = message.about
+  // B949: an asset word is the asset's, not the work store's.
+  if (message.kind === 'asset') return assetLineWhy(message, items, assets, prefix)
   const item = items.get(id)
   const state = value(item, 'State')
   const gone = `${id} is gone`

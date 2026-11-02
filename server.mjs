@@ -56,6 +56,7 @@ import { cached, gitRunner, readBranches, readFolders } from './src/folders.mjs'
 import { checkGame, createGames, gameLauncher, pathKey } from './src/games.mjs'
 import { parseHistory } from './src/history.mjs'
 import { hearingLog } from './src/hearing.mjs'
+import { stallLog, watchLoop } from './src/stalls.mjs'
 import { readReports, reportsSaver } from './src/reportsKept.mjs'
 import { seenFromState } from './src/finished.mjs'
 import { areaOf, freshScan, keptTasks, listText, readOn } from './src/taskTimes.mjs'
@@ -63,7 +64,7 @@ import { createSpendingCollector } from './src/work/routing/collector.mjs'
 import { readRoutingRecord } from './src/work/routing/records.mjs'
 import { parseRoutingPolicy } from './src/work/routing/policy.mjs'
 import { adoptPicture, findDemo, findPicture, readDemo, writeFeedback, PICTURE_BYTES as SHOWN_PICTURE_BYTES, pictureProblem, pictureTooBig, shownFolders, shownRoots } from './src/pictures.mjs'
-import { recapFeedbackWords, answerWords, boardLanes, checkSay, focusWords, goalStepFor, goalStepOf, recommendYesAnswer, obsoleteWords, recommendYesOf, reportedBackgroundDue, resumesDue, sayStopWords, spawnWhenAlone, wakesStopped, withInstruction, workWords } from './src/say.mjs'
+import { recapFeedbackWords, recapRoundWords, answerWords, boardLanes, checkSay, focusWords, goalStepFor, goalStepOf, recommendYesAnswer, obsoleteWords, recommendYesOf, reportedBackgroundDue, resumesDue, sayStopWords, spawnWhenAlone, wakesStopped, withInstruction, workWords } from './src/say.mjs'
 import { keepTalkPicture } from './src/talkPicture.mjs'
 import { firstLook, refineQueue, refineWhenDue } from './src/refineGate.mjs'
 import { recheckText, roundText, roundsNow } from './src/rounds.mjs'
@@ -86,9 +87,10 @@ import { readSetup, setupAction, startSetup, FINISHED as SETUP_FINISHED } from '
 import { providerCards, mayUse as mayUseProvider, verifyOne, checkKey } from './src/providers/choose.mjs'
 import { KEY_VARIABLE, keyChecked, saveKey } from './src/providers/elevenlabs-key.mjs'
 import { ASSET_KINDS, PROVIDERS, checkProvidersFull, providerFor } from './src/providers/index.mjs'
-import { assetsFolderOf } from './src/assets.mjs'
+import { assetsFolderOf, listAssets } from './src/assets.mjs'
 import { assetQueue, providerAskTitle } from './src/assetQueue.mjs'
 import { titleProblem } from './src/work/askWords.mjs'
+import { recapRoundDue } from './src/recapCard.mjs'
 import { buildState, fullStepOf, lightState } from './src/state.mjs'
 import { handedWithStatuses } from './src/chatStatus.mjs'
 import { withRefineQueue } from './src/work/advisorWork.mjs'
@@ -145,6 +147,14 @@ const TICK_MS = Number(process.env.WORKER_BOARD_TICK_MS) > 0 ? Number(process.en
  */
 const READ_DELAY_MS = Number(process.env.WORKER_BOARD_READ_DELAY_MS) > 0 ? Number(process.env.WORKER_BOARD_READ_DELAY_MS) : 0
 const slowRead = () => (READ_DELAY_MS > 0 ? new Promise(done => setTimeout(done, READ_DELAY_MS)) : undefined)
+/**
+ * B934: a test's state rebuild that holds the event loop this long (as the stalls of 2026-11-02 did, X93), so a copy of the
+ * board shows end to end that its stall log names the rebuild. 0 (none) on a real board.
+ */
+const READ_BLOCK_MS = Number(process.env.WORKER_BOARD_READ_BLOCK_MS) > 0 ? Number(process.env.WORKER_BOARD_READ_BLOCK_MS) : 0
+const blockRead = () => {
+  for (const end = Date.now() + READ_BLOCK_MS; Date.now() < end;) { /* held, as a long synchronous read holds it */ }
+}
 /** T9.3 part 1: how often the board checks whether each kind of asset's provider can work. */
 const PROVIDERS_MS = 10 * 60_000
 /** Part C of the asset providers: how often the board looks at the asset requests (a `work asset` looks at once too). */
@@ -332,6 +342,8 @@ export function createBoard({
   project = '',
   mayWrite = async () => null,
   heardActive = () => {},
+  // B934: runs each request, so the stall log (src/stalls.mjs) names the requests that ran during a stall.
+  track = (words, fn) => fn(),
 }) {
   // B529: what the page or a chat's mod writes into the project or sends to the chats is taken only by the board process
   // that runs the loops; another one on the project names where that one is. B539: the routes say it in POST_ROUTES.
@@ -595,7 +607,7 @@ export function createBoard({
   }
 
   return createServer((req, res) => {
-    handle(req, res).then(() => {
+    track(`${req.method} ${String(req.url ?? '').split('?')[0].slice(0, 60)}`, () => handle(req, res)).then(() => {
       try { onAnswered() } catch { /* the record is no reason to fail the answer */ }
     }, error => {
       // B404: the error goes to the board's log; the answer has no details, as the error may quote a chat.
@@ -620,7 +632,7 @@ export function createBoard({
  * and ends with 1 (not up: its keeper ends with its line, and the mod's next refused ping starts a fresh keeper).
  * `setTimer`/`clearTimer` are the clock's, handed in for the tests.
  */
-export function holdPort({ port, host, timeoutMs = START_TIMEOUT_MS, onLate = () => lateStart(port, timeoutMs), setTimer = setTimeout, clearTimer = clearTimeout }) {
+export function holdPort({ port, host, timeoutMs = START_TIMEOUT_MS, onLate = () => lateStart(port, timeoutMs), setTimer = setTimeout, clearTimer = clearTimeout, bindMs = BIND_RETRY_MS, bindEveryMs = BIND_EVERY_MS }) {
   let board = null
   const server = createServer((req, res) => {
     if (board !== null) return board.emit('request', req, res)
@@ -628,9 +640,21 @@ export function holdPort({ port, host, timeoutMs = START_TIMEOUT_MS, onLate = ()
     return send(res, 503, 'text/plain; charset=utf-8', 'The board is starting: ask again in a moment.\n', { 'Retry-After': '2' })
   })
   return new Promise((done, fail) => {
-    server.once('error', fail)
+    // 2026-11-02 (the landing's race, three times today: a chat's mod started a board in the second between the old
+    // board's end and the new keeper's bind, and the board then hung on that chat's process): a port still in use is tried
+    // again every BIND_EVERY_MS for BIND_RETRY_MS, so a keeper started BEFORE the old board is stopped takes the port the
+    // moment it is free. After that, as before: the caller says it in one line and ends.
+    const started = Date.now()
+    const onError = error => {
+      if (error?.code === 'EADDRINUSE' && Date.now() - started < bindMs) {
+        setTimer(() => server.listen(port, host), bindEveryMs)
+        return
+      }
+      fail(error)
+    }
+    server.on('error', onError)
     server.listen(port, host, () => {
-      server.off('error', fail)
+      server.off('error', onError)
       server.on('error', error => console.error(`The board's port: ${error?.code ?? 'unknown error'}.`))
       const late = setTimer(() => { if (board === null) onLate() }, timeoutMs)
       late?.unref?.()
@@ -647,6 +671,9 @@ export function holdPort({ port, host, timeoutMs = START_TIMEOUT_MS, onLate = ()
 
 /** The lead's review (2026-11-02): how long a board may take from its port to serving before it ends (see `holdPort`). */
 export const START_TIMEOUT_MS = 4 * 60_000
+/** 2026-11-02: a port still in use (the board before us ending) is tried again this often, this long, before the start gives up. */
+export const BIND_RETRY_MS = 8_000
+export const BIND_EVERY_MS = 100
 
 /** A start that did not come up in time: one line, and the board ends with 1 so its keeper and the chats see it off. */
 function lateStart(port, timeoutMs) {
@@ -744,7 +771,29 @@ async function main(args) {
   const timeOf = at => new Date(at).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })
   // B404: every background loop runs through the record: its last success and error, and a log file of the errors
   // in the project's .claude folder (none for the demo).
-  const loops = loopRecord({ now: clock, write: isDemo || config.project === '' ? () => {} : fileLog(join(resolve(HERE, config.project), '.claude', 'board-errors.log')) })
+  // B934 (X93): the board's stall log (src/stalls.mjs): every delay of the event loop over 2 s, and every work call answered
+  // after 2 s, with the requests and the board's own jobs that ran then, in data/stalls.json; the rule board-slow cites it.
+  const stalls = stallLog({ now: clock, file: isDemo || historyFrom !== undefined ? null : join(HERE, 'data', 'stalls.json') })
+  const trackJob = (words, fn) => stalls.track('job', words, fn)
+  /** B934: a chat's work call as the stall log names it (by its chat once checked); one answered after 2 s is a stall. */
+  const callStall = (action, session) => {
+    const begun = clock()
+    const what = by => `work ${String(action ?? 'call').slice(0, 30)} by ${by}`
+    let words = what(`session ${String(session).slice(0, 8)}`)
+    const end = stalls.begin('request', words)
+    return {
+      by: chat => end.as(words = what(chat)),
+      done: () => {
+        end()
+        stalls.slowCall(words, begun, clock())
+      },
+    }
+  }
+  if (!isDemo && historyFrom === undefined) {
+    await stalls.load()
+    watchLoop(stalls)
+  }
+  const loops = loopRecord({ now: clock, write: isDemo || config.project === '' ? () => {} : fileLog(join(resolve(HERE, config.project), '.claude', 'board-errors.log')), track: trackJob })
   /** B404: the checks after a report that run now, by step id; a restart waits for them, the stuck-check pass skips them. */
   const runningChecks = new Map()
   /** B404: set once a restart was asked: the board takes no more work and its loops start nothing new. */
@@ -876,6 +925,15 @@ async function main(args) {
   // Part C of the asset providers: where the chats' asset requests are kept (`.claude/assets`, beside the work store); none on a
   // board that only shows.
   const assetsDir = workDir === null || isShowOnly ? null : resolve(HERE, assetsFolderOf(workDir))
+  /** B949: the asset requests by id, for the judges of the asset words (workLines.mjs); null when there is no folder or it cannot be read: such a word then holds. */
+  const assetRequests = async () => {
+    if (assetsDir === null) return null
+    try {
+      return new Map((await listAssets(assetsDir)).map(record => [record.id, record]))
+    } catch {
+      return null
+    }
+  }
   const viewFile = workDir === null ? null : !isShowOnly ? join(config.project, ...config.backlog.split('/')) : isOwnWork(config) ? join(workDir, 'backlog.md') : null
   const workWriters = viewFile === null ? null : { dir: workDir, viewFile }
   /**
@@ -1109,6 +1167,18 @@ async function main(args) {
     for (const one of words) await toPartner(one, {}, state)
   }
   /**
+   * T17.1 (the coordinator's review of 6f197a4): while the focus goal's recap has its next round being made, each next try (a step of
+   * the goal filed or reopened after the person's Send, no Quality Assurance task) that turned done is told to the partner, once per
+   * step: it writes the round with that row and `pending` for the rest, so the person can judge what is ready. Not while the person pauses.
+   */
+  const recapRoundNow = async state => {
+    const making = state.recapMaking ?? null
+    if (!writesMap || workDir === null || (state.advisor ?? null) === null || isHolding(state.pause) || making === null) return
+    for (const step of recapRoundDue(making, store.outbox())) {
+      await toPartner(recapRoundWords(state.advisor.name, { goal: making.goal, round: making.round, step, path: making.path, job: join(HERE, 'roles', 'partner.md') }), {}, state)
+    }
+  }
+  /**
    * Autopilot (2026-10-31, src/work/autopilot.mjs): the board's pass over the asks (the work API's `autopilot`), then what it
    * names: the chats an answer wakes, the Advisor's refine word for a step whose questions it answered or sent back (as the
    * page's "Take the advice" does), and the main chat's word for each ask routed to it. `sweep` (the switch-on only, 2026-11-02):
@@ -1173,7 +1243,7 @@ async function main(args) {
       const found = await readDemo(state.project, shownRoots(config), body?.path)
       if (found === null) return { ok: false, status: 404, why: 'No such goal demo.' }
       if (found.why !== undefined) return { ok: false, status: 422, why: found.why }
-      const checked = checkSend(roundPage(found.base, found.feedback), body)
+      const checked = checkSend(roundPage(found.base, found.feedback, { changedAt: found.changedAt }), body)
       if (!checked.ok) return checked
       await writeFeedback(found.file, withRound(found.feedback, checked.round, checked.parts, stampOf(clock())))
       readState.reset()
@@ -1305,7 +1375,7 @@ async function main(args) {
       const now = clock()
       const items = stored?.ok === true ? stored.items : new Map()
       const outbox = store.outbox()
-      const judge = wordJudge({ state, items, outbox, keep, settings: config.supervisor ?? {}, now })
+      const judge = wordJudge({ state, items, outbox, keep, settings: config.supervisor ?? {}, assets: await assetRequests(), now })
       const obsolete = workDir === null ? null : (await readObsoleteFile(workDir)).record
       const { waits, seen } = splitSeen(waitsOf({ state, outbox, now, keep, judge, reports, items, obsolete, sweep: supervised?.lastSweep ?? null }))
       // The review of 2026-11-02 (2a): a turn seen ended, an action's own result seen, is kept on its word once and read first
@@ -1954,8 +2024,9 @@ async function main(args) {
   // Signals change 7 (B914, 2026-11-02): the board's own memory of when each worker's plan words changed (state.mjs
   // `planLineOf`), in memory as the asleep map was kept: a restart forgets it, which only makes the words look new.
   let planSeen = {}
-  const readState = cached(async () => {
+  const readState = cached(() => trackJob('state rebuild', async () => {
     await slowRead()
+    blockRead()
     const raw = await readRaw()
     const keptReadings = await readingsOnDisk()
     // The review of Pause 2: a line the person's pause holds does not grow late (store.mjs isLate, pause.mjs heldMs).
@@ -1972,6 +2043,8 @@ async function main(args) {
       reports,
       wakes: wakeFacts(),
       hearing: hearing?.view(clock()) ?? null,
+      // B934: the newest stalls of the board's own loop and calls (src/stalls.mjs), for the rule board-slow.
+      stalls: stalls.recent(),
       finishedSeen: finishedSeen ?? {},
       taskTimes: taskTimes.tasks,
       // B547: the Workers mod each chat's last call said, so a clear owed is named only to a mod that can run it.
@@ -1999,7 +2072,7 @@ async function main(args) {
     const shownAside = []
     for (const one of setAside) if (one.aside === null || await stat(join(HERE, 'data', one.aside)).then(() => true, () => false)) shownAside.push(one)
     return { ...state, spending: { periods: { ...Object.fromEntries([1, 7, 30, null].map(days => [days ?? 'all', spending.summary(days)])), today: spending.summary((Date.now() - new Date().setHours(0, 0, 0, 0)) / 86400000) } }, isDemo, project, rounds, name: config.name, hasGame: isDemo || hasGame, appMoved: isDemo ? null : config.appMoved ?? null, setAside: shownAside }
-  }, STATE_MS)
+  }), STATE_MS)
 
   // B185: what the workers' transcripts gained since the last look, read on from where it stopped; the past is read
   // at the first look. Tasks a worker reported are added to the list, and the list the chats read is written anew.
@@ -2041,7 +2114,7 @@ async function main(args) {
         const scan = taskTimes.scans[one.session] ?? freshScan(one.name)
         scan.worker = one.name
         taskTimes.scans[one.session] = scan
-        added.push(...await readOn(path, scan, stepOf))
+        added.push(...await trackJob(`reading the left session of ${one.name}`, () => readOn(path, scan, stepOf)))
         const size = await stat(path).then(file => file.size, () => null)
         if (isReadOut({ size, taskOffset: scan.offset, spendingOffset: spending.offsetOf(one.session) })) await chatLogs?.readOut(one.session)
       }
@@ -2108,6 +2181,7 @@ async function main(args) {
   const chatLogs = isDemo || isShowOnly || config.project === '' ? null : chatLogKeeper({
     file: join(HERE, 'data', 'chat-logs.json'), project: config.project, transcripts: config.transcripts, clock,
     failed: job => console.error(`A chat log was given up: ${job.log} (${job.why ?? 'unknown'}).`),
+    track: trackJob,
   })
   /** Clear after each step: the mod asks to keep the conversation before it clears a worker (`save-log`, `stepId`). */
   const saveLog = async (body, checked, state) => {
@@ -2147,7 +2221,7 @@ async function main(args) {
    */
   const decideFor = async (chat, mod, event) => {
     if (workDir === null || isShowOnly || workWriters === null) return null
-    return handoverTurn(workDir, async () => {
+    return handoverTurn(workDir, () => trackJob(`hand-over ${chat} (${String(event?.kind ?? 'turn').slice(0, 30)})`, async () => {
       readState.reset()
       const state = await readState()
       const lane = (state.chats ?? []).find(one => one.name === chat && !one.isLeftover) ?? null
@@ -2158,7 +2232,7 @@ async function main(args) {
         readState.reset()
       }
       return done
-    })
+    }))
   }
   /**
    * Clear after each step: a session the state shows under no name may be a chat that went on under a new id a moment
@@ -2748,7 +2822,8 @@ async function main(args) {
       const found = await findDemo((await readState()).project, shownRoots(config), path)
       if (found?.page === undefined) return found
       const whyNot = await demoFeedbackWhyNot()
-      return { page: { ...found.page, feedback: { ...found.page.feedback, canSend: whyNot === null && found.page.feedback.parts > 0 && !found.page.feedback.done, whyNot } } }
+      // T17.1: nothing to send while the next round is being made, or while every part left is still being reworked.
+      return { page: { ...found.page, feedback: { ...found.page.feedback, canSend: whyNot === null && found.page.feedback.parts > 0 && !found.page.feedback.done && found.page.feedback.making === null && found.page.feedback.answerable > 0, whyNot } } }
     },
     demoFeedback: async body => demoFeedbackNow(body),
     picture: async path => {
@@ -2829,6 +2904,7 @@ async function main(args) {
     },
     onError: error => loops.failed('request', error),
     onAnswered: () => loops.succeeded('request'),
+    track: (words, fn) => stalls.track('request', words, fn),
     isClosing: () => isClosing,
     heardActive: header => pagesActive.heard(header, clock()),
     restart: restartNow,
@@ -2873,16 +2949,19 @@ async function main(args) {
       const session = String(body?.session ?? '')
       const kept = await requests.known(session, request)
       if (kept !== undefined) return kept
+      const stall = callStall(asked.action, session)
       // B736 (X89): a call answered after its mod gave up on it is counted for the rule board-slow.
       try {
         const { checked, state } = await checkFresh(body)
         noteRefused(body, checked)
         noteMod(body, checked)
         if (!checked.ok) return checked
+        stall.by(checked.chat)
         if (asked.action === 'save-log') return await requests.answer(session, request, () => saveLog(asked, checked, state))
         if (isReadAction(asked.action)) return await bridgeWorkOnce(asked, checked)
         return await requests.answer(session, request, () => bridgeWorkOnce(asked, checked))
       } finally {
+        stall.done()
         hearing?.answered(request, clock())
       }
     }),
@@ -3553,6 +3632,8 @@ async function main(args) {
         await loops.run('evaluate-again', () => evaluateAgainNow(state))
         // B677: the goal demo asked of the partner once every part of the focus is done.
         await loops.run('goal-demo', () => demoNow(state))
+        // T17.1: a next try of the recap's round that turned done is told to the partner (once per step).
+        await loops.run('recap-round', () => recapRoundNow(state))
         // B404: a step that has stood on "check pending" for more than 2 minutes (a restart right after a report ended
         // its check) is checked again; the checks that run now are skipped.
         await loops.run('stuck-checks', async () => {
@@ -3590,6 +3671,7 @@ async function main(args) {
           return (await readStore(workDir)).items
         },
         // B736 (X89: work health timed out twice while the board was busy): the health summary reads what the board has.
+        assets: () => assetRequests(),
         keptState: () => readState.last() ?? null,
         keptItems: () => work.last?.()?.items ?? null,
         outbox: () => store.outbox(),

@@ -28,6 +28,7 @@ import { readingAgeMinutes } from '../../limits.mjs'
 import { BOUNDED_RULES, COUNTS_BY_KEY } from './repair.mjs'
 import { BOARD_TRIES } from '../../refineGate.mjs'
 import { DEAF_KEEP_MS } from '../../hearing.mjs'
+import { stallWords } from '../../stallWords.mjs'
 import { isHandTaken } from '../../hands.mjs'
 import { triedWords } from '../../wake.mjs'
 
@@ -405,7 +406,7 @@ export function wordMatters(view) {
   const runs = new Map(view.lanes.filter(chat => !chat.isLeftover).map(chat => [chat.name, chat.isRunning === true]))
   // T9.4: the chats known not to run (outboxSweep.mjs): a start word one of them holds is closed, so it matters to no rule.
   const off = new Set([...view.lanes.filter(chat => !chat.isLeftover), view.partner, view.helper, view.supervisor].filter(chat => chat?.isRunning === false).map(chat => chat.name))
-  const ctx = { all: view.outbox, items: view.items, runs, goals: view.goals ?? [], now: view.now, keep: view.keep, closing: new Map(), stopped: stoppedOfView(view), prefix: view.prefix ?? '', main: view.lanes.find(chat => chat.isMain === true)?.name ?? null, off, handedBack: view.handedBack ?? [], lanes: view.lanes, onBoard: new Set([...view.lanes.filter(chat => !chat.isLeftover), view.partner, view.helper, view.supervisor, view.owner].filter(chat => typeof chat?.name === 'string').map(chat => chat.name)) }
+  const ctx = { all: view.outbox, items: view.items, assets: view.assets ?? undefined, runs, goals: view.goals ?? [], now: view.now, keep: view.keep, closing: new Map(), stopped: stoppedOfView(view), prefix: view.prefix ?? '', main: view.lanes.find(chat => chat.isMain === true)?.name ?? null, off, handedBack: view.handedBack ?? [], lanes: view.lanes, onBoard: new Set([...view.lanes.filter(chat => !chat.isLeftover), view.partner, view.helper, view.supervisor, view.owner].filter(chat => typeof chat?.name === 'string').map(chat => chat.name)) }
   return message => whyClosed(message, ctx)?.state !== 'dropped'
 }
 
@@ -968,19 +969,28 @@ const SLOW_PAIR_MS = 2 * MIN
 /** B736: how far back a late answer still counts. */
 const SLOW_LOOK_MS = 10 * MIN
 
+/** B934: how many of the board's newest stalls the finding cites. */
+const SLOW_CITES = 3
+const secondsOf = ms => `${clockOf(ms)}:${pad(new Date(ms).getSeconds())}`
+
 /**
  * 19. B736 (X89, the rule the sweep wanted: work health timed out twice in a row): two work calls within 2 minutes that the
  * board answered after the chat's Workers mod had given up on them (view.mjs `lateCalls`, from each call's request id):
- * one finding, naming the longest wait.
+ * one finding, naming the longest wait. B934 (X93): its evidence cites the board's newest stalls in that time (the stall
+ * log, stalls.mjs: what the board ran while it did not answer), or says the log names none.
  */
 function boardSlow(view) {
   const recent = (view.lateCalls ?? []).filter(one => view.now - one.at <= SLOW_LOOK_MS).sort((a, b) => a.at - b.at)
   if (!recent.some((one, index) => index > 0 && one.at - recent[index - 1].at <= SLOW_PAIR_MS)) return []
   const worst = Math.max(...recent.map(one => one.ms))
+  const stalls = (view.stalls ?? []).filter(one => view.now - one.at <= SLOW_LOOK_MS).sort((a, b) => a.at - b.at).slice(-SLOW_CITES)
   return [{
     rule: 'board-slow', key: 'board-slow board', subject: 'board',
     text: `the board did not answer for ${Math.round(worst / 1000)} s: ${recent.length} work calls in ${minutes(SLOW_LOOK_MS)} min answered after the chat gave up`,
-    evidence: recent.slice(-6).map(one => `answered ${clockOf(one.at)} after ${Math.round(one.ms / 1000)} s`).join('; '),
+    evidence: [
+      recent.slice(-6).map(one => `answered ${clockOf(one.at)} after ${Math.round(one.ms / 1000)} s`).join('; '),
+      stalls.length === 0 ? `the stall log names no stall in ${minutes(SLOW_LOOK_MS)} min` : `stalls: ${stalls.map(one => stallWords(one, secondsOf)).join('; ')}`,
+    ].join('. '),
   }]
 }
 
@@ -1066,7 +1076,10 @@ function handoverHeld(view, ctx) {
     const failed = envelopesOf(view.outbox, lane.name, view.prefix).filter(one => one.state === 'failed').at(-1) ?? null
     const since = [failed?.settledAt, failed?.failedAt, failed?.at].find(Number.isFinite) ?? null
     const report = lane.clearOwed?.step ?? failed?.clear?.step ?? failed?.step ?? failed?.id ?? 'its last report'
-    const key = `handover-held ${lane.name} ${report}`
+    // The lead's live check (2026-11-02, order C): the key is the rule and the chat, not the step: the same fault (a worker
+    // that cannot clear) reopens its one alarm; keyed per step, X132 and X133 read fixed while Workers 3 and 4 were held
+    // anew. The report stays in the evidence.
+    const key = `handover-held ${lane.name}`
     const ms = lasted(view, ctx, key, since === null ? null : afterPause(view, since), { heard: true })
     if (ms <= view.settings.notClearedMinutes * MIN) continue
     const why = lane.handover.why ?? 'no reason given'

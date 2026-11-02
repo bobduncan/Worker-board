@@ -5,7 +5,7 @@
 
 import assert from 'node:assert/strict'
 import { spawn } from 'node:child_process'
-import { cp, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { cp, mkdir, mkdtemp, readFile, rm, utimes, writeFile } from 'node:fs/promises'
 import { createServer } from 'node:http'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
@@ -153,6 +153,15 @@ test('a recap part names its steps: waits for the verdict, Send back words them,
   assert.match(word.text, /- 3\. Round shapes \(steps B13, B14: block each on its next try\): "still stepped"/)
   const back = await until(async () => { const said = await waitOf('B13'); return said?.includes('sent back') ? said : null }, 'the sent-back wait')
   assert.equal(back, 'its fix B16 was dropped; sent back in the recap of G6: the partner makes its next try')
+
+  // T17.1: round 2 is being made until the partner writes the demo again (a later minute than the Send): nothing to send before.
+  assert.equal((await send({ round: 2, parts: [{ key: '3. Round shapes', verdict: 'approved' }] })).status, 409)
+  const file = join(project, 'pictures', 'g6', 'recap', 'demo.json')
+  const written = JSON.parse(await readFile(file, 'utf8'))
+  written.sections[1].rows[0].changed = 'still stepped -> rounded off'
+  await writeFile(file, JSON.stringify(written))
+  const later = new Date(Date.now() + 5 * MIN)
+  await utimes(file, later, later)
 
   // Round 2, approved: both steps are closed, the person's verdict in their History.
   const second = await send({ round: 2, parts: [{ key: '3. Round shapes', verdict: 'approved' }] })

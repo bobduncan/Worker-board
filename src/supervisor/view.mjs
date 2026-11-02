@@ -3,6 +3,7 @@
 // read it and never change it: it is frozen, and nothing in it is the board's own object to write.
 
 import { SUPERVISOR_DEFAULTS } from '../config.mjs'
+import { stallOf } from '../stallWords.mjs'
 
 /** The outbox's keep when the board names none (config.mjs messageKeepMinutes and answerKeepHours). */
 const DEFAULT_KEEP = Object.freeze({ messageMs: 10 * 60_000, answerMs: 48 * 60 * 60_000 })
@@ -23,11 +24,13 @@ const DEFAULT_KEEP = Object.freeze({ messageMs: 10 * 60_000, answerMs: 48 * 60 *
  * attempts, spells }`, the board-wide spell under "*"); each lane, the partner, its helper, the supervisor and the owner carry
  * their own `wake` (how its wake stands: `{ state, final, need, spell, attempts }`).
  */
-export function buildView({ state = {}, items = new Map(), outbox = [], keep = null, limits, pause, refused = [], leftovers, bases = [], repairs = [], mods = null, settings = {}, seen = null, now }) {
+export function buildView({ state = {}, items = new Map(), outbox = [], keep = null, limits, pause, refused = [], leftovers, bases = [], repairs = [], mods = null, settings = {}, seen = null, assets = null, now }) {
   const lanes = state.chats ?? []
   const timeline = Array.isArray(state.today) ? state.today : []
   return Object.freeze({
     items,
+    // B949: the asset requests by id (src/assets.mjs), so an asset word is judged by its request, or null: such a word then holds.
+    assets,
     lanes,
     partner: state.advisor ?? null,
     helper: state.advisorHelper ?? null,
@@ -75,6 +78,8 @@ export function buildView({ state = {}, items = new Map(), outbox = [], keep = n
     // null), and the work calls it answered after the chat's Workers mod gave up (`lateCalls`, `[{ at, ms }]`).
     deaf: Object.freeze(spansOf(state.deaf)),
     deafNow: Number.isFinite(state.deafNow?.from) ? Object.freeze({ from: state.deafNow.from, to: now }) : null,
+    // B934 (X93): the board's newest stalls (stalls.mjs `stallOf`): `[{ at, ms, kind, call?, requests, jobs }]`.
+    stalls: Object.freeze((Array.isArray(state.stalls) ? state.stalls : []).map(stallOf).filter(one => one !== null).map(one => Object.freeze(one))),
     lateCalls: Object.freeze((Array.isArray(state.lateCalls) ? state.lateCalls : []).filter(one => Number.isFinite(one?.at) && Number.isFinite(one?.ms)).map(one => Object.freeze({ at: one.at, ms: one.ms }))),
     since: statesSince(timeline, lanes),
     repairs: Object.freeze([...repairs]),

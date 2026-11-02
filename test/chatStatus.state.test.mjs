@@ -74,7 +74,9 @@ test('a worker the hand-out skips (its envelope failed: HELD) is Held, never Fre
   const state = build({ reports: [report('Worker 2', 'idle')], mods: { 'Worker 2': '0.27.0' }, outbox: [failed] })
   const held = lane(state, 'Worker 2')
   assert.equal(held.handover.state, 'held')
-  assert.deepEqual([held.status, held.why], [STATUSES.HELD, 'its clear did not run: the clear did not run'])
+  // 2026-11-02: the hold names its next try (the board releases it after 10 min of running time).
+  assert.equal(held.status, STATUSES.HELD)
+  assert.match(held.why, /^its clear did not run: the clear did not run; next try \d\d:\d\d$/)
 })
 
 test('the person pauses: a worker that has stopped (idle) reads Paused with the hand-over\'s why; one that runs a turn stays Working', () => {

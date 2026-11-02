@@ -4,7 +4,14 @@
 // the person's comment beside the new try) or not decided yet; approved parts fold into one line. PURE: the files are read and
 // written by src/pictures.mjs, the words are sent by server.mjs.
 //
+// T17.1 (the person, 2026-11-02, after sending round 1 of G60's recap: "the new recap, after round 1 is not finetuned to my feedback.
+// the same pictures are provided and i see no evidence of what i asked it to fix/change"): after a Send that sent rows back, the
+// next round is "being made" until demo.json was written again (`makingOf`); in it every row sent back shows what changed
+// (`changed`) beside pictures newer than the Send, or says it is still being reworked (`pending`); a row may carry a map to play.
+//
 //   feedback.json: { "rounds": [ { "n": 1, "at": "2026-10-31 12:40", "parts": [ { "key": "5. Round shapes", "verdict": "sent-back", "comment": "still stepped" } ] } ] }
+
+import { sinceMs } from './work/item.mjs'
 
 /** The file beside a demo.json that keeps the person's rounds. */
 export const FEEDBACK_FILE = 'feedback.json'
@@ -13,6 +20,8 @@ export const VERDICTS = ['approved', 'sent-back']
 export const COMMENT_CHARS = 1000
 /** The most a feedback.json may weigh. */
 export const FEEDBACK_BYTES = 256 * 1024
+/** A Send is stamped to its minute: a file written in a later minute holds what was made after it. */
+export const SEND_MINUTE_MS = 60_000
 
 const oneLine = (value, max) => String(value ?? '').replace(/\s+/g, ' ').trim().slice(0, max)
 
@@ -37,26 +46,73 @@ export function standOf(rounds) {
   return stand
 }
 
-/** Every row of a page, in order: `{ key, title, section, steps }` (B878: the steps the part shows, [] for none). */
-export const rowsOf = page => page.sections.flatMap((section, at) => section.rows.map(row => ({ key: row.key, title: row.title, section: at, steps: row.steps ?? [] })))
+/** Whether a file written at `writtenAt` (ms) holds what was made after the Send at `sentAt` (ms): written in a later minute than the Send. */
+export const isAfterSend = (writtenAt, sentAt) => Number.isFinite(writtenAt) && Number.isFinite(sentAt) && writtenAt >= sentAt + SEND_MINUTE_MS
+
+/**
+ * T17.1: round N+1 is being made after a Send that sent rows back, until the demo was written again in a later minute than that Send
+ * (`changedAt`, ms: when demo.json was last written; not a number: not written since). `{ round, at }` (`at`: the Send, ms) or null: the
+ * last round sent nothing back (no new try is owed), or its time cannot be read.
+ */
+export function makingOf(rounds, changedAt) {
+  const last = Array.isArray(rounds) ? rounds.at(-1) : undefined
+  if (last === undefined || !last.parts.some(part => part.verdict === 'sent-back')) return null
+  const at = sinceMs(last.at)
+  return Number.isFinite(at) && !isAfterSend(changedAt, at) ? { round: last.n + 1, at } : null
+}
+
+/** Whether a row (of the page model) says what changed for the person's words. */
+export const hasChanged = row => typeof row?.changed === 'string' && row.changed.trim() !== ''
+/** Whether a row (of the page model) says its new try is not in yet. */
+export const isPending = row => typeof row?.pending === 'string' && row.pending.trim() !== ''
+
+/** Every row of a page, in order: `{ key, title, section, steps, reworking }` (B878: the steps the part shows, [] for none; T17.1: whether its new try is not in yet). */
+export const rowsOf = page => page.sections.flatMap((section, at) => section.rows.map(row => ({ key: row.key, title: row.title, section: at, steps: row.steps ?? [], reworking: row.reworking === true })))
 
 /**
  * The page the popup draws for the round the person answers now: round 1 is the whole demo; after that only the rows sent back or not
  * decided yet, each sent-back row with the person's comment (`said`), no follow-up and no section left without a row. `feedback`
- * holds the round to answer (`round`), the folded approved parts and whether every part is approved (`done`). Pure.
+ * holds the round to answer (`round`), the folded approved parts, whether every part is approved (`done`), how many rows can be
+ * answered now (`answerable`) and whether the round is being made (`making`, T17.1). `options.changedAt` is when demo.json was last
+ * written (ms); without it the page does not know (a test, a caller with no file) and never says "being made".
+ *
+ * T17.1: while the round is being made the page holds only the rows the last Send sent back, each as `reworking` with no picture, no
+ * note and no controls to answer; after the partner wrote the demo again a sent-back row that carries `pending`, or that has no `changed`
+ * line, is `reworking` too (its new try is not in, whatever the file's time says), one that has is the new try (its `changed` line and
+ * pictures). Pure.
  */
-export function roundPage(page, input) {
+export function roundPage(page, input, options = {}) {
   const rounds = roundsOf(input)
   const all = rowsOf(page)
   const stand = standOf(rounds)
   const approved = all.filter(row => stand.get(row.key)?.verdict === 'approved')
   const folded = approved.map(row => ({ key: row.key, title: row.title }))
   const done = all.length > 0 && approved.length === all.length
-  if (rounds.length === 0) return { ...page, feedback: { round: 1, folded, done: false, parts: all.length, sent: [] } }
+  if (rounds.length === 0) return { ...page, feedback: { round: 1, folded, done: false, parts: all.length, answerable: all.length, making: null, sent: [] } }
+  const making = options.changedAt === undefined ? null : makingOf(rounds, options.changedAt)
+  const last = rounds.at(-1)
+  const reworked = row => ({ ...row, note: '', pictures: [], changed: null, play: null, reworking: true })
   const sections = page.sections
-    .map(section => ({ ...section, rows: section.rows.filter(row => stand.get(row.key)?.verdict !== 'approved').map(row => (stand.get(row.key)?.verdict === 'sent-back' ? { ...row, said: { comment: stand.get(row.key).comment, round: stand.get(row.key).round } } : row)) }))
+    .map(section => ({
+      ...section,
+      rows: section.rows.flatMap(row => {
+        const said = stand.get(row.key)
+        if (said?.verdict === 'approved') return []
+        if (said?.verdict !== 'sent-back') return making === null ? [row] : []
+        // Being made: only what the last Send sent back, without the old try.
+        if (making !== null) return said.round === last.n ? [{ ...reworked(row), pending: null, said: { comment: said.comment, round: said.round } }] : []
+        const kept = { ...row, said: { comment: said.comment, round: said.round } }
+        // A row sent back is the new try only when its row says what changed (and is not pending): a demo.json written by hand, with the old
+        // pictures and no `changed` line, never passes for one, whatever the file's time (the coordinator's review of 6f197a4).
+        return [hasChanged(row) && !isPending(row) ? kept : reworked(kept)]
+      }),
+    }))
     .filter(section => section.rows.length > 0)
-  return { ...page, sections, followUp: null, feedback: { round: done ? rounds.length : rounds.length + 1, folded, done, parts: all.length, sent: rounds.map(round => ({ n: round.n, at: round.at })) } }
+  const answerable = sections.flatMap(section => section.rows).filter(row => row.reworking !== true).length
+  return {
+    ...page, sections, followUp: null,
+    feedback: { round: done ? rounds.length : rounds.length + 1, folded, done, parts: all.length, answerable, making: making === null ? null : { round: making.round }, sent: rounds.map(round => ({ n: round.n, at: round.at })) },
+  }
 }
 
 /**
@@ -68,14 +124,18 @@ export function checkSend(page, body) {
   const refuse = (status, why) => ({ ok: false, status, why })
   const now = page.feedback?.round
   if (page.feedback?.done === true) return refuse(409, 'Every part of this demo is approved already: nothing more to send.')
+  if (page.feedback?.making) return refuse(409, `Round ${now} is being made: your partner is building the next tries. There is nothing to send until they are in.`)
   if (!Number.isInteger(body?.round) || body.round !== now) return refuse(409, `This round was sent already or is out of date (the demo is at round ${now}): reload the demo.`)
   if (!Array.isArray(body.parts) || body.parts.length === 0) return refuse(400, 'Say something about at least one part: Approve or Send back.')
   const shown = new Map(rowsOf(page).map(row => [row.key, row.title]))
+  // T17.1: a part whose new try is not in yet (`pending`) is shown, but is no part of this Send.
+  const reworking = new Set(rowsOf(page).filter(row => row.reworking).map(row => row.key))
   const seen = new Set()
   const parts = []
   for (const part of body.parts) {
     const key = typeof part?.key === 'string' ? part.key : ''
     if (!shown.has(key)) return refuse(400, `The demo shows no part "${oneLine(key, 80)}" in this round.`)
+    if (reworking.has(key)) return refuse(400, `The part "${shown.get(key)}" is being reworked: there is nothing to answer yet.`)
     if (seen.has(key)) return refuse(400, `The part "${shown.get(key)}" is in the answer twice.`)
     if (!VERDICTS.includes(part.verdict)) return refuse(400, `The part "${shown.get(key)}": the answer is approved or sent-back.`)
     const comment = oneLine(part.comment, COMMENT_CHARS)

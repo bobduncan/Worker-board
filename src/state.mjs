@@ -57,7 +57,7 @@ import { clearOwed, modAtLeast } from './clearOwed.mjs'
 import { newestSpells, noticeOf, nobodyRunsSpell, pathsOf, spellOf, statusOf as wakeStatusOf, wakeNeeds, wakeOf, wakeWords } from './wake.mjs'
 import { chainWaitOf, checkedOf, fixesOf, fixOutcomeOf, recapPartOf, reviewWaitOf } from './work/resultCheck.mjs'
 import { recapWaitsOf } from './recaps.mjs'
-import { askedStepsOf, openChecksOf, recapCardOf, standingAsksOf } from './recapCard.mjs'
+import { askedStepsOf, openChecksOf, recapCardOf, recapMakingOf, standingAsksOf } from './recapCard.mjs'
 import { guardOf } from './goalGuard.mjs'
 import { standardOf } from './work/standard.mjs'
 import { rolloutPlan } from './work/modRollout.mjs'
@@ -1263,6 +1263,9 @@ function partStepOf(item, steps, prefix, all = steps, lanes = null, now = null, 
   // Only a step whose result is built (in review) waits for a verdict: a worker's question mid-build ('waiting on you') is none.
   const isAskedOf = carrierState === 'review' && (verdictAsks.asked.get(carrier)?.length ?? 0) > 0 && !verdictAsks.openChecks.has(carrier)
   const forVerdict = isCarried && state === 'review' && (['recap', 'accept'].includes(formKind) || isAskedRecap || isAskedOf)
+  // T17.1 (the coordinator's ruling): while the recap's next round is being made the person can judge none of its parts: a step a part of it
+  // names waits for that round, it does not "wait for your verdict" (its chip and its arrow are not shown).
+  const inMaking = forVerdict && (Array.isArray(recaps) ? recaps : []).some(one => one.making === true && (one.step === carrier || one.step === id))
   // Where its arrow goes: the recap when it names the carrier's part and that part waits, else the carrier's own window.
   const recapPart = !forVerdict ? null : ownRecap?.kind === 'recap' && verdictChain === null && ownRecap.path ? { path: ownRecap.path, key: ownRecap.part } : recapPartOf(recaps, carrier)?.verdict === null ? recapPartOf(recaps, carrier) : null
   const verdictAt = !forVerdict ? null : recapPart?.path ? { path: recapPart.path, key: recapPart.key ?? null } : { step: carrier }
@@ -1278,7 +1281,7 @@ function partStepOf(item, steps, prefix, all = steps, lanes = null, now = null, 
     tone,
     // B690: a step in review whose check failed and whose fix is open is being fixed, not checked; 2026-10-31 (B689): only
     // while its chain is at work, else its fix waits.
-    state: tone === 'done' ? 'Finished' : forAccept ? 'Waits for your Accept' : forVerdict ? 'Waits for your verdict' : fixStopped ? 'Fix stopped' : tone === 'stop' ? 'Stopped' : state === 'review' ? (fix?.isOpen === true ? (fixWaits ? 'Fix waiting' : 'Being fixed') : 'Being checked') : tone === 'now' ? 'Being built' : 'Waiting',
+    state: tone === 'done' ? 'Finished' : forAccept ? 'Waits for your Accept' : inMaking ? 'Waits for the next round' : forVerdict ? 'Waits for your verdict' : fixStopped ? 'Fix stopped' : tone === 'stop' ? 'Stopped' : state === 'review' ? (fix?.isOpen === true ? (fixWaits ? 'Fix waiting' : 'Being fixed') : 'Being checked') : tone === 'now' ? 'Being built' : 'Waiting',
     isFailed: checked !== null && checked.total > 0 && checked.passed < checked.total && fix?.isFixed !== true,
     owner: String(item.head.get('Owner') ?? '').replace(prefix, '').trim() || null,
     onIt: FINISHED.includes(state) ? null : workerOn(id, all, lanes, prefix),
@@ -1287,8 +1290,8 @@ function partStepOf(item, steps, prefix, all = steps, lanes = null, now = null, 
     check: checked === null || checked.total === 0 ? null : { passed: checked.passed, total: checked.total, evidence: checked.evidence, ...(fix === null ? {} : { fix: forAccept ? { ...fix, note: `${fix.note}: ${ownWait.text}` } : ownRecap?.kind === 'recap' && verdictChain === null ? { ...fix, note: `${fix.note}: ${ownRecap.text}` } : fix }) },
     waitsFor,
     // 2026-11-01: whether it waits for the person's verdict in the recap, and the recap part it waits in (`{ path, key }`, null where unknown).
-    waitsForVerdict: forVerdict,
-    verdictAt,
+    waitsForVerdict: forVerdict && !inMaking,
+    verdictAt: inMaking ? null : verdictAt,
   }
 }
 
@@ -1591,7 +1594,7 @@ export function buildState(raw, options) {
   return withLinks(raw?.work?.items, () => builtState(raw, options))
 }
 
-function builtState(raw, { lines = [], outbox = [], runs = [], board = null, seen = null, aliveAt = null, reports = null, wakes = null, hearing = null, finishedSeen = {}, taskTimes = [], mods = {}, modsLately = null, keptReadings = [], providers = [], planSeen = null, now, config }) {
+function builtState(raw, { lines = [], outbox = [], runs = [], board = null, seen = null, aliveAt = null, reports = null, wakes = null, hearing = null, stalls = [], finishedSeen = {}, taskTimes = [], mods = {}, modsLately = null, keptReadings = [], providers = [], planSeen = null, now, config }) {
   // The review of Pause 2: while the person pauses (2026-10-19: pausing only, no longer until running) what waits in
   // the outbox is held until the resume, but the board's own "resume" to the main chat; the page says so (`isHeld`).
   const isPaused = isHolding(raw.work?.pause)
@@ -2353,6 +2356,8 @@ function builtState(raw, { lines = [], outbox = [], runs = [], board = null, see
   const routedAway = !workOk ? [] : routedAwayOf(raw.work, { names: chatNames, prefix })
   // 2026-11-01: the open asks that stand with the person, for the recap card (src/recapCard.mjs).
   const standingNow = standingAsksOf(new Map(itemsOf(raw.work).map(one => [one.head.get('Id'), one])), { autopilot: config.autopilot === true, now })
+  // T17.1: the focus goal's recap while its next round is being made (src/recapCard.mjs `recapMakingOf`).
+  const recapMaking = focus === null ? null : recapMakingOf({ goal: focus.id, recap: raw.goalRecap ?? null, items: new Map(itemsOf(raw.work).map(one => [one.head.get('Id'), one])) })
   const built = {
     readAt: now,
     // Signals change 7: when the board saw each worker's own plan words change, for the server to hand back at the next read.
@@ -2427,11 +2432,16 @@ function builtState(raw, { lines = [], outbox = [], runs = [], board = null, see
     autopilot: { on: config.autopilot === true, decidedToday: !workOk ? 0 : decidedTodayOf(raw.work, now) },
     routedAway,
     // 2026-11-01 (the person: "where do i see this recap"): the focus goal's recap card, or null while no part of its recap waits for their verdict.
+    // T17.1 (the coordinator's ruling): while the goal's round is being made the card is the quiet one (`recapMaking`), never a count of verdicts.
     recapCard: focus === null ? null : recapCardOf({
+      making: recapMaking,
       goal: focus.id, recapPath: raw.goalRecap?.goal === focus.id ? raw.goalRecap.path : null, waits: recapWaits, pictures: raw.goalRecap?.goal === focus.id ? raw.goalRecap.pictures : {},
       steps: new Map(itemsOf(raw.work).filter(one => one.head.get('Kind') === 'step').map(one => [one.head.get('Id'), one])), blocks: focus.parts,
       standing: standingNow, openChecks: openChecksOf(new Map(itemsOf(raw.work).map(one => [one.head.get('Id'), one]))), asked: config.autopilot === true ? routedAway.filter(one => one.route === 'recap' && (one.goal === focus.id || one.of === null)) : [],
     }),
+    // T17.1 (the person: "the new recap, after round 1 is not finetuned to my feedback"): the focus goal's recap while its next round is being
+    // made, `{ goal, path, round, done, total, doneSteps }`, or null. It asks no verdict: the page draws a quiet card and counts nothing.
+    recapMaking,
     // B296, B301: the work store: its folder, how many items, its problems, and why it cannot be read (`why`).
     store: shown.store,
     // B298: the person's words per chat, filed as instructions (work/lists.mjs).
@@ -2496,6 +2506,8 @@ function builtState(raw, { lines = [], outbox = [], runs = [], board = null, see
     deaf,
     deafNow,
     lateCalls: Array.isArray(hearing?.lateCalls) ? hearing.lateCalls : [],
+    // B934 (X93): the board's newest stalls (stalls.mjs), which the rule board-slow cites.
+    stalls: Array.isArray(stalls) ? stalls : [],
     restart,
     pause,
     // B124: the main chat (null when the list has none), the name and folder a new project makes it with, how many

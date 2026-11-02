@@ -195,10 +195,11 @@ const script = await readFile(join(PUBLIC, 'board.js'), 'utf8')
 const html = await readFile(join(PUBLIC, 'index.html'), 'utf8')
 
 test('the page: the Advisor tab in four parts under their buttons, the way first; no tab of its own for the chat', () => {
-  assert.match(html, /data-tab="advice"><span class="tab-long">Focus<\/span><span class="tab-short">Focus<\/span><\/button>/)
+  assert.match(html, /<button class="subtab" type="button" data-tab="advice" data-advisor-pane="focus" aria-pressed="true">Focus<\/button>/)
   assert.deepEqual([...html.matchAll(/data-advisor-pane="(\w+)"/g)].map(found => found[1]), ['focus', 'way', 'goals', 'brainstorm', 'plan', 'suggestions', 'refine', 'chat'])
   // Vision (2026-10-19): the fifth tab, the product plan's; the chat still has none of its own.
-  assert.equal((html.match(/class="tab[^"]*" type="button" data-tab=/g) ?? []).length, 8)
+  // The menu (2026-11-02): five tabs; Vision and Focus share Plan, Design and Bugs share New, Settings is in the gear menu.
+  assert.equal((html.match(/class="tab[^"]*" type="button" data-(?:tab|group)=/g) ?? []).length, 5)
   assert.match(script, /const pane = ADVISOR_PANES\.includes\(name\) \? name : advisorFirstPart\(board\?\.advisorParts\)/)
   // The answers: yes to the main chat (since 2026-10-28 carried out by the board), no with its reason to the Advisor;
   // the way is drawn anew while one is sent.

@@ -48,6 +48,41 @@ test('the predicate: only a worker on the setting "sequence" and the mod 0.27.0 
   assert.equal(onSequence({ ...lane, isLeftover: true }, { handover: 'sequence' }), false)
 })
 
+test('2026-11-02 (Workers 3 and 4 held an hour after "/clear did not run within two minutes"): a hold on a failed clear ends after 10 min of running time at the next idle report, with the next try on the lane; a clear the board\'s restart cut is no time-out', async () => {
+  const { HELD_RETRY_MS } = await import('../../src/work/handover.mjs')
+  const name = 'Worker 3'
+  const reportAt = at(27, 21, 10)
+  const items = mapOf([reported('B930', name, reportAt), step('B940', 'refined')])
+  const idleAt = when => worker(name, { since: at(27, 21, 20), heard: when })
+  const owed = owedOf(idleAt(at(27, 21, 25)), items)
+  // The clear envelope failed on the mod's own two minutes (no background, no set): nothing but a turn end released it before.
+  const failed = { id: 'c1', at: at(27, 21, 25), to: name, command: HANDOVER_COMMAND, kind: 'clear', step: null, clear: { step: 'B930', reportedAt: reportAt }, restart: false, set: null, line: null, state: 'failed', settledAt: at(27, 21, 27), failedAt: at(27, 21, 27), outcome: { cleared: false, set: null, typed: null, restarted: null, background: false, why: '/clear did not run within two minutes' } }
+  const soon = decide({ worker: idleAt(at(27, 21, 30)), items, ready: ready('B940'), owed, envelopes: [failed], now: at(27, 21, 30) })
+  assert.equal(soon.state, STATES.HELD)
+  assert.match(soon.why, /^its clear did not run: \/clear did not run within two minutes; next try 21:37$/)
+  assert.equal(soon.envelope, null)
+  // 10 minutes of running time on, the next idle report releases it: the clear goes again (and B940 with it).
+  const later = decide({ worker: idleAt(at(27, 21, 38)), items, ready: ready('B940'), owed, envelopes: [failed], now: at(27, 21, 38) })
+  assert.notEqual(later.state, STATES.HELD)
+  assert.deepEqual(later.envelope?.clear, { step: 'B930', reportedAt: reportAt })
+  // The board's off time does not count: 10 clock minutes with 5 off is 5 of running time: still held.
+  const off = decide({ worker: idleAt(at(27, 21, 38)), items, ready: ready('B940'), owed, envelopes: [failed], now: at(27, 21, 38), runningMs: from => at(27, 21, 38) - from - 5 * MIN })
+  assert.equal(off.state, STATES.HELD)
+  assert.equal(HELD_RETRY_MS, 10 * MIN)
+  // B930's "twice on the board's time-out" cap: a clear the board's own restart cut (sent in the minute before the board
+  // started, or refused "not running") is no time-out: the next idle report releases, and the hold never outlives 10 min.
+  const timeout = why => ({ ...failed, outcome: { ...failed.outcome, why } })
+  const first = { ...timeout('(The worker board did not answer within 15 s)'), id: 'c0', at: at(27, 21, 0), settledAt: at(27, 21, 2), failedAt: at(27, 21, 2) }
+  const cut = { ...timeout('(The worker board is not running)'), id: 'c2', at: at(27, 21, 25), settledAt: at(27, 21, 27), failedAt: at(27, 21, 27) }
+  const afterCut = decide({ worker: idleAt(at(27, 21, 28)), items, ready: ready('B940'), owed, envelopes: [first, cut], now: at(27, 21, 28), boardStartedAt: at(27, 21, 26) })
+  assert.notEqual(afterCut.state, STATES.HELD, 'a restart cut is no second time-out')
+  const twice = { ...timeout('(The worker board did not answer within 15 s)'), id: 'c3', at: at(27, 21, 25), settledAt: at(27, 21, 27), failedAt: at(27, 21, 27) }
+  const heldTwice = decide({ worker: idleAt(at(27, 21, 28)), items, ready: ready('B940'), owed, envelopes: [first, twice], now: at(27, 21, 28) })
+  assert.equal(heldTwice.state, STATES.HELD)
+  assert.match(heldTwice.why, /failed twice on the board's own time-out; next try 21:37$/)
+  assert.notEqual(decide({ worker: idleAt(at(27, 21, 38)), items, ready: ready('B940'), owed, envelopes: [first, twice], now: at(27, 21, 38) }).state, STATES.HELD, 'twice, but never for ever')
+})
+
 test('real case 1, Worker 1 with B738 and B740 (27 Oct, X91, X94): a clear refused for background work holds the worker, its task goes back at once, B740 goes elsewhere', () => {
   const name = 'Worker 1'
   const reportAt = at(27, 21, 39)
