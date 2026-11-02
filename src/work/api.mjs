@@ -39,10 +39,10 @@ import { EFFORTS, effortOf, modelOf, parseEffort, parseModel, withEffort, withMo
 import { appendHistory, nextId, oneRead, putBack, readActivitiesText, readItemFile, readStore, removeItem, writeActivities, writeItem } from './store.mjs'
 import { openNaming, renamedItem } from './names.mjs'
 import { readAutopilotClearedFile, readNamesFile, readObsoleteFile, readPartnerAnswersFile, readPauseFile, writeAutopilotClearedFile, writeNames, writeObsoleteFile, writePartnerAnswers, writePause } from './store.mjs'
-import { INCIDENT_WAS, MOVED_WORDS, NON_BLOCKING_WORDS, REOPENED_WORDS, SHOWN_MS, UNDONE_WORDS, UNDO_ROUTE_LINE, addedCleared, clearedItem, parseAutopilotCleared, startedCleared, undoWords } from './autopilotCleared.mjs'
+import { KEPT_WORDS, MOVED_WORDS, NON_BLOCKING_WORDS, REOPENED_WORDS, SHOWN_MS, UNDONE_WORDS, UNDO_ROUTE_LINE, addedCleared, clearedItem, parseAutopilotCleared, startedCleared, undoWords } from './autopilotCleared.mjs'
 import { checkWords, isLate, obsoletePointsOf, openItemsOf } from './obsolete.mjs'
 import { NOTE_LINE, PARTNER_ANSWER_MS, isDecidedForYou, isRoutedToPartner, routesToPartner, takenBackWords } from './partnerAnswers.mjs'
-import { RECAP_GOES_ON, REFINE_BACK_WORDS, SENT_BACK, TOOK_ADVICE, adviceAnswerOf, autopilotRoute, dropsStep, focusRecapPathOf, isAutopilotRouted, isBoardRoutedPerson, isExplicitPerson, linksRecap, recapGoneWords, recapVerdictWords, refineAdviceOf, routedAt, routedWords } from './autopilot.mjs'
+import { HANDED_KEPT_WORDS, RECAP_GOES_ON, REFINE_BACK_WORDS, SENT_BACK, TOOK_ADVICE, adviceAnswerOf, autopilotRoute, dropsStep, focusRecapPathOf, isAutopilotRouted, isBoardRoutedPerson, isExplicitPerson, isKeptLook, linksRecap, partnerHandOverOf, recapGoneWords, recapVerdictWords, refineAdviceOf, routedAt, routedWords } from './autopilot.mjs'
 import { HELD, checkpointLine, isHolding, pauseAnswer, pauseFacts } from './pause.mjs'
 import { nextPlan, planMinutes, planOf, planText } from './stepPlan.mjs'
 import { takenForLine } from './held.mjs'
@@ -591,6 +591,7 @@ function goOnOrPark(mine, w, ctx, why) {
   const goesOn = move(mine, 'in progress', 'server', w, ctx, why)
   if (goesOn.ok) return { item: goesOn.item, freed: true, parked: null }
   const other = workingOnOther(ctx.store.items, mine, w.prefix ?? '')
+  // A look the partner handed over that Autopilot keeps for the recap holds no worker (`openAsksUnder` leaves it out), so it parks no step either.
   if (other === null || openAsksUnder(ctx.store.items, valueOf(mine, 'Id')).length > 0) return { item: mine, freed: false, parked: null }
   return { item: appendHistory(mine, 'server', parkWords(other), w.now), freed: false, parked: other }
 }
@@ -1493,6 +1494,17 @@ async function escalate(body, w) {
   if (stateOf(found.item) !== 'open' || !routes.includes(route)) return refuse(409, `${id} is not routed to ${w.role === 'main' ? 'you' : 'the partner'}${stateOf(found.item) === 'open' ? '' : ` (it is ${stateOf(found.item)})`}: nothing to hand on.`)
   const why = line(body.why, 300)
   if (why === '') return refuse(400, 'Say in one line in "why" why the person answers it: it stands on its card.')
+  // The person's "A" (2026-11-02, the live Q590: "Why is he asking me for it. this is autopilot is turned on correct?"): while Autopilot
+  // is on, the partner's hand-over of a new look of the focus goal waits for that goal's recap instead of standing for the person (a
+  // worker's look goes to the partner first, as before, and reaches this only when the partner hands it on); the
+  // partner's why stays in the ask's History. Anything else the partner hands over (and a look that names a click, a sign-in, ...) is the person's.
+  if (w.autopilot === true && w.role !== 'server' && w.role !== 'main' && valueOf(found.item, 'Asks') === 'look') {
+    const decided = autopilotRoute(found.item, { ...routeCtx(w), handedWhy: why })
+    if (decided.to === 'recap') {
+      const kept = await routeAsk(id, 'recap', w, HANDED_KEPT_WORDS, decided.step ?? null, { said: { by: w.who, words: `to the person: ${why}` }, placed: PLACED_BY_PICTURE, freesStep: true })
+      if (kept.ok) return changed(kept.item, `${id} waits for the goal's recap: Autopilot is on, so the new look of the focus goal is judged there, not handed to the person now (${why}).`, kept.wake === null ? {} : { wake: kept.wake })
+    }
+  }
   const card = w.role === 'server'
     ? /^the partner /i.test(why) ? `Your partner ${why.replace(/^the partner /i, '')}: it is yours` : `${why[0].toUpperCase()}${why.slice(1)}: it is yours`
     : w.role === 'main' ? `The main chat hands this to you: ${why}` : `Your partner hands this to you: ${why}`
@@ -1502,6 +1514,9 @@ async function escalate(body, w) {
   const done = await save(next, found.text, w)
   return done.ok ? changed(next, `${id} goes to the person: ${why}.`) : done
 }
+
+/** The "put under" line's words for a look of the focus goal that no row of the recap names: its picture names the step. */
+const PLACED_BY_PICTURE = 'the step its picture names'
 
 /** Autopilot (2026-10-31): the store's open asks (Q<n>) in id order, as `w` reads them. */
 const openAsksAll = w => [...w.store.items.values()].filter(one => kindOf(one) === 'ask' && stateOf(one) === 'open' && /^Q\d+$/.test(valueOf(one, 'Id') ?? ''))
@@ -1514,31 +1529,44 @@ const freshOf = async w => ({ ...w, store: { ...w.store, ...(await readStore(w.d
  * Autopilot: an open ask given its route (`to`), once: the Route field and one History line. Partner: its 30 minutes start now.
  * Recap (the coordinator's ruling, 2026-10-31): its step reads `Recap verdict: waits (Q<n>)` first, and a blocking ask is
  * blocking no more (its worker goes on). `step` (2026-11-02): an ask under no step that the goal's recap asks for a step it
- * names (autopilot.mjs `recapAskOf`) is put under that step first: `Of: <step>`, then marked as any recap wait.
+ * names (autopilot.mjs `recapAskOf`, `focusLookOf`) is put under that step first: `Of: <step>`, then marked as any recap wait.
+ * `said` (`{ by, words }`): a History line of a chat that comes first (the partner's hand-over that Autopilot keeps for the recap);
+ * `placed`: the words of the "put under" line when no row of the recap names the step (`focusLookOf`). `freesStep` (a look the
+ * partner handed over that Autopilot keeps for the recap, 2026-11-02): a blocking ask held its step 'waiting on you'; the step goes
+ * on as a withdrawn ask's would (`goOnOrPark`), and its owner is the one to wake (`owner` in the answer).
  */
-async function routeAsk(id, to, w, card = null, step = null) {
+async function routeAsk(id, to, w, card = null, step = null, { said = null, placed = null, freesStep = false } = {}) {
   const found = await load(id, w, { kind: ['ask'] })
   if (!found.ok || stateOf(found.item) !== 'open') return { ok: false }
+  const wasBlocking = valueOf(found.item, 'Blocking') === 'yes'
   let item = put(copy(found.item), 'Route', to)
   const isPlaced = to === 'recap' && step !== null && valueOf(found.item, 'Of') === null && STEP_ID.test(step)
   if (isPlaced) put(item, 'Of', step)
   // The partner's 30-minute rule reads the ask's filing (reconcile.mjs): an older ask routed now gets its 30 minutes from now.
   if (to === 'partner') put(item, 'Filed', String(w.now))
   if (card !== null) item.sections.set('Route', [card])
+  if (said !== null) item = appendHistory(item, said.by, said.words, w.now)
   item = appendHistory(item, 'server', routedWords(to), w.now)
-  if (isPlaced) item = appendHistory(item, 'server', `autopilot: put under ${step}, which the goal's recap names`, w.now)
+  if (isPlaced) item = appendHistory(item, 'server', `autopilot: put under ${step}, ${placed ?? "which the goal's recap names"}`, w.now)
   if (to === 'recap' && valueOf(item, 'Blocking') === 'yes') item = appendHistory(put(item, 'Blocking', 'no'), 'server', RECAP_GOES_ON, w.now)
   item = ordered(item)
   const of = valueOf(item, 'Of')
+  let owner = null
   if (to === 'recap' && of !== null && STEP_ID.test(of)) {
     const under = await load(of, w, { kind: ['step'] })
     if (!under.ok) return under
-    const marked = appendHistory(underStep(under.item, [recapVerdictWords('waits', id)]), 'server', `autopilot: ${id} waits for the goal's recap`, w.now)
+    let marked = appendHistory(underStep(under.item, [recapVerdictWords('waits', id)]), 'server', `autopilot: ${id} waits for the goal's recap`, w.now)
+    // The step it alone held goes on (with a worker on another step, it is parked), as when the ask is withdrawn.
+    if (freesStep && wasBlocking && stateOf(marked) === 'waiting on you') {
+      const goes = goOnOrPark(marked, w, flowCtx(w, [item, marked]), ` (${id} waits for the goal's recap)`)
+      marked = goes.item
+      if (goes.freed) owner = valueOf(marked, 'Owner')
+    }
     const wrote = await save(marked, under.text, w)
     if (!wrote.ok) return wrote
   }
   const done = await save(item, found.text, w)
-  return done.ok ? { ok: true, item } : done
+  return done.ok ? { ok: true, item, wake: owner === null ? null : { to: owner, id, kind: 'recap-kept', line: `${id} waits for the goal's recap: go on` } } : done
 }
 
 /**
@@ -1563,6 +1591,8 @@ async function autopilot(body, w) {
   const escalated = []
   const refines = []
   const wakes = []
+  // The partner's hand-overs this pass kept for the recap (the person's "A"): each is kept for the Undo, at every pass.
+  const kept = []
   if (on) {
     for (const item of openAsksAll(w)) {
       const route = valueOf(item, 'Route')
@@ -1578,6 +1608,23 @@ async function autopilot(body, w) {
         done = await routeAsk(valueOf(item, 'Id'), 'person', w)
       }
       if (done.ok) routed.push({ id: valueOf(item, 'Id'), to: decided.to })
+    }
+    // The partner's hand-over of a look (the person's "A", 2026-11-02, the live Q590: "Why is he asking me for it. this is autopilot
+    // is turned on correct?"), at every pass: one that stands for the person because the partner escalated it, and that a new look
+    // of the focus goal now answers with the recap, waits for the recap. Never one the person took back (the Undo's line stands on its
+    // card), nor one handed on by the main chat or the board, nor one whose words or why name what only the person's hands can do.
+    // The store is read anew before each (as the pass does elsewhere, `freshOf`): two blocking hand-overs of one step hold it each
+    // until the other is kept, so the last one frees it.
+    for (const item of openAsksAll(w)) {
+      const handed = partnerHandOverOf(item)
+      if (handed === null || valueOf(item, 'Asks') !== 'look') continue
+      const decided = autopilotRoute(item, { ...ctx, handedWhy: handed })
+      if (decided.to !== 'recap') continue
+      const done = await routeAsk(valueOf(item, 'Id'), 'recap', await freshOf(w), HANDED_KEPT_WORDS, decided.step ?? null, { placed: PLACED_BY_PICTURE, freesStep: true })
+      if (!done.ok) continue
+      routed.push({ id: valueOf(item, 'Id'), to: 'recap' })
+      kept.push(valueOf(item, 'Id'))
+      if (done.wake !== null && done.wake !== undefined) wakes.push(done.wake)
     }
   }
   let now = await freshOf(w)
@@ -1629,7 +1676,9 @@ async function autopilot(body, w) {
     const step = now.store.items.get(valueOf(item, 'Of') ?? '')
     const isFocus = step !== undefined && (now.focusGoal ?? null) !== null && valueOf(step, 'Goal') === now.focusGoal
     const isNamed = (now.recaps ?? []).some(one => one.step === valueOf(item, 'Of'))
-    if (isFocus && (now.focusHasDemo !== true || isNamed)) continue
+    // A look the partner handed over stays on the recap even when no row names it (the person's "A", 2026-11-02): it is answered in its
+    // window. Every other recap wait (a checker's look, one below its target, an Accept card) has this net as it always had.
+    if (isFocus && (now.focusHasDemo !== true || isNamed || isKeptLook(item))) continue
     const done = await routeAsk(id, 'person', now, isFocus ? 'The goal demo came without its step, so the recap will not answer it: it is yours' : recapGoneWords)
     if (done.ok) escalated.push(id)
   }
@@ -1645,12 +1694,18 @@ async function autopilot(body, w) {
       now = await freshOf(w)
     }
   }
-  // The switch-on keeps what it moved into the recap (the page: "Autopilot cleared N", with an Undo for a day).
+  // The switch-on keeps what it moved into the recap (the page: "Autopilot cleared N", with an Undo for a day); every pass keeps the
+  // partner's hand-overs it kept for the recap (the person's "A", 2026-11-02): they stood for the person before.
   let clearedWhy = null
-  const moved = isSweep ? routed.filter(one => one.to === 'recap').map(one => clearedItem(one.id, valueOf(w.store.items.get(one.id), 'Title') ?? one.id, 'recap', MOVED_WORDS)) : []
+  const titleOf = id => valueOf(w.store.items.get(id), 'Title') ?? id
+  const moved = [
+    ...(isSweep ? routed.filter(one => one.to === 'recap' && !kept.includes(one.id)).map(one => clearedItem(one.id, titleOf(one.id), 'recap', MOVED_WORDS)) : []),
+    ...kept.map(id => clearedItem(id, titleOf(id), 'recap', KEPT_WORDS)),
+  ]
   if (moved.length > 0) {
     const file = await readAutopilotClearedFile(w.dir, w.fs)
-    const saved = await writeAutopilotClearedFile(w.dir, startedCleared(file.record, moved, w.now), w.fs, { expected: file.text })
+    const next = isSweep ? startedCleared(file.record, moved, w.now) : addedCleared(file.record, moved, w.now)
+    const saved = await writeAutopilotClearedFile(w.dir, next, w.fs, { expected: file.text })
     // The asks are routed already: a record that could not be kept is told, not refused.
     if (!saved.ok) clearedWhy = saved.why
   }
@@ -3277,7 +3332,7 @@ async function obsoleteCheck(body, w) {
   if (file.record?.state === 'checking' && !isLate(file.record, w.now)) return refuse(409, 'The Advisor is checking already: one check at a time.')
   const by = body.by === 'autopilot' ? 'autopilot' : null
   if (by === 'autopilot' && file.record !== null && file.record.by !== 'autopilot' && (file.record.state === 'checking' || file.record.items.length > 0)) return refuse(409, 'The person\'s own check is open: Autopilot starts none beside it.')
-  const open = openItemsOf(w.store.items).filter(one => by === null || one.kind === 'incident' || (one.kind !== 'refine' && [null, 'person'].includes(valueOf(w.store.items.get(one.id), 'Route'))))
+  const open = openItemsOf(w.store.items).filter(one => by === null || (one.kind !== 'refine' && [null, 'person'].includes(valueOf(w.store.items.get(one.id), 'Route'))))
   if (open.length === 0) return { ok: true, result: { text: 'Nothing is open: nothing to check.', none: true, changed: false } }
   const evidence = await Promise.resolve(w.obsoleteEvidence?.(open, w.store.items)).catch(() => null)
   const record = {
@@ -3320,8 +3375,7 @@ async function obsolete(body, w) {
   let keptWhy = ''
   if (answered.by === 'autopilot' && gone.closed.length > 0) {
     const cleared = await readAutopilotClearedFile(w.dir, w.fs)
-    // An incident keeps the state it had (open, came back, with the advisor): its Undo restores that one.
-    const added = gone.closed.map(id => clearedItem(id, answered.items.find(one => one.id === id)?.title ?? id, 'closed', verdicts[id]?.why ?? '', kindOf(w.store.items.get(id)) === 'incident' ? stateOf(w.store.items.get(id)) : null))
+    const added = gone.closed.map(id => clearedItem(id, answered.items.find(one => one.id === id)?.title ?? id, 'closed', verdicts[id]?.why ?? ''))
     const saved = await writeAutopilotClearedFile(w.dir, addedCleared(cleared.record, added, w.now), w.fs, { expected: cleared.text })
     // The items are closed already: a record that could not be kept is told, not refused.
     if (!saved.ok) keptWhy = ` The list for Undo could not be updated: ${saved.why}.`
@@ -3432,13 +3486,8 @@ async function undoCleared(one, w) {
     const done = await save(item, found.text, w)
     return done.ok ? { ok: true } : { ok: false, why: done.why }
   }
-  if (kind === 'incident') {
-    if (state !== 'closed') return { ok: false, why: `it is ${state} now` }
-    const item = ordered(said(put(put(copy(found.item), 'State', INCIDENT_WAS.includes(one.was) ? one.was : 'open'), 'Since', stamp(w.now)), w, REOPENED_WORDS))
-    const done = await save(item, found.text, w)
-    return done.ok ? { ok: true } : { ok: false, why: done.why }
-  }
-  if (kind !== 'ask') return { ok: false, why: `${id} is neither an ask nor an incident` }
+  // Signals change 6: the check holds no incident (the Supervisor judges them), so the Undo opens asks only.
+  if (kind !== 'ask') return { ok: false, why: `${id} is no ask` }
   if (state !== 'withdrawn') return { ok: false, why: `it is ${state} now` }
   const of = valueOf(found.item, 'Of')
   const under = of !== null && STEP_ID.test(of) ? w.store.items.get(of) : undefined
@@ -3790,7 +3839,10 @@ async function answer(body, w) {
   let parked = null
   const asker = valueOf(found.item, 'Owner')
   const done = await answerStep(w, item, found.text, of, step => {
-    let mine = said(underStep(step, [`${id} answered by you on ${at(w.now)}: ${short}`]), w, `${id} answered`)
+    // A look the partner handed over that Autopilot kept for the recap (the person's "A", 2026-11-02): the step's `Recap verdict` line
+    // reads approved or sent back, as the recap's own answer writes it (`recapAnswered`).
+    const verdictLine = isKeptLook(found.item) && ['approve', 'reject'].includes(body.verdict) ? [recapVerdictWords(body.verdict === 'approve' ? 'approved' : 'sent back', id)] : []
+    let mine = said(underStep(step, [`${id} answered by you on ${at(w.now)}: ${short}`, ...verdictLine]), w, `${id} answered`)
     // Your words: the answer, rejection or approval lands on the step with the question it answered.
     mine = withYourWords(mine, askPoint(found.item, { at: stamp(w.now), how: `answer to ${id}`, by: asker === null ? '' : bare(asker, w.prefix), answer: text }))
     // B293: a refine question answered here is answered in the step's refine block too, as in the step's window.

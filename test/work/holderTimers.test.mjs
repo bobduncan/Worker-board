@@ -165,6 +165,14 @@ test('never for a step with an open BLOCKING ask under it (the lead\'s live chec
   assert.equal(decideAt(30, { items: mapOf(held(), ask()) }).envelope?.kind, RESUME_KIND, 'an open ask of the worker on nothing in particular is no bar')
   assert.equal(decideAt(30, { items: mapOf(held(), ask({ Of: 'B12' })) }).envelope?.kind, RESUME_KIND, 'a non-blocking ask under the step is no bar')
   assert.equal(decideAt(30, { items: mapOf(held(), ask({ Owner: 'Worker 2', Of: 'B7', Blocking: 'yes' })) }).envelope?.kind, RESUME_KIND, 'another step\'s blocking ask is no bar')
+  // 2026-11-02 (the person's "A"): a look the partner handed over that Autopilot keeps for the recap holds no worker, so it is no bar,
+  // blocking or not; the same ask without the kept line bars only when it blocks the held step (the lead's order A).
+  const KEPT = 'Your partner hands this to you; Autopilot keeps it for the goal\'s recap'
+  const keptAsk = (more = {}, route = [KEPT]) => item({ Id: 'Q1', Kind: 'ask', Title: 'Which hinge?', State: 'open', Owner: 'Worker 1', Since: stamp(at(-5)), Asks: 'look', Blocking: 'no', Route: 'recap', ...more }, route.length === 0 ? {} : { Route: route })
+  assert.equal(decideAt(30, { items: mapOf(held(), keptAsk({ Of: 'B12' })) }).envelope?.kind, RESUME_KIND, 'a kept look under the step is no bar (never blocking)')
+  assert.equal(decideAt(30, { items: mapOf(held(), keptAsk({ Owner: 'Worker 2', Of: 'B12' })) }).envelope?.kind, RESUME_KIND)
+  assert.equal(decideAt(30, { items: mapOf(held(), keptAsk({ Of: 'B12', Blocking: 'yes' }, [])) }).envelope, null, 'a look of the old routes that blocks the step bars it')
+  assert.equal(decideAt(30, { items: mapOf(held(), keptAsk({}, [])) }).envelope?.kind, RESUME_KIND, 'a non-blocking recap wait of the old routes is no bar (order A)')
   // The person's answer at 10:10 starts the clock anew (the answer is on its way to it).
   const answered = mapOf(held(), ask({ State: 'answered', Since: stamp(at(10)) }))
   assert.equal(decideAt(15, { items: answered }).envelope, null)

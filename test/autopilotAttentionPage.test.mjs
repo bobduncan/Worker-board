@@ -38,6 +38,7 @@ test('the card\'s view: null while no verdict waits; else the goal\'s words, the
   assert.deepEqual(plain(recapAttentionView(card(), { id: 'G60', title: 'How we build good maps' })), {
     goal: 'G60', count: 3, heading: 'G60 · How we build good maps: your recap is ready · 3 verdicts wait',
     line: 'Everything is built. Judge each part: approve it, or send it back with a note.', open: { label: 'Open the recap →', target: { path: PATH } },
+    looks: { named: [] },
   })
   assert.equal(recapAttentionView(card({ count: 1 }), { id: 'G60', title: 'Maps' }).heading, 'G60 · Maps: your recap is ready · 1 verdict waits')
   assert.equal(recapAttentionView(card({ isBuilt: false }), { id: 'G60', title: 'Maps' }).line, 'Judge what is ready: approve it, or send it back with a note.')
@@ -222,4 +223,139 @@ test('the colours: the card is the attention colour, the line is quiet (dashed, 
   assert.match(line, /border: 1px dashed var\(--line\)/)
   assert.match(line, /color: var\(--muted\)/)
   assert.doesNotMatch(css.split('\n').filter(one => /^\.autopilot-cleared/.test(one)).join('\n'), /attn|waiting|warn|amber|#e3a52b|#f6b93b|#ff7a59/)
+  // The look lines under the card's words are quiet too (the person's "A", 2026-11-02): link-styled in cool tones, not the attention colour.
+  assert.doesNotMatch(css.split('\n').filter(one => /^\.recap-attention-look/.test(one)).join('\n'), /attn|waiting|warn|amber|#e3a52b|#f6b93b|#ff7a59/)
+})
+
+// ---------------------------------------------------------------------------------------------------------------------
+// The person's "A" (2026-11-02, the live Q590: a worker's look "Does the wizard's move range on the terraces look right?", handed to
+// them with Autopilot on: "Why is he asking me for it. this is autopilot is turned on correct?"): a look of the focus goal that waits
+// for the recap is a tile of the recap card; the Product owner's card names it in a quiet line that opens the ask, where it is answered.
+
+const lookCard = (looks, more = {}) => card({ looks, ...more })
+const tileOf = (id, title) => ({ title, line: 'a look · advised: yes', picture: null, target: { ask: id } })
+
+test('the card\'s view names every look that waits: "Also a look: <title, cut at 60> →", no cap; nothing for a card without looks', () => {
+  assert.deepEqual(plain(recapAttentionView(card(), null).looks), { named: [] })
+  assert.deepEqual(plain(recapAttentionView(card({ looks: undefined }), null).looks), { named: [] }, 'a board that sends no looks')
+  const one = recapAttentionView(lookCard([tileOf('Q590', 'Does the wizard\'s move range on the terraces look right?')]), { id: 'G60', title: 'Maps' })
+  assert.deepEqual(plain(one.looks), { named: [{ words: 'Also a look: Does the wizard\'s move range on the terraces look right? →', title: 'Does the wizard\'s move range on the terraces look right?', target: { ask: 'Q590' } }] })
+  // Cut at 60 characters, at a word edge, with an ellipsis; the title stays whole for the tooltip.
+  const long = 'Is the second block of the garden good enough to approve as it is now, or should the target be reset for it?'
+  const cut = recapAttentionView(lookCard([tileOf('Q1', long)]), null).looks.named[0]
+  assert.ok(/^Also a look: (.*)… →$/.test(cut.words) && cut.words.length <= 'Also a look: '.length + 61 + 2, cut.words)
+  assert.equal(cut.title, long)
+  // Every one is named (a fourth would be unreachable under a cap); a tile that is no ask's is left out.
+  const five = recapAttentionView(lookCard(['Q1', 'Q2', 'Q3', 'Q4', 'Q5'].map(id => tileOf(id, `Look ${id}`))), null).looks
+  assert.deepEqual(five.named.map(look => look.target.ask), ['Q1', 'Q2', 'Q3', 'Q4', 'Q5'])
+  assert.deepEqual(plain(recapAttentionView(lookCard([{ title: 'x', target: { path: PATH } }, tileOf('Q9', '')]), null).looks).named.map(look => look.words), ['Also a look: Q9 →'], 'no title: the ask\'s id')
+  // The count (the card's own) already holds the looks: the view adds nothing to it.
+  assert.equal(recapAttentionView(lookCard([tileOf('Q1', 'x')], { count: 4 }), null).count, 4)
+})
+
+/** A done step B9 of the garden and the look the partner handed over that Autopilot keeps for the recap: the live Q590's shape, with its picture. */
+const done9 = parseItem(`Id: B9\nKind: step\nTitle: Whole move squares\nState: done\nOwner: Digger\nGoal: G6\nSince: ${sinceOf(NOW - 9 * HOUR)}\n`)
+const lookOf = (n, title) => parseItem(`Id: Q${n}\nKind: ask\nTitle: ${title}\nState: open\nOwner: Digger\nSince: ${sinceOf(NOW - 40 * MIN)}\nFiled: ${NOW - 40 * MIN}\nPictures: art/B9/after.jpg\nAsks: look\nBlocking: no\nAdvice: yes\nOf: B9\nRoute: recap\n\n## Text\n${title} I advise yes.\n\n## Route\nYour partner hands this to you; Autopilot keeps it for the goal's recap\n`)
+const withLook = (extra = []) => asSent(build([task(1), askFor(1), done9, lookOf(590, 'Does the wizard\'s move range on the terraces look right?'), ...extra], undefined, goals(1), { recaps: [recap(1)], goalRecap: { goal: 'G6', path: PATH, pictures: {} }, config: ON }))
+
+test('the Product owner\'s card names the look under its line; the link opens the ask\'s window; the card has no Done and no close', async () => {
+  const state = withLook()
+  assert.equal(state.recapCard.count, 2)
+  const page = await openPage({ state })
+  try {
+    assert.equal(page.text('#needs .is-recap-ready h4'), 'G6 · Garden: your recap is ready · 2 verdicts wait')
+    const looks = page.all('#needs .is-recap-ready .recap-attention-look')
+    assert.deepEqual(looks.map(link => [link.tagName, link.textContent, link.dataset.askLink]), [['BUTTON', 'Also a look: Does the wizard\'s move range on the terraces look right? →', 'Q590']])
+    // Under the card's line, above the one link that opens the recap; no Done, no close, no tick, no field.
+    assert.deepEqual(page.all('#needs .is-recap-ready > *').map(node => node.className.split(' ')[0] || node.tagName), ['need-top', 'H4', 'P', 'recap-attention-looks', 'recap-attention-open'])
+    assert.equal(page.all('#needs .is-recap-ready input, #needs .is-recap-ready textarea').length, 0)
+    assert.deepEqual(page.all('#needs .is-recap-ready button').map(node => node.className), ['recap-attention-look'], 'the only button is the link to the look')
+    assert.doesNotMatch(page.text('#needs .is-recap-ready'), /\b(?:Done|Close|OK)\b/i)
+    assert.equal(page.all('#needs .is-recap-ready a').length, 1, 'one link to the recap')
+    // The ask is out of Needs your attention: the card counts as one, the look is not a second card.
+    assert.equal(page.all('#needs .need:not(.is-recap-ready)').length, 0)
+    assert.equal(page.text('#needs-count'), '1')
+    // The link opens the ask's window.
+    assert.equal(page.find('#details').open, false)
+    await page.click('#needs .recap-attention-look')
+    assert.equal(page.find('#details').open, true, 'the ask\'s window opens')
+    assert.match(page.text('#details'), /Q590/)
+    assert.match(page.text('#details'), /Does the wizard's move range on the terraces look right\?/)
+    assert.match(page.text('#details'), /For your recap \(Autopilot\)/)
+  } finally { await page.close() }
+})
+
+test('mid-goal a kept look waits quietly: no Product owner card, nothing counted; its window (the Focus list links it) still holds the answer form', async () => {
+  const building = parseItem(`Id: B1\nKind: step\nTitle: Task B1\nState: new\nOwner: Digger\nGoal: G6\nSince: ${sinceOf(NOW - 90 * MIN)}\n`)
+  const state = asSent(build([building, done9, lookOf(590, 'Does the wizard\'s move range on the terraces look right?')], undefined, goals(2), { recaps: [], goalRecap: { goal: 'G6', path: PATH, pictures: {} }, config: ON }))
+  assert.equal(state.recapCard, null)
+  assert.deepEqual(state.routedAway.map(one => [one.id, one.isKept]), [['Q590', true]])
+  const page = await openPage({ state, hash: 'details=Q590' })
+  try {
+    await settle(10)
+    assert.equal(page.all('#needs .is-recap-ready').length, 0, 'no "your recap is ready" for one look mid-goal')
+    assert.equal(page.text('#needs-count'), '')
+    assert.equal(page.find('#details').open, true)
+    assert.deepEqual(page.all('#details [data-look-answer]').map(node => node.dataset.lookAnswer), ['reject', 'approve'], 'it can be answered at once')
+  } finally { await page.close() }
+})
+
+test('the goal\'s last step in review held only by its kept look: the Product owner\'s card names the look', async () => {
+  const finished = parseItem(`Id: B1\nKind: step\nTitle: Task B1\nState: done\nOwner: Digger\nGoal: G6\nSince: ${sinceOf(NOW - 9 * HOUR)}\n`)
+  const last = parseItem(`Id: B9\nKind: step\nTitle: Whole move squares\nState: review\nOwner: Digger\nGoal: G6\nSince: ${sinceOf(NOW - 3 * HOUR)}\n\n## Context\n  Recap verdict: waits (Q590)\n`)
+  const state = asSent(build([finished, last, lookOf(590, 'Does the wizard\'s move range on the terraces look right?')], undefined, goals(1).replace('steps B1', 'steps B1, B9'), { recaps: [], goalRecap: { goal: 'G6', path: PATH, pictures: {} }, config: ON }))
+  assert.equal(state.recapCard.count, 1)
+  const page = await openPage({ state })
+  try {
+    assert.equal(page.text('#needs .is-recap-ready h4'), 'G6 · Garden: your recap is ready · 1 verdict waits')
+    assert.deepEqual(page.all('#needs .recap-attention-look').map(link => link.dataset.askLink), ['Q590'])
+  } finally { await page.close() }
+})
+
+test('the look lines: every kept look is listed, the fourth and fifth too; a card without a look has none', async () => {
+  const extra = [2, 3, 4, 5].map(n => lookOf(590 + n, `Look number ${n}?`))
+  const many = await openPage({ state: withLook(extra) })
+  try {
+    assert.equal(many.text('#needs .is-recap-ready h4'), 'G6 · Garden: your recap is ready · 6 verdicts wait')
+    assert.equal(many.all('#needs .recap-attention-look').length, 5)
+    assert.deepEqual(many.all('#needs .recap-attention-look').map(link => link.dataset.askLink), ['Q590', 'Q592', 'Q593', 'Q594', 'Q595'], 'each opens its own ask')
+    assert.equal(many.all('#needs .recap-attention-looks small').length, 0, 'no "and N more"')
+  } finally { await many.close() }
+  const none = await openPage({ state: waiting(2) })
+  try { assert.equal(none.all('#needs .recap-attention-looks').length, 0) } finally { await none.close() }
+})
+
+test('answering the look in its window as any ask: Looks right sends the answer, Send back needs the note; the window closes once the board says it is answered', async () => {
+  let state = withLook()
+  const page = await openPage({ state: requests => (requests.some(one => one.url === '/api/work' && one.body?.verdict === 'approve') ? withoutLook() : state) })
+  function withoutLook() { return waiting(1) }
+  try {
+    await page.click('#needs .recap-attention-look')
+    assert.match(page.text('#details'), /waits for the goal's recap: you can answer it here/)
+    assert.deepEqual(page.all('#details .look-answer-note, #details [data-look-answer]').map(node => node.dataset.lookAnswer ?? node.tagName), ['TEXTAREA', 'reject', 'approve'])
+    // Send back without words: refused on the page, nothing is sent.
+    await page.click('#details [data-look-answer="reject"]')
+    assert.equal(page.sent('/api/work').length, 0)
+    assert.equal(page.text('#details .problem'), 'Say what is wrong: the worker needs to know what to change.')
+    // With words, as any look's rejection.
+    await page.type('#details .look-answer-note', 'The top row is still cut.')
+    await page.click('#details [data-look-answer="reject"]')
+    assert.deepEqual(page.sent('/api/work').map(one => one.body), [{ action: 'answer', id: 'Q590', verdict: 'reject', text: 'The top row is still cut.' }])
+    // Looks right, with no words.
+    await page.type('#details .look-answer-note', '')
+    await page.click('#details [data-look-answer="approve"]')
+    assert.deepEqual(page.sent('/api/work').map(one => one.body).at(-1), { action: 'answer', id: 'Q590', verdict: 'approve', text: '' })
+    // The board answers with the look gone from the recap: the window closes and the card counts one verdict less.
+    assert.equal(page.find('#details').open, false)
+    assert.equal(page.text('#needs .is-recap-ready h4'), 'G6 · Garden: your recap is ready · 1 verdict waits')
+    assert.equal(page.all('#needs .recap-attention-look').length, 0)
+  } finally { await page.close() }
+  // Only a look that is a tile of the card has the form; the window of an ask the recap judges (a part's own) stays read-only.
+  const covered = await openPage({ state: waiting(1), hash: 'details=Q1' })
+  try {
+    await settle(10)
+    assert.equal(covered.find('#details').open, true)
+    assert.match(covered.text('#details'), /waits for the goal's recap: you judge it there/)
+    assert.equal(covered.all('#details [data-look-answer]').length, 0)
+  } finally { await covered.close() }
 })

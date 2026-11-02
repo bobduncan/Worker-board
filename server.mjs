@@ -620,7 +620,7 @@ export function createBoard({
  * and ends with 1 (not up: its keeper ends with its line, and the mod's next refused ping starts a fresh keeper).
  * `setTimer`/`clearTimer` are the clock's, handed in for the tests.
  */
-export function holdPort({ port, host, timeoutMs = START_TIMEOUT_MS, onLate = () => lateStart(port, timeoutMs), setTimer = setTimeout, clearTimer = clearTimeout }) {
+export function holdPort({ port, host, timeoutMs = START_TIMEOUT_MS, onLate = () => lateStart(port, timeoutMs), setTimer = setTimeout, clearTimer = clearTimeout, bindMs = BIND_RETRY_MS, bindEveryMs = BIND_EVERY_MS }) {
   let board = null
   const server = createServer((req, res) => {
     if (board !== null) return board.emit('request', req, res)
@@ -628,9 +628,21 @@ export function holdPort({ port, host, timeoutMs = START_TIMEOUT_MS, onLate = ()
     return send(res, 503, 'text/plain; charset=utf-8', 'The board is starting: ask again in a moment.\n', { 'Retry-After': '2' })
   })
   return new Promise((done, fail) => {
-    server.once('error', fail)
+    // 2026-11-02 (the landing's race, three times today: a chat's mod started a board in the second between the old
+    // board's end and the new keeper's bind, and the board then hung on that chat's process): a port still in use is tried
+    // again every BIND_EVERY_MS for BIND_RETRY_MS, so a keeper started BEFORE the old board is stopped takes the port the
+    // moment it is free. After that, as before: the caller says it in one line and ends.
+    const started = Date.now()
+    const onError = error => {
+      if (error?.code === 'EADDRINUSE' && Date.now() - started < bindMs) {
+        setTimer(() => server.listen(port, host), bindEveryMs)
+        return
+      }
+      fail(error)
+    }
+    server.on('error', onError)
     server.listen(port, host, () => {
-      server.off('error', fail)
+      server.off('error', onError)
       server.on('error', error => console.error(`The board's port: ${error?.code ?? 'unknown error'}.`))
       const late = setTimer(() => { if (board === null) onLate() }, timeoutMs)
       late?.unref?.()
@@ -647,6 +659,9 @@ export function holdPort({ port, host, timeoutMs = START_TIMEOUT_MS, onLate = ()
 
 /** The lead's review (2026-11-02): how long a board may take from its port to serving before it ends (see `holdPort`). */
 export const START_TIMEOUT_MS = 4 * 60_000
+/** 2026-11-02: a port still in use (the board before us ending) is tried again this often, this long, before the start gives up. */
+export const BIND_RETRY_MS = 8_000
+export const BIND_EVERY_MS = 100
 
 /** A start that did not come up in time: one line, and the board ends with 1 so its keeper and the chats see it off. */
 function lateStart(port, timeoutMs) {
@@ -2309,7 +2324,8 @@ async function main(args) {
       await supervisor.heard({ action: body.action, ok: true, session: typeof body.session === 'string' ? body.session : null, since: body.since ?? null })
     }
     // Partner answers (2026-10-19): the partner's answer wakes the chat that asked, as the person's answer on the page does.
-    if (body?.action === 'partner-answer') await sendWakes(done)
+    // And the partner's hand-over of a look that Autopilot keeps for the recap: the worker its blocking ask held goes on (`wake`).
+    if (body?.action === 'partner-answer' || body?.action === 'escalate') await sendWakes(done)
     // T8.5: a worker on the sequence: its turn end is the trigger. The board decides once and answers the envelope (or, while
     // its set is on its way, that it comes with a take); the mod clears only when an envelope says so. No pull line.
     if (body?.action === 'turn-ended' && done.ok && await sequenceLane(checked.chat, mod) !== null) {

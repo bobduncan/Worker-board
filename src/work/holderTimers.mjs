@@ -14,6 +14,7 @@
 
 import { afterPause, checkpointOf } from './pause.mjs'
 import { sinceMs, valueOf } from './item.mjs'
+import { isKeptLook } from './keptLook.mjs'
 
 const MIN = 60_000
 /** The envelope kind of the "go on" line (the Workers mod 0.27.x reads an unknown kind as 'task': it types the line, no clear). */
@@ -200,7 +201,9 @@ export function holderTimers({ worker, holding, items = new Map(), prefix = '', 
   const asks = [...items.values()].filter(item => valueOf(item, 'Kind') === 'ask')
   // The lead's live check (2026-11-02, change 3 BROKEN): the timers paused for ANY open ask of the worker (its own, under
   // any step, blocking or not), so a holder with one old question somewhere was never nudged nor given back. Only a
-  // BLOCKING ask of the held step pauses them: that is the one wait that is the person's, not the holder's.
+  // BLOCKING ask of the held step pauses them: that is the one wait that is the person's, not the holder's. A look the
+  // partner handed over that Autopilot keeps for the recap (keptLook.mjs, the person's "A" of 2026-11-02) holds no worker
+  // either: it is never blocking, so this rule covers it.
   if (asks.some(ask => valueOf(ask, 'State') === 'open' && valueOf(ask, 'Of') === id && valueOf(ask, 'Blocking') === 'yes')) return null
   const changedAt = sinceMs(valueOf(holding, 'Since'))
   const took = lastTakenAt(holding)

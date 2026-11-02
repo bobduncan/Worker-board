@@ -9,6 +9,7 @@ import { askFiledMs, valueOf } from './item.mjs'
 import { itemsOf } from './read.mjs'
 import { NOTE_LINE, PARTNER_ANSWER_MS, TAKE_BACK_MS, isDecidedForYou, isRoutedToPartner, partnerAskStand } from './partnerAnswers.mjs'
 import { TOOK_ADVICE, routedAt, standsForPerson } from './autopilot.mjs'
+import { isKeptLook } from './keptLook.mjs'
 import { isRecap } from './recap.mjs'
 
 const DAY = 24 * 60 * 60_000
@@ -233,7 +234,8 @@ export function partnerDecidedOf(work, { now, shownNote = null, names = [], pref
 /**
  * Autopilot (2026-10-31): the open asks the board routed to the main chat or to a goal's recap, for the window a click on
  * one opens (they stand in no list of Needs your attention) and the Focus page's "For your recap": `[{ id, route, from,
- * title, of, ofTitle, goal, text, advice, options, pictures, at, toYouAt }]`, oldest first. `toYouAt`: when one routed to the
+ * title, of, ofTitle, goal, text, advice, options, pictures, at, toYouAt, isKept }]`, oldest first. `isKept`: a look the partner handed over
+ * that Autopilot keeps for the goal's recap (src/work/keptLook.mjs; the person's "A", 2026-11-02). `toYouAt`: when one routed to the
  * main chat comes to the person (the partner's 30 minutes from its route), else null.
  */
 export function routedAwayOf(work, { names = [], prefix = '', limitMs = PARTNER_ANSWER_MS } = {}) {
@@ -248,7 +250,7 @@ export function routedAwayOf(work, { names = [], prefix = '', limitMs = PARTNER_
     const at = askFiledMs(item)
     const routed = routedAt(item, route)
     return {
-      id, route, asks: valueOf(item, 'Asks') ?? 'decide', from: valueOf(item, 'Owner') === null ? null : nameOf(valueOf(item, 'Owner')), title: askPartsOf(item).title, of,
+      id, route, asks: valueOf(item, 'Asks') ?? 'decide', isKept: isKeptLook(item), from: valueOf(item, 'Owner') === null ? null : nameOf(valueOf(item, 'Owner')), title: askPartsOf(item).title, of,
       ofTitle: step === undefined ? null : valueOf(step, 'Title'), goal: step === undefined ? null : valueOf(step, 'Goal'),
       text: askPartsOf(item).context.join('\n'), advice,
       options: (valueOf(item, 'Options') ?? '').split(' | ').filter(one => one.trim() !== '').map(label => ({ label, isRecommended: isAdvised(label, advice) })),
