@@ -460,9 +460,10 @@ export function autopilotRoute(item, { roleOf = () => null, items = new Map(), f
   }
   // The person's verdict on a result that would be theirs, when they answered an ask naming its step lately (`earlierAnswerOf`):
   // the partner reads that answer and answers it only when it clearly covers it, else hands it on. Not a recap wait (that keeps
-  // its route), not one the partner handed on already (`handedWhy`); the hands and goal level were judged before.
+  // its route), not one the partner handed on already (`handedWhy`), not the partner's, its helper's or the Product owner's own ask
+  // (the partner would answer itself; the Product owner answers for the goal); the hands and goal level were judged before.
   const verdictOr = decided => {
-    if (decided.to !== 'person' || handedWhy !== null) return decided
+    if (decided.to !== 'person' || handedWhy !== null || ['advisor', 'helper', 'owner'].includes(role)) return decided
     const earlier = earlierAnswerOf(item, items, now)
     return earlier === null ? decided : { to: 'partner', why: `the person's earlier answer on ${earlier.id} names ${of}`, earlier: earlier.id }
   }

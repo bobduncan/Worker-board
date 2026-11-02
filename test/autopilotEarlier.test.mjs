@@ -267,6 +267,21 @@ test('the partner answers the card on the person\'s earlier answer: Accept close
   assert.deepEqual([field(await read(dir), 'Q51', 'State'), field(await read(dir), 'Q51', 'Route')], ['open', 'person'])
 })
 
+test('the partner sends the card back for the person: the note after the letter makes the step\'s next try, an open fix, as their own Send back would', async t => {
+  const dir = await storeWith({ B91: step('B91'), Q50: earlierText(), Q51: cardText() })
+  t.after(() => rm(dir, { recursive: true, force: true }))
+  await pass(dir, NOW + MIN)
+  const done = await chat(dir, 'Partner', { action: 'partner-answer', id: 'Q51', text: ['B Send back', 'The edge is still square; round it.'], why: 'your earlier choice on Q50: the fix was not wanted' }, NOW + 2 * MIN)
+  assert.equal(done.ok, true, done.why)
+  assert.equal(typeof done.result.fix, 'string')
+  const items = await read(dir)
+  assert.deepEqual([field(items, 'Q51', 'State'), field(items, 'Q51', 'Answered by')], ['answered', 'partner'])
+  assert.equal(field(items, 'B91', 'State'), 'review')
+  const fix = items.get(done.result.fix)
+  assert.equal(fix.head.get('Fix of'), 'B91')
+  assert.match(fix.sections.get('Context').join(' '), /your partner sent it back for you in Q51/)
+})
+
 test('the partner hands the card to the person when the earlier answer does not clearly cover it: Route person with its why, and the pass does not route it back', async t => {
   const dir = await storeWith({ B91: step('B91'), Q50: earlierText(), Q51: cardText() })
   t.after(() => rm(dir, { recursive: true, force: true }))
@@ -336,4 +351,12 @@ test('the board\'s line to the partner names the earlier answer too: the deliver
   const found = findStuck({ items, lanes: [{ name: 'Lead', isMain: true, isLeftover: false, state: 'working', isRunning: true }], partner: { name: 'Partner', state: 'working', isRunning: true }, now: NOW + 20 * MIN }).filter(one => one.check === 'partner-ask')
   assert.equal(found.length, 1)
   assert.equal(found[0].fix.text, partnerAskWords('Q51', earlier))
+})
+
+test('the partner\'s own verdict ask, or the Product owner\'s, is not routed back to the partner: it keeps its old route', () => {
+  const ownAsk = (id, owner) => item({ Id: id, Kind: 'ask', Title: 'Do you accept B91 as it is?', State: 'open', Owner: owner, Asks: 'look', Of: 'B91', Options: 'A yes | B no', Advice: 'A', Via: 'chat', Since: at(0), Filed: String(NOW) }, { Text: ['Do you accept B91 as it is?'], History: [`- ${at(0)} ${owner}: asked (look)`] })
+  for (const owner of ['Partner', 'Keeper']) {
+    const route = autopilotRoute(ownAsk('Q59', owner), ctxOf({ roleOf: name => ({ ...ROLES, Keeper: 'owner' })[name] ?? null }))
+    assert.deepEqual([route.to, route.earlier], ['person', undefined], owner)
+  }
 })

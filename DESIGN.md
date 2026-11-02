@@ -6329,8 +6329,8 @@ goal's recap). It extends Partner answers (2026-10-19), still with no blanket ap
     (`Route: partner`, why "the person's earlier answer on Q<n> names B<n>") when `earlierAnswerOf(ask, items, now)` finds, for its
     step, the newest ask the person answered (no `Answered by`, or `person`; never the partner's, Autopilot's or the main chat's)
     within 24 hours of its `Since` that names the step (its `Of`, or its title, text or answer as a whole word: B8910 is no B891).
-    Never when the person's hands are needed, at goal level, once the partner handed the ask on, or for a recap wait (a focus
-    goal's accept keeps the recap). The card's Route section reads "Your earlier answer on Q<n> may cover this: your partner
+    Never when the person's hands are needed, at goal level, once the partner handed the ask on, for the partner's, its helper's
+    or the Product owner's own ask, or for a recap wait (a focus goal's accept keeps the recap). The card's Route section reads "Your earlier answer on Q<n> may cover this: your partner
     checks it" (the ask's window; `earlierOfCard` reads the id back from it), and the partner's word, the supervisor's repeat of it
     and `work next` name that answer. Every pass routes such a card again when the board itself had routed it to the person
     (`isBoardRoutedPerson`) and an earlier answer exists now; it judges nothing else anew (only the switch-on's sweep does). The
