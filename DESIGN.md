@@ -5300,12 +5300,17 @@ conditions.md, mock.png, audit.md).
 
 **One line per word an action of the person typed** (`src/waitLine.mjs`, pure), the first state that holds: **Done** (the
 action's own result: the recap's next tries filed after the Send, the obsolete check's record answered, the asked sweep
-ended by its chat's turn; else the fallback "<Chat> answered HH:MM" once the turn that began on the word ended, never
-"Done"), **Late** (rule 8's own judgement of this word, `watch.mjs isUndelivered`, the one function `undeliveredWords` uses,
-so the card and the alarm never disagree; or every way to wake the chat failed, `wakeOf(...).final`, with `triedWords`),
-**Picked up** (the word arrived, delivered or taken by its own chat, and the turn whose report's since is at or after its
-take runs: the take, not `deliveredAt`, because the mod's "typed" comes a moment after the turn it began reported), **Sent**
-(the queue place while the chat runs; the wake record while it does not). Closed, dropped, superseded (`wordMatters`) or
+ended by its chat's turn; for an action without such a source the fallback "<Chat> answered HH:MM" once the turn that began
+on the word ended (an `idle` report; an `ended` one, closed or crashed mid-turn, is no answer); an action with its own source
+whose turn ended without the result says, quietly, "<Chat>'s turn ended at HH:MM without it"), **Late** (a word failed for
+good, "could not be delivered: <why>"; rule 8's own judgement of this word, `watch.mjs isUndelivered`, the one function
+`undeliveredWords` uses, so the card and the alarm never disagree; or every way to wake the chat failed,
+`wakeOf(...).final`, with `triedWords`), **Picked up** (the word arrived, delivered or taken by its own chat, the lane's status
+Working and its report's since at or after the take: the take, not `deliveredAt`, because the mod's "typed" comes a moment
+after the turn it began reported), **Sent** (the wake record while the chat does not run; the queue place while it does).
+**Kept once** (the review of 2026-11-02): a turn seen ended (`answeredAt`) and an action's own result (`doneAt`, its words and
+step) are written on the word by `waitsNow` (on every state read, and every 30 s while no page asks), and read first: a later
+turn never makes a word "on it" again. Closed, dropped, superseded (`wordMatters`) or
 copied words have none. The chat's status pill stands beside the line as every view draws it; Late is the only state in
 the attention colour.
 
@@ -5315,21 +5320,27 @@ built as the rules build theirs, `isUndelivered` and `wordMatters` made once; th
 supervisor imports its parts); a retried word by the copy that stands for it. An answer carries its word's id (`need.answer.id`), the recap's Send answers
 `said` and names its `backSteps`, Check now answers `said`.
 
-**On the page**: an answered ask stays as a slim card with its line until Done (it used to vanish at once); Find obsolete
+**On the page**: an answered ask stays as a slim card with its line until Done (it used to vanish at once; storeNeeds keeps
+an answered ask in the list while its word's line is not Done, up to 24 h, then ten minutes from its Done or answer, or from
+the answer when it has no word; its line follows the word to the chat that asked); Find obsolete
 items says "Asked" and draws the line (it said "checking" from the moment its record was written); a Check now sweep's line
 stands under the supervisor's head; the recap's Send draws its line in the popup (following the state) and as the Focus
 page's card "G6 · Your recap · feedback sent" while no verdict waits. A Done line's link opens its step; a Done line goes
 after 10 minutes.
 
 **Send again** (a Late line whose chat does not run, while no wake is pending; only where the state says `waitAgain`): the
-page posts `wake-again` to /api/say; `wakeAgainNow` makes ONE attempt through the record (wake.mjs `personAgain`, change 7,
-outside the cap of one try per path): the message way when a chat that may send claims (the record holds it `by` "the board"
+page posts `wake-again` to /api/say; `wakeAgainNow` (refused while the board ends, where it does not run the loops, while the person
+pauses, and for a spell that is not the record's newest entry of the chat) makes ONE attempt through the record (wake.mjs
+`personAgain`, change 7, outside the cap of one try per path): the message way when a chat that may send claims (the record holds it `by` "the board"
 until the next hand takes it, with the job id `wakeJobId` the hands route gives a claim), else a launch at once (`launchFor`
-with `again`). A refusal stands under the line. **Not in it yet**: the incident judgment's line (change 6), wave 2 (a refine,
+with `again`). A refusal stands under the line, in Needs your attention, the recap's popup and the supervisor's head. A
+word failed for good, and a chat the board has no id to reach, get none (the line says to open the chat). **Not in it yet**: the incident judgment's line (change 6), wave 2 (a refine,
 Go, Change this goal, a goal ask, Overturn, Stop or Remove a worker, the Focus talk).
 
 Tests: `test/waitLine.test.mjs` (the four states, rule 8's one judgement, the wake record, the actions' own results,
-`waitsOf`), `test/waitAgain.test.mjs` (Send again through the record, held for the next hand), `test/waitLinePage.test.mjs`
+`waitsOf`), `test/waitLineState.test.mjs` (through the board's own state: the answered ask kept for its line, Done kept,
+Working, an ended session, a turn without the result, the asking chat's word), `test/waitAgain.test.mjs` (Send again through
+the record, held for the next hand, its refusals), `test/waitLinePage.test.mjs`
 (the DOM harness: the slim card, the signs, the obsolete check, the sweep, the recap's popup and Focus card, the link, Send
 again), `test/demoFeedbackBoard.test.mjs` (the Send's line in a running board's state, a refused Send again).
 

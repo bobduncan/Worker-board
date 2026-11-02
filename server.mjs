@@ -3265,7 +3265,7 @@ async function main(args) {
     setInterval(lookToOpen, OPEN_CHECK_MS)
     // The wait line (T22, the review of 2026-11-02, 2a): the turns and results the lines see are kept on their words also while
     // no page asks for the state (a turn that ended at night is still "answered" in the morning, never "on it" again).
-    setInterval(() => (isClosing ? null : waitsNow(readState.last() ?? null, work.last?.() ?? null, null).catch(() => null)), WAITS_KEEP_MS)
+    setInterval(() => (isClosing ? null : loops.run('waits-keep', () => waitsNow(readState.last() ?? null, work.last?.() ?? null, null))), WAITS_KEEP_MS)
   }
 
   if (!isDemo && historyFrom === undefined) {
