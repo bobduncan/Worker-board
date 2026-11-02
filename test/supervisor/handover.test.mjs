@@ -35,7 +35,7 @@ const watcher = (more = {}) => ({ ...lane('Watcher'), setting: { model: 'sonnet'
  * is null) and a partner, a real work store, and the outbox the supervisor's words go into (`refuse.value` true: the outbox
  * refuses them). `keep` how long a word waits, as the outbox keeps it.
  */
-async function board(t, { supervisor = watcher(), keep = undefined, two = false } = {}) {
+async function board(t, { supervisor = watcher(), keep = undefined, two = false, stuckOne = true } = {}) {
   const refuse = { value: false }
   const dir = await mkdtemp(join(tmpdir(), 'handover-'))
   t.after(() => rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }))
@@ -47,7 +47,7 @@ async function board(t, { supervisor = watcher(), keep = undefined, two = false 
   const ctx = () => ({ dir, now, prefix: '', roleOf: name => ROLES[name] ?? null })
   const stuck = name => lane(name, { state: 'working', isRunning: false, offSince: START - 20 * MIN })
   const state = () => ({
-    chats: [lane('Lead', { isMain: true }), stuck('Digger'), ...(two ? [stuck('Shoveller')] : [])], advisor: lane('Partner'), supervisorChat: chat.value, chatPrefix: '',
+    chats: [lane('Lead', { isMain: true }), stuckOne ? stuck('Digger') : lane('Digger'), ...(two ? [stuck('Shoveller')] : [])], advisor: lane('Partner'), supervisorChat: chat.value, chatPrefix: '',
   })
   const sup = createSupervisor({
     state: async () => state(),
@@ -335,4 +335,17 @@ test('the outbox sweep drops a judge word that waits while none of its incidents
   const word = incidents => ({ id: 'j1', command: 'judge', kind: 'judge', to: 'Watcher', at: START - MIN, state: 'waiting', incidents })
   assert.deepEqual(whyClosed(word(['X1']), ctx), { state: 'dropped', why: 'none of X1 waits for a judgment any more' })
   assert.equal(whyClosed(word(['X1', 'X2']), ctx), null, 'one still waits')
+})
+
+test('one thing at a time with the chat of the Supervisor: no judge word while its sweep runs; it goes once the turn of the sweep ended', async t => {
+  const b = await board(t, { stuckOne: false })
+  assert.equal((await b.supervisor.checkNow()).sweep.started, true)
+  b.outbox.find(one => one.command === 'sweep').state = 'delivered'
+  // The sweep files a finding; the rules run meanwhile: the incident waits for the sweep's end.
+  assert.equal((await b.chat('Watcher', { action: 'incident', key: 'working-without-step Digger', title: 'Digger worked an hour with no step', subject: 'Digger', evidence: 'card empty', rule: 'a worker working with no step for 30 min' })).ok, true)
+  b.at(3)
+  await b.run()
+  assert.equal(b.words().length, 0, 'no judge word while the sweep runs')
+  await b.supervisor.heard({ action: 'turn-ended', ok: true, session: 's-Watcher', since: START })
+  assert.deepEqual(b.words().map(one => one.incidents), [['X1']])
 })

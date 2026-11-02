@@ -689,3 +689,17 @@ test('signals change 6 (4b.1): the end of a judgment turn never ends a sweep: th
   await b.supervisor.heard({ action: 'turn-ended', ok: true, session: 'cli-watcher', since: START + 2 * MIN })
   assert.equal(b.view().lastSweep.how, 'told')
 })
+
+test('signals change 6: a rule that trips is no trigger: its odd line is that rule\'s (a worker working with no step whose chat does not run)', async () => {
+  const b = board({ ownFacts: true })
+  assert.equal((await b.supervisor.checkNow({})).sweep.started, true)
+  await endSweep(b, 0)
+  // Digger's card says it works, its chat makes no call and it holds no step: working-not-running trips and owns the line.
+  b.state.chats[1] = lane('Digger', { state: 'working', isRunning: false, offSince: START })
+  b.at(30)
+  await b.supervisor.run()
+  assert.ok(b.supervisor.view(START + 30 * MIN).rules.some(rule => rule.id === 'working-not-running' && rule.state === 'tripped'))
+  b.at(31)
+  await b.tick()
+  assert.equal(b.sweeps().length, 1, 'no sweep for what a rule owns')
+})

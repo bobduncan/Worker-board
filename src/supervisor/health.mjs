@@ -91,7 +91,7 @@ const lineOf = (text, { tier = 2, odd = false, at = -Infinity, max = LINE_CHARS,
 const ownerOf = owners => (owners.some(one => one === null) ? null : owners.find(one => one !== 'info') ?? 'info')
 
 /** Signals change 6: the rules whose keys own the health summary's odd lines (the page marks them in the rules list). */
-export const HEALTH_OWNERS = Object.freeze(['stale-suspended', 'effort-mismatch', 'review-stuck', 'dropped-fix', 'open-fix', 'review-held', 'owner-gone', 'stale-checkpoint', 'held-elsewhere', 'undelivered'])
+export const HEALTH_OWNERS = Object.freeze(['stale-suspended', 'effort-mismatch', 'review-stuck', 'dropped-fix', 'open-fix', 'review-held', 'owner-gone', 'stale-checkpoint', 'held-elsewhere', 'undelivered', 'working-not-running'])
 /** The rule of a key reviewLateOf names (watch.mjs): its first word, and the dropped fix's key that its rule dropped-fix files. */
 const RULE_OF_KEY = { 'review-stuck': 'review-stuck', 'fix-dropped': 'dropped-fix', 'open-fix': 'open-fix', 'review-held': 'review-held' }
 
@@ -136,12 +136,13 @@ function chatLines(view, now) {
     const idle = lane.state === 'working' && onId === null && handed === null && role === 'worker' && !waitsForPartner
     const late = role === 'worker' && switching?.late === true
     const odd = stopped || idle || late
-    // Signals change 6: a suspension at a full limit is no fault; one past its limit is stale-suspended's; another stop, and a
-    // worker working on no step, no rule names; a switch not read back is effort-mismatch's.
+    // Signals change 6: a suspension at a full limit is no fault; one past its limit is stale-suspended's; another stop no
+    // rule names; a worker working on no step is working-not-running's while its chat does not run, else no rule's; a
+    // switch not read back is effort-mismatch's.
     const isFullNow = ['fiveHour', 'week'].some(key => view.limits?.[key]?.level === 'full')
     const owner = ownerOf([
       ...(stopped ? [lane.state === 'suspended' ? (isFullNow ? 'info' : 'stale-suspended') : null] : []),
-      ...(idle ? [null] : []), ...(late ? ['effort-mismatch'] : []),
+      ...(idle ? [lane.isRunning === false ? 'working-not-running' : null] : []), ...(late ? ['effort-mismatch'] : []),
     ])
     return lineOf(`${lane.name} (${role}): ${state}${suspended}${running}; ${runs}${wants}${onWords}${report}; ${clearWords(lane.compaction, now)}`, { tier: 0, odd, at: since, max: CHAT_CHARS, owner })
   })
