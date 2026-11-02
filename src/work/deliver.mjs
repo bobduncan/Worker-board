@@ -279,7 +279,7 @@ export async function deliverWork({ state, dir, outbox, apply, now, maxChars, ne
       // B465, the review: the board's sync check's line about the ask counts too.
       .filter(one => one.again !== true || !outbox.outbox().some(message => isPartnerAskWord(message) && message.about === one.id
         && (message.state === 'waiting' || now - (message.at ?? 0) < PARTNER_AGAIN_MS)))
-      .map(one => ({ key: partnerAskKey(one.id, one.chat, one.again === true), words: { ...workWords(one.chat, one.id, partnerAskWords(one.id)), kind: 'partner-ask' } })),
+      .map(one => ({ key: partnerAskKey(one.id, one.chat, one.again === true), words: { ...workWords(one.chat, one.id, partnerAskWords(one.id, one.earlier ?? null)), kind: 'partner-ask' } })),
   ]
   // Redesign Part 2: one more worker, asked of the main chat once per need (`startKey`); the reconciler names none while
   // the person pauses or a limit is full.

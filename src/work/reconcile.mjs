@@ -8,6 +8,7 @@ import { blockersOpen, overlapsIn, waitWords } from './guards.mjs'
 import { HAND_OUT_DEFAULTS, idleWorkers, oldQueued, readyList, strandedGives, workerStart } from './handOut.mjs'
 import { NET_MS } from './handover.mjs'
 import { handedBackOf } from '../clearOwed.mjs'
+import { earlierOfCard, shortAnswer } from './autopilot.mjs'
 import { askFiledMs, fixFirst, sinceMs, valueOf } from './item.mjs'
 import { PARTNER_AGAIN_MS, PARTNER_ANSWER_MS, isRoutedToPartner } from './partnerAnswers.mjs'
 import { isHolding } from './pause.mjs'
@@ -296,7 +297,11 @@ export function reconcile({ store, flow = store.flow, lanes = [], now, times, pr
       const limit = times?.partnerMs ?? PARTNER_ANSWER_MS
       if (Number.isFinite(filed) && now - filed >= limit) escalations.push({ id, why: `the partner did not answer in ${Math.round(limit / MIN)} min` })
       // B392: open ten minutes, it wakes the partner once more (`again`), so none sits unseen.
-      else if (!isHeld && isFree) partnerAsks.push({ id, chat: partner.name, since: valueOf(item, 'Since'), ...(Number.isFinite(filed) && now - filed >= (times?.partnerAgainMs ?? PARTNER_AGAIN_MS) ? { again: true } : {}) })
+      else if (!isHeld && isFree) {
+        // The person's "B" (2026-11-02): an ask routed on their earlier answer names it in the partner's word.
+        const earlier = earlierOfCard(item, items)
+        partnerAsks.push({ id, chat: partner.name, since: valueOf(item, 'Since'), ...(Number.isFinite(filed) && now - filed >= (times?.partnerAgainMs ?? PARTNER_AGAIN_MS) ? { again: true } : {}), ...(earlier === null ? {} : { earlier: { id: earlier.id, answer: shortAnswer(earlier.answer) } }) })
+      }
     }
   }
   // Redesign Part 2 (2026-10-25): the hand-out. One ready list, in the board's order; the give itself is the hand-over's one

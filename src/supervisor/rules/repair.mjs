@@ -19,6 +19,7 @@
 // port `leftovers`, in the view as `leftovers`). The safe ones the board removes itself (Cleaned, port `clean`); the
 // rest it only lists, with the reason (Left), and tells no chat of them.
 
+import { earlierOfCard, shortAnswer } from '../../work/autopilot.mjs'
 import { askFiledMs, sinceMs, valueOf } from '../../work/item.mjs'
 import { stamp } from '../../work/migrate.mjs'
 import { overlapIn, waitIds } from '../../work/guards.mjs'
@@ -379,7 +380,9 @@ function partnerAsk(view) {
       && (message.state === 'waiting' || message.state === 'taken' || now - message.at < PARTNER_AGAIN_MS))
     if (lately) continue
     const key = `partner-ask ${id} ${Math.floor((now - filed) / PARTNER_AGAIN_MS)}`
-    found.push(finding('partner-ask', key, id, `${id} routed to ${partner.name}, unanswered for ${minutes(now - filed)} min`, { do: 'wake', chat: partner.name, id, text: partnerAskWords(id) }))
+    // The person's "B" (2026-11-02): an ask routed on their earlier answer names it in the word, as the reconciler's does.
+    const earlier = earlierOfCard(ask, all)
+    found.push(finding('partner-ask', key, id, `${id} routed to ${partner.name}, unanswered for ${minutes(now - filed)} min`, { do: 'wake', chat: partner.name, id, text: partnerAskWords(id, earlier === null ? null : { id: earlier.id, answer: shortAnswer(earlier.answer) }) }))
   }
   return found
 }

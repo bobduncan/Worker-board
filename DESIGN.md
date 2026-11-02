@@ -6322,3 +6322,20 @@ goal's recap). It extends Partner answers (2026-10-19), still with no blanket ap
    recap closed by the recap's answer, and to the person without its focus; the main chat's next, answer, escalate and
    timeout; refine with and without advice; routed as filed), test/autopilotPage.test.mjs (the panel, the two readers,
    Needs your attention with the wake lines, the window, the Focus page), test/autopilotBoard.test.mjs (end to end).
+10. **The person's earlier answer** (2026-11-02, the live Q608 "Accept B891, or send it back?", filed 28 minutes after the person
+    had answered Q588 for B880 and B891 by name, "C Stop here and hand it over (no build)": "autopilot is on, so isn't this supposed
+    to auto-accept?"; their choice "B: partner judges"): a verdict on a result that would be the person's (the board's Accept or
+    send back card, an action that marks a step done, a look or decide that accepts or sends back) goes to the partner instead
+    (`Route: partner`, why "the person's earlier answer on Q<n> names B<n>") when `earlierAnswerOf(ask, items, now)` finds, for its
+    step, the newest ask the person answered (no `Answered by`, or `person`; never the partner's, Autopilot's or the main chat's)
+    within 24 hours of its `Since` that names the step (its `Of`, or its title, text or answer as a whole word: B8910 is no B891).
+    Never when the person's hands are needed, at goal level, once the partner handed the ask on, or for a recap wait (a focus
+    goal's accept keeps the recap). The card's Route section reads "Your earlier answer on Q<n> may cover this: your partner
+    checks it" (the ask's window; `earlierOfCard` reads the id back from it), and the partner's word, the supervisor's repeat of it
+    and `work next` name that answer. Every pass routes such a card again when the board itself had routed it to the person
+    (`isBoardRoutedPerson`) and an earlier answer exists now; it judges nothing else anew (only the switch-on's sweep does). The
+    partner answers it with `partner-answer` only when that answer clearly covers it (the why quotes it), else `escalate` at once;
+    the 30-minute rule hands on the rest. A partner's answer on the Accept card does what the person's own answer does
+    (`acceptAnswer`: Accept ticks the step, "accepted for you by your partner in Q<n>"; Send back makes the next try from the
+    note, refused first without one); the Undo opens the ask for the person again and leaves the step as it is. Tests:
+    test/autopilotEarlier.test.mjs.

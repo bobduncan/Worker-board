@@ -12,7 +12,9 @@
 // wakes the chats (server.mjs).
 //
 // Routes, kept in the ask's `Route` field:
-// - `partner`: the partner answers it (or hands it on), as for Partner answers; the board's wake and 30-minute rule.
+// - `partner`: the partner answers it (or hands it on), as for Partner answers; the board's wake and 30-minute rule. Also (the
+//   person's "B", 2026-11-02) the person's verdict on a result when the person answered an ask naming that step lately: see
+//   `earlierAnswerOf`; the partner answers it only when that answer clearly covers it, else hands it on.
 // - `advice`: the partner's or the Product owner's own ask with advice, under a step: the board answers it with the advice
 //   (`Answered by: autopilot`), listed in the partner's daily note under "Decided for you" with Undo.
 // - `recap`: a look the step's checker asks, a look of a step below its target, and the board's "Accept or send back" card, of
@@ -82,6 +84,58 @@ export const isBoardRoutedPerson = item => valueOf(item, 'Route') === 'person' &
  * board may route again.
  */
 export const isExplicitPerson = item => valueOf(item, 'Route') === 'person' && ((item?.sections?.get('Route') ?? []).some(one => one.trim() !== '') || isAutopilotRouted(item))
+
+/** How long the person's answer on a step counts as an earlier answer for a later verdict card of that step. */
+export const EARLIER_MS = 24 * 60 * 60_000
+const wordsOf = value => String(value ?? '').replace(/\s+/g, ' ').trim()
+const answerOf = item => wordsOf((item?.sections?.get('Answer') ?? []).join(' '))
+/** Whether words name an item by its whole id ("B891", not the "B891" inside "B8910" or "XB891"). */
+const namesId = (words, id) => new RegExp(`(?<![A-Za-z0-9])${id}(?![A-Za-z0-9])`).test(String(words ?? ''))
+
+/**
+ * The person's earlier answer on a step (the person, 2026-11-02, on Q608 "Accept B891, or send it back?", filed 28 minutes after
+ * they had answered Q588 for B880 and B891 by name, "C Stop here and hand it over (no build)": "autopilot is on, so isn't this
+ * supposed to auto-accept?"; their choice "B: partner judges"): for an ask about a step (its `Of` is B<n>), the newest ask in
+ * `items` that the person answered (State answered, no `Answered by` or `person`: never one the partner, Autopilot or the main
+ * chat answered) within the last 24 hours (its Since, the time of the answer), other than the ask itself, that names the step:
+ * its `Of` is the step, or its title, text or Answer names the step id as a whole word. `{ id, answer }` or null. `now`: ms.
+ */
+export function earlierAnswerOf(item, items, now) {
+  const of = valueOf(item, 'Of')
+  if (!STEP.test(of ?? '') || !Number.isFinite(now)) return null
+  const self = valueOf(item, 'Id')
+  let found = null
+  for (const one of items?.values?.() ?? []) {
+    const id = valueOf(one, 'Id')
+    if (valueOf(one, 'Kind') !== 'ask' || valueOf(one, 'State') !== 'answered' || id === null || id === self) continue
+    const by = valueOf(one, 'Answered by')
+    if (by !== null && by !== 'person') continue
+    const since = sinceMs(valueOf(one, 'Since'))
+    const answer = answerOf(one)
+    if (!Number.isFinite(since) || since > now || now - since > EARLIER_MS || answer === '') continue
+    if (valueOf(one, 'Of') !== of && !namesId(`${title(one)} ${text(one)} ${answer}`, of)) continue
+    if (found === null || since > found.since || (since === found.since && Number(id.slice(1)) > Number(found.id.slice(1)))) found = { id, answer, since }
+  }
+  return found === null ? null : { id: found.id, answer: found.answer }
+}
+
+/** The card line of an ask routed to the partner on the person's earlier answer (what its window says, and what the wake reads). */
+export const earlierCardWords = id => `Your earlier answer on ${id} may cover this: your partner checks it`
+const EARLIER_CARD = /^Your earlier answer on (Q\d+) may cover this: your partner checks it$/
+/** The shortened words of an earlier answer, as the partner's word and `work next` quote it. */
+export const shortAnswer = (answer, max = 160) => (wordsOf(answer).length > max ? `${wordsOf(answer).slice(0, max - 1).trimEnd()}…` : wordsOf(answer))
+/**
+ * The earlier answer an ask routed to the partner names on its card (`earlierCardWords`), `{ id, answer }` as `earlierAnswerOf`
+ * gives it, read from `items` (a Map or a list): null for any other ask, or when that ask is gone or no longer answered.
+ */
+export function earlierOfCard(item, items) {
+  if (valueOf(item, 'Route') !== 'partner') return null
+  const card = (item?.sections?.get('Route') ?? []).map(one => one.trim()).filter(Boolean)
+  const id = card.length === 1 ? card[0].match(EARLIER_CARD)?.[1] ?? null : null
+  if (id === null) return null
+  const earlier = [...(items?.values?.() ?? [])].find(one => valueOf(one, 'Id') === id && valueOf(one, 'State') === 'answered')
+  return earlier === undefined || answerOf(earlier) === '' ? null : { id, answer: answerOf(earlier) }
+}
 
 /** The focus goal's recap file: the path of a row of its recap (src/recaps.mjs `recapWaitsOf`), or null for none. */
 export const focusRecapPathOf = (recapSteps, focusGoal) => (focusGoal === null || focusGoal === undefined ? null
@@ -384,10 +438,12 @@ export function isByChecker(item, items, prefix = '') {
  * waits for its recap (and only then; a worker's look goes its old way), as long as the ask's words and that why name nothing only
  * the person's hands can do.
  * `step` in the answer: the step a recap ask is put under.
+ * `now` (ms) lets the person's verdict on a result go to `partner` instead of `person` when the person answered an ask naming
+ * its step in the last 24 hours (`earlierAnswerOf`): the answer then holds `earlier`, that ask's id. Without `now`, never.
  * A recap wait (the person's "A", 2026-10-31) only for a step of the focus goal whose recap will name it: the goal demo is
  * still to be asked (its words then ask for the step's own row), or a recap of the goal names the step already.
  */
-export function autopilotRoute(item, { roleOf = () => null, items = new Map(), focusGoal = null, focusHasDemo = false, recapSteps = [], prefix = '', again = false, handedWhy = null } = {}) {
+export function autopilotRoute(item, { roleOf = () => null, items = new Map(), focusGoal = null, focusHasDemo = false, recapSteps = [], prefix = '', again = false, handedWhy = null, now = Number.NaN } = {}) {
   const owner = valueOf(item, 'Owner')
   const role = owner === null || plain(owner) === 'server' ? 'board' : roleOf(owner) ?? 'worker'
   const kind = valueOf(item, 'Asks') ?? 'decide'
@@ -401,6 +457,14 @@ export function autopilotRoute(item, { roleOf = () => null, items = new Map(), f
     if (step === undefined || focusGoal === null || valueOf(step, 'Goal') !== focusGoal) return { to: 'person', why: `${why}, and its step is of no focus goal` }
     const named = (recapSteps ?? []).some(one => one.step === of && (one.goal ?? focusGoal) === focusGoal)
     return !focusHasDemo || named ? { to: 'recap', why } : { to: 'person', why: `${why}, and the goal's demo is made without its step` }
+  }
+  // The person's verdict on a result that would be theirs, when they answered an ask naming its step lately (`earlierAnswerOf`):
+  // the partner reads that answer and answers it only when it clearly covers it, else hands it on. Not a recap wait (that keeps
+  // its route), not one the partner handed on already (`handedWhy`); the hands and goal level were judged before.
+  const verdictOr = decided => {
+    if (decided.to !== 'person' || handedWhy !== null) return decided
+    const earlier = earlierAnswerOf(item, items, now)
+    return earlier === null ? decided : { to: 'partner', why: `the person's earlier answer on ${earlier.id} names ${of}`, earlier: earlier.id }
   }
   // `again`: the switch-on's sweep judges the asks the board itself routed to the person anew (isBoardRoutedPerson).
   if (isExplicitPerson(item) && !(again && isBoardRoutedPerson(item)) && handedWhy === null) return { to: 'person', why: 'handed to the person' }
@@ -421,19 +485,19 @@ export function autopilotRoute(item, { roleOf = () => null, items = new Map(), f
   // 2026-11-02): before the rules of a look. A worker's look is no hand-over: the partner answers it, as before.
   const look = handedWhy === null ? null : focusLookOf(item, { focusGoal, items }, role)
   if (look !== null) return { to: 'recap', why: FOCUS_LOOK_WHY, ...(look.isInferred ? { step: look.step } : {}) }
-  if (via === 'accept') return recapOr('an accept or send back below its target')
+  if (via === 'accept') return verdictOr(recapOr('an accept or send back below its target'))
   if (kind === 'look' && isByChecker(item, items, prefix)) return recapOr('a look of the step\'s checker')
   if (kind === 'look' && belowTarget(step)) return recapOr('a look below its target')
   if (role === 'board') return { to: 'person', why: 'the board\'s own card' }
   if (!isUnderStep && ['look', 'decide'].includes(kind) && TARGET_WORDS.test(title(item))) return { to: 'person', why: 'a score below its target, under no step' }
   // Never the main chat's: an action that marks a step done, accepts it or sends it back.
-  if (isAction && STEP_VERDICT.test(title(item))) return { to: 'person', why: 'it marks a step done, accepts it or sends it back' }
+  if (isAction && STEP_VERDICT.test(title(item))) return verdictOr({ to: 'person', why: 'it marks a step done, accepts it or sends it back' })
   // Never the partner's: a look or decide that accepts a result, leaves its gap, approves it below its bar or sends it back
   // (the last re-check, Q520): the person's, under a step of the focus goal at its recap.
   const verdict = isAction || !['look', 'decide'].includes(kind) ? null : stepVerdictOf(item, step)
   if (verdict !== null) {
     const why = `the person's verdict on a result ("${verdict}")`
-    return isUnderStep ? recapOr(why) : { to: 'person', why }
+    return isUnderStep ? verdictOr(recapOr(why)) : { to: 'person', why }
   }
   if (kind === 'do' && OWN_SENSES.test(title(item))) return { to: 'person', why: 'the person\'s own eyes, ears or words' }
   if (kind === 'do') return role === 'owner' ? { to: 'person', why: 'the Product owner\'s' } : { to: 'main', why: 'an action' }

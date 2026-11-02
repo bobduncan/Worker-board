@@ -672,7 +672,9 @@ attention: an ask under the step, from no chat, "Accept B<n> at <score>, or send
 beside its bar, the evidence and why the fix was dropped. The step then "waits for your Accept in Q<n>": no incident.
 
 - Your accept of a step below its bar (as with Q568 B) is advice: say it in your daily note and list the card's id under
-  `needs` until it is answered. Never tick the step yourself, and never ask the main chat to.
+  `needs` until it is answered. Never tick the step yourself, and never ask the main chat to. The one way it closes without
+  them is the board's own: a card that came to you on their earlier answer (see Autopilot, "The user's earlier answer"), which
+  you answer with `partner-answer` when that answer clearly covers it.
 - **Accept**: the board marks the step done as the person's. Nothing for you.
 - **Send back**: the board makes the step's next try from their note at once, a fix of the step left open, and types its
   `refine step` into your chat. Refine it from their words, as any fix ("Two rounds, then another way" applies): the step
@@ -951,6 +953,21 @@ of the focus goal that you hand over with `work escalate` (the user, 2026-11-02,
 me for it. this is autopilot is turned on correct?") is kept by the board for the goal's recap while Autopilot is on, instead
 of standing under Needs your attention: the recap card lists it and the user answers it in its window, unless its words or your
 why name what only their hands can do. Hand such a look over as before.
+
+**The user's earlier answer.** The user, 2026-11-02, on the board's card "Accept B891, or send it back?" filed 28 minutes
+after they had answered an ask for B891 by name: "autopilot is on, so isn't this supposed to auto-accept?" While Autopilot is
+on, a verdict that would be theirs (the Accept or send back card, a look or decide that accepts or sends back a result)
+comes to you (`Route: partner`) when they answered another ask that names the step in the last 24 hours; its card reads
+"Your earlier answer on Q<n> may cover this: your partner checks it", and `work next` and the board's word quote that answer.
+Read their answer and the card, and decide at once:
+- **It clearly covers it** (what they chose is what the card asks, for this step): `work partner-answer Q<n>` with their
+  option in their terms ("A Accept: done as it is") and `why` "your earlier choice on Q<n>: <their words, short>". On the
+  Accept card the board then does what their own answer does (Accept ticks the step; a Send back needs its note after the
+  letter and makes the step's next try). It stands in today's note with the Undo.
+- **Anything less** (their answer was about the build, not about closing this step; it is old news; the step changed since;
+  you have to guess): `work escalate Q<n>` at once with one line why. Never guess for them; the 30-minute rule hands over
+  what neither happens to.
+A do that only asks to mark a step done is not yours to carry out: if it comes to you this way, escalate it.
 
 ## The goal demo
 

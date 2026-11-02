@@ -75,8 +75,11 @@ export const DECIDERS = ['partner', 'autopilot', 'main']
 /** Whether the ask was decided for the person (by the partner, the board's Autopilot or the main chat) and not taken back. */
 export const isDecidedForYou = item => valueOf(item, 'Kind') === 'ask' && valueOf(item, 'State') === 'answered' && DECIDERS.includes(valueOf(item, 'Answered by'))
 
-/** The words the board wakes the partner with, once per routed ask. */
-export const partnerAskWords = id => `work: ${id} is yours to answer for the person; run work next`
+/**
+ * The words the board wakes the partner with, once per routed ask. An ask routed on the person's earlier answer (autopilot.mjs
+ * `earlierOfCard`, `earlier` = `{ id, answer }`, the answer already shortened) names that answer in the same line.
+ */
+export const partnerAskWords = (id, earlier = null) => `work: ${id} is yours to answer for the person; run work next${earlier === null ? '' : ` (the person's earlier answer on ${earlier.id}: "${earlier.answer}")`}`
 /** Whether an outbox word is the board's line to the partner about a routed ask: its own, or the sync check's for it. */
 export const isPartnerAskWord = message => message?.kind === 'partner-ask' || String(message?.syncKey ?? '').startsWith('partner-ask ')
 
