@@ -278,3 +278,26 @@ test('the predicate at the refresh: a worker on the timers or on an older mod is
     await cleanUp(one.dir)
   }
 })
+
+// ---- Signals change 4, B908, D.4 (decision 12, 2026-11-02 11:07: Worker 5's envelope with a clear was carried while the
+// turn its wake message started still ran; a clear then fails "a turn is running"). Made-up times.
+
+test('change 4, D.4: carryable holds back an envelope with a clear while the woken chat\'s first turn runs; after its end it goes', async () => {
+  const { claim, emptyWakes, heard, inFirstTurn, sent, turnEnded } = await import('../../src/wake.mjs')
+  const record = emptyWakes()
+  const T = new Date(2026, 10, 2, 11, 6, 50).getTime()
+  claim(record, { chat: 'Worker 5', spell: T - 3_600_000, path: 'message', by: 'Advisor', jobId: 'wake:1:Worker 5', now: T - 5_000, runBefore: 1 })
+  sent(record, 'Worker 5', 'wake:1:Worker 5', T)
+  heard(record, 'Worker 5', { state: 'busy', run: 2, at: T + 13_000 }, T + 13_000)
+  const withClear = { id: 'e1', at: T - 293_000, to: 'Worker 5', command: HANDOVER_COMMAND, kind: 'task', step: 'B855', clear: { step: 'B821', reportedAt: T - 9_000_000 }, line: 'work: B855 is yours; run work next', state: 'waiting' }
+  const plain = { ...withClear, id: 'e2', clear: null }
+  const keep = { messageMs: 60 * 60_000, answerMs: 24 * 60 * 60_000 }
+  assert.equal(inFirstTurn(record, 'Worker 5'), true)
+  assert.equal(carryable([withClear], 'Worker 5', T + 14_000, keep, { holdClear: inFirstTurn(record, 'Worker 5') }), null)
+  // An envelope without a clear goes at once; and the clear one without the hold, as before.
+  assert.equal(carryable([plain], 'Worker 5', T + 14_000, keep, { holdClear: true })?.id, 'e2')
+  assert.equal(carryable([withClear], 'Worker 5', T + 14_000, keep)?.id, 'e1')
+  // The first turn end was seen: the chat's next take gets it.
+  turnEnded(record, 'Worker 5', T + 31_000)
+  assert.equal(carryable([withClear], 'Worker 5', T + 36_000, keep, { holdClear: inFirstTurn(record, 'Worker 5') })?.id, 'e1')
+})

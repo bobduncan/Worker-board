@@ -339,6 +339,37 @@ export function launchPlan(record, { needs = [], nobody = null, senderClaims = f
   return null
 }
 
+/**
+ * D.1: the wake as the hand-over's decision reads it (handoverBoard.mjs `factsOf`), out of the server's wake facts
+ * (`{ record, senderClaims, canLaunch }`) and the worker's lane: `{ state, final, at, by, why, wokeAt, firstTurnEnd }`, or
+ * null without a record. A lane that runs reads its newest spell (its `wokeAt` and first turn), never a pending one.
+ * `firstTurnEnd` at a turn end of a chat woken whose first turn end was not seen yet (B.2, decision 5).
+ */
+export function wakeFact(facts, lane, event = null) {
+  const record = facts?.record ?? null
+  if (record === null || lane === null || lane === undefined || typeof lane.name !== 'string') return null
+  const spell = spellOf(lane)
+  const paths = [...(isAppId(lane.appSession) ? ['message'] : []), ...(facts.canLaunch === true && isSessionId(lane.session) ? ['launch'] : [])]
+  const wake = spell === null ? { ...statusOf(record, lane.name, null), final: false } : wakeOf(record, { chat: lane.name, spell, paths }, { senderClaims: facts.senderClaims === true })
+  return {
+    state: wake.state, final: wake.final === true, path: wake.path, at: wake.at, by: wake.by, why: wake.why, wokeAt: wake.wokeAt ?? null,
+    firstTurnEnd: event?.kind === 'turn-ended' && inFirstTurn(record, lane.name),
+  }
+}
+
+/** The lane's words for a wake (E): quiet "waking · ..." while on its way, attention "could not wake: why"; null for none. */
+export function wakeWords(wake, timeOf) {
+  if (wake === null || wake === undefined) return null
+  switch (wake.state) {
+    case 'waiting-sender': return { tone: 'quiet', text: 'waking · waits for a chat that can send' }
+    case 'on-its-way': return { tone: 'quiet', text: `waking · message on its way (held by ${wake.by})` }
+    case 'sent': return { tone: 'quiet', text: `waking · message sent ${timeOf(wake.at)} by ${wake.by}` }
+    case 'launched': return { tone: 'quiet', text: `waking · launched ${timeOf(wake.at)}` }
+    case 'failed': return wake.final === true ? { tone: 'attention', text: `could not wake: ${wake.why ?? 'no reason given'}` } : { tone: 'quiet', text: `waking · ${wake.why ?? 'the first way failed'}; trying the other way` }
+    default: return null
+  }
+}
+
 /** The page's view of the record: the newest spell per chat (the whole record is the file's). */
 export function newestSpells(record) {
   return Object.fromEntries([...(record?.wakes ?? new Map())].map(([chat, entries]) => [chat, statusOf(record, chat, null)]))

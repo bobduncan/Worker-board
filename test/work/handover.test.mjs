@@ -11,6 +11,7 @@ import {
   HANDOVER_COMMAND, HANDOVER_MOD, LIMIT_WHY, NET_MS, NOT_TAKEN_WHY, PAUSED_WHY, RESTART_NET_MS, STATES, UNANSWERED_WHY,
   checkPendingOf, contractOf, decide, envelopesOf, laneWords, lineFor, notOfferedAgain, onSequence, outcomeOf,
 } from '../../src/work/handover.mjs'
+import { match } from '../../src/work/handOut.mjs'
 import { parseItem } from '../../src/work/item.mjs'
 import { stamp } from '../../src/work/migrate.mjs'
 
@@ -304,4 +305,90 @@ test('the envelope as the mod reads it, the outcome as the board takes it, and t
   assert.deepEqual(outcomeOf({ cleared: true, set: 'yes', typed: true, why: '  ok\n then ' }), { cleared: true, set: null, typed: true, restarted: null, background: false, why: 'ok then' })
   assert.equal(outcomeOf('done'), null)
   assert.deepEqual(envelopesOf([{ ...message, at: 9, id: 'b' }, message, { ...message, command: 'work' }], 'Worker 1', 'Game - ').map(one => one.id), ['e9', 'b'])
+})
+
+// ---- Signals change 4, B908 (2026-11-02): the hand-over around a wake. The real cases: B855's envelope eb4fe8aada155b05
+// to Worker 5 (created 11:01:57, taken 11:07:03, typed 11:07:22); the Advisor's wake message 11:06:50, Worker 5's process
+// 11:06:56, its first take (the verdict) 11:07:03; its first turn ended 11:07:21 with no take. Mutants named in each.
+
+const day2 = (h, m, s = 0) => new Date(2026, 10, 2, h, m, s).getTime()
+const W5 = 'Worker 5'
+const asleepW5 = (more = {}) => worker(W5, { since: day2(9, 0), state: 'ended', isRunning: false, asleep: true, asleepSince: day2(9, 0), ...more })
+const queuedB855 = () => mapOf([step('B855', 'queued', { Owner: W5 }), step('B856', 'refined')])
+const env855 = (more = {}) => ({ id: 'eb4fe8aada155b05', at: day2(11, 1, 57), to: W5, command: HANDOVER_COMMAND, kind: 'task', step: 'B855', clear: null, set: null, line: lineFor('B855'), state: 'waiting', ...more })
+
+test('change 4, D.2: a task given to a sleeper while its wake is pending is HANDING and the net does not run (mutant: the net during a pending wake)', () => {
+  for (const state of ['waiting-sender', 'on-its-way', 'sent', 'launched']) {
+    // 25 minutes after the envelope: the net would have fired twice over.
+    const held = decide({ worker: asleepW5(), items: queuedB855(), ready: ready('B856'), envelopes: [env855()], now: day2(11, 27), wake: { state, final: false, at: day2(11, 6, 50), by: 'Advisor', wokeAt: null, firstTurnEnd: false } })
+    assert.deepEqual([held.state, held.step, held.takeBack, held.net], [STATES.HANDING, 'B855', null, null], state)
+  }
+  // A first way that failed with the other still to try is still waking.
+  const trying = decide({ worker: asleepW5(), items: queuedB855(), envelopes: [env855()], now: day2(11, 27), wake: { state: 'failed', final: false, why: 'the app did not start it' } })
+  assert.equal(trying.state, STATES.HANDING)
+})
+
+test('change 4, D.2: once every way failed, the task goes back once ("could not wake it"), then the worker gets nothing at a pass', () => {
+  const failed = { state: 'failed', final: true, why: 'no report within 2 minutes of the message', wokeAt: null, firstTurnEnd: false }
+  const back = decide({ worker: asleepW5(), items: queuedB855(), ready: ready('B856'), envelopes: [env855()], now: day2(11, 10), wake: failed })
+  assert.deepEqual([back.state, back.takeBack, back.close, back.give], [STATES.UNKNOWN, { id: 'B855', why: 'could not wake it' }, 'eb4fe8aada155b05', null])
+  // The board carried it out: B855 is back on the list, the envelope closed. The next pass gives it no other task to bounce.
+  const after = decide({ worker: asleepW5(), items: mapOf([step('B855', 'refined'), step('B856', 'refined')]), ready: ready('B855', 'B856'), envelopes: [env855({ state: 'dropped' })], now: day2(11, 11), wake: failed })
+  assert.deepEqual([after.state, after.why, after.give, after.envelope], [STATES.UNKNOWN, 'could not wake it', null, null])
+  // A running worker is never held by an old failed wake of its chat.
+  const running = decide({ worker: worker(W5, { since: day2(11, 20) }), items: mapOf([step('B856', 'refined')]), ready: ready('B856'), now: day2(11, 21), wake: failed })
+  assert.equal(running.give, 'B856')
+})
+
+test('change 4, D.2 and decision 10: the net counts from the "woke" verdict, not the envelope\'s creation', () => {
+  const woken = worker(W5, { since: day2(11, 7, 3), state: 'busy' })
+  const wake = { state: 'woke', final: false, wokeAt: day2(11, 7, 3), firstTurnEnd: false }
+  const taken = env855({ state: 'taken', takenAt: day2(11, 7, 3) })
+  // 11:15: 13 minutes after the envelope, 8 after the verdict: no net.
+  assert.equal(decide({ worker: woken, items: queuedB855(), envelopes: [taken], now: day2(11, 15), wake }).net, null)
+  // 11:17:03: 10 minutes after the verdict: the net.
+  const net = decide({ worker: woken, items: queuedB855(), envelopes: [taken], now: day2(11, 17, 3), wake })
+  assert.deepEqual([net.state, net.net, net.takeBack?.why], [STATES.UNKNOWN, 'eb4fe8aada155b05', UNANSWERED_WHY])
+  // Without a wake the net counts from the envelope, as before.
+  assert.equal(decide({ worker: woken, items: queuedB855(), envelopes: [taken], now: day2(11, 12), wake: null }).net, 'eb4fe8aada155b05')
+})
+
+test('change 4, the 11:07 case (decision 5): the woken chat\'s first turn end takes nothing back (mutant: the turn counted from the envelope\'s creation)', () => {
+  const woken = worker(W5, { since: day2(11, 7, 21) })
+  const turn = { kind: 'turn-ended', since: day2(11, 6, 56) }
+  const first = { state: 'woke', final: false, wokeAt: day2(11, 7, 3), firstTurnEnd: true }
+  // 11:07:21: the envelope is only taken (its line was typed 11:07:22): no take-back.
+  const taken = decide({ worker: woken, items: queuedB855(), ready: ready('B856'), envelopes: [env855({ state: 'taken', takenAt: day2(11, 7, 3) })], now: day2(11, 7, 21), event: turn, wake: first })
+  assert.deepEqual([taken.takeBack, taken.give], [null, null])
+  // Even settled typed, the woken chat's first turn end does not count.
+  const typed = env855({ state: 'delivered', takenAt: day2(11, 7, 3), deliveredAt: day2(11, 7, 22), outcome: { cleared: null, set: null, typed: true, restarted: null, background: false, why: null } })
+  assert.equal(decide({ worker: woken, items: queuedB855(), envelopes: [typed], now: day2(11, 7, 23), event: turn, wake: first }).takeBack, null)
+  // The next turn end (the line's own turn, after the first turn end was seen) counts as before: back, not offered again.
+  const later = decide({ worker: woken, items: queuedB855(), ready: ready('B855', 'B856'), envelopes: [typed], now: day2(11, 8, 30), event: { kind: 'turn-ended', since: day2(11, 7, 22) }, wake: { ...first, firstTurnEnd: false } })
+  assert.deepEqual(later.takeBack, { id: 'B855', why: NOT_TAKEN_WHY })
+  assert.equal(later.give, 'B856')
+})
+
+test('change 4, decision 5: a turn end while the envelope is only taken (not settled typed) never takes it back, woken or not', () => {
+  const lane = worker('Worker 1', { since: day2(11, 14) })
+  const items = mapOf([step('B855', 'queued', { Owner: 'Worker 1' })])
+  // 93ee0a904d02d2dc: created 11:07:22, taken 11:10:26, typed 11:14:29; a turn that ended 11:12 while it was only taken.
+  const envelope = { ...env855({ id: '93ee0a904d02d2dc', to: 'Worker 1', at: day2(11, 7, 22) }), state: 'taken', takenAt: day2(11, 10, 26) }
+  const ended = decide({ worker: lane, items, envelopes: [envelope], now: day2(11, 12), event: { kind: 'turn-ended', since: day2(11, 10) } })
+  assert.equal(ended.takeBack, null)
+  assert.equal(ended.state, STATES.HANDING)
+})
+
+test('change 4, D.5 (decision 13): an asleep worker gets nothing at a pass while a running free worker would take the task (mutant: the sleeper picked)', () => {
+  const running = worker('Worker 1', { since: day2(10, 0) })
+  const items = mapOf([step('B855', 'refined')])
+  const asleep = decide({ worker: asleepW5(), items, ready: ready('B855'), now: day2(10, 31), runningFree: [running] })
+  assert.deepEqual([asleep.state, asleep.why, asleep.give, asleep.envelope], [STATES.FREE, 'a running worker is free', null, null])
+  // No running worker free: the sleeper gets it (its envelope is the wake's need).
+  assert.equal(decide({ worker: asleepW5(), items, ready: ready('B855'), now: day2(10, 31), runningFree: [] }).give, 'B855')
+  // A running free worker that may not take it (pinned to the sleeper) holds nobody back.
+  const pinned = [{ id: 'B855', rank: 2, keptFor: W5, keptUntil: null, pinned: W5 }]
+  assert.equal(decide({ worker: asleepW5(), items, ready: pinned, now: day2(10, 31), runningFree: [running] }).give, 'B855')
+  // match prefers running lanes over asleep ones.
+  assert.equal(match({ ready: ready('B855'), idle: [asleepW5(), running], items })[0].chat, 'Worker 1')
 })

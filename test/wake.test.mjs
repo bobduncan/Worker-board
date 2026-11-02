@@ -211,3 +211,32 @@ test('the file: written and read back equal; a torn or wrong file is set aside; 
   assert.notEqual(wrong.setAside, null)
   assert.equal(JSON.parse(await readFile(wrong.setAside, 'utf8')).length, 2)
 })
+
+test('wakeFact (D.1) and wakeWords (E): what the hand-over and the lane read of a chat\'s wake', async () => {
+  const { wakeFact, wakeWords } = await import('../src/wake.mjs')
+  const record = emptyWakes()
+  const lane = { name: 'Worker 5', isRunning: false, asleep: true, asleepSince: W5_SPELL, appSession: 'local_w5', session: '01234567-89ab-cdef-0123-456789abcdef' }
+  const facts = { record, senderClaims: true, canLaunch: true }
+  assert.equal(wakeFact(null, lane), null)
+  assert.equal(wakeFact(facts, lane).state, 'none')
+  const job = wakeJobId(W5_SPELL, 'Worker 5')
+  claim(record, { chat: 'Worker 5', spell: W5_SPELL, path: 'message', by: 'Advisor', jobId: job, now: at(11, 6, 45), runBefore: RUN_OLD })
+  assert.deepEqual(wakeWords(wakeFact(facts, lane), timeOf), { tone: 'quiet', text: 'waking · message on its way (held by Advisor)' })
+  sent(record, 'Worker 5', job, at(11, 6, 50))
+  assert.deepEqual(wakeWords(wakeFact(facts, lane), timeOf), { tone: 'quiet', text: 'waking · message sent 11:06 by Advisor' })
+  heard(record, 'Worker 5', { state: 'busy', run: RUN_NEW, at: at(11, 7, 3) }, at(11, 7, 3))
+  // It runs now: the newest spell's verdict and its first turn.
+  const running = { ...lane, isRunning: true, asleep: false, asleepSince: null }
+  const fact = wakeFact(facts, running, { kind: 'turn-ended', since: at(11, 6, 56) })
+  assert.deepEqual([fact.state, fact.wokeAt, fact.firstTurnEnd, fact.final], ['woke', at(11, 7, 3), true, false])
+  assert.equal(wakeFact(facts, running, { kind: 'pass' }).firstTurnEnd, false)
+  assert.equal(wakeWords(fact, timeOf), null)
+  // Failed on every path: the attention words.
+  const other = emptyWakes()
+  claim(other, { chat: 'Worker 2', spell: W2_SPELL, path: 'launch', by: 'board', jobId: 'l', now: at(10, 32) })
+  sent(other, 'Worker 2', 'l', at(10, 32))
+  pass(other, at(10, 35))
+  const w2 = { ...lane, name: 'Worker 2', asleepSince: W2_SPELL }
+  assert.deepEqual(wakeWords(wakeFact({ record: other, senderClaims: false, canLaunch: true }, w2), timeOf), { tone: 'attention', text: 'could not wake: the app did not start it' })
+  assert.deepEqual(wakeWords(wakeFact({ record: other, senderClaims: true, canLaunch: true }, w2), timeOf), { tone: 'quiet', text: 'waking · the app did not start it; trying the other way' })
+})
