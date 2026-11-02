@@ -77,19 +77,17 @@ test('a tile: its part\'s picture (the last final one), its score beside its tar
 test('Autopilot\'s recap asks count only while Autopilot is on: a part sent back that still has an open ask waits; a block no part names is one more; an ask of no block stays listed', () => {
   const sentBack = [{ n: 1, at: sinceOf(NOW - 3 * 60 * MIN), parts: [{ key: 'Block 1', verdict: 'sent-back', comment: 'still stepped' }] }]
   const outsider = parseItem(`Id: B9\nKind: step\nTitle: A task outside\nState: review\nOwner: Digger\nGoal: G6\nSince: ${sinceOf(NOW - 90 * MIN)}\n`)
-  // Q8 is a question (a decide) of the outsider's step; Q9 a look of it (2026-11-02, the person's "A": a look no part covers is a tile of its own).
-  const items = [task(1), task(2), task(3), outsider, askFor(1), askFor(2), askFor(3), askFor(9), open('Q8', { Title: 'Keep the outside task as it is?', Asks: 'decide', Of: 'B9', Route: 'recap' })]
+  const items = [task(1), task(2), task(3), outsider, askFor(1), askFor(2), askFor(3), askFor(9)]
   // On: B1's part was sent back and its ask Q1 is still open: it waits; Block 2 is not judged; Block 3 names no part (one more); Q9's step is of no block.
   const on = asSent(build(items, undefined, goals(3), { recaps: [recap(2, sentBack)], goalRecap: { goal: 'G6', path: PATH, pictures: {} }, config: ON }))
-  assert.equal(on.recapCard.count, 4, 'Block 1 (its ask), Block 2 (not judged yet), Block 3 (no part names it), the look Q9')
-  assert.deepEqual(on.recapCard.tiles.map(one => one.title), ['Block 1', 'Block 2', 'Block 3'], 'one row of three')
+  assert.equal(on.recapCard.count, 3, 'Block 1 (its ask), Block 2 (not judged yet), Block 3 (no part names it)')
+  assert.deepEqual(on.recapCard.tiles.map(one => one.title), ['Block 1', 'Block 2', 'Block 3'])
   assert.deepEqual(on.recapCard.tiles[2].target, { step: 'B3' })
-  assert.deepEqual(on.recapCard.looks.map(one => [one.title, one.line, one.target]), [['Approve block 9 at 64 of 75?', 'a look', { ask: 'Q9' }]])
-  assert.deepEqual(on.recapCard.outside, ['Q8'], 'the look is a tile of its own, the decide stays listed')
+  assert.deepEqual(on.recapCard.outside, ['Q9'])
   assert.equal(on.recapCard.isBuilt, false, 'a part is out with the partner: the card says what is ready')
   // Off: those asks stand in Needs your attention, not in the card: only the part nobody judged counts.
   const off = asSent(build(items, undefined, goals(3), { recaps: [recap(2, sentBack)], goalRecap: { goal: 'G6', path: PATH, pictures: {} } }))
-  assert.deepEqual([off.recapCard.count, off.recapCard.tiles.map(one => one.title), off.recapCard.looks, off.recapCard.outside], [1, ['Block 2'], [], []])
+  assert.deepEqual([off.recapCard.count, off.recapCard.tiles.map(one => one.title), off.recapCard.outside], [1, ['Block 2'], []])
 })
 
 // ---------------------------------------------------------------------------------------------------------------------
@@ -261,7 +259,7 @@ test('"Did we reach the goal?" is not drawn while verdicts wait: the recap comes
 test('the page: the card\'s links open the recap, a tile at its part; an ask outside the recap stands under the card, one line', async () => {
   const demo = { goal: 'G6', title: 'Garden', intro: 'x', step: null, followUp: null, sections: [{ kind: 'reached', band: 'REACHED', verdict: 'Reached', intro: [], items: [], rows: [1, 2, 3].map(n => ({ key: `Block ${n}`, steps: [`B${n}`], title: `Block ${n}`, note: '', pictures: [] })) }] }
   const answers = request => (request.url.startsWith('/api/demo?') ? reply(demo) : reply({}))
-  const items = [task(1), task(2), task(3), askFor(1), askFor(2), open('Q3', { Title: 'Approve block 3 at 64 of 75?', Asks: 'decide', Of: 'B9', Route: 'recap' }), parseItem(`Id: B9\nKind: step\nTitle: A task outside\nState: review\nOwner: Digger\nGoal: G6\nSince: ${sinceOf(NOW - 90 * MIN)}\n`)]
+  const items = [task(1), task(2), task(3), askFor(1), askFor(2), askFor(3, 'B9'), parseItem(`Id: B9\nKind: step\nTitle: A task outside\nState: review\nOwner: Digger\nGoal: G6\nSince: ${sinceOf(NOW - 90 * MIN)}\n`)]
   const state = asSent(build(items, undefined, goals(3), { recaps: [recap(2)], goalRecap: { goal: 'G6', path: PATH, pictures: {} }, config: ON }))
   const page = await openPage({ state, answers })
   try {
@@ -444,55 +442,80 @@ test('2026-11-02 (review): only the first of the goal\'s own asks is the "play i
   assert.equal(wholeGoalAskOf(asked, 'G6', PATH).id, 'Q31')
 })
 
-test('2026-11-02 (the person\'s "A", the live Q590): a look of the focus goal that no part covers is a tile of its own: its title, "a look · advised: yes", its first picture, the ask\'s window; it counts and is no ask outside', () => {
-  // The live shape: a done step B9 of the goal, named by no part, and a worker's look of it routed to the recap (Autopilot on).
-  const done = parseItem(`Id: B9\nKind: step\nTitle: Whole move squares\nState: done\nOwner: Digger\nGoal: G6\nSince: ${sinceOf(NOW - 90 * MIN)}\n`)
-  const q590 = open('Q590', { Title: 'Does the wizard\'s move range on the terraces look right?', Asks: 'look', Of: 'B9', Route: 'recap', Advice: 'yes', Pictures: 'art/B9/terraces-after.jpg' })
-  const state = asSent(build([task(1), askFor(1), done, q590], undefined, goals(1), { recaps: [recap(1)], goalRecap: { goal: 'G6', path: PATH, pictures: {} }, config: ON }))
-  const card = state.recapCard
+// ---------------------------------------------------------------------------------------------------------------------
+// 2026-11-02, the person's "A" (the live Q590) and the coordinator's rulings: a look the partner handed to the person that Autopilot keeps
+// for the recap (its Route line is the kept line) is a tile of its own where no recap part names its step; it raises no card mid-goal.
+
+const KEPT = 'Your partner hands this to you; Autopilot keeps it for the goal\'s recap'
+const keptLook = (n, of, more = '') => parseItem(`Id: Q${n}\nKind: ask\nTitle: Does the wizard's move range on the terraces look right?\nState: open\nOwner: Digger\nSince: ${sinceOf(NOW - 40 * MIN)}\nFiled: ${NOW - 40 * MIN}\nPictures: art/B9/terraces-after.jpg\nAsks: look\nBlocking: no\nAdvice: yes\nOf: ${of}\nRoute: recap\n${more}\n## Route\n${KEPT}\n`)
+const doneStep = (n, state = 'done') => parseItem(`Id: B${n}\nKind: step\nTitle: Whole move squares ${n}\nState: ${state}\nOwner: Digger\nGoal: G6\nSince: ${sinceOf(NOW - 90 * MIN)}\n`)
+const keptTile = { title: 'Does the wizard\'s move range on the terraces look right?', line: 'a look · advised: yes', picture: 'art/B9/terraces-after.jpg', target: { ask: 'Q590' } }
+const stateOf = (items, count = 1, more = {}) => asSent(build(items, undefined, goals(count), { recaps: [recap(1)], goalRecap: { goal: 'G6', path: PATH, pictures: {} }, config: ON, ...more }))
+
+test('a kept look is a tile of its own where no part names its step: its title, "a look · advised: yes", its first picture, its window; it counts and is no ask outside', () => {
+  // Block 1 waits in the recap (a reason for the card); B9 is a done step of the goal that no part names: the live Q590.
+  const card = stateOf([task(1), askFor(1), doneStep(9), keptLook(590, 'B9')], 2).recapCard
   assert.equal(card.count, 2, 'Block 1 and the look')
-  const tile = { title: 'Does the wizard\'s move range on the terraces look right?', line: 'a look · advised: yes', picture: 'art/B9/terraces-after.jpg', target: { ask: 'Q590' } }
-  assert.deepEqual(card.tiles, [{ title: 'Block 1', line: 'approve or send back', picture: null, target: { path: PATH, key: 'Block 1' } }, tile])
-  assert.deepEqual(card.looks, [tile])
+  assert.deepEqual(card.tiles, [{ title: 'Block 1', line: 'approve or send back', picture: null, target: { path: PATH, key: 'Block 1' } }, keptTile])
+  assert.deepEqual(card.looks, [keptTile])
   assert.deepEqual(card.outside, [], 'no longer listed under the card')
   assert.deepEqual(card.open, { path: PATH }, 'the recap is still what the card opens')
-  // Alone, it is the card (the recap file has no row for it).
-  const alone = asSent(build([done, q590], undefined, goals(1), { recaps: [], goalRecap: { goal: 'G6', path: PATH, pictures: {} }, config: ON })).recapCard
-  assert.deepEqual([alone.count, alone.tiles, alone.looks.length, alone.outside], [1, [tile], 1, []])
+  // The same look without the kept line (a checker\'s, one below its target) is the old ask outside, no tile.
+  const plain = parseItem(`Id: Q591\nKind: ask\nTitle: A checker\'s look\nState: open\nOwner: Digger\nSince: ${sinceOf(NOW - 40 * MIN)}\nFiled: ${NOW - 40 * MIN}\nAsks: look\nBlocking: no\nOf: B9\nRoute: recap\n`)
+  const old = stateOf([task(1), askFor(1), doneStep(9), plain], 2).recapCard
+  assert.deepEqual([old.count, old.looks, old.outside], [1, [], ['Q591']])
   // Autopilot off: the look stands in Needs your attention, not in the card.
-  assert.equal(asSent(build([done, q590], undefined, goals(1), { recaps: [], goalRecap: { goal: 'G6', path: PATH, pictures: {} }, config: parseConfig('{}', {}) })).recapCard, null)
+  assert.equal(stateOf([doneStep(9), keptLook(590, 'B9')], 1, { recaps: [], config: parseConfig('{}', {}) }).recapCard, null)
 })
 
-test('2026-11-02: which looks are tiles - none that a part or a block covers, none of a step being checked; a decide or a step-less look is not one; the line cuts a long advice; all of them are in `looks`, the row shows three', () => {
-  const asked = (id, more = {}) => ({ id, of: 'B9', asks: 'look', title: `Look ${id}`, advice: null, pictures: [], text: '', ...more })
+test('a kept look raises no card mid-goal: with no other reason and a block still being built the card is null; with every block built, or any other verdict waiting, it shows', () => {
+  // Mid-goal: block 1 in progress, block 2 not started: nothing waits but the kept look, which waits quietly.
+  const midGoal = [parseItem(`Id: B1\nKind: step\nTitle: Task B1\nState: in progress\nOwner: Digger\nGoal: G6\nSince: ${sinceOf(NOW - 90 * MIN)}\n`), doneStep(9), keptLook(590, 'B9')]
+  assert.equal(stateOf(midGoal, 2, { recaps: [] }).recapCard, null)
+  // The state sends no look to the page either, and the ask is still among the recap asks (its window opens from the Focus list).
+  assert.deepEqual(stateOf(midGoal, 2, { recaps: [] }).routedAway.map(one => [one.id, one.isKept]), [['Q590', true]])
+  // Every block built: nothing is left to build, so the look is among the last things the recap waits for.
+  const built = stateOf([doneStep(1), doneStep(9), keptLook(590, 'B9')], 1, { recaps: [] }).recapCard
+  assert.deepEqual([built.count, built.looks, built.isBuilt], [1, [keptTile], true])
+  // Any other verdict waiting is a reason (a part, a block, the goal's own ask).
+  assert.equal(stateOf([task(1), askFor(1), doneStep(9), keptLook(590, 'B9')], 2).recapCard.count, 2)
+  // Direct: the reasons and the built blocks, by the card's own inputs.
+  const asked = [{ id: 'Q590', of: 'B9', asks: 'look', isKept: true, title: 'Look', advice: null, pictures: [], text: '' }]
+  const building = [{ title: 'Block 1', state: 'now', steps: [] }]
+  assert.equal(recapCardOf({ goal: 'G6', recapPath: PATH, waits: [], blocks: building, asked }), null)
+  assert.equal(recapCardOf({ goal: 'G6', recapPath: PATH, waits: [], blocks: [{ title: 'Block 1', state: 'done', steps: [] }], asked }).count, 1)
+  assert.equal(recapCardOf({ goal: 'G6', recapPath: PATH, waits: [], blocks: building, asked, standing: [{ id: 'Q9', of: null, asks: 'do', title: 'Open the recap and try it', text: `[recap](#demo=${PATH})`, pictures: [], options: [] }] }).count, 2, 'the goal\'s own ask is a reason')
+  assert.equal(recapCardOf({ goal: 'G6', recapPath: PATH, waits: [{ goal: 'G6', path: PATH, key: 'Block 1', title: 'Block 1', step: 'B1', verdict: null }], blocks: building, asked }).count, 2, 'a part is a reason')
+})
+
+test('a block that covers the kept look\'s step does not take its tile away: the step\'s card and the look are two tiles; a recap part that names the step does cover it', () => {
+  // The step B61 is in review and waits only for the kept look: the block waits for the verdict (the step's card), and the look is its own tile.
+  const block = { title: 'Terraces', state: 'verdict', steps: [{ waitsForVerdict: true, verdictAt: { step: 'B61' } }] }
+  const asked = [{ id: 'Q590', of: 'B61', asks: 'look', isKept: true, title: 'Look', advice: 'yes', pictures: ['a.png'], text: '' }]
+  const card = recapCardOf({ goal: 'G6', recapPath: PATH, waits: [], blocks: [block], asked })
+  assert.deepEqual([card.count, card.tiles.map(one => one.target), card.looks.map(one => one.target), card.outside], [2, [{ step: 'B61' }, { ask: 'Q590' }], [{ ask: 'Q590' }], []])
+  // A step still being checked holds nothing back for a kept look.
+  assert.equal(recapCardOf({ goal: 'G6', recapPath: PATH, waits: [], blocks: [], asked, openChecks: new Set(['B61']) }).looks.length, 1)
+  // A part of the recap that names the step is the look's verdict: no tile of its own, the part is the tile.
+  const part = { goal: 'G6', path: PATH, key: 'Terraces', title: 'Terraces', step: 'B61', verdict: null }
+  const covered = recapCardOf({ goal: 'G6', recapPath: PATH, waits: [part], blocks: [], asked })
+  assert.deepEqual([covered.count, covered.tiles.map(one => one.title), covered.looks, covered.outside], [1, ['Terraces'], [], []])
+})
+
+test('which kept looks are tiles: only a look of a step; the line cuts a long advice, the first picture is the tile\'s; all are in `looks`, the row shows three', () => {
+  const asked = (id, more = {}) => ({ id, of: 'B9', asks: 'look', isKept: true, title: `Look ${id}`, advice: null, pictures: [], text: '', ...more })
   const part = { goal: 'G6', path: PATH, key: 'Block 1', title: 'Block 1', step: 'B1', verdict: null }
-  const base = { goal: 'G6', recapPath: PATH, waits: [part] }
-  const tilesOf = (list, more = {}) => recapCardOf({ ...base, asked: list, ...more })
-  // A part names B1: its look is the part's own verdict, no tile; another step's look is a tile after the part.
-  const covered = tilesOf([asked('Q1', { of: 'B1' }), asked('Q2')])
-  assert.deepEqual([covered.count, covered.tiles.map(one => one.title), covered.looks.map(one => one.title), covered.outside], [2, ['Block 1', 'Look Q2'], ['Look Q2'], []])
-  // A block whose step waits for the person in another form covers the look of that step.
-  const block = { title: 'Block 7', state: 'verdict', steps: [{ waitsForVerdict: true, verdictAt: { step: 'B9' } }] }
-  const byBlock = tilesOf([asked('Q3')], { waits: [], blocks: [block] })
-  assert.deepEqual([byBlock.count, byBlock.tiles.map(one => one.title), byBlock.looks, byBlock.outside], [1, ['Block 7'], [], []])
-  // A step still being checked is no verdict yet: its look is not a tile (it stays listed, as before).
-  assert.equal(tilesOf([asked('Q4')], { waits: [], openChecks: new Set(['B9']) }), null)
-  assert.deepEqual(recapCardOf({ ...base, waits: [part], asked: [asked('Q4')], openChecks: new Set(['B9']) }).outside, ['Q4'])
-  // Only a look of a step: a decide is listed outside as before, a look of no step is the goal's own ask (or outside), a look of a goal is none.
-  const others = tilesOf([asked('Q5', { asks: 'decide' }), asked('Q6', { of: null, title: 'Is the whole goal there?' }), asked('Q7', { of: 'G6' })])
-  assert.deepEqual([others.looks, others.outside], [[], ['Q5', 'Q6', 'Q7']])
-  // The line: "a look" without advice, the advice as it stands, a long one cut at a word edge.
+  const tilesOf = list => recapCardOf({ goal: 'G6', recapPath: PATH, waits: [part], asked: list })
+  const others = tilesOf([asked('Q5', { asks: 'decide' }), asked('Q6', { of: null }), asked('Q7', { of: 'G6' }), asked('Q8', { isKept: false })])
+  assert.deepEqual([others.looks, others.outside], [[], ['Q5', 'Q6', 'Q7', 'Q8']], 'a decide, a look of no step or a goal, a look that is no kept one: listed outside as before')
   const lines = tilesOf([asked('Q8'), asked('Q9', { advice: 'accepting it and keeping 75' }), asked('Q10', { advice: 'A '.repeat(60) })]).looks.map(one => one.line)
   assert.equal(lines[0], 'a look')
   assert.equal(lines[1], 'a look · advised: accepting it and keeping 75')
   assert.match(lines[2], /^a look · advised: (A )+A…$/)
   assert.ok(lines[2].length <= 'a look · advised: '.length + 61, lines[2])
-  // The first picture of the ask; none: a calm placeholder on the page.
   assert.deepEqual(tilesOf([asked('Q11', { pictures: ['a.png', 'b.png'] }), asked('Q12')]).looks.map(one => one.picture), ['a.png', null])
-  // Five looks: the row shows three tiles, the count and `looks` hold all five.
   const five = tilesOf(['Q21', 'Q22', 'Q23', 'Q24', 'Q25'].map(id => asked(id)))
   assert.deepEqual([five.count, five.tiles.length, five.looks.length], [6, 3, 5])
   assert.deepEqual(five.tiles.map(one => one.title), ['Block 1', 'Look Q21', 'Look Q22'])
-  // No ask routed to the recap (Autopilot off): no look, no `looks` entries.
-  assert.deepEqual(recapCardOf({ ...base, asked: [] }).looks, [])
+  assert.deepEqual(recapCardOf({ goal: 'G6', recapPath: PATH, waits: [part], asked: [] }).looks, [])
 })

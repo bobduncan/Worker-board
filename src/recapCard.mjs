@@ -176,11 +176,15 @@ export function wholeGoalAskOf(standing, goal, recapPath) {
  * `{ path, key }` (the recap at its part), `{ step }` or `{ ask }` (that window). `open`: the recap file, else the first tile's.
  * `outside`: the ids of the recap asks whose step no counted part or block covers: the page lists those under the card.
  *
- * A look (the person's "A", 2026-11-02, the live Q590: a worker's look of the focus goal that no recap part names, which Autopilot
- * keeps for the recap): every look in `asked` of a step that no part and no block covers (and that is not being checked) is a tile
- * of its own, after the others: its title, the line "a look · advised: <advice>" (or "a look"), its first picture, and the target
- * `{ ask }`, the window where the person answers it. It counts, and it is no ask `outside`. `looks` holds all of them (the page's
- * Product owner card names the first three, `tiles` only the first MOST_TILES of everything).
+ * A kept look (the person's "A", 2026-11-02, the live Q590: a look the partner handed to the person that Autopilot keeps for the
+ * recap; `isKept` on its `asked` entry, src/work/keptLook.mjs): every kept look of a step that no recap PART names is a tile of its
+ * own, after the others, whether or not a block covers the step (a block's tile is the step's card, not this look): its title, the
+ * line "a look · advised: <advice>" (or "a look"), its first picture, and the target `{ ask }`, the window where the person answers
+ * it. It counts, and it is no ask `outside`. `looks` holds all of them (the page's Product owner card names the first three,
+ * `tiles` only the first MOST_TILES of everything). The coordinator's ruling the same day: a kept look raises no "your recap is
+ * ready" mid-goal; its tile counts and shows only while the card has another reason to show (a part, a block or the goal's own ask
+ * waits) or every block of the goal is built (nothing is left to build, so the look is among the last things the recap waits for).
+ * Every other look routed to the recap (a checker's, one below its target) stays an ask `outside` when no part covers it.
  */
 export function recapCardOf({ goal, recapPath = null, waits = [], pictures = {}, steps = new Map(), blocks = [], standing = [], openChecks = new Set(), asked = [] }) {
   const isOpenCheck = id => openChecks.has(id)
@@ -220,14 +224,14 @@ export function recapCardOf({ goal, recapPath = null, waits = [], pictures = {},
   }
   // The goal's own ask: open the recap and play it.
   if (whole !== null) tiles.push({ title: 'The whole goal: play it', line: `is ${goal} reached?`, picture: whole.pictures[0] ?? null, target: recapPath !== null ? { path: recapPath } : { ask: whole.id } })
+  // A kept look no recap part covers is a tile of its own, also when a block covers its step; it is no ask outside.
+  const keptLooks = (Array.isArray(asked) ? asked : []).filter(ask => ask.isKept === true && ask.asks === 'look' && /^B\d+$/.test(ask.of ?? '') && outside.includes(ask.id))
+  for (const ask of keptLooks) outside.splice(outside.indexOf(ask.id), 1)
   for (const ask of Array.isArray(asked) ? asked : []) if (outside.includes(ask.id) && covered.has(ask.of)) outside.splice(outside.indexOf(ask.id), 1)
-  // A look no part and no block covers: a tile of its own (a step still being checked is no verdict yet, as for a part).
-  const looks = []
-  for (const ask of Array.isArray(asked) ? asked : []) {
-    if (ask.asks !== 'look' || !/^B\d+$/.test(ask.of ?? '') || !outside.includes(ask.id) || isOpenCheck(ask.of)) continue
-    outside.splice(outside.indexOf(ask.id), 1)
-    looks.push({ title: ask.title, line: lookLineOf(ask.advice), picture: ask.pictures?.[0] ?? null, target: { ask: ask.id } })
-  }
+  const isAllBuilt = (blocks ?? []).every(block => BUILT_STATES.includes(block.state))
+  const looks = tiles.length > 0 || isAllBuilt
+    ? keptLooks.map(ask => ({ title: ask.title, line: lookLineOf(ask.advice), picture: ask.pictures?.[0] ?? null, target: { ask: ask.id } }))
+    : []
   tiles.push(...looks)
   if (tiles.length === 0) return null
   const isBuilt = (blocks ?? []).every(block => BUILT_STATES.includes(block.state)) && [...parts.values()].every(one => one.verdict === null)

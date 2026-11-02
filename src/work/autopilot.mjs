@@ -31,7 +31,11 @@
 
 import { askFiledMs, sinceMs, valueOf } from './item.mjs'
 import { chainWaitOf, checkedOf, fixesOf } from './resultCheck.mjs'
+import { HANDED_KEPT_WORDS, isKeptLook } from './keptLook.mjs'
 import { standardOf } from './standard.mjs'
+
+// A look the partner handed over that Autopilot keeps for the recap (src/work/keptLook.mjs): its Route line and its test.
+export { HANDED_KEPT_WORDS, isKeptLook }
 
 export const ROUTES = ['partner', 'advice', 'recap', 'main', 'person']
 /** The routes that take an ask away from Needs your attention while it is open. */
@@ -118,8 +122,6 @@ export function recapAskOf(item, { focusGoal = null, recapSteps = [], items = ne
 
 /** The why of a partner's hand-over of a new look of the focus goal that goes to the recap instead (`focusLookOf`). */
 export const FOCUS_LOOK_WHY = 'a new look of the focus goal waits for its recap'
-/** The Route line of a partner's hand-over of a look that Autopilot keeps for the goal's recap instead (the person's "A", 2026-11-02). */
-export const HANDED_KEPT_WORDS = 'Your partner hands this to you; Autopilot keeps it for the goal\'s recap'
 /** The askers whose looks are not a worker's detail: the Product owner's (it answers for the goal) and the board's own cards. */
 const NOT_LOOKERS = ['owner', 'board']
 const PARTNER_HANDS_LINE = /^Your partner hands this to you: (.*)$/
@@ -536,14 +538,6 @@ export function routedAt(item, to = null) {
   const line = historyOf(item).findLast(one => (to === null ? / autopilot: routed to \w+$/ : new RegExp(` autopilot: routed to ${to}$`)).test(one))
   return line === undefined ? Number.NaN : sinceMs(line.match(/^-\s+(\d{4}-\d\d-\d\d \d\d:\d\d)/)?.[1])
 }
-
-/**
- * Whether an ask routed to the recap stays there when no row of the recap names its step (the person's "A", 2026-11-02): a look
- * (any role but the Product owner's) of a step of the focus goal. The board's safety net hands every other recap wait back to the
- * person once the goal's demo is made without its step ("The goal demo came without its step"); a look is answered in its own
- * window and listed on the recap card, so no row has to close it.
- */
-export const isKeptLook = (item, role = null) => (valueOf(item, 'Asks') ?? 'decide') === 'look' && !NOT_LOOKERS.includes(role)
 
 /** The card line of an ask the board routed back to the person (its step's goal is no longer the focus). */
 export const recapGoneWords = 'Its goal is not the focus now, so its recap will not come: it is yours'

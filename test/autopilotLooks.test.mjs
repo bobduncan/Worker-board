@@ -15,6 +15,8 @@ import { join } from 'node:path'
 import test from 'node:test'
 
 import { FOCUS_LOOK_WHY, HANDED_KEPT_WORDS, autopilotRoute, focusLookOf, isExplicitPerson, isKeptLook, partnerHandOverOf, recapGoneWords, standsForPerson } from '../src/work/autopilot.mjs'
+import { GUARDS } from '../src/work/guards.mjs'
+import { REST_GUARD, openAskIds } from '../src/work/parked.mjs'
 import { workApi } from '../src/work/api.mjs'
 import { routedAwayOf, storeNeeds } from '../src/work/lists.mjs'
 import { parseItem } from '../src/work/item.mjs'
@@ -44,7 +46,7 @@ const step = (id, fields, sections = {}) => text({ Id: id, Kind: 'step', Activit
 const steps = () => ({
   B55: step('B55', { Title: 'Whole move squares', State: 'done', Owner: 'Painter', Goal: 'G29' }),
   B56: step('B56', { Title: 'Round the pond', State: 'in progress', Owner: 'Painter', Goal: 'G29' }),
-  B70: step('B70', { Title: 'Trim the hedge', State: 'in progress', Owner: 'Painter', Goal: 'G30' }),
+  B70: step('B70', { Title: 'Trim the hedge', State: 'in progress', Owner: 'Checker', Goal: 'G30' }),
 })
 const handedHistory = why => [`- ${at(79)} server: autopilot: routed to partner`, `- ${at(75)} Partner: to the person: ${why}`]
 const WHY = 'A new look on a map (the move range on the raised terraces) is yours to approve; Painter advises yes.'
@@ -151,13 +153,17 @@ test('the partner\'s hand-over of a look: found by its History and its Route lin
   assert.notEqual(autopilotRoute(other, { ...pure, handedWhy: partnerHandOverOf(other) }).to, 'recap')
 })
 
-test('a look of the focus goal stays on the recap when no row names its step (the safety net\'s rule); the Product owner\'s and a decide do not', () => {
-  assert.equal(isKeptLook(Q590(), 'worker'), true)
-  assert.equal(isKeptLook(Q590(), 'advisor'), true)
-  assert.equal(isKeptLook(Q590(), 'owner'), false)
-  assert.equal(isKeptLook(Q590(), 'board'), false)
-  assert.equal(isKeptLook(Q590({ Asks: 'decide' }), 'worker'), false)
-  assert.equal(isKeptLook(Q590({ Asks: undefined }), 'worker'), false, 'no Asks is a decide')
+test('only the partner\'s hand-over that Autopilot kept is a kept look (its Route line); a worker\'s or checker\'s look on the recap, a blocking ask and a decide are not', () => {
+  const kept = more => ask('Q590', { Title: 'Does the moat look right?', Owner: 'Painter', Asks: 'look', Of: 'B24', Route: 'recap', Blocking: 'no', ...more }, null, { Route: [HANDED_KEPT_WORDS] })
+  assert.equal(isKeptLook(kept({})), true)
+  assert.equal(isKeptLook(kept({ Owner: 'Checker' })), true, 'whoever asked it')
+  assert.equal(isKeptLook(ask('Q591', { Title: 'A checker\'s look', Owner: 'Checker', Asks: 'look', Of: 'B24', Route: 'recap' })), false, 'a recap wait of the old routes: no kept line')
+  assert.equal(isKeptLook(kept({ Route: 'person' })), false, 'handed back to the person')
+  assert.equal(isKeptLook(kept({ Route: 'partner' })), false)
+  assert.equal(isKeptLook(kept({ Blocking: 'yes' })), false, 'a blocking ask holds its worker')
+  assert.equal(isKeptLook(kept({ Asks: 'decide' })), false)
+  assert.equal(isKeptLook(ask('Q592', { Title: 'x', Owner: 'Painter', Asks: 'look', Route: 'recap' }, null, { Route: ['Some other line'] })), false)
+  assert.equal(isKeptLook(undefined), false)
 })
 
 // ---------------------------------------------------------------------------------------------------------------------
@@ -285,17 +291,22 @@ test('the switch-on\'s sweep keeps the partner\'s hand-overs it moved for the Un
   assert.deepEqual(needsOf(items, NOW + 8 * MIN), ['Q1'])
 })
 
-test('the safety net: a look of the focus goal stays on the recap when no row names its step; every other recap wait is handed back; the person has it once the focus moves', async t => {
+/** A look the partner handed over that Autopilot kept for the recap: Route recap, not blocking, the kept line on its card. */
+const kept = (id, fields = {}, more = {}) => look(id, { Route: 'recap', Of: 'B55', Blocking: 'no', ...fields }, { route: [HANDED_KEPT_WORDS], history: handedHistory(WHY), ...more })
+
+test('the safety net: only a look the partner handed over stays on the recap when no row names its step; every other recap wait is handed back as before; the person has it once the focus moves', async t => {
   const dir = await storeWith({
     ...steps(),
     B57: step('B57', { Title: 'Label the pond', State: 'review', Owner: 'Painter', Goal: 'G29' }),
-    Q1: look('Q1', { Route: 'recap', Of: 'B55' }),
-    Q2: look('Q2', { Route: 'recap', Of: 'B57', Owner: 'Keeper' }),
+    Q1: kept('Q1'),
+    // The old routes: a checker's look and the Product owner's look on the recap (no kept line), a decide (the Accept card).
+    Q2: look('Q2', { Route: 'recap', Of: 'B57', Owner: 'Checker' }),
     Q3: look('Q3', { Route: 'recap', Of: 'B57', Asks: 'decide', Options: 'A accept | B send back', Via: 'accept' }),
+    // Named by the recap's row: stays by the old rule.
     Q4: look('Q4', { Route: 'recap', Of: 'B56' }),
   })
   t.after(() => rm(dir, { recursive: true, force: true }))
-  // The demo exists, and its only row names B56: Q4 (named) and Q1 (a look) stay; the Product owner's look and the decide go back.
+  // The demo exists, and its only row names B56: Q4 (named) and Q1 (kept) stay; the checker's look and the decide go back to the person.
   const net = await pass(dir)
   assert.deepEqual(net.result.escalated.sort(), ['Q2', 'Q3'])
   let items = await read(dir)
@@ -308,8 +319,85 @@ test('the safety net: a look of the focus goal stays on the recap when no row na
   assert.deepEqual([field(items, 'Q1', 'Route'), items.get('Q1').sections.get('Route')], ['person', [recapGoneWords]])
 })
 
-test('the person answers the look in its window as any ask: it closes with their words, its step is not moved, and the asking chat is woken', async t => {
-  const dir = await storeWith({ ...steps(), Q1: look('Q1', { Route: 'recap', Of: 'B55' }) })
+test('S1: a blocking look the partner hands over frees its step: the step goes on, its worker is woken with one line; a kept look holds no worker', async t => {
+  const dir = await storeWith({ ...steps() })
+  t.after(() => rm(dir, { recursive: true, force: true }))
+  // The worker's blocking look under its step in progress: at filing it goes to the partner and the step waits on the person.
+  const asked = await chat(dir, 'Painter', { action: 'ask', of: 'B56', kind: 'look', blocking: true, title: 'Does the pond look right?', text: ['The pond is round now.'], options: ['yes', 'no'], advice: 'yes', pictures: [] }, NOW, { autopilot: true })
+  assert.equal(asked.ok, true, asked.why)
+  const id = asked.result.id
+  let items = await read(dir)
+  assert.deepEqual([field(items, id, 'Route'), field(items, id, 'Blocking'), field(items, 'B56', 'State')], ['partner', 'yes', 'waiting on you'])
+  // The partner hands it over: the ask is kept for the recap, non-blocking; the step goes on and its worker is told.
+  const escalated = await chat(dir, 'Partner', { action: 'escalate', id, why: WHY }, NOW + MIN, { autopilot: true })
+  assert.equal(escalated.ok, true, escalated.why)
+  items = await read(dir)
+  assert.deepEqual([field(items, id, 'Route'), field(items, id, 'Blocking'), field(items, 'B56', 'State')], ['recap', 'no', 'in progress'])
+  assert.ok(history(items, 'B56').some(line => line.endsWith(`server: waiting on you → in progress (${id} waits for the goal's recap)`)), history(items, 'B56').join(' | '))
+  assert.deepEqual(escalated.result.wake, { to: 'Painter', id, kind: 'recap-kept', line: `${id} waits for the goal's recap: go on` })
+  // The step\'s done still waits for the look: the rule "no open look" stays (the recap gives the answer).
+  assert.equal(field(items, 'B56', 'State'), 'in progress')
+})
+
+test('S1: a step that another blocking ask holds stays waiting; with its worker on another step it is parked; neither is woken', async t => {
+  const dir = await storeWith({
+    ...steps(),
+    Q5: look('Q5', { Of: 'B56', Blocking: 'yes', Asks: 'decide', Route: 'person', Pictures: undefined }, { history: [`- ${at(70)} Painter: asked (decide)`] }),
+    B58: step('B58', { Title: 'Plant the hedge', State: 'waiting on you', Owner: 'Painter', Goal: 'G29' }),
+    B59: step('B59', { Title: 'Water the hedge', State: 'in progress', Owner: 'Painter', Goal: 'G29' }),
+    Q6: look('Q6', { Of: 'B58', Blocking: 'yes', Route: 'partner' }),
+  })
+  t.after(() => rm(dir, { recursive: true, force: true }))
+  // B56 waits on you for Q5 (a plain blocking decide) as well as the look Q7 the partner hands over: it stays.
+  await writeFile(join(dir, 'B56.md'), step('B56', { Title: 'Round the pond', State: 'waiting on you', Owner: 'Painter', Goal: 'G29' }))
+  await writeFile(join(dir, 'Q7.md'), look('Q7', { Of: 'B56', Blocking: 'yes', Route: 'partner' }))
+  const first = await chat(dir, 'Partner', { action: 'escalate', id: 'Q7', why: WHY }, NOW, { autopilot: true })
+  assert.equal(first.ok, true, first.why)
+  assert.equal(first.result.wake, undefined, 'nobody is woken: the step still waits for Q5')
+  let items = await read(dir)
+  assert.deepEqual([field(items, 'Q7', 'Route'), field(items, 'B56', 'State')], ['recap', 'waiting on you'])
+  // B58 waits only for Q6, but Painter works on B59 (in progress): the step is parked, no wake.
+  const second = await chat(dir, 'Partner', { action: 'escalate', id: 'Q6', why: WHY }, NOW + MIN, { autopilot: true })
+  assert.equal(second.ok, true, second.why)
+  assert.equal(second.result.wake, undefined)
+  items = await read(dir)
+  assert.equal(field(items, 'B58', 'State'), 'waiting on you')
+  assert.ok(history(items, 'B58').some(line => line.endsWith('server: parked (resumes after B59)')), history(items, 'B58').join(' | '))
+})
+
+test('the pass wakes the worker of a step a handed-over blocking look frees, at every pass', async t => {
+  const dir = await storeWith({
+    ...steps(),
+    B56: step('B56', { Title: 'Round the pond', State: 'waiting on you', Owner: 'Painter', Goal: 'G29' }),
+    Q1: handed('Q1', { Of: 'B56', Blocking: 'yes' }),
+  })
+  t.after(() => rm(dir, { recursive: true, force: true }))
+  const done = await pass(dir)
+  assert.deepEqual(done.result.routed, [{ id: 'Q1', to: 'recap' }])
+  assert.deepEqual(done.result.wakes, [{ to: 'Painter', id: 'Q1', kind: 'recap-kept', line: 'Q1 waits for the goal\'s recap: go on' }])
+  const items = await read(dir)
+  assert.deepEqual([field(items, 'Q1', 'Blocking'), field(items, 'B56', 'State')], ['no', 'in progress'])
+})
+
+test('a kept look parks no step and counts in no guard for moving on: the rest rule, the "asks are answered" move and the park', () => {
+  const items = new Map(['B56', 'Q1', 'Q2'].map(id => [id, parseItem(text(
+    id === 'B56' ? { Id: 'B56', Kind: 'step', State: 'waiting on you', Owner: 'Painter', Goal: 'G29', Since: at(30) }
+      : { Id: id, Kind: 'ask', Title: `Look ${id}`, State: 'open', Owner: 'Painter', Asks: 'look', Of: 'B56', Route: 'recap', Blocking: 'no', Since: at(30) },
+    id === 'Q1' ? { Route: [HANDED_KEPT_WORDS] } : {}))]))
+  const stepItem = items.get('B56')
+  const ctx = onlyItems => ({ store: { items: new Map([...items].filter(([id]) => id === 'B56' || onlyItems.includes(id))) }, prefix: '' })
+  // Only the kept look Q1 is open: neither guard holds, the step may go on.
+  assert.equal(GUARDS['its asks are answered'](stepItem, ctx(['Q1'])), true)
+  assert.equal(GUARDS[REST_GUARD](stepItem, ctx(['Q1'])), false)
+  assert.deepEqual(openAskIds(ctx(['Q1']).store.items, 'B56'), [])
+  // The old recap wait Q2 (no kept line) is an open ask like any other.
+  assert.equal(GUARDS['its asks are answered'](stepItem, ctx(['Q1', 'Q2'])), false)
+  assert.equal(GUARDS[REST_GUARD](stepItem, ctx(['Q1', 'Q2'])), true)
+  assert.deepEqual(openAskIds(ctx(['Q1', 'Q2']).store.items, 'B56'), ['Q2'])
+})
+
+test('the person answers the look in its window as any ask: it closes with their words, its step is not moved and reads approved or sent back, and the asking chat is woken', async t => {
+  const dir = await storeWith({ ...steps(), Q1: kept('Q1') })
   t.after(() => rm(dir, { recursive: true, force: true }))
   const answered = await person(dir, { action: 'answer', id: 'Q1', verdict: 'approve', text: 'The squares look whole now.' }, NOW + 10 * MIN)
   assert.equal(answered.ok, true, answered.why)
@@ -317,12 +405,47 @@ test('the person answers the look in its window as any ask: it closes with their
   const items = await read(dir)
   assert.deepEqual([field(items, 'Q1', 'State'), items.get('Q1').sections.get('Answer')], ['answered', ['Approved. The squares look whole now.']])
   assert.equal(field(items, 'B55', 'State'), 'done', 'a done step stays done')
+  assert.ok(items.get('B55').sections.get('Context').some(line => line.trim() === 'Recap verdict: approved (Q1)'), 'the step reads what the recap\'s answer writes')
   assert.deepEqual(routedAwayOf({ ok: true, items }), [])
-  // Rejecting it needs the person's words, as for any look.
-  const second = await storeWith({ ...steps(), Q1: look('Q1', { Route: 'recap', Of: 'B55' }) })
+  // Rejecting it needs the person's words, as for any look; the step reads "sent back".
+  const second = await storeWith({ ...steps(), Q1: kept('Q1') })
   t.after(() => rm(second, { recursive: true, force: true }))
   assert.equal((await person(second, { action: 'answer', id: 'Q1', verdict: 'reject', text: '' }, NOW + MIN)).ok, false)
   const sent = await person(second, { action: 'answer', id: 'Q1', verdict: 'reject', text: 'The top row is still cut.' }, NOW + 2 * MIN)
   assert.equal(sent.ok, true, sent.why)
-  assert.deepEqual((await read(second)).get('Q1').sections.get('Answer'), ['Rejected. The top row is still cut.'])
+  const back = await read(second)
+  assert.deepEqual(back.get('Q1').sections.get('Answer'), ['Rejected. The top row is still cut.'])
+  assert.ok(back.get('B55').sections.get('Context').some(line => line.trim() === 'Recap verdict: sent back (Q1)'))
+  // A look that is no kept one (a checker's) writes no such line.
+  const plain = await storeWith({ ...steps(), Q1: look('Q1', { Route: 'recap', Of: 'B55' }) })
+  t.after(() => rm(plain, { recursive: true, force: true }))
+  assert.equal((await person(plain, { action: 'answer', id: 'Q1', verdict: 'approve', text: '' }, NOW + MIN)).ok, true)
+  assert.equal((await read(plain)).get('B55').sections.get('Context')?.some(line => /Recap verdict/.test(line)) ?? false, false)
+})
+
+test('every pass that moves a hand-over to the recap keeps it for the Undo ("kept for your recap"), not only the switch-on; the Undo gives it back', async t => {
+  const dir = await storeWith({ ...steps(), Q1: handed('Q1'), Q2: handed('Q2', { Pictures: 'pictures/B56/after.jpg' }) })
+  t.after(() => rm(dir, { recursive: true, force: true }))
+  // A plain refresh: Q1 is kept for the recap and recorded.
+  const first = await pass(dir)
+  assert.deepEqual(first.result.routed.map(one => one.id), ['Q1', 'Q2'])
+  let record = (await readAutopilotClearedFile(dir)).record
+  assert.deepEqual(record.items.map(one => [one.id, one.how, one.why]), [['Q1', 'recap', 'kept for your recap'], ['Q2', 'recap', 'kept for your recap']])
+  assert.equal(record.at, NOW)
+  assert.equal(record.undoneAt, null)
+  // A later one adds its own to the same record, from the newest, each once.
+  await writeFile(join(dir, 'Q3.md'), handed('Q3'))
+  await pass(dir, {}, NOW + 3 * MIN)
+  record = (await readAutopilotClearedFile(dir)).record
+  assert.deepEqual(record.items.map(one => one.id), ['Q1', 'Q2', 'Q3'])
+  assert.equal(record.at, NOW + 3 * MIN)
+  const undone = await person(dir, { action: 'autopilot-undo' }, NOW + 5 * MIN)
+  assert.equal(undone.ok, true, undone.why)
+  assert.deepEqual(undone.result.undone, ['Q1', 'Q2', 'Q3'])
+  assert.deepEqual(needsOf(await read(dir), NOW + 6 * MIN), ['Q1', 'Q2', 'Q3'])
+  // Nothing moved, nothing recorded.
+  const idle = await storeWith({ ...steps(), Q1: look('Q1') })
+  t.after(() => rm(idle, { recursive: true, force: true }))
+  await pass(idle)
+  assert.equal(await readAutopilotClearedFile(idle).then(file => file.record), null)
 })

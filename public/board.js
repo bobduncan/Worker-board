@@ -4370,10 +4370,10 @@ function standWords(stand) {
  * it): its code, title and who asked, where it stands, its context, options and advice, and its step; from the state's
  * `withPartner` entry. Plain data.
  */
-function partnerAskWindowOf(ask, card = null) {
+function partnerAskWindowOf(ask) {
   // Autopilot (2026-10-31): an ask the board routed to the main chat or to the goal's recap opens here too, its route named.
   const route = ask.route ?? 'partner'
-  const answer = lookAnswerOf(ask, card)
+  const answer = lookAnswerOf(ask)
   return {
     code: ask.id, title: ask.title ?? '', fullTitle: ask.title ?? '', route,
     chips: [{ text: ROUTE_CHIPS[route] ?? ROUTE_CHIPS.partner, tone: 'kind' }, ...(ask.from == null ? [] : [{ text: `From: ${ask.from}`, tone: 'to' }])],
@@ -4387,13 +4387,12 @@ function partnerAskWindowOf(ask, card = null) {
 }
 
 /**
- * The person's "A" (2026-11-02): a look Autopilot keeps for the goal's recap that the recap card lists as a tile of its own (the
- * state's `recapCard.looks`: no part of the recap names its step) is answered in its window, as any look is: Looks right or Send back
- * with a note. `{ id }`, or null for every other ask (it is judged in the recap, or it is not the person's to answer yet).
+ * The person's "A" (2026-11-02): a look the partner handed over that Autopilot keeps for the goal's recap (`isKept`: the state's
+ * `routedAway`, src/work/keptLook.mjs) is answered in its window, as any look is: Looks right or Send back with a note, whether the
+ * recap card shows it yet or not. `{ id }`, or null for every other ask (it is judged in the recap, or it is not the person's yet).
  */
-function lookAnswerOf(ask, card) {
-  if (ask?.route !== 'recap' || ask.asks !== 'look') return null
-  return (Array.isArray(card?.looks) ? card.looks : []).some(tile => tile?.target?.ask === ask.id) ? { id: ask.id } : null
+function lookAnswerOf(ask) {
+  return ask?.route === 'recap' && ask.asks === 'look' && ask.isKept === true ? { id: ask.id } : null
 }
 
 /** Autopilot (2026-10-31): the chip of an ask's route in its window, and the line under where it stands. */
@@ -4406,7 +4405,7 @@ const ROUTE_STANDS = {
 
 /** The window of a question with the partner (the details dialog): quiet, with where it stands first. */
 function drawPartnerAskWindow(box, ask, state) {
-  const view = partnerAskWindowOf(ask, state.recapCard ?? null)
+  const view = partnerAskWindowOf(ask)
   // The answer form's own state (its note is kept while the window is drawn again; a refusal stands under the buttons).
   const answerUi = view.answer === null ? null : { isSending: sending.has(`look:${view.answer.id}`), problem: problems.get(`look:${view.answer.id}`) ?? null }
   const showing = JSON.stringify([detailsOf, view, answerUi])

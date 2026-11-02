@@ -27,6 +27,8 @@ export const NON_BLOCKING_WORDS = 'reopened non-blocking: its step went on'
 export const INCIDENT_WAS = ['open', 'came back', 'with the advisor']
 /** The words of an item the switch-on moved into the recap. */
 export const MOVED_WORDS = 'moved into your recap'
+/** The words of a look the partner handed over that a pass kept for the recap (the person's "A", 2026-11-02): every pass keeps these for the Undo. */
+export const KEPT_WORDS = 'kept for your recap'
 
 const oneLine = (value, max) => String(value ?? '').replace(/\s+/g, ' ').trim().slice(0, max)
 

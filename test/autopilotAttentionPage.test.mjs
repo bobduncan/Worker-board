@@ -253,9 +253,9 @@ test('the card\'s view names the looks that wait: "Also a look: <title, cut at 6
   assert.equal(recapAttentionView(lookCard([tileOf('Q1', 'x')], { count: 4 }), null).count, 4)
 })
 
-/** A done step B9 of the garden and a worker's look of it, routed to the goal's recap by Autopilot: the live Q590's shape, with its picture. */
+/** A done step B9 of the garden and the look the partner handed over that Autopilot keeps for the recap: the live Q590's shape, with its picture. */
 const done9 = parseItem(`Id: B9\nKind: step\nTitle: Whole move squares\nState: done\nOwner: Digger\nGoal: G6\nSince: ${sinceOf(NOW - 9 * HOUR)}\n`)
-const lookOf = (n, title) => parseItem(`Id: Q${n}\nKind: ask\nTitle: ${title}\nState: open\nOwner: Digger\nSince: ${sinceOf(NOW - 40 * MIN)}\nFiled: ${NOW - 40 * MIN}\nPictures: art/B9/after.jpg\nAsks: look\nBlocking: no\nAdvice: yes\nOf: B9\nRoute: recap\n\n## Text\n${title} I advise yes.\n`)
+const lookOf = (n, title) => parseItem(`Id: Q${n}\nKind: ask\nTitle: ${title}\nState: open\nOwner: Digger\nSince: ${sinceOf(NOW - 40 * MIN)}\nFiled: ${NOW - 40 * MIN}\nPictures: art/B9/after.jpg\nAsks: look\nBlocking: no\nAdvice: yes\nOf: B9\nRoute: recap\n\n## Text\n${title} I advise yes.\n\n## Route\nYour partner hands this to you; Autopilot keeps it for the goal's recap\n`)
 const withLook = (extra = []) => asSent(build([task(1), askFor(1), done9, lookOf(590, 'Does the wizard\'s move range on the terraces look right?'), ...extra], undefined, goals(1), { recaps: [recap(1)], goalRecap: { goal: 'G6', path: PATH, pictures: {} }, config: ON }))
 
 test('the Product owner\'s card names the look under its line; the link opens the ask\'s window; the card has no Done and no close', async () => {
@@ -282,6 +282,21 @@ test('the Product owner\'s card names the look under its line; the link opens th
     assert.match(page.text('#details'), /Q590/)
     assert.match(page.text('#details'), /Does the wizard's move range on the terraces look right\?/)
     assert.match(page.text('#details'), /For your recap \(Autopilot\)/)
+  } finally { await page.close() }
+})
+
+test('mid-goal a kept look waits quietly: no Product owner card, nothing counted; its window (the Focus list links it) still holds the answer form', async () => {
+  const building = parseItem(`Id: B1\nKind: step\nTitle: Task B1\nState: in progress\nOwner: Digger\nGoal: G6\nSince: ${sinceOf(NOW - 90 * MIN)}\n`)
+  const state = asSent(build([building, done9, lookOf(590, 'Does the wizard\'s move range on the terraces look right?')], undefined, goals(2), { recaps: [], goalRecap: { goal: 'G6', path: PATH, pictures: {} }, config: ON }))
+  assert.equal(state.recapCard, null)
+  assert.deepEqual(state.routedAway.map(one => [one.id, one.isKept]), [['Q590', true]])
+  const page = await openPage({ state, hash: 'details=Q590' })
+  try {
+    await settle(10)
+    assert.equal(page.all('#needs .is-recap-ready').length, 0, 'no "your recap is ready" for one look mid-goal')
+    assert.equal(page.text('#needs-count'), '')
+    assert.equal(page.find('#details').open, true)
+    assert.deepEqual(page.all('#details [data-look-answer]').map(node => node.dataset.lookAnswer), ['reject', 'approve'], 'it can be answered at once')
   } finally { await page.close() }
 })
 
