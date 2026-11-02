@@ -1501,9 +1501,6 @@ function restoreKept() {
 function finishRestore() {
   for (const box of restoredBoxes.splice(0)) box.dispatchEvent(new Event('input', { bubbles: true }))
   if (detailsOf !== null && !$('details').open && $('details').childNodes.length > 0) $('details').showModal()
-  // 2026-11-01: the recap that was open before the reload opens again, with the person's unsent answers (keepDemoDraft).
-  const demo = keptDemoDraft()
-  if (demo !== null && demo.open === true && typeof demo.path === 'string' && !$('demo-page').open) openDemo(demo.path)
 }
 
 /** The note on top (see `updateView`). B454: a newer page loads itself when the page is idle; a short note says so after. */
@@ -9690,6 +9687,11 @@ function keptDemoDraft() {
 }
 function dropDemoDraft() {
   try { localStorage.removeItem(DEMO_KEPT) } catch { /* nothing kept */ }
+}
+/** 2026-11-01: after a reload's first draw, the recap that was open before opens again, with the person's unsent answers. */
+function reopenKeptDemo() {
+  const demo = keptDemoDraft()
+  if (demo !== null && demo.open === true && typeof demo.path === 'string' && !$('demo-page').open) openDemo(demo.path)
 }
 
 /** B860: the popup's body and its side panel from the demo's page and the draft, drawn into the open window (the scroll place stays). */
@@ -20516,6 +20518,7 @@ function draw(state) {
   drawBugs()
   drawDesign()
   finishRestore()
+  reopenKeptDemo()
 }
 
 // withanswers:start
