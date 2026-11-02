@@ -146,6 +146,14 @@ const TICK_MS = Number(process.env.WORKER_BOARD_TICK_MS) > 0 ? Number(process.en
  */
 const READ_DELAY_MS = Number(process.env.WORKER_BOARD_READ_DELAY_MS) > 0 ? Number(process.env.WORKER_BOARD_READ_DELAY_MS) : 0
 const slowRead = () => (READ_DELAY_MS > 0 ? new Promise(done => setTimeout(done, READ_DELAY_MS)) : undefined)
+/**
+ * B934: a test's state rebuild that holds the event loop this long (as the stalls of 2026-11-02 did, X93), so a copy of the
+ * board shows end to end that its stall log names the rebuild. 0 (none) on a real board.
+ */
+const READ_BLOCK_MS = Number(process.env.WORKER_BOARD_READ_BLOCK_MS) > 0 ? Number(process.env.WORKER_BOARD_READ_BLOCK_MS) : 0
+const blockRead = () => {
+  for (const end = Date.now() + READ_BLOCK_MS; Date.now() < end;) { /* held, as a long synchronous read holds it */ }
+}
 /** T9.3 part 1: how often the board checks whether each kind of asset's provider can work. */
 const PROVIDERS_MS = 10 * 60_000
 /** Part C of the asset providers: how often the board looks at the asset requests (a `work asset` looks at once too). */
@@ -1967,6 +1975,7 @@ async function main(args) {
   let planSeen = {}
   const readState = cached(() => trackJob('state rebuild', async () => {
     await slowRead()
+    blockRead()
     const raw = await readRaw()
     const keptReadings = await readingsOnDisk()
     // The review of Pause 2: a line the person's pause holds does not grow late (store.mjs isLate, pause.mjs heldMs).
