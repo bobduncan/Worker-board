@@ -4425,7 +4425,9 @@ timers. Now each chat says it (principle 3, know don't guess).
   process: when its session started there) and `seq` (rising by one with every report and take of that process): one
   of a lower `seq` than the kept one of the same session and run changes nothing but when the chat was last heard
   (principle 5; no clock is compared, a new session or process starts fresh). The board also keeps when it heard the
-  chat's last turn start (`busyAt`: busy after idle, ended or nothing).
+  chat's last turn start (`busyAt`: busy after idle, ended or nothing). A mod that knows which word it typed also says `word`
+  (the outbox id the current or last turn ran on, null for a turn that was no word's) and `turn` (that turn's own start): kept
+  as given, only when given, for the wait line ("The wait line", "Which turn is the word's").
 - **What it shows** (`src/chatReport.mjs` `laneFromReport`, `src/state.mjs`): busy is Working, asking Waiting for
   you, idle Free. Idle while the store holds a step taken, in progress or waiting on the person for the chat is
   Interrupted, never Free, so it is handed no new work ("idle with its task open" in the main chat's words); with a
@@ -5333,19 +5335,44 @@ conditions.md, mock.png, audit.md).
 
 **One line per word an action of the person typed** (`src/waitLine.mjs`, pure), the first state that holds: **Done** (the
 action's own result: the recap's next tries filed after the Send, the obsolete check's record answered, the asked sweep
-ended by its chat's turn; for an action without such a source the fallback "<Chat> answered HH:MM" once the turn that began
-on the word ended (an `idle` report; an `ended` one, closed or crashed mid-turn, is no answer); an action with its own source
-whose turn ended without the result says, quietly, "<Chat>'s turn ended at HH:MM without it"), **Late** (a word failed for
+ended by its chat's turn; for an action without such a source the fallback "<Chat> answered HH:MM" once the turn that ran on
+the word ended (see "Which turn is the word's" below; an `ended` report, closed or crashed mid-turn, is no answer); an action
+with its own source whose turn ended without the result says, quietly, "<Chat>'s turn ended at HH:MM without it"), **Late** (a word failed for
 good, "could not be delivered: <why>"; rule 8's own judgement of this word, `watch.mjs isUndelivered`, the one function
 `undeliveredWords` uses, so the card and the alarm never disagree; or every way to wake the chat failed,
-`wakeOf(...).final`, with `triedWords`), **Picked up** (the word arrived, delivered or taken by its own chat, the lane's status
-Working and its report's since at or after the take: the take, not `deliveredAt`, because the mod's "typed" comes a moment
-after the turn it began reported), **Sent** (the wake record while the chat does not run; the queue place while it does).
-**Kept once** (the review of 2026-11-02): a turn seen ended (`answeredAt`) and an action's own result (`doneAt`, its words and
-step) are written on the word by `waitsNow` (on every state read, and every 30 s while no page asks), and read first: a later
-turn never makes a word "on it" again. Closed, dropped, superseded (`wordMatters`) or
+`wakeOf(...).final`, with `triedWords`), **Picked up** (the word arrived, delivered or taken by its own chat, and the turn that
+ran on it runs, the lane's status Working: see "Which turn is the word's"), **Sent** (the wake record while the chat does not
+run; the queue place while it does).
+**Kept once** (the review of 2026-11-02): a turn seen ended (`answeredAt`, with `answeredBound` when only a later turn's start
+is known) and an action's own result (`doneAt`, its words and step) are written on the word by `waitsNow` (on every state
+read, every 30 s while no page asks, and at once when a chat's report moves, see below), and read first: a later turn never
+makes a word "on it" again. Closed, dropped, superseded (`wordMatters`) or
 copied words have none. The chat's status pill stands beside the line as every view draws it; Late is the only state in
 the attention colour.
+
+**Which turn is the word's** (the signals lead's decision of 2026-11-02, `.claude/plans/2026-11-02-wait-line-turn-code-check.md`,
+after the first real card, Q587's answer, read "Worker 5 is on it · since 16:26" for a word answered in an earlier turn). The
+board does not guess the word's turn from busy and idle reports: the mod queues a word and types it when the chat is idle, one
+word is one turn, and a busy report's `since` is not a turn start (the mod stamps it on every state change, so a question that
+opens and closes gives a later one inside one turn). The Workers mod KNOWS and says it in every report: `word`, the outbox id
+the current (busy) or last (idle) turn ran on, null for a turn that was no word's (a typed line, a hand's message, /clear), and
+`turn`, that turn's own start (`parseReport` keeps each only when given, `savedEntry` keeps them in data/reports.json, the
+lane's `report` carries them). With them (`waitLineOf`, `turnAnswer`):
+- busy (or asking, the lane Waiting for you) with `word` = this word: "<Chat> is on it · since <turn>" (the turn's own start);
+- idle with `word` = this word: "<Chat> answered HH:MM" at the report's since, exact;
+- `word` another or none while `turn` is after the word's `deliveredAt`, and the word is not one that stood ahead of this one in
+  the chat's queue (`waitsOf` `ahead`: the outbox order is the order they are taken and typed in): the chat moved past the word's
+  turn, "<Chat> answered by HH:MM" at `turn` (kept with `answeredBound`; "<Chat>'s turn ended by HH:MM without it" for an action
+  with its own Done source). Never an exact time; none for an `ended` report; a guess only where a typed line stood ahead of the
+  word in the queue;
+- anything else is Sent: a turn that began before the word was delivered (the one running while it waits, a wake message's first
+  turn: the word comes with the take during it) says nothing about it.
+A report without `word` (a mod older than the release that says it) keeps the older rule, narrowed: busy since at or after the
+arrival is "on it", an idle answers only when the turn it ended began at or after the word arrived (the kept `busyAt`, the
+board's receipt of that turn's start, not before: a busy chat's idle no longer answers the word that waits for its turn); a
+board that did not hear the turn begin (no `busyAt`) answers nothing. **The keep**: every 30 s as before, and at once when a
+report MOVES (its state, `busyAt`, `word` or `turn`; chatReport.mjs `hasMoved`, called by `keepReport`), never on the 5-second
+ping that repeats them; both through `loops.single('waits-keep', ...)` (one pass at a time), never awaited in the route.
 
 **The state's `waits`** (server.mjs `waitsNow`): every person's word of the last 24 h (an answer, `recap-feedback`,
 `obsolete-check`, the asked sweep's word `lastSweep.word`) by its id, judged by `wordJudge` (src/supervisor/index.mjs: a view
@@ -5371,8 +5398,11 @@ word failed for good, and a chat the board has no id to reach, get none (the lin
 Go, Change this goal, a goal ask, Overturn, Stop or Remove a worker, the Focus talk).
 
 Tests: `test/waitLine.test.mjs` (the four states, rule 8's one judgement, the wake record, the actions' own results,
-`waitsOf`), `test/waitLineState.test.mjs` (through the board's own state: the answered ask kept for its line, Done kept,
-Working, an ended session, a turn without the result, the asking chat's word), `test/waitAgain.test.mjs` (Send again through
+`waitsOf`, the turn rule: the live case of Q587, an older mod, a word typed into a busy chat, a question inside the word's
+turn, "answered by", two words of one take), `test/waitLineState.test.mjs` (through the board's own state: the answered ask kept
+for its line, Done kept, Working, an ended session, a turn without the result, the asking chat's word, the mod's word and
+turn), `test/waitLineKeep.test.mjs` (the two fields read, kept and saved; the keep once per move of a report, not per ping),
+`test/waitAgain.test.mjs` (Send again through
 the record, held for the next hand, its refusals), `test/waitLinePage.test.mjs`
 (the DOM harness: the slim card, the signs, the obsolete check, the sweep, the recap's popup and Focus card, the link, Send
 again), `test/demoFeedbackBoard.test.mjs` (the Send's line in a running board's state, a refused Send again).

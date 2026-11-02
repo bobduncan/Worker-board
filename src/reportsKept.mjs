@@ -4,7 +4,7 @@
 // `data/reports.json` now: written a moment after a change (at most once a second, src/write.mjs `writeAtomic`), read once at
 // the board's start. A file that does not parse is set aside like the other data files; an entry that is no report is left out.
 
-import { REPORT_STATES } from './chatReport.mjs'
+import { REPORT_STATES, isWordId } from './chatReport.mjs'
 import { moveInPlace, readKept, stampOf, writeAtomic } from './write.mjs'
 
 /** How long after a change the file is written: one write for every change within this time (a crash loses at most this much). */
@@ -13,7 +13,8 @@ export const REPORTS_SAVE_MS = 1000
 const isTime = value => Number.isFinite(value)
 
 /**
- * One saved report as `noteReport` keeps it (`{ state, since, background, run, seq, at, session, mod, busyAt }`), or null
+ * One saved report as `noteReport` keeps it (`{ state, since, background, run, seq, at, session, mod, busyAt }`, and `word` and
+ * `turn` when the mod said them), or null
  * when it is none: a state other than the four, a time that is no time or lies after `now` (a report cannot come from
  * the future), a wrong kind of any field. Nothing else the file holds is carried.
  */
@@ -24,8 +25,11 @@ export function savedEntry(value, now) {
   if (!(value.mod === null || typeof value.mod === 'string') || !(value.busyAt === null || isTime(value.busyAt))) return null
   if (!(value.seq === null || (Number.isSafeInteger(value.seq) && value.seq >= 0))) return null
   if (!(value.run === null || isTime(value.run) || (typeof value.run === 'string' && value.run.length <= 64))) return null
+  // The wait line (T22): `word` and `turn` are kept only when the mod said them (chatReport.mjs `parseReport`); a saved report
+  // from before has neither and stays as it was.
+  if (!(value.word === undefined || value.word === null || isWordId(value.word)) || !(value.turn === undefined || isTime(value.turn))) return null
   const { state, since, background, run, seq, at, session, mod, busyAt } = value
-  return { state, since, background, run, seq, at, session, mod, busyAt }
+  return { state, since, background, run, seq, at, session, mod, busyAt, ...(value.word === undefined ? {} : { word: value.word }), ...(value.turn === undefined ? {} : { turn: value.turn }) }
 }
 
 /** The reports as the file holds them: `{ "reports": { "<chat>": entry } }`. */

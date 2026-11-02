@@ -755,7 +755,10 @@ function card(chat, raw, { now, aliveAt = null, config, last, lines, main, prefi
     resting: reported === null ? restingOf({ entries, turn, idle, isRunningOn: background > 0 && !isDone, isStopped: wasCutOff || paused !== null })
       : paused === null && ['free', 'interrupted', 'waiting'].includes(state) && reported.entry?.state === 'idle' && !reported.entry.background ? restedSince(entries, reported.entry.since) : null,
     // Redesign Part 1: the report the lane follows, or null where the board reads the chat's transcript instead.
-    report: reported?.entry == null ? null : { state: reported.entry.state, since: reported.entry.since, background: reported.entry.background, at: reported.entry.at, mod: reported.entry.mod ?? null },
+    // The wait line (T22): also the word its turn ran on (`word`, null for a turn that was no word's), that turn's own start (`turn`) and
+    // the board's receipt of its last turn start (`busyAt`), each only where the report has it (chatReport.mjs `parseReport`).
+    report: reported?.entry == null ? null : { state: reported.entry.state, since: reported.entry.since, background: reported.entry.background, at: reported.entry.at, mod: reported.entry.mod ?? null,
+      ...(reported.entry.word === undefined ? {} : { word: reported.entry.word }), ...(Number.isFinite(reported.entry.turn) ? { turn: reported.entry.turn } : {}), ...(Number.isFinite(reported.entry.busyAt) ? { busyAt: reported.entry.busyAt } : {}) },
     // The review of chat-reports: why a reporting chat is not running, in words; null for any other.
     offWhy: state !== 'off' || reported === null ? null : reported.why === 'unreported' ? reported.words : reported.why === 'ended' ? `its session ended at ${hourMinute(reported.entry.since)}`
       : reported.why === 'silent' ? `silent since ${hourMinute(reported.entry.at)}`

@@ -18,6 +18,15 @@
 // 3. Picked up: the word arrived and the turn that began on it runs: the lane's status Working (the board-dev chat's answer 2);
 // 4. Sent: anything else, with what the board knows of why not yet: the queue place while the chat runs, the wake record
 //    while it does not (condition 1). A chat whose session ended (closed or crashed mid-turn) did not answer: its wake words.
+//
+// WHICH TURN is the word's (the signals lead's decision of 2026-11-02, .claude/plans/2026-11-02-wait-line-turn-code-check.md, after
+// Q587's card read "is on it" for a word answered in an earlier turn): the board does not guess it from busy and idle reports. The
+// mod queues a word, one word is one turn, and a busy report's since moves on every state change (a question that opens and closes
+// mid-turn), so the Workers mod KNOWS and says it: `report.word`, the outbox id the current (busy) or last (idle) turn ran on, null
+// for a turn that was no word's, and `report.turn`, that turn's own start. This word: busy on it is "is on it", idle on it is
+// "answered HH:MM"; the chat on a later turn (`turn` after the word was delivered) on another word is "answered by HH:MM" (bound,
+// never exact); a turn that began before the word was delivered says nothing. A report without `word` (an older mod) keeps the
+// older rule, narrowed: an idle answers only when the turn it ended began at or after the word arrived.
 // The chat's status pill stays beside the line as it is (condition 3): the page draws it from the lane, never from here.
 //
 // PURE: every fact is passed in, `now` included, and rule 8's judgement as `judge` (the supervisor's `wordJudge`: nothing
@@ -91,10 +100,14 @@ const oneLine = (words, max = 120) => String(words ?? '').replace(/\s+/g, ' ').t
 /**
  * The line of one word: `{ state, lead, rest, at, chat, canSendAgain, link, seen }`, or null when the word is no wait: closed,
  * dropped or superseded (`judge.matters` false), copied for the person to paste, or expired and not late by rule 8. `seen`
- * what the server keeps on the word once (`{ answeredAt }`, `{ doneAt, doneWords, doneStep }`), null when nothing new was seen.
+ * what the server keeps on the word once (`{ answeredAt }` with `answeredBound` when only the later turn's start is known,
+ * `{ doneAt, doneWords, doneStep }`), null when nothing new was seen.
  * - `word`: the outbox record (`id`, `to`, `state`, `at`, `takenAt`, `deliveredAt`, ...), the copy that stands for it when retried;
  * - `lane`: the addressee as the state draws it (`name`, `isRunning`, `status`), or null when it is not on the board;
- * - `report`: its chat's last turn report (`{ state, since }`, chatReport.mjs), or null;
+ * - `report`: its chat's last turn report (`{ state, since, busyAt, word, turn }`, chatReport.mjs: `word` and `turn` only from a mod
+ *   that says them, `busyAt` the board's receipt of the last turn start), or null;
+ * - `ahead`: the word the report's turn ran on is one of this chat that stood ahead of this word in its queue (`waitsOf`): the
+ *   chat has not moved past this word then, whatever the turn's time;
  * - `wake`: its wake as the state carries it (state.mjs `withWakes`: `{ state, final, at, by, why, attempts }`), or null;
  * - `done`: the action's own result when its source says so (`{ at, words, link }`), else null;
  * - `now`, `keep`: the board's clock and the outbox's keep (store.mjs `isLate`);
@@ -103,7 +116,7 @@ const oneLine = (words, max = 120) => String(words ?? '').replace(/\s+/g, ' ').t
  *   `undeliveredWords` uses (the alarm's own: no second clock), and `matters(word)`, the outbox sweep's (`wordMatters`);
  * - `paused`: the person pauses the chats (no Send again then: the board wakes nobody).
  */
-export function waitLineOf({ word, lane = null, report = null, wake = null, done = null, now, keep = {}, queue = 0, judge, paused = false }) {
+export function waitLineOf({ word, lane = null, report = null, ahead = false, wake = null, done = null, now, keep = {}, queue = 0, judge, paused = false }) {
   if (word === null || word === undefined || typeof word.to !== 'string' || !isTime(word.at)) return null
   if (['dropped', 'stopped', 'copied'].includes(word.state) || !judge.matters(word)) return null
   const chat = lane?.name ?? word.to
@@ -118,13 +131,21 @@ export function waitLineOf({ word, lane = null, report = null, wake = null, done
     const at = isTime(done.at) ? done.at : now
     return line('done', `Done ${clockOf(at)}`, done.words ?? '', at, { link: done.link ?? null, seen: { doneAt: at, doneWords: oneLine(done.words, 160), ...(typeof done.link?.step === 'string' ? { doneStep: done.link.step } : {}) } })
   }
-  const ended = at => (own ? line('sent', `${chat}'s turn ended at ${clockOf(at)} without it`, '', at, { isTurnEnded: true }) : line('done', `${chat} answered ${clockOf(at)}`, '', at, { isFallback: true }))
-  if (isTime(word.answeredAt)) return ended(word.answeredAt)
+  // A turn seen ended at `at` (exact), or moved past by `at` (bound: the chat's later turn began then, so the word's turn ended
+  // before: "by", never an exact time).
+  const ended = (at, isBound = false) => (own ? line('sent', `${chat}'s turn ended ${isBound ? 'by' : 'at'} ${clockOf(at)} without it`, '', at, { isTurnEnded: true, ...(isBound ? { isBound } : {}) })
+    : line('done', `${chat} answered ${isBound ? 'by ' : ''}${clockOf(at)}`, '', at, { isFallback: true, ...(isBound ? { isBound } : {}) }))
+  if (isTime(word.answeredAt)) return ended(word.answeredAt, word.answeredBound === true)
   const arrived = arrivedAt(word)
   const hasReport = report !== null && report !== undefined && isTime(report.since) && arrived !== null
-  // The turn that began on the word: its report's since at or after the word arrived. It ended: the report says idle (an
-  // `ended` report, the session closed or crashed mid-turn, is no answer). Kept from now on (`seen`).
-  if (hasReport && report.state === 'idle' && report.since >= arrived) return { ...ended(report.since), seen: { answeredAt: report.since } }
+  // The mod names the word its turn ran on (`report.word`, a string, or null for a turn that was no word's): then the board knows
+  // the turn of this word, it does not guess it from busy and idle. A report without it is from an older mod (the older rule).
+  const isNamed = hasReport && report.word !== undefined
+  const isOurs = isNamed && report.word === word.id
+  // The turn that ran on the word has ended, seen now; kept from now on (`seen`). An `ended` report (the session closed or crashed
+  // mid-turn) is no answer.
+  const answer = hasReport ? turnAnswer({ word, report, arrived, isNamed, isOurs, ahead }) : null
+  if (answer !== null) return { ...ended(answer.at, answer.isBound), seen: { answeredAt: answer.at, ...(answer.isBound ? { answeredBound: true } : {}) } }
   // 2. Late: a word that can never reach its chat; rule 8's own judgement; or every way to wake the chat failed while the word
   // was not in it. Send again only for a chat that does not run, while no wake is pending, nobody pauses, and the board has
   // an id to reach it (one without could only be refused: open its chat).
@@ -145,10 +166,15 @@ export function waitLineOf({ word, lane = null, report = null, wake = null, done
   }
   // An expired word that rule 8 no longer names (older than its look back, or the sweep's own word): no wait any more.
   if (word.state === 'expired' || (word.state === 'waiting' && isLate(word, now, keep))) return null
-  // 3. Picked up: it arrived and the turn that began on it runs, the lane Working (a word its chat took inside a turn that
-  // runs, taken and never typed: on in that turn, from the take).
-  const runsOnIt = hasReport && lane?.status === 'Working' && (report.since >= arrived || word.state === 'taken')
-  if (runsOnIt) return line('picked-up', `${chat} is on it`, `since ${clockOf(Math.max(report.since, arrived))}`, Math.max(report.since, arrived))
+  // 3. Picked up: it arrived and the turn that began on it runs, the lane Working. With the mod's `word`: the report is busy (or
+  // asking, the chat's own question inside that turn, the lane Waiting for you) on this very word, since that turn's own start.
+  // Without it (an older mod; a word its chat took inside a turn that runs, taken and never typed: on in that turn, from the take).
+  if (isNamed) {
+    const isRunning = isOurs && (report.state === 'busy' ? lane?.status === 'Working' : report.state === 'asking' && lane?.status === 'Waiting for you')
+    if (isRunning) return line('picked-up', `${chat} is on it`, `since ${clockOf(turnOf(report))}`, turnOf(report))
+  } else if (hasReport && lane?.status === 'Working' && (report.since >= arrived || word.state === 'taken')) {
+    return line('picked-up', `${chat} is on it`, `since ${clockOf(Math.max(report.since, arrived))}`, Math.max(report.since, arrived))
+  }
   // 4. Sent: why it is not picked up yet, as far as the board knows. A chat that does not run first: its wake words.
   const sent = `Sent ${clockOf(word.at)}`
   if (word.isHeld === true) return line('sent', sent, 'held while you pause the chats', word.at)
@@ -157,6 +183,31 @@ export function waitLineOf({ word, lane = null, report = null, wake = null, done
   if (word.state === 'failed') return line('sent', sent, `${chat} could not take it; the board tries again`, word.at)
   const place = queue > 0 ? [`${ordinal(queue + 1)} in its queue`] : lane?.isRunning === true ? ['next in its queue'] : []
   return line('sent', sent, [`waits for ${chat} to pick it up`, ...place].join(' · '), word.at)
+}
+
+/** The start of the turn a report is of: the mod's `turn` (unchanged by a question that opens and closes inside it), else its since. */
+const turnOf = report => (isTime(report.turn) ? report.turn : report.since)
+
+/**
+ * Whether the turn that ran on the word has ended, and when: `{ at, isBound }` or null (the signals lead's decision of
+ * 2026-11-02, .claude/plans/2026-11-02-wait-line-turn-code-check.md). Words are queued by the mod, never injected, one word is one
+ * turn, in order, so a busy report's start says nothing of the word (an ask that opens and closes gives a later one inside one
+ * turn): the board reads which turn it was only from the mod's `word`.
+ * - the mod names the word (`isNamed`): the report is idle on this very word: exact, at its since (the turn's end). Else, bound:
+ *   the report is of a later turn of the chat (`turn` after the word was delivered, on another word or none, and not on a word
+ *   that stood ahead of this one in the queue) with the chat running or at rest: the word's turn ended before it began, "by"
+ *   that time, never an exact one. A turn that began before the word was delivered (the one running while it waited, a wake
+ *   message's first turn) says nothing;
+ * - an older mod: an idle report answers only when the turn it ended began at or after the word arrived (`busyAt`, the board's
+ *   receipt of that turn's start, kept with the report): the idle that ends the turn running while the word waited does not.
+ */
+function turnAnswer({ word, report, arrived, isNamed, isOurs, ahead }) {
+  if (!isNamed) {
+    return report.state === 'idle' && report.since >= arrived && isTime(report.busyAt) && report.busyAt >= arrived ? { at: report.since, isBound: false } : null
+  }
+  if (isOurs) return report.state === 'idle' ? { at: report.since, isBound: false } : null
+  const isLater = isTime(report.turn) && word.state === 'delivered' && isTime(word.deliveredAt) && report.turn > word.deliveredAt
+  return isLater && ahead !== true && ['busy', 'idle', 'asking'].includes(report.state) ? { at: report.turn, isBound: true } : null
 }
 
 /** Condition 1: the Sent line of a chat that does not run reads its wake record. */
@@ -265,6 +316,8 @@ function lanesOf(state) {
 export function waitsOf({ state, outbox = [], now, keep = {}, judge, reports = null, items = null, obsolete = null, sweep = null }) {
   const paused = isHolding(state?.pause) || state?.pause?.state === 'resuming'
   const byId = new Map(outbox.filter(word => typeof word?.id === 'string').map(word => [word.id, word]))
+  // The place of each word in the outbox, which is the order its chat takes them in (store.mjs `take`) and types them.
+  const placeOf = new Map(outbox.map((word, place) => [word?.id, place]))
   const lanes = lanesOf(state)
   const sweepWord = sweep?.asked === true && typeof sweep.word === 'string' ? sweep.word : null
   const waits = {}
@@ -275,7 +328,10 @@ export function waitsOf({ state, outbox = [], now, keep = {}, judge, reports = n
     const report = (reports instanceof Map ? reports.get(word.to) : null) ?? lane?.report ?? null
     const queue = outbox.filter(one => one.to === word.to && one.state === 'waiting' && one.isHeld !== true && one.id !== word.id && isTime(one.at) && one.at < word.at).length
     const done = word.command === 'recap-feedback' ? recapDone(word, items) : word.command === 'obsolete-check' ? obsoleteDone(word, obsolete) : word.command === 'sweep' ? sweepDone(word, sweep) : null
-    const line = waitLineOf({ word, lane, report, wake: lane?.wake ?? null, done, now, keep, queue, judge, paused })
+    // The word the chat's turn ran on, when it is one of the chat's that came before this one: its turn is not this word's.
+    const ranOn = typeof report?.word === 'string' ? byId.get(report.word) : undefined
+    const ahead = ranOn !== undefined && ranOn.to === word.to && ranOn.id !== word.id && ['taken', 'delivered'].includes(ranOn.state) && placeOf.get(ranOn.id) < placeOf.get(word.id)
+    const line = waitLineOf({ word, lane, report, ahead, wake: lane?.wake ?? null, done, now, keep, queue, judge, paused })
     if (line === null) continue
     const title = String(asked.text ?? '').split('\n')[0].replace(/\s+/g, ' ').trim().slice(0, 160)
     waits[asked.id] = { ...line, word: word.id, command: (asked.ask ?? null) !== null ? 'answer' : asked.command, about: asked.about ?? null, ask: asked.ask ?? null, sentAt: asked.at, title }

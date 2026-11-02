@@ -32,6 +32,7 @@ import { fileURLToPath } from 'node:url'
 import { minutesOf } from './src/backlog.mjs'
 import { answerReport, answerWhoami, bridgeNote, checkTake, checkTyped, clearRefusal, fitsMod, isUnknownSession, laneRole, messageText, noteCall, noteReport, noteWhoami, shownChats, shownSessions, whoamiOf, whoamiSession } from './src/bridge.mjs'
 import { cardFiledUnder } from './src/chatCards.mjs'
+import { hasMoved } from './src/chatReport.mjs'
 import { chatLogKeeper, isReadOut, leftSubjects } from './src/chatLogs.mjs'
 import { findCodex, makePicture } from './src/codex.mjs'
 import { checkSetting, panelSettings, rebuildsApproved, settingChanged } from './src/boardSettings.mjs'
@@ -1323,6 +1324,12 @@ async function main(args) {
       return {}
     }
   }
+  /**
+   * The wait line's keep (T22): one pass of `waitsNow` over the last state and store as the board holds them, which writes what
+   * the lines saw on their words once. Every 30 s while no page asks, and at once when a chat's report moves (`keepReport`). One
+   * at a time (`loops.single`), so the clock and a move never run two; not on the demo, a board that only shows, or one that stops.
+   */
+  const keepWaitsNow = () => (isDemo || isShowOnly || bridgeKey === null || isClosing ? undefined : loops.single('waits-keep', () => waitsNow(readState.last() ?? null, work.last?.() ?? null, null)))
   /** B775: the check as the page draws it (src/work/obsolete.mjs `obsoleteView`), null where the board has no store. */
   const obsoleteNow = async state => {
     if (workDir === null || isDemo) return null
@@ -1722,6 +1729,10 @@ async function main(args) {
       readState.reset()
       void reconcileSoon()
     }
+    // The wait line (T22, the signals lead's decision of 2026-11-02): what the lines saw (a turn that ended) is kept on its word at
+    // the moment the report moves (its state, the turn it began, the word it runs on), not only every 30 s; never on the 5-second
+    // ping, which repeats them, and never awaited here (one pass at a time, loops.single).
+    if (checked?.ok === true && hasMoved(entryBefore, entryAfter)) void keepWaitsNow()
     // Signals change 4 (C.4): the woken chat's own report after a wake attempt, from a new process: the verdict "woke".
     // The hand-over decides for it once, so its task's net counts from the verdict (the 5-second ping is the earliest).
     if (checked?.ok === true && entryAfter !== undefined) {
@@ -3319,7 +3330,7 @@ async function main(args) {
     setInterval(lookToOpen, OPEN_CHECK_MS)
     // The wait line (T22, the review of 2026-11-02, 2a): the turns and results the lines see are kept on their words also while
     // no page asks for the state (a turn that ended at night is still "answered" in the morning, never "on it" again).
-    setInterval(() => (isClosing ? null : loops.run('waits-keep', () => waitsNow(readState.last() ?? null, work.last?.() ?? null, null))), WAITS_KEEP_MS)
+    setInterval(() => void keepWaitsNow(), WAITS_KEEP_MS)
   }
 
   if (!isDemo && historyFrom === undefined) {
