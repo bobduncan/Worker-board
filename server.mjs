@@ -759,6 +759,20 @@ async function main(args) {
   // after 2 s, with the requests and the board's own jobs that ran then, in data/stalls.json; the rule board-slow cites it.
   const stalls = stallLog({ now: clock, file: isDemo || historyFrom !== undefined ? null : join(HERE, 'data', 'stalls.json') })
   const trackJob = (words, fn) => stalls.track('job', words, fn)
+  /** B934: a chat's work call as the stall log names it (by its chat once checked); one answered after 2 s is a stall. */
+  const callStall = (action, session) => {
+    const begun = clock()
+    const what = by => `work ${String(action ?? 'call').slice(0, 30)} by ${by}`
+    let words = what(`session ${String(session).slice(0, 8)}`)
+    const end = stalls.begin('request', words)
+    return {
+      by: chat => end.as(words = what(chat)),
+      done: () => {
+        end()
+        stalls.slowCall(words, begun, clock())
+      },
+    }
+  }
   if (!isDemo && historyFrom === undefined) {
     await stalls.load()
     watchLoop(stalls)
@@ -2897,24 +2911,19 @@ async function main(args) {
       const session = String(body?.session ?? '')
       const kept = await requests.known(session, request)
       if (kept !== undefined) return kept
-      // B934 (X93): a work call answered after 2 s is a stall of the board, written with what ran beside it.
-      const begun = clock()
-      let words = `work ${String(asked.action ?? 'call').slice(0, 30)} by session ${session.slice(0, 8)}`
-      const end = stalls.begin('request', words)
+      const stall = callStall(asked.action, session)
       // B736 (X89): a call answered after its mod gave up on it is counted for the rule board-slow.
       try {
         const { checked, state } = await checkFresh(body)
         noteRefused(body, checked)
         noteMod(body, checked)
         if (!checked.ok) return checked
-        words = `work ${String(asked.action ?? 'call').slice(0, 30)} by ${checked.chat}`
-        end.as(words)
+        stall.by(checked.chat)
         if (asked.action === 'save-log') return await requests.answer(session, request, () => saveLog(asked, checked, state))
         if (isReadAction(asked.action)) return await bridgeWorkOnce(asked, checked)
         return await requests.answer(session, request, () => bridgeWorkOnce(asked, checked))
       } finally {
-        end()
-        stalls.slowCall(words, begun, clock())
+        stall.done()
         hearing?.answered(request, clock())
       }
     }),
