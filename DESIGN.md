@@ -4208,6 +4208,9 @@ build brief bind; the parts below replace what the older parts of this file say 
 - **The page**: the head reads "Supervisor · N open · N found in 24 h · N gone by themselves" (gone ones with no fix step,
   of the last day); a gone card ("Gone by itself, no fix needed", each line "not seen since HH:MM") folds into the older
   cards as a fixed one; the rules list marks the rules that own health lines ("owns its health lines").
+- **The morning-after count** (the lead's decision 10): a judgment turn's end writes its session and start on its judge word
+  (`endedAt`, `session`, `from`); 20 s later the minute look reads its tokens from the transcript (`tokens`), and the view's
+  `judgmentsToday` (`{ count, tokens }`, the page's sweep line "Judgments in 24 h: N, T tokens") stands beside `sweepsToday`.
 - **The migration** (the lead's decision 9): at every run, an incident still "with the advisor" moves to "with the
   supervisor" with one History line (`incident-told` with `migrate`); no judge word listed it, so the next judge word lists
   them all, once. A second run finds none.
