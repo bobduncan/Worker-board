@@ -36,31 +36,29 @@ async function store(t) {
 const head = (item, key) => item.head.get(key)
 const envelope = (id, to, atMinutes) => ({ id, at: NOW + atMinutes * MIN, to, command: 'handover', about: to, kind: 'task', step: 'B12', state: 'dropped', netAt: NOW + (atMinutes + 10) * MIN })
 const oldFinding = (key, subject) => ({ rule: 'handover-unanswered', key, subject, text: `${subject} did not answer its hand-over (B12) within 10 min`, evidence: 'the net fired' })
-const newKeyOf = (to, atMinutes) => `handover-unanswered ${to} ${NOW + atMinutes * MIN}`
+const newKeyOf = (to, id) => `handover-unanswered ${to} ${id}`
 
-test('rekeyPlan: an old handover-unanswered key is re-keyed to the worker and its spell (the envelope\'s minute without a wake record, the spell with one); a free new key moves, a held one supersedes, a gone envelope supersedes by the change', async t => {
+test('rekeyPlan: the envelope-id form is re-keyed to the chat and the envelope id (the chat from the outbox, else the Subject); a held new key supersedes; the spell form of 14:2x is superseded by the fix', async t => {
   const s = await store(t)
-  // X1: the old form, its envelope in the outbox; X2: the old form for a worker whose new key X3 holds already; X4: the old form, envelope gone.
+  // X1: the first form, its envelope in the outbox; X2: the first form for an envelope whose new key X3 holds already;
+  // X4: the first form, envelope gone (the Subject names the chat); X5: change 4's spell form (a lane time).
   await recordFindings([oldFinding('handover-unanswered 83c1a7be1feab83b', 'Painter')], { work: s.board })
   await recordFindings([oldFinding('handover-unanswered fae092d4f2555ebe', 'Weeder')], { work: s.board })
-  await recordFindings([oldFinding(newKeyOf('Weeder', 10), 'Weeder')], { work: s.board })
+  await recordFindings([oldFinding(newKeyOf('Weeder', 'fae092d4f2555ebe'), 'Weeder')], { work: s.board })
   await recordFindings([oldFinding('handover-unanswered 0000000000000000', 'Digger')], { work: s.board })
+  await recordFindings([oldFinding(`handover-unanswered Worker 2 ${NOW - 15 * MIN}`, 'Worker 2')], { work: s.board })
   const outbox = [envelope('83c1a7be1feab83b', 'Painter', 0), envelope('fae092d4f2555ebe', 'Weeder', 10)]
   const plan = rekeyPlan({ items: await s.items(), outbox, wakes: null })
-  assert.deepEqual(plan.moves.map(one => [one.id, one.key]), [['X1', newKeyOf('Painter', 0)]])
+  assert.deepEqual(plan.moves.map(one => [one.id, one.key]), [['X1', newKeyOf('Painter', '83c1a7be1feab83b')], ['X4', newKeyOf('Digger', '0000000000000000')]])
   assert.match(plan.moves[0].why, /^re-keyed from "handover-unanswered 83c1a7be1feab83b": the key form of handover-unanswered changed \(change 4/)
-  assert.deepEqual(plan.closes.map(one => one.id), ['X2', 'X4'])
+  assert.deepEqual(plan.closes.map(one => one.id), ['X2', 'X5'])
   assert.match(plan.closes[0].why, /^superseded by X3: the key form of handover-unanswered changed/)
-  assert.match(plan.closes[1].why, /^superseded: the key form of handover-unanswered changed .* cannot be told any more$/)
-  // With a wake record: the newest spell that began before the envelope keys it, as the rule does.
-  const spell = NOW - 20 * 60 * MIN
-  const withSpell = rekeyPlan({ items: await s.items(), outbox, wakes: { Painter: { spells: [spell] } } })
-  assert.equal(withSpell.moves[0].key, `handover-unanswered Painter ${spell}`)
+  assert.match(plan.closes[1].why, /^superseded: the key form of handover-unanswered changed \(the fix of 2026-11-02.* cannot be told any more$/)
   // Carried out by the board: the Key moves with a History line, the superseded ones close with theirs; a second plan is empty.
   const done = await s.board({ action: 'incidents-rekey', ...plan })
-  assert.deepEqual([done.result.moved, done.result.closed], [['X1'], ['X2', 'X4']])
+  assert.deepEqual([done.result.moved, done.result.closed], [['X1', 'X4'], ['X2', 'X5']])
   const x1 = await s.item('X1')
-  assert.equal(head(x1, 'Key'), newKeyOf('Painter', 0))
+  assert.equal(head(x1, 'Key'), newKeyOf('Painter', '83c1a7be1feab83b'))
   assert.equal(head(x1, 'State'), 'open')
   assert.match(x1.sections.get('History').at(-1), /server: re-keyed from "handover-unanswered 83c1a7be1feab83b"/)
   const x2 = await s.item('X2')
@@ -68,7 +66,7 @@ test('rekeyPlan: an old handover-unanswered key is re-keyed to the worker and it
   assert.match(x2.sections.get('History').at(-1), /server: closed: superseded by X3/)
   assert.deepEqual(rekeyPlan({ items: await s.items(), outbox, wakes: null }), { moves: [], closes: [] })
   // The new key now counts X1, not a new incident.
-  const again = await recordFindings([oldFinding(newKeyOf('Painter', 0), 'Painter')], { work: s.board })
+  const again = await recordFindings([oldFinding(newKeyOf('Painter', '83c1a7be1feab83b'), 'Painter')], { work: s.board })
   assert.deepEqual(again.counted, ['X1'])
 })
 
@@ -78,7 +76,7 @@ test('rekeyPlan: only standing incidents; a fixed or closed one under the old fo
   await s.chat('Partner', { action: 'drop', id: 'X1', why: 'handled' })
   assert.deepEqual(rekeyPlan({ items: await s.items(), outbox: [envelope('83c1a7be1feab83b', 'Painter', 0)] }), { moves: [], closes: [] })
   assert.deepEqual(STANDING, ['open', 'came back', 'with the advisor', 'with the supervisor', 'fix'])
-  assert.equal(KEY_MIGRATIONS[0].rule, 'handover-unanswered')
+  assert.deepEqual(KEY_MIGRATIONS.map(one => one.rule), ['handover-unanswered', 'handover-unanswered'])
   assert.equal((await s.chat('Partner', { action: 'incidents-rekey', moves: [{ id: 'X1', key: 'x' }] })).ok, false)
   assert.equal((await s.chat('Lead', { action: 'incidents-rekey', closes: [{ id: 'X1', why: 'x' }] })).ok, false)
 })
