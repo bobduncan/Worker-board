@@ -72,7 +72,7 @@ test('Send goes out once with the round, the decided parts and their comments; t
     assert.match(page.text('.demo-round'), /Round 2/)
     assert.match(page.text('.demo-folded'), /1\. Lava/)
     assert.match(page.text('.demo-said'), /still stepped/)
-    assert.match(page.text('.demo-notice'), /Sent: 1 approved, 1 sent back/)
+    assert.match(page.text('.demo-notice'), /Sent: 1 approved, 1 sent back\. Your partner makes the next tries; round 2 opens when they are in/)
     assert.deepEqual(side(page), ['not decided yet', 'not decided yet'], 'round 2 starts without the old answers')
   } finally { await page.close() }
 })

@@ -6,10 +6,10 @@
 // The recaps are found in the picture folders, as roles/partner.md "The goal demo" places them: `<folder>/<goal id>/<any>/demo.json`
 // (or `<folder>/<goal id>/demo.json`) for each open goal of the map, and every open goal's `Demo:` line that names a .json.
 
-import { readdir, stat } from 'node:fs/promises'
+import { readdir } from 'node:fs/promises'
 import { join } from 'node:path'
 
-import { roundsOf, standOf } from './demoFeedback.mjs'
+import { makingOf, roundsOf, standOf } from './demoFeedback.mjs'
 import { parseGoals } from './goals.mjs'
 import { readDemo, shownFolders, shownRoots } from './pictures.mjs'
 import { sinceMs } from './work/item.mjs'
@@ -34,41 +34,45 @@ export async function recapFiles(config, goalsText) {
 }
 
 /**
- * The recaps as the board keeps them for a tick: `[{ path, goal, parts: [{ key, title, steps }], rounds, changedAt }]`, from
+ * The recaps as the board keeps them for a tick: `[{ path, goal, parts: [{ key, title, steps, pending }], rounds, changedAt }]`, from
  * every recap file a part of which names a step (a demo without step ids changes nothing); `changedAt`, when demo.json was
- * last written (ms): the partner writes it again with the new tries. A file the board cannot read is left out.
+ * last written (ms): the partner writes it again with the new tries; `pending` (T17.1), whether the part's new try is still not
+ * in, as its row says. A file the board cannot read is left out.
  */
 export async function readRecaps(config, goalsText) {
   const recaps = []
   for (const path of await recapFiles(config, goalsText)) {
     const found = await readDemo(config.project, shownRoots(config), path)
     if (found === null || found.why !== undefined) continue
-    const parts = found.base.sections.flatMap(section => section.rows).filter(row => row.steps.length > 0).map(row => ({ key: row.key, title: row.title, steps: row.steps }))
-    const changedAt = await stat(found.file).then(info => info.mtimeMs, () => null)
-    if (parts.length > 0) recaps.push({ path, goal: found.base.goal, parts, rounds: roundsOf(found.feedback), changedAt })
+    const parts = found.base.sections.flatMap(section => section.rows).filter(row => row.steps.length > 0).map(row => ({ key: row.key, title: row.title, steps: row.steps, pending: typeof row.pending === 'string' && row.pending !== '' }))
+    if (parts.length > 0) recaps.push({ path, goal: found.base.goal, parts, rounds: roundsOf(found.feedback), changedAt: found.changedAt ?? null })
   }
   return recaps
 }
 
 /**
- * Pure: where each step a recap part names stands with the person, `[{ step, goal, path, key, title, verdict, at }]`:
+ * Pure: where each step a recap part names stands with the person, `[{ step, goal, path, key, title, verdict, at, making }]`:
  * verdict null while they have not judged the part, 'sent-back' (`at`, ms, their Send) when the last round sent it back and
  * the demo was not written since (`changedAt` a minute after the Send or later: the new try waits for their verdict, null).
+ * T17.1: a part whose row says its new try is not in yet (`pending`) stays 'sent-back' also after the demo was written; `making`:
+ * the recap's next round is being made (src/demoFeedback.mjs `makingOf`): the person can judge nothing of it yet, so no part of
+ * it counts as a verdict that waits (src/recapCard.mjs).
  * An approved part is left out: its steps are closed by the Approve (or wait as any other step, when that did not take).
  */
 export function recapWaitsOf(recaps) {
   return (Array.isArray(recaps) ? recaps : []).flatMap(recap => {
     const stand = standOf(recap.rounds ?? [])
     const sent = new Map((recap.rounds ?? []).map(round => [round.n, sinceMs(round.at)]))
+    const making = makingOf(recap.rounds ?? [], recap.changedAt) !== null
     return recap.parts.flatMap(part => {
       const said = stand.get(part.key)
       if (said?.verdict === 'approved') return []
       const back = said?.verdict === 'sent-back' ? sent.get(said.round) ?? null : null
       // The Send is stamped to its minute: a demo written in a later minute holds the partner's new try.
-      const tried = Number.isFinite(back) && Number.isFinite(recap.changedAt) && recap.changedAt >= back + 60_000
+      const tried = Number.isFinite(back) && Number.isFinite(recap.changedAt) && recap.changedAt >= back + 60_000 && part.pending !== true
       const verdict = said?.verdict === 'sent-back' && !tried ? 'sent-back' : null
       const at = verdict === null ? null : back
-      return part.steps.map(step => ({ step, goal: recap.goal, path: recap.path, key: part.key, title: part.title, verdict, at }))
+      return part.steps.map(step => ({ step, goal: recap.goal, path: recap.path, key: part.key, title: part.title, verdict, at, making }))
     })
   })
 }

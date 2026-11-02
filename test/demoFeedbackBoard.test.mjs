@@ -4,7 +4,7 @@
 
 import assert from 'node:assert/strict'
 import { spawn } from 'node:child_process'
-import { cp, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { cp, mkdir, mkdtemp, readFile, rm, utimes, writeFile } from 'node:fs/promises'
 import { createServer } from 'node:http'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
@@ -155,9 +155,24 @@ test('the Send on a goal demo: feedback.json, the words on the step once, one wo
   assert.equal((await stepText()).split('## Your words')[1].split('\n## ')[0].match(/Recap feedback, round/g).length, 1)
   assert.equal((await toPartner()).length, 1)
 
-  // Round 2 shows only the part sent back, with the person's comment; the approved ones are folded.
+  // T17.1 (the person: "the same pictures are provided and i see no evidence of what i asked it to fix"): right after the Send, round 2 is
+  // being made: the part sent back with the person's words and no picture, nothing to send, and a Send is refused.
+  const making = await demoPage()
+  assert.deepEqual([making.feedback.round, making.feedback.making, making.feedback.canSend, rowsOf(making), making.sections[0].rows[0].pictures, making.sections[0].rows[0].reworking], [2, { round: 2 }, false, ['3. Round shapes'], [], true])
+  assert.equal((await send({ round: 2, parts: [{ key: '3. Round shapes', verdict: 'approved' }] })).status, 409)
+  // The partner writes the demo again (a later minute than the Send), the part sent back with what changed: round 2 is ready.
+  const file = join(project, 'pictures', 'g6', 'demo.json')
+  const written = JSON.parse(await readFile(file, 'utf8'))
+  written.sections[1].rows[0].changed = 'still stepped -> rounded off'
+  written.sections[1].rows[0].play = 'ring'
+  await writeFile(file, JSON.stringify(written))
+  const later = new Date(Date.now() + 5 * MIN)
+  await utimes(file, later, later)
+
+  // Round 2 shows only the part sent back, with the person's comment and what changed; the approved ones are folded.
   const second = await demoPage()
-  assert.deepEqual([second.feedback.round, rowsOf(second), second.sections[0].rows[0].said, second.feedback.folded.map(one => one.key)], [2, ['3. Round shapes'], { comment: 'still stepped', round: 1 }, ['1. Lava', '2. Cliffs']])
+  assert.deepEqual([second.feedback.round, second.feedback.making, second.feedback.canSend, rowsOf(second), second.sections[0].rows[0].said, second.feedback.folded.map(one => one.key)], [2, null, true, ['3. Round shapes'], { comment: 'still stepped', round: 1 }, ['1. Lava', '2. Cliffs']])
+  assert.deepEqual([second.sections[0].rows[0].changed, second.sections[0].rows[0].play, second.sections[0].rows[0].pictures.length], ['still stepped -> rounded off', 'ring', 1])
   const done = await send({ round: 2, parts: [{ key: '3. Round shapes', verdict: 'approved' }] })
   const { said: doneSaid, ...doneResult } = JSON.parse(done.body)
   assert.deepEqual(doneResult, { round: 2, approved: 1, sentBack: 0, done: true, notedOn: 'B12', closed: [] })

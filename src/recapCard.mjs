@@ -9,11 +9,12 @@
 import { readdir, stat } from 'node:fs/promises'
 import { join } from 'node:path'
 
+import { makingOf, roundsOf } from './demoFeedback.mjs'
 import { parseGoals } from './goals.mjs'
 import { readDemo, shownFolders, shownRoots } from './pictures.mjs'
 import { linksRecap, standsForPerson } from './work/autopilot.mjs'
 import { isKeptLook } from './work/keptLook.mjs'
-import { valueOf } from './work/item.mjs'
+import { sinceMs, valueOf } from './work/item.mjs'
 import { checkedOf } from './work/resultCheck.mjs'
 import { standardOf } from './work/standard.mjs'
 
@@ -75,8 +76,9 @@ export async function focusRecapFile(config, goalsText) {
 }
 
 /**
- * The focus goal's recap for the card: `{ goal, path, pictures: { <part key>: <picture path> } }`, or null for a goal with no recap
- * file. A part whose row has no picture is left out of `pictures` (its tile shows a calm placeholder).
+ * The focus goal's recap for the card: `{ goal, path, pictures: { <part key>: <picture path> }, rounds, changedAt }`, or null for a goal
+ * with no recap file. A part whose row has no picture is left out of `pictures` (its tile shows a calm placeholder). T17.1: `rounds`
+ * the person's rounds beside it and `changedAt` when it was last written (ms), by which `recapMakingOf` says the next round is being made.
  */
 export async function readGoalRecap(config, goalsText) {
   const path = await focusRecapFile(config, goalsText)
@@ -84,7 +86,30 @@ export async function readGoalRecap(config, goalsText) {
   const goals = parseGoals(goalsText)
   const read = await readDemo(config.project, shownRoots(config), path).catch(() => null)
   const rows = read === null || read.why !== undefined ? [] : read.base.sections.flatMap(section => section.rows)
-  return { goal: goals.focus, path, pictures: Object.fromEntries(rows.map(row => [row.key, tilePictureOf(row.pictures)]).filter(([, picture]) => picture !== null)) }
+  return {
+    goal: goals.focus, path, pictures: Object.fromEntries(rows.map(row => [row.key, tilePictureOf(row.pictures)]).filter(([, picture]) => picture !== null)),
+    rounds: read === null || read.why !== undefined ? [] : roundsOf(read.feedback), changedAt: read?.changedAt ?? null,
+  }
+}
+
+const STAMP = /^-\s+(\d{4}-\d{2}-\d{2} \d{2}:\d{2}(?::\d{2})?)\s/
+
+/** When a step was made: its first History stamp, else its Since (ms; NaN when neither says). */
+const madeAtMs = item => sinceMs((item.sections?.get('History') ?? [])[0]?.match(STAMP)?.[1] ?? valueOf(item, 'Since'))
+
+/**
+ * T17.1 (the person, 2026-11-02, after sending round 1 of G60's recap: "the new recap, after round 1 is not finetuned to my feedback"):
+ * the focus goal's recap while its next round is being made (src/demoFeedback.mjs `makingOf`: a Send sent rows back and the recap was not
+ * written again since): `{ goal, path, round, done, total }`, or null. `recap` is the state's `goalRecap`, `items` the store's by id.
+ * The new steps are the goal's steps whose first History line is not before the Send's minute; `done` counts those done, closed or dropped
+ * of all (`total`). It asks no verdict of the person, so it is no card of the recap card and counts nowhere.
+ */
+export function recapMakingOf({ goal, recap, items }) {
+  if (typeof goal !== 'string' || recap === null || typeof recap !== 'object' || recap.goal !== goal) return null
+  const making = makingOf(Array.isArray(recap.rounds) ? recap.rounds : [], recap.changedAt)
+  if (making === null) return null
+  const mine = [...(items?.values?.() ?? [])].filter(item => valueOf(item, 'Kind') === 'step' && valueOf(item, 'Goal') === goal && madeAtMs(item) >= making.at)
+  return { goal, path: typeof recap.path === 'string' ? recap.path : null, round: making.round, done: mine.filter(item => FINISHED.includes(valueOf(item, 'State'))).length, total: mine.length }
 }
 
 /** The score a step's result check gave, beside its target: "64 of 75", or null (a step without a "N of M" score). */
@@ -190,13 +215,16 @@ export function wholeGoalAskOf(standing, goal, recapPath) {
  * while the card has another reason to show (a part, a block or the goal's own ask waits) or every block of the goal is built (a step
  * in review held only by its kept look counts as built: the goal's last kept look would otherwise never show).
  * Every other look routed to the recap (a checker's, one below its target) stays an ask `outside` when no part covers it.
+ *
+ * T17.1: a part of a recap whose next round is being made (its waits carry `making`, src/recaps.mjs) is no verdict that waits: the person
+ * can judge nothing of it until the partner wrote the recap again (the card is then `recapMakingOf`'s quiet one, drawn by the page).
  */
 export function recapCardOf({ goal, recapPath = null, waits = [], pictures = {}, steps = new Map(), blocks = [], standing = [], openChecks = new Set(), asked = [] }) {
   const isOpenCheck = id => openChecks.has(id)
   const parts = new Map()
   for (const wait of (Array.isArray(waits) ? waits : []).filter(one => one.goal === goal && (recapPath === null || one.path === recapPath))) {
     const at = `${wait.path}\n${wait.key}`
-    const part = parts.get(at) ?? { path: wait.path, key: wait.key, title: wait.title, steps: [], verdict: wait.verdict, isAsked: false }
+    const part = parts.get(at) ?? { path: wait.path, key: wait.key, title: wait.title, steps: [], verdict: wait.verdict, isAsked: false, isMaking: wait.making === true }
     part.steps.push(wait.step)
     parts.set(at, part)
   }
@@ -210,7 +238,8 @@ export function recapCardOf({ goal, recapPath = null, waits = [], pictures = {},
     if (part === undefined) outside.push(ask.id)
     else part.isAsked = true
   }
-  const waitingParts = [...parts.values()].filter(part => (part.verdict === null || part.isAsked) && !part.steps.some(isOpenCheck))
+  // T17.1: while the recap's next round is being made the person can judge nothing of it: no part of it is a verdict that waits.
+  const waitingParts = [...parts.values()].filter(part => !part.isMaking && (part.verdict === null || part.isAsked) && !part.steps.some(isOpenCheck))
   for (const part of waitingParts) for (const id of part.steps) covered.add(id)
   const scoreLine = ids => [...ids].map(id => steps.get(id)).filter(one => one !== undefined).sort((a, b) => Number(valueOf(b, 'Id').slice(1)) - Number(valueOf(a, 'Id').slice(1))).map(scoreOf).find(one => one !== null) ?? null
   const lineOf = ids => { const score = scoreLine(ids); return score === null ? TILE_LINE : `${score} · ${TILE_LINE}` }

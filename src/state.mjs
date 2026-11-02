@@ -57,7 +57,7 @@ import { clearOwed, modAtLeast } from './clearOwed.mjs'
 import { newestSpells, noticeOf, nobodyRunsSpell, pathsOf, spellOf, statusOf as wakeStatusOf, wakeNeeds, wakeOf, wakeWords } from './wake.mjs'
 import { chainWaitOf, checkedOf, fixesOf, fixOutcomeOf, recapPartOf, reviewWaitOf } from './work/resultCheck.mjs'
 import { recapWaitsOf } from './recaps.mjs'
-import { askedStepsOf, openChecksOf, recapCardOf, standingAsksOf } from './recapCard.mjs'
+import { askedStepsOf, openChecksOf, recapCardOf, recapMakingOf, standingAsksOf } from './recapCard.mjs'
 import { guardOf } from './goalGuard.mjs'
 import { standardOf } from './work/standard.mjs'
 import { rolloutPlan } from './work/modRollout.mjs'
@@ -2432,6 +2432,9 @@ function builtState(raw, { lines = [], outbox = [], runs = [], board = null, see
       steps: new Map(itemsOf(raw.work).filter(one => one.head.get('Kind') === 'step').map(one => [one.head.get('Id'), one])), blocks: focus.parts,
       standing: standingNow, openChecks: openChecksOf(new Map(itemsOf(raw.work).map(one => [one.head.get('Id'), one]))), asked: config.autopilot === true ? routedAway.filter(one => one.route === 'recap' && (one.goal === focus.id || one.of === null)) : [],
     }),
+    // T17.1 (the person: "the new recap, after round 1 is not finetuned to my feedback"): the focus goal's recap while its next round is being
+    // made, `{ goal, path, round, done, total }`, or null. It asks no verdict: the page draws a quiet card and counts nothing.
+    recapMaking: focus === null ? null : recapMakingOf({ goal: focus.id, recap: raw.goalRecap ?? null, items: new Map(itemsOf(raw.work).map(one => [one.head.get('Id'), one])) }),
     // B296, B301: the work store: its folder, how many items, its problems, and why it cannot be read (`why`).
     store: shown.store,
     // B298: the person's words per chat, filed as instructions (work/lists.mjs).

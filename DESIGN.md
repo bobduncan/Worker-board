@@ -5681,6 +5681,36 @@ Tests: test/supervisor/recapVerdict.test.mjs (B821's case: a block ended by done
 waiting for the verdict is none, also after 10 h; a Send back counts from the Send), test/recapVerdictBoard.test.mjs (on a
 running board: the Backlog line, a Send back's words, an Approve that closes the steps in review only).
 
+## The recap's next round shows the evidence of the person's feedback (T17.1)
+
+The person, 2026-11-02, after sending round 1 of G60's recap with 8 rows sent back: "the new recap, after round 1 is not finetuned to my
+feedback. the same pictures are provided and i see no evidence of what i asked it to fix/change. i need this before i can evaluate and
+preferably also have a link to open the game so i can see it myself". Round 2 stood right after the Send with the old demo.json, so the
+same pictures sat beside their words and the popup asked for a verdict again; the Product owner's card said "1 verdict waits".
+
+1. A round being made (src/demoFeedback.mjs `makingOf`, `roundPage`): after a Send that sent rows back, round N+1 is "being made" until
+   demo.json was written again in a later minute than that Send (the test `recapWaitsOf` already used; `readDemo` gives `changedAt`).
+   The popup (`GET /api/demo`) then holds only the rows that Send sent back, each as `reworking` with the person's words and no
+   note or picture, `feedback.making` and `feedback.answerable` 0; `canSend` is false and `checkSend` refuses with 409. A caller with no
+   file time (`roundPage(page, feedback)`) never says "being made".
+2. A row's new try shows the change (src/demo.mjs, tools/demo.mjs): every row the person's last word on was Send back carries
+   `"changed": "<their words -> what changed>"` and at least one picture written after that round's Send, else `"pending": "<why>"`
+   (shown as being reworked: no verdict asked, no part of the Send, refused by `checkSend`). `checkList(list, { feedback, mtimeOf })`
+   (`checkTries`) throws one line per row that does neither; tools/demo.mjs reads the feedback.json beside the demo it writes and
+   writes nothing when it throws. The board itself reads any demo.json: only the tool enforces it.
+3. Play: a row may carry `"play": "<arena>"` (letters, digits, dashes, at most 60); the popup draws "Play it ↗" beside the pictures,
+   a link `/#play=main&arena=<name>` in a new tab, the way every `#play=` link starts the game.
+4. The popup's row from round 2: the title, the note, "Your words: ...", "What changed: ...", the pictures, Play it, then Approve / Send
+   back. A being-made popup has one line on top ("Round 2 is being made: your partner is building the next tries").
+5. The cards (src/recapCard.mjs `recapMakingOf`, state `recapMaking`: `{ goal, path, round, done, total }`): while a round is being made
+   no part of that recap is a verdict that waits (`recapWaitsOf` flags `making`, a `pending` part stays sent back), so the recap card is
+   null, and the Product owner's card (Needs your attention) and the Focus page say "G60 · <title>: round 2 of your recap is being made"
+   with the quiet line "<k> of <m> new steps done" (the goal's steps whose first History line is not before the Send, done, closed or
+   dropped of all) and a link to the recap. No attention colour; it is not counted.
+
+Tests: test/recapRounds.test.mjs (data, the list, tools/demo.mjs, the state), test/recapRoundsPage.test.mjs (the popup, both cards),
+test/demoFeedbackBoard.test.mjs and test/recapVerdictBoard.test.mjs (on a running board: being made, then the rewrite).
+
 ## A step nothing else closes goes to the person: Accept or Send back (B883)
 
 X117 (X54 and X116 before): B851 sat in review after its fix B875 was dropped on the partner's decision to accept it at 74 of

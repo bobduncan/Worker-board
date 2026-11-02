@@ -1663,6 +1663,12 @@ a.recap-checked:hover { text-decoration: underline; }
 .recap-attention-open:hover { background: #f0b53a; }
 .recap-attention-open:focus-visible { outline: 2px solid var(--attn-text); outline-offset: 2px; }
 /* The person's "A" (2026-11-02): the looks that wait for their answer, one quiet line each under the card's line: link-styled, cool tones, never amber. */
+/* T17.1: the same card while round N+1 of the recap is being made: it asks nothing, so a cool border, no amber, a plain link. */
+.need.is-recap-making { border-left: 4px solid #5b7fae; gap: 6px; }
+.is-recap-making .kind, .is-recap-making .tag { background: rgba(91, 127, 174, 0.16); color: #9db8dc; box-shadow: inset 0 0 0 1px rgba(91, 127, 174, 0.5); }
+.need.is-recap-making p { margin: 0; }
+.recap-making-open, .focus-recap-making-open { align-self: flex-start; padding: 0; border: 0; background: none; color: #8ab4ff; font: inherit; font-size: 13.5px; text-decoration: underline; text-decoration-color: #3b5a85; text-underline-offset: 2px; cursor: pointer; }
+.recap-making-open:hover, .recap-making-open:focus-visible, .focus-recap-making-open:hover, .focus-recap-making-open:focus-visible { color: #c3d6ff; }
 .recap-attention-looks { display: flex; flex-direction: column; align-items: flex-start; gap: 3px; font-size: 13.5px; }
 .recap-attention-look { max-width: 100%; padding: 0; border: 0; background: none; color: #8ab4ff; font: inherit; text-align: left; text-decoration: underline; text-decoration-color: #3b5a85; text-underline-offset: 2px; cursor: pointer; overflow-wrap: anywhere; }
 .recap-attention-look:hover, .recap-attention-look:focus-visible { color: #c3d6ff; }
@@ -2945,6 +2951,12 @@ body.is-resizing-rows { cursor: row-resize; user-select: none; }
 .demo-round { margin: 6px 0 0; font-weight: 700; color: #8fb6ff; }
 .demo-folded { margin: 4px 0 0; padding: 8px 12px; border: 1px solid #3f8f6a; border-radius: 8px; background: rgba(90, 209, 154, 0.08); color: var(--muted); }
 .demo-said { margin: 6px 0 0; padding: 6px 10px; border-left: 3px solid #78a7ff; background: var(--inset); border-radius: 0 6px 6px 0; }
+/* T17.1: the evidence of the person's feedback in round 2 and on: what changed, the new try (or that it is still being made), the game on that map. Cool tones only: nothing here is amber. */
+.demo-making { padding: 8px 12px; border: 1px solid #3b5a85; border-radius: 8px; background: rgba(120, 167, 255, 0.08); }
+.demo-changed { margin: 6px 0 0; padding: 6px 10px; border-left: 3px solid #5ad19a; background: var(--inset); border-radius: 0 6px 6px 0; }
+.demo-reworking { margin: 6px 0 0; padding: 8px 12px; border: 1px dashed #3b5a85; border-radius: 8px; color: var(--muted); }
+.demo-play { display: inline-block; margin-top: 8px; padding: 5px 14px; border: 1px solid #3b5a85; border-radius: 8px; color: #8ab4ff; font-weight: 600; text-decoration: none; }
+.demo-play:hover, .demo-play:focus-visible { border-color: #78a7ff; color: #c3d6ff; }
 .demo-feedback { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 8px; margin-top: 10px; }
 .demo-feedback button { padding: 6px 16px; border: 1px solid var(--line); border-radius: 8px; background: transparent; color: var(--text); font: inherit; font-weight: 600; cursor: pointer; }
 .demo-feedback .demo-approve.is-on { border-color: #3f8f6a; background: #2c6e50; color: #eafff4; }
@@ -3385,6 +3397,10 @@ ul.task-history { list-style: none; display: flex; flex-direction: column; gap: 
 .need.is-slim { gap: 4px; padding: 9px 12px 10px; border-left-color: #5b7fae; }
 .need.is-slim .wait-line { margin-top: 4px; }
 .need.is-slim .kind, .need.is-slim .tag { background: rgba(91, 127, 174, 0.16); color: #9db8dc; box-shadow: inset 0 0 0 1px rgba(91, 127, 174, 0.5); }
+/* T17.1: where the recap card stands while round N+1 is being made: quiet, like the "feedback sent" card. */
+.focus-recap-making { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; margin: 0 4px 18px; padding: 14px 18px; border: 1px solid var(--line); border-left: 4px solid #5b7fae; border-radius: 12px; background: var(--panel); }
+.focus-recap-making h3 { margin: 0; font-size: 17px; }
+.focus-recap-making p { margin: 0; font-size: 14px; }
 /* The focus goal's last recap Send, where the recap card stood while no verdict waits. */
 .focus-recap-sent { margin: 0 4px 18px; padding: 14px 18px; border: 1px solid var(--line); border-radius: 12px; background: var(--panel); }
 .focus-recap-sent h3 { margin: 0; font-size: 17px; }

@@ -1173,7 +1173,7 @@ async function main(args) {
       const found = await readDemo(state.project, shownRoots(config), body?.path)
       if (found === null) return { ok: false, status: 404, why: 'No such goal demo.' }
       if (found.why !== undefined) return { ok: false, status: 422, why: found.why }
-      const checked = checkSend(roundPage(found.base, found.feedback), body)
+      const checked = checkSend(roundPage(found.base, found.feedback, { changedAt: found.changedAt }), body)
       if (!checked.ok) return checked
       await writeFeedback(found.file, withRound(found.feedback, checked.round, checked.parts, stampOf(clock())))
       readState.reset()
@@ -2748,7 +2748,8 @@ async function main(args) {
       const found = await findDemo((await readState()).project, shownRoots(config), path)
       if (found?.page === undefined) return found
       const whyNot = await demoFeedbackWhyNot()
-      return { page: { ...found.page, feedback: { ...found.page.feedback, canSend: whyNot === null && found.page.feedback.parts > 0 && !found.page.feedback.done, whyNot } } }
+      // T17.1: nothing to send while the next round is being made, or while every part left is still being reworked.
+      return { page: { ...found.page, feedback: { ...found.page.feedback, canSend: whyNot === null && found.page.feedback.parts > 0 && !found.page.feedback.done && found.page.feedback.making === null && found.page.feedback.answerable > 0, whyNot } } }
     },
     demoFeedback: async body => demoFeedbackNow(body),
     picture: async path => {

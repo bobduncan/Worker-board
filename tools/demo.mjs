@@ -10,13 +10,19 @@
 // and names a picture that is not there, one that is not a .png, .jpg, .webp or .gif, and one over the board's picture limit
 // (the board would answer "too big"). In demo.json the pictures of a row stand in the demo's order and their paths are relative
 // to demo.json's own folder. Without --out the file lands beside the list as demo.json (never over the list itself).
+//
+// T17.1 (the person, 2026-11-02: "the same pictures are provided and i see no evidence of what i asked it to fix/change"): the tool
+// also reads the `feedback.json` beside the demo.json it writes. Every row the person sent back must show a new try or say it is not
+// in yet: a "changed" line and at least one picture file written after that Send, else a "pending" line saying why. The tool stops and
+// names each row that does not (one line per row), so old pictures cannot pass for a new try. A row's "play" is an arena name.
 
 import { existsSync, realpathSync, statSync } from 'node:fs'
 import { mkdir, readFile, writeFile } from 'node:fs/promises'
-import { basename, dirname, extname, isAbsolute, relative, resolve } from 'node:path'
+import { basename, dirname, extname, isAbsolute, join, relative, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { PICTURE_BYTES } from '../src/pictures.mjs'
-import { checkList, orderedPictures } from '../src/demo.mjs'
+import { checkList, checkTries, orderedPictures } from '../src/demo.mjs'
+import { FEEDBACK_BYTES, FEEDBACK_FILE } from '../src/demoFeedback.mjs'
 
 const TYPES = new Set(['.png', '.jpg', '.jpeg', '.webp', '.gif'])
 
@@ -34,6 +40,22 @@ export function missingPictures(list, base, exists = existsSync) {
 /** Pictures over the board's limit, by their paths and sizes in bytes: `[{ file, bytes }]`. */
 export function tooBigPictures(list, base, sizeOf = file => statSync(file).size, most = PICTURE_BYTES) {
   return [...new Set(pictureFiles(list, base))].map(file => ({ file, bytes: sizeOf(file) })).filter(one => one.bytes > most)
+}
+
+/** The feedback.json beside the demo that is written (the person's rounds), or null for none; one that is not JSON is none too. */
+export async function feedbackBeside(target) {
+  try {
+    const file = join(dirname(target), FEEDBACK_FILE)
+    if (statSync(file).size > FEEDBACK_BYTES) return null
+    return JSON.parse((await readFile(file, 'utf8')).replace(/^﻿/, ''))
+  } catch {
+    return null
+  }
+}
+
+/** When a picture file was written (ms), or null when it is not there. */
+export function writtenAt(path, base, stat = file => statSync(file).mtimeMs) {
+  try { return stat(isAbsolute(path) ? path : resolve(base, path)) } catch { return null }
 }
 
 /** The list as demo.json holds it: each row's pictures in the demo's order, every path relative to `outDir` (from `base`). Pure. */
@@ -65,6 +87,7 @@ export async function writeDemo({ listFile, out }) {
   for (const picture of pictureFiles(input, base)) if (!TYPES.has(extname(picture).toLowerCase())) throw new Error(`${basename(picture)}: a picture is a .png, .jpg, .webp or .gif.`)
   const big = tooBigPictures(input, base)
   if (big.length > 0) throw new Error(`These pictures are over the board's limit of ${PICTURE_BYTES / 1048576} MB, so it would not open them:\n${big.map(one => `  ${one.file} (${(one.bytes / 1048576).toFixed(1)} MB)`).join('\n')}`)
+  checkTries(input, { feedback: await feedbackBeside(target), mtimeOf: path => writtenAt(path, base) })
   await mkdir(dirname(target), { recursive: true })
   await writeFile(target, `${JSON.stringify(demoFile(input, base, dirname(target)), null, 2)}\n`)
   return { out: target, pictures: new Set(pictureFiles(input, base)).size }
