@@ -551,7 +551,11 @@ test('signals change 6: only an unowned line triggers: an info line (a pause, a 
   ])
   const chats = [lane('Lead', { isMain: true }), lane('Digger', { state: 'working' }), lane('Weeder', { state: 'working', task: { stepId: 'B8' } }), lane('Sower', { state: 'interrupted', task: { stepId: 'B9' } }),
     lane('Reaper', { state: 'interrupted' }), lane('Hoer', { state: 'off', isRunning: false, task: { stepId: 'B10' }, wake: { state: 'failed', final: true } }),
-    lane('Raker', { state: 'unknown', task: { stepId: 'B11' }, handover: { state: 'held' } })]
+    lane('Raker', { state: 'unknown', task: { stepId: 'B11' }, handover: { state: 'held' } }),
+    // 2026-11-02 (the lead's yes; the 21:13 sweep on "working on no step; cleared at # after B931"): a worker working on no
+    // step within 5 minutes after its clear runs its first turn: 'info'; past that, no rule names it.
+    lane('Tiller', { state: 'working', compaction: { kind: 'cleared', at: START - 2 * MIN, step: 'B931' } }),
+    lane('Mower', { state: 'working', compaction: { kind: 'cleared', at: START - 20 * MIN, step: 'B930' } })]
   const viewOf = limits => buildView({ state: { chats, today: [], limits, pause: null, chatPrefix: '' }, items: steps, outbox: [], settings: {}, now: START })
   const ownerIn = limits => text => oddLines(viewOf(limits), START).find(one => one.text.startsWith(text))?.owner
   assert.equal(ownerIn({ fiveHour: { used: 100, level: 'full', at: START } })('5-hour limit'), 'info', 'a full limit is no fault')
@@ -564,6 +568,8 @@ test('signals change 6: only an unowned line triggers: an info line (a pause, a 
   assert.equal(owner('Hoer (worker)'), 'wake-failed')
   assert.equal(owner('Raker (worker)'), 'handover-held')
   assert.equal(owner('Reaper (worker)'), null, 'an interrupted worker with no step no rule names: the sweep\'s to read')
+  assert.equal(owner('Tiller (worker)'), 'info', 'working on no step 2 min after its clear: its first turn')
+  assert.equal(owner('Mower (worker)'), null, 'working on no step 20 min after its clear: the sweep\'s to read')
 })
 
 test('cheaper sweeps: the near-stop limit exception sweeps although nothing odd is new; a fresh reading does not; Check now does', async () => {
