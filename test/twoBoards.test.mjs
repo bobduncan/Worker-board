@@ -14,7 +14,7 @@ import { dirname, join } from 'node:path'
 import test from 'node:test'
 import { fileURLToPath } from 'node:url'
 
-import { GAME_SPAN, HAND_PORTS, OWN_PORTS_FROM, boardProject, boardsFile, chooseHome, parseBoards, portIsBusy, readBoards, registerHome, resolvePort, whoseBoard } from '../src/ports.mjs'
+import { GAME_SPAN, HAND_PORTS, OWN_PORTS_FROM, boardProject, boardsFile, chooseHome, isLockedNow, parseBoards, portIsBusy, readBoards, registerHome, resolvePort, whoseBoard } from '../src/ports.mjs'
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 const A = 'C:\\Work\\alpha'
@@ -33,6 +33,12 @@ async function folder(t, name = 'board-two-') {
   t.after(() => rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }))
   return dir
 }
+
+test('the list\'s lock: EPERM, EBUSY and EACCES on Windows mean "locked right now", as EEXIST does; anything else is the error it is', () => {
+  for (const code of ['EEXIST', 'EPERM', 'EBUSY', 'EACCES']) assert.equal(isLockedNow({ code }), true, code)
+  for (const code of ['ENOENT', 'EISDIR', undefined]) assert.equal(isLockedNow({ code }), false, String(code))
+  assert.equal(isLockedNow(null), false)
+})
 
 test('boardsFile: one list per PC, in the person\'s home folder; WORKER_BOARD_HOME moves it', () => {
   assert.equal(boardsFile({}), join(homedir(), '.worker-board', 'boards.json'))
