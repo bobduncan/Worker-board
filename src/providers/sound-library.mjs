@@ -58,4 +58,20 @@ export const soundLibrary = {
         : { ok: false, state: 'needs', why: `The sound library folder "${folder}" could not be read`, detail: 'Folder not readable' }
     }
   },
+  /**
+   * Part C: answered at once with the library's folder (a whole path), `{ pick }`: the chat picks a sound in it and names
+   * it back (work asset with `id` and `picked`). `{ failed: why }` when there is no project or the folder is outside it.
+   */
+  provide(_request, { project = '', folder = soundLibrary.folder } = {}) {
+    const path = libraryPath(project, folder)
+    return path === null ? { failed: `The sound library folder "${folder}" is not inside the project` } : { pick: path }
+  },
+}
+
+/** The library's folder as a whole path inside `project`, or null when there is no project or it lies outside. */
+export function libraryPath(project, folder = soundLibrary.folder) {
+  if (typeof project !== 'string' || project === '') return null
+  const path = join(project, ...String(folder).split('/'))
+  const out = relative(project, path)
+  return out === '' || out.startsWith('..') || isAbsolute(out) ? null : path
 }

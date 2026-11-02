@@ -82,7 +82,10 @@ import { ARCHIVE_MOD, archiveJobId, archivedBy, hasNothingUncommitted, replacedC
 import { keptReadingsOf, newestPerWindow, readingOfAnswer } from './src/limits.mjs'
 import { providerCards, mayUse as mayUseProvider, verifyOne, checkKey } from './src/providers/choose.mjs'
 import { KEY_VARIABLE, keyChecked, saveKey } from './src/providers/elevenlabs-key.mjs'
-import { ASSET_KINDS, PROVIDERS, checkProvidersFull } from './src/providers/index.mjs'
+import { ASSET_KINDS, PROVIDERS, checkProvidersFull, providerFor } from './src/providers/index.mjs'
+import { assetsFolderOf } from './src/assets.mjs'
+import { assetQueue, providerAskTitle } from './src/assetQueue.mjs'
+import { titleProblem } from './src/work/askWords.mjs'
 import { buildState, fullStepOf, lightState } from './src/state.mjs'
 import { handedWithStatuses } from './src/chatStatus.mjs'
 import { withRefineQueue } from './src/work/advisorWork.mjs'
@@ -138,6 +141,8 @@ const READ_DELAY_MS = Number(process.env.WORKER_BOARD_READ_DELAY_MS) > 0 ? Numbe
 const slowRead = () => (READ_DELAY_MS > 0 ? new Promise(done => setTimeout(done, READ_DELAY_MS)) : undefined)
 /** T9.3 part 1: how often the board checks whether each kind of asset's provider can work. */
 const PROVIDERS_MS = 10 * 60_000
+/** Part C of the asset providers: how often the board looks at the asset requests (a `work asset` looks at once too). */
+const ASSETS_MS = 15_000
 /** B142: how long the board's look at its folder's version is kept. */
 const VERSION_MS = 30_000
 const HISTORY_BYTES = 8 * 1024 * 1024
@@ -150,6 +155,11 @@ const FILES = {
 // B348: the help tour's six pictures, by name only. B375: drawings of the board (tools/help-pictures.mjs), as SVG.
 for (const name of ['1-install', '2-initialise', '3-talk', '4-go', '5-workers', '6-check']) {
   FILES[`/help/${name}.svg`] = [join('help', `${name}.svg`), 'image/svg+xml']
+}
+
+// T2.1 part B: the logos of the asset providers' cards, by name only.
+for (const name of ['openai.svg', 'claude.svg', 'elevenlabs.svg', 'library.svg', 'manual.svg', 'suno.png']) {
+  FILES[`/providers/${name}`] = [join('providers', name), name.endsWith('.svg') ? 'image/svg+xml' : 'image/png']
 }
 
 // The page may load its own script and style sheet, talk to its own server, and show pictures it fetched from
@@ -775,6 +785,9 @@ async function main(args) {
   // store of its own (outside the project) writes the view into that folder, never the project's backlog. A copy
   // without one only reads.
   const workDir = isDemo || config.project === '' ? null : workFolder(config)
+  // Part C of the asset providers: where the chats' asset requests are kept (`.claude/assets`, beside the work store); none on a
+  // board that only shows.
+  const assetsDir = workDir === null || isShowOnly ? null : resolve(HERE, assetsFolderOf(workDir))
   const viewFile = workDir === null ? null : !isShowOnly ? join(config.project, ...config.backlog.split('/')) : isOwnWork(config) ? join(workDir, 'backlog.md') : null
   const workWriters = viewFile === null ? null : { dir: workDir, viewFile }
   /**
@@ -1188,7 +1201,7 @@ async function main(args) {
       const shown = shownChats(state).some(chat => chat.name === wake.to)
       if (!shown) continue
       const isCopied = state.bridge?.isMissing === true
-      const words = typeof wake.line === 'string' ? { ...workWords(wake.to, wake.id, wake.line), kind: 'taken-back' } : answerWords(wake)
+      const words = typeof wake.line === 'string' ? { ...workWords(wake.to, wake.id, wake.line), kind: wake.kind ?? 'taken-back' } : answerWords(wake)
       const message = { id: randomBytes(8).toString('hex'), at: clock(), ...words, state: isCopied ? 'copied' : 'waiting' }
       await store.say(message)
       readState.reset()
@@ -1239,6 +1252,8 @@ async function main(args) {
       chats: [...roles.keys()],
       freeChats: new Set(lanes.filter(lane => lane.state === 'free').map(lane => lane.name)), overlapsOfStore: true,
       viewFile, boardUrl: boardAddress(HOST, config), backlogFile: join(config.project, ...config.backlog.split('/')),
+      // Part C of the asset providers: the requests' folder and the provider in use for each kind (the work tool's `asset`).
+      ...(assetsDir === null ? {} : { assets: { dir: assetsDir, project: resolve(HERE, config.project), providerOf: kind => providerFor(config, kind), tools: () => assetTools() } }),
       // Focus 3, the review: the goals of the map the board reads, for an ask or a daily note of a goal.
       hasGoal: id => (state.goals?.nodes ?? []).some(node => node.id === id),
       // B518: a goal in its fundamental evaluation ('running') or that ended one ('ended'): its steps default to effort high (the model stays as given, 2026-10-25).
@@ -1319,6 +1334,8 @@ async function main(args) {
       work.reset?.()
       readState.reset()
     }
+    // Part C: a new asset request starts at once when its provider is free (the queue's own loop looks every 15 s too).
+    if (done.ok && body?.action === 'asset') void lookAtAssets()
     if (done.ok && done.result.check !== undefined) {
       const { id, branch, result, merged, touches, cut } = done.result.check
       // B304: the repositories the board knows; the check finds the one the step's work is in among them.
@@ -1589,6 +1606,47 @@ async function main(args) {
     await lookAtProviders()
     setInterval(lookAtProviders, PROVIDERS_MS)
   }
+  // Part C of the asset providers (spec 2026-11-01, part 4): the chats' asset requests, kept in `.claude/assets` beside the
+  // work store (src/assets.mjs) and worked off by the board's queue (src/assetQueue.mjs): one at a time per provider, the
+  // provider's check first, one ask per provider that fails it, the word to the asking chat once a request is ready or
+  // failed. Only the board that runs the loops makes anything; one that only shows keeps no requests.
+  /** What the providers check and make with: the providers' tools, the whole project and the Design tab's time limit. */
+  const assetTools = () => ({ ...providerTools(), project: resolve(HERE, config.project), seconds: settings.seconds })
+  const assetsQueue = assetsDir === null ? null : assetQueue({
+    dir: assetsDir,
+    tools: assetTools,
+    now: clock,
+    // The person's one ask for a provider whose check fails, in the board's name, linking the Settings tab.
+    fileAsk: async ({ title, kind, why }) => {
+      const full = providerAskTitle(title, kind, why)
+      const asked = await workAction({
+        action: 'ask', kind: 'do', title: titleProblem(full) === null ? full : `${title} does not work for ${kind}`,
+        text: [full, `The requests for ${kind} wait until it works. On the Settings tab (${boardAddress(HOST, config)}/#settings) verify it, or choose another provider for ${kind}.`].join('\n'),
+      }, 'server')
+      return asked.ok ? asked.result.id ?? null : null
+    },
+    closeAsk: (id, why) => workAction({ action: 'withdraw', id, why }, 'server'),
+    askOpen: async id => {
+      try {
+        const item = (await readStore(workDir)).items.get(id)
+        return item === undefined ? false : item.head.get('State') === 'open'
+      } catch {
+        return null
+      }
+    },
+    tell: record => sendWakes({ ok: true, result: { wake: { to: record.who, id: record.id, kind: 'asset', line: record.state === 'ready' ? `asset ${record.id} ready: ${join(assetsDir, record.id)}` : `asset ${record.id} failed: ${record.why}` } } }),
+  })
+  let assetsRecovered = false
+  /** One look of the queue, where the board's loops run; the first one fails what a stop cut off. */
+  const lookAtAssets = () => loops.run('assets', async () => {
+    if (assetsQueue === null || !(await ownsLoops())) return
+    if (!assetsRecovered) {
+      assetsRecovered = true
+      await assetsQueue.recover()
+    }
+    await assetsQueue.pass()
+  })
+  if (assetsQueue !== null) setInterval(lookAtAssets, ASSETS_MS)
   const inProject = (project, path) => join(project, ...path.split('/'))
   /** The picture being made: which idea and version, since when, and how to stop it. */
   let making = null

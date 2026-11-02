@@ -17,4 +17,8 @@ export const elevenlabsImages = {
   async check(tools = {}) {
     return planAnswer(await askPlan(tools), plan => (plan.tier === '' ? 'Plan unknown: Pro needed' : BELOW_PRO.includes(plan.tier) ? 'Needs the Pro plan' : null))
   },
+  /** Part C: not made yet: there is no Pro plan to try it with, so a request fails with why and nothing is sent. */
+  provide() {
+    return { failed: 'ElevenLabs Images is not wired yet' }
+  },
 }

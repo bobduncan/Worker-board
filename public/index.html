@@ -29,6 +29,7 @@
       <button class="tab" type="button" data-tab="design">Design</button>
       <button class="tab" type="button" data-tab="bugs">Bugs</button>
       <button class="tab" type="button" data-tab="spending">Spending</button>
+      <button class="tab" type="button" data-tab="settings">Settings</button>
     </div>
     <span class="grow"></span>
     <button class="waits-button" id="waits-for-you" type="button" title="Open Needs your attention on the Overview" hidden></button>
@@ -362,11 +363,6 @@
         <h2 id="design-ideas-title">Ideas so far</h2>
         <div class="design-strip" id="design-strip"></div>
       </section>
-
-      <section class="panel design-providers" id="design-providers" aria-labelledby="design-providers-title" hidden>
-        <h2 id="design-providers-title">Asset providers</h2>
-        <ul class="provider-list" id="design-provider-list"></ul>
-      </section>
     </main>
   </div>
 
@@ -395,6 +391,17 @@
         <h2 id="bugs-list-title">Your reports so far</h2>
         <p class="muted" id="bugs-empty">None yet.</p>
         <ul class="bugs-list" id="bugs-list"></ul>
+      </section>
+    </main>
+  </div>
+
+  <div class="view is-single" id="view-settings" hidden>
+    <main class="settings-page">
+      <section class="panel providers-part" id="settings-providers" aria-labelledby="settings-providers-title">
+        <header class="providers-head"><h2 id="settings-providers-title">Who makes your assets?</h2><span class="providers-tag">Asset providers</span></header>
+        <p class="muted">One provider per kind. Workers, the Advisor and the board ask the chosen one. A choice saves once Verify passes.</p>
+        <p class="providers-note is-problem" id="providers-note" role="status" hidden></p>
+        <div class="providers-rows" id="providers-rows"></div>
       </section>
     </main>
   </div>
