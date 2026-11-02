@@ -44,8 +44,9 @@ import { holdsRefine, isBlockWritten } from './work/refineWait.mjs'
 import { recapsOf } from './work/recap.mjs'
 import { isHolding, pauseAnswer, pauseFacts } from './work/pause.mjs'
 import { reconcile } from './work/reconcile.mjs'
-import { effortPlan, runSettings } from './work/effort.mjs'
+import { EFFORTS, effortPlan, runSettings } from './work/effort.mjs'
 import { supervisorEffortWord, supervisorRun, supervisorSetting } from './work/supervisorEffort.mjs'
+import { isJudging } from './work/judgeWord.mjs'
 import { OWNER_LABEL, OWNER_SETTING, talkPartnerOf } from './talkPartner.mjs'
 import { enforcementReadiness } from './work/routing/capabilities.mjs'
 import { routingHolds } from './work/routing/assignments.mjs'
@@ -2207,7 +2208,10 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
   if (efforts) efforts.words = efforts.words.filter(word => chats.find(lane => lane.name === word.chat)?.onSequence !== true)
   // T7.5 (the person, 2026-10-28: "do B"): the Supervisor's chat is held at its own setting (`supervisorModel`, `supervisorEffort`:
   // Sonnet, low), by the same word and the same half-hour dedupe as a worker's: the plan above skips it, so its word is added.
-  const supervisorWants = supervisorSetting(config)
+  // Signals change 6 (B915, Addendum 7): while it judges incidents (a judge word in flight, or an incident waiting for one:
+  // work/judgeWord.mjs), at its judging effort (`supervisorJudgeEffort`, medium); its sweeps stay at its own (low).
+  const judging = workOk && supervisorLane !== null && supervisorLane !== undefined && isJudging({ items: raw.work.items, outbox: sent, to: supervisorLane.name, now })
+  const supervisorWants = judging ? { ...supervisorSetting(config), effort: EFFORTS.includes(config.supervisorJudgeEffort) ? config.supervisorJudgeEffort : 'medium' } : supervisorSetting(config)
   const supervisorWord = efforts === null ? null : supervisorEffortWord({ lane: supervisorLane, setting: supervisorWants, models: runSettings(config).models, sent, now, main: isBridgeMissing === true ? null : main?.name ?? null, prefix })
   if (supervisorWord !== null) efforts.words.push(supervisorWord)
   // The Product owner (2026-10-31): held at Opus, medium by code, by the same word and dedupe as the Supervisor's (src/talkPartner.mjs).

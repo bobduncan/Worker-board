@@ -39,7 +39,9 @@ test('commits naming a step: only as a word (B1 is not B12), newest first, befor
 
 test('each open item gets its facts: asked when and by whom, its step and last History, the commits since, its chat, the board\'s restart', async () => {
   const open = openItemsOf(items)
-  assert.deepEqual(open.map(one => one.id), ['Q1', 'Q2', 'Q3', 'X1'])
+  // Signals change 6: no incident in the check (the Supervisor judges those); its facts are still given when asked for one.
+  assert.deepEqual(open.map(one => one.id), ['Q1', 'Q2', 'Q3'])
+  open.push({ id: 'X1', kind: 'incident', title: 'Painter unknown', of: 'Painter', owner: null, at: NOW, state: 'open' })
   const built = Math.floor((NOW - 3_600_000) / 1000)
   const run = async args => (args.includes('--grep=B1') ? `abc1234\t2026-10-28\t${built}\tB1 built the hedge\n` : '')
   const lanes = [{ name: 'Garden · Painter', state: 'working', task: 'Gate', isRunning: true }]

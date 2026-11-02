@@ -5,6 +5,13 @@
 // (Review Focus 3): no sweep while no chat works and no step is under way, while the person pauses all, at a full limit,
 // or while the last sweep still runs. A missing chat (Review Focus 4) is said plainly, and the code rules run anyway.
 // What each sweep cost is read from the supervisor chat's transcript of that turn (`tokensOfTurn`).
+// Signals change 6 (B915, 2026-11-02, the lead's Addendum 5): never by the clock. Sweeps at ~216k tokens each found nothing
+// new since 28 Oct (X99): the code's own rules name what they can. A sweep starts only on a trigger: (a) an odd line of the
+// health summary that no rule owns and that is no info line (health.mjs `oddLines`), new since the last sweep; (b) Check now;
+// (c) the daily read, at the first look after 09:00 while work runs when no sweep ran in 24 hours; (d) an old limit reading
+// near a stop (a lookup, not a judgment). The tripped-rule trigger and the 4-hour net go (`supervisorSweepAtLeastHours` 0).
+// The word says its trigger and lists the unowned lines, so the chat reads those. One thing at a time with the chat: no sweep
+// while it judges incidents (index.mjs, the judge word).
 
 import { parseTail } from '../transcript.mjs'
 
@@ -21,36 +28,48 @@ export const TOKENS_AFTER_MS = 20_000
  */
 export const SWEEP_LONGEST_MS = 30 * MIN
 /**
- * Cheaper sweeps (the person, 2026-10-26): the note when a sweep by the clock is skipped because nothing odd is new: no
- * odd line and no tripped rule that the last sweep did not see.
+ * Cheaper sweeps (the person, 2026-10-26): the note when no sweep starts because nothing calls for one. Signals change 6: no
+ * odd line no rule owns that the last sweep did not see, no daily read due, no old limit reading near a stop.
  */
 export const NOTHING_ODD = 'nothing odd since the last sweep'
-/** The safety net when the setting `supervisorSweepAtLeastHours` is not given: hours of work without a sweep. */
-export const SWEEP_AT_LEAST_HOURS = 4
+/** Signals change 6 (Addendum 5): no safety net unless the setting `supervisorSweepAtLeastHours` names one. */
+export const SWEEP_AT_LEAST_HOURS = 0
+/** Signals change 6 (Addendum 5): the daily read, at the first look from this local hour on, when no sweep ran in DAILY_MS. */
+export const DAILY_HOUR = 9
+export const DAILY_MS = 24 * 60 * MIN
+/** Signals change 6: what started a sweep, in the words its word and the page say. */
+export const TRIGGER_WORDS = Object.freeze({
+  line: 'a new odd line that no rule owns',
+  check: 'Check now',
+  daily: 'the daily read',
+  limit: 'an old limit reading near a stop: look the limits up',
+  net: 'the safety net (supervisorSweepAtLeastHours)',
+})
 /** How many ended sweeps the supervisor keeps, for their tokens. */
 const KEPT = 50
 
-/** The facts of a sweep as its file holds them: `{ odd, tripped }` (lists of text), or null for anything else. */
+/**
+ * The facts of a sweep as its file holds them: `{ odd }`, the odd lines no rule owns (text), or null for anything else.
+ * Signals change 6: a file from before it may hold `tripped` too, which is no trigger any more and is left out.
+ */
 function factsOfFile(value) {
-  const list = items => (Array.isArray(items) ? items.filter(one => typeof one === 'string') : null)
-  const [odd, tripped] = [list(value?.odd), list(value?.tripped)]
-  return odd === null || tripped === null ? null : { odd, tripped }
+  const odd = Array.isArray(value?.odd) ? value.odd.filter(one => typeof one === 'string') : null
+  return odd === null ? null : { odd }
 }
 
 /**
  * What a look at the board holds that the sweep before did not see (`before`, the facts that sweep kept; `now`, the facts
- * now, as the runner's `facts()` gives them): `{ odd, rules }`, the odd lines that were not there, and the rules tripped
- * now that were not tripped then. A rule that stands tripped, as it did at the sweep, is nothing new; so is an odd line
- * that went, and a rule that tripped and was fine again by now (the board's own repairs are such).
+ * now, as the runner's `facts()` gives them): `{ odd }`, the unowned odd lines that were not there. A line that stands, as
+ * it did at the sweep, is nothing new; so is one that went. Signals change 6: a rule that tripped is no trigger: its rule
+ * owns what it found (the tripped-rule trigger goes, Addendum 5).
  */
 export function unseenSince(before, now) {
   const had = new Set(before.odd)
-  const stood = new Set(before.tripped)
-  return { odd: now.odd.filter(line => !had.has(line)), rules: now.tripped.filter(id => !stood.has(id)) }
+  return { odd: now.odd.filter(line => !had.has(line)) }
 }
 
 /** The facts of two looks together: what the sweep saw when it began and what stood when its turn ended (what it filed is seen). */
-const bothFacts = (a, b) => ({ odd: [...new Set([...a.odd, ...b.odd])], tripped: [...new Set([...a.tripped, ...b.tripped])] })
+const bothFacts = (a, b) => ({ odd: [...new Set([...a.odd, ...b.odd])] })
 
 const pad = n => String(n).padStart(2, '0')
 const clockOf = ms => `${pad(new Date(ms).getHours())}:${pad(new Date(ms).getMinutes())}`
@@ -113,7 +132,10 @@ function sweepOf(value) {
     read: value.read === true, tokens: number('tokens'), tokenParts: value.tokenParts !== null && typeof value.tokenParts === 'object' ? value.tokenParts : null,
     tokensRead: value.tokensRead === true, session: typeof value.session === 'string' ? value.session : null, from: number('from') ?? value.at,
     note: typeof value.note === 'string' ? value.note : null,
-    // Cheaper sweeps: what the sweep saw (`facts`: its odd lines and the rules tripped), so the next one by the clock waits for something new.
+    // Signals change 6: what started it (TRIGGER_WORDS' keys) and the unowned lines its word listed; null in a file from before.
+    trigger: typeof value.trigger === 'string' ? value.trigger : null,
+    lines: Array.isArray(value.lines) ? value.lines.filter(one => typeof one === 'string') : [],
+    // Cheaper sweeps: what the sweep saw (`facts`: the odd lines no rule owns), so the next one waits for a line that is new.
     // A file from before holds a hash: no facts known, so the next one runs.
     facts: factsOfFile(value.facts),
   }
@@ -121,26 +143,27 @@ function sweepOf(value) {
 const noteOf = value => (value !== null && typeof value === 'object' && Number.isFinite(value.at) && typeof value.why === 'string' ? { at: value.at, why: value.why, asked: value.asked === true } : null)
 
 /**
- * The sweep's runner. `every` how often in milliseconds (0: none, then only "Check now" sweeps); `workRuns()` true while a
+ * The sweep's runner. `every` the fewest milliseconds between two sweeps it starts by itself (0: none, then only "Check now"
+ * sweeps); `workRuns()` true while a
  * chat works or a step is under way; `paused()` while the person pauses all (or resumes); `atLimit()` while a limit is
  * full; `limitsOld()` (B640) true while a limit's newest reading is over `oldReadingMinutes` old and near a stop (X47, X55, X56: an old
  * low reading changes no decision), which the sweep's chat looks up with get_usage: the sweep is then not skipped as "nothing odd" (B645: a pause holds the sweep word until the resume, and
  * nothing spends in a pause, so none runs for it then); `chat()` how the board sees the supervisor's chat (`whyNoSweep`); `sweeping()` true while its sweep word is on
- * its way or its chat runs a turn; `wake({ subject })` sends the sweep word: `{ ok, session, note }` or `{ ok: false,
+ * its way or its chat runs a turn; `wake({ subject, trigger, lines })` sends the sweep word: `{ ok, session, note }` or `{ ok: false,
  * why }`; `tokens({ session, from })` what the turn cost (`tokensOfTurn`), or null; `memory` `{ load(), save(value) }` its
- * own file, so a restart neither sweeps again at once nor forgets a sweep that runs; `facts()` (cheaper sweeps) what the
- * board holds that is odd (index.mjs): `{ odd, tripped }`, the odd lines of the health summary without times or minute
- * counts, and the ids of the rules tripped at their last run; or null. A sweep by the clock runs only when something odd
- * is new since the last sweep (`unseenSince`: an odd line it did not have, a rule tripped that was not then; what the sweep
- * itself filed is seen at its turn's end), else it is skipped ("nothing odd since the last sweep"); and
- * whatever the board looks like at least once in `atLeast` milliseconds (the setting `supervisorSweepAtLeastHours`, 4)
- * while work runs. Check now sweeps anyway. A sweep open for SWEEP_LONGEST_MS has ended, whatever `sweeping()` says.
+ * own file, so a restart neither sweeps again at once nor forgets a sweep that runs; `facts()` what the board holds that
+ * is odd and that no rule owns (index.mjs, health.mjs `oddLines`): `{ odd }`, those lines without times or minute counts;
+ * or null. Signals change 6: a sweep starts by itself only on a trigger (`triggerOf`: a new unowned odd line, the daily
+ * read, an old limit reading near a stop; the safety net only when `atLeast`, the setting `supervisorSweepAtLeastHours`,
+ * names one), else it is skipped ("nothing odd since the last sweep"); never while `judging()` (the chat judges incidents:
+ * its judge word due or on its way). `hourOf(ms)` the local hour, for the daily read. Check now sweeps anyway, unless the
+ * chat judges. A sweep open for SWEEP_LONGEST_MS has ended, whatever `sweeping()` says.
  * Answers `{ tick(now), now({ subject, at }), heard(call), view() }`: `tick` sweeps when one is due; `now` is "Check now":
  * `{ started, why, note }`; `heard` takes the supervisor chat's work calls (health read, incident filed, turn ended);
  * `view()` is `{ last, note, recent }`: the last sweep, why the newest sweep did not run (when that is newer), and the
  * ended sweeps kept.
  */
-export function sweepRunner({ every, workRuns, paused, atLimit, limitsOld = async () => false, chat, sweeping, wake, tokens, memory = null, facts = async () => null, atLeast = SWEEP_AT_LEAST_HOURS * 60 * MIN }) {
+export function sweepRunner({ every, workRuns, paused, atLimit, limitsOld = async () => false, chat, sweeping, wake, tokens, memory = null, facts = async () => null, atLeast = SWEEP_AT_LEAST_HOURS * 60 * MIN, judging = async () => false, hourOf = ms => new Date(ms).getHours() }) {
   let last = null
   let note = null
   let recent = []
@@ -179,7 +202,22 @@ export function sweepRunner({ every, workRuns, paused, atLimit, limitsOld = asyn
     recent = [...recent, last].slice(-KEPT)
     return true
   }
-  /** The board's facts now (`facts()`: `{ odd, tripped }`), or null when they cannot be read (then nothing is skipped). */
+  /**
+   * Signals change 6 (Addendum 5): what starts a sweep now, `{ trigger, lines }`, or null for none: an old limit reading near
+   * a stop; an unowned odd line the last sweep did not see (all of them before the first sweep); the daily read, from
+   * DAILY_HOUR local on when no sweep ran in DAILY_MS; the safety net, only when `atLeast` names one.
+   */
+  async function triggerOf(now, seen) {
+    if (await limitsOld()) return { trigger: 'limit', lines: seen?.odd ?? [] }
+    if (seen !== null) {
+      const news = last?.facts == null ? seen.odd : unseenSince(last.facts, seen).odd
+      if (news.length > 0) return { trigger: 'line', lines: news }
+    }
+    if (hourOf(now) >= DAILY_HOUR && (last === null || now - last.at >= DAILY_MS)) return { trigger: 'daily', lines: seen?.odd ?? [] }
+    if (atLeast > 0 && last !== null && now - last.at >= atLeast) return { trigger: 'net', lines: seen?.odd ?? [] }
+    return null
+  }
+  /** The board's facts now (`facts()`: `{ odd }`, the odd lines no rule owns), or null when they cannot be read. */
   const factsNow = async () => {
     try {
       return factsOfFile(await facts())
@@ -187,8 +225,8 @@ export function sweepRunner({ every, workRuns, paused, atLimit, limitsOld = asyn
       return null
     }
   }
-  async function start(now, { asked, subject, seen }) {
-    const woke = await wake({ subject })
+  async function start(now, { asked, subject, seen, trigger, lines = [] }) {
+    const woke = await wake({ subject, trigger, lines })
     if (woke?.ok !== true) {
       note = { at: now, why: `the sweep word could not be sent (${woke?.why ?? 'no answer'})`, asked }
       await save()
@@ -196,7 +234,7 @@ export function sweepRunner({ every, workRuns, paused, atLimit, limitsOld = asyn
     }
     // The review: the sweep before it is kept with its tokens before it gives way (a Check now right after its end).
     await readTokens(now, true)
-    last = { at: now, asked, subject, ended: null, how: null, found: 0, read: false, tokens: null, tokenParts: null, tokensRead: false, session: woke.session ?? null, from: now, note: woke.note ?? null, facts: seen ?? null }
+    last = { at: now, asked, subject, ended: null, how: null, found: 0, read: false, tokens: null, tokenParts: null, tokensRead: false, session: woke.session ?? null, from: now, note: woke.note ?? null, facts: seen ?? null, trigger, lines }
     await save()
     return { started: true, why: null, note: last.note }
   }
@@ -219,21 +257,20 @@ export function sweepRunner({ every, workRuns, paused, atLimit, limitsOld = asyn
       }
       // A sweep that runs although this board forgot it (another board process asked it) is not asked again.
       if (await sweeping()) return null
-      // Cheaper sweeps: a sweep by the clock costs a turn of a chat, so it runs only for something odd that the last one did
-      // not see (an odd line, a rule that tripped since), for an old reading near a stop (B640: the lookup is what changes
-      // it), and at least once in `atLeast` as a safety net. The minutes and states that change all day are no reason.
+      // Signals change 6: one thing at a time with the chat: while it judges incidents (its judge word due or on its way), no sweep.
+      if (await judging()) return null
+      // Signals change 6 (Addendum 5): never by the clock: a sweep costs a turn of a chat (~216k tokens), so it starts only on
+      // a trigger (`triggerOf`). The minutes and states that change all day are no reason.
       const seen = await factsNow()
-      if (seen !== null && last?.facts != null && !(now - last.at >= atLeast) && !(await limitsOld())) {
-        const news = unseenSince(last.facts, seen)
-        if (news.odd.length === 0 && news.rules.length === 0) {
-          if (note?.why !== NOTHING_ODD) {
-            note = { at: now, why: NOTHING_ODD, asked: false }
-            await save()
-          }
-          return null
+      const due = await triggerOf(now, seen)
+      if (due === null) {
+        if (note?.why !== NOTHING_ODD) {
+          note = { at: now, why: NOTHING_ODD, asked: false }
+          await save()
         }
+        return null
       }
-      return start(now, { asked: false, subject: null, seen })
+      return start(now, { asked: false, subject: null, seen, ...due })
     },
     /** "Check now": a sweep at once, or why none runs (Review Focus 4). */
     async now({ subject = null, at }) {
@@ -244,12 +281,14 @@ export function sweepRunner({ every, workRuns, paused, atLimit, limitsOld = asyn
         ?? ((await atLimit()) ? 'a limit of the plan is full' : null)
         ?? (isOpen() ? `the sweep asked at ${clockOf(last.at)} still runs` : null)
         ?? ((await sweeping()) ? 'a sweep still runs' : null)
+        ?? ((await judging()) ? 'the Supervisor judges incidents now: press again once that turn ended' : null)
       if (why !== null) {
         note = { at, why, asked: true }
         await save()
         return { started: false, why, note: null }
       }
-      return start(at, { asked: true, subject, seen: await factsNow() })
+      const seen = await factsNow()
+      return start(at, { asked: true, subject, seen, trigger: 'check', lines: seen?.odd ?? [] })
     },
     /**
      * The supervisor chat's work calls while a sweep runs: `{ action, ok, session, since, at }`. A health read and each

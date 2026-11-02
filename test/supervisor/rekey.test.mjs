@@ -17,7 +17,7 @@ import { readStore, writeStore } from '../../src/work/store.mjs'
 
 const MIN = 60_000
 const NOW = new Date(2026, 10, 2, 10, 31).getTime()
-const ROLES = { Lead: 'main', Painter: 'worker', Partner: 'advisor' }
+const ROLES = { Lead: 'main', Painter: 'worker', Partner: 'advisor', Watcher: 'supervisor' }
 
 async function store(t) {
   const dir = await mkdtemp(join(tmpdir(), 'rekey-'))
@@ -73,7 +73,8 @@ test('rekeyPlan: the envelope-id form is re-keyed to the chat and the envelope i
 test('rekeyPlan: only standing incidents; a fixed or closed one under the old form is left alone; the action refuses every role but the board', async t => {
   const s = await store(t)
   await recordFindings([oldFinding('handover-unanswered 83c1a7be1feab83b', 'Painter')], { work: s.board })
-  await s.chat('Partner', { action: 'drop', id: 'X1', why: 'handled' })
+  // Signals change 6: the Supervisor closes an incident.
+  await s.chat('Watcher', { action: 'drop', id: 'X1', why: 'handled' })
   assert.deepEqual(rekeyPlan({ items: await s.items(), outbox: [envelope('83c1a7be1feab83b', 'Painter', 0)] }), { moves: [], closes: [] })
   assert.deepEqual(STANDING, ['open', 'came back', 'with the advisor', 'with the supervisor', 'fix'])
   // Signals change 6 (B915): the four keys made stable carry their entries too.

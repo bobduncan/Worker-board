@@ -76,7 +76,9 @@ const ROLES = {
   block: ['main', 'worker', 'person'],
   // B465: the board's sync check unblocks a step whose blocker is in review.
   unblock: ['main', 'worker', 'person', 'server'],
-  new: ['main', 'worker', 'advisor', 'person'],
+  // Signals change 6 (B915, Addendum 7): the Supervisor files the fix step of an incident it judged a fault (no `what`: the
+  // Advisor refines it as any new step).
+  new: ['main', 'worker', 'advisor', 'person', 'supervisor'],
   refine: ['advisor', 'main'],
   // B356: the result check, by a helper the partner runs. T9.1.1: a step's by the worker that holds its Quality Assurance task
   // (the gate in `checked`); a goal's re-check is the partner's; the board files its own (the person's answers, `server`).
@@ -91,10 +93,10 @@ const ROLES = {
   // when the partner did not answer in time. Autopilot (2026-10-31): and the main chat, an ask routed to it (Route: main).
   'partner-answer': ['advisor', 'main'],
   escalate: ['advisor', 'main', 'server'],
-  // The supervisor (spec 2026-10-24): an incident is filed by the board's watch rules or the supervisor chat's sweep; the
-  // partner names the step that fixes it.
+  // The supervisor (spec 2026-10-24): an incident is filed by the board's watch rules or the supervisor chat's sweep. Signals
+  // change 6 (B915, Addendum 7): the Supervisor, not the partner, judges it and names the step that fixes it.
   incident: ['server', 'supervisor'],
-  'incident-fix': ['advisor'],
+  'incident-fix': ['supervisor'],
   // The supervisor's Task 5: the board's health summary, for the supervisor chat's sweep (src/supervisor/health.mjs).
   health: ['supervisor'],
   // B775: the check's verdicts are the partner's alone; the person starts the check and closes what they tick.
@@ -107,9 +109,11 @@ const ROLES = {
 /**
  * The supervisor: what its chat may do. It reads, and files incidents; it never changes anything else (spec, section 5).
  * Its Workers mod also tells the board when a turn of it ended (`turn-ended`) and asks for its next step (`pull`, which
- * only reads), as for every chat: the clear after each sweep goes by them.
+ * only reads), as for every chat: the clear after each sweep goes by them. Signals change 6 (B915, Addendum 7): it judges the
+ * incidents: closes one that is no fault (`drop` of an X id only), files a fault's fix step (`new` "Fix of X<n>", no `what`)
+ * and names it (`incident-fix`).
  */
-const SUPERVISOR_MAY = new Set(['incident', 'turn-ended', 'pull', 'asset', ...READS])
+const SUPERVISOR_MAY = new Set(['incident', 'incident-fix', 'new', 'drop', 'turn-ended', 'pull', 'asset', ...READS])
 /**
  * The Product owner (2026-10-31, roles/product-owner.md): what its chat may do. It talks with the person: the focus's drafts
  * (definition-draft, how-draft), a question of a talk the person can no longer reach asked of its goal (ask), its notes, its asks
@@ -248,7 +252,9 @@ async function act(body, ctx) {
     }
   }
   if (PERSON.has(action) && role !== 'person') return refuse(403, 'Only the person does that, on the board.')
-  if (role === 'supervisor' && !SUPERVISOR_MAY.has(action)) return refuse(403, 'The supervisor chat only reads and files incidents (work incident).')
+  if (role === 'supervisor' && !SUPERVISOR_MAY.has(action)) return refuse(403, 'The supervisor chat reads, files incidents and judges them (work incident, drop X<n>, new "Fix of X<n>", incident-fix), nothing else.')
+  // Signals change 6: it closes incidents only; a step's drop stays the main chat's and the person's.
+  if (role === 'supervisor' && action === 'drop' && !/^X\d+$/.test(line(body.id, 20))) return refuse(403, 'The supervisor chat drops only an incident (X<n>), never a step.')
   if (SERVER.has(action) && role !== 'server') return refuse(403, 'Only the board does that.')
   if (ROLES[action] !== undefined && !ROLES[action].includes(role)) return refuse(403, `Only ${ROLES[action].join(' or ')} ${action === 'new' ? 'makes a step' : `may ${action}`}.`)
   if (GOAL_MAP.has(action)) return goalDraft(body, ctx)
@@ -269,7 +275,7 @@ async function act(body, ctx) {
   const routed = await routingAction(body, w)
   if (routed !== null) return routed
   if (action === 'next') return next(body, w)
-  if (action === 'list') return list(w)
+  if (action === 'list') return list(w, body)
   if (action === 'pause-state') return { ok: true, result: pauseStateOf(w) }
   const done = await CHANGE[action](body, w)
   // B317: a turn's end that filed the asks of the chat's "For you" block shows them on the view, as an ask does.
@@ -490,8 +496,17 @@ function qaWords(item, items) {
   ].join('\n')
 }
 
-/** `list`: every item in one line, and as fields for the page. */
-function list(w) {
+/**
+ * `list`: every item in one line, and as fields for the page. Signals change 6 (B915, Addendum 7): with an incident's `id`, that
+ * incident's whole record (its evidence, counts and History), so the Supervisor reads it through work, never a file.
+ */
+function list(w, body = {}) {
+  const one = line(body?.id, 20)
+  if (/^X\d+$/.test(one)) {
+    const item = w.store.items.get(one)
+    if (item === undefined || kindOf(item) !== 'incident') return refuse(404, `${one}: no such incident in the store.`)
+    return { ok: true, result: { id: one, text: serializeItem(item), changed: false } }
+  }
   const items = [...w.store.items.values()].sort((a, b) => byId(valueOf(a, 'Id') ?? '', valueOf(b, 'Id') ?? ''))
   const rows = items.map(item => ({
     id: valueOf(item, 'Id'), kind: kindOf(item), state: stateOf(item), owner: valueOf(item, 'Owner'),
@@ -2761,6 +2776,10 @@ async function make(call, w) {
   if ((body.kind ?? 'step') !== 'step') return refuse(400, 'Only a step is made with "new"; an ask with "ask", a note with "note".')
   const title = line(body.title, 200)
   if (title === '') return refuse(400, 'Give the step a title.')
+  // Signals change 6 (B915, Addendum 7): the Supervisor files only an incident's fix, "Fix of X<n>: ...", and never its what:
+  // the step goes to the Advisor's refine as any new step (a what would make it refined at once).
+  if (w.role === 'supervisor' && !/^Fix of X\d+/.test(title)) return refuse(403, 'The supervisor chat files only the fix of an incident: a title "Fix of X<n>: ...".')
+  if (w.role === 'supervisor' && body.what !== undefined) return refuse(400, 'Leave out "what": the Advisor refines the fix step as any new step.')
   const names = w.store.activities.map(one => one.name)
   const wanted = line(body.activity, 120).toLowerCase()
   const index = w.store.activities.findIndex(one => one.name.toLowerCase() === wanted)
@@ -2841,15 +2860,15 @@ function withStandard(body) {
   return { ...body, standard: all[at].trim().replace(/^(?:[-*]\s+)?Standard:\s*/i, ''), what: all.filter((one, index) => index !== at) }
 }
 
-/** Fix first: who marks a step as a fix for the worker board (`priority: 'fix'` on new and queue). */
-const FIX_ROLES = ['main', 'advisor', 'person']
+/** Fix first: who marks a step as a fix for the worker board (`priority: 'fix'` on new and queue). Signals change 6: and the Supervisor, an incident's fix. */
+const FIX_ROLES = ['main', 'advisor', 'person', 'supervisor']
 
 /** Fix first: the call's `priority`: `{ ok, fix }`, or a refusal (another value; a chat that may not mark it). */
 function priorityOf(body, w) {
   const value = line(body.priority, 20).toLowerCase()
   if (value === '') return { ok: true, fix: false }
   if (value !== 'fix') return refuse(400, '"priority" is fix, or left out.')
-  if (!FIX_ROLES.includes(w.role)) return refuse(403, 'Only the main chat, the partner or the person marks a step as a board fix.')
+  if (!FIX_ROLES.includes(w.role)) return refuse(403, 'Only the main chat, the partner, the Supervisor or the person marks a step as a board fix.')
   return { ok: true, fix: true }
 }
 
@@ -3161,20 +3180,21 @@ async function askForYou(value, since, w) {
 }
 
 /**
- * B685: the partner closes an incident that is a false alarm or was handled already (`work drop X<n>` with why): State
- * closed, Since now, the why and who in its History. Only one open, came back or with the advisor; one being fixed or
- * fixed has its fix step to answer for it.
+ * B685: an incident that is a false alarm or was handled already is closed (`work drop X<n>` with why): State closed, Since
+ * now, the why and who in its History. Only one open, came back or with the supervisor (or, from before signals change 6, with
+ * the advisor); one being fixed or fixed has its fix step to answer for it. Signals change 6 (B915, Addendum 7): the Supervisor
+ * closes it, not the partner (one owner per alarm; the Advisor is refused).
  */
 async function closeIncident(body, w, { person = false } = {}) {
-  // B775: the person closes one too, from the obsolete check's ticks (`obsoleteClose`); `drop` stays the partner's.
-  if (w.role !== 'advisor' && !(person && w.role === 'person')) return refuse(403, 'Only the partner closes an incident.')
+  // B775: the person closes one too, from the obsolete check's ticks (`obsoleteClose`); `drop` is the Supervisor's.
+  if (w.role !== 'supervisor' && !(person && w.role === 'person')) return refuse(403, 'Only the Supervisor closes an incident.')
   const found = await load(body.id, w, { kind: ['incident'] })
   if (!found.ok) return found
   const id = valueOf(found.item, 'Id')
   const why = line(body.why, 300)
   if (why === '') return refuse(400, 'Say why in "why".')
   const state = stateOf(found.item)
-  if (!['open', 'came back', 'with the advisor'].includes(state)) {
+  if (!['open', 'came back', 'with the supervisor', 'with the advisor'].includes(state)) {
     return refuse(409, state === 'closed' ? `${id} is closed already.` : `${id} is ${state === 'fix' ? `being fixed by ${valueOf(found.item, 'Fix') ?? 'its fix step'}` : state}: its fix step answers for it, not a close.`)
   }
   const next = ordered(said(put(put(copy(found.item), 'State', 'closed'), 'Since', stamp(w.now)), w, `closed: ${why}`))
@@ -4126,12 +4146,22 @@ async function incident(body, w) {
   const title = line(body.title)
   if (title === '') return refuse(400, 'Say what was found in "title", in one line.')
   const subject = line(body.subject, 80)
-  const key = line(body.key, 200) || (isSweep ? line(`sweep ${subject || 'board'}: ${title}`.toLowerCase(), 200) : '')
-  if (key === '') return refuse(400, 'Give the finding\'s "key": the same key counts the same incident.')
+  // Signals change 6 (B915, Addendum 6): the sweep's fallback key ("sweep <subject>: <title>") is gone: a finding of the sweep
+  // names its own key and the rule that could catch it next time, which the lead turns into a code rule.
+  const key = line(body.key, 200)
+  if (key === '') return refuse(400, isSweep ? 'Give the finding a "key" of your own (the same key counts the same incident; search the rule list first).' : 'Give the finding\'s "key": the same key counts the same incident.')
   const evidence = line(body.evidence)
   const source = isSweep ? 'sweep' : line(body.source ?? body.rule, 60) || 'sweep'
   const wanted = isSweep ? line(body.rule) : ''
+  if (isSweep && wanted === '') return refuse(400, 'Say in "rule" the rule that could catch it next time (roles/supervisor.md).')
   const found = incidentOfKey(w.store.items, key)
+  // B915 4b.4 (X74, X84, X85, X92, X94: the sweep filed what a rule had missed under that rule's own key): a key whose first
+  // word is a live rule's (`w.ruleKeys`: the rule ids, fix-dropped, rule-failed) is the rule's to file, refused in one line that
+  // says to file the rule's miss under a key of its own instead; a key the sweep filed before counts as today (B571).
+  const prefix = key.split(' ')[0]
+  if (isSweep && Array.isArray(w.ruleKeys) && w.ruleKeys.includes(prefix) && (found === undefined || valueOf(found, 'Source') !== 'sweep')) {
+    return refuse(409, `"${key}" is the rule ${prefix}'s key: a code rule files it. If the rule missed it, file its miss under a key of your own, "rule-miss ${prefix} ${subject || 'board'}", with how the rule must change in "rule".`)
+  }
   if (found === undefined) {
     const id = await nextId(w.dir, 'X', w.fs)
     const head = new Map([
@@ -4204,8 +4234,9 @@ function oldCaseOf(item, since, w) {
 }
 
 /**
- * The supervisor: the partner names the step that fixes an incident (`id` X<n>, `fix` B<n>): Fix and the state "fix";
- * the board marks it fixed once that step is done (`incidentsFixed`).
+ * The supervisor: the Supervisor (signals change 6; the partner before it) names the step that fixes an incident (`id` X<n>,
+ * `fix` B<n>): Fix and the state "fix"; the board marks it fixed once that step is done and the incident is not seen for the
+ * gone time (`incident-gone`; a sweep's on its done step alone, `incidentsFixed`).
  */
 async function incidentFix(body, w) {
   const fix = line(body.fix, 20)
@@ -4224,20 +4255,24 @@ async function incidentFix(body, w) {
 }
 
 /**
- * The supervisor's Part 2 (Task 7): the board handed an incident that opened or came back to the partner (its word is in
- * the outbox): it is "with the advisor" now, until the partner names its fix (`incident-fix`). One in another state is
- * left as it is. `to` the partner's name, for the History line.
+ * The supervisor's Part 2 (Task 7): the board handed an incident that opened or came back to the Supervisor (signals change 6:
+ * its judge word arrived in the Supervisor's chat): it is "with the supervisor" now, until the Supervisor closes it or names
+ * its fix (`incident-fix`). One in another state is left as it is. `to` the Supervisor's name, for the History line.
+ * Signals change 6's migration (B915, Addendum 9): `migrate` moves one "with the advisor" (the state before the change) to
+ * "with the supervisor" with one line; a second run finds none.
  */
 async function incidentTold(body, w) {
   const loaded = await load(line(body.id, 20), w, { kind: ['incident'] })
   if (!loaded.ok) return loaded
   const id = valueOf(loaded.item, 'Id')
   const state = stateOf(loaded.item)
-  if (state !== 'open' && state !== 'came back') return { ok: true, result: { text: `${id} is ${state}: nothing to hand on.`, id, changed: false } }
+  const isMove = body.migrate === true && state === 'with the advisor'
+  if (state !== 'open' && state !== 'came back' && !isMove) return { ok: true, result: { text: `${id} is ${state}: nothing to hand on.`, id, changed: false } }
   const to = line(body.to, 80)
-  const next = ordered(said(put(put(copy(loaded.item), 'State', 'with the advisor'), 'Since', stamp(w.now)), w, `handed to ${to === '' ? 'the partner' : to}`))
+  const why = isMove ? 'with the supervisor now: the Supervisor judges incidents, not the Advisor (signals change 6)' : `handed to ${to === '' ? 'the Supervisor' : to}`
+  const next = ordered(said(put(put(copy(loaded.item), 'State', 'with the supervisor'), 'Since', stamp(w.now)), w, why))
   const done = await save(next, loaded.text, w)
-  return done.ok ? changed(next, `${id}: with the advisor.`) : done
+  return done.ok ? changed(next, `${id}: with the supervisor.`) : done
 }
 
 /**

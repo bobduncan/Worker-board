@@ -74,7 +74,8 @@ test('X116: a block ended by its step going done a minute ago is no case; 30 min
   assert.match(late[0].evidence, /the block by B674 ended at 12:54/)
   // The repair that tells the main chat counts the same way.
   assert.deepEqual(repairs(store, []), [])
-  assert.equal(repairs(store, [], NOW + 31 * MIN).length, 1)
+  // Signals change 6 (Addendum 4): the repair fix-dropped is retired: no word to the main chat, ever; the watch rule files it.
+  assert.deepEqual(repairs(store, [], NOW + 31 * MIN), [])
   // An unblock before the drop changes nothing: counted from the drop.
   const early = items(reviewed('B821', 170, [`- ${stamp(ago(150))} server: no longer blocked by B674: done`, failed(127, 'B854')], { 'Fix of': 'B689' }), fixStep('B854', 'B821', 'dropped', 98), recapStep)
   assert.equal(reviewWaitOf(early.get('B821'), early).since, ago(98))

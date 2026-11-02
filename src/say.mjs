@@ -680,7 +680,7 @@ export const RESUME_STEP = 'resume-step'
  * a round of the board's clock, the main chat's start of a closed chat, and (2026-10-26) the resume of a worker's step.
  * The rest (a pause's resume, a line typed in a talk) is stale in minutes.
  */
-export const waitsLong = command => command === 'start' || command === 'wake' || command === 'round' || command === RESUME_STEP || isPartnerWord(command)
+export const waitsLong = command => command === 'start' || command === 'wake' || command === 'round' || command === RESUME_STEP || command === 'judge' || isPartnerWord(command)
 
 /**
  * T9.4: whether the board wakes a chat for this word when the chat is not running. Every word to the main chat is an
@@ -699,8 +699,9 @@ export const isWakeWord = (message, state) => {
   // Signals change 3: the hand-over's "go on" line to a stopped holder stands in for RESUME_STEP: it wakes its chat too.
   // Signals change 4 (decision 2, 2026-11-02: B855's envelope to an asleep Worker 2 woke nobody): every hand-over
   // envelope (a task, a resume, a restart, a clear) is a wake word, not only the resume.
+  // Signals change 6 (B915): the judge word to the Supervisor's chat wakes it too, as the incident word to the partner did.
   return (main !== null && message.to === main) || command === null || isPartnerWord(command) || command === 'sweep' || command === RESUME_STEP
-    || command === 'handover'
+    || command === 'handover' || command === 'judge'
 }
 
 /**
@@ -964,39 +965,53 @@ export const workWords = (to, id, text = `work: ${id} is yours; run work next`) 
  * chat, typed as it is (the board's own line, bridge.mjs `messageText`): read the health summary, file each oddity, end
  * the turn. `subject` the worker "Check now" was pressed for in its menu, or null; `job` where its job is written.
  */
-export const sweepWords = (to, { subject = null, job }) => ({
+export const sweepWords = (to, { subject = null, job, trigger = null, lines = [] }) => ({
   to, ask: null, step: null, title: null, version: null, verdict: null, command: 'sweep', about: subject ?? 'board',
+  // Signals change 6 (B915, Addendum 5): the word names what started it and lists the odd lines no rule owns, so the chat
+  // reads those, not everything.
+  ...(trigger === null ? {} : { trigger }),
   text: [
-    `sweep: run work health, file each oddity with work incident (evidence and the rule that could catch it), then end your turn${subject === null ? '' : ` (about ${plainLine(subject)})`}`,
+    `sweep${trigger === null ? '' : ` (${SWEEP_TRIGGERS[trigger] ?? trigger})`}: run work health, file each oddity with work incident (its own key, evidence and the rule that could catch it), then end your turn${subject === null ? '' : ` (about ${plainLine(subject)})`}`,
+    ...(lines.length === 0 ? [] : ['The odd lines no rule owns:', ...lines.slice(0, 20).map(line => `- ${wordsLine(line, 240)}`)]),
     `Your job: ${job}`,
   ].join('\n'),
 })
+
+/** Signals change 6: what started a sweep, in the words of its word (sweep.mjs TRIGGER_WORDS). */
+const SWEEP_TRIGGERS = {
+  line: 'a new odd line that no rule owns', check: 'Check now', daily: 'the daily read',
+  limit: 'an old limit reading near a stop: look the limits up', net: 'the safety net',
+}
 
 /** One line of a chat's or the board's words, at most `max` characters. */
 const wordsLine = (value, max = 300) => String(value ?? '').replace(/\s+/g, ' ').trim().slice(0, max)
 
 /**
- * The supervisor's Part 2 (Task 7, spec 2026-10-24, "To you and to the Advisor"): the board's word to the partner about an
- * incident that opened or came back (`incident`, as supervisor/incidents.mjs `incidentsOf` gives it): its id and what
- * was found, whether it is new or came back, its count, where it came from (a rule's id, or the sweep), what it is
- * about, its evidence and the rule that could catch it; the partner decides a tweak or a structural fix and files the
- * fix step (roles/partner.md, "Incidents"). It goes through the outbox like every board word, and waits there for a
- * partner that does not run (the main chat is asked to start it, `wakeFor`).
+ * Signals change 6 (B915, Addendum 7, 4b.1): the board's one word to the Supervisor's chat (`to`) that asks it to judge every
+ * incident that waits (`incidents`, as supervisor/incidents.mjs `incidentsOf` gives them): each with its id and what was
+ * found, new or came back, its count, its source, subject, evidence and the rule wanted; then its job and the effort the
+ * board runs it at for this turn (`effort`, config `supervisorJudgeEffort`; `isSet` false when the setting was not read back
+ * before the word went: the word says so, 6c). Its own kind (`judge`), so the sweep's bookkeeping never reads it as a sweep;
+ * `incidents` on the record names the ids it lists (the board's one fact for "one in flight", work/judgeWord.mjs).
  */
-export function incidentWords(to, incident, job) {
-  const count = Number.isFinite(incident.count) && incident.count > 0 ? incident.count : 1
-  const isBack = incident.state === 'came back'
+export function judgeWords(to, incidents, { job, effort = 'medium', isSet = true }) {
+  const lines = incidents.map(incident => {
+    const count = Number.isFinite(incident.count) && incident.count > 0 ? incident.count : 1
+    const state = incident.state === 'came back' ? `came back${incident.fix ? ` after its fix ${incident.fix}` : ''}` : incident.state === 'open' ? 'new' : 'not judged yet'
+    return [
+      `- ${incident.id} ${wordsLine(incident.title, 200)}`,
+      `  ${state}; seen ${count === 1 ? 'once' : `${count} times`}; source: ${incident.source === 'sweep' ? 'the sweep' : `the rule ${wordsLine(incident.source, 60)}`}; subject: ${wordsLine(incident.subject, 80) || 'the board'}`,
+      `  evidence: ${wordsLine(incident.evidence, 240) || 'none given'}${incident.ruleWanted ? `; rule wanted: ${wordsLine(incident.ruleWanted, 160)}` : ''}`,
+    ].join('\n')
+  })
   return {
-    to, ask: null, step: null, title: null, version: null, verdict: null, command: 'incident', about: incident.id,
+    to, ask: null, step: null, title: null, version: null, verdict: null, command: 'judge', kind: 'judge', about: incidents.map(one => one.id).join(' '),
+    incidents: incidents.map(one => one.id),
     text: [
-      `incident: ${incident.id} ${wordsLine(incident.title, 200)}`,
-      `State: ${isBack ? `came back after its fix${incident.fix ? ` ${incident.fix}` : ''}` : 'new'}`,
-      `Count: ${count} (${count === 1 ? 'seen once' : `seen ${count} times`})`,
-      `Source: ${incident.source === 'sweep' ? 'sweep (the supervisor\'s chat)' : `the rule ${wordsLine(incident.source, 60)}`}`,
-      `Subject: ${wordsLine(incident.subject, 80) || 'the board'}`,
-      `Evidence: ${wordsLine(incident.evidence) || 'none given'}`,
-      ...(incident.ruleWanted ? [`Rule wanted: ${wordsLine(incident.ruleWanted)}`] : []),
-      `Your job: ${job}, "Incidents"`,
+      `judge: ${incidents.length === 1 ? 'one incident waits' : `${incidents.length} incidents wait`} for your judgment: a false alarm or no fault left (work drop X<n> with why), or a fault (work new "Fix of X<n>: ..." with priority fix, then work incident-fix X<n> with that step); then end your turn`,
+      ...lines,
+      `Judge at ${effort} effort${isSet ? '' : ' (the board could not set it before this word: say so in your first line)'}.`,
+      `Your job: ${job}, "Judging incidents"`,
     ].join('\n'),
   }
 }

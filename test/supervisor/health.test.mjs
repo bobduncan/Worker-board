@@ -461,7 +461,7 @@ test('work health answers the summary to the supervisor chat, and refuses every 
   assert.equal((await s.as('person', { action: 'health' })).status, 403)
   // The supervisor chat reads and files incidents; it changes nothing else.
   assert.equal((await s.chat('Watcher', { action: 'note', to: 'main', text: 'hello' })).status, 403)
-  assert.equal((await s.chat('Watcher', { action: 'incident', title: 'Digger works with no step for an hour', subject: 'Digger', evidence: 'working since 10:00, card empty', rule: 'a worker working with no step for 30 min' })).ok, true)
+  assert.equal((await s.chat('Watcher', { action: 'incident', key: 'working-without-step Digger', title: 'Digger works with no step for an hour', subject: 'Digger', evidence: 'working since 10:00, card empty', rule: 'a worker working with no step for 30 min' })).ok, true)
 })
 
 test('the review: the supervisor\'s chat files no ask through a "For you" block at its turn\'s end; a worker\'s is filed', async t => {

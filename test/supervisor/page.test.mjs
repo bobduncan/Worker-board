@@ -586,10 +586,10 @@ test('the demo shows the section: every rule of the supervisor, three tripped to
     ['X1', 'fix', 'B532'], ['X2', 'fix', 'B532'], ['X3', 'fix', 'B532'], ['X4', 'fix', 'B541'], ['X5', 'fix', 'B541'], ['X6', 'fix', 'B541'],
     ['X7', 'fix', 'B542'], ['X8', 'fix', 'B543'], ['X9', 'fix', 'B544'], ['X10', 'open', null],
   ])
-  // Five fix cards (the step being built first, as it moved last) and the new one still on its way to the Advisor.
+  // Five fix cards (the step being built first, as it moved last) and the new one still on its way to the Supervisor (signals change 6).
   assert.deepEqual(view.cards.map(card => [card.key, card.state.text, card.incidents.map(one => one.id).join(' ')]), [
     ['B532', 'Worker 5 \u00b7 building', 'X1 X2 X3'], ['B541', 'refined \u00b7 on the list', 'X4 X5 X6'], ['B542', 'refined \u00b7 on the list', 'X7'],
-    ['B543', 'refined \u00b7 on the list', 'X8'], ['B544', 'refined \u00b7 on the list', 'X9'], ['nofix', 'sending to the Advisor\u2026', 'X10'],
+    ['B543', 'refined \u00b7 on the list', 'X8'], ['B544', 'refined \u00b7 on the list', 'X9'], ['nofix', 'sending to the Supervisor\u2026', 'X10'],
   ])
   assert.equal(view.checkedAt, NOW - 2 * MIN)
   assert.equal(page.isSupervisorShown(view), true)
@@ -846,10 +846,11 @@ test('the cards\' styles are quiet blues and greys, nothing amber, gold, orange,
   assert.doesNotMatch(block, /\.incident-state|\.incident-words|\.supervisor-incidents/)
 })
 
-test('the server gives the view what the board knows at every refresh: the store as its keeper holds it, the chats, the Advisor\'s name', () => {
+test('the server gives the view what the board knows at every refresh: the store as its keeper holds it, the chats, the Supervisor\'s name', () => {
   const part = server.slice(server.indexOf('const stored = supervisor === null'), server.indexOf('return { ...state, design, goalsEdit'))
   assert.match(part, /const stored = supervisor === null \? undefined : await work\(\)/)
   assert.match(part, /supervisor\.view\(clock\(\), \{\n\s+items: stored\?\.ok === true \? stored\.items : null,/)
   assert.match(part, /lanes: \[\.\.\.\(state\.chats \?\? \[\]\), \.\.\.\(state\.advisor \? \[state\.advisor\] : \[\]\), \.\.\.\(state\.advisorHelper \? \[state\.advisorHelper\] : \[\]\)\],/)
-  assert.match(part, /partner: state\.advisor\?\.name \?\? null,/)
+  // Signals change 6 (B915): the Supervisor judges the incidents: its chat's name for the cards' words.
+  assert.match(part, /supervisor: state\.supervisorChat\?\.name \?\? null,/)
 })
