@@ -3375,7 +3375,15 @@ someone deleted it.
    the settings, the launch entry, the list of boards, the work store (`putInPlace`, `removeItem`), the goal map and
    its daily copy, the ideas, the backlog view, the CPU level, the port file, a new project's files and Codex's
    pictures. A module that takes its file functions as `fs` (the tests' files in memory) keeps them; without `open` a
-   file is written plainly.
+   file is written plainly. B934 (X93, 2026-11-02): `writeUnflushed(file, data)` writes beside and renames the same way
+   but without the flush, for the bookkeeping files the board writes often and can make again: the loop lock's
+   heartbeat (`.claude/sync-loop.json`), `data/reports.json`, `data/alive.json`, `data/work-requests.json`,
+   `data/task-times.json` and the task list, `data/wakes.json`, `data/stalls.json` and the chat logs' journal. On the
+   live board a flush took 0.7 to 6 s on the busy disk at the workers' hand-overs, the loop lock alone flushed 119 times
+   in 4.7 min, and the flushes held node's four file threads, so every work call queued behind them. A board cut off
+   mid-write still leaves each file whole (the rename); a power cut may lose its last seconds. The work store, the goal
+   map and what the person writes keep the flush. A work call's answer (B412's `requestKeeper`) goes out once it is kept
+   in memory; its file follows. Node's file threads stay at 4: a bench with 16 helped only while the flushes stayed.
 2. `appendLines` ends a line torn by a power cut before it appends, so the next record of the outbox or the history
    never runs into it.
 3. At the start (`readKept`), finished.json, rounds.json, refine-gate.json, task-times.json, reports.json (T13) and ideas.json that do
@@ -4586,7 +4594,7 @@ timers. Now each chat says it (principle 3, know don't guess).
 - **A restart of the board keeps each chat's state (T13, part 1; the person, 2026-10-28: "the goal is to not have
   'Unknown' or unintentionally 'Not running'"):** every board restart read all lanes Unknown for minutes, then Not
   running, although the chats had not changed, because the reports lived in memory only. Now `src/reportsKept.mjs`
-  keeps them in `data/reports.json` (`{ "reports": { "<chat>": entry } }`): written with `writeAtomic` a second after a
+  keeps them in `data/reports.json` (`{ "reports": { "<chat>": entry } }`): written with `writeUnflushed` (B934) a second after a
   report is kept (one write for the changes within that second, never two at once, flushed before the board starts
   itself anew; a crash loses at most that second), read once at the start. A file that does not parse, or is no file of
   reports, is set aside like the other data files (`setAside`, the page says so); an entry that is no report (a state
