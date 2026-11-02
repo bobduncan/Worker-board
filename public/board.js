@@ -1262,6 +1262,9 @@ function sweepLineOf(view) {
   }
   const today = view.sweepsToday ?? null
   if (today !== null && today.count > 1) parts.push(`Today ${today.count} sweeps, ${tokenWords(today.tokens)}.`)
+  // Signals change 6 (the lead's decision 10): the Supervisor's judgment turns of the last day beside its sweeps.
+  const judged = view.judgmentsToday ?? null
+  if (judged !== null && judged.count > 0) parts.push(`Judgments in 24 h: ${judged.count}, ${tokenWords(judged.tokens)}.`)
   return parts.join(' ')
 }
 

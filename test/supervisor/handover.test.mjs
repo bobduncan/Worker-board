@@ -349,3 +349,14 @@ test('one thing at a time with the chat of the Supervisor: no judge word while i
   await b.supervisor.heard({ action: 'turn-ended', ok: true, session: 's-Watcher', since: START })
   assert.deepEqual(b.words().map(one => one.incidents), [['X1']])
 })
+
+test('the morning-after count (decision 10): a judgment turn\'s session, start and tokens are kept on its word; the view counts the day\'s judgments', async t => {
+  const b = await board(t)
+  await b.run()
+  b.deliver()
+  b.at(2)
+  await b.supervisor.heard({ action: 'turn-ended', ok: true, session: 's-Watcher', since: START + MIN })
+  const [word] = b.words()
+  assert.deepEqual([word.session, word.from, Number.isFinite(word.endedAt)], ['s-Watcher', START + MIN, true])
+  assert.deepEqual(b.supervisor.view(START + 3 * MIN).judgmentsToday, { count: 1, tokens: 0 })
+})

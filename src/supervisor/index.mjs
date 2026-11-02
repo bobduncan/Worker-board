@@ -296,15 +296,32 @@ export function createSupervisor(ports) {
    * Signals change 6 (4b.1): a turn of the Supervisor's chat ended: when the judge word that arrived has no end yet, this is
    * its turn: its record says so (`endedAt`, through `markWord`), and the next judge word may go. Answers true when it was.
    */
-  const judgeTurnEnded = async () => {
+  const judgeTurnEnded = async (call = {}) => {
     const name = tell === null ? null : await supervisorName()
     if (name === null) return false
     const word = judgeWordOf(runnerPorts.outbox(), name)
     const now = runnerPorts.now()
     if (word === null || Number.isFinite(word.endedAt) || arrivedAt(word, now, keep) === null) return false
-    if (typeof markWord === 'function') await markWord(word.id, { endedAt: now })
-    else word.endedAt = now
+    // The turn's session and start too, so its tokens are read from its transcript a moment later (`judgeTokens`).
+    const turn = Number(call.since)
+    const fields = { endedAt: now, ...(typeof call.session === 'string' && call.session !== '' ? { session: call.session } : {}), ...(Number.isFinite(turn) ? { from: turn } : {}) }
+    if (typeof markWord === 'function') await markWord(word.id, fields)
+    else Object.assign(word, fields)
     return true
+  }
+  /**
+   * Signals change 6 (the lead's decision 10: the morning-after count of sweeps and judgments, and their tokens): what each
+   * judgment turn cost, read TOKENS_AFTER_MS after it ended from the Supervisor chat's transcript (the sweep's `tokens` port,
+   * sweep.mjs `tokensOfTurn`), written on the judge word's record (`tokens`, `tokensRead`). At the sweep's minute look.
+   */
+  const judgeTokens = async now => {
+    if (typeof sweepPorts?.tokens !== 'function') return
+    for (const word of runnerPorts.outbox().filter(one => one?.command === JUDGE && Number.isFinite(one.endedAt) && one.tokensRead !== true && now - one.endedAt >= JUDGE_TOKENS_AFTER_MS)) {
+      const read = typeof word.session === 'string' ? await sweepPorts.tokens({ session: word.session, from: Number.isFinite(word.from) ? word.from : word.endedAt }) : null
+      const fields = { tokens: read?.total ?? null, tokensRead: true }
+      if (typeof markWord === 'function') await markWord(word.id, fields)
+      else Object.assign(word, fields)
+    }
   }
   /** Signals change 6: whether a judge word arrived in the Supervisor's chat and its turn has not ended yet. */
   const judgeTurnOpen = async () => {
@@ -318,7 +335,13 @@ export function createSupervisor(ports) {
       void loops.run('incidents', readIncidents)
       timer = timers.setInterval(() => (closing() ? null : loops.run('sync', async () => (await owns() ? afterRun(await runner.run()) : null))), SYNC_EVERY_MS)
       // Part 2: whether a sweep is due, every minute, where the board's loops run.
-      if (sweeper !== null) sweepTimer = timers.setInterval(() => (closing() ? null : loops.run('sweep', async () => (await owns() ? sweeper.tick(runnerPorts.now()) : null))), SWEEP_TICK_MS)
+      if (sweeper !== null) {
+        sweepTimer = timers.setInterval(() => (closing() ? null : loops.run('sweep', async () => {
+          if (!(await owns())) return null
+          await judgeTokens(runnerPorts.now())
+          return sweeper.tick(runnerPorts.now())
+        })), SWEEP_TICK_MS)
+      }
     },
     async run({ asked = false, subject = null } = {}) {
       const mine = await owns().catch(error => { loops.failed('sync', error); return false })
@@ -344,7 +367,7 @@ export function createSupervisor(ports) {
     async heard(call) {
       // Signals change 6 (4b.1): the end of a judgment turn ends that judgment, never a sweep (the judge word is its own kind):
       // while a judge word that arrived has no end, the chat's calls are the judgment's, not a sweep's.
-      const isJudgeTurn = call.action === 'turn-ended' ? await loops.run('incidents', judgeTurnEnded) === true : await judgeTurnOpen()
+      const isJudgeTurn = call.action === 'turn-ended' ? await loops.run('incidents', () => judgeTurnEnded(call)) === true : await judgeTurnOpen()
       if (sweeper !== null && !isJudgeTurn) await loops.run('sweep', () => sweeper.heard({ ...call, at: runnerPorts.now() }))
       // Task 7: what the sweep filed reaches the person and the Supervisor now, not at the next run of the rules.
       if (call.action === 'turn-ended') await loops.run('incidents', async () => throwFailed(await tellOwedNow()))
@@ -372,7 +395,7 @@ export function createSupervisor(ports) {
       })
       const owned = rules.map(rule => ({ ...rule, ownsHealth: HEALTH_OWNERS.includes(rule.id) }))
       // The page counts a rolling 24 hours of these incidents (and the 24 hours before) by itself: no start time is set.
-      return { run: runner.shown(now), checkedAt: at, rules: owned, incidents: shown, cards, ...sweepView(sweeper, now, sweepEvery(settings)) }
+      return { run: runner.shown(now), checkedAt: at, rules: owned, incidents: shown, cards, ...sweepView(sweeper, now, sweepEvery(settings)), judgmentsToday: judgmentsOf(runnerPorts.outbox(), now) }
     },
     stop() {
       if (timer !== null) timers.clearInterval(timer)
@@ -394,6 +417,16 @@ const sweepAtLeast = settings => (Number.isFinite(settings.supervisorSweepAtLeas
 
 /** Signals change 6 (Addendum 7): the effort the Supervisor's chat judges at (config `supervisorJudgeEffort`, medium). */
 const judgeEffort = settings => (typeof settings?.supervisorJudgeEffort === 'string' && settings.supervisorJudgeEffort !== '' ? settings.supervisorJudgeEffort : 'medium')
+/** Signals change 6: a judgment turn's tokens are read this long after it ended (as a sweep's, sweep.mjs TOKENS_AFTER_MS). */
+const JUDGE_TOKENS_AFTER_MS = 20_000
+/**
+ * Signals change 6 (the lead's decision 10): the judgment turns that ended in the last day and what they cost, as far as read:
+ * `{ count, tokens }`, from the judge words' records in the outbox (the morning-after count beside `sweepsToday`).
+ */
+const judgmentsOf = (outbox, now) => {
+  const ended = (outbox ?? []).filter(one => one?.command === JUDGE && Number.isFinite(one.endedAt) && now - one.endedAt < 24 * 60 * MIN)
+  return { count: ended.length, tokens: ended.reduce((sum, one) => sum + (Number.isFinite(one.tokens) ? one.tokens : 0), 0) }
+}
 /** Signals change 6: how long the judge word waits for the chat to run at its judging effort before it goes anyway. */
 const JUDGE_SET_WAIT_MS = 5 * MIN
 
