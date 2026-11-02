@@ -591,8 +591,8 @@ function goOnOrPark(mine, w, ctx, why) {
   const goesOn = move(mine, 'in progress', 'server', w, ctx, why)
   if (goesOn.ok) return { item: goesOn.item, freed: true, parked: null }
   const other = workingOnOther(ctx.store.items, mine, w.prefix ?? '')
-  // A look the partner handed over that Autopilot keeps for the recap holds no worker, so it parks no step either (2026-11-02).
-  if (other === null || openAsksUnder(ctx.store.items, valueOf(mine, 'Id')).filter(ask => !isKeptLook(ask)).length > 0) return { item: mine, freed: false, parked: null }
+  // A look the partner handed over that Autopilot keeps for the recap holds no worker (`openAsksUnder` leaves it out), so it parks no step either.
+  if (other === null || openAsksUnder(ctx.store.items, valueOf(mine, 'Id')).length > 0) return { item: mine, freed: false, parked: null }
   return { item: appendHistory(mine, 'server', parkWords(other), w.now), freed: false, parked: other }
 }
 
@@ -1613,12 +1613,14 @@ async function autopilot(body, w) {
     // is turned on correct?"), at every pass: one that stands for the person because the partner escalated it, and that a new look
     // of the focus goal now answers with the recap, waits for the recap. Never one the person took back (the Undo's line stands on its
     // card), nor one handed on by the main chat or the board, nor one whose words or why name what only the person's hands can do.
+    // The store is read anew before each (as the pass does elsewhere, `freshOf`): two blocking hand-overs of one step hold it each
+    // until the other is kept, so the last one frees it.
     for (const item of openAsksAll(w)) {
       const handed = partnerHandOverOf(item)
       if (handed === null || valueOf(item, 'Asks') !== 'look') continue
       const decided = autopilotRoute(item, { ...ctx, handedWhy: handed })
       if (decided.to !== 'recap') continue
-      const done = await routeAsk(valueOf(item, 'Id'), 'recap', w, HANDED_KEPT_WORDS, decided.step ?? null, { placed: PLACED_BY_PICTURE, freesStep: true })
+      const done = await routeAsk(valueOf(item, 'Id'), 'recap', await freshOf(w), HANDED_KEPT_WORDS, decided.step ?? null, { placed: PLACED_BY_PICTURE, freesStep: true })
       if (!done.ok) continue
       routed.push({ id: valueOf(item, 'Id'), to: 'recap' })
       kept.push(valueOf(item, 'Id'))

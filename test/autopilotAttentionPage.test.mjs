@@ -38,7 +38,7 @@ test('the card\'s view: null while no verdict waits; else the goal\'s words, the
   assert.deepEqual(plain(recapAttentionView(card(), { id: 'G60', title: 'How we build good maps' })), {
     goal: 'G60', count: 3, heading: 'G60 · How we build good maps: your recap is ready · 3 verdicts wait',
     line: 'Everything is built. Judge each part: approve it, or send it back with a note.', open: { label: 'Open the recap →', target: { path: PATH } },
-    looks: { named: [], more: 0 },
+    looks: { named: [] },
   })
   assert.equal(recapAttentionView(card({ count: 1 }), { id: 'G60', title: 'Maps' }).heading, 'G60 · Maps: your recap is ready · 1 verdict waits')
   assert.equal(recapAttentionView(card({ isBuilt: false }), { id: 'G60', title: 'Maps' }).line, 'Judge what is ready: approve it, or send it back with a note.')
@@ -235,19 +235,19 @@ test('the colours: the card is the attention colour, the line is quiet (dashed, 
 const lookCard = (looks, more = {}) => card({ looks, ...more })
 const tileOf = (id, title) => ({ title, line: 'a look · advised: yes', picture: null, target: { ask: id } })
 
-test('the card\'s view names the looks that wait: "Also a look: <title, cut at 60> →" for the first three, then "and N more"; nothing for a card without looks', () => {
-  assert.deepEqual(plain(recapAttentionView(card(), null).looks), { named: [], more: 0 })
-  assert.deepEqual(plain(recapAttentionView(card({ looks: undefined }), null).looks), { named: [], more: 0 }, 'a board that sends no looks')
+test('the card\'s view names every look that waits: "Also a look: <title, cut at 60> →", no cap; nothing for a card without looks', () => {
+  assert.deepEqual(plain(recapAttentionView(card(), null).looks), { named: [] })
+  assert.deepEqual(plain(recapAttentionView(card({ looks: undefined }), null).looks), { named: [] }, 'a board that sends no looks')
   const one = recapAttentionView(lookCard([tileOf('Q590', 'Does the wizard\'s move range on the terraces look right?')]), { id: 'G60', title: 'Maps' })
-  assert.deepEqual(plain(one.looks), { named: [{ words: 'Also a look: Does the wizard\'s move range on the terraces look right? →', title: 'Does the wizard\'s move range on the terraces look right?', target: { ask: 'Q590' } }], more: 0 })
+  assert.deepEqual(plain(one.looks), { named: [{ words: 'Also a look: Does the wizard\'s move range on the terraces look right? →', title: 'Does the wizard\'s move range on the terraces look right?', target: { ask: 'Q590' } }] })
   // Cut at 60 characters, at a word edge, with an ellipsis; the title stays whole for the tooltip.
   const long = 'Is the second block of the garden good enough to approve as it is now, or should the target be reset for it?'
   const cut = recapAttentionView(lookCard([tileOf('Q1', long)]), null).looks.named[0]
   assert.ok(/^Also a look: (.*)… →$/.test(cut.words) && cut.words.length <= 'Also a look: '.length + 61 + 2, cut.words)
   assert.equal(cut.title, long)
-  // Three are named, the rest counted; a tile that is no ask's is left out.
+  // Every one is named (a fourth would be unreachable under a cap); a tile that is no ask's is left out.
   const five = recapAttentionView(lookCard(['Q1', 'Q2', 'Q3', 'Q4', 'Q5'].map(id => tileOf(id, `Look ${id}`))), null).looks
-  assert.deepEqual([five.named.map(look => look.target.ask), five.more], [['Q1', 'Q2', 'Q3'], 2])
+  assert.deepEqual(five.named.map(look => look.target.ask), ['Q1', 'Q2', 'Q3', 'Q4', 'Q5'])
   assert.deepEqual(plain(recapAttentionView(lookCard([{ title: 'x', target: { path: PATH } }, tileOf('Q9', '')]), null).looks).named.map(look => look.words), ['Also a look: Q9 →'], 'no title: the ask\'s id')
   // The count (the card's own) already holds the looks: the view adds nothing to it.
   assert.equal(recapAttentionView(lookCard([tileOf('Q1', 'x')], { count: 4 }), null).count, 4)
@@ -286,7 +286,7 @@ test('the Product owner\'s card names the look under its line; the link opens th
 })
 
 test('mid-goal a kept look waits quietly: no Product owner card, nothing counted; its window (the Focus list links it) still holds the answer form', async () => {
-  const building = parseItem(`Id: B1\nKind: step\nTitle: Task B1\nState: in progress\nOwner: Digger\nGoal: G6\nSince: ${sinceOf(NOW - 90 * MIN)}\n`)
+  const building = parseItem(`Id: B1\nKind: step\nTitle: Task B1\nState: new\nOwner: Digger\nGoal: G6\nSince: ${sinceOf(NOW - 90 * MIN)}\n`)
   const state = asSent(build([building, done9, lookOf(590, 'Does the wizard\'s move range on the terraces look right?')], undefined, goals(2), { recaps: [], goalRecap: { goal: 'G6', path: PATH, pictures: {} }, config: ON }))
   assert.equal(state.recapCard, null)
   assert.deepEqual(state.routedAway.map(one => [one.id, one.isKept]), [['Q590', true]])
@@ -300,13 +300,14 @@ test('mid-goal a kept look waits quietly: no Product owner card, nothing counted
   } finally { await page.close() }
 })
 
-test('the look lines: at most three, then "and N more"; a card without a look has none', async () => {
+test('the look lines: every kept look is listed, the fourth and fifth too; a card without a look has none', async () => {
   const extra = [2, 3, 4, 5].map(n => lookOf(590 + n, `Look number ${n}?`))
   const many = await openPage({ state: withLook(extra) })
   try {
     assert.equal(many.text('#needs .is-recap-ready h4'), 'G6 · Garden: your recap is ready · 6 verdicts wait')
-    assert.equal(many.all('#needs .recap-attention-look').length, 3)
-    assert.equal(many.text('#needs .recap-attention-looks small'), 'and 2 more')
+    assert.equal(many.all('#needs .recap-attention-look').length, 5)
+    assert.deepEqual(many.all('#needs .recap-attention-look').map(link => link.dataset.askLink), ['Q590', 'Q592', 'Q593', 'Q594', 'Q595'], 'each opens its own ask')
+    assert.equal(many.all('#needs .recap-attention-looks small').length, 0, 'no "and N more"')
   } finally { await many.close() }
   const none = await openPage({ state: waiting(2) })
   try { assert.equal(none.all('#needs .recap-attention-looks').length, 0) } finally { await none.close() }

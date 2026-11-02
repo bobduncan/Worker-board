@@ -12,6 +12,7 @@ import { join } from 'node:path'
 import { parseGoals } from './goals.mjs'
 import { readDemo, shownFolders, shownRoots } from './pictures.mjs'
 import { linksRecap, standsForPerson } from './work/autopilot.mjs'
+import { isKeptLook } from './work/keptLook.mjs'
 import { valueOf } from './work/item.mjs'
 import { checkedOf } from './work/resultCheck.mjs'
 import { standardOf } from './work/standard.mjs'
@@ -104,6 +105,9 @@ export function standingAsksOf(items, ctx = {}) {
   for (const item of items?.values?.() ?? []) {
     if (valueOf(item, 'Kind') !== 'ask' || valueOf(item, 'State') !== 'open') continue
     if (['refine', 'form'].includes(valueOf(item, 'Via'))) continue
+    // A look the partner handed over that Autopilot keeps for the recap stands for no verdict (2026-11-02): it makes no block wait, it
+    // is no reason for the card; the card lists it only beside another reason (`recapCardOf`, `asked`).
+    if (isKeptLook(item)) continue
     const route = valueOf(item, 'Route')
     if (!(route === 'recap' ? ctx.autopilot === true : standsForPerson(item, { ...ctx, items }))) continue
     found.push({
@@ -180,10 +184,10 @@ export function wholeGoalAskOf(standing, goal, recapPath) {
  * recap; `isKept` on its `asked` entry, src/work/keptLook.mjs): every kept look of a step that no recap PART names is a tile of its
  * own, after the others, whether or not a block covers the step (a block's tile is the step's card, not this look): its title, the
  * line "a look · advised: <advice>" (or "a look"), its first picture, and the target `{ ask }`, the window where the person answers
- * it. It counts, and it is no ask `outside`. `looks` holds all of them (the page's Product owner card names the first three,
- * `tiles` only the first MOST_TILES of everything). The coordinator's ruling the same day: a kept look raises no "your recap is
- * ready" mid-goal; its tile counts and shows only while the card has another reason to show (a part, a block or the goal's own ask
- * waits) or every block of the goal is built (nothing is left to build, so the look is among the last things the recap waits for).
+ * it. It counts, and it is no ask `outside`. `looks` holds all of them (the page's Product owner card names every one; `tiles` only
+ * the first MOST_TILES of everything). The coordinator's ruling the same day: a kept look raises no "your recap is ready" mid-goal;
+ * it makes no block wait for a verdict (`standingAsksOf` leaves it out) and is no reason of its own: its tile counts and shows only
+ * while the card has another reason to show (a part, a block or the goal's own ask waits) or every block of the goal is built.
  * Every other look routed to the recap (a checker's, one below its target) stays an ask `outside` when no part covers it.
  */
 export function recapCardOf({ goal, recapPath = null, waits = [], pictures = {}, steps = new Map(), blocks = [], standing = [], openChecks = new Set(), asked = [] }) {

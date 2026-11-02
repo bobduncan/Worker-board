@@ -489,7 +489,7 @@ test('a kept look raises no card mid-goal: with no other reason and a block stil
 })
 
 test('a block that covers the kept look\'s step does not take its tile away: the step\'s card and the look are two tiles; a recap part that names the step does cover it', () => {
-  // The step B61 is in review and waits only for the kept look: the block waits for the verdict (the step's card), and the look is its own tile.
+  // The step B61 is in review and waits for the person's verdict for its own reason (an Accept card): the block is the step's card, and the kept look is its own tile.
   const block = { title: 'Terraces', state: 'verdict', steps: [{ waitsForVerdict: true, verdictAt: { step: 'B61' } }] }
   const asked = [{ id: 'Q590', of: 'B61', asks: 'look', isKept: true, title: 'Look', advice: 'yes', pictures: ['a.png'], text: '' }]
   const card = recapCardOf({ goal: 'G6', recapPath: PATH, waits: [], blocks: [block], asked })
@@ -500,6 +500,22 @@ test('a block that covers the kept look\'s step does not take its tile away: the
   const part = { goal: 'G6', path: PATH, key: 'Terraces', title: 'Terraces', step: 'B61', verdict: null }
   const covered = recapCardOf({ goal: 'G6', recapPath: PATH, waits: [part], blocks: [], asked })
   assert.deepEqual([covered.count, covered.tiles.map(one => one.title), covered.looks, covered.outside], [1, ['Terraces'], [], []])
+})
+
+test('a kept look under a step in review makes no block wait for a verdict and is no reason for the card: B1 in review with it and B2 in progress give no card', () => {
+  const review = parseItem(`Id: B1\nKind: step\nTitle: Task B1\nState: review\nOwner: Digger\nGoal: G6\nSince: ${sinceOf(NOW - 90 * MIN)}\n\n## Context\n  Recap verdict: waits (Q590)\n`)
+  const building = parseItem(`Id: B2\nKind: step\nTitle: Task B2\nState: in progress\nOwner: Digger\nGoal: G6\nSince: ${sinceOf(NOW - 90 * MIN)}\n`)
+  const state = stateOf([review, building, keptLook(590, 'B1')], 2, { recaps: [] })
+  assert.equal(state.recapCard, null, 'one kept look mid-goal raises no "your recap is ready"')
+  const blocks = state.focus.parts
+  assert.deepEqual(blocks.map(one => one.state === 'verdict'), [false, false], 'no block waits for a verdict')
+  assert.equal(blocks[0].steps[0].waitsForVerdict, false)
+  assert.deepEqual(state.routedAway.map(one => [one.id, one.isKept]), [['Q590', true]], 'the ask waits for the recap, quietly')
+  // Without the kept line it is the old recap wait: the step waits for the verdict and the card shows.
+  const plain = parseItem(`Id: Q590\nKind: ask\nTitle: A checker's look\nState: open\nOwner: Digger\nSince: ${sinceOf(NOW - 40 * MIN)}\nFiled: ${NOW - 40 * MIN}\nAsks: look\nBlocking: no\nOf: B1\nRoute: recap\n`)
+  const old = stateOf([review, building, plain], 2, { recaps: [] })
+  assert.equal(old.focus.parts[0].steps[0].waitsForVerdict, true)
+  assert.equal(old.recapCard.count, 1)
 })
 
 test('which kept looks are tiles: only a look of a step; the line cuts a long advice, the first picture is the tile\'s; all are in `looks`, the row shows three', () => {

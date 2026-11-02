@@ -491,7 +491,8 @@ export function recapWaitIds(step, items) {
   const named = (step?.sections?.get('Context') ?? []).map(one => one.match(RECAP_VERDICT)?.[1]).filter(Boolean)
   return [...new Set(named)].filter(id => {
     const ask = items?.get?.(id)
-    return ask !== undefined && valueOf(ask, 'State') === 'open' && valueOf(ask, 'Route') === 'recap'
+    // A look the partner handed over that Autopilot keeps for the recap makes no step wait for a verdict (2026-11-02): it waits quietly.
+    return ask !== undefined && valueOf(ask, 'State') === 'open' && valueOf(ask, 'Route') === 'recap' && !isKeptLook(ask)
   })
 }
 /** The states of a fix still to be built (the re-review of 2026-10-31): while one is, the step does not wait for the recap only. */
@@ -520,7 +521,7 @@ export function recapWaitOf(step, items) {
   if (recapWaitIds(linkOf(links.at(-1)), items).length === 0) return null
   const rows = links.map(one => ({ step: one, asks: recapWaitIds(linkOf(one), items) })).filter(one => one.asks.length > 0)
   const waiting = new Set(rows.flatMap(one => one.asks))
-  const others = [...(items?.values?.() ?? [])].filter(one => valueOf(one, 'Kind') === 'ask' && valueOf(one, 'State') === 'open' && links.includes(valueOf(one, 'Of')) && !waiting.has(valueOf(one, 'Id')))
+  const others = [...(items?.values?.() ?? [])].filter(one => valueOf(one, 'Kind') === 'ask' && valueOf(one, 'State') === 'open' && links.includes(valueOf(one, 'Of')) && !isKeptLook(one) && !waiting.has(valueOf(one, 'Id')))
   return others.length > 0 ? null : rows
 }
 /** Whether a step in review waits for the goal's recap only (`recapWaitOf`): it counts as done for asking the goal demo. */

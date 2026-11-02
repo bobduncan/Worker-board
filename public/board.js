@@ -6046,7 +6046,6 @@ function drawRecapAttention(view) {
       link.title = `Open ${one.target.ask}: ${one.title}`
       looks.append(link)
     }
-    if (view.looks.more > 0) looks.append(el('small', 'muted', `and ${view.looks.more} more`))
     card.append(looks)
   }
   if (view.open !== null) {
@@ -14774,19 +14773,17 @@ function recapAttentionView(card, goal = null) {
   }
 }
 
-/** The Product owner's card names this many looks that wait for the person's answer, then "and N more" (the plan: at most 3). */
-const RECAP_LOOKS_NAMED = 3
-
 /**
  * The person's "A" (2026-11-02): under the Product owner's line, one quiet line per look the recap card lists as a tile of its own
  * (the card's `looks`: src/recapCard.mjs), "Also a look: <its title, cut at 60> →", which opens the ask's window (the same target
- * the Focus card's tiles use); at most RECAP_LOOKS_NAMED, the rest counted. `{ named: [{ words, title, target }], more }`.
+ * the Focus card's tiles use). Every one is named, no cap (the coordinator's ruling the same day: a fourth would be unreachable; the
+ * Focus card's tiles stay cut at its three). `{ named: [{ words, title, target }] }`.
  */
 function recapLooksView(card) {
   const oneLine = text => String(text ?? '').replace(/\s+/g, ' ').trim()
   const looks = (Array.isArray(card?.looks) ? card.looks : []).filter(one => typeof one?.target?.ask === 'string' && one.target.ask !== '')
-  const named = looks.slice(0, RECAP_LOOKS_NAMED).map(one => ({ words: `Also a look: ${cutWords(oneLine(one.title) || one.target.ask, 60)} →`, title: oneLine(one.title) || one.target.ask, target: { ask: one.target.ask } }))
-  return { named, more: looks.length - named.length }
+  const named = looks.map(one => ({ words: `Also a look: ${cutWords(oneLine(one.title) || one.target.ask, 60)} →`, title: oneLine(one.title) || one.target.ask, target: { ask: one.target.ask } }))
+  return { named }
 }
 
 /** T20: how long the "Autopilot cleared" line stays (the plan: 24 hours), and how many of the cleared items it names before "and N more". */

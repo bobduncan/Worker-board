@@ -14,7 +14,8 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import test from 'node:test'
 
-import { FOCUS_LOOK_WHY, HANDED_KEPT_WORDS, autopilotRoute, focusLookOf, isExplicitPerson, isKeptLook, partnerHandOverOf, recapGoneWords, standsForPerson } from '../src/work/autopilot.mjs'
+import { FOCUS_LOOK_WHY, HANDED_KEPT_WORDS, autopilotRoute, focusLookOf, isExplicitPerson, isKeptLook, partnerHandOverOf, recapGoneWords, recapWaitIds, recapWaitOf, standsForPerson } from '../src/work/autopilot.mjs'
+import { openAsksOf } from '../src/work/stepAsks.mjs'
 import { GUARDS } from '../src/work/guards.mjs'
 import { REST_GUARD, openAskIds } from '../src/work/parked.mjs'
 import { workApi } from '../src/work/api.mjs'
@@ -448,4 +449,51 @@ test('every pass that moves a hand-over to the recap keeps it for the Undo ("kep
   t.after(() => rm(idle, { recursive: true, force: true }))
   await pass(idle)
   assert.equal(await readAutopilotClearedFile(idle).then(file => file.record), null)
+})
+
+test('two blocking hand-overs of one step in one pass: the store is read anew between them, so the last one frees the step and wakes its worker once', async t => {
+  const dir = await storeWith({
+    ...steps(),
+    B56: step('B56', { Title: 'Round the pond', State: 'waiting on you', Owner: 'Painter', Goal: 'G29' }),
+    Q1: handed('Q1', { Of: 'B56', Blocking: 'yes' }),
+    Q2: handed('Q2', { Of: 'B56', Blocking: 'yes' }),
+  })
+  t.after(() => rm(dir, { recursive: true, force: true }))
+  const done = await pass(dir)
+  assert.deepEqual(done.result.routed, [{ id: 'Q1', to: 'recap' }, { id: 'Q2', to: 'recap' }])
+  assert.deepEqual(done.result.wakes, [{ to: 'Painter', id: 'Q2', kind: 'recap-kept', line: 'Q2 waits for the goal\'s recap: go on' }], 'one word, from the hand-over that left nothing holding the step')
+  const items = await read(dir)
+  assert.deepEqual([field(items, 'Q1', 'Blocking'), field(items, 'Q2', 'Blocking'), field(items, 'B56', 'State')], ['no', 'no', 'in progress'])
+  // Nothing is left to do at the next pass.
+  const again = await pass(dir, {}, NOW + MIN)
+  assert.deepEqual([again.result.routed, again.result.wakes], [[], []])
+})
+
+test('a kept look makes no step wait for the recap only: its Recap verdict line counts for nothing; a real recap wait beside it still counts', () => {
+  const review = text => item({ Id: 'B1', Kind: 'step', Title: 'Round the pool', State: 'review', Owner: 'Painter', Goal: 'G29' }, { Context: text })
+  const keptAsk = id => item({ Id: id, Kind: 'ask', Title: 'Look', State: 'open', Owner: 'Painter', Asks: 'look', Of: 'B1', Route: 'recap', Blocking: 'no' }, { Route: [HANDED_KEPT_WORDS] })
+  const plainAsk = id => item({ Id: id, Kind: 'ask', Title: 'Accept?', State: 'open', Owner: 'Painter', Asks: 'look', Of: 'B1', Route: 'recap', Blocking: 'no' })
+  const itemsOf = (...all) => new Map(all.map(one => [one.head.get('Id'), one]))
+  const onlyKept = review(['  Recap verdict: waits (Q590)'])
+  assert.deepEqual(recapWaitIds(onlyKept, itemsOf(onlyKept, keptAsk('Q590'))), [])
+  assert.equal(recapWaitOf(onlyKept, itemsOf(onlyKept, keptAsk('Q590'))), null)
+  const both = review(['  Recap verdict: waits (Q7)', '  Recap verdict: waits (Q590)'])
+  assert.deepEqual(recapWaitOf(both, itemsOf(both, plainAsk('Q7'), keptAsk('Q590'))), [{ step: 'B1', asks: ['Q7'] }], 'the kept look is no "other open ask" that stops the real wait')
+  assert.equal(recapWaitOf(both, itemsOf(both, plainAsk('Q7'), plainAsk('Q590'))).length, 1, 'a look of the old routes counts as before')
+})
+
+test('openAsksUnder ignores a kept look: the refine of its step is not held back by it, a plain open ask still holds it', async t => {
+  const one = (open) => storeWith({ ...steps(), B80: step('B80', { Title: 'Plant the hedge', State: 'new', Goal: 'G29' }, { Summary: ['Plant the hedge.'] }), Q9: open })
+  const dir = await one(look('Q9', { Of: 'B80', Route: 'recap', Blocking: 'no' }, { route: [HANDED_KEPT_WORDS] }))
+  const held = await one(look('Q9', { Of: 'B80', Route: 'recap', Blocking: 'no' }))
+  t.after(() => Promise.all([dir, held].map(path => rm(path, { recursive: true, force: true }))))
+  for (const where of [dir, held]) assert.equal((await chat(where, 'Partner', { action: 'refine', id: 'B80', summary: 'Plant the hedge.' })).ok, true)
+  const free = await chat(dir, 'Partner', { action: 'refined', id: 'B80', size: '30 min', what: ['a hedge along the wall'] })
+  assert.equal(free.ok, true, free.why)
+  const refused = await chat(held, 'Partner', { action: 'refined', id: 'B80', size: '30 min', what: ['a hedge along the wall'] })
+  assert.equal(refused.ok, false)
+  assert.match(refused.why, /Q9 .* still open/)
+  // Pure: the step's open asks, by the one function the API reads them with.
+  const items = new Map([['Q1', item({ Id: 'Q1', Kind: 'ask', State: 'open', Asks: 'look', Of: 'B1', Route: 'recap' }, { Route: [HANDED_KEPT_WORDS] })], ['Q2', item({ Id: 'Q2', Kind: 'ask', State: 'open', Asks: 'look', Of: 'B1', Route: 'recap' })]])
+  assert.deepEqual(openAsksOf(items, 'B1').map(ask => ask.head.get('Id')), ['Q2'])
 })
