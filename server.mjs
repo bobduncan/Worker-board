@@ -33,6 +33,7 @@ import { minutesOf } from './src/backlog.mjs'
 import { answerReport, answerWhoami, bridgeNote, checkTake, checkTyped, clearRefusal, fitsMod, isUnknownSession, laneRole, messageText, noteCall, noteReport, noteWhoami, shownChats, shownSessions, whoamiOf, whoamiSession } from './src/bridge.mjs'
 import { cardFiledUnder } from './src/chatCards.mjs'
 import { chatLogKeeper, isReadOut, leftSubjects } from './src/chatLogs.mjs'
+import { backgroundOf } from './src/chatReport.mjs'
 import { findCodex, makePicture } from './src/codex.mjs'
 import { checkSetting, panelSettings, rebuildsApproved, settingChanged } from './src/boardSettings.mjs'
 import { mainAskWords } from './src/work/autopilot.mjs'
@@ -2103,15 +2104,22 @@ async function main(args) {
     lastLogAt = clock()
     loggedAt.set(String(checked.chat), lastLogAt)
     const session = String(body.session ?? '').trim()
-    const refused = clearRefusal(state, checked.chat, await backgroundOf(session))
+    const refused = clearRefusal(state, checked.chat, await backgroundNow(checked.chat, session))
     if (refused !== null) return refused
     return chatLogs.save({ chat: checked.chat, session, step: body.stepId })
   }
-  /** How many things a chat's session started in the background still run, by its transcript's tail; 0 when unread. */
-  const backgroundOf = async session => {
-    const tail = /^[A-Za-z0-9_-]{1,120}$/.test(session) ? await readTail(join(config.transcripts, `${session}.jsonl`)) : null
-    return tail === null ? 0 : backgroundRunning(parseTail(tail.text, tail.isCut))
-  }
+  /**
+   * How many things a chat's session started in the background still run. B930 (X131): from the one source the hold's
+   * release and the lane read too (chatReport.mjs `backgroundOf`): its mod's fresh idle report, else its transcript's tail
+   * (0 when unread).
+   */
+  const backgroundNow = (chat, session) => backgroundOf(reports?.get(chat) ?? null, {
+    session, now: clock(), freshMs: (Number.isFinite(config.unknownAfterSeconds) ? config.unknownAfterSeconds : 30) * 1000,
+    transcript: async () => {
+      const tail = /^[A-Za-z0-9_-]{1,120}$/.test(session) ? await readTail(join(config.transcripts, `${session}.jsonl`)) : null
+      return tail === null ? 0 : backgroundRunning(parseTail(tail.text, tail.isCut))
+    },
+  })
   /**
    * T8.5 (spec 2026-10-31, part 4): whether the chat that calls is a worker on the sequence: the one predicate
    * (handover.mjs `onSequence`), with the version its mod says in this very call. Its lane, or null for none.

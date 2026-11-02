@@ -66,7 +66,7 @@ import { givenBackFrom } from './work/holderTimers.mjs'
 import { countsOf, statusOf } from './chatStatus.mjs'
 import { factsOf } from './work/handoverBoard.mjs'
 import { stoppedOf } from './stopped.mjs'
-import { laneFromReport, laneWithoutReport, modReports } from './chatReport.mjs'
+import { backgroundOf, laneFromReport, laneWithoutReport, modReports } from './chatReport.mjs'
 import { backgroundRunning, conversation, doingNow, finishedBetween, saysUnfinished, parseTail, saysDone, taskOrigin, turnEnded, turnStart, turnState, unanswered, waitingFor } from './transcript.mjs'
 
 const MIN = 60_000
@@ -608,7 +608,11 @@ function card(chat, raw, { now, aliveAt = null, config, last, lines, main, prefi
   // B290: the app counts the main chat as waiting after every answer; that ended turn is free, and its own card does not
   // hold it either, as the main chat reports to nobody.
   const isMainIdle = chat.isMain && appState === 'waiting' && turn === 'ended'
-  const background = entries === null ? 0 : backgroundRunning(entries)
+  // B930: one source with the clear's refusal and the hold's release: its mod's fresh idle report, else the transcript.
+  const background = backgroundOf(reported?.entry ?? null, {
+    session: chat.cliSessionId ?? null, now, freshMs: (Number.isFinite(config.unknownAfterSeconds) ? config.unknownAfterSeconds : 30) * 1000,
+    transcript: () => (entries === null ? 0 : backgroundRunning(entries)),
+  })
   // Partner answers, the review's findings: a chat whose blocking ask waits for the partner's answer waits for the
   // partner, not for the person: held between two turns, its lane says so (`waitsForPartner`).
   const forPartner = waits.partner?.get(chat.name.toLowerCase()) ?? []

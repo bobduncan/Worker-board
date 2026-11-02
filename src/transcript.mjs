@@ -261,23 +261,36 @@ export const resultText = block => (typeof block.content === 'string'
 
 /** What the app answers when work is sent to the background: a subagent, or a command. */
 const SENT_TO_BACKGROUND = /^(Async agent launched|Command running in background)/
+/** B930: the task id that answer names ("Command running in background with ID: <id>", "agentId: <id>"). */
+const SENT_ID = /(?:running in background with ID|agentId):\s*([\w-]{3,80})/
+/**
+ * B930 (X131): what the app answers a TaskStop (or an older KillShell) that stopped a task: `{"message":"Successfully stopped
+ * task: <id> (...)", "task_id": "<id>", ...}`, or "Successfully killed shell: <id>". The app writes no notification then.
+ */
+const STOPPED_ID = /^(?:\{"message":"Successfully stopped task: |Successfully (?:stopped task|killed shell): )([\w-]{3,80})/
 
 /**
  * How many pieces of background work these entries show as started and not yet reported back: a chat ends its
  * turn while a subagent or a command runs, and the app starts it again when that reports. Counted from what the
  * app itself writes; nothing of the chat's own words is read. B310: a report ends the call it names (its
  * `<tool-use-id>`), also one that arrived in the middle of a turn (a queued entry); a report that names a call not
- * seen here (sent off before the tail began) ends nothing, one that names none ends the oldest.
+ * seen here (sent off before the tail began) ends nothing, one that names none ends the oldest. B930 (X131): a stop
+ * the chat made itself ends the call whose answer named the task it stopped; a stop of a task not seen here ends nothing.
  */
 export function backgroundRunning(entries) {
   const running = []
   for (const entry of entries) {
     if (entry.isSidechain || (entry.type !== 'user' && entry.type !== 'queued')) continue
     for (const block of entry.blocks) {
-      if (entry.type === 'user' && block.type === 'tool_result' && SENT_TO_BACKGROUND.test(resultText(block).trimStart())) running.push(block.tool_use_id ?? null)
-      else if (block.type === 'text' && typeof block.text === 'string' && block.text.includes('<task-notification>')) {
+      if (entry.type === 'user' && block.type === 'tool_result') {
+        const said = resultText(block).trimStart()
+        if (SENT_TO_BACKGROUND.test(said)) running.push({ call: block.tool_use_id ?? null, task: said.match(SENT_ID)?.[1] ?? null })
+        const stopped = block.is_error === true ? null : said.match(STOPPED_ID)?.[1] ?? null
+        const at = stopped === null ? -1 : running.findIndex(one => one.task === stopped)
+        if (at >= 0) running.splice(at, 1)
+      } else if (block.type === 'text' && typeof block.text === 'string' && block.text.includes('<task-notification>')) {
         const named = block.text.match(/<tool-use-id>\s*([^<\s]+)\s*<\/tool-use-id>/)?.[1] ?? null
-        const at = named === null ? 0 : running.indexOf(named)
+        const at = named === null ? 0 : running.findIndex(one => one.call === named)
         if (at >= 0 && running.length > 0) running.splice(at, 1)
       }
     }
