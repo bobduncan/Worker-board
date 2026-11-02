@@ -260,10 +260,10 @@ their words (*What is wrong*, *What was expected*, *Where*) and their screenshot
 - Never report a step before its work is merged (2026-10-31, B799): a report whose work sits on a branch that is not merged
   comes back with "Your work for B<id> is on branch <name> (<n> commits) but not on main: merge it into main, then report
   again." (the step shows "not merged yet: back with <you>"; no Check again button for the person).
-- When the board does not answer (the work tool says so), wait a minute, and if it still does not, tell the Supervisor chat
-  with `mcp__ccd_session_mgmt__send_message` (its session id is in the list of chats, `mcp__workers__chat` action
-  `list`) and go on with your step; never ask the person to start the board (the person, 2026-10-31: "asking me when the
-  board is off is suppose to be reported to the supervisor"). The Supervisor starts it and tells you.
+- When the board does not answer (the work tool says so), wait a minute and try again: its keeper starts the board again
+  by itself, and your Workers mod starts one when none answers (signals change 5). Go on with your step meanwhile; never
+  ask the person to start the board, and never message the Supervisor about it (since signals change 6 it no longer starts
+  the board: it sweeps and judges incidents).
 - The backlog file is the board's view of the store: read it, never edit it.
 - The user sees a picture of every visible change before it counts as done: put it in the project's picture folder
   (the first of the board's `pictureRoots`), in the folder of its subject, and show it in your chat. A step that

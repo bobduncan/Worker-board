@@ -4214,6 +4214,16 @@ build brief bind; the parts below replace what the older parts of this file say 
 - **The migration** (the lead's decision 9): at every run, an incident still "with the advisor" moves to "with the
   supervisor" with one History line (`incident-told` with `migrate`); no judge word listed it, so the next judge word lists
   them all, once. A second run finds none.
+- **An on-and-off condition** (a design note of the review, 2026-11-02): an incident that went (gone) and is found again
+  more than 60 min of running time later comes back: the person gets a line and the Supervisor a judgment each time it
+  returns. That is meant (each return is a new case to judge), and its cost shows in the morning-after count (judgments
+  beside sweeps); a condition that flaps this way is a rule to look at, not to silence.
+- **The review's fixes** (2026-11-02): the board holds the Supervisor at the judging effort only for a judge word in flight
+  or an incident open or came back (the state's outbox keeps a delivered word 2 h, so "with the supervisor, never listed"
+  is the sweep's own check on the raw outbox, never the effort's); the judge word counts the effort set only when the
+  board's setting is the judging effort and read back; only a judge word still in flight takes a turn's end; a review line
+  late by its fix takes the fix's owner (info, owner-gone; a loop of waits stays unowned) and a stopped holder's line is
+  wake-failed's, handover-held's or the holder timers' (info); the gone pass reads the store once, with tellOwed.
 - **6c, not in it**: the Workers mod's order of a set before a typed word for the Supervisor's chat (see above); the rules'
   thresholds and content (changes 3 to 5); the wait line itself (the goal chat builds it).
 - Tests: `test/supervisor/gone.test.mjs` (X104, X117, X93, skipped and failed runs, board-off time, the loop, the
